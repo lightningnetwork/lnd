@@ -20,6 +20,12 @@ import (
 	"github.com/urfave/cli"
 )
 
+const (
+	// paymentTimeoutSeconds is the default timeout for the payment loop in
+	// lnd. No new attempts will be started after the timeout.
+	paymentTimeoutSeconds = 60
+)
+
 var (
 	cltvLimitFlag = cli.UintFlag{
 		Name: "cltv_limit",
@@ -127,34 +133,36 @@ var sendPaymentCommand = cli.Command{
 }
 
 // retrieveFeeLimit retrieves the fee limit based on the different fee limit
-// flags passed.
-func retrieveFeeLimit(ctx *cli.Context) (*lnrpc.FeeLimit, error) {
+// flags passed. It always returns a value and doesn't rely on lnd applying a
+// default.
+func retrieveFeeLimit(ctx *cli.Context, amt int64) (int64, error) {
 	switch {
+
 	case ctx.IsSet("fee_limit") && ctx.IsSet("fee_limit_percent"):
-		return nil, fmt.Errorf("either fee_limit or fee_limit_percent " +
+		return 0, fmt.Errorf("either fee_limit or fee_limit_percent " +
 			"can be set, but not both")
+
 	case ctx.IsSet("fee_limit"):
-		return &lnrpc.FeeLimit{
-			Limit: &lnrpc.FeeLimit_Fixed{
-				Fixed: ctx.Int64("fee_limit"),
-			},
-		}, nil
+		return ctx.Int64("fee_limit"), nil
+
 	case ctx.IsSet("fee_limit_percent"):
-		return &lnrpc.FeeLimit{
-			Limit: &lnrpc.FeeLimit_Percent{
-				Percent: ctx.Int64("fee_limit_percent"),
-			},
-		}, nil
+		// Round up the fee limit to prevent hitting zero on small
+		// amounts.
+		feeLimitRoundedUp :=
+			(amt*ctx.Int64("fee_limit_percent") + 99) / 100
+
+		return feeLimitRoundedUp, nil
 	}
 
-	// Since the fee limit flags aren't required, we don't return an error
-	// if they're not set.
-	return nil, nil
+	// If no fee limit is set, use the payment amount as a limit (100%).
+	return amt, nil
 }
 
-func confirmPayReq(resp *lnrpc.PayReq, amt int64) error {
+func confirmPayReq(resp *lnrpc.PayReq, amt, feeLimit int64) error {
+	fmt.Printf("Payment hash: %v\n", resp.GetPaymentHash())
 	fmt.Printf("Description: %v\n", resp.GetDescription())
 	fmt.Printf("Amount (in satoshis): %v\n", amt)
+	fmt.Printf("Fee limit (in satoshis): %v\n", feeLimit)
 	fmt.Printf("Destination: %v\n", resp.GetDestination())
 
 	confirm := promptForConfirmation("Confirm payment (yes/no): ")
@@ -175,7 +183,7 @@ func sendPayment(ctx *cli.Context) error {
 	// If a payment request was provided, we can exit early since all of the
 	// details of the payment are encoded within the request.
 	if ctx.IsSet("pay_req") {
-		req := &lnrpc.SendRequest{
+		req := &routerrpc.SendPaymentRequest{
 			PaymentRequest: ctx.String("pay_req"),
 			Amt:            ctx.Int64("amt"),
 		}
@@ -219,7 +227,7 @@ func sendPayment(ctx *cli.Context) error {
 		}
 	}
 
-	req := &lnrpc.SendRequest{
+	req := &routerrpc.SendPaymentRequest{
 		Dest:              destNode,
 		Amt:               amount,
 		DestCustomRecords: make(map[uint64][]byte),
@@ -279,18 +287,14 @@ func sendPayment(ctx *cli.Context) error {
 	return sendPaymentRequest(ctx, req)
 }
 
-func sendPaymentRequest(ctx *cli.Context, req *lnrpc.SendRequest) error {
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
+func sendPaymentRequest(ctx *cli.Context,
+	req *routerrpc.SendPaymentRequest) error {
 
-	// First, we'll retrieve the fee limit value passed since it can apply
-	// to both ways of sending payments (with the payment request or
-	// providing the details manually).
-	feeLimit, err := retrieveFeeLimit(ctx)
-	if err != nil {
-		return err
-	}
-	req.FeeLimit = feeLimit
+	conn := getClientConn(ctx, false)
+	defer conn.Close()
+
+	client := lnrpc.NewLightningClient(conn)
+	routerClient := routerrpc.NewRouterClient(conn)
 
 	req.OutgoingChanId = ctx.Uint64("outgoing_chan_id")
 	if ctx.IsSet(lastHopFlag.Name) {
@@ -303,7 +307,8 @@ func sendPaymentRequest(ctx *cli.Context, req *lnrpc.SendRequest) error {
 		req.LastHopPubkey = lastHop[:]
 	}
 
-	req.CltvLimit = uint32(ctx.Int(cltvLimitFlag.Name))
+	req.CltvLimit = int32(ctx.Int(cltvLimitFlag.Name))
+	req.TimeoutSeconds = paymentTimeoutSeconds
 
 	req.AllowSelfPayment = ctx.Bool("allow_self_payment")
 
@@ -334,54 +339,73 @@ func sendPaymentRequest(ctx *cli.Context, req *lnrpc.SendRequest) error {
 		}
 	}
 
-	amt := req.Amt
-
+	var feeLimit int64
 	if req.PaymentRequest != "" {
-		req := &lnrpc.PayReqString{PayReq: req.PaymentRequest}
-		resp, err := client.DecodePayReq(context.Background(), req)
+		// Decode payment request to find out the amount.
+		decodeReq := &lnrpc.PayReqString{PayReq: req.PaymentRequest}
+		decodeResp, err := client.DecodePayReq(
+			context.Background(), decodeReq,
+		)
 		if err != nil {
 			return err
 		}
 
-		invoiceAmt := resp.GetNumSatoshis()
+		// If amount is present in the request, override the request
+		// amount.
+		amt := req.Amt
+		invoiceAmt := decodeResp.GetNumSatoshis()
 		if invoiceAmt != 0 {
 			amt = invoiceAmt
 		}
 
+		// Calculate fee limit based on the determined amount.
+		feeLimit, err = retrieveFeeLimit(ctx, amt)
+		if err != nil {
+			return err
+		}
+
+		// Ask for confirmation of amount and fee limit if payment is
+		// forced.
 		if !ctx.Bool("force") {
-			err := confirmPayReq(resp, amt)
+			err := confirmPayReq(decodeResp, amt, feeLimit)
 			if err != nil {
 				return err
 			}
 		}
+	} else {
+		var err error
+		feeLimit, err = retrieveFeeLimit(ctx, req.Amt)
+		if err != nil {
+			return err
+		}
 	}
 
-	paymentStream, err := client.SendPayment(context.Background())
+	req.FeeLimitSat = feeLimit
+
+	stream, err := routerClient.SendPayment(context.Background(), req)
 	if err != nil {
 		return err
 	}
 
-	if err := paymentStream.Send(req); err != nil {
-		return err
+	for {
+		status, err := stream.Recv()
+		if err != nil {
+			return err
+		}
+
+		if status.State != routerrpc.PaymentState_IN_FLIGHT {
+			printRespJSON(status)
+
+			// If we get a payment error back, we pass an error up
+			// to main which eventually calls fatal() and returns
+			// with a non-zero exit code.
+			if status.State != routerrpc.PaymentState_SUCCEEDED {
+				return errors.New(status.State.String())
+			}
+
+			return nil
+		}
 	}
-
-	resp, err := paymentStream.Recv()
-	if err != nil {
-		return err
-	}
-
-	paymentStream.CloseSend()
-
-	printRespJSON(resp)
-
-	// If we get a payment error back, we pass an error
-	// up to main which eventually calls fatal() and returns
-	// with a non-zero exit code.
-	if resp.PaymentError != "" {
-		return errors.New(resp.PaymentError)
-	}
-
-	return nil
 }
 
 var payInvoiceCommand = cli.Command{
@@ -412,7 +436,7 @@ func payInvoice(ctx *cli.Context) error {
 		return fmt.Errorf("pay_req argument missing")
 	}
 
-	req := &lnrpc.SendRequest{
+	req := &routerrpc.SendPaymentRequest{
 		PaymentRequest:    payReq,
 		Amt:               ctx.Int64("amt"),
 		DestCustomRecords: make(map[uint64][]byte),

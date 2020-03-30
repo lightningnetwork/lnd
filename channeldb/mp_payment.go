@@ -108,9 +108,9 @@ type HTLCFailInfo struct {
 // have the associated Settle or Fail struct populated if the HTLC is no longer
 // in-flight.
 type MPPayment struct {
-	// sequenceNum is a unique identifier used to sort the payments in
+	// SequenceNum is a unique identifier used to sort the payments in
 	// order of creation.
-	sequenceNum uint64
+	SequenceNum uint64
 
 	// Info holds all static information about this payment, and is
 	// populated when the payment is initiated.

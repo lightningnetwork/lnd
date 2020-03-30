@@ -408,6 +408,58 @@ func sendPaymentRequest(ctx *cli.Context,
 	}
 }
 
+var trackPaymentCommand = cli.Command{
+	Name:     "trackpayment",
+	Category: "Payments",
+	Usage:    "Track progress of an existing payment.",
+	Description: `
+	Pick up monitoring the progression of a previously initiated payment
+	specified by the hash argument.
+	`,
+	ArgsUsage: "hash",
+	Action:    actionDecorator(trackPayment),
+}
+
+func trackPayment(ctx *cli.Context) error {
+	args := ctx.Args()
+
+	conn := getClientConn(ctx, false)
+	defer conn.Close()
+
+	client := routerrpc.NewRouterClient(conn)
+
+	if !args.Present() {
+		return fmt.Errorf("hash argument missing")
+	}
+
+	hash, err := hex.DecodeString(args.First())
+	if err != nil {
+		return err
+	}
+
+	req := &routerrpc.TrackPaymentRequest{
+		PaymentHash: hash,
+	}
+
+	stream, err := client.TrackPayment(context.Background(), req)
+	if err != nil {
+		return err
+	}
+
+	for {
+		status, err := stream.Recv()
+		if err != nil {
+			return err
+		}
+
+		printRespJSON(status)
+
+		if status.State != routerrpc.PaymentState_IN_FLIGHT {
+			return nil
+		}
+	}
+}
+
 var payInvoiceCommand = cli.Command{
 	Name:      "payinvoice",
 	Category:  "Payments",

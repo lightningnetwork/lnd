@@ -169,13 +169,10 @@ message PaymentStatus {
     */
     bytes preimage = 2;
 
-    /**
-    The taken route when state is SUCCEEDED.
-    */
-    lnrpc.Route route = 3;
+    reserved 3;
 
     /**
-    The HTLCs made in attempt to settle the payment [EXPERIMENTAL].
+    The HTLCs made in attempt to settle the payment.
     */
     repeated lnrpc.HTLCAttempt htlcs = 4;
 }

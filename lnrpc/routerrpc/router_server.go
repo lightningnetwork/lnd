@@ -485,35 +485,6 @@ func (s *Server) trackPayment(paymentHash lntypes.Hash,
 			status.State = state
 		}
 
-		// Extract the last route from the given list of HTLCs. This
-		// will populate the legacy route field for backwards
-		// compatibility.
-		//
-		// NOTE: For now there will be at most one HTLC, this code
-		// should be revisted or the field removed when multiple HTLCs
-		// are permitted.
-		var legacyRoute *route.Route
-		for _, htlc := range result.HTLCs {
-			switch {
-			case htlc.Settle != nil:
-				legacyRoute = &htlc.Route
-
-			// Only display the route for failed payments if we got
-			// an incorrect payment details error, so that it can be
-			// used for probing or fee estimation.
-			case htlc.Failure != nil && result.FailureReason ==
-				channeldb.FailureReasonPaymentDetails:
-
-				legacyRoute = &htlc.Route
-			}
-		}
-		if legacyRoute != nil {
-			status.Route, err = router.MarshallRoute(legacyRoute)
-			if err != nil {
-				return err
-			}
-		}
-
 		// Marshal our list of HTLCs that have been tried for this
 		// payment.
 		htlcs := make([]*lnrpc.HTLCAttempt, 0, len(result.HTLCs))

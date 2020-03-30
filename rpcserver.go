@@ -1870,6 +1870,14 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 			"initial state must be below the local funding amount")
 	}
 
+	// Ensure that the user doesn't exceed the current soft-limit for
+	// channel size. If the funding amount is above the soft-limit, then
+	// we'll reject the request.
+	if localFundingAmt > MaxFundingAmount {
+		return nil, fmt.Errorf("funding amount is too large, the max "+
+			"channel size is: %v", MaxFundingAmount)
+	}
+
 	// Restrict the size of the channel we'll actually open. At a later
 	// level, we'll ensure that the output we create after accounting for
 	// fees that a dust output isn't created.

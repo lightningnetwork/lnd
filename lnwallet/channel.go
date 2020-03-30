@@ -549,7 +549,7 @@ type commitment struct {
 // transition.  This ensures that we don't assign multiple HTLC's to the same
 // index within the commitment transaction.
 func locateOutputIndex(p *PaymentDescriptor, tx *wire.MsgTx, ourCommit bool,
-	dups map[PaymentHash][]int32) (int32, error) {
+	dups map[PaymentHash][]int32, cltvs []uint32) (int32, error) {
 
 	// Checks to see if element (e) exists in slice (s).
 	contains := func(s []int32, e int32) bool {
@@ -571,8 +571,11 @@ func locateOutputIndex(p *PaymentDescriptor, tx *wire.MsgTx, ourCommit bool,
 	}
 
 	for i, txOut := range tx.TxOut {
+		cltv := cltvs[i]
+
 		if bytes.Equal(txOut.PkScript, pkScript) &&
-			txOut.Value == int64(p.Amount.ToSatoshis()) {
+			txOut.Value == int64(p.Amount.ToSatoshis()) &&
+			cltv == p.Timeout {
 
 			// If this payment hash and index has already been
 			// found, then we'll continue in order to avoid any
@@ -587,8 +590,8 @@ func locateOutputIndex(p *PaymentDescriptor, tx *wire.MsgTx, ourCommit bool,
 		}
 	}
 
-	return 0, fmt.Errorf("unable to find htlc: script=%x, value=%v",
-		pkScript, p.Amount)
+	return 0, fmt.Errorf("unable to find htlc: script=%x, value=%v, "+
+		"cltv=%v", pkScript, p.Amount, p.Timeout)
 }
 
 // populateHtlcIndexes modifies the set of HTLC's locked-into the target view
@@ -596,7 +599,9 @@ func locateOutputIndex(p *PaymentDescriptor, tx *wire.MsgTx, ourCommit bool,
 // we need to keep track of the indexes of each HTLC in order to properly write
 // the current state to disk, and also to locate the PaymentDescriptor
 // corresponding to HTLC outputs in the commitment transaction.
-func (c *commitment) populateHtlcIndexes(chanType channeldb.ChannelType) error {
+func (c *commitment) populateHtlcIndexes(chanType channeldb.ChannelType,
+	cltvs []uint32) error {
+
 	// First, we'll set up some state to allow us to locate the output
 	// index of the all the HTLC's within the commitment transaction. We
 	// must keep this index so we can validate the HTLC signatures sent to
@@ -632,7 +637,7 @@ func (c *commitment) populateHtlcIndexes(chanType channeldb.ChannelType) error {
 		// signatures.
 		case c.isOurs:
 			htlc.localOutputIndex, err = locateOutputIndex(
-				htlc, c.txn, c.isOurs, dups,
+				htlc, c.txn, c.isOurs, dups, cltvs,
 			)
 			if err != nil {
 				return err
@@ -653,7 +658,7 @@ func (c *commitment) populateHtlcIndexes(chanType channeldb.ChannelType) error {
 		// index within the HTLC index.
 		case !c.isOurs:
 			htlc.remoteOutputIndex, err = locateOutputIndex(
-				htlc, c.txn, c.isOurs, dups,
+				htlc, c.txn, c.isOurs, dups, cltvs,
 			)
 			if err != nil {
 				return err
@@ -2440,8 +2445,11 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	}
 
 	// Finally, we'll populate all the HTLC indexes so we can track the
-	// locations of each HTLC in the commitment state.
-	if err := c.populateHtlcIndexes(lc.channelState.ChanType); err != nil {
+	// locations of each HTLC in the commitment state. We pass in the sorted
+	// slice of CLTV deltas in order to properly locate HTLCs that otherwise
+	// have the same payment hash and amount.
+	err = c.populateHtlcIndexes(lc.channelState.ChanType, commitTx.cltvs)
+	if err != nil {
 		return nil, err
 	}
 

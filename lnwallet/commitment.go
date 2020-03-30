@@ -382,6 +382,10 @@ type unsignedCommitmentTx struct {
 	// balances before creating the commitment transaction as one party must
 	// pay the commitment fee.
 	theirBalance lnwire.MilliSatoshi
+
+	// cltvs is a sorted list of CLTV deltas for each HTLC on the commitment
+	// transaction. Any non-htlc outputs will have a CLTV delay of zero.
+	cltvs []uint32
 }
 
 // createUnsignedCommitmentTx generates the unsigned commitment transaction for
@@ -562,6 +566,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		fee:          commitFee,
 		ourBalance:   ourBalance,
 		theirBalance: theirBalance,
+		cltvs:        cltvs,
 	}, nil
 }
 

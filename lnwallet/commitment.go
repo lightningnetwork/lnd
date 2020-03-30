@@ -371,11 +371,16 @@ type unsignedCommitmentTx struct {
 	// fee is the total fee of the commitment transaction.
 	fee btcutil.Amount
 
-	// ourBalance|theirBalance are the balances of this commitment *after*
-	// subtracting commitment fees and anchor outputs. This can be
-	// different than the balances before creating the commitment
-	// transaction as one party must pay the commitment fee.
-	ourBalance   lnwire.MilliSatoshi
+	// ourBalance is our balance on this commitment *after* subtracting
+	// commitment fees and anchor outputs. This can be different than the
+	// balances before creating the commitment transaction as one party must
+	// pay the commitment fee.
+	ourBalance lnwire.MilliSatoshi
+
+	// theirBalance is their balance of this commitment *after* subtracting
+	// commitment fees and anchor outputs. This can be different than the
+	// balances before creating the commitment transaction as one party must
+	// pay the commitment fee.
 	theirBalance lnwire.MilliSatoshi
 }
 

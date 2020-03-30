@@ -1746,6 +1746,10 @@
           "type": "boolean",
           "format": "boolean",
           "description": "True if we initiated opening the channel."
+        },
+        "commitment_type": {
+          "$ref": "#/definitions/lnrpcCommitmentType",
+          "description": "/ The commitment type used by this channel."
         }
       }
     },
@@ -2523,10 +2527,11 @@
       "enum": [
         "LEGACY",
         "STATIC_REMOTE_KEY",
-        "ANCHORS"
+        "ANCHORS",
+        "UNKNOWN_COMMITMENT_TYPE"
       ],
       "default": "LEGACY",
-      "description": " - LEGACY: *\nA channel using the legacy commitment format having tweaked to_remote\nkeys.\n - STATIC_REMOTE_KEY: *\nA channel that uses the modern commitment format where the key in the\noutput of the remote party does not change each state. This makes back\nup and recovery easier as when the channel is closed, the funds go\ndirectly to that key.\n - ANCHORS: *\nA channel that uses a commitment format that has anchor outputs on the\ncommitments, allowing fee bumping after a force close transaction has\nbeen broadcast."
+      "description": " - LEGACY: *\nA channel using the legacy commitment format having tweaked to_remote\nkeys.\n - STATIC_REMOTE_KEY: *\nA channel that uses the modern commitment format where the key in the\noutput of the remote party does not change each state. This makes back\nup and recovery easier as when the channel is closed, the funds go\ndirectly to that key.\n - ANCHORS: *\nA channel that uses a commitment format that has anchor outputs on the\ncommitments, allowing fee bumping after a force close transaction has\nbeen broadcast.\n - UNKNOWN_COMMITMENT_TYPE: *\nReturned when the commitment type isn't known or unavailable."
     },
     "lnrpcConnectPeerRequest": {
       "type": "object",

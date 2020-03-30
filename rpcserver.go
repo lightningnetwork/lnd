@@ -2738,6 +2738,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 				LocalChanReserveSat:  int64(pendingChan.LocalChanCfg.ChanReserve),
 				RemoteChanReserveSat: int64(pendingChan.RemoteChanCfg.ChanReserve),
 				Initiator:            pendingChan.IsInitiator,
+				CommitmentType:       rpcCommitmentType(pendingChan.ChanType),
 			},
 			CommitWeight: commitWeight,
 			CommitFee:    int64(localCommitment.CommitFee),
@@ -2764,10 +2765,11 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		pub := pendingClose.RemotePub.SerializeCompressed()
 		chanPoint := pendingClose.ChanPoint
 		channel := &lnrpc.PendingChannelsResponse_PendingChannel{
-			RemoteNodePub: hex.EncodeToString(pub),
-			ChannelPoint:  chanPoint.String(),
-			Capacity:      int64(pendingClose.Capacity),
-			LocalBalance:  int64(pendingClose.SettledBalance),
+			RemoteNodePub:  hex.EncodeToString(pub),
+			ChannelPoint:   chanPoint.String(),
+			Capacity:       int64(pendingClose.Capacity),
+			LocalBalance:   int64(pendingClose.SettledBalance),
+			CommitmentType: lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE,
 		}
 
 		// Lookup the channel in the historical channel bucket to obtain
@@ -2786,6 +2788,9 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 
 		case nil:
 			channel.Initiator = historical.IsInitiator
+			channel.CommitmentType = rpcCommitmentType(
+				historical.ChanType,
+			)
 
 		// If the error is non-nil, and not due to older versions of lnd
 		// not persisting historical channels, return it.
@@ -2913,6 +2918,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			LocalChanReserveSat:  int64(waitingClose.LocalChanCfg.ChanReserve),
 			RemoteChanReserveSat: int64(waitingClose.RemoteChanCfg.ChanReserve),
 			Initiator:            waitingClose.IsInitiator,
+			CommitmentType:       rpcCommitmentType(waitingClose.ChanType),
 		}
 
 		waitingCloseResp := &lnrpc.PendingChannelsResponse_WaitingCloseChannel{

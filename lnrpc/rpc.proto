@@ -1314,6 +1314,11 @@ enum CommitmentType {
     been broadcast.
     */
     ANCHORS = 2;
+
+    /**
+    Returned when the commitment type isn't known or unavailable.
+    */
+    UNKNOWN_COMMITMENT_TYPE = 999;
 }
 
 message Channel {
@@ -2087,6 +2092,9 @@ message PendingChannelsResponse {
 
         // True if we initiated opening the channel.
         bool initiator = 8;
+
+        /// The commitment type used by this channel.
+        CommitmentType commitment_type = 9;
     }
 
     message PendingOpenChannel {

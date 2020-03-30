@@ -1,5 +1,3 @@
-// +build routerrpc
-
 package routerrpc
 
 import (

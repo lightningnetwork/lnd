@@ -98,13 +98,13 @@ func betweennessCentrality(g *SimpleGraph, s int, centrality []float64) {
 	// shortest path from s to t for each node t.
 	pred := make([][]int, len(g.Nodes))
 
-	// sigma[t] is the number of shortest paths between nodes s and t for
-	// each node t.
+	// sigma[t] is the number of shortest paths between nodes s and t
+	// for each node t.
 	sigma := make([]int, len(g.Nodes))
 	sigma[s] = 1
 
-	// dist[t] holds the distance between s and t for each node t. We initialize
-	// this to -1 (meaning infinity) for each t != s.
+	// dist[t] holds the distance between s and t for each node t.
+	// We initialize this to -1 (meaning infinity) for each t != s.
 	dist := make([]int, len(g.Nodes))
 	for i := range dist {
 		dist[i] = -1
@@ -178,9 +178,9 @@ func (bc *BetweennessCentrality) Refresh(graph ChannelGraph) error {
 	work := make(chan int)
 	partials := make(chan []float64, bc.workers)
 
-	// Each worker will compute a partial result. This
-	// partial result is a sum of centrality updates on
-	// roughly N / workers nodes.
+	// Each worker will compute a partial result.
+	// This partial result is a sum of centrality updates
+	// on roughly N / workers nodes.
 	worker := func() {
 		defer wg.Done()
 		partial := make([]float64, len(cache.Nodes))
@@ -199,8 +199,8 @@ func (bc *BetweennessCentrality) Refresh(graph ChannelGraph) error {
 		go worker()
 	}
 
-	// Distribute work amongst workers Should be
-	// fair when graph is sufficiently large.
+	// Distribute work amongst workers.
+	// Should be fair when the graph is sufficiently large.
 	for node := range cache.Nodes {
 		work <- node
 	}

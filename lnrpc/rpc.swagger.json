@@ -733,13 +733,14 @@
         "parameters": [
           {
             "name": "types",
-            "description": "/ The requesteded node metrics.",
+            "description": "/ The requested node metrics.",
             "in": "query",
             "required": false,
             "type": "array",
             "items": {
               "type": "string",
               "enum": [
+                "UNKNOWN",
                 "BETWEENNESS_CENTRALITY"
               ]
             },
@@ -2717,7 +2718,7 @@
         }
       }
     },
-    "lnrpcFloatValue": {
+    "lnrpcFloatMetric": {
       "type": "object",
       "properties": {
         "value": {
@@ -3625,9 +3626,10 @@
     "lnrpcNodeMetricType": {
       "type": "string",
       "enum": [
+        "UNKNOWN",
         "BETWEENNESS_CENTRALITY"
       ],
-      "default": "BETWEENNESS_CENTRALITY"
+      "default": "UNKNOWN"
     },
     "lnrpcNodeMetricsResponse": {
       "type": "object",
@@ -3635,7 +3637,7 @@
         "betweenness_centrality": {
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/definitions/lnrpcFloatValue"
+            "$ref": "#/definitions/lnrpcFloatMetric"
           },
           "description": "*\nBetweenness centrality is the sum of the ratio of shortest paths that pass\nthrough the node for each pair of nodes in the graph (not counting paths\nstarting or ending at this node).\nMap of node pubkey to betweenness centrality of the node. Normalized\nvalues are in the [0,1] closed interval."
         }

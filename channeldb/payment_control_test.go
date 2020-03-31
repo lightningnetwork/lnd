@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/record"
 )
 
 func initDB() (*DB, error) {
@@ -48,14 +49,14 @@ func genInfo() (*PaymentCreationInfo, *HTLCAttemptInfo,
 	rhash := fastsha256.Sum256(preimage[:])
 	return &PaymentCreationInfo{
 			PaymentHash:    rhash,
-			Value:          1,
+			Value:          testRoute.ReceiverAmt(),
 			CreationTime:   time.Unix(time.Now().Unix(), 0),
 			PaymentRequest: []byte("hola"),
 		},
 		&HTLCAttemptInfo{
 			AttemptID:  0,
 			SessionKey: priv,
-			Route:      testRoute,
+			Route:      *testRoute.Copy(),
 		}, preimage, nil
 }
 
@@ -504,7 +505,15 @@ func TestPaymentControlMultiShard(t *testing.T) {
 		)
 
 		// Create three unique attempts we'll use for the test, and
-		// register them with the payment control.
+		// register them with the payment control. We set each
+		// attempts's value to one third of the payment amount, and
+		// populate the MPP options.
+		shardAmt := info.Value / 3
+		attempt.Route.FinalHop().AmtToForward = shardAmt
+		attempt.Route.FinalHop().MPP = record.NewMPP(
+			info.Value, [32]byte{1},
+		)
+
 		var attempts []*HTLCAttemptInfo
 		for i := uint64(0); i < 3; i++ {
 			a := *attempt
@@ -525,6 +534,17 @@ func TestPaymentControlMultiShard(t *testing.T) {
 			assertPaymentInfo(
 				t, pControl, info.PaymentHash, info, nil, htlc,
 			)
+		}
+
+		// For a fourth attempt, check that attempting to
+		// register it will fail since the total sent amount
+		// will be too large.
+		b := *attempt
+		b.AttemptID = 3
+		err = pControl.RegisterAttempt(info.PaymentHash, &b)
+		if err != ErrValueExceedsAmt {
+			t.Fatalf("expected ErrValueExceedsAmt, got: %v",
+				err)
 		}
 
 		// Fail the second attempt.
@@ -612,7 +632,7 @@ func TestPaymentControlMultiShard(t *testing.T) {
 
 		// Try to register yet another attempt. This should fail now
 		// that the payment has reached a terminal condition.
-		b := *attempt
+		b = *attempt
 		b.AttemptID = 3
 		err = pControl.RegisterAttempt(info.PaymentHash, &b)
 		if err != ErrPaymentTerminal {
@@ -702,6 +722,100 @@ func TestPaymentControlMultiShard(t *testing.T) {
 		t.Run(subTest, func(t *testing.T) {
 			runSubTest(t, test)
 		})
+	}
+}
+
+func TestPaymentControlMPPRecordValidation(t *testing.T) {
+	t.Parallel()
+
+	db, err := initDB()
+	if err != nil {
+		t.Fatalf("unable to init db: %v", err)
+	}
+
+	pControl := NewPaymentControl(db)
+
+	info, attempt, _, err := genInfo()
+	if err != nil {
+		t.Fatalf("unable to generate htlc message: %v", err)
+	}
+
+	// Init the payment.
+	err = pControl.InitPayment(info.PaymentHash, info)
+	if err != nil {
+		t.Fatalf("unable to send htlc message: %v", err)
+	}
+
+	// Create three unique attempts we'll use for the test, and
+	// register them with the payment control. We set each
+	// attempts's value to one third of the payment amount, and
+	// populate the MPP options.
+	shardAmt := info.Value / 3
+	attempt.Route.FinalHop().AmtToForward = shardAmt
+	attempt.Route.FinalHop().MPP = record.NewMPP(
+		info.Value, [32]byte{1},
+	)
+
+	err = pControl.RegisterAttempt(info.PaymentHash, attempt)
+	if err != nil {
+		t.Fatalf("unable to send htlc message: %v", err)
+	}
+
+	// Now try to register a non-MPP attempt, which should fail.
+	b := *attempt
+	b.AttemptID = 1
+	b.Route.FinalHop().MPP = nil
+	err = pControl.RegisterAttempt(info.PaymentHash, &b)
+	if err != ErrMPPayment {
+		t.Fatalf("expected ErrMPPayment, got: %v", err)
+	}
+
+	// Try to register attempt one with a different payment address.
+	b.Route.FinalHop().MPP = record.NewMPP(
+		info.Value, [32]byte{2},
+	)
+	err = pControl.RegisterAttempt(info.PaymentHash, &b)
+	if err != ErrMPPPaymentAddrMismatch {
+		t.Fatalf("expected ErrMPPPaymentAddrMismatch, got: %v", err)
+	}
+
+	// Try registering one with a different total amount.
+	b.Route.FinalHop().MPP = record.NewMPP(
+		info.Value/2, [32]byte{1},
+	)
+	err = pControl.RegisterAttempt(info.PaymentHash, &b)
+	if err != ErrMPPTotalAmountMismatch {
+		t.Fatalf("expected ErrMPPTotalAmountMismatch, got: %v", err)
+	}
+
+	// Create and init a new payment. This time we'll check that we cannot
+	// register an MPP attempt if we already registered a non-MPP one.
+	info, attempt, _, err = genInfo()
+	if err != nil {
+		t.Fatalf("unable to generate htlc message: %v", err)
+	}
+
+	err = pControl.InitPayment(info.PaymentHash, info)
+	if err != nil {
+		t.Fatalf("unable to send htlc message: %v", err)
+	}
+
+	attempt.Route.FinalHop().MPP = nil
+	err = pControl.RegisterAttempt(info.PaymentHash, attempt)
+	if err != nil {
+		t.Fatalf("unable to send htlc message: %v", err)
+	}
+
+	// Attempt to register an MPP attempt, which should fail.
+	b = *attempt
+	b.AttemptID = 1
+	b.Route.FinalHop().MPP = record.NewMPP(
+		info.Value, [32]byte{1},
+	)
+
+	err = pControl.RegisterAttempt(info.PaymentHash, &b)
+	if err != ErrNonMPPayment {
+		t.Fatalf("expected ErrNonMPPayment, got: %v", err)
 	}
 }
 

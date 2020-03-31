@@ -45,6 +45,32 @@ var (
 	// failed HTLC attempt.
 	ErrAttemptAlreadyFailed = errors.New("attempt already failed")
 
+	// ErrValueMismatch is returned if we try to register a non-MPP attempt
+	// with an amount that doesn't match the payment amount.
+	ErrValueMismatch = errors.New("attempted value doesn't match payment" +
+		"amount")
+
+	// ErrValueExceedsAmt is returned if we try to register an attempt that
+	// would take the total sent amount above the payment amount.
+	ErrValueExceedsAmt = errors.New("attempted value exceeds payment" +
+		"amount")
+
+	// ErrNonMPPayment is returned if we try to register an MPP attempt for
+	// a payment that already has a non-MPP attempt regitered.
+	ErrNonMPPayment = errors.New("payment has non-MPP attempts")
+
+	// ErrMPPayment is returned if we try to register a non-MPP attempt for
+	// a payment that already has an MPP attempt regitered.
+	ErrMPPayment = errors.New("payment has MPP attempts")
+
+	// ErrMPPPaymentAddrMismatch is returned if we try to register an MPP
+	// shard where the payment address doesn't match existing shards.
+	ErrMPPPaymentAddrMismatch = errors.New("payment address mismatch")
+
+	// ErrMPPTotalAmountMismatch is returned if we try to register an MPP
+	// shard where the total amount doesn't match existing shards.
+	ErrMPPTotalAmountMismatch = errors.New("mp payment total amount mismatch")
+
 	// errNoAttemptInfo is returned when no attempt info is stored yet.
 	errNoAttemptInfo = errors.New("unable to find attempt info for " +
 		"inflight payment")
@@ -189,9 +215,57 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 			return err
 		}
 
+		// We cannot register a new attempt if the payment already has
+		// reached a terminal condition:
 		settle, fail := payment.TerminalInfo()
 		if settle != nil || fail != nil {
 			return ErrPaymentTerminal
+		}
+
+		// Make sure any existing shards match the new one with regards
+		// to MPP options.
+		mpp := attempt.Route.FinalHop().MPP
+		for _, h := range payment.InFlightHTLCs() {
+			hMpp := h.Route.FinalHop().MPP
+
+			switch {
+
+			// We tried to register a non-MPP attempt for a MPP
+			// payment.
+			case mpp == nil && hMpp != nil:
+				return ErrMPPayment
+
+			// We tried to register a MPP shard for a non-MPP
+			// payment.
+			case mpp != nil && hMpp == nil:
+				return ErrNonMPPayment
+
+			// Non-MPP payment, nothing more to validate.
+			case mpp == nil:
+				continue
+			}
+
+			// Check that MPP options match.
+			if mpp.PaymentAddr() != hMpp.PaymentAddr() {
+				return ErrMPPPaymentAddrMismatch
+			}
+
+			if mpp.TotalMsat() != hMpp.TotalMsat() {
+				return ErrMPPTotalAmountMismatch
+			}
+		}
+
+		// If this is a non-MPP attempt, it must match the total amount
+		// exactly.
+		amt := attempt.Route.ReceiverAmt()
+		if mpp == nil && amt != payment.Info.Value {
+			return ErrValueMismatch
+		}
+
+		// Ensure we aren't sending more than the total payment amount.
+		sentAmt, _ := payment.SentAmt()
+		if sentAmt+amt > payment.Info.Value {
+			return ErrValueExceedsAmt
 		}
 
 		htlcsBucket, err := bucket.CreateBucketIfNotExists(

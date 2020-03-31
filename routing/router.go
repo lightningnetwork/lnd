@@ -531,14 +531,7 @@ func (r *ChannelRouter) Start() error {
 			// We create a dummy, empty payment session such that
 			// we won't make another payment attempt when the
 			// result for the in-flight attempt is received.
-			//
-			// PayAttemptTime doesn't need to be set, as there is
-			// only a single attempt.
 			paySession := r.cfg.SessionSource.NewPaymentSessionEmpty()
-
-			lPayment := &LightningPayment{
-				PaymentHash: payment.Info.PaymentHash,
-			}
 
 			// TODO(joostjager): For mpp, possibly relaunch multiple
 			// in-flight htlcs here.
@@ -547,7 +540,13 @@ func (r *ChannelRouter) Start() error {
 				attempt = &payment.Attempts[0]
 			}
 
-			_, _, err := r.sendPayment(attempt, lPayment, paySession)
+			// We pass in a zero timeout value, to indicate we
+			// don't need it to timeout. It will stop immediately
+			// after the existing attempt has finished anyway.
+			_, _, err := r.sendPayment(
+				attempt,
+				payment.Info.PaymentHash, 0, paySession,
+			)
 			if err != nil {
 				log.Errorf("Resuming payment with hash %v "+
 					"failed: %v.", payment.Info.PaymentHash, err)
@@ -1639,9 +1638,15 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 		return [32]byte{}, nil, err
 	}
 
+	log.Tracef("Dispatching SendPayment for lightning payment: %v",
+		spewPayment(payment))
+
 	// Since this is the first time this payment is being made, we pass nil
 	// for the existing attempt.
-	return r.sendPayment(nil, payment, paySession)
+	return r.sendPayment(
+		nil, payment.PaymentHash,
+		payment.PayAttemptTimeout, paySession,
+	)
 }
 
 // SendPaymentAsync is the non-blocking version of SendPayment. The payment
@@ -1658,7 +1663,13 @@ func (r *ChannelRouter) SendPaymentAsync(payment *LightningPayment) error {
 	go func() {
 		defer r.wg.Done()
 
-		_, _, err := r.sendPayment(nil, payment, paySession)
+		log.Tracef("Dispatching SendPayment for lightning payment: %v",
+			spewPayment(payment))
+
+		_, _, err := r.sendPayment(
+			nil, payment.PaymentHash,
+			payment.PayAttemptTimeout, paySession,
+		)
 		if err != nil {
 			log.Errorf("Payment with hash %x failed: %v",
 				payment.PaymentHash, err)
@@ -1666,6 +1677,28 @@ func (r *ChannelRouter) SendPaymentAsync(payment *LightningPayment) error {
 	}()
 
 	return nil
+}
+
+// spewPayment returns a log closures that provides a spewed string
+// representation of the passed payment.
+func spewPayment(payment *LightningPayment) logClosure {
+	return newLogClosure(func() string {
+		// Make a copy of the payment with a nilled Curve
+		// before spewing.
+		var routeHints [][]zpay32.HopHint
+		for _, routeHint := range payment.RouteHints {
+			var hopHints []zpay32.HopHint
+			for _, hopHint := range routeHint {
+				h := hopHint.Copy()
+				h.NodeID.Curve = nil
+				hopHints = append(hopHints, h)
+			}
+			routeHints = append(routeHints, hopHints)
+		}
+		p := *payment
+		p.RouteHints = routeHints
+		return spew.Sdump(p)
+	})
 }
 
 // preparePayment creates the payment session and registers the payment with the
@@ -1726,20 +1759,17 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 		return [32]byte{}, err
 	}
 
-	// Create a (mostly) dummy payment, as the created payment session is
-	// not going to do path finding.
-	// TODO(halseth): sendPayment doesn't really need LightningPayment, make
-	// it take just needed fields instead.
-	//
-	// PayAttemptTime doesn't need to be set, as there is only a single
-	// attempt.
-	payment := &LightningPayment{
-		PaymentHash: hash,
-	}
+	log.Tracef("Dispatching SendToRoute for hash %v: %v",
+		hash, newLogClosure(func() string {
+			return spew.Sdump(route)
+		}),
+	)
 
-	// Since this is the first time this payment is being made, we pass nil
-	// for the existing attempt.
-	preimage, _, err := r.sendPayment(nil, payment, paySession)
+	// We set the timeout to a zero value, indicating the payment shouldn't
+	// timeout. It is only a single attempt, so no more attempts will be
+	// done anyway. Since this is the first time this payment is being
+	// made, we pass nil for the existing attempt.
+	preimage, _, err := r.sendPayment(nil, hash, 0, paySession)
 	if err != nil {
 		// SendToRoute should return a structured error. In case the
 		// provided route fails, payment lifecycle will return a
@@ -1759,13 +1789,13 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 	return preimage, nil
 }
 
-// sendPayment attempts to send a payment as described within the passed
-// LightningPayment. This function is blocking and will return either: when the
-// payment is successful, or all candidates routes have been attempted and
-// resulted in a failed payment. If the payment succeeds, then a non-nil Route
-// will be returned which describes the path the successful payment traversed
-// within the network to reach the destination. Additionally, the payment
-// preimage will also be returned.
+// sendPayment attempts to send a payment to the passed payment hash. This
+// function is blocking and will return either: when the payment is successful,
+// or all candidates routes have been attempted and resulted in a failed
+// payment. If the payment succeeds, then a non-nil Route will be returned
+// which describes the path the successful payment traversed within the network
+// to reach the destination. Additionally, the payment preimage will also be
+// returned.
 //
 // The existing attempt argument should be set to nil if this is a payment that
 // haven't had any payment attempt sent to the switch yet. If it has had an
@@ -1777,28 +1807,9 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 // the ControlTower.
 func (r *ChannelRouter) sendPayment(
 	existingAttempt *channeldb.HTLCAttemptInfo,
-	payment *LightningPayment, paySession PaymentSession) (
-	[32]byte, *route.Route, error) {
-
-	log.Tracef("Dispatching route for lightning payment: %v",
-		newLogClosure(func() string {
-			// Make a copy of the payment with a nilled Curve
-			// before spewing.
-			var routeHints [][]zpay32.HopHint
-			for _, routeHint := range payment.RouteHints {
-				var hopHints []zpay32.HopHint
-				for _, hopHint := range routeHint {
-					h := hopHint.Copy()
-					h.NodeID.Curve = nil
-					hopHints = append(hopHints, h)
-				}
-				routeHints = append(routeHints, hopHints)
-			}
-			p := *payment
-			p.RouteHints = routeHints
-			return spew.Sdump(p)
-		}),
-	)
+	paymentHash lntypes.Hash,
+	timeout time.Duration,
+	paySession PaymentSession) ([32]byte, *route.Route, error) {
 
 	// We'll also fetch the current block height so we can properly
 	// calculate the required HTLC time locks within the route.
@@ -1811,7 +1822,7 @@ func (r *ChannelRouter) sendPayment(
 	// can resume the payment from the current state.
 	p := &paymentLifecycle{
 		router:        r,
-		payment:       payment,
+		paymentHash:   paymentHash,
 		paySession:    paySession,
 		currentHeight: currentHeight,
 		attempt:       existingAttempt,
@@ -1822,8 +1833,8 @@ func (r *ChannelRouter) sendPayment(
 	// If a timeout is specified, create a timeout channel. If no timeout is
 	// specified, the channel is left nil and will never abort the payment
 	// loop.
-	if payment.PayAttemptTimeout != 0 {
-		p.timeoutChan = time.After(payment.PayAttemptTimeout)
+	if timeout != 0 {
+		p.timeoutChan = time.After(timeout)
 	}
 
 	return p.resumePayment()

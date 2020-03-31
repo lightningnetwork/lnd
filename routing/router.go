@@ -1734,9 +1734,6 @@ func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
 func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 	lntypes.Preimage, error) {
 
-	// Create a payment session for just this route.
-	paySession := r.cfg.SessionSource.NewPaymentSessionForRoute(route)
-
 	// Calculate amount paid to receiver.
 	amt := route.ReceiverAmt()
 
@@ -1760,34 +1757,57 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 		}),
 	)
 
-	// We set the timeout to a zero value, indicating the payment shouldn't
-	// timeout. It is only a single attempt, so no more attempts will be
-	// done anyway.
-	//
-	// We pass the route receiver amount as the total payment amount such
-	// that the payment loop will request a route for this amount. As fee
-	// limit we pass the route's total fees, since we already know this is
-	// the route that is going to be used.
-	preimage, _, err := r.sendPayment(
-		amt, route.TotalFees(), hash, 0, paySession,
-	)
+	// Launch a shard along the given route.
+	sh := &shardHandler{
+		router:      r,
+		paymentHash: hash,
+	}
+
+	var shardError error
+	attempt, outcome, err := sh.launchShard(route)
 	if err != nil {
-		// SendToRoute should return a structured error. In case the
-		// provided route fails, payment lifecycle will return a
-		// noRouteError with the structured error embedded.
-		if noRouteError, ok := err.(errNoRoute); ok {
-			if noRouteError.lastError == nil {
-				return lntypes.Preimage{},
-					errors.New("failure message missing")
-			}
-
-			return lntypes.Preimage{}, noRouteError.lastError
-		}
-
 		return lntypes.Preimage{}, err
 	}
 
-	return preimage, nil
+	switch {
+	// Failed to launch shard.
+	case outcome.err != nil:
+		shardError = outcome.err
+
+	// Shard successfully launched, wait for the result to be available.
+	default:
+		result, err := sh.collectResult(attempt)
+		if err != nil {
+			return lntypes.Preimage{}, err
+		}
+
+		// We got a successful result.
+		if result.err == nil {
+			return result.preimage, nil
+		}
+
+		// The shard failed, break switch to handle it.
+		shardError = result.err
+	}
+
+	// Since for SendToRoute we won't retry in case the shard fails, we'll
+	// mark the payment failed with the control tower immediately. Process
+	// the error to check if it maps into a terminal error code, if not use
+	// a generic NO_ROUTE error.
+	reason := r.processSendError(
+		attempt.AttemptID, &attempt.Route, shardError,
+	)
+	if reason == nil {
+		r := channeldb.FailureReasonNoRoute
+		reason = &r
+	}
+
+	err = r.cfg.Control.Fail(hash, *reason)
+	if err != nil {
+		return lntypes.Preimage{}, err
+	}
+
+	return lntypes.Preimage{}, shardError
 }
 
 // sendPayment attempts to send a payment to the passed payment hash. This

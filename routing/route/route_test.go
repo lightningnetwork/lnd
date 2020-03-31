@@ -20,15 +20,24 @@ var (
 func TestRouteTotalFees(t *testing.T) {
 	t.Parallel()
 
-	// Make sure empty route returns a 0 fee.
+	// Make sure empty route returns a 0 fee, and zero amount.
 	r := &Route{}
 	if r.TotalFees() != 0 {
 		t.Fatalf("expected 0 fees, got %v", r.TotalFees())
 	}
+	if r.ReceiverAmt() != 0 {
+		t.Fatalf("expected 0 amt, got %v", r.ReceiverAmt())
+	}
+
+	// Make sure empty route won't be allowed in the constructor.
+	amt := lnwire.MilliSatoshi(1000)
+	_, err := NewRouteFromHops(amt, 100, Vertex{}, []*Hop{})
+	if err != ErrNoRouteHopsProvided {
+		t.Fatalf("expected ErrNoRouteHopsProvided, got %v", err)
+	}
 
 	// For one-hop routes the fee should be 0, since the last node will
 	// receive the full amount.
-	amt := lnwire.MilliSatoshi(1000)
 	hops := []*Hop{
 		{
 			PubKeyBytes:      Vertex{},
@@ -37,13 +46,17 @@ func TestRouteTotalFees(t *testing.T) {
 			AmtToForward:     amt,
 		},
 	}
-	r, err := NewRouteFromHops(amt, 100, Vertex{}, hops)
+	r, err = NewRouteFromHops(amt, 100, Vertex{}, hops)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if r.TotalFees() != 0 {
 		t.Fatalf("expected 0 fees, got %v", r.TotalFees())
+	}
+
+	if r.ReceiverAmt() != amt {
+		t.Fatalf("expected %v amt, got %v", amt, r.ReceiverAmt())
 	}
 
 	// Append the route with a node, making the first one take a fee.
@@ -63,6 +76,10 @@ func TestRouteTotalFees(t *testing.T) {
 
 	if r.TotalFees() != fee {
 		t.Fatalf("expected %v fees, got %v", fee, r.TotalFees())
+	}
+
+	if r.ReceiverAmt() != amt-fee {
+		t.Fatalf("expected %v amt, got %v", amt-fee, r.ReceiverAmt())
 	}
 }
 

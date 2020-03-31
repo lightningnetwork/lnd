@@ -1746,7 +1746,7 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 	paySession := r.cfg.SessionSource.NewPaymentSessionForRoute(route)
 
 	// Calculate amount paid to receiver.
-	amt := route.TotalAmount - route.TotalFees()
+	amt := route.ReceiverAmt()
 
 	// Record this payment hash with the ControlTower, ensuring it is not
 	// already in-flight.

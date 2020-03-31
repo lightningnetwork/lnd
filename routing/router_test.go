@@ -792,8 +792,31 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 
 	// The final error returned should also indicate that the peer wasn't
 	// online (the last error we returned).
-	if !strings.Contains(err.Error(), "UnknownNextPeer") {
+	// TODO: proper err code
+	if !strings.Contains(err.Error(), "unable to find") {
 		t.Fatalf("expected UnknownNextPeer instead got: %v", err)
+	}
+
+	// Inspect the two attempts that were made before the payment failed.
+	p, err := ctx.router.cfg.Control.FetchPayment(payHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(p.HTLCs) != 2 {
+		t.Fatalf("expected two attempts got %v", len(p.HTLCs))
+	}
+
+	// We expect the first attempt to have failed with a
+	// TemporaryChannelFailure, the second with UnknownNextPeer.
+	msg := p.HTLCs[0].Failure.Message
+	if _, ok := msg.(*lnwire.FailTemporaryChannelFailure); !ok {
+		t.Fatalf("unexpected fail message: %T", msg)
+	}
+
+	msg = p.HTLCs[1].Failure.Message
+	if _, ok := msg.(*lnwire.FailUnknownNextPeer); !ok {
+		t.Fatalf("unexpected fail message: %T", msg)
 	}
 
 	ctx.router.cfg.MissionControl.(*MissionControl).ResetHistory()

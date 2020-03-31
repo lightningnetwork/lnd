@@ -37,11 +37,15 @@ type paymentLifecycle struct {
 	paySession    PaymentSession
 	timeoutChan   <-chan time.Time
 	currentHeight int32
-	lastError     error
 }
 
 // resumePayment resumes the paymentLifecycle from the current state.
 func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
+	shardHandler := &shardHandler{
+		router:      p.router,
+		paymentHash: p.paymentHash,
+	}
+
 	// We'll continue until either our payment succeeds, or we encounter a
 	// critical error during path finding.
 	for {
@@ -144,19 +148,20 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 
 				// If there was an error already recorded for this
 				// payment, we'll return that.
-				if p.lastError != nil {
-					return [32]byte{}, nil, errNoRoute{lastError: p.lastError}
+				if shardHandler.lastError != nil {
+					return [32]byte{}, nil, errNoRoute{
+						lastError: shardHandler.lastError,
+					}
 				}
 
 				// Terminal state, return.
 				return [32]byte{}, nil, err
 			}
 
-			// Using the route received from the payment session,
-			// create a new shard to send.
-			firstHop, htlcAdd, a, err := p.createNewPaymentAttempt(
-				rt,
-			)
+			// With the route in hand, launch a new shard.
+			var outcome *launchOutcome
+			attempt, outcome, err = shardHandler.launchShard(rt)
+
 			// With SendToRoute, it can happen that the route exceeds protocol
 			// constraints. Mark the payment as failed with an internal error.
 			if err == route.ErrMaxRouteHopsExceeded ||
@@ -178,43 +183,21 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 				return [32]byte{}, nil, err
 			}
 
-			attempt = a
-
-			// Before sending this HTLC to the switch, we checkpoint the
-			// fresh paymentID and route to the DB. This lets us know on
-			// startup the ID of the payment that we attempted to send,
-			// such that we can query the Switch for its whereabouts. The
-			// route is needed to handle the result when it eventually
-			// comes back.
-			err = p.router.cfg.Control.RegisterAttempt(p.paymentHash, attempt)
-			if err != nil {
-				return [32]byte{}, nil, err
-			}
-
-			// Now that the attempt is created and checkpointed to
-			// the DB, we send it.
-			sendErr := p.sendPaymentAttempt(
-				attempt, firstHop, htlcAdd,
-			)
-			if sendErr != nil {
-				// TODO(joostjager): Distinguish unexpected
-				// internal errors from real send errors.
-				err = p.failAttempt(attempt, sendErr)
-				if err != nil {
-					return [32]byte{}, nil, err
-				}
-
+			// We ew encountered a non-critical error when
+			// launching the shard, handle it
+			if outcome.err != nil {
 				// We must inspect the error to know whether it
 				// was critical or not, to decide whether we
 				// should continue trying.
-				err := p.handleSendError(attempt, sendErr)
+				err = shardHandler.handleSendError(
+					attempt, outcome.err,
+				)
 				if err != nil {
 					return [32]byte{}, nil, err
 				}
 
-				// Error was handled successfully, reset the
-				// attempt to indicate we want to make a new
-				// attempt.
+				// Error was handled successfully, continue to
+				// make a new attempt.
 				continue
 			}
 		}
@@ -250,7 +233,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 				"the Switch, retrying.", attempt.AttemptID,
 				p.paymentHash)
 
-			err = p.failAttempt(attempt, err)
+			err = shardHandler.failAttempt(attempt, err)
 			if err != nil {
 				return [32]byte{}, nil, err
 			}
@@ -290,7 +273,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 			log.Errorf("Attempt to send payment %x failed: %v",
 				p.paymentHash, result.Error)
 
-			err = p.failAttempt(attempt, result.Error)
+			err = shardHandler.failAttempt(attempt, result.Error)
 			if err != nil {
 				return [32]byte{}, nil, err
 			}
@@ -298,7 +281,10 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 			// We must inspect the error to know whether it was
 			// critical or not, to decide whether we should
 			// continue trying.
-			if err := p.handleSendError(attempt, result.Error); err != nil {
+			err := shardHandler.handleSendError(
+				attempt, result.Error,
+			)
+			if err != nil {
 				return [32]byte{}, nil, err
 			}
 
@@ -337,6 +323,74 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 	}
 }
 
+// shardHandler holds what is necessary to send and collect the result of
+// shards.
+type shardHandler struct {
+	paymentHash lntypes.Hash
+	router      *ChannelRouter
+
+	lastError error
+}
+
+// launchOutcome is a type returned from launchShard that indicates whether the
+// shard was successfully send onto the network.
+type launchOutcome struct {
+	// err is non-nil if a non-critical error was encountered when trying
+	// to send the shard, and we successfully updated the control tower to
+	// reflect this error. This can be errors like not enough local
+	// balance for the given route etc.
+	err error
+}
+
+// launchShard creates and sends an HTLC attempt along the given route,
+// registering it with the control tower before sending it. It returns the
+// HTLCAttemptInfo that was created for the shard, along with a launchOutcome.
+// The launchOutcome is used to indicate whether the attempt was successfully
+// sent. If the launchOutcome wraps a non-nil error, it means that the attempt
+// was not sent onto the network, so no result will be available in the future
+// for it.
+func (p *shardHandler) launchShard(rt *route.Route) (*channeldb.HTLCAttemptInfo,
+	*launchOutcome, error) {
+
+	// Using the route received from the payment session, create a new
+	// shard to send.
+	firstHop, htlcAdd, attempt, err := p.createNewPaymentAttempt(
+		rt,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Before sending this HTLC to the switch, we checkpoint the fresh
+	// paymentID and route to the DB. This lets us know on startup the ID
+	// of the payment that we attempted to send, such that we can query the
+	// Switch for its whereabouts. The route is needed to handle the result
+	// when it eventually comes back.
+	err = p.router.cfg.Control.RegisterAttempt(p.paymentHash, attempt)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Now that the attempt is created and checkpointed to the DB, we send
+	// it.
+	sendErr := p.sendPaymentAttempt(attempt, firstHop, htlcAdd)
+	if sendErr != nil {
+		// TODO(joostjager): Distinguish unexpected internal errors
+		// from real send errors.
+		err := p.failAttempt(attempt, sendErr)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		// Return a launchOutcome indicating the shard failed.
+		return attempt, &launchOutcome{
+			err: sendErr,
+		}, nil
+	}
+
+	return attempt, &launchOutcome{}, nil
+}
+
 // errorToPaymentFailure takes a path finding error and converts it into a
 // payment-level failure.
 func errorToPaymentFailure(err error) channeldb.FailureReason {
@@ -357,7 +411,7 @@ func errorToPaymentFailure(err error) channeldb.FailureReason {
 }
 
 // createNewPaymentAttempt creates a new payment attempt from the given route.
-func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route) (
+func (p *shardHandler) createNewPaymentAttempt(rt *route.Route) (
 	lnwire.ShortChannelID, *lnwire.UpdateAddHTLC,
 	*channeldb.HTLCAttemptInfo, error) {
 
@@ -414,7 +468,7 @@ func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route) (
 }
 
 // sendPaymentAttempt attempts to send the current attempt to the switch.
-func (p *paymentLifecycle) sendPaymentAttempt(
+func (p *shardHandler) sendPaymentAttempt(
 	attempt *channeldb.HTLCAttemptInfo, firstHop lnwire.ShortChannelID,
 	htlcAdd *lnwire.UpdateAddHTLC) error {
 
@@ -447,7 +501,7 @@ func (p *paymentLifecycle) sendPaymentAttempt(
 
 // handleSendError inspects the given error from the Switch and determines
 // whether we should make another payment attempt.
-func (p *paymentLifecycle) handleSendError(attempt *channeldb.HTLCAttemptInfo,
+func (p *shardHandler) handleSendError(attempt *channeldb.HTLCAttemptInfo,
 	sendErr error) error {
 
 	reason := p.router.processSendError(
@@ -457,7 +511,6 @@ func (p *paymentLifecycle) handleSendError(attempt *channeldb.HTLCAttemptInfo,
 		// Save the forwarding error so it can be returned if
 		// this turns out to be the last attempt.
 		p.lastError = sendErr
-
 		return nil
 	}
 
@@ -480,7 +533,7 @@ func (p *paymentLifecycle) handleSendError(attempt *channeldb.HTLCAttemptInfo,
 }
 
 // failAttempt calls control tower to fail the current payment attempt.
-func (p *paymentLifecycle) failAttempt(attempt *channeldb.HTLCAttemptInfo,
+func (p *shardHandler) failAttempt(attempt *channeldb.HTLCAttemptInfo,
 	sendError error) error {
 
 	failInfo := marshallError(

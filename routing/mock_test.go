@@ -10,7 +10,6 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/lightningnetwork/lnd/zpay32"
 )
 
 type mockPaymentAttemptDispatcher struct {
@@ -78,8 +77,8 @@ type mockPaymentSessionSource struct {
 
 var _ PaymentSessionSource = (*mockPaymentSessionSource)(nil)
 
-func (m *mockPaymentSessionSource) NewPaymentSession(routeHints [][]zpay32.HopHint,
-	target route.Vertex) (PaymentSession, error) {
+func (m *mockPaymentSessionSource) NewPaymentSession(
+	_ *LightningPayment) (PaymentSession, error) {
 
 	return &mockPaymentSession{m.routes}, nil
 }
@@ -123,9 +122,7 @@ type mockPaymentSession struct {
 
 var _ PaymentSession = (*mockPaymentSession)(nil)
 
-func (m *mockPaymentSession) RequestRoute(payment *LightningPayment,
-	height uint32, finalCltvDelta uint16) (*route.Route, error) {
-
+func (m *mockPaymentSession) RequestRoute(height uint32) (*route.Route, error) {
 	if len(m.routes) == 0 {
 		return nil, fmt.Errorf("no routes")
 	}

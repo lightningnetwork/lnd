@@ -24,8 +24,7 @@ var (
 type PaymentSession interface {
 	// RequestRoute returns the next route to attempt for routing the
 	// specified HTLC payment to the target node.
-	RequestRoute(payment *LightningPayment,
-		height uint32, finalCltvDelta uint16) (*route.Route, error)
+	RequestRoute(height uint32) (*route.Route, error)
 }
 
 // paymentSession is used during an HTLC routings session to prune the local
@@ -43,6 +42,8 @@ type paymentSession struct {
 
 	sessionSource *SessionSource
 
+	payment *LightningPayment
+
 	preBuiltRoute      *route.Route
 	preBuiltRouteTried bool
 
@@ -58,8 +59,7 @@ type paymentSession struct {
 //
 // NOTE: This function is safe for concurrent access.
 // NOTE: Part of the PaymentSession interface.
-func (p *paymentSession) RequestRoute(payment *LightningPayment,
-	height uint32, finalCltvDelta uint16) (*route.Route, error) {
+func (p *paymentSession) RequestRoute(height uint32) (*route.Route, error) {
 
 	switch {
 
@@ -77,12 +77,13 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 
 	// Add BlockPadding to the finalCltvDelta so that the receiving node
 	// does not reject the HTLC if some blocks are mined while it's in-flight.
+	finalCltvDelta := p.payment.FinalCLTVDelta
 	finalCltvDelta += BlockPadding
 
 	// We need to subtract the final delta before passing it into path
 	// finding. The optimal path is independent of the final cltv delta and
 	// the path finding algorithm is unaware of this value.
-	cltvLimit := payment.CltvLimit - uint32(finalCltvDelta)
+	cltvLimit := p.payment.CltvLimit - uint32(finalCltvDelta)
 
 	// TODO(roasbeef): sync logic amongst dist sys
 
@@ -93,13 +94,13 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 
 	restrictions := &RestrictParams{
 		ProbabilitySource: ss.MissionControl.GetProbability,
-		FeeLimit:          payment.FeeLimit,
-		OutgoingChannelID: payment.OutgoingChannelID,
-		LastHop:           payment.LastHop,
+		FeeLimit:          p.payment.FeeLimit,
+		OutgoingChannelID: p.payment.OutgoingChannelID,
+		LastHop:           p.payment.LastHop,
 		CltvLimit:         cltvLimit,
-		DestCustomRecords: payment.DestCustomRecords,
-		DestFeatures:      payment.DestFeatures,
-		PaymentAddr:       payment.PaymentAddr,
+		DestCustomRecords: p.payment.DestCustomRecords,
+		DestFeatures:      p.payment.DestFeatures,
+		PaymentAddr:       p.payment.PaymentAddr,
 	}
 
 	// We'll also obtain a set of bandwidthHints from the lower layer for
@@ -122,8 +123,8 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 			bandwidthHints:  bandwidthHints,
 		},
 		restrictions, &ss.PathFindingConfig,
-		ss.SelfNode.PubKeyBytes, payment.Target,
-		payment.Amount, finalHtlcExpiry,
+		ss.SelfNode.PubKeyBytes, p.payment.Target,
+		p.payment.Amount, finalHtlcExpiry,
 	)
 	if err != nil {
 		return nil, err
@@ -135,10 +136,10 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	route, err := newRoute(
 		sourceVertex, path, height,
 		finalHopParams{
-			amt:         payment.Amount,
+			amt:         p.payment.Amount,
 			cltvDelta:   finalCltvDelta,
-			records:     payment.DestCustomRecords,
-			paymentAddr: payment.PaymentAddr,
+			records:     p.payment.DestCustomRecords,
+			paymentAddr: p.payment.PaymentAddr,
 		},
 	)
 	if err != nil {

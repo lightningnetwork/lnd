@@ -159,8 +159,7 @@ type PaymentSessionSource interface {
 	// routes to the given target. An optional set of routing hints can be
 	// provided in order to populate additional edges to explore when
 	// finding a path to the payment's destination.
-	NewPaymentSession(routeHints [][]zpay32.HopHint,
-		target route.Vertex) (PaymentSession, error)
+	NewPaymentSession(p *LightningPayment) (PaymentSession, error)
 
 	// NewPaymentSessionForRoute creates a new paymentSession instance that
 	// is just used for failure reporting to missioncontrol, and will only
@@ -1677,9 +1676,7 @@ func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
 	// Before starting the HTLC routing attempt, we'll create a fresh
 	// payment session which will report our errors back to mission
 	// control.
-	paySession, err := r.cfg.SessionSource.NewPaymentSession(
-		payment.RouteHints, payment.Target,
-	)
+	paySession, err := r.cfg.SessionSource.NewPaymentSession(payment)
 	if err != nil {
 		return nil, err
 	}
@@ -1813,14 +1810,13 @@ func (r *ChannelRouter) sendPayment(
 	// Now set up a paymentLifecycle struct with these params, such that we
 	// can resume the payment from the current state.
 	p := &paymentLifecycle{
-		router:         r,
-		payment:        payment,
-		paySession:     paySession,
-		currentHeight:  currentHeight,
-		finalCLTVDelta: uint16(payment.FinalCLTVDelta),
-		attempt:        existingAttempt,
-		circuit:        nil,
-		lastError:      nil,
+		router:        r,
+		payment:       payment,
+		paySession:    paySession,
+		currentHeight: currentHeight,
+		attempt:       existingAttempt,
+		circuit:       nil,
+		lastError:     nil,
 	}
 
 	// If a timeout is specified, create a timeout channel. If no timeout is

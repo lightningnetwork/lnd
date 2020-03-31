@@ -47,10 +47,10 @@ type SessionSource struct {
 // view from Mission Control. An optional set of routing hints can be provided
 // in order to populate additional edges to explore when finding a path to the
 // payment's destination.
-func (m *SessionSource) NewPaymentSession(routeHints [][]zpay32.HopHint,
-	target route.Vertex) (PaymentSession, error) {
+func (m *SessionSource) NewPaymentSession(p *LightningPayment) (
+	PaymentSession, error) {
 
-	edges, err := RouteHintsToEdges(routeHints, target)
+	edges, err := RouteHintsToEdges(p.RouteHints, p.Target)
 	if err != nil {
 		return nil, err
 	}
@@ -70,6 +70,7 @@ func (m *SessionSource) NewPaymentSession(routeHints [][]zpay32.HopHint,
 		additionalEdges:   edges,
 		getBandwidthHints: getBandwidthHints,
 		sessionSource:     m,
+		payment:           p,
 		pathFinder:        findPath,
 	}, nil
 }

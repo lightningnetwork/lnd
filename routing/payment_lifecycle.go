@@ -29,15 +29,14 @@ func (e errNoRoute) Error() string {
 // paymentLifecycle holds all information about the current state of a payment
 // needed to resume if from any point.
 type paymentLifecycle struct {
-	router         *ChannelRouter
-	payment        *LightningPayment
-	paySession     PaymentSession
-	timeoutChan    <-chan time.Time
-	currentHeight  int32
-	finalCLTVDelta uint16
-	attempt        *channeldb.HTLCAttemptInfo
-	circuit        *sphinx.Circuit
-	lastError      error
+	router        *ChannelRouter
+	payment       *LightningPayment
+	paySession    PaymentSession
+	timeoutChan   <-chan time.Time
+	currentHeight int32
+	attempt       *channeldb.HTLCAttemptInfo
+	circuit       *sphinx.Circuit
+	lastError     error
 }
 
 // resumePayment resumes the paymentLifecycle from the current state.
@@ -267,9 +266,7 @@ func (p *paymentLifecycle) createNewPaymentAttempt() (lnwire.ShortChannelID,
 	}
 
 	// Create a new payment attempt from the given payment session.
-	rt, err := p.paySession.RequestRoute(
-		p.payment, uint32(p.currentHeight), p.finalCLTVDelta,
-	)
+	rt, err := p.paySession.RequestRoute(uint32(p.currentHeight))
 	if err != nil {
 		log.Warnf("Failed to find route for payment %x: %v",
 			p.payment.PaymentHash, err)

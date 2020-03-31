@@ -14908,6 +14908,10 @@ var testsCases = []*testCase{
 		name: "psbt channel funding",
 		test: testPsbtChanFunding,
 	},
+	{
+		name: "sendtoroute multi path payment",
+		test: testSendToRouteMultiPath,
+	},
 }
 
 // TestLightningNetworkDaemon performs a series of integration tests amongst a

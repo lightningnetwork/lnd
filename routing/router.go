@@ -533,20 +533,13 @@ func (r *ChannelRouter) Start() error {
 			// result for the in-flight attempt is received.
 			paySession := r.cfg.SessionSource.NewPaymentSessionEmpty()
 
-			// TODO(joostjager): For mpp, possibly relaunch multiple
-			// in-flight htlcs here.
-			var attempt *channeldb.HTLCAttemptInfo
-			if len(payment.Attempts) > 0 {
-				attempt = &payment.Attempts[0]
-			}
-
 			// We pass in a zero timeout value, to indicate we
 			// don't need it to timeout. It will stop immediately
 			// after the existing attempt has finished anyway. We
 			// also set a zero fee limit, as no more routes should
 			// be tried.
 			_, _, err := r.sendPayment(
-				attempt, payment.Info.Value, 0,
+				payment.Info.Value, 0,
 				payment.Info.PaymentHash, 0, paySession,
 			)
 			if err != nil {
@@ -1646,7 +1639,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 	// Since this is the first time this payment is being made, we pass nil
 	// for the existing attempt.
 	return r.sendPayment(
-		nil, payment.Amount, payment.FeeLimit, payment.PaymentHash,
+		payment.Amount, payment.FeeLimit, payment.PaymentHash,
 		payment.PayAttemptTimeout, paySession,
 	)
 }
@@ -1669,9 +1662,8 @@ func (r *ChannelRouter) SendPaymentAsync(payment *LightningPayment) error {
 			spewPayment(payment))
 
 		_, _, err := r.sendPayment(
-			nil, payment.Amount, payment.FeeLimit,
-			payment.PaymentHash, payment.PayAttemptTimeout,
-			paySession,
+			payment.Amount, payment.FeeLimit, payment.PaymentHash,
+			payment.PayAttemptTimeout, paySession,
 		)
 		if err != nil {
 			log.Errorf("Payment with hash %x failed: %v",
@@ -1770,14 +1762,14 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 
 	// We set the timeout to a zero value, indicating the payment shouldn't
 	// timeout. It is only a single attempt, so no more attempts will be
-	// done anyway. Since this is the first time this payment is being
-	// made, we pass nil for the existing attempt.
+	// done anyway.
+	//
 	// We pass the route receiver amount as the total payment amount such
 	// that the payment loop will request a route for this amount. As fee
 	// limit we pass the route's total fees, since we already know this is
 	// the route that is going to be used.
 	preimage, _, err := r.sendPayment(
-		nil, amt, route.TotalFees(), hash, 0, paySession,
+		amt, route.TotalFees(), hash, 0, paySession,
 	)
 	if err != nil {
 		// SendToRoute should return a structured error. In case the
@@ -1815,7 +1807,6 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 // router will call this method for every payment still in-flight according to
 // the ControlTower.
 func (r *ChannelRouter) sendPayment(
-	existingAttempt *channeldb.HTLCAttemptInfo,
 	totalAmt, feeLimit lnwire.MilliSatoshi, paymentHash lntypes.Hash,
 	timeout time.Duration,
 	paySession PaymentSession) ([32]byte, *route.Route, error) {
@@ -1836,8 +1827,6 @@ func (r *ChannelRouter) sendPayment(
 		paymentHash:   paymentHash,
 		paySession:    paySession,
 		currentHeight: currentHeight,
-		attempt:       existingAttempt,
-		circuit:       nil,
 		lastError:     nil,
 	}
 

@@ -17,7 +17,6 @@ run:
     - autopilotrpc
     - chainrpc
     - invoicesrpc
-    - routerrpc
     - signrpc
     - walletrpc
     - watchtowerrpc

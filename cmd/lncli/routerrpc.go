@@ -1,10 +1,8 @@
-// +build routerrpc
-
 package main
 
 import "github.com/urfave/cli"
 
-// routerCommands will return nil for non-routerrpc builds.
+// routerCommands returns a list of routerrpc commands.
 func routerCommands() []cli.Command {
 	return []cli.Command{
 		queryMissionControlCommand,

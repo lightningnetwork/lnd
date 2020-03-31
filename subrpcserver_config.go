@@ -219,21 +219,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 				reflect.ValueOf(genInvoiceFeatures),
 			)
 
+		// RouterRPC isn't conditionally compiled and doesn't need to be
+		// populated using reflection.
 		case *routerrpc.Config:
-			subCfgValue := extractReflectValue(subCfg)
-
-			subCfgValue.FieldByName("NetworkDir").Set(
-				reflect.ValueOf(networkDir),
-			)
-			subCfgValue.FieldByName("MacService").Set(
-				reflect.ValueOf(macService),
-			)
-			subCfgValue.FieldByName("Router").Set(
-				reflect.ValueOf(chanRouter),
-			)
-			subCfgValue.FieldByName("RouterBackend").Set(
-				reflect.ValueOf(routerBackend),
-			)
 
 		case *watchtowerrpc.Config:
 			subCfgValue := extractReflectValue(subCfg)
@@ -265,6 +253,12 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 				cfg)
 		}
 	}
+
+	// Populate routerrpc dependencies.
+	s.RouterRPC.NetworkDir = networkDir
+	s.RouterRPC.MacService = macService
+	s.RouterRPC.Router = chanRouter
+	s.RouterRPC.RouterBackend = routerBackend
 
 	return nil
 }

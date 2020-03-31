@@ -503,12 +503,15 @@ service Lightning {
     }
 
     /** lncli: `sendpayment`
-    SendPayment dispatches a bi-directional streaming RPC for sending payments
-    through the Lightning Network. A single RPC invocation creates a persistent
-    bi-directional stream allowing clients to rapidly send payments through the
-    Lightning Network with a single persistent connection.
+    Deprecated, use routerrpc.SendPayment. SendPayment dispatches a
+    bi-directional streaming RPC for sending payments through the Lightning
+    Network. A single RPC invocation creates a persistent bi-directional
+    stream allowing clients to rapidly send payments through the Lightning
+    Network with a single persistent connection.
     */
-    rpc SendPayment (stream SendRequest) returns (stream SendResponse);
+    rpc SendPayment (stream SendRequest) returns (stream SendResponse) {
+        option deprecated = true;
+    }
 
     /**
     SendPaymentSync is the synchronous non-streaming version of SendPayment.

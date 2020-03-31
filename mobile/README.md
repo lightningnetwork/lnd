@@ -53,14 +53,14 @@ Similar to lnd, subservers can be conditionally compiled with the build by
 setting the tags argument:
 
 ```
-make ios tags="routerrpc"
+make ios
 ```
 
 To support subservers that have APIs with name conflicts, pass the "prefix"
 flag. This will add the subserver name as a prefix to each method name:
 
 ```
-make ios tags="routerrpc" prefix=1
+make ios prefix=1
 ```
 
 ### API docs

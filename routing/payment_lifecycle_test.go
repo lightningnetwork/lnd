@@ -17,6 +17,35 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
+// createTestRoute builds a route a->b->c paying the given amt to c.
+func createTestRoute(amt lnwire.MilliSatoshi,
+	aliasMap map[string]route.Vertex) (*route.Route, error) {
+
+	hopFee := lnwire.NewMSatFromSatoshis(3)
+	hop1 := aliasMap["b"]
+	hop2 := aliasMap["c"]
+	hops := []*route.Hop{
+		{
+			ChannelID:     1,
+			PubKeyBytes:   hop1,
+			LegacyPayload: true,
+			AmtToForward:  amt + hopFee,
+		},
+		{
+			ChannelID:     2,
+			PubKeyBytes:   hop2,
+			LegacyPayload: true,
+			AmtToForward:  amt,
+		},
+	}
+
+	// We create a simple route that we will supply every time the router
+	// requests one.
+	return route.NewRouteFromHops(
+		amt+2*hopFee, 100, aliasMap["a"], hops,
+	)
+}
+
 // TestRouterPaymentStateMachine tests that the router interacts as expected
 // with the ControlTower during a payment lifecycle, such that it payment
 // attempts are not sent twice to the switch, and results are handled after a
@@ -50,26 +79,11 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 	}
 	defer testGraph.cleanUp()
 
-	hop1 := testGraph.aliasMap["b"]
-	hop2 := testGraph.aliasMap["c"]
-	hops := []*route.Hop{
-		{
-			ChannelID:     1,
-			PubKeyBytes:   hop1,
-			LegacyPayload: true,
-		},
-		{
-			ChannelID:     2,
-			PubKeyBytes:   hop2,
-			LegacyPayload: true,
-		},
-	}
+	paymentAmt := lnwire.NewMSatFromSatoshis(1000)
 
 	// We create a simple route that we will supply every time the router
 	// requests one.
-	rt, err := route.NewRouteFromHops(
-		lnwire.MilliSatoshi(10000), 100, testGraph.aliasMap["a"], hops,
-	)
+	rt, err := createTestRoute(paymentAmt, testGraph.aliasMap)
 	if err != nil {
 		t.Fatalf("unable to create route: %v", err)
 	}
@@ -443,7 +457,6 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 
 		payHash := preImage.Hash()
 
-		paymentAmt := lnwire.NewMSatFromSatoshis(1000)
 		payment := LightningPayment{
 			Target:      testGraph.aliasMap["c"],
 			Amount:      paymentAmt,

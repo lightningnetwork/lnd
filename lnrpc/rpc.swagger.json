@@ -2825,11 +2825,46 @@
         }
       }
     },
+    "lnrpcFundingPsbtFinalize": {
+      "type": "object",
+      "properties": {
+        "signed_psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nThe funded PSBT that contains all witness data to send the exact channel\ncapacity amount to the PK script returned in the open channel message in a\nprevious step."
+        },
+        "pending_chan_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "/ The pending channel ID of the channel to get the PSBT for."
+        }
+      }
+    },
+    "lnrpcFundingPsbtVerify": {
+      "type": "object",
+      "properties": {
+        "funded_psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nThe funded but not yet signed PSBT that sends the exact channel capacity\namount to the PK script returned in the open channel message in a previous\nstep."
+        },
+        "pending_chan_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "/ The pending channel ID of the channel to get the PSBT for."
+        }
+      }
+    },
     "lnrpcFundingShim": {
       "type": "object",
       "properties": {
         "chan_point_shim": {
-          "$ref": "#/definitions/lnrpcChanPointShim"
+          "$ref": "#/definitions/lnrpcChanPointShim",
+          "description": "*\nA channel shim where the channel point was fully constructed outside\nof lnd's wallet and the transaction might already be published."
+        },
+        "psbt_shim": {
+          "$ref": "#/definitions/lnrpcPsbtShim",
+          "description": "*\nA channel shim that uses a PSBT to fund and sign the channel funding\ntransaction."
         }
       }
     },
@@ -3753,10 +3788,16 @@
       "type": "object",
       "properties": {
         "chan_pending": {
-          "$ref": "#/definitions/lnrpcPendingUpdate"
+          "$ref": "#/definitions/lnrpcPendingUpdate",
+          "description": "*\nSignals that the channel is now fully negotiated and the funding\ntransaction published."
         },
         "chan_open": {
-          "$ref": "#/definitions/lnrpcChannelOpenUpdate"
+          "$ref": "#/definitions/lnrpcChannelOpenUpdate",
+          "description": "*\nSignals that the channel's funding transaction has now reached the\nrequired number of confirmations on chain and can be used."
+        },
+        "psbt_fund": {
+          "$ref": "#/definitions/lnrpcReadyForPsbtFunding",
+          "description": "*\nSignals that the funding process has been suspended and the construction\nof a PSBT that funds the channel PK script is now required."
         },
         "pending_chan_id": {
           "type": "string",
@@ -4120,6 +4161,21 @@
     "lnrpcPolicyUpdateResponse": {
       "type": "object"
     },
+    "lnrpcPsbtShim": {
+      "type": "object",
+      "properties": {
+        "pending_chan_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nA unique identifier of 32 random bytes that will be used as the pending\nchannel ID to identify the PSBT state machine when interacting with it and\non the wire protocol to initiate the funding request."
+        },
+        "base_psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nAn optional base PSBT the new channel output will be added to. If this is\nnon-empty, it must be a binary serialized PSBT."
+        }
+      }
+    },
     "lnrpcQueryRoutesResponse": {
       "type": "object",
       "properties": {
@@ -4134,6 +4190,25 @@
           "type": "number",
           "format": "double",
           "title": "*\nThe success probability of the returned route based on the current mission\ncontrol state. [EXPERIMENTAL]"
+        }
+      }
+    },
+    "lnrpcReadyForPsbtFunding": {
+      "type": "object",
+      "properties": {
+        "funding_address": {
+          "type": "string",
+          "description": "*\nThe P2WSH address of the channel funding multisig address that the below\nspecified amount in satoshis needs to be sent to."
+        },
+        "funding_amount": {
+          "type": "string",
+          "format": "int64",
+          "description": "*\nThe exact amount in satoshis that needs to be sent to the above address to\nfund the pending channel."
+        },
+        "psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nA raw PSBT that contains the pending channel output. If a base PSBT was\nprovided in the PsbtShim, this is the base PSBT with one additional output.\nIf no base PSBT was specified, this is an otherwise empty PSBT with exactly\none output."
         }
       }
     },

@@ -202,123 +202,27 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 			}
 		}
 
-		// Regenerate the circuit for this attempt.
-		_, circuit, err := generateSphinxPacket(
-			&attempt.Route, p.paymentHash[:], attempt.SessionKey,
-		)
+		// Whether this was an existing attempt or one we just sent,
+		// we'll now collect its result. We ignore the result for now
+		// if it is a success, as we will look it up in the control
+		// tower on the next loop iteration.
+		result, err := shardHandler.collectResult(attempt)
 		if err != nil {
 			return [32]byte{}, nil, err
 		}
 
-		// Using the created circuit, initialize the error decrypter so we can
-		// parse+decode any failures incurred by this payment within the
-		// switch.
-		errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
-			OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
-		}
-
-		// Now ask the switch to return the result of the payment when
-		// available.
-		resultChan, err := p.router.cfg.Payer.GetPaymentResult(
-			attempt.AttemptID, p.paymentHash, errorDecryptor,
-		)
-		switch {
-
-		// If this attempt ID is unknown to the Switch, it means it was
-		// never checkpointed and forwarded by the switch before a
-		// restart. In this case we can safely send a new payment
-		// attempt, and wait for its result to be available.
-		case err == htlcswitch.ErrPaymentIDNotFound:
-			log.Debugf("Payment ID %v for hash %x not found in "+
-				"the Switch, retrying.", attempt.AttemptID,
-				p.paymentHash)
-
-			err = shardHandler.failAttempt(attempt, err)
-			if err != nil {
-				return [32]byte{}, nil, err
-			}
-
-			// Reset the attempt to indicate we want to make a new
-			// attempt.
-			continue
-
-		// A critical, unexpected error was encountered.
-		case err != nil:
-			log.Errorf("Failed getting result for attemptID %d "+
-				"from switch: %v", attempt.AttemptID, err)
-
-			return [32]byte{}, nil, err
-		}
-
-		// The switch knows about this payment, we'll wait for a result
-		// to be available.
-		var (
-			result *htlcswitch.PaymentResult
-			ok     bool
-		)
-
-		select {
-		case result, ok = <-resultChan:
-			if !ok {
-				return [32]byte{}, nil, htlcswitch.ErrSwitchExiting
-			}
-
-		case <-p.router.quit:
-			return [32]byte{}, nil, ErrRouterShuttingDown
-		}
-
-		// In case of a payment failure, we use the error to decide
-		// whether we should retry.
-		if result.Error != nil {
-			log.Errorf("Attempt to send payment %x failed: %v",
-				p.paymentHash, result.Error)
-
-			err = shardHandler.failAttempt(attempt, result.Error)
-			if err != nil {
-				return [32]byte{}, nil, err
-			}
-
+		if result.err != nil {
 			// We must inspect the error to know whether it was
 			// critical or not, to decide whether we should
 			// continue trying.
-			err := shardHandler.handleSendError(
-				attempt, result.Error,
-			)
+			err = shardHandler.handleSendError(attempt, result.err)
 			if err != nil {
 				return [32]byte{}, nil, err
 			}
 
-			// Error was handled successfully, reset the attempt to
-			// indicate we want to make a new attempt.
+			// Error was handled successfully, continue to make a
+			// new attempt.
 			continue
-		}
-
-		// We successfully got a payment result back from the switch.
-		log.Debugf("Payment %x succeeded with pid=%v",
-			p.paymentHash, attempt.AttemptID)
-
-		// Report success to mission control.
-		err = p.router.cfg.MissionControl.ReportPaymentSuccess(
-			attempt.AttemptID, &attempt.Route,
-		)
-		if err != nil {
-			log.Errorf("Error reporting payment success to mc: %v",
-				err)
-		}
-
-		// In case of success we atomically store the db payment and
-		// move the payment to the success state.
-		err = p.router.cfg.Control.SettleAttempt(
-			p.paymentHash, attempt.AttemptID,
-			&channeldb.HTLCSettleInfo{
-				Preimage:   result.Preimage,
-				SettleTime: p.router.cfg.Clock.Now(),
-			},
-		)
-		if err != nil {
-			log.Errorf("Unable to succeed payment "+
-				"attempt: %v", err)
-			return [32]byte{}, nil, err
 		}
 	}
 }
@@ -389,6 +293,136 @@ func (p *shardHandler) launchShard(rt *route.Route) (*channeldb.HTLCAttemptInfo,
 	}
 
 	return attempt, &launchOutcome{}, nil
+}
+
+// shardResult holds the resulting outcome of a shard sent.
+type shardResult struct {
+	// preimage is the payment preimage in case of a settled HTLC. Only set
+	// if err is non-nil.
+	preimage lntypes.Preimage
+
+	// err indicates that the shard failed.
+	err error
+}
+
+// collectResult waits for the result for the given attempt to be available
+// from the Switch, then records the attempt outcome with the control tower. A
+// shardResult is returned, indicating the final outcome of this HTLC attempt.
+func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
+	*shardResult, error) {
+
+	// Regenerate the circuit for this attempt.
+	_, circuit, err := generateSphinxPacket(
+		&attempt.Route, p.paymentHash[:],
+		attempt.SessionKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Using the created circuit, initialize the error decrypter so we can
+	// parse+decode any failures incurred by this payment within the
+	// switch.
+	errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
+		OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
+	}
+
+	// Now ask the switch to return the result of the payment when
+	// available.
+	resultChan, err := p.router.cfg.Payer.GetPaymentResult(
+		attempt.AttemptID, p.paymentHash, errorDecryptor,
+	)
+	switch {
+
+	// If this attempt ID is unknown to the Switch, it means it was never
+	// checkpointed and forwarded by the switch before a restart. In this
+	// case we can safely send a new payment attempt, and wait for its
+	// result to be available.
+	case err == htlcswitch.ErrPaymentIDNotFound:
+		log.Debugf("Payment ID %v for hash %x not found in "+
+			"the Switch, retrying.", attempt.AttemptID,
+			p.paymentHash)
+
+		cErr := p.failAttempt(attempt, err)
+		if cErr != nil {
+			return nil, cErr
+		}
+
+		return &shardResult{
+			err: err,
+		}, nil
+
+	// A critical, unexpected error was encountered.
+	case err != nil:
+		log.Errorf("Failed getting result for attemptID %d "+
+			"from switch: %v", attempt.AttemptID, err)
+
+		return nil, err
+	}
+
+	// The switch knows about this payment, we'll wait for a result to be
+	// available.
+	var (
+		result *htlcswitch.PaymentResult
+		ok     bool
+	)
+
+	select {
+	case result, ok = <-resultChan:
+		if !ok {
+			return nil, htlcswitch.ErrSwitchExiting
+		}
+
+	case <-p.router.quit:
+		return nil, ErrRouterShuttingDown
+	}
+
+	// In case of a payment failure, fail the attempt with the control
+	// tower and return.
+	if result.Error != nil {
+		log.Errorf("Attempt to send payment %x failed: %v",
+			p.paymentHash, result.Error)
+
+		err := p.failAttempt(attempt, result.Error)
+		if err != nil {
+			return nil, err
+		}
+
+		return &shardResult{
+			err: result.Error,
+		}, nil
+	}
+
+	// We successfully got a payment result back from the switch.
+	log.Debugf("Payment %x succeeded with pid=%v",
+		p.paymentHash, attempt.AttemptID)
+
+	// Report success to mission control.
+	err = p.router.cfg.MissionControl.ReportPaymentSuccess(
+		attempt.AttemptID, &attempt.Route,
+	)
+	if err != nil {
+		log.Errorf("Error reporting payment success to mc: %v",
+			err)
+	}
+
+	// In case of success we atomically store settle result to the DB move
+	// the shard to the settled state.
+	err = p.router.cfg.Control.SettleAttempt(
+		p.paymentHash, attempt.AttemptID,
+		&channeldb.HTLCSettleInfo{
+			Preimage:   result.Preimage,
+			SettleTime: p.router.cfg.Clock.Now(),
+		},
+	)
+	if err != nil {
+		log.Errorf("Unable to succeed payment attempt: %v", err)
+		return nil, err
+	}
+
+	return &shardResult{
+		preimage: result.Preimage,
+	}, nil
 }
 
 // errorToPaymentFailure takes a path finding error and converts it into a

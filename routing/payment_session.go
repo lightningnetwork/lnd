@@ -1,8 +1,6 @@
 package routing
 
 import (
-	"errors"
-
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -12,11 +10,72 @@ import (
 // to prevent an HTLC being failed if some blocks are mined while it's in-flight.
 const BlockPadding uint16 = 3
 
-var (
+// noRouteError encodes a non-critical error encountered during path finding.
+type noRouteError uint8
+
+const (
+	// errNoTlvPayload is returned when the destination hop does not support
+	// a tlv payload.
+	errNoTlvPayload noRouteError = iota
+
+	// errNoPaymentAddr is returned when the destination hop does not
+	// support payment addresses.
+	errNoPaymentAddr
+
+	// errNoPathFound is returned when a path to the target destination does
+	// not exist in the graph.
+	errNoPathFound
+
+	// errInsufficientLocalBalance is returned when none of the local
+	// channels have enough balance for the payment.
+	errInsufficientBalance
+
 	// errEmptyPaySession is returned when the empty payment session is
 	// queried for a route.
-	errEmptyPaySession = errors.New("empty payment session")
+	errEmptyPaySession
 )
+
+// Error returns the string representation of the noRouteError
+func (e noRouteError) Error() string {
+	switch e {
+	case errNoTlvPayload:
+		return "destination hop doesn't understand new TLV payloads"
+
+	case errNoPaymentAddr:
+		return "destination hop doesn't understand payment addresses"
+
+	case errNoPathFound:
+		return "unable to find a path to destination"
+
+	case errEmptyPaySession:
+		return "empty payment session"
+
+	case errInsufficientBalance:
+		return "insufficient local balance"
+
+	default:
+		return "unknown no-route error"
+	}
+}
+
+// FailureReason converts a path finding error into a payment-level failure.
+func (e noRouteError) FailureReason() channeldb.FailureReason {
+	switch e {
+	case
+		errNoTlvPayload,
+		errNoPaymentAddr,
+		errNoPathFound,
+		errEmptyPaySession:
+
+		return channeldb.FailureReasonNoRoute
+
+	case errInsufficientBalance:
+		return channeldb.FailureReasonInsufficientBalance
+
+	default:
+		return channeldb.FailureReasonError
+	}
+}
 
 // PaymentSession is used during SendPayment attempts to provide routes to
 // attempt. It also defines methods to give the PaymentSession additional
@@ -29,6 +88,9 @@ type PaymentSession interface {
 	// argument should be set to instruct the payment session about the
 	// number of in flight HTLCS for the payment, such that it can choose
 	// splitting strategy accordingly.
+	//
+	// A noRouteError is returned if a non-critical error is encountered
+	// during path finding.
 	RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		activeShards, height uint32) (*route.Route, error)
 }

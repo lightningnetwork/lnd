@@ -58,24 +58,6 @@ var (
 	// DefaultAprioriHopProbability is the default a priori probability for
 	// a hop.
 	DefaultAprioriHopProbability = float64(0.6)
-
-	// errNoTlvPayload is returned when the destination hop does not support
-	// a tlv payload.
-	errNoTlvPayload = errors.New("destination hop doesn't " +
-		"understand new TLV payloads")
-
-	// errNoPaymentAddr is returned when the destination hop does not
-	// support payment addresses.
-	errNoPaymentAddr = errors.New("destination hop doesn't " +
-		"understand payment addresses")
-
-	// errNoPathFound is returned when a path to the target destination does
-	// not exist in the graph.
-	errNoPathFound = errors.New("unable to find a path to destination")
-
-	// errInsufficientLocalBalance is returned when none of the local
-	// channels have enough balance for the payment.
-	errInsufficientBalance = errors.New("insufficient local balance")
 )
 
 // edgePolicyWithSource is a helper struct to keep track of the source node

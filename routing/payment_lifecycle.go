@@ -210,11 +210,16 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 			log.Warnf("Failed to find route for payment %x: %v",
 				p.paymentHash, err)
 
+			routeErr, ok := err.(noRouteError)
+			if !ok {
+				return [32]byte{}, nil, err
+			}
+
 			// There is no route to try, and we have no active
 			// shards. This means that there is no way for us to
 			// send the payment, so mark it failed with no route.
 			if state.numShardsInFlight == 0 {
-				failureCode := errorToPaymentFailure(err)
+				failureCode := routeErr.FailureReason()
 				log.Debugf("Marking payment %v permanently "+
 					"failed with no route: %v",
 					p.paymentHash, failureCode)
@@ -568,25 +573,6 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 	return &shardResult{
 		preimage: result.Preimage,
 	}, nil
-}
-
-// errorToPaymentFailure takes a path finding error and converts it into a
-// payment-level failure.
-func errorToPaymentFailure(err error) channeldb.FailureReason {
-	switch err {
-	case
-		errNoTlvPayload,
-		errNoPaymentAddr,
-		errNoPathFound,
-		errEmptyPaySession:
-
-		return channeldb.FailureReasonNoRoute
-
-	case errInsufficientBalance:
-		return channeldb.FailureReasonInsufficientBalance
-	}
-
-	return channeldb.FailureReasonError
 }
 
 // createNewPaymentAttempt creates a new payment attempt from the given route.

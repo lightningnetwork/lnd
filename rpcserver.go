@@ -2738,6 +2738,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 				LocalChanReserveSat:  int64(pendingChan.LocalChanCfg.ChanReserve),
 				RemoteChanReserveSat: int64(pendingChan.RemoteChanCfg.ChanReserve),
 				Initiator:            pendingChan.IsInitiator,
+				CommitmentType:       rpcCommitmentType(pendingChan.ChanType),
 			},
 			CommitWeight: commitWeight,
 			CommitFee:    int64(localCommitment.CommitFee),
@@ -2764,10 +2765,11 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		pub := pendingClose.RemotePub.SerializeCompressed()
 		chanPoint := pendingClose.ChanPoint
 		channel := &lnrpc.PendingChannelsResponse_PendingChannel{
-			RemoteNodePub: hex.EncodeToString(pub),
-			ChannelPoint:  chanPoint.String(),
-			Capacity:      int64(pendingClose.Capacity),
-			LocalBalance:  int64(pendingClose.SettledBalance),
+			RemoteNodePub:  hex.EncodeToString(pub),
+			ChannelPoint:   chanPoint.String(),
+			Capacity:       int64(pendingClose.Capacity),
+			LocalBalance:   int64(pendingClose.SettledBalance),
+			CommitmentType: lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE,
 		}
 
 		// Lookup the channel in the historical channel bucket to obtain
@@ -2786,6 +2788,9 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 
 		case nil:
 			channel.Initiator = historical.IsInitiator
+			channel.CommitmentType = rpcCommitmentType(
+				historical.ChanType,
+			)
 
 		// If the error is non-nil, and not due to older versions of lnd
 		// not persisting historical channels, return it.
@@ -2913,6 +2918,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			LocalChanReserveSat:  int64(waitingClose.LocalChanCfg.ChanReserve),
 			RemoteChanReserveSat: int64(waitingClose.RemoteChanCfg.ChanReserve),
 			Initiator:            waitingClose.IsInitiator,
+			CommitmentType:       rpcCommitmentType(waitingClose.ChanType),
 		}
 
 		waitingCloseResp := &lnrpc.PendingChannelsResponse_WaitingCloseChannel{
@@ -3220,6 +3226,23 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 	return resp, nil
 }
 
+// rpcCommitmentType takes the channel type and converts it to an rpc commitment
+// type value.
+func rpcCommitmentType(chanType channeldb.ChannelType) lnrpc.CommitmentType {
+	// Extract the commitment type from the channel type flags. We must
+	// first check whether it has anchors, since in that case it would also
+	// be tweakless.
+	if chanType.HasAnchors() {
+		return lnrpc.CommitmentType_ANCHORS
+	}
+
+	if chanType.IsTweakless() {
+		return lnrpc.CommitmentType_STATIC_REMOTE_KEY
+	}
+
+	return lnrpc.CommitmentType_LEGACY
+}
+
 // createRPCOpenChannel creates an *lnrpc.Channel from the *channeldb.Channel.
 func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 	dbChannel *channeldb.OpenChannel, isActive bool) (*lnrpc.Channel, error) {
@@ -3257,15 +3280,8 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 	}
 	externalCommitFee := dbChannel.Capacity - sumOutputs
 
-	// Extract the commitment type from the channel type flags. We must
-	// first check whether it has anchors, since in that case it would also
-	// be tweakless.
-	commitmentType := lnrpc.CommitmentType_LEGACY
-	if dbChannel.ChanType.HasAnchors() {
-		commitmentType = lnrpc.CommitmentType_ANCHORS
-	} else if dbChannel.ChanType.IsTweakless() {
-		commitmentType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
-	}
+	// Extract the commitment type from the channel type flags.
+	commitmentType := rpcCommitmentType(dbChannel.ChanType)
 
 	channel := &lnrpc.Channel{
 		Active:                isActive,

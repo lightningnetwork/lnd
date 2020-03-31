@@ -101,6 +101,13 @@ func (m *mockMissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route
 	failureSourceIdx *int, failure lnwire.FailureMessage) (
 	*channeldb.FailureReason, error) {
 
+	// Report a permanent failure if this is an error caused
+	// by incorrect details.
+	if failure.Code() == lnwire.CodeIncorrectOrUnknownPaymentDetails {
+		reason := channeldb.FailureReasonPaymentDetails
+		return &reason, nil
+	}
+
 	return nil, nil
 }
 

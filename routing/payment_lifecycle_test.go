@@ -139,10 +139,16 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 		// respond with a successful payment result.
 		getPaymentResultSuccess = "GetPaymentResult:success"
 
-		// getPaymentResultFailure is a test step where we expect the
+		// getPaymentResultTempFailure is a test step where we expect the
 		// router to call the GetPaymentResult method, and we will
-		// respond with a forwarding error.
-		getPaymentResultFailure = "GetPaymentResult:failure"
+		// respond with a forwarding error, expecting the router to retry.
+		getPaymentResultTempFailure = "GetPaymentResult:temp-failure"
+
+		// getPaymentResultTerminalFailure is a test step where we
+		// expect the router to call the GetPaymentResult method, and
+		// we will respond with a terminal error, expecting the router
+		// to stop making payment attempts.
+		getPaymentResultTerminalFailure = "GetPaymentResult:terminal-failure"
 
 		// resendPayment is a test step where we manually try to resend
 		// the same payment, making sure the router responds with an
@@ -197,7 +203,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				sendToSwitchSuccess,
 
 				// Make the first sent attempt fail.
-				getPaymentResultFailure,
+				getPaymentResultTempFailure,
 				routerFailAttempt,
 
 				// The router should retry.
@@ -244,7 +250,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				sendToSwitchSuccess,
 
 				// Make the first sent attempt fail.
-				getPaymentResultFailure,
+				getPaymentResultTempFailure,
 				routerFailAttempt,
 
 				// Since there are no more routes to try, the
@@ -343,7 +349,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				resentPaymentError,
 
 				// Make the first attempt fail.
-				getPaymentResultFailure,
+				getPaymentResultTempFailure,
 				routerFailAttempt,
 
 				// Since we have no more routes to try, the
@@ -587,9 +593,27 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			// In this state we expect the GetPaymentResult method
 			// to be called, and we respond with a forwarding
 			// error, indicating that the router should retry.
-			case getPaymentResultFailure:
+			case getPaymentResultTempFailure:
 				failure := htlcswitch.NewForwardingError(
 					&lnwire.FailTemporaryChannelFailure{},
+					1,
+				)
+
+				select {
+				case getPaymentResult <- &htlcswitch.PaymentResult{
+					Error: failure,
+				}:
+				case <-time.After(1 * time.Second):
+					t.Fatalf("unable to get result")
+				}
+
+			// In this state we expect the router to call the
+			// GetPaymentResult method, and we will respond with a
+			// terminal error, indiating the router should stop
+			// making payment attempts.
+			case getPaymentResultTerminalFailure:
+				failure := htlcswitch.NewForwardingError(
+					&lnwire.FailIncorrectDetails{},
 					1,
 				)
 

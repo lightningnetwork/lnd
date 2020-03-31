@@ -15,6 +15,8 @@ import (
 type mockPaymentAttemptDispatcher struct {
 	onPayment func(firstHop lnwire.ShortChannelID) ([32]byte, error)
 	results   map[uint64]*htlcswitch.PaymentResult
+
+	sync.Mutex
 }
 
 var _ PaymentAttemptDispatcher = (*mockPaymentAttemptDispatcher)(nil)
@@ -25,10 +27,6 @@ func (m *mockPaymentAttemptDispatcher) SendHTLC(firstHop lnwire.ShortChannelID,
 
 	if m.onPayment == nil {
 		return nil
-	}
-
-	if m.results == nil {
-		m.results = make(map[uint64]*htlcswitch.PaymentResult)
 	}
 
 	var result *htlcswitch.PaymentResult
@@ -45,7 +43,13 @@ func (m *mockPaymentAttemptDispatcher) SendHTLC(firstHop lnwire.ShortChannelID,
 		result = &htlcswitch.PaymentResult{Preimage: preimage}
 	}
 
+	m.Lock()
+	if m.results == nil {
+		m.results = make(map[uint64]*htlcswitch.PaymentResult)
+	}
+
 	m.results[pid] = result
+	m.Unlock()
 
 	return nil
 }
@@ -55,7 +59,11 @@ func (m *mockPaymentAttemptDispatcher) GetPaymentResult(paymentID uint64,
 	<-chan *htlcswitch.PaymentResult, error) {
 
 	c := make(chan *htlcswitch.PaymentResult, 1)
+
+	m.Lock()
 	res, ok := m.results[paymentID]
+	m.Unlock()
+
 	if !ok {
 		return nil, htlcswitch.ErrPaymentIDNotFound
 	}

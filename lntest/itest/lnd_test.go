@@ -14875,6 +14875,10 @@ var testsCases = []*testCase{
 		name: "external channel funding",
 		test: testExternalFundingChanPoint,
 	},
+	{
+		name: "psbt channel funding",
+		test: testPsbtChanFunding,
+	},
 }
 
 // TestLightningNetworkDaemon performs a series of integration tests amongst a

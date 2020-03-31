@@ -799,7 +799,7 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 	// method takes the expected value of Carol's balance when using the
 	// given recovery window. Additionally, the caller can specify an action
 	// to perform on the restored node before the node is shutdown.
-	restoreCheckBalance := func(expAmount int64, expectedNumUTXOs int,
+	restoreCheckBalance := func(expAmount int64, expectedNumUTXOs uint32,
 		recoveryWindow int32, fn func(*lntest.HarnessNode)) {
 
 		// Restore Carol, passing in the password, mnemonic, and
@@ -825,13 +825,7 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 				t.Fatalf("unable to query wallet balance: %v",
 					err)
 			}
-
-			// Verify that Carol's balance matches our expected
-			// amount.
 			currBalance = resp.ConfirmedBalance
-			if expAmount != currBalance {
-				return false
-			}
 
 			utxoReq := &lnrpc.ListUnspentRequest{
 				MaxConfs: math.MaxInt32,
@@ -841,8 +835,13 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 			if err != nil {
 				t.Fatalf("unable to query utxos: %v", err)
 			}
+			currNumUTXOs = uint32(len(utxoResp.Utxos))
 
-			currNumUTXOs := len(utxoResp.Utxos)
+			// Verify that Carol's balance and number of UTXOs
+			// matches what's expected.
+			if expAmount != currBalance {
+				return false
+			}
 			if currNumUTXOs != expectedNumUTXOs {
 				return false
 			}
@@ -958,7 +957,50 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Ensure that using a recovery window of 20 succeeds with all UTXOs
 	// found and the final balance reflected.
-	restoreCheckBalance(6*btcutil.SatoshiPerBitcoin, 6, 20, nil)
+
+	// After these checks are done, we'll want to make sure we can also
+	// recover change address outputs.  This is mainly motivated by a now
+	// fixed bug in the wallet in which change addresses could at times be
+	// created outside of the default key scopes. Recovery only used to be
+	// performed on the default key scopes, so ideally this test case
+	// would've caught the bug earlier. Carol has received 6 BTC so far from
+	// the miner, we'll send 5 back to ensure all of her UTXOs get spent to
+	// avoid fee discrepancies and a change output is formed.
+	const minerAmt = 5 * btcutil.SatoshiPerBitcoin
+	const finalBalance = 6 * btcutil.SatoshiPerBitcoin
+	promptChangeAddr := func(node *lntest.HarnessNode) {
+		minerAddr, err := net.Miner.NewAddress()
+		if err != nil {
+			t.Fatalf("unable to create new miner address: %v", err)
+		}
+		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+		resp, err := node.SendCoins(ctxt, &lnrpc.SendCoinsRequest{
+			Addr:   minerAddr.String(),
+			Amount: minerAmt,
+		})
+		if err != nil {
+			t.Fatalf("unable to send coins to miner: %v", err)
+		}
+		txid, err := waitForTxInMempool(
+			net.Miner.Node, minerMempoolTimeout,
+		)
+		if err != nil {
+			t.Fatalf("transaction not found in mempool: %v", err)
+		}
+		if resp.Txid != txid.String() {
+			t.Fatalf("txid mismatch: %v vs %v", resp.Txid,
+				txid.String())
+		}
+		block := mineBlocks(t, net, 1, 1)[0]
+		assertTxInBlock(t, block, txid)
+	}
+	restoreCheckBalance(finalBalance, 6, 20, promptChangeAddr)
+
+	// We should expect a static fee of 27750 satoshis for spending 6 inputs
+	// (3 P2WPKH, 3 NP2WPKH) to two P2WPKH outputs. Carol should therefore
+	// only have one UTXO present (the change output) of 6 - 5 - fee BTC.
+	const fee = 27750
+	restoreCheckBalance(finalBalance-minerAmt-fee, 1, 21, nil)
 }
 
 // commitType is a simple enum used to run though the basic funding flow with

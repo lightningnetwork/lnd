@@ -123,7 +123,12 @@ const (
 	// LocalLiquidityInsufficient, RemoteCapacityInsufficient.
 )
 
-// String returns a human readable FailureReason
+// Error returns a human readable error string for the FailureReason.
+func (r FailureReason) Error() string {
+	return r.String()
+}
+
+// String returns a human readable FailureReason.
 func (r FailureReason) String() string {
 	switch r {
 	case FailureReasonTimeout:

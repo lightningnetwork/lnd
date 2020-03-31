@@ -1,7 +1,6 @@
 package routing
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -95,6 +94,12 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 			return settle.Settle.Preimage, &settle.Route, nil
 		}
 
+		// If the payment already is failed, and there is no in-flight
+		// HTLC, return immediately.
+		if attempt == nil && payment.FailureReason != nil {
+			return [32]byte{}, nil, *payment.FailureReason
+		}
+
 		// If this payment had no existing payment attempt, we create
 		// and send one now.
 		if attempt == nil {
@@ -113,10 +118,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 					return [32]byte{}, nil, err
 				}
 
-				errStr := fmt.Sprintf("payment attempt not completed " +
-					"before timeout")
-
-				return [32]byte{}, nil, newErr(ErrPaymentAttemptTimeout, errStr)
+				continue
 
 			// The payment will be resumed from the current state
 			// after restart.
@@ -149,8 +151,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 					return [32]byte{}, nil, saveErr
 				}
 
-				// Terminal state, return.
-				return [32]byte{}, nil, err
+				continue
 			}
 
 			// With the route in hand, launch a new shard.
@@ -511,7 +512,9 @@ func (p *shardHandler) sendPaymentAttempt(
 }
 
 // handleSendError inspects the given error from the Switch and determines
-// whether we should make another payment attempt.
+// whether we should make another payment attempt, or if it should be
+// considered a terminal error. Terminal errors will be recorded with the
+// control tower.
 func (p *shardHandler) handleSendError(attempt *channeldb.HTLCAttemptInfo,
 	sendErr error) error {
 
@@ -525,19 +528,12 @@ func (p *shardHandler) handleSendError(attempt *channeldb.HTLCAttemptInfo,
 	log.Debugf("Payment %x failed: final_outcome=%v, raw_err=%v",
 		p.paymentHash, *reason, sendErr)
 
-	// Mark the payment failed with no route.
-	//
-	// TODO(halseth): make payment codes for the actual reason we don't
-	// continue path finding.
-	err := p.router.cfg.Control.Fail(
-		p.paymentHash, *reason,
-	)
+	err := p.router.cfg.Control.Fail(p.paymentHash, *reason)
 	if err != nil {
 		return err
 	}
 
-	// Terminal state, return the error we encountered.
-	return sendErr
+	return nil
 }
 
 // failAttempt calls control tower to fail the current payment attempt.

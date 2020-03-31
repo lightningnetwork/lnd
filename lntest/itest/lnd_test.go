@@ -1915,8 +1915,9 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Alice knows about the channel policy of Carol and should therefore
 	// not be able to find a path during routing.
+	expErr := channeldb.FailureReasonNoRoute.Error()
 	if err == nil ||
-		!strings.Contains(err.Error(), "unable to find a path") {
+		!strings.Contains(err.Error(), expErr) {
 		t.Fatalf("expected payment to fail, instead got %v", err)
 	}
 
@@ -3995,6 +3996,41 @@ func assertAmountSent(amt btcutil.Amount, sndr, rcvr *lntest.HarnessNode) func()
 	}
 }
 
+// assertLastHTLCError checks that the last sent HTLC of the last payment sent
+// by the given node failed with the expected failure code.
+func assertLastHTLCError(t *harnessTest, node *lntest.HarnessNode,
+	code lnrpc.Failure_FailureCode) {
+
+	req := &lnrpc.ListPaymentsRequest{
+		IncludeIncomplete: true,
+	}
+	ctxt, _ := context.WithTimeout(context.Background(), defaultTimeout)
+	paymentsResp, err := node.ListPayments(ctxt, req)
+	if err != nil {
+		t.Fatalf("error when obtaining payments: %v", err)
+	}
+
+	payments := paymentsResp.Payments
+	if len(payments) == 0 {
+		t.Fatalf("no payments found")
+	}
+
+	payment := payments[len(payments)-1]
+	htlcs := payment.Htlcs
+	if len(htlcs) == 0 {
+		t.Fatalf("no htlcs")
+	}
+
+	htlc := htlcs[len(htlcs)-1]
+	if htlc.Failure == nil {
+		t.Fatalf("expected failure")
+	}
+
+	if htlc.Failure.Code != code {
+		t.Fatalf("expected failure %v, got %v", code, htlc.Failure.Code)
+	}
+}
+
 // testSphinxReplayPersistence verifies that replayed onion packets are rejected
 // by a remote peer after a restart. We use a combination of unsafe
 // configuration arguments to force Carol to replay the same sphinx packet after
@@ -4134,11 +4170,10 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Construct the response we expect after sending a duplicate packet
 	// that fails due to sphinx replay detection.
-	replayErr := "InvalidOnionKey"
-	if !strings.Contains(resp.PaymentError, replayErr) {
-		t.Fatalf("received payment error: %v, expected %v",
-			resp.PaymentError, replayErr)
+	if resp.PaymentError == "" {
+		t.Fatalf("expected payment error")
 	}
+	assertLastHTLCError(t, carol, lnrpc.Failure_INVALID_ONION_KEY)
 
 	// Since the payment failed, the balance should still be left
 	// unaltered.
@@ -9452,12 +9487,11 @@ out:
 		t.Fatalf("payment should have been rejected due to invalid " +
 			"payment hash")
 	}
-	expectedErrorCode := lnwire.CodeIncorrectOrUnknownPaymentDetails.String()
-	if !strings.Contains(resp.PaymentError, expectedErrorCode) {
-		// TODO(roasbeef): make into proper gRPC error code
-		t.Fatalf("payment should have failed due to unknown payment hash, "+
-			"instead failed due to: %v", resp.PaymentError)
-	}
+
+	assertLastHTLCError(
+		t, net.Alice,
+		lnrpc.Failure_INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS,
+	)
 
 	// The balances of all parties should be the same as initially since
 	// the HTLC was canceled.
@@ -9484,18 +9518,11 @@ out:
 		t.Fatalf("payment should have been rejected due to wrong " +
 			"HTLC amount")
 	}
-	expectedErrorCode = lnwire.CodeIncorrectOrUnknownPaymentDetails.String()
-	if !strings.Contains(resp.PaymentError, expectedErrorCode) {
-		t.Fatalf("payment should have failed due to wrong amount, "+
-			"instead failed due to: %v", resp.PaymentError)
-	}
 
-	// We'll also ensure that the encoded error includes the invlaid HTLC
-	// amount.
-	if !strings.Contains(resp.PaymentError, htlcAmt.String()) {
-		t.Fatalf("error didn't include expected payment amt of %v: "+
-			"%v", htlcAmt, resp.PaymentError)
-	}
+	assertLastHTLCError(
+		t, net.Alice,
+		lnrpc.Failure_INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS,
+	)
 
 	// The balances of all parties should be the same as initially since
 	// the HTLC was canceled.
@@ -9574,11 +9601,11 @@ out:
 	if resp.PaymentError == "" {
 		t.Fatalf("payment should fail due to insufficient "+
 			"capacity: %v", err)
-	} else if !strings.Contains(resp.PaymentError,
-		lnwire.CodeTemporaryChannelFailure.String()) {
-		t.Fatalf("payment should fail due to insufficient capacity, "+
-			"instead: %v", resp.PaymentError)
 	}
+
+	assertLastHTLCError(
+		t, net.Alice, lnrpc.Failure_TEMPORARY_CHANNEL_FAILURE,
+	)
 
 	// Generate new invoice to not pay same invoice twice.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -9616,11 +9643,8 @@ out:
 	if resp.PaymentError == "" {
 		t.Fatalf("payment should have failed")
 	}
-	expectedErrorCode = lnwire.CodeUnknownNextPeer.String()
-	if !strings.Contains(resp.PaymentError, expectedErrorCode) {
-		t.Fatalf("payment should fail due to unknown hop, instead: %v",
-			resp.PaymentError)
-	}
+
+	assertLastHTLCError(t, net.Alice, lnrpc.Failure_UNKNOWN_NEXT_PEER)
 
 	// Finally, immediately close the channel. This function will also
 	// block until the channel is closed and will additionally assert the
@@ -9787,9 +9811,8 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 			"should have been rejected, carol will not accept forwarded htlcs",
 		)
 	}
-	if !strings.Contains(err.Error(), lnwire.CodeChannelDisabled.String()) {
-		t.Fatalf("error returned should have been Channel Disabled")
-	}
+
+	assertLastHTLCError(t, net.Alice, lnrpc.Failure_CHANNEL_DISABLED)
 
 	// Close all channels.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)

@@ -15,10 +15,6 @@ const (
 	// this update can't bring us something new, or because a node
 	// announcement was given for node not found in any channel.
 	ErrIgnored
-
-	// ErrPaymentAttemptTimeout is an error that indicates that a payment
-	// attempt timed out before we were able to successfully route an HTLC.
-	ErrPaymentAttemptTimeout
 )
 
 // routerError is a structure that represent the error inside the routing package,

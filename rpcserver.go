@@ -19,10 +19,12 @@ import (
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/psbt"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/davecgh/go-spew/spew"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
@@ -1556,6 +1558,51 @@ func newFundingShimAssembler(chanPointShim *lnrpc.ChanPointShim, initiator bool,
 	), nil
 }
 
+// newFundingShimAssembler returns a new fully populated
+// chanfunding.PsbtAssembler using a FundingShim obtained from an RPC caller.
+func newPsbtAssembler(req *lnrpc.OpenChannelRequest, normalizedMinConfs int32,
+	psbtShim *lnrpc.PsbtShim, netParams *chaincfg.Params) (
+	chanfunding.Assembler, error) {
+
+	var (
+		packet *psbt.Packet
+		err    error
+	)
+
+	// Perform some basic sanity checks to ensure that all the expected
+	// fields are populated and none of the incompatible fields are.
+	if len(psbtShim.PendingChanId) != 32 {
+		return nil, fmt.Errorf("pending chan ID not set")
+	}
+	if normalizedMinConfs != 1 {
+		return nil, fmt.Errorf("setting non-default values for " +
+			"minimum confirmation is not supported for PSBT " +
+			"funding")
+	}
+	if req.SatPerByte != 0 || req.TargetConf != 0 {
+		return nil, fmt.Errorf("specifying fee estimation parameters " +
+			"is not supported for PSBT funding")
+	}
+
+	// The base PSBT is optional. But if it's set, it has to be a valid,
+	// binary serialized PSBT.
+	if len(psbtShim.BasePsbt) > 0 {
+		packet, err = psbt.NewFromRawBytes(
+			bytes.NewReader(psbtShim.BasePsbt), false,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing base PSBT: %v",
+				err)
+		}
+	}
+
+	// With all the parts assembled, we can now make the canned assembler
+	// to pass into the wallet.
+	return chanfunding.NewPsbtAssembler(
+		btcutil.Amount(req.LocalFundingAmount), packet, netParams,
+	), nil
+}
+
 // OpenChannel attempts to open a singly funded channel specified in the
 // request to a remote peer.
 func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
@@ -1675,10 +1722,11 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	// If the user has provided a shim, then we'll now augment the based
 	// open channel request with this additional logic.
 	if in.FundingShim != nil {
+		switch {
 		// If we have a chan point shim, then this means the funding
 		// transaction was crafted externally. In this case we only
 		// need to hand a channel point down into the wallet.
-		if in.FundingShim.GetChanPointShim() != nil {
+		case in.FundingShim.GetChanPointShim() != nil:
 			chanPointShim := in.FundingShim.GetChanPointShim()
 
 			// Map the channel point shim into a new
@@ -1687,6 +1735,25 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 			copy(req.pendingChanID[:], chanPointShim.PendingChanId)
 			req.chanFunder, err = newFundingShimAssembler(
 				chanPointShim, true, r.server.cc.keyRing,
+			)
+			if err != nil {
+				return err
+			}
+
+		// If we have a PSBT shim, then this means the funding
+		// transaction will be crafted outside of the wallet, once the
+		// funding multisig output script is known. We'll create an
+		// intent that will supervise the multi-step process.
+		case in.FundingShim.GetPsbtShim() != nil:
+			psbtShim := in.FundingShim.GetPsbtShim()
+
+			// Instruct the wallet to use the new
+			// chanfunding.PsbtAssembler to construct the funding
+			// transaction.
+			copy(req.pendingChanID[:], psbtShim.PendingChanId)
+			req.chanFunder, err = newPsbtAssembler(
+				in, minConfs, psbtShim,
+				&r.server.cc.wallet.Cfg.NetParams,
 			)
 			if err != nil {
 				return err
@@ -6236,6 +6303,7 @@ func (r *rpcServer) BakeMacaroon(ctx context.Context,
 func (r *rpcServer) FundingStateStep(ctx context.Context,
 	in *lnrpc.FundingTransitionMsg) (*lnrpc.FundingStateStepResp, error) {
 
+	var pendingChanID [32]byte
 	switch {
 
 	// If this is a message to register a new shim that is an external
@@ -6269,7 +6337,6 @@ func (r *rpcServer) FundingStateStep(ctx context.Context,
 		// Once we receive an incoming funding request that uses this
 		// pending channel ID, then this shim will be dispatched in
 		// place of our regular funding workflow.
-		var pendingChanID [32]byte
 		copy(pendingChanID[:], rpcShimIntent.PendingChanId)
 		err = r.server.cc.wallet.RegisterFundingIntent(
 			pendingChanID, shimIntent,
@@ -6278,15 +6345,68 @@ func (r *rpcServer) FundingStateStep(ctx context.Context,
 			return nil, err
 		}
 
+	// There is no need to register a PSBT shim before opening the channel,
+	// even though our RPC message structure allows for it. Inform the user
+	// by returning a proper error instead of just doing nothing.
+	case in.GetShimRegister() != nil &&
+		in.GetShimRegister().GetPsbtShim() != nil:
+
+		return nil, fmt.Errorf("PSBT shim must only be sent when " +
+			"opening a channel")
+
 	// If this is a transition to cancel an existing shim, then we'll pass
-	// this message along to the wallet.
+	// this message along to the wallet, informing it that the intent no
+	// longer needs to be considered and should be cleaned up.
 	case in.GetShimCancel() != nil:
-		pid := in.GetShimCancel().PendingChanId
+		rpcsLog.Debugf("Canceling funding shim for pending_id=%x",
+			in.GetShimCancel().PendingChanId)
 
-		var pendingChanID [32]byte
-		copy(pendingChanID[:], pid)
-
+		copy(pendingChanID[:], in.GetShimCancel().PendingChanId)
 		err := r.server.cc.wallet.CancelFundingIntent(pendingChanID)
+		if err != nil {
+			return nil, err
+		}
+
+	// If this is a transition to verify the PSBT for an existing shim,
+	// we'll do so and then store the verified PSBT for later so we can
+	// compare it to the final, signed one.
+	case in.GetPsbtVerify() != nil:
+		rpcsLog.Debugf("Verifying PSBT for pending_id=%x",
+			in.GetPsbtVerify().PendingChanId)
+
+		copy(pendingChanID[:], in.GetPsbtVerify().PendingChanId)
+		packet, err := psbt.NewFromRawBytes(
+			bytes.NewReader(in.GetPsbtVerify().FundedPsbt), false,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing psbt: %v", err)
+		}
+
+		err = r.server.cc.wallet.PsbtFundingVerify(
+			pendingChanID, packet,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+	// If this is a transition to finalize the PSBT funding flow, we compare
+	// the final PSBT to the previously verified one and if nothing
+	// unexpected was changed, continue the channel opening process.
+	case in.GetPsbtFinalize() != nil:
+		rpcsLog.Debugf("Finalizing PSBT for pending_id=%x",
+			in.GetPsbtFinalize().PendingChanId)
+
+		copy(pendingChanID[:], in.GetPsbtFinalize().PendingChanId)
+		packet, err := psbt.NewFromRawBytes(
+			bytes.NewReader(in.GetPsbtFinalize().SignedPsbt), false,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing psbt: %v", err)
+		}
+
+		err = r.server.cc.wallet.PsbtFundingFinalize(
+			pendingChanID, packet,
+		)
 		if err != nil {
 			return nil, err
 		}

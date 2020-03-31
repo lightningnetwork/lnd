@@ -1775,6 +1775,28 @@ message PendingUpdate {
     uint32 output_index = 2;
 }
 
+message ReadyForPsbtFunding {
+    /**
+    The P2WSH address of the channel funding multisig address that the below
+    specified amount in satoshis needs to be sent to.
+    */
+    string funding_address = 1;
+
+    /**
+    The exact amount in satoshis that needs to be sent to the above address to
+    fund the pending channel.
+    */
+    int64 funding_amount = 2;
+
+    /**
+    A raw PSBT that contains the pending channel output. If a base PSBT was
+    provided in the PsbtShim, this is the base PSBT with one additional output.
+    If no base PSBT was specified, this is an otherwise empty PSBT with exactly
+    one output.
+    */
+    bytes psbt = 3;
+}
+
 message OpenChannelRequest {
     /**
     The pubkey of the node to open a channel with. When using REST, this field
@@ -1846,8 +1868,23 @@ message OpenChannelRequest {
 }
 message OpenStatusUpdate {
     oneof update {
+        /**
+        Signals that the channel is now fully negotiated and the funding
+        transaction published.
+        */
         PendingUpdate chan_pending = 1;
+
+        /**
+        Signals that the channel's funding transaction has now reached the
+        required number of confirmations on chain and can be used.
+        */
         ChannelOpenUpdate chan_open = 3;
+
+        /**
+        Signals that the funding process has been suspended and the construction
+        of a PSBT that funds the channel PK script is now required.
+        */
+        ReadyForPsbtFunding psbt_fund = 5;
     }
 
     /**
@@ -1910,9 +1947,34 @@ message ChanPointShim {
     uint32 thaw_height = 6;
 }
 
+message PsbtShim {
+    /**
+    A unique identifier of 32 random bytes that will be used as the pending
+    channel ID to identify the PSBT state machine when interacting with it and
+    on the wire protocol to initiate the funding request.
+    */
+    bytes pending_chan_id = 1;
+
+    /**
+    An optional base PSBT the new channel output will be added to. If this is
+    non-empty, it must be a binary serialized PSBT.
+    */
+    bytes base_psbt = 2;
+}
+
 message FundingShim {
     oneof shim {
+        /**
+        A channel shim where the channel point was fully constructed outside
+        of lnd's wallet and the transaction might already be published.
+        */
         ChanPointShim chan_point_shim = 1;
+
+        /**
+        A channel shim that uses a PSBT to fund and sign the channel funding
+        transaction.
+        */
+        PsbtShim psbt_shim = 2;
     }
 }
 
@@ -1921,17 +1983,56 @@ message FundingShimCancel {
     bytes pending_chan_id = 1;
 }
 
+message FundingPsbtVerify {
+    /**
+    The funded but not yet signed PSBT that sends the exact channel capacity
+    amount to the PK script returned in the open channel message in a previous
+    step.
+    */
+    bytes funded_psbt = 1;
+
+    /// The pending channel ID of the channel to get the PSBT for.
+    bytes pending_chan_id = 2;
+}
+
+message FundingPsbtFinalize {
+    /**
+    The funded PSBT that contains all witness data to send the exact channel
+    capacity amount to the PK script returned in the open channel message in a
+    previous step.
+    */
+    bytes signed_psbt = 1;
+
+    /// The pending channel ID of the channel to get the PSBT for.
+    bytes pending_chan_id = 2;
+}
+
 message FundingTransitionMsg {
     oneof trigger {
         /**
-        The funding shim to regsiter. This should be used before any
+        The funding shim to register. This should be used before any
         channel funding has began by the remote party, as it is intended as a
-        prepatory step for the full channel funding.
+        preparatory step for the full channel funding.
         */
         FundingShim shim_register = 1;
 
         /// Used to cancel an existing registered funding shim.
         FundingShimCancel shim_cancel = 2;
+
+        /**
+        Used to continue a funding flow that was initiated to be executed
+        through a PSBT. This step verifies that the PSBT contains the correct
+        outputs to fund the channel.
+        */
+        FundingPsbtVerify psbt_verify = 3;
+
+        /**
+        Used to continue a funding flow that was initiated to be executed
+        through a PSBT. This step finalizes the funded and signed PSBT, finishes
+        negotiation with the peer and finally publishes the resulting funding
+        transaction.
+        */
+        FundingPsbtFinalize psbt_finalize = 4;
     }
 }
 

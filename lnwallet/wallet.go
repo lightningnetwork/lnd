@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/psbt"
 	"github.com/btcsuite/btcutil/txsort"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -32,6 +33,28 @@ const (
 	// outside word.
 	msgBufferSize = 100
 )
+
+var (
+	// ErrPsbtFundingRequired is the error that is returned during the
+	// contribution handling process if the process should be paused for
+	// the construction of a PSBT outside of lnd's wallet.
+	ErrPsbtFundingRequired = errors.New("PSBT funding required")
+)
+
+// PsbtFundingRequired is a type that implements the error interface and
+// contains the information needed to construct a PSBT.
+type PsbtFundingRequired struct {
+	// Intent is the pending PSBT funding intent that needs to be funded
+	// if the wrapping error is returned.
+	Intent *chanfunding.PsbtIntent
+}
+
+// Error returns the underlying error.
+//
+// NOTE: This method is part of the error interface.
+func (p *PsbtFundingRequired) Error() string {
+	return ErrPsbtFundingRequired.Error()
+}
 
 // InitFundingReserveMsg is the first message sent to initiate the workflow
 // required to open a payment channel with a remote peer. The initial required
@@ -145,6 +168,16 @@ type addContributionMsg struct {
 
 	// TODO(roasbeef): Should also carry SPV proofs in we're in SPV mode
 	contribution *ChannelContribution
+
+	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
+	err chan error
+}
+
+// continueContributionMsg represents a message that signals that the
+// interrupted funding process involving a PSBT can now be continued because the
+// finalized transaction is now available.
+type continueContributionMsg struct {
+	pendingFundingID uint64
 
 	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
 	err chan error
@@ -395,6 +428,8 @@ out:
 				l.handleSingleContribution(msg)
 			case *addContributionMsg:
 				l.handleContributionMsg(msg)
+			case *continueContributionMsg:
+				l.handleChanPointReady(msg)
 			case *addSingleFunderSigsMsg:
 				l.handleSingleFunderSigs(msg)
 			case *addCounterPartySigsMsg:
@@ -462,16 +497,73 @@ func (l *LightningWallet) RegisterFundingIntent(expectedID [32]byte,
 	return nil
 }
 
+// PsbtFundingVerify looks up a previously registered funding intent by its
+// pending channel ID and tries to advance the state machine by verifying the
+// passed PSBT.
+func (l *LightningWallet) PsbtFundingVerify(pid [32]byte,
+	packet *psbt.Packet) error {
+
+	l.intentMtx.Lock()
+	defer l.intentMtx.Unlock()
+
+	intent, ok := l.fundingIntents[pid]
+	if !ok {
+		return fmt.Errorf("no funding intent found for "+
+			"pendingChannelID(%x)", pid[:])
+	}
+	psbtIntent, ok := intent.(*chanfunding.PsbtIntent)
+	if !ok {
+		return fmt.Errorf("incompatible funding intent")
+	}
+	err := psbtIntent.Verify(packet)
+	if err != nil {
+		return fmt.Errorf("error verifying PSBT: %v", err)
+	}
+
+	return nil
+}
+
+// PsbtFundingFinalize looks up a previously registered funding intent by its
+// pending channel ID and tries to advance the state machine by finalizing the
+// passed PSBT.
+func (l *LightningWallet) PsbtFundingFinalize(pid [32]byte,
+	packet *psbt.Packet) error {
+
+	l.intentMtx.Lock()
+	defer l.intentMtx.Unlock()
+
+	intent, ok := l.fundingIntents[pid]
+	if !ok {
+		return fmt.Errorf("no funding intent found for "+
+			"pendingChannelID(%x)", pid[:])
+	}
+	psbtIntent, ok := intent.(*chanfunding.PsbtIntent)
+	if !ok {
+		return fmt.Errorf("incompatible funding intent")
+	}
+	err := psbtIntent.Finalize(packet)
+	if err != nil {
+		return fmt.Errorf("error finalizing PSBT: %v", err)
+	}
+
+	return nil
+}
+
 // CancelFundingIntent allows a caller to cancel a previously registered
 // funding intent. If no intent was found, then an error will be returned.
 func (l *LightningWallet) CancelFundingIntent(pid [32]byte) error {
 	l.intentMtx.Lock()
 	defer l.intentMtx.Unlock()
 
-	if _, ok := l.fundingIntents[pid]; !ok {
+	intent, ok := l.fundingIntents[pid]
+	if !ok {
 		return fmt.Errorf("no funding intent found for "+
 			"pendingChannelID(%x)", pid[:])
 	}
+
+	// Give the intent a chance to clean up after itself, removing coin
+	// locks or similar reserved resources.
+	intent.Cancel()
 
 	delete(l.fundingIntents, pid)
 
@@ -556,8 +648,26 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 			return
 		}
 
+		// Register the funding intent now in case we need to access it
+		// again later, as it's the case for the PSBT state machine for
+		// example.
+		err = l.RegisterFundingIntent(req.PendingChanID, fundingIntent)
+		if err != nil {
+			req.err <- err
+			req.resp <- nil
+			return
+		}
+
 		localFundingAmt = fundingIntent.LocalFundingAmt()
 		remoteFundingAmt = fundingIntent.RemoteFundingAmt()
+	}
+
+	// At this point there _has_ to be a funding intent, otherwise something
+	// went really wrong.
+	if fundingIntent == nil {
+		req.err <- fmt.Errorf("no funding intent present")
+		req.resp <- nil
+		return
 	}
 
 	// If this is a shim intent, then it may be attempting to use an
@@ -592,9 +702,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		thawHeight,
 	)
 	if err != nil {
-		if fundingIntent != nil {
-			fundingIntent.Cancel()
-		}
+		fundingIntent.Cancel()
 
 		req.err <- err
 		req.resp <- nil
@@ -605,9 +713,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		reservation, fundingIntent, req.NodeAddr, req.NodeID, keyRing,
 	)
 	if err != nil {
-		if fundingIntent != nil {
-			fundingIntent.Cancel()
-		}
+		fundingIntent.Cancel()
 
 		req.err <- err
 		req.resp <- nil
@@ -852,6 +958,9 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// which type of intent we obtained from our chanfunding.Assembler,
 	// we'll carry out a distinct set of steps.
 	switch fundingIntent := pendingReservation.fundingIntent.(type) {
+	// The transaction was created outside of the wallet and might already
+	// be published. Nothing left to do other than using the correct
+	// outpoint.
 	case *chanfunding.ShimIntent:
 		chanPoint, err = fundingIntent.ChanPoint()
 		if err != nil {
@@ -860,6 +969,38 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		}
 
 		pendingReservation.partialState.FundingOutpoint = *chanPoint
+
+	// The user has signaled that they want to use a PSBT to construct the
+	// funding transaction. Because we now have the multisig keys from both
+	// parties, we can create the multisig script that needs to be funded
+	// and then pause the process until the user supplies the PSBT
+	// containing the eventual funding transaction.
+	case *chanfunding.PsbtIntent:
+		if fundingIntent.PendingPsbt != nil {
+			req.err <- fmt.Errorf("PSBT funding already in" +
+				"progress")
+			return
+		}
+
+		// Now that we know our contribution, we can bind both the local
+		// and remote key which will be needed to calculate the multisig
+		// funding output in a next step.
+		pendingChanID := pendingReservation.pendingChanID
+		walletLog.Debugf("Advancing PSBT funding flow for "+
+			"pending_id(%x), binding keys local_key=%v, "+
+			"remote_key=%x", pendingChanID,
+			&ourContribution.MultiSigKey,
+			theirContribution.MultiSigKey.PubKey.SerializeCompressed())
+		fundingIntent.BindKeys(
+			&ourContribution.MultiSigKey,
+			theirContribution.MultiSigKey.PubKey,
+		)
+
+		// Exit early because we can't continue the funding flow yet.
+		req.err <- &PsbtFundingRequired{
+			Intent: fundingIntent,
+		}
+		return
 
 	case *chanfunding.FullIntent:
 		// Now that we know their public key, we can bind theirs as
@@ -915,6 +1056,69 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 			"generated: %v", chanPoint, spew.Sdump(fundingTx))
 	}
 
+	// If we landed here and didn't exit early, it means we already have
+	// the channel point ready. We can jump directly to the next step.
+	l.handleChanPointReady(&continueContributionMsg{
+		pendingFundingID: req.pendingFundingID,
+		err:              req.err,
+	})
+}
+
+// handleChanPointReady continues the funding process once the channel point
+// is known and the funding transaction can be completed.
+func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
+	l.limboMtx.Lock()
+	pendingReservation, ok := l.fundingLimbo[req.pendingFundingID]
+	l.limboMtx.Unlock()
+	if !ok {
+		req.err <- fmt.Errorf("attempted to update non-existent " +
+			"funding state")
+		return
+	}
+	ourContribution := pendingReservation.ourContribution
+	theirContribution := pendingReservation.theirContribution
+	chanPoint := pendingReservation.partialState.FundingOutpoint
+
+	// If we're in the PSBT funding flow, we now should have everything that
+	// is needed to construct and publish the full funding transaction.
+	intent := pendingReservation.fundingIntent
+	if psbtIntent, ok := intent.(*chanfunding.PsbtIntent); ok {
+		// With our keys bound, we can now construct+sign the final
+		// funding transaction and also obtain the chanPoint that
+		// creates the channel.
+		fundingTx, err := psbtIntent.CompileFundingTx()
+		if err != nil {
+			req.err <- fmt.Errorf("unable to construct funding "+
+				"tx: %v", err)
+			return
+		}
+		chanPointPtr, err := psbtIntent.ChanPoint()
+		if err != nil {
+			req.err <- fmt.Errorf("unable to obtain chan "+
+				"point: %v", err)
+			return
+		}
+
+		// Finally, we'll populate the relevant information in our
+		// pendingReservation so the rest of the funding flow can
+		// continue as normal.
+		pendingReservation.fundingTx = fundingTx
+		pendingReservation.partialState.FundingOutpoint = *chanPointPtr
+		chanPoint = *chanPointPtr
+		pendingReservation.ourFundingInputScripts = make(
+			[]*input.Script, 0, len(ourContribution.Inputs),
+		)
+		for _, txIn := range fundingTx.TxIn {
+			pendingReservation.ourFundingInputScripts = append(
+				pendingReservation.ourFundingInputScripts,
+				&input.Script{
+					Witness:   txIn.Witness,
+					SigScript: txIn.SignatureScript,
+				},
+			)
+		}
+	}
+
 	// Initialize an empty sha-chain for them, tracking the current pending
 	// revocation hash (we don't yet know the preimage so we can't add it
 	// to the chain).
@@ -930,7 +1134,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// Create the txin to our commitment transaction; required to construct
 	// the commitment transactions.
 	fundingTxIn := wire.TxIn{
-		PreviousOutPoint: *chanPoint,
+		PreviousOutPoint: chanPoint,
 	}
 
 	// With the funding tx complete, create both commitment transactions.
@@ -991,7 +1195,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		chanPoint, spew.Sdump(theirCommitTx))
 
 	// Record newly available information within the open channel state.
-	chanState.FundingOutpoint = *chanPoint
+	chanState.FundingOutpoint = chanPoint
 	chanState.LocalCommitment.CommitTx = ourCommitTx
 	chanState.RemoteCommitment.CommitTx = theirCommitTx
 

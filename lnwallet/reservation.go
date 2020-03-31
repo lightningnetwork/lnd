@@ -471,6 +471,37 @@ func (r *ChannelReservation) ProcessContribution(theirContribution *ChannelContr
 	return <-errChan
 }
 
+// IsPsbt returns true if there is a PSBT funding intent mapped to this
+// reservation.
+func (r *ChannelReservation) IsPsbt() bool {
+	_, ok := r.fundingIntent.(*chanfunding.PsbtIntent)
+	return ok
+}
+
+// ProcessPsbt continues a previously paused funding flow that involves PSBT to
+// construct the funding transaction. This method can be called once the PSBT is
+// finalized and the signed transaction is available.
+func (r *ChannelReservation) ProcessPsbt() error {
+	errChan := make(chan error, 1)
+
+	r.wallet.msgChan <- &continueContributionMsg{
+		pendingFundingID: r.reservationID,
+		err:              errChan,
+	}
+
+	return <-errChan
+}
+
+// RemoteCanceled informs the PSBT funding state machine that the remote peer
+// has canceled the pending reservation, likely due to a timeout.
+func (r *ChannelReservation) RemoteCanceled() {
+	psbtIntent, ok := r.fundingIntent.(*chanfunding.PsbtIntent)
+	if !ok {
+		return
+	}
+	psbtIntent.RemoteCanceled()
+}
+
 // ProcessSingleContribution verifies, and records the initiator's contribution
 // to this pending single funder channel. Internally, no further action is
 // taken other than recording the initiator's contribution to the single funder

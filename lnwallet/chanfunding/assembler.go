@@ -126,7 +126,7 @@ type Assembler interface {
 
 // FundingTxAssembler is a super-set of the regular Assembler interface that's
 // also able to provide a fully populated funding transaction via the intents
-// that it produuces.
+// that it produces.
 type FundingTxAssembler interface {
 	Assembler
 

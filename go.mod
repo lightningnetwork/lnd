@@ -8,6 +8,7 @@ require (
 	github.com/btcsuite/btcd v0.20.1-beta
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcutil v0.0.0-20190425235716-9e5f4b9a998d
+	github.com/btcsuite/btcutil/psbt v1.0.2-0.20200323233600-8bf941f57059
 	github.com/btcsuite/btcwallet v0.11.1-0.20200323235326-015c045a3bb7
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.0.0
 	github.com/btcsuite/btcwallet/wallet/txrules v1.0.0
@@ -45,7 +46,7 @@ require (
 	github.com/rogpeppe/fastuuid v1.2.0 // indirect
 	github.com/tv42/zbase32 v0.0.0-20160707012821-501572607d02
 	github.com/urfave/cli v1.18.0
-	golang.org/x/crypto v0.0.0-20190211182817-74369b46fc67
+	golang.org/x/crypto v0.0.0-20200115085410-6d4e4cb37c7d
 	golang.org/x/net v0.0.0-20190206173232-65e2d4e15006
 	golang.org/x/time v0.0.0-20180412165947-fbb02b2291d2
 	google.golang.org/genproto v0.0.0-20190201180003-4b09977fb922
@@ -63,5 +64,9 @@ replace github.com/lightningnetwork/lnd/queue => ./queue
 replace github.com/lightningnetwork/lnd/cert => ./cert
 
 replace git.schwanenlied.me/yawning/bsaes.git => github.com/Yawning/bsaes v0.0.0-20180720073208-c0276d75487e
+
+// Pin this version that we know works explicitly, even though the
+// btcsuite/btcutil package requests a newer version.
+replace golang.org/x/crypto => golang.org/x/crypto v0.0.0-20190211182817-74369b46fc67
 
 go 1.12

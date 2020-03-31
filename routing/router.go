@@ -161,11 +161,6 @@ type PaymentSessionSource interface {
 	// finding a path to the payment's destination.
 	NewPaymentSession(p *LightningPayment) (PaymentSession, error)
 
-	// NewPaymentSessionForRoute creates a new paymentSession instance that
-	// is just used for failure reporting to missioncontrol, and will only
-	// attempt the given route.
-	NewPaymentSessionForRoute(preBuiltRoute *route.Route) PaymentSession
-
 	// NewPaymentSessionEmpty creates a new paymentSession instance that is
 	// empty, and will be exhausted immediately. Used for failure reporting
 	// to missioncontrol for resumed payment we don't want to make more

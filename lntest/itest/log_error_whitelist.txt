@@ -31,6 +31,7 @@
 <time> [ERR] CRTR: Payment with hash <hex> failed: error
 <time> [ERR] CRTR: Payment with hash <hex> failed: incorrect_payment_details
 <time> [ERR] CRTR: Payment with hash <hex> failed: insufficient_balance
+<time> [ERR] CRTR: Payment with hash <hex> failed: no_route
 <time> [ERR] CRTR: Payment with hash <hex> failed: router shutting down
 <time> [ERR] CRTR: Resuming payment with hash <hex> failed: error.
 <time> [ERR] CRTR: Resuming payment with hash <hex> failed: incorrect_payment_details.

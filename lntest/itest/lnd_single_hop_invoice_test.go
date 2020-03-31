@@ -5,11 +5,13 @@ package itest
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"time"
 
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -62,21 +64,17 @@ func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// With the invoice for Bob added, send a payment towards Alice paying
 	// to the above generated invoice.
-	sendReq := &lnrpc.SendRequest{
-		PaymentRequest: invoiceResp.PaymentRequest,
-	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	resp, err := net.Alice.SendPaymentSync(ctxt, sendReq)
-	if err != nil {
-		t.Fatalf("unable to send payment: %v", err)
-	}
-
-	// Ensure we obtain the proper preimage in the response.
-	if resp.PaymentError != "" {
-		t.Fatalf("error when attempting recv: %v", resp.PaymentError)
-	} else if !bytes.Equal(preimage, resp.PaymentPreimage) {
+	resp := sendAndAssertSuccess(
+		t, net.Alice,
+		&routerrpc.SendPaymentRequest{
+			PaymentRequest: invoiceResp.PaymentRequest,
+			TimeoutSeconds: 60,
+			FeeLimitMsat:   noFeeLimitMsat,
+		},
+	)
+	if hex.EncodeToString(preimage) != resp.PaymentPreimage {
 		t.Fatalf("preimage mismatch: expected %v, got %v", preimage,
-			resp.GetPaymentPreimage())
+			resp.PaymentPreimage)
 	}
 
 	// Bob's invoice should now be found and marked as settled.
@@ -118,17 +116,14 @@ func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Next send another payment, but this time using a zpay32 encoded
 	// invoice rather than manually specifying the payment details.
-	sendReq = &lnrpc.SendRequest{
-		PaymentRequest: invoiceResp.PaymentRequest,
-	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	resp, err = net.Alice.SendPaymentSync(ctxt, sendReq)
-	if err != nil {
-		t.Fatalf("unable to send payment: %v", err)
-	}
-	if resp.PaymentError != "" {
-		t.Fatalf("error when attempting recv: %v", resp.PaymentError)
-	}
+	sendAndAssertSuccess(
+		t, net.Alice,
+		&routerrpc.SendPaymentRequest{
+			PaymentRequest: invoiceResp.PaymentRequest,
+			TimeoutSeconds: 60,
+			FeeLimitMsat:   noFeeLimitMsat,
+		},
+	)
 
 	// The second payment should also have succeeded, with the balances
 	// being update accordingly.
@@ -144,23 +139,20 @@ func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 	keySendPreimage := lntypes.Preimage{3, 4, 5, 11}
 	keySendHash := keySendPreimage.Hash()
 
-	sendReq = &lnrpc.SendRequest{
-		Dest:           net.Bob.PubKey[:],
-		Amt:            paymentAmt,
-		FinalCltvDelta: 40,
-		PaymentHash:    keySendHash[:],
-		DestCustomRecords: map[uint64][]byte{
-			record.KeySendType: keySendPreimage[:],
+	sendAndAssertSuccess(
+		t, net.Alice,
+		&routerrpc.SendPaymentRequest{
+			Dest:           net.Bob.PubKey[:],
+			Amt:            paymentAmt,
+			FinalCltvDelta: 40,
+			PaymentHash:    keySendHash[:],
+			DestCustomRecords: map[uint64][]byte{
+				record.KeySendType: keySendPreimage[:],
+			},
+			TimeoutSeconds: 60,
+			FeeLimitMsat:   noFeeLimitMsat,
 		},
-	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	resp, err = net.Alice.SendPaymentSync(ctxt, sendReq)
-	if err != nil {
-		t.Fatalf("unable to send payment: %v", err)
-	}
-	if resp.PaymentError != "" {
-		t.Fatalf("error when attempting recv: %v", resp.PaymentError)
-	}
+	)
 
 	// The keysend payment should also have succeeded, with the balances
 	// being update accordingly.

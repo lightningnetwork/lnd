@@ -650,6 +650,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		)
 		payIntent.DestFeatures = payReq.Features
 		payIntent.PaymentAddr = payReq.PaymentAddr
+		payIntent.PaymentRequest = []byte(rpcPayReq.PaymentRequest)
 	} else {
 		// Otherwise, If the payment request field was not specified
 		// (and a custom route wasn't specified), construct the payment

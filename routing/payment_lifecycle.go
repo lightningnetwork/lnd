@@ -51,7 +51,72 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 		// If this payment had no existing payment attempt, we create
 		// and send one now.
 		if p.attempt == nil {
-			firstHop, htlcAdd, err := p.createNewPaymentAttempt()
+			// Before we attempt this next payment, we'll check to see if either
+			// we've gone past the payment attempt timeout, or the router is
+			// exiting. In either case, we'll stop this payment attempt short. If a
+			// timeout is not applicable, timeoutChan will be nil.
+			select {
+			case <-p.timeoutChan:
+				// Mark the payment as failed because of the
+				// timeout.
+				err := p.router.cfg.Control.Fail(
+					p.paymentHash, channeldb.FailureReasonTimeout,
+				)
+				if err != nil {
+					return [32]byte{}, nil, err
+				}
+
+				errStr := fmt.Sprintf("payment attempt not completed " +
+					"before timeout")
+
+				return [32]byte{}, nil, newErr(ErrPaymentAttemptTimeout, errStr)
+
+			// The payment will be resumed from the current state
+			// after restart.
+			case <-p.router.quit:
+				return [32]byte{}, nil, ErrRouterShuttingDown
+
+			// Fall through if we haven't hit our time limit or are
+			// exiting.
+			default:
+			}
+
+			// Create a new payment attempt from the given payment session.
+			rt, err := p.paySession.RequestRoute(
+				p.totalAmount, p.feeLimit, 0, uint32(p.currentHeight),
+			)
+			if err != nil {
+				log.Warnf("Failed to find route for payment %x: %v",
+					p.paymentHash, err)
+
+				// Convert error to payment-level failure.
+				failure := errorToPaymentFailure(err)
+
+				// If we're unable to successfully make a payment using
+				// any of the routes we've found, then mark the payment
+				// as permanently failed.
+				saveErr := p.router.cfg.Control.Fail(
+					p.paymentHash, failure,
+				)
+				if saveErr != nil {
+					return [32]byte{}, nil, saveErr
+				}
+
+				// If there was an error already recorded for this
+				// payment, we'll return that.
+				if p.lastError != nil {
+					return [32]byte{}, nil, errNoRoute{lastError: p.lastError}
+				}
+
+				// Terminal state, return.
+				return [32]byte{}, nil, err
+			}
+
+			// Using the route received from the payment session,
+			// create a new shard to send.
+			firstHop, htlcAdd, err := p.createNewPaymentAttempt(
+				rt,
+			)
 			if err != nil {
 				return [32]byte{}, nil, err
 			}
@@ -234,70 +299,8 @@ func errorToPaymentFailure(err error) channeldb.FailureReason {
 
 // createNewPaymentAttempt creates and stores a new payment attempt to the
 // database.
-func (p *paymentLifecycle) createNewPaymentAttempt() (lnwire.ShortChannelID,
+func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route) (lnwire.ShortChannelID,
 	*lnwire.UpdateAddHTLC, error) {
-
-	// Before we attempt this next payment, we'll check to see if either
-	// we've gone past the payment attempt timeout, or the router is
-	// exiting. In either case, we'll stop this payment attempt short. If a
-	// timeout is not applicable, timeoutChan will be nil.
-	select {
-	case <-p.timeoutChan:
-		// Mark the payment as failed because of the
-		// timeout.
-		err := p.router.cfg.Control.Fail(
-			p.paymentHash, channeldb.FailureReasonTimeout,
-		)
-		if err != nil {
-			return lnwire.ShortChannelID{}, nil, err
-		}
-
-		errStr := fmt.Sprintf("payment attempt not completed " +
-			"before timeout")
-
-		return lnwire.ShortChannelID{}, nil,
-			newErr(ErrPaymentAttemptTimeout, errStr)
-
-	case <-p.router.quit:
-		// The payment will be resumed from the current state
-		// after restart.
-		return lnwire.ShortChannelID{}, nil, ErrRouterShuttingDown
-
-	default:
-		// Fall through if we haven't hit our time limit, or
-		// are expiring.
-	}
-
-	// Create a new payment attempt from the given payment session.
-	rt, err := p.paySession.RequestRoute(
-		p.totalAmount, p.feeLimit, 0, uint32(p.currentHeight),
-	)
-	if err != nil {
-		log.Warnf("Failed to find route for payment %x: %v",
-			p.paymentHash, err)
-
-		// Convert error to payment-level failure.
-		failure := errorToPaymentFailure(err)
-
-		// If we're unable to successfully make a payment using
-		// any of the routes we've found, then mark the payment
-		// as permanently failed.
-		saveErr := p.router.cfg.Control.Fail(
-			p.paymentHash, failure,
-		)
-		if saveErr != nil {
-			return lnwire.ShortChannelID{}, nil, saveErr
-		}
-
-		// If there was an error already recorded for this
-		// payment, we'll return that.
-		if p.lastError != nil {
-			return lnwire.ShortChannelID{}, nil,
-				errNoRoute{lastError: p.lastError}
-		}
-		// Terminal state, return.
-		return lnwire.ShortChannelID{}, nil, err
-	}
 
 	// Generate a new key to be used for this attempt.
 	sessionKey, err := generateNewSessionKey()

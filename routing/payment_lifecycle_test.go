@@ -17,6 +17,8 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
+const stepTimeout = 5 * time.Second
+
 // createTestRoute builds a route a->b->c paying the given amt to c.
 func createTestRoute(amt lnwire.MilliSatoshi,
 	aliasMap map[string]route.Vertex) (*route.Route, error) {
@@ -84,6 +86,11 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 	// We create a simple route that we will supply every time the router
 	// requests one.
 	rt, err := createTestRoute(paymentAmt, testGraph.aliasMap)
+	if err != nil {
+		t.Fatalf("unable to create route: %v", err)
+	}
+
+	shard, err := createTestRoute(paymentAmt/4, testGraph.aliasMap)
 	if err != nil {
 		t.Fatalf("unable to create route: %v", err)
 	}
@@ -369,17 +376,193 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			},
 			routes: []*route.Route{rt},
 		},
+
+		// =====================================
+		// ||          MPP scenarios          ||
+		// =====================================
+		{
+			// Tests a simple successful MP payment of 4 shards.
+			steps: []string{
+				routerInitPayment,
+
+				// shard 0
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// shard 1
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// shard 2
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// shard 3
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// All shards succeed.
+				getPaymentResultSuccess,
+				getPaymentResultSuccess,
+				getPaymentResultSuccess,
+				getPaymentResultSuccess,
+
+				// Router should settle them all.
+				routerSettleAttempt,
+				routerSettleAttempt,
+				routerSettleAttempt,
+				routerSettleAttempt,
+
+				// And the final result is obviously
+				// successful.
+				paymentSuccess,
+			},
+			routes: []*route.Route{shard, shard, shard, shard},
+		},
+		{
+			// An MP payment scenario where we need several extra
+			// attempts before the payment finally settle.
+			steps: []string{
+				routerInitPayment,
+
+				// shard 0
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// shard 1
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// shard 2
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// shard 3
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// First two shards fail, two new ones are sent.
+				getPaymentResultTempFailure,
+				getPaymentResultTempFailure,
+				routerFailAttempt,
+				routerFailAttempt,
+
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// The four shards settle.
+				getPaymentResultSuccess,
+				getPaymentResultSuccess,
+				getPaymentResultSuccess,
+				getPaymentResultSuccess,
+				routerSettleAttempt,
+				routerSettleAttempt,
+				routerSettleAttempt,
+				routerSettleAttempt,
+
+				// Overall payment succeeds.
+				paymentSuccess,
+			},
+			routes: []*route.Route{
+				shard, shard, shard, shard, shard, shard,
+			},
+		},
+		{
+			// An MP payment scenario where 3 of the shards fail.
+			// However the last shard settle, which means we get
+			// the preimage and should consider the overall payment
+			// a success.
+			steps: []string{
+				routerInitPayment,
+
+				// shard 0
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// shard 1
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// shard 2
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// shard 3
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// 3 shards fail, and should be failed by the
+				// router.
+				getPaymentResultTempFailure,
+				getPaymentResultTempFailure,
+				getPaymentResultTempFailure,
+				routerFailAttempt,
+				routerFailAttempt,
+				routerFailAttempt,
+
+				// The fourth shard succeed against all odds,
+				// making the overall payment succeed.
+				getPaymentResultSuccess,
+				routerSettleAttempt,
+				paymentSuccess,
+			},
+			routes: []*route.Route{shard, shard, shard, shard},
+		},
+		{
+			// An MP payment scenario a shard fail with a terminal
+			// error, causing the router to stop attempting.
+			steps: []string{
+				routerInitPayment,
+
+				// shard 0
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// shard 1
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// shard 2
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// shard 3
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// The first shard fail with a terminal error.
+				getPaymentResultTerminalFailure,
+				routerFailAttempt,
+				routerFailPayment,
+
+				// Remaining 3 shards fail.
+				getPaymentResultTempFailure,
+				getPaymentResultTempFailure,
+				getPaymentResultTempFailure,
+				routerFailAttempt,
+				routerFailAttempt,
+				routerFailAttempt,
+
+				// Payment fails.
+				paymentError,
+			},
+			routes: []*route.Route{
+				shard, shard, shard, shard, shard, shard,
+			},
+		},
 	}
 
 	// Create a mock control tower with channels set up, that we use to
 	// synchronize and listen for events.
 	control := makeMockControlTower()
-	control.init = make(chan initArgs)
-	control.registerAttempt = make(chan registerAttemptArgs)
-	control.settleAttempt = make(chan settleAttemptArgs)
-	control.failAttempt = make(chan failAttemptArgs)
-	control.failPayment = make(chan failPaymentArgs)
-	control.fetchInFlight = make(chan struct{})
+	control.init = make(chan initArgs, 20)
+	control.registerAttempt = make(chan registerAttemptArgs, 20)
+	control.settleAttempt = make(chan settleAttemptArgs, 20)
+	control.failAttempt = make(chan failAttemptArgs, 20)
+	control.failPayment = make(chan failPaymentArgs, 20)
+	control.fetchInFlight = make(chan struct{}, 20)
 
 	quit := make(chan struct{})
 	defer close(quit)
@@ -502,7 +685,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				var args initArgs
 				select {
 				case args = <-control.init:
-				case <-time.After(1 * time.Second):
+				case <-time.After(stepTimeout):
 					t.Fatalf("no init payment with control")
 				}
 
@@ -516,7 +699,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				var args registerAttemptArgs
 				select {
 				case args = <-control.registerAttempt:
-				case <-time.After(1 * time.Second):
+				case <-time.After(stepTimeout):
 					t.Fatalf("attempt not registered " +
 						"with control")
 				}
@@ -530,7 +713,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			case routerSettleAttempt:
 				select {
 				case <-control.settleAttempt:
-				case <-time.After(1 * time.Second):
+				case <-time.After(stepTimeout):
 					t.Fatalf("attempt settle not " +
 						"registered with control")
 				}
@@ -541,7 +724,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			case routerFailAttempt:
 				select {
 				case <-control.failAttempt:
-				case <-time.After(1 * time.Second):
+				case <-time.After(stepTimeout):
 					t.Fatalf("attempt fail not " +
 						"registered with control")
 				}
@@ -552,7 +735,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			case routerFailPayment:
 				select {
 				case <-control.failPayment:
-				case <-time.After(1 * time.Second):
+				case <-time.After(stepTimeout):
 					t.Fatalf("payment fail not " +
 						"registered with control")
 				}
@@ -562,7 +745,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			case sendToSwitchSuccess:
 				select {
 				case sendResult <- nil:
-				case <-time.After(1 * time.Second):
+				case <-time.After(stepTimeout):
 					t.Fatalf("unable to send result")
 				}
 
@@ -574,7 +757,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 					&lnwire.FailTemporaryChannelFailure{},
 					1,
 				):
-				case <-time.After(1 * time.Second):
+				case <-time.After(stepTimeout):
 					t.Fatalf("unable to send result")
 				}
 
@@ -586,7 +769,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				case getPaymentResult <- &htlcswitch.PaymentResult{
 					Preimage: preImage,
 				}:
-				case <-time.After(1 * time.Second):
+				case <-time.After(stepTimeout):
 					t.Fatalf("unable to send result")
 				}
 
@@ -603,7 +786,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				case getPaymentResult <- &htlcswitch.PaymentResult{
 					Error: failure,
 				}:
-				case <-time.After(1 * time.Second):
+				case <-time.After(stepTimeout):
 					t.Fatalf("unable to get result")
 				}
 
@@ -621,7 +804,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				case getPaymentResult <- &htlcswitch.PaymentResult{
 					Error: failure,
 				}:
-				case <-time.After(1 * time.Second):
+				case <-time.After(stepTimeout):
 					t.Fatalf("unable to get result")
 				}
 
@@ -640,7 +823,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				select {
 				case getPaymentResultErr <- fmt.Errorf(
 					"shutting down"):
-				case <-time.After(1 * time.Second):
+				case <-time.After(stepTimeout):
 					t.Fatalf("unable to send payment " +
 						"result error")
 				}
@@ -663,7 +846,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 						t.Fatalf("expected error")
 					}
 
-				case <-time.After(1 * time.Second):
+				case <-time.After(stepTimeout):
 					t.Fatalf("got no payment result")
 				}
 
@@ -677,7 +860,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 							"error %v", err)
 					}
 
-				case <-time.After(1 * time.Second):
+				case <-time.After(stepTimeout):
 					t.Fatalf("got no payment result")
 				}
 
@@ -690,7 +873,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 						t.Fatalf("expected error")
 					}
 
-				case <-time.After(1 * time.Second):
+				case <-time.After(stepTimeout):
 					t.Fatalf("got no payment result")
 				}
 
@@ -703,7 +886,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 						t.Fatalf("did not expect error %v", err)
 					}
 
-				case <-time.After(1 * time.Second):
+				case <-time.After(stepTimeout):
 					t.Fatalf("got no payment result")
 				}
 

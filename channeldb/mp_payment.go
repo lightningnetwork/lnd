@@ -144,6 +144,24 @@ func (m *MPPayment) TerminalInfo() (*HTLCSettleInfo, *FailureReason) {
 	return nil, m.FailureReason
 }
 
+// SentAmt returns the sum of sent amount and fees for HTLCs that are either
+// settled or still in flight.
+func (m *MPPayment) SentAmt() (lnwire.MilliSatoshi, lnwire.MilliSatoshi) {
+	var sent, fees lnwire.MilliSatoshi
+	for _, h := range m.HTLCs {
+		if h.Failure != nil {
+			continue
+		}
+
+		// The attempt was not failed, meaning the amount was
+		// potentially sent to the receiver.
+		sent += h.Route.ReceiverAmt()
+		fees += h.Route.TotalFees()
+	}
+
+	return sent, fees
+}
+
 // InFlightHTLCs returns the HTLCs that are still in-flight, meaning they have
 // not been settled or failed.
 func (m *MPPayment) InFlightHTLCs() []HTLCAttempt {

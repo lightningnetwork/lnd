@@ -32,6 +32,23 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 		paymentHash: p.paymentHash,
 	}
 
+	// If we have an existing attempt, we'll start by collecting its result.
+	payment, err := p.router.cfg.Control.FetchPayment(
+		p.paymentHash,
+	)
+	if err != nil {
+		return [32]byte{}, nil, err
+	}
+
+	for _, a := range payment.InFlightHTLCs() {
+		a := a
+
+		_, err := shardHandler.collectResult(&a.HTLCAttemptInfo)
+		if err != nil {
+			return [32]byte{}, nil, err
+		}
+	}
+
 	// We'll continue until either our payment succeeds, or we encounter a
 	// critical error during path finding.
 	for {
@@ -160,29 +177,31 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 				// make a new attempt.
 				continue
 			}
-		}
 
-		// Whether this was an existing attempt or one we just sent,
-		// we'll now collect its result. We ignore the result for now
-		// if it is a success, as we will look it up in the control
-		// tower on the next loop iteration.
-		result, err := shardHandler.collectResult(attempt)
-		if err != nil {
-			return [32]byte{}, nil, err
-		}
-
-		if result.err != nil {
-			// We must inspect the error to know whether it was
-			// critical or not, to decide whether we should
-			// continue trying.
-			err = shardHandler.handleSendError(attempt, result.err)
+			// We'll collect the result of the shard just sent. We
+			// ignore the result for now if it is a success, as we
+			// will look it up in the control tower on the next
+			// loop iteration.
+			result, err := shardHandler.collectResult(attempt)
 			if err != nil {
 				return [32]byte{}, nil, err
 			}
 
-			// Error was handled successfully, continue to make a
-			// new attempt.
-			continue
+			if result.err != nil {
+				// We must inspect the error to know whether it
+				// was critical or not, to decide whether we
+				// should continue trying.
+				err := shardHandler.handleSendError(
+					attempt, result.err,
+				)
+				if err != nil {
+					return [32]byte{}, nil, err
+				}
+
+				// Error was handled successfully, continue to
+				// make a new attempt.
+				continue
+			}
 		}
 	}
 }

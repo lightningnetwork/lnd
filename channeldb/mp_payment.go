@@ -131,6 +131,21 @@ type MPPayment struct {
 	Status PaymentStatus
 }
 
+// InFlightHTLCs returns the HTLCs that are still in-flight, meaning they have
+// not been settled or failed.
+func (m *MPPayment) InFlightHTLCs() []HTLCAttempt {
+	var inflights []HTLCAttempt
+	for _, h := range m.HTLCs {
+		if h.Settle != nil || h.Failure != nil {
+			continue
+		}
+
+		inflights = append(inflights, h)
+	}
+
+	return inflights
+}
+
 // serializeHTLCSettleInfo serializes the details of a settled htlc.
 func serializeHTLCSettleInfo(w io.Writer, s *HTLCSettleInfo) error {
 	if _, err := w.Write(s.Preimage[:]); err != nil {

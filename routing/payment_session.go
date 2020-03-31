@@ -23,8 +23,14 @@ var (
 // information learned during the previous attempts.
 type PaymentSession interface {
 	// RequestRoute returns the next route to attempt for routing the
-	// specified HTLC payment to the target node.
-	RequestRoute(height uint32) (*route.Route, error)
+	// specified HTLC payment to the target node. The returned route should
+	// carry at most maxAmt to the target node, and pay at most feeLimit in
+	// fees. It can carry less if the payment is MPP. The activeShards
+	// argument should be set to instruct the payment session about the
+	// number of in flight HTLCS for the payment, such that it can choose
+	// splitting strategy accordingly.
+	RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
+		activeShards, height uint32) (*route.Route, error)
 }
 
 // paymentSession is used during an HTLC routings session to prune the local
@@ -59,7 +65,8 @@ type paymentSession struct {
 //
 // NOTE: This function is safe for concurrent access.
 // NOTE: Part of the PaymentSession interface.
-func (p *paymentSession) RequestRoute(height uint32) (*route.Route, error) {
+func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
+	activeShards, height uint32) (*route.Route, error) {
 
 	switch {
 
@@ -94,7 +101,7 @@ func (p *paymentSession) RequestRoute(height uint32) (*route.Route, error) {
 
 	restrictions := &RestrictParams{
 		ProbabilitySource: ss.MissionControl.GetProbability,
-		FeeLimit:          p.payment.FeeLimit,
+		FeeLimit:          feeLimit,
 		OutgoingChannelID: p.payment.OutgoingChannelID,
 		LastHop:           p.payment.LastHop,
 		CltvLimit:         cltvLimit,
@@ -124,7 +131,7 @@ func (p *paymentSession) RequestRoute(height uint32) (*route.Route, error) {
 		},
 		restrictions, &ss.PathFindingConfig,
 		ss.SelfNode.PubKeyBytes, p.payment.Target,
-		p.payment.Amount, finalHtlcExpiry,
+		maxAmt, finalHtlcExpiry,
 	)
 	if err != nil {
 		return nil, err
@@ -136,7 +143,7 @@ func (p *paymentSession) RequestRoute(height uint32) (*route.Route, error) {
 	route, err := newRoute(
 		sourceVertex, path, height,
 		finalHopParams{
-			amt:         p.payment.Amount,
+			amt:         maxAmt,
 			cltvDelta:   finalCltvDelta,
 			records:     p.payment.DestCustomRecords,
 			paymentAddr: p.payment.PaymentAddr,

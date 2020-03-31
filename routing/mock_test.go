@@ -122,7 +122,9 @@ type mockPaymentSession struct {
 
 var _ PaymentSession = (*mockPaymentSession)(nil)
 
-func (m *mockPaymentSession) RequestRoute(height uint32) (*route.Route, error) {
+func (m *mockPaymentSession) RequestRoute(_, _ lnwire.MilliSatoshi,
+	_, height uint32) (*route.Route, error) {
+
 	if len(m.routes) == 0 {
 		return nil, fmt.Errorf("no routes")
 	}

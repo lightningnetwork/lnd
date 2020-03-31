@@ -50,6 +50,8 @@ func TestRequestRoute(t *testing.T) {
 	payment := &LightningPayment{
 		CltvLimit:      cltvLimit,
 		FinalCLTVDelta: finalCltvDelta,
+		Amount:         1000,
+		FeeLimit:       1000,
 	}
 
 	session := &paymentSession{
@@ -63,7 +65,9 @@ func TestRequestRoute(t *testing.T) {
 		pathFinder:    findPath,
 	}
 
-	route, err := session.RequestRoute(height)
+	route, err := session.RequestRoute(
+		payment.Amount, payment.FeeLimit, 0, height,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

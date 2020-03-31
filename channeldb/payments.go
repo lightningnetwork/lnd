@@ -252,6 +252,16 @@ func (db *DB) FetchPayments() ([]*MPPayment, error) {
 	return payments, nil
 }
 
+func fetchCreationInfo(bucket kvdb.ReadBucket) (*PaymentCreationInfo, error) {
+	b := bucket.Get(paymentCreationInfoKey)
+	if b == nil {
+		return nil, fmt.Errorf("creation info not found")
+	}
+
+	r := bytes.NewReader(b)
+	return deserializePaymentCreationInfo(r)
+}
+
 func fetchPayment(bucket kvdb.ReadBucket) (*MPPayment, error) {
 	seqBytes := bucket.Get(paymentSequenceKey)
 	if seqBytes == nil {
@@ -261,13 +271,7 @@ func fetchPayment(bucket kvdb.ReadBucket) (*MPPayment, error) {
 	sequenceNum := binary.BigEndian.Uint64(seqBytes)
 
 	// Get the PaymentCreationInfo.
-	b := bucket.Get(paymentCreationInfoKey)
-	if b == nil {
-		return nil, fmt.Errorf("creation info not found")
-	}
-
-	r := bytes.NewReader(b)
-	creationInfo, err := deserializePaymentCreationInfo(r)
+	creationInfo, err := fetchCreationInfo(bucket)
 	if err != nil {
 		return nil, err
 
@@ -285,7 +289,7 @@ func fetchPayment(bucket kvdb.ReadBucket) (*MPPayment, error) {
 
 	// Get failure reason if available.
 	var failureReason *FailureReason
-	b = bucket.Get(paymentFailInfoKey)
+	b := bucket.Get(paymentFailInfoKey)
 	if b != nil {
 		reason := FailureReason(b[0])
 		failureReason = &reason

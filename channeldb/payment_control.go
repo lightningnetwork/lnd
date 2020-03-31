@@ -548,14 +548,7 @@ func (p *PaymentControl) FetchInFlightPayments() ([]*InFlightPayment, error) {
 			inFlight := &InFlightPayment{}
 
 			// Get the CreationInfo.
-			b := bucket.Get(paymentCreationInfoKey)
-			if b == nil {
-				return fmt.Errorf("unable to find creation " +
-					"info for inflight payment")
-			}
-
-			r := bytes.NewReader(b)
-			inFlight.Info, err = deserializePaymentCreationInfo(r)
+			inFlight.Info, err = fetchCreationInfo(bucket)
 			if err != nil {
 				return err
 			}

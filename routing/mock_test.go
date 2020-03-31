@@ -290,16 +290,7 @@ func (m *mockControlTower) SettleAttempt(phash lntypes.Hash,
 		m.success <- successArgs{settleInfo.Preimage}
 	}
 
-	// Only allow setting attempts for payments not yet succeeded or
-	// failed.
-	if _, ok := m.successful[phash]; ok {
-		return channeldb.ErrPaymentAlreadySucceeded
-	}
-
-	if _, ok := m.failed[phash]; ok {
-		return channeldb.ErrPaymentAlreadyFailed
-	}
-
+	// Only allow setting attempts if the payment is known.
 	p, ok := m.payments[phash]
 	if !ok {
 		return channeldb.ErrPaymentNotInitiated
@@ -309,6 +300,13 @@ func (m *mockControlTower) SettleAttempt(phash lntypes.Hash,
 	for i, a := range p.attempts {
 		if a.AttemptID != pid {
 			continue
+		}
+
+		if a.Settle != nil {
+			return channeldb.ErrAttemptAlreadySettled
+		}
+		if a.Failure != nil {
+			return channeldb.ErrAttemptAlreadyFailed
 		}
 
 		p.attempts[i].Settle = settleInfo
@@ -327,16 +325,7 @@ func (m *mockControlTower) FailAttempt(phash lntypes.Hash, pid uint64,
 	m.Lock()
 	defer m.Unlock()
 
-	// Only allow failing attempts for payments not yet succeeded or
-	// failed.
-	if _, ok := m.successful[phash]; ok {
-		return channeldb.ErrPaymentAlreadySucceeded
-	}
-
-	if _, ok := m.failed[phash]; ok {
-		return channeldb.ErrPaymentAlreadyFailed
-	}
-
+	// Only allow failing attempts if the payment is known.
 	p, ok := m.payments[phash]
 	if !ok {
 		return channeldb.ErrPaymentNotInitiated
@@ -346,6 +335,13 @@ func (m *mockControlTower) FailAttempt(phash lntypes.Hash, pid uint64,
 	for i, a := range p.attempts {
 		if a.AttemptID != pid {
 			continue
+		}
+
+		if a.Settle != nil {
+			return channeldb.ErrAttemptAlreadySettled
+		}
+		if a.Failure != nil {
+			return channeldb.ErrAttemptAlreadyFailed
 		}
 
 		p.attempts[i].Failure = failInfo
@@ -365,15 +361,7 @@ func (m *mockControlTower) Fail(phash lntypes.Hash,
 		m.fail <- failArgs{reason}
 	}
 
-	// Cannot fail already successful or failed payments.
-	if _, ok := m.successful[phash]; ok {
-		return channeldb.ErrPaymentAlreadySucceeded
-	}
-
-	if _, ok := m.failed[phash]; ok {
-		return channeldb.ErrPaymentAlreadyFailed
-	}
-
+	// Payment must be known.
 	if _, ok := m.payments[phash]; !ok {
 		return channeldb.ErrPaymentNotInitiated
 	}

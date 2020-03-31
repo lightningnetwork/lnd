@@ -131,6 +131,19 @@ type MPPayment struct {
 	Status PaymentStatus
 }
 
+// TerminalInfo returns any HTLC settle info recorded. If no settle info is
+// recorded, any payment level failure will be returned. If neither a settle
+// nor a failure is recorded, both return values will be nil.
+func (m *MPPayment) TerminalInfo() (*HTLCSettleInfo, *FailureReason) {
+	for _, h := range m.HTLCs {
+		if h.Settle != nil {
+			return h.Settle, nil
+		}
+	}
+
+	return nil, m.FailureReason
+}
+
 // InFlightHTLCs returns the HTLCs that are still in-flight, meaning they have
 // not been settled or failed.
 func (m *MPPayment) InFlightHTLCs() []HTLCAttempt {

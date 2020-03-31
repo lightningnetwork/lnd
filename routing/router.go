@@ -1732,6 +1732,14 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, rt *route.Route) (
 	// Calculate amount paid to receiver.
 	amt := rt.ReceiverAmt()
 
+	// If this is meant as a MP payment shard, we set the amount
+	// for the creating info to the total amount of the payment.
+	finalHop := rt.Hops[len(rt.Hops)-1]
+	mpp := finalHop.MPP
+	if mpp != nil {
+		amt = mpp.TotalMsat()
+	}
+
 	// Record this payment hash with the ControlTower, ensuring it is not
 	// already in-flight.
 	info := &channeldb.PaymentCreationInfo{
@@ -1742,7 +1750,13 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, rt *route.Route) (
 	}
 
 	err := r.cfg.Control.InitPayment(hash, info)
-	if err != nil {
+	switch {
+	// If this is an MPP attempt and the hash is already registered with
+	// the database, we can go on to launch the shard.
+	case err == channeldb.ErrPaymentInFlight && mpp != nil:
+
+	// Any other error is not tolerated.
+	case err != nil:
 		return [32]byte{}, err
 	}
 

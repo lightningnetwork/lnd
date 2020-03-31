@@ -176,15 +176,19 @@ type initArgs struct {
 	c *channeldb.PaymentCreationInfo
 }
 
-type registerArgs struct {
+type registerAttemptArgs struct {
 	a *channeldb.HTLCAttemptInfo
 }
 
-type successArgs struct {
+type settleAttemptArgs struct {
 	preimg lntypes.Preimage
 }
 
-type failArgs struct {
+type failAttemptArgs struct {
+	reason *channeldb.HTLCFailInfo
+}
+
+type failPaymentArgs struct {
 	reason channeldb.FailureReason
 }
 
@@ -198,11 +202,12 @@ type mockControlTower struct {
 	successful map[lntypes.Hash]struct{}
 	failed     map[lntypes.Hash]channeldb.FailureReason
 
-	init          chan initArgs
-	register      chan registerArgs
-	success       chan successArgs
-	fail          chan failArgs
-	fetchInFlight chan struct{}
+	init            chan initArgs
+	registerAttempt chan registerAttemptArgs
+	settleAttempt   chan settleAttemptArgs
+	failAttempt     chan failAttemptArgs
+	failPayment     chan failPaymentArgs
+	fetchInFlight   chan struct{}
 
 	sync.Mutex
 }
@@ -254,8 +259,8 @@ func (m *mockControlTower) RegisterAttempt(phash lntypes.Hash,
 	m.Lock()
 	defer m.Unlock()
 
-	if m.register != nil {
-		m.register <- registerArgs{a}
+	if m.registerAttempt != nil {
+		m.registerAttempt <- registerAttemptArgs{a}
 	}
 
 	// Cannot register attempts for successful or failed payments.
@@ -286,8 +291,8 @@ func (m *mockControlTower) SettleAttempt(phash lntypes.Hash,
 	m.Lock()
 	defer m.Unlock()
 
-	if m.success != nil {
-		m.success <- successArgs{settleInfo.Preimage}
+	if m.settleAttempt != nil {
+		m.settleAttempt <- settleAttemptArgs{settleInfo.Preimage}
 	}
 
 	// Only allow setting attempts if the payment is known.
@@ -325,6 +330,10 @@ func (m *mockControlTower) FailAttempt(phash lntypes.Hash, pid uint64,
 	m.Lock()
 	defer m.Unlock()
 
+	if m.failAttempt != nil {
+		m.failAttempt <- failAttemptArgs{failInfo}
+	}
+
 	// Only allow failing attempts if the payment is known.
 	p, ok := m.payments[phash]
 	if !ok {
@@ -357,8 +366,8 @@ func (m *mockControlTower) Fail(phash lntypes.Hash,
 	m.Lock()
 	defer m.Unlock()
 
-	if m.fail != nil {
-		m.fail <- failArgs{reason}
+	if m.failPayment != nil {
+		m.failPayment <- failPaymentArgs{reason}
 	}
 
 	// Payment must be known.

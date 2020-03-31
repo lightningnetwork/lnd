@@ -109,13 +109,18 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 		// tower.
 		routerRegisterAttempt = "Router:register-attempt"
 
-		// routerSuccess is a test step where we expect the router to
-		// call the Success method on the control tower.
-		routerSuccess = "Router:success"
+		// routerSettleAttempt is a test step where we expect the
+		// router to call the SettleAttempt method on the control
+		// tower.
+		routerSettleAttempt = "Router:settle-attempt"
 
-		// routerFail is a test step where we expect the router to call
-		// the Fail method on the control tower.
-		routerFail = "Router:fail"
+		// routerFailAttempt is a test step where we expect the router
+		// to call the FailAttempt method on the control tower.
+		routerFailAttempt = "Router:fail-attempt"
+
+		// routerFailPayment is a test step where we expect the router
+		// to call the Fail method on the control tower.
+		routerFailPayment = "Router:fail-payment"
 
 		// sendToSwitchSuccess is a step where we expect the router to
 		// call send the payment attempt to the switch, and we will
@@ -178,7 +183,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 				getPaymentResultSuccess,
-				routerSuccess,
+				routerSettleAttempt,
 				paymentSuccess,
 			},
 			routes: []*route.Route{rt},
@@ -193,6 +198,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 
 				// Make the first sent attempt fail.
 				getPaymentResultFailure,
+				routerFailAttempt,
 
 				// The router should retry.
 				routerRegisterAttempt,
@@ -200,7 +206,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 
 				// Make the second sent attempt succeed.
 				getPaymentResultSuccess,
-				routerSuccess,
+				routerSettleAttempt,
 				paymentSuccess,
 			},
 			routes: []*route.Route{rt, rt},
@@ -215,6 +221,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 
 				// Make the first sent attempt fail.
 				sendToSwitchResultFailure,
+				routerFailAttempt,
 
 				// The router should retry.
 				routerRegisterAttempt,
@@ -222,7 +229,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 
 				// Make the second sent attempt succeed.
 				getPaymentResultSuccess,
-				routerSuccess,
+				routerSettleAttempt,
 				paymentSuccess,
 			},
 			routes: []*route.Route{rt, rt},
@@ -238,10 +245,11 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 
 				// Make the first sent attempt fail.
 				getPaymentResultFailure,
+				routerFailAttempt,
 
 				// Since there are no more routes to try, the
 				// payment should fail.
-				routerFail,
+				routerFailPayment,
 				paymentError,
 			},
 			routes: []*route.Route{rt},
@@ -251,7 +259,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			// no routes to try.
 			steps: []string{
 				routerInitPayment,
-				routerFail,
+				routerFailPayment,
 				paymentError,
 			},
 			routes: []*route.Route{},
@@ -286,7 +294,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				// Notify about a success for the original
 				// payment.
 				getPaymentResultSuccess,
-				routerSuccess,
+				routerSettleAttempt,
 
 				// Now that the original payment finished,
 				// resend it again to ensure this is not
@@ -316,7 +324,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				// control tower.
 				startRouter,
 				getPaymentResultSuccess,
-				routerSuccess,
+				routerSettleAttempt,
 			},
 			routes: []*route.Route{rt},
 		},
@@ -336,10 +344,11 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 
 				// Make the first attempt fail.
 				getPaymentResultFailure,
-				routerFail,
+				routerFailAttempt,
 
 				// Since we have no more routes to try, the
 				// original payment should fail.
+				routerFailPayment,
 				paymentError,
 
 				// Now resend the payment again. This should be
@@ -349,7 +358,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 				getPaymentResultSuccess,
-				routerSuccess,
+				routerSettleAttempt,
 				resentPaymentSuccess,
 			},
 			routes: []*route.Route{rt},
@@ -360,9 +369,10 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 	// synchronize and listen for events.
 	control := makeMockControlTower()
 	control.init = make(chan initArgs)
-	control.register = make(chan registerArgs)
-	control.success = make(chan successArgs)
-	control.fail = make(chan failArgs)
+	control.registerAttempt = make(chan registerAttemptArgs)
+	control.settleAttempt = make(chan settleAttemptArgs)
+	control.failAttempt = make(chan failAttemptArgs)
+	control.failPayment = make(chan failPaymentArgs)
 	control.fetchInFlight = make(chan struct{})
 
 	quit := make(chan struct{})
@@ -497,11 +507,12 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			// In this step we expect the router to make a call to
 			// register a new attempt with the ControlTower.
 			case routerRegisterAttempt:
-				var args registerArgs
+				var args registerAttemptArgs
 				select {
-				case args = <-control.register:
+				case args = <-control.registerAttempt:
 				case <-time.After(1 * time.Second):
-					t.Fatalf("not registered with control")
+					t.Fatalf("attempt not registered " +
+						"with control")
 				}
 
 				if args.a == nil {
@@ -509,22 +520,35 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				}
 
 			// In this step we expect the router to call the
-			// ControlTower's Succcess method with the preimage.
-			case routerSuccess:
+			// ControlTower's SettleAttempt method with the preimage.
+			case routerSettleAttempt:
 				select {
-				case <-control.success:
+				case <-control.settleAttempt:
 				case <-time.After(1 * time.Second):
-					t.Fatalf("not registered with control")
+					t.Fatalf("attempt settle not " +
+						"registered with control")
+				}
+
+			// In this step we expect the router to call the
+			// ControlTower's FailAttempt method with a HTLC fail
+			// info.
+			case routerFailAttempt:
+				select {
+				case <-control.failAttempt:
+				case <-time.After(1 * time.Second):
+					t.Fatalf("attempt fail not " +
+						"registered with control")
 				}
 
 			// In this step we expect the router to call the
 			// ControlTower's Fail method, to indicate that the
 			// payment failed.
-			case routerFail:
+			case routerFailPayment:
 				select {
-				case <-control.fail:
+				case <-control.failPayment:
 				case <-time.After(1 * time.Second):
-					t.Fatalf("not registered with control")
+					t.Fatalf("payment fail not " +
+						"registered with control")
 				}
 
 			// In this step we expect the SendToSwitch method to be
@@ -625,7 +649,8 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				select {
 				case err := <-paymentResult:
 					if err != nil {
-						t.Fatalf("did not expecte error %v", err)
+						t.Fatalf("did not expect "+
+							"error %v", err)
 					}
 
 				case <-time.After(1 * time.Second):

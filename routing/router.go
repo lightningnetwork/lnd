@@ -1731,11 +1731,11 @@ func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
 // SendToRoute attempts to send a payment with the given hash through the
 // provided route. This function is blocking and will return the obtained
 // preimage if the payment is successful or the full error in case of a failure.
-func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
+func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, rt *route.Route) (
 	lntypes.Preimage, error) {
 
 	// Calculate amount paid to receiver.
-	amt := route.ReceiverAmt()
+	amt := rt.ReceiverAmt()
 
 	// Record this payment hash with the ControlTower, ensuring it is not
 	// already in-flight.
@@ -1753,7 +1753,7 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 
 	log.Tracef("Dispatching SendToRoute for hash %v: %v",
 		hash, newLogClosure(func() string {
-			return spew.Sdump(route)
+			return spew.Sdump(rt)
 		}),
 	)
 
@@ -1764,7 +1764,25 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 	}
 
 	var shardError error
-	attempt, outcome, err := sh.launchShard(route)
+	attempt, outcome, err := sh.launchShard(rt)
+
+	// With SendToRoute, it can happen that the route exceeds protocol
+	// constraints. Mark the payment as failed with an internal error.
+	if err == route.ErrMaxRouteHopsExceeded ||
+		err == sphinx.ErrMaxRoutingInfoSizeExceeded {
+
+		log.Debugf("Invalid route provided for payment %x: %v",
+			hash, err)
+
+		controlErr := r.cfg.Control.Fail(
+			hash, channeldb.FailureReasonError,
+		)
+		if controlErr != nil {
+			return [32]byte{}, controlErr
+		}
+	}
+
+	// In any case, don't continue if there is an error.
 	if err != nil {
 		return lntypes.Preimage{}, err
 	}

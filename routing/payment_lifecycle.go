@@ -139,24 +139,6 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 			// With the route in hand, launch a new shard.
 			var outcome *launchOutcome
 			attempt, outcome, err = shardHandler.launchShard(rt)
-
-			// With SendToRoute, it can happen that the route exceeds protocol
-			// constraints. Mark the payment as failed with an internal error.
-			if err == route.ErrMaxRouteHopsExceeded ||
-				err == sphinx.ErrMaxRoutingInfoSizeExceeded {
-
-				log.Debugf("Invalid route provided for payment %x: %v",
-					p.paymentHash, err)
-
-				controlErr := p.router.cfg.Control.Fail(
-					p.paymentHash, channeldb.FailureReasonError,
-				)
-				if controlErr != nil {
-					return [32]byte{}, nil, controlErr
-				}
-			}
-
-			// In any case, don't continue if there is an error.
 			if err != nil {
 				return [32]byte{}, nil, err
 			}

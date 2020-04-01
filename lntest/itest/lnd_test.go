@@ -214,9 +214,15 @@ func openChannelAndAssert(ctx context.Context, t *harnessTest,
 	net *lntest.NetworkHarness, alice, bob *lntest.HarnessNode,
 	p lntest.OpenChannelParams) *lnrpc.ChannelPoint {
 
-	chanOpenUpdate, err := net.OpenChannel(
-		ctx, alice, bob, p,
-	)
+	// Wait until we are able to fund a channel successfully. This wait
+	// prevents us from erroring out when trying to create a channel while
+	// the node is starting up.
+	var chanOpenUpdate lnrpc.Lightning_OpenChannelClient
+	err := wait.NoError(func() error {
+		var err error
+		chanOpenUpdate, err = net.OpenChannel(ctx, alice, bob, p)
+		return err
+	}, defaultTimeout)
 	if err != nil {
 		t.Fatalf("unable to open channel: %v", err)
 	}

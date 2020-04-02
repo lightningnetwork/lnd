@@ -799,6 +799,9 @@ func (r *rpcServer) Start() error {
 	restCtx, restCancel := context.WithCancel(context.Background())
 	r.listenerCleanUp = append(r.listenerCleanUp, restCancel)
 
+	// Wrap the default grpc-gateway handler with the WebSocket handler.
+	restHandler := lnrpc.NewWebSocketProxy(restMux, rpcsLog)
+
 	// With our custom REST proxy mux created, register our main RPC and
 	// give all subservers a chance to register as well.
 	err := lnrpc.RegisterLightningHandlerFromEndpoint(
@@ -849,7 +852,14 @@ func (r *rpcServer) Start() error {
 
 		go func() {
 			rpcsLog.Infof("gRPC proxy started at %s", lis.Addr())
-			_ = http.Serve(lis, restMux)
+
+			// Create our proxy chain now. A request will pass
+			// through the following chain:
+			// req ---> WS proxy ---> REST proxy --> gRPC endpoint
+			err := http.Serve(lis, restHandler)
+			if err != nil && !lnrpc.IsClosedConnError(err) {
+				rpcsLog.Error(err)
+			}
 		}()
 	}
 

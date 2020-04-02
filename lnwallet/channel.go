@@ -3919,8 +3919,8 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 
 			// Make sure there are more signatures left.
 			if i >= len(htlcSigs) {
-				return nil, fmt.Errorf("not enough HTLC " +
-					"signatures.")
+				return nil, fmt.Errorf("not enough HTLC "+
+					"signatures: count=%v", len(htlcSigs))
 			}
 
 			// With the sighash generated, we'll also store the
@@ -3973,8 +3973,8 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 
 			// Make sure there are more signatures left.
 			if i >= len(htlcSigs) {
-				return nil, fmt.Errorf("not enough HTLC " +
-					"signatures.")
+				return nil, fmt.Errorf("not enough HTLC "+
+					"signatures: count=%v", len(htlcSigs))
 			}
 
 			// With the sighash generated, we'll also store the

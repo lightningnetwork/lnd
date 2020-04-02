@@ -67,6 +67,10 @@ var (
 	ErrBelowMinHTLC = fmt.Errorf("proposed HTLC value is below minimum " +
 		"allowed HTLC value")
 
+	// ErrInvalidHTLCAmt signals that a proposed HTLC has a value that is
+	// not positive.
+	ErrInvalidHTLCAmt = fmt.Errorf("proposed HTLC value must be positive")
+
 	// ErrCannotSyncCommitChains is returned if, upon receiving a ChanSync
 	// message, the state machine deems that is unable to properly
 	// synchronize states with the remote peer. In this case we should fail
@@ -3233,6 +3237,11 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 				// number and amount in flight.
 				amtInFlight += entry.Amount
 				numInFlight++
+
+				// Check that the HTLC amount is positive.
+				if entry.Amount == 0 {
+					return ErrInvalidHTLCAmt
+				}
 
 				// Check that the value of the HTLC they added
 				// is above our minimum.

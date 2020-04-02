@@ -6636,6 +6636,41 @@ func TestMinHTLC(t *testing.T) {
 	}
 }
 
+// TestInvalidHTLCAmt tests that ErrInvalidHTLCAmt is returned when trying to
+// add HTLCs that don't carry a positive value.
+func TestInvalidHTLCAmt(t *testing.T) {
+	t.Parallel()
+
+	// We'll kick off the test by creating our channels which both are
+	// loaded with 5 BTC each.
+	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels(
+		channeldb.SingleFunderTweaklessBit,
+	)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// We'll set the min HTLC values for each party to zero, which
+	// technically would permit zero-value HTLCs.
+	aliceChannel.channelState.LocalChanCfg.MinHTLC = 0
+	bobChannel.channelState.RemoteChanCfg.MinHTLC = 0
+
+	// Create a zero-value HTLC.
+	htlcAmt := lnwire.MilliSatoshi(0)
+	htlc, _ := createHTLC(0, htlcAmt)
+
+	// Sending or receiving the HTLC should fail with ErrInvalidHTLCAmt.
+	_, err = aliceChannel.AddHTLC(htlc, nil)
+	if err != ErrInvalidHTLCAmt {
+		t.Fatalf("expected ErrInvalidHTLCAmt, got: %v", err)
+	}
+	_, err = bobChannel.ReceiveHTLC(htlc)
+	if err != ErrInvalidHTLCAmt {
+		t.Fatalf("expected ErrInvalidHTLCAmt, got: %v", err)
+	}
+}
+
 // TestNewBreachRetributionSkipsDustHtlcs ensures that in the case of a
 // contract breach, all dust HTLCs are ignored and not reflected in the
 // produced BreachRetribution struct. We ignore these HTLCs as they aren't

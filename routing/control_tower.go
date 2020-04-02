@@ -129,7 +129,8 @@ func (p *controlTower) SettleAttempt(paymentHash lntypes.Hash,
 func (p *controlTower) FailAttempt(paymentHash lntypes.Hash,
 	attemptID uint64, failInfo *channeldb.HTLCFailInfo) error {
 
-	return p.db.FailAttempt(paymentHash, attemptID, failInfo)
+	_, err := p.db.FailAttempt(paymentHash, attemptID, failInfo)
+	return err
 }
 
 // createSuccessResult creates a success result to send to subscribers.

@@ -213,16 +213,15 @@ func (p *PaymentControl) SettleAttempt(hash lntypes.Hash,
 
 // FailAttempt marks the given payment attempt failed.
 func (p *PaymentControl) FailAttempt(hash lntypes.Hash,
-	attemptID uint64, failInfo *HTLCFailInfo) error {
+	attemptID uint64, failInfo *HTLCFailInfo) (*MPPayment, error) {
 
 	var b bytes.Buffer
 	if err := serializeHTLCFailInfo(&b, failInfo); err != nil {
-		return err
+		return nil, err
 	}
 	failBytes := b.Bytes()
 
-	_, err := p.updateHtlcKey(hash, attemptID, htlcFailInfoKey, failBytes)
-	return err
+	return p.updateHtlcKey(hash, attemptID, htlcFailInfoKey, failBytes)
 }
 
 // updateHtlcKey updates a database key for the specified htlc.

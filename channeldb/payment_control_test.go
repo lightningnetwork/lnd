@@ -125,7 +125,7 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 		t.Fatalf("unable to register attempt: %v", err)
 	}
 
-	err = pControl.FailAttempt(
+	_, err = pControl.FailAttempt(
 		info.PaymentHash, 2, &HTLCFailInfo{
 			Reason: HTLCFailUnreadable,
 		},
@@ -362,7 +362,7 @@ func TestPaymentControlDeleteNonInFligt(t *testing.T) {
 
 		if p.failed {
 			// Fail the payment attempt.
-			err := pControl.FailAttempt(
+			_, err := pControl.FailAttempt(
 				info.PaymentHash, attempt.AttemptID,
 				&HTLCFailInfo{
 					Reason: HTLCFailUnreadable,

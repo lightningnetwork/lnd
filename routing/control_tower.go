@@ -117,11 +117,9 @@ func (p *controlTower) SettleAttempt(paymentHash lntypes.Hash,
 		return err
 	}
 
-	// Notify subscribers of success event.
-	p.notifyFinalEvent(
-		paymentHash, createSuccessResult(payment.HTLCs),
-	)
-
+	// If settling this attempt took the payment to a final state, we
+	// should notify all subscribers of success event.
+	p.notifyFinalEvent(payment)
 	return nil
 }
 
@@ -129,8 +127,17 @@ func (p *controlTower) SettleAttempt(paymentHash lntypes.Hash,
 func (p *controlTower) FailAttempt(paymentHash lntypes.Hash,
 	attemptID uint64, failInfo *channeldb.HTLCFailInfo) error {
 
-	_, err := p.db.FailAttempt(paymentHash, attemptID, failInfo)
-	return err
+	payment, err := p.db.FailAttempt(paymentHash, attemptID, failInfo)
+	if err != nil {
+		return err
+	}
+
+	// If failing this attempt took the payment to a final state, we
+	// should notify all subscribers of the final payment status. This can
+	// happen if the payment already had a settled attempt or terminal
+	// failure recorded, and this attempt was the last one in-flight.
+	p.notifyFinalEvent(payment)
+	return nil
 }
 
 // createSuccessResult creates a success result to send to subscribers.
@@ -174,13 +181,12 @@ func (p *controlTower) Fail(paymentHash lntypes.Hash,
 		return err
 	}
 
-	// Notify subscribers of fail event.
-	p.notifyFinalEvent(
-		paymentHash, createFailedResult(
-			payment.HTLCs, reason,
-		),
-	)
-
+	// If recording the failure reason took the payment to a final state,
+	// we should notify all subscribers of the final payment status. This
+	// can happen if the payment had no more attempts in flight at this
+	// point, and recording this payment failure took the payment to a
+	// final failure state.
+	p.notifyFinalEvent(payment)
 	return nil
 }
 
@@ -250,9 +256,28 @@ func (p *controlTower) SubscribePayment(paymentHash lntypes.Hash) (
 }
 
 // notifyFinalEvent sends a final payment event to all subscribers of this
-// payment. The channel will be closed after this.
-func (p *controlTower) notifyFinalEvent(paymentHash lntypes.Hash,
-	event *PaymentResult) {
+// payment if the payment is found in a state. The channel will be closed after
+// this.
+func (p *controlTower) notifyFinalEvent(payment *channeldb.MPPayment) {
+	var event *PaymentResult
+	switch payment.Status {
+
+	// Notify subscribers of success event.
+	case channeldb.StatusSucceeded:
+		event = createSuccessResult(payment.HTLCs)
+
+	// Notify subscribers of fail event.
+	case channeldb.StatusFailed:
+		event = createFailedResult(
+			payment.HTLCs, *payment.FailureReason,
+		)
+
+	// Non-final status.
+	default:
+		return
+	}
+
+	paymentHash := payment.Info.PaymentHash
 
 	// Get all subscribers for this hash. As there is only a single outcome,
 	// the subscriber list can be cleared.

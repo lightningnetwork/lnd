@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -171,6 +172,28 @@ func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	log.Debugf("Signer RPC server successfully register with root gRPC " +
 		"server")
 
+	return nil
+}
+
+// RegisterWithRestServer will be called by the root REST mux to direct a sub
+// RPC server to register itself with the main REST mux server. Until this is
+// called, each sub-server won't be able to have requests routed towards it.
+//
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (s *Server) RegisterWithRestServer(ctx context.Context,
+	mux *runtime.ServeMux, dest string, opts []grpc.DialOption) error {
+
+	// We make sure that we register it with the main REST server to ensure
+	// all our methods are routed properly.
+	err := RegisterSignerHandlerFromEndpoint(ctx, mux, dest, opts)
+	if err != nil {
+		log.Errorf("Could not register Signer REST server "+
+			"with root REST server: %v", err)
+		return err
+	}
+
+	log.Debugf("Signer REST server successfully registered with " +
+		"root REST server")
 	return nil
 }
 

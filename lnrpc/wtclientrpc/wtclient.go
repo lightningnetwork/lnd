@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -117,6 +118,24 @@ func (c *WatchtowerClient) RegisterWithRootServer(grpcServer *grpc.Server) error
 
 	c.cfg.Log.Debugf("WatchtowerClient RPC server successfully registered " +
 		"with  root gRPC server")
+
+	return nil
+}
+
+// RegisterWithRestServer will be called by the root REST mux to direct a sub
+// RPC server to register itself with the main REST mux server. Until this is
+// called, each sub-server won't be able to have requests routed towards it.
+//
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (c *WatchtowerClient) RegisterWithRestServer(ctx context.Context,
+	mux *runtime.ServeMux, dest string, opts []grpc.DialOption) error {
+
+	// We make sure that we register it with the main REST server to ensure
+	// all our methods are routed properly.
+	err := RegisterWatchtowerClientHandlerFromEndpoint(ctx, mux, dest, opts)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }

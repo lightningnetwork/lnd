@@ -791,22 +791,30 @@ func (r *rpcServer) Start() error {
 		},
 	)
 
-	// Finally, start the REST proxy for our gRPC server above. We'll ensure
+	// Now start the REST proxy for our gRPC server above. We'll ensure
 	// we direct LND to connect to its loopback address rather than a
 	// wildcard to prevent certificate issues when accessing the proxy
 	// externally.
-	//
-	// TODO(roasbeef): eventually also allow the sub-servers to themselves
-	// have a REST proxy.
 	restMux := proxy.NewServeMux(customMarshalerOption)
 	restCtx, restCancel := context.WithCancel(context.Background())
 	r.listenerCleanUp = append(r.listenerCleanUp, restCancel)
 
+	// With our custom REST proxy mux created, register our main RPC and
+	// give all subservers a chance to register as well.
 	err := lnrpc.RegisterLightningHandlerFromEndpoint(
 		restCtx, restMux, r.restProxyDest, r.restDialOpts,
 	)
 	if err != nil {
 		return err
+	}
+	for _, subServer := range r.subServers {
+		err := subServer.RegisterWithRestServer(
+			restCtx, restMux, r.restProxyDest, r.restDialOpts,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to register REST sub-server "+
+				"%v with root: %v", subServer.Name(), err)
+		}
 	}
 
 	// Before listening on any of the interfaces, we also want to give the

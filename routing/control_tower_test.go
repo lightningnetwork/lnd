@@ -324,7 +324,7 @@ func genInfo() (*channeldb.PaymentCreationInfo, *channeldb.HTLCAttemptInfo,
 	rhash := sha256.Sum256(preimage[:])
 	return &channeldb.PaymentCreationInfo{
 			PaymentHash:    rhash,
-			Value:          1,
+			Value:          testRoute.ReceiverAmt(),
 			CreationTime:   time.Unix(time.Now().Unix(), 0),
 			PaymentRequest: []byte("hola"),
 		},

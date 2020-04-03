@@ -44,6 +44,16 @@ func TestRequestRoute(t *testing.T) {
 		},
 	}
 
+	cltvLimit := uint32(30)
+	finalCltvDelta := uint16(8)
+
+	payment := &LightningPayment{
+		CltvLimit:      cltvLimit,
+		FinalCLTVDelta: finalCltvDelta,
+		Amount:         1000,
+		FeeLimit:       1000,
+	}
+
 	session := &paymentSession{
 		getBandwidthHints: func() (map[uint64]lnwire.MilliSatoshi,
 			error) {
@@ -51,18 +61,13 @@ func TestRequestRoute(t *testing.T) {
 			return nil, nil
 		},
 		sessionSource: sessionSource,
+		payment:       payment,
 		pathFinder:    findPath,
 	}
 
-	cltvLimit := uint32(30)
-	finalCltvDelta := uint16(8)
-
-	payment := &LightningPayment{
-		CltvLimit:      cltvLimit,
-		FinalCLTVDelta: finalCltvDelta,
-	}
-
-	route, err := session.RequestRoute(payment, height, finalCltvDelta)
+	route, err := session.RequestRoute(
+		payment.Amount, payment.FeeLimit, 0, height,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

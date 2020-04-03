@@ -123,7 +123,12 @@ const (
 	// LocalLiquidityInsufficient, RemoteCapacityInsufficient.
 )
 
-// String returns a human readable FailureReason
+// Error returns a human readable error string for the FailureReason.
+func (r FailureReason) Error() string {
+	return r.String()
+}
+
+// String returns a human readable FailureReason.
 func (r FailureReason) String() string {
 	switch r {
 	case FailureReasonTimeout:
@@ -247,6 +252,16 @@ func (db *DB) FetchPayments() ([]*MPPayment, error) {
 	return payments, nil
 }
 
+func fetchCreationInfo(bucket kvdb.ReadBucket) (*PaymentCreationInfo, error) {
+	b := bucket.Get(paymentCreationInfoKey)
+	if b == nil {
+		return nil, fmt.Errorf("creation info not found")
+	}
+
+	r := bytes.NewReader(b)
+	return deserializePaymentCreationInfo(r)
+}
+
 func fetchPayment(bucket kvdb.ReadBucket) (*MPPayment, error) {
 	seqBytes := bucket.Get(paymentSequenceKey)
 	if seqBytes == nil {
@@ -255,20 +270,8 @@ func fetchPayment(bucket kvdb.ReadBucket) (*MPPayment, error) {
 
 	sequenceNum := binary.BigEndian.Uint64(seqBytes)
 
-	// Get the payment status.
-	paymentStatus, err := fetchPaymentStatus(bucket)
-	if err != nil {
-		return nil, err
-	}
-
 	// Get the PaymentCreationInfo.
-	b := bucket.Get(paymentCreationInfoKey)
-	if b == nil {
-		return nil, fmt.Errorf("creation info not found")
-	}
-
-	r := bytes.NewReader(b)
-	creationInfo, err := deserializePaymentCreationInfo(r)
+	creationInfo, err := fetchCreationInfo(bucket)
 	if err != nil {
 		return nil, err
 
@@ -286,10 +289,48 @@ func fetchPayment(bucket kvdb.ReadBucket) (*MPPayment, error) {
 
 	// Get failure reason if available.
 	var failureReason *FailureReason
-	b = bucket.Get(paymentFailInfoKey)
+	b := bucket.Get(paymentFailInfoKey)
 	if b != nil {
 		reason := FailureReason(b[0])
 		failureReason = &reason
+	}
+
+	// Go through all HTLCs for this payment, noting whether we have any
+	// settled HTLC, and any still in-flight.
+	var inflight, settled bool
+	for _, h := range htlcs {
+		if h.Failure != nil {
+			continue
+		}
+
+		if h.Settle != nil {
+			settled = true
+			continue
+		}
+
+		// If any of the HTLCs are not failed nor settled, we
+		// still have inflight HTLCs.
+		inflight = true
+	}
+
+	// Use the DB state to determine the status of the payment.
+	var paymentStatus PaymentStatus
+
+	switch {
+
+	// If any of the the HTLCs did succeed and there are no HTLCs in
+	// flight, the payment succeeded.
+	case !inflight && settled:
+		paymentStatus = StatusSucceeded
+
+	// If we have no in-flight HTLCs, and the payment failure is set, the
+	// payment is considered failed.
+	case !inflight && failureReason != nil:
+		paymentStatus = StatusFailed
+
+	// Otherwise it is still in flight.
+	default:
+		paymentStatus = StatusInFlight
 	}
 
 	return &MPPayment{
@@ -407,6 +448,8 @@ func (db *DB) DeletePayments() error {
 				return err
 			}
 
+			// If the status is InFlight, we cannot safely delete
+			// the payment information, so we return early.
 			if paymentStatus == StatusInFlight {
 				return nil
 			}

@@ -1,8 +1,6 @@
 package routing
 
 import (
-	"errors"
-
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -12,20 +10,89 @@ import (
 // to prevent an HTLC being failed if some blocks are mined while it's in-flight.
 const BlockPadding uint16 = 3
 
-var (
-	// errPrebuiltRouteTried is returned when the single pre-built route
-	// failed and there is nothing more we can do.
-	errPrebuiltRouteTried = errors.New("pre-built route already tried")
+// noRouteError encodes a non-critical error encountered during path finding.
+type noRouteError uint8
+
+const (
+	// errNoTlvPayload is returned when the destination hop does not support
+	// a tlv payload.
+	errNoTlvPayload noRouteError = iota
+
+	// errNoPaymentAddr is returned when the destination hop does not
+	// support payment addresses.
+	errNoPaymentAddr
+
+	// errNoPathFound is returned when a path to the target destination does
+	// not exist in the graph.
+	errNoPathFound
+
+	// errInsufficientLocalBalance is returned when none of the local
+	// channels have enough balance for the payment.
+	errInsufficientBalance
+
+	// errEmptyPaySession is returned when the empty payment session is
+	// queried for a route.
+	errEmptyPaySession
 )
+
+// Error returns the string representation of the noRouteError
+func (e noRouteError) Error() string {
+	switch e {
+	case errNoTlvPayload:
+		return "destination hop doesn't understand new TLV payloads"
+
+	case errNoPaymentAddr:
+		return "destination hop doesn't understand payment addresses"
+
+	case errNoPathFound:
+		return "unable to find a path to destination"
+
+	case errEmptyPaySession:
+		return "empty payment session"
+
+	case errInsufficientBalance:
+		return "insufficient local balance"
+
+	default:
+		return "unknown no-route error"
+	}
+}
+
+// FailureReason converts a path finding error into a payment-level failure.
+func (e noRouteError) FailureReason() channeldb.FailureReason {
+	switch e {
+	case
+		errNoTlvPayload,
+		errNoPaymentAddr,
+		errNoPathFound,
+		errEmptyPaySession:
+
+		return channeldb.FailureReasonNoRoute
+
+	case errInsufficientBalance:
+		return channeldb.FailureReasonInsufficientBalance
+
+	default:
+		return channeldb.FailureReasonError
+	}
+}
 
 // PaymentSession is used during SendPayment attempts to provide routes to
 // attempt. It also defines methods to give the PaymentSession additional
 // information learned during the previous attempts.
 type PaymentSession interface {
 	// RequestRoute returns the next route to attempt for routing the
-	// specified HTLC payment to the target node.
-	RequestRoute(payment *LightningPayment,
-		height uint32, finalCltvDelta uint16) (*route.Route, error)
+	// specified HTLC payment to the target node. The returned route should
+	// carry at most maxAmt to the target node, and pay at most feeLimit in
+	// fees. It can carry less if the payment is MPP. The activeShards
+	// argument should be set to instruct the payment session about the
+	// number of in flight HTLCS for the payment, such that it can choose
+	// splitting strategy accordingly.
+	//
+	// A noRouteError is returned if a non-critical error is encountered
+	// during path finding.
+	RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
+		activeShards, height uint32) (*route.Route, error)
 }
 
 // paymentSession is used during an HTLC routings session to prune the local
@@ -43,8 +110,9 @@ type paymentSession struct {
 
 	sessionSource *SessionSource
 
-	preBuiltRoute      *route.Route
-	preBuiltRouteTried bool
+	payment *LightningPayment
+
+	empty bool
 
 	pathFinder pathFinder
 }
@@ -58,31 +126,22 @@ type paymentSession struct {
 //
 // NOTE: This function is safe for concurrent access.
 // NOTE: Part of the PaymentSession interface.
-func (p *paymentSession) RequestRoute(payment *LightningPayment,
-	height uint32, finalCltvDelta uint16) (*route.Route, error) {
+func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
+	activeShards, height uint32) (*route.Route, error) {
 
-	switch {
-
-	// If we have a pre-built route, use that directly.
-	case p.preBuiltRoute != nil && !p.preBuiltRouteTried:
-		p.preBuiltRouteTried = true
-
-		return p.preBuiltRoute, nil
-
-	// If the pre-built route has been tried already, the payment session is
-	// over.
-	case p.preBuiltRoute != nil:
-		return nil, errPrebuiltRouteTried
+	if p.empty {
+		return nil, errEmptyPaySession
 	}
 
 	// Add BlockPadding to the finalCltvDelta so that the receiving node
 	// does not reject the HTLC if some blocks are mined while it's in-flight.
+	finalCltvDelta := p.payment.FinalCLTVDelta
 	finalCltvDelta += BlockPadding
 
 	// We need to subtract the final delta before passing it into path
 	// finding. The optimal path is independent of the final cltv delta and
 	// the path finding algorithm is unaware of this value.
-	cltvLimit := payment.CltvLimit - uint32(finalCltvDelta)
+	cltvLimit := p.payment.CltvLimit - uint32(finalCltvDelta)
 
 	// TODO(roasbeef): sync logic amongst dist sys
 
@@ -93,13 +152,13 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 
 	restrictions := &RestrictParams{
 		ProbabilitySource: ss.MissionControl.GetProbability,
-		FeeLimit:          payment.FeeLimit,
-		OutgoingChannelID: payment.OutgoingChannelID,
-		LastHop:           payment.LastHop,
+		FeeLimit:          feeLimit,
+		OutgoingChannelID: p.payment.OutgoingChannelID,
+		LastHop:           p.payment.LastHop,
 		CltvLimit:         cltvLimit,
-		DestCustomRecords: payment.DestCustomRecords,
-		DestFeatures:      payment.DestFeatures,
-		PaymentAddr:       payment.PaymentAddr,
+		DestCustomRecords: p.payment.DestCustomRecords,
+		DestFeatures:      p.payment.DestFeatures,
+		PaymentAddr:       p.payment.PaymentAddr,
 	}
 
 	// We'll also obtain a set of bandwidthHints from the lower layer for
@@ -122,8 +181,8 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 			bandwidthHints:  bandwidthHints,
 		},
 		restrictions, &ss.PathFindingConfig,
-		ss.SelfNode.PubKeyBytes, payment.Target,
-		payment.Amount, finalHtlcExpiry,
+		ss.SelfNode.PubKeyBytes, p.payment.Target,
+		maxAmt, finalHtlcExpiry,
 	)
 	if err != nil {
 		return nil, err
@@ -135,10 +194,10 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	route, err := newRoute(
 		sourceVertex, path, height,
 		finalHopParams{
-			amt:         payment.Amount,
+			amt:         maxAmt,
 			cltvDelta:   finalCltvDelta,
-			records:     payment.DestCustomRecords,
-			paymentAddr: payment.PaymentAddr,
+			records:     p.payment.DestCustomRecords,
+			paymentAddr: p.payment.PaymentAddr,
 		},
 	)
 	if err != nil {

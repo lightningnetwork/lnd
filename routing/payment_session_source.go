@@ -47,10 +47,10 @@ type SessionSource struct {
 // view from Mission Control. An optional set of routing hints can be provided
 // in order to populate additional edges to explore when finding a path to the
 // payment's destination.
-func (m *SessionSource) NewPaymentSession(routeHints [][]zpay32.HopHint,
-	target route.Vertex) (PaymentSession, error) {
+func (m *SessionSource) NewPaymentSession(p *LightningPayment) (
+	PaymentSession, error) {
 
-	edges, err := RouteHintsToEdges(routeHints, target)
+	edges, err := RouteHintsToEdges(p.RouteHints, p.Target)
 	if err != nil {
 		return nil, err
 	}
@@ -70,17 +70,9 @@ func (m *SessionSource) NewPaymentSession(routeHints [][]zpay32.HopHint,
 		additionalEdges:   edges,
 		getBandwidthHints: getBandwidthHints,
 		sessionSource:     m,
+		payment:           p,
 		pathFinder:        findPath,
 	}, nil
-}
-
-// NewPaymentSessionForRoute creates a new paymentSession instance that is just
-// used for failure reporting to missioncontrol.
-func (m *SessionSource) NewPaymentSessionForRoute(preBuiltRoute *route.Route) PaymentSession {
-	return &paymentSession{
-		sessionSource: m,
-		preBuiltRoute: preBuiltRoute,
-	}
 }
 
 // NewPaymentSessionEmpty creates a new paymentSession instance that is empty,
@@ -88,9 +80,8 @@ func (m *SessionSource) NewPaymentSessionForRoute(preBuiltRoute *route.Route) Pa
 // missioncontrol for resumed payment we don't want to make more attempts for.
 func (m *SessionSource) NewPaymentSessionEmpty() PaymentSession {
 	return &paymentSession{
-		sessionSource:      m,
-		preBuiltRoute:      &route.Route{},
-		preBuiltRouteTried: true,
+		sessionSource: m,
+		empty:         true,
 	}
 }
 

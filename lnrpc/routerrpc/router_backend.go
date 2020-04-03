@@ -1094,3 +1094,93 @@ func marshallChannelUpdate(update *lnwire.ChannelUpdate) *lnrpc.ChannelUpdate {
 		ExtraOpaqueData: update.ExtraOpaqueData,
 	}
 }
+
+// MarshallPayment marshall a payment to its rpc representation.
+func (r *RouterBackend) MarshallPayment(payment *channeldb.MPPayment) (
+	*lnrpc.Payment, error) {
+
+	// Fetch the payment's route and preimage. If no HTLC was
+	// successful, an empty route and preimage will be used.
+	var (
+		route    route.Route
+		preimage lntypes.Preimage
+	)
+	for _, htlc := range payment.HTLCs {
+		// Display the last route attempted.
+		route = htlc.Route
+
+		// If any of the htlcs have settled, extract a valid
+		// preimage.
+		if htlc.Settle != nil {
+			preimage = htlc.Settle.Preimage
+		}
+	}
+
+	// Encode the hops from the successful route, if any.
+	path := make([]string, len(route.Hops))
+	for i, hop := range route.Hops {
+		path[i] = hex.EncodeToString(hop.PubKeyBytes[:])
+	}
+
+	msatValue := int64(payment.Info.Value)
+	satValue := int64(payment.Info.Value.ToSatoshis())
+
+	status, err := convertPaymentStatus(payment.Status)
+	if err != nil {
+		return nil, err
+	}
+
+	htlcs := make([]*lnrpc.HTLCAttempt, 0, len(payment.HTLCs))
+	for _, dbHTLC := range payment.HTLCs {
+		htlc, err := r.MarshalHTLCAttempt(dbHTLC)
+		if err != nil {
+			return nil, err
+		}
+
+		htlcs = append(htlcs, htlc)
+	}
+
+	paymentHash := payment.Info.PaymentHash
+	creationTimeNS := MarshalTimeNano(payment.Info.CreationTime)
+
+	return &lnrpc.Payment{
+		PaymentHash:     hex.EncodeToString(paymentHash[:]),
+		Value:           satValue,
+		ValueMsat:       msatValue,
+		ValueSat:        satValue,
+		CreationDate:    payment.Info.CreationTime.Unix(),
+		CreationTimeNs:  creationTimeNS,
+		Path:            path,
+		Fee:             int64(route.TotalFees().ToSatoshis()),
+		FeeSat:          int64(route.TotalFees().ToSatoshis()),
+		FeeMsat:         int64(route.TotalFees()),
+		PaymentPreimage: hex.EncodeToString(preimage[:]),
+		PaymentRequest:  string(payment.Info.PaymentRequest),
+		Status:          status,
+		Htlcs:           htlcs,
+		PaymentIndex:    payment.SequenceNum,
+	}, nil
+}
+
+// convertPaymentStatus converts a channeldb.PaymentStatus to the type expected
+// by the RPC.
+func convertPaymentStatus(dbStatus channeldb.PaymentStatus) (
+	lnrpc.Payment_PaymentStatus, error) {
+
+	switch dbStatus {
+	case channeldb.StatusUnknown:
+		return lnrpc.Payment_UNKNOWN, nil
+
+	case channeldb.StatusInFlight:
+		return lnrpc.Payment_IN_FLIGHT, nil
+
+	case channeldb.StatusSucceeded:
+		return lnrpc.Payment_SUCCEEDED, nil
+
+	case channeldb.StatusFailed:
+		return lnrpc.Payment_FAILED, nil
+
+	default:
+		return 0, fmt.Errorf("unhandled payment status %v", dbStatus)
+	}
+}

@@ -1733,9 +1733,8 @@
           "description": "*\nThe minimum satoshis the other node is required to reserve in its\nbalance."
         },
         "initiator": {
-          "type": "boolean",
-          "format": "boolean",
-          "description": "True if we initiated opening the channel."
+          "$ref": "#/definitions/lnrpcInitiator",
+          "description": "The party that initiated opening the channel."
         },
         "commitment_type": {
           "$ref": "#/definitions/lnrpcCommitmentType",

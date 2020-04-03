@@ -2664,6 +2664,16 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 
 	resp := &lnrpc.PendingChannelsResponse{}
 
+	// rpcInitiator returns the correct lnrpc initiator for channels where
+	// we have a record of the opening channel.
+	rpcInitiator := func(isInitiator bool) lnrpc.Initiator {
+		if isInitiator {
+			return lnrpc.Initiator_INITIATOR_LOCAL
+		}
+
+		return lnrpc.Initiator_INITIATOR_REMOTE
+	}
+
 	// First, we'll populate the response with all the channels that are
 	// soon to be opened. We can easily fetch this data from the database
 	// and map the db struct to the proto response.
@@ -2698,7 +2708,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 				RemoteBalance:        int64(localCommitment.RemoteBalance.ToSatoshis()),
 				LocalChanReserveSat:  int64(pendingChan.LocalChanCfg.ChanReserve),
 				RemoteChanReserveSat: int64(pendingChan.RemoteChanCfg.ChanReserve),
-				Initiator:            pendingChan.IsInitiator,
+				Initiator:            rpcInitiator(pendingChan.IsInitiator),
 				CommitmentType:       rpcCommitmentType(pendingChan.ChanType),
 			},
 			CommitWeight: commitWeight,
@@ -2725,12 +2735,18 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		// needed regardless of how this channel was closed.
 		pub := pendingClose.RemotePub.SerializeCompressed()
 		chanPoint := pendingClose.ChanPoint
+
+		// Create the pending channel. If this channel was closed before
+		// we started storing historical channel data, we will not know
+		// who initiated the channel, so we set the initiator field to
+		// unknown.
 		channel := &lnrpc.PendingChannelsResponse_PendingChannel{
 			RemoteNodePub:  hex.EncodeToString(pub),
 			ChannelPoint:   chanPoint.String(),
 			Capacity:       int64(pendingClose.Capacity),
 			LocalBalance:   int64(pendingClose.SettledBalance),
 			CommitmentType: lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE,
+			Initiator:      lnrpc.Initiator_INITIATOR_UNKNOWN,
 		}
 
 		// Lookup the channel in the historical channel bucket to obtain
@@ -2748,7 +2764,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		case channeldb.ErrChannelNotFound:
 
 		case nil:
-			channel.Initiator = historical.IsInitiator
+			channel.Initiator = rpcInitiator(historical.IsInitiator)
 			channel.CommitmentType = rpcCommitmentType(
 				historical.ChanType,
 			)
@@ -2878,7 +2894,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			RemoteBalance:        int64(waitingClose.LocalCommitment.RemoteBalance.ToSatoshis()),
 			LocalChanReserveSat:  int64(waitingClose.LocalChanCfg.ChanReserve),
 			RemoteChanReserveSat: int64(waitingClose.RemoteChanCfg.ChanReserve),
-			Initiator:            waitingClose.IsInitiator,
+			Initiator:            rpcInitiator(waitingClose.IsInitiator),
 			CommitmentType:       rpcCommitmentType(waitingClose.ChanType),
 		}
 

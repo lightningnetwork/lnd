@@ -2093,8 +2093,8 @@ message PendingChannelsResponse {
         */
         int64 remote_chan_reserve_sat = 7;
 
-        // True if we initiated opening the channel.
-        bool initiator = 8;
+        // The party that initiated opening the channel.
+        Initiator initiator = 8;
 
         /// The commitment type used by this channel.
         CommitmentType commitment_type = 9;

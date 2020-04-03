@@ -6667,14 +6667,6 @@ func (lc *LightningChannel) NextLocalHtlcIndex() (uint64, error) {
 	return lc.channelState.NextLocalHtlcIndex()
 }
 
-// RemoteCommitHeight returns the commitment height of the remote chain.
-func (lc *LightningChannel) RemoteCommitHeight() uint64 {
-	lc.RLock()
-	defer lc.RUnlock()
-
-	return lc.channelState.RemoteCommitment.CommitHeight
-}
-
 // FwdMinHtlc returns the minimum HTLC value required by the remote node, i.e.
 // the minimum value HTLC we can forward on this channel.
 func (lc *LightningChannel) FwdMinHtlc() lnwire.MilliSatoshi {

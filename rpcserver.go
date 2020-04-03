@@ -1985,7 +1985,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 	// First, we'll fetch the channel as is, as we'll need to examine it
 	// regardless of if this is a force close or not.
-	channel, err := r.fetchActiveChannel(*chanPoint)
+	channel, err := r.server.chanDB.FetchChannel(*chanPoint)
 	if err != nil {
 		return err
 	}
@@ -1996,12 +1996,12 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 	if err != nil {
 		return err
 	}
-	if channel.State().ChanType.IsFrozen() && channel.IsInitiator() &&
-		uint32(bestHeight) < channel.State().ThawHeight {
+	if channel.ChanType.IsFrozen() && channel.IsInitiator &&
+		uint32(bestHeight) < channel.ThawHeight {
 
 		return fmt.Errorf("cannot co-op close frozen channel as "+
 			"initiator until height=%v, (current_height=%v)",
-			channel.State().ThawHeight, bestHeight)
+			channel.ThawHeight, bestHeight)
 	}
 
 	// If a force closure was requested, then we'll handle all the details
@@ -2014,14 +2014,14 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// ensure that the switch doesn't continue to see this channel
 		// as eligible for forwarding HTLC's. If the peer is online,
 		// then we'll also purge all of its indexes.
-		remotePub := &channel.StateSnapshot().RemoteIdentity
+		remotePub := channel.IdentityPub
 		if peer, err := r.server.FindPeer(remotePub); err == nil {
 			// TODO(roasbeef): actually get the active channel
 			// instead too?
 			//  * so only need to grab from database
-			peer.WipeChannel(channel.ChannelPoint())
+			peer.WipeChannel(&channel.FundingOutpoint)
 		} else {
-			chanID := lnwire.NewChanIDFromOutPoint(channel.ChannelPoint())
+			chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
 			r.server.htlcSwitch.RemoveLink(chanID)
 		}
 
@@ -2300,25 +2300,6 @@ func (r *rpcServer) AbandonChannel(ctx context.Context,
 	r.server.channelNotifier.NotifyClosedChannelEvent(*chanPoint)
 
 	return &lnrpc.AbandonChannelResponse{}, nil
-}
-
-// fetchActiveChannel attempts to locate a channel identified by its channel
-// point from the database's set of all currently opened channels and
-// return it as a fully populated state machine
-func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (
-	*lnwallet.LightningChannel, error) {
-
-	dbChan, err := r.server.chanDB.FetchChannel(chanPoint)
-	if err != nil {
-		return nil, err
-	}
-
-	// If the channel is successfully fetched from the database,
-	// we create a fully populated channel state machine which
-	// uses the db channel as backing storage.
-	return lnwallet.NewLightningChannel(
-		r.server.cc.wallet.Cfg.Signer, dbChan, nil,
-	)
 }
 
 // GetInfo returns general information concerning the lightning node including

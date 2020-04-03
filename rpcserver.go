@@ -1990,18 +1990,11 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		return err
 	}
 
-	// If this is a frozen channel, then we only allow the close to proceed
-	// if we were the responder to this channel.
+	// Retrieve the best height of the chain, which we'll use to complete
+	// either closing flow.
 	_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
 	if err != nil {
 		return err
-	}
-	if channel.ChanType.IsFrozen() && channel.IsInitiator &&
-		uint32(bestHeight) < channel.ThawHeight {
-
-		return fmt.Errorf("cannot co-op close frozen channel as "+
-			"initiator until height=%v, (current_height=%v)",
-			channel.ThawHeight, bestHeight)
 	}
 
 	// If a force closure was requested, then we'll handle all the details
@@ -2057,6 +2050,17 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 				}
 			})
 	} else {
+		// If this is a frozen channel, then we only allow the co-op
+		// close to proceed if we were the responder to this channel.
+		if channel.ChanType.IsFrozen() && channel.IsInitiator &&
+			uint32(bestHeight) < channel.ThawHeight {
+
+			return fmt.Errorf("cannot co-op close frozen channel "+
+				"as initiator until height=%v, "+
+				"(current_height=%v)", channel.ThawHeight,
+				bestHeight)
+		}
+
 		// If the link is not known by the switch, we cannot gracefully close
 		// the channel.
 		channelID := lnwire.NewChanIDFromOutPoint(chanPoint)

@@ -12,7 +12,7 @@ import (
 
 var addInvoiceCommand = cli.Command{
 	Name:     "addinvoice",
-	Category: "Payments",
+	Category: "Invoices",
 	Usage:    "Add a new invoice.",
 	Description: `
 	Add a new invoice, expressing intent for a future payment.
@@ -129,7 +129,7 @@ func addInvoice(ctx *cli.Context) error {
 
 var lookupInvoiceCommand = cli.Command{
 	Name:      "lookupinvoice",
-	Category:  "Payments",
+	Category:  "Invoices",
 	Usage:     "Lookup an existing invoice by its payment hash.",
 	ArgsUsage: "rhash",
 	Flags: []cli.Flag{
@@ -180,7 +180,7 @@ func lookupInvoice(ctx *cli.Context) error {
 
 var listInvoicesCommand = cli.Command{
 	Name:     "listinvoices",
-	Category: "Payments",
+	Category: "Invoices",
 	Usage: "List all invoices currently stored within the database. Any " +
 		"active debug invoices are ignored.",
 	Description: `
@@ -247,7 +247,7 @@ func listInvoices(ctx *cli.Context) error {
 
 var decodePayReqCommand = cli.Command{
 	Name:        "decodepayreq",
-	Category:    "Payments",
+	Category:    "Invoices",
 	Usage:       "Decode a payment request.",
 	Description: "Decode the passed payment request revealing the destination, payment hash and value of the payment request",
 	ArgsUsage:   "pay_req",

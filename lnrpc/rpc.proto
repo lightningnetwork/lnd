@@ -2638,9 +2638,9 @@ message ChannelGraph {
     repeated ChannelEdge edges = 2;
 }
 
-enum NodeMetricType { 
+enum NodeMetricType {
     UNKNOWN = 0;
-    BETWEENNESS_CENTRALITY = 1; 
+    BETWEENNESS_CENTRALITY = 1;
 }
 
 message NodeMetricsRequest {

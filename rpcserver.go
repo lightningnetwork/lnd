@@ -3370,8 +3370,8 @@ func (r *rpcServer) createRPCClosedChannel(
 
 	var (
 		closeType      lnrpc.ChannelCloseSummary_ClosureType
-		openInit       lnrpc.ChannelCloseSummary_Initiator
-		closeInitiator lnrpc.ChannelCloseSummary_Initiator
+		openInit       lnrpc.Initiator
+		closeInitiator lnrpc.Initiator
 		err            error
 	)
 
@@ -3422,12 +3422,12 @@ func (r *rpcServer) createRPCClosedChannel(
 // channel is not present (which indicates that it was closed before we started
 // writing channels to the historical close bucket).
 func (r *rpcServer) getInitiators(chanPoint *wire.OutPoint) (
-	lnrpc.ChannelCloseSummary_Initiator,
-	lnrpc.ChannelCloseSummary_Initiator, error) {
+	lnrpc.Initiator,
+	lnrpc.Initiator, error) {
 
 	var (
-		openInitiator  = lnrpc.ChannelCloseSummary_UNKNOWN
-		closeInitiator = lnrpc.ChannelCloseSummary_UNKNOWN
+		openInitiator  = lnrpc.Initiator_INITIATOR_UNKNOWN
+		closeInitiator = lnrpc.Initiator_INITIATOR_UNKNOWN
 	)
 
 	// To get the close initiator for cooperative closes, we need
@@ -3452,9 +3452,9 @@ func (r *rpcServer) getInitiators(chanPoint *wire.OutPoint) (
 	// If we successfully looked up the channel, determine initiator based
 	// on channels status.
 	if histChan.IsInitiator {
-		openInitiator = lnrpc.ChannelCloseSummary_LOCAL
+		openInitiator = lnrpc.Initiator_INITIATOR_LOCAL
 	} else {
-		openInitiator = lnrpc.ChannelCloseSummary_REMOTE
+		openInitiator = lnrpc.Initiator_INITIATOR_REMOTE
 	}
 
 	localInit := histChan.HasChanStatus(
@@ -3470,13 +3470,13 @@ func (r *rpcServer) getInitiators(chanPoint *wire.OutPoint) (
 	// We return the initiator as both in this case to provide full
 	// information about the close.
 	case localInit && remoteInit:
-		closeInitiator = lnrpc.ChannelCloseSummary_BOTH
+		closeInitiator = lnrpc.Initiator_INITIATOR_BOTH
 
 	case localInit:
-		closeInitiator = lnrpc.ChannelCloseSummary_LOCAL
+		closeInitiator = lnrpc.Initiator_INITIATOR_LOCAL
 
 	case remoteInit:
-		closeInitiator = lnrpc.ChannelCloseSummary_REMOTE
+		closeInitiator = lnrpc.Initiator_INITIATOR_REMOTE
 	}
 
 	return openInitiator, closeInitiator, nil

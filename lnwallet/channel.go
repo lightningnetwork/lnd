@@ -6628,27 +6628,7 @@ func (lc *LightningChannel) ActiveHtlcs() []channeldb.HTLC {
 	lc.RLock()
 	defer lc.RUnlock()
 
-	// We'll only return HTLC's that are locked into *both* commitment
-	// transactions. So we'll iterate through their set of HTLC's to note
-	// which ones are present on their commitment.
-	remoteHtlcs := make(map[[32]byte]struct{})
-	for _, htlc := range lc.channelState.RemoteCommitment.Htlcs {
-		onionHash := sha256.Sum256(htlc.OnionBlob[:])
-		remoteHtlcs[onionHash] = struct{}{}
-	}
-
-	// Now that we know which HTLC's they have, we'll only mark the HTLC's
-	// as active if *we* know them as well.
-	activeHtlcs := make([]channeldb.HTLC, 0, len(remoteHtlcs))
-	for _, htlc := range lc.channelState.LocalCommitment.Htlcs {
-		if _, ok := remoteHtlcs[sha256.Sum256(htlc.OnionBlob[:])]; !ok {
-			continue
-		}
-
-		activeHtlcs = append(activeHtlcs, htlc)
-	}
-
-	return activeHtlcs
+	return lc.channelState.ActiveHtlcs()
 }
 
 // LocalChanReserve returns our local ChanReserve requirement for the remote party.

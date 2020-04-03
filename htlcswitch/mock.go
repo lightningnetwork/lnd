@@ -602,9 +602,7 @@ func (s *mockServer) AddNewChannel(channel *channeldb.OpenChannel,
 	return nil
 }
 
-func (s *mockServer) WipeChannel(*wire.OutPoint) error {
-	return nil
-}
+func (s *mockServer) WipeChannel(*wire.OutPoint) {}
 
 func (s *mockServer) LocalFeatures() *lnwire.FeatureVector {
 	return nil

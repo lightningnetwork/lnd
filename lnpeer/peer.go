@@ -30,7 +30,7 @@ type Peer interface {
 
 	// WipeChannel removes the channel uniquely identified by its channel
 	// point from all indexes associated with the peer.
-	WipeChannel(*wire.OutPoint) error
+	WipeChannel(*wire.OutPoint)
 
 	// PubKey returns the serialized public key of the remote peer.
 	PubKey() [33]byte

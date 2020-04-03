@@ -1084,11 +1084,7 @@ out:
 			// TODO(roasbeef): remove all together
 			go func() {
 				chanPoint := l.channel.ChannelPoint()
-				err := l.cfg.Peer.WipeChannel(chanPoint)
-				if err != nil {
-					l.log.Errorf("unable to wipe channel "+
-						"%v", err)
-				}
+				l.cfg.Peer.WipeChannel(chanPoint)
 			}()
 
 			break out

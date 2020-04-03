@@ -52,6 +52,10 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
+		"/routerrpc.Router/SendToRouteV2": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
 		"/routerrpc.Router/SendToRoute": {{
 			Entity: "offchain",
 			Action: "write",
@@ -299,10 +303,10 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 	}, nil
 }
 
-// SendToRoute sends a payment through a predefined route. The response of this
+// SendToRouteV2 sends a payment through a predefined route. The response of this
 // call contains structured error information.
-func (s *Server) SendToRoute(ctx context.Context,
-	req *SendToRouteRequest) (*SendToRouteResponse, error) {
+func (s *Server) SendToRouteV2(ctx context.Context,
+	req *SendToRouteRequest) (*lnrpc.HTLCAttempt, error) {
 
 	if req.Route == nil {
 		return nil, fmt.Errorf("unable to send, no routes provided")
@@ -332,13 +336,7 @@ func (s *Server) SendToRoute(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
-
-		resp := &SendToRouteResponse{
-			Preimage: rpcAttempt.Preimage,
-			Failure:  rpcAttempt.Failure,
-		}
-
-		return resp, nil
+		return rpcAttempt, nil
 	}
 
 	return nil, err

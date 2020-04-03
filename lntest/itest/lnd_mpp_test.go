@@ -113,7 +113,7 @@ func testSendToRouteMultiPath(net *lntest.NetworkHarness, t *harnessTest) {
 		{ctx.carol, ctx.eve, ctx.bob},
 	}
 
-	responses := make(chan *routerrpc.SendToRouteResponse, len(sendRoutes))
+	responses := make(chan *lnrpc.HTLCAttempt, len(sendRoutes))
 	for _, hops := range sendRoutes {
 		// Build a route for the specified hops.
 		r, err := buildRoute(shardAmt, hops)
@@ -151,7 +151,7 @@ func testSendToRouteMultiPath(net *lntest.NetworkHarness, t *harnessTest) {
 	// Wait for all responses to be back, and check that they all
 	// succeeded.
 	for range sendRoutes {
-		var resp *routerrpc.SendToRouteResponse
+		var resp *lnrpc.HTLCAttempt
 		select {
 		case resp = <-responses:
 		case <-time.After(defaultTimeout):

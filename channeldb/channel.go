@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -1481,6 +1482,36 @@ func (c *OpenChannel) BalancesAtHeight(height uint64) (lnwire.MilliSatoshi,
 	}
 
 	return commit.LocalBalance, commit.RemoteBalance, nil
+}
+
+// ActiveHtlcs returns a slice of HTLC's which are currently active on *both*
+// commitment transactions.
+func (c *OpenChannel) ActiveHtlcs() []HTLC {
+	c.RLock()
+	defer c.RUnlock()
+
+	// We'll only return HTLC's that are locked into *both* commitment
+	// transactions. So we'll iterate through their set of HTLC's to note
+	// which ones are present on their commitment.
+	remoteHtlcs := make(map[[32]byte]struct{})
+	for _, htlc := range c.RemoteCommitment.Htlcs {
+		onionHash := sha256.Sum256(htlc.OnionBlob)
+		remoteHtlcs[onionHash] = struct{}{}
+	}
+
+	// Now that we know which HTLC's they have, we'll only mark the HTLC's
+	// as active if *we* know them as well.
+	activeHtlcs := make([]HTLC, 0, len(remoteHtlcs))
+	for _, htlc := range c.LocalCommitment.Htlcs {
+		onionHash := sha256.Sum256(htlc.OnionBlob)
+		if _, ok := remoteHtlcs[onionHash]; !ok {
+			continue
+		}
+
+		activeHtlcs = append(activeHtlcs, htlc)
+	}
+
+	return activeHtlcs
 }
 
 // HTLC is the on-disk representation of a hash time-locked contract. HTLCs are

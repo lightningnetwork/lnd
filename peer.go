@@ -2445,13 +2445,7 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 		// TODO(roasbeef): no longer need with newer beach logic?
 		peerLog.Infof("ChannelPoint(%v) has been breached, wiping "+
 			"channel", req.ChanPoint)
-		if err := p.WipeChannel(req.ChanPoint); err != nil {
-			peerLog.Infof("Unable to wipe channel after detected "+
-				"breach: %v", err)
-			req.Err <- err
-			return
-		}
-		return
+		p.WipeChannel(req.ChanPoint)
 	}
 }
 
@@ -2478,11 +2472,7 @@ func (p *peer) handleLinkFailure(failure linkFailureReport) {
 	// link and cancel back any adds in its mailboxes such that we can
 	// safely force close without the link being added again and updates
 	// being applied.
-	if err := p.WipeChannel(&failure.chanPoint); err != nil {
-		peerLog.Errorf("Unable to wipe link for chanpoint=%v",
-			failure.chanPoint)
-		return
-	}
+	p.WipeChannel(&failure.chanPoint)
 
 	// If the error encountered was severe enough, we'll now force close the
 	// channel to prevent readding it to the switch in the future.
@@ -2534,11 +2524,7 @@ func (p *peer) finalizeChanClosure(chanCloser *channelCloser) {
 
 	// First, we'll clear all indexes related to the channel in question.
 	chanPoint := chanCloser.cfg.channel.ChannelPoint()
-	if err := p.WipeChannel(chanPoint); err != nil {
-		if closeReq != nil {
-			closeReq.Err <- err
-		}
-	}
+	p.WipeChannel(chanPoint)
 
 	// Next, we'll launch a goroutine which will request to be notified by
 	// the ChainNotifier once the closure transaction obtains a single
@@ -2628,7 +2614,7 @@ func waitForChanToClose(bestHeight uint32, notifier chainntnfs.ChainNotifier,
 
 // WipeChannel removes the passed channel point from all indexes associated with
 // the peer, and the switch.
-func (p *peer) WipeChannel(chanPoint *wire.OutPoint) error {
+func (p *peer) WipeChannel(chanPoint *wire.OutPoint) {
 	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
 	p.activeChanMtx.Lock()
@@ -2638,8 +2624,6 @@ func (p *peer) WipeChannel(chanPoint *wire.OutPoint) error {
 	// Instruct the HtlcSwitch to close this link as the channel is no
 	// longer active.
 	p.server.htlcSwitch.RemoveLink(chanID)
-
-	return nil
 }
 
 // handleInitMsg handles the incoming init message which contains global and

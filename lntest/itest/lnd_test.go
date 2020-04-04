@@ -205,14 +205,14 @@ func mineBlocks(t *harnessTest, net *lntest.NetworkHarness,
 	return blocks
 }
 
-// openChannelAndAssert attempts to open a channel with the specified
-// parameters extended from Alice to Bob. Additionally, two items are asserted
-// after the channel is considered open: the funding transaction should be
-// found within a block, and that Alice can report the status of the new
-// channel.
-func openChannelAndAssert(ctx context.Context, t *harnessTest,
+// openChannelStream blocks until an OpenChannel request for a channel funding
+// by alice succeeds. If it does, a stream client is returned to receive events
+// about the opening channel.
+func openChannelStream(ctx context.Context, t *harnessTest,
 	net *lntest.NetworkHarness, alice, bob *lntest.HarnessNode,
-	p lntest.OpenChannelParams) *lnrpc.ChannelPoint {
+	p lntest.OpenChannelParams) lnrpc.Lightning_OpenChannelClient {
+
+	t.t.Helper()
 
 	// Wait until we are able to fund a channel successfully. This wait
 	// prevents us from erroring out when trying to create a channel while
@@ -226,6 +226,22 @@ func openChannelAndAssert(ctx context.Context, t *harnessTest,
 	if err != nil {
 		t.Fatalf("unable to open channel: %v", err)
 	}
+
+	return chanOpenUpdate
+}
+
+// openChannelAndAssert attempts to open a channel with the specified
+// parameters extended from Alice to Bob. Additionally, two items are asserted
+// after the channel is considered open: the funding transaction should be
+// found within a block, and that Alice can report the status of the new
+// channel.
+func openChannelAndAssert(ctx context.Context, t *harnessTest,
+	net *lntest.NetworkHarness, alice, bob *lntest.HarnessNode,
+	p lntest.OpenChannelParams) *lnrpc.ChannelPoint {
+
+	t.t.Helper()
+
+	chanOpenUpdate := openChannelStream(ctx, t, net, alice, bob, p)
 
 	// Mine 6 blocks, then wait for Alice's node to notify us that the
 	// channel has been opened. The funding transaction should be found
@@ -1395,23 +1411,20 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	// Now, we'll connect her to Alice so that they can open a channel
 	// together. The funding flow should select Carol's unconfirmed output
 	// as she doesn't have any other funds since it's a new node.
+
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	if err := net.ConnectNodes(ctxt, carol, net.Alice); err != nil {
 		t.Fatalf("unable to connect dave to alice: %v", err)
 	}
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
-	chanOpenUpdate, err := net.OpenChannel(
-		ctxt, carol, net.Alice,
+
+	chanOpenUpdate := openChannelStream(
+		ctxt, t, net, carol, net.Alice,
 		lntest.OpenChannelParams{
 			Amt:              chanAmt,
 			PushAmt:          pushAmt,
 			SpendUnconfirmed: true,
 		},
 	)
-	if err != nil {
-		t.Fatalf("unable to open channel between carol and alice: %v",
-			err)
-	}
 
 	// Confirm the channel and wait for it to be recognized by both
 	// parties. Two transactions should be mined, the unconfirmed spend and
@@ -5529,15 +5542,12 @@ func testUnannouncedChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// Open a channel between Alice and Bob, ensuring the
 	// channel has been opened properly.
 	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
-	chanOpenUpdate, err := net.OpenChannel(
-		ctxt, net.Alice, net.Bob,
+	chanOpenUpdate := openChannelStream(
+		ctxt, t, net, net.Alice, net.Bob,
 		lntest.OpenChannelParams{
 			Amt: amount,
 		},
 	)
-	if err != nil {
-		t.Fatalf("unable to open channel: %v", err)
-	}
 
 	// Mine 2 blocks, and check that the channel is opened but not yet
 	// announced to the network.
@@ -5767,8 +5777,8 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to connect dave to alice: %v", err)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
-	chanOpenUpdate, err := net.OpenChannel(
-		ctxt, carol, net.Alice,
+	chanOpenUpdate := openChannelStream(
+		ctxt, t, net, carol, net.Alice,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			Private: true,
@@ -6947,15 +6957,12 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	openStreams := make([]lnrpc.Lightning_OpenChannelClient, maxPendingChannels)
 	for i := 0; i < maxPendingChannels; i++ {
 		ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
-		stream, err := net.OpenChannel(
-			ctxt, net.Alice, carol,
+		stream := openChannelStream(
+			ctxt, t, net, net.Alice, carol,
 			lntest.OpenChannelParams{
 				Amt: amount,
 			},
 		)
-		if err != nil {
-			t.Fatalf("unable to open channel: %v", err)
-		}
 		openStreams[i] = stream
 	}
 

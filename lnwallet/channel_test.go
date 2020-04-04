@@ -450,6 +450,139 @@ func TestCheckCommitTxSize(t *testing.T) {
 	}
 }
 
+// TestCommitHTLCSigTieBreak asserts that HTLC signatures are sent the proper
+// BIP69+CLTV sorting expected by BOLT 3 when multiple HTLCs have identical
+// payment hashes and amounts, but differing CLTVs. This is exercised by adding
+// the HTLCs in the descending order of their CLTVs, and asserting that their
+// order is reversed when signing.
+func TestCommitHTLCSigTieBreak(t *testing.T) {
+	t.Run("no restart", func(t *testing.T) {
+		testCommitHTLCSigTieBreak(t, false)
+	})
+	t.Run("restart", func(t *testing.T) {
+		testCommitHTLCSigTieBreak(t, true)
+	})
+}
+
+func testCommitHTLCSigTieBreak(t *testing.T, restart bool) {
+	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels(
+		channeldb.SingleFunderTweaklessBit,
+	)
+	if err != nil {
+		t.Fatalf("unable to create test channels; %v", err)
+	}
+	defer cleanUp()
+
+	const (
+		htlcAmt  = lnwire.MilliSatoshi(20000000)
+		numHtlcs = 2
+	)
+
+	// Add HTLCs with identical payment hashes and amounts, but descending
+	// CLTV values. We will expect the signatures to appear in the reverse
+	// order that the HTLCs are added due to the commitment sorting.
+	for i := 0; i < numHtlcs; i++ {
+		var (
+			preimage lntypes.Preimage
+			hash     = preimage.Hash()
+		)
+
+		htlc := &lnwire.UpdateAddHTLC{
+			ID:          uint64(i),
+			PaymentHash: hash,
+			Amount:      htlcAmt,
+			Expiry:      uint32(numHtlcs - i),
+		}
+
+		if _, err := aliceChannel.AddHTLC(htlc, nil); err != nil {
+			t.Fatalf("alice unable to add htlc: %v", err)
+		}
+		if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+			t.Fatalf("bob unable to receive htlc: %v", err)
+		}
+	}
+
+	// Have Alice initiate the first half of the commitment dance. The
+	// tie-breaking for commitment sorting won't affect the commitment
+	// signed by Alice because received HTLC scripts commit to the CLTV
+	// directly, so the outputs will have different scriptPubkeys.
+	aliceSig, aliceHtlcSigs, _, err := aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("unable to sign alice's commitment: %v", err)
+	}
+
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	if err != nil {
+		t.Fatalf("unable to receive alice's commitment: %v", err)
+	}
+
+	bobRevocation, _, err := bobChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("unable to revoke bob's commitment: %v", err)
+	}
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	if err != nil {
+		t.Fatalf("unable to receive bob's revocation: %v", err)
+	}
+
+	// Now have Bob initiate the second half of the commitment dance. Here
+	// the offered HTLC scripts he adds for Alice will need to have the
+	// tie-breaking applied because the CLTV is not committed, but instead
+	// implicit via the construction of the second-level transactions.
+	bobSig, bobHtlcSigs, bobHtlcs, err := bobChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("unable to sign bob's commitment: %v", err)
+	}
+
+	if len(bobHtlcs) != numHtlcs {
+		t.Fatalf("expected %d htlcs, got: %v", numHtlcs, len(bobHtlcs))
+	}
+
+	// Ensure that our HTLCs appear in the reverse order from which they
+	// were added by inspecting each's outpoint index. We expect the output
+	// indexes to be in descending order, i.e. the first HTLC added had the
+	// highest CLTV and should end up last.
+	lastIndex := bobHtlcs[0].OutputIndex
+	for i, htlc := range bobHtlcs[1:] {
+		if htlc.OutputIndex >= lastIndex {
+			t.Fatalf("htlc %d output index %d is not descending",
+				i, htlc.OutputIndex)
+		}
+
+		lastIndex = htlc.OutputIndex
+	}
+
+	// If requsted, restart Alice so that we can test that the necessary
+	// indexes can be reconstructed before needing to validate the
+	// signatures from Bob.
+	if restart {
+		aliceState := aliceChannel.channelState
+		aliceChannels, err := aliceState.Db.FetchOpenChannels(
+			aliceState.IdentityPub,
+		)
+		if err != nil {
+			t.Fatalf("unable to fetch channel: %v", err)
+		}
+
+		aliceChannelNew, err := NewLightningChannel(
+			aliceChannel.Signer, aliceChannels[0],
+			aliceChannel.sigPool,
+		)
+		if err != nil {
+			t.Fatalf("unable to create new channel: %v", err)
+		}
+
+		aliceChannel = aliceChannelNew
+	}
+
+	// Finally, have Alice validate the signatures to ensure that she is
+	// expecting the signatures in the proper order.
+	err = aliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
+	if err != nil {
+		t.Fatalf("unable to receive bob's commitment: %v", err)
+	}
+}
+
 func TestCooperativeChannelClosure(t *testing.T) {
 	t.Parallel()
 
@@ -6500,6 +6633,41 @@ func TestMinHTLC(t *testing.T) {
 	_, err = bobChannel.ReceiveHTLC(htlc)
 	if err != ErrBelowMinHTLC {
 		t.Fatalf("expected ErrBelowMinHTLC, instead received: %v", err)
+	}
+}
+
+// TestInvalidHTLCAmt tests that ErrInvalidHTLCAmt is returned when trying to
+// add HTLCs that don't carry a positive value.
+func TestInvalidHTLCAmt(t *testing.T) {
+	t.Parallel()
+
+	// We'll kick off the test by creating our channels which both are
+	// loaded with 5 BTC each.
+	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels(
+		channeldb.SingleFunderTweaklessBit,
+	)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// We'll set the min HTLC values for each party to zero, which
+	// technically would permit zero-value HTLCs.
+	aliceChannel.channelState.LocalChanCfg.MinHTLC = 0
+	bobChannel.channelState.RemoteChanCfg.MinHTLC = 0
+
+	// Create a zero-value HTLC.
+	htlcAmt := lnwire.MilliSatoshi(0)
+	htlc, _ := createHTLC(0, htlcAmt)
+
+	// Sending or receiving the HTLC should fail with ErrInvalidHTLCAmt.
+	_, err = aliceChannel.AddHTLC(htlc, nil)
+	if err != ErrInvalidHTLCAmt {
+		t.Fatalf("expected ErrInvalidHTLCAmt, got: %v", err)
+	}
+	_, err = bobChannel.ReceiveHTLC(htlc)
+	if err != ErrInvalidHTLCAmt {
+		t.Fatalf("expected ErrInvalidHTLCAmt, got: %v", err)
 	}
 }
 

@@ -430,9 +430,11 @@ func newChainSet(chanState *channeldb.OpenChannel) (*chainSet, error) {
 	}
 
 	log.Debugf("ChannelPoint(%v): local_commit_type=%v, local_commit=%v",
-		chanState.ChanType, spew.Sdump(localCommit))
+		chanState.FundingOutpoint, chanState.ChanType,
+		spew.Sdump(localCommit))
 	log.Debugf("ChannelPoint(%v): remote_commit_type=%v, remote_commit=%v",
-		chanState.ChanType, spew.Sdump(remoteCommit))
+		chanState.FundingOutpoint, chanState.ChanType,
+		spew.Sdump(remoteCommit))
 
 	// Fetch the current known commit height for the remote party, and
 	// their pending commitment chain tip if it exists.
@@ -458,7 +460,7 @@ func newChainSet(chanState *channeldb.OpenChannel) (*chainSet, error) {
 	if remoteChainTip != nil {
 		remotePendingCommit = &remoteChainTip.Commitment
 		log.Debugf("ChannelPoint(%v): remote_pending_commit_type=%v, "+
-			"remote_pending_commit=%v",
+			"remote_pending_commit=%v", chanState.FundingOutpoint,
 			chanState.ChanType,
 			spew.Sdump(remoteChainTip.Commitment))
 

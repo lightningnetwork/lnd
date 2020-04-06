@@ -15145,6 +15145,10 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		// Stop at the first failure. Mimic behavior of original test
 		// framework.
 		if !success {
+			// Log failure time to help relate the lnd logs to the
+			// failure.
+			t.Logf("Failure time: %v",
+				time.Now().Format("2006-01-02 15:04:05.000"))
 			break
 		}
 	}

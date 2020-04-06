@@ -58,6 +58,7 @@ func (cq *ConcurrentQueue) start() {
 	go func() {
 		defer cq.wg.Done()
 
+	readLoop:
 		for {
 			nextElement := cq.overflow.Front()
 			if nextElement == nil {
@@ -65,7 +66,10 @@ func (cq *ConcurrentQueue) start() {
 				// directly to the output channel. If output channel is full
 				// though, push to overflow.
 				select {
-				case item := <-cq.chanIn:
+				case item, ok := <-cq.chanIn:
+					if !ok {
+						break readLoop
+					}
 					select {
 					case cq.chanOut <- item:
 						// Optimistically push directly to chanOut
@@ -79,7 +83,10 @@ func (cq *ConcurrentQueue) start() {
 				// Overflow queue is not empty, so any new items get pushed to
 				// the back to preserve order.
 				select {
-				case item := <-cq.chanIn:
+				case item, ok := <-cq.chanIn:
+					if !ok {
+						break readLoop
+					}
 					cq.overflow.PushBack(item)
 				case cq.chanOut <- nextElement.Value:
 					cq.overflow.Remove(nextElement)
@@ -88,6 +95,22 @@ func (cq *ConcurrentQueue) start() {
 				}
 			}
 		}
+
+		// Incoming channel has been closed. Empty overflow queue into
+		// the outgoing channel.
+		nextElement := cq.overflow.Front()
+		for nextElement != nil {
+			select {
+			case cq.chanOut <- nextElement.Value:
+				cq.overflow.Remove(nextElement)
+			case <-cq.quit:
+				return
+			}
+			nextElement = cq.overflow.Front()
+		}
+
+		// Close outgoing channel.
+		close(cq.chanOut)
 	}()
 }
 

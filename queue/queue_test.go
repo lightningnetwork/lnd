@@ -63,3 +63,25 @@ func TestConcurrentQueueIdempotentStop(t *testing.T) {
 
 	testQueueAddDrain(t, 100, 1, 10, 1000, 1000)
 }
+
+// TestQueueCloseIncoming tests that the queue properly handles an incoming
+// channel that is closed.
+func TestQueueCloseIncoming(t *testing.T) {
+	t.Parallel()
+
+	queue := queue.NewConcurrentQueue(10)
+	queue.Start()
+
+	queue.ChanIn() <- 1
+	close(queue.ChanIn())
+
+	item := <-queue.ChanOut()
+	if item.(int) != 1 {
+		t.Fatalf("unexpected item")
+	}
+
+	_, ok := <-queue.ChanOut()
+	if ok {
+		t.Fatalf("expected outgoing channel being closed")
+	}
+}

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
@@ -510,11 +509,15 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 		// transaction!  We'll craft the final closing transaction so
 		// we can broadcast it to the network.
 		matchingSig := c.priorFeeOffers[remoteProposedFee].Signature
-		localSigBytes := matchingSig.ToSignatureBytes()
-		localSig := append(localSigBytes, byte(txscript.SigHashAll))
+		localSig, err := matchingSig.ToSignature()
+		if err != nil {
+			return nil, false, err
+		}
 
-		remoteSigBytes := closeSignedMsg.Signature.ToSignatureBytes()
-		remoteSig := append(remoteSigBytes, byte(txscript.SigHashAll))
+		remoteSig, err := closeSignedMsg.Signature.ToSignature()
+		if err != nil {
+			return nil, false, err
+		}
 
 		closeTx, _, err := c.cfg.channel.CompleteCooperativeClose(
 			localSig, remoteSig, c.localDeliveryScript,

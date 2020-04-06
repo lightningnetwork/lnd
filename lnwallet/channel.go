@@ -5065,17 +5065,21 @@ func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
 	// for the transaction.
 	localCommit := lc.channelState.LocalCommitment
 	commitTx := localCommit.CommitTx.Copy()
-	theirSig := append(localCommit.CommitSig, byte(txscript.SigHashAll))
 
-	// With this, we then generate the full witness so the caller can
-	// broadcast a fully signed transaction.
-	lc.signDesc.SigHashes = txscript.NewTxSigHashes(commitTx)
-	ourSigRaw, err := lc.Signer.SignOutputRaw(commitTx, lc.signDesc)
+	theirSig, err := btcec.ParseDERSignature(
+		localCommit.CommitSig, btcec.S256(),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	ourSig := append(ourSigRaw.Serialize(), byte(txscript.SigHashAll))
+	// With this, we then generate the full witness so the caller can
+	// broadcast a fully signed transaction.
+	lc.signDesc.SigHashes = txscript.NewTxSigHashes(commitTx)
+	ourSig, err := lc.Signer.SignOutputRaw(commitTx, lc.signDesc)
+	if err != nil {
+		return nil, err
+	}
 
 	// With the final signature generated, create the witness stack
 	// required to spend from the multi-sig output.
@@ -6017,7 +6021,8 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 //
 // NOTE: The passed local and remote sigs are expected to be fully complete
 // signatures including the proper sighash byte.
-func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig []byte,
+func (lc *LightningChannel) CompleteCooperativeClose(
+	localSig, remoteSig input.Signature,
 	localDeliveryScript, remoteDeliveryScript []byte,
 	proposedFee btcutil.Amount) (*wire.MsgTx, btcutil.Amount, error) {
 
@@ -6070,8 +6075,10 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig []byte,
 		SerializeCompressed()
 	theirKey := lc.channelState.RemoteChanCfg.MultiSigKey.PubKey.
 		SerializeCompressed()
-	witness := input.SpendMultiSig(lc.signDesc.WitnessScript, ourKey,
-		localSig, theirKey, remoteSig)
+	witness := input.SpendMultiSig(
+		lc.signDesc.WitnessScript, ourKey, localSig, theirKey,
+		remoteSig,
+	)
 	closeTx.TxIn[0].Witness = witness
 
 	// Validate the finalized transaction to ensure the output script is

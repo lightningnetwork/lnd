@@ -96,7 +96,9 @@ func GenFundingPkScript(aPub, bPub []byte, amt int64) ([]byte, *wire.TxOut, erro
 
 // SpendMultiSig generates the witness stack required to redeem the 2-of-2 p2wsh
 // multi-sig output.
-func SpendMultiSig(witnessScript, pubA, sigA, pubB, sigB []byte) [][]byte {
+func SpendMultiSig(witnessScript, pubA []byte, sigA Signature,
+	pubB []byte, sigB Signature) [][]byte {
+
 	witness := make([][]byte, 4)
 
 	// When spending a p2wsh multi-sig script, rather than an OP_0, we add
@@ -108,11 +110,11 @@ func SpendMultiSig(witnessScript, pubA, sigA, pubB, sigB []byte) [][]byte {
 	// ensure the signatures appear on the Script Virtual Machine stack in
 	// the correct order.
 	if bytes.Compare(pubA, pubB) == 1 {
-		witness[1] = sigB
-		witness[2] = sigA
+		witness[1] = append(sigB.Serialize(), byte(txscript.SigHashAll))
+		witness[2] = append(sigA.Serialize(), byte(txscript.SigHashAll))
 	} else {
-		witness[1] = sigA
-		witness[2] = sigB
+		witness[1] = append(sigA.Serialize(), byte(txscript.SigHashAll))
+		witness[2] = append(sigB.Serialize(), byte(txscript.SigHashAll))
 	}
 
 	// Finally, add the preimage as the last witness element.

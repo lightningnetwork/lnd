@@ -98,7 +98,7 @@ func newChannelTestCtx(chanSize int64) (*channelTestCtx, error) {
 	}
 
 	sigHashes := txscript.NewTxSigHashes(commitTx)
-	aliceSig, err := txscript.RawTxInWitnessSignature(
+	aliceSigRaw, err := txscript.RawTxInWitnessSignature(
 		commitTx, sigHashes, 0, chanSize,
 		multiSigScript, txscript.SigHashAll, alicePriv,
 	)
@@ -106,9 +106,23 @@ func newChannelTestCtx(chanSize int64) (*channelTestCtx, error) {
 		return nil, err
 	}
 
-	bobSig, err := txscript.RawTxInWitnessSignature(
+	aliceSig, err := btcec.ParseDERSignature(
+		aliceSigRaw, btcec.S256(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	bobSigRaw, err := txscript.RawTxInWitnessSignature(
 		commitTx, sigHashes, 0, chanSize,
 		multiSigScript, txscript.SigHashAll, bobPriv,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	bobSig, err := btcec.ParseDERSignature(
+		bobSigRaw, btcec.S256(),
 	)
 	if err != nil {
 		return nil, err

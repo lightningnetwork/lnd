@@ -6715,7 +6715,7 @@ func subscribeChannelNotifications(ctxb context.Context, t *harnessTest,
 // expected type.
 func verifyCloseUpdate(chanUpdate *lnrpc.ChannelEventUpdate,
 	closeType lnrpc.ChannelCloseSummary_ClosureType,
-	closeInitiator lnrpc.ChannelCloseSummary_Initiator) error {
+	closeInitiator lnrpc.Initiator) error {
 
 	// We should receive one inactive and one closed notification
 	// for each channel.
@@ -6859,7 +6859,7 @@ func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness, t *harnessTe
 	// receive the correct channel updates in order.
 	verifyCloseUpdatesReceived := func(sub channelSubscription,
 		forceType lnrpc.ChannelCloseSummary_ClosureType,
-		closeInitiator lnrpc.ChannelCloseSummary_Initiator) error {
+		closeInitiator lnrpc.Initiator) error {
 
 		// Ensure one inactive and one closed notification is received for each
 		// closed channel.
@@ -6905,7 +6905,7 @@ func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness, t *harnessTe
 	// close initiator because Alice closed the channels.
 	if err := verifyCloseUpdatesReceived(bobChanSub,
 		lnrpc.ChannelCloseSummary_REMOTE_FORCE_CLOSE,
-		lnrpc.ChannelCloseSummary_REMOTE); err != nil {
+		lnrpc.Initiator_INITIATOR_REMOTE); err != nil {
 		t.Fatalf("errored verifying close updates: %v", err)
 	}
 
@@ -6915,7 +6915,7 @@ func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness, t *harnessTe
 	// close initiator because Alice closed the channels.
 	if err := verifyCloseUpdatesReceived(aliceChanSub,
 		lnrpc.ChannelCloseSummary_LOCAL_FORCE_CLOSE,
-		lnrpc.ChannelCloseSummary_LOCAL); err != nil {
+		lnrpc.Initiator_INITIATOR_LOCAL); err != nil {
 		t.Fatalf("errored verifying close updates: %v", err)
 	}
 }

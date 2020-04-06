@@ -2646,6 +2646,16 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 
 	resp := &lnrpc.PendingChannelsResponse{}
 
+	// rpcInitiator returns the correct lnrpc initiator for channels where
+	// we have a record of the opening channel.
+	rpcInitiator := func(isInitiator bool) lnrpc.Initiator {
+		if isInitiator {
+			return lnrpc.Initiator_INITIATOR_LOCAL
+		}
+
+		return lnrpc.Initiator_INITIATOR_REMOTE
+	}
+
 	// First, we'll populate the response with all the channels that are
 	// soon to be opened. We can easily fetch this data from the database
 	// and map the db struct to the proto response.
@@ -2680,7 +2690,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 				RemoteBalance:        int64(localCommitment.RemoteBalance.ToSatoshis()),
 				LocalChanReserveSat:  int64(pendingChan.LocalChanCfg.ChanReserve),
 				RemoteChanReserveSat: int64(pendingChan.RemoteChanCfg.ChanReserve),
-				Initiator:            pendingChan.IsInitiator,
+				Initiator:            rpcInitiator(pendingChan.IsInitiator),
 				CommitmentType:       rpcCommitmentType(pendingChan.ChanType),
 			},
 			CommitWeight: commitWeight,
@@ -2707,12 +2717,18 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		// needed regardless of how this channel was closed.
 		pub := pendingClose.RemotePub.SerializeCompressed()
 		chanPoint := pendingClose.ChanPoint
+
+		// Create the pending channel. If this channel was closed before
+		// we started storing historical channel data, we will not know
+		// who initiated the channel, so we set the initiator field to
+		// unknown.
 		channel := &lnrpc.PendingChannelsResponse_PendingChannel{
 			RemoteNodePub:  hex.EncodeToString(pub),
 			ChannelPoint:   chanPoint.String(),
 			Capacity:       int64(pendingClose.Capacity),
 			LocalBalance:   int64(pendingClose.SettledBalance),
 			CommitmentType: lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE,
+			Initiator:      lnrpc.Initiator_INITIATOR_UNKNOWN,
 		}
 
 		// Lookup the channel in the historical channel bucket to obtain
@@ -2730,7 +2746,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		case channeldb.ErrChannelNotFound:
 
 		case nil:
-			channel.Initiator = historical.IsInitiator
+			channel.Initiator = rpcInitiator(historical.IsInitiator)
 			channel.CommitmentType = rpcCommitmentType(
 				historical.ChanType,
 			)
@@ -2860,7 +2876,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			RemoteBalance:        int64(waitingClose.LocalCommitment.RemoteBalance.ToSatoshis()),
 			LocalChanReserveSat:  int64(waitingClose.LocalChanCfg.ChanReserve),
 			RemoteChanReserveSat: int64(waitingClose.RemoteChanCfg.ChanReserve),
-			Initiator:            waitingClose.IsInitiator,
+			Initiator:            rpcInitiator(waitingClose.IsInitiator),
 			CommitmentType:       rpcCommitmentType(waitingClose.ChanType),
 		}
 
@@ -3352,8 +3368,8 @@ func (r *rpcServer) createRPCClosedChannel(
 
 	var (
 		closeType      lnrpc.ChannelCloseSummary_ClosureType
-		openInit       lnrpc.ChannelCloseSummary_Initiator
-		closeInitiator lnrpc.ChannelCloseSummary_Initiator
+		openInit       lnrpc.Initiator
+		closeInitiator lnrpc.Initiator
 		err            error
 	)
 
@@ -3404,12 +3420,12 @@ func (r *rpcServer) createRPCClosedChannel(
 // channel is not present (which indicates that it was closed before we started
 // writing channels to the historical close bucket).
 func (r *rpcServer) getInitiators(chanPoint *wire.OutPoint) (
-	lnrpc.ChannelCloseSummary_Initiator,
-	lnrpc.ChannelCloseSummary_Initiator, error) {
+	lnrpc.Initiator,
+	lnrpc.Initiator, error) {
 
 	var (
-		openInitiator  = lnrpc.ChannelCloseSummary_UNKNOWN
-		closeInitiator = lnrpc.ChannelCloseSummary_UNKNOWN
+		openInitiator  = lnrpc.Initiator_INITIATOR_UNKNOWN
+		closeInitiator = lnrpc.Initiator_INITIATOR_UNKNOWN
 	)
 
 	// To get the close initiator for cooperative closes, we need
@@ -3434,9 +3450,9 @@ func (r *rpcServer) getInitiators(chanPoint *wire.OutPoint) (
 	// If we successfully looked up the channel, determine initiator based
 	// on channels status.
 	if histChan.IsInitiator {
-		openInitiator = lnrpc.ChannelCloseSummary_LOCAL
+		openInitiator = lnrpc.Initiator_INITIATOR_LOCAL
 	} else {
-		openInitiator = lnrpc.ChannelCloseSummary_REMOTE
+		openInitiator = lnrpc.Initiator_INITIATOR_REMOTE
 	}
 
 	localInit := histChan.HasChanStatus(
@@ -3452,13 +3468,13 @@ func (r *rpcServer) getInitiators(chanPoint *wire.OutPoint) (
 	// We return the initiator as both in this case to provide full
 	// information about the close.
 	case localInit && remoteInit:
-		closeInitiator = lnrpc.ChannelCloseSummary_BOTH
+		closeInitiator = lnrpc.Initiator_INITIATOR_BOTH
 
 	case localInit:
-		closeInitiator = lnrpc.ChannelCloseSummary_LOCAL
+		closeInitiator = lnrpc.Initiator_INITIATOR_LOCAL
 
 	case remoteInit:
-		closeInitiator = lnrpc.ChannelCloseSummary_REMOTE
+		closeInitiator = lnrpc.Initiator_INITIATOR_REMOTE
 	}
 
 	return openInitiator, closeInitiator, nil

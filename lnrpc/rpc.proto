@@ -1483,6 +1483,13 @@ message ListChannelsResponse {
     repeated Channel channels = 11;
 }
 
+enum Initiator {
+    INITIATOR_UNKNOWN = 0;
+    INITIATOR_LOCAL = 1;
+    INITIATOR_REMOTE = 2;
+    INITIATOR_BOTH = 3;
+}
+
 message ChannelCloseSummary {
     /// The outpoint (txid:index) of the funding transaction.
     string channel_point = 1;
@@ -1522,13 +1529,6 @@ message ChannelCloseSummary {
 
     /// Details on how the channel was closed.
     ClosureType close_type = 10;
-
-    enum Initiator {
-        UNKNOWN = 0;
-        LOCAL = 1;
-        REMOTE = 2;
-        BOTH = 3;
-    }
 
     /**
     Open initiator is the party that initiated opening the channel. Note that
@@ -2093,8 +2093,8 @@ message PendingChannelsResponse {
         */
         int64 remote_chan_reserve_sat = 7;
 
-        // True if we initiated opening the channel.
-        bool initiator = 8;
+        // The party that initiated opening the channel.
+        Initiator initiator = 8;
 
         /// The commitment type used by this channel.
         CommitmentType commitment_type = 9;
@@ -2638,9 +2638,9 @@ message ChannelGraph {
     repeated ChannelEdge edges = 2;
 }
 
-enum NodeMetricType { 
+enum NodeMetricType {
     UNKNOWN = 0;
-    BETWEENNESS_CENTRALITY = 1; 
+    BETWEENNESS_CENTRALITY = 1;
 }
 
 message NodeMetricsRequest {

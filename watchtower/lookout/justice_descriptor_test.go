@@ -144,7 +144,13 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 
 	// Compute the weight estimate for our justice transaction.
 	var weightEstimate input.TxWeightEstimator
-	weightEstimate.AddWitnessInput(input.ToLocalPenaltyWitnessSize)
+
+	// An older ToLocalPenaltyWitnessSize constant used to underestimate the
+	// size by one byte. The diferrence in weight can cause different output
+	// values on the sweep transaction, so we mimic the original bug and
+	// create signatures using the original weight estimate.
+	weightEstimate.AddWitnessInput(input.ToLocalPenaltyWitnessSize - 1)
+
 	weightEstimate.AddWitnessInput(input.P2WKHWitnessSize)
 	weightEstimate.AddP2WKHOutput()
 	if blobType.Has(blob.FlagReward) {

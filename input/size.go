@@ -1,12 +1,8 @@
 package input
 
 import (
-	"math/big"
-
 	"github.com/btcsuite/btcd/blockchain"
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/keychain"
 )
 
 const (
@@ -94,7 +90,7 @@ const (
 	//	- OP_CHECKMULTISIG: 1 byte
 	MultiSigSize = 1 + 1 + 33 + 1 + 33 + 1 + 1
 
-	// WitnessSize 222 bytes
+	// MultiSigWitnessSize 222 bytes
 	//	- NumberOfWitnessElements: 1 byte
 	//	- NilLength: 1 byte
 	//	- sigAliceLength: 1 byte
@@ -103,7 +99,7 @@ const (
 	//	- sigBob: 73 bytes
 	//	- WitnessScriptLength: 1 byte
 	//	- WitnessScript (MultiSig)
-	WitnessSize = 1 + 1 + 1 + 73 + 1 + 73 + 1 + MultiSigSize
+	MultiSigWitnessSize = 1 + 1 + 1 + 73 + 1 + 73 + 1 + MultiSigSize
 
 	// InputSize 41 bytes
 	//	- PreviousOutPoint:
@@ -177,7 +173,7 @@ const (
 	BaseCommitmentTxWeight = witnessScaleFactor * BaseCommitmentTxSize
 
 	// WitnessCommitmentTxWeight 224 weight
-	WitnessCommitmentTxWeight = WitnessHeaderSize + WitnessSize
+	WitnessCommitmentTxWeight = WitnessHeaderSize + MultiSigWitnessSize
 
 	// BaseAnchorCommitmentTxSize 225 + 43 * num-htlc-outputs bytes
 	//	- Version: 4 bytes
@@ -264,14 +260,15 @@ const (
 	//      - witness_script (to_local_script)
 	ToLocalTimeoutWitnessSize = 1 + 1 + 73 + 1 + 1 + ToLocalScriptSize
 
-	// ToLocalPenaltyWitnessSize 156 bytes
+	// ToLocalPenaltyWitnessSize 157 bytes
 	//      - number_of_witness_elements: 1 byte
 	//      - revocation_sig_length: 1 byte
 	//      - revocation_sig: 73 bytes
+	//      - OP_TRUE_length: 1 byte
 	//      - OP_TRUE: 1 byte
 	//      - witness_script_length: 1 byte
 	//      - witness_script (to_local_script)
-	ToLocalPenaltyWitnessSize = 1 + 1 + 73 + 1 + 1 + ToLocalScriptSize
+	ToLocalPenaltyWitnessSize = 1 + 1 + 73 + 1 + 1 + 1 + ToLocalScriptSize
 
 	// ToRemoteConfirmedScriptSize 37 bytes
 	//      - OP_DATA: 1 byte
@@ -289,7 +286,7 @@ const (
 	//      - witness_script (to_remote_delayed_script)
 	ToRemoteConfirmedWitnessSize = 1 + 1 + 73 + 1 + ToRemoteConfirmedScriptSize
 
-	// AcceptedHtlcScriptSize 142 bytes
+	// AcceptedHtlcScriptSize 143 bytes
 	//      - OP_DUP: 1 byte
 	//      - OP_HASH160: 1 byte
 	//      - OP_DATA: 1 byte (RIPEMD160(SHA256(revocationkey)) length)
@@ -302,6 +299,7 @@ const (
 	//              - remotekey: 33 bytes
 	//              - OP_SWAP: 1 byte
 	//              - OP_SIZE: 1 byte
+	//              - OP_DATA: 1 byte (32 length)
 	//              - 32: 1 byte
 	//              - OP_EQUAL: 1 byte
 	//              - OP_IF: 1 byte
@@ -327,7 +325,7 @@ const (
 	//              - OP_CSV: 1 byte	// HTLC script types. The size won't be correct in all cases,
 	//              - OP_DROP: 1 byte	// but it is just an upper bound used for fee estimation in any case.
 	//      - OP_ENDIF: 1 byte
-	AcceptedHtlcScriptSize = 3*1 + 20 + 5*1 + 33 + 7*1 + 20 + 4*1 +
+	AcceptedHtlcScriptSize = 3*1 + 20 + 5*1 + 33 + 8*1 + 20 + 4*1 +
 		33 + 5*1 + 4 + 8*1
 
 	// AcceptedHtlcTimeoutWitnessSize 219
@@ -348,6 +346,20 @@ const (
 	//      - witness_script_length: 1 byte
 	//      - witness_script (accepted_htlc_script)
 	AcceptedHtlcPenaltyWitnessSize = 1 + 1 + 73 + 1 + 33 + 1 + AcceptedHtlcScriptSize
+
+	// AcceptedHtlcSuccessWitnessSize 322 bytes
+	//      - number_of_witness_elements: 1 byte
+	//      - nil_length: 1 byte
+	//      - sig_alice_length: 1 byte
+	//      - sig_alice: 73 bytes
+	//      - sig_bob_length: 1 byte
+	//      - sig_bob: 73 bytes
+	//      - preimage_length: 1 byte
+	//      - preimage: 32 bytes
+	//      - witness_script_length: 1 byte
+	//      - witness_script (accepted_htlc_script)
+	AcceptedHtlcSuccessWitnessSize = 1 + 1 + 1 + 73 + 1 + 73 + 1 + 32 + 1 +
+		AcceptedHtlcScriptSize
 
 	// OfferedHtlcScriptSize 136 bytes
 	//      - OP_DUP: 1 byte
@@ -386,18 +398,27 @@ const (
 	//      - OP_ENDIF: 1 byte
 	OfferedHtlcScriptSize = 3*1 + 20 + 5*1 + 33 + 10*1 + 33 + 5*1 + 20 + 7*1
 
-	// OfferedHtlcSuccessWitnessSize 320 bytes
+	// OfferedHtlcSuccessWitnessSize 245 bytes
 	//      - number_of_witness_elements: 1 byte
-	//      - nil_length: 1 byte
 	//      - receiver_sig_length: 1 byte
 	//      - receiver_sig: 73 bytes
-	//      - sender_sig_length: 1 byte
-	//      - sender_sig: 73 bytes
 	//      - payment_preimage_length: 1 byte
 	//      - payment_preimage: 32 bytes
 	//      - witness_script_length: 1 byte
 	//      - witness_script (offered_htlc_script)
-	OfferedHtlcSuccessWitnessSize = 1 + 1 + 1 + 73 + 1 + 73 + 1 + 32 + 1 + OfferedHtlcScriptSize
+	OfferedHtlcSuccessWitnessSize = 1 + 1 + 73 + 1 + 32 + 1 + OfferedHtlcScriptSize
+
+	// OfferedHtlcTimeoutWitnessSize 285 bytes
+	//      - number_of_witness_elements: 1 byte
+	//      - nil_length: 1 byte
+	//      - sig_alice_length: 1 byte
+	//      - sig_alice: 73 bytes
+	//      - sig_bob_length: 1 byte
+	//      - sig_bob: 73 bytes
+	//      - nil_length: 1 byte
+	//      - witness_script_length: 1 byte
+	//      - witness_script (offered_htlc_script)
+	OfferedHtlcTimeoutWitnessSize = 1 + 1 + 1 + 73 + 1 + 73 + 1 + 1 + OfferedHtlcScriptSize
 
 	// OfferedHtlcPenaltyWitnessSize 246 bytes
 	//      - number_of_witness_elements: 1 byte
@@ -408,53 +429,25 @@ const (
 	//      - witness_script_length: 1 byte
 	//      - witness_script (offered_htlc_script)
 	OfferedHtlcPenaltyWitnessSize = 1 + 1 + 73 + 1 + 33 + 1 + OfferedHtlcScriptSize
-)
 
-type dummySignature struct{}
-
-func (d *dummySignature) Serialize() []byte {
-	// Always return worst-case signature length, excluding the one byte
-	// sighash flag.
-	return make([]byte, 73-1)
-}
-
-// dummySigner is a fake signer used for size (upper bound) calculations.
-type dummySigner struct {
-	Signer
-}
-
-// SignOutputRaw generates a signature for the passed transaction according to
-// the data within the passed SignDescriptor.
-func (s *dummySigner) SignOutputRaw(tx *wire.MsgTx,
-	signDesc *SignDescriptor) (Signature, error) {
-
-	return &dummySignature{}, nil
-}
-
-var (
-	// dummyPubKey is a pubkey used in script size calculation.
-	dummyPubKey = btcec.PublicKey{
-		X: &big.Int{},
-		Y: &big.Int{},
-	}
-
-	// dummyAnchorScript is a script used for size calculation.
-	dummyAnchorScript, _ = CommitScriptAnchor(&dummyPubKey)
-
-	// dummyAnchorWitness is a witness used for size calculation.
-	dummyAnchorWitness, _ = CommitSpendAnchor(
-		&dummySigner{},
-		&SignDescriptor{
-			KeyDesc: keychain.KeyDescriptor{
-				PubKey: &dummyPubKey,
-			},
-			WitnessScript: dummyAnchorScript,
-		},
-		nil,
-	)
+	// AnchorScriptSize 40 bytes
+	//      - pubkey_length: 1 byte
+	//      - pubkey: 33 bytes
+	//      - OP_CHECKSIG: 1 byte
+	//      - OP_IFDUP: 1 byte
+	//      - OP_NOTIF: 1 byte
+	//              - OP_16: 1 byte
+	//              - OP_CSV 1 byte
+	//      - OP_ENDIF: 1 byte
+	AnchorScriptSize = 1 + 33 + 6*1
 
 	// AnchorWitnessSize 116 bytes
-	AnchorWitnessSize = dummyAnchorWitness.SerializeSize()
+	//      - number_of_witnes_elements: 1 byte
+	//      - signature_length: 1 byte
+	//      - signature: 73 bytes
+	//      - witness_script_length: 1 byte
+	//      - witness_script (anchor_script)
+	AnchorWitnessSize = 1 + 1 + 73 + 1 + AnchorScriptSize
 )
 
 // EstimateCommitTxWeight estimate commitment transaction weight depending on

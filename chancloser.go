@@ -589,7 +589,7 @@ func (c *channelCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingS
 	// party responds we'll be able to decide if we've agreed on fees or
 	// not.
 	c.lastFeeProposal = fee
-	parsedSig, err := lnwire.NewSigFromRawSignature(rawSig)
+	parsedSig, err := lnwire.NewSigFromSignature(rawSig)
 	if err != nil {
 		return nil, err
 	}

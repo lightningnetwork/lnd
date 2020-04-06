@@ -262,7 +262,7 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 	toRemoteSigRaw := toRemoteWitness[0][:len(toRemoteWitness[0])-1]
 
 	// Convert the DER to-local sig into a fixed-size signature.
-	toLocalSig, err := lnwire.NewSigFromRawSignature(toLocalSigRaw)
+	toLocalSig, err := lnwire.NewSigFromSignature(toLocalSigRaw)
 	if err != nil {
 		t.Fatalf("unable to parse to-local signature: %v", err)
 	}
@@ -310,7 +310,7 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 
 	// Construct the test's to-local witness.
 	justiceTxn.TxIn[0].Witness = make([][]byte, 3)
-	justiceTxn.TxIn[0].Witness[0] = append(toLocalSigRaw,
+	justiceTxn.TxIn[0].Witness[0] = append(toLocalSigRaw.Serialize(),
 		byte(txscript.SigHashAll))
 	justiceTxn.TxIn[0].Witness[1] = []byte{1}
 	justiceTxn.TxIn[0].Witness[2] = toLocalScript

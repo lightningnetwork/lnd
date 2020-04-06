@@ -134,8 +134,8 @@ type ChannelReservation struct {
 	theirFundingInputScripts []*input.Script
 
 	// Our signature for their version of the commitment transaction.
-	ourCommitmentSig   []byte
-	theirCommitmentSig []byte
+	ourCommitmentSig   input.Signature
+	theirCommitmentSig input.Signature
 
 	ourContribution   *ChannelContribution
 	theirContribution *ChannelContribution
@@ -538,7 +538,9 @@ func (r *ChannelReservation) TheirContribution() *ChannelContribution {
 //
 // NOTE: These signatures will only be populated after a call to
 // .ProcessContribution()
-func (r *ChannelReservation) OurSignatures() ([]*input.Script, []byte) {
+func (r *ChannelReservation) OurSignatures() ([]*input.Script,
+	input.Signature) {
+
 	r.RLock()
 	defer r.RUnlock()
 	return r.ourFundingInputScripts, r.ourCommitmentSig
@@ -558,7 +560,7 @@ func (r *ChannelReservation) OurSignatures() ([]*input.Script, []byte) {
 // confirmations. Once the method unblocks, a LightningChannel instance is
 // returned, marking the channel available for updates.
 func (r *ChannelReservation) CompleteReservation(fundingInputScripts []*input.Script,
-	commitmentSig []byte) (*channeldb.OpenChannel, error) {
+	commitmentSig input.Signature) (*channeldb.OpenChannel, error) {
 
 	// TODO(roasbeef): add flag for watch or not?
 	errChan := make(chan error, 1)
@@ -585,7 +587,7 @@ func (r *ChannelReservation) CompleteReservation(fundingInputScripts []*input.Sc
 // called as a response to a single funder channel, only a commitment signature
 // will be populated.
 func (r *ChannelReservation) CompleteReservationSingle(fundingPoint *wire.OutPoint,
-	commitSig []byte) (*channeldb.OpenChannel, error) {
+	commitSig input.Signature) (*channeldb.OpenChannel, error) {
 
 	errChan := make(chan error, 1)
 	completeChan := make(chan *channeldb.OpenChannel, 1)
@@ -608,7 +610,9 @@ func (r *ChannelReservation) CompleteReservationSingle(fundingPoint *wire.OutPoi
 //
 // NOTE: These attributes will be unpopulated before a call to
 // .CompleteReservation().
-func (r *ChannelReservation) TheirSignatures() ([]*input.Script, []byte) {
+func (r *ChannelReservation) TheirSignatures() ([]*input.Script,
+	input.Signature) {
+
 	r.RLock()
 	defer r.RUnlock()
 	return r.theirFundingInputScripts, r.theirCommitmentSig

@@ -303,12 +303,14 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 			SigHashes:     sweepTxSigHashes,
 			InputIndex:    0,
 		}
-		bobSigBytes, err := bobSigner.SignOutputRaw(sweepTx, &bobSignDesc)
+		bobSig, err := bobSigner.SignOutputRaw(sweepTx, &bobSignDesc)
 		if err != nil {
 			t.Fatalf("unable to generate alice signature: %v", err)
 		}
 
-		bobRecvrSig, err = btcec.ParseDERSignature(bobSigBytes, btcec.S256())
+		bobRecvrSig, err = btcec.ParseDERSignature(
+			bobSig.Serialize(), btcec.S256(),
+		)
 		if err != nil {
 			t.Fatalf("unable to parse signature: %v", err)
 		}
@@ -700,12 +702,14 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 			SigHashes:     sweepTxSigHashes,
 			InputIndex:    0,
 		}
-		aliceSigBytes, err := aliceSigner.SignOutputRaw(sweepTx, &aliceSignDesc)
+		aliceSig, err := aliceSigner.SignOutputRaw(sweepTx, &aliceSignDesc)
 		if err != nil {
 			t.Fatalf("unable to generate alice signature: %v", err)
 		}
 
-		aliceSenderSig, err = btcec.ParseDERSignature(aliceSigBytes, btcec.S256())
+		aliceSenderSig, err = btcec.ParseDERSignature(
+			aliceSig.Serialize(), btcec.S256(),
+		)
 		if err != nil {
 			t.Fatalf("unable to parse signature: %v", err)
 		}

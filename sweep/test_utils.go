@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -18,13 +19,23 @@ var (
 	mockChainHeight    = int32(100)
 )
 
+type dummySignature struct{}
+
+func (s *dummySignature) Serialize() []byte {
+	return []byte{}
+}
+
+func (s *dummySignature) Verify(_ []byte, _ *btcec.PublicKey) bool {
+	return true
+}
+
 type mockSigner struct {
 }
 
 func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx,
-	signDesc *input.SignDescriptor) ([]byte, error) {
+	signDesc *input.SignDescriptor) (input.Signature, error) {
 
-	return []byte{}, nil
+	return &dummySignature{}, nil
 }
 
 func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx,

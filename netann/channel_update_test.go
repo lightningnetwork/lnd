@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
@@ -17,7 +18,7 @@ type mockSigner struct {
 }
 
 func (m *mockSigner) SignMessage(pk *btcec.PublicKey,
-	msg []byte) (*btcec.Signature, error) {
+	msg []byte) (input.Signature, error) {
 
 	if m.err != nil {
 		return nil, m.err

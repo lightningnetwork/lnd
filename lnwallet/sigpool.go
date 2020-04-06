@@ -205,7 +205,7 @@ func (s *SigPool) poolWorker() {
 				}
 			}
 
-			sig, err := lnwire.NewSigFromRawSignature(rawSig)
+			sig, err := lnwire.NewSigFromSignature(rawSig)
 			select {
 			case sigMsg.Resp <- SignJobResp{
 				Sig: sig,

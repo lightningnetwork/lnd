@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
@@ -31,7 +32,7 @@ func NewNodeSigner(key *btcec.PrivateKey) *NodeSigner {
 // resident node's private key. If the target public key is _not_ the node's
 // private key, then an error will be returned.
 func (n *NodeSigner) SignMessage(pubKey *btcec.PublicKey,
-	msg []byte) (*btcec.Signature, error) {
+	msg []byte) (input.Signature, error) {
 
 	// If this isn't our identity public key, then we'll exit early with an
 	// error as we can't sign with this key.
@@ -41,12 +42,12 @@ func (n *NodeSigner) SignMessage(pubKey *btcec.PublicKey,
 
 	// Otherwise, we'll sign the dsha256 of the target message.
 	digest := chainhash.DoubleHashB(msg)
-	sign, err := n.privKey.Sign(digest)
+	sig, err := n.privKey.Sign(digest)
 	if err != nil {
 		return nil, fmt.Errorf("can't sign the message: %v", err)
 	}
 
-	return sign, nil
+	return sig, nil
 }
 
 // SignCompact signs a double-sha256 digest of the msg parameter under the

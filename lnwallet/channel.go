@@ -5459,11 +5459,16 @@ func newOutgoingHtlcResolution(signer input.Signer,
 		InputIndex: 0,
 	}
 
+	htlcSig, err := btcec.ParseDERSignature(htlc.Signature, btcec.S256())
+	if err != nil {
+		return nil, err
+	}
+
 	// With the sign desc created, we can now construct the full witness
 	// for the timeout transaction, and populate it as well.
 	sigHashType := HtlcSigHashType(chanType)
 	timeoutWitness, err := input.SenderHtlcSpendTimeout(
-		htlc.Signature, sigHashType, signer, &timeoutSignDesc, timeoutTx,
+		htlcSig, sigHashType, signer, &timeoutSignDesc, timeoutTx,
 	)
 	if err != nil {
 		return nil, err
@@ -5585,14 +5590,18 @@ func newIncomingHtlcResolution(signer input.Signer,
 		InputIndex: 0,
 	}
 
+	htlcSig, err := btcec.ParseDERSignature(htlc.Signature, btcec.S256())
+	if err != nil {
+		return nil, err
+	}
+
 	// Next, we'll construct the full witness needed to satisfy the input of
 	// the success transaction. Don't specify the preimage yet. The preimage
 	// will be supplied by the contract resolver, either directly or when it
 	// becomes known.
 	sigHashType := HtlcSigHashType(chanType)
 	successWitness, err := input.ReceiverHtlcSpendRedeem(
-		htlc.Signature, sigHashType, nil, signer, &successSignDesc,
-		successTx,
+		htlcSig, sigHashType, nil, signer, &successSignDesc, successTx,
 	)
 	if err != nil {
 		return nil, err

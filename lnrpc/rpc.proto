@@ -3053,6 +3053,40 @@ message InvoiceSubscription {
     uint64 settle_index = 2;
 }
 
+enum PaymentFailureReason {
+    /**
+    Payment isn't failed (yet).
+    */
+    FAILURE_REASON_NONE = 0;
+
+    /**
+    There are more routes to try, but the payment timeout was exceeded.
+    */
+    FAILURE_REASON_TIMEOUT = 1;
+
+    /**
+    All possible routes were tried and failed permanently. Or were no
+    routes to the destination at all.
+    */
+    FAILURE_REASON_NO_ROUTE = 2;
+
+    /**
+    A non-recoverable error has occured.
+    */
+    FAILURE_REASON_ERROR = 3;
+
+    /**
+    Payment details incorrect (unknown hash, invalid amt or
+    invalid final cltv delta)
+    */
+    FAILURE_REASON_INCORRECT_PAYMENT_DETAILS = 4;
+
+    /**
+    Insufficient local balance.
+    */
+    FAILURE_REASON_INSUFFICIENT_BALANCE = 5;
+}
+
 message Payment {
     /// The payment hash
     string payment_hash = 1;
@@ -3109,6 +3143,8 @@ message Payment {
     older versions of lnd.
     */
     uint64 payment_index = 15;
+
+    PaymentFailureReason failure_reason = 16;
 }
 
 message HTLCAttempt {

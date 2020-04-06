@@ -1143,6 +1143,13 @@ func (r *RouterBackend) MarshallPayment(payment *channeldb.MPPayment) (
 	paymentHash := payment.Info.PaymentHash
 	creationTimeNS := MarshalTimeNano(payment.Info.CreationTime)
 
+	failureReason, err := marshallPaymentFailureReason(
+		payment.FailureReason,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &lnrpc.Payment{
 		PaymentHash:     hex.EncodeToString(paymentHash[:]),
 		Value:           satValue,
@@ -1159,6 +1166,7 @@ func (r *RouterBackend) MarshallPayment(payment *channeldb.MPPayment) (
 		Status:          status,
 		Htlcs:           htlcs,
 		PaymentIndex:    payment.SequenceNum,
+		FailureReason:   failureReason,
 	}, nil
 }
 
@@ -1183,4 +1191,34 @@ func convertPaymentStatus(dbStatus channeldb.PaymentStatus) (
 	default:
 		return 0, fmt.Errorf("unhandled payment status %v", dbStatus)
 	}
+}
+
+// marshallPaymentFailureReason marshalls the failure reason to the corresponding rpc
+// type.
+func marshallPaymentFailureReason(reason *channeldb.FailureReason) (
+	lnrpc.PaymentFailureReason, error) {
+
+	if reason == nil {
+		return lnrpc.PaymentFailureReason_FAILURE_REASON_NONE, nil
+	}
+
+	switch *reason {
+
+	case channeldb.FailureReasonTimeout:
+		return lnrpc.PaymentFailureReason_FAILURE_REASON_TIMEOUT, nil
+
+	case channeldb.FailureReasonNoRoute:
+		return lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE, nil
+
+	case channeldb.FailureReasonError:
+		return lnrpc.PaymentFailureReason_FAILURE_REASON_ERROR, nil
+
+	case channeldb.FailureReasonPaymentDetails:
+		return lnrpc.PaymentFailureReason_FAILURE_REASON_INCORRECT_PAYMENT_DETAILS, nil
+
+	case channeldb.FailureReasonInsufficientBalance:
+		return lnrpc.PaymentFailureReason_FAILURE_REASON_INSUFFICIENT_BALANCE, nil
+	}
+
+	return 0, errors.New("unknown failure reason")
 }

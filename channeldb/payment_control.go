@@ -186,38 +186,39 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 // RegisterAttempt atomically records the provided HTLCAttemptInfo to the
 // DB.
 func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
-	attempt *HTLCAttemptInfo) error {
+	attempt *HTLCAttemptInfo) (*MPPayment, error) {
 
 	// Serialize the information before opening the db transaction.
 	var a bytes.Buffer
 	err := serializeHTLCAttemptInfo(&a, attempt)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	htlcInfoBytes := a.Bytes()
 
 	htlcIDBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(htlcIDBytes, attempt.AttemptID)
 
-	return kvdb.Batch(p.db.Backend, func(tx kvdb.RwTx) error {
+	var payment *MPPayment
+	err = kvdb.Batch(p.db.Backend, func(tx kvdb.RwTx) error {
 		bucket, err := fetchPaymentBucketUpdate(tx, paymentHash)
 		if err != nil {
 			return err
 		}
 
-		payment, err := fetchPayment(bucket)
+		p, err := fetchPayment(bucket)
 		if err != nil {
 			return err
 		}
 
 		// Ensure the payment is in-flight.
-		if err := ensureInFlight(payment); err != nil {
+		if err := ensureInFlight(p); err != nil {
 			return err
 		}
 
 		// We cannot register a new attempt if the payment already has
 		// reached a terminal condition:
-		settle, fail := payment.TerminalInfo()
+		settle, fail := p.TerminalInfo()
 		if settle != nil || fail != nil {
 			return ErrPaymentTerminal
 		}
@@ -225,7 +226,7 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 		// Make sure any existing shards match the new one with regards
 		// to MPP options.
 		mpp := attempt.Route.FinalHop().MPP
-		for _, h := range payment.InFlightHTLCs() {
+		for _, h := range p.InFlightHTLCs() {
 			hMpp := h.Route.FinalHop().MPP
 
 			switch {
@@ -258,13 +259,13 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 		// If this is a non-MPP attempt, it must match the total amount
 		// exactly.
 		amt := attempt.Route.ReceiverAmt()
-		if mpp == nil && amt != payment.Info.Value {
+		if mpp == nil && amt != p.Info.Value {
 			return ErrValueMismatch
 		}
 
 		// Ensure we aren't sending more than the total payment amount.
-		sentAmt, _ := payment.SentAmt()
-		if sentAmt+amt > payment.Info.Value {
+		sentAmt, _ := p.SentAmt()
+		if sentAmt+amt > p.Info.Value {
 			return ErrValueExceedsAmt
 		}
 
@@ -282,8 +283,20 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 			return err
 		}
 
-		return htlcBucket.Put(htlcAttemptInfoKey, htlcInfoBytes)
+		err = htlcBucket.Put(htlcAttemptInfoKey, htlcInfoBytes)
+		if err != nil {
+			return err
+		}
+
+		// Retrieve attempt info for the notification.
+		payment, err = fetchPayment(bucket)
+		return err
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	return payment, err
 }
 
 // SettleAttempt marks the given attempt settled with the preimage. If this is
@@ -307,16 +320,15 @@ func (p *PaymentControl) SettleAttempt(hash lntypes.Hash,
 
 // FailAttempt marks the given payment attempt failed.
 func (p *PaymentControl) FailAttempt(hash lntypes.Hash,
-	attemptID uint64, failInfo *HTLCFailInfo) error {
+	attemptID uint64, failInfo *HTLCFailInfo) (*MPPayment, error) {
 
 	var b bytes.Buffer
 	if err := serializeHTLCFailInfo(&b, failInfo); err != nil {
-		return err
+		return nil, err
 	}
 	failBytes := b.Bytes()
 
-	_, err := p.updateHtlcKey(hash, attemptID, htlcFailInfoKey, failBytes)
-	return err
+	return p.updateHtlcKey(hash, attemptID, htlcFailInfoKey, failBytes)
 }
 
 // updateHtlcKey updates a database key for the specified htlc.

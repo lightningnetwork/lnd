@@ -117,13 +117,13 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 	// Record a new attempt. In this test scenario, the attempt fails.
 	// However, this is not communicated to control tower in the current
 	// implementation. It only registers the initiation of the attempt.
-	err = pControl.RegisterAttempt(info.PaymentHash, attempt)
+	_, err = pControl.RegisterAttempt(info.PaymentHash, attempt)
 	if err != nil {
 		t.Fatalf("unable to register attempt: %v", err)
 	}
 
 	htlcReason := HTLCFailUnreadable
-	err = pControl.FailAttempt(
+	_, err = pControl.FailAttempt(
 		info.PaymentHash, attempt.AttemptID,
 		&HTLCFailInfo{
 			Reason: htlcReason,
@@ -143,7 +143,7 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 
 	// Record another attempt.
 	attempt.AttemptID = 1
-	err = pControl.RegisterAttempt(info.PaymentHash, attempt)
+	_, err = pControl.RegisterAttempt(info.PaymentHash, attempt)
 	if err != nil {
 		t.Fatalf("unable to send htlc message: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestPaymentControlSwitchDoubleSend(t *testing.T) {
 	}
 
 	// Record an attempt.
-	err = pControl.RegisterAttempt(info.PaymentHash, attempt)
+	_, err = pControl.RegisterAttempt(info.PaymentHash, attempt)
 	if err != nil {
 		t.Fatalf("unable to send htlc message: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestPaymentControlDeleteNonInFligt(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unable to send htlc message: %v", err)
 		}
-		err = pControl.RegisterAttempt(info.PaymentHash, attempt)
+		_, err = pControl.RegisterAttempt(info.PaymentHash, attempt)
 		if err != nil {
 			t.Fatalf("unable to send htlc message: %v", err)
 		}
@@ -387,7 +387,7 @@ func TestPaymentControlDeleteNonInFligt(t *testing.T) {
 		if p.failed {
 			// Fail the payment attempt.
 			htlcFailure := HTLCFailUnreadable
-			err := pControl.FailAttempt(
+			_, err := pControl.FailAttempt(
 				info.PaymentHash, attempt.AttemptID,
 				&HTLCFailInfo{
 					Reason: htlcFailure,
@@ -520,7 +520,7 @@ func TestPaymentControlMultiShard(t *testing.T) {
 			a.AttemptID = i
 			attempts = append(attempts, &a)
 
-			err = pControl.RegisterAttempt(info.PaymentHash, &a)
+			_, err = pControl.RegisterAttempt(info.PaymentHash, &a)
 			if err != nil {
 				t.Fatalf("unable to send htlc message: %v", err)
 			}
@@ -541,7 +541,7 @@ func TestPaymentControlMultiShard(t *testing.T) {
 		// will be too large.
 		b := *attempt
 		b.AttemptID = 3
-		err = pControl.RegisterAttempt(info.PaymentHash, &b)
+		_, err = pControl.RegisterAttempt(info.PaymentHash, &b)
 		if err != ErrValueExceedsAmt {
 			t.Fatalf("expected ErrValueExceedsAmt, got: %v",
 				err)
@@ -550,7 +550,7 @@ func TestPaymentControlMultiShard(t *testing.T) {
 		// Fail the second attempt.
 		a := attempts[1]
 		htlcFail := HTLCFailUnreadable
-		err = pControl.FailAttempt(
+		_, err = pControl.FailAttempt(
 			info.PaymentHash, a.AttemptID,
 			&HTLCFailInfo{
 				Reason: htlcFail,
@@ -596,7 +596,7 @@ func TestPaymentControlMultiShard(t *testing.T) {
 				t, pControl, info.PaymentHash, info, nil, htlc,
 			)
 		} else {
-			err := pControl.FailAttempt(
+			_, err := pControl.FailAttempt(
 				info.PaymentHash, a.AttemptID,
 				&HTLCFailInfo{
 					Reason: htlcFail,
@@ -634,7 +634,7 @@ func TestPaymentControlMultiShard(t *testing.T) {
 		// that the payment has reached a terminal condition.
 		b = *attempt
 		b.AttemptID = 3
-		err = pControl.RegisterAttempt(info.PaymentHash, &b)
+		_, err = pControl.RegisterAttempt(info.PaymentHash, &b)
 		if err != ErrPaymentTerminal {
 			t.Fatalf("expected ErrPaymentTerminal, got: %v", err)
 		}
@@ -666,7 +666,7 @@ func TestPaymentControlMultiShard(t *testing.T) {
 			)
 		} else {
 			// Fail the attempt.
-			err := pControl.FailAttempt(
+			_, err := pControl.FailAttempt(
 				info.PaymentHash, a.AttemptID,
 				&HTLCFailInfo{
 					Reason: htlcFail,
@@ -708,7 +708,7 @@ func TestPaymentControlMultiShard(t *testing.T) {
 		assertPaymentStatus(t, pControl, info.PaymentHash, finalStatus)
 
 		// Finally assert we cannot register more attempts.
-		err = pControl.RegisterAttempt(info.PaymentHash, &b)
+		_, err = pControl.RegisterAttempt(info.PaymentHash, &b)
 		if err != expRegErr {
 			t.Fatalf("expected error %v, got: %v", expRegErr, err)
 		}
@@ -756,7 +756,7 @@ func TestPaymentControlMPPRecordValidation(t *testing.T) {
 		info.Value, [32]byte{1},
 	)
 
-	err = pControl.RegisterAttempt(info.PaymentHash, attempt)
+	_, err = pControl.RegisterAttempt(info.PaymentHash, attempt)
 	if err != nil {
 		t.Fatalf("unable to send htlc message: %v", err)
 	}
@@ -765,7 +765,7 @@ func TestPaymentControlMPPRecordValidation(t *testing.T) {
 	b := *attempt
 	b.AttemptID = 1
 	b.Route.FinalHop().MPP = nil
-	err = pControl.RegisterAttempt(info.PaymentHash, &b)
+	_, err = pControl.RegisterAttempt(info.PaymentHash, &b)
 	if err != ErrMPPayment {
 		t.Fatalf("expected ErrMPPayment, got: %v", err)
 	}
@@ -774,7 +774,7 @@ func TestPaymentControlMPPRecordValidation(t *testing.T) {
 	b.Route.FinalHop().MPP = record.NewMPP(
 		info.Value, [32]byte{2},
 	)
-	err = pControl.RegisterAttempt(info.PaymentHash, &b)
+	_, err = pControl.RegisterAttempt(info.PaymentHash, &b)
 	if err != ErrMPPPaymentAddrMismatch {
 		t.Fatalf("expected ErrMPPPaymentAddrMismatch, got: %v", err)
 	}
@@ -783,7 +783,7 @@ func TestPaymentControlMPPRecordValidation(t *testing.T) {
 	b.Route.FinalHop().MPP = record.NewMPP(
 		info.Value/2, [32]byte{1},
 	)
-	err = pControl.RegisterAttempt(info.PaymentHash, &b)
+	_, err = pControl.RegisterAttempt(info.PaymentHash, &b)
 	if err != ErrMPPTotalAmountMismatch {
 		t.Fatalf("expected ErrMPPTotalAmountMismatch, got: %v", err)
 	}
@@ -801,7 +801,7 @@ func TestPaymentControlMPPRecordValidation(t *testing.T) {
 	}
 
 	attempt.Route.FinalHop().MPP = nil
-	err = pControl.RegisterAttempt(info.PaymentHash, attempt)
+	_, err = pControl.RegisterAttempt(info.PaymentHash, attempt)
 	if err != nil {
 		t.Fatalf("unable to send htlc message: %v", err)
 	}
@@ -813,7 +813,7 @@ func TestPaymentControlMPPRecordValidation(t *testing.T) {
 		info.Value, [32]byte{1},
 	)
 
-	err = pControl.RegisterAttempt(info.PaymentHash, &b)
+	_, err = pControl.RegisterAttempt(info.PaymentHash, &b)
 	if err != ErrNonMPPayment {
 		t.Fatalf("expected ErrNonMPPayment, got: %v", err)
 	}

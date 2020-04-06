@@ -107,7 +107,8 @@ func (p *controlTower) InitPayment(paymentHash lntypes.Hash,
 func (p *controlTower) RegisterAttempt(paymentHash lntypes.Hash,
 	attempt *channeldb.HTLCAttemptInfo) error {
 
-	return p.db.RegisterAttempt(paymentHash, attempt)
+	_, err := p.db.RegisterAttempt(paymentHash, attempt)
+	return err
 }
 
 // SettleAttempt marks the given attempt settled with the preimage. If
@@ -133,7 +134,8 @@ func (p *controlTower) SettleAttempt(paymentHash lntypes.Hash,
 func (p *controlTower) FailAttempt(paymentHash lntypes.Hash,
 	attemptID uint64, failInfo *channeldb.HTLCFailInfo) error {
 
-	return p.db.FailAttempt(paymentHash, attemptID, failInfo)
+	_, err := p.db.FailAttempt(paymentHash, attemptID, failInfo)
+	return err
 }
 
 // FetchPayment fetches the payment corresponding to the given payment hash.

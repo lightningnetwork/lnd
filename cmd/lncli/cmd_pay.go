@@ -46,6 +46,12 @@ var (
 			"<hex_value>,.. For example: --data 3438382=0a21ff. " +
 			"Custom record ids start from 65536.",
 	}
+
+	showInflightFlag = cli.BoolFlag{
+		Name: "show_inflight",
+		Usage: "if set, intermediate payment state updates will be " +
+			"displayed",
+	}
 )
 
 // paymentFlags returns common flags for sendpayment and payinvoice.
@@ -82,7 +88,7 @@ func paymentFlags() []cli.Flag {
 			Name:  "allow_self_payment",
 			Usage: "allow sending a circular payment to self",
 		},
-		dataFlag,
+		dataFlag, showInflightFlag,
 	}
 }
 
@@ -382,6 +388,8 @@ func sendPaymentRequest(ctx *cli.Context,
 
 	req.FeeLimitSat = feeLimit
 
+	showInflight := ctx.Bool(showInflightFlag.Name)
+
 	stream, err := routerClient.SendPayment(context.Background(), req)
 	if err != nil {
 		return err
@@ -404,6 +412,10 @@ func sendPaymentRequest(ctx *cli.Context,
 			}
 
 			return nil
+		}
+
+		if showInflight {
+			printRespJSON(status)
 		}
 	}
 }

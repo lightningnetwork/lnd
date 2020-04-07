@@ -34,7 +34,7 @@ func getInvoicesClient(ctx *cli.Context) (invoicesrpc.InvoicesClient, func()) {
 
 var settleInvoiceCommand = cli.Command{
 	Name:     "settleinvoice",
-	Category: "Payments",
+	Category: "Invoices",
 	Usage:    "Reveal a preimage and use it to settle the corresponding invoice.",
 	Description: `
 	Todo.`,
@@ -88,7 +88,7 @@ func settleInvoice(ctx *cli.Context) error {
 
 var cancelInvoiceCommand = cli.Command{
 	Name:     "cancelinvoice",
-	Category: "Payments",
+	Category: "Invoices",
 	Usage:    "Cancels a (hold) invoice",
 	Description: `
 	Todo.`,
@@ -141,7 +141,7 @@ func cancelInvoice(ctx *cli.Context) error {
 
 var addHoldInvoiceCommand = cli.Command{
 	Name:     "addholdinvoice",
-	Category: "Payments",
+	Category: "Invoices",
 	Usage:    "Add a new hold invoice.",
 	Description: `
 	Add a new invoice, expressing intent for a future payment.

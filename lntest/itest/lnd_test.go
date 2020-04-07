@@ -13588,6 +13588,23 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	}
 	defer shutdownAndAssert(net, t, carol)
 
+	// Wait for Carol to sync to chain.
+	err = wait.NoError(func() error {
+		ctxt, _ := context.WithTimeout(ctxb, 10*time.Second)
+		info, err := carol.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
+		if err != nil {
+			return err
+		}
+
+		if !info.SyncedToChain {
+			return errors.New("not synced")
+		}
+		return nil
+	}, 15*time.Second)
+	if err != nil {
+		t.Fatalf("waiting for sync: %v", err)
+	}
+
 	// Now that our new nodes are created, we'll give them some coins for
 	// channel opening and anchor sweeping.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)

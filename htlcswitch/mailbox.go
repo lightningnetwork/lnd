@@ -32,7 +32,7 @@ type MailBox interface {
 	// AckPacket removes a packet from the mailboxes in-memory replay
 	// buffer. This will prevent a packet from being delivered after a link
 	// restarts if the switch has remained online.
-	AckPacket(CircuitKey) error
+	AckPacket(CircuitKey)
 
 	// MessageOutBox returns a channel that any new messages ready for
 	// delivery will be sent on.
@@ -50,10 +50,10 @@ type MailBox interface {
 
 	// Start starts the mailbox and any goroutines it needs to operate
 	// properly.
-	Start() error
+	Start()
 
 	// Stop signals the mailbox and its goroutines for a graceful shutdown.
-	Stop() error
+	Stop()
 }
 
 // memoryMailBox is an implementation of the MailBox struct backed by purely
@@ -120,13 +120,12 @@ const (
 // Start starts the mailbox and any goroutines it needs to operate properly.
 //
 // NOTE: This method is part of the MailBox interface.
-func (m *memoryMailBox) Start() error {
+func (m *memoryMailBox) Start() {
 	m.started.Do(func() {
 		m.wg.Add(2)
 		go m.mailCourier(wireCourier)
 		go m.mailCourier(pktCourier)
 	})
-	return nil
 }
 
 // ResetMessages blocks until all buffered wire messages are cleared.
@@ -180,19 +179,17 @@ func (m *memoryMailBox) signalUntilReset(cType courierType,
 // queue of packets to be delivered.
 //
 // NOTE: It is safe to call this method multiple times for the same circuit key.
-func (m *memoryMailBox) AckPacket(inKey CircuitKey) error {
+func (m *memoryMailBox) AckPacket(inKey CircuitKey) {
 	m.pktCond.L.Lock()
 	entry, ok := m.pktIndex[inKey]
 	if !ok {
 		m.pktCond.L.Unlock()
-		return nil
+		return
 	}
 
 	m.htlcPkts.Remove(entry)
 	delete(m.pktIndex, inKey)
 	m.pktCond.L.Unlock()
-
-	return nil
 }
 
 // HasPacket queries the packets for a circuit key, this is used to drop packets
@@ -208,14 +205,13 @@ func (m *memoryMailBox) HasPacket(inKey CircuitKey) bool {
 // Stop signals the mailbox and its goroutines for a graceful shutdown.
 //
 // NOTE: This method is part of the MailBox interface.
-func (m *memoryMailBox) Stop() error {
+func (m *memoryMailBox) Stop() {
 	m.stopped.Do(func() {
 		close(m.quit)
 
 		m.wireCond.Signal()
 		m.pktCond.Signal()
 	})
-	return nil
 }
 
 // mailCourier is a dedicated goroutine whose job is to reliably deliver

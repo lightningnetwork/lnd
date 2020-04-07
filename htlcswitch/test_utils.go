@@ -1345,15 +1345,13 @@ func (n *twoHopNetwork) makeHoldPayment(sendingPeer, receivingPeer lnpeer.Peer,
 	}
 
 	// Send payment and expose err channel.
-	go func() {
-		err := sender.htlcSwitch.SendHTLC(
-			firstHop, pid, htlc,
-		)
-		if err != nil {
-			paymentErr <- err
-			return
-		}
+	err = sender.htlcSwitch.SendHTLC(firstHop, pid, htlc)
+	if err != nil {
+		paymentErr <- err
+		return paymentErr
+	}
 
+	go func() {
 		resultChan, err := sender.htlcSwitch.GetPaymentResult(
 			pid, rhash, newMockDeobfuscator(),
 		)
@@ -1365,6 +1363,7 @@ func (n *twoHopNetwork) makeHoldPayment(sendingPeer, receivingPeer lnpeer.Peer,
 		result, ok := <-resultChan
 		if !ok {
 			paymentErr <- fmt.Errorf("shutting down")
+			return
 		}
 
 		if result.Error != nil {

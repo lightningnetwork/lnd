@@ -1109,7 +1109,7 @@ out:
 			l.log.Tracef("reprocessing downstream add update "+
 				"with payment hash(%x)", msg.PaymentHash[:])
 
-			l.handleDownStreamPkt(packet, true)
+			l.handleDownstreamPkt(packet)
 
 		// A message from the switch was just received. This indicates
 		// that the link is an intermediate hop in a multi-hop HTLC
@@ -1131,7 +1131,7 @@ out:
 				continue
 			}
 
-			l.handleDownStreamPkt(pkt, false)
+			l.handleDownstreamPkt(pkt)
 
 		// A message from the connected peer was just received. This
 		// indicates that we have a new incoming HTLC, either directly
@@ -1275,13 +1275,13 @@ func (l *channelLink) randomFeeUpdateTimeout() time.Duration {
 	return time.Duration(prand.Int63n(upper-lower) + lower)
 }
 
-// handleDownStreamPkt processes an HTLC packet sent from the downstream HTLC
+// handleDownstreamPkt processes an HTLC packet sent from the downstream HTLC
 // Switch. Possible messages sent by the switch include requests to forward new
 // HTLCs, timeout previously cleared HTLCs, and finally to settle currently
 // cleared HTLCs with the upstream peer.
 //
 // TODO(roasbeef): add sync ntfn to ensure switch always has consistent view?
-func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
+func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 	var isSettle bool
 	switch htlc := pkt.htlc.(type) {
 	case *lnwire.UpdateAddHTLC:

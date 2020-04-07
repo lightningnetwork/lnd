@@ -2725,8 +2725,9 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 
 	if err := fmsg.peer.AddNewChannel(channel, f.quit); err != nil {
 		fndgLog.Errorf("Unable to add new channel %v with peer %x: %v",
+			channel.FundingOutpoint,
 			fmsg.peer.IdentityKey().SerializeCompressed(),
-			channel.FundingOutpoint, err)
+			err)
 	}
 }
 

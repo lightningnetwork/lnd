@@ -1,0 +1,19 @@
+s/[0-9a-f]{64}\:[[:digit:]]+/<chan_point>/g
+s/[0-9a-f]{16,}/<hex>/g
+s/[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+\:[[:digit:]]+/<ip>/g
+s/[[:digit:]]{4}-[[:digit:]]{2}-[[:digit:]]{2} [[:digit:]]{2}:[[:digit:]]{2}:[[:digit:]]{2}\.[[:digit:]]{3}/<time>/g
+s/[[:digit:]]+\:[[:digit:]]+\:[[:digit:]]+/<chan>/g
+s/[[:digit:]]+ mSAT/<amt>/g
+s/HTLC ID = [[:digit:]]+/HTLC ID = <id>/g
+s/height=[[:digit:]]+/height=<height>/g
+s/collecting result for shard [[:digit:]]+/collecting result for shard <number>/g
+s/sending attempt [[:digit:]]+/sending attempt <number>/g
+s/Unable to rewind chain from height [[:digit:]]+ to height [[:digit:]]+/Unable to rewind chain from height <height> to height <height>/g
+s/NTFN: unable to get missed blocks: starting height [[:digit:]]+ is greater than ending height [[:digit:]]+/NTFN: unable to get missed blocks: starting height <height> is greater than ending height <height>/g
+s/BTCN: Broadcast attempt failed: rejected by <ip>: replacement transaction <hex> has an insufficient fee rate: needs more than [[:digit:]]+, has [[:digit:]]+/BTCN: Broadcast attempt failed: rejected by <ip>: replacement transaction <hex> has an insufficient fee rate: needs more than <amt>, has <amt>/g
+s/pid=[[:digit:]]+/pid=<pid>/g
+s/connid=[[:digit:]]+/connid=<id>/g
+s/sync failed with local data loss: remote believes our tail height is [[:digit:]]+, while we have [[:digit:]]+/sync failed with local data loss: remote believes our tail height is <height>, while we have <height>/g
+s/sync failed: remote believes our tail height is [[:digit:]]+, while we have [[:digit:]]+/sync failed: remote believes our tail height is <height>, while we have <height>/g
+s/sync failed: remote's next commit height is [[:digit:]]+, while we believe it is [[:digit:]]+/sync failed: remote's next commit height is <height>, while we believe it is <height>/g
+s/replacement transaction <hex> has an insufficient absolute fee: needs [[:digit:]]+, has [[:digit:]]+/replacement transaction <hex> has an insufficient absolute fee: needs <amt>, has <amt>/g

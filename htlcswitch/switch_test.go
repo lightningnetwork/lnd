@@ -2895,6 +2895,8 @@ func testHtcNotifier(t *testing.T, testOpts []serverOption, iterations int,
 func checkHtlcEvents(t *testing.T, events <-chan interface{},
 	expectedEvents []interface{}) {
 
+	t.Helper()
+
 	for _, expected := range expectedEvents {
 		select {
 		case event := <-events:

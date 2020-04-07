@@ -2903,7 +2903,7 @@ func checkHtlcEvents(t *testing.T, events <-chan interface{},
 					event)
 			}
 
-		case <-time.After(time.Second):
+		case <-time.After(5 * time.Second):
 			t.Fatalf("expected event: %v", expected)
 		}
 	}

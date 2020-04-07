@@ -7,7 +7,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -503,11 +502,8 @@ func (i *InvoiceRegistry) AddInvoice(invoice *channeldb.Invoice,
 
 	i.Lock()
 
-	log.Debugf("Invoice(%v): added %v", paymentHash,
-		newLogClosure(func() string {
-			return spew.Sdump(invoice)
-		}),
-	)
+	log.Debugf("Invoice(%v): added with terms %v", paymentHash,
+		invoice.Terms)
 
 	addIndex, err := i.cdb.AddInvoice(invoice, paymentHash)
 	if err != nil {

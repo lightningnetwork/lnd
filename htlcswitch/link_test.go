@@ -30,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnpeer"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -4661,15 +4662,24 @@ func checkHasPreimages(t *testing.T, coreLink *channelLink,
 
 	t.Helper()
 
-	for i := range htlcs {
-		_, ok := coreLink.cfg.PreimageCache.LookupPreimage(
-			htlcs[i].PaymentHash,
-		)
-		if ok != expOk {
-			t.Fatalf("expected to find witness: %v, "+
+	err := wait.NoError(func() error {
+		for i := range htlcs {
+			_, ok := coreLink.cfg.PreimageCache.LookupPreimage(
+				htlcs[i].PaymentHash,
+			)
+			if ok == expOk {
+				continue
+			}
+
+			return fmt.Errorf("expected to find witness: %v, "+
 				"got %v for hash=%x", expOk, ok,
 				htlcs[i].PaymentHash)
 		}
+
+		return nil
+	}, 5*time.Second)
+	if err != nil {
+		t.Fatalf("unable to find preimages: %v", err)
 	}
 }
 

@@ -4504,7 +4504,7 @@ func (h *persistentLinkHarness) restartLink(
 
 // gnerateHtlc generates a simple payment from Bob to Alice.
 func generateHtlc(t *testing.T, coreLink *channelLink,
-	bobChannel *lnwallet.LightningChannel, id uint64) *lnwire.UpdateAddHTLC {
+	id uint64) *lnwire.UpdateAddHTLC {
 
 	t.Helper()
 
@@ -4580,8 +4580,8 @@ func TestChannelLinkNoMoreUpdates(t *testing.T) {
 	)
 
 	// Add two HTLCs to Alice's registry, that Bob can pay.
-	htlc1 := generateHtlc(t, coreLink, bobChannel, 0)
-	htlc2 := generateHtlc(t, coreLink, bobChannel, 1)
+	htlc1 := generateHtlc(t, coreLink, 0)
+	htlc2 := generateHtlc(t, coreLink, 1)
 
 	ctx := linkTestContext{
 		t:          t,
@@ -4711,7 +4711,7 @@ func TestChannelLinkWaitForRevocation(t *testing.T) {
 	numHtlcs := 10
 	var htlcs []*lnwire.UpdateAddHTLC
 	for i := 0; i < numHtlcs; i++ {
-		htlc := generateHtlc(t, coreLink, bobChannel, uint64(i))
+		htlc := generateHtlc(t, coreLink, uint64(i))
 		htlcs = append(htlcs, htlc)
 	}
 
@@ -5054,8 +5054,8 @@ func TestChannelLinkCleanupSpuriousResponses(t *testing.T) {
 	coreLink.cfg.HodlMask = hodl.ExitSettle.Mask()
 
 	// Add two HTLCs to Alice's registry, that Bob can pay.
-	htlc1 := generateHtlc(t, coreLink, bobChannel, 0)
-	htlc2 := generateHtlc(t, coreLink, bobChannel, 1)
+	htlc1 := generateHtlc(t, coreLink, 0)
+	htlc2 := generateHtlc(t, coreLink, 1)
 
 	ctx := linkTestContext{
 		t:          t,
@@ -5440,7 +5440,7 @@ func TestChannelLinkFail(t *testing.T) {
 			func(t *testing.T, c *channelLink, remoteChannel *lnwallet.LightningChannel) {
 
 				// Generate an HTLC and send to the link.
-				htlc1 := generateHtlc(t, c, remoteChannel, 0)
+				htlc1 := generateHtlc(t, c, 0)
 				ctx := linkTestContext{
 					t:          t,
 					aliceLink:  c,
@@ -5477,7 +5477,7 @@ func TestChannelLinkFail(t *testing.T) {
 			func(t *testing.T, c *channelLink, remoteChannel *lnwallet.LightningChannel) {
 
 				// Generate an HTLC and send to the link.
-				htlc1 := generateHtlc(t, c, remoteChannel, 0)
+				htlc1 := generateHtlc(t, c, 0)
 				ctx := linkTestContext{
 					t:          t,
 					aliceLink:  c,

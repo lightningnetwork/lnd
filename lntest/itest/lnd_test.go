@@ -10344,9 +10344,7 @@ func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(ctxt, t, net, net.Alice, aliceBobCh, false)
 }
 
-// testAsyncPayments tests the performance of the async payments, and also
-// checks that balances of both sides can't be become negative under stress
-// payment strikes.
+// testAsyncPayments tests the performance of the async payments.
 func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
@@ -10372,17 +10370,15 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to get alice channel info: %v", err)
 	}
 
-	// Calculate the number of invoices. We will deplete the channel
-	// all the way down to the channel reserve.
-	chanReserve := channelCapacity / 100
-	availableBalance := btcutil.Amount(info.LocalBalance) - chanReserve
-	numInvoices := int(availableBalance / paymentAmt)
+	// We'll create a number of invoices equal the max number of HTLCs that
+	// can be carried in one direction. The number on the commitment will
+	// likely be lower, but we can't guarantee that any more HTLCs will
+	// succeed due to the limited path diversity and inability of the router
+	// to retry via another path.
+	numInvoices := int(input.MaxHTLCNumber / 2)
 
 	bobAmt := int64(numInvoices * paymentAmt)
 	aliceAmt := info.LocalBalance - bobAmt
-
-	// Send one more payment in order to cause insufficient capacity error.
-	numInvoices++
 
 	// With the channel open, we'll create invoices for Bob that Alice
 	// will pay to in order to advance the state of the channel.
@@ -10424,26 +10420,11 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 	}
 
-	// We should receive one insufficient capacity error, because we sent
-	// one more payment than we can actually handle with the current
-	// channel capacity.
-	errorReceived := false
+	// Wait until all the payments have settled.
 	for i := 0; i < numInvoices; i++ {
-		if resp, err := alicePayStream.Recv(); err != nil {
+		if _, err := alicePayStream.Recv(); err != nil {
 			t.Fatalf("payment stream have been closed: %v", err)
-		} else if resp.PaymentError != "" {
-			if errorReceived {
-				t.Fatalf("redundant payment error: %v",
-					resp.PaymentError)
-			}
-
-			errorReceived = true
-			continue
 		}
-	}
-
-	if !errorReceived {
-		t.Fatalf("insufficient capacity error haven't been received")
 	}
 
 	// All payments have been sent, mark the finish time.
@@ -10535,8 +10516,12 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 		t.Fatalf("unable to get alice channel info: %v", err)
 	}
 
-	// Calculate the number of invoices.
-	numInvoices := int(info.LocalBalance / paymentAmt)
+	// We'll create a number of invoices equal the max number of HTLCs that
+	// can be carried in one direction. The number on the commitment will
+	// likely be lower, but we can't guarantee that any more HTLCs will
+	// succeed due to the limited path diversity and inability of the router
+	// to retry via another path.
+	numInvoices := int(input.MaxHTLCNumber / 2)
 
 	// Nodes should exchange the same amount of money and because of this
 	// at the end balances should remain the same.

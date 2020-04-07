@@ -19,7 +19,6 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
-	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -327,10 +326,6 @@ type channelLink struct {
 	// which may affect behaviour of the service.
 	cfg ChannelLinkConfig
 
-	// overflowQueue is used to store the htlc add updates which haven't
-	// been processed because of the commitment transaction overflow.
-	overflowQueue *packetQueue
-
 	// mailBox is the main interface between the outside world and the
 	// link. All incoming messages will be sent over this mailBox. Messages
 	// include new updates from our connected peer, and new packets to be
@@ -395,12 +390,11 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		channel:     channel,
 		shortChanID: channel.ShortChanID(),
 		// TODO(roasbeef): just do reserve here?
-		overflowQueue: newPacketQueue(input.MaxHTLCNumber / 2),
-		htlcUpdates:   make(chan *contractcourt.ContractUpdate),
-		hodlMap:       make(map[channeldb.CircuitKey]hodlHtlc),
-		hodlQueue:     queue.NewConcurrentQueue(10),
-		log:           build.NewPrefixLog(logPrefix, log),
-		quit:          make(chan struct{}),
+		htlcUpdates: make(chan *contractcourt.ContractUpdate),
+		hodlMap:     make(map[channeldb.CircuitKey]hodlHtlc),
+		hodlQueue:   queue.NewConcurrentQueue(10),
+		log:         build.NewPrefixLog(logPrefix, log),
+		quit:        make(chan struct{}),
 	}
 }
 
@@ -436,7 +430,6 @@ func (l *channelLink) Start() error {
 	}
 
 	l.mailBox.ResetMessages()
-	l.overflowQueue.Start()
 	l.hodlQueue.Start()
 
 	// Before launching the htlcManager messages, revert any circuits that
@@ -511,7 +504,6 @@ func (l *channelLink) Stop() {
 	}
 
 	l.updateFeeTimer.Stop()
-	l.overflowQueue.Stop()
 	l.hodlQueue.Stop()
 
 	close(l.quit)
@@ -1100,37 +1092,10 @@ out:
 				break out
 			}
 
-		// A packet that previously overflowed the commitment
-		// transaction is now eligible for processing once again. So
-		// we'll attempt to re-process the packet in order to allow it
-		// to continue propagating within the network.
-		case packet := <-l.overflowQueue.outgoingPkts:
-			msg := packet.htlc.(*lnwire.UpdateAddHTLC)
-			l.log.Tracef("reprocessing downstream add update "+
-				"with payment hash(%x)", msg.PaymentHash[:])
-
-			l.handleDownstreamPkt(packet)
-
 		// A message from the switch was just received. This indicates
 		// that the link is an intermediate hop in a multi-hop HTLC
 		// circuit.
 		case pkt := <-l.downstream:
-			// If we have non empty processing queue then we'll add
-			// this to the overflow rather than processing it
-			// directly. Once an active HTLC is either settled or
-			// failed, then we'll free up a new slot.
-			htlc, ok := pkt.htlc.(*lnwire.UpdateAddHTLC)
-			if ok && l.overflowQueue.Length() != 0 {
-				l.log.Infof("downstream htlc add update with "+
-					"payment hash(%x) have been added to "+
-					"reprocessing queue, pend_updates=%v",
-					htlc.PaymentHash[:],
-					l.channel.PendingLocalUpdateCount())
-
-				l.overflowQueue.AddPkt(pkt)
-				continue
-			}
-
 			l.handleDownstreamPkt(pkt)
 
 		// A message from the connected peer was just received. This
@@ -1301,109 +1266,89 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 		openCircuitRef := pkt.inKey()
 		index, err := l.channel.AddHTLC(htlc, &openCircuitRef)
 		if err != nil {
-			switch err {
+			// The HTLC was unable to be added to the state machine,
+			// as a result, we'll signal the switch to cancel the
+			// pending payment.
+			l.log.Warnf("Unable to handle downstream add HTLC: %v",
+				err)
 
-			// The channels spare bandwidth is fully allocated, so
-			// we'll put this HTLC into the overflow queue.
-			case lnwallet.ErrMaxHTLCNumber:
-				l.log.Infof("downstream htlc add update with "+
-					"payment hash(%x) have been added to "+
-					"reprocessing queue, pend_updates: %v",
-					htlc.PaymentHash[:],
-					l.channel.PendingLocalUpdateCount())
+			var (
+				localFailure = false
+				reason       lnwire.OpaqueReason
+			)
 
-				l.overflowQueue.AddPkt(pkt)
-				return
+			// Create a temporary channel failure which we will send
+			// back to our peer if this is a forward, or report to
+			// the user if the failed payment was locally initiated.
+			failure := l.createFailureWithUpdate(
+				func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
+					return lnwire.NewTemporaryChannelFailure(
+						upd,
+					)
+				},
+			)
 
-			// The HTLC was unable to be added to the state
-			// machine, as a result, we'll signal the switch to
-			// cancel the pending payment.
-			default:
-				l.log.Warnf("unable to handle downstream add "+
-					"HTLC: %v", err)
-
-				var (
-					localFailure = false
-					reason       lnwire.OpaqueReason
-				)
-
-				// Create a temporary channel failure which we
-				// will send back to our peer if this is a
-				// forward, or report to the user if the failed
-				// payment was locally initiated.
-				failure := l.createFailureWithUpdate(
-					func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
-						return lnwire.NewTemporaryChannelFailure(
-							upd,
-						)
-					},
-				)
-
-				// If the payment was locally initiated (which
-				// is indicated by a nil obfuscator), we do
-				// not need to encrypt it back to the sender.
-				if pkt.obfuscator == nil {
-					var b bytes.Buffer
-					err := lnwire.EncodeFailure(&b, failure, 0)
-					if err != nil {
-						l.log.Errorf("unable to "+
-							"encode failure: %v", err)
-						l.mailBox.AckPacket(pkt.inKey())
-						return
-					}
-					reason = lnwire.OpaqueReason(b.Bytes())
-					localFailure = true
-				} else {
-					// If the packet is part of a forward,
-					// (identified by a non-nil obfuscator)
-					// we need to encrypt the error back to
-					// the source.
-					var err error
-					reason, err = pkt.obfuscator.EncryptFirstHop(failure)
-					if err != nil {
-						l.log.Errorf("unable to "+
-							"obfuscate error: %v", err)
-						l.mailBox.AckPacket(pkt.inKey())
-						return
-					}
+			// If the payment was locally initiated (which is
+			// indicated by a nil obfuscator), we do not need to
+			// encrypt it back to the sender.
+			if pkt.obfuscator == nil {
+				var b bytes.Buffer
+				err := lnwire.EncodeFailure(&b, failure, 0)
+				if err != nil {
+					l.log.Errorf("unable to encode "+
+						"failure: %v", err)
+					l.mailBox.AckPacket(pkt.inKey())
+					return
 				}
-
-				// Create a link error containing the temporary
-				// channel failure and a detail which indicates
-				// the we failed to add the htlc.
-				linkError := NewDetailedLinkError(
-					failure,
-					OutgoingFailureDownstreamHtlcAdd,
-				)
-
-				failPkt := &htlcPacket{
-					incomingChanID: pkt.incomingChanID,
-					incomingHTLCID: pkt.incomingHTLCID,
-					circuit:        pkt.circuit,
-					sourceRef:      pkt.sourceRef,
-					hasSource:      true,
-					localFailure:   localFailure,
-					linkFailure:    linkError,
-					htlc: &lnwire.UpdateFailHTLC{
-						Reason: reason,
-					},
+				reason = lnwire.OpaqueReason(b.Bytes())
+				localFailure = true
+			} else {
+				// If the packet is part of a forward,
+				// (identified by a non-nil obfuscator) we need
+				// to encrypt the error back to the source.
+				var err error
+				reason, err = pkt.obfuscator.EncryptFirstHop(failure)
+				if err != nil {
+					l.log.Errorf("unable to "+
+						"obfuscate error: %v", err)
+					l.mailBox.AckPacket(pkt.inKey())
+					return
 				}
-
-				go l.forwardBatch(failPkt)
-
-				// Remove this packet from the link's mailbox,
-				// this prevents it from being reprocessed if
-				// the link restarts and resets it mailbox. If
-				// this response doesn't make it back to the
-				// originating link, it will be rejected upon
-				// attempting to reforward the Add to the
-				// switch, since the circuit was never fully
-				// opened, and the forwarding package shows it
-				// as unacknowledged.
-				l.mailBox.AckPacket(pkt.inKey())
-
-				return
 			}
+
+			// Create a link error containing the temporary channel
+			// failure and a detail which indicates the we failed to
+			// add the htlc.
+			linkError := NewDetailedLinkError(
+				failure, OutgoingFailureDownstreamHtlcAdd,
+			)
+
+			failPkt := &htlcPacket{
+				incomingChanID: pkt.incomingChanID,
+				incomingHTLCID: pkt.incomingHTLCID,
+				circuit:        pkt.circuit,
+				sourceRef:      pkt.sourceRef,
+				hasSource:      true,
+				localFailure:   localFailure,
+				linkFailure:    linkError,
+				htlc: &lnwire.UpdateFailHTLC{
+					Reason: reason,
+				},
+			}
+
+			go l.forwardBatch(failPkt)
+
+			// Remove this packet from the link's mailbox, this
+			// prevents it from being reprocessed if the link
+			// restarts and resets it mailbox. If this response
+			// doesn't make it back to the originating link, it will
+			// be rejected upon attempting to reforward the Add to
+			// the switch, since the circuit was never fully opened,
+			// and the forwarding package shows it as
+			// unacknowledged.
+			l.mailBox.AckPacket(pkt.inKey())
+
+			return
 		}
 
 		l.log.Tracef("received downstream htlc: payment_hash=%x, "+
@@ -2179,18 +2124,7 @@ func (l *channelLink) Bandwidth() lnwire.MilliSatoshi {
 	// Get the balance available on the channel for new HTLCs. This takes
 	// the channel reserve into account so HTLCs up to this value won't
 	// violate it.
-	channelBandwidth := l.channel.AvailableBalance()
-
-	// To compute the total bandwidth, we'll take the current available
-	// bandwidth, then subtract the overflow bandwidth as we'll eventually
-	// also need to evaluate those HTLC's once space on the commitment
-	// transaction is free.
-	overflowBandwidth := l.overflowQueue.TotalHtlcAmount()
-	if channelBandwidth < overflowBandwidth {
-		return 0
-	}
-
-	return channelBandwidth - overflowBandwidth
+	return l.channel.AvailableBalance()
 }
 
 // AttachMailBox updates the current mailbox used by this link, and hooks up
@@ -2513,7 +2447,6 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 			// notify the overflow queue that a spare spot has been
 			// freed up within the commitment state.
 			switchPackets = append(switchPackets, settlePacket)
-			l.overflowQueue.SignalFreeSlot()
 
 		// A failureCode message for a previously forwarded HTLC has
 		// been received. As a result a new slot will be freed up in
@@ -2559,7 +2492,6 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 			// notify the overflow queue that a spare spot has been
 			// freed up within the commitment state.
 			switchPackets = append(switchPackets, failPacket)
-			l.overflowQueue.SignalFreeSlot()
 		}
 	}
 

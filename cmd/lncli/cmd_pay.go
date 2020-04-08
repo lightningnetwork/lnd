@@ -46,6 +46,12 @@ var (
 			"<hex_value>,.. For example: --data 3438382=0a21ff. " +
 			"Custom record ids start from 65536.",
 	}
+
+	showInflightFlag = cli.BoolFlag{
+		Name: "show_inflight",
+		Usage: "if set, intermediate payment state updates will be " +
+			"displayed",
+	}
 )
 
 // paymentFlags returns common flags for sendpayment and payinvoice.
@@ -82,7 +88,7 @@ func paymentFlags() []cli.Flag {
 			Name:  "allow_self_payment",
 			Usage: "allow sending a circular payment to self",
 		},
-		dataFlag,
+		dataFlag, showInflightFlag,
 	}
 }
 
@@ -382,6 +388,8 @@ func sendPaymentRequest(ctx *cli.Context,
 
 	req.FeeLimitSat = feeLimit
 
+	showInflight := ctx.Bool(showInflightFlag.Name)
+
 	stream, err := routerClient.SendPayment(context.Background(), req)
 	if err != nil {
 		return err
@@ -393,17 +401,21 @@ func sendPaymentRequest(ctx *cli.Context,
 			return err
 		}
 
-		if status.State != routerrpc.PaymentState_IN_FLIGHT {
+		if status.Status != lnrpc.Payment_IN_FLIGHT {
 			printRespJSON(status)
 
 			// If we get a payment error back, we pass an error up
 			// to main which eventually calls fatal() and returns
 			// with a non-zero exit code.
-			if status.State != routerrpc.PaymentState_SUCCEEDED {
-				return errors.New(status.State.String())
+			if status.Status != lnrpc.Payment_SUCCEEDED {
+				return errors.New(status.Status.String())
 			}
 
 			return nil
+		}
+
+		if showInflight {
+			printRespJSON(status)
 		}
 	}
 }
@@ -454,7 +466,7 @@ func trackPayment(ctx *cli.Context) error {
 
 		printRespJSON(status)
 
-		if status.State != routerrpc.PaymentState_IN_FLIGHT {
+		if status.Status != lnrpc.Payment_IN_FLIGHT {
 			return nil
 		}
 	}

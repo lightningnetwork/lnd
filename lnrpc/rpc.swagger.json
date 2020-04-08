@@ -3996,8 +3996,24 @@
           "type": "string",
           "format": "uint64",
           "description": "*\nThe creation index of this payment. Each payment can be uniquely identified\nby this index, which may not strictly increment by 1 for payments made in\nolder versions of lnd."
+        },
+        "failure_reason": {
+          "$ref": "#/definitions/lnrpcPaymentFailureReason"
         }
       }
+    },
+    "lnrpcPaymentFailureReason": {
+      "type": "string",
+      "enum": [
+        "FAILURE_REASON_NONE",
+        "FAILURE_REASON_TIMEOUT",
+        "FAILURE_REASON_NO_ROUTE",
+        "FAILURE_REASON_ERROR",
+        "FAILURE_REASON_INCORRECT_PAYMENT_DETAILS",
+        "FAILURE_REASON_INSUFFICIENT_BALANCE"
+      ],
+      "default": "FAILURE_REASON_NONE",
+      "description": " - FAILURE_REASON_NONE: *\nPayment isn't failed (yet).\n - FAILURE_REASON_TIMEOUT: *\nThere are more routes to try, but the payment timeout was exceeded.\n - FAILURE_REASON_NO_ROUTE: *\nAll possible routes were tried and failed permanently. Or were no\nroutes to the destination at all.\n - FAILURE_REASON_ERROR: *\nA non-recoverable error has occured.\n - FAILURE_REASON_INCORRECT_PAYMENT_DETAILS: *\nPayment details incorrect (unknown hash, invalid amt or\ninvalid final cltv delta)\n - FAILURE_REASON_INSUFFICIENT_BALANCE: *\nInsufficient local balance."
     },
     "lnrpcPeer": {
       "type": "object",

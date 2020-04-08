@@ -14271,13 +14271,13 @@ func testHoldInvoicePersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Wait for inlight status update.
 	for _, payStream := range paymentStreams {
-		status, err := payStream.Recv()
+		payment, err := payStream.Recv()
 		if err != nil {
 			t.Fatalf("Failed receiving status update: %v", err)
 		}
 
-		if status.State != routerrpc.PaymentState_IN_FLIGHT {
-			t.Fatalf("state not in flight: %v", status.State)
+		if payment.Status != lnrpc.Payment_IN_FLIGHT {
+			t.Fatalf("state not in flight: %v", payment.Status)
 		}
 	}
 
@@ -14355,7 +14355,7 @@ func testHoldInvoicePersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// Now after a restart, we must re-track the payments. We set up a
 	// goroutine for each to track thir status updates.
 	var (
-		statusUpdates []chan *routerrpc.PaymentStatus
+		statusUpdates []chan *lnrpc.Payment
 		wg            sync.WaitGroup
 		quit          = make(chan struct{})
 	)
@@ -14377,20 +14377,20 @@ func testHoldInvoicePersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 
 		// We set up a channel where we'll forward any status update.
-		upd := make(chan *routerrpc.PaymentStatus)
+		upd := make(chan *lnrpc.Payment)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 
 			for {
-				status, err := payStream.Recv()
+				payment, err := payStream.Recv()
 				if err != nil {
 					close(upd)
 					return
 				}
 
 				select {
-				case upd <- status:
+				case upd <- payment:
 				case <-quit:
 					return
 				}
@@ -14400,17 +14400,17 @@ func testHoldInvoicePersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		statusUpdates = append(statusUpdates, upd)
 	}
 
-	// Wait for the infligt status update.
+	// Wait for the in-flight status update.
 	for _, upd := range statusUpdates {
 		select {
-		case status, ok := <-upd:
+		case payment, ok := <-upd:
 			if !ok {
-				t.Fatalf("failed getting status update")
+				t.Fatalf("failed getting payment update")
 			}
 
-			if status.State != routerrpc.PaymentState_IN_FLIGHT {
+			if payment.Status != lnrpc.Payment_IN_FLIGHT {
 				t.Fatalf("state not in in flight: %v",
-					status.State)
+					payment.Status)
 			}
 		case <-time.After(5 * time.Second):
 			t.Fatalf("in flight status not recevied")
@@ -14439,25 +14439,38 @@ func testHoldInvoicePersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Make sure we get the expected status update.
 	for i, upd := range statusUpdates {
-		select {
-		case status, ok := <-upd:
-			if !ok {
-				t.Fatalf("failed getting status update")
-			}
+		// Read until the payment is in a terminal state.
+		var payment *lnrpc.Payment
+		for payment == nil {
+			select {
+			case p, ok := <-upd:
+				if !ok {
+					t.Fatalf("failed getting payment update")
+				}
 
-			if i%2 == 0 {
-				if status.State != routerrpc.PaymentState_SUCCEEDED {
-					t.Fatalf("state not suceeded : %v",
-						status.State)
+				if p.Status == lnrpc.Payment_IN_FLIGHT {
+					continue
 				}
-			} else {
-				if status.State != routerrpc.PaymentState_FAILED_INCORRECT_PAYMENT_DETAILS {
-					t.Fatalf("state not failed: %v",
-						status.State)
-				}
+
+				payment = p
+			case <-time.After(5 * time.Second):
+				t.Fatalf("in flight status not recevied")
 			}
-		case <-time.After(5 * time.Second):
-			t.Fatalf("in flight status not recevied")
+		}
+
+		// Assert terminal payment state.
+		if i%2 == 0 {
+			if payment.Status != lnrpc.Payment_SUCCEEDED {
+				t.Fatalf("state not suceeded : %v",
+					payment.Status)
+			}
+		} else {
+			if payment.FailureReason !=
+				lnrpc.PaymentFailureReason_FAILURE_REASON_INCORRECT_PAYMENT_DETAILS {
+
+				t.Fatalf("state not failed: %v",
+					payment.FailureReason)
+			}
 		}
 	}
 

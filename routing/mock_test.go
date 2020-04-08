@@ -457,7 +457,7 @@ func (m *mockControlTower) FetchInFlightPayments() (
 }
 
 func (m *mockControlTower) SubscribePayment(paymentHash lntypes.Hash) (
-	bool, chan PaymentResult, error) {
+	*ControlTowerSubscriber, error) {
 
-	return false, nil, errors.New("not implemented")
+	return nil, errors.New("not implemented")
 }

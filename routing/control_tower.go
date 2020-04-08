@@ -1,11 +1,12 @@
 package routing
 
 import (
-	"errors"
 	"sync"
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/multimutex"
+	"github.com/lightningnetwork/lnd/queue"
 )
 
 // ControlTower tracks all outgoing payments made, whose primary purpose is to
@@ -50,29 +51,43 @@ type ControlTower interface {
 	FetchInFlightPayments() ([]*channeldb.InFlightPayment, error)
 
 	// SubscribePayment subscribes to updates for the payment with the given
-	// hash. It returns a boolean indicating whether the payment is still in
-	// flight and a channel that provides the final outcome of the payment.
-	SubscribePayment(paymentHash lntypes.Hash) (bool, chan PaymentResult,
+	// hash. A first update with the current state of the payment is always
+	// sent out immediately.
+	SubscribePayment(paymentHash lntypes.Hash) (*ControlTowerSubscriber,
 		error)
 }
 
-// PaymentResult is the struct describing the events received by payment
-// subscribers.
-type PaymentResult struct {
-	// Success indicates whether the payment was successful.
-	Success bool
+// ControlTowerSubscriber contains the state for a payment update subscriber.
+type ControlTowerSubscriber struct {
+	// Updates is the channel over which *channeldb.MPPayment updates can be
+	// received.
+	Updates <-chan interface{}
 
-	// Preimage is the preimage of a successful payment. This serves as a
-	// proof of payment. It is only set for successful payments.
-	Preimage lntypes.Preimage
+	queue *queue.ConcurrentQueue
+	quit  chan struct{}
+}
 
-	// FailureReason is a failure reason code indicating the reason the
-	// payment failed. It is only set for failed payments.
-	FailureReason channeldb.FailureReason
+// newControlTowerSubscriber instantiates a new subscriber state object.
+func newControlTowerSubscriber() *ControlTowerSubscriber {
+	// Create a queue for payment updates.
+	queue := queue.NewConcurrentQueue(20)
+	queue.Start()
 
-	// HTLCs is a list of HTLCs that have been attempted in order to settle
-	// the payment.
-	HTLCs []channeldb.HTLCAttempt
+	return &ControlTowerSubscriber{
+		Updates: queue.ChanOut(),
+		queue:   queue,
+		quit:    make(chan struct{}),
+	}
+}
+
+// Close signals that the subscriber is no longer interested in updates.
+func (s *ControlTowerSubscriber) Close() {
+	// Close quit channel so that any pending writes to the queue are
+	// cancelled.
+	close(s.quit)
+
+	// Stop the queue goroutine so that it won't leak.
+	s.queue.Stop()
 }
 
 // controlTower is persistent implementation of ControlTower to restrict
@@ -80,15 +95,21 @@ type PaymentResult struct {
 type controlTower struct {
 	db *channeldb.PaymentControl
 
-	subscribers    map[lntypes.Hash][]chan PaymentResult
+	subscribers    map[lntypes.Hash][]*ControlTowerSubscriber
 	subscribersMtx sync.Mutex
+
+	// paymentsMtx provides synchronization on the payment level to ensure
+	// that no race conditions occur in between updating the database and
+	// sending a notification.
+	paymentsMtx *multimutex.HashMutex
 }
 
 // NewControlTower creates a new instance of the controlTower.
 func NewControlTower(db *channeldb.PaymentControl) ControlTower {
 	return &controlTower{
 		db:          db,
-		subscribers: make(map[lntypes.Hash][]chan PaymentResult),
+		subscribers: make(map[lntypes.Hash][]*ControlTowerSubscriber),
+		paymentsMtx: multimutex.NewHashMutex(),
 	}
 }
 
@@ -107,7 +128,18 @@ func (p *controlTower) InitPayment(paymentHash lntypes.Hash,
 func (p *controlTower) RegisterAttempt(paymentHash lntypes.Hash,
 	attempt *channeldb.HTLCAttemptInfo) error {
 
-	return p.db.RegisterAttempt(paymentHash, attempt)
+	p.paymentsMtx.Lock(paymentHash)
+	defer p.paymentsMtx.Unlock(paymentHash)
+
+	payment, err := p.db.RegisterAttempt(paymentHash, attempt)
+	if err != nil {
+		return err
+	}
+
+	// Notify subscribers of the attempt registration.
+	p.notifySubscribers(paymentHash, payment)
+
+	return nil
 }
 
 // SettleAttempt marks the given attempt settled with the preimage. If
@@ -116,15 +148,16 @@ func (p *controlTower) RegisterAttempt(paymentHash lntypes.Hash,
 func (p *controlTower) SettleAttempt(paymentHash lntypes.Hash,
 	attemptID uint64, settleInfo *channeldb.HTLCSettleInfo) error {
 
+	p.paymentsMtx.Lock(paymentHash)
+	defer p.paymentsMtx.Unlock(paymentHash)
+
 	payment, err := p.db.SettleAttempt(paymentHash, attemptID, settleInfo)
 	if err != nil {
 		return err
 	}
 
 	// Notify subscribers of success event.
-	p.notifyFinalEvent(
-		paymentHash, createSuccessResult(payment.HTLCs),
-	)
+	p.notifySubscribers(paymentHash, payment)
 
 	return nil
 }
@@ -133,7 +166,18 @@ func (p *controlTower) SettleAttempt(paymentHash lntypes.Hash,
 func (p *controlTower) FailAttempt(paymentHash lntypes.Hash,
 	attemptID uint64, failInfo *channeldb.HTLCFailInfo) error {
 
-	return p.db.FailAttempt(paymentHash, attemptID, failInfo)
+	p.paymentsMtx.Lock(paymentHash)
+	defer p.paymentsMtx.Unlock(paymentHash)
+
+	payment, err := p.db.FailAttempt(paymentHash, attemptID, failInfo)
+	if err != nil {
+		return err
+	}
+
+	// Notify subscribers of failed attempt.
+	p.notifySubscribers(paymentHash, payment)
+
+	return nil
 }
 
 // FetchPayment fetches the payment corresponding to the given payment hash.
@@ -143,35 +187,6 @@ func (p *controlTower) FetchPayment(paymentHash lntypes.Hash) (
 	return p.db.FetchPayment(paymentHash)
 }
 
-// createSuccessResult creates a success result to send to subscribers.
-func createSuccessResult(htlcs []channeldb.HTLCAttempt) *PaymentResult {
-	// Extract any preimage from the list of HTLCs.
-	var preimage lntypes.Preimage
-	for _, htlc := range htlcs {
-		if htlc.Settle != nil {
-			preimage = htlc.Settle.Preimage
-			break
-		}
-	}
-
-	return &PaymentResult{
-		Success:  true,
-		Preimage: preimage,
-		HTLCs:    htlcs,
-	}
-}
-
-// createFailResult creates a failed result to send to subscribers.
-func createFailedResult(htlcs []channeldb.HTLCAttempt,
-	reason channeldb.FailureReason) *PaymentResult {
-
-	return &PaymentResult{
-		Success:       false,
-		FailureReason: reason,
-		HTLCs:         htlcs,
-	}
-}
-
 // Fail transitions a payment into the Failed state, and records the reason the
 // payment failed. After invoking this method, InitPayment should return nil on
 // its next call for this payment hash, allowing the switch to make a
@@ -179,17 +194,16 @@ func createFailedResult(htlcs []channeldb.HTLCAttempt,
 func (p *controlTower) Fail(paymentHash lntypes.Hash,
 	reason channeldb.FailureReason) error {
 
+	p.paymentsMtx.Lock(paymentHash)
+	defer p.paymentsMtx.Unlock(paymentHash)
+
 	payment, err := p.db.Fail(paymentHash, reason)
 	if err != nil {
 		return err
 	}
 
 	// Notify subscribers of fail event.
-	p.notifyFinalEvent(
-		paymentHash, createFailedResult(
-			payment.HTLCs, reason,
-		),
-	)
+	p.notifySubscribers(paymentHash, payment)
 
 	return nil
 }
@@ -199,86 +213,81 @@ func (p *controlTower) FetchInFlightPayments() ([]*channeldb.InFlightPayment, er
 	return p.db.FetchInFlightPayments()
 }
 
-// SubscribePayment subscribes to updates for the payment with the given hash.
-// It returns a boolean indicating whether the payment is still in flight and a
-// channel that provides the final outcome of the payment.
+// SubscribePayment subscribes to updates for the payment with the given hash. A
+// first update with the current state of the payment is always sent out
+// immediately.
 func (p *controlTower) SubscribePayment(paymentHash lntypes.Hash) (
-	bool, chan PaymentResult, error) {
+	*ControlTowerSubscriber, error) {
 
-	// Create a channel with buffer size 1. For every payment there will be
-	// exactly one event sent.
-	c := make(chan PaymentResult, 1)
-
-	// Take lock before querying the db to prevent this scenario:
-	// FetchPayment returns us an in-flight state -> payment succeeds, but
-	// there is no subscriber to notify yet -> we add ourselves as a
-	// subscriber -> ... we will never receive a notification.
-	p.subscribersMtx.Lock()
-	defer p.subscribersMtx.Unlock()
+	// Take lock before querying the db to prevent missing or duplicating an
+	// update.
+	p.paymentsMtx.Lock(paymentHash)
+	defer p.paymentsMtx.Unlock(paymentHash)
 
 	payment, err := p.db.FetchPayment(paymentHash)
 	if err != nil {
-		return false, nil, err
+		return nil, err
 	}
 
-	var event PaymentResult
+	subscriber := newControlTowerSubscriber()
 
-	switch payment.Status {
+	// Always write current payment state to the channel.
+	subscriber.queue.ChanIn() <- payment
 
-	// Payment is currently in flight. Register this subscriber and
-	// return without writing a result to the channel yet.
-	case channeldb.StatusInFlight:
+	// Payment is currently in flight. Register this subscriber for further
+	// updates. Otherwise this update is the final update and the incoming
+	// channel can be closed. This will close the queue's outgoing channel
+	// when all updates have been written.
+	if payment.Status == channeldb.StatusInFlight {
+		p.subscribersMtx.Lock()
 		p.subscribers[paymentHash] = append(
-			p.subscribers[paymentHash], c,
+			p.subscribers[paymentHash], subscriber,
 		)
-
-		return true, c, nil
-
-	// Payment already succeeded. It is not necessary to register as
-	// a subscriber, because we can send the result on the channel
-	// immediately.
-	case channeldb.StatusSucceeded:
-		event = *createSuccessResult(payment.HTLCs)
-
-	// Payment already failed. It is not necessary to register as a
-	// subscriber, because we can send the result on the channel
-	// immediately.
-	case channeldb.StatusFailed:
-		event = *createFailedResult(
-			payment.HTLCs, *payment.FailureReason,
-		)
-
-	default:
-		return false, nil, errors.New("unknown payment status")
+		p.subscribersMtx.Unlock()
+	} else {
+		close(subscriber.queue.ChanIn())
 	}
 
-	// Write immediate result to the channel.
-	c <- event
-	close(c)
-
-	return false, c, nil
+	return subscriber, nil
 }
 
-// notifyFinalEvent sends a final payment event to all subscribers of this
-// payment. The channel will be closed after this.
-func (p *controlTower) notifyFinalEvent(paymentHash lntypes.Hash,
-	event *PaymentResult) {
+// notifySubscribers sends a final payment event to all subscribers of this
+// payment. The channel will be closed after this. Note that this function must
+// be executed atomically (by means of a lock) with the database update to
+// guarantuee consistency of the notifications.
+func (p *controlTower) notifySubscribers(paymentHash lntypes.Hash,
+	event *channeldb.MPPayment) {
 
-	// Get all subscribers for this hash. As there is only a single outcome,
-	// the subscriber list can be cleared.
+	// Get all subscribers for this payment.
 	p.subscribersMtx.Lock()
 	list, ok := p.subscribers[paymentHash]
 	if !ok {
 		p.subscribersMtx.Unlock()
 		return
 	}
-	delete(p.subscribers, paymentHash)
+
+	// If the payment reached a terminal state, the subscriber list can be
+	// cleared. There won't be any more updates.
+	terminal := event.Status != channeldb.StatusInFlight
+	if terminal {
+		delete(p.subscribers, paymentHash)
+	}
 	p.subscribersMtx.Unlock()
 
-	// Notify all subscribers of the event. The subscriber channel is
-	// buffered, so it cannot block here.
+	// Notify all subscribers of the event.
 	for _, subscriber := range list {
-		subscriber <- *event
-		close(subscriber)
+		select {
+		case subscriber.queue.ChanIn() <- event:
+			// If this event is the last, close the incoming channel
+			// of the queue. This will signal the subscriber that
+			// there won't be any more updates.
+			if terminal {
+				close(subscriber.queue.ChanIn())
+			}
+
+		// If subscriber disappeared, skip notification. For further
+		// notifications, we'll keep skipping over this subscriber.
+		case <-subscriber.quit:
+		}
 	}
 }

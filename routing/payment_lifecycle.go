@@ -207,7 +207,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 			uint32(state.numShardsInFlight), uint32(p.currentHeight),
 		)
 		if err != nil {
-			log.Warnf("Failed to find route for payment %x: %v",
+			log.Warnf("Failed to find route for payment %v: %v",
 				p.paymentHash, err)
 
 			routeErr, ok := err.(noRouteError)
@@ -489,7 +489,7 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 	// case we can safely send a new payment attempt, and wait for its
 	// result to be available.
 	case err == htlcswitch.ErrPaymentIDNotFound:
-		log.Debugf("Payment ID %v for hash %x not found in "+
+		log.Debugf("Payment ID %v for hash %v not found in "+
 			"the Switch, retrying.", attempt.AttemptID,
 			p.paymentHash)
 
@@ -544,7 +544,7 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 	}
 
 	// We successfully got a payment result back from the switch.
-	log.Debugf("Payment %x succeeded with pid=%v",
+	log.Debugf("Payment %v succeeded with pid=%v",
 		p.paymentHash, attempt.AttemptID)
 
 	// Report success to mission control.
@@ -637,7 +637,7 @@ func (p *shardHandler) sendPaymentAttempt(
 	attempt *channeldb.HTLCAttemptInfo, firstHop lnwire.ShortChannelID,
 	htlcAdd *lnwire.UpdateAddHTLC) error {
 
-	log.Tracef("Attempting to send payment %x (pid=%v), "+
+	log.Tracef("Attempting to send payment %v (pid=%v), "+
 		"using route: %v", p.paymentHash, attempt.AttemptID,
 		newLogClosure(func() string {
 			return spew.Sdump(attempt.Route)
@@ -653,12 +653,12 @@ func (p *shardHandler) sendPaymentAttempt(
 	)
 	if err != nil {
 		log.Errorf("Failed sending attempt %d for payment "+
-			"%x to switch: %v", attempt.AttemptID,
+			"%v to switch: %v", attempt.AttemptID,
 			p.paymentHash, err)
 		return err
 	}
 
-	log.Debugf("Payment %x (pid=%v) successfully sent to switch, route: %v",
+	log.Debugf("Payment %v (pid=%v) successfully sent to switch, route: %v",
 		p.paymentHash, attempt.AttemptID, &attempt.Route)
 
 	return nil
@@ -678,7 +678,7 @@ func (p *shardHandler) handleSendError(attempt *channeldb.HTLCAttemptInfo,
 		return nil
 	}
 
-	log.Debugf("Payment %x failed: final_outcome=%v, raw_err=%v",
+	log.Debugf("Payment %v failed: final_outcome=%v, raw_err=%v",
 		p.paymentHash, *reason, sendErr)
 
 	err := p.router.cfg.Control.Fail(p.paymentHash, *reason)

@@ -759,8 +759,8 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 	invoice.Htlcs = map[CircuitKey]*InvoiceHTLC{
 		{}: {
 			Amt:           amt,
-			AcceptTime:    time.Unix(1, 0),
-			ResolveTime:   time.Unix(1, 0),
+			AcceptTime:    testNow,
+			ResolveTime:   testNow,
 			State:         HtlcStateSettled,
 			CustomRecords: make(record.CustomSet),
 		},

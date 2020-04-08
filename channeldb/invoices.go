@@ -806,6 +806,9 @@ type InvoiceQuery struct {
 	// add index.
 	PendingOnly bool
 
+	// ExpiredOnly, if set, returns invoices that are expired.
+	ExpiredOnly bool
+
 	// Reversed, if set, indicates that the invoices returned should start
 	// from the IndexOffset and go backwards.
 	Reversed bool
@@ -926,6 +929,10 @@ func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
 				continue
 			}
 
+			// Skip non expired invoices if only expired ones were requested.
+			if q.ExpiredOnly && d.clock.Now().Before(invoice.Expiration()) {
+				continue
+			}
 			// At this point, we've exhausted the offset, so we'll
 			// begin collecting invoices found within the range.
 			resp.Invoices = append(resp.Invoices, invoice)

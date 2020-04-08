@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"crypto/rand"
+	"fmt"
 	"math"
 	"reflect"
 	"testing"
@@ -17,10 +18,16 @@ import (
 
 var (
 	emptyFeatures = lnwire.NewFeatureVector(nil, lnwire.Features)
-	testNow       = time.Unix(1, 0)
+	testNow       = time.Unix(5, 0)
 )
 
 func randInvoice(value lnwire.MilliSatoshi) (*Invoice, error) {
+	return randInvoiceWithExpiry(value, testNow, 4000)
+}
+
+func randInvoiceWithExpiry(value lnwire.MilliSatoshi,
+	creationDate time.Time, expiry time.Duration) (*Invoice, error) {
+
 	var (
 		pre     lntypes.Preimage
 		payAddr [32]byte
@@ -33,9 +40,9 @@ func randInvoice(value lnwire.MilliSatoshi) (*Invoice, error) {
 	}
 
 	i := &Invoice{
-		CreationDate: testNow,
+		CreationDate: creationDate,
 		Terms: ContractTerm{
-			Expiry:          4000,
+			Expiry:          expiry,
 			PaymentPreimage: &pre,
 			PaymentAddr:     payAddr,
 			Value:           value,
@@ -808,10 +815,23 @@ func TestQueryInvoices(t *testing.T) {
 	var settleIndex uint64 = 1
 	var invoices []Invoice
 	var pendingInvoices []Invoice
+	var expiredInvoices []Invoice
 
 	for i := 1; i <= numInvoices; i++ {
 		amt := lnwire.MilliSatoshi(i)
-		invoice, err := randInvoice(amt)
+		var (
+			invoice *Invoice
+			err     error
+		)
+
+		// Make every third invoice expired.
+		if i%3 == 0 {
+			invoice, err = randInvoiceWithExpiry(
+				amt, testNow, -time.Second,
+			)
+		} else {
+			invoice, err = randInvoice(amt)
+		}
 		if err != nil {
 			t.Fatalf("unable to create invoice: %v", err)
 		}
@@ -835,6 +855,11 @@ func TestQueryInvoices(t *testing.T) {
 			settleIndex++
 		} else {
 			pendingInvoices = append(pendingInvoices, *invoice)
+		}
+
+		if i%3 == 0 {
+			// Add expired invoices to the expired list.
+			expiredInvoices = append(expiredInvoices, *invoice)
 		}
 
 		invoices = append(invoices, *invoice)
@@ -1035,7 +1060,7 @@ func TestQueryInvoices(t *testing.T) {
 			// index is settled.
 			expected: pendingInvoices[:5],
 		},
-		// Fetch the last 15 invoices.
+		// Fetch the last 15 pending invoices.
 		{
 			query: InvoiceQuery{
 				IndexOffset:    20,
@@ -1047,19 +1072,39 @@ func TestQueryInvoices(t *testing.T) {
 			// still pending.
 			expected: pendingInvoices[len(pendingInvoices)-15:],
 		},
+		// Fetch expired only invoices.
+		{
+			query: InvoiceQuery{
+				ExpiredOnly:    true,
+				NumMaxInvoices: numInvoices,
+			},
+			expected: expiredInvoices,
+		},
+		// Fetch the last 6 expired invoices.
+		{
+			query: InvoiceQuery{
+				ExpiredOnly:    true,
+				NumMaxInvoices: (numInvoices / 3) / 2,
+				Reversed:       true,
+			},
+			expected: expiredInvoices[len(expiredInvoices)/2:],
+		},
 	}
 
 	for i, testCase := range testCases {
 		response, err := db.QueryInvoices(testCase.query)
-		if err != nil {
-			t.Fatalf("unable to query invoice database: %v", err)
-		}
+		require.NoError(t, err)
+		require.Equal(t,
+			len(testCase.expected), len(response.Invoices),
+			fmt.Sprintf("test #%d", i),
+		)
 
-		if !reflect.DeepEqual(response.Invoices, testCase.expected) {
-			t.Fatalf("test #%d: query returned incorrect set of "+
-				"invoices: expcted %v, got %v", i,
-				spew.Sdump(response.Invoices),
-				spew.Sdump(testCase.expected))
+		// Assert one by one to make it easier to read when failing.
+		for j := 0; j < len(testCase.expected); j++ {
+			require.Equal(t,
+				testCase.expected, response.Invoices,
+				fmt.Sprintf("test #%d, invoice #%d", i, j),
+			)
 		}
 	}
 }

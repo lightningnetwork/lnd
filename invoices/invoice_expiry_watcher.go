@@ -9,7 +9,6 @@ import (
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/queue"
-	"github.com/lightningnetwork/lnd/zpay32"
 )
 
 // invoiceExpiry holds and invoice's payment hash and its expiry. This
@@ -112,15 +111,9 @@ func (ew *InvoiceExpiryWatcher) prepareInvoice(
 		return nil
 	}
 
-	realExpiry := invoice.Terms.Expiry
-	if realExpiry == 0 {
-		realExpiry = zpay32.DefaultInvoiceExpiry
-	}
-
-	expiry := invoice.CreationDate.Add(realExpiry)
 	return &invoiceExpiry{
 		PaymentHash: paymentHash,
-		Expiry:      expiry,
+		Expiry:      invoice.Expiration(),
 	}
 }
 

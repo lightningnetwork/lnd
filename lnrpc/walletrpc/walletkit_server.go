@@ -678,6 +678,8 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 		return nil, err
 	}
 
+	log.Debugf("Attempting to CPFP outpoint %s", op)
+
 	// Since we're unable to perform a bump through RBF, we'll assume the
 	// user is attempting to bump an unconfirmed transaction's fee rate by
 	// sweeping an output within it under control of the wallet with a

@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+import "google/api/annotations.proto";
+import "rpc.proto";
+
+package invoicesrpc;
+
+option go_package = "github.com/lightningnetwork/lnd/lnrpc/invoicesrpc";
+
+// Invoices is a service that can be used to create, accept, settle and cancel
+// invoices.
+service Invoices {
+    /**
+    SubscribeSingleInvoice returns a uni-directional stream (server -> client)
+    to notify the client of state transitions of the specified invoice.
+    Initially the current invoice state is always sent out.
+    */
+    rpc SubscribeSingleInvoice (SubscribeSingleInvoiceRequest)
+        returns (stream lnrpc.Invoice);
+}
+
+message SubscribeSingleInvoiceRequest {
+    reserved 1;
+
+    /// Hash corresponding to the (hold) invoice to subscribe to.
+    bytes r_hash = 2;
+}

@@ -1,0 +1,809 @@
+syntax = "proto3";
+
+import "google/api/annotations.proto";
+
+package lnrpc;
+
+option go_package = "github.com/lightningnetwork/lnd/lnrpc";
+
+service Lightning {
+    /** lncli: `listinvoices`
+    ListInvoices returns a list of all the invoices currently stored within the
+    database. Any active debug invoices are ignored. It has full support for
+    paginated responses, allowing users to query for specific invoices through
+    their add_index. This can be done by using either the first_index_offset or
+    last_index_offset fields included in the response as the index_offset of the
+    next request. By default, the first 100 invoices created will be returned.
+    Backwards pagination is also supported through the Reversed flag.
+    */
+    rpc ListInvoices(ListInvoiceRequest) returns (ListInvoiceResponse) {
+      option (google.api.http) = {
+        get : "/v1/invoices"
+      };
+    }
+  
+    /** lncli: `lookupinvoice`
+    LookupInvoice attempts to look up an invoice according to its payment hash.
+    The passed payment hash *must* be exactly 32 bytes, if not, an error is
+    returned.
+    */
+    rpc LookupInvoice(PaymentHash) returns (Invoice) {
+      option (google.api.http) = {
+        get : "/v1/invoice/{r_hash_str}"
+      };
+    }
+  
+    /**
+    SubscribeInvoices returns a uni-directional stream (server -> client) for
+    notifying the client of newly added/settled invoices. The caller can
+    optionally specify the add_index and/or the settle_index. If the add_index
+    is specified, then we'll first start by sending add invoice events for all
+    invoices with an add_index greater than the specified value. If the
+    settle_index is specified, the next, we'll send out all settle events for
+    invoices with a settle_index greater than the specified value. One or both
+    of these fields can be set. If no fields are set, then we'll only send out
+    the latest add/settle events.
+    */
+    rpc SubscribeInvoices(InvoiceSubscription) returns (stream Invoice) {
+      option (google.api.http) = {
+        get : "/v1/invoices/subscribe"
+      };
+    }
+  
+    /** lncli: `listpayments`
+    ListPayments returns a list of all outgoing payments.
+    */
+    rpc ListPayments(ListPaymentsRequest) returns (ListPaymentsResponse) {
+      option (google.api.http) = {
+        get : "/v1/payments"
+      };
+    };
+  }
+
+  message Hop {
+    /**
+    The unique channel ID for the channel. The first 3 bytes are the block
+    height, the next 3 the index within the block, and the last 2 bytes are the
+    output index for the channel.
+    */
+    uint64 chan_id = 1 [jstype = JS_STRING];
+    int64 chan_capacity = 2;
+    int64 amt_to_forward = 3 [deprecated = true];
+    int64 fee = 4 [deprecated = true];
+    uint32 expiry = 5;
+    int64 amt_to_forward_msat = 6;
+    int64 fee_msat = 7;
+
+    /**
+    An optional public key of the hop. If the public key is given, the payment
+    can be executed without relying on a copy of the channel graph.
+    */
+    string pub_key = 8;
+
+    /**
+    If set to true, then this hop will be encoded using the new variable length
+    TLV format. Note that if any custom tlv_records below are specified, then
+    this field MUST be set to true for them to be encoded properly.
+    */
+    bool tlv_payload = 9;
+
+    /**
+    An optional TLV record tha singals the use of an MPP payment. If present,
+    the receiver will enforce that that the same mpp_record is included in the
+    final hop payload of all non-zero payments in the HTLC set. If empty, a
+    regular single-shot payment is or was attempted.
+    */
+    MPPRecord mpp_record = 10;
+
+    /**
+    An optional set of key-value TLV records. This is useful within the context
+    of the SendToRoute call as it allows callers to specify arbitrary K-V pairs
+    to drop off at each hop within the onion.
+    */
+    map<uint64, bytes> custom_records = 11;
+}
+
+message MPPRecord {
+    /**
+    A unique, random identifier used to authenticate the sender as the intended
+    payer of a multi-path payment. The payment_addr must be the same for all
+    subpayments, and match the payment_addr provided in the receiver's invoice.
+    The same payment_addr must be used on all subpayments.
+    */
+    bytes payment_addr = 11;
+
+    /**
+    The total amount in milli-satoshis being sent as part of a larger multi-path
+    payment. The caller is responsible for ensuring subpayments to the same node
+    and payment_hash sum exactly to total_amt_msat. The same
+    total_amt_msat must be used on all subpayments.
+    */
+    int64 total_amt_msat = 10;
+}
+
+/**
+A path through the channel graph which runs over one or more channels in
+succession. This struct carries all the information required to craft the
+Sphinx onion packet, and send the payment along the first hop in the path. A
+route is only selected as valid if all the channels have sufficient capacity to
+carry the initial payment amount after fees are accounted for.
+*/
+message Route {
+    /**
+    The cumulative (final) time lock across the entire route. This is the CLTV
+    value that should be extended to the first hop in the route. All other hops
+    will decrement the time-lock as advertised, leaving enough time for all
+    hops to wait for or present the payment preimage to complete the payment.
+    */
+    uint32 total_time_lock = 1;
+
+    /**
+    The sum of the fees paid at each hop within the final route. In the case
+    of a one-hop payment, this value will be zero as we don't need to pay a fee
+    to ourselves.
+    */
+    int64 total_fees = 2 [deprecated = true];
+
+    /**
+    The total amount of funds required to complete a payment over this route.
+    This value includes the cumulative fees at each hop. As a result, the HTLC
+    extended to the first-hop in the route will need to have at least this many
+    satoshis, otherwise the route will fail at an intermediate node due to an
+    insufficient amount of fees.
+    */
+    int64 total_amt = 3 [deprecated = true];
+
+    /**
+    Contains details concerning the specific forwarding details at each hop.
+    */
+    repeated Hop hops = 4;
+
+    /**
+    The total fees in millisatoshis.
+    */
+    int64 total_fees_msat = 5;
+
+    /**
+    The total amount in millisatoshis.
+    */
+    int64 total_amt_msat = 6;
+}
+
+message HopHint {
+    /// The public key of the node at the start of the channel.
+    string node_id = 1;
+
+    /// The unique identifier of the channel.
+    uint64 chan_id = 2 [jstype = JS_STRING];
+
+    /// The base fee of the channel denominated in millisatoshis.
+    uint32 fee_base_msat = 3;
+
+    /**
+    The fee rate of the channel for sending one satoshi across it denominated in
+    millionths of a satoshi.
+    */
+    uint32 fee_proportional_millionths = 4;
+
+    /// The time-lock delta of the channel.
+    uint32 cltv_expiry_delta = 5;
+}
+
+message RouteHint {
+    /**
+    A list of hop hints that when chained together can assist in reaching a
+    specific destination.
+    */
+    repeated HopHint hop_hints = 1;
+}
+
+message Invoice {
+    /**
+    An optional memo to attach along with the invoice. Used for record keeping
+    purposes for the invoice's creator, and will also be set in the description
+    field of the encoded payment request if the description_hash field is not
+    being used.
+    */
+    string memo = 1;
+
+    reserved 2;
+
+    /**
+    The hex-encoded preimage (32 byte) which will allow settling an incoming
+    HTLC payable to this preimage. When using REST, this field must be encoded
+    as base64.
+    */
+    bytes r_preimage = 3;
+
+    /**
+    The hash of the preimage. When using REST, this field must be encoded as
+    base64.
+    */
+    bytes r_hash = 4;
+
+    /**
+    The value of this invoice in satoshis
+
+    The fields value and value_msat are mutually exclusive.
+    */
+    int64 value = 5;
+
+    /**
+    The value of this invoice in millisatoshis
+
+    The fields value and value_msat are mutually exclusive.
+    */
+    int64 value_msat = 23;
+
+    /// Whether this invoice has been fulfilled
+    bool settled = 6 [deprecated = true];
+
+    /// When this invoice was created
+    int64 creation_date = 7;
+
+    /// When this invoice was settled
+    int64 settle_date = 8;
+
+    /**
+    A bare-bones invoice for a payment within the Lightning Network. With the
+    details of the invoice, the sender has all the data necessary to send a
+    payment to the recipient.
+    */
+    string payment_request = 9;
+
+    /**
+    Hash (SHA-256) of a description of the payment. Used if the description of
+    payment (memo) is too long to naturally fit within the description field
+    of an encoded payment request. When using REST, this field must be encoded
+    as base64.
+    */
+    bytes description_hash = 10;
+
+    /// Payment request expiry time in seconds. Default is 3600 (1 hour).
+    int64 expiry = 11;
+
+    /// Fallback on-chain address.
+    string fallback_addr = 12;
+
+    /// Delta to use for the time-lock of the CLTV extended to the final hop.
+    uint64 cltv_expiry = 13;
+
+    /**
+    Route hints that can each be individually used to assist in reaching the
+    invoice's destination.
+    */
+    repeated RouteHint route_hints = 14;
+
+    /// Whether this invoice should include routing hints for private channels.
+    bool private = 15;
+
+    /**
+    The "add" index of this invoice. Each newly created invoice will increment
+    this index making it monotonically increasing. Callers to the
+    SubscribeInvoices call can use this to instantly get notified of all added
+    invoices with an add_index greater than this one.
+    */
+    uint64 add_index = 16;
+
+    /**
+    The "settle" index of this invoice. Each newly settled invoice will
+    increment this index making it monotonically increasing. Callers to the
+    SubscribeInvoices call can use this to instantly get notified of all
+    settled invoices with an settle_index greater than this one.
+    */
+    uint64 settle_index = 17;
+
+    /// Deprecated, use amt_paid_sat or amt_paid_msat.
+    int64 amt_paid = 18 [deprecated = true];
+
+    /**
+    The amount that was accepted for this invoice, in satoshis. This will ONLY
+    be set if this invoice has been settled. We provide this field as if the
+    invoice was created with a zero value, then we need to record what amount
+    was ultimately accepted. Additionally, it's possible that the sender paid
+    MORE that was specified in the original invoice. So we'll record that here
+    as well.
+    */
+    int64 amt_paid_sat = 19;
+
+    /**
+    The amount that was accepted for this invoice, in millisatoshis. This will
+    ONLY be set if this invoice has been settled. We provide this field as if
+    the invoice was created with a zero value, then we need to record what
+    amount was ultimately accepted. Additionally, it's possible that the sender
+    paid MORE that was specified in the original invoice. So we'll record that
+    here as well.
+    */
+    int64 amt_paid_msat = 20;
+
+    enum InvoiceState {
+        OPEN = 0;
+        SETTLED = 1;
+        CANCELED = 2;
+        ACCEPTED = 3;
+    }
+
+    /**
+    The state the invoice is in.
+    */
+    InvoiceState state = 21;
+
+    /// List of HTLCs paying to this invoice [EXPERIMENTAL].
+    repeated InvoiceHTLC htlcs = 22;
+
+    /// List of features advertised on the invoice.
+    map<uint32, Feature> features = 24;
+
+    /**
+    Indicates if this invoice was a spontaneous payment that arrived via keysend
+    [EXPERIMENTAL].
+    */
+    bool is_keysend = 25;
+}
+
+enum InvoiceHTLCState {
+    ACCEPTED = 0;
+    SETTLED = 1;
+    CANCELED = 2;
+}
+
+/// Details of an HTLC that paid to an invoice
+message InvoiceHTLC {
+    /// Short channel id over which the htlc was received.
+    uint64 chan_id = 1 [jstype = JS_STRING];
+
+    /// Index identifying the htlc on the channel.
+    uint64 htlc_index = 2;
+
+    /// The amount of the htlc in msat.
+    uint64 amt_msat = 3;
+
+    /// Block height at which this htlc was accepted.
+    int32 accept_height = 4;
+
+    /// Time at which this htlc was accepted.
+    int64 accept_time = 5;
+
+    /// Time at which this htlc was settled or canceled.
+    int64 resolve_time = 6;
+
+    /// Block height at which this htlc expires.
+    int32 expiry_height = 7;
+
+    /// Current state the htlc is in.
+    InvoiceHTLCState state = 8;
+
+    /// Custom tlv records.
+    map<uint64, bytes> custom_records = 9;
+
+    /// The total amount of the mpp payment in msat.
+    uint64 mpp_total_amt_msat = 10;
+}
+message PaymentHash {
+    /**
+    The hex-encoded payment hash of the invoice to be looked up. The passed
+    payment hash must be exactly 32 bytes, otherwise an error is returned.
+    Deprecated now that the REST gateway supports base64 encoding of bytes
+    fields.
+    */
+    string r_hash_str = 1 [ deprecated = true ];
+  
+    /**
+    The payment hash of the invoice to be looked up. When using REST, this field
+    must be encoded as base64.
+    */
+    bytes r_hash = 2;
+  }
+  
+  message ListInvoiceRequest {
+    /**
+    If set, only invoices that are not settled and not canceled will be returned
+    in the response.
+    */
+    bool pending_only = 1;
+  
+    /**
+    The index of an invoice that will be used as either the start or end of a
+    query to determine which invoices should be returned in the response.
+    */
+    uint64 index_offset = 4;
+  
+    /// The max number of invoices to return in the response to this query.
+    uint64 num_max_invoices = 5;
+  
+    /**
+    If set, the invoices returned will result from seeking backwards from the
+    specified index offset. This can be used to paginate backwards.
+    */
+    bool reversed = 6;
+  }
+  message ListInvoiceResponse {
+    /**
+    A list of invoices from the time slice of the time series specified in the
+    request.
+    */
+    repeated Invoice invoices = 1;
+  
+    /**
+    The index of the last item in the set of returned invoices. This can be used
+    to seek further, pagination style.
+    */
+    uint64 last_index_offset = 2;
+  
+    /**
+    The index of the last item in the set of returned invoices. This can be used
+    to seek backwards, pagination style.
+    */
+    uint64 first_index_offset = 3;
+  }
+  
+  message InvoiceSubscription {
+    /**
+    If specified (non-zero), then we'll first start by sending out
+    notifications for all added indexes with an add_index greater than this
+    value. This allows callers to catch up on any events they missed while they
+    weren't connected to the streaming RPC.
+    */
+    uint64 add_index = 1;
+  
+    /**
+    If specified (non-zero), then we'll first start by sending out
+    notifications for all settled indexes with an settle_index greater than
+    this value. This allows callers to catch up on any events they missed while
+    they weren't connected to the streaming RPC.
+    */
+    uint64 settle_index = 2;
+  }
+  
+  enum PaymentFailureReason {
+    /**
+    Payment isn't failed (yet).
+    */
+    FAILURE_REASON_NONE = 0;
+  
+    /**
+    There are more routes to try, but the payment timeout was exceeded.
+    */
+    FAILURE_REASON_TIMEOUT = 1;
+  
+    /**
+    All possible routes were tried and failed permanently. Or were no
+    routes to the destination at all.
+    */
+    FAILURE_REASON_NO_ROUTE = 2;
+  
+    /**
+    A non-recoverable error has occured.
+    */
+    FAILURE_REASON_ERROR = 3;
+  
+    /**
+    Payment details incorrect (unknown hash, invalid amt or
+    invalid final cltv delta)
+    */
+    FAILURE_REASON_INCORRECT_PAYMENT_DETAILS = 4;
+  
+    /**
+    Insufficient local balance.
+    */
+    FAILURE_REASON_INSUFFICIENT_BALANCE = 5;
+  }
+  
+  message Payment {
+    /// The payment hash
+    string payment_hash = 1;
+  
+    /// Deprecated, use value_sat or value_msat.
+    int64 value = 2 [ deprecated = true ];
+  
+    /// Deprecated, use creation_time_ns
+    int64 creation_date = 3 [ deprecated = true ];
+  
+    /// The path this payment took.
+    repeated string path = 4 [ deprecated = true ];
+  
+    /// Deprecated, use fee_sat or fee_msat.
+    int64 fee = 5 [ deprecated = true ];
+  
+    /// The payment preimage
+    string payment_preimage = 6;
+  
+    /// The value of the payment in satoshis
+    int64 value_sat = 7;
+  
+    /// The value of the payment in milli-satoshis
+    int64 value_msat = 8;
+  
+    /// The optional payment request being fulfilled.
+    string payment_request = 9;
+  
+    enum PaymentStatus {
+      UNKNOWN = 0;
+      IN_FLIGHT = 1;
+      SUCCEEDED = 2;
+      FAILED = 3;
+    }
+  
+    // The status of the payment.
+    PaymentStatus status = 10;
+  
+    ///  The fee paid for this payment in satoshis
+    int64 fee_sat = 11;
+  
+    ///  The fee paid for this payment in milli-satoshis
+    int64 fee_msat = 12;
+  
+    /// The time in UNIX nanoseconds at which the payment was created.
+    int64 creation_time_ns = 13;
+  
+    /// The HTLCs made in attempt to settle the payment [EXPERIMENTAL].
+    repeated HTLCAttempt htlcs = 14;
+  
+    /**
+    The creation index of this payment. Each payment can be uniquely identified
+    by this index, which may not strictly increment by 1 for payments made in
+    older versions of lnd.
+    */
+    uint64 payment_index = 15;
+  
+    PaymentFailureReason failure_reason = 16;
+  }
+  
+  message HTLCAttempt {
+    enum HTLCStatus {
+      IN_FLIGHT = 0;
+      SUCCEEDED = 1;
+      FAILED = 2;
+    }
+  
+    /// The status of the HTLC.
+    HTLCStatus status = 1;
+  
+    /// The route taken by this HTLC.
+    Route route = 2;
+  
+    /// The time in UNIX nanoseconds at which this HTLC was sent.
+    int64 attempt_time_ns = 3;
+  
+    /**
+    The time in UNIX nanoseconds at which this HTLC was settled or failed.
+    This value will not be set if the HTLC is still IN_FLIGHT.
+    */
+    int64 resolve_time_ns = 4;
+  
+    // Detailed htlc failure info.
+    Failure failure = 5;
+  }
+  
+  message ListPaymentsRequest {
+    /**
+    If true, then return payments that have not yet fully completed. This means
+    that pending payments, as well as failed payments will show up if this
+    field is set to true. This flag doesn't change the meaning of the indices,
+    which are tied to individual payments.
+    */
+    bool include_incomplete = 1;
+  
+    /**
+    The index of a payment that will be used as either the start or end of a
+    query to determine which payments should be returned in the response. The
+    index_offset is exclusive. In the case of a zero index_offset, the query
+    will start with the oldest payment when paginating forwards, or will end
+    with the most recent payment when paginating backwards.
+    */
+    uint64 index_offset = 2;
+  
+    /// The maximal number of payments returned in the response to this query.
+    uint64 max_payments = 3;
+  
+    /**
+    If set, the payments returned will result from seeking backwards from the
+    specified index offset. This can be used to paginate backwards. The order
+    of the returned payments is always oldest first (ascending index order).
+    */
+    bool reversed = 4;
+  }
+  
+  message ListPaymentsResponse {
+    /// The list of payments
+    repeated Payment payments = 1;
+  
+    /**
+    The index of the first item in the set of returned payments. This can be
+    used as the index_offset to continue seeking backwards in the next request.
+    */
+    uint64 first_index_offset = 2;
+  
+    /**
+    The index of the last item in the set of returned payments. This can be used
+    as the index_offset to continue seeking forwards in the next request.
+    */
+    uint64 last_index_offset = 3;
+  }
+
+  enum FeatureBit {
+    DATALOSS_PROTECT_REQ = 0;
+    DATALOSS_PROTECT_OPT = 1;
+    INITIAL_ROUING_SYNC = 3;
+    UPFRONT_SHUTDOWN_SCRIPT_REQ = 4;
+    UPFRONT_SHUTDOWN_SCRIPT_OPT = 5;
+    GOSSIP_QUERIES_REQ = 6;
+    GOSSIP_QUERIES_OPT = 7;
+    TLV_ONION_REQ = 8;
+    TLV_ONION_OPT = 9;
+    EXT_GOSSIP_QUERIES_REQ = 10;
+    EXT_GOSSIP_QUERIES_OPT = 11;
+    STATIC_REMOTE_KEY_REQ = 12;
+    STATIC_REMOTE_KEY_OPT = 13;
+    PAYMENT_ADDR_REQ = 14;
+    PAYMENT_ADDR_OPT = 15;
+    MPP_REQ = 16;
+    MPP_OPT = 17;
+}
+
+message Feature {
+    string name = 2;
+    bool is_required = 3;
+    bool is_known = 4;
+}
+message Failure {
+    enum FailureCode {
+        /**
+        The numbers assigned in this enumeration match the failure codes as
+        defined in BOLT #4. Because protobuf 3 requires enums to start with 0,
+        a RESERVED value is added.
+        */
+        RESERVED = 0;
+
+        INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS = 1;
+        INCORRECT_PAYMENT_AMOUNT = 2;
+        FINAL_INCORRECT_CLTV_EXPIRY = 3;
+        FINAL_INCORRECT_HTLC_AMOUNT = 4;
+        FINAL_EXPIRY_TOO_SOON = 5;
+        INVALID_REALM = 6;
+        EXPIRY_TOO_SOON = 7;
+        INVALID_ONION_VERSION = 8;
+        INVALID_ONION_HMAC = 9;
+        INVALID_ONION_KEY = 10;
+        AMOUNT_BELOW_MINIMUM = 11;
+        FEE_INSUFFICIENT = 12;
+        INCORRECT_CLTV_EXPIRY = 13;
+        CHANNEL_DISABLED = 14;
+        TEMPORARY_CHANNEL_FAILURE = 15;
+        REQUIRED_NODE_FEATURE_MISSING = 16;
+        REQUIRED_CHANNEL_FEATURE_MISSING = 17;
+        UNKNOWN_NEXT_PEER = 18;
+        TEMPORARY_NODE_FAILURE = 19;
+        PERMANENT_NODE_FAILURE = 20;
+        PERMANENT_CHANNEL_FAILURE = 21;
+        EXPIRY_TOO_FAR = 22;
+        MPP_TIMEOUT = 23;
+
+        /**
+        An internal error occurred.
+        */
+        INTERNAL_FAILURE = 997;
+
+        /**
+        The error source is known, but the failure itself couldn't be decoded.
+        */
+        UNKNOWN_FAILURE = 998;
+
+        /**
+        An unreadable failure result is returned if the received failure message
+        cannot be decrypted. In that case the error source is unknown.
+        */
+        UNREADABLE_FAILURE = 999;
+    }
+
+    /// Failure code as defined in the Lightning spec
+    FailureCode code = 1;
+
+    reserved 2;
+
+    /// An optional channel update message.
+    ChannelUpdate channel_update = 3;
+
+    /// A failure type-dependent htlc value.
+    uint64 htlc_msat = 4;
+
+    /// The sha256 sum of the onion payload.
+    bytes onion_sha_256 = 5;
+
+    /// A failure type-dependent cltv expiry value.
+    uint32 cltv_expiry = 6;
+
+    /// A failure type-dependent flags value.
+    uint32 flags = 7;
+
+    /**
+    The position in the path of the intermediate or final node that generated
+    the failure message. Position zero is the sender node.
+    **/
+    uint32 failure_source_index = 8;
+
+    /// A failure type-dependent block height.
+    uint32 height = 9;
+}
+message ChannelUpdate {
+    /**
+    The signature that validates the announced data and proves the ownership
+    of node id.
+    */
+    bytes signature = 1;
+
+    /**
+    The target chain that this channel was opened within. This value
+    should be the genesis hash of the target chain. Along with the short
+    channel ID, this uniquely identifies the channel globally in a
+    blockchain.
+    */
+    bytes chain_hash = 2;
+
+    /**
+    The unique description of the funding transaction.
+    */
+    uint64 chan_id = 3 [jstype = JS_STRING];
+
+    /**
+    A timestamp that allows ordering in the case of multiple announcements.
+    We should ignore the message if timestamp is not greater than the
+    last-received.
+    */
+    uint32 timestamp = 4;
+
+    /**
+    The bitfield that describes whether optional fields are present in this
+    update. Currently, the least-significant bit must be set to 1 if the
+    optional field MaxHtlc is present.
+    */
+    uint32 message_flags = 10;
+
+    /**
+    The bitfield that describes additional meta-data concerning how the
+    update is to be interpreted. Currently, the least-significant bit must be
+    set to 0 if the creating node corresponds to the first node in the
+    previously sent channel announcement and 1 otherwise. If the second bit
+    is set, then the channel is set to be disabled.
+    */
+    uint32 channel_flags = 5;
+
+    /**
+    The minimum number of blocks this node requires to be added to the expiry
+    of HTLCs. This is a security parameter determined by the node operator.
+    This value represents the required gap between the time locks of the
+    incoming and outgoing HTLC's set to this node.
+    */
+    uint32 time_lock_delta = 6;
+
+    /**
+    The minimum HTLC value which will be accepted.
+    */
+    uint64 htlc_minimum_msat = 7;
+
+    /**
+    The base fee that must be used for incoming HTLC's to this particular
+    channel. This value will be tacked onto the required for a payment
+    independent of the size of the payment.
+    */
+    uint32 base_fee = 8;
+
+    /**
+    The fee rate that will be charged per millionth of a satoshi.
+    */
+    uint32 fee_rate = 9;
+
+    /**
+    The maximum HTLC value which will be accepted.
+    */
+    uint64 htlc_maximum_msat = 11;
+
+    /**
+    The set of data that was appended to this message, some of which we may
+    not actually know how to iterate or parse. By holding onto this data, we
+    ensure that we're able to properly validate the set of signatures that
+    cover these new fields, and ensure we're able to make upgrades to the
+    network in a forwards compatible manner.
+    */
+    bytes extra_opaque_data = 12;
+}

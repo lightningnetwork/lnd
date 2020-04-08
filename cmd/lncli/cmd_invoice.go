@@ -204,6 +204,10 @@ var listInvoicesCommand = cli.Command{
 			Usage: "toggles if all invoices should be returned, " +
 				"or only those that are currently unsettled",
 		},
+		cli.BoolFlag{
+			Name:  "expired_only",
+			Usage: "toggles if only expired invoices should be returned",
+		},
 		cli.Uint64Flag{
 			Name: "index_offset",
 			Usage: "the index of an invoice that will be used as " +
@@ -230,6 +234,7 @@ func listInvoices(ctx *cli.Context) error {
 
 	req := &lnrpc.ListInvoiceRequest{
 		PendingOnly:    ctx.Bool("pending_only"),
+		ExpiredOnly:    ctx.Bool("expired_only"),
 		IndexOffset:    ctx.Uint64("index_offset"),
 		NumMaxInvoices: ctx.Uint64("max_invoices"),
 		Reversed:       !ctx.Bool("paginate-forwards"),

@@ -4415,6 +4415,7 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 		IndexOffset:    req.IndexOffset,
 		NumMaxInvoices: req.NumMaxInvoices,
 		PendingOnly:    req.PendingOnly,
+		ExpiredOnly:    req.ExpiredOnly,
 		Reversed:       req.Reversed,
 	}
 	invoiceSlice, err := r.server.chanDB.QueryInvoices(q)

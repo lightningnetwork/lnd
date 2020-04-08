@@ -2655,6 +2655,11 @@ message ListInvoiceRequest {
     bool pending_only = 1;
 
     /*
+    If set, only invoices that are expired will be returned in the response.
+    */
+    bool expired_only = 2;
+
+    /**
     The index of an invoice that will be used as either the start or end of a
     query to determine which invoices should be returned in the response.
     */

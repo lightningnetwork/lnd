@@ -3102,6 +3102,13 @@ message Payment {
 
     /// The HTLCs made in attempt to settle the payment [EXPERIMENTAL].
     repeated HTLCAttempt htlcs = 14;
+
+    /**
+    The creation index of this payment. Each payment can be uniquely identified
+    by this index, which may not strictly increment by 1 for payments made in
+    older versions of lnd.
+    */
+    uint64 payment_index = 15;
 }
 
 message HTLCAttempt {
@@ -3134,14 +3141,46 @@ message ListPaymentsRequest {
     /**
     If true, then return payments that have not yet fully completed. This means
     that pending payments, as well as failed payments will show up if this
-    field is set to True.
+    field is set to true. This flag doesn't change the meaning of the indices,
+    which are tied to individual payments.
     */
     bool include_incomplete = 1;
+
+    /**
+    The index of a payment that will be used as either the start or end of a
+    query to determine which payments should be returned in the response. The
+    index_offset is exclusive. In the case of a zero index_offset, the query
+    will start with the oldest payment when paginating forwards, or will end
+    with the most recent payment when paginating backwards.
+    */
+    uint64 index_offset = 2;
+
+    /// The maximal number of payments returned in the response to this query.
+    uint64 max_payments = 3;
+
+    /**
+    If set, the payments returned will result from seeking backwards from the
+    specified index offset. This can be used to paginate backwards. The order
+    of the returned payments is always oldest first (ascending index order).
+    */
+    bool reversed = 4;
 }
 
 message ListPaymentsResponse {
     /// The list of payments
     repeated Payment payments = 1;
+
+    /**
+    The index of the first item in the set of returned payments. This can be
+    used as the index_offset to continue seeking backwards in the next request.
+    */
+    uint64 first_index_offset = 2;
+
+    /**
+    The index of the last item in the set of returned payments. This can be used
+    as the index_offset to continue seeking forwards in the next request.
+    */
+    uint64 last_index_offset = 3;
 }
 
 message DeleteAllPaymentsRequest {

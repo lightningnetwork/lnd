@@ -4380,7 +4380,7 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("Can't delete payments at the end: %v", err)
 	}
 
-	// Check that there are no payments before test.
+	// Check that there are no payments after test.
 	listReq := &lnrpc.ListPaymentsRequest{}
 	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
 	paymentsResp, err = net.Alice.ListPayments(ctxt, listReq)

@@ -162,7 +162,7 @@ func fetchDuplicatePayment(bucket kvdb.ReadBucket) (*MPPayment, error) {
 	}
 
 	payment := &MPPayment{
-		sequenceNum:   sequenceNum,
+		SequenceNum:   sequenceNum,
 		Info:          creationInfo,
 		FailureReason: failureReason,
 		Status:        paymentStatus,

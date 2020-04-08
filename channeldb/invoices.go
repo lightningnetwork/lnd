@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/tlv"
+	"github.com/lightningnetwork/lnd/zpay32"
 )
 
 var (
@@ -479,6 +480,16 @@ func validateInvoice(i *Invoice, paymentHash lntypes.Hash) error {
 // IsPending returns ture if the invoice is in ContractOpen state.
 func (i *Invoice) IsPending() bool {
 	return i.State == ContractOpen || i.State == ContractAccepted
+}
+
+// Expiration returns the expiration time of the invoice.
+func (i *Invoice) Expiration() time.Time {
+	realExpiry := i.Terms.Expiry
+	if realExpiry == 0 {
+		realExpiry = zpay32.DefaultInvoiceExpiry
+	}
+
+	return i.CreationDate.Add(realExpiry)
 }
 
 // AddInvoice inserts the targeted invoice into the database. If the invoice has

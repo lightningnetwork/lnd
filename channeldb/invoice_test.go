@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -73,6 +74,40 @@ func settleTestInvoice(invoice *Invoice, settleIndex uint64) {
 		CustomRecords: make(record.CustomSet),
 	}
 	invoice.SettleIndex = settleIndex
+}
+
+// TestInvoiceExpiration tests that Invoice.Expirtion() is correct.
+func TestInvoiceExpiration(t *testing.T) {
+	tests := []struct {
+		creationDate time.Time
+		expiry       time.Duration
+		expiration   time.Time
+	}{
+		{
+			testNow,
+			0, // Default expiry is one hour.
+			testNow.Add(time.Hour),
+		},
+		{
+			testNow,
+			time.Second,
+			testNow.Add(time.Second),
+		},
+	}
+
+	for i, test := range tests {
+		test := test
+		t.Run("test "+string(i), func(tt *testing.T) {
+			invoice := Invoice{
+				CreationDate: test.creationDate,
+				Terms: ContractTerm{
+					Expiry: test.expiry,
+				},
+			}
+
+			require.Equal(t, test.expiration, invoice.Expiration())
+		})
+	}
 }
 
 // Tests that pending invoices are those which are either in ContractOpen or

@@ -437,7 +437,9 @@ func TestChannelLinkCancelFullCommitment(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for i := 0; i < count; i++ {
-		preimages[i] = lntypes.Preimage{byte(i >> 8), byte(i)}
+		// Deterministically generate preimages. Avoid the all-zeroes
+		// preimage because that will be rejected by the database.
+		preimages[i] = lntypes.Preimage{byte(i >> 8), byte(i), 1}
 
 		wg.Add(1)
 		go func(i int) {
@@ -2015,13 +2017,13 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	// If we now send in a valid HTLC settle for the prior HTLC we added,
 	// then the bandwidth should remain unchanged as the remote party will
 	// gain additional channel balance.
-	err = bobChannel.SettleHTLC(invoice.Terms.PaymentPreimage, bobIndex, nil, nil, nil)
+	err = bobChannel.SettleHTLC(*invoice.Terms.PaymentPreimage, bobIndex, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unable to settle htlc: %v", err)
 	}
 	htlcSettle := &lnwire.UpdateFulfillHTLC{
 		ID:              0,
-		PaymentPreimage: invoice.Terms.PaymentPreimage,
+		PaymentPreimage: *invoice.Terms.PaymentPreimage,
 	}
 	aliceLink.HandleChannelUpdate(htlcSettle)
 	time.Sleep(time.Millisecond * 500)
@@ -2193,7 +2195,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		outgoingHTLCID: addPkt.outgoingHTLCID,
 		htlc: &lnwire.UpdateFulfillHTLC{
 			ID:              0,
-			PaymentPreimage: invoice.Terms.PaymentPreimage,
+			PaymentPreimage: *invoice.Terms.PaymentPreimage,
 		},
 		obfuscator: NewMockObfuscator(),
 	}
@@ -3153,13 +3155,13 @@ func TestChannelLinkBandwidthChanReserve(t *testing.T) {
 	// If we now send in a valid HTLC settle for the prior HTLC we added,
 	// then the bandwidth should remain unchanged as the remote party will
 	// gain additional channel balance.
-	err = bobChannel.SettleHTLC(invoice.Terms.PaymentPreimage, bobIndex, nil, nil, nil)
+	err = bobChannel.SettleHTLC(*invoice.Terms.PaymentPreimage, bobIndex, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unable to settle htlc: %v", err)
 	}
 	htlcSettle := &lnwire.UpdateFulfillHTLC{
 		ID:              bobIndex,
-		PaymentPreimage: invoice.Terms.PaymentPreimage,
+		PaymentPreimage: *invoice.Terms.PaymentPreimage,
 	}
 	aliceLink.HandleChannelUpdate(htlcSettle)
 	time.Sleep(time.Millisecond * 500)
@@ -4730,7 +4732,7 @@ func testChannelLinkBatchPreimageWrite(t *testing.T, disconnect bool) {
 	for i, invoice := range invoices {
 		ctx.sendSettleBobToAlice(
 			uint64(i),
-			invoice.Terms.PaymentPreimage,
+			*invoice.Terms.PaymentPreimage,
 		)
 	}
 
@@ -5772,7 +5774,8 @@ func TestChannelLinkHoldInvoiceRestart(t *testing.T) {
 
 	// Convert into a hodl invoice and save the preimage for later.
 	preimage := invoice.Terms.PaymentPreimage
-	invoice.Terms.PaymentPreimage = channeldb.UnknownPreimage
+	invoice.Terms.PaymentPreimage = nil
+	invoice.HodlInvoice = true
 
 	// We must add the invoice to the registry, such that Alice
 	// expects this payment.
@@ -5814,7 +5817,10 @@ func TestChannelLinkHoldInvoiceRestart(t *testing.T) {
 	<-registry.settleChan
 
 	// Settle the invoice with the preimage.
-	registry.SettleHodlInvoice(preimage)
+	err = registry.SettleHodlInvoice(*preimage)
+	if err != nil {
+		t.Fatalf("settle hodl invoice: %v", err)
+	}
 
 	// Expect alice to send a settle and commitsig message to bob.
 	ctx.receiveSettleAliceToBob()
@@ -5957,10 +5963,12 @@ func TestChannelLinkRevocationWindowHodl(t *testing.T) {
 
 	// Convert into hodl invoices and save the preimages for later.
 	preimage1 := invoice1.Terms.PaymentPreimage
-	invoice1.Terms.PaymentPreimage = channeldb.UnknownPreimage
+	invoice1.Terms.PaymentPreimage = nil
+	invoice1.HodlInvoice = true
 
 	preimage2 := invoice2.Terms.PaymentPreimage
-	invoice2.Terms.PaymentPreimage = channeldb.UnknownPreimage
+	invoice2.Terms.PaymentPreimage = nil
+	invoice2.HodlInvoice = true
 
 	// We must add the invoices to the registry, such that Alice
 	// expects the payments.
@@ -6009,7 +6017,10 @@ func TestChannelLinkRevocationWindowHodl(t *testing.T) {
 	}
 
 	// Settle invoice 1 with the preimage.
-	registry.SettleHodlInvoice(preimage1)
+	err = registry.SettleHodlInvoice(*preimage1)
+	if err != nil {
+		t.Fatalf("settle hodl invoice: %v", err)
+	}
 
 	// Expect alice to send a settle and commitsig message to bob. Bob does
 	// not yet send the revocation.
@@ -6017,7 +6028,10 @@ func TestChannelLinkRevocationWindowHodl(t *testing.T) {
 	ctx.receiveCommitSigAliceToBob(1)
 
 	// Settle invoice 2 with the preimage.
-	registry.SettleHodlInvoice(preimage2)
+	err = registry.SettleHodlInvoice(*preimage2)
+	if err != nil {
+		t.Fatalf("settle hodl invoice: %v", err)
+	}
 
 	// Expect alice to send a settle for htlc 2.
 	ctx.receiveSettleAliceToBob()

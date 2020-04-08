@@ -22,7 +22,7 @@ func decodePayReq(invoice *channeldb.Invoice,
 	paymentRequest := string(invoice.PaymentRequest)
 	if paymentRequest == "" {
 		preimage := invoice.Terms.PaymentPreimage
-		if preimage == channeldb.UnknownPreimage {
+		if preimage == nil {
 			return nil, errors.New("cannot reconstruct pay req")
 		}
 		hash := [32]byte(preimage.Hash())
@@ -149,7 +149,7 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 		IsKeysend:       len(invoice.PaymentRequest) == 0,
 	}
 
-	if preimage != channeldb.UnknownPreimage {
+	if preimage != nil {
 		rpcInvoice.RPreimage = preimage[:]
 	}
 

@@ -36,12 +36,6 @@ const (
 	// connecting them.
 	basicGraphFilePath = "testdata/basic_graph.json"
 
-	// excessiveHopsGraphFilePath is a file path which stores the JSON dump
-	// of a graph which was previously triggering an erroneous excessive
-	// hops error. The error has since been fixed, but a test case
-	// exercising it is kept around to guard against regressions.
-	excessiveHopsGraphFilePath = "testdata/excessive_hops.json"
-
 	// specExampleFilePath is a file path which stores an example which
 	// implementations will use in order to ensure that they're calculating
 	// the payload for each hop in path properly.
@@ -443,8 +437,7 @@ func createTestGraphFromChannels(testChannels []*testChannel, source string) (
 	addNodeWithAlias := func(alias string, features *lnwire.FeatureVector) (
 		*channeldb.LightningNode, error) {
 
-		keyBytes := make([]byte, 32)
-		keyBytes = []byte{
+		keyBytes := []byte{
 			0, 0, 0, 0, 0, 0, 0, 0,
 			0, 0, 0, 0, 0, 0, 0, 0,
 			0, 0, 0, 0, 0, 0, 0, 0,

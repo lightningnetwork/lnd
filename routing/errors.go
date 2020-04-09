@@ -34,15 +34,6 @@ func (e *routerError) Error() string {
 // A compile time check to ensure routerError implements the error interface.
 var _ error = (*routerError)(nil)
 
-// newErr creates a routerError by the given error description and its
-// corresponding error code.
-func newErr(code errorCode, a interface{}) *routerError {
-	return &routerError{
-		code: code,
-		err:  errors.New(a),
-	}
-}
-
 // newErrf creates a routerError by the given error formatted description and
 // its corresponding error code.
 func newErrf(code errorCode, format string, a ...interface{}) *routerError {

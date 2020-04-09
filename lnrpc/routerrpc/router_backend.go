@@ -1095,20 +1095,17 @@ func marshallChannelUpdate(update *lnwire.ChannelUpdate) *lnrpc.ChannelUpdate {
 func (r *RouterBackend) MarshallPayment(payment *channeldb.MPPayment) (
 	*lnrpc.Payment, error) {
 
-	// Fetch the payment's route and preimage. If no HTLC was
-	// successful, an empty route and preimage will be used.
+	// Fetch the payment's preimage and the total paid in fees.
 	var (
-		route    route.Route
+		fee      lnwire.MilliSatoshi
 		preimage lntypes.Preimage
 	)
 	for _, htlc := range payment.HTLCs {
-		// Display the last route attempted.
-		route = htlc.Route
-
 		// If any of the htlcs have settled, extract a valid
 		// preimage.
 		if htlc.Settle != nil {
 			preimage = htlc.Settle.Preimage
+			fee += htlc.Route.TotalFees()
 		}
 	}
 
@@ -1147,9 +1144,9 @@ func (r *RouterBackend) MarshallPayment(payment *channeldb.MPPayment) (
 		ValueSat:        satValue,
 		CreationDate:    payment.Info.CreationTime.Unix(),
 		CreationTimeNs:  creationTimeNS,
-		Fee:             int64(route.TotalFees().ToSatoshis()),
-		FeeSat:          int64(route.TotalFees().ToSatoshis()),
-		FeeMsat:         int64(route.TotalFees()),
+		Fee:             int64(fee.ToSatoshis()),
+		FeeSat:          int64(fee.ToSatoshis()),
+		FeeMsat:         int64(fee),
 		PaymentPreimage: hex.EncodeToString(preimage[:]),
 		PaymentRequest:  string(payment.Info.PaymentRequest),
 		Status:          status,

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"math"
-	"math/rand"
 	"reflect"
 	"testing"
 	"time"
@@ -15,16 +14,13 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/lightningnetwork/lnd/tlv"
 )
 
 var (
 	priv, _ = btcec.NewPrivateKey(btcec.S256())
 	pub     = priv.PubKey()
 
-	tlvBytes   = []byte{1, 2, 3}
-	tlvEncoder = tlv.StubEncoder(tlvBytes)
-	testHop1   = &route.Hop{
+	testHop1 = &route.Hop{
 		PubKeyBytes:      route.NewVertex(pub),
 		ChannelID:        12345,
 		OutgoingTimeLock: 111,
@@ -75,18 +71,6 @@ func makeFakeInfo() (*PaymentCreationInfo, *HTLCAttemptInfo) {
 		AttemptTime: time.Unix(100, 0),
 	}
 	return c, a
-}
-
-// randomBytes creates random []byte with length in range [minLen, maxLen)
-func randomBytes(minLen, maxLen int) ([]byte, error) {
-	randBuf := make([]byte, minLen+rand.Intn(maxLen-minLen))
-
-	if _, err := rand.Read(randBuf); err != nil {
-		return nil, fmt.Errorf("Internal error. "+
-			"Cannot generate random string: %v", err)
-	}
-
-	return randBuf, nil
 }
 
 func TestSentPaymentSerialization(t *testing.T) {

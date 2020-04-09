@@ -217,6 +217,16 @@ func (c *ChanSeries) FilterChannelRange(chain chainhash.Hash,
 
 	chanResp := make([]lnwire.ShortChannelID, 0, len(chansInRange))
 	for _, chanID := range chansInRange {
+		// Maybe this check should live inside the previous
+		// graph.FilterChannelRange?
+		//
+		// Empty chan id's are likely due to a just applied restore
+		// that will trigger a DLP scenario momentarily. Simply skip
+		// them here.
+		if chanID == 0 {
+			log.Debugf("Skipping empty chanID while filtering channel range")
+			continue
+		}
 		chanResp = append(
 			chanResp, lnwire.NewShortChanIDFromInt(chanID),
 		)

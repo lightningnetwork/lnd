@@ -228,7 +228,7 @@ func (m *MissionControl) init() error {
 	}
 
 	log.Debugf("Mission control state reconstruction finished: "+
-		"n=%v, time=%v", len(results), time.Now().Sub(start))
+		"n=%v, time=%v", len(results), time.Since(start))
 
 	return nil
 }

@@ -127,10 +127,6 @@ func decodeAmount(amount string) (lnwire.MilliSatoshi, error) {
 // encodeAmount encodes the provided millisatoshi amount using as few characters
 // as possible.
 func encodeAmount(msat lnwire.MilliSatoshi) (string, error) {
-	if msat < 0 {
-		return "", fmt.Errorf("amount must be positive: %v", msat)
-	}
-
 	// If possible to express in BTC, that will always be the shortest
 	// representation.
 	if msat%mSatPerBtc == 0 {

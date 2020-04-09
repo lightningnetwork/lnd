@@ -571,11 +571,6 @@ func validateInvoice(invoice *Invoice) error {
 		return fmt.Errorf("net params not set")
 	}
 
-	// Ensure that if there is an amount set, it is not negative.
-	if invoice.MilliSat != nil && *invoice.MilliSat < 0 {
-		return fmt.Errorf("negative amount: %v", *invoice.MilliSat)
-	}
-
 	// The invoice must contain a payment hash.
 	if invoice.PaymentHash == nil {
 		return fmt.Errorf("no payment hash found")

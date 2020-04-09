@@ -17,9 +17,6 @@ const (
 	// defaultDbDirectory is the default directory where our decayed log
 	// will store our (sharedHash, CLTV) key-value pairs.
 	defaultDbDirectory = "sharedhashes"
-
-	// dbPermissions sets the database permissions to user write-and-readable.
-	dbPermissions = 0600
 )
 
 var (

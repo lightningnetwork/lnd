@@ -2040,7 +2040,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 
 	// Next, we'll add another HTLC initiated by the switch (of the same
 	// amount as the prior one).
-	invoice, htlc, _, err = generatePayment(htlcAmt, htlcAmt, 5, mockBlob)
+	_, htlc, _, err = generatePayment(htlcAmt, htlcAmt, 5, mockBlob)
 	if err != nil {
 		t.Fatalf("unable to create payment: %v", err)
 	}
@@ -2143,7 +2143,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	}
 
 	htlc.ID = 0
-	bobIndex, err = bobChannel.AddHTLC(htlc, nil)
+	_, err = bobChannel.AddHTLC(htlc, nil)
 	if err != nil {
 		t.Fatalf("unable to add htlc: %v", err)
 	}
@@ -2253,7 +2253,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	// HTLC we add, hence it should have an ID of 1 (Alice's channel
 	// link will set this automatically for her side).
 	htlc.ID = 1
-	bobIndex, err = bobChannel.AddHTLC(htlc, nil)
+	_, err = bobChannel.AddHTLC(htlc, nil)
 	if err != nil {
 		t.Fatalf("unable to add htlc: %v", err)
 	}

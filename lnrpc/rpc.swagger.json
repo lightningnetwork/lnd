@@ -3936,13 +3936,6 @@
           "format": "int64",
           "title": "/ Deprecated, use creation_time_ns"
         },
-        "path": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "/ The path this payment took."
-        },
         "fee": {
           "type": "string",
           "format": "int64",

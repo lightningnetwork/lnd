@@ -4336,15 +4336,12 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 			len(paymentsResp.Payments), 1)
 	}
 	p := paymentsResp.Payments[0]
+	path := p.Htlcs[len(p.Htlcs)-1].Route.Hops
 
 	// Ensure that the stored path shows a direct payment to Bob with no
 	// other nodes in-between.
-	expectedPath := []string{
-		net.Bob.PubKeyStr,
-	}
-	if !reflect.DeepEqual(p.Path, expectedPath) {
-		t.Fatalf("incorrect path, got %v, want %v",
-			p.Path, expectedPath)
+	if len(path) != 1 || path[0].PubKey != net.Bob.PubKeyStr {
+		t.Fatalf("incorrect path")
 	}
 
 	// The payment amount should also match our previous payment directly.
@@ -14317,8 +14314,8 @@ func testHoldInvoicePersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 			// We wait for the payment attempt to have been
 			// properly recorded in the DB.
-			if len(payment.Path) == 0 {
-				return fmt.Errorf("path is empty")
+			if len(payment.Htlcs) == 0 {
+				return fmt.Errorf("no attempt recorded")
 			}
 
 			delete(payHashes, payment.PaymentHash)

@@ -314,7 +314,6 @@ func (c *chainWatcher) SubscribeChannelEvents() *ChainEventSubscription {
 			c.Lock()
 			delete(c.clientSubscriptions, clientID)
 			c.Unlock()
-			return
 		},
 	}
 

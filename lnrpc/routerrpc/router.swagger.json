@@ -214,6 +214,11 @@
         "failure": {
           "$ref": "#/definitions/lnrpcFailure",
           "description": "Detailed htlc failure info."
+        },
+        "preimage": {
+          "type": "string",
+          "format": "byte",
+          "description": "The preimage that was used to settle the HTLC."
         }
       }
     },

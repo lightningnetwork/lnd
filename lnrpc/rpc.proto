@@ -2998,6 +2998,9 @@ message HTLCAttempt {
 
     // Detailed htlc failure info.
     Failure failure = 5;
+
+    // The preimage that was used to settle the HTLC.
+    bytes preimage = 6;
 }
 
 message ListPaymentsRequest {

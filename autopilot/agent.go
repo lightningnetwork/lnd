@@ -386,9 +386,8 @@ func mergeChanState(pendingChans map[NodeID]Channel,
 	numChans := len(pendingChans) + len(activeChans)
 	totalChans := make([]Channel, 0, numChans)
 
-	for _, activeChan := range activeChans.Channels() {
-		totalChans = append(totalChans, activeChan)
-	}
+	totalChans = append(totalChans, activeChans.Channels()...)
+
 	for _, pendingChan := range pendingChans {
 		totalChans = append(totalChans, pendingChan)
 	}

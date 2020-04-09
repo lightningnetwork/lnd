@@ -56,6 +56,10 @@ type RegistryConfig struct {
 	// AcceptKeySend indicates whether we want to accept spontaneous key
 	// send payments.
 	AcceptKeySend bool
+
+	// KeysendHoldTime indicates for how long we want to accept and hold
+	// spontaneous keysend payments.
+	KeysendHoldTime time.Duration
 }
 
 // htlcReleaseEvent describes an htlc auto-release event. It is used to release
@@ -165,10 +169,7 @@ func (i *InvoiceRegistry) populateExpiryWatcher() error {
 func (i *InvoiceRegistry) Start() error {
 	// Start InvoiceExpiryWatcher and prepopulate it with existing active
 	// invoices.
-	err := i.expiryWatcher.Start(func(paymentHash lntypes.Hash) error {
-		cancelIfAccepted := false
-		return i.cancelInvoiceImpl(paymentHash, cancelIfAccepted)
-	})
+	err := i.expiryWatcher.Start(i.cancelInvoiceImpl)
 
 	if err != nil {
 		return err
@@ -639,7 +640,6 @@ func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef channeldb.InvoiceRef,
 // processKeySend just-in-time inserts an invoice if this htlc is a keysend
 // htlc.
 func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx) error {
-
 	// Retrieve keysend record if present.
 	preimageSlice, ok := ctx.customRecords[record.KeySendType]
 	if !ok {
@@ -695,6 +695,11 @@ func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx) error {
 			PaymentAddr:     payAddr,
 			Features:        features,
 		},
+	}
+
+	if i.cfg.KeysendHoldTime != 0 {
+		invoice.HodlInvoice = true
+		invoice.Terms.Expiry = i.cfg.KeysendHoldTime
 	}
 
 	// Insert invoice into database. Ignore duplicates, because this

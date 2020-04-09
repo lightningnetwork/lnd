@@ -17,6 +17,7 @@ import (
 type invoiceExpiry struct {
 	PaymentHash lntypes.Hash
 	Expiry      time.Time
+	Keysend     bool
 }
 
 // Less implements PriorityQueueItem.Less such that the top item in the
@@ -41,7 +42,7 @@ type InvoiceExpiryWatcher struct {
 	clock clock.Clock
 
 	// cancelInvoice is a template method that cancels an expired invoice.
-	cancelInvoice func(lntypes.Hash) error
+	cancelInvoice func(lntypes.Hash, bool) error
 
 	// expiryQueue holds invoiceExpiry items and is used to find the next
 	// invoice to expire.
@@ -71,7 +72,7 @@ func NewInvoiceExpiryWatcher(clock clock.Clock) *InvoiceExpiryWatcher {
 // expects a cancellation function passed that will be use to cancel expired
 // invoices by their payment hash.
 func (ew *InvoiceExpiryWatcher) Start(
-	cancelInvoice func(lntypes.Hash) error) error {
+	cancelInvoice func(lntypes.Hash, bool) error) error {
 
 	ew.Lock()
 	defer ew.Unlock()
@@ -121,6 +122,7 @@ func (ew *InvoiceExpiryWatcher) prepareInvoice(
 	return &invoiceExpiry{
 		PaymentHash: paymentHash,
 		Expiry:      expiry,
+		Keysend:     len(invoice.PaymentRequest) == 0,
 	}
 }
 
@@ -190,7 +192,13 @@ func (ew *InvoiceExpiryWatcher) cancelNextExpiredInvoice() {
 			return
 		}
 
-		err := ew.cancelInvoice(top.PaymentHash)
+		// Don't force-cancel already accepted invoices. An exception to
+		// this are auto-generated keysend invoices. Because those move
+		// to the Accepted state directly after being opened, the expiry
+		// field would never be used. Enabling cancellation for accepted
+		// keysend invoices creates a safety mechanism that can prevents
+		// channel force-closes.
+		err := ew.cancelInvoice(top.PaymentHash, top.Keysend)
 		if err != nil && err != channeldb.ErrInvoiceAlreadySettled &&
 			err != channeldb.ErrInvoiceAlreadyCanceled {
 

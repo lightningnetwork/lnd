@@ -22,26 +22,31 @@ const semanticAlphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqr
 // These constants define the application version and follow the semantic
 // versioning 2.0.0 spec (http://semver.org/).
 const (
-	appMajor uint = 0
-	appMinor uint = 9
-	appPatch uint = 0
+	// AppMajor defines the major version of this binary.
+	AppMajor uint = 0
 
-	// appPreRelease MUST only contain characters from semanticAlphabet
+	// AppMinor defines the minor version of this binary.
+	AppMinor uint = 9
+
+	// AppPatch defines the application patch for this binary.
+	AppPatch uint = 0
+
+	// AppPreRelease MUST only contain characters from semanticAlphabet
 	// per the semantic versioning spec.
-	appPreRelease = "beta"
+	AppPreRelease = "beta"
 )
 
 // Version returns the application version as a properly formed string per the
 // semantic versioning 2.0.0 spec (http://semver.org/).
 func Version() string {
 	// Start with the major, minor, and patch versions.
-	version := fmt.Sprintf("%d.%d.%d", appMajor, appMinor, appPatch)
+	version := fmt.Sprintf("%d.%d.%d", AppMajor, AppMinor, AppPatch)
 
 	// Append pre-release version if there is one.  The hyphen called for
 	// by the semantic versioning spec is automatically appended and should
 	// not be contained in the pre-release string.  The pre-release version
 	// is not appended if it contains invalid characters.
-	preRelease := normalizeVerString(appPreRelease)
+	preRelease := normalizeVerString(AppPreRelease)
 	if preRelease != "" {
 		version = fmt.Sprintf("%s-%s", version, preRelease)
 	}

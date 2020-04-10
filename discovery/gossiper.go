@@ -1035,6 +1035,9 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			blockHeight := uint32(newBlock.Height)
 			atomic.StoreUint32(&d.bestHeight, blockHeight)
 
+			log.Debugf("New Block: height=%d hash=%s", blockHeight,
+				newBlock.Hash)
+
 			// Next we check if we have any premature announcements
 			// for this height, if so, then we process them once
 			// more as normal announcements.

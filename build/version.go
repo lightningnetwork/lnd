@@ -24,6 +24,10 @@ var (
 	// RawTags contains the raw set of build tags, separated by commas. This
 	// should be set using -ldflags during compilation.
 	RawTags string
+
+	// GoVersion stores the go version that the executable was compiled
+	// with. This hsould be set using -ldflags during compilation.
+	GoVersion string
 )
 
 // semanticAlphabet is the set of characters that are permitted for use in an

@@ -38,6 +38,7 @@ GOBUILD := GO111MODULE=on go build -v
 GOINSTALL := GO111MODULE=on go install -v
 GOTEST := GO111MODULE=on go test 
 
+GOVERSION := $(shell go version | awk '{print $$3}')
 GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 GOLIST := go list -deps $(PKG)/... | grep '$(PKG)'| grep -v '/vendor/'
 GOLISTCOVER := $(shell go list -deps -f '{{.ImportPath}}' ./... | grep '$(PKG)' | sed -e 's/^$(ESCPKG)/./')
@@ -53,6 +54,7 @@ DEV_TAGS := $(if ${tags},$(DEV_TAGS) ${tags},$(DEV_TAGS))
 
 make_ldflags = $(shell echo -ldflags \"-X $(PKG)/build.Commit=$(COMMIT) \
 	-X $(PKG)/build.CommitHash=$(COMMIT_HASH) \
+	-X $(PKG)/build.GoVersion=$(GOVERSION) \
 	-X $(PKG)/build.RawTags=$(shell echo $(1) | sed -e 's/ /,/g')\")
 
 LDFLAGS := $(call make_ldflags, ${tags})

@@ -3097,8 +3097,7 @@ message Payment {
     /// Deprecated, use creation_time_ns
     int64 creation_date = 3 [deprecated = true];
 
-    /// The path this payment took.
-    repeated string path = 4 [deprecated = true];
+    reserved 4;
 
     /// Deprecated, use fee_sat or fee_msat.
     int64 fee = 5 [deprecated = true];

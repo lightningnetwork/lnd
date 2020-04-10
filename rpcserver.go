@@ -2407,7 +2407,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		Alias:               nodeAnn.Alias.String(),
 		Color:               routing.EncodeHexColor(nodeAnn.RGBColor),
 		BestHeaderTimestamp: int64(bestHeaderTimestamp),
-		Version:             build.Version(),
+		Version:             build.Version() + " commit=" + build.Commit,
 		SyncedToGraph:       isGraphSynced,
 		Features:            features,
 	}, nil

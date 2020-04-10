@@ -711,6 +711,12 @@ func (c *OpenChannel) HasChanStatus(status ChannelStatus) bool {
 }
 
 func (c *OpenChannel) hasChanStatus(status ChannelStatus) bool {
+	// Special case ChanStatusDefualt since it isn't actually flag, but a
+	// particular combination (or lack-there-of) of flags.
+	if status == ChanStatusDefault {
+		return c.chanStatus == ChanStatusDefault
+	}
+
 	return c.chanStatus&status == status
 }
 

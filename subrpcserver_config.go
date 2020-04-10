@@ -202,9 +202,6 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 			subCfgValue.FieldByName("NodeSigner").Set(
 				reflect.ValueOf(nodeSigner),
 			)
-			subCfgValue.FieldByName("MaxPaymentMSat").Set(
-				reflect.ValueOf(MaxPaymentMSat),
-			)
 			defaultDelta := cfg.Bitcoin.TimeLockDelta
 			if registeredChains.PrimaryChain() == litecoinChain {
 				defaultDelta = cfg.Litecoin.TimeLockDelta

@@ -37,9 +37,6 @@ type AddInvoiceConfig struct {
 	// that's backed by the identity private key of the running lnd node.
 	NodeSigner *netann.NodeSigner
 
-	// MaxPaymentMSat is the maximum allowed payment.
-	MaxPaymentMSat lnwire.MilliSatoshi
-
 	// DefaultCLTVExpiry is the default invoice expiry if no values is
 	// specified.
 	DefaultCLTVExpiry uint32
@@ -166,15 +163,6 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	}
 
 	amtMSat := invoice.Value
-
-	// The value of the invoice must also not exceed the current soft-limit
-	// on the largest payment within the network.
-	if amtMSat > cfg.MaxPaymentMSat {
-		return nil, nil, fmt.Errorf("payment of %v is too large, max "+
-			"payment allowed is %v", invoice.Value,
-			cfg.MaxPaymentMSat.ToSatoshis(),
-		)
-	}
 
 	// We also create an encoded payment request which allows the
 	// caller to compactly send the invoice to the payer. We'll create a

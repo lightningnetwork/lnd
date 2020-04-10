@@ -15,7 +15,8 @@ import (
 // the -ldflags during compilation.
 var Commit string
 
-// semanticAlphabet
+// semanticAlphabet is the set of characters that are permitted for use in an
+// AppPreRelease.
 const semanticAlphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-"
 
 // These constants define the application version and follow the semantic

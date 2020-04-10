@@ -225,7 +225,7 @@ func maybeTweakPrivKey(signDesc *input.SignDescriptor,
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx,
-	signDesc *input.SignDescriptor) ([]byte, error) {
+	signDesc *input.SignDescriptor) (input.Signature, error) {
 
 	witnessScript := signDesc.WitnessScript
 
@@ -256,7 +256,7 @@ func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx,
 	}
 
 	// Chop off the sighash flag at the end of the signature.
-	return sig[:len(sig)-1], nil
+	return btcec.ParseDERSignature(sig[:len(sig)-1], btcec.S256())
 }
 
 // ComputeInputScript generates a complete InputScript for the passed
@@ -358,7 +358,7 @@ var _ input.Signer = (*BtcWallet)(nil)
 //
 // NOTE: This is a part of the MessageSigner interface.
 func (b *BtcWallet) SignMessage(pubKey *btcec.PublicKey,
-	msg []byte) (*btcec.Signature, error) {
+	msg []byte) (input.Signature, error) {
 
 	// First attempt to fetch the private key which corresponds to the
 	// specified public key.

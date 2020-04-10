@@ -3402,7 +3402,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, []ch
 		close(cancelChan)
 		return sig, htlcSigs, nil, err
 	}
-	sig, err = lnwire.NewSigFromRawSignature(rawSig)
+	sig, err = lnwire.NewSigFromSignature(rawSig)
 	if err != nil {
 		close(cancelChan)
 		return sig, htlcSigs, nil, err
@@ -5065,17 +5065,21 @@ func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
 	// for the transaction.
 	localCommit := lc.channelState.LocalCommitment
 	commitTx := localCommit.CommitTx.Copy()
-	theirSig := append(localCommit.CommitSig, byte(txscript.SigHashAll))
 
-	// With this, we then generate the full witness so the caller can
-	// broadcast a fully signed transaction.
-	lc.signDesc.SigHashes = txscript.NewTxSigHashes(commitTx)
-	ourSigRaw, err := lc.Signer.SignOutputRaw(commitTx, lc.signDesc)
+	theirSig, err := btcec.ParseDERSignature(
+		localCommit.CommitSig, btcec.S256(),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	ourSig := append(ourSigRaw, byte(txscript.SigHashAll))
+	// With this, we then generate the full witness so the caller can
+	// broadcast a fully signed transaction.
+	lc.signDesc.SigHashes = txscript.NewTxSigHashes(commitTx)
+	ourSig, err := lc.Signer.SignOutputRaw(commitTx, lc.signDesc)
+	if err != nil {
+		return nil, err
+	}
 
 	// With the final signature generated, create the witness stack
 	// required to spend from the multi-sig output.
@@ -5459,11 +5463,16 @@ func newOutgoingHtlcResolution(signer input.Signer,
 		InputIndex: 0,
 	}
 
+	htlcSig, err := btcec.ParseDERSignature(htlc.Signature, btcec.S256())
+	if err != nil {
+		return nil, err
+	}
+
 	// With the sign desc created, we can now construct the full witness
 	// for the timeout transaction, and populate it as well.
 	sigHashType := HtlcSigHashType(chanType)
 	timeoutWitness, err := input.SenderHtlcSpendTimeout(
-		htlc.Signature, sigHashType, signer, &timeoutSignDesc, timeoutTx,
+		htlcSig, sigHashType, signer, &timeoutSignDesc, timeoutTx,
 	)
 	if err != nil {
 		return nil, err
@@ -5585,14 +5594,18 @@ func newIncomingHtlcResolution(signer input.Signer,
 		InputIndex: 0,
 	}
 
+	htlcSig, err := btcec.ParseDERSignature(htlc.Signature, btcec.S256())
+	if err != nil {
+		return nil, err
+	}
+
 	// Next, we'll construct the full witness needed to satisfy the input of
 	// the success transaction. Don't specify the preimage yet. The preimage
 	// will be supplied by the contract resolver, either directly or when it
 	// becomes known.
 	sigHashType := HtlcSigHashType(chanType)
 	successWitness, err := input.ReceiverHtlcSpendRedeem(
-		htlc.Signature, sigHashType, nil, signer, &successSignDesc,
-		successTx,
+		htlcSig, sigHashType, nil, signer, &successSignDesc, successTx,
 	)
 	if err != nil {
 		return nil, err
@@ -5941,7 +5954,8 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 // settle any in flight.
 func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	localDeliveryScript []byte,
-	remoteDeliveryScript []byte) ([]byte, *chainhash.Hash, btcutil.Amount, error) {
+	remoteDeliveryScript []byte) (input.Signature, *chainhash.Hash,
+	btcutil.Amount, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -6007,7 +6021,8 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 //
 // NOTE: The passed local and remote sigs are expected to be fully complete
 // signatures including the proper sighash byte.
-func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig []byte,
+func (lc *LightningChannel) CompleteCooperativeClose(
+	localSig, remoteSig input.Signature,
 	localDeliveryScript, remoteDeliveryScript []byte,
 	proposedFee btcutil.Amount) (*wire.MsgTx, btcutil.Amount, error) {
 
@@ -6060,8 +6075,10 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig []byte,
 		SerializeCompressed()
 	theirKey := lc.channelState.RemoteChanCfg.MultiSigKey.PubKey.
 		SerializeCompressed()
-	witness := input.SpendMultiSig(lc.signDesc.WitnessScript, ourKey,
-		localSig, theirKey, remoteSig)
+	witness := input.SpendMultiSig(
+		lc.signDesc.WitnessScript, ourKey, localSig, theirKey,
+		remoteSig,
+	)
 	closeTx.TxIn[0].Witness = witness
 
 	// Validate the finalized transaction to ensure the output script is

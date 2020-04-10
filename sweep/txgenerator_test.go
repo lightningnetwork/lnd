@@ -15,7 +15,7 @@ var (
 		input.HtlcOfferedRemoteTimeout,
 		input.WitnessKeyHash,
 	}
-	expectedWeight  = int64(1462)
+	expectedWeight  = int64(1463)
 	expectedSummary = "0000000000000000000000000000000000000000000000000000000000000000:10 (CommitmentTimeLock), " +
 		"0000000000000000000000000000000000000000000000000000000000000001:11 (HtlcAcceptedSuccessSecondLevel), " +
 		"0000000000000000000000000000000000000000000000000000000000000002:12 (HtlcOfferedRemoteTimeout), " +

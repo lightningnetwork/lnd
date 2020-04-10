@@ -144,7 +144,13 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 
 	// Compute the weight estimate for our justice transaction.
 	var weightEstimate input.TxWeightEstimator
-	weightEstimate.AddWitnessInput(input.ToLocalPenaltyWitnessSize)
+
+	// An older ToLocalPenaltyWitnessSize constant used to underestimate the
+	// size by one byte. The diferrence in weight can cause different output
+	// values on the sweep transaction, so we mimic the original bug and
+	// create signatures using the original weight estimate.
+	weightEstimate.AddWitnessInput(input.ToLocalPenaltyWitnessSize - 1)
+
 	weightEstimate.AddWitnessInput(input.P2WKHWitnessSize)
 	weightEstimate.AddP2WKHOutput()
 	if blobType.Has(blob.FlagReward) {
@@ -262,7 +268,7 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 	toRemoteSigRaw := toRemoteWitness[0][:len(toRemoteWitness[0])-1]
 
 	// Convert the DER to-local sig into a fixed-size signature.
-	toLocalSig, err := lnwire.NewSigFromRawSignature(toLocalSigRaw)
+	toLocalSig, err := lnwire.NewSigFromSignature(toLocalSigRaw)
 	if err != nil {
 		t.Fatalf("unable to parse to-local signature: %v", err)
 	}
@@ -310,7 +316,7 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 
 	// Construct the test's to-local witness.
 	justiceTxn.TxIn[0].Witness = make([][]byte, 3)
-	justiceTxn.TxIn[0].Witness[0] = append(toLocalSigRaw,
+	justiceTxn.TxIn[0].Witness[0] = append(toLocalSigRaw.Serialize(),
 		byte(txscript.SigHashAll))
 	justiceTxn.TxIn[0].Witness[1] = []byte{1}
 	justiceTxn.TxIn[0].Witness[2] = toLocalScript

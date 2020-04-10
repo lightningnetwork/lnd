@@ -96,7 +96,7 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 		t.Fatalf("error creating close proposal: %v", err)
 	}
 
-	parsedSig, err := lnwire.NewSigFromRawSignature(initiatorSig)
+	parsedSig, err := lnwire.NewSigFromSignature(initiatorSig)
 	if err != nil {
 		t.Fatalf("error parsing signature: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create close proposal: %v", err)
 	}
-	parsedSig, err := lnwire.NewSigFromRawSignature(closeSig)
+	parsedSig, err := lnwire.NewSigFromSignature(closeSig)
 	if err != nil {
 		t.Fatalf("unable to parse signature: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 		t.Fatalf("error creating close proposal: %v", err)
 	}
 
-	parsedSig, err := lnwire.NewSigFromRawSignature(initiatorSig)
+	parsedSig, err := lnwire.NewSigFromSignature(initiatorSig)
 	if err != nil {
 		t.Fatalf("error parsing signature: %v", err)
 	}
@@ -340,7 +340,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 		t.Fatalf("error creating close proposal: %v", err)
 	}
 
-	parsedSig, err = lnwire.NewSigFromRawSignature(initiatorSig)
+	parsedSig, err = lnwire.NewSigFromSignature(initiatorSig)
 	if err != nil {
 		t.Fatalf("error parsing signature: %v", err)
 	}
@@ -385,7 +385,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 		t.Fatalf("error creating close proposal: %v", err)
 	}
 
-	parsedSig, err = lnwire.NewSigFromRawSignature(initiatorSig)
+	parsedSig, err = lnwire.NewSigFromSignature(initiatorSig)
 	if err != nil {
 		t.Fatalf("error parsing signature: %v", err)
 	}
@@ -477,7 +477,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create close proposal: %v", err)
 	}
-	parsedSig, err := lnwire.NewSigFromRawSignature(closeSig)
+	parsedSig, err := lnwire.NewSigFromSignature(closeSig)
 	if err != nil {
 		t.Fatalf("unable to parse signature: %v", err)
 	}
@@ -543,7 +543,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 		t.Fatalf("error creating close proposal: %v", err)
 	}
 
-	parsedSig, err = lnwire.NewSigFromRawSignature(responderSig)
+	parsedSig, err = lnwire.NewSigFromSignature(responderSig)
 	if err != nil {
 		t.Fatalf("error parsing signature: %v", err)
 	}
@@ -589,7 +589,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 		t.Fatalf("error creating close proposal: %v", err)
 	}
 
-	parsedSig, err = lnwire.NewSigFromRawSignature(responderSig)
+	parsedSig, err = lnwire.NewSigFromSignature(responderSig)
 	if err != nil {
 		t.Fatalf("error parsing signature: %v", err)
 	}

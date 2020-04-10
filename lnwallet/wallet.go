@@ -215,7 +215,7 @@ type addCounterPartySigsMsg struct {
 
 	// This should be 1/2 of the signatures needed to successfully spend our
 	// version of the commitment transaction.
-	theirCommitmentSig []byte
+	theirCommitmentSig input.Signature
 
 	// This channel is used to return the completed channel after the wallet
 	// has completed all of its stages in the funding process.
@@ -240,7 +240,7 @@ type addSingleFunderSigsMsg struct {
 
 	// theirCommitmentSig are the 1/2 of the signatures needed to
 	// successfully spend our version of the commitment transaction.
-	theirCommitmentSig []byte
+	theirCommitmentSig input.Signature
 
 	// This channel is used to return the completed channel after the wallet
 	// has completed all of its stages in the funding process.
@@ -1406,18 +1406,13 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 	// Verify that we've received a valid signature from the remote party
 	// for our version of the commitment transaction.
-	theirCommitSig := msg.theirCommitmentSig
-	sig, err := btcec.ParseSignature(theirCommitSig, btcec.S256())
-	if err != nil {
-		msg.err <- err
-		msg.completeChan <- nil
-		return
-	} else if !sig.Verify(sigHash, theirKey.PubKey) {
+	if !msg.theirCommitmentSig.Verify(sigHash, theirKey.PubKey) {
 		msg.err <- fmt.Errorf("counterparty's commitment signature is invalid")
 		msg.completeChan <- nil
 		return
 	}
-	res.partialState.LocalCommitment.CommitSig = theirCommitSig
+	theirCommitSigBytes := msg.theirCommitmentSig.Serialize()
+	res.partialState.LocalCommitment.CommitSig = theirCommitSigBytes
 
 	// Funding complete, this entry can be removed from limbo.
 	l.limboMtx.Lock()
@@ -1566,19 +1561,14 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 
 	// Verify that we've received a valid signature from the remote party
 	// for our version of the commitment transaction.
-	sig, err := btcec.ParseSignature(req.theirCommitmentSig, btcec.S256())
-	if err != nil {
-		req.err <- err
-		req.completeChan <- nil
-		return
-	}
-	if !sig.Verify(sigHash, theirKey.PubKey) {
+	if !req.theirCommitmentSig.Verify(sigHash, theirKey.PubKey) {
 		req.err <- fmt.Errorf("counterparty's commitment signature " +
 			"is invalid")
 		req.completeChan <- nil
 		return
 	}
-	chanState.LocalCommitment.CommitSig = req.theirCommitmentSig
+	theirCommitSigBytes := req.theirCommitmentSig.Serialize()
+	chanState.LocalCommitment.CommitSig = theirCommitSigBytes
 
 	// With their signature for our version of the commitment transactions
 	// verified, we can now generate a signature for their version,

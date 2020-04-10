@@ -38,6 +38,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -1590,7 +1591,7 @@ func txFromOutput(tx *wire.MsgTx, signer input.Signer, fromPubKey,
 		return nil, fmt.Errorf("unable to generate signature: %v", err)
 	}
 	witness := make([][]byte, 2)
-	witness[0] = append(spendSig, byte(txscript.SigHashAll))
+	witness[0] = append(spendSig.Serialize(), byte(txscript.SigHashAll))
 	witness[1] = fromPubKey.SerializeCompressed()
 	tx1.TxIn[0].Witness = witness
 
@@ -1975,7 +1976,7 @@ func testSignOutputUsingTweaks(r *rpctest.Harness,
 			t.Fatalf("unable to generate signature: %v", err)
 		}
 		witness := make([][]byte, 2)
-		witness[0] = append(spendSig, byte(txscript.SigHashAll))
+		witness[0] = append(spendSig.Serialize(), byte(txscript.SigHashAll))
 		witness[1] = tweakedKey.SerializeCompressed()
 		sweepTx.TxIn[0].Witness = witness
 
@@ -3062,18 +3063,22 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			defer bitcoind.Process.Kill()
 
 			// Wait for the bitcoind instance to start up.
-			time.Sleep(time.Second)
 
 			host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
-			chainConn, err := chain.NewBitcoindConn(
-				netParams, host, "weks", "weks", zmqBlockHost,
-				zmqTxHost, 100*time.Millisecond,
-			)
+			var chainConn *chain.BitcoindConn
+			err = wait.NoError(func() error {
+				chainConn, err = chain.NewBitcoindConn(
+					netParams, host, "weks", "weks",
+					zmqBlockHost, zmqTxHost,
+					100*time.Millisecond,
+				)
+				if err != nil {
+					return err
+				}
+
+				return chainConn.Start()
+			}, 10*time.Second)
 			if err != nil {
-				t.Fatalf("unable to establish connection to "+
-					"bitcoind: %v", err)
-			}
-			if err := chainConn.Start(); err != nil {
 				t.Fatalf("unable to establish connection to "+
 					"bitcoind: %v", err)
 			}

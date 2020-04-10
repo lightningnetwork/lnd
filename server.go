@@ -980,7 +980,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		Notifier:           cc.chainNotifier,
 		FeeEstimator:       cc.feeEstimator,
 		SignMessage: func(pubKey *btcec.PublicKey,
-			msg []byte) (*btcec.Signature, error) {
+			msg []byte) (input.Signature, error) {
 
 			if pubKey.IsEqual(privKey.PubKey()) {
 				return s.nodeSigner.SignMessage(pubKey, msg)

@@ -475,7 +475,6 @@ var chanStatusStrings = map[ChannelStatus]string{
 
 // orderedChanStatusFlags is an in-order list of all that channel status flags.
 var orderedChanStatusFlags = []ChannelStatus{
-	ChanStatusDefault,
 	ChanStatusBorked,
 	ChanStatusCommitBroadcasted,
 	ChanStatusLocalDataLoss,
@@ -488,7 +487,7 @@ var orderedChanStatusFlags = []ChannelStatus{
 // String returns a human-readable representation of the ChannelStatus.
 func (c ChannelStatus) String() string {
 	// If no flags are set, then this is the default case.
-	if c == 0 {
+	if c == ChanStatusDefault {
 		return chanStatusStrings[ChanStatusDefault]
 	}
 

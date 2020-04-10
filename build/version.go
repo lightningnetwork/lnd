@@ -10,9 +10,17 @@ import (
 	"strings"
 )
 
-// Commit stores the current commit hash of this build, this should be set using
-// the -ldflags during compilation.
-var Commit string
+var (
+	// Commit stores the current commit of this build, which includes the
+	// most recent tag, the number of commits since that tag (if non-zero),
+	// the commit hash, and a dirty marker. This should be set using the
+	// -ldflags during compilation.
+	Commit string
+
+	// CommitHash stores the current commit hash of this build, this should
+	// be set using the -ldflags during compilation.
+	CommitHash string
+)
 
 // semanticAlphabet is the set of characters that are permitted for use in an
 // AppPreRelease.

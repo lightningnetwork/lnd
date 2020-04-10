@@ -11,14 +11,9 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
-// nextTestPubkey is global variable that is used to deterministically generate
-// test keys.
-var nextTestPubkey byte
-
 // createPubkey return a new test pubkey.
-func createPubkey() route.Vertex {
-	pubkey := route.Vertex{nextTestPubkey}
-	nextTestPubkey++
+func createPubkey(id byte) route.Vertex {
+	pubkey := route.Vertex{id}
 	return pubkey
 }
 
@@ -38,8 +33,8 @@ type mockNode struct {
 }
 
 // newMockNode instantiates a new mock node with a newly generated pubkey.
-func newMockNode() *mockNode {
-	pubkey := createPubkey()
+func newMockNode(id byte) *mockNode {
+	pubkey := createPubkey(id)
 	return &mockNode{
 		channels: make(map[route.Vertex]*mockChannel),
 		pubkey:   pubkey,
@@ -106,10 +101,9 @@ func (m *mockNode) fwd(from *mockNode, route *hop) (htlcResult, error) {
 
 // mockGraph contains a set of nodes that together for a mocked graph.
 type mockGraph struct {
-	t          *testing.T
-	nodes      map[route.Vertex]*mockNode
-	nextChanID uint64
-	source     *mockNode
+	t      *testing.T
+	nodes  map[route.Vertex]*mockNode
+	source *mockNode
 }
 
 // newMockGraph instantiates a new mock graph.
@@ -122,6 +116,11 @@ func newMockGraph(t *testing.T) *mockGraph {
 
 // addNode adds the given mock node to the network.
 func (m *mockGraph) addNode(node *mockNode) {
+	m.t.Helper()
+
+	if _, exists := m.nodes[node.pubkey]; exists {
+		m.t.Fatal("node already exists")
+	}
 	m.nodes[node.pubkey] = node
 }
 
@@ -131,16 +130,25 @@ func (m *mockGraph) addNode(node *mockNode) {
 // Ignore linter error because addChannel isn't yet called with different
 // capacities.
 // nolint:unparam
-func (m *mockGraph) addChannel(node1, node2 *mockNode, capacity btcutil.Amount) {
-	id := m.nextChanID
-	m.nextChanID++
+func (m *mockGraph) addChannel(id uint64, node1id, node2id byte,
+	capacity btcutil.Amount) {
 
-	m.nodes[node1.pubkey].channels[node2.pubkey] = &mockChannel{
+	node1pubkey := createPubkey(node1id)
+	node2pubkey := createPubkey(node2id)
+
+	if _, exists := m.nodes[node1pubkey].channels[node2pubkey]; exists {
+		m.t.Fatal("channel already exists")
+	}
+	if _, exists := m.nodes[node2pubkey].channels[node1pubkey]; exists {
+		m.t.Fatal("channel already exists")
+	}
+
+	m.nodes[node1pubkey].channels[node2pubkey] = &mockChannel{
 		capacity: capacity,
 		id:       id,
 		balance:  lnwire.NewMSatFromSatoshis(capacity / 2),
 	}
-	m.nodes[node2.pubkey].channels[node1.pubkey] = &mockChannel{
+	m.nodes[node2pubkey].channels[node1pubkey] = &mockChannel{
 		capacity: capacity,
 		id:       id,
 		balance:  lnwire.NewMSatFromSatoshis(capacity / 2),

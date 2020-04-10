@@ -26,13 +26,16 @@ const (
 	// not exist in the graph.
 	errNoPathFound
 
-	// errInsufficientLocalBalance is returned when none of the local
-	// channels have enough balance for the payment.
-	errInsufficientBalance
-
 	// errEmptyPaySession is returned when the empty payment session is
 	// queried for a route.
 	errEmptyPaySession
+)
+
+var (
+	// DefaultShardMinAmt is the default amount beyond which we won't try to
+	// further split the payment if no route is found. It is the minimum
+	// amount that we use as the shard size when splitting.
+	DefaultShardMinAmt = lnwire.NewMSatFromSatoshis(10000)
 )
 
 // Error returns the string representation of the noRouteError
@@ -50,9 +53,6 @@ func (e noRouteError) Error() string {
 	case errEmptyPaySession:
 		return "empty payment session"
 
-	case errInsufficientBalance:
-		return "insufficient local balance"
-
 	default:
 		return "unknown no-route error"
 	}
@@ -68,9 +68,6 @@ func (e noRouteError) FailureReason() channeldb.FailureReason {
 		errEmptyPaySession:
 
 		return channeldb.FailureReasonNoRoute
-
-	case errInsufficientBalance:
-		return channeldb.FailureReasonInsufficientBalance
 
 	default:
 		return channeldb.FailureReasonError
@@ -108,13 +105,25 @@ type paymentSession struct {
 
 	getBandwidthHints func() (map[uint64]lnwire.MilliSatoshi, error)
 
-	sessionSource *SessionSource
-
 	payment *LightningPayment
 
 	empty bool
 
 	pathFinder pathFinder
+
+	getRoutingGraph func() (routingGraph, func(), error)
+
+	// pathFindingConfig defines global parameters that control the
+	// trade-off in path finding between fees and probabiity.
+	pathFindingConfig PathFindingConfig
+
+	missionControl MissionController
+
+	// minShardAmt is the amount beyond which we won't try to further split
+	// the payment if no route is found. If the maximum number of htlcs
+	// specified in the payment is one, under no circumstances splitting
+	// will happen and this value remains unused.
+	minShardAmt lnwire.MilliSatoshi
 }
 
 // RequestRoute returns a route which is likely to be capable for successfully
@@ -148,10 +157,8 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 	// Taking into account this prune view, we'll attempt to locate a path
 	// to our destination, respecting the recommendations from
 	// MissionControl.
-	ss := p.sessionSource
-
 	restrictions := &RestrictParams{
-		ProbabilitySource: ss.MissionControl.GetProbability,
+		ProbabilitySource: p.missionControl.GetProbability,
 		FeeLimit:          feeLimit,
 		OutgoingChannelID: p.payment.OutgoingChannelID,
 		LastHop:           p.payment.LastHop,
@@ -161,50 +168,87 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		PaymentAddr:       p.payment.PaymentAddr,
 	}
 
-	// We'll also obtain a set of bandwidthHints from the lower layer for
-	// each of our outbound channels. This will allow the path finding to
-	// skip any links that aren't active or just don't have enough bandwidth
-	// to carry the payment. New bandwidth hints are queried for every new
-	// path finding attempt, because concurrent payments may change
-	// balances.
-	bandwidthHints, err := p.getBandwidthHints()
-	if err != nil {
-		return nil, err
-	}
-
 	finalHtlcExpiry := int32(height) + int32(finalCltvDelta)
 
-	path, err := p.pathFinder(
-		&graphParams{
-			graph:           ss.Graph,
-			additionalEdges: p.additionalEdges,
-			bandwidthHints:  bandwidthHints,
-		},
-		restrictions, &ss.PathFindingConfig,
-		ss.SelfNode.PubKeyBytes, p.payment.Target,
-		maxAmt, finalHtlcExpiry,
-	)
-	if err != nil {
-		return nil, err
-	}
+	for {
+		// We'll also obtain a set of bandwidthHints from the lower
+		// layer for each of our outbound channels. This will allow the
+		// path finding to skip any links that aren't active or just
+		// don't have enough bandwidth to carry the payment. New
+		// bandwidth hints are queried for every new path finding
+		// attempt, because concurrent payments may change balances.
+		bandwidthHints, err := p.getBandwidthHints()
+		if err != nil {
+			return nil, err
+		}
 
-	// With the next candidate path found, we'll attempt to turn this into
-	// a route by applying the time-lock and fee requirements.
-	sourceVertex := route.Vertex(ss.SelfNode.PubKeyBytes)
-	route, err := newRoute(
-		sourceVertex, path, height,
-		finalHopParams{
-			amt:         maxAmt,
-			cltvDelta:   finalCltvDelta,
-			records:     p.payment.DestCustomRecords,
-			paymentAddr: p.payment.PaymentAddr,
-		},
-	)
-	if err != nil {
-		// TODO(roasbeef): return which edge/vertex didn't work
-		// out
-		return nil, err
-	}
+		log.Debugf("PaymentSession for %x: trying pathfinding with %v",
+			p.payment.PaymentHash, maxAmt)
 
-	return route, err
+		// Get a routing graph.
+		routingGraph, cleanup, err := p.getRoutingGraph()
+		if err != nil {
+			return nil, err
+		}
+
+		sourceVertex := routingGraph.sourceNode()
+
+		// Find a route for the current amount.
+		path, err := p.pathFinder(
+			&graphParams{
+				additionalEdges: p.additionalEdges,
+				bandwidthHints:  bandwidthHints,
+				graph:           routingGraph,
+			},
+			restrictions, &p.pathFindingConfig,
+			sourceVertex, p.payment.Target,
+			maxAmt, finalHtlcExpiry,
+		)
+
+		// Close routing graph.
+		cleanup()
+
+		switch {
+		case err == errNoPathFound:
+			// No splitting if this is the last shard.
+			isLastShard := activeShards+1 >= p.payment.MaxHtlcs
+			if isLastShard {
+				return nil, errNoPathFound
+			}
+
+			// This is where the magic happens. If we can't find a
+			// route, try it for half the amount.
+			maxAmt /= 2
+
+			// Put a lower bound on the minimum shard size.
+			if maxAmt < p.minShardAmt {
+				return nil, errNoPathFound
+			}
+
+			// Go pathfinding.
+			continue
+
+		case err != nil:
+			return nil, err
+		}
+
+		// With the next candidate path found, we'll attempt to turn
+		// this into a route by applying the time-lock and fee
+		// requirements.
+		route, err := newRoute(
+			sourceVertex, path, height,
+			finalHopParams{
+				amt:         maxAmt,
+				totalAmt:    p.payment.Amount,
+				cltvDelta:   finalCltvDelta,
+				records:     p.payment.DestCustomRecords,
+				paymentAddr: p.payment.PaymentAddr,
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return route, err
+	}
 }

@@ -547,6 +547,14 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	}
 	payIntent.CltvLimit = cltvLimit
 
+	// Take max htlcs from the request. Map zero to one for backwards
+	// compatibility.
+	maxHtlcs := rpcPayReq.MaxHtlcs
+	if maxHtlcs == 0 {
+		maxHtlcs = 1
+	}
+	payIntent.MaxHtlcs = maxHtlcs
+
 	// Take fee limit from request.
 	payIntent.FeeLimit, err = lnrpc.UnmarshallAmt(
 		rpcPayReq.FeeLimitSat, rpcPayReq.FeeLimitMsat,

@@ -22,6 +22,9 @@ import (
 func testSendToRouteMultiPath(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
+	ctx := newMppTestContext(t, net)
+	defer ctx.shutdownNodes()
+
 	// To ensure the payment goes through seperate paths, we'll set a
 	// channel size that can only carry one shard at a time. We'll divide
 	// the payment into 3 shards.
@@ -38,113 +41,19 @@ func testSendToRouteMultiPath(net *lntest.NetworkHarness, t *harnessTest) {
 	//      \              /
 	//       \__ Dave ____/
 	//
-	//
-	// Create the three nodes in addition to Alice and Bob.
-	alice := net.Alice
-	bob := net.Bob
-	carol, err := net.NewNode("carol", nil)
-	if err != nil {
-		t.Fatalf("unable to create carol: %v", err)
-	}
-	defer shutdownAndAssert(net, t, carol)
-
-	dave, err := net.NewNode("dave", nil)
-	if err != nil {
-		t.Fatalf("unable to create dave: %v", err)
-	}
-	defer shutdownAndAssert(net, t, dave)
-
-	eve, err := net.NewNode("eve", nil)
-	if err != nil {
-		t.Fatalf("unable to create eve: %v", err)
-	}
-	defer shutdownAndAssert(net, t, eve)
-
-	nodes := []*lntest.HarnessNode{alice, bob, carol, dave, eve}
-
-	// Connect nodes to ensure propagation of channels.
-	for i := 0; i < len(nodes); i++ {
-		for j := i + 1; j < len(nodes); j++ {
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			if err := net.EnsureConnected(ctxt, nodes[i], nodes[j]); err != nil {
-				t.Fatalf("unable to connect nodes: %v", err)
-			}
-		}
-	}
-
-	// We'll send shards along three routes from Alice.
-	sendRoutes := [][]*lntest.HarnessNode{
-		{carol, bob},
-		{dave, bob},
-		{carol, eve, bob},
-	}
-
-	// Keep a list of all our active channels.
-	var networkChans []*lnrpc.ChannelPoint
-	var closeChannelFuncs []func()
-
-	// openChannel is a helper to open a channel from->to.
-	openChannel := func(from, to *lntest.HarnessNode, chanSize btcutil.Amount) {
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		err := net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, from)
-		if err != nil {
-			t.Fatalf("unable to send coins : %v", err)
-		}
-
-		ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
-		chanPoint := openChannelAndAssert(
-			ctxt, t, net, from, to,
-			lntest.OpenChannelParams{
-				Amt: chanSize,
-			},
-		)
-
-		closeChannelFuncs = append(closeChannelFuncs, func() {
-			ctxt, _ := context.WithTimeout(ctxb, channelCloseTimeout)
-			closeChannelAndAssert(
-				ctxt, t, net, from, chanPoint, false,
-			)
-		})
-
-		networkChans = append(networkChans, chanPoint)
-	}
-
-	// Open channels between the nodes.
-	openChannel(carol, bob, chanAmt)
-	openChannel(dave, bob, chanAmt)
-	openChannel(alice, dave, chanAmt)
-	openChannel(eve, bob, chanAmt)
-	openChannel(carol, eve, chanAmt)
+	ctx.openChannel(ctx.carol, ctx.bob, chanAmt)
+	ctx.openChannel(ctx.dave, ctx.bob, chanAmt)
+	ctx.openChannel(ctx.alice, ctx.dave, chanAmt)
+	ctx.openChannel(ctx.eve, ctx.bob, chanAmt)
+	ctx.openChannel(ctx.carol, ctx.eve, chanAmt)
 
 	// Since the channel Alice-> Carol will have to carry two
 	// shards, we make it larger.
-	openChannel(alice, carol, chanAmt+shardAmt)
+	ctx.openChannel(ctx.alice, ctx.carol, chanAmt+shardAmt)
 
-	for _, f := range closeChannelFuncs {
-		defer f()
-	}
+	defer ctx.closeChannels()
 
-	// Wait for all nodes to have seen all channels.
-	for _, chanPoint := range networkChans {
-		for _, node := range nodes {
-			txid, err := lnd.GetChanPointFundingTxid(chanPoint)
-			if err != nil {
-				t.Fatalf("unable to get txid: %v", err)
-			}
-			point := wire.OutPoint{
-				Hash:  *txid,
-				Index: chanPoint.OutputIndex,
-			}
-
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			err = node.WaitForNetworkChannelOpen(ctxt, chanPoint)
-			if err != nil {
-				t.Fatalf("(%d): timeout waiting for "+
-					"channel(%s) open: %v",
-					node.NodeID, point, err)
-			}
-		}
-	}
+	ctx.waitForChannels()
 
 	// Make Bob create an invoice for Alice to pay.
 	payReqs, rHashes, invoices, err := createPayReqs(
@@ -195,6 +104,13 @@ func testSendToRouteMultiPath(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 
 		return routeResp.Route, nil
+	}
+
+	// We'll send shards along three routes from Alice.
+	sendRoutes := [][]*lntest.HarnessNode{
+		{ctx.carol, ctx.bob},
+		{ctx.dave, ctx.bob},
+		{ctx.carol, ctx.eve, ctx.bob},
 	}
 
 	responses := make(chan *routerrpc.SendToRouteResponse, len(sendRoutes))
@@ -354,4 +270,129 @@ func testSendToRouteMultiPath(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// ...and in Bob's list of paid invoices.
 	assertSettledInvoice(net.Bob, rHash, 3)
+}
+
+type mppTestContext struct {
+	t   *harnessTest
+	net *lntest.NetworkHarness
+
+	// Keep a list of all our active channels.
+	networkChans      []*lnrpc.ChannelPoint
+	closeChannelFuncs []func()
+
+	alice, bob, carol, dave, eve *lntest.HarnessNode
+	nodes                        []*lntest.HarnessNode
+}
+
+func newMppTestContext(t *harnessTest,
+	net *lntest.NetworkHarness) *mppTestContext {
+
+	ctxb := context.Background()
+
+	// Create a five-node context consisting of Alice, Bob and three new
+	// nodes.
+	carol, err := net.NewNode("carol", nil)
+	if err != nil {
+		t.Fatalf("unable to create carol: %v", err)
+	}
+
+	dave, err := net.NewNode("dave", nil)
+	if err != nil {
+		t.Fatalf("unable to create dave: %v", err)
+	}
+
+	eve, err := net.NewNode("eve", nil)
+	if err != nil {
+		t.Fatalf("unable to create eve: %v", err)
+	}
+
+	// Connect nodes to ensure propagation of channels.
+	nodes := []*lntest.HarnessNode{net.Alice, net.Bob, carol, dave, eve}
+	for i := 0; i < len(nodes); i++ {
+		for j := i + 1; j < len(nodes); j++ {
+			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+			if err := net.EnsureConnected(ctxt, nodes[i], nodes[j]); err != nil {
+				t.Fatalf("unable to connect nodes: %v", err)
+			}
+		}
+	}
+
+	ctx := mppTestContext{
+		t:     t,
+		net:   net,
+		alice: net.Alice,
+		bob:   net.Bob,
+		carol: carol,
+		dave:  dave,
+		eve:   eve,
+		nodes: nodes,
+	}
+
+	return &ctx
+}
+
+// openChannel is a helper to open a channel from->to.
+func (c *mppTestContext) openChannel(from, to *lntest.HarnessNode, chanSize btcutil.Amount) {
+	ctxb := context.Background()
+
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	err := c.net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, from)
+	if err != nil {
+		c.t.Fatalf("unable to send coins : %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
+	chanPoint := openChannelAndAssert(
+		ctxt, c.t, c.net, from, to,
+		lntest.OpenChannelParams{
+			Amt: chanSize,
+		},
+	)
+
+	c.closeChannelFuncs = append(c.closeChannelFuncs, func() {
+		ctxt, _ := context.WithTimeout(ctxb, channelCloseTimeout)
+		closeChannelAndAssert(
+			ctxt, c.t, c.net, from, chanPoint, false,
+		)
+	})
+
+	c.networkChans = append(c.networkChans, chanPoint)
+}
+
+func (c *mppTestContext) closeChannels() {
+	for _, f := range c.closeChannelFuncs {
+		f()
+	}
+}
+
+func (c *mppTestContext) shutdownNodes() {
+	shutdownAndAssert(c.net, c.t, c.carol)
+	shutdownAndAssert(c.net, c.t, c.dave)
+	shutdownAndAssert(c.net, c.t, c.eve)
+}
+
+func (c *mppTestContext) waitForChannels() {
+	ctxb := context.Background()
+
+	// Wait for all nodes to have seen all channels.
+	for _, chanPoint := range c.networkChans {
+		for _, node := range c.nodes {
+			txid, err := lnd.GetChanPointFundingTxid(chanPoint)
+			if err != nil {
+				c.t.Fatalf("unable to get txid: %v", err)
+			}
+			point := wire.OutPoint{
+				Hash:  *txid,
+				Index: chanPoint.OutputIndex,
+			}
+
+			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+			err = node.WaitForNetworkChannelOpen(ctxt, chanPoint)
+			if err != nil {
+				c.t.Fatalf("(%d): timeout waiting for "+
+					"channel(%s) open: %v",
+					node.NodeID, point, err)
+			}
+		}
+	}
 }

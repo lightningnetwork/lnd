@@ -1426,13 +1426,25 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 	// execute our path finding algorithm.
 	finalHtlcExpiry := currentHeight + int32(finalExpiry)
 
+	routingTx, err := newDbRoutingTx(r.cfg.Graph)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		err := routingTx.close()
+		if err != nil {
+			log.Errorf("Error closing db tx: %v", err)
+		}
+	}()
+
 	path, err := findPath(
 		&graphParams{
-			graph:           r.cfg.Graph,
-			bandwidthHints:  bandwidthHints,
 			additionalEdges: routeHints,
+			bandwidthHints:  bandwidthHints,
+			graph:           routingTx,
 		},
-		restrictions, &r.cfg.PathFindingConfig,
+		restrictions,
+		&r.cfg.PathFindingConfig,
 		source, target, amt, finalHtlcExpiry,
 	)
 	if err != nil {
@@ -1444,6 +1456,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 		source, path, uint32(currentHeight),
 		finalHopParams{
 			amt:       amt,
+			totalAmt:  amt,
 			cltvDelta: finalExpiry,
 			records:   destCustomRecords,
 		},
@@ -1611,6 +1624,10 @@ type LightningPayment struct {
 	// understand this new onion payload format, then the payment will
 	// fail.
 	DestCustomRecords record.CustomSet
+
+	// MaxHtlcs is the maximum number of partial payments that may be use to
+	// complete the full amount.
+	MaxHtlcs uint32
 }
 
 // SendPayment attempts to send a payment as described within the passed
@@ -2501,6 +2518,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		source, pathEdges, uint32(height),
 		finalHopParams{
 			amt:       receiverAmt,
+			totalAmt:  receiverAmt,
 			cltvDelta: uint16(finalCltvDelta),
 			records:   nil,
 		},

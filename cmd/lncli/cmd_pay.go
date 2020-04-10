@@ -52,6 +52,13 @@ var (
 		Usage: "if set, intermediate payment state updates will be " +
 			"displayed",
 	}
+
+	maxHtlcsFlag = cli.UintFlag{
+		Name: "max_htlcs",
+		Usage: "the maximum number of partial payments that may be " +
+			"used",
+		Value: 1,
+	}
 )
 
 // paymentFlags returns common flags for sendpayment and payinvoice.
@@ -88,7 +95,7 @@ func paymentFlags() []cli.Flag {
 			Name:  "allow_self_payment",
 			Usage: "allow sending a circular payment to self",
 		},
-		dataFlag, showInflightFlag,
+		dataFlag, showInflightFlag, maxHtlcsFlag,
 	}
 }
 
@@ -317,6 +324,8 @@ func sendPaymentRequest(ctx *cli.Context,
 	req.TimeoutSeconds = paymentTimeoutSeconds
 
 	req.AllowSelfPayment = ctx.Bool("allow_self_payment")
+
+	req.MaxHtlcs = uint32(ctx.Uint(maxHtlcsFlag.Name))
 
 	// Parse custom data records.
 	data := ctx.String(dataFlag.Name)

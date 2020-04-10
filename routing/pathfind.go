@@ -74,6 +74,7 @@ type edgePolicyWithSource struct {
 // custom records and payment address.
 type finalHopParams struct {
 	amt         lnwire.MilliSatoshi
+	totalAmt    lnwire.MilliSatoshi
 	cltvDelta   uint16
 	records     record.CustomSet
 	paymentAddr *[32]byte
@@ -177,7 +178,8 @@ func newRoute(sourceVertex route.Vertex,
 			// Otherwise attach the mpp record if it exists.
 			if finalHop.paymentAddr != nil {
 				mpp = record.NewMPP(
-					finalHop.amt, *finalHop.paymentAddr,
+					finalHop.totalAmt,
+					*finalHop.paymentAddr,
 				)
 			}
 		} else {
@@ -253,7 +255,7 @@ func edgeWeight(lockedAmt lnwire.MilliSatoshi, fee lnwire.MilliSatoshi,
 // graphParams wraps the set of graph parameters passed to findPath.
 type graphParams struct {
 	// graph is the ChannelGraph to be used during path finding.
-	graph *channeldb.ChannelGraph
+	graph routingGraph
 
 	// additionalEdges is an optional set of edges that should be
 	// considered during path finding, that is not already found in the
@@ -381,34 +383,8 @@ func getMaxOutgoingAmt(node route.Vertex, outgoingChan *uint64,
 // path and accurately check the amount to forward at every node against the
 // available bandwidth.
 func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
-	source, target route.Vertex, amt lnwire.MilliSatoshi, finalHtlcExpiry int32) (
-	[]*channeldb.ChannelEdgePolicy, error) {
-
-	routingTx, err := newDbRoutingTx(g.graph)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		err := routingTx.close()
-		if err != nil {
-			log.Errorf("Error closing db tx: %v", err)
-		}
-	}()
-
-	return findPathInternal(
-		g.additionalEdges, g.bandwidthHints, routingTx, r, cfg, source,
-		target, amt, finalHtlcExpiry,
-	)
-}
-
-// findPathInternal is the internal implementation of findPath.
-func findPathInternal(
-	additionalEdges map[route.Vertex][]*channeldb.ChannelEdgePolicy,
-	bandwidthHints map[uint64]lnwire.MilliSatoshi,
-	graph routingGraph,
-	r *RestrictParams, cfg *PathFindingConfig,
-	source, target route.Vertex, amt lnwire.MilliSatoshi, finalHtlcExpiry int32) (
-	[]*channeldb.ChannelEdgePolicy, error) {
+	source, target route.Vertex, amt lnwire.MilliSatoshi,
+	finalHtlcExpiry int32) ([]*channeldb.ChannelEdgePolicy, error) {
 
 	// Pathfinding can be a significant portion of the total payment
 	// latency, especially on low-powered devices. Log several metrics to
@@ -427,7 +403,7 @@ func findPathInternal(
 	features := r.DestFeatures
 	if features == nil {
 		var err error
-		features, err = graph.fetchNodeFeatures(target)
+		features, err = g.graph.fetchNodeFeatures(target)
 		if err != nil {
 			return nil, err
 		}
@@ -468,17 +444,17 @@ func findPathInternal(
 
 	// If we are routing from ourselves, check that we have enough local
 	// balance available.
-	self := graph.sourceNode()
+	self := g.graph.sourceNode()
 
 	if source == self {
 		max, err := getMaxOutgoingAmt(
-			self, r.OutgoingChannelID, bandwidthHints, graph,
+			self, r.OutgoingChannelID, g.bandwidthHints, g.graph,
 		)
 		if err != nil {
 			return nil, err
 		}
 		if max < amt {
-			return nil, errInsufficientBalance
+			return nil, errNoPathFound
 		}
 	}
 
@@ -491,7 +467,7 @@ func findPathInternal(
 	distance := make(map[route.Vertex]*nodeWithDist, estimatedNodeCount)
 
 	additionalEdgesWithSrc := make(map[route.Vertex][]*edgePolicyWithSource)
-	for vertex, outgoingEdgePolicies := range additionalEdges {
+	for vertex, outgoingEdgePolicies := range g.additionalEdges {
 		// Build reverse lookup to find incoming edges. Needed because
 		// search is taken place from target to source.
 		for _, outgoingEdgePolicy := range outgoingEdgePolicies {
@@ -739,7 +715,7 @@ func findPathInternal(
 		}
 
 		// Fetch node features fresh from the graph.
-		fromFeatures, err := graph.fetchNodeFeatures(node)
+		fromFeatures, err := g.graph.fetchNodeFeatures(node)
 		if err != nil {
 			return nil, err
 		}
@@ -775,7 +751,7 @@ func findPathInternal(
 		// Create unified policies for all incoming connections.
 		u := newUnifiedPolicies(self, pivot, r.OutgoingChannelID)
 
-		err := u.addGraphPolicies(graph)
+		err := u.addGraphPolicies(g.graph)
 		if err != nil {
 			return nil, err
 		}
@@ -806,7 +782,7 @@ func findPathInternal(
 			}
 
 			policy := unifiedPolicy.getPolicy(
-				amtToSend, bandwidthHints,
+				amtToSend, g.bandwidthHints,
 			)
 
 			if policy == nil {

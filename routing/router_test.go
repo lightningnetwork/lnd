@@ -79,11 +79,6 @@ func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGr
 	chain := newMockChain(startingHeight)
 	chainView := newMockChainView(chain)
 
-	selfNode, err := graphInstance.graph.SourceNode()
-	if err != nil {
-		return nil, nil, err
-	}
-
 	pathFindingConfig := PathFindingConfig{
 		MinProbability:        0.01,
 		PaymentAttemptPenalty: 100,
@@ -104,8 +99,7 @@ func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGr
 	}
 
 	sessionSource := &SessionSource{
-		Graph:    graphInstance.graph,
-		SelfNode: selfNode,
+		Graph: graphInstance.graph,
 		QueryBandwidth: func(e *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
 			return lnwire.NewMSatFromSatoshis(e.Capacity)
 		},
@@ -2188,10 +2182,8 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	// We'll now attempt a path finding attempt using this set up. Due to
 	// the edge weighting, we should select the direct path over the 2 hop
 	// path even though the direct path has a higher potential time lock.
-	path, err := findPath(
-		&graphParams{
-			graph: ctx.graph,
-		},
+	path, err := dbFindPath(
+		ctx.graph, nil, nil,
 		noRestrictions,
 		testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, amt, 0,

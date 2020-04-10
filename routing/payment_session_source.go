@@ -26,9 +26,6 @@ type SessionSource struct {
 	// the available bandwidth of the link should be returned.
 	QueryBandwidth func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi
 
-	// SelfNode is our own node.
-	SelfNode *channeldb.LightningNode
-
 	// MissionControl is a shared memory of sorts that executions of payment
 	// path finding use in order to remember which vertexes/edges were
 	// pruned from prior attempts. During payment execution, errors sent by
@@ -41,6 +38,21 @@ type SessionSource struct {
 	// PathFindingConfig defines global parameters that control the
 	// trade-off in path finding between fees and probabiity.
 	PathFindingConfig PathFindingConfig
+}
+
+// getRoutingGraph returns a routing graph and a clean-up function for
+// pathfinding.
+func (m *SessionSource) getRoutingGraph() (routingGraph, func(), error) {
+	routingTx, err := newDbRoutingTx(m.Graph)
+	if err != nil {
+		return nil, nil, err
+	}
+	return routingTx, func() {
+		err := routingTx.close()
+		if err != nil {
+			log.Errorf("Error closing db tx: %v", err)
+		}
+	}, nil
 }
 
 // NewPaymentSession creates a new payment session backed by the latest prune
@@ -69,9 +81,12 @@ func (m *SessionSource) NewPaymentSession(p *LightningPayment) (
 	return &paymentSession{
 		additionalEdges:   edges,
 		getBandwidthHints: getBandwidthHints,
-		sessionSource:     m,
 		payment:           p,
 		pathFinder:        findPath,
+		getRoutingGraph:   m.getRoutingGraph,
+		pathFindingConfig: m.PathFindingConfig,
+		missionControl:    m.MissionControl,
+		minShardAmt:       DefaultShardMinAmt,
 	}, nil
 }
 
@@ -80,8 +95,7 @@ func (m *SessionSource) NewPaymentSession(p *LightningPayment) (
 // missioncontrol for resumed payment we don't want to make more attempts for.
 func (m *SessionSource) NewPaymentSessionEmpty() PaymentSession {
 	return &paymentSession{
-		sessionSource: m,
-		empty:         true,
+		empty: true,
 	}
 }
 

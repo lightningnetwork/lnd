@@ -1,7 +1,9 @@
 package routing
 
 import (
+	"fmt"
 	"io/ioutil"
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -9,6 +11,11 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+)
+
+const (
+	sourceNodeID = 1
+	targetNodeID = 2
 )
 
 // integratedRoutingContext defines the context in which integrated routing
@@ -31,8 +38,8 @@ type integratedRoutingContext struct {
 // context with a source and a target node.
 func newIntegratedRoutingContext(t *testing.T) *integratedRoutingContext {
 	// Instantiate a mock graph.
-	source := newMockNode()
-	target := newMockNode()
+	source := newMockNode(sourceNodeID)
+	target := newMockNode(targetNodeID)
 
 	graph := newMockGraph(t)
 	graph.addNode(source)
@@ -59,6 +66,7 @@ func newIntegratedRoutingContext(t *testing.T) *integratedRoutingContext {
 
 		pathFindingCfg: PathFindingConfig{
 			PaymentAttemptPenalty: 1000,
+			MinProbability:        0.01,
 		},
 
 		source: source,
@@ -68,10 +76,25 @@ func newIntegratedRoutingContext(t *testing.T) *integratedRoutingContext {
 	return &ctx
 }
 
+// htlcAttempt records the route and outcome of an attempted htlc.
+type htlcAttempt struct {
+	route   *route.Route
+	success bool
+}
+
+func (h htlcAttempt) String() string {
+	return fmt.Sprintf("success=%v, route=%v", h.success, h.route)
+}
+
 // testPayment launches a test payment and asserts that it is completed after
 // the expected number of attempts.
-func (c *integratedRoutingContext) testPayment(expectedNofAttempts int) {
-	var nextPid uint64
+func (c *integratedRoutingContext) testPayment(maxHtlcs uint32) ([]htlcAttempt,
+	error) {
+
+	var (
+		nextPid  uint64
+		attempts []htlcAttempt
+	)
 
 	// Create temporary database for mission control.
 	file, err := ioutil.TempFile("", "*.db")
@@ -95,14 +118,46 @@ func (c *integratedRoutingContext) testPayment(expectedNofAttempts int) {
 		c.t.Fatal(err)
 	}
 
-	// Instruct pathfinding to use mission control as a probabiltiy source.
-	restrictParams := RestrictParams{
-		ProbabilitySource: mc.GetProbability,
-		FeeLimit:          lnwire.MaxMilliSatoshi,
+	getBandwidthHints := func() (map[uint64]lnwire.MilliSatoshi, error) {
+		// Create bandwidth hints based on local channel balances.
+		bandwidthHints := map[uint64]lnwire.MilliSatoshi{}
+		for _, ch := range c.graph.nodes[c.source.pubkey].channels {
+			bandwidthHints[ch.id] = ch.balance
+		}
+
+		return bandwidthHints, nil
+	}
+
+	var paymentAddr [32]byte
+	payment := LightningPayment{
+		FinalCLTVDelta: uint16(c.finalExpiry),
+		FeeLimit:       lnwire.MaxMilliSatoshi,
+		Target:         c.target.pubkey,
+		PaymentAddr:    &paymentAddr,
+		DestFeatures:   lnwire.NewFeatureVector(mppFeatures, nil),
+		Amount:         c.amt,
+		CltvLimit:      math.MaxUint32,
+		MaxHtlcs:       maxHtlcs,
+	}
+
+	session := &paymentSession{
+		getBandwidthHints: getBandwidthHints,
+		payment:           &payment,
+		pathFinder:        findPath,
+		getRoutingGraph: func() (routingGraph, func(), error) {
+			return c.graph, func() {}, nil
+		},
+		pathFindingConfig: c.pathFindingCfg,
+		missionControl:    mc,
+		minShardAmt:       lnwire.NewMSatFromSatoshis(5000),
 	}
 
 	// Now the payment control loop starts. It will keep trying routes until
 	// the payment succeeds.
+	var (
+		amtRemaining  = payment.Amount
+		inFlightHtlcs uint32
+	)
 	for {
 		// Create bandwidth hints based on local channel balances.
 		bandwidthHints := map[uint64]lnwire.MilliSatoshi{}
@@ -111,25 +166,11 @@ func (c *integratedRoutingContext) testPayment(expectedNofAttempts int) {
 		}
 
 		// Find a route.
-		path, err := findPathInternal(
-			nil, bandwidthHints, c.graph,
-			&restrictParams,
-			&c.pathFindingCfg,
-			c.source.pubkey, c.target.pubkey,
-			c.amt, c.finalExpiry,
+		route, err := session.RequestRoute(
+			amtRemaining, lnwire.MaxMilliSatoshi, inFlightHtlcs, 0,
 		)
 		if err != nil {
-			c.t.Fatal(err)
-		}
-
-		finalHop := finalHopParams{
-			amt:       c.amt,
-			cltvDelta: uint16(c.finalExpiry),
-		}
-
-		route, err := newRoute(c.source.pubkey, path, 0, finalHop)
-		if err != nil {
-			c.t.Fatal(err)
+			return attempts, err
 		}
 
 		// Send out the htlc on the mock graph.
@@ -140,21 +181,39 @@ func (c *integratedRoutingContext) testPayment(expectedNofAttempts int) {
 			c.t.Fatal(err)
 		}
 
-		// Process the result.
-		if htlcResult.failure == nil {
+		success := htlcResult.failure == nil
+		attempts = append(attempts, htlcAttempt{
+			route:   route,
+			success: success,
+		})
+
+		// Process the result. In normal Lightning operations, the
+		// sender doesn't get an acknowledgement from the recipient that
+		// the htlc arrived. In integrated routing tests, this
+		// acknowledgement is available. It is a simplification of
+		// reality that still allows certain classes of tests to be
+		// performed.
+		if success {
+			inFlightHtlcs++
+
 			err := mc.ReportPaymentSuccess(pid, route)
 			if err != nil {
 				c.t.Fatal(err)
 			}
 
-			// If the payment is successful, the control loop can be
-			// broken out of.
-			break
+			amtRemaining -= route.ReceiverAmt()
+
+			// If the full amount has been paid, the payment is
+			// successful and the control loop can be terminated.
+			if amtRemaining == 0 {
+				break
+			}
+
+			// Otherwise try to send the remaining amount.
+			continue
 		}
 
 		// Failure, update mission control and retry.
-		c.t.Logf("fail: %v @ %v\n", htlcResult.failure, htlcResult.failureSource)
-
 		finalResult, err := mc.ReportPaymentFail(
 			pid, route,
 			getNodeIndex(route, htlcResult.failureSource),
@@ -165,16 +224,11 @@ func (c *integratedRoutingContext) testPayment(expectedNofAttempts int) {
 		}
 
 		if finalResult != nil {
-			c.t.Logf("final result: %v\n", finalResult)
 			break
 		}
 	}
 
-	c.t.Logf("Payment attempts: %v\n", nextPid)
-	if expectedNofAttempts != int(nextPid) {
-		c.t.Fatalf("expected %v attempts, but needed %v",
-			expectedNofAttempts, nextPid)
-	}
+	return attempts, nil
 }
 
 // getNodeIndex returns the zero-based index of the given node in the route.

@@ -3962,6 +3962,10 @@ func (r *rpcServer) dispatchPaymentIntent(
 			DestCustomRecords: payIntent.destCustomRecords,
 			DestFeatures:      payIntent.destFeatures,
 			PaymentAddr:       payIntent.paymentAddr,
+
+			// Don't enable multi-part payments on the main rpc.
+			// Users need to use routerrpc for that.
+			MaxHtlcs: 1,
 		}
 
 		preImage, route, routerErr = r.server.chanRouter.SendPayment(

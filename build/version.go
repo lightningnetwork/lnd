@@ -20,6 +20,10 @@ var (
 	// CommitHash stores the current commit hash of this build, this should
 	// be set using the -ldflags during compilation.
 	CommitHash string
+
+	// RawTags contains the raw set of build tags, separated by commas. This
+	// should be set using -ldflags during compilation.
+	RawTags string
 )
 
 // semanticAlphabet is the set of characters that are permitted for use in an
@@ -73,4 +77,13 @@ func Version() string {
 	version = fmt.Sprintf("%s commit=%s", version, Commit)
 
 	return version
+}
+
+// Tags returns the list of build tags that were compiled into the executable.
+func Tags() []string {
+	if len(RawTags) == 0 {
+		return nil
+	}
+
+	return strings.Split(RawTags, ",")
 }

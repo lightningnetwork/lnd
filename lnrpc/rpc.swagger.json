@@ -2923,6 +2923,10 @@
           "type": "string",
           "description": "/ The version of the LND software that the node is running."
         },
+        "commit_hash": {
+          "type": "string",
+          "description": "/ The SHA1 commit hash that the daemon is compiled with."
+        },
         "identity_pubkey": {
           "type": "string",
           "description": "/ The identity pubkey of the current node."

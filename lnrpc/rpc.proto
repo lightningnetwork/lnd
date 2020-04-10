@@ -1660,6 +1660,9 @@ message GetInfoResponse {
     /// The version of the LND software that the node is running.
     string version = 14;
 
+    /// The SHA1 commit hash that the daemon is compiled with.
+    string commit_hash = 20;
+
     /// The identity pubkey of the current node.
     string identity_pubkey = 1;
 

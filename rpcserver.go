@@ -3299,6 +3299,25 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		channel.PushAmountSat = uint64(localBalance.ToSatoshis())
 	}
 
+	if len(dbChannel.LocalShutdownScript) > 0 {
+		_, addresses, _, err := txscript.ExtractPkScriptAddrs(
+			dbChannel.LocalShutdownScript, activeNetParams.Params,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// We only expect one upfront shutdown address for a channel. If
+		// LocalShutdownScript is non-zero, there should be one payout
+		// address set.
+		if len(addresses) != 1 {
+			return nil, fmt.Errorf("expected one upfront shutdown "+
+				"address, got: %v", len(addresses))
+		}
+
+		channel.CloseAddress = addresses[0].String()
+	}
+
 	outpoint := dbChannel.FundingOutpoint
 
 	// Get the lifespan observed by the channel event store. If the channel is
@@ -3335,25 +3354,6 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		return nil, err
 	}
 	channel.Uptime = int64(uptime.Seconds())
-
-	if len(dbChannel.LocalShutdownScript) > 0 {
-		_, addresses, _, err := txscript.ExtractPkScriptAddrs(
-			dbChannel.LocalShutdownScript, activeNetParams.Params,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		// We only expect one upfront shutdown address for a channel. If
-		// LocalShutdownScript is non-zero, there should be one payout address
-		// set.
-		if len(addresses) != 1 {
-			return nil, fmt.Errorf("expected one upfront shutdown address, "+
-				"got: %v", len(addresses))
-		}
-
-		channel.CloseAddress = addresses[0].String()
-	}
 
 	return channel, nil
 }

@@ -3318,11 +3318,18 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		channel.CloseAddress = addresses[0].String()
 	}
 
-	outpoint := dbChannel.FundingOutpoint
+	// If the server hasn't fully started yet, it's possible that the
+	// channel event store hasn't either, so it won't be able to consume any
+	// requests until then. To prevent blocking, we'll just omit the uptime
+	// related fields for now.
+	if !r.server.Started() {
+		return channel, nil
+	}
 
 	// Get the lifespan observed by the channel event store. If the channel is
 	// not known to the channel event store, return early because we cannot
 	// calculate any further uptime information.
+	outpoint := dbChannel.FundingOutpoint
 	startTime, endTime, err := r.server.chanEventStore.GetLifespan(outpoint)
 	switch err {
 	case chanfitness.ErrChannelNotFound:

@@ -286,6 +286,14 @@ type ChannelLinkConfig struct {
 	HtlcNotifier htlcNotifier
 }
 
+// localUpdateAddMsg contains a locally initiated htlc and a channel that will
+// receive the outcome of the link processing. This channel must be buffered to
+// prevent the link from blocking.
+type localUpdateAddMsg struct {
+	pkt *htlcPacket
+	err chan error
+}
+
 // channelLink is the service which drives a channel's commitment update
 // state-machine. In the event that an HTLC needs to be propagated to another
 // link, the forward handler from config is used which sends HTLC to the
@@ -346,6 +354,10 @@ type channelLink struct {
 	// by the HTLC switch.
 	downstream chan *htlcPacket
 
+	// localUpdateAdd is a channel to which locally initiated HTLCs are
+	// sent across.
+	localUpdateAdd chan *localUpdateAddMsg
+
 	// htlcUpdates is a channel that we'll use to update outside
 	// sub-systems with the latest set of active HTLC's on our channel.
 	htlcUpdates chan *contractcourt.ContractUpdate
@@ -395,11 +407,12 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		channel:     channel,
 		shortChanID: channel.ShortChanID(),
 		// TODO(roasbeef): just do reserve here?
-		htlcUpdates: make(chan *contractcourt.ContractUpdate),
-		hodlMap:     make(map[channeldb.CircuitKey]hodlHtlc),
-		hodlQueue:   queue.NewConcurrentQueue(10),
-		log:         build.NewPrefixLog(logPrefix, log),
-		quit:        make(chan struct{}),
+		htlcUpdates:    make(chan *contractcourt.ContractUpdate),
+		hodlMap:        make(map[channeldb.CircuitKey]hodlHtlc),
+		hodlQueue:      queue.NewConcurrentQueue(10),
+		log:            build.NewPrefixLog(logPrefix, log),
+		quit:           make(chan struct{}),
+		localUpdateAdd: make(chan *localUpdateAddMsg),
 	}
 }
 
@@ -1112,6 +1125,10 @@ func (l *channelLink) htlcManager() {
 		case pkt := <-l.downstream:
 			l.handleDownstreamPkt(pkt)
 
+		// A message containing a locally initiated add was received.
+		case msg := <-l.localUpdateAdd:
+			msg.err <- l.handleDownstreamUpdateAdd(msg.pkt)
+
 		// A message from the connected peer was just received. This
 		// indicates that we have a new incoming HTLC, either directly
 		// for us, or part of a multi-hop HTLC circuit.
@@ -1256,8 +1273,11 @@ func (l *channelLink) randomFeeUpdateTimeout() time.Duration {
 
 // handleDownstreamUpdateAdd processes an UpdateAddHTLC packet sent from the
 // downstream HTLC Switch.
-func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) {
-	htlc := pkt.htlc.(*lnwire.UpdateAddHTLC)
+func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) error {
+	htlc, ok := pkt.htlc.(*lnwire.UpdateAddHTLC)
+	if !ok {
+		return errors.New("not an UpdateAddHTLC packet")
+	}
 
 	// If hodl.AddOutgoing mode is active, we exit early to simulate
 	// arbitrary delays between the switch adding an ADD to the
@@ -1265,7 +1285,7 @@ func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) {
 	if l.cfg.HodlMask.Active(hodl.AddOutgoing) {
 		l.log.Warnf(hodl.AddOutgoing.Warning())
 		l.mailBox.AckPacket(pkt.inKey())
-		return
+		return nil
 	}
 
 	// A new payment has been initiated via the downstream channel,
@@ -1291,7 +1311,10 @@ func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) {
 		// unacknowledged.
 		l.mailBox.FailAdd(pkt)
 
-		return
+		return NewDetailedLinkError(
+			lnwire.NewTemporaryChannelFailure(nil),
+			OutgoingFailureDownstreamHtlcAdd,
+		)
 	}
 
 	l.log.Tracef("received downstream htlc: payment_hash=%x, "+
@@ -1324,6 +1347,8 @@ func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) {
 	)
 
 	l.tryBatchUpdateCommitTx()
+
+	return nil
 }
 
 // handleDownstreamPkt processes an HTLC packet sent from the downstream HTLC
@@ -1335,7 +1360,9 @@ func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) {
 func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 	switch htlc := pkt.htlc.(type) {
 	case *lnwire.UpdateAddHTLC:
-		l.handleDownstreamUpdateAdd(pkt)
+		// Handle add message. The returned error can be ignored,
+		// because it is also sent through the mailbox.
+		_ = l.handleDownstreamUpdateAdd(pkt)
 
 	case *lnwire.UpdateFulfillHTLC:
 		// If hodl.SettleOutgoing mode is active, we exit early to
@@ -2327,6 +2354,33 @@ func (l *channelLink) HandleSwitchPacket(pkt *htlcPacket) error {
 		pkt.inKey(), pkt.outKey())
 
 	return l.mailBox.AddPacket(pkt)
+}
+
+// HandleLocalAddPacket handles a locally-initiated UpdateAddHTLC packet. It
+// will be processed synchronously.
+//
+// NOTE: Part of the ChannelLink interface.
+func (l *channelLink) HandleLocalAddPacket(pkt *htlcPacket) error {
+	l.log.Tracef("received switch packet outkey=%v", pkt.outKey())
+
+	// Create a buffered result channel to prevent the link from blocking.
+	errChan := make(chan error, 1)
+
+	select {
+	case l.localUpdateAdd <- &localUpdateAddMsg{
+		pkt: pkt,
+		err: errChan,
+	}:
+	case <-l.quit:
+		return ErrLinkShuttingDown
+	}
+
+	select {
+	case err := <-errChan:
+		return err
+	case <-l.quit:
+		return ErrLinkShuttingDown
+	}
 }
 
 // HandleChannelUpdate handles the htlc requests as settle/add/fail which sent

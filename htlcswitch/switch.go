@@ -451,7 +451,26 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 		htlc:           htlc,
 	}
 
-	return s.forward(packet)
+	circuit := newPaymentCircuit(&htlc.PaymentHash, packet)
+	actions, err := s.circuits.CommitCircuits(circuit)
+	if err != nil {
+		log.Errorf("unable to commit circuit in switch: %v", err)
+		return err
+	}
+
+	// Drop duplicate packet if it has already been seen.
+	switch {
+	case len(actions.Drops) == 1:
+		return ErrDuplicateAdd
+
+	case len(actions.Fails) == 1:
+		return err
+	}
+
+	// Send packet to link.
+	packet.circuit = circuit
+
+	return s.route(packet)
 }
 
 // UpdateForwardingPolicies sends a message to the switch to update the
@@ -496,52 +515,6 @@ func (s *Switch) IsForwardedHTLC(chanID lnwire.ShortChannelID,
 		HtlcID: htlcIndex,
 	})
 	return circuit != nil && circuit.Incoming.ChanID != hop.Source
-}
-
-// forward is used in order to find next channel link and apply htlc update.
-// Also this function is used by channel links itself in order to forward the
-// update after it has been included in the channel.
-func (s *Switch) forward(packet *htlcPacket) error {
-	switch htlc := packet.htlc.(type) {
-	case *lnwire.UpdateAddHTLC:
-		circuit := newPaymentCircuit(&htlc.PaymentHash, packet)
-		actions, err := s.circuits.CommitCircuits(circuit)
-		if err != nil {
-			log.Errorf("unable to commit circuit in switch: %v", err)
-			return err
-		}
-
-		// Drop duplicate packet if it has already been seen.
-		switch {
-		case len(actions.Drops) == 1:
-			return ErrDuplicateAdd
-
-		case len(actions.Fails) == 1:
-			if packet.incomingChanID == hop.Source {
-				return err
-			}
-
-			var failure lnwire.FailureMessage
-			update, err := s.cfg.FetchLastChannelUpdate(
-				packet.incomingChanID,
-			)
-			if err != nil {
-				failure = &lnwire.FailTemporaryNodeFailure{}
-			} else {
-				failure = lnwire.NewTemporaryChannelFailure(update)
-			}
-
-			linkError := NewDetailedLinkError(
-				failure, OutgoingFailureIncompleteForward,
-			)
-
-			return s.failAddPacket(packet, linkError)
-		}
-
-		packet.circuit = circuit
-	}
-
-	return s.route(packet)
 }
 
 // ForwardPackets adds a list of packets to the switch for processing. Fails

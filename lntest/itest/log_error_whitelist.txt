@@ -24,6 +24,7 @@
 <time> [ERR] CRTR: Channel update of ourselves received
 <time> [ERR] CRTR: Error collecting result for shard <number> for payment <hex>: shard handler exiting
 <time> [ERR] CRTR: Error encountered during rescan: rescan exited
+<time> [ERR] CRTR: Failed sending attempt <number> for payment <hex> to switch: could not add downstream htlc
 <time> [ERR] CRTR: Failed sending attempt <number> for payment <hex> to switch: insufficient bandwidth to route htlc
 <time> [ERR] CRTR: Failed sending attempt <number> for payment <hex> to switch: UnknownNextPeer
 <time> [ERR] CRTR: out of order block: expecting height=<height>, got height=<height>
@@ -80,6 +81,7 @@
 <time> [ERR] HSWC: ChannelLink(<chan>): link failed, exiting htlcManager
 <time> [ERR] HSWC: ChannelLink(<chan>): outgoing htlc(<hex>) has insufficient fee: expected 575000, got 1075
 <time> [ERR] HSWC: ChannelLink(<chan>): outgoing htlc(<hex>) is too small: min_htlc=<amt>, htlc_value=<amt>
+<time> [ERR] HSWC: ChannelLink(<chan>): unable to cancel incoming HTLC for circuit-key=(Chan ID=<chan>, HTLC ID=0): HTLC with ID 0 has already been failed
 <time> [ERR] HSWC: ChannelLink(<chan>): unable to decode onion hop iterator: TemporaryChannelFailure
 <time> [ERR] HSWC: ChannelLink(<chan>): unhandled error while forwarding htlc packet over htlcswitch: AmountBelowMinimum(amt=4000 mSAT, update=(lnwire.ChannelUpdate) {
 <time> [ERR] HSWC: ChannelLink(<chan>): unhandled error while forwarding htlc packet over htlcswitch: circuit has already been closed

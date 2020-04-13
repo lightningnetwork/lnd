@@ -4182,6 +4182,34 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	)
 
+	// Next, we'll create Fred who is going to initiate the payment and
+	// establish a channel to from him to Carol. We can't perform this test
+	// by paying from Carol directly to Dave, because the '--unsafe-replay'
+	// setup doesn't apply to locally added htlcs. In that case, the
+	// mailbox, that is responsible for generating the replay, is bypassed.
+	fred, err := net.NewNode("Fred", nil)
+	if err != nil {
+		t.Fatalf("unable to create new nodes: %v", err)
+	}
+	defer shutdownAndAssert(net, t, fred)
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	if err := net.ConnectNodes(ctxt, fred, carol); err != nil {
+		t.Fatalf("unable to connect fred to carol: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, fred)
+	if err != nil {
+		t.Fatalf("unable to send coins to fred: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
+	chanPointFC := openChannelAndAssert(
+		ctxt, t, net, fred, carol,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
+	)
+
 	// Now that the channel is open, create an invoice for Dave which
 	// expects a payment of 1000 satoshis from Carol paid via a particular
 	// preimage.
@@ -4198,8 +4226,7 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to add invoice: %v", err)
 	}
 
-	// Wait for Carol to recognize and advertise the new channel generated
-	// above.
+	// Wait for all channels to be recognized and advertized.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	if err != nil {
@@ -4211,13 +4238,23 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("bob didn't advertise channel before "+
 			"timeout: %v", err)
 	}
+	err = carol.WaitForNetworkChannelOpen(ctxt, chanPointFC)
+	if err != nil {
+		t.Fatalf("alice didn't advertise channel before "+
+			"timeout: %v", err)
+	}
+	err = fred.WaitForNetworkChannelOpen(ctxt, chanPointFC)
+	if err != nil {
+		t.Fatalf("bob didn't advertise channel before "+
+			"timeout: %v", err)
+	}
 
-	// With the invoice for Dave added, send a payment from Carol paying
+	// With the invoice for Dave added, send a payment from Fred paying
 	// to the above generated invoice.
 	ctx, cancel := context.WithCancel(ctxb)
 	defer cancel()
 
-	payStream, err := carol.SendPayment(ctx)
+	payStream, err := fred.SendPayment(ctx)
 	if err != nil {
 		t.Fatalf("unable to open payment stream: %v", err)
 	}
@@ -4270,12 +4307,12 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to receive payment response: %v", err)
 	}
 
-	// Construct the response we expect after sending a duplicate packet
-	// that fails due to sphinx replay detection.
+	// Assert that Fred receives the expected failure after Carol sent a
+	// duplicate packet that fails due to sphinx replay detection.
 	if resp.PaymentError == "" {
 		t.Fatalf("expected payment error")
 	}
-	assertLastHTLCError(t, carol, lnrpc.Failure_INVALID_ONION_KEY)
+	assertLastHTLCError(t, fred, lnrpc.Failure_INVALID_ONION_KEY)
 
 	// Since the payment failed, the balance should still be left
 	// unaltered.

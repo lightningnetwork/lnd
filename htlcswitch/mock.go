@@ -702,6 +702,11 @@ func (f *mockChannelLink) HandleSwitchPacket(pkt *htlcPacket) error {
 	return nil
 }
 
+func (f *mockChannelLink) HandleLocalAddPacket(pkt *htlcPacket) error {
+	_ = f.mailBox.AddPacket(pkt)
+	return nil
+}
+
 func (f *mockChannelLink) HandleChannelUpdate(lnwire.Message) {
 }
 

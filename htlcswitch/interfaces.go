@@ -70,6 +70,10 @@ type ChannelLink interface {
 	// possible).
 	HandleSwitchPacket(*htlcPacket) error
 
+	// HandleLocalAddPacket handles a locally-initiated UpdateAddHTLC
+	// packet. It will be processed synchronously.
+	HandleLocalAddPacket(*htlcPacket) error
+
 	// HandleChannelUpdate handles the htlc requests as settle/add/fail
 	// which sent to us from remote peer we have a channel with.
 	//

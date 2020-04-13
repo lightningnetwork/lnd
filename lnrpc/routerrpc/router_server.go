@@ -48,7 +48,7 @@ var (
 
 	// macPermissions maps RPC calls to the permissions they require.
 	macPermissions = map[string][]bakery.Op{
-		"/routerrpc.Router/SendPayment": {{
+		"/routerrpc.Router/SendPaymentV2": {{
 			Entity: "offchain",
 			Action: "write",
 		}},
@@ -56,7 +56,7 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
-		"/routerrpc.Router/TrackPayment": {{
+		"/routerrpc.Router/TrackPaymentV2": {{
 			Entity: "offchain",
 			Action: "read",
 		}},
@@ -214,13 +214,13 @@ func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	return nil
 }
 
-// SendPayment attempts to route a payment described by the passed
+// SendPaymentV2 attempts to route a payment described by the passed
 // PaymentRequest to the final destination. If we are unable to route the
 // payment, or cannot find a route that satisfies the constraints in the
 // PaymentRequest, then an error will be returned. Otherwise, the payment
 // pre-image, along with the final route will be returned.
-func (s *Server) SendPayment(req *SendPaymentRequest,
-	stream Router_SendPaymentServer) error {
+func (s *Server) SendPaymentV2(req *SendPaymentRequest,
+	stream Router_SendPaymentV2Server) error {
 
 	payment, err := s.cfg.RouterBackend.extractIntentFromSendRequest(req)
 	if err != nil {
@@ -419,10 +419,10 @@ func (s *Server) QueryProbability(ctx context.Context,
 	}, nil
 }
 
-// TrackPayment returns a stream of payment state updates. The stream is
+// TrackPaymentV2 returns a stream of payment state updates. The stream is
 // closed when the payment completes.
-func (s *Server) TrackPayment(request *TrackPaymentRequest,
-	stream Router_TrackPaymentServer) error {
+func (s *Server) TrackPaymentV2(request *TrackPaymentRequest,
+	stream Router_TrackPaymentV2Server) error {
 
 	paymentHash, err := lntypes.MakeHash(request.PaymentHash)
 	if err != nil {
@@ -436,7 +436,7 @@ func (s *Server) TrackPayment(request *TrackPaymentRequest,
 
 // trackPayment writes payment status updates to the provided stream.
 func (s *Server) trackPayment(paymentHash lntypes.Hash,
-	stream Router_TrackPaymentServer) error {
+	stream Router_TrackPaymentV2Server) error {
 
 	router := s.cfg.RouterBackend
 

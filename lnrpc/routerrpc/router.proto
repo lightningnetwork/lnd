@@ -413,17 +413,17 @@ enum FailureDetail {
 
 service Router {
     /**
-    SendPayment attempts to route a payment described by the passed
+    SendPaymentV2 attempts to route a payment described by the passed
     PaymentRequest to the final destination. The call returns a stream of
     payment updates.
     */
-    rpc SendPayment (SendPaymentRequest) returns (stream lnrpc.Payment);
+    rpc SendPaymentV2 (SendPaymentRequest) returns (stream lnrpc.Payment);
 
     /**
-    TrackPayment returns an update stream for the payment identified by the
+    TrackPaymentV2 returns an update stream for the payment identified by the
     payment hash.
     */
-    rpc TrackPayment (TrackPaymentRequest) returns (stream lnrpc.Payment);
+    rpc TrackPaymentV2 (TrackPaymentRequest) returns (stream lnrpc.Payment);
 
     /**
     EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it

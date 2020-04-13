@@ -491,7 +491,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 		return linkErr
 	}
 
-	return link.HandleSwitchPacket(packet)
+	return link.HandleLocalAddPacket(packet)
 }
 
 // UpdateForwardingPolicies sends a message to the switch to update the

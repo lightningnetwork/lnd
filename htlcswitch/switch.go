@@ -774,49 +774,37 @@ func (s *Switch) routeAsync(packet *htlcPacket, errChan chan error,
 	}
 }
 
-// handleLocalDispatch is used at the start/end of the htlc update life cycle.
-// At the start (1) it is used to send the htlc to the channel link without
-// creation of circuit. At the end (2) it is used to notify the user about the
-// result of his payment is it was successful or not.
-//
-//   Alice         Bob          Carol
-//     o --add----> o ---add----> o
-//    (1)
-//
-//    (2)
-//     o <-settle-- o <--settle-- o
-//   Alice         Bob         Carol
-//
-func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
-	// User have created the htlc update therefore we should find the
-	// appropriate channel link and send the payment over this link.
-	if htlc, ok := pkt.htlc.(*lnwire.UpdateAddHTLC); ok {
-		link, err := s.handleLocalAddHTLC(pkt, htlc)
-		if err != nil {
-			// Notify the htlc notifier of a link failure on our
-			// outgoing link. Incoming timelock/amount values are
-			// not set because they are not present for local sends.
-			s.cfg.HtlcNotifier.NotifyLinkFailEvent(
-				newHtlcKey(pkt),
-				HtlcInfo{
-					OutgoingTimeLock: htlc.Expiry,
-					OutgoingAmt:      htlc.Amount,
-				},
-				HtlcEventTypeSend,
-				err,
-				false,
-			)
-
-			return err
-		}
-
-		return link.HandleSwitchPacket(pkt)
+// handleLocalUpdateAddDispatch is used at the start of the htlc update life
+// cycle. It is used to send the htlc to the channel link without creation of
+// circuit.
+func (s *Switch) handleLocalUpdateAddDispatch(pkt *htlcPacket) error {
+	htlc, ok := pkt.htlc.(*lnwire.UpdateAddHTLC)
+	if !ok {
+		return errors.New("not an UpdateAdd packet")
 	}
 
-	s.wg.Add(1)
-	go s.handleLocalResponse(pkt)
+	// User have created the htlc update therefore we should find the
+	// appropriate channel link and send the payment over this link.
+	link, err := s.handleLocalAddHTLC(pkt, htlc)
+	if err != nil {
+		// Notify the htlc notifier of a link failure on our
+		// outgoing link. Incoming timelock/amount values are
+		// not set because they are not present for local sends.
+		s.cfg.HtlcNotifier.NotifyLinkFailEvent(
+			newHtlcKey(pkt),
+			HtlcInfo{
+				OutgoingTimeLock: htlc.Expiry,
+				OutgoingAmt:      htlc.Amount,
+			},
+			HtlcEventTypeSend,
+			err,
+			false,
+		)
 
-	return nil
+		return err
+	}
+
+	return link.HandleSwitchPacket(pkt)
 }
 
 // handleLocalAddHTLC handles the addition of a htlc for a send that
@@ -1065,7 +1053,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		if packet.incomingChanID == hop.Source {
 			// A blank incomingChanID indicates that this is
 			// a pending user-initiated payment.
-			return s.handleLocalDispatch(packet)
+			return s.handleLocalUpdateAddDispatch(packet)
 		}
 
 		// Before we attempt to find a non-strict forwarding path for
@@ -1268,7 +1256,9 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		// A blank IncomingChanID in a circuit indicates that it is a pending
 		// user-initiated payment.
 		if packet.incomingChanID == hop.Source {
-			return s.handleLocalDispatch(packet)
+			s.wg.Add(1)
+			go s.handleLocalResponse(packet)
+			return nil
 		}
 
 		// Check to see that the source link is online before removing

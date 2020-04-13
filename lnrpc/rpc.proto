@@ -3136,7 +3136,7 @@ message Payment {
     /// The time in UNIX nanoseconds at which the payment was created.
     int64 creation_time_ns = 13;
 
-    /// The HTLCs made in attempt to settle the payment [EXPERIMENTAL].
+    /// The HTLCs made in attempt to settle the payment.
     repeated HTLCAttempt htlcs = 14;
 
     /**

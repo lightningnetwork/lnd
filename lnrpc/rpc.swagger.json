@@ -3987,7 +3987,7 @@
           "items": {
             "$ref": "#/definitions/lnrpcHTLCAttempt"
           },
-          "description": "/ The HTLCs made in attempt to settle the payment [EXPERIMENTAL]."
+          "description": "/ The HTLCs made in attempt to settle the payment."
         },
         "payment_index": {
           "type": "string",

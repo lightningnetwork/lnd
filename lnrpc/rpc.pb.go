@@ -9556,7 +9556,7 @@ type Payment struct {
 	FeeMsat int64 `protobuf:"varint,12,opt,name=fee_msat,json=feeMsat,proto3" json:"fee_msat,omitempty"`
 	/// The time in UNIX nanoseconds at which the payment was created.
 	CreationTimeNs int64 `protobuf:"varint,13,opt,name=creation_time_ns,json=creationTimeNs,proto3" json:"creation_time_ns,omitempty"`
-	/// The HTLCs made in attempt to settle the payment [EXPERIMENTAL].
+	/// The HTLCs made in attempt to settle the payment.
 	Htlcs []*HTLCAttempt `protobuf:"bytes,14,rep,name=htlcs,proto3" json:"htlcs,omitempty"`
 	//*
 	//The creation index of this payment. Each payment can be uniquely identified

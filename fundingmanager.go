@@ -3078,6 +3078,27 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		}
 	}
 
+	// Check whether the peer supports upfront shutdown, and get an address
+	// which should be used (either a user specified address or a new
+	// address from the wallet if our node is configured to set shutdown
+	// address by default).
+	shutdown, err := getUpfrontShutdownScript(
+		msg.peer, msg.openChanReq.shutdownScript,
+		func() (lnwire.DeliveryAddress, error) {
+			addr, err := f.cfg.Wallet.NewAddress(
+				lnwallet.WitnessPubKey, false,
+			)
+			if err != nil {
+				return nil, err
+			}
+			return txscript.PayToAddrScript(addr)
+		},
+	)
+	if err != nil {
+		msg.err <- err
+		return
+	}
+
 	// Initialize a funding reservation with the local wallet. If the
 	// wallet doesn't have enough funds to commit to this channel, then the
 	// request will fail, and be aborted.
@@ -3107,24 +3128,6 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)
-	if err != nil {
-		msg.err <- err
-		return
-	}
-
-	// Check whether the peer supports upfront shutdown, and get an address which
-	// should be used (either a user specified address or a new address from the
-	// wallet if our node is configured to set shutdown address by default).
-	shutdown, err := getUpfrontShutdownScript(
-		msg.peer, msg.openChanReq.shutdownScript,
-		func() (lnwire.DeliveryAddress, error) {
-			addr, err := f.cfg.Wallet.NewAddress(lnwallet.WitnessPubKey, false)
-			if err != nil {
-				return nil, err
-			}
-			return txscript.PayToAddrScript(addr)
-		},
-	)
 	if err != nil {
 		msg.err <- err
 		return

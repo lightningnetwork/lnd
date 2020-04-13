@@ -411,6 +411,62 @@ enum FailureDetail {
     CIRCULAR_ROUTE = 22;
 }
 
+enum PaymentState {
+    /**
+    Payment is still in flight.
+    */
+    IN_FLIGHT = 0;
+
+    /**
+    Payment completed successfully.
+    */
+    SUCCEEDED = 1;
+
+    /**
+    There are more routes to try, but the payment timeout was exceeded.
+    */
+    FAILED_TIMEOUT = 2;
+    
+    /**
+    All possible routes were tried and failed permanently. Or were no
+    routes to the destination at all.
+    */
+    FAILED_NO_ROUTE = 3;
+
+    /**
+    A non-recoverable error has occured.
+    */
+    FAILED_ERROR = 4;
+
+    /**
+    Payment details incorrect (unknown hash, invalid amt or
+    invalid final cltv delta)
+    */
+    FAILED_INCORRECT_PAYMENT_DETAILS = 5;
+
+    /**
+    Insufficient local balance.
+    */
+    FAILED_INSUFFICIENT_BALANCE = 6;
+}
+
+message PaymentStatus {
+    /// Current state the payment is in.
+    PaymentState state = 1;
+
+    /**
+    The pre-image of the payment when state is SUCCEEDED.
+    */
+    bytes preimage = 2;
+
+    reserved 3;
+
+    /**
+    The HTLCs made in attempt to settle the payment [EXPERIMENTAL].
+    */
+    repeated lnrpc.HTLCAttempt htlcs = 4;
+}
+
 service Router {
     /**
     SendPaymentV2 attempts to route a payment described by the passed
@@ -472,4 +528,21 @@ service Router {
     */
     rpc SubscribeHtlcEvents (SubscribeHtlcEventsRequest)
         returns (stream HtlcEvent);
+
+    /**
+    Deprecated, use SendPaymentV2. SendPayment attempts to route a payment 
+    described by the passed PaymentRequest to the final destination. The call
+    returns a stream of payment status updates.
+    */
+    rpc SendPayment(SendPaymentRequest) returns (stream PaymentStatus) {
+        option deprecated = true;
+    }
+
+    /**
+    Deprecated, use TrackPaymentV2. TrackPayment returns an update stream for
+    the payment identified by the payment hash.
+    */
+    rpc TrackPayment(TrackPaymentRequest) returns (stream PaymentStatus) {
+        option deprecated = true;
+    }
 }

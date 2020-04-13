@@ -84,6 +84,14 @@ var (
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/routerrpc.Router/SendPayment": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/routerrpc.Router/TrackPayment": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 	}
 
 	// DefaultRouterMacFilename is the default name of the router macaroon

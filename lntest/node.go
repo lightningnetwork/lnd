@@ -625,9 +625,10 @@ func (hn *HarnessNode) initLightningClient(conn *grpc.ClientConn) error {
 	// Launch the watcher that will hook into graph related topology change
 	// from the PoV of this node.
 	hn.wg.Add(1)
-	go hn.lightningNetworkWatcher()
+	subscribed := make(chan error)
+	go hn.lightningNetworkWatcher(subscribed)
 
-	return nil
+	return <-subscribed
 }
 
 // FetchNodeInfo queries an unlocked node to retrieve its public key.
@@ -874,7 +875,7 @@ func getChanPointFundingTxid(chanPoint *lnrpc.ChannelPoint) ([]byte, error) {
 // closed or opened within the network. In order to dispatch these
 // notifications, the GraphTopologySubscription client exposed as part of the
 // gRPC interface is used.
-func (hn *HarnessNode) lightningNetworkWatcher() {
+func (hn *HarnessNode) lightningNetworkWatcher(subscribed chan error) {
 	defer hn.wg.Done()
 
 	graphUpdates := make(chan *lnrpc.GraphTopologyUpdate)
@@ -884,16 +885,16 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 
 		req := &lnrpc.GraphTopologySubscription{}
 		ctx, cancelFunc := context.WithCancel(context.Background())
+		defer cancelFunc()
 		topologyClient, err := hn.SubscribeChannelGraph(ctx, req)
 		if err != nil {
-			// We panic here in case of an error as failure to
-			// create the topology client will cause all subsequent
-			// tests to fail.
-			panic(fmt.Errorf("unable to create topology "+
-				"client: %v", err))
+			msg := fmt.Sprintf("%s(%d): unable to create topology "+
+				"client: %v (%s)", hn.Name(), hn.NodeID, err,
+				time.Now().String())
+			subscribed <- fmt.Errorf(msg)
+			return
 		}
-
-		defer cancelFunc()
+		close(subscribed)
 
 		for {
 			update, err := topologyClient.Recv()

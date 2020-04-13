@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -103,6 +104,7 @@ func init() {
 	addSubLogger(routerrpc.Subsystem, routerrpc.UseLogger)
 	addSubLogger(wtclientrpc.Subsystem, wtclientrpc.UseLogger)
 	addSubLogger(chanfitness.Subsystem, chanfitness.UseLogger)
+	addSubLogger(verrpc.Subsystem, verrpc.UseLogger)
 }
 
 // addSubLogger is a helper method to conveniently create and register the

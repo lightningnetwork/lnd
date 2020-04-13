@@ -22,7 +22,7 @@ ANDROID_BUILD_DIR := $(MOBILE_BUILD_DIR)/android
 ANDROID_BUILD := $(ANDROID_BUILD_DIR)/Lndmobile.aar
 
 COMMIT := $(shell git describe --abbrev=40 --dirty)
-LDFLAGS := -ldflags "-X $(PKG)/build.Commit=$(COMMIT)"
+COMMIT_HASH := $(shell git rev-parse HEAD)
 
 BTCD_COMMIT := $(shell cat go.mod | \
 		grep $(BTCD_PKG) | \
@@ -38,6 +38,7 @@ GOBUILD := GO111MODULE=on go build -v
 GOINSTALL := GO111MODULE=on go install -v
 GOTEST := GO111MODULE=on go test 
 
+GOVERSION := $(shell go version | awk '{print $$3}')
 GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 GOLIST := go list -deps $(PKG)/... | grep '$(PKG)'| grep -v '/vendor/'
 GOLISTCOVER := $(shell go list -deps -f '{{.ImportPath}}' ./... | grep '$(PKG)' | sed -e 's/^$(ESCPKG)/./')
@@ -50,6 +51,15 @@ XARGS := xargs -L 1
 include make/testing_flags.mk
 
 DEV_TAGS := $(if ${tags},$(DEV_TAGS) ${tags},$(DEV_TAGS))
+
+make_ldflags = $(shell echo -ldflags \"-X $(PKG)/build.Commit=$(COMMIT) \
+	-X $(PKG)/build.CommitHash=$(COMMIT_HASH) \
+	-X $(PKG)/build.GoVersion=$(GOVERSION) \
+	-X $(PKG)/build.RawTags=$(shell echo $(1) | sed -e 's/ /,/g')\")
+
+LDFLAGS := $(call make_ldflags, ${tags})
+DEV_LDFLAGS := $(call make_ldflags, $(DEV_TAGS))
+ITEST_LDFLAGS := $(call make_ldflags, $(ITEST_TAGS))
 
 # Linting uses a lot of memory, so keep it under control by limiting the number
 # of workers if requested.
@@ -95,13 +105,13 @@ btcd:
 
 build:
 	@$(call print, "Building debug lnd and lncli.")
-	$(GOBUILD) -tags="$(DEV_TAGS)" -o lnd-debug $(LDFLAGS) $(PKG)/cmd/lnd
-	$(GOBUILD) -tags="$(DEV_TAGS)" -o lncli-debug $(LDFLAGS) $(PKG)/cmd/lncli
+	$(GOBUILD) -tags="$(DEV_TAGS)" -o lnd-debug $(DEV_LDFLAGS) $(PKG)/cmd/lnd
+	$(GOBUILD) -tags="$(DEV_TAGS)" -o lncli-debug $(DEV_LDFLAGS) $(PKG)/cmd/lncli
 
 build-itest:
 	@$(call print, "Building itest lnd and lncli.")
-	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lnd-itest $(LDFLAGS) $(PKG)/cmd/lnd
-	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lncli-itest $(LDFLAGS) $(PKG)/cmd/lncli
+	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lnd-itest $(ITEST_LDFLAGS) $(PKG)/cmd/lnd
+	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lncli-itest $(ITEST_LDFLAGS) $(PKG)/cmd/lncli
 
 install:
 	@$(call print, "Installing lnd and lncli.")

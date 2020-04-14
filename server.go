@@ -598,10 +598,9 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 	if err != nil {
 		return nil, err
 	}
+
 	selfAddrs := make([]net.Addr, 0, len(externalIPs))
-	for _, ip := range externalIPs {
-		selfAddrs = append(selfAddrs, ip)
-	}
+	selfAddrs = append(selfAddrs, externalIPs...)
 
 	chanGraph := chanDB.ChannelGraph()
 

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -79,6 +80,14 @@ type mailBoxConfig struct {
 	// be routed. A quit channel should be provided so that the call can
 	// properly exit during shutdown.
 	forwardPackets func(chan struct{}, ...*htlcPacket) chan error
+
+	// clock is a time source for the mailbox.
+	clock clock.Clock
+
+	// expiry is the interval after which Adds will be cancelled if they
+	// have not been yet been delivered. The computed deadline will expiry
+	// this long after the Adds are added via AddPacket.
+	expiry time.Duration
 }
 
 // memoryMailBox is an implementation of the MailBox struct backed by purely
@@ -586,6 +595,14 @@ type mailOrchConfig struct {
 	// fetchUpdate retreives the most recent channel update for the channel
 	// this mailbox belongs to.
 	fetchUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error)
+
+	// clock is a time source for the generated mailboxes.
+	clock clock.Clock
+
+	// expiry is the interval after which Adds will be cancelled if they
+	// have not been yet been delivered. The computed deadline will expiry
+	// this long after the Adds are added to a mailbox via AddPacket.
+	expiry time.Duration
 }
 
 // newMailOrchestrator initializes a fresh mailOrchestrator.
@@ -642,6 +659,8 @@ func (mo *mailOrchestrator) exclusiveGetOrCreateMailBox(
 			shortChanID:    shortChanID,
 			fetchUpdate:    mo.cfg.fetchUpdate,
 			forwardPackets: mo.cfg.forwardPackets,
+			clock:          mo.cfg.clock,
+			expiry:         mo.cfg.expiry,
 		})
 		mailbox.Start()
 		mo.mailboxes[chanID] = mailbox

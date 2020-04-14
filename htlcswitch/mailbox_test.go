@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -19,7 +20,10 @@ func TestMailBoxCouriers(t *testing.T) {
 
 	// First, we'll create new instance of the current default mailbox
 	// type.
-	mailBox := newMemoryMailBox(&mailBoxConfig{})
+	mailBox := newMemoryMailBox(&mailBoxConfig{
+		clock:  clock.NewDefaultClock(),
+		expiry: time.Minute,
+	})
 	mailBox.Start()
 	defer mailBox.Stop()
 
@@ -172,14 +176,17 @@ func TestMailBoxResetAfterShutdown(t *testing.T) {
 
 type mailboxContext struct {
 	t        *testing.T
+	clock    *clock.TestClock
 	mailbox  MailBox
 	forwards chan *htlcPacket
 }
 
-func newMailboxContext(t *testing.T) *mailboxContext {
+func newMailboxContext(t *testing.T, startTime time.Time,
+	expiry time.Duration) *mailboxContext {
 
 	ctx := &mailboxContext{
 		t:        t,
+		clock:    clock.NewTestClock(startTime),
 		forwards: make(chan *htlcPacket, 1),
 	}
 	ctx.mailbox = newMemoryMailBox(&mailBoxConfig{
@@ -190,6 +197,8 @@ func newMailboxContext(t *testing.T) *mailboxContext {
 			}, nil
 		},
 		forwardPackets: ctx.forward,
+		clock:          ctx.clock,
+		expiry:         expiry,
 	})
 	ctx.mailbox.Start()
 
@@ -282,7 +291,7 @@ func (c *mailboxContext) checkFails(adds []*htlcPacket) {
 // TestMailBoxFailAdd asserts that FailAdd returns a response to the switch
 // under various interleavings with other operations on the mailbox.
 func TestMailBoxFailAdd(t *testing.T) {
-	ctx := newMailboxContext(t)
+	ctx := newMailboxContext(t, time.Now(), time.Minute)
 	defer ctx.mailbox.Stop()
 
 	failAdds := func(adds []*htlcPacket) {
@@ -316,7 +325,10 @@ func TestMailOrchestrator(t *testing.T) {
 	t.Parallel()
 
 	// First, we'll create a new instance of our orchestrator.
-	mo := newMailOrchestrator(&mailOrchConfig{})
+	mo := newMailOrchestrator(&mailOrchConfig{
+		clock:  clock.NewDefaultClock(),
+		expiry: time.Minute,
+	})
 	defer mo.Stop()
 
 	// We'll be delivering 10 htlc packets via the orchestrator.

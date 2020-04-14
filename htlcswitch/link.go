@@ -1010,13 +1010,12 @@ func (l *channelLink) htlcManager() {
 		go l.fwdPkgGarbager()
 	}
 
-out:
 	for {
 		// We must always check if we failed at some point processing
 		// the last update before processing the next.
 		if l.failed {
 			l.log.Errorf("link failed, exiting htlcManager")
-			break out
+			return
 		}
 
 		// If the previous event resulted in a non-empty batch, resume
@@ -1086,7 +1085,7 @@ out:
 				l.cfg.Peer.WipeChannel(chanPoint)
 			}()
 
-			break out
+			return
 
 		case <-l.cfg.BatchTicker.Ticks():
 			// Attempt to extend the remote commitment chain
@@ -1096,7 +1095,7 @@ out:
 			if err := l.updateCommitTx(); err != nil {
 				l.fail(LinkFailureError{code: ErrInternalError},
 					"unable to update commitment: %v", err)
-				break out
+				return
 			}
 
 		// A message from the switch was just received. This indicates
@@ -1121,11 +1120,11 @@ out:
 					fmt.Sprintf("process hodl queue: %v",
 						err.Error()),
 				)
-				break out
+				return
 			}
 
 		case <-l.quit:
-			break out
+			return
 		}
 	}
 }

@@ -90,13 +90,23 @@ func (e LinkFailureError) Error() string {
 // the link fails with this LinkFailureError.
 func (e LinkFailureError) ShouldSendToPeer() bool {
 	switch e.code {
-	// If the failure is a result of the peer sending us an error, we don't
-	// have to respond with one.
-	case ErrRemoteError:
-		return false
 
-	// In all other cases we will attempt to send our peer an error message.
-	default:
+	// Since sending an error can lead some nodes to force close the
+	// channel, create a whitelist of the failures we want to send so that
+	// newly added error codes aren't automatically sent to the remote peer.
+	case
+		ErrInternalError,
+		ErrRemoteError,
+		ErrSyncError,
+		ErrInvalidUpdate,
+		ErrInvalidCommitment,
+		ErrInvalidRevocation,
+		ErrRecoveryError:
+
 		return true
+
+	// In all other cases we will not attempt to send our peer an error.
+	default:
+		return false
 	}
 }

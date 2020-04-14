@@ -53,8 +53,8 @@ var (
 			"displayed",
 	}
 
-	maxHtlcsFlag = cli.UintFlag{
-		Name: "max_htlcs",
+	maxShardsFlag = cli.UintFlag{
+		Name: "max_shards",
 		Usage: "the maximum number of partial payments that may be " +
 			"used",
 		Value: 1,
@@ -95,7 +95,7 @@ func paymentFlags() []cli.Flag {
 			Name:  "allow_self_payment",
 			Usage: "allow sending a circular payment to self",
 		},
-		dataFlag, showInflightFlag, maxHtlcsFlag,
+		dataFlag, showInflightFlag, maxShardsFlag,
 	}
 }
 
@@ -325,7 +325,7 @@ func sendPaymentRequest(ctx *cli.Context,
 
 	req.AllowSelfPayment = ctx.Bool("allow_self_payment")
 
-	req.MaxHtlcs = uint32(ctx.Uint(maxHtlcsFlag.Name))
+	req.MaxShards = uint32(ctx.Uint(maxShardsFlag.Name))
 
 	// Parse custom data records.
 	data := ctx.String(dataFlag.Name)

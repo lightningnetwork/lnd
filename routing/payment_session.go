@@ -211,7 +211,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		switch {
 		case err == errNoPathFound:
 			// No splitting if this is the last shard.
-			isLastShard := activeShards+1 >= p.payment.MaxHtlcs
+			isLastShard := activeShards+1 >= p.payment.MaxShards
 			if isLastShard {
 				return nil, errNoPathFound
 			}

@@ -74,7 +74,7 @@ func testSendMultiPathPayment(net *lntest.NetworkHarness, t *harnessTest) {
 		t, net.Alice,
 		&routerrpc.SendPaymentRequest{
 			PaymentRequest: payReq,
-			MaxHtlcs:       10,
+			MaxShards:      10,
 			TimeoutSeconds: 60,
 			FeeLimitMsat:   noFeeLimitMsat,
 		},

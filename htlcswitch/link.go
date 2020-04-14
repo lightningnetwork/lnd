@@ -2948,27 +2948,7 @@ func (l *channelLink) forwardBatch(packets ...*htlcPacket) {
 	}
 
 	errChan := l.cfg.ForwardPackets(l.quit, filteredPkts...)
-	go l.handleBatchFwdErrs(errChan)
-}
-
-// handleBatchFwdErrs waits on the given errChan until it is closed, logging
-// the errors returned from any unsuccessful forwarding attempts.
-func (l *channelLink) handleBatchFwdErrs(errChan chan error) {
-	for {
-		err, ok := <-errChan
-		if !ok {
-			// Err chan has been drained or switch is shutting
-			// down.  Either way, return.
-			return
-		}
-
-		if err == nil {
-			continue
-		}
-
-		l.log.Errorf("unhandled error while forwarding htlc packet over "+
-			"htlcswitch: %v", err)
-	}
+	go handleBatchFwdErrs(errChan, l.log)
 }
 
 // sendHTLCError functions cancels HTLC and send cancel message back to the

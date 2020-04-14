@@ -223,6 +223,11 @@ type ChannelLinkConfig struct {
 	// syncing.
 	FwdPkgGCTicker ticker.Ticker
 
+	// PendingCommitTicker is a ticker that allows the link to determine if
+	// a locally initiated commitment dance gets stuck waiting for the
+	// remote party to revoke.
+	PendingCommitTicker ticker.Ticker
+
 	// BatchSize is the max size of a batch of updates done to the link
 	// before we do a state update.
 	BatchSize uint32
@@ -1098,6 +1103,11 @@ func (l *channelLink) htlcManager() {
 				return
 			}
 
+		case <-l.cfg.PendingCommitTicker.Ticks():
+			l.fail(LinkFailureError{code: ErrRemoteUnresponsive},
+				"unable to complete dance")
+			return
+
 		// A message from the switch was just received. This indicates
 		// that the link is an intermediate hop in a multi-hop HTLC
 		// circuit.
@@ -1934,6 +1944,8 @@ func (l *channelLink) updateCommitTx() error {
 
 	theirCommitSig, htlcSigs, pendingHTLCs, err := l.channel.SignNextCommitment()
 	if err == lnwallet.ErrNoWindow {
+		l.cfg.PendingCommitTicker.Resume()
+
 		l.log.Tracef("revocation window exhausted, unable to send: "+
 			"%v, pend_updates=%v, dangling_closes%v",
 			l.channel.PendingLocalUpdateCount(),
@@ -1952,6 +1964,8 @@ func (l *channelLink) updateCommitTx() error {
 	if err := l.ackDownStreamPackets(); err != nil {
 		return err
 	}
+
+	l.cfg.PendingCommitTicker.Pause()
 
 	// The remote party now has a new pending commitment, so we'll update
 	// the contract court to be aware of this new set (the prior old remote

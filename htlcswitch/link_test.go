@@ -1699,10 +1699,11 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 		UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 			return nil
 		},
-		Registry:       invoiceRegistry,
-		ChainEvents:    &contractcourt.ChainEventSubscription{},
-		BatchTicker:    bticker,
-		FwdPkgGCTicker: ticker.NewForce(15 * time.Second),
+		Registry:            invoiceRegistry,
+		ChainEvents:         &contractcourt.ChainEventSubscription{},
+		BatchTicker:         bticker,
+		FwdPkgGCTicker:      ticker.NewForce(15 * time.Second),
+		PendingCommitTicker: ticker.New(time.Minute),
 		// Make the BatchSize and Min/MaxFeeUpdateTimeout large enough
 		// to not trigger commit updates automatically during tests.
 		BatchSize:             10000,
@@ -4203,10 +4204,11 @@ func (h *persistentLinkHarness) restartLink(
 		UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 			return nil
 		},
-		Registry:       h.coreLink.cfg.Registry,
-		ChainEvents:    &contractcourt.ChainEventSubscription{},
-		BatchTicker:    bticker,
-		FwdPkgGCTicker: ticker.New(5 * time.Second),
+		Registry:            h.coreLink.cfg.Registry,
+		ChainEvents:         &contractcourt.ChainEventSubscription{},
+		BatchTicker:         bticker,
+		FwdPkgGCTicker:      ticker.New(5 * time.Second),
+		PendingCommitTicker: ticker.New(time.Minute),
 		// Make the BatchSize and Min/MaxFeeUpdateTimeout large enough
 		// to not trigger commit updates automatically during tests.
 		BatchSize:           10000,
@@ -6132,6 +6134,91 @@ func TestChannelLinkReceiveEmptySig(t *testing.T) {
 
 	// Stop the link
 	aliceLink.Stop()
+}
+
+// TestPendingCommitTicker tests that a link will fail itself after a timeout if
+// the commitment dance stalls out.
+func TestPendingCommitTicker(t *testing.T) {
+	t.Parallel()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	const chanReserve = btcutil.SatoshiPerBitcoin * 1
+	aliceLink, bobChannel, batchTicker, start, cleanUp, _, err :=
+		newSingleLinkTestHarness(chanAmt, chanReserve)
+	if err != nil {
+		t.Fatalf("unable to create link: %v", err)
+	}
+
+	var (
+		coreLink  = aliceLink.(*channelLink)
+		aliceMsgs = coreLink.cfg.Peer.(*mockPeer).sentMsgs
+	)
+
+	coreLink.cfg.PendingCommitTicker = ticker.NewForce(time.Millisecond)
+
+	linkErrs := make(chan LinkFailureError)
+	coreLink.cfg.OnChannelFailure = func(_ lnwire.ChannelID,
+		_ lnwire.ShortChannelID, linkErr LinkFailureError) {
+
+		linkErrs <- linkErr
+	}
+
+	if err := start(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
+	defer cleanUp()
+
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		bobChannel: bobChannel,
+		aliceMsgs:  aliceMsgs,
+	}
+
+	// Send an HTLC from Alice to Bob, and signal the batch ticker to signa
+	// a commitment.
+	htlc, _ := generateHtlcAndInvoice(t, 0)
+	ctx.sendHtlcAliceToBob(0, htlc)
+	ctx.receiveHtlcAliceToBob()
+	batchTicker <- time.Now()
+
+	select {
+	case msg := <-aliceMsgs:
+		if _, ok := msg.(*lnwire.CommitSig); !ok {
+			t.Fatalf("expected CommitSig, got: %T", msg)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("alice did not send commit sig")
+	}
+
+	// Check that Alice hasn't failed.
+	select {
+	case linkErr := <-linkErrs:
+		t.Fatalf("link failed unexpectedly: %v", linkErr)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// Without completing the dance, send another HTLC from Alice to Bob.
+	// Since the revocation window has been exhausted, we should see the
+	// link fail itself immediately due to the low pending commit timeout.
+	// In production this would be much longer, e.g. a minute.
+	htlc, _ = generateHtlcAndInvoice(t, 1)
+	ctx.sendHtlcAliceToBob(1, htlc)
+	ctx.receiveHtlcAliceToBob()
+	batchTicker <- time.Now()
+
+	// Assert that we get the expected link failure from Alice.
+	select {
+	case linkErr := <-linkErrs:
+		if linkErr.code != ErrRemoteUnresponsive {
+			t.Fatalf("error code mismatch, "+
+				"want: ErrRemoteUnresponsive, got: %v",
+				linkErr.code)
+		}
+
+	case <-time.After(time.Second):
+		t.Fatalf("did not receive failure")
+	}
 }
 
 // assertFailureCode asserts that an error is of type ClearTextError and that

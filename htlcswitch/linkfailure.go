@@ -20,6 +20,10 @@ const (
 	// to fail the link.
 	ErrRemoteError
 
+	// ErrRemoteUnresponsive indicates that our peer took too long to
+	// complete a commitment dance.
+	ErrRemoteUnresponsive
+
 	// ErrSyncError indicates that we failed synchronizing the state of the
 	// channel with our peer.
 	ErrSyncError
@@ -71,6 +75,8 @@ func (e LinkFailureError) Error() string {
 		return "internal error"
 	case ErrRemoteError:
 		return "remote error"
+	case ErrRemoteUnresponsive:
+		return "remote unresponsive"
 	case ErrSyncError:
 		return "sync error"
 	case ErrInvalidUpdate:

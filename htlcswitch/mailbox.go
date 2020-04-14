@@ -219,6 +219,13 @@ func (m *memoryMailBox) AckPacket(inKey CircuitKey) bool {
 		return false
 	}
 
+	// Check whether we are removing the head of the queue. If so, we must
+	// advance the head to the next packet before removing. It's possible
+	// that the courier has already adanced the pktHead, so this check
+	// prevents the pktHead from getting desynchronized.
+	if entry == m.pktHead {
+		m.pktHead = entry.Next()
+	}
 	m.htlcPkts.Remove(entry)
 	delete(m.pktIndex, inKey)
 	m.pktCond.L.Unlock()
@@ -333,8 +340,9 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 		}
 
 		var (
-			nextPkt *htlcPacket
-			nextMsg lnwire.Message
+			nextPkt   *htlcPacket
+			nextPktEl *list.Element
+			nextMsg   lnwire.Message
 		)
 		switch cType {
 		// Grab the datum off the front of the queue, shifting the
@@ -350,7 +358,7 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 		// re-delivered once the link comes back online.
 		case pktCourier:
 			nextPkt = m.pktHead.Value.(*htlcPacket)
-			m.pktHead = m.pktHead.Next()
+			nextPktEl = m.pktHead
 		}
 
 		// Now that we're done with the condition, we can unlock it to
@@ -382,6 +390,14 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 		case pktCourier:
 			select {
 			case m.pktOutbox <- nextPkt:
+				m.pktCond.L.Lock()
+				// Only advance the pktHead if this packet
+				// is still at the head of the queue.
+				if m.pktHead != nil && m.pktHead == nextPktEl {
+					m.pktHead = m.pktHead.Next()
+				}
+				m.pktCond.L.Unlock()
+
 			case pktDone := <-m.pktReset:
 				m.pktCond.L.Lock()
 				m.pktHead = m.htlcPkts.Front()

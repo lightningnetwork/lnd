@@ -38,6 +38,9 @@ func TestMailBoxCouriers(t *testing.T) {
 			outgoingChanID: lnwire.NewShortChanIDFromInt(uint64(prand.Int63())),
 			incomingChanID: lnwire.NewShortChanIDFromInt(uint64(prand.Int63())),
 			amount:         lnwire.MilliSatoshi(prand.Int63()),
+			htlc: &lnwire.UpdateAddHTLC{
+				ID: uint64(i),
+			},
 		}
 		sentPackets[i] = pkt
 
@@ -315,6 +318,106 @@ func TestMailBoxFailAdd(t *testing.T) {
 	// duplicate fails are sent.
 	go failAdds(adds)
 	ctx.checkFails(nil)
+
+}
+
+// TestMailBoxPacketPrioritization asserts that the mailbox will prioritize
+// delivering Settle and Fail packets over Adds if both are available for
+// delivery at the same time.
+func TestMailBoxPacketPrioritization(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create new instance of the current default mailbox
+	// type.
+	mailBox := newMemoryMailBox(&mailBoxConfig{
+		clock:  clock.NewDefaultClock(),
+		expiry: time.Minute,
+	})
+	mailBox.Start()
+	defer mailBox.Stop()
+
+	const numPackets = 5
+
+	_, _, aliceChanID, bobChanID := genIDs()
+
+	// Next we'll send the following sequence of packets:
+	//  - Settle1
+	//  - Add1
+	//  - Add2
+	//  - Fail
+	//  - Settle2
+	sentPackets := make([]*htlcPacket, numPackets)
+	for i := 0; i < numPackets; i++ {
+		pkt := &htlcPacket{
+			outgoingChanID: aliceChanID,
+			outgoingHTLCID: uint64(i),
+			incomingChanID: bobChanID,
+			incomingHTLCID: uint64(i),
+			amount:         lnwire.MilliSatoshi(prand.Int63()),
+		}
+
+		switch i {
+		case 0, 4:
+			// First and last packets are a Settle. A non-Add is
+			// sent first to make the test deterministic w/o needing
+			// to sleep.
+			pkt.htlc = &lnwire.UpdateFulfillHTLC{ID: uint64(i)}
+		case 1, 2:
+			// Next two packets are Adds.
+			pkt.htlc = &lnwire.UpdateAddHTLC{ID: uint64(i)}
+		case 3:
+			// Last packet is a Fail.
+			pkt.htlc = &lnwire.UpdateFailHTLC{ID: uint64(i)}
+		}
+
+		sentPackets[i] = pkt
+
+		err := mailBox.AddPacket(pkt)
+		if err != nil {
+			t.Fatalf("failed to add packet: %v", err)
+		}
+	}
+
+	// When dequeueing the packets, we expect the following sequence:
+	//  - Settle1
+	//  - Fail
+	//  - Settle2
+	//  - Add1
+	//  - Add2
+	//
+	// We expect to see Fail and Settle2 to be delivered before either Add1
+	// or Add2 due to the prioritization between the split queue.
+	for i := 0; i < numPackets; i++ {
+		select {
+		case pkt := <-mailBox.PacketOutBox():
+			var expPkt *htlcPacket
+			switch i {
+			case 0:
+				// First packet should be Settle1.
+				expPkt = sentPackets[0]
+			case 1:
+				// Second packet should be Fail.
+				expPkt = sentPackets[3]
+			case 2:
+				// Third packet should be Settle2.
+				expPkt = sentPackets[4]
+			case 3:
+				// Fourth packet should be Add1.
+				expPkt = sentPackets[1]
+			case 4:
+				// Last packet should be Add2.
+				expPkt = sentPackets[2]
+			}
+
+			if !reflect.DeepEqual(expPkt, pkt) {
+				t.Fatalf("recvd packet mismatch %d, want: %v, got: %v",
+					i, spew.Sdump(expPkt), spew.Sdump(pkt))
+			}
+
+		case <-time.After(50 * time.Millisecond):
+			t.Fatalf("didn't receive packet %d before timeout", i)
+		}
+	}
 }
 
 // TestMailOrchestrator asserts that the orchestrator properly buffers packets
@@ -346,6 +449,9 @@ func TestMailOrchestrator(t *testing.T) {
 			incomingChanID: bobChanID,
 			incomingHTLCID: uint64(i),
 			amount:         lnwire.MilliSatoshi(prand.Int63()),
+			htlc: &lnwire.UpdateAddHTLC{
+				ID: uint64(i),
+			},
 		}
 		sentPackets[i] = pkt
 
@@ -411,6 +517,9 @@ func TestMailOrchestrator(t *testing.T) {
 			incomingChanID: bobChanID,
 			incomingHTLCID: uint64(halfPackets + i),
 			amount:         lnwire.MilliSatoshi(prand.Int63()),
+			htlc: &lnwire.UpdateAddHTLC{
+				ID: uint64(halfPackets + i),
+			},
 		}
 		sentPackets[i] = pkt
 

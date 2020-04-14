@@ -52,10 +52,10 @@ include make/testing_flags.mk
 
 DEV_TAGS := $(if ${tags},$(DEV_TAGS) ${tags},$(DEV_TAGS))
 
-make_ldflags = $(shell echo -ldflags \"-X $(PKG)/build.Commit=$(COMMIT) \
+make_ldflags = -ldflags "$(shell echo -X $(PKG)/build.Commit=$(COMMIT) \
 	-X $(PKG)/build.CommitHash=$(COMMIT_HASH) \
 	-X $(PKG)/build.GoVersion=$(GOVERSION) \
-	-X $(PKG)/build.RawTags=$(shell echo $(1) | sed -e 's/ /,/g')\")
+	-X $(PKG)/build.RawTags=$(shell echo $(1) | sed -e 's/ /,/g'))"
 
 LDFLAGS := $(call make_ldflags, ${tags})
 DEV_LDFLAGS := $(call make_ldflags, $(DEV_TAGS))

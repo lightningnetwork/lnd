@@ -1179,7 +1179,7 @@ func (l *channelLink) processHtlcResolution(resolution invoices.HtlcResolution,
 	// Settle htlcs that returned a settle resolution using the preimage
 	// in the resolution.
 	case *invoices.HtlcSettleResolution:
-		l.log.Debugf("received settle resolution for %v"+
+		l.log.Debugf("received settle resolution for %v "+
 			"with outcome: %v", circuitKey, res.Outcome)
 
 		return l.settleHTLC(res.Preimage, htlc.pd)

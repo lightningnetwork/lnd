@@ -3966,7 +3966,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 
 			// Don't enable multi-part payments on the main rpc.
 			// Users need to use routerrpc for that.
-			MaxHtlcs: 1,
+			MaxShards: 1,
 		}
 
 		preImage, route, routerErr = r.server.chanRouter.SendPayment(

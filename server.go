@@ -547,7 +547,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 
 			pmp, err := nat.DiscoverPMP(discoveryTimeout)
 			if err != nil {
-				err := fmt.Errorf("Unable to discover a "+
+				err := fmt.Errorf("unable to discover a "+
 					"NAT-PMP enabled device on the local "+
 					"network: %v", err)
 				srvrLog.Error(err)
@@ -1995,7 +1995,7 @@ func (s *server) createNewHiddenService() error {
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("Unable to generate new node "+
+		return fmt.Errorf("unable to generate new node "+
 			"announcement: %v", err)
 	}
 

@@ -34,7 +34,7 @@ func ErrZeroCapacity() ReservationError {
 func ErrChainMismatch(knownChain,
 	unknownChain *chainhash.Hash) ReservationError {
 	return ReservationError{
-		fmt.Errorf("Unknown chain=%v. Supported chain=%v",
+		fmt.Errorf("unknown chain=%v, supported chain=%v",
 			unknownChain, knownChain),
 	}
 }
@@ -44,7 +44,7 @@ func ErrChainMismatch(knownChain,
 func ErrFunderBalanceDust(commitFee, funderBalance,
 	minBalance int64) ReservationError {
 	return ReservationError{
-		fmt.Errorf("Funder balance too small (%v) with fee=%v sat, "+
+		fmt.Errorf("funder balance too small (%v) with fee=%v sat, "+
 			"minimum=%v sat required", funderBalance,
 			commitFee, minBalance),
 	}
@@ -73,7 +73,7 @@ func ErrChanReserveTooSmall(reserve, dustLimit btcutil.Amount) ReservationError 
 func ErrChanReserveTooLarge(reserve,
 	maxReserve btcutil.Amount) ReservationError {
 	return ReservationError{
-		fmt.Errorf("Channel reserve is too large: %v sat, max "+
+		fmt.Errorf("channel reserve is too large: %v sat, max "+
 			"is %v sat", int64(reserve), int64(maxReserve)),
 	}
 }
@@ -82,7 +82,7 @@ func ErrChanReserveTooLarge(reserve,
 // FundingOpen request for a channel with non-zero push amount while
 // they have 'rejectpush' enabled.
 func ErrNonZeroPushAmount() ReservationError {
-	return ReservationError{errors.New("Non-zero push amounts are disabled")}
+	return ReservationError{errors.New("non-zero push amounts are disabled")}
 }
 
 // ErrMinHtlcTooLarge returns an error indicating that the MinHTLC value the
@@ -90,7 +90,7 @@ func ErrNonZeroPushAmount() ReservationError {
 func ErrMinHtlcTooLarge(minHtlc,
 	maxMinHtlc lnwire.MilliSatoshi) ReservationError {
 	return ReservationError{
-		fmt.Errorf("Minimum HTLC value is too large: %v, max is %v",
+		fmt.Errorf("minimum HTLC value is too large: %v, max is %v",
 			minHtlc, maxMinHtlc),
 	}
 }

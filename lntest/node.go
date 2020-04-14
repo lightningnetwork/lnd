@@ -1122,7 +1122,7 @@ func (hn *HarnessNode) WaitForBlockchainSync(ctx context.Context) error {
 	case err := <-errChan:
 		return err
 	case <-ctx.Done():
-		return fmt.Errorf("Timeout while waiting for blockchain sync")
+		return fmt.Errorf("timeout while waiting for blockchain sync")
 	}
 }
 

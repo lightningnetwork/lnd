@@ -49,7 +49,7 @@ func WitnessScriptHash(witnessScript []byte) ([]byte, error) {
 // pubkeys.
 func GenMultiSigScript(aPub, bPub []byte) ([]byte, error) {
 	if len(aPub) != 33 || len(bPub) != 33 {
-		return nil, fmt.Errorf("Pubkey size error. Compressed pubkeys only")
+		return nil, fmt.Errorf("pubkey size error: compressed pubkeys only")
 	}
 
 	// Swap to sort pubkeys if needed. Keys are sorted in lexicographical

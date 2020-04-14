@@ -386,7 +386,7 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 		return nil
 
 	default:
-		return fmt.Errorf("Unable to add to topology change, "+
+		return fmt.Errorf("unable to add to topology change, "+
 			"unknown message type %T", msg)
 	}
 }

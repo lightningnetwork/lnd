@@ -1358,8 +1358,8 @@ func (rs *retributionStore) Remove(chanPoint *wire.OutPoint) error {
 		// to remove a finalized retribution state that is not already
 		// stored in the db.
 		if retBucket == nil {
-			return errors.New("Unable to remove retribution " +
-				"because the retribution bucket doesn't exist.")
+			return errors.New("unable to remove retribution " +
+				"because the retribution bucket doesn't exist")
 		}
 
 		// Serialize the channel point we are intending to remove.

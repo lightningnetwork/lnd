@@ -2839,7 +2839,7 @@ func TestFundingManagerRejectPush(t *testing.T) {
 
 	// Assert Bob responded with an ErrNonZeroPushAmount error.
 	err := assertFundingMsgSent(t, bob.msgChan, "Error").(*lnwire.Error)
-	if !strings.Contains(err.Error(), "Non-zero push amounts are disabled") {
+	if !strings.Contains(err.Error(), "non-zero push amounts are disabled") {
 		t.Fatalf("expected ErrNonZeroPushAmount error, got \"%v\"",
 			err.Error())
 	}

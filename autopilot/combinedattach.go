@@ -130,7 +130,7 @@ func (c *WeightedCombAttachment) NodeScores(g ChannelGraph, chans []Channel,
 
 		// Sanity check the new score.
 		case score.Score < 0 || score.Score > 1.0:
-			return nil, fmt.Errorf("Invalid node score from "+
+			return nil, fmt.Errorf("invalid node score from "+
 				"combination: %v", score.Score)
 		}
 

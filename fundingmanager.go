@@ -1929,7 +1929,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	delete(f.signedReservations, fmsg.msg.ChanID)
 	f.resMtx.Unlock()
 	if !ok {
-		err := fmt.Errorf("Unable to find signed reservation for "+
+		err := fmt.Errorf("unable to find signed reservation for "+
 			"chan_id=%x", fmsg.msg.ChanID)
 		fndgLog.Warnf(err.Error())
 		f.failFundingFlow(fmsg.peer, fmsg.msg.ChanID, err)
@@ -2562,7 +2562,7 @@ func (f *fundingManager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 			completeChan.FundingBroadcastHeight,
 		)
 		if err != nil {
-			return fmt.Errorf("Unable to register for "+
+			return fmt.Errorf("unable to register for "+
 				"confirmation of ChannelPoint(%v): %v",
 				completeChan.FundingOutpoint, err)
 		}
@@ -3217,7 +3217,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		UpfrontShutdownScript: shutdown,
 	}
 	if err := msg.peer.SendMessage(true, &fundingOpen); err != nil {
-		e := fmt.Errorf("Unable to send funding request message: %v",
+		e := fmt.Errorf("unable to send funding request message: %v",
 			err)
 		fndgLog.Errorf(e.Error())
 
@@ -3501,7 +3501,7 @@ func (f *fundingManager) deleteChannelOpeningState(chanPoint *wire.OutPoint) err
 	return kvdb.Update(f.cfg.Wallet.Cfg.Database, func(tx kvdb.RwTx) error {
 		bucket := tx.ReadWriteBucket(channelOpeningStateBucket)
 		if bucket == nil {
-			return fmt.Errorf("Bucket not found")
+			return fmt.Errorf("bucket not found")
 		}
 
 		var outpointBytes bytes.Buffer

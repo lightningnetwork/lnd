@@ -2197,7 +2197,7 @@ func (r *ChannelRouter) ForAllOutgoingChannels(cb func(*channeldb.ChannelEdgeInf
 		e, _ *channeldb.ChannelEdgePolicy) error {
 
 		if e == nil {
-			return fmt.Errorf("Channel from self node has no policy")
+			return fmt.Errorf("channel from self node has no policy")
 		}
 
 		return cb(c, e)

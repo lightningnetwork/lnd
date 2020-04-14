@@ -753,7 +753,7 @@ func testReservationInitiatorBalanceBelowDustCancel(miner *rpctest.Harness,
 		t.Fatalf("initialization should have failed due to " +
 			"insufficient local amount")
 
-	case !strings.Contains(err.Error(), "Funder balance too small"):
+	case !strings.Contains(err.Error(), "funder balance too small"):
 		t.Fatalf("incorrect error: %v", err)
 	}
 }

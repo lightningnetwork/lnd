@@ -421,7 +421,7 @@ func (s *Switch) GetPaymentResult(paymentID uint64, paymentHash lntypes.Hash,
 			deobfuscator, n, paymentID, paymentHash,
 		)
 		if err != nil {
-			e := fmt.Errorf("Unable to extract result: %v", err)
+			e := fmt.Errorf("unable to extract result: %v", err)
 			log.Error(e)
 			resultChan <- &PaymentResult{
 				Error: e,
@@ -770,7 +770,7 @@ func (s *Switch) routeAsync(packet *htlcPacket, errChan chan error,
 	case <-linkQuit:
 		return ErrLinkShuttingDown
 	case <-s.quit:
-		return errors.New("Htlc Switch was stopped")
+		return errors.New("htlc switch was stopped")
 	}
 }
 
@@ -962,7 +962,7 @@ func (s *Switch) extractResult(deobfuscator ErrorDecrypter, n *networkResult,
 		}, nil
 
 	default:
-		return nil, fmt.Errorf("Received unknown response type: %T",
+		return nil, fmt.Errorf("received unknown response type: %T",
 			htlc)
 	}
 }

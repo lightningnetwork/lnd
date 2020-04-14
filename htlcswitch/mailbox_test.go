@@ -148,6 +148,28 @@ func TestMailBoxCouriers(t *testing.T) {
 	}
 }
 
+// TestMailBoxResetAfterShutdown tests that ResetMessages and ResetPackets
+// return ErrMailBoxShuttingDown after the mailbox has been stopped.
+func TestMailBoxResetAfterShutdown(t *testing.T) {
+	t.Parallel()
+
+	m := newMemoryMailBox()
+	m.Start()
+
+	// Stop the mailbox, then try to reset the message and packet couriers.
+	m.Stop()
+
+	err := m.ResetMessages()
+	if err != ErrMailBoxShuttingDown {
+		t.Fatalf("expected ErrMailBoxShuttingDown, got: %v", err)
+	}
+
+	err = m.ResetPackets()
+	if err != ErrMailBoxShuttingDown {
+		t.Fatalf("expected ErrMailBoxShuttingDown, got: %v", err)
+	}
+}
+
 // TestMailOrchestrator asserts that the orchestrator properly buffers packets
 // for channels that haven't been made live, such that they are delivered
 // immediately after BindLiveShortChanID. It also tests that packets are delivered

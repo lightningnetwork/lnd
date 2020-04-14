@@ -509,6 +509,13 @@ func (l *channelLink) Stop() {
 	close(l.quit)
 	l.wg.Wait()
 
+	// Now that the htlcManager has completely exited, reset the packet
+	// courier. This allows the mailbox to revaluate any lingering Adds that
+	// were delivered but didn't make it on a commitment to be failed back
+	// if the link is offline for an extended period of time. The error is
+	// ignored since it can only fail when the daemon is exiting.
+	_ = l.mailBox.ResetPackets()
+
 	// As a final precaution, we will attempt to flush any uncommitted
 	// preimages to the preimage cache. The preimages should be re-delivered
 	// after channel reestablishment, however this adds an extra layer of

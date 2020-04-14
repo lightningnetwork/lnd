@@ -253,9 +253,16 @@ func (m *memoryMailBox) AckPacket(inKey CircuitKey) bool {
 		// It's possible that the courier has already advanced the
 		// addHead, so this check prevents the addHead from getting
 		// desynchronized.
+		//
+		// NOTE: While this event is rare for Settles or Fails, it could
+		// be very common for Adds since the mailbox has the ability to
+		// cancel Adds before they are delivered. When that occurs, the
+		// head of addPkts has only been peeked and we expect to be
+		// removing the head of the queue.
 		if entry == m.addHead {
 			m.addHead = entry.Next()
 		}
+
 		m.addPkts.Remove(entry)
 		delete(m.addIndex, inKey)
 
@@ -314,6 +321,18 @@ func (m *memoryMailBox) signalUntilShutdown(cType courierType) {
 	}
 }
 
+// pktWithExpiry wraps an incoming packet and records the time at which it it
+// should be canceled from the mailbox. This will be used to detect if it gets
+// stuck in the mailbox and inform when to cancel back.
+type pktWithExpiry struct {
+	pkt    *htlcPacket
+	expiry time.Time
+}
+
+func (p *pktWithExpiry) deadline(clock clock.Clock) <-chan time.Time {
+	return clock.TickAfter(p.expiry.Sub(clock.Now()))
+}
+
 // mailCourier is a dedicated goroutine whose job is to reliably deliver
 // messages of a particular type. There are two types of couriers: wire
 // couriers, and mail couriers. Depending on the passed courierType, this
@@ -364,6 +383,7 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 					m.addHead = m.addPkts.Front()
 
 					close(pktDone)
+
 				case <-m.quit:
 					m.pktCond.L.Unlock()
 					return
@@ -375,7 +395,7 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 		var (
 			nextPkt   *htlcPacket
 			nextPktEl *list.Element
-			nextAdd   *htlcPacket
+			nextAdd   *pktWithExpiry
 			nextAddEl *list.Element
 			nextMsg   lnwire.Message
 		)
@@ -392,13 +412,18 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 		// doesn't make it into a commitment, then it'll be
 		// re-delivered once the link comes back online.
 		case pktCourier:
-			// Peek at the next item to deliver, prioritizing
-			// Settle/Fail packets over Adds.
+			// Peek at the head of the Settle/Fails and Add queues.
+			// We peak both even if there is a Settle/Fail present
+			// because we need to set a deadline for the next
+			// pending Add if it's present. Due to clock
+			// monotonicity, we know that the head of the Adds is
+			// the next to expire.
 			if m.pktHead != nil {
 				nextPkt = m.pktHead.Value.(*htlcPacket)
 				nextPktEl = m.pktHead
-			} else {
-				nextAdd = m.addHead.Value.(*htlcPacket)
+			}
+			if m.addHead != nil {
+				nextAdd = m.addHead.Value.(*pktWithExpiry)
 				nextAddEl = m.addHead
 			}
 		}
@@ -433,6 +458,8 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 			var (
 				pktOutbox chan *htlcPacket
 				addOutbox chan *htlcPacket
+				add       *htlcPacket
+				deadline  <-chan time.Time
 			)
 
 			// Prioritize delivery of Settle/Fail packets over Adds.
@@ -453,6 +480,22 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 				addOutbox = m.pktOutbox
 			}
 
+			// If we have a pending Add, we'll also construct the
+			// deadline so we can fail it back if we are unable to
+			// deliver any message in time. We also dereference the
+			// nextAdd's packet, since we will need access to it in
+			// the case we are delivering it and/or if the deadline
+			// expires.
+			//
+			// NOTE: It's possible after this point for add to be
+			// nil, but this can only occur when addOutbox is also
+			// nil, hence we won't accidentally deliver a nil
+			// packet.
+			if nextAdd != nil {
+				add = nextAdd.pkt
+				deadline = nextAdd.deadline(m.cfg.clock)
+			}
+
 			select {
 			case pktOutbox <- nextPkt:
 				m.pktCond.L.Lock()
@@ -463,7 +506,7 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 				}
 				m.pktCond.L.Unlock()
 
-			case addOutbox <- nextAdd:
+			case addOutbox <- add:
 				m.pktCond.L.Lock()
 				// Only advance the addHead if this Add is still
 				// at the head of the queue.
@@ -471,6 +514,9 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 					m.addHead = m.addHead.Next()
 				}
 				m.pktCond.L.Unlock()
+
+			case <-deadline:
+				m.FailAdd(add)
 
 			case pktDone := <-m.pktReset:
 				m.pktCond.L.Lock()
@@ -534,7 +580,10 @@ func (m *memoryMailBox) AddPacket(pkt *htlcPacket) error {
 			return nil
 		}
 
-		entry := m.addPkts.PushBack(pkt)
+		entry := m.addPkts.PushBack(&pktWithExpiry{
+			pkt:    pkt,
+			expiry: m.cfg.clock.Now().Add(m.cfg.expiry),
+		})
 		m.addIndex[pkt.inKey()] = entry
 		if m.addHead == nil {
 			m.addHead = entry

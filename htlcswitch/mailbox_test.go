@@ -179,8 +179,8 @@ func TestMailBoxResetAfterShutdown(t *testing.T) {
 
 type mailboxContext struct {
 	t        *testing.T
-	clock    *clock.TestClock
 	mailbox  MailBox
+	clock    *clock.TestClock
 	forwards chan *htlcPacket
 }
 
@@ -294,7 +294,15 @@ func (c *mailboxContext) checkFails(adds []*htlcPacket) {
 // TestMailBoxFailAdd asserts that FailAdd returns a response to the switch
 // under various interleavings with other operations on the mailbox.
 func TestMailBoxFailAdd(t *testing.T) {
-	ctx := newMailboxContext(t, time.Now(), time.Minute)
+	var (
+		batchDelay       = time.Second
+		expiry           = time.Minute
+		firstBatchStart  = time.Now()
+		secondBatchStart = time.Now().Add(batchDelay)
+		thirdBatchStart  = time.Now().Add(2 * batchDelay)
+		thirdBatchExpiry = thirdBatchStart.Add(expiry)
+	)
+	ctx := newMailboxContext(t, firstBatchStart, expiry)
 	defer ctx.mailbox.Stop()
 
 	failAdds := func(adds []*htlcPacket) {
@@ -306,19 +314,54 @@ func TestMailBoxFailAdd(t *testing.T) {
 	const numBatchPackets = 5
 
 	// Send  10 adds, and pull them from the mailbox.
-	adds := ctx.sendAdds(0, numBatchPackets)
-	ctx.receivePkts(adds)
+	firstBatch := ctx.sendAdds(0, numBatchPackets)
+	ctx.receivePkts(firstBatch)
 
 	// Fail all of these adds, simulating an error adding the HTLCs to the
 	// commitment. We should see a failure message for each.
-	go failAdds(adds)
-	ctx.checkFails(adds)
+	go failAdds(firstBatch)
+	ctx.checkFails(firstBatch)
 
 	// As a sanity check, Fail all of them again and assert that no
 	// duplicate fails are sent.
-	go failAdds(adds)
+	go failAdds(firstBatch)
 	ctx.checkFails(nil)
 
+	// Now, send a second batch of adds after a short delay and deliver them
+	// to the link.
+	ctx.clock.SetTime(secondBatchStart)
+	secondBatch := ctx.sendAdds(numBatchPackets, numBatchPackets)
+	ctx.receivePkts(secondBatch)
+
+	// Reset the packet queue w/o changing the current time. This simulates
+	// the link flapping and coming back up before the second batch's
+	// expiries have elapsed. We should see no failures sent back.
+	err := ctx.mailbox.ResetPackets()
+	if err != nil {
+		t.Fatalf("unable to reset packets: %v", err)
+	}
+	ctx.checkFails(nil)
+
+	// Redeliver the second batch to the link and hold them there.
+	ctx.receivePkts(secondBatch)
+
+	// Send a third batch of adds shortly after the second batch.
+	ctx.clock.SetTime(thirdBatchStart)
+	thirdBatch := ctx.sendAdds(2*numBatchPackets, numBatchPackets)
+
+	// Advance the clock so that the third batch expires. We expect to only
+	// see fails for the third batch, since the second batch is still being
+	// held by the link.
+	ctx.clock.SetTime(thirdBatchExpiry)
+	ctx.checkFails(thirdBatch)
+
+	// Finally, reset the link which should cause the second batch to be
+	// cancelled immediately.
+	err = ctx.mailbox.ResetPackets()
+	if err != nil {
+		t.Fatalf("unable to reset packets: %v", err)
+	}
+	ctx.checkFails(secondBatch)
 }
 
 // TestMailBoxPacketPrioritization asserts that the mailbox will prioritize
@@ -418,6 +461,38 @@ func TestMailBoxPacketPrioritization(t *testing.T) {
 			t.Fatalf("didn't receive packet %d before timeout", i)
 		}
 	}
+}
+
+// TestMailBoxAddExpiry asserts that the mailbox will cancel back Adds that have
+// reached their expiry time.
+func TestMailBoxAddExpiry(t *testing.T) {
+	var (
+		expiry            = time.Minute
+		batchDelay        = time.Second
+		firstBatchStart   = time.Now()
+		firstBatchExpiry  = firstBatchStart.Add(expiry)
+		secondBatchStart  = firstBatchStart.Add(batchDelay)
+		secondBatchExpiry = secondBatchStart.Add(expiry)
+	)
+
+	ctx := newMailboxContext(t, firstBatchStart, expiry)
+	defer ctx.mailbox.Stop()
+
+	// Each batch will consist of 10 messages.
+	const numBatchPackets = 10
+
+	firstBatch := ctx.sendAdds(0, numBatchPackets)
+
+	ctx.clock.SetTime(secondBatchStart)
+	ctx.checkFails(nil)
+
+	secondBatch := ctx.sendAdds(numBatchPackets, numBatchPackets)
+
+	ctx.clock.SetTime(firstBatchExpiry)
+	ctx.checkFails(firstBatch)
+
+	ctx.clock.SetTime(secondBatchExpiry)
+	ctx.checkFails(secondBatch)
 }
 
 // TestMailOrchestrator asserts that the orchestrator properly buffers packets

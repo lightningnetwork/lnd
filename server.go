@@ -2448,7 +2448,7 @@ func (s *server) nextPeerBackoff(pubStr string,
 	// The peer succeeded in starting. If the connection didn't last long
 	// enough to be considered stable, we'll continue to back off retries
 	// with this peer.
-	connDuration := time.Now().Sub(startTime)
+	connDuration := time.Since(startTime)
 	if connDuration < defaultStableConnDuration {
 		return computeNextBackoff(backoff)
 	}

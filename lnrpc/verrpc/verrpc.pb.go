@@ -68,7 +68,7 @@ type Version struct {
 	AppPatch uint32 `protobuf:"varint,6,opt,name=app_patch,json=appPatch,proto3" json:"app_patch,omitempty"`
 	/// The application pre-release modifier, possibly empty.
 	AppPreRelease string `protobuf:"bytes,7,opt,name=app_pre_release,json=appPreRelease,proto3" json:"app_pre_release,omitempty"`
-	/// The list of build tags that were supplied during comilation.
+	/// The list of build tags that were supplied during compilation.
 	BuildTags []string `protobuf:"bytes,8,rep,name=build_tags,json=buildTags,proto3" json:"build_tags,omitempty"`
 	/// The version of go that compiled the executable.
 	GoVersion            string   `protobuf:"bytes,9,opt,name=go_version,json=goVersion,proto3" json:"go_version,omitempty"`

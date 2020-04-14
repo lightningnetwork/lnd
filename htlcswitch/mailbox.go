@@ -112,10 +112,12 @@ type memoryMailBox struct {
 	messageOutbox chan lnwire.Message
 	msgReset      chan chan struct{}
 
-	htlcPkts *list.List
-	pktIndex map[CircuitKey]*list.Element
-	pktHead  *list.Element
+	// repPkts is a queue for reply packets, e.g. Settles and Fails.
+	repPkts  *list.List
+	repIndex map[CircuitKey]*list.Element
+	repHead  *list.Element
 
+	// addPkts is a dedicated queue for Adds.
 	addPkts  *list.List
 	addIndex map[CircuitKey]*list.Element
 	addHead  *list.Element
@@ -136,13 +138,13 @@ func newMemoryMailBox(cfg *mailBoxConfig) *memoryMailBox {
 	box := &memoryMailBox{
 		cfg:           cfg,
 		wireMessages:  list.New(),
-		htlcPkts:      list.New(),
+		repPkts:       list.New(),
 		addPkts:       list.New(),
 		messageOutbox: make(chan lnwire.Message),
 		pktOutbox:     make(chan *htlcPacket),
 		msgReset:      make(chan chan struct{}, 1),
 		pktReset:      make(chan chan struct{}, 1),
-		pktIndex:      make(map[CircuitKey]*list.Element),
+		repIndex:      make(map[CircuitKey]*list.Element),
 		addIndex:      make(map[CircuitKey]*list.Element),
 		wireShutdown:  make(chan struct{}),
 		pktShutdown:   make(chan struct{}),
@@ -238,17 +240,17 @@ func (m *memoryMailBox) AckPacket(inKey CircuitKey) bool {
 	m.pktCond.L.Lock()
 	defer m.pktCond.L.Unlock()
 
-	if entry, ok := m.pktIndex[inKey]; ok {
+	if entry, ok := m.repIndex[inKey]; ok {
 		// Check whether we are removing the head of the queue. If so,
 		// we must advance the head to the next packet before removing.
 		// It's possible that the courier has already advanced the
-		// pktHead, so this check prevents the pktHead from getting
+		// repHead, so this check prevents the repHead from getting
 		// desynchronized.
-		if entry == m.pktHead {
-			m.pktHead = entry.Next()
+		if entry == m.repHead {
+			m.repHead = entry.Next()
 		}
-		m.htlcPkts.Remove(entry)
-		delete(m.pktIndex, inKey)
+		m.repPkts.Remove(entry)
+		delete(m.repIndex, inKey)
 
 		return true
 	}
@@ -282,7 +284,7 @@ func (m *memoryMailBox) AckPacket(inKey CircuitKey) bool {
 // bound for the switch that already have a queued response.
 func (m *memoryMailBox) HasPacket(inKey CircuitKey) bool {
 	m.pktCond.L.Lock()
-	_, ok := m.pktIndex[inKey]
+	_, ok := m.repIndex[inKey]
 	m.pktCond.L.Unlock()
 
 	return ok
@@ -376,7 +378,7 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 
 		case pktCourier:
 			m.pktCond.L.Lock()
-			for m.pktHead == nil && m.addHead == nil {
+			for m.repHead == nil && m.addHead == nil {
 				m.pktCond.Wait()
 
 				select {
@@ -385,7 +387,7 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 				// any un-ACK'd messages are re-delivered upon
 				// reconnect.
 				case pktDone := <-m.pktReset:
-					m.pktHead = m.htlcPkts.Front()
+					m.repHead = m.repPkts.Front()
 					m.addHead = m.addPkts.Front()
 
 					close(pktDone)
@@ -399,8 +401,8 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 		}
 
 		var (
-			nextPkt   *htlcPacket
-			nextPktEl *list.Element
+			nextRep   *htlcPacket
+			nextRepEl *list.Element
 			nextAdd   *pktWithExpiry
 			nextAddEl *list.Element
 			nextMsg   lnwire.Message
@@ -424,9 +426,9 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 			// pending Add if it's present. Due to clock
 			// monotonicity, we know that the head of the Adds is
 			// the next to expire.
-			if m.pktHead != nil {
-				nextPkt = m.pktHead.Value.(*htlcPacket)
-				nextPktEl = m.pktHead
+			if m.repHead != nil {
+				nextRep = m.repHead.Value.(*htlcPacket)
+				nextRepEl = m.repHead
 			}
 			if m.addHead != nil {
 				nextAdd = m.addHead.Value.(*pktWithExpiry)
@@ -479,8 +481,8 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 			// same channel, but we can control which is delivered
 			// by exclusively making one nil and the other non-nil.
 			// We know from our loop condition that at least one
-			// nextPkt and nextAdd are non-nil.
-			if nextPkt != nil {
+			// nextRep and nextAdd are non-nil.
+			if nextRep != nil {
 				pktOutbox = m.pktOutbox
 			} else {
 				addOutbox = m.pktOutbox
@@ -503,12 +505,12 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 			}
 
 			select {
-			case pktOutbox <- nextPkt:
+			case pktOutbox <- nextRep:
 				m.pktCond.L.Lock()
-				// Only advance the pktHead if this Settle or
+				// Only advance the repHead if this Settle or
 				// Fail is still at the head of the queue.
-				if m.pktHead != nil && m.pktHead == nextPktEl {
-					m.pktHead = m.pktHead.Next()
+				if m.repHead != nil && m.repHead == nextRepEl {
+					m.repHead = m.repHead.Next()
 				}
 				m.pktCond.L.Unlock()
 
@@ -526,7 +528,7 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 
 			case pktDone := <-m.pktReset:
 				m.pktCond.L.Lock()
-				m.pktHead = m.htlcPkts.Front()
+				m.repHead = m.repPkts.Front()
 				m.addHead = m.addPkts.Front()
 				m.pktCond.L.Unlock()
 
@@ -566,17 +568,17 @@ func (m *memoryMailBox) AddPacket(pkt *htlcPacket) error {
 	m.pktCond.L.Lock()
 	switch htlc := pkt.htlc.(type) {
 
-	// Split off Settle/Fail packets into the htlcPkts queue.
+	// Split off Settle/Fail packets into the repPkts queue.
 	case *lnwire.UpdateFulfillHTLC, *lnwire.UpdateFailHTLC:
-		if _, ok := m.pktIndex[pkt.inKey()]; ok {
+		if _, ok := m.repIndex[pkt.inKey()]; ok {
 			m.pktCond.L.Unlock()
 			return ErrPacketAlreadyExists
 		}
 
-		entry := m.htlcPkts.PushBack(pkt)
-		m.pktIndex[pkt.inKey()] = entry
-		if m.pktHead == nil {
-			m.pktHead = entry
+		entry := m.repPkts.PushBack(pkt)
+		m.repIndex[pkt.inKey()] = entry
+		if m.repHead == nil {
+			m.repHead = entry
 		}
 
 	// Split off Add packets into the addPkts queue.

@@ -211,12 +211,13 @@ func (n *NetworkHarness) SetUp(lndArgs []string) error {
 	// Now block until both wallets have fully synced up.
 	expectedBalance := int64(btcutil.SatoshiPerBitcoin * 10)
 	balReq := &lnrpc.WalletBalanceRequest{}
-	balanceTicker := time.Tick(time.Millisecond * 50)
+	balanceTicker := time.NewTicker(time.Millisecond * 50)
+	defer balanceTicker.Stop()
 	balanceTimeout := time.After(time.Second * 30)
 out:
 	for {
 		select {
-		case <-balanceTicker:
+		case <-balanceTicker.C:
 			aliceResp, err := n.Alice.WalletBalance(ctxb, balReq)
 			if err != nil {
 				return err

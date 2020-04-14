@@ -1272,72 +1272,6 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 			l.log.Warnf("Unable to handle downstream add HTLC: %v",
 				err)
 
-			var (
-				localFailure = false
-				reason       lnwire.OpaqueReason
-			)
-
-			// Create a temporary channel failure which we will send
-			// back to our peer if this is a forward, or report to
-			// the user if the failed payment was locally initiated.
-			failure := l.createFailureWithUpdate(
-				func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
-					return lnwire.NewTemporaryChannelFailure(
-						upd,
-					)
-				},
-			)
-
-			// If the payment was locally initiated (which is
-			// indicated by a nil obfuscator), we do not need to
-			// encrypt it back to the sender.
-			if pkt.obfuscator == nil {
-				var b bytes.Buffer
-				err := lnwire.EncodeFailure(&b, failure, 0)
-				if err != nil {
-					l.log.Errorf("unable to encode "+
-						"failure: %v", err)
-					l.mailBox.AckPacket(pkt.inKey())
-					return
-				}
-				reason = lnwire.OpaqueReason(b.Bytes())
-				localFailure = true
-			} else {
-				// If the packet is part of a forward,
-				// (identified by a non-nil obfuscator) we need
-				// to encrypt the error back to the source.
-				var err error
-				reason, err = pkt.obfuscator.EncryptFirstHop(failure)
-				if err != nil {
-					l.log.Errorf("unable to "+
-						"obfuscate error: %v", err)
-					l.mailBox.AckPacket(pkt.inKey())
-					return
-				}
-			}
-
-			// Create a link error containing the temporary channel
-			// failure and a detail which indicates the we failed to
-			// add the htlc.
-			linkError := NewDetailedLinkError(
-				failure, OutgoingFailureDownstreamHtlcAdd,
-			)
-
-			failPkt := &htlcPacket{
-				incomingChanID: pkt.incomingChanID,
-				incomingHTLCID: pkt.incomingHTLCID,
-				circuit:        pkt.circuit,
-				sourceRef:      pkt.sourceRef,
-				hasSource:      true,
-				localFailure:   localFailure,
-				linkFailure:    linkError,
-				htlc: &lnwire.UpdateFailHTLC{
-					Reason: reason,
-				},
-			}
-
-			go l.forwardBatch(failPkt)
-
 			// Remove this packet from the link's mailbox, this
 			// prevents it from being reprocessed if the link
 			// restarts and resets it mailbox. If this response
@@ -1346,7 +1280,7 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 			// the switch, since the circuit was never fully opened,
 			// and the forwarding package shows it as
 			// unacknowledged.
-			l.mailBox.AckPacket(pkt.inKey())
+			l.mailBox.FailAdd(pkt)
 
 			return
 		}

@@ -283,12 +283,11 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		return nil, err
 	}
 
-	return &Switch{
+	s := &Switch{
 		bestHeight:        currentHeight,
 		cfg:               &cfg,
 		circuits:          circuitMap,
 		linkIndex:         make(map[lnwire.ChannelID]ChannelLink),
-		mailOrchestrator:  newMailOrchestrator(),
 		forwardingIndex:   make(map[lnwire.ShortChannelID]ChannelLink),
 		interfaceIndex:    make(map[[33]byte]map[lnwire.ChannelID]ChannelLink),
 		pendingLinkIndex:  make(map[lnwire.ChannelID]ChannelLink),
@@ -297,7 +296,14 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		chanCloseRequests: make(chan *ChanClose),
 		resolutionMsgs:    make(chan *resolutionMsg),
 		quit:              make(chan struct{}),
-	}, nil
+	}
+
+	s.mailOrchestrator = newMailOrchestrator(&mailOrchConfig{
+		fetchUpdate:    s.cfg.FetchLastChannelUpdate,
+		forwardPackets: s.ForwardPackets,
+	})
+
+	return s, nil
 }
 
 // resolutionMsg is a struct that wraps an existing ResolutionMsg with a done
@@ -2037,7 +2043,8 @@ func (s *Switch) AddLink(link ChannelLink) error {
 	// Get and attach the mailbox for this link, which buffers packets in
 	// case there packets that we tried to deliver while this link was
 	// offline.
-	mailbox := s.mailOrchestrator.GetOrCreateMailBox(chanID)
+	shortChanID := link.ShortChanID()
+	mailbox := s.mailOrchestrator.GetOrCreateMailBox(chanID, shortChanID)
 	link.AttachMailBox(mailbox)
 
 	if err := link.Start(); err != nil {
@@ -2045,7 +2052,6 @@ func (s *Switch) AddLink(link ChannelLink) error {
 		return err
 	}
 
-	shortChanID := link.ShortChanID()
 	if shortChanID == hop.Source {
 		log.Infof("Adding pending link chan_id=%v, short_chan_id=%v",
 			chanID, shortChanID)
@@ -2217,7 +2223,7 @@ func (s *Switch) UpdateShortChanID(chanID lnwire.ChannelID) error {
 
 	// Finally, alert the mail orchestrator to the change of short channel
 	// ID, and deliver any unclaimed packets to the link.
-	mailbox := s.mailOrchestrator.GetOrCreateMailBox(chanID)
+	mailbox := s.mailOrchestrator.GetOrCreateMailBox(chanID, shortChanID)
 	s.mailOrchestrator.BindLiveShortChanID(
 		mailbox, chanID, shortChanID,
 	)

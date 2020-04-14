@@ -1,6 +1,7 @@
 package htlcswitch
 
 import (
+	"bytes"
 	"container/list"
 	"errors"
 	"sync"
@@ -31,8 +32,17 @@ type MailBox interface {
 
 	// AckPacket removes a packet from the mailboxes in-memory replay
 	// buffer. This will prevent a packet from being delivered after a link
-	// restarts if the switch has remained online.
-	AckPacket(CircuitKey)
+	// restarts if the switch has remained online. The returned boolean
+	// indicates whether or not a packet with the passed incoming circuit
+	// key was removed.
+	AckPacket(CircuitKey) bool
+
+	// FailAdd fails an UpdateAddHTLC that exists within the mailbox,
+	// removing it from the in-memory replay buffer. This will prevent the
+	// packet from being delivered after the link restarts if the switch has
+	// remained online. The generated LinkError will show an
+	// OutgoingFailureDownstreamHtlcAdd FailureDetail.
+	FailAdd(pkt *htlcPacket)
 
 	// MessageOutBox returns a channel that any new messages ready for
 	// delivery will be sent on.
@@ -56,11 +66,28 @@ type MailBox interface {
 	Stop()
 }
 
+type mailBoxConfig struct {
+	// shortChanID is the short channel id of the channel this mailbox
+	// belongs to.
+	shortChanID lnwire.ShortChannelID
+
+	// fetchUpdate retreives the most recent channel update for the channel
+	// this mailbox belongs to.
+	fetchUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error)
+
+	// forwardPackets send a varidic number of htlcPackets to the switch to
+	// be routed. A quit channel should be provided so that the call can
+	// properly exit during shutdown.
+	forwardPackets func(chan struct{}, ...*htlcPacket) chan error
+}
+
 // memoryMailBox is an implementation of the MailBox struct backed by purely
 // in-memory queues.
 type memoryMailBox struct {
 	started sync.Once
 	stopped sync.Once
+
+	cfg *mailBoxConfig
 
 	wireMessages *list.List
 	wireMtx      sync.Mutex
@@ -84,8 +111,9 @@ type memoryMailBox struct {
 }
 
 // newMemoryMailBox creates a new instance of the memoryMailBox.
-func newMemoryMailBox() *memoryMailBox {
+func newMemoryMailBox(cfg *mailBoxConfig) *memoryMailBox {
 	box := &memoryMailBox{
+		cfg:           cfg,
 		wireMessages:  list.New(),
 		htlcPkts:      list.New(),
 		messageOutbox: make(chan lnwire.Message),
@@ -179,20 +207,23 @@ func (m *memoryMailBox) signalUntilReset(cType courierType,
 }
 
 // AckPacket removes the packet identified by it's incoming circuit key from the
-// queue of packets to be delivered.
+// queue of packets to be delivered. The returned boolean indicates whether or
+// not a packet with the passed incoming circuit key was removed.
 //
 // NOTE: It is safe to call this method multiple times for the same circuit key.
-func (m *memoryMailBox) AckPacket(inKey CircuitKey) {
+func (m *memoryMailBox) AckPacket(inKey CircuitKey) bool {
 	m.pktCond.L.Lock()
 	entry, ok := m.pktIndex[inKey]
 	if !ok {
 		m.pktCond.L.Unlock()
-		return
+		return false
 	}
 
 	m.htlcPkts.Remove(entry)
 	delete(m.pktIndex, inKey)
 	m.pktCond.L.Unlock()
+
+	return true
 }
 
 // HasPacket queries the packets for a circuit key, this is used to drop packets
@@ -410,6 +441,80 @@ func (m *memoryMailBox) AddPacket(pkt *htlcPacket) error {
 	return nil
 }
 
+// FailAdd fails an UpdateAddHTLC that exists within the mailbox, removing it
+// from the in-memory replay buffer. This will prevent the packet from being
+// delivered after the link restarts if the switch has remained online. The
+// generated LinkError will show an OutgoingFailureDownstreamHtlcAdd
+// FailureDetail.
+func (m *memoryMailBox) FailAdd(pkt *htlcPacket) {
+	// First, remove the packet from mailbox. If we didn't find the packet
+	// because it has already been acked, we'll exit early to avoid sending
+	// a duplicate fail message through the switch.
+	if !m.AckPacket(pkt.inKey()) {
+		return
+	}
+
+	var (
+		localFailure = false
+		reason       lnwire.OpaqueReason
+	)
+
+	// Create a temporary channel failure which we will send back to our
+	// peer if this is a forward, or report to the user if the failed
+	// payment was locally initiated.
+	var failure lnwire.FailureMessage
+	update, err := m.cfg.fetchUpdate(m.cfg.shortChanID)
+	if err != nil {
+		failure = &lnwire.FailTemporaryNodeFailure{}
+	} else {
+		failure = lnwire.NewTemporaryChannelFailure(update)
+	}
+
+	// If the payment was locally initiated (which is indicated by a nil
+	// obfuscator), we do not need to encrypt it back to the sender.
+	if pkt.obfuscator == nil {
+		var b bytes.Buffer
+		err := lnwire.EncodeFailure(&b, failure, 0)
+		if err != nil {
+			log.Errorf("Unable to encode failure: %v", err)
+			return
+		}
+		reason = lnwire.OpaqueReason(b.Bytes())
+		localFailure = true
+	} else {
+		// If the packet is part of a forward, (identified by a non-nil
+		// obfuscator) we need to encrypt the error back to the source.
+		var err error
+		reason, err = pkt.obfuscator.EncryptFirstHop(failure)
+		if err != nil {
+			log.Errorf("Unable to obfuscate error: %v", err)
+			return
+		}
+	}
+
+	// Create a link error containing the temporary channel failure and a
+	// detail which indicates the we failed to add the htlc.
+	linkError := NewDetailedLinkError(
+		failure, OutgoingFailureDownstreamHtlcAdd,
+	)
+
+	failPkt := &htlcPacket{
+		incomingChanID: pkt.incomingChanID,
+		incomingHTLCID: pkt.incomingHTLCID,
+		circuit:        pkt.circuit,
+		sourceRef:      pkt.sourceRef,
+		hasSource:      true,
+		localFailure:   localFailure,
+		linkFailure:    linkError,
+		htlc: &lnwire.UpdateFailHTLC{
+			Reason: reason,
+		},
+	}
+
+	errChan := m.cfg.forwardPackets(m.quit, failPkt)
+	go handleBatchFwdErrs(errChan, log)
+}
+
 // MessageOutBox returns a channel that any new messages ready for delivery
 // will be sent on.
 //
@@ -434,6 +539,8 @@ func (m *memoryMailBox) PacketOutBox() chan *htlcPacket {
 type mailOrchestrator struct {
 	mu sync.RWMutex
 
+	cfg *mailOrchConfig
+
 	// mailboxes caches exactly one mailbox for all known channels.
 	mailboxes map[lnwire.ChannelID]MailBox
 
@@ -454,9 +561,21 @@ type mailOrchestrator struct {
 	unclaimedPackets map[lnwire.ShortChannelID][]*htlcPacket
 }
 
+type mailOrchConfig struct {
+	// forwardPackets send a varidic number of htlcPackets to the switch to
+	// be routed. A quit channel should be provided so that the call can
+	// properly exit during shutdown.
+	forwardPackets func(chan struct{}, ...*htlcPacket) chan error
+
+	// fetchUpdate retreives the most recent channel update for the channel
+	// this mailbox belongs to.
+	fetchUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error)
+}
+
 // newMailOrchestrator initializes a fresh mailOrchestrator.
-func newMailOrchestrator() *mailOrchestrator {
+func newMailOrchestrator(cfg *mailOrchConfig) *mailOrchestrator {
 	return &mailOrchestrator{
+		cfg:              cfg,
 		mailboxes:        make(map[lnwire.ChannelID]MailBox),
 		liveIndex:        make(map[lnwire.ShortChannelID]lnwire.ChannelID),
 		unclaimedPackets: make(map[lnwire.ShortChannelID][]*htlcPacket),
@@ -472,7 +591,9 @@ func (mo *mailOrchestrator) Stop() {
 
 // GetOrCreateMailBox returns an existing mailbox belonging to `chanID`, or
 // creates and returns a new mailbox if none is found.
-func (mo *mailOrchestrator) GetOrCreateMailBox(chanID lnwire.ChannelID) MailBox {
+func (mo *mailOrchestrator) GetOrCreateMailBox(chanID lnwire.ChannelID,
+	shortChanID lnwire.ShortChannelID) MailBox {
+
 	// First, try lookup the mailbox directly using only the shared mutex.
 	mo.mu.RLock()
 	mailbox, ok := mo.mailboxes[chanID]
@@ -485,7 +606,7 @@ func (mo *mailOrchestrator) GetOrCreateMailBox(chanID lnwire.ChannelID) MailBox 
 	// Otherwise, we will try again with exclusive lock, creating a mailbox
 	// if one still has not been created.
 	mo.mu.Lock()
-	mailbox = mo.exclusiveGetOrCreateMailBox(chanID)
+	mailbox = mo.exclusiveGetOrCreateMailBox(chanID, shortChanID)
 	mo.mu.Unlock()
 
 	return mailbox
@@ -497,11 +618,15 @@ func (mo *mailOrchestrator) GetOrCreateMailBox(chanID lnwire.ChannelID) MailBox 
 //
 // NOTE: This method MUST be invoked with the mailOrchestrator's exclusive lock.
 func (mo *mailOrchestrator) exclusiveGetOrCreateMailBox(
-	chanID lnwire.ChannelID) MailBox {
+	chanID lnwire.ChannelID, shortChanID lnwire.ShortChannelID) MailBox {
 
 	mailbox, ok := mo.mailboxes[chanID]
 	if !ok {
-		mailbox = newMemoryMailBox()
+		mailbox = newMemoryMailBox(&mailBoxConfig{
+			shortChanID:    shortChanID,
+			fetchUpdate:    mo.cfg.fetchUpdate,
+			forwardPackets: mo.cfg.forwardPackets,
+		})
 		mailbox.Start()
 		mo.mailboxes[chanID] = mailbox
 	}
@@ -581,7 +706,7 @@ func (mo *mailOrchestrator) Deliver(
 		// index should only be set if the mailbox had been initialized
 		// beforehand.  However, this does ensure that this case is
 		// handled properly in the event that it could happen.
-		mailbox = mo.exclusiveGetOrCreateMailBox(chanID)
+		mailbox = mo.exclusiveGetOrCreateMailBox(chanID, sid)
 		mo.mu.Unlock()
 
 		// Deliver the packet to the mailbox if it was found or created.

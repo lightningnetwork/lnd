@@ -19,7 +19,7 @@ func TestMailBoxCouriers(t *testing.T) {
 
 	// First, we'll create new instance of the current default mailbox
 	// type.
-	mailBox := newMemoryMailBox()
+	mailBox := newMemoryMailBox(&mailBoxConfig{})
 	mailBox.Start()
 	defer mailBox.Stop()
 
@@ -153,7 +153,7 @@ func TestMailBoxCouriers(t *testing.T) {
 func TestMailBoxResetAfterShutdown(t *testing.T) {
 	t.Parallel()
 
-	m := newMemoryMailBox()
+	m := newMemoryMailBox(&mailBoxConfig{})
 	m.Start()
 
 	// Stop the mailbox, then try to reset the message and packet couriers.
@@ -170,6 +170,144 @@ func TestMailBoxResetAfterShutdown(t *testing.T) {
 	}
 }
 
+type mailboxContext struct {
+	t        *testing.T
+	mailbox  MailBox
+	forwards chan *htlcPacket
+}
+
+func newMailboxContext(t *testing.T) *mailboxContext {
+
+	ctx := &mailboxContext{
+		t:        t,
+		forwards: make(chan *htlcPacket, 1),
+	}
+	ctx.mailbox = newMemoryMailBox(&mailBoxConfig{
+		fetchUpdate: func(sid lnwire.ShortChannelID) (
+			*lnwire.ChannelUpdate, error) {
+			return &lnwire.ChannelUpdate{
+				ShortChannelID: sid,
+			}, nil
+		},
+		forwardPackets: ctx.forward,
+	})
+	ctx.mailbox.Start()
+
+	return ctx
+}
+
+func (c *mailboxContext) forward(_ chan struct{},
+	pkts ...*htlcPacket) chan error {
+
+	for _, pkt := range pkts {
+		c.forwards <- pkt
+	}
+
+	errChan := make(chan error)
+	close(errChan)
+
+	return errChan
+}
+
+func (c *mailboxContext) sendAdds(start, num int) []*htlcPacket {
+	c.t.Helper()
+
+	sentPackets := make([]*htlcPacket, num)
+	for i := 0; i < num; i++ {
+		pkt := &htlcPacket{
+			outgoingChanID: lnwire.NewShortChanIDFromInt(
+				uint64(prand.Int63())),
+			incomingChanID: lnwire.NewShortChanIDFromInt(
+				uint64(prand.Int63())),
+			incomingHTLCID: uint64(start + i),
+			amount:         lnwire.MilliSatoshi(prand.Int63()),
+			htlc: &lnwire.UpdateAddHTLC{
+				ID: uint64(start + i),
+			},
+		}
+		sentPackets[i] = pkt
+
+		err := c.mailbox.AddPacket(pkt)
+		if err != nil {
+			c.t.Fatalf("unable to add packet: %v", err)
+		}
+	}
+
+	return sentPackets
+}
+
+func (c *mailboxContext) receivePkts(pkts []*htlcPacket) {
+	c.t.Helper()
+
+	for i, expPkt := range pkts {
+		select {
+		case pkt := <-c.mailbox.PacketOutBox():
+			if reflect.DeepEqual(expPkt, pkt) {
+				continue
+			}
+
+			c.t.Fatalf("inkey mismatch #%d, want: %v vs "+
+				"got: %v", i, expPkt.inKey(), pkt.inKey())
+
+		case <-time.After(50 * time.Millisecond):
+			c.t.Fatalf("did not receive fail for index %d", i)
+		}
+	}
+}
+
+func (c *mailboxContext) checkFails(adds []*htlcPacket) {
+	c.t.Helper()
+
+	for i, add := range adds {
+		select {
+		case fail := <-c.forwards:
+			if add.inKey() == fail.inKey() {
+				continue
+			}
+			c.t.Fatalf("inkey mismatch #%d, add: %v vs fail: %v",
+				i, add.inKey(), fail.inKey())
+
+		case <-time.After(50 * time.Millisecond):
+			c.t.Fatalf("did not receive fail for index %d", i)
+		}
+	}
+
+	select {
+	case pkt := <-c.forwards:
+		c.t.Fatalf("unexpected forward: %v", pkt)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// TestMailBoxFailAdd asserts that FailAdd returns a response to the switch
+// under various interleavings with other operations on the mailbox.
+func TestMailBoxFailAdd(t *testing.T) {
+	ctx := newMailboxContext(t)
+	defer ctx.mailbox.Stop()
+
+	failAdds := func(adds []*htlcPacket) {
+		for _, add := range adds {
+			ctx.mailbox.FailAdd(add)
+		}
+	}
+
+	const numBatchPackets = 5
+
+	// Send  10 adds, and pull them from the mailbox.
+	adds := ctx.sendAdds(0, numBatchPackets)
+	ctx.receivePkts(adds)
+
+	// Fail all of these adds, simulating an error adding the HTLCs to the
+	// commitment. We should see a failure message for each.
+	go failAdds(adds)
+	ctx.checkFails(adds)
+
+	// As a sanity check, Fail all of them again and assert that no
+	// duplicate fails are sent.
+	go failAdds(adds)
+	ctx.checkFails(nil)
+}
+
 // TestMailOrchestrator asserts that the orchestrator properly buffers packets
 // for channels that haven't been made live, such that they are delivered
 // immediately after BindLiveShortChanID. It also tests that packets are delivered
@@ -178,7 +316,7 @@ func TestMailOrchestrator(t *testing.T) {
 	t.Parallel()
 
 	// First, we'll create a new instance of our orchestrator.
-	mo := newMailOrchestrator()
+	mo := newMailOrchestrator(&mailOrchConfig{})
 	defer mo.Stop()
 
 	// We'll be delivering 10 htlc packets via the orchestrator.
@@ -203,7 +341,7 @@ func TestMailOrchestrator(t *testing.T) {
 	}
 
 	// Now, initialize a new mailbox for Alice's chanid.
-	mailbox := mo.GetOrCreateMailBox(chanID1)
+	mailbox := mo.GetOrCreateMailBox(chanID1, aliceChanID)
 
 	// Verify that no messages are received, since Alice's mailbox has not
 	// been made live.
@@ -248,7 +386,7 @@ func TestMailOrchestrator(t *testing.T) {
 
 	// For the second half of the test, create a new mailbox for Bob and
 	// immediately make it live with an assigned short chan id.
-	mailbox = mo.GetOrCreateMailBox(chanID2)
+	mailbox = mo.GetOrCreateMailBox(chanID2, bobChanID)
 	mo.BindLiveShortChanID(mailbox, chanID2, bobChanID)
 
 	// Create the second half of our htlcs, and deliver them via the

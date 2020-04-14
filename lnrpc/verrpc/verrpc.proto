@@ -33,7 +33,7 @@ message Version {
     /// The application pre-release modifier, possibly empty.
     string app_pre_release = 7;
 
-    /// The list of build tags that were supplied during comilation.
+    /// The list of build tags that were supplied during compilation.
     repeated string build_tags = 8;
 
     /// The version of go that compiled the executable.

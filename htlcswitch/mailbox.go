@@ -12,9 +12,15 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// ErrMailBoxShuttingDown is returned when the mailbox is interrupted by a
-// shutdown request.
-var ErrMailBoxShuttingDown = errors.New("mailbox is shutting down")
+var (
+	// ErrMailBoxShuttingDown is returned when the mailbox is interrupted by
+	// a shutdown request.
+	ErrMailBoxShuttingDown = errors.New("mailbox is shutting down")
+
+	// ErrPacketAlreadyExists signals that an attempt to add a packet failed
+	// because it already exists in the mailbox.
+	ErrPacketAlreadyExists = errors.New("mailbox already has packet")
+)
 
 // MailBox is an interface which represents a concurrent-safe, in-order
 // delivery queue for messages from the network and also from the main switch.
@@ -564,7 +570,7 @@ func (m *memoryMailBox) AddPacket(pkt *htlcPacket) error {
 	case *lnwire.UpdateFulfillHTLC, *lnwire.UpdateFailHTLC:
 		if _, ok := m.pktIndex[pkt.inKey()]; ok {
 			m.pktCond.L.Unlock()
-			return nil
+			return ErrPacketAlreadyExists
 		}
 
 		entry := m.htlcPkts.PushBack(pkt)
@@ -577,7 +583,7 @@ func (m *memoryMailBox) AddPacket(pkt *htlcPacket) error {
 	case *lnwire.UpdateAddHTLC:
 		if _, ok := m.addIndex[pkt.inKey()]; ok {
 			m.pktCond.L.Unlock()
-			return nil
+			return ErrPacketAlreadyExists
 		}
 
 		entry := m.addPkts.PushBack(&pktWithExpiry{

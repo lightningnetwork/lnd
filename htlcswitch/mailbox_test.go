@@ -44,7 +44,10 @@ func TestMailBoxCouriers(t *testing.T) {
 		}
 		sentPackets[i] = pkt
 
-		mailBox.AddPacket(pkt)
+		err := mailBox.AddPacket(pkt)
+		if err != nil {
+			t.Fatalf("unable to add packet: %v", err)
+		}
 	}
 
 	// Next, we'll do the same, but this time adding wire messages.
@@ -493,6 +496,47 @@ func TestMailBoxAddExpiry(t *testing.T) {
 
 	ctx.clock.SetTime(secondBatchExpiry)
 	ctx.checkFails(secondBatch)
+}
+
+// TestMailBoxDuplicateAddPacket asserts that the mailbox returns an
+// ErrPacketAlreadyExists failure when two htlcPackets are added with identical
+// incoming circuit keys.
+func TestMailBoxDuplicateAddPacket(t *testing.T) {
+	t.Parallel()
+
+	mailBox := newMemoryMailBox(&mailBoxConfig{
+		clock: clock.NewDefaultClock(),
+	})
+	mailBox.Start()
+	defer mailBox.Stop()
+
+	addTwice := func(t *testing.T, pkt *htlcPacket) {
+		// The first add should succeed.
+		err := mailBox.AddPacket(pkt)
+		if err != nil {
+			t.Fatalf("unable to add packet: %v", err)
+		}
+
+		// Adding again with the same incoming circuit key should fail.
+		err = mailBox.AddPacket(pkt)
+		if err != ErrPacketAlreadyExists {
+			t.Fatalf("expected ErrPacketAlreadyExists, got: %v", err)
+		}
+	}
+
+	// Assert duplicate AddPacket calls fail for all types of HTLCs.
+	addTwice(t, &htlcPacket{
+		incomingHTLCID: 0,
+		htlc:           &lnwire.UpdateAddHTLC{},
+	})
+	addTwice(t, &htlcPacket{
+		incomingHTLCID: 1,
+		htlc:           &lnwire.UpdateFulfillHTLC{},
+	})
+	addTwice(t, &htlcPacket{
+		incomingHTLCID: 2,
+		htlc:           &lnwire.UpdateFailHTLC{},
+	})
 }
 
 // TestMailOrchestrator asserts that the orchestrator properly buffers packets

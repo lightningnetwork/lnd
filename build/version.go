@@ -32,7 +32,7 @@ var (
 
 // semanticAlphabet is the set of characters that are permitted for use in an
 // AppPreRelease.
-const semanticAlphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-"
+const semanticAlphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-."
 
 // These constants define the application version and follow the semantic
 // versioning 2.0.0 spec (http://semver.org/).
@@ -41,14 +41,14 @@ const (
 	AppMajor uint = 0
 
 	// AppMinor defines the minor version of this binary.
-	AppMinor uint = 9
+	AppMinor uint = 10
 
 	// AppPatch defines the application patch for this binary.
 	AppPatch uint = 0
 
 	// AppPreRelease MUST only contain characters from semanticAlphabet
 	// per the semantic versioning spec.
-	AppPreRelease = "beta"
+	AppPreRelease = "beta.rc1"
 )
 
 func init() {

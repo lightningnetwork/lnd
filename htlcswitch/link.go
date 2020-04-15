@@ -2309,8 +2309,7 @@ func (l *channelLink) HandleSwitchPacket(pkt *htlcPacket) error {
 	l.log.Tracef("received switch packet inkey=%v, outkey=%v",
 		pkt.inKey(), pkt.outKey())
 
-	l.mailBox.AddPacket(pkt)
-	return nil
+	return l.mailBox.AddPacket(pkt)
 }
 
 // HandleChannelUpdate handles the htlc requests as settle/add/fail which sent

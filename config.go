@@ -478,7 +478,8 @@ func loadConfig() (*config, error) {
 	appName = strings.TrimSuffix(appName, filepath.Ext(appName))
 	usageMessage := fmt.Sprintf("Use %s -h to show usage", appName)
 	if preCfg.ShowVersion {
-		fmt.Println(appName, "version", build.Version())
+		fmt.Println(appName, "version", build.Version(),
+			"commit="+build.Commit)
 		os.Exit(0)
 	}
 

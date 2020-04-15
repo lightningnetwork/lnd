@@ -170,8 +170,9 @@ func Main(lisCfg ListenerCfg) error {
 	}()
 
 	// Show version at startup.
-	ltndLog.Infof("Version: %s, build=%s, logging=%s",
-		build.Version(), build.Deployment, build.LoggingType)
+	ltndLog.Infof("Version: %s commit=%s, build=%s, logging=%s",
+		build.Version(), build.Commit, build.Deployment,
+		build.LoggingType)
 
 	var network string
 	switch {

@@ -223,6 +223,11 @@ type ChannelLinkConfig struct {
 	// syncing.
 	FwdPkgGCTicker ticker.Ticker
 
+	// PendingCommitTicker is a ticker that allows the link to determine if
+	// a locally initiated commitment dance gets stuck waiting for the
+	// remote party to revoke.
+	PendingCommitTicker ticker.Ticker
+
 	// BatchSize is the max size of a batch of updates done to the link
 	// before we do a state update.
 	BatchSize uint32
@@ -508,6 +513,13 @@ func (l *channelLink) Stop() {
 
 	close(l.quit)
 	l.wg.Wait()
+
+	// Now that the htlcManager has completely exited, reset the packet
+	// courier. This allows the mailbox to revaluate any lingering Adds that
+	// were delivered but didn't make it on a commitment to be failed back
+	// if the link is offline for an extended period of time. The error is
+	// ignored since it can only fail when the daemon is exiting.
+	_ = l.mailBox.ResetPackets()
 
 	// As a final precaution, we will attempt to flush any uncommitted
 	// preimages to the preimage cache. The preimages should be re-delivered
@@ -1003,13 +1015,12 @@ func (l *channelLink) htlcManager() {
 		go l.fwdPkgGarbager()
 	}
 
-out:
 	for {
 		// We must always check if we failed at some point processing
 		// the last update before processing the next.
 		if l.failed {
 			l.log.Errorf("link failed, exiting htlcManager")
-			break out
+			return
 		}
 
 		// If the previous event resulted in a non-empty batch, resume
@@ -1079,7 +1090,7 @@ out:
 				l.cfg.Peer.WipeChannel(chanPoint)
 			}()
 
-			break out
+			return
 
 		case <-l.cfg.BatchTicker.Ticks():
 			// Attempt to extend the remote commitment chain
@@ -1089,8 +1100,13 @@ out:
 			if err := l.updateCommitTx(); err != nil {
 				l.fail(LinkFailureError{code: ErrInternalError},
 					"unable to update commitment: %v", err)
-				break out
+				return
 			}
+
+		case <-l.cfg.PendingCommitTicker.Ticks():
+			l.fail(LinkFailureError{code: ErrRemoteUnresponsive},
+				"unable to complete dance")
+			return
 
 		// A message from the switch was just received. This indicates
 		// that the link is an intermediate hop in a multi-hop HTLC
@@ -1114,11 +1130,11 @@ out:
 					fmt.Sprintf("process hodl queue: %v",
 						err.Error()),
 				)
-				break out
+				return
 			}
 
 		case <-l.quit:
-			break out
+			return
 		}
 	}
 }
@@ -1179,7 +1195,7 @@ func (l *channelLink) processHtlcResolution(resolution invoices.HtlcResolution,
 	// Settle htlcs that returned a settle resolution using the preimage
 	// in the resolution.
 	case *invoices.HtlcSettleResolution:
-		l.log.Debugf("received settle resolution for %v"+
+		l.log.Debugf("received settle resolution for %v "+
 			"with outcome: %v", circuitKey, res.Outcome)
 
 		return l.settleHTLC(res.Preimage, htlc.pd)
@@ -1272,72 +1288,6 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 			l.log.Warnf("Unable to handle downstream add HTLC: %v",
 				err)
 
-			var (
-				localFailure = false
-				reason       lnwire.OpaqueReason
-			)
-
-			// Create a temporary channel failure which we will send
-			// back to our peer if this is a forward, or report to
-			// the user if the failed payment was locally initiated.
-			failure := l.createFailureWithUpdate(
-				func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
-					return lnwire.NewTemporaryChannelFailure(
-						upd,
-					)
-				},
-			)
-
-			// If the payment was locally initiated (which is
-			// indicated by a nil obfuscator), we do not need to
-			// encrypt it back to the sender.
-			if pkt.obfuscator == nil {
-				var b bytes.Buffer
-				err := lnwire.EncodeFailure(&b, failure, 0)
-				if err != nil {
-					l.log.Errorf("unable to encode "+
-						"failure: %v", err)
-					l.mailBox.AckPacket(pkt.inKey())
-					return
-				}
-				reason = lnwire.OpaqueReason(b.Bytes())
-				localFailure = true
-			} else {
-				// If the packet is part of a forward,
-				// (identified by a non-nil obfuscator) we need
-				// to encrypt the error back to the source.
-				var err error
-				reason, err = pkt.obfuscator.EncryptFirstHop(failure)
-				if err != nil {
-					l.log.Errorf("unable to "+
-						"obfuscate error: %v", err)
-					l.mailBox.AckPacket(pkt.inKey())
-					return
-				}
-			}
-
-			// Create a link error containing the temporary channel
-			// failure and a detail which indicates the we failed to
-			// add the htlc.
-			linkError := NewDetailedLinkError(
-				failure, OutgoingFailureDownstreamHtlcAdd,
-			)
-
-			failPkt := &htlcPacket{
-				incomingChanID: pkt.incomingChanID,
-				incomingHTLCID: pkt.incomingHTLCID,
-				circuit:        pkt.circuit,
-				sourceRef:      pkt.sourceRef,
-				hasSource:      true,
-				localFailure:   localFailure,
-				linkFailure:    linkError,
-				htlc: &lnwire.UpdateFailHTLC{
-					Reason: reason,
-				},
-			}
-
-			go l.forwardBatch(failPkt)
-
 			// Remove this packet from the link's mailbox, this
 			// prevents it from being reprocessed if the link
 			// restarts and resets it mailbox. If this response
@@ -1346,7 +1296,7 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 			// the switch, since the circuit was never fully opened,
 			// and the forwarding package shows it as
 			// unacknowledged.
-			l.mailBox.AckPacket(pkt.inKey())
+			l.mailBox.FailAdd(pkt)
 
 			return
 		}
@@ -1994,6 +1944,8 @@ func (l *channelLink) updateCommitTx() error {
 
 	theirCommitSig, htlcSigs, pendingHTLCs, err := l.channel.SignNextCommitment()
 	if err == lnwallet.ErrNoWindow {
+		l.cfg.PendingCommitTicker.Resume()
+
 		l.log.Tracef("revocation window exhausted, unable to send: "+
 			"%v, pend_updates=%v, dangling_closes%v",
 			l.channel.PendingLocalUpdateCount(),
@@ -2012,6 +1964,8 @@ func (l *channelLink) updateCommitTx() error {
 	if err := l.ackDownStreamPackets(); err != nil {
 		return err
 	}
+
+	l.cfg.PendingCommitTicker.Pause()
 
 	// The remote party now has a new pending commitment, so we'll update
 	// the contract court to be aware of this new set (the prior old remote
@@ -2948,27 +2902,7 @@ func (l *channelLink) forwardBatch(packets ...*htlcPacket) {
 	}
 
 	errChan := l.cfg.ForwardPackets(l.quit, filteredPkts...)
-	go l.handleBatchFwdErrs(errChan)
-}
-
-// handleBatchFwdErrs waits on the given errChan until it is closed, logging
-// the errors returned from any unsuccessful forwarding attempts.
-func (l *channelLink) handleBatchFwdErrs(errChan chan error) {
-	for {
-		err, ok := <-errChan
-		if !ok {
-			// Err chan has been drained or switch is shutting
-			// down.  Either way, return.
-			return
-		}
-
-		if err == nil {
-			continue
-		}
-
-		l.log.Errorf("unhandled error while forwarding htlc packet over "+
-			"htlcswitch: %v", err)
-	}
+	go handleBatchFwdErrs(errChan, l.log)
 }
 
 // sendHTLCError functions cancels HTLC and send cancel message back to the

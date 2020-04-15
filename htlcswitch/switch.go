@@ -9,11 +9,13 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btclog"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -35,6 +37,10 @@ const (
 	// DefaultAckInterval is the duration between attempts to ack any settle
 	// fails in a forwarding package.
 	DefaultAckInterval = 15 * time.Second
+
+	// DefaultHTLCExpiry is the duration after which Adds will be cancelled
+	// if they could not get added to an outgoing commitment.
+	DefaultHTLCExpiry = time.Minute
 )
 
 var (
@@ -173,6 +179,15 @@ type Config struct {
 	// RejectHTLC is a flag that instructs the htlcswitch to reject any
 	// HTLCs that are not from the source hop.
 	RejectHTLC bool
+
+	// Clock is a time source for the switch.
+	Clock clock.Clock
+
+	// HTLCExpiry is the interval after which Adds will be cancelled if they
+	// have not been yet been delivered to a link. The computed deadline
+	// will expiry this long after the Adds are added to a mailbox via
+	// AddPacket.
+	HTLCExpiry time.Duration
 }
 
 // Switch is the central messaging bus for all incoming/outgoing HTLCs.
@@ -282,12 +297,11 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		return nil, err
 	}
 
-	return &Switch{
+	s := &Switch{
 		bestHeight:        currentHeight,
 		cfg:               &cfg,
 		circuits:          circuitMap,
 		linkIndex:         make(map[lnwire.ChannelID]ChannelLink),
-		mailOrchestrator:  newMailOrchestrator(),
 		forwardingIndex:   make(map[lnwire.ShortChannelID]ChannelLink),
 		interfaceIndex:    make(map[[33]byte]map[lnwire.ChannelID]ChannelLink),
 		pendingLinkIndex:  make(map[lnwire.ChannelID]ChannelLink),
@@ -296,7 +310,16 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		chanCloseRequests: make(chan *ChanClose),
 		resolutionMsgs:    make(chan *resolutionMsg),
 		quit:              make(chan struct{}),
-	}, nil
+	}
+
+	s.mailOrchestrator = newMailOrchestrator(&mailOrchConfig{
+		fetchUpdate:    s.cfg.FetchLastChannelUpdate,
+		forwardPackets: s.ForwardPackets,
+		clock:          s.cfg.Clock,
+		expiry:         s.cfg.HTLCExpiry,
+	})
+
+	return s, nil
 }
 
 // resolutionMsg is a struct that wraps an existing ResolutionMsg with a done
@@ -1972,13 +1995,13 @@ func (s *Switch) reforwardSettleFails(fwdPkgs []*channeldb.FwdPkg) {
 		// link quit channel, meaning the send will fail only if the
 		// switch receives a shutdown request.
 		errChan := s.ForwardPackets(nil, switchPackets...)
-		go handleBatchFwdErrs(errChan)
+		go handleBatchFwdErrs(errChan, log)
 	}
 }
 
 // handleBatchFwdErrs waits on the given errChan until it is closed, logging the
 // errors returned from any unsuccessful forwarding attempts.
-func handleBatchFwdErrs(errChan chan error) {
+func handleBatchFwdErrs(errChan chan error, l btclog.Logger) {
 	for {
 		err, ok := <-errChan
 		if !ok {
@@ -1991,7 +2014,7 @@ func handleBatchFwdErrs(errChan chan error) {
 			continue
 		}
 
-		log.Errorf("unhandled error while reforwarding htlc "+
+		l.Errorf("Unhandled error while reforwarding htlc "+
 			"settle/fail over htlcswitch: %v", err)
 	}
 }
@@ -2036,7 +2059,8 @@ func (s *Switch) AddLink(link ChannelLink) error {
 	// Get and attach the mailbox for this link, which buffers packets in
 	// case there packets that we tried to deliver while this link was
 	// offline.
-	mailbox := s.mailOrchestrator.GetOrCreateMailBox(chanID)
+	shortChanID := link.ShortChanID()
+	mailbox := s.mailOrchestrator.GetOrCreateMailBox(chanID, shortChanID)
 	link.AttachMailBox(mailbox)
 
 	if err := link.Start(); err != nil {
@@ -2044,7 +2068,6 @@ func (s *Switch) AddLink(link ChannelLink) error {
 		return err
 	}
 
-	shortChanID := link.ShortChanID()
 	if shortChanID == hop.Source {
 		log.Infof("Adding pending link chan_id=%v, short_chan_id=%v",
 			chanID, shortChanID)
@@ -2216,7 +2239,7 @@ func (s *Switch) UpdateShortChanID(chanID lnwire.ChannelID) error {
 
 	// Finally, alert the mail orchestrator to the change of short channel
 	// ID, and deliver any unclaimed packets to the link.
-	mailbox := s.mailOrchestrator.GetOrCreateMailBox(chanID)
+	mailbox := s.mailOrchestrator.GetOrCreateMailBox(chanID, shortChanID)
 	s.mailOrchestrator.BindLiveShortChanID(
 		mailbox, chanID, shortChanID,
 	)

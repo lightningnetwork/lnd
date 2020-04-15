@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -8,9 +9,13 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/jedib0t/go-pretty/table"
+	"github.com/jedib0t/go-pretty/text"
 	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -47,10 +52,10 @@ var (
 			"Custom record ids start from 65536.",
 	}
 
-	showInflightFlag = cli.BoolFlag{
-		Name: "show_inflight",
+	inflightUpdatesFlag = cli.BoolFlag{
+		Name: "inflight_updates",
 		Usage: "if set, intermediate payment state updates will be " +
-			"displayed",
+			"displayed. Only valid in combination with --json.",
 	}
 
 	maxShardsFlag = cli.UintFlag{
@@ -58,6 +63,13 @@ var (
 		Usage: "the maximum number of partial payments that may be " +
 			"used",
 		Value: 1,
+	}
+
+	jsonFlag = cli.BoolFlag{
+		Name: "json",
+		Usage: "if set, payment updates are printed as json " +
+			"messages. Set by default on Windows because table " +
+			"formatting is unsupported.",
 	}
 )
 
@@ -95,7 +107,7 @@ func paymentFlags() []cli.Flag {
 			Name:  "allow_self_payment",
 			Usage: "allow sending a circular payment to self",
 		},
-		dataFlag, showInflightFlag, maxShardsFlag,
+		dataFlag, inflightUpdatesFlag, maxShardsFlag, jsonFlag,
 	}
 }
 
@@ -397,32 +409,30 @@ func sendPaymentRequest(ctx *cli.Context,
 
 	req.FeeLimitSat = feeLimit
 
-	req.NoInflightUpdates = !ctx.Bool(showInflightFlag.Name)
+	// Always print in-flight updates for the table output.
+	printJSON := ctx.Bool(jsonFlag.Name)
+	req.NoInflightUpdates = !ctx.Bool(inflightUpdatesFlag.Name) && printJSON
 
 	stream, err := routerClient.SendPaymentV2(context.Background(), req)
 	if err != nil {
 		return err
 	}
 
-	for {
-		status, err := stream.Recv()
-		if err != nil {
-			return err
-		}
-
-		printRespJSON(status)
-
-		if status.Status != lnrpc.Payment_IN_FLIGHT {
-			// If we get a payment error back, we pass an error up
-			// to main which eventually calls fatal() and returns
-			// with a non-zero exit code.
-			if status.Status != lnrpc.Payment_SUCCEEDED {
-				return errors.New(status.Status.String())
-			}
-
-			return nil
-		}
+	finalState, err := printLivePayment(
+		stream, client, printJSON,
+	)
+	if err != nil {
+		return err
 	}
+
+	// If we get a payment error back, we pass an error up
+	// to main which eventually calls fatal() and returns
+	// with a non-zero exit code.
+	if finalState.Status != lnrpc.Payment_SUCCEEDED {
+		return errors.New(finalState.Status.String())
+	}
+
+	return nil
 }
 
 var trackPaymentCommand = cli.Command{
@@ -443,7 +453,7 @@ func trackPayment(ctx *cli.Context) error {
 	conn := getClientConn(ctx, false)
 	defer conn.Close()
 
-	client := routerrpc.NewRouterClient(conn)
+	routerClient := routerrpc.NewRouterClient(conn)
 
 	if !args.Present() {
 		return fmt.Errorf("hash argument missing")
@@ -458,23 +468,204 @@ func trackPayment(ctx *cli.Context) error {
 		PaymentHash: hash,
 	}
 
-	stream, err := client.TrackPaymentV2(context.Background(), req)
+	stream, err := routerClient.TrackPaymentV2(context.Background(), req)
 	if err != nil {
 		return err
 	}
 
+	client := lnrpc.NewLightningClient(conn)
+	_, err = printLivePayment(stream, client, ctx.Bool(jsonFlag.Name))
+	return err
+}
+
+// printLivePayment receives payment updates from the given stream and either
+// outputs them as json or as a more user-friendly formatted table. The table
+// option uses terminal control codes to rewrite the output. This call
+// terminates when the payment reaches a final state.
+func printLivePayment(stream routerrpc.Router_TrackPaymentV2Client,
+	client lnrpc.LightningClient, json bool) (*lnrpc.Payment, error) {
+
+	// Terminal escape codes aren't supported on Windows, fall back to json.
+	if !json && runtime.GOOS == "windows" {
+		json = true
+	}
+
+	aliases := newAliasCache(client)
+
+	first := true
+	var lastLineCount int
 	for {
-		status, err := stream.Recv()
+		payment, err := stream.Recv()
 		if err != nil {
-			return err
+			return nil, err
 		}
 
-		printRespJSON(status)
+		if json {
+			// Delimit json messages by newlines (inspired by
+			// grpc over rest chunking).
+			if first {
+				first = false
+			} else {
+				fmt.Println()
+			}
 
-		if status.Status != lnrpc.Payment_IN_FLIGHT {
-			return nil
+			// Write raw json to stdout.
+			printRespJSON(payment)
+		} else {
+			table := formatPayment(payment, aliases)
+
+			// Clear all previously written lines and print the
+			// updated table.
+			clearLines(lastLineCount)
+			fmt.Print(table)
+
+			// Store the number of lines written for the next update
+			// pass.
+			lastLineCount = 0
+			for _, b := range table {
+				if b == '\n' {
+					lastLineCount++
+				}
+			}
+		}
+
+		// Terminate loop if payments state is final.
+		if payment.Status != lnrpc.Payment_IN_FLIGHT {
+			return payment, nil
 		}
 	}
+}
+
+// aliasCache allows cached retrieval of node aliases.
+type aliasCache struct {
+	cache  map[string]string
+	client lnrpc.LightningClient
+}
+
+func newAliasCache(client lnrpc.LightningClient) *aliasCache {
+	return &aliasCache{
+		client: client,
+		cache:  make(map[string]string),
+	}
+}
+
+// get returns a node alias either from cache or freshly requested from lnd.
+func (a *aliasCache) get(pubkey string) string {
+	alias, ok := a.cache[pubkey]
+	if ok {
+		return alias
+	}
+
+	// Request node info.
+	resp, err := a.client.GetNodeInfo(
+		context.Background(),
+		&lnrpc.NodeInfoRequest{
+			PubKey: pubkey,
+		},
+	)
+	if err != nil {
+		// If no info is available, use the
+		// pubkey as identifier.
+		alias = pubkey[:6]
+	} else {
+		alias = resp.Node.Alias
+	}
+	a.cache[pubkey] = alias
+
+	return alias
+}
+
+// formatMsat formats msat amounts as fractional sats.
+func formatMsat(amt int64) string {
+	return strconv.FormatFloat(float64(amt)/1000.0, 'f', -1, 64)
+}
+
+// formatPayment formats the payment state as an ascii table.
+func formatPayment(payment *lnrpc.Payment, aliases *aliasCache) string {
+	t := table.NewWriter()
+
+	// Build table header.
+	t.AppendHeader(table.Row{
+		"HTLC_STATE", "ATTEMPT_TIME", "RESOLVE_TIME", "RECEIVER_AMT",
+		"FEE", "TIMELOCK", "CHAN_OUT", "ROUTE",
+	})
+	t.SetColumnConfigs([]table.ColumnConfig{
+		{Name: "ATTEMPT_TIME", Align: text.AlignRight},
+		{Name: "RESOLVE_TIME", Align: text.AlignRight},
+		{Name: "CHAN_OUT", Align: text.AlignLeft,
+			AlignHeader: text.AlignLeft},
+	})
+
+	// Add all htlcs as rows.
+	createTime := time.Unix(0, payment.CreationTimeNs)
+	var totalPaid, totalFees int64
+	for _, htlc := range payment.Htlcs {
+		formatTime := func(timeNs int64) string {
+			if timeNs == 0 {
+				return "-"
+			}
+			resolveTime := time.Unix(0, timeNs)
+			resolveTimeMs := resolveTime.Sub(createTime).
+				Milliseconds()
+			return fmt.Sprintf(
+				"%.3f", float64(resolveTimeMs)/1000.0,
+			)
+		}
+
+		attemptTime := formatTime(htlc.AttemptTimeNs)
+		resolveTime := formatTime(htlc.ResolveTimeNs)
+
+		route := htlc.Route
+		lastHop := route.Hops[len(route.Hops)-1]
+
+		hops := []string{}
+		for _, h := range route.Hops {
+			alias := aliases.get(h.PubKey)
+			hops = append(hops, alias)
+		}
+
+		state := htlc.Status.String()
+		if htlc.Failure != nil {
+			state = fmt.Sprintf(
+				"%v @ %v",
+				htlc.Failure.Code,
+				htlc.Failure.FailureSourceIndex,
+			)
+		}
+
+		t.AppendRow([]interface{}{
+			state, attemptTime, resolveTime,
+			formatMsat(lastHop.AmtToForwardMsat),
+			formatMsat(route.TotalFeesMsat),
+			route.TotalTimeLock, route.Hops[0].ChanId,
+			strings.Join(hops, "->")},
+		)
+
+		if htlc.Status == lnrpc.HTLCAttempt_SUCCEEDED {
+			totalPaid += lastHop.AmtToForwardMsat
+			totalFees += route.TotalFeesMsat
+		}
+	}
+
+	// Render table.
+	b := &bytes.Buffer{}
+	t.SetOutputMirror(b)
+	t.Render()
+
+	// Add additional payment-level data.
+	fmt.Fprintf(b, "Amount + fee:   %v + %v sat\n",
+		formatMsat(totalPaid), formatMsat(totalFees))
+	fmt.Fprintf(b, "Payment hash:   %v\n", payment.PaymentHash)
+	fmt.Fprintf(b, "Payment status: %v", payment.Status)
+	switch payment.Status {
+	case lnrpc.Payment_SUCCEEDED:
+		fmt.Fprintf(b, ", preimage: %v", payment.PaymentPreimage)
+	case lnrpc.Payment_FAILED:
+		fmt.Fprintf(b, ", reason: %v", payment.FailureReason)
+	}
+	fmt.Fprintf(b, "\n")
+
+	return b.String()
 }
 
 var payInvoiceCommand = cli.Command{
@@ -671,4 +862,16 @@ func sendToRouteRequest(ctx *cli.Context, req *lnrpc.SendToRouteRequest) error {
 	printRespJSON(resp)
 
 	return nil
+}
+
+// ESC is the ASCII code for escape character
+const ESC = 27
+
+// clearCode defines a terminal escape code to clear the currently line and move
+// the cursor up.
+var clearCode = fmt.Sprintf("%c[%dA%c[2K", ESC, 1, ESC)
+
+// clearLines erases the last count lines in the terminal window.
+func clearLines(count int) {
+	_, _ = fmt.Print(strings.Repeat(clearCode, count))
 }

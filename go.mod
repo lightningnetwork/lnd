@@ -17,12 +17,15 @@ require (
 	github.com/btcsuite/fastsha256 v0.0.0-20160815193821-637e65642941
 	github.com/davecgh/go-spew v1.1.1
 	github.com/go-errors/errors v1.0.1
+	github.com/go-openapi/strfmt v0.19.5 // indirect
 	github.com/golang/protobuf v1.3.1
+	github.com/gosuri/uilive v0.0.4
 	github.com/grpc-ecosystem/go-grpc-middleware v1.0.0
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/grpc-ecosystem/grpc-gateway v1.8.6
 	github.com/jackpal/gateway v1.0.5
 	github.com/jackpal/go-nat-pmp v0.0.0-20170405195558-28a68d0c24ad
+	github.com/jedib0t/go-pretty v4.3.0+incompatible
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/jrick/logrotate v1.0.0
 	github.com/juju/clock v0.0.0-20190205081909-9c5c9712527c // indirect
@@ -40,6 +43,8 @@ require (
 	github.com/lightningnetwork/lnd/queue v1.0.3
 	github.com/lightningnetwork/lnd/ticker v1.0.0
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
+	github.com/mattn/go-isatty v0.0.12 // indirect
+	github.com/mattn/go-runewidth v0.0.9 // indirect
 	github.com/miekg/dns v0.0.0-20171125082028-79bfde677fa8
 	github.com/prometheus/client_golang v0.9.3
 	github.com/rogpeppe/fastuuid v1.2.0 // indirect

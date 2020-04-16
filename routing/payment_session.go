@@ -126,6 +126,30 @@ type paymentSession struct {
 	minShardAmt lnwire.MilliSatoshi
 }
 
+// newPaymentSession instantiates a new payment session.
+func newPaymentSession(p *LightningPayment,
+	getBandwidthHints func() (map[uint64]lnwire.MilliSatoshi, error),
+	getRoutingGraph func() (routingGraph, func(), error),
+	missionControl MissionController, pathFindingConfig PathFindingConfig) (
+	*paymentSession, error) {
+
+	edges, err := RouteHintsToEdges(p.RouteHints, p.Target)
+	if err != nil {
+		return nil, err
+	}
+
+	return &paymentSession{
+		additionalEdges:   edges,
+		getBandwidthHints: getBandwidthHints,
+		payment:           p,
+		pathFinder:        findPath,
+		getRoutingGraph:   getRoutingGraph,
+		pathFindingConfig: pathFindingConfig,
+		missionControl:    missionControl,
+		minShardAmt:       DefaultShardMinAmt,
+	}, nil
+}
+
 // RequestRoute returns a route which is likely to be capable for successfully
 // routing the specified HTLC payment to the target node. Initially the first
 // set of paths returned from this method may encounter routing failure along

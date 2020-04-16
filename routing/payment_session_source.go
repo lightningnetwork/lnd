@@ -62,11 +62,6 @@ func (m *SessionSource) getRoutingGraph() (routingGraph, func(), error) {
 func (m *SessionSource) NewPaymentSession(p *LightningPayment) (
 	PaymentSession, error) {
 
-	edges, err := RouteHintsToEdges(p.RouteHints, p.Target)
-	if err != nil {
-		return nil, err
-	}
-
 	sourceNode, err := m.Graph.SourceNode()
 	if err != nil {
 		return nil, err
@@ -78,16 +73,15 @@ func (m *SessionSource) NewPaymentSession(p *LightningPayment) (
 		return generateBandwidthHints(sourceNode, m.QueryBandwidth)
 	}
 
-	return &paymentSession{
-		additionalEdges:   edges,
-		getBandwidthHints: getBandwidthHints,
-		payment:           p,
-		pathFinder:        findPath,
-		getRoutingGraph:   m.getRoutingGraph,
-		pathFindingConfig: m.PathFindingConfig,
-		missionControl:    m.MissionControl,
-		minShardAmt:       DefaultShardMinAmt,
-	}, nil
+	session, err := newPaymentSession(
+		p, getBandwidthHints, m.getRoutingGraph,
+		m.MissionControl, m.PathFindingConfig,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return session, nil
 }
 
 // NewPaymentSessionEmpty creates a new paymentSession instance that is empty,

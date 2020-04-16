@@ -116,9 +116,6 @@ const (
 
 	// FailureReasonInsufficientBalance indicates that we didn't have enough
 	// balance to complete the payment.
-	//
-	// This reason isn't assigned anymore, but may still exist for older
-	// payments.
 	FailureReasonInsufficientBalance FailureReason = 4
 
 	// TODO(halseth): cancel state.

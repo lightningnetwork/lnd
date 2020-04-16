@@ -192,6 +192,19 @@ var mppTestCases = []mppSendTestCase{
 		expectedFailure: true,
 		maxShards:       1000,
 	},
+
+	// Test that no attempts are made if the total local balance is
+	// insufficient.
+	{
+		name: "insufficient total balance",
+		graph: func(g *mockGraph) {
+			twoPathGraph(g, 100000, 500000)
+		},
+		amt:              300000,
+		expectedAttempts: 0,
+		expectedFailure:  true,
+		maxShards:        10,
+	},
 }
 
 // TestMppSend tests that a payment can be completed using multiple shards.

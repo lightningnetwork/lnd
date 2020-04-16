@@ -107,7 +107,7 @@ func onePathGraph(g *mockGraph) {
 	g.addChannel(chanIm1Target, targetNodeID, im1NodeID, 100000)
 }
 
-func twoPathGraph(g *mockGraph) {
+func twoPathGraph(g *mockGraph, capacityOut, capacityIn btcutil.Amount) {
 	// Create the following network of nodes:
 	// source -> intermediate1 -> target
 	// source -> intermediate2 -> target
@@ -120,10 +120,10 @@ func twoPathGraph(g *mockGraph) {
 	intermediate2 := newMockNode(im2NodeID)
 	g.addNode(intermediate2)
 
-	g.addChannel(chanSourceIm1, sourceNodeID, im1NodeID, 200000)
-	g.addChannel(chanSourceIm2, sourceNodeID, im2NodeID, 200000)
-	g.addChannel(chanIm1Target, targetNodeID, im1NodeID, 100000)
-	g.addChannel(chanIm2Target, targetNodeID, im2NodeID, 100000)
+	g.addChannel(chanSourceIm1, sourceNodeID, im1NodeID, capacityOut)
+	g.addChannel(chanSourceIm2, sourceNodeID, im2NodeID, capacityOut)
+	g.addChannel(chanIm1Target, targetNodeID, im1NodeID, capacityIn)
+	g.addChannel(chanIm2Target, targetNodeID, im2NodeID, capacityIn)
 }
 
 var mppTestCases = []mppSendTestCase{
@@ -136,8 +136,10 @@ var mppTestCases = []mppSendTestCase{
 	// too. Mpp payment complete.
 	{
 
-		name:             "sufficient inbound",
-		graph:            twoPathGraph,
+		name: "sufficient inbound",
+		graph: func(g *mockGraph) {
+			twoPathGraph(g, 200000, 100000)
+		},
 		amt:              70000,
 		expectedAttempts: 5,
 		expectedSuccesses: []expectedHtlcSuccess{
@@ -155,8 +157,10 @@ var mppTestCases = []mppSendTestCase{
 
 	// Test that a cap on the max htlcs makes it impossible to pay.
 	{
-		name:              "no splitting",
-		graph:             twoPathGraph,
+		name: "no splitting",
+		graph: func(g *mockGraph) {
+			twoPathGraph(g, 200000, 100000)
+		},
 		amt:               70000,
 		expectedAttempts:  2,
 		expectedSuccesses: []expectedHtlcSuccess{},

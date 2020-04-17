@@ -13,9 +13,36 @@ func TestRequestRoute(t *testing.T) {
 		height = 10
 	)
 
-	findPath := func(
-		g *graphParams,
-		r *RestrictParams, cfg *PathFindingConfig,
+	cltvLimit := uint32(30)
+	finalCltvDelta := uint16(8)
+
+	payment := &LightningPayment{
+		CltvLimit:      cltvLimit,
+		FinalCLTVDelta: finalCltvDelta,
+		Amount:         1000,
+		FeeLimit:       1000,
+	}
+
+	session, err := newPaymentSession(
+		payment,
+		func() (map[uint64]lnwire.MilliSatoshi,
+			error) {
+
+			return nil, nil
+		},
+		func() (routingGraph, func(), error) {
+			return &sessionGraph{}, func() {}, nil
+		},
+		&MissionControl{cfg: &MissionControlConfig{}},
+		PathFindingConfig{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Override pathfinder with a mock.
+	session.pathFinder = func(
+		g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		source, target route.Vertex, amt lnwire.MilliSatoshi,
 		finalHtlcExpiry int32) ([]*channeldb.ChannelEdgePolicy, error) {
 
@@ -36,32 +63,6 @@ func TestRequestRoute(t *testing.T) {
 		}
 
 		return path, nil
-	}
-
-	cltvLimit := uint32(30)
-	finalCltvDelta := uint16(8)
-
-	payment := &LightningPayment{
-		CltvLimit:      cltvLimit,
-		FinalCLTVDelta: finalCltvDelta,
-		Amount:         1000,
-		FeeLimit:       1000,
-	}
-
-	session := &paymentSession{
-		getBandwidthHints: func() (map[uint64]lnwire.MilliSatoshi,
-			error) {
-
-			return nil, nil
-		},
-		payment:    payment,
-		pathFinder: findPath,
-		missionControl: &MissionControl{
-			cfg: &MissionControlConfig{},
-		},
-		getRoutingGraph: func() (routingGraph, func(), error) {
-			return &sessionGraph{}, func() {}, nil
-		},
 	}
 
 	route, err := session.RequestRoute(

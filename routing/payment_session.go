@@ -1,6 +1,10 @@
 package routing
 
 import (
+	"fmt"
+
+	"github.com/btcsuite/btclog"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -124,6 +128,36 @@ type paymentSession struct {
 	// specified in the payment is one, under no circumstances splitting
 	// will happen and this value remains unused.
 	minShardAmt lnwire.MilliSatoshi
+
+	// log is a payment session-specific logger.
+	log btclog.Logger
+}
+
+// newPaymentSession instantiates a new payment session.
+func newPaymentSession(p *LightningPayment,
+	getBandwidthHints func() (map[uint64]lnwire.MilliSatoshi, error),
+	getRoutingGraph func() (routingGraph, func(), error),
+	missionControl MissionController, pathFindingConfig PathFindingConfig) (
+	*paymentSession, error) {
+
+	edges, err := RouteHintsToEdges(p.RouteHints, p.Target)
+	if err != nil {
+		return nil, err
+	}
+
+	logPrefix := fmt.Sprintf("PaymentSession(%x):", p.PaymentHash)
+
+	return &paymentSession{
+		additionalEdges:   edges,
+		getBandwidthHints: getBandwidthHints,
+		payment:           p,
+		pathFinder:        findPath,
+		getRoutingGraph:   getRoutingGraph,
+		pathFindingConfig: pathFindingConfig,
+		missionControl:    missionControl,
+		minShardAmt:       DefaultShardMinAmt,
+		log:               build.NewPrefixLog(logPrefix, log),
+	}, nil
 }
 
 // RequestRoute returns a route which is likely to be capable for successfully
@@ -182,8 +216,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 			return nil, err
 		}
 
-		log.Debugf("PaymentSession for %x: trying pathfinding with %v",
-			p.payment.PaymentHash, maxAmt)
+		p.log.Debugf("pathfinding for amt=%v", maxAmt)
 
 		// Get a routing graph.
 		routingGraph, cleanup, err := p.getRoutingGraph()
@@ -210,9 +243,22 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 
 		switch {
 		case err == errNoPathFound:
+			// Don't split if this is a legacy payment without mpp
+			// record.
+			if p.payment.PaymentAddr == nil {
+				p.log.Debugf("not splitting because payment " +
+					"address is unspecified")
+
+				return nil, errNoPathFound
+			}
+
 			// No splitting if this is the last shard.
 			isLastShard := activeShards+1 >= p.payment.MaxShards
 			if isLastShard {
+				p.log.Debugf("not splitting because shard "+
+					"limit %v has been reached",
+					p.payment.MaxShards)
+
 				return nil, errNoPathFound
 			}
 
@@ -222,6 +268,10 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 
 			// Put a lower bound on the minimum shard size.
 			if maxAmt < p.minShardAmt {
+				p.log.Debugf("not splitting because minimum "+
+					"shard amount %v has been reached",
+					p.minShardAmt)
+
 				return nil, errNoPathFound
 			}
 

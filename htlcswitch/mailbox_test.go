@@ -11,6 +11,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
+const testExpiry = time.Minute
+
 // TestMailBoxCouriers tests that both aspects of the mailBox struct works
 // properly. Both packets and messages should be able to added to each
 // respective mailbox concurrently, and also messages/packets should also be
@@ -20,12 +22,8 @@ func TestMailBoxCouriers(t *testing.T) {
 
 	// First, we'll create new instance of the current default mailbox
 	// type.
-	mailBox := newMemoryMailBox(&mailBoxConfig{
-		clock:  clock.NewDefaultClock(),
-		expiry: time.Minute,
-	})
-	mailBox.Start()
-	defer mailBox.Stop()
+	ctx := newMailboxContext(t, time.Now(), testExpiry)
+	defer ctx.mailbox.Stop()
 
 	// We'll be adding 10 message of both types to the mailbox.
 	const numPackets = 10
@@ -44,7 +42,7 @@ func TestMailBoxCouriers(t *testing.T) {
 		}
 		sentPackets[i] = pkt
 
-		err := mailBox.AddPacket(pkt)
+		err := ctx.mailbox.AddPacket(pkt)
 		if err != nil {
 			t.Fatalf("unable to add packet: %v", err)
 		}
@@ -59,7 +57,10 @@ func TestMailBoxCouriers(t *testing.T) {
 		}
 		sentMessages[i] = msg
 
-		mailBox.AddMessage(msg)
+		err := ctx.mailbox.AddMessage(msg)
+		if err != nil {
+			t.Fatalf("unable to add message: %v", err)
+		}
 	}
 
 	// Now we'll attempt to read back the packets/messages we added to the
@@ -73,14 +74,14 @@ func TestMailBoxCouriers(t *testing.T) {
 			select {
 			case <-timeout:
 				t.Fatalf("didn't recv pkt after timeout")
-			case pkt := <-mailBox.PacketOutBox():
+			case pkt := <-ctx.mailbox.PacketOutBox():
 				recvdPackets = append(recvdPackets, pkt)
 			}
 		} else {
 			select {
 			case <-timeout:
 				t.Fatalf("didn't recv message after timeout")
-			case msg := <-mailBox.MessageOutBox():
+			case msg := <-ctx.mailbox.MessageOutBox():
 				recvdMessages = append(recvdMessages, msg)
 			}
 		}
@@ -111,13 +112,19 @@ func TestMailBoxCouriers(t *testing.T) {
 	// Now that we've received all of the intended msgs/pkts, ack back half
 	// of the packets.
 	for _, recvdPkt := range recvdPackets[:halfPackets] {
-		mailBox.AckPacket(recvdPkt.inKey())
+		ctx.mailbox.AckPacket(recvdPkt.inKey())
 	}
 
 	// With the packets drained and partially acked,  we reset the mailbox,
 	// simulating a link shutting down and then coming back up.
-	mailBox.ResetMessages()
-	mailBox.ResetPackets()
+	err := ctx.mailbox.ResetMessages()
+	if err != nil {
+		t.Fatalf("unable to reset messages: %v", err)
+	}
+	err = ctx.mailbox.ResetPackets()
+	if err != nil {
+		t.Fatalf("unable to reset packets: %v", err)
+	}
 
 	// Now, we'll use the same alternating strategy to read from our
 	// mailbox. All wire messages are dropped on startup, but any unacked
@@ -130,12 +137,12 @@ func TestMailBoxCouriers(t *testing.T) {
 			select {
 			case <-timeout:
 				t.Fatalf("didn't recv pkt after timeout")
-			case pkt := <-mailBox.PacketOutBox():
+			case pkt := <-ctx.mailbox.PacketOutBox():
 				recvdPackets2 = append(recvdPackets2, pkt)
 			}
 		} else {
 			select {
-			case <-mailBox.MessageOutBox():
+			case <-ctx.mailbox.MessageOutBox():
 				t.Fatalf("should not receive wire msg after reset")
 			default:
 			}
@@ -163,18 +170,17 @@ func TestMailBoxCouriers(t *testing.T) {
 func TestMailBoxResetAfterShutdown(t *testing.T) {
 	t.Parallel()
 
-	m := newMemoryMailBox(&mailBoxConfig{})
-	m.Start()
+	ctx := newMailboxContext(t, time.Now(), time.Second)
 
 	// Stop the mailbox, then try to reset the message and packet couriers.
-	m.Stop()
+	ctx.mailbox.Stop()
 
-	err := m.ResetMessages()
+	err := ctx.mailbox.ResetMessages()
 	if err != ErrMailBoxShuttingDown {
 		t.Fatalf("expected ErrMailBoxShuttingDown, got: %v", err)
 	}
 
-	err = m.ResetPackets()
+	err = ctx.mailbox.ResetPackets()
 	if err != ErrMailBoxShuttingDown {
 		t.Fatalf("expected ErrMailBoxShuttingDown, got: %v", err)
 	}
@@ -375,12 +381,8 @@ func TestMailBoxPacketPrioritization(t *testing.T) {
 
 	// First, we'll create new instance of the current default mailbox
 	// type.
-	mailBox := newMemoryMailBox(&mailBoxConfig{
-		clock:  clock.NewDefaultClock(),
-		expiry: time.Minute,
-	})
-	mailBox.Start()
-	defer mailBox.Stop()
+	ctx := newMailboxContext(t, time.Now(), testExpiry)
+	defer ctx.mailbox.Stop()
 
 	const numPackets = 5
 
@@ -418,7 +420,7 @@ func TestMailBoxPacketPrioritization(t *testing.T) {
 
 		sentPackets[i] = pkt
 
-		err := mailBox.AddPacket(pkt)
+		err := ctx.mailbox.AddPacket(pkt)
 		if err != nil {
 			t.Fatalf("failed to add packet: %v", err)
 		}
@@ -435,7 +437,7 @@ func TestMailBoxPacketPrioritization(t *testing.T) {
 	// or Add2 due to the prioritization between the split queue.
 	for i := 0; i < numPackets; i++ {
 		select {
-		case pkt := <-mailBox.PacketOutBox():
+		case pkt := <-ctx.mailbox.PacketOutBox():
 			var expPkt *htlcPacket
 			switch i {
 			case 0:
@@ -504,21 +506,19 @@ func TestMailBoxAddExpiry(t *testing.T) {
 func TestMailBoxDuplicateAddPacket(t *testing.T) {
 	t.Parallel()
 
-	mailBox := newMemoryMailBox(&mailBoxConfig{
-		clock: clock.NewDefaultClock(),
-	})
-	mailBox.Start()
-	defer mailBox.Stop()
+	ctx := newMailboxContext(t, time.Now(), testExpiry)
+	ctx.mailbox.Start()
+	defer ctx.mailbox.Stop()
 
 	addTwice := func(t *testing.T, pkt *htlcPacket) {
 		// The first add should succeed.
-		err := mailBox.AddPacket(pkt)
+		err := ctx.mailbox.AddPacket(pkt)
 		if err != nil {
 			t.Fatalf("unable to add packet: %v", err)
 		}
 
 		// Adding again with the same incoming circuit key should fail.
-		err = mailBox.AddPacket(pkt)
+		err = ctx.mailbox.AddPacket(pkt)
 		if err != ErrPacketAlreadyExists {
 			t.Fatalf("expected ErrPacketAlreadyExists, got: %v", err)
 		}
@@ -548,8 +548,22 @@ func TestMailOrchestrator(t *testing.T) {
 
 	// First, we'll create a new instance of our orchestrator.
 	mo := newMailOrchestrator(&mailOrchConfig{
-		clock:  clock.NewDefaultClock(),
-		expiry: time.Minute,
+		fetchUpdate: func(sid lnwire.ShortChannelID) (
+			*lnwire.ChannelUpdate, error) {
+			return &lnwire.ChannelUpdate{
+				ShortChannelID: sid,
+			}, nil
+		},
+		forwardPackets: func(_ chan struct{},
+			pkts ...*htlcPacket) chan error {
+			// Close the channel immediately so the goroutine
+			// logging errors can exit.
+			errChan := make(chan error)
+			close(errChan)
+			return errChan
+		},
+		clock:  clock.NewTestClock(time.Now()),
+		expiry: testExpiry,
 	})
 	defer mo.Stop()
 

@@ -5,6 +5,7 @@ MOBILE_PKG := $(PKG)/mobile
 BTCD_PKG := github.com/btcsuite/btcd
 GOVERALLS_PKG := github.com/mattn/goveralls
 LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
+STATICCHECK_PKG := honnef.co/go/tools/cmd/staticcheck
 GOACC_PKG := github.com/ory/go-acc
 
 GO_BIN := ${GOPATH}/bin
@@ -12,6 +13,7 @@ BTCD_BIN := $(GO_BIN)/btcd
 GOMOBILE_BIN := GO111MODULE=off $(GO_BIN)/gomobile
 GOVERALLS_BIN := $(GO_BIN)/goveralls
 LINT_BIN := $(GO_BIN)/golangci-lint
+STATICCHECK_BIN := $(GO_BIN)/staticcheck
 GOACC_BIN := $(GO_BIN)/go-acc
 
 BTCD_DIR :=${GOPATH}/src/$(BTCD_PKG)
@@ -68,6 +70,7 @@ LINT_WORKERS = --concurrency=$(workers)
 endif
 
 LINT = $(LINT_BIN) run -v $(LINT_WORKERS)
+STATICCHECK = $(STATICCHECK_BIN) $(shell $(GOLIST))
 
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
@@ -90,6 +93,10 @@ $(GOVERALLS_BIN):
 $(LINT_BIN):
 	@$(call print, "Fetching linter")
 	$(DEPGET) $(LINT_PKG)@$(LINT_COMMIT)
+
+$(STATICCHECK_BIN):
+	@$(call print, "Fetching staticcheck")
+	$(DEPGET) $(STATICCHECK_PKG)
 
 $(GOACC_BIN):
 	@$(call print, "Fetching go-acc")
@@ -178,6 +185,10 @@ fmt:
 lint: $(LINT_BIN)
 	@$(call print, "Linting source.")
 	$(LINT)
+
+staticcheck: $(STATICCHECK_BIN)
+	@$(calls print, "Running staticcheck.")
+	$(STATICCHECK)
 
 list:
 	@$(call print, "Listing commands.")

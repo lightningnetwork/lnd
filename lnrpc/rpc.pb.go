@@ -7161,7 +7161,7 @@ type Hop struct {
 	//this field MUST be set to true for them to be encoded properly.
 	TlvPayload bool `protobuf:"varint,9,opt,name=tlv_payload,json=tlvPayload,proto3" json:"tlv_payload,omitempty"`
 	//*
-	//An optional TLV record tha singals the use of an MPP payment. If present,
+	//An optional TLV record that signals the use of an MPP payment. If present,
 	//the receiver will enforce that that the same mpp_record is included in the
 	//final hop payload of all non-zero payments in the HTLC set. If empty, a
 	//regular single-shot payment is or was attempted.

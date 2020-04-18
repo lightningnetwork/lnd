@@ -2458,7 +2458,7 @@ message Hop {
     bool tlv_payload = 9;
 
     /**
-    An optional TLV record tha singals the use of an MPP payment. If present,
+    An optional TLV record that signals the use of an MPP payment. If present,
     the receiver will enforce that that the same mpp_record is included in the
     final hop payload of all non-zero payments in the HTLC set. If empty, a
     regular single-shot payment is or was attempted.

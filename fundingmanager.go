@@ -362,8 +362,8 @@ type fundingConfig struct {
 	NotifyOpenChannelEvent func(wire.OutPoint)
 
 	// OpenChannelPredicate is a predicate on the lnwire.OpenChannel message
-	// and on the requesting node's public key that returns a bool which tells
-	// the funding manager whether or not to accept the channel.
+	// and on the requesting node's public key that returns an error or nil,
+	// which tells the funding manager whether or not to accept the channel.
 	OpenChannelPredicate chanacceptor.ChannelAcceptor
 
 	// NotifyPendingOpenChannelEvent informs the ChannelNotifier when channels
@@ -1271,10 +1271,10 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		OpenChanMsg: fmsg.msg,
 	}
 
-	if !f.cfg.OpenChannelPredicate.Accept(chanReq) {
+	if err := f.cfg.OpenChannelPredicate.Accept(chanReq); err != nil {
 		f.failFundingFlow(
 			fmsg.peer, fmsg.msg.PendingChannelID,
-			fmt.Errorf("open channel request rejected"),
+			fmt.Errorf("open channel request rejected: %v", err),
 		)
 		return
 	}

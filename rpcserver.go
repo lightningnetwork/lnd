@@ -5970,12 +5970,12 @@ func (r *rpcServer) SubscribeChannelBackups(req *lnrpc.ChannelBackupSubscription
 // RPCServer.
 type chanAcceptInfo struct {
 	chanReq      *chanacceptor.ChannelAcceptRequest
-	responseChan chan bool
+	responseChan chan error
 }
 
 // ChannelAcceptor dispatches a bi-directional streaming RPC in which
 // OpenChannel requests are sent to the client and the client responds with
-// a boolean that tells LND whether or not to accept the channel. This allows
+// an error or nil, which tells LND whether or not to accept the channel. This allows
 // node operators to specify their own criteria for accepting inbound channels
 // through a single persistent connection.
 func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer) error {
@@ -5992,8 +5992,8 @@ func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer
 
 	// demultiplexReq is a closure that will be passed to the RPCAcceptor and
 	// acts as an intermediary between the RPCAcceptor and the RPCServer.
-	demultiplexReq := func(req *chanacceptor.ChannelAcceptRequest) bool {
-		respChan := make(chan bool, 1)
+	demultiplexReq := func(req *chanacceptor.ChannelAcceptRequest) error {
+		respChan := make(chan error, 1)
 
 		newRequest := &chanAcceptInfo{
 			chanReq:      req,
@@ -6007,13 +6007,14 @@ func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer
 		select {
 		case newRequests <- newRequest:
 		case <-timeout:
-			rpcsLog.Errorf("RPCAcceptor returned false - reached timeout of %d",
+			err := fmt.Errorf("RPCAcceptor returned false - reached timeout of %d",
 				r.cfg.AcceptorTimeout)
-			return false
+			rpcsLog.Error(err)
+			return err
 		case <-quit:
-			return false
+			return errors.New("RPCAcceptor terminated")
 		case <-r.quit:
-			return false
+			return errors.New("RPC server terminated")
 		}
 
 		// Receive the response and return it. If no response has been received
@@ -6022,13 +6023,14 @@ func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer
 		case resp := <-respChan:
 			return resp
 		case <-timeout:
-			rpcsLog.Errorf("RPCAcceptor returned false - reached timeout of %d",
+			err := fmt.Errorf("RPCAcceptor returned false - reached timeout of %d",
 				r.cfg.AcceptorTimeout)
-			return false
+			rpcsLog.Error(err)
+			return err
 		case <-quit:
-			return false
+			return errors.New("RPCAcceptor terminated")
 		case <-r.quit:
-			return false
+			return errors.New("RPC server terminated")
 		}
 	}
 
@@ -6059,8 +6061,9 @@ func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer
 			copy(pendingID[:], resp.PendingChanId)
 
 			openChanResp := lnrpc.ChannelAcceptResponse{
-				Accept:        resp.Accept,
-				PendingChanId: pendingID[:],
+				Accept:          resp.Accept,
+				PendingChanId:   pendingID[:],
+				RejectionReason: resp.RejectionReason,
 			}
 
 			// Now that we have the response from the RPC client, send it to
@@ -6075,7 +6078,7 @@ func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer
 		}
 	}()
 
-	acceptRequests := make(map[[32]byte]chan bool)
+	acceptRequests := make(map[[32]byte]chan error)
 
 	for {
 		select {
@@ -6116,8 +6119,12 @@ func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer
 				continue
 			}
 
-			// Send the response boolean over the buffered response channel.
-			respChan <- resp.Accept
+			// Send the response over the buffered response channel.
+			if resp.Accept {
+				respChan <- nil
+			} else {
+				respChan <- errors.New(resp.GetRejectionReason())
+			}
 
 			// Delete the channel from the acceptRequests map.
 			delete(acceptRequests, pendingID)

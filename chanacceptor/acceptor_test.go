@@ -2,6 +2,7 @@ package chanacceptor
 
 import (
 	"bytes"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -35,8 +36,7 @@ var defaultAcceptTimeout = 5 * time.Second
 func acceptAndIncrementCtr(rpc ChannelAcceptor, req *ChannelAcceptRequest,
 	ctr *uint32, success chan struct{}) {
 
-	result := rpc.Accept(req)
-	if !result {
+	if err := rpc.Accept(req); err != nil {
 		return
 	}
 
@@ -87,7 +87,7 @@ func TestRPCMultipleAcceptClients(t *testing.T) {
 
 	// demultiplexReq is a closure used to abstract the RPCAcceptor's request
 	// and response logic.
-	demultiplexReq := func(req *ChannelAcceptRequest) bool {
+	demultiplexReq := func(req *ChannelAcceptRequest) error {
 		respChan := make(chan lnrpc.ChannelAcceptResponse, 1)
 
 		newRequest := &requestInfo{
@@ -99,7 +99,7 @@ func TestRPCMultipleAcceptClients(t *testing.T) {
 		select {
 		case requests <- newRequest:
 		case <-quit:
-			return false
+			return errors.New("quit")
 		}
 
 		// Receive the response and verify that the PendingChanId matches
@@ -110,15 +110,19 @@ func TestRPCMultipleAcceptClients(t *testing.T) {
 			pendingID := req.OpenChanMsg.PendingChannelID
 			if !bytes.Equal(pendingID[:], resp.PendingChanId) {
 				errChan <- struct{}{}
-				return false
+				return errors.New("PendingCanId doesn't match the ID in ChannelAcceptRequest")
 			}
 
-			return resp.Accept
+			if !resp.Accept {
+				return errors.New(resp.GetRejectionReason())
+			}
+
+			return nil
 		case <-time.After(defaultAcceptTimeout):
 			errChan <- struct{}{}
-			return false
+			return errors.New("RPCAcceptor timed out")
 		case <-quit:
-			return false
+			return errors.New("quit")
 		}
 	}
 
@@ -141,8 +145,9 @@ func TestRPCMultipleAcceptClients(t *testing.T) {
 		select {
 		case newRequest := <-requests:
 			newResponse := lnrpc.ChannelAcceptResponse{
-				Accept:        true,
-				PendingChanId: newRequest.chanReq.OpenChanMsg.PendingChannelID[:],
+				Accept:          true,
+				PendingChanId:   newRequest.chanReq.OpenChanMsg.PendingChannelID[:],
+				RejectionReason: "",
 			}
 
 			newRequest.responseChan <- newResponse

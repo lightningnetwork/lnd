@@ -43,17 +43,20 @@ func (c *ChainedAcceptor) RemoveAcceptor(id uint64) {
 }
 
 // Accept evaluates the results of all ChannelAcceptors in the acceptors map
-// and returns the conjunction of all these predicates.
+// and returns first rejection error, if there's any.
 //
 // NOTE: Part of the ChannelAcceptor interface.
-func (c *ChainedAcceptor) Accept(req *ChannelAcceptRequest) bool {
-	result := true
+func (c *ChainedAcceptor) Accept(req *ChannelAcceptRequest) error {
+	var result error
 
 	c.acceptorsMtx.RLock()
 	for _, acceptor := range c.acceptors {
 		// We call Accept first in case any acceptor (perhaps an RPCAcceptor)
 		// wishes to be notified about ChannelAcceptRequest.
-		result = acceptor.Accept(req) && result
+		if err := acceptor.Accept(req); err != nil {
+			result = err
+			break
+		}
 	}
 	c.acceptorsMtx.RUnlock()
 

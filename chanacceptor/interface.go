@@ -21,5 +21,5 @@ type ChannelAcceptRequest struct {
 // ChannelAcceptor is an interface that represents a predicate on the data
 // contained in ChannelAcceptRequest.
 type ChannelAcceptor interface {
-	Accept(req *ChannelAcceptRequest) bool
+	Accept(req *ChannelAcceptRequest) error
 }

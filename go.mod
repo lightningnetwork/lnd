@@ -36,7 +36,7 @@ require (
 	github.com/lightninglabs/neutrino v0.11.1-0.20200316235139-bffc52e8f200
 	github.com/lightninglabs/protobuf-hex-display v1.3.3-0.20191212020323-b444784ce75d
 	github.com/lightningnetwork/lightning-onion v1.0.1
-	github.com/lightningnetwork/lnd/cert v1.0.1
+	github.com/lightningnetwork/lnd/cert v1.0.2
 	github.com/lightningnetwork/lnd/queue v1.0.3
 	github.com/lightningnetwork/lnd/ticker v1.0.0
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796

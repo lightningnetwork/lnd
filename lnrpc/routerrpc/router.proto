@@ -120,11 +120,23 @@ message SendPaymentRequest {
     amount.
     */
     uint32 max_shards = 17;
+
+    /**
+    If set, only the final payment update is streamed back. Intermediate updates
+    that show which htlcs are still in flight are suppressed.
+    */
+    bool no_inflight_updates = 18;
 }
 
 message TrackPaymentRequest {
     /// The hash of the payment to look up.
     bytes payment_hash = 1;
+
+    /**
+    If set, only the final payment update is streamed back. Intermediate updates
+    that show which htlcs are still in flight are suppressed.
+    */
+    bool no_inflight_updates = 2;
 }
 
 message RouteFeeRequest {

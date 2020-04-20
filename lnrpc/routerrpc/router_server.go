@@ -255,7 +255,7 @@ func (s *Server) SendPaymentV2(req *SendPaymentRequest,
 		return err
 	}
 
-	return s.trackPayment(payment.PaymentHash, stream)
+	return s.trackPayment(payment.PaymentHash, stream, req.NoInflightUpdates)
 }
 
 // EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
@@ -439,12 +439,12 @@ func (s *Server) TrackPaymentV2(request *TrackPaymentRequest,
 
 	log.Debugf("TrackPayment called for payment %v", paymentHash)
 
-	return s.trackPayment(paymentHash, stream)
+	return s.trackPayment(paymentHash, stream, request.NoInflightUpdates)
 }
 
 // trackPayment writes payment status updates to the provided stream.
 func (s *Server) trackPayment(paymentHash lntypes.Hash,
-	stream Router_TrackPaymentV2Server) error {
+	stream Router_TrackPaymentV2Server, noInflightUpdates bool) error {
 
 	router := s.cfg.RouterBackend
 
@@ -470,6 +470,14 @@ func (s *Server) trackPayment(paymentHash lntypes.Hash,
 				return nil
 			}
 			result := item.(*channeldb.MPPayment)
+
+			// Skip in-flight updates unless requested.
+			if noInflightUpdates &&
+				result.Status == channeldb.StatusInFlight {
+
+				continue
+			}
+
 			rpcPayment, err := router.MarshallPayment(result)
 			if err != nil {
 				return err

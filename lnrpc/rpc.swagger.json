@@ -3125,7 +3125,7 @@
         },
         "mpp_record": {
           "$ref": "#/definitions/lnrpcMPPRecord",
-          "description": "*\nAn optional TLV record tha singals the use of an MPP payment. If present,\nthe receiver will enforce that that the same mpp_record is included in the\nfinal hop payload of all non-zero payments in the HTLC set. If empty, a\nregular single-shot payment is or was attempted."
+          "description": "*\nAn optional TLV record that signals the use of an MPP payment. If present,\nthe receiver will enforce that that the same mpp_record is included in the\nfinal hop payload of all non-zero payments in the HTLC set. If empty, a\nregular single-shot payment is or was attempted."
         },
         "custom_records": {
           "type": "object",

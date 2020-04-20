@@ -326,13 +326,14 @@ type PathFindingConfig struct {
 	MinProbability float64
 }
 
-// getMaxOutgoingAmt returns the maximum available balance in any of the
-// channels of the given node.
-func getMaxOutgoingAmt(node route.Vertex, outgoingChan *uint64,
+// getOutgoingBalance returns the maximum available balance in any of the
+// channels of the given node. The second return parameters is the total
+// available balance.
+func getOutgoingBalance(node route.Vertex, outgoingChan *uint64,
 	bandwidthHints map[uint64]lnwire.MilliSatoshi,
-	g routingGraph) (lnwire.MilliSatoshi, error) {
+	g routingGraph) (lnwire.MilliSatoshi, lnwire.MilliSatoshi, error) {
 
-	var max lnwire.MilliSatoshi
+	var max, total lnwire.MilliSatoshi
 	cb := func(edgeInfo *channeldb.ChannelEdgeInfo, outEdge,
 		_ *channeldb.ChannelEdgePolicy) error {
 
@@ -349,16 +350,20 @@ func getMaxOutgoingAmt(node route.Vertex, outgoingChan *uint64,
 
 		bandwidth, ok := bandwidthHints[chanID]
 
-		// If the bandwidth is not available for whatever reason, don't
-		// fail the pathfinding early.
+		// If the bandwidth is not available, use the channel capacity.
+		// This can happen when a channel is added to the graph after
+		// we've already queried the bandwidth hints.
 		if !ok {
-			max = lnwire.MaxMilliSatoshi
-			return nil
+			bandwidth = lnwire.NewMSatFromSatoshis(
+				edgeInfo.Capacity,
+			)
 		}
 
 		if bandwidth > max {
 			max = bandwidth
 		}
+
+		total += bandwidth
 
 		return nil
 	}
@@ -366,9 +371,9 @@ func getMaxOutgoingAmt(node route.Vertex, outgoingChan *uint64,
 	// Iterate over all channels of the to node.
 	err := g.forEachNodeChannel(node, cb)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	return max, err
+	return max, total, err
 }
 
 // findPath attempts to find a path from the source node within the ChannelGraph
@@ -447,12 +452,21 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	self := g.graph.sourceNode()
 
 	if source == self {
-		max, err := getMaxOutgoingAmt(
+		max, total, err := getOutgoingBalance(
 			self, r.OutgoingChannelID, g.bandwidthHints, g.graph,
 		)
 		if err != nil {
 			return nil, err
 		}
+
+		// If the total outgoing balance isn't sufficient, it will be
+		// impossible to complete the payment.
+		if total < amt {
+			return nil, errInsufficientBalance
+		}
+
+		// If there is only not enough capacity on a single route, it
+		// may still be possible to complete the payment by splitting.
 		if max < amt {
 			return nil, errNoPathFound
 		}

@@ -30,6 +30,10 @@ const (
 	// not exist in the graph.
 	errNoPathFound
 
+	// errInsufficientLocalBalance is returned when none of the local
+	// channels have enough balance for the payment.
+	errInsufficientBalance
+
 	// errEmptyPaySession is returned when the empty payment session is
 	// queried for a route.
 	errEmptyPaySession
@@ -57,6 +61,9 @@ func (e noRouteError) Error() string {
 	case errEmptyPaySession:
 		return "empty payment session"
 
+	case errInsufficientBalance:
+		return "insufficient local balance"
+
 	default:
 		return "unknown no-route error"
 	}
@@ -72,6 +79,9 @@ func (e noRouteError) FailureReason() channeldb.FailureReason {
 		errEmptyPaySession:
 
 		return channeldb.FailureReasonNoRoute
+
+	case errInsufficientBalance:
+		return channeldb.FailureReasonInsufficientBalance
 
 	default:
 		return channeldb.FailureReasonError
@@ -277,6 +287,16 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 
 			// Go pathfinding.
 			continue
+
+		// If there isn't enough local bandwidth, there is no point in
+		// splitting. It won't be possible to create a complete set in
+		// any case, but the sent out partial payments would be held by
+		// the receiver until the mpp timeout.
+		case err == errInsufficientBalance:
+			p.log.Debug("not splitting because local balance " +
+				"is insufficient")
+
+			return nil, err
 
 		case err != nil:
 			return nil, err

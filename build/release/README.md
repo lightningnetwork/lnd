@@ -19,8 +19,7 @@ the release binaries following these steps:
 
 1. `git clone https://github.com/lightningnetwork/lnd.git`
 2. `cd lnd`
-3. `./build/release/release.sh <TAG> # <TAG> is the name of the next
-   release/tag`
+3. `make release tag=<TAG> # <TAG> is the name of the next release/tag`
 
 This will then create a directory of the form `lnd-<TAG>` containing archives
 of the release binaries for each supported operating system and architecture,
@@ -64,7 +63,7 @@ and `go` (matching the same version used in the release):
    release with `git checkout <TAG>`.
 7. Proceed to verify the tag with `git verify-tag <TAG>` and compile the
    binaries from source for the intended operating system and architecture with
-   `LNDBUILDSYS=OS-ARCH ./build/release/release.sh <TAG>`.
+   `make release sys=OS-ARCH tag=<TAG>`.
 8. Extract the archive found in the `lnd-<TAG>` directory created by the
    release script and recompute the `SHA256` hash of the release binaries (lnd
    and lncli) with `shasum -a 256 <filename>`. These should match __exactly__

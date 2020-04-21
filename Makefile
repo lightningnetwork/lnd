@@ -49,17 +49,25 @@ MAKE := make
 XARGS := xargs -L 1
 
 include make/testing_flags.mk
+include make/release_flags.mk
 
 DEV_TAGS := $(if ${tags},$(DEV_TAGS) ${tags},$(DEV_TAGS))
 
-make_ldflags = -ldflags "$(shell echo -X $(PKG)/build.Commit=$(COMMIT) \
+# We only return the part inside the double quote here to avoid escape issues
+# when calling the external release script. The second parameter can be used to
+# add additional ldflags if needed (currently only used for the release).
+make_ldflags = $(2) -X $(PKG)/build.Commit=$(COMMIT) \
 	-X $(PKG)/build.CommitHash=$(COMMIT_HASH) \
 	-X $(PKG)/build.GoVersion=$(GOVERSION) \
-	-X $(PKG)/build.RawTags=$(shell echo $(1) | sed -e 's/ /,/g'))"
+	-X $(PKG)/build.RawTags=$(shell echo $(1) | sed -e 's/ /,/g')
 
-LDFLAGS := $(call make_ldflags, ${tags})
-DEV_LDFLAGS := $(call make_ldflags, $(DEV_TAGS))
-ITEST_LDFLAGS := $(call make_ldflags, $(ITEST_TAGS))
+LDFLAGS := -ldflags "$(call make_ldflags, ${tags})"
+DEV_LDFLAGS := -ldflags "$(call make_ldflags, $(DEV_TAGS))"
+ITEST_LDFLAGS := -ldflags "$(call make_ldflags, $(ITEST_TAGS))"
+
+# For the release, we want to remove the symbol table and debug information (-s)
+# and omit the DWARF symbol table (-w). Also we clear the build ID.
+RELEASE_LDFLAGS := $(call make_ldflags, $(RELEASE_TAGS), -s -w -buildid=)
 
 # Linting uses a lot of memory, so keep it under control by limiting the number
 # of workers if requested.
@@ -117,6 +125,11 @@ install:
 	@$(call print, "Installing lnd and lncli.")
 	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)/cmd/lnd
 	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)/cmd/lncli
+
+release:
+	@$(call print, "Releasing lnd and lncli binaries.")
+	$(VERSION_CHECK)
+	./build/release/release.sh build-release "$(VERSION_TAG)" "$(BUILD_SYSTEM)" "$(RELEASE_TAGS)" "$(RELEASE_LDFLAGS)"
 
 scratch: build
 

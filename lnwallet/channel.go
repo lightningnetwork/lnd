@@ -2412,7 +2412,7 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 
 	effFeeRate := chainfee.SatPerKWeight(fee) * 1000 /
 		chainfee.SatPerKWeight(weight)
-	if effFeeRate < chainfee.FeePerKwFloor {
+	if effFeeRate < chainfee.AbsoluteFeePerKwFloor {
 		return nil, fmt.Errorf("height=%v, for ChannelPoint(%v) "+
 			"attempts to create commitment with feerate %v: %v",
 			nextHeight, lc.channelState.FundingOutpoint,

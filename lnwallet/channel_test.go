@@ -7638,3 +7638,41 @@ func TestChannelMaxFeeRate(t *testing.T) {
 	assertMaxFeeRate(0.000001, 690)
 	assertMaxFeeRate(0.0000001, chainfee.FeePerKwFloor)
 }
+
+// TestChannelFeeRateFloor asserts that valid commitments can be proposed and
+// received using chainfee.FeePerKwFloor as the initiator's fee rate.
+func TestChannelFeeRateFloor(t *testing.T) {
+	t.Parallel()
+
+	alice, bob, cleanUp, err := CreateTestChannels(
+		channeldb.SingleFunderTweaklessBit,
+	)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// Set the fee rate to the proposing fee rate floor.
+	minFee := chainfee.FeePerKwFloor
+
+	// Alice is the initiator, so only she can propose fee updates.
+	if err := alice.UpdateFee(minFee); err != nil {
+		t.Fatalf("unable to send fee update")
+	}
+	if err := bob.ReceiveUpdateFee(minFee); err != nil {
+		t.Fatalf("unable to receive fee update")
+	}
+
+	// Check that alice can still sign commitments.
+	sig, htlcSigs, _, err := alice.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("alice unable to sign commitment: %v", err)
+	}
+
+	// Check that bob can still receive commitments.
+	err = bob.ReceiveNewCommitment(sig, htlcSigs)
+	if err != nil {
+		t.Fatalf("bob unable to process alice's new commitment: %v",
+			err)
+	}
+}

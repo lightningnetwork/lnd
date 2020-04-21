@@ -9,8 +9,13 @@ import (
 
 const (
 	// FeePerKwFloor is the lowest fee rate in sat/kw that we should use for
-	// determining transaction fees.
+	// estimating transaction fees before signing.
 	FeePerKwFloor SatPerKWeight = 253
+
+	// AbsoluteFeePerKwFloor is the lowest fee rate in sat/kw of a
+	// transaction that we should ever _create_. This is the the equivalent
+	// of 1 sat/byte in sat/kw.
+	AbsoluteFeePerKwFloor SatPerKWeight = 250
 )
 
 // SatPerKVByte represents a fee rate in sat/kb.

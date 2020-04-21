@@ -156,10 +156,22 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 			len(invoice.DescriptionHash))
 	}
 
+	// We set the max invoice amount to 100k BTC, which itself is several
+	// multiples off the current block reward.
+	maxInvoiceAmt := btcutil.Amount(btcutil.SatoshiPerBitcoin * 100000)
+
+	switch {
 	// The value of the invoice must not be negative.
-	if invoice.Value < 0 {
+	case invoice.Value < 0:
 		return nil, nil, fmt.Errorf("payments of negative value "+
 			"are not allowed, value is %v", invoice.Value)
+
+	// Also ensure that the invoice is actually realistic, while preventing
+	// any issues due to underflow.
+	case invoice.Value.ToSatoshis() > maxInvoiceAmt:
+		return nil, nil, fmt.Errorf("invoice amount %v is "+
+			"too large, max is %v", invoice.Value.ToSatoshis(),
+			maxInvoiceAmt)
 	}
 
 	amtMSat := invoice.Value

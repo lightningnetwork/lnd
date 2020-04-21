@@ -9,138 +9,152 @@
 
 set -e
 
-# If no tag specified, use date + version otherwise use tag.
-if [[ $1x = x ]]; then
-    DATE=`date +%Y%m%d`
-    VERSION="01"
-    TAG=$DATE-$VERSION
-else
-    TAG=$1
+LND_VERSION_REGEX="lnd version (.+) commit"
+PKG="github.com/lightningnetwork/lnd"
+PACKAGE=lnd
 
-    # If a tag is specified, ensure that that tag is present and checked out.
-    if [[ $TAG != $(git describe) ]]; then
-        echo "tag $TAG not checked out"
-        exit 1
+# green prints one line of green text (if the terminal supports it).
+function green() {
+  echo -e "\e[0;32m${1}\e[0m"
+}
+
+# red prints one line of red text (if the terminal supports it).
+function red() {
+  echo -e "\e[0;31m${1}\e[0m"
+}
+
+# check_tag_correct makes sure the given git tag is checked out and the git tree
+# is not dirty.
+#   arguments: <version-tag>
+function check_tag_correct() {
+  local tag=$1
+
+  # If a tag is specified, ensure that that tag is present and checked out.
+  if [[ $tag != $(git describe) ]]; then
+    red "tag $tag not checked out"
+    exit 1
+  fi
+
+  # Build lnd to extract version.
+  go build ${PKG}/cmd/lnd
+
+  # Extract version command output.
+  lnd_version_output=$(./lnd --version)
+
+  # Use a regex to isolate the version string.
+  if [[ $lnd_version_output =~ $LND_VERSION_REGEX ]]; then
+    # Prepend 'v' to match git tag naming scheme.
+    lnd_version="v${BASH_REMATCH[1]}"
+    green "version: $lnd_version"
+
+    # If tag contains a release candidate suffix, append this suffix to the
+    # lnd reported version before we compare.
+    RC_REGEX="-rc[0-9]+$"
+    if [[ $tag =~ $RC_REGEX ]]; then
+      lnd_version+=${BASH_REMATCH[0]}
     fi
 
-    # Build lnd to extract version.
-    go build github.com/lightningnetwork/lnd/cmd/lnd
+    # Match git tag with lnd version.
+    if [[ $tag != "${lnd_version}" ]]; then
+      red "lnd version $lnd_version does not match tag $tag"
+      exit 1
+    fi
+  else
+    red "malformed lnd version output"
+    exit 1
+  fi
+}
 
-    # Extract version command output.
-    LND_VERSION_OUTPUT=`./lnd --version`
+# build_release builds the actual release binaries.
+#   arguments: <version-tag> <build-system(s)> <build-tags> <ldflags>
+function build_release() {
+  local tag=$1
+  local sys=$2
+  local buildtags=$3
+  local ldflags=$4
 
-    # Use a regex to isolate the version string.
-    LND_VERSION_REGEX="lnd version (.+) commit"
-    if [[ $LND_VERSION_OUTPUT =~ $LND_VERSION_REGEX ]]; then
-        # Prepend 'v' to match git tag naming scheme.
-        LND_VERSION="v${BASH_REMATCH[1]}"
-        echo "version: $LND_VERSION"
+  green " - Packaging vendor"
+  go mod vendor
+  tar -czf vendor.tar.gz vendor
 
-        # If tag contains a release candidate suffix, append this suffix to the
-        # lnd reported version before we compare.
-        RC_REGEX="-rc[0-9]+$"
-        if [[ $TAG =~ $RC_REGEX ]]; then 
-            LND_VERSION+=${BASH_REMATCH[0]}
-        fi
+  maindir=$PACKAGE-$tag
+  mkdir -p $maindir
 
-        # Match git tag with lnd version.
-        if [[ $TAG != $LND_VERSION ]]; then
-            echo "lnd version $LND_VERSION does not match tag $TAG"
-            exit 1
-        fi
+  cp vendor.tar.gz $maindir/
+  rm vendor.tar.gz
+  rm -r vendor
+
+  package_source="${maindir}/${PACKAGE}-source-${tag}.tar"
+  git archive -o "${package_source}" HEAD
+  gzip -f "${package_source}" >"${package_source}.gz"
+
+  cd "${maindir}"
+
+  for i in $sys; do
+    os=$(echo $i | cut -f1 -d-)
+    arch=$(echo $i | cut -f2 -d-)
+    arm=
+
+    if [[ $arch == "armv6" ]]; then
+      arch=arm
+      arm=6
+    elif [[ $arch == "armv7" ]]; then
+      arch=arm
+      arm=7
+    fi
+
+    dir="${PACKAGE}-${i}-${tag}"
+    mkdir "${dir}"
+    pushd "${dir}"
+
+    green " - Building: ${os} ${arch} ${arm} with build tags '${buildtags}'"
+    env CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/lnd
+    env CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/lncli
+    popd
+
+    if [[ $os == "windows" ]]; then
+      zip -r "${dir}.zip" "${dir}"
     else
-        echo "malformed lnd version output"
-        exit 1
+      tar -cvzf "${dir}.tar.gz" "${dir}"
     fi
+
+    rm -r "${dir}"
+  done
+
+  shasum -a 256 * >manifest-$tag.txt
+}
+
+# usage prints the usage of the whole script.
+function usage() {
+  red "Usage: "
+  red "release.sh check-tag <version-tag>"
+  red "release.sh build-release <version-tag> <build-system(s)> <build-tags> <ldflags>"
+}
+
+# Whatever sub command is passed in, we need at least 2 arguments.
+if [ "$#" -lt 2 ]; then
+  usage
+  exit 1
 fi
 
-go mod vendor
-tar -cvzf vendor.tar.gz vendor
+# Extract the sub command and remove it from the list of parameters by shifting
+# them to the left.
+SUBCOMMAND=$1
+shift
 
-PACKAGE=lnd
-MAINDIR=$PACKAGE-$TAG
-mkdir -p $MAINDIR
-
-cp vendor.tar.gz $MAINDIR/
-rm vendor.tar.gz
-rm -r vendor
-
-PACKAGESRC="$MAINDIR/$PACKAGE-source-$TAG.tar"
-git archive -o $PACKAGESRC HEAD
-gzip -f $PACKAGESRC > "$PACKAGESRC.gz"
-
-cd $MAINDIR
-
-# If LNDBUILDSYS is set the default list is ignored. Useful to release
-# for a subset of systems/architectures.
-SYS=${LNDBUILDSYS:-"
-        darwin-386
-        darwin-amd64
-        dragonfly-amd64
-        freebsd-386
-        freebsd-amd64
-        freebsd-arm
-        illumos-amd64
-        linux-386
-        linux-amd64
-        linux-armv6
-        linux-armv7
-        linux-arm64
-        linux-ppc64
-        linux-ppc64le
-        linux-mips
-        linux-mipsle
-        linux-mips64
-        linux-mips64le
-        linux-s390x
-        netbsd-386
-        netbsd-amd64
-        netbsd-arm
-        netbsd-arm64
-        openbsd-386
-        openbsd-amd64
-        openbsd-arm
-        openbsd-arm64
-        solaris-amd64
-        windows-386
-        windows-amd64
-        windows-arm
-"}
-
-# Use the first element of $GOPATH in the case where GOPATH is a list
-# (something that is totally allowed).
-PKG="github.com/lightningnetwork/lnd"
-COMMIT=$(git describe --abbrev=40 --dirty)
-COMMITFLAGS="-X $PKG/build.Commit=$COMMIT"
-
-for i in $SYS; do
-    OS=$(echo $i | cut -f1 -d-)
-    ARCH=$(echo $i | cut -f2 -d-)
-    ARM=
-
-    if [[ $ARCH = "armv6" ]]; then
-      ARCH=arm
-      ARM=6
-    elif [[ $ARCH = "armv7" ]]; then
-      ARCH=arm
-      ARM=7
-    fi
-
-    mkdir $PACKAGE-$i-$TAG
-    cd $PACKAGE-$i-$TAG
-
-    echo "Building:" $OS $ARCH $ARM
-    env CGO_ENABLED=0 GOOS=$OS GOARCH=$ARCH GOARM=$ARM go build -v -trimpath -ldflags="-s -w -buildid= $COMMITFLAGS" -tags="autopilotrpc signrpc walletrpc chainrpc invoicesrpc watchtowerrpc" github.com/lightningnetwork/lnd/cmd/lnd
-    env CGO_ENABLED=0 GOOS=$OS GOARCH=$ARCH GOARM=$ARM go build -v -trimpath -ldflags="-s -w -buildid= $COMMITFLAGS" -tags="autopilotrpc invoicesrpc walletrpc watchtowerrpc" github.com/lightningnetwork/lnd/cmd/lncli
-    cd ..
-
-    if [[ $OS = "windows" ]]; then
-	zip -r $PACKAGE-$i-$TAG.zip $PACKAGE-$i-$TAG
-    else
-	tar -cvzf $PACKAGE-$i-$TAG.tar.gz $PACKAGE-$i-$TAG
-    fi
-
-    rm -r $PACKAGE-$i-$TAG
-done
-
-shasum -a 256 * > manifest-$TAG.txt
+# Call the function corresponding to the specified sub command or print the
+# usage if the sub command was not found.
+case $SUBCOMMAND in
+check-tag)
+  green "Checking if version tag exists"
+  check_tag_correct "$@"
+  ;;
+build-release)
+  green "Building release"
+  build_release "$@"
+  ;;
+*)
+  usage
+  exit 1
+  ;;
+esac

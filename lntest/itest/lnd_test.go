@@ -14248,12 +14248,12 @@ func testHoldInvoicePersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Let Alice initiate payments for all the created invoices.
-	var paymentStreams []routerrpc.Router_SendPaymentClient
+	var paymentStreams []routerrpc.Router_SendPaymentV2Client
 	for _, payReq := range payReqs {
 		ctx, cancel := context.WithCancel(ctxb)
 		defer cancel()
 
-		payStream, err := net.Alice.RouterClient.SendPayment(
+		payStream, err := net.Alice.RouterClient.SendPaymentV2(
 			ctx, &routerrpc.SendPaymentRequest{
 				PaymentRequest: payReq,
 				TimeoutSeconds: 60,
@@ -14365,7 +14365,7 @@ func testHoldInvoicePersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		ctx, cancel := context.WithCancel(ctxb)
 		defer cancel()
 
-		payStream, err := net.Alice.RouterClient.TrackPayment(
+		payStream, err := net.Alice.RouterClient.TrackPaymentV2(
 			ctx, &routerrpc.TrackPaymentRequest{
 				PaymentHash: hash[:],
 			},
@@ -14724,7 +14724,7 @@ func sendAndAssertSuccess(t *harnessTest, node *lntest.HarnessNode,
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 
-	stream, err := node.RouterClient.SendPayment(ctx, req)
+	stream, err := node.RouterClient.SendPaymentV2(ctx, req)
 	if err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
@@ -14742,7 +14742,7 @@ func sendAndAssertSuccess(t *harnessTest, node *lntest.HarnessNode,
 }
 
 // getPaymentResult reads a final result from the stream and returns it.
-func getPaymentResult(stream routerrpc.Router_SendPaymentClient) (
+func getPaymentResult(stream routerrpc.Router_SendPaymentV2Client) (
 	*lnrpc.Payment, error) {
 
 	for {

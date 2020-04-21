@@ -399,7 +399,7 @@ func sendPaymentRequest(ctx *cli.Context,
 
 	showInflight := ctx.Bool(showInflightFlag.Name)
 
-	stream, err := routerClient.SendPayment(context.Background(), req)
+	stream, err := routerClient.SendPaymentV2(context.Background(), req)
 	if err != nil {
 		return err
 	}
@@ -462,7 +462,7 @@ func trackPayment(ctx *cli.Context) error {
 		PaymentHash: hash,
 	}
 
-	stream, err := client.TrackPayment(context.Background(), req)
+	stream, err := client.TrackPaymentV2(context.Background(), req)
 	if err != nil {
 		return err
 	}

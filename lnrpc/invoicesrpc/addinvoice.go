@@ -162,9 +162,9 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 	switch {
 	// The value of the invoice must not be negative.
-	case invoice.Value < 0:
+	case int64(invoice.Value) < 0:
 		return nil, nil, fmt.Errorf("payments of negative value "+
-			"are not allowed, value is %v", invoice.Value)
+			"are not allowed, value is %v", int64(invoice.Value))
 
 	// Also ensure that the invoice is actually realistic, while preventing
 	// any issues due to underflow.

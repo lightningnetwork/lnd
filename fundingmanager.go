@@ -740,7 +740,8 @@ func (f *fundingManager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 	}
 
 	// We only send the exact error if it is part of out whitelisted set of
-	// errors (lnwire.FundingError or lnwallet.ReservationError).
+	// errors (lnwire.FundingError, lnwallet.ReservationError, or
+	// chanacceptor.AcceptanceError).
 	var msg lnwire.ErrorData
 	switch e := fundingErr.(type) {
 
@@ -749,6 +750,8 @@ func (f *fundingManager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 	case lnwallet.ReservationError:
 		msg = lnwire.ErrorData(e.Error())
 	case lnwire.FundingError:
+		msg = lnwire.ErrorData(e.Error())
+	case chanacceptor.AcceptanceError:
 		msg = lnwire.ErrorData(e.Error())
 
 	// For all other error types we just send a generic error.
@@ -1272,9 +1275,15 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	}
 
 	if err := f.cfg.OpenChannelPredicate.Accept(chanReq); err != nil {
+		err = chanacceptor.ErrRejectedWithMsg(err.Error())
+
+		if err.Error() == "" {
+			err = chanacceptor.ErrRejected()
+		}
+
 		f.failFundingFlow(
 			fmsg.peer, fmsg.msg.PendingChannelID,
-			fmt.Errorf("open channel request rejected: %v", err),
+			err,
 		)
 		return
 	}

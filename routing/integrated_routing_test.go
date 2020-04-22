@@ -85,7 +85,7 @@ type mppSendTestCase struct {
 
 	graph           func(g *mockGraph)
 	expectedFailure bool
-	maxShards       uint32
+	maxParts        uint32
 }
 
 const (
@@ -152,7 +152,7 @@ var mppTestCases = []mppSendTestCase{
 				chans: []uint64{chanSourceIm2, chanIm2Target},
 			},
 		},
-		maxShards: 1000,
+		maxParts: 1000,
 	},
 
 	// Test that a cap on the max htlcs makes it impossible to pay.
@@ -165,7 +165,7 @@ var mppTestCases = []mppSendTestCase{
 		expectedAttempts:  2,
 		expectedSuccesses: []expectedHtlcSuccess{},
 		expectedFailure:   true,
-		maxShards:         1,
+		maxParts:          1,
 	},
 
 	// Test that an attempt is made to split the payment in multiple parts
@@ -190,7 +190,7 @@ var mppTestCases = []mppSendTestCase{
 			},
 		},
 		expectedFailure: true,
-		maxShards:       1000,
+		maxParts:        1000,
 	},
 
 	// Test that no attempts are made if the total local balance is
@@ -203,7 +203,7 @@ var mppTestCases = []mppSendTestCase{
 		amt:              300000,
 		expectedAttempts: 0,
 		expectedFailure:  true,
-		maxShards:        10,
+		maxParts:         10,
 	},
 }
 
@@ -226,7 +226,7 @@ func testMppSend(t *testing.T, testCase *mppSendTestCase) {
 
 	ctx.amt = lnwire.NewMSatFromSatoshis(testCase.amt)
 
-	attempts, err := ctx.testPayment(testCase.maxShards)
+	attempts, err := ctx.testPayment(testCase.maxParts)
 	switch {
 	case err == nil && testCase.expectedFailure:
 		t.Fatal("expected payment to fail")

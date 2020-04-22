@@ -58,8 +58,8 @@ var (
 			"displayed. Only valid in combination with --json.",
 	}
 
-	maxShardsFlag = cli.UintFlag{
-		Name: "max_shards",
+	maxPartsFlag = cli.UintFlag{
+		Name: "max_parts",
 		Usage: "the maximum number of partial payments that may be " +
 			"used",
 		Value: 1,
@@ -107,7 +107,7 @@ func paymentFlags() []cli.Flag {
 			Name:  "allow_self_payment",
 			Usage: "allow sending a circular payment to self",
 		},
-		dataFlag, inflightUpdatesFlag, maxShardsFlag, jsonFlag,
+		dataFlag, inflightUpdatesFlag, maxPartsFlag, jsonFlag,
 	}
 }
 
@@ -337,7 +337,7 @@ func sendPaymentRequest(ctx *cli.Context,
 
 	req.AllowSelfPayment = ctx.Bool("allow_self_payment")
 
-	req.MaxShards = uint32(ctx.Uint(maxShardsFlag.Name))
+	req.MaxParts = uint32(ctx.Uint(maxPartsFlag.Name))
 
 	// Parse custom data records.
 	data := ctx.String(dataFlag.Name)

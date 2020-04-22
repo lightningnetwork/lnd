@@ -263,11 +263,11 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 			}
 
 			// No splitting if this is the last shard.
-			isLastShard := activeShards+1 >= p.payment.MaxShards
+			isLastShard := activeShards+1 >= p.payment.MaxParts
 			if isLastShard {
 				p.log.Debugf("not splitting because shard "+
 					"limit %v has been reached",
-					p.payment.MaxShards)
+					p.payment.MaxParts)
 
 				return nil, errNoPathFound
 			}

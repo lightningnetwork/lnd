@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -11,11 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/gosuri/uilive"
-	"github.com/jedib0t/go-pretty/table"
-	"github.com/jedib0t/go-pretty/text"
 	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -64,11 +59,6 @@ var (
 			"used",
 		Value: 1,
 	}
-
-	jsonFlag = cli.BoolFlag{
-		Name:  "json",
-		Usage: "if set, payment updates are printed as json messages",
-	}
 )
 
 // paymentFlags returns common flags for sendpayment and payinvoice.
@@ -105,7 +95,7 @@ func paymentFlags() []cli.Flag {
 			Name:  "allow_self_payment",
 			Usage: "allow sending a circular payment to self",
 		},
-		dataFlag, showInflightFlag, maxShardsFlag, jsonFlag,
+		dataFlag, showInflightFlag, maxShardsFlag,
 	}
 }
 
@@ -414,21 +404,25 @@ func sendPaymentRequest(ctx *cli.Context,
 		return err
 	}
 
-	finalState, err := printLivePayment(
-		stream, client, ctx.Bool(jsonFlag.Name),
-	)
-	if err != nil {
-		return err
-	}
+	for {
+		status, err := stream.Recv()
+		if err != nil {
+			return err
+		}
 
-	// If we get a payment error back, we pass an error up
-	// to main which eventually calls fatal() and returns
-	// with a non-zero exit code.
-	if finalState.Status != lnrpc.Payment_SUCCEEDED {
-		return errors.New(finalState.Status.String())
-	}
+		printRespJSON(status)
 
-	return nil
+		if status.Status != lnrpc.Payment_IN_FLIGHT {
+			// If we get a payment error back, we pass an error up
+			// to main which eventually calls fatal() and returns
+			// with a non-zero exit code.
+			if status.Status != lnrpc.Payment_SUCCEEDED {
+				return errors.New(status.Status.String())
+			}
+
+			return nil
+		}
+	}
 }
 
 var trackPaymentCommand = cli.Command{
@@ -449,7 +443,7 @@ func trackPayment(ctx *cli.Context) error {
 	conn := getClientConn(ctx, false)
 	defer conn.Close()
 
-	routerClient := routerrpc.NewRouterClient(conn)
+	client := routerrpc.NewRouterClient(conn)
 
 	if !args.Present() {
 		return fmt.Errorf("hash argument missing")
@@ -464,199 +458,23 @@ func trackPayment(ctx *cli.Context) error {
 		PaymentHash: hash,
 	}
 
-	stream, err := routerClient.TrackPaymentV2(context.Background(), req)
+	stream, err := client.TrackPaymentV2(context.Background(), req)
 	if err != nil {
 		return err
 	}
 
-	client := lnrpc.NewLightningClient(conn)
-	_, err = printLivePayment(stream, client, ctx.Bool(jsonFlag.Name))
-	return err
-}
-
-// printLivePayment receives payment updates from the given stream and either
-// outputs them as json or as a more user-friendly formatted table. The table
-// option uses terminal control codes to rewrite the output. This call
-// terminates when the payment reaches a final state.
-func printLivePayment(stream routerrpc.Router_TrackPaymentV2Client,
-	client lnrpc.LightningClient, json bool) (*lnrpc.Payment, error) {
-
-	// Initialize terminal (re)writer if formatted output is requested.
-	var writer *uilive.Writer
-	if !json {
-		writer = uilive.New()
-		writer.Start()
-		defer writer.Stop()
-	}
-
-	aliases := newAliasCache(client)
-
-	first := true
 	for {
-		payment, err := stream.Recv()
+		status, err := stream.Recv()
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		if json {
-			// Delimit json messages by newlines (inspired by
-			// grpc over rest chunking).
-			if first {
-				first = false
-			} else {
-				fmt.Println()
-			}
+		printRespJSON(status)
 
-			// Write raw json to stdout.
-			printRespJSON(payment)
-		} else {
-			// Write formatted table to writer. This writer will
-			// erase the previously written output in the terminal
-			// first.
-			table := formatPayment(payment, aliases)
-			_, err := writer.Write([]byte(table))
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		// Terminate loop if payments state is final.
-		if payment.Status != lnrpc.Payment_IN_FLIGHT {
-			return payment, nil
+		if status.Status != lnrpc.Payment_IN_FLIGHT {
+			return nil
 		}
 	}
-}
-
-// aliasCache allows cached retrieval of node aliases.
-type aliasCache struct {
-	cache  map[string]string
-	client lnrpc.LightningClient
-}
-
-func newAliasCache(client lnrpc.LightningClient) *aliasCache {
-	return &aliasCache{
-		client: client,
-		cache:  make(map[string]string),
-	}
-}
-
-// get returns a node alias either from cache or freshly requested from lnd.
-func (a *aliasCache) get(pubkey string) string {
-	alias, ok := a.cache[pubkey]
-	if ok {
-		return alias
-	}
-
-	// Request node info.
-	resp, err := a.client.GetNodeInfo(
-		context.Background(),
-		&lnrpc.NodeInfoRequest{
-			PubKey: pubkey,
-		},
-	)
-	if err != nil {
-		// If no info is available, use the
-		// pubkey as identifier.
-		alias = pubkey[:6]
-	} else {
-		alias = resp.Node.Alias
-	}
-	a.cache[pubkey] = alias
-
-	return alias
-}
-
-// formatMsat formats msat amounts as fractional sats.
-func formatMsat(amt int64) string {
-	return strconv.FormatFloat(float64(amt)/1000.0, 'f', -1, 64)
-}
-
-// formatPayment formats the payment state as an ascii table.
-func formatPayment(payment *lnrpc.Payment, aliases *aliasCache) string {
-	t := table.NewWriter()
-
-	// Build table header.
-	t.AppendHeader(table.Row{
-		"HTLC_STATE", "ATTEMPT_TIME", "RESOLVE_TIME", "RECEIVER_AMT",
-		"FEE", "TIMELOCK", "CHAN_OUT", "ROUTE",
-	})
-	t.SetColumnConfigs([]table.ColumnConfig{
-		{Name: "ATTEMPT_TIME", Align: text.AlignRight},
-		{Name: "RESOLVE_TIME", Align: text.AlignRight},
-		{Name: "CHAN_OUT", Align: text.AlignLeft,
-			AlignHeader: text.AlignLeft},
-	})
-
-	// Add all htlcs as rows.
-	createTime := time.Unix(0, payment.CreationTimeNs)
-	var totalPaid, totalFees int64
-	for _, htlc := range payment.Htlcs {
-		formatTime := func(timeNs int64) string {
-			if timeNs == 0 {
-				return "-"
-			}
-			resolveTime := time.Unix(0, timeNs)
-			resolveTimeMs := resolveTime.Sub(createTime).
-				Milliseconds()
-			return fmt.Sprintf(
-				"%.3f", float64(resolveTimeMs)/1000.0,
-			)
-		}
-
-		attemptTime := formatTime(htlc.AttemptTimeNs)
-		resolveTime := formatTime(htlc.ResolveTimeNs)
-
-		route := htlc.Route
-		lastHop := route.Hops[len(route.Hops)-1]
-
-		hops := []string{}
-		for _, h := range route.Hops {
-			alias := aliases.get(h.PubKey)
-			hops = append(hops, alias)
-		}
-
-		state := htlc.Status.String()
-		if htlc.Failure != nil {
-			state = fmt.Sprintf(
-				"%v @ %v",
-				htlc.Failure.Code,
-				htlc.Failure.FailureSourceIndex,
-			)
-		}
-
-		t.AppendRow([]interface{}{
-			state, attemptTime, resolveTime,
-			formatMsat(lastHop.AmtToForwardMsat),
-			formatMsat(route.TotalFeesMsat),
-			route.TotalTimeLock, route.Hops[0].ChanId,
-			strings.Join(hops, "->")},
-		)
-
-		if htlc.Status == lnrpc.HTLCAttempt_SUCCEEDED {
-			totalPaid += lastHop.AmtToForwardMsat
-			totalFees += route.TotalFeesMsat
-		}
-	}
-
-	// Render table.
-	b := &bytes.Buffer{}
-	t.SetOutputMirror(b)
-	t.Render()
-
-	// Add additional payment-level data.
-	fmt.Fprintf(b, "Amount + fee:   %v + %v sat\n",
-		formatMsat(totalPaid), formatMsat(totalFees))
-	fmt.Fprintf(b, "Payment hash:   %v\n", payment.PaymentHash)
-	fmt.Fprintf(b, "Payment status: %v", payment.Status)
-	switch payment.Status {
-	case lnrpc.Payment_SUCCEEDED:
-		fmt.Fprintf(b, ", preimage: %v", payment.PaymentPreimage)
-	case lnrpc.Payment_FAILED:
-		fmt.Fprintf(b, ", reason: %v", payment.FailureReason)
-	}
-	fmt.Fprintf(b, "\n")
-
-	return b.String()
 }
 
 var payInvoiceCommand = cli.Command{

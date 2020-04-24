@@ -166,6 +166,14 @@ func (m *mockChanEvent) NotifyPendingOpenChannelEvent(outpoint wire.OutPoint,
 	}
 }
 
+type mockChannelAcceptor struct {
+	acceptClosure func(req *chanacceptor.ChannelAcceptRequest) error
+}
+
+func (m mockChannelAcceptor) Accept(req *chanacceptor.ChannelAcceptRequest) error {
+	return m.acceptClosure(req)
+}
+
 type testNode struct {
 	privKey         *btcec.PrivateKey
 	addr            *lnwire.NetAddress
@@ -2382,6 +2390,126 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 	// The internal state-machine should now have deleted the channelStates
 	// from the database, as the channel is announced.
 	assertNoChannelState(t, alice, bob, fundingOutPoint)
+}
+
+func TestFundingManagerCustomChannelAcceptor(t *testing.T) {
+	t.Parallel()
+
+	// ChannelAcceptor that rejects some open channel requests.
+	acceptor := mockChannelAcceptor{
+		acceptClosure: func(req *chanacceptor.ChannelAcceptRequest) error {
+			// A rejection error without message. Default error message is
+			// expected to be sent in such case.
+			if req.OpenChanMsg.PushAmount < lnwire.NewMSatFromSatoshis(5) {
+				return errors.New("")
+			}
+
+			// A rejection error with custom message. This message is expected
+			// to be sent to the remote node.
+			if req.OpenChanMsg.PushAmount < lnwire.NewMSatFromSatoshis(10) {
+				return errors.New("push amount too small")
+			}
+
+			return nil
+		},
+	}
+
+	// Set the rejecting channel acceptor as the open channel predicate.
+	alice, bob := setupFundingManagers(
+		t, func(cfg *fundingConfig) {
+			cfg.OpenChannelPredicate = acceptor
+		},
+	)
+	defer tearDownFundingManagers(t, alice, bob)
+
+	var initReqs []*openChanReq
+	for _, pushAmt := range []lnwire.MilliSatoshi{
+		lnwire.NewMSatFromSatoshis(1),
+		lnwire.NewMSatFromSatoshis(6),
+		lnwire.NewMSatFromSatoshis(11),
+	} {
+		updateChan := make(chan *lnrpc.OpenStatusUpdate)
+		errChan := make(chan error, 1)
+		initReq := &openChanReq{
+			targetPubkey:    bob.privKey.PubKey(),
+			chainHash:       *activeNetParams.GenesisHash,
+			localFundingAmt: 500000,
+			pushAmt:         pushAmt,
+			private:         true,
+			updates:         updateChan,
+			err:             errChan,
+		}
+		initReqs = append(initReqs, initReq)
+	}
+
+	var rejected []error
+	var accepted []*lnwire.AcceptChannel
+	for i, initReq := range initReqs {
+		// Create a funding request and start the workflow.
+		alice.fundingMgr.initFundingWorkflow(bob, initReq)
+
+		// Alice should have sent the OpenChannel message to Bob.
+		var aliceMsg lnwire.Message
+		select {
+		case aliceMsg = <-alice.msgChan:
+		case err := <-initReq.err:
+			t.Fatalf("error init funding workflow: %v", err)
+		case <-time.After(time.Second * 5):
+			t.Fatalf("alice did not send OpenChannel message")
+		}
+
+		openChannelReq, ok := aliceMsg.(*lnwire.OpenChannel)
+		if !ok {
+			errorMsg, gotError := aliceMsg.(*lnwire.Error)
+			if gotError {
+				t.Fatalf("expected OpenChannel to be sent "+
+					"from bob, instead got error: %v",
+					errorMsg.Error())
+			}
+			t.Fatalf("expected OpenChannel to be sent from "+
+				"alice, instead got %T", aliceMsg)
+		}
+
+		// Let Bob handle the init message.
+		bob.fundingMgr.processFundingOpen(openChannelReq, alice)
+
+		// Assert Bob responded.
+		// First two requests should be rejected.
+		if i < 2 {
+			err := assertFundingMsgSent(t, bob.msgChan, "Error").(*lnwire.Error)
+			rejected = append(rejected, err)
+
+			continue
+		}
+
+		// Last request should be accepted.
+		msg := assertFundingMsgSent(
+			t, bob.msgChan, "AcceptChannel",
+		).(*lnwire.AcceptChannel)
+		accepted = append(accepted, msg)
+	}
+
+	if len(rejected) != 2 {
+		t.Fatalf("expected to get 2 rejects, got %d", len(rejected))
+	}
+
+	if len(accepted) != 1 {
+		t.Fatalf("expected to get 1 request accepted, got %d", len(accepted))
+	}
+
+	// First reject should be the default open channel rejection error.
+	err := rejected[0]
+	if !strings.Contains(err.Error(), "open channel request rejected") {
+		t.Fatalf("expected ErrRejected error, got \"%v\"",
+			err.Error())
+	}
+
+	// Second reject should be a custom open channel rejection error.
+	err = rejected[1]
+	if !strings.Contains(err.Error(), "push amount too small") {
+		t.Fatalf("expected ErrRejectedWithErr error, got \"%v\"",
+			err.Error())
+	}
 }
 
 // TestFundingManagerCustomChannelParameters checks that custom requirements we

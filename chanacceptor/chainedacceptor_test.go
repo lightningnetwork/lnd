@@ -55,14 +55,14 @@ func TestChainedAcceptorRejectingAcceptor(t *testing.T) {
 		nodeA = randKey(t)
 		nodeB = randKey(t)
 
-		firstReq = &ChannelAcceptRequest{
+		reqNodeA = &ChannelAcceptRequest{
 			Node: nodeA,
 			OpenChanMsg: &lnwire.OpenChannel{
 				PendingChannelID: [32]byte{0},
 			},
 		}
 
-		secondReq = &ChannelAcceptRequest{
+		reqNodeB = &ChannelAcceptRequest{
 			Node: nodeB,
 			OpenChanMsg: &lnwire.OpenChannel{
 				PendingChannelID: [32]byte{1},
@@ -72,52 +72,128 @@ func TestChainedAcceptorRejectingAcceptor(t *testing.T) {
 
 	allowingAcceptor := customAcceptor{}
 	rejectingAcceptor := unwantedNodeRejector{nodeB}
-	rejectingAcceptor2 := unwantedChannelRejector{firstReq.OpenChanMsg.PendingChannelID}
+	rejectingAcceptor2 := unwantedChannelRejector{reqNodeA.OpenChanMsg.PendingChannelID}
 
 	tests := []struct {
+		name      string
 		acceptors []ChannelAcceptor
 		request   *ChannelAcceptRequest
 		result    error
 	}{
-		{acceptors: []ChannelAcceptor{allowingAcceptor}, request: firstReq, result: nil},
-		{acceptors: []ChannelAcceptor{allowingAcceptor}, request: secondReq, result: nil},
-		{acceptors: []ChannelAcceptor{rejectingAcceptor}, request: firstReq, result: nil},
-		{acceptors: []ChannelAcceptor{rejectingAcceptor}, request: secondReq, result: errUnwantedNode},
-		{acceptors: []ChannelAcceptor{rejectingAcceptor2}, request: firstReq, result: errUnwantedChannel},
-		{acceptors: []ChannelAcceptor{rejectingAcceptor2}, request: secondReq, result: nil},
+		// Channel acceptor accepts all channels. Open channel request from
+		// NodeA is accepted.
 		{
+			name:      "success allow all nodeA",
+			acceptors: []ChannelAcceptor{allowingAcceptor},
+			request:   reqNodeA,
+			result:    nil,
+		},
+
+		// Channel acceptor accepts all channels. Open channel request from
+		// NodeB is accepted.
+		{
+			name:      "success allow all nodeB",
+			acceptors: []ChannelAcceptor{allowingAcceptor},
+			request:   reqNodeB,
+			result:    nil,
+		},
+
+		// Channel acceptor rejects node by node ID. Open channel request from
+		// NodeA is accepted.
+		{
+			name:      "success don't reject nodeA",
+			acceptors: []ChannelAcceptor{rejectingAcceptor},
+			request:   reqNodeA,
+			result:    nil,
+		},
+
+		// Channel acceptor rejects node by node ID. Open channel request from
+		// NodeB is rejected.
+		{
+			name:      "error reject unwanted node nodeB",
+			acceptors: []ChannelAcceptor{rejectingAcceptor},
+			request:   reqNodeB,
+			result:    errUnwantedNode,
+		},
+
+		// Channel acceptor rejects channel by ID. Open channel request from
+		// NodeA is rejected.
+		{
+			name:      "error reject unwanted channel nodeA",
+			acceptors: []ChannelAcceptor{rejectingAcceptor2},
+			request:   reqNodeA,
+			result:    errUnwantedChannel,
+		},
+
+		// Channel acceptor rejects channel by ID. Open channel request from
+		// NodeB is accepted.
+		{
+			name:      "success don't reject nodeB",
+			acceptors: []ChannelAcceptor{rejectingAcceptor2},
+			request:   reqNodeB,
+			result:    nil,
+		},
+
+		// Multiple channel acceptors. First one allows all requests, second one
+		// rejects by node ID but allows nodeA.
+		{
+			name: "success allow+reject nodeA",
 			acceptors: []ChannelAcceptor{
 				allowingAcceptor,
 				rejectingAcceptor,
 			},
-			request: firstReq,
-			result:  nil},
+			request: reqNodeA,
+			result:  nil,
+		},
+
+		// Multiple channel acceptors. First one allows all requests, second one
+		// rejects by node ID and rejects nodeB.
 		{
+			name: "error allow+reject nodeB",
 			acceptors: []ChannelAcceptor{
 				allowingAcceptor,
 				rejectingAcceptor,
 			},
-			request: secondReq,
-			result:  errUnwantedNode},
+			request: reqNodeB,
+			result:  errUnwantedNode,
+		},
+
+		// Multiple channel acceptors:
+		// 1. Allows all requests.
+		// 2. Rejects requests by node ID.
+		// 3. Rejects requests by channel ID.
+		// Request from nodeB is rejected.
 		{
+			name: "error allow+reject+reject nodeB",
 			acceptors: []ChannelAcceptor{
 				allowingAcceptor,
 				rejectingAcceptor,
 				rejectingAcceptor2,
 			},
-			request: secondReq,
-			result:  errUnwantedNode},
+			request: reqNodeB,
+			result:  errUnwantedNode,
+		},
+
+		// Multiple channel acceptors:
+		// 1. Allows all requests.
+		// 2. Rejects requests by node ID.
+		// 3. Rejects requests by channel ID.
+		// Request from nodeA is rejected.
 		{
+			name: "error allow+reject+reject nodeA",
 			acceptors: []ChannelAcceptor{
 				allowingAcceptor,
 				rejectingAcceptor2,
 				rejectingAcceptor,
 			},
-			request: firstReq,
-			result:  errUnwantedChannel},
+			request: reqNodeA,
+			result:  errUnwantedChannel,
+		},
 	}
 
 	for _, test := range tests {
+		t.Logf("Running test case: %v", test.name)
+
 		chainedAcceptor := NewChainedAcceptor()
 
 		for _, acceptor := range test.acceptors {

@@ -829,10 +829,6 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		return nil, err
 	}
 
-	if updateSubscribers {
-		i.notifyClients(ctx.hash, invoice, invoice.State)
-	}
-
 	switch res := resolution.(type) {
 	case *HtlcFailResolution:
 		// Inspect latest htlc state on the invoice. If it is found,
@@ -850,8 +846,6 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		ctx.log(fmt.Sprintf("failure resolution result "+
 			"outcome: %v, at accept height: %v",
 			res.Outcome, res.AcceptHeight))
-
-		return res, nil
 
 	// If the htlc was settled, we will settle any previously accepted
 	// htlcs and notify our peer to settle them.
@@ -883,8 +877,6 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 			i.notifyHodlSubscribers(htlcSettleResolution)
 		}
 
-		return resolution, nil
-
 	// If we accepted the htlc, subscribe to the hodl invoice and return
 	// an accept resolution with the htlc's accept time on it.
 	case *htlcAcceptResolution:
@@ -915,11 +907,19 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		}
 
 		i.hodlSubscribe(hodlChan, ctx.circuitKey)
-		return res, nil
 
 	default:
 		panic("unknown action")
 	}
+
+	// Now that the links have been notified of any state changes to their
+	// HTLCs, we'll go ahead and notify any clients wiaiting on the invoice
+	// state changes.
+	if updateSubscribers {
+		i.notifyClients(ctx.hash, invoice, invoice.State)
+	}
+
+	return resolution, nil
 }
 
 // SettleHodlInvoice sets the preimage of a hodl invoice.

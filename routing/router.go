@@ -1625,9 +1625,9 @@ type LightningPayment struct {
 	// fail.
 	DestCustomRecords record.CustomSet
 
-	// MaxShards is the maximum number of partial payments that may be used
+	// MaxParts is the maximum number of partial payments that may be used
 	// to complete the full amount.
-	MaxShards uint32
+	MaxParts uint32
 }
 
 // SendPayment attempts to send a payment as described within the passed

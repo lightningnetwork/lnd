@@ -119,7 +119,7 @@ message SendPaymentRequest {
     The maximum number of partial payments that may be use to complete the full
     amount.
     */
-    uint32 max_shards = 17;
+    uint32 max_parts = 17;
 
     /**
     If set, only the final payment update is streamed back. Intermediate updates

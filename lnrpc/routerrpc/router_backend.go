@@ -549,11 +549,11 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 
 	// Take max htlcs from the request. Map zero to one for backwards
 	// compatibility.
-	maxShards := rpcPayReq.MaxShards
-	if maxShards == 0 {
-		maxShards = 1
+	maxParts := rpcPayReq.MaxParts
+	if maxParts == 0 {
+		maxParts = 1
 	}
-	payIntent.MaxShards = maxShards
+	payIntent.MaxParts = maxParts
 
 	// Take fee limit from request.
 	payIntent.FeeLimit, err = lnrpc.UnmarshallAmt(

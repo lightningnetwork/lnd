@@ -88,7 +88,7 @@ func (h htlcAttempt) String() string {
 
 // testPayment launches a test payment and asserts that it is completed after
 // the expected number of attempts.
-func (c *integratedRoutingContext) testPayment(maxShards uint32) ([]htlcAttempt,
+func (c *integratedRoutingContext) testPayment(maxParts uint32) ([]htlcAttempt,
 	error) {
 
 	var (
@@ -137,7 +137,7 @@ func (c *integratedRoutingContext) testPayment(maxShards uint32) ([]htlcAttempt,
 		DestFeatures:   lnwire.NewFeatureVector(mppFeatures, nil),
 		Amount:         c.amt,
 		CltvLimit:      math.MaxUint32,
-		MaxShards:      maxShards,
+		MaxParts:       maxParts,
 	}
 
 	session, err := newPaymentSession(

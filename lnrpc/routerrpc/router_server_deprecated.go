@@ -84,7 +84,7 @@ func (s *Server) TrackPayment(request *TrackPaymentRequest,
 func (s *Server) SendPayment(request *SendPaymentRequest,
 	stream Router_SendPaymentServer) error {
 
-	if request.MaxShards > 1 {
+	if request.MaxParts > 1 {
 		return errors.New("for multi-part payments, use SendPaymentV2")
 	}
 

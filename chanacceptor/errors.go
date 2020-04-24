@@ -20,16 +20,16 @@ var _ error = (*AcceptanceError)(nil)
 // ErrRejected returns a general open channel error. It is sent to a remote node
 // when a custom ChannelAcceptor rejected an open channel request and didn't
 // specify any rejection message.
-func ErrRejected() *AcceptanceError {
-	return &AcceptanceError{
+func ErrRejected() AcceptanceError {
+	return AcceptanceError{
 		errors.New("open channel request rejected"),
 	}
 }
 
 // ErrRejectedWithMsg returns a custom open channel error. It is used by the
 // funding manager to wrap and send rejection error messages to remote nodes.
-func ErrRejectedWithMsg(rejectionMsg string) *AcceptanceError {
-	return &AcceptanceError{
+func ErrRejectedWithMsg(rejectionMsg string) AcceptanceError {
+	return AcceptanceError{
 		errors.New(rejectionMsg),
 	}
 }

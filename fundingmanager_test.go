@@ -2506,7 +2506,7 @@ func TestFundingManagerCustomChannelAcceptor(t *testing.T) {
 
 	// Second reject should be a custom open channel rejection error.
 	err = rejected[1]
-	if !strings.Contains(err.Error(), "push amount too small") {
+	if !strings.Contains(err.Error(), "open channel request rejected: push amount too small") {
 		t.Fatalf("expected ErrRejectedWithErr error, got \"%v\"",
 			err.Error())
 	}

@@ -2,6 +2,7 @@ package chanacceptor
 
 import (
 	"errors"
+	"fmt"
 )
 
 // AcceptanceError wraps errors returned by ChannelAcceptor's Accept method.
@@ -30,6 +31,6 @@ func ErrRejected() AcceptanceError {
 // funding manager to wrap and send rejection error messages to remote nodes.
 func ErrRejectedWithMsg(rejectionMsg string) AcceptanceError {
 	return AcceptanceError{
-		errors.New(rejectionMsg),
+		fmt.Errorf("open channel request rejected: %s", rejectionMsg),
 	}
 }

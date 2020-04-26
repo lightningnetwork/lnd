@@ -272,14 +272,16 @@ func main() {
 			Usage: "The host:port of LN daemon.",
 		},
 		cli.StringFlag{
-			Name:  "lnddir",
-			Value: defaultLndDir,
-			Usage: "The path to lnd's base directory.",
+			Name:      "lnddir",
+			Value:     defaultLndDir,
+			Usage:     "The path to lnd's base directory.",
+			TakesFile: true,
 		},
 		cli.StringFlag{
-			Name:  "tlscertpath",
-			Value: defaultTLSCertPath,
-			Usage: "The path to lnd's TLS certificate.",
+			Name:      "tlscertpath",
+			Value:     defaultTLSCertPath,
+			Usage:     "The path to lnd's TLS certificate.",
+			TakesFile: true,
 		},
 		cli.StringFlag{
 			Name:  "chain, c",
@@ -297,8 +299,9 @@ func main() {
 			Usage: "Disable macaroon authentication.",
 		},
 		cli.StringFlag{
-			Name:  "macaroonpath",
-			Usage: "The path to macaroon file.",
+			Name:      "macaroonpath",
+			Usage:     "The path to macaroon file.",
+			TakesFile: true,
 		},
 		cli.Int64Flag{
 			Name:  "macaroontimeout",

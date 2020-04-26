@@ -34,6 +34,15 @@ about the pending channel. If the remote node is an `lnd` node, we know it's
 after 10 minutes. **So as long as the whole process takes less than 10 minutes,
 everything should work fine.**
 
+### Safety warning
+
+**DO NOT PUBLISH** the finished transaction by yourself or with another tool.
+lnd MUST publish it in the proper funding flow order **OR THE FUNDS CAN BE
+LOST**!
+
+This is very important to remember when using wallets like `Wasabi` for
+instance, where the "publish" button is very easy to hit by accident.
+
 ### 1. Use the new `--psbt` flag in `lncli openchannel`
 
 The new `--psbt` flag in the `openchannel` command starts an interactive dialog
@@ -201,7 +210,15 @@ $ bitcoin-cli walletprocesspsbt cHNidP8BAH0CAAAAAbxLLf9+AYfqfF69QAQuETnL6cas7GDi
 ```
 
 Interpreting the output, we now have a complete, final, and signed transaction
-inside the PSBT. Let's give it to `lncli` to continue:
+inside the PSBT.
+
+**!!! WARNING !!!**
+
+**DO NOT PUBLISH** the finished transaction by yourself or with another tool.
+lnd MUST publish it in the proper funding flow order **OR THE FUNDS CAN BE
+LOST**!
+
+Let's give it to `lncli` to continue:
 
 ```bash
 ...

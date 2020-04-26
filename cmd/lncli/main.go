@@ -390,6 +390,7 @@ func main() {
 		deletePaymentsCommand,
 		sendCustomCommand,
 		subscribeCustomCommand,
+		fishCompletionCommand,
 	}
 
 	// Add any extra commands determined by build flags.

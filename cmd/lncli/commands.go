@@ -2127,6 +2127,22 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	return nil
 }
 
+var fishCompletionCommand = cli.Command{
+	Name:   "fish-completion",
+	Hidden: true,
+	Action: func(c *cli.Context) error {
+		completion, err := c.App.ToFishCompletion()
+		if err != nil {
+			return err
+		}
+
+		// We don't want to suggest files, so we add this
+		// first line to the completions.
+		_, err = fmt.Printf("complete -c %q -f \n%s", c.App.Name, completion)
+		return err
+	},
+}
+
 var exportChanBackupCommand = cli.Command{
 	Name:     "exportchanbackup",
 	Category: "Channels",

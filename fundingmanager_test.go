@@ -2410,6 +2410,12 @@ func TestFundingManagerCustomChannelAcceptor(t *testing.T) {
 				return errors.New("push amount too small")
 			}
 
+			// A rejection error with long custom message. The trimmed version
+			// of this message is expected to be sent to the remote node.
+			if req.OpenChanMsg.PushAmount < lnwire.NewMSatFromSatoshis(20) {
+				return errors.New(strings.Repeat("a", 65534))
+			}
+
 			return nil
 		},
 	}
@@ -2427,6 +2433,7 @@ func TestFundingManagerCustomChannelAcceptor(t *testing.T) {
 		lnwire.NewMSatFromSatoshis(1),
 		lnwire.NewMSatFromSatoshis(6),
 		lnwire.NewMSatFromSatoshis(11),
+		lnwire.NewMSatFromSatoshis(21),
 	} {
 		updateChan := make(chan *lnrpc.OpenStatusUpdate)
 		errChan := make(chan error, 1)
@@ -2474,8 +2481,8 @@ func TestFundingManagerCustomChannelAcceptor(t *testing.T) {
 		bob.fundingMgr.processFundingOpen(openChannelReq, alice)
 
 		// Assert Bob responded.
-		// First two requests should be rejected.
-		if i < 2 {
+		// First three requests should be rejected.
+		if i < 3 {
 			err := assertFundingMsgSent(t, bob.msgChan, "Error").(*lnwire.Error)
 			rejected = append(rejected, err)
 
@@ -2489,8 +2496,8 @@ func TestFundingManagerCustomChannelAcceptor(t *testing.T) {
 		accepted = append(accepted, msg)
 	}
 
-	if len(rejected) != 2 {
-		t.Fatalf("expected to get 2 rejects, got %d", len(rejected))
+	if len(rejected) != 3 {
+		t.Fatalf("expected to get 3 rejects, got %d", len(rejected))
 	}
 
 	if len(accepted) != 1 {
@@ -2499,14 +2506,25 @@ func TestFundingManagerCustomChannelAcceptor(t *testing.T) {
 
 	// First reject should be the default open channel rejection error.
 	err := rejected[0]
-	if !strings.Contains(err.Error(), "open channel request rejected") {
+	if !strings.HasSuffix(err.Error(), "open channel request rejected") {
 		t.Fatalf("expected ErrRejected error, got \"%v\"",
 			err.Error())
 	}
 
 	// Second reject should be a custom open channel rejection error.
 	err = rejected[1]
-	if !strings.Contains(err.Error(), "open channel request rejected: push amount too small") {
+	if !strings.HasSuffix(
+		err.Error(), "open channel request rejected: push amount too small") {
+		t.Fatalf("expected ErrRejectedWithErr error, got \"%v\"",
+			err.Error())
+	}
+
+	// Third reject should be a trimmed open channel rejection error.
+	err = rejected[2]
+	if !strings.HasSuffix(
+		err.Error(),
+		"open channel request rejected: "+strings.Repeat("a", 128)+"...") {
+
 		t.Fatalf("expected ErrRejectedWithErr error, got \"%v\"",
 			err.Error())
 	}

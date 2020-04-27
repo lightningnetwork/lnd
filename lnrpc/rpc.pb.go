@@ -1559,9 +1559,9 @@ type ChannelAcceptResponse struct {
 	Accept bool `protobuf:"varint,1,opt,name=accept,proto3" json:"accept,omitempty"`
 	// The pending channel id to which this response applies.
 	PendingChanId []byte `protobuf:"bytes,2,opt,name=pending_chan_id,json=pendingChanId,proto3" json:"pending_chan_id,omitempty"`
-	// The message explaining why the channel was rejected. NOTE: this message
-	// will be sent to the remote peer, ensure it doesn't contain sensitive
-	// information.
+	// The message explaining why the channel was rejected. NOTE: first 128
+	// bytes of the message will be sent to the remote peer, ensure they don't
+	// contain sensitive information.
 	RejectionReason      string   `protobuf:"bytes,3,opt,name=rejection_reason,json=rejectionReason,proto3" json:"rejection_reason,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`

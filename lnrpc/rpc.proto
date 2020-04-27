@@ -750,6 +750,11 @@ message ChannelAcceptResponse {
 
     // The pending channel id to which this response applies.
     bytes pending_chan_id = 2;
+
+    // The message explaining why the channel was rejected. NOTE: this message
+    // will be sent to the remote peer, ensure it doesn't contain sensitive
+    // information.
+    string rejection_reason = 3;
 }
 
 message ChannelPoint {

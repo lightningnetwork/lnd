@@ -110,7 +110,8 @@ func TestRPCMultipleAcceptClients(t *testing.T) {
 			pendingID := req.OpenChanMsg.PendingChannelID
 			if !bytes.Equal(pendingID[:], resp.PendingChanId) {
 				errChan <- struct{}{}
-				return errors.New("PendingCanId doesn't match the ID in ChannelAcceptRequest")
+				return errors.New("PendingChanId doesn't match the ID in " +
+					"ChannelAcceptRequest")
 			}
 
 			if !resp.Accept {
@@ -143,14 +144,14 @@ func TestRPCMultipleAcceptClients(t *testing.T) {
 
 	for {
 		select {
-		case newRequest := <-requests:
+		case newReq := <-requests:
 			newResponse := lnrpc.ChannelAcceptResponse{
 				Accept:          true,
-				PendingChanId:   newRequest.chanReq.OpenChanMsg.PendingChannelID[:],
+				PendingChanId:   newReq.chanReq.OpenChanMsg.PendingChannelID[:],
 				RejectionReason: "",
 			}
 
-			newRequest.responseChan <- newResponse
+			newReq.responseChan <- newResponse
 		case <-errChan:
 			t.Fatalf("unable to accept ChannelAcceptRequest")
 		case <-successChan:

@@ -47,9 +47,9 @@ func (a customAcceptor) Accept(req *ChannelAcceptRequest) error {
 }
 
 // TestChainedAcceptorRejectingAcceptor tests that ChainedAcceptor containing
-// an acceptor that rejects a ChannelAcceptRequest returns an error. If there are
-// multiple acceptors that would reject a request, the error returned by first
-// of them will be returned.
+// an acceptor that rejects a ChannelAcceptRequest returns an error. If there
+// are multiple acceptors that would reject a request, the error returned by
+// first of them will be returned.
 func TestChainedAcceptorRejectingAcceptor(t *testing.T) {
 	var (
 		nodeA = randKey(t)
@@ -72,7 +72,8 @@ func TestChainedAcceptorRejectingAcceptor(t *testing.T) {
 
 	allowingAcceptor := customAcceptor{}
 	rejectingAcceptor := unwantedNodeRejector{nodeB}
-	rejectingAcceptor2 := unwantedChannelRejector{reqNodeA.OpenChanMsg.PendingChannelID}
+	rejectingAcceptor2 := unwantedChannelRejector{
+		reqNodeA.OpenChanMsg.PendingChannelID}
 
 	tests := []struct {
 		name      string
@@ -202,7 +203,9 @@ func TestChainedAcceptorRejectingAcceptor(t *testing.T) {
 
 		got := chainedAcceptor.Accept(test.request)
 		if got != test.result {
-			t.Errorf("expected chainAcceptor.Accept to return: %v, got: %v", test.result, got)
+			t.Errorf(
+				"expected chainAcceptor.Accept to return: %v, got: %v",
+				test.result, got)
 		}
 	}
 }

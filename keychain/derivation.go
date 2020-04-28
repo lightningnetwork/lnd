@@ -186,16 +186,6 @@ type SecretKeyRing interface {
 	// MaxKeyRangeScan keys. In order for this to work, the caller MUST set
 	// the KeyFamily within the partially populated KeyLocator.
 	DerivePrivKey(keyDesc KeyDescriptor) (*btcec.PrivateKey, error)
-
-	// ScalarMult performs a scalar multiplication (ECDH-like operation)
-	// between the target key descriptor and remote public key. The output
-	// returned will be the sha256 of the resulting shared point serialized
-	// in compressed format. If k is our private key, and P is the public
-	// key, we perform the following operation:
-	//
-	//  sx := k*P
-	//  s := sha256(sx.SerializeCompressed())
-	ScalarMult(keyDesc KeyDescriptor, pubKey *btcec.PublicKey) ([]byte, error)
 }
 
 // DigestSignerRing is an interface that abstracts away basic low-level ECDSA

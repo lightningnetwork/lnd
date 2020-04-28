@@ -27,7 +27,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/wallet"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
@@ -471,19 +470,6 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	cfg.registeredChains.RegisterChain(primaryChain, activeChainControl)
 
 	// TODO(roasbeef): add rotation
-	idPrivKey, err := activeChainControl.wallet.DerivePrivKey(keychain.KeyDescriptor{
-		KeyLocator: keychain.KeyLocator{
-			Family: keychain.KeyFamilyNodeKey,
-			Index:  0,
-		},
-	})
-	if err != nil {
-		err := fmt.Errorf("unable to derive node private key: %v", err)
-		ltndLog.Error(err)
-		return err
-	}
-	idPrivKey.Curve = btcec.S256()
-
 	idKeyDesc, err := activeChainControl.keyRing.DeriveKey(
 		keychain.KeyLocator{
 			Family: keychain.KeyFamilyNodeKey,
@@ -623,7 +609,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	// connections.
 	server, err := newServer(
 		cfg, cfg.Listeners, chanDB, towerClientDB, activeChainControl,
-		idPrivKey, &idKeyDesc, walletInitParams.ChansToRestore, chainedAcceptor,
+		&idKeyDesc, walletInitParams.ChansToRestore, chainedAcceptor,
 		torController,
 	)
 	if err != nil {

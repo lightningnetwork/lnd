@@ -325,7 +325,7 @@ func noiseDial(idKey keychain.SingleKeyECDH,
 // passed listener address.
 func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 	towerClientDB *wtdb.ClientDB, cc *chainControl,
-	privKey *btcec.PrivateKey, nodeKeyDesc *keychain.KeyDescriptor,
+	nodeKeyDesc *keychain.KeyDescriptor,
 	chansToRestore walletunlocker.ChannelsToRecover,
 	chanPredicate chanacceptor.ChannelAcceptor,
 	torController *tor.Controller) (*server, error) {

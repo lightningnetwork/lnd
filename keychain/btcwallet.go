@@ -347,33 +347,6 @@ func (b *BtcWalletKeyRing) DerivePrivKey(keyDesc KeyDescriptor) (
 	return key, nil
 }
 
-// ScalarMult performs a scalar multiplication (ECDH-like operation) between
-// the target key descriptor and remote public key. The output returned will be
-// the sha256 of the resulting shared point serialized in compressed format. If
-// k is our private key, and P is the public key, we perform the following
-// operation:
-//
-//  sx := k*P s := sha256(sx.SerializeCompressed())
-//
-// NOTE: This is part of the keychain.SecretKeyRing interface.
-func (b *BtcWalletKeyRing) ScalarMult(keyDesc KeyDescriptor,
-	pub *btcec.PublicKey) ([]byte, error) {
-
-	privKey, err := b.DerivePrivKey(keyDesc)
-	if err != nil {
-		return nil, err
-	}
-
-	s := &btcec.PublicKey{}
-	x, y := btcec.S256().ScalarMult(pub.X, pub.Y, privKey.D.Bytes())
-	s.X = x
-	s.Y = y
-
-	h := sha256.Sum256(s.SerializeCompressed())
-
-	return h[:], nil
-}
-
 // ECDH performs a scalar multiplication (ECDH-like operation) between the
 // target key descriptor and remote public key. The output returned will be
 // the sha256 of the resulting shared point serialized in compressed format. If

@@ -416,7 +416,7 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		DB:           serverDB,
 		ReadTimeout:  timeout,
 		WriteTimeout: timeout,
-		NodePrivKey:  privKey,
+		NodeKeyECDH:  privKey,
 		NewAddress: func() (btcutil.Address, error) {
 			return addr, nil
 		},
@@ -519,7 +519,7 @@ func (h *testHarness) startClient() {
 		h.t.Fatalf("Unable to resolve tower TCP addr: %v", err)
 	}
 	towerAddr := &lnwire.NetAddress{
-		IdentityKey: h.serverCfg.NodePrivKey.PubKey(),
+		IdentityKey: h.serverCfg.NodeKeyECDH.PubKey(),
 		Address:     towerTCPAddr,
 	}
 

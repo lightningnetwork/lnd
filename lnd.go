@@ -570,7 +570,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 					lnwallet.WitnessPubKey, false,
 				)
 			},
-			NodePrivKey: towerPrivKey,
+			NodeKeyECDH: towerPrivKey,
 			PublishTx:   activeChainControl.wallet.PublishTransaction,
 			ChainHash:   *activeNetParams.GenesisHash,
 		}

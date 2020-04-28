@@ -33,9 +33,9 @@ type Config struct {
 	// storing state updates.
 	DB DB
 
-	// NodePrivKey is private key to be used in accepting new brontide
-	// connections.
-	NodePrivKey *btcec.PrivateKey
+	// NodeKeyECDH is the the ECDH capable wrapper of the key to be used in
+	// accepting new brontide connections.
+	NodeKeyECDH *btcec.PrivateKey
 
 	// Listeners specifies which address to which clients may connect.
 	Listeners []net.Listener

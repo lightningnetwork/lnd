@@ -63,9 +63,9 @@ type Config struct {
 	// successfully sent funds can be received.
 	NewAddress func() (btcutil.Address, error)
 
-	// NodePrivKey is private key to be used in accepting new brontide
-	// connections.
-	NodePrivKey *btcec.PrivateKey
+	// NodeKeyECDH is the ECDH capable wrapper of the key to be used in
+	// accepting new brontide connections.
+	NodeKeyECDH *btcec.PrivateKey
 
 	// PublishTx provides the ability to send a signed transaction to the
 	// network.

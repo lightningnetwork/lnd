@@ -557,17 +557,14 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		}
 		defer towerDB.Close()
 
-		towerPrivKey, err := activeChainControl.wallet.DerivePrivKey(
-			keychain.KeyDescriptor{
-				KeyLocator: keychain.KeyLocator{
-					Family: keychain.KeyFamilyTowerID,
-					Index:  0,
-				},
+		towerKeyDesc, err := activeChainControl.keyRing.DeriveKey(
+			keychain.KeyLocator{
+				Family: keychain.KeyFamilyTowerID,
+				Index:  0,
 			},
 		)
 		if err != nil {
-			err := fmt.Errorf("unable to derive watchtower "+
-				"private key: %v", err)
+			err := fmt.Errorf("error deriving tower key: %v", err)
 			ltndLog.Error(err)
 			return err
 		}
@@ -582,9 +579,11 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 					lnwallet.WitnessPubKey, false,
 				)
 			},
-			NodeKeyECDH: towerPrivKey,
-			PublishTx:   activeChainControl.wallet.PublishTransaction,
-			ChainHash:   *activeNetParams.GenesisHash,
+			NodeKeyECDH: keychain.NewPubKeyECDH(
+				towerKeyDesc, activeChainControl.keyRing,
+			),
+			PublishTx: activeChainControl.wallet.PublishTransaction,
+			ChainHash: *activeNetParams.GenesisHash,
 		}
 
 		// If there is a tor controller (user wants auto hidden services), then

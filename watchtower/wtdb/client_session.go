@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
@@ -65,7 +65,7 @@ type ClientSession struct {
 	//
 	// NOTE: This value is not serialized. It is derived using the KeyIndex
 	// on startup to avoid storing private keys on disk.
-	SessionKeyECDH *btcec.PrivateKey
+	SessionKeyECDH keychain.SingleKeyECDH
 }
 
 // ClientSessionBody represents the primary components of a ClientSession that

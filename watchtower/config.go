@@ -5,10 +5,10 @@ import (
 	"net"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/watchtower/lookout"
 )
@@ -65,7 +65,7 @@ type Config struct {
 
 	// NodeKeyECDH is the ECDH capable wrapper of the key to be used in
 	// accepting new brontide connections.
-	NodeKeyECDH *btcec.PrivateKey
+	NodeKeyECDH keychain.SingleKeyECDH
 
 	// PublishTx provides the ability to send a signed transaction to the
 	// network.

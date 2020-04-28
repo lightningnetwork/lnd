@@ -72,7 +72,7 @@ func New(cfg *Config) (*Standalone, error) {
 	listeners := make([]net.Listener, 0, len(cfg.ListenAddrs))
 	for _, listenAddr := range cfg.ListenAddrs {
 		listener, err := brontide.NewListener(
-			cfg.NodeKeyECDH, listenAddr.String(),
+			nil/*TODO fix in next commit*/, listenAddr.String(),
 		)
 		if err != nil {
 			return nil, err

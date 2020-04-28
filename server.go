@@ -138,7 +138,7 @@ type server struct {
 
 	// identityECDH is an ECDH capable wrapper for the private key used
 	// to authenticate any incoming connections.
-	identityECDH *btcec.PrivateKey
+	identityECDH keychain.SingleKeyECDH
 
 	// nodeSigner is an implementation of the MessageSigner implementation
 	// that's backed by the identity private key of the running lnd node.
@@ -312,12 +312,12 @@ func parseAddr(address string, netCfg tor.Net) (net.Addr, error) {
 
 // noiseDial is a factory function which creates a connmgr compliant dialing
 // function by returning a closure which includes the server's identity key.
-func noiseDial(idPriv *btcec.PrivateKey,
+func noiseDial(idKey keychain.SingleKeyECDH,
 	netCfg tor.Net) func(net.Addr) (net.Conn, error) {
 
 	return func(a net.Addr) (net.Conn, error) {
 		lnAddr := a.(*lnwire.NetAddress)
-		return brontide.Dial(idPriv, lnAddr, netCfg.Dial)
+		return brontide.Dial(idKey, lnAddr, netCfg.Dial)
 	}
 }
 
@@ -344,7 +344,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		// doesn't need to call the general lndResolveTCP function
 		// since we are resolving a local address.
 		listeners[i], err = brontide.NewListener(
-			privKey, listenAddr.String(),
+			nodeKeyECDH, listenAddr.String(),
 		)
 		if err != nil {
 			return nil, err
@@ -373,7 +373,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 	}
 
 	var serializedPubKey [33]byte
-	copy(serializedPubKey[:], privKey.PubKey().SerializeCompressed())
+	copy(serializedPubKey[:], nodeKeyECDH.PubKey().SerializeCompressed())
 
 	// Initialize the sphinx router, placing it's persistent replay log in
 	// the same directory as the channel graph database.
@@ -434,7 +434,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 
 		channelNotifier: channelnotifier.New(chanDB),
 
-		identityECDH: privKey,
+		identityECDH: nodeKeyECDH,
 		nodeSigner:   netann.NewNodeSigner(nodeKeySigner),
 
 		listenAddrs: listenAddrs,
@@ -521,7 +521,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		ChanStatusSampleInterval: cfg.ChanStatusSampleInterval,
 		ChanEnableTimeout:        cfg.ChanEnableTimeout,
 		ChanDisableTimeout:       cfg.ChanDisableTimeout,
-		OurPubKey:                privKey.PubKey(),
+		OurPubKey:                nodeKeyECDH.PubKey(),
 		MessageSigner:            s.nodeSigner,
 		IsChannelActive:          s.htlcSwitch.HasActiveLink,
 		ApplyChannelUpdate:       s.applyChannelUpdate,
@@ -647,7 +647,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		Features:             s.featureMgr.Get(feature.SetNodeAnn),
 		Color:                color,
 	}
-	copy(selfNode.PubKeyBytes[:], privKey.PubKey().SerializeCompressed())
+	copy(selfNode.PubKeyBytes[:], nodeKeyECDH.PubKey().SerializeCompressed())
 
 	// Based on the disk representation of the node announcement generated
 	// above, we'll generate a node announcement that can go out on the
@@ -989,7 +989,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 	}
 
 	s.fundingMgr, err = newFundingManager(fundingConfig{
-		IDKey:              privKey.PubKey(),
+		IDKey:              nodeKeyECDH.PubKey(),
 		Wallet:             cc.wallet,
 		PublishTransaction: cc.wallet.PublishTransaction,
 		Notifier:           cc.chainNotifier,
@@ -997,7 +997,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		SignMessage: func(pubKey *btcec.PublicKey,
 			msg []byte) (input.Signature, error) {
 
-			if pubKey.IsEqual(privKey.PubKey()) {
+			if pubKey.IsEqual(nodeKeyECDH.PubKey()) {
 				return s.nodeSigner.SignMessage(pubKey, msg)
 			}
 
@@ -1010,7 +1010,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 			optionalFields ...discovery.OptionalMsgField) chan error {
 
 			return s.authGossiper.ProcessLocalAnnouncement(
-				msg, privKey.PubKey(), optionalFields...,
+				msg, nodeKeyECDH.PubKey(), optionalFields...,
 			)
 		},
 		NotifyWhenOnline: s.NotifyWhenOnline,

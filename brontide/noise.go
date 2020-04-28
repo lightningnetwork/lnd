@@ -14,6 +14,7 @@ import (
 	"golang.org/x/crypto/hkdf"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/lightningnetwork/lnd/keychain"
 )
 
 const (
@@ -71,14 +72,9 @@ var (
 
 // ecdh performs an ECDH operation between pub and priv. The returned value is
 // the sha256 of the compressed shared point.
-func ecdh(pub *btcec.PublicKey, priv *btcec.PrivateKey) []byte {
-	s := &btcec.PublicKey{}
-	x, y := btcec.S256().ScalarMult(pub.X, pub.Y, priv.D.Bytes())
-	s.X = x
-	s.Y = y
-
-	h := sha256.Sum256(s.SerializeCompressed())
-	return h[:]
+func ecdh(pub *btcec.PublicKey, priv keychain.SingleKeyECDH) ([]byte, error) {
+	hash, err := priv.ECDH(pub)
+	return hash[:], err
 }
 
 // cipherState encapsulates the state for the AEAD which will be used to
@@ -289,8 +285,8 @@ type handshakeState struct {
 
 	initiator bool
 
-	localStatic    *btcec.PrivateKey
-	localEphemeral *btcec.PrivateKey
+	localStatic    keychain.SingleKeyECDH
+	localEphemeral keychain.SingleKeyECDH // nolint (false positive)
 
 	remoteStatic    *btcec.PublicKey
 	remoteEphemeral *btcec.PublicKey
@@ -300,11 +296,12 @@ type handshakeState struct {
 // with the prologue and protocol name. If this is the responder's handshake
 // state, then the remotePub can be nil.
 func newHandshakeState(initiator bool, prologue []byte,
-	localPub *btcec.PrivateKey, remotePub *btcec.PublicKey) handshakeState {
+	localKey keychain.SingleKeyECDH,
+	remotePub *btcec.PublicKey) handshakeState {
 
 	h := handshakeState{
 		initiator:    initiator,
-		localStatic:  localPub,
+		localStatic:  localKey,
 		remoteStatic: remotePub,
 	}
 
@@ -322,7 +319,7 @@ func newHandshakeState(initiator bool, prologue []byte,
 	if initiator {
 		h.mixHash(remotePub.SerializeCompressed())
 	} else {
-		h.mixHash(localPub.PubKey().SerializeCompressed())
+		h.mixHash(localKey.PubKey().SerializeCompressed())
 	}
 
 	return h
@@ -393,11 +390,11 @@ type Machine struct {
 // string "lightning" as the prologue. The last parameter is a set of variadic
 // arguments for adding additional options to the brontide Machine
 // initialization.
-func NewBrontideMachine(initiator bool, localPub *btcec.PrivateKey,
+func NewBrontideMachine(initiator bool, localKey keychain.SingleKeyECDH,
 	remotePub *btcec.PublicKey, options ...func(*Machine)) *Machine {
 
 	handshake := newHandshakeState(
-		initiator, lightningPrologue, localPub, remotePub,
+		initiator, lightningPrologue, localKey, remotePub,
 	)
 
 	m := &Machine{
@@ -451,22 +448,25 @@ const (
 //
 //    -> e, es
 func (b *Machine) GenActOne() ([ActOneSize]byte, error) {
-	var (
-		err    error
-		actOne [ActOneSize]byte
-	)
+	var actOne [ActOneSize]byte
 
 	// e
-	b.localEphemeral, err = b.ephemeralGen()
+	localEphemeral, err := b.ephemeralGen()
 	if err != nil {
 		return actOne, err
 	}
+	b.localEphemeral = &keychain.PrivKeyECDH{
+		PrivKey: localEphemeral,
+	}
 
-	ephemeral := b.localEphemeral.PubKey().SerializeCompressed()
+	ephemeral := localEphemeral.PubKey().SerializeCompressed()
 	b.mixHash(ephemeral)
 
 	// es
-	s := ecdh(b.remoteStatic, b.localEphemeral)
+	s, err := ecdh(b.remoteStatic, b.localEphemeral)
+	if err != nil {
+		return actOne, err
+	}
 	b.mixKey(s[:])
 
 	authPayload := b.EncryptAndHash([]byte{})
@@ -508,7 +508,10 @@ func (b *Machine) RecvActOne(actOne [ActOneSize]byte) error {
 	b.mixHash(b.remoteEphemeral.SerializeCompressed())
 
 	// es
-	s := ecdh(b.remoteEphemeral, b.localStatic)
+	s, err := ecdh(b.remoteEphemeral, b.localStatic)
+	if err != nil {
+		return err
+	}
 	b.mixKey(s)
 
 	// If the initiator doesn't know our static key, then this operation
@@ -524,22 +527,25 @@ func (b *Machine) RecvActOne(actOne [ActOneSize]byte) error {
 //
 //    <- e, ee
 func (b *Machine) GenActTwo() ([ActTwoSize]byte, error) {
-	var (
-		err    error
-		actTwo [ActTwoSize]byte
-	)
+	var actTwo [ActTwoSize]byte
 
 	// e
-	b.localEphemeral, err = b.ephemeralGen()
+	localEphemeral, err := b.ephemeralGen()
 	if err != nil {
 		return actTwo, err
 	}
+	b.localEphemeral = &keychain.PrivKeyECDH{
+		PrivKey: localEphemeral,
+	}
 
-	ephemeral := b.localEphemeral.PubKey().SerializeCompressed()
-	b.mixHash(b.localEphemeral.PubKey().SerializeCompressed())
+	ephemeral := localEphemeral.PubKey().SerializeCompressed()
+	b.mixHash(localEphemeral.PubKey().SerializeCompressed())
 
 	// ee
-	s := ecdh(b.remoteEphemeral, b.localEphemeral)
+	s, err := ecdh(b.remoteEphemeral, b.localEphemeral)
+	if err != nil {
+		return actTwo, err
+	}
 	b.mixKey(s)
 
 	authPayload := b.EncryptAndHash([]byte{})
@@ -580,7 +586,10 @@ func (b *Machine) RecvActTwo(actTwo [ActTwoSize]byte) error {
 	b.mixHash(b.remoteEphemeral.SerializeCompressed())
 
 	// ee
-	s := ecdh(b.remoteEphemeral, b.localEphemeral)
+	s, err := ecdh(b.remoteEphemeral, b.localEphemeral)
+	if err != nil {
+		return err
+	}
 	b.mixKey(s)
 
 	_, err = b.DecryptAndHash(p[:])
@@ -600,7 +609,10 @@ func (b *Machine) GenActThree() ([ActThreeSize]byte, error) {
 	ourPubkey := b.localStatic.PubKey().SerializeCompressed()
 	ciphertext := b.EncryptAndHash(ourPubkey)
 
-	s := ecdh(b.remoteEphemeral, b.localStatic)
+	s, err := ecdh(b.remoteEphemeral, b.localStatic)
+	if err != nil {
+		return actThree, err
+	}
 	b.mixKey(s)
 
 	authPayload := b.EncryptAndHash([]byte{})
@@ -649,7 +661,10 @@ func (b *Machine) RecvActThree(actThree [ActThreeSize]byte) error {
 	}
 
 	// se
-	se := ecdh(b.remoteStatic, b.localEphemeral)
+	se, err := ecdh(b.remoteStatic, b.localEphemeral)
+	if err != nil {
+		return err
+	}
 	b.mixKey(se)
 
 	if _, err := b.DecryptAndHash(p[:]); err != nil {
@@ -875,11 +890,11 @@ func (b *Machine) ReadBody(r io.Reader, buf []byte) ([]byte, error) {
 // This allows us to log the Machine object without spammy log messages.
 func (b *Machine) SetCurveToNil() {
 	if b.localStatic != nil {
-		b.localStatic.Curve = nil
+		b.localStatic.PubKey().Curve = nil
 	}
 
 	if b.localEphemeral != nil {
-		b.localEphemeral.Curve = nil
+		b.localEphemeral.PubKey().Curve = nil
 	}
 
 	if b.remoteStatic != nil {

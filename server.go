@@ -41,6 +41,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -324,12 +325,17 @@ func noiseDial(idPriv *btcec.PrivateKey,
 // passed listener address.
 func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 	towerClientDB *wtdb.ClientDB, cc *chainControl,
-	privKey *btcec.PrivateKey,
+	privKey *btcec.PrivateKey, nodeKeyDesc *keychain.KeyDescriptor,
 	chansToRestore walletunlocker.ChannelsToRecover,
 	chanPredicate chanacceptor.ChannelAcceptor,
 	torController *tor.Controller) (*server, error) {
 
-	var err error
+	var (
+		err           error
+		nodeKeySigner = keychain.NewPubKeyDigestSigner(
+			*nodeKeyDesc, cc.keyRing,
+		)
+	)
 
 	listeners := make([]net.Listener, len(listenAddrs))
 	for i, listenAddr := range listenAddrs {
@@ -426,7 +432,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		channelNotifier: channelnotifier.New(chanDB),
 
 		identityECDH: privKey,
-		nodeSigner:   netann.NewNodeSigner(privKey),
+		nodeSigner:   netann.NewNodeSigner(nodeKeySigner),
 
 		listenAddrs: listenAddrs,
 

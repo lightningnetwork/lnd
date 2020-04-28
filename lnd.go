@@ -484,6 +484,18 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	}
 	idPrivKey.Curve = btcec.S256()
 
+	idKeyDesc, err := activeChainControl.keyRing.DeriveKey(
+		keychain.KeyLocator{
+			Family: keychain.KeyFamilyNodeKey,
+			Index:  0,
+		},
+	)
+	if err != nil {
+		err := fmt.Errorf("error deriving node key: %v", err)
+		ltndLog.Error(err)
+		return err
+	}
+
 	if cfg.Tor.Active {
 		srvrLog.Infof("Proxying all network traffic via Tor "+
 			"(stream_isolation=%v)! NOTE: Ensure the backend node "+
@@ -612,7 +624,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	// connections.
 	server, err := newServer(
 		cfg, cfg.Listeners, chanDB, towerClientDB, activeChainControl,
-		idPrivKey, walletInitParams.ChansToRestore, chainedAcceptor,
+		idPrivKey, &idKeyDesc, walletInitParams.ChansToRestore, chainedAcceptor,
 		torController,
 	)
 	if err != nil {

@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
 )
@@ -309,6 +310,7 @@ func newManagerCfg(t *testing.T, numChannels int,
 	if err != nil {
 		t.Fatalf("unable to generate key pair: %v", err)
 	}
+	privKeySigner := &keychain.PrivKeyDigestSigner{PrivKey: privKey}
 
 	graph := newMockGraph(
 		t, numChannels, startEnabled, startEnabled, privKey.PubKey(),
@@ -320,7 +322,7 @@ func newManagerCfg(t *testing.T, numChannels int,
 		ChanEnableTimeout:        500 * time.Millisecond,
 		ChanDisableTimeout:       time.Second,
 		OurPubKey:                privKey.PubKey(),
-		MessageSigner:            netann.NewNodeSigner(privKey),
+		MessageSigner:            netann.NewNodeSigner(privKeySigner),
 		IsChannelActive:          htlcSwitch.HasActiveLink,
 		ApplyChannelUpdate:       graph.ApplyChannelUpdate,
 		DB:                       graph,

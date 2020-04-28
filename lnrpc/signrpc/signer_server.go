@@ -414,24 +414,21 @@ func (s *Server) SignMessage(ctx context.Context,
 		return nil, fmt.Errorf("a key locator MUST be passed in")
 	}
 
-	// Derive the private key we'll be using for signing.
-	keyLocator := keychain.KeyLocator{
-		Family: keychain.KeyFamily(in.KeyLoc.KeyFamily),
-		Index:  uint32(in.KeyLoc.KeyIndex),
-	}
-	privKey, err := s.cfg.KeyRing.DerivePrivKey(keychain.KeyDescriptor{
-		KeyLocator: keyLocator,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("can't derive private key: %v", err)
+	// Describe the private key we'll be using for signing.
+	keyDescriptor := keychain.KeyDescriptor{
+		KeyLocator: keychain.KeyLocator{
+			Family: keychain.KeyFamily(in.KeyLoc.KeyFamily),
+			Index:  uint32(in.KeyLoc.KeyIndex),
+		},
 	}
 
 	// The signature is over the sha256 hash of the message.
-	digest := chainhash.HashB(in.Msg)
+	var digest [32]byte
+	copy(digest[:], chainhash.HashB(in.Msg))
 
 	// Create the raw ECDSA signature first and convert it to the final wire
 	// format after.
-	sig, err := privKey.Sign(digest)
+	sig, err := s.cfg.KeyRing.SignDigest(keyDescriptor, digest)
 	if err != nil {
 		return nil, fmt.Errorf("can't sign the hash: %v", err)
 	}

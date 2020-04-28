@@ -176,6 +176,10 @@ type KeyRing interface {
 type SecretKeyRing interface {
 	KeyRing
 
+	ECDHRing
+
+	DigestSignerRing
+
 	// DerivePrivKey attempts to derive the private key that corresponds to
 	// the passed key descriptor.  If the public key is set, then this
 	// method will perform an in-order scan over the key set, with a max of

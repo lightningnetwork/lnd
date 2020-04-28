@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -84,7 +85,8 @@ func initTestExtracter() {
 // db and no garbage collection.
 func newOnionProcessor(t *testing.T) *hop.OnionProcessor {
 	sphinxRouter := sphinx.NewRouter(
-		sphinxPrivKey, &bitcoinCfg.SimNetParams, sphinx.NewMemoryReplayLog(),
+		&keychain.PrivKeyECDH{PrivKey: sphinxPrivKey},
+		&bitcoinCfg.SimNetParams, sphinx.NewMemoryReplayLog(),
 	)
 
 	if err := sphinxRouter.Start(); err != nil {

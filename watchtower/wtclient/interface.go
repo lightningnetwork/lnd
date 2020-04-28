@@ -112,10 +112,18 @@ func AuthDial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress,
 	return brontide.Dial(localPriv, netAddr, dialer)
 }
 
-// SecretKeyRing abstracts the ability to derive HD private keys given a
-// description of the derivation path.
-type SecretKeyRing interface {
+// ECDHKeyRing abstracts the ability to derive shared ECDH keys given a
+// description of the derivation path of a private key.
+type ECDHKeyRing interface {
+	keychain.ECDHRing
+
 	// DerivePrivKey derives the private key from the root seed using a
 	// key descriptor specifying the key's derivation path.
 	DerivePrivKey(loc keychain.KeyDescriptor) (*btcec.PrivateKey, error)
+
+	// DeriveKey attempts to derive an arbitrary key specified by the
+	// passed KeyLocator. This may be used in several recovery scenarios,
+	// or when manually rotating something like our current default node
+	// key.
+	DeriveKey(keyLoc keychain.KeyLocator) (keychain.KeyDescriptor, error)
 }

@@ -12,7 +12,7 @@ import (
 // derivation path of:
 //
 //  * m/1017'/coinType'/8/0/index
-func DeriveSessionKey(keyRing SecretKeyRing,
+func DeriveSessionKey(keyRing ECDHKeyRing,
 	index uint32) (*btcec.PrivateKey, error) {
 
 	return keyRing.DerivePrivKey(keychain.KeyDescriptor{

@@ -132,7 +132,7 @@ type Config struct {
 	// SecretKeyRing is used to derive the session keys used to communicate
 	// with the tower. The client only stores the KeyLocators internally so
 	// that we never store private keys on disk.
-	SecretKeyRing SecretKeyRing
+	SecretKeyRing ECDHKeyRing
 
 	// Dial connects to an addr using the specified net and returns the
 	// connection object.

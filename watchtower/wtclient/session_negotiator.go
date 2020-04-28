@@ -44,7 +44,7 @@ type NegotiatorConfig struct {
 
 	// SecretKeyRing allows the client to derive new session private keys
 	// when attempting to negotiate session with a tower.
-	SecretKeyRing SecretKeyRing
+	SecretKeyRing ECDHKeyRing
 
 	// Candidates is an abstract set of tower candidates that the negotiator
 	// will traverse serially when attempting to negotiate a new session.

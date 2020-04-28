@@ -1433,7 +1433,7 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 	}
 
 	// Connections to ourselves are disallowed for obvious reasons.
-	if pubKey.IsEqual(r.server.identityPriv.PubKey()) {
+	if pubKey.IsEqual(r.server.identityECDH.PubKey()) {
 		return nil, fmt.Errorf("cannot make connection to self")
 	}
 
@@ -1781,7 +1781,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 
 	// Making a channel to ourselves wouldn't be of any use, so we
 	// explicitly disallow them.
-	if nodePubKey.IsEqual(r.server.identityPriv.PubKey()) {
+	if nodePubKey.IsEqual(r.server.identityECDH.PubKey()) {
 		return nil, fmt.Errorf("cannot open channel to self")
 	}
 
@@ -2406,7 +2406,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 	}
 	nPendingChannels := uint32(len(pendingChannels))
 
-	idPub := r.server.identityPriv.PubKey().SerializeCompressed()
+	idPub := r.server.identityECDH.PubKey().SerializeCompressed()
 	encodedIDPub := hex.EncodeToString(idPub)
 
 	bestHash, bestHeight, err := r.server.cc.chainIO.GetBestBlock()

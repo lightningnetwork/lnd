@@ -285,7 +285,7 @@ func (q *sessionQueue) sessionManager() {
 // drainBackups attempts to send all pending updates in the queue to the tower.
 func (q *sessionQueue) drainBackups() {
 	// First, check that we are able to dial this session's tower.
-	conn, err := q.cfg.Dial(q.cfg.ClientSession.SessionPrivKey, q.towerAddr)
+	conn, err := q.cfg.Dial(q.cfg.ClientSession.SessionKeyECDH, q.towerAddr)
 	if err != nil {
 		log.Errorf("SessionQueue(%s) unable to dial tower at %v: %v",
 			q.ID(), q.towerAddr, err)

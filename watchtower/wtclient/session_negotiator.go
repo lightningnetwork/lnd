@@ -428,7 +428,7 @@ func (n *sessionNegotiator) tryAddress(privKey *btcec.PrivateKey,
 				RewardPkScript: rewardPkScript,
 			},
 			Tower:          tower,
-			SessionPrivKey: privKey,
+			SessionKeyECDH: privKey,
 			ID:             sessionID,
 		}
 

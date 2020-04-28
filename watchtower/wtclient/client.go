@@ -362,7 +362,7 @@ func getClientSessions(db DB, keyRing SecretKeyRing, forTower *wtdb.TowerID,
 		if err != nil {
 			return nil, err
 		}
-		s.SessionPrivKey = sessionKey
+		s.SessionKeyECDH = sessionKey
 
 		// If an optional filter was provided, use it to filter out any
 		// undesired sessions.

@@ -33,6 +33,10 @@ If you are using a wallet that can fund a PSBT directly (currently not possible
 with bitcoind), you can use this PSBT that contains the same address and amount:
 %s
 
+!!! WARNING !!!
+DO NOT PUBLISH the finished transaction by yourself or with another tool.
+lnd MUST publish it in the proper funding flow order OR THE FUNDS CAN BE LOST!
+
 Paste the funded PSBT here to continue the funding flow.
 Base64 encoded PSBT: `
 

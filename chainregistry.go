@@ -314,7 +314,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			activeNetParams.Params, bitcoindHost,
 			bitcoindMode.RPCUser, bitcoindMode.RPCPass,
 			bitcoindMode.ZMQPubRawBlock, bitcoindMode.ZMQPubRawTx,
-			100*time.Millisecond,
+			5*time.Second,
 		)
 		if err != nil {
 			return nil, err

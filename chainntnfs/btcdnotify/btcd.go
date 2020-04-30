@@ -54,6 +54,7 @@ type BtcdNotifier struct {
 	epochClientCounter uint64 // To be used atomically.
 
 	start   sync.Once
+	active  int32 // To be used atomically.
 	stopped int32 // To be used atomically.
 
 	chainConn   *rpcclient.Client
@@ -141,6 +142,11 @@ func (b *BtcdNotifier) Start() error {
 	return startErr
 }
 
+// Started returns true if this instance has been started, and false otherwise.
+func (b *BtcdNotifier) Started() bool {
+	return atomic.LoadInt32(&b.active) != 0
+}
+
 // Stop shutsdown the BtcdNotifier.
 func (b *BtcdNotifier) Stop() error {
 	// Already shutting down?
@@ -211,6 +217,10 @@ func (b *BtcdNotifier) startNotifier() error {
 
 	b.wg.Add(1)
 	go b.notificationDispatcher()
+
+	// Set the active flag now that we've completed the full
+	// startup.
+	atomic.StoreInt32(&b.active, 1)
 
 	return nil
 }

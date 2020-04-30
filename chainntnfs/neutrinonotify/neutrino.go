@@ -40,6 +40,7 @@ type NeutrinoNotifier struct {
 	epochClientCounter uint64 // To be used atomically.
 
 	start   sync.Once
+	active  int32 // To be used atomically.
 	stopped int32 // To be used atomically.
 
 	bestBlockMtx sync.RWMutex
@@ -144,6 +145,11 @@ func (n *NeutrinoNotifier) Stop() error {
 	return nil
 }
 
+// Started returns true if this instance has been started, and false otherwise.
+func (n *NeutrinoNotifier) Started() bool {
+	return atomic.LoadInt32(&n.active) != 0
+}
+
 func (n *NeutrinoNotifier) startNotifier() error {
 	// Start our concurrent queues before starting the rescan, to ensure
 	// onFilteredBlockConnected and onRelavantTx callbacks won't be
@@ -199,6 +205,10 @@ func (n *NeutrinoNotifier) startNotifier() error {
 
 	n.wg.Add(1)
 	go n.notificationDispatcher()
+
+	// Set the active flag now that we've completed the full
+	// startup.
+	atomic.StoreInt32(&n.active, 1)
 
 	return nil
 }

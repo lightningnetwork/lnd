@@ -39,7 +39,7 @@ const (
 type NeutrinoNotifier struct {
 	epochClientCounter uint64 // To be used atomically.
 
-	started int32 // To be used atomically.
+	start   sync.Once
 	stopped int32 // To be used atomically.
 
 	bestBlockMtx sync.RWMutex
@@ -111,11 +111,40 @@ func New(node *neutrino.ChainService, spendHintCache chainntnfs.SpendHintCache,
 // Start contacts the running neutrino light client and kicks off an initial
 // empty rescan.
 func (n *NeutrinoNotifier) Start() error {
-	// Already started?
-	if atomic.AddInt32(&n.started, 1) != 1 {
+	var startErr error
+	n.start.Do(func() {
+		startErr = n.startNotifier()
+	})
+	return startErr
+}
+
+// Stop shuts down the NeutrinoNotifier.
+func (n *NeutrinoNotifier) Stop() error {
+	// Already shutting down?
+	if atomic.AddInt32(&n.stopped, 1) != 1 {
 		return nil
 	}
 
+	close(n.quit)
+	n.wg.Wait()
+
+	n.chainUpdates.Stop()
+	n.txUpdates.Stop()
+
+	// Notify all pending clients of our shutdown by closing the related
+	// notification channels.
+	for _, epochClient := range n.blockEpochClients {
+		close(epochClient.cancelChan)
+		epochClient.wg.Wait()
+
+		close(epochClient.epochChan)
+	}
+	n.txNotifier.TearDown()
+
+	return nil
+}
+
+func (n *NeutrinoNotifier) startNotifier() error {
 	// Start our concurrent queues before starting the rescan, to ensure
 	// onFilteredBlockConnected and onRelavantTx callbacks won't be
 	// blocked.
@@ -170,32 +199,6 @@ func (n *NeutrinoNotifier) Start() error {
 
 	n.wg.Add(1)
 	go n.notificationDispatcher()
-
-	return nil
-}
-
-// Stop shuts down the NeutrinoNotifier.
-func (n *NeutrinoNotifier) Stop() error {
-	// Already shutting down?
-	if atomic.AddInt32(&n.stopped, 1) != 1 {
-		return nil
-	}
-
-	close(n.quit)
-	n.wg.Wait()
-
-	n.chainUpdates.Stop()
-	n.txUpdates.Stop()
-
-	// Notify all pending clients of our shutdown by closing the related
-	// notification channels.
-	for _, epochClient := range n.blockEpochClients {
-		close(epochClient.cancelChan)
-		epochClient.wg.Wait()
-
-		close(epochClient.epochChan)
-	}
-	n.txNotifier.TearDown()
 
 	return nil
 }

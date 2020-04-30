@@ -452,6 +452,26 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 
+	// Make sure everything we just loaded makes sense.
+	cleanCfg, err := ValidateConfig(cfg, usageMessage)
+	if err != nil {
+		return nil, err
+	}
+
+	// Warn about missing config file only after all other configuration is
+	// done.  This prevents the warning on help messages and invalid
+	// options.  Note this should go directly before the return.
+	if configFileError != nil {
+		ltndLog.Warnf("%v", configFileError)
+	}
+
+	return cleanCfg, nil
+}
+
+// ValidateConfig check the given configuration to be sane. This makes sure no
+// illegal values or combination of values are set. All file system paths are
+// normalized. The cleaned up config is returned on success.
+func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 	// If the provided lnd directory is not the default, we'll modify the
 	// path to all of the files and directories that will live within it.
 	lndDir := cleanAndExpandPath(cfg.LndDir)
@@ -485,7 +505,7 @@ func LoadConfig() (*Config, error) {
 
 		str := "%s: Failed to create lnd directory: %v"
 		err := fmt.Errorf(str, funcName, err)
-		fmt.Fprintln(os.Stderr, err)
+		_, _ = fmt.Fprintln(os.Stderr, err)
 		return nil, err
 	}
 
@@ -512,37 +532,37 @@ func LoadConfig() (*Config, error) {
 	if cfg.Autopilot.MaxChannels < 0 {
 		str := "%s: autopilot.maxchannels must be non-negative"
 		err := fmt.Errorf(str, funcName)
-		fmt.Fprintln(os.Stderr, err)
+		_, _ = fmt.Fprintln(os.Stderr, err)
 		return nil, err
 	}
 	if cfg.Autopilot.Allocation < 0 {
 		str := "%s: autopilot.allocation must be non-negative"
 		err := fmt.Errorf(str, funcName)
-		fmt.Fprintln(os.Stderr, err)
+		_, _ = fmt.Fprintln(os.Stderr, err)
 		return nil, err
 	}
 	if cfg.Autopilot.MinChannelSize < 0 {
 		str := "%s: autopilot.minchansize must be non-negative"
 		err := fmt.Errorf(str, funcName)
-		fmt.Fprintln(os.Stderr, err)
+		_, _ = fmt.Fprintln(os.Stderr, err)
 		return nil, err
 	}
 	if cfg.Autopilot.MaxChannelSize < 0 {
 		str := "%s: autopilot.maxchansize must be non-negative"
 		err := fmt.Errorf(str, funcName)
-		fmt.Fprintln(os.Stderr, err)
+		_, _ = fmt.Fprintln(os.Stderr, err)
 		return nil, err
 	}
 	if cfg.Autopilot.MinConfs < 0 {
 		str := "%s: autopilot.minconfs must be non-negative"
 		err := fmt.Errorf(str, funcName)
-		fmt.Fprintln(os.Stderr, err)
+		_, _ = fmt.Fprintln(os.Stderr, err)
 		return nil, err
 	}
 	if cfg.Autopilot.ConfTarget < 1 {
 		str := "%s: autopilot.conftarget must be positive"
 		err := fmt.Errorf(str, funcName)
-		fmt.Fprintln(os.Stderr, err)
+		_, _ = fmt.Fprintln(os.Stderr, err)
 		return nil, err
 	}
 
@@ -851,25 +871,25 @@ func LoadConfig() (*Config, error) {
 	if cfg.Autopilot.MaxChannels < 0 {
 		str := "%s: autopilot.maxchannels must be non-negative"
 		err := fmt.Errorf(str, funcName)
-		fmt.Fprintln(os.Stderr, err)
+		_, _ = fmt.Fprintln(os.Stderr, err)
 		return nil, err
 	}
 	if cfg.Autopilot.Allocation < 0 {
 		str := "%s: autopilot.allocation must be non-negative"
 		err := fmt.Errorf(str, funcName)
-		fmt.Fprintln(os.Stderr, err)
+		_, _ = fmt.Fprintln(os.Stderr, err)
 		return nil, err
 	}
 	if cfg.Autopilot.MinChannelSize < 0 {
 		str := "%s: autopilot.minchansize must be non-negative"
 		err := fmt.Errorf(str, funcName)
-		fmt.Fprintln(os.Stderr, err)
+		_, _ = fmt.Fprintln(os.Stderr, err)
 		return nil, err
 	}
 	if cfg.Autopilot.MaxChannelSize < 0 {
 		str := "%s: autopilot.maxchansize must be non-negative"
 		err := fmt.Errorf(str, funcName)
-		fmt.Fprintln(os.Stderr, err)
+		_, _ = fmt.Fprintln(os.Stderr, err)
 		return nil, err
 	}
 
@@ -888,8 +908,8 @@ func LoadConfig() (*Config, error) {
 		if err != nil || profilePort < 1024 || profilePort > 65535 {
 			str := "%s: The profile port must be between 1024 and 65535"
 			err := fmt.Errorf(str, funcName)
-			fmt.Fprintln(os.Stderr, err)
-			fmt.Fprintln(os.Stderr, usageMessage)
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			_, _ = fmt.Fprintln(os.Stderr, usageMessage)
 			return nil, err
 		}
 	}
@@ -950,7 +970,7 @@ func LoadConfig() (*Config, error) {
 	if err != nil {
 		str := "%s: log rotation setup failed: %v"
 		err = fmt.Errorf(str, funcName, err.Error())
-		fmt.Fprintln(os.Stderr, err)
+		_, _ = fmt.Fprintln(os.Stderr, err)
 		return nil, err
 	}
 
@@ -958,8 +978,8 @@ func LoadConfig() (*Config, error) {
 	err = build.ParseAndSetDebugLevels(cfg.DebugLevel, logWriter)
 	if err != nil {
 		err = fmt.Errorf("%s: %v", funcName, err.Error())
-		fmt.Fprintln(os.Stderr, err)
-		fmt.Fprintln(os.Stderr, usageMessage)
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		_, _ = fmt.Fprintln(os.Stderr, usageMessage)
 		return nil, err
 	}
 
@@ -1096,14 +1116,8 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("unable to parse node color: %v", err)
 	}
 
-	// Warn about missing config file only after all other configuration is
-	// done.  This prevents the warning on help messages and invalid
-	// options.  Note this should go directly before the return.
-	if configFileError != nil {
-		ltndLog.Warnf("%v", configFileError)
-	}
-
-	return &cfg, nil
+	// All good, return the sanitized result.
+	return &cfg, err
 }
 
 // cleanAndExpandPath expands environment variables and leading ~ in the

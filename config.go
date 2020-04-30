@@ -289,16 +289,9 @@ type Config struct {
 	AllowCircularRoute bool `long:"allow-circular-route" description:"If true, our node will allow htlc forwards that arrive and depart on the same channel."`
 }
 
-// LoadConfig initializes and parses the config using a config file and command
-// line options.
-//
-// The configuration proceeds as follows:
-// 	1) Start with a default config with sane settings
-// 	2) Pre-parse the command line to check for an alternative config file
-// 	3) Load configuration file overwriting defaults with any specified options
-// 	4) Parse CLI options and overwrite/add any specified options
-func LoadConfig() (*Config, error) {
-	defaultCfg := Config{
+// DefaultConfig returns all default values for the Config struct.
+func DefaultConfig() Config {
+	return Config{
 		LndDir:          defaultLndDir,
 		ConfigFile:      defaultConfigFile,
 		DataDir:         defaultDataDir,
@@ -397,10 +390,20 @@ func LoadConfig() (*Config, error) {
 		MaxOutgoingCltvExpiry:   htlcswitch.DefaultMaxOutgoingCltvExpiry,
 		MaxChannelFeeAllocation: htlcswitch.DefaultMaxLinkFeeAllocation,
 	}
+}
 
+// LoadConfig initializes and parses the config using a config file and command
+// line options.
+//
+// The configuration proceeds as follows:
+// 	1) Start with a default config with sane settings
+// 	2) Pre-parse the command line to check for an alternative config file
+// 	3) Load configuration file overwriting defaults with any specified options
+// 	4) Parse CLI options and overwrite/add any specified options
+func LoadConfig() (*Config, error) {
 	// Pre-parse the command line options to pick up an alternative config
 	// file.
-	preCfg := defaultCfg
+	preCfg := DefaultConfig()
 	if _, err := flags.Parse(&preCfg); err != nil {
 		return nil, err
 	}

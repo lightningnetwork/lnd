@@ -238,11 +238,11 @@ type torConfig struct {
 	WatchtowerKeyPath string `long:"watchtowerkeypath" description:"The path to the private key of the watchtower onion service being created"`
 }
 
-// config defines the configuration options for lnd.
+// Config defines the configuration options for lnd.
 //
-// See loadConfig for further details regarding the configuration
+// See LoadConfig for further details regarding the configuration
 // loading+parsing process.
-type config struct {
+type Config struct {
 	ShowVersion bool `short:"V" long:"version" description:"Display version information and exit"`
 
 	LndDir       string `long:"lnddir" description:"The base directory that contains lnd's data, logs, configuration file, etc."`
@@ -365,7 +365,7 @@ type config struct {
 	AllowCircularRoute bool `long:"allow-circular-route" description:"If true, our node will allow htlc forwards that arrive and depart on the same channel."`
 }
 
-// loadConfig initializes and parses the config using a config file and command
+// LoadConfig initializes and parses the config using a config file and command
 // line options.
 //
 // The configuration proceeds as follows:
@@ -373,8 +373,8 @@ type config struct {
 // 	2) Pre-parse the command line to check for an alternative config file
 // 	3) Load configuration file overwriting defaults with any specified options
 // 	4) Parse CLI options and overwrite/add any specified options
-func loadConfig() (*config, error) {
-	defaultCfg := config{
+func LoadConfig() (*Config, error) {
+	defaultCfg := Config{
 		LndDir:          defaultLndDir,
 		ConfigFile:      defaultConfigFile,
 		DataDir:         defaultDataDir,

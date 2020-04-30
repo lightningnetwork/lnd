@@ -150,17 +150,11 @@ type rpcListeners func() ([]*ListenerWithSignal, func(), error)
 // Main is the true entry point for lnd. This function is required since defers
 // created in the top-level scope of a main method aren't executed if os.Exit()
 // is called.
-func Main(lisCfg ListenerCfg) error {
+func Main(config *Config, lisCfg ListenerCfg) error {
 	// Hook interceptor for os signals.
 	signal.Intercept()
 
-	// Load the configuration, and parse any command line options. This
-	// function will also set up logging properly.
-	loadedConfig, err := LoadConfig()
-	if err != nil {
-		return err
-	}
-	cfg = loadedConfig
+	cfg = config
 	defer func() {
 		ltndLog.Info("Shutdown complete")
 		err := RootLogWriter.Close()

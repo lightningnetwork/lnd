@@ -147,13 +147,11 @@ type ListenerCfg struct {
 // listeners.
 type rpcListeners func() ([]*ListenerWithSignal, func(), error)
 
-// Main is the true entry point for lnd. This function is required since defers
-// created in the top-level scope of a main method aren't executed if os.Exit()
-// is called.
-func Main(config *Config, lisCfg ListenerCfg) error {
-	// Hook interceptor for os signals.
-	signal.Intercept()
-
+// Main is the true entry point for lnd. It accepts a fully populated and
+// validated main configuration struct and an optional listener config struct.
+// This function starts all main system components then blocks until a signal
+// is received on the shutdownChan at which point everything is shut down again.
+func Main(config *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	cfg = config
 	defer func() {
 		ltndLog.Info("Shutdown complete")
@@ -728,7 +726,7 @@ func Main(config *Config, lisCfg ListenerCfg) error {
 
 	// Wait for shutdown signal from either a graceful server stop or from
 	// the interrupt handler.
-	<-signal.ShutdownChannel()
+	<-shutdownChan
 	return nil
 }
 

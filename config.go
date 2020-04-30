@@ -435,8 +435,8 @@ func LoadConfig() (*Config, error) {
 	// use the default config file path. However, if the user has modified
 	// their lnddir, then we should assume they intend to use the config
 	// file within it.
-	configFileDir := cleanAndExpandPath(preCfg.LndDir)
-	configFilePath := cleanAndExpandPath(preCfg.ConfigFile)
+	configFileDir := CleanAndExpandPath(preCfg.LndDir)
+	configFilePath := CleanAndExpandPath(preCfg.ConfigFile)
 	if configFileDir != DefaultLndDir {
 		if configFilePath == DefaultConfigFile {
 			configFilePath = filepath.Join(
@@ -487,7 +487,7 @@ func LoadConfig() (*Config, error) {
 func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 	// If the provided lnd directory is not the default, we'll modify the
 	// path to all of the files and directories that will live within it.
-	lndDir := cleanAndExpandPath(cfg.LndDir)
+	lndDir := CleanAndExpandPath(cfg.LndDir)
 	if lndDir != DefaultLndDir {
 		cfg.DataDir = filepath.Join(lndDir, defaultDataDirname)
 		cfg.TLSCertPath = filepath.Join(lndDir, defaultTLSCertFilename)
@@ -525,20 +525,20 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 	// As soon as we're done parsing configuration options, ensure all paths
 	// to directories and files are cleaned and expanded before attempting
 	// to use them later on.
-	cfg.DataDir = cleanAndExpandPath(cfg.DataDir)
-	cfg.TLSCertPath = cleanAndExpandPath(cfg.TLSCertPath)
-	cfg.TLSKeyPath = cleanAndExpandPath(cfg.TLSKeyPath)
-	cfg.AdminMacPath = cleanAndExpandPath(cfg.AdminMacPath)
-	cfg.ReadMacPath = cleanAndExpandPath(cfg.ReadMacPath)
-	cfg.InvoiceMacPath = cleanAndExpandPath(cfg.InvoiceMacPath)
-	cfg.LogDir = cleanAndExpandPath(cfg.LogDir)
-	cfg.BtcdMode.Dir = cleanAndExpandPath(cfg.BtcdMode.Dir)
-	cfg.LtcdMode.Dir = cleanAndExpandPath(cfg.LtcdMode.Dir)
-	cfg.BitcoindMode.Dir = cleanAndExpandPath(cfg.BitcoindMode.Dir)
-	cfg.LitecoindMode.Dir = cleanAndExpandPath(cfg.LitecoindMode.Dir)
-	cfg.Tor.PrivateKeyPath = cleanAndExpandPath(cfg.Tor.PrivateKeyPath)
-	cfg.Tor.WatchtowerKeyPath = cleanAndExpandPath(cfg.Tor.WatchtowerKeyPath)
-	cfg.Watchtower.TowerDir = cleanAndExpandPath(cfg.Watchtower.TowerDir)
+	cfg.DataDir = CleanAndExpandPath(cfg.DataDir)
+	cfg.TLSCertPath = CleanAndExpandPath(cfg.TLSCertPath)
+	cfg.TLSKeyPath = CleanAndExpandPath(cfg.TLSKeyPath)
+	cfg.AdminMacPath = CleanAndExpandPath(cfg.AdminMacPath)
+	cfg.ReadMacPath = CleanAndExpandPath(cfg.ReadMacPath)
+	cfg.InvoiceMacPath = CleanAndExpandPath(cfg.InvoiceMacPath)
+	cfg.LogDir = CleanAndExpandPath(cfg.LogDir)
+	cfg.BtcdMode.Dir = CleanAndExpandPath(cfg.BtcdMode.Dir)
+	cfg.LtcdMode.Dir = CleanAndExpandPath(cfg.LtcdMode.Dir)
+	cfg.BitcoindMode.Dir = CleanAndExpandPath(cfg.BitcoindMode.Dir)
+	cfg.LitecoindMode.Dir = CleanAndExpandPath(cfg.LitecoindMode.Dir)
+	cfg.Tor.PrivateKeyPath = CleanAndExpandPath(cfg.Tor.PrivateKeyPath)
+	cfg.Tor.WatchtowerKeyPath = CleanAndExpandPath(cfg.Tor.WatchtowerKeyPath)
+	cfg.Watchtower.TowerDir = CleanAndExpandPath(cfg.Watchtower.TowerDir)
 
 	// Ensure that the user didn't attempt to specify negative values for
 	// any of the autopilot params.
@@ -1133,10 +1133,10 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 	return &cfg, err
 }
 
-// cleanAndExpandPath expands environment variables and leading ~ in the
+// CleanAndExpandPath expands environment variables and leading ~ in the
 // passed path, cleans the result, and returns it.
 // This function is taken from https://github.com/btcsuite/btcd
-func cleanAndExpandPath(path string) string {
+func CleanAndExpandPath(path string) string {
 	if path == "" {
 		return ""
 	}

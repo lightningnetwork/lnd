@@ -52,7 +52,7 @@ import (
 )
 
 var (
-	cfg              *config
+	cfg              *Config
 	registeredChains = newChainRegistry()
 
 	// networkDir is the path to the directory of the currently active
@@ -156,7 +156,7 @@ func Main(lisCfg ListenerCfg) error {
 
 	// Load the configuration, and parse any command line options. This
 	// function will also set up logging properly.
-	loadedConfig, err := loadConfig()
+	loadedConfig, err := LoadConfig()
 	if err != nil {
 		return err
 	}

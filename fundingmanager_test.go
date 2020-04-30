@@ -3084,7 +3084,7 @@ func TestGetUpfrontShutdownScript(t *testing.T) {
 			}
 
 			// Set the command line option in config as needed.
-			cfg = &config{EnableUpfrontShutdown: test.localEnabled}
+			cfg = &Config{EnableUpfrontShutdown: test.localEnabled}
 
 			addr, err := getUpfrontShutdownScript(
 				&mockPeer, test.upfrontScript, test.getScript,

@@ -63,6 +63,11 @@ var (
 	// has been shut down.
 	ErrChainNotifierServerShuttingDown = errors.New("chain notifier RPC " +
 		"subserver shutting down")
+
+	// ErrChainNotifierServerNotActive indicates that the chain notifier hasn't
+	// finished the startup process.
+	ErrChainNotifierServerNotActive = errors.New("chain notifier RPC is" +
+		"still in the process of starting")
 )
 
 // fileExists reports whether the named file or directory exists.
@@ -196,6 +201,10 @@ func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
 func (s *Server) RegisterConfirmationsNtfn(in *ConfRequest,
 	confStream ChainNotifier_RegisterConfirmationsNtfnServer) error {
 
+	if !s.cfg.ChainNotifier.Started() {
+		return ErrChainNotifierServerNotActive
+	}
+
 	// We'll start by reconstructing the RPC request into what the
 	// underlying ChainNotifier expects.
 	var txid chainhash.Hash
@@ -291,6 +300,10 @@ func (s *Server) RegisterConfirmationsNtfn(in *ConfRequest,
 // NOTE: This is part of the chainrpc.ChainNotifierService interface.
 func (s *Server) RegisterSpendNtfn(in *SpendRequest,
 	spendStream ChainNotifier_RegisterSpendNtfnServer) error {
+
+	if !s.cfg.ChainNotifier.Started() {
+		return ErrChainNotifierServerNotActive
+	}
 
 	// We'll start by reconstructing the RPC request into what the
 	// underlying ChainNotifier expects.
@@ -398,6 +411,10 @@ func (s *Server) RegisterSpendNtfn(in *SpendRequest,
 // NOTE: This is part of the chainrpc.ChainNotifierService interface.
 func (s *Server) RegisterBlockEpochNtfn(in *BlockEpoch,
 	epochStream ChainNotifier_RegisterBlockEpochNtfnServer) error {
+
+	if !s.cfg.ChainNotifier.Started() {
+		return ErrChainNotifierServerNotActive
+	}
 
 	// We'll start by reconstructing the RPC request into what the
 	// underlying ChainNotifier expects.

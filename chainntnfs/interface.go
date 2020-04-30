@@ -139,6 +139,9 @@ type ChainNotifier interface {
 	// ready, and able to receive notification registrations from clients.
 	Start() error
 
+	// Started returns true if this instance has been started, and false otherwise.
+	Started() bool
+
 	// Stops the concrete ChainNotifier. Once stopped, the ChainNotifier
 	// should disallow any future requests from potential clients.
 	// Additionally, all pending client notifications will be canceled

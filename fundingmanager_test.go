@@ -131,6 +131,10 @@ func (m *mockNotifier) Start() error {
 	return nil
 }
 
+func (m *mockNotifier) Started() bool {
+	return true
+}
+
 func (m *mockNotifier) Stop() error {
 	return nil
 }

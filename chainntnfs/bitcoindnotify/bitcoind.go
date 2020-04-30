@@ -35,6 +35,7 @@ type BitcoindNotifier struct {
 	epochClientCounter uint64 // To be used atomically.
 
 	start   sync.Once
+	active  int32 // To be used atomically.
 	stopped int32 // To be used atomically.
 
 	chainConn   *chain.BitcoindClient
@@ -130,6 +131,11 @@ func (b *BitcoindNotifier) Stop() error {
 	return nil
 }
 
+// Started returns true if this instance has been started, and false otherwise.
+func (b *BitcoindNotifier) Started() bool {
+	return atomic.LoadInt32(&b.active) != 0
+}
+
 func (b *BitcoindNotifier) startNotifier() error {
 	// Connect to bitcoind, and register for notifications on connected,
 	// and disconnected blocks.
@@ -157,6 +163,10 @@ func (b *BitcoindNotifier) startNotifier() error {
 
 	b.wg.Add(1)
 	go b.notificationDispatcher()
+
+	// Set the active flag now that we've completed the full
+	// startup.
+	atomic.StoreInt32(&b.active, 1)
 
 	return nil
 }

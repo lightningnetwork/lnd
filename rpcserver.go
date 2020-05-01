@@ -3294,11 +3294,37 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		channel.PushAmountSat = uint64(localBalance.ToSatoshis())
 	}
 
-	outpoint := dbChannel.FundingOutpoint
+	if len(dbChannel.LocalShutdownScript) > 0 {
+		_, addresses, _, err := txscript.ExtractPkScriptAddrs(
+			dbChannel.LocalShutdownScript, activeNetParams.Params,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// We only expect one upfront shutdown address for a channel. If
+		// LocalShutdownScript is non-zero, there should be one payout
+		// address set.
+		if len(addresses) != 1 {
+			return nil, fmt.Errorf("expected one upfront shutdown "+
+				"address, got: %v", len(addresses))
+		}
+
+		channel.CloseAddress = addresses[0].String()
+	}
+
+	// If the server hasn't fully started yet, it's possible that the
+	// channel event store hasn't either, so it won't be able to consume any
+	// requests until then. To prevent blocking, we'll just omit the uptime
+	// related fields for now.
+	if !r.server.Started() {
+		return channel, nil
+	}
 
 	// Get the lifespan observed by the channel event store. If the channel is
 	// not known to the channel event store, return early because we cannot
 	// calculate any further uptime information.
+	outpoint := dbChannel.FundingOutpoint
 	startTime, endTime, err := r.server.chanEventStore.GetLifespan(outpoint)
 	switch err {
 	case chanfitness.ErrChannelNotFound:
@@ -3330,25 +3356,6 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		return nil, err
 	}
 	channel.Uptime = int64(uptime.Seconds())
-
-	if len(dbChannel.LocalShutdownScript) > 0 {
-		_, addresses, _, err := txscript.ExtractPkScriptAddrs(
-			dbChannel.LocalShutdownScript, activeNetParams.Params,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		// We only expect one upfront shutdown address for a channel. If
-		// LocalShutdownScript is non-zero, there should be one payout address
-		// set.
-		if len(addresses) != 1 {
-			return nil, fmt.Errorf("expected one upfront shutdown address, "+
-				"got: %v", len(addresses))
-		}
-
-		channel.CloseAddress = addresses[0].String()
-	}
 
 	return channel, nil
 }

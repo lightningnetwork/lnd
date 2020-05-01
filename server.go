@@ -3003,15 +3003,37 @@ func (s *server) peerTerminationWatcher(p *peer, ready chan struct{}) {
 		//
 		// TODO(roasbeef): use them all?
 		if p.inbound {
-			advertisedAddr, err := s.fetchNodeAdvertisedAddr(
-				pubKey,
-			)
-			if err != nil {
-				srvrLog.Errorf("Unable to retrieve advertised "+
-					"address for node %x: %v",
-					pubKey.SerializeCompressed(), err)
-			} else {
+			advertisedAddr, err := s.fetchNodeAdvertisedAddr(pubKey)
+			switch {
+			// We found an advertised address, so use it.
+			case err == nil:
 				p.addr.Address = advertisedAddr
+
+			// The peer doesn't have an advertised address.
+			case err == errNoAdvertisedAddr:
+				// Fall back to the existing peer address if
+				// we're not accepting connections over Tor.
+				if s.torController == nil {
+					break
+				}
+
+				// If we are, the peer's address won't be known
+				// to us (we'll see a private address, which is
+				// the address used by our onion service to dial
+				// to lnd), so we don't have enough information
+				// to attempt a reconnect.
+				srvrLog.Debugf("Ignoring reconnection attempt "+
+					"to inbound peer %v without "+
+					"advertised address", p)
+				return
+
+			// We came across an error retrieving an advertised
+			// address, log it, and fall back to the existing peer
+			// address.
+			default:
+				srvrLog.Errorf("Unable to retrieve advertised "+
+					"address for node %x: %v", p.PubKey(),
+					err)
 			}
 		}
 
@@ -3409,6 +3431,10 @@ func computeNextBackoff(currBackoff time.Duration) time.Duration {
 	return nextBackoff + (time.Duration(wiggle.Uint64()) - margin/2)
 }
 
+// errNoAdvertisedAddr is an error returned when we attempt to retrieve the
+// advertised address of a node, but they don't have one.
+var errNoAdvertisedAddr = errors.New("no advertised address found")
+
 // fetchNodeAdvertisedAddr attempts to fetch an advertised address of a node.
 func (s *server) fetchNodeAdvertisedAddr(pub *btcec.PublicKey) (net.Addr, error) {
 	vertex, err := route.NewVertexFromBytes(pub.SerializeCompressed())
@@ -3422,7 +3448,7 @@ func (s *server) fetchNodeAdvertisedAddr(pub *btcec.PublicKey) (net.Addr, error)
 	}
 
 	if len(node.Addresses) == 0 {
-		return nil, errors.New("no advertised addresses found")
+		return nil, errNoAdvertisedAddr
 	}
 
 	return node.Addresses[0], nil

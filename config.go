@@ -663,6 +663,14 @@ func loadConfig() (*config, error) {
 	}
 	cfg.Tor.Control = control.String()
 
+	// Ensure that tor socks host:port is not equal to tor control
+	// host:port. This would lead to lnd not starting up properly.
+	if cfg.Tor.SOCKS == cfg.Tor.Control {
+		str := "%s: tor.socks and tor.control can not use " +
+			"the same host:port"
+		return nil, fmt.Errorf(str, funcName)
+	}
+
 	switch {
 	case cfg.Tor.V2 && cfg.Tor.V3:
 		return nil, errors.New("either tor.v2 or tor.v3 can be set, " +

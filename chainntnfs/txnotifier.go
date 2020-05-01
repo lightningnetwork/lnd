@@ -1690,7 +1690,7 @@ func (n *TxNotifier) DisconnectTip(blockHeight uint32) error {
 	defer n.Unlock()
 
 	if blockHeight != n.currentHeight {
-		return fmt.Errorf("Received blocks out of order: "+
+		return fmt.Errorf("received blocks out of order: "+
 			"current height=%d, disconnected height=%d",
 			n.currentHeight, blockHeight)
 	}

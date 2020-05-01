@@ -628,21 +628,6 @@ func createOutgoingRes(onLocalCommitment bool) *lnwallet.OutgoingHtlcResolution 
 	return &outgoingRes
 }
 
-func createCommitmentRes() *lnwallet.CommitOutputResolution {
-	// Set up a commitment output resolution to hand off to nursery.
-	commitRes := lnwallet.CommitOutputResolution{
-		SelfOutPoint: wire.OutPoint{},
-		SelfOutputSignDesc: input.SignDescriptor{
-			Output: &wire.TxOut{
-				Value: 10000,
-			},
-		},
-		MaturityDelay: 2,
-	}
-
-	return &commitRes
-}
-
 func incubateTestOutput(t *testing.T, nursery *utxoNursery,
 	onLocalCommitment bool) *lnwallet.OutgoingHtlcResolution {
 

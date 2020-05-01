@@ -212,9 +212,7 @@ func (w *Standalone) ListeningAddrs() []net.Addr {
 // NOTE: Part of the watchtowerrpc.WatchtowerBackend interface.
 func (w *Standalone) ExternalIPs() []net.Addr {
 	addrs := make([]net.Addr, 0, len(w.cfg.ExternalIPs))
-	for _, addr := range w.cfg.ExternalIPs {
-		addrs = append(addrs, addr)
-	}
+	addrs = append(addrs, w.cfg.ExternalIPs...)
 
 	return addrs
 }

@@ -64,7 +64,7 @@ func (m *MockSigner) SignOutputRaw(tx *wire.MsgTx,
 	hash160 := btcutil.Hash160(pubkey.SerializeCompressed())
 	privKey := m.findKey(hash160, signDesc.SingleTweak, signDesc.DoubleTweak)
 	if privKey == nil {
-		return nil, fmt.Errorf("Mock signer does not have key")
+		return nil, fmt.Errorf("mock signer does not have key")
 	}
 
 	sig, err := txscript.RawTxInWitnessSignature(tx, signDesc.SigHashes,
@@ -93,7 +93,7 @@ func (m *MockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor
 		privKey := m.findKey(addresses[0].ScriptAddress(), signDesc.SingleTweak,
 			signDesc.DoubleTweak)
 		if privKey == nil {
-			return nil, fmt.Errorf("Mock signer does not have key for "+
+			return nil, fmt.Errorf("mock signer does not have key for "+
 				"address %v", addresses[0])
 		}
 
@@ -111,7 +111,7 @@ func (m *MockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor
 		privKey := m.findKey(addresses[0].ScriptAddress(), signDesc.SingleTweak,
 			signDesc.DoubleTweak)
 		if privKey == nil {
-			return nil, fmt.Errorf("Mock signer does not have key for "+
+			return nil, fmt.Errorf("mock signer does not have key for "+
 				"address %v", addresses[0])
 		}
 
@@ -125,7 +125,7 @@ func (m *MockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor
 		return &Script{Witness: witnessScript}, nil
 
 	default:
-		return nil, fmt.Errorf("Unexpected script type: %v", scriptType)
+		return nil, fmt.Errorf("unexpected script type: %v", scriptType)
 	}
 }
 

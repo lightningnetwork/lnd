@@ -386,9 +386,8 @@ func mergeChanState(pendingChans map[NodeID]Channel,
 	numChans := len(pendingChans) + len(activeChans)
 	totalChans := make([]Channel, 0, numChans)
 
-	for _, activeChan := range activeChans.Channels() {
-		totalChans = append(totalChans, activeChan)
-	}
+	totalChans = append(totalChans, activeChans.Channels()...)
+
 	for _, pendingChan := range pendingChans {
 		totalChans = append(totalChans, pendingChan)
 	}
@@ -649,7 +648,7 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 	// to open channels to.
 	scores, err = chooseN(numChans, scores)
 	if err != nil {
-		return fmt.Errorf("Unable to make weighted choice: %v",
+		return fmt.Errorf("unable to make weighted choice: %v",
 			err)
 	}
 

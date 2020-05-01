@@ -43,7 +43,7 @@ var (
 	// ErrDoubleSpend is returned from PublishTransaction in case the
 	// tx being published is spending an output spent by a conflicting
 	// transaction.
-	ErrDoubleSpend = errors.New("Transaction rejected: output already spent")
+	ErrDoubleSpend = errors.New("transaction rejected: output already spent")
 
 	// ErrNotMine is an error denoting that a WalletController instance is
 	// unable to spend a specified output.

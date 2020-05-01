@@ -492,7 +492,7 @@ func (b *Machine) RecvActOne(actOne [ActOneSize]byte) error {
 	// If the handshake version is unknown, then the handshake fails
 	// immediately.
 	if actOne[0] != HandshakeVersion {
-		return fmt.Errorf("Act One: invalid handshake version: %v, "+
+		return fmt.Errorf("act one: invalid handshake version: %v, "+
 			"only %v is valid, msg=%x", actOne[0], HandshakeVersion,
 			actOne[:])
 	}
@@ -564,7 +564,7 @@ func (b *Machine) RecvActTwo(actTwo [ActTwoSize]byte) error {
 	// If the handshake version is unknown, then the handshake fails
 	// immediately.
 	if actTwo[0] != HandshakeVersion {
-		return fmt.Errorf("Act Two: invalid handshake version: %v, "+
+		return fmt.Errorf("act two: invalid handshake version: %v, "+
 			"only %v is valid, msg=%x", actTwo[0], HandshakeVersion,
 			actTwo[:])
 	}
@@ -630,7 +630,7 @@ func (b *Machine) RecvActThree(actThree [ActThreeSize]byte) error {
 	// If the handshake version is unknown, then the handshake fails
 	// immediately.
 	if actThree[0] != HandshakeVersion {
-		return fmt.Errorf("Act Three: invalid handshake version: %v, "+
+		return fmt.Errorf("act three: invalid handshake version: %v, "+
 			"only %v is valid, msg=%x", actThree[0], HandshakeVersion,
 			actThree[:])
 	}

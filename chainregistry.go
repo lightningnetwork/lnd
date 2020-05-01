@@ -201,7 +201,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			defaultLitecoinStaticFeePerKW, 0,
 		)
 	default:
-		return nil, fmt.Errorf("Default routing policy for chain %v is "+
+		return nil, fmt.Errorf("default routing policy for chain %v is "+
 			"unknown", registeredChains.PrimaryChain())
 	}
 

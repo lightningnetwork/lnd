@@ -1150,7 +1150,7 @@ func loadConfig() (*config, error) {
 	// the wallet.
 	_, err = parseHexColor(cfg.Color)
 	if err != nil {
-		return nil, fmt.Errorf("Unable to parse node color: %v", err)
+		return nil, fmt.Errorf("unable to parse node color: %v", err)
 	}
 
 	// Warn about missing config file only after all other configuration is

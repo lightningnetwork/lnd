@@ -1145,32 +1145,6 @@ func (ns *nurseryStore) createHeightChanBucket(tx kvdb.RwTx,
 	return hghtBucket.CreateBucketIfNotExists(chanBytes)
 }
 
-// getHeightChanBucket retrieves an existing height-channel bucket from the
-// nursery store, using the provided block height and channel point. if the
-// bucket does not exist, or any bucket along its path does not exist, a nil
-// value is returned.
-func (ns *nurseryStore) getHeightChanBucket(tx kvdb.ReadTx, // nolint:unused
-	height uint32, chanPoint *wire.OutPoint) kvdb.ReadBucket {
-
-	// Retrieve the existing height bucket from this nursery store.
-	hghtBucket := ns.getHeightBucket(tx, height)
-	if hghtBucket == nil {
-		return nil
-	}
-
-	// Serialize the provided channel point, which generates the key for
-	// looking up the proper height-channel bucket inside the height bucket.
-	var chanBuffer bytes.Buffer
-	if err := writeOutpoint(&chanBuffer, chanPoint); err != nil {
-		return nil
-	}
-	chanBytes := chanBuffer.Bytes()
-
-	// Finally, return the height bucket specified by the serialized channel
-	// point.
-	return hghtBucket.NestedReadBucket(chanBytes)
-}
-
 // getHeightChanBucketWrite retrieves an existing height-channel bucket from the
 // nursery store, using the provided block height and channel point. if the
 // bucket does not exist, or any bucket along its path does not exist, a nil

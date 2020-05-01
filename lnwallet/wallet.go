@@ -1268,7 +1268,6 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 	chanState.RemoteCurrentRevocation = theirContribution.FirstCommitmentPoint
 
 	req.err <- nil
-	return
 }
 
 // verifyFundingInputs attempts to verify all remote inputs to the funding

@@ -77,7 +77,7 @@ func TestTUint16(t *testing.T) {
 				t.Fatalf("unable to encode tuint16: %v", err)
 			}
 
-			if bytes.Compare(b.Bytes(), test.bytes) != 0 {
+			if !bytes.Equal(b.Bytes(), test.bytes) {
 				t.Fatalf("encoding mismatch, "+
 					"expected: %x, got: %x",
 					test.bytes, b.Bytes())
@@ -201,7 +201,7 @@ func TestTUint32(t *testing.T) {
 				t.Fatalf("unable to encode tuint32: %v", err)
 			}
 
-			if bytes.Compare(b.Bytes(), test.bytes) != 0 {
+			if !bytes.Equal(b.Bytes(), test.bytes) {
 				t.Fatalf("encoding mismatch, "+
 					"expected: %x, got: %x",
 					test.bytes, b.Bytes())
@@ -371,7 +371,7 @@ func TestTUint64(t *testing.T) {
 				t.Fatalf("unable to encode tuint64: %v", err)
 			}
 
-			if bytes.Compare(b.Bytes(), test.bytes) != 0 {
+			if !bytes.Equal(b.Bytes(), test.bytes) {
 				t.Fatalf("encoding mismatch, "+
 					"expected: %x, got: %x",
 					test.bytes, b.Bytes())

@@ -225,9 +225,7 @@ func (g *mockGraph) chans() []*channeldb.OpenChannel {
 	defer g.mu.Unlock()
 
 	channels := make([]*channeldb.OpenChannel, 0, len(g.channels))
-	for _, channel := range g.channels {
-		channels = append(channels, channel)
-	}
+	channels = append(channels, g.channels...)
 
 	return channels
 }

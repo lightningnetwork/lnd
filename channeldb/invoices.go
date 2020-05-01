@@ -1218,7 +1218,7 @@ func deserializeInvoice(r io.Reader) (Invoice, error) {
 // deserializeHtlcs reads a list of invoice htlcs from a reader and returns it
 // as a map.
 func deserializeHtlcs(r io.Reader) (map[CircuitKey]*InvoiceHTLC, error) {
-	htlcs := make(map[CircuitKey]*InvoiceHTLC, 0)
+	htlcs := make(map[CircuitKey]*InvoiceHTLC)
 
 	for {
 		// Read the length of the tlv stream for this htlc.

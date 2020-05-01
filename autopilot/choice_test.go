@@ -139,10 +139,7 @@ func assertChoice(w []float64, iterations int) bool {
 	}
 
 	// The sum of choices must be exactly iterations of course.
-	if totalChoices != iterations {
-		return false
-	}
-	return true
+	return totalChoices == iterations
 
 }
 

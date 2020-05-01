@@ -547,7 +547,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 
 			pmp, err := nat.DiscoverPMP(discoveryTimeout)
 			if err != nil {
-				err := fmt.Errorf("Unable to discover a "+
+				err := fmt.Errorf("unable to discover a "+
 					"NAT-PMP enabled device on the local "+
 					"network: %v", err)
 				srvrLog.Error(err)
@@ -598,10 +598,9 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 	if err != nil {
 		return nil, err
 	}
+
 	selfAddrs := make([]net.Addr, 0, len(externalIPs))
-	for _, ip := range externalIPs {
-		selfAddrs = append(selfAddrs, ip)
-	}
+	selfAddrs = append(selfAddrs, externalIPs...)
 
 	chanGraph := chanDB.ChannelGraph()
 
@@ -1996,7 +1995,7 @@ func (s *server) createNewHiddenService() error {
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("Unable to generate new node "+
+		return fmt.Errorf("unable to generate new node "+
 			"announcement: %v", err)
 	}
 
@@ -2449,7 +2448,7 @@ func (s *server) nextPeerBackoff(pubStr string,
 	// The peer succeeded in starting. If the connection didn't last long
 	// enough to be considered stable, we'll continue to back off retries
 	// with this peer.
-	connDuration := time.Now().Sub(startTime)
+	connDuration := time.Since(startTime)
 	if connDuration < defaultStableConnDuration {
 		return computeNextBackoff(backoff)
 	}

@@ -80,7 +80,7 @@ func testWriteVarInt(t *testing.T, test varIntTest) {
 			test.Value, err)
 	}
 
-	if bytes.Compare(w.Bytes(), test.Bytes) != 0 {
+	if !bytes.Equal(w.Bytes(), test.Bytes) {
 		t.Fatalf("expected bytes: %v, got %v",
 			test.Bytes, w.Bytes())
 	}

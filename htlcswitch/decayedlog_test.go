@@ -122,7 +122,7 @@ func TestDecayedLogGarbageCollector(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	// Assert that hashedSecret is not in the sharedHashBucket
-	val, err = d.Get(hashedSecret)
+	_, err = d.Get(hashedSecret)
 	if err == nil {
 		t.Fatalf("CLTV was not deleted")
 	}

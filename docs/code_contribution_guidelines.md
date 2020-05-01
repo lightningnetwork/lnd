@@ -485,7 +485,7 @@ set of linting scripts run by `make lint`. These include `gofmt`. In addition
 to `gofmt` we've opted to enforce the following style guidelines.
 
    * ALL columns (on a best effort basis) should be wrapped to 80 line columns.
-     Editors should be set to treat a tab as 4 spaces.
+     Editors should be set to treat a tab as 8 spaces.
    * When wrapping a line that contains a function call as the unwrapped line
      exceeds the column limit, the close paren should be placed on its own
      line. Additionally, all arguments should begin in a new line after the

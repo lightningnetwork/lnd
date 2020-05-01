@@ -85,12 +85,6 @@ var (
 	// It is set to the value under the Bitcoin chain as default.
 	MaxPaymentMSat = maxBtcPaymentMSat
 
-	// defaultAcceptorTimeout is the time after which an RPCAcceptor will time
-	// out and return false if it hasn't yet received a response.
-	//
-	// TODO: Make this configurable
-	defaultAcceptorTimeout = 15 * time.Second
-
 	// readPermissions is a slice of all entities that allow read
 	// permissions for authorization purposes, all lowercase.
 	readPermissions = []bakery.Op{
@@ -6020,14 +6014,14 @@ func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer
 		}
 
 		// timeout is the time after which ChannelAcceptRequests expire.
-		timeout := time.After(defaultAcceptorTimeout)
+		timeout := time.After(cfg.AcceptorTimeout)
 
 		// Send the request to the newRequests channel.
 		select {
 		case newRequests <- newRequest:
 		case <-timeout:
 			rpcsLog.Errorf("RPCAcceptor returned false - reached timeout of %d",
-				defaultAcceptorTimeout)
+				cfg.AcceptorTimeout)
 			return false
 		case <-quit:
 			return false
@@ -6036,13 +6030,13 @@ func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer
 		}
 
 		// Receive the response and return it. If no response has been received
-		// in defaultAcceptorTimeout, then return false.
+		// in AcceptorTimeout, then return false.
 		select {
 		case resp := <-respChan:
 			return resp
 		case <-timeout:
 			rpcsLog.Errorf("RPCAcceptor returned false - reached timeout of %d",
-				defaultAcceptorTimeout)
+				cfg.AcceptorTimeout)
 			return false
 		case <-quit:
 			return false

@@ -5,7 +5,6 @@ import (
 	"container/list"
 	"crypto/sha256"
 	"fmt"
-
 	"reflect"
 	"runtime"
 	"testing"
@@ -7902,5 +7901,394 @@ func TestFetchParent(t *testing.T) {
 			}
 		})
 
+	}
+}
+
+// TestEvaluateView tests the creation of a htlc view and the opt in mutation of
+// send and receive balances. This test does not check htlc mutation on a htlc
+// level.
+func TestEvaluateView(t *testing.T) {
+	const (
+		// addHeight is a non-zero height that is used for htlc adds.
+		addHeight = 200
+
+		// nextHeight is a constant that we use for the next height in
+		// all unit tests.
+		nextHeight = 400
+
+		// feePerKw is the fee we start all of our unit tests with.
+		feePerKw = 1
+
+		// htlcAddAmount is the amount for htlc adds in tests.
+		htlcAddAmount = 15
+
+		// ourFeeUpdateAmt is an amount that we update fees to
+		// expressed in msat.
+		ourFeeUpdateAmt = 20000
+
+		// ourFeeUpdatePerSat is the fee rate *in satoshis* that we
+		// expect if we update to ourFeeUpdateAmt.
+		ourFeeUpdatePerSat = chainfee.SatPerKWeight(20)
+
+		// theirFeeUpdateAmt iis an amount that they update fees to
+		// expressed in msat.
+		theirFeeUpdateAmt = 10000
+
+		// theirFeeUpdatePerSat is the fee rate *in satoshis* that we
+		// expect if we update to ourFeeUpdateAmt.
+		theirFeeUpdatePerSat = chainfee.SatPerKWeight(10)
+	)
+
+	tests := []struct {
+		name        string
+		ourHtlcs    []*PaymentDescriptor
+		theirHtlcs  []*PaymentDescriptor
+		remoteChain bool
+		mutateState bool
+
+		// ourExpectedHtlcs is the set of our htlcs that we expect in
+		// the htlc view once it has been evaluated. We just store
+		// htlc index -> bool for brevity, because we only check the
+		// presence of the htlc in the returned set.
+		ourExpectedHtlcs map[uint64]bool
+
+		// theirExpectedHtlcs is the set of their htlcs that we expect
+		// in the htlc view once it has been evaluated. We just store
+		// htlc index -> bool for brevity, because we only check the
+		// presence of the htlc in the returned set.
+		theirExpectedHtlcs map[uint64]bool
+
+		// expectedFee is the fee we expect to be set after evaluating
+		// the htlc view.
+		expectedFee chainfee.SatPerKWeight
+
+		// expectReceived is the amount we expect the channel to have
+		// tracked as our receive total.
+		expectReceived lnwire.MilliSatoshi
+
+		// expectSent is the amount we expect the channel to have
+		// tracked as our send total.
+		expectSent lnwire.MilliSatoshi
+	}{
+		{
+			name:        "our fee update is applied",
+			remoteChain: false,
+			mutateState: false,
+			ourHtlcs: []*PaymentDescriptor{
+				{
+					Amount:    ourFeeUpdateAmt,
+					EntryType: FeeUpdate,
+				},
+			},
+			theirHtlcs:         nil,
+			expectedFee:        ourFeeUpdatePerSat,
+			ourExpectedHtlcs:   nil,
+			theirExpectedHtlcs: nil,
+			expectReceived:     0,
+			expectSent:         0,
+		},
+		{
+			name:        "their fee update is applied",
+			remoteChain: false,
+			mutateState: false,
+			ourHtlcs:    []*PaymentDescriptor{},
+			theirHtlcs: []*PaymentDescriptor{
+				{
+					Amount:    theirFeeUpdateAmt,
+					EntryType: FeeUpdate,
+				},
+			},
+			expectedFee:        theirFeeUpdatePerSat,
+			ourExpectedHtlcs:   nil,
+			theirExpectedHtlcs: nil,
+			expectReceived:     0,
+			expectSent:         0,
+		},
+		{
+			// We expect unresolved htlcs to to remain in the view.
+			name:        "htlcs adds without settles",
+			remoteChain: false,
+			mutateState: false,
+			ourHtlcs: []*PaymentDescriptor{
+				{
+					HtlcIndex: 0,
+					Amount:    htlcAddAmount,
+					EntryType: Add,
+				},
+			},
+			theirHtlcs: []*PaymentDescriptor{
+				{
+					HtlcIndex: 0,
+					Amount:    htlcAddAmount,
+					EntryType: Add,
+				},
+				{
+					HtlcIndex: 1,
+					Amount:    htlcAddAmount,
+					EntryType: Add,
+				},
+			},
+			expectedFee: feePerKw,
+			ourExpectedHtlcs: map[uint64]bool{
+				0: true,
+			},
+			theirExpectedHtlcs: map[uint64]bool{
+				0: true,
+				1: true,
+			},
+			expectReceived: 0,
+			expectSent:     0,
+		},
+		{
+			name:        "our htlc settled, state mutated",
+			remoteChain: false,
+			mutateState: true,
+			ourHtlcs: []*PaymentDescriptor{
+				{
+					HtlcIndex:            0,
+					Amount:               htlcAddAmount,
+					EntryType:            Add,
+					addCommitHeightLocal: addHeight,
+				},
+			},
+			theirHtlcs: []*PaymentDescriptor{
+				{
+					HtlcIndex: 0,
+					Amount:    htlcAddAmount,
+					EntryType: Add,
+				},
+				{
+					HtlcIndex: 1,
+					Amount:    htlcAddAmount,
+					EntryType: Settle,
+					// Map their htlc settle update to our
+					// htlc add (0).
+					ParentIndex: 0,
+				},
+			},
+			expectedFee:      feePerKw,
+			ourExpectedHtlcs: nil,
+			theirExpectedHtlcs: map[uint64]bool{
+				0: true,
+			},
+			expectReceived: 0,
+			expectSent:     htlcAddAmount,
+		},
+		{
+			name:        "our htlc settled, state not mutated",
+			remoteChain: false,
+			mutateState: false,
+			ourHtlcs: []*PaymentDescriptor{
+				{
+					HtlcIndex:            0,
+					Amount:               htlcAddAmount,
+					EntryType:            Add,
+					addCommitHeightLocal: addHeight,
+				},
+			},
+			theirHtlcs: []*PaymentDescriptor{
+				{
+					HtlcIndex: 0,
+					Amount:    htlcAddAmount,
+					EntryType: Add,
+				},
+				{
+					HtlcIndex: 1,
+					Amount:    htlcAddAmount,
+					EntryType: Settle,
+					// Map their htlc settle update to our
+					// htlc add (0).
+					ParentIndex: 0,
+				},
+			},
+			expectedFee:      feePerKw,
+			ourExpectedHtlcs: nil,
+			theirExpectedHtlcs: map[uint64]bool{
+				0: true,
+			},
+			expectReceived: 0,
+			expectSent:     0,
+		},
+		{
+			name:        "their htlc settled, state mutated",
+			remoteChain: false,
+			mutateState: true,
+			ourHtlcs: []*PaymentDescriptor{
+				{
+					HtlcIndex: 0,
+					Amount:    htlcAddAmount,
+					EntryType: Add,
+				},
+				{
+					HtlcIndex: 1,
+					Amount:    htlcAddAmount,
+					EntryType: Settle,
+					// Map our htlc settle update to their
+					// htlc add (1).
+					ParentIndex: 1,
+				},
+			},
+			theirHtlcs: []*PaymentDescriptor{
+				{
+					HtlcIndex:            0,
+					Amount:               htlcAddAmount,
+					EntryType:            Add,
+					addCommitHeightLocal: addHeight,
+				},
+				{
+					HtlcIndex:            1,
+					Amount:               htlcAddAmount,
+					EntryType:            Add,
+					addCommitHeightLocal: addHeight,
+				},
+			},
+			expectedFee: feePerKw,
+			ourExpectedHtlcs: map[uint64]bool{
+				0: true,
+			},
+			theirExpectedHtlcs: map[uint64]bool{
+				0: true,
+			},
+			expectReceived: htlcAddAmount,
+			expectSent:     0,
+		},
+		{
+			name:        "their htlc settled, state not mutated",
+			remoteChain: false,
+			mutateState: false,
+			ourHtlcs: []*PaymentDescriptor{
+				{
+					HtlcIndex: 0,
+					Amount:    htlcAddAmount,
+					EntryType: Add,
+				},
+				{
+					HtlcIndex: 1,
+					Amount:    htlcAddAmount,
+					EntryType: Settle,
+					// Map our htlc settle update to their
+					// htlc add (0).
+					ParentIndex: 0,
+				},
+			},
+			theirHtlcs: []*PaymentDescriptor{
+				{
+					HtlcIndex:            0,
+					Amount:               htlcAddAmount,
+					EntryType:            Add,
+					addCommitHeightLocal: addHeight,
+				},
+			},
+			expectedFee: feePerKw,
+			ourExpectedHtlcs: map[uint64]bool{
+				0: true,
+			},
+			theirExpectedHtlcs: nil,
+			expectReceived:     0,
+			expectSent:         0,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			lc := LightningChannel{
+				channelState: &channeldb.OpenChannel{
+					TotalMSatSent:     0,
+					TotalMSatReceived: 0,
+				},
+
+				// Create update logs for local and remote.
+				localUpdateLog:  newUpdateLog(0, 0),
+				remoteUpdateLog: newUpdateLog(0, 0),
+			}
+
+			for _, htlc := range test.ourHtlcs {
+				if htlc.EntryType == Add {
+					lc.localUpdateLog.appendHtlc(htlc)
+				} else {
+					lc.localUpdateLog.appendUpdate(htlc)
+				}
+			}
+
+			for _, htlc := range test.theirHtlcs {
+				if htlc.EntryType == Add {
+					lc.remoteUpdateLog.appendHtlc(htlc)
+				} else {
+					lc.remoteUpdateLog.appendUpdate(htlc)
+				}
+			}
+
+			view := &htlcView{
+				ourUpdates:   test.ourHtlcs,
+				theirUpdates: test.theirHtlcs,
+				feePerKw:     feePerKw,
+			}
+
+			var (
+				// Create vars to store balance changes. We do
+				// not check these values in this test because
+				// balance modification happens on the htlc
+				// processing level.
+				ourBalance   lnwire.MilliSatoshi
+				theirBalance lnwire.MilliSatoshi
+			)
+
+			// Evaluate the htlc view, mutate as test expects.
+			result, err := lc.evaluateHTLCView(
+				view, &ourBalance, &theirBalance, nextHeight,
+				test.remoteChain, test.mutateState,
+			)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if result.feePerKw != test.expectedFee {
+				t.Fatalf("expected fee: %v, got: %v",
+					test.expectedFee, result.feePerKw)
+			}
+
+			checkExpectedHtlcs(
+				t, result.ourUpdates, test.ourExpectedHtlcs,
+			)
+
+			checkExpectedHtlcs(
+				t, result.theirUpdates, test.theirExpectedHtlcs,
+			)
+
+			if lc.channelState.TotalMSatSent != test.expectSent {
+				t.Fatalf("expected sent: %v, got: %v",
+					test.expectSent,
+					lc.channelState.TotalMSatSent)
+			}
+
+			if lc.channelState.TotalMSatReceived !=
+				test.expectReceived {
+
+				t.Fatalf("expected received: %v, got: %v",
+					test.expectReceived,
+					lc.channelState.TotalMSatReceived)
+			}
+		})
+	}
+}
+
+// checkExpectedHtlcs checks that a set of htlcs that we have contains all the
+// htlcs we expect.
+func checkExpectedHtlcs(t *testing.T, actual []*PaymentDescriptor,
+	expected map[uint64]bool) {
+
+	if len(expected) != len(actual) {
+		t.Fatalf("expected: %v htlcs, got: %v",
+			len(expected), len(actual))
+	}
+
+	for _, htlc := range actual {
+		_, ok := expected[htlc.HtlcIndex]
+		if !ok {
+			t.Fatalf("htlc with index: %v not "+
+				"expected in set", htlc.HtlcIndex)
+		}
 	}
 }

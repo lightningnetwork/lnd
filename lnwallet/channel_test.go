@@ -7676,3 +7676,231 @@ func TestChannelFeeRateFloor(t *testing.T) {
 			err)
 	}
 }
+
+// TestFetchParent tests lookup of an entry's parent in the appropriate log.
+func TestFetchParent(t *testing.T) {
+	tests := []struct {
+		name          string
+		remoteChain   bool
+		remoteLog     bool
+		localEntries  []*PaymentDescriptor
+		remoteEntries []*PaymentDescriptor
+
+		// parentIndex is the parent index of the entry that we will
+		// lookup with fetch parent.
+		parentIndex uint64
+
+		// expectErr indicates that we expect fetch parent to fail.
+		expectErr bool
+
+		// expectedIndex is the htlc index that we expect the parent
+		// to have.
+		expectedIndex uint64
+	}{
+		{
+			name:          "not found in remote log",
+			localEntries:  nil,
+			remoteEntries: nil,
+			remoteChain:   true,
+			remoteLog:     true,
+			parentIndex:   0,
+			expectErr:     true,
+		},
+		{
+			name:          "not found in local log",
+			localEntries:  nil,
+			remoteEntries: nil,
+			remoteChain:   false,
+			remoteLog:     false,
+			parentIndex:   0,
+			expectErr:     true,
+		},
+		{
+			name:         "remote log + chain, remote add height 0",
+			localEntries: nil,
+			remoteEntries: []*PaymentDescriptor{
+				// This entry will be added at log index =0.
+				{
+					HtlcIndex:             1,
+					addCommitHeightLocal:  100,
+					addCommitHeightRemote: 100,
+				},
+				// This entry will be added at log index =1, it
+				// is the parent entry we are looking for.
+				{
+					HtlcIndex:             2,
+					addCommitHeightLocal:  100,
+					addCommitHeightRemote: 0,
+				},
+			},
+			remoteChain: true,
+			remoteLog:   true,
+			parentIndex: 1,
+			expectErr:   true,
+		},
+		{
+			name: "remote log, local chain, local add height 0",
+			remoteEntries: []*PaymentDescriptor{
+				// This entry will be added at log index =0.
+				{
+					HtlcIndex:             1,
+					addCommitHeightLocal:  100,
+					addCommitHeightRemote: 100,
+				},
+				// This entry will be added at log index =1, it
+				// is the parent entry we are looking for.
+				{
+					HtlcIndex:             2,
+					addCommitHeightLocal:  0,
+					addCommitHeightRemote: 100,
+				},
+			},
+			localEntries: nil,
+			remoteChain:  false,
+			remoteLog:    true,
+			parentIndex:  1,
+			expectErr:    true,
+		},
+		{
+			name: "local log + chain, local add height 0",
+			localEntries: []*PaymentDescriptor{
+				// This entry will be added at log index =0.
+				{
+					HtlcIndex:             1,
+					addCommitHeightLocal:  100,
+					addCommitHeightRemote: 100,
+				},
+				// This entry will be added at log index =1, it
+				// is the parent entry we are looking for.
+				{
+					HtlcIndex:             2,
+					addCommitHeightLocal:  0,
+					addCommitHeightRemote: 100,
+				},
+			},
+			remoteEntries: nil,
+			remoteChain:   false,
+			remoteLog:     false,
+			parentIndex:   1,
+			expectErr:     true,
+		},
+
+		{
+			name: "local log + remote chain, remote add height 0",
+			localEntries: []*PaymentDescriptor{
+				// This entry will be added at log index =0.
+				{
+					HtlcIndex:             1,
+					addCommitHeightLocal:  100,
+					addCommitHeightRemote: 100,
+				},
+				// This entry will be added at log index =1, it
+				// is the parent entry we are looking for.
+				{
+					HtlcIndex:             2,
+					addCommitHeightLocal:  100,
+					addCommitHeightRemote: 0,
+				},
+			},
+			remoteEntries: nil,
+			remoteChain:   true,
+			remoteLog:     false,
+			parentIndex:   1,
+			expectErr:     true,
+		},
+		{
+			name:         "remote log found",
+			localEntries: nil,
+			remoteEntries: []*PaymentDescriptor{
+				// This entry will be added at log index =0.
+				{
+					HtlcIndex:             1,
+					addCommitHeightLocal:  100,
+					addCommitHeightRemote: 0,
+				},
+				// This entry will be added at log index =1, it
+				// is the parent entry we are looking for.
+				{
+					HtlcIndex:             2,
+					addCommitHeightLocal:  100,
+					addCommitHeightRemote: 100,
+				},
+			},
+			remoteChain:   true,
+			remoteLog:     true,
+			parentIndex:   1,
+			expectErr:     false,
+			expectedIndex: 2,
+		},
+		{
+			name: "local log found",
+			localEntries: []*PaymentDescriptor{
+				// This entry will be added at log index =0.
+				{
+					HtlcIndex:             1,
+					addCommitHeightLocal:  0,
+					addCommitHeightRemote: 100,
+				},
+				// This entry will be added at log index =1, it
+				// is the parent entry we are looking for.
+				{
+					HtlcIndex:             2,
+					addCommitHeightLocal:  100,
+					addCommitHeightRemote: 100,
+				},
+			},
+			remoteEntries: nil,
+			remoteChain:   false,
+			remoteLog:     false,
+			parentIndex:   1,
+			expectErr:     false,
+			expectedIndex: 2,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			// Create a lightning channel with newly initialized
+			// local and remote logs.
+			lc := LightningChannel{
+				localUpdateLog:  newUpdateLog(0, 0),
+				remoteUpdateLog: newUpdateLog(0, 0),
+			}
+
+			// Add the local and remote entries to update logs.
+			for _, entry := range test.localEntries {
+				lc.localUpdateLog.appendHtlc(entry)
+			}
+			for _, entry := range test.remoteEntries {
+				lc.remoteUpdateLog.appendHtlc(entry)
+			}
+
+			parent, err := lc.fetchParent(
+				&PaymentDescriptor{
+					ParentIndex: test.parentIndex,
+				},
+				test.remoteChain,
+				test.remoteLog,
+			)
+			gotErr := err != nil
+			if test.expectErr != gotErr {
+				t.Fatalf("expected error: %v, got: %v, "+
+					"error:%v", test.expectErr, gotErr, err)
+			}
+
+			// If our lookup failed, we do not need to check parent
+			// index.
+			if err != nil {
+				return
+			}
+
+			if parent.HtlcIndex != test.expectedIndex {
+				t.Fatalf("expected parent index: %v, got: %v",
+					test.parentIndex, parent.HtlcIndex)
+			}
+		})
+
+	}
+}

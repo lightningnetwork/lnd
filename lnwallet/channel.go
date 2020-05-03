@@ -2494,57 +2494,6 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	skipUs := make(map[uint64]struct{})
 	skipThem := make(map[uint64]struct{})
 
-	// fetchParentEntry is a helper method that will fetch the parent of
-	// entry from the corresponding update log.
-	fetchParentEntry := func(entry *PaymentDescriptor,
-		remoteLog bool) (*PaymentDescriptor, error) {
-
-		var (
-			updateLog *updateLog
-			logName   string
-		)
-
-		if remoteLog {
-			updateLog = lc.remoteUpdateLog
-			logName = "remote"
-		} else {
-			updateLog = lc.localUpdateLog
-			logName = "local"
-		}
-
-		addEntry := updateLog.lookupHtlc(entry.ParentIndex)
-
-		switch {
-		// We check if the parent entry is not found at this point.
-		// This could happen for old versions of lnd, and we return an
-		// error to gracefully shut down the state machine if such an
-		// entry is still in the logs.
-		case addEntry == nil:
-			return nil, fmt.Errorf("unable to find parent entry "+
-				"%d in %v update log: %v\nUpdatelog: %v",
-				entry.ParentIndex, logName,
-				newLogClosure(func() string {
-					return spew.Sdump(entry)
-				}), newLogClosure(func() string {
-					return spew.Sdump(updateLog)
-				}),
-			)
-
-		// The parent add height should never be zero at this point. If
-		// that's the case we probably forgot to send a new commitment.
-		case remoteChain && addEntry.addCommitHeightRemote == 0:
-			return nil, fmt.Errorf("parent entry %d for update %d "+
-				"had zero remote add height", entry.ParentIndex,
-				entry.LogIndex)
-		case !remoteChain && addEntry.addCommitHeightLocal == 0:
-			return nil, fmt.Errorf("parent entry %d for update %d "+
-				"had zero local add height", entry.ParentIndex,
-				entry.LogIndex)
-		}
-
-		return addEntry, nil
-	}
-
 	// First we run through non-add entries in both logs, populating the
 	// skip sets and mutating the current chain state (crediting balances,
 	// etc) to reflect the settle/timeout entry encountered.
@@ -2571,7 +2520,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 			lc.channelState.TotalMSatReceived += entry.Amount
 		}
 
-		addEntry, err := fetchParentEntry(entry, true)
+		addEntry, err := lc.fetchParent(entry, remoteChain, true)
 		if err != nil {
 			return nil, err
 		}
@@ -2604,7 +2553,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 			lc.channelState.TotalMSatSent += entry.Amount
 		}
 
-		addEntry, err := fetchParentEntry(entry, false)
+		addEntry, err := lc.fetchParent(entry, remoteChain, false)
 		if err != nil {
 			return nil, err
 		}
@@ -2639,6 +2588,57 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	}
 
 	return newView, nil
+}
+
+// getFetchParent is a helper that looks up update log parent entries in the
+// appropriate log.
+func (lc *LightningChannel) fetchParent(entry *PaymentDescriptor,
+	remoteChain, remoteLog bool) (*PaymentDescriptor, error) {
+
+	var (
+		updateLog *updateLog
+		logName   string
+	)
+
+	if remoteLog {
+		updateLog = lc.remoteUpdateLog
+		logName = "remote"
+	} else {
+		updateLog = lc.localUpdateLog
+		logName = "local"
+	}
+
+	addEntry := updateLog.lookupHtlc(entry.ParentIndex)
+
+	switch {
+	// We check if the parent entry is not found at this point.
+	// This could happen for old versions of lnd, and we return an
+	// error to gracefully shut down the state machine if such an
+	// entry is still in the logs.
+	case addEntry == nil:
+		return nil, fmt.Errorf("unable to find parent entry "+
+			"%d in %v update log: %v\nUpdatelog: %v",
+			entry.ParentIndex, logName,
+			newLogClosure(func() string {
+				return spew.Sdump(entry)
+			}), newLogClosure(func() string {
+				return spew.Sdump(updateLog)
+			}),
+		)
+
+	// The parent add height should never be zero at this point. If
+	// that's the case we probably forgot to send a new commitment.
+	case remoteChain && addEntry.addCommitHeightRemote == 0:
+		return nil, fmt.Errorf("parent entry %d for update %d "+
+			"had zero remote add height", entry.ParentIndex,
+			entry.LogIndex)
+	case !remoteChain && addEntry.addCommitHeightLocal == 0:
+		return nil, fmt.Errorf("parent entry %d for update %d "+
+			"had zero local add height", entry.ParentIndex,
+			entry.LogIndex)
+	}
+
+	return addEntry, nil
 }
 
 // processAddEntry evaluates the effect of an add entry within the HTLC log.

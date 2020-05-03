@@ -8292,3 +8292,622 @@ func checkExpectedHtlcs(t *testing.T, actual []*PaymentDescriptor,
 		}
 	}
 }
+
+// heights represents the heights on a payment descriptor.
+type heights struct {
+	localAdd     uint64
+	localRemove  uint64
+	remoteAdd    uint64
+	remoteRemove uint64
+}
+
+// TestProcessFeeUpdate tests the applying of fee updates and mutation of
+// local and remote add and remove heights on update messages.
+func TestProcessFeeUpdate(t *testing.T) {
+	const (
+		// height is a non-zero height that can be used for htlcs
+		// heights.
+		height = 200
+
+		// nextHeight is a constant that we use for the next height in
+		// all unit tests.
+		nextHeight = 400
+
+		// feePerKw is the fee we start all of our unit tests with.
+		feePerKw = 1
+
+		// ourFeeUpdateAmt is an amount that we update fees to expressed
+		// in msat.
+		ourFeeUpdateAmt = 20000
+
+		// ourFeeUpdatePerSat is the fee rate *in satoshis* that we
+		// expect if we update to ourFeeUpdateAmt.
+		ourFeeUpdatePerSat = chainfee.SatPerKWeight(20)
+	)
+
+	tests := []struct {
+		name            string
+		startHeights    heights
+		expectedHeights heights
+		remoteChain     bool
+		mutate          bool
+		expectedFee     chainfee.SatPerKWeight
+	}{
+		{
+			// Looking at local chain, local add is non-zero so
+			// the update has been applied already; no fee change.
+			name: "non-zero local height, fee unchanged",
+			startHeights: heights{
+				localAdd:     height,
+				localRemove:  0,
+				remoteAdd:    0,
+				remoteRemove: height,
+			},
+			expectedHeights: heights{
+				localAdd:     height,
+				localRemove:  0,
+				remoteAdd:    0,
+				remoteRemove: height,
+			},
+			remoteChain: false,
+			mutate:      false,
+			expectedFee: feePerKw,
+		},
+		{
+			// Looking at local chain, local add is zero so the
+			// update has not been applied yet; we expect a fee
+			// update.
+			name: "zero local height, fee changed",
+			startHeights: heights{
+				localAdd:     0,
+				localRemove:  0,
+				remoteAdd:    height,
+				remoteRemove: 0,
+			},
+			expectedHeights: heights{
+				localAdd:     0,
+				localRemove:  0,
+				remoteAdd:    height,
+				remoteRemove: 0,
+			},
+			remoteChain: false,
+			mutate:      false,
+			expectedFee: ourFeeUpdatePerSat,
+		},
+		{
+			// Looking at remote chain, the remote add height is
+			// zero, so the update has not been applied so we expect
+			// a fee change.
+			name: "zero remote height, fee changed",
+			startHeights: heights{
+				localAdd:     height,
+				localRemove:  0,
+				remoteAdd:    0,
+				remoteRemove: 0,
+			},
+			expectedHeights: heights{
+				localAdd:     height,
+				localRemove:  0,
+				remoteAdd:    0,
+				remoteRemove: 0,
+			},
+			remoteChain: true,
+			mutate:      false,
+			expectedFee: ourFeeUpdatePerSat,
+		},
+		{
+			// Looking at remote chain, the remote add height is
+			// non-zero, so the update has been applied so we expect
+			// no fee change.
+			name: "non-zero remote height, no fee change",
+			startHeights: heights{
+				localAdd:     height,
+				localRemove:  0,
+				remoteAdd:    height,
+				remoteRemove: 0,
+			},
+			expectedHeights: heights{
+				localAdd:     height,
+				localRemove:  0,
+				remoteAdd:    height,
+				remoteRemove: 0,
+			},
+			remoteChain: true,
+			mutate:      false,
+			expectedFee: feePerKw,
+		},
+		{
+			// Local add height is non-zero, so the update has
+			// already been applied; we do not expect fee to
+			// change or any mutations to be applied.
+			name: "non-zero local height, mutation not applied",
+			startHeights: heights{
+				localAdd:     height,
+				localRemove:  0,
+				remoteAdd:    0,
+				remoteRemove: height,
+			},
+			expectedHeights: heights{
+				localAdd:     height,
+				localRemove:  0,
+				remoteAdd:    0,
+				remoteRemove: height,
+			},
+			remoteChain: false,
+			mutate:      true,
+			expectedFee: feePerKw,
+		},
+		{
+			// Local add is zero and we are looking at our local
+			// chain, so the update has not been applied yet. We
+			// expect the local add and remote heights to be
+			// mutated.
+			name: "zero height, fee changed, mutation applied",
+			startHeights: heights{
+				localAdd:     0,
+				localRemove:  0,
+				remoteAdd:    0,
+				remoteRemove: 0,
+			},
+			expectedHeights: heights{
+				localAdd:     nextHeight,
+				localRemove:  nextHeight,
+				remoteAdd:    0,
+				remoteRemove: 0,
+			},
+			remoteChain: false,
+			mutate:      true,
+			expectedFee: ourFeeUpdatePerSat,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			// Create a fee update with add and remove heights as
+			// set in the test.
+			heights := test.startHeights
+			update := &PaymentDescriptor{
+				Amount:                   ourFeeUpdateAmt,
+				addCommitHeightRemote:    heights.remoteAdd,
+				addCommitHeightLocal:     heights.localAdd,
+				removeCommitHeightRemote: heights.remoteRemove,
+				removeCommitHeightLocal:  heights.localRemove,
+				EntryType:                FeeUpdate,
+			}
+
+			view := &htlcView{
+				feePerKw: chainfee.SatPerKWeight(feePerKw),
+			}
+			processFeeUpdate(
+				update, nextHeight, test.remoteChain,
+				test.mutate, view,
+			)
+
+			if view.feePerKw != test.expectedFee {
+				t.Fatalf("expected fee: %v, got: %v",
+					test.expectedFee, feePerKw)
+			}
+
+			checkHeights(t, update, test.expectedHeights)
+		})
+	}
+}
+
+func checkHeights(t *testing.T, update *PaymentDescriptor, expected heights) {
+	updateHeights := heights{
+		localAdd:     update.addCommitHeightLocal,
+		localRemove:  update.removeCommitHeightLocal,
+		remoteAdd:    update.addCommitHeightRemote,
+		remoteRemove: update.removeCommitHeightRemote,
+	}
+
+	if !reflect.DeepEqual(updateHeights, expected) {
+		t.Fatalf("expected: %v, got: %v", expected, updateHeights)
+	}
+}
+
+// TestProcessAddRemoveEntry tests the updating of our and their balances when
+// we process adds, settles and fails. It also tests the mutating of add and
+// remove heights.
+func TestProcessAddRemoveEntry(t *testing.T) {
+	const (
+		// addHeight is a non-zero addHeight that is used for htlc
+		// add heights.
+		addHeight = 100
+
+		// removeHeight is a non-zero removeHeight that is used for
+		// htlc remove heights.
+		removeHeight = 200
+
+		// nextHeight is a constant that we use for the nextHeight in
+		// all unit tests.
+		nextHeight = 400
+
+		// updateAmount is the amount that the update is set to.
+		updateAmount = lnwire.MilliSatoshi(10)
+
+		// startBalance is a balance we start both sides out with
+		// so that balances can be incremented.
+		startBalance = lnwire.MilliSatoshi(100)
+	)
+
+	tests := []struct {
+		name                 string
+		startHeights         heights
+		remoteChain          bool
+		isIncoming           bool
+		mutateState          bool
+		ourExpectedBalance   lnwire.MilliSatoshi
+		theirExpectedBalance lnwire.MilliSatoshi
+		expectedHeights      heights
+		updateType           updateType
+	}{
+		{
+			name: "add, remote chain, already processed",
+			startHeights: heights{
+				localAdd:     0,
+				remoteAdd:    addHeight,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			remoteChain:          true,
+			isIncoming:           false,
+			mutateState:          false,
+			ourExpectedBalance:   startBalance,
+			theirExpectedBalance: startBalance,
+			expectedHeights: heights{
+				localAdd:     0,
+				remoteAdd:    addHeight,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			updateType: Add,
+		},
+		{
+			name: "add, local chain, already processed",
+			startHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    0,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			remoteChain:          false,
+			isIncoming:           false,
+			mutateState:          false,
+			ourExpectedBalance:   startBalance,
+			theirExpectedBalance: startBalance,
+			expectedHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    0,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			updateType: Add,
+		},
+		{
+			name: "incoming add, local chain, not mutated",
+			startHeights: heights{
+				localAdd:     0,
+				remoteAdd:    0,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			remoteChain:          false,
+			isIncoming:           true,
+			mutateState:          false,
+			ourExpectedBalance:   startBalance,
+			theirExpectedBalance: startBalance - updateAmount,
+			expectedHeights: heights{
+				localAdd:     0,
+				remoteAdd:    0,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			updateType: Add,
+		},
+		{
+			name: "incoming add, local chain, mutated",
+			startHeights: heights{
+				localAdd:     0,
+				remoteAdd:    0,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			remoteChain:          false,
+			isIncoming:           true,
+			mutateState:          true,
+			ourExpectedBalance:   startBalance,
+			theirExpectedBalance: startBalance - updateAmount,
+			expectedHeights: heights{
+				localAdd:     nextHeight,
+				remoteAdd:    0,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			updateType: Add,
+		},
+
+		{
+			name: "outgoing add, remote chain, not mutated",
+			startHeights: heights{
+				localAdd:     0,
+				remoteAdd:    0,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			remoteChain:          true,
+			isIncoming:           false,
+			mutateState:          false,
+			ourExpectedBalance:   startBalance - updateAmount,
+			theirExpectedBalance: startBalance,
+			expectedHeights: heights{
+				localAdd:     0,
+				remoteAdd:    0,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			updateType: Add,
+		},
+		{
+			name: "outgoing add, remote chain, mutated",
+			startHeights: heights{
+				localAdd:     0,
+				remoteAdd:    0,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			remoteChain:          true,
+			isIncoming:           false,
+			mutateState:          true,
+			ourExpectedBalance:   startBalance - updateAmount,
+			theirExpectedBalance: startBalance,
+			expectedHeights: heights{
+				localAdd:     0,
+				remoteAdd:    nextHeight,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			updateType: Add,
+		},
+		{
+			name: "settle, remote chain, already processed",
+			startHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  0,
+				remoteRemove: removeHeight,
+			},
+			remoteChain:          true,
+			isIncoming:           false,
+			mutateState:          false,
+			ourExpectedBalance:   startBalance,
+			theirExpectedBalance: startBalance,
+			expectedHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  0,
+				remoteRemove: removeHeight,
+			},
+			updateType: Settle,
+		},
+		{
+			name: "settle, local chain, already processed",
+			startHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  removeHeight,
+				remoteRemove: 0,
+			},
+			remoteChain:          false,
+			isIncoming:           false,
+			mutateState:          false,
+			ourExpectedBalance:   startBalance,
+			theirExpectedBalance: startBalance,
+			expectedHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  removeHeight,
+				remoteRemove: 0,
+			},
+			updateType: Settle,
+		},
+		{
+			// Remote chain, and not processed yet. Incoming settle,
+			// so we expect our balance to increase.
+			name: "incoming settle",
+			startHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			remoteChain:          true,
+			isIncoming:           true,
+			mutateState:          false,
+			ourExpectedBalance:   startBalance + updateAmount,
+			theirExpectedBalance: startBalance,
+			expectedHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			updateType: Settle,
+		},
+		{
+			// Remote chain, and not processed yet. Incoming settle,
+			// so we expect our balance to increase.
+			name: "outgoing settle",
+			startHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			remoteChain:          true,
+			isIncoming:           false,
+			mutateState:          false,
+			ourExpectedBalance:   startBalance,
+			theirExpectedBalance: startBalance + updateAmount,
+			expectedHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			updateType: Settle,
+		},
+		{
+			// Remote chain, and not processed yet. Incoming fail,
+			// so we expect their balance to increase.
+			name: "incoming fail",
+			startHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			remoteChain:          true,
+			isIncoming:           true,
+			mutateState:          false,
+			ourExpectedBalance:   startBalance,
+			theirExpectedBalance: startBalance + updateAmount,
+			expectedHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			updateType: Fail,
+		},
+		{
+			// Remote chain, and not processed yet. Outgoing fail,
+			// so we expect our balance to increase.
+			name: "outgoing fail",
+			startHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			remoteChain:          true,
+			isIncoming:           false,
+			mutateState:          false,
+			ourExpectedBalance:   startBalance + updateAmount,
+			theirExpectedBalance: startBalance,
+			expectedHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			updateType: Fail,
+		},
+		{
+			// Local chain, and not processed yet. Incoming settle,
+			// so we expect our balance to increase. Mutate is
+			// true, so we expect our remove removeHeight to have
+			// changed.
+			name: "fail, our remove height mutated",
+			startHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			remoteChain:          false,
+			isIncoming:           true,
+			mutateState:          true,
+			ourExpectedBalance:   startBalance + updateAmount,
+			theirExpectedBalance: startBalance,
+			expectedHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  nextHeight,
+				remoteRemove: 0,
+			},
+			updateType: Settle,
+		},
+		{
+			// Remote chain, and not processed yet. Incoming settle,
+			// so we expect our balance to increase. Mutate is
+			// true, so we expect their remove removeHeight to have
+			// changed.
+			name: "fail, their remove height mutated",
+			startHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			remoteChain:          true,
+			isIncoming:           true,
+			mutateState:          true,
+			ourExpectedBalance:   startBalance + updateAmount,
+			theirExpectedBalance: startBalance,
+			expectedHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  0,
+				remoteRemove: nextHeight,
+			},
+			updateType: Settle,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			heights := test.startHeights
+			update := &PaymentDescriptor{
+				Amount:                   updateAmount,
+				addCommitHeightLocal:     heights.localAdd,
+				addCommitHeightRemote:    heights.remoteAdd,
+				removeCommitHeightLocal:  heights.localRemove,
+				removeCommitHeightRemote: heights.remoteRemove,
+				EntryType:                test.updateType,
+			}
+
+			var (
+				// Start both parties off with an initial
+				// balance. Copy by value here so that we do
+				// not mutate the startBalance constant.
+				ourBalance, theirBalance = startBalance,
+					startBalance
+			)
+
+			// Choose the processing function we need based on the
+			// update type. Process remove is used for settles,
+			// fails and malformed htlcs.
+			process := processRemoveEntry
+			if test.updateType == Add {
+				process = processAddEntry
+			}
+
+			process(
+				update, &ourBalance, &theirBalance, nextHeight,
+				test.remoteChain, test.isIncoming,
+				test.mutateState,
+			)
+
+			// Check that balances were updated as expected.
+			if ourBalance != test.ourExpectedBalance {
+				t.Fatalf("expected our balance: %v, got: %v",
+					test.ourExpectedBalance, ourBalance)
+			}
+
+			if theirBalance != test.theirExpectedBalance {
+				t.Fatalf("expected their balance: %v, got: %v",
+					test.theirExpectedBalance, theirBalance)
+			}
+
+			// Check that heights on the update are as expected.
+			checkHeights(t, update, test.expectedHeights)
+		})
+	}
+}

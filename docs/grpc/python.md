@@ -204,3 +204,9 @@ Python](https://developers.google.com/protocol-buffers/docs/pythontutorial).
 Additionally, [this official gRPC
 resource](http://www.grpc.io/docs/tutorials/basic/python.html) provides more
 details around how to drive `gRPC` from Python.
+
+## API documentation
+
+There is an [online API documentation](https://api.lightning.community?python)
+available that shows all currently existing RPC methods, including code snippets
+on how to use them.

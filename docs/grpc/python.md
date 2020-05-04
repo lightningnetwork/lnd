@@ -42,6 +42,21 @@ After following these steps, two files `rpc_pb2.py` and `rpc_pb2_grpc.py` will
 be generated. These files will be imported in your project anytime you use
 Python gRPC.
 
+### Generating RPC modules for subservers
+
+If you want to use any of the subservers' functionality, you also need to
+generate the python modules for them.
+
+For example, if you want to generate the RPC modules for the `Router` subserver
+(located/defined in `routerrpc/router.proto`), you need to run the following two
+extra steps (after completing all 6 step described above) to get the
+`router_pb2.py` and `router_pb2_grpc.py`:
+
+```
+(lnd)$ curl -o router.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/routerrpc/router.proto
+(lnd)$ python -m grpc_tools.protoc --proto_path=googleapis:. --python_out=. --grpc_python_out=. router.proto
+```
+
 ### Imports and Client
 
 Every time you use Python gRPC, you will have to import the generated rpc modules

@@ -140,6 +140,7 @@
 <time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: rpc error: code = Internal desc = transport: transport: the stream is done or WriteHeader was already called
 <time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeInvoices]: rpc error: code = Canceled desc = context canceled
 <time> [ERR] RPCS: [/routerrpc.Router/SendPayment]: routerrpc server shutting down
+<time> [ERR] RPCS: [/routerrpc.Router/SendPaymentV2]: routerrpc server shutting down
 <time> [ERR] RPCS: [closechannel] unable to close ChannelPoint(<chan_point>): chain notifier shutting down
 <time> [ERR] RPCS: [connectpeer]: error connecting to peer: already connected to peer: <hex>@<ip>
 <time> [ERR] RPCS: Failed receiving from stream: rpc error: code = Canceled desc = context canceled

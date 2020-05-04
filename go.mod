@@ -73,3 +73,7 @@ replace git.schwanenlied.me/yawning/bsaes.git => github.com/Yawning/bsaes v0.0.0
 replace golang.org/x/crypto => golang.org/x/crypto v0.0.0-20190211182817-74369b46fc67
 
 go 1.12
+
+replace github.com/btcsuite/btcwallet/walletdb v1.3.1 => github.com/roasbeef/btcwallet/walletdb v1.1.1-0.20200504232237-d0cfd3720fbc
+
+replace github.com/btcsuite/btcwallet v0.11.1-0.20200403222202-ada7ca077ebb => github.com/roasbeef/btcwallet v0.11.1-0.20200504232237-d0cfd3720fbc

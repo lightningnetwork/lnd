@@ -170,28 +170,10 @@ This example will send a payment of 100 satoshis every 2 seconds.
 
 ### Using Macaroons
 
-To authenticate using macaroons you need to include the macaroon in the metadata of the request.
+To authenticate using macaroons you need to include the macaroon in the metadata
+of each request.
 
-```js
-const fs = require('fs');
-const grpc = require('grpc');
-
-process.env.GRPC_SSL_CIPHER_SUITES = 'HIGH+ECDSA'
-
-// Lnd admin macaroon is at ~/.lnd/data/chain/bitcoin/simnet/admin.macaroon on Linux and
-// ~/Library/Application Support/Lnd/data/chain/bitcoin/simnet/admin.macaroon on Mac
-let m = fs.readFileSync('~/.lnd/data/chain/bitcoin/simnet/admin.macaroon');
-let macaroon = m.toString('hex');
-let meta = new grpc.Metadata().add('macaroon', macaroon);
-
-let lnrpcDescriptor = grpc.load("rpc.proto");
-let lnrpc = lnrpcDescriptor.lnrpc;
-let client = new lnrpc.Lightning('some.address:10009', grpc.credentials.createInsecure());
-
-client.getInfo({}, meta);
-```
-
-However, this can get tiresome to do for each request, so to avoid explicitly including the macaroon we can update the credentials to include it automatically.
+The following snippet will add the macaroon to every request automatically:
 
 ```js
 const fs = require('fs');

@@ -1,0 +1,158 @@
+<time> [ERR] BRAR: Unable to broadcast justice tx: Transaction rejected: output already spent
+<time> [ERR] BRAR: Unable to register for conf for txid(<hex>): TxNotifier is exiting
+<time> [ERR] BTCN: Broadcast attempt failed: rejected by <ip>: replacement transaction <hex> has an insufficient absolute fee: needs <amt>, has <amt>
+<time> [ERR] BTCN: Broadcast attempt failed: rejected by <ip>: replacement transaction <hex> has an insufficient fee rate: needs more than <amt>, has <amt>
+<time> [ERR] BTCN: Unable to process block connected (height=<height>, hash=<hex>): out of order block <hex>: expected PrevBlock <hex>, got <hex>
+<time> [ERR] BTCN: Unknown connid=<id>
+<time> [ERR] CHFT: Close channel <chan_point> unknown to store
+<time> [ERR] CNCT: *contractcourt.commitSweepResolver(<chan_point>): unable to sweep input: remote party swept utxo
+<time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to advance state: channel not found
+<time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to broadcast close tx: Transaction rejected: output already spent
+<time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to force close: channel not found
+<time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.commitSweepResolver: remote party swept utxo
+<time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.htlcOutgoingContestResolver: chain notifier shutting down
+<time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.htlcOutgoingContestResolver: the client has been shutdown
+<time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.htlcOutgoingContestResolver: unable to create pre-image from witness: invalid preimage length of 33, want 32
+<time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.htlcSuccessResolver: Transaction rejected: output already spent
+<time> [ERR] CNCT: Unable to advance state: channel not found
+<time> [ERR] CNCT: unable to hand breached contract off to breachArbiter: server is shutting down
+<time> [ERR] CNCT: unable to handle channel breach for chan_point=<chan_point>: server is shutting down
+<time> [ERR] CRTR: Channel update of ourselves received
+<time> [ERR] CRTR: Error collecting result for shard <number> for payment <hex>: shard handler exiting
+<time> [ERR] CRTR: Error encountered during rescan: rescan exited
+<time> [ERR] CRTR: Failed sending attempt <number> for payment <hex> to switch: insufficient bandwidth to route htlc
+<time> [ERR] CRTR: Failed sending attempt <number> for payment <hex> to switch: UnknownNextPeer
+<time> [ERR] CRTR: out of order block: expecting height=<height>, got height=<height>
+<time> [ERR] CRTR: Payment with hash <hex> failed: router shutting down
+<time> [ERR] CRTR: Resuming payment with hash <hex> failed: error.
+<time> [ERR] CRTR: Resuming payment with hash <hex> failed: incorrect_payment_details.
+<time> [ERR] CRTR: Resuming payment with hash <hex> failed: no_route.
+<time> [ERR] CRTR: Resuming payment with hash <hex> failed: router shutting down.
+<time> [ERR] CRTR: Unable to retrieve channel by id: edge not found
+<time> [ERR] DISC: channel  announcement proof for short_chan_id=<hex> isn't valid: can't verify first bitcoin signature
+<time> [ERR] DISC: router shutting down
+<time> [ERR] DISC: unable add proof to the channel chanID=<hex>: edge marked as zombie
+<time> [ERR] DISC: unable add proof to the channel chanID=<hex>: edge not found
+<time> [ERR] DISC: Unable to reply to peer query: set tcp <ip>: use of closed network connection
+<time> [ERR] DISC: Unable to reply to peer query: write tcp <ip>-><ip>: use of closed network connection
+<time> [ERR] DISC: Unable to reply to peer query: write tcp <ip>-><ip>: write: broken pipe
+<time> [ERR] FNDG: received funding error from <hex>: chan_id=<hex>, err=Number of pending channels exceed maximum
+<time> [ERR] FNDG: Unable to add new channel <chan_point> with peer <hex>: peer exiting
+<time> [ERR] FNDG: Unable to advance pending state of ChannelPoint(<chan_point>): error waiting for funding confirmation for ChannelPoint(<chan_point>): epoch client shutting down
+<time> [ERR] FNDG: Unable to advance pending state of ChannelPoint(<chan_point>): error waiting for funding confirmation for ChannelPoint(<chan_point>): funding manager shutting down
+<time> [ERR] FNDG: Unable to advance pending state of ChannelPoint(<chan_point>): error waiting for funding confirmation for ChannelPoint(<chan_point>): waiting for fundingconfirmation failed
+<time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: channel  announcement proof for short_chan_id=<hex> isn't valid: can't verify first bitcoin signature
+<time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: funding manager shutting down
+<time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: gossiper is shutting down
+<time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: router shutting down
+<time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: unable add proof to the channel chanID=<hex>: edge marked as zombie
+<time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: unable add proof to the channel chanID=<hex>: edge not found
+<time> [ERR] FNDG: Unable to advance state(<chan_point>): failed sending fundingLocked: funding manager shutting down
+<time> [ERR] FNDG: unable to cancel reservation: no active reservations for peer(<hex>)
+<time> [ERR] FNDG: unable to report short chan id: link <hex> not found
+<time> [ERR] FNDG: Unable to send channel proof: channel  announcement proof for short_chan_id=<hex> isn't valid: can't verify first bitcoin signature
+<time> [ERR] FNDG: Unable to send channel proof: gossiper is shutting down
+<time> [ERR] FNDG: Unable to send channel proof: unable add proof to the channel chanID=<hex>: edge marked as zombie
+<time> [ERR] FNDG: Unable to send channel proof: unable add proof to the channel chanID=<hex>: edge not found
+<time> [ERR] FNDG: Unable to send node announcement: gossiper is shutting down
+<time> [ERR] FNDG: Unable to send node announcement: router shutting down
+<time> [ERR] HSWC: AmountBelowMinimum(amt=<amt>, update=(lnwire.ChannelUpdate) {
+<time> [ERR] HSWC: ChannelLink(<chan>): failing link: ChannelPoint(<chan_point>): received error from peer: chan_id=<hex>, err=invalid update with error: remote error
+<time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to handle upstream settle HTLC: Invalid payment preimage <hex> for hash <hex> with error: invalid update
+<time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: ChannelPoint(<chan_point>) with CommitPoint(<hex>) had possible local commitment state data loss with error: unable to resume channel, recovery required
+<time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: possible remote commitment state data loss with error: sync error
+<time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: Unable to send chan sync message for ChannelPoint(<chan_point>): peer exiting with error: unable to resume channel, recovery required
+<time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: Unable to send chan sync message for ChannelPoint(<chan_point>): write tcp <ip>-><ip>: use of closed network connection with error: unable to resume channel, recovery required
+<time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: Unable to send chan sync message for ChannelPoint(<chan_point>): write tcp <ip>-><ip>: write: broken pipe with error: unable to resume channel, recovery required
+<time> [ERR] HSWC: ChannelLink(<chan>): link failed, exiting htlcManager
+<time> [ERR] HSWC: ChannelLink(<chan>): outgoing htlc(<hex>) has insufficient fee: expected 575000, got 1075
+<time> [ERR] HSWC: ChannelLink(<chan>): outgoing htlc(<hex>) is too small: min_htlc=<amt>, htlc_value=<amt>
+<time> [ERR] HSWC: ChannelLink(<chan>): unable to decode onion hop iterator: TemporaryChannelFailure
+<time> [ERR] HSWC: ChannelLink(<chan>): unhandled error while forwarding htlc packet over htlcswitch: AmountBelowMinimum(amt=4000 mSAT, update=(lnwire.ChannelUpdate) {
+<time> [ERR] HSWC: ChannelLink(<chan>): unhandled error while forwarding htlc packet over htlcswitch: circuit has already been closed
+<time> [ERR] HSWC: ChannelLink(<chan>): unhandled error while forwarding htlc packet over htlcswitch: insufficient bandwidth to route htlc
+<time> [ERR] HSWC: ChannelLink(<chan>): unhandled error while forwarding htlc packet over htlcswitch: node configured to disallow forwards
+<time> [ERR] HSWC: ChannelLink(<chan>): unhandled error while forwarding htlc packet over htlcswitch: UnknownNextPeer
+<time> [ERR] HSWC: ChannelLink(<chan>): Unhandled error while reforwarding htlc settle/fail over htlcswitch: AmountBelowMinimum(amt=<amt>, update=(lnwire.ChannelUpdate) {
+<time> [ERR] HSWC: ChannelLink(<chan>): Unhandled error while reforwarding htlc settle/fail over htlcswitch: circuit has already been closed
+<time> [ERR] HSWC: ChannelLink(<chan>): Unhandled error while reforwarding htlc settle/fail over htlcswitch: FeeInsufficient(htlc_amt==<amt>, update=(lnwire.ChannelUpdate) {
+<time> [ERR] HSWC: ChannelLink(<chan>): Unhandled error while reforwarding htlc settle/fail over htlcswitch: insufficient bandwidth to route htlc
+<time> [ERR] HSWC: ChannelLink(<chan>): Unhandled error while reforwarding htlc settle/fail over htlcswitch: node configured to disallow forwards
+<time> [ERR] HSWC: ChannelLink(<chan>): Unhandled error while reforwarding htlc settle/fail over htlcswitch: UnknownNextPeer
+<time> [ERR] HSWC: FeeInsufficient(htlc_amt==<amt>, update=(lnwire.ChannelUpdate) {
+<time> [ERR] HSWC: insufficient bandwidth to route htlc
+<time> [ERR] HSWC: Link <chan> not found
+<time> [ERR] HSWC: Link <chan> policy for local forward not satisfied
+<time> [ERR] HSWC: node configured to disallow forwards
+<time> [ERR] HSWC: unable to de-obfuscate onion failure (hash=<hex>, pid=<pid>): invalid error length: expected 292 got 0
+<time> [ERR] HSWC: unable to find target channel for HTLC fail: channel ID = <chan>, HTLC ID = <id>
+<time> [ERR] HSWC: Unable to forward resolution msg: unable to find target channel for HTLC fail: channel ID = <chan>, HTLC ID = <id>
+<time> [ERR] HSWC: unable to process onion packet: sphinx packet replay attempted
+<time> [ERR] HSWC: UnknownNextPeer
+<time> [ERR] LNWL: ChannelPoint(<chan_point>): sync failed with local data loss: remote believes our tail height is <height>, while we have <height>!
+<time> [ERR] LNWL: ChannelPoint(<chan_point>): sync failed: remote believes our tail height is <height>, while we have <height>!
+<time> [ERR] LNWL: ChannelPoint(<chan_point>): sync failed: remote's next commit height is <height>, while we believe it is <height>!
+<time> [ERR] LNWL: Neutrino rescan ended with error: rescan exited
+<time> [ERR] LNWL: Notifying unmined tx notification (<hex>) while creating notification for blocks
+<time> [ERR] LTND: Unable to lookup witness: no witnesses
+<time> [ERR] NANN: Unable to retrieve chan status for Channel(<chan_point>): edge not found
+<time> [ERR] NANN: Unable to retrieve chan status for Channel(<chan_point>): unable to extract ChannelUpdate for channel <chan_point>
+<time> [ERR] NANN: Unable to sign update disabling channel(<chan_point>): edge not found
+<time> [ERR] NTFN: Error during rescan: rescan exited
+<time> [ERR] NTFN: Rescan to determine the spend details of <chan_point> failed: the client has been shutdown
+<time> [ERR] NTFN: Unable to fetch block header: the client has been shutdown
+<time> [ERR] NTFN: unable to find blockhash for height=<height>: -1: Block number out of range
+<time> [ERR] NTFN: unable to get block: the client has been shutdown
+<time> [ERR] NTFN: unable to get missed blocks: starting height <height> is greater than ending height <height>
+<time> [ERR] NTFN: Unable to rewind chain from height <height> to height <height>: unable to find blockhash for disconnected height=<height>: -1: Block number out of range
+<time> [ERR] PEER: resend failed: unable to fetch channel sync messages for peer <hex>@<ip>: unable to find closed channel summary
+<time> [ERR] PEER: unable to force close link(<chan>): ChainArbitrator exiting
+<time> [ERR] PEER: unable to force close link(<chan>): channel not found
+<time> [ERR] PEER: unable to force close link(<chan>): unable to find arbitrator
+<time> [ERR] PEER: unable to get best block: the client has been shutdown
+<time> [ERR] PEER: unable to send msg to remote peer: peer exiting
+<time> [ERR] PEER: unable to send msg to remote peer: write tcp <ip>-><ip>: write: broken pipe
+<time> [ERR] RPCS: [/invoicesrpc.Invoices/SubscribeSingleInvoice]: rpc error: code = Canceled desc = context canceled
+<time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: cannot co-op close frozen channel as initiator until height=<height>, (current_height=<height>)
+<time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: cannot co-op close frozen channel as initiator until height=3059, (current_height=3055)
+<time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: chain notifier shutting down
+<time> [ERR] RPCS: [/lnrpc.Lightning/ConnectPeer]: already connected to peer: <hex>@<ip>
+<time> [ERR] RPCS: [/lnrpc.Lightning/FundingStateStep]: pendingChanID(<hex>) already has intent registered
+<time> [ERR] RPCS: [/lnrpc.Lightning/GetChanInfo]: edge marked as zombie
+<time> [ERR] RPCS: [/lnrpc.Lightning/OpenChannel]: channels cannot be created before the wallet is fully synced
+<time> [ERR] RPCS: [/lnrpc.Lightning/OpenChannel]: received funding error from <hex>: chan_id=<hex>, err=Number of pending channels exceed maximum
+<time> [ERR] RPCS: [/lnrpc.Lightning/PendingChannels]: unable to find arbitrator
+<time> [ERR] RPCS: [/lnrpc.Lightning/SendCoins]: address: tb1qfc8fusa98jx8uvnhzavxccqlzvg749tvjw82tg is not valid for this network: regtest
+<time> [ERR] RPCS: [/lnrpc.Lightning/SendCoins]: amount set while SendAll is active
+<time> [ERR] RPCS: [/lnrpc.Lightning/SendCoins]: cannot send coins to pubkeys
+<time> [ERR] RPCS: [/lnrpc.Lightning/SendCoins]: unknown address type
+<time> [ERR] RPCS: [/lnrpc.Lightning/SendPayment]: rpc error: code = Canceled desc = context canceled
+<time> [ERR] RPCS: [/lnrpc.Lightning/SendPayment]: rpc error: code = DeadlineExceeded desc = context deadline exceeded
+<time> [ERR] RPCS: [/lnrpc.Lightning/SendPayment]: rpc server shutting down
+<time> [ERR] RPCS: [/lnrpc.Lightning/SendToRoute]: rpc error: code = Canceled desc = context canceled
+<time> [ERR] RPCS: [/lnrpc.Lightning/SendToRoute]: rpc error: code = DeadlineExceeded desc = context deadline exceeded
+<time> [ERR] RPCS: [/lnrpc.Lightning/SendToRoute]: rpc server shutting down
+<time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelEvents]: rpc error: code = Canceled desc = context canceled
+<time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: ChannelRouter shutting down
+<time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: router not started
+<time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: rpc error: code = Canceled desc = context canceled
+<time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: rpc error: code = DeadlineExceeded desc = context deadline exceeded
+<time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: rpc error: code = Internal desc = transport: transport: the stream is done or WriteHeader was already called
+<time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeInvoices]: rpc error: code = Canceled desc = context canceled
+<time> [ERR] RPCS: [/routerrpc.Router/SendPayment]: routerrpc server shutting down
+<time> [ERR] RPCS: [closechannel] unable to close ChannelPoint(<chan_point>): chain notifier shutting down
+<time> [ERR] RPCS: [connectpeer]: error connecting to peer: already connected to peer: <hex>@<ip>
+<time> [ERR] RPCS: Failed receiving from stream: rpc error: code = Canceled desc = context canceled
+<time> [ERR] RPCS: Failed receiving from stream: rpc error: code = DeadlineExceeded desc = context deadline exceeded
+<time> [ERR] RPCS: Failed sending error response: rpc error: code = Canceled desc = context canceled
+<time> [ERR] RPCS: Failed sending error response: rpc error: code = Internal desc = transport: transport: the stream is done or WriteHeader was already called
+<time> [ERR] RPCS: Failed sending response: rpc error: code = Canceled desc = context canceled
+<time> [ERR] RPCS: Failed sending response: rpc error: code = Internal desc = transport: transport: the stream is done or WriteHeader was already called
+<time> [ERR] RPCS: unable to open channel to NodeKey(<hex>): received funding error from <hex>: chan_id=<hex>, err=Number of pending channels exceed maximum
+<time> [ERR] RPCS: Websocket receive error from <ip>: read tcp4 <ip>-><ip>: use of closed network connection
+<time> [ERR] RPCS: Websocket receive error from <ip>: websocket: close 1006 unexpected EOF
+<time> [ERR] SRVR: Unable to retrieve advertised address for node <hex>: no advertised addresses found
+<time> [ERR] SRVR: Unable to retrieve advertised address for node <hex>: unable to find node
+<time> [ERR] UTXN: error while graduating class at height=<height>: TxNotifier is exiting
+<time> [ERR] UTXN: Failed to sweep first-stage HTLC (CLTV-delayed) output <chan_point>
+<time> [ERR] UTXN: Notification chan closed, can't advance output <chan_point>

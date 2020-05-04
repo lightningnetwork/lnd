@@ -143,6 +143,7 @@ check: unit itest
 itest-only:
 	@$(call print, "Running integration tests with ${backend} backend.")
 	$(ITEST)
+	lntest/itest/log_check_errors.sh
 
 itest: btcd build-itest itest-only
 

@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 )
 
@@ -180,6 +181,39 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		lnd.DefaultBitcoinTimeLockDelta, maxHtlc, carol,
 	)
 
+	// Before we start sending payments, subscribe to htlc events for each
+	// node.
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+
+	aliceEvents, err := net.Alice.RouterClient.SubscribeHtlcEvents(
+		ctxt, &routerrpc.SubscribeHtlcEventsRequest{},
+	)
+	if err != nil {
+		t.Fatalf("could not subscribe events: %v", err)
+	}
+
+	bobEvents, err := net.Bob.RouterClient.SubscribeHtlcEvents(
+		ctxt, &routerrpc.SubscribeHtlcEventsRequest{},
+	)
+	if err != nil {
+		t.Fatalf("could not subscribe events: %v", err)
+	}
+
+	carolEvents, err := carol.RouterClient.SubscribeHtlcEvents(
+		ctxt, &routerrpc.SubscribeHtlcEventsRequest{},
+	)
+	if err != nil {
+		t.Fatalf("could not subscribe events: %v", err)
+	}
+
+	daveEvents, err := dave.RouterClient.SubscribeHtlcEvents(
+		ctxt, &routerrpc.SubscribeHtlcEventsRequest{},
+	)
+	if err != nil {
+		t.Fatalf("could not subscribe events: %v", err)
+	}
+
 	// Using Carol as the source, pay to the 5 invoices from Bob created
 	// above.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -280,10 +314,94 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 	}
 
+	// We expect Carol to have successful forwards and settles for
+	// her sends.
+	assertHtlcEvents(
+		t, numPayments, 0, numPayments, routerrpc.HtlcEvent_SEND,
+		carolEvents,
+	)
+
+	// Dave and Alice should both have forwards and settles for
+	// their role as forwarding nodes.
+	assertHtlcEvents(
+		t, numPayments, 0, numPayments, routerrpc.HtlcEvent_FORWARD,
+		daveEvents,
+	)
+	assertHtlcEvents(
+		t, numPayments, 0, numPayments, routerrpc.HtlcEvent_FORWARD,
+		aliceEvents,
+	)
+
+	// Bob should only have settle events for his receives.
+	assertHtlcEvents(
+		t, 0, 0, numPayments, routerrpc.HtlcEvent_RECEIVE, bobEvents,
+	)
+
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssert(ctxt, t, net, dave, chanPointDave, false)
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
+}
+
+// assertHtlcEvents consumes events from a client and ensures that they are of
+// the expected type and contain the expected number of forwards, forward
+// failures and settles.
+func assertHtlcEvents(t *harnessTest, fwdCount, fwdFailCount, settleCount int,
+	userType routerrpc.HtlcEvent_EventType,
+	client routerrpc.Router_SubscribeHtlcEventsClient) {
+
+	var forwards, forwardFails, settles int
+
+	numEvents := fwdCount + fwdFailCount + settleCount
+	for i := 0; i < numEvents; i++ {
+		event := assertEventAndType(t, userType, client)
+
+		switch event.Event.(type) {
+		case *routerrpc.HtlcEvent_ForwardEvent:
+			forwards++
+
+		case *routerrpc.HtlcEvent_ForwardFailEvent:
+			forwardFails++
+
+		case *routerrpc.HtlcEvent_SettleEvent:
+			settles++
+
+		default:
+			t.Fatalf("unexpected event: %T", event.Event)
+		}
+	}
+
+	if forwards != fwdCount {
+		t.Fatalf("expected: %v forwards, got: %v", fwdCount, forwards)
+	}
+
+	if forwardFails != fwdFailCount {
+		t.Fatalf("expected: %v forward fails, got: %v", fwdFailCount,
+			forwardFails)
+	}
+
+	if settles != settleCount {
+		t.Fatalf("expected: %v settles, got: %v", settleCount, settles)
+	}
+}
+
+// assertEventAndType reads an event from the stream provided and ensures that
+// it is associated with the correct user related type - a user initiated send,
+// a receive to our node or a forward through our node. Note that this event
+// type is different from the htlc event type (forward, link failure etc).
+func assertEventAndType(t *harnessTest, eventType routerrpc.HtlcEvent_EventType,
+	client routerrpc.Router_SubscribeHtlcEventsClient) *routerrpc.HtlcEvent {
+	event, err := client.Recv()
+	if err != nil {
+		t.Fatalf("could not get event")
+	}
+
+	if event.EventType != eventType {
+		t.Fatalf("expected: %v, got: %v", eventType,
+			event.EventType)
+	}
+
+	return event
 }

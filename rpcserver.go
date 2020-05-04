@@ -5197,7 +5197,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 	for _, payment := range paymentsQuerySlice.Payments {
 		payment := payment
 
-		rpcPayment, err := r.routerBackend.MarshallPayment(&payment)
+		rpcPayment, err := r.routerBackend.MarshallPayment(payment)
 		if err != nil {
 			return nil, err
 		}

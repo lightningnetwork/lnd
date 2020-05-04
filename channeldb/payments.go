@@ -460,7 +460,7 @@ type PaymentsQuery struct {
 type PaymentsResponse struct {
 	// Payments is the set of payments returned from the database for the
 	// PaymentsQuery.
-	Payments []MPPayment
+	Payments []*MPPayment
 
 	// FirstIndexOffset is the index of the first element in the set of
 	// returned MPPayments. Callers can use this to resume their query
@@ -536,7 +536,7 @@ func (db *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 			continue
 		}
 
-		resp.Payments = append(resp.Payments, *payment)
+		resp.Payments = append(resp.Payments, payment)
 	}
 
 	// Need to swap the payments slice order if reversed order.

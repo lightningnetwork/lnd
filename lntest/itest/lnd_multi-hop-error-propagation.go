@@ -146,6 +146,32 @@ out:
 		t.Fatalf("channel not seen by alice before timeout: %v", err)
 	}
 
+	// Before we start sending payments, subscribe to htlc events for each
+	// node.
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+
+	aliceEvents, err := net.Alice.RouterClient.SubscribeHtlcEvents(
+		ctxt, &routerrpc.SubscribeHtlcEventsRequest{},
+	)
+	if err != nil {
+		t.Fatalf("could not subscribe events: %v", err)
+	}
+
+	bobEvents, err := net.Bob.RouterClient.SubscribeHtlcEvents(
+		ctxt, &routerrpc.SubscribeHtlcEventsRequest{},
+	)
+	if err != nil {
+		t.Fatalf("could not subscribe events: %v", err)
+	}
+
+	carolEvents, err := carol.RouterClient.SubscribeHtlcEvents(
+		ctxt, &routerrpc.SubscribeHtlcEventsRequest{},
+	)
+	if err != nil {
+		t.Fatalf("could not subscribe events: %v", err)
+	}
+
 	// For the first scenario, we'll test the cancellation of an HTLC with
 	// an unknown payment hash.
 	// TODO(roasbeef): return failure response rather than failing entire
@@ -172,6 +198,18 @@ out:
 	assertLastHTLCError(
 		t, net.Alice,
 		lnrpc.Failure_INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS,
+	)
+
+	// We expect alice and bob to each have one forward and one forward
+	// fail event at this stage.
+	assertHtlcEvents(t, 1, 1, 0, routerrpc.HtlcEvent_SEND, aliceEvents)
+	assertHtlcEvents(t, 1, 1, 0, routerrpc.HtlcEvent_FORWARD, bobEvents)
+
+	// Carol should have a link failure because the htlc failed on her
+	// incoming link.
+	assertLinkFailure(
+		t, routerrpc.HtlcEvent_RECEIVE,
+		routerrpc.FailureDetail_UNKNOWN_INVOICE, carolEvents,
 	)
 
 	// The balances of all parties should be the same as initially since
@@ -203,6 +241,18 @@ out:
 	assertLastHTLCError(
 		t, net.Alice,
 		lnrpc.Failure_INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS,
+	)
+
+	// We expect alice and bob to each have one forward and one forward
+	// fail event at this stage.
+	assertHtlcEvents(t, 1, 1, 0, routerrpc.HtlcEvent_SEND, aliceEvents)
+	assertHtlcEvents(t, 1, 1, 0, routerrpc.HtlcEvent_FORWARD, bobEvents)
+
+	// Carol should have a link failure because the htlc failed on her
+	// incoming link.
+	assertLinkFailure(
+		t, routerrpc.HtlcEvent_RECEIVE,
+		routerrpc.FailureDetail_INVOICE_UNDERPAID, carolEvents,
 	)
 
 	// The balances of all parties should be the same as initially since
@@ -256,6 +306,16 @@ out:
 			t.Fatalf("bob's payment failed: %v", resp.PaymentError)
 		}
 
+		// For each send bob makes, we need to check that bob has a
+		// forward and settle event for his send, and carol has a
+		// settle event for her receive.
+		assertHtlcEvents(
+			t, 1, 0, 1, routerrpc.HtlcEvent_SEND, bobEvents,
+		)
+		assertHtlcEvents(
+			t, 0, 0, 1, routerrpc.HtlcEvent_RECEIVE, carolEvents,
+		)
+
 		amtSent += toSend
 	}
 
@@ -286,6 +346,16 @@ out:
 
 	assertLastHTLCError(
 		t, net.Alice, lnrpc.Failure_TEMPORARY_CHANNEL_FAILURE,
+	)
+
+	// Alice should have a forwarding event and a forwarding failure.
+	assertHtlcEvents(t, 1, 1, 0, routerrpc.HtlcEvent_SEND, aliceEvents)
+
+	// Bob should have a link failure because the htlc failed on his
+	// outgoing link.
+	assertLinkFailure(
+		t, routerrpc.HtlcEvent_FORWARD,
+		routerrpc.FailureDetail_INSUFFICIENT_BALANCE, bobEvents,
 	)
 
 	// Generate new invoice to not pay same invoice twice.
@@ -327,6 +397,16 @@ out:
 
 	assertLastHTLCError(t, net.Alice, lnrpc.Failure_UNKNOWN_NEXT_PEER)
 
+	// Alice should have a forwarding event and subsequent fail.
+	assertHtlcEvents(t, 1, 1, 0, routerrpc.HtlcEvent_SEND, aliceEvents)
+
+	// Bob should have a link failure because he could not find the next
+	// peer.
+	assertLinkFailure(
+		t, routerrpc.HtlcEvent_FORWARD,
+		routerrpc.FailureDetail_NO_DETAIL, bobEvents,
+	)
+
 	// Finally, immediately close the channel. This function will also
 	// block until the channel is closed and will additionally assert the
 	// relevant channel closing post conditions.
@@ -339,4 +419,24 @@ out:
 
 	// Cleanup by mining the force close and sweep transaction.
 	cleanupForceClose(t, net, net.Bob, chanPointBob)
+}
+
+// assertLinkFailure checks that the stream provided has a single link failure
+// the the failure detail provided.
+func assertLinkFailure(t *harnessTest,
+	eventType routerrpc.HtlcEvent_EventType,
+	failureDetail routerrpc.FailureDetail,
+	client routerrpc.Router_SubscribeHtlcEventsClient) {
+
+	event := assertEventAndType(t, eventType, client)
+
+	linkFail, ok := event.Event.(*routerrpc.HtlcEvent_LinkFailEvent)
+	if !ok {
+		t.Fatalf("expected forwarding failure, got: %T", linkFail)
+	}
+
+	if linkFail.LinkFailEvent.FailureDetail != failureDetail {
+		t.Fatalf("expected: %v, got: %v", failureDetail,
+			linkFail.LinkFailEvent.FailureDetail)
+	}
 }

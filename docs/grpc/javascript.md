@@ -7,9 +7,10 @@ First, you'll need to initialize a simple nodejs project:
 npm init (or npm init -f if you want to use the default values without prompt)
 ```
 
-Then you need to install the Javascript grpc library dependency:
+Then you need to install the Javascript grpc and proto loader library
+dependencies:
 ```
-npm install grpc --save
+npm install grpc @grpc/proto-loader --save
 ```
 
 You also need to copy the `lnd` `rpc.proto` file in your project directory (or
@@ -18,13 +19,6 @@ at least somewhere reachable by your Javascript code).
 The `rpc.proto` file is [located in the `lnrpc` directory of the `lnd`
 sources](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/rpc.proto).
 
-In order for the auto-generated code to compile successfully, you'll need to
-comment out the following line:
-
-```
-//import "google/api/annotations.proto";
-```
-
 ### Imports and Client
 
 Every time you work with Javascript gRPC, you will have to import `grpc`, load
@@ -32,6 +26,7 @@ Every time you work with Javascript gRPC, you will have to import `grpc`, load
 
 ```js
 const grpc = require('grpc');
+const protoLoader = require('@grpc/proto-loader');
 const fs = require("fs");
 
 // Due to updated ECDSA generated tls.cert we need to let gprc know that
@@ -39,11 +34,22 @@ const fs = require("fs");
 // error when we communicate with the lnd rpc server.
 process.env.GRPC_SSL_CIPHER_SUITES = 'HIGH+ECDSA'
 
+// We need to give the proto loader some extra options, otherwise the code won't
+// fully work with lnd.
+const loaderOptions = {
+  keepCase: true,
+  longs: String,
+  enums: String,
+  defaults: true,
+  oneofs: true
+};
+const packageDefinition = protoLoader.loadSync('rpc.proto', loaderOptions);
+
 //  Lnd cert is at ~/.lnd/tls.cert on Linux and
 //  ~/Library/Application Support/Lnd/tls.cert on Mac
 let lndCert = fs.readFileSync("~/.lnd/tls.cert");
 let credentials = grpc.credentials.createSsl(lndCert);
-let lnrpcDescriptor = grpc.load("rpc.proto");
+let lnrpcDescriptor = grpc.loadPackageDefinition(packageDefinition);
 let lnrpc = lnrpcDescriptor.lnrpc;
 let lightning = new lnrpc.Lightning('localhost:10009', credentials);
 ```
@@ -178,6 +184,15 @@ The following snippet will add the macaroon to every request automatically:
 ```js
 const fs = require('fs');
 const grpc = require('grpc');
+const protoLoader = require('@grpc/proto-loader');
+const loaderOptions = {
+  keepCase: true,
+  longs: String,
+  enums: String,
+  defaults: true,
+  oneofs: true
+};
+const packageDefinition = protoLoader.loadSync('rpc.proto', loaderOptions);
 
 process.env.GRPC_SSL_CIPHER_SUITES = 'HIGH+ECDSA'
 
@@ -202,7 +217,7 @@ let sslCreds = grpc.credentials.createSsl(lndCert);
 let credentials = grpc.credentials.combineChannelCredentials(sslCreds, macaroonCreds);
 
 // Pass the crendentials when creating a channel
-let lnrpcDescriptor = grpc.load("rpc.proto");
+let lnrpcDescriptor = grpc.loadPackageDefinition(packageDefinition);
 let lnrpc = lnrpcDescriptor.lnrpc;
 let client = new lnrpc.Lightning('some.address:10009', credentials);
 

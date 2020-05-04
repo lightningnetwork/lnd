@@ -6,7 +6,7 @@ BASEDIR=$(dirname "$0")
 cat $BASEDIR/*.log | grep "\[ERR\]" | \
 sed -r -f $BASEDIR/log_substitutions.txt | \
 sort | uniq | \
-grep -Fv -f $BASEDIR/log_error_whitelist.txt
+grep -Fvi -f $BASEDIR/log_error_whitelist.txt
 
 # If something shows up (not on whitelist) exit with error code 1.
 test $? -eq 1

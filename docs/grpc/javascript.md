@@ -1,6 +1,6 @@
 # How to write a simple `lnd` client in Javascript using `node.js`
 
-### Setup and Installation
+## Setup and Installation
 
 First, you'll need to initialize a simple nodejs project:
 ```
@@ -25,7 +25,7 @@ comment out the following line:
 //import "google/api/annotations.proto";
 ```
 
-#### Imports and Client
+### Imports and Client
 
 Every time you work with Javascript gRPC, you will have to import `grpc`, load
 `rpc.proto`, and create a connection to your client like so:
@@ -48,14 +48,14 @@ var lnrpc = lnrpcDescriptor.lnrpc;
 var lightning = new lnrpc.Lightning('localhost:10009', credentials);
 ```
 
-### Examples
+## Examples
 
 Let's walk through some examples of Javascript gRPC clients. These examples
 assume that you have at least two `lnd` nodes running, the RPC location of one
 of which is at the default `localhost:10009`, with an open channel between the
 two nodes.
 
-#### Simple RPC
+### Simple RPC
 
 ```js
 > lightning.getInfo({}, function(err, response) {
@@ -79,7 +79,7 @@ GetInfo: { identity_pubkey: '03c892e3f3f077ea1e381c081abb36491a2502bc43ed37ffb82
   chains: [ 'bitcoin' ] }
 ```
 
-#### Response-streaming RPC
+### Response-streaming RPC
 
 ```js
 var call = lightning.subscribeInvoices({});
@@ -108,7 +108,7 @@ $ lncli sendpayment --pay_req=<PAYMENT_REQUEST>
 Your Javascript console should now display the details of the recently satisfied
 invoice.
 
-#### Bidirectional-streaming RPC
+### Bidirectional-streaming RPC
 
 This example has a few dependencies:
 ```shell
@@ -165,7 +165,7 @@ async.series(payment_senders, function() {
 This example will send a payment of 100 satoshis every 2 seconds.
 
 
-#### Using Macaroons
+### Using Macaroons
 
 To authenticate using macaroons you need to include the macaroon in the metadata of the request.
 
@@ -224,8 +224,7 @@ var client = new lnrpc.Lightning('some.address:10009', credentials);
 client.getInfo({}, (err, res) => { ... });
 ```
 
-
-### Conclusion
+## Conclusion
 
 With the above, you should have all the `lnd` related `gRPC` dependencies
 installed locally in your project. In order to get up to speed with `protofbuf`

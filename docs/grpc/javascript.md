@@ -31,8 +31,8 @@ Every time you work with Javascript gRPC, you will have to import `grpc`, load
 `rpc.proto`, and create a connection to your client like so:
 
 ```js
-var grpc = require('grpc');
-var fs = require("fs");
+const grpc = require('grpc');
+const fs = require("fs");
 
 // Due to updated ECDSA generated tls.cert we need to let gprc know that
 // we need to use that cipher suite otherwise there will be a handhsake
@@ -41,11 +41,11 @@ process.env.GRPC_SSL_CIPHER_SUITES = 'HIGH+ECDSA'
 
 //  Lnd cert is at ~/.lnd/tls.cert on Linux and
 //  ~/Library/Application Support/Lnd/tls.cert on Mac
-var lndCert = fs.readFileSync("~/.lnd/tls.cert");
-var credentials = grpc.credentials.createSsl(lndCert);
-var lnrpcDescriptor = grpc.load("rpc.proto");
-var lnrpc = lnrpcDescriptor.lnrpc;
-var lightning = new lnrpc.Lightning('localhost:10009', credentials);
+let lndCert = fs.readFileSync("~/.lnd/tls.cert");
+let credentials = grpc.credentials.createSsl(lndCert);
+let lnrpcDescriptor = grpc.load("rpc.proto");
+let lnrpc = lnrpcDescriptor.lnrpc;
+let lightning = new lnrpc.Lightning('localhost:10009', credentials);
 ```
 
 ## Examples
@@ -58,9 +58,12 @@ two nodes.
 ### Simple RPC
 
 ```js
-> lightning.getInfo({}, function(err, response) {
-  	console.log('GetInfo:', response);
-  });
+lightning.getInfo({}, function(err, response) {
+  if (err) {
+    console.log('Error: ' + err);
+  }
+  console.log('GetInfo:', response);
+});
 ```
 
 You should get something like this in your console:
@@ -82,7 +85,7 @@ GetInfo: { identity_pubkey: '03c892e3f3f077ea1e381c081abb36491a2502bc43ed37ffb82
 ### Response-streaming RPC
 
 ```js
-var call = lightning.subscribeInvoices({});
+let call = lightning.subscribeInvoices({});
 call.on('data', function(invoice) {
     console.log(invoice);
 })
@@ -120,15 +123,15 @@ You can run the following in your shell or put it in a program and run it like
 
 ```js
 // Load some libraries specific to this example
-var async = require('async');
-var _ = require('lodash');
-var ByteBuffer = require('bytebuffer');
+const async = require('async');
+const _ = require('lodash');
+const ByteBuffer = require('bytebuffer');
 
-var dest_pubkey = <RECEIVER_ID_PUBKEY>;
-var dest_pubkey_bytes = ByteBuffer.fromHex(dest_pubkey);
+let dest_pubkey = <RECEIVER_ID_PUBKEY>;
+let dest_pubkey_bytes = ByteBuffer.fromHex(dest_pubkey);
 
 // Set a listener on the bidirectional stream
-var call = lightning.sendPayment();
+let call = lightning.sendPayment();
 call.on('data', function(payment) {
   console.log("Payment sent:");
   console.log(payment);
@@ -153,8 +156,8 @@ function paymentSender(destination, amount) {
     _.delay(callback, 2000);
   };
 }
-var payment_senders = [];
-for (var i = 0; i < 10; i++) {
+let payment_senders = [];
+for (let i = 0; i < 10; i++) {
   payment_senders[i] = paymentSender(dest_pubkey_bytes, 100);
 }
 async.series(payment_senders, function() {
@@ -170,20 +173,20 @@ This example will send a payment of 100 satoshis every 2 seconds.
 To authenticate using macaroons you need to include the macaroon in the metadata of the request.
 
 ```js
-var fs = require('fs');
-var grpc = require('grpc');
+const fs = require('fs');
+const grpc = require('grpc');
 
 process.env.GRPC_SSL_CIPHER_SUITES = 'HIGH+ECDSA'
 
 // Lnd admin macaroon is at ~/.lnd/data/chain/bitcoin/simnet/admin.macaroon on Linux and
 // ~/Library/Application Support/Lnd/data/chain/bitcoin/simnet/admin.macaroon on Mac
-var m = fs.readFileSync('~/.lnd/data/chain/bitcoin/simnet/admin.macaroon');
-var macaroon = m.toString('hex');
-var meta = new grpc.Metadata().add('macaroon', macaroon);
+let m = fs.readFileSync('~/.lnd/data/chain/bitcoin/simnet/admin.macaroon');
+let macaroon = m.toString('hex');
+let meta = new grpc.Metadata().add('macaroon', macaroon);
 
-var lnrpcDescriptor = grpc.load("rpc.proto");
-var lnrpc = lnrpcDescriptor.lnrpc;
-var client = new lnrpc.Lightning('some.address:10009', grpc.credentials.createInsecure());
+let lnrpcDescriptor = grpc.load("rpc.proto");
+let lnrpc = lnrpcDescriptor.lnrpc;
+let client = new lnrpc.Lightning('some.address:10009', grpc.credentials.createInsecure());
 
 client.getInfo({}, meta);
 ```
@@ -191,37 +194,42 @@ client.getInfo({}, meta);
 However, this can get tiresome to do for each request, so to avoid explicitly including the macaroon we can update the credentials to include it automatically.
 
 ```js
-var fs = require('fs');
-var grpc = require('grpc');
+const fs = require('fs');
+const grpc = require('grpc');
 
 process.env.GRPC_SSL_CIPHER_SUITES = 'HIGH+ECDSA'
 
 // Lnd admin macaroon is at ~/.lnd/data/chain/bitcoin/simnet/admin.macaroon on Linux and
 // ~/Library/Application Support/Lnd/data/chain/bitcoin/simnet/admin.macaroon on Mac
-var m = fs.readFileSync('~/.lnd/data/chain/bitcoin/simnet/admin.macaroon');
-var macaroon = m.toString('hex');
+let m = fs.readFileSync('~/.lnd/data/chain/bitcoin/simnet/admin.macaroon');
+let macaroon = m.toString('hex');
 
 // build meta data credentials
-var metadata = new grpc.Metadata()
+let metadata = new grpc.Metadata()
 metadata.add('macaroon', macaroon)
-var macaroonCreds = grpc.credentials.createFromMetadataGenerator((_args, callback) => {
+let macaroonCreds = grpc.credentials.createFromMetadataGenerator((_args, callback) => {
   callback(null, metadata);
 });
 
 // build ssl credentials using the cert the same as before
-var lndCert = fs.readFileSync("~/.lnd/tls.cert");
-var sslCreds = grpc.credentials.createSsl(lndCert);
+let lndCert = fs.readFileSync("~/.lnd/tls.cert");
+let sslCreds = grpc.credentials.createSsl(lndCert);
 
 // combine the cert credentials and the macaroon auth credentials
 // such that every call is properly encrypted and authenticated
-var credentials = grpc.credentials.combineChannelCredentials(sslCreds, macaroonCreds);
+let credentials = grpc.credentials.combineChannelCredentials(sslCreds, macaroonCreds);
 
 // Pass the crendentials when creating a channel
-var lnrpcDescriptor = grpc.load("rpc.proto");
-var lnrpc = lnrpcDescriptor.lnrpc;
-var client = new lnrpc.Lightning('some.address:10009', credentials);
+let lnrpcDescriptor = grpc.load("rpc.proto");
+let lnrpc = lnrpcDescriptor.lnrpc;
+let client = new lnrpc.Lightning('some.address:10009', credentials);
 
-client.getInfo({}, (err, res) => { ... });
+client.getInfo({}, (err, response) => {
+  if (err) {
+    console.log('Error: ' + err);
+  }
+  console.log('GetInfo:', response);
+});
 ```
 
 ## Conclusion

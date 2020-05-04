@@ -119,6 +119,45 @@ func AdminAuthOptions() ([]grpc.DialOption, error) {
 	return opts, nil
 }
 
+// GrpcRegistrar is an interface that must be satisfied by an external subserver
+// that wants to be able to register its own gRPC server onto lnd's main
+// grpc.Server instance.
+type GrpcRegistrar interface {
+	// RegisterGrpcSubserver is called for each net.Listener on which lnd
+	// creates a grpc.Server instance. External subservers implementing this
+	// method can then register their own gRPC server structs to the main
+	// server instance.
+	RegisterGrpcSubserver(*grpc.Server) error
+}
+
+// RestRegistrar is an interface that must be satisfied by an external subserver
+// that wants to be able to register its own REST mux onto lnd's main
+// proxy.ServeMux instance.
+type RestRegistrar interface {
+	// RegisterRestSubserver is called after lnd creates the main
+	// proxy.ServeMux instance. External subservers implementing this method
+	// can then register their own REST proxy stubs to the main server
+	// instance.
+	RegisterRestSubserver(context.Context, *proxy.ServeMux, string,
+		[]grpc.DialOption) error
+}
+
+// RPCSubserverConfig is a struct that can be used to register an external
+// subserver with the custom permissions that map to the gRPC server that is
+// going to be registered with the GrpcRegistrar.
+type RPCSubserverConfig struct {
+	// Registrar is a callback that is invoked for each net.Listener on
+	// which lnd creates a grpc.Server instance.
+	Registrar GrpcRegistrar
+
+	// Permissions is the permissions required for the external subserver.
+	// It is a map between the full HTTP URI of each RPC and its required
+	// macaroon permissions. If multiple action/entity tuples are specified
+	// per URI, they are all required. See rpcserver.go for a list of valid
+	// action and entity values.
+	Permissions map[string][]bakery.Op
+}
+
 // ListenerWithSignal is a net.Listener that has an additional Ready channel that
 // will be closed when a server starts listening.
 type ListenerWithSignal struct {
@@ -126,6 +165,14 @@ type ListenerWithSignal struct {
 
 	// Ready will be closed by the server listening on Listener.
 	Ready chan struct{}
+
+	// ExternalRPCSubserverCfg is optional and specifies the registration
+	// callback and permissions to register external gRPC subservers.
+	ExternalRPCSubserverCfg *RPCSubserverConfig
+
+	// ExternalRestRegistrar is optional and specifies the registration
+	// callback to register external REST subservers.
+	ExternalRestRegistrar RestRegistrar
 }
 
 // ListenerCfg is a wrapper around custom listeners that can be passed to lnd

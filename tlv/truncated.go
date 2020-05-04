@@ -67,7 +67,7 @@ func DTUint16(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 	return NewTypeForDecodingErr(val, "uint16", l, 2)
 }
 
-// numLeadingZeroBytes16 computes the number of leading zeros for a uint32.
+// numLeadingZeroBytes32 computes the number of leading zeros for a uint32.
 func numLeadingZeroBytes32(v uint32) uint64 {
 	switch {
 	case v == 0:
@@ -128,7 +128,7 @@ func DTUint32(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 	return NewTypeForDecodingErr(val, "uint32", l, 4)
 }
 
-// numLeadingZeroBytes64 computes the number of leading zeros for a uint32.
+// numLeadingZeroBytes64 computes the number of leading zeros for a uint64.
 //
 // TODO(conner): optimize using unrolled binary search
 func numLeadingZeroBytes64(v uint64) uint64 {

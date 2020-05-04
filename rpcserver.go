@@ -628,6 +628,32 @@ func newRPCServer(s *server, macService *macaroons.Service,
 		}
 	}
 
+	// Get the listeners and server options to use for this rpc server.
+	listeners, cleanup, err := getListeners()
+	if err != nil {
+		return nil, err
+	}
+
+	// External subserver possibly need to register their own permissions.
+	for _, lis := range listeners {
+		extSubserver := lis.ExternalRPCSubserverCfg
+		if extSubserver != nil {
+			for method, ops := range extSubserver.Permissions {
+				// For each new method:ops combo, we also ensure
+				// that non of the sub-servers try to override
+				// each other.
+				if _, ok := permissions[method]; ok {
+					return nil, fmt.Errorf("detected "+
+						"duplicate macaroon "+
+						"constraints for path: %v",
+						method)
+				}
+
+				permissions[method] = ops
+			}
+		}
+	}
+
 	// If macaroons aren't disabled (a non-nil service), then we'll set up
 	// our set of interceptors which will allow us to handle the macaroon
 	// authentication in a single location.
@@ -658,12 +684,6 @@ func newRPCServer(s *server, macService *macaroons.Service,
 	strmInterceptors = append(
 		strmInterceptors, errorLogStreamServerInterceptor(rpcsLog),
 	)
-
-	// Get the listeners and server options to use for this rpc server.
-	listeners, cleanup, err := getListeners()
-	if err != nil {
-		return nil, err
-	}
 
 	// If any interceptors have been set up, add them to the server options.
 	if len(unaryInterceptors) != 0 && len(strmInterceptors) != 0 {
@@ -736,9 +756,29 @@ func (r *rpcServer) Start() error {
 		go func(lis *ListenerWithSignal) {
 			rpcsLog.Infof("RPC server listening on %s", lis.Addr())
 
+			// Before actually listening on the gRPC listener, give
+			// external subservers the chance to register to our
+			// gRPC server. Those external subservers (think GrUB)
+			// are responsible for starting/stopping on their own,
+			// we just let them register their services to the same
+			// server instance so all of them can be exposed on the
+			// same port/listener.
+			extSubCfg := lis.ExternalRPCSubserverCfg
+			if extSubCfg != nil && extSubCfg.Registrar != nil {
+				registerer := extSubCfg.Registrar
+				err := registerer.RegisterGrpcSubserver(
+					r.grpcServer,
+				)
+				if err != nil {
+					rpcsLog.Errorf("error registering "+
+						"external gRPC subserver: %v",
+						err)
+				}
+			}
+
 			// Close the ready chan to indicate we are listening.
 			close(lis.Ready)
-			r.grpcServer.Serve(lis)
+			_ = r.grpcServer.Serve(lis)
 		}(lis)
 	}
 
@@ -770,32 +810,50 @@ func (r *rpcServer) Start() error {
 	//
 	// TODO(roasbeef): eventually also allow the sub-servers to themselves
 	// have a REST proxy.
-	mux := proxy.NewServeMux(customMarshalerOption)
+	restMux := proxy.NewServeMux(customMarshalerOption)
+	restCtx, restCancel := context.WithCancel(context.Background())
+	r.listenerCleanUp = append(r.listenerCleanUp, restCancel)
 
 	err := lnrpc.RegisterLightningHandlerFromEndpoint(
-		context.Background(), mux, r.restProxyDest,
-		r.restDialOpts,
+		restCtx, restMux, r.restProxyDest, r.restDialOpts,
 	)
 	if err != nil {
 		return err
 	}
+
+	// Before listening on any of the interfaces, we also want to give the
+	// external subservers a chance to register their own REST proxy stub
+	// with our mux instance.
+	for _, lis := range r.listeners {
+		if lis.ExternalRestRegistrar != nil {
+			err := lis.ExternalRestRegistrar.RegisterRestSubserver(
+				restCtx, restMux, r.restProxyDest,
+				r.restDialOpts,
+			)
+			if err != nil {
+				rpcsLog.Errorf("error registering "+
+					"external REST subserver: %v", err)
+			}
+		}
+	}
+
+	// Now spin up a network listener for each requested port and start a
+	// goroutine that serves REST with the created mux there.
 	for _, restEndpoint := range cfg.RESTListeners {
 		lis, err := lncfg.TLSListenOnAddress(restEndpoint, r.tlsCfg)
 		if err != nil {
-			ltndLog.Errorf(
-				"gRPC proxy unable to listen on %s",
-				restEndpoint,
-			)
+			ltndLog.Errorf("gRPC proxy unable to listen on %s",
+				restEndpoint)
 			return err
 		}
 
 		r.listenerCleanUp = append(r.listenerCleanUp, func() {
-			lis.Close()
+			_ = lis.Close()
 		})
 
 		go func() {
 			rpcsLog.Infof("gRPC proxy started at %s", lis.Addr())
-			http.Serve(lis, mux)
+			_ = http.Serve(lis, restMux)
 		}()
 	}
 

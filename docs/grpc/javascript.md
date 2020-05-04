@@ -238,3 +238,9 @@ Javascript](https://developers.google.com/protocol-buffers/docs/reference/javasc
 Additionally, [this official gRPC
 resource](http://www.grpc.io/docs/tutorials/basic/node.html) provides more
 details around how to drive `gRPC` from `node.js`.
+
+## API documentation
+
+There is an [online API documentation](https://api.lightning.community?javascript)
+available that shows all currently existing RPC methods, including code snippets
+on how to use them.

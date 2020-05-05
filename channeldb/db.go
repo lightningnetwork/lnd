@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"go.etcd.io/bbolt"
 )
 
 const (
@@ -165,7 +166,10 @@ func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 
 	// Specify bbolt freelist options to reduce heap pressure in case the
 	// freelist grows to be very large.
-	bdb, err := kvdb.Open(kvdb.BoltBackendName, path, opts.NoFreelistSync)
+	bboltOpts := &bbolt.Options{
+		NoFreelistSync: opts.NoFreelistSync,
+	}
+	bdb, err := kvdb.Open(kvdb.BoltBackendName, path, bboltOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +255,10 @@ func createChannelDB(dbPath string) error {
 	}
 
 	path := filepath.Join(dbPath, dbName)
-	bdb, err := kvdb.Create(kvdb.BoltBackendName, path, true)
+	bboltOpts := &bbolt.Options{
+		NoFreelistSync: true,
+	}
+	bdb, err := kvdb.Create(kvdb.BoltBackendName, path, bboltOpts)
 	if err != nil {
 		return err
 	}

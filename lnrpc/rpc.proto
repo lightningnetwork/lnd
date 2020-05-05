@@ -897,7 +897,22 @@ message Transaction {
     string raw_tx_hex = 9;
 }
 message GetTransactionsRequest {
+    /*
+    The height from which to list transactions, inclusive. If this value is
+    greater than end_height, transactions will be read in reverse.
+    */
+    int32 start_height = 1;
+
+    /*
+    The height until which to list transactions, inclusive. To include
+    unconfirmed transactions, this value should be set to -1, which will
+    return transactions from start_height until the current chain tip and
+    unconfirmed transactions. If no end_height is provided, the call will
+    default to this option.
+    */
+    int32 end_height = 2;
 }
+
 message TransactionDetails {
     /// The list of transactions relevant to the wallet.
     repeated Transaction transactions = 1;

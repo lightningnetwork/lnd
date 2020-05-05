@@ -1377,6 +1377,24 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "start_height",
+            "description": "The height from which to list transactions, inclusive. If this value is\ngreater than end_height, transactions will be read in reverse.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "end_height",
+            "description": "The height until which to list transactions, inclusive. To include\nunconfirmed transactions, this value should be set to -1, which will\nreturn transactions from start_height until the current chain tip and\nunconfirmed transactions. If no end_height is provided, the call will\ndefault to this option.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
         "tags": [
           "Lightning"
         ]

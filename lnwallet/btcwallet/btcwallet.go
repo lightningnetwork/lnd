@@ -26,6 +26,10 @@ import (
 
 const (
 	defaultAccount = uint32(waddrmgr.DefaultAccountNum)
+
+	// UnconfirmedHeight is the special case end height that is used to
+	// obtain unconfirmed transactions from ListTransactionDetails.
+	UnconfirmedHeight int32 = -1
 )
 
 var (
@@ -569,20 +573,22 @@ func unminedTransactionsToDetail(
 }
 
 // ListTransactionDetails returns a list of all transactions which are
-// relevant to the wallet.
+// relevant to the wallet. It takes inclusive start and end height to allow
+// paginated queries. Unconfirmed transactions can be included in the query
+// by providing endHeight = UnconfirmedHeight (= -1).
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) ListTransactionDetails() ([]*lnwallet.TransactionDetail, error) {
+func (b *BtcWallet) ListTransactionDetails(startHeight,
+	endHeight int32) ([]*lnwallet.TransactionDetail, error) {
+
 	// Grab the best block the wallet knows of, we'll use this to calculate
 	// # of confirmations shortly below.
 	bestBlock := b.wallet.Manager.SyncedTo()
 	currentHeight := bestBlock.Height
 
-	// We'll attempt to find all unconfirmed transactions (height of -1),
-	// as well as all transactions that are known to have confirmed at this
-	// height.
-	start := base.NewBlockIdentifierFromHeight(0)
-	stop := base.NewBlockIdentifierFromHeight(-1)
+	// We'll attempt to find all transactions from start to end height.
+	start := base.NewBlockIdentifierFromHeight(startHeight)
+	stop := base.NewBlockIdentifierFromHeight(endHeight)
 	txns, err := b.wallet.GetTransactions(start, stop, nil)
 	if err != nil {
 		return nil, err

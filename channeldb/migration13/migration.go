@@ -136,12 +136,10 @@ func MigrateMPP(tx kvdb.RwTx) error {
 		// Save attempt id for later use.
 		copy(attemptID[:], attemptInfo[:8])
 
-		// Discard attempt id. It will become a bucket key in the new
-		// structure.
-		attemptInfo = attemptInfo[8:]
-
-		// Append unknown (zero) attempt time.
-		attemptInfo = append(attemptInfo, zero[:]...)
+		// Copy over the attempt info into a new slice, the last 8
+		// bytes will be zero to mark a zero attempt time.
+		newAttemptInfo := make([]byte, len(attemptInfo))
+		copy(newAttemptInfo, attemptInfo[8:])
 
 		// Create bucket that contains all htlcs.
 		htlcsBucket, err := bucket.CreateBucket(paymentHtlcsBucket)
@@ -156,7 +154,7 @@ func MigrateMPP(tx kvdb.RwTx) error {
 		}
 
 		// Save migrated attempt info.
-		err = htlcBucket.Put(htlcAttemptInfoKey, attemptInfo)
+		err = htlcBucket.Put(htlcAttemptInfoKey, newAttemptInfo)
 		if err != nil {
 			return err
 		}

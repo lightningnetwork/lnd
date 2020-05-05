@@ -39,7 +39,7 @@ RELEASE_TAGS = autopilotrpc signrpc walletrpc chainrpc invoicesrpc watchtowerrpc
 # from the current date.
 ifneq ($(tag),)
 VERSION_TAG = $(tag)
-VERSION_CHECK = ./build/release/release.sh check-tag "$(VERSION_TAG)"
+VERSION_CHECK = ./scripts/release.sh check-tag "$(VERSION_TAG)"
 endif
 
 # By default we will build all systems. But with the 'sys' tag, a specific

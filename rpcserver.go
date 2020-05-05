@@ -4568,36 +4568,7 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 		return nil, err
 	}
 
-	txDetails := &lnrpc.TransactionDetails{
-		Transactions: make([]*lnrpc.Transaction, len(transactions)),
-	}
-	for i, tx := range transactions {
-		var destAddresses []string
-		for _, destAddress := range tx.DestAddresses {
-			destAddresses = append(destAddresses, destAddress.EncodeAddress())
-		}
-
-		// We also get unconfirmed transactions, so BlockHash can be
-		// nil.
-		blockHash := ""
-		if tx.BlockHash != nil {
-			blockHash = tx.BlockHash.String()
-		}
-
-		txDetails.Transactions[i] = &lnrpc.Transaction{
-			TxHash:           tx.Hash.String(),
-			Amount:           int64(tx.Value),
-			NumConfirmations: tx.NumConfirmations,
-			BlockHash:        blockHash,
-			BlockHeight:      tx.BlockHeight,
-			TimeStamp:        tx.Timestamp,
-			TotalFees:        tx.TotalFees,
-			DestAddresses:    destAddresses,
-			RawTxHex:         hex.EncodeToString(tx.RawTx),
-		}
-	}
-
-	return txDetails, nil
+	return lnrpc.RPCTransactionDetails(transactions), nil
 }
 
 // DescribeGraph returns a description of the latest graph state from the PoV

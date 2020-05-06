@@ -67,6 +67,10 @@ var (
 	// ErrUnreadableFailureMessage is returned when the failure message
 	// cannot be decrypted.
 	ErrUnreadableFailureMessage = errors.New("unreadable failure message")
+
+	// ErrLocalAddFailed signals that the ADD htlc for a local payment
+	// failed to be processed.
+	ErrLocalAddFailed = errors.New("local add HTLC failed")
 )
 
 // plexPacket encapsulates switch packet and adds error channel to receive
@@ -464,7 +468,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 		return ErrDuplicateAdd
 
 	case len(actions.Fails) == 1:
-		return err
+		return ErrLocalAddFailed
 	}
 
 	// Send packet to link.

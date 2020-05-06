@@ -16,6 +16,8 @@
 <time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.htlcOutgoingContestResolver: the client has been shutdown
 <time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.htlcOutgoingContestResolver: unable to create pre-image from witness: invalid preimage length of 33, want 32
 <time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.htlcSuccessResolver: Transaction rejected: output already spent
+<time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.htlcTimeoutResolver: htlcswitch shutting down
+<time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.htlcTimeoutResolver: TxNotifier is exiting
 <time> [ERR] CNCT: Unable to advance state: channel not found
 <time> [ERR] CNCT: unable to hand breached contract off to breachArbiter: server is shutting down
 <time> [ERR] CNCT: unable to handle channel breach for chan_point=<chan_point>: server is shutting down
@@ -53,6 +55,7 @@
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: router shutting down
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: unable add proof to the channel chanID=<hex>: edge marked as zombie
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: unable add proof to the channel chanID=<hex>: edge not found
+<time> [ERR] FNDG: Unable to advance state(<chan_point>): failed adding to router graph: funding manager shutting down
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): failed sending fundingLocked: funding manager shutting down
 <time> [ERR] FNDG: unable to cancel reservation: no active reservations for peer(<hex>)
 <time> [ERR] FNDG: unable to report short chan id: link <hex> not found
@@ -71,6 +74,7 @@
 <time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: unable to send chan sync message for ChannelPoint(<chan_point>): set tcp <ip>: use of closed network connection with error: unable to resume channel, recovery required
 <time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: Unable to send chan sync message for ChannelPoint(<chan_point>): write tcp <ip>-><ip>: use of closed network connection with error: unable to resume channel, recovery required
 <time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: Unable to send chan sync message for ChannelPoint(<chan_point>): write tcp <ip>-><ip>: write: broken pipe with error: unable to resume channel, recovery required
+<time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: unable to send chan sync message for ChannelPoint(<chan_point>): write tcp <ip>-><ip>: write: connection reset by peer with error: unable to resume channel, recovery required
 <time> [ERR] HSWC: ChannelLink(<chan>): link failed, exiting htlcManager
 <time> [ERR] HSWC: ChannelLink(<chan>): outgoing htlc(<hex>) has insufficient fee: expected 575000, got 1075
 <time> [ERR] HSWC: ChannelLink(<chan>): outgoing htlc(<hex>) is too small: min_htlc=<amt>, htlc_value=<amt>
@@ -149,6 +153,8 @@
 <time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeInvoices]: rpc error: code = Canceled desc = context canceled
 <time> [ERR] RPCS: [/routerrpc.Router/SendPayment]: routerrpc server shutting down
 <time> [ERR] RPCS: [/routerrpc.Router/SendPaymentV2]: routerrpc server shutting down
+<time> [ERR] RPCS: [/routerrpc.Router/SubscribeHtlcEvents]: context canceled
+<time> [ERR] RPCS: [/routerrpc.Router/SubscribeHtlcEvents]: htlc event subscription terminated
 <time> [ERR] RPCS: [closechannel] unable to close ChannelPoint(<chan_point>): chain notifier shutting down
 <time> [ERR] RPCS: [connectpeer]: error connecting to peer: already connected to peer: <hex>@<ip>
 <time> [ERR] RPCS: Failed receiving from stream: rpc error: code = Canceled desc = context canceled

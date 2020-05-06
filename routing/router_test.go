@@ -2809,13 +2809,13 @@ func TestSendToRouteMultiShardSend(t *testing.T) {
 
 	for i := 0; i < numShards; i++ {
 		go func() {
-			preimg, err := ctx.router.SendToRoute(payment, rt)
+			attempt, err := ctx.router.SendToRoute(payment, rt)
 			if err != nil {
 				errChan <- err
 				return
 			}
 
-			successes <- preimg
+			successes <- attempt.Settle.Preimage
 		}()
 	}
 

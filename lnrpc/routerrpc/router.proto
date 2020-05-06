@@ -6,6 +6,88 @@ package routerrpc;
 
 option go_package = "github.com/lightningnetwork/lnd/lnrpc/routerrpc";
 
+// Router is a service that offers advanced interaction with the router
+// subsystem of the daemon.
+service Router {
+    /**
+    SendPaymentV2 attempts to route a payment described by the passed
+    PaymentRequest to the final destination. The call returns a stream of
+    payment updates.
+    */
+    rpc SendPaymentV2 (SendPaymentRequest) returns (stream lnrpc.Payment);
+
+    /**
+    TrackPaymentV2 returns an update stream for the payment identified by the
+    payment hash.
+    */
+    rpc TrackPaymentV2 (TrackPaymentRequest) returns (stream lnrpc.Payment);
+
+    /**
+    EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
+    may cost to send an HTLC to the target end destination.
+    */
+    rpc EstimateRouteFee (RouteFeeRequest) returns (RouteFeeResponse);
+
+    /**
+    SendToRoute attempts to make a payment via the specified route. This method
+    differs from SendPayment in that it allows users to specify a full route
+    manually. This can be used for things like rebalancing, and atomic swaps.
+    */
+    rpc SendToRoute (SendToRouteRequest) returns (SendToRouteResponse);
+
+    /**
+    ResetMissionControl clears all mission control state and starts with a clean
+    slate.
+    */
+    rpc ResetMissionControl (ResetMissionControlRequest)
+        returns (ResetMissionControlResponse);
+
+    /**
+    QueryMissionControl exposes the internal mission control state to callers.
+    It is a development feature.
+    */
+    rpc QueryMissionControl (QueryMissionControlRequest)
+        returns (QueryMissionControlResponse);
+
+    /**
+    QueryProbability returns the current success probability estimate for a
+    given node pair and amount.
+    */
+    rpc QueryProbability (QueryProbabilityRequest)
+        returns (QueryProbabilityResponse);
+
+    /**
+    BuildRoute builds a fully specified route based on a list of hop public
+    keys. It retrieves the relevant channel policies from the graph in order to
+    calculate the correct fees and time locks.
+    */
+    rpc BuildRoute (BuildRouteRequest) returns (BuildRouteResponse);
+
+    /**
+    SubscribeHtlcEvents creates a uni-directional stream from the server to
+    the client which delivers a stream of htlc events.
+    */
+    rpc SubscribeHtlcEvents (SubscribeHtlcEventsRequest)
+        returns (stream HtlcEvent);
+
+    /**
+    Deprecated, use SendPaymentV2. SendPayment attempts to route a payment
+    described by the passed PaymentRequest to the final destination. The call
+    returns a stream of payment status updates.
+    */
+    rpc SendPayment (SendPaymentRequest) returns (stream PaymentStatus) {
+        option deprecated = true;
+    }
+
+    /**
+    Deprecated, use TrackPaymentV2. TrackPayment returns an update stream for
+    the payment identified by the payment hash.
+    */
+    rpc TrackPayment (TrackPaymentRequest) returns (stream PaymentStatus) {
+        option deprecated = true;
+    }
+}
+
 message SendPaymentRequest {
     /// The identity pubkey of the payment recipient
     bytes dest = 1;
@@ -438,7 +520,7 @@ enum PaymentState {
     There are more routes to try, but the payment timeout was exceeded.
     */
     FAILED_TIMEOUT = 2;
-    
+
     /**
     All possible routes were tried and failed permanently. Or were no
     routes to the destination at all.
@@ -477,84 +559,4 @@ message PaymentStatus {
     The HTLCs made in attempt to settle the payment [EXPERIMENTAL].
     */
     repeated lnrpc.HTLCAttempt htlcs = 4;
-}
-
-service Router {
-    /**
-    SendPaymentV2 attempts to route a payment described by the passed
-    PaymentRequest to the final destination. The call returns a stream of
-    payment updates.
-    */
-    rpc SendPaymentV2 (SendPaymentRequest) returns (stream lnrpc.Payment);
-
-    /**
-    TrackPaymentV2 returns an update stream for the payment identified by the
-    payment hash.
-    */
-    rpc TrackPaymentV2 (TrackPaymentRequest) returns (stream lnrpc.Payment);
-
-    /**
-    EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
-    may cost to send an HTLC to the target end destination.
-    */
-    rpc EstimateRouteFee (RouteFeeRequest) returns (RouteFeeResponse);
-
-    /**
-    SendToRoute attempts to make a payment via the specified route. This method
-    differs from SendPayment in that it allows users to specify a full route
-    manually. This can be used for things like rebalancing, and atomic swaps.
-    */
-    rpc SendToRoute (SendToRouteRequest) returns (SendToRouteResponse);
-
-    /**
-    ResetMissionControl clears all mission control state and starts with a clean
-    slate.
-    */
-    rpc ResetMissionControl (ResetMissionControlRequest)
-        returns (ResetMissionControlResponse);
-
-    /**
-    QueryMissionControl exposes the internal mission control state to callers.
-    It is a development feature.
-    */
-    rpc QueryMissionControl (QueryMissionControlRequest)
-        returns (QueryMissionControlResponse);
-
-    /**
-    QueryProbability returns the current success probability estimate for a
-    given node pair and amount.
-    */
-    rpc QueryProbability (QueryProbabilityRequest)
-        returns (QueryProbabilityResponse);
-
-    /**
-    BuildRoute builds a fully specified route based on a list of hop public
-    keys. It retrieves the relevant channel policies from the graph in order to
-    calculate the correct fees and time locks.
-    */
-    rpc BuildRoute (BuildRouteRequest) returns (BuildRouteResponse);
-
-    /**
-    SubscribeHtlcEvents creates a uni-directional stream from the server to
-    the client which delivers a stream of htlc events.
-    */
-    rpc SubscribeHtlcEvents (SubscribeHtlcEventsRequest)
-        returns (stream HtlcEvent);
-
-    /**
-    Deprecated, use SendPaymentV2. SendPayment attempts to route a payment 
-    described by the passed PaymentRequest to the final destination. The call
-    returns a stream of payment status updates.
-    */
-    rpc SendPayment(SendPaymentRequest) returns (stream PaymentStatus) {
-        option deprecated = true;
-    }
-
-    /**
-    Deprecated, use TrackPaymentV2. TrackPayment returns an update stream for
-    the payment identified by the payment hash.
-    */
-    rpc TrackPayment(TrackPaymentRequest) returns (stream PaymentStatus) {
-        option deprecated = true;
-    }
 }

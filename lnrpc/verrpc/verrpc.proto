@@ -4,12 +4,18 @@ package verrpc;
 
 option go_package = "github.com/lightningnetwork/lnd/lnrpc/verrpc";
 
+// Versioner is a service that can be used to get information about the version
+// and build information of the running daemon.
 service Versioner {
+    /* lncli: `version`
+    GetVersion returns the current version and build information of the running
+    daemon.
+    */
     rpc GetVersion (VersionRequest) returns (Version);
-};
+}
 
 message VersionRequest {
-};
+}
 
 message Version {
     /// A verbose description of the daemon's commit.
@@ -38,4 +44,4 @@ message Version {
 
     /// The version of go that compiled the executable.
     string go_version = 9;
-};
+}

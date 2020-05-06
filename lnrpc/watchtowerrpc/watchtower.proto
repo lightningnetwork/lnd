@@ -4,6 +4,8 @@ package watchtowerrpc;
 
 option go_package = "github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc";
 
+// Watchtower is a service that grants access to the watchtower server
+// functionality of the daemon.
 service Watchtower {
     /** lncli: tower info
     GetInfo returns general information concerning the companion watchtower

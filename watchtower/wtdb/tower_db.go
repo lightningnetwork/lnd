@@ -129,7 +129,7 @@ func (t *TowerDB) bdb() kvdb.Backend {
 // NOTE: Part of the versionedDB interface.
 func (t *TowerDB) Version() (uint32, error) {
 	var version uint32
-	err := kvdb.View(t.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(t.db, func(tx kvdb.RTx) error {
 		var err error
 		version, err = getDBVersion(tx)
 		return err
@@ -150,7 +150,7 @@ func (t *TowerDB) Close() error {
 // returned if the session could not be found.
 func (t *TowerDB) GetSessionInfo(id *SessionID) (*SessionInfo, error) {
 	var session *SessionInfo
-	err := kvdb.View(t.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(t.db, func(tx kvdb.RTx) error {
 		sessions := tx.ReadBucket(sessionsBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
@@ -389,7 +389,7 @@ func (t *TowerDB) DeleteSession(target SessionID) error {
 // they exist in the database.
 func (t *TowerDB) QueryMatches(breachHints []blob.BreachHint) ([]Match, error) {
 	var matches []Match
-	err := kvdb.View(t.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(t.db, func(tx kvdb.RTx) error {
 		sessions := tx.ReadBucket(sessionsBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
@@ -485,7 +485,7 @@ func (t *TowerDB) SetLookoutTip(epoch *chainntnfs.BlockEpoch) error {
 // database.
 func (t *TowerDB) GetLookoutTip() (*chainntnfs.BlockEpoch, error) {
 	var epoch *chainntnfs.BlockEpoch
-	err := kvdb.View(t.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(t.db, func(tx kvdb.RTx) error {
 		lookoutTip := tx.ReadBucket(lookoutTipBkt)
 		if lookoutTip == nil {
 			return ErrUninitializedDB

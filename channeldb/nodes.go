@@ -150,7 +150,7 @@ func (db *DB) deleteLinkNode(tx kvdb.RwTx, identity *btcec.PublicKey) error {
 // key cannot be found, then ErrNodeNotFound if returned.
 func (db *DB) FetchLinkNode(identity *btcec.PublicKey) (*LinkNode, error) {
 	var linkNode *LinkNode
-	err := kvdb.View(db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(db, func(tx kvdb.RTx) error {
 		node, err := fetchLinkNode(tx, identity)
 		if err != nil {
 			return err
@@ -163,7 +163,7 @@ func (db *DB) FetchLinkNode(identity *btcec.PublicKey) (*LinkNode, error) {
 	return linkNode, err
 }
 
-func fetchLinkNode(tx kvdb.ReadTx, targetPub *btcec.PublicKey) (*LinkNode, error) {
+func fetchLinkNode(tx kvdb.RTx, targetPub *btcec.PublicKey) (*LinkNode, error) {
 	// First fetch the bucket for storing node metadata, bailing out early
 	// if it hasn't been created yet.
 	nodeMetaBucket := tx.ReadBucket(nodeInfoBucket)
@@ -191,7 +191,7 @@ func fetchLinkNode(tx kvdb.ReadTx, targetPub *btcec.PublicKey) (*LinkNode, error
 // whom we have active channels with.
 func (db *DB) FetchAllLinkNodes() ([]*LinkNode, error) {
 	var linkNodes []*LinkNode
-	err := kvdb.View(db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(db, func(tx kvdb.RTx) error {
 		nodes, err := db.fetchAllLinkNodes(tx)
 		if err != nil {
 			return err
@@ -209,7 +209,7 @@ func (db *DB) FetchAllLinkNodes() ([]*LinkNode, error) {
 
 // fetchAllLinkNodes uses an existing database transaction to fetch all nodes
 // with whom we have active channels with.
-func (db *DB) fetchAllLinkNodes(tx kvdb.ReadTx) ([]*LinkNode, error) {
+func (db *DB) fetchAllLinkNodes(tx kvdb.RTx) ([]*LinkNode, error) {
 	nodeMetaBucket := tx.ReadBucket(nodeInfoBucket)
 	if nodeMetaBucket == nil {
 		return nil, ErrLinkNodesNotFound

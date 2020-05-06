@@ -206,7 +206,7 @@ type PaymentCreationInfo struct {
 func (db *DB) FetchPayments() ([]*MPPayment, error) {
 	var payments []*MPPayment
 
-	err := kvdb.View(db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(db, func(tx kvdb.RTx) error {
 		paymentsBucket := tx.ReadBucket(paymentsRootBucket)
 		if paymentsBucket == nil {
 			return nil

@@ -485,7 +485,7 @@ func (d *DB) InvoicesAddedSince(sinceAddIndex uint64) ([]Invoice, error) {
 	var startIndex [8]byte
 	byteOrder.PutUint64(startIndex[:], sinceAddIndex)
 
-	err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		invoices := tx.ReadBucket(invoiceBucket)
 		if invoices == nil {
 			return ErrNoInvoicesCreated
@@ -540,7 +540,7 @@ func (d *DB) InvoicesAddedSince(sinceAddIndex uint64) ([]Invoice, error) {
 // terms of the payment.
 func (d *DB) LookupInvoice(paymentHash [32]byte) (Invoice, error) {
 	var invoice Invoice
-	err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		invoices := tx.ReadBucket(invoiceBucket)
 		if invoices == nil {
 			return ErrNoInvoicesCreated
@@ -595,7 +595,7 @@ func (d *DB) FetchAllInvoicesWithPaymentHash(pendingOnly bool) (
 
 	var result []InvoiceWithPaymentHash
 
-	err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		invoices := tx.ReadBucket(invoiceBucket)
 		if invoices == nil {
 			return ErrNoInvoicesCreated
@@ -701,7 +701,7 @@ func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
 		InvoiceQuery: q,
 	}
 
-	err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		// If the bucket wasn't found, then there aren't any invoices
 		// within the database yet, so we can simply exit.
 		invoices := tx.ReadBucket(invoiceBucket)
@@ -883,7 +883,7 @@ func (d *DB) InvoicesSettledSince(sinceSettleIndex uint64) ([]Invoice, error) {
 	var startIndex [8]byte
 	byteOrder.PutUint64(startIndex[:], sinceSettleIndex)
 
-	err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		invoices := tx.ReadBucket(invoiceBucket)
 		if invoices == nil {
 			return ErrNoInvoicesCreated

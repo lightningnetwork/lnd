@@ -396,7 +396,7 @@ type FwdPackager interface {
 
 	// LoadFwdPkgs loads all known forwarding packages owned by this
 	// channel.
-	LoadFwdPkgs(tx kvdb.ReadTx) ([]*FwdPkg, error)
+	LoadFwdPkgs(tx kvdb.RTx) ([]*FwdPkg, error)
 
 	// RemovePkg deletes a forwarding package owned by this channel at
 	// the provided remote `height`.
@@ -497,12 +497,12 @@ func putLogUpdate(bkt kvdb.RwBucket, idx uint16, htlc *LogUpdate) error {
 // LoadFwdPkgs scans the forwarding log for any packages that haven't been
 // processed, and returns their deserialized log updates in a map indexed by the
 // remote commitment height at which the updates were locked in.
-func (p *ChannelPackager) LoadFwdPkgs(tx kvdb.ReadTx) ([]*FwdPkg, error) {
+func (p *ChannelPackager) LoadFwdPkgs(tx kvdb.RTx) ([]*FwdPkg, error) {
 	return loadChannelFwdPkgs(tx, p.source)
 }
 
 // loadChannelFwdPkgs loads all forwarding packages owned by `source`.
-func loadChannelFwdPkgs(tx kvdb.ReadTx, source lnwire.ShortChannelID) ([]*FwdPkg, error) {
+func loadChannelFwdPkgs(tx kvdb.RTx, source lnwire.ShortChannelID) ([]*FwdPkg, error) {
 	fwdPkgBkt := tx.ReadBucket(fwdPackagesKey)
 	if fwdPkgBkt == nil {
 		return nil, nil

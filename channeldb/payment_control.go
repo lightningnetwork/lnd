@@ -462,7 +462,7 @@ func (p *PaymentControl) FetchPayment(paymentHash lntypes.Hash) (
 	*MPPayment, error) {
 
 	var payment *MPPayment
-	err := kvdb.View(p.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(p.db, func(tx kvdb.RTx) error {
 		bucket, err := fetchPaymentBucket(tx, paymentHash)
 		if err != nil {
 			return err
@@ -494,7 +494,7 @@ func createPaymentBucket(tx kvdb.RwTx, paymentHash lntypes.Hash) (
 
 // fetchPaymentBucket fetches the sub-bucket assigned to this payment hash. If
 // the bucket does not exist, it returns ErrPaymentNotInitiated.
-func fetchPaymentBucket(tx kvdb.ReadTx, paymentHash lntypes.Hash) (
+func fetchPaymentBucket(tx kvdb.RTx, paymentHash lntypes.Hash) (
 	kvdb.ReadBucket, error) {
 
 	payments := tx.ReadBucket(paymentsRootBucket)
@@ -609,7 +609,7 @@ type InFlightPayment struct {
 // FetchInFlightPayments returns all payments with status InFlight.
 func (p *PaymentControl) FetchInFlightPayments() ([]*InFlightPayment, error) {
 	var inFlights []*InFlightPayment
-	err := kvdb.View(p.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(p.db, func(tx kvdb.RTx) error {
 		payments := tx.ReadBucket(paymentsRootBucket)
 		if payments == nil {
 			return nil

@@ -539,7 +539,7 @@ func (ns *nurseryStore) FetchClass(
 	// processed at the provided block height.
 	var kids []kidOutput
 	var babies []babyOutput
-	if err := kvdb.View(ns.db, func(tx kvdb.ReadTx) error {
+	if err := kvdb.View(ns.db, func(tx kvdb.RTx) error {
 		// Append each crib output to our list of babyOutputs.
 		if err := ns.forEachHeightPrefix(tx, cribPrefix, height,
 			func(buf []byte) error {
@@ -593,7 +593,7 @@ func (ns *nurseryStore) FetchClass(
 // preschool bucket.
 func (ns *nurseryStore) FetchPreschools() ([]kidOutput, error) {
 	var kids []kidOutput
-	if err := kvdb.View(ns.db, func(tx kvdb.ReadTx) error {
+	if err := kvdb.View(ns.db, func(tx kvdb.RTx) error {
 
 		// Retrieve the existing chain bucket for this nursery store.
 		chainBucket := tx.ReadBucket(ns.pfxChainKey)
@@ -666,7 +666,7 @@ func (ns *nurseryStore) FetchPreschools() ([]kidOutput, error) {
 // index at or below the provided upper bound.
 func (ns *nurseryStore) HeightsBelowOrEqual(height uint32) ([]uint32, error) {
 	var activeHeights []uint32
-	err := kvdb.View(ns.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(ns.db, func(tx kvdb.RTx) error {
 		// Ensure that the chain bucket for this nursery store exists.
 		chainBucket := tx.ReadBucket(ns.pfxChainKey)
 		if chainBucket == nil {
@@ -711,7 +711,7 @@ func (ns *nurseryStore) HeightsBelowOrEqual(height uint32) ([]uint32, error) {
 func (ns *nurseryStore) ForChanOutputs(chanPoint *wire.OutPoint,
 	callback func([]byte, []byte) error) error {
 
-	return kvdb.View(ns.db, func(tx kvdb.ReadTx) error {
+	return kvdb.View(ns.db, func(tx kvdb.RTx) error {
 		return ns.forChanOutputs(tx, chanPoint, callback)
 	})
 }
@@ -719,7 +719,7 @@ func (ns *nurseryStore) ForChanOutputs(chanPoint *wire.OutPoint,
 // ListChannels returns all channels the nursery is currently tracking.
 func (ns *nurseryStore) ListChannels() ([]wire.OutPoint, error) {
 	var activeChannels []wire.OutPoint
-	if err := kvdb.View(ns.db, func(tx kvdb.ReadTx) error {
+	if err := kvdb.View(ns.db, func(tx kvdb.RTx) error {
 		// Retrieve the existing chain bucket for this nursery store.
 		chainBucket := tx.ReadBucket(ns.pfxChainKey)
 		if chainBucket == nil {
@@ -753,7 +753,7 @@ func (ns *nurseryStore) ListChannels() ([]wire.OutPoint, error) {
 // IsMatureChannel determines the whether or not all of the outputs in a
 // particular channel bucket have been marked as graduated.
 func (ns *nurseryStore) IsMatureChannel(chanPoint *wire.OutPoint) (bool, error) {
-	err := kvdb.View(ns.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(ns.db, func(tx kvdb.RTx) error {
 		// Iterate over the contents of the channel bucket, computing
 		// both total number of outputs, and those that have the grad
 		// prefix.
@@ -965,7 +965,7 @@ func (ns *nurseryStore) createChannelBucket(tx kvdb.RwTx,
 // getChannelBucket retrieves an existing channel bucket from the nursery store,
 // using the given channel point.  If the bucket does not exist, or any bucket
 // along its path does not exist, a nil value is returned.
-func (ns *nurseryStore) getChannelBucket(tx kvdb.ReadTx,
+func (ns *nurseryStore) getChannelBucket(tx kvdb.RTx,
 	chanPoint *wire.OutPoint) kvdb.ReadBucket {
 
 	// Retrieve the existing chain bucket for this nursery store.
@@ -1048,7 +1048,7 @@ func (ns *nurseryStore) createHeightBucket(tx kvdb.RwTx,
 // getHeightBucketPath retrieves an existing height bucket from the nursery
 // store, using the provided block height. If the bucket does not exist, or any
 // bucket along its path does not exist, a nil value is returned.
-func (ns *nurseryStore) getHeightBucketPath(tx kvdb.ReadTx,
+func (ns *nurseryStore) getHeightBucketPath(tx kvdb.RTx,
 	height uint32) (kvdb.ReadBucket, kvdb.ReadBucket, kvdb.ReadBucket) {
 
 	// Retrieve the existing chain bucket for this nursery store.
@@ -1102,7 +1102,7 @@ func (ns *nurseryStore) getHeightBucketPathWrite(tx kvdb.RwTx,
 // getHeightBucket retrieves an existing height bucket from the nursery store,
 // using the provided block height. If the bucket does not exist, or any bucket
 // along its path does not exist, a nil value is returned.
-func (ns *nurseryStore) getHeightBucket(tx kvdb.ReadTx,
+func (ns *nurseryStore) getHeightBucket(tx kvdb.RTx,
 	height uint32) kvdb.ReadBucket {
 	_, _, hghtBucket := ns.getHeightBucketPath(tx, height)
 
@@ -1176,7 +1176,7 @@ func (ns *nurseryStore) getHeightChanBucketWrite(tx kvdb.RwTx,
 // enumerate crib and kindergarten outputs at a particular height. The callback
 // is invoked with serialized bytes retrieved for each output of interest,
 // allowing the caller to deserialize them into the appropriate type.
-func (ns *nurseryStore) forEachHeightPrefix(tx kvdb.ReadTx, prefix []byte,
+func (ns *nurseryStore) forEachHeightPrefix(tx kvdb.RTx, prefix []byte,
 	height uint32, callback func([]byte) error) error {
 
 	// Start by retrieving the height bucket corresponding to the provided
@@ -1264,7 +1264,7 @@ func (ns *nurseryStore) forEachHeightPrefix(tx kvdb.ReadTx, prefix []byte,
 // provided callback. The callback accepts a key-value pair of byte slices
 // corresponding to the prefixed-output key and the serialized output,
 // respectively.
-func (ns *nurseryStore) forChanOutputs(tx kvdb.ReadTx, chanPoint *wire.OutPoint,
+func (ns *nurseryStore) forChanOutputs(tx kvdb.RTx, chanPoint *wire.OutPoint,
 	callback func([]byte, []byte) error) error {
 
 	chanBucket := ns.getChannelBucket(tx, chanPoint)

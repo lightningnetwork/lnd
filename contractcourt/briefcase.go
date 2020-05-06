@@ -337,7 +337,7 @@ func newBoltArbitratorLog(db kvdb.Backend, cfg ChannelArbitratorConfig,
 // interface.
 var _ ArbitratorLog = (*boltArbitratorLog)(nil)
 
-func fetchContractReadBucket(tx kvdb.ReadTx, scopeKey []byte) (kvdb.ReadBucket, error) {
+func fetchContractReadBucket(tx kvdb.RTx, scopeKey []byte) (kvdb.ReadBucket, error) {
 	scopeBucket := tx.ReadBucket(scopeKey)
 	if scopeBucket == nil {
 		return nil, errScopeBucketNoExist
@@ -415,7 +415,7 @@ func (b *boltArbitratorLog) writeResolver(contractBucket kvdb.RwBucket,
 // NOTE: Part of the ContractResolver interface.
 func (b *boltArbitratorLog) CurrentState() (ArbitratorState, error) {
 	var s ArbitratorState
-	err := kvdb.View(b.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(b.db, func(tx kvdb.RTx) error {
 		scopeBucket := tx.ReadBucket(b.scopeKey[:])
 		if scopeBucket == nil {
 			return errScopeBucketNoExist
@@ -461,7 +461,7 @@ func (b *boltArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver, erro
 		Checkpoint:              b.checkpointContract,
 	}
 	var contracts []ContractResolver
-	err := kvdb.View(b.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(b.db, func(tx kvdb.RTx) error {
 		contractBucket, err := fetchContractReadBucket(tx, b.scopeKey[:])
 		if err != nil {
 			return err
@@ -675,7 +675,7 @@ func (b *boltArbitratorLog) LogContractResolutions(c *ContractResolutions) error
 // NOTE: Part of the ContractResolver interface.
 func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, error) {
 	c := &ContractResolutions{}
-	err := kvdb.View(b.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(b.db, func(tx kvdb.RTx) error {
 		scopeBucket := tx.ReadBucket(b.scopeKey[:])
 		if scopeBucket == nil {
 			return errScopeBucketNoExist
@@ -774,7 +774,7 @@ func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 func (b *boltArbitratorLog) FetchChainActions() (ChainActionMap, error) {
 	actionsMap := make(ChainActionMap)
 
-	err := kvdb.View(b.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(b.db, func(tx kvdb.RTx) error {
 		scopeBucket := tx.ReadBucket(b.scopeKey[:])
 		if scopeBucket == nil {
 			return errScopeBucketNoExist
@@ -837,7 +837,7 @@ func (b *boltArbitratorLog) InsertConfirmedCommitSet(c *CommitSet) error {
 // NOTE: Part of the ContractResolver interface.
 func (b *boltArbitratorLog) FetchConfirmedCommitSet() (*CommitSet, error) {
 	var c *CommitSet
-	err := kvdb.View(b.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(b.db, func(tx kvdb.RTx) error {
 		scopeBucket := tx.ReadBucket(b.scopeKey[:])
 		if scopeBucket == nil {
 			return errScopeBucketNoExist

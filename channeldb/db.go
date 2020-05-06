@@ -394,7 +394,7 @@ func fileExists(path string) bool {
 // zero-length slice is returned.
 func (d *DB) FetchOpenChannels(nodeID *btcec.PublicKey) ([]*OpenChannel, error) {
 	var channels []*OpenChannel
-	err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		var err error
 		channels, err = d.fetchOpenChannels(tx, nodeID)
 		return err
@@ -407,7 +407,7 @@ func (d *DB) FetchOpenChannels(nodeID *btcec.PublicKey) ([]*OpenChannel, error) 
 // stored currently active/open channels associated with the target nodeID. In
 // the case that no active channels are known to have been created with this
 // node, then a zero-length slice is returned.
-func (db *DB) fetchOpenChannels(tx kvdb.ReadTx,
+func (db *DB) fetchOpenChannels(tx kvdb.RTx,
 	nodeID *btcec.PublicKey) ([]*OpenChannel, error) {
 
 	// Get the bucket dedicated to storing the metadata for open channels.
@@ -519,7 +519,7 @@ func (d *DB) FetchChannel(chanPoint wire.OutPoint) (*OpenChannel, error) {
 	// structure and skipping fully decoding each channel, we save a good
 	// bit of CPU as we don't need to do things like decompress public
 	// keys.
-	chanScan := func(tx kvdb.ReadTx) error {
+	chanScan := func(tx kvdb.RTx) error {
 		// Get the bucket dedicated to storing the metadata for open
 		// channels.
 		openChanBucket := tx.ReadBucket(openChannelBucket)
@@ -675,7 +675,7 @@ func waitingCloseFilter(waitingClose bool) fetchChannelsFilter {
 func fetchChannels(d *DB, filters ...fetchChannelsFilter) ([]*OpenChannel, error) {
 	var channels []*OpenChannel
 
-	err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		// Get the bucket dedicated to storing the metadata for open
 		// channels.
 		openChanBucket := tx.ReadBucket(openChannelBucket)
@@ -767,7 +767,7 @@ func fetchChannels(d *DB, filters ...fetchChannelsFilter) ([]*OpenChannel, error
 func (d *DB) FetchClosedChannels(pendingOnly bool) ([]*ChannelCloseSummary, error) {
 	var chanSummaries []*ChannelCloseSummary
 
-	if err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+	if err := kvdb.View(d, func(tx kvdb.RTx) error {
 		closeBucket := tx.ReadBucket(closedChannelBucket)
 		if closeBucket == nil {
 			return ErrNoClosedChannels
@@ -805,7 +805,7 @@ var ErrClosedChannelNotFound = errors.New("unable to find closed channel summary
 // point of the channel in question.
 func (d *DB) FetchClosedChannel(chanID *wire.OutPoint) (*ChannelCloseSummary, error) {
 	var chanSummary *ChannelCloseSummary
-	if err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+	if err := kvdb.View(d, func(tx kvdb.RTx) error {
 		closeBucket := tx.ReadBucket(closedChannelBucket)
 		if closeBucket == nil {
 			return ErrClosedChannelNotFound
@@ -839,7 +839,7 @@ func (d *DB) FetchClosedChannelForID(cid lnwire.ChannelID) (
 	*ChannelCloseSummary, error) {
 
 	var chanSummary *ChannelCloseSummary
-	if err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+	if err := kvdb.View(d, func(tx kvdb.RTx) error {
 		closeBucket := tx.ReadBucket(closedChannelBucket)
 		if closeBucket == nil {
 			return ErrClosedChannelNotFound
@@ -1115,7 +1115,7 @@ func (d *DB) AddrsForNode(nodePub *btcec.PublicKey) ([]net.Addr, error) {
 		graphNode LightningNode
 	)
 
-	dbErr := kvdb.View(d, func(tx kvdb.ReadTx) error {
+	dbErr := kvdb.View(d, func(tx kvdb.RTx) error {
 		var err error
 
 		linkNode, err = fetchLinkNode(tx, nodePub)
@@ -1312,7 +1312,7 @@ func getMigrationsToApply(versions []version, version uint32) ([]migration, []ui
 // fetchHistoricalChanBucket returns a the channel bucket for a given outpoint
 // from the historical channel bucket. If the bucket does not exist,
 // ErrNoHistoricalBucket is returned.
-func fetchHistoricalChanBucket(tx kvdb.ReadTx,
+func fetchHistoricalChanBucket(tx kvdb.RTx,
 	outPoint *wire.OutPoint) (kvdb.ReadBucket, error) {
 
 	// First fetch the top level bucket which stores all data related to
@@ -1340,7 +1340,7 @@ func fetchHistoricalChanBucket(tx kvdb.ReadTx,
 // bucket.
 func (db *DB) FetchHistoricalChannel(outPoint *wire.OutPoint) (*OpenChannel, error) {
 	var channel *OpenChannel
-	err := kvdb.View(db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(db, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchHistoricalChanBucket(tx, outPoint)
 		if err != nil {
 			return err

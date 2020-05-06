@@ -252,7 +252,7 @@ func validateInvoice(i *Invoice) error {
 func (d *DB) FetchAllInvoices(pendingOnly bool) ([]Invoice, error) {
 	var invoices []Invoice
 
-	err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		invoiceB := tx.ReadBucket(invoiceBucket)
 		if invoiceB == nil {
 			return ErrNoInvoicesCreated

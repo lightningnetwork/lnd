@@ -188,7 +188,7 @@ func (c *ClientDB) bdb() kvdb.Backend {
 // NOTE: Part of the versionedDB interface.
 func (c *ClientDB) Version() (uint32, error) {
 	var version uint32
-	err := kvdb.View(c.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		var err error
 		version, err = getDBVersion(tx)
 		return err
@@ -383,7 +383,7 @@ func (c *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
 // LoadTowerByID retrieves a tower by its tower ID.
 func (c *ClientDB) LoadTowerByID(towerID TowerID) (*Tower, error) {
 	var tower *Tower
-	err := kvdb.View(c.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		towers := tx.ReadBucket(cTowerBkt)
 		if towers == nil {
 			return ErrUninitializedDB
@@ -403,7 +403,7 @@ func (c *ClientDB) LoadTowerByID(towerID TowerID) (*Tower, error) {
 // LoadTower retrieves a tower by its public key.
 func (c *ClientDB) LoadTower(pubKey *btcec.PublicKey) (*Tower, error) {
 	var tower *Tower
-	err := kvdb.View(c.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		towers := tx.ReadBucket(cTowerBkt)
 		if towers == nil {
 			return ErrUninitializedDB
@@ -432,7 +432,7 @@ func (c *ClientDB) LoadTower(pubKey *btcec.PublicKey) (*Tower, error) {
 // ListTowers retrieves the list of towers available within the database.
 func (c *ClientDB) ListTowers() ([]*Tower, error) {
 	var towers []*Tower
-	err := kvdb.View(c.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		towerBucket := tx.ReadBucket(cTowerBkt)
 		if towerBucket == nil {
 			return ErrUninitializedDB
@@ -558,7 +558,7 @@ func (c *ClientDB) CreateClientSession(session *ClientSession) error {
 // response that do not correspond to this tower.
 func (c *ClientDB) ListClientSessions(id *TowerID) (map[SessionID]*ClientSession, error) {
 	var clientSessions map[SessionID]*ClientSession
-	err := kvdb.View(c.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		sessions := tx.ReadBucket(cSessionBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
@@ -612,7 +612,7 @@ func listClientSessions(sessions kvdb.ReadBucket,
 // channel summaries.
 func (c *ClientDB) FetchChanSummaries() (ChannelSummaries, error) {
 	summaries := make(map[lnwire.ChannelID]ClientChanSummary)
-	err := kvdb.View(c.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		chanSummaries := tx.ReadBucket(cChanSummaryBkt)
 		if chanSummaries == nil {
 			return ErrUninitializedDB

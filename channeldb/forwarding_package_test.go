@@ -782,7 +782,7 @@ func loadFwdPkgs(t *testing.T, db kvdb.Backend,
 	packager channeldb.FwdPackager) []*channeldb.FwdPkg {
 
 	var fwdPkgs []*channeldb.FwdPkg
-	if err := kvdb.View(db, func(tx kvdb.ReadTx) error {
+	if err := kvdb.View(db, func(tx kvdb.RTx) error {
 		var err error
 		fwdPkgs, err = packager.LoadFwdPkgs(tx)
 		return err

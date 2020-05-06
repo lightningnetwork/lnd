@@ -175,7 +175,7 @@ func newChannelGraph(db *DB, rejectCacheSize, chanCacheSize int) *ChannelGraph {
 // node based off the source node.
 func (c *ChannelGraph) SourceNode() (*LightningNode, error) {
 	var source *LightningNode
-	err := kvdb.View(c.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		// First grab the nodes bucket which stores the mapping from
 		// pubKey to node information.
 		nodes := tx.ReadBucket(nodeBucket)

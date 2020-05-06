@@ -46,7 +46,7 @@ func getMigrations(versions []version, curVersion uint32) []version {
 
 // getDBVersion retrieves the current database version from the metadata bucket
 // using the dbVersionKey.
-func getDBVersion(tx kvdb.ReadTx) (uint32, error) {
+func getDBVersion(tx kvdb.RTx) (uint32, error) {
 	metadata := tx.ReadBucket(metadataBkt)
 	if metadata == nil {
 		return 0, ErrUninitializedDB

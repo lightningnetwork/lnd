@@ -201,7 +201,7 @@ func (s *sweeperStore) NotifyPublishTx(sweepTx *wire.MsgTx) error {
 func (s *sweeperStore) GetLastPublishedTx() (*wire.MsgTx, error) {
 	var sweepTx *wire.MsgTx
 
-	err := kvdb.View(s.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(s.db, func(tx kvdb.RTx) error {
 		lastTxBucket := tx.ReadBucket(lastTxBucketKey)
 		if lastTxBucket == nil {
 			return errors.New("last tx bucket does not exist")
@@ -232,7 +232,7 @@ func (s *sweeperStore) GetLastPublishedTx() (*wire.MsgTx, error) {
 func (s *sweeperStore) IsOurTx(hash chainhash.Hash) (bool, error) {
 	var ours bool
 
-	err := kvdb.View(s.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(s.db, func(tx kvdb.RTx) error {
 		txHashesBucket := tx.ReadBucket(txHashesBucketKey)
 		if txHashesBucket == nil {
 			return errNoTxHashesBucket
@@ -253,7 +253,7 @@ func (s *sweeperStore) IsOurTx(hash chainhash.Hash) (bool, error) {
 func (s *sweeperStore) ListSweeps() ([]chainhash.Hash, error) {
 	var sweepTxns []chainhash.Hash
 
-	if err := kvdb.View(s.db, func(tx kvdb.ReadTx) error {
+	if err := kvdb.View(s.db, func(tx kvdb.RTx) error {
 		txHashesBucket := tx.ReadBucket(txHashesBucketKey)
 		if txHashesBucket == nil {
 			return errNoTxHashesBucket

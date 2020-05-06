@@ -21,7 +21,7 @@ import (
 // 		hex("1111"): hex("5783492373"),
 // 	},
 // }
-func DumpDB(tx kvdb.ReadTx, rootKey []byte) error {
+func DumpDB(tx kvdb.RTx, rootKey []byte) error {
 	bucket := tx.ReadBucket(rootKey)
 	if bucket == nil {
 		return fmt.Errorf("bucket %v not found", string(rootKey))
@@ -100,7 +100,7 @@ func restoreDB(bucket kvdb.RwBucket, data map[string]interface{}) error {
 }
 
 // VerifyDB verifies the database against the given data set.
-func VerifyDB(tx kvdb.ReadTx, rootKey []byte, data map[string]interface{}) error {
+func VerifyDB(tx kvdb.RTx, rootKey []byte, data map[string]interface{}) error {
 	bucket := tx.ReadBucket(rootKey)
 	if bucket == nil {
 		return fmt.Errorf("bucket %v not found", string(rootKey))

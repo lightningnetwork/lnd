@@ -158,6 +158,7 @@
 <time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: rpc error: code = Internal desc = transport: transport: the stream is done or WriteHeader was already called
 <time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeInvoices]: rpc error: code = Canceled desc = context canceled
 <time> [ERR] RPCS: [/routerrpc.Router/SendPayment]: routerrpc server shutting down
+<time> [ERR] RPCS: [/routerrpc.Router/SendPaymentV2]: context canceled
 <time> [ERR] RPCS: [/routerrpc.Router/SendPaymentV2]: routerrpc server shutting down
 <time> [ERR] RPCS: [/routerrpc.Router/SubscribeHtlcEvents]: context canceled
 <time> [ERR] RPCS: [/routerrpc.Router/SubscribeHtlcEvents]: htlc event subscription terminated

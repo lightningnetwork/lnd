@@ -11,6 +11,8 @@
 <time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to force close: channel not found
 <time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.commitSweepResolver: remote party swept utxo
 <time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.htlcOutgoingContestResolver: chain notifier shutting down
+<time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.htlcOutgoingContestResolver: chainntnfs: system interrupt while attempting to register for block epoch notification.
+<time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.htlcOutgoingContestResolver: resolver canceled
 <time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.htlcOutgoingContestResolver: the client has been shutdown
 <time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.htlcOutgoingContestResolver: unable to create pre-image from witness: invalid preimage length of 33, want 32
 <time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.htlcSuccessResolver: Transaction rejected: output already spent
@@ -23,6 +25,9 @@
 <time> [ERR] CRTR: Failed sending attempt <number> for payment <hex> to switch: insufficient bandwidth to route htlc
 <time> [ERR] CRTR: Failed sending attempt <number> for payment <hex> to switch: UnknownNextPeer
 <time> [ERR] CRTR: out of order block: expecting height=<height>, got height=<height>
+<time> [ERR] CRTR: Payment with hash <hex> failed: error
+<time> [ERR] CRTR: Payment with hash <hex> failed: incorrect_payment_details
+<time> [ERR] CRTR: Payment with hash <hex> failed: insufficient_balance
 <time> [ERR] CRTR: Payment with hash <hex> failed: router shutting down
 <time> [ERR] CRTR: Resuming payment with hash <hex> failed: error.
 <time> [ERR] CRTR: Resuming payment with hash <hex> failed: incorrect_payment_details.
@@ -37,6 +42,7 @@
 <time> [ERR] DISC: Unable to reply to peer query: write tcp <ip>-><ip>: use of closed network connection
 <time> [ERR] DISC: Unable to reply to peer query: write tcp <ip>-><ip>: write: broken pipe
 <time> [ERR] FNDG: received funding error from <hex>: chan_id=<hex>, err=Number of pending channels exceed maximum
+<time> [ERR] FNDG: received funding error from <hex>: chan_id=<hex>, err=Synchronizing blockchain
 <time> [ERR] FNDG: Unable to add new channel <chan_point> with peer <hex>: peer exiting
 <time> [ERR] FNDG: Unable to advance pending state of ChannelPoint(<chan_point>): error waiting for funding confirmation for ChannelPoint(<chan_point>): epoch client shutting down
 <time> [ERR] FNDG: Unable to advance pending state of ChannelPoint(<chan_point>): error waiting for funding confirmation for ChannelPoint(<chan_point>): funding manager shutting down
@@ -62,6 +68,7 @@
 <time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: ChannelPoint(<chan_point>) with CommitPoint(<hex>) had possible local commitment state data loss with error: unable to resume channel, recovery required
 <time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: possible remote commitment state data loss with error: sync error
 <time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: Unable to send chan sync message for ChannelPoint(<chan_point>): peer exiting with error: unable to resume channel, recovery required
+<time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: unable to send chan sync message for ChannelPoint(<chan_point>): set tcp <ip>: use of closed network connection with error: unable to resume channel, recovery required
 <time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: Unable to send chan sync message for ChannelPoint(<chan_point>): write tcp <ip>-><ip>: use of closed network connection with error: unable to resume channel, recovery required
 <time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: Unable to send chan sync message for ChannelPoint(<chan_point>): write tcp <ip>-><ip>: write: broken pipe with error: unable to resume channel, recovery required
 <time> [ERR] HSWC: ChannelLink(<chan>): link failed, exiting htlcManager
@@ -121,6 +128,7 @@
 <time> [ERR] RPCS: [/lnrpc.Lightning/GetChanInfo]: edge marked as zombie
 <time> [ERR] RPCS: [/lnrpc.Lightning/OpenChannel]: channels cannot be created before the wallet is fully synced
 <time> [ERR] RPCS: [/lnrpc.Lightning/OpenChannel]: received funding error from <hex>: chan_id=<hex>, err=Number of pending channels exceed maximum
+<time> [ERR] RPCS: [/lnrpc.Lightning/OpenChannel]: received funding error from <hex>: chan_id=<hex>, err=Synchronizing blockchain
 <time> [ERR] RPCS: [/lnrpc.Lightning/PendingChannels]: unable to find arbitrator
 <time> [ERR] RPCS: [/lnrpc.Lightning/SendCoins]: address: tb1qfc8fusa98jx8uvnhzavxccqlzvg749tvjw82tg is not valid for this network: regtest
 <time> [ERR] RPCS: [/lnrpc.Lightning/SendCoins]: amount set while SendAll is active
@@ -150,6 +158,7 @@
 <time> [ERR] RPCS: Failed sending response: rpc error: code = Canceled desc = context canceled
 <time> [ERR] RPCS: Failed sending response: rpc error: code = Internal desc = transport: transport: the stream is done or WriteHeader was already called
 <time> [ERR] RPCS: unable to open channel to NodeKey(<hex>): received funding error from <hex>: chan_id=<hex>, err=Number of pending channels exceed maximum
+<time> [ERR] RPCS: unable to open channel to NodeKey(<hex>): received funding error from <hex>: chan_id=<hex>, err=Synchronizing blockchain
 <time> [ERR] RPCS: Websocket receive error from <ip>: read tcp4 <ip>-><ip>: use of closed network connection
 <time> [ERR] RPCS: Websocket receive error from <ip>: websocket: close 1006 unexpected EOF
 <time> [ERR] SRVR: Unable to retrieve advertised address for node <hex>: no advertised addresses found

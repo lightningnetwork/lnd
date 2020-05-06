@@ -133,12 +133,12 @@ func (WitnessType) EnumDescriptor() ([]byte, []int) {
 }
 
 type KeyReq struct {
-	//*
+	//
 	//Is the key finger print of the root pubkey that this request is targeting.
 	//This allows the WalletKit to possibly serve out keys for multiple HD chains
 	//via public derivation.
 	KeyFingerPrint int32 `protobuf:"varint,1,opt,name=key_finger_print,json=keyFingerPrint,proto3" json:"key_finger_print,omitempty"`
-	//*
+	//
 	//The target key family to derive a key from. In other contexts, this is
 	//known as the "account".
 	KeyFamily            int32    `protobuf:"varint,2,opt,name=key_family,json=keyFamily,proto3" json:"key_family,omitempty"`
@@ -218,7 +218,7 @@ func (m *AddrRequest) XXX_DiscardUnknown() {
 var xxx_messageInfo_AddrRequest proto.InternalMessageInfo
 
 type AddrResponse struct {
-	//*
+	//
 	//The address encoded using a bech32 format.
 	Addr                 string   `protobuf:"bytes,1,opt,name=addr,proto3" json:"addr,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
@@ -259,7 +259,7 @@ func (m *AddrResponse) GetAddr() string {
 }
 
 type Transaction struct {
-	//*
+	//
 	//The raw serialized transaction.
 	TxHex                []byte   `protobuf:"bytes,1,opt,name=tx_hex,json=txHex,proto3" json:"tx_hex,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
@@ -300,7 +300,7 @@ func (m *Transaction) GetTxHex() []byte {
 }
 
 type PublishResponse struct {
-	//*
+	//
 	//If blank, then no error occurred and the transaction was successfully
 	//published. If not the empty string, then a string representation of the
 	//broadcast error.
@@ -345,11 +345,11 @@ func (m *PublishResponse) GetPublishError() string {
 }
 
 type SendOutputsRequest struct {
-	//*
+	//
 	//The number of satoshis per kilo weight that should be used when crafting
 	//this transaction.
 	SatPerKw int64 `protobuf:"varint,1,opt,name=sat_per_kw,json=satPerKw,proto3" json:"sat_per_kw,omitempty"`
-	//*
+	//
 	//A slice of the outputs that should be created in the transaction produced.
 	Outputs              []*signrpc.TxOut `protobuf:"bytes,2,rep,name=outputs,proto3" json:"outputs,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}         `json:"-"`
@@ -397,7 +397,7 @@ func (m *SendOutputsRequest) GetOutputs() []*signrpc.TxOut {
 }
 
 type SendOutputsResponse struct {
-	//*
+	//
 	//The serialized transaction sent out on the network.
 	RawTx                []byte   `protobuf:"bytes,1,opt,name=raw_tx,json=rawTx,proto3" json:"raw_tx,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
@@ -438,7 +438,7 @@ func (m *SendOutputsResponse) GetRawTx() []byte {
 }
 
 type EstimateFeeRequest struct {
-	//*
+	//
 	//The number of confirmations to shoot for when estimating the fee.
 	ConfTarget           int32    `protobuf:"varint,1,opt,name=conf_target,json=confTarget,proto3" json:"conf_target,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
@@ -479,7 +479,7 @@ func (m *EstimateFeeRequest) GetConfTarget() int32 {
 }
 
 type EstimateFeeResponse struct {
-	//*
+	//
 	//The amount of satoshis per kw that should be used in order to reach the
 	//confirmation target in the request.
 	SatPerKw             int64    `protobuf:"varint,1,opt,name=sat_per_kw,json=satPerKw,proto3" json:"sat_per_kw,omitempty"`
@@ -542,7 +542,7 @@ type PendingSweep struct {
 	RequestedConfTarget uint32 `protobuf:"varint,8,opt,name=requested_conf_target,json=requestedConfTarget,proto3" json:"requested_conf_target,omitempty"`
 	// The requested fee rate, expressed in sat/byte, for this output.
 	RequestedSatPerByte uint32 `protobuf:"varint,9,opt,name=requested_sat_per_byte,json=requestedSatPerByte,proto3" json:"requested_sat_per_byte,omitempty"`
-	//*
+	//
 	//Whether this input must be force-swept. This means that it is swept even
 	//if it has a negative yield.
 	Force                bool     `protobuf:"varint,7,opt,name=force,proto3" json:"force,omitempty"`
@@ -720,7 +720,7 @@ type BumpFeeRequest struct {
 	//The fee rate, expressed in sat/byte, that should be used to spend the input
 	//with.
 	SatPerByte uint32 `protobuf:"varint,3,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
-	//*
+	//
 	//Whether this input must be force-swept. This means that it is swept even
 	//if it has a negative yield.
 	Force                bool     `protobuf:"varint,4,opt,name=force,proto3" json:"force,omitempty"`
@@ -1002,12 +1002,12 @@ func init() {
 func init() { proto.RegisterFile("walletrpc/walletkit.proto", fileDescriptor_6cc6942ac78249e5) }
 
 var fileDescriptor_6cc6942ac78249e5 = []byte{
-	// 1180 bytes of a gzipped FileDescriptorProto
+	// 1178 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x94, 0x56, 0x6d, 0x6f, 0xe2, 0x46,
 	0x10, 0x3e, 0x42, 0x42, 0x60, 0x78, 0x09, 0x59, 0xf2, 0xe2, 0xe3, 0x72, 0x0d, 0x75, 0xdf, 0xa2,
 	0xf6, 0x8e, 0xa8, 0x39, 0xb5, 0xea, 0xb5, 0x52, 0xd5, 0x04, 0x1c, 0x11, 0x41, 0x70, 0x6a, 0xfb,
-	0x2e, 0xba, 0xaa, 0xd2, 0xca, 0xe0, 0x0d, 0xb1, 0x02, 0xb6, 0x6f, 0xbd, 0x1c, 0xf0, 0xad, 0xdf,
-	0xfa, 0x0f, 0x2a, 0xdd, 0xbf, 0xad, 0xbc, 0x7e, 0x61, 0x0d, 0xcd, 0x49, 0xfd, 0x14, 0x76, 0x9e,
+	0x2e, 0xba, 0xaa, 0xd2, 0xca, 0xe0, 0x0d, 0xb1, 0x02, 0xb6, 0x6f, 0xbd, 0x1c, 0xf0, 0xad, 0x5f,
+	0xfa, 0x17, 0x2a, 0xdd, 0xbf, 0xad, 0xbc, 0x7e, 0x61, 0x0d, 0xcd, 0x49, 0xfd, 0x14, 0x76, 0x9e,
 	0x67, 0x9e, 0x9d, 0x9d, 0x19, 0xcf, 0x04, 0x9e, 0xce, 0xcc, 0xf1, 0x98, 0x30, 0xea, 0x0d, 0x4f,
 	0xc3, 0x5f, 0x0f, 0x36, 0x6b, 0x7a, 0xd4, 0x65, 0x2e, 0x2a, 0x24, 0x50, 0xbd, 0x40, 0xbd, 0x61,
 	0x68, 0xad, 0xef, 0xf9, 0xf6, 0xc8, 0x09, 0xe8, 0xc1, 0x5f, 0x42, 0x43, 0xab, 0xfc, 0x3b, 0xe4,
@@ -1072,11 +1072,11 @@ var fileDescriptor_6cc6942ac78249e5 = []byte{
 	0xf5, 0x0d, 0x5d, 0xff, 0xec, 0x31, 0x78, 0xa9, 0x26, 0x2c, 0xc5, 0x94, 0xda, 0xfa, 0x8e, 0x4d,
 	0xa9, 0xfd, 0xd7, 0x2e, 0xd5, 0xa0, 0x9c, 0x9a, 0xbc, 0xe8, 0xf8, 0x91, 0xc9, 0x9a, 0xc4, 0xd7,
 	0x78, 0x9c, 0x10, 0x69, 0xfe, 0x06, 0xdb, 0xd1, 0x6c, 0x43, 0x4f, 0x05, 0x72, 0x7a, 0x0e, 0xa7,
-	0x32, 0xb6, 0x32, 0x0a, 0x51, 0x17, 0x60, 0x39, 0x54, 0xd0, 0xd1, 0x23, 0xb3, 0x26, 0xd4, 0x79,
-	0xfe, 0xc9, 0x49, 0x24, 0x3f, 0xb9, 0xf8, 0xfe, 0x8f, 0xd3, 0x91, 0xcd, 0xee, 0xa7, 0x83, 0xe6,
-	0xd0, 0x9d, 0x9c, 0x8e, 0x83, 0x3d, 0xe8, 0xd8, 0xce, 0xc8, 0x21, 0x6c, 0xe6, 0xd2, 0x87, 0xd3,
-	0xb1, 0x63, 0x9d, 0xf2, 0xa9, 0x78, 0x9a, 0xe8, 0x0c, 0x72, 0xfc, 0xdf, 0xc4, 0x57, 0xff, 0x06,
-	0x00, 0x00, 0xff, 0xff, 0xe6, 0xc9, 0x1c, 0x56, 0x6f, 0x0a, 0x00, 0x00,
+	0x32, 0xb6, 0x32, 0x0a, 0xd1, 0x15, 0xc0, 0x72, 0xa8, 0xa0, 0xa3, 0x47, 0x66, 0x4d, 0xa8, 0xf3,
+	0xfc, 0x93, 0x93, 0xe8, 0xe2, 0xfb, 0x3f, 0x4e, 0x47, 0x36, 0xbb, 0x9f, 0x0e, 0x9a, 0x43, 0x77,
+	0x72, 0x3a, 0x0e, 0xb6, 0xa0, 0x63, 0x3b, 0x23, 0x87, 0xb0, 0x99, 0x4b, 0x1f, 0x4e, 0xc7, 0x8e,
+	0x75, 0xca, 0x67, 0xe2, 0x69, 0xa2, 0x32, 0xc8, 0xf1, 0x7f, 0x12, 0x5f, 0xfd, 0x1b, 0x00, 0x00,
+	0xff, 0xff, 0x88, 0x6c, 0x32, 0x8c, 0x6d, 0x0a, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -1091,30 +1091,30 @@ const _ = grpc.SupportPackageIsVersion4
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type WalletKitClient interface {
-	//*
+	//
 	//DeriveNextKey attempts to derive the *next* key within the key family
 	//(account in BIP43) specified. This method should return the next external
 	//child within this branch.
 	DeriveNextKey(ctx context.Context, in *KeyReq, opts ...grpc.CallOption) (*signrpc.KeyDescriptor, error)
-	//*
+	//
 	//DeriveKey attempts to derive an arbitrary key specified by the passed
 	//KeyLocator.
 	DeriveKey(ctx context.Context, in *signrpc.KeyLocator, opts ...grpc.CallOption) (*signrpc.KeyDescriptor, error)
-	//*
+	//
 	//NextAddr returns the next unused address within the wallet.
 	NextAddr(ctx context.Context, in *AddrRequest, opts ...grpc.CallOption) (*AddrResponse, error)
-	//*
+	//
 	//PublishTransaction attempts to publish the passed transaction to the
 	//network. Once this returns without an error, the wallet will continually
 	//attempt to re-broadcast the transaction on start up, until it enters the
 	//chain.
 	PublishTransaction(ctx context.Context, in *Transaction, opts ...grpc.CallOption) (*PublishResponse, error)
-	//*
+	//
 	//SendOutputs is similar to the existing sendmany call in Bitcoind, and
 	//allows the caller to create a transaction that sends to several outputs at
 	//once. This is ideal when wanting to batch create a set of transactions.
 	SendOutputs(ctx context.Context, in *SendOutputsRequest, opts ...grpc.CallOption) (*SendOutputsResponse, error)
-	//*
+	//
 	//EstimateFee attempts to query the internal fee estimator of the wallet to
 	//determine the fee (in sat/kw) to attach to a transaction in order to
 	//achieve the confirmation target.
@@ -1254,30 +1254,30 @@ func (c *walletKitClient) ListSweeps(ctx context.Context, in *ListSweepsRequest,
 
 // WalletKitServer is the server API for WalletKit service.
 type WalletKitServer interface {
-	//*
+	//
 	//DeriveNextKey attempts to derive the *next* key within the key family
 	//(account in BIP43) specified. This method should return the next external
 	//child within this branch.
 	DeriveNextKey(context.Context, *KeyReq) (*signrpc.KeyDescriptor, error)
-	//*
+	//
 	//DeriveKey attempts to derive an arbitrary key specified by the passed
 	//KeyLocator.
 	DeriveKey(context.Context, *signrpc.KeyLocator) (*signrpc.KeyDescriptor, error)
-	//*
+	//
 	//NextAddr returns the next unused address within the wallet.
 	NextAddr(context.Context, *AddrRequest) (*AddrResponse, error)
-	//*
+	//
 	//PublishTransaction attempts to publish the passed transaction to the
 	//network. Once this returns without an error, the wallet will continually
 	//attempt to re-broadcast the transaction on start up, until it enters the
 	//chain.
 	PublishTransaction(context.Context, *Transaction) (*PublishResponse, error)
-	//*
+	//
 	//SendOutputs is similar to the existing sendmany call in Bitcoind, and
 	//allows the caller to create a transaction that sends to several outputs at
 	//once. This is ideal when wanting to batch create a set of transactions.
 	SendOutputs(context.Context, *SendOutputsRequest) (*SendOutputsResponse, error)
-	//*
+	//
 	//EstimateFee attempts to query the internal fee estimator of the wallet to
 	//determine the fee (in sat/kw) to attach to a transaction in order to
 	//achieve the confirmation target.

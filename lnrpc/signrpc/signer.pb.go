@@ -23,9 +23,9 @@ var _ = math.Inf
 const _ = proto.ProtoPackageIsVersion3 // please upgrade the proto package
 
 type KeyLocator struct {
-	/// The family of key being identified.
+	// The family of key being identified.
 	KeyFamily int32 `protobuf:"varint,1,opt,name=key_family,json=keyFamily,proto3" json:"key_family,omitempty"`
-	/// The precise index of the key being identified.
+	// The precise index of the key being identified.
 	KeyIndex             int32    `protobuf:"varint,2,opt,name=key_index,json=keyIndex,proto3" json:"key_index,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -72,11 +72,11 @@ func (m *KeyLocator) GetKeyIndex() int32 {
 }
 
 type KeyDescriptor struct {
-	//*
+	//
 	//The raw bytes of the key being identified. Either this or the KeyLocator
 	//must be specified.
 	RawKeyBytes []byte `protobuf:"bytes,1,opt,name=raw_key_bytes,json=rawKeyBytes,proto3" json:"raw_key_bytes,omitempty"`
-	//*
+	//
 	//The key locator that identifies which key to use for signing. Either this
 	//or the raw bytes of the target key must be specified.
 	KeyLoc               *KeyLocator `protobuf:"bytes,2,opt,name=key_loc,json=keyLoc,proto3" json:"key_loc,omitempty"`
@@ -125,9 +125,9 @@ func (m *KeyDescriptor) GetKeyLoc() *KeyLocator {
 }
 
 type TxOut struct {
-	/// The value of the output being spent.
+	// The value of the output being spent.
 	Value int64 `protobuf:"varint,1,opt,name=value,proto3" json:"value,omitempty"`
-	/// The script of the output being spent.
+	// The script of the output being spent.
 	PkScript             []byte   `protobuf:"bytes,2,opt,name=pk_script,json=pkScript,proto3" json:"pk_script,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -174,19 +174,19 @@ func (m *TxOut) GetPkScript() []byte {
 }
 
 type SignDescriptor struct {
-	//*
+	//
 	//A descriptor that precisely describes *which* key to use for signing. This
 	//may provide the raw public key directly, or require the Signer to re-derive
 	//the key according to the populated derivation path.
 	KeyDesc *KeyDescriptor `protobuf:"bytes,1,opt,name=key_desc,json=keyDesc,proto3" json:"key_desc,omitempty"`
-	//*
+	//
 	//A scalar value that will be added to the private key corresponding to the
 	//above public key to obtain the private key to be used to sign this input.
 	//This value is typically derived via the following computation:
 	//
 	// derivedKey = privkey + sha256(perCommitmentPoint || pubKey) mod N
 	SingleTweak []byte `protobuf:"bytes,2,opt,name=single_tweak,json=singleTweak,proto3" json:"single_tweak,omitempty"`
-	//*
+	//
 	//A private key that will be used in combination with its corresponding
 	//private key to derive the private key that is to be used to sign the target
 	//input. Within the Lightning protocol, this value is typically the
@@ -197,19 +197,19 @@ type SignDescriptor struct {
 	// k = (privKey*sha256(pubKey || tweakPub) +
 	//tweakPriv*sha256(tweakPub || pubKey)) mod N
 	DoubleTweak []byte `protobuf:"bytes,3,opt,name=double_tweak,json=doubleTweak,proto3" json:"double_tweak,omitempty"`
-	//*
+	//
 	//The full script required to properly redeem the output.  This field will
 	//only be populated if a p2wsh or a p2sh output is being signed.
 	WitnessScript []byte `protobuf:"bytes,4,opt,name=witness_script,json=witnessScript,proto3" json:"witness_script,omitempty"`
-	//*
+	//
 	//A description of the output being spent. The value and script MUST be
 	//provided.
 	Output *TxOut `protobuf:"bytes,5,opt,name=output,proto3" json:"output,omitempty"`
-	//*
+	//
 	//The target sighash type that should be used when generating the final
 	//sighash, and signature.
 	Sighash uint32 `protobuf:"varint,7,opt,name=sighash,proto3" json:"sighash,omitempty"`
-	//*
+	//
 	//The target input within the transaction that should be signed.
 	InputIndex           int32    `protobuf:"varint,8,opt,name=input_index,json=inputIndex,proto3" json:"input_index,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
@@ -292,9 +292,9 @@ func (m *SignDescriptor) GetInputIndex() int32 {
 }
 
 type SignReq struct {
-	/// The raw bytes of the transaction to be signed.
+	// The raw bytes of the transaction to be signed.
 	RawTxBytes []byte `protobuf:"bytes,1,opt,name=raw_tx_bytes,json=rawTxBytes,proto3" json:"raw_tx_bytes,omitempty"`
-	/// A set of sign descriptors, for each input to be signed.
+	// A set of sign descriptors, for each input to be signed.
 	SignDescs            []*SignDescriptor `protobuf:"bytes,2,rep,name=sign_descs,json=signDescs,proto3" json:"sign_descs,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}          `json:"-"`
 	XXX_unrecognized     []byte            `json:"-"`
@@ -341,7 +341,7 @@ func (m *SignReq) GetSignDescs() []*SignDescriptor {
 }
 
 type SignResp struct {
-	//*
+	//
 	//A set of signatures realized in a fixed 64-byte format ordered in ascending
 	//input order.
 	RawSigs              [][]byte `protobuf:"bytes,1,rep,name=raw_sigs,json=rawSigs,proto3" json:"raw_sigs,omitempty"`
@@ -383,9 +383,9 @@ func (m *SignResp) GetRawSigs() [][]byte {
 }
 
 type InputScript struct {
-	/// The serializes witness stack for the specified input.
+	// The serializes witness stack for the specified input.
 	Witness [][]byte `protobuf:"bytes,1,rep,name=witness,proto3" json:"witness,omitempty"`
-	//**
+	//*
 	//The optional sig script for the specified witness that will only be set if
 	//the input specified is a nested p2sh witness program.
 	SigScript            []byte   `protobuf:"bytes,2,opt,name=sig_script,json=sigScript,proto3" json:"sig_script,omitempty"`
@@ -434,7 +434,7 @@ func (m *InputScript) GetSigScript() []byte {
 }
 
 type InputScriptResp struct {
-	/// The set of fully valid input scripts requested.
+	// The set of fully valid input scripts requested.
 	InputScripts         []*InputScript `protobuf:"bytes,1,rep,name=input_scripts,json=inputScripts,proto3" json:"input_scripts,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}       `json:"-"`
 	XXX_unrecognized     []byte         `json:"-"`
@@ -474,9 +474,9 @@ func (m *InputScriptResp) GetInputScripts() []*InputScript {
 }
 
 type SignMessageReq struct {
-	/// The message to be signed.
+	// The message to be signed.
 	Msg []byte `protobuf:"bytes,1,opt,name=msg,proto3" json:"msg,omitempty"`
-	/// The key locator that identifies which key to use for signing.
+	// The key locator that identifies which key to use for signing.
 	KeyLoc               *KeyLocator `protobuf:"bytes,2,opt,name=key_loc,json=keyLoc,proto3" json:"key_loc,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}    `json:"-"`
 	XXX_unrecognized     []byte      `json:"-"`
@@ -523,7 +523,7 @@ func (m *SignMessageReq) GetKeyLoc() *KeyLocator {
 }
 
 type SignMessageResp struct {
-	//*
+	//
 	//The signature for the given message in the fixed-size LN wire format.
 	Signature            []byte   `protobuf:"bytes,1,opt,name=signature,proto3" json:"signature,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
@@ -564,13 +564,13 @@ func (m *SignMessageResp) GetSignature() []byte {
 }
 
 type VerifyMessageReq struct {
-	/// The message over which the signature is to be verified.
+	// The message over which the signature is to be verified.
 	Msg []byte `protobuf:"bytes,1,opt,name=msg,proto3" json:"msg,omitempty"`
-	//*
+	//
 	//The fixed-size LN wire encoded signature to be verified over the given
 	//message.
 	Signature []byte `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
-	/// The public key the signature has to be valid for.
+	// The public key the signature has to be valid for.
 	Pubkey               []byte   `protobuf:"bytes,3,opt,name=pubkey,proto3" json:"pubkey,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -624,7 +624,7 @@ func (m *VerifyMessageReq) GetPubkey() []byte {
 }
 
 type VerifyMessageResp struct {
-	/// Whether the signature was valid over the given message.
+	// Whether the signature was valid over the given message.
 	Valid                bool     `protobuf:"varint,1,opt,name=valid,proto3" json:"valid,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -666,7 +666,7 @@ func (m *VerifyMessageResp) GetValid() bool {
 type SharedKeyRequest struct {
 	// The ephemeral public key to use for the DH key derivation.
 	EphemeralPubkey []byte `protobuf:"bytes,1,opt,name=ephemeral_pubkey,json=ephemeralPubkey,proto3" json:"ephemeral_pubkey,omitempty"`
-	//*
+	//
 	//The optional key locator of the local key that should be used. If this
 	//parameter is not set then the node's identity private key will be used.
 	KeyLoc               *KeyLocator `protobuf:"bytes,2,opt,name=key_loc,json=keyLoc,proto3" json:"key_loc,omitempty"`
@@ -837,7 +837,7 @@ const _ = grpc.SupportPackageIsVersion4
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type SignerClient interface {
-	//*
+	//
 	//SignOutputRaw is a method that can be used to generated a signature for a
 	//set of inputs/outputs to a transaction. Each request specifies details
 	//concerning how the outputs should be signed, which keys they should be
@@ -847,7 +847,7 @@ type SignerClient interface {
 	//If we are  unable to sign using the specified keys, then an error will be
 	//returned.
 	SignOutputRaw(ctx context.Context, in *SignReq, opts ...grpc.CallOption) (*SignResp, error)
-	//*
+	//
 	//ComputeInputScript generates a complete InputIndex for the passed
 	//transaction with the signature as defined within the passed SignDescriptor.
 	//This method should be capable of generating the proper input script for
@@ -859,14 +859,14 @@ type SignerClient interface {
 	//in the TxOut field, the value in that same field, and finally the input
 	//index.
 	ComputeInputScript(ctx context.Context, in *SignReq, opts ...grpc.CallOption) (*InputScriptResp, error)
-	//*
+	//
 	//SignMessage signs a message with the key specified in the key locator. The
 	//returned signature is fixed-size LN wire format encoded.
 	//
 	//The main difference to SignMessage in the main RPC is that a specific key is
 	//used to sign the message instead of the node identity private key.
 	SignMessage(ctx context.Context, in *SignMessageReq, opts ...grpc.CallOption) (*SignMessageResp, error)
-	//*
+	//
 	//VerifyMessage verifies a signature over a message using the public key
 	//provided. The signature must be fixed-size LN wire format encoded.
 	//
@@ -939,7 +939,7 @@ func (c *signerClient) DeriveSharedKey(ctx context.Context, in *SharedKeyRequest
 
 // SignerServer is the server API for Signer service.
 type SignerServer interface {
-	//*
+	//
 	//SignOutputRaw is a method that can be used to generated a signature for a
 	//set of inputs/outputs to a transaction. Each request specifies details
 	//concerning how the outputs should be signed, which keys they should be
@@ -949,7 +949,7 @@ type SignerServer interface {
 	//If we are  unable to sign using the specified keys, then an error will be
 	//returned.
 	SignOutputRaw(context.Context, *SignReq) (*SignResp, error)
-	//*
+	//
 	//ComputeInputScript generates a complete InputIndex for the passed
 	//transaction with the signature as defined within the passed SignDescriptor.
 	//This method should be capable of generating the proper input script for
@@ -961,14 +961,14 @@ type SignerServer interface {
 	//in the TxOut field, the value in that same field, and finally the input
 	//index.
 	ComputeInputScript(context.Context, *SignReq) (*InputScriptResp, error)
-	//*
+	//
 	//SignMessage signs a message with the key specified in the key locator. The
 	//returned signature is fixed-size LN wire format encoded.
 	//
 	//The main difference to SignMessage in the main RPC is that a specific key is
 	//used to sign the message instead of the node identity private key.
 	SignMessage(context.Context, *SignMessageReq) (*SignMessageResp, error)
-	//*
+	//
 	//VerifyMessage verifies a signature over a message using the public key
 	//provided. The signature must be fixed-size LN wire format encoded.
 	//

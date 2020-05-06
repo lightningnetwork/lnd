@@ -17,7 +17,7 @@
   "paths": {
     "/v1/changepassword": {
       "post": {
-        "summary": "* lncli: `changepassword`\nChangePassword changes the password of the encrypted wallet. This will\nautomatically unlock the wallet database if successful.",
+        "summary": "lncli: `changepassword`\nChangePassword changes the password of the encrypted wallet. This will\nautomatically unlock the wallet database if successful.",
         "operationId": "ChangePassword",
         "responses": {
           "200": {
@@ -44,7 +44,7 @@
     },
     "/v1/genseed": {
       "get": {
-        "summary": "*\nGenSeed is the first method that should be used to instantiate a new lnd\ninstance. This method allows a caller to generate a new aezeed cipher seed\ngiven an optional passphrase. If provided, the passphrase will be necessary\nto decrypt the cipherseed to expose the internal wallet seed.",
+        "summary": "GenSeed is the first method that should be used to instantiate a new lnd\ninstance. This method allows a caller to generate a new aezeed cipher seed\ngiven an optional passphrase. If provided, the passphrase will be necessary\nto decrypt the cipherseed to expose the internal wallet seed.",
         "description": "Once the cipherseed is obtained and verified by the user, the InitWallet\nmethod should be used to commit the newly generated seed, and create the\nwallet.",
         "operationId": "GenSeed",
         "responses": {
@@ -58,7 +58,7 @@
         "parameters": [
           {
             "name": "aezeed_passphrase",
-            "description": "*\naezeed_passphrase is an optional user provided passphrase that will be used\nto encrypt the generated aezeed cipher seed. When using REST, this field\nmust be encoded as base64.",
+            "description": "aezeed_passphrase is an optional user provided passphrase that will be used\nto encrypt the generated aezeed cipher seed. When using REST, this field\nmust be encoded as base64.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -66,7 +66,7 @@
           },
           {
             "name": "seed_entropy",
-            "description": "*\nseed_entropy is an optional 16-bytes generated via CSPRNG. If not\nspecified, then a fresh set of randomness will be used to create the seed.\nWhen using REST, this field must be encoded as base64.",
+            "description": "seed_entropy is an optional 16-bytes generated via CSPRNG. If not\nspecified, then a fresh set of randomness will be used to create the seed.\nWhen using REST, this field must be encoded as base64.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -80,7 +80,7 @@
     },
     "/v1/initwallet": {
       "post": {
-        "summary": "*\nInitWallet is used when lnd is starting up for the first time to fully\ninitialize the daemon and its internal wallet. At the very least a wallet\npassword must be provided. This will be used to encrypt sensitive material\non disk.",
+        "summary": "InitWallet is used when lnd is starting up for the first time to fully\ninitialize the daemon and its internal wallet. At the very least a wallet\npassword must be provided. This will be used to encrypt sensitive material\non disk.",
         "description": "In the case of a recovery scenario, the user can also specify their aezeed\nmnemonic and passphrase. If set, then the daemon will use this prior state\nto initialize its internal wallet.\n\nAlternatively, this can be used along with the GenSeed RPC to obtain a\nseed, then present it to the user. Once it has been verified by the user,\nthe seed can be fed into this RPC in order to commit the new wallet.",
         "operationId": "InitWallet",
         "responses": {
@@ -108,7 +108,7 @@
     },
     "/v1/unlockwallet": {
       "post": {
-        "summary": "* lncli: `unlock`\nUnlockWallet is used at startup of lnd to provide a password to unlock\nthe wallet database.",
+        "summary": "lncli: `unlock`\nUnlockWallet is used at startup of lnd to provide a password to unlock\nthe wallet database.",
         "operationId": "UnlockWallet",
         "responses": {
           "200": {
@@ -140,11 +140,11 @@
       "properties": {
         "single_chan_backups": {
           "$ref": "#/definitions/lnrpcChannelBackups",
-          "description": "*\nThe set of new channels that have been added since the last channel backup\nsnapshot was requested."
+          "description": "The set of new channels that have been added since the last channel backup\nsnapshot was requested."
         },
         "multi_chan_backup": {
           "$ref": "#/definitions/lnrpcMultiChanBackup",
-          "description": "*\nA multi-channel backup that covers all open channels currently known to\nlnd."
+          "description": "A multi-channel backup that covers all open channels currently known to\nlnd."
         }
       }
     },
@@ -154,12 +154,12 @@
         "current_password": {
           "type": "string",
           "format": "byte",
-          "description": "*\ncurrent_password should be the current valid passphrase used to unlock the\ndaemon. When using REST, this field must be encoded as base64."
+          "description": "current_password should be the current valid passphrase used to unlock the\ndaemon. When using REST, this field must be encoded as base64."
         },
         "new_password": {
           "type": "string",
           "format": "byte",
-          "description": "*\nnew_password should be the new passphrase that will be needed to unlock the\ndaemon. When using REST, this field must be encoded as base64."
+          "description": "new_password should be the new passphrase that will be needed to unlock the\ndaemon. When using REST, this field must be encoded as base64."
         }
       }
     },
@@ -171,12 +171,12 @@
       "properties": {
         "chan_point": {
           "$ref": "#/definitions/lnrpcChannelPoint",
-          "description": "*\nIdentifies the channel that this backup belongs to."
+          "description": "Identifies the channel that this backup belongs to."
         },
         "chan_backup": {
           "type": "string",
           "format": "byte",
-          "description": "*\nIs an encrypted single-chan backup. this can be passed to\nRestoreChannelBackups, or the WalletUnlocker Init and Unlock methods in\norder to trigger the recovery protocol. When using REST, this field must be\nencoded as base64."
+          "description": "Is an encrypted single-chan backup. this can be passed to\nRestoreChannelBackups, or the WalletUnlocker Init and Unlock methods in\norder to trigger the recovery protocol. When using REST, this field must be\nencoded as base64."
         }
       }
     },
@@ -188,7 +188,7 @@
           "items": {
             "$ref": "#/definitions/lnrpcChannelBackup"
           },
-          "description": "*\nA set of single-chan static channel backups."
+          "description": "A set of single-chan static channel backups."
         }
       }
     },
@@ -198,16 +198,16 @@
         "funding_txid_bytes": {
           "type": "string",
           "format": "byte",
-          "description": "*\nTxid of the funding transaction. When using REST, this field must be\nencoded as base64."
+          "description": "Txid of the funding transaction. When using REST, this field must be\nencoded as base64."
         },
         "funding_txid_str": {
           "type": "string",
-          "description": "*\nHex-encoded string representing the byte-reversed hash of the funding\ntransaction."
+          "description": "Hex-encoded string representing the byte-reversed hash of the funding\ntransaction."
         },
         "output_index": {
           "type": "integer",
           "format": "int64",
-          "title": "/ The index of the output of the funding transaction"
+          "title": "The index of the output of the funding transaction"
         }
       }
     },
@@ -219,12 +219,12 @@
           "items": {
             "type": "string"
           },
-          "description": "*\ncipher_seed_mnemonic is a 24-word mnemonic that encodes a prior aezeed\ncipher seed obtained by the user. This field is optional, as if not\nprovided, then the daemon will generate a new cipher seed for the user.\nOtherwise, then the daemon will attempt to recover the wallet state linked\nto this cipher seed."
+          "description": "cipher_seed_mnemonic is a 24-word mnemonic that encodes a prior aezeed\ncipher seed obtained by the user. This field is optional, as if not\nprovided, then the daemon will generate a new cipher seed for the user.\nOtherwise, then the daemon will attempt to recover the wallet state linked\nto this cipher seed."
         },
         "enciphered_seed": {
           "type": "string",
           "format": "byte",
-          "description": "*\nenciphered_seed are the raw aezeed cipher seed bytes. This is the raw\ncipher text before run through our mnemonic encoding scheme."
+          "description": "enciphered_seed are the raw aezeed cipher seed bytes. This is the raw\ncipher text before run through our mnemonic encoding scheme."
         }
       }
     },
@@ -234,28 +234,28 @@
         "wallet_password": {
           "type": "string",
           "format": "byte",
-          "description": "*\nwallet_password is the passphrase that should be used to encrypt the\nwallet. This MUST be at least 8 chars in length. After creation, this\npassword is required to unlock the daemon. When using REST, this field\nmust be encoded as base64."
+          "description": "wallet_password is the passphrase that should be used to encrypt the\nwallet. This MUST be at least 8 chars in length. After creation, this\npassword is required to unlock the daemon. When using REST, this field\nmust be encoded as base64."
         },
         "cipher_seed_mnemonic": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "*\ncipher_seed_mnemonic is a 24-word mnemonic that encodes a prior aezeed\ncipher seed obtained by the user. This may have been generated by the\nGenSeed method, or be an existing seed."
+          "description": "cipher_seed_mnemonic is a 24-word mnemonic that encodes a prior aezeed\ncipher seed obtained by the user. This may have been generated by the\nGenSeed method, or be an existing seed."
         },
         "aezeed_passphrase": {
           "type": "string",
           "format": "byte",
-          "description": "*\naezeed_passphrase is an optional user provided passphrase that will be used\nto encrypt the generated aezeed cipher seed. When using REST, this field\nmust be encoded as base64."
+          "description": "aezeed_passphrase is an optional user provided passphrase that will be used\nto encrypt the generated aezeed cipher seed. When using REST, this field\nmust be encoded as base64."
         },
         "recovery_window": {
           "type": "integer",
           "format": "int32",
-          "description": "*\nrecovery_window is an optional argument specifying the address lookahead\nwhen restoring a wallet seed. The recovery window applies to each\nindividual branch of the BIP44 derivation paths. Supplying a recovery\nwindow of zero indicates that no addresses should be recovered, such after\nthe first initialization of the wallet."
+          "description": "recovery_window is an optional argument specifying the address lookahead\nwhen restoring a wallet seed. The recovery window applies to each\nindividual branch of the BIP44 derivation paths. Supplying a recovery\nwindow of zero indicates that no addresses should be recovered, such after\nthe first initialization of the wallet."
         },
         "channel_backups": {
           "$ref": "#/definitions/lnrpcChanBackupSnapshot",
-          "description": "*\nchannel_backups is an optional argument that allows clients to recover the\nsettled funds within a set of channels. This should be populated if the\nuser was unable to close out all channels and sweep funds before partial or\ntotal data loss occurred. If specified, then after on-chain recovery of\nfunds, lnd begin to carry out the data loss recovery protocol in order to\nrecover the funds in each channel from a remote force closed transaction."
+          "description": "channel_backups is an optional argument that allows clients to recover the\nsettled funds within a set of channels. This should be populated if the\nuser was unable to close out all channels and sweep funds before partial or\ntotal data loss occurred. If specified, then after on-chain recovery of\nfunds, lnd begin to carry out the data loss recovery protocol in order to\nrecover the funds in each channel from a remote force closed transaction."
         }
       }
     },
@@ -270,12 +270,12 @@
           "items": {
             "$ref": "#/definitions/lnrpcChannelPoint"
           },
-          "description": "*\nIs the set of all channels that are included in this multi-channel backup."
+          "description": "Is the set of all channels that are included in this multi-channel backup."
         },
         "multi_chan_backup": {
           "type": "string",
           "format": "byte",
-          "description": "*\nA single encrypted blob containing all the static channel backups of the\nchannel listed above. This can be stored as a single file or blob, and\nsafely be replaced with any prior/future versions. When using REST, this\nfield must be encoded as base64."
+          "description": "A single encrypted blob containing all the static channel backups of the\nchannel listed above. This can be stored as a single file or blob, and\nsafely be replaced with any prior/future versions. When using REST, this\nfield must be encoded as base64."
         }
       }
     },
@@ -285,16 +285,16 @@
         "wallet_password": {
           "type": "string",
           "format": "byte",
-          "description": "*\nwallet_password should be the current valid passphrase for the daemon. This\nwill be required to decrypt on-disk material that the daemon requires to\nfunction properly. When using REST, this field must be encoded as base64."
+          "description": "wallet_password should be the current valid passphrase for the daemon. This\nwill be required to decrypt on-disk material that the daemon requires to\nfunction properly. When using REST, this field must be encoded as base64."
         },
         "recovery_window": {
           "type": "integer",
           "format": "int32",
-          "description": "*\nrecovery_window is an optional argument specifying the address lookahead\nwhen restoring a wallet seed. The recovery window applies to each\nindividual branch of the BIP44 derivation paths. Supplying a recovery\nwindow of zero indicates that no addresses should be recovered, such after\nthe first initialization of the wallet."
+          "description": "recovery_window is an optional argument specifying the address lookahead\nwhen restoring a wallet seed. The recovery window applies to each\nindividual branch of the BIP44 derivation paths. Supplying a recovery\nwindow of zero indicates that no addresses should be recovered, such after\nthe first initialization of the wallet."
         },
         "channel_backups": {
           "$ref": "#/definitions/lnrpcChanBackupSnapshot",
-          "description": "*\nchannel_backups is an optional argument that allows clients to recover the\nsettled funds within a set of channels. This should be populated if the\nuser was unable to close out all channels and sweep funds before partial or\ntotal data loss occurred. If specified, then after on-chain recovery of\nfunds, lnd begin to carry out the data loss recovery protocol in order to\nrecover the funds in each channel from a remote force closed transaction."
+          "description": "channel_backups is an optional argument that allows clients to recover the\nsettled funds within a set of channels. This should be populated if the\nuser was unable to close out all channels and sweep funds before partial or\ntotal data loss occurred. If specified, then after on-chain recovery of\nfunds, lnd begin to carry out the data loss recovery protocol in order to\nrecover the funds in each channel from a remote force closed transaction."
         }
       }
     },

@@ -6,15 +6,11 @@ package lnrpc;
 
 option go_package = "github.com/lightningnetwork/lnd/lnrpc";
 
-/**
+/*
  * Comments in this file will be directly parsed into the API
  * Documentation as descriptions of the associated method, message, or field.
  * These descriptions should go right above the definition of the object, and
- * can be in either block or /// comment format.
- *
- * One edge case exists where a // comment followed by a /// comment in the
- * next line will cause the description not to show up in the documentation. In
- * that instance, simply separate the two comments with a blank line.
+ * can be in either block or // comment format.
  *
  * An RPC method can be matched to an lncli command by placing a line in the
  * beginning of the description in exactly the following format:
@@ -30,7 +26,7 @@ option go_package = "github.com/lightningnetwork/lnd/lnrpc";
 
 // Lightning is the main RPC server of the daemon.
 service Lightning {
-    /** lncli: `walletbalance`
+    /* lncli: `walletbalance`
     WalletBalance returns total unspent outputs(confirmed and unconfirmed), all
     confirmed unspent outputs and all unconfirmed unspent outputs under control
     of the wallet.
@@ -41,7 +37,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `channelbalance`
+    /* lncli: `channelbalance`
     ChannelBalance returns the total funds available across all open channels
     in satoshis.
     */
@@ -52,7 +48,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `listchaintxns`
+    /* lncli: `listchaintxns`
     GetTransactions returns a list describing all the known transactions
     relevant to the wallet.
     */
@@ -62,7 +58,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `estimatefee`
+    /* lncli: `estimatefee`
     EstimateFee asks the chain backend to estimate the fee rate and total fees
     for a transaction that pays to multiple specified outputs.
     */
@@ -72,7 +68,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `sendcoins`
+    /* lncli: `sendcoins`
     SendCoins executes a request to send coins to a particular address. Unlike
     SendMany, this RPC call only allows creating a single output at a time. If
     neither target_conf, or sat_per_byte are set, then the internal wallet will
@@ -86,7 +82,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `listunspent`
+    /* lncli: `listunspent`
     ListUnspent returns a list of all utxos spendable by the wallet with a
         number of confirmations between the specified minimum and maximum.
     */
@@ -96,7 +92,7 @@ service Lightning {
         };
     }
 
-    /**
+    /*
     SubscribeTransactions creates a uni-directional stream from the server to
     the client in which any newly discovered transactions relevant to the
     wallet are sent over.
@@ -104,7 +100,7 @@ service Lightning {
     rpc SubscribeTransactions (GetTransactionsRequest)
         returns (stream Transaction);
 
-    /** lncli: `sendmany`
+    /* lncli: `sendmany`
     SendMany handles a request for a transaction that creates multiple specified
     outputs in parallel. If neither target_conf, or sat_per_byte are set, then
     the internal wallet will consult its fee model to determine a fee for the
@@ -112,7 +108,7 @@ service Lightning {
     */
     rpc SendMany (SendManyRequest) returns (SendManyResponse);
 
-    /** lncli: `newaddress`
+    /* lncli: `newaddress`
     NewAddress creates a new address under control of the local wallet.
     */
     rpc NewAddress (NewAddressRequest) returns (NewAddressResponse) {
@@ -121,7 +117,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `signmessage`
+    /* lncli: `signmessage`
     SignMessage signs a message with this node's private key. The returned
     signature string is `zbase32` encoded and pubkey recoverable, meaning that
     only the message digest and signature are needed for verification.
@@ -133,7 +129,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `verifymessage`
+    /* lncli: `verifymessage`
     VerifyMessage verifies a signature over a msg. The signature must be
     zbase32 encoded and signed by an active node in the resident node's
     channel database. In addition to returning the validity of the signature,
@@ -146,7 +142,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `connect`
+    /* lncli: `connect`
     ConnectPeer attempts to establish a connection to a remote peer. This is at
     the networking level, and is used for communication between nodes. This is
     distinct from establishing a channel with a peer.
@@ -158,7 +154,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `disconnect`
+    /* lncli: `disconnect`
     DisconnectPeer attempts to disconnect one peer from another identified by a
     given pubKey. In the case that we currently have a pending or active channel
     with the target peer, then this action will be not be allowed.
@@ -170,7 +166,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `listpeers`
+    /* lncli: `listpeers`
     ListPeers returns a verbose listing of all currently active peers.
     */
     rpc ListPeers (ListPeersRequest) returns (ListPeersResponse) {
@@ -179,14 +175,14 @@ service Lightning {
         };
     }
 
-    /**
+    /*
     SubscribePeerEvents creates a uni-directional stream from the server to
     the client in which any events relevant to the state of peers are sent
     over. Events include peers going online and offline.
     */
     rpc SubscribePeerEvents (PeerEventSubscription) returns (stream PeerEvent);
 
-    /** lncli: `getinfo`
+    /* lncli: `getinfo`
     GetInfo returns general information concerning the lightning node including
     it's identity pubkey, alias, the chains it is connected to, and information
     concerning the number of open+pending channels.
@@ -198,7 +194,7 @@ service Lightning {
     }
 
     // TODO(roasbeef): merge with below with bool?
-    /** lncli: `pendingchannels`
+    /* lncli: `pendingchannels`
     PendingChannels returns a list of all the channels that are currently
     considered "pending". A channel is pending if it has finished the funding
     workflow and is waiting for confirmations for the funding txn, or is in the
@@ -211,7 +207,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `listchannels`
+    /* lncli: `listchannels`
     ListChannels returns a description of all the open channels that this node
     is a participant in.
     */
@@ -221,7 +217,7 @@ service Lightning {
         };
     }
 
-    /**
+    /*
     SubscribeChannelEvents creates a uni-directional stream from the server to
     the client in which any updates relevant to the state of the channels are
     sent over. Events include new active channels, inactive channels, and closed
@@ -230,7 +226,7 @@ service Lightning {
     rpc SubscribeChannelEvents (ChannelEventSubscription)
         returns (stream ChannelEventUpdate);
 
-    /** lncli: `closedchannels`
+    /* lncli: `closedchannels`
     ClosedChannels returns a description of all the closed channels that
     this node was a participant in.
     */
@@ -241,7 +237,7 @@ service Lightning {
         };
     }
 
-    /**
+    /*
     OpenChannelSync is a synchronous version of the OpenChannel RPC call. This
     call is meant to be consumed by clients to the REST proxy. As with all
     other sync calls, all byte slices are intended to be populated as hex
@@ -254,7 +250,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `openchannel`
+    /* lncli: `openchannel`
     OpenChannel attempts to open a singly funded channel specified in the
     request to a remote peer. Users are able to specify a target number of
     blocks that the funding transaction should be confirmed in, or a manual fee
@@ -266,7 +262,7 @@ service Lightning {
     */
     rpc OpenChannel (OpenChannelRequest) returns (stream OpenStatusUpdate);
 
-    /**
+    /*
     FundingStateStep is an advanced funding related call that allows the caller
     to either execute some preparatory steps for a funding workflow, or
     manually progress a funding workflow. The primary way a funding flow is
@@ -278,7 +274,7 @@ service Lightning {
     */
     rpc FundingStateStep (FundingTransitionMsg) returns (FundingStateStepResp);
 
-    /**
+    /*
     ChannelAcceptor dispatches a bi-directional streaming RPC in which
     OpenChannel requests are sent to the client and the client responds with
     a boolean that tells LND whether or not to accept the channel. This allows
@@ -288,7 +284,7 @@ service Lightning {
     rpc ChannelAcceptor (stream ChannelAcceptResponse)
         returns (stream ChannelAcceptRequest);
 
-    /** lncli: `closechannel`
+    /* lncli: `closechannel`
     CloseChannel attempts to close an active channel identified by its channel
     outpoint (ChannelPoint). The actions of this method can additionally be
     augmented to attempt a force close after a timeout period in the case of an
@@ -303,7 +299,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `abandonchannel`
+    /* lncli: `abandonchannel`
     AbandonChannel removes all channel state from the database except for a
     close summary. This method can be used to get rid of permanently unusable
     channels due to bugs fixed in newer versions of lnd. Only available
@@ -316,7 +312,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `sendpayment`
+    /* lncli: `sendpayment`
     Deprecated, use routerrpc.SendPayment. SendPayment dispatches a
     bi-directional streaming RPC for sending payments through the Lightning
     Network. A single RPC invocation creates a persistent bi-directional
@@ -327,7 +323,7 @@ service Lightning {
         option deprecated = true;
     }
 
-    /**
+    /*
     SendPaymentSync is the synchronous non-streaming version of SendPayment.
     This RPC is intended to be consumed by clients of the REST proxy.
     Additionally, this RPC expects the destination's public key and the payment
@@ -340,7 +336,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `sendtoroute`
+    /* lncli: `sendtoroute`
     SendToRoute is a bi-directional streaming RPC for sending payment through
     the Lightning Network. This method differs from SendPayment in that it
     allows users to specify a full route manually. This can be used for things
@@ -348,7 +344,7 @@ service Lightning {
     */
     rpc SendToRoute (stream SendToRouteRequest) returns (stream SendResponse);
 
-    /**
+    /*
     SendToRouteSync is a synchronous version of SendToRoute. It Will block
     until the payment either fails or succeeds.
     */
@@ -359,7 +355,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `addinvoice`
+    /* lncli: `addinvoice`
     AddInvoice attempts to add a new invoice to the invoice database. Any
     duplicated invoices are rejected, therefore all invoices *must* have a
     unique payment preimage.
@@ -371,7 +367,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `listinvoices`
+    /* lncli: `listinvoices`
     ListInvoices returns a list of all the invoices currently stored within the
     database. Any active debug invoices are ignored. It has full support for
     paginated responses, allowing users to query for specific invoices through
@@ -386,7 +382,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `lookupinvoice`
+    /* lncli: `lookupinvoice`
     LookupInvoice attempts to look up an invoice according to its payment hash.
     The passed payment hash *must* be exactly 32 bytes, if not, an error is
     returned.
@@ -397,7 +393,7 @@ service Lightning {
         };
     }
 
-    /**
+    /*
     SubscribeInvoices returns a uni-directional stream (server -> client) for
     notifying the client of newly added/settled invoices. The caller can
     optionally specify the add_index and/or the settle_index. If the add_index
@@ -414,7 +410,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `decodepayreq`
+    /* lncli: `decodepayreq`
     DecodePayReq takes an encoded payment request string and attempts to decode
     it, returning a full description of the conditions encoded within the
     payment request.
@@ -425,7 +421,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `listpayments`
+    /* lncli: `listpayments`
     ListPayments returns a list of all outgoing payments.
     */
     rpc ListPayments (ListPaymentsRequest) returns (ListPaymentsResponse) {
@@ -434,7 +430,7 @@ service Lightning {
         };
     };
 
-    /**
+    /*
     DeleteAllPayments deletes all outgoing payments from DB.
     */
     rpc DeleteAllPayments (DeleteAllPaymentsRequest)
@@ -444,7 +440,7 @@ service Lightning {
         };
     };
 
-    /** lncli: `describegraph`
+    /* lncli: `describegraph`
     DescribeGraph returns a description of the latest graph state from the
     point of view of the node. The graph information is partitioned into two
     components: all the nodes/vertexes, and all the edges that connect the
@@ -458,7 +454,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `getnodemetrics`
+    /* lncli: `getnodemetrics`
     GetNodeMetrics returns node metrics calculated from the graph. Currently
     the only supported metric is betweenness centrality of individual nodes.
     */
@@ -468,7 +464,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `getchaninfo`
+    /* lncli: `getchaninfo`
     GetChanInfo returns the latest authenticated network announcement for the
     given channel identified by its channel ID: an 8-byte integer which
     uniquely identifies the location of transaction's funding output within the
@@ -480,7 +476,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `getnodeinfo`
+    /* lncli: `getnodeinfo`
     GetNodeInfo returns the latest advertised, aggregated, and authenticated
     channel information for the specified node identified by its public key.
     */
@@ -490,7 +486,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `queryroutes`
+    /* lncli: `queryroutes`
     QueryRoutes attempts to query the daemon's Channel Router for a possible
     route to a target destination capable of carrying a specific amount of
     satoshis. The returned route contains the full details required to craft and
@@ -503,7 +499,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `getnetworkinfo`
+    /* lncli: `getnetworkinfo`
     GetNetworkInfo returns some basic stats about the known channel graph from
     the point of view of the node.
     */
@@ -513,13 +509,13 @@ service Lightning {
         };
     }
 
-    /** lncli: `stop`
+    /* lncli: `stop`
     StopDaemon will send a shutdown request to the interrupt handler, triggering
     a graceful shutdown of the daemon.
     */
     rpc StopDaemon (StopRequest) returns (StopResponse);
 
-    /**
+    /*
     SubscribeChannelGraph launches a streaming RPC that allows the caller to
     receive notifications upon any changes to the channel graph topology from
     the point of view of the responding node. Events notified include: new
@@ -530,7 +526,7 @@ service Lightning {
     rpc SubscribeChannelGraph (GraphTopologySubscription)
         returns (stream GraphTopologyUpdate);
 
-    /** lncli: `debuglevel`
+    /* lncli: `debuglevel`
     DebugLevel allows a caller to programmatically set the logging verbosity of
     lnd. The logging can be targeted according to a coarse daemon-wide logging
     level, or in a granular fashion to specify the logging for a target
@@ -538,7 +534,7 @@ service Lightning {
     */
     rpc DebugLevel (DebugLevelRequest) returns (DebugLevelResponse);
 
-    /** lncli: `feereport`
+    /* lncli: `feereport`
     FeeReport allows the caller to obtain a report detailing the current fee
     schedule enforced by the node globally for each channel.
     */
@@ -548,7 +544,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `updatechanpolicy`
+    /* lncli: `updatechanpolicy`
     UpdateChannelPolicy allows the caller to update the fee schedule and
     channel policies for all channels globally, or a particular channel.
     */
@@ -560,7 +556,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `fwdinghistory`
+    /* lncli: `fwdinghistory`
     ForwardingHistory allows the caller to query the htlcswitch for a record of
     all HTLCs forwarded within the target time range, and integer offset
     within that time range. If no time-range is specified, then the first chunk
@@ -580,7 +576,7 @@ service Lightning {
         };
     };
 
-    /** lncli: `exportchanbackup`
+    /* lncli: `exportchanbackup`
     ExportChannelBackup attempts to return an encrypted static channel backup
     for the target channel identified by it channel point. The backup is
     encrypted with a key generated from the aezeed seed of the user. The
@@ -595,7 +591,7 @@ service Lightning {
         };
     };
 
-    /**
+    /*
     ExportAllChannelBackups returns static channel backups for all existing
     channels known to lnd. A set of regular singular static channel backups for
     each channel are returned. Additionally, a multi-channel backup is returned
@@ -609,7 +605,7 @@ service Lightning {
         };
     };
 
-    /**
+    /*
     VerifyChanBackup allows a caller to verify the integrity of a channel backup
     snapshot. This method will accept either a packed Single or a packed Multi.
     Specifying both will result in an error.
@@ -622,7 +618,7 @@ service Lightning {
         };
     };
 
-    /** lncli: `restorechanbackup`
+    /* lncli: `restorechanbackup`
     RestoreChannelBackups accepts a set of singular channel backups, or a
     single encrypted multi-chan backup and attempts to recover any funds
     remaining within the channel. If we are able to unpack the backup, then the
@@ -636,7 +632,7 @@ service Lightning {
         };
     };
 
-    /**
+    /*
     SubscribeChannelBackups allows a client to sub-subscribe to the most up to
     date information concerning the state of all channel backups. Each time a
     new channel is added, we return the new set of channels, along with a
@@ -649,7 +645,7 @@ service Lightning {
         returns (stream ChanBackupSnapshot) {
     };
 
-    /** lncli: `bakemacaroon`
+    /* lncli: `bakemacaroon`
     BakeMacaroon allows the creation of a new macaroon with custom read and
     write permissions. No first-party caveats are added since this can be done
     offline.
@@ -663,51 +659,51 @@ service Lightning {
 }
 
 message Utxo {
-    /// The type of address
+    // The type of address
     AddressType address_type = 1;
 
-    /// The address
+    // The address
     string address = 2;
 
-    /// The value of the unspent coin in satoshis
+    // The value of the unspent coin in satoshis
     int64 amount_sat = 3;
 
-    /// The pkscript in hex
+    // The pkscript in hex
     string pk_script = 4;
 
-    /// The outpoint in format txid:n
+    // The outpoint in format txid:n
     OutPoint outpoint = 5;
 
-    /// The number of confirmations for the Utxo
+    // The number of confirmations for the Utxo
     int64 confirmations = 6;
 }
 
 message Transaction {
-    /// The transaction hash
+    // The transaction hash
     string tx_hash = 1;
 
-    /// The transaction amount, denominated in satoshis
+    // The transaction amount, denominated in satoshis
     int64 amount = 2;
 
-    /// The number of confirmations
+    // The number of confirmations
     int32 num_confirmations = 3;
 
-    /// The hash of the block this transaction was included in
+    // The hash of the block this transaction was included in
     string block_hash = 4;
 
-    /// The height of the block this transaction was included in
+    // The height of the block this transaction was included in
     int32 block_height = 5;
 
-    /// Timestamp of this transaction
+    // Timestamp of this transaction
     int64 time_stamp = 6;
 
-    /// Fees paid for this transaction
+    // Fees paid for this transaction
     int64 total_fees = 7;
 
-    /// Addresses that received funds for this transaction
+    // Addresses that received funds for this transaction
     repeated string dest_addresses = 8;
 
-    /// The raw transaction hex.
+    // The raw transaction hex.
     string raw_tx_hex = 9;
 }
 message GetTransactionsRequest {
@@ -728,84 +724,84 @@ message GetTransactionsRequest {
 }
 
 message TransactionDetails {
-    /// The list of transactions relevant to the wallet.
+    // The list of transactions relevant to the wallet.
     repeated Transaction transactions = 1;
 }
 
 message FeeLimit {
     oneof limit {
-        /**
+        /*
         The fee limit expressed as a fixed amount of satoshis.
 
         The fields fixed and fixed_msat are mutually exclusive.
         */
         int64 fixed = 1;
 
-        /**
+        /*
         The fee limit expressed as a fixed amount of millisatoshis.
 
         The fields fixed and fixed_msat are mutually exclusive.
         */
         int64 fixed_msat = 3;
 
-        /// The fee limit expressed as a percentage of the payment amount.
+        // The fee limit expressed as a percentage of the payment amount.
         int64 percent = 2;
     }
 }
 
 message SendRequest {
-    /**
+    /*
     The identity pubkey of the payment recipient. When using REST, this field
     must be encoded as base64.
     */
     bytes dest = 1;
 
-    /**
+    /*
     The hex-encoded identity pubkey of the payment recipient. Deprecated now
     that the REST gateway supports base64 encoding of bytes fields.
     */
     string dest_string = 2 [deprecated = true];
 
-    /**
+    /*
     The amount to send expressed in satoshis.
 
     The fields amt and amt_msat are mutually exclusive.
     */
     int64 amt = 3;
 
-    /**
+    /*
     The amount to send expressed in millisatoshis.
 
     The fields amt and amt_msat are mutually exclusive.
     */
     int64 amt_msat = 12;
 
-    /**
+    /*
     The hash to use within the payment's HTLC. When using REST, this field
     must be encoded as base64.
     */
     bytes payment_hash = 4;
 
-    /**
+    /*
     The hex-encoded hash to use within the payment's HTLC. Deprecated now
     that the REST gateway supports base64 encoding of bytes fields.
     */
     string payment_hash_string = 5 [deprecated = true];
 
-    /**
+    /*
     A bare-bones invoice for a payment within the Lightning Network. With the
     details of the invoice, the sender has all the data necessary to send a
     payment to the recipient.
     */
     string payment_request = 6;
 
-    /**
+    /*
     The CLTV delta from the current height that should be used to set the
     timelock for the final hop.
     */
     int32 final_cltv_delta = 7;
 
-    /**
+    /*
     The maximum number of satoshis that will be paid as a fee of the payment.
     This value can be represented either as a percentage of the amount being
     sent, or as a fixed amount of the maximum fee the user is willing the pay to
@@ -813,25 +809,25 @@ message SendRequest {
     */
     FeeLimit fee_limit = 8;
 
-    /**
+    /*
     The channel id of the channel that must be taken to the first hop. If zero,
     any channel may be used.
     */
     uint64 outgoing_chan_id = 9 [jstype = JS_STRING];
 
-    /**
+    /*
     The pubkey of the last hop of the route. If empty, any hop may be used.
     */
     bytes last_hop_pubkey = 13;
 
-    /**
+    /*
     An optional maximum total time lock for the route. This should not exceed
     lnd's `--max-cltv-expiry` setting. If zero, then the value of
     `--max-cltv-expiry` is enforced.
     */
     uint32 cltv_limit = 10;
 
-    /**
+    /*
     An optional field that can be used to pass an arbitrary set of TLV records
     to a peer which understands the new records. This can be used to pass
     application specific data during the payment attempt. Record types are
@@ -840,10 +836,10 @@ message SendRequest {
     */
     map<uint64, bytes> dest_custom_records = 11;
 
-    /// If set, circular payments to self are permitted.
+    // If set, circular payments to self are permitted.
     bool allow_self_payment = 14;
 
-    /**
+    /*
     Features assumed to be supported by the final node. All transitive feature
     dependencies must also be set properly. For a given feature bit pair, either
     optional or remote may be set, but not both. If this field is nil or empty,
@@ -861,13 +857,13 @@ message SendResponse {
 }
 
 message SendToRouteRequest {
-    /**
+    /*
     The payment hash to use for the HTLC. When using REST, this field must be
     encoded as base64.
     */
     bytes payment_hash = 1;
 
-    /**
+    /*
     An optional hex-encoded payment hash to be used for the HTLC. Deprecated now
     that the REST gateway supports base64 encoding of bytes fields.
     */
@@ -875,156 +871,156 @@ message SendToRouteRequest {
 
     reserved 3;
 
-    /// Route that should be used to attempt to complete the payment.
+    // Route that should be used to attempt to complete the payment.
     Route route = 4;
 }
 
 message ChannelAcceptRequest {
-    /// The pubkey of the node that wishes to open an inbound channel.
+    // The pubkey of the node that wishes to open an inbound channel.
     bytes node_pubkey = 1;
 
-    /// The hash of the genesis block that the proposed channel resides in.
+    // The hash of the genesis block that the proposed channel resides in.
     bytes chain_hash = 2;
 
-    /// The pending channel id.
+    // The pending channel id.
     bytes pending_chan_id = 3;
 
-    /// The funding amount in satoshis that initiator wishes to use in the
-    /// channel.
+    // The funding amount in satoshis that initiator wishes to use in the
+    // channel.
     uint64 funding_amt = 4;
 
-    /// The push amount of the proposed channel in millisatoshis.
+    // The push amount of the proposed channel in millisatoshis.
     uint64 push_amt = 5;
 
-    /// The dust limit of the initiator's commitment tx.
+    // The dust limit of the initiator's commitment tx.
     uint64 dust_limit = 6;
 
-    /// The maximum amount of coins in millisatoshis that can be pending in this
-    /// channel.
+    // The maximum amount of coins in millisatoshis that can be pending in this
+    // channel.
     uint64 max_value_in_flight = 7;
 
-    /// The minimum amount of satoshis the initiator requires us to have at all
-    /// times.
+    // The minimum amount of satoshis the initiator requires us to have at all
+    // times.
     uint64 channel_reserve = 8;
 
-    /// The smallest HTLC in millisatoshis that the initiator will accept.
+    // The smallest HTLC in millisatoshis that the initiator will accept.
     uint64 min_htlc = 9;
 
-    /// The initial fee rate that the initiator suggests for both commitment
-    /// transactions.
+    // The initial fee rate that the initiator suggests for both commitment
+    // transactions.
     uint64 fee_per_kw = 10;
 
-    /**
+    /*
     The number of blocks to use for the relative time lock in the pay-to-self
     output of both commitment transactions.
     */
     uint32 csv_delay = 11;
 
-    /// The total number of incoming HTLC's that the initiator will accept.
+    // The total number of incoming HTLC's that the initiator will accept.
     uint32 max_accepted_htlcs = 12;
 
-    /// A bit-field which the initiator uses to specify proposed channel
-    /// behavior.
+    // A bit-field which the initiator uses to specify proposed channel
+    // behavior.
     uint32 channel_flags = 13;
 }
 
 message ChannelAcceptResponse {
-    /// Whether or not the client accepts the channel.
+    // Whether or not the client accepts the channel.
     bool accept = 1;
 
-    /// The pending channel id to which this response applies.
+    // The pending channel id to which this response applies.
     bytes pending_chan_id = 2;
 }
 
 message ChannelPoint {
     oneof funding_txid {
-        /**
+        /*
         Txid of the funding transaction. When using REST, this field must be
         encoded as base64.
         */
         bytes funding_txid_bytes = 1;
 
-        /**
+        /*
         Hex-encoded string representing the byte-reversed hash of the funding
         transaction.
         */
         string funding_txid_str = 2;
     }
 
-    /// The index of the output of the funding transaction
+    // The index of the output of the funding transaction
     uint32 output_index = 3;
 }
 
 message OutPoint {
-    /// Raw bytes representing the transaction id.
+    // Raw bytes representing the transaction id.
     bytes txid_bytes = 1;
 
-    /// Reversed, hex-encoded string representing the transaction id.
+    // Reversed, hex-encoded string representing the transaction id.
     string txid_str = 2;
 
-    /// The index of the output on the transaction.
+    // The index of the output on the transaction.
     uint32 output_index = 3;
 }
 
 message LightningAddress {
-    /// The identity pubkey of the Lightning node
+    // The identity pubkey of the Lightning node
     string pubkey = 1;
 
-    /// The network location of the lightning node, e.g. `69.69.69.69:1337` or
-    /// `localhost:10011`
+    // The network location of the lightning node, e.g. `69.69.69.69:1337` or
+    // `localhost:10011`
     string host = 2;
 }
 
 message EstimateFeeRequest {
-    /// The map from addresses to amounts for the transaction.
+    // The map from addresses to amounts for the transaction.
     map<string, int64> AddrToAmount = 1;
 
-    /// The target number of blocks that this transaction should be confirmed
-    /// by.
+    // The target number of blocks that this transaction should be confirmed
+    // by.
     int32 target_conf = 2;
 }
 
 message EstimateFeeResponse {
-    /// The total fee in satoshis.
+    // The total fee in satoshis.
     int64 fee_sat = 1;
 
-    /// The fee rate in satoshi/byte.
+    // The fee rate in satoshi/byte.
     int64 feerate_sat_per_byte = 2;
 }
 
 message SendManyRequest {
-    /// The map from addresses to amounts
+    // The map from addresses to amounts
     map<string, int64> AddrToAmount = 1;
 
-    /// The target number of blocks that this transaction should be confirmed
-    /// by.
+    // The target number of blocks that this transaction should be confirmed
+    // by.
     int32 target_conf = 3;
 
-    /// A manual fee rate set in sat/byte that should be used when crafting the
-    /// transaction.
+    // A manual fee rate set in sat/byte that should be used when crafting the
+    // transaction.
     int64 sat_per_byte = 5;
 }
 message SendManyResponse {
-    /// The id of the transaction
+    // The id of the transaction
     string txid = 1;
 }
 
 message SendCoinsRequest {
-    /// The address to send coins to
+    // The address to send coins to
     string addr = 1;
 
-    /// The amount in satoshis to send
+    // The amount in satoshis to send
     int64 amount = 2;
 
-    /// The target number of blocks that this transaction should be confirmed
-    /// by.
+    // The target number of blocks that this transaction should be confirmed
+    // by.
     int32 target_conf = 3;
 
-    /// A manual fee rate set in sat/byte that should be used when crafting the
-    /// transaction.
+    // A manual fee rate set in sat/byte that should be used when crafting the
+    // transaction.
     int64 sat_per_byte = 5;
 
-    /**
+    /*
     If set, then the amount field will be ignored, and lnd will attempt to
     send all the coins under control of the internal wallet to the specified
     address.
@@ -1032,23 +1028,23 @@ message SendCoinsRequest {
     bool send_all = 6;
 }
 message SendCoinsResponse {
-    /// The transaction ID of the transaction
+    // The transaction ID of the transaction
     string txid = 1;
 }
 
 message ListUnspentRequest {
-    /// The minimum number of confirmations to be included.
+    // The minimum number of confirmations to be included.
     int32 min_confs = 1;
 
-    /// The maximum number of confirmations to be included.
+    // The maximum number of confirmations to be included.
     int32 max_confs = 2;
 }
 message ListUnspentResponse {
-    /// A list of utxos
+    // A list of utxos
     repeated Utxo utxos = 1;
 }
 
-/**
+/*
 `AddressType` has to be one of:
 
 - `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)
@@ -1062,49 +1058,49 @@ enum AddressType {
 }
 
 message NewAddressRequest {
-    /// The address type
+    // The address type
     AddressType type = 1;
 }
 message NewAddressResponse {
-    /// The newly generated wallet address
+    // The newly generated wallet address
     string address = 1;
 }
 
 message SignMessageRequest {
-    /**
+    /*
     The message to be signed. When using REST, this field must be encoded as
     base64.
     */
     bytes msg = 1;
 }
 message SignMessageResponse {
-    /// The signature for the given message
+    // The signature for the given message
     string signature = 1;
 }
 
 message VerifyMessageRequest {
-    /**
+    /*
     The message over which the signature is to be verified. When using REST,
     this field must be encoded as base64.
     */
     bytes msg = 1;
 
-    /// The signature to be verified over the given message
+    // The signature to be verified over the given message
     string signature = 2;
 }
 message VerifyMessageResponse {
-    /// Whether the signature was valid over the given message
+    // Whether the signature was valid over the given message
     bool valid = 1;
 
-    /// The pubkey recovered from the signature
+    // The pubkey recovered from the signature
     string pubkey = 2;
 }
 
 message ConnectPeerRequest {
-    /// Lightning address of the peer, in the format `<pubkey>@host`
+    // Lightning address of the peer, in the format `<pubkey>@host`
     LightningAddress addr = 1;
 
-    /** If set, the daemon will attempt to persistently connect to the target
+    /* If set, the daemon will attempt to persistently connect to the target
      * peer. Otherwise, the call will be synchronous. */
     bool perm = 2;
 }
@@ -1112,7 +1108,7 @@ message ConnectPeerResponse {
 }
 
 message DisconnectPeerRequest {
-    /// The pubkey of the node to disconnect from
+    // The pubkey of the node to disconnect from
     string pub_key = 1;
 }
 message DisconnectPeerResponse {
@@ -1126,13 +1122,13 @@ message HTLC {
 }
 
 enum CommitmentType {
-    /**
+    /*
     A channel using the legacy commitment format having tweaked to_remote
     keys.
     */
     LEGACY = 0;
 
-    /**
+    /*
     A channel that uses the modern commitment format where the key in the
     output of the remote party does not change each state. This makes back
     up and recovery easier as when the channel is closed, the funds go
@@ -1140,50 +1136,50 @@ enum CommitmentType {
     */
     STATIC_REMOTE_KEY = 1;
 
-    /**
+    /*
     A channel that uses a commitment format that has anchor outputs on the
     commitments, allowing fee bumping after a force close transaction has
     been broadcast.
     */
     ANCHORS = 2;
 
-    /**
+    /*
     Returned when the commitment type isn't known or unavailable.
     */
     UNKNOWN_COMMITMENT_TYPE = 999;
 }
 
 message Channel {
-    /// Whether this channel is active or not
+    // Whether this channel is active or not
     bool active = 1;
 
-    /// The identity pubkey of the remote node
+    // The identity pubkey of the remote node
     string remote_pubkey = 2;
 
-    /**
+    /*
     The outpoint (txid:index) of the funding transaction. With this value, Bob
     will be able to generate a signature for Alice's version of the commitment
     transaction.
     */
     string channel_point = 3;
 
-    /**
+    /*
     The unique channel ID for the channel. The first 3 bytes are the block
     height, the next 3 the index within the block, and the last 2 bytes are the
     output index for the channel.
     */
     uint64 chan_id = 4 [jstype = JS_STRING];
 
-    /// The total amount of funds held in this channel
+    // The total amount of funds held in this channel
     int64 capacity = 5;
 
-    /// This node's current balance in this channel
+    // This node's current balance in this channel
     int64 local_balance = 6;
 
-    /// The counterparty's current balance in this channel
+    // The counterparty's current balance in this channel
     int64 remote_balance = 7;
 
-    /**
+    /*
     The amount calculated to be paid in fees for the current set of commitment
     transactions. The fee amount is persisted with the channel in order to
     allow the fee amount to be removed and recalculated with each channel state
@@ -1191,83 +1187,83 @@ message Channel {
     */
     int64 commit_fee = 8;
 
-    /// The weight of the commitment transaction
+    // The weight of the commitment transaction
     int64 commit_weight = 9;
 
-    /**
+    /*
     The required number of satoshis per kilo-weight that the requester will pay
     at all times, for both the funding transaction and commitment transaction.
     This value can later be updated once the channel is open.
     */
     int64 fee_per_kw = 10;
 
-    /// The unsettled balance in this channel
+    // The unsettled balance in this channel
     int64 unsettled_balance = 11;
 
-    /**
+    /*
     The total number of satoshis we've sent within this channel.
     */
     int64 total_satoshis_sent = 12;
 
-    /**
+    /*
     The total number of satoshis we've received within this channel.
     */
     int64 total_satoshis_received = 13;
 
-    /**
+    /*
     The total number of updates conducted within this channel.
     */
     uint64 num_updates = 14;
 
-    /**
+    /*
     The list of active, uncleared HTLCs currently pending within the channel.
     */
     repeated HTLC pending_htlcs = 15;
 
-    /**
+    /*
     The CSV delay expressed in relative blocks. If the channel is force closed,
     we will need to wait for this many blocks before we can regain our funds.
     */
     uint32 csv_delay = 16;
 
-    /// Whether this channel is advertised to the network or not.
+    // Whether this channel is advertised to the network or not.
     bool private = 17;
 
-    /// True if we were the ones that created the channel.
+    // True if we were the ones that created the channel.
     bool initiator = 18;
 
-    /// A set of flags showing the current state of the channel.
+    // A set of flags showing the current state of the channel.
     string chan_status_flags = 19;
 
-    /// The minimum satoshis this node is required to reserve in its balance.
+    // The minimum satoshis this node is required to reserve in its balance.
     int64 local_chan_reserve_sat = 20;
 
-    /**
+    /*
     The minimum satoshis the other node is required to reserve in its balance.
     */
     int64 remote_chan_reserve_sat = 21;
 
-    /// Deprecated. Use commitment_type.
+    // Deprecated. Use commitment_type.
     bool static_remote_key = 22 [deprecated = true];
 
-    /// The commitment type used by this channel.
+    // The commitment type used by this channel.
     CommitmentType commitment_type = 26;
 
-    /**
+    /*
     The number of seconds that the channel has been monitored by the channel
     scoring system. Scores are currently not persisted, so this value may be
     less than the lifetime of the channel [EXPERIMENTAL].
     */
     int64 lifetime = 23;
 
-    /**
+    /*
     The number of seconds that the remote peer has been observed as being online
     by the channel scoring system over the lifetime of the channel
     [EXPERIMENTAL].
     */
     int64 uptime = 24;
 
-    /**
+    /*
     Close address is the address that we will enforce payout to on cooperative
     close if the channel was opened utilizing option upfront shutdown. This
     value can be set on channel open by setting close_address in an open channel
@@ -1285,7 +1281,7 @@ message Channel {
     */
     uint64 push_amount_sat = 27;
 
-    /**
+    /*
     This uint32 indicates if this channel is to be considered 'frozen'. A
     frozen channel doest not allow a cooperative channel close by the
     initiator. The thaw_height is the height that this restriction stops
@@ -1301,14 +1297,14 @@ message ListChannelsRequest {
     bool public_only = 3;
     bool private_only = 4;
 
-    /**
+    /*
     Filters the response for channels with a target peer's pubkey. If peer is
     empty, all channels will be returned.
     */
     bytes peer = 5;
 }
 message ListChannelsResponse {
-    /// The list of active channels
+    // The list of active channels
     repeated Channel channels = 11;
 }
 
@@ -1320,31 +1316,31 @@ enum Initiator {
 }
 
 message ChannelCloseSummary {
-    /// The outpoint (txid:index) of the funding transaction.
+    // The outpoint (txid:index) of the funding transaction.
     string channel_point = 1;
 
-    ///  The unique channel ID for the channel.
+    //  The unique channel ID for the channel.
     uint64 chan_id = 2 [jstype = JS_STRING];
 
-    /// The hash of the genesis block that this channel resides within.
+    // The hash of the genesis block that this channel resides within.
     string chain_hash = 3;
 
-    /// The txid of the transaction which ultimately closed this channel.
+    // The txid of the transaction which ultimately closed this channel.
     string closing_tx_hash = 4;
 
-    /// Public key of the remote peer that we formerly had a channel with.
+    // Public key of the remote peer that we formerly had a channel with.
     string remote_pubkey = 5;
 
-    /// Total capacity of the channel.
+    // Total capacity of the channel.
     int64 capacity = 6;
 
-    /// Height at which the funding transaction was spent.
+    // Height at which the funding transaction was spent.
     uint32 close_height = 7;
 
-    /// Settled balance at the time of channel closure
+    // Settled balance at the time of channel closure
     int64 settled_balance = 8;
 
-    /// The sum of all the time-locked outputs at the time of channel closure
+    // The sum of all the time-locked outputs at the time of channel closure
     int64 time_locked_balance = 9;
 
     enum ClosureType {
@@ -1356,17 +1352,17 @@ message ChannelCloseSummary {
         ABANDONED = 5;
     }
 
-    /// Details on how the channel was closed.
+    // Details on how the channel was closed.
     ClosureType close_type = 10;
 
-    /**
+    /*
     Open initiator is the party that initiated opening the channel. Note that
     this value may be unknown if the channel was closed before we migrated to
     store open channel information after close.
     */
     Initiator open_initiator = 11;
 
-    /**
+    /*
     Close initiator indicates which party initiated the close. This value will
     be unknown for channels that were cooperatively closed before we started
     tracking cooperative close initiators. Note that this indicates which party
@@ -1390,42 +1386,42 @@ message ClosedChannelsResponse {
 }
 
 message Peer {
-    /// The identity pubkey of the peer
+    // The identity pubkey of the peer
     string pub_key = 1;
 
-    /// Network address of the peer; eg `127.0.0.1:10011`
+    // Network address of the peer; eg `127.0.0.1:10011`
     string address = 3;
 
-    /// Bytes of data transmitted to this peer
+    // Bytes of data transmitted to this peer
     uint64 bytes_sent = 4;
 
-    /// Bytes of data transmitted from this peer
+    // Bytes of data transmitted from this peer
     uint64 bytes_recv = 5;
 
-    /// Satoshis sent to this peer
+    // Satoshis sent to this peer
     int64 sat_sent = 6;
 
-    /// Satoshis received from this peer
+    // Satoshis received from this peer
     int64 sat_recv = 7;
 
-    /// A channel is inbound if the counterparty initiated the channel
+    // A channel is inbound if the counterparty initiated the channel
     bool inbound = 8;
 
-    /// Ping time to this peer
+    // Ping time to this peer
     int64 ping_time = 9;
 
     enum SyncType {
-        /**
+        /*
         Denotes that we cannot determine the peer's current sync type.
         */
         UNKNOWN_SYNC = 0;
 
-        /**
+        /*
         Denotes that we are actively receiving new graph updates from the peer.
         */
         ACTIVE_SYNC = 1;
 
-        /**
+        /*
         Denotes that we are not receiving new graph updates from the peer.
         */
         PASSIVE_SYNC = 2;
@@ -1434,7 +1430,7 @@ message Peer {
     // The type of sync we are currently performing with this peer.
     SyncType sync_type = 10;
 
-    /// Features advertised by the remote peer in their init message.
+    // Features advertised by the remote peer in their init message.
     map<uint32, Feature> features = 11;
 
     /*
@@ -1464,7 +1460,7 @@ message ListPeersRequest {
     bool latest_error = 1;
 }
 message ListPeersResponse {
-    /// The list of currently connected peers
+    // The list of currently connected peers
     repeated Peer peers = 1;
 }
 
@@ -1472,7 +1468,7 @@ message PeerEventSubscription {
 }
 
 message PeerEvent {
-    /// The identity pubkey of the peer.
+    // The identity pubkey of the peer.
     string pub_key = 1;
 
     enum EventType {
@@ -1486,49 +1482,49 @@ message PeerEvent {
 message GetInfoRequest {
 }
 message GetInfoResponse {
-    /// The version of the LND software that the node is running.
+    // The version of the LND software that the node is running.
     string version = 14;
 
-    /// The SHA1 commit hash that the daemon is compiled with.
+    // The SHA1 commit hash that the daemon is compiled with.
     string commit_hash = 20;
 
-    /// The identity pubkey of the current node.
+    // The identity pubkey of the current node.
     string identity_pubkey = 1;
 
-    /// If applicable, the alias of the current node, e.g. "bob"
+    // If applicable, the alias of the current node, e.g. "bob"
     string alias = 2;
 
-    /// The color of the current node in hex code format
+    // The color of the current node in hex code format
     string color = 17;
 
-    /// Number of pending channels
+    // Number of pending channels
     uint32 num_pending_channels = 3;
 
-    /// Number of active channels
+    // Number of active channels
     uint32 num_active_channels = 4;
 
-    /// Number of inactive channels
+    // Number of inactive channels
     uint32 num_inactive_channels = 15;
 
-    /// Number of peers
+    // Number of peers
     uint32 num_peers = 5;
 
-    /// The node's current view of the height of the best block
+    // The node's current view of the height of the best block
     uint32 block_height = 6;
 
-    /// The node's current view of the hash of the best block
+    // The node's current view of the hash of the best block
     string block_hash = 8;
 
-    /// Timestamp of the block best known to the wallet
+    // Timestamp of the block best known to the wallet
     int64 best_header_timestamp = 13;
 
-    /// Whether the wallet's view is synced to the main chain
+    // Whether the wallet's view is synced to the main chain
     bool synced_to_chain = 9;
 
     // Whether we consider ourselves synced with the public channel graph.
     bool synced_to_graph = 18;
 
-    /**
+    /*
     Whether the current node is connected to testnet. This field is
     deprecated and the network field should be used instead
     **/
@@ -1536,10 +1532,10 @@ message GetInfoResponse {
 
     reserved 11;
 
-    /// A list of active chains the node is connected to
+    // A list of active chains the node is connected to
     repeated Chain chains = 16;
 
-    /// The URIs of the current node.
+    // The URIs of the current node.
     repeated string uris = 12;
 
     /*
@@ -1550,10 +1546,10 @@ message GetInfoResponse {
 }
 
 message Chain {
-    /// The blockchain the node is on (eg bitcoin, litecoin)
+    // The blockchain the node is on (eg bitcoin, litecoin)
     string chain = 1;
 
-    /// The network the node is on (eg regtest, testnet, mainnet)
+    // The network the node is on (eg regtest, testnet, mainnet)
     string network = 2;
 }
 
@@ -1575,23 +1571,23 @@ message ChannelCloseUpdate {
 }
 
 message CloseChannelRequest {
-    /**
+    /*
     The outpoint (txid:index) of the funding transaction. With this value, Bob
     will be able to generate a signature for Alice's version of the commitment
     transaction.
     */
     ChannelPoint channel_point = 1;
 
-    /// If true, then the channel will be closed forcibly. This means the
-    /// current commitment transaction will be signed and broadcast.
+    // If true, then the channel will be closed forcibly. This means the
+    // current commitment transaction will be signed and broadcast.
     bool force = 2;
 
-    /// The target number of blocks that the closure transaction should be
-    /// confirmed by.
+    // The target number of blocks that the closure transaction should be
+    // confirmed by.
     int32 target_conf = 3;
 
-    /// A manual fee rate set in sat/byte that should be used when crafting the
-    /// closure transaction.
+    // A manual fee rate set in sat/byte that should be used when crafting the
+    // closure transaction.
     int64 sat_per_byte = 4;
 
     /*
@@ -1616,19 +1612,19 @@ message PendingUpdate {
 }
 
 message ReadyForPsbtFunding {
-    /**
+    /*
     The P2WSH address of the channel funding multisig address that the below
     specified amount in satoshis needs to be sent to.
     */
     string funding_address = 1;
 
-    /**
+    /*
     The exact amount in satoshis that needs to be sent to the above address to
     fund the pending channel.
     */
     int64 funding_amount = 2;
 
-    /**
+    /*
     A raw PSBT that contains the pending channel output. If a base PSBT was
     provided in the PsbtShim, this is the base PSBT with one additional output.
     If no base PSBT was specified, this is an otherwise empty PSBT with exactly
@@ -1638,51 +1634,51 @@ message ReadyForPsbtFunding {
 }
 
 message OpenChannelRequest {
-    /**
+    /*
     The pubkey of the node to open a channel with. When using REST, this field
     must be encoded as base64.
     */
     bytes node_pubkey = 2;
 
-    /**
+    /*
     The hex encoded pubkey of the node to open a channel with. Deprecated now
     that the REST gateway supports base64 encoding of bytes fields.
     */
     string node_pubkey_string = 3 [deprecated = true];
 
-    /// The number of satoshis the wallet should commit to the channel
+    // The number of satoshis the wallet should commit to the channel
     int64 local_funding_amount = 4;
 
-    /// The number of satoshis to push to the remote side as part of the initial
-    /// commitment state
+    // The number of satoshis to push to the remote side as part of the initial
+    // commitment state
     int64 push_sat = 5;
 
-    /// The target number of blocks that the funding transaction should be
-    /// confirmed by.
+    // The target number of blocks that the funding transaction should be
+    // confirmed by.
     int32 target_conf = 6;
 
-    /// A manual fee rate set in sat/byte that should be used when crafting the
-    /// funding transaction.
+    // A manual fee rate set in sat/byte that should be used when crafting the
+    // funding transaction.
     int64 sat_per_byte = 7;
 
-    /// Whether this channel should be private, not announced to the greater
-    /// network.
+    // Whether this channel should be private, not announced to the greater
+    // network.
     bool private = 8;
 
-    /// The minimum value in millisatoshi we will require for incoming HTLCs on
-    /// the channel.
+    // The minimum value in millisatoshi we will require for incoming HTLCs on
+    // the channel.
     int64 min_htlc_msat = 9;
 
-    /// The delay we require on the remote's commitment transaction. If this is
-    /// not set, it will be scaled automatically with the channel size.
+    // The delay we require on the remote's commitment transaction. If this is
+    // not set, it will be scaled automatically with the channel size.
     uint32 remote_csv_delay = 10;
 
-    /// The minimum number of confirmations each one of your outputs used for
-    /// the funding transaction must satisfy.
+    // The minimum number of confirmations each one of your outputs used for
+    // the funding transaction must satisfy.
     int32 min_confs = 11;
 
-    /// Whether unconfirmed outputs should be used as inputs for the funding
-    /// transaction.
+    // Whether unconfirmed outputs should be used as inputs for the funding
+    // transaction.
     bool spend_unconfirmed = 12;
 
     /*
@@ -1697,7 +1693,7 @@ message OpenChannelRequest {
     */
     string close_address = 13;
 
-    /**
+    /*
     Funding shims are an optional argument that allow the caller to intercept
     certain funding functionality. For example, a shim can be provided to use a
     particular key for the commitment key (ideally cold) rather than use one
@@ -1708,26 +1704,26 @@ message OpenChannelRequest {
 }
 message OpenStatusUpdate {
     oneof update {
-        /**
+        /*
         Signals that the channel is now fully negotiated and the funding
         transaction published.
         */
         PendingUpdate chan_pending = 1;
 
-        /**
+        /*
         Signals that the channel's funding transaction has now reached the
         required number of confirmations on chain and can be used.
         */
         ChannelOpenUpdate chan_open = 3;
 
-        /**
+        /*
         Signals that the funding process has been suspended and the construction
         of a PSBT that funds the channel PK script is now required.
         */
         ReadyForPsbtFunding psbt_fund = 5;
     }
 
-    /**
+    /*
     The pending channel ID of the created channel. This value may be used to
     further the funding flow manually via the FundingStateStep method.
     */
@@ -1735,42 +1731,42 @@ message OpenStatusUpdate {
 }
 
 message KeyLocator {
-    /// The family of key being identified.
+    // The family of key being identified.
     int32 key_family = 1;
 
-    /// The precise index of the key being identified.
+    // The precise index of the key being identified.
     int32 key_index = 2;
 }
 
 message KeyDescriptor {
-    /**
+    /*
     The raw bytes of the key being identified.
     */
     bytes raw_key_bytes = 1;
 
-    /**
+    /*
     The key locator that identifies which key to use for signing.
     */
     KeyLocator key_loc = 2;
 }
 
 message ChanPointShim {
-    /**
+    /*
     The size of the pre-crafted output to be used as the channel point for this
     channel funding.
     */
     int64 amt = 1;
 
-    /// The target channel point to refrence in created commitment transactions.
+    // The target channel point to refrence in created commitment transactions.
     ChannelPoint chan_point = 2;
 
-    /// Our local key to use when creating the multi-sig output.
+    // Our local key to use when creating the multi-sig output.
     KeyDescriptor local_key = 3;
 
-    /// The key of the remote party to use when creating the multi-sig output.
+    // The key of the remote party to use when creating the multi-sig output.
     bytes remote_key = 4;
 
-    /**
+    /*
     If non-zero, then this will be used as the pending channel ID on the wire
     protocol to initate the funding request. This is an optional field, and
     should only be set if the responder is already expecting a specific pending
@@ -1778,7 +1774,7 @@ message ChanPointShim {
     */
     bytes pending_chan_id = 5;
 
-    /**
+    /*
     This uint32 indicates if this channel is to be considered 'frozen'. A
     frozen channel does not allow a cooperative channel close by the
     initiator. The thaw_height is the height that this restriction stops
@@ -1788,14 +1784,14 @@ message ChanPointShim {
 }
 
 message PsbtShim {
-    /**
+    /*
     A unique identifier of 32 random bytes that will be used as the pending
     channel ID to identify the PSBT state machine when interacting with it and
     on the wire protocol to initiate the funding request.
     */
     bytes pending_chan_id = 1;
 
-    /**
+    /*
     An optional base PSBT the new channel output will be added to. If this is
     non-empty, it must be a binary serialized PSBT.
     */
@@ -1804,13 +1800,13 @@ message PsbtShim {
 
 message FundingShim {
     oneof shim {
-        /**
+        /*
         A channel shim where the channel point was fully constructed outside
         of lnd's wallet and the transaction might already be published.
         */
         ChanPointShim chan_point_shim = 1;
 
-        /**
+        /*
         A channel shim that uses a PSBT to fund and sign the channel funding
         transaction.
         */
@@ -1819,54 +1815,54 @@ message FundingShim {
 }
 
 message FundingShimCancel {
-    /// The pending channel ID of the channel to cancel the funding shim for.
+    // The pending channel ID of the channel to cancel the funding shim for.
     bytes pending_chan_id = 1;
 }
 
 message FundingPsbtVerify {
-    /**
+    /*
     The funded but not yet signed PSBT that sends the exact channel capacity
     amount to the PK script returned in the open channel message in a previous
     step.
     */
     bytes funded_psbt = 1;
 
-    /// The pending channel ID of the channel to get the PSBT for.
+    // The pending channel ID of the channel to get the PSBT for.
     bytes pending_chan_id = 2;
 }
 
 message FundingPsbtFinalize {
-    /**
+    /*
     The funded PSBT that contains all witness data to send the exact channel
     capacity amount to the PK script returned in the open channel message in a
     previous step.
     */
     bytes signed_psbt = 1;
 
-    /// The pending channel ID of the channel to get the PSBT for.
+    // The pending channel ID of the channel to get the PSBT for.
     bytes pending_chan_id = 2;
 }
 
 message FundingTransitionMsg {
     oneof trigger {
-        /**
+        /*
         The funding shim to register. This should be used before any
         channel funding has began by the remote party, as it is intended as a
         preparatory step for the full channel funding.
         */
         FundingShim shim_register = 1;
 
-        /// Used to cancel an existing registered funding shim.
+        // Used to cancel an existing registered funding shim.
         FundingShimCancel shim_cancel = 2;
 
-        /**
+        /*
         Used to continue a funding flow that was initiated to be executed
         through a PSBT. This step verifies that the PSBT contains the correct
         outputs to fund the channel.
         */
         FundingPsbtVerify psbt_verify = 3;
 
-        /**
+        /*
         Used to continue a funding flow that was initiated to be executed
         through a PSBT. This step finalizes the funded and signed PSBT, finishes
         negotiation with the peer and finally publishes the resulting funding
@@ -1880,26 +1876,26 @@ message FundingStateStepResp {
 }
 
 message PendingHTLC {
-    /// The direction within the channel that the htlc was sent
+    // The direction within the channel that the htlc was sent
     bool incoming = 1;
 
-    /// The total value of the htlc
+    // The total value of the htlc
     int64 amount = 2;
 
-    /// The final output to be swept back to the user's wallet
+    // The final output to be swept back to the user's wallet
     string outpoint = 3;
 
-    /// The next block height at which we can spend the current stage
+    // The next block height at which we can spend the current stage
     uint32 maturity_height = 4;
 
-    /**
+    /*
        The number of blocks remaining until the current stage can be swept.
        Negative values indicate how many blocks have passed since becoming
        mature.
     */
     int32 blocks_til_maturity = 5;
 
-    /// Indicates whether the htlc is in its first or second stage of recovery
+    // Indicates whether the htlc is in its first or second stage of recovery
     uint32 stage = 6;
 }
 
@@ -1915,11 +1911,11 @@ message PendingChannelsResponse {
         int64 local_balance = 4;
         int64 remote_balance = 5;
 
-        /// The minimum satoshis this node is required to reserve in its
-        /// balance.
+        // The minimum satoshis this node is required to reserve in its
+        // balance.
         int64 local_chan_reserve_sat = 6;
 
-        /**
+        /*
         The minimum satoshis the other node is required to reserve in its
         balance.
         */
@@ -1928,18 +1924,18 @@ message PendingChannelsResponse {
         // The party that initiated opening the channel.
         Initiator initiator = 8;
 
-        /// The commitment type used by this channel.
+        // The commitment type used by this channel.
         CommitmentType commitment_type = 9;
     }
 
     message PendingOpenChannel {
-        /// The pending channel
+        // The pending channel
         PendingChannel channel = 1;
 
-        /// The height at which this channel will be confirmed
+        // The height at which this channel will be confirmed
         uint32 confirmation_height = 2;
 
-        /**
+        /*
         The amount calculated to be paid in fees for the current set of
         commitment transactions. The fee amount is persisted with the channel
         in order to allow the fee amount to be removed and recalculated with
@@ -1948,10 +1944,10 @@ message PendingChannelsResponse {
         */
         int64 commit_fee = 4;
 
-        /// The weight of the commitment transaction
+        // The weight of the commitment transaction
         int64 commit_weight = 5;
 
-        /**
+        /*
         The required number of satoshis per kilo-weight that the requester will
         pay at all times, for both the funding transaction and commitment
         transaction. This value can later be updated once the channel is open.
@@ -1960,13 +1956,13 @@ message PendingChannelsResponse {
     }
 
     message WaitingCloseChannel {
-        /// The pending channel waiting for closing tx to confirm
+        // The pending channel waiting for closing tx to confirm
         PendingChannel channel = 1;
 
-        /// The balance in satoshis encumbered in this channel
+        // The balance in satoshis encumbered in this channel
         int64 limbo_balance = 2;
 
-        /**
+        /*
         A list of valid commitment transactions. Any of these can confirm at
         this point.
         */
@@ -1974,13 +1970,13 @@ message PendingChannelsResponse {
     }
 
     message Commitments {
-        /// Hash of the local version of the commitment tx.
+        // Hash of the local version of the commitment tx.
         string local_txid = 1;
 
-        /// Hash of the remote version of the commitment tx.
+        // Hash of the remote version of the commitment tx.
         string remote_txid = 2;
 
-        /// Hash of the remote pending version of the commitment tx.
+        // Hash of the remote pending version of the commitment tx.
         string remote_pending_txid = 3;
 
         /*
@@ -2003,24 +1999,24 @@ message PendingChannelsResponse {
     }
 
     message ClosedChannel {
-        /// The pending channel to be closed
+        // The pending channel to be closed
         PendingChannel channel = 1;
 
-        /// The transaction id of the closing transaction
+        // The transaction id of the closing transaction
         string closing_txid = 2;
     }
 
     message ForceClosedChannel {
-        /// The pending channel to be force closed
+        // The pending channel to be force closed
         PendingChannel channel = 1;
 
-        /// The transaction id of the closing transaction
+        // The transaction id of the closing transaction
         string closing_txid = 2;
 
-        /// The balance in satoshis encumbered in this pending channel
+        // The balance in satoshis encumbered in this pending channel
         int64 limbo_balance = 3;
 
-        /// The height at which funds can be swept into the wallet
+        // The height at which funds can be swept into the wallet
         uint32 maturity_height = 4;
 
         /*
@@ -2030,7 +2026,7 @@ message PendingChannelsResponse {
         */
         int32 blocks_til_maturity = 5;
 
-        /// The total value of funds successfully recovered from this channel
+        // The total value of funds successfully recovered from this channel
         int64 recovered_balance = 6;
 
         repeated PendingHTLC pending_htlcs = 8;
@@ -2044,10 +2040,10 @@ message PendingChannelsResponse {
         AnchorState anchor = 9;
     }
 
-    /// The balance in satoshis encumbered in pending channels
+    // The balance in satoshis encumbered in pending channels
     int64 total_limbo_balance = 1;
 
-    /// Channels pending opening
+    // Channels pending opening
     repeated PendingOpenChannel pending_open_channels = 2;
 
     /*
@@ -2057,10 +2053,10 @@ message PendingChannelsResponse {
     */
     repeated ClosedChannel pending_closing_channels = 3 [deprecated = true];
 
-    /// Channels pending force closing
+    // Channels pending force closing
     repeated ForceClosedChannel pending_force_closing_channels = 4;
 
-    /// Channels waiting for closing tx to confirm
+    // Channels waiting for closing tx to confirm
     repeated WaitingCloseChannel waiting_close_channels = 5;
 }
 
@@ -2090,38 +2086,38 @@ message ChannelEventUpdate {
 message WalletBalanceRequest {
 }
 message WalletBalanceResponse {
-    /// The balance of the wallet
+    // The balance of the wallet
     int64 total_balance = 1;
 
-    /// The confirmed balance of a wallet(with >= 1 confirmations)
+    // The confirmed balance of a wallet(with >= 1 confirmations)
     int64 confirmed_balance = 2;
 
-    /// The unconfirmed balance of a wallet(with 0 confirmations)
+    // The unconfirmed balance of a wallet(with 0 confirmations)
     int64 unconfirmed_balance = 3;
 }
 
 message ChannelBalanceRequest {
 }
 message ChannelBalanceResponse {
-    /// Sum of channels balances denominated in satoshis
+    // Sum of channels balances denominated in satoshis
     int64 balance = 1;
 
-    /// Sum of channels pending balances denominated in satoshis
+    // Sum of channels pending balances denominated in satoshis
     int64 pending_open_balance = 2;
 }
 
 message QueryRoutesRequest {
-    /// The 33-byte hex-encoded public key for the payment destination
+    // The 33-byte hex-encoded public key for the payment destination
     string pub_key = 1;
 
-    /**
+    /*
     The amount to send expressed in satoshis.
 
     The fields amt and amt_msat are mutually exclusive.
     */
     int64 amt = 2;
 
-    /**
+    /*
     The amount to send expressed in millisatoshis.
 
     The fields amt and amt_msat are mutually exclusive.
@@ -2130,7 +2126,7 @@ message QueryRoutesRequest {
 
     reserved 3;
 
-    /**
+    /*
     An optional CLTV delta from the current height that should be used for the
     timelock of the final hop. Note that unlike SendPayment, QueryRoutes does
     not add any additional block padding on top of final_ctlv_delta. This
@@ -2139,7 +2135,7 @@ message QueryRoutesRequest {
     */
     int32 final_cltv_delta = 4;
 
-    /**
+    /*
     The maximum number of satoshis that will be paid as a fee of the payment.
     This value can be represented either as a percentage of the amount being
     sent, or as a fixed amount of the maximum fee the user is willing the pay to
@@ -2147,42 +2143,42 @@ message QueryRoutesRequest {
     */
     FeeLimit fee_limit = 5;
 
-    /**
+    /*
     A list of nodes to ignore during path finding. When using REST, these fields
     must be encoded as base64.
     */
     repeated bytes ignored_nodes = 6;
 
-    /**
+    /*
     Deprecated. A list of edges to ignore during path finding.
     */
     repeated EdgeLocator ignored_edges = 7 [deprecated = true];
 
-    /**
+    /*
     The source node where the request route should originated from. If empty,
     self is assumed.
     */
     string source_pub_key = 8;
 
-    /**
+    /*
     If set to true, edge probabilities from mission control will be used to get
     the optimal route.
     */
     bool use_mission_control = 9;
 
-    /**
+    /*
     A list of directed node pairs that will be ignored during path finding.
     */
     repeated NodePair ignored_pairs = 10;
 
-    /**
+    /*
     An optional maximum total time lock for the route. If the source is empty or
     ourselves, this should not exceed lnd's `--max-cltv-expiry` setting. If
     zero, then the value of `--max-cltv-expiry` is used as the limit.
     */
     uint32 cltv_limit = 11;
 
-    /**
+    /*
     An optional field that can be used to pass an arbitrary set of TLV records
     to a peer which understands the new records. This can be used to pass
     application specific data during the payment attempt. If the destination
@@ -2192,23 +2188,23 @@ message QueryRoutesRequest {
     */
     map<uint64, bytes> dest_custom_records = 13;
 
-    /**
+    /*
     The channel id of the channel that must be taken to the first hop. If zero,
     any channel may be used.
     */
     uint64 outgoing_chan_id = 14 [jstype = JS_STRING];
 
-    /**
+    /*
     The pubkey of the last hop of the route. If empty, any hop may be used.
     */
     bytes last_hop_pubkey = 15;
 
-    /**
+    /*
     Optional route hints to reach the destination through private channels.
     */
     repeated lnrpc.RouteHint route_hints = 16;
 
-    /**
+    /*
     Features assumed to be supported by the final node. All transitive feature
     dependencies must also be set properly. For a given feature bit pair, either
     optional or remote may be set, but not both. If this field is nil or empty,
@@ -2219,13 +2215,13 @@ message QueryRoutesRequest {
 }
 
 message NodePair {
-    /**
+    /*
     The sending node of the pair. When using REST, this field must be encoded as
     base64.
     */
     bytes from = 1;
 
-    /**
+    /*
     The receiving node of the pair. When using REST, this field must be encoded
     as base64.
     */
@@ -2233,10 +2229,10 @@ message NodePair {
 }
 
 message EdgeLocator {
-    /// The short channel id of this edge.
+    // The short channel id of this edge.
     uint64 channel_id = 1 [jstype = JS_STRING];
 
-    /**
+    /*
     The direction of this edge. If direction_reverse is false, the direction
     of this edge is from the channel endpoint with the lexicographically smaller
     pub key to the endpoint with the larger pub key. If direction_reverse is
@@ -2246,13 +2242,13 @@ message EdgeLocator {
 }
 
 message QueryRoutesResponse {
-    /**
+    /*
     The route that results from the path finding operation. This is still a
     repeated field to retain backwards compatibility.
     */
     repeated Route routes = 1;
 
-    /**
+    /*
     The success probability of the returned route based on the current mission
     control state. [EXPERIMENTAL]
     */
@@ -2260,7 +2256,7 @@ message QueryRoutesResponse {
 }
 
 message Hop {
-    /**
+    /*
     The unique channel ID for the channel. The first 3 bytes are the block
     height, the next 3 the index within the block, and the last 2 bytes are the
     output index for the channel.
@@ -2273,20 +2269,20 @@ message Hop {
     int64 amt_to_forward_msat = 6;
     int64 fee_msat = 7;
 
-    /**
+    /*
     An optional public key of the hop. If the public key is given, the payment
     can be executed without relying on a copy of the channel graph.
     */
     string pub_key = 8;
 
-    /**
+    /*
     If set to true, then this hop will be encoded using the new variable length
     TLV format. Note that if any custom tlv_records below are specified, then
     this field MUST be set to true for them to be encoded properly.
     */
     bool tlv_payload = 9;
 
-    /**
+    /*
     An optional TLV record that signals the use of an MPP payment. If present,
     the receiver will enforce that that the same mpp_record is included in the
     final hop payload of all non-zero payments in the HTLC set. If empty, a
@@ -2294,7 +2290,7 @@ message Hop {
     */
     MPPRecord mpp_record = 10;
 
-    /**
+    /*
     An optional set of key-value TLV records. This is useful within the context
     of the SendToRoute call as it allows callers to specify arbitrary K-V pairs
     to drop off at each hop within the onion.
@@ -2303,7 +2299,7 @@ message Hop {
 }
 
 message MPPRecord {
-    /**
+    /*
     A unique, random identifier used to authenticate the sender as the intended
     payer of a multi-path payment. The payment_addr must be the same for all
     subpayments, and match the payment_addr provided in the receiver's invoice.
@@ -2311,7 +2307,7 @@ message MPPRecord {
     */
     bytes payment_addr = 11;
 
-    /**
+    /*
     The total amount in milli-satoshis being sent as part of a larger multi-path
     payment. The caller is responsible for ensuring subpayments to the same node
     and payment_hash sum exactly to total_amt_msat. The same
@@ -2320,7 +2316,7 @@ message MPPRecord {
     int64 total_amt_msat = 10;
 }
 
-/**
+/*
 A path through the channel graph which runs over one or more channels in
 succession. This struct carries all the information required to craft the
 Sphinx onion packet, and send the payment along the first hop in the path. A
@@ -2328,7 +2324,7 @@ route is only selected as valid if all the channels have sufficient capacity to
 carry the initial payment amount after fees are accounted for.
 */
 message Route {
-    /**
+    /*
     The cumulative (final) time lock across the entire route. This is the CLTV
     value that should be extended to the first hop in the route. All other hops
     will decrement the time-lock as advertised, leaving enough time for all
@@ -2336,14 +2332,14 @@ message Route {
     */
     uint32 total_time_lock = 1;
 
-    /**
+    /*
     The sum of the fees paid at each hop within the final route. In the case
     of a one-hop payment, this value will be zero as we don't need to pay a fee
     to ourselves.
     */
     int64 total_fees = 2 [deprecated = true];
 
-    /**
+    /*
     The total amount of funds required to complete a payment over this route.
     This value includes the cumulative fees at each hop. As a result, the HTLC
     extended to the first-hop in the route will need to have at least this many
@@ -2352,32 +2348,32 @@ message Route {
     */
     int64 total_amt = 3 [deprecated = true];
 
-    /**
+    /*
     Contains details concerning the specific forwarding details at each hop.
     */
     repeated Hop hops = 4;
 
-    /**
+    /*
     The total fees in millisatoshis.
     */
     int64 total_fees_msat = 5;
 
-    /**
+    /*
     The total amount in millisatoshis.
     */
     int64 total_amt_msat = 6;
 }
 
 message NodeInfoRequest {
-    /// The 33-byte hex-encoded compressed public of the target node
+    // The 33-byte hex-encoded compressed public of the target node
     string pub_key = 1;
 
-    /// If true, will include all known channels associated with the node.
+    // If true, will include all known channels associated with the node.
     bool include_channels = 2;
 }
 
 message NodeInfo {
-    /**
+    /*
     An individual vertex/node within the channel graph. A node is
     connected to other nodes by one or more channel edges emanating from it. As
     the graph is directed, a node will also have an incoming edge attached to
@@ -2385,17 +2381,17 @@ message NodeInfo {
     */
     LightningNode node = 1;
 
-    /// The total number of channels for the node.
+    // The total number of channels for the node.
     uint32 num_channels = 2;
 
-    /// The sum of all channels capacity for the node, denominated in satoshis.
+    // The sum of all channels capacity for the node, denominated in satoshis.
     int64 total_capacity = 3;
 
-    /// A list of all public channels for the node.
+    // A list of all public channels for the node.
     repeated ChannelEdge channels = 4;
 }
 
-/**
+/*
 An individual vertex/node within the channel graph. A node is
 connected to other nodes by one or more channel edges emanating from it. As the
 graph is directed, a node will also have an incoming edge attached to it for
@@ -2425,7 +2421,7 @@ message RoutingPolicy {
     uint32 last_update = 7;
 }
 
-/**
+/*
 A fully authenticated channel along with all its unique attributes.
 Once an authenticated channel announcement has been processed on the network,
 then an instance of ChannelEdgeInfo encapsulating the channels attributes is
@@ -2433,7 +2429,7 @@ stored. The other portions relevant to routing policy of a channel are stored
 within a ChannelEdgePolicy for each direction of the channel.
 */
 message ChannelEdge {
-    /**
+    /*
     The unique channel ID for the channel. The first 3 bytes are the block
     height, the next 3 the index within the block, and the last 2 bytes are the
     output index for the channel.
@@ -2453,7 +2449,7 @@ message ChannelEdge {
 }
 
 message ChannelGraphRequest {
-    /**
+    /*
     Whether unannounced channels are included in the response or not. If set,
     unannounced channels are included. Unannounced channels are both private
     channels, and public channels that are not yet announced to the network.
@@ -2461,12 +2457,12 @@ message ChannelGraphRequest {
     bool include_unannounced = 1;
 }
 
-/// Returns a new instance of the directed channel graph.
+// Returns a new instance of the directed channel graph.
 message ChannelGraph {
-    /// The list of `LightningNode`s in this channel graph
+    // The list of `LightningNode`s in this channel graph
     repeated LightningNode nodes = 1;
 
-    /// The list of `ChannelEdge`s in this channel graph
+    // The list of `ChannelEdge`s in this channel graph
     repeated ChannelEdge edges = 2;
 }
 
@@ -2476,12 +2472,12 @@ enum NodeMetricType {
 }
 
 message NodeMetricsRequest {
-    /// The requested node metrics.
+    // The requested node metrics.
     repeated NodeMetricType types = 1;
 }
 
 message NodeMetricsResponse {
-    /**
+    /*
     Betweenness centrality is the sum of the ratio of shortest paths that pass
     through the node for each pair of nodes in the graph (not counting paths
     starting or ending at this node).
@@ -2492,15 +2488,15 @@ message NodeMetricsResponse {
 }
 
 message FloatMetric {
-    /// Arbitrary float value.
+    // Arbitrary float value.
     double value = 1;
 
-    /// The value normalized to [0,1] or [-1,1].
+    // The value normalized to [0,1] or [-1,1].
     double normalized_value = 2;
 }
 
 message ChanInfoRequest {
-    /**
+    /*
     The unique channel ID for the channel. The first 3 bytes are the block
     height, the next 3 the index within the block, and the last 2 bytes are the
     output index for the channel.
@@ -2552,7 +2548,7 @@ message NodeUpdate {
     string color = 5;
 }
 message ChannelEdgeUpdate {
-    /**
+    /*
     The unique channel ID for the channel. The first 3 bytes are the block
     height, the next 3 the index within the block, and the last 2 bytes are the
     output index for the channel.
@@ -2569,7 +2565,7 @@ message ChannelEdgeUpdate {
     string connecting_node = 6;
 }
 message ClosedChannelUpdate {
-    /**
+    /*
     The unique channel ID for the channel. The first 3 bytes are the block
     height, the next 3 the index within the block, and the last 2 bytes are the
     output index for the channel.
@@ -2581,27 +2577,27 @@ message ClosedChannelUpdate {
 }
 
 message HopHint {
-    /// The public key of the node at the start of the channel.
+    // The public key of the node at the start of the channel.
     string node_id = 1;
 
-    /// The unique identifier of the channel.
+    // The unique identifier of the channel.
     uint64 chan_id = 2 [jstype = JS_STRING];
 
-    /// The base fee of the channel denominated in millisatoshis.
+    // The base fee of the channel denominated in millisatoshis.
     uint32 fee_base_msat = 3;
 
-    /**
+    /*
     The fee rate of the channel for sending one satoshi across it denominated in
     millionths of a satoshi.
     */
     uint32 fee_proportional_millionths = 4;
 
-    /// The time-lock delta of the channel.
+    // The time-lock delta of the channel.
     uint32 cltv_expiry_delta = 5;
 }
 
 message RouteHint {
-    /**
+    /*
     A list of hop hints that when chained together can assist in reaching a
     specific destination.
     */
@@ -2609,7 +2605,7 @@ message RouteHint {
 }
 
 message Invoice {
-    /**
+    /*
     An optional memo to attach along with the invoice. Used for record keeping
     purposes for the invoice's creator, and will also be set in the description
     field of the encoded payment request if the description_hash field is not
@@ -2619,50 +2615,50 @@ message Invoice {
 
     reserved 2;
 
-    /**
+    /*
     The hex-encoded preimage (32 byte) which will allow settling an incoming
     HTLC payable to this preimage. When using REST, this field must be encoded
     as base64.
     */
     bytes r_preimage = 3;
 
-    /**
+    /*
     The hash of the preimage. When using REST, this field must be encoded as
     base64.
     */
     bytes r_hash = 4;
 
-    /**
+    /*
     The value of this invoice in satoshis
 
     The fields value and value_msat are mutually exclusive.
     */
     int64 value = 5;
 
-    /**
+    /*
     The value of this invoice in millisatoshis
 
     The fields value and value_msat are mutually exclusive.
     */
     int64 value_msat = 23;
 
-    /// Whether this invoice has been fulfilled
+    // Whether this invoice has been fulfilled
     bool settled = 6 [deprecated = true];
 
-    /// When this invoice was created
+    // When this invoice was created
     int64 creation_date = 7;
 
-    /// When this invoice was settled
+    // When this invoice was settled
     int64 settle_date = 8;
 
-    /**
+    /*
     A bare-bones invoice for a payment within the Lightning Network. With the
     details of the invoice, the sender has all the data necessary to send a
     payment to the recipient.
     */
     string payment_request = 9;
 
-    /**
+    /*
     Hash (SHA-256) of a description of the payment. Used if the description of
     payment (memo) is too long to naturally fit within the description field
     of an encoded payment request. When using REST, this field must be encoded
@@ -2670,25 +2666,25 @@ message Invoice {
     */
     bytes description_hash = 10;
 
-    /// Payment request expiry time in seconds. Default is 3600 (1 hour).
+    // Payment request expiry time in seconds. Default is 3600 (1 hour).
     int64 expiry = 11;
 
-    /// Fallback on-chain address.
+    // Fallback on-chain address.
     string fallback_addr = 12;
 
-    /// Delta to use for the time-lock of the CLTV extended to the final hop.
+    // Delta to use for the time-lock of the CLTV extended to the final hop.
     uint64 cltv_expiry = 13;
 
-    /**
+    /*
     Route hints that can each be individually used to assist in reaching the
     invoice's destination.
     */
     repeated RouteHint route_hints = 14;
 
-    /// Whether this invoice should include routing hints for private channels.
+    // Whether this invoice should include routing hints for private channels.
     bool private = 15;
 
-    /**
+    /*
     The "add" index of this invoice. Each newly created invoice will increment
     this index making it monotonically increasing. Callers to the
     SubscribeInvoices call can use this to instantly get notified of all added
@@ -2696,7 +2692,7 @@ message Invoice {
     */
     uint64 add_index = 16;
 
-    /**
+    /*
     The "settle" index of this invoice. Each newly settled invoice will
     increment this index making it monotonically increasing. Callers to the
     SubscribeInvoices call can use this to instantly get notified of all
@@ -2704,10 +2700,10 @@ message Invoice {
     */
     uint64 settle_index = 17;
 
-    /// Deprecated, use amt_paid_sat or amt_paid_msat.
+    // Deprecated, use amt_paid_sat or amt_paid_msat.
     int64 amt_paid = 18 [deprecated = true];
 
-    /**
+    /*
     The amount that was accepted for this invoice, in satoshis. This will ONLY
     be set if this invoice has been settled. We provide this field as if the
     invoice was created with a zero value, then we need to record what amount
@@ -2717,7 +2713,7 @@ message Invoice {
     */
     int64 amt_paid_sat = 19;
 
-    /**
+    /*
     The amount that was accepted for this invoice, in millisatoshis. This will
     ONLY be set if this invoice has been settled. We provide this field as if
     the invoice was created with a zero value, then we need to record what
@@ -2734,18 +2730,18 @@ message Invoice {
         ACCEPTED = 3;
     }
 
-    /**
+    /*
     The state the invoice is in.
     */
     InvoiceState state = 21;
 
-    /// List of HTLCs paying to this invoice [EXPERIMENTAL].
+    // List of HTLCs paying to this invoice [EXPERIMENTAL].
     repeated InvoiceHTLC htlcs = 22;
 
-    /// List of features advertised on the invoice.
+    // List of features advertised on the invoice.
     map<uint32, Feature> features = 24;
 
-    /**
+    /*
     Indicates if this invoice was a spontaneous payment that arrived via keysend
     [EXPERIMENTAL].
     */
@@ -2758,50 +2754,50 @@ enum InvoiceHTLCState {
     CANCELED = 2;
 }
 
-/// Details of an HTLC that paid to an invoice
+// Details of an HTLC that paid to an invoice
 message InvoiceHTLC {
-    /// Short channel id over which the htlc was received.
+    // Short channel id over which the htlc was received.
     uint64 chan_id = 1 [jstype = JS_STRING];
 
-    /// Index identifying the htlc on the channel.
+    // Index identifying the htlc on the channel.
     uint64 htlc_index = 2;
 
-    /// The amount of the htlc in msat.
+    // The amount of the htlc in msat.
     uint64 amt_msat = 3;
 
-    /// Block height at which this htlc was accepted.
+    // Block height at which this htlc was accepted.
     int32 accept_height = 4;
 
-    /// Time at which this htlc was accepted.
+    // Time at which this htlc was accepted.
     int64 accept_time = 5;
 
-    /// Time at which this htlc was settled or canceled.
+    // Time at which this htlc was settled or canceled.
     int64 resolve_time = 6;
 
-    /// Block height at which this htlc expires.
+    // Block height at which this htlc expires.
     int32 expiry_height = 7;
 
-    /// Current state the htlc is in.
+    // Current state the htlc is in.
     InvoiceHTLCState state = 8;
 
-    /// Custom tlv records.
+    // Custom tlv records.
     map<uint64, bytes> custom_records = 9;
 
-    /// The total amount of the mpp payment in msat.
+    // The total amount of the mpp payment in msat.
     uint64 mpp_total_amt_msat = 10;
 }
 
 message AddInvoiceResponse {
     bytes r_hash = 1;
 
-    /**
+    /*
     A bare-bones invoice for a payment within the Lightning Network. With the
     details of the invoice, the sender has all the data necessary to send a
     payment to the recipient.
     */
     string payment_request = 2;
 
-    /**
+    /*
     The "add" index of this invoice. Each newly created invoice will increment
     this index making it monotonically increasing. Callers to the
     SubscribeInvoices call can use this to instantly get notified of all added
@@ -2810,7 +2806,7 @@ message AddInvoiceResponse {
     uint64 add_index = 16;
 }
 message PaymentHash {
-    /**
+    /*
     The hex-encoded payment hash of the invoice to be looked up. The passed
     payment hash must be exactly 32 bytes, otherwise an error is returned.
     Deprecated now that the REST gateway supports base64 encoding of bytes
@@ -2818,7 +2814,7 @@ message PaymentHash {
     */
     string r_hash_str = 1 [deprecated = true];
 
-    /**
+    /*
     The payment hash of the invoice to be looked up. When using REST, this field
     must be encoded as base64.
     */
@@ -2826,41 +2822,41 @@ message PaymentHash {
 }
 
 message ListInvoiceRequest {
-    /**
+    /*
     If set, only invoices that are not settled and not canceled will be returned
     in the response.
     */
     bool pending_only = 1;
 
-    /**
+    /*
     The index of an invoice that will be used as either the start or end of a
     query to determine which invoices should be returned in the response.
     */
     uint64 index_offset = 4;
 
-    /// The max number of invoices to return in the response to this query.
+    // The max number of invoices to return in the response to this query.
     uint64 num_max_invoices = 5;
 
-    /**
+    /*
     If set, the invoices returned will result from seeking backwards from the
     specified index offset. This can be used to paginate backwards.
     */
     bool reversed = 6;
 }
 message ListInvoiceResponse {
-    /**
+    /*
     A list of invoices from the time slice of the time series specified in the
     request.
     */
     repeated Invoice invoices = 1;
 
-    /**
+    /*
     The index of the last item in the set of returned invoices. This can be used
     to seek further, pagination style.
     */
     uint64 last_index_offset = 2;
 
-    /**
+    /*
     The index of the last item in the set of returned invoices. This can be used
     to seek backwards, pagination style.
     */
@@ -2868,7 +2864,7 @@ message ListInvoiceResponse {
 }
 
 message InvoiceSubscription {
-    /**
+    /*
     If specified (non-zero), then we'll first start by sending out
     notifications for all added indexes with an add_index greater than this
     value. This allows callers to catch up on any events they missed while they
@@ -2876,7 +2872,7 @@ message InvoiceSubscription {
     */
     uint64 add_index = 1;
 
-    /**
+    /*
     If specified (non-zero), then we'll first start by sending out
     notifications for all settled indexes with an settle_index greater than
     this value. This allows callers to catch up on any events they missed while
@@ -2886,64 +2882,64 @@ message InvoiceSubscription {
 }
 
 enum PaymentFailureReason {
-    /**
+    /*
     Payment isn't failed (yet).
     */
     FAILURE_REASON_NONE = 0;
 
-    /**
+    /*
     There are more routes to try, but the payment timeout was exceeded.
     */
     FAILURE_REASON_TIMEOUT = 1;
 
-    /**
+    /*
     All possible routes were tried and failed permanently. Or were no
     routes to the destination at all.
     */
     FAILURE_REASON_NO_ROUTE = 2;
 
-    /**
+    /*
     A non-recoverable error has occured.
     */
     FAILURE_REASON_ERROR = 3;
 
-    /**
+    /*
     Payment details incorrect (unknown hash, invalid amt or
     invalid final cltv delta)
     */
     FAILURE_REASON_INCORRECT_PAYMENT_DETAILS = 4;
 
-    /**
+    /*
     Insufficient local balance.
     */
     FAILURE_REASON_INSUFFICIENT_BALANCE = 5;
 }
 
 message Payment {
-    /// The payment hash
+    // The payment hash
     string payment_hash = 1;
 
-    /// Deprecated, use value_sat or value_msat.
+    // Deprecated, use value_sat or value_msat.
     int64 value = 2 [deprecated = true];
 
-    /// Deprecated, use creation_time_ns
+    // Deprecated, use creation_time_ns
     int64 creation_date = 3 [deprecated = true];
 
     reserved 4;
 
-    /// Deprecated, use fee_sat or fee_msat.
+    // Deprecated, use fee_sat or fee_msat.
     int64 fee = 5 [deprecated = true];
 
-    /// The payment preimage
+    // The payment preimage
     string payment_preimage = 6;
 
-    /// The value of the payment in satoshis
+    // The value of the payment in satoshis
     int64 value_sat = 7;
 
-    /// The value of the payment in milli-satoshis
+    // The value of the payment in milli-satoshis
     int64 value_msat = 8;
 
-    /// The optional payment request being fulfilled.
+    // The optional payment request being fulfilled.
     string payment_request = 9;
 
     enum PaymentStatus {
@@ -2956,19 +2952,19 @@ message Payment {
     // The status of the payment.
     PaymentStatus status = 10;
 
-    ///  The fee paid for this payment in satoshis
+    //  The fee paid for this payment in satoshis
     int64 fee_sat = 11;
 
-    ///  The fee paid for this payment in milli-satoshis
+    //  The fee paid for this payment in milli-satoshis
     int64 fee_msat = 12;
 
-    /// The time in UNIX nanoseconds at which the payment was created.
+    // The time in UNIX nanoseconds at which the payment was created.
     int64 creation_time_ns = 13;
 
-    /// The HTLCs made in attempt to settle the payment.
+    // The HTLCs made in attempt to settle the payment.
     repeated HTLCAttempt htlcs = 14;
 
-    /**
+    /*
     The creation index of this payment. Each payment can be uniquely identified
     by this index, which may not strictly increment by 1 for payments made in
     older versions of lnd.
@@ -2985,16 +2981,16 @@ message HTLCAttempt {
         FAILED = 2;
     }
 
-    /// The status of the HTLC.
+    // The status of the HTLC.
     HTLCStatus status = 1;
 
-    /// The route taken by this HTLC.
+    // The route taken by this HTLC.
     Route route = 2;
 
-    /// The time in UNIX nanoseconds at which this HTLC was sent.
+    // The time in UNIX nanoseconds at which this HTLC was sent.
     int64 attempt_time_ns = 3;
 
-    /**
+    /*
     The time in UNIX nanoseconds at which this HTLC was settled or failed.
     This value will not be set if the HTLC is still IN_FLIGHT.
     */
@@ -3005,7 +3001,7 @@ message HTLCAttempt {
 }
 
 message ListPaymentsRequest {
-    /**
+    /*
     If true, then return payments that have not yet fully completed. This means
     that pending payments, as well as failed payments will show up if this
     field is set to true. This flag doesn't change the meaning of the indices,
@@ -3013,7 +3009,7 @@ message ListPaymentsRequest {
     */
     bool include_incomplete = 1;
 
-    /**
+    /*
     The index of a payment that will be used as either the start or end of a
     query to determine which payments should be returned in the response. The
     index_offset is exclusive. In the case of a zero index_offset, the query
@@ -3022,10 +3018,10 @@ message ListPaymentsRequest {
     */
     uint64 index_offset = 2;
 
-    /// The maximal number of payments returned in the response to this query.
+    // The maximal number of payments returned in the response to this query.
     uint64 max_payments = 3;
 
-    /**
+    /*
     If set, the payments returned will result from seeking backwards from the
     specified index offset. This can be used to paginate backwards. The order
     of the returned payments is always oldest first (ascending index order).
@@ -3034,16 +3030,16 @@ message ListPaymentsRequest {
 }
 
 message ListPaymentsResponse {
-    /// The list of payments
+    // The list of payments
     repeated Payment payments = 1;
 
-    /**
+    /*
     The index of the first item in the set of returned payments. This can be
     used as the index_offset to continue seeking backwards in the next request.
     */
     uint64 first_index_offset = 2;
 
-    /**
+    /*
     The index of the last item in the set of returned payments. This can be used
     as the index_offset to continue seeking forwards in the next request.
     */
@@ -3072,7 +3068,7 @@ message DebugLevelResponse {
 }
 
 message PayReqString {
-    /// The payment request string to be decoded
+    // The payment request string to be decoded
     string pay_req = 1;
 }
 message PayReq {
@@ -3120,125 +3116,125 @@ message Feature {
 message FeeReportRequest {
 }
 message ChannelFeeReport {
-    /// The short channel id that this fee report belongs to.
+    // The short channel id that this fee report belongs to.
     uint64 chan_id = 5 [jstype = JS_STRING];
 
-    /// The channel that this fee report belongs to.
+    // The channel that this fee report belongs to.
     string channel_point = 1;
 
-    /// The base fee charged regardless of the number of milli-satoshis sent.
+    // The base fee charged regardless of the number of milli-satoshis sent.
     int64 base_fee_msat = 2;
 
-    /// The amount charged per milli-satoshis transferred expressed in
-    /// millionths of a satoshi.
+    // The amount charged per milli-satoshis transferred expressed in
+    // millionths of a satoshi.
     int64 fee_per_mil = 3;
 
-    /// The effective fee rate in milli-satoshis. Computed by dividing the
-    /// fee_per_mil value by 1 million.
+    // The effective fee rate in milli-satoshis. Computed by dividing the
+    // fee_per_mil value by 1 million.
     double fee_rate = 4;
 }
 message FeeReportResponse {
-    /// An array of channel fee reports which describes the current fee schedule
-    /// for each channel.
+    // An array of channel fee reports which describes the current fee schedule
+    // for each channel.
     repeated ChannelFeeReport channel_fees = 1;
 
-    /// The total amount of fee revenue (in satoshis) the switch has collected
-    /// over the past 24 hrs.
+    // The total amount of fee revenue (in satoshis) the switch has collected
+    // over the past 24 hrs.
     uint64 day_fee_sum = 2;
 
-    /// The total amount of fee revenue (in satoshis) the switch has collected
-    /// over the past 1 week.
+    // The total amount of fee revenue (in satoshis) the switch has collected
+    // over the past 1 week.
     uint64 week_fee_sum = 3;
 
-    /// The total amount of fee revenue (in satoshis) the switch has collected
-    /// over the past 1 month.
+    // The total amount of fee revenue (in satoshis) the switch has collected
+    // over the past 1 month.
     uint64 month_fee_sum = 4;
 }
 
 message PolicyUpdateRequest {
     oneof scope {
-        /// If set, then this update applies to all currently active channels.
+        // If set, then this update applies to all currently active channels.
         bool global = 1;
 
-        /// If set, this update will target a specific channel.
+        // If set, this update will target a specific channel.
         ChannelPoint chan_point = 2;
     }
 
-    /// The base fee charged regardless of the number of milli-satoshis sent.
+    // The base fee charged regardless of the number of milli-satoshis sent.
     int64 base_fee_msat = 3;
 
-    /// The effective fee rate in milli-satoshis. The precision of this value
-    /// goes up to 6 decimal places, so 1e-6.
+    // The effective fee rate in milli-satoshis. The precision of this value
+    // goes up to 6 decimal places, so 1e-6.
     double fee_rate = 4;
 
-    /// The required timelock delta for HTLCs forwarded over the channel.
+    // The required timelock delta for HTLCs forwarded over the channel.
     uint32 time_lock_delta = 5;
 
-    /// If set, the maximum HTLC size in milli-satoshis. If unset, the maximum
-    /// HTLC will be unchanged.
+    // If set, the maximum HTLC size in milli-satoshis. If unset, the maximum
+    // HTLC will be unchanged.
     uint64 max_htlc_msat = 6;
 
-    /// The minimum HTLC size in milli-satoshis. Only applied if
-    /// min_htlc_msat_specified is true.
+    // The minimum HTLC size in milli-satoshis. Only applied if
+    // min_htlc_msat_specified is true.
     uint64 min_htlc_msat = 7;
 
-    /// If true, min_htlc_msat is applied.
+    // If true, min_htlc_msat is applied.
     bool min_htlc_msat_specified = 8;
 }
 message PolicyUpdateResponse {
 }
 
 message ForwardingHistoryRequest {
-    /// Start time is the starting point of the forwarding history request. All
-    /// records beyond this point will be included, respecting the end time, and
-    /// the index offset.
+    // Start time is the starting point of the forwarding history request. All
+    // records beyond this point will be included, respecting the end time, and
+    // the index offset.
     uint64 start_time = 1;
 
-    /// End time is the end point of the forwarding history request. The
-    /// response will carry at most 50k records between the start time and the
-    /// end time. The index offset can be used to implement pagination.
+    // End time is the end point of the forwarding history request. The
+    // response will carry at most 50k records between the start time and the
+    // end time. The index offset can be used to implement pagination.
     uint64 end_time = 2;
 
-    /// Index offset is the offset in the time series to start at. As each
-    /// response can only contain 50k records, callers can use this to skip
-    /// around within a packed time series.
+    // Index offset is the offset in the time series to start at. As each
+    // response can only contain 50k records, callers can use this to skip
+    // around within a packed time series.
     uint32 index_offset = 3;
 
-    /// The max number of events to return in the response to this query.
+    // The max number of events to return in the response to this query.
     uint32 num_max_events = 4;
 }
 message ForwardingEvent {
-    /// Timestamp is the time (unix epoch offset) that this circuit was
-    /// completed.
+    // Timestamp is the time (unix epoch offset) that this circuit was
+    // completed.
     uint64 timestamp = 1;
 
-    /// The incoming channel ID that carried the HTLC that created the circuit.
+    // The incoming channel ID that carried the HTLC that created the circuit.
     uint64 chan_id_in = 2 [jstype = JS_STRING];
 
-    /// The outgoing channel ID that carried the preimage that completed the
-    /// circuit.
+    // The outgoing channel ID that carried the preimage that completed the
+    // circuit.
     uint64 chan_id_out = 4 [jstype = JS_STRING];
 
-    /// The total amount (in satoshis) of the incoming HTLC that created half
-    /// the circuit.
+    // The total amount (in satoshis) of the incoming HTLC that created half
+    // the circuit.
     uint64 amt_in = 5;
 
-    /// The total amount (in satoshis) of the outgoing HTLC that created the
-    /// second half of the circuit.
+    // The total amount (in satoshis) of the outgoing HTLC that created the
+    // second half of the circuit.
     uint64 amt_out = 6;
 
-    /// The total fee (in satoshis) that this payment circuit carried.
+    // The total fee (in satoshis) that this payment circuit carried.
     uint64 fee = 7;
 
-    /// The total fee (in milli-satoshis) that this payment circuit carried.
+    // The total fee (in milli-satoshis) that this payment circuit carried.
     uint64 fee_msat = 8;
 
-    /// The total amount (in milli-satoshis) of the incoming HTLC that created
-    /// half the circuit.
+    // The total amount (in milli-satoshis) of the incoming HTLC that created
+    // half the circuit.
     uint64 amt_in_msat = 9;
 
-    /// The total amount (in milli-satoshis) of the outgoing HTLC that created
-    /// the second half of the circuit.
+    // The total amount (in milli-satoshis) of the outgoing HTLC that created
+    // the second half of the circuit.
     uint64 amt_out_msat = 10;
 
     // TODO(roasbeef): add settlement latency?
@@ -3246,27 +3242,27 @@ message ForwardingEvent {
     //  * also list failures?
 }
 message ForwardingHistoryResponse {
-    /// A list of forwarding events from the time slice of the time series
-    /// specified in the request.
+    // A list of forwarding events from the time slice of the time series
+    // specified in the request.
     repeated ForwardingEvent forwarding_events = 1;
 
-    /// The index of the last time in the set of returned forwarding events. Can
-    /// be used to seek further, pagination style.
+    // The index of the last time in the set of returned forwarding events. Can
+    // be used to seek further, pagination style.
     uint32 last_offset_index = 2;
 }
 
 message ExportChannelBackupRequest {
-    /// The target channel point to obtain a back up for.
+    // The target channel point to obtain a back up for.
     ChannelPoint chan_point = 1;
 }
 
 message ChannelBackup {
-    /**
+    /*
     Identifies the channel that this backup belongs to.
     */
     ChannelPoint chan_point = 1;
 
-    /**
+    /*
     Is an encrypted single-chan backup. this can be passed to
     RestoreChannelBackups, or the WalletUnlocker Init and Unlock methods in
     order to trigger the recovery protocol. When using REST, this field must be
@@ -3276,12 +3272,12 @@ message ChannelBackup {
 }
 
 message MultiChanBackup {
-    /**
+    /*
     Is the set of all channels that are included in this multi-channel backup.
     */
     repeated ChannelPoint chan_points = 1;
 
-    /**
+    /*
     A single encrypted blob containing all the static channel backups of the
     channel listed above. This can be stored as a single file or blob, and
     safely be replaced with any prior/future versions. When using REST, this
@@ -3293,13 +3289,13 @@ message MultiChanBackup {
 message ChanBackupExportRequest {
 }
 message ChanBackupSnapshot {
-    /**
+    /*
     The set of new channels that have been added since the last channel backup
     snapshot was requested.
     */
     ChannelBackups single_chan_backups = 1;
 
-    /**
+    /*
     A multi-channel backup that covers all open channels currently known to
     lnd.
     */
@@ -3307,7 +3303,7 @@ message ChanBackupSnapshot {
 }
 
 message ChannelBackups {
-    /**
+    /*
     A set of single-chan static channel backups.
     */
     repeated ChannelBackup chan_backups = 1;
@@ -3315,12 +3311,12 @@ message ChannelBackups {
 
 message RestoreChanBackupRequest {
     oneof backup {
-        /**
+        /*
         The channels to restore as a list of channel/backup pairs.
         */
         ChannelBackups chan_backups = 1;
 
-        /**
+        /*
         The channels to restore in the packed multi backup format. When using
         REST, this field must be encoded as base64.
         */
@@ -3337,24 +3333,24 @@ message VerifyChanBackupResponse {
 }
 
 message MacaroonPermission {
-    /// The entity a permission grants access to.
+    // The entity a permission grants access to.
     string entity = 1;
 
-    /// The action that is granted.
+    // The action that is granted.
     string action = 2;
 }
 message BakeMacaroonRequest {
-    /// The list of permissions the new macaroon should grant.
+    // The list of permissions the new macaroon should grant.
     repeated MacaroonPermission permissions = 1;
 }
 message BakeMacaroonResponse {
-    /// The hex encoded macaroon, serialized in binary format.
+    // The hex encoded macaroon, serialized in binary format.
     string macaroon = 1;
 }
 
 message Failure {
     enum FailureCode {
-        /**
+        /*
         The numbers assigned in this enumeration match the failure codes as
         defined in BOLT #4. Because protobuf 3 requires enums to start with 0,
         a RESERVED value is added.
@@ -3385,61 +3381,61 @@ message Failure {
         EXPIRY_TOO_FAR = 22;
         MPP_TIMEOUT = 23;
 
-        /**
+        /*
         An internal error occurred.
         */
         INTERNAL_FAILURE = 997;
 
-        /**
+        /*
         The error source is known, but the failure itself couldn't be decoded.
         */
         UNKNOWN_FAILURE = 998;
 
-        /**
+        /*
         An unreadable failure result is returned if the received failure message
         cannot be decrypted. In that case the error source is unknown.
         */
         UNREADABLE_FAILURE = 999;
     }
 
-    /// Failure code as defined in the Lightning spec
+    // Failure code as defined in the Lightning spec
     FailureCode code = 1;
 
     reserved 2;
 
-    /// An optional channel update message.
+    // An optional channel update message.
     ChannelUpdate channel_update = 3;
 
-    /// A failure type-dependent htlc value.
+    // A failure type-dependent htlc value.
     uint64 htlc_msat = 4;
 
-    /// The sha256 sum of the onion payload.
+    // The sha256 sum of the onion payload.
     bytes onion_sha_256 = 5;
 
-    /// A failure type-dependent cltv expiry value.
+    // A failure type-dependent cltv expiry value.
     uint32 cltv_expiry = 6;
 
-    /// A failure type-dependent flags value.
+    // A failure type-dependent flags value.
     uint32 flags = 7;
 
-    /**
+    /*
     The position in the path of the intermediate or final node that generated
     the failure message. Position zero is the sender node.
     **/
     uint32 failure_source_index = 8;
 
-    /// A failure type-dependent block height.
+    // A failure type-dependent block height.
     uint32 height = 9;
 }
 
 message ChannelUpdate {
-    /**
+    /*
     The signature that validates the announced data and proves the ownership
     of node id.
     */
     bytes signature = 1;
 
-    /**
+    /*
     The target chain that this channel was opened within. This value
     should be the genesis hash of the target chain. Along with the short
     channel ID, this uniquely identifies the channel globally in a
@@ -3447,26 +3443,26 @@ message ChannelUpdate {
     */
     bytes chain_hash = 2;
 
-    /**
+    /*
     The unique description of the funding transaction.
     */
     uint64 chan_id = 3 [jstype = JS_STRING];
 
-    /**
+    /*
     A timestamp that allows ordering in the case of multiple announcements.
     We should ignore the message if timestamp is not greater than the
     last-received.
     */
     uint32 timestamp = 4;
 
-    /**
+    /*
     The bitfield that describes whether optional fields are present in this
     update. Currently, the least-significant bit must be set to 1 if the
     optional field MaxHtlc is present.
     */
     uint32 message_flags = 10;
 
-    /**
+    /*
     The bitfield that describes additional meta-data concerning how the
     update is to be interpreted. Currently, the least-significant bit must be
     set to 0 if the creating node corresponds to the first node in the
@@ -3475,7 +3471,7 @@ message ChannelUpdate {
     */
     uint32 channel_flags = 5;
 
-    /**
+    /*
     The minimum number of blocks this node requires to be added to the expiry
     of HTLCs. This is a security parameter determined by the node operator.
     This value represents the required gap between the time locks of the
@@ -3483,29 +3479,29 @@ message ChannelUpdate {
     */
     uint32 time_lock_delta = 6;
 
-    /**
+    /*
     The minimum HTLC value which will be accepted.
     */
     uint64 htlc_minimum_msat = 7;
 
-    /**
+    /*
     The base fee that must be used for incoming HTLC's to this particular
     channel. This value will be tacked onto the required for a payment
     independent of the size of the payment.
     */
     uint32 base_fee = 8;
 
-    /**
+    /*
     The fee rate that will be charged per millionth of a satoshi.
     */
     uint32 fee_rate = 9;
 
-    /**
+    /*
     The maximum HTLC value which will be accepted.
     */
     uint64 htlc_maximum_msat = 11;
 
-    /**
+    /*
     The set of data that was appended to this message, some of which we may
     not actually know how to iterate or parse. By holding onto this data, we
     ensure that we're able to properly validate the set of signatures that

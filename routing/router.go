@@ -1827,7 +1827,7 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, rt *route.Route) (
 
 		// We got a successful result.
 		if result.err == nil {
-			return result.preimage, nil
+			return result.attempt.Settle.Preimage, nil
 		}
 
 		// The shard failed, break switch to handle it.

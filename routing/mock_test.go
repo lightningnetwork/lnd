@@ -301,7 +301,8 @@ func (m *mockControlTower) RegisterAttempt(phash lntypes.Hash,
 }
 
 func (m *mockControlTower) SettleAttempt(phash lntypes.Hash,
-	pid uint64, settleInfo *channeldb.HTLCSettleInfo) error {
+	pid uint64, settleInfo *channeldb.HTLCSettleInfo) (
+	*channeldb.HTLCAttempt, error) {
 
 	m.Lock()
 	defer m.Unlock()
@@ -313,7 +314,7 @@ func (m *mockControlTower) SettleAttempt(phash lntypes.Hash,
 	// Only allow setting attempts if the payment is known.
 	p, ok := m.payments[phash]
 	if !ok {
-		return channeldb.ErrPaymentNotInitiated
+		return nil, channeldb.ErrPaymentNotInitiated
 	}
 
 	// Find the attempt with this pid, and set the settle info.
@@ -323,24 +324,26 @@ func (m *mockControlTower) SettleAttempt(phash lntypes.Hash,
 		}
 
 		if a.Settle != nil {
-			return channeldb.ErrAttemptAlreadySettled
+			return nil, channeldb.ErrAttemptAlreadySettled
 		}
 		if a.Failure != nil {
-			return channeldb.ErrAttemptAlreadyFailed
+			return nil, channeldb.ErrAttemptAlreadyFailed
 		}
 
 		p.attempts[i].Settle = settleInfo
 
 		// Mark the payment successful on first settled attempt.
 		m.successful[phash] = struct{}{}
-		return nil
+		return &channeldb.HTLCAttempt{
+			Settle: settleInfo,
+		}, nil
 	}
 
-	return fmt.Errorf("pid not found")
+	return nil, fmt.Errorf("pid not found")
 }
 
 func (m *mockControlTower) FailAttempt(phash lntypes.Hash, pid uint64,
-	failInfo *channeldb.HTLCFailInfo) error {
+	failInfo *channeldb.HTLCFailInfo) (*channeldb.HTLCAttempt, error) {
 
 	m.Lock()
 	defer m.Unlock()
@@ -352,7 +355,7 @@ func (m *mockControlTower) FailAttempt(phash lntypes.Hash, pid uint64,
 	// Only allow failing attempts if the payment is known.
 	p, ok := m.payments[phash]
 	if !ok {
-		return channeldb.ErrPaymentNotInitiated
+		return nil, channeldb.ErrPaymentNotInitiated
 	}
 
 	// Find the attempt with this pid, and set the failure info.
@@ -362,17 +365,19 @@ func (m *mockControlTower) FailAttempt(phash lntypes.Hash, pid uint64,
 		}
 
 		if a.Settle != nil {
-			return channeldb.ErrAttemptAlreadySettled
+			return nil, channeldb.ErrAttemptAlreadySettled
 		}
 		if a.Failure != nil {
-			return channeldb.ErrAttemptAlreadyFailed
+			return nil, channeldb.ErrAttemptAlreadyFailed
 		}
 
 		p.attempts[i].Failure = failInfo
-		return nil
+		return &channeldb.HTLCAttempt{
+			Failure: failInfo,
+		}, nil
 	}
 
-	return fmt.Errorf("pid not found")
+	return nil, fmt.Errorf("pid not found")
 }
 
 func (m *mockControlTower) Fail(phash lntypes.Hash,

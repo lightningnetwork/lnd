@@ -345,6 +345,9 @@ type launchOutcome struct {
 	// reflect this error. This can be errors like not enough local
 	// balance for the given route etc.
 	err error
+
+	// attempt is the attempt structure as recorded in the database.
+	attempt *channeldb.HTLCAttempt
 }
 
 // launchShard creates and sends an HTLC attempt along the given route,
@@ -382,14 +385,15 @@ func (p *shardHandler) launchShard(rt *route.Route) (*channeldb.HTLCAttemptInfo,
 	if sendErr != nil {
 		// TODO(joostjager): Distinguish unexpected internal errors
 		// from real send errors.
-		err := p.failAttempt(attempt, sendErr)
+		htlcAttempt, err := p.failAttempt(attempt, sendErr)
 		if err != nil {
 			return nil, nil, err
 		}
 
 		// Return a launchOutcome indicating the shard failed.
 		return attempt, &launchOutcome{
-			err: sendErr,
+			attempt: htlcAttempt,
+			err:     sendErr,
 		}, nil
 	}
 
@@ -398,9 +402,8 @@ func (p *shardHandler) launchShard(rt *route.Route) (*channeldb.HTLCAttemptInfo,
 
 // shardResult holds the resulting outcome of a shard sent.
 type shardResult struct {
-	// preimage is the payment preimage in case of a settled HTLC. Only set
-	// if err is non-nil.
-	preimage lntypes.Preimage
+	// attempt is the attempt structure as recorded in the database.
+	attempt *channeldb.HTLCAttempt
 
 	// err indicates that the shard failed.
 	err error
@@ -493,13 +496,14 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 			"the Switch, retrying.", attempt.AttemptID,
 			p.paymentHash)
 
-		cErr := p.failAttempt(attempt, err)
+		attempt, cErr := p.failAttempt(attempt, err)
 		if cErr != nil {
 			return nil, cErr
 		}
 
 		return &shardResult{
-			err: err,
+			attempt: attempt,
+			err:     err,
 		}, nil
 
 	// A critical, unexpected error was encountered.
@@ -533,13 +537,14 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 	// In case of a payment failure, fail the attempt with the control
 	// tower and return.
 	if result.Error != nil {
-		err := p.failAttempt(attempt, result.Error)
+		attempt, err := p.failAttempt(attempt, result.Error)
 		if err != nil {
 			return nil, err
 		}
 
 		return &shardResult{
-			err: result.Error,
+			attempt: attempt,
+			err:     result.Error,
 		}, nil
 	}
 
@@ -558,7 +563,7 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 
 	// In case of success we atomically store settle result to the DB move
 	// the shard to the settled state.
-	err = p.router.cfg.Control.SettleAttempt(
+	htlcAttempt, err := p.router.cfg.Control.SettleAttempt(
 		p.paymentHash, attempt.AttemptID,
 		&channeldb.HTLCSettleInfo{
 			Preimage:   result.Preimage,
@@ -571,7 +576,7 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 	}
 
 	return &shardResult{
-		preimage: result.Preimage,
+		attempt: htlcAttempt,
 	}, nil
 }
 
@@ -691,7 +696,7 @@ func (p *shardHandler) handleSendError(attempt *channeldb.HTLCAttemptInfo,
 
 // failAttempt calls control tower to fail the current payment attempt.
 func (p *shardHandler) failAttempt(attempt *channeldb.HTLCAttemptInfo,
-	sendError error) error {
+	sendError error) (*channeldb.HTLCAttempt, error) {
 
 	log.Warnf("Attempt %v for payment %v failed: %v", attempt.AttemptID,
 		p.paymentHash, sendError)

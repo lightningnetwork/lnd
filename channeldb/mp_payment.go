@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"time"
 
@@ -175,6 +176,18 @@ func (m *MPPayment) InFlightHTLCs() []HTLCAttempt {
 	}
 
 	return inflights
+}
+
+// GetAttempt returns the specified htlc attempt on the payment.
+func (m *MPPayment) GetAttempt(id uint64) (*HTLCAttempt, error) {
+	for _, htlc := range m.HTLCs {
+		htlc := htlc
+		if htlc.AttemptID == id {
+			return &htlc, nil
+		}
+	}
+
+	return nil, errors.New("htlc attempt not found on payment")
 }
 
 // serializeHTLCSettleInfo serializes the details of a settled htlc.

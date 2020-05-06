@@ -1,6 +1,7 @@
 package etcd
 
 import (
+	"bytes"
 	"strconv"
 
 	"github.com/btcsuite/btcwallet/walletdb"
@@ -20,7 +21,12 @@ type readWriteBucket struct {
 
 // newReadWriteBucket creates a new rw bucket with the passed transaction
 // and bucket id.
-func newReadWriteBucket(tx *readWriteTx, id []byte) *readWriteBucket {
+func newReadWriteBucket(tx *readWriteTx, key, id []byte) *readWriteBucket {
+	if !bytes.Equal(id, rootBucketID()) {
+		// Add the bucket key/value to the lock set.
+		tx.lock(string(key), string(id))
+	}
+
 	return &readWriteBucket{
 		id: id,
 		tx: tx,
@@ -119,7 +125,8 @@ func (b *readWriteBucket) NestedReadWriteBucket(key []byte) walletdb.ReadWriteBu
 	}
 
 	// Get the bucket id (and return nil if bucket doesn't exist).
-	bucketVal, err := b.tx.stm.Get(string(makeBucketKey(b.id, key)))
+	bucketKey := makeBucketKey(b.id, key)
+	bucketVal, err := b.tx.stm.Get(string(bucketKey))
 	if err != nil {
 		// TODO: we should return the error once the
 		// kvdb inteface is extended.
@@ -131,7 +138,7 @@ func (b *readWriteBucket) NestedReadWriteBucket(key []byte) walletdb.ReadWriteBu
 	}
 
 	// Return the bucket with the fetched bucket id.
-	return newReadWriteBucket(b.tx, bucketVal)
+	return newReadWriteBucket(b.tx, bucketKey, bucketVal)
 }
 
 // CreateBucket creates and returns a new nested bucket with the given
@@ -163,9 +170,9 @@ func (b *readWriteBucket) CreateBucket(key []byte) (
 	newID := makeBucketID(bucketKey)
 
 	// Create the bucket.
-	b.tx.stm.Put(string(bucketKey), string(newID[:]))
+	b.tx.put(string(bucketKey), string(newID[:]))
 
-	return newReadWriteBucket(b.tx, newID[:]), nil
+	return newReadWriteBucket(b.tx, bucketKey, newID[:]), nil
 }
 
 // CreateBucketIfNotExists creates and returns a new nested bucket with
@@ -181,22 +188,22 @@ func (b *readWriteBucket) CreateBucketIfNotExists(key []byte) (
 	}
 
 	// Check for the bucket and create if it doesn't exist.
-	bucketKey := string(makeBucketKey(b.id, key))
+	bucketKey := makeBucketKey(b.id, key)
 
-	bucketVal, err := b.tx.stm.Get(bucketKey)
+	bucketVal, err := b.tx.stm.Get(string(bucketKey))
 	if err != nil {
 		return nil, err
 	}
 
 	if !isValidBucketID(bucketVal) {
-		newID := makeBucketID([]byte(bucketKey))
-		b.tx.stm.Put(bucketKey, string(newID[:]))
+		newID := makeBucketID(bucketKey)
+		b.tx.put(string(bucketKey), string(newID[:]))
 
-		return newReadWriteBucket(b.tx, newID[:]), nil
+		return newReadWriteBucket(b.tx, bucketKey, newID[:]), nil
 	}
 
 	// Otherwise return the bucket with the fetched bucket id.
-	return newReadWriteBucket(b.tx, bucketVal), nil
+	return newReadWriteBucket(b.tx, bucketKey, bucketVal), nil
 }
 
 // DeleteNestedBucket deletes the nested bucket and its sub-buckets
@@ -241,7 +248,7 @@ func (b *readWriteBucket) DeleteNestedBucket(key []byte) error {
 		}
 
 		for kv != nil {
-			b.tx.stm.Del(kv.key)
+			b.tx.del(kv.key)
 
 			kv, err = b.tx.stm.Next(valuePrefix, kv.key)
 			if err != nil {
@@ -259,7 +266,7 @@ func (b *readWriteBucket) DeleteNestedBucket(key []byte) error {
 
 		for kv != nil {
 			// Delete sub bucket key.
-			b.tx.stm.Del(kv.key)
+			b.tx.del(kv.key)
 			// Queue it for traversal.
 			queue = append(queue, []byte(kv.val))
 
@@ -271,7 +278,7 @@ func (b *readWriteBucket) DeleteNestedBucket(key []byte) error {
 	}
 
 	// Delete the top level bucket.
-	b.tx.stm.Del(bucketKey)
+	b.tx.del(bucketKey)
 
 	return nil
 }
@@ -284,7 +291,7 @@ func (b *readWriteBucket) Put(key, value []byte) error {
 	}
 
 	// Update the transaction with the new value.
-	b.tx.stm.Put(string(makeValueKey(b.id, key)), string(value))
+	b.tx.put(string(makeValueKey(b.id, key)), string(value))
 
 	return nil
 }
@@ -297,7 +304,7 @@ func (b *readWriteBucket) Delete(key []byte) error {
 	}
 
 	// Update the transaction to delete the key/value.
-	b.tx.stm.Del(string(makeValueKey(b.id, key)))
+	b.tx.del(string(makeValueKey(b.id, key)))
 
 	return nil
 }
@@ -327,7 +334,7 @@ func (b *readWriteBucket) SetSequence(v uint64) error {
 	val := strconv.FormatUint(v, 10)
 
 	// Update the transaction with the new value for the sequence key.
-	b.tx.stm.Put(string(makeSequenceKey(b.id)), val)
+	b.tx.put(string(makeSequenceKey(b.id)), val)
 
 	return nil
 }

@@ -9,9 +9,16 @@ type readWriteTx struct {
 	// stm is the reference to the parent STM.
 	stm STM
 
-	// active is true if the transaction hasn't been
-	// committed yet.
+	// active is true if the transaction hasn't been committed yet.
 	active bool
+
+	// dirty is true if we intent to update a value in this transaction.
+	dirty bool
+
+	// lset holds key/value set that we want to lock on. If upon commit the
+	// transaction is dirty and the lset is not empty, we'll bump the mod
+	// version of these key/values.
+	lset map[string]string
 }
 
 // newReadWriteTx creates an rw transaction with the passed STM.
@@ -19,13 +26,58 @@ func newReadWriteTx(stm STM) *readWriteTx {
 	return &readWriteTx{
 		stm:    stm,
 		active: true,
+		lset:   make(map[string]string),
 	}
 }
 
 // rooBucket is a helper function to return the always present
 // root bucket.
 func rootBucket(tx *readWriteTx) *readWriteBucket {
-	return newReadWriteBucket(tx, rootBucketID())
+	return newReadWriteBucket(tx, rootBucketID(), rootBucketID())
+}
+
+// lock adds a key value to the lock set.
+func (tx *readWriteTx) lock(key, val string) {
+	tx.stm.Lock(key)
+	if !tx.dirty {
+		tx.lset[key] = val
+	} else {
+		// Bump the mod version of the key,
+		// leaving the value intact.
+		tx.stm.Put(key, val)
+	}
+}
+
+// put updates the passed key/value.
+func (tx *readWriteTx) put(key, val string) {
+	tx.stm.Put(key, val)
+	tx.setDirty()
+}
+
+// del marks the passed key deleted.
+func (tx *readWriteTx) del(key string) {
+	tx.stm.Del(key)
+	tx.setDirty()
+}
+
+// setDirty marks the transaction dirty and bumps
+// mod version for the existing lock set if it is
+// not empty.
+func (tx *readWriteTx) setDirty() {
+	// Bump the lock set.
+	if !tx.dirty && len(tx.lset) > 0 {
+		for key, val := range tx.lset {
+			// Bump the mod version of the key,
+			// leaving the value intact.
+			tx.stm.Put(key, val)
+		}
+
+		// Clear the lock set.
+		tx.lset = make(map[string]string)
+	}
+
+	// Set dirty.
+	tx.dirty = true
 }
 
 // ReadBucket opens the root bucket for read only access.  If the bucket

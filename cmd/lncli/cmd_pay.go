@@ -605,8 +605,8 @@ func formatPayment(payment *lnrpc.Payment, aliases *aliasCache) string {
 				return "-"
 			}
 			resolveTime := time.Unix(0, timeNs)
-			resolveTimeMs := resolveTime.Sub(createTime).
-				Milliseconds()
+			resolveTimeDiff := resolveTime.Sub(createTime)
+			resolveTimeMs := resolveTimeDiff / time.Millisecond
 			return fmt.Sprintf(
 				"%.3f", float64(resolveTimeMs)/1000.0,
 			)

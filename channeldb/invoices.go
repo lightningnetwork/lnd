@@ -715,7 +715,7 @@ func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
 
 		// keyForIndex is a helper closure that retrieves the invoice
 		// key for the given add index of an invoice.
-		keyForIndex := func(c kvdb.ReadCursor, index uint64) []byte {
+		keyForIndex := func(c kvdb.RCursor, index uint64) []byte {
 			var keyIndex [8]byte
 			byteOrder.PutUint64(keyIndex[:], index)
 			_, invoiceKey := c.Seek(keyIndex[:])
@@ -724,7 +724,7 @@ func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
 
 		// nextKey is a helper closure to determine what the next
 		// invoice key is when iterating over the invoice add index.
-		nextKey := func(c kvdb.ReadCursor) ([]byte, []byte) {
+		nextKey := func(c kvdb.RCursor) ([]byte, []byte) {
 			if q.Reversed {
 				return c.Prev()
 			}

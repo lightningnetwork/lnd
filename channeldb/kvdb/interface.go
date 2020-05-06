@@ -85,10 +85,10 @@ type Driver = walletdb.Driver
 // database) that is only allowed to perform read operations.
 type RBucket = walletdb.ReadBucket
 
-// ReadCursor represents a bucket cursor that can be positioned at the start or
+// RCursor represents a bucket cursor that can be positioned at the start or
 // end of the bucket's key/value pairs and iterate over pairs in the bucket.
 // This type is only allowed to perform database read operations.
-type ReadCursor = walletdb.ReadCursor
+type RCursor = walletdb.ReadCursor
 
 // RTx represents a database transaction that can only be used for reads. If
 // a database update must occur, use a RwTx.

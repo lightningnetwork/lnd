@@ -139,7 +139,7 @@ func testSendToRouteMultiPath(net *lntest.NetworkHarness, t *harnessTest) {
 		// block as long as the payment is in flight.
 		go func() {
 			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			resp, err := net.Alice.RouterClient.SendToRoute(ctxt, sendReq)
+			resp, err := net.Alice.RouterClient.SendToRouteV2(ctxt, sendReq)
 			if err != nil {
 				t.Fatalf("unable to send payment: %v", err)
 			}

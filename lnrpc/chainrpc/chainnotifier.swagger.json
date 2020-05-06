@@ -1,0 +1,208 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "chainrpc/chainnotifier.proto",
+    "version": "version not set"
+  },
+  "schemes": [
+    "http",
+    "https"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {},
+  "definitions": {
+    "chainrpcBlockEpoch": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the block."
+        },
+        "height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The height of the block."
+        }
+      }
+    },
+    "chainrpcConfDetails": {
+      "type": "object",
+      "properties": {
+        "raw_tx": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw bytes of the confirmed transaction."
+        },
+        "block_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the block in which the confirmed transaction was included in."
+        },
+        "block_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The height of the block in which the confirmed transaction was included\nin."
+        },
+        "tx_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The index of the confirmed transaction within the transaction."
+        }
+      }
+    },
+    "chainrpcConfEvent": {
+      "type": "object",
+      "properties": {
+        "conf": {
+          "$ref": "#/definitions/chainrpcConfDetails",
+          "description": "An event that includes the confirmation details of the request\n(txid/ouput script)."
+        },
+        "reorg": {
+          "$ref": "#/definitions/chainrpcReorg",
+          "description": "An event send when the transaction of the request is reorged out of the\nchain."
+        }
+      }
+    },
+    "chainrpcOutpoint": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the transaction."
+        },
+        "index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The index of the output within the transaction."
+        }
+      }
+    },
+    "chainrpcReorg": {
+      "type": "object"
+    },
+    "chainrpcSpendDetails": {
+      "type": "object",
+      "properties": {
+        "spending_outpoint": {
+          "$ref": "#/definitions/chainrpcOutpoint",
+          "description": "The outpoint was that spent."
+        },
+        "raw_spending_tx": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw bytes of the spending transaction."
+        },
+        "spending_tx_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the spending transaction."
+        },
+        "spending_input_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The input of the spending transaction that fulfilled the spend request."
+        },
+        "spending_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The height at which the spending transaction was included in a block."
+        }
+      }
+    },
+    "chainrpcSpendEvent": {
+      "type": "object",
+      "properties": {
+        "spend": {
+          "$ref": "#/definitions/chainrpcSpendDetails",
+          "description": "An event that includes the details of the spending transaction of the\nrequest (outpoint/output script)."
+        },
+        "reorg": {
+          "$ref": "#/definitions/chainrpcReorg",
+          "description": "An event sent when the spending transaction of the request was\nreorged out of the chain."
+        }
+      }
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "runtimeStreamError": {
+      "type": "object",
+      "properties": {
+        "grpc_code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "http_code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "http_status": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    }
+  },
+  "x-stream-definitions": {
+    "chainrpcBlockEpoch": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "$ref": "#/definitions/chainrpcBlockEpoch"
+        },
+        "error": {
+          "$ref": "#/definitions/runtimeStreamError"
+        }
+      },
+      "title": "Stream result of chainrpcBlockEpoch"
+    },
+    "chainrpcConfEvent": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "$ref": "#/definitions/chainrpcConfEvent"
+        },
+        "error": {
+          "$ref": "#/definitions/runtimeStreamError"
+        }
+      },
+      "title": "Stream result of chainrpcConfEvent"
+    },
+    "chainrpcSpendEvent": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "$ref": "#/definitions/chainrpcSpendEvent"
+        },
+        "error": {
+          "$ref": "#/definitions/runtimeStreamError"
+        }
+      },
+      "title": "Stream result of chainrpcSpendEvent"
+    }
+  }
+}

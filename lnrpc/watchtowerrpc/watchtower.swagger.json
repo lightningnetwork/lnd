@@ -1,0 +1,44 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "watchtowerrpc/watchtower.proto",
+    "version": "version not set"
+  },
+  "schemes": [
+    "http",
+    "https"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {},
+  "definitions": {
+    "watchtowerrpcGetInfoResponse": {
+      "type": "object",
+      "properties": {
+        "pubkey": {
+          "type": "string",
+          "format": "byte",
+          "description": "The public key of the watchtower."
+        },
+        "listeners": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The listening addresses of the watchtower."
+        },
+        "uris": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The URIs of the watchtower."
+        }
+      }
+    }
+  }
+}

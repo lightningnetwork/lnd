@@ -1,0 +1,176 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "signrpc/signer.proto",
+    "version": "version not set"
+  },
+  "schemes": [
+    "http",
+    "https"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {},
+  "definitions": {
+    "signrpcInputScript": {
+      "type": "object",
+      "properties": {
+        "witness": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The serializes witness stack for the specified input."
+        },
+        "sig_script": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nThe optional sig script for the specified witness that will only be set if\nthe input specified is a nested p2sh witness program."
+        }
+      }
+    },
+    "signrpcInputScriptResp": {
+      "type": "object",
+      "properties": {
+        "input_scripts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/signrpcInputScript"
+          },
+          "description": "The set of fully valid input scripts requested."
+        }
+      }
+    },
+    "signrpcKeyDescriptor": {
+      "type": "object",
+      "properties": {
+        "raw_key_bytes": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw bytes of the key being identified. Either this or the KeyLocator\nmust be specified."
+        },
+        "key_loc": {
+          "$ref": "#/definitions/signrpcKeyLocator",
+          "description": "The key locator that identifies which key to use for signing. Either this\nor the raw bytes of the target key must be specified."
+        }
+      }
+    },
+    "signrpcKeyLocator": {
+      "type": "object",
+      "properties": {
+        "key_family": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The family of key being identified."
+        },
+        "key_index": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The precise index of the key being identified."
+        }
+      }
+    },
+    "signrpcSharedKeyResponse": {
+      "type": "object",
+      "properties": {
+        "shared_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The shared public key, hashed with sha256."
+        }
+      }
+    },
+    "signrpcSignDescriptor": {
+      "type": "object",
+      "properties": {
+        "key_desc": {
+          "$ref": "#/definitions/signrpcKeyDescriptor",
+          "description": "A descriptor that precisely describes *which* key to use for signing. This\nmay provide the raw public key directly, or require the Signer to re-derive\nthe key according to the populated derivation path."
+        },
+        "single_tweak": {
+          "type": "string",
+          "format": "byte",
+          "description": "derivedKey = privkey + sha256(perCommitmentPoint || pubKey) mod N",
+          "title": "A scalar value that will be added to the private key corresponding to the\nabove public key to obtain the private key to be used to sign this input.\nThis value is typically derived via the following computation:"
+        },
+        "double_tweak": {
+          "type": "string",
+          "format": "byte",
+          "description": "A private key that will be used in combination with its corresponding\nprivate key to derive the private key that is to be used to sign the target\ninput. Within the Lightning protocol, this value is typically the\ncommitment secret from a previously revoked commitment transaction. This\nvalue is in combination with two hash values, and the original private key\nto derive the private key to be used when signing.\n\nk = (privKey*sha256(pubKey || tweakPub) +\ntweakPriv*sha256(tweakPub || pubKey)) mod N"
+        },
+        "witness_script": {
+          "type": "string",
+          "format": "byte",
+          "description": "The full script required to properly redeem the output.  This field will\nonly be populated if a p2wsh or a p2sh output is being signed."
+        },
+        "output": {
+          "$ref": "#/definitions/signrpcTxOut",
+          "description": "A description of the output being spent. The value and script MUST be\nprovided."
+        },
+        "sighash": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The target sighash type that should be used when generating the final\nsighash, and signature."
+        },
+        "input_index": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The target input within the transaction that should be signed."
+        }
+      }
+    },
+    "signrpcSignMessageResp": {
+      "type": "object",
+      "properties": {
+        "signature": {
+          "type": "string",
+          "format": "byte",
+          "description": "The signature for the given message in the fixed-size LN wire format."
+        }
+      }
+    },
+    "signrpcSignResp": {
+      "type": "object",
+      "properties": {
+        "raw_sigs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "A set of signatures realized in a fixed 64-byte format ordered in ascending\ninput order."
+        }
+      }
+    },
+    "signrpcTxOut": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "string",
+          "format": "int64",
+          "description": "The value of the output being spent."
+        },
+        "pk_script": {
+          "type": "string",
+          "format": "byte",
+          "description": "The script of the output being spent."
+        }
+      }
+    },
+    "signrpcVerifyMessageResp": {
+      "type": "object",
+      "properties": {
+        "valid": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Whether the signature was valid over the given message."
+        }
+      }
+    }
+  }
+}

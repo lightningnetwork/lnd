@@ -1,0 +1,62 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "autopilotrpc/autopilot.proto",
+    "version": "version not set"
+  },
+  "schemes": [
+    "http",
+    "https"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {},
+  "definitions": {
+    "QueryScoresResponseHeuristicResult": {
+      "type": "object",
+      "properties": {
+        "heuristic": {
+          "type": "string"
+        },
+        "scores": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      }
+    },
+    "autopilotrpcModifyStatusResponse": {
+      "type": "object"
+    },
+    "autopilotrpcQueryScoresResponse": {
+      "type": "object",
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/QueryScoresResponseHeuristicResult"
+          }
+        }
+      }
+    },
+    "autopilotrpcSetScoresResponse": {
+      "type": "object"
+    },
+    "autopilotrpcStatusResponse": {
+      "type": "object",
+      "properties": {
+        "active": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Indicates whether the autopilot is active or not."
+        }
+      }
+    }
+  }
+}

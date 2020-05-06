@@ -505,7 +505,7 @@ func (t *TowerDB) GetLookoutTip() (*chainntnfs.BlockEpoch, error) {
 // getSession retrieves the session info from the sessions bucket identified by
 // its session id. An error is returned if the session is not found or a
 // deserialization error occurs.
-func getSession(sessions kvdb.ReadBucket, id []byte) (*SessionInfo, error) {
+func getSession(sessions kvdb.RBucket, id []byte) (*SessionInfo, error) {
 	sessionBytes := sessions.Get(id)
 	if sessionBytes == nil {
 		return nil, ErrSessionNotFound
@@ -551,7 +551,7 @@ func removeSessionHintBkt(updateIndex kvdb.RwBucket, id *SessionID) error {
 // getHintsForSession returns all known hints belonging to the given session id.
 // If the index for the session has not been initialized, this method returns
 // ErrNoSessionHintIndex.
-func getHintsForSession(updateIndex kvdb.ReadBucket,
+func getHintsForSession(updateIndex kvdb.RBucket,
 	id *SessionID) ([]blob.BreachHint, error) {
 
 	sessionHints := updateIndex.NestedReadBucket(id[:])
@@ -604,7 +604,7 @@ func putLookoutEpoch(bkt kvdb.RwBucket, epoch *chainntnfs.BlockEpoch) error {
 
 // getLookoutEpoch retrieves the lookout tip block epoch from the given bucket.
 // A nil epoch is returned if no update exists.
-func getLookoutEpoch(bkt kvdb.ReadBucket) *chainntnfs.BlockEpoch {
+func getLookoutEpoch(bkt kvdb.RBucket) *chainntnfs.BlockEpoch {
 	epochBytes := bkt.Get(lookoutTipKey)
 	if len(epochBytes) != 36 {
 		return nil
@@ -625,7 +625,7 @@ func getLookoutEpoch(bkt kvdb.ReadBucket) *chainntnfs.BlockEpoch {
 var errBucketNotEmpty = errors.New("bucket not empty")
 
 // isBucketEmpty returns errBucketNotEmpty if the bucket is not empty.
-func isBucketEmpty(bkt kvdb.ReadBucket) error {
+func isBucketEmpty(bkt kvdb.RBucket) error {
 	return bkt.ForEach(func(_, _ []byte) error {
 		return errBucketNotEmpty
 	})

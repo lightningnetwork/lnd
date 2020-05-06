@@ -4,7 +4,7 @@ import "github.com/lightningnetwork/lnd/channeldb/kvdb"
 
 // fetchPaymentStatus fetches the payment status of the payment. If the payment
 // isn't found, it will default to "StatusUnknown".
-func fetchPaymentStatus(bucket kvdb.ReadBucket) PaymentStatus {
+func fetchPaymentStatus(bucket kvdb.RBucket) PaymentStatus {
 	if bucket.Get(paymentSettleInfoKey) != nil {
 		return StatusSucceeded
 	}

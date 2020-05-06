@@ -966,7 +966,7 @@ func (ns *nurseryStore) createChannelBucket(tx kvdb.RwTx,
 // using the given channel point.  If the bucket does not exist, or any bucket
 // along its path does not exist, a nil value is returned.
 func (ns *nurseryStore) getChannelBucket(tx kvdb.RTx,
-	chanPoint *wire.OutPoint) kvdb.ReadBucket {
+	chanPoint *wire.OutPoint) kvdb.RBucket {
 
 	// Retrieve the existing chain bucket for this nursery store.
 	chainBucket := tx.ReadBucket(ns.pfxChainKey)
@@ -1049,7 +1049,7 @@ func (ns *nurseryStore) createHeightBucket(tx kvdb.RwTx,
 // store, using the provided block height. If the bucket does not exist, or any
 // bucket along its path does not exist, a nil value is returned.
 func (ns *nurseryStore) getHeightBucketPath(tx kvdb.RTx,
-	height uint32) (kvdb.ReadBucket, kvdb.ReadBucket, kvdb.ReadBucket) {
+	height uint32) (kvdb.RBucket, kvdb.RBucket, kvdb.RBucket) {
 
 	// Retrieve the existing chain bucket for this nursery store.
 	chainBucket := tx.ReadBucket(ns.pfxChainKey)
@@ -1103,7 +1103,7 @@ func (ns *nurseryStore) getHeightBucketPathWrite(tx kvdb.RwTx,
 // using the provided block height. If the bucket does not exist, or any bucket
 // along its path does not exist, a nil value is returned.
 func (ns *nurseryStore) getHeightBucket(tx kvdb.RTx,
-	height uint32) kvdb.ReadBucket {
+	height uint32) kvdb.RBucket {
 	_, _, hghtBucket := ns.getHeightBucketPath(tx, height)
 
 	return hghtBucket
@@ -1412,7 +1412,7 @@ func removeBucketIfExists(parent kvdb.RwBucket, bktName []byte) error {
 
 // isBucketEmpty returns errBucketNotEmpty if the bucket has a non-zero number
 // of children.
-func isBucketEmpty(parent kvdb.ReadBucket) error {
+func isBucketEmpty(parent kvdb.RBucket) error {
 	return parent.ForEach(func(_, _ []byte) error {
 		return errBucketNotEmpty
 	})

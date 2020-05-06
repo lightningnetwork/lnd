@@ -756,7 +756,7 @@ func (c *OpenChannel) RefreshShortChanID() error {
 // channel's data resides in given: the public key for the node, the outpoint,
 // and the chainhash that the channel resides on.
 func fetchChanBucket(tx kvdb.RTx, nodeKey *btcec.PublicKey,
-	outPoint *wire.OutPoint, chainHash chainhash.Hash) (kvdb.ReadBucket, error) {
+	outPoint *wire.OutPoint, chainHash chainhash.Hash) (kvdb.RBucket, error) {
 
 	// First fetch the top level bucket which stores all data related to
 	// current, active channels.
@@ -1045,7 +1045,7 @@ func (c *OpenChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 // active.
 //
 // NOTE: The primary mutex should already be held before this method is called.
-func (c *OpenChannel) isBorked(chanBucket kvdb.ReadBucket) (bool, error) {
+func (c *OpenChannel) isBorked(chanBucket kvdb.RBucket) (bool, error) {
 	channel, err := fetchOpenChannel(chanBucket, &c.FundingOutpoint)
 	if err != nil {
 		return false, err
@@ -1279,7 +1279,7 @@ func putOpenChannel(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 
 // fetchOpenChannel retrieves, and deserializes (including decrypting
 // sensitive) the complete channel currently active with the passed nodeID.
-func fetchOpenChannel(chanBucket kvdb.ReadBucket,
+func fetchOpenChannel(chanBucket kvdb.RBucket,
 	chanPoint *wire.OutPoint) (*OpenChannel, error) {
 
 	channel := &OpenChannel{
@@ -3010,7 +3010,7 @@ func putOptionalUpfrontShutdownScript(chanBucket kvdb.RwBucket, key []byte,
 // getOptionalUpfrontShutdownScript reads the shutdown script stored under the
 // key provided if it is present. Upfront shutdown scripts are optional, so the
 // function returns with no error if the key is not present.
-func getOptionalUpfrontShutdownScript(chanBucket kvdb.ReadBucket, key []byte,
+func getOptionalUpfrontShutdownScript(chanBucket kvdb.RBucket, key []byte,
 	script *lnwire.DeliveryAddress) error {
 
 	// Return early if the bucket does not exit, a shutdown script was not set.
@@ -3114,7 +3114,7 @@ func readChanConfig(b io.Reader, c *ChannelConfig) error {
 	)
 }
 
-func fetchChanInfo(chanBucket kvdb.ReadBucket, channel *OpenChannel) error {
+func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 	infoBytes := chanBucket.Get(chanInfoKey)
 	if infoBytes == nil {
 		return ErrNoChanInfoFound
@@ -3181,7 +3181,7 @@ func deserializeChanCommit(r io.Reader) (ChannelCommitment, error) {
 	return c, nil
 }
 
-func fetchChanCommitment(chanBucket kvdb.ReadBucket, local bool) (ChannelCommitment, error) {
+func fetchChanCommitment(chanBucket kvdb.RBucket, local bool) (ChannelCommitment, error) {
 	var commitKey []byte
 	if local {
 		commitKey = append(chanCommitmentKey, byte(0x00))
@@ -3198,7 +3198,7 @@ func fetchChanCommitment(chanBucket kvdb.ReadBucket, local bool) (ChannelCommitm
 	return deserializeChanCommit(r)
 }
 
-func fetchChanCommitments(chanBucket kvdb.ReadBucket, channel *OpenChannel) error {
+func fetchChanCommitments(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 	var err error
 
 	// If this is a restored channel, then we don't have any commitments to
@@ -3219,7 +3219,7 @@ func fetchChanCommitments(chanBucket kvdb.ReadBucket, channel *OpenChannel) erro
 	return nil
 }
 
-func fetchChanRevocationState(chanBucket kvdb.ReadBucket, channel *OpenChannel) error {
+func fetchChanRevocationState(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 	revBytes := chanBucket.Get(revocationStateKey)
 	if revBytes == nil {
 		return ErrNoRevocationsFound
@@ -3291,7 +3291,7 @@ func appendChannelLogEntry(log kvdb.RwBucket,
 	return log.Put(logEntrykey[:], b.Bytes())
 }
 
-func fetchChannelLogEntry(log kvdb.ReadBucket,
+func fetchChannelLogEntry(log kvdb.RBucket,
 	updateNum uint64) (ChannelCommitment, error) {
 
 	logEntrykey := makeLogKey(updateNum)
@@ -3304,7 +3304,7 @@ func fetchChannelLogEntry(log kvdb.ReadBucket,
 	return deserializeChanCommit(commitReader)
 }
 
-func fetchThawHeight(chanBucket kvdb.ReadBucket) (uint32, error) {
+func fetchThawHeight(chanBucket kvdb.RBucket) (uint32, error) {
 	var height uint32
 
 	heightBytes := chanBucket.Get(frozenChanKey)

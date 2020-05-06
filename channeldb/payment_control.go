@@ -495,7 +495,7 @@ func createPaymentBucket(tx kvdb.RwTx, paymentHash lntypes.Hash) (
 // fetchPaymentBucket fetches the sub-bucket assigned to this payment hash. If
 // the bucket does not exist, it returns ErrPaymentNotInitiated.
 func fetchPaymentBucket(tx kvdb.RTx, paymentHash lntypes.Hash) (
-	kvdb.ReadBucket, error) {
+	kvdb.RBucket, error) {
 
 	payments := tx.ReadBucket(paymentsRootBucket)
 	if payments == nil {
@@ -549,7 +549,7 @@ func nextPaymentSequence(tx kvdb.RwTx) ([]byte, error) {
 
 // fetchPaymentStatus fetches the payment status of the payment. If the payment
 // isn't found, it will default to "StatusUnknown".
-func fetchPaymentStatus(bucket kvdb.ReadBucket) (PaymentStatus, error) {
+func fetchPaymentStatus(bucket kvdb.RBucket) (PaymentStatus, error) {
 	// Creation info should be set for all payments, regardless of state.
 	// If not, it is unknown.
 	if bucket.Get(paymentCreationInfoKey) == nil {

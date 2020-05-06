@@ -437,7 +437,7 @@ func (db *DB) fetchPaymentsMigration9() ([]*Payment, error) {
 	return payments, nil
 }
 
-func fetchPaymentMigration9(bucket kvdb.ReadBucket) (*Payment, error) {
+func fetchPaymentMigration9(bucket kvdb.RBucket) (*Payment, error) {
 	var (
 		err error
 		p   = &Payment{}

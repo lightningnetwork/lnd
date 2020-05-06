@@ -253,7 +253,7 @@ func (db *DB) FetchPayments() ([]*MPPayment, error) {
 	return payments, nil
 }
 
-func fetchCreationInfo(bucket kvdb.ReadBucket) (*PaymentCreationInfo, error) {
+func fetchCreationInfo(bucket kvdb.RBucket) (*PaymentCreationInfo, error) {
 	b := bucket.Get(paymentCreationInfoKey)
 	if b == nil {
 		return nil, fmt.Errorf("creation info not found")
@@ -263,7 +263,7 @@ func fetchCreationInfo(bucket kvdb.ReadBucket) (*PaymentCreationInfo, error) {
 	return deserializePaymentCreationInfo(r)
 }
 
-func fetchPayment(bucket kvdb.ReadBucket) (*MPPayment, error) {
+func fetchPayment(bucket kvdb.RBucket) (*MPPayment, error) {
 	seqBytes := bucket.Get(paymentSequenceKey)
 	if seqBytes == nil {
 		return nil, fmt.Errorf("sequence number not found")
@@ -345,7 +345,7 @@ func fetchPayment(bucket kvdb.ReadBucket) (*MPPayment, error) {
 
 // fetchHtlcAttempts retrives all htlc attempts made for the payment found in
 // the given bucket.
-func fetchHtlcAttempts(bucket kvdb.ReadBucket) ([]HTLCAttempt, error) {
+func fetchHtlcAttempts(bucket kvdb.RBucket) ([]HTLCAttempt, error) {
 	htlcs := make([]HTLCAttempt, 0)
 
 	err := bucket.ForEach(func(k, _ []byte) error {
@@ -388,7 +388,7 @@ func fetchHtlcAttempts(bucket kvdb.ReadBucket) ([]HTLCAttempt, error) {
 
 // fetchHtlcAttemptInfo fetches the payment attempt info for this htlc from the
 // bucket.
-func fetchHtlcAttemptInfo(bucket kvdb.ReadBucket) (*HTLCAttemptInfo, error) {
+func fetchHtlcAttemptInfo(bucket kvdb.RBucket) (*HTLCAttemptInfo, error) {
 	b := bucket.Get(htlcAttemptInfoKey)
 	if b == nil {
 		return nil, errNoAttemptInfo
@@ -400,7 +400,7 @@ func fetchHtlcAttemptInfo(bucket kvdb.ReadBucket) (*HTLCAttemptInfo, error) {
 
 // fetchHtlcSettleInfo retrieves the settle info for the htlc. If the htlc isn't
 // settled, nil is returned.
-func fetchHtlcSettleInfo(bucket kvdb.ReadBucket) (*HTLCSettleInfo, error) {
+func fetchHtlcSettleInfo(bucket kvdb.RBucket) (*HTLCSettleInfo, error) {
 	b := bucket.Get(htlcSettleInfoKey)
 	if b == nil {
 		// Settle info is optional.
@@ -413,7 +413,7 @@ func fetchHtlcSettleInfo(bucket kvdb.ReadBucket) (*HTLCSettleInfo, error) {
 
 // fetchHtlcFailInfo retrieves the failure info for the htlc. If the htlc hasn't
 // failed, nil is returned.
-func fetchHtlcFailInfo(bucket kvdb.ReadBucket) (*HTLCFailInfo, error) {
+func fetchHtlcFailInfo(bucket kvdb.RBucket) (*HTLCFailInfo, error) {
 	b := bucket.Get(htlcFailInfoKey)
 	if b == nil {
 		// Fail info is optional.

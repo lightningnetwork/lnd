@@ -81,9 +81,9 @@ var Open = walletdb.Open
 // themselves as a backend which implements the Backend interface.
 type Driver = walletdb.Driver
 
-// ReadBucket represents a bucket (a hierarchical structure within the
+// RBucket represents a bucket (a hierarchical structure within the
 // database) that is only allowed to perform read operations.
-type ReadBucket = walletdb.ReadBucket
+type RBucket = walletdb.ReadBucket
 
 // ReadCursor represents a bucket cursor that can be positioned at the start or
 // end of the bucket's key/value pairs and iterate over pairs in the bucket.

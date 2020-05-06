@@ -577,7 +577,7 @@ func (c *ClientDB) ListClientSessions(id *TowerID) (map[SessionID]*ClientSession
 // listClientSessions returns the set of all client sessions known to the db. An
 // optional tower ID can be used to filter out any client sessions in the
 // response that do not correspond to this tower.
-func listClientSessions(sessions kvdb.ReadBucket,
+func listClientSessions(sessions kvdb.RBucket,
 	id *TowerID) (map[SessionID]*ClientSession, error) {
 
 	clientSessions := make(map[SessionID]*ClientSession)
@@ -894,7 +894,7 @@ func (c *ClientDB) AckUpdate(id *SessionID, seqNum uint16,
 // bucket corresponding to the serialized session id. This does not deserialize
 // the CommittedUpdates or AckUpdates associated with the session. If the caller
 // requires this info, use getClientSession.
-func getClientSessionBody(sessions kvdb.ReadBucket,
+func getClientSessionBody(sessions kvdb.RBucket,
 	idBytes []byte) (*ClientSession, error) {
 
 	sessionBkt := sessions.NestedReadBucket(idBytes)
@@ -922,7 +922,7 @@ func getClientSessionBody(sessions kvdb.ReadBucket,
 // getClientSession loads the full ClientSession associated with the serialized
 // session id. This method populates the CommittedUpdates and AckUpdates in
 // addition to the ClientSession's body.
-func getClientSession(sessions kvdb.ReadBucket,
+func getClientSession(sessions kvdb.RBucket,
 	idBytes []byte) (*ClientSession, error) {
 
 	session, err := getClientSessionBody(sessions, idBytes)
@@ -950,7 +950,7 @@ func getClientSession(sessions kvdb.ReadBucket,
 
 // getClientSessionCommits retrieves all committed updates for the session
 // identified by the serialized session id.
-func getClientSessionCommits(sessions kvdb.ReadBucket,
+func getClientSessionCommits(sessions kvdb.RBucket,
 	idBytes []byte) ([]CommittedUpdate, error) {
 
 	// Can't fail because client session body has already been read.
@@ -986,7 +986,7 @@ func getClientSessionCommits(sessions kvdb.ReadBucket,
 
 // getClientSessionAcks retrieves all acked updates for the session identified
 // by the serialized session id.
-func getClientSessionAcks(sessions kvdb.ReadBucket,
+func getClientSessionAcks(sessions kvdb.RBucket,
 	idBytes []byte) (map[uint16]BackupID, error) {
 
 	// Can't fail because client session body has already been read.
@@ -1050,7 +1050,7 @@ func markSessionStatus(sessions kvdb.RwBucket, session *ClientSession,
 }
 
 // getChanSummary loads a ClientChanSummary for the passed chanID.
-func getChanSummary(chanSummaries kvdb.ReadBucket,
+func getChanSummary(chanSummaries kvdb.RBucket,
 	chanID lnwire.ChannelID) (*ClientChanSummary, error) {
 
 	chanSummaryBytes := chanSummaries.Get(chanID[:])
@@ -1081,7 +1081,7 @@ func putChanSummary(chanSummaries kvdb.RwBucket, chanID lnwire.ChannelID,
 }
 
 // getTower loads a Tower identified by its serialized tower id.
-func getTower(towers kvdb.ReadBucket, id []byte) (*Tower, error) {
+func getTower(towers kvdb.RBucket, id []byte) (*Tower, error) {
 	towerBytes := towers.Get(id)
 	if towerBytes == nil {
 		return nil, ErrTowerNotFound

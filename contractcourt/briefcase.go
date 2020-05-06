@@ -337,7 +337,7 @@ func newBoltArbitratorLog(db kvdb.Backend, cfg ChannelArbitratorConfig,
 // interface.
 var _ ArbitratorLog = (*boltArbitratorLog)(nil)
 
-func fetchContractReadBucket(tx kvdb.RTx, scopeKey []byte) (kvdb.ReadBucket, error) {
+func fetchContractReadBucket(tx kvdb.RTx, scopeKey []byte) (kvdb.RBucket, error) {
 	scopeBucket := tx.ReadBucket(scopeKey)
 	if scopeBucket == nil {
 		return nil, errScopeBucketNoExist

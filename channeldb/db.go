@@ -460,7 +460,7 @@ func (db *DB) fetchOpenChannels(tx kvdb.RTx,
 // fetchNodeChannels retrieves all active channels from the target chainBucket
 // which is under a node's dedicated channel bucket. This function is typically
 // used to fetch all the active channels related to a particular node.
-func (db *DB) fetchNodeChannels(chainBucket kvdb.ReadBucket) ([]*OpenChannel, error) {
+func (db *DB) fetchNodeChannels(chainBucket kvdb.RBucket) ([]*OpenChannel, error) {
 
 	var channels []*OpenChannel
 
@@ -1313,7 +1313,7 @@ func getMigrationsToApply(versions []version, version uint32) ([]migration, []ui
 // from the historical channel bucket. If the bucket does not exist,
 // ErrNoHistoricalBucket is returned.
 func fetchHistoricalChanBucket(tx kvdb.RTx,
-	outPoint *wire.OutPoint) (kvdb.ReadBucket, error) {
+	outPoint *wire.OutPoint) (kvdb.RBucket, error) {
 
 	// First fetch the top level bucket which stores all data related to
 	// historically stored channels.

@@ -1118,7 +1118,7 @@ func serializeHtlcs(w io.Writer, htlcs map[CircuitKey]*InvoiceHTLC) error {
 	return nil
 }
 
-func fetchInvoice(invoiceNum []byte, invoices kvdb.ReadBucket) (Invoice, error) {
+func fetchInvoice(invoiceNum []byte, invoices kvdb.RBucket) (Invoice, error) {
 	invoiceBytes := invoices.Get(invoiceNum)
 	if invoiceBytes == nil {
 		return Invoice{}, ErrInvoiceNotFound

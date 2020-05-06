@@ -543,7 +543,7 @@ func loadChannelFwdPkgs(tx kvdb.RTx, source lnwire.ShortChannelID) ([]*FwdPkg, e
 
 // loadFwPkg reads the packager's fwd pkg at a given height, and determines the
 // appropriate FwdState.
-func loadFwdPkg(fwdPkgBkt kvdb.ReadBucket, source lnwire.ShortChannelID,
+func loadFwdPkg(fwdPkgBkt kvdb.RBucket, source lnwire.ShortChannelID,
 	height uint64) (*FwdPkg, error) {
 
 	sourceKey := makeLogKey(source.ToUint64())
@@ -649,7 +649,7 @@ func loadFwdPkg(fwdPkgBkt kvdb.ReadBucket, source lnwire.ShortChannelID,
 
 // loadHtlcs retrieves all serialized htlcs in a bucket, returning
 // them in order of the indexes they were written under.
-func loadHtlcs(bkt kvdb.ReadBucket) ([]LogUpdate, error) {
+func loadHtlcs(bkt kvdb.RBucket) ([]LogUpdate, error) {
 	var htlcs []LogUpdate
 	if err := bkt.ForEach(func(_, v []byte) error {
 		var htlc LogUpdate

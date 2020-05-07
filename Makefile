@@ -61,7 +61,7 @@ make_ldflags = $(2) -X $(PKG)/build.Commit=$(COMMIT) \
 	-X $(PKG)/build.GoVersion=$(GOVERSION) \
 	-X $(PKG)/build.RawTags=$(shell echo $(1) | sed -e 's/ /,/g')
 
-LDFLAGS := -ldflags "$(call make_ldflags, ${tags})"
+LDFLAGS := -ldflags "$(call make_ldflags, ${tags}, -s -w)"
 DEV_LDFLAGS := -ldflags "$(call make_ldflags, $(DEV_TAGS))"
 ITEST_LDFLAGS := -ldflags "$(call make_ldflags, $(ITEST_TAGS))"
 

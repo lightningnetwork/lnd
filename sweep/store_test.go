@@ -150,4 +150,28 @@ func testStore(t *testing.T, createStore func() (SweeperStore, error)) {
 	if ours {
 		t.Fatal("expected tx to be not ours")
 	}
+
+	txns, err := store.ListSweeps()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Create a map containing the sweeps we expect to be returned by list
+	// sweeps.
+	expected := map[chainhash.Hash]bool{
+		tx1.TxHash(): true,
+		tx2.TxHash(): true,
+	}
+
+	if len(txns) != len(expected) {
+		t.Fatalf("expected: %v sweeps, got: %v", len(expected),
+			len(txns))
+	}
+
+	for _, tx := range txns {
+		_, ok := expected[tx]
+		if !ok {
+			t.Fatalf("unexpected tx: %v", tx)
+		}
+	}
 }

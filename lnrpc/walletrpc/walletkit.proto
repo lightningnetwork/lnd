@@ -244,6 +244,31 @@ message BumpFeeRequest {
 message BumpFeeResponse {
 }
 
+
+message ListSweepsRequest {
+    /*
+    Retrieve the full sweep transaction details. If false, only the sweep txids
+    will be returned.
+    */
+    bool verbose = 1;
+}
+
+message ListSweepsResponse {
+    message TransactionIDs {
+        /*
+        Reversed, hex-encoded string representing the transaction ids of the
+        sweeps that our node has broadcast. Note that these transactions may
+        not have confirmed yet, we record sweeps on broadcast, not confirmation.
+        */
+        repeated string transaction_ids = 1;
+    }
+
+    oneof sweeps {
+        lnrpc.TransactionDetails transaction_details = 1;
+        TransactionIDs transaction_ids = 2;
+    }
+}
+
 service WalletKit {
     /**
     DeriveNextKey attempts to derive the *next* key within the key family
@@ -325,4 +350,13 @@ service WalletKit {
     the new fee preference is sufficient is delegated to the user.
     */
     rpc BumpFee (BumpFeeRequest) returns (BumpFeeResponse);
+
+
+    /**
+    ListSweeps returns a list of the sweep transactions our node has produced.
+    Note that these sweeps may not be confirmed yet, as we record sweeps on
+    broadcast, not confirmation.
+    */
+    rpc ListSweeps (ListSweepsRequest) returns (ListSweepsResponse) {}
 }
+

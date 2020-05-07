@@ -50,6 +50,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -4548,44 +4549,26 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 // GetTransactions returns a list of describing all the known transactions
 // relevant to the wallet.
 func (r *rpcServer) GetTransactions(ctx context.Context,
-	_ *lnrpc.GetTransactionsRequest) (*lnrpc.TransactionDetails, error) {
+	req *lnrpc.GetTransactionsRequest) (*lnrpc.TransactionDetails, error) {
 
-	// TODO(roasbeef): add pagination support
-	transactions, err := r.server.cc.wallet.ListTransactionDetails()
+	// To remain backwards compatible with the old api, default to the
+	// special case end height which will return transactions from the start
+	// height until the chain tip, including unconfirmed transactions.
+	var endHeight int32 = btcwallet.UnconfirmedHeight
+
+	// If the user has provided an end height, we overwrite our default.
+	if req.EndHeight != 0 {
+		endHeight = req.EndHeight
+	}
+
+	transactions, err := r.server.cc.wallet.ListTransactionDetails(
+		req.StartHeight, endHeight,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	txDetails := &lnrpc.TransactionDetails{
-		Transactions: make([]*lnrpc.Transaction, len(transactions)),
-	}
-	for i, tx := range transactions {
-		var destAddresses []string
-		for _, destAddress := range tx.DestAddresses {
-			destAddresses = append(destAddresses, destAddress.EncodeAddress())
-		}
-
-		// We also get unconfirmed transactions, so BlockHash can be
-		// nil.
-		blockHash := ""
-		if tx.BlockHash != nil {
-			blockHash = tx.BlockHash.String()
-		}
-
-		txDetails.Transactions[i] = &lnrpc.Transaction{
-			TxHash:           tx.Hash.String(),
-			Amount:           int64(tx.Value),
-			NumConfirmations: tx.NumConfirmations,
-			BlockHash:        blockHash,
-			BlockHeight:      tx.BlockHeight,
-			TimeStamp:        tx.Timestamp,
-			TotalFees:        tx.TotalFees,
-			DestAddresses:    destAddresses,
-			RawTxHex:         hex.EncodeToString(tx.RawTx),
-		}
-	}
-
-	return txDetails, nil
+	return lnrpc.RPCTransactionDetails(transactions), nil
 }
 
 // DescribeGraph returns a description of the latest graph state from the PoV

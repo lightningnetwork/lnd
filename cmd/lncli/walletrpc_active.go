@@ -27,6 +27,7 @@ func walletCommands() []cli.Command {
 				pendingSweepsCommand,
 				bumpFeeCommand,
 				bumpCloseFeeCommand,
+				listSweepsCommand,
 			},
 		},
 	}
@@ -299,4 +300,43 @@ func getWaitingCloseCommitments(client lnrpc.LightningClient,
 	}
 
 	return nil, errors.New("channel not found")
+}
+
+var listSweepsCommand = cli.Command{
+	Name:     "listsweeps",
+	Category: "On-chain",
+	Usage:    "Lists all sweeps that have been published by our node.",
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:  "verbose",
+			Usage: "lookup full transaction",
+		},
+	},
+	Description: `
+	Get a list of the hex-encoded transaction ids of every sweep that our
+	node has published. Note that these sweeps may not be confirmed on chain
+	yet, as we store them on transaction broadcast, not confirmation.
+
+	If the verbose flag is set, the full set of transactions will be 
+	returned, otherwise only the sweep transaction ids will be returned. 
+	`,
+	Action: actionDecorator(listSweeps),
+}
+
+func listSweeps(ctx *cli.Context) error {
+	client, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	resp, err := client.ListSweeps(
+		context.Background(), &walletrpc.ListSweepsRequest{
+			Verbose: ctx.IsSet("verbose"),
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	printJSON(resp)
+
+	return nil
 }

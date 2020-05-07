@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
@@ -1260,6 +1261,11 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []input.Input, feePref FeePreference,
 // in btcd) from blocking all other retried inputs in the same tx.
 func DefaultNextAttemptDeltaFunc(attempts int) int32 {
 	return 1 + rand.Int31n(1<<uint(attempts-1))
+}
+
+// ListSweeps returns a list of the the sweeps recorded by the sweep store.
+func (s *UtxoSweeper) ListSweeps() ([]chainhash.Hash, error) {
+	return s.cfg.Store.ListSweeps()
 }
 
 // init initializes the random generator for random input rescheduling.

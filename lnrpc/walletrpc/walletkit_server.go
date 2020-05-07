@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/sweep"
 	"google.golang.org/grpc"
@@ -87,6 +88,10 @@ var (
 		"/walletrpc.WalletKit/BumpFee": {{
 			Entity: "onchain",
 			Action: "write",
+		}},
+		"/walletrpc.WalletKit/ListSweeps": {{
+			Entity: "onchain",
+			Action: "read",
 		}},
 	}
 
@@ -554,4 +559,68 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 	}
 
 	return &BumpFeeResponse{}, nil
+}
+
+// ListSweeps returns a list of the sweeps that our node has published.
+func (w *WalletKit) ListSweeps(ctx context.Context,
+	in *ListSweepsRequest) (*ListSweepsResponse, error) {
+
+	sweeps, err := w.cfg.Sweeper.ListSweeps()
+	if err != nil {
+		return nil, err
+	}
+
+	sweepTxns := make(map[string]bool)
+
+	txids := make([]string, len(sweeps))
+	for i, sweep := range sweeps {
+		sweepTxns[sweep.String()] = true
+		txids[i] = sweep.String()
+	}
+
+	// If the caller does not want verbose output, just return the set of
+	// sweep txids.
+	if !in.Verbose {
+		txidResp := &ListSweepsResponse_TransactionIDs{
+			TransactionIds: txids,
+		}
+
+		return &ListSweepsResponse{
+			Sweeps: &ListSweepsResponse_TransactionIds{
+				TransactionIds: txidResp,
+			},
+		}, nil
+	}
+
+	// If the caller does want full transaction lookups, query our wallet
+	// for all transactions, including unconfirmed transactions.
+	transactions, err := w.cfg.Wallet.ListTransactionDetails(
+		0, btcwallet.UnconfirmedHeight,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var sweepTxDetails []*lnwallet.TransactionDetail
+	for _, tx := range transactions {
+		_, ok := sweepTxns[tx.Hash.String()]
+		if !ok {
+			continue
+		}
+
+		sweepTxDetails = append(sweepTxDetails, tx)
+	}
+
+	// Fail if we have not retrieved all of our sweep transactions from the
+	// wallet.
+	if len(sweepTxDetails) != len(txids) {
+		return nil, fmt.Errorf("not all sweeps found by list "+
+			"transactions: %v, %v", len(sweepTxDetails), len(txids))
+	}
+
+	return &ListSweepsResponse{
+		Sweeps: &ListSweepsResponse_TransactionDetails{
+			TransactionDetails: lnrpc.RPCTransactionDetails(transactions),
+		},
+	}, nil
 }

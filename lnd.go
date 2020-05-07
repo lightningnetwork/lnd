@@ -246,50 +246,20 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		defer pprof.StopCPUProfile()
 	}
 
-	// Create the network-segmented directory for the channel database.
-	ltndLog.Infof("Opening the main database, this might take a few " +
-		"minutes...")
-
-	startOpenTime := time.Now()
-
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	if cfg.DB.Backend == lncfg.BoltBackend {
-		ltndLog.Infof("Opening bbolt database, sync_freelist=%v",
-			cfg.DB.Bolt.SyncFreelist)
-	}
-
-	databaseBackends, err := cfg.DB.GetBackends(
-		ctx, cfg.localDatabaseDir(), cfg.networkName(),
-	)
-	if err != nil {
-		ltndLog.Error(err)
-		return err
-	}
-
-	// Open the channeldb, which is dedicated to storing channel, and
-	// network related metadata.
-	chanDB, err := channeldb.CreateWithBackend(
-		databaseBackends.LocalDB,
-		channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),
-		channeldb.OptionSetChannelCacheSize(cfg.Caches.ChannelCacheSize),
-		channeldb.OptionDryRunMigration(cfg.DryRunMigration),
-	)
+	localChanDB, remoteChanDB, cleanUp, err := initializeDatabases(ctx, cfg)
 	switch {
 	case err == channeldb.ErrDryRunMigrationOK:
 		ltndLog.Infof("%v, exiting", err)
 		return nil
-
 	case err != nil:
-		ltndLog.Errorf("Unable to open channeldb: %v", err)
-		return err
+		return fmt.Errorf("unable to open databases: %v", err)
 	}
-	defer chanDB.Close()
 
-	openTime := time.Since(startOpenTime)
-	ltndLog.Infof("Database now open (time_to_open=%v)!", openTime)
+	defer cleanUp()
 
 	// Only process macaroons if --no-macaroons isn't set.
 	tlsCfg, restCreds, restProxyDest, err := getTLSConfig(cfg)
@@ -461,8 +431,12 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	// With the information parsed from the configuration, create valid
 	// instances of the pertinent interfaces required to operate the
 	// Lightning Network Daemon.
+	//
+	// When we create the chain control, we need storage for the height
+	// hints and also the wallet itself, for these two we want them to be
+	// replicated, so we'll pass in the remote channel DB instance.
 	activeChainControl, err := newChainControlFromConfig(
-		cfg, chanDB, privateWalletPw, publicWalletPw,
+		cfg, localChanDB, remoteChanDB, privateWalletPw, publicWalletPw,
 		walletInitParams.Birthday, walletInitParams.RecoveryWindow,
 		walletInitParams.Wallet, neutrinoCS,
 	)
@@ -617,9 +591,9 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	// Set up the core server which will listen for incoming peer
 	// connections.
 	server, err := newServer(
-		cfg, cfg.Listeners, chanDB, towerClientDB, activeChainControl,
-		&idKeyDesc, walletInitParams.ChansToRestore, chainedAcceptor,
-		torController,
+		cfg, cfg.Listeners, localChanDB, remoteChanDB, towerClientDB,
+		activeChainControl, &idKeyDesc, walletInitParams.ChansToRestore,
+		chainedAcceptor, torController,
 	)
 	if err != nil {
 		err := fmt.Errorf("unable to create server: %v", err)
@@ -1139,4 +1113,126 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 	case <-signal.ShutdownChannel():
 		return nil, fmt.Errorf("shutting down")
 	}
+}
+
+// initializeDatabases extracts the current databases that we'll use for normal
+// operation in the daemon. Two databases are returned: one remote and one
+// local. However, only if the replicated database is active will the remote
+// database point to a unique database. Otherwise, the local and remote DB will
+// both point to the same local database. A function closure that closes all
+// opened databases is also returned.
+func initializeDatabases(ctx context.Context,
+	cfg *Config) (*channeldb.DB, *channeldb.DB, func(), error) {
+
+	ltndLog.Infof("Opening the main database, this might take a few " +
+		"minutes...")
+
+	if cfg.DB.Backend == lncfg.BoltBackend {
+		ltndLog.Infof("Opening bbolt database, sync_freelist=%v",
+			cfg.DB.Bolt.SyncFreelist)
+	}
+
+	startOpenTime := time.Now()
+
+	databaseBackends, err := cfg.DB.GetBackends(
+		ctx, cfg.localDatabaseDir(), cfg.networkName(),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("unable to obtain database "+
+			"backends: %v", err)
+	}
+
+	// If the remoteDB is nil, then we'll just open a local DB as normal,
+	// having the remote and local pointer be the exact same instance.
+	var (
+		localChanDB, remoteChanDB *channeldb.DB
+		closeFuncs                []func()
+	)
+	if databaseBackends.RemoteDB == nil {
+		// Open the channeldb, which is dedicated to storing channel,
+		// and network related metadata.
+		localChanDB, err = channeldb.CreateWithBackend(
+			databaseBackends.LocalDB,
+			channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),
+			channeldb.OptionSetChannelCacheSize(cfg.Caches.ChannelCacheSize),
+			channeldb.OptionDryRunMigration(cfg.DryRunMigration),
+		)
+		switch {
+		case err == channeldb.ErrDryRunMigrationOK:
+			return nil, nil, nil, err
+
+		case err != nil:
+			err := fmt.Errorf("unable to open local channeldb: %v", err)
+			ltndLog.Error(err)
+			return nil, nil, nil, err
+		}
+
+		closeFuncs = append(closeFuncs, func() {
+			localChanDB.Close()
+		})
+
+		remoteChanDB = localChanDB
+	} else {
+		ltndLog.Infof("Database replication is available! Creating " +
+			"local and remote channeldb instances")
+
+		// Otherwise, we'll open two instances, one for the state we
+		// only need locally, and the other for things we want to
+		// ensure are replicated.
+		localChanDB, err = channeldb.CreateWithBackend(
+			databaseBackends.LocalDB,
+			channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),
+			channeldb.OptionSetChannelCacheSize(cfg.Caches.ChannelCacheSize),
+			channeldb.OptionDryRunMigration(cfg.DryRunMigration),
+		)
+		switch {
+		// As we want to allow both versions to get thru the dry run
+		// migration, we'll only exit the second time here once the
+		// remote instance has had a time to migrate as well.
+		case err == channeldb.ErrDryRunMigrationOK:
+			ltndLog.Infof("Local DB dry run migration successful")
+
+		case err != nil:
+			err := fmt.Errorf("unable to open local channeldb: %v", err)
+			ltndLog.Error(err)
+			return nil, nil, nil, err
+		}
+
+		closeFuncs = append(closeFuncs, func() {
+			localChanDB.Close()
+		})
+
+		ltndLog.Infof("Opening replicated database instance...")
+
+		remoteChanDB, err = channeldb.CreateWithBackend(
+			databaseBackends.RemoteDB,
+			channeldb.OptionDryRunMigration(cfg.DryRunMigration),
+		)
+		switch {
+		case err == channeldb.ErrDryRunMigrationOK:
+			return nil, nil, nil, err
+
+		case err != nil:
+			localChanDB.Close()
+
+			err := fmt.Errorf("unable to open remote channeldb: %v", err)
+			ltndLog.Error(err)
+			return nil, nil, nil, err
+		}
+
+		closeFuncs = append(closeFuncs, func() {
+			remoteChanDB.Close()
+		})
+	}
+
+	openTime := time.Since(startOpenTime)
+	ltndLog.Infof("Database now open (time_to_open=%v)!", openTime)
+
+	cleanUp := func() {
+		for _, closeFunc := range closeFuncs {
+			closeFunc()
+		}
+	}
+
+	return localChanDB, remoteChanDB, cleanUp, nil
 }

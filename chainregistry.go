@@ -161,7 +161,7 @@ type chainControl struct {
 // full-node, another backed by a running bitcoind full-node, and the other
 // backed by a running neutrino light client instance. When running with a
 // neutrino light client instance, `neutrinoCS` must be non-nil.
-func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
+func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 	privateWalletPw, publicWalletPw []byte, birthday time.Time,
 	recoveryWindow uint32, wallet *wallet.Wallet,
 	neutrinoCS *neutrino.ChainService) (*chainControl, error) {
@@ -225,8 +225,9 @@ func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
 	if cfg.HeightHintCacheQueryDisable {
 		ltndLog.Infof("Height Hint Cache Queries disabled")
 	}
+
 	// Initialize the height hint cache within the chain directory.
-	hintCache, err := chainntnfs.NewHeightHintCache(heightHintCacheConfig, chanDB)
+	hintCache, err := chainntnfs.NewHeightHintCache(heightHintCacheConfig, localDB)
 	if err != nil {
 		return nil, fmt.Errorf("unable to initialize height hint "+
 			"cache: %v", err)
@@ -523,7 +524,7 @@ func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
 	// Create, and start the lnwallet, which handles the core payment
 	// channel logic, and exposes control via proxy state machines.
 	walletCfg := lnwallet.Config{
-		Database:           chanDB,
+		Database:           remoteDB,
 		Notifier:           cc.chainNotifier,
 		WalletController:   wc,
 		Signer:             cc.signer,

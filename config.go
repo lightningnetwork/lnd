@@ -126,6 +126,8 @@ var (
 	// estimatesmartfee RPC call.
 	defaultBitcoindEstimateMode = "CONSERVATIVE"
 	bitcoindEstimateModes       = [2]string{"ECONOMICAL", defaultBitcoindEstimateMode}
+
+	defaultSphinxDbName = "sphinxreplay.db"
 )
 
 // Config defines the configuration options for lnd.

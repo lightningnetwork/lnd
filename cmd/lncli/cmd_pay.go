@@ -321,7 +321,10 @@ func sendPaymentRequest(ctx *cli.Context,
 	client := lnrpc.NewLightningClient(conn)
 	routerClient := routerrpc.NewRouterClient(conn)
 
-	req.OutgoingChanId = ctx.Uint64("outgoing_chan_id")
+	outChan := ctx.Uint64("outgoing_chan_id")
+	if outChan != 0 {
+		req.OutgoingChanIds = []uint64{outChan}
+	}
 	if ctx.IsSet(lastHopFlag.Name) {
 		lastHop, err := route.NewVertexFromStr(
 			ctx.String(lastHopFlag.Name),

@@ -202,14 +202,14 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 	// to our destination, respecting the recommendations from
 	// MissionControl.
 	restrictions := &RestrictParams{
-		ProbabilitySource: p.missionControl.GetProbability,
-		FeeLimit:          feeLimit,
-		OutgoingChannelID: p.payment.OutgoingChannelID,
-		LastHop:           p.payment.LastHop,
-		CltvLimit:         cltvLimit,
-		DestCustomRecords: p.payment.DestCustomRecords,
-		DestFeatures:      p.payment.DestFeatures,
-		PaymentAddr:       p.payment.PaymentAddr,
+		ProbabilitySource:  p.missionControl.GetProbability,
+		FeeLimit:           feeLimit,
+		OutgoingChannelIDs: p.payment.OutgoingChannelIDs,
+		LastHop:            p.payment.LastHop,
+		CltvLimit:          cltvLimit,
+		DestCustomRecords:  p.payment.DestCustomRecords,
+		DestFeatures:       p.payment.DestFeatures,
+		PaymentAddr:        p.payment.PaymentAddr,
 	}
 
 	finalHtlcExpiry := int32(height) + int32(finalCltvDelta)

@@ -2249,11 +2249,12 @@ func TestRestrictOutgoingChannel(t *testing.T) {
 
 	// Define channel id constants
 	const (
-		chanSourceA  = 1
-		chanATarget  = 4
-		chanSourceB1 = 2
-		chanSourceB2 = 3
-		chanBTarget  = 5
+		chanSourceA      = 1
+		chanATarget      = 4
+		chanSourceB1     = 2
+		chanSourceB2     = 3
+		chanBTarget      = 5
+		chanSourceTarget = 6
 	)
 
 	// Set up a test graph with three possible paths from roasbeef to
@@ -2276,6 +2277,9 @@ func TestRestrictOutgoingChannel(t *testing.T) {
 			Expiry:  144,
 			FeeRate: 800,
 		}, chanBTarget),
+		symmetricTestChannel("roasbeef", "target", 100000, &testChannelPolicy{
+			Expiry: 144,
+		}, chanSourceTarget),
 	}
 
 	ctx := newPathFindingTestContext(t, testChannels, "roasbeef")
@@ -2290,9 +2294,9 @@ func TestRestrictOutgoingChannel(t *testing.T) {
 	target := ctx.keyFromAlias("target")
 	outgoingChannelID := uint64(chanSourceB1)
 
-	// Find the best path given the restriction to only use chanSourceB1 as
-	// the outgoing channel.
-	ctx.restrictParams.OutgoingChannelID = &outgoingChannelID
+	// Find the best path given the restriction to only use channel 2 as the
+	// outgoing channel.
+	ctx.restrictParams.OutgoingChannelIDs = []uint64{outgoingChannelID}
 	path, err := ctx.findPath(target, paymentAmt)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -2304,6 +2308,20 @@ func TestRestrictOutgoingChannel(t *testing.T) {
 		t.Fatalf("expected route to pass through channel %v, "+
 			"but channel %v was selected instead", chanSourceB1,
 			path[0].ChannelID)
+	}
+
+	// If a direct channel to target is allowed as well, that channel is
+	// expected to be selected because the routing fees are zero.
+	ctx.restrictParams.OutgoingChannelIDs = []uint64{
+		chanSourceB1, chanSourceTarget,
+	}
+	path, err = ctx.findPath(target, paymentAmt)
+	if err != nil {
+		t.Fatalf("unable to find path: %v", err)
+	}
+	if path[0].ChannelID != chanSourceTarget {
+		t.Fatalf("expected route to pass through channel %v",
+			chanSourceTarget)
 	}
 }
 
@@ -2766,7 +2784,7 @@ func TestRouteToSelf(t *testing.T) {
 
 	outgoingChanID := uint64(1)
 	lastHop := ctx.keyFromAlias("b")
-	ctx.restrictParams.OutgoingChannelID = &outgoingChanID
+	ctx.restrictParams.OutgoingChannelIDs = []uint64{outgoingChanID}
 	ctx.restrictParams.LastHop = &lastHop
 
 	// Find the best path to self given that we want to go out via channel 1

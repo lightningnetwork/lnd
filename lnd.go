@@ -251,6 +251,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		"minutes...")
 
 	startOpenTime := time.Now()
+
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -260,8 +261,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 			cfg.DB.Bolt.SyncFreelist)
 	}
 
-	chanDbBackend, err := cfg.DB.GetBackend(ctx,
-		cfg.localDatabaseDir(), cfg.networkName(),
+	databaseBackends, err := cfg.DB.GetBackends(
+		ctx, cfg.localDatabaseDir(), cfg.networkName(),
 	)
 	if err != nil {
 		ltndLog.Error(err)
@@ -271,7 +272,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	// Open the channeldb, which is dedicated to storing channel, and
 	// network related metadata.
 	chanDB, err := channeldb.CreateWithBackend(
-		chanDbBackend,
+		databaseBackends.LocalDB,
 		channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),
 		channeldb.OptionSetChannelCacheSize(cfg.Caches.ChannelCacheSize),
 		channeldb.OptionDryRunMigration(cfg.DryRunMigration),

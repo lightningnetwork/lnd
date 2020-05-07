@@ -15,7 +15,9 @@ import (
 )
 
 var (
-	loopBackAddrs = []string{"localhost", "127.0.0.1", "[::1]"}
+	loopBackAddrs = []string{
+		"localhost", "127.0.0.1", "0.0.0.0",
+		"[::1]", "[::]"}
 )
 
 // TCPResolver is a function signature that resolves an address on a given

@@ -26,6 +26,12 @@ type EtcdDB struct {
 
 	Pass string `long:"pass" description:"Password for the database user."`
 
+	CertFile string `long:"cert_file" description:"Path to the TLS certificate for etcd RPC."`
+
+	KeyFile string `long:"key_file" description:"Path to the TLS private key for etcd RPC."`
+
+	InsecureSkipVerify bool `long:"insecure_skip_verify" description:"Whether we intend to skip TLS verification"`
+
 	CollectStats bool `long:"collect_stats" description:"Wheter to collect etcd commit stats."`
 }
 
@@ -73,6 +79,9 @@ func (db *DB) GetBackend(path string) (kvdb.Backend, error) {
 			Host:               db.Etcd.Host,
 			User:               db.Etcd.User,
 			Pass:               db.Etcd.Pass,
+			CertFile:           db.Etcd.CertFile,
+			KeyFile:            db.Etcd.KeyFile,
+			InsecureSkipVerify: db.Etcd.InsecureSkipVerify,
 			CollectCommitStats: db.Etcd.CollectStats,
 		}
 		return kvdb.Open(kvdb.EtcdBackendName, backendConfig)

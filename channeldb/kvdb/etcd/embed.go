@@ -61,9 +61,10 @@ func NewEmbeddedEtcdInstance(path string) (*BackendConfig, func(), error) {
 	}
 
 	connConfig := &BackendConfig{
-		Host: "http://" + peerURL,
-		User: "user",
-		Pass: "pass",
+		Host:               "http://" + peerURL,
+		User:               "user",
+		Pass:               "pass",
+		InsecureSkipVerify: true,
 	}
 
 	return connConfig, func() {

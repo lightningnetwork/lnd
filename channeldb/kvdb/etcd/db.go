@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/coreos/etcd/clientv3"
+	"github.com/coreos/etcd/pkg/transport"
 )
 
 const (
@@ -130,6 +131,16 @@ type BackendConfig struct {
 	// Pass is the password for the etcd peer.
 	Pass string
 
+	// CertFile holds the path to the TLS certificate for etcd RPC.
+	CertFile string
+
+	// KeyFile holds the path to the TLS private key for etcd RPC.
+	KeyFile string
+
+	// InsecureSkipVerify should be set to true if we intend to
+	// skip TLS verification.
+	InsecureSkipVerify bool
+
 	// CollectCommitStats indicates wheter to commit commit stats.
 	CollectCommitStats bool
 }
@@ -137,12 +148,25 @@ type BackendConfig struct {
 // newEtcdBackend returns a db object initialized with the passed backend
 // config. If etcd connection cannot be estabished, then returns error.
 func newEtcdBackend(config BackendConfig) (*db, error) {
+	tlsInfo := transport.TLSInfo{
+		CertFile:           config.CertFile,
+		KeyFile:            config.KeyFile,
+		InsecureSkipVerify: config.InsecureSkipVerify,
+	}
+
+	tlsConfig, err := tlsInfo.ClientConfig()
+	if err != nil {
+		return nil, err
+	}
+
 	cli, err := clientv3.New(clientv3.Config{
 		Endpoints:   []string{config.Host},
 		DialTimeout: etcdConnectionTimeout,
 		Username:    config.User,
 		Password:    config.Pass,
+		TLS:         tlsConfig,
 	})
+
 	if err != nil {
 		return nil, err
 	}

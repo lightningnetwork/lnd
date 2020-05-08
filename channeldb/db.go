@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/channeldb/migration12"
@@ -147,10 +148,42 @@ var (
 // schedules, and reputation data.
 type DB struct {
 	kvdb.Backend
+
 	dbPath string
 	graph  *ChannelGraph
 	clock  clock.Clock
 	dryRun bool
+}
+
+// Update is a wrapper around walletdb.Update which calls into the extended
+// backend when available. This call is needed to be able to cast DB to
+// ExtendedBackend.
+func (db *DB) Update(f func(tx walletdb.ReadWriteTx) error) error {
+	if v, ok := db.Backend.(kvdb.ExtendedBackend); ok {
+		return v.Update(f)
+	}
+	return walletdb.Update(db, f)
+}
+
+// View is a wrapper around walletdb.View which calls into the extended
+// backend when available. This call is needed to be able to cast DB to
+// ExtendedBackend.
+func (db *DB) View(f func(tx walletdb.ReadTx) error) error {
+	if v, ok := db.Backend.(kvdb.ExtendedBackend); ok {
+		return v.View(f)
+	}
+
+	return walletdb.View(db, f)
+}
+
+// PrintStats calls into the extended backend if available. This call is needed
+// to be able to cast DB to ExtendedBackend.
+func (db *DB) PrintStats() string {
+	if v, ok := db.Backend.(kvdb.ExtendedBackend); ok {
+		return v.PrintStats()
+	}
+
+	return "unimplemented"
 }
 
 // Open opens or creates channeldb. Any necessary schemas migrations due

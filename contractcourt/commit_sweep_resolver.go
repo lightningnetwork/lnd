@@ -248,7 +248,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 			// it's likely what we sent was actually a revoked
 			// commitment. Report the error and continue to wrap up
 			// the contract.
-			c.log.Errorf("local commitment output was swept by "+
+			c.log.Warnf("local commitment output was swept by "+
 				"remote party via %v", sweepResult.Tx.TxHash())
 			recovered = false
 		case nil:

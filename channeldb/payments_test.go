@@ -351,7 +351,9 @@ func TestQueryPayments(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			db, err := initDB()
+			db, cleanup, err := makeTestDB()
+			defer cleanup()
+
 			if err != nil {
 				t.Fatalf("unable to init db: %v", err)
 			}

@@ -1,6 +1,7 @@
 package wtclientrpc
 
 import (
+	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
 )
@@ -22,4 +23,7 @@ type Config struct {
 	// addresses to ensure we don't leak any information when running over
 	// non-clear networks, e.g. Tor, etc.
 	Resolver lncfg.TCPResolver
+
+	// Log is the logger instance we should log output to.
+	Log btclog.Logger
 }

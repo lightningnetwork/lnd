@@ -95,7 +95,6 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 		// revealed we'll sweep it from the output.
 		if isSuccessSpend(commitSpend,
 			h.htlcResolution.SignedTimeoutTx != nil) {
-			// TODO(roasbeef): Checkpoint?
 			return h.claimCleanUp(commitSpend)
 		}
 

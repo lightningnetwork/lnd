@@ -235,10 +235,15 @@ func Main(lisCfg ListenerCfg) error {
 		channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),
 		channeldb.OptionSetChannelCacheSize(cfg.Caches.ChannelCacheSize),
 		channeldb.OptionSetSyncFreelist(cfg.SyncFreelist),
+		channeldb.OptionDryRunMigration(cfg.DryRunMigration),
 	)
-	if err != nil {
-		err := fmt.Errorf("unable to open channeldb: %v", err)
-		ltndLog.Error(err)
+	switch {
+	case err == channeldb.ErrDryRunMigrationOK:
+		ltndLog.Info("%v, exiting", err)
+		return nil
+
+	case err != nil:
+		ltndLog.Errorf("Unable to open channeldb: %v", err)
 		return err
 	}
 	defer chanDB.Close()

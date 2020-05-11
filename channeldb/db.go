@@ -25,6 +25,12 @@ const (
 	dbFilePermission = 0600
 )
 
+var (
+	// ErrDryRunMigrationOK signals that a migration executed successful,
+	// but we intentionally did not commit the result.
+	ErrDryRunMigrationOK = errors.New("Dry run migration successful")
+)
+
 // migration is a function which takes a prior outdated version of the database
 // instances and mutates the key/bucket structure to arrive at a more
 // up-to-date version of the database.
@@ -145,6 +151,7 @@ type DB struct {
 	dbPath string
 	graph  *ChannelGraph
 	clock  clock.Clock
+	dryRun bool
 }
 
 // Open opens an existing channeldb. Any necessary schemas migrations due to
@@ -174,6 +181,7 @@ func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 		Backend: bdb,
 		dbPath:  dbPath,
 		clock:   opts.clock,
+		dryRun:  opts.dryRun,
 	}
 	chanDB.graph = newChannelGraph(
 		chanDB, opts.RejectCacheSize, opts.ChannelCacheSize,
@@ -1227,7 +1235,18 @@ func (d *DB) syncVersions(versions []version) error {
 		}
 
 		meta.DbVersionNumber = latestVersion
-		return putMeta(meta, tx)
+		err := putMeta(meta, tx)
+		if err != nil {
+			return err
+		}
+
+		// In dry-run mode, return an error to prevent the transaction
+		// from committing.
+		if d.dryRun {
+			return ErrDryRunMigrationOK
+		}
+
+		return nil
 	})
 }
 

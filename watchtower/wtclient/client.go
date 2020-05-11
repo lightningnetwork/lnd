@@ -1061,7 +1061,7 @@ func (c *TowerClient) handleNewTower(msg *newTowerMsg) error {
 
 	// Include all of its corresponding sessions to our set of candidates.
 	sessions, err := getClientSessions(
-		c.cfg.DB, c.cfg.SecretKeyRing, &tower.ID, nil,
+		c.cfg.DB, c.cfg.SecretKeyRing, &tower.ID, activeSessionFilter,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to determine sessions for tower %x: "+

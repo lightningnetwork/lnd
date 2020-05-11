@@ -45,6 +45,16 @@ func TestOpenWithCreate(t *testing.T) {
 	if !fileExists(dbPath) {
 		t.Fatalf("channeldb failed to create data directory")
 	}
+
+	// Now, reopen the same db in dry run migration mode. Since we have not
+	// applied any migrations, this should ignore the flag and not fail.
+	cdb, err = Open(dbPath, OptionDryRunMigration(true))
+	if err != nil {
+		t.Fatalf("unable to create channeldb: %v", err)
+	}
+	if err := cdb.Close(); err != nil {
+		t.Fatalf("unable to close channeldb: %v", err)
+	}
 }
 
 // TestWipe tests that the database wipe operation completes successfully

@@ -61,6 +61,11 @@ jobs:
 
       - name: run check
         run: make rpc-check
+        
+      # Cancel the whole workflow if the RPC check fails.
+      - name: cancelling
+        uses: andymckay/cancel-action@0.2
+        if: failure()
 
   ########################
   # compile unit tests
@@ -90,6 +95,11 @@ jobs:
 
       - name: compile
         run: make unit pkg=... case=_NONE_
+        
+      # Cancel the whole workflow if compilation fails.
+      - name: cancelling
+        uses: andymckay/cancel-action@0.2
+        if: failure()
 
   ########################
   # lint code
@@ -119,6 +129,11 @@ jobs:
 
       - name: lint
         run: make lint
+
+      # Cancel the whole workflow if linting fails.
+      - name: cancelling
+        uses: andymckay/cancel-action@0.2
+        if: failure()
 
   ########################
   # cross compilation
@@ -154,6 +169,11 @@ jobs:
 
       - name: build release for architecture
         run: make release sys=${{ matrix.build_sys }}
+        
+      # Cancel the whole workflow if compilation fails.
+      - name: cancelling
+        uses: andymckay/cancel-action@0.2
+        if: failure()
 
   ########################
   # run unit tests

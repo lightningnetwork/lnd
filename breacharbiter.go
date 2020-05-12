@@ -1,6 +1,7 @@
 package lnd
 
 import (
+	"github.com/btcsuite/btcd/blockchain"
 	"bytes"
 	"encoding/binary"
 	"errors"
@@ -8,7 +9,6 @@ import (
 	"io"
 	"sync"
 
-	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"

@@ -337,12 +337,15 @@ service Lightning {
     }
 
     /* lncli: `sendtoroute`
-    SendToRoute is a bi-directional streaming RPC for sending payment through
-    the Lightning Network. This method differs from SendPayment in that it
-    allows users to specify a full route manually. This can be used for things
-    like rebalancing, and atomic swaps.
+    Deprecated, use routerrpc.SendToRouteV2. SendToRoute is a bi-directional
+    streaming RPC for sending payment through the Lightning Network. This
+    method differs from SendPayment in that it allows users to specify a full
+    route manually. This can be used for things like rebalancing, and atomic
+    swaps.
     */
-    rpc SendToRoute (stream SendToRouteRequest) returns (stream SendResponse);
+    rpc SendToRoute (stream SendToRouteRequest) returns (stream SendResponse) {
+        option deprecated = true;
+    }
 
     /*
     SendToRouteSync is a synchronous version of SendToRoute. It Will block

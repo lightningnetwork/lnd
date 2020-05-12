@@ -1,7 +1,6 @@
 package contractcourt
 
 import (
-	"reflect"
 	"testing"
 	"time"
 
@@ -96,6 +95,7 @@ func (i *commitSweepResolverTestContext) waitForResult() {
 type mockSweeper struct {
 	sweptInputs   chan input.Input
 	updatedInputs chan wire.OutPoint
+	sweepErr      error
 }
 
 func newMockSweeper() *mockSweeper {
@@ -112,7 +112,8 @@ func (s *mockSweeper) SweepInput(input input.Input, params sweep.Params) (
 
 	result := make(chan sweep.Result, 1)
 	result <- sweep.Result{
-		Tx: &wire.MsgTx{},
+		Tx:  &wire.MsgTx{},
+		Err: s.sweepErr,
 	}
 	return result, nil
 }
@@ -167,12 +168,13 @@ func TestCommitSweepResolverNoDelay(t *testing.T) {
 	ctx.waitForResult()
 }
 
-// TestCommitSweepResolverDelay tests resolution of a direct commitment output
-// that is encumbered by a time lock.
-func TestCommitSweepResolverDelay(t *testing.T) {
-	t.Parallel()
+// testCommitSweepResolverDelay tests resolution of a direct commitment output
+// that is encumbered by a time lock. sweepErr indicates whether the local node
+// fails to sweep the output.
+func testCommitSweepResolverDelay(t *testing.T, sweepErr error) {
 	defer timeout(t)()
 
+	const sweepProcessInterval = 100 * time.Millisecond
 	amt := int64(100)
 	outpoint := wire.OutPoint{
 		Index: 5,
@@ -190,14 +192,20 @@ func TestCommitSweepResolverDelay(t *testing.T) {
 
 	ctx := newCommitSweepResolverTestContext(t, &res)
 
+	// Setup whether we expect the sweeper to receive a sweep error in this
+	// test case.
+	ctx.sweeper.sweepErr = sweepErr
+
 	report := ctx.resolver.report()
-	if !reflect.DeepEqual(report, &ContractReport{
+	expectedReport := ContractReport{
 		Outpoint:     outpoint,
 		Type:         ReportOutputUnencumbered,
 		Amount:       btcutil.Amount(amt),
 		LimboBalance: btcutil.Amount(amt),
-	}) {
-		t.Fatal("unexpected resolver report")
+	}
+	if *report != expectedReport {
+		t.Fatalf("unexpected resolver report. want=%v got=%v",
+			expectedReport, report)
 	}
 
 	ctx.resolve()
@@ -207,7 +215,7 @@ func TestCommitSweepResolverDelay(t *testing.T) {
 	}
 
 	// Allow resolver to process confirmation.
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(sweepProcessInterval)
 
 	// Expect report to be updated.
 	report = ctx.resolver.report()
@@ -222,7 +230,7 @@ func TestCommitSweepResolverDelay(t *testing.T) {
 	select {
 	case <-ctx.sweeper.sweptInputs:
 		t.Fatal("no sweep expected")
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(sweepProcessInterval):
 	}
 
 	// A new block arrives. The commit tx confirmed at height -1 and the csv
@@ -233,14 +241,52 @@ func TestCommitSweepResolverDelay(t *testing.T) {
 
 	ctx.waitForResult()
 
+	// If this test case generates a sweep error, we don't expect to be
+	// able to recover anything. This might happen if the local commitment
+	// output was swept by a justice transaction by the remote party.
+	expectedRecoveredBalance := btcutil.Amount(amt)
+	if sweepErr != nil {
+		expectedRecoveredBalance = 0
+	}
+
 	report = ctx.resolver.report()
-	if !reflect.DeepEqual(report, &ContractReport{
+	expectedReport = ContractReport{
 		Outpoint:         outpoint,
 		Type:             ReportOutputUnencumbered,
 		Amount:           btcutil.Amount(amt),
-		RecoveredBalance: btcutil.Amount(amt),
 		MaturityHeight:   testInitialBlockHeight + 2,
-	}) {
-		t.Fatal("unexpected resolver report")
+		RecoveredBalance: expectedRecoveredBalance,
+	}
+	if *report != expectedReport {
+		t.Fatalf("unexpected resolver report. want=%v got=%v",
+			expectedReport, report)
+	}
+
+}
+
+// TestCommitSweepResolverDelay tests resolution of a direct commitment output
+// that is encumbered by a time lock.
+func TestCommitSweepResolverDelay(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		sweepErr error
+	}{{
+		name:     "success",
+		sweepErr: nil,
+	}, {
+		name:     "remote spend",
+		sweepErr: sweep.ErrRemoteSpend,
+	}}
+
+	for _, tc := range testCases {
+		tc := tc
+		ok := t.Run(tc.name, func(t *testing.T) {
+			testCommitSweepResolverDelay(t, tc.sweepErr)
+		})
+		if !ok {
+			break
+		}
 	}
 }

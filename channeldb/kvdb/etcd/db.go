@@ -143,6 +143,11 @@ type BackendConfig struct {
 	// skip TLS verification.
 	InsecureSkipVerify bool
 
+	// Prefix the hash of the prefix will be used as the root
+	// bucket id. This enables key space separation similar to
+	// name spaces.
+	Prefix string
+
 	// CollectCommitStats indicates wheter to commit commit stats.
 	CollectCommitStats bool
 }
@@ -203,7 +208,7 @@ func (db *db) getSTMOptions() []STMOptionFunc {
 // occur).
 func (db *db) View(f func(tx walletdb.ReadTx) error) error {
 	apply := func(stm STM) error {
-		return f(newReadWriteTx(stm))
+		return f(newReadWriteTx(stm, db.config.Prefix))
 	}
 
 	return RunSTM(db.cli, apply, db.getSTMOptions()...)
@@ -217,7 +222,7 @@ func (db *db) View(f func(tx walletdb.ReadTx) error) error {
 // returned.
 func (db *db) Update(f func(tx walletdb.ReadWriteTx) error) error {
 	apply := func(stm STM) error {
-		return f(newReadWriteTx(stm))
+		return f(newReadWriteTx(stm, db.config.Prefix))
 	}
 
 	return RunSTM(db.cli, apply, db.getSTMOptions()...)
@@ -234,12 +239,18 @@ func (db *db) PrintStats() string {
 
 // BeginReadTx opens a database read transaction.
 func (db *db) BeginReadWriteTx() (walletdb.ReadWriteTx, error) {
-	return newReadWriteTx(NewSTM(db.cli, db.getSTMOptions()...)), nil
+	return newReadWriteTx(
+		NewSTM(db.cli, db.getSTMOptions()...),
+		db.config.Prefix,
+	), nil
 }
 
 // BeginReadWriteTx opens a database read+write transaction.
 func (db *db) BeginReadTx() (walletdb.ReadTx, error) {
-	return newReadWriteTx(NewSTM(db.cli, db.getSTMOptions()...)), nil
+	return newReadWriteTx(
+		NewSTM(db.cli, db.getSTMOptions()...),
+		db.config.Prefix,
+	), nil
 }
 
 // Copy writes a copy of the database to the provided writer.  This call will

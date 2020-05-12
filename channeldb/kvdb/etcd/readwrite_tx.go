@@ -11,6 +11,10 @@ type readWriteTx struct {
 	// stm is the reference to the parent STM.
 	stm STM
 
+	// rootBucketID holds the sha256 hash of the root bucket id, which is used
+	// for key space spearation.
+	rootBucketID [bucketIDLength]byte
+
 	// active is true if the transaction hasn't been committed yet.
 	active bool
 
@@ -24,18 +28,19 @@ type readWriteTx struct {
 }
 
 // newReadWriteTx creates an rw transaction with the passed STM.
-func newReadWriteTx(stm STM) *readWriteTx {
+func newReadWriteTx(stm STM, prefix string) *readWriteTx {
 	return &readWriteTx{
-		stm:    stm,
-		active: true,
-		lset:   make(map[string]string),
+		stm:          stm,
+		active:       true,
+		rootBucketID: makeBucketID([]byte(prefix)),
+		lset:         make(map[string]string),
 	}
 }
 
 // rooBucket is a helper function to return the always present
-// root bucket.
+// pseudo root bucket.
 func rootBucket(tx *readWriteTx) *readWriteBucket {
-	return newReadWriteBucket(tx, rootBucketID(), rootBucketID())
+	return newReadWriteBucket(tx, tx.rootBucketID[:], tx.rootBucketID[:])
 }
 
 // lock adds a key value to the lock set.

@@ -24,7 +24,7 @@ type readWriteBucket struct {
 // newReadWriteBucket creates a new rw bucket with the passed transaction
 // and bucket id.
 func newReadWriteBucket(tx *readWriteTx, key, id []byte) *readWriteBucket {
-	if !bytes.Equal(id, rootBucketID()) {
+	if !bytes.Equal(id, tx.rootBucketID[:]) {
 		// Add the bucket key/value to the lock set.
 		tx.lock(string(key), string(id))
 	}

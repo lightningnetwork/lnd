@@ -16,12 +16,6 @@ var (
 	sequencePrefix = []byte("$")
 )
 
-// rootBucketId returns a zero filled 32 byte array
-func rootBucketID() []byte {
-	var rootID [bucketIDLength]byte
-	return rootID[:]
-}
-
 // makeBucketID returns a deterministic key for the passed byte slice.
 // Currently it returns the sha256 hash of the slice.
 func makeBucketID(key []byte) [bucketIDLength]byte {

@@ -1245,6 +1245,11 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			// fully settles?
 			localHTLC := packet.incomingChanID == hop.Source
 			if !localHTLC {
+				log.Infof("Forwarded HTLC(%x) of %v (fee: %v) "+
+					"from IncomingChanID(%v) to OutgoingChanID(%v)",
+					circuit.PaymentHash[:], circuit.OutgoingAmount,
+					circuit.IncomingAmount-circuit.OutgoingAmount,
+					circuit.Incoming.ChanID, circuit.Outgoing.ChanID)
 				s.fwdEventMtx.Lock()
 				s.pendingFwdingEvents = append(
 					s.pendingFwdingEvents,

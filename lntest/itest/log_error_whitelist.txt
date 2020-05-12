@@ -46,6 +46,7 @@
 <time> [ERR] FNDG: received funding error from <hex>: chan_id=<hex>, err=Number of pending channels exceed maximum
 <time> [ERR] FNDG: received funding error from <hex>: chan_id=<hex>, err=Synchronizing blockchain
 <time> [ERR] FNDG: Unable to add new channel <chan_point> with peer <hex>: peer exiting
+<time> [ERR] FNDG: Unable to add new channel <chan_point> with peer <hex>: unable to get best block: the client has been shutdown
 <time> [ERR] FNDG: Unable to advance pending state of ChannelPoint(<chan_point>): error waiting for funding confirmation for ChannelPoint(<chan_point>): epoch client shutting down
 <time> [ERR] FNDG: Unable to advance pending state of ChannelPoint(<chan_point>): error waiting for funding confirmation for ChannelPoint(<chan_point>): funding manager shutting down
 <time> [ERR] FNDG: Unable to advance pending state of ChannelPoint(<chan_point>): error waiting for funding confirmation for ChannelPoint(<chan_point>): waiting for fundingconfirmation failed
@@ -55,6 +56,7 @@
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: router shutting down
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: unable add proof to the channel chanID=<hex>: edge marked as zombie
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: unable add proof to the channel chanID=<hex>: edge not found
+<time> [ERR] FNDG: Unable to advance state(<chan_point>): failed adding to router graph: error sending channel announcement: router shutting down
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): failed adding to router graph: funding manager shutting down
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): failed sending fundingLocked: funding manager shutting down
 <time> [ERR] FNDG: unable to cancel reservation: no active reservations for peer(<hex>)

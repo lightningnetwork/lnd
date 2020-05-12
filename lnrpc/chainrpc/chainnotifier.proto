@@ -2,6 +2,44 @@ syntax = "proto3";
 
 package chainrpc;
 
+// ChainNotifier is a service that can be used to get information about the
+// chain backend by registering notifiers for chain events.
+service ChainNotifier {
+    /*
+    RegisterConfirmationsNtfn is a synchronous response-streaming RPC that
+    registers an intent for a client to be notified once a confirmation request
+    has reached its required number of confirmations on-chain.
+
+    A client can specify whether the confirmation request should be for a
+    particular transaction by its hash or for an output script by specifying a
+    zero hash.
+    */
+    rpc RegisterConfirmationsNtfn (ConfRequest) returns (stream ConfEvent);
+
+    /*
+    RegisterSpendNtfn is a synchronous response-streaming RPC that registers an
+    intent for a client to be notification once a spend request has been spent
+    by a transaction that has confirmed on-chain.
+
+    A client can specify whether the spend request should be for a particular
+    outpoint  or for an output script by specifying a zero outpoint.
+    */
+    rpc RegisterSpendNtfn (SpendRequest) returns (stream SpendEvent);
+
+    /*
+    RegisterBlockEpochNtfn is a synchronous response-streaming RPC that
+    registers an intent for a client to be notified of blocks in the chain. The
+    stream will return a hash and height tuple of a block for each new/stale
+    block in the chain. It is the client's responsibility to determine whether
+    the tuple returned is for a new or stale block in the chain.
+
+    A client can also request a historical backlog of blocks from a particular
+    point. This allows clients to be idempotent by ensuring that they do not
+    missing processing a single block within the chain.
+    */
+    rpc RegisterBlockEpochNtfn (BlockEpoch) returns (stream BlockEpoch);
+}
+
 message ConfRequest {
     /*
     The transaction hash for which we should request a confirmation notification
@@ -139,40 +177,4 @@ message BlockEpoch {
 
     // The height of the block.
     uint32 height = 2;
-}
-
-service ChainNotifier {
-    /*
-    RegisterConfirmationsNtfn is a synchronous response-streaming RPC that
-    registers an intent for a client to be notified once a confirmation request
-    has reached its required number of confirmations on-chain.
-
-    A client can specify whether the confirmation request should be for a
-    particular transaction by its hash or for an output script by specifying a
-    zero hash.
-    */
-    rpc RegisterConfirmationsNtfn (ConfRequest) returns (stream ConfEvent);
-
-    /*
-    RegisterSpendNtfn is a synchronous response-streaming RPC that registers an
-    intent for a client to be notification once a spend request has been spent
-    by a transaction that has confirmed on-chain.
-
-    A client can specify whether the spend request should be for a particular
-    outpoint  or for an output script by specifying a zero outpoint.
-    */
-    rpc RegisterSpendNtfn (SpendRequest) returns (stream SpendEvent);
-
-    /*
-    RegisterBlockEpochNtfn is a synchronous response-streaming RPC that
-    registers an intent for a client to be notified of blocks in the chain. The
-    stream will return a hash and height tuple of a block for each new/stale
-    block in the chain. It is the client's responsibility to determine whether
-    the tuple returned is for a new or stale block in the chain.
-
-    A client can also request a historical backlog of blocks from a particular
-    point. This allows clients to be idempotent by ensuring that they do not
-    missing processing a single block within the chain.
-    */
-    rpc RegisterBlockEpochNtfn (BlockEpoch) returns (stream BlockEpoch);
 }

@@ -1,0 +1,142 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "wtclientrpc/wtclient.proto",
+    "version": "version not set"
+  },
+  "schemes": [
+    "http",
+    "https"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {},
+  "definitions": {
+    "wtclientrpcAddTowerResponse": {
+      "type": "object"
+    },
+    "wtclientrpcListTowersResponse": {
+      "type": "object",
+      "properties": {
+        "towers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/wtclientrpcTower"
+          },
+          "description": "The list of watchtowers available for new backups."
+        }
+      }
+    },
+    "wtclientrpcPolicyResponse": {
+      "type": "object",
+      "properties": {
+        "max_updates": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The maximum number of updates each session we negotiate with watchtowers\nshould allow."
+        },
+        "sweep_sat_per_byte": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The fee rate, in satoshis per vbyte, that will be used by watchtowers for\njustice transactions in response to channel breaches."
+        }
+      }
+    },
+    "wtclientrpcRemoveTowerResponse": {
+      "type": "object"
+    },
+    "wtclientrpcStatsResponse": {
+      "type": "object",
+      "properties": {
+        "num_backups": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The total number of backups made to all active and exhausted watchtower\nsessions."
+        },
+        "num_pending_backups": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The total number of backups that are pending to be acknowledged by all\nactive and exhausted watchtower sessions."
+        },
+        "num_failed_backups": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The total number of backups that all active and exhausted watchtower\nsessions have failed to acknowledge."
+        },
+        "num_sessions_acquired": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The total number of new sessions made to watchtowers."
+        },
+        "num_sessions_exhausted": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The total number of watchtower sessions that have been exhausted."
+        }
+      }
+    },
+    "wtclientrpcTower": {
+      "type": "object",
+      "properties": {
+        "pubkey": {
+          "type": "string",
+          "format": "byte",
+          "description": "The identifying public key of the watchtower."
+        },
+        "addresses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The list of addresses the watchtower is reachable over."
+        },
+        "active_session_candidate": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Whether the watchtower is currently a candidate for new sessions."
+        },
+        "num_sessions": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of sessions that have been negotiated with the watchtower."
+        },
+        "sessions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/wtclientrpcTowerSession"
+          },
+          "description": "The list of sessions that have been negotiated with the watchtower."
+        }
+      }
+    },
+    "wtclientrpcTowerSession": {
+      "type": "object",
+      "properties": {
+        "num_backups": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The total number of successful backups that have been made to the\nwatchtower session."
+        },
+        "num_pending_backups": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The total number of backups in the session that are currently pending to be\nacknowledged by the watchtower."
+        },
+        "max_backups": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The maximum number of backups allowed by the watchtower session."
+        },
+        "sweep_sat_per_byte": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The fee rate, in satoshis per vbyte, that will be used by the watchtower for\nthe justice transaction in the event of a channel breach."
+        }
+      }
+    }
+  }
+}

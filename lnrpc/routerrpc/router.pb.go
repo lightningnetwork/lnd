@@ -114,27 +114,27 @@ func (FailureDetail) EnumDescriptor() ([]byte, []int) {
 type PaymentState int32
 
 const (
-	//*
+	//
 	//Payment is still in flight.
 	PaymentState_IN_FLIGHT PaymentState = 0
-	//*
+	//
 	//Payment completed successfully.
 	PaymentState_SUCCEEDED PaymentState = 1
-	//*
+	//
 	//There are more routes to try, but the payment timeout was exceeded.
 	PaymentState_FAILED_TIMEOUT PaymentState = 2
-	//*
+	//
 	//All possible routes were tried and failed permanently. Or were no
 	//routes to the destination at all.
 	PaymentState_FAILED_NO_ROUTE PaymentState = 3
-	//*
+	//
 	//A non-recoverable error has occured.
 	PaymentState_FAILED_ERROR PaymentState = 4
-	//*
+	//
 	//Payment details incorrect (unknown hash, invalid amt or
 	//invalid final cltv delta)
 	PaymentState_FAILED_INCORRECT_PAYMENT_DETAILS PaymentState = 5
-	//*
+	//
 	//Insufficient local balance.
 	PaymentState_FAILED_INSUFFICIENT_BALANCE PaymentState = 6
 )
@@ -199,38 +199,38 @@ func (HtlcEvent_EventType) EnumDescriptor() ([]byte, []int) {
 }
 
 type SendPaymentRequest struct {
-	/// The identity pubkey of the payment recipient
+	// The identity pubkey of the payment recipient
 	Dest []byte `protobuf:"bytes,1,opt,name=dest,proto3" json:"dest,omitempty"`
-	//*
+	//
 	//Number of satoshis to send.
 	//
 	//The fields amt and amt_msat are mutually exclusive.
 	Amt int64 `protobuf:"varint,2,opt,name=amt,proto3" json:"amt,omitempty"`
-	//*
+	//
 	//Number of millisatoshis to send.
 	//
 	//The fields amt and amt_msat are mutually exclusive.
 	AmtMsat int64 `protobuf:"varint,12,opt,name=amt_msat,json=amtMsat,proto3" json:"amt_msat,omitempty"`
-	/// The hash to use within the payment's HTLC
+	// The hash to use within the payment's HTLC
 	PaymentHash []byte `protobuf:"bytes,3,opt,name=payment_hash,json=paymentHash,proto3" json:"payment_hash,omitempty"`
-	//*
+	//
 	//The CLTV delta from the current height that should be used to set the
 	//timelock for the final hop.
 	FinalCltvDelta int32 `protobuf:"varint,4,opt,name=final_cltv_delta,json=finalCltvDelta,proto3" json:"final_cltv_delta,omitempty"`
-	//*
+	//
 	//A bare-bones invoice for a payment within the Lightning Network.  With the
 	//details of the invoice, the sender has all the data necessary to send a
 	//payment to the recipient. The amount in the payment request may be zero. In
 	//that case it is required to set the amt field as well. If no payment request
 	//is specified, the following fields are required: dest, amt and payment_hash.
 	PaymentRequest string `protobuf:"bytes,5,opt,name=payment_request,json=paymentRequest,proto3" json:"payment_request,omitempty"`
-	//*
+	//
 	//An upper limit on the amount of time we should spend when attempting to
 	//fulfill the payment. This is expressed in seconds. If we cannot make a
 	//successful payment within this time frame, an error will be returned.
 	//This field must be non-zero.
 	TimeoutSeconds int32 `protobuf:"varint,6,opt,name=timeout_seconds,json=timeoutSeconds,proto3" json:"timeout_seconds,omitempty"`
-	//*
+	//
 	//The maximum number of satoshis that will be paid as a fee of the payment.
 	//If this field is left to the default value of 0, only zero-fee routes will
 	//be considered. This usually means single hop routes connecting directly to
@@ -238,7 +238,7 @@ type SendPaymentRequest struct {
 	//
 	//The fields fee_limit_sat and fee_limit_msat are mutually exclusive.
 	FeeLimitSat int64 `protobuf:"varint,7,opt,name=fee_limit_sat,json=feeLimitSat,proto3" json:"fee_limit_sat,omitempty"`
-	//*
+	//
 	//The maximum number of millisatoshis that will be paid as a fee of the
 	//payment. If this field is left to the default value of 0, only zero-fee
 	//routes will be considered. This usually means single hop routes connecting
@@ -247,42 +247,42 @@ type SendPaymentRequest struct {
 	//
 	//The fields fee_limit_sat and fee_limit_msat are mutually exclusive.
 	FeeLimitMsat int64 `protobuf:"varint,13,opt,name=fee_limit_msat,json=feeLimitMsat,proto3" json:"fee_limit_msat,omitempty"`
-	//*
+	//
 	//The channel id of the channel that must be taken to the first hop. If zero,
 	//any channel may be used.
 	OutgoingChanId uint64 `protobuf:"varint,8,opt,name=outgoing_chan_id,json=outgoingChanId,proto3" json:"outgoing_chan_id,omitempty"`
-	//*
+	//
 	//The pubkey of the last hop of the route. If empty, any hop may be used.
 	LastHopPubkey []byte `protobuf:"bytes,14,opt,name=last_hop_pubkey,json=lastHopPubkey,proto3" json:"last_hop_pubkey,omitempty"`
-	//*
+	//
 	//An optional maximum total time lock for the route. This should not exceed
 	//lnd's `--max-cltv-expiry` setting. If zero, then the value of
 	//`--max-cltv-expiry` is enforced.
 	CltvLimit int32 `protobuf:"varint,9,opt,name=cltv_limit,json=cltvLimit,proto3" json:"cltv_limit,omitempty"`
-	//*
+	//
 	//Optional route hints to reach the destination through private channels.
 	RouteHints []*lnrpc.RouteHint `protobuf:"bytes,10,rep,name=route_hints,json=routeHints,proto3" json:"route_hints,omitempty"`
-	//*
+	//
 	//An optional field that can be used to pass an arbitrary set of TLV records
 	//to a peer which understands the new records. This can be used to pass
 	//application specific data during the payment attempt. Record types are
 	//required to be in the custom range >= 65536. When using REST, the values
 	//must be encoded as base64.
 	DestCustomRecords map[uint64][]byte `protobuf:"bytes,11,rep,name=dest_custom_records,json=destCustomRecords,proto3" json:"dest_custom_records,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	/// If set, circular payments to self are permitted.
+	// If set, circular payments to self are permitted.
 	AllowSelfPayment bool `protobuf:"varint,15,opt,name=allow_self_payment,json=allowSelfPayment,proto3" json:"allow_self_payment,omitempty"`
-	//*
+	//
 	//Features assumed to be supported by the final node. All transitive feature
 	//dependencies must also be set properly. For a given feature bit pair, either
 	//optional or remote may be set, but not both. If this field is nil or empty,
 	//the router will try to load destination features from the graph as a
 	//fallback.
 	DestFeatures []lnrpc.FeatureBit `protobuf:"varint,16,rep,packed,name=dest_features,json=destFeatures,proto3,enum=lnrpc.FeatureBit" json:"dest_features,omitempty"`
-	//*
+	//
 	//The maximum number of partial payments that may be use to complete the full
 	//amount.
 	MaxParts uint32 `protobuf:"varint,17,opt,name=max_parts,json=maxParts,proto3" json:"max_parts,omitempty"`
-	//*
+	//
 	//If set, only the final payment update is streamed back. Intermediate updates
 	//that show which htlcs are still in flight are suppressed.
 	NoInflightUpdates    bool     `protobuf:"varint,18,opt,name=no_inflight_updates,json=noInflightUpdates,proto3" json:"no_inflight_updates,omitempty"`
@@ -443,9 +443,9 @@ func (m *SendPaymentRequest) GetNoInflightUpdates() bool {
 }
 
 type TrackPaymentRequest struct {
-	/// The hash of the payment to look up.
+	// The hash of the payment to look up.
 	PaymentHash []byte `protobuf:"bytes,1,opt,name=payment_hash,json=paymentHash,proto3" json:"payment_hash,omitempty"`
-	//*
+	//
 	//If set, only the final payment update is streamed back. Intermediate updates
 	//that show which htlcs are still in flight are suppressed.
 	NoInflightUpdates    bool     `protobuf:"varint,2,opt,name=no_inflight_updates,json=noInflightUpdates,proto3" json:"no_inflight_updates,omitempty"`
@@ -494,10 +494,10 @@ func (m *TrackPaymentRequest) GetNoInflightUpdates() bool {
 }
 
 type RouteFeeRequest struct {
-	//*
+	//
 	//The destination once wishes to obtain a routing fee quote to.
 	Dest []byte `protobuf:"bytes,1,opt,name=dest,proto3" json:"dest,omitempty"`
-	//*
+	//
 	//The amount one wishes to send to the target destination.
 	AmtSat               int64    `protobuf:"varint,2,opt,name=amt_sat,json=amtSat,proto3" json:"amt_sat,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
@@ -545,11 +545,11 @@ func (m *RouteFeeRequest) GetAmtSat() int64 {
 }
 
 type RouteFeeResponse struct {
-	//*
+	//
 	//A lower bound of the estimated fee to the target destination within the
 	//network, expressed in milli-satoshis.
 	RoutingFeeMsat int64 `protobuf:"varint,1,opt,name=routing_fee_msat,json=routingFeeMsat,proto3" json:"routing_fee_msat,omitempty"`
-	//*
+	//
 	//An estimate of the worst case time delay that can occur. Note that callers
 	//will still need to factor in the final CLTV delta of the last hop into this
 	//value.
@@ -599,9 +599,9 @@ func (m *RouteFeeResponse) GetTimeLockDelay() int64 {
 }
 
 type SendToRouteRequest struct {
-	/// The payment hash to use for the HTLC.
+	// The payment hash to use for the HTLC.
 	PaymentHash []byte `protobuf:"bytes,1,opt,name=payment_hash,json=paymentHash,proto3" json:"payment_hash,omitempty"`
-	/// Route that should be used to attempt to complete the payment.
+	// Route that should be used to attempt to complete the payment.
 	Route                *lnrpc.Route `protobuf:"bytes,2,opt,name=route,proto3" json:"route,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
 	XXX_unrecognized     []byte       `json:"-"`
@@ -648,9 +648,9 @@ func (m *SendToRouteRequest) GetRoute() *lnrpc.Route {
 }
 
 type SendToRouteResponse struct {
-	/// The preimage obtained by making the payment.
+	// The preimage obtained by making the payment.
 	Preimage []byte `protobuf:"bytes,1,opt,name=preimage,proto3" json:"preimage,omitempty"`
-	/// The failure message in case the payment failed.
+	// The failure message in case the payment failed.
 	Failure              *lnrpc.Failure `protobuf:"bytes,2,opt,name=failure,proto3" json:"failure,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}       `json:"-"`
 	XXX_unrecognized     []byte         `json:"-"`
@@ -789,9 +789,9 @@ func (m *QueryMissionControlRequest) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_QueryMissionControlRequest proto.InternalMessageInfo
 
-/// QueryMissionControlResponse contains mission control state.
+// QueryMissionControlResponse contains mission control state.
 type QueryMissionControlResponse struct {
-	/// Node pair-level mission control state.
+	// Node pair-level mission control state.
 	Pairs                []*PairHistory `protobuf:"bytes,2,rep,name=pairs,proto3" json:"pairs,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}       `json:"-"`
 	XXX_unrecognized     []byte         `json:"-"`
@@ -830,11 +830,11 @@ func (m *QueryMissionControlResponse) GetPairs() []*PairHistory {
 	return nil
 }
 
-/// PairHistory contains the mission control state for a particular node pair.
+// PairHistory contains the mission control state for a particular node pair.
 type PairHistory struct {
-	/// The source node pubkey of the pair.
+	// The source node pubkey of the pair.
 	NodeFrom []byte `protobuf:"bytes,1,opt,name=node_from,json=nodeFrom,proto3" json:"node_from,omitempty"`
-	/// The destination node pubkey of the pair.
+	// The destination node pubkey of the pair.
 	NodeTo               []byte    `protobuf:"bytes,2,opt,name=node_to,json=nodeTo,proto3" json:"node_to,omitempty"`
 	History              *PairData `protobuf:"bytes,7,opt,name=history,proto3" json:"history,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}  `json:"-"`
@@ -889,21 +889,21 @@ func (m *PairHistory) GetHistory() *PairData {
 }
 
 type PairData struct {
-	/// Time of last failure.
+	// Time of last failure.
 	FailTime int64 `protobuf:"varint,1,opt,name=fail_time,json=failTime,proto3" json:"fail_time,omitempty"`
-	//*
+	//
 	//Lowest amount that failed to forward rounded to whole sats. This may be
 	//set to zero if the failure is independent of amount.
 	FailAmtSat int64 `protobuf:"varint,2,opt,name=fail_amt_sat,json=failAmtSat,proto3" json:"fail_amt_sat,omitempty"`
-	//*
+	//
 	//Lowest amount that failed to forward in millisats. This may be
 	//set to zero if the failure is independent of amount.
 	FailAmtMsat int64 `protobuf:"varint,4,opt,name=fail_amt_msat,json=failAmtMsat,proto3" json:"fail_amt_msat,omitempty"`
-	/// Time of last success.
+	// Time of last success.
 	SuccessTime int64 `protobuf:"varint,5,opt,name=success_time,json=successTime,proto3" json:"success_time,omitempty"`
-	/// Highest amount that we could successfully forward rounded to whole sats.
+	// Highest amount that we could successfully forward rounded to whole sats.
 	SuccessAmtSat int64 `protobuf:"varint,6,opt,name=success_amt_sat,json=successAmtSat,proto3" json:"success_amt_sat,omitempty"`
-	/// Highest amount that we could successfully forward in millisats.
+	// Highest amount that we could successfully forward in millisats.
 	SuccessAmtMsat       int64    `protobuf:"varint,7,opt,name=success_amt_msat,json=successAmtMsat,proto3" json:"success_amt_msat,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -978,11 +978,11 @@ func (m *PairData) GetSuccessAmtMsat() int64 {
 }
 
 type QueryProbabilityRequest struct {
-	/// The source node pubkey of the pair.
+	// The source node pubkey of the pair.
 	FromNode []byte `protobuf:"bytes,1,opt,name=from_node,json=fromNode,proto3" json:"from_node,omitempty"`
-	/// The destination node pubkey of the pair.
+	// The destination node pubkey of the pair.
 	ToNode []byte `protobuf:"bytes,2,opt,name=to_node,json=toNode,proto3" json:"to_node,omitempty"`
-	/// The amount for which to calculate a probability.
+	// The amount for which to calculate a probability.
 	AmtMsat              int64    `protobuf:"varint,3,opt,name=amt_msat,json=amtMsat,proto3" json:"amt_msat,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -1036,9 +1036,9 @@ func (m *QueryProbabilityRequest) GetAmtMsat() int64 {
 }
 
 type QueryProbabilityResponse struct {
-	/// The success probability for the requested pair.
+	// The success probability for the requested pair.
 	Probability float64 `protobuf:"fixed64,1,opt,name=probability,proto3" json:"probability,omitempty"`
-	/// The historical data for the requested pair.
+	// The historical data for the requested pair.
 	History              *PairData `protobuf:"bytes,2,opt,name=history,proto3" json:"history,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}  `json:"-"`
 	XXX_unrecognized     []byte    `json:"-"`
@@ -1085,19 +1085,19 @@ func (m *QueryProbabilityResponse) GetHistory() *PairData {
 }
 
 type BuildRouteRequest struct {
-	//*
+	//
 	//The amount to send expressed in msat. If set to zero, the minimum routable
 	//amount is used.
 	AmtMsat int64 `protobuf:"varint,1,opt,name=amt_msat,json=amtMsat,proto3" json:"amt_msat,omitempty"`
-	//*
+	//
 	//CLTV delta from the current height that should be used for the timelock
 	//of the final hop
 	FinalCltvDelta int32 `protobuf:"varint,2,opt,name=final_cltv_delta,json=finalCltvDelta,proto3" json:"final_cltv_delta,omitempty"`
-	//*
+	//
 	//The channel id of the channel that must be taken to the first hop. If zero,
 	//any channel may be used.
 	OutgoingChanId uint64 `protobuf:"varint,3,opt,name=outgoing_chan_id,json=outgoingChanId,proto3" json:"outgoing_chan_id,omitempty"`
-	//*
+	//
 	//A list of hops that defines the route. This does not include the source hop
 	//pubkey.
 	HopPubkeys           [][]byte `protobuf:"bytes,4,rep,name=hop_pubkeys,json=hopPubkeys,proto3" json:"hop_pubkeys,omitempty"`
@@ -1160,7 +1160,7 @@ func (m *BuildRouteRequest) GetHopPubkeys() [][]byte {
 }
 
 type BuildRouteResponse struct {
-	//*
+	//
 	//Fully specified route that can be used to execute the payment.
 	Route                *lnrpc.Route `protobuf:"bytes,1,opt,name=route,proto3" json:"route,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
@@ -1231,7 +1231,7 @@ func (m *SubscribeHtlcEventsRequest) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_SubscribeHtlcEventsRequest proto.InternalMessageInfo
 
-//*
+//
 //HtlcEvent contains the htlc event that was processed. These are served on a
 //best-effort basis; events are not persisted, delivery is not guaranteed
 //(in the event of a crash in the switch, forward events may be lost) and
@@ -1239,26 +1239,26 @@ var xxx_messageInfo_SubscribeHtlcEventsRequest proto.InternalMessageInfo
 //should be de-duplicated by the htlc's unique combination of incoming and
 //outgoing channel id and htlc id. [EXPERIMENTAL]
 type HtlcEvent struct {
-	//*
+	//
 	//The short channel id that the incoming htlc arrived at our node on. This
 	//value is zero for sends.
 	IncomingChannelId uint64 `protobuf:"varint,1,opt,name=incoming_channel_id,json=incomingChannelId,proto3" json:"incoming_channel_id,omitempty"`
-	//*
+	//
 	//The short channel id that the outgoing htlc left our node on. This value
 	//is zero for receives.
 	OutgoingChannelId uint64 `protobuf:"varint,2,opt,name=outgoing_channel_id,json=outgoingChannelId,proto3" json:"outgoing_channel_id,omitempty"`
-	//*
+	//
 	//Incoming id is the index of the incoming htlc in the incoming channel.
 	//This value is zero for sends.
 	IncomingHtlcId uint64 `protobuf:"varint,3,opt,name=incoming_htlc_id,json=incomingHtlcId,proto3" json:"incoming_htlc_id,omitempty"`
-	//*
+	//
 	//Outgoing id is the index of the outgoing htlc in the outgoing channel.
 	//This value is zero for receives.
 	OutgoingHtlcId uint64 `protobuf:"varint,4,opt,name=outgoing_htlc_id,json=outgoingHtlcId,proto3" json:"outgoing_htlc_id,omitempty"`
-	//*
+	//
 	//The time in unix nanoseconds that the event occurred.
 	TimestampNs uint64 `protobuf:"varint,5,opt,name=timestamp_ns,json=timestampNs,proto3" json:"timestamp_ns,omitempty"`
-	//*
+	//
 	//The event type indicates whether the htlc was part of a send, receive or
 	//forward.
 	EventType HtlcEvent_EventType `protobuf:"varint,6,opt,name=event_type,json=eventType,proto3,enum=routerrpc.HtlcEvent_EventType" json:"event_type,omitempty"`
@@ -1587,7 +1587,7 @@ type LinkFailEvent struct {
 	Info *HtlcInfo `protobuf:"bytes,1,opt,name=info,proto3" json:"info,omitempty"`
 	// FailureCode is the BOLT error code for the failure.
 	WireFailure lnrpc.Failure_FailureCode `protobuf:"varint,2,opt,name=wire_failure,json=wireFailure,proto3,enum=lnrpc.Failure_FailureCode" json:"wire_failure,omitempty"`
-	//*
+	//
 	//FailureDetail provides additional information about the reason for the
 	//failure. This detail enriches the information provided by the wire message
 	//and may be 'no detail' if the wire message requires no additional metadata.
@@ -1653,12 +1653,12 @@ func (m *LinkFailEvent) GetFailureString() string {
 }
 
 type PaymentStatus struct {
-	/// Current state the payment is in.
+	// Current state the payment is in.
 	State PaymentState `protobuf:"varint,1,opt,name=state,proto3,enum=routerrpc.PaymentState" json:"state,omitempty"`
-	//*
+	//
 	//The pre-image of the payment when state is SUCCEEDED.
 	Preimage []byte `protobuf:"bytes,2,opt,name=preimage,proto3" json:"preimage,omitempty"`
-	//*
+	//
 	//The HTLCs made in attempt to settle the payment [EXPERIMENTAL].
 	Htlcs                []*lnrpc.HTLCAttempt `protobuf:"bytes,4,rep,name=htlcs,proto3" json:"htlcs,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}             `json:"-"`
@@ -1902,51 +1902,51 @@ const _ = grpc.SupportPackageIsVersion4
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type RouterClient interface {
-	//*
+	//
 	//SendPaymentV2 attempts to route a payment described by the passed
 	//PaymentRequest to the final destination. The call returns a stream of
 	//payment updates.
 	SendPaymentV2(ctx context.Context, in *SendPaymentRequest, opts ...grpc.CallOption) (Router_SendPaymentV2Client, error)
-	//*
+	//
 	//TrackPaymentV2 returns an update stream for the payment identified by the
 	//payment hash.
 	TrackPaymentV2(ctx context.Context, in *TrackPaymentRequest, opts ...grpc.CallOption) (Router_TrackPaymentV2Client, error)
-	//*
+	//
 	//EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
 	//may cost to send an HTLC to the target end destination.
 	EstimateRouteFee(ctx context.Context, in *RouteFeeRequest, opts ...grpc.CallOption) (*RouteFeeResponse, error)
-	//*
+	//
 	//SendToRoute attempts to make a payment via the specified route. This method
 	//differs from SendPayment in that it allows users to specify a full route
 	//manually. This can be used for things like rebalancing, and atomic swaps.
 	SendToRoute(ctx context.Context, in *SendToRouteRequest, opts ...grpc.CallOption) (*SendToRouteResponse, error)
-	//*
+	//
 	//ResetMissionControl clears all mission control state and starts with a clean
 	//slate.
 	ResetMissionControl(ctx context.Context, in *ResetMissionControlRequest, opts ...grpc.CallOption) (*ResetMissionControlResponse, error)
-	//*
+	//
 	//QueryMissionControl exposes the internal mission control state to callers.
 	//It is a development feature.
 	QueryMissionControl(ctx context.Context, in *QueryMissionControlRequest, opts ...grpc.CallOption) (*QueryMissionControlResponse, error)
-	//*
+	//
 	//QueryProbability returns the current success probability estimate for a
 	//given node pair and amount.
 	QueryProbability(ctx context.Context, in *QueryProbabilityRequest, opts ...grpc.CallOption) (*QueryProbabilityResponse, error)
-	//*
+	//
 	//BuildRoute builds a fully specified route based on a list of hop public
 	//keys. It retrieves the relevant channel policies from the graph in order to
 	//calculate the correct fees and time locks.
 	BuildRoute(ctx context.Context, in *BuildRouteRequest, opts ...grpc.CallOption) (*BuildRouteResponse, error)
-	//*
+	//
 	//SubscribeHtlcEvents creates a uni-directional stream from the server to
 	//the client which delivers a stream of htlc events.
 	SubscribeHtlcEvents(ctx context.Context, in *SubscribeHtlcEventsRequest, opts ...grpc.CallOption) (Router_SubscribeHtlcEventsClient, error)
-	//*
+	//
 	//Deprecated, use SendPaymentV2. SendPayment attempts to route a payment
 	//described by the passed PaymentRequest to the final destination. The call
 	//returns a stream of payment status updates.
 	SendPayment(ctx context.Context, in *SendPaymentRequest, opts ...grpc.CallOption) (Router_SendPaymentClient, error)
-	//*
+	//
 	//Deprecated, use TrackPaymentV2. TrackPayment returns an update stream for
 	//the payment identified by the payment hash.
 	TrackPayment(ctx context.Context, in *TrackPaymentRequest, opts ...grpc.CallOption) (Router_TrackPaymentClient, error)
@@ -2178,51 +2178,51 @@ func (x *routerTrackPaymentClient) Recv() (*PaymentStatus, error) {
 
 // RouterServer is the server API for Router service.
 type RouterServer interface {
-	//*
+	//
 	//SendPaymentV2 attempts to route a payment described by the passed
 	//PaymentRequest to the final destination. The call returns a stream of
 	//payment updates.
 	SendPaymentV2(*SendPaymentRequest, Router_SendPaymentV2Server) error
-	//*
+	//
 	//TrackPaymentV2 returns an update stream for the payment identified by the
 	//payment hash.
 	TrackPaymentV2(*TrackPaymentRequest, Router_TrackPaymentV2Server) error
-	//*
+	//
 	//EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
 	//may cost to send an HTLC to the target end destination.
 	EstimateRouteFee(context.Context, *RouteFeeRequest) (*RouteFeeResponse, error)
-	//*
+	//
 	//SendToRoute attempts to make a payment via the specified route. This method
 	//differs from SendPayment in that it allows users to specify a full route
 	//manually. This can be used for things like rebalancing, and atomic swaps.
 	SendToRoute(context.Context, *SendToRouteRequest) (*SendToRouteResponse, error)
-	//*
+	//
 	//ResetMissionControl clears all mission control state and starts with a clean
 	//slate.
 	ResetMissionControl(context.Context, *ResetMissionControlRequest) (*ResetMissionControlResponse, error)
-	//*
+	//
 	//QueryMissionControl exposes the internal mission control state to callers.
 	//It is a development feature.
 	QueryMissionControl(context.Context, *QueryMissionControlRequest) (*QueryMissionControlResponse, error)
-	//*
+	//
 	//QueryProbability returns the current success probability estimate for a
 	//given node pair and amount.
 	QueryProbability(context.Context, *QueryProbabilityRequest) (*QueryProbabilityResponse, error)
-	//*
+	//
 	//BuildRoute builds a fully specified route based on a list of hop public
 	//keys. It retrieves the relevant channel policies from the graph in order to
 	//calculate the correct fees and time locks.
 	BuildRoute(context.Context, *BuildRouteRequest) (*BuildRouteResponse, error)
-	//*
+	//
 	//SubscribeHtlcEvents creates a uni-directional stream from the server to
 	//the client which delivers a stream of htlc events.
 	SubscribeHtlcEvents(*SubscribeHtlcEventsRequest, Router_SubscribeHtlcEventsServer) error
-	//*
+	//
 	//Deprecated, use SendPaymentV2. SendPayment attempts to route a payment
 	//described by the passed PaymentRequest to the final destination. The call
 	//returns a stream of payment status updates.
 	SendPayment(*SendPaymentRequest, Router_SendPaymentServer) error
-	//*
+	//
 	//Deprecated, use TrackPaymentV2. TrackPayment returns an update stream for
 	//the payment identified by the payment hash.
 	TrackPayment(*TrackPaymentRequest, Router_TrackPaymentServer) error

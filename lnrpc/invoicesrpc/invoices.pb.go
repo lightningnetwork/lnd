@@ -25,7 +25,7 @@ var _ = math.Inf
 const _ = proto.ProtoPackageIsVersion3 // please upgrade the proto package
 
 type CancelInvoiceMsg struct {
-	/// Hash corresponding to the (hold) invoice to cancel.
+	// Hash corresponding to the (hold) invoice to cancel.
 	PaymentHash          []byte   `protobuf:"bytes,1,opt,name=payment_hash,json=paymentHash,proto3" json:"payment_hash,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -96,40 +96,40 @@ func (m *CancelInvoiceResp) XXX_DiscardUnknown() {
 var xxx_messageInfo_CancelInvoiceResp proto.InternalMessageInfo
 
 type AddHoldInvoiceRequest struct {
-	//*
+	//
 	//An optional memo to attach along with the invoice. Used for record keeping
 	//purposes for the invoice's creator, and will also be set in the description
 	//field of the encoded payment request if the description_hash field is not
 	//being used.
 	Memo string `protobuf:"bytes,1,opt,name=memo,proto3" json:"memo,omitempty"`
-	/// The hash of the preimage
+	// The hash of the preimage
 	Hash []byte `protobuf:"bytes,2,opt,name=hash,proto3" json:"hash,omitempty"`
-	//*
+	//
 	//The value of this invoice in satoshis
 	//
 	//The fields value and value_msat are mutually exclusive.
 	Value int64 `protobuf:"varint,3,opt,name=value,proto3" json:"value,omitempty"`
-	//*
+	//
 	//The value of this invoice in millisatoshis
 	//
 	//The fields value and value_msat are mutually exclusive.
 	ValueMsat int64 `protobuf:"varint,10,opt,name=value_msat,json=valueMsat,proto3" json:"value_msat,omitempty"`
-	//*
+	//
 	//Hash (SHA-256) of a description of the payment. Used if the description of
 	//payment (memo) is too long to naturally fit within the description field
 	//of an encoded payment request.
 	DescriptionHash []byte `protobuf:"bytes,4,opt,name=description_hash,json=descriptionHash,proto3" json:"description_hash,omitempty"`
-	/// Payment request expiry time in seconds. Default is 3600 (1 hour).
+	// Payment request expiry time in seconds. Default is 3600 (1 hour).
 	Expiry int64 `protobuf:"varint,5,opt,name=expiry,proto3" json:"expiry,omitempty"`
-	/// Fallback on-chain address.
+	// Fallback on-chain address.
 	FallbackAddr string `protobuf:"bytes,6,opt,name=fallback_addr,json=fallbackAddr,proto3" json:"fallback_addr,omitempty"`
-	/// Delta to use for the time-lock of the CLTV extended to the final hop.
+	// Delta to use for the time-lock of the CLTV extended to the final hop.
 	CltvExpiry uint64 `protobuf:"varint,7,opt,name=cltv_expiry,json=cltvExpiry,proto3" json:"cltv_expiry,omitempty"`
-	//*
+	//
 	//Route hints that can each be individually used to assist in reaching the
 	//invoice's destination.
 	RouteHints []*lnrpc.RouteHint `protobuf:"bytes,8,rep,name=route_hints,json=routeHints,proto3" json:"route_hints,omitempty"`
-	/// Whether this invoice should include routing hints for private channels.
+	// Whether this invoice should include routing hints for private channels.
 	Private              bool     `protobuf:"varint,9,opt,name=private,proto3" json:"private,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -232,7 +232,7 @@ func (m *AddHoldInvoiceRequest) GetPrivate() bool {
 }
 
 type AddHoldInvoiceResp struct {
-	//*
+	//
 	//A bare-bones invoice for a payment within the Lightning Network.  With the
 	//details of the invoice, the sender has all the data necessary to send a
 	//payment to the recipient.
@@ -275,8 +275,8 @@ func (m *AddHoldInvoiceResp) GetPaymentRequest() string {
 }
 
 type SettleInvoiceMsg struct {
-	/// Externally discovered pre-image that should be used to settle the hold
-	/// invoice.
+	// Externally discovered pre-image that should be used to settle the hold
+	// invoice.
 	Preimage             []byte   `protobuf:"bytes,1,opt,name=preimage,proto3" json:"preimage,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -347,7 +347,7 @@ func (m *SettleInvoiceResp) XXX_DiscardUnknown() {
 var xxx_messageInfo_SettleInvoiceResp proto.InternalMessageInfo
 
 type SubscribeSingleInvoiceRequest struct {
-	/// Hash corresponding to the (hold) invoice to subscribe to.
+	// Hash corresponding to the (hold) invoice to subscribe to.
 	RHash                []byte   `protobuf:"bytes,2,opt,name=r_hash,json=rHash,proto3" json:"r_hash,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -448,21 +448,21 @@ const _ = grpc.SupportPackageIsVersion4
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type InvoicesClient interface {
-	//*
+	//
 	//SubscribeSingleInvoice returns a uni-directional stream (server -> client)
 	//to notify the client of state transitions of the specified invoice.
 	//Initially the current invoice state is always sent out.
 	SubscribeSingleInvoice(ctx context.Context, in *SubscribeSingleInvoiceRequest, opts ...grpc.CallOption) (Invoices_SubscribeSingleInvoiceClient, error)
-	//*
+	//
 	//CancelInvoice cancels a currently open invoice. If the invoice is already
 	//canceled, this call will succeed. If the invoice is already settled, it will
 	//fail.
 	CancelInvoice(ctx context.Context, in *CancelInvoiceMsg, opts ...grpc.CallOption) (*CancelInvoiceResp, error)
-	//*
+	//
 	//AddHoldInvoice creates a hold invoice. It ties the invoice to the hash
 	//supplied in the request.
 	AddHoldInvoice(ctx context.Context, in *AddHoldInvoiceRequest, opts ...grpc.CallOption) (*AddHoldInvoiceResp, error)
-	//*
+	//
 	//SettleInvoice settles an accepted invoice. If the invoice is already
 	//settled, this call will succeed.
 	SettleInvoice(ctx context.Context, in *SettleInvoiceMsg, opts ...grpc.CallOption) (*SettleInvoiceResp, error)
@@ -537,21 +537,21 @@ func (c *invoicesClient) SettleInvoice(ctx context.Context, in *SettleInvoiceMsg
 
 // InvoicesServer is the server API for Invoices service.
 type InvoicesServer interface {
-	//*
+	//
 	//SubscribeSingleInvoice returns a uni-directional stream (server -> client)
 	//to notify the client of state transitions of the specified invoice.
 	//Initially the current invoice state is always sent out.
 	SubscribeSingleInvoice(*SubscribeSingleInvoiceRequest, Invoices_SubscribeSingleInvoiceServer) error
-	//*
+	//
 	//CancelInvoice cancels a currently open invoice. If the invoice is already
 	//canceled, this call will succeed. If the invoice is already settled, it will
 	//fail.
 	CancelInvoice(context.Context, *CancelInvoiceMsg) (*CancelInvoiceResp, error)
-	//*
+	//
 	//AddHoldInvoice creates a hold invoice. It ties the invoice to the hash
 	//supplied in the request.
 	AddHoldInvoice(context.Context, *AddHoldInvoiceRequest) (*AddHoldInvoiceResp, error)
-	//*
+	//
 	//SettleInvoice settles an accepted invoice. If the invoice is already
 	//settled, this call will succeed.
 	SettleInvoice(context.Context, *SettleInvoiceMsg) (*SettleInvoiceResp, error)

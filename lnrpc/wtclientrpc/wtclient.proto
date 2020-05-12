@@ -4,6 +4,38 @@ package wtclientrpc;
 
 option go_package = "github.com/lightningnetwork/lnd/lnrpc/wtclientrpc";
 
+// WatchtowerClient is a service that grants access to the watchtower client
+// functionality of the daemon.
+service WatchtowerClient {
+    /*
+    AddTower adds a new watchtower reachable at the given address and
+    considers it for new sessions. If the watchtower already exists, then
+    any new addresses included will be considered when dialing it for
+    session negotiations and backups.
+    */
+    rpc AddTower (AddTowerRequest) returns (AddTowerResponse);
+
+    /*
+    RemoveTower removes a watchtower from being considered for future session
+    negotiations and from being used for any subsequent backups until it's added
+    again. If an address is provided, then this RPC only serves as a way of
+    removing the address from the watchtower instead.
+    */
+    rpc RemoveTower (RemoveTowerRequest) returns (RemoveTowerResponse);
+
+    // ListTowers returns the list of watchtowers registered with the client.
+    rpc ListTowers (ListTowersRequest) returns (ListTowersResponse);
+
+    // GetTowerInfo retrieves information for a registered watchtower.
+    rpc GetTowerInfo (GetTowerInfoRequest) returns (Tower);
+
+    // Stats returns the in-memory statistics of the client since startup.
+    rpc Stats (StatsRequest) returns (StatsResponse);
+
+    // Policy returns the active watchtower client policy configuration.
+    rpc Policy (PolicyRequest) returns (PolicyResponse);
+}
+
 message AddTowerRequest {
     // The identifying public key of the watchtower to add.
     bytes pubkey = 1;
@@ -132,34 +164,4 @@ message PolicyResponse {
     justice transactions in response to channel breaches.
     */
     uint32 sweep_sat_per_byte = 2;
-}
-
-service WatchtowerClient {
-    /*
-    AddTower adds a new watchtower reachable at the given address and
-    considers it for new sessions. If the watchtower already exists, then
-    any new addresses included will be considered when dialing it for
-    session negotiations and backups.
-    */
-    rpc AddTower (AddTowerRequest) returns (AddTowerResponse);
-
-    /*
-    RemoveTower removes a watchtower from being considered for future session
-    negotiations and from being used for any subsequent backups until it's added
-    again. If an address is provided, then this RPC only serves as a way of
-    removing the address from the watchtower instead.
-    */
-    rpc RemoveTower (RemoveTowerRequest) returns (RemoveTowerResponse);
-
-    // ListTowers returns the list of watchtowers registered with the client.
-    rpc ListTowers (ListTowersRequest) returns (ListTowersResponse);
-
-    // GetTowerInfo retrieves information for a registered watchtower.
-    rpc GetTowerInfo (GetTowerInfoRequest) returns (Tower);
-
-    // Stats returns the in-memory statistics of the client since startup.
-    rpc Stats (StatsRequest) returns (StatsResponse);
-
-    // Policy returns the active watchtower client policy configuration.
-    rpc Policy (PolicyRequest) returns (PolicyResponse);
 }

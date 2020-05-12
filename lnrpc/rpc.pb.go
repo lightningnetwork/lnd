@@ -12498,7 +12498,7 @@ type LightningClient interface {
 	//when in debug builds of lnd.
 	AbandonChannel(ctx context.Context, in *AbandonChannelRequest, opts ...grpc.CallOption) (*AbandonChannelResponse, error)
 	// lncli: `sendpayment`
-	//Deprecated, use routerrpc.SendPayment. SendPayment dispatches a
+	//Deprecated, use routerrpc.SendPaymentV2. SendPayment dispatches a
 	//bi-directional streaming RPC for sending payments through the Lightning
 	//Network. A single RPC invocation creates a persistent bi-directional
 	//stream allowing clients to rapidly send payments through the Lightning
@@ -13577,7 +13577,7 @@ type LightningServer interface {
 	//when in debug builds of lnd.
 	AbandonChannel(context.Context, *AbandonChannelRequest) (*AbandonChannelResponse, error)
 	// lncli: `sendpayment`
-	//Deprecated, use routerrpc.SendPayment. SendPayment dispatches a
+	//Deprecated, use routerrpc.SendPaymentV2. SendPayment dispatches a
 	//bi-directional streaming RPC for sending payments through the Lightning
 	//Network. A single RPC invocation creates a persistent bi-directional
 	//stream allowing clients to rapidly send payments through the Lightning

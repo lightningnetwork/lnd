@@ -313,7 +313,7 @@ service Lightning {
     }
 
     /* lncli: `sendpayment`
-    Deprecated, use routerrpc.SendPayment. SendPayment dispatches a
+    Deprecated, use routerrpc.SendPaymentV2. SendPayment dispatches a
     bi-directional streaming RPC for sending payments through the Lightning
     Network. A single RPC invocation creates a persistent bi-directional
     stream allowing clients to rapidly send payments through the Lightning

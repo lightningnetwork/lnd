@@ -6007,7 +6007,8 @@ func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer
 		select {
 		case newRequests <- newRequest:
 		case <-timeout:
-			err := fmt.Errorf("RPCAcceptor returned false - reached timeout of %d",
+			err := fmt.Errorf("RPCAcceptor returned false - "+
+				"reached timeout of %d",
 				r.cfg.AcceptorTimeout)
 			rpcsLog.Error(err)
 			return err
@@ -6023,7 +6024,8 @@ func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer
 		case resp := <-respChan:
 			return resp
 		case <-timeout:
-			err := fmt.Errorf("RPCAcceptor returned false - reached timeout of %d",
+			err := fmt.Errorf("RPCAcceptor returned false - "+
+				"reached timeout of %d",
 				r.cfg.AcceptorTimeout)
 			rpcsLog.Error(err)
 			return err
@@ -6123,7 +6125,8 @@ func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer
 			if resp.Accept {
 				respChan <- nil
 			} else {
-				respChan <- errors.New(resp.GetRejectionReason())
+				respChan <- errors.New(
+					resp.GetRejectionReason())
 			}
 
 			// Delete the channel from the acceptRequests map.

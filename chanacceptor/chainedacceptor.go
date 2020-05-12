@@ -51,8 +51,9 @@ func (c *ChainedAcceptor) Accept(req *ChannelAcceptRequest) error {
 
 	c.acceptorsMtx.RLock()
 	for _, acceptor := range c.acceptors {
-		// We call Accept first in case any acceptor (perhaps an RPCAcceptor)
-		// wishes to be notified about ChannelAcceptRequest.
+		// We call Accept first in case any acceptor
+		// (perhaps an RPCAcceptor) wishes to be notified about
+		// ChannelAcceptRequest.
 		if err := acceptor.Accept(req); err != nil {
 			result = err
 			break

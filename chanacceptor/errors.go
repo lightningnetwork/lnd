@@ -6,8 +6,8 @@ import (
 )
 
 const (
-	// Length of the prefix message in `ErrRejectedWithMsg` + the max. length of
-	// custom message allowed to be sent to the remote peer.
+	// Length of the prefix message in `ErrRejectedWithMsg` + the max.
+	// length of custom message allowed to be sent to the remote peer.
 	trimmedAcceptanceErrorLength = 31 + 128
 )
 

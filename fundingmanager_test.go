@@ -2398,21 +2398,28 @@ func TestFundingManagerCustomChannelAcceptor(t *testing.T) {
 	// ChannelAcceptor that rejects some open channel requests.
 	acceptor := mockChannelAcceptor{
 		acceptClosure: func(req *chanacceptor.ChannelAcceptRequest) error {
-			// A rejection error without message. Default error message is
-			// expected to be sent in such case.
-			if req.OpenChanMsg.PushAmount < lnwire.NewMSatFromSatoshis(5) {
+			// A rejection error without message. Default error
+			// message is expected to be sent in such case.
+			if req.OpenChanMsg.PushAmount <
+				lnwire.NewMSatFromSatoshis(5) {
+
 				return errors.New("")
 			}
 
-			// A rejection error with custom message. This message is expected
-			// to be sent to the remote node.
-			if req.OpenChanMsg.PushAmount < lnwire.NewMSatFromSatoshis(10) {
+			// A rejection error with custom message. This message
+			// is expected to be sent to the remote node.
+			if req.OpenChanMsg.PushAmount <
+				lnwire.NewMSatFromSatoshis(10) {
+
 				return errors.New("push amount too small")
 			}
 
-			// A rejection error with long custom message. The trimmed version
-			// of this message is expected to be sent to the remote node.
-			if req.OpenChanMsg.PushAmount < lnwire.NewMSatFromSatoshis(20) {
+			// A rejection error with long custom message. The
+			// trimmed version of this message is expected to be
+			// sent to the remote node.
+			if req.OpenChanMsg.PushAmount <
+				lnwire.NewMSatFromSatoshis(20) {
+
 				return errors.New(strings.Repeat("a", 65534))
 			}
 
@@ -2483,7 +2490,8 @@ func TestFundingManagerCustomChannelAcceptor(t *testing.T) {
 		// Assert Bob responded.
 		// First three requests should be rejected.
 		if i < 3 {
-			err := assertFundingMsgSent(t, bob.msgChan, "Error").(*lnwire.Error)
+			err := assertFundingMsgSent(t,
+				bob.msgChan, "Error").(*lnwire.Error)
 			rejected = append(rejected, err)
 
 			continue
@@ -2501,7 +2509,8 @@ func TestFundingManagerCustomChannelAcceptor(t *testing.T) {
 	}
 
 	if len(accepted) != 1 {
-		t.Fatalf("expected to get 1 request accepted, got %d", len(accepted))
+		t.Fatalf("expected to get 1 request accepted, got %d",
+			len(accepted))
 	}
 
 	// First reject should be the default open channel rejection error.
@@ -2514,16 +2523,19 @@ func TestFundingManagerCustomChannelAcceptor(t *testing.T) {
 	// Second reject should be a custom open channel rejection error.
 	err = rejected[1]
 	if !strings.HasSuffix(
-		err.Error(), "open channel request rejected: push amount too small") {
+		err.Error(),
+		"open channel request rejected: push amount too small") {
+
 		t.Fatalf("expected ErrRejectedWithErr error, got \"%v\"",
 			err.Error())
 	}
 
 	// Third reject should be a trimmed open channel rejection error.
 	err = rejected[2]
+	rejectionMsg := strings.Repeat("a", 128)
 	if !strings.HasSuffix(
 		err.Error(),
-		"open channel request rejected: "+strings.Repeat("a", 128)+"...") {
+		"open channel request rejected: "+rejectionMsg+"...") {
 
 		t.Fatalf("expected ErrRejectedWithErr error, got \"%v\"",
 			err.Error())

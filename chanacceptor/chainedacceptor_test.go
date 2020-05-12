@@ -81,8 +81,8 @@ func TestChainedAcceptorRejectingAcceptor(t *testing.T) {
 		request   *ChannelAcceptRequest
 		result    error
 	}{
-		// Channel acceptor accepts all channels. Open channel request from
-		// NodeA is accepted.
+		// Channel acceptor accepts all channels. Open channel request
+		// from NodeA is accepted.
 		{
 			name:      "success allow all nodeA",
 			acceptors: []ChannelAcceptor{allowingAcceptor},
@@ -90,8 +90,8 @@ func TestChainedAcceptorRejectingAcceptor(t *testing.T) {
 			result:    nil,
 		},
 
-		// Channel acceptor accepts all channels. Open channel request from
-		// NodeB is accepted.
+		// Channel acceptor accepts all channels. Open channel request
+		// from NodeB is accepted.
 		{
 			name:      "success allow all nodeB",
 			acceptors: []ChannelAcceptor{allowingAcceptor},
@@ -99,8 +99,8 @@ func TestChainedAcceptorRejectingAcceptor(t *testing.T) {
 			result:    nil,
 		},
 
-		// Channel acceptor rejects node by node ID. Open channel request from
-		// NodeA is accepted.
+		// Channel acceptor rejects node by node ID. Open channel
+		// request from NodeA is accepted.
 		{
 			name:      "success don't reject nodeA",
 			acceptors: []ChannelAcceptor{rejectingAcceptor},
@@ -108,8 +108,8 @@ func TestChainedAcceptorRejectingAcceptor(t *testing.T) {
 			result:    nil,
 		},
 
-		// Channel acceptor rejects node by node ID. Open channel request from
-		// NodeB is rejected.
+		// Channel acceptor rejects node by node ID. Open channel
+		// request from NodeB is rejected.
 		{
 			name:      "error reject unwanted node nodeB",
 			acceptors: []ChannelAcceptor{rejectingAcceptor},
@@ -117,8 +117,8 @@ func TestChainedAcceptorRejectingAcceptor(t *testing.T) {
 			result:    errUnwantedNode,
 		},
 
-		// Channel acceptor rejects channel by ID. Open channel request from
-		// NodeA is rejected.
+		// Channel acceptor rejects channel by ID. Open channel request
+		// from NodeA is rejected.
 		{
 			name:      "error reject unwanted channel nodeA",
 			acceptors: []ChannelAcceptor{rejectingAcceptor2},
@@ -126,8 +126,8 @@ func TestChainedAcceptorRejectingAcceptor(t *testing.T) {
 			result:    errUnwantedChannel,
 		},
 
-		// Channel acceptor rejects channel by ID. Open channel request from
-		// NodeB is accepted.
+		// Channel acceptor rejects channel by ID. Open channel request
+		// from NodeB is accepted.
 		{
 			name:      "success don't reject nodeB",
 			acceptors: []ChannelAcceptor{rejectingAcceptor2},
@@ -135,8 +135,8 @@ func TestChainedAcceptorRejectingAcceptor(t *testing.T) {
 			result:    nil,
 		},
 
-		// Multiple channel acceptors. First one allows all requests, second one
-		// rejects by node ID but allows nodeA.
+		// Multiple channel acceptors. First one allows all requests,
+		// second one rejects by node ID but allows nodeA.
 		{
 			name: "success allow+reject nodeA",
 			acceptors: []ChannelAcceptor{
@@ -147,8 +147,8 @@ func TestChainedAcceptorRejectingAcceptor(t *testing.T) {
 			result:  nil,
 		},
 
-		// Multiple channel acceptors. First one allows all requests, second one
-		// rejects by node ID and rejects nodeB.
+		// Multiple channel acceptors. First one allows all requests,
+		// second one rejects by node ID and rejects nodeB.
 		{
 			name: "error allow+reject nodeB",
 			acceptors: []ChannelAcceptor{
@@ -204,7 +204,8 @@ func TestChainedAcceptorRejectingAcceptor(t *testing.T) {
 		got := chainedAcceptor.Accept(test.request)
 		if got != test.result {
 			t.Errorf(
-				"expected chainAcceptor.Accept to return: %v, got: %v",
+				"expected chainAcceptor.Accept to return: %v, "+
+					" got: %v",
 				test.result, got)
 		}
 	}

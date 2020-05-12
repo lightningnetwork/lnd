@@ -85,8 +85,8 @@ func TestRPCMultipleAcceptClients(t *testing.T) {
 	successChan := make(chan struct{})
 	errChan := make(chan struct{}, 4)
 
-	// demultiplexReq is a closure used to abstract the RPCAcceptor's request
-	// and response logic.
+	// demultiplexReq is a closure used to abstract the RPCAcceptor's
+	// request and response logic.
 	demultiplexReq := func(req *ChannelAcceptRequest) error {
 		respChan := make(chan lnrpc.ChannelAcceptResponse, 1)
 
@@ -102,16 +102,17 @@ func TestRPCMultipleAcceptClients(t *testing.T) {
 			return errors.New("quit")
 		}
 
-		// Receive the response and verify that the PendingChanId matches
-		// the ID found in the ChannelAcceptRequest. If no response has been
-		// received in defaultAcceptTimeout, then return false.
+		// Receive the response and verify that the PendingChanId
+		// matches the ID found in the ChannelAcceptRequest. If no
+		// response has been received in defaultAcceptTimeout, then
+		// return false.
 		select {
 		case resp := <-respChan:
 			pendingID := req.OpenChanMsg.PendingChannelID
 			if !bytes.Equal(pendingID[:], resp.PendingChanId) {
 				errChan <- struct{}{}
-				return errors.New("PendingChanId doesn't match the ID in " +
-					"ChannelAcceptRequest")
+				return errors.New("PendingChanId doesn't " +
+					"match the ID in ChannelAcceptRequest")
 			}
 
 			if !resp.Accept {
@@ -145,9 +146,10 @@ func TestRPCMultipleAcceptClients(t *testing.T) {
 	for {
 		select {
 		case newReq := <-requests:
+			chanID := newReq.chanReq.OpenChanMsg.PendingChannelID[:]
 			newResponse := lnrpc.ChannelAcceptResponse{
 				Accept:          true,
-				PendingChanId:   newReq.chanReq.OpenChanMsg.PendingChannelID[:],
+				PendingChanId:   chanID,
 				RejectionReason: "",
 			}
 

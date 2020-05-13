@@ -476,7 +476,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 
 	// User has created the htlc update therefore we should find the
 	// appropriate channel link and send the payment over this link.
-	link, linkErr := s.handleLocalAddHTLC(packet, htlc)
+	link, linkErr := s.getLocalLink(packet, htlc)
 	if linkErr != nil {
 		// Notify the htlc notifier of a link failure on our
 		// outgoing link. Incoming timelock/amount values are
@@ -750,12 +750,11 @@ func (s *Switch) routeAsync(packet *htlcPacket, errChan chan error,
 	}
 }
 
-// handleLocalAddHTLC handles the addition of a htlc for a send that
-// originates from our node. It returns the link that the htlc should
-// be forwarded outwards on, and a link error if the htlc cannot be
-// forwarded.
-func (s *Switch) handleLocalAddHTLC(pkt *htlcPacket,
-	htlc *lnwire.UpdateAddHTLC) (ChannelLink, *LinkError) {
+// getLocalLink handles the addition of a htlc for a send that originates from
+// our node. It returns the link that the htlc should be forwarded outwards on,
+// and a link error if the htlc cannot be forwarded.
+func (s *Switch) getLocalLink(pkt *htlcPacket, htlc *lnwire.UpdateAddHTLC) (
+	ChannelLink, *LinkError) {
 
 	// Try to find links by node destination.
 	s.indexMtx.RLock()

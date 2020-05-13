@@ -35,7 +35,10 @@ import (
 )
 
 const (
-	defaultConfigFilename     = "lnd.conf"
+	// DefaultConfigFilename is the default configuration file name lnd
+	// tries to load.
+	DefaultConfigFilename = "lnd.conf"
+
 	defaultDataDirname        = "data"
 	defaultChainSubDirname    = "chain"
 	defaultGraphSubDirname    = "graph"
@@ -133,15 +136,25 @@ const (
 )
 
 var (
-	defaultLndDir     = btcutil.AppDataDir("lnd", false)
-	defaultConfigFile = filepath.Join(defaultLndDir, defaultConfigFilename)
-	defaultDataDir    = filepath.Join(defaultLndDir, defaultDataDirname)
-	defaultLogDir     = filepath.Join(defaultLndDir, defaultLogDirname)
+	// DefaultLndDir is the default directory where lnd tries to find its
+	// configuration file and store its data. This is a directory in the
+	// user's application data, for example:
+	//   C:\Users\<username>\AppData\Local\Lnd on Windows
+	//   ~/.lnd on Linux
+	//   ~/Library/Application Support/Lnd on MacOS
+	DefaultLndDir = btcutil.AppDataDir("lnd", false)
+
+	// DefaultConfigFile is the default full path of lnd's configuration
+	// file.
+	DefaultConfigFile = filepath.Join(DefaultLndDir, DefaultConfigFilename)
+
+	defaultDataDir = filepath.Join(DefaultLndDir, defaultDataDirname)
+	defaultLogDir  = filepath.Join(DefaultLndDir, defaultLogDirname)
 
 	defaultTowerDir = filepath.Join(defaultDataDir, defaultTowerSubDirname)
 
-	defaultTLSCertPath = filepath.Join(defaultLndDir, defaultTLSCertFilename)
-	defaultTLSKeyPath  = filepath.Join(defaultLndDir, defaultTLSKeyFilename)
+	defaultTLSCertPath = filepath.Join(DefaultLndDir, defaultTLSCertFilename)
+	defaultTLSKeyPath  = filepath.Join(DefaultLndDir, defaultTLSKeyFilename)
 
 	defaultBtcdDir         = btcutil.AppDataDir("btcd", false)
 	defaultBtcdRPCCertFile = filepath.Join(defaultBtcdDir, "rpc.cert")
@@ -292,8 +305,8 @@ type Config struct {
 // DefaultConfig returns all default values for the Config struct.
 func DefaultConfig() Config {
 	return Config{
-		LndDir:          defaultLndDir,
-		ConfigFile:      defaultConfigFile,
+		LndDir:          DefaultLndDir,
+		ConfigFile:      DefaultConfigFile,
 		DataDir:         defaultDataDir,
 		DebugLevel:      defaultLogLevel,
 		TLSCertPath:     defaultTLSCertPath,
@@ -424,10 +437,10 @@ func LoadConfig() (*Config, error) {
 	// file within it.
 	configFileDir := cleanAndExpandPath(preCfg.LndDir)
 	configFilePath := cleanAndExpandPath(preCfg.ConfigFile)
-	if configFileDir != defaultLndDir {
-		if configFilePath == defaultConfigFile {
+	if configFileDir != DefaultLndDir {
+		if configFilePath == DefaultConfigFile {
 			configFilePath = filepath.Join(
-				configFileDir, defaultConfigFilename,
+				configFileDir, DefaultConfigFilename,
 			)
 		}
 	}
@@ -475,7 +488,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 	// If the provided lnd directory is not the default, we'll modify the
 	// path to all of the files and directories that will live within it.
 	lndDir := cleanAndExpandPath(cfg.LndDir)
-	if lndDir != defaultLndDir {
+	if lndDir != DefaultLndDir {
 		cfg.DataDir = filepath.Join(lndDir, defaultDataDirname)
 		cfg.TLSCertPath = filepath.Join(lndDir, defaultTLSCertFilename)
 		cfg.TLSKeyPath = filepath.Join(lndDir, defaultTLSKeyFilename)

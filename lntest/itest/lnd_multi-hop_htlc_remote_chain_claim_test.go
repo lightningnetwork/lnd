@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -148,7 +149,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// We'll now mine enough blocks so Carol decides that she needs to go
 	// on-chain to claim the HTLC as Bob has been inactive.
 	numBlocks := padCLTV(uint32(invoiceReq.CltvExpiry-
-		lnd.DefaultIncomingBroadcastDelta) - defaultCSV)
+		lncfg.DefaultIncomingBroadcastDelta) - defaultCSV)
 
 	if _, err := net.Miner.Node.Generate(numBlocks); err != nil {
 		t.Fatalf("unable to generate blocks")

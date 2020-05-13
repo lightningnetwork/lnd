@@ -46,21 +46,23 @@ import (
 //
 // Loggers can not be used before the log rotator has been initialized with a
 // log file.  This must be performed early during application startup by
-// calling logWriter.InitLogRotator.
+// calling RootLogWriter.InitLogRotator.
 var (
-	logWriter = build.NewRotatingLogWriter()
+	// RootLogWriter is the main parent log writer all sub loggers should be
+	// appended to.
+	RootLogWriter = build.NewRotatingLogWriter()
 
 	// Loggers that need to be accessible from the lnd package can be placed
 	// here. Loggers that are only used in sub modules can be added directly
 	// by using the addSubLogger method.
-	ltndLog = build.NewSubLogger("LTND", logWriter.GenSubLogger)
-	peerLog = build.NewSubLogger("PEER", logWriter.GenSubLogger)
-	rpcsLog = build.NewSubLogger("RPCS", logWriter.GenSubLogger)
-	srvrLog = build.NewSubLogger("SRVR", logWriter.GenSubLogger)
-	fndgLog = build.NewSubLogger("FNDG", logWriter.GenSubLogger)
-	utxnLog = build.NewSubLogger("UTXN", logWriter.GenSubLogger)
-	brarLog = build.NewSubLogger("BRAR", logWriter.GenSubLogger)
-	atplLog = build.NewSubLogger("ATPL", logWriter.GenSubLogger)
+	ltndLog = build.NewSubLogger("LTND", RootLogWriter.GenSubLogger)
+	peerLog = build.NewSubLogger("PEER", RootLogWriter.GenSubLogger)
+	rpcsLog = build.NewSubLogger("RPCS", RootLogWriter.GenSubLogger)
+	srvrLog = build.NewSubLogger("SRVR", RootLogWriter.GenSubLogger)
+	fndgLog = build.NewSubLogger("FNDG", RootLogWriter.GenSubLogger)
+	utxnLog = build.NewSubLogger("UTXN", RootLogWriter.GenSubLogger)
+	brarLog = build.NewSubLogger("BRAR", RootLogWriter.GenSubLogger)
+	atplLog = build.NewSubLogger("ATPL", RootLogWriter.GenSubLogger)
 )
 
 // Initialize package-global logger variables.
@@ -110,7 +112,7 @@ func init() {
 func addSubLogger(subsystem string, useLoggers ...func(btclog.Logger)) {
 	// Create and register just a single logger to prevent them from
 	// overwriting each other internally.
-	logger := build.NewSubLogger(subsystem, logWriter.GenSubLogger)
+	logger := build.NewSubLogger(subsystem, RootLogWriter.GenSubLogger)
 	setSubLogger(subsystem, logger, useLoggers...)
 }
 
@@ -119,7 +121,7 @@ func addSubLogger(subsystem string, useLoggers ...func(btclog.Logger)) {
 func setSubLogger(subsystem string, logger btclog.Logger,
 	useLoggers ...func(btclog.Logger)) {
 
-	logWriter.RegisterSubLogger(subsystem, logger)
+	RootLogWriter.RegisterSubLogger(subsystem, logger)
 	for _, useLogger := range useLoggers {
 		useLogger(logger)
 	}

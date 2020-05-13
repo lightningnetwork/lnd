@@ -1,6 +1,6 @@
 // Copyright (c) 2013-2017 The btcsuite developers
 // Copyright (c) 2015-2016 The Decred developers
-// Copyright (C) 2015-2017 The Lightning Network Developers
+// Copyright (C) 2015-2020 The Lightning Network Developers
 
 package lnd
 
@@ -1144,9 +1144,9 @@ func CleanAndExpandPath(path string) string {
 	// Expand initial ~ to OS specific home directory.
 	if strings.HasPrefix(path, "~") {
 		var homeDir string
-		user, err := user.Current()
+		u, err := user.Current()
 		if err == nil {
-			homeDir = user.HomeDir
+			homeDir = u.HomeDir
 		} else {
 			homeDir = os.Getenv("HOME")
 		}
@@ -1160,7 +1160,7 @@ func CleanAndExpandPath(path string) string {
 }
 
 func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{}, net chainCode,
-	funcName string) error {
+	funcName string) error { // nolint:unparam
 
 	// First, we'll check our node config to make sure the RPC parameters
 	// were set correctly. We'll also determine the path to the conf file
@@ -1294,7 +1294,7 @@ func extractBtcdRPCParams(btcdConfigPath string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	defer btcdConfigFile.Close()
+	defer func() { _ = btcdConfigFile.Close() }()
 
 	// With the file open extract the contents of the configuration file so
 	// we can attempt to locate the RPC credentials.
@@ -1335,14 +1335,16 @@ func extractBtcdRPCParams(btcdConfigPath string) (string, string, error) {
 // location of bitcoind's bitcoin.conf on the target system. The routine looks
 // for a cookie first, optionally following the datadir configuration option in
 // the bitcoin.conf. If it doesn't find one, it looks for rpcuser/rpcpassword.
-func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string, string, error) {
+func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string,
+	string, error) {
+
 	// First, we'll open up the bitcoind configuration file found at the
 	// target destination.
 	bitcoindConfigFile, err := os.Open(bitcoindConfigPath)
 	if err != nil {
 		return "", "", "", "", err
 	}
-	defer bitcoindConfigFile.Close()
+	defer func() { _ = bitcoindConfigFile.Close() }()
 
 	// With the file open extract the contents of the configuration file so
 	// we can attempt to locate the RPC credentials.

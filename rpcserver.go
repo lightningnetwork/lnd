@@ -5220,7 +5220,7 @@ func (r *rpcServer) DebugLevel(ctx context.Context,
 	if req.Show {
 		return &lnrpc.DebugLevelResponse{
 			SubSystems: strings.Join(
-				logWriter.SupportedSubsystems(), " ",
+				RootLogWriter.SupportedSubsystems(), " ",
 			),
 		}, nil
 	}
@@ -5229,7 +5229,7 @@ func (r *rpcServer) DebugLevel(ctx context.Context,
 
 	// Otherwise, we'll attempt to set the logging level using the
 	// specified level spec.
-	err := build.ParseAndSetDebugLevels(req.LevelSpec, logWriter)
+	err := build.ParseAndSetDebugLevels(req.LevelSpec, RootLogWriter)
 	if err != nil {
 		return nil, err
 	}

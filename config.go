@@ -971,12 +971,12 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 	// Special show command to list supported subsystems and exit.
 	if cfg.DebugLevel == "show" {
 		fmt.Println("Supported subsystems",
-			logWriter.SupportedSubsystems())
+			RootLogWriter.SupportedSubsystems())
 		os.Exit(0)
 	}
 
 	// Initialize logging at the default logging level.
-	err = logWriter.InitLogRotator(
+	err = RootLogWriter.InitLogRotator(
 		filepath.Join(cfg.LogDir, defaultLogFilename),
 		cfg.MaxLogFileSize, cfg.MaxLogFiles,
 	)
@@ -988,7 +988,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 	}
 
 	// Parse, validate, and set debug log level(s).
-	err = build.ParseAndSetDebugLevels(cfg.DebugLevel, logWriter)
+	err = build.ParseAndSetDebugLevels(cfg.DebugLevel, RootLogWriter)
 	if err != nil {
 		err = fmt.Errorf("%s: %v", funcName, err.Error())
 		_, _ = fmt.Fprintln(os.Stderr, err)

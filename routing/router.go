@@ -2186,7 +2186,7 @@ func (r *ChannelRouter) FetchLightningNode(node route.Vertex) (*channeldb.Lightn
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) ForEachNode(cb func(*channeldb.LightningNode) error) error {
-	return r.cfg.Graph.ForEachNode(nil, func(_ kvdb.ReadTx, n *channeldb.LightningNode) error {
+	return r.cfg.Graph.ForEachNode(func(_ kvdb.ReadTx, n *channeldb.LightningNode) error {
 		return cb(n)
 	})
 }

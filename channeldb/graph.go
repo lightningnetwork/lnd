@@ -321,14 +321,9 @@ func (c *ChannelGraph) DisabledChannelIDs() ([]uint64, error) {
 // returns an error, then the transaction is aborted and the iteration stops
 // early.
 //
-// If the caller wishes to re-use an existing boltdb transaction, then it
-// should be passed as the first argument.  Otherwise the first argument should
-// be nil and a fresh transaction will be created to execute the graph
-// traversal
-//
 // TODO(roasbeef): add iterator interface to allow for memory efficient graph
 // traversal when graph gets mega
-func (c *ChannelGraph) ForEachNode(tx kvdb.RwTx, cb func(kvdb.ReadTx, *LightningNode) error) error { // nolint:interfacer
+func (c *ChannelGraph) ForEachNode(cb func(kvdb.ReadTx, *LightningNode) error) error { // nolint:interfacer
 	traversal := func(tx kvdb.ReadTx) error {
 		// First grab the nodes bucket which stores the mapping from
 		// pubKey to node information.
@@ -358,15 +353,7 @@ func (c *ChannelGraph) ForEachNode(tx kvdb.RwTx, cb func(kvdb.ReadTx, *Lightning
 		})
 	}
 
-	// If no transaction was provided, then we'll create a new transaction
-	// to execute the transaction within.
-	if tx == nil {
-		return kvdb.View(c.db, traversal)
-	}
-
-	// Otherwise, we re-use the existing transaction to execute the graph
-	// traversal.
-	return traversal(tx)
+	return kvdb.View(c.db, traversal)
 }
 
 // SourceNode returns the source node of the graph. The source node is treated

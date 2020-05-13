@@ -882,7 +882,7 @@ func TestGraphTraversal(t *testing.T) {
 
 	// Iterate over each node as returned by the graph, if all nodes are
 	// reached, then the map created above should be empty.
-	err = graph.ForEachNode(nil, func(_ kvdb.ReadTx, node *LightningNode) error {
+	err = graph.ForEachNode(func(_ kvdb.ReadTx, node *LightningNode) error {
 		delete(nodeIndex, node.Alias)
 		return nil
 	})
@@ -1051,7 +1051,7 @@ func assertNumChans(t *testing.T, graph *ChannelGraph, n int) {
 
 func assertNumNodes(t *testing.T, graph *ChannelGraph, n int) {
 	numNodes := 0
-	err := graph.ForEachNode(nil, func(_ kvdb.ReadTx, _ *LightningNode) error {
+	err := graph.ForEachNode(func(_ kvdb.ReadTx, _ *LightningNode) error {
 		numNodes++
 		return nil
 	})

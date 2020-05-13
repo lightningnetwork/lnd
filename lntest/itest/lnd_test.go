@@ -4830,7 +4830,7 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 				Route:       r,
 			}
 			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-			resp, err := carol.RouterClient.SendToRoute(
+			resp, err := carol.RouterClient.SendToRouteV2(
 				ctxt, sendReq,
 			)
 			if err != nil {

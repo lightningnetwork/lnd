@@ -1,6 +1,7 @@
 package routerrpc
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -92,4 +93,28 @@ func (s *Server) SendPayment(request *SendPaymentRequest,
 		Router_TrackPaymentServer: stream,
 	}
 	return s.SendPaymentV2(request, &legacyStream)
+}
+
+// SendToRoute sends a payment through a predefined route. The response of this
+// call contains structured error information.
+func (s *Server) SendToRoute(ctx context.Context,
+	req *SendToRouteRequest) (*SendToRouteResponse, error) {
+
+	resp, err := s.SendToRouteV2(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp == nil {
+		return nil, nil
+	}
+
+	// Need to convert to legacy response message because proto identifiers
+	// don't line up.
+	legacyResp := &SendToRouteResponse{
+		Preimage: resp.Preimage,
+		Failure:  resp.Failure,
+	}
+
+	return legacyResp, err
 }

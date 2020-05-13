@@ -52,6 +52,10 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
+		"/routerrpc.Router/SendToRouteV2": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
 		"/routerrpc.Router/SendToRoute": {{
 			Entity: "offchain",
 			Action: "write",
@@ -299,10 +303,10 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 	}, nil
 }
 
-// SendToRoute sends a payment through a predefined route. The response of this
+// SendToRouteV2 sends a payment through a predefined route. The response of this
 // call contains structured error information.
-func (s *Server) SendToRoute(ctx context.Context,
-	req *SendToRouteRequest) (*SendToRouteResponse, error) {
+func (s *Server) SendToRouteV2(ctx context.Context,
+	req *SendToRouteRequest) (*lnrpc.HTLCAttempt, error) {
 
 	if req.Route == nil {
 		return nil, fmt.Errorf("unable to send, no routes provided")
@@ -318,25 +322,24 @@ func (s *Server) SendToRoute(ctx context.Context,
 		return nil, err
 	}
 
-	preimage, err := s.cfg.Router.SendToRoute(hash, route)
-
-	// In the success case, return the preimage.
-	if err == nil {
-		return &SendToRouteResponse{
-			Preimage: preimage[:],
-		}, nil
+	// Pass route to the router. This call returns the full htlc attempt
+	// information as it is stored in the database. It is possible that both
+	// the attempt return value and err are non-nil. This can happen when
+	// the attempt was already initiated before the error happened. In that
+	// case, we give precedence to the attempt information as stored in the
+	// db.
+	attempt, err := s.cfg.Router.SendToRoute(hash, route)
+	if attempt != nil {
+		rpcAttempt, err := s.cfg.RouterBackend.MarshalHTLCAttempt(
+			*attempt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		return rpcAttempt, nil
 	}
 
-	// In the failure case, marshall the failure message to the rpc format
-	// before returning it to the caller.
-	rpcErr, err := marshallError(err)
-	if err != nil {
-		return nil, err
-	}
-
-	return &SendToRouteResponse{
-		Failure: rpcErr,
-	}, nil
+	return nil, err
 }
 
 // ResetMissionControl clears all mission control state and starts with a clean

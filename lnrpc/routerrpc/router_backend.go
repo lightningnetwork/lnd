@@ -872,6 +872,7 @@ func (r *RouterBackend) MarshalHTLCAttempt(
 		rpcAttempt.ResolveTimeNs = MarshalTimeNano(
 			htlc.Settle.SettleTime,
 		)
+		rpcAttempt.Preimage = htlc.Settle.Preimage[:]
 
 	case htlc.Failure != nil:
 		rpcAttempt.Status = lnrpc.HTLCAttempt_FAILED

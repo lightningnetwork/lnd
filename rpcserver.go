@@ -3978,9 +3978,14 @@ func (r *rpcServer) dispatchPaymentIntent(
 			payment,
 		)
 	} else {
-		preImage, routerErr = r.server.chanRouter.SendToRoute(
+		var attempt *channeldb.HTLCAttempt
+		attempt, routerErr = r.server.chanRouter.SendToRoute(
 			payIntent.rHash, payIntent.route,
 		)
+
+		if routerErr == nil {
+			preImage = attempt.Settle.Preimage
+		}
 
 		route = payIntent.route
 	}

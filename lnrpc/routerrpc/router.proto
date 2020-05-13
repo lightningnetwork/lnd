@@ -29,11 +29,22 @@ service Router {
     rpc EstimateRouteFee (RouteFeeRequest) returns (RouteFeeResponse);
 
     /*
-    SendToRoute attempts to make a payment via the specified route. This method
+    Deprecated, use SendToRouteV2. SendToRoute attempts to make a payment via
+    the specified route. This method differs from SendPayment in that it
+    allows users to specify a full route manually. This can be used for
+    things like rebalancing, and atomic swaps. It differs from the newer
+    SendToRouteV2 in that it doesn't return the full HTLC information.
+    */
+    rpc SendToRoute (SendToRouteRequest) returns (SendToRouteResponse) {
+        option deprecated = true;
+    }
+
+    /*
+    SendToRouteV2 attempts to make a payment via the specified route. This method
     differs from SendPayment in that it allows users to specify a full route
     manually. This can be used for things like rebalancing, and atomic swaps.
     */
-    rpc SendToRoute (SendToRouteRequest) returns (SendToRouteResponse);
+    rpc SendToRouteV2 (SendToRouteRequest) returns (lnrpc.HTLCAttempt);
 
     /*
     ResetMissionControl clears all mission control state and starts with a clean
@@ -71,7 +82,7 @@ service Router {
         returns (stream HtlcEvent);
 
     /*
-    Deprecated, use SendPaymentV2. SendPayment attempts to route a payment
+    Deprecated, use SendPaymentV2. SendPayment attempts to route a payment 
     described by the passed PaymentRequest to the final destination. The call
     returns a stream of payment status updates.
     */
@@ -567,3 +578,4 @@ message PaymentStatus {
     */
     repeated lnrpc.HTLCAttempt htlcs = 4;
 }
+

@@ -104,14 +104,17 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 	}
 
 	// Mark the payment as successful.
-	err = pControl.SettleAttempt(
-		info.PaymentHash, attempt.AttemptID,
-		&channeldb.HTLCSettleInfo{
-			Preimage: preimg,
-		},
+	settleInfo := channeldb.HTLCSettleInfo{
+		Preimage: preimg,
+	}
+	htlcAttempt, err := pControl.SettleAttempt(
+		info.PaymentHash, attempt.AttemptID, &settleInfo,
 	)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if *htlcAttempt.Settle != settleInfo {
+		t.Fatalf("unexpected settle info returned")
 	}
 
 	// Register a third subscriber after the payment succeeded.
@@ -215,12 +218,17 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt bool) {
 		}
 
 		// Fail the payment attempt.
-		err := pControl.FailAttempt(
-			info.PaymentHash, attempt.AttemptID,
-			&channeldb.HTLCFailInfo{},
+		failInfo := channeldb.HTLCFailInfo{
+			Reason: channeldb.HTLCFailInternal,
+		}
+		htlcAttempt, err := pControl.FailAttempt(
+			info.PaymentHash, attempt.AttemptID, &failInfo,
 		)
 		if err != nil {
 			t.Fatalf("unable to fail htlc: %v", err)
+		}
+		if *htlcAttempt.Failure != failInfo {
+			t.Fatalf("unexpected fail info returned")
 		}
 	}
 

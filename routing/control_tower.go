@@ -30,10 +30,12 @@ type ControlTower interface {
 	// error to prevent us from making duplicate payments to the same
 	// payment hash. The provided preimage is atomically saved to the DB
 	// for record keeping.
-	SettleAttempt(lntypes.Hash, uint64, *channeldb.HTLCSettleInfo) error
+	SettleAttempt(lntypes.Hash, uint64, *channeldb.HTLCSettleInfo) (
+		*channeldb.HTLCAttempt, error)
 
 	// FailAttempt marks the given payment attempt failed.
-	FailAttempt(lntypes.Hash, uint64, *channeldb.HTLCFailInfo) error
+	FailAttempt(lntypes.Hash, uint64, *channeldb.HTLCFailInfo) (
+		*channeldb.HTLCAttempt, error)
 
 	// FetchPayment fetches the payment corresponding to the given payment
 	// hash.
@@ -146,38 +148,40 @@ func (p *controlTower) RegisterAttempt(paymentHash lntypes.Hash,
 // this is a multi shard payment, this might implicitly mean the the
 // full payment succeeded.
 func (p *controlTower) SettleAttempt(paymentHash lntypes.Hash,
-	attemptID uint64, settleInfo *channeldb.HTLCSettleInfo) error {
+	attemptID uint64, settleInfo *channeldb.HTLCSettleInfo) (
+	*channeldb.HTLCAttempt, error) {
 
 	p.paymentsMtx.Lock(paymentHash)
 	defer p.paymentsMtx.Unlock(paymentHash)
 
 	payment, err := p.db.SettleAttempt(paymentHash, attemptID, settleInfo)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Notify subscribers of success event.
 	p.notifySubscribers(paymentHash, payment)
 
-	return nil
+	return payment.GetAttempt(attemptID)
 }
 
 // FailAttempt marks the given payment attempt failed.
 func (p *controlTower) FailAttempt(paymentHash lntypes.Hash,
-	attemptID uint64, failInfo *channeldb.HTLCFailInfo) error {
+	attemptID uint64, failInfo *channeldb.HTLCFailInfo) (
+	*channeldb.HTLCAttempt, error) {
 
 	p.paymentsMtx.Lock(paymentHash)
 	defer p.paymentsMtx.Unlock(paymentHash)
 
 	payment, err := p.db.FailAttempt(paymentHash, attemptID, failInfo)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Notify subscribers of failed attempt.
 	p.notifySubscribers(paymentHash, payment)
 
-	return nil
+	return payment.GetAttempt(attemptID)
 }
 
 // FetchPayment fetches the payment corresponding to the given payment hash.

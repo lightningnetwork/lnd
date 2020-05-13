@@ -271,6 +271,8 @@ type server struct {
 	// provide insights into their health and performance.
 	chanEventStore *chanfitness.ChannelEventStore
 
+	hostAnn *netann.HostAnnouncer
+
 	quit chan struct{}
 
 	wg sync.WaitGroup
@@ -1231,6 +1233,26 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		}
 	}
 
+	if len(cfg.ExternalHosts) != 0 {
+		advertisedIPs := make(map[string]struct{})
+		for _, addr := range s.currentNodeAnn.Addresses {
+			advertisedIPs[addr.String()] = struct{}{}
+		}
+
+		s.hostAnn = netann.NewHostAnnouncer(netann.HostAnnouncerConfig{
+			Hosts:         cfg.ExternalHosts,
+			RefreshTicker: ticker.New(defaultHostSampleInterval),
+			LookupHost: func(host string) (net.Addr, error) {
+				return lncfg.ParseAddressString(
+					host, strconv.Itoa(defaultPeerPort),
+					cfg.net.ResolveTCPAddr,
+				)
+			},
+			AdvertisedIPs:  advertisedIPs,
+			AnnounceNewIPs: netann.IPAnnouncer(s.genNodeAnnouncement),
+		})
+	}
+
 	// Create the connection manager which will be responsible for
 	// maintaining persistent outbound connections and also accepting new
 	// incoming connections
@@ -1272,6 +1294,13 @@ func (s *server) Start() error {
 		if s.natTraversal != nil {
 			s.wg.Add(1)
 			go s.watchExternalIP()
+		}
+
+		if s.hostAnn != nil {
+			if err := s.hostAnn.Start(); err != nil {
+				startErr = err
+				return
+			}
 		}
 
 		// Start the notification server. This is used so channel
@@ -1490,6 +1519,13 @@ func (s *server) Stop() error {
 		// will kick in and abort to allow this method to return.
 		if s.towerClient != nil {
 			s.towerClient.Stop()
+		}
+
+		if s.hostAnn != nil {
+			if err := s.hostAnn.Stop(); err != nil {
+				srvrLog.Warnf("unable to shut down host "+
+					"annoucner: %v", err)
+			}
 		}
 
 		// Wait for all lingering goroutines to quit.

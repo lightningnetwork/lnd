@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -263,7 +264,7 @@ func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
 		)
 
 	case "bitcoind", "litecoind":
-		var bitcoindMode *bitcoindConfig
+		var bitcoindMode *lncfg.Bitcoind
 		switch {
 		case cfg.Bitcoin.Active:
 			bitcoindMode = cfg.BitcoindMode
@@ -388,7 +389,7 @@ func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
 		// connection. If a raw cert was specified in the config, then
 		// we'll set that directly. Otherwise, we attempt to read the
 		// cert from the path specified in the config.
-		var btcdMode *btcdConfig
+		var btcdMode *lncfg.Btcd
 		switch {
 		case cfg.Bitcoin.Active:
 			btcdMode = cfg.BtcdMode

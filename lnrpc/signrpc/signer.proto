@@ -167,7 +167,7 @@ message InputScript {
     // The serializes witness stack for the specified input.
     repeated bytes witness = 1;
 
-    /**
+    /*
     The optional sig script for the specified witness that will only be set if
     the input specified is a nested p2sh witness program.
     */

@@ -30,7 +30,6 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/tor"
 )
@@ -163,81 +162,6 @@ var (
 	bitcoindEstimateModes       = [2]string{"ECONOMICAL", defaultBitcoindEstimateMode}
 )
 
-type chainConfig struct {
-	Active   bool   `long:"active" description:"If the chain should be active or not."`
-	ChainDir string `long:"chaindir" description:"The directory to store the chain's data within."`
-
-	Node string `long:"node" description:"The blockchain interface to use." choice:"btcd" choice:"bitcoind" choice:"neutrino" choice:"ltcd" choice:"litecoind"`
-
-	MainNet  bool `long:"mainnet" description:"Use the main network"`
-	TestNet3 bool `long:"testnet" description:"Use the test network"`
-	SimNet   bool `long:"simnet" description:"Use the simulation test network"`
-	RegTest  bool `long:"regtest" description:"Use the regression test network"`
-
-	DefaultNumChanConfs int                 `long:"defaultchanconfs" description:"The default number of confirmations a channel must have before it's considered open. If this is not set, we will scale the value according to the channel size."`
-	DefaultRemoteDelay  int                 `long:"defaultremotedelay" description:"The default number of blocks we will require our channel counterparty to wait before accessing its funds in case of unilateral close. If this is not set, we will scale the value according to the channel size."`
-	MinHTLCIn           lnwire.MilliSatoshi `long:"minhtlc" description:"The smallest HTLC we are willing to accept on our channels, in millisatoshi"`
-	MinHTLCOut          lnwire.MilliSatoshi `long:"minhtlcout" description:"The smallest HTLC we are willing to send out on our channels, in millisatoshi"`
-	BaseFee             lnwire.MilliSatoshi `long:"basefee" description:"The base fee in millisatoshi we will charge for forwarding payments on our channels"`
-	FeeRate             lnwire.MilliSatoshi `long:"feerate" description:"The fee rate used when forwarding payments on our channels. The total fee charged is basefee + (amount * feerate / 1000000), where amount is the forwarded amount."`
-	TimeLockDelta       uint32              `long:"timelockdelta" description:"The CLTV delta we will subtract from a forwarded HTLC's timelock value"`
-}
-
-type neutrinoConfig struct {
-	AddPeers           []string      `short:"a" long:"addpeer" description:"Add a peer to connect with at startup"`
-	ConnectPeers       []string      `long:"connect" description:"Connect only to the specified peers at startup"`
-	MaxPeers           int           `long:"maxpeers" description:"Max number of inbound and outbound peers"`
-	BanDuration        time.Duration `long:"banduration" description:"How long to ban misbehaving peers.  Valid time units are {s, m, h}.  Minimum 1 second"`
-	BanThreshold       uint32        `long:"banthreshold" description:"Maximum allowed ban score before disconnecting and banning misbehaving peers."`
-	FeeURL             string        `long:"feeurl" description:"Optional URL for fee estimation. If a URL is not specified, static fees will be used for estimation."`
-	AssertFilterHeader string        `long:"assertfilterheader" description:"Optional filter header in height:hash format to assert the state of neutrino's filter header chain on startup. If the assertion does not hold, then the filter header chain will be re-synced from the genesis block."`
-}
-
-type btcdConfig struct {
-	Dir        string `long:"dir" description:"The base directory that contains the node's data, logs, configuration file, etc."`
-	RPCHost    string `long:"rpchost" description:"The daemon's rpc listening address. If a port is omitted, then the default port for the selected chain parameters will be used."`
-	RPCUser    string `long:"rpcuser" description:"Username for RPC connections"`
-	RPCPass    string `long:"rpcpass" default-mask:"-" description:"Password for RPC connections"`
-	RPCCert    string `long:"rpccert" description:"File containing the daemon's certificate file"`
-	RawRPCCert string `long:"rawrpccert" description:"The raw bytes of the daemon's PEM-encoded certificate chain which will be used to authenticate the RPC connection."`
-}
-
-type bitcoindConfig struct {
-	Dir            string `long:"dir" description:"The base directory that contains the node's data, logs, configuration file, etc."`
-	RPCHost        string `long:"rpchost" description:"The daemon's rpc listening address. If a port is omitted, then the default port for the selected chain parameters will be used."`
-	RPCUser        string `long:"rpcuser" description:"Username for RPC connections"`
-	RPCPass        string `long:"rpcpass" default-mask:"-" description:"Password for RPC connections"`
-	ZMQPubRawBlock string `long:"zmqpubrawblock" description:"The address listening for ZMQ connections to deliver raw block notifications"`
-	ZMQPubRawTx    string `long:"zmqpubrawtx" description:"The address listening for ZMQ connections to deliver raw transaction notifications"`
-	EstimateMode   string `long:"estimatemode" description:"The fee estimate mode. Must be either ECONOMICAL or CONSERVATIVE."`
-}
-
-type autoPilotConfig struct {
-	Active         bool               `long:"active" description:"If the autopilot agent should be active or not."`
-	Heuristic      map[string]float64 `long:"heuristic" description:"Heuristic to activate, and the weight to give it during scoring."`
-	MaxChannels    int                `long:"maxchannels" description:"The maximum number of channels that should be created"`
-	Allocation     float64            `long:"allocation" description:"The percentage of total funds that should be committed to automatic channel establishment"`
-	MinChannelSize int64              `long:"minchansize" description:"The smallest channel that the autopilot agent should create"`
-	MaxChannelSize int64              `long:"maxchansize" description:"The largest channel that the autopilot agent should create"`
-	Private        bool               `long:"private" description:"Whether the channels created by the autopilot agent should be private or not. Private channels won't be announced to the network."`
-	MinConfs       int32              `long:"minconfs" description:"The minimum number of confirmations each of your inputs in funding transactions created by the autopilot agent must have."`
-	ConfTarget     uint32             `long:"conftarget" description:"The confirmation target (in blocks) for channels opened by autopilot."`
-}
-
-type torConfig struct {
-	Active            bool   `long:"active" description:"Allow outbound and inbound connections to be routed through Tor"`
-	SOCKS             string `long:"socks" description:"The host:port that Tor's exposed SOCKS5 proxy is listening on"`
-	DNS               string `long:"dns" description:"The DNS server as host:port that Tor will use for SRV queries - NOTE must have TCP resolution enabled"`
-	StreamIsolation   bool   `long:"streamisolation" description:"Enable Tor stream isolation by randomizing user credentials for each connection."`
-	Control           string `long:"control" description:"The host:port that Tor is listening on for Tor control connections"`
-	TargetIPAddress   string `long:"targetipaddress" description:"IP address that Tor should use as the target of the hidden service"`
-	Password          string `long:"password" description:"The password used to arrive at the HashedControlPassword for the control port. If provided, the HASHEDPASSWORD authentication method will be used instead of the SAFECOOKIE one."`
-	V2                bool   `long:"v2" description:"Automatically set up a v2 onion service to listen for inbound connections"`
-	V3                bool   `long:"v3" description:"Automatically set up a v3 onion service to listen for inbound connections"`
-	PrivateKeyPath    string `long:"privatekeypath" description:"The path to the private key of the onion service being created"`
-	WatchtowerKeyPath string `long:"watchtowerkeypath" description:"The path to the private key of the watchtower onion service being created"`
-}
-
 // Config defines the configuration options for lnd.
 //
 // See LoadConfig for further details regarding the configuration
@@ -294,18 +218,18 @@ type Config struct {
 	MaxPendingChannels int    `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
 	BackupFilePath     string `long:"backupfilepath" description:"The target location of the channel backup file"`
 
-	Bitcoin      *chainConfig    `group:"Bitcoin" namespace:"bitcoin"`
-	BtcdMode     *btcdConfig     `group:"btcd" namespace:"btcd"`
-	BitcoindMode *bitcoindConfig `group:"bitcoind" namespace:"bitcoind"`
-	NeutrinoMode *neutrinoConfig `group:"neutrino" namespace:"neutrino"`
+	Bitcoin      *lncfg.Chain    `group:"Bitcoin" namespace:"bitcoin"`
+	BtcdMode     *lncfg.Btcd     `group:"btcd" namespace:"btcd"`
+	BitcoindMode *lncfg.Bitcoind `group:"bitcoind" namespace:"bitcoind"`
+	NeutrinoMode *lncfg.Neutrino `group:"neutrino" namespace:"neutrino"`
 
-	Litecoin      *chainConfig    `group:"Litecoin" namespace:"litecoin"`
-	LtcdMode      *btcdConfig     `group:"ltcd" namespace:"ltcd"`
-	LitecoindMode *bitcoindConfig `group:"litecoind" namespace:"litecoind"`
+	Litecoin      *lncfg.Chain    `group:"Litecoin" namespace:"litecoin"`
+	LtcdMode      *lncfg.Btcd     `group:"ltcd" namespace:"ltcd"`
+	LitecoindMode *lncfg.Bitcoind `group:"litecoind" namespace:"litecoind"`
 
-	Autopilot *autoPilotConfig `group:"Autopilot" namespace:"autopilot"`
+	Autopilot *lncfg.AutoPilot `group:"Autopilot" namespace:"autopilot"`
 
-	Tor *torConfig `group:"Tor" namespace:"tor"`
+	Tor *lncfg.Tor `group:"Tor" namespace:"tor"`
 
 	SubRPCServers *subRPCServerConfigs `group:"subrpc"`
 
@@ -385,7 +309,7 @@ func LoadConfig() (*Config, error) {
 		MaxLogFiles:     defaultMaxLogFiles,
 		MaxLogFileSize:  defaultMaxLogFileSize,
 		AcceptorTimeout: defaultAcceptorTimeout,
-		Bitcoin: &chainConfig{
+		Bitcoin: &lncfg.Chain{
 			MinHTLCIn:     defaultBitcoinMinHTLCInMSat,
 			MinHTLCOut:    defaultBitcoinMinHTLCOutMSat,
 			BaseFee:       DefaultBitcoinBaseFeeMSat,
@@ -393,17 +317,17 @@ func LoadConfig() (*Config, error) {
 			TimeLockDelta: DefaultBitcoinTimeLockDelta,
 			Node:          "btcd",
 		},
-		BtcdMode: &btcdConfig{
+		BtcdMode: &lncfg.Btcd{
 			Dir:     defaultBtcdDir,
 			RPCHost: defaultRPCHost,
 			RPCCert: defaultBtcdRPCCertFile,
 		},
-		BitcoindMode: &bitcoindConfig{
+		BitcoindMode: &lncfg.Bitcoind{
 			Dir:          defaultBitcoindDir,
 			RPCHost:      defaultRPCHost,
 			EstimateMode: defaultBitcoindEstimateMode,
 		},
-		Litecoin: &chainConfig{
+		Litecoin: &lncfg.Chain{
 			MinHTLCIn:     defaultLitecoinMinHTLCInMSat,
 			MinHTLCOut:    defaultLitecoinMinHTLCOutMSat,
 			BaseFee:       defaultLitecoinBaseFeeMSat,
@@ -411,12 +335,12 @@ func LoadConfig() (*Config, error) {
 			TimeLockDelta: defaultLitecoinTimeLockDelta,
 			Node:          "ltcd",
 		},
-		LtcdMode: &btcdConfig{
+		LtcdMode: &lncfg.Btcd{
 			Dir:     defaultLtcdDir,
 			RPCHost: defaultRPCHost,
 			RPCCert: defaultLtcdRPCCertFile,
 		},
-		LitecoindMode: &bitcoindConfig{
+		LitecoindMode: &lncfg.Bitcoind{
 			Dir:          defaultLitecoindDir,
 			RPCHost:      defaultRPCHost,
 			EstimateMode: defaultBitcoindEstimateMode,
@@ -430,7 +354,7 @@ func LoadConfig() (*Config, error) {
 			SignRPC:   &signrpc.Config{},
 			RouterRPC: routerrpc.DefaultConfig(),
 		},
-		Autopilot: &autoPilotConfig{
+		Autopilot: &lncfg.AutoPilot{
 			MaxChannels:    5,
 			Allocation:     0.6,
 			MinChannelSize: int64(minChanFundingSize),
@@ -451,7 +375,7 @@ func LoadConfig() (*Config, error) {
 		MinChanSize:                   int64(minChanFundingSize),
 		NumGraphSyncPeers:             defaultMinPeers,
 		HistoricalSyncInterval:        discovery.DefaultHistoricalSyncInterval,
-		Tor: &torConfig{
+		Tor: &lncfg.Tor{
 			SOCKS:   defaultTorSOCKS,
 			DNS:     defaultTorDNS,
 			Control: defaultTorControl,
@@ -1205,7 +1129,7 @@ func cleanAndExpandPath(path string) string {
 	return filepath.Clean(os.ExpandEnv(path))
 }
 
-func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
+func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{}, net chainCode,
 	funcName string) error {
 
 	// First, we'll check our node config to make sure the RPC parameters
@@ -1213,7 +1137,7 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 	// depending on the backend node.
 	var daemonName, confDir, confFile string
 	switch conf := nodeConfig.(type) {
-	case *btcdConfig:
+	case *lncfg.Btcd:
 		// If both RPCUser and RPCPass are set, we assume those
 		// credentials are good to use.
 		if conf.RPCUser != "" && conf.RPCPass != "" {
@@ -1239,7 +1163,7 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 				"%[1]v.rpcuser, %[1]v.rpcpass", daemonName)
 		}
 
-	case *bitcoindConfig:
+	case *lncfg.Bitcoind:
 		// Ensure that if the ZMQ options are set, that they are not
 		// equal.
 		if conf.ZMQPubRawBlock != "" && conf.ZMQPubRawTx != "" {
@@ -1305,7 +1229,7 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 	confFile = filepath.Join(confDir, fmt.Sprintf("%v.conf", confFile))
 	switch cConfig.Node {
 	case "btcd", "ltcd":
-		nConf := nodeConfig.(*btcdConfig)
+		nConf := nodeConfig.(*lncfg.Btcd)
 		rpcUser, rpcPass, err := extractBtcdRPCParams(confFile)
 		if err != nil {
 			return fmt.Errorf("unable to extract RPC credentials:"+
@@ -1314,7 +1238,7 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 		}
 		nConf.RPCUser, nConf.RPCPass = rpcUser, rpcPass
 	case "bitcoind", "litecoind":
-		nConf := nodeConfig.(*bitcoindConfig)
+		nConf := nodeConfig.(*lncfg.Bitcoind)
 		rpcUser, rpcPass, zmqBlockHost, zmqTxHost, err :=
 			extractBitcoindRPCParams(confFile)
 		if err != nil {

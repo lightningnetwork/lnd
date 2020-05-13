@@ -1261,7 +1261,6 @@ func (l *channelLink) randomFeeUpdateTimeout() time.Duration {
 //
 // TODO(roasbeef): add sync ntfn to ensure switch always has consistent view?
 func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
-	var isSettle bool
 	switch htlc := pkt.htlc.(type) {
 	case *lnwire.UpdateAddHTLC:
 		// If hodl.AddOutgoing mode is active, we exit early to simulate
@@ -1328,6 +1327,8 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 			getEventType(pkt),
 		)
 
+		l.tryBatchUpdateCommitTx()
+
 	case *lnwire.UpdateFulfillHTLC:
 		// If hodl.SettleOutgoing mode is active, we exit early to
 		// simulate arbitrary delays between the switch adding the
@@ -1384,13 +1385,15 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 		// Then we send the HTLC settle message to the connected peer
 		// so we can continue the propagation of the settle message.
 		l.cfg.Peer.SendMessage(false, htlc)
-		isSettle = true
 
 		// Send a settle event notification to htlcNotifier.
 		l.cfg.HtlcNotifier.NotifySettleEvent(
 			newHtlcKey(pkt),
 			getEventType(pkt),
 		)
+
+		// Immediately update the commitment tx to minimize latency.
+		l.updateCommitTxOrFail()
 
 	case *lnwire.UpdateFailHTLC:
 		// If hodl.FailOutgoing mode is active, we exit early to
@@ -1448,7 +1451,6 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 		// We send the HTLC message to the peer which initially created
 		// the HTLC.
 		l.cfg.Peer.SendMessage(false, htlc)
-		isSettle = true
 
 		// If the packet does not have a link failure set, it failed
 		// further down the route so we notify a forwarding failure.
@@ -1467,17 +1469,20 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 				newHtlcKey(pkt), getEventType(pkt),
 			)
 		}
+
+		// Immediately update the commitment tx to minimize latency.
+		l.updateCommitTxOrFail()
+	}
+}
+
+// tryBatchUpdateCommitTx updates the commitment transaction if the batch is
+// full.
+func (l *channelLink) tryBatchUpdateCommitTx() {
+	if l.channel.PendingLocalUpdateCount() < uint64(l.cfg.BatchSize) {
+		return
 	}
 
-	// If this newly added update exceeds the min batch size for adds, or
-	// this is a settle request, then initiate an update.
-	if l.channel.PendingLocalUpdateCount() >= uint64(l.cfg.BatchSize) ||
-		isSettle {
-
-		if !l.updateCommitTxOrFail() {
-			return
-		}
-	}
+	l.updateCommitTxOrFail()
 }
 
 // cleanupSpuriousResponse attempts to ack any AddRef or SettleFailRef

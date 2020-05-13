@@ -1254,6 +1254,78 @@ func (l *channelLink) randomFeeUpdateTimeout() time.Duration {
 	return time.Duration(prand.Int63n(upper-lower) + lower)
 }
 
+// handleDownstreamUpdateAdd processes an UpdateAddHTLC packet sent from the
+// downstream HTLC Switch.
+func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) {
+	htlc := pkt.htlc.(*lnwire.UpdateAddHTLC)
+
+	// If hodl.AddOutgoing mode is active, we exit early to simulate
+	// arbitrary delays between the switch adding an ADD to the
+	// mailbox, and the HTLC being added to the commitment state.
+	if l.cfg.HodlMask.Active(hodl.AddOutgoing) {
+		l.log.Warnf(hodl.AddOutgoing.Warning())
+		l.mailBox.AckPacket(pkt.inKey())
+		return
+	}
+
+	// A new payment has been initiated via the downstream channel,
+	// so we add the new HTLC to our local log, then update the
+	// commitment chains.
+	htlc.ChanID = l.ChanID()
+	openCircuitRef := pkt.inKey()
+	index, err := l.channel.AddHTLC(htlc, &openCircuitRef)
+	if err != nil {
+		// The HTLC was unable to be added to the state machine,
+		// as a result, we'll signal the switch to cancel the
+		// pending payment.
+		l.log.Warnf("Unable to handle downstream add HTLC: %v",
+			err)
+
+		// Remove this packet from the link's mailbox, this
+		// prevents it from being reprocessed if the link
+		// restarts and resets it mailbox. If this response
+		// doesn't make it back to the originating link, it will
+		// be rejected upon attempting to reforward the Add to
+		// the switch, since the circuit was never fully opened,
+		// and the forwarding package shows it as
+		// unacknowledged.
+		l.mailBox.FailAdd(pkt)
+
+		return
+	}
+
+	l.log.Tracef("received downstream htlc: payment_hash=%x, "+
+		"local_log_index=%v, pend_updates=%v",
+		htlc.PaymentHash[:], index,
+		l.channel.PendingLocalUpdateCount())
+
+	pkt.outgoingChanID = l.ShortChanID()
+	pkt.outgoingHTLCID = index
+	htlc.ID = index
+
+	l.log.Debugf("queueing keystone of ADD open circuit: %s->%s",
+		pkt.inKey(), pkt.outKey())
+
+	l.openedCircuits = append(l.openedCircuits, pkt.inKey())
+	l.keystoneBatch = append(l.keystoneBatch, pkt.keystone())
+
+	_ = l.cfg.Peer.SendMessage(false, htlc)
+
+	// Send a forward event notification to htlcNotifier.
+	l.cfg.HtlcNotifier.NotifyForwardingEvent(
+		newHtlcKey(pkt),
+		HtlcInfo{
+			IncomingTimeLock: pkt.incomingTimeout,
+			IncomingAmt:      pkt.incomingAmount,
+			OutgoingTimeLock: htlc.Expiry,
+			OutgoingAmt:      htlc.Amount,
+		},
+		getEventType(pkt),
+	)
+
+	l.tryBatchUpdateCommitTx()
+}
+
 // handleDownstreamPkt processes an HTLC packet sent from the downstream HTLC
 // Switch. Possible messages sent by the switch include requests to forward new
 // HTLCs, timeout previously cleared HTLCs, and finally to settle currently
@@ -1263,71 +1335,7 @@ func (l *channelLink) randomFeeUpdateTimeout() time.Duration {
 func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 	switch htlc := pkt.htlc.(type) {
 	case *lnwire.UpdateAddHTLC:
-		// If hodl.AddOutgoing mode is active, we exit early to simulate
-		// arbitrary delays between the switch adding an ADD to the
-		// mailbox, and the HTLC being added to the commitment state.
-		if l.cfg.HodlMask.Active(hodl.AddOutgoing) {
-			l.log.Warnf(hodl.AddOutgoing.Warning())
-			l.mailBox.AckPacket(pkt.inKey())
-			return
-		}
-
-		// A new payment has been initiated via the downstream channel,
-		// so we add the new HTLC to our local log, then update the
-		// commitment chains.
-		htlc.ChanID = l.ChanID()
-		openCircuitRef := pkt.inKey()
-		index, err := l.channel.AddHTLC(htlc, &openCircuitRef)
-		if err != nil {
-			// The HTLC was unable to be added to the state machine,
-			// as a result, we'll signal the switch to cancel the
-			// pending payment.
-			l.log.Warnf("Unable to handle downstream add HTLC: %v",
-				err)
-
-			// Remove this packet from the link's mailbox, this
-			// prevents it from being reprocessed if the link
-			// restarts and resets it mailbox. If this response
-			// doesn't make it back to the originating link, it will
-			// be rejected upon attempting to reforward the Add to
-			// the switch, since the circuit was never fully opened,
-			// and the forwarding package shows it as
-			// unacknowledged.
-			l.mailBox.FailAdd(pkt)
-
-			return
-		}
-
-		l.log.Tracef("received downstream htlc: payment_hash=%x, "+
-			"local_log_index=%v, pend_updates=%v",
-			htlc.PaymentHash[:], index,
-			l.channel.PendingLocalUpdateCount())
-
-		pkt.outgoingChanID = l.ShortChanID()
-		pkt.outgoingHTLCID = index
-		htlc.ID = index
-
-		l.log.Debugf("queueing keystone of ADD open circuit: %s->%s",
-			pkt.inKey(), pkt.outKey())
-
-		l.openedCircuits = append(l.openedCircuits, pkt.inKey())
-		l.keystoneBatch = append(l.keystoneBatch, pkt.keystone())
-
-		l.cfg.Peer.SendMessage(false, htlc)
-
-		// Send a forward event notification to htlcNotifier.
-		l.cfg.HtlcNotifier.NotifyForwardingEvent(
-			newHtlcKey(pkt),
-			HtlcInfo{
-				IncomingTimeLock: pkt.incomingTimeout,
-				IncomingAmt:      pkt.incomingAmount,
-				OutgoingTimeLock: htlc.Expiry,
-				OutgoingAmt:      htlc.Amount,
-			},
-			getEventType(pkt),
-		)
-
-		l.tryBatchUpdateCommitTx()
+		l.handleDownstreamUpdateAdd(pkt)
 
 	case *lnwire.UpdateFulfillHTLC:
 		// If hodl.SettleOutgoing mode is active, we exit early to

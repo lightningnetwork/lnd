@@ -1156,7 +1156,7 @@ type WalletKitClient interface {
 	//fee preference being provided. For now, the responsibility of ensuring that
 	//the new fee preference is sufficient is delegated to the user.
 	BumpFee(ctx context.Context, in *BumpFeeRequest, opts ...grpc.CallOption) (*BumpFeeResponse, error)
-	//*
+	//
 	//ListSweeps returns a list of the sweep transactions our node has produced.
 	//Note that these sweeps may not be confirmed yet, as we record sweeps on
 	//broadcast, not confirmation.
@@ -1319,7 +1319,7 @@ type WalletKitServer interface {
 	//fee preference being provided. For now, the responsibility of ensuring that
 	//the new fee preference is sufficient is delegated to the user.
 	BumpFee(context.Context, *BumpFeeRequest) (*BumpFeeResponse, error)
-	//*
+	//
 	//ListSweeps returns a list of the sweep transactions our node has produced.
 	//Note that these sweeps may not be confirmed yet, as we record sweeps on
 	//broadcast, not confirmation.

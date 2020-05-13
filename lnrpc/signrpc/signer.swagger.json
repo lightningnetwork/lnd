@@ -30,7 +30,7 @@
         "sig_script": {
           "type": "string",
           "format": "byte",
-          "description": "*\nThe optional sig script for the specified witness that will only be set if\nthe input specified is a nested p2sh witness program."
+          "description": "The optional sig script for the specified witness that will only be set if\nthe input specified is a nested p2sh witness program."
         }
       }
     },

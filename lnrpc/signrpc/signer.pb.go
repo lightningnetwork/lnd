@@ -385,7 +385,7 @@ func (m *SignResp) GetRawSigs() [][]byte {
 type InputScript struct {
 	// The serializes witness stack for the specified input.
 	Witness [][]byte `protobuf:"bytes,1,rep,name=witness,proto3" json:"witness,omitempty"`
-	//*
+	//
 	//The optional sig script for the specified witness that will only be set if
 	//the input specified is a nested p2sh witness program.
 	SigScript            []byte   `protobuf:"bytes,2,opt,name=sig_script,json=sigScript,proto3" json:"sig_script,omitempty"`

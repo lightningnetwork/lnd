@@ -91,7 +91,7 @@ service WalletKit {
     */
     rpc BumpFee (BumpFeeRequest) returns (BumpFeeResponse);
 
-    /**
+    /*
     ListSweeps returns a list of the sweep transactions our node has produced.
     Note that these sweeps may not be confirmed yet, as we record sweeps on
     broadcast, not confirmation.

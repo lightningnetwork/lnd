@@ -169,15 +169,15 @@ func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
 	// Set the RPC config from the "home" chain. Multi-chain isn't yet
 	// active, so we'll restrict usage to a particular chain for now.
 	homeChainConfig := cfg.Bitcoin
-	if registeredChains.PrimaryChain() == litecoinChain {
+	if cfg.registeredChains.PrimaryChain() == litecoinChain {
 		homeChainConfig = cfg.Litecoin
 	}
 	ltndLog.Infof("Primary chain is set to: %v",
-		registeredChains.PrimaryChain())
+		cfg.registeredChains.PrimaryChain())
 
 	cc := &chainControl{}
 
-	switch registeredChains.PrimaryChain() {
+	switch cfg.registeredChains.PrimaryChain() {
 	case bitcoinChain:
 		cc.routingPolicy = htlcswitch.ForwardingPolicy{
 			MinHTLCOut:    cfg.Bitcoin.MinHTLCOut,
@@ -203,7 +203,7 @@ func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
 		)
 	default:
 		return nil, fmt.Errorf("default routing policy for chain %v is "+
-			"unknown", registeredChains.PrimaryChain())
+			"unknown", cfg.registeredChains.PrimaryChain())
 	}
 
 	walletConfig := &btcwallet.Config{
@@ -505,7 +505,7 @@ func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
 
 	// Select the default channel constraints for the primary chain.
 	channelConstraints := defaultBtcChannelConstraints
-	if registeredChains.PrimaryChain() == litecoinChain {
+	if cfg.registeredChains.PrimaryChain() == litecoinChain {
 		channelConstraints = defaultLtcChannelConstraints
 	}
 

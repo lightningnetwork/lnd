@@ -2404,8 +2404,8 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 	}
 
 	network := normalizeNetwork(activeNetParams.Name)
-	activeChains := make([]*lnrpc.Chain, registeredChains.NumActiveChains())
-	for i, chain := range registeredChains.ActiveChains() {
+	activeChains := make([]*lnrpc.Chain, cfg.registeredChains.NumActiveChains())
+	for i, chain := range cfg.registeredChains.ActiveChains() {
 		activeChains[i] = &lnrpc.Chain{
 			Chain:   chain.String(),
 			Network: network,
@@ -4365,7 +4365,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	invoice *lnrpc.Invoice) (*lnrpc.AddInvoiceResponse, error) {
 
 	defaultDelta := cfg.Bitcoin.TimeLockDelta
-	if registeredChains.PrimaryChain() == litecoinChain {
+	if cfg.registeredChains.PrimaryChain() == litecoinChain {
 		defaultDelta = cfg.Litecoin.TimeLockDelta
 	}
 

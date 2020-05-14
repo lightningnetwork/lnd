@@ -203,7 +203,7 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 				reflect.ValueOf(nodeSigner),
 			)
 			defaultDelta := cfg.Bitcoin.TimeLockDelta
-			if registeredChains.PrimaryChain() == litecoinChain {
+			if cfg.registeredChains.PrimaryChain() == litecoinChain {
 				defaultDelta = cfg.Litecoin.TimeLockDelta
 			}
 			subCfgValue.FieldByName("DefaultCLTVExpiry").Set(

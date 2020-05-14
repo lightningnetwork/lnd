@@ -959,7 +959,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 
 	// Select the configuration and furnding parameters for Bitcoin or
 	// Litecoin, depending on the primary registered chain.
-	primaryChain := registeredChains.PrimaryChain()
+	primaryChain := cfg.registeredChains.PrimaryChain()
 	chainCfg := cfg.Bitcoin
 	minRemoteDelay := minBtcRemoteDelay
 	maxRemoteDelay := maxBtcRemoteDelay

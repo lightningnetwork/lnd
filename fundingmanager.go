@@ -3030,7 +3030,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 
 	// We'll determine our dust limit depending on which chain is active.
 	var ourDustLimit btcutil.Amount
-	switch registeredChains.PrimaryChain() {
+	switch cfg.registeredChains.PrimaryChain() {
 	case bitcoinChain:
 		ourDustLimit = lnwallet.DefaultDustLimit()
 	case litecoinChain:

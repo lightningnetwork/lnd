@@ -587,7 +587,7 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 	// the dependencies they need are properly populated within each sub
 	// server configuration struct.
 	err = subServerCgs.PopulateDependencies(
-		s.cc, cfg.networkDir, macService, atpl, invoiceRegistry,
+		cfg, s.cc, cfg.networkDir, macService, atpl, invoiceRegistry,
 		s.htlcSwitch, activeNetParams.Params, s.chanRouter,
 		routerBackend, s.nodeSigner, s.chanDB, s.sweeper, tower,
 		s.towerClient, cfg.net.ResolveTCPAddr, genInvoiceFeatures,

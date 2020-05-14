@@ -422,6 +422,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		NotifyOpenChannelEvent:        evt.NotifyOpenChannelEvent,
 		OpenChannelPredicate:          chainedAcceptor,
 		NotifyPendingOpenChannelEvent: evt.NotifyPendingOpenChannelEvent,
+		RegisteredChains:              newChainRegistry(),
 	}
 
 	for _, op := range options {
@@ -3088,11 +3089,9 @@ func TestGetUpfrontShutdownScript(t *testing.T) {
 				}
 			}
 
-			// Set the command line option in config as needed.
-			cfg = &Config{EnableUpfrontShutdown: test.localEnabled}
-
 			addr, err := getUpfrontShutdownScript(
-				&mockPeer, test.upfrontScript, test.getScript,
+				test.localEnabled, &mockPeer, test.upfrontScript,
+				test.getScript,
 			)
 			if err != test.expectedErr {
 				t.Fatalf("got: %v, expected error: %v", err, test.expectedErr)

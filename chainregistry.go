@@ -719,7 +719,9 @@ func (c *chainRegistry) NumActiveChains() uint32 {
 
 // initNeutrinoBackend inits a new instance of the neutrino light client
 // backend given a target chain directory to store the chain state.
-func initNeutrinoBackend(chainDir string) (*neutrino.ChainService, func(), error) {
+func initNeutrinoBackend(cfg *Config, chainDir string) (*neutrino.ChainService,
+	func(), error) {
+
 	// First we'll open the database file for neutrino, creating the
 	// database if needed. We append the normalized network name here to
 	// match the behavior of btcwallet.

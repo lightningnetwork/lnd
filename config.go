@@ -251,6 +251,11 @@ type Config struct {
 	// registeredChains keeps track of all chains that have been registered
 	// with the daemon.
 	registeredChains *chainRegistry
+
+	// networkDir is the path to the directory of the currently active
+	// network. This path will hold the files related to each different
+	// network.
+	networkDir string
 }
 
 // DefaultConfig returns all default values for the Config struct.
@@ -881,7 +886,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 
 	// We'll now construct the network directory which will be where we
 	// store all the data specific to this chain/network.
-	networkDir = filepath.Join(
+	cfg.networkDir = filepath.Join(
 		cfg.DataDir, defaultChainSubDirname,
 		cfg.registeredChains.PrimaryChain().String(),
 		normalizeNetwork(activeNetParams.Name),
@@ -892,17 +897,17 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 	// the path for the macaroons to be generated.
 	if cfg.AdminMacPath == "" {
 		cfg.AdminMacPath = filepath.Join(
-			networkDir, defaultAdminMacFilename,
+			cfg.networkDir, defaultAdminMacFilename,
 		)
 	}
 	if cfg.ReadMacPath == "" {
 		cfg.ReadMacPath = filepath.Join(
-			networkDir, defaultReadMacFilename,
+			cfg.networkDir, defaultReadMacFilename,
 		)
 	}
 	if cfg.InvoiceMacPath == "" {
 		cfg.InvoiceMacPath = filepath.Join(
-			networkDir, defaultInvoiceMacFilename,
+			cfg.networkDir, defaultInvoiceMacFilename,
 		)
 	}
 
@@ -910,7 +915,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 	// we'll update the file location to match our set network directory.
 	if cfg.BackupFilePath == "" {
 		cfg.BackupFilePath = filepath.Join(
-			networkDir, chanbackup.DefaultBackupFileName,
+			cfg.networkDir, chanbackup.DefaultBackupFileName,
 		)
 	}
 

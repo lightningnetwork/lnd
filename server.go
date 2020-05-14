@@ -2788,7 +2788,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// htlcs, an extra block is added to prevent the channel from being
 	// closed when the htlc is outstanding and a new block comes in.
 	p, err := newPeer(
-		conn, connReq, s, peerAddr, inbound, initFeatures,
+		s.cfg, conn, connReq, s, peerAddr, inbound, initFeatures,
 		legacyFeatures, s.cfg.ChanEnableTimeout,
 		lncfg.DefaultOutgoingCltvRejectDelta, errBuffer,
 	)

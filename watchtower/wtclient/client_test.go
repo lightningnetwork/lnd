@@ -366,17 +366,18 @@ func (c *mockChannel) getState(i uint64) (*wire.MsgTx, *lnwallet.BreachRetributi
 }
 
 type testHarness struct {
-	t         *testing.T
-	cfg       harnessCfg
-	signer    *wtmock.MockSigner
-	capacity  lnwire.MilliSatoshi
-	clientDB  *wtmock.ClientDB
-	clientCfg *wtclient.Config
-	client    wtclient.Client
-	serverDB  *wtmock.TowerDB
-	serverCfg *wtserver.Config
-	server    *wtserver.Server
-	net       *mockNet
+	t          *testing.T
+	cfg        harnessCfg
+	signer     *wtmock.MockSigner
+	capacity   lnwire.MilliSatoshi
+	clientDB   *wtmock.ClientDB
+	clientCfg  *wtclient.Config
+	client     wtclient.Client
+	serverAddr *lnwire.NetAddress
+	serverDB   *wtmock.TowerDB
+	serverCfg  *wtserver.Config
+	server     *wtserver.Server
+	net        *mockNet
 
 	mu       sync.Mutex
 	channels map[lnwire.ChannelID]*mockChannel
@@ -467,18 +468,19 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 	}
 
 	h := &testHarness{
-		t:         t,
-		cfg:       cfg,
-		signer:    signer,
-		capacity:  cfg.localBalance + cfg.remoteBalance,
-		clientDB:  clientDB,
-		clientCfg: clientCfg,
-		client:    client,
-		serverDB:  serverDB,
-		serverCfg: serverCfg,
-		server:    server,
-		net:       mockNet,
-		channels:  make(map[lnwire.ChannelID]*mockChannel),
+		t:          t,
+		cfg:        cfg,
+		signer:     signer,
+		capacity:   cfg.localBalance + cfg.remoteBalance,
+		clientDB:   clientDB,
+		clientCfg:  clientCfg,
+		client:     client,
+		serverAddr: towerAddr,
+		serverDB:   serverDB,
+		serverCfg:  serverCfg,
+		server:     server,
+		net:        mockNet,
+		channels:   make(map[lnwire.ChannelID]*mockChannel),
 	}
 
 	h.makeChannel(0, h.cfg.localBalance, h.cfg.remoteBalance)
@@ -779,6 +781,25 @@ func (h *testHarness) assertUpdatesForPolicy(hints []blob.BreachHint,
 			h.t.Fatalf("expected session to have policy: %v, "+
 				"got: %v", expPolicy, matchPolicy)
 		}
+	}
+}
+
+// addTower adds a tower found at `addr` to the client.
+func (h *testHarness) addTower(addr *lnwire.NetAddress) {
+	h.t.Helper()
+
+	if err := h.client.AddTower(addr); err != nil {
+		h.t.Fatalf("unable to add tower: %v", err)
+	}
+}
+
+// removeTower removes a tower from the client. If `addr` is specified, then the
+// only said address is removed from the tower.
+func (h *testHarness) removeTower(pubKey *btcec.PublicKey, addr net.Addr) {
+	h.t.Helper()
+
+	if err := h.client.RemoveTower(pubKey, addr); err != nil {
+		h.t.Fatalf("unable to remove tower: %v", err)
 	}
 }
 
@@ -1394,6 +1415,60 @@ var clientTests = []clientTest{
 			// Wait for all of the updates to be populated in the
 			// server's database.
 			h.waitServerUpdates(hints, 5*time.Second)
+		},
+	},
+	{
+		// Asserts that the client can continue making backups to a
+		// tower that's been re-added after it's been removed.
+		name: "re-add removed tower",
+		cfg: harnessCfg{
+			localBalance:  localBalance,
+			remoteBalance: remoteBalance,
+			policy: wtpolicy.Policy{
+				TxPolicy: wtpolicy.TxPolicy{
+					BlobType:     blob.TypeAltruistCommit,
+					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
+				},
+				MaxUpdates: 5,
+			},
+		},
+		fn: func(h *testHarness) {
+			const (
+				chanID     = 0
+				numUpdates = 4
+			)
+
+			// Create four channel updates and only back up the
+			// first two.
+			hints := h.advanceChannelN(chanID, numUpdates)
+			h.backupStates(chanID, 0, numUpdates/2, nil)
+			h.waitServerUpdates(hints[:numUpdates/2], 5*time.Second)
+
+			// Fully remove the tower, causing its existing sessions
+			// to be marked inactive.
+			h.removeTower(h.serverAddr.IdentityKey, nil)
+
+			// Back up the remaining states. Since the tower has
+			// been removed, it shouldn't receive any updates.
+			h.backupStates(chanID, numUpdates/2, numUpdates, nil)
+			h.waitServerUpdates(nil, time.Second)
+
+			// Re-add the tower. We prevent the tower from acking
+			// session creation to ensure the inactive sessions are
+			// not used.
+			h.server.Stop()
+			h.serverCfg.NoAckCreateSession = true
+			h.startServer()
+			h.addTower(h.serverAddr)
+			h.waitServerUpdates(nil, time.Second)
+
+			// Finally, allow the tower to ack session creation,
+			// allowing the state updates to be sent through the new
+			// session.
+			h.server.Stop()
+			h.serverCfg.NoAckCreateSession = false
+			h.startServer()
+			h.waitServerUpdates(hints[numUpdates/2:], 5*time.Second)
 		},
 	},
 }

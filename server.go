@@ -133,6 +133,8 @@ type server struct {
 	start sync.Once
 	stop  sync.Once
 
+	cfg *Config
+
 	// identityPriv is the private key used to authenticate any incoming
 	// connections.
 	identityPriv *btcec.PrivateKey
@@ -272,7 +274,7 @@ type server struct {
 }
 
 // parseAddr parses an address from its string format to a net.Addr.
-func parseAddr(address string) (net.Addr, error) {
+func parseAddr(address string, netCfg tor.Net) (net.Addr, error) {
 	var (
 		host string
 		port int
@@ -304,21 +306,23 @@ func parseAddr(address string) (net.Addr, error) {
 	// addresses over Tor in order to prevent leaking your real IP
 	// address.
 	hostPort := net.JoinHostPort(host, strconv.Itoa(port))
-	return cfg.net.ResolveTCPAddr("tcp", hostPort)
+	return netCfg.ResolveTCPAddr("tcp", hostPort)
 }
 
 // noiseDial is a factory function which creates a connmgr compliant dialing
 // function by returning a closure which includes the server's identity key.
-func noiseDial(idPriv *btcec.PrivateKey) func(net.Addr) (net.Conn, error) {
+func noiseDial(idPriv *btcec.PrivateKey,
+	netCfg tor.Net) func(net.Addr) (net.Conn, error) {
+
 	return func(a net.Addr) (net.Conn, error) {
 		lnAddr := a.(*lnwire.NetAddress)
-		return brontide.Dial(idPriv, lnAddr, cfg.net.Dial)
+		return brontide.Dial(idPriv, lnAddr, netCfg.Dial)
 	}
 }
 
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
-func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
+func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 	towerClientDB *wtdb.ClientDB, cc *chainControl,
 	privKey *btcec.PrivateKey,
 	chansToRestore walletunlocker.ChannelsToRecover,
@@ -406,6 +410,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 	}
 
 	s := &server{
+		cfg:            cfg,
 		chanDB:         chanDB,
 		cc:             cc,
 		sigPool:        lnwallet.NewSigPool(cfg.Workers.Sig, cc.signer),
@@ -1222,7 +1227,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		OnAccept:       s.InboundPeerConnected,
 		RetryDuration:  time.Second * 5,
 		TargetOutbound: 100,
-		Dial:           noiseDial(s.identityPriv),
+		Dial:           noiseDial(s.identityPriv, s.cfg.net),
 		OnConnection:   s.OutboundPeerConnected,
 	})
 	if err != nil {
@@ -1404,8 +1409,9 @@ func (s *server) Start() error {
 		// configure the set of active bootstrappers, and launch a
 		// dedicated goroutine to maintain a set of persistent
 		// connections.
-		if !cfg.NoNetBootstrap && !(cfg.Bitcoin.SimNet || cfg.Litecoin.SimNet) &&
-			!(cfg.Bitcoin.RegTest || cfg.Litecoin.RegTest) {
+		if !s.cfg.NoNetBootstrap &&
+			!(s.cfg.Bitcoin.SimNet || s.cfg.Litecoin.SimNet) &&
+			!(s.cfg.Bitcoin.RegTest || s.cfg.Litecoin.RegTest) {
 
 			bootstrappers, err := initNetworkBootstrappers(s)
 			if err != nil {
@@ -1548,7 +1554,7 @@ func (s *server) watchExternalIP() {
 	// Keep track of the external IPs set by the user to avoid replacing
 	// them when detecting a new IP.
 	ipsSetByUser := make(map[string]struct{})
-	for _, ip := range cfg.ExternalIPs {
+	for _, ip := range s.cfg.ExternalIPs {
 		ipsSetByUser[ip.String()] = struct{}{}
 	}
 
@@ -1692,7 +1698,7 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 
 	// If this isn't simnet mode, then one of our additional bootstrapping
 	// sources will be the set of running DNS seeds.
-	if !cfg.Bitcoin.SimNet || !cfg.Litecoin.SimNet {
+	if !s.cfg.Bitcoin.SimNet || !s.cfg.Litecoin.SimNet {
 		dnsSeeds, ok := chainDNSSeeds[*activeNetParams.GenesisHash]
 
 		// If we have a set of DNS seeds for this chain, then we'll add
@@ -1702,7 +1708,7 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 				"seeds: %v", dnsSeeds)
 
 			dnsBootStrapper := discovery.NewDNSSeedBootstrapper(
-				dnsSeeds, cfg.net,
+				dnsSeeds, s.cfg.net,
 			)
 			bootStrappers = append(bootStrappers, dnsBootStrapper)
 		}
@@ -1974,13 +1980,13 @@ func (s *server) createNewHiddenService() error {
 	onionCfg := tor.AddOnionConfig{
 		VirtualPort: defaultPeerPort,
 		TargetPorts: listenPorts,
-		Store:       tor.NewOnionFile(cfg.Tor.PrivateKeyPath, 0600),
+		Store:       tor.NewOnionFile(s.cfg.Tor.PrivateKeyPath, 0600),
 	}
 
 	switch {
-	case cfg.Tor.V2:
+	case s.cfg.Tor.V2:
 		onionCfg.Type = tor.V2
-	case cfg.Tor.V3:
+	case s.cfg.Tor.V3:
 		onionCfg.Type = tor.V3
 	}
 
@@ -2133,7 +2139,7 @@ func (s *server) establishPersistentConnections() error {
 			// We'll only attempt to connect to Tor addresses if Tor
 			// outbound support is enabled.
 			case *tor.OnionAddr:
-				if cfg.Tor.Active {
+				if s.cfg.Tor.Active {
 					addrSet[addr.String()] = addr
 				}
 			}
@@ -2151,7 +2157,7 @@ func (s *server) establishPersistentConnections() error {
 				// We'll only attempt to connect to Tor
 				// addresses if Tor outbound support is enabled.
 				case *tor.OnionAddr:
-					if cfg.Tor.Active {
+					if s.cfg.Tor.Active {
 						addrSet[lnAddress.String()] = lnAddress
 					}
 				}
@@ -2195,7 +2201,7 @@ func (s *server) establishPersistentConnections() error {
 		// been requested as perm by the user.
 		s.persistentPeers[pubStr] = false
 		if _, ok := s.persistentPeersBackoff[pubStr]; !ok {
-			s.persistentPeersBackoff[pubStr] = cfg.MinBackoff
+			s.persistentPeersBackoff[pubStr] = s.cfg.MinBackoff
 		}
 
 		for _, address := range nodeAddr.addresses {
@@ -2228,7 +2234,7 @@ func (s *server) establishPersistentConnections() error {
 			// nodes are able to disperse the costs of connecting to
 			// all peers at once.
 			if numOutboundConns < numInstantInitReconnect ||
-				!cfg.StaggerInitialReconnect {
+				!s.cfg.StaggerInitialReconnect {
 
 				go s.connMgr.Connect(connReq)
 			} else {
@@ -2437,14 +2443,14 @@ func (s *server) nextPeerBackoff(pubStr string,
 	backoff, ok := s.persistentPeersBackoff[pubStr]
 	if !ok {
 		// If an existing backoff was unknown, use the default.
-		return cfg.MinBackoff
+		return s.cfg.MinBackoff
 	}
 
 	// If the peer failed to start properly, we'll just use the previous
 	// backoff to compute the subsequent randomized exponential backoff
 	// duration. This will roughly double on average.
 	if startTime.IsZero() {
-		return computeNextBackoff(backoff)
+		return computeNextBackoff(backoff, s.cfg.MaxBackoff)
 	}
 
 	// The peer succeeded in starting. If the connection didn't last long
@@ -2452,7 +2458,7 @@ func (s *server) nextPeerBackoff(pubStr string,
 	// with this peer.
 	connDuration := time.Since(startTime)
 	if connDuration < defaultStableConnDuration {
-		return computeNextBackoff(backoff)
+		return computeNextBackoff(backoff, s.cfg.MaxBackoff)
 	}
 
 	// The peer succeed in starting and this was stable peer, so we'll
@@ -2460,8 +2466,8 @@ func (s *server) nextPeerBackoff(pubStr string,
 	// applying randomized exponential backoff. We'll only apply this in the
 	// case that:
 	//   reb(curBackoff) - connDuration > cfg.MinBackoff
-	relaxedBackoff := computeNextBackoff(backoff) - connDuration
-	if relaxedBackoff > cfg.MinBackoff {
+	relaxedBackoff := computeNextBackoff(backoff, s.cfg.MaxBackoff) - connDuration
+	if relaxedBackoff > s.cfg.MinBackoff {
 		return relaxedBackoff
 	}
 
@@ -2469,7 +2475,7 @@ func (s *server) nextPeerBackoff(pubStr string,
 	// the stable connection lasted much longer than our previous backoff.
 	// To reward such good behavior, we'll reconnect after the default
 	// timeout.
-	return cfg.MinBackoff
+	return s.cfg.MinBackoff
 }
 
 // shouldDropConnection determines if our local connection to a remote peer
@@ -2783,7 +2789,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// closed when the htlc is outstanding and a new block comes in.
 	p, err := newPeer(
 		conn, connReq, s, peerAddr, inbound, initFeatures,
-		legacyFeatures, cfg.ChanEnableTimeout,
+		legacyFeatures, s.cfg.ChanEnableTimeout,
 		lncfg.DefaultOutgoingCltvRejectDelta, errBuffer,
 	)
 	if err != nil {
@@ -3226,7 +3232,7 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress, perm bool) error {
 		// zero.
 		s.persistentPeers[targetPub] = true
 		if _, ok := s.persistentPeersBackoff[targetPub]; !ok {
-			s.persistentPeersBackoff[targetPub] = cfg.MinBackoff
+			s.persistentPeersBackoff[targetPub] = s.cfg.MinBackoff
 		}
 		s.persistentConnReqs[targetPub] = append(
 			s.persistentConnReqs[targetPub], connReq,
@@ -3258,7 +3264,7 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress, perm bool) error {
 // notify the caller if the connection attempt has failed. Otherwise, it will be
 // closed.
 func (s *server) connectToPeer(addr *lnwire.NetAddress, errChan chan<- error) {
-	conn, err := brontide.Dial(s.identityPriv, addr, cfg.net.Dial)
+	conn, err := brontide.Dial(s.identityPriv, addr, s.cfg.net.Dial)
 	if err != nil {
 		srvrLog.Errorf("Unable to connect to %v: %v", addr, err)
 		select {
@@ -3409,11 +3415,11 @@ func parseHexColor(colorStr string) (color.RGBA, error) {
 // backoff using the value of the exiting backoff. The returned duration is
 // randomized in either direction by 1/20 to prevent tight loops from
 // stabilizing.
-func computeNextBackoff(currBackoff time.Duration) time.Duration {
+func computeNextBackoff(currBackoff, maxBackoff time.Duration) time.Duration {
 	// Double the current backoff, truncating if it exceeds our maximum.
 	nextBackoff := 2 * currBackoff
-	if nextBackoff > cfg.MaxBackoff {
-		nextBackoff = cfg.MaxBackoff
+	if nextBackoff > maxBackoff {
+		nextBackoff = maxBackoff
 	}
 
 	// Using 1/10 of our duration as a margin, compute a random offset to

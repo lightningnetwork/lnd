@@ -1423,7 +1423,7 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 		return nil, fmt.Errorf("cannot make connection to self")
 	}
 
-	addr, err := parseAddr(in.Addr.Host)
+	addr, err := parseAddr(in.Addr.Host, r.cfg.net)
 	if err != nil {
 		return nil, err
 	}

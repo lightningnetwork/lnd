@@ -257,7 +257,6 @@ jobs:
 
       - name: ${{ matrix.backend }} integration
         run: make itest backend=${{ matrix.backend }}
-        continue-on-error: true
 
       - name: package logfiles
         run: tar -zcvf itest-logs-${{ matrix.backend }}.tar.gz lntest/itest/*.log

@@ -52,8 +52,7 @@ import (
 )
 
 var (
-	cfg              *Config
-	registeredChains = newChainRegistry()
+	cfg *Config
 
 	// networkDir is the path to the directory of the currently active
 	// network. This path will hold the files related to each different
@@ -229,7 +228,7 @@ func Main(config *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) erro
 	}
 
 	ltndLog.Infof("Active chain: %v (network=%v)",
-		strings.Title(registeredChains.PrimaryChain().String()),
+		strings.Title(cfg.registeredChains.PrimaryChain().String()),
 		network,
 	)
 
@@ -324,7 +323,7 @@ func Main(config *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) erro
 	// light client instance, if enabled, in order to allow it to sync
 	// while the rest of the daemon continues startup.
 	mainChain := cfg.Bitcoin
-	if registeredChains.PrimaryChain() == litecoinChain {
+	if cfg.registeredChains.PrimaryChain() == litecoinChain {
 		mainChain = cfg.Litecoin
 	}
 	var neutrinoCS *neutrino.ChainService
@@ -481,8 +480,8 @@ func Main(config *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) erro
 	// Finally before we start the server, we'll register the "holy
 	// trinity" of interface for our current "home chain" with the active
 	// chainRegistry interface.
-	primaryChain := registeredChains.PrimaryChain()
-	registeredChains.RegisterChain(primaryChain, activeChainControl)
+	primaryChain := cfg.registeredChains.PrimaryChain()
+	cfg.registeredChains.RegisterChain(primaryChain, activeChainControl)
 
 	// TODO(roasbeef): add rotation
 	idPrivKey, err := activeChainControl.wallet.DerivePrivKey(keychain.KeyDescriptor{
@@ -546,7 +545,7 @@ func Main(config *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) erro
 		// Segment the watchtower directory by chain and network.
 		towerDBDir := filepath.Join(
 			cfg.Watchtower.TowerDir,
-			registeredChains.PrimaryChain().String(),
+			cfg.registeredChains.PrimaryChain().String(),
 			normalizeNetwork(activeNetParams.Name),
 		)
 
@@ -992,7 +991,7 @@ func waitForWalletPassword(restEndpoints []net.Addr,
 	defer grpcServer.GracefulStop()
 
 	chainConfig := cfg.Bitcoin
-	if registeredChains.PrimaryChain() == litecoinChain {
+	if cfg.registeredChains.PrimaryChain() == litecoinChain {
 		chainConfig = cfg.Litecoin
 	}
 

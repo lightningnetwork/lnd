@@ -619,7 +619,7 @@ func Main(config *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) erro
 	// Set up the core server which will listen for incoming peer
 	// connections.
 	server, err := newServer(
-		cfg.Listeners, chanDB, towerClientDB, activeChainControl,
+		cfg, cfg.Listeners, chanDB, towerClientDB, activeChainControl,
 		idPrivKey, walletInitParams.ChansToRestore, chainedAcceptor,
 		torController,
 	)

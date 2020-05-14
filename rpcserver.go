@@ -461,6 +461,8 @@ type rpcServer struct {
 
 	server *server
 
+	cfg *Config
+
 	// subServers are a set of sub-RPC servers that use the same gRPC and
 	// listening sockets as the main RPC server, but which maintain their
 	// own independent service. This allows us to expose a set of
@@ -521,7 +523,7 @@ var _ lnrpc.LightningServer = (*rpcServer)(nil)
 // of the sub-servers that it maintains. The set of serverOpts should be the
 // base level options passed to the grPC server. This typically includes things
 // like requiring TLS, etc.
-func newRPCServer(s *server, macService *macaroons.Service,
+func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 	subServerCgs *subRPCServerConfigs, serverOpts []grpc.ServerOption,
 	restDialOpts []grpc.DialOption, restProxyDest string,
 	atpl *autopilot.Manager, invoiceRegistry *invoices.InvoiceRegistry,
@@ -700,6 +702,7 @@ func newRPCServer(s *server, macService *macaroons.Service,
 	// gRPC server, and register the main lnrpc server along side.
 	grpcServer := grpc.NewServer(serverOpts...)
 	rootRPCServer := &rpcServer{
+		cfg:             cfg,
 		restDialOpts:    restDialOpts,
 		listeners:       listeners,
 		listenerCleanUp: []func(){cleanup},
@@ -783,9 +786,9 @@ func (r *rpcServer) Start() error {
 	}
 
 	// If Prometheus monitoring is enabled, start the Prometheus exporter.
-	if cfg.Prometheus.Enabled() {
+	if r.cfg.Prometheus.Enabled() {
 		err := monitoring.ExportPrometheusMetrics(
-			r.grpcServer, cfg.Prometheus,
+			r.grpcServer, r.cfg.Prometheus,
 		)
 		if err != nil {
 			return err
@@ -839,7 +842,7 @@ func (r *rpcServer) Start() error {
 
 	// Now spin up a network listener for each requested port and start a
 	// goroutine that serves REST with the created mux there.
-	for _, restEndpoint := range cfg.RESTListeners {
+	for _, restEndpoint := range r.cfg.RESTListeners {
 		lis, err := lncfg.TLSListenOnAddress(restEndpoint, r.tlsCfg)
 		if err != nil {
 			ltndLog.Errorf("gRPC proxy unable to listen on %s",
@@ -1477,7 +1480,7 @@ func (r *rpcServer) DisconnectPeer(ctx context.Context,
 	// In order to avoid erroneously disconnecting from a peer that we have
 	// an active channel with, if we have any channels active with this
 	// peer, then we'll disallow disconnecting from them.
-	if len(nodeChannels) > 0 && !cfg.UnsafeDisconnect {
+	if len(nodeChannels) > 0 && !r.cfg.UnsafeDisconnect {
 		return nil, fmt.Errorf("cannot disconnect from peer(%x), "+
 			"all active channels with the peer need to be closed "+
 			"first", pubKeyBytes)
@@ -2404,8 +2407,8 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 	}
 
 	network := normalizeNetwork(activeNetParams.Name)
-	activeChains := make([]*lnrpc.Chain, cfg.registeredChains.NumActiveChains())
-	for i, chain := range cfg.registeredChains.ActiveChains() {
+	activeChains := make([]*lnrpc.Chain, r.cfg.registeredChains.NumActiveChains())
+	for i, chain := range r.cfg.registeredChains.ActiveChains() {
 		activeChains[i] = &lnrpc.Chain{
 			Chain:   chain.String(),
 			Network: network,
@@ -3813,7 +3816,7 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 
 	// Take the CLTV limit from the request if set, otherwise use the max.
 	cltvLimit, err := routerrpc.ValidateCLTVLimit(
-		rpcPayReq.CltvLimit, cfg.MaxOutgoingCltvExpiry,
+		rpcPayReq.CltvLimit, r.cfg.MaxOutgoingCltvExpiry,
 	)
 	if err != nil {
 		return payIntent, err
@@ -3942,7 +3945,7 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 		// use when creating an invoice. We do not assume the default of
 		// 9 blocks that is defined in BOLT-11, because this is never
 		// enough for other lnd nodes.
-		payIntent.cltvDelta = uint16(cfg.Bitcoin.TimeLockDelta)
+		payIntent.cltvDelta = uint16(r.cfg.Bitcoin.TimeLockDelta)
 	}
 
 	// If the user is manually specifying payment details, then the payment
@@ -4364,9 +4367,9 @@ func (r *rpcServer) sendPaymentSync(ctx context.Context,
 func (r *rpcServer) AddInvoice(ctx context.Context,
 	invoice *lnrpc.Invoice) (*lnrpc.AddInvoiceResponse, error) {
 
-	defaultDelta := cfg.Bitcoin.TimeLockDelta
-	if cfg.registeredChains.PrimaryChain() == litecoinChain {
-		defaultDelta = cfg.Litecoin.TimeLockDelta
+	defaultDelta := r.cfg.Bitcoin.TimeLockDelta
+	if r.cfg.registeredChains.PrimaryChain() == litecoinChain {
+		defaultDelta = r.cfg.Litecoin.TimeLockDelta
 	}
 
 	addInvoiceCfg := &invoicesrpc.AddInvoiceConfig{
@@ -6070,14 +6073,14 @@ func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer
 		}
 
 		// timeout is the time after which ChannelAcceptRequests expire.
-		timeout := time.After(cfg.AcceptorTimeout)
+		timeout := time.After(r.cfg.AcceptorTimeout)
 
 		// Send the request to the newRequests channel.
 		select {
 		case newRequests <- newRequest:
 		case <-timeout:
 			rpcsLog.Errorf("RPCAcceptor returned false - reached timeout of %d",
-				cfg.AcceptorTimeout)
+				r.cfg.AcceptorTimeout)
 			return false
 		case <-quit:
 			return false
@@ -6092,7 +6095,7 @@ func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer
 			return resp
 		case <-timeout:
 			rpcsLog.Errorf("RPCAcceptor returned false - reached timeout of %d",
-				cfg.AcceptorTimeout)
+				r.cfg.AcceptorTimeout)
 			return false
 		case <-quit:
 			return false

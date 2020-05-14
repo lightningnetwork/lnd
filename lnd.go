@@ -669,7 +669,7 @@ func Main(config *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) erro
 	// Initialize, and register our implementation of the gRPC interface
 	// exported by the rpcServer.
 	rpcServer, err := newRPCServer(
-		server, macaroonService, cfg.SubRPCServers, serverOpts,
+		cfg, server, macaroonService, cfg.SubRPCServers, serverOpts,
 		restDialOpts, restProxyDest, atplManager, server.invoices,
 		tower, tlsCfg, rpcListeners, chainedAcceptor,
 	)

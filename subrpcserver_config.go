@@ -5,6 +5,7 @@ import (
 	"reflect"
 
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -94,7 +95,8 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 	tower *watchtower.Standalone,
 	towerClient wtclient.Client,
 	tcpResolver lncfg.TCPResolver,
-	genInvoiceFeatures func() *lnwire.FeatureVector) error {
+	genInvoiceFeatures func() *lnwire.FeatureVector,
+	rpcLogger btclog.Logger) error {
 
 	// First, we'll use reflect to obtain a version of the config struct
 	// that allows us to programmatically inspect its fields.
@@ -243,6 +245,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 			}
 			subCfgValue.FieldByName("Resolver").Set(
 				reflect.ValueOf(tcpResolver),
+			)
+			subCfgValue.FieldByName("Log").Set(
+				reflect.ValueOf(rpcLogger),
 			)
 
 		default:

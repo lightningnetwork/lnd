@@ -1,3 +1,5 @@
+// +build kvdb_etcd
+
 package etcd
 
 // bkey is a helper functon used in tests to create a bucket key from passed

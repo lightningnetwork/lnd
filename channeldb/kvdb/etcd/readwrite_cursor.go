@@ -1,3 +1,5 @@
+// +build kvdb_etcd
+
 package etcd
 
 // readWriteCursor holds a reference to the cursors bucket, the value

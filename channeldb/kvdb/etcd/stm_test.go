@@ -1,3 +1,5 @@
+// +build kvdb_etcd
+
 package etcd
 
 import (

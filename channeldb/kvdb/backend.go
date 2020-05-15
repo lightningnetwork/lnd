@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/lightningnetwork/lnd/channeldb/kvdb/etcd"
+	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Import to register backend.
 )
 
 // fileExists returns true if the file exists, and false otherwise.
@@ -63,16 +63,7 @@ func GetTestBackend(path, name string) (Backend, func(), error) {
 		}
 		return db, empty, nil
 	} else if TestBackend == EtcdBackendName {
-		config, cleanup, err := etcd.NewEmbeddedEtcdInstance(path)
-		if err != nil {
-			return nil, nil, err
-		}
-		backend, err := Open(EtcdBackendName, *config)
-		if err != nil {
-			cleanup()
-			return nil, nil, err
-		}
-		return backend, cleanup, nil
+		return GetEtcdTestBackend(path, name)
 	}
 
 	return nil, nil, fmt.Errorf("unknown backend")

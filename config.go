@@ -181,6 +181,7 @@ type chainConfig struct {
 	BaseFee             lnwire.MilliSatoshi `long:"basefee" description:"The base fee in millisatoshi we will charge for forwarding payments on our channels"`
 	FeeRate             lnwire.MilliSatoshi `long:"feerate" description:"The fee rate used when forwarding payments on our channels. The total fee charged is basefee + (amount * feerate / 1000000), where amount is the forwarded amount."`
 	TimeLockDelta       uint32              `long:"timelockdelta" description:"The CLTV delta we will subtract from a forwarded HTLC's timelock value"`
+	StartBeforeSynced   bool                `long:"startbeforesynced" description:"Don't wait for the chain to be synchronized to start lnd daemon"`
 }
 
 type neutrinoConfig struct {

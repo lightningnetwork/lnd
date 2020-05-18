@@ -281,7 +281,7 @@ func (*mockWalletController) IsOurAddress(a btcutil.Address) bool {
 }
 
 func (*mockWalletController) SendOutputs(outputs []*wire.TxOut,
-	_ chainfee.SatPerKWeight) (*wire.MsgTx, error) {
+	_ chainfee.SatPerKWeight, _ string) (*wire.MsgTx, error) {
 
 	return nil, nil
 }

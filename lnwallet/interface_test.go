@@ -174,7 +174,9 @@ func sendCoins(t *testing.T, miner *rpctest.Harness,
 
 	t.Helper()
 
-	tx, err := sender.SendOutputs([]*wire.TxOut{output}, 2500)
+	tx, err := sender.SendOutputs(
+		[]*wire.TxOut{output}, 2500, labels.External,
+	)
 	if err != nil {
 		t.Fatalf("unable to send transaction: %v", err)
 	}
@@ -1220,7 +1222,9 @@ func testListTransactionDetails(miner *rpctest.Harness,
 		t.Fatalf("unable to make output script: %v", err)
 	}
 	burnOutput := wire.NewTxOut(outputAmt, outputScript)
-	burnTX, err := alice.SendOutputs([]*wire.TxOut{burnOutput}, 2500)
+	burnTX, err := alice.SendOutputs(
+		[]*wire.TxOut{burnOutput}, 2500, labels.External,
+	)
 	if err != nil {
 		t.Fatalf("unable to create burn tx: %v", err)
 	}
@@ -1493,7 +1497,9 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 		t.Fatalf("unable to make output script: %v", err)
 	}
 	burnOutput := wire.NewTxOut(outputAmt, outputScript)
-	tx, err := alice.SendOutputs([]*wire.TxOut{burnOutput}, 2500)
+	tx, err := alice.SendOutputs(
+		[]*wire.TxOut{burnOutput}, 2500, labels.External,
+	)
 	if err != nil {
 		t.Fatalf("unable to create burn tx: %v", err)
 	}
@@ -1684,7 +1690,9 @@ func newTx(t *testing.T, r *rpctest.Harness, pubKey *btcec.PublicKey,
 		Value:    btcutil.SatoshiPerBitcoin,
 		PkScript: keyScript,
 	}
-	tx, err := alice.SendOutputs([]*wire.TxOut{newOutput}, 2500)
+	tx, err := alice.SendOutputs(
+		[]*wire.TxOut{newOutput}, 2500, labels.External,
+	)
 	if err != nil {
 		t.Fatalf("unable to create output: %v", err)
 	}
@@ -1973,7 +1981,9 @@ func testSignOutputUsingTweaks(r *rpctest.Harness,
 			Value:    btcutil.SatoshiPerBitcoin,
 			PkScript: keyScript,
 		}
-		tx, err := alice.SendOutputs([]*wire.TxOut{newOutput}, 2500)
+		tx, err := alice.SendOutputs(
+			[]*wire.TxOut{newOutput}, 2500, labels.External,
+		)
 		if err != nil {
 			t.Fatalf("unable to create output: %v", err)
 		}
@@ -2095,7 +2105,9 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		Value:    1e8,
 		PkScript: script,
 	}
-	tx, err := w.SendOutputs([]*wire.TxOut{output}, 2500)
+	tx, err := w.SendOutputs(
+		[]*wire.TxOut{output}, 2500, labels.External,
+	)
 	if err != nil {
 		t.Fatalf("unable to send outputs: %v", err)
 	}
@@ -2476,7 +2488,7 @@ func testCreateSimpleTx(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		// _very_ similar to the one we just created being sent. The
 		// only difference is that the dry run tx is not signed, and
 		// that the change output position might be different.
-		tx, sendErr := w.SendOutputs(outputs, feeRate)
+		tx, sendErr := w.SendOutputs(outputs, feeRate, labels.External)
 		switch {
 		case test.valid && sendErr != nil:
 			t.Fatalf("got unexpected error when sending tx: %v",

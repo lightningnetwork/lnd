@@ -103,6 +103,9 @@ type TransactionDetail struct {
 
 	// RawTx returns the raw serialized transaction.
 	RawTx []byte
+
+	// Label is an optional transaction label.
+	Label string
 }
 
 // TransactionSubscription is an interface which describes an object capable of

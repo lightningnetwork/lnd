@@ -708,6 +708,9 @@ message Transaction {
 
     // The raw transaction hex.
     string raw_tx_hex = 9;
+
+    // A label that was optionally set on transaction broadcast.
+    string label = 10;
 }
 message GetTransactionsRequest {
     /*

@@ -93,6 +93,10 @@
         "raw_tx_hex": {
           "type": "string",
           "description": "The raw transaction hex."
+        },
+        "label": {
+          "type": "string",
+          "description": "A label that was optionally set on transaction broadcast."
         }
       }
     },

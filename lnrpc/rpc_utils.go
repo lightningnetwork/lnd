@@ -36,6 +36,7 @@ func RPCTransactionDetails(txns []*lnwallet.TransactionDetail) *TransactionDetai
 			TotalFees:        tx.TotalFees,
 			DestAddresses:    destAddresses,
 			RawTxHex:         hex.EncodeToString(tx.RawTx),
+			Label:            tx.Label,
 		}
 	}
 

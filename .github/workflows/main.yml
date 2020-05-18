@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v2
 
       - name: go cache
         uses: actions/cache@v1
@@ -70,7 +70,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v2
 
       - name: go cache
         uses: actions/cache@v1
@@ -99,7 +99,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v2
+
+      - name: Fetch all history for linter
+        run: git fetch --prune --unshallow
 
       - name: go cache
         uses: actions/cache@v1
@@ -134,7 +137,7 @@ jobs:
           - solaris-amd64
     steps:
       - name: git checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v2
 
       - name: go cache
         uses: actions/cache@v1
@@ -170,7 +173,7 @@ jobs:
           - travis-race
     steps:
       - name: git checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v2
 
       - name: go cache
         uses: actions/cache@v1
@@ -225,7 +228,7 @@ jobs:
           - neutrino
     steps:
       - name: git checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v2
 
       - name: go cache
         uses: actions/cache@v1

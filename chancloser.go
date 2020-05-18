@@ -83,7 +83,7 @@ type chanCloseCfg struct {
 	unregisterChannel func(lnwire.ChannelID)
 
 	// broadcastTx broadcasts the passed transaction to the network.
-	broadcastTx func(*wire.MsgTx) error
+	broadcastTx func(*wire.MsgTx, string) error
 
 	// disableChannel disables a channel, resulting in it not being able to
 	// forward payments.
@@ -544,7 +544,8 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 			newLogClosure(func() string {
 				return spew.Sdump(closeTx)
 			}))
-		if err := c.cfg.broadcastTx(closeTx); err != nil {
+		err = c.cfg.broadcastTx(closeTx, "")
+		if err != nil {
 			return nil, false, err
 		}
 

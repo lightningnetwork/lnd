@@ -75,7 +75,7 @@ func (b *mockBackend) publishTransaction(tx *wire.MsgTx) error {
 	return nil
 }
 
-func (b *mockBackend) PublishTransaction(tx *wire.MsgTx) error {
+func (b *mockBackend) PublishTransaction(tx *wire.MsgTx, _ string) error {
 	log.Tracef("Publishing tx %v", tx.TxHash())
 	err := b.publishTransaction(tx)
 	select {

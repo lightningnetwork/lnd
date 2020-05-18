@@ -1371,7 +1371,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 
 	// Make PublishTransaction always return ErrDoubleSpend to begin with.
 	publErr = lnwallet.ErrDoubleSpend
-	brar.cfg.PublishTransaction = func(tx *wire.MsgTx) error {
+	brar.cfg.PublishTransaction = func(tx *wire.MsgTx, _ string) error {
 		publTx <- tx
 
 		publMtx.Lock()
@@ -1681,7 +1681,7 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 		ContractBreaches:   contractBreaches,
 		Signer:             signer,
 		Notifier:           notifier,
-		PublishTransaction: func(_ *wire.MsgTx) error { return nil },
+		PublishTransaction: func(_ *wire.MsgTx, _ string) error { return nil },
 		Store:              store,
 	})
 

@@ -9,7 +9,7 @@ import (
 type Wallet interface {
 	// PublishTransaction performs cursory validation (dust checks, etc) and
 	// broadcasts the passed transaction to the Bitcoin network.
-	PublishTransaction(tx *wire.MsgTx) error
+	PublishTransaction(tx *wire.MsgTx, label string) error
 
 	// ListUnspentWitness returns all unspent outputs which are version 0
 	// witness programs. The 'minconfirms' and 'maxconfirms' parameters

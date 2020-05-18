@@ -1187,7 +1187,9 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		// As our sweep transaction was created, successfully, we'll
 		// now attempt to publish it, cancelling the sweep pkg to
 		// return all outputs if it fails.
-		err = wallet.PublishTransaction(sweepTxPkg.SweepTx)
+		err = wallet.PublishTransaction(
+			sweepTxPkg.SweepTx, "",
+		)
 		if err != nil {
 			sweepTxPkg.CancelSweepAttempt()
 

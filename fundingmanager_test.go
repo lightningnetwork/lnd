@@ -412,7 +412,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		ReportShortChanID: func(wire.OutPoint) error {
 			return nil
 		},
-		PublishTransaction: func(txn *wire.MsgTx) error {
+		PublishTransaction: func(txn *wire.MsgTx, _ string) error {
 			publTxChan <- txn
 			return nil
 		},
@@ -515,7 +515,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		},
 		DefaultMinHtlcIn:       5,
 		RequiredRemoteMaxValue: oldCfg.RequiredRemoteMaxValue,
-		PublishTransaction: func(txn *wire.MsgTx) error {
+		PublishTransaction: func(txn *wire.MsgTx, _ string) error {
 			publishChan <- txn
 			return nil
 		},

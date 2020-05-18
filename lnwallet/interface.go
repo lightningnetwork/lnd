@@ -224,8 +224,9 @@ type WalletController interface {
 	// already known transaction, ErrDoubleSpend is returned. If the
 	// transaction is already known (published already), no error will be
 	// returned. Other error returned depends on the currently active chain
-	// backend.
-	PublishTransaction(tx *wire.MsgTx) error
+	// backend. It takes an optional label which will save a label with the
+	// published transaction.
+	PublishTransaction(tx *wire.MsgTx, label string) error
 
 	// SubscribeTransactions returns a TransactionSubscription client which
 	// is capable of receiving async notifications as new transactions

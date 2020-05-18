@@ -236,7 +236,7 @@ type fundingConfig struct {
 
 	// PublishTransaction facilitates the process of broadcasting a
 	// transaction to the network.
-	PublishTransaction func(*wire.MsgTx) error
+	PublishTransaction func(*wire.MsgTx, string) error
 
 	// FeeEstimator calculates appropriate fee rates based on historical
 	// transaction information.
@@ -553,7 +553,7 @@ func (f *fundingManager) start() error {
 				channel.IsInitiator {
 
 				err := f.cfg.PublishTransaction(
-					channel.FundingTxn,
+					channel.FundingTxn, "",
 				)
 				if err != nil {
 					fndgLog.Errorf("Unable to rebroadcast "+
@@ -1995,7 +1995,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 		fndgLog.Infof("Broadcasting funding tx for ChannelPoint(%v): %v",
 			completeChan.FundingOutpoint, spew.Sdump(fundingTx))
 
-		err = f.cfg.PublishTransaction(fundingTx)
+		err = f.cfg.PublishTransaction(fundingTx, "")
 		if err != nil {
 			fndgLog.Errorf("Unable to broadcast funding tx for "+
 				"ChannelPoint(%v): %v",

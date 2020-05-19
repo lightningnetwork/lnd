@@ -38,6 +38,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
@@ -173,7 +174,9 @@ func sendCoins(t *testing.T, miner *rpctest.Harness,
 
 	t.Helper()
 
-	tx, err := sender.SendOutputs([]*wire.TxOut{output}, 2500)
+	tx, err := sender.SendOutputs(
+		[]*wire.TxOut{output}, 2500, labels.External,
+	)
 	if err != nil {
 		t.Fatalf("unable to send transaction: %v", err)
 	}
@@ -529,7 +532,8 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	}
 
 	// Let Alice publish the funding transaction.
-	if err := alice.PublishTransaction(fundingTx); err != nil {
+	err = alice.PublishTransaction(fundingTx, "")
+	if err != nil {
 		t.Fatalf("unable to publish funding tx: %v", err)
 	}
 
@@ -1024,7 +1028,8 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	}
 
 	// Let Alice publish the funding transaction.
-	if err := alice.PublishTransaction(fundingTx); err != nil {
+	err = alice.PublishTransaction(fundingTx, "")
+	if err != nil {
 		t.Fatalf("unable to publish funding tx: %v", err)
 	}
 
@@ -1217,7 +1222,9 @@ func testListTransactionDetails(miner *rpctest.Harness,
 		t.Fatalf("unable to make output script: %v", err)
 	}
 	burnOutput := wire.NewTxOut(outputAmt, outputScript)
-	burnTX, err := alice.SendOutputs([]*wire.TxOut{burnOutput}, 2500)
+	burnTX, err := alice.SendOutputs(
+		[]*wire.TxOut{burnOutput}, 2500, labels.External,
+	)
 	if err != nil {
 		t.Fatalf("unable to create burn tx: %v", err)
 	}
@@ -1490,7 +1497,9 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 		t.Fatalf("unable to make output script: %v", err)
 	}
 	burnOutput := wire.NewTxOut(outputAmt, outputScript)
-	tx, err := alice.SendOutputs([]*wire.TxOut{burnOutput}, 2500)
+	tx, err := alice.SendOutputs(
+		[]*wire.TxOut{burnOutput}, 2500, labels.External,
+	)
 	if err != nil {
 		t.Fatalf("unable to create burn tx: %v", err)
 	}
@@ -1681,7 +1690,9 @@ func newTx(t *testing.T, r *rpctest.Harness, pubKey *btcec.PublicKey,
 		Value:    btcutil.SatoshiPerBitcoin,
 		PkScript: keyScript,
 	}
-	tx, err := alice.SendOutputs([]*wire.TxOut{newOutput}, 2500)
+	tx, err := alice.SendOutputs(
+		[]*wire.TxOut{newOutput}, 2500, labels.External,
+	)
 	if err != nil {
 		t.Fatalf("unable to create output: %v", err)
 	}
@@ -1721,7 +1732,8 @@ func testPublishTransaction(r *rpctest.Harness,
 	tx1 := newTx(t, r, keyDesc.PubKey, alice, false)
 
 	// Publish the transaction.
-	if err := alice.PublishTransaction(tx1); err != nil {
+	err = alice.PublishTransaction(tx1, labels.External)
+	if err != nil {
 		t.Fatalf("unable to publish: %v", err)
 	}
 
@@ -1733,7 +1745,8 @@ func testPublishTransaction(r *rpctest.Harness,
 
 	// Publish the exact same transaction again. This should not return an
 	// error, even though the transaction is already in the mempool.
-	if err := alice.PublishTransaction(tx1); err != nil {
+	err = alice.PublishTransaction(tx1, labels.External)
+	if err != nil {
 		t.Fatalf("unable to publish: %v", err)
 	}
 
@@ -1752,7 +1765,8 @@ func testPublishTransaction(r *rpctest.Harness,
 	tx2 := newTx(t, r, keyDesc.PubKey, alice, false)
 
 	// Publish this tx.
-	if err := alice.PublishTransaction(tx2); err != nil {
+	err = alice.PublishTransaction(tx2, labels.External)
+	if err != nil {
 		t.Fatalf("unable to publish: %v", err)
 	}
 
@@ -1763,7 +1777,8 @@ func testPublishTransaction(r *rpctest.Harness,
 
 	// Publish the transaction again. It is already mined, and we don't
 	// expect this to return an error.
-	if err := alice.PublishTransaction(tx2); err != nil {
+	err = alice.PublishTransaction(tx2, labels.External)
+	if err != nil {
 		t.Fatalf("unable to publish: %v", err)
 	}
 
@@ -1779,7 +1794,8 @@ func testPublishTransaction(r *rpctest.Harness,
 		// transaction. Create a new tx and publish it. This is the
 		// output we'll try to double spend.
 		tx3 = newTx(t, r, keyDesc.PubKey, alice, false)
-		if err := alice.PublishTransaction(tx3); err != nil {
+		err := alice.PublishTransaction(tx3, labels.External)
+		if err != nil {
 			t.Fatalf("unable to publish: %v", err)
 		}
 
@@ -1799,7 +1815,8 @@ func testPublishTransaction(r *rpctest.Harness,
 		}
 
 		// This should be accepted into the mempool.
-		if err := alice.PublishTransaction(tx4); err != nil {
+		err = alice.PublishTransaction(tx4, labels.External)
+		if err != nil {
 			t.Fatalf("unable to publish: %v", err)
 		}
 
@@ -1833,7 +1850,7 @@ func testPublishTransaction(r *rpctest.Harness,
 			t.Fatal(err)
 		}
 
-		err = alice.PublishTransaction(tx5)
+		err = alice.PublishTransaction(tx5, labels.External)
 		if err != lnwallet.ErrDoubleSpend {
 			t.Fatalf("expected ErrDoubleSpend, got: %v", err)
 		}
@@ -1861,7 +1878,7 @@ func testPublishTransaction(r *rpctest.Harness,
 			expErr = nil
 			tx3Spend = tx6
 		}
-		err = alice.PublishTransaction(tx6)
+		err = alice.PublishTransaction(tx6, labels.External)
 		if err != expErr {
 			t.Fatalf("expected ErrDoubleSpend, got: %v", err)
 		}
@@ -1896,7 +1913,7 @@ func testPublishTransaction(r *rpctest.Harness,
 		}
 
 		// Expect rejection.
-		err = alice.PublishTransaction(tx7)
+		err = alice.PublishTransaction(tx7, labels.External)
 		if err != lnwallet.ErrDoubleSpend {
 			t.Fatalf("expected ErrDoubleSpend, got: %v", err)
 		}
@@ -1964,7 +1981,9 @@ func testSignOutputUsingTweaks(r *rpctest.Harness,
 			Value:    btcutil.SatoshiPerBitcoin,
 			PkScript: keyScript,
 		}
-		tx, err := alice.SendOutputs([]*wire.TxOut{newOutput}, 2500)
+		tx, err := alice.SendOutputs(
+			[]*wire.TxOut{newOutput}, 2500, labels.External,
+		)
 		if err != nil {
 			t.Fatalf("unable to create output: %v", err)
 		}
@@ -2086,7 +2105,9 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		Value:    1e8,
 		PkScript: script,
 	}
-	tx, err := w.SendOutputs([]*wire.TxOut{output}, 2500)
+	tx, err := w.SendOutputs(
+		[]*wire.TxOut{output}, 2500, labels.External,
+	)
 	if err != nil {
 		t.Fatalf("unable to send outputs: %v", err)
 	}
@@ -2467,7 +2488,7 @@ func testCreateSimpleTx(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		// _very_ similar to the one we just created being sent. The
 		// only difference is that the dry run tx is not signed, and
 		// that the change output position might be different.
-		tx, sendErr := w.SendOutputs(outputs, feeRate)
+		tx, sendErr := w.SendOutputs(outputs, feeRate, labels.External)
 		switch {
 		case test.valid && sendErr != nil:
 			t.Fatalf("got unexpected error when sending tx: %v",

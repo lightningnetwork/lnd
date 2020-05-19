@@ -293,7 +293,7 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 	// over the buffered channel.
 	publications := make(chan *wire.MsgTx, 1)
 	punisher := lookout.NewBreachPunisher(&lookout.PunisherConfig{
-		PublishTx: func(tx *wire.MsgTx) error {
+		PublishTx: func(tx *wire.MsgTx, _ string) error {
 			publications <- tx
 			return nil
 		},

@@ -708,6 +708,9 @@ message Transaction {
 
     // The raw transaction hex.
     string raw_tx_hex = 9;
+
+    // A label that was optionally set on transaction broadcast.
+    string label = 10;
 }
 message GetTransactionsRequest {
     /*
@@ -1002,6 +1005,9 @@ message SendManyRequest {
     // A manual fee rate set in sat/byte that should be used when crafting the
     // transaction.
     int64 sat_per_byte = 5;
+
+    // An optional label for the transaction, limited to 500 characters.
+    string label = 6;
 }
 message SendManyResponse {
     // The id of the transaction
@@ -1029,6 +1035,9 @@ message SendCoinsRequest {
     address.
     */
     bool send_all = 6;
+
+    // An optional label for the transaction, limited to 500 characters.
+    string label = 7;
 }
 message SendCoinsResponse {
     // The transaction ID of the transaction

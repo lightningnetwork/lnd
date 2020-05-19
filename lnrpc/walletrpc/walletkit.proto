@@ -129,6 +129,11 @@ message Transaction {
     The raw serialized transaction.
     */
     bytes tx_hex = 1;
+
+    /*
+    An optional label to save with the transaction. Limited to 500 characters.
+    */
+    string label = 2;
 }
 message PublishResponse {
     /*
@@ -152,6 +157,9 @@ message SendOutputsRequest {
     A slice of the outputs that should be created in the transaction produced.
     */
     repeated signrpc.TxOut outputs = 2;
+
+    // An optional label for the transaction, limited to 500 characters.
+    string label = 3;
 }
 message SendOutputsResponse {
     /*

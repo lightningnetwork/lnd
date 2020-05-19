@@ -281,7 +281,7 @@ func (*mockWalletController) IsOurAddress(a btcutil.Address) bool {
 }
 
 func (*mockWalletController) SendOutputs(outputs []*wire.TxOut,
-	_ chainfee.SatPerKWeight) (*wire.MsgTx, error) {
+	_ chainfee.SatPerKWeight, _ string) (*wire.MsgTx, error) {
 
 	return nil, nil
 }
@@ -322,7 +322,7 @@ func (*mockWalletController) ListTransactionDetails(_, _ int32) ([]*lnwallet.Tra
 }
 func (*mockWalletController) LockOutpoint(o wire.OutPoint)   {}
 func (*mockWalletController) UnlockOutpoint(o wire.OutPoint) {}
-func (m *mockWalletController) PublishTransaction(tx *wire.MsgTx) error {
+func (m *mockWalletController) PublishTransaction(tx *wire.MsgTx, _ string) error {
 	m.publishedTransactions <- tx
 	return nil
 }

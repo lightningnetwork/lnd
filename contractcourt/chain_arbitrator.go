@@ -79,7 +79,7 @@ type ChainArbitratorConfig struct {
 	// PublishTx reliably broadcasts a transaction to the network. Once
 	// this function exits without an error, then they transaction MUST
 	// continually be rebroadcast if needed.
-	PublishTx func(*wire.MsgTx) error
+	PublishTx func(*wire.MsgTx, string) error
 
 	// DeliverResolutionMsg is a function that will append an outgoing
 	// message to the "out box" for a ChannelLink. This is used to cancel
@@ -699,7 +699,7 @@ func (c *ChainArbitrator) rebroadcast(channel *channeldb.OpenChannel,
 	log.Infof("Re-publishing %s close tx(%v) for channel %v",
 		kind, closeTx.TxHash(), chanPoint)
 
-	err = c.cfg.PublishTx(closeTx)
+	err = c.cfg.PublishTx(closeTx, "")
 	if err != nil && err != lnwallet.ErrDoubleSpend {
 		log.Warnf("Unable to broadcast %s close tx(%v): %v",
 			kind, closeTx.TxHash(), err)

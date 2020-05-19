@@ -155,7 +155,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 		// Regardless of whether an existing transaction was found or newly
 		// constructed, we'll broadcast the sweep transaction to the
 		// network.
-		err := h.PublishTx(h.sweepTx)
+		err := h.PublishTx(h.sweepTx, "")
 		if err != nil {
 			log.Infof("%T(%x): unable to publish tx: %v",
 				h, h.htlc.RHash[:], err)
@@ -199,7 +199,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	// the claiming process.
 	//
 	// TODO(roasbeef): after changing sighashes send to tx bundler
-	err := h.PublishTx(h.htlcResolution.SignedSuccessTx)
+	err := h.PublishTx(h.htlcResolution.SignedSuccessTx, "")
 	if err != nil {
 		return nil, err
 	}

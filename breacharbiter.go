@@ -90,7 +90,7 @@ type BreachConfig struct {
 
 	// PublishTransaction facilitates the process of broadcasting a
 	// transaction to the network.
-	PublishTransaction func(*wire.MsgTx) error
+	PublishTransaction func(*wire.MsgTx, string) error
 
 	// ContractBreaches is a channel where the breachArbiter will receive
 	// notifications in the event of a contract breach being observed. A
@@ -566,7 +566,7 @@ justiceTxBroadcast:
 
 	// We'll now attempt to broadcast the transaction which finalized the
 	// channel's retribution against the cheating counter party.
-	err = b.cfg.PublishTransaction(finalTx)
+	err = b.cfg.PublishTransaction(finalTx, "")
 	if err != nil {
 		brarLog.Errorf("Unable to broadcast justice tx: %v", err)
 

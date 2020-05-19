@@ -467,7 +467,7 @@ func createNurseryTestContext(t *testing.T,
 		Store:      storeIntercepter,
 		ChainIO:    chainIO,
 		SweepInput: sweeper.sweepInput,
-		PublishTransaction: func(tx *wire.MsgTx) error {
+		PublishTransaction: func(tx *wire.MsgTx, _ string) error {
 			return publishFunc(tx, "nursery")
 		},
 	}

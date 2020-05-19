@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -273,7 +274,12 @@ func (w *WalletKit) PublishTransaction(ctx context.Context,
 		return nil, err
 	}
 
-	err := w.cfg.Wallet.PublishTransaction(tx)
+	label, err := labels.ValidateAPI(req.Label)
+	if err != nil {
+		return nil, err
+	}
+
+	err = w.cfg.Wallet.PublishTransaction(tx, label)
 	if err != nil {
 		return nil, err
 	}
@@ -306,10 +312,15 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 		})
 	}
 
+	label, err := labels.ValidateAPI(req.Label)
+	if err != nil {
+		return nil, err
+	}
+
 	// Now that we have the outputs mapped, we can request that the wallet
 	// attempt to create this transaction.
 	tx, err := w.cfg.Wallet.SendOutputs(
-		outputsToCreate, chainfee.SatPerKWeight(req.SatPerKw),
+		outputsToCreate, chainfee.SatPerKWeight(req.SatPerKw), label,
 	)
 	if err != nil {
 		return nil, err

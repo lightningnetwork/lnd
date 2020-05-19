@@ -103,6 +103,9 @@ type TransactionDetail struct {
 
 	// RawTx returns the raw serialized transaction.
 	RawTx []byte
+
+	// Label is an optional transaction label.
+	Label string
 }
 
 // TransactionSubscription is an interface which describes an object capable of
@@ -174,7 +177,7 @@ type WalletController interface {
 	// This method also takes the target fee expressed in sat/kw that should
 	// be used when crafting the transaction.
 	SendOutputs(outputs []*wire.TxOut,
-		feeRate chainfee.SatPerKWeight) (*wire.MsgTx, error)
+		feeRate chainfee.SatPerKWeight, label string) (*wire.MsgTx, error)
 
 	// CreateSimpleTx creates a Bitcoin transaction paying to the specified
 	// outputs. The transaction is not broadcasted to the network. In the
@@ -224,8 +227,9 @@ type WalletController interface {
 	// already known transaction, ErrDoubleSpend is returned. If the
 	// transaction is already known (published already), no error will be
 	// returned. Other error returned depends on the currently active chain
-	// backend.
-	PublishTransaction(tx *wire.MsgTx) error
+	// backend. It takes an optional label which will save a label with the
+	// published transaction.
+	PublishTransaction(tx *wire.MsgTx, label string) error
 
 	// SubscribeTransactions returns a TransactionSubscription client which
 	// is capable of receiving async notifications as new transactions

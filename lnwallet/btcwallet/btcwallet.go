@@ -294,7 +294,7 @@ func (b *BtcWallet) IsOurAddress(a btcutil.Address) bool {
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
-	feeRate chainfee.SatPerKWeight) (*wire.MsgTx, error) {
+	feeRate chainfee.SatPerKWeight, label string) (*wire.MsgTx, error) {
 
 	// Convert our fee rate from sat/kw to sat/kb since it's required by
 	// SendOutputs.
@@ -304,7 +304,10 @@ func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
 	if len(outputs) < 1 {
 		return nil, lnwallet.ErrNoOutputs
 	}
-	return b.wallet.SendOutputs(outputs, defaultAccount, 1, feeSatPerKB, "")
+
+	return b.wallet.SendOutputs(
+		outputs, defaultAccount, 1, feeSatPerKB, label,
+	)
 }
 
 // CreateSimpleTx creates a Bitcoin transaction paying to the specified
@@ -433,8 +436,8 @@ func (b *BtcWallet) ListUnspentWitness(minConfs, maxConfs int32) (
 // publishing the transaction fails, an error describing the reason is returned
 // (currently ErrDoubleSpend). If the transaction is already published to the
 // network (either in the mempool or chain) no error will be returned.
-func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx) error {
-	if err := b.wallet.PublishTransaction(tx, ""); err != nil {
+func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
+	if err := b.wallet.PublishTransaction(tx, label); err != nil {
 
 		// If we failed to publish the transaction, check whether we
 		// got an error of known type.
@@ -516,6 +519,7 @@ func minedTransactionsToDetails(
 			TotalFees:        int64(tx.Fee),
 			DestAddresses:    destAddresses,
 			RawTx:            tx.Transaction,
+			Label:            tx.Label,
 		}
 
 		balanceDelta, err := extractBalanceDelta(tx, wireTx)
@@ -561,6 +565,7 @@ func unminedTransactionsToDetail(
 		Timestamp:     summary.Timestamp,
 		DestAddresses: destAddresses,
 		RawTx:         summary.Transaction,
+		Label:         summary.Label,
 	}
 
 	balanceDelta, err := extractBalanceDelta(summary, wireTx)

@@ -72,7 +72,7 @@ type Config struct {
 	//
 	// TODO(conner): replace with lnwallet.WalletController interface to
 	// have stronger guarantees wrt. returned error types.
-	PublishTx func(*wire.MsgTx) error
+	PublishTx func(*wire.MsgTx, string) error
 
 	// ListenAddrs specifies the listening addresses of the tower.
 	ListenAddrs []net.Addr

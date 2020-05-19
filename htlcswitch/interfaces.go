@@ -185,6 +185,46 @@ type TowerClient interface {
 	BackupState(*lnwire.ChannelID, *lnwallet.BreachRetribution, bool) error
 }
 
+// InterceptableHtlcForwarder is the interface to set the interceptor
+// implementation that intercepts htlc forwards.
+type InterceptableHtlcForwarder interface {
+	// SetInterceptor sets a ForwardInterceptor.
+	SetInterceptor(interceptor ForwardInterceptor)
+}
+
+// ForwardInterceptor is a function that is invoked from the switch for every
+// incoming htlc that is intended to be forwarded. It is passed with the
+// InterceptedForward that contains the information about the packet and a way
+// to resolve it manually later in case it is held.
+// The return value indicates if this handler will take control of this forward
+// and resolve it later or let the switch execute its default behavior.
+type ForwardInterceptor func(InterceptedForward) bool
+
+// InterceptedForward is passed to the ForwardInterceptor for every forwarded
+// htlc. It contains all the information about the packet which accordingly
+// the interceptor decides if to hold or not.
+// In addition this interface allows a later resolution by calling either
+// Resume, Settle or Fail.
+type InterceptedForward interface {
+	// CircuitKey returns the intercepted packet.
+	CircuitKey() channeldb.CircuitKey
+
+	// Packet returns the intercepted packet.
+	Packet() lnwire.UpdateAddHTLC
+
+	// Resume notifies the intention to resume an existing hold forward. This
+	// basically means the caller wants to resume with the default behavior for
+	// this htlc which usually means forward it.
+	Resume() error
+
+	// Settle notifies the intention to settle an existing hold
+	// forward with a given preimage.
+	Settle(lntypes.Preimage) error
+
+	// Fails notifies the intention to fail an existing hold forward
+	Fail() error
+}
+
 // htlcNotifier is an interface which represents the input side of the
 // HtlcNotifier which htlc events are piped through. This interface is intended
 // to allow for mocking of the htlcNotifier in tests, so is unexported because

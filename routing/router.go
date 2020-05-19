@@ -1594,9 +1594,9 @@ type LightningPayment struct {
 	// destination successfully.
 	RouteHints [][]zpay32.HopHint
 
-	// OutgoingChannelID is the channel that needs to be taken to the first
-	// hop. If nil, any channel may be used.
-	OutgoingChannelID *uint64
+	// OutgoingChannelIDs is the list of channels that are allowed for the
+	// first hop. If nil, any channel may be used.
+	OutgoingChannelIDs []uint64
 
 	// LastHop is the pubkey of the last node before the final destination
 	// is reached. If nil, any node may be used.
@@ -2379,6 +2379,13 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	log.Tracef("BuildRoute called: hopsCount=%v, amt=%v",
 		len(hops), amt)
 
+	var outgoingChans map[uint64]struct{}
+	if outgoingChan != nil {
+		outgoingChans = map[uint64]struct{}{
+			*outgoingChan: {},
+		}
+	}
+
 	// If no amount is specified, we need to build a route for the minimum
 	// amount that this route can carry.
 	useMinAmt := amt == nil
@@ -2444,7 +2451,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 
 		// Build unified policies for this hop based on the channels
 		// known in the graph.
-		u := newUnifiedPolicies(source, toNode, outgoingChan)
+		u := newUnifiedPolicies(source, toNode, outgoingChans)
 
 		err := u.addGraphPolicies(routingTx)
 		if err != nil {

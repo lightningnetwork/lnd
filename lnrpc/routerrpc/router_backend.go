@@ -248,7 +248,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 
 	// Pass along an outgoing channel restriction if specified.
 	if in.OutgoingChanId != 0 {
-		restrictions.OutgoingChannelID = &in.OutgoingChanId
+		restrictions.OutgoingChannelIDs = []uint64{in.OutgoingChanId}
 	}
 
 	// Pass along a last hop restriction if specified.
@@ -522,9 +522,19 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 
 	payIntent := &routing.LightningPayment{}
 
-	// Pass along an outgoing channel restriction if specified.
+	// Pass along restrictions on the outgoing channels that may be used.
+	payIntent.OutgoingChannelIDs = rpcPayReq.OutgoingChanIds
+
+	// Add the deprecated single outgoing channel restriction if present.
 	if rpcPayReq.OutgoingChanId != 0 {
-		payIntent.OutgoingChannelID = &rpcPayReq.OutgoingChanId
+		if payIntent.OutgoingChannelIDs != nil {
+			return nil, errors.New("outgoing_chan_id and " +
+				"outgoing_chan_ids are mutually exclusive")
+		}
+
+		payIntent.OutgoingChannelIDs = append(
+			payIntent.OutgoingChannelIDs, rpcPayReq.OutgoingChanId,
+		)
 	}
 
 	// Pass along a last hop restriction if specified.

@@ -34,7 +34,8 @@ const (
 type BitcoindNotifier struct {
 	epochClientCounter uint64 // To be used atomically.
 
-	started int32 // To be used atomically.
+	start   sync.Once
+	active  int32 // To be used atomically.
 	stopped int32 // To be used atomically.
 
 	chainConn   *chain.BitcoindClient
@@ -96,11 +97,46 @@ func New(chainConn *chain.BitcoindConn, chainParams *chaincfg.Params,
 // Start connects to the running bitcoind node over websockets, registers for
 // block notifications, and finally launches all related helper goroutines.
 func (b *BitcoindNotifier) Start() error {
-	// Already started?
-	if atomic.AddInt32(&b.started, 1) != 1 {
+	var startErr error
+	b.start.Do(func() {
+		startErr = b.startNotifier()
+	})
+	return startErr
+}
+
+// Stop shutsdown the BitcoindNotifier.
+func (b *BitcoindNotifier) Stop() error {
+	// Already shutting down?
+	if atomic.AddInt32(&b.stopped, 1) != 1 {
 		return nil
 	}
 
+	// Shutdown the rpc client, this gracefully disconnects from bitcoind,
+	// and cleans up all related resources.
+	b.chainConn.Stop()
+
+	close(b.quit)
+	b.wg.Wait()
+
+	// Notify all pending clients of our shutdown by closing the related
+	// notification channels.
+	for _, epochClient := range b.blockEpochClients {
+		close(epochClient.cancelChan)
+		epochClient.wg.Wait()
+
+		close(epochClient.epochChan)
+	}
+	b.txNotifier.TearDown()
+
+	return nil
+}
+
+// Started returns true if this instance has been started, and false otherwise.
+func (b *BitcoindNotifier) Started() bool {
+	return atomic.LoadInt32(&b.active) != 0
+}
+
+func (b *BitcoindNotifier) startNotifier() error {
 	// Connect to bitcoind, and register for notifications on connected,
 	// and disconnected blocks.
 	if err := b.chainConn.Start(); err != nil {
@@ -128,32 +164,9 @@ func (b *BitcoindNotifier) Start() error {
 	b.wg.Add(1)
 	go b.notificationDispatcher()
 
-	return nil
-}
-
-// Stop shutsdown the BitcoindNotifier.
-func (b *BitcoindNotifier) Stop() error {
-	// Already shutting down?
-	if atomic.AddInt32(&b.stopped, 1) != 1 {
-		return nil
-	}
-
-	// Shutdown the rpc client, this gracefully disconnects from bitcoind,
-	// and cleans up all related resources.
-	b.chainConn.Stop()
-
-	close(b.quit)
-	b.wg.Wait()
-
-	// Notify all pending clients of our shutdown by closing the related
-	// notification channels.
-	for _, epochClient := range b.blockEpochClients {
-		close(epochClient.cancelChan)
-		epochClient.wg.Wait()
-
-		close(epochClient.epochChan)
-	}
-	b.txNotifier.TearDown()
+	// Set the active flag now that we've completed the full
+	// startup.
+	atomic.StoreInt32(&b.active, 1)
 
 	return nil
 }

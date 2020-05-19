@@ -86,7 +86,7 @@ type mailBoxConfig struct {
 	// forwardPackets send a varidic number of htlcPackets to the switch to
 	// be routed. A quit channel should be provided so that the call can
 	// properly exit during shutdown.
-	forwardPackets func(chan struct{}, ...*htlcPacket) chan error
+	forwardPackets func(chan struct{}, ...*htlcPacket) error
 
 	// clock is a time source for the mailbox.
 	clock clock.Clock
@@ -680,8 +680,10 @@ func (m *memoryMailBox) FailAdd(pkt *htlcPacket) {
 		},
 	}
 
-	errChan := m.cfg.forwardPackets(m.quit, failPkt)
-	go handleBatchFwdErrs(errChan, log)
+	if err := m.cfg.forwardPackets(m.quit, failPkt); err != nil {
+		log.Errorf("Unhandled error while reforwarding packets "+
+			"settle/fail over htlcswitch: %v", err)
+	}
 }
 
 // MessageOutBox returns a channel that any new messages ready for delivery
@@ -734,7 +736,7 @@ type mailOrchConfig struct {
 	// forwardPackets send a varidic number of htlcPackets to the switch to
 	// be routed. A quit channel should be provided so that the call can
 	// properly exit during shutdown.
-	forwardPackets func(chan struct{}, ...*htlcPacket) chan error
+	forwardPackets func(chan struct{}, ...*htlcPacket) error
 
 	// fetchUpdate retreives the most recent channel update for the channel
 	// this mailbox belongs to.

@@ -218,16 +218,13 @@ func newMailboxContext(t *testing.T, startTime time.Time,
 }
 
 func (c *mailboxContext) forward(_ chan struct{},
-	pkts ...*htlcPacket) chan error {
+	pkts ...*htlcPacket) error {
 
 	for _, pkt := range pkts {
 		c.forwards <- pkt
 	}
 
-	errChan := make(chan error)
-	close(errChan)
-
-	return errChan
+	return nil
 }
 
 func (c *mailboxContext) sendAdds(start, num int) []*htlcPacket {
@@ -555,12 +552,8 @@ func TestMailOrchestrator(t *testing.T) {
 			}, nil
 		},
 		forwardPackets: func(_ chan struct{},
-			pkts ...*htlcPacket) chan error {
-			// Close the channel immediately so the goroutine
-			// logging errors can exit.
-			errChan := make(chan error)
-			close(errChan)
-			return errChan
+			pkts ...*htlcPacket) error {
+			return nil
 		},
 		clock:  clock.NewTestClock(time.Now()),
 		expiry: testExpiry,

@@ -549,13 +549,14 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 
 			return info.NodeKey1Bytes, info.NodeKey2Bytes, nil
 		},
-		FindRoute:             s.chanRouter.FindRoute,
-		MissionControl:        s.missionControl,
-		ActiveNetParams:       activeNetParams.Params,
-		Tower:                 s.controlTower,
-		MaxTotalTimelock:      cfg.MaxOutgoingCltvExpiry,
-		DefaultFinalCltvDelta: uint16(cfg.Bitcoin.TimeLockDelta),
-		SubscribeHtlcEvents:   s.htlcNotifier.SubscribeHtlcEvents,
+		FindRoute:              s.chanRouter.FindRoute,
+		MissionControl:         s.missionControl,
+		ActiveNetParams:        activeNetParams.Params,
+		Tower:                  s.controlTower,
+		MaxTotalTimelock:       cfg.MaxOutgoingCltvExpiry,
+		DefaultFinalCltvDelta:  uint16(cfg.Bitcoin.TimeLockDelta),
+		SubscribeHtlcEvents:    s.htlcNotifier.SubscribeHtlcEvents,
+		InterceptableForwarder: s.interceptableSwitch,
 	}
 
 	genInvoiceFeatures := func() *lnwire.FeatureVector {

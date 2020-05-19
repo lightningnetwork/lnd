@@ -70,6 +70,10 @@ type RouterBackend struct {
 	// SubscribeHtlcEvents returns a subscription client for the node's
 	// htlc events.
 	SubscribeHtlcEvents func() (*subscribe.Client, error)
+
+	// InterceptableForwarder exposes the ability to intercept forward events
+	// by letting the router register a ForwardInterceptor.
+	InterceptableForwarder htlcswitch.InterceptableHtlcForwarder
 }
 
 // MissionControl defines the mission control dependencies of routerrpc.

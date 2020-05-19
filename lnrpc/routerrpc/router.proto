@@ -98,6 +98,15 @@ service Router {
     rpc TrackPayment (TrackPaymentRequest) returns (stream PaymentStatus) {
         option deprecated = true;
     }
+    
+    /**
+    HtlcInterceptor dispatches a bi-directional streaming RPC in which
+    Forwarded HTLC requests are sent to the client and the client responds with
+    a boolean that tells LND if this htlc should be intercepted.
+    In case of interception, the htlc can be either settled, cancelled or
+    resumed later by using the ResolveHoldForward endpoint.
+    */
+    rpc HtlcInterceptor (stream ForwardHtlcInterceptResponse) returns (stream ForwardHtlcInterceptRequest);
 }
 
 message SendPaymentRequest {
@@ -579,3 +588,59 @@ message PaymentStatus {
     */
     repeated lnrpc.HTLCAttempt htlcs = 4;
 }
+
+message CircuitKey {    
+    /// The id of the channel that the is part of this circuit.
+    uint64 chan_id = 1;
+
+    /// The index of the incoming htlc in the incoming channel.
+    uint64 htlc_id = 2;
+}
+
+message ForwardHtlcInterceptRequest {
+    /*
+    The key of this forwarded htlc. It defines the incoming channel id and
+    the index in this channel.
+    */
+    CircuitKey incoming_circuit_key = 1;
+
+    /*
+    The htlc payment hash. This value is not guaranteed to be unique per
+    request.
+    */
+    bytes htlc_payment_hash = 2;
+
+    /// The htlc amount.
+    uint64 amount_msat = 3;
+
+    /// The htlc expiry.
+    uint32 expiry = 4;
+}
+
+/**
+ForwardHtlcInterceptResponse enables the caller to resolve a previously hold forward.
+The caller can choose either to:
+- `Resume`: Execute the default behavior (usually forward).
+- `Reject`: Fail the htlc backwards.
+- `Settle`: Settle this htlc with a given preimage.
+*/
+message ForwardHtlcInterceptResponse {
+    /** 
+    The key of this forwarded htlc. It defines the incoming channel id and
+    the index in this channel.
+    */
+    CircuitKey incoming_circuit_key = 1;
+
+    // The resolve action for this intercepted htlc.
+    ResolveHoldForwardAction action = 2;
+
+    // The preimage in case the resolve action is Settle.
+    bytes preimage = 3;
+}
+
+enum ResolveHoldForwardAction {    
+    SETTLE = 0;
+    FAIL = 1;
+    RESUME = 2;    
+}
+

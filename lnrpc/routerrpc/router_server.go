@@ -34,6 +34,11 @@ const (
 var (
 	errServerShuttingDown = errors.New("routerrpc server shutting down")
 
+	// ErrInterceptorAlreadyExists is an error returned when the a new stream
+	// is opened and there is already one active interceptor.
+	// The user must disconnect prior to open another stream.
+	ErrInterceptorAlreadyExists = errors.New("interceptor already exists")
+
 	// macaroonOps are the set of capabilities that our minted macaroon (if
 	// it doesn't already exist) will have.
 	macaroonOps = []bakery.Op{
@@ -97,6 +102,10 @@ var (
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/routerrpc.Router/HtlcInterceptor": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
 	}
 
 	// DefaultRouterMacFilename is the default name of the router macaroon
@@ -108,8 +117,9 @@ var (
 // Server is a stand alone sub RPC server which exposes functionality that
 // allows clients to route arbitrary payment through the Lightning Network.
 type Server struct {
-	started  int32 // To be used atomically.
-	shutdown int32 // To be used atomically.
+	started                  int32 // To be used atomically.
+	shutdown                 int32 // To be used atomically.
+	forwardInterceptorActive int32 // To be used atomically.
 
 	cfg *Config
 
@@ -608,4 +618,23 @@ func (s *Server) SubscribeHtlcEvents(req *SubscribeHtlcEventsRequest,
 			return errServerShuttingDown
 		}
 	}
+}
+
+// HtlcInterceptor is a bidirectional stream for streaming interception
+// requests to the caller.
+// Upon connection it does the following:
+// 1. Check if there is already a live stream, if yes it rejects the request.
+// 2. Regsitered a ForwardInterceptor
+// 3. Delivers to the caller every √√ and detect his answer.
+// It uses a local implementation of holdForwardsStore to keep all the hold
+// forwards and find them when manual resolution is later needed.
+func (s *Server) HtlcInterceptor(stream Router_HtlcInterceptorServer) error {
+	// We ensure there is only one interceptor at a time.
+	if !atomic.CompareAndSwapInt32(&s.forwardInterceptorActive, 0, 1) {
+		return ErrInterceptorAlreadyExists
+	}
+	defer atomic.CompareAndSwapInt32(&s.forwardInterceptorActive, 1, 0)
+
+	// run the forward interceptor.
+	return newForwardInterceptor(s, stream).run()
 }

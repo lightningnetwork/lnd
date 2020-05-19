@@ -120,15 +120,21 @@ func rpcFailReason(linkErr *htlcswitch.LinkError) (lnrpc.Failure_FailureCode,
 	if err != nil {
 		return 0, 0, err
 	}
+	wireCode := wireErr.GetCode()
+
+	// If the link has no failure detail, return with failure detail none.
+	if linkErr.FailureDetail == nil {
+		return wireCode, FailureDetail_NO_DETAIL, nil
+	}
 
 	switch failureDetail := linkErr.FailureDetail.(type) {
 	case invoices.FailResolutionResult:
 		fd, err := rpcFailureResolution(failureDetail)
-		return wireErr.GetCode(), fd, err
+		return wireCode, fd, err
 
 	case htlcswitch.OutgoingFailure:
 		fd, err := rpcOutgoingFailure(failureDetail)
-		return wireErr.GetCode(), fd, err
+		return wireCode, fd, err
 
 	default:
 		return 0, 0, fmt.Errorf("unknown failure "+

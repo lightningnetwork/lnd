@@ -51,22 +51,12 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 )
 
-var (
-	cfg              *config
-	registeredChains = newChainRegistry()
-
-	// networkDir is the path to the directory of the currently active
-	// network. This path will hold the files related to each different
-	// network.
-	networkDir string
-)
-
 // WalletUnlockerAuthOptions returns a list of DialOptions that can be used to
 // authenticate with the wallet unlocker service.
 //
 // NOTE: This should only be called after the WalletUnlocker listener has
 // signaled it is ready.
-func WalletUnlockerAuthOptions() ([]grpc.DialOption, error) {
+func WalletUnlockerAuthOptions(cfg *Config) ([]grpc.DialOption, error) {
 	creds, err := credentials.NewClientTLSFromFile(cfg.TLSCertPath, "")
 	if err != nil {
 		return nil, fmt.Errorf("unable to read TLS cert: %v", err)
@@ -85,7 +75,7 @@ func WalletUnlockerAuthOptions() ([]grpc.DialOption, error) {
 //
 // NOTE: This should only be called after the RPCListener has signaled it is
 // ready.
-func AdminAuthOptions() ([]grpc.DialOption, error) {
+func AdminAuthOptions(cfg *Config) ([]grpc.DialOption, error) {
 	creds, err := credentials.NewClientTLSFromFile(cfg.TLSCertPath, "")
 	if err != nil {
 		return nil, fmt.Errorf("unable to read TLS cert: %v", err)
@@ -119,6 +109,45 @@ func AdminAuthOptions() ([]grpc.DialOption, error) {
 	return opts, nil
 }
 
+// GrpcRegistrar is an interface that must be satisfied by an external subserver
+// that wants to be able to register its own gRPC server onto lnd's main
+// grpc.Server instance.
+type GrpcRegistrar interface {
+	// RegisterGrpcSubserver is called for each net.Listener on which lnd
+	// creates a grpc.Server instance. External subservers implementing this
+	// method can then register their own gRPC server structs to the main
+	// server instance.
+	RegisterGrpcSubserver(*grpc.Server) error
+}
+
+// RestRegistrar is an interface that must be satisfied by an external subserver
+// that wants to be able to register its own REST mux onto lnd's main
+// proxy.ServeMux instance.
+type RestRegistrar interface {
+	// RegisterRestSubserver is called after lnd creates the main
+	// proxy.ServeMux instance. External subservers implementing this method
+	// can then register their own REST proxy stubs to the main server
+	// instance.
+	RegisterRestSubserver(context.Context, *proxy.ServeMux, string,
+		[]grpc.DialOption) error
+}
+
+// RPCSubserverConfig is a struct that can be used to register an external
+// subserver with the custom permissions that map to the gRPC server that is
+// going to be registered with the GrpcRegistrar.
+type RPCSubserverConfig struct {
+	// Registrar is a callback that is invoked for each net.Listener on
+	// which lnd creates a grpc.Server instance.
+	Registrar GrpcRegistrar
+
+	// Permissions is the permissions required for the external subserver.
+	// It is a map between the full HTTP URI of each RPC and its required
+	// macaroon permissions. If multiple action/entity tuples are specified
+	// per URI, they are all required. See rpcserver.go for a list of valid
+	// action and entity values.
+	Permissions map[string][]bakery.Op
+}
+
 // ListenerWithSignal is a net.Listener that has an additional Ready channel that
 // will be closed when a server starts listening.
 type ListenerWithSignal struct {
@@ -126,6 +155,14 @@ type ListenerWithSignal struct {
 
 	// Ready will be closed by the server listening on Listener.
 	Ready chan struct{}
+
+	// ExternalRPCSubserverCfg is optional and specifies the registration
+	// callback and permissions to register external gRPC subservers.
+	ExternalRPCSubserverCfg *RPCSubserverConfig
+
+	// ExternalRestRegistrar is optional and specifies the registration
+	// callback to register external REST subservers.
+	ExternalRestRegistrar RestRegistrar
 }
 
 // ListenerCfg is a wrapper around custom listeners that can be passed to lnd
@@ -147,23 +184,14 @@ type ListenerCfg struct {
 // listeners.
 type rpcListeners func() ([]*ListenerWithSignal, func(), error)
 
-// Main is the true entry point for lnd. This function is required since defers
-// created in the top-level scope of a main method aren't executed if os.Exit()
-// is called.
-func Main(lisCfg ListenerCfg) error {
-	// Hook interceptor for os signals.
-	signal.Intercept()
-
-	// Load the configuration, and parse any command line options. This
-	// function will also set up logging properly.
-	loadedConfig, err := loadConfig()
-	if err != nil {
-		return err
-	}
-	cfg = loadedConfig
+// Main is the true entry point for lnd. It accepts a fully populated and
+// validated main configuration struct and an optional listener config struct.
+// This function starts all main system components then blocks until a signal
+// is received on the shutdownChan at which point everything is shut down again.
+func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	defer func() {
 		ltndLog.Info("Shutdown complete")
-		err := logWriter.Close()
+		err := RootLogWriter.Close()
 		if err != nil {
 			ltndLog.Errorf("Could not close log rotator: %v", err)
 		}
@@ -190,7 +218,7 @@ func Main(lisCfg ListenerCfg) error {
 	}
 
 	ltndLog.Infof("Active chain: %v (network=%v)",
-		strings.Title(registeredChains.PrimaryChain().String()),
+		strings.Title(cfg.registeredChains.PrimaryChain().String()),
 		network,
 	)
 
@@ -256,10 +284,7 @@ func Main(lisCfg ListenerCfg) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	tlsCfg, restCreds, restProxyDest, err := getTLSConfig(
-		cfg.TLSCertPath, cfg.TLSKeyPath, cfg.TLSExtraIPs,
-		cfg.TLSExtraDomains, cfg.RPCListeners,
-	)
+	tlsCfg, restCreds, restProxyDest, err := getTLSConfig(cfg)
 	if err != nil {
 		err := fmt.Errorf("unable to load TLS credentials: %v", err)
 		ltndLog.Error(err)
@@ -285,13 +310,13 @@ func Main(lisCfg ListenerCfg) error {
 	// light client instance, if enabled, in order to allow it to sync
 	// while the rest of the daemon continues startup.
 	mainChain := cfg.Bitcoin
-	if registeredChains.PrimaryChain() == litecoinChain {
+	if cfg.registeredChains.PrimaryChain() == litecoinChain {
 		mainChain = cfg.Litecoin
 	}
 	var neutrinoCS *neutrino.ChainService
 	if mainChain.Node == "neutrino" {
 		neutrinoBackend, neutrinoCleanUp, err := initNeutrinoBackend(
-			mainChain.ChainDir,
+			cfg, mainChain.ChainDir,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to initialize neutrino "+
@@ -365,7 +390,7 @@ func Main(lisCfg ListenerCfg) error {
 	// for wallet encryption.
 	if !cfg.NoSeedBackup {
 		params, err := waitForWalletPassword(
-			cfg.RESTListeners, serverOpts, restDialOpts,
+			cfg, cfg.RESTListeners, serverOpts, restDialOpts,
 			restProxyDest, tlsCfg, walletUnlockerListeners,
 		)
 		if err != nil {
@@ -390,7 +415,7 @@ func Main(lisCfg ListenerCfg) error {
 	if !cfg.NoMacaroons {
 		// Create the macaroon authentication/authorization service.
 		macaroonService, err = macaroons.NewService(
-			networkDir, macaroons.IPLockChecker,
+			cfg.networkDir, macaroons.IPLockChecker,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to set up macaroon "+
@@ -442,8 +467,8 @@ func Main(lisCfg ListenerCfg) error {
 	// Finally before we start the server, we'll register the "holy
 	// trinity" of interface for our current "home chain" with the active
 	// chainRegistry interface.
-	primaryChain := registeredChains.PrimaryChain()
-	registeredChains.RegisterChain(primaryChain, activeChainControl)
+	primaryChain := cfg.registeredChains.PrimaryChain()
+	cfg.registeredChains.RegisterChain(primaryChain, activeChainControl)
 
 	// TODO(roasbeef): add rotation
 	idPrivKey, err := activeChainControl.wallet.DerivePrivKey(keychain.KeyDescriptor{
@@ -507,7 +532,7 @@ func Main(lisCfg ListenerCfg) error {
 		// Segment the watchtower directory by chain and network.
 		towerDBDir := filepath.Join(
 			cfg.Watchtower.TowerDir,
-			registeredChains.PrimaryChain().String(),
+			cfg.registeredChains.PrimaryChain().String(),
 			normalizeNetwork(activeNetParams.Name),
 		)
 
@@ -586,7 +611,7 @@ func Main(lisCfg ListenerCfg) error {
 	// Set up the core server which will listen for incoming peer
 	// connections.
 	server, err := newServer(
-		cfg.Listeners, chanDB, towerClientDB, activeChainControl,
+		cfg, cfg.Listeners, chanDB, towerClientDB, activeChainControl,
 		idPrivKey, walletInitParams.ChansToRestore, chainedAcceptor,
 		torController,
 	)
@@ -636,7 +661,7 @@ func Main(lisCfg ListenerCfg) error {
 	// Initialize, and register our implementation of the gRPC interface
 	// exported by the rpcServer.
 	rpcServer, err := newRPCServer(
-		server, macaroonService, cfg.SubRPCServers, serverOpts,
+		cfg, server, macaroonService, cfg.SubRPCServers, serverOpts,
 		restDialOpts, restProxyDest, atplManager, server.invoices,
 		tower, tlsCfg, rpcListeners, chainedAcceptor,
 	)
@@ -734,22 +759,21 @@ func Main(lisCfg ListenerCfg) error {
 
 	// Wait for shutdown signal from either a graceful server stop or from
 	// the interrupt handler.
-	<-signal.ShutdownChannel()
+	<-shutdownChan
 	return nil
 }
 
 // getTLSConfig returns a TLS configuration for the gRPC server and credentials
 // and a proxy destination for the REST reverse proxy.
-func getTLSConfig(tlsCertPath string, tlsKeyPath string, tlsExtraIPs,
-	tlsExtraDomains []string, rpcListeners []net.Addr) (*tls.Config,
-	*credentials.TransportCredentials, string, error) {
+func getTLSConfig(cfg *Config) (*tls.Config, *credentials.TransportCredentials,
+	string, error) {
 
 	// Ensure we create TLS key and certificate if they don't exist.
-	if !fileExists(tlsCertPath) && !fileExists(tlsKeyPath) {
+	if !fileExists(cfg.TLSCertPath) && !fileExists(cfg.TLSKeyPath) {
 		rpcsLog.Infof("Generating TLS certificates...")
 		err := cert.GenCertPair(
-			"lnd autogenerated cert", tlsCertPath, tlsKeyPath,
-			tlsExtraIPs, tlsExtraDomains,
+			"lnd autogenerated cert", cfg.TLSCertPath,
+			cfg.TLSKeyPath, cfg.TLSExtraIPs, cfg.TLSExtraDomains,
 			cert.DefaultAutogenValidity,
 		)
 		if err != nil {
@@ -758,7 +782,9 @@ func getTLSConfig(tlsCertPath string, tlsKeyPath string, tlsExtraIPs,
 		rpcsLog.Infof("Done generating TLS certificates")
 	}
 
-	certData, parsedCert, err := cert.LoadCert(tlsCertPath, tlsKeyPath)
+	certData, parsedCert, err := cert.LoadCert(
+		cfg.TLSCertPath, cfg.TLSKeyPath,
+	)
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -770,7 +796,7 @@ func getTLSConfig(tlsCertPath string, tlsKeyPath string, tlsExtraIPs,
 	refresh := false
 	if cfg.TLSAutoRefresh {
 		refresh, err = cert.IsOutdated(
-			parsedCert, tlsExtraIPs, tlsExtraDomains,
+			parsedCert, cfg.TLSExtraIPs, cfg.TLSExtraDomains,
 		)
 		if err != nil {
 			return nil, nil, "", err
@@ -783,20 +809,20 @@ func getTLSConfig(tlsCertPath string, tlsKeyPath string, tlsExtraIPs,
 		ltndLog.Info("TLS certificate is expired or outdated, " +
 			"generating a new one")
 
-		err := os.Remove(tlsCertPath)
+		err := os.Remove(cfg.TLSCertPath)
 		if err != nil {
 			return nil, nil, "", err
 		}
 
-		err = os.Remove(tlsKeyPath)
+		err = os.Remove(cfg.TLSKeyPath)
 		if err != nil {
 			return nil, nil, "", err
 		}
 
 		rpcsLog.Infof("Renewing TLS certificates...")
 		err = cert.GenCertPair(
-			"lnd autogenerated cert", tlsCertPath, tlsKeyPath,
-			tlsExtraIPs, tlsExtraDomains,
+			"lnd autogenerated cert", cfg.TLSCertPath,
+			cfg.TLSKeyPath, cfg.TLSExtraIPs, cfg.TLSExtraDomains,
 			cert.DefaultAutogenValidity,
 		)
 		if err != nil {
@@ -805,19 +831,21 @@ func getTLSConfig(tlsCertPath string, tlsKeyPath string, tlsExtraIPs,
 		rpcsLog.Infof("Done renewing TLS certificates")
 
 		// Reload the certificate data.
-		certData, _, err = cert.LoadCert(tlsCertPath, tlsKeyPath)
+		certData, _, err = cert.LoadCert(
+			cfg.TLSCertPath, cfg.TLSKeyPath,
+		)
 		if err != nil {
 			return nil, nil, "", err
 		}
 	}
 
 	tlsCfg := cert.TLSConfFromCert(certData)
-	restCreds, err := credentials.NewClientTLSFromFile(tlsCertPath, "")
+	restCreds, err := credentials.NewClientTLSFromFile(cfg.TLSCertPath, "")
 	if err != nil {
 		return nil, nil, "", err
 	}
 
-	restProxyDest := rpcListeners[0].String()
+	restProxyDest := cfg.RPCListeners[0].String()
 	switch {
 	case strings.Contains(restProxyDest, "0.0.0.0"):
 		restProxyDest = strings.Replace(
@@ -934,7 +962,7 @@ type WalletUnlockParams struct {
 // waitForWalletPassword will spin up gRPC and REST endpoints for the
 // WalletUnlocker server, and block until a password is provided by
 // the user to this RPC server.
-func waitForWalletPassword(restEndpoints []net.Addr,
+func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 	serverOpts []grpc.ServerOption, restDialOpts []grpc.DialOption,
 	restProxyDest string, tlsConf *tls.Config,
 	getListeners rpcListeners) (*WalletUnlockParams, error) {
@@ -953,7 +981,7 @@ func waitForWalletPassword(restEndpoints []net.Addr,
 	defer grpcServer.GracefulStop()
 
 	chainConfig := cfg.Bitcoin
-	if registeredChains.PrimaryChain() == litecoinChain {
+	if cfg.registeredChains.PrimaryChain() == litecoinChain {
 		chainConfig = cfg.Litecoin
 	}
 
@@ -962,7 +990,7 @@ func waitForWalletPassword(restEndpoints []net.Addr,
 	// deleted within it and recreated when successfully changing the
 	// wallet's password.
 	macaroonFiles := []string{
-		filepath.Join(networkDir, macaroons.DBFilename),
+		filepath.Join(cfg.networkDir, macaroons.DBFilename),
 		cfg.AdminMacPath, cfg.ReadMacPath, cfg.InvoiceMacPath,
 	}
 	pwService := walletunlocker.New(

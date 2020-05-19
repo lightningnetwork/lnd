@@ -31,6 +31,10 @@ type Options struct {
 
 	// clock is the time source used by the database.
 	clock clock.Clock
+
+	// dryRun will fail to commit a successful migration when opening the
+	// database if set to true.
+	dryRun bool
 }
 
 // DefaultOptions returns an Options populated with default values.
@@ -71,5 +75,13 @@ func OptionSetSyncFreelist(b bool) OptionModifier {
 func OptionClock(clock clock.Clock) OptionModifier {
 	return func(o *Options) {
 		o.clock = clock
+	}
+}
+
+// OptionDryRunMigration controls whether or not to intentially fail to commit a
+// successful migration that occurs when opening the database.
+func OptionDryRunMigration(dryRun bool) OptionModifier {
+	return func(o *Options) {
+		o.dryRun = dryRun
 	}
 }

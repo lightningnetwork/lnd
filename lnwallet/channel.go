@@ -3425,7 +3425,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, []ch
 		// jobs.
 		if jobResp.Err != nil {
 			close(cancelChan)
-			return sig, htlcSigs, nil, err
+			return sig, htlcSigs, nil, jobResp.Err
 		}
 
 		htlcSigs = append(htlcSigs, jobResp.Sig)

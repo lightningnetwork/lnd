@@ -25,7 +25,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
-	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/monitoring"
@@ -102,7 +101,6 @@ func init() {
 
 	addSubLogger(routing.Subsystem, routing.UseLogger, localchans.UseLogger)
 	addSubLogger(routerrpc.Subsystem, routerrpc.UseLogger)
-	addSubLogger(wtclientrpc.Subsystem, wtclientrpc.UseLogger)
 	addSubLogger(chanfitness.Subsystem, chanfitness.UseLogger)
 	addSubLogger(verrpc.Subsystem, verrpc.UseLogger)
 }

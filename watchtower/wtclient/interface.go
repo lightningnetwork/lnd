@@ -102,20 +102,24 @@ type Dial func(net, addr string) (net.Conn, error)
 // AuthDialer connects to a remote node using an authenticated transport, such as
 // brontide. The dialer argument is used to specify a resolver, which allows
 // this method to be used over Tor or clear net connections.
-type AuthDialer func(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress,
+type AuthDialer func(localKey keychain.SingleKeyECDH, netAddr *lnwire.NetAddress,
 	dialer func(string, string) (net.Conn, error)) (wtserver.Peer, error)
 
 // AuthDial is the watchtower client's default method of dialing.
-func AuthDial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress,
+func AuthDial(localKey keychain.SingleKeyECDH, netAddr *lnwire.NetAddress,
 	dialer func(string, string) (net.Conn, error)) (wtserver.Peer, error) {
 
-	return brontide.Dial(localPriv, netAddr, dialer)
+	return brontide.Dial(localKey, netAddr, dialer)
 }
 
-// SecretKeyRing abstracts the ability to derive HD private keys given a
-// description of the derivation path.
-type SecretKeyRing interface {
-	// DerivePrivKey derives the private key from the root seed using a
-	// key descriptor specifying the key's derivation path.
-	DerivePrivKey(loc keychain.KeyDescriptor) (*btcec.PrivateKey, error)
+// ECDHKeyRing abstracts the ability to derive shared ECDH keys given a
+// description of the derivation path of a private key.
+type ECDHKeyRing interface {
+	keychain.ECDHRing
+
+	// DeriveKey attempts to derive an arbitrary key specified by the
+	// passed KeyLocator. This may be used in several recovery scenarios,
+	// or when manually rotating something like our current default node
+	// key.
+	DeriveKey(keyLoc keychain.KeyLocator) (keychain.KeyDescriptor, error)
 }

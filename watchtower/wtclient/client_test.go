@@ -101,10 +101,10 @@ func (m *mockNet) ResolveTCPAddr(network string, address string) (*net.TCPAddr, 
 	panic("not implemented")
 }
 
-func (m *mockNet) AuthDial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress,
+func (m *mockNet) AuthDial(local keychain.SingleKeyECDH, netAddr *lnwire.NetAddress,
 	dialer func(string, string) (net.Conn, error)) (wtserver.Peer, error) {
 
-	localPk := localPriv.PubKey()
+	localPk := local.PubKey()
 	localAddr := &net.TCPAddr{
 		IP:   net.IP{0x32, 0x31, 0x30, 0x29},
 		Port: 36723,
@@ -401,6 +401,7 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 	if err != nil {
 		t.Fatalf("Unable to generate tower private key: %v", err)
 	}
+	privKeyECDH := &keychain.PrivKeyECDH{PrivKey: privKey}
 
 	towerPubKey := privKey.PubKey()
 
@@ -416,7 +417,7 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		DB:           serverDB,
 		ReadTimeout:  timeout,
 		WriteTimeout: timeout,
-		NodePrivKey:  privKey,
+		NodeKeyECDH:  privKeyECDH,
 		NewAddress: func() (btcutil.Address, error) {
 			return addr, nil
 		},
@@ -519,7 +520,7 @@ func (h *testHarness) startClient() {
 		h.t.Fatalf("Unable to resolve tower TCP addr: %v", err)
 	}
 	towerAddr := &lnwire.NetAddress{
-		IdentityKey: h.serverCfg.NodePrivKey.PubKey(),
+		IdentityKey: h.serverCfg.NodeKeyECDH.PubKey(),
 		Address:     towerTCPAddr,
 	}
 

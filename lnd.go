@@ -27,7 +27,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/wallet"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
@@ -471,18 +470,17 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	cfg.registeredChains.RegisterChain(primaryChain, activeChainControl)
 
 	// TODO(roasbeef): add rotation
-	idPrivKey, err := activeChainControl.wallet.DerivePrivKey(keychain.KeyDescriptor{
-		KeyLocator: keychain.KeyLocator{
+	idKeyDesc, err := activeChainControl.keyRing.DeriveKey(
+		keychain.KeyLocator{
 			Family: keychain.KeyFamilyNodeKey,
 			Index:  0,
 		},
-	})
+	)
 	if err != nil {
-		err := fmt.Errorf("unable to derive node private key: %v", err)
+		err := fmt.Errorf("error deriving node key: %v", err)
 		ltndLog.Error(err)
 		return err
 	}
-	idPrivKey.Curve = btcec.S256()
 
 	if cfg.Tor.Active {
 		srvrLog.Infof("Proxying all network traffic via Tor "+
@@ -545,17 +543,14 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		}
 		defer towerDB.Close()
 
-		towerPrivKey, err := activeChainControl.wallet.DerivePrivKey(
-			keychain.KeyDescriptor{
-				KeyLocator: keychain.KeyLocator{
-					Family: keychain.KeyFamilyTowerID,
-					Index:  0,
-				},
+		towerKeyDesc, err := activeChainControl.keyRing.DeriveKey(
+			keychain.KeyLocator{
+				Family: keychain.KeyFamilyTowerID,
+				Index:  0,
 			},
 		)
 		if err != nil {
-			err := fmt.Errorf("unable to derive watchtower "+
-				"private key: %v", err)
+			err := fmt.Errorf("error deriving tower key: %v", err)
 			ltndLog.Error(err)
 			return err
 		}
@@ -570,9 +565,11 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 					lnwallet.WitnessPubKey, false,
 				)
 			},
-			NodePrivKey: towerPrivKey,
-			PublishTx:   activeChainControl.wallet.PublishTransaction,
-			ChainHash:   *activeNetParams.GenesisHash,
+			NodeKeyECDH: keychain.NewPubKeyECDH(
+				towerKeyDesc, activeChainControl.keyRing,
+			),
+			PublishTx: activeChainControl.wallet.PublishTransaction,
+			ChainHash: *activeNetParams.GenesisHash,
 		}
 
 		// If there is a tor controller (user wants auto hidden services), then
@@ -612,7 +609,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	// connections.
 	server, err := newServer(
 		cfg, cfg.Listeners, chanDB, towerClientDB, activeChainControl,
-		idPrivKey, walletInitParams.ChansToRestore, chainedAcceptor,
+		&idKeyDesc, walletInitParams.ChansToRestore, chainedAcceptor,
 		torController,
 	)
 	if err != nil {

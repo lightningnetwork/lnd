@@ -103,10 +103,13 @@ func createTestPeer(notifier chainntnfs.ChainNotifier, publTx chan *wire.MsgTx,
 	updateChan func(a, b *channeldb.OpenChannel)) (*peer, *lnwallet.LightningChannel,
 	*lnwallet.LightningChannel, func(), error) {
 
-	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
-		alicesPrivKey)
-	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
-		bobsPrivKey)
+	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(
+		btcec.S256(), alicesPrivKey,
+	)
+	aliceKeySigner := &keychain.PrivKeyDigestSigner{PrivKey: aliceKeyPriv}
+	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(
+		btcec.S256(), bobsPrivKey,
+	)
 
 	channelCapacity := btcutil.Amount(10 * 1e8)
 	channelBal := channelCapacity / 2
@@ -402,7 +405,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier, publTx chan *wire.MsgTx,
 	}
 	s.htlcSwitch = htlcSwitch
 
-	nodeSignerAlice := netann.NewNodeSigner(aliceKeyPriv)
+	nodeSignerAlice := netann.NewNodeSigner(aliceKeySigner)
 
 	const chanActiveTimeout = time.Minute
 

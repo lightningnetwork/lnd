@@ -359,7 +359,22 @@ func (m *mockSecretKeyRing) DerivePrivKey(keyDesc keychain.KeyDescriptor) (*btce
 	return m.rootKey, nil
 }
 
-func (m *mockSecretKeyRing) ScalarMult(keyDesc keychain.KeyDescriptor,
-	pubKey *btcec.PublicKey) ([]byte, error) {
-	return nil, nil
+func (m *mockSecretKeyRing) ECDH(_ keychain.KeyDescriptor,
+	pubKey *btcec.PublicKey) ([32]byte, error) {
+
+	return [32]byte{}, nil
 }
+
+func (m *mockSecretKeyRing) SignDigest(_ keychain.KeyDescriptor,
+	digest [32]byte) (*btcec.Signature, error) {
+
+	return m.rootKey.Sign(digest[:])
+}
+
+func (m *mockSecretKeyRing) SignDigestCompact(_ keychain.KeyDescriptor,
+	digest [32]byte) ([]byte, error) {
+
+	return btcec.SignCompact(btcec.S256(), m.rootKey, digest[:], true)
+}
+
+var _ keychain.SecretKeyRing = (*mockSecretKeyRing)(nil)

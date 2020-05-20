@@ -555,7 +555,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		// particular channel.
 		var selfPolicy *channeldb.ChannelEdgePolicy
 		if info != nil && bytes.Equal(info.NodeKey1Bytes[:],
-			p.server.identityPriv.PubKey().SerializeCompressed()) {
+			p.server.identityECDH.PubKey().SerializeCompressed()) {
 
 			selfPolicy = p1
 		} else {

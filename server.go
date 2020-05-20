@@ -41,6 +41,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -135,9 +136,9 @@ type server struct {
 
 	cfg *Config
 
-	// identityPriv is the private key used to authenticate any incoming
-	// connections.
-	identityPriv *btcec.PrivateKey
+	// identityECDH is an ECDH capable wrapper for the private key used
+	// to authenticate any incoming connections.
+	identityECDH keychain.SingleKeyECDH
 
 	// nodeSigner is an implementation of the MessageSigner implementation
 	// that's backed by the identity private key of the running lnd node.
@@ -311,12 +312,12 @@ func parseAddr(address string, netCfg tor.Net) (net.Addr, error) {
 
 // noiseDial is a factory function which creates a connmgr compliant dialing
 // function by returning a closure which includes the server's identity key.
-func noiseDial(idPriv *btcec.PrivateKey,
+func noiseDial(idKey keychain.SingleKeyECDH,
 	netCfg tor.Net) func(net.Addr) (net.Conn, error) {
 
 	return func(a net.Addr) (net.Conn, error) {
 		lnAddr := a.(*lnwire.NetAddress)
-		return brontide.Dial(idPriv, lnAddr, netCfg.Dial)
+		return brontide.Dial(idKey, lnAddr, netCfg.Dial)
 	}
 }
 
@@ -324,12 +325,18 @@ func noiseDial(idPriv *btcec.PrivateKey,
 // passed listener address.
 func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 	towerClientDB *wtdb.ClientDB, cc *chainControl,
-	privKey *btcec.PrivateKey,
+	nodeKeyDesc *keychain.KeyDescriptor,
 	chansToRestore walletunlocker.ChannelsToRecover,
 	chanPredicate chanacceptor.ChannelAcceptor,
 	torController *tor.Controller) (*server, error) {
 
-	var err error
+	var (
+		err           error
+		nodeKeyECDH   = keychain.NewPubKeyECDH(*nodeKeyDesc, cc.keyRing)
+		nodeKeySigner = keychain.NewPubKeyDigestSigner(
+			*nodeKeyDesc, cc.keyRing,
+		)
+	)
 
 	listeners := make([]net.Listener, len(listenAddrs))
 	for i, listenAddr := range listenAddrs {
@@ -337,7 +344,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		// doesn't need to call the general lndResolveTCP function
 		// since we are resolving a local address.
 		listeners[i], err = brontide.NewListener(
-			privKey, listenAddr.String(),
+			nodeKeyECDH, listenAddr.String(),
 		)
 		if err != nil {
 			return nil, err
@@ -366,14 +373,16 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 	}
 
 	var serializedPubKey [33]byte
-	copy(serializedPubKey[:], privKey.PubKey().SerializeCompressed())
+	copy(serializedPubKey[:], nodeKeyECDH.PubKey().SerializeCompressed())
 
 	// Initialize the sphinx router, placing it's persistent replay log in
 	// the same directory as the channel graph database.
 	graphDir := chanDB.Path()
 	sharedSecretPath := filepath.Join(graphDir, "sphinxreplay.db")
 	replayLog := htlcswitch.NewDecayedLog(sharedSecretPath, cc.chainNotifier)
-	sphinxRouter := sphinx.NewRouter(privKey, activeNetParams.Params, replayLog)
+	sphinxRouter := sphinx.NewRouter(
+		nodeKeyECDH, activeNetParams.Params, replayLog,
+	)
 
 	writeBufferPool := pool.NewWriteBuffer(
 		pool.DefaultWriteBufferGCInterval,
@@ -425,8 +434,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 
 		channelNotifier: channelnotifier.New(chanDB),
 
-		identityPriv: privKey,
-		nodeSigner:   netann.NewNodeSigner(privKey),
+		identityECDH: nodeKeyECDH,
+		nodeSigner:   netann.NewNodeSigner(nodeKeySigner),
 
 		listenAddrs: listenAddrs,
 
@@ -512,7 +521,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		ChanStatusSampleInterval: cfg.ChanStatusSampleInterval,
 		ChanEnableTimeout:        cfg.ChanEnableTimeout,
 		ChanDisableTimeout:       cfg.ChanDisableTimeout,
-		OurPubKey:                privKey.PubKey(),
+		OurPubKey:                nodeKeyECDH.PubKey(),
 		MessageSigner:            s.nodeSigner,
 		IsChannelActive:          s.htlcSwitch.HasActiveLink,
 		ApplyChannelUpdate:       s.applyChannelUpdate,
@@ -638,7 +647,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		Features:             s.featureMgr.Get(feature.SetNodeAnn),
 		Color:                color,
 	}
-	copy(selfNode.PubKeyBytes[:], privKey.PubKey().SerializeCompressed())
+	copy(selfNode.PubKeyBytes[:], nodeKeyECDH.PubKey().SerializeCompressed())
 
 	// Based on the disk representation of the node announcement generated
 	// above, we'll generate a node announcement that can go out on the
@@ -651,7 +660,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 	// With the announcement generated, we'll sign it to properly
 	// authenticate the message on the network.
 	authSig, err := netann.SignAnnouncement(
-		s.nodeSigner, s.identityPriv.PubKey(), nodeAnn,
+		s.nodeSigner, s.identityECDH.PubKey(), nodeAnn,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate signature for "+
@@ -799,7 +808,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		SubBatchDelay:           time.Second * 5,
 		IgnoreHistoricalFilters: cfg.IgnoreHistoricalGossipFilters,
 	},
-		s.identityPriv.PubKey(),
+		s.identityECDH.PubKey(),
 	)
 
 	s.localChanMgr = &localchans.Manager{
@@ -980,7 +989,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 	}
 
 	s.fundingMgr, err = newFundingManager(fundingConfig{
-		IDKey:              privKey.PubKey(),
+		IDKey:              nodeKeyECDH.PubKey(),
 		Wallet:             cc.wallet,
 		PublishTransaction: cc.wallet.PublishTransaction,
 		Notifier:           cc.chainNotifier,
@@ -988,7 +997,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		SignMessage: func(pubKey *btcec.PublicKey,
 			msg []byte) (input.Signature, error) {
 
-			if pubKey.IsEqual(privKey.PubKey()) {
+			if pubKey.IsEqual(nodeKeyECDH.PubKey()) {
 				return s.nodeSigner.SignMessage(pubKey, msg)
 			}
 
@@ -1001,7 +1010,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 			optionalFields ...discovery.OptionalMsgField) chan error {
 
 			return s.authGossiper.ProcessLocalAnnouncement(
-				msg, privKey.PubKey(), optionalFields...,
+				msg, nodeKeyECDH.PubKey(), optionalFields...,
 			)
 		},
 		NotifyWhenOnline: s.NotifyWhenOnline,
@@ -1227,7 +1236,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		OnAccept:       s.InboundPeerConnected,
 		RetryDuration:  time.Second * 5,
 		TargetOutbound: 100,
-		Dial:           noiseDial(s.identityPriv, s.cfg.net),
+		Dial:           noiseDial(s.identityECDH, s.cfg.net),
 		OnConnection:   s.OutboundPeerConnected,
 	})
 	if err != nil {
@@ -2020,7 +2029,7 @@ func (s *server) createNewHiddenService() error {
 		Color:        newNodeAnn.RGBColor,
 		AuthSigBytes: newNodeAnn.Signature.ToSignatureBytes(),
 	}
-	copy(selfNode.PubKeyBytes[:], s.identityPriv.PubKey().SerializeCompressed())
+	copy(selfNode.PubKeyBytes[:], s.identityECDH.PubKey().SerializeCompressed())
 	if err := s.chanDB.ChannelGraph().SetSourceNode(selfNode); err != nil {
 		return fmt.Errorf("can't set self node: %v", err)
 	}
@@ -2050,7 +2059,7 @@ func (s *server) genNodeAnnouncement(refresh bool,
 	// Otherwise, we'll sign a new update after applying all of the passed
 	// modifiers.
 	err := netann.SignNodeAnnouncement(
-		s.nodeSigner, s.identityPriv.PubKey(), s.currentNodeAnn,
+		s.nodeSigner, s.identityECDH.PubKey(), s.currentNodeAnn,
 		modifiers...,
 	)
 	if err != nil {
@@ -2102,7 +2111,7 @@ func (s *server) establishPersistentConnections() error {
 
 	// TODO(roasbeef): instead iterate over link nodes and query graph for
 	// each of the nodes.
-	selfPub := s.identityPriv.PubKey().SerializeCompressed()
+	selfPub := s.identityECDH.PubKey().SerializeCompressed()
 	err = sourceNode.ForEachChannel(nil, func(
 		tx kvdb.ReadTx,
 		chanInfo *channeldb.ChannelEdgeInfo,
@@ -2552,7 +2561,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		// not of the same type of the new connection (inbound), then
 		// we'll close out the new connection s.t there's only a single
 		// connection between us.
-		localPub := s.identityPriv.PubKey()
+		localPub := s.identityECDH.PubKey()
 		if !connectedPeer.inbound &&
 			!shouldDropLocalConnection(localPub, nodePub) {
 
@@ -2663,7 +2672,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		// not of the same type of the new connection (outbound), then
 		// we'll close out the new connection s.t there's only a single
 		// connection between us.
-		localPub := s.identityPriv.PubKey()
+		localPub := s.identityECDH.PubKey()
 		if connectedPeer.inbound &&
 			shouldDropLocalConnection(localPub, nodePub) {
 
@@ -3264,7 +3273,7 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress, perm bool) error {
 // notify the caller if the connection attempt has failed. Otherwise, it will be
 // closed.
 func (s *server) connectToPeer(addr *lnwire.NetAddress, errChan chan<- error) {
-	conn, err := brontide.Dial(s.identityPriv, addr, s.cfg.net.Dial)
+	conn, err := brontide.Dial(s.identityECDH, addr, s.cfg.net.Dial)
 	if err != nil {
 		srvrLog.Errorf("Unable to connect to %v: %v", addr, err)
 		select {
@@ -3467,7 +3476,7 @@ func (s *server) fetchNodeAdvertisedAddr(pub *btcec.PublicKey) (net.Addr, error)
 func (s *server) fetchLastChanUpdate() func(lnwire.ShortChannelID) (
 	*lnwire.ChannelUpdate, error) {
 
-	ourPubKey := s.identityPriv.PubKey().SerializeCompressed()
+	ourPubKey := s.identityECDH.PubKey().SerializeCompressed()
 	return func(cid lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
 		info, edge1, edge2, err := s.chanRouter.GetChannelByID(cid)
 		if err != nil {
@@ -3483,7 +3492,7 @@ func (s *server) fetchLastChanUpdate() func(lnwire.ShortChannelID) (
 // applyChannelUpdate applies the channel update to the different sub-systems of
 // the server.
 func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate) error {
-	pubKey := s.identityPriv.PubKey()
+	pubKey := s.identityECDH.PubKey()
 	errChan := s.authGossiper.ProcessLocalAnnouncement(update, pubKey)
 	select {
 	case err := <-errChan:

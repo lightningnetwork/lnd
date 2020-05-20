@@ -247,7 +247,9 @@ func (b *BtcWalletKeyRing) DeriveKey(keyLoc KeyLocator) (KeyDescriptor, error) {
 // passed key descriptor.
 //
 // NOTE: This is part of the keychain.SecretKeyRing interface.
-func (b *BtcWalletKeyRing) DerivePrivKey(keyDesc KeyDescriptor) (*btcec.PrivateKey, error) {
+func (b *BtcWalletKeyRing) DerivePrivKey(keyDesc KeyDescriptor) (
+	*btcec.PrivateKey, error) {
+
 	var key *btcec.PrivateKey
 
 	db := b.wallet.Database()
@@ -345,21 +347,21 @@ func (b *BtcWalletKeyRing) DerivePrivKey(keyDesc KeyDescriptor) (*btcec.PrivateK
 	return key, nil
 }
 
-// ScalarMult performs a scalar multiplication (ECDH-like operation) between
-// the target key descriptor and remote public key. The output returned will be
+// ECDH performs a scalar multiplication (ECDH-like operation) between the
+// target key descriptor and remote public key. The output returned will be
 // the sha256 of the resulting shared point serialized in compressed format. If
 // k is our private key, and P is the public key, we perform the following
 // operation:
 //
 //  sx := k*P s := sha256(sx.SerializeCompressed())
 //
-// NOTE: This is part of the keychain.SecretKeyRing interface.
-func (b *BtcWalletKeyRing) ScalarMult(keyDesc KeyDescriptor,
-	pub *btcec.PublicKey) ([]byte, error) {
+// NOTE: This is part of the keychain.ECDHRing interface.
+func (b *BtcWalletKeyRing) ECDH(keyDesc KeyDescriptor,
+	pub *btcec.PublicKey) ([32]byte, error) {
 
 	privKey, err := b.DerivePrivKey(keyDesc)
 	if err != nil {
-		return nil, err
+		return [32]byte{}, err
 	}
 
 	s := &btcec.PublicKey{}
@@ -369,5 +371,34 @@ func (b *BtcWalletKeyRing) ScalarMult(keyDesc KeyDescriptor,
 
 	h := sha256.Sum256(s.SerializeCompressed())
 
-	return h[:], nil
+	return h, nil
+}
+
+// SignDigest signs the given SHA256 message digest with the private key
+// described in the key descriptor.
+//
+// NOTE: This is part of the keychain.DigestSignerRing interface.
+func (b *BtcWalletKeyRing) SignDigest(keyDesc KeyDescriptor,
+	digest [32]byte) (*btcec.Signature, error) {
+
+	privKey, err := b.DerivePrivKey(keyDesc)
+	if err != nil {
+		return nil, err
+	}
+	return privKey.Sign(digest[:])
+}
+
+// SignDigestCompact signs the given SHA256 message digest with the private key
+// described in the key descriptor and returns the signature in the compact,
+// public key recoverable format.
+//
+// NOTE: This is part of the keychain.DigestSignerRing interface.
+func (b *BtcWalletKeyRing) SignDigestCompact(keyDesc KeyDescriptor,
+	digest [32]byte) ([]byte, error) {
+
+	privKey, err := b.DerivePrivKey(keyDesc)
+	if err != nil {
+		return nil, err
+	}
+	return btcec.SignCompact(btcec.S256(), privKey, digest[:], true)
 }

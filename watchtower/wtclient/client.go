@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
@@ -132,7 +133,7 @@ type Config struct {
 	// SecretKeyRing is used to derive the session keys used to communicate
 	// with the tower. The client only stores the KeyLocators internally so
 	// that we never store private keys on disk.
-	SecretKeyRing SecretKeyRing
+	SecretKeyRing ECDHKeyRing
 
 	// Dial connects to an addr using the specified net and returns the
 	// connection object.
@@ -337,7 +338,7 @@ func New(config *Config) (*TowerClient, error) {
 // NOTE: This method should only be used when deserialization of a
 // ClientSession's Tower and SessionPrivKey fields is desired, otherwise, the
 // existing ListClientSessions method should be used.
-func getClientSessions(db DB, keyRing SecretKeyRing, forTower *wtdb.TowerID,
+func getClientSessions(db DB, keyRing ECDHKeyRing, forTower *wtdb.TowerID,
 	passesFilter func(*wtdb.ClientSession) bool) (
 	map[wtdb.SessionID]*wtdb.ClientSession, error) {
 
@@ -358,11 +359,14 @@ func getClientSessions(db DB, keyRing SecretKeyRing, forTower *wtdb.TowerID,
 		}
 		s.Tower = tower
 
-		sessionKey, err := DeriveSessionKey(keyRing, s.KeyIndex)
+		towerKeyDesc, err := keyRing.DeriveKey(keychain.KeyLocator{
+			Family: keychain.KeyFamilyTowerSession,
+			Index:  s.KeyIndex,
+		})
 		if err != nil {
 			return nil, err
 		}
-		s.SessionPrivKey = sessionKey
+		s.SessionKeyECDH = keychain.NewPubKeyECDH(towerKeyDesc, keyRing)
 
 		// If an optional filter was provided, use it to filter out any
 		// undesired sessions.
@@ -897,10 +901,10 @@ func (c *TowerClient) taskRejected(task *backupTask, curStatus reserveStatus) {
 // dial connects the peer at addr using privKey as our secret key for the
 // connection. The connection will use the configured Net's resolver to resolve
 // the address for either Tor or clear net connections.
-func (c *TowerClient) dial(privKey *btcec.PrivateKey,
+func (c *TowerClient) dial(localKey keychain.SingleKeyECDH,
 	addr *lnwire.NetAddress) (wtserver.Peer, error) {
 
-	return c.cfg.AuthDial(privKey, addr, c.cfg.Dial)
+	return c.cfg.AuthDial(localKey, addr, c.cfg.Dial)
 }
 
 // readMessage receives and parses the next message from the given Peer. An

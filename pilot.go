@@ -170,7 +170,7 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 
 	// With the heuristic itself created, we can now populate the remainder
 	// of the items that the autopilot agent needs to perform its duties.
-	self := svr.identityPriv.PubKey()
+	self := svr.identityECDH.PubKey()
 	pilotCfg := autopilot.Config{
 		Self:      self,
 		Heuristic: weightedAttachment,

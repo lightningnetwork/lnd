@@ -1363,7 +1363,8 @@
     },
     "/v1/utxos": {
       "get": {
-        "summary": "lncli: `listunspent`\nListUnspent returns a list of all utxos spendable by the wallet with a\nnumber of confirmations between the specified minimum and maximum.",
+        "summary": "lncli: `listunspent`\nDeprecated, use walletrpc.ListUnspent instead.",
+        "description": "ListUnspent returns a list of all utxos spendable by the wallet with a\nnumber of confirmations between the specified minimum and maximum.",
         "operationId": "ListUnspent",
         "responses": {
           "200": {

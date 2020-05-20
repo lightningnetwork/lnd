@@ -2,7 +2,6 @@ package lncfg
 
 import (
 	"fmt"
-	"path"
 
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 )
@@ -51,11 +50,12 @@ func (db *DB) Validate() error {
 }
 
 // GetBackend returns a kvdb.Backend as set in the DB config.
-func (db *DB) GetBackend(dbPath string) (kvdb.Backend, error) {
+func (db *DB) GetBackend(dbPath string, networkName string) (
+	kvdb.Backend, error) {
+
 	if db.Backend == etcdBackend {
 		// Prefix will separate key/values in the db.
-		prefix := path.Join(dbPath, dbName)
-		return kvdb.GetEtcdBackend(prefix, db.Etcd)
+		return kvdb.GetEtcdBackend(networkName, db.Etcd)
 	}
 
 	return kvdb.GetBoltBackend(dbPath, dbName, db.Bolt.NoFreeListSync)

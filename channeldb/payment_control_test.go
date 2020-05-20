@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -9,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/record"
@@ -46,7 +46,7 @@ func genInfo() (*PaymentCreationInfo, *HTLCAttemptInfo,
 			"generate preimage: %v", err)
 	}
 
-	rhash := fastsha256.Sum256(preimage[:])
+	rhash := sha256.Sum256(preimage[:])
 	return &PaymentCreationInfo{
 			PaymentHash:    rhash,
 			Value:          testRoute.ReceiverAmt(),

@@ -11,6 +11,12 @@ option go_package = "github.com/lightningnetwork/lnd/lnrpc/walletrpc";
 // daemon's wallet.
 service WalletKit {
     /*
+    ListUnspent returns a list of all utxos spendable by the wallet with a
+    number of confirmations between the specified minimum and maximum.
+    */
+    rpc ListUnspent (ListUnspentRequest) returns (ListUnspentResponse);
+
+    /*
     LeaseOutput locks an output to the given ID, preventing it from being
     available for any future coin selection attempts. The absolute time of the
     lock's expiration is returned. The expiration of the lock can be extended by
@@ -122,6 +128,19 @@ service WalletKit {
     */
     rpc LabelTransaction (LabelTransactionRequest)
         returns (LabelTransactionResponse);
+}
+
+message ListUnspentRequest {
+    // The minimum number of confirmations to be included.
+    int32 min_confs = 1;
+
+    // The maximum number of confirmations to be included.
+    int32 max_confs = 2;
+}
+
+message ListUnspentResponse {
+    // A list of utxos satisfying the specified number of confirmations.
+    repeated lnrpc.Utxo utxos = 1;
 }
 
 message LeaseOutputRequest {

@@ -107,6 +107,10 @@ var (
 			Entity: "onchain",
 			Action: "write",
 		}},
+		"/walletrpc.WalletKit/ListUnspent": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
 	}
 
 	// DefaultWalletKitMacFilename is the default name of the wallet kit
@@ -211,6 +215,39 @@ func (w *WalletKit) RegisterWithRootServer(grpcServer *grpc.Server) error {
 		"root gRPC server")
 
 	return nil
+}
+
+// ListUnspent returns useful information about each unspent output owned by the
+// wallet, as reported by the underlying `ListUnspentWitness`; the information
+// returned is: outpoint, amount in satoshis, address, address type,
+// scriptPubKey in hex and number of confirmations.  The result is filtered to
+// contain outputs whose number of confirmations is between a
+// minimum and maximum number of confirmations specified by the user, with 0
+// meaning unconfirmed.
+func (w *WalletKit) ListUnspent(ctx context.Context,
+	req *ListUnspentRequest) (*ListUnspentResponse, error) {
+
+	// Validate the confirmation arguments.
+	minConfs, maxConfs, err := lnrpc.ParseConfs(req.MinConfs, req.MaxConfs)
+	if err != nil {
+		return nil, err
+	}
+
+	// With our arguments validated, we'll query the internal wallet for
+	// the set of UTXOs that match our query.
+	utxos, err := w.cfg.Wallet.ListUnspentWitness(minConfs, maxConfs)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcUtxos, err := lnrpc.MarshalUtxos(utxos, w.cfg.ChainParams)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ListUnspentResponse{
+		Utxos: rpcUtxos,
+	}, nil
 }
 
 // LeaseOutput locks an output to the given ID, preventing it from being

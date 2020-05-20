@@ -37,6 +37,11 @@ func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*lnwallet.Utxo, erro
 	// we actually have control of this output. We do this because the check
 	// above only guarantees that the transaction is somehow relevant to us,
 	// like in the event of us being the sender of the transaction.
+	numOutputs := uint32(len(txDetail.TxRecord.MsgTx.TxOut))
+	if prevOut.Index >= numOutputs {
+		return nil, fmt.Errorf("invalid output index %v for "+
+			"transaction with %v outputs", prevOut.Index, numOutputs)
+	}
 	pkScript := txDetail.TxRecord.MsgTx.TxOut[prevOut.Index].PkScript
 	if _, err := b.fetchOutputAddr(pkScript); err != nil {
 		return nil, err

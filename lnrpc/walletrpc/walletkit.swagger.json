@@ -181,6 +181,16 @@
     "walletrpcLabelTransactionResponse": {
       "type": "object"
     },
+    "walletrpcLeaseOutputResponse": {
+      "type": "object",
+      "properties": {
+        "expiration": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The absolute expiration of the output lease represented as a unix timestamp."
+        }
+      }
+    },
     "walletrpcListSweepsResponse": {
       "type": "object",
       "properties": {
@@ -260,6 +270,9 @@
           "description": "If blank, then no error occurred and the transaction was successfully\npublished. If not the empty string, then a string representation of the\nbroadcast error.\n\nTODO(roasbeef): map to a proper enum type"
         }
       }
+    },
+    "walletrpcReleaseOutputResponse": {
+      "type": "object"
     },
     "walletrpcSendOutputsResponse": {
       "type": "object",

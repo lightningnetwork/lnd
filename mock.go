@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -13,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
+	"github.com/btcsuite/btcwallet/wtxmgr"
 
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/input"
@@ -322,6 +324,14 @@ func (*mockWalletController) ListTransactionDetails(_, _ int32) ([]*lnwallet.Tra
 }
 func (*mockWalletController) LockOutpoint(o wire.OutPoint)   {}
 func (*mockWalletController) UnlockOutpoint(o wire.OutPoint) {}
+
+func (*mockWalletController) LeaseOutput(wtxmgr.LockID, wire.OutPoint) (time.Time, error) {
+	return time.Now(), nil
+}
+func (*mockWalletController) ReleaseOutput(wtxmgr.LockID, wire.OutPoint) error {
+	return nil
+}
+
 func (m *mockWalletController) PublishTransaction(tx *wire.MsgTx, _ string) error {
 	m.publishedTransactions <- tx
 	return nil

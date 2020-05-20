@@ -1182,7 +1182,9 @@ func (i *invoiceSubscriptionKit) notify(event *invoiceEvent) error {
 // added. The invoiceIndex parameter is a streaming "checkpoint". We'll start
 // by first sending out all new events with an invoice index _greater_ than
 // this value. Afterwards, we'll send out real-time notifications.
-func (i *InvoiceRegistry) SubscribeNotifications(addIndex, settleIndex uint64) *InvoiceSubscription {
+func (i *InvoiceRegistry) SubscribeNotifications(
+	addIndex, settleIndex uint64) (*InvoiceSubscription, error) {
+
 	client := &InvoiceSubscription{
 		NewInvoices:     make(chan *channeldb.Invoice),
 		SettledInvoices: make(chan *channeldb.Invoice),
@@ -1254,9 +1256,10 @@ func (i *InvoiceRegistry) SubscribeNotifications(addIndex, settleIndex uint64) *
 	select {
 	case i.newSubscriptions <- client:
 	case <-i.quit:
+		return nil, ErrShuttingDown
 	}
 
-	return client
+	return client, nil
 }
 
 // SubscribeSingleInvoice returns an SingleInvoiceSubscription which allows the

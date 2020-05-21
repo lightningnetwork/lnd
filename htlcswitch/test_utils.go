@@ -2,7 +2,7 @@ package htlcswitch
 
 import (
 	"bytes"
-	"crypto/rand"
+	crand "crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
@@ -137,7 +137,7 @@ func generateRandomBytes(n int) ([]byte, error) {
 	// TODO(roasbeef): should use counter in tests (atomic) rather than
 	// this
 
-	_, err := rand.Read(b[:])
+	_, err := crand.Read(b)
 	// Note that Err == nil only if we read len(b) bytes.
 	if err != nil {
 		return nil, err
@@ -547,7 +547,7 @@ func getChanID(msg lnwire.Message) (lnwire.ChannelID, error) {
 // invoice which should be added by destination peer.
 func generatePaymentWithPreimage(invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 	timelock uint32, blob [lnwire.OnionPacketSize]byte,
-	preimage, rhash [32]byte) (*channeldb.Invoice, *lnwire.UpdateAddHTLC,
+	preimage, rhash, payAddr [32]byte) (*channeldb.Invoice, *lnwire.UpdateAddHTLC,
 	uint64, error) {
 
 	// Create the db invoice. Normally the payment requests needs to be set,
@@ -562,6 +562,7 @@ func generatePaymentWithPreimage(invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 			FinalCltvDelta:  testInvoiceCltvExpiry,
 			Value:           invoiceAmt,
 			PaymentPreimage: preimage,
+			PaymentAddr:     payAddr,
 			Features: lnwire.NewFeatureVector(
 				nil, lnwire.Features,
 			),
@@ -598,8 +599,16 @@ func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi, timelock uint32,
 	copy(preimage[:], r)
 
 	rhash := sha256.Sum256(preimage[:])
+
+	var payAddr [sha256.Size]byte
+	r, err = generateRandomBytes(sha256.Size)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	copy(payAddr[:], r)
+
 	return generatePaymentWithPreimage(
-		invoiceAmt, htlcAmt, timelock, blob, preimage, rhash,
+		invoiceAmt, htlcAmt, timelock, blob, preimage, rhash, payAddr,
 	)
 }
 
@@ -1328,10 +1337,15 @@ func (n *twoHopNetwork) makeHoldPayment(sendingPeer, receivingPeer lnpeer.Peer,
 
 	rhash := preimage.Hash()
 
+	var payAddr [32]byte
+	if _, err := crand.Read(payAddr[:]); err != nil {
+		panic(err)
+	}
+
 	// Generate payment: invoice and htlc.
 	invoice, htlc, pid, err := generatePaymentWithPreimage(
 		invoiceAmt, htlcAmt, timelock, blob,
-		channeldb.UnknownPreimage, rhash,
+		channeldb.UnknownPreimage, rhash, payAddr,
 	)
 	if err != nil {
 		paymentErr <- err

@@ -1,6 +1,7 @@
 package invoices
 
 import (
+	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -198,14 +199,20 @@ func newTestInvoice(t *testing.T, preimage lntypes.Preimage,
 		expiry = time.Hour
 	}
 
+	var payAddr [32]byte
+	if _, err := rand.Read(payAddr[:]); err != nil {
+		t.Fatalf("unable to generate payment addr: %v", err)
+	}
+
 	rawInvoice, err := zpay32.NewInvoice(
 		testNetParams,
 		preimage.Hash(),
 		timestamp,
 		zpay32.Amount(testInvoiceAmount),
 		zpay32.Description(testInvoiceDescription),
-		zpay32.Expiry(expiry))
-
+		zpay32.Expiry(expiry),
+		zpay32.PaymentAddr(payAddr),
+	)
 	if err != nil {
 		t.Fatalf("Error while creating new invoice: %v", err)
 	}
@@ -219,6 +226,7 @@ func newTestInvoice(t *testing.T, preimage lntypes.Preimage,
 	return &channeldb.Invoice{
 		Terms: channeldb.ContractTerm{
 			PaymentPreimage: preimage,
+			PaymentAddr:     payAddr,
 			Value:           testInvoiceAmount,
 			Expiry:          expiry,
 			Features:        testFeatures,

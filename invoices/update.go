@@ -25,6 +25,10 @@ type invoiceUpdateCtx struct {
 // invoiceRef returns an identifier that can be used to lookup or update the
 // invoice this HTLC is targeting.
 func (i *invoiceUpdateCtx) invoiceRef() channeldb.InvoiceRef {
+	if i.mpp != nil {
+		payAddr := i.mpp.PaymentAddr()
+		return channeldb.InvoiceRefByHashAndAddr(i.hash, payAddr)
+	}
 	return channeldb.InvoiceRefByHash(i.hash)
 }
 

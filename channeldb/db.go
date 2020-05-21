@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+	mig "github.com/lightningnetwork/lnd/channeldb/migration"
 	"github.com/lightningnetwork/lnd/channeldb/migration12"
 	"github.com/lightningnetwork/lnd/channeldb/migration13"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
@@ -136,6 +137,13 @@ var (
 			number:    13,
 			migration: migration13.MigrateMPP,
 		},
+		{
+			// Initialize payment address index and begin using it
+			// as the default index, falling back to payment hash
+			// index.
+			number:    14,
+			migration: mig.CreateTLB(payAddrIndexBucket),
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over
@@ -248,6 +256,7 @@ var topLevelBuckets = [][]byte{
 	forwardingLogBucket,
 	fwdPackagesKey,
 	invoiceBucket,
+	payAddrIndexBucket,
 	nodeInfoBucket,
 	nodeBucket,
 	edgeBucket,

@@ -37,6 +37,16 @@ var (
 	// maps: payHash => invoiceKey
 	invoiceIndexBucket = []byte("paymenthashes")
 
+	// payAddrIndexBucket is the name of the top-level bucket that maps
+	// payment addresses to their invoice number. This can be used
+	// to efficiently query or update non-legacy invoices. Note that legacy
+	// invoices will not be included in this index since they all have the
+	// same, all-zero payment address, however all newly generated invoices
+	// will end up in this index.
+	//
+	// maps: payAddr => invoiceKey
+	payAddrIndexBucket = []byte("pay-addr-index")
+
 	// numInvoicesKey is the name of key which houses the auto-incrementing
 	// invoice ID which is essentially used as a primary key. With each
 	// invoice inserted, the primary key is incremented by one. This key is
@@ -142,12 +152,23 @@ const (
 	amtPaidType     tlv.Type = 13
 )
 
-// InvoiceRef is an identifier for invoices supporting queries by payment hash.
+// InvoiceRef is a composite identifier for invoices. Invoices can be referenced
+// by various combinations of payment hash and payment addr, in certain contexts
+// only some of these are known. An InvoiceRef and its constructors thus
+// encapsulate the valid combinations of query parameters that can be supplied
+// to LookupInvoice and UpdateInvoice.
 type InvoiceRef struct {
 	// payHash is the payment hash of the target invoice. All invoices are
 	// currently indexed by payment hash. This value will be used as a
 	// fallback when no payment address is known.
 	payHash lntypes.Hash
+
+	// payAddr is the payment addr of the target invoice. Newer invoices
+	// (0.11 and up) are indexed by payment address in addition to payment
+	// hash, but pre 0.8 invoices do not have one at all. When this value is
+	// known it will be used as the primary identifier, falling back to
+	// payHash if no value is known.
+	payAddr *[32]byte
 }
 
 // InvoiceRefByHash creates an InvoiceRef that queries for an invoice only by
@@ -158,13 +179,39 @@ func InvoiceRefByHash(payHash lntypes.Hash) InvoiceRef {
 	}
 }
 
+// InvoiceRefByHashAndAddr creates an InvoiceRef that first queries for an
+// invoice by the provided payment address, falling back to the payment hash if
+// the payment address is unknown.
+func InvoiceRefByHashAndAddr(payHash lntypes.Hash,
+	payAddr [32]byte) InvoiceRef {
+
+	return InvoiceRef{
+		payHash: payHash,
+		payAddr: &payAddr,
+	}
+}
+
 // PayHash returns the target invoice's payment hash.
 func (r InvoiceRef) PayHash() lntypes.Hash {
 	return r.payHash
 }
 
+// PayAddr returns the optional payment address of the target invoice.
+//
+// NOTE: This value may be nil.
+func (r InvoiceRef) PayAddr() *[32]byte {
+	if r.payAddr != nil {
+		addr := *r.payAddr
+		return &addr
+	}
+	return nil
+}
+
 // String returns a human-readable representation of an InvoiceRef.
 func (r InvoiceRef) String() string {
+	if r.payAddr != nil {
+		return fmt.Sprintf("(pay_hash=%v, pay_addr=%x)", r.payHash, *r.payAddr)
+	}
 	return fmt.Sprintf("(pay_hash=%v)", r.payHash)
 }
 
@@ -458,6 +505,11 @@ func (d *DB) AddInvoice(newInvoice *Invoice, paymentHash lntypes.Hash) (
 			return ErrDuplicateInvoice
 		}
 
+		payAddrIndex := tx.ReadWriteBucket(payAddrIndexBucket)
+		if payAddrIndex.Get(newInvoice.Terms.PaymentAddr[:]) != nil {
+			return ErrDuplicatePayAddr
+		}
+
 		// If the current running payment ID counter hasn't yet been
 		// created, then create it now.
 		var invoiceNum uint32
@@ -474,8 +526,8 @@ func (d *DB) AddInvoice(newInvoice *Invoice, paymentHash lntypes.Hash) (
 		}
 
 		newIndex, err := putInvoice(
-			invoices, invoiceIndex, addIndex, newInvoice, invoiceNum,
-			paymentHash,
+			invoices, invoiceIndex, payAddrIndex, addIndex,
+			newInvoice, invoiceNum, paymentHash,
 		)
 		if err != nil {
 			return err
@@ -575,11 +627,12 @@ func (d *DB) LookupInvoice(ref InvoiceRef) (Invoice, error) {
 		if invoiceIndex == nil {
 			return ErrNoInvoicesCreated
 		}
+		payAddrIndex := tx.ReadBucket(payAddrIndexBucket)
 
 		// Retrieve the invoice number for this invoice using the
 		// provided invoice reference.
 		invoiceNum, err := fetchInvoiceNumByRef(
-			invoiceIndex, ref,
+			invoiceIndex, payAddrIndex, ref,
 		)
 		if err != nil {
 			return err
@@ -603,18 +656,44 @@ func (d *DB) LookupInvoice(ref InvoiceRef) (Invoice, error) {
 }
 
 // fetchInvoiceNumByRef retrieve the invoice number for the provided invoice
-// reference.
-func fetchInvoiceNumByRef(invoiceIndex kvdb.ReadBucket,
+// reference. The payment address will be treated as the primary key, falling
+// back to the payment hash if nothing is found for the payment address. An
+// error is returned if the invoice is not found.
+func fetchInvoiceNumByRef(invoiceIndex, payAddrIndex kvdb.ReadBucket,
 	ref InvoiceRef) ([]byte, error) {
 
 	payHash := ref.PayHash()
+	payAddr := ref.PayAddr()
 
-	invoiceNum := invoiceIndex.Get(payHash[:])
-	if invoiceNum == nil {
-		return nil, ErrInvoiceNotFound
+	var (
+		invoiceNumByHash = invoiceIndex.Get(payHash[:])
+		invoiceNumByAddr []byte
+	)
+	if payAddr != nil {
+		invoiceNumByAddr = payAddrIndex.Get(payAddr[:])
 	}
 
-	return invoiceNum, nil
+	switch {
+
+	// If payment address and payment hash both reference an existing
+	// invoice, ensure they reference the _same_ invoice.
+	case invoiceNumByAddr != nil && invoiceNumByHash != nil:
+		if !bytes.Equal(invoiceNumByAddr, invoiceNumByHash) {
+			return nil, ErrInvRefEquivocation
+		}
+
+		return invoiceNumByAddr, nil
+
+	// If we were only able to reference the invoice by hash, return the
+	// corresponding invoice number. This can happen when no payment address
+	// was provided, or if it didn't match anything in our records.
+	case invoiceNumByHash != nil:
+		return invoiceNumByHash, nil
+
+	// Otherwise we don't know of the target invoice.
+	default:
+		return nil, ErrInvoiceNotFound
+	}
 }
 
 // InvoiceWithPaymentHash is used to store an invoice and its corresponding
@@ -888,11 +967,12 @@ func (d *DB) UpdateInvoice(ref InvoiceRef,
 		if err != nil {
 			return err
 		}
+		payAddrIndex := tx.ReadBucket(payAddrIndexBucket)
 
 		// Retrieve the invoice number for this invoice using the
 		// provided invoice reference.
 		invoiceNum, err := fetchInvoiceNumByRef(
-			invoiceIndex, ref,
+			invoiceIndex, payAddrIndex, ref,
 		)
 		if err != nil {
 			return err
@@ -971,7 +1051,7 @@ func (d *DB) InvoicesSettledSince(sinceSettleIndex uint64) ([]Invoice, error) {
 	return settledInvoices, nil
 }
 
-func putInvoice(invoices, invoiceIndex, addIndex kvdb.RwBucket,
+func putInvoice(invoices, invoiceIndex, payAddrIndex, addIndex kvdb.RwBucket,
 	i *Invoice, invoiceNum uint32, paymentHash lntypes.Hash) (
 	uint64, error) {
 
@@ -993,6 +1073,10 @@ func putInvoice(invoices, invoiceIndex, addIndex kvdb.RwBucket,
 	// identify if we can settle an incoming payment, and also to possibly
 	// allow a single invoice to have multiple payment installations.
 	err := invoiceIndex.Put(paymentHash[:], invoiceKey[:])
+	if err != nil {
+		return 0, err
+	}
+	err = payAddrIndex.Put(i.Terms.PaymentAddr[:], invoiceKey[:])
 	if err != nil {
 		return 0, err
 	}

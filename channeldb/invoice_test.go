@@ -20,8 +20,11 @@ var (
 )
 
 func randInvoice(value lnwire.MilliSatoshi) (*Invoice, error) {
-	var pre [32]byte
+	var pre, payAddr [32]byte
 	if _, err := rand.Read(pre[:]); err != nil {
+		return nil, err
+	}
+	if _, err := rand.Read(payAddr[:]); err != nil {
 		return nil, err
 	}
 
@@ -30,6 +33,7 @@ func randInvoice(value lnwire.MilliSatoshi) (*Invoice, error) {
 		Terms: ContractTerm{
 			Expiry:          4000,
 			PaymentPreimage: pre,
+			PaymentAddr:     payAddr,
 			Value:           value,
 			Features:        emptyFeatures,
 		},
@@ -91,9 +95,45 @@ func TestInvoiceIsPending(t *testing.T) {
 	}
 }
 
+type invWorkflowTest struct {
+	name         string
+	queryPayHash bool
+	queryPayAddr bool
+}
+
+var invWorkflowTests = []invWorkflowTest{
+	{
+		name:         "unknown",
+		queryPayHash: false,
+		queryPayAddr: false,
+	},
+	{
+		name:         "only payhash known",
+		queryPayHash: true,
+		queryPayAddr: false,
+	},
+	{
+		name:         "payaddr and payhash known",
+		queryPayHash: true,
+		queryPayAddr: true,
+	},
+}
+
+// TestInvoiceWorkflow asserts the basic process of inserting, fetching, and
+// updating an invoice. We assert that the flow is successful using when
+// querying with various combinations of payment hash and payment address.
 func TestInvoiceWorkflow(t *testing.T) {
 	t.Parallel()
 
+	for _, test := range invWorkflowTests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			testInvoiceWorkflow(t, test)
+		})
+	}
+}
+
+func testInvoiceWorkflow(t *testing.T, test invWorkflowTest) {
 	db, cleanUp, err := makeTestDB()
 	defer cleanUp()
 	if err != nil {
@@ -102,23 +142,33 @@ func TestInvoiceWorkflow(t *testing.T) {
 
 	// Create a fake invoice which we'll use several times in the tests
 	// below.
-	fakeInvoice := &Invoice{
-		CreationDate: testNow,
-		Htlcs:        map[CircuitKey]*InvoiceHTLC{},
+	fakeInvoice, err := randInvoice(10000)
+	if err != nil {
+		t.Fatalf("unable to create invoice: %v", err)
 	}
-	fakeInvoice.Memo = []byte("memo")
-	fakeInvoice.PaymentRequest = []byte("")
-	copy(fakeInvoice.Terms.PaymentPreimage[:], rev[:])
-	fakeInvoice.Terms.Value = lnwire.NewMSatFromSatoshis(10000)
-	fakeInvoice.Terms.Features = emptyFeatures
+	invPayHash := fakeInvoice.Terms.PaymentPreimage.Hash()
 
-	paymentHash := fakeInvoice.Terms.PaymentPreimage.Hash()
-	ref := InvoiceRefByHash(paymentHash)
+	// Select the payment hash and payment address we will use to lookup or
+	// update the invoice for the remainder of the test.
+	var (
+		payHash lntypes.Hash
+		payAddr *[32]byte
+		ref     InvoiceRef
+	)
+	switch {
+	case test.queryPayHash && test.queryPayAddr:
+		payHash = invPayHash
+		payAddr = &fakeInvoice.Terms.PaymentAddr
+		ref = InvoiceRefByHashAndAddr(payHash, *payAddr)
+	case test.queryPayHash:
+		payHash = invPayHash
+		ref = InvoiceRefByHash(payHash)
+	}
 
 	// Add the invoice to the database, this should succeed as there aren't
 	// any existing invoices within the database with the same payment
 	// hash.
-	if _, err := db.AddInvoice(fakeInvoice, paymentHash); err != nil {
+	if _, err := db.AddInvoice(fakeInvoice, invPayHash); err != nil {
 		t.Fatalf("unable to find invoice: %v", err)
 	}
 
@@ -126,8 +176,11 @@ func TestInvoiceWorkflow(t *testing.T) {
 	// database. It should be found, and the invoice returned should be
 	// identical to the one created above.
 	dbInvoice, err := db.LookupInvoice(ref)
-	if err != nil {
-		t.Fatalf("unable to find invoice: %v", err)
+	if !test.queryPayAddr && !test.queryPayHash {
+		if err != ErrInvoiceNotFound {
+			t.Fatalf("invoice should not exist: %v", err)
+		}
+		return
 	}
 	if !reflect.DeepEqual(*fakeInvoice, dbInvoice) {
 		t.Fatalf("invoice fetched from db doesn't match original %v vs %v",
@@ -174,7 +227,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 
 	// Attempt to insert generated above again, this should fail as
 	// duplicates are rejected by the processing logic.
-	if _, err := db.AddInvoice(fakeInvoice, paymentHash); err != ErrDuplicateInvoice {
+	if _, err := db.AddInvoice(fakeInvoice, payHash); err != ErrDuplicateInvoice {
 		t.Fatalf("invoice insertion should fail due to duplication, "+
 			"instead %v", err)
 	}
@@ -230,6 +283,70 @@ func TestInvoiceWorkflow(t *testing.T) {
 				spew.Sdump(response.Invoices[i]))
 		}
 	}
+}
+
+// TestAddDuplicatePayAddr asserts that the payment addresses of inserted
+// invoices are unique.
+func TestAddDuplicatePayAddr(t *testing.T) {
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	assert.Nil(t, err)
+
+	// Create two invoices with the same payment addr.
+	invoice1, err := randInvoice(1000)
+	assert.Nil(t, err)
+
+	invoice2, err := randInvoice(20000)
+	assert.Nil(t, err)
+	invoice2.Terms.PaymentAddr = invoice1.Terms.PaymentAddr
+
+	// First insert should succeed.
+	inv1Hash := invoice1.Terms.PaymentPreimage.Hash()
+	_, err = db.AddInvoice(invoice1, inv1Hash)
+	assert.Nil(t, err)
+
+	// Second insert should fail with duplicate payment addr.
+	inv2Hash := invoice2.Terms.PaymentPreimage.Hash()
+	_, err = db.AddInvoice(invoice2, inv2Hash)
+	assert.Equal(t, ErrDuplicatePayAddr, err)
+}
+
+// TestInvRefEquivocation asserts that retrieving or updating an invoice using
+// an equivocating InvoiceRef results in ErrInvRefEquivocation.
+func TestInvRefEquivocation(t *testing.T) {
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	assert.Nil(t, err)
+
+	// Add two random invoices.
+	invoice1, err := randInvoice(1000)
+	assert.Nil(t, err)
+
+	inv1Hash := invoice1.Terms.PaymentPreimage.Hash()
+	_, err = db.AddInvoice(invoice1, inv1Hash)
+	assert.Nil(t, err)
+
+	invoice2, err := randInvoice(2000)
+	assert.Nil(t, err)
+
+	inv2Hash := invoice2.Terms.PaymentPreimage.Hash()
+	_, err = db.AddInvoice(invoice2, inv2Hash)
+	assert.Nil(t, err)
+
+	// Now, query using invoice 1's payment address, but invoice 2's payment
+	// hash. We expect an error since the invref points to multiple
+	// invoices.
+	ref := InvoiceRefByHashAndAddr(inv2Hash, invoice1.Terms.PaymentAddr)
+	_, err = db.LookupInvoice(ref)
+	assert.Equal(t, ErrInvRefEquivocation, err)
+
+	// The same error should be returned when updating an equivocating
+	// reference.
+	nop := func(_ *Invoice) (*InvoiceUpdateDesc, error) {
+		return nil, nil
+	}
+	_, err = db.UpdateInvoice(ref, nop)
+	assert.Equal(t, ErrInvRefEquivocation, err)
 }
 
 // TestInvoiceCancelSingleHtlc tests that a single htlc can be canceled on the
@@ -991,9 +1108,17 @@ func TestCustomRecords(t *testing.T) {
 // InvoiceRef depending on the constructor used.
 func TestInvoiceRef(t *testing.T) {
 	payHash := lntypes.Hash{0x01}
+	payAddr := [32]byte{0x02}
 
 	// An InvoiceRef by hash should return the provided hash and a nil
 	// payment addr.
 	refByHash := InvoiceRefByHash(payHash)
 	assert.Equal(t, payHash, refByHash.PayHash())
+	assert.Equal(t, (*[32]byte)(nil), refByHash.PayAddr())
+
+	// An InvoiceRef by hash and addr should return the payment hash and
+	// payment addr passed to the constructor.
+	refByHashAndAddr := InvoiceRefByHashAndAddr(payHash, payAddr)
+	assert.Equal(t, payHash, refByHashAndAddr.PayHash())
+	assert.Equal(t, &payAddr, refByHashAndAddr.PayAddr())
 }

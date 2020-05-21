@@ -114,8 +114,6 @@ type peer struct {
 	started    int32
 	disconnect int32
 
-	cfg *Config
-
 	// The following fields are only meant to be used *atomically*
 	bytesReceived uint64
 	bytesSent     uint64
@@ -129,6 +127,8 @@ type peer struct {
 	// pingLastSend is the Unix time expressed in nanoseconds when we sent
 	// our last ping message.  To be used atomically.
 	pingLastSend int64
+
+	cfg *Config
 
 	connReq *connmgr.ConnReq
 	conn    net.Conn

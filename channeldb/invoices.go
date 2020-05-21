@@ -142,6 +142,32 @@ const (
 	amtPaidType     tlv.Type = 13
 )
 
+// InvoiceRef is an identifier for invoices supporting queries by payment hash.
+type InvoiceRef struct {
+	// payHash is the payment hash of the target invoice. All invoices are
+	// currently indexed by payment hash. This value will be used as a
+	// fallback when no payment address is known.
+	payHash lntypes.Hash
+}
+
+// InvoiceRefByHash creates an InvoiceRef that queries for an invoice only by
+// its payment hash.
+func InvoiceRefByHash(payHash lntypes.Hash) InvoiceRef {
+	return InvoiceRef{
+		payHash: payHash,
+	}
+}
+
+// PayHash returns the target invoice's payment hash.
+func (r InvoiceRef) PayHash() lntypes.Hash {
+	return r.payHash
+}
+
+// String returns a human-readable representation of an InvoiceRef.
+func (r InvoiceRef) String() string {
+	return fmt.Sprintf("(pay_hash=%v)", r.payHash)
+}
+
 // ContractState describes the state the invoice is in.
 type ContractState uint8
 
@@ -538,7 +564,7 @@ func (d *DB) InvoicesAddedSince(sinceAddIndex uint64) ([]Invoice, error) {
 // full invoice is returned. Before setting the incoming HTLC, the values
 // SHOULD be checked to ensure the payer meets the agreed upon contractual
 // terms of the payment.
-func (d *DB) LookupInvoice(paymentHash [32]byte) (Invoice, error) {
+func (d *DB) LookupInvoice(ref InvoiceRef) (Invoice, error) {
 	var invoice Invoice
 	err := kvdb.View(d, func(tx kvdb.ReadTx) error {
 		invoices := tx.ReadBucket(invoiceBucket)
@@ -550,15 +576,17 @@ func (d *DB) LookupInvoice(paymentHash [32]byte) (Invoice, error) {
 			return ErrNoInvoicesCreated
 		}
 
-		// Check the invoice index to see if an invoice paying to this
-		// hash exists within the DB.
-		invoiceNum := invoiceIndex.Get(paymentHash[:])
-		if invoiceNum == nil {
-			return ErrInvoiceNotFound
+		// Retrieve the invoice number for this invoice using the
+		// provided invoice reference.
+		invoiceNum, err := fetchInvoiceNumByRef(
+			invoiceIndex, ref,
+		)
+		if err != nil {
+			return err
 		}
 
-		// An invoice matching the payment hash has been found, so
-		// retrieve the record of the invoice itself.
+		// An invoice was found, retrieve the remainder of the invoice
+		// body.
 		i, err := fetchInvoice(invoiceNum, invoices)
 		if err != nil {
 			return err
@@ -572,6 +600,21 @@ func (d *DB) LookupInvoice(paymentHash [32]byte) (Invoice, error) {
 	}
 
 	return invoice, nil
+}
+
+// fetchInvoiceNumByRef retrieve the invoice number for the provided invoice
+// reference.
+func fetchInvoiceNumByRef(invoiceIndex kvdb.ReadBucket,
+	ref InvoiceRef) ([]byte, error) {
+
+	payHash := ref.PayHash()
+
+	invoiceNum := invoiceIndex.Get(payHash[:])
+	if invoiceNum == nil {
+		return nil, ErrInvoiceNotFound
+	}
+
+	return invoiceNum, nil
 }
 
 // InvoiceWithPaymentHash is used to store an invoice and its corresponding
@@ -824,7 +867,7 @@ func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
 // The update is performed inside the same database transaction that fetches the
 // invoice and is therefore atomic. The fields to update are controlled by the
 // supplied callback.
-func (d *DB) UpdateInvoice(paymentHash lntypes.Hash,
+func (d *DB) UpdateInvoice(ref InvoiceRef,
 	callback InvoiceUpdateCallback) (*Invoice, error) {
 
 	var updatedInvoice *Invoice
@@ -846,15 +889,18 @@ func (d *DB) UpdateInvoice(paymentHash lntypes.Hash,
 			return err
 		}
 
-		// Check the invoice index to see if an invoice paying to this
-		// hash exists within the DB.
-		invoiceNum := invoiceIndex.Get(paymentHash[:])
-		if invoiceNum == nil {
-			return ErrInvoiceNotFound
-		}
+		// Retrieve the invoice number for this invoice using the
+		// provided invoice reference.
+		invoiceNum, err := fetchInvoiceNumByRef(
+			invoiceIndex, ref,
+		)
+		if err != nil {
+			return err
 
+		}
+		payHash := ref.PayHash()
 		updatedInvoice, err = d.updateInvoice(
-			paymentHash, invoices, settleIndex, invoiceNum,
+			payHash, invoices, settleIndex, invoiceNum,
 			callback,
 		)
 

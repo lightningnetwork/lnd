@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/stretchr/testify/assert"
 )
 
 var (
@@ -112,6 +113,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 	fakeInvoice.Terms.Features = emptyFeatures
 
 	paymentHash := fakeInvoice.Terms.PaymentPreimage.Hash()
+	ref := InvoiceRefByHash(paymentHash)
 
 	// Add the invoice to the database, this should succeed as there aren't
 	// any existing invoices within the database with the same payment
@@ -123,7 +125,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 	// Attempt to retrieve the invoice which was just added to the
 	// database. It should be found, and the invoice returned should be
 	// identical to the one created above.
-	dbInvoice, err := db.LookupInvoice(paymentHash)
+	dbInvoice, err := db.LookupInvoice(ref)
 	if err != nil {
 		t.Fatalf("unable to find invoice: %v", err)
 	}
@@ -144,11 +146,11 @@ func TestInvoiceWorkflow(t *testing.T) {
 	// now have the settled bit toggle to true and a non-default
 	// SettledDate
 	payAmt := fakeInvoice.Terms.Value * 2
-	_, err = db.UpdateInvoice(paymentHash, getUpdateInvoice(payAmt))
+	_, err = db.UpdateInvoice(ref, getUpdateInvoice(payAmt))
 	if err != nil {
 		t.Fatalf("unable to settle invoice: %v", err)
 	}
-	dbInvoice2, err := db.LookupInvoice(paymentHash)
+	dbInvoice2, err := db.LookupInvoice(ref)
 	if err != nil {
 		t.Fatalf("unable to fetch invoice: %v", err)
 	}
@@ -180,7 +182,9 @@ func TestInvoiceWorkflow(t *testing.T) {
 	// Attempt to look up a non-existent invoice, this should also fail but
 	// with a "not found" error.
 	var fakeHash [32]byte
-	if _, err := db.LookupInvoice(fakeHash); err != ErrInvoiceNotFound {
+	fakeRef := InvoiceRefByHash(fakeHash)
+	_, err = db.LookupInvoice(fakeRef)
+	if err != ErrInvoiceNotFound {
 		t.Fatalf("lookup should have failed, instead %v", err)
 	}
 
@@ -256,7 +260,9 @@ func TestInvoiceCancelSingleHtlc(t *testing.T) {
 		Amt:           500,
 		CustomRecords: make(record.CustomSet),
 	}
-	invoice, err := db.UpdateInvoice(paymentHash,
+
+	ref := InvoiceRefByHash(paymentHash)
+	invoice, err := db.UpdateInvoice(ref,
 		func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
 			return &InvoiceUpdateDesc{
 				AddHtlcs: map[CircuitKey]*HtlcAcceptDesc{
@@ -275,13 +281,14 @@ func TestInvoiceCancelSingleHtlc(t *testing.T) {
 	}
 
 	// Cancel the htlc again.
-	invoice, err = db.UpdateInvoice(paymentHash, func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
-		return &InvoiceUpdateDesc{
-			CancelHtlcs: map[CircuitKey]struct{}{
-				key: {},
-			},
-		}, nil
-	})
+	invoice, err = db.UpdateInvoice(ref,
+		func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
+			return &InvoiceUpdateDesc{
+				CancelHtlcs: map[CircuitKey]struct{}{
+					key: {},
+				},
+			}, nil
+		})
 	if err != nil {
 		t.Fatalf("unable to cancel htlc: %v", err)
 	}
@@ -380,8 +387,9 @@ func TestInvoiceAddTimeSeries(t *testing.T) {
 
 		paymentHash := invoice.Terms.PaymentPreimage.Hash()
 
+		ref := InvoiceRefByHash(paymentHash)
 		_, err := db.UpdateInvoice(
-			paymentHash, getUpdateInvoice(invoice.Terms.Value),
+			ref, getUpdateInvoice(invoice.Terms.Value),
 		)
 		if err != nil {
 			t.Fatalf("unable to settle invoice: %v", err)
@@ -570,9 +578,8 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 	}
 
 	// With the invoice in the DB, we'll now attempt to settle the invoice.
-	dbInvoice, err := db.UpdateInvoice(
-		payHash, getUpdateInvoice(amt),
-	)
+	ref := InvoiceRefByHash(payHash)
+	dbInvoice, err := db.UpdateInvoice(ref, getUpdateInvoice(amt))
 	if err != nil {
 		t.Fatalf("unable to settle invoice: %v", err)
 	}
@@ -601,9 +608,7 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 
 	// If we try to settle the invoice again, then we should get the very
 	// same invoice back, but with an error this time.
-	dbInvoice, err = db.UpdateInvoice(
-		payHash, getUpdateInvoice(amt),
-	)
+	dbInvoice, err = db.UpdateInvoice(ref, getUpdateInvoice(amt))
 	if err != ErrInvoiceAlreadySettled {
 		t.Fatalf("expected ErrInvoiceAlreadySettled")
 	}
@@ -653,9 +658,8 @@ func TestQueryInvoices(t *testing.T) {
 
 		// We'll only settle half of all invoices created.
 		if i%2 == 0 {
-			_, err := db.UpdateInvoice(
-				paymentHash, getUpdateInvoice(amt),
-			)
+			ref := InvoiceRefByHash(paymentHash)
+			_, err := db.UpdateInvoice(ref, getUpdateInvoice(amt))
 			if err != nil {
 				t.Fatalf("unable to settle invoice: %v", err)
 			}
@@ -951,7 +955,8 @@ func TestCustomRecords(t *testing.T) {
 		100001: []byte{1, 2},
 	}
 
-	_, err = db.UpdateInvoice(paymentHash,
+	ref := InvoiceRefByHash(paymentHash)
+	_, err = db.UpdateInvoice(ref,
 		func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
 			return &InvoiceUpdateDesc{
 				AddHtlcs: map[CircuitKey]*HtlcAcceptDesc{
@@ -969,7 +974,7 @@ func TestCustomRecords(t *testing.T) {
 
 	// Retrieve the invoice from that database and verify that the custom
 	// records are present.
-	dbInvoice, err := db.LookupInvoice(paymentHash)
+	dbInvoice, err := db.LookupInvoice(ref)
 	if err != nil {
 		t.Fatalf("unable to lookup invoice: %v", err)
 	}
@@ -980,4 +985,15 @@ func TestCustomRecords(t *testing.T) {
 	if !reflect.DeepEqual(records, dbInvoice.Htlcs[key].CustomRecords) {
 		t.Fatalf("invalid custom records")
 	}
+}
+
+// TestInvoiceRef asserts that the proper identifiers are returned from an
+// InvoiceRef depending on the constructor used.
+func TestInvoiceRef(t *testing.T) {
+	payHash := lntypes.Hash{0x01}
+
+	// An InvoiceRef by hash should return the provided hash and a nil
+	// payment addr.
+	refByHash := InvoiceRefByHash(payHash)
+	assert.Equal(t, payHash, refByHash.PayHash())
 }

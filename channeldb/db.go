@@ -242,48 +242,31 @@ func (d *DB) Path() string {
 	return d.dbPath
 }
 
+var topLevelBuckets = [][]byte{
+	openChannelBucket,
+	closedChannelBucket,
+	forwardingLogBucket,
+	fwdPackagesKey,
+	invoiceBucket,
+	nodeInfoBucket,
+	nodeBucket,
+	edgeBucket,
+	edgeIndexBucket,
+	graphMetaBucket,
+	metaBucket,
+}
+
 // Wipe completely deletes all saved state within all used buckets within the
 // database. The deletion is done in a single transaction, therefore this
 // operation is fully atomic.
 func (d *DB) Wipe() error {
 	return kvdb.Update(d, func(tx kvdb.RwTx) error {
-		err := tx.DeleteTopLevelBucket(openChannelBucket)
-		if err != nil && err != kvdb.ErrBucketNotFound {
-			return err
+		for _, tlb := range topLevelBuckets {
+			err := tx.DeleteTopLevelBucket(tlb)
+			if err != nil && err != kvdb.ErrBucketNotFound {
+				return err
+			}
 		}
-
-		err = tx.DeleteTopLevelBucket(closedChannelBucket)
-		if err != nil && err != kvdb.ErrBucketNotFound {
-			return err
-		}
-
-		err = tx.DeleteTopLevelBucket(invoiceBucket)
-		if err != nil && err != kvdb.ErrBucketNotFound {
-			return err
-		}
-
-		err = tx.DeleteTopLevelBucket(nodeInfoBucket)
-		if err != nil && err != kvdb.ErrBucketNotFound {
-			return err
-		}
-
-		err = tx.DeleteTopLevelBucket(nodeBucket)
-		if err != nil && err != kvdb.ErrBucketNotFound {
-			return err
-		}
-		err = tx.DeleteTopLevelBucket(edgeBucket)
-		if err != nil && err != kvdb.ErrBucketNotFound {
-			return err
-		}
-		err = tx.DeleteTopLevelBucket(edgeIndexBucket)
-		if err != nil && err != kvdb.ErrBucketNotFound {
-			return err
-		}
-		err = tx.DeleteTopLevelBucket(graphMetaBucket)
-		if err != nil && err != kvdb.ErrBucketNotFound {
-			return err
-		}
-
 		return nil
 	})
 }
@@ -301,33 +284,13 @@ func initChannelDB(db kvdb.Backend) error {
 			return nil
 		}
 
-		if _, err := tx.CreateTopLevelBucket(openChannelBucket); err != nil {
-			return err
-		}
-		if _, err := tx.CreateTopLevelBucket(closedChannelBucket); err != nil {
-			return err
-		}
-
-		if _, err := tx.CreateTopLevelBucket(forwardingLogBucket); err != nil {
-			return err
+		for _, tlb := range topLevelBuckets {
+			if _, err := tx.CreateTopLevelBucket(tlb); err != nil {
+				return err
+			}
 		}
 
-		if _, err := tx.CreateTopLevelBucket(fwdPackagesKey); err != nil {
-			return err
-		}
-
-		if _, err := tx.CreateTopLevelBucket(invoiceBucket); err != nil {
-			return err
-		}
-
-		if _, err := tx.CreateTopLevelBucket(nodeInfoBucket); err != nil {
-			return err
-		}
-
-		nodes, err := tx.CreateTopLevelBucket(nodeBucket)
-		if err != nil {
-			return err
-		}
+		nodes := tx.ReadWriteBucket(nodeBucket)
 		_, err = nodes.CreateBucket(aliasIndexBucket)
 		if err != nil {
 			return err
@@ -337,10 +300,7 @@ func initChannelDB(db kvdb.Backend) error {
 			return err
 		}
 
-		edges, err := tx.CreateTopLevelBucket(edgeBucket)
-		if err != nil {
-			return err
-		}
+		edges := tx.ReadWriteBucket(edgeBucket)
 		if _, err := edges.CreateBucket(edgeIndexBucket); err != nil {
 			return err
 		}
@@ -354,16 +314,9 @@ func initChannelDB(db kvdb.Backend) error {
 			return err
 		}
 
-		graphMeta, err := tx.CreateTopLevelBucket(graphMetaBucket)
-		if err != nil {
-			return err
-		}
+		graphMeta := tx.ReadWriteBucket(graphMetaBucket)
 		_, err = graphMeta.CreateBucket(pruneLogBucket)
 		if err != nil {
-			return err
-		}
-
-		if _, err := tx.CreateTopLevelBucket(metaBucket); err != nil {
 			return err
 		}
 

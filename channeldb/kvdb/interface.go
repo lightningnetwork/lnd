@@ -11,13 +11,24 @@ import (
 // transaction is rolled back. If the rollback fails, the original error
 // returned by f is still returned. If the commit fails, the commit error is
 // returned.
-var Update = walletdb.Update
+func Update(db Backend, f func(tx RwTx) error) error {
+	if extendedDB, ok := db.(ExtendedBackend); ok {
+		return extendedDB.Update(f)
+	}
+	return walletdb.Update(db, f)
+}
 
 // View opens a database read transaction and executes the function f with the
 // transaction passed as a parameter. After f exits, the transaction is rolled
 // back. If f errors, its error is returned, not a rollback error (if any
 // occur).
-var View = walletdb.View
+func View(db Backend, f func(tx ReadTx) error) error {
+	if extendedDB, ok := db.(ExtendedBackend); ok {
+		return extendedDB.View(f)
+	}
+
+	return walletdb.View(db, f)
+}
 
 // Batch is identical to the Update call, but it attempts to combine several
 // individual Update transactions into a single write database transaction on
@@ -35,6 +46,29 @@ var Create = walletdb.Create
 // Backend represents an ACID database. All database access is performed
 // through read or read+write transactions.
 type Backend = walletdb.DB
+
+// ExtendedBackend is and interface that supports View and Update and also able
+// to collect database access patterns.
+type ExtendedBackend interface {
+	Backend
+
+	// PrintStats returns all collected stats pretty printed into a string.
+	PrintStats() string
+
+	// View opens a database read transaction and executes the function f with
+	// the transaction passed as a parameter. After f exits, the transaction is
+	// rolled back. If f errors, its error is returned, not a rollback error
+	// (if any occur).
+	View(f func(tx walletdb.ReadTx) error) error
+
+	// Update opens a database read/write transaction and executes the function
+	// f with the transaction passed as a parameter. After f exits, if f did not
+	// error, the transaction is committed. Otherwise, if f did error, the
+	// transaction is rolled back. If the rollback fails, the original error
+	// returned by f is still returned. If the commit fails, the commit error is
+	// returned.
+	Update(f func(tx walletdb.ReadWriteTx) error) error
+}
 
 // Open opens an existing database for the specified type. The arguments are
 // specific to the database type driver. See the documentation for the database

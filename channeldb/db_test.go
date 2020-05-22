@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -33,7 +34,13 @@ func TestOpenWithCreate(t *testing.T) {
 
 	// Next, open thereby creating channeldb for the first time.
 	dbPath := filepath.Join(tempDirName, "cdb")
-	cdb, err := Open(dbPath)
+	backend, cleanup, err := kvdb.GetTestBackend(dbPath, "cdb")
+	if err != nil {
+		t.Fatalf("unable to get test db backend: %v", err)
+	}
+	defer cleanup()
+
+	cdb, err := CreateWithBackend(backend)
 	if err != nil {
 		t.Fatalf("unable to create channeldb: %v", err)
 	}
@@ -73,7 +80,13 @@ func TestWipe(t *testing.T) {
 
 	// Next, open thereby creating channeldb for the first time.
 	dbPath := filepath.Join(tempDirName, "cdb")
-	cdb, err := Open(dbPath)
+	backend, cleanup, err := kvdb.GetTestBackend(dbPath, "cdb")
+	if err != nil {
+		t.Fatalf("unable to get test db backend: %v", err)
+	}
+	defer cleanup()
+
+	cdb, err := CreateWithBackend(backend)
 	if err != nil {
 		t.Fatalf("unable to create channeldb: %v", err)
 	}

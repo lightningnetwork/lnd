@@ -98,13 +98,22 @@ func makeTestDB() (*DB, func(), error) {
 	}
 
 	// Next, create channeldb for the first time.
-	cdb, err := Open(tempDirName, OptionClock(testClock))
+	backend, backendCleanup, err := kvdb.GetTestBackend(tempDirName, "cdb")
 	if err != nil {
+		backendCleanup()
+		return nil, nil, err
+	}
+
+	cdb, err := CreateWithBackend(backend, OptionClock(testClock))
+	if err != nil {
+		backendCleanup()
+		os.RemoveAll(tempDirName)
 		return nil, nil, err
 	}
 
 	cleanUp := func() {
 		cdb.Close()
+		backendCleanup()
 		os.RemoveAll(tempDirName)
 	}
 

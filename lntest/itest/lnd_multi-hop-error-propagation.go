@@ -4,7 +4,6 @@ package itest
 
 import (
 	"context"
-	"encoding/hex"
 	"strings"
 	"time"
 
@@ -177,24 +176,18 @@ out:
 	// TODO(roasbeef): return failure response rather than failing entire
 	// stream on payment error.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	sendReq := &lnrpc.SendRequest{
-		PaymentHashString: hex.EncodeToString(makeFakePayHash(t)),
-		DestString:        hex.EncodeToString(carol.PubKey[:]),
-		Amt:               payAmt,
-		FinalCltvDelta:    int32(carolPayReq.CltvExpiry),
+	sendReq := &routerrpc.SendPaymentRequest{
+		PaymentHash:    makeFakePayHash(t),
+		Dest:           carol.PubKey[:],
+		Amt:            payAmt,
+		FinalCltvDelta: int32(carolPayReq.CltvExpiry),
+		TimeoutSeconds: 60,
+		FeeLimitMsat:   noFeeLimitMsat,
 	}
-	resp, err := net.Alice.SendPaymentSync(ctxt, sendReq)
-	if err != nil {
-		t.Fatalf("unable to send payment: %v", err)
-	}
-
-	// The payment should have resulted in an error since we sent it with the
-	// wrong payment hash.
-	if resp.PaymentError == "" {
-		t.Fatalf("payment should have been rejected due to invalid " +
-			"payment hash")
-	}
-
+	sendAndAssertFailure(
+		t, net.Alice,
+		sendReq, lnrpc.PaymentFailureReason_FAILURE_REASON_INCORRECT_PAYMENT_DETAILS,
+	)
 	assertLastHTLCError(
 		t, net.Alice,
 		lnrpc.Failure_INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS,
@@ -219,25 +212,18 @@ out:
 	// Next, we'll test the case of a recognized payHash but, an incorrect
 	// value on the extended HTLC.
 	htlcAmt := lnwire.NewMSatFromSatoshis(1000)
-	sendReq = &lnrpc.SendRequest{
-		PaymentHashString: hex.EncodeToString(carolInvoice.RHash),
-		DestString:        hex.EncodeToString(carol.PubKey[:]),
-		Amt:               int64(htlcAmt.ToSatoshis()), // 10k satoshis are expected.
-		FinalCltvDelta:    int32(carolPayReq.CltvExpiry),
+	sendReq = &routerrpc.SendPaymentRequest{
+		PaymentHash:    carolInvoice.RHash,
+		Dest:           carol.PubKey[:],
+		Amt:            int64(htlcAmt.ToSatoshis()), // 10k satoshis are expected.
+		FinalCltvDelta: int32(carolPayReq.CltvExpiry),
+		TimeoutSeconds: 60,
+		FeeLimitMsat:   noFeeLimitMsat,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	resp, err = net.Alice.SendPaymentSync(ctxt, sendReq)
-	if err != nil {
-		t.Fatalf("unable to send payment: %v", err)
-	}
-
-	// The payment should fail with an error since we sent 1k satoshis isn't of
-	// 10k as was requested.
-	if resp.PaymentError == "" {
-		t.Fatalf("payment should have been rejected due to wrong " +
-			"HTLC amount")
-	}
-
+	sendAndAssertFailure(
+		t, net.Alice,
+		sendReq, lnrpc.PaymentFailureReason_FAILURE_REASON_INCORRECT_PAYMENT_DETAILS,
+	)
 	assertLastHTLCError(
 		t, net.Alice,
 		lnrpc.Failure_INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS,
@@ -262,14 +248,7 @@ out:
 	// Next we'll test an error that occurs mid-route due to an outgoing
 	// link having insufficient capacity. In order to do so, we'll first
 	// need to unbalance the link connecting Bob<->Carol.
-	ctx, cancel := context.WithCancel(ctxb)
-	defer cancel()
-
-	bobPayStream, err := net.Bob.SendPayment(ctx)
-	if err != nil {
-		t.Fatalf("unable to create payment stream: %v", err)
-	}
-
+	//
 	// To do so, we'll push most of the funds in the channel over to
 	// Alice's side, leaving on 10k satoshis of available balance for bob.
 	// There's a max payment amount, so we'll have to do this
@@ -294,17 +273,14 @@ out:
 		if err != nil {
 			t.Fatalf("unable to generate carol invoice: %v", err)
 		}
-		if err := bobPayStream.Send(&lnrpc.SendRequest{
-			PaymentRequest: carolInvoice2.PaymentRequest,
-		}); err != nil {
-			t.Fatalf("unable to send payment: %v", err)
-		}
-
-		if resp, err := bobPayStream.Recv(); err != nil {
-			t.Fatalf("payment stream has been closed: %v", err)
-		} else if resp.PaymentError != "" {
-			t.Fatalf("bob's payment failed: %v", resp.PaymentError)
-		}
+		sendAndAssertSuccess(
+			t, net.Bob,
+			&routerrpc.SendPaymentRequest{
+				PaymentRequest: carolInvoice2.PaymentRequest,
+				TimeoutSeconds: 60,
+				FeeLimitMsat:   noFeeLimitMsat,
+			},
+		)
 
 		// For each send bob makes, we need to check that bob has a
 		// forward and settle event for his send, and carol has a
@@ -331,19 +307,15 @@ out:
 		t.Fatalf("unable to generate carol invoice: %v", err)
 	}
 
-	sendReq = &lnrpc.SendRequest{
+	sendReq = &routerrpc.SendPaymentRequest{
 		PaymentRequest: carolInvoice3.PaymentRequest,
+		TimeoutSeconds: 60,
+		FeeLimitMsat:   noFeeLimitMsat,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	resp, err = net.Alice.SendPaymentSync(ctxt, sendReq)
-	if err != nil {
-		t.Fatalf("unable to send payment: %v", err)
-	}
-	if resp.PaymentError == "" {
-		t.Fatalf("payment should fail due to insufficient "+
-			"capacity: %v", err)
-	}
-
+	sendAndAssertFailure(
+		t, net.Alice,
+		sendReq, lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE,
+	)
 	assertLastHTLCError(
 		t, net.Alice, lnrpc.Failure_TEMPORARY_CHANNEL_FAILURE,
 	)
@@ -382,19 +354,15 @@ out:
 		t.Fatalf("unable to reset mission control: %v", err)
 	}
 
-	sendReq = &lnrpc.SendRequest{
-		PaymentRequest: carolInvoice.PaymentRequest,
-	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	resp, err = net.Alice.SendPaymentSync(ctxt, sendReq)
-	if err != nil {
-		t.Fatalf("unable to send payment: %v", err)
-	}
-
-	if resp.PaymentError == "" {
-		t.Fatalf("payment should have failed")
-	}
-
+	sendAndAssertFailure(
+		t, net.Alice,
+		&routerrpc.SendPaymentRequest{
+			PaymentRequest: carolInvoice.PaymentRequest,
+			TimeoutSeconds: 60,
+			FeeLimitMsat:   noFeeLimitMsat,
+		},
+		lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE,
+	)
 	assertLastHTLCError(t, net.Alice, lnrpc.Failure_UNKNOWN_NEXT_PEER)
 
 	// Alice should have a forwarding event and subsequent fail.

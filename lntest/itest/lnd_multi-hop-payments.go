@@ -217,7 +217,9 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// Using Carol as the source, pay to the 5 invoices from Bob created
 	// above.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = completePaymentRequests(ctxt, carol, payReqs, true)
+	err = completePaymentRequests(
+		ctxt, carol, carol.RouterClient, payReqs, true,
+	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
 	}

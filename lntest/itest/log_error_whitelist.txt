@@ -31,6 +31,7 @@
 <time> [ERR] CRTR: Payment with hash <hex> failed: error
 <time> [ERR] CRTR: Payment with hash <hex> failed: incorrect_payment_details
 <time> [ERR] CRTR: Payment with hash <hex> failed: insufficient_balance
+<time> [ERR] CRTR: Payment with hash <hex> failed: no_route
 <time> [ERR] CRTR: Payment with hash <hex> failed: router shutting down
 <time> [ERR] CRTR: Resuming payment with hash <hex> failed: error.
 <time> [ERR] CRTR: Resuming payment with hash <hex> failed: incorrect_payment_details.
@@ -157,6 +158,7 @@
 <time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: rpc error: code = Internal desc = transport: transport: the stream is done or WriteHeader was already called
 <time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeInvoices]: rpc error: code = Canceled desc = context canceled
 <time> [ERR] RPCS: [/routerrpc.Router/SendPayment]: routerrpc server shutting down
+<time> [ERR] RPCS: [/routerrpc.Router/SendPaymentV2]: context canceled
 <time> [ERR] RPCS: [/routerrpc.Router/SendPaymentV2]: routerrpc server shutting down
 <time> [ERR] RPCS: [/routerrpc.Router/SubscribeHtlcEvents]: context canceled
 <time> [ERR] RPCS: [/routerrpc.Router/SubscribeHtlcEvents]: htlc event subscription terminated

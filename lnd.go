@@ -250,6 +250,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	ltndLog.Infof("Opening the main database, this might take a few " +
 		"minutes...")
 
+	startOpenTime := time.Now()
 	chanDbBackend, err := cfg.DB.GetBackend(
 		cfg.localDatabaseDir(), cfg.networkName(),
 	)
@@ -260,7 +261,6 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 
 	// Open the channeldb, which is dedicated to storing channel, and
 	// network related metadata.
-	startOpenTime := time.Now()
 	chanDB, err := channeldb.CreateWithBackend(
 		chanDbBackend,
 		channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),

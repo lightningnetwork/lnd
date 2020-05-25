@@ -231,6 +231,11 @@ type WalletController interface {
 	// published transaction.
 	PublishTransaction(tx *wire.MsgTx, label string) error
 
+	// LabelTransaction adds a label to a transaction. If the tx already
+	// has a label, this call will fail unless the overwrite parameter
+	// is set. Labels must not be empty, and they are limited to 500 chars.
+	LabelTransaction(hash chainhash.Hash, label string, overwrite bool) error
+
 	// SubscribeTransactions returns a TransactionSubscription client which
 	// is capable of receiving async notifications as new transactions
 	// related to the wallet are seen within the network, or found in

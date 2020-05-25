@@ -28,6 +28,7 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd"
@@ -12652,23 +12653,65 @@ func testSweepAllCoins(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("expected 2 inputs instead have %v", len(sweepTx.TxIn))
 	}
 
-	// List all transactions relevant to our wallet, and find the sweep tx
-	// so that we can check the correct label has been set.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	txResp, err := ainz.GetTransactions(ctxt, &lnrpc.GetTransactionsRequest{})
-	if err != nil {
-		t.Fatalf("could not get transactions: %v", err)
+	sweepTxStr := sweepTx.TxHash().String()
+	assertTxLabel(ctxb, t, ainz, sweepTxStr, sendCoinsLabel)
+
+	// While we are looking at labels, we test our label transaction command
+	// to make sure it is behaving as expected. First, we try to label our
+	// transaction with an empty label, and check that we fail as expected.
+	sweepHash := sweepTx.TxHash()
+	_, err = ainz.WalletKitClient.LabelTransaction(
+		ctxt, &walletrpc.LabelTransactionRequest{
+			Txid:      sweepHash[:],
+			Label:     "",
+			Overwrite: false,
+		},
+	)
+	if err == nil {
+		t.Fatalf("expected error for zero transaction label")
 	}
 
-	sweepTxStr := sweepTx.TxHash().String()
-	for _, txn := range txResp.Transactions {
-		if txn.TxHash == sweepTxStr {
-			if txn.Label != sendCoinsLabel {
-				t.Fatalf("expected label: %v, got: %v",
-					sendCoinsLabel, txn.Label)
-			}
-		}
+	// Our error will be wrapped in a rpc error, so we check that it
+	// contains the error we expect.
+	if !strings.Contains(err.Error(), walletrpc.ErrZeroLabel.Error()) {
+		t.Fatalf("expected: zero label error, got: %v", err)
 	}
+
+	// Next, we try to relabel our transaction without setting the overwrite
+	// boolean. We expect this to fail, because the wallet requires setting
+	// of this param to prevent accidental overwrite of labels.
+	_, err = ainz.WalletKitClient.LabelTransaction(
+		ctxt, &walletrpc.LabelTransactionRequest{
+			Txid:      sweepHash[:],
+			Label:     "label that will not work",
+			Overwrite: false,
+		},
+	)
+	if err == nil {
+		t.Fatalf("expected error for tx already labelled")
+	}
+
+	// Our error will be wrapped in a rpc error, so we check that it
+	// contains the error we expect.
+	if !strings.Contains(err.Error(), wallet.ErrTxLabelExists.Error()) {
+		t.Fatalf("expected: label exists, got: %v", err)
+	}
+
+	// Finally, we overwrite our label with a new label, which should not
+	// fail.
+	newLabel := "new sweep tx label"
+	_, err = ainz.WalletKitClient.LabelTransaction(
+		ctxt, &walletrpc.LabelTransactionRequest{
+			Txid:      sweepHash[:],
+			Label:     newLabel,
+			Overwrite: true,
+		},
+	)
+	if err != nil {
+		t.Fatalf("could not label tx: %v", err)
+	}
+
+	assertTxLabel(ctxb, t, ainz, sweepTxStr, newLabel)
 
 	// Finally, Ainz should now have no coins at all within his wallet.
 	balReq := &lnrpc.WalletBalanceRequest{}
@@ -12692,6 +12735,35 @@ func testSweepAllCoins(net *lntest.NetworkHarness, t *harnessTest) {
 	_, err = ainz.SendCoins(ctxt, sweepReq)
 	if err == nil {
 		t.Fatalf("sweep attempt should fail")
+	}
+}
+
+// assertTxLabel is a helper function which finds a target tx in our set
+// of transactions and checks that it has the desired label.
+func assertTxLabel(ctx context.Context, t *harnessTest,
+	node *lntest.HarnessNode, targetTx, label string) {
+
+	// List all transactions relevant to our wallet, and find the tx so that
+	// we can check the correct label has been set.
+	ctxt, cancel := context.WithTimeout(ctx, defaultTimeout)
+	defer cancel()
+
+	txResp, err := node.GetTransactions(
+		ctxt, &lnrpc.GetTransactionsRequest{},
+	)
+	if err != nil {
+		t.Fatalf("could not get transactions: %v", err)
+	}
+
+	// Find our transaction in the set of transactions returned and check
+	// its label.
+	for _, txn := range txResp.Transactions {
+		if txn.TxHash == targetTx {
+			if txn.Label != label {
+				t.Fatalf("expected label: %v, got: %v",
+					label, txn.Label)
+			}
+		}
 	}
 }
 

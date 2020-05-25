@@ -97,6 +97,15 @@ service WalletKit {
     broadcast, not confirmation.
     */
     rpc ListSweeps (ListSweepsRequest) returns (ListSweepsResponse);
+
+    /*
+    LabelTransaction adds a label to a transaction. If the transaction already
+    has a label the call will fail unless the overwrite bool is set. This will
+    overwrite the exiting transaction label. Labels must not be empty, and
+    cannot exceed 500 characters.
+    */
+    rpc LabelTransaction (LabelTransactionRequest)
+        returns (LabelTransactionResponse);
 }
 
 message KeyReq {
@@ -366,4 +375,18 @@ message ListSweepsResponse {
         lnrpc.TransactionDetails transaction_details = 1;
         TransactionIDs transaction_ids = 2;
     }
+}
+
+message LabelTransactionRequest {
+    // The txid of the transaction to label.
+    bytes txid = 1;
+
+    // The label to add to the transaction, limited to 500 characters.
+    string label = 2;
+
+    // Whether to overwrite the existing label, if it is present.
+    bool overwrite = 3;
+}
+
+message LabelTransactionResponse {
 }

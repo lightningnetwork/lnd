@@ -947,6 +947,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 	}
 
 	// Initialize logging at the default logging level.
+	SetupLoggers(cfg.LogWriter)
 	err = cfg.LogWriter.InitLogRotator(
 		filepath.Join(cfg.LogDir, defaultLogFilename),
 		cfg.MaxLogFileSize, cfg.MaxLogFiles,

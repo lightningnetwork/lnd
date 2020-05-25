@@ -3,6 +3,7 @@
 package kvdb
 
 import (
+	"context"
 	"fmt"
 )
 
@@ -13,7 +14,9 @@ const TestBackend = BoltBackendName
 var errEtcdNotAvailable = fmt.Errorf("etcd backend not available")
 
 // GetEtcdBackend is a stub returning nil and errEtcdNotAvailable error.
-func GetEtcdBackend(prefix string, etcdConfig *EtcdConfig) (Backend, error) {
+func GetEtcdBackend(ctx context.Context, prefix string,
+	etcdConfig *EtcdConfig) (Backend, error) {
+
 	return nil, errEtcdNotAvailable
 }
 

@@ -1,8 +1,11 @@
 package clock
 
 import (
+	"fmt"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 var (
@@ -42,6 +45,7 @@ func TestTickAfter(t *testing.T) {
 		select {
 		case <-ticker:
 			tick = true
+
 		case <-time.After(time.Millisecond):
 		}
 
@@ -60,4 +64,35 @@ func TestTickAfter(t *testing.T) {
 	tickOrTimeOut(ticker1, true)
 	tickOrTimeOut(ticker2, true)
 	tickOrTimeOut(ticker3, false)
+}
+
+// TestTickSignal tests that TickAfter signals registration allowing
+// safe time advancement.
+func TestTickSignal(t *testing.T) {
+	const interval = time.Second
+
+	ch := make(chan time.Duration)
+	c := NewTestClockWithTickSignal(testTime, ch)
+	err := make(chan error, 1)
+
+	go func() {
+		select {
+		// TickAfter will signal registration but will not
+		// tick, unless we read the signal and set the time.
+		case <-c.TickAfter(interval):
+			err <- nil
+
+		// Signal timeout if tick didn't happen.
+		case <-time.After(time.Second):
+			err <- fmt.Errorf("timeout")
+		}
+	}()
+
+	tick := <-ch
+	// Expect that the interval is correctly passed over the channel.
+	assert.Equal(t, interval, tick)
+
+	// Once the ticker is registered, set the time to make it fire.
+	c.SetTime(testTime.Add(time.Second))
+	assert.NoError(t, <-err)
 }

@@ -39,89 +39,112 @@ import (
 	"google.golang.org/grpc"
 )
 
-// Loggers per subsystem.  A single backend logger is created and all subsystem
-// loggers created from it will write to the backend.  When adding new
-// subsystems, add the subsystem logger variable here and to the
-// subsystemLoggers map.
-//
+// replaceableLogger is a thin wrapper around a logger that is used so the
+// logger can be replaced easily without some black pointer magic.
+type replaceableLogger struct {
+	btclog.Logger
+	subsystem string
+}
+
 // Loggers can not be used before the log rotator has been initialized with a
-// log file.  This must be performed early during application startup by
-// calling RootLogWriter.InitLogRotator.
+// log file. This must be performed early during application startup by
+// calling InitLogRotator() on the main log writer instance in the config.
 var (
-	// RootLogWriter is the main parent log writer all sub loggers should be
-	// appended to.
-	RootLogWriter = build.NewRotatingLogWriter()
+	// lndPkgLoggers is a list of all lnd package level loggers that are
+	// registered. They are tracked here so they can be replaced once the
+	// SetupLoggers function is called with the final root logger.
+	lndPkgLoggers []*replaceableLogger
+
+	// addLndPkgLogger is a helper function that creates a new replaceable
+	// main lnd package level logger and adds it to the list of loggers that
+	// are replaced again later, once the final root logger is ready.
+	addLndPkgLogger = func(subsystem string) *replaceableLogger {
+		l := &replaceableLogger{
+			Logger:    build.NewSubLogger(subsystem, nil),
+			subsystem: subsystem,
+		}
+		lndPkgLoggers = append(lndPkgLoggers, l)
+		return l
+	}
 
 	// Loggers that need to be accessible from the lnd package can be placed
 	// here. Loggers that are only used in sub modules can be added directly
-	// by using the addSubLogger method.
-	ltndLog = build.NewSubLogger("LTND", RootLogWriter.GenSubLogger)
-	peerLog = build.NewSubLogger("PEER", RootLogWriter.GenSubLogger)
-	rpcsLog = build.NewSubLogger("RPCS", RootLogWriter.GenSubLogger)
-	srvrLog = build.NewSubLogger("SRVR", RootLogWriter.GenSubLogger)
-	fndgLog = build.NewSubLogger("FNDG", RootLogWriter.GenSubLogger)
-	utxnLog = build.NewSubLogger("UTXN", RootLogWriter.GenSubLogger)
-	brarLog = build.NewSubLogger("BRAR", RootLogWriter.GenSubLogger)
-	atplLog = build.NewSubLogger("ATPL", RootLogWriter.GenSubLogger)
+	// by using the addSubLogger method. We declare all loggers so we never
+	// run into a nil reference if they are used early. But the SetupLoggers
+	// function should always be called as soon as possible to finish
+	// setting them up properly with a root logger.
+	ltndLog = addLndPkgLogger("LTND")
+	peerLog = addLndPkgLogger("PEER")
+	rpcsLog = addLndPkgLogger("RPCS")
+	srvrLog = addLndPkgLogger("SRVR")
+	fndgLog = addLndPkgLogger("FNDG")
+	utxnLog = addLndPkgLogger("UTXN")
+	brarLog = addLndPkgLogger("BRAR")
+	atplLog = addLndPkgLogger("ATPL")
 )
 
-// Initialize package-global logger variables.
-func init() {
-	setSubLogger("LTND", ltndLog, signal.UseLogger)
-	setSubLogger("ATPL", atplLog, autopilot.UseLogger)
-	setSubLogger("PEER", peerLog)
-	setSubLogger("RPCS", rpcsLog)
-	setSubLogger("SRVR", srvrLog)
-	setSubLogger("FNDG", fndgLog)
-	setSubLogger("UTXN", utxnLog)
-	setSubLogger("BRAR", brarLog)
+// SetupLoggers initializes all package-global logger variables.
+func SetupLoggers(root *build.RotatingLogWriter) {
+	// Now that we have the proper root logger, we can replace the
+	// placeholder lnd package loggers.
+	for _, l := range lndPkgLoggers {
+		l.Logger = build.NewSubLogger(l.subsystem, root.GenSubLogger)
+		SetSubLogger(root, l.subsystem, l.Logger)
+	}
 
-	addSubLogger("LNWL", lnwallet.UseLogger)
-	addSubLogger("DISC", discovery.UseLogger)
-	addSubLogger("NTFN", chainntnfs.UseLogger)
-	addSubLogger("CHDB", channeldb.UseLogger)
-	addSubLogger("HSWC", htlcswitch.UseLogger)
-	addSubLogger("CMGR", connmgr.UseLogger)
-	addSubLogger("BTCN", neutrino.UseLogger)
-	addSubLogger("CNCT", contractcourt.UseLogger)
-	addSubLogger("SPHX", sphinx.UseLogger)
-	addSubLogger("SWPR", sweep.UseLogger)
-	addSubLogger("SGNR", signrpc.UseLogger)
-	addSubLogger("WLKT", walletrpc.UseLogger)
-	addSubLogger("ARPC", autopilotrpc.UseLogger)
-	addSubLogger("INVC", invoices.UseLogger)
-	addSubLogger("NANN", netann.UseLogger)
-	addSubLogger("WTWR", watchtower.UseLogger)
-	addSubLogger("NTFR", chainrpc.UseLogger)
-	addSubLogger("IRPC", invoicesrpc.UseLogger)
-	addSubLogger("CHNF", channelnotifier.UseLogger)
-	addSubLogger("CHBU", chanbackup.UseLogger)
-	addSubLogger("PROM", monitoring.UseLogger)
-	addSubLogger("WTCL", wtclient.UseLogger)
-	addSubLogger("PRNF", peernotifier.UseLogger)
-	addSubLogger("CHFD", chanfunding.UseLogger)
+	// Some of the loggers declared in the main lnd package are also used
+	// in sub packages.
+	signal.UseLogger(ltndLog)
+	autopilot.UseLogger(atplLog)
 
-	addSubLogger(routing.Subsystem, routing.UseLogger, localchans.UseLogger)
-	addSubLogger(routerrpc.Subsystem, routerrpc.UseLogger)
-	addSubLogger(chanfitness.Subsystem, chanfitness.UseLogger)
-	addSubLogger(verrpc.Subsystem, verrpc.UseLogger)
+	AddSubLogger(root, "LNWL", lnwallet.UseLogger)
+	AddSubLogger(root, "DISC", discovery.UseLogger)
+	AddSubLogger(root, "NTFN", chainntnfs.UseLogger)
+	AddSubLogger(root, "CHDB", channeldb.UseLogger)
+	AddSubLogger(root, "HSWC", htlcswitch.UseLogger)
+	AddSubLogger(root, "CMGR", connmgr.UseLogger)
+	AddSubLogger(root, "BTCN", neutrino.UseLogger)
+	AddSubLogger(root, "CNCT", contractcourt.UseLogger)
+	AddSubLogger(root, "SPHX", sphinx.UseLogger)
+	AddSubLogger(root, "SWPR", sweep.UseLogger)
+	AddSubLogger(root, "SGNR", signrpc.UseLogger)
+	AddSubLogger(root, "WLKT", walletrpc.UseLogger)
+	AddSubLogger(root, "ARPC", autopilotrpc.UseLogger)
+	AddSubLogger(root, "INVC", invoices.UseLogger)
+	AddSubLogger(root, "NANN", netann.UseLogger)
+	AddSubLogger(root, "WTWR", watchtower.UseLogger)
+	AddSubLogger(root, "NTFR", chainrpc.UseLogger)
+	AddSubLogger(root, "IRPC", invoicesrpc.UseLogger)
+	AddSubLogger(root, "CHNF", channelnotifier.UseLogger)
+	AddSubLogger(root, "CHBU", chanbackup.UseLogger)
+	AddSubLogger(root, "PROM", monitoring.UseLogger)
+	AddSubLogger(root, "WTCL", wtclient.UseLogger)
+	AddSubLogger(root, "PRNF", peernotifier.UseLogger)
+	AddSubLogger(root, "CHFD", chanfunding.UseLogger)
+
+	AddSubLogger(root, routing.Subsystem, routing.UseLogger, localchans.UseLogger)
+	AddSubLogger(root, routerrpc.Subsystem, routerrpc.UseLogger)
+	AddSubLogger(root, chanfitness.Subsystem, chanfitness.UseLogger)
+	AddSubLogger(root, verrpc.Subsystem, verrpc.UseLogger)
 }
 
-// addSubLogger is a helper method to conveniently create and register the
+// AddSubLogger is a helper method to conveniently create and register the
 // logger of one or more sub systems.
-func addSubLogger(subsystem string, useLoggers ...func(btclog.Logger)) {
-	// Create and register just a single logger to prevent them from
-	// overwriting each other internally.
-	logger := build.NewSubLogger(subsystem, RootLogWriter.GenSubLogger)
-	setSubLogger(subsystem, logger, useLoggers...)
-}
-
-// setSubLogger is a helper method to conveniently register the logger of a sub
-// system.
-func setSubLogger(subsystem string, logger btclog.Logger,
+func AddSubLogger(root *build.RotatingLogWriter, subsystem string,
 	useLoggers ...func(btclog.Logger)) {
 
-	RootLogWriter.RegisterSubLogger(subsystem, logger)
+	// Create and register just a single logger to prevent them from
+	// overwriting each other internally.
+	logger := build.NewSubLogger(subsystem, root.GenSubLogger)
+	SetSubLogger(root, subsystem, logger, useLoggers...)
+}
+
+// SetSubLogger is a helper method to conveniently register the logger of a sub
+// system.
+func SetSubLogger(root *build.RotatingLogWriter, subsystem string,
+	logger btclog.Logger, useLoggers ...func(btclog.Logger)) {
+
+	root.RegisterSubLogger(subsystem, logger)
 	for _, useLogger := range useLoggers {
 		useLogger(logger)
 	}

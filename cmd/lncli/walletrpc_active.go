@@ -28,6 +28,7 @@ func walletCommands() []cli.Command {
 				bumpFeeCommand,
 				bumpCloseFeeCommand,
 				listSweepsCommand,
+				labelTxCommand,
 			},
 		},
 	}
@@ -337,6 +338,61 @@ func listSweeps(ctx *cli.Context) error {
 	}
 
 	printJSON(resp)
+
+	return nil
+}
+
+var labelTxCommand = cli.Command{
+	Name:      "labeltx",
+	Usage:     "adds a label to a transaction",
+	ArgsUsage: "txid label",
+	Description: `
+	Add a label to a transaction. If the transaction already has a label, 
+	this call will fail unless the overwrite option is set. The label is 
+	limited to 500 characters. Note that multi word labels must be contained
+	in quotation marks ("").
+	`,
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:  "overwrite",
+			Usage: "set to overwrite existing labels",
+		},
+	},
+	Action: actionDecorator(labelTransaction),
+}
+
+func labelTransaction(ctx *cli.Context) error {
+	// Display the command's help message if we do not have the expected
+	// number of arguments/flags.
+	if ctx.NArg() != 2 {
+		return cli.ShowCommandHelp(ctx, "labeltx")
+	}
+
+	// Get the transaction id and check that it is a valid hash.
+	txid := ctx.Args().Get(0)
+	hash, err := chainhash.NewHashFromStr(txid)
+	if err != nil {
+		return err
+	}
+
+	label := ctx.Args().Get(1)
+
+	walletClient, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	ctxb := context.Background()
+	_, err = walletClient.LabelTransaction(
+		ctxb, &walletrpc.LabelTransactionRequest{
+			Txid:      hash[:],
+			Label:     label,
+			Overwrite: ctx.Bool("overwrite"),
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Transaction: %v labelled with: %v\n", txid, label)
 
 	return nil
 }

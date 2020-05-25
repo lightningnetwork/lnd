@@ -3,6 +3,7 @@
 package etcd
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/url"
@@ -63,6 +64,7 @@ func NewEmbeddedEtcdInstance(path string) (*BackendConfig, func(), error) {
 	}
 
 	connConfig := &BackendConfig{
+		Ctx:                context.Background(),
 		Host:               "http://" + peerURL,
 		User:               "user",
 		Pass:               "pass",

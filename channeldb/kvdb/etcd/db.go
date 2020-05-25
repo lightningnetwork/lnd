@@ -124,6 +124,9 @@ var _ walletdb.DB = (*db)(nil)
 
 // BackendConfig holds and etcd backend config and connection parameters.
 type BackendConfig struct {
+	// Ctx is the context we use to cancel operations upon exit.
+	Ctx context.Context
+
 	// Host holds the peer url of the etcd instance.
 	Host string
 
@@ -155,6 +158,10 @@ type BackendConfig struct {
 // newEtcdBackend returns a db object initialized with the passed backend
 // config. If etcd connection cannot be estabished, then returns error.
 func newEtcdBackend(config BackendConfig) (*db, error) {
+	if config.Ctx == nil {
+		config.Ctx = context.Background()
+	}
+
 	tlsInfo := transport.TLSInfo{
 		CertFile:           config.CertFile,
 		KeyFile:            config.KeyFile,
@@ -167,6 +174,7 @@ func newEtcdBackend(config BackendConfig) (*db, error) {
 	}
 
 	cli, err := clientv3.New(clientv3.Config{
+		Context:     config.Ctx,
 		Endpoints:   []string{config.Host},
 		DialTimeout: etcdConnectionTimeout,
 		Username:    config.User,
@@ -192,7 +200,8 @@ func newEtcdBackend(config BackendConfig) (*db, error) {
 
 // getSTMOptions creats all STM options based on the backend config.
 func (db *db) getSTMOptions() []STMOptionFunc {
-	opts := []STMOptionFunc{}
+	opts := []STMOptionFunc{WithAbortContext(db.config.Ctx)}
+
 	if db.config.CollectCommitStats {
 		opts = append(opts,
 			WithCommitStatsCallback(db.commitStatsCollector.callback),
@@ -257,9 +266,7 @@ func (db *db) BeginReadTx() (walletdb.ReadTx, error) {
 // start a read-only transaction to perform all operations.
 // This function is part of the walletdb.Db interface implementation.
 func (db *db) Copy(w io.Writer) error {
-	ctx := context.Background()
-
-	ctx, cancel := context.WithTimeout(ctx, etcdLongTimeout)
+	ctx, cancel := context.WithTimeout(db.config.Ctx, etcdLongTimeout)
 	defer cancel()
 
 	readCloser, err := db.cli.Snapshot(ctx)

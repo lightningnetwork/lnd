@@ -235,22 +235,32 @@ func runSTM(s *stm, apply func(STM) error) error {
 		err     error
 	)
 
-	// In a loop try to apply and commit and roll back
-	// if the database has changed (CommitError).
+loop:
+	// In a loop try to apply and commit and roll back if the database has
+	// changed (CommitError).
 	for {
-		// Abort STM if there was an application error.
+		select {
+		// Check if the STM is aborted and break the retry loop if it is.
+		case <-s.options.ctx.Done():
+			err = fmt.Errorf("aborted")
+			break loop
+
+		default:
+		}
+
+		// Apply the transaction closure and abort the STM if there was an
+		// application error.
 		if err = apply(s); err != nil {
-			break
+			break loop
 		}
 
 		stats, err = s.commit()
 
-		// Re-apply only upon commit error
-		// (meaning the database was changed).
+		// Re-apply only upon commit error (meaning the database was changed).
 		if _, ok := err.(CommitError); !ok {
 			// Anything that's not a CommitError
 			// aborts the STM run loop.
-			break
+			break loop
 		}
 
 		// Rollback before trying to re-apply.

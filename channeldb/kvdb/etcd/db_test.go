@@ -4,6 +4,7 @@ package etcd
 
 import (
 	"bytes"
+	"context"
 	"testing"
 
 	"github.com/btcsuite/btcwallet/walletdb"
@@ -41,4 +42,34 @@ func TestCopy(t *testing.T) {
 		vkey("key", "apple"): "val",
 	}
 	assert.Equal(t, expected, f.Dump())
+}
+
+func TestAbortContext(t *testing.T) {
+	t.Parallel()
+
+	f := NewEtcdTestFixture(t)
+	defer f.Cleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	config := f.BackendConfig()
+	config.Ctx = ctx
+
+	// Pass abort context and abort right away.
+	db, err := newEtcdBackend(config)
+	assert.NoError(t, err)
+	cancel()
+
+	// Expect that the update will fail.
+	err = db.Update(func(tx walletdb.ReadWriteTx) error {
+		_, err := tx.CreateTopLevelBucket([]byte("bucket"))
+		assert.NoError(t, err)
+
+		return nil
+	})
+
+	assert.Error(t, err, "context canceled")
+
+	// No changes in the DB.
+	assert.Equal(t, map[string]string{}, f.Dump())
 }

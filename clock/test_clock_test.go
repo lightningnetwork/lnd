@@ -15,16 +15,11 @@ var (
 func TestNow(t *testing.T) {
 	c := NewTestClock(testTime)
 	now := c.Now()
-
-	if now != testTime {
-		t.Fatalf("expected: %v, got: %v", testTime, now)
-	}
+	assert.Equal(t, testTime, now)
 
 	now = now.Add(time.Hour)
 	c.SetTime(now)
-	if c.Now() != now {
-		t.Fatalf("epected: %v, got: %v", now, c.Now())
-	}
+	assert.Equal(t, now, c.Now())
 }
 
 func TestTickAfter(t *testing.T) {
@@ -49,9 +44,7 @@ func TestTickAfter(t *testing.T) {
 		case <-time.After(time.Millisecond):
 		}
 
-		if tick != expectTick {
-			t.Fatalf("expected tick: %v, ticked: %v", expectTick, tick)
-		}
+		assert.Equal(t, expectTick, tick)
 	}
 
 	tickOrTimeOut(ticker0, true)

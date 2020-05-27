@@ -234,15 +234,6 @@ func (i *InvoiceRegistry) invoiceEventLoop() {
 		// We'll query for any backlog notifications, then add it to the
 		// set of clients.
 		case newClient := <-i.newSubscriptions:
-			// Before we add the client to our set of active
-			// clients, we'll first attempt to deliver any backlog
-			// invoice events.
-			err := i.deliverBacklogEvents(newClient)
-			if err != nil {
-				log.Errorf("unable to deliver backlog invoice "+
-					"notifications: %v", err)
-			}
-
 			log.Infof("New invoice subscription "+
 				"client: id=%v", newClient.id)
 
@@ -410,9 +401,6 @@ func (i *InvoiceRegistry) dispatchToClients(event *invoiceEvent) {
 // deliverBacklogEvents will attempts to query the invoice database for any
 // notifications that the client has missed since it reconnected last.
 func (i *InvoiceRegistry) deliverBacklogEvents(client *InvoiceSubscription) error {
-	// First, we'll query the database to see if based on the provided
-	// addIndex and settledIndex we need to deliver any backlog
-	// notifications.
 	addEvents, err := i.cdb.InvoicesAddedSince(client.addIndex)
 	if err != nil {
 		return err
@@ -1182,7 +1170,9 @@ func (i *invoiceSubscriptionKit) notify(event *invoiceEvent) error {
 // added. The invoiceIndex parameter is a streaming "checkpoint". We'll start
 // by first sending out all new events with an invoice index _greater_ than
 // this value. Afterwards, we'll send out real-time notifications.
-func (i *InvoiceRegistry) SubscribeNotifications(addIndex, settleIndex uint64) *InvoiceSubscription {
+func (i *InvoiceRegistry) SubscribeNotifications(
+	addIndex, settleIndex uint64) (*InvoiceSubscription, error) {
+
 	client := &InvoiceSubscription{
 		NewInvoices:     make(chan *channeldb.Invoice),
 		SettledInvoices: make(chan *channeldb.Invoice),
@@ -1251,12 +1241,23 @@ func (i *InvoiceRegistry) SubscribeNotifications(addIndex, settleIndex uint64) *
 		}
 	}()
 
+	i.Lock()
+	defer i.Unlock()
+
+	// Query the database to see if based on the provided addIndex and
+	// settledIndex we need to deliver any backlog notifications.
+	err := i.deliverBacklogEvents(client)
+	if err != nil {
+		return nil, err
+	}
+
 	select {
 	case i.newSubscriptions <- client:
 	case <-i.quit:
+		return nil, ErrShuttingDown
 	}
 
-	return client
+	return client, nil
 }
 
 // SubscribeSingleInvoice returns an SingleInvoiceSubscription which allows the

@@ -644,7 +644,7 @@ var closeChannelCommand = cli.Command{
 			Name: "delivery_addr",
 			Usage: "(optional) an address to deliver funds " +
 				"upon cooperative channel closing, may only " +
-				"be used if an upfront shutdown addresss is not" +
+				"be used if an upfront shutdown address is not " +
 				"already set",
 		},
 	},

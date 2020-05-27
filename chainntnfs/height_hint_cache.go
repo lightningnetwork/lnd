@@ -148,7 +148,7 @@ func (c *HeightHintCache) CommitSpendHint(height uint32,
 // cache for the outpoint.
 func (c *HeightHintCache) QuerySpendHint(spendRequest SpendRequest) (uint32, error) {
 	var hint uint32
-	err := kvdb.View(c.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		spendHints := tx.ReadBucket(spendHintBucket)
 		if spendHints == nil {
 			return ErrCorruptedHeightHintCache
@@ -242,7 +242,7 @@ func (c *HeightHintCache) CommitConfirmHint(height uint32,
 // the cache for the transaction hash.
 func (c *HeightHintCache) QueryConfirmHint(confRequest ConfRequest) (uint32, error) {
 	var hint uint32
-	err := kvdb.View(c.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		confirmHints := tx.ReadBucket(confirmHintBucket)
 		if confirmHints == nil {
 			return ErrCorruptedHeightHintCache

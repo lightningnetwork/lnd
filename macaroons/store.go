@@ -132,7 +132,7 @@ func (r *RootKeyStorage) Get(_ context.Context, id []byte) ([]byte, error) {
 		return nil, ErrStoreLocked
 	}
 	var rootKey []byte
-	err := kvdb.View(r, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(r, func(tx kvdb.RTx) error {
 		dbKey := tx.ReadBucket(rootKeyBucketName).Get(id)
 		if len(dbKey) == 0 {
 			return fmt.Errorf("root key with id %s doesn't exist",

@@ -404,7 +404,7 @@ func TestMigrateOptionalChannelCloseSummaryFields(t *testing.T) {
 			newSerialization := b.Bytes()
 
 			var dbSummary []byte
-			err = kvdb.View(d, func(tx kvdb.ReadTx) error {
+			err = kvdb.View(d, func(tx kvdb.RTx) error {
 				closedChanBucket := tx.ReadBucket(closedChannelBucket)
 				if closedChanBucket == nil {
 					return errors.New("unable to find bucket")
@@ -503,7 +503,7 @@ func TestMigrateGossipMessageStoreKeys(t *testing.T) {
 	//   3. The message matches the original.
 	afterMigration := func(db *DB) {
 		var rawMsg []byte
-		err := kvdb.View(db, func(tx kvdb.ReadTx) error {
+		err := kvdb.View(db, func(tx kvdb.RTx) error {
 			messageStore := tx.ReadBucket(messageStoreBucket)
 			if messageStore == nil {
 				return errors.New("message store bucket not " +

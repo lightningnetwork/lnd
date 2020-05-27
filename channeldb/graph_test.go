@@ -882,7 +882,7 @@ func TestGraphTraversal(t *testing.T) {
 
 	// Iterate over each node as returned by the graph, if all nodes are
 	// reached, then the map created above should be empty.
-	err = graph.ForEachNode(func(_ kvdb.ReadTx, node *LightningNode) error {
+	err = graph.ForEachNode(func(_ kvdb.RTx, node *LightningNode) error {
 		delete(nodeIndex, node.Alias)
 		return nil
 	})
@@ -978,7 +978,7 @@ func TestGraphTraversal(t *testing.T) {
 	// Finally, we want to test the ability to iterate over all the
 	// outgoing channels for a particular node.
 	numNodeChans := 0
-	err = firstNode.ForEachChannel(nil, func(_ kvdb.ReadTx, _ *ChannelEdgeInfo,
+	err = firstNode.ForEachChannel(nil, func(_ kvdb.RTx, _ *ChannelEdgeInfo,
 		outEdge, inEdge *ChannelEdgePolicy) error {
 
 		// All channels between first and second node should have fully
@@ -1051,7 +1051,7 @@ func assertNumChans(t *testing.T, graph *ChannelGraph, n int) {
 
 func assertNumNodes(t *testing.T, graph *ChannelGraph, n int) {
 	numNodes := 0
-	err := graph.ForEachNode(func(_ kvdb.ReadTx, _ *LightningNode) error {
+	err := graph.ForEachNode(func(_ kvdb.RTx, _ *LightningNode) error {
 		numNodes++
 		return nil
 	})
@@ -2099,7 +2099,7 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 	// Ensure that channel is reported with unknown policies.
 	checkPolicies := func(node *LightningNode, expectedIn, expectedOut bool) {
 		calls := 0
-		err := node.ForEachChannel(nil, func(_ kvdb.ReadTx, _ *ChannelEdgeInfo,
+		err := node.ForEachChannel(nil, func(_ kvdb.RTx, _ *ChannelEdgeInfo,
 			outEdge, inEdge *ChannelEdgePolicy) error {
 
 			if !expectedOut && outEdge != nil {
@@ -2235,7 +2235,7 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 			timestampSet[t] = struct{}{}
 		}
 
-		err := kvdb.View(db, func(tx kvdb.ReadTx) error {
+		err := kvdb.View(db, func(tx kvdb.RTx) error {
 			edges := tx.ReadBucket(edgeBucket)
 			if edges == nil {
 				return ErrGraphNoEdgesFound
@@ -2844,7 +2844,7 @@ func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
 
 	// Attempting to deserialize these bytes should return an error.
 	r := bytes.NewReader(stripped)
-	err = kvdb.View(db, func(tx kvdb.ReadTx) error {
+	err = kvdb.View(db, func(tx kvdb.RTx) error {
 		nodes := tx.ReadBucket(nodeBucket)
 		if nodes == nil {
 			return ErrGraphNotFound

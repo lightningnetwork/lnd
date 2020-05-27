@@ -1291,7 +1291,7 @@ func (rs *retributionStore) GetFinalizedTxn(
 	chanPoint *wire.OutPoint) (*wire.MsgTx, error) {
 
 	var finalTxBytes []byte
-	if err := kvdb.View(rs.db, func(tx kvdb.ReadTx) error {
+	if err := kvdb.View(rs.db, func(tx kvdb.RTx) error {
 		justiceBkt := tx.ReadBucket(justiceTxnBucket)
 		if justiceBkt == nil {
 			return nil
@@ -1325,7 +1325,7 @@ func (rs *retributionStore) GetFinalizedTxn(
 // that has already been breached.
 func (rs *retributionStore) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
 	var found bool
-	err := kvdb.View(rs.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(rs.db, func(tx kvdb.RTx) error {
 		retBucket := tx.ReadBucket(retributionBucket)
 		if retBucket == nil {
 			return nil
@@ -1389,7 +1389,7 @@ func (rs *retributionStore) Remove(chanPoint *wire.OutPoint) error {
 // ForAll iterates through all stored retributions and executes the passed
 // callback function on each retribution.
 func (rs *retributionStore) ForAll(cb func(*retributionInfo) error) error {
-	return kvdb.View(rs.db, func(tx kvdb.ReadTx) error {
+	return kvdb.View(rs.db, func(tx kvdb.RTx) error {
 		// If the bucket does not exist, then there are no pending
 		// retributions.
 		retBucket := tx.ReadBucket(retributionBucket)

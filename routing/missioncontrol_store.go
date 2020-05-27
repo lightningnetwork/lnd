@@ -88,7 +88,7 @@ func (b *missionControlStore) clear() error {
 func (b *missionControlStore) fetchAll() ([]*paymentResult, error) {
 	var results []*paymentResult
 
-	err := kvdb.View(b.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(b.db, func(tx kvdb.RTx) error {
 		resultBucket := tx.ReadBucket(resultsKey)
 		results = make([]*paymentResult, 0)
 

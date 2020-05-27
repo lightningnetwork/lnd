@@ -5093,7 +5093,7 @@ func (*mockPackager) AckAddHtlcs(tx kvdb.RwTx,
 	return nil
 }
 
-func (m *mockPackager) LoadFwdPkgs(tx kvdb.ReadTx) ([]*channeldb.FwdPkg, error) {
+func (m *mockPackager) LoadFwdPkgs(tx kvdb.RTx) ([]*channeldb.FwdPkg, error) {
 	if m.failLoadFwdPkgs {
 		return nil, fmt.Errorf("failing LoadFwdPkgs")
 	}

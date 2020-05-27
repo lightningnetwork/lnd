@@ -22,7 +22,7 @@ func Update(db Backend, f func(tx RwTx) error) error {
 // transaction passed as a parameter. After f exits, the transaction is rolled
 // back. If f errors, its error is returned, not a rollback error (if any
 // occur).
-func View(db Backend, f func(tx ReadTx) error) error {
+func View(db Backend, f func(tx RTx) error) error {
 	if extendedDB, ok := db.(ExtendedBackend); ok {
 		return extendedDB.View(f)
 	}
@@ -81,18 +81,18 @@ var Open = walletdb.Open
 // themselves as a backend which implements the Backend interface.
 type Driver = walletdb.Driver
 
-// ReadBucket represents a bucket (a hierarchical structure within the
+// RBucket represents a bucket (a hierarchical structure within the
 // database) that is only allowed to perform read operations.
-type ReadBucket = walletdb.ReadBucket
+type RBucket = walletdb.ReadBucket
 
-// ReadCursor represents a bucket cursor that can be positioned at the start or
+// RCursor represents a bucket cursor that can be positioned at the start or
 // end of the bucket's key/value pairs and iterate over pairs in the bucket.
 // This type is only allowed to perform database read operations.
-type ReadCursor = walletdb.ReadCursor
+type RCursor = walletdb.ReadCursor
 
-// ReadTx represents a database transaction that can only be used for reads. If
+// RTx represents a database transaction that can only be used for reads. If
 // a database update must occur, use a RwTx.
-type ReadTx = walletdb.ReadTx
+type RTx = walletdb.ReadTx
 
 // RwBucket represents a bucket (a hierarchical structure within the database)
 // that is allowed to perform both read and write operations.
@@ -105,7 +105,7 @@ type RwBucket = walletdb.ReadWriteBucket
 type RwCursor = walletdb.ReadWriteCursor
 
 // ReadWriteTx represents a database transaction that can be used for both
-// reads and writes. When only reads are necessary, consider using a ReadTx
+// reads and writes. When only reads are necessary, consider using a RTx
 // instead.
 type RwTx = walletdb.ReadWriteTx
 

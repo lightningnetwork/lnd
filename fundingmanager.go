@@ -3477,7 +3477,7 @@ func (f *fundingManager) getChannelOpeningState(chanPoint *wire.OutPoint) (
 
 	var state channelOpeningState
 	var shortChanID lnwire.ShortChannelID
-	err := kvdb.View(f.cfg.Wallet.Cfg.Database, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(f.cfg.Wallet.Cfg.Database, func(tx kvdb.RTx) error {
 
 		bucket := tx.ReadBucket(channelOpeningStateBucket)
 		if bucket == nil {

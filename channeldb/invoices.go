@@ -485,7 +485,7 @@ func (d *DB) InvoicesAddedSince(sinceAddIndex uint64) ([]Invoice, error) {
 	var startIndex [8]byte
 	byteOrder.PutUint64(startIndex[:], sinceAddIndex)
 
-	err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		invoices := tx.ReadBucket(invoiceBucket)
 		if invoices == nil {
 			return ErrNoInvoicesCreated
@@ -540,7 +540,7 @@ func (d *DB) InvoicesAddedSince(sinceAddIndex uint64) ([]Invoice, error) {
 // terms of the payment.
 func (d *DB) LookupInvoice(paymentHash [32]byte) (Invoice, error) {
 	var invoice Invoice
-	err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		invoices := tx.ReadBucket(invoiceBucket)
 		if invoices == nil {
 			return ErrNoInvoicesCreated
@@ -595,7 +595,7 @@ func (d *DB) FetchAllInvoicesWithPaymentHash(pendingOnly bool) (
 
 	var result []InvoiceWithPaymentHash
 
-	err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		invoices := tx.ReadBucket(invoiceBucket)
 		if invoices == nil {
 			return ErrNoInvoicesCreated
@@ -701,7 +701,7 @@ func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
 		InvoiceQuery: q,
 	}
 
-	err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		// If the bucket wasn't found, then there aren't any invoices
 		// within the database yet, so we can simply exit.
 		invoices := tx.ReadBucket(invoiceBucket)
@@ -715,7 +715,7 @@ func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
 
 		// keyForIndex is a helper closure that retrieves the invoice
 		// key for the given add index of an invoice.
-		keyForIndex := func(c kvdb.ReadCursor, index uint64) []byte {
+		keyForIndex := func(c kvdb.RCursor, index uint64) []byte {
 			var keyIndex [8]byte
 			byteOrder.PutUint64(keyIndex[:], index)
 			_, invoiceKey := c.Seek(keyIndex[:])
@@ -724,7 +724,7 @@ func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
 
 		// nextKey is a helper closure to determine what the next
 		// invoice key is when iterating over the invoice add index.
-		nextKey := func(c kvdb.ReadCursor) ([]byte, []byte) {
+		nextKey := func(c kvdb.RCursor) ([]byte, []byte) {
 			if q.Reversed {
 				return c.Prev()
 			}
@@ -883,7 +883,7 @@ func (d *DB) InvoicesSettledSince(sinceSettleIndex uint64) ([]Invoice, error) {
 	var startIndex [8]byte
 	byteOrder.PutUint64(startIndex[:], sinceSettleIndex)
 
-	err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		invoices := tx.ReadBucket(invoiceBucket)
 		if invoices == nil {
 			return ErrNoInvoicesCreated
@@ -1118,7 +1118,7 @@ func serializeHtlcs(w io.Writer, htlcs map[CircuitKey]*InvoiceHTLC) error {
 	return nil
 }
 
-func fetchInvoice(invoiceNum []byte, invoices kvdb.ReadBucket) (Invoice, error) {
+func fetchInvoice(invoiceNum []byte, invoices kvdb.RBucket) (Invoice, error) {
 	invoiceBytes := invoices.Get(invoiceNum)
 	if invoiceBytes == nil {
 		return Invoice{}, ErrInvoiceNotFound

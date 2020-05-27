@@ -2112,7 +2112,7 @@ func (s *server) establishPersistentConnections() error {
 	// each of the nodes.
 	selfPub := s.identityECDH.PubKey().SerializeCompressed()
 	err = sourceNode.ForEachChannel(nil, func(
-		tx kvdb.ReadTx,
+		tx kvdb.RTx,
 		chanInfo *channeldb.ChannelEdgeInfo,
 		policy, _ *channeldb.ChannelEdgePolicy) error {
 

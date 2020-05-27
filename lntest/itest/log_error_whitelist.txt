@@ -95,6 +95,7 @@
 <time> [ERR] HSWC: ChannelLink(<chan>): Unhandled error while reforwarding htlc settle/fail over htlcswitch: insufficient bandwidth to route htlc
 <time> [ERR] HSWC: ChannelLink(<chan>): Unhandled error while reforwarding htlc settle/fail over htlcswitch: node configured to disallow forwards
 <time> [ERR] HSWC: ChannelLink(<chan>): Unhandled error while reforwarding htlc settle/fail over htlcswitch: UnknownNextPeer
+<time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: unable to send chan sync message for ChannelPoint(<chan_point>): set tcp <ip>: use of closed network connection with error: unable to resume channel, recovery required
 <time> [ERR] HSWC: FeeInsufficient(htlc_amt==<amt>, update=(lnwire.ChannelUpdate) {
 <time> [ERR] HSWC: insufficient bandwidth to route htlc
 <time> [ERR] HSWC: Link <chan> not found

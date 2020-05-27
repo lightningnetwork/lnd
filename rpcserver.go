@@ -4535,9 +4535,12 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 	updateStream lnrpc.Lightning_SubscribeInvoicesServer) error {
 
-	invoiceClient := r.server.invoices.SubscribeNotifications(
+	invoiceClient, err := r.server.invoices.SubscribeNotifications(
 		req.AddIndex, req.SettleIndex,
 	)
+	if err != nil {
+		return err
+	}
 	defer invoiceClient.Cancel()
 
 	for {

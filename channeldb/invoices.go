@@ -488,12 +488,12 @@ func (d *DB) InvoicesAddedSince(sinceAddIndex uint64) ([]Invoice, error) {
 	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		invoices := tx.ReadBucket(invoiceBucket)
 		if invoices == nil {
-			return ErrNoInvoicesCreated
+			return nil
 		}
 
 		addIndex := invoices.NestedReadBucket(addIndexBucket)
 		if addIndex == nil {
-			return ErrNoInvoicesCreated
+			return nil
 		}
 
 		// We'll now run through each entry in the add index starting
@@ -520,12 +520,7 @@ func (d *DB) InvoicesAddedSince(sinceAddIndex uint64) ([]Invoice, error) {
 
 		return nil
 	})
-	switch {
-	// If no invoices have been created, then we'll return the empty set of
-	// invoices.
-	case err == ErrNoInvoicesCreated:
-
-	case err != nil:
+	if err != nil {
 		return nil, err
 	}
 
@@ -886,12 +881,12 @@ func (d *DB) InvoicesSettledSince(sinceSettleIndex uint64) ([]Invoice, error) {
 	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		invoices := tx.ReadBucket(invoiceBucket)
 		if invoices == nil {
-			return ErrNoInvoicesCreated
+			return nil
 		}
 
 		settleIndex := invoices.NestedReadBucket(settleIndexBucket)
 		if settleIndex == nil {
-			return ErrNoInvoicesCreated
+			return nil
 		}
 
 		// We'll now run through each entry in the add index starting

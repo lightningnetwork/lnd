@@ -1,25 +1,32 @@
 package lnwallet
 
 import (
-	"crypto/sha256"
+	"bytes"
+	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"net"
+	"os"
+	"sort"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
+	"github.com/stretchr/testify/require"
 )
 
 /**
@@ -31,269 +38,59 @@ import (
 // testContext contains the test parameters defined in Appendix B & C of the
 // BOLT 03 spec.
 type testContext struct {
-	netParams *chaincfg.Params
-	block1    *btcutil.Block
+	localFundingPrivkey                *btcec.PrivateKey
+	localPaymentBasepointSecret        *btcec.PrivateKey
+	localDelayedPaymentBasepointSecret *btcec.PrivateKey
+	remoteFundingPrivkey               *btcec.PrivateKey
+	remoteRevocationBasepointSecret    *btcec.PrivateKey
+	remotePaymentBasepointSecret       *btcec.PrivateKey
 
-	fundingInputPrivKey *btcec.PrivateKey
-	localFundingPrivKey *btcec.PrivateKey
-	localPaymentPrivKey *btcec.PrivateKey
+	localPerCommitSecret lntypes.Hash
 
-	remoteFundingPubKey    *btcec.PublicKey
-	localFundingPubKey     *btcec.PublicKey
-	localRevocationPubKey  *btcec.PublicKey
-	localPaymentPubKey     *btcec.PublicKey
-	remotePaymentPubKey    *btcec.PublicKey
-	localDelayPubKey       *btcec.PublicKey
-	commitmentPoint        *btcec.PublicKey
-	localPaymentBasePoint  *btcec.PublicKey
-	remotePaymentBasePoint *btcec.PublicKey
-
-	fundingChangeAddress btcutil.Address
-	fundingInputUtxo     *Utxo
-	fundingInputTxOut    *wire.TxOut
-	fundingTx            *btcutil.Tx
-	fundingOutpoint      wire.OutPoint
-	shortChanID          lnwire.ShortChannelID
-
-	htlcs []channeldb.HTLC
+	fundingTx *btcutil.Tx
 
 	localCsvDelay uint16
 	fundingAmount btcutil.Amount
 	dustLimit     btcutil.Amount
-	feePerKW      btcutil.Amount
-}
+	commitHeight  uint64
 
-// getHTLC constructs an HTLC based on a configured HTLC with auxiliary data
-// such as the remote signature from the htlcDesc. The partially defined HTLCs
-// originate from the BOLT 03 spec and are contained in the test context.
-func (tc *testContext) getHTLC(index int, desc *htlcDesc) (channeldb.HTLC, error) {
-	signature, err := hex.DecodeString(desc.remoteSigHex)
-	if err != nil {
-		return channeldb.HTLC{}, fmt.Errorf(
-			"Failed to parse serialized signature: %v", err)
-	}
-
-	htlc := tc.htlcs[desc.index]
-	return channeldb.HTLC{
-		Signature:     signature,
-		RHash:         htlc.RHash,
-		RefundTimeout: htlc.RefundTimeout,
-		Amt:           htlc.Amt,
-		OutputIndex:   int32(index),
-		Incoming:      htlc.Incoming,
-	}, nil
+	t *testing.T
 }
 
 // newTestContext populates a new testContext struct with the constant
-// parameters defined in the BOLT 03 spec. This may return an error if any of
-// the serialized parameters cannot be parsed.
-func newTestContext() (tc *testContext, err error) {
+// parameters defined in the BOLT 03 spec.
+func newTestContext(t *testing.T) (tc *testContext) {
 	tc = new(testContext)
 
-	const genesisHash = "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
-	if tc.netParams, err = tc.createNetParams(genesisHash); err != nil {
-		return
+	priv := func(v string) *btcec.PrivateKey {
+		k, err := privkeyFromHex(v)
+		require.NoError(t, err)
+
+		return k
 	}
 
-	const block1Hex = "0000002006226e46111a0b59caaf126043eb5bbf28c34f3a5e332a1fc7b2b73cf188910fadbb20ea41a8423ea937e76e8151636bf6093b70eaff942930d20576600521fdc30f9858ffff7f20000000000101000000010000000000000000000000000000000000000000000000000000000000000000ffffffff03510101ffffffff0100f2052a010000001976a9143ca33c2e4446f4a305f23c80df8ad1afdcf652f988ac00000000"
-	if tc.block1, err = blockFromHex(block1Hex); err != nil {
-		err = fmt.Errorf("Failed to parse serialized block: %v", err)
-		return
-	}
+	tc.remoteFundingPrivkey = priv("1552dfba4f6cf29a62a0af13c8d6981d36d0ef8d61ba10fb0fe90da7634d7e13")
+	tc.remoteRevocationBasepointSecret = priv("2222222222222222222222222222222222222222222222222222222222222222")
+	tc.remotePaymentBasepointSecret = priv("4444444444444444444444444444444444444444444444444444444444444444")
+	tc.localPaymentBasepointSecret = priv("1111111111111111111111111111111111111111111111111111111111111111")
+	tc.localDelayedPaymentBasepointSecret = priv("3333333333333333333333333333333333333333333333333333333333333333")
+	tc.localFundingPrivkey = priv("30ff4956bbdd3222d44cc5e8a1261dab1e07957bdac5ae88fe3261ef321f3749")
 
-	const fundingInputPrivKeyHex = "6bd078650fcee8444e4e09825227b801a1ca928debb750eb36e6d56124bb20e8"
-	tc.fundingInputPrivKey, err = privkeyFromHex(fundingInputPrivKeyHex)
-	if err != nil {
-		err = fmt.Errorf("Failed to parse serialized privkey: %v", err)
-		return
-	}
-
-	const localFundingPrivKeyHex = "30ff4956bbdd3222d44cc5e8a1261dab1e07957bdac5ae88fe3261ef321f3749"
-	tc.localFundingPrivKey, err = privkeyFromHex(localFundingPrivKeyHex)
-	if err != nil {
-		err = fmt.Errorf("Failed to parse serialized privkey: %v", err)
-		return
-	}
-
-	const localPaymentPrivKeyHex = "bb13b121cdc357cd2e608b0aea294afca36e2b34cf958e2e6451a2f274694491"
-	tc.localPaymentPrivKey, err = privkeyFromHex(localPaymentPrivKeyHex)
-	if err != nil {
-		err = fmt.Errorf("Failed to parse serialized privkey: %v", err)
-		return
-	}
-
-	const localFundingPubKeyHex = "023da092f6980e58d2c037173180e9a465476026ee50f96695963e8efe436f54eb"
-	tc.localFundingPubKey, err = pubkeyFromHex(localFundingPubKeyHex)
-	if err != nil {
-		err = fmt.Errorf("Failed to parse serialized pubkey: %v", err)
-		return
-	}
-
-	const remoteFundingPubKeyHex = "030e9f7b623d2ccc7c9bd44d66d5ce21ce504c0acf6385a132cec6d3c39fa711c1"
-	tc.remoteFundingPubKey, err = pubkeyFromHex(remoteFundingPubKeyHex)
-	if err != nil {
-		err = fmt.Errorf("Failed to parse serialized pubkey: %v", err)
-		return
-	}
-
-	const localRevocationPubKeyHex = "0212a140cd0c6539d07cd08dfe09984dec3251ea808b892efeac3ede9402bf2b19"
-	tc.localRevocationPubKey, err = pubkeyFromHex(localRevocationPubKeyHex)
-	if err != nil {
-		err = fmt.Errorf("Failed to parse serialized pubkey: %v", err)
-		return
-	}
-
-	const localPaymentPubKeyHex = "030d417a46946384f88d5f3337267c5e579765875dc4daca813e21734b140639e7"
-	tc.localPaymentPubKey, err = pubkeyFromHex(localPaymentPubKeyHex)
-	if err != nil {
-		err = fmt.Errorf("Failed to parse serialized pubkey: %v", err)
-		return
-	}
-
-	const remotePaymentPubKeyHex = "0394854aa6eab5b2a8122cc726e9dded053a2184d88256816826d6231c068d4a5b"
-	tc.remotePaymentPubKey, err = pubkeyFromHex(remotePaymentPubKeyHex)
-	if err != nil {
-		err = fmt.Errorf("Failed to parse serialized pubkey: %v", err)
-		return
-	}
-
-	const localDelayPubKeyHex = "03fd5960528dc152014952efdb702a88f71e3c1653b2314431701ec77e57fde83c"
-	tc.localDelayPubKey, err = pubkeyFromHex(localDelayPubKeyHex)
-	if err != nil {
-		err = fmt.Errorf("Failed to parse serialized pubkey: %v", err)
-		return
-	}
-
-	const commitmentPointHex = "025f7117a78150fe2ef97db7cfc83bd57b2e2c0d0dd25eaf467a4a1c2a45ce1486"
-	tc.commitmentPoint, err = pubkeyFromHex(commitmentPointHex)
-	if err != nil {
-		err = fmt.Errorf("Failed to parse serialized pubkey: %v", err)
-		return
-	}
-
-	const localPaymentBasePointHex = "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa"
-	tc.localPaymentBasePoint, err = pubkeyFromHex(localPaymentBasePointHex)
-	if err != nil {
-		err = fmt.Errorf("Failed to parse serialized pubkey: %v", err)
-		return
-	}
-
-	const remotePaymentBasePointHex = "032c0b7cf95324a07d05398b240174dc0c2be444d96b159aa6c7f7b1e668680991"
-	tc.remotePaymentBasePoint, err = pubkeyFromHex(remotePaymentBasePointHex)
-	if err != nil {
-		err = fmt.Errorf("Failed to parse serialized pubkey: %v", err)
-		return
-	}
-
-	const fundingChangeAddressStr = "bcrt1qgyeqfmptyh780dsk32qawsvdffc2g5q5sxamg0"
-	tc.fundingChangeAddress, err = btcutil.DecodeAddress(
-		fundingChangeAddressStr, tc.netParams)
-	if err != nil {
-		err = fmt.Errorf("Failed to parse address: %v", err)
-		return
-	}
-
-	tc.fundingInputUtxo, tc.fundingInputTxOut, err = tc.extractFundingInput()
-	if err != nil {
-		return
-	}
+	var err error
+	tc.localPerCommitSecret, err = lntypes.MakeHashFromStr("1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100")
+	require.NoError(t, err)
 
 	const fundingTxHex = "0200000001adbb20ea41a8423ea937e76e8151636bf6093b70eaff942930d20576600521fd000000006b48304502210090587b6201e166ad6af0227d3036a9454223d49a1f11839c1a362184340ef0240220577f7cd5cca78719405cbf1de7414ac027f0239ef6e214c90fcaab0454d84b3b012103535b32d5eb0a6ed0982a0479bbadc9868d9836f6ba94dd5a63be16d875069184ffffffff028096980000000000220020c015c4a6be010e21657068fc2e6a9d02b27ebe4d490a25846f7237f104d1a3cd20256d29010000001600143ca33c2e4446f4a305f23c80df8ad1afdcf652f900000000"
-	if tc.fundingTx, err = txFromHex(fundingTxHex); err != nil {
-		err = fmt.Errorf("Failed to parse serialized tx: %v", err)
-		return
-	}
-
-	tc.fundingOutpoint = wire.OutPoint{
-		Hash:  *tc.fundingTx.Hash(),
-		Index: 0,
-	}
-
-	tc.shortChanID = lnwire.ShortChannelID{
-		BlockHeight: 1,
-		TxIndex:     0,
-		TxPosition:  0,
-	}
-
-	tc.htlcs = make([]channeldb.HTLC, len(testHtlcs))
-	for i, htlc := range testHtlcs {
-		preimage, decodeErr := hex.DecodeString(htlc.preimage)
-		if decodeErr != nil {
-			err = fmt.Errorf("Failed to decode HTLC preimage: %v", decodeErr)
-			return
-		}
-
-		tc.htlcs[i].RHash = sha256.Sum256(preimage)
-		tc.htlcs[i].Amt = htlc.amount
-		tc.htlcs[i].RefundTimeout = htlc.expiry
-		tc.htlcs[i].Incoming = htlc.incoming
-	}
+	tc.fundingTx, err = txFromHex(fundingTxHex)
+	require.NoError(t, err)
 
 	tc.localCsvDelay = 144
 	tc.fundingAmount = 10000000
 	tc.dustLimit = 546
-	tc.feePerKW = 15000
+	tc.commitHeight = 42
+	tc.t = t
 
-	return
-}
-
-// createNetParams is used by newTestContext to construct new chain parameters
-// as required by the BOLT 03 spec.
-func (tc *testContext) createNetParams(genesisHashStr string) (*chaincfg.Params, error) {
-	params := chaincfg.RegressionNetParams
-
-	// Ensure regression net genesis block matches the one listed in BOLT spec.
-	expectedGenesisHash, err := chainhash.NewHashFromStr(genesisHashStr)
-	if err != nil {
-		return nil, err
-	}
-	if !params.GenesisHash.IsEqual(expectedGenesisHash) {
-		err = fmt.Errorf("Expected regression net genesis hash to be %s, "+
-			"got %s", expectedGenesisHash, params.GenesisHash)
-		return nil, err
-	}
-
-	return &params, nil
-}
-
-// extractFundingInput returns references to the transaction output of the
-// coinbase transaction which is used to fund the channel in the test vectors.
-func (tc *testContext) extractFundingInput() (*Utxo, *wire.TxOut, error) {
-	expectedTxHashHex := "fd2105607605d2302994ffea703b09f66b6351816ee737a93e42a841ea20bbad"
-	expectedTxHash, err := chainhash.NewHashFromStr(expectedTxHashHex)
-	if err != nil {
-		return nil, nil, fmt.Errorf("Failed to parse transaction hash: %v", err)
-	}
-
-	tx, err := tc.block1.Tx(0)
-	if err != nil {
-		return nil, nil, fmt.Errorf("Failed to get coinbase transaction from "+
-			"block 1: %v", err)
-	}
-	txout := tx.MsgTx().TxOut[0]
-
-	var expectedAmount int64 = 5000000000
-	if txout.Value != expectedAmount {
-		return nil, nil, fmt.Errorf("Coinbase transaction output amount from "+
-			"block 1 does not match expected output amount: "+
-			"expected %v, got %v", expectedAmount, txout.Value)
-	}
-	if !tx.Hash().IsEqual(expectedTxHash) {
-		return nil, nil, fmt.Errorf("Coinbase transaction hash from block 1 "+
-			"does not match expected hash: expected %v, got %v", expectedTxHash,
-			tx.Hash())
-	}
-
-	block1Utxo := Utxo{
-		AddressType: WitnessPubKey,
-		Value:       btcutil.Amount(txout.Value),
-		OutPoint: wire.OutPoint{
-			Hash:  *tx.Hash(),
-			Index: 0,
-		},
-		PkScript: txout.PkScript,
-	}
-	return &block1Utxo, txout, nil
+	return tc
 }
 
 var testHtlcs = []struct {
@@ -649,218 +446,193 @@ var testCases = []testCase{
 func TestCommitmentAndHTLCTransactions(t *testing.T) {
 	t.Parallel()
 
-	tc, err := newTestContext()
-	if err != nil {
-		t.Fatal(err)
+	for _, test := range testCases {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			testVectors(t, test)
+		})
+	}
+}
+
+// addTestHtlcs adds the test vector htlcs to the update logs of the local and
+// remote node.
+func addTestHtlcs(t *testing.T, remote,
+	local *LightningChannel) map[[20]byte]lntypes.Preimage {
+
+	hash160map := make(map[[20]byte]lntypes.Preimage)
+	for _, htlc := range testHtlcs {
+		preimage, err := lntypes.MakePreimageFromStr(htlc.preimage)
+		require.NoError(t, err)
+
+		hash := preimage.Hash()
+
+		// Store ripemd160 hash of the payment hash to later identify
+		// resolutions.
+		var hash160 [20]byte
+		copy(hash160[:], input.Ripemd160H(hash[:]))
+		hash160map[hash160] = preimage
+
+		// Add htlc to the channel.
+		chanID := lnwire.NewChanIDFromOutPoint(remote.ChanPoint)
+
+		msg := &lnwire.UpdateAddHTLC{
+			Amount:      htlc.amount,
+			ChanID:      chanID,
+			Expiry:      htlc.expiry,
+			PaymentHash: hash,
+		}
+		if htlc.incoming {
+			htlcID, err := remote.AddHTLC(msg, nil)
+			require.NoError(t, err, "unable to add htlc")
+
+			msg.ID = htlcID
+			_, err = local.ReceiveHTLC(msg)
+			require.NoError(t, err, "unable to recv htlc")
+		} else {
+			htlcID, err := local.AddHTLC(msg, nil)
+			require.NoError(t, err, "unable to add htlc")
+
+			msg.ID = htlcID
+			_, err = remote.ReceiveHTLC(msg)
+			require.NoError(t, err, "unable to recv htlc")
+		}
 	}
 
-	// Generate random some keys that don't actually matter but need to be set.
-	var (
-		identityKey         *btcec.PublicKey
-		localDelayBasePoint *btcec.PublicKey
+	return hash160map
+}
+
+// testVectors executes a commit dance to end up with the commitment transaction
+// that is described in the test vectors and then asserts that all values are
+// correct.
+func testVectors(t *testing.T, test testCase) {
+	tc := newTestContext(t)
+
+	// Balances in the test vectors are before subtraction of in-flight
+	// htlcs. Convert to spendable balances.
+	remoteBalance := test.commitment.RemoteBalance
+	localBalance := test.commitment.LocalBalance
+
+	if test.htlcDescs != nil {
+		for _, htlc := range testHtlcs {
+			if htlc.incoming {
+				remoteBalance += htlc.amount
+			} else {
+				localBalance += htlc.amount
+			}
+		}
+	}
+
+	// This should actually be tweakless. Update once
+	// https://github.com/lightningnetwork/lightning-rfc/pull/758 is merged.
+	chanType := channeldb.SingleFunderBit
+
+	// Set up a test channel on which the test commitment transaction is
+	// going to be produced.
+	remoteChannel, localChannel, cleanUp := createTestChannelsForVectors(
+		tc,
+		chanType, test.commitment.FeePerKw,
+		remoteBalance.ToSatoshis(),
+		localBalance.ToSatoshis(),
 	)
-	generateKeys := []**btcec.PublicKey{
-		&identityKey,
-		&localDelayBasePoint,
-	}
-	for _, keyRef := range generateKeys {
-		privkey, err := btcec.NewPrivateKey(btcec.S256())
-		if err != nil {
-			t.Fatalf("Failed to generate new key: %v", err)
-		}
-		*keyRef = privkey.PubKey()
+	defer cleanUp()
+
+	// Add htlcs (if any) to the update logs of both sides and save a hash
+	// map that allows us to identify the htlcs in the scripts later on and
+	// retrieve the corresponding preimage.
+	var hash160map map[[20]byte]lntypes.Preimage
+	if test.htlcDescs != nil {
+		hash160map = addTestHtlcs(t, remoteChannel, localChannel)
 	}
 
-	// Manually construct a new LightningChannel.
-	channelState := channeldb.OpenChannel{
-		ChanType:        channeldb.SingleFunderTweaklessBit,
-		ChainHash:       *tc.netParams.GenesisHash,
-		FundingOutpoint: tc.fundingOutpoint,
-		ShortChannelID:  tc.shortChanID,
-		IsInitiator:     true,
-		IdentityPub:     identityKey,
-		LocalChanCfg: channeldb.ChannelConfig{
-			ChannelConstraints: channeldb.ChannelConstraints{
-				DustLimit:        tc.dustLimit,
-				MaxPendingAmount: lnwire.NewMSatFromSatoshis(tc.fundingAmount),
-				MaxAcceptedHtlcs: input.MaxHTLCNumber,
-				CsvDelay:         tc.localCsvDelay,
-			},
-			MultiSigKey: keychain.KeyDescriptor{
-				PubKey: tc.localFundingPubKey,
-			},
-			PaymentBasePoint: keychain.KeyDescriptor{
-				PubKey: tc.localPaymentBasePoint,
-			},
-			HtlcBasePoint: keychain.KeyDescriptor{
-				PubKey: tc.localPaymentBasePoint,
-			},
-			DelayBasePoint: keychain.KeyDescriptor{
-				PubKey: localDelayBasePoint,
-			},
-		},
-		RemoteChanCfg: channeldb.ChannelConfig{
-			MultiSigKey: keychain.KeyDescriptor{
-				PubKey: tc.remoteFundingPubKey,
-			},
-			PaymentBasePoint: keychain.KeyDescriptor{
-				PubKey: tc.remotePaymentBasePoint,
-			},
-			HtlcBasePoint: keychain.KeyDescriptor{
-				PubKey: tc.remotePaymentBasePoint,
-			},
-		},
-		Capacity:           tc.fundingAmount,
-		RevocationProducer: shachain.NewRevocationProducer(zeroHash),
-	}
-	signer := &input.MockSigner{
-		Privkeys: []*btcec.PrivateKey{
-			tc.localFundingPrivKey, tc.localPaymentPrivKey,
-		},
-		NetParams: tc.netParams,
+	// Execute commit dance to arrive at the point where the local node has
+	// received the test commitment and the remote signature.
+	localSig, localHtlcSigs, _, err := localChannel.SignNextCommitment()
+	require.NoError(t, err, "local unable to sign commitment")
+
+	err = remoteChannel.ReceiveNewCommitment(localSig, localHtlcSigs)
+	require.NoError(t, err)
+
+	revMsg, _, err := remoteChannel.RevokeCurrentCommitment()
+	require.NoError(t, err)
+
+	_, _, _, _, err = localChannel.ReceiveRevocation(revMsg)
+	require.NoError(t, err)
+
+	remoteSig, remoteHtlcSigs, _, err := remoteChannel.SignNextCommitment()
+	require.NoError(t, err)
+
+	require.Equal(t, test.remoteSigHex, hex.EncodeToString(remoteSig.ToSignatureBytes()))
+
+	for i, sig := range remoteHtlcSigs {
+		require.Equal(t, test.htlcDescs[i].remoteSigHex, hex.EncodeToString(sig.ToSignatureBytes()))
 	}
 
-	// Construct a LightningChannel manually because we don't have nor need all
-	// of the dependencies.
-	channel := LightningChannel{
-		channelState:  &channelState,
-		Signer:        signer,
-		commitBuilder: NewCommitmentBuilder(&channelState),
+	err = localChannel.ReceiveNewCommitment(remoteSig, remoteHtlcSigs)
+	require.NoError(t, err)
+
+	_, _, err = localChannel.RevokeCurrentCommitment()
+	require.NoError(t, err)
+
+	// Now the local node force closes the channel so that we can inspect
+	// its state.
+	forceCloseSum, err := localChannel.ForceClose()
+	require.NoError(t, err)
+
+	// Assert that the commitment transaction itself is as expected.
+	var txBytes bytes.Buffer
+	require.NoError(t, forceCloseSum.CloseTx.Serialize(&txBytes))
+
+	require.Equal(t, test.expectedCommitmentTxHex, hex.EncodeToString(txBytes.Bytes()))
+
+	// Obtain the second level transactions that the local node's channel
+	// state machine has produced. Store them in a map indexed by commit tx
+	// output index. Also complete the second level transaction with the
+	// preimage. This is normally done later in the contract resolver.
+	secondLevelTxes := map[uint32]*wire.MsgTx{}
+	storeTx := func(index uint32, tx *wire.MsgTx) {
+		// Prevent overwrites.
+		_, exists := secondLevelTxes[index]
+		require.False(t, exists)
+
+		secondLevelTxes[index] = tx
 	}
-	err = channel.createSignDesc()
-	if err != nil {
-		t.Fatalf("Failed to generate channel sign descriptor: %v", err)
+
+	for _, r := range forceCloseSum.HtlcResolutions.IncomingHTLCs {
+		successTx := r.SignedSuccessTx
+		witnessScript := successTx.TxIn[0].Witness[4]
+		var hash160 [20]byte
+		copy(hash160[:], witnessScript[69:69+20])
+		preimage := hash160map[hash160]
+		successTx.TxIn[0].Witness[3] = preimage[:]
+		storeTx(r.HtlcPoint().Index, successTx)
+	}
+	for _, r := range forceCloseSum.HtlcResolutions.OutgoingHTLCs {
+		storeTx(r.HtlcPoint().Index, r.SignedTimeoutTx)
 	}
 
-	// The commitmentPoint is technically hidden in the spec, but we need it to
-	// generate the correct tweak.
-	tweak := input.SingleTweakBytes(tc.commitmentPoint, tc.localPaymentBasePoint)
-	keys := &CommitmentKeyRing{
-		CommitPoint:         tc.commitmentPoint,
-		LocalCommitKeyTweak: tweak,
-		LocalHtlcKeyTweak:   tweak,
-		LocalHtlcKey:        tc.localPaymentPubKey,
-		RemoteHtlcKey:       tc.remotePaymentPubKey,
-		ToLocalKey:          tc.localDelayPubKey,
-		ToRemoteKey:         tc.remotePaymentPubKey,
-		RevocationKey:       tc.localRevocationPubKey,
+	// Create a list of second level transactions ordered by commit tx
+	// output index.
+	var keys []uint32
+	for k := range secondLevelTxes {
+		keys = append(keys, k)
 	}
+	sort.Slice(keys, func(a, b int) bool {
+		return keys[a] < keys[b]
+	})
 
-	for i, test := range testCases {
-		expectedCommitmentTx, err := txFromHex(test.expectedCommitmentTxHex)
-		if err != nil {
-			t.Fatalf("Case %d: Failed to parse serialized tx: %v", i, err)
-		}
+	// Assert that this list matches the test vectors.
+	for i, idx := range keys {
+		tx := secondLevelTxes[idx]
+		var b bytes.Buffer
+		err := tx.Serialize(&b)
+		require.NoError(t, err)
 
-		// Build required HTLC structs from raw test vector data.
-		htlcs := make([]channeldb.HTLC, len(test.htlcDescs), len(test.htlcDescs))
-		for i, htlcDesc := range test.htlcDescs {
-			htlcs[i], err = tc.getHTLC(i, &htlcDesc)
-			if err != nil {
-				t.Fatal(err)
-			}
-		}
-		theHTLCView := htlcViewFromHTLCs(htlcs)
-
-		feePerKw := chainfee.SatPerKWeight(test.commitment.FeePerKw)
-		isOurs := true
-		height := test.commitment.CommitHeight
-
-		// Create unsigned commitment transaction.
-		view, err := channel.commitBuilder.createUnsignedCommitmentTx(
-			test.commitment.LocalBalance,
-			test.commitment.RemoteBalance, isOurs, feePerKw,
-			height, theHTLCView, keys,
+		require.Equal(
+			t,
+			test.htlcDescs[i].resolutionTxHex,
+			hex.EncodeToString(b.Bytes()),
 		)
-		if err != nil {
-			t.Errorf("Case %d: Failed to create new commitment tx: %v", i, err)
-			continue
-		}
-
-		commitmentView := &commitment{
-			ourBalance:   view.ourBalance,
-			theirBalance: view.theirBalance,
-			txn:          view.txn,
-			fee:          view.fee,
-			height:       height,
-			feePerKw:     feePerKw,
-			dustLimit:    tc.dustLimit,
-			isOurs:       isOurs,
-		}
-
-		// Initialize LocalCommit, which is used in getSignedCommitTx.
-		channelState.LocalCommitment = test.commitment
-		channelState.LocalCommitment.Htlcs = htlcs
-		channelState.LocalCommitment.CommitTx = commitmentView.txn
-
-		// This is the remote party's signature over the commitment
-		// transaction which is included in the commitment tx's witness
-		// data.
-		channelState.LocalCommitment.CommitSig, err = hex.DecodeString(test.remoteSigHex)
-		if err != nil {
-			t.Fatalf("Case %d: Failed to parse serialized signature: %v",
-				i, err)
-		}
-
-		commitTx, err := channel.getSignedCommitTx()
-		if err != nil {
-			t.Errorf("Case %d: Failed to sign commitment tx: %v", i, err)
-			continue
-		}
-
-		// Check that commitment transaction was created correctly.
-		if commitTx.WitnessHash() != *expectedCommitmentTx.WitnessHash() {
-			t.Errorf("Case %d: Generated unexpected commitment tx: "+
-				"expected %s, got %s", i, spew.Sdump(expectedCommitmentTx),
-				spew.Sdump(commitTx))
-			continue
-		}
-
-		// Generate second-level HTLC transactions for HTLCs in
-		// commitment tx.
-		htlcResolutions, err := extractHtlcResolutions(
-			chainfee.SatPerKWeight(test.commitment.FeePerKw), true,
-			signer, htlcs, keys, &channel.channelState.LocalChanCfg,
-			&channel.channelState.RemoteChanCfg, commitTx.TxHash(),
-			channel.channelState.ChanType,
-		)
-		if err != nil {
-			t.Errorf("Case %d: Failed to extract HTLC resolutions: %v", i, err)
-			continue
-		}
-
-		resolutionIdx := 0
-		for j, htlcDesc := range test.htlcDescs {
-			// TODO: Check HTLC success transactions; currently not implemented.
-			// resolutionIdx can be replaced by j when this is handled.
-			if htlcs[j].Incoming {
-				continue
-			}
-
-			expectedTx, err := txFromHex(htlcDesc.resolutionTxHex)
-			if err != nil {
-				t.Fatalf("Failed to parse serialized tx: %v", err)
-			}
-
-			htlcResolution := htlcResolutions.OutgoingHTLCs[resolutionIdx]
-			resolutionIdx++
-
-			actualTx := htlcResolution.SignedTimeoutTx
-			if actualTx == nil {
-				t.Errorf("Case %d: Failed to generate second level tx: "+
-					"output %d, %v", i, j,
-					htlcResolutions.OutgoingHTLCs[j])
-				continue
-			}
-
-			// Check that second-level HTLC transaction was created correctly.
-			if actualTx.WitnessHash() != *expectedTx.WitnessHash() {
-				t.Errorf("Case %d: Generated unexpected second level tx: "+
-					"output %d, expected %s, got %s", i, j,
-					expectedTx.WitnessHash(), actualTx.WitnessHash())
-				continue
-			}
-		}
 	}
 }
 
@@ -1023,8 +795,8 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 		channelType = channeldb.SingleFunderTweaklessBit
 	}
 
-	aliceCommitTweak := input.SingleTweakBytes(commitPoint, aliceKeyPub)
-	bobCommitTweak := input.SingleTweakBytes(commitPoint, bobKeyPub)
+	remoteCommitTweak := input.SingleTweakBytes(commitPoint, aliceKeyPub)
+	localCommitTweak := input.SingleTweakBytes(commitPoint, bobKeyPub)
 
 	aliceSelfOutputSigner := &input.MockSigner{
 		Privkeys: []*btcec.PrivateKey{aliceKeyPriv},
@@ -1096,7 +868,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 		KeyDesc: keychain.KeyDescriptor{
 			PubKey: aliceKeyPub,
 		},
-		SingleTweak: aliceCommitTweak,
+		SingleTweak: remoteCommitTweak,
 		SigHashes:   txscript.NewTxSigHashes(sweepTx),
 		Output: &wire.TxOut{
 			Value: int64(channelBalance),
@@ -1121,7 +893,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 		t.Fatalf("spend from delay output is invalid: %v", err)
 	}
 
-	bobSigner := &input.MockSigner{Privkeys: []*btcec.PrivateKey{bobKeyPriv}}
+	localSigner := &input.MockSigner{Privkeys: []*btcec.PrivateKey{bobKeyPriv}}
 
 	// Next, we'll test bob spending with the derived revocation key to
 	// simulate the scenario when Alice broadcasts this commitment
@@ -1139,7 +911,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 		HashType:   txscript.SigHashAll,
 		InputIndex: 0,
 	}
-	bobWitnessSpend, err := input.CommitSpendRevoke(bobSigner, signDesc,
+	bobWitnessSpend, err := input.CommitSpendRevoke(localSigner, signDesc,
 		sweepTx)
 	if err != nil {
 		t.Fatalf("unable to generate revocation witness: %v", err)
@@ -1185,10 +957,10 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 		InputIndex: 0,
 	}
 	if !tweakless {
-		signDesc.SingleTweak = bobCommitTweak
+		signDesc.SingleTweak = localCommitTweak
 	}
 	bobRegularSpend, err := input.CommitSpendNoDelay(
-		bobSigner, signDesc, sweepTx, tweakless,
+		localSigner, signDesc, sweepTx, tweakless,
 	)
 	if err != nil {
 		t.Fatalf("unable to create bob regular spend: %v", err)
@@ -1228,4 +1000,282 @@ func TestCommitmentSpendValidation(t *testing.T) {
 			testSpendValidation(t, tweakless)
 		})
 	}
+}
+
+type mockProducer struct {
+	secret chainhash.Hash
+}
+
+func (p *mockProducer) AtIndex(uint64) (*chainhash.Hash, error) {
+	return &p.secret, nil
+}
+
+func (p *mockProducer) Encode(w io.Writer) error {
+	_, err := w.Write(p.secret[:])
+	return err
+}
+
+// createTestChannelsForVectors creates two LightningChannel instances for the
+// test channel that is used to verify the test vectors.
+func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelType,
+	feeRate btcutil.Amount, remoteBalance, localBalance btcutil.Amount) (
+	*LightningChannel, *LightningChannel, func()) {
+
+	t := tc.t
+
+	prevOut := &wire.OutPoint{
+		Hash:  *tc.fundingTx.Hash(),
+		Index: 0,
+	}
+
+	fundingTxIn := wire.NewTxIn(prevOut, nil, nil)
+
+	// Generate random some keys that don't actually matter but need to be
+	// set.
+	var (
+		remoteDummy1, remoteDummy2 *btcec.PrivateKey
+		localDummy2, localDummy1   *btcec.PrivateKey
+	)
+	generateKeys := []**btcec.PrivateKey{
+		&remoteDummy1, &remoteDummy2, &localDummy1, &localDummy2,
+	}
+	for _, keyRef := range generateKeys {
+		privkey, err := btcec.NewPrivateKey(btcec.S256())
+		require.NoError(t, err)
+		*keyRef = privkey
+	}
+
+	// Define channel configurations.
+	remoteCfg := channeldb.ChannelConfig{
+		ChannelConstraints: channeldb.ChannelConstraints{
+			DustLimit: tc.dustLimit,
+			MaxPendingAmount: lnwire.NewMSatFromSatoshis(
+				tc.fundingAmount,
+			),
+			ChanReserve:      0,
+			MinHTLC:          0,
+			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
+			CsvDelay:         tc.localCsvDelay,
+		},
+		MultiSigKey: keychain.KeyDescriptor{
+			PubKey: tc.remoteFundingPrivkey.PubKey(),
+		},
+		PaymentBasePoint: keychain.KeyDescriptor{
+			PubKey: tc.remotePaymentBasepointSecret.PubKey(),
+		},
+		HtlcBasePoint: keychain.KeyDescriptor{
+			PubKey: tc.remotePaymentBasepointSecret.PubKey(),
+		},
+		DelayBasePoint: keychain.KeyDescriptor{
+			PubKey: remoteDummy1.PubKey(),
+		},
+		RevocationBasePoint: keychain.KeyDescriptor{
+			PubKey: tc.remoteRevocationBasepointSecret.PubKey(),
+		},
+	}
+	localCfg := channeldb.ChannelConfig{
+		ChannelConstraints: channeldb.ChannelConstraints{
+			DustLimit: tc.dustLimit,
+			MaxPendingAmount: lnwire.NewMSatFromSatoshis(
+				tc.fundingAmount,
+			),
+			ChanReserve:      0,
+			MinHTLC:          0,
+			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
+			CsvDelay:         tc.localCsvDelay,
+		},
+		MultiSigKey: keychain.KeyDescriptor{
+			PubKey: tc.localFundingPrivkey.PubKey(),
+		},
+		PaymentBasePoint: keychain.KeyDescriptor{
+			PubKey: tc.localPaymentBasepointSecret.PubKey(),
+		},
+		HtlcBasePoint: keychain.KeyDescriptor{
+			PubKey: tc.localPaymentBasepointSecret.PubKey(),
+		},
+		DelayBasePoint: keychain.KeyDescriptor{
+			PubKey: tc.localDelayedPaymentBasepointSecret.PubKey(),
+		},
+		RevocationBasePoint: keychain.KeyDescriptor{
+			PubKey: localDummy1.PubKey(),
+		},
+	}
+
+	// Create mock producers to force usage of the test vector commitment
+	// point.
+	remotePreimageProducer := &mockProducer{
+		secret: chainhash.Hash(tc.localPerCommitSecret),
+	}
+	remoteCommitPoint := input.ComputeCommitmentPoint(
+		tc.localPerCommitSecret[:],
+	)
+
+	localPreimageProducer := &mockProducer{
+		secret: chainhash.Hash(tc.localPerCommitSecret),
+	}
+	localCommitPoint := input.ComputeCommitmentPoint(
+		tc.localPerCommitSecret[:],
+	)
+
+	// Create temporary databases.
+	remotePath, err := ioutil.TempDir("", "remotedb")
+	require.NoError(t, err)
+
+	dbRemote, err := channeldb.Open(remotePath)
+	require.NoError(t, err)
+
+	localPath, err := ioutil.TempDir("", "localdb")
+	require.NoError(t, err)
+
+	dbLocal, err := channeldb.Open(localPath)
+	require.NoError(t, err)
+
+	// Create the initial commitment transactions for the channel.
+	feePerKw := chainfee.SatPerKWeight(feeRate)
+	commitWeight := int64(input.CommitWeight)
+	commitFee := feePerKw.FeeForWeight(commitWeight)
+
+	remoteCommitTx, localCommitTx, err := CreateCommitmentTxns(
+		remoteBalance, localBalance-commitFee,
+		&remoteCfg, &localCfg, remoteCommitPoint,
+		localCommitPoint, *fundingTxIn, chanType,
+	)
+	require.NoError(t, err)
+
+	// Set up the full channel state.
+
+	// Subtract one because extra sig exchange will take place during setup
+	// to get to the right test point.
+	var commitHeight = tc.commitHeight - 1
+
+	remoteCommit := channeldb.ChannelCommitment{
+		CommitHeight:  commitHeight,
+		LocalBalance:  lnwire.NewMSatFromSatoshis(remoteBalance),
+		RemoteBalance: lnwire.NewMSatFromSatoshis(localBalance - commitFee),
+		CommitFee:     commitFee,
+		FeePerKw:      btcutil.Amount(feePerKw),
+		CommitTx:      remoteCommitTx,
+		CommitSig:     testSigBytes,
+	}
+	localCommit := channeldb.ChannelCommitment{
+		CommitHeight:  commitHeight,
+		LocalBalance:  lnwire.NewMSatFromSatoshis(localBalance - commitFee),
+		RemoteBalance: lnwire.NewMSatFromSatoshis(remoteBalance),
+		CommitFee:     commitFee,
+		FeePerKw:      btcutil.Amount(feePerKw),
+		CommitTx:      localCommitTx,
+		CommitSig:     testSigBytes,
+	}
+
+	var chanIDBytes [8]byte
+	_, err = io.ReadFull(rand.Reader, chanIDBytes[:])
+	require.NoError(t, err)
+
+	shortChanID := lnwire.NewShortChanIDFromInt(
+		binary.BigEndian.Uint64(chanIDBytes[:]),
+	)
+
+	remoteChannelState := &channeldb.OpenChannel{
+		LocalChanCfg:            remoteCfg,
+		RemoteChanCfg:           localCfg,
+		IdentityPub:             remoteDummy2.PubKey(),
+		FundingOutpoint:         *prevOut,
+		ShortChannelID:          shortChanID,
+		ChanType:                chanType,
+		IsInitiator:             false,
+		Capacity:                tc.fundingAmount,
+		RemoteCurrentRevocation: localCommitPoint,
+		RevocationProducer:      remotePreimageProducer,
+		RevocationStore:         shachain.NewRevocationStore(),
+		LocalCommitment:         remoteCommit,
+		RemoteCommitment:        remoteCommit,
+		Db:                      dbRemote,
+		Packager:                channeldb.NewChannelPackager(shortChanID),
+		FundingTxn:              tc.fundingTx.MsgTx(),
+	}
+	localChannelState := &channeldb.OpenChannel{
+		LocalChanCfg:            localCfg,
+		RemoteChanCfg:           remoteCfg,
+		IdentityPub:             localDummy2.PubKey(),
+		FundingOutpoint:         *prevOut,
+		ShortChannelID:          shortChanID,
+		ChanType:                chanType,
+		IsInitiator:             true,
+		Capacity:                tc.fundingAmount,
+		RemoteCurrentRevocation: remoteCommitPoint,
+		RevocationProducer:      localPreimageProducer,
+		RevocationStore:         shachain.NewRevocationStore(),
+		LocalCommitment:         localCommit,
+		RemoteCommitment:        localCommit,
+		Db:                      dbLocal,
+		Packager:                channeldb.NewChannelPackager(shortChanID),
+		FundingTxn:              tc.fundingTx.MsgTx(),
+	}
+
+	// Create mock signers that can sign for the keys that are used.
+	localSigner := &input.MockSigner{Privkeys: []*btcec.PrivateKey{
+		tc.localPaymentBasepointSecret, tc.localDelayedPaymentBasepointSecret,
+		tc.localFundingPrivkey, localDummy1, localDummy2,
+	}}
+
+	remoteSigner := &input.MockSigner{Privkeys: []*btcec.PrivateKey{
+		tc.remoteFundingPrivkey, tc.remoteRevocationBasepointSecret,
+		tc.remotePaymentBasepointSecret, remoteDummy1, remoteDummy2,
+	}}
+
+	remotePool := NewSigPool(1, remoteSigner)
+	channelRemote, err := NewLightningChannel(
+		remoteSigner, remoteChannelState, remotePool,
+	)
+	require.NoError(t, err)
+	require.NoError(t, remotePool.Start())
+
+	localPool := NewSigPool(1, localSigner)
+	channelLocal, err := NewLightningChannel(
+		localSigner, localChannelState, localPool,
+	)
+	require.NoError(t, err)
+	require.NoError(t, localPool.Start())
+
+	// Create state hunt obfuscator for the commitment transaction.
+	obfuscator := createStateHintObfuscator(remoteChannelState)
+	err = SetStateNumHint(
+		remoteCommitTx, commitHeight, obfuscator,
+	)
+	require.NoError(t, err)
+
+	err = SetStateNumHint(
+		localCommitTx, commitHeight, obfuscator,
+	)
+	require.NoError(t, err)
+
+	// Initialize the database.
+	addr := &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 18556,
+	}
+	require.NoError(t, channelRemote.channelState.SyncPending(addr, 101))
+
+	addr = &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 18555,
+	}
+	require.NoError(t, channelLocal.channelState.SyncPending(addr, 101))
+
+	// Now that the channel are open, simulate the start of a session by
+	// having local and remote extend their revocation windows to each other.
+	err = initRevocationWindows(channelRemote, channelLocal)
+	require.NoError(t, err)
+
+	// Return a clean up function that stops goroutines and removes the test
+	// databases.
+	cleanUpFunc := func() {
+		os.RemoveAll(localPath)
+		os.RemoveAll(remotePath)
+
+		require.NoError(t, remotePool.Stop())
+		require.NoError(t, localPool.Stop())
+	}
+
+	return channelRemote, channelLocal, cleanUpFunc
 }

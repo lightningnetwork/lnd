@@ -179,3 +179,5 @@
 <time> [ERR] UTXN: error while graduating class at height=<height>: TxNotifier is exiting
 <time> [ERR] UTXN: Failed to sweep first-stage HTLC (CLTV-delayed) output <chan_point>
 <time> [ERR] UTXN: Notification chan closed, can't advance output <chan_point>
+<time> [ERR] RPCS: [/walletrpc.WalletKit/LabelTransaction]: cannot label transaction with empty label
+<time> [ERR] RPCS: [/walletrpc.WalletKit/LabelTransaction]: transaction already labelled

@@ -461,6 +461,17 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 	return nil
 }
 
+// LabelTransaction adds a label to a transaction. If the tx already
+// has a label, this call will fail unless the overwrite parameter
+// is set. Labels must not be empty, and they are limited to 500 chars.
+//
+// Note: it is part of the WalletController interface.
+func (b *BtcWallet) LabelTransaction(hash chainhash.Hash, label string,
+	overwrite bool) error {
+
+	return b.wallet.LabelTransaction(hash, label, overwrite)
+}
+
 // extractBalanceDelta extracts the net balance delta from the PoV of the
 // wallet given a TransactionSummary.
 func extractBalanceDelta(

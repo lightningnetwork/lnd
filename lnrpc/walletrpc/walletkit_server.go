@@ -94,6 +94,10 @@ var (
 			Entity: "onchain",
 			Action: "read",
 		}},
+		"/walletrpc.WalletKit/LabelTransaction": {{
+			Entity: "onchain",
+			Action: "write",
+		}},
 	}
 
 	// DefaultWalletKitMacFilename is the default name of the wallet kit
@@ -101,6 +105,10 @@ var (
 	// configuration file in this package.
 	DefaultWalletKitMacFilename = "walletkit.macaroon"
 )
+
+// ErrZeroLabel is returned when an attempt is made to label a transaction with
+// an empty label.
+var ErrZeroLabel = errors.New("cannot label transaction with empty label")
 
 // WalletKit is a sub-RPC server that exposes a tool kit which allows clients
 // to execute common wallet operations. This includes requesting new addresses,
@@ -634,4 +642,29 @@ func (w *WalletKit) ListSweeps(ctx context.Context,
 			TransactionDetails: lnrpc.RPCTransactionDetails(transactions),
 		},
 	}, nil
+}
+
+// LabelTransaction adds a label to a transaction.
+func (w *WalletKit) LabelTransaction(ctx context.Context,
+	req *LabelTransactionRequest) (*LabelTransactionResponse, error) {
+
+	// Check that the label provided in non-zero.
+	if len(req.Label) == 0 {
+		return nil, ErrZeroLabel
+	}
+
+	// Validate the length of the non-zero label. We do not need to use the
+	// label returned here, because the original is non-zero so will not
+	// be replaced.
+	if _, err := labels.ValidateAPI(req.Label); err != nil {
+		return nil, err
+	}
+
+	hash, err := chainhash.NewHash(req.Txid)
+	if err != nil {
+		return nil, err
+	}
+
+	err = w.cfg.Wallet.LabelTransaction(*hash, req.Label, req.Overwrite)
+	return &LabelTransactionResponse{}, err
 }

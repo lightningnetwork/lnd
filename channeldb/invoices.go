@@ -654,7 +654,7 @@ func (d *DB) LookupInvoice(ref InvoiceRef) (Invoice, error) {
 // reference. The payment address will be treated as the primary key, falling
 // back to the payment hash if nothing is found for the payment address. An
 // error is returned if the invoice is not found.
-func fetchInvoiceNumByRef(invoiceIndex, payAddrIndex kvdb.ReadBucket,
+func fetchInvoiceNumByRef(invoiceIndex, payAddrIndex kvdb.RBucket,
 	ref InvoiceRef) ([]byte, error) {
 
 	payHash := ref.PayHash()

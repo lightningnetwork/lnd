@@ -190,7 +190,7 @@ type rpcListeners func() ([]*ListenerWithSignal, func(), error)
 func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	defer func() {
 		ltndLog.Info("Shutdown complete")
-		err := RootLogWriter.Close()
+		err := cfg.LogWriter.Close()
 		if err != nil {
 			ltndLog.Errorf("Could not close log rotator: %v", err)
 		}

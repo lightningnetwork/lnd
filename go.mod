@@ -46,6 +46,7 @@ require (
 	github.com/miekg/dns v0.0.0-20171125082028-79bfde677fa8
 	github.com/prometheus/client_golang v0.9.3
 	github.com/rogpeppe/fastuuid v1.2.0 // indirect
+	github.com/stretchr/testify v1.3.0
 	github.com/tv42/zbase32 v0.0.0-20160707012821-501572607d02
 	github.com/urfave/cli v1.18.0
 	golang.org/x/crypto v0.0.0-20200510223506-06a226fb4e37

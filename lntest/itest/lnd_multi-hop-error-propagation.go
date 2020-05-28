@@ -5,6 +5,7 @@ package itest
 import (
 	"context"
 	"encoding/hex"
+	"math"
 	"strings"
 	"time"
 
@@ -281,7 +282,7 @@ out:
 		// We'll send in chunks of the max payment amount. If we're
 		// about to send too much, then we'll only send the amount
 		// remaining.
-		toSend := int64(lnd.MaxPaymentMSat.ToSatoshis())
+		toSend := int64(math.MaxUint32)
 		if toSend+amtSent > amtToSend {
 			toSend = amtToSend - amtSent
 		}

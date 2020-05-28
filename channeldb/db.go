@@ -29,7 +29,7 @@ const (
 var (
 	// ErrDryRunMigrationOK signals that a migration executed successful,
 	// but we intentionally did not commit the result.
-	ErrDryRunMigrationOK = errors.New("Dry run migration successful")
+	ErrDryRunMigrationOK = errors.New("dry run migration successful")
 )
 
 // migration is a function which takes a prior outdated version of the database

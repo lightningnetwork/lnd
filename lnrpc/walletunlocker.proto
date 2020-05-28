@@ -1,6 +1,5 @@
 syntax = "proto3";
 
-import "google/api/annotations.proto";
 import "rpc.proto";
 
 package lnrpc;
@@ -38,11 +37,7 @@ service WalletUnlocker {
     method should be used to commit the newly generated seed, and create the
     wallet.
     */
-    rpc GenSeed (GenSeedRequest) returns (GenSeedResponse) {
-        option (google.api.http) = {
-            get: "/v1/genseed"
-        };
-    }
+    rpc GenSeed (GenSeedRequest) returns (GenSeedResponse);
 
     /*
     InitWallet is used when lnd is starting up for the first time to fully
@@ -58,35 +53,19 @@ service WalletUnlocker {
     seed, then present it to the user. Once it has been verified by the user,
     the seed can be fed into this RPC in order to commit the new wallet.
     */
-    rpc InitWallet (InitWalletRequest) returns (InitWalletResponse) {
-        option (google.api.http) = {
-            post: "/v1/initwallet"
-            body: "*"
-        };
-    }
+    rpc InitWallet (InitWalletRequest) returns (InitWalletResponse);
 
     /* lncli: `unlock`
     UnlockWallet is used at startup of lnd to provide a password to unlock
     the wallet database.
     */
-    rpc UnlockWallet (UnlockWalletRequest) returns (UnlockWalletResponse) {
-        option (google.api.http) = {
-            post: "/v1/unlockwallet"
-            body: "*"
-        };
-    }
+    rpc UnlockWallet (UnlockWalletRequest) returns (UnlockWalletResponse);
 
     /* lncli: `changepassword`
     ChangePassword changes the password of the encrypted wallet. This will
     automatically unlock the wallet database if successful.
     */
-    rpc ChangePassword (ChangePasswordRequest)
-        returns (ChangePasswordResponse) {
-        option (google.api.http) = {
-            post: "/v1/changepassword"
-            body: "*"
-        };
-    }
+    rpc ChangePassword (ChangePasswordRequest) returns (ChangePasswordResponse);
 }
 
 message GenSeedRequest {

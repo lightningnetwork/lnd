@@ -8,6 +8,8 @@ import (
 	fmt "fmt"
 	proto "github.com/golang/protobuf/proto"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 	math "math"
 )
 
@@ -179,6 +181,14 @@ type WatchtowerServer interface {
 	//including its public key and URIs where the server is currently
 	//listening for clients.
 	GetInfo(context.Context, *GetInfoRequest) (*GetInfoResponse, error)
+}
+
+// UnimplementedWatchtowerServer can be embedded to have forward compatible implementations.
+type UnimplementedWatchtowerServer struct {
+}
+
+func (*UnimplementedWatchtowerServer) GetInfo(ctx context.Context, req *GetInfoRequest) (*GetInfoResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetInfo not implemented")
 }
 
 func RegisterWatchtowerServer(s *grpc.Server, srv WatchtowerServer) {

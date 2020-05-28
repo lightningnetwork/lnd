@@ -10,6 +10,8 @@ import (
 	lnrpc "github.com/lightningnetwork/lnd/lnrpc"
 	signrpc "github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 	math "math"
 )
 
@@ -1797,6 +1799,50 @@ type WalletKitServer interface {
 	//overwrite the exiting transaction label. Labels must not be empty, and
 	//cannot exceed 500 characters.
 	LabelTransaction(context.Context, *LabelTransactionRequest) (*LabelTransactionResponse, error)
+}
+
+// UnimplementedWalletKitServer can be embedded to have forward compatible implementations.
+type UnimplementedWalletKitServer struct {
+}
+
+func (*UnimplementedWalletKitServer) ListUnspent(ctx context.Context, req *ListUnspentRequest) (*ListUnspentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListUnspent not implemented")
+}
+func (*UnimplementedWalletKitServer) LeaseOutput(ctx context.Context, req *LeaseOutputRequest) (*LeaseOutputResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method LeaseOutput not implemented")
+}
+func (*UnimplementedWalletKitServer) ReleaseOutput(ctx context.Context, req *ReleaseOutputRequest) (*ReleaseOutputResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReleaseOutput not implemented")
+}
+func (*UnimplementedWalletKitServer) DeriveNextKey(ctx context.Context, req *KeyReq) (*signrpc.KeyDescriptor, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeriveNextKey not implemented")
+}
+func (*UnimplementedWalletKitServer) DeriveKey(ctx context.Context, req *signrpc.KeyLocator) (*signrpc.KeyDescriptor, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeriveKey not implemented")
+}
+func (*UnimplementedWalletKitServer) NextAddr(ctx context.Context, req *AddrRequest) (*AddrResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method NextAddr not implemented")
+}
+func (*UnimplementedWalletKitServer) PublishTransaction(ctx context.Context, req *Transaction) (*PublishResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PublishTransaction not implemented")
+}
+func (*UnimplementedWalletKitServer) SendOutputs(ctx context.Context, req *SendOutputsRequest) (*SendOutputsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SendOutputs not implemented")
+}
+func (*UnimplementedWalletKitServer) EstimateFee(ctx context.Context, req *EstimateFeeRequest) (*EstimateFeeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method EstimateFee not implemented")
+}
+func (*UnimplementedWalletKitServer) PendingSweeps(ctx context.Context, req *PendingSweepsRequest) (*PendingSweepsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PendingSweeps not implemented")
+}
+func (*UnimplementedWalletKitServer) BumpFee(ctx context.Context, req *BumpFeeRequest) (*BumpFeeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BumpFee not implemented")
+}
+func (*UnimplementedWalletKitServer) ListSweeps(ctx context.Context, req *ListSweepsRequest) (*ListSweepsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListSweeps not implemented")
+}
+func (*UnimplementedWalletKitServer) LabelTransaction(ctx context.Context, req *LabelTransactionRequest) (*LabelTransactionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method LabelTransaction not implemented")
 }
 
 func RegisterWalletKitServer(s *grpc.Server, srv WalletKitServer) {

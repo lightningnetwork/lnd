@@ -1,7 +1,5 @@
 syntax = "proto3";
 
-import "google/api/annotations.proto";
-
 package lnrpc;
 
 option go_package = "github.com/lightningnetwork/lnd/lnrpc";
@@ -31,42 +29,25 @@ service Lightning {
     confirmed unspent outputs and all unconfirmed unspent outputs under control
     of the wallet.
     */
-    rpc WalletBalance (WalletBalanceRequest) returns (WalletBalanceResponse) {
-        option (google.api.http) = {
-            get: "/v1/balance/blockchain"
-        };
-    }
+    rpc WalletBalance (WalletBalanceRequest) returns (WalletBalanceResponse);
 
     /* lncli: `channelbalance`
     ChannelBalance returns the total funds available across all open channels
     in satoshis.
     */
-    rpc ChannelBalance (ChannelBalanceRequest)
-        returns (ChannelBalanceResponse) {
-        option (google.api.http) = {
-            get: "/v1/balance/channels"
-        };
-    }
+    rpc ChannelBalance (ChannelBalanceRequest) returns (ChannelBalanceResponse);
 
     /* lncli: `listchaintxns`
     GetTransactions returns a list describing all the known transactions
     relevant to the wallet.
     */
-    rpc GetTransactions (GetTransactionsRequest) returns (TransactionDetails) {
-        option (google.api.http) = {
-            get: "/v1/transactions"
-        };
-    }
+    rpc GetTransactions (GetTransactionsRequest) returns (TransactionDetails);
 
     /* lncli: `estimatefee`
     EstimateFee asks the chain backend to estimate the fee rate and total fees
     for a transaction that pays to multiple specified outputs.
     */
-    rpc EstimateFee (EstimateFeeRequest) returns (EstimateFeeResponse) {
-        option (google.api.http) = {
-            get: "/v1/transactions/fee"
-        };
-    }
+    rpc EstimateFee (EstimateFeeRequest) returns (EstimateFeeResponse);
 
     /* lncli: `sendcoins`
     SendCoins executes a request to send coins to a particular address. Unlike
@@ -75,12 +56,7 @@ service Lightning {
     consult its fee model to determine a fee for the default confirmation
     target.
     */
-    rpc SendCoins (SendCoinsRequest) returns (SendCoinsResponse) {
-        option (google.api.http) = {
-            post: "/v1/transactions"
-            body: "*"
-        };
-    }
+    rpc SendCoins (SendCoinsRequest) returns (SendCoinsResponse);
 
     /* lncli: `listunspent`
     Deprecated, use walletrpc.ListUnspent instead.
@@ -88,11 +64,7 @@ service Lightning {
     ListUnspent returns a list of all utxos spendable by the wallet with a
     number of confirmations between the specified minimum and maximum.
     */
-    rpc ListUnspent (ListUnspentRequest) returns (ListUnspentResponse) {
-        option (google.api.http) = {
-            get: "/v1/utxos"
-        };
-    }
+    rpc ListUnspent (ListUnspentRequest) returns (ListUnspentResponse);
 
     /*
     SubscribeTransactions creates a uni-directional stream from the server to
@@ -113,23 +85,14 @@ service Lightning {
     /* lncli: `newaddress`
     NewAddress creates a new address under control of the local wallet.
     */
-    rpc NewAddress (NewAddressRequest) returns (NewAddressResponse) {
-        option (google.api.http) = {
-            get: "/v1/newaddress"
-        };
-    }
+    rpc NewAddress (NewAddressRequest) returns (NewAddressResponse);
 
     /* lncli: `signmessage`
     SignMessage signs a message with this node's private key. The returned
     signature string is `zbase32` encoded and pubkey recoverable, meaning that
     only the message digest and signature are needed for verification.
     */
-    rpc SignMessage (SignMessageRequest) returns (SignMessageResponse) {
-        option (google.api.http) = {
-            post: "/v1/signmessage"
-            body: "*"
-        };
-    }
+    rpc SignMessage (SignMessageRequest) returns (SignMessageResponse);
 
     /* lncli: `verifymessage`
     VerifyMessage verifies a signature over a msg. The signature must be
@@ -137,45 +100,26 @@ service Lightning {
     channel database. In addition to returning the validity of the signature,
     VerifyMessage also returns the recovered pubkey from the signature.
     */
-    rpc VerifyMessage (VerifyMessageRequest) returns (VerifyMessageResponse) {
-        option (google.api.http) = {
-            post: "/v1/verifymessage"
-            body: "*"
-        };
-    }
+    rpc VerifyMessage (VerifyMessageRequest) returns (VerifyMessageResponse);
 
     /* lncli: `connect`
     ConnectPeer attempts to establish a connection to a remote peer. This is at
     the networking level, and is used for communication between nodes. This is
     distinct from establishing a channel with a peer.
     */
-    rpc ConnectPeer (ConnectPeerRequest) returns (ConnectPeerResponse) {
-        option (google.api.http) = {
-            post: "/v1/peers"
-            body: "*"
-        };
-    }
+    rpc ConnectPeer (ConnectPeerRequest) returns (ConnectPeerResponse);
 
     /* lncli: `disconnect`
     DisconnectPeer attempts to disconnect one peer from another identified by a
     given pubKey. In the case that we currently have a pending or active channel
     with the target peer, then this action will be not be allowed.
     */
-    rpc DisconnectPeer (DisconnectPeerRequest)
-        returns (DisconnectPeerResponse) {
-        option (google.api.http) = {
-            delete: "/v1/peers/{pub_key}"
-        };
-    }
+    rpc DisconnectPeer (DisconnectPeerRequest) returns (DisconnectPeerResponse);
 
     /* lncli: `listpeers`
     ListPeers returns a verbose listing of all currently active peers.
     */
-    rpc ListPeers (ListPeersRequest) returns (ListPeersResponse) {
-        option (google.api.http) = {
-            get: "/v1/peers"
-        };
-    }
+    rpc ListPeers (ListPeersRequest) returns (ListPeersResponse);
 
     /*
     SubscribePeerEvents creates a uni-directional stream from the server to
@@ -189,11 +133,7 @@ service Lightning {
     it's identity pubkey, alias, the chains it is connected to, and information
     concerning the number of open+pending channels.
     */
-    rpc GetInfo (GetInfoRequest) returns (GetInfoResponse) {
-        option (google.api.http) = {
-            get: "/v1/getinfo"
-        };
-    }
+    rpc GetInfo (GetInfoRequest) returns (GetInfoResponse);
 
     // TODO(roasbeef): merge with below with bool?
     /* lncli: `pendingchannels`
@@ -203,21 +143,13 @@ service Lightning {
     process of closure, either initiated cooperatively or non-cooperatively.
     */
     rpc PendingChannels (PendingChannelsRequest)
-        returns (PendingChannelsResponse) {
-        option (google.api.http) = {
-            get: "/v1/channels/pending"
-        };
-    }
+        returns (PendingChannelsResponse);
 
     /* lncli: `listchannels`
     ListChannels returns a description of all the open channels that this node
     is a participant in.
     */
-    rpc ListChannels (ListChannelsRequest) returns (ListChannelsResponse) {
-        option (google.api.http) = {
-            get: "/v1/channels"
-        };
-    }
+    rpc ListChannels (ListChannelsRequest) returns (ListChannelsResponse);
 
     /*
     SubscribeChannelEvents creates a uni-directional stream from the server to
@@ -232,12 +164,7 @@ service Lightning {
     ClosedChannels returns a description of all the closed channels that
     this node was a participant in.
     */
-    rpc ClosedChannels (ClosedChannelsRequest)
-        returns (ClosedChannelsResponse) {
-        option (google.api.http) = {
-            get: "/v1/channels/closed"
-        };
-    }
+    rpc ClosedChannels (ClosedChannelsRequest) returns (ClosedChannelsResponse);
 
     /*
     OpenChannelSync is a synchronous version of the OpenChannel RPC call. This
@@ -245,12 +172,7 @@ service Lightning {
     other sync calls, all byte slices are intended to be populated as hex
     encoded strings.
     */
-    rpc OpenChannelSync (OpenChannelRequest) returns (ChannelPoint) {
-        option (google.api.http) = {
-            post: "/v1/channels"
-            body: "*"
-        };
-    }
+    rpc OpenChannelSync (OpenChannelRequest) returns (ChannelPoint);
 
     /* lncli: `openchannel`
     OpenChannel attempts to open a singly funded channel specified in the
@@ -295,11 +217,7 @@ service Lightning {
     closure transaction is confirmed, or a manual fee rate. If neither are
     specified, then a default lax, block confirmation target is used.
     */
-    rpc CloseChannel (CloseChannelRequest) returns (stream CloseStatusUpdate) {
-        option (google.api.http) = {
-            delete: "/v1/channels/{channel_point.funding_txid_str}/{channel_point.output_index}"
-        };
-    }
+    rpc CloseChannel (CloseChannelRequest) returns (stream CloseStatusUpdate);
 
     /* lncli: `abandonchannel`
     AbandonChannel removes all channel state from the database except for a
@@ -307,12 +225,7 @@ service Lightning {
     channels due to bugs fixed in newer versions of lnd. Only available
     when in debug builds of lnd.
     */
-    rpc AbandonChannel (AbandonChannelRequest)
-        returns (AbandonChannelResponse) {
-        option (google.api.http) = {
-            delete: "/v1/channels/abandon/{channel_point.funding_txid_str}/{channel_point.output_index}"
-        };
-    }
+    rpc AbandonChannel (AbandonChannelRequest) returns (AbandonChannelResponse);
 
     /* lncli: `sendpayment`
     Deprecated, use routerrpc.SendPaymentV2. SendPayment dispatches a
@@ -331,12 +244,7 @@ service Lightning {
     Additionally, this RPC expects the destination's public key and the payment
     hash (if any) to be encoded as hex strings.
     */
-    rpc SendPaymentSync (SendRequest) returns (SendResponse) {
-        option (google.api.http) = {
-            post: "/v1/channels/transactions"
-            body: "*"
-        };
-    }
+    rpc SendPaymentSync (SendRequest) returns (SendResponse);
 
     /* lncli: `sendtoroute`
     Deprecated, use routerrpc.SendToRouteV2. SendToRoute is a bi-directional
@@ -353,24 +261,14 @@ service Lightning {
     SendToRouteSync is a synchronous version of SendToRoute. It Will block
     until the payment either fails or succeeds.
     */
-    rpc SendToRouteSync (SendToRouteRequest) returns (SendResponse) {
-        option (google.api.http) = {
-            post: "/v1/channels/transactions/route"
-            body: "*"
-        };
-    }
+    rpc SendToRouteSync (SendToRouteRequest) returns (SendResponse);
 
     /* lncli: `addinvoice`
     AddInvoice attempts to add a new invoice to the invoice database. Any
     duplicated invoices are rejected, therefore all invoices *must* have a
     unique payment preimage.
     */
-    rpc AddInvoice (Invoice) returns (AddInvoiceResponse) {
-        option (google.api.http) = {
-            post: "/v1/invoices"
-            body: "*"
-        };
-    }
+    rpc AddInvoice (Invoice) returns (AddInvoiceResponse);
 
     /* lncli: `listinvoices`
     ListInvoices returns a list of all the invoices currently stored within the
@@ -381,22 +279,14 @@ service Lightning {
     next request. By default, the first 100 invoices created will be returned.
     Backwards pagination is also supported through the Reversed flag.
     */
-    rpc ListInvoices (ListInvoiceRequest) returns (ListInvoiceResponse) {
-        option (google.api.http) = {
-            get: "/v1/invoices"
-        };
-    }
+    rpc ListInvoices (ListInvoiceRequest) returns (ListInvoiceResponse);
 
     /* lncli: `lookupinvoice`
     LookupInvoice attempts to look up an invoice according to its payment hash.
     The passed payment hash *must* be exactly 32 bytes, if not, an error is
     returned.
     */
-    rpc LookupInvoice (PaymentHash) returns (Invoice) {
-        option (google.api.http) = {
-            get: "/v1/invoice/{r_hash_str}"
-        };
-    }
+    rpc LookupInvoice (PaymentHash) returns (Invoice);
 
     /*
     SubscribeInvoices returns a uni-directional stream (server -> client) for
@@ -409,41 +299,25 @@ service Lightning {
     of these fields can be set. If no fields are set, then we'll only send out
     the latest add/settle events.
     */
-    rpc SubscribeInvoices (InvoiceSubscription) returns (stream Invoice) {
-        option (google.api.http) = {
-            get: "/v1/invoices/subscribe"
-        };
-    }
+    rpc SubscribeInvoices (InvoiceSubscription) returns (stream Invoice);
 
     /* lncli: `decodepayreq`
     DecodePayReq takes an encoded payment request string and attempts to decode
     it, returning a full description of the conditions encoded within the
     payment request.
     */
-    rpc DecodePayReq (PayReqString) returns (PayReq) {
-        option (google.api.http) = {
-            get: "/v1/payreq/{pay_req}"
-        };
-    }
+    rpc DecodePayReq (PayReqString) returns (PayReq);
 
     /* lncli: `listpayments`
     ListPayments returns a list of all outgoing payments.
     */
-    rpc ListPayments (ListPaymentsRequest) returns (ListPaymentsResponse) {
-        option (google.api.http) = {
-            get: "/v1/payments"
-        };
-    };
+    rpc ListPayments (ListPaymentsRequest) returns (ListPaymentsResponse);
 
     /*
     DeleteAllPayments deletes all outgoing payments from DB.
     */
     rpc DeleteAllPayments (DeleteAllPaymentsRequest)
-        returns (DeleteAllPaymentsResponse) {
-        option (google.api.http) = {
-            delete: "/v1/payments"
-        };
-    };
+        returns (DeleteAllPaymentsResponse);
 
     /* lncli: `describegraph`
     DescribeGraph returns a description of the latest graph state from the
@@ -453,21 +327,13 @@ service Lightning {
     the node directional specific routing policy which includes: the time lock
     delta, fee information, etc.
     */
-    rpc DescribeGraph (ChannelGraphRequest) returns (ChannelGraph) {
-        option (google.api.http) = {
-            get: "/v1/graph"
-        };
-    }
+    rpc DescribeGraph (ChannelGraphRequest) returns (ChannelGraph);
 
     /* lncli: `getnodemetrics`
     GetNodeMetrics returns node metrics calculated from the graph. Currently
     the only supported metric is betweenness centrality of individual nodes.
     */
-    rpc GetNodeMetrics (NodeMetricsRequest) returns (NodeMetricsResponse) {
-        option (google.api.http) = {
-            get: "/v1/graph/nodemetrics"
-        };
-    }
+    rpc GetNodeMetrics (NodeMetricsRequest) returns (NodeMetricsResponse);
 
     /* lncli: `getchaninfo`
     GetChanInfo returns the latest authenticated network announcement for the
@@ -475,21 +341,13 @@ service Lightning {
     uniquely identifies the location of transaction's funding output within the
     blockchain.
     */
-    rpc GetChanInfo (ChanInfoRequest) returns (ChannelEdge) {
-        option (google.api.http) = {
-            get: "/v1/graph/edge/{chan_id}"
-        };
-    }
+    rpc GetChanInfo (ChanInfoRequest) returns (ChannelEdge);
 
     /* lncli: `getnodeinfo`
     GetNodeInfo returns the latest advertised, aggregated, and authenticated
     channel information for the specified node identified by its public key.
     */
-    rpc GetNodeInfo (NodeInfoRequest) returns (NodeInfo) {
-        option (google.api.http) = {
-            get: "/v1/graph/node/{pub_key}"
-        };
-    }
+    rpc GetNodeInfo (NodeInfoRequest) returns (NodeInfo);
 
     /* lncli: `queryroutes`
     QueryRoutes attempts to query the daemon's Channel Router for a possible
@@ -498,21 +356,13 @@ service Lightning {
     send an HTLC, also including the necessary information that should be
     present within the Sphinx packet encapsulated within the HTLC.
     */
-    rpc QueryRoutes (QueryRoutesRequest) returns (QueryRoutesResponse) {
-        option (google.api.http) = {
-            get: "/v1/graph/routes/{pub_key}/{amt}"
-        };
-    }
+    rpc QueryRoutes (QueryRoutesRequest) returns (QueryRoutesResponse);
 
     /* lncli: `getnetworkinfo`
     GetNetworkInfo returns some basic stats about the known channel graph from
     the point of view of the node.
     */
-    rpc GetNetworkInfo (NetworkInfoRequest) returns (NetworkInfo) {
-        option (google.api.http) = {
-            get: "/v1/graph/info"
-        };
-    }
+    rpc GetNetworkInfo (NetworkInfoRequest) returns (NetworkInfo);
 
     /* lncli: `stop`
     StopDaemon will send a shutdown request to the interrupt handler, triggering
@@ -543,23 +393,14 @@ service Lightning {
     FeeReport allows the caller to obtain a report detailing the current fee
     schedule enforced by the node globally for each channel.
     */
-    rpc FeeReport (FeeReportRequest) returns (FeeReportResponse) {
-        option (google.api.http) = {
-            get: "/v1/fees"
-        };
-    }
+    rpc FeeReport (FeeReportRequest) returns (FeeReportResponse);
 
     /* lncli: `updatechanpolicy`
     UpdateChannelPolicy allows the caller to update the fee schedule and
     channel policies for all channels globally, or a particular channel.
     */
     rpc UpdateChannelPolicy (PolicyUpdateRequest)
-        returns (PolicyUpdateResponse) {
-        option (google.api.http) = {
-            post: "/v1/chanpolicy"
-            body: "*"
-        };
-    }
+        returns (PolicyUpdateResponse);
 
     /* lncli: `fwdinghistory`
     ForwardingHistory allows the caller to query the htlcswitch for a record of
@@ -574,12 +415,7 @@ service Lightning {
     request to allow the caller to skip a series of records.
     */
     rpc ForwardingHistory (ForwardingHistoryRequest)
-        returns (ForwardingHistoryResponse) {
-        option (google.api.http) = {
-            post: "/v1/switch"
-            body: "*"
-        };
-    };
+        returns (ForwardingHistoryResponse);
 
     /* lncli: `exportchanbackup`
     ExportChannelBackup attempts to return an encrypted static channel backup
@@ -590,11 +426,7 @@ service Lightning {
     from the WalletUnlocker service.
     */
     rpc ExportChannelBackup (ExportChannelBackupRequest)
-        returns (ChannelBackup) {
-        option (google.api.http) = {
-            get: "/v1/channels/backup/{chan_point.funding_txid_str}/{chan_point.output_index}"
-        };
-    };
+        returns (ChannelBackup);
 
     /*
     ExportAllChannelBackups returns static channel backups for all existing
@@ -604,11 +436,7 @@ service Lightning {
     each channel.
     */
     rpc ExportAllChannelBackups (ChanBackupExportRequest)
-        returns (ChanBackupSnapshot) {
-        option (google.api.http) = {
-            get: "/v1/channels/backup"
-        };
-    };
+        returns (ChanBackupSnapshot);
 
     /*
     VerifyChanBackup allows a caller to verify the integrity of a channel backup
@@ -616,12 +444,7 @@ service Lightning {
     Specifying both will result in an error.
     */
     rpc VerifyChanBackup (ChanBackupSnapshot)
-        returns (VerifyChanBackupResponse) {
-        option (google.api.http) = {
-            post: "/v1/channels/backup/verify"
-            body: "*"
-        };
-    };
+        returns (VerifyChanBackupResponse);
 
     /* lncli: `restorechanbackup`
     RestoreChannelBackups accepts a set of singular channel backups, or a
@@ -630,12 +453,7 @@ service Lightning {
     new channel will be shown under listchannels, as well as pending channels.
     */
     rpc RestoreChannelBackups (RestoreChanBackupRequest)
-        returns (RestoreBackupResponse) {
-        option (google.api.http) = {
-            post: "/v1/channels/backup/restore"
-            body: "*"
-        };
-    };
+        returns (RestoreBackupResponse);
 
     /*
     SubscribeChannelBackups allows a client to sub-subscribe to the most up to
@@ -647,20 +465,14 @@ service Lightning {
     channel(s) removed.
     */
     rpc SubscribeChannelBackups (ChannelBackupSubscription)
-        returns (stream ChanBackupSnapshot) {
-    };
+        returns (stream ChanBackupSnapshot);
 
     /* lncli: `bakemacaroon`
     BakeMacaroon allows the creation of a new macaroon with custom read and
     write permissions. No first-party caveats are added since this can be done
     offline.
     */
-    rpc BakeMacaroon (BakeMacaroonRequest) returns (BakeMacaroonResponse) {
-        option (google.api.http) = {
-            post: "/v1/macaroon"
-            body: "*"
-        };
-    };
+    rpc BakeMacaroon (BakeMacaroonRequest) returns (BakeMacaroonResponse);
 }
 
 message Utxo {

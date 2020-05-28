@@ -8,6 +8,8 @@ import (
 	fmt "fmt"
 	proto "github.com/golang/protobuf/proto"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 	math "math"
 )
 
@@ -236,6 +238,14 @@ type VersionerServer interface {
 	//GetVersion returns the current version and build information of the running
 	//daemon.
 	GetVersion(context.Context, *VersionRequest) (*Version, error)
+}
+
+// UnimplementedVersionerServer can be embedded to have forward compatible implementations.
+type UnimplementedVersionerServer struct {
+}
+
+func (*UnimplementedVersionerServer) GetVersion(ctx context.Context, req *VersionRequest) (*Version, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetVersion not implemented")
 }
 
 func RegisterVersionerServer(s *grpc.Server, srv VersionerServer) {

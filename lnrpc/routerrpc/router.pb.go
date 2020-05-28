@@ -9,6 +9,8 @@ import (
 	proto "github.com/golang/protobuf/proto"
 	lnrpc "github.com/lightningnetwork/lnd/lnrpc"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 	math "math"
 )
 
@@ -2265,6 +2267,47 @@ type RouterServer interface {
 	//Deprecated, use TrackPaymentV2. TrackPayment returns an update stream for
 	//the payment identified by the payment hash.
 	TrackPayment(*TrackPaymentRequest, Router_TrackPaymentServer) error
+}
+
+// UnimplementedRouterServer can be embedded to have forward compatible implementations.
+type UnimplementedRouterServer struct {
+}
+
+func (*UnimplementedRouterServer) SendPaymentV2(req *SendPaymentRequest, srv Router_SendPaymentV2Server) error {
+	return status.Errorf(codes.Unimplemented, "method SendPaymentV2 not implemented")
+}
+func (*UnimplementedRouterServer) TrackPaymentV2(req *TrackPaymentRequest, srv Router_TrackPaymentV2Server) error {
+	return status.Errorf(codes.Unimplemented, "method TrackPaymentV2 not implemented")
+}
+func (*UnimplementedRouterServer) EstimateRouteFee(ctx context.Context, req *RouteFeeRequest) (*RouteFeeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method EstimateRouteFee not implemented")
+}
+func (*UnimplementedRouterServer) SendToRoute(ctx context.Context, req *SendToRouteRequest) (*SendToRouteResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SendToRoute not implemented")
+}
+func (*UnimplementedRouterServer) SendToRouteV2(ctx context.Context, req *SendToRouteRequest) (*lnrpc.HTLCAttempt, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SendToRouteV2 not implemented")
+}
+func (*UnimplementedRouterServer) ResetMissionControl(ctx context.Context, req *ResetMissionControlRequest) (*ResetMissionControlResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResetMissionControl not implemented")
+}
+func (*UnimplementedRouterServer) QueryMissionControl(ctx context.Context, req *QueryMissionControlRequest) (*QueryMissionControlResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method QueryMissionControl not implemented")
+}
+func (*UnimplementedRouterServer) QueryProbability(ctx context.Context, req *QueryProbabilityRequest) (*QueryProbabilityResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method QueryProbability not implemented")
+}
+func (*UnimplementedRouterServer) BuildRoute(ctx context.Context, req *BuildRouteRequest) (*BuildRouteResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BuildRoute not implemented")
+}
+func (*UnimplementedRouterServer) SubscribeHtlcEvents(req *SubscribeHtlcEventsRequest, srv Router_SubscribeHtlcEventsServer) error {
+	return status.Errorf(codes.Unimplemented, "method SubscribeHtlcEvents not implemented")
+}
+func (*UnimplementedRouterServer) SendPayment(req *SendPaymentRequest, srv Router_SendPaymentServer) error {
+	return status.Errorf(codes.Unimplemented, "method SendPayment not implemented")
+}
+func (*UnimplementedRouterServer) TrackPayment(req *TrackPaymentRequest, srv Router_TrackPaymentServer) error {
+	return status.Errorf(codes.Unimplemented, "method TrackPayment not implemented")
 }
 
 func RegisterRouterServer(s *grpc.Server, srv RouterServer) {

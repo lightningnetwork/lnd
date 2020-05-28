@@ -1,6 +1,5 @@
 syntax = "proto3";
 
-import "google/api/annotations.proto";
 import "rpc.proto";
 
 package invoicesrpc;

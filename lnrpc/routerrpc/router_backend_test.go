@@ -186,9 +186,8 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool) {
 	}
 
 	backend := &RouterBackend{
-		MaxPaymentMSat: lnwire.NewMSatFromSatoshis(1000000),
-		FindRoute:      findRoute,
-		SelfNode:       route.Vertex{1, 2, 3},
+		FindRoute: findRoute,
+		SelfNode:  route.Vertex{1, 2, 3},
 		FetchChannelCapacity: func(chanID uint64) (
 			btcutil.Amount, error) {
 

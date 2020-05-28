@@ -756,7 +756,6 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 		// primary chain.
 		cfg.registeredChains.RegisterPrimaryChain(litecoinChain)
 		MaxFundingAmount = maxLtcFundingAmount
-		MaxPaymentMSat = maxLtcPaymentMSat
 
 	case cfg.Bitcoin.Active:
 		// Multiple networks can't be selected simultaneously.  Count

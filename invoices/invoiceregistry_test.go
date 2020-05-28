@@ -10,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestSettleInvoice tests settling of an invoice and related notifications.
@@ -946,4 +947,37 @@ func TestInvoiceExpiryWithRegistry(t *testing.T) {
 			t.Fatalf("expected canceled invoice, got: %v", invoice.State)
 		}
 	}
+}
+
+// TestSubscribeAll tests the all-invoices subscription.
+func TestSubscribeAll(t *testing.T) {
+	defer timeout()()
+
+	ctx := newTestContext(t)
+	defer ctx.cleanup()
+
+	// Add two invoices.
+	hash1 := lntypes.Hash{1}
+	_, err := ctx.registry.AddInvoice(testInvoice, hash1)
+	require.NoError(t, err)
+
+	hash2 := lntypes.Hash{2}
+	testInvoice2 := testInvoice
+	testInvoice2.Terms.PaymentAddr = [32]byte{1}
+	_, err = ctx.registry.AddInvoice(testInvoice, hash2)
+	require.NoError(t, err)
+
+	// Cancel the second invoice.
+	require.NoError(t, ctx.registry.CancelInvoice(hash2))
+
+	// Subscribe to changes to invoices from the second invoice onwards.
+	allSubscriptions, err := ctx.registry.SubscribeNotifications(1, 0)
+	require.NoError(t, err)
+	defer allSubscriptions.Cancel()
+
+	// We expect a backlog delivery for the state of the second invoice.
+	// Because SubscribeNotifications doesn't report the Canceled state, we
+	// expect it to report Open.
+	newInvoice := <-allSubscriptions.NewInvoices
+	require.Equal(t, channeldb.ContractOpen, newInvoice.State)
 }

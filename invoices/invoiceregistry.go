@@ -420,6 +420,13 @@ func (i *InvoiceRegistry) deliverBacklogEvents(client *InvoiceSubscription) erro
 		// the loop reference causing is to point to the same item.
 		addEvent := addEvent
 
+		// Map the states that are unsupported in the all-invoices
+		// subscription to Open.
+		switch addEvent.State {
+		case channeldb.ContractAccepted, channeldb.ContractCanceled:
+			addEvent.State = channeldb.ContractOpen
+		}
+
 		select {
 		case client.ntfnQueue.ChanIn() <- &invoiceEvent{
 			invoice: &addEvent,

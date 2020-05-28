@@ -23,7 +23,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -1590,9 +1589,7 @@ func TestMissingFeatureDep(t *testing.T) {
 	joost := ctx.keyFromAlias("joost")
 
 	_, err := ctx.findPath(conner, 100)
-	if err != feature.NewErrMissingFeatureDep(
-		lnwire.TLVOnionPayloadOptional,
-	) {
+	if err != errMissingDependentFeature {
 		t.Fatalf("path shouldn't have been found: %v", err)
 	}
 
@@ -1667,9 +1664,8 @@ func TestUnknownRequiredFeatures(t *testing.T) {
 	// Conner's node in the graph has an unknown required feature (100).
 	// Pathfinding should fail since we check the destination's features for
 	// unknown required features before beginning pathfinding.
-	expErr := feature.NewErrUnknownRequired([]lnwire.FeatureBit{100})
 	_, err := ctx.findPath(conner, 100)
-	if !reflect.DeepEqual(err, expErr) {
+	if !reflect.DeepEqual(err, errUnknownRequiredFeature) {
 		t.Fatalf("path shouldn't have been found: %v", err)
 	}
 

@@ -27,9 +27,6 @@ import (
 // RouterBackend contains the backend implementation of the router rpc sub
 // server calls.
 type RouterBackend struct {
-	// MaxPaymentMSat is the largest payment permitted by the backend.
-	MaxPaymentMSat lnwire.MilliSatoshi
-
 	// SelfNode is the vertex of the node sending the payment.
 	SelfNode route.Vertex
 
@@ -142,10 +139,6 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	amt, err := lnrpc.UnmarshallAmt(in.Amt, in.AmtMsat)
 	if err != nil {
 		return nil, err
-	}
-	if amt > r.MaxPaymentMSat {
-		return nil, fmt.Errorf("payment of %v is too large, max payment "+
-			"allowed is %v", amt, r.MaxPaymentMSat.ToSatoshis())
 	}
 
 	// Unmarshall restrictions from request.
@@ -487,13 +480,6 @@ func (r *RouterBackend) UnmarshallRoute(rpcroute *lnrpc.Route) (
 		routeHop, err := r.UnmarshallHop(hop, prevNodePubKey)
 		if err != nil {
 			return nil, err
-		}
-
-		if routeHop.AmtToForward > r.MaxPaymentMSat {
-			return nil, fmt.Errorf("payment of %v is too large, "+
-				"max payment allowed is %v",
-				routeHop.AmtToForward,
-				r.MaxPaymentMSat.ToSatoshis())
 		}
 
 		hops[i] = routeHop

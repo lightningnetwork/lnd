@@ -185,3 +185,5 @@
 <time> [ERR] NTFN: unable to get hash from block with height 790
 <time> [ERR] CRTR: Payment with hash <hex> failed: timeout
 <time> [ERR] RPCS: [/routerrpc.Route<time> [INF] LTND: Listening on the p2p interface is disabled!
+<time> [ERR] FNDG: Unable to advance state(<chan_point>): failed adding to router graph: error sending channel announcement: gossiper is shutting down
+<time> [ERR] PEER: unable to close channel, ChannelID(<hex>) is unknown

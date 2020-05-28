@@ -37,6 +37,14 @@ const (
 	// errEmptyPaySession is returned when the empty payment session is
 	// queried for a route.
 	errEmptyPaySession
+
+	// errUnknownRequiredFeature is returned when the destination node
+	// requires an unknown feature.
+	errUnknownRequiredFeature
+
+	// errMissingDependentFeature is returned when the destination node
+	// misses a feature that a feature that we require depends on.
+	errMissingDependentFeature
 )
 
 var (
@@ -64,6 +72,12 @@ func (e noRouteError) Error() string {
 	case errInsufficientBalance:
 		return "insufficient local balance"
 
+	case errUnknownRequiredFeature:
+		return "unknown required feature"
+
+	case errMissingDependentFeature:
+		return "missing dependent feature"
+
 	default:
 		return "unknown no-route error"
 	}
@@ -76,7 +90,9 @@ func (e noRouteError) FailureReason() channeldb.FailureReason {
 		errNoTlvPayload,
 		errNoPaymentAddr,
 		errNoPathFound,
-		errEmptyPaySession:
+		errEmptyPaySession,
+		errUnknownRequiredFeature,
+		errMissingDependentFeature:
 
 		return channeldb.FailureReasonNoRoute
 

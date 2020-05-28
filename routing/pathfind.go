@@ -420,13 +420,15 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// required features.
 	err := feature.ValidateRequired(features)
 	if err != nil {
-		return nil, err
+		log.Warnf("Pathfinding destination node features: %v", err)
+		return nil, errUnknownRequiredFeature
 	}
 
 	// Ensure that all transitive dependencies are set.
 	err = feature.ValidateDeps(features)
 	if err != nil {
-		return nil, err
+		log.Warnf("Pathfinding destination node features: %v", err)
+		return nil, errMissingDependentFeature
 	}
 
 	// Now that we know the feature vector is well formed, we'll proceed in

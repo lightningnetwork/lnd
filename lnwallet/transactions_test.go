@@ -222,46 +222,8 @@ func newTestContext() (tc *testContext, err error) {
 		TxPosition:  0,
 	}
 
-	htlcData := []struct {
-		incoming bool
-		amount   lnwire.MilliSatoshi
-		expiry   uint32
-		preimage string
-	}{
-		{
-			incoming: true,
-			amount:   1000000,
-			expiry:   500,
-			preimage: "0000000000000000000000000000000000000000000000000000000000000000",
-		},
-		{
-			incoming: true,
-			amount:   2000000,
-			expiry:   501,
-			preimage: "0101010101010101010101010101010101010101010101010101010101010101",
-		},
-		{
-			incoming: false,
-			amount:   2000000,
-			expiry:   502,
-			preimage: "0202020202020202020202020202020202020202020202020202020202020202",
-		},
-		{
-			incoming: false,
-			amount:   3000000,
-			expiry:   503,
-			preimage: "0303030303030303030303030303030303030303030303030303030303030303",
-		},
-		{
-			incoming: true,
-			amount:   4000000,
-			expiry:   504,
-			preimage: "0404040404040404040404040404040404040404040404040404040404040404",
-		},
-	}
-
-	tc.htlcs = make([]channeldb.HTLC, len(htlcData))
-	for i, htlc := range htlcData {
+	tc.htlcs = make([]channeldb.HTLC, len(testHtlcs))
+	for i, htlc := range testHtlcs {
 		preimage, decodeErr := hex.DecodeString(htlc.preimage)
 		if decodeErr != nil {
 			err = fmt.Errorf("Failed to decode HTLC preimage: %v", decodeErr)
@@ -339,6 +301,44 @@ func (tc *testContext) extractFundingInput() (*Utxo, *wire.TxOut, error) {
 		PkScript: txout.PkScript,
 	}
 	return &block1Utxo, txout, nil
+}
+
+var testHtlcs = []struct {
+	incoming bool
+	amount   lnwire.MilliSatoshi
+	expiry   uint32
+	preimage string
+}{
+	{
+		incoming: true,
+		amount:   1000000,
+		expiry:   500,
+		preimage: "0000000000000000000000000000000000000000000000000000000000000000",
+	},
+	{
+		incoming: true,
+		amount:   2000000,
+		expiry:   501,
+		preimage: "0101010101010101010101010101010101010101010101010101010101010101",
+	},
+	{
+		incoming: false,
+		amount:   2000000,
+		expiry:   502,
+		preimage: "0202020202020202020202020202020202020202020202020202020202020202",
+	},
+	{
+		incoming: false,
+		amount:   3000000,
+		expiry:   503,
+		preimage: "0303030303030303030303030303030303030303030303030303030303030303",
+	},
+	{
+		incoming: true,
+		amount:   4000000,
+		expiry:   504,
+		preimage: "0404040404040404040404040404040404040404040404040404040404040404",
+	},
 }
 
 // testCases encode the raw test vectors specified in Appendix C of BOLT 03.

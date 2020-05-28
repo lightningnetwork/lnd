@@ -239,7 +239,7 @@ func Main(lisCfg ListenerCfg) error {
 	)
 	switch {
 	case err == channeldb.ErrDryRunMigrationOK:
-		ltndLog.Info("%v, exiting", err)
+		ltndLog.Infof("%v, exiting", err)
 		return nil
 
 	case err != nil:

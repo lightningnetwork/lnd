@@ -182,3 +182,6 @@
 <time> [ERR] UTXN: Notification chan closed, can't advance output <chan_point>
 <time> [ERR] RPCS: [/walletrpc.WalletKit/LabelTransaction]: cannot label transaction with empty label
 <time> [ERR] RPCS: [/walletrpc.WalletKit/LabelTransaction]: transaction already labelled
+<time> [ERR] NTFN: unable to get hash from block with height 790
+<time> [ERR] CRTR: Payment with hash <hex> failed: timeout
+<time> [ERR] RPCS: [/routerrpc.Route<time> [INF] LTND: Listening on the p2p interface is disabled!

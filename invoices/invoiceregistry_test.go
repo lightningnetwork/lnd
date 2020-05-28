@@ -28,7 +28,7 @@ func TestSettleInvoice(t *testing.T) {
 	}
 	defer subscription.Cancel()
 
-	if subscription.hash != testInvoicePaymentHash {
+	if subscription.invoiceRef.PayHash() != testInvoicePaymentHash {
 		t.Fatalf("expected subscription for provided hash")
 	}
 
@@ -240,7 +240,7 @@ func TestCancelInvoice(t *testing.T) {
 	}
 	defer subscription.Cancel()
 
-	if subscription.hash != testInvoicePaymentHash {
+	if subscription.invoiceRef.PayHash() != testInvoicePaymentHash {
 		t.Fatalf("expected subscription for provided hash")
 	}
 
@@ -366,7 +366,7 @@ func TestSettleHoldInvoice(t *testing.T) {
 	}
 	defer subscription.Cancel()
 
-	if subscription.hash != testInvoicePaymentHash {
+	if subscription.invoiceRef.PayHash() != testInvoicePaymentHash {
 		t.Fatalf("expected subscription for provided hash")
 	}
 

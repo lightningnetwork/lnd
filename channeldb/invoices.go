@@ -17,9 +17,9 @@ import (
 )
 
 var (
-	// UnknownPreimage is an all-zeroes preimage that indicates that the
+	// unknownPreimage is an all-zeroes preimage that indicates that the
 	// preimage for this invoice is not yet known.
-	UnknownPreimage lntypes.Preimage
+	unknownPreimage lntypes.Preimage
 
 	// invoiceBucket is the name of the bucket within the database that
 	// stores all data related to invoices no matter their final state.
@@ -150,6 +150,7 @@ const (
 	featuresType    tlv.Type = 11
 	invStateType    tlv.Type = 12
 	amtPaidType     tlv.Type = 13
+	hodlInvoiceType tlv.Type = 14
 )
 
 // InvoiceRef is a composite identifier for invoices. Invoices can be referenced
@@ -261,8 +262,8 @@ type ContractTerm struct {
 
 	// PaymentPreimage is the preimage which is to be revealed in the
 	// occasion that an HTLC paying to the hash of this preimage is
-	// extended.
-	PaymentPreimage lntypes.Preimage
+	// extended. Set to nil if the preimage isn't known yet.
+	PaymentPreimage *lntypes.Preimage
 
 	// Value is the expected amount of milli-satoshis to be paid to an HTLC
 	// which can be satisfied by the above preimage.
@@ -346,6 +347,10 @@ type Invoice struct {
 	// Htlcs records all htlcs that paid to this invoice. Some of these
 	// htlcs may have been marked as canceled.
 	Htlcs map[CircuitKey]*InvoiceHTLC
+
+	// HodlInvoice indicates whether the invoice should be held in the
+	// Accepted state or be settled right away.
+	HodlInvoice bool
 }
 
 // HtlcState defines the states an htlc paying to an invoice can be in.
@@ -439,14 +444,19 @@ type InvoiceStateUpdateDesc struct {
 	NewState ContractState
 
 	// Preimage must be set to the preimage when NewState is settled.
-	Preimage lntypes.Preimage
+	Preimage *lntypes.Preimage
 }
 
 // InvoiceUpdateCallback is a callback used in the db transaction to update the
 // invoice.
 type InvoiceUpdateCallback = func(invoice *Invoice) (*InvoiceUpdateDesc, error)
 
-func validateInvoice(i *Invoice) error {
+func validateInvoice(i *Invoice, paymentHash lntypes.Hash) error {
+	// Avoid conflicts with all-zeroes magic value in the database.
+	if paymentHash == unknownPreimage.Hash() {
+		return fmt.Errorf("cannot use hash of all-zeroes preimage")
+	}
+
 	if len(i.Memo) > MaxMemoSize {
 		return fmt.Errorf("max length a memo is %v, and invoice "+
 			"of length %v was provided", MaxMemoSize, len(i.Memo))
@@ -458,6 +468,10 @@ func validateInvoice(i *Invoice) error {
 	}
 	if i.Terms.Features == nil {
 		return errors.New("invoice must have a feature vector")
+	}
+
+	if i.Terms.PaymentPreimage == nil && !i.HodlInvoice {
+		return errors.New("non-hodl invoices must have a preimage")
 	}
 	return nil
 }
@@ -475,7 +489,7 @@ func (i *Invoice) IsPending() bool {
 func (d *DB) AddInvoice(newInvoice *Invoice, paymentHash lntypes.Hash) (
 	uint64, error) {
 
-	if err := validateInvoice(newInvoice); err != nil {
+	if err := validateInvoice(newInvoice, paymentHash); err != nil {
 		return 0, err
 	}
 
@@ -1131,13 +1145,24 @@ func serializeInvoice(w io.Writer, i *Invoice) error {
 	}
 	featureBytes := fb.Bytes()
 
-	preimage := [32]byte(i.Terms.PaymentPreimage)
+	preimage := [32]byte(unknownPreimage)
+	if i.Terms.PaymentPreimage != nil {
+		preimage = *i.Terms.PaymentPreimage
+		if preimage == unknownPreimage {
+			return errors.New("cannot use all-zeroes preimage")
+		}
+	}
 	value := uint64(i.Terms.Value)
 	cltvDelta := uint32(i.Terms.FinalCltvDelta)
 	expiry := uint64(i.Terms.Expiry)
 
 	amtPaid := uint64(i.AmtPaid)
 	state := uint8(i.State)
+
+	var hodlInvoice uint8
+	if i.HodlInvoice {
+		hodlInvoice = 1
+	}
 
 	tlvStream, err := tlv.NewStream(
 		// Memo and payreq.
@@ -1161,6 +1186,8 @@ func serializeInvoice(w io.Writer, i *Invoice) error {
 		// Invoice state.
 		tlv.MakePrimitiveRecord(invStateType, &state),
 		tlv.MakePrimitiveRecord(amtPaidType, &amtPaid),
+
+		tlv.MakePrimitiveRecord(hodlInvoiceType, &hodlInvoice),
 	)
 	if err != nil {
 		return err
@@ -1256,12 +1283,13 @@ func fetchInvoice(invoiceNum []byte, invoices kvdb.RBucket) (Invoice, error) {
 
 func deserializeInvoice(r io.Reader) (Invoice, error) {
 	var (
-		preimage  [32]byte
-		value     uint64
-		cltvDelta uint32
-		expiry    uint64
-		amtPaid   uint64
-		state     uint8
+		preimageBytes [32]byte
+		value         uint64
+		cltvDelta     uint32
+		expiry        uint64
+		amtPaid       uint64
+		state         uint8
+		hodlInvoice   uint8
 
 		creationDateBytes []byte
 		settleDateBytes   []byte
@@ -1281,7 +1309,7 @@ func deserializeInvoice(r io.Reader) (Invoice, error) {
 		tlv.MakePrimitiveRecord(settleIndexType, &i.SettleIndex),
 
 		// Terms.
-		tlv.MakePrimitiveRecord(preimageType, &preimage),
+		tlv.MakePrimitiveRecord(preimageType, &preimageBytes),
 		tlv.MakePrimitiveRecord(valueType, &value),
 		tlv.MakePrimitiveRecord(cltvDeltaType, &cltvDelta),
 		tlv.MakePrimitiveRecord(expiryType, &expiry),
@@ -1291,6 +1319,8 @@ func deserializeInvoice(r io.Reader) (Invoice, error) {
 		// Invoice state.
 		tlv.MakePrimitiveRecord(invStateType, &state),
 		tlv.MakePrimitiveRecord(amtPaidType, &amtPaid),
+
+		tlv.MakePrimitiveRecord(hodlInvoiceType, &hodlInvoice),
 	)
 	if err != nil {
 		return i, err
@@ -1307,12 +1337,20 @@ func deserializeInvoice(r io.Reader) (Invoice, error) {
 		return i, err
 	}
 
-	i.Terms.PaymentPreimage = lntypes.Preimage(preimage)
+	preimage := lntypes.Preimage(preimageBytes)
+	if preimage != unknownPreimage {
+		i.Terms.PaymentPreimage = &preimage
+	}
+
 	i.Terms.Value = lnwire.MilliSatoshi(value)
 	i.Terms.FinalCltvDelta = int32(cltvDelta)
 	i.Terms.Expiry = time.Duration(expiry)
 	i.AmtPaid = lnwire.MilliSatoshi(amtPaid)
 	i.State = ContractState(state)
+
+	if hodlInvoice != 0 {
+		i.HodlInvoice = true
+	}
 
 	err = i.CreationDate.UnmarshalBinary(creationDateBytes)
 	if err != nil {
@@ -1443,9 +1481,15 @@ func copyInvoice(src *Invoice) *Invoice {
 		Htlcs: make(
 			map[CircuitKey]*InvoiceHTLC, len(src.Htlcs),
 		),
+		HodlInvoice: src.HodlInvoice,
 	}
 
 	dest.Terms.Features = src.Terms.Features.Clone()
+
+	if src.Terms.PaymentPreimage != nil {
+		preimage := *src.Terms.PaymentPreimage
+		dest.Terms.PaymentPreimage = &preimage
+	}
 
 	for k, v := range src.Htlcs {
 		dest.Htlcs[k] = copyInvoiceHTLC(v)
@@ -1619,10 +1663,16 @@ func updateInvoiceState(invoice *Invoice, hash lntypes.Hash,
 	case ContractOpen:
 		if update.NewState == ContractSettled {
 			// Validate preimage.
-			if update.Preimage.Hash() != hash {
-				return ErrInvoicePreimageMismatch
+			switch {
+			case update.Preimage != nil:
+				if update.Preimage.Hash() != hash {
+					return ErrInvoicePreimageMismatch
+				}
+				invoice.Terms.PaymentPreimage = update.Preimage
+
+			case invoice.Terms.PaymentPreimage == nil:
+				return errors.New("unknown preimage")
 			}
-			invoice.Terms.PaymentPreimage = update.Preimage
 		}
 
 	// Once settled, we are in a terminal state.

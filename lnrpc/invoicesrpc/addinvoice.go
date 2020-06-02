@@ -88,6 +88,10 @@ type AddInvoiceData struct {
 	// Whether this invoice should include routing hints for private
 	// channels.
 	Private bool
+
+	// HodlInvoice signals that this invoice shouldn't be settled
+	// immediately upon receiving the payment.
+	HodlInvoice bool
 }
 
 // AddInvoice attempts to add a new invoice to the invoice database. Any
@@ -97,7 +101,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	invoice *AddInvoiceData) (*lntypes.Hash, *channeldb.Invoice, error) {
 
 	var (
-		paymentPreimage lntypes.Preimage
+		paymentPreimage *lntypes.Preimage
 		paymentHash     lntypes.Hash
 	)
 
@@ -108,26 +112,9 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		return nil, nil,
 			errors.New("preimage and hash both set")
 
-	// Prevent the unknown preimage magic value from being used for a
-	// regular invoice. This would cause the invoice the be handled as if it
-	// was a hold invoice.
-	case invoice.Preimage != nil &&
-		*invoice.Preimage == channeldb.UnknownPreimage:
-
-		return nil, nil,
-			fmt.Errorf("cannot use all zeroes as a preimage")
-
-	// Prevent the hash of the unknown preimage magic value to be used for a
-	// hold invoice. This would make it impossible to settle the invoice,
-	// because it would still be interpreted as not having a preimage.
-	case invoice.Hash != nil &&
-		*invoice.Hash == channeldb.UnknownPreimage.Hash():
-
-		return nil, nil,
-			fmt.Errorf("cannot use hash of all zeroes preimage")
-
 	// If no hash or preimage is given, generate a random preimage.
 	case invoice.Preimage == nil && invoice.Hash == nil:
+		paymentPreimage = &lntypes.Preimage{}
 		if _, err := rand.Read(paymentPreimage[:]); err != nil {
 			return nil, nil, err
 		}
@@ -136,12 +123,12 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	// If just a hash is given, we create a hold invoice by setting the
 	// preimage to unknown.
 	case invoice.Preimage == nil && invoice.Hash != nil:
-		paymentPreimage = channeldb.UnknownPreimage
 		paymentHash = *invoice.Hash
 
 	// A specific preimage was supplied. Use that for the invoice.
 	case invoice.Preimage != nil && invoice.Hash == nil:
-		paymentPreimage = *invoice.Preimage
+		preimage := *invoice.Preimage
+		paymentPreimage = &preimage
 		paymentHash = invoice.Preimage.Hash()
 	}
 
@@ -410,6 +397,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 			PaymentAddr:     paymentAddr,
 			Features:        invoiceFeatures,
 		},
+		HodlInvoice: invoice.HodlInvoice,
 	}
 
 	log.Tracef("[addinvoice] adding new invoice %v",

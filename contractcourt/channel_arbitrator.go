@@ -1457,8 +1457,7 @@ func (c *ChannelArbitrator) isPreimageAvailable(hash lntypes.Hash) (bool,
 		return false, err
 	}
 
-	preimageAvailable = invoice.Terms.PaymentPreimage !=
-		channeldb.UnknownPreimage
+	preimageAvailable = invoice.Terms.PaymentPreimage != nil
 
 	return preimageAvailable, nil
 }

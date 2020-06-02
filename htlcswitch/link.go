@@ -653,8 +653,6 @@ func (l *channelLink) syncChanStates() error {
 
 	var msgsToReSend []lnwire.Message
 
-	time.Sleep(time.Second * 5)
-
 	// Next, we'll wait indefinitely to receive the ChanSync message. The
 	// first message sent MUST be the ChanSync message.
 	select {

@@ -63,13 +63,6 @@ type testContext struct {
 	feePerKW      btcutil.Amount
 }
 
-// htlcDesc is a description used to construct each HTLC in each test case.
-type htlcDesc struct {
-	index           int
-	remoteSigHex    string
-	resolutionTxHex string
-}
-
 // getHTLC constructs an HTLC based on a configured HTLC with auxiliary data
 // such as the remote signature from the htlcDesc. The partially defined HTLCs
 // originate from the BOLT 03 spec and are contained in the test context.
@@ -339,6 +332,13 @@ var testHtlcs = []struct {
 		expiry:   504,
 		preimage: "0404040404040404040404040404040404040404040404040404040404040404",
 	},
+}
+
+// htlcDesc is a description used to construct each HTLC in each test case.
+type htlcDesc struct {
+	index           int
+	remoteSigHex    string
+	resolutionTxHex string
 }
 
 // testCases encode the raw test vectors specified in Appendix C of BOLT 03.

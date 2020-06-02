@@ -1,6 +1,7 @@
 package invoices
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"sync"
@@ -676,6 +677,16 @@ func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx) error {
 		return errors.New("final expiry too soon")
 	}
 
+	// Generate a random payment address for this invoice. The invoice
+	// databse is indexed by payment address, so we must ensure that the
+	// generated keysend invoices also have a unique identifier, otherwise
+	// insertion will fail on the second attempt to insert a keysend invoice
+	// or if this context is being replayed after a restart.
+	var payAddr [32]byte
+	if _, err := rand.Read(payAddr[:]); err != nil {
+		return err
+	}
+
 	// Create placeholder invoice.
 	invoice := &channeldb.Invoice{
 		CreationDate: i.cfg.Clock.Now(),
@@ -683,6 +694,7 @@ func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx) error {
 			FinalCltvDelta:  finalCltvDelta,
 			Value:           amt,
 			PaymentPreimage: &preimage,
+			PaymentAddr:     payAddr,
 			Features:        features,
 		},
 	}

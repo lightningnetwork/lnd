@@ -342,26 +342,29 @@ type htlcDesc struct {
 }
 
 type testCase struct {
+	name                    string
 	commitment              channeldb.ChannelCommitment
 	htlcDescs               []htlcDesc
 	expectedCommitmentTxHex string
 	remoteSigHex            string
 }
 
-// testCases encode the raw test vectors specified in Appendix C of BOLT 03.
+// testCases encode the raw test vectors specified in Appendix C1 of BOLT 03.
 var testCases = []testCase{
 	{
+		name: "simple commitment tx with no HTLCs",
 		commitment: channeldb.ChannelCommitment{
 			CommitHeight:  42,
 			LocalBalance:  7000000000,
 			RemoteBalance: 3000000000,
 			FeePerKw:      15000,
 		},
-		htlcDescs:               []htlcDesc{},
+		htlcDescs:               nil,
 		expectedCommitmentTxHex: "02000000000101bef67e4e2fb9ddeeb3461973cd4c62abb35050b1add772995b820b584a488489000000000038b02b8002c0c62d0000000000160014ccf1af2f2aabee14bb40fa3851ab2301de84311054a56a00000000002200204adb4e2f00643db396dd120d4e7dc17625f5f2c11a40d857accc862d6b7dd80e0400473044022051b75c73198c6deee1a875871c3961832909acd297c6b908d59e3319e5185a46022055c419379c5051a78d00dbbce11b5b664a0c22815fbcc6fcef6b1937c383693901483045022100f51d2e566a70ba740fc5d8c0f07b9b93d2ed741c3c0860c613173de7d39e7968022041376d520e9c0e1ad52248ddf4b22e12be8763007df977253ef45a4ca3bdb7c001475221023da092f6980e58d2c037173180e9a465476026ee50f96695963e8efe436f54eb21030e9f7b623d2ccc7c9bd44d66d5ce21ce504c0acf6385a132cec6d3c39fa711c152ae3e195220",
 		remoteSigHex:            "3045022100f51d2e566a70ba740fc5d8c0f07b9b93d2ed741c3c0860c613173de7d39e7968022041376d520e9c0e1ad52248ddf4b22e12be8763007df977253ef45a4ca3bdb7c0",
 	},
 	{
+		name: "commitment tx with seven outputs untrimmed (maximum feerate)",
 		commitment: channeldb.ChannelCommitment{
 			CommitHeight:  42,
 			LocalBalance:  6988000000,
@@ -399,6 +402,7 @@ var testCases = []testCase{
 		remoteSigHex:            "3045022100a5c01383d3ec646d97e40f44318d49def817fcd61a0ef18008a665b3e151785502203e648efddd5838981ef55ec954be69c4a652d021e6081a100d034de366815e9b",
 	},
 	{
+		name: "commitment tx with six outputs untrimmed (minimum feerate)",
 		commitment: channeldb.ChannelCommitment{
 			CommitHeight:  42,
 			LocalBalance:  6988000000,
@@ -431,6 +435,7 @@ var testCases = []testCase{
 		remoteSigHex:            "3044022072714e2fbb93cdd1c42eb0828b4f2eff143f717d8f26e79d6ada4f0dcb681bbe02200911be4e5161dd6ebe59ff1c58e1997c4aea804f81db6b698821db6093d7b057",
 	},
 	{
+		name: "commitment tx with six outputs untrimmed (maximum feerate)",
 		commitment: channeldb.ChannelCommitment{
 			CommitHeight:  42,
 			LocalBalance:  6988000000,
@@ -463,6 +468,7 @@ var testCases = []testCase{
 		remoteSigHex:            "3044022001d55e488b8b035b2dd29d50b65b530923a416d47f377284145bc8767b1b6a75022019bb53ddfe1cefaf156f924777eaaf8fdca1810695a7d0a247ad2afba8232eb4",
 	},
 	{
+		name: "commitment tx with five outputs untrimmed (minimum feerate)",
 		commitment: channeldb.ChannelCommitment{
 			CommitHeight:  42,
 			LocalBalance:  6988000000,
@@ -490,6 +496,7 @@ var testCases = []testCase{
 		remoteSigHex:            "3045022100f2377f7a67b7fc7f4e2c0c9e3a7de935c32417f5668eda31ea1db401b7dc53030220415fdbc8e91d0f735e70c21952342742e25249b0d062d43efbfc564499f37526",
 	},
 	{
+		name: "commitment tx with five outputs untrimmed (maximum feerate)",
 		commitment: channeldb.ChannelCommitment{
 			CommitHeight:  42,
 			LocalBalance:  6988000000,
@@ -517,6 +524,7 @@ var testCases = []testCase{
 		remoteSigHex:            "3045022100d33c4e541aa1d255d41ea9a3b443b3b822ad8f7f86862638aac1f69f8f760577022007e2a18e6931ce3d3a804b1c78eda1de17dbe1fb7a95488c9a4ec86203953348",
 	},
 	{
+		name: "commitment tx with four outputs untrimmed (minimum feerate)",
 		commitment: channeldb.ChannelCommitment{
 			CommitHeight:  42,
 			LocalBalance:  6988000000,
@@ -539,6 +547,7 @@ var testCases = []testCase{
 		remoteSigHex:            "304402205e2f76d4657fb732c0dfc820a18a7301e368f5799e06b7828007633741bda6df0220458009ae59d0c6246065c419359e05eb2a4b4ef4a1b310cc912db44eb7924298",
 	},
 	{
+		name: "commitment tx with four outputs untrimmed (maximum feerate)",
 		commitment: channeldb.ChannelCommitment{
 			CommitHeight:  42,
 			LocalBalance:  6988000000,
@@ -561,6 +570,7 @@ var testCases = []testCase{
 		remoteSigHex:            "3045022100c1a3b0b60ca092ed5080121f26a74a20cec6bdee3f8e47bae973fcdceb3eda5502207d467a9873c939bf3aa758014ae67295fedbca52412633f7e5b2670fc7c381c1",
 	},
 	{
+		name: "commitment tx with three outputs untrimmed (minimum feerate)",
 		commitment: channeldb.ChannelCommitment{
 			CommitHeight:  42,
 			LocalBalance:  6988000000,
@@ -578,6 +588,7 @@ var testCases = []testCase{
 		remoteSigHex:            "30450221008b7c191dd46893b67b628e618d2dc8e81169d38bade310181ab77d7c94c6675e02203b4dd131fd7c9deb299560983dcdc485545c98f989f7ae8180c28289f9e6bdb0",
 	},
 	{
+		name: "commitment tx with three outputs untrimmed (maximum feerate)",
 		commitment: channeldb.ChannelCommitment{
 			CommitHeight:  42,
 			LocalBalance:  6988000000,
@@ -595,6 +606,7 @@ var testCases = []testCase{
 		remoteSigHex:            "304402206d6cb93969d39177a09d5d45b583f34966195b77c7e585cf47ac5cce0c90cefb022031d71ae4e33a4e80df7f981d696fbdee517337806a3c7138b7491e2cbb077a0e",
 	},
 	{
+		name: "commitment tx with two outputs untrimmed (minimum feerate)",
 		commitment: channeldb.ChannelCommitment{
 			CommitHeight:  42,
 			LocalBalance:  6988000000,
@@ -606,6 +618,7 @@ var testCases = []testCase{
 		remoteSigHex:            "304402200769ba89c7330dfa4feba447b6e322305f12ac7dac70ec6ba997ed7c1b598d0802204fe8d337e7fee781f9b7b1a06e580b22f4f79d740059560191d7db53f8765552",
 	},
 	{
+		name: "commitment tx with two outputs untrimmed (maximum feerate)",
 		commitment: channeldb.ChannelCommitment{
 			CommitHeight:  42,
 			LocalBalance:  6988000000,
@@ -617,6 +630,7 @@ var testCases = []testCase{
 		remoteSigHex:            "3044022037f83ff00c8e5fb18ae1f918ffc24e54581775a20ff1ae719297ef066c71caa9022039c529cccd89ff6c5ed1db799614533844bd6d101da503761c45c713996e3bbd",
 	},
 	{
+		name: "commitment tx with one output untrimmed (minimum feerate)",
 		commitment: channeldb.ChannelCommitment{
 			CommitHeight:  42,
 			LocalBalance:  6988000000,

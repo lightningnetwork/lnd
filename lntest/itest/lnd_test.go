@@ -9050,6 +9050,29 @@ func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 
 	davePreSweepBalance := daveBalResp.ConfirmedBalance
 
+	// Wait until the backup has been accepted by the watchtower before
+	// shutting down Dave.
+	err = wait.NoError(func() error {
+		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+		defer cancel()
+		bkpStats, err := dave.WatchtowerClient.Stats(ctxt, &wtclientrpc.StatsRequest{})
+		if err != nil {
+			return err
+
+		}
+		if bkpStats == nil {
+			return errors.New("no active backup sessions")
+		}
+		if bkpStats.NumBackups == 0 {
+			return errors.New("no backups accepted")
+		}
+
+		return nil
+	}, defaultTimeout)
+	if err != nil {
+		t.Fatalf("unable to verify backup task completed: %v", err)
+	}
+
 	// Shutdown Dave to simulate going offline for an extended period of
 	// time. Once he's not watching, Carol will try to breach the channel.
 	restart, err := net.SuspendNode(dave)
@@ -9077,9 +9100,6 @@ func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 	if carolChan.NumUpdates != carolStateNumPreCopy {
 		t.Fatalf("db copy failed: %v", carolChan.NumUpdates)
 	}
-
-	// TODO(conner): add hook for backup completion
-	time.Sleep(3 * time.Second)
 
 	// Now force Carol to execute a *force* channel closure by unilaterally
 	// broadcasting his current channel state. This is actually the

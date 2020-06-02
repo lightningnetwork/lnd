@@ -13382,7 +13382,7 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 	numChans := 2
 	chanAmt := btcutil.Amount(1000000)
 	for i := 0; i < numChans; i++ {
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+		ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 		chanPoint := openChannelAndAssert(
 			ctxt, t, net, net.Alice, carol,
 			lntest.OpenChannelParams{
@@ -13516,7 +13516,7 @@ func testExportChannelBackup(net *lntest.NetworkHarness, t *harnessTest) {
 	numChans := 2
 	chanAmt := btcutil.Amount(1000000)
 	for i := 0; i < numChans; i++ {
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+		ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 		chanPoint := openChannelAndAssert(
 			ctxt, t, net, net.Alice, carol,
 			lntest.OpenChannelParams{

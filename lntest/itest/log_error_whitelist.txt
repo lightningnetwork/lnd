@@ -71,6 +71,7 @@
 <time> [ERR] FNDG: Unable to send node announcement: router shutting down
 <time> [ERR] HSWC: AmountBelowMinimum(amt=<amt>, update=(lnwire.ChannelUpdate) {
 <time> [ERR] HSWC: ChannelLink(<chan>): failing link: ChannelPoint(<chan_point>): received error from peer: chan_id=<hex>, err=invalid update with error: remote error
+<time> [ERR] HSWC: ChannelLink(<chan>): failing link: ChannelPoint(<chan_point>): received error from peer: chan_id=<hex>, err=sync error with error: remote error
 <time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to handle upstream settle HTLC: Invalid payment preimage <hex> for hash <hex> with error: invalid update
 <time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: ChannelPoint(<chan_point>) with CommitPoint(<hex>) had possible local commitment state data loss with error: unable to resume channel, recovery required
 <time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: possible remote commitment state data loss with error: sync error
@@ -106,6 +107,7 @@
 <time> [ERR] HSWC: Unable to forward resolution msg: unable to find target channel for HTLC fail: channel ID = <chan>, HTLC ID = <id>
 <time> [ERR] HSWC: unable to process onion packet: sphinx packet replay attempted
 <time> [ERR] HSWC: UnknownNextPeer
+<time> [ERR] HSWC: ChannelLink(<chan>): unable to mark channel data loss: channel not found
 <time> [ERR] LNWL: ChannelPoint(<chan_point>): sync failed with local data loss: remote believes our tail height is <height>, while we have <height>!
 <time> [ERR] LNWL: ChannelPoint(<chan_point>): sync failed: remote believes our tail height is <height>, while we have <height>!
 <time> [ERR] LNWL: ChannelPoint(<chan_point>): sync failed: remote's next commit height is <height>, while we believe it is <height>!

@@ -1,6 +1,8 @@
 package netann
 
 import (
+	"bytes"
+
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -30,7 +32,10 @@ func CreateChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 		ExtraOpaqueData: chanInfo.ExtraOpaqueData,
 	}
 
-	var err error
+	err := chanAnn.Features.Decode(bytes.NewReader(chanInfo.Features))
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	chanAnn.BitcoinSig1, err = lnwire.NewSigFromRawSignature(
 		chanProof.BitcoinSig1Bytes,
 	)

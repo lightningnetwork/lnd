@@ -216,7 +216,7 @@
     },
     "/v2/router/route/send": {
       "post": {
-        "summary": "SendToRouteV2 attempts to make a payment via the specified route. This method\ndiffers from SendPayment in that it allows users to specify a full route\nmanually. This can be used for things like rebalancing, and atomic swaps.",
+        "summary": "SendToRouteV2 attempts to make a payment via the specified route. This\nmethod differs from SendPayment in that it allows users to specify a full\nroute manually. This can be used for things like rebalancing, and atomic\nswaps.",
         "operationId": "SendToRouteV2",
         "responses": {
           "200": {

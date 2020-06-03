@@ -1940,9 +1940,10 @@ type RouterClient interface {
 	//SendToRouteV2 in that it doesn't return the full HTLC information.
 	SendToRoute(ctx context.Context, in *SendToRouteRequest, opts ...grpc.CallOption) (*SendToRouteResponse, error)
 	//
-	//SendToRouteV2 attempts to make a payment via the specified route. This method
-	//differs from SendPayment in that it allows users to specify a full route
-	//manually. This can be used for things like rebalancing, and atomic swaps.
+	//SendToRouteV2 attempts to make a payment via the specified route. This
+	//method differs from SendPayment in that it allows users to specify a full
+	//route manually. This can be used for things like rebalancing, and atomic
+	//swaps.
 	SendToRouteV2(ctx context.Context, in *SendToRouteRequest, opts ...grpc.CallOption) (*lnrpc.HTLCAttempt, error)
 	//
 	//ResetMissionControl clears all mission control state and starts with a clean
@@ -2233,9 +2234,10 @@ type RouterServer interface {
 	//SendToRouteV2 in that it doesn't return the full HTLC information.
 	SendToRoute(context.Context, *SendToRouteRequest) (*SendToRouteResponse, error)
 	//
-	//SendToRouteV2 attempts to make a payment via the specified route. This method
-	//differs from SendPayment in that it allows users to specify a full route
-	//manually. This can be used for things like rebalancing, and atomic swaps.
+	//SendToRouteV2 attempts to make a payment via the specified route. This
+	//method differs from SendPayment in that it allows users to specify a full
+	//route manually. This can be used for things like rebalancing, and atomic
+	//swaps.
 	SendToRouteV2(context.Context, *SendToRouteRequest) (*lnrpc.HTLCAttempt, error)
 	//
 	//ResetMissionControl clears all mission control state and starts with a clean

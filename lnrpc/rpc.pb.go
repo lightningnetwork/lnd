@@ -12367,6 +12367,11 @@ type LightningClient interface {
 	// lncli: `estimatefee`
 	//EstimateFee asks the chain backend to estimate the fee rate and total fees
 	//for a transaction that pays to multiple specified outputs.
+	//
+	//When using REST, the `AddrToAmount` map type can be set by appending
+	//`&AddrToAmount[<address>]=<amount_to_send>` to the URL. Unfortunately this
+	//map type doesn't appear in the REST API documentation because of a bug in
+	//the grpc-gateway library.
 	EstimateFee(ctx context.Context, in *EstimateFeeRequest, opts ...grpc.CallOption) (*EstimateFeeResponse, error)
 	// lncli: `sendcoins`
 	//SendCoins executes a request to send coins to a particular address. Unlike
@@ -12590,6 +12595,11 @@ type LightningClient interface {
 	//satoshis. The returned route contains the full details required to craft and
 	//send an HTLC, also including the necessary information that should be
 	//present within the Sphinx packet encapsulated within the HTLC.
+	//
+	//When using REST, the `dest_custom_records` map type can be set by appending
+	//`&dest_custom_records[<record_number>]=<record_data_base64_url_encoded>`
+	//to the URL. Unfortunately this map type doesn't appear in the REST API
+	//documentation because of a bug in the grpc-gateway library.
 	QueryRoutes(ctx context.Context, in *QueryRoutesRequest, opts ...grpc.CallOption) (*QueryRoutesResponse, error)
 	// lncli: `getnetworkinfo`
 	//GetNetworkInfo returns some basic stats about the known channel graph from
@@ -13448,6 +13458,11 @@ type LightningServer interface {
 	// lncli: `estimatefee`
 	//EstimateFee asks the chain backend to estimate the fee rate and total fees
 	//for a transaction that pays to multiple specified outputs.
+	//
+	//When using REST, the `AddrToAmount` map type can be set by appending
+	//`&AddrToAmount[<address>]=<amount_to_send>` to the URL. Unfortunately this
+	//map type doesn't appear in the REST API documentation because of a bug in
+	//the grpc-gateway library.
 	EstimateFee(context.Context, *EstimateFeeRequest) (*EstimateFeeResponse, error)
 	// lncli: `sendcoins`
 	//SendCoins executes a request to send coins to a particular address. Unlike
@@ -13671,6 +13686,11 @@ type LightningServer interface {
 	//satoshis. The returned route contains the full details required to craft and
 	//send an HTLC, also including the necessary information that should be
 	//present within the Sphinx packet encapsulated within the HTLC.
+	//
+	//When using REST, the `dest_custom_records` map type can be set by appending
+	//`&dest_custom_records[<record_number>]=<record_data_base64_url_encoded>`
+	//to the URL. Unfortunately this map type doesn't appear in the REST API
+	//documentation because of a bug in the grpc-gateway library.
 	QueryRoutes(context.Context, *QueryRoutesRequest) (*QueryRoutesResponse, error)
 	// lncli: `getnetworkinfo`
 	//GetNetworkInfo returns some basic stats about the known channel graph from

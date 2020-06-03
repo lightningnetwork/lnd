@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
@@ -54,6 +55,10 @@ type WalletInitMsg struct {
 	// ChanBackups a set of static channel backups that should be received
 	// after the wallet has been initialized.
 	ChanBackups ChannelsToRecover
+
+	// Done is a channel that should be closed once the wallet has been
+	// fully initialized.
+	Done chan struct{}
 }
 
 // WalletUnlockMsg is a message sent by the UnlockerService when a user wishes
@@ -81,6 +86,10 @@ type WalletUnlockMsg struct {
 	// ChanBackups a set of static channel backups that should be received
 	// after the wallet has been unlocked.
 	ChanBackups ChannelsToRecover
+
+	// Done is a channel that should be closed once the wallet has been
+	// fully unlocked.
+	Done chan struct{}
 }
 
 // UnlockerService implements the WalletUnlocker service used to provide lnd
@@ -100,11 +109,18 @@ type UnlockerService struct {
 	noFreelistSync bool
 	netParams      *chaincfg.Params
 	macaroonFiles  []string
+
+	quitChan <-chan struct{}
+
+	// This mutex is only used to guard concurrent access to the external
+	// RPC calls. This ensures that we don't allow multiple callers to
+	// init/unlock the wallet.
+	sync.Mutex
 }
 
 // New creates and returns a new UnlockerService.
 func New(chainDir string, params *chaincfg.Params, noFreelistSync bool,
-	macaroonFiles []string) *UnlockerService {
+	macaroonFiles []string, quitChan <-chan struct{}) *UnlockerService {
 
 	return &UnlockerService{
 		InitMsgs:      make(chan *WalletInitMsg, 1),
@@ -112,6 +128,7 @@ func New(chainDir string, params *chaincfg.Params, noFreelistSync bool,
 		chainDir:      chainDir,
 		netParams:     params,
 		macaroonFiles: macaroonFiles,
+		quitChan:      quitChan,
 	}
 }
 
@@ -242,6 +259,9 @@ func extractChanBackups(chanBackups *lnrpc.ChanBackupSnapshot) *ChannelsToRecove
 func (u *UnlockerService) InitWallet(ctx context.Context,
 	in *lnrpc.InitWalletRequest) (*lnrpc.InitWalletResponse, error) {
 
+	u.Lock()
+	defer u.Unlock()
+
 	// Make sure the password meets our constraints.
 	password := in.WalletPassword
 	if err := ValidatePassword(password); err != nil {
@@ -293,6 +313,7 @@ func (u *UnlockerService) InitWallet(ctx context.Context,
 		Passphrase:     password,
 		WalletSeed:     cipherSeed,
 		RecoveryWindow: uint32(recoveryWindow),
+		Done:           make(chan struct{}),
 	}
 
 	// Before we return the unlock payload, we'll check if we can extract
@@ -302,7 +323,19 @@ func (u *UnlockerService) InitWallet(ctx context.Context,
 		initMsg.ChanBackups = *chansToRestore
 	}
 
-	u.InitMsgs <- initMsg
+	select {
+	case u.InitMsgs <- initMsg:
+	case <-u.quitChan:
+		return nil, fmt.Errorf("server shutting down")
+	}
+
+	// As we want to avoid a possible deadlock scenario, we'll wait the
+	// daemon to respond that the wallet has been initialized.
+	select {
+	case <-initMsg.Done:
+	case <-u.quitChan:
+		return nil, fmt.Errorf("server shutting down")
+	}
 
 	return &lnrpc.InitWalletResponse{}, nil
 }
@@ -312,6 +345,9 @@ func (u *UnlockerService) InitWallet(ctx context.Context,
 // wallet found in the chain's wallet database directory.
 func (u *UnlockerService) UnlockWallet(ctx context.Context,
 	in *lnrpc.UnlockWalletRequest) (*lnrpc.UnlockWalletResponse, error) {
+
+	u.Lock()
+	defer u.Unlock()
 
 	password := in.WalletPassword
 	recoveryWindow := uint32(in.RecoveryWindow)
@@ -346,6 +382,7 @@ func (u *UnlockerService) UnlockWallet(ctx context.Context,
 		Passphrase:     password,
 		RecoveryWindow: recoveryWindow,
 		Wallet:         unlockedWallet,
+		Done:           make(chan struct{}),
 	}
 
 	// Before we return the unlock payload, we'll check if we can extract
@@ -358,7 +395,19 @@ func (u *UnlockerService) UnlockWallet(ctx context.Context,
 	// At this point we was able to open the existing wallet with the
 	// provided password. We send the password over the UnlockMsgs
 	// channel, such that it can be used by lnd to open the wallet.
-	u.UnlockMsgs <- walletUnlockMsg
+	select {
+	case u.UnlockMsgs <- walletUnlockMsg:
+	case <-u.quitChan:
+		return nil, fmt.Errorf("server shutting down")
+	}
+
+	// As we want to avoid a possible deadlock scenario, we'll wait the
+	// daemon to respond that the wallet has been unlocked.
+	select {
+	case <-walletUnlockMsg.Done:
+	case <-u.quitChan:
+		return nil, fmt.Errorf("server shutting down")
+	}
 
 	return &lnrpc.UnlockWalletResponse{}, nil
 }
@@ -368,6 +417,9 @@ func (u *UnlockerService) UnlockWallet(ctx context.Context,
 // successful.
 func (u *UnlockerService) ChangePassword(ctx context.Context,
 	in *lnrpc.ChangePasswordRequest) (*lnrpc.ChangePasswordResponse, error) {
+
+	u.Lock()
+	defer u.Unlock()
 
 	netDir := btcwallet.NetworkDir(u.chainDir, u.netParams)
 	loader := wallet.NewLoader(u.netParams, netDir, u.noFreelistSync, 0)
@@ -431,7 +483,23 @@ func (u *UnlockerService) ChangePassword(ctx context.Context,
 
 	// Finally, send the new password across the UnlockPasswords channel to
 	// automatically unlock the wallet.
-	u.UnlockMsgs <- &WalletUnlockMsg{Passphrase: in.NewPassword}
+	unlockMsg := &WalletUnlockMsg{
+		Passphrase: in.NewPassword,
+		Done:       make(chan struct{}),
+	}
+	select {
+	case u.UnlockMsgs <- unlockMsg:
+	case <-u.quitChan:
+		return nil, fmt.Errorf("server shutting down")
+	}
+
+	// As we want to avoid a possible deadlock scenario, we'll wait the
+	// daemon to respond that the wallet has been unlocked.
+	select {
+	case <-unlockMsg.Done:
+	case <-u.quitChan:
+		return nil, fmt.Errorf("server shutting down")
+	}
 
 	return &lnrpc.ChangePasswordResponse{}, nil
 }

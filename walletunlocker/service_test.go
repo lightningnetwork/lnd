@@ -77,7 +77,9 @@ func TestGenSeed(t *testing.T) {
 	}
 	defer os.RemoveAll(testDir)
 
-	service := walletunlocker.New(testDir, testNetParams, true, nil)
+	service := walletunlocker.New(
+		testDir, testNetParams, true, nil, make(chan struct{}),
+	)
 
 	// Now that the service has been created, we'll ask it to generate a
 	// new seed for us given a test passphrase.
@@ -118,7 +120,9 @@ func TestGenSeedGenerateEntropy(t *testing.T) {
 	defer func() {
 		os.RemoveAll(testDir)
 	}()
-	service := walletunlocker.New(testDir, testNetParams, true, nil)
+	service := walletunlocker.New(
+		testDir, testNetParams, true, nil, make(chan struct{}),
+	)
 
 	// Now that the service has been created, we'll ask it to generate a
 	// new seed for us given a test passphrase. Note that we don't actually
@@ -158,7 +162,9 @@ func TestGenSeedInvalidEntropy(t *testing.T) {
 	defer func() {
 		os.RemoveAll(testDir)
 	}()
-	service := walletunlocker.New(testDir, testNetParams, true, nil)
+	service := walletunlocker.New(
+		testDir, testNetParams, true, nil, make(chan struct{}),
+	)
 
 	// Now that the service has been created, we'll ask it to generate a
 	// new seed for us given a test passphrase. However, we'll be using an
@@ -196,7 +202,9 @@ func TestInitWallet(t *testing.T) {
 	}()
 
 	// Create new UnlockerService.
-	service := walletunlocker.New(testDir, testNetParams, true, nil)
+	service := walletunlocker.New(
+		testDir, testNetParams, true, nil, make(chan struct{}),
+	)
 
 	// Once we have the unlocker service created, we'll now instantiate a
 	// new cipher seed instance.
@@ -226,10 +234,18 @@ func TestInitWallet(t *testing.T) {
 		AezeedPassphrase:   pass,
 		RecoveryWindow:     int32(testRecoveryWindow),
 	}
-	_, err = service.InitWallet(ctx, req)
-	if err != nil {
-		t.Fatalf("InitWallet call failed: %v", err)
-	}
+
+	// As the InitWallet call will block until the operation has been
+	// completed, we'll execute it in a goroutine so we can check our
+	// assertions below.
+	go func() {
+		// TODO(rosabeef): other option is a goroutine in the calls
+		// themselves
+		_, err = service.InitWallet(ctx, req)
+		if err != nil {
+			t.Fatalf("InitWallet call failed: %v", err)
+		}
+	}()
 
 	// The same user passphrase, and also the plaintext cipher seed
 	// should be sent over and match exactly.
@@ -259,6 +275,10 @@ func TestInitWallet(t *testing.T) {
 				"got %v", testRecoveryWindow,
 				msg.RecoveryWindow)
 		}
+
+		// We'll now close the done channel to unlock the service to be
+		// able to accept another request.
+		close(msg.Done)
 
 	case <-time.After(3 * time.Second):
 		t.Fatalf("password not received")
@@ -297,7 +317,9 @@ func TestCreateWalletInvalidEntropy(t *testing.T) {
 	}()
 
 	// Create new UnlockerService.
-	service := walletunlocker.New(testDir, testNetParams, true, nil)
+	service := walletunlocker.New(
+		testDir, testNetParams, true, nil, make(chan struct{}),
+	)
 
 	// We'll attempt to init the wallet with an invalid cipher seed and
 	// passphrase.
@@ -330,7 +352,9 @@ func TestUnlockWallet(t *testing.T) {
 	}()
 
 	// Create new UnlockerService.
-	service := walletunlocker.New(testDir, testNetParams, true, nil)
+	service := walletunlocker.New(
+		testDir, testNetParams, true, nil, make(chan struct{}),
+	)
 
 	ctx := context.Background()
 	req := &lnrpc.UnlockWalletRequest{
@@ -356,11 +380,15 @@ func TestUnlockWallet(t *testing.T) {
 		t.Fatalf("expected call to UnlockWallet to fail")
 	}
 
-	// With the correct password, we should be able to unlock the wallet.
-	_, err = service.UnlockWallet(ctx, req)
-	if err != nil {
-		t.Fatalf("unable to unlock wallet: %v", err)
-	}
+	// We'll unlock the wallet in a new goroutine as UnlockWallet now
+	// blocks until the wallet has been fully unlocked.
+	go func() {
+		// With the correct password, we should be able to unlock the wallet.
+		_, err = service.UnlockWallet(ctx, req)
+		if err != nil {
+			t.Fatalf("unable to unlock wallet: %v", err)
+		}
+	}()
 
 	// Password and recovery window should be sent over the channel.
 	select {
@@ -374,6 +402,11 @@ func TestUnlockWallet(t *testing.T) {
 				"got %d", testRecoveryWindow,
 				unlockMsg.RecoveryWindow)
 		}
+
+		// We'll now close the done channel to unlock the service to be
+		// able to accept another request.
+		close(unlockMsg.Done)
+
 	case <-time.After(3 * time.Second):
 		t.Fatalf("password not received")
 	}
@@ -404,7 +437,9 @@ func TestChangeWalletPassword(t *testing.T) {
 	}
 
 	// Create a new UnlockerService with our temp files.
-	service := walletunlocker.New(testDir, testNetParams, true, tempFiles)
+	service := walletunlocker.New(
+		testDir, testNetParams, true, tempFiles, make(chan struct{}),
+	)
 
 	ctx := context.Background()
 	newPassword := []byte("hunter2???")
@@ -450,12 +485,32 @@ func TestChangeWalletPassword(t *testing.T) {
 		t.Fatal("expected call to ChangePassword to fail")
 	}
 
-	// When providing the correct wallet's current password and a new
-	// password that meets the length requirement, the password change
-	// should succeed.
-	_, err = service.ChangePassword(ctx, req)
-	if err != nil {
-		t.Fatalf("unable to change wallet's password: %v", err)
+	// We change the password in a new goroutine, as we expect this case to
+	// succeed.
+	go func() {
+		// When providing the correct wallet's current password and a
+		// new password that meets the length requirement, the password
+		// change should succeed.
+		_, err = service.ChangePassword(ctx, req)
+		if err != nil {
+			t.Fatalf("unable to change wallet's password: %v", err)
+		}
+	}()
+
+	// The new password should be sent over the channel.
+	select {
+	case unlockMsg := <-service.UnlockMsgs:
+		if !bytes.Equal(unlockMsg.Passphrase, newPassword) {
+			t.Fatalf("expected to receive password %x, got %x",
+				testPassword, unlockMsg.Passphrase)
+		}
+
+		// We'll now close the done channel to unlock the service to be
+		// able to accept another request.
+		close(unlockMsg.Done)
+
+	case <-time.After(3 * time.Second):
+		t.Fatalf("password not received")
 	}
 
 	// The files should no longer exist.
@@ -465,14 +520,4 @@ func TestChangeWalletPassword(t *testing.T) {
 		}
 	}
 
-	// The new password should be sent over the channel.
-	select {
-	case unlockMsg := <-service.UnlockMsgs:
-		if !bytes.Equal(unlockMsg.Passphrase, newPassword) {
-			t.Fatalf("expected to receive password %x, got %x",
-				testPassword, unlockMsg.Passphrase)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatalf("password not received")
-	}
 }

@@ -395,6 +395,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		params, err := waitForWalletPassword(
 			cfg, cfg.RESTListeners, serverOpts, restDialOpts,
 			restProxyDest, tlsCfg, walletUnlockerListeners,
+			shutdownChan,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to set up wallet password "+
@@ -966,7 +967,8 @@ type WalletUnlockParams struct {
 func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 	serverOpts []grpc.ServerOption, restDialOpts []grpc.DialOption,
 	restProxyDest string, tlsConf *tls.Config,
-	getListeners rpcListeners) (*WalletUnlockParams, error) {
+	getListeners rpcListeners,
+	shutdownChan <-chan struct{}) (*WalletUnlockParams, error) {
 
 	// Start a gRPC server listening for HTTP/2 connections, solely used
 	// for getting the encryption password from the client.
@@ -996,7 +998,7 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 	}
 	pwService := walletunlocker.New(
 		chainConfig.ChainDir, activeNetParams.Params, !cfg.SyncFreelist,
-		macaroonFiles,
+		macaroonFiles, shutdownChan,
 	)
 	lnrpc.RegisterWalletUnlockerServer(grpcServer, pwService)
 
@@ -1113,6 +1115,10 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 			return nil, err
 		}
 
+		// Now that the wallet has been initialized, we'll close the
+		// done channel so the call can unblock.
+		close(initMsg.Done)
+
 		return &WalletUnlockParams{
 			Password:       password,
 			Birthday:       birthday,
@@ -1124,6 +1130,13 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 	// The wallet has already been created in the past, and is simply being
 	// unlocked. So we'll just return these passphrases.
 	case unlockMsg := <-pwService.UnlockMsgs:
+
+		// Now that we have the parameters, we'll close the done
+		// channel to allow other operations for the unlocker service.
+		//
+		// TODO(roasbeef): push down further?
+		close(unlockMsg.Done)
+
 		return &WalletUnlockParams{
 			Password:       unlockMsg.Passphrase,
 			RecoveryWindow: unlockMsg.RecoveryWindow,

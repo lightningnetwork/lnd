@@ -251,7 +251,11 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		"minutes...")
 
 	startOpenTime := time.Now()
-	chanDbBackend, err := cfg.DB.GetBackend(
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	chanDbBackend, err := cfg.DB.GetBackend(ctx,
 		cfg.localDatabaseDir(), cfg.networkName(),
 	)
 	if err != nil {
@@ -283,10 +287,6 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	ltndLog.Infof("Database now open (time_to_open=%v)!", openTime)
 
 	// Only process macaroons if --no-macaroons isn't set.
-	ctx := context.Background()
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	tlsCfg, restCreds, restProxyDest, err := getTLSConfig(cfg)
 	if err != nil {
 		err := fmt.Errorf("unable to load TLS credentials: %v", err)

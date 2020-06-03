@@ -3,6 +3,8 @@
 package kvdb
 
 import (
+	"context"
+
 	"github.com/lightningnetwork/lnd/channeldb/kvdb/etcd"
 )
 
@@ -12,10 +14,13 @@ const TestBackend = EtcdBackendName
 
 // GetEtcdBackend returns an etcd backend configured according to the
 // passed etcdConfig.
-func GetEtcdBackend(prefix string, etcdConfig *EtcdConfig) (Backend, error) {
+func GetEtcdBackend(ctx context.Context, prefix string,
+	etcdConfig *EtcdConfig) (Backend, error) {
+
 	// Config translation is needed here in order to keep the
 	// etcd package fully independent from the rest of the source tree.
 	backendConfig := etcd.BackendConfig{
+		Ctx:                ctx,
 		Host:               etcdConfig.Host,
 		User:               etcdConfig.User,
 		Pass:               etcdConfig.Pass,

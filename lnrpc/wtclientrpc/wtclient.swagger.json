@@ -4,18 +4,253 @@
     "title": "wtclientrpc/wtclient.proto",
     "version": "version not set"
   },
-  "schemes": [
-    "http",
-    "https"
-  ],
   "consumes": [
     "application/json"
   ],
   "produces": [
     "application/json"
   ],
-  "paths": {},
+  "paths": {
+    "/v2/watchtower/client": {
+      "get": {
+        "summary": "ListTowers returns the list of watchtowers registered with the client.",
+        "operationId": "ListTowers",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/wtclientrpcListTowersResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "include_sessions",
+            "description": "Whether we should include sessions with the watchtower in the response.",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
+          }
+        ],
+        "tags": [
+          "WatchtowerClient"
+        ]
+      },
+      "post": {
+        "summary": "AddTower adds a new watchtower reachable at the given address and\nconsiders it for new sessions. If the watchtower already exists, then\nany new addresses included will be considered when dialing it for\nsession negotiations and backups.",
+        "operationId": "AddTower",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/wtclientrpcAddTowerResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/wtclientrpcAddTowerRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WatchtowerClient"
+        ]
+      }
+    },
+    "/v2/watchtower/client/info/{pubkey}": {
+      "get": {
+        "summary": "GetTowerInfo retrieves information for a registered watchtower.",
+        "operationId": "GetTowerInfo",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/wtclientrpcTower"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "pubkey",
+            "description": "The identifying public key of the watchtower to retrieve information for.",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "include_sessions",
+            "description": "Whether we should include sessions with the watchtower in the response.",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
+          }
+        ],
+        "tags": [
+          "WatchtowerClient"
+        ]
+      }
+    },
+    "/v2/watchtower/client/policy": {
+      "get": {
+        "summary": "Policy returns the active watchtower client policy configuration.",
+        "operationId": "Policy",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/wtclientrpcPolicyResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "tags": [
+          "WatchtowerClient"
+        ]
+      }
+    },
+    "/v2/watchtower/client/stats": {
+      "get": {
+        "summary": "Stats returns the in-memory statistics of the client since startup.",
+        "operationId": "Stats",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/wtclientrpcStatsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "tags": [
+          "WatchtowerClient"
+        ]
+      }
+    },
+    "/v2/watchtower/client/{pubkey}": {
+      "delete": {
+        "summary": "RemoveTower removes a watchtower from being considered for future session\nnegotiations and from being used for any subsequent backups until it's added\nagain. If an address is provided, then this RPC only serves as a way of\nremoving the address from the watchtower instead.",
+        "operationId": "RemoveTower",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/wtclientrpcRemoveTowerResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "pubkey",
+            "description": "The identifying public key of the watchtower to remove.",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "address",
+            "description": "If set, then the record for this address will be removed, indicating that is\nis stale. Otherwise, the watchtower will no longer be used for future\nsession negotiations and backups.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "WatchtowerClient"
+        ]
+      }
+    }
+  },
   "definitions": {
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "runtimeError": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "wtclientrpcAddTowerRequest": {
+      "type": "object",
+      "properties": {
+        "pubkey": {
+          "type": "string",
+          "format": "byte",
+          "description": "The identifying public key of the watchtower to add."
+        },
+        "address": {
+          "type": "string",
+          "description": "A network address the watchtower is reachable over."
+        }
+      }
+    },
     "wtclientrpcAddTowerResponse": {
       "type": "object"
     },

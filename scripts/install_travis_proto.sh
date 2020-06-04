@@ -5,9 +5,9 @@ set -ev
 
 # See README.md in lnrpc why we need these specific versions/commits.
 PROTOC_VERSION=3.4.0
-PROTOBUF_VERSION="b5d812f8a3706043e23a9cd5babf2e5423744d30"
-GENPROTO_VERSION="a8101f21cf983e773d0c1133ebc5424792003214"
-GRPC_GATEWAY_VERSION="v1.8.6"
+PROTOBUF_VERSION="v1.3.2"
+GENPROTO_VERSION="20e1ac93f88cf06d2b1defb90b9e9e126c7dfff6"
+GRPC_GATEWAY_VERSION="v1.14.3"
 
 # This script is specific to Travis CI so we only need to support linux x64.
 PROTOC_URL="https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip"
@@ -36,6 +36,7 @@ install_protobuf() {
     git clone https://github.com/golang/protobuf "$install_path"
   fi
   pushd "$install_path"
+  git reset --hard master && git checkout master && git pull
   git reset --hard $PROTOBUF_VERSION
   make
   popd
@@ -49,6 +50,7 @@ install_genproto() {
     git clone https://github.com/google/go-genproto "$install_path"
   fi
   pushd "$install_path"
+  git reset --hard master && git checkout master && git pull
   git reset --hard $GENPROTO_VERSION
   popd
 }
@@ -61,6 +63,7 @@ install_grpc_gateway() {
     git clone https://github.com/grpc-ecosystem/grpc-gateway "$install_path"
   fi
   pushd "$install_path"
+  git reset --hard master && git checkout master && git pull
   git reset --hard $GRPC_GATEWAY_VERSION
   GO111MODULE=on go install ./protoc-gen-grpc-gateway ./protoc-gen-swagger
   popd

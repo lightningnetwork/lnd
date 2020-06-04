@@ -8,6 +8,8 @@ import (
 	fmt "fmt"
 	proto "github.com/golang/protobuf/proto"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 	math "math"
 )
 
@@ -522,6 +524,23 @@ type AutopilotServer interface {
 	//SetScores attempts to set the scores used by the running autopilot agent,
 	//if the external scoring heuristic is enabled.
 	SetScores(context.Context, *SetScoresRequest) (*SetScoresResponse, error)
+}
+
+// UnimplementedAutopilotServer can be embedded to have forward compatible implementations.
+type UnimplementedAutopilotServer struct {
+}
+
+func (*UnimplementedAutopilotServer) Status(ctx context.Context, req *StatusRequest) (*StatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
+}
+func (*UnimplementedAutopilotServer) ModifyStatus(ctx context.Context, req *ModifyStatusRequest) (*ModifyStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ModifyStatus not implemented")
+}
+func (*UnimplementedAutopilotServer) QueryScores(ctx context.Context, req *QueryScoresRequest) (*QueryScoresResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method QueryScores not implemented")
+}
+func (*UnimplementedAutopilotServer) SetScores(ctx context.Context, req *SetScoresRequest) (*SetScoresResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetScores not implemented")
 }
 
 func RegisterAutopilotServer(s *grpc.Server, srv AutopilotServer) {

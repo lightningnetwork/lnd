@@ -4,18 +4,217 @@
     "title": "signrpc/signer.proto",
     "version": "version not set"
   },
-  "schemes": [
-    "http",
-    "https"
-  ],
   "consumes": [
     "application/json"
   ],
   "produces": [
     "application/json"
   ],
-  "paths": {},
+  "paths": {
+    "/v2/signer/inputscript": {
+      "post": {
+        "summary": "ComputeInputScript generates a complete InputIndex for the passed\ntransaction with the signature as defined within the passed SignDescriptor.\nThis method should be capable of generating the proper input script for\nboth regular p2wkh output and p2wkh outputs nested within a regular p2sh\noutput.",
+        "description": "Note that when using this method to sign inputs belonging to the wallet,\nthe only items of the SignDescriptor that need to be populated are pkScript\nin the TxOut field, the value in that same field, and finally the input\nindex.",
+        "operationId": "ComputeInputScript",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/signrpcInputScriptResp"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/signrpcSignReq"
+            }
+          }
+        ],
+        "tags": [
+          "Signer"
+        ]
+      }
+    },
+    "/v2/signer/sharedkey": {
+      "post": {
+        "summary": "DeriveSharedKey returns a shared secret key by performing Diffie-Hellman key\nderivation between the ephemeral public key in the request and the node's\nkey specified in the key_loc parameter (or the node's identity private key\nif no key locator is specified):\nP_shared = privKeyNode * ephemeralPubkey\nThe resulting shared public key is serialized in the compressed format and\nhashed with sha256, resulting in the final key length of 256bit.",
+        "operationId": "DeriveSharedKey",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/signrpcSharedKeyResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/signrpcSharedKeyRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Signer"
+        ]
+      }
+    },
+    "/v2/signer/signmessage": {
+      "post": {
+        "summary": "SignMessage signs a message with the key specified in the key locator. The\nreturned signature is fixed-size LN wire format encoded.",
+        "description": "The main difference to SignMessage in the main RPC is that a specific key is\nused to sign the message instead of the node identity private key.",
+        "operationId": "SignMessage",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/signrpcSignMessageResp"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/signrpcSignMessageReq"
+            }
+          }
+        ],
+        "tags": [
+          "Signer"
+        ]
+      }
+    },
+    "/v2/signer/signraw": {
+      "post": {
+        "summary": "SignOutputRaw is a method that can be used to generated a signature for a\nset of inputs/outputs to a transaction. Each request specifies details\nconcerning how the outputs should be signed, which keys they should be\nsigned with, and also any optional tweaks. The return value is a fixed\n64-byte signature (the same format as we use on the wire in Lightning).",
+        "description": "If we are  unable to sign using the specified keys, then an error will be\nreturned.",
+        "operationId": "SignOutputRaw",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/signrpcSignResp"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/signrpcSignReq"
+            }
+          }
+        ],
+        "tags": [
+          "Signer"
+        ]
+      }
+    },
+    "/v2/signer/verifymessage": {
+      "post": {
+        "summary": "VerifyMessage verifies a signature over a message using the public key\nprovided. The signature must be fixed-size LN wire format encoded.",
+        "description": "The main difference to VerifyMessage in the main RPC is that the public key\nused to sign the message does not have to be a node known to the network.",
+        "operationId": "VerifyMessage",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/signrpcVerifyMessageResp"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/signrpcVerifyMessageReq"
+            }
+          }
+        ],
+        "tags": [
+          "Signer"
+        ]
+      }
+    }
+  },
   "definitions": {
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "runtimeError": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
     "signrpcInputScript": {
       "type": "object",
       "properties": {
@@ -75,6 +274,20 @@
         }
       }
     },
+    "signrpcSharedKeyRequest": {
+      "type": "object",
+      "properties": {
+        "ephemeral_pubkey": {
+          "type": "string",
+          "format": "byte",
+          "description": "The ephemeral public key to use for the DH key derivation."
+        },
+        "key_loc": {
+          "$ref": "#/definitions/signrpcKeyLocator",
+          "description": "The optional key locator of the local key that should be used. If this\nparameter is not set then the node's identity private key will be used."
+        }
+      }
+    },
     "signrpcSharedKeyResponse": {
       "type": "object",
       "properties": {
@@ -124,6 +337,20 @@
         }
       }
     },
+    "signrpcSignMessageReq": {
+      "type": "object",
+      "properties": {
+        "msg": {
+          "type": "string",
+          "format": "byte",
+          "description": "The message to be signed."
+        },
+        "key_loc": {
+          "$ref": "#/definitions/signrpcKeyLocator",
+          "description": "The key locator that identifies which key to use for signing."
+        }
+      }
+    },
     "signrpcSignMessageResp": {
       "type": "object",
       "properties": {
@@ -131,6 +358,23 @@
           "type": "string",
           "format": "byte",
           "description": "The signature for the given message in the fixed-size LN wire format."
+        }
+      }
+    },
+    "signrpcSignReq": {
+      "type": "object",
+      "properties": {
+        "raw_tx_bytes": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw bytes of the transaction to be signed."
+        },
+        "sign_descs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/signrpcSignDescriptor"
+          },
+          "description": "A set of sign descriptors, for each input to be signed."
         }
       }
     },
@@ -159,6 +403,26 @@
           "type": "string",
           "format": "byte",
           "description": "The script of the output being spent."
+        }
+      }
+    },
+    "signrpcVerifyMessageReq": {
+      "type": "object",
+      "properties": {
+        "msg": {
+          "type": "string",
+          "format": "byte",
+          "description": "The message over which the signature is to be verified."
+        },
+        "signature": {
+          "type": "string",
+          "format": "byte",
+          "description": "The fixed-size LN wire encoded signature to be verified over the given\nmessage."
+        },
+        "pubkey": {
+          "type": "string",
+          "format": "byte",
+          "description": "The public key the signature has to be valid for."
         }
       }
     },

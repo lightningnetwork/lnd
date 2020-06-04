@@ -83,8 +83,10 @@ service Lightning {
     }
 
     /* lncli: `listunspent`
+    Deprecated, use walletrpc.ListUnspent instead.
+
     ListUnspent returns a list of all utxos spendable by the wallet with a
-        number of confirmations between the specified minimum and maximum.
+    number of confirmations between the specified minimum and maximum.
     */
     rpc ListUnspent (ListUnspentRequest) returns (ListUnspentResponse) {
         option (google.api.http) = {

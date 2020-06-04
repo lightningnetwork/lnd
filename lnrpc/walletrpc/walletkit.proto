@@ -11,6 +11,28 @@ option go_package = "github.com/lightningnetwork/lnd/lnrpc/walletrpc";
 // daemon's wallet.
 service WalletKit {
     /*
+    ListUnspent returns a list of all utxos spendable by the wallet with a
+    number of confirmations between the specified minimum and maximum.
+    */
+    rpc ListUnspent (ListUnspentRequest) returns (ListUnspentResponse);
+
+    /*
+    LeaseOutput locks an output to the given ID, preventing it from being
+    available for any future coin selection attempts. The absolute time of the
+    lock's expiration is returned. The expiration of the lock can be extended by
+    successive invocations of this RPC. Outputs can be unlocked before their
+    expiration through `ReleaseOutput`.
+    */
+    rpc LeaseOutput (LeaseOutputRequest) returns (LeaseOutputResponse);
+
+    /*
+    ReleaseOutput unlocks an output, allowing it to be available for coin
+    selection if it remains unspent. The ID should match the one used to
+    originally lock the output.
+    */
+    rpc ReleaseOutput (ReleaseOutputRequest) returns (ReleaseOutputResponse);
+
+    /*
     DeriveNextKey attempts to derive the *next* key within the key family
     (account in BIP43) specified. This method should return the next external
     child within this branch.
@@ -106,6 +128,48 @@ service WalletKit {
     */
     rpc LabelTransaction (LabelTransactionRequest)
         returns (LabelTransactionResponse);
+}
+
+message ListUnspentRequest {
+    // The minimum number of confirmations to be included.
+    int32 min_confs = 1;
+
+    // The maximum number of confirmations to be included.
+    int32 max_confs = 2;
+}
+
+message ListUnspentResponse {
+    // A list of utxos satisfying the specified number of confirmations.
+    repeated lnrpc.Utxo utxos = 1;
+}
+
+message LeaseOutputRequest {
+    /*
+    An ID of 32 random bytes that must be unique for each distinct application
+    using this RPC which will be used to bound the output lease to.
+    */
+    bytes id = 1;
+
+    // The identifying outpoint of the output being leased.
+    lnrpc.OutPoint outpoint = 2;
+}
+
+message LeaseOutputResponse {
+    /*
+    The absolute expiration of the output lease represented as a unix timestamp.
+    */
+    uint64 expiration = 1;
+}
+
+message ReleaseOutputRequest {
+    // The unique ID that was used to lock the output.
+    bytes id = 1;
+
+    // The identifying outpoint of the output being released.
+    lnrpc.OutPoint outpoint = 2;
+}
+
+message ReleaseOutputResponse {
 }
 
 message KeyReq {

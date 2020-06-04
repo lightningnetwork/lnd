@@ -28,6 +28,18 @@
         }
       }
     },
+    "lnrpcAddressType": {
+      "type": "string",
+      "enum": [
+        "WITNESS_PUBKEY_HASH",
+        "NESTED_PUBKEY_HASH",
+        "UNUSED_WITNESS_PUBKEY_HASH",
+        "UNUSED_NESTED_PUBKEY_HASH"
+      ],
+      "default": "WITNESS_PUBKEY_HASH",
+      "description": "- `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)\n- `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)",
+      "title": "`AddressType` has to be one of:"
+    },
     "lnrpcOutPoint": {
       "type": "object",
       "properties": {
@@ -112,6 +124,37 @@
         }
       }
     },
+    "lnrpcUtxo": {
+      "type": "object",
+      "properties": {
+        "address_type": {
+          "$ref": "#/definitions/lnrpcAddressType",
+          "title": "The type of address"
+        },
+        "address": {
+          "type": "string",
+          "title": "The address"
+        },
+        "amount_sat": {
+          "type": "string",
+          "format": "int64",
+          "title": "The value of the unspent coin in satoshis"
+        },
+        "pk_script": {
+          "type": "string",
+          "title": "The pkscript in hex"
+        },
+        "outpoint": {
+          "$ref": "#/definitions/lnrpcOutPoint",
+          "title": "The outpoint in format txid:n"
+        },
+        "confirmations": {
+          "type": "string",
+          "format": "int64",
+          "title": "The number of confirmations for the Utxo"
+        }
+      }
+    },
     "signrpcKeyDescriptor": {
       "type": "object",
       "properties": {
@@ -181,6 +224,16 @@
     "walletrpcLabelTransactionResponse": {
       "type": "object"
     },
+    "walletrpcLeaseOutputResponse": {
+      "type": "object",
+      "properties": {
+        "expiration": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The absolute expiration of the output lease represented as a unix timestamp."
+        }
+      }
+    },
     "walletrpcListSweepsResponse": {
       "type": "object",
       "properties": {
@@ -189,6 +242,18 @@
         },
         "transaction_ids": {
           "$ref": "#/definitions/ListSweepsResponseTransactionIDs"
+        }
+      }
+    },
+    "walletrpcListUnspentResponse": {
+      "type": "object",
+      "properties": {
+        "utxos": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcUtxo"
+          },
+          "description": "A list of utxos satisfying the specified number of confirmations."
         }
       }
     },
@@ -260,6 +325,9 @@
           "description": "If blank, then no error occurred and the transaction was successfully\npublished. If not the empty string, then a string representation of the\nbroadcast error.\n\nTODO(roasbeef): map to a proper enum type"
         }
       }
+    },
+    "walletrpcReleaseOutputResponse": {
+      "type": "object"
     },
     "walletrpcSendOutputsResponse": {
       "type": "object",

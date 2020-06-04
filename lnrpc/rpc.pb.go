@@ -12407,6 +12407,8 @@ type LightningClient interface {
 	//target.
 	SendCoins(ctx context.Context, in *SendCoinsRequest, opts ...grpc.CallOption) (*SendCoinsResponse, error)
 	// lncli: `listunspent`
+	//Deprecated, use walletrpc.ListUnspent instead.
+	//
 	//ListUnspent returns a list of all utxos spendable by the wallet with a
 	//number of confirmations between the specified minimum and maximum.
 	ListUnspent(ctx context.Context, in *ListUnspentRequest, opts ...grpc.CallOption) (*ListUnspentResponse, error)
@@ -13486,6 +13488,8 @@ type LightningServer interface {
 	//target.
 	SendCoins(context.Context, *SendCoinsRequest) (*SendCoinsResponse, error)
 	// lncli: `listunspent`
+	//Deprecated, use walletrpc.ListUnspent instead.
+	//
 	//ListUnspent returns a list of all utxos spendable by the wallet with a
 	//number of confirmations between the specified minimum and maximum.
 	ListUnspent(context.Context, *ListUnspentRequest) (*ListUnspentResponse, error)

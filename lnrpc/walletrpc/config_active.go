@@ -3,6 +3,7 @@
 package walletrpc
 
 import (
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -48,4 +49,7 @@ type Config struct {
 	// Chain is an interface that the WalletKit will use to determine state
 	// about the backing chain of the wallet.
 	Chain lnwallet.BlockChainIO
+
+	// ChainParams are the parameters of the wallet's backing chain.
+	ChainParams *chaincfg.Params
 }

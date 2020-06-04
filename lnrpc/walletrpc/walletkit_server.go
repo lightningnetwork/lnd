@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/labels"
@@ -97,6 +98,18 @@ var (
 		"/walletrpc.WalletKit/LabelTransaction": {{
 			Entity: "onchain",
 			Action: "write",
+		}},
+		"/walletrpc.WalletKit/LeaseOutput": {{
+			Entity: "onchain",
+			Action: "write",
+		}},
+		"/walletrpc.WalletKit/ReleaseOutput": {{
+			Entity: "onchain",
+			Action: "write",
+		}},
+		"/walletrpc.WalletKit/ListUnspent": {{
+			Entity: "onchain",
+			Action: "read",
 		}},
 	}
 
@@ -202,6 +215,101 @@ func (w *WalletKit) RegisterWithRootServer(grpcServer *grpc.Server) error {
 		"root gRPC server")
 
 	return nil
+}
+
+// ListUnspent returns useful information about each unspent output owned by the
+// wallet, as reported by the underlying `ListUnspentWitness`; the information
+// returned is: outpoint, amount in satoshis, address, address type,
+// scriptPubKey in hex and number of confirmations.  The result is filtered to
+// contain outputs whose number of confirmations is between a
+// minimum and maximum number of confirmations specified by the user, with 0
+// meaning unconfirmed.
+func (w *WalletKit) ListUnspent(ctx context.Context,
+	req *ListUnspentRequest) (*ListUnspentResponse, error) {
+
+	// Validate the confirmation arguments.
+	minConfs, maxConfs, err := lnrpc.ParseConfs(req.MinConfs, req.MaxConfs)
+	if err != nil {
+		return nil, err
+	}
+
+	// With our arguments validated, we'll query the internal wallet for
+	// the set of UTXOs that match our query.
+	utxos, err := w.cfg.Wallet.ListUnspentWitness(minConfs, maxConfs)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcUtxos, err := lnrpc.MarshalUtxos(utxos, w.cfg.ChainParams)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ListUnspentResponse{
+		Utxos: rpcUtxos,
+	}, nil
+}
+
+// LeaseOutput locks an output to the given ID, preventing it from being
+// available for any future coin selection attempts. The absolute time of the
+// lock's expiration is returned. The expiration of the lock can be extended by
+// successive invocations of this call. Outputs can be unlocked before their
+// expiration through `ReleaseOutput`.
+//
+// If the output is not known, wtxmgr.ErrUnknownOutput is returned. If the
+// output has already been locked to a different ID, then
+// wtxmgr.ErrOutputAlreadyLocked is returned.
+func (w *WalletKit) LeaseOutput(ctx context.Context,
+	req *LeaseOutputRequest) (*LeaseOutputResponse, error) {
+
+	if len(req.Id) != 32 {
+		return nil, errors.New("id must be 32 random bytes")
+	}
+	var lockID wtxmgr.LockID
+	copy(lockID[:], req.Id)
+
+	// Don't allow ID's of 32 bytes, but all zeros.
+	if lockID == (wtxmgr.LockID{}) {
+		return nil, errors.New("id must be 32 random bytes")
+	}
+
+	op, err := unmarshallOutPoint(req.Outpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	expiration, err := w.cfg.Wallet.LeaseOutput(lockID, *op)
+	if err != nil {
+		return nil, err
+	}
+
+	return &LeaseOutputResponse{
+		Expiration: uint64(expiration.Unix()),
+	}, nil
+}
+
+// ReleaseOutput unlocks an output, allowing it to be available for coin
+// selection if it remains unspent. The ID should match the one used to
+// originally lock the output.
+func (w *WalletKit) ReleaseOutput(ctx context.Context,
+	req *ReleaseOutputRequest) (*ReleaseOutputResponse, error) {
+
+	if len(req.Id) != 32 {
+		return nil, errors.New("id must be 32 random bytes")
+	}
+	var lockID wtxmgr.LockID
+	copy(lockID[:], req.Id)
+
+	op, err := unmarshallOutPoint(req.Outpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := w.cfg.Wallet.ReleaseOutput(lockID, *op); err != nil {
+		return nil, err
+	}
+
+	return &ReleaseOutputResponse{}, nil
 }
 
 // DeriveNextKey attempts to derive the *next* key within the key family

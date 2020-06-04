@@ -924,30 +924,20 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 	return &txHash, nil
 }
 
-// ListUnspent returns useful information about each unspent output owned by
-// the wallet, as reported by the underlying `ListUnspentWitness`; the
-// information returned is: outpoint, amount in satoshis, address, address
-// type, scriptPubKey in hex and number of confirmations.  The result is
-// filtered to contain outputs whose number of confirmations is between a
-// minimum and maximum number of confirmations specified by the user, with 0
-// meaning unconfirmed.
+// ListUnspent returns useful information about each unspent output owned by the
+// wallet, as reported by the underlying `ListUnspentWitness`; the information
+// returned is: outpoint, amount in satoshis, address, address type,
+// scriptPubKey in hex and number of confirmations.  The result is filtered to
+// contain outputs whose number of confirmations is between a minimum and
+// maximum number of confirmations specified by the user, with 0 meaning
+// unconfirmed.
 func (r *rpcServer) ListUnspent(ctx context.Context,
 	in *lnrpc.ListUnspentRequest) (*lnrpc.ListUnspentResponse, error) {
 
-	minConfs := in.MinConfs
-	maxConfs := in.MaxConfs
-
-	switch {
-	// Ensure that the user didn't attempt to specify a negative number of
-	// confirmations, as that isn't possible.
-	case minConfs < 0:
-		return nil, fmt.Errorf("min confirmations must be >= 0")
-
-	// We'll also ensure that the min number of confs is strictly less than
-	// or equal to the max number of confs for sanity.
-	case minConfs > maxConfs:
-		return nil, fmt.Errorf("max confirmations must be >= min " +
-			"confirmations")
+	// Validate the confirmation arguments.
+	minConfs, maxConfs, err := lnrpc.ParseConfs(in.MinConfs, in.MaxConfs)
+	if err != nil {
+		return nil, err
 	}
 
 	// With our arguments validated, we'll query the internal wallet for
@@ -957,69 +947,9 @@ func (r *rpcServer) ListUnspent(ctx context.Context,
 		return nil, err
 	}
 
-	resp := &lnrpc.ListUnspentResponse{
-		Utxos: make([]*lnrpc.Utxo, 0, len(utxos)),
-	}
-
-	for _, utxo := range utxos {
-		// Translate lnwallet address type to the proper gRPC proto
-		// address type.
-		var addrType lnrpc.AddressType
-		switch utxo.AddressType {
-
-		case lnwallet.WitnessPubKey:
-			addrType = lnrpc.AddressType_WITNESS_PUBKEY_HASH
-
-		case lnwallet.NestedWitnessPubKey:
-			addrType = lnrpc.AddressType_NESTED_PUBKEY_HASH
-
-		case lnwallet.UnknownAddressType:
-			rpcsLog.Warnf("[listunspent] utxo with address of "+
-				"unknown type ignored: %v",
-				utxo.OutPoint.String())
-			continue
-
-		default:
-			return nil, fmt.Errorf("invalid utxo address type")
-		}
-
-		// Now that we know we have a proper mapping to an address,
-		// we'll convert the regular outpoint to an lnrpc variant.
-		outpoint := &lnrpc.OutPoint{
-			TxidBytes:   utxo.OutPoint.Hash[:],
-			TxidStr:     utxo.OutPoint.Hash.String(),
-			OutputIndex: utxo.OutPoint.Index,
-		}
-
-		utxoResp := lnrpc.Utxo{
-			AddressType:   addrType,
-			AmountSat:     int64(utxo.Value),
-			PkScript:      hex.EncodeToString(utxo.PkScript),
-			Outpoint:      outpoint,
-			Confirmations: utxo.Confirmations,
-		}
-
-		// Finally, we'll attempt to extract the raw address from the
-		// script so we can display a human friendly address to the end
-		// user.
-		_, outAddresses, _, err := txscript.ExtractPkScriptAddrs(
-			utxo.PkScript, activeNetParams.Params,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		// If we can't properly locate a single address, then this was
-		// an error in our mapping, and we'll return an error back to
-		// the user.
-		if len(outAddresses) != 1 {
-			return nil, fmt.Errorf("an output was unexpectedly " +
-				"multisig")
-		}
-
-		utxoResp.Address = outAddresses[0].String()
-
-		resp.Utxos = append(resp.Utxos, &utxoResp)
+	rpcUtxos, err := lnrpc.MarshalUtxos(utxos, activeNetParams.Params)
+	if err != nil {
+		return nil, err
 	}
 
 	maxStr := ""
@@ -1030,7 +960,9 @@ func (r *rpcServer) ListUnspent(ctx context.Context,
 	rpcsLog.Debugf("[listunspent] min=%v%v, generated utxos: %v", minConfs,
 		maxStr, utxos)
 
-	return resp, nil
+	return &lnrpc.ListUnspentResponse{
+		Utxos: rpcUtxos,
+	}, nil
 }
 
 // EstimateFee handles a request for estimating the fee for sending a

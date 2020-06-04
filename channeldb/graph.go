@@ -1655,6 +1655,8 @@ func (c *ChannelGraph) FilterKnownChanIDs(chanIDs []uint64) ([]uint64, error) {
 // mined in a block height within the passed range. This method can be used to
 // quickly share with a peer the set of channels we know of within a particular
 // range to catch them up after a period of time offline.
+//
+// Channels with empty short channel IDs are *not* returned by this function.
 func (c *ChannelGraph) FilterChannelRange(startHeight, endHeight uint32) ([]uint64, error) {
 	var chanIDs []uint64
 
@@ -1697,6 +1699,14 @@ func (c *ChannelGraph) FilterChannelRange(startHeight, endHeight uint32) ([]uint
 			// we'll convert it into an integer and add it to our
 			// returned set.
 			cid = byteOrder.Uint64(k)
+			if cid == 0 {
+				// Empty chan id's are likely due to a just
+				// applied restore that will trigger a DLP
+				// scenario momentarily. Simply skip them here.
+				log.Debugf("Skipping empty chanID while " +
+					"filtering channel range")
+				continue
+			}
 			chanIDs = append(chanIDs, cid)
 		}
 

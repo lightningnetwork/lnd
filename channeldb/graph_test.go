@@ -1845,6 +1845,19 @@ func TestFilterChannelRange(t *testing.T) {
 		t.Fatalf("expected zero chans, instead got %v", len(resp))
 	}
 
+	// We'll add a dummy, 0-sid channel edge to ensure the contract
+	// specified on the the fuction works (no 0-sid channels are returned).
+	channel, chanID := createEdge(
+		0, 0, 0, 0, node1, node2,
+	)
+	var emptySID lnwire.ShortChannelID
+	if chanID != emptySID {
+		t.Fatalf("test helper did not create a 0-sid channel edge")
+	}
+	if err := graph.AddChannelEdge(&channel); err != nil {
+		t.Fatalf("unable to create channel edge: %v", err)
+	}
+
 	// To start, we'll create a set of channels, each mined in a block 10
 	// blocks after the prior one.
 	startHeight := uint32(100)

@@ -13,4 +13,5 @@ type Neutrino struct {
 	FeeURL             string        `long:"feeurl" description:"Optional URL for fee estimation. If a URL is not specified, static fees will be used for estimation."`
 	AssertFilterHeader string        `long:"assertfilterheader" description:"Optional filter header in height:hash format to assert the state of neutrino's filter header chain on startup. If the assertion does not hold, then the filter header chain will be re-synced from the genesis block."`
 	UserAgentName      string        `long:"useragentname" description:"Used to help identify ourselves to other bitcoin peers"`
+	UserAgentVersion   string        `long:"useragentversion" description:"Used to help identify ourselves to other bitcoin peers"`
 }

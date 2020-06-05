@@ -752,7 +752,21 @@ func (n *TxNotifier) CancelConf(confRequest ConfRequest, confID uint64) {
 	close(ntfn.Event.Confirmed)
 	close(ntfn.Event.Updates)
 	close(ntfn.Event.NegativeConf)
+
+	// Finally, we'll clean up any lingering references to this
+	// notification.
 	delete(confSet.ntfns, confID)
+
+	// Remove the queued confirmation notification if the transaction has
+	// already confirmed, but hasn't met its required number of
+	// confirmations.
+	if confSet.details != nil {
+		confHeight := confSet.details.BlockHeight +
+			ntfn.NumConfirmations - 1
+		if confHeight <= n.currentHeight {
+			delete(n.ntfnsByConfirmHeight[confHeight], ntfn)
+		}
+	}
 }
 
 // UpdateConfDetails attempts to update the confirmation details for an active

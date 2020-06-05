@@ -2,16 +2,16 @@ package channeldb
 
 import (
 	"crypto/rand"
+	"fmt"
 	"math"
-	"reflect"
 	"testing"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -185,10 +185,11 @@ func testInvoiceWorkflow(t *testing.T, test invWorkflowTest) {
 		}
 		return
 	}
-	if !reflect.DeepEqual(*fakeInvoice, dbInvoice) {
-		t.Fatalf("invoice fetched from db doesn't match original %v vs %v",
-			spew.Sdump(fakeInvoice), spew.Sdump(dbInvoice))
-	}
+
+	require.Equal(t,
+		*fakeInvoice, dbInvoice,
+		"invoice fetched from db doesn't match original",
+	)
 
 	// The add index of the invoice retrieved from the database should now
 	// be fully populated. As this is the first index written to the DB,
@@ -280,11 +281,10 @@ func testInvoiceWorkflow(t *testing.T, test invWorkflowTest) {
 	// order (and the primary key should be incremented with each
 	// insertion).
 	for i := 0; i < len(invoices); i++ {
-		if !reflect.DeepEqual(*invoices[i], response.Invoices[i]) {
-			t.Fatalf("retrieved invoices don't match %v vs %v",
-				spew.Sdump(invoices[i]),
-				spew.Sdump(response.Invoices[i]))
-		}
+		assert.Equal(t,
+			*invoices[i], response.Invoices[i],
+			"retrieved invoice doesn't match",
+		)
 	}
 }
 
@@ -501,9 +501,13 @@ func TestInvoiceAddTimeSeries(t *testing.T) {
 			t.Fatalf("unable to query: %v", err)
 		}
 
-		if !reflect.DeepEqual(query.resp, resp) {
-			t.Fatalf("test #%v: expected %v, got %v", i,
-				spew.Sdump(query.resp), spew.Sdump(resp))
+		require.Equal(t, len(query.resp), len(resp))
+
+		for j := 0; j < len(query.resp); j++ {
+			require.Equal(t,
+				query.resp[j], resp[j],
+				fmt.Sprintf("test: #%v, item: #%v", i, j),
+			)
 		}
 	}
 
@@ -566,9 +570,13 @@ func TestInvoiceAddTimeSeries(t *testing.T) {
 			t.Fatalf("unable to query: %v", err)
 		}
 
-		if !reflect.DeepEqual(query.resp, resp) {
-			t.Fatalf("test #%v: expected %v, got %v", i,
-				spew.Sdump(query.resp), spew.Sdump(resp))
+		require.Equal(t, len(query.resp), len(resp))
+
+		for j := 0; j < len(query.resp); j++ {
+			require.Equal(t,
+				query.resp[j], resp[j],
+				fmt.Sprintf("test: #%v, item: #%v", i, j),
+			)
 		}
 	}
 }
@@ -654,14 +662,11 @@ func TestFetchAllInvoicesWithPaymentHash(t *testing.T) {
 				pendingInvoices[i].PaymentHash)
 		}
 
-		// Zero out add index to not confuse DeepEqual.
+		// Zero out add index to not confuse require.Equal.
 		pendingInvoices[i].Invoice.AddIndex = 0
 		expected.AddIndex = 0
 
-		if !reflect.DeepEqual(*expected, pendingInvoices[i].Invoice) {
-			t.Fatalf("expected: %v, got: %v",
-				spew.Sdump(expected), spew.Sdump(pendingInvoices[i].Invoice))
-		}
+		require.Equal(t, *expected, pendingInvoices[i].Invoice)
 	}
 
 	for i := range allInvoices {
@@ -671,14 +676,11 @@ func TestFetchAllInvoicesWithPaymentHash(t *testing.T) {
 				allInvoices[i].PaymentHash)
 		}
 
-		// Zero out add index to not confuse DeepEqual.
+		// Zero out add index to not confuse require.Equal.
 		allInvoices[i].Invoice.AddIndex = 0
 		expected.AddIndex = 0
 
-		if !reflect.DeepEqual(*expected, allInvoices[i].Invoice) {
-			t.Fatalf("expected: %v, got: %v",
-				spew.Sdump(expected), spew.Sdump(allInvoices[i].Invoice))
-		}
+		require.Equal(t, *expected, allInvoices[i].Invoice)
 	}
 
 }
@@ -732,10 +734,7 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 	}
 
 	// We should get back the exact same invoice that we just inserted.
-	if !reflect.DeepEqual(dbInvoice, invoice) {
-		t.Fatalf("wrong invoice after settle, expected %v got %v",
-			spew.Sdump(invoice), spew.Sdump(dbInvoice))
-	}
+	require.Equal(t, invoice, dbInvoice, "wrong invoice after settle")
 
 	// If we try to settle the invoice again, then we should get the very
 	// same invoice back, but with an error this time.
@@ -749,10 +748,7 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 	}
 
 	invoice.SettleDate = dbInvoice.SettleDate
-	if !reflect.DeepEqual(dbInvoice, invoice) {
-		t.Fatalf("wrong invoice after second settle, expected %v got %v",
-			spew.Sdump(invoice), spew.Sdump(dbInvoice))
-	}
+	require.Equal(t, invoice, dbInvoice, "wrong invoice after second settle")
 }
 
 // TestQueryInvoices ensures that we can properly query the invoice database for
@@ -1020,11 +1016,13 @@ func TestQueryInvoices(t *testing.T) {
 			t.Fatalf("unable to query invoice database: %v", err)
 		}
 
-		if !reflect.DeepEqual(response.Invoices, testCase.expected) {
-			t.Fatalf("test #%d: query returned incorrect set of "+
-				"invoices: expcted %v, got %v", i,
-				spew.Sdump(response.Invoices),
-				spew.Sdump(testCase.expected))
+		require.Equal(t, len(testCase.expected), len(response.Invoices))
+
+		for j, expected := range testCase.expected {
+			require.Equal(t,
+				expected, response.Invoices[j],
+				fmt.Sprintf("test: #%v, item: #%v", i, j),
+			)
 		}
 	}
 }
@@ -1118,9 +1116,11 @@ func TestCustomRecords(t *testing.T) {
 	if len(dbInvoice.Htlcs) != 1 {
 		t.Fatalf("expected the htlc to be added")
 	}
-	if !reflect.DeepEqual(records, dbInvoice.Htlcs[key].CustomRecords) {
-		t.Fatalf("invalid custom records")
-	}
+
+	require.Equal(t,
+		records, dbInvoice.Htlcs[key].CustomRecords,
+		"invalid custom records",
+	)
 }
 
 // TestInvoiceRef asserts that the proper identifiers are returned from an
@@ -1132,12 +1132,12 @@ func TestInvoiceRef(t *testing.T) {
 	// An InvoiceRef by hash should return the provided hash and a nil
 	// payment addr.
 	refByHash := InvoiceRefByHash(payHash)
-	assert.Equal(t, payHash, refByHash.PayHash())
-	assert.Equal(t, (*[32]byte)(nil), refByHash.PayAddr())
+	require.Equal(t, payHash, refByHash.PayHash())
+	require.Equal(t, (*[32]byte)(nil), refByHash.PayAddr())
 
 	// An InvoiceRef by hash and addr should return the payment hash and
 	// payment addr passed to the constructor.
 	refByHashAndAddr := InvoiceRefByHashAndAddr(payHash, payAddr)
-	assert.Equal(t, payHash, refByHashAndAddr.PayHash())
-	assert.Equal(t, &payAddr, refByHashAndAddr.PayAddr())
+	require.Equal(t, payHash, refByHashAndAddr.PayHash())
+	require.Equal(t, &payAddr, refByHashAndAddr.PayAddr())
 }

@@ -10,7 +10,6 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -281,7 +280,7 @@ func testInvoiceWorkflow(t *testing.T, test invWorkflowTest) {
 	// order (and the primary key should be incremented with each
 	// insertion).
 	for i := 0; i < len(invoices); i++ {
-		assert.Equal(t,
+		require.Equal(t,
 			*invoices[i], response.Invoices[i],
 			"retrieved invoice doesn't match",
 		)
@@ -293,25 +292,25 @@ func testInvoiceWorkflow(t *testing.T, test invWorkflowTest) {
 func TestAddDuplicatePayAddr(t *testing.T) {
 	db, cleanUp, err := makeTestDB()
 	defer cleanUp()
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	// Create two invoices with the same payment addr.
 	invoice1, err := randInvoice(1000)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	invoice2, err := randInvoice(20000)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	invoice2.Terms.PaymentAddr = invoice1.Terms.PaymentAddr
 
 	// First insert should succeed.
 	inv1Hash := invoice1.Terms.PaymentPreimage.Hash()
 	_, err = db.AddInvoice(invoice1, inv1Hash)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	// Second insert should fail with duplicate payment addr.
 	inv2Hash := invoice2.Terms.PaymentPreimage.Hash()
 	_, err = db.AddInvoice(invoice2, inv2Hash)
-	assert.Equal(t, ErrDuplicatePayAddr, err)
+	require.Error(t, err, ErrDuplicatePayAddr)
 }
 
 // TestInvRefEquivocation asserts that retrieving or updating an invoice using
@@ -319,29 +318,29 @@ func TestAddDuplicatePayAddr(t *testing.T) {
 func TestInvRefEquivocation(t *testing.T) {
 	db, cleanUp, err := makeTestDB()
 	defer cleanUp()
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	// Add two random invoices.
 	invoice1, err := randInvoice(1000)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	inv1Hash := invoice1.Terms.PaymentPreimage.Hash()
 	_, err = db.AddInvoice(invoice1, inv1Hash)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	invoice2, err := randInvoice(2000)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	inv2Hash := invoice2.Terms.PaymentPreimage.Hash()
 	_, err = db.AddInvoice(invoice2, inv2Hash)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	// Now, query using invoice 1's payment address, but invoice 2's payment
 	// hash. We expect an error since the invref points to multiple
 	// invoices.
 	ref := InvoiceRefByHashAndAddr(inv2Hash, invoice1.Terms.PaymentAddr)
 	_, err = db.LookupInvoice(ref)
-	assert.Equal(t, ErrInvRefEquivocation, err)
+	require.Error(t, err, ErrInvRefEquivocation)
 
 	// The same error should be returned when updating an equivocating
 	// reference.
@@ -349,7 +348,7 @@ func TestInvRefEquivocation(t *testing.T) {
 		return nil, nil
 	}
 	_, err = db.UpdateInvoice(ref, nop)
-	assert.Equal(t, ErrInvRefEquivocation, err)
+	require.Error(t, err, ErrInvRefEquivocation)
 }
 
 // TestInvoiceCancelSingleHtlc tests that a single htlc can be canceled on the
@@ -438,7 +437,7 @@ func TestInvoiceAddTimeSeries(t *testing.T) {
 	}
 
 	_, err = db.InvoicesAddedSince(0)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	// We'll start off by creating 20 random invoices, and inserting them
 	// into the database.
@@ -512,7 +511,7 @@ func TestInvoiceAddTimeSeries(t *testing.T) {
 	}
 
 	_, err = db.InvoicesSettledSince(0)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	var settledInvoices []Invoice
 	var settleIndex uint64 = 1

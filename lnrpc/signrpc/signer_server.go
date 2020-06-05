@@ -242,17 +242,17 @@ func (s *Server) SignOutputRaw(ctx context.Context, in *SignReq) (*SignResp, err
 		keyDesc := signDesc.KeyDesc
 
 		// The caller can either specify the key using the raw pubkey,
-		// or the description of the key. Below we'll feel out the
-		// oneof field to decide which one we will attempt to parse.
+		// or the description of the key. We'll still attempt to parse
+		// both if both were provided however, to ensure the underlying
+		// SignOutputRaw has as much information as possible.
 		var (
 			targetPubKey *btcec.PublicKey
 			keyLoc       keychain.KeyLocator
 		)
-		switch {
 
 		// If this method doesn't return nil, then we know that user is
 		// attempting to include a raw serialized pub key.
-		case keyDesc.GetRawKeyBytes() != nil:
+		if keyDesc.GetRawKeyBytes() != nil {
 			rawKeyBytes := keyDesc.GetRawKeyBytes()
 
 			switch {
@@ -275,10 +275,11 @@ func (s *Server) SignOutputRaw(ctx context.Context, in *SignReq) (*SignResp, err
 						"parse pubkey: %v", err)
 				}
 			}
+		}
 
-		// Similarly, if they specified a key locator, then we'll use
-		// that instead.
-		case keyDesc.GetKeyLoc() != nil:
+		// Similarly, if they specified a key locator, then we'll parse
+		// that as well.
+		if keyDesc.GetKeyLoc() != nil {
 			protoLoc := keyDesc.GetKeyLoc()
 			keyLoc = keychain.KeyLocator{
 				Family: keychain.KeyFamily(

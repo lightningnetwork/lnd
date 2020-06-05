@@ -180,6 +180,10 @@ type SignDescriptor struct {
 	//A descriptor that precisely describes *which* key to use for signing. This
 	//may provide the raw public key directly, or require the Signer to re-derive
 	//the key according to the populated derivation path.
+	//
+	//Note that if the key descriptor was obtained through walletrpc.DeriveKey,
+	//then the key locator MUST always be provided, since the derived keys are not
+	//persisted unlike with DeriveNextKey.
 	KeyDesc *KeyDescriptor `protobuf:"bytes,1,opt,name=key_desc,json=keyDesc,proto3" json:"key_desc,omitempty"`
 	//
 	//A scalar value that will be added to the private key corresponding to the

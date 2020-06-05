@@ -303,7 +303,7 @@
       "properties": {
         "key_desc": {
           "$ref": "#/definitions/signrpcKeyDescriptor",
-          "description": "A descriptor that precisely describes *which* key to use for signing. This\nmay provide the raw public key directly, or require the Signer to re-derive\nthe key according to the populated derivation path."
+          "description": "A descriptor that precisely describes *which* key to use for signing. This\nmay provide the raw public key directly, or require the Signer to re-derive\nthe key according to the populated derivation path.\n\nNote that if the key descriptor was obtained through walletrpc.DeriveKey,\nthen the key locator MUST always be provided, since the derived keys are not\npersisted unlike with DeriveNextKey."
         },
         "single_tweak": {
           "type": "string",

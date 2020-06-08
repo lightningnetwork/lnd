@@ -123,10 +123,10 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		return nil, h.Checkpoint(h)
 	}
 
-	// tryApplyPreimage is a helper function that will populate our internal
+	// applyPreimage is a helper function that will populate our internal
 	// resolver with the preimage we learn of. This should be called once
 	// the preimage is revealed so the inner resolver can properly complete
-	// its duties. The boolean return value indicates whether the preimage
+	// its duties. The error return value indicates whether the preimage
 	// was properly applied.
 	applyPreimage := func(preimage lntypes.Preimage) error {
 		// Sanity check to see if this preimage matches our htlc. At
@@ -141,7 +141,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		log.Infof("%T(%v): extracted preimage=%v from beacon!", h,
 			h.htlcResolution.ClaimOutpoint, preimage)
 
-		// If this our commitment transaction, then we'll need to
+		// If this is our commitment transaction, then we'll need to
 		// populate the witness for the second-level HTLC transaction.
 		if h.htlcResolution.SignedSuccessTx != nil {
 			// Within the witness for the success transaction, the
@@ -168,8 +168,8 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	preimageSubscription := h.PreimageDB.SubscribeUpdates()
 	defer preimageSubscription.CancelSubscription()
 
-	// Define closure to process htlc resolutions either direct or triggered by
-	// later notification.
+	// Define a closure to process htlc resolutions either directly or
+	// triggered by future notifications.
 	processHtlcResolution := func(e invoices.HtlcResolution) (
 		ContractResolver, error) {
 
@@ -271,7 +271,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 
 		select {
 		case preimage := <-preimageSubscription.WitnessUpdates:
-			// We receive all new preimages, so we need to ignore
+			// We received a new preimage, but we need to ignore
 			// all except the preimage we are waiting for.
 			if !preimage.Matches(h.htlc.RHash) {
 				continue

@@ -829,6 +829,29 @@
         ]
       }
     },
+    "/v1/getrecoveryinfo": {
+      "get": {
+        "summary": "* lncli: `getrecoveryinfo`\nGetRecoveryInfo returns information concerning the recovery mode including\nwhether it's in a recovery mode, whether the recovery is finished, and the\nprogress made so far.",
+        "operationId": "GetRecoveryInfo",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcGetRecoveryInfoResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/graph": {
       "get": {
         "summary": "lncli: `describegraph`\nDescribeGraph returns a description of the latest graph state from the\npoint of view of the node. The graph information is partitioned into two\ncomponents: all the nodes/vertexes, and all the edges that connect the\nvertexes themselves. As this is a directed graph, the edges also contain\nthe node directional specific routing policy which includes: the time lock\ndelta, fee information, etc.",
@@ -3527,6 +3550,26 @@
             "$ref": "#/definitions/lnrpcFeature"
           },
           "description": "Features that our node has advertised in our init message, node\nannouncements and invoices."
+        }
+      }
+    },
+    "lnrpcGetRecoveryInfoResponse": {
+      "type": "object",
+      "properties": {
+        "recovery_mode": {
+          "type": "boolean",
+          "format": "boolean",
+          "title": "Whether the wallet is in recovery mode"
+        },
+        "recovery_finished": {
+          "type": "boolean",
+          "format": "boolean",
+          "title": "Whether the wallet recovery progress is finished"
+        },
+        "progress": {
+          "type": "number",
+          "format": "double",
+          "description": "The recovery progress, ranging from 0 to 1."
         }
       }
     },

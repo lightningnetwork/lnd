@@ -45,6 +45,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -362,6 +363,51 @@ func createTestWallet(tempTestDir string, miningNode *rpctest.Harness,
 	}
 
 	return wallet, nil
+}
+
+func testGetRecoveryInfo(miner *rpctest.Harness,
+	alice, bob *lnwallet.LightningWallet, t *testing.T) {
+
+	// alice's wallet is in recovery mode
+	expectedRecoveryMode := true
+	expectedProgress := float64(1)
+
+	isRecoveryMode, progress, err := alice.GetRecoveryInfo()
+	require.NoError(t, err, "unable to get alice's recovery info")
+
+	require.Equal(t,
+		expectedRecoveryMode, isRecoveryMode, "recovery mode incorrect",
+	)
+	require.Equal(t, expectedProgress, progress, "progress incorrect")
+
+	// Generate 5 blocks and check the recovery process again.
+	const numBlocksMined = 5
+	_, err = miner.Node.Generate(numBlocksMined)
+	require.NoError(t, err, "unable to mine blocks")
+
+	// Check the recovery process. Once synced, the progress should be 1.
+	err = waitForWalletSync(miner, alice)
+	require.NoError(t, err, "Couldn't sync Alice's wallet")
+
+	isRecoveryMode, progress, err = alice.GetRecoveryInfo()
+	require.NoError(t, err, "unable to get alice's recovery info")
+
+	require.Equal(t,
+		expectedRecoveryMode, isRecoveryMode, "recovery mode incorrect",
+	)
+	require.Equal(t, expectedProgress, progress, "progress incorrect")
+
+	// bob's wallet is not in recovery mode
+	expectedRecoveryMode = false
+	expectedProgress = float64(0)
+
+	isRecoveryMode, progress, err = bob.GetRecoveryInfo()
+	require.NoError(t, err, "unable to get bob's recovery info")
+
+	require.Equal(t,
+		expectedRecoveryMode, isRecoveryMode, "recovery mode incorrect",
+	)
+	require.Equal(t, expectedProgress, progress, "progress incorrect")
 }
 
 func testDualFundingReservationWorkflow(miner *rpctest.Harness,
@@ -2712,6 +2758,10 @@ var walletTests = []walletTestCase{
 		name: "test sign create account",
 		test: testSignOutputCreateAccount,
 	},
+	{
+		name: "test get recovery info",
+		test: testGetRecoveryInfo,
+	},
 }
 
 func clearWalletStates(a, b *lnwallet.LightningWallet) error {
@@ -3177,6 +3227,8 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			NetParams:   netParams,
 			ChainSource: aliceClient,
 			CoinType:    keychain.CoinTypeTestnet,
+			// wallet starts in recovery mode
+			RecoveryWindow: 2,
 		}
 		aliceWalletController, err = walletDriver.New(aliceWalletConfig)
 		if err != nil {
@@ -3200,6 +3252,8 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			NetParams:   netParams,
 			ChainSource: bobClient,
 			CoinType:    keychain.CoinTypeTestnet,
+			// wallet starts without recovery mode
+			RecoveryWindow: 0,
 		}
 		bobWalletController, err = walletDriver.New(bobWalletConfig)
 		if err != nil {

@@ -1729,6 +1729,27 @@ func getInfo(ctx *cli.Context) error {
 	return nil
 }
 
+var getRecoveryInfoCommand = cli.Command{
+	Name:   "getrecoveryinfo",
+	Usage:  "Display information about an ongoing recovery attempt.",
+	Action: actionDecorator(getRecoveryInfo),
+}
+
+func getRecoveryInfo(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	req := &lnrpc.GetRecoveryInfoRequest{}
+	resp, err := client.GetRecoveryInfo(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
 var pendingChannelsCommand = cli.Command{
 	Name:     "pendingchannels",
 	Category: "Channels",

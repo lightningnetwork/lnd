@@ -349,6 +349,9 @@ func (*mockWalletController) SubscribeTransactions() (lnwallet.TransactionSubscr
 func (*mockWalletController) IsSynced() (bool, int64, error) {
 	return true, int64(0), nil
 }
+func (*mockWalletController) GetRecoveryInfo() (bool, float64, error) {
+	return true, float64(1), nil
+}
 func (*mockWalletController) Start() error {
 	return nil
 }

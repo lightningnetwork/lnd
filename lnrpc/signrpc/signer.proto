@@ -98,6 +98,10 @@ message SignDescriptor {
     A descriptor that precisely describes *which* key to use for signing. This
     may provide the raw public key directly, or require the Signer to re-derive
     the key according to the populated derivation path.
+
+    Note that if the key descriptor was obtained through walletrpc.DeriveKey,
+    then the key locator MUST always be provided, since the derived keys are not
+    persisted unlike with DeriveNextKey.
     */
     KeyDescriptor key_desc = 1;
 

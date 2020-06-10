@@ -1007,6 +1007,18 @@ func TestQueryInvoices(t *testing.T) {
 			// still pending.
 			expected: pendingInvoices[len(pendingInvoices)-15:],
 		},
+		// Fetch all invoices paginating backwards, with an index offset
+		// that is beyond our last offset. We currently do not return
+		// anything if our index is greater than our last index.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    numInvoices * 2,
+				PendingOnly:    false,
+				Reversed:       true,
+				NumMaxInvoices: numInvoices,
+			},
+			expected: nil,
+		},
 	}
 
 	for i, testCase := range testCases {

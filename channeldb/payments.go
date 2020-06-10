@@ -3,6 +3,7 @@ package channeldb
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -92,6 +93,15 @@ var (
 	// paymentFailInfoKey is a key used in the payment's sub-bucket to
 	// store information about the reason a payment failed.
 	paymentFailInfoKey = []byte("payment-fail-info")
+
+	// paymentsIndexBucket is the name of the top-level bucket within the
+	// database that stores an index of payment sequence numbers to its
+	// payment hash.
+	// payments-sequence-index-bucket
+	// 	|--<sequence-number>: <payment hash>
+	// 	|--...
+	// 	|--<sequence-number>: <payment hash>
+	paymentsIndexBucket = []byte("payments-index-bucket")
 )
 
 // FailureReason encodes the reason a payment ultimately failed.
@@ -566,7 +576,15 @@ func (db *DB) DeletePayments() error {
 			return nil
 		}
 
-		var deleteBuckets [][]byte
+		var (
+			// deleteBuckets is the set of payment buckets we need
+			// to delete.
+			deleteBuckets [][]byte
+
+			// deleteIndexes is the set of indexes pointing to these
+			// payments that need to be deleted.
+			deleteIndexes [][]byte
+		)
 		err := payments.ForEach(func(k, _ []byte) error {
 			bucket := payments.NestedReadWriteBucket(k)
 			if bucket == nil {
@@ -589,7 +607,18 @@ func (db *DB) DeletePayments() error {
 				return nil
 			}
 
+			// Add the bucket to the set of buckets we can delete.
 			deleteBuckets = append(deleteBuckets, k)
+
+			// Get all the sequence number associated with the
+			// payment, including duplicates.
+			seqNrs, err := fetchSequenceNumbers(bucket)
+			if err != nil {
+				return err
+			}
+
+			deleteIndexes = append(deleteIndexes, seqNrs...)
+
 			return nil
 		})
 		if err != nil {
@@ -602,8 +631,47 @@ func (db *DB) DeletePayments() error {
 			}
 		}
 
+		// Get our index bucket and delete all indexes pointing to the
+		// payments we are deleting.
+		indexBucket := tx.ReadWriteBucket(paymentsIndexBucket)
+		for _, k := range deleteIndexes {
+			if err := indexBucket.Delete(k); err != nil {
+				return err
+			}
+		}
+
 		return nil
 	})
+}
+
+// fetchSequenceNumbers fetches all the sequence numbers associated with a
+// payment, including those belonging to any duplicate payments.
+func fetchSequenceNumbers(paymentBucket kvdb.RBucket) ([][]byte, error) {
+	seqNum := paymentBucket.Get(paymentSequenceKey)
+	if seqNum == nil {
+		return nil, errors.New("expected sequence number")
+	}
+
+	sequenceNumbers := [][]byte{seqNum}
+
+	// Get the duplicate payments bucket, if it has no duplicates, just
+	// return early with the payment sequence number.
+	duplicates := paymentBucket.NestedReadBucket(duplicatePaymentsBucket)
+	if duplicates == nil {
+		return sequenceNumbers, nil
+	}
+
+	// If we do have duplicated, they are keyed by sequence number, so we
+	// iterate through the duplicates bucket and add them to our set of
+	// sequence numbers.
+	if err := duplicates.ForEach(func(k, v []byte) error {
+		sequenceNumbers = append(sequenceNumbers, k)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return sequenceNumbers, nil
 }
 
 // nolint: dupl

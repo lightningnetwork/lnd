@@ -485,6 +485,11 @@ func appendDuplicatePayment(t *testing.T, db *DB, paymentHash lntypes.Hash,
 		// sequence numbers we've setup.
 		putDuplicatePayment(t, dup, sequenceKey[:], paymentHash)
 
+		// Finally, once we have created our entry we add an index for
+		// it.
+		err = createPaymentIndexEntry(tx, sequenceKey[:], paymentHash)
+		require.NoError(t, err)
+
 		return nil
 	})
 	if err != nil {

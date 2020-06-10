@@ -1,6 +1,7 @@
 package channeldb
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
@@ -9,9 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func genPreimage() ([32]byte, error) {
@@ -70,6 +75,7 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 		t.Fatalf("unable to send htlc message: %v", err)
 	}
 
+	assertPaymentIndex(t, pControl, info.PaymentHash)
 	assertPaymentStatus(t, pControl, info.PaymentHash, StatusInFlight)
 	assertPaymentInfo(
 		t, pControl, info.PaymentHash, info, nil, nil,
@@ -88,12 +94,22 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 		t, pControl, info.PaymentHash, info, &failReason, nil,
 	)
 
+	// Lookup the payment so we can get its old sequence number before it is
+	// overwritten.
+	payment, err := pControl.FetchPayment(info.PaymentHash)
+	assert.NoError(t, err)
+
 	// Sends the htlc again, which should succeed since the prior payment
 	// failed.
 	err = pControl.InitPayment(info.PaymentHash, info)
 	if err != nil {
 		t.Fatalf("unable to send htlc message: %v", err)
 	}
+
+	// Check that our index has been updated, and the old index has been
+	// removed.
+	assertPaymentIndex(t, pControl, info.PaymentHash)
+	assertNoIndex(t, pControl, payment.SequenceNum)
 
 	assertPaymentStatus(t, pControl, info.PaymentHash, StatusInFlight)
 	assertPaymentInfo(
@@ -145,7 +161,6 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 
 	// Settle the attempt and verify that status was changed to
 	// StatusSucceeded.
-	var payment *MPPayment
 	payment, err = pControl.SettleAttempt(
 		info.PaymentHash, attempt.AttemptID,
 		&HTLCSettleInfo{
@@ -209,6 +224,7 @@ func TestPaymentControlSwitchDoubleSend(t *testing.T) {
 		t.Fatalf("unable to send htlc message: %v", err)
 	}
 
+	assertPaymentIndex(t, pControl, info.PaymentHash)
 	assertPaymentStatus(t, pControl, info.PaymentHash, StatusInFlight)
 	assertPaymentInfo(
 		t, pControl, info.PaymentHash, info, nil, nil,
@@ -326,7 +342,7 @@ func TestPaymentControlFailsWithoutInFlight(t *testing.T) {
 	assertPaymentStatus(t, pControl, info.PaymentHash, StatusUnknown)
 }
 
-// TestPaymentControlDeleteNonInFlight checks that calling DeletaPayments only
+// TestPaymentControlDeleteNonInFlight checks that calling DeletePayments only
 // deletes payments from the database that are not in-flight.
 func TestPaymentControlDeleteNonInFligt(t *testing.T) {
 	t.Parallel()
@@ -338,23 +354,37 @@ func TestPaymentControlDeleteNonInFligt(t *testing.T) {
 		t.Fatalf("unable to init db: %v", err)
 	}
 
+	// Create a sequence number for duplicate payments that will not collide
+	// with the sequence numbers for the payments we create. These values
+	// start at 1, so 9999 is a safe bet for this test.
+	var duplicateSeqNr = 9999
+
 	pControl := NewPaymentControl(db)
 
 	payments := []struct {
-		failed  bool
-		success bool
+		failed       bool
+		success      bool
+		hasDuplicate bool
 	}{
 		{
-			failed:  true,
-			success: false,
+			failed:       true,
+			success:      false,
+			hasDuplicate: false,
 		},
 		{
-			failed:  false,
-			success: true,
+			failed:       false,
+			success:      true,
+			hasDuplicate: false,
 		},
 		{
-			failed:  false,
-			success: false,
+			failed:       false,
+			success:      false,
+			hasDuplicate: false,
+		},
+		{
+			failed:       false,
+			success:      true,
+			hasDuplicate: true,
 		},
 	}
 
@@ -430,6 +460,16 @@ func TestPaymentControlDeleteNonInFligt(t *testing.T) {
 				t, pControl, info.PaymentHash, info, nil, htlc,
 			)
 		}
+
+		// If the payment is intended to have a duplicate payment, we
+		// add one.
+		if p.hasDuplicate {
+			appendDuplicatePayment(
+				t, pControl.db, info.PaymentHash,
+				uint64(duplicateSeqNr),
+			)
+			duplicateSeqNr++
+		}
 	}
 
 	// Delete payments.
@@ -451,6 +491,21 @@ func TestPaymentControlDeleteNonInFligt(t *testing.T) {
 	if status != StatusInFlight {
 		t.Fatalf("expected in-fligth status, got %v", status)
 	}
+
+	// Finally, check that we only have a single index left in the payment
+	// index bucket.
+	var indexCount int
+	err = kvdb.View(db, func(tx walletdb.ReadTx) error {
+		index := tx.ReadBucket(paymentsIndexBucket)
+
+		return index.ForEach(func(k, v []byte) error {
+			indexCount++
+			return nil
+		})
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, 1, indexCount)
 }
 
 // TestPaymentControlMultiShard checks the ability of payment control to
@@ -495,6 +550,7 @@ func TestPaymentControlMultiShard(t *testing.T) {
 			t.Fatalf("unable to send htlc message: %v", err)
 		}
 
+		assertPaymentIndex(t, pControl, info.PaymentHash)
 		assertPaymentStatus(t, pControl, info.PaymentHash, StatusInFlight)
 		assertPaymentInfo(
 			t, pControl, info.PaymentHash, info, nil, nil,
@@ -909,4 +965,56 @@ func assertPaymentInfo(t *testing.T, p *PaymentControl, hash lntypes.Hash,
 	} else if htlc.Settle != nil {
 		t.Fatal("expected no settle info")
 	}
+}
+
+// fetchPaymentIndexEntry gets the payment hash for the sequence number provided
+// from our payment indexes bucket.
+func fetchPaymentIndexEntry(_ *testing.T, p *PaymentControl,
+	sequenceNumber uint64) (*lntypes.Hash, error) {
+
+	var hash lntypes.Hash
+
+	if err := kvdb.View(p.db, func(tx walletdb.ReadTx) error {
+		indexBucket := tx.ReadBucket(paymentsIndexBucket)
+		key := make([]byte, 8)
+		byteOrder.PutUint64(key, sequenceNumber)
+
+		indexValue := indexBucket.Get(key)
+		if indexValue == nil {
+			return errNoSequenceNrIndex
+		}
+
+		r := bytes.NewReader(indexValue)
+
+		var err error
+		hash, err = deserializePaymentIndex(r)
+		return err
+
+	}); err != nil {
+		return nil, err
+	}
+
+	return &hash, nil
+}
+
+// assertPaymentIndex looks up the index for a payment in the db and checks
+// that its payment hash matches the expected hash passed in.
+func assertPaymentIndex(t *testing.T, p *PaymentControl,
+	expectedHash lntypes.Hash) {
+
+	// Lookup the payment so that we have its sequence number and check
+	// that is has correctly been indexed in the payment indexes bucket.
+	pmt, err := p.FetchPayment(expectedHash)
+	require.NoError(t, err)
+
+	hash, err := fetchPaymentIndexEntry(t, p, pmt.SequenceNum)
+	require.NoError(t, err)
+	assert.Equal(t, expectedHash, *hash)
+}
+
+// assertNoIndex checks that an index for the sequence number provided does not
+// exist.
+func assertNoIndex(t *testing.T, p *PaymentControl, seqNr uint64) {
+	_, err := fetchPaymentIndexEntry(t, p, seqNr)
+	require.Equal(t, errNoSequenceNrIndex, err)
 }

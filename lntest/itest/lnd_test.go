@@ -46,6 +46,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
@@ -2677,7 +2678,7 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, alice)
 	if err != nil {
-		t.Fatalf("unable to send coins to carol: %v", err)
+		t.Fatalf("unable to send coins to alice: %v", err)
 	}
 
 	chanAmt := lnd.MaxBtcFundingAmount
@@ -4453,6 +4454,187 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Cleanup by mining the force close and sweep transaction.
 	cleanupForceClose(t, net, carol, chanPoint)
+}
+
+func assertChannelConstraintsEqual(
+	t *harnessTest, want, got *lnrpc.ChannelConstraints) {
+
+	if want.CsvDelay != got.CsvDelay {
+		t.Fatalf("CsvDelay mismatched, want: %v, got: %v",
+			want.CsvDelay, got.CsvDelay,
+		)
+	}
+
+	if want.ChanReserveSat != got.ChanReserveSat {
+		t.Fatalf("ChanReserveSat mismatched, want: %v, got: %v",
+			want.ChanReserveSat, got.ChanReserveSat,
+		)
+	}
+
+	if want.DustLimitSat != got.DustLimitSat {
+		t.Fatalf("DustLimitSat mismatched, want: %v, got: %v",
+			want.DustLimitSat, got.DustLimitSat,
+		)
+	}
+
+	if want.MaxPendingAmtMsat != got.MaxPendingAmtMsat {
+		t.Fatalf("MaxPendingAmtMsat mismatched, want: %v, got: %v",
+			want.MaxPendingAmtMsat, got.MaxPendingAmtMsat,
+		)
+	}
+
+	if want.MinHtlcMsat != got.MinHtlcMsat {
+		t.Fatalf("MinHtlcMsat mismatched, want: %v, got: %v",
+			want.MinHtlcMsat, got.MinHtlcMsat,
+		)
+	}
+
+	if want.MaxAcceptedHtlcs != got.MaxAcceptedHtlcs {
+		t.Fatalf("MaxAcceptedHtlcs mismatched, want: %v, got: %v",
+			want.MaxAcceptedHtlcs, got.MaxAcceptedHtlcs,
+		)
+	}
+}
+
+// testListChannels checks that the response from ListChannels is correct. It
+// tests the values in all ChannelConstraints are returned as expected. Once
+// ListChannels becomes mature, a test against all fields in ListChannels should
+// be performed.
+func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
+	ctxb := context.Background()
+
+	// Create two fresh nodes and open a channel between them.
+	alice, err := net.NewNode("Alice", nil)
+	if err != nil {
+		t.Fatalf("unable to create new node: %v", err)
+	}
+	defer shutdownAndAssert(net, t, alice)
+
+	bob, err := net.NewNode("Bob", nil)
+	if err != nil {
+		t.Fatalf("unable to create new node: %v", err)
+	}
+	defer shutdownAndAssert(net, t, bob)
+
+	// Connect Alice to Bob.
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	if err := net.ConnectNodes(ctxb, alice, bob); err != nil {
+		t.Fatalf("unable to connect alice to bob: %v", err)
+	}
+
+	// Give Alice some coins so she can fund a channel.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, alice)
+	if err != nil {
+		t.Fatalf("unable to send coins to alice: %v", err)
+	}
+
+	// Open a channel with 100k satoshis between Alice and Bob with Alice
+	// being the sole funder of the channel. The minial HTLC amount is set to
+	// 4200 msats.
+	const customizedMinHtlc = 4200
+
+	chanAmt := btcutil.Amount(100000)
+	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
+	chanPoint := openChannelAndAssert(
+		ctxt, t, net, alice, bob,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			MinHtlc: customizedMinHtlc,
+		},
+	)
+
+	// Wait for Alice and Bob to receive the channel edge from the
+	// funding manager.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("alice didn't see the alice->bob channel before "+
+			"timeout: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("bob didn't see the bob->alice channel before "+
+			"timeout: %v", err)
+	}
+
+	// Alice should have one channel opened with Bob.
+	assertNodeNumChannels(t, alice, 1)
+	// Bob should have one channel opened with Alice.
+	assertNodeNumChannels(t, bob, 1)
+
+	// Get the ListChannel response from Alice.
+	listReq := &lnrpc.ListChannelsRequest{}
+	ctxb = context.Background()
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	resp, err := alice.ListChannels(ctxt, listReq)
+	if err != nil {
+		t.Fatalf("unable to query for %s's channel list: %v",
+			alice.Name(), err)
+	}
+
+	// Check the returned response is correct.
+	aliceChannel := resp.Channels[0]
+
+	// defaultConstraints is a ChannelConstraints with default values. It is
+	// used to test against Alice's local channel constraints.
+	defaultConstraints := &lnrpc.ChannelConstraints{
+		CsvDelay:          4,
+		ChanReserveSat:    1000,
+		DustLimitSat:      uint64(lnwallet.DefaultDustLimit()),
+		MaxPendingAmtMsat: 99000000,
+		MinHtlcMsat:       1,
+		MaxAcceptedHtlcs:  input.MaxHTLCNumber / 2,
+	}
+	assertChannelConstraintsEqual(
+		t, aliceChannel.LocalConstraints, defaultConstraints,
+	)
+
+	// customizedConstraints is a ChannelConstraints with customized values.
+	// Ideally, all these values can be passed in when creating the channel.
+	// Currently, only the MinHtlcMsat is customized. It is used to check
+	// against Alice's remote channel constratins.
+	customizedConstraints := &lnrpc.ChannelConstraints{
+		CsvDelay:          4,
+		ChanReserveSat:    1000,
+		DustLimitSat:      uint64(lnwallet.DefaultDustLimit()),
+		MaxPendingAmtMsat: 99000000,
+		MinHtlcMsat:       customizedMinHtlc,
+		MaxAcceptedHtlcs:  input.MaxHTLCNumber / 2,
+	}
+	assertChannelConstraintsEqual(
+		t, aliceChannel.RemoteConstraints, customizedConstraints,
+	)
+
+	// Get the ListChannel response for Bob.
+	listReq = &lnrpc.ListChannelsRequest{}
+	ctxb = context.Background()
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	resp, err = bob.ListChannels(ctxt, listReq)
+	if err != nil {
+		t.Fatalf("unable to query for %s's channel "+
+			"list: %v", bob.Name(), err)
+	}
+
+	bobChannel := resp.Channels[0]
+	if bobChannel.ChannelPoint != aliceChannel.ChannelPoint {
+		t.Fatalf("Bob's channel point mismatched, want: %s, got: %s",
+			chanPoint.String(), bobChannel.ChannelPoint,
+		)
+	}
+
+	// Check channel constraints match. Alice's local channel constraint should
+	// be equal to Bob's remote channel constraint, and her remote one should
+	// be equal to Bob's local one.
+	assertChannelConstraintsEqual(
+		t, aliceChannel.LocalConstraints, bobChannel.RemoteConstraints,
+	)
+	assertChannelConstraintsEqual(
+		t, aliceChannel.RemoteConstraints, bobChannel.LocalConstraints,
+	)
+
 }
 
 func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
@@ -13912,7 +14094,7 @@ func testHoldInvoicePersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = carol.WaitForNetworkChannelOpen(ctxt, chanPointAlice)
 	if err != nil {
-		t.Fatalf("alice didn't see the alice->carol channel before "+
+		t.Fatalf("carol didn't see the carol->alice channel before "+
 			"timeout: %v", err)
 	}
 
@@ -14584,6 +14766,10 @@ var testsCases = []*testCase{
 	{
 		name: "sphinx replay persistence",
 		test: testSphinxReplayPersistence,
+	},
+	{
+		name: "list channels",
+		test: testListChannels,
 	},
 	{
 		name: "list outgoing payments",

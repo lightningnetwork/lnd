@@ -3295,6 +3295,21 @@ func rpcCommitmentType(chanType channeldb.ChannelType) lnrpc.CommitmentType {
 	return lnrpc.CommitmentType_LEGACY
 }
 
+// createChannelConstraint creates a *lnrpc.ChannelConstraints using the
+// *Channeldb.ChannelConfig.
+func createChannelConstraint(
+	chanCfg *channeldb.ChannelConfig) *lnrpc.ChannelConstraints {
+
+	return &lnrpc.ChannelConstraints{
+		CsvDelay:          uint32(chanCfg.CsvDelay),
+		ChanReserveSat:    uint64(chanCfg.ChanReserve),
+		DustLimitSat:      uint64(chanCfg.DustLimit),
+		MaxPendingAmtMsat: uint64(chanCfg.MaxPendingAmount),
+		MinHtlcMsat:       uint64(chanCfg.MinHTLC),
+		MaxAcceptedHtlcs:  uint32(chanCfg.MaxAcceptedHtlcs),
+	}
+}
+
 // createRPCOpenChannel creates an *lnrpc.Channel from the *channeldb.Channel.
 func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 	dbChannel *channeldb.OpenChannel, isActive bool) (*lnrpc.Channel, error) {
@@ -3351,14 +3366,21 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		TotalSatoshisReceived: int64(dbChannel.TotalMSatReceived.ToSatoshis()),
 		NumUpdates:            localCommit.CommitHeight,
 		PendingHtlcs:          make([]*lnrpc.HTLC, len(localCommit.Htlcs)),
-		CsvDelay:              uint32(dbChannel.LocalChanCfg.CsvDelay),
 		Initiator:             dbChannel.IsInitiator,
 		ChanStatusFlags:       dbChannel.ChanStatus().String(),
-		LocalChanReserveSat:   int64(dbChannel.LocalChanCfg.ChanReserve),
-		RemoteChanReserveSat:  int64(dbChannel.RemoteChanCfg.ChanReserve),
 		StaticRemoteKey:       commitmentType == lnrpc.CommitmentType_STATIC_REMOTE_KEY,
 		CommitmentType:        commitmentType,
 		ThawHeight:            dbChannel.ThawHeight,
+		LocalConstraints: createChannelConstraint(
+			&dbChannel.LocalChanCfg,
+		),
+		RemoteConstraints: createChannelConstraint(
+			&dbChannel.RemoteChanCfg,
+		),
+		// TODO: remove the following deprecated fields
+		CsvDelay:             uint32(dbChannel.LocalChanCfg.CsvDelay),
+		LocalChanReserveSat:  int64(dbChannel.LocalChanCfg.ChanReserve),
+		RemoteChanReserveSat: int64(dbChannel.RemoteChanCfg.ChanReserve),
 	}
 
 	for i, htlc := range localCommit.Htlcs {

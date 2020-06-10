@@ -861,7 +861,7 @@ func closeAllChannels(ctx *cli.Context) error {
 					"The closing transaction will need %d "+
 					"confirmations before the funds can be "+
 					"spent. (yes/no): ", channel.RemotePubkey,
-					channel.ChannelPoint, channel.CsvDelay)
+					channel.ChannelPoint, channel.LocalConstraints.CsvDelay)
 
 				confirmed := promptForConfirmation(msg)
 

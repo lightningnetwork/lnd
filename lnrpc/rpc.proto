@@ -993,6 +993,30 @@ enum CommitmentType {
     UNKNOWN_COMMITMENT_TYPE = 999;
 }
 
+message ChannelConstraints {
+    /*
+    The CSV delay expressed in relative blocks. If the channel is force closed,
+    we will need to wait for this many blocks before we can regain our funds.
+    */
+    uint32 csv_delay = 1;
+
+    // The minimum satoshis this node is required to reserve in its balance.
+    uint64 chan_reserve_sat = 2;
+
+    // The dust limit (in satoshis) of the initiator's commitment tx.
+    uint64 dust_limit_sat = 3;
+
+    // The maximum amount of coins in millisatoshis that can be pending in this
+    // channel.
+    uint64 max_pending_amt_msat = 4;
+
+    // The smallest HTLC in millisatoshis that the initiator will accept.
+    uint64 min_htlc_msat = 5;
+
+    // The total number of incoming HTLC's that the initiator will accept.
+    uint32 max_accepted_htlcs = 6;
+}
+
 message Channel {
     // Whether this channel is active or not
     bool active = 1;
@@ -1065,10 +1089,11 @@ message Channel {
     repeated HTLC pending_htlcs = 15;
 
     /*
-    The CSV delay expressed in relative blocks. If the channel is force closed,
-    we will need to wait for this many blocks before we can regain our funds.
+    Deprecated. The CSV delay expressed in relative blocks. If the channel is
+    force closed, we will need to wait for this many blocks before we can regain
+    our funds.
     */
-    uint32 csv_delay = 16;
+    uint32 csv_delay = 16 [deprecated = true];
 
     // Whether this channel is advertised to the network or not.
     bool private = 17;
@@ -1079,13 +1104,15 @@ message Channel {
     // A set of flags showing the current state of the channel.
     string chan_status_flags = 19;
 
-    // The minimum satoshis this node is required to reserve in its balance.
-    int64 local_chan_reserve_sat = 20;
+    // Deprecated. The minimum satoshis this node is required to reserve in its
+    // balance.
+    int64 local_chan_reserve_sat = 20 [deprecated = true];
 
     /*
-    The minimum satoshis the other node is required to reserve in its balance.
+    Deprecated. The minimum satoshis the other node is required to reserve in
+    its balance.
     */
-    int64 remote_chan_reserve_sat = 21;
+    int64 remote_chan_reserve_sat = 21 [deprecated = true];
 
     // Deprecated. Use commitment_type.
     bool static_remote_key = 22 [deprecated = true];
@@ -1133,6 +1160,12 @@ message Channel {
     value of zero will mean the channel has no additional restrictions.
     */
     uint32 thaw_height = 28;
+
+    // List constraints for the local node.
+    ChannelConstraints local_constraints = 29;
+
+    // List constraints for the remote node.
+    ChannelConstraints remote_constraints = 30;
 }
 
 message ListChannelsRequest {

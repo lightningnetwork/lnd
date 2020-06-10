@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"sort"
 	"time"
 
@@ -511,62 +510,70 @@ type PaymentsResponse struct {
 func (db *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 	var resp PaymentsResponse
 
-	allPayments, err := db.FetchPayments()
-	if err != nil {
+	if err := kvdb.View(db, func(tx kvdb.RTx) error {
+		// Get the root payments bucket.
+		paymentsBucket := tx.ReadBucket(paymentsRootBucket)
+		if paymentsBucket == nil {
+			return nil
+		}
+
+		// Get the index bucket which maps sequence number -> payment
+		// hash and duplicate bool. If we have a payments bucket, we
+		// should have an indexes bucket as well.
+		indexes := tx.ReadBucket(paymentsIndexBucket)
+		if indexes == nil {
+			return fmt.Errorf("index bucket does not exist")
+		}
+
+		// accumulatePayments gets payments with the sequence number
+		// and hash provided and adds them to our list of payments if
+		// they meet the criteria of our query. It returns the number
+		// of payments that were added.
+		accumulatePayments := func(sequenceKey, hash []byte) (bool,
+			error) {
+
+			r := bytes.NewReader(hash)
+			paymentHash, err := deserializePaymentIndex(r)
+			if err != nil {
+				return false, err
+			}
+
+			payment, err := fetchPaymentWithSequenceNumber(
+				tx, paymentHash, sequenceKey,
+			)
+			if err != nil {
+				return false, err
+			}
+
+			// To keep compatibility with the old API, we only
+			// return non-succeeded payments if requested.
+			if payment.Status != StatusSucceeded &&
+				!query.IncludeIncomplete {
+
+				return false, err
+			}
+
+			// At this point, we've exhausted the offset, so we'll
+			// begin collecting invoices found within the range.
+			resp.Payments = append(resp.Payments, payment)
+			return true, nil
+		}
+
+		// Create a paginator which reads from our sequence index bucket
+		// with the parameters provided by the payments query.
+		paginator := newPaginator(
+			indexes.ReadCursor(), query.Reversed, query.IndexOffset,
+			query.MaxPayments,
+		)
+
+		// Run a paginated query, adding payments to our response.
+		if err := paginator.query(accumulatePayments); err != nil {
+			return err
+		}
+
+		return nil
+	}); err != nil {
 		return resp, err
-	}
-
-	if len(allPayments) == 0 {
-		return resp, nil
-	}
-
-	indexExclusiveLimit := query.IndexOffset
-	// In backward pagination, if the index limit is the default 0 value,
-	// we set our limit to maxint to include all payments from the highest
-	// sequence number on.
-	if query.Reversed && indexExclusiveLimit == 0 {
-		indexExclusiveLimit = math.MaxInt64
-	}
-
-	for i := range allPayments {
-		var payment *MPPayment
-
-		// If we have the max number of payments we want, exit.
-		if uint64(len(resp.Payments)) == query.MaxPayments {
-			break
-		}
-
-		if query.Reversed {
-			payment = allPayments[len(allPayments)-1-i]
-
-			// In the reversed direction, skip over all payments
-			// that have sequence numbers greater than or equal to
-			// the index offset. We skip payments with equal index
-			// because the offset is exclusive.
-			if payment.SequenceNum >= indexExclusiveLimit {
-				continue
-			}
-		} else {
-			payment = allPayments[i]
-
-			// In the forward direction, skip over all payments that
-			// have sequence numbers less than or equal to the index
-			// offset. We skip payments with equal indexes because
-			// the index offset is exclusive.
-			if payment.SequenceNum <= indexExclusiveLimit {
-				continue
-			}
-		}
-
-		// To keep compatibility with the old API, we only return
-		// non-succeeded payments if requested.
-		if payment.Status != StatusSucceeded &&
-			!query.IncludeIncomplete {
-
-			continue
-		}
-
-		resp.Payments = append(resp.Payments, payment)
 	}
 
 	// Need to swap the payments slice order if reversed order.
@@ -585,7 +592,7 @@ func (db *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 			resp.Payments[len(resp.Payments)-1].SequenceNum
 	}
 
-	return resp, err
+	return resp, nil
 }
 
 // fetchPaymentWithSequenceNumber get the payment which matches the payment hash

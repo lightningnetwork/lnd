@@ -165,18 +165,24 @@ func TestRouteSerialization(t *testing.T) {
 }
 
 // deletePayment removes a payment with paymentHash from the payments database.
-func deletePayment(t *testing.T, db *DB, paymentHash lntypes.Hash) {
+func deletePayment(t *testing.T, db *DB, paymentHash lntypes.Hash, seqNr uint64) {
 	t.Helper()
 
 	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		payments := tx.ReadWriteBucket(paymentsRootBucket)
 
+		// Delete the payment bucket.
 		err := payments.DeleteNestedBucket(paymentHash[:])
 		if err != nil {
 			return err
 		}
 
-		return nil
+		key := make([]byte, 8)
+		byteOrder.PutUint64(key, seqNr)
+
+		// Delete the index that references this payment.
+		indexes := tx.ReadWriteBucket(paymentsIndexBucket)
+		return indexes.Delete(key)
 	})
 
 	if err != nil {
@@ -350,6 +356,42 @@ func TestQueryPayments(t *testing.T) {
 			lastIndex:      7,
 			expectedSeqNrs: []uint64{3, 4, 5, 6, 7},
 		},
+		{
+			name: "query payments reverse before index gap",
+			query: PaymentsQuery{
+				IndexOffset:       3,
+				MaxPayments:       7,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      1,
+			expectedSeqNrs: []uint64{1},
+		},
+		{
+			name: "query payments reverse on index gap",
+			query: PaymentsQuery{
+				IndexOffset:       2,
+				MaxPayments:       7,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      1,
+			expectedSeqNrs: []uint64{1},
+		},
+		{
+			name: "query payments forward on index gap",
+			query: PaymentsQuery{
+				IndexOffset:       2,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     3,
+			lastIndex:      4,
+			expectedSeqNrs: []uint64{3, 4},
+		},
 	}
 
 	for _, tt := range tests {
@@ -358,11 +400,16 @@ func TestQueryPayments(t *testing.T) {
 			t.Parallel()
 
 			db, cleanup, err := makeTestDB()
-			defer cleanup()
-
 			if err != nil {
 				t.Fatalf("unable to init db: %v", err)
 			}
+			defer cleanup()
+
+			// Make a preliminary query to make sure it's ok to
+			// query when we have no payments.
+			resp, err := db.QueryPayments(tt.query)
+			require.NoError(t, err)
+			require.Len(t, resp.Payments, 0)
 
 			// Populate the database with a set of test payments.
 			// We create 6 original payments, deleting the payment
@@ -391,7 +438,13 @@ func TestQueryPayments(t *testing.T) {
 
 				// Immediately delete the payment with index 2.
 				if i == 1 {
-					deletePayment(t, db, info.PaymentHash)
+					pmt, err := pControl.FetchPayment(
+						info.PaymentHash,
+					)
+					require.NoError(t, err)
+
+					deletePayment(t, db, info.PaymentHash,
+						pmt.SequenceNum)
 				}
 
 				// If we are on the last payment entry, add a

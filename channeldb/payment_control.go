@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -74,6 +75,11 @@ var (
 	// errNoAttemptInfo is returned when no attempt info is stored yet.
 	errNoAttemptInfo = errors.New("unable to find attempt info for " +
 		"inflight payment")
+
+	// errNoSequenceNrIndex is returned when an attempt to lookup a payment
+	// index is made for a sequence number that is not indexed.
+	errNoSequenceNrIndex = errors.New("payment sequence number index " +
+		"does not exist")
 )
 
 // PaymentControl implements persistence for payments and payment attempts.
@@ -152,6 +158,27 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 			return err
 		}
 
+		// Before we set our new sequence number, we check whether this
+		// payment has a previously set sequence number and remove its
+		// index entry if it exists. This happens in the case where we
+		// have a previously attempted payment which was left in a state
+		// where we can retry.
+		seqBytes := bucket.Get(paymentSequenceKey)
+		if seqBytes != nil {
+			indexBucket := tx.ReadWriteBucket(paymentsIndexBucket)
+			if err := indexBucket.Delete(seqBytes); err != nil {
+				return err
+			}
+		}
+
+		// Once we have obtained a sequence number, we add an entry
+		// to our index bucket which will map the sequence number to
+		// our payment hash.
+		err = createPaymentIndexEntry(tx, sequenceNum, info.PaymentHash)
+		if err != nil {
+			return err
+		}
+
 		err = bucket.Put(paymentSequenceKey, sequenceNum)
 		if err != nil {
 			return err
@@ -181,6 +208,58 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 	}
 
 	return updateErr
+}
+
+// paymentIndexTypeHash is a payment index type which indicates that we have
+// created an index of payment sequence number to payment hash.
+type paymentIndexType uint8
+
+// paymentIndexTypeHash is a payment index type which indicates that we have
+// created an index of payment sequence number to payment hash.
+const paymentIndexTypeHash paymentIndexType = 0
+
+// createPaymentIndexEntry creates a payment hash typed index for a payment. The
+// index produced contains a payment index type (which can be used in future to
+// signal different payment index types) and the payment hash.
+func createPaymentIndexEntry(tx kvdb.RwTx, sequenceNumber []byte,
+	hash lntypes.Hash) error {
+
+	var b bytes.Buffer
+	if err := WriteElements(&b, paymentIndexTypeHash, hash[:]); err != nil {
+		return err
+	}
+
+	indexes := tx.ReadWriteBucket(paymentsIndexBucket)
+	return indexes.Put(sequenceNumber, b.Bytes())
+}
+
+// deserializePaymentIndex deserializes a payment index entry. This function
+// currently only supports deserialization of payment hash indexes, and will
+// fail for other types.
+func deserializePaymentIndex(r io.Reader) (lntypes.Hash, error) {
+	var (
+		indexType   paymentIndexType
+		paymentHash []byte
+	)
+
+	if err := ReadElements(r, &indexType, &paymentHash); err != nil {
+		return lntypes.Hash{}, err
+	}
+
+	// While we only have on payment index type, we do not need to use our
+	// index type to deserialize the index. However, we sanity check that
+	// this type is as expected, since we had to read it out anyway.
+	if indexType != paymentIndexTypeHash {
+		return lntypes.Hash{}, fmt.Errorf("unknown payment index "+
+			"type: %v", indexType)
+	}
+
+	hash, err := lntypes.MakeHash(paymentHash)
+	if err != nil {
+		return lntypes.Hash{}, err
+	}
+
+	return hash, nil
 }
 
 // RegisterAttempt atomically records the provided HTLCAttemptInfo to the

@@ -9,11 +9,13 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -163,18 +165,24 @@ func TestRouteSerialization(t *testing.T) {
 }
 
 // deletePayment removes a payment with paymentHash from the payments database.
-func deletePayment(t *testing.T, db *DB, paymentHash lntypes.Hash) {
+func deletePayment(t *testing.T, db *DB, paymentHash lntypes.Hash, seqNr uint64) {
 	t.Helper()
 
 	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		payments := tx.ReadWriteBucket(paymentsRootBucket)
 
+		// Delete the payment bucket.
 		err := payments.DeleteNestedBucket(paymentHash[:])
 		if err != nil {
 			return err
 		}
 
-		return nil
+		key := make([]byte, 8)
+		byteOrder.PutUint64(key, seqNr)
+
+		// Delete the index that references this payment.
+		indexes := tx.ReadWriteBucket(paymentsIndexBucket)
+		return indexes.Delete(key)
 	})
 
 	if err != nil {
@@ -188,6 +196,10 @@ func deletePayment(t *testing.T, db *DB, paymentHash lntypes.Hash) {
 func TestQueryPayments(t *testing.T) {
 	// Define table driven test for QueryPayments.
 	// Test payments have sequence indices [1, 3, 4, 5, 6, 7].
+	// Note that the payment with index 7 has the same payment hash as 6,
+	// and is stored in a nested bucket within payment 6 rather than being
+	// its own entry in the payments bucket. We do this to test retrieval
+	// of legacy payments.
 	tests := []struct {
 		name       string
 		query      PaymentsQuery
@@ -344,6 +356,42 @@ func TestQueryPayments(t *testing.T) {
 			lastIndex:      7,
 			expectedSeqNrs: []uint64{3, 4, 5, 6, 7},
 		},
+		{
+			name: "query payments reverse before index gap",
+			query: PaymentsQuery{
+				IndexOffset:       3,
+				MaxPayments:       7,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      1,
+			expectedSeqNrs: []uint64{1},
+		},
+		{
+			name: "query payments reverse on index gap",
+			query: PaymentsQuery{
+				IndexOffset:       2,
+				MaxPayments:       7,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      1,
+			expectedSeqNrs: []uint64{1},
+		},
+		{
+			name: "query payments forward on index gap",
+			query: PaymentsQuery{
+				IndexOffset:       2,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     3,
+			lastIndex:      4,
+			expectedSeqNrs: []uint64{3, 4},
+		},
 	}
 
 	for _, tt := range tests {
@@ -352,17 +400,28 @@ func TestQueryPayments(t *testing.T) {
 			t.Parallel()
 
 			db, cleanup, err := makeTestDB()
-			defer cleanup()
-
 			if err != nil {
 				t.Fatalf("unable to init db: %v", err)
 			}
+			defer cleanup()
+
+			// Make a preliminary query to make sure it's ok to
+			// query when we have no payments.
+			resp, err := db.QueryPayments(tt.query)
+			require.NoError(t, err)
+			require.Len(t, resp.Payments, 0)
 
 			// Populate the database with a set of test payments.
-			numberOfPayments := 7
+			// We create 6 original payments, deleting the payment
+			// at index 2 so that we cover the case where sequence
+			// numbers are missing. We also add a duplicate payment
+			// to the last payment added to test the legacy case
+			// where we have duplicates in the nested duplicates
+			// bucket.
+			nonDuplicatePayments := 6
 			pControl := NewPaymentControl(db)
 
-			for i := 0; i < numberOfPayments; i++ {
+			for i := 0; i < nonDuplicatePayments; i++ {
 				// Generate a test payment.
 				info, _, _, err := genInfo()
 				if err != nil {
@@ -379,7 +438,29 @@ func TestQueryPayments(t *testing.T) {
 
 				// Immediately delete the payment with index 2.
 				if i == 1 {
-					deletePayment(t, db, info.PaymentHash)
+					pmt, err := pControl.FetchPayment(
+						info.PaymentHash,
+					)
+					require.NoError(t, err)
+
+					deletePayment(t, db, info.PaymentHash,
+						pmt.SequenceNum)
+				}
+
+				// If we are on the last payment entry, add a
+				// duplicate payment with sequence number equal
+				// to the parent payment + 1.
+				if i == (nonDuplicatePayments - 1) {
+					pmt, err := pControl.FetchPayment(
+						info.PaymentHash,
+					)
+					require.NoError(t, err)
+
+					appendDuplicatePayment(
+						t, pControl.db,
+						info.PaymentHash,
+						pmt.SequenceNum+1,
+					)
 				}
 			}
 
@@ -423,4 +504,211 @@ func TestQueryPayments(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestFetchPaymentWithSequenceNumber tests lookup of payments with their
+// sequence number. It sets up one payment with no duplicates, and another with
+// two duplicates in its duplicates bucket then uses these payments to test the
+// case where a specific duplicate is not found and the duplicates bucket is not
+// present when we expect it to be.
+func TestFetchPaymentWithSequenceNumber(t *testing.T) {
+	db, cleanup, err := makeTestDB()
+	require.NoError(t, err)
+
+	defer cleanup()
+
+	pControl := NewPaymentControl(db)
+
+	// Generate a test payment which does not have duplicates.
+	noDuplicates, _, _, err := genInfo()
+	require.NoError(t, err)
+
+	// Create a new payment entry in the database.
+	err = pControl.InitPayment(noDuplicates.PaymentHash, noDuplicates)
+	require.NoError(t, err)
+
+	// Fetch the payment so we can get its sequence nr.
+	noDuplicatesPayment, err := pControl.FetchPayment(
+		noDuplicates.PaymentHash,
+	)
+	require.NoError(t, err)
+
+	// Generate a test payment which we will add duplicates to.
+	hasDuplicates, _, _, err := genInfo()
+	require.NoError(t, err)
+
+	// Create a new payment entry in the database.
+	err = pControl.InitPayment(hasDuplicates.PaymentHash, hasDuplicates)
+	require.NoError(t, err)
+
+	// Fetch the payment so we can get its sequence nr.
+	hasDuplicatesPayment, err := pControl.FetchPayment(
+		hasDuplicates.PaymentHash,
+	)
+	require.NoError(t, err)
+
+	// We declare the sequence numbers used here so that we can reference
+	// them in tests.
+	var (
+		duplicateOneSeqNr = hasDuplicatesPayment.SequenceNum + 1
+		duplicateTwoSeqNr = hasDuplicatesPayment.SequenceNum + 2
+	)
+
+	// Add two duplicates to our second payment.
+	appendDuplicatePayment(
+		t, db, hasDuplicates.PaymentHash, duplicateOneSeqNr,
+	)
+	appendDuplicatePayment(
+		t, db, hasDuplicates.PaymentHash, duplicateTwoSeqNr,
+	)
+
+	tests := []struct {
+		name           string
+		paymentHash    lntypes.Hash
+		sequenceNumber uint64
+		expectedErr    error
+	}{
+		{
+			name:           "lookup payment without duplicates",
+			paymentHash:    noDuplicates.PaymentHash,
+			sequenceNumber: noDuplicatesPayment.SequenceNum,
+			expectedErr:    nil,
+		},
+		{
+			name:           "lookup payment with duplicates",
+			paymentHash:    hasDuplicates.PaymentHash,
+			sequenceNumber: hasDuplicatesPayment.SequenceNum,
+			expectedErr:    nil,
+		},
+		{
+			name:           "lookup first duplicate",
+			paymentHash:    hasDuplicates.PaymentHash,
+			sequenceNumber: duplicateOneSeqNr,
+			expectedErr:    nil,
+		},
+		{
+			name:           "lookup second duplicate",
+			paymentHash:    hasDuplicates.PaymentHash,
+			sequenceNumber: duplicateTwoSeqNr,
+			expectedErr:    nil,
+		},
+		{
+			name:           "lookup non-existent duplicate",
+			paymentHash:    hasDuplicates.PaymentHash,
+			sequenceNumber: 999999,
+			expectedErr:    ErrDuplicateNotFound,
+		},
+		{
+			name:           "lookup duplicate, no duplicates bucket",
+			paymentHash:    noDuplicates.PaymentHash,
+			sequenceNumber: duplicateTwoSeqNr,
+			expectedErr:    ErrNoDuplicateBucket,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			err := kvdb.Update(db,
+				func(tx walletdb.ReadWriteTx) error {
+
+					var seqNrBytes [8]byte
+					byteOrder.PutUint64(
+						seqNrBytes[:], test.sequenceNumber,
+					)
+
+					_, err := fetchPaymentWithSequenceNumber(
+						tx, test.paymentHash, seqNrBytes[:],
+					)
+					return err
+				})
+			require.Equal(t, test.expectedErr, err)
+		})
+	}
+}
+
+// appendDuplicatePayment adds a duplicate payment to an existing payment. Note
+// that this function requires a unique sequence number.
+//
+// This code is *only* intended to replicate legacy duplicate payments in lnd,
+// our current schema does not allow duplicates.
+func appendDuplicatePayment(t *testing.T, db *DB, paymentHash lntypes.Hash,
+	seqNr uint64) {
+
+	err := kvdb.Update(db, func(tx walletdb.ReadWriteTx) error {
+		bucket, err := fetchPaymentBucketUpdate(
+			tx, paymentHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Create the duplicates bucket if it is not
+		// present.
+		dup, err := bucket.CreateBucketIfNotExists(
+			duplicatePaymentsBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		var sequenceKey [8]byte
+		byteOrder.PutUint64(sequenceKey[:], seqNr)
+
+		// Create duplicate payments for the two dup
+		// sequence numbers we've setup.
+		putDuplicatePayment(t, dup, sequenceKey[:], paymentHash)
+
+		// Finally, once we have created our entry we add an index for
+		// it.
+		err = createPaymentIndexEntry(tx, sequenceKey[:], paymentHash)
+		require.NoError(t, err)
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("could not create payment: %v", err)
+	}
+}
+
+// putDuplicatePayment creates a duplicate payment in the duplicates bucket
+// provided with the minimal information required for successful reading.
+func putDuplicatePayment(t *testing.T, duplicateBucket kvdb.RwBucket,
+	sequenceKey []byte, paymentHash lntypes.Hash) {
+
+	paymentBucket, err := duplicateBucket.CreateBucketIfNotExists(
+		sequenceKey,
+	)
+	require.NoError(t, err)
+
+	err = paymentBucket.Put(duplicatePaymentSequenceKey, sequenceKey)
+	require.NoError(t, err)
+
+	// Generate fake information for the duplicate payment.
+	info, _, _, err := genInfo()
+	require.NoError(t, err)
+
+	// Write the payment info to disk under the creation info key. This code
+	// is copied rather than using serializePaymentCreationInfo to ensure
+	// we always write in the legacy format used by duplicate payments.
+	var b bytes.Buffer
+	var scratch [8]byte
+	_, err = b.Write(paymentHash[:])
+	require.NoError(t, err)
+
+	byteOrder.PutUint64(scratch[:], uint64(info.Value))
+	_, err = b.Write(scratch[:])
+	require.NoError(t, err)
+
+	err = serializeTime(&b, info.CreationTime)
+	require.NoError(t, err)
+
+	byteOrder.PutUint32(scratch[:4], 0)
+	_, err = b.Write(scratch[:4])
+	require.NoError(t, err)
+
+	// Get the PaymentCreationInfo.
+	err = paymentBucket.Put(duplicatePaymentCreationInfoKey, b.Bytes())
+	require.NoError(t, err)
 }

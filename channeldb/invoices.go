@@ -839,85 +839,47 @@ func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
 		if invoices == nil {
 			return ErrNoInvoicesCreated
 		}
+
+		// Get the add index bucket which we will use to iterate through
+		// our indexed invoices.
 		invoiceAddIndex := invoices.NestedReadBucket(addIndexBucket)
 		if invoiceAddIndex == nil {
 			return ErrNoInvoicesCreated
 		}
 
-		// keyForIndex is a helper closure that retrieves the invoice
-		// key for the given add index of an invoice.
-		keyForIndex := func(c kvdb.RCursor, index uint64) []byte {
-			var keyIndex [8]byte
-			byteOrder.PutUint64(keyIndex[:], index)
-			_, invoiceKey := c.Seek(keyIndex[:])
-			return invoiceKey
-		}
+		// Create a paginator which reads from our add index bucket with
+		// the parameters provided by the invoice query.
+		paginator := newPaginator(
+			invoiceAddIndex.ReadCursor(), q.Reversed, q.IndexOffset,
+			q.NumMaxInvoices,
+		)
 
-		// nextKey is a helper closure to determine what the next
-		// invoice key is when iterating over the invoice add index.
-		nextKey := func(c kvdb.RCursor) ([]byte, []byte) {
-			if q.Reversed {
-				return c.Prev()
-			}
-			return c.Next()
-		}
-
-		// We'll be using a cursor to seek into the database and return
-		// a slice of invoices. We'll need to determine where to start
-		// our cursor depending on the parameters set within the query.
-		c := invoiceAddIndex.ReadCursor()
-		invoiceKey := keyForIndex(c, q.IndexOffset+1)
-
-		// If the query is specifying reverse iteration, then we must
-		// handle a few offset cases.
-		if q.Reversed {
-			switch q.IndexOffset {
-
-			// This indicates the default case, where no offset was
-			// specified. In that case we just start from the last
-			// invoice.
-			case 0:
-				_, invoiceKey = c.Last()
-
-			// This indicates the offset being set to the very
-			// first invoice. Since there are no invoices before
-			// this offset, and the direction is reversed, we can
-			// return without adding any invoices to the response.
-			case 1:
-				return nil
-
-			// Otherwise we start iteration at the invoice prior to
-			// the offset.
-			default:
-				invoiceKey = keyForIndex(c, q.IndexOffset-1)
-			}
-		}
-
-		// If we know that a set of invoices exists, then we'll begin
-		// our seek through the bucket in order to satisfy the query.
-		// We'll continue until either we reach the end of the range, or
-		// reach our max number of invoices.
-		for ; invoiceKey != nil; _, invoiceKey = nextKey(c) {
-			// If our current return payload exceeds the max number
-			// of invoices, then we'll exit now.
-			if uint64(len(resp.Invoices)) >= q.NumMaxInvoices {
-				break
-			}
-
-			invoice, err := fetchInvoice(invoiceKey, invoices)
+		// accumulateInvoices looks up an invoice based on the index we
+		// are given, adds it to our set of invoices if it has the right
+		// characteristics for our query and returns the number of items
+		// we have added to our set of invoices.
+		accumulateInvoices := func(_, indexValue []byte) (bool, error) {
+			invoice, err := fetchInvoice(indexValue, invoices)
 			if err != nil {
-				return err
+				return false, err
 			}
 
-			// Skip any settled or canceled invoices if the caller is
-			// only interested in pending ones.
+			// Skip any settled or canceled invoices if the caller
+			// is only interested in pending ones.
 			if q.PendingOnly && !invoice.IsPending() {
-				continue
+				return false, nil
 			}
 
 			// At this point, we've exhausted the offset, so we'll
 			// begin collecting invoices found within the range.
 			resp.Invoices = append(resp.Invoices, invoice)
+			return true, nil
+		}
+
+		// Query our paginator using accumulateInvoices to build up a
+		// set of invoices.
+		if err := paginator.query(accumulateInvoices); err != nil {
+			return err
 		}
 
 		// If we iterated through the add index in reverse order, then

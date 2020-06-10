@@ -3,9 +3,9 @@ package channeldb
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
-	"math"
 	"sort"
 	"time"
 
@@ -92,6 +92,35 @@ var (
 	// paymentFailInfoKey is a key used in the payment's sub-bucket to
 	// store information about the reason a payment failed.
 	paymentFailInfoKey = []byte("payment-fail-info")
+
+	// paymentsIndexBucket is the name of the top-level bucket within the
+	// database that stores an index of payment sequence numbers to its
+	// payment hash.
+	// payments-sequence-index-bucket
+	// 	|--<sequence-number>: <payment hash>
+	// 	|--...
+	// 	|--<sequence-number>: <payment hash>
+	paymentsIndexBucket = []byte("payments-index-bucket")
+)
+
+var (
+	// ErrNoSequenceNumber is returned if we lookup a payment which does
+	// not have a sequence number.
+	ErrNoSequenceNumber = errors.New("sequence number not found")
+
+	// ErrDuplicateNotFound is returned when we lookup a payment by its
+	// index and cannot find a payment with a matching sequence number.
+	ErrDuplicateNotFound = errors.New("duplicate payment not found")
+
+	// ErrNoDuplicateBucket is returned when we expect to find duplicates
+	// when looking up a payment from its index, but the payment does not
+	// have any.
+	ErrNoDuplicateBucket = errors.New("expected duplicate bucket")
+
+	// ErrNoDuplicateNestedBucket is returned if we do not find duplicate
+	// payments in their own sub-bucket.
+	ErrNoDuplicateNestedBucket = errors.New("nested duplicate bucket not " +
+		"found")
 )
 
 // FailureReason encodes the reason a payment ultimately failed.
@@ -481,62 +510,70 @@ type PaymentsResponse struct {
 func (db *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 	var resp PaymentsResponse
 
-	allPayments, err := db.FetchPayments()
-	if err != nil {
+	if err := kvdb.View(db, func(tx kvdb.RTx) error {
+		// Get the root payments bucket.
+		paymentsBucket := tx.ReadBucket(paymentsRootBucket)
+		if paymentsBucket == nil {
+			return nil
+		}
+
+		// Get the index bucket which maps sequence number -> payment
+		// hash and duplicate bool. If we have a payments bucket, we
+		// should have an indexes bucket as well.
+		indexes := tx.ReadBucket(paymentsIndexBucket)
+		if indexes == nil {
+			return fmt.Errorf("index bucket does not exist")
+		}
+
+		// accumulatePayments gets payments with the sequence number
+		// and hash provided and adds them to our list of payments if
+		// they meet the criteria of our query. It returns the number
+		// of payments that were added.
+		accumulatePayments := func(sequenceKey, hash []byte) (bool,
+			error) {
+
+			r := bytes.NewReader(hash)
+			paymentHash, err := deserializePaymentIndex(r)
+			if err != nil {
+				return false, err
+			}
+
+			payment, err := fetchPaymentWithSequenceNumber(
+				tx, paymentHash, sequenceKey,
+			)
+			if err != nil {
+				return false, err
+			}
+
+			// To keep compatibility with the old API, we only
+			// return non-succeeded payments if requested.
+			if payment.Status != StatusSucceeded &&
+				!query.IncludeIncomplete {
+
+				return false, err
+			}
+
+			// At this point, we've exhausted the offset, so we'll
+			// begin collecting invoices found within the range.
+			resp.Payments = append(resp.Payments, payment)
+			return true, nil
+		}
+
+		// Create a paginator which reads from our sequence index bucket
+		// with the parameters provided by the payments query.
+		paginator := newPaginator(
+			indexes.ReadCursor(), query.Reversed, query.IndexOffset,
+			query.MaxPayments,
+		)
+
+		// Run a paginated query, adding payments to our response.
+		if err := paginator.query(accumulatePayments); err != nil {
+			return err
+		}
+
+		return nil
+	}); err != nil {
 		return resp, err
-	}
-
-	if len(allPayments) == 0 {
-		return resp, nil
-	}
-
-	indexExclusiveLimit := query.IndexOffset
-	// In backward pagination, if the index limit is the default 0 value,
-	// we set our limit to maxint to include all payments from the highest
-	// sequence number on.
-	if query.Reversed && indexExclusiveLimit == 0 {
-		indexExclusiveLimit = math.MaxInt64
-	}
-
-	for i := range allPayments {
-		var payment *MPPayment
-
-		// If we have the max number of payments we want, exit.
-		if uint64(len(resp.Payments)) == query.MaxPayments {
-			break
-		}
-
-		if query.Reversed {
-			payment = allPayments[len(allPayments)-1-i]
-
-			// In the reversed direction, skip over all payments
-			// that have sequence numbers greater than or equal to
-			// the index offset. We skip payments with equal index
-			// because the offset is exclusive.
-			if payment.SequenceNum >= indexExclusiveLimit {
-				continue
-			}
-		} else {
-			payment = allPayments[i]
-
-			// In the forward direction, skip over all payments that
-			// have sequence numbers less than or equal to the index
-			// offset. We skip payments with equal indexes because
-			// the index offset is exclusive.
-			if payment.SequenceNum <= indexExclusiveLimit {
-				continue
-			}
-		}
-
-		// To keep compatibility with the old API, we only return
-		// non-succeeded payments if requested.
-		if payment.Status != StatusSucceeded &&
-			!query.IncludeIncomplete {
-
-			continue
-		}
-
-		resp.Payments = append(resp.Payments, payment)
 	}
 
 	// Need to swap the payments slice order if reversed order.
@@ -555,7 +592,84 @@ func (db *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 			resp.Payments[len(resp.Payments)-1].SequenceNum
 	}
 
-	return resp, err
+	return resp, nil
+}
+
+// fetchPaymentWithSequenceNumber get the payment which matches the payment hash
+// *and* sequence number provided from the database. This is required because
+// we previously had more than one payment per hash, so we have multiple indexes
+// pointing to a single payment; we want to retrieve the correct one.
+func fetchPaymentWithSequenceNumber(tx kvdb.RTx, paymentHash lntypes.Hash,
+	sequenceNumber []byte) (*MPPayment, error) {
+
+	// We can now lookup the payment keyed by its hash in
+	// the payments root bucket.
+	bucket, err := fetchPaymentBucket(tx, paymentHash)
+	if err != nil {
+		return nil, err
+	}
+
+	// A single payment hash can have multiple payments associated with it.
+	// We lookup our sequence number first, to determine whether this is
+	// the payment we are actually looking for.
+	seqBytes := bucket.Get(paymentSequenceKey)
+	if seqBytes == nil {
+		return nil, ErrNoSequenceNumber
+	}
+
+	// If this top level payment has the sequence number we are looking for,
+	// return it.
+	if bytes.Equal(seqBytes, sequenceNumber) {
+		return fetchPayment(bucket)
+	}
+
+	// If we were not looking for the top level payment, we are looking for
+	// one of our duplicate payments. We need to iterate through the seq
+	// numbers in this bucket to find the correct payments. If we do not
+	// find a duplicate payments bucket here, something is wrong.
+	dup := bucket.NestedReadBucket(duplicatePaymentsBucket)
+	if dup == nil {
+		return nil, ErrNoDuplicateBucket
+	}
+
+	var duplicatePayment *MPPayment
+	err = dup.ForEach(func(k, v []byte) error {
+		subBucket := dup.NestedReadBucket(k)
+		if subBucket == nil {
+			// We one bucket for each duplicate to be found.
+			return ErrNoDuplicateNestedBucket
+		}
+
+		seqBytes := subBucket.Get(duplicatePaymentSequenceKey)
+		if seqBytes == nil {
+			return err
+		}
+
+		// If this duplicate payment is not the sequence number we are
+		// looking for, we can continue.
+		if !bytes.Equal(seqBytes, sequenceNumber) {
+			return nil
+		}
+
+		duplicatePayment, err = fetchDuplicatePayment(subBucket)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// If none of the duplicate payments matched our sequence number, we
+	// failed to find the payment with this sequence number; something is
+	// wrong.
+	if duplicatePayment == nil {
+		return nil, ErrDuplicateNotFound
+	}
+
+	return duplicatePayment, nil
 }
 
 // DeletePayments deletes all completed and failed payments from the DB.
@@ -566,7 +680,15 @@ func (db *DB) DeletePayments() error {
 			return nil
 		}
 
-		var deleteBuckets [][]byte
+		var (
+			// deleteBuckets is the set of payment buckets we need
+			// to delete.
+			deleteBuckets [][]byte
+
+			// deleteIndexes is the set of indexes pointing to these
+			// payments that need to be deleted.
+			deleteIndexes [][]byte
+		)
 		err := payments.ForEach(func(k, _ []byte) error {
 			bucket := payments.NestedReadWriteBucket(k)
 			if bucket == nil {
@@ -589,7 +711,18 @@ func (db *DB) DeletePayments() error {
 				return nil
 			}
 
+			// Add the bucket to the set of buckets we can delete.
 			deleteBuckets = append(deleteBuckets, k)
+
+			// Get all the sequence number associated with the
+			// payment, including duplicates.
+			seqNrs, err := fetchSequenceNumbers(bucket)
+			if err != nil {
+				return err
+			}
+
+			deleteIndexes = append(deleteIndexes, seqNrs...)
+
 			return nil
 		})
 		if err != nil {
@@ -602,8 +735,47 @@ func (db *DB) DeletePayments() error {
 			}
 		}
 
+		// Get our index bucket and delete all indexes pointing to the
+		// payments we are deleting.
+		indexBucket := tx.ReadWriteBucket(paymentsIndexBucket)
+		for _, k := range deleteIndexes {
+			if err := indexBucket.Delete(k); err != nil {
+				return err
+			}
+		}
+
 		return nil
 	})
+}
+
+// fetchSequenceNumbers fetches all the sequence numbers associated with a
+// payment, including those belonging to any duplicate payments.
+func fetchSequenceNumbers(paymentBucket kvdb.RBucket) ([][]byte, error) {
+	seqNum := paymentBucket.Get(paymentSequenceKey)
+	if seqNum == nil {
+		return nil, errors.New("expected sequence number")
+	}
+
+	sequenceNumbers := [][]byte{seqNum}
+
+	// Get the duplicate payments bucket, if it has no duplicates, just
+	// return early with the payment sequence number.
+	duplicates := paymentBucket.NestedReadBucket(duplicatePaymentsBucket)
+	if duplicates == nil {
+		return sequenceNumbers, nil
+	}
+
+	// If we do have duplicated, they are keyed by sequence number, so we
+	// iterate through the duplicates bucket and add them to our set of
+	// sequence numbers.
+	if err := duplicates.ForEach(func(k, v []byte) error {
+		sequenceNumbers = append(sequenceNumbers, k)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return sequenceNumbers, nil
 }
 
 // nolint: dupl

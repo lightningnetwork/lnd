@@ -379,6 +379,13 @@ func (b *BtcWallet) UnlockOutpoint(o wire.OutPoint) {
 // wtxmgr.ErrOutputAlreadyLocked is returned.
 func (b *BtcWallet) LeaseOutput(id wtxmgr.LockID, op wire.OutPoint) (time.Time,
 	error) {
+
+	// Make sure we don't attempt to double lock an output that's been
+	// locked by the in-memory implementation.
+	if b.wallet.LockedOutpoint(op) {
+		return time.Time{}, wtxmgr.ErrOutputAlreadyLocked
+	}
+
 	return b.wallet.LeaseOutput(id, op)
 }
 

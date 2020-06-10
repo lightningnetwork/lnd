@@ -453,6 +453,128 @@ func TestQueryPayments(t *testing.T) {
 	}
 }
 
+// TestFetchPaymentWithSequenceNumber tests lookup of payments with their
+// sequence number. It sets up one payment with no duplicates, and another with
+// two duplicates in its duplicates bucket then uses these payments to test the
+// case where a specific duplicate is not found and the duplicates bucket is not
+// present when we expect it to be.
+func TestFetchPaymentWithSequenceNumber(t *testing.T) {
+	db, cleanup, err := makeTestDB()
+	require.NoError(t, err)
+
+	defer cleanup()
+
+	pControl := NewPaymentControl(db)
+
+	// Generate a test payment which does not have duplicates.
+	noDuplicates, _, _, err := genInfo()
+	require.NoError(t, err)
+
+	// Create a new payment entry in the database.
+	err = pControl.InitPayment(noDuplicates.PaymentHash, noDuplicates)
+	require.NoError(t, err)
+
+	// Fetch the payment so we can get its sequence nr.
+	noDuplicatesPayment, err := pControl.FetchPayment(
+		noDuplicates.PaymentHash,
+	)
+	require.NoError(t, err)
+
+	// Generate a test payment which we will add duplicates to.
+	hasDuplicates, _, _, err := genInfo()
+	require.NoError(t, err)
+
+	// Create a new payment entry in the database.
+	err = pControl.InitPayment(hasDuplicates.PaymentHash, hasDuplicates)
+	require.NoError(t, err)
+
+	// Fetch the payment so we can get its sequence nr.
+	hasDuplicatesPayment, err := pControl.FetchPayment(
+		hasDuplicates.PaymentHash,
+	)
+	require.NoError(t, err)
+
+	// We declare the sequence numbers used here so that we can reference
+	// them in tests.
+	var (
+		duplicateOneSeqNr = hasDuplicatesPayment.SequenceNum + 1
+		duplicateTwoSeqNr = hasDuplicatesPayment.SequenceNum + 2
+	)
+
+	// Add two duplicates to our second payment.
+	appendDuplicatePayment(
+		t, db, hasDuplicates.PaymentHash, duplicateOneSeqNr,
+	)
+	appendDuplicatePayment(
+		t, db, hasDuplicates.PaymentHash, duplicateTwoSeqNr,
+	)
+
+	tests := []struct {
+		name           string
+		paymentHash    lntypes.Hash
+		sequenceNumber uint64
+		expectedErr    error
+	}{
+		{
+			name:           "lookup payment without duplicates",
+			paymentHash:    noDuplicates.PaymentHash,
+			sequenceNumber: noDuplicatesPayment.SequenceNum,
+			expectedErr:    nil,
+		},
+		{
+			name:           "lookup payment with duplicates",
+			paymentHash:    hasDuplicates.PaymentHash,
+			sequenceNumber: hasDuplicatesPayment.SequenceNum,
+			expectedErr:    nil,
+		},
+		{
+			name:           "lookup first duplicate",
+			paymentHash:    hasDuplicates.PaymentHash,
+			sequenceNumber: duplicateOneSeqNr,
+			expectedErr:    nil,
+		},
+		{
+			name:           "lookup second duplicate",
+			paymentHash:    hasDuplicates.PaymentHash,
+			sequenceNumber: duplicateTwoSeqNr,
+			expectedErr:    nil,
+		},
+		{
+			name:           "lookup non-existent duplicate",
+			paymentHash:    hasDuplicates.PaymentHash,
+			sequenceNumber: 999999,
+			expectedErr:    ErrDuplicateNotFound,
+		},
+		{
+			name:           "lookup duplicate, no duplicates bucket",
+			paymentHash:    noDuplicates.PaymentHash,
+			sequenceNumber: duplicateTwoSeqNr,
+			expectedErr:    ErrNoDuplicateBucket,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			err := kvdb.Update(db,
+				func(tx walletdb.ReadWriteTx) error {
+
+					var seqNrBytes [8]byte
+					byteOrder.PutUint64(
+						seqNrBytes[:], test.sequenceNumber,
+					)
+
+					_, err := fetchPaymentWithSequenceNumber(
+						tx, test.paymentHash, seqNrBytes[:],
+					)
+					return err
+				})
+			require.Equal(t, test.expectedErr, err)
+		})
+	}
+}
+
 // appendDuplicatePayment adds a duplicate payment to an existing payment. Note
 // that this function requires a unique sequence number.
 //

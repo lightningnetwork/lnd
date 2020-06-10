@@ -104,6 +104,26 @@ var (
 	paymentsIndexBucket = []byte("payments-index-bucket")
 )
 
+var (
+	// ErrNoSequenceNumber is returned if we lookup a payment which does
+	// not have a sequence number.
+	ErrNoSequenceNumber = errors.New("sequence number not found")
+
+	// ErrDuplicateNotFound is returned when we lookup a payment by its
+	// index and cannot find a payment with a matching sequence number.
+	ErrDuplicateNotFound = errors.New("duplicate payment not found")
+
+	// ErrNoDuplicateBucket is returned when we expect to find duplicates
+	// when looking up a payment from its index, but the payment does not
+	// have any.
+	ErrNoDuplicateBucket = errors.New("expected duplicate bucket")
+
+	// ErrNoDuplicateNestedBucket is returned if we do not find duplicate
+	// payments in their own sub-bucket.
+	ErrNoDuplicateNestedBucket = errors.New("nested duplicate bucket not " +
+		"found")
+)
+
 // FailureReason encodes the reason a payment ultimately failed.
 type FailureReason byte
 
@@ -566,6 +586,83 @@ func (db *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 	}
 
 	return resp, err
+}
+
+// fetchPaymentWithSequenceNumber get the payment which matches the payment hash
+// *and* sequence number provided from the database. This is required because
+// we previously had more than one payment per hash, so we have multiple indexes
+// pointing to a single payment; we want to retrieve the correct one.
+func fetchPaymentWithSequenceNumber(tx kvdb.RTx, paymentHash lntypes.Hash,
+	sequenceNumber []byte) (*MPPayment, error) {
+
+	// We can now lookup the payment keyed by its hash in
+	// the payments root bucket.
+	bucket, err := fetchPaymentBucket(tx, paymentHash)
+	if err != nil {
+		return nil, err
+	}
+
+	// A single payment hash can have multiple payments associated with it.
+	// We lookup our sequence number first, to determine whether this is
+	// the payment we are actually looking for.
+	seqBytes := bucket.Get(paymentSequenceKey)
+	if seqBytes == nil {
+		return nil, ErrNoSequenceNumber
+	}
+
+	// If this top level payment has the sequence number we are looking for,
+	// return it.
+	if bytes.Equal(seqBytes, sequenceNumber) {
+		return fetchPayment(bucket)
+	}
+
+	// If we were not looking for the top level payment, we are looking for
+	// one of our duplicate payments. We need to iterate through the seq
+	// numbers in this bucket to find the correct payments. If we do not
+	// find a duplicate payments bucket here, something is wrong.
+	dup := bucket.NestedReadBucket(duplicatePaymentsBucket)
+	if dup == nil {
+		return nil, ErrNoDuplicateBucket
+	}
+
+	var duplicatePayment *MPPayment
+	err = dup.ForEach(func(k, v []byte) error {
+		subBucket := dup.NestedReadBucket(k)
+		if subBucket == nil {
+			// We one bucket for each duplicate to be found.
+			return ErrNoDuplicateNestedBucket
+		}
+
+		seqBytes := subBucket.Get(duplicatePaymentSequenceKey)
+		if seqBytes == nil {
+			return err
+		}
+
+		// If this duplicate payment is not the sequence number we are
+		// looking for, we can continue.
+		if !bytes.Equal(seqBytes, sequenceNumber) {
+			return nil
+		}
+
+		duplicatePayment, err = fetchDuplicatePayment(subBucket)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// If none of the duplicate payments matched our sequence number, we
+	// failed to find the payment with this sequence number; something is
+	// wrong.
+	if duplicatePayment == nil {
+		return nil, ErrDuplicateNotFound
+	}
+
+	return duplicatePayment, nil
 }
 
 // DeletePayments deletes all completed and failed payments from the DB.

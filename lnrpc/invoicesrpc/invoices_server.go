@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -164,6 +165,28 @@ func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	return nil
 }
 
+// RegisterWithRestServer will be called by the root REST mux to direct a sub
+// RPC server to register itself with the main REST mux server. Until this is
+// called, each sub-server won't be able to have requests routed towards it.
+//
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (s *Server) RegisterWithRestServer(ctx context.Context,
+	mux *runtime.ServeMux, dest string, opts []grpc.DialOption) error {
+
+	// We make sure that we register it with the main REST server to ensure
+	// all our methods are routed properly.
+	err := RegisterInvoicesHandlerFromEndpoint(ctx, mux, dest, opts)
+	if err != nil {
+		log.Errorf("Could not register Invoices REST server "+
+			"with root REST server: %v", err)
+		return err
+	}
+
+	log.Debugf("Invoices REST server successfully registered with " +
+		"root REST server")
+	return nil
+}
+
 // SubscribeSingleInvoice returns a uni-directional stream (server -> client)
 // for notifying the client of state changes for a specified invoice.
 func (s *Server) SubscribeSingleInvoice(req *SubscribeSingleInvoiceRequest,
@@ -274,6 +297,8 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 		FallbackAddr:    invoice.FallbackAddr,
 		CltvExpiry:      invoice.CltvExpiry,
 		Private:         invoice.Private,
+		HodlInvoice:     true,
+		Preimage:        nil,
 	}
 
 	_, dbInvoice, err := AddInvoice(ctx, addInvoiceCfg, addInvoiceData)

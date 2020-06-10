@@ -104,7 +104,7 @@ func (db *DB) addPayment(payment *outgoingPayment) error {
 func (db *DB) fetchAllPayments() ([]*outgoingPayment, error) {
 	var payments []*outgoingPayment
 
-	err := kvdb.View(db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(db, func(tx kvdb.RTx) error {
 		bucket := tx.ReadBucket(paymentBucket)
 		if bucket == nil {
 			return ErrNoPaymentsCreated
@@ -140,7 +140,7 @@ func (db *DB) fetchAllPayments() ([]*outgoingPayment, error) {
 // NOTE: Deprecated. Kept around for migration purposes.
 func (db *DB) fetchPaymentStatus(paymentHash [32]byte) (PaymentStatus, error) {
 	var paymentStatus = StatusUnknown
-	err := kvdb.View(db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(db, func(tx kvdb.RTx) error {
 		var err error
 		paymentStatus, err = fetchPaymentStatusTx(tx, paymentHash)
 		return err
@@ -158,7 +158,7 @@ func (db *DB) fetchPaymentStatus(paymentHash [32]byte) (PaymentStatus, error) {
 // can be composed into other atomic operations.
 //
 // NOTE: Deprecated. Kept around for migration purposes.
-func fetchPaymentStatusTx(tx kvdb.ReadTx, paymentHash [32]byte) (PaymentStatus, error) {
+func fetchPaymentStatusTx(tx kvdb.RTx, paymentHash [32]byte) (PaymentStatus, error) {
 	// The default status for all payments that aren't recorded in database.
 	var paymentStatus = StatusUnknown
 
@@ -375,7 +375,7 @@ func deserializeHopMigration9(r io.Reader) (*Hop, error) {
 func (db *DB) fetchPaymentsMigration9() ([]*Payment, error) {
 	var payments []*Payment
 
-	err := kvdb.View(db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(db, func(tx kvdb.RTx) error {
 		paymentsBucket := tx.ReadBucket(paymentsRootBucket)
 		if paymentsBucket == nil {
 			return nil
@@ -437,7 +437,7 @@ func (db *DB) fetchPaymentsMigration9() ([]*Payment, error) {
 	return payments, nil
 }
 
-func fetchPaymentMigration9(bucket kvdb.ReadBucket) (*Payment, error) {
+func fetchPaymentMigration9(bucket kvdb.RBucket) (*Payment, error) {
 	var (
 		err error
 		p   = &Payment{}

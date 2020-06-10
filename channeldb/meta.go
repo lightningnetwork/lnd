@@ -22,10 +22,10 @@ type Meta struct {
 
 // FetchMeta fetches the meta data from boltdb and returns filled meta
 // structure.
-func (d *DB) FetchMeta(tx kvdb.ReadTx) (*Meta, error) {
+func (d *DB) FetchMeta(tx kvdb.RTx) (*Meta, error) {
 	meta := &Meta{}
 
-	err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		return fetchMeta(meta, tx)
 	})
 	if err != nil {
@@ -38,7 +38,7 @@ func (d *DB) FetchMeta(tx kvdb.ReadTx) (*Meta, error) {
 // fetchMeta is an internal helper function used in order to allow callers to
 // re-use a database transaction. See the publicly exported FetchMeta method
 // for more information.
-func fetchMeta(meta *Meta, tx kvdb.ReadTx) error {
+func fetchMeta(meta *Meta, tx kvdb.RTx) error {
 	metaBucket := tx.ReadBucket(metaBucket)
 	if metaBucket == nil {
 		return ErrMetaNotFound

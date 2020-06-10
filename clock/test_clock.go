@@ -10,6 +10,7 @@ type TestClock struct {
 	currentTime time.Time
 	timeChanMap map[time.Time][]chan time.Time
 	timeLock    sync.Mutex
+	tickSignal  chan time.Duration
 }
 
 // NewTestClock returns a new test clock.
@@ -18,6 +19,19 @@ func NewTestClock(startTime time.Time) *TestClock {
 		currentTime: startTime,
 		timeChanMap: make(map[time.Time][]chan time.Time),
 	}
+}
+
+// NewTestClockWithTickSignal will create a new test clock with an added
+// channel which will be used to signal when a new ticker is registered.
+// This is useful when creating a ticker on a separate goroutine and we'd
+// like to wait for that to happen before advancing the test case.
+func NewTestClockWithTickSignal(startTime time.Time,
+	tickSignal chan time.Duration) *TestClock {
+
+	testClock := NewTestClock(startTime)
+	testClock.tickSignal = tickSignal
+
+	return testClock
 }
 
 // Now returns the current (test) time.
@@ -32,7 +46,14 @@ func (c *TestClock) Now() time.Time {
 // duration has passed passed by the user set test time.
 func (c *TestClock) TickAfter(duration time.Duration) <-chan time.Time {
 	c.timeLock.Lock()
-	defer c.timeLock.Unlock()
+	defer func() {
+		c.timeLock.Unlock()
+
+		// Signal that the ticker has been added.
+		if c.tickSignal != nil {
+			c.tickSignal <- duration
+		}
+	}()
 
 	triggerTime := c.currentTime.Add(duration)
 	ch := make(chan time.Time, 1)

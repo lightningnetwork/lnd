@@ -1,8 +1,11 @@
 package clock
 
 import (
+	"fmt"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 var (
@@ -12,16 +15,11 @@ var (
 func TestNow(t *testing.T) {
 	c := NewTestClock(testTime)
 	now := c.Now()
-
-	if now != testTime {
-		t.Fatalf("expected: %v, got: %v", testTime, now)
-	}
+	assert.Equal(t, testTime, now)
 
 	now = now.Add(time.Hour)
 	c.SetTime(now)
-	if c.Now() != now {
-		t.Fatalf("epected: %v, got: %v", now, c.Now())
-	}
+	assert.Equal(t, now, c.Now())
 }
 
 func TestTickAfter(t *testing.T) {
@@ -42,12 +40,11 @@ func TestTickAfter(t *testing.T) {
 		select {
 		case <-ticker:
 			tick = true
+
 		case <-time.After(time.Millisecond):
 		}
 
-		if tick != expectTick {
-			t.Fatalf("expected tick: %v, ticked: %v", expectTick, tick)
-		}
+		assert.Equal(t, expectTick, tick)
 	}
 
 	tickOrTimeOut(ticker0, true)
@@ -60,4 +57,35 @@ func TestTickAfter(t *testing.T) {
 	tickOrTimeOut(ticker1, true)
 	tickOrTimeOut(ticker2, true)
 	tickOrTimeOut(ticker3, false)
+}
+
+// TestTickSignal tests that TickAfter signals registration allowing
+// safe time advancement.
+func TestTickSignal(t *testing.T) {
+	const interval = time.Second
+
+	ch := make(chan time.Duration)
+	c := NewTestClockWithTickSignal(testTime, ch)
+	err := make(chan error, 1)
+
+	go func() {
+		select {
+		// TickAfter will signal registration but will not
+		// tick, unless we read the signal and set the time.
+		case <-c.TickAfter(interval):
+			err <- nil
+
+		// Signal timeout if tick didn't happen.
+		case <-time.After(time.Second):
+			err <- fmt.Errorf("timeout")
+		}
+	}()
+
+	tick := <-ch
+	// Expect that the interval is correctly passed over the channel.
+	assert.Equal(t, interval, tick)
+
+	// Once the ticker is registered, set the time to make it fire.
+	c.SetTime(testTime.Add(time.Second))
+	assert.NoError(t, <-err)
 }

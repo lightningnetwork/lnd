@@ -26,7 +26,7 @@ type routingGraph interface {
 // database.
 type dbRoutingTx struct {
 	graph  *channeldb.ChannelGraph
-	tx     kvdb.ReadTx
+	tx     kvdb.RTx
 	source route.Vertex
 }
 
@@ -62,7 +62,7 @@ func (g *dbRoutingTx) forEachNodeChannel(nodePub route.Vertex,
 	cb func(*channeldb.ChannelEdgeInfo, *channeldb.ChannelEdgePolicy,
 		*channeldb.ChannelEdgePolicy) error) error {
 
-	txCb := func(_ kvdb.ReadTx, info *channeldb.ChannelEdgeInfo,
+	txCb := func(_ kvdb.RTx, info *channeldb.ChannelEdgeInfo,
 		p1, p2 *channeldb.ChannelEdgePolicy) error {
 
 		return cb(info, p1, p2)

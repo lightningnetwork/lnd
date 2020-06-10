@@ -5,7 +5,6 @@ package signrpc
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -172,6 +172,28 @@ func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	log.Debugf("Signer RPC server successfully register with root gRPC " +
 		"server")
 
+	return nil
+}
+
+// RegisterWithRestServer will be called by the root REST mux to direct a sub
+// RPC server to register itself with the main REST mux server. Until this is
+// called, each sub-server won't be able to have requests routed towards it.
+//
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (s *Server) RegisterWithRestServer(ctx context.Context,
+	mux *runtime.ServeMux, dest string, opts []grpc.DialOption) error {
+
+	// We make sure that we register it with the main REST server to ensure
+	// all our methods are routed properly.
+	err := RegisterSignerHandlerFromEndpoint(ctx, mux, dest, opts)
+	if err != nil {
+		log.Errorf("Could not register Signer REST server "+
+			"with root REST server: %v", err)
+		return err
+	}
+
+	log.Debugf("Signer REST server successfully registered with " +
+		"root REST server")
 	return nil
 }
 
@@ -415,24 +437,21 @@ func (s *Server) SignMessage(ctx context.Context,
 		return nil, fmt.Errorf("a key locator MUST be passed in")
 	}
 
-	// Derive the private key we'll be using for signing.
-	keyLocator := keychain.KeyLocator{
-		Family: keychain.KeyFamily(in.KeyLoc.KeyFamily),
-		Index:  uint32(in.KeyLoc.KeyIndex),
-	}
-	privKey, err := s.cfg.KeyRing.DerivePrivKey(keychain.KeyDescriptor{
-		KeyLocator: keyLocator,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("can't derive private key: %v", err)
+	// Describe the private key we'll be using for signing.
+	keyDescriptor := keychain.KeyDescriptor{
+		KeyLocator: keychain.KeyLocator{
+			Family: keychain.KeyFamily(in.KeyLoc.KeyFamily),
+			Index:  uint32(in.KeyLoc.KeyIndex),
+		},
 	}
 
 	// The signature is over the sha256 hash of the message.
-	digest := chainhash.HashB(in.Msg)
+	var digest [32]byte
+	copy(digest[:], chainhash.HashB(in.Msg))
 
 	// Create the raw ECDSA signature first and convert it to the final wire
 	// format after.
-	sig, err := privKey.Sign(digest)
+	sig, err := s.cfg.KeyRing.SignDigest(keyDescriptor, digest)
 	if err != nil {
 		return nil, fmt.Errorf("can't sign the hash: %v", err)
 	}
@@ -515,31 +534,15 @@ func (s *Server) DeriveSharedKey(_ context.Context, in *SharedKeyRequest) (
 		locator.Index = uint32(in.KeyLoc.KeyIndex)
 	}
 
-	// Derive our node's private key from the key ring.
-	idPrivKey, err := s.cfg.KeyRing.DerivePrivKey(keychain.KeyDescriptor{
-		KeyLocator: locator,
-	})
+	// Derive the shared key using ECDH and hashing the serialized
+	// compressed shared point.
+	keyDescriptor := keychain.KeyDescriptor{KeyLocator: locator}
+	sharedKeyHash, err := s.cfg.KeyRing.ECDH(keyDescriptor, ephemeralPubkey)
 	if err != nil {
-		err := fmt.Errorf("unable to derive node private key: %v", err)
+		err := fmt.Errorf("unable to derive shared key: %v", err)
 		log.Error(err)
 		return nil, err
 	}
-	idPrivKey.Curve = btcec.S256()
 
-	// Derive the shared key using ECDH and hashing the serialized
-	// compressed shared point.
-	sharedKeyHash := ecdh(ephemeralPubkey, idPrivKey)
-	return &SharedKeyResponse{SharedKey: sharedKeyHash}, nil
-}
-
-// ecdh performs an ECDH operation between pub and priv. The returned value is
-// the sha256 of the compressed shared point.
-func ecdh(pub *btcec.PublicKey, priv *btcec.PrivateKey) []byte {
-	s := &btcec.PublicKey{}
-	x, y := btcec.S256().ScalarMult(pub.X, pub.Y, priv.D.Bytes())
-	s.X = x
-	s.Y = y
-
-	h := sha256.Sum256(s.SerializeCompressed())
-	return h[:]
+	return &SharedKeyResponse{SharedKey: sharedKeyHash[:]}, nil
 }

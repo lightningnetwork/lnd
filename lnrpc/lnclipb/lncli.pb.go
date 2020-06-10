@@ -22,9 +22,9 @@ var _ = math.Inf
 const _ = proto.ProtoPackageIsVersion3 // please upgrade the proto package
 
 type VersionResponse struct {
-	/// The version information for lncli.
+	// The version information for lncli.
 	Lncli *verrpc.Version `protobuf:"bytes,1,opt,name=lncli,proto3" json:"lncli,omitempty"`
-	/// The version information for lnd.
+	// The version information for lnd.
 	Lnd                  *verrpc.Version `protobuf:"bytes,2,opt,name=lnd,proto3" json:"lnd,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}        `json:"-"`
 	XXX_unrecognized     []byte          `json:"-"`

@@ -77,7 +77,7 @@ func createDBIfNotExist(dbPath, name string) (kvdb.Backend, bool, error) {
 	// set firstInit to true so that we can treat is initialize the bucket.
 	if !firstInit {
 		var metadataExists bool
-		err = kvdb.View(bdb, func(tx kvdb.ReadTx) error {
+		err = kvdb.View(bdb, func(tx kvdb.RTx) error {
 			metadataExists = tx.ReadBucket(metadataBkt) != nil
 			return nil
 		})

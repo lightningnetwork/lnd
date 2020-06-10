@@ -5,10 +5,10 @@ import (
 	"net"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/watchtower/lookout"
 )
@@ -63,16 +63,16 @@ type Config struct {
 	// successfully sent funds can be received.
 	NewAddress func() (btcutil.Address, error)
 
-	// NodePrivKey is private key to be used in accepting new brontide
-	// connections.
-	NodePrivKey *btcec.PrivateKey
+	// NodeKeyECDH is the ECDH capable wrapper of the key to be used in
+	// accepting new brontide connections.
+	NodeKeyECDH keychain.SingleKeyECDH
 
 	// PublishTx provides the ability to send a signed transaction to the
 	// network.
 	//
 	// TODO(conner): replace with lnwallet.WalletController interface to
 	// have stronger guarantees wrt. returned error types.
-	PublishTx func(*wire.MsgTx) error
+	PublishTx func(*wire.MsgTx, string) error
 
 	// ListenAddrs specifies the listening addresses of the tower.
 	ListenAddrs []net.Addr

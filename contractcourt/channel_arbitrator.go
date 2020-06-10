@@ -851,7 +851,7 @@ func (c *ChannelArbitrator) stateStep(
 
 		// At this point, we'll now broadcast the commitment
 		// transaction itself.
-		if err := c.cfg.PublishTx(closeTx); err != nil {
+		if err := c.cfg.PublishTx(closeTx, ""); err != nil {
 			log.Errorf("ChannelArbitrator(%v): unable to broadcast "+
 				"close tx: %v", c.cfg.ChanPoint, err)
 			if err != lnwallet.ErrDoubleSpend {
@@ -1457,8 +1457,7 @@ func (c *ChannelArbitrator) isPreimageAvailable(hash lntypes.Hash) (bool,
 		return false, err
 	}
 
-	preimageAvailable = invoice.Terms.PaymentPreimage !=
-		channeldb.UnknownPreimage
+	preimageAvailable = invoice.Terms.PaymentPreimage != nil
 
 	return preimageAvailable, nil
 }

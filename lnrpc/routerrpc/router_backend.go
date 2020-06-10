@@ -27,9 +27,6 @@ import (
 // RouterBackend contains the backend implementation of the router rpc sub
 // server calls.
 type RouterBackend struct {
-	// MaxPaymentMSat is the largest payment permitted by the backend.
-	MaxPaymentMSat lnwire.MilliSatoshi
-
 	// SelfNode is the vertex of the node sending the payment.
 	SelfNode route.Vertex
 
@@ -143,10 +140,6 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	if amt > r.MaxPaymentMSat {
-		return nil, fmt.Errorf("payment of %v is too large, max payment "+
-			"allowed is %v", amt, r.MaxPaymentMSat.ToSatoshis())
-	}
 
 	// Unmarshall restrictions from request.
 	feeLimit := lnrpc.CalculateFeeLimit(in.FeeLimit, amt)
@@ -248,7 +241,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 
 	// Pass along an outgoing channel restriction if specified.
 	if in.OutgoingChanId != 0 {
-		restrictions.OutgoingChannelID = &in.OutgoingChanId
+		restrictions.OutgoingChannelIDs = []uint64{in.OutgoingChanId}
 	}
 
 	// Pass along a last hop restriction if specified.
@@ -489,13 +482,6 @@ func (r *RouterBackend) UnmarshallRoute(rpcroute *lnrpc.Route) (
 			return nil, err
 		}
 
-		if routeHop.AmtToForward > r.MaxPaymentMSat {
-			return nil, fmt.Errorf("payment of %v is too large, "+
-				"max payment allowed is %v",
-				routeHop.AmtToForward,
-				r.MaxPaymentMSat.ToSatoshis())
-		}
-
 		hops[i] = routeHop
 
 		prevNodePubKey = routeHop.PubKeyBytes
@@ -522,9 +508,19 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 
 	payIntent := &routing.LightningPayment{}
 
-	// Pass along an outgoing channel restriction if specified.
+	// Pass along restrictions on the outgoing channels that may be used.
+	payIntent.OutgoingChannelIDs = rpcPayReq.OutgoingChanIds
+
+	// Add the deprecated single outgoing channel restriction if present.
 	if rpcPayReq.OutgoingChanId != 0 {
-		payIntent.OutgoingChannelID = &rpcPayReq.OutgoingChanId
+		if payIntent.OutgoingChannelIDs != nil {
+			return nil, errors.New("outgoing_chan_id and " +
+				"outgoing_chan_ids are mutually exclusive")
+		}
+
+		payIntent.OutgoingChannelIDs = append(
+			payIntent.OutgoingChannelIDs, rpcPayReq.OutgoingChanId,
+		)
 	}
 
 	// Pass along a last hop restriction if specified.
@@ -862,6 +858,7 @@ func (r *RouterBackend) MarshalHTLCAttempt(
 		rpcAttempt.ResolveTimeNs = MarshalTimeNano(
 			htlc.Settle.SettleTime,
 		)
+		rpcAttempt.Preimage = htlc.Settle.Preimage[:]
 
 	case htlc.Failure != nil:
 		rpcAttempt.Status = lnrpc.HTLCAttempt_FAILED

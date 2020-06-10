@@ -90,7 +90,7 @@ type BreachConfig struct {
 
 	// PublishTransaction facilitates the process of broadcasting a
 	// transaction to the network.
-	PublishTransaction func(*wire.MsgTx) error
+	PublishTransaction func(*wire.MsgTx, string) error
 
 	// ContractBreaches is a channel where the breachArbiter will receive
 	// notifications in the event of a contract breach being observed. A
@@ -566,7 +566,7 @@ justiceTxBroadcast:
 
 	// We'll now attempt to broadcast the transaction which finalized the
 	// channel's retribution against the cheating counter party.
-	err = b.cfg.PublishTransaction(finalTx)
+	err = b.cfg.PublishTransaction(finalTx, "")
 	if err != nil {
 		brarLog.Errorf("Unable to broadcast justice tx: %v", err)
 
@@ -1291,7 +1291,7 @@ func (rs *retributionStore) GetFinalizedTxn(
 	chanPoint *wire.OutPoint) (*wire.MsgTx, error) {
 
 	var finalTxBytes []byte
-	if err := kvdb.View(rs.db, func(tx kvdb.ReadTx) error {
+	if err := kvdb.View(rs.db, func(tx kvdb.RTx) error {
 		justiceBkt := tx.ReadBucket(justiceTxnBucket)
 		if justiceBkt == nil {
 			return nil
@@ -1325,7 +1325,7 @@ func (rs *retributionStore) GetFinalizedTxn(
 // that has already been breached.
 func (rs *retributionStore) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
 	var found bool
-	err := kvdb.View(rs.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(rs.db, func(tx kvdb.RTx) error {
 		retBucket := tx.ReadBucket(retributionBucket)
 		if retBucket == nil {
 			return nil
@@ -1389,7 +1389,7 @@ func (rs *retributionStore) Remove(chanPoint *wire.OutPoint) error {
 // ForAll iterates through all stored retributions and executes the passed
 // callback function on each retribution.
 func (rs *retributionStore) ForAll(cb func(*retributionInfo) error) error {
-	return kvdb.View(rs.db, func(tx kvdb.ReadTx) error {
+	return kvdb.View(rs.db, func(tx kvdb.RTx) error {
 		// If the bucket does not exist, then there are no pending
 		// retributions.
 		retBucket := tx.ReadBucket(retributionBucket)

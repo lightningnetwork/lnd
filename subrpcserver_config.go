@@ -5,6 +5,7 @@ import (
 	"reflect"
 
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -80,7 +81,7 @@ type subRPCServerConfigs struct {
 //
 // NOTE: This MUST be called before any callers are permitted to execute the
 // FetchConfig method.
-func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
+func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config, cc *chainControl,
 	networkDir string, macService *macaroons.Service,
 	atpl *autopilot.Manager,
 	invoiceRegistry *invoices.InvoiceRegistry,
@@ -94,7 +95,8 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 	tower *watchtower.Standalone,
 	towerClient wtclient.Client,
 	tcpResolver lncfg.TCPResolver,
-	genInvoiceFeatures func() *lnwire.FeatureVector) error {
+	genInvoiceFeatures func() *lnwire.FeatureVector,
+	rpcLogger btclog.Logger) error {
 
 	// First, we'll use reflect to obtain a version of the config struct
 	// that allows us to programmatically inspect its fields.
@@ -160,6 +162,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 			subCfgValue.FieldByName("Chain").Set(
 				reflect.ValueOf(cc.chainIO),
 			)
+			subCfgValue.FieldByName("ChainParams").Set(
+				reflect.ValueOf(activeNetParams),
+			)
 
 		case *autopilotrpc.Config:
 			subCfgValue := extractReflectValue(subCfg)
@@ -203,7 +208,7 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 				reflect.ValueOf(nodeSigner),
 			)
 			defaultDelta := cfg.Bitcoin.TimeLockDelta
-			if registeredChains.PrimaryChain() == litecoinChain {
+			if cfg.registeredChains.PrimaryChain() == litecoinChain {
 				defaultDelta = cfg.Litecoin.TimeLockDelta
 			}
 			subCfgValue.FieldByName("DefaultCLTVExpiry").Set(
@@ -243,6 +248,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 			}
 			subCfgValue.FieldByName("Resolver").Set(
 				reflect.ValueOf(tcpResolver),
+			)
+			subCfgValue.FieldByName("Log").Set(
+				reflect.ValueOf(rpcLogger),
 			)
 
 		default:

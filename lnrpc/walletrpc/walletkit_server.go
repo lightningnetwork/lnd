@@ -14,11 +14,15 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/wtxmgr"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/sweep"
 	"google.golang.org/grpc"
@@ -88,6 +92,26 @@ var (
 			Entity: "onchain",
 			Action: "write",
 		}},
+		"/walletrpc.WalletKit/ListSweeps": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
+		"/walletrpc.WalletKit/LabelTransaction": {{
+			Entity: "onchain",
+			Action: "write",
+		}},
+		"/walletrpc.WalletKit/LeaseOutput": {{
+			Entity: "onchain",
+			Action: "write",
+		}},
+		"/walletrpc.WalletKit/ReleaseOutput": {{
+			Entity: "onchain",
+			Action: "write",
+		}},
+		"/walletrpc.WalletKit/ListUnspent": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
 	}
 
 	// DefaultWalletKitMacFilename is the default name of the wallet kit
@@ -95,6 +119,10 @@ var (
 	// configuration file in this package.
 	DefaultWalletKitMacFilename = "walletkit.macaroon"
 )
+
+// ErrZeroLabel is returned when an attempt is made to label a transaction with
+// an empty label.
+var ErrZeroLabel = errors.New("cannot label transaction with empty label")
 
 // WalletKit is a sub-RPC server that exposes a tool kit which allows clients
 // to execute common wallet operations. This includes requesting new addresses,
@@ -190,6 +218,123 @@ func (w *WalletKit) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	return nil
 }
 
+// RegisterWithRestServer will be called by the root REST mux to direct a sub
+// RPC server to register itself with the main REST mux server. Until this is
+// called, each sub-server won't be able to have requests routed towards it.
+//
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (w *WalletKit) RegisterWithRestServer(ctx context.Context,
+	mux *runtime.ServeMux, dest string, opts []grpc.DialOption) error {
+
+	// We make sure that we register it with the main REST server to ensure
+	// all our methods are routed properly.
+	err := RegisterWalletKitHandlerFromEndpoint(ctx, mux, dest, opts)
+	if err != nil {
+		log.Errorf("Could not register WalletKit REST server "+
+			"with root REST server: %v", err)
+		return err
+	}
+
+	log.Debugf("WalletKit REST server successfully registered with " +
+		"root REST server")
+	return nil
+}
+
+// ListUnspent returns useful information about each unspent output owned by the
+// wallet, as reported by the underlying `ListUnspentWitness`; the information
+// returned is: outpoint, amount in satoshis, address, address type,
+// scriptPubKey in hex and number of confirmations.  The result is filtered to
+// contain outputs whose number of confirmations is between a
+// minimum and maximum number of confirmations specified by the user, with 0
+// meaning unconfirmed.
+func (w *WalletKit) ListUnspent(ctx context.Context,
+	req *ListUnspentRequest) (*ListUnspentResponse, error) {
+
+	// Validate the confirmation arguments.
+	minConfs, maxConfs, err := lnrpc.ParseConfs(req.MinConfs, req.MaxConfs)
+	if err != nil {
+		return nil, err
+	}
+
+	// With our arguments validated, we'll query the internal wallet for
+	// the set of UTXOs that match our query.
+	utxos, err := w.cfg.Wallet.ListUnspentWitness(minConfs, maxConfs)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcUtxos, err := lnrpc.MarshalUtxos(utxos, w.cfg.ChainParams)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ListUnspentResponse{
+		Utxos: rpcUtxos,
+	}, nil
+}
+
+// LeaseOutput locks an output to the given ID, preventing it from being
+// available for any future coin selection attempts. The absolute time of the
+// lock's expiration is returned. The expiration of the lock can be extended by
+// successive invocations of this call. Outputs can be unlocked before their
+// expiration through `ReleaseOutput`.
+//
+// If the output is not known, wtxmgr.ErrUnknownOutput is returned. If the
+// output has already been locked to a different ID, then
+// wtxmgr.ErrOutputAlreadyLocked is returned.
+func (w *WalletKit) LeaseOutput(ctx context.Context,
+	req *LeaseOutputRequest) (*LeaseOutputResponse, error) {
+
+	if len(req.Id) != 32 {
+		return nil, errors.New("id must be 32 random bytes")
+	}
+	var lockID wtxmgr.LockID
+	copy(lockID[:], req.Id)
+
+	// Don't allow ID's of 32 bytes, but all zeros.
+	if lockID == (wtxmgr.LockID{}) {
+		return nil, errors.New("id must be 32 random bytes")
+	}
+
+	op, err := unmarshallOutPoint(req.Outpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	expiration, err := w.cfg.Wallet.LeaseOutput(lockID, *op)
+	if err != nil {
+		return nil, err
+	}
+
+	return &LeaseOutputResponse{
+		Expiration: uint64(expiration.Unix()),
+	}, nil
+}
+
+// ReleaseOutput unlocks an output, allowing it to be available for coin
+// selection if it remains unspent. The ID should match the one used to
+// originally lock the output.
+func (w *WalletKit) ReleaseOutput(ctx context.Context,
+	req *ReleaseOutputRequest) (*ReleaseOutputResponse, error) {
+
+	if len(req.Id) != 32 {
+		return nil, errors.New("id must be 32 random bytes")
+	}
+	var lockID wtxmgr.LockID
+	copy(lockID[:], req.Id)
+
+	op, err := unmarshallOutPoint(req.Outpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := w.cfg.Wallet.ReleaseOutput(lockID, *op); err != nil {
+		return nil, err
+	}
+
+	return &ReleaseOutputResponse{}, nil
+}
+
 // DeriveNextKey attempts to derive the *next* key within the key family
 // (account in BIP43) specified. This method should return the next external
 // child within this branch.
@@ -268,7 +413,12 @@ func (w *WalletKit) PublishTransaction(ctx context.Context,
 		return nil, err
 	}
 
-	err := w.cfg.Wallet.PublishTransaction(tx)
+	label, err := labels.ValidateAPI(req.Label)
+	if err != nil {
+		return nil, err
+	}
+
+	err = w.cfg.Wallet.PublishTransaction(tx, label)
 	if err != nil {
 		return nil, err
 	}
@@ -301,10 +451,15 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 		})
 	}
 
+	label, err := labels.ValidateAPI(req.Label)
+	if err != nil {
+		return nil, err
+	}
+
 	// Now that we have the outputs mapped, we can request that the wallet
 	// attempt to create this transaction.
 	tx, err := w.cfg.Wallet.SendOutputs(
-		outputsToCreate, chainfee.SatPerKWeight(req.SatPerKw),
+		outputsToCreate, chainfee.SatPerKWeight(req.SatPerKw), label,
 	)
 	if err != nil {
 		return nil, err
@@ -554,4 +709,93 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 	}
 
 	return &BumpFeeResponse{}, nil
+}
+
+// ListSweeps returns a list of the sweeps that our node has published.
+func (w *WalletKit) ListSweeps(ctx context.Context,
+	in *ListSweepsRequest) (*ListSweepsResponse, error) {
+
+	sweeps, err := w.cfg.Sweeper.ListSweeps()
+	if err != nil {
+		return nil, err
+	}
+
+	sweepTxns := make(map[string]bool)
+
+	txids := make([]string, len(sweeps))
+	for i, sweep := range sweeps {
+		sweepTxns[sweep.String()] = true
+		txids[i] = sweep.String()
+	}
+
+	// If the caller does not want verbose output, just return the set of
+	// sweep txids.
+	if !in.Verbose {
+		txidResp := &ListSweepsResponse_TransactionIDs{
+			TransactionIds: txids,
+		}
+
+		return &ListSweepsResponse{
+			Sweeps: &ListSweepsResponse_TransactionIds{
+				TransactionIds: txidResp,
+			},
+		}, nil
+	}
+
+	// If the caller does want full transaction lookups, query our wallet
+	// for all transactions, including unconfirmed transactions.
+	transactions, err := w.cfg.Wallet.ListTransactionDetails(
+		0, btcwallet.UnconfirmedHeight,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var sweepTxDetails []*lnwallet.TransactionDetail
+	for _, tx := range transactions {
+		_, ok := sweepTxns[tx.Hash.String()]
+		if !ok {
+			continue
+		}
+
+		sweepTxDetails = append(sweepTxDetails, tx)
+	}
+
+	// Fail if we have not retrieved all of our sweep transactions from the
+	// wallet.
+	if len(sweepTxDetails) != len(txids) {
+		return nil, fmt.Errorf("not all sweeps found by list "+
+			"transactions: %v, %v", len(sweepTxDetails), len(txids))
+	}
+
+	return &ListSweepsResponse{
+		Sweeps: &ListSweepsResponse_TransactionDetails{
+			TransactionDetails: lnrpc.RPCTransactionDetails(transactions),
+		},
+	}, nil
+}
+
+// LabelTransaction adds a label to a transaction.
+func (w *WalletKit) LabelTransaction(ctx context.Context,
+	req *LabelTransactionRequest) (*LabelTransactionResponse, error) {
+
+	// Check that the label provided in non-zero.
+	if len(req.Label) == 0 {
+		return nil, ErrZeroLabel
+	}
+
+	// Validate the length of the non-zero label. We do not need to use the
+	// label returned here, because the original is non-zero so will not
+	// be replaced.
+	if _, err := labels.ValidateAPI(req.Label); err != nil {
+		return nil, err
+	}
+
+	hash, err := chainhash.NewHash(req.Txid)
+	if err != nil {
+		return nil, err
+	}
+
+	err = w.cfg.Wallet.LabelTransaction(*hash, req.Label, req.Overwrite)
+	return &LabelTransactionResponse{}, err
 }

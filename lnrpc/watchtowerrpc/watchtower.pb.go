@@ -8,6 +8,8 @@ import (
 	fmt "fmt"
 	proto "github.com/golang/protobuf/proto"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 	math "math"
 )
 
@@ -54,11 +56,11 @@ func (m *GetInfoRequest) XXX_DiscardUnknown() {
 var xxx_messageInfo_GetInfoRequest proto.InternalMessageInfo
 
 type GetInfoResponse struct {
-	/// The public key of the watchtower.
+	// The public key of the watchtower.
 	Pubkey []byte `protobuf:"bytes,1,opt,name=pubkey,proto3" json:"pubkey,omitempty"`
-	/// The listening addresses of the watchtower.
+	// The listening addresses of the watchtower.
 	Listeners []string `protobuf:"bytes,2,rep,name=listeners,proto3" json:"listeners,omitempty"`
-	/// The URIs of the watchtower.
+	// The URIs of the watchtower.
 	Uris                 []string `protobuf:"bytes,3,rep,name=uris,proto3" json:"uris,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -148,7 +150,7 @@ const _ = grpc.SupportPackageIsVersion4
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type WatchtowerClient interface {
-	//* lncli: tower info
+	// lncli: tower info
 	//GetInfo returns general information concerning the companion watchtower
 	//including its public key and URIs where the server is currently
 	//listening for clients.
@@ -174,11 +176,19 @@ func (c *watchtowerClient) GetInfo(ctx context.Context, in *GetInfoRequest, opts
 
 // WatchtowerServer is the server API for Watchtower service.
 type WatchtowerServer interface {
-	//* lncli: tower info
+	// lncli: tower info
 	//GetInfo returns general information concerning the companion watchtower
 	//including its public key and URIs where the server is currently
 	//listening for clients.
 	GetInfo(context.Context, *GetInfoRequest) (*GetInfoResponse, error)
+}
+
+// UnimplementedWatchtowerServer can be embedded to have forward compatible implementations.
+type UnimplementedWatchtowerServer struct {
+}
+
+func (*UnimplementedWatchtowerServer) GetInfo(ctx context.Context, req *GetInfoRequest) (*GetInfoResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetInfo not implemented")
 }
 
 func RegisterWatchtowerServer(s *grpc.Server, srv WatchtowerServer) {

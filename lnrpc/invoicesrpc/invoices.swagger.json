@@ -1,0 +1,571 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "invoicesrpc/invoices.proto",
+    "version": "version not set"
+  },
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v2/invoices/cancel": {
+      "post": {
+        "summary": "CancelInvoice cancels a currently open invoice. If the invoice is already\ncanceled, this call will succeed. If the invoice is already settled, it will\nfail.",
+        "operationId": "CancelInvoice",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/invoicesrpcCancelInvoiceResp"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/invoicesrpcCancelInvoiceMsg"
+            }
+          }
+        ],
+        "tags": [
+          "Invoices"
+        ]
+      }
+    },
+    "/v2/invoices/hodl": {
+      "post": {
+        "summary": "AddHoldInvoice creates a hold invoice. It ties the invoice to the hash\nsupplied in the request.",
+        "operationId": "AddHoldInvoice",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/invoicesrpcAddHoldInvoiceResp"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/invoicesrpcAddHoldInvoiceRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Invoices"
+        ]
+      }
+    },
+    "/v2/invoices/settle": {
+      "post": {
+        "summary": "SettleInvoice settles an accepted invoice. If the invoice is already\nsettled, this call will succeed.",
+        "operationId": "SettleInvoice",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/invoicesrpcSettleInvoiceResp"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/invoicesrpcSettleInvoiceMsg"
+            }
+          }
+        ],
+        "tags": [
+          "Invoices"
+        ]
+      }
+    },
+    "/v2/invoices/subscribe/{r_hash}": {
+      "get": {
+        "summary": "SubscribeSingleInvoice returns a uni-directional stream (server -\u003e client)\nto notify the client of state transitions of the specified invoice.\nInitially the current invoice state is always sent out.",
+        "operationId": "SubscribeSingleInvoice",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/lnrpcInvoice"
+                },
+                "error": {
+                  "$ref": "#/definitions/runtimeStreamError"
+                }
+              },
+              "title": "Stream result of lnrpcInvoice"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "r_hash",
+            "description": "Hash corresponding to the (hold) invoice to subscribe to.",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "Invoices"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "InvoiceInvoiceState": {
+      "type": "string",
+      "enum": [
+        "OPEN",
+        "SETTLED",
+        "CANCELED",
+        "ACCEPTED"
+      ],
+      "default": "OPEN"
+    },
+    "invoicesrpcAddHoldInvoiceRequest": {
+      "type": "object",
+      "properties": {
+        "memo": {
+          "type": "string",
+          "description": "An optional memo to attach along with the invoice. Used for record keeping\npurposes for the invoice's creator, and will also be set in the description\nfield of the encoded payment request if the description_hash field is not\nbeing used."
+        },
+        "hash": {
+          "type": "string",
+          "format": "byte",
+          "title": "The hash of the preimage"
+        },
+        "value": {
+          "type": "string",
+          "format": "int64",
+          "description": "The fields value and value_msat are mutually exclusive.",
+          "title": "The value of this invoice in satoshis"
+        },
+        "value_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The fields value and value_msat are mutually exclusive.",
+          "title": "The value of this invoice in millisatoshis"
+        },
+        "description_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "Hash (SHA-256) of a description of the payment. Used if the description of\npayment (memo) is too long to naturally fit within the description field\nof an encoded payment request."
+        },
+        "expiry": {
+          "type": "string",
+          "format": "int64",
+          "description": "Payment request expiry time in seconds. Default is 3600 (1 hour)."
+        },
+        "fallback_addr": {
+          "type": "string",
+          "description": "Fallback on-chain address."
+        },
+        "cltv_expiry": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Delta to use for the time-lock of the CLTV extended to the final hop."
+        },
+        "route_hints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcRouteHint"
+          },
+          "description": "Route hints that can each be individually used to assist in reaching the\ninvoice's destination."
+        },
+        "private": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Whether this invoice should include routing hints for private channels."
+        }
+      }
+    },
+    "invoicesrpcAddHoldInvoiceResp": {
+      "type": "object",
+      "properties": {
+        "payment_request": {
+          "type": "string",
+          "description": "A bare-bones invoice for a payment within the Lightning Network.  With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient."
+        }
+      }
+    },
+    "invoicesrpcCancelInvoiceMsg": {
+      "type": "object",
+      "properties": {
+        "payment_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "Hash corresponding to the (hold) invoice to cancel."
+        }
+      }
+    },
+    "invoicesrpcCancelInvoiceResp": {
+      "type": "object"
+    },
+    "invoicesrpcSettleInvoiceMsg": {
+      "type": "object",
+      "properties": {
+        "preimage": {
+          "type": "string",
+          "format": "byte",
+          "description": "Externally discovered pre-image that should be used to settle the hold\ninvoice."
+        }
+      }
+    },
+    "invoicesrpcSettleInvoiceResp": {
+      "type": "object"
+    },
+    "lnrpcFeature": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "is_required": {
+          "type": "boolean",
+          "format": "boolean"
+        },
+        "is_known": {
+          "type": "boolean",
+          "format": "boolean"
+        }
+      }
+    },
+    "lnrpcHopHint": {
+      "type": "object",
+      "properties": {
+        "node_id": {
+          "type": "string",
+          "description": "The public key of the node at the start of the channel."
+        },
+        "chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unique identifier of the channel."
+        },
+        "fee_base_msat": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The base fee of the channel denominated in millisatoshis."
+        },
+        "fee_proportional_millionths": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The fee rate of the channel for sending one satoshi across it denominated in\nmillionths of a satoshi."
+        },
+        "cltv_expiry_delta": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The time-lock delta of the channel."
+        }
+      }
+    },
+    "lnrpcInvoice": {
+      "type": "object",
+      "properties": {
+        "memo": {
+          "type": "string",
+          "description": "An optional memo to attach along with the invoice. Used for record keeping\npurposes for the invoice's creator, and will also be set in the description\nfield of the encoded payment request if the description_hash field is not\nbeing used."
+        },
+        "r_preimage": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hex-encoded preimage (32 byte) which will allow settling an incoming\nHTLC payable to this preimage. When using REST, this field must be encoded\nas base64."
+        },
+        "r_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the preimage. When using REST, this field must be encoded as\nbase64."
+        },
+        "value": {
+          "type": "string",
+          "format": "int64",
+          "description": "The fields value and value_msat are mutually exclusive.",
+          "title": "The value of this invoice in satoshis"
+        },
+        "value_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The fields value and value_msat are mutually exclusive.",
+          "title": "The value of this invoice in millisatoshis"
+        },
+        "settled": {
+          "type": "boolean",
+          "format": "boolean",
+          "title": "Whether this invoice has been fulfilled"
+        },
+        "creation_date": {
+          "type": "string",
+          "format": "int64",
+          "title": "When this invoice was created"
+        },
+        "settle_date": {
+          "type": "string",
+          "format": "int64",
+          "title": "When this invoice was settled"
+        },
+        "payment_request": {
+          "type": "string",
+          "description": "A bare-bones invoice for a payment within the Lightning Network. With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient."
+        },
+        "description_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "Hash (SHA-256) of a description of the payment. Used if the description of\npayment (memo) is too long to naturally fit within the description field\nof an encoded payment request. When using REST, this field must be encoded\nas base64."
+        },
+        "expiry": {
+          "type": "string",
+          "format": "int64",
+          "description": "Payment request expiry time in seconds. Default is 3600 (1 hour)."
+        },
+        "fallback_addr": {
+          "type": "string",
+          "description": "Fallback on-chain address."
+        },
+        "cltv_expiry": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Delta to use for the time-lock of the CLTV extended to the final hop."
+        },
+        "route_hints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcRouteHint"
+          },
+          "description": "Route hints that can each be individually used to assist in reaching the\ninvoice's destination."
+        },
+        "private": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Whether this invoice should include routing hints for private channels."
+        },
+        "add_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The \"add\" index of this invoice. Each newly created invoice will increment\nthis index making it monotonically increasing. Callers to the\nSubscribeInvoices call can use this to instantly get notified of all added\ninvoices with an add_index greater than this one."
+        },
+        "settle_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The \"settle\" index of this invoice. Each newly settled invoice will\nincrement this index making it monotonically increasing. Callers to the\nSubscribeInvoices call can use this to instantly get notified of all\nsettled invoices with an settle_index greater than this one."
+        },
+        "amt_paid": {
+          "type": "string",
+          "format": "int64",
+          "description": "Deprecated, use amt_paid_sat or amt_paid_msat."
+        },
+        "amt_paid_sat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The amount that was accepted for this invoice, in satoshis. This will ONLY\nbe set if this invoice has been settled. We provide this field as if the\ninvoice was created with a zero value, then we need to record what amount\nwas ultimately accepted. Additionally, it's possible that the sender paid\nMORE that was specified in the original invoice. So we'll record that here\nas well."
+        },
+        "amt_paid_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The amount that was accepted for this invoice, in millisatoshis. This will\nONLY be set if this invoice has been settled. We provide this field as if\nthe invoice was created with a zero value, then we need to record what\namount was ultimately accepted. Additionally, it's possible that the sender\npaid MORE that was specified in the original invoice. So we'll record that\nhere as well."
+        },
+        "state": {
+          "$ref": "#/definitions/InvoiceInvoiceState",
+          "description": "The state the invoice is in."
+        },
+        "htlcs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcInvoiceHTLC"
+          },
+          "description": "List of HTLCs paying to this invoice [EXPERIMENTAL]."
+        },
+        "features": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/lnrpcFeature"
+          },
+          "description": "List of features advertised on the invoice."
+        },
+        "is_keysend": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Indicates if this invoice was a spontaneous payment that arrived via keysend\n[EXPERIMENTAL]."
+        }
+      }
+    },
+    "lnrpcInvoiceHTLC": {
+      "type": "object",
+      "properties": {
+        "chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Short channel id over which the htlc was received."
+        },
+        "htlc_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Index identifying the htlc on the channel."
+        },
+        "amt_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount of the htlc in msat."
+        },
+        "accept_height": {
+          "type": "integer",
+          "format": "int32",
+          "description": "Block height at which this htlc was accepted."
+        },
+        "accept_time": {
+          "type": "string",
+          "format": "int64",
+          "description": "Time at which this htlc was accepted."
+        },
+        "resolve_time": {
+          "type": "string",
+          "format": "int64",
+          "description": "Time at which this htlc was settled or canceled."
+        },
+        "expiry_height": {
+          "type": "integer",
+          "format": "int32",
+          "description": "Block height at which this htlc expires."
+        },
+        "state": {
+          "$ref": "#/definitions/lnrpcInvoiceHTLCState",
+          "description": "Current state the htlc is in."
+        },
+        "custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Custom tlv records."
+        },
+        "mpp_total_amt_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The total amount of the mpp payment in msat."
+        }
+      },
+      "title": "Details of an HTLC that paid to an invoice"
+    },
+    "lnrpcInvoiceHTLCState": {
+      "type": "string",
+      "enum": [
+        "ACCEPTED",
+        "SETTLED",
+        "CANCELED"
+      ],
+      "default": "ACCEPTED"
+    },
+    "lnrpcRouteHint": {
+      "type": "object",
+      "properties": {
+        "hop_hints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcHopHint"
+          },
+          "description": "A list of hop hints that when chained together can assist in reaching a\nspecific destination."
+        }
+      }
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "runtimeError": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "runtimeStreamError": {
+      "type": "object",
+      "properties": {
+        "grpc_code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "http_code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "http_status": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    }
+  }
+}

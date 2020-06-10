@@ -43,6 +43,14 @@ var (
 	// payment hash already exists.
 	ErrDuplicateInvoice = fmt.Errorf("invoice with payment hash already exists")
 
+	// ErrDuplicatePayAddr is returned when an invoice with the target
+	// payment addr already exists.
+	ErrDuplicatePayAddr = fmt.Errorf("invoice with payemnt addr already exists")
+
+	// ErrInvRefEquivocation is returned when an InvoiceRef targets
+	// multiple, distinct invoices.
+	ErrInvRefEquivocation = errors.New("inv ref matches multiple invoices")
+
 	// ErrNoPaymentsCreated is returned when bucket of payments hasn't been
 	// created.
 	ErrNoPaymentsCreated = fmt.Errorf("there are no existing payments")

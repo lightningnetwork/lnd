@@ -123,7 +123,7 @@ func (s *WaitingProofStore) Remove(key WaitingProofKey) error {
 // ForAll iterates thought all waiting proofs and passing the waiting proof
 // in the given callback.
 func (s *WaitingProofStore) ForAll(cb func(*WaitingProof) error) error {
-	return kvdb.View(s.db, func(tx kvdb.ReadTx) error {
+	return kvdb.View(s.db, func(tx kvdb.RTx) error {
 		bucket := tx.ReadBucket(waitingProofsBucketKey)
 		if bucket == nil {
 			return ErrWaitingProofNotFound
@@ -158,7 +158,7 @@ func (s *WaitingProofStore) Get(key WaitingProofKey) (*WaitingProof, error) {
 		return nil, ErrWaitingProofNotFound
 	}
 
-	err := kvdb.View(s.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(s.db, func(tx kvdb.RTx) error {
 		bucket := tx.ReadBucket(waitingProofsBucketKey)
 		if bucket == nil {
 			return ErrWaitingProofNotFound

@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/lightningnetwork/lnd/watchtower/wtserver"
@@ -41,8 +41,8 @@ type sessionQueueConfig struct {
 
 	// Dial allows the client to dial the tower using it's public key and
 	// net address.
-	Dial func(*btcec.PrivateKey,
-		*lnwire.NetAddress) (wtserver.Peer, error)
+	Dial func(keychain.SingleKeyECDH, *lnwire.NetAddress) (wtserver.Peer,
+		error)
 
 	// SendMessage encodes, encrypts, and writes a message to the given peer.
 	SendMessage func(wtserver.Peer, wtwire.Message) error
@@ -285,7 +285,7 @@ func (q *sessionQueue) sessionManager() {
 // drainBackups attempts to send all pending updates in the queue to the tower.
 func (q *sessionQueue) drainBackups() {
 	// First, check that we are able to dial this session's tower.
-	conn, err := q.cfg.Dial(q.cfg.ClientSession.SessionPrivKey, q.towerAddr)
+	conn, err := q.cfg.Dial(q.cfg.ClientSession.SessionKeyECDH, q.towerAddr)
 	if err != nil {
 		log.Errorf("SessionQueue(%s) unable to dial tower at %v: %v",
 			q.ID(), q.towerAddr, err)

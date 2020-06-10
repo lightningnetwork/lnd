@@ -1,0 +1,361 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "chainrpc/chainnotifier.proto",
+    "version": "version not set"
+  },
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v2/chainnotifier/register/blocks": {
+      "post": {
+        "summary": "RegisterBlockEpochNtfn is a synchronous response-streaming RPC that\nregisters an intent for a client to be notified of blocks in the chain. The\nstream will return a hash and height tuple of a block for each new/stale\nblock in the chain. It is the client's responsibility to determine whether\nthe tuple returned is for a new or stale block in the chain.",
+        "description": "A client can also request a historical backlog of blocks from a particular\npoint. This allows clients to be idempotent by ensuring that they do not\nmissing processing a single block within the chain.",
+        "operationId": "RegisterBlockEpochNtfn",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/chainrpcBlockEpoch"
+                },
+                "error": {
+                  "$ref": "#/definitions/runtimeStreamError"
+                }
+              },
+              "title": "Stream result of chainrpcBlockEpoch"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/chainrpcBlockEpoch"
+            }
+          }
+        ],
+        "tags": [
+          "ChainNotifier"
+        ]
+      }
+    },
+    "/v2/chainnotifier/register/confirmations": {
+      "post": {
+        "summary": "RegisterConfirmationsNtfn is a synchronous response-streaming RPC that\nregisters an intent for a client to be notified once a confirmation request\nhas reached its required number of confirmations on-chain.",
+        "description": "A client can specify whether the confirmation request should be for a\nparticular transaction by its hash or for an output script by specifying a\nzero hash.",
+        "operationId": "RegisterConfirmationsNtfn",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/chainrpcConfEvent"
+                },
+                "error": {
+                  "$ref": "#/definitions/runtimeStreamError"
+                }
+              },
+              "title": "Stream result of chainrpcConfEvent"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/chainrpcConfRequest"
+            }
+          }
+        ],
+        "tags": [
+          "ChainNotifier"
+        ]
+      }
+    },
+    "/v2/chainnotifier/register/spends": {
+      "post": {
+        "summary": "RegisterSpendNtfn is a synchronous response-streaming RPC that registers an\nintent for a client to be notification once a spend request has been spent\nby a transaction that has confirmed on-chain.",
+        "description": "A client can specify whether the spend request should be for a particular\noutpoint  or for an output script by specifying a zero outpoint.",
+        "operationId": "RegisterSpendNtfn",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/chainrpcSpendEvent"
+                },
+                "error": {
+                  "$ref": "#/definitions/runtimeStreamError"
+                }
+              },
+              "title": "Stream result of chainrpcSpendEvent"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/chainrpcSpendRequest"
+            }
+          }
+        ],
+        "tags": [
+          "ChainNotifier"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "chainrpcBlockEpoch": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the block."
+        },
+        "height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The height of the block."
+        }
+      }
+    },
+    "chainrpcConfDetails": {
+      "type": "object",
+      "properties": {
+        "raw_tx": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw bytes of the confirmed transaction."
+        },
+        "block_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the block in which the confirmed transaction was included in."
+        },
+        "block_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The height of the block in which the confirmed transaction was included\nin."
+        },
+        "tx_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The index of the confirmed transaction within the transaction."
+        }
+      }
+    },
+    "chainrpcConfEvent": {
+      "type": "object",
+      "properties": {
+        "conf": {
+          "$ref": "#/definitions/chainrpcConfDetails",
+          "description": "An event that includes the confirmation details of the request\n(txid/ouput script)."
+        },
+        "reorg": {
+          "$ref": "#/definitions/chainrpcReorg",
+          "description": "An event send when the transaction of the request is reorged out of the\nchain."
+        }
+      }
+    },
+    "chainrpcConfRequest": {
+      "type": "object",
+      "properties": {
+        "txid": {
+          "type": "string",
+          "format": "byte",
+          "description": "The transaction hash for which we should request a confirmation notification\nfor. If set to a hash of all zeros, then the confirmation notification will\nbe requested for the script instead."
+        },
+        "script": {
+          "type": "string",
+          "format": "byte",
+          "description": "An output script within a transaction with the hash above which will be used\nby light clients to match block filters. If the transaction hash is set to a\nhash of all zeros, then a confirmation notification will be requested for\nthis script instead."
+        },
+        "num_confs": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of desired confirmations the transaction/output script should\nreach before dispatching a confirmation notification."
+        },
+        "height_hint": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The earliest height in the chain for which the transaction/output script\ncould have been included in a block. This should in most cases be set to the\nbroadcast height of the transaction/output script."
+        }
+      }
+    },
+    "chainrpcOutpoint": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the transaction."
+        },
+        "index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The index of the output within the transaction."
+        }
+      }
+    },
+    "chainrpcReorg": {
+      "type": "object"
+    },
+    "chainrpcSpendDetails": {
+      "type": "object",
+      "properties": {
+        "spending_outpoint": {
+          "$ref": "#/definitions/chainrpcOutpoint",
+          "description": "The outpoint was that spent."
+        },
+        "raw_spending_tx": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw bytes of the spending transaction."
+        },
+        "spending_tx_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the spending transaction."
+        },
+        "spending_input_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The input of the spending transaction that fulfilled the spend request."
+        },
+        "spending_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The height at which the spending transaction was included in a block."
+        }
+      }
+    },
+    "chainrpcSpendEvent": {
+      "type": "object",
+      "properties": {
+        "spend": {
+          "$ref": "#/definitions/chainrpcSpendDetails",
+          "description": "An event that includes the details of the spending transaction of the\nrequest (outpoint/output script)."
+        },
+        "reorg": {
+          "$ref": "#/definitions/chainrpcReorg",
+          "description": "An event sent when the spending transaction of the request was\nreorged out of the chain."
+        }
+      }
+    },
+    "chainrpcSpendRequest": {
+      "type": "object",
+      "properties": {
+        "outpoint": {
+          "$ref": "#/definitions/chainrpcOutpoint",
+          "description": "The outpoint for which we should request a spend notification for. If set to\na zero outpoint, then the spend notification will be requested for the\nscript instead."
+        },
+        "script": {
+          "type": "string",
+          "format": "byte",
+          "description": "The output script for the outpoint above. This will be used by light clients\nto match block filters. If the outpoint is set to a zero outpoint, then a\nspend notification will be requested for this script instead."
+        },
+        "height_hint": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The earliest height in the chain for which the outpoint/output script could\nhave been spent. This should in most cases be set to the broadcast height of\nthe outpoint/output script."
+        }
+      }
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "runtimeError": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "runtimeStreamError": {
+      "type": "object",
+      "properties": {
+        "grpc_code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "http_code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "http_status": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    }
+  }
+}

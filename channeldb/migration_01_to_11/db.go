@@ -180,7 +180,7 @@ func fileExists(path string) bool {
 func (d *DB) FetchClosedChannels(pendingOnly bool) ([]*ChannelCloseSummary, error) {
 	var chanSummaries []*ChannelCloseSummary
 
-	if err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+	if err := kvdb.View(d, func(tx kvdb.RTx) error {
 		closeBucket := tx.ReadBucket(closedChannelBucket)
 		if closeBucket == nil {
 			return ErrNoClosedChannels

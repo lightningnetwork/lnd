@@ -2,7 +2,7 @@ package htlcswitch
 
 import (
 	"bytes"
-	"crypto/rand"
+	crand "crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
@@ -20,7 +20,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/fastsha256"
 	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -138,7 +137,7 @@ func generateRandomBytes(n int) ([]byte, error) {
 	// TODO(roasbeef): should use counter in tests (atomic) rather than
 	// this
 
-	_, err := rand.Read(b[:])
+	_, err := crand.Read(b)
 	// Note that Err == nil only if we read len(b) bytes.
 	if err != nil {
 		return nil, err
@@ -548,8 +547,8 @@ func getChanID(msg lnwire.Message) (lnwire.ChannelID, error) {
 // invoice which should be added by destination peer.
 func generatePaymentWithPreimage(invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 	timelock uint32, blob [lnwire.OnionPacketSize]byte,
-	preimage, rhash [32]byte) (*channeldb.Invoice, *lnwire.UpdateAddHTLC,
-	uint64, error) {
+	preimage *lntypes.Preimage, rhash, payAddr [32]byte) (
+	*channeldb.Invoice, *lnwire.UpdateAddHTLC, uint64, error) {
 
 	// Create the db invoice. Normally the payment requests needs to be set,
 	// because it is decoded in InvoiceRegistry to obtain the cltv expiry.
@@ -557,16 +556,19 @@ func generatePaymentWithPreimage(invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 	// step and always returning the value of testInvoiceCltvExpiry, we
 	// don't need to bother here with creating and signing a payment
 	// request.
+
 	invoice := &channeldb.Invoice{
 		CreationDate: time.Now(),
 		Terms: channeldb.ContractTerm{
 			FinalCltvDelta:  testInvoiceCltvExpiry,
 			Value:           invoiceAmt,
 			PaymentPreimage: preimage,
+			PaymentAddr:     payAddr,
 			Features: lnwire.NewFeatureVector(
 				nil, lnwire.Features,
 			),
 		},
+		HodlInvoice: preimage == nil,
 	}
 
 	htlc := &lnwire.UpdateAddHTLC{
@@ -591,16 +593,24 @@ func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi, timelock uint32,
 	blob [lnwire.OnionPacketSize]byte) (*channeldb.Invoice,
 	*lnwire.UpdateAddHTLC, uint64, error) {
 
-	var preimage [sha256.Size]byte
+	var preimage lntypes.Preimage
 	r, err := generateRandomBytes(sha256.Size)
 	if err != nil {
 		return nil, nil, 0, err
 	}
 	copy(preimage[:], r)
 
-	rhash := fastsha256.Sum256(preimage[:])
+	rhash := sha256.Sum256(preimage[:])
+
+	var payAddr [sha256.Size]byte
+	r, err = generateRandomBytes(sha256.Size)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	copy(payAddr[:], r)
+
 	return generatePaymentWithPreimage(
-		invoiceAmt, htlcAmt, timelock, blob, preimage, rhash,
+		invoiceAmt, htlcAmt, timelock, blob, &preimage, rhash, payAddr,
 	)
 }
 
@@ -1329,10 +1339,15 @@ func (n *twoHopNetwork) makeHoldPayment(sendingPeer, receivingPeer lnpeer.Peer,
 
 	rhash := preimage.Hash()
 
+	var payAddr [32]byte
+	if _, err := crand.Read(payAddr[:]); err != nil {
+		panic(err)
+	}
+
 	// Generate payment: invoice and htlc.
 	invoice, htlc, pid, err := generatePaymentWithPreimage(
 		invoiceAmt, htlcAmt, timelock, blob,
-		channeldb.UnknownPreimage, rhash,
+		nil, rhash, payAddr,
 	)
 	if err != nil {
 		paymentErr <- err

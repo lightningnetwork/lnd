@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/btcsuite/btcutil"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -49,6 +50,10 @@ var (
 	// macPermissions maps RPC calls to the permissions they require.
 	macPermissions = map[string][]bakery.Op{
 		"/routerrpc.Router/SendPaymentV2": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/routerrpc.Router/SendToRouteV2": {{
 			Entity: "offchain",
 			Action: "write",
 		}},
@@ -222,6 +227,28 @@ func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	return nil
 }
 
+// RegisterWithRestServer will be called by the root REST mux to direct a sub
+// RPC server to register itself with the main REST mux server. Until this is
+// called, each sub-server won't be able to have requests routed towards it.
+//
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (s *Server) RegisterWithRestServer(ctx context.Context,
+	mux *runtime.ServeMux, dest string, opts []grpc.DialOption) error {
+
+	// We make sure that we register it with the main REST server to ensure
+	// all our methods are routed properly.
+	err := RegisterRouterHandlerFromEndpoint(ctx, mux, dest, opts)
+	if err != nil {
+		log.Errorf("Could not register Router REST server "+
+			"with root REST server: %v", err)
+		return err
+	}
+
+	log.Debugf("Router REST server successfully registered with " +
+		"root REST server")
+	return nil
+}
+
 // SendPaymentV2 attempts to route a payment described by the passed
 // PaymentRequest to the final destination. If we are unable to route the
 // payment, or cannot find a route that satisfies the constraints in the
@@ -299,10 +326,10 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 	}, nil
 }
 
-// SendToRoute sends a payment through a predefined route. The response of this
+// SendToRouteV2 sends a payment through a predefined route. The response of this
 // call contains structured error information.
-func (s *Server) SendToRoute(ctx context.Context,
-	req *SendToRouteRequest) (*SendToRouteResponse, error) {
+func (s *Server) SendToRouteV2(ctx context.Context,
+	req *SendToRouteRequest) (*lnrpc.HTLCAttempt, error) {
 
 	if req.Route == nil {
 		return nil, fmt.Errorf("unable to send, no routes provided")
@@ -318,25 +345,24 @@ func (s *Server) SendToRoute(ctx context.Context,
 		return nil, err
 	}
 
-	preimage, err := s.cfg.Router.SendToRoute(hash, route)
-
-	// In the success case, return the preimage.
-	if err == nil {
-		return &SendToRouteResponse{
-			Preimage: preimage[:],
-		}, nil
+	// Pass route to the router. This call returns the full htlc attempt
+	// information as it is stored in the database. It is possible that both
+	// the attempt return value and err are non-nil. This can happen when
+	// the attempt was already initiated before the error happened. In that
+	// case, we give precedence to the attempt information as stored in the
+	// db.
+	attempt, err := s.cfg.Router.SendToRoute(hash, route)
+	if attempt != nil {
+		rpcAttempt, err := s.cfg.RouterBackend.MarshalHTLCAttempt(
+			*attempt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		return rpcAttempt, nil
 	}
 
-	// In the failure case, marshall the failure message to the rpc format
-	// before returning it to the caller.
-	rpcErr, err := marshallError(err)
-	if err != nil {
-		return nil, err
-	}
-
-	return &SendToRouteResponse{
-		Failure: rpcErr,
-	}, nil
+	return nil, err
 }
 
 // ResetMissionControl clears all mission control state and starts with a clean

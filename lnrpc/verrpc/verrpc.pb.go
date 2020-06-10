@@ -8,6 +8,8 @@ import (
 	fmt "fmt"
 	proto "github.com/golang/protobuf/proto"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 	math "math"
 )
 
@@ -54,23 +56,23 @@ func (m *VersionRequest) XXX_DiscardUnknown() {
 var xxx_messageInfo_VersionRequest proto.InternalMessageInfo
 
 type Version struct {
-	/// A verbose description of the daemon's commit.
+	// A verbose description of the daemon's commit.
 	Commit string `protobuf:"bytes,1,opt,name=commit,proto3" json:"commit,omitempty"`
-	/// The SHA1 commit hash that the daemon is compiled with.
+	// The SHA1 commit hash that the daemon is compiled with.
 	CommitHash string `protobuf:"bytes,2,opt,name=commit_hash,json=commitHash,proto3" json:"commit_hash,omitempty"`
-	/// The semantic version.
+	// The semantic version.
 	Version string `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`
-	/// The major application version.
+	// The major application version.
 	AppMajor uint32 `protobuf:"varint,4,opt,name=app_major,json=appMajor,proto3" json:"app_major,omitempty"`
-	/// The minor application version.
+	// The minor application version.
 	AppMinor uint32 `protobuf:"varint,5,opt,name=app_minor,json=appMinor,proto3" json:"app_minor,omitempty"`
-	/// The application patch number.
+	// The application patch number.
 	AppPatch uint32 `protobuf:"varint,6,opt,name=app_patch,json=appPatch,proto3" json:"app_patch,omitempty"`
-	/// The application pre-release modifier, possibly empty.
+	// The application pre-release modifier, possibly empty.
 	AppPreRelease string `protobuf:"bytes,7,opt,name=app_pre_release,json=appPreRelease,proto3" json:"app_pre_release,omitempty"`
-	/// The list of build tags that were supplied during compilation.
+	// The list of build tags that were supplied during compilation.
 	BuildTags []string `protobuf:"bytes,8,rep,name=build_tags,json=buildTags,proto3" json:"build_tags,omitempty"`
-	/// The version of go that compiled the executable.
+	// The version of go that compiled the executable.
 	GoVersion            string   `protobuf:"bytes,9,opt,name=go_version,json=goVersion,proto3" json:"go_version,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -207,6 +209,9 @@ const _ = grpc.SupportPackageIsVersion4
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type VersionerClient interface {
+	// lncli: `version`
+	//GetVersion returns the current version and build information of the running
+	//daemon.
 	GetVersion(ctx context.Context, in *VersionRequest, opts ...grpc.CallOption) (*Version, error)
 }
 
@@ -229,7 +234,18 @@ func (c *versionerClient) GetVersion(ctx context.Context, in *VersionRequest, op
 
 // VersionerServer is the server API for Versioner service.
 type VersionerServer interface {
+	// lncli: `version`
+	//GetVersion returns the current version and build information of the running
+	//daemon.
 	GetVersion(context.Context, *VersionRequest) (*Version, error)
+}
+
+// UnimplementedVersionerServer can be embedded to have forward compatible implementations.
+type UnimplementedVersionerServer struct {
+}
+
+func (*UnimplementedVersionerServer) GetVersion(ctx context.Context, req *VersionRequest) (*Version, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetVersion not implemented")
 }
 
 func RegisterVersionerServer(s *grpc.Server, srv VersionerServer) {

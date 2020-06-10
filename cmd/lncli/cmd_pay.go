@@ -321,7 +321,10 @@ func sendPaymentRequest(ctx *cli.Context,
 	client := lnrpc.NewLightningClient(conn)
 	routerClient := routerrpc.NewRouterClient(conn)
 
-	req.OutgoingChanId = ctx.Uint64("outgoing_chan_id")
+	outChan := ctx.Uint64("outgoing_chan_id")
+	if outChan != 0 {
+		req.OutgoingChanIds = []uint64{outChan}
+	}
 	if ctx.IsSet(lastHopFlag.Name) {
 		lastHop, err := route.NewVertexFromStr(
 			ctx.String(lastHopFlag.Name),
@@ -605,8 +608,8 @@ func formatPayment(payment *lnrpc.Payment, aliases *aliasCache) string {
 				return "-"
 			}
 			resolveTime := time.Unix(0, timeNs)
-			resolveTimeMs := resolveTime.Sub(createTime).
-				Milliseconds()
+			resolveTimeDiff := resolveTime.Sub(createTime)
+			resolveTimeMs := resolveTimeDiff / time.Millisecond
 			return fmt.Sprintf(
 				"%.3f", float64(resolveTimeMs)/1000.0,
 			)
@@ -833,7 +836,7 @@ func sendToRoute(ctx *cli.Context) error {
 		route = routes.Route
 	}
 
-	req := &lnrpc.SendToRouteRequest{
+	req := &routerrpc.SendToRouteRequest{
 		PaymentHash: rHash,
 		Route:       route,
 	}
@@ -841,20 +844,13 @@ func sendToRoute(ctx *cli.Context) error {
 	return sendToRouteRequest(ctx, req)
 }
 
-func sendToRouteRequest(ctx *cli.Context, req *lnrpc.SendToRouteRequest) error {
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
+func sendToRouteRequest(ctx *cli.Context, req *routerrpc.SendToRouteRequest) error {
+	conn := getClientConn(ctx, false)
+	defer conn.Close()
 
-	paymentStream, err := client.SendToRoute(context.Background())
-	if err != nil {
-		return err
-	}
+	client := routerrpc.NewRouterClient(conn)
 
-	if err := paymentStream.Send(req); err != nil {
-		return err
-	}
-
-	resp, err := paymentStream.Recv()
+	resp, err := client.SendToRouteV2(context.Background(), req)
 	if err != nil {
 		return err
 	}

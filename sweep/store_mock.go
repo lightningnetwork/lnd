@@ -41,5 +41,15 @@ func (s *MockSweeperStore) GetLastPublishedTx() (*wire.MsgTx, error) {
 	return s.lastTx, nil
 }
 
+// ListSweeps lists all the sweeps we have successfully published.
+func (s *MockSweeperStore) ListSweeps() ([]chainhash.Hash, error) {
+	var txns []chainhash.Hash
+	for tx := range s.ourTxes {
+		txns = append(txns, tx)
+	}
+
+	return txns, nil
+}
+
 // Compile-time constraint to ensure MockSweeperStore implements SweeperStore.
 var _ SweeperStore = (*MockSweeperStore)(nil)

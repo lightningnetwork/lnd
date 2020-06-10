@@ -261,7 +261,7 @@ func (d *DecayedLog) Delete(hash *sphinx.HashPrefix) error {
 func (d *DecayedLog) Get(hash *sphinx.HashPrefix) (uint32, error) {
 	var value uint32
 
-	err := kvdb.View(d.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(d.db, func(tx kvdb.RTx) error {
 		// Grab the shared hash bucket which stores the mapping from
 		// truncated sha-256 hashes of shared secrets to CLTV's.
 		sharedHashes := tx.ReadBucket(sharedHashBucket)

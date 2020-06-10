@@ -7,8 +7,9 @@ import (
 	context "context"
 	fmt "fmt"
 	proto "github.com/golang/protobuf/proto"
-	_ "google.golang.org/genproto/googleapis/api/annotations"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 	math "math"
 )
 
@@ -23,7 +24,7 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.ProtoPackageIsVersion3 // please upgrade the proto package
 
-//*
+//
 //`AddressType` has to be one of:
 //
 //- `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)
@@ -62,22 +63,22 @@ func (AddressType) EnumDescriptor() ([]byte, []int) {
 type CommitmentType int32
 
 const (
-	//*
+	//
 	//A channel using the legacy commitment format having tweaked to_remote
 	//keys.
 	CommitmentType_LEGACY CommitmentType = 0
-	//*
+	//
 	//A channel that uses the modern commitment format where the key in the
 	//output of the remote party does not change each state. This makes back
 	//up and recovery easier as when the channel is closed, the funds go
 	//directly to that key.
 	CommitmentType_STATIC_REMOTE_KEY CommitmentType = 1
-	//*
+	//
 	//A channel that uses a commitment format that has anchor outputs on the
 	//commitments, allowing fee bumping after a force close transaction has
 	//been broadcast.
 	CommitmentType_ANCHORS CommitmentType = 2
-	//*
+	//
 	//Returned when the commitment type isn't known or unavailable.
 	CommitmentType_UNKNOWN_COMMITMENT_TYPE CommitmentType = 999
 )
@@ -191,24 +192,24 @@ func (InvoiceHTLCState) EnumDescriptor() ([]byte, []int) {
 type PaymentFailureReason int32
 
 const (
-	//*
+	//
 	//Payment isn't failed (yet).
 	PaymentFailureReason_FAILURE_REASON_NONE PaymentFailureReason = 0
-	//*
+	//
 	//There are more routes to try, but the payment timeout was exceeded.
 	PaymentFailureReason_FAILURE_REASON_TIMEOUT PaymentFailureReason = 1
-	//*
+	//
 	//All possible routes were tried and failed permanently. Or were no
 	//routes to the destination at all.
 	PaymentFailureReason_FAILURE_REASON_NO_ROUTE PaymentFailureReason = 2
-	//*
+	//
 	//A non-recoverable error has occured.
 	PaymentFailureReason_FAILURE_REASON_ERROR PaymentFailureReason = 3
-	//*
+	//
 	//Payment details incorrect (unknown hash, invalid amt or
 	//invalid final cltv delta)
 	PaymentFailureReason_FAILURE_REASON_INCORRECT_PAYMENT_DETAILS PaymentFailureReason = 4
-	//*
+	//
 	//Insufficient local balance.
 	PaymentFailureReason_FAILURE_REASON_INSUFFICIENT_BALANCE PaymentFailureReason = 5
 )
@@ -343,19 +344,19 @@ func (x ChannelCloseSummary_ClosureType) String() string {
 }
 
 func (ChannelCloseSummary_ClosureType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{43, 0}
+	return fileDescriptor_77a6da22d6a3feb1, []int{35, 0}
 }
 
 type Peer_SyncType int32
 
 const (
-	//*
+	//
 	//Denotes that we cannot determine the peer's current sync type.
 	Peer_UNKNOWN_SYNC Peer_SyncType = 0
-	//*
+	//
 	//Denotes that we are actively receiving new graph updates from the peer.
 	Peer_ACTIVE_SYNC Peer_SyncType = 1
-	//*
+	//
 	//Denotes that we are not receiving new graph updates from the peer.
 	Peer_PASSIVE_SYNC Peer_SyncType = 2
 )
@@ -377,7 +378,7 @@ func (x Peer_SyncType) String() string {
 }
 
 func (Peer_SyncType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{46, 0}
+	return fileDescriptor_77a6da22d6a3feb1, []int{38, 0}
 }
 
 type PeerEvent_EventType int32
@@ -402,7 +403,7 @@ func (x PeerEvent_EventType) String() string {
 }
 
 func (PeerEvent_EventType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{51, 0}
+	return fileDescriptor_77a6da22d6a3feb1, []int{43, 0}
 }
 
 type PendingChannelsResponse_ForceClosedChannel_AnchorState int32
@@ -430,7 +431,7 @@ func (x PendingChannelsResponse_ForceClosedChannel_AnchorState) String() string 
 }
 
 func (PendingChannelsResponse_ForceClosedChannel_AnchorState) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{76, 5, 0}
+	return fileDescriptor_77a6da22d6a3feb1, []int{68, 5, 0}
 }
 
 type ChannelEventUpdate_UpdateType int32
@@ -464,7 +465,7 @@ func (x ChannelEventUpdate_UpdateType) String() string {
 }
 
 func (ChannelEventUpdate_UpdateType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{78, 0}
+	return fileDescriptor_77a6da22d6a3feb1, []int{70, 0}
 }
 
 type Invoice_InvoiceState int32
@@ -495,7 +496,7 @@ func (x Invoice_InvoiceState) String() string {
 }
 
 func (Invoice_InvoiceState) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{113, 0}
+	return fileDescriptor_77a6da22d6a3feb1, []int{105, 0}
 }
 
 type Payment_PaymentStatus int32
@@ -526,7 +527,7 @@ func (x Payment_PaymentStatus) String() string {
 }
 
 func (Payment_PaymentStatus) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{120, 0}
+	return fileDescriptor_77a6da22d6a3feb1, []int{112, 0}
 }
 
 type HTLCAttempt_HTLCStatus int32
@@ -554,13 +555,13 @@ func (x HTLCAttempt_HTLCStatus) String() string {
 }
 
 func (HTLCAttempt_HTLCStatus) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{121, 0}
+	return fileDescriptor_77a6da22d6a3feb1, []int{113, 0}
 }
 
 type Failure_FailureCode int32
 
 const (
-	//*
+	//
 	//The numbers assigned in this enumeration match the failure codes as
 	//defined in BOLT #4. Because protobuf 3 requires enums to start with 0,
 	//a RESERVED value is added.
@@ -588,13 +589,13 @@ const (
 	Failure_PERMANENT_CHANNEL_FAILURE            Failure_FailureCode = 21
 	Failure_EXPIRY_TOO_FAR                       Failure_FailureCode = 22
 	Failure_MPP_TIMEOUT                          Failure_FailureCode = 23
-	//*
+	//
 	//An internal error occurred.
 	Failure_INTERNAL_FAILURE Failure_FailureCode = 997
-	//*
+	//
 	//The error source is known, but the failure itself couldn't be decoded.
 	Failure_UNKNOWN_FAILURE Failure_FailureCode = 998
-	//*
+	//
 	//An unreadable failure result is returned if the received failure message
 	//cannot be decrypted. In that case the error source is unknown.
 	Failure_UNREADABLE_FAILURE Failure_FailureCode = 999
@@ -1168,17 +1169,17 @@ func (m *ChangePasswordResponse) GetAdminMacaroon() []byte {
 }
 
 type Utxo struct {
-	/// The type of address
+	// The type of address
 	AddressType AddressType `protobuf:"varint,1,opt,name=address_type,json=addressType,proto3,enum=lnrpc.AddressType" json:"address_type,omitempty"`
-	/// The address
+	// The address
 	Address string `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"`
-	/// The value of the unspent coin in satoshis
+	// The value of the unspent coin in satoshis
 	AmountSat int64 `protobuf:"varint,3,opt,name=amount_sat,json=amountSat,proto3" json:"amount_sat,omitempty"`
-	/// The pkscript in hex
+	// The pkscript in hex
 	PkScript string `protobuf:"bytes,4,opt,name=pk_script,json=pkScript,proto3" json:"pk_script,omitempty"`
-	/// The outpoint in format txid:n
+	// The outpoint in format txid:n
 	Outpoint *OutPoint `protobuf:"bytes,5,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
-	/// The number of confirmations for the Utxo
+	// The number of confirmations for the Utxo
 	Confirmations        int64    `protobuf:"varint,6,opt,name=confirmations,proto3" json:"confirmations,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -1189,7 +1190,7 @@ func (m *Utxo) Reset()         { *m = Utxo{} }
 func (m *Utxo) String() string { return proto.CompactTextString(m) }
 func (*Utxo) ProtoMessage()    {}
 func (*Utxo) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{8}
+	return fileDescriptor_77a6da22d6a3feb1, []int{0}
 }
 
 func (m *Utxo) XXX_Unmarshal(b []byte) error {
@@ -1253,24 +1254,26 @@ func (m *Utxo) GetConfirmations() int64 {
 }
 
 type Transaction struct {
-	/// The transaction hash
+	// The transaction hash
 	TxHash string `protobuf:"bytes,1,opt,name=tx_hash,json=txHash,proto3" json:"tx_hash,omitempty"`
-	/// The transaction amount, denominated in satoshis
+	// The transaction amount, denominated in satoshis
 	Amount int64 `protobuf:"varint,2,opt,name=amount,proto3" json:"amount,omitempty"`
-	/// The number of confirmations
+	// The number of confirmations
 	NumConfirmations int32 `protobuf:"varint,3,opt,name=num_confirmations,json=numConfirmations,proto3" json:"num_confirmations,omitempty"`
-	/// The hash of the block this transaction was included in
+	// The hash of the block this transaction was included in
 	BlockHash string `protobuf:"bytes,4,opt,name=block_hash,json=blockHash,proto3" json:"block_hash,omitempty"`
-	/// The height of the block this transaction was included in
+	// The height of the block this transaction was included in
 	BlockHeight int32 `protobuf:"varint,5,opt,name=block_height,json=blockHeight,proto3" json:"block_height,omitempty"`
-	/// Timestamp of this transaction
+	// Timestamp of this transaction
 	TimeStamp int64 `protobuf:"varint,6,opt,name=time_stamp,json=timeStamp,proto3" json:"time_stamp,omitempty"`
-	/// Fees paid for this transaction
+	// Fees paid for this transaction
 	TotalFees int64 `protobuf:"varint,7,opt,name=total_fees,json=totalFees,proto3" json:"total_fees,omitempty"`
-	/// Addresses that received funds for this transaction
+	// Addresses that received funds for this transaction
 	DestAddresses []string `protobuf:"bytes,8,rep,name=dest_addresses,json=destAddresses,proto3" json:"dest_addresses,omitempty"`
-	/// The raw transaction hex.
-	RawTxHex             string   `protobuf:"bytes,9,opt,name=raw_tx_hex,json=rawTxHex,proto3" json:"raw_tx_hex,omitempty"`
+	// The raw transaction hex.
+	RawTxHex string `protobuf:"bytes,9,opt,name=raw_tx_hex,json=rawTxHex,proto3" json:"raw_tx_hex,omitempty"`
+	// A label that was optionally set on transaction broadcast.
+	Label                string   `protobuf:"bytes,10,opt,name=label,proto3" json:"label,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
@@ -1280,7 +1283,7 @@ func (m *Transaction) Reset()         { *m = Transaction{} }
 func (m *Transaction) String() string { return proto.CompactTextString(m) }
 func (*Transaction) ProtoMessage()    {}
 func (*Transaction) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{9}
+	return fileDescriptor_77a6da22d6a3feb1, []int{1}
 }
 
 func (m *Transaction) XXX_Unmarshal(b []byte) error {
@@ -1364,7 +1367,25 @@ func (m *Transaction) GetRawTxHex() string {
 	return ""
 }
 
+func (m *Transaction) GetLabel() string {
+	if m != nil {
+		return m.Label
+	}
+	return ""
+}
+
 type GetTransactionsRequest struct {
+	//
+	//The height from which to list transactions, inclusive. If this value is
+	//greater than end_height, transactions will be read in reverse.
+	StartHeight int32 `protobuf:"varint,1,opt,name=start_height,json=startHeight,proto3" json:"start_height,omitempty"`
+	//
+	//The height until which to list transactions, inclusive. To include
+	//unconfirmed transactions, this value should be set to -1, which will
+	//return transactions from start_height until the current chain tip and
+	//unconfirmed transactions. If no end_height is provided, the call will
+	//default to this option.
+	EndHeight            int32    `protobuf:"varint,2,opt,name=end_height,json=endHeight,proto3" json:"end_height,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
@@ -1374,7 +1395,7 @@ func (m *GetTransactionsRequest) Reset()         { *m = GetTransactionsRequest{}
 func (m *GetTransactionsRequest) String() string { return proto.CompactTextString(m) }
 func (*GetTransactionsRequest) ProtoMessage()    {}
 func (*GetTransactionsRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{10}
+	return fileDescriptor_77a6da22d6a3feb1, []int{2}
 }
 
 func (m *GetTransactionsRequest) XXX_Unmarshal(b []byte) error {
@@ -1395,8 +1416,22 @@ func (m *GetTransactionsRequest) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_GetTransactionsRequest proto.InternalMessageInfo
 
+func (m *GetTransactionsRequest) GetStartHeight() int32 {
+	if m != nil {
+		return m.StartHeight
+	}
+	return 0
+}
+
+func (m *GetTransactionsRequest) GetEndHeight() int32 {
+	if m != nil {
+		return m.EndHeight
+	}
+	return 0
+}
+
 type TransactionDetails struct {
-	/// The list of transactions relevant to the wallet.
+	// The list of transactions relevant to the wallet.
 	Transactions         []*Transaction `protobuf:"bytes,1,rep,name=transactions,proto3" json:"transactions,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}       `json:"-"`
 	XXX_unrecognized     []byte         `json:"-"`
@@ -1407,7 +1442,7 @@ func (m *TransactionDetails) Reset()         { *m = TransactionDetails{} }
 func (m *TransactionDetails) String() string { return proto.CompactTextString(m) }
 func (*TransactionDetails) ProtoMessage()    {}
 func (*TransactionDetails) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{11}
+	return fileDescriptor_77a6da22d6a3feb1, []int{3}
 }
 
 func (m *TransactionDetails) XXX_Unmarshal(b []byte) error {
@@ -1450,7 +1485,7 @@ func (m *FeeLimit) Reset()         { *m = FeeLimit{} }
 func (m *FeeLimit) String() string { return proto.CompactTextString(m) }
 func (*FeeLimit) ProtoMessage()    {}
 func (*FeeLimit) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{12}
+	return fileDescriptor_77a6da22d6a3feb1, []int{4}
 }
 
 func (m *FeeLimit) XXX_Unmarshal(b []byte) error {
@@ -1531,69 +1566,69 @@ func (*FeeLimit) XXX_OneofWrappers() []interface{} {
 }
 
 type SendRequest struct {
-	//*
+	//
 	//The identity pubkey of the payment recipient. When using REST, this field
 	//must be encoded as base64.
 	Dest []byte `protobuf:"bytes,1,opt,name=dest,proto3" json:"dest,omitempty"`
-	//*
+	//
 	//The hex-encoded identity pubkey of the payment recipient. Deprecated now
 	//that the REST gateway supports base64 encoding of bytes fields.
 	DestString string `protobuf:"bytes,2,opt,name=dest_string,json=destString,proto3" json:"dest_string,omitempty"` // Deprecated: Do not use.
-	//*
+	//
 	//The amount to send expressed in satoshis.
 	//
 	//The fields amt and amt_msat are mutually exclusive.
 	Amt int64 `protobuf:"varint,3,opt,name=amt,proto3" json:"amt,omitempty"`
-	//*
+	//
 	//The amount to send expressed in millisatoshis.
 	//
 	//The fields amt and amt_msat are mutually exclusive.
 	AmtMsat int64 `protobuf:"varint,12,opt,name=amt_msat,json=amtMsat,proto3" json:"amt_msat,omitempty"`
-	//*
+	//
 	//The hash to use within the payment's HTLC. When using REST, this field
 	//must be encoded as base64.
 	PaymentHash []byte `protobuf:"bytes,4,opt,name=payment_hash,json=paymentHash,proto3" json:"payment_hash,omitempty"`
-	//*
+	//
 	//The hex-encoded hash to use within the payment's HTLC. Deprecated now
 	//that the REST gateway supports base64 encoding of bytes fields.
 	PaymentHashString string `protobuf:"bytes,5,opt,name=payment_hash_string,json=paymentHashString,proto3" json:"payment_hash_string,omitempty"` // Deprecated: Do not use.
-	//*
+	//
 	//A bare-bones invoice for a payment within the Lightning Network. With the
 	//details of the invoice, the sender has all the data necessary to send a
 	//payment to the recipient.
 	PaymentRequest string `protobuf:"bytes,6,opt,name=payment_request,json=paymentRequest,proto3" json:"payment_request,omitempty"`
-	//*
+	//
 	//The CLTV delta from the current height that should be used to set the
 	//timelock for the final hop.
 	FinalCltvDelta int32 `protobuf:"varint,7,opt,name=final_cltv_delta,json=finalCltvDelta,proto3" json:"final_cltv_delta,omitempty"`
-	//*
+	//
 	//The maximum number of satoshis that will be paid as a fee of the payment.
 	//This value can be represented either as a percentage of the amount being
 	//sent, or as a fixed amount of the maximum fee the user is willing the pay to
 	//send the payment.
 	FeeLimit *FeeLimit `protobuf:"bytes,8,opt,name=fee_limit,json=feeLimit,proto3" json:"fee_limit,omitempty"`
-	//*
+	//
 	//The channel id of the channel that must be taken to the first hop. If zero,
 	//any channel may be used.
 	OutgoingChanId uint64 `protobuf:"varint,9,opt,name=outgoing_chan_id,json=outgoingChanId,proto3" json:"outgoing_chan_id,omitempty"`
-	//*
+	//
 	//The pubkey of the last hop of the route. If empty, any hop may be used.
 	LastHopPubkey []byte `protobuf:"bytes,13,opt,name=last_hop_pubkey,json=lastHopPubkey,proto3" json:"last_hop_pubkey,omitempty"`
-	//*
+	//
 	//An optional maximum total time lock for the route. This should not exceed
 	//lnd's `--max-cltv-expiry` setting. If zero, then the value of
 	//`--max-cltv-expiry` is enforced.
 	CltvLimit uint32 `protobuf:"varint,10,opt,name=cltv_limit,json=cltvLimit,proto3" json:"cltv_limit,omitempty"`
-	//*
+	//
 	//An optional field that can be used to pass an arbitrary set of TLV records
 	//to a peer which understands the new records. This can be used to pass
 	//application specific data during the payment attempt. Record types are
 	//required to be in the custom range >= 65536. When using REST, the values
 	//must be encoded as base64.
 	DestCustomRecords map[uint64][]byte `protobuf:"bytes,11,rep,name=dest_custom_records,json=destCustomRecords,proto3" json:"dest_custom_records,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	/// If set, circular payments to self are permitted.
+	// If set, circular payments to self are permitted.
 	AllowSelfPayment bool `protobuf:"varint,14,opt,name=allow_self_payment,json=allowSelfPayment,proto3" json:"allow_self_payment,omitempty"`
-	//*
+	//
 	//Features assumed to be supported by the final node. All transitive feature
 	//dependencies must also be set properly. For a given feature bit pair, either
 	//optional or remote may be set, but not both. If this field is nil or empty,
@@ -1609,7 +1644,7 @@ func (m *SendRequest) Reset()         { *m = SendRequest{} }
 func (m *SendRequest) String() string { return proto.CompactTextString(m) }
 func (*SendRequest) ProtoMessage()    {}
 func (*SendRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{13}
+	return fileDescriptor_77a6da22d6a3feb1, []int{5}
 }
 
 func (m *SendRequest) XXX_Unmarshal(b []byte) error {
@@ -1751,7 +1786,7 @@ func (m *SendResponse) Reset()         { *m = SendResponse{} }
 func (m *SendResponse) String() string { return proto.CompactTextString(m) }
 func (*SendResponse) ProtoMessage()    {}
 func (*SendResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{14}
+	return fileDescriptor_77a6da22d6a3feb1, []int{6}
 }
 
 func (m *SendResponse) XXX_Unmarshal(b []byte) error {
@@ -1801,15 +1836,15 @@ func (m *SendResponse) GetPaymentHash() []byte {
 }
 
 type SendToRouteRequest struct {
-	//*
+	//
 	//The payment hash to use for the HTLC. When using REST, this field must be
 	//encoded as base64.
 	PaymentHash []byte `protobuf:"bytes,1,opt,name=payment_hash,json=paymentHash,proto3" json:"payment_hash,omitempty"`
-	//*
+	//
 	//An optional hex-encoded payment hash to be used for the HTLC. Deprecated now
 	//that the REST gateway supports base64 encoding of bytes fields.
 	PaymentHashString string `protobuf:"bytes,2,opt,name=payment_hash_string,json=paymentHashString,proto3" json:"payment_hash_string,omitempty"` // Deprecated: Do not use.
-	/// Route that should be used to attempt to complete the payment.
+	// Route that should be used to attempt to complete the payment.
 	Route                *Route   `protobuf:"bytes,4,opt,name=route,proto3" json:"route,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -1820,7 +1855,7 @@ func (m *SendToRouteRequest) Reset()         { *m = SendToRouteRequest{} }
 func (m *SendToRouteRequest) String() string { return proto.CompactTextString(m) }
 func (*SendToRouteRequest) ProtoMessage()    {}
 func (*SendToRouteRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{15}
+	return fileDescriptor_77a6da22d6a3feb1, []int{7}
 }
 
 func (m *SendToRouteRequest) XXX_Unmarshal(b []byte) error {
@@ -1864,38 +1899,38 @@ func (m *SendToRouteRequest) GetRoute() *Route {
 }
 
 type ChannelAcceptRequest struct {
-	/// The pubkey of the node that wishes to open an inbound channel.
+	// The pubkey of the node that wishes to open an inbound channel.
 	NodePubkey []byte `protobuf:"bytes,1,opt,name=node_pubkey,json=nodePubkey,proto3" json:"node_pubkey,omitempty"`
-	/// The hash of the genesis block that the proposed channel resides in.
+	// The hash of the genesis block that the proposed channel resides in.
 	ChainHash []byte `protobuf:"bytes,2,opt,name=chain_hash,json=chainHash,proto3" json:"chain_hash,omitempty"`
-	/// The pending channel id.
+	// The pending channel id.
 	PendingChanId []byte `protobuf:"bytes,3,opt,name=pending_chan_id,json=pendingChanId,proto3" json:"pending_chan_id,omitempty"`
-	/// The funding amount in satoshis that initiator wishes to use in the
-	/// channel.
+	// The funding amount in satoshis that initiator wishes to use in the
+	// channel.
 	FundingAmt uint64 `protobuf:"varint,4,opt,name=funding_amt,json=fundingAmt,proto3" json:"funding_amt,omitempty"`
-	/// The push amount of the proposed channel in millisatoshis.
+	// The push amount of the proposed channel in millisatoshis.
 	PushAmt uint64 `protobuf:"varint,5,opt,name=push_amt,json=pushAmt,proto3" json:"push_amt,omitempty"`
-	/// The dust limit of the initiator's commitment tx.
+	// The dust limit of the initiator's commitment tx.
 	DustLimit uint64 `protobuf:"varint,6,opt,name=dust_limit,json=dustLimit,proto3" json:"dust_limit,omitempty"`
-	/// The maximum amount of coins in millisatoshis that can be pending in this
-	/// channel.
+	// The maximum amount of coins in millisatoshis that can be pending in this
+	// channel.
 	MaxValueInFlight uint64 `protobuf:"varint,7,opt,name=max_value_in_flight,json=maxValueInFlight,proto3" json:"max_value_in_flight,omitempty"`
-	/// The minimum amount of satoshis the initiator requires us to have at all
-	/// times.
+	// The minimum amount of satoshis the initiator requires us to have at all
+	// times.
 	ChannelReserve uint64 `protobuf:"varint,8,opt,name=channel_reserve,json=channelReserve,proto3" json:"channel_reserve,omitempty"`
-	/// The smallest HTLC in millisatoshis that the initiator will accept.
+	// The smallest HTLC in millisatoshis that the initiator will accept.
 	MinHtlc uint64 `protobuf:"varint,9,opt,name=min_htlc,json=minHtlc,proto3" json:"min_htlc,omitempty"`
-	/// The initial fee rate that the initiator suggests for both commitment
-	/// transactions.
+	// The initial fee rate that the initiator suggests for both commitment
+	// transactions.
 	FeePerKw uint64 `protobuf:"varint,10,opt,name=fee_per_kw,json=feePerKw,proto3" json:"fee_per_kw,omitempty"`
-	//*
+	//
 	//The number of blocks to use for the relative time lock in the pay-to-self
 	//output of both commitment transactions.
 	CsvDelay uint32 `protobuf:"varint,11,opt,name=csv_delay,json=csvDelay,proto3" json:"csv_delay,omitempty"`
-	/// The total number of incoming HTLC's that the initiator will accept.
+	// The total number of incoming HTLC's that the initiator will accept.
 	MaxAcceptedHtlcs uint32 `protobuf:"varint,12,opt,name=max_accepted_htlcs,json=maxAcceptedHtlcs,proto3" json:"max_accepted_htlcs,omitempty"`
-	/// A bit-field which the initiator uses to specify proposed channel
-	/// behavior.
+	// A bit-field which the initiator uses to specify proposed channel
+	// behavior.
 	ChannelFlags         uint32   `protobuf:"varint,13,opt,name=channel_flags,json=channelFlags,proto3" json:"channel_flags,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -1906,7 +1941,7 @@ func (m *ChannelAcceptRequest) Reset()         { *m = ChannelAcceptRequest{} }
 func (m *ChannelAcceptRequest) String() string { return proto.CompactTextString(m) }
 func (*ChannelAcceptRequest) ProtoMessage()    {}
 func (*ChannelAcceptRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{16}
+	return fileDescriptor_77a6da22d6a3feb1, []int{8}
 }
 
 func (m *ChannelAcceptRequest) XXX_Unmarshal(b []byte) error {
@@ -2019,9 +2054,9 @@ func (m *ChannelAcceptRequest) GetChannelFlags() uint32 {
 }
 
 type ChannelAcceptResponse struct {
-	/// Whether or not the client accepts the channel.
+	// Whether or not the client accepts the channel.
 	Accept bool `protobuf:"varint,1,opt,name=accept,proto3" json:"accept,omitempty"`
-	/// The pending channel id to which this response applies.
+	// The pending channel id to which this response applies.
 	PendingChanId        []byte   `protobuf:"bytes,2,opt,name=pending_chan_id,json=pendingChanId,proto3" json:"pending_chan_id,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -2032,7 +2067,7 @@ func (m *ChannelAcceptResponse) Reset()         { *m = ChannelAcceptResponse{} }
 func (m *ChannelAcceptResponse) String() string { return proto.CompactTextString(m) }
 func (*ChannelAcceptResponse) ProtoMessage()    {}
 func (*ChannelAcceptResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{17}
+	return fileDescriptor_77a6da22d6a3feb1, []int{9}
 }
 
 func (m *ChannelAcceptResponse) XXX_Unmarshal(b []byte) error {
@@ -2072,7 +2107,7 @@ type ChannelPoint struct {
 	//	*ChannelPoint_FundingTxidBytes
 	//	*ChannelPoint_FundingTxidStr
 	FundingTxid isChannelPoint_FundingTxid `protobuf_oneof:"funding_txid"`
-	/// The index of the output of the funding transaction
+	// The index of the output of the funding transaction
 	OutputIndex          uint32   `protobuf:"varint,3,opt,name=output_index,json=outputIndex,proto3" json:"output_index,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -2083,7 +2118,7 @@ func (m *ChannelPoint) Reset()         { *m = ChannelPoint{} }
 func (m *ChannelPoint) String() string { return proto.CompactTextString(m) }
 func (*ChannelPoint) ProtoMessage()    {}
 func (*ChannelPoint) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{18}
+	return fileDescriptor_77a6da22d6a3feb1, []int{10}
 }
 
 func (m *ChannelPoint) XXX_Unmarshal(b []byte) error {
@@ -2157,11 +2192,11 @@ func (*ChannelPoint) XXX_OneofWrappers() []interface{} {
 }
 
 type OutPoint struct {
-	/// Raw bytes representing the transaction id.
+	// Raw bytes representing the transaction id.
 	TxidBytes []byte `protobuf:"bytes,1,opt,name=txid_bytes,json=txidBytes,proto3" json:"txid_bytes,omitempty"`
-	/// Reversed, hex-encoded string representing the transaction id.
+	// Reversed, hex-encoded string representing the transaction id.
 	TxidStr string `protobuf:"bytes,2,opt,name=txid_str,json=txidStr,proto3" json:"txid_str,omitempty"`
-	/// The index of the output on the transaction.
+	// The index of the output on the transaction.
 	OutputIndex          uint32   `protobuf:"varint,3,opt,name=output_index,json=outputIndex,proto3" json:"output_index,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -2172,7 +2207,7 @@ func (m *OutPoint) Reset()         { *m = OutPoint{} }
 func (m *OutPoint) String() string { return proto.CompactTextString(m) }
 func (*OutPoint) ProtoMessage()    {}
 func (*OutPoint) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{19}
+	return fileDescriptor_77a6da22d6a3feb1, []int{11}
 }
 
 func (m *OutPoint) XXX_Unmarshal(b []byte) error {
@@ -2215,10 +2250,10 @@ func (m *OutPoint) GetOutputIndex() uint32 {
 }
 
 type LightningAddress struct {
-	/// The identity pubkey of the Lightning node
+	// The identity pubkey of the Lightning node
 	Pubkey string `protobuf:"bytes,1,opt,name=pubkey,proto3" json:"pubkey,omitempty"`
-	/// The network location of the lightning node, e.g. `69.69.69.69:1337` or
-	/// `localhost:10011`
+	// The network location of the lightning node, e.g. `69.69.69.69:1337` or
+	// `localhost:10011`
 	Host                 string   `protobuf:"bytes,2,opt,name=host,proto3" json:"host,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -2229,7 +2264,7 @@ func (m *LightningAddress) Reset()         { *m = LightningAddress{} }
 func (m *LightningAddress) String() string { return proto.CompactTextString(m) }
 func (*LightningAddress) ProtoMessage()    {}
 func (*LightningAddress) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{20}
+	return fileDescriptor_77a6da22d6a3feb1, []int{12}
 }
 
 func (m *LightningAddress) XXX_Unmarshal(b []byte) error {
@@ -2265,10 +2300,10 @@ func (m *LightningAddress) GetHost() string {
 }
 
 type EstimateFeeRequest struct {
-	/// The map from addresses to amounts for the transaction.
+	// The map from addresses to amounts for the transaction.
 	AddrToAmount map[string]int64 `protobuf:"bytes,1,rep,name=AddrToAmount,proto3" json:"AddrToAmount,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"varint,2,opt,name=value,proto3"`
-	/// The target number of blocks that this transaction should be confirmed
-	/// by.
+	// The target number of blocks that this transaction should be confirmed
+	// by.
 	TargetConf           int32    `protobuf:"varint,2,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -2279,7 +2314,7 @@ func (m *EstimateFeeRequest) Reset()         { *m = EstimateFeeRequest{} }
 func (m *EstimateFeeRequest) String() string { return proto.CompactTextString(m) }
 func (*EstimateFeeRequest) ProtoMessage()    {}
 func (*EstimateFeeRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{21}
+	return fileDescriptor_77a6da22d6a3feb1, []int{13}
 }
 
 func (m *EstimateFeeRequest) XXX_Unmarshal(b []byte) error {
@@ -2315,9 +2350,9 @@ func (m *EstimateFeeRequest) GetTargetConf() int32 {
 }
 
 type EstimateFeeResponse struct {
-	/// The total fee in satoshis.
+	// The total fee in satoshis.
 	FeeSat int64 `protobuf:"varint,1,opt,name=fee_sat,json=feeSat,proto3" json:"fee_sat,omitempty"`
-	/// The fee rate in satoshi/byte.
+	// The fee rate in satoshi/byte.
 	FeerateSatPerByte    int64    `protobuf:"varint,2,opt,name=feerate_sat_per_byte,json=feerateSatPerByte,proto3" json:"feerate_sat_per_byte,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -2328,7 +2363,7 @@ func (m *EstimateFeeResponse) Reset()         { *m = EstimateFeeResponse{} }
 func (m *EstimateFeeResponse) String() string { return proto.CompactTextString(m) }
 func (*EstimateFeeResponse) ProtoMessage()    {}
 func (*EstimateFeeResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{22}
+	return fileDescriptor_77a6da22d6a3feb1, []int{14}
 }
 
 func (m *EstimateFeeResponse) XXX_Unmarshal(b []byte) error {
@@ -2364,14 +2399,16 @@ func (m *EstimateFeeResponse) GetFeerateSatPerByte() int64 {
 }
 
 type SendManyRequest struct {
-	/// The map from addresses to amounts
+	// The map from addresses to amounts
 	AddrToAmount map[string]int64 `protobuf:"bytes,1,rep,name=AddrToAmount,proto3" json:"AddrToAmount,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"varint,2,opt,name=value,proto3"`
-	/// The target number of blocks that this transaction should be confirmed
-	/// by.
+	// The target number of blocks that this transaction should be confirmed
+	// by.
 	TargetConf int32 `protobuf:"varint,3,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
-	/// A manual fee rate set in sat/byte that should be used when crafting the
-	/// transaction.
-	SatPerByte           int64    `protobuf:"varint,5,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
+	// A manual fee rate set in sat/byte that should be used when crafting the
+	// transaction.
+	SatPerByte int64 `protobuf:"varint,5,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
+	// An optional label for the transaction, limited to 500 characters.
+	Label                string   `protobuf:"bytes,6,opt,name=label,proto3" json:"label,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
@@ -2381,7 +2418,7 @@ func (m *SendManyRequest) Reset()         { *m = SendManyRequest{} }
 func (m *SendManyRequest) String() string { return proto.CompactTextString(m) }
 func (*SendManyRequest) ProtoMessage()    {}
 func (*SendManyRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{23}
+	return fileDescriptor_77a6da22d6a3feb1, []int{15}
 }
 
 func (m *SendManyRequest) XXX_Unmarshal(b []byte) error {
@@ -2423,8 +2460,15 @@ func (m *SendManyRequest) GetSatPerByte() int64 {
 	return 0
 }
 
+func (m *SendManyRequest) GetLabel() string {
+	if m != nil {
+		return m.Label
+	}
+	return ""
+}
+
 type SendManyResponse struct {
-	/// The id of the transaction
+	// The id of the transaction
 	Txid                 string   `protobuf:"bytes,1,opt,name=txid,proto3" json:"txid,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -2435,7 +2479,7 @@ func (m *SendManyResponse) Reset()         { *m = SendManyResponse{} }
 func (m *SendManyResponse) String() string { return proto.CompactTextString(m) }
 func (*SendManyResponse) ProtoMessage()    {}
 func (*SendManyResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{24}
+	return fileDescriptor_77a6da22d6a3feb1, []int{16}
 }
 
 func (m *SendManyResponse) XXX_Unmarshal(b []byte) error {
@@ -2464,21 +2508,23 @@ func (m *SendManyResponse) GetTxid() string {
 }
 
 type SendCoinsRequest struct {
-	/// The address to send coins to
+	// The address to send coins to
 	Addr string `protobuf:"bytes,1,opt,name=addr,proto3" json:"addr,omitempty"`
-	/// The amount in satoshis to send
+	// The amount in satoshis to send
 	Amount int64 `protobuf:"varint,2,opt,name=amount,proto3" json:"amount,omitempty"`
-	/// The target number of blocks that this transaction should be confirmed
-	/// by.
+	// The target number of blocks that this transaction should be confirmed
+	// by.
 	TargetConf int32 `protobuf:"varint,3,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
-	/// A manual fee rate set in sat/byte that should be used when crafting the
-	/// transaction.
+	// A manual fee rate set in sat/byte that should be used when crafting the
+	// transaction.
 	SatPerByte int64 `protobuf:"varint,5,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
-	//*
+	//
 	//If set, then the amount field will be ignored, and lnd will attempt to
 	//send all the coins under control of the internal wallet to the specified
 	//address.
-	SendAll              bool     `protobuf:"varint,6,opt,name=send_all,json=sendAll,proto3" json:"send_all,omitempty"`
+	SendAll bool `protobuf:"varint,6,opt,name=send_all,json=sendAll,proto3" json:"send_all,omitempty"`
+	// An optional label for the transaction, limited to 500 characters.
+	Label                string   `protobuf:"bytes,7,opt,name=label,proto3" json:"label,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
@@ -2488,7 +2534,7 @@ func (m *SendCoinsRequest) Reset()         { *m = SendCoinsRequest{} }
 func (m *SendCoinsRequest) String() string { return proto.CompactTextString(m) }
 func (*SendCoinsRequest) ProtoMessage()    {}
 func (*SendCoinsRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{25}
+	return fileDescriptor_77a6da22d6a3feb1, []int{17}
 }
 
 func (m *SendCoinsRequest) XXX_Unmarshal(b []byte) error {
@@ -2544,8 +2590,15 @@ func (m *SendCoinsRequest) GetSendAll() bool {
 	return false
 }
 
+func (m *SendCoinsRequest) GetLabel() string {
+	if m != nil {
+		return m.Label
+	}
+	return ""
+}
+
 type SendCoinsResponse struct {
-	/// The transaction ID of the transaction
+	// The transaction ID of the transaction
 	Txid                 string   `protobuf:"bytes,1,opt,name=txid,proto3" json:"txid,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -2556,7 +2609,7 @@ func (m *SendCoinsResponse) Reset()         { *m = SendCoinsResponse{} }
 func (m *SendCoinsResponse) String() string { return proto.CompactTextString(m) }
 func (*SendCoinsResponse) ProtoMessage()    {}
 func (*SendCoinsResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{26}
+	return fileDescriptor_77a6da22d6a3feb1, []int{18}
 }
 
 func (m *SendCoinsResponse) XXX_Unmarshal(b []byte) error {
@@ -2585,9 +2638,9 @@ func (m *SendCoinsResponse) GetTxid() string {
 }
 
 type ListUnspentRequest struct {
-	/// The minimum number of confirmations to be included.
+	// The minimum number of confirmations to be included.
 	MinConfs int32 `protobuf:"varint,1,opt,name=min_confs,json=minConfs,proto3" json:"min_confs,omitempty"`
-	/// The maximum number of confirmations to be included.
+	// The maximum number of confirmations to be included.
 	MaxConfs             int32    `protobuf:"varint,2,opt,name=max_confs,json=maxConfs,proto3" json:"max_confs,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -2598,7 +2651,7 @@ func (m *ListUnspentRequest) Reset()         { *m = ListUnspentRequest{} }
 func (m *ListUnspentRequest) String() string { return proto.CompactTextString(m) }
 func (*ListUnspentRequest) ProtoMessage()    {}
 func (*ListUnspentRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{27}
+	return fileDescriptor_77a6da22d6a3feb1, []int{19}
 }
 
 func (m *ListUnspentRequest) XXX_Unmarshal(b []byte) error {
@@ -2634,7 +2687,7 @@ func (m *ListUnspentRequest) GetMaxConfs() int32 {
 }
 
 type ListUnspentResponse struct {
-	/// A list of utxos
+	// A list of utxos
 	Utxos                []*Utxo  `protobuf:"bytes,1,rep,name=utxos,proto3" json:"utxos,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -2645,7 +2698,7 @@ func (m *ListUnspentResponse) Reset()         { *m = ListUnspentResponse{} }
 func (m *ListUnspentResponse) String() string { return proto.CompactTextString(m) }
 func (*ListUnspentResponse) ProtoMessage()    {}
 func (*ListUnspentResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{28}
+	return fileDescriptor_77a6da22d6a3feb1, []int{20}
 }
 
 func (m *ListUnspentResponse) XXX_Unmarshal(b []byte) error {
@@ -2674,7 +2727,7 @@ func (m *ListUnspentResponse) GetUtxos() []*Utxo {
 }
 
 type NewAddressRequest struct {
-	/// The address type
+	// The address type
 	Type                 AddressType `protobuf:"varint,1,opt,name=type,proto3,enum=lnrpc.AddressType" json:"type,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}    `json:"-"`
 	XXX_unrecognized     []byte      `json:"-"`
@@ -2685,7 +2738,7 @@ func (m *NewAddressRequest) Reset()         { *m = NewAddressRequest{} }
 func (m *NewAddressRequest) String() string { return proto.CompactTextString(m) }
 func (*NewAddressRequest) ProtoMessage()    {}
 func (*NewAddressRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{29}
+	return fileDescriptor_77a6da22d6a3feb1, []int{21}
 }
 
 func (m *NewAddressRequest) XXX_Unmarshal(b []byte) error {
@@ -2714,7 +2767,7 @@ func (m *NewAddressRequest) GetType() AddressType {
 }
 
 type NewAddressResponse struct {
-	/// The newly generated wallet address
+	// The newly generated wallet address
 	Address              string   `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -2725,7 +2778,7 @@ func (m *NewAddressResponse) Reset()         { *m = NewAddressResponse{} }
 func (m *NewAddressResponse) String() string { return proto.CompactTextString(m) }
 func (*NewAddressResponse) ProtoMessage()    {}
 func (*NewAddressResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{30}
+	return fileDescriptor_77a6da22d6a3feb1, []int{22}
 }
 
 func (m *NewAddressResponse) XXX_Unmarshal(b []byte) error {
@@ -2754,7 +2807,7 @@ func (m *NewAddressResponse) GetAddress() string {
 }
 
 type SignMessageRequest struct {
-	//*
+	//
 	//The message to be signed. When using REST, this field must be encoded as
 	//base64.
 	Msg                  []byte   `protobuf:"bytes,1,opt,name=msg,proto3" json:"msg,omitempty"`
@@ -2767,7 +2820,7 @@ func (m *SignMessageRequest) Reset()         { *m = SignMessageRequest{} }
 func (m *SignMessageRequest) String() string { return proto.CompactTextString(m) }
 func (*SignMessageRequest) ProtoMessage()    {}
 func (*SignMessageRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{31}
+	return fileDescriptor_77a6da22d6a3feb1, []int{23}
 }
 
 func (m *SignMessageRequest) XXX_Unmarshal(b []byte) error {
@@ -2796,7 +2849,7 @@ func (m *SignMessageRequest) GetMsg() []byte {
 }
 
 type SignMessageResponse struct {
-	/// The signature for the given message
+	// The signature for the given message
 	Signature            string   `protobuf:"bytes,1,opt,name=signature,proto3" json:"signature,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -2807,7 +2860,7 @@ func (m *SignMessageResponse) Reset()         { *m = SignMessageResponse{} }
 func (m *SignMessageResponse) String() string { return proto.CompactTextString(m) }
 func (*SignMessageResponse) ProtoMessage()    {}
 func (*SignMessageResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{32}
+	return fileDescriptor_77a6da22d6a3feb1, []int{24}
 }
 
 func (m *SignMessageResponse) XXX_Unmarshal(b []byte) error {
@@ -2836,11 +2889,11 @@ func (m *SignMessageResponse) GetSignature() string {
 }
 
 type VerifyMessageRequest struct {
-	//*
+	//
 	//The message over which the signature is to be verified. When using REST,
 	//this field must be encoded as base64.
 	Msg []byte `protobuf:"bytes,1,opt,name=msg,proto3" json:"msg,omitempty"`
-	/// The signature to be verified over the given message
+	// The signature to be verified over the given message
 	Signature            string   `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -2851,7 +2904,7 @@ func (m *VerifyMessageRequest) Reset()         { *m = VerifyMessageRequest{} }
 func (m *VerifyMessageRequest) String() string { return proto.CompactTextString(m) }
 func (*VerifyMessageRequest) ProtoMessage()    {}
 func (*VerifyMessageRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{33}
+	return fileDescriptor_77a6da22d6a3feb1, []int{25}
 }
 
 func (m *VerifyMessageRequest) XXX_Unmarshal(b []byte) error {
@@ -2887,9 +2940,9 @@ func (m *VerifyMessageRequest) GetSignature() string {
 }
 
 type VerifyMessageResponse struct {
-	/// Whether the signature was valid over the given message
+	// Whether the signature was valid over the given message
 	Valid bool `protobuf:"varint,1,opt,name=valid,proto3" json:"valid,omitempty"`
-	/// The pubkey recovered from the signature
+	// The pubkey recovered from the signature
 	Pubkey               string   `protobuf:"bytes,2,opt,name=pubkey,proto3" json:"pubkey,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -2900,7 +2953,7 @@ func (m *VerifyMessageResponse) Reset()         { *m = VerifyMessageResponse{} }
 func (m *VerifyMessageResponse) String() string { return proto.CompactTextString(m) }
 func (*VerifyMessageResponse) ProtoMessage()    {}
 func (*VerifyMessageResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{34}
+	return fileDescriptor_77a6da22d6a3feb1, []int{26}
 }
 
 func (m *VerifyMessageResponse) XXX_Unmarshal(b []byte) error {
@@ -2936,9 +2989,9 @@ func (m *VerifyMessageResponse) GetPubkey() string {
 }
 
 type ConnectPeerRequest struct {
-	/// Lightning address of the peer, in the format `<pubkey>@host`
+	// Lightning address of the peer, in the format `<pubkey>@host`
 	Addr *LightningAddress `protobuf:"bytes,1,opt,name=addr,proto3" json:"addr,omitempty"`
-	//* If set, the daemon will attempt to persistently connect to the target
+	// If set, the daemon will attempt to persistently connect to the target
 	// peer. Otherwise, the call will be synchronous.
 	Perm                 bool     `protobuf:"varint,2,opt,name=perm,proto3" json:"perm,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
@@ -2950,7 +3003,7 @@ func (m *ConnectPeerRequest) Reset()         { *m = ConnectPeerRequest{} }
 func (m *ConnectPeerRequest) String() string { return proto.CompactTextString(m) }
 func (*ConnectPeerRequest) ProtoMessage()    {}
 func (*ConnectPeerRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{35}
+	return fileDescriptor_77a6da22d6a3feb1, []int{27}
 }
 
 func (m *ConnectPeerRequest) XXX_Unmarshal(b []byte) error {
@@ -2995,7 +3048,7 @@ func (m *ConnectPeerResponse) Reset()         { *m = ConnectPeerResponse{} }
 func (m *ConnectPeerResponse) String() string { return proto.CompactTextString(m) }
 func (*ConnectPeerResponse) ProtoMessage()    {}
 func (*ConnectPeerResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{36}
+	return fileDescriptor_77a6da22d6a3feb1, []int{28}
 }
 
 func (m *ConnectPeerResponse) XXX_Unmarshal(b []byte) error {
@@ -3017,7 +3070,7 @@ func (m *ConnectPeerResponse) XXX_DiscardUnknown() {
 var xxx_messageInfo_ConnectPeerResponse proto.InternalMessageInfo
 
 type DisconnectPeerRequest struct {
-	/// The pubkey of the node to disconnect from
+	// The pubkey of the node to disconnect from
 	PubKey               string   `protobuf:"bytes,1,opt,name=pub_key,json=pubKey,proto3" json:"pub_key,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -3028,7 +3081,7 @@ func (m *DisconnectPeerRequest) Reset()         { *m = DisconnectPeerRequest{} }
 func (m *DisconnectPeerRequest) String() string { return proto.CompactTextString(m) }
 func (*DisconnectPeerRequest) ProtoMessage()    {}
 func (*DisconnectPeerRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{37}
+	return fileDescriptor_77a6da22d6a3feb1, []int{29}
 }
 
 func (m *DisconnectPeerRequest) XXX_Unmarshal(b []byte) error {
@@ -3066,7 +3119,7 @@ func (m *DisconnectPeerResponse) Reset()         { *m = DisconnectPeerResponse{}
 func (m *DisconnectPeerResponse) String() string { return proto.CompactTextString(m) }
 func (*DisconnectPeerResponse) ProtoMessage()    {}
 func (*DisconnectPeerResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{38}
+	return fileDescriptor_77a6da22d6a3feb1, []int{30}
 }
 
 func (m *DisconnectPeerResponse) XXX_Unmarshal(b []byte) error {
@@ -3101,7 +3154,7 @@ func (m *HTLC) Reset()         { *m = HTLC{} }
 func (m *HTLC) String() string { return proto.CompactTextString(m) }
 func (*HTLC) ProtoMessage()    {}
 func (*HTLC) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{39}
+	return fileDescriptor_77a6da22d6a3feb1, []int{31}
 }
 
 func (m *HTLC) XXX_Unmarshal(b []byte) error {
@@ -3151,83 +3204,83 @@ func (m *HTLC) GetExpirationHeight() uint32 {
 }
 
 type Channel struct {
-	/// Whether this channel is active or not
+	// Whether this channel is active or not
 	Active bool `protobuf:"varint,1,opt,name=active,proto3" json:"active,omitempty"`
-	/// The identity pubkey of the remote node
+	// The identity pubkey of the remote node
 	RemotePubkey string `protobuf:"bytes,2,opt,name=remote_pubkey,json=remotePubkey,proto3" json:"remote_pubkey,omitempty"`
-	//*
+	//
 	//The outpoint (txid:index) of the funding transaction. With this value, Bob
 	//will be able to generate a signature for Alice's version of the commitment
 	//transaction.
 	ChannelPoint string `protobuf:"bytes,3,opt,name=channel_point,json=channelPoint,proto3" json:"channel_point,omitempty"`
-	//*
+	//
 	//The unique channel ID for the channel. The first 3 bytes are the block
 	//height, the next 3 the index within the block, and the last 2 bytes are the
 	//output index for the channel.
 	ChanId uint64 `protobuf:"varint,4,opt,name=chan_id,json=chanId,proto3" json:"chan_id,omitempty"`
-	/// The total amount of funds held in this channel
+	// The total amount of funds held in this channel
 	Capacity int64 `protobuf:"varint,5,opt,name=capacity,proto3" json:"capacity,omitempty"`
-	/// This node's current balance in this channel
+	// This node's current balance in this channel
 	LocalBalance int64 `protobuf:"varint,6,opt,name=local_balance,json=localBalance,proto3" json:"local_balance,omitempty"`
-	/// The counterparty's current balance in this channel
+	// The counterparty's current balance in this channel
 	RemoteBalance int64 `protobuf:"varint,7,opt,name=remote_balance,json=remoteBalance,proto3" json:"remote_balance,omitempty"`
-	//*
+	//
 	//The amount calculated to be paid in fees for the current set of commitment
 	//transactions. The fee amount is persisted with the channel in order to
 	//allow the fee amount to be removed and recalculated with each channel state
 	//update, including updates that happen after a system restart.
 	CommitFee int64 `protobuf:"varint,8,opt,name=commit_fee,json=commitFee,proto3" json:"commit_fee,omitempty"`
-	/// The weight of the commitment transaction
+	// The weight of the commitment transaction
 	CommitWeight int64 `protobuf:"varint,9,opt,name=commit_weight,json=commitWeight,proto3" json:"commit_weight,omitempty"`
-	//*
+	//
 	//The required number of satoshis per kilo-weight that the requester will pay
 	//at all times, for both the funding transaction and commitment transaction.
 	//This value can later be updated once the channel is open.
 	FeePerKw int64 `protobuf:"varint,10,opt,name=fee_per_kw,json=feePerKw,proto3" json:"fee_per_kw,omitempty"`
-	/// The unsettled balance in this channel
+	// The unsettled balance in this channel
 	UnsettledBalance int64 `protobuf:"varint,11,opt,name=unsettled_balance,json=unsettledBalance,proto3" json:"unsettled_balance,omitempty"`
-	//*
+	//
 	//The total number of satoshis we've sent within this channel.
 	TotalSatoshisSent int64 `protobuf:"varint,12,opt,name=total_satoshis_sent,json=totalSatoshisSent,proto3" json:"total_satoshis_sent,omitempty"`
-	//*
+	//
 	//The total number of satoshis we've received within this channel.
 	TotalSatoshisReceived int64 `protobuf:"varint,13,opt,name=total_satoshis_received,json=totalSatoshisReceived,proto3" json:"total_satoshis_received,omitempty"`
-	//*
+	//
 	//The total number of updates conducted within this channel.
 	NumUpdates uint64 `protobuf:"varint,14,opt,name=num_updates,json=numUpdates,proto3" json:"num_updates,omitempty"`
-	//*
+	//
 	//The list of active, uncleared HTLCs currently pending within the channel.
 	PendingHtlcs []*HTLC `protobuf:"bytes,15,rep,name=pending_htlcs,json=pendingHtlcs,proto3" json:"pending_htlcs,omitempty"`
-	//*
+	//
 	//The CSV delay expressed in relative blocks. If the channel is force closed,
 	//we will need to wait for this many blocks before we can regain our funds.
 	CsvDelay uint32 `protobuf:"varint,16,opt,name=csv_delay,json=csvDelay,proto3" json:"csv_delay,omitempty"`
-	/// Whether this channel is advertised to the network or not.
+	// Whether this channel is advertised to the network or not.
 	Private bool `protobuf:"varint,17,opt,name=private,proto3" json:"private,omitempty"`
-	/// True if we were the ones that created the channel.
+	// True if we were the ones that created the channel.
 	Initiator bool `protobuf:"varint,18,opt,name=initiator,proto3" json:"initiator,omitempty"`
-	/// A set of flags showing the current state of the channel.
+	// A set of flags showing the current state of the channel.
 	ChanStatusFlags string `protobuf:"bytes,19,opt,name=chan_status_flags,json=chanStatusFlags,proto3" json:"chan_status_flags,omitempty"`
-	/// The minimum satoshis this node is required to reserve in its balance.
+	// The minimum satoshis this node is required to reserve in its balance.
 	LocalChanReserveSat int64 `protobuf:"varint,20,opt,name=local_chan_reserve_sat,json=localChanReserveSat,proto3" json:"local_chan_reserve_sat,omitempty"`
-	//*
+	//
 	//The minimum satoshis the other node is required to reserve in its balance.
 	RemoteChanReserveSat int64 `protobuf:"varint,21,opt,name=remote_chan_reserve_sat,json=remoteChanReserveSat,proto3" json:"remote_chan_reserve_sat,omitempty"`
-	/// Deprecated. Use commitment_type.
+	// Deprecated. Use commitment_type.
 	StaticRemoteKey bool `protobuf:"varint,22,opt,name=static_remote_key,json=staticRemoteKey,proto3" json:"static_remote_key,omitempty"` // Deprecated: Do not use.
-	/// The commitment type used by this channel.
+	// The commitment type used by this channel.
 	CommitmentType CommitmentType `protobuf:"varint,26,opt,name=commitment_type,json=commitmentType,proto3,enum=lnrpc.CommitmentType" json:"commitment_type,omitempty"`
-	//*
+	//
 	//The number of seconds that the channel has been monitored by the channel
 	//scoring system. Scores are currently not persisted, so this value may be
 	//less than the lifetime of the channel [EXPERIMENTAL].
 	Lifetime int64 `protobuf:"varint,23,opt,name=lifetime,proto3" json:"lifetime,omitempty"`
-	//*
+	//
 	//The number of seconds that the remote peer has been observed as being online
 	//by the channel scoring system over the lifetime of the channel
 	//[EXPERIMENTAL].
 	Uptime int64 `protobuf:"varint,24,opt,name=uptime,proto3" json:"uptime,omitempty"`
-	//*
+	//
 	//Close address is the address that we will enforce payout to on cooperative
 	//close if the channel was opened utilizing option upfront shutdown. This
 	//value can be set on channel open by setting close_address in an open channel
@@ -3241,7 +3294,7 @@ type Channel struct {
 	//pushed this amount to our peer, if it is false, the remote peer pushed this
 	//amount to us.
 	PushAmountSat uint64 `protobuf:"varint,27,opt,name=push_amount_sat,json=pushAmountSat,proto3" json:"push_amount_sat,omitempty"`
-	//*
+	//
 	//This uint32 indicates if this channel is to be considered 'frozen'. A
 	//frozen channel doest not allow a cooperative channel close by the
 	//initiator. The thaw_height is the height that this restriction stops
@@ -3257,7 +3310,7 @@ func (m *Channel) Reset()         { *m = Channel{} }
 func (m *Channel) String() string { return proto.CompactTextString(m) }
 func (*Channel) ProtoMessage()    {}
 func (*Channel) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{40}
+	return fileDescriptor_77a6da22d6a3feb1, []int{32}
 }
 
 func (m *Channel) XXX_Unmarshal(b []byte) error {
@@ -3480,7 +3533,7 @@ type ListChannelsRequest struct {
 	InactiveOnly bool `protobuf:"varint,2,opt,name=inactive_only,json=inactiveOnly,proto3" json:"inactive_only,omitempty"`
 	PublicOnly   bool `protobuf:"varint,3,opt,name=public_only,json=publicOnly,proto3" json:"public_only,omitempty"`
 	PrivateOnly  bool `protobuf:"varint,4,opt,name=private_only,json=privateOnly,proto3" json:"private_only,omitempty"`
-	//*
+	//
 	//Filters the response for channels with a target peer's pubkey. If peer is
 	//empty, all channels will be returned.
 	Peer                 []byte   `protobuf:"bytes,5,opt,name=peer,proto3" json:"peer,omitempty"`
@@ -3493,7 +3546,7 @@ func (m *ListChannelsRequest) Reset()         { *m = ListChannelsRequest{} }
 func (m *ListChannelsRequest) String() string { return proto.CompactTextString(m) }
 func (*ListChannelsRequest) ProtoMessage()    {}
 func (*ListChannelsRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{41}
+	return fileDescriptor_77a6da22d6a3feb1, []int{33}
 }
 
 func (m *ListChannelsRequest) XXX_Unmarshal(b []byte) error {
@@ -3550,7 +3603,7 @@ func (m *ListChannelsRequest) GetPeer() []byte {
 }
 
 type ListChannelsResponse struct {
-	/// The list of active channels
+	// The list of active channels
 	Channels             []*Channel `protobuf:"bytes,11,rep,name=channels,proto3" json:"channels,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}   `json:"-"`
 	XXX_unrecognized     []byte     `json:"-"`
@@ -3561,7 +3614,7 @@ func (m *ListChannelsResponse) Reset()         { *m = ListChannelsResponse{} }
 func (m *ListChannelsResponse) String() string { return proto.CompactTextString(m) }
 func (*ListChannelsResponse) ProtoMessage()    {}
 func (*ListChannelsResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{42}
+	return fileDescriptor_77a6da22d6a3feb1, []int{34}
 }
 
 func (m *ListChannelsResponse) XXX_Unmarshal(b []byte) error {
@@ -3590,32 +3643,32 @@ func (m *ListChannelsResponse) GetChannels() []*Channel {
 }
 
 type ChannelCloseSummary struct {
-	/// The outpoint (txid:index) of the funding transaction.
+	// The outpoint (txid:index) of the funding transaction.
 	ChannelPoint string `protobuf:"bytes,1,opt,name=channel_point,json=channelPoint,proto3" json:"channel_point,omitempty"`
-	///  The unique channel ID for the channel.
+	//  The unique channel ID for the channel.
 	ChanId uint64 `protobuf:"varint,2,opt,name=chan_id,json=chanId,proto3" json:"chan_id,omitempty"`
-	/// The hash of the genesis block that this channel resides within.
+	// The hash of the genesis block that this channel resides within.
 	ChainHash string `protobuf:"bytes,3,opt,name=chain_hash,json=chainHash,proto3" json:"chain_hash,omitempty"`
-	/// The txid of the transaction which ultimately closed this channel.
+	// The txid of the transaction which ultimately closed this channel.
 	ClosingTxHash string `protobuf:"bytes,4,opt,name=closing_tx_hash,json=closingTxHash,proto3" json:"closing_tx_hash,omitempty"`
-	/// Public key of the remote peer that we formerly had a channel with.
+	// Public key of the remote peer that we formerly had a channel with.
 	RemotePubkey string `protobuf:"bytes,5,opt,name=remote_pubkey,json=remotePubkey,proto3" json:"remote_pubkey,omitempty"`
-	/// Total capacity of the channel.
+	// Total capacity of the channel.
 	Capacity int64 `protobuf:"varint,6,opt,name=capacity,proto3" json:"capacity,omitempty"`
-	/// Height at which the funding transaction was spent.
+	// Height at which the funding transaction was spent.
 	CloseHeight uint32 `protobuf:"varint,7,opt,name=close_height,json=closeHeight,proto3" json:"close_height,omitempty"`
-	/// Settled balance at the time of channel closure
+	// Settled balance at the time of channel closure
 	SettledBalance int64 `protobuf:"varint,8,opt,name=settled_balance,json=settledBalance,proto3" json:"settled_balance,omitempty"`
-	/// The sum of all the time-locked outputs at the time of channel closure
+	// The sum of all the time-locked outputs at the time of channel closure
 	TimeLockedBalance int64 `protobuf:"varint,9,opt,name=time_locked_balance,json=timeLockedBalance,proto3" json:"time_locked_balance,omitempty"`
-	/// Details on how the channel was closed.
+	// Details on how the channel was closed.
 	CloseType ChannelCloseSummary_ClosureType `protobuf:"varint,10,opt,name=close_type,json=closeType,proto3,enum=lnrpc.ChannelCloseSummary_ClosureType" json:"close_type,omitempty"`
-	//*
+	//
 	//Open initiator is the party that initiated opening the channel. Note that
 	//this value may be unknown if the channel was closed before we migrated to
 	//store open channel information after close.
 	OpenInitiator Initiator `protobuf:"varint,11,opt,name=open_initiator,json=openInitiator,proto3,enum=lnrpc.Initiator" json:"open_initiator,omitempty"`
-	//*
+	//
 	//Close initiator indicates which party initiated the close. This value will
 	//be unknown for channels that were cooperatively closed before we started
 	//tracking cooperative close initiators. Note that this indicates which party
@@ -3631,7 +3684,7 @@ func (m *ChannelCloseSummary) Reset()         { *m = ChannelCloseSummary{} }
 func (m *ChannelCloseSummary) String() string { return proto.CompactTextString(m) }
 func (*ChannelCloseSummary) ProtoMessage()    {}
 func (*ChannelCloseSummary) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{43}
+	return fileDescriptor_77a6da22d6a3feb1, []int{35}
 }
 
 func (m *ChannelCloseSummary) XXX_Unmarshal(b []byte) error {
@@ -3752,7 +3805,7 @@ func (m *ClosedChannelsRequest) Reset()         { *m = ClosedChannelsRequest{} }
 func (m *ClosedChannelsRequest) String() string { return proto.CompactTextString(m) }
 func (*ClosedChannelsRequest) ProtoMessage()    {}
 func (*ClosedChannelsRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{44}
+	return fileDescriptor_77a6da22d6a3feb1, []int{36}
 }
 
 func (m *ClosedChannelsRequest) XXX_Unmarshal(b []byte) error {
@@ -3826,7 +3879,7 @@ func (m *ClosedChannelsResponse) Reset()         { *m = ClosedChannelsResponse{}
 func (m *ClosedChannelsResponse) String() string { return proto.CompactTextString(m) }
 func (*ClosedChannelsResponse) ProtoMessage()    {}
 func (*ClosedChannelsResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{45}
+	return fileDescriptor_77a6da22d6a3feb1, []int{37}
 }
 
 func (m *ClosedChannelsResponse) XXX_Unmarshal(b []byte) error {
@@ -3855,25 +3908,25 @@ func (m *ClosedChannelsResponse) GetChannels() []*ChannelCloseSummary {
 }
 
 type Peer struct {
-	/// The identity pubkey of the peer
+	// The identity pubkey of the peer
 	PubKey string `protobuf:"bytes,1,opt,name=pub_key,json=pubKey,proto3" json:"pub_key,omitempty"`
-	/// Network address of the peer; eg `127.0.0.1:10011`
+	// Network address of the peer; eg `127.0.0.1:10011`
 	Address string `protobuf:"bytes,3,opt,name=address,proto3" json:"address,omitempty"`
-	/// Bytes of data transmitted to this peer
+	// Bytes of data transmitted to this peer
 	BytesSent uint64 `protobuf:"varint,4,opt,name=bytes_sent,json=bytesSent,proto3" json:"bytes_sent,omitempty"`
-	/// Bytes of data transmitted from this peer
+	// Bytes of data transmitted from this peer
 	BytesRecv uint64 `protobuf:"varint,5,opt,name=bytes_recv,json=bytesRecv,proto3" json:"bytes_recv,omitempty"`
-	/// Satoshis sent to this peer
+	// Satoshis sent to this peer
 	SatSent int64 `protobuf:"varint,6,opt,name=sat_sent,json=satSent,proto3" json:"sat_sent,omitempty"`
-	/// Satoshis received from this peer
+	// Satoshis received from this peer
 	SatRecv int64 `protobuf:"varint,7,opt,name=sat_recv,json=satRecv,proto3" json:"sat_recv,omitempty"`
-	/// A channel is inbound if the counterparty initiated the channel
+	// A channel is inbound if the counterparty initiated the channel
 	Inbound bool `protobuf:"varint,8,opt,name=inbound,proto3" json:"inbound,omitempty"`
-	/// Ping time to this peer
+	// Ping time to this peer
 	PingTime int64 `protobuf:"varint,9,opt,name=ping_time,json=pingTime,proto3" json:"ping_time,omitempty"`
 	// The type of sync we are currently performing with this peer.
 	SyncType Peer_SyncType `protobuf:"varint,10,opt,name=sync_type,json=syncType,proto3,enum=lnrpc.Peer_SyncType" json:"sync_type,omitempty"`
-	/// Features advertised by the remote peer in their init message.
+	// Features advertised by the remote peer in their init message.
 	Features map[uint32]*Feature `protobuf:"bytes,11,rep,name=features,proto3" json:"features,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	//
 	//The latest errors received from our peer with timestamps, limited to the 10
@@ -3891,7 +3944,7 @@ func (m *Peer) Reset()         { *m = Peer{} }
 func (m *Peer) String() string { return proto.CompactTextString(m) }
 func (*Peer) ProtoMessage()    {}
 func (*Peer) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{46}
+	return fileDescriptor_77a6da22d6a3feb1, []int{38}
 }
 
 func (m *Peer) XXX_Unmarshal(b []byte) error {
@@ -4003,7 +4056,7 @@ func (m *TimestampedError) Reset()         { *m = TimestampedError{} }
 func (m *TimestampedError) String() string { return proto.CompactTextString(m) }
 func (*TimestampedError) ProtoMessage()    {}
 func (*TimestampedError) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{47}
+	return fileDescriptor_77a6da22d6a3feb1, []int{39}
 }
 
 func (m *TimestampedError) XXX_Unmarshal(b []byte) error {
@@ -4053,7 +4106,7 @@ func (m *ListPeersRequest) Reset()         { *m = ListPeersRequest{} }
 func (m *ListPeersRequest) String() string { return proto.CompactTextString(m) }
 func (*ListPeersRequest) ProtoMessage()    {}
 func (*ListPeersRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{48}
+	return fileDescriptor_77a6da22d6a3feb1, []int{40}
 }
 
 func (m *ListPeersRequest) XXX_Unmarshal(b []byte) error {
@@ -4082,7 +4135,7 @@ func (m *ListPeersRequest) GetLatestError() bool {
 }
 
 type ListPeersResponse struct {
-	/// The list of currently connected peers
+	// The list of currently connected peers
 	Peers                []*Peer  `protobuf:"bytes,1,rep,name=peers,proto3" json:"peers,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -4093,7 +4146,7 @@ func (m *ListPeersResponse) Reset()         { *m = ListPeersResponse{} }
 func (m *ListPeersResponse) String() string { return proto.CompactTextString(m) }
 func (*ListPeersResponse) ProtoMessage()    {}
 func (*ListPeersResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{49}
+	return fileDescriptor_77a6da22d6a3feb1, []int{41}
 }
 
 func (m *ListPeersResponse) XXX_Unmarshal(b []byte) error {
@@ -4131,7 +4184,7 @@ func (m *PeerEventSubscription) Reset()         { *m = PeerEventSubscription{} }
 func (m *PeerEventSubscription) String() string { return proto.CompactTextString(m) }
 func (*PeerEventSubscription) ProtoMessage()    {}
 func (*PeerEventSubscription) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{50}
+	return fileDescriptor_77a6da22d6a3feb1, []int{42}
 }
 
 func (m *PeerEventSubscription) XXX_Unmarshal(b []byte) error {
@@ -4153,7 +4206,7 @@ func (m *PeerEventSubscription) XXX_DiscardUnknown() {
 var xxx_messageInfo_PeerEventSubscription proto.InternalMessageInfo
 
 type PeerEvent struct {
-	/// The identity pubkey of the peer.
+	// The identity pubkey of the peer.
 	PubKey               string              `protobuf:"bytes,1,opt,name=pub_key,json=pubKey,proto3" json:"pub_key,omitempty"`
 	Type                 PeerEvent_EventType `protobuf:"varint,2,opt,name=type,proto3,enum=lnrpc.PeerEvent_EventType" json:"type,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}            `json:"-"`
@@ -4165,7 +4218,7 @@ func (m *PeerEvent) Reset()         { *m = PeerEvent{} }
 func (m *PeerEvent) String() string { return proto.CompactTextString(m) }
 func (*PeerEvent) ProtoMessage()    {}
 func (*PeerEvent) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{51}
+	return fileDescriptor_77a6da22d6a3feb1, []int{43}
 }
 
 func (m *PeerEvent) XXX_Unmarshal(b []byte) error {
@@ -4210,7 +4263,7 @@ func (m *GetInfoRequest) Reset()         { *m = GetInfoRequest{} }
 func (m *GetInfoRequest) String() string { return proto.CompactTextString(m) }
 func (*GetInfoRequest) ProtoMessage()    {}
 func (*GetInfoRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{52}
+	return fileDescriptor_77a6da22d6a3feb1, []int{44}
 }
 
 func (m *GetInfoRequest) XXX_Unmarshal(b []byte) error {
@@ -4232,41 +4285,41 @@ func (m *GetInfoRequest) XXX_DiscardUnknown() {
 var xxx_messageInfo_GetInfoRequest proto.InternalMessageInfo
 
 type GetInfoResponse struct {
-	/// The version of the LND software that the node is running.
+	// The version of the LND software that the node is running.
 	Version string `protobuf:"bytes,14,opt,name=version,proto3" json:"version,omitempty"`
-	/// The SHA1 commit hash that the daemon is compiled with.
+	// The SHA1 commit hash that the daemon is compiled with.
 	CommitHash string `protobuf:"bytes,20,opt,name=commit_hash,json=commitHash,proto3" json:"commit_hash,omitempty"`
-	/// The identity pubkey of the current node.
+	// The identity pubkey of the current node.
 	IdentityPubkey string `protobuf:"bytes,1,opt,name=identity_pubkey,json=identityPubkey,proto3" json:"identity_pubkey,omitempty"`
-	/// If applicable, the alias of the current node, e.g. "bob"
+	// If applicable, the alias of the current node, e.g. "bob"
 	Alias string `protobuf:"bytes,2,opt,name=alias,proto3" json:"alias,omitempty"`
-	/// The color of the current node in hex code format
+	// The color of the current node in hex code format
 	Color string `protobuf:"bytes,17,opt,name=color,proto3" json:"color,omitempty"`
-	/// Number of pending channels
+	// Number of pending channels
 	NumPendingChannels uint32 `protobuf:"varint,3,opt,name=num_pending_channels,json=numPendingChannels,proto3" json:"num_pending_channels,omitempty"`
-	/// Number of active channels
+	// Number of active channels
 	NumActiveChannels uint32 `protobuf:"varint,4,opt,name=num_active_channels,json=numActiveChannels,proto3" json:"num_active_channels,omitempty"`
-	/// Number of inactive channels
+	// Number of inactive channels
 	NumInactiveChannels uint32 `protobuf:"varint,15,opt,name=num_inactive_channels,json=numInactiveChannels,proto3" json:"num_inactive_channels,omitempty"`
-	/// Number of peers
+	// Number of peers
 	NumPeers uint32 `protobuf:"varint,5,opt,name=num_peers,json=numPeers,proto3" json:"num_peers,omitempty"`
-	/// The node's current view of the height of the best block
+	// The node's current view of the height of the best block
 	BlockHeight uint32 `protobuf:"varint,6,opt,name=block_height,json=blockHeight,proto3" json:"block_height,omitempty"`
-	/// The node's current view of the hash of the best block
+	// The node's current view of the hash of the best block
 	BlockHash string `protobuf:"bytes,8,opt,name=block_hash,json=blockHash,proto3" json:"block_hash,omitempty"`
-	/// Timestamp of the block best known to the wallet
+	// Timestamp of the block best known to the wallet
 	BestHeaderTimestamp int64 `protobuf:"varint,13,opt,name=best_header_timestamp,json=bestHeaderTimestamp,proto3" json:"best_header_timestamp,omitempty"`
-	/// Whether the wallet's view is synced to the main chain
+	// Whether the wallet's view is synced to the main chain
 	SyncedToChain bool `protobuf:"varint,9,opt,name=synced_to_chain,json=syncedToChain,proto3" json:"synced_to_chain,omitempty"`
 	// Whether we consider ourselves synced with the public channel graph.
 	SyncedToGraph bool `protobuf:"varint,18,opt,name=synced_to_graph,json=syncedToGraph,proto3" json:"synced_to_graph,omitempty"`
-	//*
+	//
 	//Whether the current node is connected to testnet. This field is
 	//deprecated and the network field should be used instead
 	Testnet bool `protobuf:"varint,10,opt,name=testnet,proto3" json:"testnet,omitempty"` // Deprecated: Do not use.
-	/// A list of active chains the node is connected to
+	// A list of active chains the node is connected to
 	Chains []*Chain `protobuf:"bytes,16,rep,name=chains,proto3" json:"chains,omitempty"`
-	/// The URIs of the current node.
+	// The URIs of the current node.
 	Uris []string `protobuf:"bytes,12,rep,name=uris,proto3" json:"uris,omitempty"`
 	//
 	//Features that our node has advertised in our init message, node
@@ -4281,7 +4334,7 @@ func (m *GetInfoResponse) Reset()         { *m = GetInfoResponse{} }
 func (m *GetInfoResponse) String() string { return proto.CompactTextString(m) }
 func (*GetInfoResponse) ProtoMessage()    {}
 func (*GetInfoResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{53}
+	return fileDescriptor_77a6da22d6a3feb1, []int{45}
 }
 
 func (m *GetInfoResponse) XXX_Unmarshal(b []byte) error {
@@ -4430,9 +4483,9 @@ func (m *GetInfoResponse) GetFeatures() map[uint32]*Feature {
 }
 
 type Chain struct {
-	/// The blockchain the node is on (eg bitcoin, litecoin)
+	// The blockchain the node is on (eg bitcoin, litecoin)
 	Chain string `protobuf:"bytes,1,opt,name=chain,proto3" json:"chain,omitempty"`
-	/// The network the node is on (eg regtest, testnet, mainnet)
+	// The network the node is on (eg regtest, testnet, mainnet)
 	Network              string   `protobuf:"bytes,2,opt,name=network,proto3" json:"network,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -4443,7 +4496,7 @@ func (m *Chain) Reset()         { *m = Chain{} }
 func (m *Chain) String() string { return proto.CompactTextString(m) }
 func (*Chain) ProtoMessage()    {}
 func (*Chain) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{54}
+	return fileDescriptor_77a6da22d6a3feb1, []int{46}
 }
 
 func (m *Chain) XXX_Unmarshal(b []byte) error {
@@ -4491,7 +4544,7 @@ func (m *ConfirmationUpdate) Reset()         { *m = ConfirmationUpdate{} }
 func (m *ConfirmationUpdate) String() string { return proto.CompactTextString(m) }
 func (*ConfirmationUpdate) ProtoMessage()    {}
 func (*ConfirmationUpdate) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{55}
+	return fileDescriptor_77a6da22d6a3feb1, []int{47}
 }
 
 func (m *ConfirmationUpdate) XXX_Unmarshal(b []byte) error {
@@ -4544,7 +4597,7 @@ func (m *ChannelOpenUpdate) Reset()         { *m = ChannelOpenUpdate{} }
 func (m *ChannelOpenUpdate) String() string { return proto.CompactTextString(m) }
 func (*ChannelOpenUpdate) ProtoMessage()    {}
 func (*ChannelOpenUpdate) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{56}
+	return fileDescriptor_77a6da22d6a3feb1, []int{48}
 }
 
 func (m *ChannelOpenUpdate) XXX_Unmarshal(b []byte) error {
@@ -4584,7 +4637,7 @@ func (m *ChannelCloseUpdate) Reset()         { *m = ChannelCloseUpdate{} }
 func (m *ChannelCloseUpdate) String() string { return proto.CompactTextString(m) }
 func (*ChannelCloseUpdate) ProtoMessage()    {}
 func (*ChannelCloseUpdate) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{57}
+	return fileDescriptor_77a6da22d6a3feb1, []int{49}
 }
 
 func (m *ChannelCloseUpdate) XXX_Unmarshal(b []byte) error {
@@ -4620,19 +4673,19 @@ func (m *ChannelCloseUpdate) GetSuccess() bool {
 }
 
 type CloseChannelRequest struct {
-	//*
+	//
 	//The outpoint (txid:index) of the funding transaction. With this value, Bob
 	//will be able to generate a signature for Alice's version of the commitment
 	//transaction.
 	ChannelPoint *ChannelPoint `protobuf:"bytes,1,opt,name=channel_point,json=channelPoint,proto3" json:"channel_point,omitempty"`
-	/// If true, then the channel will be closed forcibly. This means the
-	/// current commitment transaction will be signed and broadcast.
+	// If true, then the channel will be closed forcibly. This means the
+	// current commitment transaction will be signed and broadcast.
 	Force bool `protobuf:"varint,2,opt,name=force,proto3" json:"force,omitempty"`
-	/// The target number of blocks that the closure transaction should be
-	/// confirmed by.
+	// The target number of blocks that the closure transaction should be
+	// confirmed by.
 	TargetConf int32 `protobuf:"varint,3,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
-	/// A manual fee rate set in sat/byte that should be used when crafting the
-	/// closure transaction.
+	// A manual fee rate set in sat/byte that should be used when crafting the
+	// closure transaction.
 	SatPerByte int64 `protobuf:"varint,4,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
 	//
 	//An optional address to send funds to in the case of a cooperative close.
@@ -4649,7 +4702,7 @@ func (m *CloseChannelRequest) Reset()         { *m = CloseChannelRequest{} }
 func (m *CloseChannelRequest) String() string { return proto.CompactTextString(m) }
 func (*CloseChannelRequest) ProtoMessage()    {}
 func (*CloseChannelRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{58}
+	return fileDescriptor_77a6da22d6a3feb1, []int{50}
 }
 
 func (m *CloseChannelRequest) XXX_Unmarshal(b []byte) error {
@@ -4719,7 +4772,7 @@ func (m *CloseStatusUpdate) Reset()         { *m = CloseStatusUpdate{} }
 func (m *CloseStatusUpdate) String() string { return proto.CompactTextString(m) }
 func (*CloseStatusUpdate) ProtoMessage()    {}
 func (*CloseStatusUpdate) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{59}
+	return fileDescriptor_77a6da22d6a3feb1, []int{51}
 }
 
 func (m *CloseStatusUpdate) XXX_Unmarshal(b []byte) error {
@@ -4797,7 +4850,7 @@ func (m *PendingUpdate) Reset()         { *m = PendingUpdate{} }
 func (m *PendingUpdate) String() string { return proto.CompactTextString(m) }
 func (*PendingUpdate) ProtoMessage()    {}
 func (*PendingUpdate) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{60}
+	return fileDescriptor_77a6da22d6a3feb1, []int{52}
 }
 
 func (m *PendingUpdate) XXX_Unmarshal(b []byte) error {
@@ -4833,15 +4886,15 @@ func (m *PendingUpdate) GetOutputIndex() uint32 {
 }
 
 type ReadyForPsbtFunding struct {
-	//*
+	//
 	//The P2WSH address of the channel funding multisig address that the below
 	//specified amount in satoshis needs to be sent to.
 	FundingAddress string `protobuf:"bytes,1,opt,name=funding_address,json=fundingAddress,proto3" json:"funding_address,omitempty"`
-	//*
+	//
 	//The exact amount in satoshis that needs to be sent to the above address to
 	//fund the pending channel.
 	FundingAmount int64 `protobuf:"varint,2,opt,name=funding_amount,json=fundingAmount,proto3" json:"funding_amount,omitempty"`
-	//*
+	//
 	//A raw PSBT that contains the pending channel output. If a base PSBT was
 	//provided in the PsbtShim, this is the base PSBT with one additional output.
 	//If no base PSBT was specified, this is an otherwise empty PSBT with exactly
@@ -4856,7 +4909,7 @@ func (m *ReadyForPsbtFunding) Reset()         { *m = ReadyForPsbtFunding{} }
 func (m *ReadyForPsbtFunding) String() string { return proto.CompactTextString(m) }
 func (*ReadyForPsbtFunding) ProtoMessage()    {}
 func (*ReadyForPsbtFunding) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{61}
+	return fileDescriptor_77a6da22d6a3feb1, []int{53}
 }
 
 func (m *ReadyForPsbtFunding) XXX_Unmarshal(b []byte) error {
@@ -4899,39 +4952,39 @@ func (m *ReadyForPsbtFunding) GetPsbt() []byte {
 }
 
 type OpenChannelRequest struct {
-	//*
+	//
 	//The pubkey of the node to open a channel with. When using REST, this field
 	//must be encoded as base64.
 	NodePubkey []byte `protobuf:"bytes,2,opt,name=node_pubkey,json=nodePubkey,proto3" json:"node_pubkey,omitempty"`
-	//*
+	//
 	//The hex encoded pubkey of the node to open a channel with. Deprecated now
 	//that the REST gateway supports base64 encoding of bytes fields.
 	NodePubkeyString string `protobuf:"bytes,3,opt,name=node_pubkey_string,json=nodePubkeyString,proto3" json:"node_pubkey_string,omitempty"` // Deprecated: Do not use.
-	/// The number of satoshis the wallet should commit to the channel
+	// The number of satoshis the wallet should commit to the channel
 	LocalFundingAmount int64 `protobuf:"varint,4,opt,name=local_funding_amount,json=localFundingAmount,proto3" json:"local_funding_amount,omitempty"`
-	/// The number of satoshis to push to the remote side as part of the initial
-	/// commitment state
+	// The number of satoshis to push to the remote side as part of the initial
+	// commitment state
 	PushSat int64 `protobuf:"varint,5,opt,name=push_sat,json=pushSat,proto3" json:"push_sat,omitempty"`
-	/// The target number of blocks that the funding transaction should be
-	/// confirmed by.
+	// The target number of blocks that the funding transaction should be
+	// confirmed by.
 	TargetConf int32 `protobuf:"varint,6,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
-	/// A manual fee rate set in sat/byte that should be used when crafting the
-	/// funding transaction.
+	// A manual fee rate set in sat/byte that should be used when crafting the
+	// funding transaction.
 	SatPerByte int64 `protobuf:"varint,7,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
-	/// Whether this channel should be private, not announced to the greater
-	/// network.
+	// Whether this channel should be private, not announced to the greater
+	// network.
 	Private bool `protobuf:"varint,8,opt,name=private,proto3" json:"private,omitempty"`
-	/// The minimum value in millisatoshi we will require for incoming HTLCs on
-	/// the channel.
+	// The minimum value in millisatoshi we will require for incoming HTLCs on
+	// the channel.
 	MinHtlcMsat int64 `protobuf:"varint,9,opt,name=min_htlc_msat,json=minHtlcMsat,proto3" json:"min_htlc_msat,omitempty"`
-	/// The delay we require on the remote's commitment transaction. If this is
-	/// not set, it will be scaled automatically with the channel size.
+	// The delay we require on the remote's commitment transaction. If this is
+	// not set, it will be scaled automatically with the channel size.
 	RemoteCsvDelay uint32 `protobuf:"varint,10,opt,name=remote_csv_delay,json=remoteCsvDelay,proto3" json:"remote_csv_delay,omitempty"`
-	/// The minimum number of confirmations each one of your outputs used for
-	/// the funding transaction must satisfy.
+	// The minimum number of confirmations each one of your outputs used for
+	// the funding transaction must satisfy.
 	MinConfs int32 `protobuf:"varint,11,opt,name=min_confs,json=minConfs,proto3" json:"min_confs,omitempty"`
-	/// Whether unconfirmed outputs should be used as inputs for the funding
-	/// transaction.
+	// Whether unconfirmed outputs should be used as inputs for the funding
+	// transaction.
 	SpendUnconfirmed bool `protobuf:"varint,12,opt,name=spend_unconfirmed,json=spendUnconfirmed,proto3" json:"spend_unconfirmed,omitempty"`
 	//
 	//Close address is an optional address which specifies the address to which
@@ -4943,7 +4996,7 @@ type OpenChannelRequest struct {
 	//Note: If this value is set on channel creation, you will *not* be able to
 	//cooperatively close out to a different address.
 	CloseAddress string `protobuf:"bytes,13,opt,name=close_address,json=closeAddress,proto3" json:"close_address,omitempty"`
-	//*
+	//
 	//Funding shims are an optional argument that allow the caller to intercept
 	//certain funding functionality. For example, a shim can be provided to use a
 	//particular key for the commitment key (ideally cold) rather than use one
@@ -4959,7 +5012,7 @@ func (m *OpenChannelRequest) Reset()         { *m = OpenChannelRequest{} }
 func (m *OpenChannelRequest) String() string { return proto.CompactTextString(m) }
 func (*OpenChannelRequest) ProtoMessage()    {}
 func (*OpenChannelRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{62}
+	return fileDescriptor_77a6da22d6a3feb1, []int{54}
 }
 
 func (m *OpenChannelRequest) XXX_Unmarshal(b []byte) error {
@@ -5078,7 +5131,7 @@ type OpenStatusUpdate struct {
 	//	*OpenStatusUpdate_ChanOpen
 	//	*OpenStatusUpdate_PsbtFund
 	Update isOpenStatusUpdate_Update `protobuf_oneof:"update"`
-	//*
+	//
 	//The pending channel ID of the created channel. This value may be used to
 	//further the funding flow manually via the FundingStateStep method.
 	PendingChanId        []byte   `protobuf:"bytes,4,opt,name=pending_chan_id,json=pendingChanId,proto3" json:"pending_chan_id,omitempty"`
@@ -5091,7 +5144,7 @@ func (m *OpenStatusUpdate) Reset()         { *m = OpenStatusUpdate{} }
 func (m *OpenStatusUpdate) String() string { return proto.CompactTextString(m) }
 func (*OpenStatusUpdate) ProtoMessage()    {}
 func (*OpenStatusUpdate) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{63}
+	return fileDescriptor_77a6da22d6a3feb1, []int{55}
 }
 
 func (m *OpenStatusUpdate) XXX_Unmarshal(b []byte) error {
@@ -5179,9 +5232,9 @@ func (*OpenStatusUpdate) XXX_OneofWrappers() []interface{} {
 }
 
 type KeyLocator struct {
-	/// The family of key being identified.
+	// The family of key being identified.
 	KeyFamily int32 `protobuf:"varint,1,opt,name=key_family,json=keyFamily,proto3" json:"key_family,omitempty"`
-	/// The precise index of the key being identified.
+	// The precise index of the key being identified.
 	KeyIndex             int32    `protobuf:"varint,2,opt,name=key_index,json=keyIndex,proto3" json:"key_index,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -5192,7 +5245,7 @@ func (m *KeyLocator) Reset()         { *m = KeyLocator{} }
 func (m *KeyLocator) String() string { return proto.CompactTextString(m) }
 func (*KeyLocator) ProtoMessage()    {}
 func (*KeyLocator) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{64}
+	return fileDescriptor_77a6da22d6a3feb1, []int{56}
 }
 
 func (m *KeyLocator) XXX_Unmarshal(b []byte) error {
@@ -5228,10 +5281,10 @@ func (m *KeyLocator) GetKeyIndex() int32 {
 }
 
 type KeyDescriptor struct {
-	//*
+	//
 	//The raw bytes of the key being identified.
 	RawKeyBytes []byte `protobuf:"bytes,1,opt,name=raw_key_bytes,json=rawKeyBytes,proto3" json:"raw_key_bytes,omitempty"`
-	//*
+	//
 	//The key locator that identifies which key to use for signing.
 	KeyLoc               *KeyLocator `protobuf:"bytes,2,opt,name=key_loc,json=keyLoc,proto3" json:"key_loc,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}    `json:"-"`
@@ -5243,7 +5296,7 @@ func (m *KeyDescriptor) Reset()         { *m = KeyDescriptor{} }
 func (m *KeyDescriptor) String() string { return proto.CompactTextString(m) }
 func (*KeyDescriptor) ProtoMessage()    {}
 func (*KeyDescriptor) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{65}
+	return fileDescriptor_77a6da22d6a3feb1, []int{57}
 }
 
 func (m *KeyDescriptor) XXX_Unmarshal(b []byte) error {
@@ -5279,23 +5332,23 @@ func (m *KeyDescriptor) GetKeyLoc() *KeyLocator {
 }
 
 type ChanPointShim struct {
-	//*
+	//
 	//The size of the pre-crafted output to be used as the channel point for this
 	//channel funding.
 	Amt int64 `protobuf:"varint,1,opt,name=amt,proto3" json:"amt,omitempty"`
-	/// The target channel point to refrence in created commitment transactions.
+	// The target channel point to refrence in created commitment transactions.
 	ChanPoint *ChannelPoint `protobuf:"bytes,2,opt,name=chan_point,json=chanPoint,proto3" json:"chan_point,omitempty"`
-	/// Our local key to use when creating the multi-sig output.
+	// Our local key to use when creating the multi-sig output.
 	LocalKey *KeyDescriptor `protobuf:"bytes,3,opt,name=local_key,json=localKey,proto3" json:"local_key,omitempty"`
-	/// The key of the remote party to use when creating the multi-sig output.
+	// The key of the remote party to use when creating the multi-sig output.
 	RemoteKey []byte `protobuf:"bytes,4,opt,name=remote_key,json=remoteKey,proto3" json:"remote_key,omitempty"`
-	//*
+	//
 	//If non-zero, then this will be used as the pending channel ID on the wire
 	//protocol to initate the funding request. This is an optional field, and
 	//should only be set if the responder is already expecting a specific pending
 	//channel ID.
 	PendingChanId []byte `protobuf:"bytes,5,opt,name=pending_chan_id,json=pendingChanId,proto3" json:"pending_chan_id,omitempty"`
-	//*
+	//
 	//This uint32 indicates if this channel is to be considered 'frozen'. A
 	//frozen channel does not allow a cooperative channel close by the
 	//initiator. The thaw_height is the height that this restriction stops
@@ -5310,7 +5363,7 @@ func (m *ChanPointShim) Reset()         { *m = ChanPointShim{} }
 func (m *ChanPointShim) String() string { return proto.CompactTextString(m) }
 func (*ChanPointShim) ProtoMessage()    {}
 func (*ChanPointShim) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{66}
+	return fileDescriptor_77a6da22d6a3feb1, []int{58}
 }
 
 func (m *ChanPointShim) XXX_Unmarshal(b []byte) error {
@@ -5374,12 +5427,12 @@ func (m *ChanPointShim) GetThawHeight() uint32 {
 }
 
 type PsbtShim struct {
-	//*
+	//
 	//A unique identifier of 32 random bytes that will be used as the pending
 	//channel ID to identify the PSBT state machine when interacting with it and
 	//on the wire protocol to initiate the funding request.
 	PendingChanId []byte `protobuf:"bytes,1,opt,name=pending_chan_id,json=pendingChanId,proto3" json:"pending_chan_id,omitempty"`
-	//*
+	//
 	//An optional base PSBT the new channel output will be added to. If this is
 	//non-empty, it must be a binary serialized PSBT.
 	BasePsbt             []byte   `protobuf:"bytes,2,opt,name=base_psbt,json=basePsbt,proto3" json:"base_psbt,omitempty"`
@@ -5392,7 +5445,7 @@ func (m *PsbtShim) Reset()         { *m = PsbtShim{} }
 func (m *PsbtShim) String() string { return proto.CompactTextString(m) }
 func (*PsbtShim) ProtoMessage()    {}
 func (*PsbtShim) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{67}
+	return fileDescriptor_77a6da22d6a3feb1, []int{59}
 }
 
 func (m *PsbtShim) XXX_Unmarshal(b []byte) error {
@@ -5441,7 +5494,7 @@ func (m *FundingShim) Reset()         { *m = FundingShim{} }
 func (m *FundingShim) String() string { return proto.CompactTextString(m) }
 func (*FundingShim) ProtoMessage()    {}
 func (*FundingShim) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{68}
+	return fileDescriptor_77a6da22d6a3feb1, []int{60}
 }
 
 func (m *FundingShim) XXX_Unmarshal(b []byte) error {
@@ -5508,7 +5561,7 @@ func (*FundingShim) XXX_OneofWrappers() []interface{} {
 }
 
 type FundingShimCancel struct {
-	/// The pending channel ID of the channel to cancel the funding shim for.
+	// The pending channel ID of the channel to cancel the funding shim for.
 	PendingChanId        []byte   `protobuf:"bytes,1,opt,name=pending_chan_id,json=pendingChanId,proto3" json:"pending_chan_id,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -5519,7 +5572,7 @@ func (m *FundingShimCancel) Reset()         { *m = FundingShimCancel{} }
 func (m *FundingShimCancel) String() string { return proto.CompactTextString(m) }
 func (*FundingShimCancel) ProtoMessage()    {}
 func (*FundingShimCancel) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{69}
+	return fileDescriptor_77a6da22d6a3feb1, []int{61}
 }
 
 func (m *FundingShimCancel) XXX_Unmarshal(b []byte) error {
@@ -5548,12 +5601,12 @@ func (m *FundingShimCancel) GetPendingChanId() []byte {
 }
 
 type FundingPsbtVerify struct {
-	//*
+	//
 	//The funded but not yet signed PSBT that sends the exact channel capacity
 	//amount to the PK script returned in the open channel message in a previous
 	//step.
 	FundedPsbt []byte `protobuf:"bytes,1,opt,name=funded_psbt,json=fundedPsbt,proto3" json:"funded_psbt,omitempty"`
-	/// The pending channel ID of the channel to get the PSBT for.
+	// The pending channel ID of the channel to get the PSBT for.
 	PendingChanId        []byte   `protobuf:"bytes,2,opt,name=pending_chan_id,json=pendingChanId,proto3" json:"pending_chan_id,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -5564,7 +5617,7 @@ func (m *FundingPsbtVerify) Reset()         { *m = FundingPsbtVerify{} }
 func (m *FundingPsbtVerify) String() string { return proto.CompactTextString(m) }
 func (*FundingPsbtVerify) ProtoMessage()    {}
 func (*FundingPsbtVerify) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{70}
+	return fileDescriptor_77a6da22d6a3feb1, []int{62}
 }
 
 func (m *FundingPsbtVerify) XXX_Unmarshal(b []byte) error {
@@ -5600,12 +5653,12 @@ func (m *FundingPsbtVerify) GetPendingChanId() []byte {
 }
 
 type FundingPsbtFinalize struct {
-	//*
+	//
 	//The funded PSBT that contains all witness data to send the exact channel
 	//capacity amount to the PK script returned in the open channel message in a
 	//previous step.
 	SignedPsbt []byte `protobuf:"bytes,1,opt,name=signed_psbt,json=signedPsbt,proto3" json:"signed_psbt,omitempty"`
-	/// The pending channel ID of the channel to get the PSBT for.
+	// The pending channel ID of the channel to get the PSBT for.
 	PendingChanId        []byte   `protobuf:"bytes,2,opt,name=pending_chan_id,json=pendingChanId,proto3" json:"pending_chan_id,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -5616,7 +5669,7 @@ func (m *FundingPsbtFinalize) Reset()         { *m = FundingPsbtFinalize{} }
 func (m *FundingPsbtFinalize) String() string { return proto.CompactTextString(m) }
 func (*FundingPsbtFinalize) ProtoMessage()    {}
 func (*FundingPsbtFinalize) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{71}
+	return fileDescriptor_77a6da22d6a3feb1, []int{63}
 }
 
 func (m *FundingPsbtFinalize) XXX_Unmarshal(b []byte) error {
@@ -5667,7 +5720,7 @@ func (m *FundingTransitionMsg) Reset()         { *m = FundingTransitionMsg{} }
 func (m *FundingTransitionMsg) String() string { return proto.CompactTextString(m) }
 func (*FundingTransitionMsg) ProtoMessage()    {}
 func (*FundingTransitionMsg) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{72}
+	return fileDescriptor_77a6da22d6a3feb1, []int{64}
 }
 
 func (m *FundingTransitionMsg) XXX_Unmarshal(b []byte) error {
@@ -5771,7 +5824,7 @@ func (m *FundingStateStepResp) Reset()         { *m = FundingStateStepResp{} }
 func (m *FundingStateStepResp) String() string { return proto.CompactTextString(m) }
 func (*FundingStateStepResp) ProtoMessage()    {}
 func (*FundingStateStepResp) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{73}
+	return fileDescriptor_77a6da22d6a3feb1, []int{65}
 }
 
 func (m *FundingStateStepResp) XXX_Unmarshal(b []byte) error {
@@ -5793,20 +5846,20 @@ func (m *FundingStateStepResp) XXX_DiscardUnknown() {
 var xxx_messageInfo_FundingStateStepResp proto.InternalMessageInfo
 
 type PendingHTLC struct {
-	/// The direction within the channel that the htlc was sent
+	// The direction within the channel that the htlc was sent
 	Incoming bool `protobuf:"varint,1,opt,name=incoming,proto3" json:"incoming,omitempty"`
-	/// The total value of the htlc
+	// The total value of the htlc
 	Amount int64 `protobuf:"varint,2,opt,name=amount,proto3" json:"amount,omitempty"`
-	/// The final output to be swept back to the user's wallet
+	// The final output to be swept back to the user's wallet
 	Outpoint string `protobuf:"bytes,3,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
-	/// The next block height at which we can spend the current stage
+	// The next block height at which we can spend the current stage
 	MaturityHeight uint32 `protobuf:"varint,4,opt,name=maturity_height,json=maturityHeight,proto3" json:"maturity_height,omitempty"`
-	//*
+	//
 	//The number of blocks remaining until the current stage can be swept.
 	//Negative values indicate how many blocks have passed since becoming
 	//mature.
 	BlocksTilMaturity int32 `protobuf:"varint,5,opt,name=blocks_til_maturity,json=blocksTilMaturity,proto3" json:"blocks_til_maturity,omitempty"`
-	/// Indicates whether the htlc is in its first or second stage of recovery
+	// Indicates whether the htlc is in its first or second stage of recovery
 	Stage                uint32   `protobuf:"varint,6,opt,name=stage,proto3" json:"stage,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -5817,7 +5870,7 @@ func (m *PendingHTLC) Reset()         { *m = PendingHTLC{} }
 func (m *PendingHTLC) String() string { return proto.CompactTextString(m) }
 func (*PendingHTLC) ProtoMessage()    {}
 func (*PendingHTLC) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{74}
+	return fileDescriptor_77a6da22d6a3feb1, []int{66}
 }
 
 func (m *PendingHTLC) XXX_Unmarshal(b []byte) error {
@@ -5890,7 +5943,7 @@ func (m *PendingChannelsRequest) Reset()         { *m = PendingChannelsRequest{}
 func (m *PendingChannelsRequest) String() string { return proto.CompactTextString(m) }
 func (*PendingChannelsRequest) ProtoMessage()    {}
 func (*PendingChannelsRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{75}
+	return fileDescriptor_77a6da22d6a3feb1, []int{67}
 }
 
 func (m *PendingChannelsRequest) XXX_Unmarshal(b []byte) error {
@@ -5912,18 +5965,18 @@ func (m *PendingChannelsRequest) XXX_DiscardUnknown() {
 var xxx_messageInfo_PendingChannelsRequest proto.InternalMessageInfo
 
 type PendingChannelsResponse struct {
-	/// The balance in satoshis encumbered in pending channels
+	// The balance in satoshis encumbered in pending channels
 	TotalLimboBalance int64 `protobuf:"varint,1,opt,name=total_limbo_balance,json=totalLimboBalance,proto3" json:"total_limbo_balance,omitempty"`
-	/// Channels pending opening
+	// Channels pending opening
 	PendingOpenChannels []*PendingChannelsResponse_PendingOpenChannel `protobuf:"bytes,2,rep,name=pending_open_channels,json=pendingOpenChannels,proto3" json:"pending_open_channels,omitempty"`
 	//
 	//Deprecated: Channels pending closing previously contained cooperatively
 	//closed channels with a single confirmation. These channels are now
 	//considered closed from the time we see them on chain.
 	PendingClosingChannels []*PendingChannelsResponse_ClosedChannel `protobuf:"bytes,3,rep,name=pending_closing_channels,json=pendingClosingChannels,proto3" json:"pending_closing_channels,omitempty"` // Deprecated: Do not use.
-	/// Channels pending force closing
+	// Channels pending force closing
 	PendingForceClosingChannels []*PendingChannelsResponse_ForceClosedChannel `protobuf:"bytes,4,rep,name=pending_force_closing_channels,json=pendingForceClosingChannels,proto3" json:"pending_force_closing_channels,omitempty"`
-	/// Channels waiting for closing tx to confirm
+	// Channels waiting for closing tx to confirm
 	WaitingCloseChannels []*PendingChannelsResponse_WaitingCloseChannel `protobuf:"bytes,5,rep,name=waiting_close_channels,json=waitingCloseChannels,proto3" json:"waiting_close_channels,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}                                       `json:"-"`
 	XXX_unrecognized     []byte                                         `json:"-"`
@@ -5934,7 +5987,7 @@ func (m *PendingChannelsResponse) Reset()         { *m = PendingChannelsResponse
 func (m *PendingChannelsResponse) String() string { return proto.CompactTextString(m) }
 func (*PendingChannelsResponse) ProtoMessage()    {}
 func (*PendingChannelsResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{76}
+	return fileDescriptor_77a6da22d6a3feb1, []int{68}
 }
 
 func (m *PendingChannelsResponse) XXX_Unmarshal(b []byte) error {
@@ -5997,16 +6050,16 @@ type PendingChannelsResponse_PendingChannel struct {
 	Capacity      int64  `protobuf:"varint,3,opt,name=capacity,proto3" json:"capacity,omitempty"`
 	LocalBalance  int64  `protobuf:"varint,4,opt,name=local_balance,json=localBalance,proto3" json:"local_balance,omitempty"`
 	RemoteBalance int64  `protobuf:"varint,5,opt,name=remote_balance,json=remoteBalance,proto3" json:"remote_balance,omitempty"`
-	/// The minimum satoshis this node is required to reserve in its
-	/// balance.
+	// The minimum satoshis this node is required to reserve in its
+	// balance.
 	LocalChanReserveSat int64 `protobuf:"varint,6,opt,name=local_chan_reserve_sat,json=localChanReserveSat,proto3" json:"local_chan_reserve_sat,omitempty"`
-	//*
+	//
 	//The minimum satoshis the other node is required to reserve in its
 	//balance.
 	RemoteChanReserveSat int64 `protobuf:"varint,7,opt,name=remote_chan_reserve_sat,json=remoteChanReserveSat,proto3" json:"remote_chan_reserve_sat,omitempty"`
 	// The party that initiated opening the channel.
 	Initiator Initiator `protobuf:"varint,8,opt,name=initiator,proto3,enum=lnrpc.Initiator" json:"initiator,omitempty"`
-	/// The commitment type used by this channel.
+	// The commitment type used by this channel.
 	CommitmentType       CommitmentType `protobuf:"varint,9,opt,name=commitment_type,json=commitmentType,proto3,enum=lnrpc.CommitmentType" json:"commitment_type,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}       `json:"-"`
 	XXX_unrecognized     []byte         `json:"-"`
@@ -6019,7 +6072,7 @@ func (m *PendingChannelsResponse_PendingChannel) Reset() {
 func (m *PendingChannelsResponse_PendingChannel) String() string { return proto.CompactTextString(m) }
 func (*PendingChannelsResponse_PendingChannel) ProtoMessage()    {}
 func (*PendingChannelsResponse_PendingChannel) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{76, 0}
+	return fileDescriptor_77a6da22d6a3feb1, []int{68, 0}
 }
 
 func (m *PendingChannelsResponse_PendingChannel) XXX_Unmarshal(b []byte) error {
@@ -6104,20 +6157,20 @@ func (m *PendingChannelsResponse_PendingChannel) GetCommitmentType() CommitmentT
 }
 
 type PendingChannelsResponse_PendingOpenChannel struct {
-	/// The pending channel
+	// The pending channel
 	Channel *PendingChannelsResponse_PendingChannel `protobuf:"bytes,1,opt,name=channel,proto3" json:"channel,omitempty"`
-	/// The height at which this channel will be confirmed
+	// The height at which this channel will be confirmed
 	ConfirmationHeight uint32 `protobuf:"varint,2,opt,name=confirmation_height,json=confirmationHeight,proto3" json:"confirmation_height,omitempty"`
-	//*
+	//
 	//The amount calculated to be paid in fees for the current set of
 	//commitment transactions. The fee amount is persisted with the channel
 	//in order to allow the fee amount to be removed and recalculated with
 	//each channel state update, including updates that happen after a system
 	//restart.
 	CommitFee int64 `protobuf:"varint,4,opt,name=commit_fee,json=commitFee,proto3" json:"commit_fee,omitempty"`
-	/// The weight of the commitment transaction
+	// The weight of the commitment transaction
 	CommitWeight int64 `protobuf:"varint,5,opt,name=commit_weight,json=commitWeight,proto3" json:"commit_weight,omitempty"`
-	//*
+	//
 	//The required number of satoshis per kilo-weight that the requester will
 	//pay at all times, for both the funding transaction and commitment
 	//transaction. This value can later be updated once the channel is open.
@@ -6135,7 +6188,7 @@ func (m *PendingChannelsResponse_PendingOpenChannel) String() string {
 }
 func (*PendingChannelsResponse_PendingOpenChannel) ProtoMessage() {}
 func (*PendingChannelsResponse_PendingOpenChannel) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{76, 1}
+	return fileDescriptor_77a6da22d6a3feb1, []int{68, 1}
 }
 
 func (m *PendingChannelsResponse_PendingOpenChannel) XXX_Unmarshal(b []byte) error {
@@ -6192,11 +6245,11 @@ func (m *PendingChannelsResponse_PendingOpenChannel) GetFeePerKw() int64 {
 }
 
 type PendingChannelsResponse_WaitingCloseChannel struct {
-	/// The pending channel waiting for closing tx to confirm
+	// The pending channel waiting for closing tx to confirm
 	Channel *PendingChannelsResponse_PendingChannel `protobuf:"bytes,1,opt,name=channel,proto3" json:"channel,omitempty"`
-	/// The balance in satoshis encumbered in this channel
+	// The balance in satoshis encumbered in this channel
 	LimboBalance int64 `protobuf:"varint,2,opt,name=limbo_balance,json=limboBalance,proto3" json:"limbo_balance,omitempty"`
-	//*
+	//
 	//A list of valid commitment transactions. Any of these can confirm at
 	//this point.
 	Commitments          *PendingChannelsResponse_Commitments `protobuf:"bytes,3,opt,name=commitments,proto3" json:"commitments,omitempty"`
@@ -6213,7 +6266,7 @@ func (m *PendingChannelsResponse_WaitingCloseChannel) String() string {
 }
 func (*PendingChannelsResponse_WaitingCloseChannel) ProtoMessage() {}
 func (*PendingChannelsResponse_WaitingCloseChannel) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{76, 2}
+	return fileDescriptor_77a6da22d6a3feb1, []int{68, 2}
 }
 
 func (m *PendingChannelsResponse_WaitingCloseChannel) XXX_Unmarshal(b []byte) error {
@@ -6256,11 +6309,11 @@ func (m *PendingChannelsResponse_WaitingCloseChannel) GetCommitments() *PendingC
 }
 
 type PendingChannelsResponse_Commitments struct {
-	/// Hash of the local version of the commitment tx.
+	// Hash of the local version of the commitment tx.
 	LocalTxid string `protobuf:"bytes,1,opt,name=local_txid,json=localTxid,proto3" json:"local_txid,omitempty"`
-	/// Hash of the remote version of the commitment tx.
+	// Hash of the remote version of the commitment tx.
 	RemoteTxid string `protobuf:"bytes,2,opt,name=remote_txid,json=remoteTxid,proto3" json:"remote_txid,omitempty"`
-	/// Hash of the remote pending version of the commitment tx.
+	// Hash of the remote pending version of the commitment tx.
 	RemotePendingTxid string `protobuf:"bytes,3,opt,name=remote_pending_txid,json=remotePendingTxid,proto3" json:"remote_pending_txid,omitempty"`
 	//
 	//The amount in satoshis calculated to be paid in fees for the local
@@ -6283,7 +6336,7 @@ func (m *PendingChannelsResponse_Commitments) Reset()         { *m = PendingChan
 func (m *PendingChannelsResponse_Commitments) String() string { return proto.CompactTextString(m) }
 func (*PendingChannelsResponse_Commitments) ProtoMessage()    {}
 func (*PendingChannelsResponse_Commitments) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{76, 3}
+	return fileDescriptor_77a6da22d6a3feb1, []int{68, 3}
 }
 
 func (m *PendingChannelsResponse_Commitments) XXX_Unmarshal(b []byte) error {
@@ -6347,9 +6400,9 @@ func (m *PendingChannelsResponse_Commitments) GetRemotePendingCommitFeeSat() uin
 }
 
 type PendingChannelsResponse_ClosedChannel struct {
-	/// The pending channel to be closed
+	// The pending channel to be closed
 	Channel *PendingChannelsResponse_PendingChannel `protobuf:"bytes,1,opt,name=channel,proto3" json:"channel,omitempty"`
-	/// The transaction id of the closing transaction
+	// The transaction id of the closing transaction
 	ClosingTxid          string   `protobuf:"bytes,2,opt,name=closing_txid,json=closingTxid,proto3" json:"closing_txid,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -6360,7 +6413,7 @@ func (m *PendingChannelsResponse_ClosedChannel) Reset()         { *m = PendingCh
 func (m *PendingChannelsResponse_ClosedChannel) String() string { return proto.CompactTextString(m) }
 func (*PendingChannelsResponse_ClosedChannel) ProtoMessage()    {}
 func (*PendingChannelsResponse_ClosedChannel) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{76, 4}
+	return fileDescriptor_77a6da22d6a3feb1, []int{68, 4}
 }
 
 func (m *PendingChannelsResponse_ClosedChannel) XXX_Unmarshal(b []byte) error {
@@ -6396,20 +6449,20 @@ func (m *PendingChannelsResponse_ClosedChannel) GetClosingTxid() string {
 }
 
 type PendingChannelsResponse_ForceClosedChannel struct {
-	/// The pending channel to be force closed
+	// The pending channel to be force closed
 	Channel *PendingChannelsResponse_PendingChannel `protobuf:"bytes,1,opt,name=channel,proto3" json:"channel,omitempty"`
-	/// The transaction id of the closing transaction
+	// The transaction id of the closing transaction
 	ClosingTxid string `protobuf:"bytes,2,opt,name=closing_txid,json=closingTxid,proto3" json:"closing_txid,omitempty"`
-	/// The balance in satoshis encumbered in this pending channel
+	// The balance in satoshis encumbered in this pending channel
 	LimboBalance int64 `protobuf:"varint,3,opt,name=limbo_balance,json=limboBalance,proto3" json:"limbo_balance,omitempty"`
-	/// The height at which funds can be swept into the wallet
+	// The height at which funds can be swept into the wallet
 	MaturityHeight uint32 `protobuf:"varint,4,opt,name=maturity_height,json=maturityHeight,proto3" json:"maturity_height,omitempty"`
 	//
 	//Remaining # of blocks until the commitment output can be swept.
 	//Negative values indicate how many blocks have passed since becoming
 	//mature.
 	BlocksTilMaturity int32 `protobuf:"varint,5,opt,name=blocks_til_maturity,json=blocksTilMaturity,proto3" json:"blocks_til_maturity,omitempty"`
-	/// The total value of funds successfully recovered from this channel
+	// The total value of funds successfully recovered from this channel
 	RecoveredBalance     int64                                                  `protobuf:"varint,6,opt,name=recovered_balance,json=recoveredBalance,proto3" json:"recovered_balance,omitempty"`
 	PendingHtlcs         []*PendingHTLC                                         `protobuf:"bytes,8,rep,name=pending_htlcs,json=pendingHtlcs,proto3" json:"pending_htlcs,omitempty"`
 	Anchor               PendingChannelsResponse_ForceClosedChannel_AnchorState `protobuf:"varint,9,opt,name=anchor,proto3,enum=lnrpc.PendingChannelsResponse_ForceClosedChannel_AnchorState" json:"anchor,omitempty"`
@@ -6426,7 +6479,7 @@ func (m *PendingChannelsResponse_ForceClosedChannel) String() string {
 }
 func (*PendingChannelsResponse_ForceClosedChannel) ProtoMessage() {}
 func (*PendingChannelsResponse_ForceClosedChannel) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{76, 5}
+	return fileDescriptor_77a6da22d6a3feb1, []int{68, 5}
 }
 
 func (m *PendingChannelsResponse_ForceClosedChannel) XXX_Unmarshal(b []byte) error {
@@ -6513,7 +6566,7 @@ func (m *ChannelEventSubscription) Reset()         { *m = ChannelEventSubscripti
 func (m *ChannelEventSubscription) String() string { return proto.CompactTextString(m) }
 func (*ChannelEventSubscription) ProtoMessage()    {}
 func (*ChannelEventSubscription) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{77}
+	return fileDescriptor_77a6da22d6a3feb1, []int{69}
 }
 
 func (m *ChannelEventSubscription) XXX_Unmarshal(b []byte) error {
@@ -6552,7 +6605,7 @@ func (m *ChannelEventUpdate) Reset()         { *m = ChannelEventUpdate{} }
 func (m *ChannelEventUpdate) String() string { return proto.CompactTextString(m) }
 func (*ChannelEventUpdate) ProtoMessage()    {}
 func (*ChannelEventUpdate) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{78}
+	return fileDescriptor_77a6da22d6a3feb1, []int{70}
 }
 
 func (m *ChannelEventUpdate) XXX_Unmarshal(b []byte) error {
@@ -6677,7 +6730,7 @@ func (m *WalletBalanceRequest) Reset()         { *m = WalletBalanceRequest{} }
 func (m *WalletBalanceRequest) String() string { return proto.CompactTextString(m) }
 func (*WalletBalanceRequest) ProtoMessage()    {}
 func (*WalletBalanceRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{79}
+	return fileDescriptor_77a6da22d6a3feb1, []int{71}
 }
 
 func (m *WalletBalanceRequest) XXX_Unmarshal(b []byte) error {
@@ -6699,11 +6752,11 @@ func (m *WalletBalanceRequest) XXX_DiscardUnknown() {
 var xxx_messageInfo_WalletBalanceRequest proto.InternalMessageInfo
 
 type WalletBalanceResponse struct {
-	/// The balance of the wallet
+	// The balance of the wallet
 	TotalBalance int64 `protobuf:"varint,1,opt,name=total_balance,json=totalBalance,proto3" json:"total_balance,omitempty"`
-	/// The confirmed balance of a wallet(with >= 1 confirmations)
+	// The confirmed balance of a wallet(with >= 1 confirmations)
 	ConfirmedBalance int64 `protobuf:"varint,2,opt,name=confirmed_balance,json=confirmedBalance,proto3" json:"confirmed_balance,omitempty"`
-	/// The unconfirmed balance of a wallet(with 0 confirmations)
+	// The unconfirmed balance of a wallet(with 0 confirmations)
 	UnconfirmedBalance   int64    `protobuf:"varint,3,opt,name=unconfirmed_balance,json=unconfirmedBalance,proto3" json:"unconfirmed_balance,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -6714,7 +6767,7 @@ func (m *WalletBalanceResponse) Reset()         { *m = WalletBalanceResponse{} }
 func (m *WalletBalanceResponse) String() string { return proto.CompactTextString(m) }
 func (*WalletBalanceResponse) ProtoMessage()    {}
 func (*WalletBalanceResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{80}
+	return fileDescriptor_77a6da22d6a3feb1, []int{72}
 }
 
 func (m *WalletBalanceResponse) XXX_Unmarshal(b []byte) error {
@@ -6766,7 +6819,7 @@ func (m *ChannelBalanceRequest) Reset()         { *m = ChannelBalanceRequest{} }
 func (m *ChannelBalanceRequest) String() string { return proto.CompactTextString(m) }
 func (*ChannelBalanceRequest) ProtoMessage()    {}
 func (*ChannelBalanceRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{81}
+	return fileDescriptor_77a6da22d6a3feb1, []int{73}
 }
 
 func (m *ChannelBalanceRequest) XXX_Unmarshal(b []byte) error {
@@ -6788,9 +6841,9 @@ func (m *ChannelBalanceRequest) XXX_DiscardUnknown() {
 var xxx_messageInfo_ChannelBalanceRequest proto.InternalMessageInfo
 
 type ChannelBalanceResponse struct {
-	/// Sum of channels balances denominated in satoshis
+	// Sum of channels balances denominated in satoshis
 	Balance int64 `protobuf:"varint,1,opt,name=balance,proto3" json:"balance,omitempty"`
-	/// Sum of channels pending balances denominated in satoshis
+	// Sum of channels pending balances denominated in satoshis
 	PendingOpenBalance   int64    `protobuf:"varint,2,opt,name=pending_open_balance,json=pendingOpenBalance,proto3" json:"pending_open_balance,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -6801,7 +6854,7 @@ func (m *ChannelBalanceResponse) Reset()         { *m = ChannelBalanceResponse{}
 func (m *ChannelBalanceResponse) String() string { return proto.CompactTextString(m) }
 func (*ChannelBalanceResponse) ProtoMessage()    {}
 func (*ChannelBalanceResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{82}
+	return fileDescriptor_77a6da22d6a3feb1, []int{74}
 }
 
 func (m *ChannelBalanceResponse) XXX_Unmarshal(b []byte) error {
@@ -6837,55 +6890,55 @@ func (m *ChannelBalanceResponse) GetPendingOpenBalance() int64 {
 }
 
 type QueryRoutesRequest struct {
-	/// The 33-byte hex-encoded public key for the payment destination
+	// The 33-byte hex-encoded public key for the payment destination
 	PubKey string `protobuf:"bytes,1,opt,name=pub_key,json=pubKey,proto3" json:"pub_key,omitempty"`
-	//*
+	//
 	//The amount to send expressed in satoshis.
 	//
 	//The fields amt and amt_msat are mutually exclusive.
 	Amt int64 `protobuf:"varint,2,opt,name=amt,proto3" json:"amt,omitempty"`
-	//*
+	//
 	//The amount to send expressed in millisatoshis.
 	//
 	//The fields amt and amt_msat are mutually exclusive.
 	AmtMsat int64 `protobuf:"varint,12,opt,name=amt_msat,json=amtMsat,proto3" json:"amt_msat,omitempty"`
-	//*
+	//
 	//An optional CLTV delta from the current height that should be used for the
 	//timelock of the final hop. Note that unlike SendPayment, QueryRoutes does
 	//not add any additional block padding on top of final_ctlv_delta. This
 	//padding of a few blocks needs to be added manually or otherwise failures may
 	//happen when a block comes in while the payment is in flight.
 	FinalCltvDelta int32 `protobuf:"varint,4,opt,name=final_cltv_delta,json=finalCltvDelta,proto3" json:"final_cltv_delta,omitempty"`
-	//*
+	//
 	//The maximum number of satoshis that will be paid as a fee of the payment.
 	//This value can be represented either as a percentage of the amount being
 	//sent, or as a fixed amount of the maximum fee the user is willing the pay to
 	//send the payment.
 	FeeLimit *FeeLimit `protobuf:"bytes,5,opt,name=fee_limit,json=feeLimit,proto3" json:"fee_limit,omitempty"`
-	//*
+	//
 	//A list of nodes to ignore during path finding. When using REST, these fields
 	//must be encoded as base64.
 	IgnoredNodes [][]byte `protobuf:"bytes,6,rep,name=ignored_nodes,json=ignoredNodes,proto3" json:"ignored_nodes,omitempty"`
-	//*
+	//
 	//Deprecated. A list of edges to ignore during path finding.
 	IgnoredEdges []*EdgeLocator `protobuf:"bytes,7,rep,name=ignored_edges,json=ignoredEdges,proto3" json:"ignored_edges,omitempty"` // Deprecated: Do not use.
-	//*
+	//
 	//The source node where the request route should originated from. If empty,
 	//self is assumed.
 	SourcePubKey string `protobuf:"bytes,8,opt,name=source_pub_key,json=sourcePubKey,proto3" json:"source_pub_key,omitempty"`
-	//*
+	//
 	//If set to true, edge probabilities from mission control will be used to get
 	//the optimal route.
 	UseMissionControl bool `protobuf:"varint,9,opt,name=use_mission_control,json=useMissionControl,proto3" json:"use_mission_control,omitempty"`
-	//*
+	//
 	//A list of directed node pairs that will be ignored during path finding.
 	IgnoredPairs []*NodePair `protobuf:"bytes,10,rep,name=ignored_pairs,json=ignoredPairs,proto3" json:"ignored_pairs,omitempty"`
-	//*
+	//
 	//An optional maximum total time lock for the route. If the source is empty or
 	//ourselves, this should not exceed lnd's `--max-cltv-expiry` setting. If
 	//zero, then the value of `--max-cltv-expiry` is used as the limit.
 	CltvLimit uint32 `protobuf:"varint,11,opt,name=cltv_limit,json=cltvLimit,proto3" json:"cltv_limit,omitempty"`
-	//*
+	//
 	//An optional field that can be used to pass an arbitrary set of TLV records
 	//to a peer which understands the new records. This can be used to pass
 	//application specific data during the payment attempt. If the destination
@@ -6893,17 +6946,17 @@ type QueryRoutesRequest struct {
 	//Record types are required to be in the custom range >= 65536. When using
 	//REST, the values must be encoded as base64.
 	DestCustomRecords map[uint64][]byte `protobuf:"bytes,13,rep,name=dest_custom_records,json=destCustomRecords,proto3" json:"dest_custom_records,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	//*
+	//
 	//The channel id of the channel that must be taken to the first hop. If zero,
 	//any channel may be used.
 	OutgoingChanId uint64 `protobuf:"varint,14,opt,name=outgoing_chan_id,json=outgoingChanId,proto3" json:"outgoing_chan_id,omitempty"`
-	//*
+	//
 	//The pubkey of the last hop of the route. If empty, any hop may be used.
 	LastHopPubkey []byte `protobuf:"bytes,15,opt,name=last_hop_pubkey,json=lastHopPubkey,proto3" json:"last_hop_pubkey,omitempty"`
-	//*
+	//
 	//Optional route hints to reach the destination through private channels.
 	RouteHints []*RouteHint `protobuf:"bytes,16,rep,name=route_hints,json=routeHints,proto3" json:"route_hints,omitempty"`
-	//*
+	//
 	//Features assumed to be supported by the final node. All transitive feature
 	//dependencies must also be set properly. For a given feature bit pair, either
 	//optional or remote may be set, but not both. If this field is nil or empty,
@@ -6919,7 +6972,7 @@ func (m *QueryRoutesRequest) Reset()         { *m = QueryRoutesRequest{} }
 func (m *QueryRoutesRequest) String() string { return proto.CompactTextString(m) }
 func (*QueryRoutesRequest) ProtoMessage()    {}
 func (*QueryRoutesRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{83}
+	return fileDescriptor_77a6da22d6a3feb1, []int{75}
 }
 
 func (m *QueryRoutesRequest) XXX_Unmarshal(b []byte) error {
@@ -7054,11 +7107,11 @@ func (m *QueryRoutesRequest) GetDestFeatures() []FeatureBit {
 }
 
 type NodePair struct {
-	//*
+	//
 	//The sending node of the pair. When using REST, this field must be encoded as
 	//base64.
 	From []byte `protobuf:"bytes,1,opt,name=from,proto3" json:"from,omitempty"`
-	//*
+	//
 	//The receiving node of the pair. When using REST, this field must be encoded
 	//as base64.
 	To                   []byte   `protobuf:"bytes,2,opt,name=to,proto3" json:"to,omitempty"`
@@ -7071,7 +7124,7 @@ func (m *NodePair) Reset()         { *m = NodePair{} }
 func (m *NodePair) String() string { return proto.CompactTextString(m) }
 func (*NodePair) ProtoMessage()    {}
 func (*NodePair) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{84}
+	return fileDescriptor_77a6da22d6a3feb1, []int{76}
 }
 
 func (m *NodePair) XXX_Unmarshal(b []byte) error {
@@ -7107,9 +7160,9 @@ func (m *NodePair) GetTo() []byte {
 }
 
 type EdgeLocator struct {
-	/// The short channel id of this edge.
+	// The short channel id of this edge.
 	ChannelId uint64 `protobuf:"varint,1,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
-	//*
+	//
 	//The direction of this edge. If direction_reverse is false, the direction
 	//of this edge is from the channel endpoint with the lexicographically smaller
 	//pub key to the endpoint with the larger pub key. If direction_reverse is
@@ -7124,7 +7177,7 @@ func (m *EdgeLocator) Reset()         { *m = EdgeLocator{} }
 func (m *EdgeLocator) String() string { return proto.CompactTextString(m) }
 func (*EdgeLocator) ProtoMessage()    {}
 func (*EdgeLocator) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{85}
+	return fileDescriptor_77a6da22d6a3feb1, []int{77}
 }
 
 func (m *EdgeLocator) XXX_Unmarshal(b []byte) error {
@@ -7160,11 +7213,11 @@ func (m *EdgeLocator) GetDirectionReverse() bool {
 }
 
 type QueryRoutesResponse struct {
-	//*
+	//
 	//The route that results from the path finding operation. This is still a
 	//repeated field to retain backwards compatibility.
 	Routes []*Route `protobuf:"bytes,1,rep,name=routes,proto3" json:"routes,omitempty"`
-	//*
+	//
 	//The success probability of the returned route based on the current mission
 	//control state. [EXPERIMENTAL]
 	SuccessProb          float64  `protobuf:"fixed64,2,opt,name=success_prob,json=successProb,proto3" json:"success_prob,omitempty"`
@@ -7177,7 +7230,7 @@ func (m *QueryRoutesResponse) Reset()         { *m = QueryRoutesResponse{} }
 func (m *QueryRoutesResponse) String() string { return proto.CompactTextString(m) }
 func (*QueryRoutesResponse) ProtoMessage()    {}
 func (*QueryRoutesResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{86}
+	return fileDescriptor_77a6da22d6a3feb1, []int{78}
 }
 
 func (m *QueryRoutesResponse) XXX_Unmarshal(b []byte) error {
@@ -7213,7 +7266,7 @@ func (m *QueryRoutesResponse) GetSuccessProb() float64 {
 }
 
 type Hop struct {
-	//*
+	//
 	//The unique channel ID for the channel. The first 3 bytes are the block
 	//height, the next 3 the index within the block, and the last 2 bytes are the
 	//output index for the channel.
@@ -7224,22 +7277,22 @@ type Hop struct {
 	Expiry           uint32 `protobuf:"varint,5,opt,name=expiry,proto3" json:"expiry,omitempty"`
 	AmtToForwardMsat int64  `protobuf:"varint,6,opt,name=amt_to_forward_msat,json=amtToForwardMsat,proto3" json:"amt_to_forward_msat,omitempty"`
 	FeeMsat          int64  `protobuf:"varint,7,opt,name=fee_msat,json=feeMsat,proto3" json:"fee_msat,omitempty"`
-	//*
+	//
 	//An optional public key of the hop. If the public key is given, the payment
 	//can be executed without relying on a copy of the channel graph.
 	PubKey string `protobuf:"bytes,8,opt,name=pub_key,json=pubKey,proto3" json:"pub_key,omitempty"`
-	//*
+	//
 	//If set to true, then this hop will be encoded using the new variable length
 	//TLV format. Note that if any custom tlv_records below are specified, then
 	//this field MUST be set to true for them to be encoded properly.
 	TlvPayload bool `protobuf:"varint,9,opt,name=tlv_payload,json=tlvPayload,proto3" json:"tlv_payload,omitempty"`
-	//*
+	//
 	//An optional TLV record that signals the use of an MPP payment. If present,
 	//the receiver will enforce that that the same mpp_record is included in the
 	//final hop payload of all non-zero payments in the HTLC set. If empty, a
 	//regular single-shot payment is or was attempted.
 	MppRecord *MPPRecord `protobuf:"bytes,10,opt,name=mpp_record,json=mppRecord,proto3" json:"mpp_record,omitempty"`
-	//*
+	//
 	//An optional set of key-value TLV records. This is useful within the context
 	//of the SendToRoute call as it allows callers to specify arbitrary K-V pairs
 	//to drop off at each hop within the onion.
@@ -7253,7 +7306,7 @@ func (m *Hop) Reset()         { *m = Hop{} }
 func (m *Hop) String() string { return proto.CompactTextString(m) }
 func (*Hop) ProtoMessage()    {}
 func (*Hop) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{87}
+	return fileDescriptor_77a6da22d6a3feb1, []int{79}
 }
 
 func (m *Hop) XXX_Unmarshal(b []byte) error {
@@ -7354,13 +7407,13 @@ func (m *Hop) GetCustomRecords() map[uint64][]byte {
 }
 
 type MPPRecord struct {
-	//*
+	//
 	//A unique, random identifier used to authenticate the sender as the intended
 	//payer of a multi-path payment. The payment_addr must be the same for all
 	//subpayments, and match the payment_addr provided in the receiver's invoice.
 	//The same payment_addr must be used on all subpayments.
 	PaymentAddr []byte `protobuf:"bytes,11,opt,name=payment_addr,json=paymentAddr,proto3" json:"payment_addr,omitempty"`
-	//*
+	//
 	//The total amount in milli-satoshis being sent as part of a larger multi-path
 	//payment. The caller is responsible for ensuring subpayments to the same node
 	//and payment_hash sum exactly to total_amt_msat. The same
@@ -7375,7 +7428,7 @@ func (m *MPPRecord) Reset()         { *m = MPPRecord{} }
 func (m *MPPRecord) String() string { return proto.CompactTextString(m) }
 func (*MPPRecord) ProtoMessage()    {}
 func (*MPPRecord) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{88}
+	return fileDescriptor_77a6da22d6a3feb1, []int{80}
 }
 
 func (m *MPPRecord) XXX_Unmarshal(b []byte) error {
@@ -7410,38 +7463,38 @@ func (m *MPPRecord) GetTotalAmtMsat() int64 {
 	return 0
 }
 
-//*
+//
 //A path through the channel graph which runs over one or more channels in
 //succession. This struct carries all the information required to craft the
 //Sphinx onion packet, and send the payment along the first hop in the path. A
 //route is only selected as valid if all the channels have sufficient capacity to
 //carry the initial payment amount after fees are accounted for.
 type Route struct {
-	//*
+	//
 	//The cumulative (final) time lock across the entire route. This is the CLTV
 	//value that should be extended to the first hop in the route. All other hops
 	//will decrement the time-lock as advertised, leaving enough time for all
 	//hops to wait for or present the payment preimage to complete the payment.
 	TotalTimeLock uint32 `protobuf:"varint,1,opt,name=total_time_lock,json=totalTimeLock,proto3" json:"total_time_lock,omitempty"`
-	//*
+	//
 	//The sum of the fees paid at each hop within the final route. In the case
 	//of a one-hop payment, this value will be zero as we don't need to pay a fee
 	//to ourselves.
 	TotalFees int64 `protobuf:"varint,2,opt,name=total_fees,json=totalFees,proto3" json:"total_fees,omitempty"` // Deprecated: Do not use.
-	//*
+	//
 	//The total amount of funds required to complete a payment over this route.
 	//This value includes the cumulative fees at each hop. As a result, the HTLC
 	//extended to the first-hop in the route will need to have at least this many
 	//satoshis, otherwise the route will fail at an intermediate node due to an
 	//insufficient amount of fees.
 	TotalAmt int64 `protobuf:"varint,3,opt,name=total_amt,json=totalAmt,proto3" json:"total_amt,omitempty"` // Deprecated: Do not use.
-	//*
+	//
 	//Contains details concerning the specific forwarding details at each hop.
 	Hops []*Hop `protobuf:"bytes,4,rep,name=hops,proto3" json:"hops,omitempty"`
-	//*
+	//
 	//The total fees in millisatoshis.
 	TotalFeesMsat int64 `protobuf:"varint,5,opt,name=total_fees_msat,json=totalFeesMsat,proto3" json:"total_fees_msat,omitempty"`
-	//*
+	//
 	//The total amount in millisatoshis.
 	TotalAmtMsat         int64    `protobuf:"varint,6,opt,name=total_amt_msat,json=totalAmtMsat,proto3" json:"total_amt_msat,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
@@ -7453,7 +7506,7 @@ func (m *Route) Reset()         { *m = Route{} }
 func (m *Route) String() string { return proto.CompactTextString(m) }
 func (*Route) ProtoMessage()    {}
 func (*Route) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{89}
+	return fileDescriptor_77a6da22d6a3feb1, []int{81}
 }
 
 func (m *Route) XXX_Unmarshal(b []byte) error {
@@ -7519,9 +7572,9 @@ func (m *Route) GetTotalAmtMsat() int64 {
 }
 
 type NodeInfoRequest struct {
-	/// The 33-byte hex-encoded compressed public of the target node
+	// The 33-byte hex-encoded compressed public of the target node
 	PubKey string `protobuf:"bytes,1,opt,name=pub_key,json=pubKey,proto3" json:"pub_key,omitempty"`
-	/// If true, will include all known channels associated with the node.
+	// If true, will include all known channels associated with the node.
 	IncludeChannels      bool     `protobuf:"varint,2,opt,name=include_channels,json=includeChannels,proto3" json:"include_channels,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -7532,7 +7585,7 @@ func (m *NodeInfoRequest) Reset()         { *m = NodeInfoRequest{} }
 func (m *NodeInfoRequest) String() string { return proto.CompactTextString(m) }
 func (*NodeInfoRequest) ProtoMessage()    {}
 func (*NodeInfoRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{90}
+	return fileDescriptor_77a6da22d6a3feb1, []int{82}
 }
 
 func (m *NodeInfoRequest) XXX_Unmarshal(b []byte) error {
@@ -7568,17 +7621,17 @@ func (m *NodeInfoRequest) GetIncludeChannels() bool {
 }
 
 type NodeInfo struct {
-	//*
+	//
 	//An individual vertex/node within the channel graph. A node is
 	//connected to other nodes by one or more channel edges emanating from it. As
 	//the graph is directed, a node will also have an incoming edge attached to
 	//it for each outgoing edge.
 	Node *LightningNode `protobuf:"bytes,1,opt,name=node,proto3" json:"node,omitempty"`
-	/// The total number of channels for the node.
+	// The total number of channels for the node.
 	NumChannels uint32 `protobuf:"varint,2,opt,name=num_channels,json=numChannels,proto3" json:"num_channels,omitempty"`
-	/// The sum of all channels capacity for the node, denominated in satoshis.
+	// The sum of all channels capacity for the node, denominated in satoshis.
 	TotalCapacity int64 `protobuf:"varint,3,opt,name=total_capacity,json=totalCapacity,proto3" json:"total_capacity,omitempty"`
-	/// A list of all public channels for the node.
+	// A list of all public channels for the node.
 	Channels             []*ChannelEdge `protobuf:"bytes,4,rep,name=channels,proto3" json:"channels,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}       `json:"-"`
 	XXX_unrecognized     []byte         `json:"-"`
@@ -7589,7 +7642,7 @@ func (m *NodeInfo) Reset()         { *m = NodeInfo{} }
 func (m *NodeInfo) String() string { return proto.CompactTextString(m) }
 func (*NodeInfo) ProtoMessage()    {}
 func (*NodeInfo) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{91}
+	return fileDescriptor_77a6da22d6a3feb1, []int{83}
 }
 
 func (m *NodeInfo) XXX_Unmarshal(b []byte) error {
@@ -7638,7 +7691,7 @@ func (m *NodeInfo) GetChannels() []*ChannelEdge {
 	return nil
 }
 
-//*
+//
 //An individual vertex/node within the channel graph. A node is
 //connected to other nodes by one or more channel edges emanating from it. As the
 //graph is directed, a node will also have an incoming edge attached to it for
@@ -7659,7 +7712,7 @@ func (m *LightningNode) Reset()         { *m = LightningNode{} }
 func (m *LightningNode) String() string { return proto.CompactTextString(m) }
 func (*LightningNode) ProtoMessage()    {}
 func (*LightningNode) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{92}
+	return fileDescriptor_77a6da22d6a3feb1, []int{84}
 }
 
 func (m *LightningNode) XXX_Unmarshal(b []byte) error {
@@ -7734,7 +7787,7 @@ func (m *NodeAddress) Reset()         { *m = NodeAddress{} }
 func (m *NodeAddress) String() string { return proto.CompactTextString(m) }
 func (*NodeAddress) ProtoMessage()    {}
 func (*NodeAddress) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{93}
+	return fileDescriptor_77a6da22d6a3feb1, []int{85}
 }
 
 func (m *NodeAddress) XXX_Unmarshal(b []byte) error {
@@ -7786,7 +7839,7 @@ func (m *RoutingPolicy) Reset()         { *m = RoutingPolicy{} }
 func (m *RoutingPolicy) String() string { return proto.CompactTextString(m) }
 func (*RoutingPolicy) ProtoMessage()    {}
 func (*RoutingPolicy) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{94}
+	return fileDescriptor_77a6da22d6a3feb1, []int{86}
 }
 
 func (m *RoutingPolicy) XXX_Unmarshal(b []byte) error {
@@ -7856,14 +7909,14 @@ func (m *RoutingPolicy) GetLastUpdate() uint32 {
 	return 0
 }
 
-//*
+//
 //A fully authenticated channel along with all its unique attributes.
 //Once an authenticated channel announcement has been processed on the network,
 //then an instance of ChannelEdgeInfo encapsulating the channels attributes is
 //stored. The other portions relevant to routing policy of a channel are stored
 //within a ChannelEdgePolicy for each direction of the channel.
 type ChannelEdge struct {
-	//*
+	//
 	//The unique channel ID for the channel. The first 3 bytes are the block
 	//height, the next 3 the index within the block, and the last 2 bytes are the
 	//output index for the channel.
@@ -7884,7 +7937,7 @@ func (m *ChannelEdge) Reset()         { *m = ChannelEdge{} }
 func (m *ChannelEdge) String() string { return proto.CompactTextString(m) }
 func (*ChannelEdge) ProtoMessage()    {}
 func (*ChannelEdge) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{95}
+	return fileDescriptor_77a6da22d6a3feb1, []int{87}
 }
 
 func (m *ChannelEdge) XXX_Unmarshal(b []byte) error {
@@ -7963,7 +8016,7 @@ func (m *ChannelEdge) GetNode2Policy() *RoutingPolicy {
 }
 
 type ChannelGraphRequest struct {
-	//*
+	//
 	//Whether unannounced channels are included in the response or not. If set,
 	//unannounced channels are included. Unannounced channels are both private
 	//channels, and public channels that are not yet announced to the network.
@@ -7977,7 +8030,7 @@ func (m *ChannelGraphRequest) Reset()         { *m = ChannelGraphRequest{} }
 func (m *ChannelGraphRequest) String() string { return proto.CompactTextString(m) }
 func (*ChannelGraphRequest) ProtoMessage()    {}
 func (*ChannelGraphRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{96}
+	return fileDescriptor_77a6da22d6a3feb1, []int{88}
 }
 
 func (m *ChannelGraphRequest) XXX_Unmarshal(b []byte) error {
@@ -8005,11 +8058,11 @@ func (m *ChannelGraphRequest) GetIncludeUnannounced() bool {
 	return false
 }
 
-/// Returns a new instance of the directed channel graph.
+// Returns a new instance of the directed channel graph.
 type ChannelGraph struct {
-	/// The list of `LightningNode`s in this channel graph
+	// The list of `LightningNode`s in this channel graph
 	Nodes []*LightningNode `protobuf:"bytes,1,rep,name=nodes,proto3" json:"nodes,omitempty"`
-	/// The list of `ChannelEdge`s in this channel graph
+	// The list of `ChannelEdge`s in this channel graph
 	Edges                []*ChannelEdge `protobuf:"bytes,2,rep,name=edges,proto3" json:"edges,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}       `json:"-"`
 	XXX_unrecognized     []byte         `json:"-"`
@@ -8020,7 +8073,7 @@ func (m *ChannelGraph) Reset()         { *m = ChannelGraph{} }
 func (m *ChannelGraph) String() string { return proto.CompactTextString(m) }
 func (*ChannelGraph) ProtoMessage()    {}
 func (*ChannelGraph) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{97}
+	return fileDescriptor_77a6da22d6a3feb1, []int{89}
 }
 
 func (m *ChannelGraph) XXX_Unmarshal(b []byte) error {
@@ -8056,7 +8109,7 @@ func (m *ChannelGraph) GetEdges() []*ChannelEdge {
 }
 
 type NodeMetricsRequest struct {
-	/// The requested node metrics.
+	// The requested node metrics.
 	Types                []NodeMetricType `protobuf:"varint,1,rep,packed,name=types,proto3,enum=lnrpc.NodeMetricType" json:"types,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}         `json:"-"`
 	XXX_unrecognized     []byte           `json:"-"`
@@ -8067,7 +8120,7 @@ func (m *NodeMetricsRequest) Reset()         { *m = NodeMetricsRequest{} }
 func (m *NodeMetricsRequest) String() string { return proto.CompactTextString(m) }
 func (*NodeMetricsRequest) ProtoMessage()    {}
 func (*NodeMetricsRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{98}
+	return fileDescriptor_77a6da22d6a3feb1, []int{90}
 }
 
 func (m *NodeMetricsRequest) XXX_Unmarshal(b []byte) error {
@@ -8096,7 +8149,7 @@ func (m *NodeMetricsRequest) GetTypes() []NodeMetricType {
 }
 
 type NodeMetricsResponse struct {
-	//*
+	//
 	//Betweenness centrality is the sum of the ratio of shortest paths that pass
 	//through the node for each pair of nodes in the graph (not counting paths
 	//starting or ending at this node).
@@ -8112,7 +8165,7 @@ func (m *NodeMetricsResponse) Reset()         { *m = NodeMetricsResponse{} }
 func (m *NodeMetricsResponse) String() string { return proto.CompactTextString(m) }
 func (*NodeMetricsResponse) ProtoMessage()    {}
 func (*NodeMetricsResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{99}
+	return fileDescriptor_77a6da22d6a3feb1, []int{91}
 }
 
 func (m *NodeMetricsResponse) XXX_Unmarshal(b []byte) error {
@@ -8141,9 +8194,9 @@ func (m *NodeMetricsResponse) GetBetweennessCentrality() map[string]*FloatMetric
 }
 
 type FloatMetric struct {
-	/// Arbitrary float value.
+	// Arbitrary float value.
 	Value float64 `protobuf:"fixed64,1,opt,name=value,proto3" json:"value,omitempty"`
-	/// The value normalized to [0,1] or [-1,1].
+	// The value normalized to [0,1] or [-1,1].
 	NormalizedValue      float64  `protobuf:"fixed64,2,opt,name=normalized_value,json=normalizedValue,proto3" json:"normalized_value,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -8154,7 +8207,7 @@ func (m *FloatMetric) Reset()         { *m = FloatMetric{} }
 func (m *FloatMetric) String() string { return proto.CompactTextString(m) }
 func (*FloatMetric) ProtoMessage()    {}
 func (*FloatMetric) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{100}
+	return fileDescriptor_77a6da22d6a3feb1, []int{92}
 }
 
 func (m *FloatMetric) XXX_Unmarshal(b []byte) error {
@@ -8190,7 +8243,7 @@ func (m *FloatMetric) GetNormalizedValue() float64 {
 }
 
 type ChanInfoRequest struct {
-	//*
+	//
 	//The unique channel ID for the channel. The first 3 bytes are the block
 	//height, the next 3 the index within the block, and the last 2 bytes are the
 	//output index for the channel.
@@ -8204,7 +8257,7 @@ func (m *ChanInfoRequest) Reset()         { *m = ChanInfoRequest{} }
 func (m *ChanInfoRequest) String() string { return proto.CompactTextString(m) }
 func (*ChanInfoRequest) ProtoMessage()    {}
 func (*ChanInfoRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{101}
+	return fileDescriptor_77a6da22d6a3feb1, []int{93}
 }
 
 func (m *ChanInfoRequest) XXX_Unmarshal(b []byte) error {
@@ -8242,7 +8295,7 @@ func (m *NetworkInfoRequest) Reset()         { *m = NetworkInfoRequest{} }
 func (m *NetworkInfoRequest) String() string { return proto.CompactTextString(m) }
 func (*NetworkInfoRequest) ProtoMessage()    {}
 func (*NetworkInfoRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{102}
+	return fileDescriptor_77a6da22d6a3feb1, []int{94}
 }
 
 func (m *NetworkInfoRequest) XXX_Unmarshal(b []byte) error {
@@ -8285,7 +8338,7 @@ func (m *NetworkInfo) Reset()         { *m = NetworkInfo{} }
 func (m *NetworkInfo) String() string { return proto.CompactTextString(m) }
 func (*NetworkInfo) ProtoMessage()    {}
 func (*NetworkInfo) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{103}
+	return fileDescriptor_77a6da22d6a3feb1, []int{95}
 }
 
 func (m *NetworkInfo) XXX_Unmarshal(b []byte) error {
@@ -8393,7 +8446,7 @@ func (m *StopRequest) Reset()         { *m = StopRequest{} }
 func (m *StopRequest) String() string { return proto.CompactTextString(m) }
 func (*StopRequest) ProtoMessage()    {}
 func (*StopRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{104}
+	return fileDescriptor_77a6da22d6a3feb1, []int{96}
 }
 
 func (m *StopRequest) XXX_Unmarshal(b []byte) error {
@@ -8424,7 +8477,7 @@ func (m *StopResponse) Reset()         { *m = StopResponse{} }
 func (m *StopResponse) String() string { return proto.CompactTextString(m) }
 func (*StopResponse) ProtoMessage()    {}
 func (*StopResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{105}
+	return fileDescriptor_77a6da22d6a3feb1, []int{97}
 }
 
 func (m *StopResponse) XXX_Unmarshal(b []byte) error {
@@ -8455,7 +8508,7 @@ func (m *GraphTopologySubscription) Reset()         { *m = GraphTopologySubscrip
 func (m *GraphTopologySubscription) String() string { return proto.CompactTextString(m) }
 func (*GraphTopologySubscription) ProtoMessage()    {}
 func (*GraphTopologySubscription) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{106}
+	return fileDescriptor_77a6da22d6a3feb1, []int{98}
 }
 
 func (m *GraphTopologySubscription) XXX_Unmarshal(b []byte) error {
@@ -8489,7 +8542,7 @@ func (m *GraphTopologyUpdate) Reset()         { *m = GraphTopologyUpdate{} }
 func (m *GraphTopologyUpdate) String() string { return proto.CompactTextString(m) }
 func (*GraphTopologyUpdate) ProtoMessage()    {}
 func (*GraphTopologyUpdate) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{107}
+	return fileDescriptor_77a6da22d6a3feb1, []int{99}
 }
 
 func (m *GraphTopologyUpdate) XXX_Unmarshal(b []byte) error {
@@ -8546,7 +8599,7 @@ func (m *NodeUpdate) Reset()         { *m = NodeUpdate{} }
 func (m *NodeUpdate) String() string { return proto.CompactTextString(m) }
 func (*NodeUpdate) ProtoMessage()    {}
 func (*NodeUpdate) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{108}
+	return fileDescriptor_77a6da22d6a3feb1, []int{100}
 }
 
 func (m *NodeUpdate) XXX_Unmarshal(b []byte) error {
@@ -8603,7 +8656,7 @@ func (m *NodeUpdate) GetColor() string {
 }
 
 type ChannelEdgeUpdate struct {
-	//*
+	//
 	//The unique channel ID for the channel. The first 3 bytes are the block
 	//height, the next 3 the index within the block, and the last 2 bytes are the
 	//output index for the channel.
@@ -8622,7 +8675,7 @@ func (m *ChannelEdgeUpdate) Reset()         { *m = ChannelEdgeUpdate{} }
 func (m *ChannelEdgeUpdate) String() string { return proto.CompactTextString(m) }
 func (*ChannelEdgeUpdate) ProtoMessage()    {}
 func (*ChannelEdgeUpdate) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{109}
+	return fileDescriptor_77a6da22d6a3feb1, []int{101}
 }
 
 func (m *ChannelEdgeUpdate) XXX_Unmarshal(b []byte) error {
@@ -8686,7 +8739,7 @@ func (m *ChannelEdgeUpdate) GetConnectingNode() string {
 }
 
 type ClosedChannelUpdate struct {
-	//*
+	//
 	//The unique channel ID for the channel. The first 3 bytes are the block
 	//height, the next 3 the index within the block, and the last 2 bytes are the
 	//output index for the channel.
@@ -8703,7 +8756,7 @@ func (m *ClosedChannelUpdate) Reset()         { *m = ClosedChannelUpdate{} }
 func (m *ClosedChannelUpdate) String() string { return proto.CompactTextString(m) }
 func (*ClosedChannelUpdate) ProtoMessage()    {}
 func (*ClosedChannelUpdate) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{110}
+	return fileDescriptor_77a6da22d6a3feb1, []int{102}
 }
 
 func (m *ClosedChannelUpdate) XXX_Unmarshal(b []byte) error {
@@ -8753,17 +8806,17 @@ func (m *ClosedChannelUpdate) GetChanPoint() *ChannelPoint {
 }
 
 type HopHint struct {
-	/// The public key of the node at the start of the channel.
+	// The public key of the node at the start of the channel.
 	NodeId string `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
-	/// The unique identifier of the channel.
+	// The unique identifier of the channel.
 	ChanId uint64 `protobuf:"varint,2,opt,name=chan_id,json=chanId,proto3" json:"chan_id,omitempty"`
-	/// The base fee of the channel denominated in millisatoshis.
+	// The base fee of the channel denominated in millisatoshis.
 	FeeBaseMsat uint32 `protobuf:"varint,3,opt,name=fee_base_msat,json=feeBaseMsat,proto3" json:"fee_base_msat,omitempty"`
-	//*
+	//
 	//The fee rate of the channel for sending one satoshi across it denominated in
 	//millionths of a satoshi.
 	FeeProportionalMillionths uint32 `protobuf:"varint,4,opt,name=fee_proportional_millionths,json=feeProportionalMillionths,proto3" json:"fee_proportional_millionths,omitempty"`
-	/// The time-lock delta of the channel.
+	// The time-lock delta of the channel.
 	CltvExpiryDelta      uint32   `protobuf:"varint,5,opt,name=cltv_expiry_delta,json=cltvExpiryDelta,proto3" json:"cltv_expiry_delta,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -8774,7 +8827,7 @@ func (m *HopHint) Reset()         { *m = HopHint{} }
 func (m *HopHint) String() string { return proto.CompactTextString(m) }
 func (*HopHint) ProtoMessage()    {}
 func (*HopHint) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{111}
+	return fileDescriptor_77a6da22d6a3feb1, []int{103}
 }
 
 func (m *HopHint) XXX_Unmarshal(b []byte) error {
@@ -8831,7 +8884,7 @@ func (m *HopHint) GetCltvExpiryDelta() uint32 {
 }
 
 type RouteHint struct {
-	//*
+	//
 	//A list of hop hints that when chained together can assist in reaching a
 	//specific destination.
 	HopHints             []*HopHint `protobuf:"bytes,1,rep,name=hop_hints,json=hopHints,proto3" json:"hop_hints,omitempty"`
@@ -8844,7 +8897,7 @@ func (m *RouteHint) Reset()         { *m = RouteHint{} }
 func (m *RouteHint) String() string { return proto.CompactTextString(m) }
 func (*RouteHint) ProtoMessage()    {}
 func (*RouteHint) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{112}
+	return fileDescriptor_77a6da22d6a3feb1, []int{104}
 }
 
 func (m *RouteHint) XXX_Unmarshal(b []byte) error {
@@ -8873,75 +8926,75 @@ func (m *RouteHint) GetHopHints() []*HopHint {
 }
 
 type Invoice struct {
-	//*
+	//
 	//An optional memo to attach along with the invoice. Used for record keeping
 	//purposes for the invoice's creator, and will also be set in the description
 	//field of the encoded payment request if the description_hash field is not
 	//being used.
 	Memo string `protobuf:"bytes,1,opt,name=memo,proto3" json:"memo,omitempty"`
-	//*
+	//
 	//The hex-encoded preimage (32 byte) which will allow settling an incoming
 	//HTLC payable to this preimage. When using REST, this field must be encoded
 	//as base64.
 	RPreimage []byte `protobuf:"bytes,3,opt,name=r_preimage,json=rPreimage,proto3" json:"r_preimage,omitempty"`
-	//*
+	//
 	//The hash of the preimage. When using REST, this field must be encoded as
 	//base64.
 	RHash []byte `protobuf:"bytes,4,opt,name=r_hash,json=rHash,proto3" json:"r_hash,omitempty"`
-	//*
+	//
 	//The value of this invoice in satoshis
 	//
 	//The fields value and value_msat are mutually exclusive.
 	Value int64 `protobuf:"varint,5,opt,name=value,proto3" json:"value,omitempty"`
-	//*
+	//
 	//The value of this invoice in millisatoshis
 	//
 	//The fields value and value_msat are mutually exclusive.
 	ValueMsat int64 `protobuf:"varint,23,opt,name=value_msat,json=valueMsat,proto3" json:"value_msat,omitempty"`
-	/// Whether this invoice has been fulfilled
+	// Whether this invoice has been fulfilled
 	Settled bool `protobuf:"varint,6,opt,name=settled,proto3" json:"settled,omitempty"` // Deprecated: Do not use.
-	/// When this invoice was created
+	// When this invoice was created
 	CreationDate int64 `protobuf:"varint,7,opt,name=creation_date,json=creationDate,proto3" json:"creation_date,omitempty"`
-	/// When this invoice was settled
+	// When this invoice was settled
 	SettleDate int64 `protobuf:"varint,8,opt,name=settle_date,json=settleDate,proto3" json:"settle_date,omitempty"`
-	//*
+	//
 	//A bare-bones invoice for a payment within the Lightning Network. With the
 	//details of the invoice, the sender has all the data necessary to send a
 	//payment to the recipient.
 	PaymentRequest string `protobuf:"bytes,9,opt,name=payment_request,json=paymentRequest,proto3" json:"payment_request,omitempty"`
-	//*
+	//
 	//Hash (SHA-256) of a description of the payment. Used if the description of
 	//payment (memo) is too long to naturally fit within the description field
 	//of an encoded payment request. When using REST, this field must be encoded
 	//as base64.
 	DescriptionHash []byte `protobuf:"bytes,10,opt,name=description_hash,json=descriptionHash,proto3" json:"description_hash,omitempty"`
-	/// Payment request expiry time in seconds. Default is 3600 (1 hour).
+	// Payment request expiry time in seconds. Default is 3600 (1 hour).
 	Expiry int64 `protobuf:"varint,11,opt,name=expiry,proto3" json:"expiry,omitempty"`
-	/// Fallback on-chain address.
+	// Fallback on-chain address.
 	FallbackAddr string `protobuf:"bytes,12,opt,name=fallback_addr,json=fallbackAddr,proto3" json:"fallback_addr,omitempty"`
-	/// Delta to use for the time-lock of the CLTV extended to the final hop.
+	// Delta to use for the time-lock of the CLTV extended to the final hop.
 	CltvExpiry uint64 `protobuf:"varint,13,opt,name=cltv_expiry,json=cltvExpiry,proto3" json:"cltv_expiry,omitempty"`
-	//*
+	//
 	//Route hints that can each be individually used to assist in reaching the
 	//invoice's destination.
 	RouteHints []*RouteHint `protobuf:"bytes,14,rep,name=route_hints,json=routeHints,proto3" json:"route_hints,omitempty"`
-	/// Whether this invoice should include routing hints for private channels.
+	// Whether this invoice should include routing hints for private channels.
 	Private bool `protobuf:"varint,15,opt,name=private,proto3" json:"private,omitempty"`
-	//*
+	//
 	//The "add" index of this invoice. Each newly created invoice will increment
 	//this index making it monotonically increasing. Callers to the
 	//SubscribeInvoices call can use this to instantly get notified of all added
 	//invoices with an add_index greater than this one.
 	AddIndex uint64 `protobuf:"varint,16,opt,name=add_index,json=addIndex,proto3" json:"add_index,omitempty"`
-	//*
+	//
 	//The "settle" index of this invoice. Each newly settled invoice will
 	//increment this index making it monotonically increasing. Callers to the
 	//SubscribeInvoices call can use this to instantly get notified of all
 	//settled invoices with an settle_index greater than this one.
 	SettleIndex uint64 `protobuf:"varint,17,opt,name=settle_index,json=settleIndex,proto3" json:"settle_index,omitempty"`
-	/// Deprecated, use amt_paid_sat or amt_paid_msat.
+	// Deprecated, use amt_paid_sat or amt_paid_msat.
 	AmtPaid int64 `protobuf:"varint,18,opt,name=amt_paid,json=amtPaid,proto3" json:"amt_paid,omitempty"` // Deprecated: Do not use.
-	//*
+	//
 	//The amount that was accepted for this invoice, in satoshis. This will ONLY
 	//be set if this invoice has been settled. We provide this field as if the
 	//invoice was created with a zero value, then we need to record what amount
@@ -8949,7 +9002,7 @@ type Invoice struct {
 	//MORE that was specified in the original invoice. So we'll record that here
 	//as well.
 	AmtPaidSat int64 `protobuf:"varint,19,opt,name=amt_paid_sat,json=amtPaidSat,proto3" json:"amt_paid_sat,omitempty"`
-	//*
+	//
 	//The amount that was accepted for this invoice, in millisatoshis. This will
 	//ONLY be set if this invoice has been settled. We provide this field as if
 	//the invoice was created with a zero value, then we need to record what
@@ -8957,14 +9010,14 @@ type Invoice struct {
 	//paid MORE that was specified in the original invoice. So we'll record that
 	//here as well.
 	AmtPaidMsat int64 `protobuf:"varint,20,opt,name=amt_paid_msat,json=amtPaidMsat,proto3" json:"amt_paid_msat,omitempty"`
-	//*
+	//
 	//The state the invoice is in.
 	State Invoice_InvoiceState `protobuf:"varint,21,opt,name=state,proto3,enum=lnrpc.Invoice_InvoiceState" json:"state,omitempty"`
-	/// List of HTLCs paying to this invoice [EXPERIMENTAL].
+	// List of HTLCs paying to this invoice [EXPERIMENTAL].
 	Htlcs []*InvoiceHTLC `protobuf:"bytes,22,rep,name=htlcs,proto3" json:"htlcs,omitempty"`
-	/// List of features advertised on the invoice.
+	// List of features advertised on the invoice.
 	Features map[uint32]*Feature `protobuf:"bytes,24,rep,name=features,proto3" json:"features,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	//*
+	//
 	//Indicates if this invoice was a spontaneous payment that arrived via keysend
 	//[EXPERIMENTAL].
 	IsKeysend            bool     `protobuf:"varint,25,opt,name=is_keysend,json=isKeysend,proto3" json:"is_keysend,omitempty"`
@@ -8977,7 +9030,7 @@ func (m *Invoice) Reset()         { *m = Invoice{} }
 func (m *Invoice) String() string { return proto.CompactTextString(m) }
 func (*Invoice) ProtoMessage()    {}
 func (*Invoice) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{113}
+	return fileDescriptor_77a6da22d6a3feb1, []int{105}
 }
 
 func (m *Invoice) XXX_Unmarshal(b []byte) error {
@@ -9168,27 +9221,27 @@ func (m *Invoice) GetIsKeysend() bool {
 	return false
 }
 
-/// Details of an HTLC that paid to an invoice
+// Details of an HTLC that paid to an invoice
 type InvoiceHTLC struct {
-	/// Short channel id over which the htlc was received.
+	// Short channel id over which the htlc was received.
 	ChanId uint64 `protobuf:"varint,1,opt,name=chan_id,json=chanId,proto3" json:"chan_id,omitempty"`
-	/// Index identifying the htlc on the channel.
+	// Index identifying the htlc on the channel.
 	HtlcIndex uint64 `protobuf:"varint,2,opt,name=htlc_index,json=htlcIndex,proto3" json:"htlc_index,omitempty"`
-	/// The amount of the htlc in msat.
+	// The amount of the htlc in msat.
 	AmtMsat uint64 `protobuf:"varint,3,opt,name=amt_msat,json=amtMsat,proto3" json:"amt_msat,omitempty"`
-	/// Block height at which this htlc was accepted.
+	// Block height at which this htlc was accepted.
 	AcceptHeight int32 `protobuf:"varint,4,opt,name=accept_height,json=acceptHeight,proto3" json:"accept_height,omitempty"`
-	/// Time at which this htlc was accepted.
+	// Time at which this htlc was accepted.
 	AcceptTime int64 `protobuf:"varint,5,opt,name=accept_time,json=acceptTime,proto3" json:"accept_time,omitempty"`
-	/// Time at which this htlc was settled or canceled.
+	// Time at which this htlc was settled or canceled.
 	ResolveTime int64 `protobuf:"varint,6,opt,name=resolve_time,json=resolveTime,proto3" json:"resolve_time,omitempty"`
-	/// Block height at which this htlc expires.
+	// Block height at which this htlc expires.
 	ExpiryHeight int32 `protobuf:"varint,7,opt,name=expiry_height,json=expiryHeight,proto3" json:"expiry_height,omitempty"`
-	/// Current state the htlc is in.
+	// Current state the htlc is in.
 	State InvoiceHTLCState `protobuf:"varint,8,opt,name=state,proto3,enum=lnrpc.InvoiceHTLCState" json:"state,omitempty"`
-	/// Custom tlv records.
+	// Custom tlv records.
 	CustomRecords map[uint64][]byte `protobuf:"bytes,9,rep,name=custom_records,json=customRecords,proto3" json:"custom_records,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	/// The total amount of the mpp payment in msat.
+	// The total amount of the mpp payment in msat.
 	MppTotalAmtMsat      uint64   `protobuf:"varint,10,opt,name=mpp_total_amt_msat,json=mppTotalAmtMsat,proto3" json:"mpp_total_amt_msat,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -9199,7 +9252,7 @@ func (m *InvoiceHTLC) Reset()         { *m = InvoiceHTLC{} }
 func (m *InvoiceHTLC) String() string { return proto.CompactTextString(m) }
 func (*InvoiceHTLC) ProtoMessage()    {}
 func (*InvoiceHTLC) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{114}
+	return fileDescriptor_77a6da22d6a3feb1, []int{106}
 }
 
 func (m *InvoiceHTLC) XXX_Unmarshal(b []byte) error {
@@ -9292,12 +9345,12 @@ func (m *InvoiceHTLC) GetMppTotalAmtMsat() uint64 {
 
 type AddInvoiceResponse struct {
 	RHash []byte `protobuf:"bytes,1,opt,name=r_hash,json=rHash,proto3" json:"r_hash,omitempty"`
-	//*
+	//
 	//A bare-bones invoice for a payment within the Lightning Network. With the
 	//details of the invoice, the sender has all the data necessary to send a
 	//payment to the recipient.
 	PaymentRequest string `protobuf:"bytes,2,opt,name=payment_request,json=paymentRequest,proto3" json:"payment_request,omitempty"`
-	//*
+	//
 	//The "add" index of this invoice. Each newly created invoice will increment
 	//this index making it monotonically increasing. Callers to the
 	//SubscribeInvoices call can use this to instantly get notified of all added
@@ -9312,7 +9365,7 @@ func (m *AddInvoiceResponse) Reset()         { *m = AddInvoiceResponse{} }
 func (m *AddInvoiceResponse) String() string { return proto.CompactTextString(m) }
 func (*AddInvoiceResponse) ProtoMessage()    {}
 func (*AddInvoiceResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{115}
+	return fileDescriptor_77a6da22d6a3feb1, []int{107}
 }
 
 func (m *AddInvoiceResponse) XXX_Unmarshal(b []byte) error {
@@ -9355,13 +9408,13 @@ func (m *AddInvoiceResponse) GetAddIndex() uint64 {
 }
 
 type PaymentHash struct {
-	//*
+	//
 	//The hex-encoded payment hash of the invoice to be looked up. The passed
 	//payment hash must be exactly 32 bytes, otherwise an error is returned.
 	//Deprecated now that the REST gateway supports base64 encoding of bytes
 	//fields.
 	RHashStr string `protobuf:"bytes,1,opt,name=r_hash_str,json=rHashStr,proto3" json:"r_hash_str,omitempty"` // Deprecated: Do not use.
-	//*
+	//
 	//The payment hash of the invoice to be looked up. When using REST, this field
 	//must be encoded as base64.
 	RHash                []byte   `protobuf:"bytes,2,opt,name=r_hash,json=rHash,proto3" json:"r_hash,omitempty"`
@@ -9374,7 +9427,7 @@ func (m *PaymentHash) Reset()         { *m = PaymentHash{} }
 func (m *PaymentHash) String() string { return proto.CompactTextString(m) }
 func (*PaymentHash) ProtoMessage()    {}
 func (*PaymentHash) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{116}
+	return fileDescriptor_77a6da22d6a3feb1, []int{108}
 }
 
 func (m *PaymentHash) XXX_Unmarshal(b []byte) error {
@@ -9411,17 +9464,17 @@ func (m *PaymentHash) GetRHash() []byte {
 }
 
 type ListInvoiceRequest struct {
-	//*
+	//
 	//If set, only invoices that are not settled and not canceled will be returned
 	//in the response.
 	PendingOnly bool `protobuf:"varint,1,opt,name=pending_only,json=pendingOnly,proto3" json:"pending_only,omitempty"`
-	//*
+	//
 	//The index of an invoice that will be used as either the start or end of a
 	//query to determine which invoices should be returned in the response.
 	IndexOffset uint64 `protobuf:"varint,4,opt,name=index_offset,json=indexOffset,proto3" json:"index_offset,omitempty"`
-	/// The max number of invoices to return in the response to this query.
+	// The max number of invoices to return in the response to this query.
 	NumMaxInvoices uint64 `protobuf:"varint,5,opt,name=num_max_invoices,json=numMaxInvoices,proto3" json:"num_max_invoices,omitempty"`
-	//*
+	//
 	//If set, the invoices returned will result from seeking backwards from the
 	//specified index offset. This can be used to paginate backwards.
 	Reversed             bool     `protobuf:"varint,6,opt,name=reversed,proto3" json:"reversed,omitempty"`
@@ -9434,7 +9487,7 @@ func (m *ListInvoiceRequest) Reset()         { *m = ListInvoiceRequest{} }
 func (m *ListInvoiceRequest) String() string { return proto.CompactTextString(m) }
 func (*ListInvoiceRequest) ProtoMessage()    {}
 func (*ListInvoiceRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{117}
+	return fileDescriptor_77a6da22d6a3feb1, []int{109}
 }
 
 func (m *ListInvoiceRequest) XXX_Unmarshal(b []byte) error {
@@ -9484,15 +9537,15 @@ func (m *ListInvoiceRequest) GetReversed() bool {
 }
 
 type ListInvoiceResponse struct {
-	//*
+	//
 	//A list of invoices from the time slice of the time series specified in the
 	//request.
 	Invoices []*Invoice `protobuf:"bytes,1,rep,name=invoices,proto3" json:"invoices,omitempty"`
-	//*
+	//
 	//The index of the last item in the set of returned invoices. This can be used
 	//to seek further, pagination style.
 	LastIndexOffset uint64 `protobuf:"varint,2,opt,name=last_index_offset,json=lastIndexOffset,proto3" json:"last_index_offset,omitempty"`
-	//*
+	//
 	//The index of the last item in the set of returned invoices. This can be used
 	//to seek backwards, pagination style.
 	FirstIndexOffset     uint64   `protobuf:"varint,3,opt,name=first_index_offset,json=firstIndexOffset,proto3" json:"first_index_offset,omitempty"`
@@ -9505,7 +9558,7 @@ func (m *ListInvoiceResponse) Reset()         { *m = ListInvoiceResponse{} }
 func (m *ListInvoiceResponse) String() string { return proto.CompactTextString(m) }
 func (*ListInvoiceResponse) ProtoMessage()    {}
 func (*ListInvoiceResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{118}
+	return fileDescriptor_77a6da22d6a3feb1, []int{110}
 }
 
 func (m *ListInvoiceResponse) XXX_Unmarshal(b []byte) error {
@@ -9548,13 +9601,13 @@ func (m *ListInvoiceResponse) GetFirstIndexOffset() uint64 {
 }
 
 type InvoiceSubscription struct {
-	//*
+	//
 	//If specified (non-zero), then we'll first start by sending out
 	//notifications for all added indexes with an add_index greater than this
 	//value. This allows callers to catch up on any events they missed while they
 	//weren't connected to the streaming RPC.
 	AddIndex uint64 `protobuf:"varint,1,opt,name=add_index,json=addIndex,proto3" json:"add_index,omitempty"`
-	//*
+	//
 	//If specified (non-zero), then we'll first start by sending out
 	//notifications for all settled indexes with an settle_index greater than
 	//this value. This allows callers to catch up on any events they missed while
@@ -9569,7 +9622,7 @@ func (m *InvoiceSubscription) Reset()         { *m = InvoiceSubscription{} }
 func (m *InvoiceSubscription) String() string { return proto.CompactTextString(m) }
 func (*InvoiceSubscription) ProtoMessage()    {}
 func (*InvoiceSubscription) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{119}
+	return fileDescriptor_77a6da22d6a3feb1, []int{111}
 }
 
 func (m *InvoiceSubscription) XXX_Unmarshal(b []byte) error {
@@ -9605,33 +9658,33 @@ func (m *InvoiceSubscription) GetSettleIndex() uint64 {
 }
 
 type Payment struct {
-	/// The payment hash
+	// The payment hash
 	PaymentHash string `protobuf:"bytes,1,opt,name=payment_hash,json=paymentHash,proto3" json:"payment_hash,omitempty"`
-	/// Deprecated, use value_sat or value_msat.
+	// Deprecated, use value_sat or value_msat.
 	Value int64 `protobuf:"varint,2,opt,name=value,proto3" json:"value,omitempty"` // Deprecated: Do not use.
-	/// Deprecated, use creation_time_ns
+	// Deprecated, use creation_time_ns
 	CreationDate int64 `protobuf:"varint,3,opt,name=creation_date,json=creationDate,proto3" json:"creation_date,omitempty"` // Deprecated: Do not use.
-	/// Deprecated, use fee_sat or fee_msat.
+	// Deprecated, use fee_sat or fee_msat.
 	Fee int64 `protobuf:"varint,5,opt,name=fee,proto3" json:"fee,omitempty"` // Deprecated: Do not use.
-	/// The payment preimage
+	// The payment preimage
 	PaymentPreimage string `protobuf:"bytes,6,opt,name=payment_preimage,json=paymentPreimage,proto3" json:"payment_preimage,omitempty"`
-	/// The value of the payment in satoshis
+	// The value of the payment in satoshis
 	ValueSat int64 `protobuf:"varint,7,opt,name=value_sat,json=valueSat,proto3" json:"value_sat,omitempty"`
-	/// The value of the payment in milli-satoshis
+	// The value of the payment in milli-satoshis
 	ValueMsat int64 `protobuf:"varint,8,opt,name=value_msat,json=valueMsat,proto3" json:"value_msat,omitempty"`
-	/// The optional payment request being fulfilled.
+	// The optional payment request being fulfilled.
 	PaymentRequest string `protobuf:"bytes,9,opt,name=payment_request,json=paymentRequest,proto3" json:"payment_request,omitempty"`
 	// The status of the payment.
 	Status Payment_PaymentStatus `protobuf:"varint,10,opt,name=status,proto3,enum=lnrpc.Payment_PaymentStatus" json:"status,omitempty"`
-	///  The fee paid for this payment in satoshis
+	//  The fee paid for this payment in satoshis
 	FeeSat int64 `protobuf:"varint,11,opt,name=fee_sat,json=feeSat,proto3" json:"fee_sat,omitempty"`
-	///  The fee paid for this payment in milli-satoshis
+	//  The fee paid for this payment in milli-satoshis
 	FeeMsat int64 `protobuf:"varint,12,opt,name=fee_msat,json=feeMsat,proto3" json:"fee_msat,omitempty"`
-	/// The time in UNIX nanoseconds at which the payment was created.
+	// The time in UNIX nanoseconds at which the payment was created.
 	CreationTimeNs int64 `protobuf:"varint,13,opt,name=creation_time_ns,json=creationTimeNs,proto3" json:"creation_time_ns,omitempty"`
-	/// The HTLCs made in attempt to settle the payment.
+	// The HTLCs made in attempt to settle the payment.
 	Htlcs []*HTLCAttempt `protobuf:"bytes,14,rep,name=htlcs,proto3" json:"htlcs,omitempty"`
-	//*
+	//
 	//The creation index of this payment. Each payment can be uniquely identified
 	//by this index, which may not strictly increment by 1 for payments made in
 	//older versions of lnd.
@@ -9646,7 +9699,7 @@ func (m *Payment) Reset()         { *m = Payment{} }
 func (m *Payment) String() string { return proto.CompactTextString(m) }
 func (*Payment) ProtoMessage()    {}
 func (*Payment) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{120}
+	return fileDescriptor_77a6da22d6a3feb1, []int{112}
 }
 
 func (m *Payment) XXX_Unmarshal(b []byte) error {
@@ -9776,18 +9829,20 @@ func (m *Payment) GetFailureReason() PaymentFailureReason {
 }
 
 type HTLCAttempt struct {
-	/// The status of the HTLC.
+	// The status of the HTLC.
 	Status HTLCAttempt_HTLCStatus `protobuf:"varint,1,opt,name=status,proto3,enum=lnrpc.HTLCAttempt_HTLCStatus" json:"status,omitempty"`
-	/// The route taken by this HTLC.
+	// The route taken by this HTLC.
 	Route *Route `protobuf:"bytes,2,opt,name=route,proto3" json:"route,omitempty"`
-	/// The time in UNIX nanoseconds at which this HTLC was sent.
+	// The time in UNIX nanoseconds at which this HTLC was sent.
 	AttemptTimeNs int64 `protobuf:"varint,3,opt,name=attempt_time_ns,json=attemptTimeNs,proto3" json:"attempt_time_ns,omitempty"`
-	//*
+	//
 	//The time in UNIX nanoseconds at which this HTLC was settled or failed.
 	//This value will not be set if the HTLC is still IN_FLIGHT.
 	ResolveTimeNs int64 `protobuf:"varint,4,opt,name=resolve_time_ns,json=resolveTimeNs,proto3" json:"resolve_time_ns,omitempty"`
 	// Detailed htlc failure info.
-	Failure              *Failure `protobuf:"bytes,5,opt,name=failure,proto3" json:"failure,omitempty"`
+	Failure *Failure `protobuf:"bytes,5,opt,name=failure,proto3" json:"failure,omitempty"`
+	// The preimage that was used to settle the HTLC.
+	Preimage             []byte   `protobuf:"bytes,6,opt,name=preimage,proto3" json:"preimage,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
@@ -9797,7 +9852,7 @@ func (m *HTLCAttempt) Reset()         { *m = HTLCAttempt{} }
 func (m *HTLCAttempt) String() string { return proto.CompactTextString(m) }
 func (*HTLCAttempt) ProtoMessage()    {}
 func (*HTLCAttempt) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{121}
+	return fileDescriptor_77a6da22d6a3feb1, []int{113}
 }
 
 func (m *HTLCAttempt) XXX_Unmarshal(b []byte) error {
@@ -9853,23 +9908,30 @@ func (m *HTLCAttempt) GetFailure() *Failure {
 	return nil
 }
 
+func (m *HTLCAttempt) GetPreimage() []byte {
+	if m != nil {
+		return m.Preimage
+	}
+	return nil
+}
+
 type ListPaymentsRequest struct {
-	//*
+	//
 	//If true, then return payments that have not yet fully completed. This means
 	//that pending payments, as well as failed payments will show up if this
 	//field is set to true. This flag doesn't change the meaning of the indices,
 	//which are tied to individual payments.
 	IncludeIncomplete bool `protobuf:"varint,1,opt,name=include_incomplete,json=includeIncomplete,proto3" json:"include_incomplete,omitempty"`
-	//*
+	//
 	//The index of a payment that will be used as either the start or end of a
 	//query to determine which payments should be returned in the response. The
 	//index_offset is exclusive. In the case of a zero index_offset, the query
 	//will start with the oldest payment when paginating forwards, or will end
 	//with the most recent payment when paginating backwards.
 	IndexOffset uint64 `protobuf:"varint,2,opt,name=index_offset,json=indexOffset,proto3" json:"index_offset,omitempty"`
-	/// The maximal number of payments returned in the response to this query.
+	// The maximal number of payments returned in the response to this query.
 	MaxPayments uint64 `protobuf:"varint,3,opt,name=max_payments,json=maxPayments,proto3" json:"max_payments,omitempty"`
-	//*
+	//
 	//If set, the payments returned will result from seeking backwards from the
 	//specified index offset. This can be used to paginate backwards. The order
 	//of the returned payments is always oldest first (ascending index order).
@@ -9883,7 +9945,7 @@ func (m *ListPaymentsRequest) Reset()         { *m = ListPaymentsRequest{} }
 func (m *ListPaymentsRequest) String() string { return proto.CompactTextString(m) }
 func (*ListPaymentsRequest) ProtoMessage()    {}
 func (*ListPaymentsRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{122}
+	return fileDescriptor_77a6da22d6a3feb1, []int{114}
 }
 
 func (m *ListPaymentsRequest) XXX_Unmarshal(b []byte) error {
@@ -9933,13 +9995,13 @@ func (m *ListPaymentsRequest) GetReversed() bool {
 }
 
 type ListPaymentsResponse struct {
-	/// The list of payments
+	// The list of payments
 	Payments []*Payment `protobuf:"bytes,1,rep,name=payments,proto3" json:"payments,omitempty"`
-	//*
+	//
 	//The index of the first item in the set of returned payments. This can be
 	//used as the index_offset to continue seeking backwards in the next request.
 	FirstIndexOffset uint64 `protobuf:"varint,2,opt,name=first_index_offset,json=firstIndexOffset,proto3" json:"first_index_offset,omitempty"`
-	//*
+	//
 	//The index of the last item in the set of returned payments. This can be used
 	//as the index_offset to continue seeking forwards in the next request.
 	LastIndexOffset      uint64   `protobuf:"varint,3,opt,name=last_index_offset,json=lastIndexOffset,proto3" json:"last_index_offset,omitempty"`
@@ -9952,7 +10014,7 @@ func (m *ListPaymentsResponse) Reset()         { *m = ListPaymentsResponse{} }
 func (m *ListPaymentsResponse) String() string { return proto.CompactTextString(m) }
 func (*ListPaymentsResponse) ProtoMessage()    {}
 func (*ListPaymentsResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{123}
+	return fileDescriptor_77a6da22d6a3feb1, []int{115}
 }
 
 func (m *ListPaymentsResponse) XXX_Unmarshal(b []byte) error {
@@ -10004,7 +10066,7 @@ func (m *DeleteAllPaymentsRequest) Reset()         { *m = DeleteAllPaymentsReque
 func (m *DeleteAllPaymentsRequest) String() string { return proto.CompactTextString(m) }
 func (*DeleteAllPaymentsRequest) ProtoMessage()    {}
 func (*DeleteAllPaymentsRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{124}
+	return fileDescriptor_77a6da22d6a3feb1, []int{116}
 }
 
 func (m *DeleteAllPaymentsRequest) XXX_Unmarshal(b []byte) error {
@@ -10035,7 +10097,7 @@ func (m *DeleteAllPaymentsResponse) Reset()         { *m = DeleteAllPaymentsResp
 func (m *DeleteAllPaymentsResponse) String() string { return proto.CompactTextString(m) }
 func (*DeleteAllPaymentsResponse) ProtoMessage()    {}
 func (*DeleteAllPaymentsResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{125}
+	return fileDescriptor_77a6da22d6a3feb1, []int{117}
 }
 
 func (m *DeleteAllPaymentsResponse) XXX_Unmarshal(b []byte) error {
@@ -10067,7 +10129,7 @@ func (m *AbandonChannelRequest) Reset()         { *m = AbandonChannelRequest{} }
 func (m *AbandonChannelRequest) String() string { return proto.CompactTextString(m) }
 func (*AbandonChannelRequest) ProtoMessage()    {}
 func (*AbandonChannelRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{126}
+	return fileDescriptor_77a6da22d6a3feb1, []int{118}
 }
 
 func (m *AbandonChannelRequest) XXX_Unmarshal(b []byte) error {
@@ -10105,7 +10167,7 @@ func (m *AbandonChannelResponse) Reset()         { *m = AbandonChannelResponse{}
 func (m *AbandonChannelResponse) String() string { return proto.CompactTextString(m) }
 func (*AbandonChannelResponse) ProtoMessage()    {}
 func (*AbandonChannelResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{127}
+	return fileDescriptor_77a6da22d6a3feb1, []int{119}
 }
 
 func (m *AbandonChannelResponse) XXX_Unmarshal(b []byte) error {
@@ -10138,7 +10200,7 @@ func (m *DebugLevelRequest) Reset()         { *m = DebugLevelRequest{} }
 func (m *DebugLevelRequest) String() string { return proto.CompactTextString(m) }
 func (*DebugLevelRequest) ProtoMessage()    {}
 func (*DebugLevelRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{128}
+	return fileDescriptor_77a6da22d6a3feb1, []int{120}
 }
 
 func (m *DebugLevelRequest) XXX_Unmarshal(b []byte) error {
@@ -10184,7 +10246,7 @@ func (m *DebugLevelResponse) Reset()         { *m = DebugLevelResponse{} }
 func (m *DebugLevelResponse) String() string { return proto.CompactTextString(m) }
 func (*DebugLevelResponse) ProtoMessage()    {}
 func (*DebugLevelResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{129}
+	return fileDescriptor_77a6da22d6a3feb1, []int{121}
 }
 
 func (m *DebugLevelResponse) XXX_Unmarshal(b []byte) error {
@@ -10213,7 +10275,7 @@ func (m *DebugLevelResponse) GetSubSystems() string {
 }
 
 type PayReqString struct {
-	/// The payment request string to be decoded
+	// The payment request string to be decoded
 	PayReq               string   `protobuf:"bytes,1,opt,name=pay_req,json=payReq,proto3" json:"pay_req,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -10224,7 +10286,7 @@ func (m *PayReqString) Reset()         { *m = PayReqString{} }
 func (m *PayReqString) String() string { return proto.CompactTextString(m) }
 func (*PayReqString) ProtoMessage()    {}
 func (*PayReqString) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{130}
+	return fileDescriptor_77a6da22d6a3feb1, []int{122}
 }
 
 func (m *PayReqString) XXX_Unmarshal(b []byte) error {
@@ -10275,7 +10337,7 @@ func (m *PayReq) Reset()         { *m = PayReq{} }
 func (m *PayReq) String() string { return proto.CompactTextString(m) }
 func (*PayReq) ProtoMessage()    {}
 func (*PayReq) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{131}
+	return fileDescriptor_77a6da22d6a3feb1, []int{123}
 }
 
 func (m *PayReq) XXX_Unmarshal(b []byte) error {
@@ -10400,7 +10462,7 @@ func (m *Feature) Reset()         { *m = Feature{} }
 func (m *Feature) String() string { return proto.CompactTextString(m) }
 func (*Feature) ProtoMessage()    {}
 func (*Feature) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{132}
+	return fileDescriptor_77a6da22d6a3feb1, []int{124}
 }
 
 func (m *Feature) XXX_Unmarshal(b []byte) error {
@@ -10452,7 +10514,7 @@ func (m *FeeReportRequest) Reset()         { *m = FeeReportRequest{} }
 func (m *FeeReportRequest) String() string { return proto.CompactTextString(m) }
 func (*FeeReportRequest) ProtoMessage()    {}
 func (*FeeReportRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{133}
+	return fileDescriptor_77a6da22d6a3feb1, []int{125}
 }
 
 func (m *FeeReportRequest) XXX_Unmarshal(b []byte) error {
@@ -10474,17 +10536,17 @@ func (m *FeeReportRequest) XXX_DiscardUnknown() {
 var xxx_messageInfo_FeeReportRequest proto.InternalMessageInfo
 
 type ChannelFeeReport struct {
-	/// The short channel id that this fee report belongs to.
+	// The short channel id that this fee report belongs to.
 	ChanId uint64 `protobuf:"varint,5,opt,name=chan_id,json=chanId,proto3" json:"chan_id,omitempty"`
-	/// The channel that this fee report belongs to.
+	// The channel that this fee report belongs to.
 	ChannelPoint string `protobuf:"bytes,1,opt,name=channel_point,json=channelPoint,proto3" json:"channel_point,omitempty"`
-	/// The base fee charged regardless of the number of milli-satoshis sent.
+	// The base fee charged regardless of the number of milli-satoshis sent.
 	BaseFeeMsat int64 `protobuf:"varint,2,opt,name=base_fee_msat,json=baseFeeMsat,proto3" json:"base_fee_msat,omitempty"`
-	/// The amount charged per milli-satoshis transferred expressed in
-	/// millionths of a satoshi.
+	// The amount charged per milli-satoshis transferred expressed in
+	// millionths of a satoshi.
 	FeePerMil int64 `protobuf:"varint,3,opt,name=fee_per_mil,json=feePerMil,proto3" json:"fee_per_mil,omitempty"`
-	/// The effective fee rate in milli-satoshis. Computed by dividing the
-	/// fee_per_mil value by 1 million.
+	// The effective fee rate in milli-satoshis. Computed by dividing the
+	// fee_per_mil value by 1 million.
 	FeeRate              float64  `protobuf:"fixed64,4,opt,name=fee_rate,json=feeRate,proto3" json:"fee_rate,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -10495,7 +10557,7 @@ func (m *ChannelFeeReport) Reset()         { *m = ChannelFeeReport{} }
 func (m *ChannelFeeReport) String() string { return proto.CompactTextString(m) }
 func (*ChannelFeeReport) ProtoMessage()    {}
 func (*ChannelFeeReport) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{134}
+	return fileDescriptor_77a6da22d6a3feb1, []int{126}
 }
 
 func (m *ChannelFeeReport) XXX_Unmarshal(b []byte) error {
@@ -10552,17 +10614,17 @@ func (m *ChannelFeeReport) GetFeeRate() float64 {
 }
 
 type FeeReportResponse struct {
-	/// An array of channel fee reports which describes the current fee schedule
-	/// for each channel.
+	// An array of channel fee reports which describes the current fee schedule
+	// for each channel.
 	ChannelFees []*ChannelFeeReport `protobuf:"bytes,1,rep,name=channel_fees,json=channelFees,proto3" json:"channel_fees,omitempty"`
-	/// The total amount of fee revenue (in satoshis) the switch has collected
-	/// over the past 24 hrs.
+	// The total amount of fee revenue (in satoshis) the switch has collected
+	// over the past 24 hrs.
 	DayFeeSum uint64 `protobuf:"varint,2,opt,name=day_fee_sum,json=dayFeeSum,proto3" json:"day_fee_sum,omitempty"`
-	/// The total amount of fee revenue (in satoshis) the switch has collected
-	/// over the past 1 week.
+	// The total amount of fee revenue (in satoshis) the switch has collected
+	// over the past 1 week.
 	WeekFeeSum uint64 `protobuf:"varint,3,opt,name=week_fee_sum,json=weekFeeSum,proto3" json:"week_fee_sum,omitempty"`
-	/// The total amount of fee revenue (in satoshis) the switch has collected
-	/// over the past 1 month.
+	// The total amount of fee revenue (in satoshis) the switch has collected
+	// over the past 1 month.
 	MonthFeeSum          uint64   `protobuf:"varint,4,opt,name=month_fee_sum,json=monthFeeSum,proto3" json:"month_fee_sum,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -10573,7 +10635,7 @@ func (m *FeeReportResponse) Reset()         { *m = FeeReportResponse{} }
 func (m *FeeReportResponse) String() string { return proto.CompactTextString(m) }
 func (*FeeReportResponse) ProtoMessage()    {}
 func (*FeeReportResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{135}
+	return fileDescriptor_77a6da22d6a3feb1, []int{127}
 }
 
 func (m *FeeReportResponse) XXX_Unmarshal(b []byte) error {
@@ -10627,20 +10689,20 @@ type PolicyUpdateRequest struct {
 	//	*PolicyUpdateRequest_Global
 	//	*PolicyUpdateRequest_ChanPoint
 	Scope isPolicyUpdateRequest_Scope `protobuf_oneof:"scope"`
-	/// The base fee charged regardless of the number of milli-satoshis sent.
+	// The base fee charged regardless of the number of milli-satoshis sent.
 	BaseFeeMsat int64 `protobuf:"varint,3,opt,name=base_fee_msat,json=baseFeeMsat,proto3" json:"base_fee_msat,omitempty"`
-	/// The effective fee rate in milli-satoshis. The precision of this value
-	/// goes up to 6 decimal places, so 1e-6.
+	// The effective fee rate in milli-satoshis. The precision of this value
+	// goes up to 6 decimal places, so 1e-6.
 	FeeRate float64 `protobuf:"fixed64,4,opt,name=fee_rate,json=feeRate,proto3" json:"fee_rate,omitempty"`
-	/// The required timelock delta for HTLCs forwarded over the channel.
+	// The required timelock delta for HTLCs forwarded over the channel.
 	TimeLockDelta uint32 `protobuf:"varint,5,opt,name=time_lock_delta,json=timeLockDelta,proto3" json:"time_lock_delta,omitempty"`
-	/// If set, the maximum HTLC size in milli-satoshis. If unset, the maximum
-	/// HTLC will be unchanged.
+	// If set, the maximum HTLC size in milli-satoshis. If unset, the maximum
+	// HTLC will be unchanged.
 	MaxHtlcMsat uint64 `protobuf:"varint,6,opt,name=max_htlc_msat,json=maxHtlcMsat,proto3" json:"max_htlc_msat,omitempty"`
-	/// The minimum HTLC size in milli-satoshis. Only applied if
-	/// min_htlc_msat_specified is true.
+	// The minimum HTLC size in milli-satoshis. Only applied if
+	// min_htlc_msat_specified is true.
 	MinHtlcMsat uint64 `protobuf:"varint,7,opt,name=min_htlc_msat,json=minHtlcMsat,proto3" json:"min_htlc_msat,omitempty"`
-	/// If true, min_htlc_msat is applied.
+	// If true, min_htlc_msat is applied.
 	MinHtlcMsatSpecified bool     `protobuf:"varint,8,opt,name=min_htlc_msat_specified,json=minHtlcMsatSpecified,proto3" json:"min_htlc_msat_specified,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -10651,7 +10713,7 @@ func (m *PolicyUpdateRequest) Reset()         { *m = PolicyUpdateRequest{} }
 func (m *PolicyUpdateRequest) String() string { return proto.CompactTextString(m) }
 func (*PolicyUpdateRequest) ProtoMessage()    {}
 func (*PolicyUpdateRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{136}
+	return fileDescriptor_77a6da22d6a3feb1, []int{128}
 }
 
 func (m *PolicyUpdateRequest) XXX_Unmarshal(b []byte) error {
@@ -10769,7 +10831,7 @@ func (m *PolicyUpdateResponse) Reset()         { *m = PolicyUpdateResponse{} }
 func (m *PolicyUpdateResponse) String() string { return proto.CompactTextString(m) }
 func (*PolicyUpdateResponse) ProtoMessage()    {}
 func (*PolicyUpdateResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{137}
+	return fileDescriptor_77a6da22d6a3feb1, []int{129}
 }
 
 func (m *PolicyUpdateResponse) XXX_Unmarshal(b []byte) error {
@@ -10791,19 +10853,19 @@ func (m *PolicyUpdateResponse) XXX_DiscardUnknown() {
 var xxx_messageInfo_PolicyUpdateResponse proto.InternalMessageInfo
 
 type ForwardingHistoryRequest struct {
-	/// Start time is the starting point of the forwarding history request. All
-	/// records beyond this point will be included, respecting the end time, and
-	/// the index offset.
+	// Start time is the starting point of the forwarding history request. All
+	// records beyond this point will be included, respecting the end time, and
+	// the index offset.
 	StartTime uint64 `protobuf:"varint,1,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`
-	/// End time is the end point of the forwarding history request. The
-	/// response will carry at most 50k records between the start time and the
-	/// end time. The index offset can be used to implement pagination.
+	// End time is the end point of the forwarding history request. The
+	// response will carry at most 50k records between the start time and the
+	// end time. The index offset can be used to implement pagination.
 	EndTime uint64 `protobuf:"varint,2,opt,name=end_time,json=endTime,proto3" json:"end_time,omitempty"`
-	/// Index offset is the offset in the time series to start at. As each
-	/// response can only contain 50k records, callers can use this to skip
-	/// around within a packed time series.
+	// Index offset is the offset in the time series to start at. As each
+	// response can only contain 50k records, callers can use this to skip
+	// around within a packed time series.
 	IndexOffset uint32 `protobuf:"varint,3,opt,name=index_offset,json=indexOffset,proto3" json:"index_offset,omitempty"`
-	/// The max number of events to return in the response to this query.
+	// The max number of events to return in the response to this query.
 	NumMaxEvents         uint32   `protobuf:"varint,4,opt,name=num_max_events,json=numMaxEvents,proto3" json:"num_max_events,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -10814,7 +10876,7 @@ func (m *ForwardingHistoryRequest) Reset()         { *m = ForwardingHistoryReque
 func (m *ForwardingHistoryRequest) String() string { return proto.CompactTextString(m) }
 func (*ForwardingHistoryRequest) ProtoMessage()    {}
 func (*ForwardingHistoryRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{138}
+	return fileDescriptor_77a6da22d6a3feb1, []int{130}
 }
 
 func (m *ForwardingHistoryRequest) XXX_Unmarshal(b []byte) error {
@@ -10864,29 +10926,29 @@ func (m *ForwardingHistoryRequest) GetNumMaxEvents() uint32 {
 }
 
 type ForwardingEvent struct {
-	/// Timestamp is the time (unix epoch offset) that this circuit was
-	/// completed.
+	// Timestamp is the time (unix epoch offset) that this circuit was
+	// completed.
 	Timestamp uint64 `protobuf:"varint,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	/// The incoming channel ID that carried the HTLC that created the circuit.
+	// The incoming channel ID that carried the HTLC that created the circuit.
 	ChanIdIn uint64 `protobuf:"varint,2,opt,name=chan_id_in,json=chanIdIn,proto3" json:"chan_id_in,omitempty"`
-	/// The outgoing channel ID that carried the preimage that completed the
-	/// circuit.
+	// The outgoing channel ID that carried the preimage that completed the
+	// circuit.
 	ChanIdOut uint64 `protobuf:"varint,4,opt,name=chan_id_out,json=chanIdOut,proto3" json:"chan_id_out,omitempty"`
-	/// The total amount (in satoshis) of the incoming HTLC that created half
-	/// the circuit.
+	// The total amount (in satoshis) of the incoming HTLC that created half
+	// the circuit.
 	AmtIn uint64 `protobuf:"varint,5,opt,name=amt_in,json=amtIn,proto3" json:"amt_in,omitempty"`
-	/// The total amount (in satoshis) of the outgoing HTLC that created the
-	/// second half of the circuit.
+	// The total amount (in satoshis) of the outgoing HTLC that created the
+	// second half of the circuit.
 	AmtOut uint64 `protobuf:"varint,6,opt,name=amt_out,json=amtOut,proto3" json:"amt_out,omitempty"`
-	/// The total fee (in satoshis) that this payment circuit carried.
+	// The total fee (in satoshis) that this payment circuit carried.
 	Fee uint64 `protobuf:"varint,7,opt,name=fee,proto3" json:"fee,omitempty"`
-	/// The total fee (in milli-satoshis) that this payment circuit carried.
+	// The total fee (in milli-satoshis) that this payment circuit carried.
 	FeeMsat uint64 `protobuf:"varint,8,opt,name=fee_msat,json=feeMsat,proto3" json:"fee_msat,omitempty"`
-	/// The total amount (in milli-satoshis) of the incoming HTLC that created
-	/// half the circuit.
+	// The total amount (in milli-satoshis) of the incoming HTLC that created
+	// half the circuit.
 	AmtInMsat uint64 `protobuf:"varint,9,opt,name=amt_in_msat,json=amtInMsat,proto3" json:"amt_in_msat,omitempty"`
-	/// The total amount (in milli-satoshis) of the outgoing HTLC that created
-	/// the second half of the circuit.
+	// The total amount (in milli-satoshis) of the outgoing HTLC that created
+	// the second half of the circuit.
 	AmtOutMsat           uint64   `protobuf:"varint,10,opt,name=amt_out_msat,json=amtOutMsat,proto3" json:"amt_out_msat,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -10897,7 +10959,7 @@ func (m *ForwardingEvent) Reset()         { *m = ForwardingEvent{} }
 func (m *ForwardingEvent) String() string { return proto.CompactTextString(m) }
 func (*ForwardingEvent) ProtoMessage()    {}
 func (*ForwardingEvent) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{139}
+	return fileDescriptor_77a6da22d6a3feb1, []int{131}
 }
 
 func (m *ForwardingEvent) XXX_Unmarshal(b []byte) error {
@@ -10982,11 +11044,11 @@ func (m *ForwardingEvent) GetAmtOutMsat() uint64 {
 }
 
 type ForwardingHistoryResponse struct {
-	/// A list of forwarding events from the time slice of the time series
-	/// specified in the request.
+	// A list of forwarding events from the time slice of the time series
+	// specified in the request.
 	ForwardingEvents []*ForwardingEvent `protobuf:"bytes,1,rep,name=forwarding_events,json=forwardingEvents,proto3" json:"forwarding_events,omitempty"`
-	/// The index of the last time in the set of returned forwarding events. Can
-	/// be used to seek further, pagination style.
+	// The index of the last time in the set of returned forwarding events. Can
+	// be used to seek further, pagination style.
 	LastOffsetIndex      uint32   `protobuf:"varint,2,opt,name=last_offset_index,json=lastOffsetIndex,proto3" json:"last_offset_index,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -10997,7 +11059,7 @@ func (m *ForwardingHistoryResponse) Reset()         { *m = ForwardingHistoryResp
 func (m *ForwardingHistoryResponse) String() string { return proto.CompactTextString(m) }
 func (*ForwardingHistoryResponse) ProtoMessage()    {}
 func (*ForwardingHistoryResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{140}
+	return fileDescriptor_77a6da22d6a3feb1, []int{132}
 }
 
 func (m *ForwardingHistoryResponse) XXX_Unmarshal(b []byte) error {
@@ -11033,7 +11095,7 @@ func (m *ForwardingHistoryResponse) GetLastOffsetIndex() uint32 {
 }
 
 type ExportChannelBackupRequest struct {
-	/// The target channel point to obtain a back up for.
+	// The target channel point to obtain a back up for.
 	ChanPoint            *ChannelPoint `protobuf:"bytes,1,opt,name=chan_point,json=chanPoint,proto3" json:"chan_point,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}      `json:"-"`
 	XXX_unrecognized     []byte        `json:"-"`
@@ -11044,7 +11106,7 @@ func (m *ExportChannelBackupRequest) Reset()         { *m = ExportChannelBackupR
 func (m *ExportChannelBackupRequest) String() string { return proto.CompactTextString(m) }
 func (*ExportChannelBackupRequest) ProtoMessage()    {}
 func (*ExportChannelBackupRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{141}
+	return fileDescriptor_77a6da22d6a3feb1, []int{133}
 }
 
 func (m *ExportChannelBackupRequest) XXX_Unmarshal(b []byte) error {
@@ -11073,10 +11135,10 @@ func (m *ExportChannelBackupRequest) GetChanPoint() *ChannelPoint {
 }
 
 type ChannelBackup struct {
-	//*
+	//
 	//Identifies the channel that this backup belongs to.
 	ChanPoint *ChannelPoint `protobuf:"bytes,1,opt,name=chan_point,json=chanPoint,proto3" json:"chan_point,omitempty"`
-	//*
+	//
 	//Is an encrypted single-chan backup. this can be passed to
 	//RestoreChannelBackups, or the WalletUnlocker Init and Unlock methods in
 	//order to trigger the recovery protocol. When using REST, this field must be
@@ -11091,7 +11153,7 @@ func (m *ChannelBackup) Reset()         { *m = ChannelBackup{} }
 func (m *ChannelBackup) String() string { return proto.CompactTextString(m) }
 func (*ChannelBackup) ProtoMessage()    {}
 func (*ChannelBackup) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{142}
+	return fileDescriptor_77a6da22d6a3feb1, []int{134}
 }
 
 func (m *ChannelBackup) XXX_Unmarshal(b []byte) error {
@@ -11127,10 +11189,10 @@ func (m *ChannelBackup) GetChanBackup() []byte {
 }
 
 type MultiChanBackup struct {
-	//*
+	//
 	//Is the set of all channels that are included in this multi-channel backup.
 	ChanPoints []*ChannelPoint `protobuf:"bytes,1,rep,name=chan_points,json=chanPoints,proto3" json:"chan_points,omitempty"`
-	//*
+	//
 	//A single encrypted blob containing all the static channel backups of the
 	//channel listed above. This can be stored as a single file or blob, and
 	//safely be replaced with any prior/future versions. When using REST, this
@@ -11145,7 +11207,7 @@ func (m *MultiChanBackup) Reset()         { *m = MultiChanBackup{} }
 func (m *MultiChanBackup) String() string { return proto.CompactTextString(m) }
 func (*MultiChanBackup) ProtoMessage()    {}
 func (*MultiChanBackup) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{143}
+	return fileDescriptor_77a6da22d6a3feb1, []int{135}
 }
 
 func (m *MultiChanBackup) XXX_Unmarshal(b []byte) error {
@@ -11190,7 +11252,7 @@ func (m *ChanBackupExportRequest) Reset()         { *m = ChanBackupExportRequest
 func (m *ChanBackupExportRequest) String() string { return proto.CompactTextString(m) }
 func (*ChanBackupExportRequest) ProtoMessage()    {}
 func (*ChanBackupExportRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{144}
+	return fileDescriptor_77a6da22d6a3feb1, []int{136}
 }
 
 func (m *ChanBackupExportRequest) XXX_Unmarshal(b []byte) error {
@@ -11212,11 +11274,11 @@ func (m *ChanBackupExportRequest) XXX_DiscardUnknown() {
 var xxx_messageInfo_ChanBackupExportRequest proto.InternalMessageInfo
 
 type ChanBackupSnapshot struct {
-	//*
+	//
 	//The set of new channels that have been added since the last channel backup
 	//snapshot was requested.
 	SingleChanBackups *ChannelBackups `protobuf:"bytes,1,opt,name=single_chan_backups,json=singleChanBackups,proto3" json:"single_chan_backups,omitempty"`
-	//*
+	//
 	//A multi-channel backup that covers all open channels currently known to
 	//lnd.
 	MultiChanBackup      *MultiChanBackup `protobuf:"bytes,2,opt,name=multi_chan_backup,json=multiChanBackup,proto3" json:"multi_chan_backup,omitempty"`
@@ -11229,7 +11291,7 @@ func (m *ChanBackupSnapshot) Reset()         { *m = ChanBackupSnapshot{} }
 func (m *ChanBackupSnapshot) String() string { return proto.CompactTextString(m) }
 func (*ChanBackupSnapshot) ProtoMessage()    {}
 func (*ChanBackupSnapshot) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{145}
+	return fileDescriptor_77a6da22d6a3feb1, []int{137}
 }
 
 func (m *ChanBackupSnapshot) XXX_Unmarshal(b []byte) error {
@@ -11265,7 +11327,7 @@ func (m *ChanBackupSnapshot) GetMultiChanBackup() *MultiChanBackup {
 }
 
 type ChannelBackups struct {
-	//*
+	//
 	//A set of single-chan static channel backups.
 	ChanBackups          []*ChannelBackup `protobuf:"bytes,1,rep,name=chan_backups,json=chanBackups,proto3" json:"chan_backups,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}         `json:"-"`
@@ -11277,7 +11339,7 @@ func (m *ChannelBackups) Reset()         { *m = ChannelBackups{} }
 func (m *ChannelBackups) String() string { return proto.CompactTextString(m) }
 func (*ChannelBackups) ProtoMessage()    {}
 func (*ChannelBackups) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{146}
+	return fileDescriptor_77a6da22d6a3feb1, []int{138}
 }
 
 func (m *ChannelBackups) XXX_Unmarshal(b []byte) error {
@@ -11319,7 +11381,7 @@ func (m *RestoreChanBackupRequest) Reset()         { *m = RestoreChanBackupReque
 func (m *RestoreChanBackupRequest) String() string { return proto.CompactTextString(m) }
 func (*RestoreChanBackupRequest) ProtoMessage()    {}
 func (*RestoreChanBackupRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{147}
+	return fileDescriptor_77a6da22d6a3feb1, []int{139}
 }
 
 func (m *RestoreChanBackupRequest) XXX_Unmarshal(b []byte) error {
@@ -11395,7 +11457,7 @@ func (m *RestoreBackupResponse) Reset()         { *m = RestoreBackupResponse{} }
 func (m *RestoreBackupResponse) String() string { return proto.CompactTextString(m) }
 func (*RestoreBackupResponse) ProtoMessage()    {}
 func (*RestoreBackupResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{148}
+	return fileDescriptor_77a6da22d6a3feb1, []int{140}
 }
 
 func (m *RestoreBackupResponse) XXX_Unmarshal(b []byte) error {
@@ -11426,7 +11488,7 @@ func (m *ChannelBackupSubscription) Reset()         { *m = ChannelBackupSubscrip
 func (m *ChannelBackupSubscription) String() string { return proto.CompactTextString(m) }
 func (*ChannelBackupSubscription) ProtoMessage()    {}
 func (*ChannelBackupSubscription) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{149}
+	return fileDescriptor_77a6da22d6a3feb1, []int{141}
 }
 
 func (m *ChannelBackupSubscription) XXX_Unmarshal(b []byte) error {
@@ -11457,7 +11519,7 @@ func (m *VerifyChanBackupResponse) Reset()         { *m = VerifyChanBackupRespon
 func (m *VerifyChanBackupResponse) String() string { return proto.CompactTextString(m) }
 func (*VerifyChanBackupResponse) ProtoMessage()    {}
 func (*VerifyChanBackupResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{150}
+	return fileDescriptor_77a6da22d6a3feb1, []int{142}
 }
 
 func (m *VerifyChanBackupResponse) XXX_Unmarshal(b []byte) error {
@@ -11479,9 +11541,9 @@ func (m *VerifyChanBackupResponse) XXX_DiscardUnknown() {
 var xxx_messageInfo_VerifyChanBackupResponse proto.InternalMessageInfo
 
 type MacaroonPermission struct {
-	/// The entity a permission grants access to.
+	// The entity a permission grants access to.
 	Entity string `protobuf:"bytes,1,opt,name=entity,proto3" json:"entity,omitempty"`
-	/// The action that is granted.
+	// The action that is granted.
 	Action               string   `protobuf:"bytes,2,opt,name=action,proto3" json:"action,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -11492,7 +11554,7 @@ func (m *MacaroonPermission) Reset()         { *m = MacaroonPermission{} }
 func (m *MacaroonPermission) String() string { return proto.CompactTextString(m) }
 func (*MacaroonPermission) ProtoMessage()    {}
 func (*MacaroonPermission) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{151}
+	return fileDescriptor_77a6da22d6a3feb1, []int{143}
 }
 
 func (m *MacaroonPermission) XXX_Unmarshal(b []byte) error {
@@ -11528,7 +11590,7 @@ func (m *MacaroonPermission) GetAction() string {
 }
 
 type BakeMacaroonRequest struct {
-	/// The list of permissions the new macaroon should grant.
+	// The list of permissions the new macaroon should grant.
 	Permissions          []*MacaroonPermission `protobuf:"bytes,1,rep,name=permissions,proto3" json:"permissions,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}              `json:"-"`
 	XXX_unrecognized     []byte                `json:"-"`
@@ -11539,7 +11601,7 @@ func (m *BakeMacaroonRequest) Reset()         { *m = BakeMacaroonRequest{} }
 func (m *BakeMacaroonRequest) String() string { return proto.CompactTextString(m) }
 func (*BakeMacaroonRequest) ProtoMessage()    {}
 func (*BakeMacaroonRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{152}
+	return fileDescriptor_77a6da22d6a3feb1, []int{144}
 }
 
 func (m *BakeMacaroonRequest) XXX_Unmarshal(b []byte) error {
@@ -11568,7 +11630,7 @@ func (m *BakeMacaroonRequest) GetPermissions() []*MacaroonPermission {
 }
 
 type BakeMacaroonResponse struct {
-	/// The hex encoded macaroon, serialized in binary format.
+	// The hex encoded macaroon, serialized in binary format.
 	Macaroon             string   `protobuf:"bytes,1,opt,name=macaroon,proto3" json:"macaroon,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -11579,7 +11641,7 @@ func (m *BakeMacaroonResponse) Reset()         { *m = BakeMacaroonResponse{} }
 func (m *BakeMacaroonResponse) String() string { return proto.CompactTextString(m) }
 func (*BakeMacaroonResponse) ProtoMessage()    {}
 func (*BakeMacaroonResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{153}
+	return fileDescriptor_77a6da22d6a3feb1, []int{145}
 }
 
 func (m *BakeMacaroonResponse) XXX_Unmarshal(b []byte) error {
@@ -11608,23 +11670,23 @@ func (m *BakeMacaroonResponse) GetMacaroon() string {
 }
 
 type Failure struct {
-	/// Failure code as defined in the Lightning spec
+	// Failure code as defined in the Lightning spec
 	Code Failure_FailureCode `protobuf:"varint,1,opt,name=code,proto3,enum=lnrpc.Failure_FailureCode" json:"code,omitempty"`
-	/// An optional channel update message.
+	// An optional channel update message.
 	ChannelUpdate *ChannelUpdate `protobuf:"bytes,3,opt,name=channel_update,json=channelUpdate,proto3" json:"channel_update,omitempty"`
-	/// A failure type-dependent htlc value.
+	// A failure type-dependent htlc value.
 	HtlcMsat uint64 `protobuf:"varint,4,opt,name=htlc_msat,json=htlcMsat,proto3" json:"htlc_msat,omitempty"`
-	/// The sha256 sum of the onion payload.
+	// The sha256 sum of the onion payload.
 	OnionSha_256 []byte `protobuf:"bytes,5,opt,name=onion_sha_256,json=onionSha256,proto3" json:"onion_sha_256,omitempty"`
-	/// A failure type-dependent cltv expiry value.
+	// A failure type-dependent cltv expiry value.
 	CltvExpiry uint32 `protobuf:"varint,6,opt,name=cltv_expiry,json=cltvExpiry,proto3" json:"cltv_expiry,omitempty"`
-	/// A failure type-dependent flags value.
+	// A failure type-dependent flags value.
 	Flags uint32 `protobuf:"varint,7,opt,name=flags,proto3" json:"flags,omitempty"`
-	//*
+	//
 	//The position in the path of the intermediate or final node that generated
 	//the failure message. Position zero is the sender node.
 	FailureSourceIndex uint32 `protobuf:"varint,8,opt,name=failure_source_index,json=failureSourceIndex,proto3" json:"failure_source_index,omitempty"`
-	/// A failure type-dependent block height.
+	// A failure type-dependent block height.
 	Height               uint32   `protobuf:"varint,9,opt,name=height,proto3" json:"height,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -11635,7 +11697,7 @@ func (m *Failure) Reset()         { *m = Failure{} }
 func (m *Failure) String() string { return proto.CompactTextString(m) }
 func (*Failure) ProtoMessage()    {}
 func (*Failure) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{154}
+	return fileDescriptor_77a6da22d6a3feb1, []int{146}
 }
 
 func (m *Failure) XXX_Unmarshal(b []byte) error {
@@ -11713,57 +11775,57 @@ func (m *Failure) GetHeight() uint32 {
 }
 
 type ChannelUpdate struct {
-	//*
+	//
 	//The signature that validates the announced data and proves the ownership
 	//of node id.
 	Signature []byte `protobuf:"bytes,1,opt,name=signature,proto3" json:"signature,omitempty"`
-	//*
+	//
 	//The target chain that this channel was opened within. This value
 	//should be the genesis hash of the target chain. Along with the short
 	//channel ID, this uniquely identifies the channel globally in a
 	//blockchain.
 	ChainHash []byte `protobuf:"bytes,2,opt,name=chain_hash,json=chainHash,proto3" json:"chain_hash,omitempty"`
-	//*
+	//
 	//The unique description of the funding transaction.
 	ChanId uint64 `protobuf:"varint,3,opt,name=chan_id,json=chanId,proto3" json:"chan_id,omitempty"`
-	//*
+	//
 	//A timestamp that allows ordering in the case of multiple announcements.
 	//We should ignore the message if timestamp is not greater than the
 	//last-received.
 	Timestamp uint32 `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	//*
+	//
 	//The bitfield that describes whether optional fields are present in this
 	//update. Currently, the least-significant bit must be set to 1 if the
 	//optional field MaxHtlc is present.
 	MessageFlags uint32 `protobuf:"varint,10,opt,name=message_flags,json=messageFlags,proto3" json:"message_flags,omitempty"`
-	//*
+	//
 	//The bitfield that describes additional meta-data concerning how the
 	//update is to be interpreted. Currently, the least-significant bit must be
 	//set to 0 if the creating node corresponds to the first node in the
 	//previously sent channel announcement and 1 otherwise. If the second bit
 	//is set, then the channel is set to be disabled.
 	ChannelFlags uint32 `protobuf:"varint,5,opt,name=channel_flags,json=channelFlags,proto3" json:"channel_flags,omitempty"`
-	//*
+	//
 	//The minimum number of blocks this node requires to be added to the expiry
 	//of HTLCs. This is a security parameter determined by the node operator.
 	//This value represents the required gap between the time locks of the
 	//incoming and outgoing HTLC's set to this node.
 	TimeLockDelta uint32 `protobuf:"varint,6,opt,name=time_lock_delta,json=timeLockDelta,proto3" json:"time_lock_delta,omitempty"`
-	//*
+	//
 	//The minimum HTLC value which will be accepted.
 	HtlcMinimumMsat uint64 `protobuf:"varint,7,opt,name=htlc_minimum_msat,json=htlcMinimumMsat,proto3" json:"htlc_minimum_msat,omitempty"`
-	//*
+	//
 	//The base fee that must be used for incoming HTLC's to this particular
 	//channel. This value will be tacked onto the required for a payment
 	//independent of the size of the payment.
 	BaseFee uint32 `protobuf:"varint,8,opt,name=base_fee,json=baseFee,proto3" json:"base_fee,omitempty"`
-	//*
+	//
 	//The fee rate that will be charged per millionth of a satoshi.
 	FeeRate uint32 `protobuf:"varint,9,opt,name=fee_rate,json=feeRate,proto3" json:"fee_rate,omitempty"`
-	//*
+	//
 	//The maximum HTLC value which will be accepted.
 	HtlcMaximumMsat uint64 `protobuf:"varint,11,opt,name=htlc_maximum_msat,json=htlcMaximumMsat,proto3" json:"htlc_maximum_msat,omitempty"`
-	//*
+	//
 	//The set of data that was appended to this message, some of which we may
 	//not actually know how to iterate or parse. By holding onto this data, we
 	//ensure that we're able to properly validate the set of signatures that
@@ -11779,7 +11841,7 @@ func (m *ChannelUpdate) Reset()         { *m = ChannelUpdate{} }
 func (m *ChannelUpdate) String() string { return proto.CompactTextString(m) }
 func (*ChannelUpdate) ProtoMessage()    {}
 func (*ChannelUpdate) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{155}
+	return fileDescriptor_77a6da22d6a3feb1, []int{147}
 }
 
 func (m *ChannelUpdate) XXX_Unmarshal(b []byte) error {
@@ -11901,14 +11963,6 @@ func init() {
 	proto.RegisterEnum("lnrpc.Payment_PaymentStatus", Payment_PaymentStatus_name, Payment_PaymentStatus_value)
 	proto.RegisterEnum("lnrpc.HTLCAttempt_HTLCStatus", HTLCAttempt_HTLCStatus_name, HTLCAttempt_HTLCStatus_value)
 	proto.RegisterEnum("lnrpc.Failure_FailureCode", Failure_FailureCode_name, Failure_FailureCode_value)
-	proto.RegisterType((*GenSeedRequest)(nil), "lnrpc.GenSeedRequest")
-	proto.RegisterType((*GenSeedResponse)(nil), "lnrpc.GenSeedResponse")
-	proto.RegisterType((*InitWalletRequest)(nil), "lnrpc.InitWalletRequest")
-	proto.RegisterType((*InitWalletResponse)(nil), "lnrpc.InitWalletResponse")
-	proto.RegisterType((*UnlockWalletRequest)(nil), "lnrpc.UnlockWalletRequest")
-	proto.RegisterType((*UnlockWalletResponse)(nil), "lnrpc.UnlockWalletResponse")
-	proto.RegisterType((*ChangePasswordRequest)(nil), "lnrpc.ChangePasswordRequest")
-	proto.RegisterType((*ChangePasswordResponse)(nil), "lnrpc.ChangePasswordResponse")
 	proto.RegisterType((*Utxo)(nil), "lnrpc.Utxo")
 	proto.RegisterType((*Transaction)(nil), "lnrpc.Transaction")
 	proto.RegisterType((*GetTransactionsRequest)(nil), "lnrpc.GetTransactionsRequest")
@@ -12849,332 +12903,115 @@ var _ grpc.ClientConn
 // is compatible with the grpc package it is being compiled against.
 const _ = grpc.SupportPackageIsVersion4
 
-// WalletUnlockerClient is the client API for WalletUnlocker service.
-//
-// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
-type WalletUnlockerClient interface {
-	//*
-	//GenSeed is the first method that should be used to instantiate a new lnd
-	//instance. This method allows a caller to generate a new aezeed cipher seed
-	//given an optional passphrase. If provided, the passphrase will be necessary
-	//to decrypt the cipherseed to expose the internal wallet seed.
-	//
-	//Once the cipherseed is obtained and verified by the user, the InitWallet
-	//method should be used to commit the newly generated seed, and create the
-	//wallet.
-	GenSeed(ctx context.Context, in *GenSeedRequest, opts ...grpc.CallOption) (*GenSeedResponse, error)
-	//*
-	//InitWallet is used when lnd is starting up for the first time to fully
-	//initialize the daemon and its internal wallet. At the very least a wallet
-	//password must be provided. This will be used to encrypt sensitive material
-	//on disk.
-	//
-	//In the case of a recovery scenario, the user can also specify their aezeed
-	//mnemonic and passphrase. If set, then the daemon will use this prior state
-	//to initialize its internal wallet.
-	//
-	//Alternatively, this can be used along with the GenSeed RPC to obtain a
-	//seed, then present it to the user. Once it has been verified by the user,
-	//the seed can be fed into this RPC in order to commit the new wallet.
-	InitWallet(ctx context.Context, in *InitWalletRequest, opts ...grpc.CallOption) (*InitWalletResponse, error)
-	//* lncli: `unlock`
-	//UnlockWallet is used at startup of lnd to provide a password to unlock
-	//the wallet database.
-	UnlockWallet(ctx context.Context, in *UnlockWalletRequest, opts ...grpc.CallOption) (*UnlockWalletResponse, error)
-	//* lncli: `changepassword`
-	//ChangePassword changes the password of the encrypted wallet. This will
-	//automatically unlock the wallet database if successful.
-	ChangePassword(ctx context.Context, in *ChangePasswordRequest, opts ...grpc.CallOption) (*ChangePasswordResponse, error)
-}
-
-type walletUnlockerClient struct {
-	cc *grpc.ClientConn
-}
-
-func NewWalletUnlockerClient(cc *grpc.ClientConn) WalletUnlockerClient {
-	return &walletUnlockerClient{cc}
-}
-
-func (c *walletUnlockerClient) GenSeed(ctx context.Context, in *GenSeedRequest, opts ...grpc.CallOption) (*GenSeedResponse, error) {
-	out := new(GenSeedResponse)
-	err := c.cc.Invoke(ctx, "/lnrpc.WalletUnlocker/GenSeed", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *walletUnlockerClient) InitWallet(ctx context.Context, in *InitWalletRequest, opts ...grpc.CallOption) (*InitWalletResponse, error) {
-	out := new(InitWalletResponse)
-	err := c.cc.Invoke(ctx, "/lnrpc.WalletUnlocker/InitWallet", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *walletUnlockerClient) UnlockWallet(ctx context.Context, in *UnlockWalletRequest, opts ...grpc.CallOption) (*UnlockWalletResponse, error) {
-	out := new(UnlockWalletResponse)
-	err := c.cc.Invoke(ctx, "/lnrpc.WalletUnlocker/UnlockWallet", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *walletUnlockerClient) ChangePassword(ctx context.Context, in *ChangePasswordRequest, opts ...grpc.CallOption) (*ChangePasswordResponse, error) {
-	out := new(ChangePasswordResponse)
-	err := c.cc.Invoke(ctx, "/lnrpc.WalletUnlocker/ChangePassword", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-// WalletUnlockerServer is the server API for WalletUnlocker service.
-type WalletUnlockerServer interface {
-	//*
-	//GenSeed is the first method that should be used to instantiate a new lnd
-	//instance. This method allows a caller to generate a new aezeed cipher seed
-	//given an optional passphrase. If provided, the passphrase will be necessary
-	//to decrypt the cipherseed to expose the internal wallet seed.
-	//
-	//Once the cipherseed is obtained and verified by the user, the InitWallet
-	//method should be used to commit the newly generated seed, and create the
-	//wallet.
-	GenSeed(context.Context, *GenSeedRequest) (*GenSeedResponse, error)
-	//*
-	//InitWallet is used when lnd is starting up for the first time to fully
-	//initialize the daemon and its internal wallet. At the very least a wallet
-	//password must be provided. This will be used to encrypt sensitive material
-	//on disk.
-	//
-	//In the case of a recovery scenario, the user can also specify their aezeed
-	//mnemonic and passphrase. If set, then the daemon will use this prior state
-	//to initialize its internal wallet.
-	//
-	//Alternatively, this can be used along with the GenSeed RPC to obtain a
-	//seed, then present it to the user. Once it has been verified by the user,
-	//the seed can be fed into this RPC in order to commit the new wallet.
-	InitWallet(context.Context, *InitWalletRequest) (*InitWalletResponse, error)
-	//* lncli: `unlock`
-	//UnlockWallet is used at startup of lnd to provide a password to unlock
-	//the wallet database.
-	UnlockWallet(context.Context, *UnlockWalletRequest) (*UnlockWalletResponse, error)
-	//* lncli: `changepassword`
-	//ChangePassword changes the password of the encrypted wallet. This will
-	//automatically unlock the wallet database if successful.
-	ChangePassword(context.Context, *ChangePasswordRequest) (*ChangePasswordResponse, error)
-}
-
-func RegisterWalletUnlockerServer(s *grpc.Server, srv WalletUnlockerServer) {
-	s.RegisterService(&_WalletUnlocker_serviceDesc, srv)
-}
-
-func _WalletUnlocker_GenSeed_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GenSeedRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(WalletUnlockerServer).GenSeed(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/lnrpc.WalletUnlocker/GenSeed",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(WalletUnlockerServer).GenSeed(ctx, req.(*GenSeedRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _WalletUnlocker_InitWallet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(InitWalletRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(WalletUnlockerServer).InitWallet(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/lnrpc.WalletUnlocker/InitWallet",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(WalletUnlockerServer).InitWallet(ctx, req.(*InitWalletRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _WalletUnlocker_UnlockWallet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(UnlockWalletRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(WalletUnlockerServer).UnlockWallet(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/lnrpc.WalletUnlocker/UnlockWallet",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(WalletUnlockerServer).UnlockWallet(ctx, req.(*UnlockWalletRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _WalletUnlocker_ChangePassword_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ChangePasswordRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(WalletUnlockerServer).ChangePassword(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/lnrpc.WalletUnlocker/ChangePassword",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(WalletUnlockerServer).ChangePassword(ctx, req.(*ChangePasswordRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-var _WalletUnlocker_serviceDesc = grpc.ServiceDesc{
-	ServiceName: "lnrpc.WalletUnlocker",
-	HandlerType: (*WalletUnlockerServer)(nil),
-	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "GenSeed",
-			Handler:    _WalletUnlocker_GenSeed_Handler,
-		},
-		{
-			MethodName: "InitWallet",
-			Handler:    _WalletUnlocker_InitWallet_Handler,
-		},
-		{
-			MethodName: "UnlockWallet",
-			Handler:    _WalletUnlocker_UnlockWallet_Handler,
-		},
-		{
-			MethodName: "ChangePassword",
-			Handler:    _WalletUnlocker_ChangePassword_Handler,
-		},
-	},
-	Streams:  []grpc.StreamDesc{},
-	Metadata: "rpc.proto",
-}
-
 // LightningClient is the client API for Lightning service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type LightningClient interface {
-	//* lncli: `walletbalance`
+	// lncli: `walletbalance`
 	//WalletBalance returns total unspent outputs(confirmed and unconfirmed), all
 	//confirmed unspent outputs and all unconfirmed unspent outputs under control
 	//of the wallet.
 	WalletBalance(ctx context.Context, in *WalletBalanceRequest, opts ...grpc.CallOption) (*WalletBalanceResponse, error)
-	//* lncli: `channelbalance`
+	// lncli: `channelbalance`
 	//ChannelBalance returns the total funds available across all open channels
 	//in satoshis.
 	ChannelBalance(ctx context.Context, in *ChannelBalanceRequest, opts ...grpc.CallOption) (*ChannelBalanceResponse, error)
-	//* lncli: `listchaintxns`
+	// lncli: `listchaintxns`
 	//GetTransactions returns a list describing all the known transactions
 	//relevant to the wallet.
 	GetTransactions(ctx context.Context, in *GetTransactionsRequest, opts ...grpc.CallOption) (*TransactionDetails, error)
-	//* lncli: `estimatefee`
+	// lncli: `estimatefee`
 	//EstimateFee asks the chain backend to estimate the fee rate and total fees
 	//for a transaction that pays to multiple specified outputs.
 	EstimateFee(ctx context.Context, in *EstimateFeeRequest, opts ...grpc.CallOption) (*EstimateFeeResponse, error)
-	//* lncli: `sendcoins`
+	// lncli: `sendcoins`
 	//SendCoins executes a request to send coins to a particular address. Unlike
 	//SendMany, this RPC call only allows creating a single output at a time. If
 	//neither target_conf, or sat_per_byte are set, then the internal wallet will
 	//consult its fee model to determine a fee for the default confirmation
 	//target.
 	SendCoins(ctx context.Context, in *SendCoinsRequest, opts ...grpc.CallOption) (*SendCoinsResponse, error)
-	//* lncli: `listunspent`
+	// lncli: `listunspent`
+	//Deprecated, use walletrpc.ListUnspent instead.
+	//
 	//ListUnspent returns a list of all utxos spendable by the wallet with a
 	//number of confirmations between the specified minimum and maximum.
 	ListUnspent(ctx context.Context, in *ListUnspentRequest, opts ...grpc.CallOption) (*ListUnspentResponse, error)
-	//*
+	//
 	//SubscribeTransactions creates a uni-directional stream from the server to
 	//the client in which any newly discovered transactions relevant to the
 	//wallet are sent over.
 	SubscribeTransactions(ctx context.Context, in *GetTransactionsRequest, opts ...grpc.CallOption) (Lightning_SubscribeTransactionsClient, error)
-	//* lncli: `sendmany`
+	// lncli: `sendmany`
 	//SendMany handles a request for a transaction that creates multiple specified
 	//outputs in parallel. If neither target_conf, or sat_per_byte are set, then
 	//the internal wallet will consult its fee model to determine a fee for the
 	//default confirmation target.
 	SendMany(ctx context.Context, in *SendManyRequest, opts ...grpc.CallOption) (*SendManyResponse, error)
-	//* lncli: `newaddress`
+	// lncli: `newaddress`
 	//NewAddress creates a new address under control of the local wallet.
 	NewAddress(ctx context.Context, in *NewAddressRequest, opts ...grpc.CallOption) (*NewAddressResponse, error)
-	//* lncli: `signmessage`
+	// lncli: `signmessage`
 	//SignMessage signs a message with this node's private key. The returned
 	//signature string is `zbase32` encoded and pubkey recoverable, meaning that
 	//only the message digest and signature are needed for verification.
 	SignMessage(ctx context.Context, in *SignMessageRequest, opts ...grpc.CallOption) (*SignMessageResponse, error)
-	//* lncli: `verifymessage`
+	// lncli: `verifymessage`
 	//VerifyMessage verifies a signature over a msg. The signature must be
 	//zbase32 encoded and signed by an active node in the resident node's
 	//channel database. In addition to returning the validity of the signature,
 	//VerifyMessage also returns the recovered pubkey from the signature.
 	VerifyMessage(ctx context.Context, in *VerifyMessageRequest, opts ...grpc.CallOption) (*VerifyMessageResponse, error)
-	//* lncli: `connect`
+	// lncli: `connect`
 	//ConnectPeer attempts to establish a connection to a remote peer. This is at
 	//the networking level, and is used for communication between nodes. This is
 	//distinct from establishing a channel with a peer.
 	ConnectPeer(ctx context.Context, in *ConnectPeerRequest, opts ...grpc.CallOption) (*ConnectPeerResponse, error)
-	//* lncli: `disconnect`
+	// lncli: `disconnect`
 	//DisconnectPeer attempts to disconnect one peer from another identified by a
 	//given pubKey. In the case that we currently have a pending or active channel
 	//with the target peer, then this action will be not be allowed.
 	DisconnectPeer(ctx context.Context, in *DisconnectPeerRequest, opts ...grpc.CallOption) (*DisconnectPeerResponse, error)
-	//* lncli: `listpeers`
+	// lncli: `listpeers`
 	//ListPeers returns a verbose listing of all currently active peers.
 	ListPeers(ctx context.Context, in *ListPeersRequest, opts ...grpc.CallOption) (*ListPeersResponse, error)
-	//*
+	//
 	//SubscribePeerEvents creates a uni-directional stream from the server to
 	//the client in which any events relevant to the state of peers are sent
 	//over. Events include peers going online and offline.
 	SubscribePeerEvents(ctx context.Context, in *PeerEventSubscription, opts ...grpc.CallOption) (Lightning_SubscribePeerEventsClient, error)
-	//* lncli: `getinfo`
+	// lncli: `getinfo`
 	//GetInfo returns general information concerning the lightning node including
 	//it's identity pubkey, alias, the chains it is connected to, and information
 	//concerning the number of open+pending channels.
 	GetInfo(ctx context.Context, in *GetInfoRequest, opts ...grpc.CallOption) (*GetInfoResponse, error)
-	//* lncli: `pendingchannels`
+	// lncli: `pendingchannels`
 	//PendingChannels returns a list of all the channels that are currently
 	//considered "pending". A channel is pending if it has finished the funding
 	//workflow and is waiting for confirmations for the funding txn, or is in the
 	//process of closure, either initiated cooperatively or non-cooperatively.
 	PendingChannels(ctx context.Context, in *PendingChannelsRequest, opts ...grpc.CallOption) (*PendingChannelsResponse, error)
-	//* lncli: `listchannels`
+	// lncli: `listchannels`
 	//ListChannels returns a description of all the open channels that this node
 	//is a participant in.
 	ListChannels(ctx context.Context, in *ListChannelsRequest, opts ...grpc.CallOption) (*ListChannelsResponse, error)
-	//*
+	//
 	//SubscribeChannelEvents creates a uni-directional stream from the server to
 	//the client in which any updates relevant to the state of the channels are
 	//sent over. Events include new active channels, inactive channels, and closed
 	//channels.
 	SubscribeChannelEvents(ctx context.Context, in *ChannelEventSubscription, opts ...grpc.CallOption) (Lightning_SubscribeChannelEventsClient, error)
-	//* lncli: `closedchannels`
+	// lncli: `closedchannels`
 	//ClosedChannels returns a description of all the closed channels that
 	//this node was a participant in.
 	ClosedChannels(ctx context.Context, in *ClosedChannelsRequest, opts ...grpc.CallOption) (*ClosedChannelsResponse, error)
-	//*
+	//
 	//OpenChannelSync is a synchronous version of the OpenChannel RPC call. This
 	//call is meant to be consumed by clients to the REST proxy. As with all
 	//other sync calls, all byte slices are intended to be populated as hex
 	//encoded strings.
 	OpenChannelSync(ctx context.Context, in *OpenChannelRequest, opts ...grpc.CallOption) (*ChannelPoint, error)
-	//* lncli: `openchannel`
+	// lncli: `openchannel`
 	//OpenChannel attempts to open a singly funded channel specified in the
 	//request to a remote peer. Users are able to specify a target number of
 	//blocks that the funding transaction should be confirmed in, or a manual fee
@@ -13184,7 +13021,7 @@ type LightningClient interface {
 	//arguments specified in the OpenChannelRequest, this pending channel ID can
 	//then be used to manually progress the channel funding flow.
 	OpenChannel(ctx context.Context, in *OpenChannelRequest, opts ...grpc.CallOption) (Lightning_OpenChannelClient, error)
-	//*
+	//
 	//FundingStateStep is an advanced funding related call that allows the caller
 	//to either execute some preparatory steps for a funding workflow, or
 	//manually progress a funding workflow. The primary way a funding flow is
@@ -13194,14 +13031,14 @@ type LightningClient interface {
 	//Alternatively, this can be used to interactively drive PSBT signing for
 	//funding for partially complete funding transactions.
 	FundingStateStep(ctx context.Context, in *FundingTransitionMsg, opts ...grpc.CallOption) (*FundingStateStepResp, error)
-	//*
+	//
 	//ChannelAcceptor dispatches a bi-directional streaming RPC in which
 	//OpenChannel requests are sent to the client and the client responds with
 	//a boolean that tells LND whether or not to accept the channel. This allows
 	//node operators to specify their own criteria for accepting inbound channels
 	//through a single persistent connection.
 	ChannelAcceptor(ctx context.Context, opts ...grpc.CallOption) (Lightning_ChannelAcceptorClient, error)
-	//* lncli: `closechannel`
+	// lncli: `closechannel`
 	//CloseChannel attempts to close an active channel identified by its channel
 	//outpoint (ChannelPoint). The actions of this method can additionally be
 	//augmented to attempt a force close after a timeout period in the case of an
@@ -13210,41 +13047,42 @@ type LightningClient interface {
 	//closure transaction is confirmed, or a manual fee rate. If neither are
 	//specified, then a default lax, block confirmation target is used.
 	CloseChannel(ctx context.Context, in *CloseChannelRequest, opts ...grpc.CallOption) (Lightning_CloseChannelClient, error)
-	//* lncli: `abandonchannel`
+	// lncli: `abandonchannel`
 	//AbandonChannel removes all channel state from the database except for a
 	//close summary. This method can be used to get rid of permanently unusable
 	//channels due to bugs fixed in newer versions of lnd. Only available
 	//when in debug builds of lnd.
 	AbandonChannel(ctx context.Context, in *AbandonChannelRequest, opts ...grpc.CallOption) (*AbandonChannelResponse, error)
-	//* lncli: `sendpayment`
-	//Deprecated, use routerrpc.SendPayment. SendPayment dispatches a
+	// lncli: `sendpayment`
+	//Deprecated, use routerrpc.SendPaymentV2. SendPayment dispatches a
 	//bi-directional streaming RPC for sending payments through the Lightning
 	//Network. A single RPC invocation creates a persistent bi-directional
 	//stream allowing clients to rapidly send payments through the Lightning
 	//Network with a single persistent connection.
 	SendPayment(ctx context.Context, opts ...grpc.CallOption) (Lightning_SendPaymentClient, error)
-	//*
+	//
 	//SendPaymentSync is the synchronous non-streaming version of SendPayment.
 	//This RPC is intended to be consumed by clients of the REST proxy.
 	//Additionally, this RPC expects the destination's public key and the payment
 	//hash (if any) to be encoded as hex strings.
 	SendPaymentSync(ctx context.Context, in *SendRequest, opts ...grpc.CallOption) (*SendResponse, error)
-	//* lncli: `sendtoroute`
-	//SendToRoute is a bi-directional streaming RPC for sending payment through
-	//the Lightning Network. This method differs from SendPayment in that it
-	//allows users to specify a full route manually. This can be used for things
-	//like rebalancing, and atomic swaps.
+	// lncli: `sendtoroute`
+	//Deprecated, use routerrpc.SendToRouteV2. SendToRoute is a bi-directional
+	//streaming RPC for sending payment through the Lightning Network. This
+	//method differs from SendPayment in that it allows users to specify a full
+	//route manually. This can be used for things like rebalancing, and atomic
+	//swaps.
 	SendToRoute(ctx context.Context, opts ...grpc.CallOption) (Lightning_SendToRouteClient, error)
-	//*
+	//
 	//SendToRouteSync is a synchronous version of SendToRoute. It Will block
 	//until the payment either fails or succeeds.
 	SendToRouteSync(ctx context.Context, in *SendToRouteRequest, opts ...grpc.CallOption) (*SendResponse, error)
-	//* lncli: `addinvoice`
+	// lncli: `addinvoice`
 	//AddInvoice attempts to add a new invoice to the invoice database. Any
 	//duplicated invoices are rejected, therefore all invoices *must* have a
 	//unique payment preimage.
 	AddInvoice(ctx context.Context, in *Invoice, opts ...grpc.CallOption) (*AddInvoiceResponse, error)
-	//* lncli: `listinvoices`
+	// lncli: `listinvoices`
 	//ListInvoices returns a list of all the invoices currently stored within the
 	//database. Any active debug invoices are ignored. It has full support for
 	//paginated responses, allowing users to query for specific invoices through
@@ -13253,12 +13091,12 @@ type LightningClient interface {
 	//next request. By default, the first 100 invoices created will be returned.
 	//Backwards pagination is also supported through the Reversed flag.
 	ListInvoices(ctx context.Context, in *ListInvoiceRequest, opts ...grpc.CallOption) (*ListInvoiceResponse, error)
-	//* lncli: `lookupinvoice`
+	// lncli: `lookupinvoice`
 	//LookupInvoice attempts to look up an invoice according to its payment hash.
 	//The passed payment hash *must* be exactly 32 bytes, if not, an error is
 	//returned.
 	LookupInvoice(ctx context.Context, in *PaymentHash, opts ...grpc.CallOption) (*Invoice, error)
-	//*
+	//
 	//SubscribeInvoices returns a uni-directional stream (server -> client) for
 	//notifying the client of newly added/settled invoices. The caller can
 	//optionally specify the add_index and/or the settle_index. If the add_index
@@ -13269,18 +13107,18 @@ type LightningClient interface {
 	//of these fields can be set. If no fields are set, then we'll only send out
 	//the latest add/settle events.
 	SubscribeInvoices(ctx context.Context, in *InvoiceSubscription, opts ...grpc.CallOption) (Lightning_SubscribeInvoicesClient, error)
-	//* lncli: `decodepayreq`
+	// lncli: `decodepayreq`
 	//DecodePayReq takes an encoded payment request string and attempts to decode
 	//it, returning a full description of the conditions encoded within the
 	//payment request.
 	DecodePayReq(ctx context.Context, in *PayReqString, opts ...grpc.CallOption) (*PayReq, error)
-	//* lncli: `listpayments`
+	// lncli: `listpayments`
 	//ListPayments returns a list of all outgoing payments.
 	ListPayments(ctx context.Context, in *ListPaymentsRequest, opts ...grpc.CallOption) (*ListPaymentsResponse, error)
-	//*
+	//
 	//DeleteAllPayments deletes all outgoing payments from DB.
 	DeleteAllPayments(ctx context.Context, in *DeleteAllPaymentsRequest, opts ...grpc.CallOption) (*DeleteAllPaymentsResponse, error)
-	//* lncli: `describegraph`
+	// lncli: `describegraph`
 	//DescribeGraph returns a description of the latest graph state from the
 	//point of view of the node. The graph information is partitioned into two
 	//components: all the nodes/vertexes, and all the edges that connect the
@@ -13288,36 +13126,36 @@ type LightningClient interface {
 	//the node directional specific routing policy which includes: the time lock
 	//delta, fee information, etc.
 	DescribeGraph(ctx context.Context, in *ChannelGraphRequest, opts ...grpc.CallOption) (*ChannelGraph, error)
-	//* lncli: `getnodemetrics`
+	// lncli: `getnodemetrics`
 	//GetNodeMetrics returns node metrics calculated from the graph. Currently
 	//the only supported metric is betweenness centrality of individual nodes.
 	GetNodeMetrics(ctx context.Context, in *NodeMetricsRequest, opts ...grpc.CallOption) (*NodeMetricsResponse, error)
-	//* lncli: `getchaninfo`
+	// lncli: `getchaninfo`
 	//GetChanInfo returns the latest authenticated network announcement for the
 	//given channel identified by its channel ID: an 8-byte integer which
 	//uniquely identifies the location of transaction's funding output within the
 	//blockchain.
 	GetChanInfo(ctx context.Context, in *ChanInfoRequest, opts ...grpc.CallOption) (*ChannelEdge, error)
-	//* lncli: `getnodeinfo`
+	// lncli: `getnodeinfo`
 	//GetNodeInfo returns the latest advertised, aggregated, and authenticated
 	//channel information for the specified node identified by its public key.
 	GetNodeInfo(ctx context.Context, in *NodeInfoRequest, opts ...grpc.CallOption) (*NodeInfo, error)
-	//* lncli: `queryroutes`
+	// lncli: `queryroutes`
 	//QueryRoutes attempts to query the daemon's Channel Router for a possible
 	//route to a target destination capable of carrying a specific amount of
 	//satoshis. The returned route contains the full details required to craft and
 	//send an HTLC, also including the necessary information that should be
 	//present within the Sphinx packet encapsulated within the HTLC.
 	QueryRoutes(ctx context.Context, in *QueryRoutesRequest, opts ...grpc.CallOption) (*QueryRoutesResponse, error)
-	//* lncli: `getnetworkinfo`
+	// lncli: `getnetworkinfo`
 	//GetNetworkInfo returns some basic stats about the known channel graph from
 	//the point of view of the node.
 	GetNetworkInfo(ctx context.Context, in *NetworkInfoRequest, opts ...grpc.CallOption) (*NetworkInfo, error)
-	//* lncli: `stop`
+	// lncli: `stop`
 	//StopDaemon will send a shutdown request to the interrupt handler, triggering
 	//a graceful shutdown of the daemon.
 	StopDaemon(ctx context.Context, in *StopRequest, opts ...grpc.CallOption) (*StopResponse, error)
-	//*
+	//
 	//SubscribeChannelGraph launches a streaming RPC that allows the caller to
 	//receive notifications upon any changes to the channel graph topology from
 	//the point of view of the responding node. Events notified include: new
@@ -13325,21 +13163,21 @@ type LightningClient interface {
 	//channels being advertised, updates in the routing policy for a directional
 	//channel edge, and when channels are closed on-chain.
 	SubscribeChannelGraph(ctx context.Context, in *GraphTopologySubscription, opts ...grpc.CallOption) (Lightning_SubscribeChannelGraphClient, error)
-	//* lncli: `debuglevel`
+	// lncli: `debuglevel`
 	//DebugLevel allows a caller to programmatically set the logging verbosity of
 	//lnd. The logging can be targeted according to a coarse daemon-wide logging
 	//level, or in a granular fashion to specify the logging for a target
 	//sub-system.
 	DebugLevel(ctx context.Context, in *DebugLevelRequest, opts ...grpc.CallOption) (*DebugLevelResponse, error)
-	//* lncli: `feereport`
+	// lncli: `feereport`
 	//FeeReport allows the caller to obtain a report detailing the current fee
 	//schedule enforced by the node globally for each channel.
 	FeeReport(ctx context.Context, in *FeeReportRequest, opts ...grpc.CallOption) (*FeeReportResponse, error)
-	//* lncli: `updatechanpolicy`
+	// lncli: `updatechanpolicy`
 	//UpdateChannelPolicy allows the caller to update the fee schedule and
 	//channel policies for all channels globally, or a particular channel.
 	UpdateChannelPolicy(ctx context.Context, in *PolicyUpdateRequest, opts ...grpc.CallOption) (*PolicyUpdateResponse, error)
-	//* lncli: `fwdinghistory`
+	// lncli: `fwdinghistory`
 	//ForwardingHistory allows the caller to query the htlcswitch for a record of
 	//all HTLCs forwarded within the target time range, and integer offset
 	//within that time range. If no time-range is specified, then the first chunk
@@ -13351,7 +13189,7 @@ type LightningClient interface {
 	//the index offset of the last entry. The index offset can be provided to the
 	//request to allow the caller to skip a series of records.
 	ForwardingHistory(ctx context.Context, in *ForwardingHistoryRequest, opts ...grpc.CallOption) (*ForwardingHistoryResponse, error)
-	//* lncli: `exportchanbackup`
+	// lncli: `exportchanbackup`
 	//ExportChannelBackup attempts to return an encrypted static channel backup
 	//for the target channel identified by it channel point. The backup is
 	//encrypted with a key generated from the aezeed seed of the user. The
@@ -13359,25 +13197,25 @@ type LightningClient interface {
 	//method once lnd is running, or via the InitWallet and UnlockWallet methods
 	//from the WalletUnlocker service.
 	ExportChannelBackup(ctx context.Context, in *ExportChannelBackupRequest, opts ...grpc.CallOption) (*ChannelBackup, error)
-	//*
+	//
 	//ExportAllChannelBackups returns static channel backups for all existing
 	//channels known to lnd. A set of regular singular static channel backups for
 	//each channel are returned. Additionally, a multi-channel backup is returned
 	//as well, which contains a single encrypted blob containing the backups of
 	//each channel.
 	ExportAllChannelBackups(ctx context.Context, in *ChanBackupExportRequest, opts ...grpc.CallOption) (*ChanBackupSnapshot, error)
-	//*
+	//
 	//VerifyChanBackup allows a caller to verify the integrity of a channel backup
 	//snapshot. This method will accept either a packed Single or a packed Multi.
 	//Specifying both will result in an error.
 	VerifyChanBackup(ctx context.Context, in *ChanBackupSnapshot, opts ...grpc.CallOption) (*VerifyChanBackupResponse, error)
-	//* lncli: `restorechanbackup`
+	// lncli: `restorechanbackup`
 	//RestoreChannelBackups accepts a set of singular channel backups, or a
 	//single encrypted multi-chan backup and attempts to recover any funds
 	//remaining within the channel. If we are able to unpack the backup, then the
 	//new channel will be shown under listchannels, as well as pending channels.
 	RestoreChannelBackups(ctx context.Context, in *RestoreChanBackupRequest, opts ...grpc.CallOption) (*RestoreBackupResponse, error)
-	//*
+	//
 	//SubscribeChannelBackups allows a client to sub-subscribe to the most up to
 	//date information concerning the state of all channel backups. Each time a
 	//new channel is added, we return the new set of channels, along with a
@@ -13386,7 +13224,7 @@ type LightningClient interface {
 	//ups, but the updated set of encrypted multi-chan backups with the closed
 	//channel(s) removed.
 	SubscribeChannelBackups(ctx context.Context, in *ChannelBackupSubscription, opts ...grpc.CallOption) (Lightning_SubscribeChannelBackupsClient, error)
-	//* lncli: `bakemacaroon`
+	// lncli: `bakemacaroon`
 	//BakeMacaroon allows the creation of a new macaroon with custom read and
 	//write permissions. No first-party caveats are added since this can be done
 	//offline.
@@ -13813,6 +13651,7 @@ func (c *lightningClient) SendPaymentSync(ctx context.Context, in *SendRequest, 
 	return out, nil
 }
 
+// Deprecated: Do not use.
 func (c *lightningClient) SendToRoute(ctx context.Context, opts ...grpc.CallOption) (Lightning_SendToRouteClient, error) {
 	stream, err := c.cc.NewStream(ctx, &_Lightning_serviceDesc.Streams[7], "/lnrpc.Lightning/SendToRoute", opts...)
 	if err != nil {
@@ -14149,109 +13988,111 @@ func (c *lightningClient) BakeMacaroon(ctx context.Context, in *BakeMacaroonRequ
 
 // LightningServer is the server API for Lightning service.
 type LightningServer interface {
-	//* lncli: `walletbalance`
+	// lncli: `walletbalance`
 	//WalletBalance returns total unspent outputs(confirmed and unconfirmed), all
 	//confirmed unspent outputs and all unconfirmed unspent outputs under control
 	//of the wallet.
 	WalletBalance(context.Context, *WalletBalanceRequest) (*WalletBalanceResponse, error)
-	//* lncli: `channelbalance`
+	// lncli: `channelbalance`
 	//ChannelBalance returns the total funds available across all open channels
 	//in satoshis.
 	ChannelBalance(context.Context, *ChannelBalanceRequest) (*ChannelBalanceResponse, error)
-	//* lncli: `listchaintxns`
+	// lncli: `listchaintxns`
 	//GetTransactions returns a list describing all the known transactions
 	//relevant to the wallet.
 	GetTransactions(context.Context, *GetTransactionsRequest) (*TransactionDetails, error)
-	//* lncli: `estimatefee`
+	// lncli: `estimatefee`
 	//EstimateFee asks the chain backend to estimate the fee rate and total fees
 	//for a transaction that pays to multiple specified outputs.
 	EstimateFee(context.Context, *EstimateFeeRequest) (*EstimateFeeResponse, error)
-	//* lncli: `sendcoins`
+	// lncli: `sendcoins`
 	//SendCoins executes a request to send coins to a particular address. Unlike
 	//SendMany, this RPC call only allows creating a single output at a time. If
 	//neither target_conf, or sat_per_byte are set, then the internal wallet will
 	//consult its fee model to determine a fee for the default confirmation
 	//target.
 	SendCoins(context.Context, *SendCoinsRequest) (*SendCoinsResponse, error)
-	//* lncli: `listunspent`
+	// lncli: `listunspent`
+	//Deprecated, use walletrpc.ListUnspent instead.
+	//
 	//ListUnspent returns a list of all utxos spendable by the wallet with a
 	//number of confirmations between the specified minimum and maximum.
 	ListUnspent(context.Context, *ListUnspentRequest) (*ListUnspentResponse, error)
-	//*
+	//
 	//SubscribeTransactions creates a uni-directional stream from the server to
 	//the client in which any newly discovered transactions relevant to the
 	//wallet are sent over.
 	SubscribeTransactions(*GetTransactionsRequest, Lightning_SubscribeTransactionsServer) error
-	//* lncli: `sendmany`
+	// lncli: `sendmany`
 	//SendMany handles a request for a transaction that creates multiple specified
 	//outputs in parallel. If neither target_conf, or sat_per_byte are set, then
 	//the internal wallet will consult its fee model to determine a fee for the
 	//default confirmation target.
 	SendMany(context.Context, *SendManyRequest) (*SendManyResponse, error)
-	//* lncli: `newaddress`
+	// lncli: `newaddress`
 	//NewAddress creates a new address under control of the local wallet.
 	NewAddress(context.Context, *NewAddressRequest) (*NewAddressResponse, error)
-	//* lncli: `signmessage`
+	// lncli: `signmessage`
 	//SignMessage signs a message with this node's private key. The returned
 	//signature string is `zbase32` encoded and pubkey recoverable, meaning that
 	//only the message digest and signature are needed for verification.
 	SignMessage(context.Context, *SignMessageRequest) (*SignMessageResponse, error)
-	//* lncli: `verifymessage`
+	// lncli: `verifymessage`
 	//VerifyMessage verifies a signature over a msg. The signature must be
 	//zbase32 encoded and signed by an active node in the resident node's
 	//channel database. In addition to returning the validity of the signature,
 	//VerifyMessage also returns the recovered pubkey from the signature.
 	VerifyMessage(context.Context, *VerifyMessageRequest) (*VerifyMessageResponse, error)
-	//* lncli: `connect`
+	// lncli: `connect`
 	//ConnectPeer attempts to establish a connection to a remote peer. This is at
 	//the networking level, and is used for communication between nodes. This is
 	//distinct from establishing a channel with a peer.
 	ConnectPeer(context.Context, *ConnectPeerRequest) (*ConnectPeerResponse, error)
-	//* lncli: `disconnect`
+	// lncli: `disconnect`
 	//DisconnectPeer attempts to disconnect one peer from another identified by a
 	//given pubKey. In the case that we currently have a pending or active channel
 	//with the target peer, then this action will be not be allowed.
 	DisconnectPeer(context.Context, *DisconnectPeerRequest) (*DisconnectPeerResponse, error)
-	//* lncli: `listpeers`
+	// lncli: `listpeers`
 	//ListPeers returns a verbose listing of all currently active peers.
 	ListPeers(context.Context, *ListPeersRequest) (*ListPeersResponse, error)
-	//*
+	//
 	//SubscribePeerEvents creates a uni-directional stream from the server to
 	//the client in which any events relevant to the state of peers are sent
 	//over. Events include peers going online and offline.
 	SubscribePeerEvents(*PeerEventSubscription, Lightning_SubscribePeerEventsServer) error
-	//* lncli: `getinfo`
+	// lncli: `getinfo`
 	//GetInfo returns general information concerning the lightning node including
 	//it's identity pubkey, alias, the chains it is connected to, and information
 	//concerning the number of open+pending channels.
 	GetInfo(context.Context, *GetInfoRequest) (*GetInfoResponse, error)
-	//* lncli: `pendingchannels`
+	// lncli: `pendingchannels`
 	//PendingChannels returns a list of all the channels that are currently
 	//considered "pending". A channel is pending if it has finished the funding
 	//workflow and is waiting for confirmations for the funding txn, or is in the
 	//process of closure, either initiated cooperatively or non-cooperatively.
 	PendingChannels(context.Context, *PendingChannelsRequest) (*PendingChannelsResponse, error)
-	//* lncli: `listchannels`
+	// lncli: `listchannels`
 	//ListChannels returns a description of all the open channels that this node
 	//is a participant in.
 	ListChannels(context.Context, *ListChannelsRequest) (*ListChannelsResponse, error)
-	//*
+	//
 	//SubscribeChannelEvents creates a uni-directional stream from the server to
 	//the client in which any updates relevant to the state of the channels are
 	//sent over. Events include new active channels, inactive channels, and closed
 	//channels.
 	SubscribeChannelEvents(*ChannelEventSubscription, Lightning_SubscribeChannelEventsServer) error
-	//* lncli: `closedchannels`
+	// lncli: `closedchannels`
 	//ClosedChannels returns a description of all the closed channels that
 	//this node was a participant in.
 	ClosedChannels(context.Context, *ClosedChannelsRequest) (*ClosedChannelsResponse, error)
-	//*
+	//
 	//OpenChannelSync is a synchronous version of the OpenChannel RPC call. This
 	//call is meant to be consumed by clients to the REST proxy. As with all
 	//other sync calls, all byte slices are intended to be populated as hex
 	//encoded strings.
 	OpenChannelSync(context.Context, *OpenChannelRequest) (*ChannelPoint, error)
-	//* lncli: `openchannel`
+	// lncli: `openchannel`
 	//OpenChannel attempts to open a singly funded channel specified in the
 	//request to a remote peer. Users are able to specify a target number of
 	//blocks that the funding transaction should be confirmed in, or a manual fee
@@ -14261,7 +14102,7 @@ type LightningServer interface {
 	//arguments specified in the OpenChannelRequest, this pending channel ID can
 	//then be used to manually progress the channel funding flow.
 	OpenChannel(*OpenChannelRequest, Lightning_OpenChannelServer) error
-	//*
+	//
 	//FundingStateStep is an advanced funding related call that allows the caller
 	//to either execute some preparatory steps for a funding workflow, or
 	//manually progress a funding workflow. The primary way a funding flow is
@@ -14271,14 +14112,14 @@ type LightningServer interface {
 	//Alternatively, this can be used to interactively drive PSBT signing for
 	//funding for partially complete funding transactions.
 	FundingStateStep(context.Context, *FundingTransitionMsg) (*FundingStateStepResp, error)
-	//*
+	//
 	//ChannelAcceptor dispatches a bi-directional streaming RPC in which
 	//OpenChannel requests are sent to the client and the client responds with
 	//a boolean that tells LND whether or not to accept the channel. This allows
 	//node operators to specify their own criteria for accepting inbound channels
 	//through a single persistent connection.
 	ChannelAcceptor(Lightning_ChannelAcceptorServer) error
-	//* lncli: `closechannel`
+	// lncli: `closechannel`
 	//CloseChannel attempts to close an active channel identified by its channel
 	//outpoint (ChannelPoint). The actions of this method can additionally be
 	//augmented to attempt a force close after a timeout period in the case of an
@@ -14287,41 +14128,42 @@ type LightningServer interface {
 	//closure transaction is confirmed, or a manual fee rate. If neither are
 	//specified, then a default lax, block confirmation target is used.
 	CloseChannel(*CloseChannelRequest, Lightning_CloseChannelServer) error
-	//* lncli: `abandonchannel`
+	// lncli: `abandonchannel`
 	//AbandonChannel removes all channel state from the database except for a
 	//close summary. This method can be used to get rid of permanently unusable
 	//channels due to bugs fixed in newer versions of lnd. Only available
 	//when in debug builds of lnd.
 	AbandonChannel(context.Context, *AbandonChannelRequest) (*AbandonChannelResponse, error)
-	//* lncli: `sendpayment`
-	//Deprecated, use routerrpc.SendPayment. SendPayment dispatches a
+	// lncli: `sendpayment`
+	//Deprecated, use routerrpc.SendPaymentV2. SendPayment dispatches a
 	//bi-directional streaming RPC for sending payments through the Lightning
 	//Network. A single RPC invocation creates a persistent bi-directional
 	//stream allowing clients to rapidly send payments through the Lightning
 	//Network with a single persistent connection.
 	SendPayment(Lightning_SendPaymentServer) error
-	//*
+	//
 	//SendPaymentSync is the synchronous non-streaming version of SendPayment.
 	//This RPC is intended to be consumed by clients of the REST proxy.
 	//Additionally, this RPC expects the destination's public key and the payment
 	//hash (if any) to be encoded as hex strings.
 	SendPaymentSync(context.Context, *SendRequest) (*SendResponse, error)
-	//* lncli: `sendtoroute`
-	//SendToRoute is a bi-directional streaming RPC for sending payment through
-	//the Lightning Network. This method differs from SendPayment in that it
-	//allows users to specify a full route manually. This can be used for things
-	//like rebalancing, and atomic swaps.
+	// lncli: `sendtoroute`
+	//Deprecated, use routerrpc.SendToRouteV2. SendToRoute is a bi-directional
+	//streaming RPC for sending payment through the Lightning Network. This
+	//method differs from SendPayment in that it allows users to specify a full
+	//route manually. This can be used for things like rebalancing, and atomic
+	//swaps.
 	SendToRoute(Lightning_SendToRouteServer) error
-	//*
+	//
 	//SendToRouteSync is a synchronous version of SendToRoute. It Will block
 	//until the payment either fails or succeeds.
 	SendToRouteSync(context.Context, *SendToRouteRequest) (*SendResponse, error)
-	//* lncli: `addinvoice`
+	// lncli: `addinvoice`
 	//AddInvoice attempts to add a new invoice to the invoice database. Any
 	//duplicated invoices are rejected, therefore all invoices *must* have a
 	//unique payment preimage.
 	AddInvoice(context.Context, *Invoice) (*AddInvoiceResponse, error)
-	//* lncli: `listinvoices`
+	// lncli: `listinvoices`
 	//ListInvoices returns a list of all the invoices currently stored within the
 	//database. Any active debug invoices are ignored. It has full support for
 	//paginated responses, allowing users to query for specific invoices through
@@ -14330,12 +14172,12 @@ type LightningServer interface {
 	//next request. By default, the first 100 invoices created will be returned.
 	//Backwards pagination is also supported through the Reversed flag.
 	ListInvoices(context.Context, *ListInvoiceRequest) (*ListInvoiceResponse, error)
-	//* lncli: `lookupinvoice`
+	// lncli: `lookupinvoice`
 	//LookupInvoice attempts to look up an invoice according to its payment hash.
 	//The passed payment hash *must* be exactly 32 bytes, if not, an error is
 	//returned.
 	LookupInvoice(context.Context, *PaymentHash) (*Invoice, error)
-	//*
+	//
 	//SubscribeInvoices returns a uni-directional stream (server -> client) for
 	//notifying the client of newly added/settled invoices. The caller can
 	//optionally specify the add_index and/or the settle_index. If the add_index
@@ -14346,18 +14188,18 @@ type LightningServer interface {
 	//of these fields can be set. If no fields are set, then we'll only send out
 	//the latest add/settle events.
 	SubscribeInvoices(*InvoiceSubscription, Lightning_SubscribeInvoicesServer) error
-	//* lncli: `decodepayreq`
+	// lncli: `decodepayreq`
 	//DecodePayReq takes an encoded payment request string and attempts to decode
 	//it, returning a full description of the conditions encoded within the
 	//payment request.
 	DecodePayReq(context.Context, *PayReqString) (*PayReq, error)
-	//* lncli: `listpayments`
+	// lncli: `listpayments`
 	//ListPayments returns a list of all outgoing payments.
 	ListPayments(context.Context, *ListPaymentsRequest) (*ListPaymentsResponse, error)
-	//*
+	//
 	//DeleteAllPayments deletes all outgoing payments from DB.
 	DeleteAllPayments(context.Context, *DeleteAllPaymentsRequest) (*DeleteAllPaymentsResponse, error)
-	//* lncli: `describegraph`
+	// lncli: `describegraph`
 	//DescribeGraph returns a description of the latest graph state from the
 	//point of view of the node. The graph information is partitioned into two
 	//components: all the nodes/vertexes, and all the edges that connect the
@@ -14365,36 +14207,36 @@ type LightningServer interface {
 	//the node directional specific routing policy which includes: the time lock
 	//delta, fee information, etc.
 	DescribeGraph(context.Context, *ChannelGraphRequest) (*ChannelGraph, error)
-	//* lncli: `getnodemetrics`
+	// lncli: `getnodemetrics`
 	//GetNodeMetrics returns node metrics calculated from the graph. Currently
 	//the only supported metric is betweenness centrality of individual nodes.
 	GetNodeMetrics(context.Context, *NodeMetricsRequest) (*NodeMetricsResponse, error)
-	//* lncli: `getchaninfo`
+	// lncli: `getchaninfo`
 	//GetChanInfo returns the latest authenticated network announcement for the
 	//given channel identified by its channel ID: an 8-byte integer which
 	//uniquely identifies the location of transaction's funding output within the
 	//blockchain.
 	GetChanInfo(context.Context, *ChanInfoRequest) (*ChannelEdge, error)
-	//* lncli: `getnodeinfo`
+	// lncli: `getnodeinfo`
 	//GetNodeInfo returns the latest advertised, aggregated, and authenticated
 	//channel information for the specified node identified by its public key.
 	GetNodeInfo(context.Context, *NodeInfoRequest) (*NodeInfo, error)
-	//* lncli: `queryroutes`
+	// lncli: `queryroutes`
 	//QueryRoutes attempts to query the daemon's Channel Router for a possible
 	//route to a target destination capable of carrying a specific amount of
 	//satoshis. The returned route contains the full details required to craft and
 	//send an HTLC, also including the necessary information that should be
 	//present within the Sphinx packet encapsulated within the HTLC.
 	QueryRoutes(context.Context, *QueryRoutesRequest) (*QueryRoutesResponse, error)
-	//* lncli: `getnetworkinfo`
+	// lncli: `getnetworkinfo`
 	//GetNetworkInfo returns some basic stats about the known channel graph from
 	//the point of view of the node.
 	GetNetworkInfo(context.Context, *NetworkInfoRequest) (*NetworkInfo, error)
-	//* lncli: `stop`
+	// lncli: `stop`
 	//StopDaemon will send a shutdown request to the interrupt handler, triggering
 	//a graceful shutdown of the daemon.
 	StopDaemon(context.Context, *StopRequest) (*StopResponse, error)
-	//*
+	//
 	//SubscribeChannelGraph launches a streaming RPC that allows the caller to
 	//receive notifications upon any changes to the channel graph topology from
 	//the point of view of the responding node. Events notified include: new
@@ -14402,21 +14244,21 @@ type LightningServer interface {
 	//channels being advertised, updates in the routing policy for a directional
 	//channel edge, and when channels are closed on-chain.
 	SubscribeChannelGraph(*GraphTopologySubscription, Lightning_SubscribeChannelGraphServer) error
-	//* lncli: `debuglevel`
+	// lncli: `debuglevel`
 	//DebugLevel allows a caller to programmatically set the logging verbosity of
 	//lnd. The logging can be targeted according to a coarse daemon-wide logging
 	//level, or in a granular fashion to specify the logging for a target
 	//sub-system.
 	DebugLevel(context.Context, *DebugLevelRequest) (*DebugLevelResponse, error)
-	//* lncli: `feereport`
+	// lncli: `feereport`
 	//FeeReport allows the caller to obtain a report detailing the current fee
 	//schedule enforced by the node globally for each channel.
 	FeeReport(context.Context, *FeeReportRequest) (*FeeReportResponse, error)
-	//* lncli: `updatechanpolicy`
+	// lncli: `updatechanpolicy`
 	//UpdateChannelPolicy allows the caller to update the fee schedule and
 	//channel policies for all channels globally, or a particular channel.
 	UpdateChannelPolicy(context.Context, *PolicyUpdateRequest) (*PolicyUpdateResponse, error)
-	//* lncli: `fwdinghistory`
+	// lncli: `fwdinghistory`
 	//ForwardingHistory allows the caller to query the htlcswitch for a record of
 	//all HTLCs forwarded within the target time range, and integer offset
 	//within that time range. If no time-range is specified, then the first chunk
@@ -14428,7 +14270,7 @@ type LightningServer interface {
 	//the index offset of the last entry. The index offset can be provided to the
 	//request to allow the caller to skip a series of records.
 	ForwardingHistory(context.Context, *ForwardingHistoryRequest) (*ForwardingHistoryResponse, error)
-	//* lncli: `exportchanbackup`
+	// lncli: `exportchanbackup`
 	//ExportChannelBackup attempts to return an encrypted static channel backup
 	//for the target channel identified by it channel point. The backup is
 	//encrypted with a key generated from the aezeed seed of the user. The
@@ -14436,25 +14278,25 @@ type LightningServer interface {
 	//method once lnd is running, or via the InitWallet and UnlockWallet methods
 	//from the WalletUnlocker service.
 	ExportChannelBackup(context.Context, *ExportChannelBackupRequest) (*ChannelBackup, error)
-	//*
+	//
 	//ExportAllChannelBackups returns static channel backups for all existing
 	//channels known to lnd. A set of regular singular static channel backups for
 	//each channel are returned. Additionally, a multi-channel backup is returned
 	//as well, which contains a single encrypted blob containing the backups of
 	//each channel.
 	ExportAllChannelBackups(context.Context, *ChanBackupExportRequest) (*ChanBackupSnapshot, error)
-	//*
+	//
 	//VerifyChanBackup allows a caller to verify the integrity of a channel backup
 	//snapshot. This method will accept either a packed Single or a packed Multi.
 	//Specifying both will result in an error.
 	VerifyChanBackup(context.Context, *ChanBackupSnapshot) (*VerifyChanBackupResponse, error)
-	//* lncli: `restorechanbackup`
+	// lncli: `restorechanbackup`
 	//RestoreChannelBackups accepts a set of singular channel backups, or a
 	//single encrypted multi-chan backup and attempts to recover any funds
 	//remaining within the channel. If we are able to unpack the backup, then the
 	//new channel will be shown under listchannels, as well as pending channels.
 	RestoreChannelBackups(context.Context, *RestoreChanBackupRequest) (*RestoreBackupResponse, error)
-	//*
+	//
 	//SubscribeChannelBackups allows a client to sub-subscribe to the most up to
 	//date information concerning the state of all channel backups. Each time a
 	//new channel is added, we return the new set of channels, along with a
@@ -14463,11 +14305,181 @@ type LightningServer interface {
 	//ups, but the updated set of encrypted multi-chan backups with the closed
 	//channel(s) removed.
 	SubscribeChannelBackups(*ChannelBackupSubscription, Lightning_SubscribeChannelBackupsServer) error
-	//* lncli: `bakemacaroon`
+	// lncli: `bakemacaroon`
 	//BakeMacaroon allows the creation of a new macaroon with custom read and
 	//write permissions. No first-party caveats are added since this can be done
 	//offline.
 	BakeMacaroon(context.Context, *BakeMacaroonRequest) (*BakeMacaroonResponse, error)
+}
+
+// UnimplementedLightningServer can be embedded to have forward compatible implementations.
+type UnimplementedLightningServer struct {
+}
+
+func (*UnimplementedLightningServer) WalletBalance(ctx context.Context, req *WalletBalanceRequest) (*WalletBalanceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method WalletBalance not implemented")
+}
+func (*UnimplementedLightningServer) ChannelBalance(ctx context.Context, req *ChannelBalanceRequest) (*ChannelBalanceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ChannelBalance not implemented")
+}
+func (*UnimplementedLightningServer) GetTransactions(ctx context.Context, req *GetTransactionsRequest) (*TransactionDetails, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetTransactions not implemented")
+}
+func (*UnimplementedLightningServer) EstimateFee(ctx context.Context, req *EstimateFeeRequest) (*EstimateFeeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method EstimateFee not implemented")
+}
+func (*UnimplementedLightningServer) SendCoins(ctx context.Context, req *SendCoinsRequest) (*SendCoinsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SendCoins not implemented")
+}
+func (*UnimplementedLightningServer) ListUnspent(ctx context.Context, req *ListUnspentRequest) (*ListUnspentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListUnspent not implemented")
+}
+func (*UnimplementedLightningServer) SubscribeTransactions(req *GetTransactionsRequest, srv Lightning_SubscribeTransactionsServer) error {
+	return status.Errorf(codes.Unimplemented, "method SubscribeTransactions not implemented")
+}
+func (*UnimplementedLightningServer) SendMany(ctx context.Context, req *SendManyRequest) (*SendManyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SendMany not implemented")
+}
+func (*UnimplementedLightningServer) NewAddress(ctx context.Context, req *NewAddressRequest) (*NewAddressResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method NewAddress not implemented")
+}
+func (*UnimplementedLightningServer) SignMessage(ctx context.Context, req *SignMessageRequest) (*SignMessageResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SignMessage not implemented")
+}
+func (*UnimplementedLightningServer) VerifyMessage(ctx context.Context, req *VerifyMessageRequest) (*VerifyMessageResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method VerifyMessage not implemented")
+}
+func (*UnimplementedLightningServer) ConnectPeer(ctx context.Context, req *ConnectPeerRequest) (*ConnectPeerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ConnectPeer not implemented")
+}
+func (*UnimplementedLightningServer) DisconnectPeer(ctx context.Context, req *DisconnectPeerRequest) (*DisconnectPeerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DisconnectPeer not implemented")
+}
+func (*UnimplementedLightningServer) ListPeers(ctx context.Context, req *ListPeersRequest) (*ListPeersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListPeers not implemented")
+}
+func (*UnimplementedLightningServer) SubscribePeerEvents(req *PeerEventSubscription, srv Lightning_SubscribePeerEventsServer) error {
+	return status.Errorf(codes.Unimplemented, "method SubscribePeerEvents not implemented")
+}
+func (*UnimplementedLightningServer) GetInfo(ctx context.Context, req *GetInfoRequest) (*GetInfoResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetInfo not implemented")
+}
+func (*UnimplementedLightningServer) PendingChannels(ctx context.Context, req *PendingChannelsRequest) (*PendingChannelsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PendingChannels not implemented")
+}
+func (*UnimplementedLightningServer) ListChannels(ctx context.Context, req *ListChannelsRequest) (*ListChannelsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListChannels not implemented")
+}
+func (*UnimplementedLightningServer) SubscribeChannelEvents(req *ChannelEventSubscription, srv Lightning_SubscribeChannelEventsServer) error {
+	return status.Errorf(codes.Unimplemented, "method SubscribeChannelEvents not implemented")
+}
+func (*UnimplementedLightningServer) ClosedChannels(ctx context.Context, req *ClosedChannelsRequest) (*ClosedChannelsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ClosedChannels not implemented")
+}
+func (*UnimplementedLightningServer) OpenChannelSync(ctx context.Context, req *OpenChannelRequest) (*ChannelPoint, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method OpenChannelSync not implemented")
+}
+func (*UnimplementedLightningServer) OpenChannel(req *OpenChannelRequest, srv Lightning_OpenChannelServer) error {
+	return status.Errorf(codes.Unimplemented, "method OpenChannel not implemented")
+}
+func (*UnimplementedLightningServer) FundingStateStep(ctx context.Context, req *FundingTransitionMsg) (*FundingStateStepResp, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FundingStateStep not implemented")
+}
+func (*UnimplementedLightningServer) ChannelAcceptor(srv Lightning_ChannelAcceptorServer) error {
+	return status.Errorf(codes.Unimplemented, "method ChannelAcceptor not implemented")
+}
+func (*UnimplementedLightningServer) CloseChannel(req *CloseChannelRequest, srv Lightning_CloseChannelServer) error {
+	return status.Errorf(codes.Unimplemented, "method CloseChannel not implemented")
+}
+func (*UnimplementedLightningServer) AbandonChannel(ctx context.Context, req *AbandonChannelRequest) (*AbandonChannelResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AbandonChannel not implemented")
+}
+func (*UnimplementedLightningServer) SendPayment(srv Lightning_SendPaymentServer) error {
+	return status.Errorf(codes.Unimplemented, "method SendPayment not implemented")
+}
+func (*UnimplementedLightningServer) SendPaymentSync(ctx context.Context, req *SendRequest) (*SendResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SendPaymentSync not implemented")
+}
+func (*UnimplementedLightningServer) SendToRoute(srv Lightning_SendToRouteServer) error {
+	return status.Errorf(codes.Unimplemented, "method SendToRoute not implemented")
+}
+func (*UnimplementedLightningServer) SendToRouteSync(ctx context.Context, req *SendToRouteRequest) (*SendResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SendToRouteSync not implemented")
+}
+func (*UnimplementedLightningServer) AddInvoice(ctx context.Context, req *Invoice) (*AddInvoiceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddInvoice not implemented")
+}
+func (*UnimplementedLightningServer) ListInvoices(ctx context.Context, req *ListInvoiceRequest) (*ListInvoiceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListInvoices not implemented")
+}
+func (*UnimplementedLightningServer) LookupInvoice(ctx context.Context, req *PaymentHash) (*Invoice, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method LookupInvoice not implemented")
+}
+func (*UnimplementedLightningServer) SubscribeInvoices(req *InvoiceSubscription, srv Lightning_SubscribeInvoicesServer) error {
+	return status.Errorf(codes.Unimplemented, "method SubscribeInvoices not implemented")
+}
+func (*UnimplementedLightningServer) DecodePayReq(ctx context.Context, req *PayReqString) (*PayReq, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DecodePayReq not implemented")
+}
+func (*UnimplementedLightningServer) ListPayments(ctx context.Context, req *ListPaymentsRequest) (*ListPaymentsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListPayments not implemented")
+}
+func (*UnimplementedLightningServer) DeleteAllPayments(ctx context.Context, req *DeleteAllPaymentsRequest) (*DeleteAllPaymentsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteAllPayments not implemented")
+}
+func (*UnimplementedLightningServer) DescribeGraph(ctx context.Context, req *ChannelGraphRequest) (*ChannelGraph, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DescribeGraph not implemented")
+}
+func (*UnimplementedLightningServer) GetNodeMetrics(ctx context.Context, req *NodeMetricsRequest) (*NodeMetricsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetNodeMetrics not implemented")
+}
+func (*UnimplementedLightningServer) GetChanInfo(ctx context.Context, req *ChanInfoRequest) (*ChannelEdge, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetChanInfo not implemented")
+}
+func (*UnimplementedLightningServer) GetNodeInfo(ctx context.Context, req *NodeInfoRequest) (*NodeInfo, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetNodeInfo not implemented")
+}
+func (*UnimplementedLightningServer) QueryRoutes(ctx context.Context, req *QueryRoutesRequest) (*QueryRoutesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method QueryRoutes not implemented")
+}
+func (*UnimplementedLightningServer) GetNetworkInfo(ctx context.Context, req *NetworkInfoRequest) (*NetworkInfo, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetNetworkInfo not implemented")
+}
+func (*UnimplementedLightningServer) StopDaemon(ctx context.Context, req *StopRequest) (*StopResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StopDaemon not implemented")
+}
+func (*UnimplementedLightningServer) SubscribeChannelGraph(req *GraphTopologySubscription, srv Lightning_SubscribeChannelGraphServer) error {
+	return status.Errorf(codes.Unimplemented, "method SubscribeChannelGraph not implemented")
+}
+func (*UnimplementedLightningServer) DebugLevel(ctx context.Context, req *DebugLevelRequest) (*DebugLevelResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DebugLevel not implemented")
+}
+func (*UnimplementedLightningServer) FeeReport(ctx context.Context, req *FeeReportRequest) (*FeeReportResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FeeReport not implemented")
+}
+func (*UnimplementedLightningServer) UpdateChannelPolicy(ctx context.Context, req *PolicyUpdateRequest) (*PolicyUpdateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateChannelPolicy not implemented")
+}
+func (*UnimplementedLightningServer) ForwardingHistory(ctx context.Context, req *ForwardingHistoryRequest) (*ForwardingHistoryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ForwardingHistory not implemented")
+}
+func (*UnimplementedLightningServer) ExportChannelBackup(ctx context.Context, req *ExportChannelBackupRequest) (*ChannelBackup, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ExportChannelBackup not implemented")
+}
+func (*UnimplementedLightningServer) ExportAllChannelBackups(ctx context.Context, req *ChanBackupExportRequest) (*ChanBackupSnapshot, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ExportAllChannelBackups not implemented")
+}
+func (*UnimplementedLightningServer) VerifyChanBackup(ctx context.Context, req *ChanBackupSnapshot) (*VerifyChanBackupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method VerifyChanBackup not implemented")
+}
+func (*UnimplementedLightningServer) RestoreChannelBackups(ctx context.Context, req *RestoreChanBackupRequest) (*RestoreBackupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RestoreChannelBackups not implemented")
+}
+func (*UnimplementedLightningServer) SubscribeChannelBackups(req *ChannelBackupSubscription, srv Lightning_SubscribeChannelBackupsServer) error {
+	return status.Errorf(codes.Unimplemented, "method SubscribeChannelBackups not implemented")
+}
+func (*UnimplementedLightningServer) BakeMacaroon(ctx context.Context, req *BakeMacaroonRequest) (*BakeMacaroonResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BakeMacaroon not implemented")
 }
 
 func RegisterLightningServer(s *grpc.Server, srv LightningServer) {

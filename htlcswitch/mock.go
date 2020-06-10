@@ -702,6 +702,11 @@ func (f *mockChannelLink) HandleSwitchPacket(pkt *htlcPacket) error {
 	return nil
 }
 
+func (f *mockChannelLink) HandleLocalAddPacket(pkt *htlcPacket) error {
+	_ = f.mailBox.AddPacket(pkt)
+	return nil
+}
+
 func (f *mockChannelLink) HandleChannelUpdate(lnwire.Message) {
 }
 
@@ -929,6 +934,10 @@ func (m *mockNotifier) RegisterBlockEpochNtfn(
 
 func (m *mockNotifier) Start() error {
 	return nil
+}
+
+func (m *mockNotifier) Started() bool {
+	return true
 }
 
 func (m *mockNotifier) Stop() error {

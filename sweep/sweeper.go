@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
@@ -354,7 +355,7 @@ func (s *UtxoSweeper) Start() error {
 
 		// Error can be ignored. Because we are starting up, there are
 		// no pending inputs to update based on the publish result.
-		err := s.cfg.Wallet.PublishTransaction(lastTx)
+		err := s.cfg.Wallet.PublishTransaction(lastTx, "")
 		if err != nil && err != lnwallet.ErrDoubleSpend {
 			log.Errorf("last tx publish: %v", err)
 		}
@@ -987,7 +988,7 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 		}),
 	)
 
-	err = s.cfg.Wallet.PublishTransaction(tx)
+	err = s.cfg.Wallet.PublishTransaction(tx, "")
 
 	// In case of an unexpected error, don't try to recover.
 	if err != nil && err != lnwallet.ErrDoubleSpend {
@@ -1260,6 +1261,11 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []input.Input, feePref FeePreference,
 // in btcd) from blocking all other retried inputs in the same tx.
 func DefaultNextAttemptDeltaFunc(attempts int) int32 {
 	return 1 + rand.Int31n(1<<uint(attempts-1))
+}
+
+// ListSweeps returns a list of the the sweeps recorded by the sweep store.
+func (s *UtxoSweeper) ListSweeps() ([]chainhash.Hash, error) {
+	return s.cfg.Store.ListSweeps()
 }
 
 // init initializes the random generator for random input rescheduling.

@@ -8,6 +8,8 @@ import (
 	fmt "fmt"
 	proto "github.com/golang/protobuf/proto"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 	math "math"
 )
 
@@ -54,7 +56,7 @@ func (m *StatusRequest) XXX_DiscardUnknown() {
 var xxx_messageInfo_StatusRequest proto.InternalMessageInfo
 
 type StatusResponse struct {
-	/// Indicates whether the autopilot is active or not.
+	// Indicates whether the autopilot is active or not.
 	Active               bool     `protobuf:"varint,1,opt,name=active,proto3" json:"active,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -94,7 +96,7 @@ func (m *StatusResponse) GetActive() bool {
 }
 
 type ModifyStatusRequest struct {
-	/// Whether the autopilot agent should be enabled or not.
+	// Whether the autopilot agent should be enabled or not.
 	Enable               bool     `protobuf:"varint,1,opt,name=enable,proto3" json:"enable,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -166,7 +168,7 @@ var xxx_messageInfo_ModifyStatusResponse proto.InternalMessageInfo
 
 type QueryScoresRequest struct {
 	Pubkeys []string `protobuf:"bytes,1,rep,name=pubkeys,proto3" json:"pubkeys,omitempty"`
-	/// If set, we will ignore the local channel state when calculating scores.
+	// If set, we will ignore the local channel state when calculating scores.
 	IgnoreLocalState     bool     `protobuf:"varint,2,opt,name=ignore_local_state,json=ignoreLocalState,proto3" json:"ignore_local_state,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -299,9 +301,9 @@ func (m *QueryScoresResponse_HeuristicResult) GetScores() map[string]float64 {
 }
 
 type SetScoresRequest struct {
-	/// The name of the heuristic to provide scores to.
+	// The name of the heuristic to provide scores to.
 	Heuristic string `protobuf:"bytes,1,opt,name=heuristic,proto3" json:"heuristic,omitempty"`
-	//*
+	//
 	//A map from hex-encoded public keys to scores. Scores must be in the range
 	//[0.0, 1.0].
 	Scores               map[string]float64 `protobuf:"bytes,2,rep,name=scores,proto3" json:"scores,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"fixed64,2,opt,name=value,proto3"`
@@ -442,19 +444,19 @@ const _ = grpc.SupportPackageIsVersion4
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type AutopilotClient interface {
-	//*
+	//
 	//Status returns whether the daemon's autopilot agent is active.
 	Status(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error)
-	//*
+	//
 	//ModifyStatus is used to modify the status of the autopilot agent, like
 	//enabling or disabling it.
 	ModifyStatus(ctx context.Context, in *ModifyStatusRequest, opts ...grpc.CallOption) (*ModifyStatusResponse, error)
-	//*
+	//
 	//QueryScores queries all available autopilot heuristics, in addition to any
 	//active combination of these heruristics, for the scores they would give to
 	//the given nodes.
 	QueryScores(ctx context.Context, in *QueryScoresRequest, opts ...grpc.CallOption) (*QueryScoresResponse, error)
-	//*
+	//
 	//SetScores attempts to set the scores used by the running autopilot agent,
 	//if the external scoring heuristic is enabled.
 	SetScores(ctx context.Context, in *SetScoresRequest, opts ...grpc.CallOption) (*SetScoresResponse, error)
@@ -506,22 +508,39 @@ func (c *autopilotClient) SetScores(ctx context.Context, in *SetScoresRequest, o
 
 // AutopilotServer is the server API for Autopilot service.
 type AutopilotServer interface {
-	//*
+	//
 	//Status returns whether the daemon's autopilot agent is active.
 	Status(context.Context, *StatusRequest) (*StatusResponse, error)
-	//*
+	//
 	//ModifyStatus is used to modify the status of the autopilot agent, like
 	//enabling or disabling it.
 	ModifyStatus(context.Context, *ModifyStatusRequest) (*ModifyStatusResponse, error)
-	//*
+	//
 	//QueryScores queries all available autopilot heuristics, in addition to any
 	//active combination of these heruristics, for the scores they would give to
 	//the given nodes.
 	QueryScores(context.Context, *QueryScoresRequest) (*QueryScoresResponse, error)
-	//*
+	//
 	//SetScores attempts to set the scores used by the running autopilot agent,
 	//if the external scoring heuristic is enabled.
 	SetScores(context.Context, *SetScoresRequest) (*SetScoresResponse, error)
+}
+
+// UnimplementedAutopilotServer can be embedded to have forward compatible implementations.
+type UnimplementedAutopilotServer struct {
+}
+
+func (*UnimplementedAutopilotServer) Status(ctx context.Context, req *StatusRequest) (*StatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
+}
+func (*UnimplementedAutopilotServer) ModifyStatus(ctx context.Context, req *ModifyStatusRequest) (*ModifyStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ModifyStatus not implemented")
+}
+func (*UnimplementedAutopilotServer) QueryScores(ctx context.Context, req *QueryScoresRequest) (*QueryScoresResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method QueryScores not implemented")
+}
+func (*UnimplementedAutopilotServer) SetScores(ctx context.Context, req *SetScoresRequest) (*SetScoresResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetScores not implemented")
 }
 
 func RegisterAutopilotServer(s *grpc.Server, srv AutopilotServer) {

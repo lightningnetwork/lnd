@@ -12,7 +12,9 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 )
@@ -51,31 +53,38 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest,
 	ctx, cancel := context.WithCancel(ctxb)
 	defer cancel()
 
-	alicePayStream, err := alice.SendPayment(ctx)
-	if err != nil {
-		t.Fatalf("unable to create payment stream for alice: %v", err)
-	}
-
 	// We'll create two random payment hashes unknown to carol, then send
 	// each of them by manually specifying the HTLC details.
 	carolPubKey := carol.PubKey[:]
 	dustPayHash := makeFakePayHash(t)
 	payHash := makeFakePayHash(t)
-	err = alicePayStream.Send(&lnrpc.SendRequest{
-		Dest:           carolPubKey,
-		Amt:            int64(dustHtlcAmt),
-		PaymentHash:    dustPayHash,
-		FinalCltvDelta: finalCltvDelta,
-	})
+
+	_, err := alice.RouterClient.SendPaymentV2(
+		ctx,
+		&routerrpc.SendPaymentRequest{
+			Dest:           carolPubKey,
+			Amt:            int64(dustHtlcAmt),
+			PaymentHash:    dustPayHash,
+			FinalCltvDelta: finalCltvDelta,
+			TimeoutSeconds: 60,
+			FeeLimitMsat:   noFeeLimitMsat,
+		},
+	)
 	if err != nil {
 		t.Fatalf("unable to send alice htlc: %v", err)
 	}
-	err = alicePayStream.Send(&lnrpc.SendRequest{
-		Dest:           carolPubKey,
-		Amt:            int64(htlcAmt),
-		PaymentHash:    payHash,
-		FinalCltvDelta: finalCltvDelta,
-	})
+
+	_, err = alice.RouterClient.SendPaymentV2(
+		ctx,
+		&routerrpc.SendPaymentRequest{
+			Dest:           carolPubKey,
+			Amt:            int64(htlcAmt),
+			PaymentHash:    payHash,
+			FinalCltvDelta: finalCltvDelta,
+			TimeoutSeconds: 60,
+			FeeLimitMsat:   noFeeLimitMsat,
+		},
+	)
 	if err != nil {
 		t.Fatalf("unable to send alice htlc: %v", err)
 	}
@@ -101,7 +110,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest,
 	// timeout. With the default outgoing broadcast delta of zero, this will
 	// be the same height as the htlc expiry height.
 	numBlocks := padCLTV(
-		uint32(finalCltvDelta - lnd.DefaultOutgoingBroadcastDelta),
+		uint32(finalCltvDelta - lncfg.DefaultOutgoingBroadcastDelta),
 	)
 	if _, err := net.Miner.Node.Generate(numBlocks); err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)

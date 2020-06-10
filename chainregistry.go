@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -160,7 +161,7 @@ type chainControl struct {
 // full-node, another backed by a running bitcoind full-node, and the other
 // backed by a running neutrino light client instance. When running with a
 // neutrino light client instance, `neutrinoCS` must be non-nil.
-func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
+func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
 	privateWalletPw, publicWalletPw []byte, birthday time.Time,
 	recoveryWindow uint32, wallet *wallet.Wallet,
 	neutrinoCS *neutrino.ChainService) (*chainControl, error) {
@@ -168,15 +169,15 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	// Set the RPC config from the "home" chain. Multi-chain isn't yet
 	// active, so we'll restrict usage to a particular chain for now.
 	homeChainConfig := cfg.Bitcoin
-	if registeredChains.PrimaryChain() == litecoinChain {
+	if cfg.registeredChains.PrimaryChain() == litecoinChain {
 		homeChainConfig = cfg.Litecoin
 	}
 	ltndLog.Infof("Primary chain is set to: %v",
-		registeredChains.PrimaryChain())
+		cfg.registeredChains.PrimaryChain())
 
 	cc := &chainControl{}
 
-	switch registeredChains.PrimaryChain() {
+	switch cfg.registeredChains.PrimaryChain() {
 	case bitcoinChain:
 		cc.routingPolicy = htlcswitch.ForwardingPolicy{
 			MinHTLCOut:    cfg.Bitcoin.MinHTLCOut,
@@ -202,7 +203,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		)
 	default:
 		return nil, fmt.Errorf("default routing policy for chain %v is "+
-			"unknown", registeredChains.PrimaryChain())
+			"unknown", cfg.registeredChains.PrimaryChain())
 	}
 
 	walletConfig := &btcwallet.Config{
@@ -263,7 +264,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		)
 
 	case "bitcoind", "litecoind":
-		var bitcoindMode *bitcoindConfig
+		var bitcoindMode *lncfg.Bitcoind
 		switch {
 		case cfg.Bitcoin.Active:
 			bitcoindMode = cfg.BitcoindMode
@@ -388,7 +389,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		// connection. If a raw cert was specified in the config, then
 		// we'll set that directly. Otherwise, we attempt to read the
 		// cert from the path specified in the config.
-		var btcdMode *btcdConfig
+		var btcdMode *lncfg.Btcd
 		switch {
 		case cfg.Bitcoin.Active:
 			btcdMode = cfg.BtcdMode
@@ -504,7 +505,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 
 	// Select the default channel constraints for the primary chain.
 	channelConstraints := defaultBtcChannelConstraints
-	if registeredChains.PrimaryChain() == litecoinChain {
+	if cfg.registeredChains.PrimaryChain() == litecoinChain {
 		channelConstraints = defaultLtcChannelConstraints
 	}
 
@@ -718,7 +719,9 @@ func (c *chainRegistry) NumActiveChains() uint32 {
 
 // initNeutrinoBackend inits a new instance of the neutrino light client
 // backend given a target chain directory to store the chain state.
-func initNeutrinoBackend(chainDir string) (*neutrino.ChainService, func(), error) {
+func initNeutrinoBackend(cfg *Config, chainDir string) (*neutrino.ChainService,
+	func(), error) {
+
 	// First we'll open the database file for neutrino, creating the
 	// database if needed. We append the normalized network name here to
 	// match the behavior of btcwallet.

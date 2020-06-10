@@ -1594,9 +1594,9 @@ type LightningPayment struct {
 	// destination successfully.
 	RouteHints [][]zpay32.HopHint
 
-	// OutgoingChannelID is the channel that needs to be taken to the first
-	// hop. If nil, any channel may be used.
-	OutgoingChannelID *uint64
+	// OutgoingChannelIDs is the list of channels that are allowed for the
+	// first hop. If nil, any channel may be used.
+	OutgoingChannelIDs []uint64
 
 	// LastHop is the pubkey of the last node before the final destination
 	// is reached. If nil, any node may be used.
@@ -1741,10 +1741,12 @@ func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
 }
 
 // SendToRoute attempts to send a payment with the given hash through the
-// provided route. This function is blocking and will return the obtained
-// preimage if the payment is successful or the full error in case of a failure.
+// provided route. This function is blocking and will return the attempt
+// information as it is stored in the database. For a successful htlc, this
+// information will contain the preimage. If an error occurs after the attempt
+// was initiated, both return values will be non-nil.
 func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, rt *route.Route) (
-	lntypes.Preimage, error) {
+	*channeldb.HTLCAttempt, error) {
 
 	// Calculate amount paid to receiver.
 	amt := rt.ReceiverAmt()
@@ -1774,7 +1776,7 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, rt *route.Route) (
 
 	// Any other error is not tolerated.
 	case err != nil:
-		return [32]byte{}, err
+		return nil, err
 	}
 
 	log.Tracef("Dispatching SendToRoute for hash %v: %v",
@@ -1804,34 +1806,37 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, rt *route.Route) (
 			hash, channeldb.FailureReasonError,
 		)
 		if controlErr != nil {
-			return [32]byte{}, controlErr
+			return nil, controlErr
 		}
 	}
 
 	// In any case, don't continue if there is an error.
 	if err != nil {
-		return lntypes.Preimage{}, err
+		return nil, err
 	}
 
+	var htlcAttempt *channeldb.HTLCAttempt
 	switch {
 	// Failed to launch shard.
 	case outcome.err != nil:
 		shardError = outcome.err
+		htlcAttempt = outcome.attempt
 
 	// Shard successfully launched, wait for the result to be available.
 	default:
 		result, err := sh.collectResult(attempt)
 		if err != nil {
-			return lntypes.Preimage{}, err
+			return nil, err
 		}
 
 		// We got a successful result.
 		if result.err == nil {
-			return result.preimage, nil
+			return result.attempt, nil
 		}
 
 		// The shard failed, break switch to handle it.
 		shardError = result.err
+		htlcAttempt = result.attempt
 	}
 
 	// Since for SendToRoute we won't retry in case the shard fails, we'll
@@ -1848,10 +1853,10 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, rt *route.Route) (
 
 	err = r.cfg.Control.Fail(hash, *reason)
 	if err != nil {
-		return lntypes.Preimage{}, err
+		return nil, err
 	}
 
-	return lntypes.Preimage{}, shardError
+	return htlcAttempt, shardError
 }
 
 // sendPayment attempts to send a payment to the passed payment hash. This
@@ -2181,7 +2186,7 @@ func (r *ChannelRouter) FetchLightningNode(node route.Vertex) (*channeldb.Lightn
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) ForEachNode(cb func(*channeldb.LightningNode) error) error {
-	return r.cfg.Graph.ForEachNode(nil, func(_ kvdb.ReadTx, n *channeldb.LightningNode) error {
+	return r.cfg.Graph.ForEachNode(func(_ kvdb.RTx, n *channeldb.LightningNode) error {
 		return cb(n)
 	})
 }
@@ -2193,7 +2198,7 @@ func (r *ChannelRouter) ForEachNode(cb func(*channeldb.LightningNode) error) err
 func (r *ChannelRouter) ForAllOutgoingChannels(cb func(*channeldb.ChannelEdgeInfo,
 	*channeldb.ChannelEdgePolicy) error) error {
 
-	return r.selfNode.ForEachChannel(nil, func(_ kvdb.ReadTx, c *channeldb.ChannelEdgeInfo,
+	return r.selfNode.ForEachChannel(nil, func(_ kvdb.RTx, c *channeldb.ChannelEdgeInfo,
 		e, _ *channeldb.ChannelEdgePolicy) error {
 
 		if e == nil {
@@ -2334,7 +2339,7 @@ func generateBandwidthHints(sourceNode *channeldb.LightningNode,
 	// First, we'll collect the set of outbound edges from the target
 	// source node.
 	var localChans []*channeldb.ChannelEdgeInfo
-	err := sourceNode.ForEachChannel(nil, func(tx kvdb.ReadTx,
+	err := sourceNode.ForEachChannel(nil, func(tx kvdb.RTx,
 		edgeInfo *channeldb.ChannelEdgeInfo,
 		_, _ *channeldb.ChannelEdgePolicy) error {
 
@@ -2378,6 +2383,13 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 
 	log.Tracef("BuildRoute called: hopsCount=%v, amt=%v",
 		len(hops), amt)
+
+	var outgoingChans map[uint64]struct{}
+	if outgoingChan != nil {
+		outgoingChans = map[uint64]struct{}{
+			*outgoingChan: {},
+		}
+	}
 
 	// If no amount is specified, we need to build a route for the minimum
 	// amount that this route can carry.
@@ -2444,7 +2456,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 
 		// Build unified policies for this hop based on the channels
 		// known in the graph.
-		u := newUnifiedPolicies(source, toNode, outgoingChan)
+		u := newUnifiedPolicies(source, toNode, outgoingChans)
 
 		err := u.addGraphPolicies(routingTx)
 		if err != nil {

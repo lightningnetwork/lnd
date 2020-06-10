@@ -11,6 +11,7 @@ import (
 	"testing/iotest"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -25,13 +26,14 @@ func makeListener() (*Listener, *lnwire.NetAddress, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	localKeyECDH := &keychain.PrivKeyECDH{PrivKey: localPriv}
 
 	// Having a port of ":0" means a random port, and interface will be
 	// chosen for our listener.
 	addr := "localhost:0"
 
 	// Our listener will be local, and the connection remote.
-	listener, err := NewListener(localPriv, addr)
+	listener, err := NewListener(localKeyECDH, addr)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -57,13 +59,14 @@ func establishTestConnection() (net.Conn, net.Conn, func(), error) {
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	remoteKeyECDH := &keychain.PrivKeyECDH{PrivKey: remotePriv}
 
 	// Initiate a connection with a separate goroutine, and listen with our
 	// main one. If both errors are nil, then encryption+auth was
 	// successful.
 	remoteConnChan := make(chan maybeNetConn, 1)
 	go func() {
-		remoteConn, err := Dial(remotePriv, netAddr, net.Dial)
+		remoteConn, err := Dial(remoteKeyECDH, netAddr, net.Dial)
 		remoteConnChan <- maybeNetConn{remoteConn, err}
 	}()
 
@@ -190,9 +193,10 @@ func TestConcurrentHandshakes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to generate private key: %v", err)
 	}
+	remoteKeyECDH := &keychain.PrivKeyECDH{PrivKey: remotePriv}
 
 	go func() {
-		remoteConn, err := Dial(remotePriv, netAddr, net.Dial)
+		remoteConn, err := Dial(remoteKeyECDH, netAddr, net.Dial)
 		connChan <- maybeNetConn{remoteConn, err}
 	}()
 
@@ -314,8 +318,10 @@ func TestBolt0008TestVectors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to decode hex: %v", err)
 	}
-	initiatorPriv, _ := btcec.PrivKeyFromBytes(btcec.S256(),
-		initiatorKeyBytes)
+	initiatorPriv, _ := btcec.PrivKeyFromBytes(
+		btcec.S256(), initiatorKeyBytes,
+	)
+	initiatorKeyECDH := &keychain.PrivKeyECDH{PrivKey: initiatorPriv}
 
 	// We'll then do the same for the responder.
 	responderKeyBytes, err := hex.DecodeString("212121212121212121212121" +
@@ -323,8 +329,10 @@ func TestBolt0008TestVectors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to decode hex: %v", err)
 	}
-	responderPriv, responderPub := btcec.PrivKeyFromBytes(btcec.S256(),
-		responderKeyBytes)
+	responderPriv, responderPub := btcec.PrivKeyFromBytes(
+		btcec.S256(), responderKeyBytes,
+	)
+	responderKeyECDH := &keychain.PrivKeyECDH{PrivKey: responderPriv}
 
 	// With the initiator's key data parsed, we'll now define a custom
 	// EphemeralGenerator function for the state machine to ensure that the
@@ -355,10 +363,12 @@ func TestBolt0008TestVectors(t *testing.T) {
 
 	// Finally, we'll create both brontide state machines, so we can begin
 	// our test.
-	initiator := NewBrontideMachine(true, initiatorPriv, responderPub,
-		initiatorEphemeral)
-	responder := NewBrontideMachine(false, responderPriv, nil,
-		responderEphemeral)
+	initiator := NewBrontideMachine(
+		true, initiatorKeyECDH, responderPub, initiatorEphemeral,
+	)
+	responder := NewBrontideMachine(
+		false, responderKeyECDH, nil, responderEphemeral,
+	)
 
 	// We'll start with the initiator generating the initial payload for
 	// act one. This should consist of exactly 50 bytes. We'll assert that

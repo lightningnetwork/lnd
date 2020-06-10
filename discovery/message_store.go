@@ -200,7 +200,7 @@ func readMessage(msgBytes []byte) (lnwire.Message, error) {
 // all peers.
 func (s *MessageStore) Messages() (map[[33]byte][]lnwire.Message, error) {
 	msgs := make(map[[33]byte][]lnwire.Message)
-	err := kvdb.View(s.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(s.db, func(tx kvdb.RTx) error {
 		messageStore := tx.ReadBucket(messageStoreBucket)
 		if messageStore == nil {
 			return ErrCorruptedMessageStore
@@ -238,7 +238,7 @@ func (s *MessageStore) MessagesForPeer(
 	peerPubKey [33]byte) ([]lnwire.Message, error) {
 
 	var msgs []lnwire.Message
-	err := kvdb.View(s.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(s.db, func(tx kvdb.RTx) error {
 		messageStore := tx.ReadBucket(messageStoreBucket)
 		if messageStore == nil {
 			return ErrCorruptedMessageStore
@@ -273,7 +273,7 @@ func (s *MessageStore) MessagesForPeer(
 // Peers returns the public key of all peers with messages within the store.
 func (s *MessageStore) Peers() (map[[33]byte]struct{}, error) {
 	peers := make(map[[33]byte]struct{})
-	err := kvdb.View(s.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(s.db, func(tx kvdb.RTx) error {
 		messageStore := tx.ReadBucket(messageStoreBucket)
 		if messageStore == nil {
 			return ErrCorruptedMessageStore

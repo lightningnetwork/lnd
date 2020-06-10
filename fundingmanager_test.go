@@ -21,6 +21,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/lncfg"
 
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chanacceptor"
@@ -129,6 +130,10 @@ func (m *mockNotifier) RegisterBlockEpochNtfn(
 
 func (m *mockNotifier) Start() error {
 	return nil
+}
+
+func (m *mockNotifier) Started() bool {
+	return true
 }
 
 func (m *mockNotifier) Stop() error {
@@ -407,16 +412,17 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		ReportShortChanID: func(wire.OutPoint) error {
 			return nil
 		},
-		PublishTransaction: func(txn *wire.MsgTx) error {
+		PublishTransaction: func(txn *wire.MsgTx, _ string) error {
 			publTxChan <- txn
 			return nil
 		},
 		ZombieSweeperInterval:         1 * time.Hour,
 		ReservationTimeout:            1 * time.Nanosecond,
-		MaxPendingChannels:            DefaultMaxPendingChannels,
+		MaxPendingChannels:            lncfg.DefaultMaxPendingChannels,
 		NotifyOpenChannelEvent:        evt.NotifyOpenChannelEvent,
 		OpenChannelPredicate:          chainedAcceptor,
 		NotifyPendingOpenChannelEvent: evt.NotifyPendingOpenChannelEvent,
+		RegisteredChains:              newChainRegistry(),
 	}
 
 	for _, op := range options {
@@ -509,7 +515,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		},
 		DefaultMinHtlcIn:       5,
 		RequiredRemoteMaxValue: oldCfg.RequiredRemoteMaxValue,
-		PublishTransaction: func(txn *wire.MsgTx) error {
+		PublishTransaction: func(txn *wire.MsgTx, _ string) error {
 			publishChan <- txn
 			return nil
 		},
@@ -3083,11 +3089,9 @@ func TestGetUpfrontShutdownScript(t *testing.T) {
 				}
 			}
 
-			// Set the command line option in config as needed.
-			cfg = &config{EnableUpfrontShutdown: test.localEnabled}
-
 			addr, err := getUpfrontShutdownScript(
-				&mockPeer, test.upfrontScript, test.getScript,
+				test.localEnabled, &mockPeer, test.upfrontScript,
+				test.getScript,
 			)
 			if err != test.expectedErr {
 				t.Fatalf("got: %v, expected error: %v", err, test.expectedErr)

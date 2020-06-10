@@ -1,0 +1,249 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "autopilotrpc/autopilot.proto",
+    "version": "version not set"
+  },
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v2/autopilot/modify": {
+      "post": {
+        "summary": "ModifyStatus is used to modify the status of the autopilot agent, like\nenabling or disabling it.",
+        "operationId": "ModifyStatus",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/autopilotrpcModifyStatusResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/autopilotrpcModifyStatusRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Autopilot"
+        ]
+      }
+    },
+    "/v2/autopilot/scores": {
+      "get": {
+        "summary": "QueryScores queries all available autopilot heuristics, in addition to any\nactive combination of these heruristics, for the scores they would give to\nthe given nodes.",
+        "operationId": "QueryScores",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/autopilotrpcQueryScoresResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "pubkeys",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "collectionFormat": "multi"
+          },
+          {
+            "name": "ignore_local_state",
+            "description": "If set, we will ignore the local channel state when calculating scores.",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
+          }
+        ],
+        "tags": [
+          "Autopilot"
+        ]
+      },
+      "post": {
+        "summary": "SetScores attempts to set the scores used by the running autopilot agent,\nif the external scoring heuristic is enabled.",
+        "operationId": "SetScores",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/autopilotrpcSetScoresResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/autopilotrpcSetScoresRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Autopilot"
+        ]
+      }
+    },
+    "/v2/autopilot/status": {
+      "get": {
+        "summary": "Status returns whether the daemon's autopilot agent is active.",
+        "operationId": "Status",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/autopilotrpcStatusResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "tags": [
+          "Autopilot"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "QueryScoresResponseHeuristicResult": {
+      "type": "object",
+      "properties": {
+        "heuristic": {
+          "type": "string"
+        },
+        "scores": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      }
+    },
+    "autopilotrpcModifyStatusRequest": {
+      "type": "object",
+      "properties": {
+        "enable": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Whether the autopilot agent should be enabled or not."
+        }
+      }
+    },
+    "autopilotrpcModifyStatusResponse": {
+      "type": "object"
+    },
+    "autopilotrpcQueryScoresResponse": {
+      "type": "object",
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/QueryScoresResponseHeuristicResult"
+          }
+        }
+      }
+    },
+    "autopilotrpcSetScoresRequest": {
+      "type": "object",
+      "properties": {
+        "heuristic": {
+          "type": "string",
+          "description": "The name of the heuristic to provide scores to."
+        },
+        "scores": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number",
+            "format": "double"
+          },
+          "description": "A map from hex-encoded public keys to scores. Scores must be in the range\n[0.0, 1.0]."
+        }
+      }
+    },
+    "autopilotrpcSetScoresResponse": {
+      "type": "object"
+    },
+    "autopilotrpcStatusResponse": {
+      "type": "object",
+      "properties": {
+        "active": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Indicates whether the autopilot is active or not."
+        }
+      }
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "runtimeError": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    }
+  }
+}

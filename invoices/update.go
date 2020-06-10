@@ -22,10 +22,20 @@ type invoiceUpdateCtx struct {
 	mpp                  *record.MPP
 }
 
+// invoiceRef returns an identifier that can be used to lookup or update the
+// invoice this HTLC is targeting.
+func (i *invoiceUpdateCtx) invoiceRef() channeldb.InvoiceRef {
+	if i.mpp != nil {
+		payAddr := i.mpp.PaymentAddr()
+		return channeldb.InvoiceRefByHashAndAddr(i.hash, payAddr)
+	}
+	return channeldb.InvoiceRefByHash(i.hash)
+}
+
 // log logs a message specific to this update context.
 func (i *invoiceUpdateCtx) log(s string) {
-	log.Debugf("Invoice(%x): %v, amt=%v, expiry=%v, circuit=%v, mpp=%v",
-		i.hash[:], s, i.amtPaid, i.expiry, i.circuitKey, i.mpp)
+	log.Debugf("Invoice%v: %v, amt=%v, expiry=%v, circuit=%v, mpp=%v",
+		i.invoiceRef, s, i.amtPaid, i.expiry, i.circuitKey, i.mpp)
 }
 
 // failRes is a helper function which creates a failure resolution with
@@ -71,7 +81,7 @@ func updateInvoice(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 
 		case channeldb.HtlcStateSettled:
 			return nil, ctx.settleRes(
-				inv.Terms.PaymentPreimage,
+				*inv.Terms.PaymentPreimage,
 				ResultReplayToSettled,
 			), nil
 
@@ -177,8 +187,7 @@ func updateMpp(ctx *invoiceUpdateCtx,
 
 	// Check to see if we can settle or this is an hold invoice and
 	// we need to wait for the preimage.
-	holdInvoice := inv.Terms.PaymentPreimage == channeldb.UnknownPreimage
-	if holdInvoice {
+	if inv.HodlInvoice {
 		update.State = &channeldb.InvoiceStateUpdateDesc{
 			NewState: channeldb.ContractAccepted,
 		}
@@ -191,7 +200,7 @@ func updateMpp(ctx *invoiceUpdateCtx,
 	}
 
 	return &update, ctx.settleRes(
-		inv.Terms.PaymentPreimage, ResultSettled,
+		*inv.Terms.PaymentPreimage, ResultSettled,
 	), nil
 }
 
@@ -259,14 +268,13 @@ func updateLegacy(ctx *invoiceUpdateCtx,
 
 	case channeldb.ContractSettled:
 		return &update, ctx.settleRes(
-			inv.Terms.PaymentPreimage, ResultDuplicateToSettled,
+			*inv.Terms.PaymentPreimage, ResultDuplicateToSettled,
 		), nil
 	}
 
 	// Check to see if we can settle or this is an hold invoice and we need
 	// to wait for the preimage.
-	holdInvoice := inv.Terms.PaymentPreimage == channeldb.UnknownPreimage
-	if holdInvoice {
+	if inv.HodlInvoice {
 		update.State = &channeldb.InvoiceStateUpdateDesc{
 			NewState: channeldb.ContractAccepted,
 		}
@@ -280,6 +288,6 @@ func updateLegacy(ctx *invoiceUpdateCtx,
 	}
 
 	return &update, ctx.settleRes(
-		inv.Terms.PaymentPreimage, ResultSettled,
+		*inv.Terms.PaymentPreimage, ResultSettled,
 	), nil
 }

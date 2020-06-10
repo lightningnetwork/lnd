@@ -286,6 +286,14 @@ type ChannelLinkConfig struct {
 	HtlcNotifier htlcNotifier
 }
 
+// localUpdateAddMsg contains a locally initiated htlc and a channel that will
+// receive the outcome of the link processing. This channel must be buffered to
+// prevent the link from blocking.
+type localUpdateAddMsg struct {
+	pkt *htlcPacket
+	err chan error
+}
+
 // channelLink is the service which drives a channel's commitment update
 // state-machine. In the event that an HTLC needs to be propagated to another
 // link, the forward handler from config is used which sends HTLC to the
@@ -346,6 +354,10 @@ type channelLink struct {
 	// by the HTLC switch.
 	downstream chan *htlcPacket
 
+	// localUpdateAdd is a channel to which locally initiated HTLCs are
+	// sent across.
+	localUpdateAdd chan *localUpdateAddMsg
+
 	// htlcUpdates is a channel that we'll use to update outside
 	// sub-systems with the latest set of active HTLC's on our channel.
 	htlcUpdates chan *contractcourt.ContractUpdate
@@ -395,11 +407,12 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		channel:     channel,
 		shortChanID: channel.ShortChanID(),
 		// TODO(roasbeef): just do reserve here?
-		htlcUpdates: make(chan *contractcourt.ContractUpdate),
-		hodlMap:     make(map[channeldb.CircuitKey]hodlHtlc),
-		hodlQueue:   queue.NewConcurrentQueue(10),
-		log:         build.NewPrefixLog(logPrefix, log),
-		quit:        make(chan struct{}),
+		htlcUpdates:    make(chan *contractcourt.ContractUpdate),
+		hodlMap:        make(map[channeldb.CircuitKey]hodlHtlc),
+		hodlQueue:      queue.NewConcurrentQueue(10),
+		log:            build.NewPrefixLog(logPrefix, log),
+		quit:           make(chan struct{}),
+		localUpdateAdd: make(chan *localUpdateAddMsg),
 	}
 }
 
@@ -1097,9 +1110,7 @@ func (l *channelLink) htlcManager() {
 			// including all the currently pending entries. If the
 			// send was unsuccessful, then abandon the update,
 			// waiting for the revocation window to open up.
-			if err := l.updateCommitTx(); err != nil {
-				l.fail(LinkFailureError{code: ErrInternalError},
-					"unable to update commitment: %v", err)
+			if !l.updateCommitTxOrFail() {
 				return
 			}
 
@@ -1113,6 +1124,10 @@ func (l *channelLink) htlcManager() {
 		// circuit.
 		case pkt := <-l.downstream:
 			l.handleDownstreamPkt(pkt)
+
+		// A message containing a locally initiated add was received.
+		case msg := <-l.localUpdateAdd:
+			msg.err <- l.handleDownstreamUpdateAdd(msg.pkt)
 
 		// A message from the connected peer was just received. This
 		// indicates that we have a new incoming HTLC, either directly
@@ -1256,6 +1271,86 @@ func (l *channelLink) randomFeeUpdateTimeout() time.Duration {
 	return time.Duration(prand.Int63n(upper-lower) + lower)
 }
 
+// handleDownstreamUpdateAdd processes an UpdateAddHTLC packet sent from the
+// downstream HTLC Switch.
+func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) error {
+	htlc, ok := pkt.htlc.(*lnwire.UpdateAddHTLC)
+	if !ok {
+		return errors.New("not an UpdateAddHTLC packet")
+	}
+
+	// If hodl.AddOutgoing mode is active, we exit early to simulate
+	// arbitrary delays between the switch adding an ADD to the
+	// mailbox, and the HTLC being added to the commitment state.
+	if l.cfg.HodlMask.Active(hodl.AddOutgoing) {
+		l.log.Warnf(hodl.AddOutgoing.Warning())
+		l.mailBox.AckPacket(pkt.inKey())
+		return nil
+	}
+
+	// A new payment has been initiated via the downstream channel,
+	// so we add the new HTLC to our local log, then update the
+	// commitment chains.
+	htlc.ChanID = l.ChanID()
+	openCircuitRef := pkt.inKey()
+	index, err := l.channel.AddHTLC(htlc, &openCircuitRef)
+	if err != nil {
+		// The HTLC was unable to be added to the state machine,
+		// as a result, we'll signal the switch to cancel the
+		// pending payment.
+		l.log.Warnf("Unable to handle downstream add HTLC: %v",
+			err)
+
+		// Remove this packet from the link's mailbox, this
+		// prevents it from being reprocessed if the link
+		// restarts and resets it mailbox. If this response
+		// doesn't make it back to the originating link, it will
+		// be rejected upon attempting to reforward the Add to
+		// the switch, since the circuit was never fully opened,
+		// and the forwarding package shows it as
+		// unacknowledged.
+		l.mailBox.FailAdd(pkt)
+
+		return NewDetailedLinkError(
+			lnwire.NewTemporaryChannelFailure(nil),
+			OutgoingFailureDownstreamHtlcAdd,
+		)
+	}
+
+	l.log.Tracef("received downstream htlc: payment_hash=%x, "+
+		"local_log_index=%v, pend_updates=%v",
+		htlc.PaymentHash[:], index,
+		l.channel.PendingLocalUpdateCount())
+
+	pkt.outgoingChanID = l.ShortChanID()
+	pkt.outgoingHTLCID = index
+	htlc.ID = index
+
+	l.log.Debugf("queueing keystone of ADD open circuit: %s->%s",
+		pkt.inKey(), pkt.outKey())
+
+	l.openedCircuits = append(l.openedCircuits, pkt.inKey())
+	l.keystoneBatch = append(l.keystoneBatch, pkt.keystone())
+
+	_ = l.cfg.Peer.SendMessage(false, htlc)
+
+	// Send a forward event notification to htlcNotifier.
+	l.cfg.HtlcNotifier.NotifyForwardingEvent(
+		newHtlcKey(pkt),
+		HtlcInfo{
+			IncomingTimeLock: pkt.incomingTimeout,
+			IncomingAmt:      pkt.incomingAmount,
+			OutgoingTimeLock: htlc.Expiry,
+			OutgoingAmt:      htlc.Amount,
+		},
+		getEventType(pkt),
+	)
+
+	l.tryBatchUpdateCommitTx()
+
+	return nil
+}
+
 // handleDownstreamPkt processes an HTLC packet sent from the downstream HTLC
 // Switch. Possible messages sent by the switch include requests to forward new
 // HTLCs, timeout previously cleared HTLCs, and finally to settle currently
@@ -1263,72 +1358,11 @@ func (l *channelLink) randomFeeUpdateTimeout() time.Duration {
 //
 // TODO(roasbeef): add sync ntfn to ensure switch always has consistent view?
 func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
-	var isSettle bool
 	switch htlc := pkt.htlc.(type) {
 	case *lnwire.UpdateAddHTLC:
-		// If hodl.AddOutgoing mode is active, we exit early to simulate
-		// arbitrary delays between the switch adding an ADD to the
-		// mailbox, and the HTLC being added to the commitment state.
-		if l.cfg.HodlMask.Active(hodl.AddOutgoing) {
-			l.log.Warnf(hodl.AddOutgoing.Warning())
-			l.mailBox.AckPacket(pkt.inKey())
-			return
-		}
-
-		// A new payment has been initiated via the downstream channel,
-		// so we add the new HTLC to our local log, then update the
-		// commitment chains.
-		htlc.ChanID = l.ChanID()
-		openCircuitRef := pkt.inKey()
-		index, err := l.channel.AddHTLC(htlc, &openCircuitRef)
-		if err != nil {
-			// The HTLC was unable to be added to the state machine,
-			// as a result, we'll signal the switch to cancel the
-			// pending payment.
-			l.log.Warnf("Unable to handle downstream add HTLC: %v",
-				err)
-
-			// Remove this packet from the link's mailbox, this
-			// prevents it from being reprocessed if the link
-			// restarts and resets it mailbox. If this response
-			// doesn't make it back to the originating link, it will
-			// be rejected upon attempting to reforward the Add to
-			// the switch, since the circuit was never fully opened,
-			// and the forwarding package shows it as
-			// unacknowledged.
-			l.mailBox.FailAdd(pkt)
-
-			return
-		}
-
-		l.log.Tracef("received downstream htlc: payment_hash=%x, "+
-			"local_log_index=%v, pend_updates=%v",
-			htlc.PaymentHash[:], index,
-			l.channel.PendingLocalUpdateCount())
-
-		pkt.outgoingChanID = l.ShortChanID()
-		pkt.outgoingHTLCID = index
-		htlc.ID = index
-
-		l.log.Debugf("queueing keystone of ADD open circuit: %s->%s",
-			pkt.inKey(), pkt.outKey())
-
-		l.openedCircuits = append(l.openedCircuits, pkt.inKey())
-		l.keystoneBatch = append(l.keystoneBatch, pkt.keystone())
-
-		l.cfg.Peer.SendMessage(false, htlc)
-
-		// Send a forward event notification to htlcNotifier.
-		l.cfg.HtlcNotifier.NotifyForwardingEvent(
-			newHtlcKey(pkt),
-			HtlcInfo{
-				IncomingTimeLock: pkt.incomingTimeout,
-				IncomingAmt:      pkt.incomingAmount,
-				OutgoingTimeLock: htlc.Expiry,
-				OutgoingAmt:      htlc.Amount,
-			},
-			getEventType(pkt),
-		)
+		// Handle add message. The returned error can be ignored,
+		// because it is also sent through the mailbox.
+		_ = l.handleDownstreamUpdateAdd(pkt)
 
 	case *lnwire.UpdateFulfillHTLC:
 		// If hodl.SettleOutgoing mode is active, we exit early to
@@ -1386,13 +1420,15 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 		// Then we send the HTLC settle message to the connected peer
 		// so we can continue the propagation of the settle message.
 		l.cfg.Peer.SendMessage(false, htlc)
-		isSettle = true
 
 		// Send a settle event notification to htlcNotifier.
 		l.cfg.HtlcNotifier.NotifySettleEvent(
 			newHtlcKey(pkt),
 			getEventType(pkt),
 		)
+
+		// Immediately update the commitment tx to minimize latency.
+		l.updateCommitTxOrFail()
 
 	case *lnwire.UpdateFailHTLC:
 		// If hodl.FailOutgoing mode is active, we exit early to
@@ -1450,7 +1486,6 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 		// We send the HTLC message to the peer which initially created
 		// the HTLC.
 		l.cfg.Peer.SendMessage(false, htlc)
-		isSettle = true
 
 		// If the packet does not have a link failure set, it failed
 		// further down the route so we notify a forwarding failure.
@@ -1469,19 +1504,20 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 				newHtlcKey(pkt), getEventType(pkt),
 			)
 		}
+
+		// Immediately update the commitment tx to minimize latency.
+		l.updateCommitTxOrFail()
+	}
+}
+
+// tryBatchUpdateCommitTx updates the commitment transaction if the batch is
+// full.
+func (l *channelLink) tryBatchUpdateCommitTx() {
+	if l.channel.PendingLocalUpdateCount() < uint64(l.cfg.BatchSize) {
+		return
 	}
 
-	// If this newly added update exceeds the min batch size for adds, or
-	// this is a settle request, then initiate an update.
-	if l.channel.PendingLocalUpdateCount() >= uint64(l.cfg.BatchSize) ||
-		isSettle {
-
-		if err := l.updateCommitTx(); err != nil {
-			l.fail(LinkFailureError{code: ErrInternalError},
-				"unable to update commitment: %v", err)
-			return
-		}
-	}
+	l.updateCommitTxOrFail()
 }
 
 // cleanupSpuriousResponse attempts to ack any AddRef or SettleFailRef
@@ -1753,9 +1789,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// Otherwise, the remote party initiated the state transition,
 		// so we'll reply with a signature to provide them with their
 		// version of the latest commitment.
-		if err := l.updateCommitTx(); err != nil {
-			l.fail(LinkFailureError{code: ErrInternalError},
-				"unable to update commitment: %v", err)
+		if !l.updateCommitTxOrFail() {
 			return
 		}
 
@@ -1832,9 +1866,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// but there are still remote updates that are not in the remote
 		// commit tx yet, send out an update.
 		if l.channel.OweCommitment(true) {
-			if err := l.updateCommitTx(); err != nil {
-				l.fail(LinkFailureError{code: ErrInternalError},
-					"unable to update commitment: %v", err)
+			if !l.updateCommitTxOrFail() {
 				return
 			}
 		}
@@ -1916,6 +1948,18 @@ func (l *channelLink) ackDownStreamPackets() error {
 	l.closedCircuits = l.closedCircuits[:0]
 
 	return nil
+}
+
+// updateCommitTxOrFail updates the commitment tx and if that fails, it fails
+// the link.
+func (l *channelLink) updateCommitTxOrFail() bool {
+	if err := l.updateCommitTx(); err != nil {
+		l.fail(LinkFailureError{code: ErrInternalError},
+			"unable to update commitment: %v", err)
+		return false
+	}
+
+	return true
 }
 
 // updateCommitTx signs, then sends an update to the remote peer adding a new
@@ -2310,6 +2354,33 @@ func (l *channelLink) HandleSwitchPacket(pkt *htlcPacket) error {
 		pkt.inKey(), pkt.outKey())
 
 	return l.mailBox.AddPacket(pkt)
+}
+
+// HandleLocalAddPacket handles a locally-initiated UpdateAddHTLC packet. It
+// will be processed synchronously.
+//
+// NOTE: Part of the ChannelLink interface.
+func (l *channelLink) HandleLocalAddPacket(pkt *htlcPacket) error {
+	l.log.Tracef("received switch packet outkey=%v", pkt.outKey())
+
+	// Create a buffered result channel to prevent the link from blocking.
+	errChan := make(chan error, 1)
+
+	select {
+	case l.localUpdateAdd <- &localUpdateAddMsg{
+		pkt: pkt,
+		err: errChan,
+	}:
+	case <-l.quit:
+		return ErrLinkShuttingDown
+	}
+
+	select {
+	case err := <-errChan:
+		return err
+	case <-l.quit:
+		return ErrLinkShuttingDown
+	}
 }
 
 // HandleChannelUpdate handles the htlc requests as settle/add/fail which sent

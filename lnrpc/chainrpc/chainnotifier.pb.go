@@ -8,6 +8,8 @@ import (
 	fmt "fmt"
 	proto "github.com/golang/protobuf/proto"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 	math "math"
 )
 
@@ -831,6 +833,20 @@ type ChainNotifierServer interface {
 	//point. This allows clients to be idempotent by ensuring that they do not
 	//missing processing a single block within the chain.
 	RegisterBlockEpochNtfn(*BlockEpoch, ChainNotifier_RegisterBlockEpochNtfnServer) error
+}
+
+// UnimplementedChainNotifierServer can be embedded to have forward compatible implementations.
+type UnimplementedChainNotifierServer struct {
+}
+
+func (*UnimplementedChainNotifierServer) RegisterConfirmationsNtfn(req *ConfRequest, srv ChainNotifier_RegisterConfirmationsNtfnServer) error {
+	return status.Errorf(codes.Unimplemented, "method RegisterConfirmationsNtfn not implemented")
+}
+func (*UnimplementedChainNotifierServer) RegisterSpendNtfn(req *SpendRequest, srv ChainNotifier_RegisterSpendNtfnServer) error {
+	return status.Errorf(codes.Unimplemented, "method RegisterSpendNtfn not implemented")
+}
+func (*UnimplementedChainNotifierServer) RegisterBlockEpochNtfn(req *BlockEpoch, srv ChainNotifier_RegisterBlockEpochNtfnServer) error {
+	return status.Errorf(codes.Unimplemented, "method RegisterBlockEpochNtfn not implemented")
 }
 
 func RegisterChainNotifierServer(s *grpc.Server, srv ChainNotifierServer) {

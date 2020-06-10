@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 )
@@ -44,20 +45,20 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	ctx, cancel := context.WithCancel(ctxb)
 	defer cancel()
 
-	alicePayStream, err := alice.SendPayment(ctx)
-	if err != nil {
-		t.Fatalf("unable to create payment stream for alice: %v", err)
-	}
-
 	// We'll now send a single HTLC across our multi-hop network.
 	carolPubKey := carol.PubKey[:]
 	payHash := makeFakePayHash(t)
-	err = alicePayStream.Send(&lnrpc.SendRequest{
-		Dest:           carolPubKey,
-		Amt:            int64(htlcAmt),
-		PaymentHash:    payHash,
-		FinalCltvDelta: finalCltvDelta,
-	})
+	_, err := alice.RouterClient.SendPaymentV2(
+		ctx,
+		&routerrpc.SendPaymentRequest{
+			Dest:           carolPubKey,
+			Amt:            int64(htlcAmt),
+			PaymentHash:    payHash,
+			FinalCltvDelta: finalCltvDelta,
+			TimeoutSeconds: 60,
+			FeeLimitMsat:   noFeeLimitMsat,
+		},
+	)
 	if err != nil {
 		t.Fatalf("unable to send alice htlc: %v", err)
 	}

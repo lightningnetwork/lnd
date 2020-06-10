@@ -82,7 +82,7 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 	chainArbCfg := ChainArbitratorConfig{
 		ChainIO:  &mockChainIO{},
 		Notifier: &mockNotifier{},
-		PublishTx: func(tx *wire.MsgTx) error {
+		PublishTx: func(tx *wire.MsgTx, _ string) error {
 			published[tx.TxHash()]++
 			return nil
 		},
@@ -174,7 +174,7 @@ func TestResolveContract(t *testing.T) {
 	chainArbCfg := ChainArbitratorConfig{
 		ChainIO:  &mockChainIO{},
 		Notifier: &mockNotifier{},
-		PublishTx: func(tx *wire.MsgTx) error {
+		PublishTx: func(tx *wire.MsgTx, _ string) error {
 			return nil
 		},
 		Clock: clock.NewDefaultClock(),

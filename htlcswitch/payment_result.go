@@ -180,7 +180,7 @@ func (store *networkResultStore) subscribeResult(paymentID uint64) (
 		resultChan = make(chan *networkResult, 1)
 	)
 
-	err := kvdb.View(store.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(store.db, func(tx kvdb.RTx) error {
 		var err error
 		result, err = fetchResult(tx, paymentID)
 		switch {
@@ -226,7 +226,7 @@ func (store *networkResultStore) getResult(pid uint64) (
 	*networkResult, error) {
 
 	var result *networkResult
-	err := kvdb.View(store.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(store.db, func(tx kvdb.RTx) error {
 		var err error
 		result, err = fetchResult(tx, pid)
 		return err
@@ -238,7 +238,7 @@ func (store *networkResultStore) getResult(pid uint64) (
 	return result, nil
 }
 
-func fetchResult(tx kvdb.ReadTx, pid uint64) (*networkResult, error) {
+func fetchResult(tx kvdb.RTx, pid uint64) (*networkResult, error) {
 	var paymentIDBytes [8]byte
 	binary.BigEndian.PutUint64(paymentIDBytes[:], pid)
 

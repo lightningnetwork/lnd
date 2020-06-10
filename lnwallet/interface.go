@@ -4,12 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
+	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -103,6 +105,9 @@ type TransactionDetail struct {
 
 	// RawTx returns the raw serialized transaction.
 	RawTx []byte
+
+	// Label is an optional transaction label.
+	Label string
 }
 
 // TransactionSubscription is an interface which describes an object capable of
@@ -174,7 +179,7 @@ type WalletController interface {
 	// This method also takes the target fee expressed in sat/kw that should
 	// be used when crafting the transaction.
 	SendOutputs(outputs []*wire.TxOut,
-		feeRate chainfee.SatPerKWeight) (*wire.MsgTx, error)
+		feeRate chainfee.SatPerKWeight, label string) (*wire.MsgTx, error)
 
 	// CreateSimpleTx creates a Bitcoin transaction paying to the specified
 	// outputs. The transaction is not broadcasted to the network. In the
@@ -199,8 +204,14 @@ type WalletController interface {
 	ListUnspentWitness(minconfirms, maxconfirms int32) ([]*Utxo, error)
 
 	// ListTransactionDetails returns a list of all transactions which are
-	// relevant to the wallet.
-	ListTransactionDetails() ([]*TransactionDetail, error)
+	// relevant to the wallet over [startHeight;endHeight]. If start height
+	// is greater than end height, the transactions will be retrieved in
+	// reverse order. To include unconfirmed transactions, endHeight should
+	// be set to the special value -1. This will return transactions from
+	// the tip of the chain until the start height (inclusive) and
+	// unconfirmed transactions.
+	ListTransactionDetails(startHeight,
+		endHeight int32) ([]*TransactionDetail, error)
 
 	// LockOutpoint marks an outpoint as locked meaning it will no longer
 	// be deemed as eligible for coin selection. Locking outputs are
@@ -212,14 +223,36 @@ type WalletController interface {
 	// eligible for coin selection.
 	UnlockOutpoint(o wire.OutPoint)
 
+	// LeaseOutput locks an output to the given ID, preventing it from being
+	// available for any future coin selection attempts. The absolute time
+	// of the lock's expiration is returned. The expiration of the lock can
+	// be extended by successive invocations of this call. Outputs can be
+	// unlocked before their expiration through `ReleaseOutput`.
+	//
+	// If the output is not known, wtxmgr.ErrUnknownOutput is returned. If
+	// the output has already been locked to a different ID, then
+	// wtxmgr.ErrOutputAlreadyLocked is returned.
+	LeaseOutput(id wtxmgr.LockID, op wire.OutPoint) (time.Time, error)
+
+	// ReleaseOutput unlocks an output, allowing it to be available for coin
+	// selection if it remains unspent. The ID should match the one used to
+	// originally lock the output.
+	ReleaseOutput(id wtxmgr.LockID, op wire.OutPoint) error
+
 	// PublishTransaction performs cursory validation (dust checks, etc),
 	// then finally broadcasts the passed transaction to the Bitcoin network.
 	// If the transaction is rejected because it is conflicting with an
 	// already known transaction, ErrDoubleSpend is returned. If the
 	// transaction is already known (published already), no error will be
 	// returned. Other error returned depends on the currently active chain
-	// backend.
-	PublishTransaction(tx *wire.MsgTx) error
+	// backend. It takes an optional label which will save a label with the
+	// published transaction.
+	PublishTransaction(tx *wire.MsgTx, label string) error
+
+	// LabelTransaction adds a label to a transaction. If the tx already
+	// has a label, this call will fail unless the overwrite parameter
+	// is set. Labels must not be empty, and they are limited to 500 chars.
+	LabelTransaction(hash chainhash.Hash, label string, overwrite bool) error
 
 	// SubscribeTransactions returns a TransactionSubscription client which
 	// is capable of receiving async notifications as new transactions

@@ -150,7 +150,7 @@ func (w *WitnessCache) LookupSha256Witness(hash lntypes.Hash) (lntypes.Preimage,
 // will be returned.
 func (w *WitnessCache) lookupWitness(wType WitnessType, witnessKey []byte) ([]byte, error) {
 	var witness []byte
-	err := kvdb.View(w.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(w.db, func(tx kvdb.RTx) error {
 		witnessBucket := tx.ReadBucket(witnessBucketKey)
 		if witnessBucket == nil {
 			return ErrNoWitnesses

@@ -217,6 +217,11 @@ func estimateFees(ctx *cli.Context) error {
 	return nil
 }
 
+var txLabelFlag = cli.StringFlag{
+	Name:  "label",
+	Usage: "(optional) a label for the transaction",
+}
+
 var sendCoinsCommand = cli.Command{
 	Name:      "sendcoins",
 	Category:  "On-chain",
@@ -259,6 +264,7 @@ var sendCoinsCommand = cli.Command{
 				"sat/byte that should be used when crafting " +
 				"the transaction",
 		},
+		txLabelFlag,
 	},
 	Action: actionDecorator(sendCoins),
 }
@@ -318,6 +324,7 @@ func sendCoins(ctx *cli.Context) error {
 		TargetConf: int32(ctx.Int64("conf_target")),
 		SatPerByte: ctx.Int64("sat_per_byte"),
 		SendAll:    ctx.Bool("sweepall"),
+		Label:      ctx.String(txLabelFlag.Name),
 	}
 	txid, err := client.SendCoins(ctxb, req)
 	if err != nil {
@@ -473,6 +480,7 @@ var sendManyCommand = cli.Command{
 			Usage: "(optional) a manual fee expressed in sat/byte that should be " +
 				"used when crafting the transaction",
 		},
+		txLabelFlag,
 	},
 	Action: actionDecorator(sendMany),
 }
@@ -498,6 +506,7 @@ func sendMany(ctx *cli.Context) error {
 		AddrToAmount: amountToAddr,
 		TargetConf:   int32(ctx.Int64("conf_target")),
 		SatPerByte:   ctx.Int64("sat_per_byte"),
+		Label:        ctx.String(txLabelFlag.Name),
 	})
 	if err != nil {
 		return err
@@ -658,7 +667,7 @@ var closeChannelCommand = cli.Command{
 			Name: "delivery_addr",
 			Usage: "(optional) an address to deliver funds " +
 				"upon cooperative channel closing, may only " +
-				"be used if an upfront shutdown addresss is not" +
+				"be used if an upfront shutdown address is not " +
 				"already set",
 		},
 	},
@@ -2413,11 +2422,37 @@ func debugLevel(ctx *cli.Context) error {
 }
 
 var listChainTxnsCommand = cli.Command{
-	Name:        "listchaintxns",
-	Category:    "On-chain",
-	Usage:       "List transactions from the wallet.",
-	Description: "List all transactions an address of the wallet was involved in.",
-	Action:      actionDecorator(listChainTxns),
+	Name:     "listchaintxns",
+	Category: "On-chain",
+	Usage:    "List transactions from the wallet.",
+	Flags: []cli.Flag{
+		cli.Int64Flag{
+			Name: "start_height",
+			Usage: "the block height from which to list " +
+				"transactions, inclusive",
+		},
+		cli.Int64Flag{
+			Name: "end_height",
+			Usage: "the block height until which to list " +
+				"transactions, inclusive, to get transactions " +
+				"until the chain tip, including unconfirmed, " +
+				"set this value to -1",
+		},
+	},
+	Description: `
+	List all transactions an address of the wallet was involved in.
+
+	This call will return a list of wallet related transactions that paid
+	to an address our wallet controls, or spent utxos that we held. The
+	start_height and end_height flags can be used to specify an inclusive
+	block range over which to query for transactions. If the end_height is
+	less than the start_height, transactions will be queried in reverse.
+	To get all transactions until the chain tip, including unconfirmed
+	transactions (identifiable with BlockHeight=0), set end_height to -1.
+	By default, this call will get all transactions our wallet was involved
+	in, including unconfirmed transactions. 
+`,
+	Action: actionDecorator(listChainTxns),
 }
 
 func listChainTxns(ctx *cli.Context) error {
@@ -2425,8 +2460,16 @@ func listChainTxns(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	resp, err := client.GetTransactions(ctxb, &lnrpc.GetTransactionsRequest{})
+	req := &lnrpc.GetTransactionsRequest{}
 
+	if ctx.IsSet("start_height") {
+		req.StartHeight = int32(ctx.Int64("start_height"))
+	}
+	if ctx.IsSet("end_height") {
+		req.EndHeight = int32(ctx.Int64("end_height"))
+	}
+
+	resp, err := client.GetTransactions(ctxb, req)
 	if err != nil {
 		return err
 	}

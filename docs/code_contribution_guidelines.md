@@ -452,29 +452,14 @@ _exact same_ version of `protoc`. As of the writing of this article, the `lnd`
 project uses [v3.4.0](https://github.com/google/protobuf/releases/tag/v3.4.0)
 of `protoc`.
 
-The following commit hashes of related projects are also required in order to
-generate identical compiled protos and related files:
-   * grpc-ecosystem/grpc-gateway: `f2862b476edcef83412c7af8687c9cd8e4097c0f`
-   * golang/protobuf: `ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e`
+The following two libraries must be installed with the exact commit hash as
+described in [lnrpc README](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/README.md)
+otherwise the CI pipeline on Travis will fail:
+- grpc-ecosystem/grpc-gateway
+- golang/protobuf
 
 For detailed instructions on how to compile modifications to `lnd`'s `protobuf`
 definitions, check out the [lnrpc README](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/README.md).
-
-Additionally, in order to maintain a uniform display of the RPC responses
-rendered by `lncli`, all added or modified `protof` definitions, _must_ attach
-the proper `json_name` option for all fields. An example of such an option can
-be found within the definition of the `DebugLevelResponse` struct:
-
-```protobuf
-message DebugLevelResponse {
-    string sub_systems = 1 [ json_name = "sub_systems" ];
-}
-
-```
-
-Notice how the `json_name` field option corresponds with the name of the field
-itself, and uses a `snake_case` style of name formatting. All added or modified
-`proto` fields should adhere to the format above.
 
 <a name="ExtraGoFmtStyle" />
 

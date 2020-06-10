@@ -194,7 +194,7 @@ type NurseryConfig struct {
 
 	// PublishTransaction facilitates the process of broadcasting a signed
 	// transaction to the appropriate network.
-	PublishTransaction func(*wire.MsgTx) error
+	PublishTransaction func(*wire.MsgTx, string) error
 
 	// Store provides access to and modification of the persistent state
 	// maintained about the utxo nursery's incubating outputs.
@@ -867,7 +867,7 @@ func (u *utxoNursery) sweepCribOutput(classHeight uint32, baby *babyOutput) erro
 
 	// We'll now broadcast the HTLC transaction, then wait for it to be
 	// confirmed before transitioning it to kindergarten.
-	err := u.cfg.PublishTransaction(baby.timeoutTx)
+	err := u.cfg.PublishTransaction(baby.timeoutTx, "")
 	if err != nil && err != lnwallet.ErrDoubleSpend {
 		utxnLog.Errorf("Unable to broadcast baby tx: "+
 			"%v, %v", err, spew.Sdump(baby.timeoutTx))

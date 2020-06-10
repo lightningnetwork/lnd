@@ -21,13 +21,13 @@ type unifiedPolicies struct {
 
 	// outChanRestr is an optional outgoing channel restriction for the
 	// local channel to use.
-	outChanRestr *uint64
+	outChanRestr map[uint64]struct{}
 }
 
 // newUnifiedPolicies instantiates a new unifiedPolicies object. Channel
 // policies can be added to this object.
 func newUnifiedPolicies(sourceNode, toNode route.Vertex,
-	outChanRestr *uint64) *unifiedPolicies {
+	outChanRestr map[uint64]struct{}) *unifiedPolicies {
 
 	return &unifiedPolicies{
 		policies:     make(map[route.Vertex]*unifiedPolicy),
@@ -45,10 +45,10 @@ func (u *unifiedPolicies) addPolicy(fromNode route.Vertex,
 	localChan := fromNode == u.sourceNode
 
 	// Skip channels if there is an outgoing channel restriction.
-	if localChan && u.outChanRestr != nil &&
-		*u.outChanRestr != edge.ChannelID {
-
-		return
+	if localChan && u.outChanRestr != nil {
+		if _, ok := u.outChanRestr[edge.ChannelID]; !ok {
+			return
+		}
 	}
 
 	// Update the policies map.

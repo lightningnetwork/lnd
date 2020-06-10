@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
@@ -60,12 +60,12 @@ type ClientSession struct {
 	// tower with TowerID.
 	Tower *Tower
 
-	// SessionPrivKey is the ephemeral secret key used to connect to the
-	// watchtower.
+	// SessionKeyECDH is the ECDH capable wrapper of the ephemeral secret
+	// key used to connect to the watchtower.
 	//
 	// NOTE: This value is not serialized. It is derived using the KeyIndex
 	// on startup to avoid storing private keys on disk.
-	SessionPrivKey *btcec.PrivateKey
+	SessionKeyECDH keychain.SingleKeyECDH
 }
 
 // ClientSessionBody represents the primary components of a ClientSession that

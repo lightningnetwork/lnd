@@ -204,7 +204,7 @@ func (f *ForwardingLog) Query(q ForwardingEventQuery) (ForwardingLogTimeSlice, e
 	recordsToSkip := q.IndexOffset
 	recordOffset := q.IndexOffset
 
-	err := kvdb.View(f.db, func(tx kvdb.ReadTx) error {
+	err := kvdb.View(f.db, func(tx kvdb.RTx) error {
 		// If the bucket wasn't found, then there aren't any events to
 		// be returned.
 		logBucket := tx.ReadBucket(forwardingLogBucket)

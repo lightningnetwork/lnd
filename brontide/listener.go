@@ -7,7 +7,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/lightningnetwork/lnd/keychain"
 )
 
 // defaultHandshakes is the maximum number of handshakes that can be done in
@@ -20,7 +20,7 @@ const defaultHandshakes = 1000
 // details w.r.t the handshake and encryption scheme used within the
 // connection.
 type Listener struct {
-	localStatic *btcec.PrivateKey
+	localStatic keychain.SingleKeyECDH
 
 	tcp *net.TCPListener
 
@@ -34,8 +34,9 @@ var _ net.Listener = (*Listener)(nil)
 
 // NewListener returns a new net.Listener which enforces the Brontide scheme
 // during both initial connection establishment and data transfer.
-func NewListener(localStatic *btcec.PrivateKey, listenAddr string) (*Listener,
-	error) {
+func NewListener(localStatic keychain.SingleKeyECDH,
+	listenAddr string) (*Listener, error) {
+
 	addr, err := net.ResolveTCPAddr("tcp", listenAddr)
 	if err != nil {
 		return nil, err

@@ -7,15 +7,180 @@ package walletrpc;
 
 option go_package = "github.com/lightningnetwork/lnd/lnrpc/walletrpc";
 
+// WalletKit is a service that gives access to the core functionalities of the
+// daemon's wallet.
+service WalletKit {
+    /*
+    ListUnspent returns a list of all utxos spendable by the wallet with a
+    number of confirmations between the specified minimum and maximum.
+    */
+    rpc ListUnspent (ListUnspentRequest) returns (ListUnspentResponse);
+
+    /*
+    LeaseOutput locks an output to the given ID, preventing it from being
+    available for any future coin selection attempts. The absolute time of the
+    lock's expiration is returned. The expiration of the lock can be extended by
+    successive invocations of this RPC. Outputs can be unlocked before their
+    expiration through `ReleaseOutput`.
+    */
+    rpc LeaseOutput (LeaseOutputRequest) returns (LeaseOutputResponse);
+
+    /*
+    ReleaseOutput unlocks an output, allowing it to be available for coin
+    selection if it remains unspent. The ID should match the one used to
+    originally lock the output.
+    */
+    rpc ReleaseOutput (ReleaseOutputRequest) returns (ReleaseOutputResponse);
+
+    /*
+    DeriveNextKey attempts to derive the *next* key within the key family
+    (account in BIP43) specified. This method should return the next external
+    child within this branch.
+    */
+    rpc DeriveNextKey (KeyReq) returns (signrpc.KeyDescriptor);
+
+    /*
+    DeriveKey attempts to derive an arbitrary key specified by the passed
+    KeyLocator.
+    */
+    rpc DeriveKey (signrpc.KeyLocator) returns (signrpc.KeyDescriptor);
+
+    /*
+    NextAddr returns the next unused address within the wallet.
+    */
+    rpc NextAddr (AddrRequest) returns (AddrResponse);
+
+    /*
+    PublishTransaction attempts to publish the passed transaction to the
+    network. Once this returns without an error, the wallet will continually
+    attempt to re-broadcast the transaction on start up, until it enters the
+    chain.
+    */
+    rpc PublishTransaction (Transaction) returns (PublishResponse);
+
+    /*
+    SendOutputs is similar to the existing sendmany call in Bitcoind, and
+    allows the caller to create a transaction that sends to several outputs at
+    once. This is ideal when wanting to batch create a set of transactions.
+    */
+    rpc SendOutputs (SendOutputsRequest) returns (SendOutputsResponse);
+
+    /*
+    EstimateFee attempts to query the internal fee estimator of the wallet to
+    determine the fee (in sat/kw) to attach to a transaction in order to
+    achieve the confirmation target.
+    */
+    rpc EstimateFee (EstimateFeeRequest) returns (EstimateFeeResponse);
+
+    /*
+    PendingSweeps returns lists of on-chain outputs that lnd is currently
+    attempting to sweep within its central batching engine. Outputs with similar
+    fee rates are batched together in order to sweep them within a single
+    transaction.
+
+    NOTE: Some of the fields within PendingSweepsRequest are not guaranteed to
+    remain supported. This is an advanced API that depends on the internals of
+    the UtxoSweeper, so things may change.
+    */
+    rpc PendingSweeps (PendingSweepsRequest) returns (PendingSweepsResponse);
+
+    /*
+    BumpFee bumps the fee of an arbitrary input within a transaction. This RPC
+    takes a different approach than bitcoind's bumpfee command. lnd has a
+    central batching engine in which inputs with similar fee rates are batched
+    together to save on transaction fees. Due to this, we cannot rely on
+    bumping the fee on a specific transaction, since transactions can change at
+    any point with the addition of new inputs. The list of inputs that
+    currently exist within lnd's central batching engine can be retrieved
+    through the PendingSweeps RPC.
+
+    When bumping the fee of an input that currently exists within lnd's central
+    batching engine, a higher fee transaction will be created that replaces the
+    lower fee transaction through the Replace-By-Fee (RBF) policy. If it
+
+    This RPC also serves useful when wanting to perform a Child-Pays-For-Parent
+    (CPFP), where the child transaction pays for its parent's fee. This can be
+    done by specifying an outpoint within the low fee transaction that is under
+    the control of the wallet.
+
+    The fee preference can be expressed either as a specific fee rate or a delta
+    of blocks in which the output should be swept on-chain within. If a fee
+    preference is not explicitly specified, then an error is returned.
+
+    Note that this RPC currently doesn't perform any validation checks on the
+    fee preference being provided. For now, the responsibility of ensuring that
+    the new fee preference is sufficient is delegated to the user.
+    */
+    rpc BumpFee (BumpFeeRequest) returns (BumpFeeResponse);
+
+    /*
+    ListSweeps returns a list of the sweep transactions our node has produced.
+    Note that these sweeps may not be confirmed yet, as we record sweeps on
+    broadcast, not confirmation.
+    */
+    rpc ListSweeps (ListSweepsRequest) returns (ListSweepsResponse);
+
+    /*
+    LabelTransaction adds a label to a transaction. If the transaction already
+    has a label the call will fail unless the overwrite bool is set. This will
+    overwrite the exiting transaction label. Labels must not be empty, and
+    cannot exceed 500 characters.
+    */
+    rpc LabelTransaction (LabelTransactionRequest)
+        returns (LabelTransactionResponse);
+}
+
+message ListUnspentRequest {
+    // The minimum number of confirmations to be included.
+    int32 min_confs = 1;
+
+    // The maximum number of confirmations to be included.
+    int32 max_confs = 2;
+}
+
+message ListUnspentResponse {
+    // A list of utxos satisfying the specified number of confirmations.
+    repeated lnrpc.Utxo utxos = 1;
+}
+
+message LeaseOutputRequest {
+    /*
+    An ID of 32 random bytes that must be unique for each distinct application
+    using this RPC which will be used to bound the output lease to.
+    */
+    bytes id = 1;
+
+    // The identifying outpoint of the output being leased.
+    lnrpc.OutPoint outpoint = 2;
+}
+
+message LeaseOutputResponse {
+    /*
+    The absolute expiration of the output lease represented as a unix timestamp.
+    */
+    uint64 expiration = 1;
+}
+
+message ReleaseOutputRequest {
+    // The unique ID that was used to lock the output.
+    bytes id = 1;
+
+    // The identifying outpoint of the output being released.
+    lnrpc.OutPoint outpoint = 2;
+}
+
+message ReleaseOutputResponse {
+}
+
 message KeyReq {
-    /**
+    /*
     Is the key finger print of the root pubkey that this request is targeting.
     This allows the WalletKit to possibly serve out keys for multiple HD chains
     via public derivation.
     */
     int32 key_finger_print = 1;
 
-    /**
+    /*
     The target key family to derive a key from. In other contexts, this is
     known as the "account".
     */
@@ -26,20 +191,25 @@ message AddrRequest {
     // No fields, as we always give out a p2wkh address.
 }
 message AddrResponse {
-    /**
+    /*
     The address encoded using a bech32 format.
     */
     string addr = 1;
 }
 
 message Transaction {
-    /**
+    /*
     The raw serialized transaction.
     */
     bytes tx_hex = 1;
+
+    /*
+    An optional label to save with the transaction. Limited to 500 characters.
+    */
+    string label = 2;
 }
 message PublishResponse {
-    /**
+    /*
     If blank, then no error occurred and the transaction was successfully
     published. If not the empty string, then a string representation of the
     broadcast error.
@@ -50,32 +220,35 @@ message PublishResponse {
 }
 
 message SendOutputsRequest {
-    /**
+    /*
     The number of satoshis per kilo weight that should be used when crafting
     this transaction.
     */
     int64 sat_per_kw = 1;
 
-    /**
+    /*
     A slice of the outputs that should be created in the transaction produced.
     */
     repeated signrpc.TxOut outputs = 2;
+
+    // An optional label for the transaction, limited to 500 characters.
+    string label = 3;
 }
 message SendOutputsResponse {
-    /**
+    /*
     The serialized transaction sent out on the network.
     */
     bytes raw_tx = 1;
 }
 
 message EstimateFeeRequest {
-    /**
+    /*
     The number of confirmations to shoot for when estimating the fee.
     */
     int32 conf_target = 1;
 }
 message EstimateFeeResponse {
-    /**
+    /*
     The amount of satoshis per kw that should be used in order to reach the
     confirmation target in the request.
     */
@@ -204,7 +377,7 @@ message PendingSweep {
     // The requested fee rate, expressed in sat/byte, for this output.
     uint32 requested_sat_per_byte = 9;
 
-    /**
+    /*
     Whether this input must be force-swept. This means that it is swept even
     if it has a negative yield.
     */
@@ -234,7 +407,7 @@ message BumpFeeRequest {
     */
     uint32 sat_per_byte = 3;
 
-    /**
+    /*
     Whether this input must be force-swept. This means that it is swept even
     if it has a negative yield.
     */
@@ -244,85 +417,40 @@ message BumpFeeRequest {
 message BumpFeeResponse {
 }
 
-service WalletKit {
-    /**
-    DeriveNextKey attempts to derive the *next* key within the key family
-    (account in BIP43) specified. This method should return the next external
-    child within this branch.
-    */
-    rpc DeriveNextKey (KeyReq) returns (signrpc.KeyDescriptor);
-
-    /**
-    DeriveKey attempts to derive an arbitrary key specified by the passed
-    KeyLocator.
-    */
-    rpc DeriveKey (signrpc.KeyLocator) returns (signrpc.KeyDescriptor);
-
-    /**
-    NextAddr returns the next unused address within the wallet.
-    */
-    rpc NextAddr (AddrRequest) returns (AddrResponse);
-
-    /**
-    PublishTransaction attempts to publish the passed transaction to the
-    network. Once this returns without an error, the wallet will continually
-    attempt to re-broadcast the transaction on start up, until it enters the
-    chain.
-    */
-    rpc PublishTransaction (Transaction) returns (PublishResponse);
-
-    /**
-    SendOutputs is similar to the existing sendmany call in Bitcoind, and
-    allows the caller to create a transaction that sends to several outputs at
-    once. This is ideal when wanting to batch create a set of transactions.
-    */
-    rpc SendOutputs (SendOutputsRequest) returns (SendOutputsResponse);
-
-    /**
-    EstimateFee attempts to query the internal fee estimator of the wallet to
-    determine the fee (in sat/kw) to attach to a transaction in order to
-    achieve the confirmation target.
-    */
-    rpc EstimateFee (EstimateFeeRequest) returns (EstimateFeeResponse);
-
+message ListSweepsRequest {
     /*
-    PendingSweeps returns lists of on-chain outputs that lnd is currently
-    attempting to sweep within its central batching engine. Outputs with similar
-    fee rates are batched together in order to sweep them within a single
-    transaction.
-
-    NOTE: Some of the fields within PendingSweepsRequest are not guaranteed to
-    remain supported. This is an advanced API that depends on the internals of
-    the UtxoSweeper, so things may change.
+    Retrieve the full sweep transaction details. If false, only the sweep txids
+    will be returned.
     */
-    rpc PendingSweeps (PendingSweepsRequest) returns (PendingSweepsResponse);
+    bool verbose = 1;
+}
 
-    /*
-    BumpFee bumps the fee of an arbitrary input within a transaction. This RPC
-    takes a different approach than bitcoind's bumpfee command. lnd has a
-    central batching engine in which inputs with similar fee rates are batched
-    together to save on transaction fees. Due to this, we cannot rely on
-    bumping the fee on a specific transaction, since transactions can change at
-    any point with the addition of new inputs. The list of inputs that
-    currently exist within lnd's central batching engine can be retrieved
-    through the PendingSweeps RPC.
+message ListSweepsResponse {
+    message TransactionIDs {
+        /*
+        Reversed, hex-encoded string representing the transaction ids of the
+        sweeps that our node has broadcast. Note that these transactions may
+        not have confirmed yet, we record sweeps on broadcast, not confirmation.
+        */
+        repeated string transaction_ids = 1;
+    }
 
-    When bumping the fee of an input that currently exists within lnd's central
-    batching engine, a higher fee transaction will be created that replaces the
-    lower fee transaction through the Replace-By-Fee (RBF) policy. If it
+    oneof sweeps {
+        lnrpc.TransactionDetails transaction_details = 1;
+        TransactionIDs transaction_ids = 2;
+    }
+}
 
-    This RPC also serves useful when wanting to perform a Child-Pays-For-Parent
-    (CPFP), where the child transaction pays for its parent's fee. This can be
-    done by specifying an outpoint within the low fee transaction that is under
-    the control of the wallet.
+message LabelTransactionRequest {
+    // The txid of the transaction to label.
+    bytes txid = 1;
 
-    The fee preference can be expressed either as a specific fee rate or a delta
-    of blocks in which the output should be swept on-chain within. If a fee
-    preference is not explicitly specified, then an error is returned.
+    // The label to add to the transaction, limited to 500 characters.
+    string label = 2;
 
-    Note that this RPC currently doesn't perform any validation checks on the
-    fee preference being provided. For now, the responsibility of ensuring that
-    the new fee preference is sufficient is delegated to the user.
-    */
-    rpc BumpFee (BumpFeeRequest) returns (BumpFeeResponse);
+    // Whether to overwrite the existing label, if it is present.
+    bool overwrite = 3;
+}
+
+message LabelTransactionResponse {
 }

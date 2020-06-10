@@ -1,6 +1,5 @@
 syntax = "proto3";
 
-import "google/api/annotations.proto";
 import "rpc.proto";
 
 package invoicesrpc;
@@ -10,7 +9,7 @@ option go_package = "github.com/lightningnetwork/lnd/lnrpc/invoicesrpc";
 // Invoices is a service that can be used to create, accept, settle and cancel
 // invoices.
 service Invoices {
-    /**
+    /*
     SubscribeSingleInvoice returns a uni-directional stream (server -> client)
     to notify the client of state transitions of the specified invoice.
     Initially the current invoice state is always sent out.
@@ -18,20 +17,20 @@ service Invoices {
     rpc SubscribeSingleInvoice (SubscribeSingleInvoiceRequest)
         returns (stream lnrpc.Invoice);
 
-    /**
+    /*
     CancelInvoice cancels a currently open invoice. If the invoice is already
     canceled, this call will succeed. If the invoice is already settled, it will
     fail.
     */
     rpc CancelInvoice (CancelInvoiceMsg) returns (CancelInvoiceResp);
 
-    /**
+    /*
     AddHoldInvoice creates a hold invoice. It ties the invoice to the hash
     supplied in the request.
     */
     rpc AddHoldInvoice (AddHoldInvoiceRequest) returns (AddHoldInvoiceResp);
 
-    /**
+    /*
     SettleInvoice settles an accepted invoice. If the invoice is already
     settled, this call will succeed.
     */
@@ -39,14 +38,14 @@ service Invoices {
 }
 
 message CancelInvoiceMsg {
-    /// Hash corresponding to the (hold) invoice to cancel.
+    // Hash corresponding to the (hold) invoice to cancel.
     bytes payment_hash = 1;
 }
 message CancelInvoiceResp {
 }
 
 message AddHoldInvoiceRequest {
-    /**
+    /*
     An optional memo to attach along with the invoice. Used for record keeping
     purposes for the invoice's creator, and will also be set in the description
     field of the encoded payment request if the description_hash field is not
@@ -54,51 +53,51 @@ message AddHoldInvoiceRequest {
     */
     string memo = 1;
 
-    /// The hash of the preimage
+    // The hash of the preimage
     bytes hash = 2;
 
-    /**
+    /*
     The value of this invoice in satoshis
 
     The fields value and value_msat are mutually exclusive.
     */
     int64 value = 3;
 
-    /**
+    /*
     The value of this invoice in millisatoshis
 
     The fields value and value_msat are mutually exclusive.
     */
     int64 value_msat = 10;
 
-    /**
+    /*
     Hash (SHA-256) of a description of the payment. Used if the description of
     payment (memo) is too long to naturally fit within the description field
     of an encoded payment request.
     */
     bytes description_hash = 4;
 
-    /// Payment request expiry time in seconds. Default is 3600 (1 hour).
+    // Payment request expiry time in seconds. Default is 3600 (1 hour).
     int64 expiry = 5;
 
-    /// Fallback on-chain address.
+    // Fallback on-chain address.
     string fallback_addr = 6;
 
-    /// Delta to use for the time-lock of the CLTV extended to the final hop.
+    // Delta to use for the time-lock of the CLTV extended to the final hop.
     uint64 cltv_expiry = 7;
 
-    /**
+    /*
     Route hints that can each be individually used to assist in reaching the
     invoice's destination.
     */
     repeated lnrpc.RouteHint route_hints = 8;
 
-    /// Whether this invoice should include routing hints for private channels.
+    // Whether this invoice should include routing hints for private channels.
     bool private = 9;
 }
 
 message AddHoldInvoiceResp {
-    /**
+    /*
     A bare-bones invoice for a payment within the Lightning Network.  With the
     details of the invoice, the sender has all the data necessary to send a
     payment to the recipient.
@@ -107,8 +106,8 @@ message AddHoldInvoiceResp {
 }
 
 message SettleInvoiceMsg {
-    /// Externally discovered pre-image that should be used to settle the hold
-    /// invoice.
+    // Externally discovered pre-image that should be used to settle the hold
+    // invoice.
     bytes preimage = 1;
 }
 
@@ -118,6 +117,6 @@ message SettleInvoiceResp {
 message SubscribeSingleInvoiceRequest {
     reserved 1;
 
-    /// Hash corresponding to the (hold) invoice to subscribe to.
+    // Hash corresponding to the (hold) invoice to subscribe to.
     bytes r_hash = 2;
 }

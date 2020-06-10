@@ -13,6 +13,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"google.golang.org/grpc"
@@ -63,6 +64,11 @@ var (
 	// has been shut down.
 	ErrChainNotifierServerShuttingDown = errors.New("chain notifier RPC " +
 		"subserver shutting down")
+
+	// ErrChainNotifierServerNotActive indicates that the chain notifier hasn't
+	// finished the startup process.
+	ErrChainNotifierServerNotActive = errors.New("chain notifier RPC is" +
+		"still in the process of starting")
 )
 
 // fileExists reports whether the named file or directory exists.
@@ -184,6 +190,28 @@ func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	return nil
 }
 
+// RegisterWithRestServer will be called by the root REST mux to direct a sub
+// RPC server to register itself with the main REST mux server. Until this is
+// called, each sub-server won't be able to have requests routed towards it.
+//
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (s *Server) RegisterWithRestServer(ctx context.Context,
+	mux *runtime.ServeMux, dest string, opts []grpc.DialOption) error {
+
+	// We make sure that we register it with the main REST server to ensure
+	// all our methods are routed properly.
+	err := RegisterChainNotifierHandlerFromEndpoint(ctx, mux, dest, opts)
+	if err != nil {
+		log.Errorf("Could not register ChainNotifier REST server "+
+			"with root REST server: %v", err)
+		return err
+	}
+
+	log.Debugf("ChainNotifier REST server successfully registered with " +
+		"root REST server")
+	return nil
+}
+
 // RegisterConfirmationsNtfn is a synchronous response-streaming RPC that
 // registers an intent for a client to be notified once a confirmation request
 // has reached its required number of confirmations on-chain.
@@ -195,6 +223,10 @@ func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
 // NOTE: This is part of the chainrpc.ChainNotifierService interface.
 func (s *Server) RegisterConfirmationsNtfn(in *ConfRequest,
 	confStream ChainNotifier_RegisterConfirmationsNtfnServer) error {
+
+	if !s.cfg.ChainNotifier.Started() {
+		return ErrChainNotifierServerNotActive
+	}
 
 	// We'll start by reconstructing the RPC request into what the
 	// underlying ChainNotifier expects.
@@ -291,6 +323,10 @@ func (s *Server) RegisterConfirmationsNtfn(in *ConfRequest,
 // NOTE: This is part of the chainrpc.ChainNotifierService interface.
 func (s *Server) RegisterSpendNtfn(in *SpendRequest,
 	spendStream ChainNotifier_RegisterSpendNtfnServer) error {
+
+	if !s.cfg.ChainNotifier.Started() {
+		return ErrChainNotifierServerNotActive
+	}
 
 	// We'll start by reconstructing the RPC request into what the
 	// underlying ChainNotifier expects.
@@ -398,6 +434,10 @@ func (s *Server) RegisterSpendNtfn(in *SpendRequest,
 // NOTE: This is part of the chainrpc.ChainNotifierService interface.
 func (s *Server) RegisterBlockEpochNtfn(in *BlockEpoch,
 	epochStream ChainNotifier_RegisterBlockEpochNtfnServer) error {
+
+	if !s.cfg.ChainNotifier.Started() {
+		return ErrChainNotifierServerNotActive
+	}
 
 	// We'll start by reconstructing the RPC request into what the
 	// underlying ChainNotifier expects.

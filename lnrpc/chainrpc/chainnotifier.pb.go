@@ -615,7 +615,9 @@ func init() {
 	proto.RegisterType((*BlockEpoch)(nil), "chainrpc.BlockEpoch")
 }
 
-func init() { proto.RegisterFile("chainrpc/chainnotifier.proto", fileDescriptor_b10e6f8a1c9d2638) }
+func init() {
+	proto.RegisterFile("chainrpc/chainnotifier.proto", fileDescriptor_b10e6f8a1c9d2638)
+}
 
 var fileDescriptor_b10e6f8a1c9d2638 = []byte{
 	// 574 bytes of a gzipped FileDescriptorProto
@@ -659,11 +661,11 @@ var fileDescriptor_b10e6f8a1c9d2638 = []byte{
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ context.Context
-var _ grpc.ClientConn
+var _ grpc.ClientConnInterface
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
-const _ = grpc.SupportPackageIsVersion4
+const _ = grpc.SupportPackageIsVersion6
 
 // ChainNotifierClient is the client API for ChainNotifier service.
 //
@@ -700,10 +702,10 @@ type ChainNotifierClient interface {
 }
 
 type chainNotifierClient struct {
-	cc *grpc.ClientConn
+	cc grpc.ClientConnInterface
 }
 
-func NewChainNotifierClient(cc *grpc.ClientConn) ChainNotifierClient {
+func NewChainNotifierClient(cc grpc.ClientConnInterface) ChainNotifierClient {
 	return &chainNotifierClient{cc}
 }
 

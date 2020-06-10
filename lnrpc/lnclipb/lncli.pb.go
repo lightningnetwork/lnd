@@ -74,7 +74,9 @@ func init() {
 	proto.RegisterType((*VersionResponse)(nil), "lnclipb.VersionResponse")
 }
 
-func init() { proto.RegisterFile("lnclipb/lncli.proto", fileDescriptor_88b54c9c61b986c4) }
+func init() {
+	proto.RegisterFile("lnclipb/lncli.proto", fileDescriptor_88b54c9c61b986c4)
+}
 
 var fileDescriptor_88b54c9c61b986c4 = []byte{
 	// 159 bytes of a gzipped FileDescriptorProto

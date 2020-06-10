@@ -172,7 +172,9 @@ func init() {
 	proto.RegisterType((*Version)(nil), "verrpc.Version")
 }
 
-func init() { proto.RegisterFile("verrpc/verrpc.proto", fileDescriptor_494312204cefa0e6) }
+func init() {
+	proto.RegisterFile("verrpc/verrpc.proto", fileDescriptor_494312204cefa0e6)
+}
 
 var fileDescriptor_494312204cefa0e6 = []byte{
 	// 300 bytes of a gzipped FileDescriptorProto
@@ -199,11 +201,11 @@ var fileDescriptor_494312204cefa0e6 = []byte{
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ context.Context
-var _ grpc.ClientConn
+var _ grpc.ClientConnInterface
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
-const _ = grpc.SupportPackageIsVersion4
+const _ = grpc.SupportPackageIsVersion6
 
 // VersionerClient is the client API for Versioner service.
 //
@@ -216,10 +218,10 @@ type VersionerClient interface {
 }
 
 type versionerClient struct {
-	cc *grpc.ClientConn
+	cc grpc.ClientConnInterface
 }
 
-func NewVersionerClient(cc *grpc.ClientConn) VersionerClient {
+func NewVersionerClient(cc grpc.ClientConnInterface) VersionerClient {
 	return &versionerClient{cc}
 }
 

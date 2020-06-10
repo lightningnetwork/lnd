@@ -203,7 +203,7 @@ message UnlockWalletRequest {
     recover the funds in each channel from a remote force closed transaction.
     */
     ChanBackupSnapshot channel_backups = 3;
-    
+
     /**
     stateless_init is an optional argument instructing the daemon NOT to
     create any *.macaroon files.
@@ -232,7 +232,7 @@ message ChangePasswordRequest {
     macaroon in the response.
     */
     bool stateless_init = 3;
-    
+
     /**
     new_macaroon_root_key is an optional argument instructing the daemon
     to rotate the macaroon root key when set to true. This will invalidate all

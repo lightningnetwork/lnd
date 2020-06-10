@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -258,7 +259,15 @@ func (w *WalletKit) ListUnspent(ctx context.Context,
 
 	// With our arguments validated, we'll query the internal wallet for
 	// the set of UTXOs that match our query.
-	utxos, err := w.cfg.Wallet.ListUnspentWitness(minConfs, maxConfs)
+	//
+	// We'll acquire the global coin selection lock to ensure there aren't
+	// any other concurrent processes attempting to lock any UTXOs which may
+	// be shown available to us.
+	var utxos []*lnwallet.Utxo
+	err = w.cfg.CoinSelectionLocker.WithCoinSelectLock(func() error {
+		utxos, err = w.cfg.Wallet.ListUnspentWitness(minConfs, maxConfs)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -301,7 +310,13 @@ func (w *WalletKit) LeaseOutput(ctx context.Context,
 		return nil, err
 	}
 
-	expiration, err := w.cfg.Wallet.LeaseOutput(lockID, *op)
+	// Acquire the global coin selection lock to ensure there aren't any
+	// other concurrent processes attempting to lease the same UTXO.
+	var expiration time.Time
+	err = w.cfg.CoinSelectionLocker.WithCoinSelectLock(func() error {
+		expiration, err = w.cfg.Wallet.LeaseOutput(lockID, *op)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +343,12 @@ func (w *WalletKit) ReleaseOutput(ctx context.Context,
 		return nil, err
 	}
 
-	if err := w.cfg.Wallet.ReleaseOutput(lockID, *op); err != nil {
+	// Acquire the global coin selection lock to maintain consistency as
+	// it's acquired when we initially leased the output.
+	err = w.cfg.CoinSelectionLocker.WithCoinSelectLock(func() error {
+		return w.cfg.Wallet.ReleaseOutput(lockID, *op)
+	})
+	if err != nil {
 		return nil, err
 	}
 

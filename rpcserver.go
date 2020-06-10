@@ -950,7 +950,17 @@ func (r *rpcServer) ListUnspent(ctx context.Context,
 
 	// With our arguments validated, we'll query the internal wallet for
 	// the set of UTXOs that match our query.
-	utxos, err := r.server.cc.wallet.ListUnspentWitness(minConfs, maxConfs)
+	//
+	// We'll acquire the global coin selection lock to ensure there aren't
+	// any other concurrent processes attempting to lock any UTXOs which may
+	// be shown available to us.
+	var utxos []*lnwallet.Utxo
+	err = r.server.cc.wallet.WithCoinSelectLock(func() error {
+		utxos, err = r.server.cc.wallet.ListUnspentWitness(
+			minConfs, maxConfs,
+		)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}

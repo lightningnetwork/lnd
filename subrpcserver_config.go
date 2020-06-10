@@ -153,6 +153,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config, cc *chainControl
 			subCfgValue.FieldByName("Wallet").Set(
 				reflect.ValueOf(cc.wallet),
 			)
+			subCfgValue.FieldByName("CoinSelectionLocker").Set(
+				reflect.ValueOf(cc.wallet),
+			)
 			subCfgValue.FieldByName("KeyRing").Set(
 				reflect.ValueOf(cc.keyRing),
 			)

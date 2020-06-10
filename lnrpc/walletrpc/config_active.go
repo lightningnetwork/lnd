@@ -38,6 +38,13 @@ type Config struct {
 	// any relevant requests to.
 	Wallet lnwallet.WalletController
 
+	// CoinSelectionLocker allows the caller to perform an operation, which
+	// is synchronized with all coin selection attempts. This can be used
+	// when an operation requires that all coin selection operations cease
+	// forward progress. Think of this as an exclusive lock on coin
+	// selection operations.
+	CoinSelectionLocker sweep.CoinSelectionLocker
+
 	// KeyRing is an interface that the WalletKit will use to derive any
 	// keys due to incoming client requests.
 	KeyRing keychain.KeyRing

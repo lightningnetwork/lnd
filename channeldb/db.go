@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"time"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
@@ -974,13 +973,6 @@ type ChannelShell struct {
 // well. This method is idempotent, so repeated calls with the same set of
 // channel shells won't modify the database after the initial call.
 func (d *DB) RestoreChannelShells(channelShells ...*ChannelShell) error {
-	chanGraph := d.ChannelGraph()
-
-	// TODO(conner): find way to do this w/o accessing internal members?
-	chanGraph.cacheMu.Lock()
-	defer chanGraph.cacheMu.Unlock()
-
-	var chansRestored []uint64
 	err := kvdb.Update(d, func(tx kvdb.RwTx) error {
 		for _, channelShell := range channelShells {
 			channel := channelShell.Chan
@@ -1002,83 +994,12 @@ func (d *DB) RestoreChannelShells(channelShells ...*ChannelShell) error {
 			if err != nil {
 				return err
 			}
-
-			// Next, we'll create an active edge in the graph
-			// database for this channel in order to restore our
-			// partial view of the network.
-			//
-			// TODO(roasbeef): if we restore *after* the channel
-			// has been closed on chain, then need to inform the
-			// router that it should try and prune these values as
-			// we can detect them
-			edgeInfo := ChannelEdgeInfo{
-				ChannelID:    channel.ShortChannelID.ToUint64(),
-				ChainHash:    channel.ChainHash,
-				ChannelPoint: channel.FundingOutpoint,
-				Capacity:     channel.Capacity,
-			}
-
-			nodes := tx.ReadWriteBucket(nodeBucket)
-			if nodes == nil {
-				return ErrGraphNotFound
-			}
-			selfNode, err := chanGraph.sourceNode(nodes)
-			if err != nil {
-				return err
-			}
-
-			// Depending on which pub key is smaller, we'll assign
-			// our roles as "node1" and "node2".
-			chanPeer := channel.IdentityPub.SerializeCompressed()
-			selfIsSmaller := bytes.Compare(
-				selfNode.PubKeyBytes[:], chanPeer,
-			) == -1
-			if selfIsSmaller {
-				copy(edgeInfo.NodeKey1Bytes[:], selfNode.PubKeyBytes[:])
-				copy(edgeInfo.NodeKey2Bytes[:], chanPeer)
-			} else {
-				copy(edgeInfo.NodeKey1Bytes[:], chanPeer)
-				copy(edgeInfo.NodeKey2Bytes[:], selfNode.PubKeyBytes[:])
-			}
-
-			// With the edge info shell constructed, we'll now add
-			// it to the graph.
-			err = chanGraph.addChannelEdge(tx, &edgeInfo)
-			if err != nil && err != ErrEdgeAlreadyExist {
-				return err
-			}
-
-			// Similarly, we'll construct a channel edge shell and
-			// add that itself to the graph.
-			chanEdge := ChannelEdgePolicy{
-				ChannelID:  edgeInfo.ChannelID,
-				LastUpdate: time.Now(),
-			}
-
-			// If their pubkey is larger, then we'll flip the
-			// direction bit to indicate that us, the "second" node
-			// is updating their policy.
-			if !selfIsSmaller {
-				chanEdge.ChannelFlags |= lnwire.ChanUpdateDirection
-			}
-
-			_, err = updateEdgePolicy(tx, &chanEdge)
-			if err != nil {
-				return err
-			}
-
-			chansRestored = append(chansRestored, edgeInfo.ChannelID)
 		}
 
 		return nil
 	})
 	if err != nil {
 		return err
-	}
-
-	for _, chanid := range chansRestored {
-		chanGraph.rejectCache.remove(chanid)
-		chanGraph.chanCache.remove(chanid)
 	}
 
 	return nil

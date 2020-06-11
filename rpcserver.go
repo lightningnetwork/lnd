@@ -1894,6 +1894,13 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	}
 }
 
+func (r *rpcServer) BatchOpenChannel(in *lnrpc.BatchOpenChannelRequest,
+	updateStream lnrpc.Lightning_BatchOpenChannelServer) error {
+
+	// TODO
+	return nil
+}
+
 // parseUpfrontShutdownScript attempts to parse an upfront shutdown address.
 // If the address is empty, it returns nil. If it successfully decoded the
 // address, it returns a script that pays out to the address.

@@ -186,6 +186,13 @@ service Lightning {
     */
     rpc OpenChannel (OpenChannelRequest) returns (stream OpenStatusUpdate);
 
+
+    // TODO
+    /* BatchOpenChannel attempts to open multiple singly-funded channels
+    specified in the request.
+    */
+    rpc BatchOpenChannel (BatchOpenChannelRequest) returns (stream BatchOpenStatusUpdate);
+
     /*
     FundingStateStep is an advanced funding related call that allows the caller
     to either execute some preparatory steps for a funding workflow, or
@@ -1586,6 +1593,27 @@ message OpenChannelRequest {
     */
     FundingShim funding_shim = 14;
 }
+
+message ChannelOpenStatusUpdate {
+    oneof update {
+        /*
+        Signals that the channel is now fully negotiated and the funding
+        transaction published.
+        */
+        PendingUpdate chan_pending = 1;
+
+        /*
+        Signals that the channel's funding transaction has now reached the
+        required number of confirmations on chain and can be used.
+        */
+        ChannelOpenUpdate chan_open = 2;
+    }
+}
+
+message BatchOpenStatusUpdate {
+    repeated ChannelOpenUpdate updates = 1;
+}
+
 message OpenStatusUpdate {
     oneof update {
         /*

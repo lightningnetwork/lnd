@@ -2386,6 +2386,52 @@
         }
       }
     },
+    "lnrpcBatchOpenChannelRequestItem": {
+      "type": "object",
+      "properties": {
+        "node_pubkey": {
+          "type": "string",
+          "format": "byte",
+          "description": "The pubkey of the node to open a channel with. When using REST, this\nfield must be encoded as base64."
+        },
+        "local_funding_amount": {
+          "type": "string",
+          "format": "int64",
+          "title": "The number of satoshis the wallet should commit to the channel"
+        },
+        "push_sat": {
+          "type": "string",
+          "format": "int64",
+          "title": "The number of satoshis to push to the remote side as part of the initial\ncommitment state"
+        },
+        "private": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Whether this channel should be private, not announced to the greater\nnetwork."
+        },
+        "min_htlc_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The minimum value in millisatoshi we will require for incoming HTLCs on\nthe channel."
+        },
+        "remote_csv_delay": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The delay we require on the remote's commitment transaction. If this is\nnot set, it will be scaled automatically with the channel size."
+        }
+      }
+    },
+    "lnrpcBatchOpenStatusUpdate": {
+      "type": "object",
+      "properties": {
+        "updates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcChannelOpenUpdate"
+          }
+        }
+      }
+    },
     "lnrpcChain": {
       "type": "object",
       "properties": {

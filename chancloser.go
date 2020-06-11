@@ -27,10 +27,10 @@ var (
 	// a message while it is in an unknown state.
 	ErrInvalidState = fmt.Errorf("invalid state")
 
-	// errUpfrontShutdownScriptMismatch is returned when a peer or end user
+	// ErrUpfrontShutdownScriptMismatch is returned when a peer or end user
 	// provides a script to cooperatively close out to which does not match
 	// the upfront shutdown script previously set for that party.
-	errUpfrontShutdownScriptMismatch = fmt.Errorf("shutdown " +
+	ErrUpfrontShutdownScriptMismatch = fmt.Errorf("shutdown " +
 		"script does not match upfront shutdown script")
 )
 
@@ -71,30 +71,30 @@ const (
 	closeFinished
 )
 
-// chanCloseCfg holds all the items that a channelCloser requires to carry out
+// ChanCloseCfg holds all the items that a channelCloser requires to carry out
 // its duties.
-type chanCloseCfg struct {
-	// channel is the channel that should be closed.
-	channel *lnwallet.LightningChannel
+type ChanCloseCfg struct {
+	// Channel is the channel that should be closed.
+	Channel *lnwallet.LightningChannel
 
-	// unregisterChannel is a function closure that allows the
+	// UnregisterChannel is a function closure that allows the
 	// channelCloser to re-register a channel. Once this has been done, no
 	// further HTLC's should be routed through the channel.
-	unregisterChannel func(lnwire.ChannelID)
+	UnregisterChannel func(lnwire.ChannelID)
 
-	// broadcastTx broadcasts the passed transaction to the network.
-	broadcastTx func(*wire.MsgTx, string) error
+	// BroadcastTx broadcasts the passed transaction to the network.
+	BroadcastTx func(*wire.MsgTx, string) error
 
-	// disableChannel disables a channel, resulting in it not being able to
+	// DisableChannel disables a channel, resulting in it not being able to
 	// forward payments.
-	disableChannel func(wire.OutPoint) error
+	DisableChannel func(wire.OutPoint) error
 
-	// disconnect will disconnect from the remote peer in this close.
-	disconnect func() error
+	// Disconnect will disconnect from the remote peer in this close.
+	Disconnect func() error
 
-	// quit is a channel that should be sent upon in the occasion the state
+	// Quit is a channel that should be sent upon in the occasion the state
 	// machine should cease all progress and shutdown.
-	quit chan struct{}
+	Quit chan struct{}
 }
 
 // channelCloser is a state machine that handles the cooperative channel
@@ -106,7 +106,7 @@ type channelCloser struct {
 	state closeState
 
 	// cfg holds the configuration for this channelCloser instance.
-	cfg chanCloseCfg
+	cfg ChanCloseCfg
 
 	// chanPoint is the full channel point of the target channel.
 	chanPoint wire.OutPoint
@@ -159,10 +159,10 @@ type channelCloser struct {
 	locallyInitiated bool
 }
 
-// newChannelCloser creates a new instance of the channel closure given the
+// NewChanCloser creates a new instance of the channel closure given the
 // passed configuration, and delivery+fee preference. The final argument should
 // only be populated iff, we're the initiator of this closing request.
-func newChannelCloser(cfg chanCloseCfg, deliveryScript []byte,
+func NewChanCloser(cfg ChanCloseCfg, deliveryScript []byte,
 	idealFeePerKw chainfee.SatPerKWeight, negotiationHeight uint32,
 	closeReq *htlcswitch.ChanClose, locallyInitiated bool) *channelCloser {
 
@@ -170,14 +170,14 @@ func newChannelCloser(cfg chanCloseCfg, deliveryScript []byte,
 	// fee will be starting at for this fee negotiation.
 	//
 	// TODO(roasbeef): should factor in minimal commit
-	idealFeeSat := cfg.channel.CalcFee(idealFeePerKw)
+	idealFeeSat := cfg.Channel.CalcFee(idealFeePerKw)
 
 	// If this fee is greater than the fee currently present within the
 	// commitment transaction, then we'll clamp it down to be within the
 	// proper range.
 	//
 	// TODO(roasbeef): clamp fee func?
-	channelCommitFee := cfg.channel.StateSnapshot().CommitFee
+	channelCommitFee := cfg.Channel.StateSnapshot().CommitFee
 	if idealFeeSat > channelCommitFee {
 		peerLog.Infof("Ideal starting fee of %v is greater than "+
 			"commit fee of %v, clamping", int64(idealFeeSat),
@@ -187,13 +187,13 @@ func newChannelCloser(cfg chanCloseCfg, deliveryScript []byte,
 	}
 
 	peerLog.Infof("Ideal fee for closure of ChannelPoint(%v) is: %v sat",
-		cfg.channel.ChannelPoint(), int64(idealFeeSat))
+		cfg.Channel.ChannelPoint(), int64(idealFeeSat))
 
-	cid := lnwire.NewChanIDFromOutPoint(cfg.channel.ChannelPoint())
+	cid := lnwire.NewChanIDFromOutPoint(cfg.Channel.ChannelPoint())
 	return &channelCloser{
 		closeReq:            closeReq,
 		state:               closeIdle,
-		chanPoint:           *cfg.channel.ChannelPoint(),
+		chanPoint:           *cfg.Channel.ChannelPoint(),
 		cid:                 cid,
 		cfg:                 cfg,
 		negotiationHeight:   negotiationHeight,
@@ -217,21 +217,21 @@ func (c *channelCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 	// Before closing, we'll attempt to send a disable update for the
 	// channel. We do so before closing the channel as otherwise the current
 	// edge policy won't be retrievable from the graph.
-	if err := c.cfg.disableChannel(c.chanPoint); err != nil {
+	if err := c.cfg.DisableChannel(c.chanPoint); err != nil {
 		peerLog.Warnf("Unable to disable channel %v on "+
 			"close: %v", c.chanPoint, err)
 	}
 
 	// Before returning the shutdown message, we'll unregister the channel
 	// to ensure that it isn't seen as usable within the system.
-	c.cfg.unregisterChannel(c.cid)
+	c.cfg.UnregisterChannel(c.cid)
 
 	// Before continuing, mark the channel as cooperatively closed with a
 	// nil txn. Even though we haven't negotiated the final txn, this
 	// guarantees that our listchannels rpc will be externally consistent,
 	// and reflect that the channel is being shutdown by the time the
 	// closing request returns.
-	err := c.cfg.channel.MarkCoopBroadcasted(nil, c.locallyInitiated)
+	err := c.cfg.Channel.MarkCoopBroadcasted(nil, c.locallyInitiated)
 	if err != nil {
 		return nil, err
 	}
@@ -292,6 +292,16 @@ func (c *channelCloser) CloseRequest() *htlcswitch.ChanClose {
 	return c.closeReq
 }
 
+// Channel returns the channel stored in the config.
+func (c *channelCloser) Channel() *lnwallet.LightningChannel {
+	return c.cfg.Channel
+}
+
+// NegotiationHeight returns the negotiation height.
+func (c *channelCloser) NegotiationHeight() uint32 {
+	return c.negotiationHeight
+}
+
 // maybeMatchScript attempts to match the script provided in our peer's
 // shutdown message with the upfront shutdown script we have on record.
 // If no upfront shutdown script was set, we do not need to enforce option
@@ -320,7 +330,7 @@ func maybeMatchScript(disconnect func() error,
 			return err
 		}
 
-		return errUpfrontShutdownScriptMismatch
+		return ErrUpfrontShutdownScriptMismatch
 	}
 
 	return nil
@@ -350,21 +360,21 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 		// wants to close), we'll check if this is a frozen channel or
 		// not. If the channel is frozen as we were also the initiator
 		// of the channel opening, then we'll deny their close attempt.
-		chanInitiator := c.cfg.channel.IsInitiator()
-		if !chanInitiator && c.cfg.channel.State().ChanType.IsFrozen() &&
-			c.negotiationHeight < c.cfg.channel.State().ThawHeight {
+		chanInitiator := c.cfg.Channel.IsInitiator()
+		if !chanInitiator && c.cfg.Channel.State().ChanType.IsFrozen() &&
+			c.negotiationHeight < c.cfg.Channel.State().ThawHeight {
 
 			return nil, false, fmt.Errorf("initiator attempting "+
 				"to co-op close frozen ChannelPoint(%v) "+
 				"(current_height=%v, thaw_height=%v)",
 				c.chanPoint, c.negotiationHeight,
-				c.cfg.channel.State().ThawHeight)
+				c.cfg.Channel.State().ThawHeight)
 		}
 
 		// If the remote node opened the channel with option upfront shutdown
 		// script, check that the script they provided matches.
 		if err := maybeMatchScript(
-			c.cfg.disconnect, c.cfg.channel.RemoteUpfrontShutdownScript(),
+			c.cfg.Disconnect, c.cfg.Channel.RemoteUpfrontShutdownScript(),
 			shutDownMsg.Address,
 		); err != nil {
 			return nil, false, err
@@ -423,7 +433,7 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 		// If the remote node opened the channel with option upfront shutdown
 		// script, check that the script they provided matches.
 		if err := maybeMatchScript(
-			c.cfg.disconnect, c.cfg.channel.RemoteUpfrontShutdownScript(),
+			c.cfg.Disconnect, c.cfg.Channel.RemoteUpfrontShutdownScript(),
 			shutDownMsg.Address,
 		); err != nil {
 			return nil, false, err
@@ -445,7 +455,7 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 		// closing proposal, but only if we're the initiator, as
 		// otherwise, the other party will send their first proposal
 		// first.
-		if c.cfg.channel.IsInitiator() {
+		if c.cfg.Channel.IsInitiator() {
 			closeSigned, err := c.proposeCloseSigned(c.idealFeeSat)
 			if err != nil {
 				return nil, false, err
@@ -519,7 +529,7 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 			return nil, false, err
 		}
 
-		closeTx, _, err := c.cfg.channel.CompleteCooperativeClose(
+		closeTx, _, err := c.cfg.Channel.CompleteCooperativeClose(
 			localSig, remoteSig, c.localDeliveryScript,
 			c.remoteDeliveryScript, remoteProposedFee,
 		)
@@ -531,7 +541,7 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 		// Before publishing the closing tx, we persist it to the
 		// database, such that it can be republished if something goes
 		// wrong.
-		err = c.cfg.channel.MarkCoopBroadcasted(
+		err = c.cfg.Channel.MarkCoopBroadcasted(
 			closeTx, c.locallyInitiated,
 		)
 		if err != nil {
@@ -544,7 +554,7 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 			newLogClosure(func() string {
 				return spew.Sdump(closeTx)
 			}))
-		err = c.cfg.broadcastTx(closeTx, "")
+		err = c.cfg.BroadcastTx(closeTx, "")
 		if err != nil {
 			return nil, false, err
 		}
@@ -582,7 +592,7 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 // transaction for a channel based on the prior fee negotiations and our
 // current compromise fee.
 func (c *channelCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingSigned, error) {
-	rawSig, _, _, err := c.cfg.channel.CreateCloseProposal(
+	rawSig, _, _, err := c.cfg.Channel.CreateCloseProposal(
 		fee, c.localDeliveryScript, c.remoteDeliveryScript,
 	)
 	if err != nil {

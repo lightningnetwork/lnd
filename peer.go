@@ -2114,7 +2114,7 @@ out:
 				// As the negotiations failed, we'll reset the
 				// channel state to ensure we act to on-chain
 				// events as normal.
-				chanCloser.cfg.channel.ResetState()
+				chanCloser.Channel().ResetState()
 
 				if chanCloser.CloseRequest() != nil {
 					chanCloser.CloseRequest().Err <- err
@@ -2288,16 +2288,16 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 			return nil, fmt.Errorf("cannot obtain best block")
 		}
 
-		chanCloser = newChannelCloser(
-			chanCloseCfg{
-				channel:           channel,
-				unregisterChannel: p.server.htlcSwitch.RemoveLink,
-				broadcastTx:       p.server.cc.wallet.PublishTransaction,
-				disableChannel:    p.server.chanStatusMgr.RequestDisable,
-				disconnect: func() error {
+		chanCloser = NewChanCloser(
+			ChanCloseCfg{
+				Channel:           channel,
+				UnregisterChannel: p.server.htlcSwitch.RemoveLink,
+				BroadcastTx:       p.server.cc.wallet.PublishTransaction,
+				DisableChannel:    p.server.chanStatusMgr.RequestDisable,
+				Disconnect: func() error {
 					return p.server.DisconnectPeer(p.IdentityKey())
 				},
-				quit: p.quit,
+				Quit: p.quit,
 			},
 			deliveryScript,
 			feePerKw,
@@ -2334,7 +2334,7 @@ func chooseDeliveryScript(upfront,
 	// the upfront shutdown script (because closing out to a different script
 	// would violate upfront shutdown).
 	if !bytes.Equal(upfront, requested) {
-		return nil, errUpfrontShutdownScriptMismatch
+		return nil, ErrUpfrontShutdownScriptMismatch
 	}
 
 	// The user requested script matches the upfront shutdown script, so we
@@ -2404,16 +2404,16 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 			return
 		}
 
-		chanCloser := newChannelCloser(
-			chanCloseCfg{
-				channel:           channel,
-				unregisterChannel: p.server.htlcSwitch.RemoveLink,
-				broadcastTx:       p.server.cc.wallet.PublishTransaction,
-				disableChannel:    p.server.chanStatusMgr.RequestDisable,
-				disconnect: func() error {
+		chanCloser := NewChanCloser(
+			ChanCloseCfg{
+				Channel:           channel,
+				UnregisterChannel: p.server.htlcSwitch.RemoveLink,
+				BroadcastTx:       p.server.cc.wallet.PublishTransaction,
+				DisableChannel:    p.server.chanStatusMgr.RequestDisable,
+				Disconnect: func() error {
 					return p.server.DisconnectPeer(p.IdentityKey())
 				},
-				quit: p.quit,
+				Quit: p.quit,
 			},
 			deliveryScript,
 			req.TargetFeePerKw,
@@ -2524,7 +2524,7 @@ func (p *peer) finalizeChanClosure(chanCloser *channelCloser) {
 	closeReq := chanCloser.CloseRequest()
 
 	// First, we'll clear all indexes related to the channel in question.
-	chanPoint := chanCloser.cfg.channel.ChannelPoint()
+	chanPoint := chanCloser.Channel().ChannelPoint()
 	p.WipeChannel(chanPoint)
 
 	// Next, we'll launch a goroutine which will request to be notified by
@@ -2558,7 +2558,7 @@ func (p *peer) finalizeChanClosure(chanCloser *channelCloser) {
 		}
 	}
 
-	go waitForChanToClose(chanCloser.negotiationHeight, notifier, errChan,
+	go waitForChanToClose(chanCloser.NegotiationHeight(), notifier, errChan,
 		chanPoint, &closingTxid, closingTx.TxOut[0].PkScript, func() {
 
 			// Respond to the local subsystem which requested the

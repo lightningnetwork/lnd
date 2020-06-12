@@ -293,6 +293,8 @@ func (b *BtcWallet) IsOurAddress(a btcutil.Address) bool {
 // the specified outputs. In the case the wallet has insufficient funds, or the
 // outputs are non-standard, a non-nil error will be returned.
 //
+// NOTE: This method requires the global coin selection lock to be held.
+//
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
 	feeRate chainfee.SatPerKWeight, label string) (*wire.MsgTx, error) {
@@ -320,6 +322,8 @@ func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
 //
 // NOTE: The dryRun argument can be set true to create a tx that doesn't alter
 // the database. A tx created with this set to true SHOULD NOT be broadcasted.
+//
+// NOTE: This method requires the global coin selection lock to be held.
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) CreateSimpleTx(outputs []*wire.TxOut,
@@ -355,6 +359,8 @@ func (b *BtcWallet) CreateSimpleTx(outputs []*wire.TxOut,
 // avoid race conditions when selecting inputs for usage when funding a
 // channel.
 //
+// NOTE: This method requires the global coin selection lock to be held.
+//
 // This is a part of the WalletController interface.
 func (b *BtcWallet) LockOutpoint(o wire.OutPoint) {
 	b.wallet.LockOutpoint(o)
@@ -362,6 +368,8 @@ func (b *BtcWallet) LockOutpoint(o wire.OutPoint) {
 
 // UnlockOutpoint unlocks a previously locked output, marking it eligible for
 // coin selection.
+//
+// NOTE: This method requires the global coin selection lock to be held.
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) UnlockOutpoint(o wire.OutPoint) {
@@ -377,6 +385,8 @@ func (b *BtcWallet) UnlockOutpoint(o wire.OutPoint) {
 // If the output is not known, wtxmgr.ErrUnknownOutput is returned. If the
 // output has already been locked to a different ID, then
 // wtxmgr.ErrOutputAlreadyLocked is returned.
+//
+// NOTE: This method requires the global coin selection lock to be held.
 func (b *BtcWallet) LeaseOutput(id wtxmgr.LockID, op wire.OutPoint) (time.Time,
 	error) {
 
@@ -392,12 +402,16 @@ func (b *BtcWallet) LeaseOutput(id wtxmgr.LockID, op wire.OutPoint) (time.Time,
 // ReleaseOutput unlocks an output, allowing it to be available for coin
 // selection if it remains unspent. The ID should match the one used to
 // originally lock the output.
+//
+// NOTE: This method requires the global coin selection lock to be held.
 func (b *BtcWallet) ReleaseOutput(id wtxmgr.LockID, op wire.OutPoint) error {
 	return b.wallet.ReleaseOutput(id, op)
 }
 
 // ListUnspentWitness returns a slice of all the unspent outputs the wallet
 // controls which pay to witness programs either directly or indirectly.
+//
+// NOTE: This method requires the global coin selection lock to be held.
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) ListUnspentWitness(minConfs, maxConfs int32) (

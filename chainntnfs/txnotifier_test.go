@@ -1138,7 +1138,7 @@ func TestTxNotifierCancelConf(t *testing.T) {
 	hintCache := newMockHintCache()
 	n := chainntnfs.NewTxNotifier(startingHeight, 100, hintCache, hintCache)
 
-	// We'll register two notification requests. Only the second one will be
+	// We'll register three notification requests. The last two will be
 	// canceled.
 	tx1 := wire.NewMsgTx(1)
 	tx1.AddTxOut(&wire.TxOut{PkScript: testRawScript})
@@ -1155,8 +1155,15 @@ func TestTxNotifierCancelConf(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to register spend ntfn: %v", err)
 	}
+	ntfn3, err := n.RegisterConf(&tx2Hash, testRawScript, 1, 1)
+	if err != nil {
+		t.Fatalf("unable to register spend ntfn: %v", err)
+	}
+	cancelConfRequest := ntfn2.HistoricalDispatch.ConfRequest
 
-	// Construct a block that will confirm both transactions.
+	// Extend the chain with a block that will confirm both transactions.
+	// This will queue confirmation notifications to dispatch once their
+	// respective heights have been met.
 	block := btcutil.NewBlock(&wire.MsgBlock{
 		Transactions: []*wire.MsgTx{tx1, tx2},
 	})
@@ -1167,14 +1174,18 @@ func TestTxNotifierCancelConf(t *testing.T) {
 		Tx:          tx1,
 	}
 
-	// Before extending the notifier's tip with the block above, we'll
-	// cancel the second request.
-	n.CancelConf(ntfn2.HistoricalDispatch.ConfRequest, 2)
+	// Cancel the second notification before connecting the block.
+	n.CancelConf(cancelConfRequest, 2)
 
 	err = n.ConnectTip(block.Hash(), startingHeight+1, block.Transactions())
 	if err != nil {
 		t.Fatalf("unable to connect block: %v", err)
 	}
+
+	// Cancel the third notification before notifying to ensure its queued
+	// confirmation notification gets removed as well.
+	n.CancelConf(cancelConfRequest, 3)
+
 	if err := n.NotifyHeight(startingHeight + 1); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
@@ -1188,11 +1199,19 @@ func TestTxNotifierCancelConf(t *testing.T) {
 		t.Fatalf("expected to receive confirmation notification")
 	}
 
-	// The second one, however, should not have. The event's Confirmed
+	// The second and third, however, should not have. The event's Confirmed
 	// channel must have also been closed to indicate the caller that the
 	// TxNotifier can no longer fulfill their canceled request.
 	select {
 	case _, ok := <-ntfn2.Event.Confirmed:
+		if ok {
+			t.Fatal("expected Confirmed channel to be closed")
+		}
+	default:
+		t.Fatal("expected Confirmed channel to be closed")
+	}
+	select {
+	case _, ok := <-ntfn3.Event.Confirmed:
 		if ok {
 			t.Fatal("expected Confirmed channel to be closed")
 		}

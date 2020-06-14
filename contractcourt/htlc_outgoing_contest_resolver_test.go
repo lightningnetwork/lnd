@@ -26,7 +26,7 @@ func TestHtlcOutgoingResolverTimeout(t *testing.T) {
 	ctx := newOutgoingResolverTestContext(t)
 
 	// Start the resolution process in a goroutine.
-	ctx.resolve()
+	ctx.resolve(true)
 
 	// Notify arrival of the block after which the timeout path of the htlc
 	// unlocks.
@@ -46,7 +46,7 @@ func TestHtlcOutgoingResolverRemoteClaim(t *testing.T) {
 	// Setup the resolver with our test resolution and start the resolution
 	// process.
 	ctx := newOutgoingResolverTestContext(t)
-	ctx.resolve()
+	ctx.resolve(true)
 
 	// The remote party sweeps the htlc. Notify our resolver of this event.
 	preimage := lntypes.Preimage{}
@@ -154,7 +154,7 @@ func newOutgoingResolverTestContext(t *testing.T) *outgoingResolverTestContext {
 	}
 }
 
-func (i *outgoingResolverTestContext) resolve() {
+func (i *outgoingResolverTestContext) resolve(notifyInitialBlockHeight bool) {
 	// Start resolver.
 	i.resolverResultChan = make(chan resolveResult, 1)
 	go func() {
@@ -165,8 +165,11 @@ func (i *outgoingResolverTestContext) resolve() {
 		}
 	}()
 
-	// Notify initial block height.
-	i.notifyEpoch(testInitialBlockHeight)
+	// Notify initial block height. This is not needed when the output
+	// has been spent before the resolver started.
+	if notifyInitialBlockHeight {
+		i.notifyEpoch(testInitialBlockHeight)
+	}
 }
 
 func (i *outgoingResolverTestContext) notifyEpoch(height int32) {

@@ -83,30 +83,6 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 		return nil, err
 	}
 
-	// We'll quickly check to see if the output has already been spent.
-	select {
-	// If the output has already been spent, then we can stop early.
-	case commitSpend, ok := <-spendNtfn.Spend:
-		if !ok {
-			return nil, errResolverShuttingDown
-		}
-
-		// If the output was successfully spent and the pre-image was
-		// revealed we'll sweep it from the output.
-		if isSuccessSpend(commitSpend,
-			h.htlcResolution.SignedTimeoutTx != nil) {
-			return h.claimCleanUp(commitSpend)
-		}
-
-		// The output was spent without revealing a pre-image. This
-		// happens when a retribution transaction was sent.
-		return h.emergencyCleanUp()
-
-	// If it hasn't, then we'll watch for both the expiration, and the
-	// sweeping out this output.
-	default:
-	}
-
 	// If we reach this point, then we can't fully act yet, so we'll await
 	// either of our signals triggering: the HTLC expires, we learn of
 	// the preimage, or a retribution transaction is sent.

@@ -178,6 +178,8 @@ type WalletController interface {
 	// funds, or the outputs are non-standard, an error should be returned.
 	// This method also takes the target fee expressed in sat/kw that should
 	// be used when crafting the transaction.
+	//
+	// NOTE: This method requires the global coin selection lock to be held.
 	SendOutputs(outputs []*wire.TxOut,
 		feeRate chainfee.SatPerKWeight, label string) (*wire.MsgTx, error)
 
@@ -191,6 +193,8 @@ type WalletController interface {
 	// NOTE: The dryRun argument can be set true to create a tx that
 	// doesn't alter the database. A tx created with this set to true
 	// SHOULD NOT be broadcasted.
+	//
+	// NOTE: This method requires the global coin selection lock to be held.
 	CreateSimpleTx(outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight,
 		dryRun bool) (*txauthor.AuthoredTx, error)
 
@@ -201,6 +205,8 @@ type WalletController interface {
 	// 'minconfirms' indicates that even unconfirmed outputs should be
 	// returned. Using MaxInt32 as 'maxconfirms' implies returning all
 	// outputs with at least 'minconfirms'.
+	//
+	// NOTE: This method requires the global coin selection lock to be held.
 	ListUnspentWitness(minconfirms, maxconfirms int32) ([]*Utxo, error)
 
 	// ListTransactionDetails returns a list of all transactions which are
@@ -217,10 +223,14 @@ type WalletController interface {
 	// be deemed as eligible for coin selection. Locking outputs are
 	// utilized in order to avoid race conditions when selecting inputs for
 	// usage when funding a channel.
+	//
+	// NOTE: This method requires the global coin selection lock to be held.
 	LockOutpoint(o wire.OutPoint)
 
 	// UnlockOutpoint unlocks a previously locked output, marking it
 	// eligible for coin selection.
+	//
+	// NOTE: This method requires the global coin selection lock to be held.
 	UnlockOutpoint(o wire.OutPoint)
 
 	// LeaseOutput locks an output to the given ID, preventing it from being
@@ -232,11 +242,15 @@ type WalletController interface {
 	// If the output is not known, wtxmgr.ErrUnknownOutput is returned. If
 	// the output has already been locked to a different ID, then
 	// wtxmgr.ErrOutputAlreadyLocked is returned.
+	//
+	// NOTE: This method requires the global coin selection lock to be held.
 	LeaseOutput(id wtxmgr.LockID, op wire.OutPoint) (time.Time, error)
 
 	// ReleaseOutput unlocks an output, allowing it to be available for coin
 	// selection if it remains unspent. The ID should match the one used to
 	// originally lock the output.
+	//
+	// NOTE: This method requires the global coin selection lock to be held.
 	ReleaseOutput(id wtxmgr.LockID, op wire.OutPoint) error
 
 	// PublishTransaction performs cursory validation (dust checks, etc),

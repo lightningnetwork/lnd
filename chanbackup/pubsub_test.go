@@ -21,7 +21,7 @@ type mockSwapper struct {
 
 func newMockSwapper(keychain keychain.KeyRing) *mockSwapper {
 	return &mockSwapper{
-		swaps:     make(chan PackedMulti),
+		swaps:     make(chan PackedMulti, 1),
 		keyChain:  keychain,
 		swapState: &Multi{},
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 
 	"github.com/btcsuite/btcd/wire"
@@ -134,13 +135,24 @@ func NewSubSwapper(startingChans []Single, chanNotifier ChannelNotifier,
 
 // Start starts the chanbackup.SubSwapper.
 func (s *SubSwapper) Start() error {
+	var startErr error
 	s.started.Do(func() {
 		log.Infof("Starting chanbackup.SubSwapper")
+
+		// Before we enter our main loop, we'll update the on-disk
+		// state with the latest Single state, as nodes may have new
+		// advertised addresses.
+		if err := s.updateBackupFile(); err != nil {
+			startErr = fmt.Errorf("unable to refresh backup "+
+				"file: %v", err)
+			return
+		}
 
 		s.wg.Add(1)
 		go s.backupUpdater()
 	})
-	return nil
+
+	return startErr
 }
 
 // Stop signals the SubSwapper to being a graceful shutdown.
@@ -162,7 +174,11 @@ func (s *SubSwapper) updateBackupFile(closedChans ...wire.OutPoint) error {
 	// already have on-disk, to make sure we can decode it (proper seed)
 	// and that we're able to combine it with our new data.
 	diskMulti, err := s.Swapper.ExtractMulti(s.keyRing)
-	if err != nil {
+
+	// If the file doesn't exist on disk, then that's OK as it was never
+	// created. In this case we'll continue onwards as it isn't a critical
+	// error.
+	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("unable to extract on disk encrypted "+
 			"SCB: %v", err)
 	}
@@ -234,14 +250,6 @@ func (s *SubSwapper) backupUpdater() {
 	defer s.wg.Done()
 
 	log.Debugf("SubSwapper's backupUpdater is active!")
-
-	// Before we enter our main loop, we'll update the on-disk state with
-	// the latest Single state, as nodes may have new advertised addresses.
-	//
-	// TODO(roasbeef): do in Start() so we don't start with an invalid SCB?
-	if err := s.updateBackupFile(); err != nil {
-		log.Errorf("Unable to refresh backup file: %v", err)
-	}
 
 	for {
 		select {

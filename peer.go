@@ -114,6 +114,8 @@ type peer struct {
 	started    int32
 	disconnect int32
 
+	cfg *Config
+
 	// The following fields are only meant to be used *atomically*
 	bytesReceived uint64
 	bytesSent     uint64
@@ -263,7 +265,7 @@ var _ lnpeer.Peer = (*peer)(nil)
 // pointer to the main server. It takes an error buffer which may contain errors
 // from a previous connection with the peer if we have been connected to them
 // before.
-func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
+func newPeer(cfg *Config, conn net.Conn, connReq *connmgr.ConnReq, server *server,
 	addr *lnwire.NetAddress, inbound bool,
 	features, legacyFeatures *lnwire.FeatureVector,
 	chanActiveTimeout time.Duration,
@@ -276,6 +278,8 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 	p := &peer{
 		conn: conn,
 		addr: addr,
+
+		cfg: cfg,
 
 		activeSignal: make(chan struct{}),
 
@@ -651,7 +655,7 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 		DecodeHopIterators:     p.server.sphinx.DecodeHopIterators,
 		ExtractErrorEncrypter:  p.server.sphinx.ExtractErrorEncrypter,
 		FetchLastChannelUpdate: p.server.fetchLastChanUpdate(),
-		HodlMask:               cfg.Hodl.Mask(),
+		HodlMask:               p.cfg.Hodl.Mask(),
 		Registry:               p.server.invoices,
 		Switch:                 p.server.htlcSwitch,
 		Circuits:               p.server.htlcSwitch.CircuitModifier(),
@@ -671,13 +675,13 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 		FwdPkgGCTicker:          ticker.New(time.Minute),
 		PendingCommitTicker:     ticker.New(time.Minute),
 		BatchSize:               10,
-		UnsafeReplay:            cfg.UnsafeReplay,
+		UnsafeReplay:            p.cfg.UnsafeReplay,
 		MinFeeUpdateTimeout:     htlcswitch.DefaultMinLinkFeeUpdateTimeout,
 		MaxFeeUpdateTimeout:     htlcswitch.DefaultMaxLinkFeeUpdateTimeout,
 		OutgoingCltvRejectDelta: p.outgoingCltvRejectDelta,
 		TowerClient:             p.server.towerClient,
-		MaxOutgoingCltvExpiry:   cfg.MaxOutgoingCltvExpiry,
-		MaxFeeAllocation:        cfg.MaxChannelFeeAllocation,
+		MaxOutgoingCltvExpiry:   p.cfg.MaxOutgoingCltvExpiry,
+		MaxFeeAllocation:        p.cfg.MaxChannelFeeAllocation,
 		NotifyActiveLink:        p.server.channelNotifier.NotifyActiveLinkEvent,
 		NotifyActiveChannel:     p.server.channelNotifier.NotifyActiveChannelEvent,
 		NotifyInactiveChannel:   p.server.channelNotifier.NotifyInactiveChannelEvent,

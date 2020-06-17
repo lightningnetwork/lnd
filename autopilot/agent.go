@@ -657,17 +657,6 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 		log.Tracef("Creating attachment directive for chosen node %x",
 			nID[:])
 
-		// Add addresses to the candidates.
-		addrs := addresses[nID]
-
-		// If the node has no known addresses, we cannot connect to it,
-		// so we'll skip it.
-		if len(addrs) == 0 {
-			log.Tracef("Skipping scored node %x with no addresses",
-				nID[:])
-			continue
-		}
-
 		// Track the available funds we have left.
 		if availableFunds < chanSize {
 			chanSize = availableFunds
@@ -685,7 +674,7 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 		chanCandidates[nID] = &AttachmentDirective{
 			NodeID:  nID,
 			ChanAmt: chanSize,
-			Addrs:   addrs,
+			Addrs:   addresses[nID],
 		}
 	}
 

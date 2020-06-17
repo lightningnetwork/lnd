@@ -1,4 +1,4 @@
-package lnd
+package chancloser
 
 import (
 	"bytes"
@@ -70,13 +70,13 @@ const (
 	closeFinished
 )
 
-// ChanCloseCfg holds all the items that a channelCloser requires to carry out its
+// ChanCloseCfg holds all the items that a ChanCloser requires to carry out its
 // duties.
 type ChanCloseCfg struct {
 	// Channel is the channel that should be closed.
 	Channel *lnwallet.LightningChannel
 
-	// UnregisterChannel is a function closure that allows the channelCloser to
+	// UnregisterChannel is a function closure that allows the ChanCloser to
 	// unregister a channel. Once this has been done, no further HTLC's should
 	// be routed through the channel.
 	UnregisterChannel func(lnwire.ChannelID)
@@ -96,15 +96,15 @@ type ChanCloseCfg struct {
 	Quit chan struct{}
 }
 
-// channelCloser is a state machine that handles the cooperative channel closure
+// ChanCloser is a state machine that handles the cooperative channel closure
 // procedure. This includes shutting down a channel, marking it ineligible for
 // routing HTLC's, negotiating fees with the remote party, and finally
 // broadcasting the fully signed closure transaction to the network.
-type channelCloser struct {
+type ChanCloser struct {
 	// state is the current state of the state machine.
 	state closeState
 
-	// cfg holds the configuration for this channelCloser instance.
+	// cfg holds the configuration for this ChanCloser instance.
 	cfg ChanCloseCfg
 
 	// chanPoint is the full channel point of the target channel.
@@ -162,7 +162,7 @@ type channelCloser struct {
 // be populated iff, we're the initiator of this closing request.
 func NewChanCloser(cfg ChanCloseCfg, deliveryScript []byte,
 	idealFeePerKw chainfee.SatPerKWeight, negotiationHeight uint32,
-	closeReq *htlcswitch.ChanClose, locallyInitiated bool) *channelCloser {
+	closeReq *htlcswitch.ChanClose, locallyInitiated bool) *ChanCloser {
 
 	// Given the target fee-per-kw, we'll compute what our ideal _total_ fee
 	// will be starting at for this fee negotiation.
@@ -177,17 +177,17 @@ func NewChanCloser(cfg ChanCloseCfg, deliveryScript []byte,
 	// TODO(roasbeef): clamp fee func?
 	channelCommitFee := cfg.Channel.StateSnapshot().CommitFee
 	if idealFeeSat > channelCommitFee {
-		peerLog.Infof("Ideal starting fee of %v is greater than commit "+
+		chancloserLog.Infof("Ideal starting fee of %v is greater than commit "+
 			"fee of %v, clamping", int64(idealFeeSat), int64(channelCommitFee))
 
 		idealFeeSat = channelCommitFee
 	}
 
-	peerLog.Infof("Ideal fee for closure of ChannelPoint(%v) is: %v sat",
+	chancloserLog.Infof("Ideal fee for closure of ChannelPoint(%v) is: %v sat",
 		cfg.Channel.ChannelPoint(), int64(idealFeeSat))
 
 	cid := lnwire.NewChanIDFromOutPoint(cfg.Channel.ChannelPoint())
-	return &channelCloser{
+	return &ChanCloser{
 		closeReq:            closeReq,
 		state:               closeIdle,
 		chanPoint:           *cfg.Channel.ChannelPoint(),
@@ -203,7 +203,7 @@ func NewChanCloser(cfg ChanCloseCfg, deliveryScript []byte,
 
 // initChanShutdown begins the shutdown process by un-registering the channel,
 // and creating a valid shutdown message to our target delivery address.
-func (c *channelCloser) initChanShutdown() (*lnwire.Shutdown, error) {
+func (c *ChanCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 	// With both items constructed we'll now send the shutdown message for this
 	// particular channel, advertising a shutdown request to our desired
 	// closing script.
@@ -215,7 +215,7 @@ func (c *channelCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 	// We do so before closing the channel as otherwise the current edge policy
 	// won't be retrievable from the graph.
 	if err := c.cfg.DisableChannel(c.chanPoint); err != nil {
-		peerLog.Warnf("Unable to disable channel %v on close: %v",
+		chancloserLog.Warnf("Unable to disable channel %v on close: %v",
 			c.chanPoint, err)
 	}
 
@@ -233,7 +233,8 @@ func (c *channelCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 		return nil, err
 	}
 
-	peerLog.Infof("ChannelPoint(%v): sending shutdown message", c.chanPoint)
+	chancloserLog.Infof("ChannelPoint(%v): sending shutdown message",
+		c.chanPoint)
 
 	return shutdown, nil
 }
@@ -242,14 +243,14 @@ func (c *channelCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 // cooperative channel closure. This message returns the shutdown message to
 // send to the remote party. Upon completion, we enter the
 // closeShutdownInitiated phase as we await a response.
-func (c *channelCloser) ShutdownChan() (*lnwire.Shutdown, error) {
+func (c *ChanCloser) ShutdownChan() (*lnwire.Shutdown, error) {
 	// If we attempt to shutdown the channel for the first time, and we're not
 	// in the closeIdle state, then the caller made an error.
 	if c.state != closeIdle {
 		return nil, ErrChanAlreadyClosing
 	}
 
-	peerLog.Infof("ChannelPoint(%v): initiating shutdown", c.chanPoint)
+	chancloserLog.Infof("ChannelPoint(%v): initiating shutdown", c.chanPoint)
 
 	shutdownMsg, err := c.initChanShutdown()
 	if err != nil {
@@ -270,7 +271,7 @@ func (c *channelCloser) ShutdownChan() (*lnwire.Shutdown, error) {
 //
 // NOTE: This transaction is only available if the state machine is in the
 // closeFinished state.
-func (c *channelCloser) ClosingTx() (*wire.MsgTx, error) {
+func (c *ChanCloser) ClosingTx() (*wire.MsgTx, error) {
 	// If the state machine hasn't finished closing the channel, then we'll
 	// return an error as we haven't yet computed the closing tx.
 	if c.state != closeFinished {
@@ -285,17 +286,17 @@ func (c *channelCloser) ClosingTx() (*wire.MsgTx, error) {
 //
 // NOTE: This will only return a non-nil pointer if we were the initiator of
 // the cooperative closure workflow.
-func (c *channelCloser) CloseRequest() *htlcswitch.ChanClose {
+func (c *ChanCloser) CloseRequest() *htlcswitch.ChanClose {
 	return c.closeReq
 }
 
 // Channel returns the channel stored in the config.
-func (c *channelCloser) Channel() *lnwallet.LightningChannel {
+func (c *ChanCloser) Channel() *lnwallet.LightningChannel {
 	return c.cfg.Channel
 }
 
 // NegotiationHeight returns the negotiation height.
-func (c *channelCloser) NegotiationHeight() uint32 {
+func (c *ChanCloser) NegotiationHeight() uint32 {
 	return c.negotiationHeight
 }
 
@@ -317,7 +318,7 @@ func maybeMatchScript(disconnect func() error, upfrontScript,
 	// If an upfront shutdown script was provided, disconnect from the peer, as
 	// per BOLT 2, and return an error.
 	if !bytes.Equal(upfrontScript, peerScript) {
-		peerLog.Warnf("peer's script: %x does not match upfront "+
+		chancloserLog.Warnf("peer's script: %x does not match upfront "+
 			"shutdown script: %x", peerScript, upfrontScript)
 
 		// Disconnect from the peer because they have violated option upfront
@@ -336,8 +337,8 @@ func maybeMatchScript(disconnect func() error, upfrontScript,
 // This method will update the state accordingly and return two primary values:
 // the next set of messages to be sent, and a bool indicating if the fee
 // negotiation process has completed. If the second value is true, then this
-// means the channelCloser can be garbage collected.
-func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
+// means the ChanCloser can be garbage collected.
+func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 	bool, error) {
 
 	switch c.state {
@@ -390,7 +391,7 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 			return nil, false, err
 		}
 
-		peerLog.Infof("ChannelPoint(%v): responding to shutdown",
+		chancloserLog.Infof("ChannelPoint(%v): responding to shutdown",
 			c.chanPoint)
 
 		msgsToSend := make([]lnwire.Message, 0, 2)
@@ -445,7 +446,7 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 		// closing transaction should look like.
 		c.state = closeFeeNegotiation
 
-		peerLog.Infof("ChannelPoint(%v): shutdown response received, "+
+		chancloserLog.Infof("ChannelPoint(%v): shutdown response received, "+
 			"entering fee negotiation", c.chanPoint)
 
 		// Starting with our ideal fee rate, we'll create an initial closing
@@ -482,9 +483,8 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 			// We'll now attempt to ratchet towards a fee deemed acceptable by
 			// both parties, factoring in our ideal fee rate, and the last
 			// proposed fee by both sides.
-			feeProposal := calcCompromiseFee(c.chanPoint,
-				c.idealFeeSat, c.lastFeeProposal,
-				remoteProposedFee,
+			feeProposal := calcCompromiseFee(c.chanPoint, c.idealFeeSat,
+				c.lastFeeProposal, remoteProposedFee,
 			)
 
 			// With our new fee proposal calculated, we'll craft a new close
@@ -499,13 +499,13 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 			// we'll return this latest close signed message so we can continue
 			// negotiation.
 			if feeProposal != remoteProposedFee {
-				peerLog.Debugf("ChannelPoint(%v): close tx fee "+
+				chancloserLog.Debugf("ChannelPoint(%v): close tx fee "+
 					"disagreement, continuing negotiation", c.chanPoint)
 				return []lnwire.Message{closeSigned}, false, nil
 			}
 		}
 
-		peerLog.Infof("ChannelPoint(%v) fee of %v accepted, ending "+
+		chancloserLog.Infof("ChannelPoint(%v) fee of %v accepted, ending "+
 			"negotiation", c.chanPoint, remoteProposedFee)
 
 		// Otherwise, we've agreed on a fee for the closing transaction! We'll
@@ -540,7 +540,7 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 
 		// With the closing transaction crafted, we'll now broadcast it to the
 		// network.
-		peerLog.Infof("Broadcasting cooperative close tx: %v",
+		chancloserLog.Infof("Broadcasting cooperative close tx: %v",
 			newLogClosure(func() string {
 				return spew.Sdump(closeTx)
 			}),
@@ -579,7 +579,7 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 // proposeCloseSigned attempts to propose a new signature for the closing
 // transaction for a channel based on the prior fee negotiations and our current
 // compromise fee.
-func (c *channelCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingSigned, error) {
+func (c *ChanCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingSigned, error) {
 	rawSig, _, _, err := c.cfg.Channel.CreateCloseProposal(
 		fee, c.localDeliveryScript, c.remoteDeliveryScript,
 	)
@@ -595,7 +595,7 @@ func (c *channelCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingS
 		return nil, err
 	}
 
-	peerLog.Infof("ChannelPoint(%v): proposing fee of %v sat to close "+
+	chancloserLog.Infof("ChannelPoint(%v): proposing fee of %v sat to close "+
 		"chan", c.chanPoint, int64(fee))
 
 	// We'll assemble a ClosingSigned message using this information and return
@@ -650,7 +650,7 @@ func calcCompromiseFee(chanPoint wire.OutPoint, ourIdealFee, lastSentFee,
 
 	// TODO(roasbeef): take in number of rounds as well?
 
-	peerLog.Infof("ChannelPoint(%v): computing fee compromise, ideal="+
+	chancloserLog.Infof("ChannelPoint(%v): computing fee compromise, ideal="+
 		"%v, last_sent=%v, remote_offer=%v", chanPoint, int64(ourIdealFee),
 		int64(lastSentFee), int64(remoteFee))
 
@@ -676,7 +676,7 @@ func calcCompromiseFee(chanPoint wire.OutPoint, ourIdealFee, lastSentFee,
 		// If the fee is lower, but still acceptable, then we'll just return
 		// this fee and end the negotiation.
 		if feeInAcceptableRange(lastSentFee, remoteFee) {
-			peerLog.Infof("ChannelPoint(%v): proposed remote fee is "+
+			chancloserLog.Infof("ChannelPoint(%v): proposed remote fee is "+
 				"close enough, capitulating", chanPoint)
 			return remoteFee
 		}
@@ -690,13 +690,12 @@ func calcCompromiseFee(chanPoint wire.OutPoint, ourIdealFee, lastSentFee,
 		// If the fee is greater, but still acceptable, then we'll just return
 		// this fee in order to put an end to the negotiation.
 		if feeInAcceptableRange(lastSentFee, remoteFee) {
-			peerLog.Infof("ChannelPoint(%v): proposed remote fee is "+
+			chancloserLog.Infof("ChannelPoint(%v): proposed remote fee is "+
 				"close enough, capitulating", chanPoint)
 			return remoteFee
 		}
 
-		// Otherwise, we'll rachet the fee up using our current
-		// algorithm.
+		// Otherwise, we'll ratchet the fee up using our current algorithm.
 		return ratchetFee(lastSentFee, true)
 
 	default:

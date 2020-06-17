@@ -1,4 +1,4 @@
-package lnd
+package chancloser
 
 import (
 	"crypto/rand"

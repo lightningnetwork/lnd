@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/monitoring"
 	"github.com/lightningnetwork/lnd/netann"
@@ -121,6 +122,7 @@ func SetupLoggers(root *build.RotatingLogWriter) {
 	AddSubLogger(root, "WTCL", wtclient.UseLogger)
 	AddSubLogger(root, "PRNF", peernotifier.UseLogger)
 	AddSubLogger(root, "CHFD", chanfunding.UseLogger)
+	AddSubLogger(root, "CHCL", chancloser.UseLogger)
 
 	AddSubLogger(root, routing.Subsystem, routing.UseLogger, localchans.UseLogger)
 	AddSubLogger(root, routerrpc.Subsystem, routerrpc.UseLogger)

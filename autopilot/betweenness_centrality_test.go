@@ -3,6 +3,8 @@ package autopilot
 import (
 	"fmt"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestBetweennessCentralityMetricConstruction(t *testing.T) {
@@ -11,50 +13,46 @@ func TestBetweennessCentralityMetricConstruction(t *testing.T) {
 
 	for _, workers := range failing {
 		m, err := NewBetweennessCentralityMetric(workers)
-		if m != nil || err == nil {
-			t.Fatalf("construction must fail with <= 0 workers")
-		}
+		require.Error(
+			t, err, "construction must fail with <= 0 workers",
+		)
+		require.Nil(t, m)
 	}
 
 	for _, workers := range ok {
 		m, err := NewBetweennessCentralityMetric(workers)
-		if m == nil || err != nil {
-			t.Fatalf("construction must succeed with >= 1 workers")
-		}
+		require.NoError(
+			t, err, "construction must succeed with >= 1 workers",
+		)
+		require.NotNil(t, m)
 	}
 }
 
 // Tests that empty graph results in empty centrality result.
 func TestBetweennessCentralityEmptyGraph(t *testing.T) {
 	centralityMetric, err := NewBetweennessCentralityMetric(1)
-	if err != nil {
-		t.Fatalf("construction must succeed with positive number of workers")
-	}
+	require.NoError(
+		t, err,
+		"construction must succeed with positive number of workers",
+	)
 
 	for _, chanGraph := range chanGraphs {
 		graph, cleanup, err := chanGraph.genFunc()
 		success := t.Run(chanGraph.name, func(t1 *testing.T) {
-			if err != nil {
-				t1.Fatalf("unable to create graph: %v", err)
-			}
+			require.NoError(t, err, "unable to create graph")
+
 			if cleanup != nil {
 				defer cleanup()
 			}
 
-			if err := centralityMetric.Refresh(graph); err != nil {
-				t.Fatalf("unexpected failure during metric refresh: %v", err)
-			}
+			err := centralityMetric.Refresh(graph)
+			require.NoError(t, err)
 
 			centrality := centralityMetric.GetMetric(false)
-			if len(centrality) > 0 {
-				t.Fatalf("expected empty metric, got: %v", len(centrality))
-			}
+			require.Equal(t, 0, len(centrality))
 
 			centrality = centralityMetric.GetMetric(true)
-			if len(centrality) > 0 {
-				t.Fatalf("expected empty metric, got: %v", len(centrality))
-			}
-
+			require.Equal(t, 0, len(centrality))
 		})
 		if !success {
 			break
@@ -66,7 +64,7 @@ func TestBetweennessCentralityEmptyGraph(t *testing.T) {
 func TestBetweennessCentralityWithNonEmptyGraph(t *testing.T) {
 	workers := []int{1, 3, 9, 100}
 
-	results := []struct {
+	tests := []struct {
 		normalize  bool
 		centrality []float64
 	}{
@@ -84,49 +82,51 @@ func TestBetweennessCentralityWithNonEmptyGraph(t *testing.T) {
 		for _, chanGraph := range chanGraphs {
 			numWorkers := numWorkers
 			graph, cleanup, err := chanGraph.genFunc()
-			if err != nil {
-				t.Fatalf("unable to create graph: %v", err)
-			}
+			require.NoError(t, err, "unable to create graph")
+
 			if cleanup != nil {
 				defer cleanup()
 			}
 
-			testName := fmt.Sprintf("%v %d workers", chanGraph.name, numWorkers)
+			testName := fmt.Sprintf(
+				"%v %d workers", chanGraph.name, numWorkers,
+			)
+
 			success := t.Run(testName, func(t1 *testing.T) {
-				centralityMetric, err := NewBetweennessCentralityMetric(
+				metric, err := NewBetweennessCentralityMetric(
 					numWorkers,
 				)
-				if err != nil {
-					t.Fatalf("construction must succeed with " +
-						"positive number of workers")
-				}
+				require.NoError(
+					t, err,
+					"construction must succeed with "+
+						"positive number of workers",
+				)
 
-				graphNodes := buildTestGraph(t1, graph, centralityTestGraph)
-				if err := centralityMetric.Refresh(graph); err != nil {
-					t1.Fatalf("error while calculating betweeness centrality")
-				}
-				for _, expected := range results {
+				graphNodes := buildTestGraph(
+					t1, graph, centralityTestGraph,
+				)
+
+				err = metric.Refresh(graph)
+				require.NoError(t, err)
+
+				for _, expected := range tests {
 					expected := expected
-					centrality := centralityMetric.GetMetric(expected.normalize)
+					centrality := metric.GetMetric(
+						expected.normalize,
+					)
 
-					if len(centrality) != centralityTestGraph.nodes {
-						t.Fatalf("expected %v values, got: %v",
-							centralityTestGraph.nodes, len(centrality))
-					}
+					require.Equal(t,
+						centralityTestGraph.nodes,
+						len(centrality),
+					)
 
-					for node, nodeCentrality := range expected.centrality {
-						nodeID := NewNodeID(graphNodes[node])
-						calculatedCentrality, ok := centrality[nodeID]
-						if !ok {
-							t1.Fatalf("no result for node: %x (%v)",
-								nodeID, node)
-						}
-
-						if nodeCentrality != calculatedCentrality {
-							t1.Errorf("centrality for node: %v "+
-								"should be %v, got: %v",
-								node, nodeCentrality, calculatedCentrality)
-						}
+					for i, c := range expected.centrality {
+						nodeID := NewNodeID(
+							graphNodes[i],
+						)
+						result, ok := centrality[nodeID]
+						require.True(t, ok)
+						require.Equal(t, c, result)
 					}
 				}
 			})

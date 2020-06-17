@@ -159,6 +159,7 @@ type Config struct {
 	RawExternalIPs   []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
 	RPCListeners     []net.Addr
 	RESTListeners    []net.Addr
+	RestCORS         []string `long:"restcors" description:"Add an ip:port/hostname to allow cross origin access from. To allow all origins, set as \"*\"."`
 	Listeners        []net.Addr
 	ExternalIPs      []net.Addr
 	DisableListen    bool          `long:"nolisten" description:"Disable listening for incoming peer connections"`

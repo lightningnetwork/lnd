@@ -46,6 +46,11 @@ service Lightning {
     /* lncli: `estimatefee`
     EstimateFee asks the chain backend to estimate the fee rate and total fees
     for a transaction that pays to multiple specified outputs.
+
+    When using REST, the `AddrToAmount` map type can be set by appending
+    `&AddrToAmount[<address>]=<amount_to_send>` to the URL. Unfortunately this
+    map type doesn't appear in the REST API documentation because of a bug in
+    the grpc-gateway library.
     */
     rpc EstimateFee (EstimateFeeRequest) returns (EstimateFeeResponse);
 
@@ -355,6 +360,11 @@ service Lightning {
     satoshis. The returned route contains the full details required to craft and
     send an HTLC, also including the necessary information that should be
     present within the Sphinx packet encapsulated within the HTLC.
+
+    When using REST, the `dest_custom_records` map type can be set by appending
+    `&dest_custom_records[<record_number>]=<record_data_base64_url_encoded>`
+    to the URL. Unfortunately this map type doesn't appear in the REST API
+    documentation because of a bug in the grpc-gateway library.
     */
     rpc QueryRoutes (QueryRoutesRequest) returns (QueryRoutesResponse);
 

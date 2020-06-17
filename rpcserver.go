@@ -799,6 +799,15 @@ func (r *rpcServer) Start() error {
 	restCtx, restCancel := context.WithCancel(context.Background())
 	r.listenerCleanUp = append(r.listenerCleanUp, restCancel)
 
+	// Wrap the default grpc-gateway handler with the WebSocket handler.
+	restHandler := lnrpc.NewWebSocketProxy(restMux, rpcsLog)
+
+	// Set the CORS headers if configured. This wraps the HTTP handler with
+	// another handler.
+	if len(r.cfg.RestCORS) > 0 {
+		restHandler = allowCORS(restHandler, r.cfg.RestCORS)
+	}
+
 	// With our custom REST proxy mux created, register our main RPC and
 	// give all subservers a chance to register as well.
 	err := lnrpc.RegisterLightningHandlerFromEndpoint(
@@ -849,7 +858,15 @@ func (r *rpcServer) Start() error {
 
 		go func() {
 			rpcsLog.Infof("gRPC proxy started at %s", lis.Addr())
-			_ = http.Serve(lis, restMux)
+
+			// Create our proxy chain now. A request will pass
+			// through the following chain:
+			// req ---> CORS handler --> WS proxy --->
+			//   REST proxy --> gRPC endpoint
+			err := http.Serve(lis, restHandler)
+			if err != nil && !lnrpc.IsClosedConnError(err) {
+				rpcsLog.Error(err)
+			}
 		}()
 	}
 
@@ -910,6 +927,52 @@ func addrPairsToOutputs(addrPairs map[string]int64) ([]*wire.TxOut, error) {
 	}
 
 	return outputs, nil
+}
+
+// allowCORS wraps the given http.Handler with a function that adds the
+// Access-Control-Allow-Origin header to the response.
+func allowCORS(handler http.Handler, origins []string) http.Handler {
+	allowHeaders := "Access-Control-Allow-Headers"
+	allowMethods := "Access-Control-Allow-Methods"
+	allowOrigin := "Access-Control-Allow-Origin"
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+
+		// Skip everything if the browser doesn't send the Origin field.
+		if origin == "" {
+			handler.ServeHTTP(w, r)
+			return
+		}
+
+		// Set the static header fields first.
+		w.Header().Set(
+			allowHeaders,
+			"Content-Type, Accept, Grpc-Metadata-Macaroon",
+		)
+		w.Header().Set(allowMethods, "GET, POST, DELETE")
+
+		// Either we allow all origins or the incoming request matches
+		// a specific origin in our list of allowed origins.
+		for _, allowedOrigin := range origins {
+			if allowedOrigin == "*" || origin == allowedOrigin {
+				// Only set allowed origin to requested origin.
+				w.Header().Set(allowOrigin, origin)
+
+				break
+			}
+		}
+
+		// For a pre-flight request we only need to send the headers
+		// back. No need to call the rest of the chain.
+		if r.Method == "OPTIONS" {
+			return
+		}
+
+		// Everything's prepared now, we can pass the request along the
+		// chain of handlers.
+		handler.ServeHTTP(w, r)
+	})
 }
 
 // sendCoinsOnChain makes an on-chain transaction in or to send coins to one or

@@ -206,6 +206,7 @@ func (cfg NodeConfig) genArgs() []string {
 	args = append(args, fmt.Sprintf("--bitcoin.defaultremotedelay=%v", DefaultCSV))
 	args = append(args, fmt.Sprintf("--rpclisten=%v", cfg.RPCAddr()))
 	args = append(args, fmt.Sprintf("--restlisten=%v", cfg.RESTAddr()))
+	args = append(args, fmt.Sprintf("--restcors=https://%v", cfg.RESTAddr()))
 	args = append(args, fmt.Sprintf("--listen=%v", cfg.P2PAddr()))
 	args = append(args, fmt.Sprintf("--externalip=%v", cfg.P2PAddr()))
 	args = append(args, fmt.Sprintf("--logdir=%v", cfg.LogDir))

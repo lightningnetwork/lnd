@@ -185,6 +185,7 @@ var (
 	availableHeuristics = []AttachmentHeuristic{
 		NewPrefAttachment(),
 		NewExternalScoreAttachment(),
+		NewTopCentrality(),
 	}
 
 	// AvailableHeuristics is a map that holds the name of available

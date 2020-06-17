@@ -3,9 +3,6 @@ package autopilot
 import (
 	"fmt"
 	"testing"
-
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcutil"
 )
 
 func TestBetweennessCentralityMetricConstruction(t *testing.T) {
@@ -65,55 +62,8 @@ func TestBetweennessCentralityEmptyGraph(t *testing.T) {
 	}
 }
 
-// testGraphDesc is a helper type to describe a test graph.
-type testGraphDesc struct {
-	nodes int
-	edges map[int][]int
-}
-
-// buildTestGraph builds a test graph from a passed graph desriptor.
-func buildTestGraph(t *testing.T,
-	graph testGraph, desc testGraphDesc) map[int]*btcec.PublicKey {
-
-	nodes := make(map[int]*btcec.PublicKey)
-
-	for i := 0; i < desc.nodes; i++ {
-		key, err := graph.addRandNode()
-		if err != nil {
-			t.Fatalf("cannot create random node")
-		}
-
-		nodes[i] = key
-	}
-
-	const chanCapacity = btcutil.SatoshiPerBitcoin
-	for u, neighbors := range desc.edges {
-		for _, v := range neighbors {
-			_, _, err := graph.addRandChannel(nodes[u], nodes[v], chanCapacity)
-			if err != nil {
-				t.Fatalf("unexpected error adding random channel: %v", err)
-			}
-		}
-	}
-
-	return nodes
-}
-
 // Test betweenness centrality calculating using an example graph.
 func TestBetweennessCentralityWithNonEmptyGraph(t *testing.T) {
-	graphDesc := testGraphDesc{
-		nodes: 9,
-		edges: map[int][]int{
-			0: {1, 2, 3},
-			1: {2},
-			2: {3},
-			3: {4, 5},
-			4: {5, 6, 7},
-			5: {6, 7},
-			6: {7, 8},
-		},
-	}
-
 	workers := []int{1, 3, 9, 100}
 
 	results := []struct {
@@ -121,16 +71,12 @@ func TestBetweennessCentralityWithNonEmptyGraph(t *testing.T) {
 		centrality []float64
 	}{
 		{
-			normalize: true,
-			centrality: []float64{
-				0.2, 0.0, 0.2, 1.0, 0.4, 0.4, 7.0 / 15.0, 0.0, 0.0,
-			},
+			normalize:  true,
+			centrality: normalizedTestGraphCentrality,
 		},
 		{
-			normalize: false,
-			centrality: []float64{
-				3.0, 0.0, 3.0, 15.0, 6.0, 6.0, 7.0, 0.0, 0.0,
-			},
+			normalize:  false,
+			centrality: testGraphCentrality,
 		},
 	}
 
@@ -155,7 +101,7 @@ func TestBetweennessCentralityWithNonEmptyGraph(t *testing.T) {
 						"positive number of workers")
 				}
 
-				graphNodes := buildTestGraph(t1, graph, graphDesc)
+				graphNodes := buildTestGraph(t1, graph, centralityTestGraph)
 				if err := centralityMetric.Refresh(graph); err != nil {
 					t1.Fatalf("error while calculating betweeness centrality")
 				}
@@ -163,9 +109,9 @@ func TestBetweennessCentralityWithNonEmptyGraph(t *testing.T) {
 					expected := expected
 					centrality := centralityMetric.GetMetric(expected.normalize)
 
-					if len(centrality) != graphDesc.nodes {
+					if len(centrality) != centralityTestGraph.nodes {
 						t.Fatalf("expected %v values, got: %v",
-							graphDesc.nodes, len(centrality))
+							centralityTestGraph.nodes, len(centrality))
 					}
 
 					for node, nodeCentrality := range expected.centrality {

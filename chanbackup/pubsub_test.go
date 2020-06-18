@@ -2,12 +2,10 @@ package chanbackup
 
 import (
 	"fmt"
-	"reflect"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -15,11 +13,17 @@ type mockSwapper struct {
 	fail bool
 
 	swaps chan PackedMulti
+
+	swapState *Multi
+
+	keyChain keychain.KeyRing
 }
 
-func newMockSwapper() *mockSwapper {
+func newMockSwapper(keychain keychain.KeyRing) *mockSwapper {
 	return &mockSwapper{
-		swaps: make(chan PackedMulti),
+		swaps:     make(chan PackedMulti, 1),
+		keyChain:  keychain,
+		swapState: &Multi{},
 	}
 }
 
@@ -28,9 +32,20 @@ func (m *mockSwapper) UpdateAndSwap(newBackup PackedMulti) error {
 		return fmt.Errorf("fail")
 	}
 
+	swapState, err := newBackup.Unpack(m.keyChain)
+	if err != nil {
+		return fmt.Errorf("unable to decode on disk swaps: %v", err)
+	}
+
+	m.swapState = swapState
+
 	m.swaps <- newBackup
 
 	return nil
+}
+
+func (m *mockSwapper) ExtractMulti(keychain keychain.KeyRing) (*Multi, error) {
+	return m.swapState, nil
 }
 
 type mockChannelNotifier struct {
@@ -87,7 +102,7 @@ func assertExpectedBackupSwap(t *testing.T, swapper *mockSwapper,
 	case newPackedMulti := <-swapper.swaps:
 		// If we unpack the new multi, then we should find all the old
 		// channels, and also the new channel included and any deleted
-		// channel omitted..
+		// channel omitted.
 		newMulti, err := newPackedMulti.Unpack(keyRing)
 		if err != nil {
 			t.Fatalf("unable to unpack multi: %v", err)
@@ -111,12 +126,19 @@ func assertExpectedBackupSwap(t *testing.T, swapper *mockSwapper,
 			}
 		}
 
-		// The internal state of the sub-swapper should also be one
-		// larger.
-		if !reflect.DeepEqual(expectedChanSet, subSwapper.backupState) {
-			t.Fatalf("backup set doesn't match: expected %v got %v",
-				spew.Sdump(expectedChanSet),
-				spew.Sdump(subSwapper.backupState))
+		// The same applies for our in-memory state, but it's also
+		// possible for there to be items in the on-disk state that we
+		// don't know of explicit.
+		newChans := make(map[wire.OutPoint]Single)
+		for _, newChan := range newMulti.StaticBackups {
+			newChans[newChan.FundingOutpoint] = newChan
+		}
+		for _, backup := range subSwapper.backupState {
+			_, ok := newChans[backup.FundingOutpoint]
+			if !ok {
+				t.Fatalf("didn't find backup in original set: %v",
+					backup.FundingOutpoint)
+			}
 		}
 
 	case <-time.After(time.Second * 5):
@@ -133,7 +155,7 @@ func TestSubSwapperIdempotentStartStop(t *testing.T) {
 
 	var chanNotifier mockChannelNotifier
 
-	swapper := newMockSwapper()
+	swapper := newMockSwapper(keyRing)
 	subSwapper, err := NewSubSwapper(nil, &chanNotifier, keyRing, swapper)
 	if err != nil {
 		t.Fatalf("unable to init subSwapper: %v", err)
@@ -162,7 +184,7 @@ func TestSubSwapperUpdater(t *testing.T) {
 
 	keyRing := &mockKeyRing{}
 	chanNotifier := newMockChannelNotifier()
-	swapper := newMockSwapper()
+	swapper := newMockSwapper(keyRing)
 
 	// First, we'll start out by creating a channels set for the initial
 	// set of channels known to the sub-swapper.
@@ -179,6 +201,24 @@ func TestSubSwapperUpdater(t *testing.T) {
 
 		backupSet[channel.FundingOutpoint] = single
 		initialChanSet = append(initialChanSet, single)
+	}
+
+	// We'll also generate two additional channels which will already be
+	// present on disk. However, these will at first only be known by the
+	// on disk backup (the backup set).
+	const numDiskChans = 2
+	for i := 0; i < numDiskChans; i++ {
+		channel, err := genRandomOpenChannelShell()
+		if err != nil {
+			t.Fatalf("unable to make test chan: %v", err)
+		}
+
+		single := NewSingle(channel, nil)
+
+		backupSet[channel.FundingOutpoint] = single
+		swapper.swapState.StaticBackups = append(
+			swapper.swapState.StaticBackups, single,
+		)
 	}
 
 	// With our channel set created, we'll make a fresh sub swapper

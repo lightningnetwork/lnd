@@ -915,6 +915,118 @@ func TestGossipSyncerReplyChanRangeQuery(t *testing.T) {
 	}
 }
 
+// TestGossipSyncerReplyChanRangeQuery tests a variety of
+// QueryChannelRange messages to ensure the underlying queries are
+// executed with the correct block range
+func TestGossipSyncerReplyChanRangeQueryBlockRange(t *testing.T) {
+	t.Parallel()
+
+	// First create our test gossip syncer that will handle and
+	// respond to the test queries
+	_, syncer, chanSeries := newTestSyncer(
+		lnwire.NewShortChanIDFromInt(10), defaultEncoding, math.MaxInt32,
+	)
+
+	// Next construct test queries with various startBlock and endBlock
+	// ranges
+	queryReqs := []*lnwire.QueryChannelRange{
+		// full range example
+		{
+			FirstBlockHeight: uint32(0),
+			NumBlocks:        uint32(math.MaxUint32),
+		},
+
+		// small query example that does not overflow
+		{
+			FirstBlockHeight: uint32(1000),
+			NumBlocks:        uint32(100),
+		},
+
+		// overflow example
+		{
+			FirstBlockHeight: uint32(1000),
+			NumBlocks:        uint32(math.MaxUint32),
+		},
+	}
+
+	// Next construct the expected filterRangeReq startHeight and endHeight
+	// values that we will compare to the captured values
+	expFilterReqs := []filterRangeReq{
+		{
+			startHeight: uint32(0),
+			endHeight:   uint32(math.MaxUint32 - 1),
+		},
+		{
+			startHeight: uint32(1000),
+			endHeight:   uint32(1099),
+		},
+		{
+			startHeight: uint32(1000),
+			endHeight:   uint32(math.MaxUint32),
+		},
+	}
+
+	// We'll then launch a goroutine to capture the filterRangeReqs for
+	// each request and return those results once all queries have been
+	// received
+	resultsCh := make(chan []filterRangeReq, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		// We will capture the values supplied to the chanSeries here
+		// and return the results once all the requests have been
+		// collected
+		capFilterReqs := []filterRangeReq{}
+
+		for filterReq := range chanSeries.filterRangeReqs {
+			// capture the filter request so we can compare to the
+			// expected values later
+			capFilterReqs = append(capFilterReqs, filterReq)
+
+			// Reply with an empty result for each query to allow
+			// unblock the caller
+			queryResp := []lnwire.ShortChannelID{}
+			chanSeries.filterRangeResp <- queryResp
+
+			// Once we have collected all results send the results
+			// back to the main thread and terminate the goroutine
+			if len(capFilterReqs) == len(expFilterReqs) {
+				resultsCh <- capFilterReqs
+				return
+			}
+
+		}
+	}()
+
+	// We'll launch a goroutine to send the query sequentially. This
+	// goroutine ensures that the timeout logic below on the mainthread
+	// will be reached
+	go func() {
+		for _, query := range queryReqs {
+			if err := syncer.replyChanRangeQuery(query); err != nil {
+				errCh <- fmt.Errorf("unable to issue query: %v", err)
+				return
+			}
+		}
+	}()
+
+	// Wait for the results to be collected and validate that the
+	// collected results match the expected results, the timeout to
+	// expire, or an error to occur
+	select {
+	case capFilterReq := <-resultsCh:
+		if !reflect.DeepEqual(expFilterReqs, capFilterReq) {
+			t.Fatalf("mismatched filter reqs: expected %v, got %v",
+				spew.Sdump(expFilterReqs), spew.Sdump(capFilterReq))
+		}
+	case <-time.After(time.Second * 10):
+		t.Fatalf("goroutine did not return within 10 seconds")
+	case err := <-errCh:
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // TestGossipSyncerReplyChanRangeQueryNoNewChans tests that if we issue a reply
 // for a channel range query, and we don't have any new channels, then we send
 // back a single response that signals completion.

@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -642,7 +643,7 @@ func TestChooseDeliveryScript(t *testing.T) {
 			userScript:     script1,
 			shutdownScript: script2,
 			expectedScript: nil,
-			expectedError:  errUpfrontShutdownScriptMismatch,
+			expectedError:  chancloser.ErrUpfrontShutdownScriptMismatch,
 		},
 		{
 			name:           "Only upfront script",
@@ -733,7 +734,7 @@ func TestCustomShutdownScript(t *testing.T) {
 			name:            "Shutdown set, user script different",
 			update:          setShutdown,
 			userCloseScript: []byte("different addr"),
-			expectedError:   errUpfrontShutdownScriptMismatch,
+			expectedError:   chancloser.ErrUpfrontShutdownScriptMismatch,
 		},
 	}
 

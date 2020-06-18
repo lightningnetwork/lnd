@@ -1,4 +1,4 @@
-package lnd
+package chancloser
 
 import (
 	"crypto/rand"
@@ -49,7 +49,7 @@ func TestMaybeMatchScript(t *testing.T) {
 			name:           "upfront shutdown set, script not ok",
 			shutdownScript: addr1,
 			upfrontScript:  addr2,
-			expectedErr:    errUpfrontShutdownScriptMismatch,
+			expectedErr:    ErrUpfrontShutdownScriptMismatch,
 		},
 		{
 			name:           "nil shutdown and empty upfront",

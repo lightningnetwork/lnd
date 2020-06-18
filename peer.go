@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/pool"
 	"github.com/lightningnetwork/lnd/queue"
@@ -190,7 +191,7 @@ type peer struct {
 	// messages are directed to one of these active state machines. Once
 	// the channel has been closed, the state machine will be delete from
 	// the map.
-	activeChanCloses map[lnwire.ChannelID]*channelCloser
+	activeChanCloses map[lnwire.ChannelID]*chancloser.ChanCloser
 
 	// localCloseChanReqs is a channel in which any local requests to close
 	// a particular channel are sent over.
@@ -302,7 +303,7 @@ func newPeer(cfg *Config, conn net.Conn, connReq *connmgr.ConnReq, server *serve
 
 		activeMsgStreams: make(map[lnwire.ChannelID]*msgStream),
 
-		activeChanCloses:   make(map[lnwire.ChannelID]*channelCloser),
+		activeChanCloses:   make(map[lnwire.ChannelID]*chancloser.ChanCloser),
 		localCloseChanReqs: make(chan *htlcswitch.ChanClose),
 		linkFailures:       make(chan linkFailureReport),
 		chanCloseMsgs:      make(chan *closeMsg),
@@ -2114,7 +2115,7 @@ out:
 				// As the negotiations failed, we'll reset the
 				// channel state to ensure we act to on-chain
 				// events as normal.
-				chanCloser.cfg.channel.ResetState()
+				chanCloser.Channel().ResetState()
 
 				if chanCloser.CloseRequest() != nil {
 					chanCloser.CloseRequest().Err <- err
@@ -2232,7 +2233,9 @@ func (p *peer) reenableActiveChannels() {
 // for the target channel ID. If the channel isn't active an error is returned.
 // Otherwise, either an existing state machine will be returned, or a new one
 // will be created.
-func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, error) {
+func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (
+	*chancloser.ChanCloser, error) {
+
 	// First, we'll ensure that we actually know of the target channel. If
 	// not, we'll ignore this message.
 	p.activeChanMtx.RLock()
@@ -2288,16 +2291,16 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 			return nil, fmt.Errorf("cannot obtain best block")
 		}
 
-		chanCloser = newChannelCloser(
-			chanCloseCfg{
-				channel:           channel,
-				unregisterChannel: p.server.htlcSwitch.RemoveLink,
-				broadcastTx:       p.server.cc.wallet.PublishTransaction,
-				disableChannel:    p.server.chanStatusMgr.RequestDisable,
-				disconnect: func() error {
+		chanCloser = chancloser.NewChanCloser(
+			chancloser.ChanCloseCfg{
+				Channel:           channel,
+				UnregisterChannel: p.server.htlcSwitch.RemoveLink,
+				BroadcastTx:       p.server.cc.wallet.PublishTransaction,
+				DisableChannel:    p.server.chanStatusMgr.RequestDisable,
+				Disconnect: func() error {
 					return p.server.DisconnectPeer(p.IdentityKey())
 				},
-				quit: p.quit,
+				Quit: p.quit,
 			},
 			deliveryScript,
 			feePerKw,
@@ -2334,7 +2337,7 @@ func chooseDeliveryScript(upfront,
 	// the upfront shutdown script (because closing out to a different script
 	// would violate upfront shutdown).
 	if !bytes.Equal(upfront, requested) {
-		return nil, errUpfrontShutdownScriptMismatch
+		return nil, chancloser.ErrUpfrontShutdownScriptMismatch
 	}
 
 	// The user requested script matches the upfront shutdown script, so we
@@ -2404,16 +2407,16 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 			return
 		}
 
-		chanCloser := newChannelCloser(
-			chanCloseCfg{
-				channel:           channel,
-				unregisterChannel: p.server.htlcSwitch.RemoveLink,
-				broadcastTx:       p.server.cc.wallet.PublishTransaction,
-				disableChannel:    p.server.chanStatusMgr.RequestDisable,
-				disconnect: func() error {
+		chanCloser := chancloser.NewChanCloser(
+			chancloser.ChanCloseCfg{
+				Channel:           channel,
+				UnregisterChannel: p.server.htlcSwitch.RemoveLink,
+				BroadcastTx:       p.server.cc.wallet.PublishTransaction,
+				DisableChannel:    p.server.chanStatusMgr.RequestDisable,
+				Disconnect: func() error {
 					return p.server.DisconnectPeer(p.IdentityKey())
 				},
-				quit: p.quit,
+				Quit: p.quit,
 			},
 			deliveryScript,
 			req.TargetFeePerKw,
@@ -2520,11 +2523,11 @@ func (p *peer) handleLinkFailure(failure linkFailureReport) {
 // machine should be passed in. Once the transaction has been sufficiently
 // confirmed, the channel will be marked as fully closed within the database,
 // and any clients will be notified of updates to the closing state.
-func (p *peer) finalizeChanClosure(chanCloser *channelCloser) {
+func (p *peer) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 	closeReq := chanCloser.CloseRequest()
 
 	// First, we'll clear all indexes related to the channel in question.
-	chanPoint := chanCloser.cfg.channel.ChannelPoint()
+	chanPoint := chanCloser.Channel().ChannelPoint()
 	p.WipeChannel(chanPoint)
 
 	// Next, we'll launch a goroutine which will request to be notified by
@@ -2558,7 +2561,7 @@ func (p *peer) finalizeChanClosure(chanCloser *channelCloser) {
 		}
 	}
 
-	go waitForChanToClose(chanCloser.negotiationHeight, notifier, errChan,
+	go waitForChanToClose(chanCloser.NegotiationHeight(), notifier, errChan,
 		chanPoint, &closingTxid, closingTx.TxOut[0].PkScript, func() {
 
 			// Respond to the local subsystem which requested the

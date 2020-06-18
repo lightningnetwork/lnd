@@ -38,7 +38,7 @@ func (db *DB) Validate() error {
 	case BoltBackend:
 
 	case EtcdBackend:
-		if db.Etcd.Host == "" {
+		if !db.Etcd.Embedded && db.Etcd.Host == "" {
 			return fmt.Errorf("etcd host must be set")
 		}
 
@@ -76,8 +76,12 @@ func (db *DB) GetBackends(ctx context.Context, dbPath string,
 	)
 
 	if db.Backend == EtcdBackend {
-		// Prefix will separate key/values in the db.
-		remoteDB, err = kvdb.GetEtcdBackend(ctx, networkName, db.Etcd)
+		if db.Etcd.Embedded {
+			remoteDB, _, err = kvdb.GetEtcdTestBackend(dbPath, dbName)
+		} else {
+			// Prefix will separate key/values in the db.
+			remoteDB, err = kvdb.GetEtcdBackend(ctx, networkName, db.Etcd)
+		}
 		if err != nil {
 			return nil, err
 		}

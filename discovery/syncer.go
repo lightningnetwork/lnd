@@ -918,7 +918,7 @@ func (g *GossipSyncer) replyChanRangeQuery(query *lnwire.QueryChannelRange) erro
 	// Next, we'll consult the time series to obtain the set of known
 	// channel ID's that match their query.
 	startBlock := query.FirstBlockHeight
-	endBlock := startBlock + query.NumBlocks - 1
+	endBlock := query.LastBlockHeight()
 	channelRange, err := g.cfg.channelSeries.FilterChannelRange(
 		query.ChainHash, startBlock, endBlock,
 	)

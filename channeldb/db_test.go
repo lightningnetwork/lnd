@@ -365,19 +365,6 @@ func TestRestoreChannelShells(t *testing.T) {
 		t.Fatalf("unable to gen channel shell: %v", err)
 	}
 
-	graph := cdb.ChannelGraph()
-
-	// Before we can restore the channel, we'll need to make a source node
-	// in the graph as the channel edge we create will need to have a
-	// origin.
-	testNode, err := createTestVertex(cdb)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
-	if err := graph.SetSourceNode(testNode); err != nil {
-		t.Fatalf("unable to set source node: %v", err)
-	}
-
 	// With the channel shell constructed, we'll now insert it into the
 	// database with the restoration method.
 	if err := cdb.RestoreChannelShells(channelShell); err != nil {
@@ -448,25 +435,6 @@ func TestRestoreChannelShells(t *testing.T) {
 	if reflect.DeepEqual(linkNode.Addresses, channelShell.NodeAddrs) {
 		t.Fatalf("addr mismach: expected %v, got %v",
 			linkNode.Addresses, channelShell.NodeAddrs)
-	}
-
-	// Finally, we'll ensure that the edge for the channel was properly
-	// inserted.
-	chanInfos, err := graph.FetchChanInfos(
-		[]uint64{channelShell.Chan.ShortChannelID.ToUint64()},
-	)
-	if err != nil {
-		t.Fatalf("unable to find edges: %v", err)
-	}
-
-	if len(chanInfos) != 1 {
-		t.Fatalf("wrong amount of chan infos: expected %v got %v",
-			len(chanInfos), 1)
-	}
-
-	// We should only find a single edge.
-	if chanInfos[0].Policy1 != nil && chanInfos[0].Policy2 != nil {
-		t.Fatalf("only a single edge should be inserted: %v", err)
 	}
 }
 

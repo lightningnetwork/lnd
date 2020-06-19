@@ -184,8 +184,13 @@ func decodeShortChanIDs(r io.Reader) (ShortChanIDEncoding, []ShortChannelID, err
 					"short chan ID: %v", err)
 			}
 
+			// We'll ensure that this short chan ID is greater than
+			// the last one. This is a requirement within the
+			// encoding, and if violated can aide us in detecting
+			// malicious payloads. This can only be true starting
+			// at the second chanID.
 			cid := shortChanIDs[i]
-			if cid.ToUint64() <= lastChanID.ToUint64() {
+			if i > 0 && cid.ToUint64() <= lastChanID.ToUint64() {
 				return 0, nil, ErrUnsortedSIDs{lastChanID, cid}
 			}
 			lastChanID = cid
@@ -224,6 +229,7 @@ func decodeShortChanIDs(r io.Reader) (ShortChanIDEncoding, []ShortChannelID, err
 		var (
 			shortChanIDs []ShortChannelID
 			lastChanID   ShortChannelID
+			i            int
 		)
 		for {
 			// We'll now attempt to read the next short channel ID
@@ -255,12 +261,14 @@ func decodeShortChanIDs(r io.Reader) (ShortChanIDEncoding, []ShortChannelID, err
 			// Finally, we'll ensure that this short chan ID is
 			// greater than the last one. This is a requirement
 			// within the encoding, and if violated can aide us in
-			// detecting malicious payloads.
-			if cid.ToUint64() <= lastChanID.ToUint64() {
+			// detecting malicious payloads. This can only be true
+			// starting at the second chanID.
+			if i > 0 && cid.ToUint64() <= lastChanID.ToUint64() {
 				return 0, nil, ErrUnsortedSIDs{lastChanID, cid}
 			}
 
 			lastChanID = cid
+			i++
 		}
 
 	default:

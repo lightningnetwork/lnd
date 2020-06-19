@@ -49,6 +49,7 @@ var (
 // TestQueryShortChanIDsUnsorted tests that decoding a QueryShortChanID request
 // that contains duplicate or unsorted ids returns an ErrUnsortedSIDs failure.
 func TestQueryShortChanIDsUnsorted(t *testing.T) {
+
 	for _, test := range unsortedSidTests {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
@@ -69,6 +70,51 @@ func TestQueryShortChanIDsUnsorted(t *testing.T) {
 			if _, ok := err.(ErrUnsortedSIDs); !ok {
 				t.Fatalf("expected ErrUnsortedSIDs, got: %T",
 					err)
+			}
+		})
+	}
+}
+
+// TestQueryShortChanIDsZero ensures that decoding of a list of short chan ids
+// still works as expected when the first element of the list is zero.
+func TestQueryShortChanIDsZero(t *testing.T) {
+	testCases := []struct {
+		name     string
+		encoding ShortChanIDEncoding
+	}{
+		{
+			name:     "plain",
+			encoding: EncodingSortedPlain,
+		}, {
+			name:     "zlib",
+			encoding: EncodingSortedZlib,
+		},
+	}
+
+	testSids := []ShortChannelID{
+		NewShortChanIDFromInt(0),
+		NewShortChanIDFromInt(10),
+	}
+
+	for _, test := range testCases {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			req := &QueryShortChanIDs{
+				EncodingType: test.encoding,
+				ShortChanIDs: testSids,
+				noSort:       true,
+			}
+
+			var b bytes.Buffer
+			err := req.Encode(&b, 0)
+			if err != nil {
+				t.Fatalf("unable to encode req: %v", err)
+			}
+
+			var req2 QueryShortChanIDs
+			err = req2.Decode(bytes.NewReader(b.Bytes()), 0)
+			if err != nil {
+				t.Fatalf("unexpected decoding error: %v", err)
 			}
 		})
 	}

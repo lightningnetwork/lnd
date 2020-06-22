@@ -211,6 +211,8 @@ http:
       # deprecated, no REST endpoint
     - selector: routerrpc.Router.TrackPayment
       # deprecated, no REST endpoint
+    - selector: routerrpc.HtlcInterceptor
+      # request streaming RPC, REST not supported
 
     # signrpc/signer.proto
     - selector: signrpc.Signer.SignOutputRaw

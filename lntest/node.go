@@ -183,6 +183,8 @@ type NodeConfig struct {
 	AcceptKeySend bool
 
 	FeeURL string
+
+	Etcd bool
 }
 
 func (cfg NodeConfig) P2PAddr() string {
@@ -259,6 +261,11 @@ func (cfg NodeConfig) genArgs() []string {
 
 	if cfg.AcceptKeySend {
 		args = append(args, "--accept-keysend")
+	}
+
+	if cfg.Etcd {
+		args = append(args, "--db.backend=etcd")
+		args = append(args, "--db.etcd.embedded")
 	}
 
 	if cfg.FeeURL != "" {

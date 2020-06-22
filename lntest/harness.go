@@ -60,6 +60,10 @@ type NetworkHarness struct {
 	Alice *HarnessNode
 	Bob   *HarnessNode
 
+	// useEtcd is set to true if new nodes are to be created with an
+	// embedded etcd backend instead of just bbolt.
+	useEtcd bool
+
 	// Channel for transmitting stderr output from failed lightning node
 	// to main process.
 	lndErrorChan chan error
@@ -77,8 +81,8 @@ type NetworkHarness struct {
 // TODO(roasbeef): add option to use golang's build library to a binary of the
 // current repo. This will save developers from having to manually `go install`
 // within the repo each time before changes
-func NewNetworkHarness(r *rpctest.Harness, b BackendConfig, lndBinary string) (
-	*NetworkHarness, error) {
+func NewNetworkHarness(r *rpctest.Harness, b BackendConfig, lndBinary string,
+	useEtcd bool) (*NetworkHarness, error) {
 
 	feeService := startFeeService()
 
@@ -92,6 +96,7 @@ func NewNetworkHarness(r *rpctest.Harness, b BackendConfig, lndBinary string) (
 		feeService:   feeService,
 		quit:         make(chan struct{}),
 		lndBinary:    lndBinary,
+		useEtcd:      useEtcd,
 	}
 	return &n, nil
 }
@@ -376,6 +381,7 @@ func (n *NetworkHarness) newNode(name string, extraArgs []string, hasSeed bool,
 		NetParams:         n.netParams,
 		ExtraArgs:         extraArgs,
 		FeeURL:            n.feeService.url,
+		Etcd:              n.useEtcd,
 	})
 	if err != nil {
 		return nil, err

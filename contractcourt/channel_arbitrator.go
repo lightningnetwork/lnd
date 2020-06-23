@@ -2153,6 +2153,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 
 			err := c.cfg.MarkChannelClosed(
 				closeInfo.ChannelCloseSummary,
+				channeldb.ChanStatusCoopBroadcasted,
 			)
 			if err != nil {
 				log.Errorf("Unable to mark channel closed: "+
@@ -2223,6 +2224,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// close status of the channel.
 			err = c.cfg.MarkChannelClosed(
 				closeInfo.ChannelCloseSummary,
+				channeldb.ChanStatusLocalCloseInitiator,
 			)
 			if err != nil {
 				log.Errorf("Unable to mark "+

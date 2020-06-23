@@ -115,15 +115,15 @@ type interceptedForward struct {
 }
 
 // Packet returns the intercepted htlc packet.
-func (f *interceptedForward) Packet() lnwire.UpdateAddHTLC {
-	return *f.htlc
-}
-
-// CircuitKey returns the circuit key for the intercepted htlc.
-func (f *interceptedForward) CircuitKey() channeldb.CircuitKey {
-	return channeldb.CircuitKey{
-		ChanID: f.packet.incomingChanID,
-		HtlcID: f.packet.incomingHTLCID,
+func (f *interceptedForward) Packet() InterceptedPacket {
+	return InterceptedPacket{
+		IncomingCircuit: channeldb.CircuitKey{
+			ChanID: f.packet.incomingChanID,
+			HtlcID: f.packet.incomingHTLCID,
+		},
+		Hash:           f.htlc.PaymentHash,
+		OutgoingExpiry: f.htlc.Expiry,
+		OutgoingAmount: f.htlc.Amount,
 	}
 }
 

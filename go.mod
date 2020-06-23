@@ -50,7 +50,7 @@ require (
 	github.com/tv42/zbase32 v0.0.0-20160707012821-501572607d02
 	github.com/urfave/cli v1.18.0
 	golang.org/x/crypto v0.0.0-20200510223506-06a226fb4e37
-	golang.org/x/net v0.0.0-20190206173232-65e2d4e15006
+	golang.org/x/net v0.0.0-20190404232315-eb5bcb51f2a3
 	golang.org/x/time v0.0.0-20180412165947-fbb02b2291d2
 	google.golang.org/genproto v0.0.0-20190201180003-4b09977fb922
 	google.golang.org/grpc v1.19.0

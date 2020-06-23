@@ -121,9 +121,12 @@ func (f *interceptedForward) Packet() InterceptedPacket {
 			ChanID: f.packet.incomingChanID,
 			HtlcID: f.packet.incomingHTLCID,
 		},
+		OutgoingChanID: f.packet.outgoingChanID,
 		Hash:           f.htlc.PaymentHash,
 		OutgoingExpiry: f.htlc.Expiry,
 		OutgoingAmount: f.htlc.Amount,
+		IncomingAmount: f.packet.incomingAmount,
+		IncomingExpiry: f.packet.incomingTimeout,
 	}
 }
 

@@ -207,6 +207,9 @@ type InterceptedPacket struct {
 	// packet.
 	IncomingCircuit channeldb.CircuitKey
 
+	// OutgoingChanID is the destination channel for this packet.
+	OutgoingChanID lnwire.ShortChannelID
+
 	// Hash is the payment hash of the htlc.
 	Hash lntypes.Hash
 
@@ -216,6 +219,13 @@ type InterceptedPacket struct {
 
 	// OutgoingAmount is the amount to forward.
 	OutgoingAmount lnwire.MilliSatoshi
+
+	// IncomingExpiry is the absolute block height at which the incoming
+	// htlc expires.
+	IncomingExpiry uint32
+
+	// IncomingAmount is the amount of the accepted htlc.
+	IncomingAmount lnwire.MilliSatoshi
 }
 
 // InterceptedForward is passed to the ForwardInterceptor for every forwarded

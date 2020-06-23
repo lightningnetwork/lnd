@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -133,6 +134,21 @@ func testForwardInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 	for i := 0; i < len(testCases); i++ {
 		select {
 		case request := <-interceptedChan:
+			// Assert sanity of informational packet data.
+			require.NotZero(t.t, request.OutgoingRequestedChanId)
+			require.NotZero(t.t, request.IncomingExpiry)
+			require.NotZero(t.t, request.IncomingAmountMsat)
+
+			require.Less(
+				t.t,
+				request.OutgoingExpiry, request.IncomingExpiry,
+			)
+			require.Less(
+				t.t,
+				request.OutgoingAmountMsat,
+				request.IncomingAmountMsat,
+			)
+
 			testCase := testCases[i]
 
 			// For held packets we ignore, keeping them in hold status.

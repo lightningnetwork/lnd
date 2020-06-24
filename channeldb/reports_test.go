@@ -48,7 +48,7 @@ func TestPersistReport(t *testing.T) {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
-			db, cleanup, err := makeTestDB()
+			db, cleanup, err := MakeTestDB()
 			require.NoError(t, err)
 			defer cleanup()
 
@@ -85,7 +85,7 @@ func TestPersistReport(t *testing.T) {
 // channel, testing that the appropriate error is returned based on the state
 // of the existing bucket.
 func TestFetchChannelReadBucket(t *testing.T) {
-	db, cleanup, err := makeTestDB()
+	db, cleanup, err := MakeTestDB()
 	require.NoError(t, err)
 	defer cleanup()
 
@@ -197,7 +197,7 @@ func TestFetchChannelWriteBucket(t *testing.T) {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
-			db, cleanup, err := makeTestDB()
+			db, cleanup, err := MakeTestDB()
 			require.NoError(t, err)
 			defer cleanup()
 

@@ -136,7 +136,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 }
 
 func testInvoiceWorkflow(t *testing.T, test invWorkflowTest) {
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test db: %v", err)
@@ -290,7 +290,7 @@ func testInvoiceWorkflow(t *testing.T, test invWorkflowTest) {
 // TestAddDuplicatePayAddr asserts that the payment addresses of inserted
 // invoices are unique.
 func TestAddDuplicatePayAddr(t *testing.T) {
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	require.NoError(t, err)
 
@@ -317,7 +317,7 @@ func TestAddDuplicatePayAddr(t *testing.T) {
 // addresses to be inserted if they are blank to support JIT legacy keysend
 // invoices.
 func TestAddDuplicateKeysendPayAddr(t *testing.T) {
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	require.NoError(t, err)
 
@@ -358,7 +358,7 @@ func TestAddDuplicateKeysendPayAddr(t *testing.T) {
 // TestInvRefEquivocation asserts that retrieving or updating an invoice using
 // an equivocating InvoiceRef results in ErrInvRefEquivocation.
 func TestInvRefEquivocation(t *testing.T) {
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	require.NoError(t, err)
 
@@ -398,7 +398,7 @@ func TestInvRefEquivocation(t *testing.T) {
 func TestInvoiceCancelSingleHtlc(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test db: %v", err)
@@ -472,7 +472,7 @@ func TestInvoiceCancelSingleHtlc(t *testing.T) {
 func TestInvoiceAddTimeSeries(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB(OptionClock(testClock))
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test db: %v", err)
@@ -627,7 +627,7 @@ func TestInvoiceAddTimeSeries(t *testing.T) {
 func TestFetchAllInvoicesWithPaymentHash(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup, err := makeTestDB()
+	db, cleanup, err := MakeTestDB()
 	defer cleanup()
 	if err != nil {
 		t.Fatalf("unable to make test db: %v", err)
@@ -732,7 +732,7 @@ func TestFetchAllInvoicesWithPaymentHash(t *testing.T) {
 func TestDuplicateSettleInvoice(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB(OptionClock(testClock))
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test db: %v", err)
@@ -797,7 +797,7 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 func TestQueryInvoices(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB(OptionClock(testClock))
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test db: %v", err)
@@ -1112,7 +1112,7 @@ func getUpdateInvoice(amt lnwire.MilliSatoshi) InvoiceUpdateCallback {
 func TestCustomRecords(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test db: %v", err)

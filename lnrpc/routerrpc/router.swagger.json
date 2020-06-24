@@ -907,7 +907,7 @@
           "$ref": "#/definitions/routerrpcCircuitKey",
           "description": "The key of this forwarded htlc. It defines the incoming channel id and\nthe index in this channel."
         },
-        "htlc_payment_hash": {
+        "payment_hash": {
           "type": "string",
           "format": "byte",
           "description": "The htlc payment hash. This value is not guaranteed to be unique per\nrequest."

@@ -609,7 +609,7 @@ message ForwardHtlcInterceptRequest {
     The htlc payment hash. This value is not guaranteed to be unique per
     request.
     */
-    bytes htlc_payment_hash = 2;
+    bytes payment_hash = 2;
 
     // The outgoing htlc amount.
     uint64 outgoing_amount_msat = 3;

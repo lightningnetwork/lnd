@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -3224,7 +3223,7 @@ func TestSwitchHoldForward(t *testing.T) {
 	// Create request which should be forwarded from Alice channel link to
 	// bob channel link.
 	preimage := [sha256.Size]byte{1}
-	rhash := fastsha256.Sum256(preimage[:])
+	rhash := sha256.Sum256(preimage[:])
 	ogPacket := &htlcPacket{
 		incomingChanID: aliceChannelLink.ShortChanID(),
 		incomingHTLCID: 0,

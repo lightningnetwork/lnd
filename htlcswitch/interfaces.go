@@ -8,6 +8,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 )
 
 // InvoiceDatabase is an interface which represents the persistent subsystem
@@ -226,6 +227,10 @@ type InterceptedPacket struct {
 
 	// IncomingAmount is the amount of the accepted htlc.
 	IncomingAmount lnwire.MilliSatoshi
+
+	// CustomRecords are user-defined records in the custom type range that
+	// were included in the payload.
+	CustomRecords record.CustomSet
 }
 
 // InterceptedForward is passed to the ForwardInterceptor for every forwarded

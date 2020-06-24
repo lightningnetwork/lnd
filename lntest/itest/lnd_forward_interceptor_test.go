@@ -21,6 +21,11 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+var (
+	customTestKey   uint64 = 394829
+	customTestValue        = []byte{1, 3, 5}
+)
+
 type interceptorTestCase struct {
 	amountMsat        int64
 	invoice           *lnrpc.Invoice
@@ -148,6 +153,10 @@ func testForwardInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 				request.OutgoingAmountMsat,
 				request.IncomingAmountMsat,
 			)
+
+			value, ok := request.CustomRecords[customTestKey]
+			require.True(t.t, ok, "expected custom record")
+			require.Equal(t.t, customTestValue, value)
 
 			testCase := testCases[i]
 
@@ -367,6 +376,11 @@ func (c *interceptorTestContext) sendAliceToCarolPayment(ctx context.Context,
 	sendReq := &routerrpc.SendToRouteRequest{
 		PaymentHash: paymentHash,
 		Route:       route,
+	}
+
+	// Send a custom record to the forwarding node.
+	route.Hops[0].CustomRecords = map[uint64][]byte{
+		customTestKey: customTestValue,
 	}
 
 	// Send the payment.

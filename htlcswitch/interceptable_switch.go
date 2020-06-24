@@ -127,6 +127,7 @@ func (f *interceptedForward) Packet() InterceptedPacket {
 		OutgoingAmount: f.htlc.Amount,
 		IncomingAmount: f.packet.incomingAmount,
 		IncomingExpiry: f.packet.incomingTimeout,
+		CustomRecords:  f.packet.customRecords,
 	}
 }
 

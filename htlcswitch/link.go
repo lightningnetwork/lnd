@@ -2731,6 +2731,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					obfuscator:      obfuscator,
 					incomingTimeout: pd.Timeout,
 					outgoingTimeout: fwdInfo.OutgoingCTLV,
+					customRecords:   pld.CustomRecords(),
 				}
 				switchPackets = append(
 					switchPackets, updatePacket,
@@ -2794,6 +2795,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					obfuscator:      obfuscator,
 					incomingTimeout: pd.Timeout,
 					outgoingTimeout: fwdInfo.OutgoingCTLV,
+					customRecords:   pld.CustomRecords(),
 				}
 
 				fwdPkg.FwdFilter.Set(idx)

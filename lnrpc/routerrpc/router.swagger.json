@@ -936,6 +936,14 @@
           "type": "integer",
           "format": "int64",
           "description": "The outgoing htlc expiry."
+        },
+        "custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Any custom records that were present in the payload."
         }
       }
     },

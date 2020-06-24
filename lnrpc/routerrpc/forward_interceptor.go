@@ -163,6 +163,7 @@ func (r *forwardInterceptor) holdAndForwardToClient(
 		OutgoingExpiry:          htlc.OutgoingExpiry,
 		IncomingAmountMsat:      uint64(htlc.IncomingAmount),
 		IncomingExpiry:          htlc.IncomingExpiry,
+		CustomRecords:           htlc.CustomRecords,
 	}
 
 	return r.stream.Send(interceptionRequest)

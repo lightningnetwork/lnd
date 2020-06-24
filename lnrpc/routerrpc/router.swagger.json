@@ -912,15 +912,15 @@
           "format": "byte",
           "description": "The htlc payment hash. This value is not guaranteed to be unique per\nrequest."
         },
-        "amount_msat": {
+        "outgoing_amount_msat": {
           "type": "string",
           "format": "uint64",
-          "description": "/ The htlc amount."
+          "description": "The outgoing htlc amount."
         },
-        "expiry": {
+        "outgoing_expiry": {
           "type": "integer",
           "format": "int64",
-          "description": "/ The htlc expiry."
+          "description": "The outgoing htlc expiry."
         }
       }
     },

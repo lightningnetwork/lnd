@@ -9,8 +9,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// Peer is an interface which represents the remote lightning node inside our
-// system.
+// Peer is an interface which represents a remote lightning node.
 type Peer interface {
 	// SendMessage sends a variadic number of high-priority message to
 	// remote peer.  The first argument denotes if the method should block

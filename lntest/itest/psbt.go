@@ -45,6 +45,10 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to connect peers: %v", err)
 	}
+	err = net.EnsureConnected(ctxt, carol, net.Alice)
+	if err != nil {
+		t.Fatalf("unable to connect peers: %v", err)
+	}
 
 	// At this point, we can begin our PSBT channel funding workflow. We'll
 	// start by generating a pending channel ID externally that will be used
@@ -54,8 +58,15 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to gen pending chan ID: %v", err)
 	}
 
+	// We'll also test batch funding of two channels so we need another ID.
+	var pendingChanID2 [32]byte
+	if _, err := rand.Read(pendingChanID2[:]); err != nil {
+		t.Fatalf("unable to gen pending chan ID: %v", err)
+	}
+
 	// Now that we have the pending channel ID, Carol will open the channel
-	// by specifying a PSBT shim.
+	// by specifying a PSBT shim. We use the NoPublish flag here to avoid
+	// publishing the whole batch TX too early.
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 	chanUpdates, psbtBytes, err := openChannelPsbt(
@@ -65,15 +76,41 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 				Shim: &lnrpc.FundingShim_PsbtShim{
 					PsbtShim: &lnrpc.PsbtShim{
 						PendingChanId: pendingChanID[:],
+						NoPublish:     true,
 					},
 				},
 			},
 		},
 	)
 	if err != nil {
-		t.Fatalf("unable to open channel: %v", err)
+		t.Fatalf("unable to open channel to dave: %v", err)
 	}
 	packet, err := psbt.NewFromRawBytes(bytes.NewReader(psbtBytes), false)
+	if err != nil {
+		t.Fatalf("unable to parse returned PSBT: %v", err)
+	}
+
+	// Let's add a second channel to the batch. This time between carol and
+	// alice. We will the batch TX once this channel funding is complete.
+	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	chanUpdates2, psbtBytes2, err := openChannelPsbt(
+		ctxt, carol, net.Alice, lntest.OpenChannelParams{
+			Amt: chanSize,
+			FundingShim: &lnrpc.FundingShim{
+				Shim: &lnrpc.FundingShim_PsbtShim{
+					PsbtShim: &lnrpc.PsbtShim{
+						PendingChanId: pendingChanID2[:],
+						NoPublish:     false,
+					},
+				},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("unable to open channel to alice: %v", err)
+	}
+	packet2, err := psbt.NewFromRawBytes(bytes.NewReader(psbtBytes2), false)
 	if err != nil {
 		t.Fatalf("unable to parse returned PSBT: %v", err)
 	}
@@ -81,7 +118,8 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	// We'll now create a fully signed transaction that sends to the outputs
 	// encoded in the PSBT. We'll let the miner do it and convert the final
 	// TX into a PSBT, that's way easier than assembling a PSBT manually.
-	tx, err := net.Miner.CreateTransaction(packet.UnsignedTx.TxOut, 5, true)
+	allOuts := append(packet.UnsignedTx.TxOut, packet2.UnsignedTx.TxOut...)
+	tx, err := net.Miner.CreateTransaction(allOuts, 5, true)
 	if err != nil {
 		t.Fatalf("unable to create funding transaction: %v", err)
 	}
@@ -119,7 +157,7 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// We have a PSBT that has no witness data yet, which is exactly what we
-	// need for the next step: Verify the PSBT with the funding intent.
+	// need for the next step: Verify the PSBT with the funding intents.
 	_, err = carol.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
 		Trigger: &lnrpc.FundingTransitionMsg_PsbtVerify{
 			PsbtVerify: &lnrpc.FundingPsbtVerify{
@@ -130,6 +168,17 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	})
 	if err != nil {
 		t.Fatalf("error verifying PSBT with funding intent: %v", err)
+	}
+	_, err = carol.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_PsbtVerify{
+			PsbtVerify: &lnrpc.FundingPsbtVerify{
+				PendingChanId: pendingChanID2[:],
+				FundedPsbt:    buf.Bytes(),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("error verifying PSBT with funding intent 2: %v", err)
 	}
 
 	// Now we'll add the witness data back into the PSBT to make it a
@@ -162,7 +211,7 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Consume the "channel pending" update. This waits until the funding
-	// transaction has been published.
+	// transaction was fully compiled.
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 	updateResp, err := receiveChanUpdate(ctxt, chanUpdates)
@@ -181,6 +230,49 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		OutputIndex: upd.ChanPending.OutputIndex,
 	}
 
+	// No transaction should have been published yet.
+	mempool, err := net.Miner.Node.GetRawMempool()
+	if err != nil {
+		t.Fatalf("error querying mempool: %v", err)
+	}
+	if len(mempool) != 0 {
+		t.Fatalf("unexpected txes in mempool: %v", mempool)
+	}
+
+	// Let's progress the second channel now.
+	_, err = carol.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_PsbtFinalize{
+			PsbtFinalize: &lnrpc.FundingPsbtFinalize{
+				PendingChanId: pendingChanID2[:],
+				SignedPsbt:    buf.Bytes(),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("error finalizing PSBT with funding intent 2: %v", err)
+	}
+
+	// Consume the "channel pending" update for the second channel. This
+	// waits until the funding transaction was fully compiled and in this
+	// case published.
+	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	updateResp2, err := receiveChanUpdate(ctxt, chanUpdates2)
+	if err != nil {
+		t.Fatalf("unable to consume channel update message: %v", err)
+	}
+	upd2, ok := updateResp2.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
+	if !ok {
+		t.Fatalf("expected PSBT funding update, instead got %v",
+			updateResp2)
+	}
+	chanPoint2 := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: upd2.ChanPending.Txid,
+		},
+		OutputIndex: upd2.ChanPending.OutputIndex,
+	}
+
 	// Great, now we can mine a block to get the transaction confirmed, then
 	// wait for the new channel to be propagated through the network.
 	txHash := tx.TxHash()
@@ -191,6 +283,10 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	if err != nil {
 		t.Fatalf("carol didn't report channel: %v", err)
+	}
+	err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint2)
+	if err != nil {
+		t.Fatalf("carol didn't report channel 2: %v", err)
 	}
 
 	// With the channel open, ensure that it is counted towards Carol's

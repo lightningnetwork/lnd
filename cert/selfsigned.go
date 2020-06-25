@@ -33,7 +33,7 @@ var (
 
 // ipAddresses returns the parserd IP addresses to use when creating the TLS
 // certificate.
-func ipAddresses(tlsExtraIPs []string) ([]net.IP, error) {
+func ipAddresses(tlsExtraIPs []string, tlsNoInterface bool) ([]net.IP, error) {
 	// Collect the host's IP addresses, including loopback, in a slice.
 	ipAddresses := []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}
 
@@ -47,15 +47,17 @@ func ipAddresses(tlsExtraIPs []string) ([]net.IP, error) {
 		ipAddresses = append(ipAddresses, ipAddr)
 	}
 
-	// Add all the interface IPs that aren't already in the slice.
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return nil, err
-	}
-	for _, a := range addrs {
-		ipAddr, _, err := net.ParseCIDR(a.String())
-		if err == nil {
-			addIP(ipAddr)
+	if !tlsNoInterface {
+		// Add all the interface IPs that aren't already in the slice.
+		addrs, err := net.InterfaceAddrs()
+		if err != nil {
+			return nil, err
+		}
+		for _, a := range addrs {
+			ipAddr, _, err := net.ParseCIDR(a.String())
+			if err == nil {
+				addIP(ipAddr)
+			}
 		}
 	}
 
@@ -104,10 +106,10 @@ func dnsNames(tlsExtraDomains []string) (string, []string) {
 // and domains given. The certificate is considered up to date if it was
 // created with _exactly_ the IPs and domains given.
 func IsOutdated(cert *x509.Certificate, tlsExtraIPs,
-	tlsExtraDomains []string) (bool, error) {
+	tlsExtraDomains []string, tlsNoInterface bool) (bool, error) {
 
 	// Parse the slice of IP strings.
-	ips, err := ipAddresses(tlsExtraIPs)
+	ips, err := ipAddresses(tlsExtraIPs, tlsNoInterface)
 	if err != nil {
 		return false, err
 	}
@@ -186,7 +188,8 @@ func IsOutdated(cert *x509.Certificate, tlsExtraIPs,
 // This function is adapted from https://github.com/btcsuite/btcd and
 // https://github.com/btcsuite/btcutil
 func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
-	tlsExtraDomains []string, certValidity time.Duration) error {
+	tlsExtraDomains []string, tlsNoInterface bool,
+	certValidity time.Duration) error {
 
 	now := time.Now()
 	validUntil := now.Add(certValidity)
@@ -205,7 +208,7 @@ func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
 	// Get all DNS names and IP addresses to use when creating the
 	// certificate.
 	host, dnsNames := dnsNames(tlsExtraDomains)
-	ipAddresses, err := ipAddresses(tlsExtraIPs)
+	ipAddresses, err := ipAddresses(tlsExtraIPs, tlsNoInterface)
 	if err != nil {
 		return err
 	}
@@ -229,7 +232,7 @@ func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
 		KeyUsage: x509.KeyUsageKeyEncipherment |
 			x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		IsCA:                  true, // so can sign self.
+		IsCA:        true, // so can sign self.
 		BasicConstraintsValid: true,
 
 		DNSNames:    dnsNames,

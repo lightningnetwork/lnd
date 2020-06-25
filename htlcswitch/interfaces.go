@@ -231,6 +231,9 @@ type InterceptedPacket struct {
 	// CustomRecords are user-defined records in the custom type range that
 	// were included in the payload.
 	CustomRecords record.CustomSet
+
+	// OnionBlob is the onion packet for the next hop
+	OnionBlob [lnwire.OnionPacketSize]byte
 }
 
 // InterceptedForward is passed to the ForwardInterceptor for every forwarded

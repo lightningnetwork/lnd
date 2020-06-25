@@ -631,6 +631,9 @@ message ForwardHtlcInterceptRequest {
 
     // Any custom records that were present in the payload.
     map<uint64, bytes> custom_records = 8;
+
+    // The onion blob for the next hop
+    bytes onion_blob = 9;
 }
 
 /**

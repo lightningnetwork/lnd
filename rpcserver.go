@@ -1671,6 +1671,7 @@ func newPsbtAssembler(req *lnrpc.OpenChannelRequest, normalizedMinConfs int32,
 	// to pass into the wallet.
 	return chanfunding.NewPsbtAssembler(
 		btcutil.Amount(req.LocalFundingAmount), packet, netParams,
+		!psbtShim.NoPublish,
 	), nil
 }
 

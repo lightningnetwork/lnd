@@ -313,6 +313,48 @@ func TestAddDuplicatePayAddr(t *testing.T) {
 	require.Error(t, err, ErrDuplicatePayAddr)
 }
 
+// TestAddDuplicateKeysendPayAddr asserts that we permit duplicate payment
+// addresses to be inserted if they are blank to support JIT legacy keysend
+// invoices.
+func TestAddDuplicateKeysendPayAddr(t *testing.T) {
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	require.NoError(t, err)
+
+	// Create two invoices with the same _blank_ payment addr.
+	invoice1, err := randInvoice(1000)
+	require.NoError(t, err)
+	invoice1.Terms.PaymentAddr = BlankPayAddr
+
+	invoice2, err := randInvoice(20000)
+	require.NoError(t, err)
+	invoice2.Terms.PaymentAddr = BlankPayAddr
+
+	// Inserting both should succeed without a duplicate payment address
+	// failure.
+	inv1Hash := invoice1.Terms.PaymentPreimage.Hash()
+	_, err = db.AddInvoice(invoice1, inv1Hash)
+	require.NoError(t, err)
+
+	inv2Hash := invoice2.Terms.PaymentPreimage.Hash()
+	_, err = db.AddInvoice(invoice2, inv2Hash)
+	require.NoError(t, err)
+
+	// Querying for each should succeed. Here we use hash+addr refs since
+	// the lookup will fail if the hash and addr point to different
+	// invoices, so if both succeed we can be assured they aren't included
+	// in the payment address index.
+	ref1 := InvoiceRefByHashAndAddr(inv1Hash, BlankPayAddr)
+	dbInv1, err := db.LookupInvoice(ref1)
+	require.NoError(t, err)
+	require.Equal(t, invoice1, &dbInv1)
+
+	ref2 := InvoiceRefByHashAndAddr(inv2Hash, BlankPayAddr)
+	dbInv2, err := db.LookupInvoice(ref2)
+	require.NoError(t, err)
+	require.Equal(t, invoice2, &dbInv2)
+}
+
 // TestInvRefEquivocation asserts that retrieving or updating an invoice using
 // an equivocating InvoiceRef results in ErrInvRefEquivocation.
 func TestInvRefEquivocation(t *testing.T) {

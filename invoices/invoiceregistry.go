@@ -676,6 +676,15 @@ func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx) error {
 		return errors.New("final expiry too soon")
 	}
 
+	// The invoice database indexes all invoices by payment address, however
+	// legacy keysend payment do not have one. In order to avoid a new
+	// payment type on-disk wrt. to indexing, we'll continue to insert a
+	// blank payment address which is special cased in the insertion logic
+	// to not be indexed. In the future, once AMP is merged, this should be
+	// replaced by generating a random payment address on the behalf of the
+	// sender.
+	payAddr := channeldb.BlankPayAddr
+
 	// Create placeholder invoice.
 	invoice := &channeldb.Invoice{
 		CreationDate: i.cfg.Clock.Now(),
@@ -683,6 +692,7 @@ func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx) error {
 			FinalCltvDelta:  finalCltvDelta,
 			Value:           amt,
 			PaymentPreimage: &preimage,
+			PaymentAddr:     payAddr,
 			Features:        features,
 		},
 	}

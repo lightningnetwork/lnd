@@ -73,8 +73,9 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 
 	respDeliveryScript := shutdownMsg.Address
 
-	// Alice will thereafter send a ClosingSigned message, indicating her
-	// proposed closing transaction fee.
+	// Alice will then send a ClosingSigned message, indicating her proposed
+	// closing transaction fee. Alice sends the ClosingSigned message as she is
+	// the initiator of the channel.
 	select {
 	case outMsg := <-responder.outgoingQueue:
 		msg = outMsg.msg
@@ -107,8 +108,8 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 		msg: closingSigned,
 	}
 
-	// The responder will now see that we agreed on the fee, and broadcast
-	// the closing transaction.
+	// Alice should now see that we agreed on the fee, and should broadcast the
+	// closing transaction.
 	select {
 	case <-broadcastTxChan:
 	case <-time.After(timeout):
@@ -137,7 +138,7 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	}
 	defer cleanUp()
 
-	// We make the initiator send a shutdown request.
+	// We make Alice send a shutdown request.
 	updateChan := make(chan interface{}, 1)
 	errChan := make(chan error, 1)
 	closeCommand := &htlcswitch.ChanClose{
@@ -149,7 +150,7 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	}
 	initiator.localCloseChanReqs <- closeCommand
 
-	// We should now be getting the shutdown request.
+	// We can now pull a Shutdown message off of Alice's outgoingQueue.
 	var msg lnwire.Message
 	select {
 	case outMsg := <-initiator.outgoingQueue:
@@ -165,8 +166,7 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 
 	initiatorDeliveryScript := shutdownMsg.Address
 
-	// We'll answer the shutdown message with our own Shutdown, and then a
-	// ClosingSigned message.
+	// Bob will respond with his own Shutdown message.
 	chanID := shutdownMsg.ChannelID
 	initiator.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
@@ -197,8 +197,10 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 		msg: closingSigned,
 	}
 
-	// And we expect the initiator to accept the fee, and broadcast the
-	// closing transaction.
+	// Alice should accept Bob's fee, broadcast the cooperative close tx, and
+	// send a ClosingSigned message back to Bob.
+
+	// Alice should now broadcast the closing transaction.
 	select {
 	case outMsg := <-initiator.outgoingQueue:
 		msg = outMsg.msg
@@ -273,8 +275,8 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 
 	respDeliveryScript := shutdownMsg.Address
 
-	// Alice will thereafter send a ClosingSigned message, indicating her
-	// proposed closing transaction fee.
+	// As Alice is the channel initiator, she will send her ClosingSigned
+	// message.
 	select {
 	case outMsg := <-responder.outgoingQueue:
 		msg = outMsg.msg
@@ -287,7 +289,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 		t.Fatalf("expected ClosingSigned message, got %T", msg)
 	}
 
-	// We don't agree with the fee, and will send back one that's 2.5x.
+	// Bob doesn't agree with the fee and will send one back that's 2.5x.
 	preferredRespFee := responderClosingSigned.FeeSatoshis
 	increasedFee := btcutil.Amount(float64(preferredRespFee) * 2.5)
 	initiatorSig, _, _, err := initiatorChan.CreateCloseProposal(
@@ -307,10 +309,10 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 		msg: closingSigned,
 	}
 
-	// The responder will see the new fee we propose, but with current
-	// settings it won't accept it immediately as it differs too much by
-	// its ideal fee. We should get a new proposal back, which should have
-	// the average fee rate proposed.
+	// Alice will now see the new fee we propose, but with current settings it
+	// won't accept it immediately as it differs too much by its ideal fee. We
+	// should get a new proposal back, which should have the average fee rate
+	// proposed.
 	select {
 	case outMsg := <-responder.outgoingQueue:
 		msg = outMsg.msg
@@ -351,8 +353,9 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 		msg: closingSigned,
 	}
 
-	// It still won't be accepted, and we should get a new proposal, the
-	// average of what we proposed, and what they proposed last time.
+	// Bob's latest proposal still won't be accepted and Alice should send over
+	// a new ClosingSigned message. It should be the average of what Bob and
+	// Alice each proposed last time.
 	select {
 	case outMsg := <-responder.outgoingQueue:
 		msg = outMsg.msg
@@ -396,8 +399,8 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 		msg: closingSigned,
 	}
 
-	// The responder will now see that we agreed on the fee, and broadcast
-	// the closing transaction.
+	// Alice will now see that Bob agreed on the fee, and broadcast the coop
+	// close transaction.
 	select {
 	case <-broadcastTxChan:
 	case <-time.After(timeout):
@@ -476,7 +479,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 		increasedFee, dummyDeliveryScript, initiatorDeliveryScript,
 	)
 	if err != nil {
-		t.Fatalf("unable to create close proposal: %v", err)
+		t.Fatalf("error creating close proposal: %v", err)
 	}
 	parsedSig, err := lnwire.NewSigFromSignature(closeSig)
 	if err != nil {
@@ -555,8 +558,9 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 		msg: closingSigned,
 	}
 
-	// It still won't be accepted, and we should get a new proposal, the
-	// average of what we proposed, and what they proposed last time.
+	// Alice won't accept Bob's new proposal, and Bob should receive a new
+	// proposal which is the average of what Bob proposed and Alice proposed
+	// last time.
 	select {
 	case outMsg := <-initiator.outgoingQueue:
 		msg = outMsg.msg

@@ -21,6 +21,12 @@ var (
 	// preimage for this invoice is not yet known.
 	unknownPreimage lntypes.Preimage
 
+	// BlankPayAddr is a sentinel payment address for legacy invoices.
+	// Invoices with this payment address are special-cased in the insertion
+	// logic to prevent being indexed in the payment address index,
+	// otherwise they would cause collisions after the first insertion.
+	BlankPayAddr [32]byte
+
 	// invoiceBucket is the name of the bucket within the database that
 	// stores all data related to invoices no matter their final state.
 	// Within the invoice bucket, each invoice is keyed by its invoice ID
@@ -519,9 +525,16 @@ func (d *DB) AddInvoice(newInvoice *Invoice, paymentHash lntypes.Hash) (
 			return ErrDuplicateInvoice
 		}
 
+		// Check that we aren't inserting an invoice with a duplicate
+		// payment address. The all-zeros payment address is
+		// special-cased to support legacy keysend invoices which don't
+		// assign one. This is safe since later we also will avoid
+		// indexing them and avoid collisions.
 		payAddrIndex := tx.ReadWriteBucket(payAddrIndexBucket)
-		if payAddrIndex.Get(newInvoice.Terms.PaymentAddr[:]) != nil {
-			return ErrDuplicatePayAddr
+		if newInvoice.Terms.PaymentAddr != BlankPayAddr {
+			if payAddrIndex.Get(newInvoice.Terms.PaymentAddr[:]) != nil {
+				return ErrDuplicatePayAddr
+			}
 		}
 
 		// If the current running payment ID counter hasn't yet been
@@ -679,7 +692,12 @@ func fetchInvoiceNumByRef(invoiceIndex, payAddrIndex kvdb.RBucket,
 		invoiceNumByAddr []byte
 	)
 	if payAddr != nil {
-		invoiceNumByAddr = payAddrIndex.Get(payAddr[:])
+		// Only allow lookups for payment address if it is not a blank
+		// payment address, which is a special-cased value for legacy
+		// keysend invoices.
+		if *payAddr != BlankPayAddr {
+			invoiceNumByAddr = payAddrIndex.Get(payAddr[:])
+		}
 	}
 
 	switch {
@@ -1047,9 +1065,15 @@ func putInvoice(invoices, invoiceIndex, payAddrIndex, addIndex kvdb.RwBucket,
 	if err != nil {
 		return 0, err
 	}
-	err = payAddrIndex.Put(i.Terms.PaymentAddr[:], invoiceKey[:])
-	if err != nil {
-		return 0, err
+	// Add the invoice to the payment address index, but only if the invoice
+	// has a non-zero payment address. The all-zero payment address is still
+	// in use by legacy keysend, so we special-case here to avoid
+	// collisions.
+	if i.Terms.PaymentAddr != BlankPayAddr {
+		err = payAddrIndex.Put(i.Terms.PaymentAddr[:], invoiceKey[:])
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	// Next, we'll obtain the next add invoice index (sequence

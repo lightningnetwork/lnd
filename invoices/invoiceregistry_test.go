@@ -725,29 +725,59 @@ func testKeySend(t *testing.T, keySendEnabled bool) {
 		return
 	}
 
-	// Otherwise we expect no error and a settle resolution for the htlc.
-	settleResolution, ok := resolution.(*HtlcSettleResolution)
-	if !ok {
-		t.Fatalf("expected settle resolution, got: %T",
-			resolution)
+	checkResolution := func(res HtlcResolution, pimg lntypes.Preimage) {
+		// Otherwise we expect no error and a settle res for the htlc.
+		settleResolution, ok := res.(*HtlcSettleResolution)
+		assert.True(t, ok)
+		assert.Equal(t, settleResolution.Preimage, pimg)
 	}
-	if settleResolution.Preimage != preimage {
-		t.Fatalf("expected settle with matching preimage")
+	checkSubscription := func() {
+		// We expect a new invoice notification to be sent out.
+		newInvoice := <-allSubscriptions.NewInvoices
+		assert.Equal(t, newInvoice.State, channeldb.ContractOpen)
+
+		// We expect a settled notification to be sent out.
+		settledInvoice := <-allSubscriptions.SettledInvoices
+		assert.Equal(t, settledInvoice.State, channeldb.ContractSettled)
 	}
 
-	// We expect a new invoice notification to be sent out.
-	newInvoice := <-allSubscriptions.NewInvoices
-	if newInvoice.State != channeldb.ContractOpen {
-		t.Fatalf("expected state ContractOpen, but got %v",
-			newInvoice.State)
+	checkResolution(resolution, preimage)
+	checkSubscription()
+
+	// Replay the same keysend payment. We expect an identical resolution,
+	// but no event should be generated.
+	resolution, err = ctx.registry.NotifyExitHopHtlc(
+		hash, amt, expiry,
+		testCurrentHeight, getCircuitKey(10), hodlChan, keySendPayload,
+	)
+	assert.Nil(t, err)
+	checkResolution(resolution, preimage)
+
+	select {
+	case <-allSubscriptions.NewInvoices:
+		t.Fatalf("replayed keysend should not generate event")
+	case <-time.After(time.Second):
 	}
 
-	// We expect a settled notification to be sent out.
-	settledInvoice := <-allSubscriptions.SettledInvoices
-	if settledInvoice.State != channeldb.ContractSettled {
-		t.Fatalf("expected state ContractOpen, but got %v",
-			settledInvoice.State)
+	// Finally, test that we can properly fulfill a second keysend payment
+	// with a unique preiamge.
+	preimage2 := lntypes.Preimage{1, 2, 3, 4}
+	hash2 := preimage2.Hash()
+
+	keySendPayload2 := &mockPayload{
+		customRecords: map[uint64][]byte{
+			record.KeySendType: preimage2[:],
+		},
 	}
+
+	resolution, err = ctx.registry.NotifyExitHopHtlc(
+		hash2, amt, expiry,
+		testCurrentHeight, getCircuitKey(20), hodlChan, keySendPayload2,
+	)
+	assert.Nil(t, err)
+
+	checkResolution(resolution, preimage2)
+	checkSubscription()
 }
 
 // TestMppPayment tests settling of an invoice with multiple partial payments.

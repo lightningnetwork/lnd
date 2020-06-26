@@ -154,19 +154,42 @@ type testCase struct {
 func TestCommitmentAndHTLCTransactions(t *testing.T) {
 	t.Parallel()
 
-	var testCases []testCase
+	vectorSets := []struct {
+		name     string
+		jsonFile string
+		chanType channeldb.ChannelType
+	}{
+		{
+			name:     "legacy",
+			chanType: channeldb.SingleFunderBit,
+			jsonFile: "test_vectors_legacy.json",
+		},
+		{
+			name:     "anchors",
+			chanType: channeldb.SingleFunderTweaklessBit | channeldb.AnchorOutputsBit,
+			jsonFile: "test_vectors_anchors.json",
+		},
+	}
 
-	jsonText, err := ioutil.ReadFile("test_vectors_legacy.json")
-	require.NoError(t, err)
+	for _, set := range vectorSets {
+		set := set
 
-	err = json.Unmarshal(jsonText, &testCases)
-	require.NoError(t, err)
+		var testCases []testCase
 
-	for _, test := range testCases {
-		test := test
+		jsonText, err := ioutil.ReadFile(set.jsonFile)
+		require.NoError(t, err)
 
-		t.Run(test.Name, func(t *testing.T) {
-			testVectors(t, test)
+		err = json.Unmarshal(jsonText, &testCases)
+		require.NoError(t, err)
+
+		t.Run(set.name, func(t *testing.T) {
+			for _, test := range testCases {
+				test := test
+
+				t.Run(test.Name, func(t *testing.T) {
+					testVectors(t, set.chanType, test)
+				})
+			}
 		})
 	}
 }
@@ -221,7 +244,7 @@ func addTestHtlcs(t *testing.T, remote,
 // testVectors executes a commit dance to end up with the commitment transaction
 // that is described in the test vectors and then asserts that all values are
 // correct.
-func testVectors(t *testing.T, test testCase) {
+func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 	tc := newTestContext(t)
 
 	// Balances in the test vectors are before subtraction of in-flight
@@ -238,10 +261,6 @@ func testVectors(t *testing.T, test testCase) {
 			}
 		}
 	}
-
-	// This should actually be tweakless. Update once
-	// https://github.com/lightningnetwork/lightning-rfc/pull/758 is merged.
-	chanType := channeldb.SingleFunderBit
 
 	// Set up a test channel on which the test commitment transaction is
 	// going to be produced.
@@ -849,7 +868,15 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 	// Create the initial commitment transactions for the channel.
 	feePerKw := chainfee.SatPerKWeight(feeRate)
 	commitWeight := int64(input.CommitWeight)
+	if chanType.HasAnchors() {
+		commitWeight = input.AnchorCommitWeight
+	}
 	commitFee := feePerKw.FeeForWeight(commitWeight)
+
+	var anchorAmt btcutil.Amount
+	if chanType.HasAnchors() {
+		anchorAmt = 2 * anchorSize
+	}
 
 	remoteCommitTx, localCommitTx, err := CreateCommitmentTxns(
 		remoteBalance, localBalance-commitFee,
@@ -867,7 +894,7 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 	remoteCommit := channeldb.ChannelCommitment{
 		CommitHeight:  commitHeight,
 		LocalBalance:  lnwire.NewMSatFromSatoshis(remoteBalance),
-		RemoteBalance: lnwire.NewMSatFromSatoshis(localBalance - commitFee),
+		RemoteBalance: lnwire.NewMSatFromSatoshis(localBalance - commitFee - anchorAmt),
 		CommitFee:     commitFee,
 		FeePerKw:      btcutil.Amount(feePerKw),
 		CommitTx:      remoteCommitTx,
@@ -875,7 +902,7 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 	}
 	localCommit := channeldb.ChannelCommitment{
 		CommitHeight:  commitHeight,
-		LocalBalance:  lnwire.NewMSatFromSatoshis(localBalance - commitFee),
+		LocalBalance:  lnwire.NewMSatFromSatoshis(localBalance - commitFee - anchorAmt),
 		RemoteBalance: lnwire.NewMSatFromSatoshis(remoteBalance),
 		CommitFee:     commitFee,
 		FeePerKw:      btcutil.Amount(feePerKw),

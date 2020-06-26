@@ -140,6 +140,14 @@ service Lightning {
     */
     rpc GetInfo (GetInfoRequest) returns (GetInfoResponse);
 
+    /** lncli: `getrecoveryinfo`
+    GetRecoveryInfo returns information concerning the recovery mode including
+    whether it's in a recovery mode, whether the recovery is finished, and the
+    progress made so far.
+    */
+    rpc GetRecoveryInfo (GetRecoveryInfoRequest)
+        returns (GetRecoveryInfoResponse);
+
     // TODO(roasbeef): merge with below with bool?
     /* lncli: `pendingchannels`
     PendingChannels returns a list of all the channels that are currently
@@ -1379,6 +1387,19 @@ message GetInfoResponse {
     announcements and invoices.
     */
     map<uint32, Feature> features = 19;
+}
+
+message GetRecoveryInfoRequest {
+}
+message GetRecoveryInfoResponse {
+    // Whether the wallet is in recovery mode
+    bool recovery_mode = 1;
+
+    // Whether the wallet recovery progress is finished
+    bool recovery_finished = 2;
+
+    // The recovery progress, ranging from 0 to 1.
+    double progress = 3;
 }
 
 message Chain {

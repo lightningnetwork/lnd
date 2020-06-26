@@ -261,6 +261,10 @@ func mainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "info",
 			Action: "read",
 		}},
+		"/lnrpc.Lightning/GetRecoveryInfo": {{
+			Entity: "info",
+			Action: "read",
+		}},
 		"/lnrpc.Lightning/ListPeers": {{
 			Entity: "peers",
 			Action: "read",
@@ -2478,6 +2482,27 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		CommitHash:          build.CommitHash,
 		SyncedToGraph:       isGraphSynced,
 		Features:            features,
+	}, nil
+}
+
+// GetRecoveryInfo returns a boolean indicating whether the wallet is started
+// in recovery mode, whether the recovery is finished, and the progress made
+// so far.
+func (r *rpcServer) GetRecoveryInfo(ctx context.Context,
+	in *lnrpc.GetRecoveryInfoRequest) (*lnrpc.GetRecoveryInfoResponse, error) {
+
+	isRecoveryMode, progress, err := r.server.cc.wallet.GetRecoveryInfo()
+	if err != nil {
+		return nil, fmt.Errorf("unable to get wallet recovery info: %v", err)
+	}
+
+	rpcsLog.Debugf("[getrecoveryinfo] is recovery mode=%v, progress=%v",
+		isRecoveryMode, progress)
+
+	return &lnrpc.GetRecoveryInfoResponse{
+		RecoveryMode:     isRecoveryMode,
+		RecoveryFinished: progress == 1,
+		Progress:         progress,
 	}, nil
 }
 

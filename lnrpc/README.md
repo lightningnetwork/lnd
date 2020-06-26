@@ -55,6 +55,8 @@ description):
      * Lists all available connected peers.
   * GetInfo
      * Returns basic data concerning the daemon.
+  * GetRecoveryInfo
+     * Returns information about recovery process.
   * PendingChannels
      * List the number of pending (not fully confirmed) channels.
   * ListChannels

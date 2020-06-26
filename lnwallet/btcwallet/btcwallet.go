@@ -844,3 +844,83 @@ func (b *BtcWallet) IsSynced() (bool, int64, error) {
 
 	return true, bestTimestamp, nil
 }
+
+// GetRecoveryInfo returns a boolean indicating whether the wallet is started
+// in recovery mode. It also returns a float64, ranging from 0 to 1,
+// representing the recovery progress made so far.
+//
+// This is a part of the WalletController interface.
+func (b *BtcWallet) GetRecoveryInfo() (bool, float64, error) {
+	isRecoveryMode := true
+	progress := float64(0)
+
+	// A zero value in RecoveryWindow indicates there is no trigger of
+	// recovery mode.
+	if b.cfg.RecoveryWindow == 0 {
+		isRecoveryMode = false
+		return isRecoveryMode, progress, nil
+	}
+
+	// Query the wallet's birthday block height from db.
+	var birthdayBlock waddrmgr.BlockStamp
+	err := walletdb.View(b.db, func(tx walletdb.ReadTx) error {
+		var err error
+		addrmgrNs := tx.ReadBucket(waddrmgrNamespaceKey)
+		birthdayBlock, _, err = b.wallet.Manager.BirthdayBlock(addrmgrNs)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+
+	if err != nil {
+		// The wallet won't start until the backend is synced, thus the birthday
+		// block won't be set and this particular error will be returned. We'll
+		// catch this error and return a progress of 0 instead.
+		if waddrmgr.IsError(err, waddrmgr.ErrBirthdayBlockNotSet) {
+			return isRecoveryMode, progress, nil
+		}
+
+		return isRecoveryMode, progress, err
+	}
+
+	// Grab the best chain state the wallet is currently aware of.
+	syncState := b.wallet.Manager.SyncedTo()
+
+	// Next, query the chain backend to grab the info about the tip of the
+	// main chain.
+	//
+	// NOTE: The actual recovery process is handled by the btcsuite/btcwallet.
+	// The process purposefully doesn't update the best height. It might create
+	// a small difference between the height queried here and the height used
+	// in the recovery process, ie, the bestHeight used here might be greater,
+	// showing the recovery being unfinished while it's actually done. However,
+	// during a wallet rescan after the recovery, the wallet's synced height
+	// will catch up and this won't be an issue.
+	_, bestHeight, err := b.cfg.ChainSource.GetBestBlock()
+	if err != nil {
+		return isRecoveryMode, progress, err
+	}
+
+	// The birthday block height might be greater than the current synced height
+	// in a newly restored wallet, and might be greater than the chain tip if a
+	// rollback happens. In that case, we will return zero progress here.
+	if syncState.Height < birthdayBlock.Height ||
+		bestHeight < birthdayBlock.Height {
+		return isRecoveryMode, progress, nil
+	}
+
+	// progress is the ratio of the [number of blocks processed] over the [total
+	// number of blocks] needed in a recovery mode, ranging from 0 to 1, in
+	// which,
+	// - total number of blocks is the current chain's best height minus the
+	//   wallet's birthday height plus 1.
+	// - number of blocks processed is the wallet's synced height minus its
+	//   birthday height plus 1.
+	// - If the wallet is born very recently, the bestHeight can be equal to
+	//   the birthdayBlock.Height, and it will recovery instantly.
+	progress = float64(syncState.Height-birthdayBlock.Height+1) /
+		float64(bestHeight-birthdayBlock.Height+1)
+
+	return isRecoveryMode, progress, nil
+}

@@ -1876,8 +1876,8 @@ func (m *ForwardHtlcInterceptRequest) GetExpiry() uint32 {
 }
 
 //*
-//ForwardHtlcInterceptResponse enables the caller to resolve a previously hold forward.
-//The caller can choose either to:
+//ForwardHtlcInterceptResponse enables the caller to resolve a previously hold
+//forward. The caller can choose either to:
 //- `Resume`: Execute the default behavior (usually forward).
 //- `Reject`: Fail the htlc backwards.
 //- `Settle`: Settle this htlc with a given preimage.

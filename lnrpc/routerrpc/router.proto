@@ -98,7 +98,7 @@ service Router {
     rpc TrackPayment (TrackPaymentRequest) returns (stream PaymentStatus) {
         option deprecated = true;
     }
-    
+
     /**
     HtlcInterceptor dispatches a bi-directional streaming RPC in which
     Forwarded HTLC requests are sent to the client and the client responds with
@@ -106,7 +106,8 @@ service Router {
     In case of interception, the htlc can be either settled, cancelled or
     resumed later by using the ResolveHoldForward endpoint.
     */
-    rpc HtlcInterceptor (stream ForwardHtlcInterceptResponse) returns (stream ForwardHtlcInterceptRequest);
+    rpc HtlcInterceptor (stream ForwardHtlcInterceptResponse)
+        returns (stream ForwardHtlcInterceptRequest);
 }
 
 message SendPaymentRequest {
@@ -589,7 +590,7 @@ message PaymentStatus {
     repeated lnrpc.HTLCAttempt htlcs = 4;
 }
 
-message CircuitKey {    
+message CircuitKey {
     /// The id of the channel that the is part of this circuit.
     uint64 chan_id = 1;
 
@@ -618,14 +619,14 @@ message ForwardHtlcInterceptRequest {
 }
 
 /**
-ForwardHtlcInterceptResponse enables the caller to resolve a previously hold forward.
-The caller can choose either to:
+ForwardHtlcInterceptResponse enables the caller to resolve a previously hold
+forward. The caller can choose either to:
 - `Resume`: Execute the default behavior (usually forward).
 - `Reject`: Fail the htlc backwards.
 - `Settle`: Settle this htlc with a given preimage.
 */
 message ForwardHtlcInterceptResponse {
-    /** 
+    /**
     The key of this forwarded htlc. It defines the incoming channel id and
     the index in this channel.
     */
@@ -638,9 +639,8 @@ message ForwardHtlcInterceptResponse {
     bytes preimage = 3;
 }
 
-enum ResolveHoldForwardAction {    
+enum ResolveHoldForwardAction {
     SETTLE = 0;
     FAIL = 1;
-    RESUME = 2;    
+    RESUME = 2;
 }
-

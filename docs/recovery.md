@@ -164,7 +164,15 @@ That final line indicates the rescan is complete! If not all funds have
 appeared, then the user may need to _repeat_ the process with a higher recovery
 window. Depending on how old the wallet is (the cipher seed stores the wallet's
 birthday!) and how many addresses were used, the rescan may take anywhere from
-a few minutes to a few hours.
+a few minutes to a few hours. To track the recovery progress, one can use the
+command `lncli getrecoveryinfo`. When finished, the following is returned,
+```
+{
+    "recovery_mode": true,
+    "recovery_finished": true,
+    "progress": 1
+}
+```
 
 If the rescan wasn't able to complete fully (`lnd` was shutdown for example),
 then from `lncli unlock`, it's possible to _restart_ the rescan from where it

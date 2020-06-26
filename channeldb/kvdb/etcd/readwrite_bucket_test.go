@@ -315,7 +315,7 @@ func TestBucketForEachWithError(t *testing.T) {
 		i := 0
 		// Error while iterating value keys.
 		err = apple.ForEach(func(key, val []byte) error {
-			if i == 1 {
+			if i == 2 {
 				return fmt.Errorf("error")
 			}
 
@@ -325,7 +325,8 @@ func TestBucketForEachWithError(t *testing.T) {
 		})
 
 		expected := map[string]string{
-			"key1": "val1",
+			"banana": "",
+			"key1":   "val1",
 		}
 
 		require.Equal(t, expected, got)
@@ -345,9 +346,9 @@ func TestBucketForEachWithError(t *testing.T) {
 		})
 
 		expected = map[string]string{
+			"banana": "",
 			"key1":   "val1",
 			"key2":   "val2",
-			"banana": "",
 		}
 
 		require.Equal(t, expected, got)

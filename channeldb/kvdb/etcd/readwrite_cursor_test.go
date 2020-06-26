@@ -291,3 +291,78 @@ func TestReadWriteCursor(t *testing.T) {
 	}
 	require.Equal(t, expected, f.Dump())
 }
+
+// TestReadWriteCursorWithBucketAndValue tests that cursors are able to iterate
+// over both bucket and value keys if both are present in the iterated bucket.
+func TestReadWriteCursorWithBucketAndValue(t *testing.T) {
+	t.Parallel()
+
+	f := NewEtcdTestFixture(t)
+	defer f.Cleanup()
+
+	db, err := newEtcdBackend(f.BackendConfig())
+	require.NoError(t, err)
+
+	// Pre-store the first half of the interval.
+	require.NoError(t, db.Update(func(tx walletdb.ReadWriteTx) error {
+		b, err := tx.CreateTopLevelBucket([]byte("apple"))
+		require.NoError(t, err)
+		require.NotNil(t, b)
+
+		require.NoError(t, b.Put([]byte("key"), []byte("val")))
+
+		b1, err := b.CreateBucket([]byte("banana"))
+		require.NoError(t, err)
+		require.NotNil(t, b1)
+
+		b2, err := b.CreateBucket([]byte("pear"))
+		require.NoError(t, err)
+		require.NotNil(t, b2)
+
+		return nil
+	}))
+
+	err = db.View(func(tx walletdb.ReadTx) error {
+		b := tx.ReadBucket([]byte("apple"))
+		require.NotNil(t, b)
+
+		cursor := b.ReadCursor()
+
+		// First on valid interval.
+		k, v := cursor.First()
+		require.Equal(t, []byte("banana"), k)
+		require.Nil(t, v)
+
+		k, v = cursor.Next()
+		require.Equal(t, []byte("key"), k)
+		require.Equal(t, []byte("val"), v)
+
+		k, v = cursor.Last()
+		require.Equal(t, []byte("pear"), k)
+		require.Nil(t, v)
+
+		k, v = cursor.Seek([]byte("k"))
+		require.Equal(t, []byte("key"), k)
+		require.Equal(t, []byte("val"), v)
+
+		k, v = cursor.Seek([]byte("banana"))
+		require.Equal(t, []byte("banana"), k)
+		require.Nil(t, v)
+
+		k, v = cursor.Next()
+		require.Equal(t, []byte("key"), k)
+		require.Equal(t, []byte("val"), v)
+
+		return nil
+	})
+
+	require.NoError(t, err)
+
+	expected := map[string]string{
+		bkey("apple"):           bval("apple"),
+		bkey("apple", "banana"): bval("apple", "banana"),
+		bkey("apple", "pear"):   bval("apple", "pear"),
+		vkey("key", "apple"):    "val",
+	}
+	require.Equal(t, expected, f.Dump())
+}

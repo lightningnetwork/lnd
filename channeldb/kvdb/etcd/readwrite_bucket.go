@@ -46,44 +46,23 @@ func (b *readWriteBucket) NestedReadBucket(key []byte) walletdb.ReadBucket {
 // is nil, but it does not include the key/value pairs within those
 // nested buckets.
 func (b *readWriteBucket) ForEach(cb func(k, v []byte) error) error {
-	prefix := makeValuePrefix(b.id)
-	prefixLen := len(prefix)
+	prefix := string(b.id)
 
 	// Get the first matching key that is in the bucket.
-	kv, err := b.tx.stm.First(string(prefix))
+	kv, err := b.tx.stm.First(prefix)
 	if err != nil {
 		return err
 	}
 
 	for kv != nil {
-		if err := cb([]byte(kv.key[prefixLen:]), []byte(kv.val)); err != nil {
+		key, val := getKeyVal(kv)
+
+		if err := cb(key, val); err != nil {
 			return err
 		}
 
 		// Step to the next key.
-		kv, err = b.tx.stm.Next(string(prefix), kv.key)
-		if err != nil {
-			return err
-		}
-	}
-
-	// Make a bucket prefix. This prefixes all sub buckets.
-	prefix = makeBucketPrefix(b.id)
-	prefixLen = len(prefix)
-
-	// Get the first bucket.
-	kv, err = b.tx.stm.First(string(prefix))
-	if err != nil {
-		return err
-	}
-
-	for kv != nil {
-		if err := cb([]byte(kv.key[prefixLen:]), nil); err != nil {
-			return err
-		}
-
-		// Step to the next bucket.
-		kv, err = b.tx.stm.Next(string(prefix), kv.key)
+		kv, err = b.tx.stm.Next(prefix, kv.key)
 		if err != nil {
 			return err
 		}
@@ -241,10 +220,7 @@ func (b *readWriteBucket) DeleteNestedBucket(key []byte) error {
 		id := queue[0]
 		queue = queue[1:]
 
-		// Delete values in the current bucket
-		valuePrefix := string(makeValuePrefix(id))
-
-		kv, err := b.tx.stm.First(valuePrefix)
+		kv, err := b.tx.stm.First(string(id))
 		if err != nil {
 			return err
 		}
@@ -252,35 +228,23 @@ func (b *readWriteBucket) DeleteNestedBucket(key []byte) error {
 		for kv != nil {
 			b.tx.del(kv.key)
 
-			kv, err = b.tx.stm.Next(valuePrefix, kv.key)
+			if isBucketKey(kv.key) {
+				queue = append(queue, []byte(kv.val))
+			}
+
+			kv, err = b.tx.stm.Next(string(id), kv.key)
 			if err != nil {
 				return err
 			}
 		}
 
-		// Iterate sub buckets
-		bucketPrefix := string(makeBucketPrefix(id))
-
-		kv, err = b.tx.stm.First(bucketPrefix)
-		if err != nil {
-			return err
-		}
-
-		for kv != nil {
-			// Delete sub bucket key.
-			b.tx.del(kv.key)
-			// Queue it for traversal.
-			queue = append(queue, []byte(kv.val))
-
-			kv, err = b.tx.stm.Next(bucketPrefix, kv.key)
-			if err != nil {
-				return err
-			}
-		}
+		// Finally delete the sequence key for the bucket.
+		b.tx.del(string(makeSequenceKey(id)))
 	}
 
-	// Delete the top level bucket.
+	// Delete the top level bucket and sequence key.
 	b.tx.del(bucketKey)
+	b.tx.del(string(makeSequenceKey(bucketVal)))
 
 	return nil
 }

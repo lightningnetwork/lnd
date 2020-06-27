@@ -1060,35 +1060,37 @@ func newChanMsgStream(p *peer, cid lnwire.ChannelID) *msgStream {
 
 	var chanLink htlcswitch.ChannelLink
 
+	apply := func(msg lnwire.Message) {
+		// This check is fine because if the link no longer exists, it will
+		// be removed from the activeChannels map and subsequent messages
+		// shouldn't reach the chan msg stream.
+		if chanLink == nil {
+			chanLink = waitUntilLinkActive(p, cid)
+
+			// If the link is still not active and the calling function
+			// errored out, just return.
+			if chanLink == nil {
+				return
+			}
+		}
+
+		// In order to avoid unnecessarily delivering message
+		// as the peer is exiting, we'll check quickly to see
+		// if we need to exit.
+		select {
+		case <-p.quit:
+			return
+		default:
+		}
+
+		chanLink.HandleChannelUpdate(msg)
+	}
+
 	return newMsgStream(p,
 		fmt.Sprintf("Update stream for ChannelID(%x) created", cid[:]),
 		fmt.Sprintf("Update stream for ChannelID(%x) exiting", cid[:]),
 		1000,
-		func(msg lnwire.Message) {
-			// This check is fine because if the link no longer exists, it will
-			// be removed from the activeChannels map and subsequent messages
-			// shouldn't reach the chan msg stream.
-			if chanLink == nil {
-				chanLink = waitUntilLinkActive(p, cid)
-
-				// If the link is still not active and the calling function
-				// errored out, just return.
-				if chanLink == nil {
-					return
-				}
-			}
-
-			// In order to avoid unnecessarily delivering message
-			// as the peer is exiting, we'll check quickly to see
-			// if we need to exit.
-			select {
-			case <-p.quit:
-				return
-			default:
-			}
-
-			chanLink.HandleChannelUpdate(msg)
-		},
+		apply,
 	)
 }
 

@@ -58,8 +58,8 @@ const (
 	// this struct.
 	outgoingQueueLen = 50
 
-	// errorBufferSize is the number of historic peer errors that we store.
-	errorBufferSize = 10
+	// ErrorBufferSize is the number of historic peer errors that we store.
+	ErrorBufferSize = 10
 )
 
 // outgoingMsg packages an lnwire.Message to be sent out on the wire, along with
@@ -87,23 +87,23 @@ type closeMsg struct {
 	msg lnwire.Message
 }
 
-// pendingUpdate describes the pending state of a closing channel.
-type pendingUpdate struct {
+// PendingUpdate describes the pending state of a closing channel.
+type PendingUpdate struct {
 	Txid        []byte
 	OutputIndex uint32
 }
 
-// channelCloseUpdate contains the outcome of the close channel operation.
-type channelCloseUpdate struct {
+// ChannelCloseUpdate contains the outcome of the close channel operation.
+type ChannelCloseUpdate struct {
 	ClosingTxid []byte
 	Success     bool
 }
 
-// timestampedError is a timestamped error that is used to store the most recent
+// TimestampedError is a timestamped error that is used to store the most recent
 // errors we have experienced with our peers.
-type timestampedError struct {
-	error     error
-	timestamp time.Time
+type TimestampedError struct {
+	Error     error
+	Timestamp time.Time
 }
 
 // peer is an active peer on the Lightning Network. This struct is responsible
@@ -1347,7 +1347,7 @@ func (p *peer) storeError(err error) {
 	}
 
 	p.errorBuffer.Add(
-		&timestampedError{timestamp: time.Now(), error: err},
+		&TimestampedError{Timestamp: time.Now(), Error: err},
 	)
 }
 
@@ -2562,18 +2562,18 @@ func (p *peer) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 	// If this is a locally requested shutdown, update the caller with a
 	// new event detailing the current pending state of this request.
 	if closeReq != nil {
-		closeReq.Updates <- &pendingUpdate{
+		closeReq.Updates <- &PendingUpdate{
 			Txid: closingTxid[:],
 		}
 	}
 
-	go waitForChanToClose(chanCloser.NegotiationHeight(), notifier, errChan,
+	go WaitForChanToClose(chanCloser.NegotiationHeight(), notifier, errChan,
 		chanPoint, &closingTxid, closingTx.TxOut[0].PkScript, func() {
 
 			// Respond to the local subsystem which requested the
 			// channel closure.
 			if closeReq != nil {
-				closeReq.Updates <- &channelCloseUpdate{
+				closeReq.Updates <- &ChannelCloseUpdate{
 					ClosingTxid: closingTxid[:],
 					Success:     true,
 				}
@@ -2581,12 +2581,12 @@ func (p *peer) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 		})
 }
 
-// waitForChanToClose uses the passed notifier to wait until the channel has
+// WaitForChanToClose uses the passed notifier to wait until the channel has
 // been detected as closed on chain and then concludes by executing the
 // following actions: the channel point will be sent over the settleChan, and
 // finally the callback will be executed. If any error is encountered within
 // the function, then it will be sent over the errChan.
-func waitForChanToClose(bestHeight uint32, notifier chainntnfs.ChainNotifier,
+func WaitForChanToClose(bestHeight uint32, notifier chainntnfs.ChainNotifier,
 	errChan chan error, chanPoint *wire.OutPoint,
 	closingTxID *chainhash.Hash, closeScript []byte, cb func()) {
 

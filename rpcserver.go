@@ -2105,17 +2105,17 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// With the transaction broadcast, we send our first update to
 		// the client.
 		updateChan = make(chan interface{}, 2)
-		updateChan <- &pendingUpdate{
+		updateChan <- &PendingUpdate{
 			Txid: closingTxid[:],
 		}
 
 		errChan = make(chan error, 1)
 		notifier := r.server.cc.chainNotifier
-		go waitForChanToClose(uint32(bestHeight), notifier, errChan, chanPoint,
+		go WaitForChanToClose(uint32(bestHeight), notifier, errChan, chanPoint,
 			&closingTxid, closingTx.TxOut[0].PkScript, func() {
 				// Respond to the local subsystem which
 				// requested the channel closure.
-				updateChan <- &channelCloseUpdate{
+				updateChan <- &ChannelCloseUpdate{
 					ClosingTxid: closingTxid[:],
 					Success:     true,
 				}
@@ -2228,7 +2228,7 @@ out:
 			// then we can break out of our dispatch loop as we no
 			// longer need to process any further updates.
 			switch closeUpdate := closingUpdate.(type) {
-			case *channelCloseUpdate:
+			case *ChannelCloseUpdate:
 				h, _ := chainhash.NewHash(closeUpdate.ClosingTxid)
 				rpcsLog.Infof("[closechannel] close completed: "+
 					"txid(%v)", h)
@@ -2246,7 +2246,7 @@ func createRPCCloseUpdate(update interface{}) (
 	*lnrpc.CloseStatusUpdate, error) {
 
 	switch u := update.(type) {
-	case *channelCloseUpdate:
+	case *ChannelCloseUpdate:
 		return &lnrpc.CloseStatusUpdate{
 			Update: &lnrpc.CloseStatusUpdate_ChanClose{
 				ChanClose: &lnrpc.ChannelCloseUpdate{
@@ -2254,7 +2254,7 @@ func createRPCCloseUpdate(update interface{}) (
 				},
 			},
 		}, nil
-	case *pendingUpdate:
+	case *PendingUpdate:
 		return &lnrpc.CloseStatusUpdate{
 			Update: &lnrpc.CloseStatusUpdate_ClosePending{
 				ClosePending: &lnrpc.PendingUpdate{
@@ -2601,11 +2601,11 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 
 		// Add the relevant peer errors to our response.
 		for _, error := range peerErrors {
-			tsError := error.(*timestampedError)
+			tsError := error.(*TimestampedError)
 
 			rpcErr := &lnrpc.TimestampedError{
-				Timestamp: uint64(tsError.timestamp.Unix()),
-				Error:     tsError.error.Error(),
+				Timestamp: uint64(tsError.Timestamp.Unix()),
+				Error:     tsError.Error.Error(),
 			}
 
 			peer.Errors = append(peer.Errors, rpcErr)

@@ -2792,7 +2792,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	errBuffer, ok := s.peerErrors[pkStr]
 	if !ok {
 		var err error
-		errBuffer, err = queue.NewCircularBuffer(errorBufferSize)
+		errBuffer, err = queue.NewCircularBuffer(ErrorBufferSize)
 		if err != nil {
 			srvrLog.Errorf("unable to create peer %v", err)
 			return

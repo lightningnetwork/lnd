@@ -40,7 +40,7 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	}
 	broadcastTxChan := make(chan *wire.MsgTx)
 
-	alicePeer, _, bobChan, cleanUp, err := createTestPeer(
+	alicePeer, bobChan, cleanUp, err := createTestPeer(
 		notifier, broadcastTxChan, noUpdate,
 	)
 	if err != nil {
@@ -141,7 +141,7 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	}
 	broadcastTxChan := make(chan *wire.MsgTx)
 
-	alicePeer, _, bobChan, cleanUp, err := createTestPeer(
+	alicePeer, bobChan, cleanUp, err := createTestPeer(
 		notifier, broadcastTxChan, noUpdate,
 	)
 	if err != nil {
@@ -262,7 +262,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	}
 	broadcastTxChan := make(chan *wire.MsgTx)
 
-	alicePeer, _, bobChan, cleanUp, err := createTestPeer(
+	alicePeer, bobChan, cleanUp, err := createTestPeer(
 		notifier, broadcastTxChan, noUpdate,
 	)
 	if err != nil {
@@ -454,7 +454,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	}
 	broadcastTxChan := make(chan *wire.MsgTx)
 
-	alicePeer, _, bobChan, cleanUp, err := createTestPeer(
+	alicePeer, bobChan, cleanUp, err := createTestPeer(
 		notifier, broadcastTxChan, noUpdate,
 	)
 	if err != nil {
@@ -788,7 +788,7 @@ func TestCustomShutdownScript(t *testing.T) {
 			broadcastTxChan := make(chan *wire.MsgTx)
 
 			// Open a channel.
-			alicePeer, _, bobChan, cleanUp, err := createTestPeer(
+			alicePeer, bobChan, cleanUp, err := createTestPeer(
 				notifier, broadcastTxChan, test.update,
 			)
 			if err != nil {

@@ -35,6 +35,15 @@ var (
 	ErrConfirmHintNotFound = errors.New("confirm hint not found")
 )
 
+// Config contains the HeightHintCache configuration
+type Config struct {
+	// HeightHintCacheQueryDisable prevents reliance on the Height Hint Cache.
+	// This is necessary to recover from an edge case when the height
+	// recorded in the cache is higher than the actual height of a spend,
+	// causing a channel to become "stuck" in a pending close state.
+	HeightHintCacheQueryDisable bool
+}
+
 // SpendHintCache is an interface whose duty is to cache spend hints for
 // outpoints. A spend hint is defined as the earliest height in the chain at
 // which an outpoint could have been spent within.
@@ -74,7 +83,8 @@ type ConfirmHintCache interface {
 // ConfirmHintCache interfaces backed by a channeldb DB instance where the hints
 // will be stored.
 type HeightHintCache struct {
-	db *channeldb.DB
+	cfg Config
+	db  *channeldb.DB
 }
 
 // Compile-time checks to ensure HeightHintCache satisfies the SpendHintCache
@@ -83,8 +93,8 @@ var _ SpendHintCache = (*HeightHintCache)(nil)
 var _ ConfirmHintCache = (*HeightHintCache)(nil)
 
 // NewHeightHintCache returns a new height hint cache backed by a database.
-func NewHeightHintCache(db *channeldb.DB) (*HeightHintCache, error) {
-	cache := &HeightHintCache{db}
+func NewHeightHintCache(cfg Config, db *channeldb.DB) (*HeightHintCache, error) {
+	cache := &HeightHintCache{cfg, db}
 	if err := cache.initBuckets(); err != nil {
 		return nil, err
 	}
@@ -148,6 +158,10 @@ func (c *HeightHintCache) CommitSpendHint(height uint32,
 // cache for the outpoint.
 func (c *HeightHintCache) QuerySpendHint(spendRequest SpendRequest) (uint32, error) {
 	var hint uint32
+	if c.cfg.HeightHintCacheQueryDisable {
+		Log.Debugf("Ignoring spend height hint for %v (height hint cache query disabled)", spendRequest)
+		return 0, nil
+	}
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		spendHints := tx.ReadBucket(spendHintBucket)
 		if spendHints == nil {
@@ -242,6 +256,10 @@ func (c *HeightHintCache) CommitConfirmHint(height uint32,
 // the cache for the transaction hash.
 func (c *HeightHintCache) QueryConfirmHint(confRequest ConfRequest) (uint32, error) {
 	var hint uint32
+	if c.cfg.HeightHintCacheQueryDisable {
+		Log.Debugf("Ignoring confirmation height hint for %v (height hint cache query disabled)", confRequest)
+		return 0, nil
+	}
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		confirmHints := tx.ReadBucket(confirmHintBucket)
 		if confirmHints == nil {

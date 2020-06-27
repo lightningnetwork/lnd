@@ -532,11 +532,6 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			continue
 		}
 
-		_, currentHeight, err := p.server.cc.chainIO.GetBestBlock()
-		if err != nil {
-			return nil, err
-		}
-
 		// Before we register this new link with the HTLC Switch, we'll
 		// need to fetch its current link-layer forwarding policy from
 		// the database.
@@ -608,7 +603,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) (
 
 		err = p.addLink(
 			chanPoint, lnChan, forwardingPolicy, chainEvents,
-			currentHeight, true,
+			true,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to add link %v to "+
@@ -628,7 +623,7 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 	lnChan *lnwallet.LightningChannel,
 	forwardingPolicy *htlcswitch.ForwardingPolicy,
 	chainEvents *contractcourt.ChainEventSubscription,
-	currentHeight int32, syncStates bool) error {
+	syncStates bool) error {
 
 	// onChannelFailure will be called by the link in case the channel
 	// fails for some reason.
@@ -2005,15 +2000,6 @@ out:
 			// necessary items it needs to function.
 			//
 			// TODO(roasbeef): panic on below?
-			_, currentHeight, err := p.server.cc.chainIO.GetBestBlock()
-			if err != nil {
-				err := fmt.Errorf("unable to get best "+
-					"block: %v", err)
-				peerLog.Errorf(err.Error())
-
-				newChanReq.err <- err
-				continue
-			}
 			chainEvents, err := p.server.chainArb.SubscribeChannelEvents(
 				*chanPoint,
 			)
@@ -2052,7 +2038,7 @@ out:
 			// Create the link and add it to the switch.
 			err = p.addLink(
 				chanPoint, lnChan, forwardingPolicy,
-				chainEvents, currentHeight, shouldReestablish,
+				chainEvents, shouldReestablish,
 			)
 			if err != nil {
 				err := fmt.Errorf("can't register new channel "+

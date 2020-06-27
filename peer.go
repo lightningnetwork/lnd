@@ -449,11 +449,10 @@ func (p *peer) Start() error {
 // initGossipSync initializes either a gossip syncer or an initial routing
 // dump, depending on the negotiated synchronization method.
 func (p *peer) initGossipSync() {
-	switch {
 
 	// If the remote peer knows of the new gossip queries feature, then
 	// we'll create a new gossipSyncer in the AuthenticatedGossiper for it.
-	case p.remoteFeatures.HasFeature(lnwire.GossipQueriesOptional):
+	if p.remoteFeatures.HasFeature(lnwire.GossipQueriesOptional) {
 		srvrLog.Infof("Negotiated chan series queries with %x",
 			p.pubKeyBytes[:])
 
@@ -509,9 +508,8 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) (
 
 		// Skip adding any permanently irreconcilable channels to the
 		// htlcswitch.
-		switch {
-		case !dbChan.HasChanStatus(channeldb.ChanStatusDefault) &&
-			!dbChan.HasChanStatus(channeldb.ChanStatusRestored):
+		if !dbChan.HasChanStatus(channeldb.ChanStatusDefault) &&
+			!dbChan.HasChanStatus(channeldb.ChanStatusRestored) {
 
 			peerLog.Warnf("ChannelPoint(%v) has status %v, won't "+
 				"start.", chanPoint, dbChan.ChanStatus())
@@ -2670,8 +2668,7 @@ func (p *peer) handleInitMsg(msg *lnwire.Init) error {
 
 	// Now that we know we understand their requirements, we'll check to
 	// see if they don't support anything that we deem to be mandatory.
-	switch {
-	case !p.remoteFeatures.HasFeature(lnwire.DataLossProtectRequired):
+	if !p.remoteFeatures.HasFeature(lnwire.DataLossProtectRequired) {
 		return fmt.Errorf("data loss protection required")
 	}
 

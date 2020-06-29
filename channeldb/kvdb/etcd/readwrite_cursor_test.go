@@ -19,7 +19,7 @@ func TestReadCursorEmptyInterval(t *testing.T) {
 	require.NoError(t, err)
 
 	err = db.Update(func(tx walletdb.ReadWriteTx) error {
-		b, err := tx.CreateTopLevelBucket([]byte("alma"))
+		b, err := tx.CreateTopLevelBucket([]byte("apple"))
 		require.NoError(t, err)
 		require.NotNil(t, b)
 
@@ -28,7 +28,7 @@ func TestReadCursorEmptyInterval(t *testing.T) {
 	require.NoError(t, err)
 
 	err = db.View(func(tx walletdb.ReadTx) error {
-		b := tx.ReadBucket([]byte("alma"))
+		b := tx.ReadBucket([]byte("apple"))
 		require.NotNil(t, b)
 
 		cursor := b.ReadCursor()
@@ -70,7 +70,7 @@ func TestReadCursorNonEmptyInterval(t *testing.T) {
 	}
 
 	err = db.Update(func(tx walletdb.ReadWriteTx) error {
-		b, err := tx.CreateTopLevelBucket([]byte("alma"))
+		b, err := tx.CreateTopLevelBucket([]byte("apple"))
 		require.NoError(t, err)
 		require.NotNil(t, b)
 
@@ -83,7 +83,7 @@ func TestReadCursorNonEmptyInterval(t *testing.T) {
 	require.NoError(t, err)
 
 	err = db.View(func(tx walletdb.ReadTx) error {
-		b := tx.ReadBucket([]byte("alma"))
+		b := tx.ReadBucket([]byte("apple"))
 		require.NotNil(t, b)
 
 		// Iterate from the front.

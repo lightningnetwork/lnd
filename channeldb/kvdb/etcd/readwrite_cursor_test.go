@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcwallet/walletdb"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestReadCursorEmptyInterval(t *testing.T) {
@@ -16,41 +16,41 @@ func TestReadCursorEmptyInterval(t *testing.T) {
 	defer f.Cleanup()
 
 	db, err := newEtcdBackend(f.BackendConfig())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	err = db.Update(func(tx walletdb.ReadWriteTx) error {
 		b, err := tx.CreateTopLevelBucket([]byte("alma"))
-		assert.NoError(t, err)
-		assert.NotNil(t, b)
+		require.NoError(t, err)
+		require.NotNil(t, b)
 
 		return nil
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	err = db.View(func(tx walletdb.ReadTx) error {
 		b := tx.ReadBucket([]byte("alma"))
-		assert.NotNil(t, b)
+		require.NotNil(t, b)
 
 		cursor := b.ReadCursor()
 		k, v := cursor.First()
-		assert.Nil(t, k)
-		assert.Nil(t, v)
+		require.Nil(t, k)
+		require.Nil(t, v)
 
 		k, v = cursor.Next()
-		assert.Nil(t, k)
-		assert.Nil(t, v)
+		require.Nil(t, k)
+		require.Nil(t, v)
 
 		k, v = cursor.Last()
-		assert.Nil(t, k)
-		assert.Nil(t, v)
+		require.Nil(t, k)
+		require.Nil(t, v)
 
 		k, v = cursor.Prev()
-		assert.Nil(t, k)
-		assert.Nil(t, v)
+		require.Nil(t, k)
+		require.Nil(t, v)
 
 		return nil
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestReadCursorNonEmptyInterval(t *testing.T) {
@@ -60,7 +60,7 @@ func TestReadCursorNonEmptyInterval(t *testing.T) {
 	defer f.Cleanup()
 
 	db, err := newEtcdBackend(f.BackendConfig())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	testKeyValues := []KV{
 		{"b", "1"},
@@ -71,20 +71,20 @@ func TestReadCursorNonEmptyInterval(t *testing.T) {
 
 	err = db.Update(func(tx walletdb.ReadWriteTx) error {
 		b, err := tx.CreateTopLevelBucket([]byte("alma"))
-		assert.NoError(t, err)
-		assert.NotNil(t, b)
+		require.NoError(t, err)
+		require.NotNil(t, b)
 
 		for _, kv := range testKeyValues {
-			assert.NoError(t, b.Put([]byte(kv.key), []byte(kv.val)))
+			require.NoError(t, b.Put([]byte(kv.key), []byte(kv.val)))
 		}
 		return nil
 	})
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	err = db.View(func(tx walletdb.ReadTx) error {
 		b := tx.ReadBucket([]byte("alma"))
-		assert.NotNil(t, b)
+		require.NotNil(t, b)
 
 		// Iterate from the front.
 		var kvs []KV
@@ -95,7 +95,7 @@ func TestReadCursorNonEmptyInterval(t *testing.T) {
 			kvs = append(kvs, KV{string(k), string(v)})
 			k, v = cursor.Next()
 		}
-		assert.Equal(t, testKeyValues, kvs)
+		require.Equal(t, testKeyValues, kvs)
 
 		// Iterate from the back.
 		kvs = []KV{}
@@ -105,29 +105,29 @@ func TestReadCursorNonEmptyInterval(t *testing.T) {
 			kvs = append(kvs, KV{string(k), string(v)})
 			k, v = cursor.Prev()
 		}
-		assert.Equal(t, reverseKVs(testKeyValues), kvs)
+		require.Equal(t, reverseKVs(testKeyValues), kvs)
 
 		// Random access
 		perm := []int{3, 0, 2, 1}
 		for _, i := range perm {
 			k, v := cursor.Seek([]byte(testKeyValues[i].key))
-			assert.Equal(t, []byte(testKeyValues[i].key), k)
-			assert.Equal(t, []byte(testKeyValues[i].val), v)
+			require.Equal(t, []byte(testKeyValues[i].key), k)
+			require.Equal(t, []byte(testKeyValues[i].val), v)
 		}
 
 		// Seek to nonexisting key.
 		k, v = cursor.Seek(nil)
-		assert.Nil(t, k)
-		assert.Nil(t, v)
+		require.Nil(t, k)
+		require.Nil(t, v)
 
 		k, v = cursor.Seek([]byte("x"))
-		assert.Nil(t, k)
-		assert.Nil(t, v)
+		require.Nil(t, k)
+		require.Nil(t, v)
 
 		return nil
 	})
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestReadWriteCursor(t *testing.T) {
@@ -137,7 +137,7 @@ func TestReadWriteCursor(t *testing.T) {
 	defer f.Cleanup()
 
 	db, err := newEtcdBackend(f.BackendConfig())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	testKeyValues := []KV{
 		{"b", "1"},
@@ -149,24 +149,24 @@ func TestReadWriteCursor(t *testing.T) {
 	count := len(testKeyValues)
 
 	// Pre-store the first half of the interval.
-	assert.NoError(t, db.Update(func(tx walletdb.ReadWriteTx) error {
+	require.NoError(t, db.Update(func(tx walletdb.ReadWriteTx) error {
 		b, err := tx.CreateTopLevelBucket([]byte("apple"))
-		assert.NoError(t, err)
-		assert.NotNil(t, b)
+		require.NoError(t, err)
+		require.NotNil(t, b)
 
 		for i := 0; i < count/2; i++ {
 			err = b.Put(
 				[]byte(testKeyValues[i].key),
 				[]byte(testKeyValues[i].val),
 			)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 		}
 		return nil
 	}))
 
 	err = db.Update(func(tx walletdb.ReadWriteTx) error {
 		b := tx.ReadWriteBucket([]byte("apple"))
-		assert.NotNil(t, b)
+		require.NotNil(t, b)
 
 		// Store the second half of the interval.
 		for i := count / 2; i < count; i++ {
@@ -174,77 +174,77 @@ func TestReadWriteCursor(t *testing.T) {
 				[]byte(testKeyValues[i].key),
 				[]byte(testKeyValues[i].val),
 			)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 		}
 
 		cursor := b.ReadWriteCursor()
 
 		// First on valid interval.
 		fk, fv := cursor.First()
-		assert.Equal(t, []byte("b"), fk)
-		assert.Equal(t, []byte("1"), fv)
+		require.Equal(t, []byte("b"), fk)
+		require.Equal(t, []byte("1"), fv)
 
 		// Prev(First()) = nil
 		k, v := cursor.Prev()
-		assert.Nil(t, k)
-		assert.Nil(t, v)
+		require.Nil(t, k)
+		require.Nil(t, v)
 
 		// Last on valid interval.
 		lk, lv := cursor.Last()
-		assert.Equal(t, []byte("e"), lk)
-		assert.Equal(t, []byte("4"), lv)
+		require.Equal(t, []byte("e"), lk)
+		require.Equal(t, []byte("4"), lv)
 
 		// Next(Last()) = nil
 		k, v = cursor.Next()
-		assert.Nil(t, k)
-		assert.Nil(t, v)
+		require.Nil(t, k)
+		require.Nil(t, v)
 
 		// Delete first item, then add an item before the
 		// deleted one. Check that First/Next will "jump"
 		// over the deleted item and return the new first.
 		_, _ = cursor.First()
-		assert.NoError(t, cursor.Delete())
-		assert.NoError(t, b.Put([]byte("a"), []byte("0")))
+		require.NoError(t, cursor.Delete())
+		require.NoError(t, b.Put([]byte("a"), []byte("0")))
 		fk, fv = cursor.First()
 
-		assert.Equal(t, []byte("a"), fk)
-		assert.Equal(t, []byte("0"), fv)
+		require.Equal(t, []byte("a"), fk)
+		require.Equal(t, []byte("0"), fv)
 
 		k, v = cursor.Next()
-		assert.Equal(t, []byte("c"), k)
-		assert.Equal(t, []byte("2"), v)
+		require.Equal(t, []byte("c"), k)
+		require.Equal(t, []byte("2"), v)
 
 		// Similarly test that a new end is returned if
 		// the old end is deleted first.
 		_, _ = cursor.Last()
-		assert.NoError(t, cursor.Delete())
-		assert.NoError(t, b.Put([]byte("f"), []byte("5")))
+		require.NoError(t, cursor.Delete())
+		require.NoError(t, b.Put([]byte("f"), []byte("5")))
 
 		lk, lv = cursor.Last()
-		assert.Equal(t, []byte("f"), lk)
-		assert.Equal(t, []byte("5"), lv)
+		require.Equal(t, []byte("f"), lk)
+		require.Equal(t, []byte("5"), lv)
 
 		k, v = cursor.Prev()
-		assert.Equal(t, []byte("da"), k)
-		assert.Equal(t, []byte("3"), v)
+		require.Equal(t, []byte("da"), k)
+		require.Equal(t, []byte("3"), v)
 
 		// Overwrite k/v in the middle of the interval.
-		assert.NoError(t, b.Put([]byte("c"), []byte("3")))
+		require.NoError(t, b.Put([]byte("c"), []byte("3")))
 		k, v = cursor.Prev()
-		assert.Equal(t, []byte("c"), k)
-		assert.Equal(t, []byte("3"), v)
+		require.Equal(t, []byte("c"), k)
+		require.Equal(t, []byte("3"), v)
 
 		// Insert new key/values.
-		assert.NoError(t, b.Put([]byte("cx"), []byte("x")))
-		assert.NoError(t, b.Put([]byte("cy"), []byte("y")))
+		require.NoError(t, b.Put([]byte("cx"), []byte("x")))
+		require.NoError(t, b.Put([]byte("cy"), []byte("y")))
 
 		k, v = cursor.Next()
-		assert.Equal(t, []byte("cx"), k)
-		assert.Equal(t, []byte("x"), v)
+		require.Equal(t, []byte("cx"), k)
+		require.Equal(t, []byte("x"), v)
 
 		k, v = cursor.Next()
-		assert.Equal(t, []byte("cy"), k)
-		assert.Equal(t, []byte("y"), v)
+		require.Equal(t, []byte("cy"), k)
+		require.Equal(t, []byte("y"), v)
 
 		expected := []KV{
 			{"a", "0"},
@@ -263,7 +263,7 @@ func TestReadWriteCursor(t *testing.T) {
 			kvs = append(kvs, KV{string(k), string(v)})
 			k, v = cursor.Next()
 		}
-		assert.Equal(t, expected, kvs)
+		require.Equal(t, expected, kvs)
 
 		// Iterate from the back.
 		kvs = []KV{}
@@ -273,12 +273,12 @@ func TestReadWriteCursor(t *testing.T) {
 			kvs = append(kvs, KV{string(k), string(v)})
 			k, v = cursor.Prev()
 		}
-		assert.Equal(t, reverseKVs(expected), kvs)
+		require.Equal(t, reverseKVs(expected), kvs)
 
 		return nil
 	})
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	expected := map[string]string{
 		bkey("apple"):       bval("apple"),
@@ -289,5 +289,5 @@ func TestReadWriteCursor(t *testing.T) {
 		vkey("da", "apple"): "3",
 		vkey("f", "apple"):  "5",
 	}
-	assert.Equal(t, expected, f.Dump())
+	require.Equal(t, expected, f.Dump())
 }

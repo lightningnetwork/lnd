@@ -467,7 +467,7 @@ func (p *peer) initGossipSync() {
 		// peers.
 		p.server.authGossiper.InitSyncState(p)
 	}
-	
+
 }
 
 // QuitSignal is a method that should return a channel which will be sent upon
@@ -1861,7 +1861,7 @@ func (p *peer) queueMsgLazy(msg lnwire.Message, errChan chan error) {
 // failed to write, and nil otherwise.
 func (p *peer) queue(priority bool, msg lnwire.Message,
 	errChan chan error) {
-	
+
 	select {
 	case p.outgoingQueue <- outgoingMsg{priority, msg, errChan}:
 	case <-p.quit:
@@ -2071,69 +2071,7 @@ out:
 		// message from the remote peer, we'll use this message to
 		// advance the chan closer state machine.
 		case closeMsg := <-p.chanCloseMsgs:
-			// We'll now fetch the matching closing state machine
-			// in order to continue, or finalize the channel
-			// closure process.
-			chanCloser, err := p.fetchActiveChanCloser(closeMsg.cid)
-			if err != nil {
-				// If the channel is not known to us, we'll
-				// simply ignore this message.
-				if err == ErrChannelNotFound {
-					continue
-				}
-
-				peerLog.Errorf("Unable to respond to remote "+
-					"close msg: %v", err)
-
-				errMsg := &lnwire.Error{
-					ChanID: closeMsg.cid,
-					Data:   lnwire.ErrorData(err.Error()),
-				}
-				p.queueMsg(errMsg, nil)
-				continue
-			}
-
-			// Next, we'll process the next message using the
-			// target state machine. We'll either continue
-			// negotiation, or halt.
-			msgs, closeFin, err := chanCloser.ProcessCloseMsg(
-				closeMsg.msg,
-			)
-			if err != nil {
-				err := fmt.Errorf("unable to process close "+
-					"msg: %v", err)
-				peerLog.Error(err)
-
-				// As the negotiations failed, we'll reset the
-				// channel state to ensure we act to on-chain
-				// events as normal.
-				chanCloser.Channel().ResetState()
-
-				if chanCloser.CloseRequest() != nil {
-					chanCloser.CloseRequest().Err <- err
-				}
-				delete(p.activeChanCloses, closeMsg.cid)
-				continue
-			}
-
-			// Queue any messages to the remote peer that need to
-			// be sent as a part of this latest round of
-			// negotiations.
-			for _, msg := range msgs {
-				p.queueMsg(msg, nil)
-			}
-
-			// If we haven't finished close negotiations, then
-			// we'll continue as we can't yet finalize the closure.
-			if !closeFin {
-				continue
-			}
-
-			// Otherwise, we've agreed on a closing fee! In this
-			// case, we'll wrap up the channel closure by notifying
-			// relevant sub-systems and launching a goroutine to
-			// wait for close tx conf.
-			p.finalizeChanClosure(chanCloser)
+			p.handleCloseMsg(closeMsg)
 
 		// The channel reannounce delay has elapsed, broadcast the
 		// reenabled channel updates to the network. This should only
@@ -2856,6 +2794,67 @@ func (p *peer) AddNewChannel(channel *channeldb.OpenChannel,
 // peer started successfully, and zero otherwise.
 func (p *peer) StartTime() time.Time {
 	return p.startTime
+}
+
+// handleCloseMsg is called when a new cooperative channel closure related
+// message is received from the remote peer. We'll use this message to advance
+// the chan closer state machine.
+func (p *peer) handleCloseMsg(msg *closeMsg) {
+	// We'll now fetch the matching closing state machine in order to continue,
+	// or finalize the channel closure process.
+	chanCloser, err := p.fetchActiveChanCloser(msg.cid)
+	if err != nil {
+		// If the channel is not known to us, we'll simply ignore this message.
+		if err == ErrChannelNotFound {
+			return
+		}
+
+		peerLog.Errorf("Unable to respond to remote close msg: %v", err)
+
+		errMsg := &lnwire.Error{
+			ChanID: msg.cid,
+			Data:   lnwire.ErrorData(err.Error()),
+		}
+		p.queueMsg(errMsg, nil)
+		return
+	}
+
+	// Next, we'll process the next message using the target state machine.
+	// We'll either continue negotiation, or halt.
+	msgs, closeFin, err := chanCloser.ProcessCloseMsg(
+		msg.msg,
+	)
+	if err != nil {
+		err := fmt.Errorf("unable to process close msg: %v", err)
+		peerLog.Error(err)
+
+		// As the negotiations failed, we'll reset the channel state machine to
+		// ensure we act to on-chain events as normal.
+		chanCloser.Channel().ResetState()
+
+		if chanCloser.CloseRequest() != nil {
+			chanCloser.CloseRequest().Err <- err
+		}
+		delete(p.activeChanCloses, msg.cid)
+		return
+	}
+
+	// Queue any messages to the remote peer that need to be sent as a part of
+	// this latest round of negotiations.
+	for _, msg := range msgs {
+		p.queueMsg(msg, nil)
+	}
+
+	// If we haven't finished close negotiations, then we'll continue as we
+	// can't yet finalize the closure.
+	if !closeFin {
+		return
+	}
+
+	// Otherwise, we've agreed on a closing fee! In this case, we'll wrap up
+	// the channel closure by notifying relevant sub-systems and launching a
+	// goroutine to wait for close tx conf.
+	p.finalizeChanClosure(chanCloser)
 }
 
 // LinkUpdater is an interface implemented by most messages in BOLT 2 that are

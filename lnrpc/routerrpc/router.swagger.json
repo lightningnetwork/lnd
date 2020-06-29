@@ -907,20 +907,43 @@
           "$ref": "#/definitions/routerrpcCircuitKey",
           "description": "The key of this forwarded htlc. It defines the incoming channel id and\nthe index in this channel."
         },
-        "htlc_payment_hash": {
+        "incoming_amount_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The incoming htlc amount."
+        },
+        "incoming_expiry": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The incoming htlc expiry."
+        },
+        "payment_hash": {
           "type": "string",
           "format": "byte",
           "description": "The htlc payment hash. This value is not guaranteed to be unique per\nrequest."
         },
-        "amount_msat": {
+        "outgoing_requested_chan_id": {
           "type": "string",
           "format": "uint64",
-          "description": "/ The htlc amount."
+          "description": "The requested outgoing channel id for this forwarded htlc. Because of\nnon-strict forwarding, this isn't necessarily the channel over which the\npacket will be forwarded eventually. A different channel to the same peer\nmay be selected as well."
         },
-        "expiry": {
+        "outgoing_amount_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The outgoing htlc amount."
+        },
+        "outgoing_expiry": {
           "type": "integer",
           "format": "int64",
-          "description": "/ The htlc expiry."
+          "description": "The outgoing htlc expiry."
+        },
+        "custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Any custom records that were present in the payload."
         }
       }
     },

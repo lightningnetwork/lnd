@@ -148,18 +148,22 @@ func (r *forwardInterceptor) holdAndForwardToClient(
 	forward htlcswitch.InterceptedForward) error {
 
 	htlc := forward.Packet()
-	inKey := forward.CircuitKey()
+	inKey := htlc.IncomingCircuit
 
 	// First hold the forward, then send to client.
-	r.holdForwards[forward.CircuitKey()] = forward
+	r.holdForwards[inKey] = forward
 	interceptionRequest := &ForwardHtlcInterceptRequest{
 		IncomingCircuitKey: &CircuitKey{
 			ChanId: inKey.ChanID.ToUint64(),
 			HtlcId: inKey.HtlcID,
 		},
-		HtlcPaymentHash: htlc.PaymentHash[:],
-		AmountMsat:      uint64(htlc.Amount),
-		Expiry:          htlc.Expiry,
+		OutgoingRequestedChanId: htlc.OutgoingChanID.ToUint64(),
+		PaymentHash:             htlc.Hash[:],
+		OutgoingAmountMsat:      uint64(htlc.OutgoingAmount),
+		OutgoingExpiry:          htlc.OutgoingExpiry,
+		IncomingAmountMsat:      uint64(htlc.IncomingAmount),
+		IncomingExpiry:          htlc.IncomingExpiry,
+		CustomRecords:           htlc.CustomRecords,
 	}
 
 	return r.stream.Send(interceptionRequest)

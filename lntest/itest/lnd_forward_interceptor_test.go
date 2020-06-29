@@ -16,8 +16,14 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+)
+
+var (
+	customTestKey   uint64 = 394829
+	customTestValue        = []byte{1, 3, 5}
 )
 
 type interceptorTestCase struct {
@@ -133,6 +139,25 @@ func testForwardInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 	for i := 0; i < len(testCases); i++ {
 		select {
 		case request := <-interceptedChan:
+			// Assert sanity of informational packet data.
+			require.NotZero(t.t, request.OutgoingRequestedChanId)
+			require.NotZero(t.t, request.IncomingExpiry)
+			require.NotZero(t.t, request.IncomingAmountMsat)
+
+			require.Less(
+				t.t,
+				request.OutgoingExpiry, request.IncomingExpiry,
+			)
+			require.Less(
+				t.t,
+				request.OutgoingAmountMsat,
+				request.IncomingAmountMsat,
+			)
+
+			value, ok := request.CustomRecords[customTestKey]
+			require.True(t.t, ok, "expected custom record")
+			require.Equal(t.t, customTestValue, value)
+
 			testCase := testCases[i]
 
 			// For held packets we ignore, keeping them in hold status.
@@ -351,6 +376,11 @@ func (c *interceptorTestContext) sendAliceToCarolPayment(ctx context.Context,
 	sendReq := &routerrpc.SendToRouteRequest{
 		PaymentHash: paymentHash,
 		Route:       route,
+	}
+
+	// Send a custom record to the forwarding node.
+	route.Hops[0].CustomRecords = map[uint64][]byte{
+		customTestKey: customTestValue,
 	}
 
 	// Send the payment.

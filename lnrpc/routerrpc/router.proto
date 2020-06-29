@@ -605,17 +605,32 @@ message ForwardHtlcInterceptRequest {
     */
     CircuitKey incoming_circuit_key = 1;
 
+    // The incoming htlc amount.
+    uint64 incoming_amount_msat = 5;
+
+    // The incoming htlc expiry.
+    uint32 incoming_expiry = 6;
+
     /*
     The htlc payment hash. This value is not guaranteed to be unique per
     request.
     */
-    bytes htlc_payment_hash = 2;
+    bytes payment_hash = 2;
 
-    /// The htlc amount.
-    uint64 amount_msat = 3;
+    // The requested outgoing channel id for this forwarded htlc. Because of
+    // non-strict forwarding, this isn't necessarily the channel over which the
+    // packet will be forwarded eventually. A different channel to the same peer
+    // may be selected as well.
+    uint64 outgoing_requested_chan_id = 7;
 
-    /// The htlc expiry.
-    uint32 expiry = 4;
+    // The outgoing htlc amount.
+    uint64 outgoing_amount_msat = 3;
+
+    // The outgoing htlc expiry.
+    uint32 outgoing_expiry = 4;
+
+    // Any custom records that were present in the payload.
+    map<uint64, bytes> custom_records = 8;
 }
 
 /**

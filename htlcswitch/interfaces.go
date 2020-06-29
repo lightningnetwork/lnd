@@ -8,6 +8,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 )
 
 // InvoiceDatabase is an interface which represents the persistent subsystem
@@ -200,17 +201,46 @@ type InterceptableHtlcForwarder interface {
 // and resolve it later or let the switch execute its default behavior.
 type ForwardInterceptor func(InterceptedForward) bool
 
+// InterceptedPacket contains the relevant information for the interceptor about
+// an htlc.
+type InterceptedPacket struct {
+	// IncomingCircuit contains the incoming channel and htlc id of the
+	// packet.
+	IncomingCircuit channeldb.CircuitKey
+
+	// OutgoingChanID is the destination channel for this packet.
+	OutgoingChanID lnwire.ShortChannelID
+
+	// Hash is the payment hash of the htlc.
+	Hash lntypes.Hash
+
+	// OutgoingExpiry is the absolute block height at which the outgoing
+	// htlc expires.
+	OutgoingExpiry uint32
+
+	// OutgoingAmount is the amount to forward.
+	OutgoingAmount lnwire.MilliSatoshi
+
+	// IncomingExpiry is the absolute block height at which the incoming
+	// htlc expires.
+	IncomingExpiry uint32
+
+	// IncomingAmount is the amount of the accepted htlc.
+	IncomingAmount lnwire.MilliSatoshi
+
+	// CustomRecords are user-defined records in the custom type range that
+	// were included in the payload.
+	CustomRecords record.CustomSet
+}
+
 // InterceptedForward is passed to the ForwardInterceptor for every forwarded
 // htlc. It contains all the information about the packet which accordingly
 // the interceptor decides if to hold or not.
 // In addition this interface allows a later resolution by calling either
 // Resume, Settle or Fail.
 type InterceptedForward interface {
-	// CircuitKey returns the intercepted packet.
-	CircuitKey() channeldb.CircuitKey
-
 	// Packet returns the intercepted packet.
-	Packet() lnwire.UpdateAddHTLC
+	Packet() InterceptedPacket
 
 	// Resume notifies the intention to resume an existing hold forward. This
 	// basically means the caller wants to resume with the default behavior for

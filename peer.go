@@ -2857,6 +2857,20 @@ func (p *peer) handleCloseMsg(msg *closeMsg) {
 	p.finalizeChanClosure(chanCloser)
 }
 
+// HandleLocalCloseChanReqs accepts a *htlcswitch.ChanClose and passes it onto
+// the channelManager goroutine, which will shut down the link and possibly
+// close the channel.
+func (p *peer) HandleLocalCloseChanReqs(req *htlcswitch.ChanClose) {
+	select {
+	case p.localCloseChanReqs <- req:
+		peerLog.Infof("Local close channel request delivered to peer: %v",
+			p.PubKey())
+	case <-p.quit:
+		peerLog.Infof("Unable to deliver local close channel request to peer "+
+			"%x", p.PubKey())
+	}
+}
+
 // LinkUpdater is an interface implemented by most messages in BOLT 2 that are
 // allowed to update the channel state.
 type LinkUpdater interface {

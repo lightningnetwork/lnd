@@ -491,15 +491,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 				return
 			}
 
-			select {
-			case peer.localCloseChanReqs <- request:
-				srvrLog.Infof("Local close channel request "+
-					"delivered to peer: %x", pubKey[:])
-			case <-peer.quit:
-				srvrLog.Errorf("Unable to deliver local close "+
-					"channel request to peer %x, err: %v",
-					pubKey[:], err)
-			}
+			peer.HandleLocalCloseChanReqs(request)
 		},
 		FwdingLog:              chanDB.ForwardingLog(),
 		SwitchPackager:         channeldb.NewSwitchPackager(),

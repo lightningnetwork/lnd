@@ -2573,10 +2573,10 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 
 		peer := &lnrpc.Peer{
 			PubKey:    hex.EncodeToString(nodePub[:]),
-			Address:   serverPeer.conn.RemoteAddr().String(),
-			Inbound:   serverPeer.inbound,
-			BytesRecv: atomic.LoadUint64(&serverPeer.bytesReceived),
-			BytesSent: atomic.LoadUint64(&serverPeer.bytesSent),
+			Address:   serverPeer.Conn().RemoteAddr().String(),
+			Inbound:   serverPeer.Inbound(),
+			BytesRecv: serverPeer.BytesReceived(),
+			BytesSent: serverPeer.BytesSent(),
 			SatSent:   satSent,
 			SatRecv:   satRecv,
 			PingTime:  serverPeer.PingTime(),
@@ -2591,12 +2591,12 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 		// it is non-nil. If we want all the stored errors, simply
 		// add the full list to our set of errors.
 		if in.LatestError {
-			latestErr := serverPeer.errorBuffer.Latest()
+			latestErr := serverPeer.ErrorBuffer().Latest()
 			if latestErr != nil {
 				peerErrors = []interface{}{latestErr}
 			}
 		} else {
-			peerErrors = serverPeer.errorBuffer.List()
+			peerErrors = serverPeer.ErrorBuffer().List()
 		}
 
 		// Add the relevant peer errors to our response.

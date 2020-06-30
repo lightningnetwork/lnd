@@ -52,6 +52,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/netann"
+	ppeer "github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/pool"
 	"github.com/lightningnetwork/lnd/queue"
@@ -2563,7 +2564,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		// we'll close out the new connection s.t there's only a single
 		// connection between us.
 		localPub := s.identityECDH.PubKey()
-		if !connectedPeer.inbound &&
+		if !connectedPeer.Inbound() &&
 			!shouldDropLocalConnection(localPub, nodePub) {
 
 			srvrLog.Warnf("Received inbound connection from "+
@@ -2674,7 +2675,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		// we'll close out the new connection s.t there's only a single
 		// connection between us.
 		localPub := s.identityECDH.PubKey()
-		if connectedPeer.inbound &&
+		if connectedPeer.Inbound() &&
 			shouldDropLocalConnection(localPub, nodePub) {
 
 			srvrLog.Warnf("Established outbound connection to "+
@@ -2797,15 +2798,62 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// offered that would trigger channel closure. In case of outgoing
 	// htlcs, an extra block is added to prevent the channel from being
 	// closed when the htlc is outstanding and a new block comes in.
-	p, err := newPeer(
-		s.cfg, conn, connReq, s, peerAddr, inbound, initFeatures,
-		legacyFeatures, s.cfg.ChanEnableTimeout,
-		lncfg.DefaultOutgoingCltvRejectDelta, errBuffer,
-	)
-	if err != nil {
-		srvrLog.Errorf("unable to create peer %v", err)
-		return
+	pCfg := ppeer.Config{
+		Conn:                    conn,
+		ConnReq:                 connReq,
+		Addr:                    peerAddr,
+		Inbound:                 inbound,
+		Features:                initFeatures,
+		LegacyFeatures:          legacyFeatures,
+		OutgoingCltvRejectDelta: lncfg.DefaultOutgoingCltvRejectDelta,
+		ChanActiveTimeout:       s.cfg.ChanEnableTimeout,
+		ErrorBuffer:             errBuffer,
+		WritePool:               s.writePool,
+		ReadPool:                s.readPool,
+		Switch:                  s.htlcSwitch,
+		InterceptSwitch:         s.interceptableSwitch,
+		ChannelDB:               s.chanDB,
+		ChainArb:                s.chainArb,
+		AuthGossiper:            s.authGossiper,
+		ChanStatusMgr:           s.chanStatusMgr,
+		ChainIO:                 s.cc.chainIO,
+		FeeEstimator:            s.cc.feeEstimator,
+		Signer:                  s.cc.wallet.Cfg.Signer,
+		SigPool:                 s.sigPool,
+		Wallet:                  s.cc.wallet,
+		ChainNotifier:           s.cc.chainNotifier,
+		RoutingPolicy:           s.cc.routingPolicy,
+		Sphinx:                  s.sphinx,
+		WitnessBeacon:           s.witnessBeacon,
+		Invoices:                s.invoices,
+		ChannelNotifier:         s.channelNotifier,
+		HtlcNotifier:            s.htlcNotifier,
+		TowerClient:             s.towerClient,
+		DisconnectPeer:          s.DisconnectPeer,
+		GenNodeAnnouncement:     s.genNodeAnnouncement,
+
+		PrunePersistentPeerConnection: s.prunePersistentPeerConnection,
+
+		FetchLastChanUpdate:   s.fetchLastChanUpdate(),
+		ProcessFundingOpen:    s.fundingMgr.processFundingOpen,
+		ProcessFundingAccept:  s.fundingMgr.processFundingAccept,
+		ProcessFundingCreated: s.fundingMgr.processFundingCreated,
+		ProcessFundingSigned:  s.fundingMgr.processFundingSigned,
+		ProcessFundingLocked:  s.fundingMgr.processFundingLocked,
+		ProcessFundingError:   s.fundingMgr.processFundingError,
+		IsPendingChannel:      s.fundingMgr.IsPendingChannel,
+
+		Hodl:                    s.cfg.Hodl,
+		UnsafeReplay:            s.cfg.UnsafeReplay,
+		MaxOutgoingCltvExpiry:   s.cfg.MaxOutgoingCltvExpiry,
+		MaxChannelFeeAllocation: s.cfg.MaxChannelFeeAllocation,
+		Quit:                    s.quit,
 	}
+
+	copy(pCfg.PubKeyBytes[:], peerAddr.IdentityKey.SerializeCompressed())
+	copy(pCfg.ServerPubKey[:], s.identityECDH.PubKey().SerializeCompressed())
+
+	p := newPeer(pCfg)
 
 	// TODO(roasbeef): update IP address for link-node
 	//  * also mark last-seen, do it one single transaction?
@@ -2842,12 +2890,12 @@ func (s *server) addPeer(p *peer) {
 	// TODO(roasbeef): pipe all requests through to the
 	// queryHandler/peerManager
 
-	pubSer := p.addr.IdentityKey.SerializeCompressed()
+	pubSer := p.NetAddress().IdentityKey.SerializeCompressed()
 	pubStr := string(pubSer)
 
 	s.peersByPub[pubStr] = p
 
-	if p.inbound {
+	if p.Inbound() {
 		s.inboundPeers[pubStr] = p
 	} else {
 		s.outboundPeers[pubStr] = p
@@ -3020,12 +3068,12 @@ func (s *server) peerTerminationWatcher(p *peer, ready chan struct{}) {
 		// within the peer's address for reconnection purposes.
 		//
 		// TODO(roasbeef): use them all?
-		if p.inbound {
+		if p.Inbound() {
 			advertisedAddr, err := s.fetchNodeAdvertisedAddr(pubKey)
 			switch {
 			// We found an advertised address, so use it.
 			case err == nil:
-				p.addr.Address = advertisedAddr
+				p.SetAddress(advertisedAddr)
 
 			// The peer doesn't have an advertised address.
 			case err == errNoAdvertisedAddr:
@@ -3058,7 +3106,7 @@ func (s *server) peerTerminationWatcher(p *peer, ready chan struct{}) {
 		// Otherwise, we'll launch a new connection request in order to
 		// attempt to maintain a persistent connection with this peer.
 		connReq := &connmgr.ConnReq{
-			Addr:      p.addr,
+			Addr:      p.NetAddress(),
 			Permanent: true,
 		}
 		s.persistentConnReqs[pubStr] = append(
@@ -3113,8 +3161,8 @@ func (s *server) removePeer(p *peer) {
 	p.Disconnect(fmt.Errorf("server: disconnecting peer %v", p))
 
 	// If this peer had an active persistent connection request, remove it.
-	if p.connReq != nil {
-		s.connMgr.Remove(p.connReq.ID())
+	if p.ConnReq() != nil {
+		s.connMgr.Remove(p.ConnReq().ID())
 	}
 
 	// Ignore deleting peers if we're shutting down.
@@ -3128,7 +3176,7 @@ func (s *server) removePeer(p *peer) {
 
 	delete(s.peersByPub, pubStr)
 
-	if p.inbound {
+	if p.Inbound() {
 		delete(s.inboundPeers, pubStr)
 	} else {
 		delete(s.outboundPeers, pubStr)
@@ -3136,8 +3184,8 @@ func (s *server) removePeer(p *peer) {
 
 	// Copy the peer's error buffer across to the server if it has any items
 	// in it so that we can restore peer errors across connections.
-	if p.errorBuffer.Total() > 0 {
-		s.peerErrors[pubStr] = p.errorBuffer
+	if p.ErrorBuffer().Total() > 0 {
+		s.peerErrors[pubStr] = p.ErrorBuffer()
 	}
 
 	// Inform the peer notifier of a peer offline event so that it can be

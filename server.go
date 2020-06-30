@@ -417,6 +417,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		HtlcHoldDuration:     invoices.DefaultHtlcHoldDuration,
 		Clock:                clock.NewDefaultClock(),
 		AcceptKeySend:        cfg.AcceptKeySend,
+		KeysendHoldTime:      cfg.KeysendHoldTime,
 	}
 
 	s := &server{

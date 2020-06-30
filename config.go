@@ -233,6 +233,8 @@ type Config struct {
 
 	AcceptKeySend bool `long:"accept-keysend" description:"If true, spontaneous payments through keysend will be accepted. [experimental]"`
 
+	KeysendHoldTime time.Duration `long:"keysend-hold-time" description:"If non-zero, keysend payments are accepted but not immediately settled. If the payment isn't settled manually after the specified time, it is canceled automatically. [experimental]"`
+
 	Routing *routing.Conf `group:"routing" namespace:"routing"`
 
 	Workers *lncfg.Workers `group:"workers" namespace:"workers"`

@@ -2551,7 +2551,7 @@
         "csv_delay": {
           "type": "integer",
           "format": "int64",
-          "description": "The CSV delay expressed in relative blocks. If the channel is force closed,\nwe will need to wait for this many blocks before we can regain our funds."
+          "description": "Deprecated. The CSV delay expressed in relative blocks. If the channel is\nforce closed, we will need to wait for this many blocks before we can regain\nour funds."
         },
         "private": {
           "type": "boolean",
@@ -2570,12 +2570,12 @@
         "local_chan_reserve_sat": {
           "type": "string",
           "format": "int64",
-          "description": "The minimum satoshis this node is required to reserve in its balance."
+          "description": "Deprecated. The minimum satoshis this node is required to reserve in its\nbalance."
         },
         "remote_chan_reserve_sat": {
           "type": "string",
           "format": "int64",
-          "description": "The minimum satoshis the other node is required to reserve in its balance."
+          "description": "Deprecated. The minimum satoshis the other node is required to reserve in\nits balance."
         },
         "static_remote_key": {
           "type": "boolean",
@@ -2609,6 +2609,14 @@
           "type": "integer",
           "format": "int64",
           "description": "This uint32 indicates if this channel is to be considered 'frozen'. A\nfrozen channel doest not allow a cooperative channel close by the\ninitiator. The thaw_height is the height that this restriction stops\napplying to the channel. This field is optional, not setting it or using a\nvalue of zero will mean the channel has no additional restrictions."
+        },
+        "local_constraints": {
+          "$ref": "#/definitions/lnrpcChannelConstraints",
+          "description": "List constraints for the local node."
+        },
+        "remote_constraints": {
+          "$ref": "#/definitions/lnrpcChannelConstraints",
+          "description": "List constraints for the remote node."
         }
       }
     },
@@ -2791,6 +2799,41 @@
         "success": {
           "type": "boolean",
           "format": "boolean"
+        }
+      }
+    },
+    "lnrpcChannelConstraints": {
+      "type": "object",
+      "properties": {
+        "csv_delay": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The CSV delay expressed in relative blocks. If the channel is force closed,\nwe will need to wait for this many blocks before we can regain our funds."
+        },
+        "chan_reserve_sat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The minimum satoshis this node is required to reserve in its balance."
+        },
+        "dust_limit_sat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The dust limit (in satoshis) of the initiator's commitment tx."
+        },
+        "max_pending_amt_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The maximum amount of coins in millisatoshis that can be pending in this\nchannel."
+        },
+        "min_htlc_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The smallest HTLC in millisatoshis that the initiator will accept."
+        },
+        "max_accepted_htlcs": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The total number of incoming HTLC's that the initiator will accept."
         }
       }
     },

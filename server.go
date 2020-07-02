@@ -410,6 +410,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		NoTLVOnion:        cfg.ProtocolOptions.LegacyOnion(),
 		NoStaticRemoteKey: cfg.ProtocolOptions.NoStaticRemoteKey(),
 		NoAnchors:         !cfg.ProtocolOptions.AnchorCommitments(),
+		NoWumbo:           !cfg.ProtocolOptions.Wumbo(),
 	})
 	if err != nil {
 		return nil, err

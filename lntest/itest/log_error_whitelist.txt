@@ -192,3 +192,6 @@
 <time> [ERR] PEER: unable to close channel, ChannelID(<hex>) is unknown
 <time> [ERR] HSWC: ChannelLink(<chan>): unable to update signals
 <time> [ERR] RPCS: [/routerrpc.Router/HtlcInterceptor]: rpc error: code = Canceled desc = context canceled
+<time> [ERR] FNDG: received funding error from <hex>: chan_id=<hex>, err=channel too large
+<time> [ERR] RPCS: [/lnrpc.Lightning/OpenChannel]: received funding error from <hex>: chan_id=<hex>, err=channel too large
+<time> [ERR] RPCS: unable to open channel to NodeKey(<hex>): received funding error from <hex>: chan_id=<hex>, err=channel too large

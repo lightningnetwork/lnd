@@ -15200,6 +15200,10 @@ var testsCases = []*testCase{
 		name: "intercept forwarded htlc packets",
 		test: testForwardInterceptor,
 	},
+	{
+		name: "wumbo channels",
+		test: testWumboChannels,
+	},
 }
 
 // TestLightningNetworkDaemon performs a series of integration tests amongst a

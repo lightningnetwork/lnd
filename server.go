@@ -1034,11 +1034,18 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 				return defaultConf
 			}
 
+			minConf := uint64(3)
+			maxConf := uint64(6)
+
+			// If this is a wumbo channel, then we'll require the
+			// max amount of confirmations.
+			if chanAmt > MaxFundingAmount {
+				return uint16(maxConf)
+			}
+
 			// If not we return a value scaled linearly
 			// between 3 and 6, depending on channel size.
 			// TODO(halseth): Use 1 as minimum?
-			minConf := uint64(3)
-			maxConf := uint64(6)
 			maxChannelSize := uint64(
 				lnwire.NewMSatFromSatoshis(MaxFundingAmount))
 			stake := lnwire.NewMSatFromSatoshis(chanAmt) + pushAmt
@@ -1065,6 +1072,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 			defaultDelay := uint16(chainCfg.DefaultRemoteDelay)
 			if defaultDelay > 0 {
 				return defaultDelay
+			}
+
+			// If this is a wumbo channel, then we'll require the
+			// max value.
+			if chanAmt > MaxFundingAmount {
+				return maxRemoteDelay
 			}
 
 			// If not we scale according to channel size.

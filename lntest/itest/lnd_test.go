@@ -1457,9 +1457,14 @@ test:
 				// Check that the signalled type matches what we
 				// expect.
 				switch {
-				case expType == commitTypeAnchors && chansCommitType == lnrpc.CommitmentType_ANCHORS:
-				case expType == commitTypeTweakless && chansCommitType == lnrpc.CommitmentType_STATIC_REMOTE_KEY:
-				case expType == commitTypeLegacy && chansCommitType == lnrpc.CommitmentType_LEGACY:
+				case expType == commitTypeAnchors &&
+					chansCommitType == lnrpc.CommitmentType_ANCHORS:
+
+				case expType == commitTypeTweakless &&
+					chansCommitType == lnrpc.CommitmentType_STATIC_REMOTE_KEY:
+
+				case expType == commitTypeLegacy &&
+					chansCommitType == lnrpc.CommitmentType_LEGACY:
 
 				default:
 					t.Fatalf("expected nodes to signal "+

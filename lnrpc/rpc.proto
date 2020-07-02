@@ -1157,7 +1157,9 @@ message Channel {
     frozen channel doest not allow a cooperative channel close by the
     initiator. The thaw_height is the height that this restriction stops
     applying to the channel. This field is optional, not setting it or using a
-    value of zero will mean the channel has no additional restrictions.
+    value of zero will mean the channel has no additional restrictions. The
+    height can be interpreted in two ways: as a relative height if the value is
+    less than 500,000, or as an absolute height otherwise.
     */
     uint32 thaw_height = 28;
 
@@ -1665,10 +1667,11 @@ message ChanPointShim {
     bytes pending_chan_id = 5;
 
     /*
-    This uint32 indicates if this channel is to be considered 'frozen'. A
-    frozen channel does not allow a cooperative channel close by the
-    initiator. The thaw_height is the height that this restriction stops
-    applying to the channel.
+    This uint32 indicates if this channel is to be considered 'frozen'. A frozen
+    channel does not allow a cooperative channel close by the initiator. The
+    thaw_height is the height that this restriction stops applying to the
+    channel. The height can be interpreted in two ways: as a relative height if
+    the value is less than 500,000, or as an absolute height otherwise.
     */
     uint32 thaw_height = 6;
 }

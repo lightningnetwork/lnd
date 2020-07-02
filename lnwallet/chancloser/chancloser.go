@@ -355,19 +355,25 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 				"have %v", spew.Sdump(msg))
 		}
 
-		// As we're the responder to this shutdown (the other party wants to
-		// close), we'll check if this is a frozen channel or not. If the
-		// channel is frozen and we were not also the initiator of the channel
-		// opening, then we'll deny their close attempt.
+		// As we're the responder to this shutdown (the other party
+		// wants to close), we'll check if this is a frozen channel or
+		// not. If the channel is frozen and we were not also the
+		// initiator of the channel opening, then we'll deny their close
+		// attempt.
 		chanInitiator := c.cfg.Channel.IsInitiator()
 		chanState := c.cfg.Channel.State()
-		if !chanInitiator && chanState.ChanType.IsFrozen() &&
-			c.negotiationHeight < chanState.ThawHeight {
-
-			return nil, false, fmt.Errorf("initiator attempting to co-op "+
-				"close frozen ChannelPoint(%v) (current_height=%v, "+
-				"thaw_height=%v)", c.chanPoint, c.negotiationHeight,
-				chanState.ThawHeight)
+		if !chanInitiator {
+			absoluteThawHeight, err := chanState.AbsoluteThawHeight()
+			if err != nil {
+				return nil, false, err
+			}
+			if c.negotiationHeight < absoluteThawHeight {
+				return nil, false, fmt.Errorf("initiator "+
+					"attempting to co-op close frozen "+
+					"ChannelPoint(%v) (current_height=%v, "+
+					"thaw_height=%v)", c.chanPoint,
+					c.negotiationHeight, absoluteThawHeight)
+			}
 		}
 
 		// If the remote node opened the channel with option upfront shutdown

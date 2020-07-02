@@ -227,6 +227,10 @@ func newSerializedKey(pubKey *btcec.PublicKey) serializedPubKey {
 // within the configuration MUST be non-nil for the FundingManager to carry out
 // its duties.
 type fundingConfig struct {
+	// NoWumboChans indicates if we're to reject all incoming wumbo channel
+	// requests, and also reject all outgoing wumbo channel requests.
+	NoWumboChans bool
+
 	// IDKey is the PublicKey that is used to identify this node within the
 	// Lightning Network.
 	IDKey *btcec.PublicKey
@@ -1236,8 +1240,9 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	}
 
 	// We'll reject any request to create a channel that's above the
-	// current soft-limit for channel size.
-	if msg.FundingAmount > MaxFundingAmount {
+	// current soft-limit for channel size, but only if we're rejecting all
+	// wumbo channel initiations.
+	if f.cfg.NoWumboChans && msg.FundingAmount > MaxFundingAmount {
 		f.failFundingFlow(
 			fmsg.peer, fmsg.msg.PendingChannelID,
 			lnwire.ErrChanTooLarge,

@@ -356,27 +356,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		}
 	}
 
-	globalFeatures := lnwire.NewRawFeatureVector()
-
-	// Only if we're not being forced to use the legacy onion format, will
-	// we signal our knowledge of the new TLV onion format.
-	if !cfg.ProtocolOptions.LegacyOnion() {
-		globalFeatures.Set(lnwire.TLVOnionPayloadOptional)
-	}
-
-	// Similarly, we default to supporting the new modern commitment format
-	// where the remote key is static unless the protocol config is set to
-	// keep using the older format.
-	if !cfg.ProtocolOptions.NoStaticRemoteKey() {
-		globalFeatures.Set(lnwire.StaticRemoteKeyOptional)
-	}
-
-	// We only signal that we support the experimental anchor commitments
-	// if explicitly enabled in the config.
-	if cfg.ProtocolOptions.AnchorCommitments() {
-		globalFeatures.Set(lnwire.AnchorsOptional)
-	}
-
 	var serializedPubKey [33]byte
 	copy(serializedPubKey[:], nodeKeyECDH.PubKey().SerializeCompressed())
 

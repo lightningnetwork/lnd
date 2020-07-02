@@ -398,7 +398,7 @@ func TestRestoreChannelShells(t *testing.T) {
 	if err != ErrNoRestoredChannelMutation {
 		t.Fatalf("able to mutate restored channel")
 	}
-	err = channel.AdvanceCommitChainTail(nil)
+	err = channel.AdvanceCommitChainTail(nil, nil)
 	if err != ErrNoRestoredChannelMutation {
 		t.Fatalf("able to mutate restored channel")
 	}

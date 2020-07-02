@@ -797,7 +797,7 @@ func TestChannelStateTransition(t *testing.T) {
 	fwdPkg := NewFwdPkg(channel.ShortChanID(), oldRemoteCommit.CommitHeight,
 		diskCommitDiff.LogUpdates, nil)
 
-	err = channel.AdvanceCommitChainTail(fwdPkg)
+	err = channel.AdvanceCommitChainTail(fwdPkg, nil)
 	if err != nil {
 		t.Fatalf("unable to append to revocation log: %v", err)
 	}
@@ -845,7 +845,7 @@ func TestChannelStateTransition(t *testing.T) {
 
 	fwdPkg = NewFwdPkg(channel.ShortChanID(), oldRemoteCommit.CommitHeight, nil, nil)
 
-	err = channel.AdvanceCommitChainTail(fwdPkg)
+	err = channel.AdvanceCommitChainTail(fwdPkg, nil)
 	if err != nil {
 		t.Fatalf("unable to append to revocation log: %v", err)
 	}

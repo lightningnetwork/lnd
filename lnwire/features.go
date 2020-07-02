@@ -101,6 +101,14 @@ const (
 	// HTLC.
 	MPPOptional FeatureBit = 17
 
+	// WumboChannelsRequired is a required feature bit that signals that a
+	// node is willing to accept channels larger than 2^24 satoshis.
+	WumboChannelsRequired = 18
+
+	// WumboChannelsRequired is an optional feature bit that signals that a
+	// node is willing to accept channels larger than 2^24 satoshis.
+	WumboChannelsOptional = 19
+
 	// AnchorsRequired is a required feature bit that signals that the node
 	// requires channels to be made using commitments having anchor
 	// outputs.
@@ -150,6 +158,8 @@ var Features = map[FeatureBit]string{
 	MPPRequired:                   "multi-path-payments",
 	AnchorsRequired:               "anchor-commitments",
 	AnchorsOptional:               "anchor-commitments",
+	WumboChannelsRequired:         "wumbo-channels",
+	WumboChannelsOptional:         "wumbo-channels",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A

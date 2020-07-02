@@ -2466,7 +2466,7 @@
         "thaw_height": {
           "type": "integer",
           "format": "int64",
-          "description": "This uint32 indicates if this channel is to be considered 'frozen'. A\nfrozen channel does not allow a cooperative channel close by the\ninitiator. The thaw_height is the height that this restriction stops\napplying to the channel."
+          "description": "This uint32 indicates if this channel is to be considered 'frozen'. A frozen\nchannel does not allow a cooperative channel close by the initiator. The\nthaw_height is the height that this restriction stops applying to the\nchannel. The height can be interpreted in two ways: as a relative height if\nthe value is less than 500,000, or as an absolute height otherwise."
         }
       }
     },
@@ -2608,7 +2608,7 @@
         "thaw_height": {
           "type": "integer",
           "format": "int64",
-          "description": "This uint32 indicates if this channel is to be considered 'frozen'. A\nfrozen channel doest not allow a cooperative channel close by the\ninitiator. The thaw_height is the height that this restriction stops\napplying to the channel. This field is optional, not setting it or using a\nvalue of zero will mean the channel has no additional restrictions."
+          "description": "This uint32 indicates if this channel is to be considered 'frozen'. A\nfrozen channel doest not allow a cooperative channel close by the\ninitiator. The thaw_height is the height that this restriction stops\napplying to the channel. This field is optional, not setting it or using a\nvalue of zero will mean the channel has no additional restrictions. The\nheight can be interpreted in two ways: as a relative height if the value is\nless than 500,000, or as an absolute height otherwise."
         },
         "local_constraints": {
           "$ref": "#/definitions/lnrpcChannelConstraints",

@@ -2891,7 +2891,9 @@ type Channel struct {
 	//frozen channel doest not allow a cooperative channel close by the
 	//initiator. The thaw_height is the height that this restriction stops
 	//applying to the channel. This field is optional, not setting it or using a
-	//value of zero will mean the channel has no additional restrictions.
+	//value of zero will mean the channel has no additional restrictions. The
+	//height can be interpreted in two ways: as a relative height if the value is
+	//less than 500,000, or as an absolute height otherwise.
 	ThawHeight uint32 `protobuf:"varint,28,opt,name=thaw_height,json=thawHeight,proto3" json:"thaw_height,omitempty"`
 	// List constraints for the local node.
 	LocalConstraints *ChannelConstraints `protobuf:"bytes,29,opt,name=local_constraints,json=localConstraints,proto3" json:"local_constraints,omitempty"`
@@ -5051,10 +5053,11 @@ type ChanPointShim struct {
 	//channel ID.
 	PendingChanId []byte `protobuf:"bytes,5,opt,name=pending_chan_id,json=pendingChanId,proto3" json:"pending_chan_id,omitempty"`
 	//
-	//This uint32 indicates if this channel is to be considered 'frozen'. A
-	//frozen channel does not allow a cooperative channel close by the
-	//initiator. The thaw_height is the height that this restriction stops
-	//applying to the channel.
+	//This uint32 indicates if this channel is to be considered 'frozen'. A frozen
+	//channel does not allow a cooperative channel close by the initiator. The
+	//thaw_height is the height that this restriction stops applying to the
+	//channel. The height can be interpreted in two ways: as a relative height if
+	//the value is less than 500,000, or as an absolute height otherwise.
 	ThawHeight           uint32   `protobuf:"varint,6,opt,name=thaw_height,json=thawHeight,proto3" json:"thaw_height,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`

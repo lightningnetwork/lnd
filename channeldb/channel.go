@@ -23,6 +23,13 @@ import (
 	"github.com/lightningnetwork/lnd/shachain"
 )
 
+const (
+	// AbsoluteThawHeightThreshold is the threshold at which a thaw height
+	// begins to be interpreted as an absolute block height, rather than a
+	// relative one.
+	AbsoluteThawHeightThreshold uint32 = 500000
+)
+
 var (
 	// closedChannelBucket stores summarization information concerning
 	// previously open, but now closed channels.
@@ -654,7 +661,8 @@ type OpenChannel struct {
 
 	// ThawHeight is the height when a frozen channel once again becomes a
 	// normal channel. If this is zero, then there're no restrictions on
-	// this channel.
+	// this channel. If the value is lower than 500,000, then it's
+	// interpreted as a relative height, or an absolute height otherwise.
 	ThawHeight uint32
 
 	// TODO(roasbeef): eww
@@ -2764,6 +2772,28 @@ func (c *OpenChannel) RemoteRevocationStore() (shachain.Store, error) {
 	}
 
 	return c.RevocationStore, nil
+}
+
+// AbsoluteThawHeight determines a frozen channel's absolute thaw height. If the
+// channel is not frozen, then 0 is returned.
+func (c *OpenChannel) AbsoluteThawHeight() (uint32, error) {
+	// Only frozen channels have a thaw height.
+	if !c.ChanType.IsFrozen() {
+		return 0, nil
+	}
+
+	// If the channel's thaw height is below the absolute threshold, then
+	// it's interpreted as a relative height to the chain's current height.
+	if c.ThawHeight < AbsoluteThawHeightThreshold {
+		// We'll only known of the channel's short ID once it's
+		// confirmed.
+		if c.IsPending {
+			return 0, errors.New("cannot use relative thaw " +
+				"height for unconfirmed channel")
+		}
+		return c.ShortChannelID.BlockHeight + c.ThawHeight, nil
+	}
+	return c.ThawHeight, nil
 }
 
 func putChannelCloseSummary(tx kvdb.RwTx, chanID []byte,

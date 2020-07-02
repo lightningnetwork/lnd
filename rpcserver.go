@@ -2122,14 +2122,19 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			})
 	} else {
 		// If this is a frozen channel, then we only allow the co-op
-		// close to proceed if we were the responder to this channel.
-		if channel.ChanType.IsFrozen() && channel.IsInitiator &&
-			uint32(bestHeight) < channel.ThawHeight {
-
-			return fmt.Errorf("cannot co-op close frozen channel "+
-				"as initiator until height=%v, "+
-				"(current_height=%v)", channel.ThawHeight,
-				bestHeight)
+		// close to proceed if we were the responder to this channel if
+		// the absolute thaw height has not been met.
+		if channel.IsInitiator {
+			absoluteThawHeight, err := channel.AbsoluteThawHeight()
+			if err != nil {
+				return err
+			}
+			if uint32(bestHeight) < absoluteThawHeight {
+				return fmt.Errorf("cannot co-op close frozen "+
+					"channel as initiator until height=%v, "+
+					"(current_height=%v)",
+					absoluteThawHeight, bestHeight)
+			}
 		}
 
 		// If the link is not known by the switch, we cannot gracefully close

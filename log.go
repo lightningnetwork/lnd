@@ -30,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/monitoring"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/localchans"
@@ -75,7 +76,6 @@ var (
 	// function should always be called as soon as possible to finish
 	// setting them up properly with a root logger.
 	ltndLog = addLndPkgLogger("LTND")
-	peerLog = addLndPkgLogger("PEER")
 	rpcsLog = addLndPkgLogger("RPCS")
 	srvrLog = addLndPkgLogger("SRVR")
 	fndgLog = addLndPkgLogger("FNDG")
@@ -122,6 +122,7 @@ func SetupLoggers(root *build.RotatingLogWriter) {
 	AddSubLogger(root, "WTCL", wtclient.UseLogger)
 	AddSubLogger(root, "PRNF", peernotifier.UseLogger)
 	AddSubLogger(root, "CHFD", chanfunding.UseLogger)
+	AddSubLogger(root, "PEER", peer.UseLogger)
 	AddSubLogger(root, "CHCL", chancloser.UseLogger)
 
 	AddSubLogger(root, routing.Subsystem, routing.UseLogger, localchans.UseLogger)

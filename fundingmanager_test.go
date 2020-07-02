@@ -166,6 +166,11 @@ func (m *mockChanEvent) NotifyPendingOpenChannelEvent(outpoint wire.OutPoint,
 	}
 }
 
+type newChannelMsg struct {
+	channel *channeldb.OpenChannel
+	err     chan error
+}
+
 type testNode struct {
 	privKey         *btcec.PrivateKey
 	addr            *lnwire.NetAddress

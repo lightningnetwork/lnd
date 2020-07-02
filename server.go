@@ -52,7 +52,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/netann"
-	ppeer "github.com/lightningnetwork/lnd/peer"
+	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/pool"
 	"github.com/lightningnetwork/lnd/queue"
@@ -114,7 +114,7 @@ var (
 // errPeerAlreadyConnected is an error returned by the server when we're
 // commanded to connect to a peer, but they're already connected.
 type errPeerAlreadyConnected struct {
-	peer *peer
+	peer *peer.Brontide
 }
 
 // Error returns the human readable version of this error type.
@@ -168,10 +168,10 @@ type server struct {
 	lastDetectedIP net.IP
 
 	mu         sync.RWMutex
-	peersByPub map[string]*peer
+	peersByPub map[string]*peer.Brontide
 
-	inboundPeers  map[string]*peer
-	outboundPeers map[string]*peer
+	inboundPeers  map[string]*peer.Brontide
+	outboundPeers map[string]*peer.Brontide
 
 	peerConnectedListeners    map[string][]chan<- lnpeer.Peer
 	peerDisconnectedListeners map[string][]chan<- struct{}
@@ -191,7 +191,7 @@ type server struct {
 	// a disconnect. Adding a peer to this map causes the peer termination
 	// watcher to short circuit in the event that peers are purposefully
 	// disconnected.
-	ignorePeerTermination map[*peer]struct{}
+	ignorePeerTermination map[*peer.Brontide]struct{}
 
 	// scheduledPeerConnection maps a pubkey string to a callback that
 	// should be executed in the peerTerminationWatcher the prior peer with
@@ -453,12 +453,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		persistentConnReqs:      make(map[string][]*connmgr.ConnReq),
 		persistentRetryCancels:  make(map[string]chan struct{}),
 		peerErrors:              make(map[string]*queue.CircularBuffer),
-		ignorePeerTermination:   make(map[*peer]struct{}),
+		ignorePeerTermination:   make(map[*peer.Brontide]struct{}),
 		scheduledPeerConnection: make(map[string]func()),
 
-		peersByPub:                make(map[string]*peer),
-		inboundPeers:              make(map[string]*peer),
-		outboundPeers:             make(map[string]*peer),
+		peersByPub:                make(map[string]*peer.Brontide),
+		inboundPeers:              make(map[string]*peer.Brontide),
+		outboundPeers:             make(map[string]*peer.Brontide),
 		peerConnectedListeners:    make(map[string][]chan<- lnpeer.Peer),
 		peerDisconnectedListeners: make(map[string][]chan<- struct{}),
 
@@ -2309,7 +2309,7 @@ func (s *server) BroadcastMessage(skips map[route.Vertex]struct{},
 	// peersByPub throughout this process to ensure we deliver messages to
 	// exact set of peers present at the time of invocation.
 	s.mu.RLock()
-	peers := make([]*peer, 0, len(s.peersByPub))
+	peers := make([]*peer.Brontide, 0, len(s.peersByPub))
 	for _, sPeer := range s.peersByPub {
 		if skips != nil {
 			if _, ok := skips[sPeer.PubKey()]; ok {
@@ -2412,7 +2412,7 @@ func (s *server) NotifyWhenOffline(peerPubKey [33]byte) <-chan struct{} {
 // daemon's local representation of the remote peer.
 //
 // NOTE: This function is safe for concurrent access.
-func (s *server) FindPeer(peerKey *btcec.PublicKey) (*peer, error) {
+func (s *server) FindPeer(peerKey *btcec.PublicKey) (*peer.Brontide, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -2426,7 +2426,7 @@ func (s *server) FindPeer(peerKey *btcec.PublicKey) (*peer, error) {
 // public key.
 //
 // NOTE: This function is safe for concurrent access.
-func (s *server) FindPeerByPubStr(pubStr string) (*peer, error) {
+func (s *server) FindPeerByPubStr(pubStr string) (*peer.Brontide, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -2435,7 +2435,7 @@ func (s *server) FindPeerByPubStr(pubStr string) (*peer, error) {
 
 // findPeerByPubStr is an internal method that retrieves the specified peer from
 // the server's internal state using.
-func (s *server) findPeerByPubStr(pubStr string) (*peer, error) {
+func (s *server) findPeerByPubStr(pubStr string) (*peer.Brontide, error) {
 	peer, ok := s.peersByPub[pubStr]
 	if !ok {
 		return nil, ErrPeerNotConnected
@@ -2785,7 +2785,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	errBuffer, ok := s.peerErrors[pkStr]
 	if !ok {
 		var err error
-		errBuffer, err = queue.NewCircularBuffer(ErrorBufferSize)
+		errBuffer, err = queue.NewCircularBuffer(peer.ErrorBufferSize)
 		if err != nil {
 			srvrLog.Errorf("unable to create peer %v", err)
 			return
@@ -2798,7 +2798,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// offered that would trigger channel closure. In case of outgoing
 	// htlcs, an extra block is added to prevent the channel from being
 	// closed when the htlc is outstanding and a new block comes in.
-	pCfg := ppeer.Config{
+	pCfg := peer.Config{
 		Conn:                    conn,
 		ConnReq:                 connReq,
 		Addr:                    peerAddr,
@@ -2853,7 +2853,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	copy(pCfg.PubKeyBytes[:], peerAddr.IdentityKey.SerializeCompressed())
 	copy(pCfg.ServerPubKey[:], s.identityECDH.PubKey().SerializeCompressed())
 
-	p := newPeer(pCfg)
+	p := peer.NewBrontide(pCfg)
 
 	// TODO(roasbeef): update IP address for link-node
 	//  * also mark last-seen, do it one single transaction?
@@ -2874,7 +2874,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 
 // addPeer adds the passed peer to the server's global state of all active
 // peers.
-func (s *server) addPeer(p *peer) {
+func (s *server) addPeer(p *peer.Brontide) {
 	if p == nil {
 		return
 	}
@@ -2890,7 +2890,7 @@ func (s *server) addPeer(p *peer) {
 	// TODO(roasbeef): pipe all requests through to the
 	// queryHandler/peerManager
 
-	pubSer := p.NetAddress().IdentityKey.SerializeCompressed()
+	pubSer := p.IdentityKey().SerializeCompressed()
 	pubStr := string(pubSer)
 
 	s.peersByPub[pubStr] = p
@@ -2918,7 +2918,7 @@ func (s *server) addPeer(p *peer) {
 // be signaled of the new peer once the method returns.
 //
 // NOTE: This MUST be launched as a goroutine.
-func (s *server) peerInitializer(p *peer) {
+func (s *server) peerInitializer(p *peer.Brontide) {
 	defer s.wg.Done()
 
 	// Avoid initializing peers while the server is exiting.
@@ -2979,7 +2979,7 @@ func (s *server) peerInitializer(p *peer) {
 // successfully, otherwise the peer should be disconnected instead.
 //
 // NOTE: This MUST be launched as a goroutine.
-func (s *server) peerTerminationWatcher(p *peer, ready chan struct{}) {
+func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 	defer s.wg.Done()
 
 	p.WaitForDisconnect(ready)
@@ -3149,7 +3149,7 @@ func (s *server) peerTerminationWatcher(p *peer, ready chan struct{}) {
 
 // removePeer removes the passed peer from the server's state of all active
 // peers.
-func (s *server) removePeer(p *peer) {
+func (s *server) removePeer(p *peer.Brontide) {
 	if p == nil {
 		return
 	}
@@ -3405,8 +3405,8 @@ func (s *server) OpenChannel(
 	// We'll wait until the peer is active before beginning the channel
 	// opening process.
 	select {
-	case <-peer.activeSignal:
-	case <-peer.quit:
+	case <-peer.ActiveSignal():
+	case <-peer.QuitSignal():
 		req.err <- fmt.Errorf("peer %x disconnected", pubKeyBytes)
 		return req.updates, req.err
 	case <-s.quit:
@@ -3438,11 +3438,11 @@ func (s *server) OpenChannel(
 // Peers returns a slice of all active peers.
 //
 // NOTE: This function is safe for concurrent access.
-func (s *server) Peers() []*peer {
+func (s *server) Peers() []*peer.Brontide {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	peers := make([]*peer, 0, len(s.peersByPub))
+	peers := make([]*peer.Brontide, 0, len(s.peersByPub))
 	for _, peer := range s.peersByPub {
 		peers = append(peers, peer)
 	}

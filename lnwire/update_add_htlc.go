@@ -113,7 +113,7 @@ func (c *UpdateAddHTLC) MaxPayloadLength(uint32) uint32 {
 // TargetChanID returns the channel id of the link for which this message is
 // intended.
 //
-// NOTE: Part of lnd.LinkUpdater interface.
+// NOTE: Part of peer.LinkUpdater interface.
 func (c *UpdateAddHTLC) TargetChanID() ChannelID {
 	return c.ChanID
 }

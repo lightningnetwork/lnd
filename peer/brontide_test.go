@@ -1,6 +1,4 @@
-// +build !rpctest
-
-package lnd
+package peer
 
 import (
 	"bytes"
@@ -35,7 +33,7 @@ var (
 func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	t.Parallel()
 
-	notifier := &mockNotfier{
+	notifier := &mockNotifier{
 		confChannel: make(chan *chainntnfs.TxConfirmation),
 	}
 	broadcastTxChan := make(chan *wire.MsgTx)
@@ -136,7 +134,7 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	t.Parallel()
 
-	notifier := &mockNotfier{
+	notifier := &mockNotifier{
 		confChannel: make(chan *chainntnfs.TxConfirmation),
 	}
 	broadcastTxChan := make(chan *wire.MsgTx)
@@ -229,7 +227,6 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	}
 
 	// Alice should respond with the ClosingSigned they both agreed upon.
-
 	select {
 	case outMsg := <-alicePeer.outgoingQueue:
 		msg = outMsg.msg
@@ -257,7 +254,7 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	t.Parallel()
 
-	notifier := &mockNotfier{
+	notifier := &mockNotifier{
 		confChannel: make(chan *chainntnfs.TxConfirmation),
 	}
 	broadcastTxChan := make(chan *wire.MsgTx)
@@ -449,7 +446,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	t.Parallel()
 
-	notifier := &mockNotfier{
+	notifier := &mockNotifier{
 		confChannel: make(chan *chainntnfs.TxConfirmation),
 	}
 	broadcastTxChan := make(chan *wire.MsgTx)
@@ -782,7 +779,7 @@ func TestCustomShutdownScript(t *testing.T) {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
-			notifier := &mockNotfier{
+			notifier := &mockNotifier{
 				confChannel: make(chan *chainntnfs.TxConfirmation),
 			}
 			broadcastTxChan := make(chan *wire.MsgTx)

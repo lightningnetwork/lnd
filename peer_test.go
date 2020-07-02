@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
-	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -40,7 +40,7 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	}
 	broadcastTxChan := make(chan *wire.MsgTx)
 
-	responder, responderChan, initiatorChan, cleanUp, err := createTestPeer(
+	alicePeer, _, bobChan, cleanUp, err := createTestPeer(
 		notifier, broadcastTxChan, noUpdate,
 	)
 	if err != nil {
@@ -48,19 +48,19 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	}
 	defer cleanUp()
 
-	chanID := lnwire.NewChanIDFromOutPoint(responderChan.ChannelPoint())
+	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
 
 	// We send a shutdown request to Alice. She will now be the responding
 	// node in this shutdown procedure. We first expect Alice to answer
 	// this shutdown request with a Shutdown message.
-	responder.chanCloseMsgs <- &closeMsg{
+	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: lnwire.NewShutdown(chanID, dummyDeliveryScript),
 	}
 
 	var msg lnwire.Message
 	select {
-	case outMsg := <-responder.outgoingQueue:
+	case outMsg := <-alicePeer.outgoingQueue:
 		msg = outMsg.msg
 	case <-time.After(timeout):
 		t.Fatalf("did not receive shutdown message")
@@ -77,33 +77,33 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	// closing transaction fee. Alice sends the ClosingSigned message as she is
 	// the initiator of the channel.
 	select {
-	case outMsg := <-responder.outgoingQueue:
+	case outMsg := <-alicePeer.outgoingQueue:
 		msg = outMsg.msg
 	case <-time.After(timeout):
 		t.Fatalf("did not receive ClosingSigned message")
 	}
 
-	responderClosingSigned, ok := msg.(*lnwire.ClosingSigned)
+	respClosingSigned, ok := msg.(*lnwire.ClosingSigned)
 	if !ok {
 		t.Fatalf("expected ClosingSigned message, got %T", msg)
 	}
 
 	// We accept the fee, and send a ClosingSigned with the same fee back,
 	// so she knows we agreed.
-	peerFee := responderClosingSigned.FeeSatoshis
-	initiatorSig, _, _, err := initiatorChan.CreateCloseProposal(
-		peerFee, dummyDeliveryScript, respDeliveryScript,
+	aliceFee := respClosingSigned.FeeSatoshis
+	bobSig, _, _, err := bobChan.CreateCloseProposal(
+		aliceFee, dummyDeliveryScript, respDeliveryScript,
 	)
 	if err != nil {
 		t.Fatalf("error creating close proposal: %v", err)
 	}
 
-	parsedSig, err := lnwire.NewSigFromSignature(initiatorSig)
+	parsedSig, err := lnwire.NewSigFromSignature(bobSig)
 	if err != nil {
 		t.Fatalf("error parsing signature: %v", err)
 	}
-	closingSigned := lnwire.NewClosingSigned(chanID, peerFee, parsedSig)
-	responder.chanCloseMsgs <- &closeMsg{
+	closingSigned := lnwire.NewClosingSigned(chanID, aliceFee, parsedSig)
+	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: closingSigned,
 	}
@@ -116,7 +116,18 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 		t.Fatalf("closing tx not broadcast")
 	}
 
-	// And the initiator should be waiting for a confirmation notification.
+	// Need to pull the remaining message off of Alice's outgoing queue.
+	select {
+	case outMsg := <-alicePeer.outgoingQueue:
+		msg = outMsg.msg
+	case <-time.After(timeout):
+		t.Fatalf("did not receive ClosingSigned message")
+	}
+	if _, ok := msg.(*lnwire.ClosingSigned); !ok {
+		t.Fatalf("expected ClosingSigned message, got %T", msg)
+	}
+
+	// Alice should be waiting in a goroutine for a confirmation.
 	notifier.confChannel <- &chainntnfs.TxConfirmation{}
 }
 
@@ -130,7 +141,7 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	}
 	broadcastTxChan := make(chan *wire.MsgTx)
 
-	initiator, initiatorChan, responderChan, cleanUp, err := createTestPeer(
+	alicePeer, _, bobChan, cleanUp, err := createTestPeer(
 		notifier, broadcastTxChan, noUpdate,
 	)
 	if err != nil {
@@ -143,17 +154,17 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	errChan := make(chan error, 1)
 	closeCommand := &htlcswitch.ChanClose{
 		CloseType:      htlcswitch.CloseRegular,
-		ChanPoint:      initiatorChan.ChannelPoint(),
+		ChanPoint:      bobChan.ChannelPoint(),
 		Updates:        updateChan,
 		TargetFeePerKw: 12500,
 		Err:            errChan,
 	}
-	initiator.localCloseChanReqs <- closeCommand
+	alicePeer.localCloseChanReqs <- closeCommand
 
 	// We can now pull a Shutdown message off of Alice's outgoingQueue.
 	var msg lnwire.Message
 	select {
-	case outMsg := <-initiator.outgoingQueue:
+	case outMsg := <-alicePeer.outgoingQueue:
 		msg = outMsg.msg
 	case <-time.After(timeout):
 		t.Fatalf("did not receive shutdown request")
@@ -164,35 +175,45 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 		t.Fatalf("expected Shutdown message, got %T", msg)
 	}
 
-	initiatorDeliveryScript := shutdownMsg.Address
+	aliceDeliveryScript := shutdownMsg.Address
 
 	// Bob will respond with his own Shutdown message.
 	chanID := shutdownMsg.ChannelID
-	initiator.chanCloseMsgs <- &closeMsg{
+	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: lnwire.NewShutdown(chanID,
 			dummyDeliveryScript),
 	}
 
-	estimator := chainfee.NewStaticEstimator(12500, 0)
-	feePerKw, err := estimator.EstimateFeePerKW(1)
-	if err != nil {
-		t.Fatalf("unable to query fee estimator: %v", err)
+	// Alice will reply with a ClosingSigned here.
+	select {
+	case outMsg := <-alicePeer.outgoingQueue:
+		msg = outMsg.msg
+	case <-time.After(timeout):
+		t.Fatalf("did not receive closing signed message")
 	}
-	fee := responderChan.CalcFee(feePerKw)
-	closeSig, _, _, err := responderChan.CreateCloseProposal(fee,
-		dummyDeliveryScript, initiatorDeliveryScript)
+	closingSignedMsg, ok := msg.(*lnwire.ClosingSigned)
+	if !ok {
+		t.Fatalf("expected to receive closing signed message, got %T", msg)
+	}
+
+	// Bob should reply with the exact same fee in his next ClosingSigned
+	// message.
+	bobFee := closingSignedMsg.FeeSatoshis
+	bobSig, _, _, err := bobChan.CreateCloseProposal(
+		bobFee, dummyDeliveryScript, aliceDeliveryScript,
+	)
 	if err != nil {
 		t.Fatalf("unable to create close proposal: %v", err)
 	}
-	parsedSig, err := lnwire.NewSigFromSignature(closeSig)
+	parsedSig, err := lnwire.NewSigFromSignature(bobSig)
 	if err != nil {
 		t.Fatalf("unable to parse signature: %v", err)
 	}
 
 	closingSigned := lnwire.NewClosingSigned(shutdownMsg.ChannelID,
-		fee, parsedSig)
-	initiator.chanCloseMsgs <- &closeMsg{
+		bobFee, parsedSig)
+	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: closingSigned,
 	}
@@ -202,31 +223,31 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 
 	// Alice should now broadcast the closing transaction.
 	select {
-	case outMsg := <-initiator.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive closing signed message")
-	}
-
-	closingSignedMsg, ok := msg.(*lnwire.ClosingSigned)
-	if !ok {
-		t.Fatalf("expected ClosingSigned message, got %T", msg)
-	}
-
-	if closingSignedMsg.FeeSatoshis != fee {
-		t.Fatalf("expected ClosingSigned fee to be %v, instead got %v",
-			fee, closingSignedMsg.FeeSatoshis)
-	}
-
-	// The initiator will now see that we agreed on the fee, and broadcast
-	// the closing transaction.
-	select {
 	case <-broadcastTxChan:
 	case <-time.After(timeout):
 		t.Fatalf("closing tx not broadcast")
 	}
 
-	// And the initiator should be waiting for a confirmation notification.
+	// Alice should respond with the ClosingSigned they both agreed upon.
+
+	select {
+	case outMsg := <-alicePeer.outgoingQueue:
+		msg = outMsg.msg
+	case <-time.After(timeout):
+		t.Fatalf("did not receive closing signed message")
+	}
+
+	closingSignedMsg, ok = msg.(*lnwire.ClosingSigned)
+	if !ok {
+		t.Fatalf("expected ClosingSigned message, got %T", msg)
+	}
+
+	if closingSignedMsg.FeeSatoshis != bobFee {
+		t.Fatalf("expected ClosingSigned fee to be %v, instead got %v",
+			bobFee, closingSignedMsg.FeeSatoshis)
+	}
+
+	// Alice should be waiting on a single confirmation for the coop close tx.
 	notifier.confChannel <- &chainntnfs.TxConfirmation{}
 }
 
@@ -241,7 +262,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	}
 	broadcastTxChan := make(chan *wire.MsgTx)
 
-	responder, responderChan, initiatorChan, cleanUp, err := createTestPeer(
+	alicePeer, _, bobChan, cleanUp, err := createTestPeer(
 		notifier, broadcastTxChan, noUpdate,
 	)
 	if err != nil {
@@ -249,12 +270,12 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	}
 	defer cleanUp()
 
-	chanID := lnwire.NewChanIDFromOutPoint(responderChan.ChannelPoint())
+	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
 
-	// We send a shutdown request to Alice. She will now be the responding
-	// node in this shutdown procedure. We first expect Alice to answer
-	// this shutdown request with a Shutdown message.
-	responder.chanCloseMsgs <- &closeMsg{
+	// Bob sends a shutdown request to Alice. She will now be the responding
+	// node in this shutdown procedure. We first expect Alice to answer this
+	// Shutdown request with a Shutdown message.
+	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: lnwire.NewShutdown(chanID,
 			dummyDeliveryScript),
@@ -262,7 +283,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 
 	var msg lnwire.Message
 	select {
-	case outMsg := <-responder.outgoingQueue:
+	case outMsg := <-alicePeer.outgoingQueue:
 		msg = outMsg.msg
 	case <-time.After(timeout):
 		t.Fatalf("did not receive shutdown message")
@@ -273,38 +294,38 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 		t.Fatalf("expected Shutdown message, got %T", msg)
 	}
 
-	respDeliveryScript := shutdownMsg.Address
+	aliceDeliveryScript := shutdownMsg.Address
 
 	// As Alice is the channel initiator, she will send her ClosingSigned
 	// message.
 	select {
-	case outMsg := <-responder.outgoingQueue:
+	case outMsg := <-alicePeer.outgoingQueue:
 		msg = outMsg.msg
 	case <-time.After(timeout):
 		t.Fatalf("did not receive closing signed message")
 	}
 
-	responderClosingSigned, ok := msg.(*lnwire.ClosingSigned)
+	aliceClosingSigned, ok := msg.(*lnwire.ClosingSigned)
 	if !ok {
 		t.Fatalf("expected ClosingSigned message, got %T", msg)
 	}
 
 	// Bob doesn't agree with the fee and will send one back that's 2.5x.
-	preferredRespFee := responderClosingSigned.FeeSatoshis
+	preferredRespFee := aliceClosingSigned.FeeSatoshis
 	increasedFee := btcutil.Amount(float64(preferredRespFee) * 2.5)
-	initiatorSig, _, _, err := initiatorChan.CreateCloseProposal(
-		increasedFee, dummyDeliveryScript, respDeliveryScript,
+	bobSig, _, _, err := bobChan.CreateCloseProposal(
+		increasedFee, dummyDeliveryScript, aliceDeliveryScript,
 	)
 	if err != nil {
 		t.Fatalf("error creating close proposal: %v", err)
 	}
 
-	parsedSig, err := lnwire.NewSigFromSignature(initiatorSig)
+	parsedSig, err := lnwire.NewSigFromSignature(bobSig)
 	if err != nil {
 		t.Fatalf("error parsing signature: %v", err)
 	}
 	closingSigned := lnwire.NewClosingSigned(chanID, increasedFee, parsedSig)
-	responder.chanCloseMsgs <- &closeMsg{
+	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: closingSigned,
 	}
@@ -314,41 +335,41 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	// should get a new proposal back, which should have the average fee rate
 	// proposed.
 	select {
-	case outMsg := <-responder.outgoingQueue:
+	case outMsg := <-alicePeer.outgoingQueue:
 		msg = outMsg.msg
 	case <-time.After(timeout):
 		t.Fatalf("did not receive closing signed message")
 	}
 
-	responderClosingSigned, ok = msg.(*lnwire.ClosingSigned)
+	aliceClosingSigned, ok = msg.(*lnwire.ClosingSigned)
 	if !ok {
 		t.Fatalf("expected ClosingSigned message, got %T", msg)
 	}
 
-	// The fee sent by the responder should be less than the fee we just
-	// sent as it should attempt to compromise.
-	peerFee := responderClosingSigned.FeeSatoshis
-	if peerFee > increasedFee {
+	// The fee sent by Alice should be less than the fee Bob just sent as Alice
+	// should attempt to compromise.
+	aliceFee := aliceClosingSigned.FeeSatoshis
+	if aliceFee > increasedFee {
 		t.Fatalf("new fee should be less than our fee: new=%v, "+
-			"prior=%v", peerFee, increasedFee)
+			"prior=%v", aliceFee, increasedFee)
 	}
-	lastFeeResponder := peerFee
+	lastFeeResponder := aliceFee
 
 	// We try negotiating a 2.1x fee, which should also be rejected.
 	increasedFee = btcutil.Amount(float64(preferredRespFee) * 2.1)
-	initiatorSig, _, _, err = initiatorChan.CreateCloseProposal(
-		increasedFee, dummyDeliveryScript, respDeliveryScript,
+	bobSig, _, _, err = bobChan.CreateCloseProposal(
+		increasedFee, dummyDeliveryScript, aliceDeliveryScript,
 	)
 	if err != nil {
 		t.Fatalf("error creating close proposal: %v", err)
 	}
 
-	parsedSig, err = lnwire.NewSigFromSignature(initiatorSig)
+	parsedSig, err = lnwire.NewSigFromSignature(bobSig)
 	if err != nil {
 		t.Fatalf("error parsing signature: %v", err)
 	}
 	closingSigned = lnwire.NewClosingSigned(chanID, increasedFee, parsedSig)
-	responder.chanCloseMsgs <- &closeMsg{
+	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: closingSigned,
 	}
@@ -357,44 +378,44 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	// a new ClosingSigned message. It should be the average of what Bob and
 	// Alice each proposed last time.
 	select {
-	case outMsg := <-responder.outgoingQueue:
+	case outMsg := <-alicePeer.outgoingQueue:
 		msg = outMsg.msg
 	case <-time.After(timeout):
 		t.Fatalf("did not receive closing signed message")
 	}
 
-	responderClosingSigned, ok = msg.(*lnwire.ClosingSigned)
+	aliceClosingSigned, ok = msg.(*lnwire.ClosingSigned)
 	if !ok {
 		t.Fatalf("expected ClosingSigned message, got %T", msg)
 	}
 
-	// The peer should inch towards our fee, in order to compromise.
-	// Additionally, this fee should be less than the fee we sent prior.
-	peerFee = responderClosingSigned.FeeSatoshis
-	if peerFee < lastFeeResponder {
+	// Alice should inch towards Bob's fee, in order to compromise.
+	// Additionally, this fee should be less than the fee Bob sent before.
+	aliceFee = aliceClosingSigned.FeeSatoshis
+	if aliceFee < lastFeeResponder {
 		t.Fatalf("new fee should be greater than prior: new=%v, "+
-			"prior=%v", peerFee, lastFeeResponder)
+			"prior=%v", aliceFee, lastFeeResponder)
 	}
-	if peerFee > increasedFee {
-		t.Fatalf("new fee should be less than our fee: new=%v, "+
-			"prior=%v", peerFee, increasedFee)
+	if aliceFee > increasedFee {
+		t.Fatalf("new fee should be less than Bob's fee: new=%v, "+
+			"prior=%v", aliceFee, increasedFee)
 	}
 
-	// Finally, we'll accept the fee by echoing back the same fee that they
-	// sent to us.
-	initiatorSig, _, _, err = initiatorChan.CreateCloseProposal(
-		peerFee, dummyDeliveryScript, respDeliveryScript,
+	// Finally, Bob will accept the fee by echoing back the same fee that Alice
+	// just sent over.
+	bobSig, _, _, err = bobChan.CreateCloseProposal(
+		aliceFee, dummyDeliveryScript, aliceDeliveryScript,
 	)
 	if err != nil {
 		t.Fatalf("error creating close proposal: %v", err)
 	}
 
-	parsedSig, err = lnwire.NewSigFromSignature(initiatorSig)
+	parsedSig, err = lnwire.NewSigFromSignature(bobSig)
 	if err != nil {
 		t.Fatalf("error parsing signature: %v", err)
 	}
-	closingSigned = lnwire.NewClosingSigned(chanID, peerFee, parsedSig)
-	responder.chanCloseMsgs <- &closeMsg{
+	closingSigned = lnwire.NewClosingSigned(chanID, aliceFee, parsedSig)
+	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: closingSigned,
 	}
@@ -407,7 +428,18 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 		t.Fatalf("closing tx not broadcast")
 	}
 
-	// And the responder should be waiting for a confirmation notification.
+	// Alice should respond with the ClosingSigned they both agreed upon.
+	select {
+	case outMsg := <-alicePeer.outgoingQueue:
+		msg = outMsg.msg
+	case <-time.After(timeout):
+		t.Fatalf("did not receive closing signed message")
+	}
+	if _, ok := msg.(*lnwire.ClosingSigned); !ok {
+		t.Fatalf("expected to receive closing signed message, got %T", msg)
+	}
+
+	// Alice should be waiting on a single confirmation for the coop close tx.
 	notifier.confChannel <- &chainntnfs.TxConfirmation{}
 }
 
@@ -422,7 +454,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	}
 	broadcastTxChan := make(chan *wire.MsgTx)
 
-	initiator, initiatorChan, responderChan, cleanUp, err := createTestPeer(
+	alicePeer, _, bobChan, cleanUp, err := createTestPeer(
 		notifier, broadcastTxChan, noUpdate,
 	)
 	if err != nil {
@@ -435,18 +467,18 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	errChan := make(chan error, 1)
 	closeCommand := &htlcswitch.ChanClose{
 		CloseType:      htlcswitch.CloseRegular,
-		ChanPoint:      initiatorChan.ChannelPoint(),
+		ChanPoint:      bobChan.ChannelPoint(),
 		Updates:        updateChan,
 		TargetFeePerKw: 12500,
 		Err:            errChan,
 	}
 
-	initiator.localCloseChanReqs <- closeCommand
+	alicePeer.localCloseChanReqs <- closeCommand
 
-	// We should now be getting the shutdown request.
+	// Alice should now send a Shutdown request to Bob.
 	var msg lnwire.Message
 	select {
-	case outMsg := <-initiator.outgoingQueue:
+	case outMsg := <-alicePeer.outgoingQueue:
 		msg = outMsg.msg
 	case <-time.After(timeout):
 		t.Fatalf("did not receive shutdown request")
@@ -457,47 +489,20 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 		t.Fatalf("expected Shutdown message, got %T", msg)
 	}
 
-	initiatorDeliveryScript := shutdownMsg.Address
+	aliceDeliveryScript := shutdownMsg.Address
 
-	// We'll answer the shutdown message with our own Shutdown, and then a
-	// ClosingSigned message.
-	chanID := lnwire.NewChanIDFromOutPoint(initiatorChan.ChannelPoint())
+	// Bob will answer the Shutdown message with his own Shutdown.
+	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
 	respShutdown := lnwire.NewShutdown(chanID, dummyDeliveryScript)
-	initiator.chanCloseMsgs <- &closeMsg{
+	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: respShutdown,
 	}
 
-	estimator := chainfee.NewStaticEstimator(12500, 0)
-	initiatorIdealFeeRate, err := estimator.EstimateFeePerKW(1)
-	if err != nil {
-		t.Fatalf("unable to query fee estimator: %v", err)
-	}
-	initiatorIdealFee := responderChan.CalcFee(initiatorIdealFeeRate)
-	increasedFee := btcutil.Amount(float64(initiatorIdealFee) * 2.5)
-	closeSig, _, _, err := responderChan.CreateCloseProposal(
-		increasedFee, dummyDeliveryScript, initiatorDeliveryScript,
-	)
-	if err != nil {
-		t.Fatalf("error creating close proposal: %v", err)
-	}
-	parsedSig, err := lnwire.NewSigFromSignature(closeSig)
-	if err != nil {
-		t.Fatalf("unable to parse signature: %v", err)
-	}
-
-	closingSigned := lnwire.NewClosingSigned(
-		shutdownMsg.ChannelID, increasedFee, parsedSig,
-	)
-	initiator.chanCloseMsgs <- &closeMsg{
-		cid: chanID,
-		msg: closingSigned,
-	}
-
-	// We should get two closing signed messages, the first will be the
-	// ideal fee sent by the initiator in response to our shutdown request.
+	// Alice should now respond with a ClosingSigned message with her ideal
+	// fee rate.
 	select {
-	case outMsg := <-initiator.outgoingQueue:
+	case outMsg := <-alicePeer.outgoingQueue:
 		msg = outMsg.msg
 	case <-time.After(timeout):
 		t.Fatalf("did not receive closing signed")
@@ -506,16 +511,35 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ClosingSigned message, got %T", msg)
 	}
-	if closingSignedMsg.FeeSatoshis != initiatorIdealFee {
-		t.Fatalf("expected ClosingSigned fee to be %v, instead got %v",
-			initiatorIdealFee, closingSignedMsg.FeeSatoshis)
-	}
-	lastFeeSent := closingSignedMsg.FeeSatoshis
 
-	// The second message should be the compromise fee sent in response to
-	// them receiving our fee proposal.
+	idealFeeRate := closingSignedMsg.FeeSatoshis
+	lastReceivedFee := idealFeeRate
+
+	increasedFee := btcutil.Amount(float64(idealFeeRate) * 2.1)
+	lastSentFee := increasedFee
+
+	bobSig, _, _, err := bobChan.CreateCloseProposal(
+		increasedFee, dummyDeliveryScript, aliceDeliveryScript,
+	)
+	if err != nil {
+		t.Fatalf("error creating close proposal: %v", err)
+	}
+
+	parsedSig, err := lnwire.NewSigFromSignature(bobSig)
+	if err != nil {
+		t.Fatalf("unable to parse signature: %v", err)
+	}
+
+	closingSigned := lnwire.NewClosingSigned(chanID, increasedFee, parsedSig)
+	alicePeer.chanCloseMsgs <- &closeMsg{
+		cid: chanID,
+		msg: closingSigned,
+	}
+
+	// It still won't be accepted, and we should get a new proposal, the
+	// average of what we proposed, and what they proposed last time.
 	select {
-	case outMsg := <-initiator.outgoingQueue:
+	case outMsg := <-alicePeer.outgoingQueue:
 		msg = outMsg.msg
 	case <-time.After(timeout):
 		t.Fatalf("did not receive closing signed")
@@ -525,35 +549,36 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 		t.Fatalf("expected ClosingSigned message, got %T", msg)
 	}
 
-	// The peer should inch towards our fee, in order to compromise.
-	// Additionally, this fee should be less than the fee we sent prior.
-	peerFee := closingSignedMsg.FeeSatoshis
-	if peerFee < lastFeeSent {
-		t.Fatalf("new fee should be greater than prior: new=%v, "+
-			"prior=%v", peerFee, lastFeeSent)
+	aliceFee := closingSignedMsg.FeeSatoshis
+	if aliceFee < lastReceivedFee {
+		t.Fatalf("new fee should be greater than prior: new=%v, old=%v",
+			aliceFee, lastReceivedFee)
 	}
-	if peerFee > increasedFee {
-		t.Fatalf("new fee should be less than our fee: new=%v, "+
-			"prior=%v", peerFee, increasedFee)
+	if aliceFee > lastSentFee {
+		t.Fatalf("new fee should be less than our fee: new=%v, old=%v",
+			aliceFee, lastSentFee)
 	}
-	lastFeeSent = closingSignedMsg.FeeSatoshis
 
-	// We try negotiating a 2.1x fee, which should also be rejected.
-	increasedFee = btcutil.Amount(float64(initiatorIdealFee) * 2.1)
-	responderSig, _, _, err := responderChan.CreateCloseProposal(
-		increasedFee, dummyDeliveryScript, initiatorDeliveryScript,
+	lastReceivedFee = aliceFee
+
+	// We'll try negotiating a 1.5x fee, which should also be rejected.
+	increasedFee = btcutil.Amount(float64(idealFeeRate) * 1.5)
+	lastSentFee = increasedFee
+
+	bobSig, _, _, err = bobChan.CreateCloseProposal(
+		increasedFee, dummyDeliveryScript, aliceDeliveryScript,
 	)
 	if err != nil {
 		t.Fatalf("error creating close proposal: %v", err)
 	}
 
-	parsedSig, err = lnwire.NewSigFromSignature(responderSig)
+	parsedSig, err = lnwire.NewSigFromSignature(bobSig)
 	if err != nil {
 		t.Fatalf("error parsing signature: %v", err)
 	}
 
 	closingSigned = lnwire.NewClosingSigned(chanID, increasedFee, parsedSig)
-	initiator.chanCloseMsgs <- &closeMsg{
+	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: closingSigned,
 	}
@@ -562,44 +587,41 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	// proposal which is the average of what Bob proposed and Alice proposed
 	// last time.
 	select {
-	case outMsg := <-initiator.outgoingQueue:
+	case outMsg := <-alicePeer.outgoingQueue:
 		msg = outMsg.msg
 	case <-time.After(timeout):
 		t.Fatalf("did not receive closing signed")
 	}
-
-	initiatorClosingSigned, ok := msg.(*lnwire.ClosingSigned)
+	closingSignedMsg, ok = msg.(*lnwire.ClosingSigned)
 	if !ok {
 		t.Fatalf("expected ClosingSigned message, got %T", msg)
 	}
 
-	// Once again, the fee sent by the initiator should be greater than the
-	// last fee they sent, but less than the last fee we sent.
-	peerFee = initiatorClosingSigned.FeeSatoshis
-	if peerFee < lastFeeSent {
-		t.Fatalf("new fee should be greater than prior: new=%v, "+
-			"prior=%v", peerFee, lastFeeSent)
+	aliceFee = closingSignedMsg.FeeSatoshis
+	if aliceFee < lastReceivedFee {
+		t.Fatalf("new fee should be greater than prior: new=%v, old=%v",
+			aliceFee, lastReceivedFee)
 	}
-	if peerFee > increasedFee {
-		t.Fatalf("new fee should be less than our fee: new=%v, "+
-			"prior=%v", peerFee, increasedFee)
+	if aliceFee > lastSentFee {
+		t.Fatalf("new fee should be less than Bob's fee: new=%v, old=%v",
+			aliceFee, lastSentFee)
 	}
 
-	// At this point, we'll accept their fee by sending back a CloseSigned
-	// message with an identical fee.
-	responderSig, _, _, err = responderChan.CreateCloseProposal(
-		peerFee, dummyDeliveryScript, initiatorDeliveryScript,
+	// Bob will now accept their fee by sending back a ClosingSigned message
+	// with an identical fee.
+	bobSig, _, _, err = bobChan.CreateCloseProposal(
+		aliceFee, dummyDeliveryScript, aliceDeliveryScript,
 	)
 	if err != nil {
 		t.Fatalf("error creating close proposal: %v", err)
 	}
 
-	parsedSig, err = lnwire.NewSigFromSignature(responderSig)
+	parsedSig, err = lnwire.NewSigFromSignature(bobSig)
 	if err != nil {
 		t.Fatalf("error parsing signature: %v", err)
 	}
-	closingSigned = lnwire.NewClosingSigned(chanID, peerFee, parsedSig)
-	initiator.chanCloseMsgs <- &closeMsg{
+	closingSigned = lnwire.NewClosingSigned(chanID, aliceFee, parsedSig)
+	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: closingSigned,
 	}
@@ -610,6 +632,20 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	case <-time.After(timeout):
 		t.Fatalf("closing tx not broadcast")
 	}
+
+	// Alice should respond with the ClosingSigned they both agreed upon.
+	select {
+	case outMsg := <-alicePeer.outgoingQueue:
+		msg = outMsg.msg
+	case <-time.After(timeout):
+		t.Fatalf("did not receive closing signed message")
+	}
+	if _, ok := msg.(*lnwire.ClosingSigned); !ok {
+		t.Fatalf("expected to receive closing signed message, got %T", msg)
+	}
+
+	// Alice should be waiting on a single confirmation for the coop close tx.
+	notifier.confChannel <- &chainntnfs.TxConfirmation{}
 }
 
 // TestChooseDeliveryScript tests that chooseDeliveryScript correctly errors
@@ -752,7 +788,7 @@ func TestCustomShutdownScript(t *testing.T) {
 			broadcastTxChan := make(chan *wire.MsgTx)
 
 			// Open a channel.
-			initiator, initiatorChan, _, cleanUp, err := createTestPeer(
+			alicePeer, _, bobChan, cleanUp, err := createTestPeer(
 				notifier, broadcastTxChan, test.update,
 			)
 			if err != nil {
@@ -764,7 +800,7 @@ func TestCustomShutdownScript(t *testing.T) {
 			// a specified delivery address.
 			updateChan := make(chan interface{}, 1)
 			errChan := make(chan error, 1)
-			chanPoint := initiatorChan.ChannelPoint()
+			chanPoint := bobChan.ChannelPoint()
 			closeCommand := htlcswitch.ChanClose{
 				CloseType:      htlcswitch.CloseRegular,
 				ChanPoint:      chanPoint,
@@ -776,11 +812,11 @@ func TestCustomShutdownScript(t *testing.T) {
 
 			// Send the close command for the correct channel and check that a
 			// shutdown message is sent.
-			initiator.localCloseChanReqs <- &closeCommand
+			alicePeer.localCloseChanReqs <- &closeCommand
 
 			var msg lnwire.Message
 			select {
-			case outMsg := <-initiator.outgoingQueue:
+			case outMsg := <-alicePeer.outgoingQueue:
 				msg = outMsg.msg
 			case <-time.After(timeout):
 				t.Fatalf("did not receive shutdown message")
@@ -824,7 +860,7 @@ func genScript(t *testing.T, address string) lnwire.DeliveryAddress {
 	// Generate an address which can be used for testing.
 	deliveryAddr, err := btcutil.DecodeAddress(
 		address,
-		activeNetParams.Params,
+		&chaincfg.TestNet3Params,
 	)
 	if err != nil {
 		t.Fatalf("invalid delivery address: %v", err)

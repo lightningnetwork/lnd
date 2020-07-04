@@ -30,6 +30,9 @@ var versionZeroKeyFamilies = []KeyFamily{
 	KeyFamilyDelayBase,
 	KeyFamilyRevocationRoot,
 	KeyFamilyNodeKey,
+	KeyFamilyStaticBackup,
+	KeyFamilyTowerSession,
+	KeyFamilyTowerID,
 }
 
 var (

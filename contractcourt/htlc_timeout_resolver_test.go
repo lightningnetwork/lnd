@@ -259,7 +259,9 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 
 		cfg := ResolverConfig{
 			ChannelArbitratorConfig: chainCfg,
-			Checkpoint: func(_ ContractResolver) error {
+			Checkpoint: func(_ ContractResolver,
+				_ ...*channeldb.ResolverReport) error {
+
 				checkPointChan <- struct{}{}
 				return nil
 			},

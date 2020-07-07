@@ -976,7 +976,7 @@ func (c *ChannelArbitrator) stateStep(
 		log.Debugf("ChannelArbitrator(%v): inserting %v contract "+
 			"resolvers", c.cfg.ChanPoint, len(htlcResolvers))
 
-		err = c.log.InsertUnresolvedContracts(htlcResolvers...)
+		err = c.log.InsertUnresolvedContracts(nil, htlcResolvers...)
 		if err != nil {
 			return StateError, closeTx, err
 		}
@@ -1744,8 +1744,10 @@ func (c *ChannelArbitrator) prepContractResolutions(
 	// resolver so they each can do their duty.
 	resolverCfg := ResolverConfig{
 		ChannelArbitratorConfig: c.cfg,
-		Checkpoint: func(res ContractResolver) error {
-			return c.log.InsertUnresolvedContracts(res)
+		Checkpoint: func(res ContractResolver,
+			reports ...*channeldb.ResolverReport) error {
+
+			return c.log.InsertUnresolvedContracts(reports, res)
 		},
 	}
 

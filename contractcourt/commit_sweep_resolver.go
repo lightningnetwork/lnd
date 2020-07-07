@@ -277,7 +277,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	c.reportLock.Unlock()
 
 	c.resolved = true
-	return nil, c.Checkpoint(c)
+	return nil, c.Checkpoint(c, nil)
 }
 
 // Stop signals the resolver to cancel any current resolution processes, and

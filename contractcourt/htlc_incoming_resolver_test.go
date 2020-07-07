@@ -260,7 +260,9 @@ func newIncomingResolverTestContext(t *testing.T) *incomingResolverTestContext {
 
 	cfg := ResolverConfig{
 		ChannelArbitratorConfig: chainCfg,
-		Checkpoint: func(_ ContractResolver) error {
+		Checkpoint: func(_ ContractResolver,
+			_ ...*channeldb.ResolverReport) error {
+
 			checkPointChan <- struct{}{}
 			return nil
 		},

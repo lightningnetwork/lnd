@@ -57,6 +57,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/monitoring"
+	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
@@ -2105,17 +2106,17 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// With the transaction broadcast, we send our first update to
 		// the client.
 		updateChan = make(chan interface{}, 2)
-		updateChan <- &pendingUpdate{
+		updateChan <- &peer.PendingUpdate{
 			Txid: closingTxid[:],
 		}
 
 		errChan = make(chan error, 1)
 		notifier := r.server.cc.chainNotifier
-		go waitForChanToClose(uint32(bestHeight), notifier, errChan, chanPoint,
+		go peer.WaitForChanToClose(uint32(bestHeight), notifier, errChan, chanPoint,
 			&closingTxid, closingTx.TxOut[0].PkScript, func() {
 				// Respond to the local subsystem which
 				// requested the channel closure.
-				updateChan <- &channelCloseUpdate{
+				updateChan <- &peer.ChannelCloseUpdate{
 					ClosingTxid: closingTxid[:],
 					Success:     true,
 				}
@@ -2228,7 +2229,7 @@ out:
 			// then we can break out of our dispatch loop as we no
 			// longer need to process any further updates.
 			switch closeUpdate := closingUpdate.(type) {
-			case *channelCloseUpdate:
+			case *peer.ChannelCloseUpdate:
 				h, _ := chainhash.NewHash(closeUpdate.ClosingTxid)
 				rpcsLog.Infof("[closechannel] close completed: "+
 					"txid(%v)", h)
@@ -2246,7 +2247,7 @@ func createRPCCloseUpdate(update interface{}) (
 	*lnrpc.CloseStatusUpdate, error) {
 
 	switch u := update.(type) {
-	case *channelCloseUpdate:
+	case *peer.ChannelCloseUpdate:
 		return &lnrpc.CloseStatusUpdate{
 			Update: &lnrpc.CloseStatusUpdate_ChanClose{
 				ChanClose: &lnrpc.ChannelCloseUpdate{
@@ -2254,7 +2255,7 @@ func createRPCCloseUpdate(update interface{}) (
 				},
 			},
 		}, nil
-	case *pendingUpdate:
+	case *peer.PendingUpdate:
 		return &lnrpc.CloseStatusUpdate{
 			Update: &lnrpc.CloseStatusUpdate_ClosePending{
 				ClosePending: &lnrpc.PendingUpdate{
@@ -2571,12 +2572,12 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 			serverPeer.RemoteFeatures(),
 		)
 
-		peer := &lnrpc.Peer{
+		rpcPeer := &lnrpc.Peer{
 			PubKey:    hex.EncodeToString(nodePub[:]),
-			Address:   serverPeer.conn.RemoteAddr().String(),
-			Inbound:   serverPeer.inbound,
-			BytesRecv: atomic.LoadUint64(&serverPeer.bytesReceived),
-			BytesSent: atomic.LoadUint64(&serverPeer.bytesSent),
+			Address:   serverPeer.Conn().RemoteAddr().String(),
+			Inbound:   serverPeer.Inbound(),
+			BytesRecv: serverPeer.BytesReceived(),
+			BytesSent: serverPeer.BytesSent(),
 			SatSent:   satSent,
 			SatRecv:   satRecv,
 			PingTime:  serverPeer.PingTime(),
@@ -2591,27 +2592,27 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 		// it is non-nil. If we want all the stored errors, simply
 		// add the full list to our set of errors.
 		if in.LatestError {
-			latestErr := serverPeer.errorBuffer.Latest()
+			latestErr := serverPeer.ErrorBuffer().Latest()
 			if latestErr != nil {
 				peerErrors = []interface{}{latestErr}
 			}
 		} else {
-			peerErrors = serverPeer.errorBuffer.List()
+			peerErrors = serverPeer.ErrorBuffer().List()
 		}
 
 		// Add the relevant peer errors to our response.
 		for _, error := range peerErrors {
-			tsError := error.(*timestampedError)
+			tsError := error.(*peer.TimestampedError)
 
 			rpcErr := &lnrpc.TimestampedError{
-				Timestamp: uint64(tsError.timestamp.Unix()),
-				Error:     tsError.error.Error(),
+				Timestamp: uint64(tsError.Timestamp.Unix()),
+				Error:     tsError.Error.Error(),
 			}
 
-			peer.Errors = append(peer.Errors, rpcErr)
+			rpcPeer.Errors = append(rpcPeer.Errors, rpcErr)
 		}
 
-		resp.Peers = append(resp.Peers, peer)
+		resp.Peers = append(resp.Peers, rpcPeer)
 	}
 
 	rpcsLog.Debugf("[listpeers] yielded %v peers", serverPeers)

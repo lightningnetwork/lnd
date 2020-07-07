@@ -85,7 +85,7 @@ func (c *RevokeAndAck) MaxPayloadLength(uint32) uint32 {
 // TargetChanID returns the channel id of the link for which this message is
 // intended.
 //
-// NOTE: Part of lnd.LinkUpdater interface.
+// NOTE: Part of peer.LinkUpdater interface.
 func (c *RevokeAndAck) TargetChanID() ChannelID {
 	return c.ChanID
 }

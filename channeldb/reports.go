@@ -52,6 +52,9 @@ const (
 
 	// ResolverTypeIncomingHtlc represents resolution of an incoming htlc.
 	ResolverTypeIncomingHtlc ResolverType = 1
+
+	// ResolverTypeOutgoingHtlc represents resolution of an outgoing htlc.
+	ResolverTypeOutgoingHtlc ResolverType = 2
 )
 
 // ResolverOutcome indicates the outcome for the resolver that that the contract

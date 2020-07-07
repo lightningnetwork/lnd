@@ -169,12 +169,43 @@ func TestCommitSweepResolverNoDelay(t *testing.T) {
 	}
 
 	ctx := newCommitSweepResolverTestContext(t, &res)
+
+	// Replace our checkpoint with one which will push reports into a
+	// channel for us to consume. We replace this function on the resolver
+	// itself because it is created by the test context.
+	reportChan := make(chan *channeldb.ResolverReport)
+	ctx.resolver.Checkpoint = func(_ ContractResolver,
+		reports ...*channeldb.ResolverReport) error {
+
+		// Send all of our reports into the channel.
+		for _, report := range reports {
+			reportChan <- report
+		}
+
+		return nil
+	}
+
 	ctx.resolve()
 
-	ctx.notifier.confChan <- &chainntnfs.TxConfirmation{}
+	spendTx := &wire.MsgTx{}
+	spendHash := spendTx.TxHash()
+	ctx.notifier.confChan <- &chainntnfs.TxConfirmation{
+		Tx: spendTx,
+	}
 
 	// No csv delay, so the input should be swept immediately.
 	<-ctx.sweeper.sweptInputs
+
+	amt := btcutil.Amount(res.SelfOutputSignDesc.Output.Value)
+	expectedReport := &channeldb.ResolverReport{
+		OutPoint:        wire.OutPoint{},
+		Amount:          amt,
+		ResolverType:    channeldb.ResolverTypeCommit,
+		ResolverOutcome: channeldb.ResolverOutcomeClaimed,
+		SpendTxID:       &spendHash,
+	}
+
+	assertResolverReport(t, reportChan, expectedReport)
 
 	ctx.waitForResult()
 }
@@ -202,6 +233,21 @@ func testCommitSweepResolverDelay(t *testing.T, sweepErr error) {
 	}
 
 	ctx := newCommitSweepResolverTestContext(t, &res)
+
+	// Replace our checkpoint with one which will push reports into a
+	// channel for us to consume. We replace this function on the resolver
+	// itself because it is created by the test context.
+	reportChan := make(chan *channeldb.ResolverReport)
+	ctx.resolver.Checkpoint = func(_ ContractResolver,
+		reports ...*channeldb.ResolverReport) error {
+
+		// Send all of our reports into the channel.
+		for _, report := range reports {
+			reportChan <- report
+		}
+
+		return nil
+	}
 
 	// Setup whether we expect the sweeper to receive a sweep error in this
 	// test case.
@@ -249,6 +295,22 @@ func testCommitSweepResolverDelay(t *testing.T, sweepErr error) {
 	ctx.notifyEpoch(testInitialBlockHeight + 1)
 
 	<-ctx.sweeper.sweptInputs
+
+	// Set the resolution report outcome based on whether our sweep
+	// succeeded.
+	outcome := channeldb.ResolverOutcomeClaimed
+	if sweepErr != nil {
+		outcome = channeldb.ResolverOutcomeUnclaimed
+	}
+	sweepTx := ctx.sweeper.sweepTx.TxHash()
+
+	assertResolverReport(t, reportChan, &channeldb.ResolverReport{
+		OutPoint:        outpoint,
+		ResolverType:    channeldb.ResolverTypeCommit,
+		ResolverOutcome: outcome,
+		Amount:          btcutil.Amount(amt),
+		SpendTxID:       &sweepTx,
+	})
 
 	ctx.waitForResult()
 

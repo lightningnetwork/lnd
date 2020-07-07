@@ -55,6 +55,10 @@ const (
 
 	// ResolverTypeOutgoingHtlc represents resolution of an outgoing htlc.
 	ResolverTypeOutgoingHtlc ResolverType = 2
+
+	// ResolverTypeCommit represents resolution of our time locked commit
+	// when we force close.
+	ResolverTypeCommit ResolverType = 3
 )
 
 // ResolverOutcome indicates the outcome for the resolver that that the contract

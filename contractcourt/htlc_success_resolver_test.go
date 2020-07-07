@@ -4,11 +4,15 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
+
+var testHtlcAmt = lnwire.MilliSatoshi(200000)
 
 type htlcSuccessResolverTestContext struct {
 	resolver           *htlcSuccessResolver
@@ -61,6 +65,7 @@ func newHtlcSuccessResolverTextContext(t *testing.T) *htlcSuccessResolverTestCon
 		htlc: channeldb.HTLC{
 			RHash:     testResHash,
 			OnionBlob: testOnionBlob,
+			Amt:       testHtlcAmt,
 		},
 	}
 
@@ -117,14 +122,23 @@ func TestSingleStageSuccess(t *testing.T) {
 		}
 	}
 
+	sweepTxid := sweepTx.TxHash()
+	claim := &channeldb.ResolverReport{
+		OutPoint:        htlcOutpoint,
+		Amount:          btcutil.Amount(testSignDesc.Output.Value),
+		ResolverType:    channeldb.ResolverTypeIncomingHtlc,
+		ResolverOutcome: channeldb.ResolverOutcomeClaimed,
+		SpendTxID:       &sweepTxid,
+	}
 	testHtlcSuccess(
-		t, singleStageResolution, resolve, sweepTx,
+		t, singleStageResolution, resolve, sweepTx, claim,
 	)
 }
 
 // TestSecondStageResolution tests successful sweep of a second stage htlc
 // claim.
 func TestSecondStageResolution(t *testing.T) {
+	commitOutpoint := wire.OutPoint{Index: 2}
 	htlcOutpoint := wire.OutPoint{Index: 3}
 
 	sweepTx := &wire.MsgTx{
@@ -138,7 +152,11 @@ func TestSecondStageResolution(t *testing.T) {
 	twoStageResolution := lnwallet.IncomingHtlcResolution{
 		Preimage: [32]byte{},
 		SignedSuccessTx: &wire.MsgTx{
-			TxIn:  []*wire.TxIn{},
+			TxIn: []*wire.TxIn{
+				{
+					PreviousOutPoint: commitOutpoint,
+				},
+			},
 			TxOut: []*wire.TxOut{},
 		},
 		ClaimOutpoint: htlcOutpoint,
@@ -153,17 +171,53 @@ func TestSecondStageResolution(t *testing.T) {
 		}
 	}
 
-	testHtlcSuccess(t, twoStageResolution, resolve, sweepTx)
+	successTx := twoStageResolution.SignedSuccessTx.TxHash()
+	firstStage := &channeldb.ResolverReport{
+		OutPoint:        commitOutpoint,
+		Amount:          testHtlcAmt.ToSatoshis(),
+		ResolverType:    channeldb.ResolverTypeIncomingHtlc,
+		ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
+		SpendTxID:       &successTx,
+	}
+
+	secondStage := &channeldb.ResolverReport{
+		OutPoint:        htlcOutpoint,
+		Amount:          btcutil.Amount(testSignDesc.Output.Value),
+		ResolverType:    channeldb.ResolverTypeIncomingHtlc,
+		ResolverOutcome: channeldb.ResolverOutcomeClaimed,
+		SpendTxID:       &sweepHash,
+	}
+
+	testHtlcSuccess(
+		t, twoStageResolution, resolve, sweepTx, secondStage, firstStage,
+	)
 }
 
 // testHtlcSuccess tests resolution of a success resolver. It takes a resolve
 // function which triggers resolution and the sweeptxid that will resolve it.
 func testHtlcSuccess(t *testing.T, resolution lnwallet.IncomingHtlcResolution,
-	resolve func(*htlcSuccessResolverTestContext), sweepTx *wire.MsgTx) {
+	resolve func(*htlcSuccessResolverTestContext),
+	sweepTx *wire.MsgTx, reports ...*channeldb.ResolverReport) {
 
 	defer timeout(t)()
 
 	ctx := newHtlcSuccessResolverTextContext(t)
+
+	// Replace our checkpoint with one which will push reports into a
+	// channel for us to consume. We replace this function on the resolver
+	// itself because it is created by the test context.
+	reportChan := make(chan *channeldb.ResolverReport)
+	ctx.resolver.Checkpoint = func(_ ContractResolver,
+		reports ...*channeldb.ResolverReport) error {
+
+		// Send all of our reports into the channel.
+		for _, report := range reports {
+			reportChan <- report
+		}
+
+		return nil
+	}
+
 	ctx.resolver.htlcResolution = resolution
 
 	// We set the sweepTx to be non-nil and mark the output as already
@@ -177,6 +231,10 @@ func testHtlcSuccess(t *testing.T, resolution lnwallet.IncomingHtlcResolution,
 
 	// Trigger and event that will resolve our test context.
 	resolve(ctx)
+
+	for _, report := range reports {
+		assertResolverReport(t, reportChan, report)
+	}
 
 	// Wait for the resolver to fully complete.
 	ctx.waitForResult()

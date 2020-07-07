@@ -77,6 +77,11 @@ const (
 	// ResolverOutcomeTimeout indicates that a contract was timed out on
 	// chain.
 	ResolverOutcomeTimeout ResolverOutcome = 3
+
+	// ResolverOutcomeFirstStage indicates that a htlc had to be claimed
+	// over two stages, with this outcome representing the confirmation
+	// of our success/timeout tx.
+	ResolverOutcomeFirstStage ResolverOutcome = 4
 )
 
 // ResolverReport provides an account of the outcome of a resolver. This differs

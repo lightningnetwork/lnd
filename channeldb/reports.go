@@ -49,6 +49,9 @@ type ResolverType uint8
 const (
 	// ResolverTypeAnchor represents a resolver for an anchor output.
 	ResolverTypeAnchor ResolverType = 0
+
+	// ResolverTypeIncomingHtlc represents resolution of an incoming htlc.
+	ResolverTypeIncomingHtlc ResolverType = 1
 )
 
 // ResolverOutcome indicates the outcome for the resolver that that the contract
@@ -64,6 +67,16 @@ const (
 	// chain. This may be the case for anchors that we did not sweep, or
 	// outputs that were not economical to sweep.
 	ResolverOutcomeUnclaimed ResolverOutcome = 1
+
+	// ResolverOutcomeAbandoned indicates that we did not attempt to claim
+	// an output on chain. This is the case for htlcs that we could not
+	// decode to claim, or invoice which we fail when an attempt is made
+	// to settle them on chain.
+	ResolverOutcomeAbandoned ResolverOutcome = 2
+
+	// ResolverOutcomeTimeout indicates that a contract was timed out on
+	// chain.
+	ResolverOutcomeTimeout ResolverOutcome = 3
 )
 
 // ResolverReport provides an account of the outcome of a resolver. This differs

@@ -10,7 +10,10 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -127,6 +130,10 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 		// can use this to customize the witness used when spending to
 		// trigger various redemption cases.
 		txToBroadcast func() (*wire.MsgTx, error)
+
+		// outcome is the resolver outcome that we expect to be reported
+		// once the contract is fully resolved.
+		outcome channeldb.ResolverOutcome
 	}{
 		// Remote commitment is broadcast, we time out the HTLC on
 		// chain, and should expect a fail HTLC resolution.
@@ -146,6 +153,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 				templateTx.TxIn[0].Witness = witness
 				return templateTx, nil
 			},
+			outcome: channeldb.ResolverOutcomeTimeout,
 		},
 
 		// Our local commitment is broadcast, we timeout the HTLC and
@@ -164,8 +172,13 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 				}
 
 				templateTx.TxIn[0].Witness = witness
+
+				// Set the outpoint to be on our commitment, since
+				// we need to claim in two stages.
+				templateTx.TxIn[0].PreviousOutPoint = testChanPoint1
 				return templateTx, nil
 			},
+			outcome: channeldb.ResolverOutcomeTimeout,
 		},
 
 		// The remote commitment is broadcast, they sweep with the
@@ -187,6 +200,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 				templateTx.TxIn[0].Witness = witness
 				return templateTx, nil
 			},
+			outcome: channeldb.ResolverOutcomeClaimed,
 		},
 
 		// The local commitment is broadcast, they sweep it with a
@@ -208,6 +222,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 				templateTx.TxIn[0].Witness = witness
 				return templateTx, nil
 			},
+			outcome: channeldb.ResolverOutcomeClaimed,
 		},
 	}
 
@@ -224,6 +239,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 		checkPointChan := make(chan struct{}, 1)
 		incubateChan := make(chan struct{}, 1)
 		resolutionChan := make(chan ResolutionMsg, 1)
+		reportChan := make(chan *channeldb.ResolverReport)
 
 		chainCfg := ChannelArbitratorConfig{
 			ChainArbitratorConfig: ChainArbitratorConfig{
@@ -248,27 +264,59 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 					return nil
 				},
 			},
+			PutResolverReport: func(_ kvdb.RwTx,
+				_ *channeldb.ResolverReport) error {
+
+				return nil
+			},
 		}
 
 		cfg := ResolverConfig{
 			ChannelArbitratorConfig: chainCfg,
-			Checkpoint: func(_ ContractResolver) error {
+			Checkpoint: func(_ ContractResolver,
+				reports ...*channeldb.ResolverReport) error {
+
 				checkPointChan <- struct{}{}
+
+				// Send all of our reports into the channel.
+				for _, report := range reports {
+					reportChan <- report
+				}
+
 				return nil
 			},
 		}
 		resolver := &htlcTimeoutResolver{
+			htlcResolution: lnwallet.OutgoingHtlcResolution{
+				ClaimOutpoint: testChanPoint2,
+				SweepSignDesc: *fakeSignDesc,
+			},
 			contractResolverKit: *newContractResolverKit(
 				cfg,
 			),
+			htlc: channeldb.HTLC{
+				Amt: testHtlcAmt,
+			},
 		}
-		resolver.htlcResolution.SweepSignDesc = *fakeSignDesc
+
+		var reports []*channeldb.ResolverReport
 
 		// If the test case needs the remote commitment to be
 		// broadcast, then we'll set the timeout commit to a fake
 		// transaction to force the code path.
 		if !testCase.remoteCommit {
 			resolver.htlcResolution.SignedTimeoutTx = sweepTx
+
+			if testCase.timeout {
+				success := sweepTx.TxHash()
+				reports = append(reports, &channeldb.ResolverReport{
+					OutPoint:        sweepTx.TxIn[0].PreviousOutPoint,
+					Amount:          testHtlcAmt.ToSatoshis(),
+					ResolverType:    channeldb.ResolverTypeOutgoingHtlc,
+					ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
+					SpendTxID:       &success,
+				})
+			}
 		}
 
 		// With all the setup above complete, we can initiate the
@@ -303,9 +351,12 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unable to generate tx: %v", err)
 		}
+		spendTxHash := spendingTx.TxHash()
+
 		select {
 		case notifier.spendChan <- &chainntnfs.SpendDetail{
-			SpendingTx: spendingTx,
+			SpendingTx:    spendingTx,
+			SpenderTxHash: &spendTxHash,
 		}:
 		case <-time.After(time.Second * 5):
 			t.Fatalf("failed to request spend ntfn")
@@ -361,7 +412,8 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 			if !testCase.remoteCommit {
 				select {
 				case notifier.spendChan <- &chainntnfs.SpendDetail{
-					SpendingTx: spendingTx,
+					SpendingTx:    spendingTx,
+					SpenderTxHash: &spendTxHash,
 				}:
 				case <-time.After(time.Second * 5):
 					t.Fatalf("failed to request spend ntfn")
@@ -377,6 +429,23 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 			t.Fatalf("unable to resolve HTLC: %v", err)
 		case <-time.After(time.Second * 5):
 			t.Fatalf("check point not received")
+		}
+
+		// Add a report to our set of expected reports with the outcome
+		// that the test specifies (either success or timeout).
+		spendTxID := spendingTx.TxHash()
+		amt := btcutil.Amount(fakeSignDesc.Output.Value)
+
+		reports = append(reports, &channeldb.ResolverReport{
+			OutPoint:        testChanPoint2,
+			Amount:          amt,
+			ResolverType:    channeldb.ResolverTypeOutgoingHtlc,
+			ResolverOutcome: testCase.outcome,
+			SpendTxID:       &spendTxID,
+		})
+
+		for _, report := range reports {
+			assertResolverReport(t, reportChan, report)
 		}
 
 		wg.Wait()

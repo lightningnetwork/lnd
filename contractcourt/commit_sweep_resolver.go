@@ -6,9 +6,11 @@ import (
 	"io"
 	"sync"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -235,11 +237,13 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		return nil, err
 	}
 
+	var sweepTxID chainhash.Hash
+
 	// Sweeper is going to join this input with other inputs if
 	// possible and publish the sweep tx. When the sweep tx
 	// confirms, it signals us through the result channel with the
 	// outcome. Wait for this to happen.
-	recovered := true
+	outcome := channeldb.ResolverOutcomeClaimed
 	select {
 	case sweepResult := <-resultChan:
 		switch sweepResult.Err {
@@ -250,7 +254,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 			// the contract.
 			c.log.Warnf("local commitment output was swept by "+
 				"remote party via %v", sweepResult.Tx.TxHash())
-			recovered = false
+			outcome = channeldb.ResolverOutcomeUnclaimed
 		case nil:
 			// No errors, therefore continue processing.
 			c.log.Infof("local commitment output fully resolved by "+
@@ -262,22 +266,30 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 
 			return nil, sweepResult.Err
 		}
+
+		sweepTxID = sweepResult.Tx.TxHash()
+
 	case <-c.quit:
 		return nil, errResolverShuttingDown
 	}
 
 	// Funds have been swept and balance is no longer in limbo.
 	c.reportLock.Lock()
-	if recovered {
+	if outcome == channeldb.ResolverOutcomeClaimed {
 		// We only record the balance as recovered if it actually came
 		// back to us.
 		c.currentReport.RecoveredBalance = c.currentReport.LimboBalance
 	}
 	c.currentReport.LimboBalance = 0
 	c.reportLock.Unlock()
-
+	report := c.currentReport.resolverReport(
+		&sweepTxID, channeldb.ResolverTypeCommit, outcome,
+	)
 	c.resolved = true
-	return nil, c.Checkpoint(c)
+
+	// Checkpoint the resolver with a closure that will write the outcome
+	// of the resolver and its sweep transaction to disk.
+	return nil, c.Checkpoint(c, report)
 }
 
 // Stop signals the resolver to cancel any current resolution processes, and

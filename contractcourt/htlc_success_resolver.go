@@ -4,7 +4,9 @@ import (
 	"encoding/binary"
 	"io"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
@@ -189,7 +191,12 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 		// Once the transaction has received a sufficient number of
 		// confirmations, we'll mark ourselves as fully resolved and exit.
 		h.resolved = true
-		return nil, h.Checkpoint(h)
+
+		// Checkpoint the resolver, and write the outcome to disk.
+		return nil, h.checkpointClaim(
+			&sweepTXID,
+			channeldb.ResolverOutcomeClaimed,
+		)
 	}
 
 	log.Infof("%T(%x): broadcasting second-layer transition tx: %v",
@@ -241,18 +248,63 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	log.Infof("%T(%x): waiting for second-level HTLC output to be spent "+
 		"after csv_delay=%v", h, h.htlc.RHash[:], h.htlcResolution.CsvDelay)
 
+	var spendTxid *chainhash.Hash
 	select {
-	case _, ok := <-spendNtfn.Spend:
+	case spend, ok := <-spendNtfn.Spend:
 		if !ok {
 			return nil, errResolverShuttingDown
 		}
+		spendTxid = spend.SpenderTxHash
 
 	case <-h.quit:
 		return nil, errResolverShuttingDown
 	}
 
 	h.resolved = true
-	return nil, h.Checkpoint(h)
+	return nil, h.checkpointClaim(
+		spendTxid, channeldb.ResolverOutcomeClaimed,
+	)
+}
+
+// checkpointClaim checkpoints the success resolver with the reports it needs.
+// If this htlc was claimed two stages, it will write reports for both stages,
+// otherwise it will just write for the single htlc claim.
+func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash,
+	outcome channeldb.ResolverOutcome) error {
+
+	// Create a resolver report for claiming of the htlc itself.
+	amt := btcutil.Amount(h.htlcResolution.SweepSignDesc.Output.Value)
+	reports := []*channeldb.ResolverReport{
+		{
+			OutPoint:        h.htlcResolution.ClaimOutpoint,
+			Amount:          amt,
+			ResolverType:    channeldb.ResolverTypeIncomingHtlc,
+			ResolverOutcome: outcome,
+			SpendTxID:       spendTx,
+		},
+	}
+
+	// If we have a success tx, we append a report to represent our first
+	// stage claim.
+	if h.htlcResolution.SignedSuccessTx != nil {
+		// If the SignedSuccessTx is not nil, we are claiming the htlc
+		// in two stages, so we need to create a report for the first
+		// stage transaction as well.
+		spendTx := h.htlcResolution.SignedSuccessTx
+		spendTxID := spendTx.TxHash()
+
+		report := &channeldb.ResolverReport{
+			OutPoint:        spendTx.TxIn[0].PreviousOutPoint,
+			Amount:          h.htlc.Amt.ToSatoshis(),
+			ResolverType:    channeldb.ResolverTypeIncomingHtlc,
+			ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
+			SpendTxID:       &spendTxID,
+		}
+		reports = append(reports, report)
+	}
+
+	// Finally, we checkpoint the resolver with our report(s).
+	return h.Checkpoint(h, reports...)
 }
 
 // Stop signals the resolver to cancel any current resolution processes, and

@@ -3528,7 +3528,7 @@ func (r *rpcServer) createRPCClosedChannel(
 		closeType = lnrpc.ChannelCloseSummary_ABANDONED
 	}
 
-	return &lnrpc.ChannelCloseSummary{
+	channel := &lnrpc.ChannelCloseSummary{
 		Capacity:          int64(dbChannel.Capacity),
 		RemotePubkey:      nodeID,
 		CloseHeight:       dbChannel.CloseHeight,
@@ -3541,7 +3541,95 @@ func (r *rpcServer) createRPCClosedChannel(
 		ClosingTxHash:     dbChannel.ClosingTXID.String(),
 		OpenInitiator:     openInit,
 		CloseInitiator:    closeInitiator,
-	}, nil
+	}
+
+	reports, err := r.server.chanDB.FetchChannelReports(
+		*activeNetParams.GenesisHash, &dbChannel.ChanPoint,
+	)
+	switch err {
+	// If the channel does not have its resolver outcomes stored,
+	// ignore it.
+	case channeldb.ErrNoChainHashBucket:
+		fallthrough
+	case channeldb.ErrNoChannelSummaries:
+		return channel, nil
+
+	// If there is no error, fallthrough the switch to process reports.
+	case nil:
+
+	// If another error occurred, return it.
+	default:
+		return nil, err
+	}
+
+	for _, report := range reports {
+		rpcResolution, err := rpcChannelResolution(report)
+		if err != nil {
+			return nil, err
+		}
+
+		channel.Resolutions = append(channel.Resolutions, rpcResolution)
+	}
+
+	return channel, nil
+}
+
+func rpcChannelResolution(report *channeldb.ResolverReport) (*lnrpc.Resolution,
+	error) {
+
+	res := &lnrpc.Resolution{
+		AmountSat: uint64(report.Amount),
+		Outpoint: &lnrpc.OutPoint{
+			OutputIndex: report.OutPoint.Index,
+			TxidStr:     report.OutPoint.Hash.String(),
+			TxidBytes:   report.OutPoint.Hash[:],
+		},
+	}
+
+	if report.SpendTxID != nil {
+		res.SweepTxid = report.SpendTxID.String()
+	}
+
+	switch report.ResolverType {
+	case channeldb.ResolverTypeAnchor:
+		res.ResolutionType = lnrpc.ResolutionType_ANCHOR
+
+	case channeldb.ResolverTypeIncomingHtlc:
+		res.ResolutionType = lnrpc.ResolutionType_INCOMING_HTLC
+
+	case channeldb.ResolverTypeOutgoingHtlc:
+		res.ResolutionType = lnrpc.ResolutionType_OUTGOING_HTLC
+
+	case channeldb.ResolverTypeCommit:
+		res.ResolutionType = lnrpc.ResolutionType_COMMIT
+
+	default:
+		return nil, fmt.Errorf("unknown resolver type: %v",
+			report.ResolverType)
+	}
+
+	switch report.ResolverOutcome {
+	case channeldb.ResolverOutcomeClaimed:
+		res.Outcome = lnrpc.ResolutionOutcome_CLAIMED
+
+	case channeldb.ResolverOutcomeUnclaimed:
+		res.Outcome = lnrpc.ResolutionOutcome_UNCLAIMED
+
+	case channeldb.ResolverOutcomeAbandoned:
+		res.Outcome = lnrpc.ResolutionOutcome_ABANDONED
+
+	case channeldb.ResolverOutcomeFirstStage:
+		res.Outcome = lnrpc.ResolutionOutcome_FIRST_STAGE
+
+	case channeldb.ResolverOutcomeTimeout:
+		res.Outcome = lnrpc.ResolutionOutcome_TIMEOUT
+
+	default:
+		return nil, fmt.Errorf("unknown outcome: %v",
+			report.ResolverOutcome)
+	}
+
+	return res, nil
 }
 
 // getInitiators returns an initiator enum that provides information about the

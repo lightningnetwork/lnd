@@ -8,11 +8,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -143,6 +145,12 @@ type ChannelArbitratorConfig struct {
 	// TODO(roasbeef): need RPC's to combine for pendingchannels RPC
 	MarkChannelResolved func() error
 
+	// PutResolverReport records a resolver report for the channel. If the
+	// transaction provided is nil, the function should write the report
+	// in a new transaction.
+	PutResolverReport func(tx kvdb.RwTx,
+		report *channeldb.ResolverReport) error
+
 	ChainArbitratorConfig
 }
 
@@ -195,6 +203,21 @@ type ContractReport struct {
 	// RecoveredBalance is the total value that has been successfully swept
 	// back to the user's wallet.
 	RecoveredBalance btcutil.Amount
+}
+
+// resolverReport creates a resolve report using some of the information in the
+// contract report.
+func (c *ContractReport) resolverReport(spendTx *chainhash.Hash,
+	resolverType channeldb.ResolverType,
+	outcome channeldb.ResolverOutcome) *channeldb.ResolverReport {
+
+	return &channeldb.ResolverReport{
+		OutPoint:        c.Outpoint,
+		Amount:          c.Amount,
+		ResolverType:    resolverType,
+		ResolverOutcome: outcome,
+		SpendTxID:       spendTx,
+	}
 }
 
 // htlcSet represents the set of active HTLCs on a given commitment
@@ -969,7 +992,7 @@ func (c *ChannelArbitrator) stateStep(
 		log.Debugf("ChannelArbitrator(%v): inserting %v contract "+
 			"resolvers", c.cfg.ChanPoint, len(htlcResolvers))
 
-		err = c.log.InsertUnresolvedContracts(htlcResolvers...)
+		err = c.log.InsertUnresolvedContracts(nil, htlcResolvers...)
 		if err != nil {
 			return StateError, closeTx, err
 		}
@@ -1737,8 +1760,10 @@ func (c *ChannelArbitrator) prepContractResolutions(
 	// resolver so they each can do their duty.
 	resolverCfg := ResolverConfig{
 		ChannelArbitratorConfig: c.cfg,
-		Checkpoint: func(res ContractResolver) error {
-			return c.log.InsertUnresolvedContracts(res)
+		Checkpoint: func(res ContractResolver,
+			reports ...*channeldb.ResolverReport) error {
+
+			return c.log.InsertUnresolvedContracts(reports, res)
 		},
 	}
 

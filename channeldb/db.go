@@ -157,6 +157,12 @@ var (
 			number:    16,
 			migration: migration16.MigrateSequenceIndex,
 		},
+		{
+			// Create a top level bucket which will store extra
+			// information about channel closes.
+			number:    17,
+			migration: mig.CreateTLB(closeSummaryBucket),
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over
@@ -277,6 +283,7 @@ var topLevelBuckets = [][]byte{
 	edgeIndexBucket,
 	graphMetaBucket,
 	metaBucket,
+	closeSummaryBucket,
 }
 
 // Wipe completely deletes all saved state within all used buckets within the

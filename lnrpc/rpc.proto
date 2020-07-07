@@ -1249,6 +1249,79 @@ message ChannelCloseSummary {
     force closes, although only one party's close will be confirmed on chain.
     */
     Initiator close_initiator = 12;
+
+    repeated Resolution resolutions = 13;
+}
+
+enum ResolutionType{
+    TYPE_UNKNOWN = 0;
+
+    // We resolved an anchor output.
+    ANCHOR = 1;
+
+    /*
+    We are resolving an incoming htlc on chain. This if this htlc is
+    claimed, we swept the incoming htlc with the preimage. If it is timed
+    out, our peer swept the timeout path.
+    */
+    INCOMING_HTLC = 2;
+
+    /*
+    We are resolving an outgoing htlc on chain. If this htlc is claimed,
+    the remote party swept the htlc with the preimage. If it is timed out,
+    we swept it with the timeout path.
+    */
+    OUTGOING_HTLC = 3;
+
+    // We force closed and need to sweep our time locked commitment output.
+    COMMIT = 4;
+}
+
+enum ResolutionOutcome {
+    // Outcome unknown.
+    OUTCOME_UNKNOWN = 0;
+
+    // An output was claimed on chain.
+    CLAIMED = 1;
+
+    // An output was left unclaimed on chain.
+    UNCLAIMED = 2;
+
+    /*
+    ResolverOutcomeAbandoned indicates that an output that we did not
+    claim on chain, for example an anchor that we did not sweep and a
+    third party claimed on chain, or a htlc that we could not decode
+    so left unclaimed.
+    */
+    ABANDONED = 3;
+
+    /*
+    If we force closed our channel, our htlcs need to be claimed in two
+    stages. This outcome represents the broadcast of a timeout or success
+    transaction for this two stage htlc claim.
+    */
+    FIRST_STAGE = 4;
+
+    // A htlc was timed out on chain.
+    TIMEOUT = 5;
+}
+
+message Resolution {
+    // The type of output we are resolving.
+    ResolutionType resolution_type = 1;
+
+    // The outcome of our on chain action that resolved the outpoint.
+    ResolutionOutcome outcome = 2;
+
+    // The outpoint that was spent by the resolution.
+    OutPoint outpoint = 3;
+
+    // The amount that was claimed by the resolution.
+    uint64 amount_sat = 4;
+
+    // The hex-encoded transaction ID of the sweep transaction that spent the
+    // output.
+    string sweep_txid = 5;
 }
 
 message ClosedChannelsRequest {

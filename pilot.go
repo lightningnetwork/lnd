@@ -106,6 +106,7 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 		private:         c.private,
 		remoteCsvDelay:  0,
 		minConfs:        c.minConfs,
+		maxValueInFlight: 0,
 	}
 
 	updateStream, errChan := c.server.OpenChannel(req)

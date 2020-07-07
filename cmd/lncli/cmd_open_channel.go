@@ -163,6 +163,11 @@ var openChannelCommand = cli.Command{
 				"as a base and add the new channel output to " +
 				"it instead of creating a new, empty one.",
 		},
+		cli.Uint64Flag{
+			Name: "remote_max_value_in_flight_msat",
+			Usage: "(optional) the maximum value in msat that " +
+				"can be pending within the channel at any given time",
+		},
 	},
 	Action: actionDecorator(openChannel),
 }
@@ -184,13 +189,14 @@ func openChannel(ctx *cli.Context) error {
 
 	minConfs := int32(ctx.Uint64("min_confs"))
 	req := &lnrpc.OpenChannelRequest{
-		TargetConf:       int32(ctx.Int64("conf_target")),
-		SatPerByte:       ctx.Int64("sat_per_byte"),
-		MinHtlcMsat:      ctx.Int64("min_htlc_msat"),
-		RemoteCsvDelay:   uint32(ctx.Uint64("remote_csv_delay")),
-		MinConfs:         minConfs,
-		SpendUnconfirmed: minConfs == 0,
-		CloseAddress:     ctx.String("close_address"),
+		TargetConf:                 int32(ctx.Int64("conf_target")),
+		SatPerByte:                 ctx.Int64("sat_per_byte"),
+		MinHtlcMsat:                ctx.Int64("min_htlc_msat"),
+		RemoteCsvDelay:             uint32(ctx.Uint64("remote_csv_delay")),
+		MinConfs:                   minConfs,
+		SpendUnconfirmed:           minConfs == 0,
+		CloseAddress:               ctx.String("close_address"),
+		RemoteMaxValueInFlightMsat: ctx.Uint64("remote_max_value_in_flight_msat"),
 	}
 
 	switch {

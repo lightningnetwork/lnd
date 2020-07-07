@@ -1593,6 +1593,12 @@ message OpenChannelRequest {
     carried out in an interactive manner (PSBT based).
     */
     FundingShim funding_shim = 14;
+
+    /*
+    The maximum amount of coins in millisatoshi that can be pending within
+    the channel. It only applies to the remote party.
+    */
+    uint64 remote_max_value_in_flight_msat = 15;
 }
 message OpenStatusUpdate {
     oneof update {

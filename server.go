@@ -3262,6 +3262,10 @@ type openChanReq struct {
 	// This value is optional, so may be nil.
 	shutdownScript lnwire.DeliveryAddress
 
+	// maxValueInFlight is the maximum amount of coins in millisatoshi that can
+	// be pending within the channel. It only applies to the remote party.
+	maxValueInFlight lnwire.MilliSatoshi
+
 	// TODO(roasbeef): add ability to specify channel constraints as well
 
 	// chanFunder is an optional channel funder that allows the caller to

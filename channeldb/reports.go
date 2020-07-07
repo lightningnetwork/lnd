@@ -46,10 +46,25 @@ var (
 // ResolverType indicates the type of resolver that was resolved on chain.
 type ResolverType uint8
 
+const (
+	// ResolverTypeAnchor represents a resolver for an anchor output.
+	ResolverTypeAnchor ResolverType = 0
+)
+
 // ResolverOutcome indicates the outcome for the resolver that that the contract
 // court reached. This state is not necessarily final, since htlcs on our own
 // commitment are resolved across two resolvers.
 type ResolverOutcome uint8
+
+const (
+	// ResolverOutcomeClaimed indicates that funds were claimed on chain.
+	ResolverOutcomeClaimed ResolverOutcome = 0
+
+	// ResolverOutcomeUnclaimed indicates that we did not claim our funds on
+	// chain. This may be the case for anchors that we did not sweep, or
+	// outputs that were not economical to sweep.
+	ResolverOutcomeUnclaimed ResolverOutcome = 1
+)
 
 // ResolverReport provides an account of the outcome of a resolver. This differs
 // from a ContractReport because it does not necessarily fully resolve the

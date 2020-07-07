@@ -104,6 +104,7 @@ func (i *commitSweepResolverTestContext) waitForResult() {
 type mockSweeper struct {
 	sweptInputs   chan input.Input
 	updatedInputs chan wire.OutPoint
+	sweepTx       *wire.MsgTx
 	sweepErr      error
 }
 
@@ -111,6 +112,7 @@ func newMockSweeper() *mockSweeper {
 	return &mockSweeper{
 		sweptInputs:   make(chan input.Input),
 		updatedInputs: make(chan wire.OutPoint),
+		sweepTx:       &wire.MsgTx{},
 	}
 }
 
@@ -121,7 +123,7 @@ func (s *mockSweeper) SweepInput(input input.Input, params sweep.Params) (
 
 	result := make(chan sweep.Result, 1)
 	result <- sweep.Result{
-		Tx:  &wire.MsgTx{},
+		Tx:  s.sweepTx,
 		Err: s.sweepErr,
 	}
 	return result, nil
@@ -144,7 +146,7 @@ func (s *mockSweeper) UpdateParams(input wire.OutPoint,
 
 	result := make(chan sweep.Result, 1)
 	result <- sweep.Result{
-		Tx: &wire.MsgTx{},
+		Tx: s.sweepTx,
 	}
 	return result, nil
 }

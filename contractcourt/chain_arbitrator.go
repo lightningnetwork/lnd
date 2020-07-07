@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -347,6 +348,14 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 		IsPendingClose:        false,
 		ChainArbitratorConfig: c.cfg,
 		ChainEvents:           chanEvents,
+		PutResolverReport: func(tx kvdb.RwTx,
+			report *channeldb.ResolverReport) error {
+
+			return c.chanSource.PutResolverReport(
+				tx, c.cfg.ChainHash, &channel.FundingOutpoint,
+				report,
+			)
+		},
 	}
 
 	// The final component needed is an arbitrator log that the arbitrator
@@ -552,6 +561,13 @@ func (c *ChainArbitrator) Start() error {
 			IsPendingClose:        true,
 			ClosingHeight:         closeChanInfo.CloseHeight,
 			CloseType:             closeChanInfo.CloseType,
+			PutResolverReport: func(tx kvdb.RwTx,
+				report *channeldb.ResolverReport) error {
+
+				return c.chanSource.PutResolverReport(
+					tx, c.cfg.ChainHash, &chanPoint, report,
+				)
+			},
 		}
 		chanLog, err := newBoltArbitratorLog(
 			c.chanSource.Backend, arbCfg, c.cfg.ChainHash, chanPoint,

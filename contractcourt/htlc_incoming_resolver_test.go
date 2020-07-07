@@ -6,13 +6,13 @@ import (
 	"io/ioutil"
 	"testing"
 
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/invoices"
-	"github.com/lightningnetwork/lnd/lnwallet"
-
-	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
 const (
@@ -250,6 +250,11 @@ func newIncomingResolverTestContext(t *testing.T) *incomingResolverTestContext {
 			PreimageDB:     witnessBeacon,
 			Registry:       registry,
 			OnionProcessor: onionProcessor,
+		},
+		PutResolverReport: func(_ kvdb.RwTx,
+			_ *channeldb.ResolverReport) error {
+
+			return nil
 		},
 	}
 

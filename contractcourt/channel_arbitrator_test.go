@@ -380,6 +380,11 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 		IsPendingClose:        false,
 		ChainArbitratorConfig: chainArbCfg,
 		ChainEvents:           chanEvents,
+		PutResolverReport: func(_ kvdb.RwTx,
+			_ *channeldb.ResolverReport) error {
+
+			return nil
+		},
 	}
 
 	// Apply all custom options to the config struct.

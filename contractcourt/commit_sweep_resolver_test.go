@@ -7,6 +7,8 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -38,6 +40,11 @@ func newCommitSweepResolverTestContext(t *testing.T,
 		ChainArbitratorConfig: ChainArbitratorConfig{
 			Notifier: notifier,
 			Sweeper:  sweeper,
+		},
+		PutResolverReport: func(_ kvdb.RwTx,
+			_ *channeldb.ResolverReport) error {
+
+			return nil
 		},
 	}
 

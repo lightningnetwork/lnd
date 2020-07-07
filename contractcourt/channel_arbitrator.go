@@ -13,6 +13,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -142,6 +143,12 @@ type ChannelArbitratorConfig struct {
 	//
 	// TODO(roasbeef): need RPC's to combine for pendingchannels RPC
 	MarkChannelResolved func() error
+
+	// PutResolverReport records a resolver report for the channel. If the
+	// transaction provided is nil, the function should write the report
+	// in a new transaction.
+	PutResolverReport func(tx kvdb.RwTx,
+		report *channeldb.ResolverReport) error
 
 	ChainArbitratorConfig
 }

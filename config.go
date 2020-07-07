@@ -80,6 +80,11 @@ const (
 
 	defaultAlias = ""
 	defaultColor = "#3399FF"
+
+	// defaultHostSampleInterval is the default amount of time that the
+	// HostAnnouncer will wait between DNS resolutions to check if the
+	// backing IP of a host has changed.
+	defaultHostSampleInterval = time.Minute * 5
 )
 
 var (
@@ -157,6 +162,7 @@ type Config struct {
 	RawRESTListeners []string `long:"restlisten" description:"Add an interface/port/socket to listen for REST connections"`
 	RawListeners     []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
 	RawExternalIPs   []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
+	ExternalHosts    []string `long:"externalhosts" description:"A set of hosts that should be periodically resolved to announce IPs for"`
 	RPCListeners     []net.Addr
 	RESTListeners    []net.Addr
 	RestCORS         []string `long:"restcors" description:"Add an ip:port/hostname to allow cross origin access from. To allow all origins, set as \"*\"."`
@@ -658,6 +664,10 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 	if cfg.DisableListen && cfg.NAT {
 		return nil, errors.New("NAT traversal cannot be used when " +
 			"listening is disabled")
+	}
+	if cfg.NAT && len(cfg.ExternalHosts) != 0 {
+		return nil, errors.New("NAT support and externalhosts are " +
+			"mutually exclusive, only one should be selected")
 	}
 
 	// Determine the active chain configuration and its parameters.

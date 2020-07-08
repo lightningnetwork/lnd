@@ -307,7 +307,7 @@ func (rs readSet) gets() []v3.Op {
 func (rs readSet) cmps(lset map[string]interface{}) []v3.Cmp {
 	if len(lset) > 0 {
 		cmps := make([]v3.Cmp, 0, len(lset))
-		for key, _ := range lset {
+		for key := range lset {
 			if getValue, ok := rs[key]; ok {
 				cmps = append(
 					cmps,

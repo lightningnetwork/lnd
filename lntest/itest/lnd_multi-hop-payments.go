@@ -48,7 +48,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	//
 	// First, we'll create Dave and establish a channel to Alice. Dave will
 	// be running an older node that requires the legacy onion payload.
-	daveArgs := []string{"--protocol.legacyonion"}
+	daveArgs := []string{"--protocol.legacy.onion"}
 	dave, err := net.NewNode("Dave", daveArgs)
 	if err != nil {
 		t.Fatalf("unable to create new nodes: %v", err)

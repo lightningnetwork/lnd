@@ -1178,7 +1178,7 @@ func (c commitType) String() string {
 func (c commitType) Args() []string {
 	switch c {
 	case commitTypeLegacy:
-		return []string{"--protocol.committweak"}
+		return []string{"--protocol.legacy.committweak"}
 	case commitTypeTweakless:
 		return []string{}
 	case commitTypeAnchors:

@@ -272,13 +272,13 @@ func (c *interceptorTestContext) prepareTestCases() (
 	[]*interceptorTestCase, error) {
 
 	cases := []*interceptorTestCase{
-		&interceptorTestCase{amountMsat: 1000, shouldHold: false,
+		{amountMsat: 1000, shouldHold: false,
 			interceptorAction: routerrpc.ResolveHoldForwardAction_FAIL},
-		&interceptorTestCase{amountMsat: 1000, shouldHold: false,
+		{amountMsat: 1000, shouldHold: false,
 			interceptorAction: routerrpc.ResolveHoldForwardAction_RESUME},
-		&interceptorTestCase{amountMsat: 1000, shouldHold: false,
+		{amountMsat: 1000, shouldHold: false,
 			interceptorAction: routerrpc.ResolveHoldForwardAction_SETTLE},
-		&interceptorTestCase{amountMsat: 1000, shouldHold: true,
+		{amountMsat: 1000, shouldHold: true,
 			interceptorAction: routerrpc.ResolveHoldForwardAction_RESUME},
 	}
 

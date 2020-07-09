@@ -2617,7 +2617,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	return newView, nil
 }
 
-// getFetchParent is a helper that looks up update log parent entries in the
+// fetchParent is a helper that looks up update log parent entries in the
 // appropriate log.
 func (lc *LightningChannel) fetchParent(entry *PaymentDescriptor,
 	remoteChain, remoteLog bool) (*PaymentDescriptor, error) {

@@ -1790,6 +1790,33 @@ func (lc *LightningChannel) restoreStateLogs(
 		outgoingLocalAddHeights[l.HtlcIndex] = localCommitment.height
 	}
 
+	// If we have any unsigned acked updates to sign for, then the add is no
+	// longer on our local commitment, but is still on the remote's commitment.
+	// <---fail---
+	// <---sig----
+	// ----rev--->
+	// To ensure proper channel operation, we restore the add's addCommitHeightLocal
+	// field to the height of our local commitment.
+	for _, logUpdate := range unsignedAckedUpdates {
+
+		var htlcIdx uint64
+		switch wireMsg := logUpdate.UpdateMsg.(type) {
+		case *lnwire.UpdateFulfillHTLC:
+			htlcIdx = wireMsg.ID
+		case *lnwire.UpdateFailHTLC:
+			htlcIdx = wireMsg.ID
+		case *lnwire.UpdateFailMalformedHTLC:
+			htlcIdx = wireMsg.ID
+		default:
+			continue
+		}
+
+		// The htlcIdx is stored in the map with the local commitment
+		// height so the related add's addCommitHeightLocal field can be
+		// restored.
+		outgoingLocalAddHeights[htlcIdx] = localCommitment.height
+	}
+
 	// For each incoming HTLC within the local commitment, we add it to the
 	// remote update log. Since HTLCs are added first to the receiver's
 	// commitment, we don't have to restore outgoing HTLCs, as they will be

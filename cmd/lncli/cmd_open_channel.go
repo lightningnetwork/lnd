@@ -163,6 +163,15 @@ var openChannelCommand = cli.Command{
 				"as a base and add the new channel output to " +
 				"it instead of creating a new, empty one.",
 		},
+		cli.BoolFlag{
+			Name: "no_publish",
+			Usage: "when using the interactive PSBT mode to open " +
+				"multiple channels in a batch, this flag " +
+				"instructs lnd to not publish the full batch " +
+				"transaction just yet. For safety reasons " +
+				"this flag should be set for each of the " +
+				"batch's transactions except the very last",
+		},
 		cli.Uint64Flag{
 			Name: "remote_max_value_in_flight_msat",
 			Usage: "(optional) the maximum value in msat that " +
@@ -269,6 +278,10 @@ func openChannel(ctx *cli.Context) error {
 	// large to also fit into this already long function.
 	if ctx.Bool("psbt") {
 		return openChannelPsbt(ctx, client, req)
+	}
+	if !ctx.Bool("psbt") && ctx.Bool("no_publish") {
+		return fmt.Errorf("the --no_publish flag can only be used in " +
+			"combination with the --psbt flag")
 	}
 
 	stream, err := client.OpenChannel(ctxb, req)
@@ -388,6 +401,7 @@ func openChannelPsbt(ctx *cli.Context, client lnrpc.LightningClient,
 			PsbtShim: &lnrpc.PsbtShim{
 				PendingChanId: pendingChanID[:],
 				BasePsbt:      basePsbtBytes,
+				NoPublish:     ctx.Bool("no_publish"),
 			},
 		},
 	}

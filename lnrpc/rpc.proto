@@ -1768,6 +1768,16 @@ message PsbtShim {
     non-empty, it must be a binary serialized PSBT.
     */
     bytes base_psbt = 2;
+
+    /*
+    If a channel should be part of a batch (multiple channel openings in one
+    transaction), it can be dangerous if the whole batch transaction is
+    published too early before all channel opening negotiations are completed.
+    This flag prevents this particular channel from broadcasting the transaction
+    after the negotiation with the remote peer. In a batch of channel openings
+    this flag should be set to true for every channel but the very last.
+    */
+    bool no_publish = 3;
 }
 
 message FundingShim {

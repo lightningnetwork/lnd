@@ -231,3 +231,62 @@ Base64 encoded PSBT: cHNidP8BAH0CAAAAAbxLLf9+AYfqfF69QAQuETnL6cas7GDiWBZF+3xxc/Y
 Success! We now have the final transaction ID of the published funding
 transaction. Now we only have to wait for some confirmations, then we can start
 using the freshly created channel.
+
+## Batch opening channels
+
+The PSBT channel funding flow makes it possible to open multiple channels in one
+transaction. This can be achieved by taking the initial PSBT returned by the
+`openchannel` and feed it into the `--base_psbt` parameter of the next
+`openchannel` command. This won't work with `bitcoind` though, as it cannot take
+a PSBT as partial input for the `walletcreatefundedpsbt` command.
+
+However, the `bitcoin-cli` examples from the command line can be combined into
+a single command. For example:
+
+Channel 1:
+```bash
+bitcoin-cli walletcreatefundedpsbt [] '[{"tb1qywvazres587w9wyy8uw03q8j9ek6gc9crwx4jvhqcmew4xzsvqcq3jjdja":0.01000000}]'
+```
+
+Channel 2:
+```bash
+bitcoin-cli walletcreatefundedpsbt [] '[{"tb1q53626fcwwtcdc942zaf4laqnr3vg5gv4g0hakd2h7fw2pmz6428sk3ezcx":0.01000000}]'
+```
+
+Combined command to get batch PSBT:
+```bash
+bitcoin-cli walletcreatefundedpsbt [] '[{"tb1q53626fcwwtcdc942zaf4laqnr3vg5gv4g0hakd2h7fw2pmz6428sk3ezcx":0.01000000},{"tb1qywvazres587w9wyy8uw03q8j9ek6gc9crwx4jvhqcmew4xzsvqcq3jjdja":0.01000000}]'
+```
+
+### Safety warning about batch transactions
+
+As mentioned before, the PSBT channel funding flow works by pausing the funding
+negotiation with the remote peer directly after the multisig keys have been
+exchanged. That means, the channel isn't fully opened yet at the time the PSBT
+is signed. This is fine for a single channel because the signed transaction is
+only published after the counter-signed commitment transactions were exchanged
+and the funds can be spent again by both parties.
+
+When doing batch transactions, **publishing** the whole transaction with
+multiple channel funding outputs **too early could lead to loss of funds**!
+
+For example, let's say we want to open two channels. We call `openchannel --psbt`
+two times, combine the funding addresses as shown above, verify the PSBT, sign
+it and finally paste it into the terminal of the first command. `lnd` then goes
+ahead and finishes the negotiations with peer 1. If successful, `lnd` publishes
+the transaction. In the meantime we paste the same PSBT into the second terminal
+window. But by now, the peer 2 for channel 2 has timed out our funding flow and
+aborts the negotiation. Normally this would be fine, we would just not publish
+the funding transaction. But in the batch case, channel 1 has already published
+the transaction that contains both channel outputs. But because we never got a
+signature from peer 2 to spend the funds now locked in a 2-of-2 multisig, the
+fund are lost (unless peer 2 cooperates in a complicated, manual recovery
+process).
+
+### Use --no_publish for batch transactions
+
+To mitigate the problem described in the section above, when open multiple
+channels in one batch transaction, it is **imperative to use the
+`--no_publish`** flag for each channel but the very last. This prevents the
+full batch transaction to be published before each and every single channel has
+fully completed its funding negotiation.

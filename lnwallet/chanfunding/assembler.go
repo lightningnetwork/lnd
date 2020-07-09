@@ -135,3 +135,18 @@ type FundingTxAssembler interface {
 	// transaction for the channel via the intent it returns.
 	FundingTxAvailable()
 }
+
+// ConditionalPublishAssembler is an assembler that can dynamically define if
+// the funding transaction should be published after channel negotiations or
+// not. Not publishing the transaction is only useful if the particular channel
+// the assembler is in charge of is part of a batch of channels. In that case
+// it is only safe to wait for all channel negotiations of the batch to complete
+// before publishing the batch transaction.
+type ConditionalPublishAssembler interface {
+	Assembler
+
+	// ShouldPublishFundingTx is a method of the assembler that signals if
+	// the funding transaction should be published after the channel
+	// negotiations are completed with the remote peer.
+	ShouldPublishFundingTx() bool
+}

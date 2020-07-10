@@ -42,7 +42,8 @@ func NewEmbeddedEtcdInstance(path string) (*BackendConfig, func(), error) {
 	cfg.Dir = path
 
 	// To ensure that we can submit large transactions.
-	cfg.MaxTxnOps = 1000
+	cfg.MaxTxnOps = 8192
+	cfg.MaxRequestBytes = 16384 * 1024
 
 	// Listen on random free ports.
 	clientURL := fmt.Sprintf("127.0.0.1:%d", getFreePort())

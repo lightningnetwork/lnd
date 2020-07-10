@@ -174,12 +174,13 @@ func newEtcdBackend(config BackendConfig) (*db, error) {
 	}
 
 	cli, err := clientv3.New(clientv3.Config{
-		Context:     config.Ctx,
-		Endpoints:   []string{config.Host},
-		DialTimeout: etcdConnectionTimeout,
-		Username:    config.User,
-		Password:    config.Pass,
-		TLS:         tlsConfig,
+		Context:            config.Ctx,
+		Endpoints:          []string{config.Host},
+		DialTimeout:        etcdConnectionTimeout,
+		Username:           config.User,
+		Password:           config.Pass,
+		TLS:                tlsConfig,
+		MaxCallSendMsgSize: 16384*1024 - 1,
 	})
 
 	if err != nil {

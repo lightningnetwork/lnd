@@ -292,13 +292,15 @@ func createTestChannelState(t *testing.T, cdb *DB) *OpenChannel {
 		},
 	}
 
-	chanID := lnwire.NewShortChanIDFromInt(uint64(rand.Int63()))
+	shortChanID := lnwire.NewShortChanIDFromInt(uint64(rand.Int63()))
+	fundingOutpoint := wire.OutPoint{Hash: key, Index: rand.Uint32()}
+	chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
 
 	return &OpenChannel{
 		ChanType:          SingleFunderBit | FrozenBit,
 		ChainHash:         key,
-		FundingOutpoint:   wire.OutPoint{Hash: key, Index: rand.Uint32()},
-		ShortChannelID:    chanID,
+		FundingOutpoint:   fundingOutpoint,
+		ShortChannelID:    shortChanID,
 		IsInitiator:       true,
 		IsPending:         true,
 		IdentityPub:       pubKey,
@@ -736,8 +738,9 @@ func TestChannelStateTransition(t *testing.T) {
 		t.Fatalf("unable to generate key: %v", err)
 	}
 	channel.RemoteNextRevocation = newPriv.PubKey()
+	chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
 
-	fwdPkg := NewFwdPkg(channel.ShortChanID(), oldRemoteCommit.CommitHeight,
+	fwdPkg := NewFwdPkg(chanID, oldRemoteCommit.CommitHeight,
 		diskCommitDiff.LogUpdates, nil)
 
 	err = channel.AdvanceCommitChainTail(fwdPkg, nil)
@@ -786,7 +789,7 @@ func TestChannelStateTransition(t *testing.T) {
 		t.Fatalf("unable to add to commit chain: %v", err)
 	}
 
-	fwdPkg = NewFwdPkg(channel.ShortChanID(), oldRemoteCommit.CommitHeight, nil, nil)
+	fwdPkg = NewFwdPkg(chanID, oldRemoteCommit.CommitHeight, nil, nil)
 
 	err = channel.AdvanceCommitChainTail(fwdPkg, nil)
 	if err != nil {
@@ -1193,7 +1196,9 @@ func TestRefreshShortChanID(t *testing.T) {
 	// ensure that the channel packager's source has been updated as well.
 	// This ensures that the packager will read and write to buckets
 	// corresponding to the new short chan id, instead of the prior.
-	if state.Packager.(*ChannelPackager).source != chanOpenLoc {
+	chanID := lnwire.NewChanIDFromOutPoint(&state.FundingOutpoint)
+	packagerSource := state.Packager.(*ChannelPackager).source[:]
+	if !bytes.Equal(packagerSource, chanID[:]) {
 		t.Fatalf("channel packager source was not updated: want %v, "+
 			"got %v", chanOpenLoc,
 			state.Packager.(*ChannelPackager).source)
@@ -1211,16 +1216,6 @@ func TestRefreshShortChanID(t *testing.T) {
 		t.Fatalf("expected pending channel short_chan_id to be "+
 			"refreshed: want %v, got %v", state.ShortChanID(),
 			pendingChannel.ShortChanID())
-	}
-
-	// Check to ensure that the _other_ OpenChannel channel packager's
-	// source has also been updated after the refresh. This ensures that the
-	// other packagers will read and write to buckets corresponding to the
-	// updated short chan id.
-	if pendingChannel.Packager.(*ChannelPackager).source != chanOpenLoc {
-		t.Fatalf("channel packager source was not updated: want %v, "+
-			"got %v", chanOpenLoc,
-			pendingChannel.Packager.(*ChannelPackager).source)
 	}
 
 	// Check to ensure that this channel is no longer pending and this field

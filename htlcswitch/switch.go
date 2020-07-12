@@ -1816,14 +1816,15 @@ func (s *Switch) reforwardResponses() error {
 		//
 		// Load this channel's forwarding packages, and deliver them to
 		// the switch.
-		fwdPkgs, err := s.loadChannelFwdPkgs(shortChanID)
+		chanID := lnwire.NewChanIDFromOutPoint(&openChannel.FundingOutpoint)
+		fwdPkgs, err := s.loadChannelFwdPkgs(chanID)
 		if err != nil {
 			log.Errorf("unable to load forwarding "+
-				"packages for %v: %v", shortChanID, err)
+				"packages for %v: %v", chanID, err)
 			return err
 		}
 
-		s.reforwardSettleFails(fwdPkgs)
+		s.reforwardSettleFails(openChannel.ShortChanID(), fwdPkgs)
 	}
 
 	return nil
@@ -1831,7 +1832,7 @@ func (s *Switch) reforwardResponses() error {
 
 // loadChannelFwdPkgs loads all forwarding packages owned by the `source` short
 // channel identifier.
-func (s *Switch) loadChannelFwdPkgs(source lnwire.ShortChannelID) ([]*channeldb.FwdPkg, error) {
+func (s *Switch) loadChannelFwdPkgs(source lnwire.ChannelID) ([]*channeldb.FwdPkg, error) {
 
 	var fwdPkgs []*channeldb.FwdPkg
 	if err := kvdb.View(s.cfg.DB, func(tx kvdb.RTx) error {
@@ -1856,7 +1857,9 @@ func (s *Switch) loadChannelFwdPkgs(source lnwire.ShortChannelID) ([]*channeldb.
 // outgoing link never comes back online.
 //
 // NOTE: This should mimic the behavior processRemoteSettleFails.
-func (s *Switch) reforwardSettleFails(fwdPkgs []*channeldb.FwdPkg) {
+func (s *Switch) reforwardSettleFails(shortChanID lnwire.ShortChannelID,
+	fwdPkgs []*channeldb.FwdPkg) {
+
 	for _, fwdPkg := range fwdPkgs {
 		settleFails, err := lnwallet.PayDescsFromRemoteLogUpdates(
 			fwdPkg.Source, fwdPkg.Height, fwdPkg.SettleFails,
@@ -1885,7 +1888,7 @@ func (s *Switch) reforwardSettleFails(fwdPkgs []*channeldb.FwdPkg) {
 			// the prior hop.
 			case lnwallet.Settle:
 				settlePacket := &htlcPacket{
-					outgoingChanID: fwdPkg.Source,
+					outgoingChanID: shortChanID,
 					outgoingHTLCID: pd.ParentIndex,
 					destRef:        pd.DestRef,
 					htlc: &lnwire.UpdateFulfillHTLC{
@@ -1909,7 +1912,7 @@ func (s *Switch) reforwardSettleFails(fwdPkgs []*channeldb.FwdPkg) {
 				// the linkFailure field is not set on this
 				// packet.
 				failPacket := &htlcPacket{
-					outgoingChanID: fwdPkg.Source,
+					outgoingChanID: shortChanID,
 					outgoingHTLCID: pd.ParentIndex,
 					destRef:        pd.DestRef,
 					htlc: &lnwire.UpdateFailHTLC{

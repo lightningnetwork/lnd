@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnencrypt"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -333,7 +334,7 @@ func (s *Single) PackToWriter(w io.Writer, keyRing keychain.KeyRing) error {
 	// Finally, we'll encrypt the raw serialized SCB (using the nonce as
 	// associated data), and write out the ciphertext prepend with the
 	// nonce that we used to the passed io.Reader.
-	return encryptPayloadToWriter(rawBytes, w, keyRing)
+	return lnencrypt.EncryptPayloadToWriter(rawBytes, w, keyRing)
 }
 
 // readLocalKeyDesc reads a KeyDescriptor encoded within an unpacked Single.
@@ -512,7 +513,7 @@ func (s *Single) Deserialize(r io.Reader) error {
 // payload for whatever reason (wrong key, wrong nonce, etc), then this method
 // will return an error.
 func (s *Single) UnpackFromReader(r io.Reader, keyRing keychain.KeyRing) error {
-	plaintext, err := decryptPayloadFromReader(r, keyRing)
+	plaintext, err := lnencrypt.DecryptPayloadFromReader(r, keyRing)
 	if err != nil {
 		return err
 	}

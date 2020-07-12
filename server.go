@@ -2032,7 +2032,10 @@ func (s *server) createNewHiddenService() error {
 	onionCfg := tor.AddOnionConfig{
 		VirtualPort: defaultPeerPort,
 		TargetPorts: listenPorts,
-		Store:       tor.NewOnionFile(s.cfg.Tor.PrivateKeyPath, 0600),
+		Store: tor.NewOnionFile(
+			s.cfg.Tor.PrivateKeyPath, 0600,
+			s.cfg.Tor.EncryptKey, s.cc.keyRing,
+		),
 	}
 
 	switch {
@@ -2044,6 +2047,9 @@ func (s *server) createNewHiddenService() error {
 
 	addr, err := s.torController.AddOnion(onionCfg)
 	if err != nil {
+		if err == tor.ErrEncryptedPrivateKey {
+			return lncfg.ErrEncryptedTorPrivateKey
+		}
 		return err
 	}
 

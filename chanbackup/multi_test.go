@@ -5,6 +5,7 @@ import (
 	"net"
 	"testing"
 
+	"github.com/lightningnetwork/lnd/lnencrypt"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,7 +28,7 @@ func TestMultiPackUnpack(t *testing.T) {
 		multi.StaticBackups = append(multi.StaticBackups, single)
 	}
 
-	keyRing := &mockKeyRing{}
+	keyRing := &lnencrypt.MockKeyRing{}
 
 	versionTestCases := []struct {
 		// version is the pack/unpack version that we should use to
@@ -93,14 +94,17 @@ func TestMultiPackUnpack(t *testing.T) {
 				)
 			}
 
+			encrypter, err := lnencrypt.KeyRingEncrypter(keyRing)
+			require.NoError(t, err)
+
 			// Next, we'll make a fake packed multi, it'll have an
 			// unknown version relative to what's implemented atm.
 			var fakePackedMulti bytes.Buffer
 			fakeRawMulti := bytes.NewBuffer(
 				bytes.Repeat([]byte{99}, 20),
 			)
-			err := encryptPayloadToWriter(
-				*fakeRawMulti, &fakePackedMulti, keyRing,
+			err = encrypter.EncryptPayloadToWriter(
+				fakeRawMulti.Bytes(), &fakePackedMulti,
 			)
 			if err != nil {
 				t.Fatalf("unable to pack fake multi; %v", err)
@@ -124,7 +128,7 @@ func TestMultiPackUnpack(t *testing.T) {
 func TestPackedMultiUnpack(t *testing.T) {
 	t.Parallel()
 
-	keyRing := &mockKeyRing{}
+	keyRing := &lnencrypt.MockKeyRing{}
 
 	// First, we'll make a new unpacked multi with a random channel.
 	testChannel, err := genRandomOpenChannelShell()

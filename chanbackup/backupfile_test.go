@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/lightningnetwork/lnd/lnencrypt"
 	"github.com/stretchr/testify/require"
 )
 
@@ -184,7 +185,7 @@ func assertMultiEqual(t *testing.T, a, b *Multi) {
 func TestExtractMulti(t *testing.T) {
 	t.Parallel()
 
-	keyRing := &mockKeyRing{}
+	keyRing := &lnencrypt.MockKeyRing{}
 
 	// First, as prep, we'll create a single chan backup, then pack that
 	// fully into a multi backup.

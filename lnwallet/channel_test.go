@@ -7119,7 +7119,7 @@ func restoreAndAssert(t *testing.T, channel *LightningChannel, numAddsLocal,
 	assertInLog(t, newChannel.remoteUpdateLog, numAddsRemote, numFailsRemote)
 }
 
-// TesstChannelRestoreUpdateLogsFailedHTLC runs through a scenario where an
+// TestChannelRestoreUpdateLogsFailedHTLC runs through a scenario where an
 // HTLC is added and failed, and asserts along the way that we would restore
 // the update logs of the channel to the expected state at any point.
 func TestChannelRestoreUpdateLogsFailedHTLC(t *testing.T) {
@@ -7224,10 +7224,10 @@ func TestChannelRestoreUpdateLogsFailedHTLC(t *testing.T) {
 	}
 
 	// When sending a new commitment, Alice will add a pending commit to
-	// here remote chain. In this case it doesn't contain any new updates,
-	// so it won't affect the restoration.
+	// her remote chain. Since the unsigned acked updates aren't deleted
+	// until we receive a revocation, the fail should still be present.
 	assertInLogs(t, aliceChannel, 1, 0, 0, 1)
-	restoreAndAssert(t, aliceChannel, 1, 0, 0, 0)
+	restoreAndAssert(t, aliceChannel, 1, 0, 0, 1)
 
 	// When Alice receives Bob's revocation, the Fail is irrevocably locked
 	// in on both sides. She should compact the logs, removing the HTLC and

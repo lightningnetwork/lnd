@@ -1980,14 +1980,6 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 			return err
 		}
 
-		// Clear unsigned acked remote updates. We are signing now for
-		// all that we've got.
-		err = chanBucket.Delete(unsignedAckedUpdatesKey)
-		if err != nil {
-			return fmt.Errorf("unable to clear dangling remote "+
-				"updates: %v", err)
-		}
-
 		// TODO(roasbeef): use seqno to derive key for later LCP
 
 		// With the bucket retrieved, we'll now serialize the commit
@@ -2194,6 +2186,44 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg) error {
 		// have not received a corresponding settle/fail.
 		if err := c.Packager.AddFwdPkg(tx, fwdPkg); err != nil {
 			return err
+		}
+
+		// Persist the unsigned acked updates that are not included
+		// in their new commitment.
+		updateBytes := chanBucket.Get(unsignedAckedUpdatesKey)
+		if updateBytes == nil {
+			// If there are no updates to sign, we don't need to
+			// filter out any updates.
+			newRemoteCommit = &newCommit.Commitment
+			return nil
+		}
+
+		r := bytes.NewReader(updateBytes)
+		unsignedUpdates, err := deserializeLogUpdates(r)
+		if err != nil {
+			return err
+		}
+
+		var validUpdates []LogUpdate
+		for _, upd := range unsignedUpdates {
+			lIdx := upd.LogIndex
+
+			// Filter for updates that are not on the remote
+			// commitment.
+			if lIdx >= newCommit.Commitment.RemoteLogIndex {
+				validUpdates = append(validUpdates, upd)
+			}
+		}
+
+		var b bytes.Buffer
+		err = serializeLogUpdates(&b, validUpdates)
+		if err != nil {
+			return fmt.Errorf("unable to serialize log updates: %v", err)
+		}
+
+		err = chanBucket.Put(unsignedAckedUpdatesKey, b.Bytes())
+		if err != nil {
+			return fmt.Errorf("unable to store under unsignedAckedUpdatesKey: %v", err)
 		}
 
 		newRemoteCommit = &newCommit.Commitment

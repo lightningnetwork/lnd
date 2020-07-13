@@ -107,6 +107,11 @@ const (
 	ResultMppInProgress
 )
 
+// String returns a string representation of the result.
+func (f FailResolutionResult) String() string {
+	return f.FailureString()
+}
+
 // FailureString returns a string representation of the result.
 //
 // Note: it is part of the FailureDetail interface.

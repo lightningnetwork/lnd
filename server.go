@@ -356,27 +356,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		}
 	}
 
-	globalFeatures := lnwire.NewRawFeatureVector()
-
-	// Only if we're not being forced to use the legacy onion format, will
-	// we signal our knowledge of the new TLV onion format.
-	if !cfg.ProtocolOptions.LegacyOnion() {
-		globalFeatures.Set(lnwire.TLVOnionPayloadOptional)
-	}
-
-	// Similarly, we default to supporting the new modern commitment format
-	// where the remote key is static unless the protocol config is set to
-	// keep using the older format.
-	if !cfg.ProtocolOptions.NoStaticRemoteKey() {
-		globalFeatures.Set(lnwire.StaticRemoteKeyOptional)
-	}
-
-	// We only signal that we support the experimental anchor commitments
-	// if explicitly enabled in the config.
-	if cfg.ProtocolOptions.AnchorCommitments() {
-		globalFeatures.Set(lnwire.AnchorsOptional)
-	}
-
 	var serializedPubKey [33]byte
 	copy(serializedPubKey[:], nodeKeyECDH.PubKey().SerializeCompressed())
 
@@ -410,6 +389,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		NoTLVOnion:        cfg.ProtocolOptions.LegacyOnion(),
 		NoStaticRemoteKey: cfg.ProtocolOptions.NoStaticRemoteKey(),
 		NoAnchors:         !cfg.ProtocolOptions.AnchorCommitments(),
+		NoWumbo:           !cfg.ProtocolOptions.Wumbo(),
 	})
 	if err != nil {
 		return nil, err
@@ -987,6 +967,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 	}
 
 	s.fundingMgr, err = newFundingManager(fundingConfig{
+		NoWumboChans:       !cfg.ProtocolOptions.Wumbo(),
 		IDKey:              nodeKeyECDH.PubKey(),
 		Wallet:             cc.wallet,
 		PublishTransaction: cc.wallet.PublishTransaction,
@@ -1053,11 +1034,18 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 				return defaultConf
 			}
 
+			minConf := uint64(3)
+			maxConf := uint64(6)
+
+			// If this is a wumbo channel, then we'll require the
+			// max amount of confirmations.
+			if chanAmt > MaxFundingAmount {
+				return uint16(maxConf)
+			}
+
 			// If not we return a value scaled linearly
 			// between 3 and 6, depending on channel size.
 			// TODO(halseth): Use 1 as minimum?
-			minConf := uint64(3)
-			maxConf := uint64(6)
 			maxChannelSize := uint64(
 				lnwire.NewMSatFromSatoshis(MaxFundingAmount))
 			stake := lnwire.NewMSatFromSatoshis(chanAmt) + pushAmt
@@ -1084,6 +1072,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 			defaultDelay := uint16(chainCfg.DefaultRemoteDelay)
 			if defaultDelay > 0 {
 				return defaultDelay
+			}
+
+			// If this is a wumbo channel, then we'll require the
+			// max value.
+			if chanAmt > MaxFundingAmount {
+				return maxRemoteDelay
 			}
 
 			// If not we scale according to channel size.

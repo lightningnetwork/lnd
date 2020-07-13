@@ -1713,6 +1713,8 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	remoteCsvDelay := uint16(in.RemoteCsvDelay)
 	maxValue := lnwire.MilliSatoshi(in.RemoteMaxValueInFlightMsat)
 
+	globalFeatureSet := r.server.featureMgr.Get(feature.SetNodeAnn)
+
 	// Ensure that the initial balance of the remote party (if pushing
 	// satoshis) does not exceed the amount the local party has requested
 	// for funding.
@@ -1726,7 +1728,10 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	// Ensure that the user doesn't exceed the current soft-limit for
 	// channel size. If the funding amount is above the soft-limit, then
 	// we'll reject the request.
-	if localFundingAmt > MaxFundingAmount {
+	wumboEnabled := globalFeatureSet.HasFeature(
+		lnwire.WumboChannelsOptional,
+	)
+	if !wumboEnabled && localFundingAmt > MaxFundingAmount {
 		return nil, fmt.Errorf("funding amount is too large, the max "+
 			"channel size is: %v", MaxFundingAmount)
 	}

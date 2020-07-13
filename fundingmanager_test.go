@@ -3176,3 +3176,84 @@ func TestGetUpfrontShutdownScript(t *testing.T) {
 		})
 	}
 }
+
+func expectOpenChannelMsg(t *testing.T, msgChan chan lnwire.Message) *lnwire.OpenChannel {
+	var msg lnwire.Message
+	select {
+	case msg = <-msgChan:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("node did not send OpenChannel message")
+	}
+
+	openChannelReq, ok := msg.(*lnwire.OpenChannel)
+	if !ok {
+		errorMsg, gotError := msg.(*lnwire.Error)
+		if gotError {
+			t.Fatalf("expected OpenChannel to be sent "+
+				"from bob, instead got error: %v",
+				errorMsg.Error())
+		}
+		t.Fatalf("expected OpenChannel to be sent, instead got %T",
+			msg)
+	}
+
+	return openChannelReq
+}
+
+// TestWumboChannelConfig tests that the funding manager will respect the wumbo
+// channel config param when creating or accepting new channels.
+func TestWumboChannelConfig(t *testing.T) {
+	t.Parallel()
+
+	// First we'll create a set of funding managers that will reject wumbo
+	// channels.
+	alice, bob := setupFundingManagers(t, func(cfg *fundingConfig) {
+		cfg.NoWumboChans = true
+	})
+
+	// If we attempt to initiate a new funding open request to Alice,
+	// that's below the wumbo channel mark, we should be able to start the
+	// funding process w/o issue.
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+	errChan := make(chan error, 1)
+	initReq := &openChanReq{
+		targetPubkey:    bob.privKey.PubKey(),
+		chainHash:       *activeNetParams.GenesisHash,
+		localFundingAmt: MaxFundingAmount,
+		pushAmt:         lnwire.NewMSatFromSatoshis(0),
+		private:         false,
+		updates:         updateChan,
+		err:             errChan,
+	}
+
+	// We expect Bob to respond with an Accept channel message.
+	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	openChanMsg := expectOpenChannelMsg(t, alice.msgChan)
+	bob.fundingMgr.processFundingOpen(openChanMsg, alice)
+	assertFundingMsgSent(t, bob.msgChan, "AcceptChannel")
+
+	// We'll now attempt to create a channel above the wumbo mark, which
+	// should be rejected.
+	initReq.localFundingAmt = btcutil.SatoshiPerBitcoin
+
+	// After processing the funding open message, bob should respond with
+	// an error rejecting the channel.
+	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	openChanMsg = expectOpenChannelMsg(t, alice.msgChan)
+	bob.fundingMgr.processFundingOpen(openChanMsg, alice)
+	assertErrorSent(t, bob.msgChan)
+
+	// Next, we'll re-create the funding managers, but this time allowing
+	// wumbo channels explicitly.
+	tearDownFundingManagers(t, alice, bob)
+	alice, bob = setupFundingManagers(t, func(cfg *fundingConfig) {
+		cfg.NoWumboChans = false
+	})
+
+	// We should now be able to initiate a wumbo channel funding w/o any
+	// issues.
+	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	openChanMsg = expectOpenChannelMsg(t, alice.msgChan)
+	bob.fundingMgr.processFundingOpen(openChanMsg, alice)
+	assertFundingMsgSent(t, bob.msgChan, "AcceptChannel")
+}

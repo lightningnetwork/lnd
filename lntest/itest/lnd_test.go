@@ -1178,7 +1178,7 @@ func (c commitType) String() string {
 func (c commitType) Args() []string {
 	switch c {
 	case commitTypeLegacy:
-		return []string{"--protocol.committweak"}
+		return []string{"--protocol.legacy.committweak"}
 	case commitTypeTweakless:
 		return []string{}
 	case commitTypeAnchors:
@@ -1457,9 +1457,14 @@ test:
 				// Check that the signalled type matches what we
 				// expect.
 				switch {
-				case expType == commitTypeAnchors && chansCommitType == lnrpc.CommitmentType_ANCHORS:
-				case expType == commitTypeTweakless && chansCommitType == lnrpc.CommitmentType_STATIC_REMOTE_KEY:
-				case expType == commitTypeLegacy && chansCommitType == lnrpc.CommitmentType_LEGACY:
+				case expType == commitTypeAnchors &&
+					chansCommitType == lnrpc.CommitmentType_ANCHORS:
+
+				case expType == commitTypeTweakless &&
+					chansCommitType == lnrpc.CommitmentType_STATIC_REMOTE_KEY:
+
+				case expType == commitTypeLegacy &&
+					chansCommitType == lnrpc.CommitmentType_LEGACY:
 
 				default:
 					t.Fatalf("expected nodes to signal "+
@@ -15194,6 +15199,10 @@ var testsCases = []*testCase{
 	{
 		name: "intercept forwarded htlc packets",
 		test: testForwardInterceptor,
+	},
+	{
+		name: "wumbo channels",
+		test: testWumboChannels,
 	},
 }
 

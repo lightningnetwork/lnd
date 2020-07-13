@@ -47,4 +47,8 @@ var defaultSetDesc = setDesc{
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
+	lnwire.WumboChannelsOptional: {
+		SetInit:    {}, // I
+		SetNodeAnn: {}, // N
+	},
 }

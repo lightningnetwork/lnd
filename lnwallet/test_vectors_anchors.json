@@ -4,6 +4,7 @@
         "LocalBalance": 7000000000,
         "RemoteBalance": 3000000000,
         "FeePerKw": 15000,
+        "UseTestHtlcs": false,
         "HtlcDescs": [],
         "ExpectedCommitmentTxHex": "02000000000101bef67e4e2fb9ddeeb3461973cd4c62abb35050b1add772995b820b584a488489000000000038b02b80044a010000000000002200202b1b5854183c12d3316565972c4668929d314d81c5dcdbb21cb45fe8a9a8114f4a01000000000000220020e9e86e4823faa62e222ebc858a226636856158f07e69898da3b0d1af0ddb3994c0c62d0000000000220020f3394e1e619b0eca1f91be2fb5ab4dfc59ba5b84ebe014ad1d43a564d012994a508b6a00000000002200204adb4e2f00643db396dd120d4e7dc17625f5f2c11a40d857accc862d6b7dd80e04004830450221008266ac6db5ea71aac3c95d97b0e172ff596844851a3216eb88382a8dddfd33d2022050e240974cfd5d708708b4365574517c18e7ae535ef732a3484d43d0d82be9f701483045022100f89034eba16b2be0e5581f750a0a6309192b75cce0f202f0ee2b4ec0cc394850022076c65dc507fe42276152b7a3d90e961e678adbe966e916ecfe85e64d430e75f301475221023da092f6980e58d2c037173180e9a465476026ee50f96695963e8efe436f54eb21030e9f7b623d2ccc7c9bd44d66d5ce21ce504c0acf6385a132cec6d3c39fa711c152ae3e195220",
         "RemoteSigHex": "3045022100f89034eba16b2be0e5581f750a0a6309192b75cce0f202f0ee2b4ec0cc394850022076c65dc507fe42276152b7a3d90e961e678adbe966e916ecfe85e64d430e75f3"
@@ -13,6 +14,7 @@
         "LocalBalance": 6988000000,
         "RemoteBalance": 3000000000,
         "FeePerKw": 644,
+        "UseTestHtlcs": true,
         "HtlcDescs": [
             {
                 "RemoteSigHex": "304402205912d91c58016f593d9e46fefcdb6f4125055c41a17b03101eaaa034b9028ab60220520d4d239c85c66e4c75c5b413620b62736e227659d7821b308e2b8ced3e728e",
@@ -43,6 +45,7 @@
         "LocalBalance": 6988000000,
         "RemoteBalance": 3000000000,
         "FeePerKw": 645,
+        "UseTestHtlcs": true,
         "HtlcDescs": [
             {
                 "RemoteSigHex": "30440220446f9e5c375db6a61d6eeee8b59219a30a4a37372afc2670a1a2889c78e9b943022061895f6088fb48b490ab2140a4842c277b64bf25ff591625dd0356e0c96ab7a8",
@@ -69,6 +72,7 @@
         "LocalBalance": 6988000000,
         "RemoteBalance": 3000000000,
         "FeePerKw": 2060,
+        "UseTestHtlcs": true,
         "HtlcDescs": [
             {
                 "RemoteSigHex": "30440220011f999016570bbab9f3125377d0f35096b4dbe155f97c20f71829ead2817d1602201f23f7e17f6928734601c5d8613431eed5c90aa41c3106e8c1cb02ce32aacb5d",
@@ -95,6 +99,7 @@
         "LocalBalance": 6988000000,
         "RemoteBalance": 3000000000,
         "FeePerKw": 2061,
+        "UseTestHtlcs": true,
         "HtlcDescs": [
             {
                 "RemoteSigHex": "3045022100e10744f572a2cd1d787c969e894b792afaed21217ee0480df0112d2fa3ef96ea02202af4f66eb6beebc36d8e98719ed6b4be1b181659fcb561fc491d8cfebff3aa85",
@@ -117,6 +122,7 @@
         "LocalBalance": 6988000000,
         "RemoteBalance": 3000000000,
         "FeePerKw": 2184,
+        "UseTestHtlcs": true,
         "HtlcDescs": [
             {
                 "RemoteSigHex": "304402202e03ba1390998b3487e9a7fefcb66814c09abea0ef1bcc915dbaefbcf310569a02206bd10493a105ac69048e9bcedcb8e3301ef81b55018d911a4afd297297f98d30",
@@ -139,6 +145,7 @@
         "LocalBalance": 6988000000,
         "RemoteBalance": 3000000000,
         "FeePerKw": 2185,
+        "UseTestHtlcs": true,
         "HtlcDescs": [
             {
                 "RemoteSigHex": "304502210094480e38afb41d10fae299224872f19c53abe23c7033a1c0642c48713e7863a10220726dd9456407682667dc4bd9c66975acb3744961770b5002f7eb9c0df9ef2f3e",
@@ -157,6 +164,7 @@
         "LocalBalance": 6988000000,
         "RemoteBalance": 3000000000,
         "FeePerKw": 3686,
+        "UseTestHtlcs": true,
         "HtlcDescs": [
             {
                 "RemoteSigHex": "304402202cfe6618926ca9f1574f8c4659b425e9790b4677ba2248d77901290806130ffe02204ab37bb0287abcdb8b750b018d41a09effe37cb65ff801fa70d3f1a416599841",
@@ -175,6 +183,7 @@
         "LocalBalance": 6988000000,
         "RemoteBalance": 3000000000,
         "FeePerKw": 3687,
+        "UseTestHtlcs": true,
         "HtlcDescs": [
             {
                 "RemoteSigHex": "3045022100b287bb8e079a62dcb3aaa8b6c67c0f434a87ebf64ab0bcfb2fc14b55576b859f02206d37c2eb5fd04cfc9eb0534c76a28a98da251b84a931377cce307af39dfaed74",
@@ -189,6 +198,7 @@
         "LocalBalance": 6988000000,
         "RemoteBalance": 3000000000,
         "FeePerKw": 4893,
+        "UseTestHtlcs": true,
         "HtlcDescs": [
             {
                 "RemoteSigHex": "30450221008db80f8531104820b3e894492b4463f074f965b542e1b5c153ddfb108a5ea642022030b203d857a2b3581c2087a7bf17c95d04fadc1c6cdae88c620477f2dccb1ee4",
@@ -203,6 +213,7 @@
         "LocalBalance": 6988000000,
         "RemoteBalance": 3000000000,
         "FeePerKw": 4894,
+        "UseTestHtlcs": true,
         "HtlcDescs": [],
         "ExpectedCommitmentTxHex": "02000000000101bef67e4e2fb9ddeeb3461973cd4c62abb35050b1add772995b820b584a488489000000000038b02b80044a010000000000002200202b1b5854183c12d3316565972c4668929d314d81c5dcdbb21cb45fe8a9a8114f4a01000000000000220020e9e86e4823faa62e222ebc858a226636856158f07e69898da3b0d1af0ddb3994c0c62d0000000000220020f3394e1e619b0eca1f91be2fb5ab4dfc59ba5b84ebe014ad1d43a564d012994ad0886a00000000002200204adb4e2f00643db396dd120d4e7dc17625f5f2c11a40d857accc862d6b7dd80e04004830450221009f16ac85d232e4eddb3fcd750a68ebf0b58e3356eaada45d3513ede7e817bf4c02207c2b043b4e5f971261975406cb955219fa56bffe5d834a833694b5abc1ce4cfd01483045022100e784a66b1588575801e237d35e510fd92a81ae3a4a2a1b90c031ad803d07b3f3022021bc5f16501f167607d63b681442da193eb0a76b4b7fd25c2ed4f8b28fd35b9501475221023da092f6980e58d2c037173180e9a465476026ee50f96695963e8efe436f54eb21030e9f7b623d2ccc7c9bd44d66d5ce21ce504c0acf6385a132cec6d3c39fa711c152ae3e195220",
         "RemoteSigHex": "3045022100e784a66b1588575801e237d35e510fd92a81ae3a4a2a1b90c031ad803d07b3f3022021bc5f16501f167607d63b681442da193eb0a76b4b7fd25c2ed4f8b28fd35b95"

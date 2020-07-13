@@ -65,7 +65,9 @@ func TestNewService(t *testing.T) {
 
 	// Second, create the new service instance, unlock it and pass in a
 	// checker that we expect it to add to the bakery.
-	service, err := macaroons.NewService(tempDir, macaroons.IPLockChecker)
+	service, err := macaroons.NewService(
+		tempDir, "lnd", macaroons.IPLockChecker,
+	)
 	if err != nil {
 		t.Fatalf("Error creating new service: %v", err)
 	}
@@ -109,7 +111,9 @@ func TestValidateMacaroon(t *testing.T) {
 	// First, initialize the service and unlock it.
 	tempDir := setupTestRootKeyStorage(t)
 	defer os.RemoveAll(tempDir)
-	service, err := macaroons.NewService(tempDir, macaroons.IPLockChecker)
+	service, err := macaroons.NewService(
+		tempDir, "lnd", macaroons.IPLockChecker,
+	)
 	if err != nil {
 		t.Fatalf("Error creating new service: %v", err)
 	}

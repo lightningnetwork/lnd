@@ -38,6 +38,17 @@ var (
 	PermissionEntityCustomURI = "uri"
 )
 
+// MacaroonValidator is an interface type that can check if macaroons are valid.
+type MacaroonValidator interface {
+	// ValidateMacaroon extracts the macaroon from the context's gRPC
+	// metadata, checks its signature, makes sure all specified permissions
+	// for the called method are contained within and finally ensures all
+	// caveat conditions are met. A non-nil error is returned if any of the
+	// checks fail.
+	ValidateMacaroon(ctx context.Context,
+		requiredPermissions []bakery.Op, fullMethod string) error
+}
+
 // Service encapsulates bakery.Bakery and adds a Close() method that zeroes the
 // root key service encryption keys, as well as utility methods to validate a
 // macaroon against the bakery and gRPC middleware for macaroon-based auth.
@@ -45,6 +56,12 @@ type Service struct {
 	bakery.Bakery
 
 	rks *RootKeyStorage
+
+	// externalValidators is a map between an absolute gRPC URIs and the
+	// corresponding external macaroon validator to be used for that URI.
+	// If no external validator for an URI is specified, the service will
+	// use the internal validator.
+	externalValidators map[string]MacaroonValidator
 }
 
 // NewService returns a service backed by the macaroon Bolt DB stored in the
@@ -97,7 +114,11 @@ func NewService(dir, location string, checks ...Checker) (*Service, error) {
 		}
 	}
 
-	return &Service{*svc, rootKeyStore}, nil
+	return &Service{
+		Bakery:             *svc,
+		rks:                rootKeyStore,
+		externalValidators: make(map[string]MacaroonValidator),
+	}, nil
 }
 
 // isRegistered checks to see if the required checker has already been
@@ -118,6 +139,27 @@ func isRegistered(c *checkers.Checker, name string) bool {
 	return false
 }
 
+// RegisterExternalValidator registers a custom, external macaroon validator for
+// the specified absolute gRPC URI. That validator is then fully responsible to
+// make sure any macaroon passed for a request to that URI is valid and
+// satisfies all conditions.
+func (svc *Service) RegisterExternalValidator(fullMethod string,
+	validator MacaroonValidator) error {
+
+	if validator == nil {
+		return fmt.Errorf("validator cannot be nil")
+	}
+
+	_, ok := svc.externalValidators[fullMethod]
+	if ok {
+		return fmt.Errorf("external validator for method %s already "+
+			"registered", fullMethod)
+	}
+
+	svc.externalValidators[fullMethod] = validator
+	return nil
+}
+
 // UnaryServerInterceptor is a GRPC interceptor that checks whether the
 // request is authorized by the included macaroons.
 func (svc *Service) UnaryServerInterceptor(
@@ -133,7 +175,15 @@ func (svc *Service) UnaryServerInterceptor(
 				"required for method", info.FullMethod)
 		}
 
-		err := svc.ValidateMacaroon(
+		// Find out if there is an external validator registered for
+		// this method. Fall back to the internal one if there isn't.
+		validator, ok := svc.externalValidators[info.FullMethod]
+		if !ok {
+			validator = svc
+		}
+
+		// Now that we know what validator to use, let it do its work.
+		err := validator.ValidateMacaroon(
 			ctx, uriPermissions, info.FullMethod,
 		)
 		if err != nil {
@@ -158,7 +208,15 @@ func (svc *Service) StreamServerInterceptor(
 				"for method", info.FullMethod)
 		}
 
-		err := svc.ValidateMacaroon(
+		// Find out if there is an external validator registered for
+		// this method. Fall back to the internal one if there isn't.
+		validator, ok := svc.externalValidators[info.FullMethod]
+		if !ok {
+			validator = svc
+		}
+
+		// Now that we know what validator to use, let it do its work.
+		err := validator.ValidateMacaroon(
 			ss.Context(), uriPermissions, info.FullMethod,
 		)
 		if err != nil {

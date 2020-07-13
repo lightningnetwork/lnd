@@ -145,6 +145,12 @@ type RPCSubserverConfig struct {
 	// per URI, they are all required. See rpcserver.go for a list of valid
 	// action and entity values.
 	Permissions map[string][]bakery.Op
+
+	// MacaroonValidator is a custom macaroon validator that should be used
+	// instead of the default lnd validator. If specified, the custom
+	// validator is used for all URIs specified in the above Permissions
+	// map.
+	MacaroonValidator macaroons.MacaroonValidator
 }
 
 // ListenerWithSignal is a net.Listener that has an additional Ready channel that

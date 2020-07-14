@@ -1253,7 +1253,7 @@ message ChannelCloseSummary {
     repeated Resolution resolutions = 13;
 }
 
-enum ResolutionType{
+enum ResolutionType {
     TYPE_UNKNOWN = 0;
 
     // We resolved an anchor output.

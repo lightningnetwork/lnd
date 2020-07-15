@@ -21,8 +21,8 @@ func initHintCache(t *testing.T) *HeightHintCache {
 	if err != nil {
 		t.Fatalf("unable to create db: %v", err)
 	}
-	testCfg := Config{
-		HeightHintCacheQueryDisable: false,
+	testCfg := CacheConfig{
+		QueryDisable: false,
 	}
 	hintCache, err := NewHeightHintCache(testCfg, db)
 	if err != nil {

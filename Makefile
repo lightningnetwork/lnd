@@ -6,6 +6,7 @@ BTCD_PKG := github.com/btcsuite/btcd
 GOVERALLS_PKG := github.com/mattn/goveralls
 LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
 GOACC_PKG := github.com/ory/go-acc
+FALAFEL_PKG := github.com/lightninglabs/falafel
 
 GO_BIN := ${GOPATH}/bin
 BTCD_BIN := $(GO_BIN)/btcd
@@ -32,6 +33,7 @@ BTCD_COMMIT := $(shell cat go.mod | \
 
 LINT_COMMIT := v1.18.0
 GOACC_COMMIT := ddc355013f90fea78d83d3a6c71f1d37ac07ecd5
+FALAFEL_COMMIT := v0.7.1
 
 DEPGET := cd /tmp && GO111MODULE=on go get -v
 GOBUILD := GO111MODULE=on go build -v
@@ -106,6 +108,10 @@ $(GOACC_BIN):
 btcd:
 	@$(call print, "Installing btcd.")
 	$(DEPGET) $(BTCD_PKG)@$(BTCD_COMMIT)
+
+falafel:
+	@$(call print, "Installing falafel.")
+	$(DEPGET) $(FALAFEL_PKG)@$(FALAFEL_COMMIT)
 
 # ============
 # INSTALLATION
@@ -213,7 +219,7 @@ rpc-check: rpc
 	for rpc in $$(find lnrpc/ -name "*.proto" | $(XARGS) awk '/    rpc /{print $$2}'); do if ! grep -q $$rpc lnrpc/rest-annotations.yaml; then echo "RPC $$rpc not added to lnrpc/rest-annotations.yaml"; exit 1; fi; done
 	if test -n "$$(git describe --dirty | grep dirty)"; then echo "Protos not properly formatted or not compiled with v3.4.0"; git status; git diff; exit 1; fi
 
-mobile-rpc:
+mobile-rpc: falafel
 	@$(call print, "Creating mobile RPC from protos.")
 	cd ./mobile; ./gen_bindings.sh
 
@@ -252,6 +258,7 @@ clean:
 	unit \
 	unit-cover \
 	unit-race \
+	falafel \
 	goveralls \
 	travis-race \
 	travis-cover \

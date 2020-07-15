@@ -1,4 +1,4 @@
-// +build ios android
+// +build mobile
 
 package lndmobile
 

@@ -58,6 +58,7 @@ const (
 	defaultChanStatusSampleInterval      = time.Minute
 	defaultChanEnableTimeout             = 19 * time.Minute
 	defaultChanDisableTimeout            = 20 * time.Minute
+	defaultHeightHintCacheQueryDisable   = false
 	defaultMaxLogFiles                   = 3
 	defaultMaxLogFileSize                = 10
 	defaultMinBackoff                    = time.Second
@@ -211,10 +212,10 @@ type Config struct {
 	ChanEnableTimeout             time.Duration `long:"chan-enable-timeout" description:"The duration that a peer connection must be stable before attempting to send a channel update to reenable or cancel a pending disables of the peer's channels on the network."`
 	ChanDisableTimeout            time.Duration `long:"chan-disable-timeout" description:"The duration that must elapse after first detecting that an already active channel is actually inactive and sending channel update disabling it to the network. The pending disable can be canceled if the peer reconnects and becomes stable for chan-enable-timeout before the disable update is sent."`
 	ChanStatusSampleInterval      time.Duration `long:"chan-status-sample-interval" description:"The polling interval between attempts to detect if an active channel has become inactive due to its peer going offline."`
-
-	Alias       string `long:"alias" description:"The node alias. Used as a moniker by peers and intelligence services"`
-	Color       string `long:"color" description:"The color of the node in hex format (i.e. '#3399FF'). Used to customize node appearance in intelligence services"`
-	MinChanSize int64  `long:"minchansize" description:"The smallest channel size (in satoshis) that we should accept. Incoming channels smaller than this will be rejected"`
+	HeightHintCacheQueryDisable   bool          `long:"height-hint-cache-query-disable" description:"Disable queries from the height-hint cache to try to recover channels stuck in the pending close state. Disabling height hint queries may cause longer chain rescans, resulting in a performance hit. Unset this after channels are unstuck so you can get better performance again."`
+	Alias                         string        `long:"alias" description:"The node alias. Used as a moniker by peers and intelligence services"`
+	Color                         string        `long:"color" description:"The color of the node in hex format (i.e. '#3399FF'). Used to customize node appearance in intelligence services"`
+	MinChanSize                   int64         `long:"minchansize" description:"The smallest channel size (in satoshis) that we should accept. Incoming channels smaller than this will be rejected"`
 
 	NumGraphSyncPeers      int           `long:"numgraphsyncpeers" description:"The number of peers that we should receive new graph updates from. This option can be tuned to save bandwidth for light clients or routing nodes."`
 	HistoricalSyncInterval time.Duration `long:"historicalsyncinterval" description:"The polling interval between historical graph sync attempts. Each historical graph sync attempt ensures we reconcile with the remote peer's graph from the genesis block."`
@@ -347,6 +348,7 @@ func DefaultConfig() Config {
 		ChanStatusSampleInterval:      defaultChanStatusSampleInterval,
 		ChanEnableTimeout:             defaultChanEnableTimeout,
 		ChanDisableTimeout:            defaultChanDisableTimeout,
+		HeightHintCacheQueryDisable:   defaultHeightHintCacheQueryDisable,
 		Alias:                         defaultAlias,
 		Color:                         defaultColor,
 		MinChanSize:                   int64(minChanFundingSize),

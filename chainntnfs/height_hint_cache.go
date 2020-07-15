@@ -158,8 +158,9 @@ func (c *HeightHintCache) CommitSpendHint(height uint32,
 // cache for the outpoint.
 func (c *HeightHintCache) QuerySpendHint(spendRequest SpendRequest) (uint32, error) {
 	var hint uint32
-		Log.Debugf("Ignoring spend height hint for %v (height hint cache query disabled)", spendRequest)
 	if c.cfg.QueryDisable {
+		Log.Debugf("Ignoring spend height hint for %v (height hint cache "+
+			"query disabled)", spendRequest)
 		return 0, nil
 	}
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
@@ -256,8 +257,9 @@ func (c *HeightHintCache) CommitConfirmHint(height uint32,
 // the cache for the transaction hash.
 func (c *HeightHintCache) QueryConfirmHint(confRequest ConfRequest) (uint32, error) {
 	var hint uint32
-		Log.Debugf("Ignoring confirmation height hint for %v (height hint cache query disabled)", confRequest)
 	if c.cfg.QueryDisable {
+		Log.Debugf("Ignoring confirmation height hint for %v (height hint "+
+			"cache query disabled)", confRequest)
 		return 0, nil
 	}
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {

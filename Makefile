@@ -7,6 +7,7 @@ GOVERALLS_PKG := github.com/mattn/goveralls
 LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
 GOACC_PKG := github.com/ory/go-acc
 FALAFEL_PKG := github.com/lightninglabs/falafel
+GOIMPORTS_PKG := golang.org/x/tools/cmd/goimports
 
 GO_BIN := ${GOPATH}/bin
 BTCD_BIN := $(GO_BIN)/btcd
@@ -112,6 +113,10 @@ btcd:
 falafel:
 	@$(call print, "Installing falafel.")
 	$(DEPGET) $(FALAFEL_PKG)@$(FALAFEL_COMMIT)
+
+goimports:
+	@$(call print, "Installing goimports.")
+	$(DEPGET) $(GOIMPORTS_PKG)
 
 # ============
 # INSTALLATION
@@ -219,7 +224,7 @@ rpc-check: rpc
 	for rpc in $$(find lnrpc/ -name "*.proto" | $(XARGS) awk '/    rpc /{print $$2}'); do if ! grep -q $$rpc lnrpc/rest-annotations.yaml; then echo "RPC $$rpc not added to lnrpc/rest-annotations.yaml"; exit 1; fi; done
 	if test -n "$$(git describe --dirty | grep dirty)"; then echo "Protos not properly formatted or not compiled with v3.4.0"; git status; git diff; exit 1; fi
 
-mobile-rpc: falafel
+mobile-rpc: falafel goimports
 	@$(call print, "Creating mobile RPC from protos.")
 	cd ./mobile; ./gen_bindings.sh
 

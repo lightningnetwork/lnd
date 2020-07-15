@@ -81,7 +81,7 @@ const (
 	// maxInvoiceLength is the maximum total length an invoice can have.
 	// This is chosen to be the maximum number of bytes that can fit into a
 	// single QR code: https://en.wikipedia.org/wiki/QR_code#Storage
-	maxInvoiceLength = 7089
+	maxInvoiceLength = 4296
 
 	// DefaultInvoiceExpiry is the default expiry duration from the creation
 	// timestamp if expiry is set to zero.

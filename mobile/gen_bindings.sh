@@ -3,11 +3,17 @@
 mkdir -p build
 
 # Check falafel version.
-falafelVersion="0.7.1"
+falafelVersion=$1
+if [ -z $falafelVersion ]
+then
+        echo "falafel version not set"
+        exit 1
+fi
+
 falafel=$(which falafel)
 if [ $falafel ]
 then
-        version=$($falafel -v)
+        version="v$($falafel -v)"
         if [ $version != $falafelVersion ]
         then
                 echo "falafel version $falafelVersion required"

@@ -226,7 +226,7 @@ rpc-check: rpc
 
 mobile-rpc: falafel goimports
 	@$(call print, "Creating mobile RPC from protos.")
-	cd ./mobile; ./gen_bindings.sh
+	cd ./mobile; ./gen_bindings.sh $(FALAFEL_COMMIT)
 
 vendor:
 	@$(call print, "Re-creating vendor directory.")

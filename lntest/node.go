@@ -625,9 +625,10 @@ func (hn *HarnessNode) initLightningClient(conn *grpc.ClientConn) error {
 	// Launch the watcher that will hook into graph related topology change
 	// from the PoV of this node.
 	hn.wg.Add(1)
-	go hn.lightningNetworkWatcher()
+	subscribed := make(chan error)
+	go hn.lightningNetworkWatcher(subscribed)
 
-	return nil
+	return <-subscribed
 }
 
 // FetchNodeInfo queries an unlocked node to retrieve its public key.
@@ -688,28 +689,26 @@ func (hn *HarnessNode) writePidFile() error {
 func (hn *HarnessNode) ReadMacaroon(macPath string, timeout time.Duration) (
 	*macaroon.Macaroon, error) {
 
-	// Wait until macaroon file is created before using it.
-	macTimeout := time.After(timeout)
-	for !fileExists(macPath) {
-		select {
-		case <-macTimeout:
-			return nil, fmt.Errorf("timeout waiting for macaroon "+
-				"file %s to be created after %d seconds",
-				macPath, timeout/time.Second)
-		case <-time.After(100 * time.Millisecond):
+	// Wait until macaroon file is created and has valid content before
+	// using it.
+	var mac *macaroon.Macaroon
+	err := wait.NoError(func() error {
+		macBytes, err := ioutil.ReadFile(macPath)
+		if err != nil {
+			return fmt.Errorf("error reading macaroon file: %v", err)
 		}
-	}
 
-	// Now that we know the file exists, read it and return the macaroon.
-	macBytes, err := ioutil.ReadFile(macPath)
-	if err != nil {
-		return nil, err
-	}
-	mac := &macaroon.Macaroon{}
-	if err = mac.UnmarshalBinary(macBytes); err != nil {
-		return nil, err
-	}
-	return mac, nil
+		newMac := &macaroon.Macaroon{}
+		if err = newMac.UnmarshalBinary(macBytes); err != nil {
+			return fmt.Errorf("error unmarshalling macaroon "+
+				"file: %v", err)
+		}
+		mac = newMac
+
+		return nil
+	}, timeout)
+
+	return mac, err
 }
 
 // ConnectRPCWithMacaroon uses the TLS certificate and given macaroon to
@@ -717,34 +716,34 @@ func (hn *HarnessNode) ReadMacaroon(macPath string, timeout time.Duration) (
 func (hn *HarnessNode) ConnectRPCWithMacaroon(mac *macaroon.Macaroon) (
 	*grpc.ClientConn, error) {
 
-	// Wait until TLS certificate is created before using it, up to 30 sec.
-	tlsTimeout := time.After(DefaultTimeout)
-	for !fileExists(hn.Cfg.TLSCertPath) {
-		select {
-		case <-tlsTimeout:
-			return nil, fmt.Errorf("timeout waiting for TLS cert " +
-				"file to be created")
-		case <-time.After(100 * time.Millisecond):
-		}
+	// Wait until TLS certificate is created and has valid content before
+	// using it, up to 30 sec.
+	var tlsCreds credentials.TransportCredentials
+	err := wait.NoError(func() error {
+		var err error
+		tlsCreds, err = credentials.NewClientTLSFromFile(
+			hn.Cfg.TLSCertPath, "",
+		)
+		return err
+	}, DefaultTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("error reading TLS cert: %v", err)
 	}
 
-	opts := []grpc.DialOption{grpc.WithBlock()}
-	tlsCreds, err := credentials.NewClientTLSFromFile(
-		hn.Cfg.TLSCertPath, "",
-	)
-	if err != nil {
-		return nil, err
+	opts := []grpc.DialOption{
+		grpc.WithBlock(),
+		grpc.WithTransportCredentials(tlsCreds),
 	}
-	opts = append(opts, grpc.WithTransportCredentials(tlsCreds))
+
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
+	defer cancel()
 
 	if mac == nil {
-		return grpc.Dial(hn.Cfg.RPCAddr(), opts...)
+		return grpc.DialContext(ctx, hn.Cfg.RPCAddr(), opts...)
 	}
 	macCred := macaroons.NewMacaroonCredential(mac)
 	opts = append(opts, grpc.WithPerRPCCredentials(macCred))
 
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
-	defer cancel()
 	return grpc.DialContext(ctx, hn.Cfg.RPCAddr(), opts...)
 }
 
@@ -873,7 +872,7 @@ func getChanPointFundingTxid(chanPoint *lnrpc.ChannelPoint) ([]byte, error) {
 // closed or opened within the network. In order to dispatch these
 // notifications, the GraphTopologySubscription client exposed as part of the
 // gRPC interface is used.
-func (hn *HarnessNode) lightningNetworkWatcher() {
+func (hn *HarnessNode) lightningNetworkWatcher(subscribed chan error) {
 	defer hn.wg.Done()
 
 	graphUpdates := make(chan *lnrpc.GraphTopologyUpdate)
@@ -883,16 +882,16 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 
 		req := &lnrpc.GraphTopologySubscription{}
 		ctx, cancelFunc := context.WithCancel(context.Background())
+		defer cancelFunc()
 		topologyClient, err := hn.SubscribeChannelGraph(ctx, req)
 		if err != nil {
-			// We panic here in case of an error as failure to
-			// create the topology client will cause all subsequent
-			// tests to fail.
-			panic(fmt.Errorf("unable to create topology "+
-				"client: %v", err))
+			msg := fmt.Sprintf("%s(%d): unable to create topology "+
+				"client: %v (%s)", hn.Name(), hn.NodeID, err,
+				time.Now().String())
+			subscribed <- fmt.Errorf(msg)
+			return
 		}
-
-		defer cancelFunc()
+		close(subscribed)
 
 		for {
 			update, err := topologyClient.Recv()
@@ -1156,15 +1155,4 @@ func (hn *HarnessNode) WaitForBalance(expectedBalance btcutil.Amount, confirmed 
 	}
 
 	return nil
-}
-
-// fileExists reports whether the named file or directory exists.
-// This function is taken from https://github.com/btcsuite/btcd
-func fileExists(name string) bool {
-	if _, err := os.Stat(name); err != nil {
-		if os.IsNotExist(err) {
-			return false
-		}
-	}
-	return true
 }

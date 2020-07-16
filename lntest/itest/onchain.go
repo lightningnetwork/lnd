@@ -86,12 +86,15 @@ func testCPFP(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("bob's output was not found within the transaction")
 	}
 
-	// We'll attempt to bump the fee of this transaction by performing a
-	// CPFP from Alice's point of view.
+	// Wait until bob has seen the tx and considers it as owned.
 	op := &lnrpc.OutPoint{
 		TxidBytes:   txid[:],
 		OutputIndex: uint32(bobOutputIdx),
 	}
+	assertWalletUnspent(t, net.Bob, op)
+
+	// We'll attempt to bump the fee of this transaction by performing a
+	// CPFP from Alice's point of view.
 	bumpFeeReq := &walletrpc.BumpFeeRequest{
 		Outpoint:   op,
 		SatPerByte: uint32(sweep.DefaultMaxFeeRate.FeePerKVByte() / 2000),

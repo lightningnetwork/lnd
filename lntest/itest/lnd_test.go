@@ -155,6 +155,39 @@ func assertTxInBlock(t *harnessTest, block *wire.MsgBlock, txid *chainhash.Hash)
 	t.Fatalf("tx was not included in block")
 }
 
+func assertWalletUnspent(t *harnessTest, node *lntest.HarnessNode, out *lnrpc.OutPoint) {
+	t.t.Helper()
+
+	err := wait.NoError(func() error {
+		ctxt, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+		defer cancel()
+		unspent, err := node.ListUnspent(ctxt, &lnrpc.ListUnspentRequest{})
+		if err != nil {
+			return err
+		}
+
+		err = errors.New("tx with wanted txhash never found")
+		for _, utxo := range unspent.Utxos {
+			if !bytes.Equal(utxo.Outpoint.TxidBytes, out.TxidBytes) {
+				continue
+			}
+
+			err = errors.New("wanted output is not a wallet utxo")
+			if utxo.Outpoint.OutputIndex != out.OutputIndex {
+				continue
+			}
+
+			return nil
+		}
+
+		return err
+	}, defaultTimeout)
+	if err != nil {
+		t.Fatalf("outpoint %s not unspent by %s's wallet: %v", out,
+			node.Name(), err)
+	}
+}
+
 func rpcPointToWirePoint(t *harnessTest, chanPoint *lnrpc.ChannelPoint) wire.OutPoint {
 	txid, err := lnd.GetChanPointFundingTxid(chanPoint)
 	if err != nil {
@@ -9055,6 +9088,29 @@ func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 
 	davePreSweepBalance := daveBalResp.ConfirmedBalance
 
+	// Wait until the backup has been accepted by the watchtower before
+	// shutting down Dave.
+	err = wait.NoError(func() error {
+		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+		defer cancel()
+		bkpStats, err := dave.WatchtowerClient.Stats(ctxt, &wtclientrpc.StatsRequest{})
+		if err != nil {
+			return err
+
+		}
+		if bkpStats == nil {
+			return errors.New("no active backup sessions")
+		}
+		if bkpStats.NumBackups == 0 {
+			return errors.New("no backups accepted")
+		}
+
+		return nil
+	}, defaultTimeout)
+	if err != nil {
+		t.Fatalf("unable to verify backup task completed: %v", err)
+	}
+
 	// Shutdown Dave to simulate going offline for an extended period of
 	// time. Once he's not watching, Carol will try to breach the channel.
 	restart, err := net.SuspendNode(dave)
@@ -9082,9 +9138,6 @@ func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 	if carolChan.NumUpdates != carolStateNumPreCopy {
 		t.Fatalf("db copy failed: %v", carolChan.NumUpdates)
 	}
-
-	// TODO(conner): add hook for backup completion
-	time.Sleep(3 * time.Second)
 
 	// Now force Carol to execute a *force* channel closure by unilaterally
 	// broadcasting his current channel state. This is actually the
@@ -13367,7 +13420,7 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 	numChans := 2
 	chanAmt := btcutil.Amount(1000000)
 	for i := 0; i < numChans; i++ {
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+		ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 		chanPoint := openChannelAndAssert(
 			ctxt, t, net, net.Alice, carol,
 			lntest.OpenChannelParams{
@@ -13501,7 +13554,7 @@ func testExportChannelBackup(net *lntest.NetworkHarness, t *harnessTest) {
 	numChans := 2
 	chanAmt := btcutil.Amount(1000000)
 	for i := 0; i < numChans; i++ {
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+		ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 		chanPoint := openChannelAndAssert(
 			ctxt, t, net, net.Alice, carol,
 			lntest.OpenChannelParams{

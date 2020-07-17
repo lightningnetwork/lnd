@@ -1,4 +1,4 @@
-// +build ios android
+// +build mobile
 
 package lndmobile
 
@@ -9,6 +9,7 @@ import (
 
 	flags "github.com/jessevdk/go-flags"
 	"github.com/lightningnetwork/lnd"
+	"github.com/lightningnetwork/lnd/signal"
 )
 
 // Start starts lnd in a new goroutine.
@@ -40,9 +41,20 @@ func Start(extraArgs string, unlockerReady, rpcReady Callback) {
 		splitArgs = append(splitArgs, "--"+a)
 	}
 
-	// Add the extra arguments to os.Args, as that will be parsed during
-	// startup.
+	// Add the extra arguments to os.Args, as that will be parsed in
+	// LoadConfig below.
 	os.Args = append(os.Args, splitArgs...)
+
+	// Load the configuration, and parse the extra arguments as command
+	// line options. This function will also set up logging properly.
+	loadedConfig, err := lnd.LoadConfig()
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	// Hook interceptor for os signals.
+	signal.Intercept()
 
 	// Set up channels that will be notified when the RPC servers are ready
 	// to accept calls.
@@ -67,7 +79,9 @@ func Start(extraArgs string, unlockerReady, rpcReady Callback) {
 	// Call the "real" main in a nested manner so the defers will properly
 	// be executed in the case of a graceful shutdown.
 	go func() {
-		if err := lnd.Main(cfg); err != nil {
+		if err := lnd.Main(
+			loadedConfig, cfg, signal.ShutdownChannel(),
+		); err != nil {
 			if e, ok := err.(*flags.Error); ok &&
 				e.Type == flags.ErrHelp {
 			} else {
@@ -84,7 +98,7 @@ func Start(extraArgs string, unlockerReady, rpcReady Callback) {
 
 		// We must set the TLS certificates in order to properly
 		// authenticate with the wallet unlocker service.
-		auth, err := lnd.WalletUnlockerAuthOptions()
+		auth, err := lnd.WalletUnlockerAuthOptions(loadedConfig)
 		if err != nil {
 			unlockerReady.OnError(err)
 			return
@@ -102,7 +116,7 @@ func Start(extraArgs string, unlockerReady, rpcReady Callback) {
 		// Now that the RPC server is ready, we can get the needed
 		// authentication options, and add them to the global dial
 		// options.
-		auth, err := lnd.AdminAuthOptions()
+		auth, err := lnd.AdminAuthOptions(loadedConfig)
 		if err != nil {
 			rpcReady.OnError(err)
 			return

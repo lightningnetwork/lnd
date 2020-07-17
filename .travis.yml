@@ -44,6 +44,8 @@ jobs:
         - make lint workers=1
         - make btcd
         - make release sys=windows-amd64
+        - make mobile-rpc
+        - go build --tags="mobile" ./mobile
     - stage: Test
       script: make travis-cover
       name: Unit Cover

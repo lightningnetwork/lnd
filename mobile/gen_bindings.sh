@@ -3,11 +3,17 @@
 mkdir -p build
 
 # Check falafel version.
-falafelVersion="0.7"
+falafelVersion=$1
+if [ -z $falafelVersion ]
+then
+        echo "falafel version not set"
+        exit 1
+fi
+
 falafel=$(which falafel)
 if [ $falafel ]
 then
-        version=$($falafel -v)
+        version="v$($falafel -v)"
         if [ $version != $falafelVersion ]
         then
                 echo "falafel version $falafelVersion required"
@@ -45,7 +51,7 @@ protoc -I/usr/local/include -I. \
 # If prefix=1 is specified, prefix the generated methods with subserver name.
 # This must be enabled to support subservers with name conflicts.
 use_prefix="0"
-if [[ $prefix = "1" ]]
+if [ "$prefix" = "1" ]
 then
     echo "Prefixing methods with subserver name"
     use_prefix="1"

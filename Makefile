@@ -6,6 +6,8 @@ BTCD_PKG := github.com/btcsuite/btcd
 GOVERALLS_PKG := github.com/mattn/goveralls
 LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
 GOACC_PKG := github.com/ory/go-acc
+FALAFEL_PKG := github.com/lightninglabs/falafel
+GOIMPORTS_PKG := golang.org/x/tools/cmd/goimports
 
 GO_BIN := ${GOPATH}/bin
 BTCD_BIN := $(GO_BIN)/btcd
@@ -32,6 +34,7 @@ BTCD_COMMIT := $(shell cat go.mod | \
 
 LINT_COMMIT := v1.18.0
 GOACC_COMMIT := ddc355013f90fea78d83d3a6c71f1d37ac07ecd5
+FALAFEL_COMMIT := v0.7.1
 
 DEPGET := cd /tmp && GO111MODULE=on go get -v
 GOBUILD := GO111MODULE=on go build -v
@@ -106,6 +109,14 @@ $(GOACC_BIN):
 btcd:
 	@$(call print, "Installing btcd.")
 	$(DEPGET) $(BTCD_PKG)@$(BTCD_COMMIT)
+
+falafel:
+	@$(call print, "Installing falafel.")
+	$(DEPGET) $(FALAFEL_PKG)@$(FALAFEL_COMMIT)
+
+goimports:
+	@$(call print, "Installing goimports.")
+	$(DEPGET) $(GOIMPORTS_PKG)
 
 # ============
 # INSTALLATION
@@ -213,9 +224,9 @@ rpc-check: rpc
 	for rpc in $$(find lnrpc/ -name "*.proto" | $(XARGS) awk '/    rpc /{print $$2}'); do if ! grep -q $$rpc lnrpc/rest-annotations.yaml; then echo "RPC $$rpc not added to lnrpc/rest-annotations.yaml"; exit 1; fi; done
 	if test -n "$$(git describe --dirty | grep dirty)"; then echo "Protos not properly formatted or not compiled with v3.4.0"; git status; git diff; exit 1; fi
 
-mobile-rpc:
+mobile-rpc: falafel goimports
 	@$(call print, "Creating mobile RPC from protos.")
-	cd ./mobile; ./gen_bindings.sh
+	cd ./mobile; ./gen_bindings.sh $(FALAFEL_COMMIT)
 
 vendor:
 	@$(call print, "Re-creating vendor directory.")
@@ -224,12 +235,12 @@ vendor:
 ios: vendor mobile-rpc
 	@$(call print, "Building iOS framework ($(IOS_BUILD)).")
 	mkdir -p $(IOS_BUILD_DIR)
-	$(GOMOBILE_BIN) bind -target=ios -tags="ios $(DEV_TAGS) autopilotrpc experimental" $(LDFLAGS) -v -o $(IOS_BUILD) $(MOBILE_PKG)
+	$(GOMOBILE_BIN) bind -target=ios -tags="mobile $(DEV_TAGS) autopilotrpc experimental" $(LDFLAGS) -v -o $(IOS_BUILD) $(MOBILE_PKG)
 
 android: vendor mobile-rpc
 	@$(call print, "Building Android library ($(ANDROID_BUILD)).")
 	mkdir -p $(ANDROID_BUILD_DIR)
-	$(GOMOBILE_BIN) bind -target=android -tags="android $(DEV_TAGS) autopilotrpc experimental" $(LDFLAGS) -v -o $(ANDROID_BUILD) $(MOBILE_PKG)
+	$(GOMOBILE_BIN) bind -target=android -tags="mobile $(DEV_TAGS) autopilotrpc experimental" $(LDFLAGS) -v -o $(ANDROID_BUILD) $(MOBILE_PKG)
 
 mobile: ios android
 
@@ -252,6 +263,7 @@ clean:
 	unit \
 	unit-cover \
 	unit-race \
+	falafel \
 	goveralls \
 	travis-race \
 	travis-cover \

@@ -266,8 +266,7 @@ func sendCoins(cliCtx *cli.Context) error {
 	args := cliCtx.Args()
 
 	if cliCtx.NArg() == 0 && cliCtx.NumFlags() == 0 {
-		cli.ShowCommandHelp(cliCtx, "sendcoins")
-		return nil
+		return cli.ShowCommandHelp(cliCtx, "sendcoins")
 	}
 
 	if cliCtx.IsSet("conf_target") && cliCtx.IsSet("sat_per_byte") {
@@ -380,8 +379,7 @@ func listUnspent(cliCtx *cli.Context) error {
 	case args.Present():
 		minConfirms, err = strconv.ParseInt(args.First(), 10, 64)
 		if err != nil {
-			cli.ShowCommandHelp(cliCtx, "listunspent")
-			return nil
+			return cli.ShowCommandHelp(cliCtx, "listunspent")
 		}
 		args = args.Tail()
 	}
@@ -392,8 +390,7 @@ func listUnspent(cliCtx *cli.Context) error {
 	case args.Present():
 		maxConfirms, err = strconv.ParseInt(args.First(), 10, 64)
 		if err != nil {
-			cli.ShowCommandHelp(cliCtx, "listunspent")
-			return nil
+			return cli.ShowCommandHelp(cliCtx, "listunspent")
 		}
 		args = args.Tail()
 	}
@@ -403,8 +400,7 @@ func listUnspent(cliCtx *cli.Context) error {
 	// Force minConfirms and maxConfirms to be zero if unconfirmedOnly is
 	// true.
 	if unconfirmedOnly && (minConfirms != 0 || maxConfirms != 0) {
-		cli.ShowCommandHelp(cliCtx, "listunspent")
-		return nil
+		return cli.ShowCommandHelp(cliCtx, "listunspent")
 	}
 
 	// When unconfirmedOnly is inactive, we will override maxConfirms to be
@@ -669,8 +665,7 @@ func closeChannel(cliCtx *cli.Context) error {
 
 	// Show command help if no arguments and flags were provided.
 	if cliCtx.NArg() == 0 && cliCtx.NumFlags() == 0 {
-		cli.ShowCommandHelp(cliCtx, "closechannel")
-		return nil
+		return cli.ShowCommandHelp(cliCtx, "closechannel")
 	}
 
 	channelPoint, err := parseChannelPoint(cliCtx)
@@ -1026,8 +1021,7 @@ func abandonChannel(cliCtx *cli.Context) error {
 
 	// Show command help if no arguments and flags were provided.
 	if cliCtx.NArg() == 0 && cliCtx.NumFlags() == 0 {
-		cli.ShowCommandHelp(cliCtx, "abandonchannel")
-		return nil
+		return cli.ShowCommandHelp(cliCtx, "abandonchannel")
 	}
 
 	channelPoint, err := parseChannelPoint(cliCtx)
@@ -2920,8 +2914,7 @@ func exportChanBackup(cliCtx *cli.Context) error {
 
 	// Show command help if no arguments provided
 	if cliCtx.NArg() == 0 && cliCtx.NumFlags() == 0 {
-		cli.ShowCommandHelp(cliCtx, "exportchanbackup")
-		return nil
+		return cli.ShowCommandHelp(cliCtx, "exportchanbackup")
 	}
 
 	var (
@@ -3065,8 +3058,7 @@ func verifyChanBackup(cliCtx *cli.Context) error {
 
 	// Show command help if no arguments provided
 	if cliCtx.NArg() == 0 && cliCtx.NumFlags() == 0 {
-		cli.ShowCommandHelp(cliCtx, "verifychanbackup")
-		return nil
+		return cli.ShowCommandHelp(cliCtx, "verifychanbackup")
 	}
 
 	backups, err := parseChanBackups(cliCtx)
@@ -3207,8 +3199,7 @@ func restoreChanBackup(cliCtx *cli.Context) error {
 
 	// Show command help if no arguments provided
 	if cliCtx.NArg() == 0 && cliCtx.NumFlags() == 0 {
-		cli.ShowCommandHelp(cliCtx, "restorechanbackup")
-		return nil
+		return cli.ShowCommandHelp(cliCtx, "restorechanbackup")
 	}
 
 	var req lnrpc.RestoreChanBackupRequest

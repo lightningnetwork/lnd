@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
@@ -115,7 +114,7 @@ func monowidthColumns(words []string, ncols int) []string {
 }
 
 func create(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxc := getContext()
 	client, cleanUp := getWalletUnlockerClient(ctx)
 	defer cleanUp()
 
@@ -343,7 +342,7 @@ mnemonicCheck:
 		genSeedReq := &lnrpc.GenSeedRequest{
 			AezeedPassphrase: aezeedPass,
 		}
-		seedResp, err := client.GenSeed(ctxb, genSeedReq)
+		seedResp, err := client.GenSeed(ctxc, genSeedReq)
 		if err != nil {
 			return fmt.Errorf("unable to generate seed: %v", err)
 		}
@@ -384,7 +383,7 @@ mnemonicCheck:
 		ChannelBackups:     chanBackups,
 		StatelessInit:      statelessInit,
 	}
-	response, err := client.InitWallet(ctxb, req)
+	response, err := client.InitWallet(ctxc, req)
 	if err != nil {
 		return err
 	}
@@ -481,7 +480,7 @@ var unlockCommand = cli.Command{
 }
 
 func unlock(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxc := getContext()
 	client, cleanUp := getWalletUnlockerClient(ctx)
 	defer cleanUp()
 
@@ -533,7 +532,7 @@ func unlock(ctx *cli.Context) error {
 		RecoveryWindow: recoveryWindow,
 		StatelessInit:  ctx.Bool(statelessInitFlag.Name),
 	}
-	_, err = client.UnlockWallet(ctxb, req)
+	_, err = client.UnlockWallet(ctxc, req)
 	if err != nil {
 		return err
 	}
@@ -591,7 +590,7 @@ var changePasswordCommand = cli.Command{
 }
 
 func changePassword(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxc := getContext()
 	client, cleanUp := getWalletUnlockerClient(ctx)
 	defer cleanUp()
 
@@ -630,7 +629,7 @@ func changePassword(ctx *cli.Context) error {
 		NewMacaroonRootKey: ctx.Bool("new_mac_root_key"),
 	}
 
-	response, err := client.ChangePassword(ctxb, req)
+	response, err := client.ChangePassword(ctxc, req)
 	if err != nil {
 		return err
 	}

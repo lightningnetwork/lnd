@@ -1,8 +1,6 @@
 package main
 
 import (
-	"context"
-
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 
 	"github.com/urfave/cli"
@@ -16,13 +14,13 @@ var resetMissionControlCommand = cli.Command{
 }
 
 func resetMissionControl(ctx *cli.Context) error {
+	ctxc := getContext()
 	conn := getClientConn(ctx, false)
 	defer conn.Close()
 
 	client := routerrpc.NewRouterClient(conn)
 
 	req := &routerrpc.ResetMissionControlRequest{}
-	rpcCtx := context.Background()
-	_, err := client.ResetMissionControl(rpcCtx, req)
+	_, err := client.ResetMissionControl(ctxc, req)
 	return err
 }

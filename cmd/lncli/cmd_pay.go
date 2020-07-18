@@ -338,6 +338,7 @@ func sendPayment(ctx *cli.Context) error {
 
 func sendPaymentRequest(ctx *cli.Context,
 	req *routerrpc.SendPaymentRequest) error {
+	ctxc := getContext()
 
 	conn := getClientConn(ctx, false)
 	defer conn.Close()
@@ -419,9 +420,7 @@ func sendPaymentRequest(ctx *cli.Context,
 	if req.PaymentRequest != "" {
 		// Decode payment request to find out the amount.
 		decodeReq := &lnrpc.PayReqString{PayReq: req.PaymentRequest}
-		decodeResp, err := client.DecodePayReq(
-			context.Background(), decodeReq,
-		)
+		decodeResp, err := client.DecodePayReq(ctxc, decodeReq)
 		if err != nil {
 			return err
 		}
@@ -462,13 +461,13 @@ func sendPaymentRequest(ctx *cli.Context,
 	printJSON := ctx.Bool(jsonFlag.Name)
 	req.NoInflightUpdates = !ctx.Bool(inflightUpdatesFlag.Name) && printJSON
 
-	stream, err := routerClient.SendPaymentV2(context.Background(), req)
+	stream, err := routerClient.SendPaymentV2(ctxc, req)
 	if err != nil {
 		return err
 	}
 
 	finalState, err := printLivePayment(
-		stream, client, printJSON,
+		ctxc, stream, client, printJSON,
 	)
 	if err != nil {
 		return err
@@ -497,6 +496,7 @@ var trackPaymentCommand = cli.Command{
 }
 
 func trackPayment(ctx *cli.Context) error {
+	ctxc := getContext()
 	args := ctx.Args()
 
 	conn := getClientConn(ctx, false)
@@ -517,13 +517,13 @@ func trackPayment(ctx *cli.Context) error {
 		PaymentHash: hash,
 	}
 
-	stream, err := routerClient.TrackPaymentV2(context.Background(), req)
+	stream, err := routerClient.TrackPaymentV2(ctxc, req)
 	if err != nil {
 		return err
 	}
 
 	client := lnrpc.NewLightningClient(conn)
-	_, err = printLivePayment(stream, client, ctx.Bool(jsonFlag.Name))
+	_, err = printLivePayment(ctxc, stream, client, ctx.Bool(jsonFlag.Name))
 	return err
 }
 
@@ -531,7 +531,8 @@ func trackPayment(ctx *cli.Context) error {
 // outputs them as json or as a more user-friendly formatted table. The table
 // option uses terminal control codes to rewrite the output. This call
 // terminates when the payment reaches a final state.
-func printLivePayment(stream routerrpc.Router_TrackPaymentV2Client,
+func printLivePayment(ctxc context.Context,
+	stream routerrpc.Router_TrackPaymentV2Client,
 	client lnrpc.LightningClient, json bool) (*lnrpc.Payment, error) {
 
 	// Terminal escape codes aren't supported on Windows, fall back to json.
@@ -561,7 +562,7 @@ func printLivePayment(stream routerrpc.Router_TrackPaymentV2Client,
 			// Write raw json to stdout.
 			printRespJSON(payment)
 		} else {
-			table := formatPayment(payment, aliases)
+			table := formatPayment(ctxc, payment, aliases)
 
 			// Clear all previously written lines and print the
 			// updated table.
@@ -599,7 +600,7 @@ func newAliasCache(client lnrpc.LightningClient) *aliasCache {
 }
 
 // get returns a node alias either from cache or freshly requested from lnd.
-func (a *aliasCache) get(pubkey string) string {
+func (a *aliasCache) get(ctxc context.Context, pubkey string) string {
 	alias, ok := a.cache[pubkey]
 	if ok {
 		return alias
@@ -607,7 +608,7 @@ func (a *aliasCache) get(pubkey string) string {
 
 	// Request node info.
 	resp, err := a.client.GetNodeInfo(
-		context.Background(),
+		ctxc,
 		&lnrpc.NodeInfoRequest{
 			PubKey: pubkey,
 		},
@@ -630,7 +631,8 @@ func formatMsat(amt int64) string {
 }
 
 // formatPayment formats the payment state as an ascii table.
-func formatPayment(payment *lnrpc.Payment, aliases *aliasCache) string {
+func formatPayment(ctxc context.Context, payment *lnrpc.Payment,
+	aliases *aliasCache) string {
 	t := table.NewWriter()
 
 	// Build table header.
@@ -669,7 +671,7 @@ func formatPayment(payment *lnrpc.Payment, aliases *aliasCache) string {
 
 		hops := []string{}
 		for _, h := range route.Hops {
-			alias := aliases.get(h.PubKey)
+			alias := aliases.get(ctxc, h.PubKey)
 			hops = append(hops, alias)
 		}
 
@@ -891,12 +893,13 @@ func sendToRoute(ctx *cli.Context) error {
 }
 
 func sendToRouteRequest(ctx *cli.Context, req *routerrpc.SendToRouteRequest) error {
+	ctxc := getContext()
 	conn := getClientConn(ctx, false)
 	defer conn.Close()
 
 	client := routerrpc.NewRouterClient(conn)
 
-	resp, err := client.SendToRouteV2(context.Background(), req)
+	resp, err := client.SendToRouteV2(ctxc, req)
 	if err != nil {
 		return err
 	}

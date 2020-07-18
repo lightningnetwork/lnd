@@ -253,6 +253,9 @@ func (s *Server) SubscribeSingleInvoice(req *SubscribeSingleInvoiceRequest,
 				return nil
 			}
 
+		case <-updateStream.Context().Done():
+			return updateStream.Context().Err()
+
 		case <-s.quit:
 			return nil
 		}

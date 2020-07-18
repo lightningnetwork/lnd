@@ -40,13 +40,13 @@ import (
 const defaultRecoveryWindow int32 = 2500
 
 func getContext() context.Context {
-	ctxb, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		<-signal.ShutdownChannel()
 		cancel()
 
 	}()
-	return ctxb
+	return ctx
 }
 
 func printJSON(resp interface{}) {
@@ -128,12 +128,12 @@ var newAddressCommand = cli.Command{
 	Action: actionDecorator(newAddress),
 }
 
-func newAddress(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func newAddress(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
-	stringAddrType := ctx.Args().First()
+	stringAddrType := cliCtx.Args().First()
 
 	// Map the string encoded address type, to the concrete typed address
 	// type enum. An unrecognized address type will result in an error.
@@ -148,7 +148,7 @@ func newAddress(ctx *cli.Context) error {
 			"are: p2wkh and np2wkh", stringAddrType)
 	}
 
-	addr, err := client.NewAddress(ctxb, &lnrpc.NewAddressRequest{
+	addr, err := client.NewAddress(ctx, &lnrpc.NewAddressRequest{
 		Type: addrType,
 	})
 	if err != nil {
@@ -181,21 +181,21 @@ var estimateFeeCommand = cli.Command{
 	Action: actionDecorator(estimateFees),
 }
 
-func estimateFees(ctx *cli.Context) error {
+func estimateFees(cliCtx *cli.Context) error {
 	var amountToAddr map[string]int64
 
-	jsonMap := ctx.Args().First()
+	jsonMap := cliCtx.Args().First()
 	if err := json.Unmarshal([]byte(jsonMap), &amountToAddr); err != nil {
 		return err
 	}
 
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
-	resp, err := client.EstimateFee(ctxb, &lnrpc.EstimateFeeRequest{
+	resp, err := client.EstimateFee(ctx, &lnrpc.EstimateFeeRequest{
 		AddrToAmount: amountToAddr,
-		TargetConf:   int32(ctx.Int64("conf_target")),
+		TargetConf:   int32(cliCtx.Int64("conf_target")),
 	})
 	if err != nil {
 		return err
@@ -257,27 +257,27 @@ var sendCoinsCommand = cli.Command{
 	Action: actionDecorator(sendCoins),
 }
 
-func sendCoins(ctx *cli.Context) error {
+func sendCoins(cliCtx *cli.Context) error {
 	var (
 		addr string
 		amt  int64
 		err  error
 	)
-	args := ctx.Args()
+	args := cliCtx.Args()
 
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		cli.ShowCommandHelp(ctx, "sendcoins")
+	if cliCtx.NArg() == 0 && cliCtx.NumFlags() == 0 {
+		cli.ShowCommandHelp(cliCtx, "sendcoins")
 		return nil
 	}
 
-	if ctx.IsSet("conf_target") && ctx.IsSet("sat_per_byte") {
+	if cliCtx.IsSet("conf_target") && cliCtx.IsSet("sat_per_byte") {
 		return fmt.Errorf("either conf_target or sat_per_byte should be " +
 			"set, but not both")
 	}
 
 	switch {
-	case ctx.IsSet("addr"):
-		addr = ctx.String("addr")
+	case cliCtx.IsSet("addr"):
+		addr = cliCtx.String("addr")
 	case args.Present():
 		addr = args.First()
 		args = args.Tail()
@@ -286,35 +286,35 @@ func sendCoins(ctx *cli.Context) error {
 	}
 
 	switch {
-	case ctx.IsSet("amt"):
-		amt = ctx.Int64("amt")
+	case cliCtx.IsSet("amt"):
+		amt = cliCtx.Int64("amt")
 	case args.Present():
 		amt, err = strconv.ParseInt(args.First(), 10, 64)
-	case !ctx.Bool("sweepall"):
+	case !cliCtx.Bool("sweepall"):
 		return fmt.Errorf("Amount argument missing")
 	}
 	if err != nil {
 		return fmt.Errorf("unable to decode amount: %v", err)
 	}
 
-	if amt != 0 && ctx.Bool("sweepall") {
+	if amt != 0 && cliCtx.Bool("sweepall") {
 		return fmt.Errorf("amount cannot be set if attempting to " +
 			"sweep all coins out of the wallet")
 	}
 
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	req := &lnrpc.SendCoinsRequest{
 		Addr:       addr,
 		Amount:     amt,
-		TargetConf: int32(ctx.Int64("conf_target")),
-		SatPerByte: ctx.Int64("sat_per_byte"),
-		SendAll:    ctx.Bool("sweepall"),
-		Label:      ctx.String(txLabelFlag.Name),
+		TargetConf: int32(cliCtx.Int64("conf_target")),
+		SatPerByte: cliCtx.Int64("sat_per_byte"),
+		SendAll:    cliCtx.Bool("sweepall"),
+		Label:      cliCtx.String(txLabelFlag.Name),
 	}
-	txid, err := client.SendCoins(ctxb, req)
+	txid, err := client.SendCoins(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -361,49 +361,49 @@ var listUnspentCommand = cli.Command{
 	Action: actionDecorator(listUnspent),
 }
 
-func listUnspent(ctx *cli.Context) error {
+func listUnspent(cliCtx *cli.Context) error {
 	var (
 		minConfirms int64
 		maxConfirms int64
 		err         error
 	)
-	args := ctx.Args()
+	args := cliCtx.Args()
 
-	if ctx.IsSet("max_confs") && !ctx.IsSet("min_confs") {
+	if cliCtx.IsSet("max_confs") && !cliCtx.IsSet("min_confs") {
 		return fmt.Errorf("max_confs cannot be set without " +
 			"min_confs being set")
 	}
 
 	switch {
-	case ctx.IsSet("min_confs"):
-		minConfirms = ctx.Int64("min_confs")
+	case cliCtx.IsSet("min_confs"):
+		minConfirms = cliCtx.Int64("min_confs")
 	case args.Present():
 		minConfirms, err = strconv.ParseInt(args.First(), 10, 64)
 		if err != nil {
-			cli.ShowCommandHelp(ctx, "listunspent")
+			cli.ShowCommandHelp(cliCtx, "listunspent")
 			return nil
 		}
 		args = args.Tail()
 	}
 
 	switch {
-	case ctx.IsSet("max_confs"):
-		maxConfirms = ctx.Int64("max_confs")
+	case cliCtx.IsSet("max_confs"):
+		maxConfirms = cliCtx.Int64("max_confs")
 	case args.Present():
 		maxConfirms, err = strconv.ParseInt(args.First(), 10, 64)
 		if err != nil {
-			cli.ShowCommandHelp(ctx, "listunspent")
+			cli.ShowCommandHelp(cliCtx, "listunspent")
 			return nil
 		}
 		args = args.Tail()
 	}
 
-	unconfirmedOnly := ctx.Bool("unconfirmed_only")
+	unconfirmedOnly := cliCtx.Bool("unconfirmed_only")
 
 	// Force minConfirms and maxConfirms to be zero if unconfirmedOnly is
 	// true.
 	if unconfirmedOnly && (minConfirms != 0 || maxConfirms != 0) {
-		cli.ShowCommandHelp(ctx, "listunspent")
+		cli.ShowCommandHelp(cliCtx, "listunspent")
 		return nil
 	}
 
@@ -413,15 +413,15 @@ func listUnspent(ctx *cli.Context) error {
 		maxConfirms = math.MaxInt32
 	}
 
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	req := &lnrpc.ListUnspentRequest{
 		MinConfs: int32(minConfirms),
 		MaxConfs: int32(maxConfirms),
 	}
-	resp, err := client.ListUnspent(ctxb, req)
+	resp, err := client.ListUnspent(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -473,28 +473,28 @@ var sendManyCommand = cli.Command{
 	Action: actionDecorator(sendMany),
 }
 
-func sendMany(ctx *cli.Context) error {
+func sendMany(cliCtx *cli.Context) error {
 	var amountToAddr map[string]int64
 
-	jsonMap := ctx.Args().First()
+	jsonMap := cliCtx.Args().First()
 	if err := json.Unmarshal([]byte(jsonMap), &amountToAddr); err != nil {
 		return err
 	}
 
-	if ctx.IsSet("conf_target") && ctx.IsSet("sat_per_byte") {
+	if cliCtx.IsSet("conf_target") && cliCtx.IsSet("sat_per_byte") {
 		return fmt.Errorf("either conf_target or sat_per_byte should be " +
 			"set, but not both")
 	}
 
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
-	txid, err := client.SendMany(ctxb, &lnrpc.SendManyRequest{
+	txid, err := client.SendMany(ctx, &lnrpc.SendManyRequest{
 		AddrToAmount: amountToAddr,
-		TargetConf:   int32(ctx.Int64("conf_target")),
-		SatPerByte:   ctx.Int64("sat_per_byte"),
-		Label:        ctx.String(txLabelFlag.Name),
+		TargetConf:   int32(cliCtx.Int64("conf_target")),
+		SatPerByte:   cliCtx.Int64("sat_per_byte"),
+		Label:        cliCtx.String(txLabelFlag.Name),
 	})
 	if err != nil {
 		return err
@@ -520,12 +520,12 @@ var connectCommand = cli.Command{
 	Action: actionDecorator(connectPeer),
 }
 
-func connectPeer(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func connectPeer(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
-	targetAddress := ctx.Args().First()
+	targetAddress := cliCtx.Args().First()
 	splitAddr := strings.Split(targetAddress, "@")
 	if len(splitAddr) != 2 {
 		return fmt.Errorf("target address expected in format: " +
@@ -538,10 +538,10 @@ func connectPeer(ctx *cli.Context) error {
 	}
 	req := &lnrpc.ConnectPeerRequest{
 		Addr: addr,
-		Perm: ctx.Bool("perm"),
+		Perm: cliCtx.Bool("perm"),
 	}
 
-	lnid, err := client.ConnectPeer(ctxb, req)
+	lnid, err := client.ConnectPeer(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -565,17 +565,17 @@ var disconnectCommand = cli.Command{
 	Action: actionDecorator(disconnectPeer),
 }
 
-func disconnectPeer(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func disconnectPeer(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	var pubKey string
 	switch {
-	case ctx.IsSet("node_key"):
-		pubKey = ctx.String("node_key")
-	case ctx.Args().Present():
-		pubKey = ctx.Args().First()
+	case cliCtx.IsSet("node_key"):
+		pubKey = cliCtx.String("node_key")
+	case cliCtx.Args().Present():
+		pubKey = cliCtx.Args().First()
 	default:
 		return fmt.Errorf("must specify target public key")
 	}
@@ -584,7 +584,7 @@ func disconnectPeer(ctx *cli.Context) error {
 		PubKey: pubKey,
 	}
 
-	lnid, err := client.DisconnectPeer(ctxb, req)
+	lnid, err := client.DisconnectPeer(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -662,18 +662,18 @@ var closeChannelCommand = cli.Command{
 	Action: actionDecorator(closeChannel),
 }
 
-func closeChannel(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func closeChannel(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	// Show command help if no arguments and flags were provided.
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		cli.ShowCommandHelp(ctx, "closechannel")
+	if cliCtx.NArg() == 0 && cliCtx.NumFlags() == 0 {
+		cli.ShowCommandHelp(cliCtx, "closechannel")
 		return nil
 	}
 
-	channelPoint, err := parseChannelPoint(ctx)
+	channelPoint, err := parseChannelPoint(cliCtx)
 	if err != nil {
 		return err
 	}
@@ -681,10 +681,10 @@ func closeChannel(ctx *cli.Context) error {
 	// TODO(roasbeef): implement time deadline within server
 	req := &lnrpc.CloseChannelRequest{
 		ChannelPoint:    channelPoint,
-		Force:           ctx.Bool("force"),
-		TargetConf:      int32(ctx.Int64("conf_target")),
-		SatPerByte:      ctx.Int64("sat_per_byte"),
-		DeliveryAddress: ctx.String("delivery_addr"),
+		Force:           cliCtx.Bool("force"),
+		TargetConf:      int32(cliCtx.Int64("conf_target")),
+		SatPerByte:      cliCtx.Int64("sat_per_byte"),
+		DeliveryAddress: cliCtx.String("delivery_addr"),
 	}
 
 	// After parsing the request, we'll spin up a goroutine that will
@@ -706,7 +706,7 @@ func closeChannel(ctx *cli.Context) error {
 		})
 	}()
 
-	err = executeChannelClose(ctxb, client, req, txidChan, ctx.Bool("block"))
+	err = executeChannelClose(ctx, client, req, txidChan, cliCtx.Bool("block"))
 	if err != nil {
 		return err
 	}
@@ -723,10 +723,10 @@ func closeChannel(ctx *cli.Context) error {
 // transaction ID is sent through `txidChan` as soon as it is broadcasted to the
 // network. The block boolean is used to determine if we should block until the
 // closing transaction receives all of its required confirmations.
-func executeChannelClose(ctxb context.Context, client lnrpc.LightningClient,
+func executeChannelClose(ctx context.Context, client lnrpc.LightningClient,
 	req *lnrpc.CloseChannelRequest, txidChan chan<- string, block bool) error {
 
-	stream, err := client.CloseChannel(ctxb, req)
+	stream, err := client.CloseChannel(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -808,13 +808,13 @@ var closeAllChannelsCommand = cli.Command{
 	Action: actionDecorator(closeAllChannels),
 }
 
-func closeAllChannels(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func closeAllChannels(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	listReq := &lnrpc.ListChannelsRequest{}
-	openChannels, err := client.ListChannels(ctxb, listReq)
+	openChannels, err := client.ListChannels(ctx, listReq)
 	if err != nil {
 		return fmt.Errorf("unable to fetch open channels: %v", err)
 	}
@@ -826,7 +826,7 @@ func closeAllChannels(ctx *cli.Context) error {
 	var channelsToClose []*lnrpc.Channel
 
 	switch {
-	case ctx.Bool("force") && ctx.Bool("inactive_only"):
+	case cliCtx.Bool("force") && cliCtx.Bool("inactive_only"):
 		msg := "Unilaterally close all inactive channels? The funds " +
 			"within these channels will be locked for some blocks " +
 			"(CSV delay) before they can be spent. (yes/no): "
@@ -847,7 +847,7 @@ func closeAllChannels(ctx *cli.Context) error {
 				)
 			}
 		}
-	case ctx.Bool("force"):
+	case cliCtx.Bool("force"):
 		msg := "Close all active and inactive channels? Inactive " +
 			"channels will be closed unilaterally, so funds " +
 			"within them will be locked for a few blocks (CSV " +
@@ -883,7 +883,7 @@ func closeAllChannels(ctx *cli.Context) error {
 						channelsToClose, channel,
 					)
 				}
-			} else if !ctx.Bool("inactive_only") {
+			} else if !cliCtx.Bool("inactive_only") {
 				// Otherwise, we'll only add active channels if
 				// we were not requested to close inactive
 				// channels only.
@@ -940,12 +940,12 @@ func closeAllChannels(ctx *cli.Context) error {
 					OutputIndex: uint32(index),
 				},
 				Force:      !channel.GetActive(),
-				TargetConf: int32(ctx.Int64("conf_target")),
-				SatPerByte: ctx.Int64("sat_per_byte"),
+				TargetConf: int32(cliCtx.Int64("conf_target")),
+				SatPerByte: cliCtx.Int64("sat_per_byte"),
 			}
 
 			txidChan := make(chan string, 1)
-			err = executeChannelClose(ctxb, client, req, txidChan, false)
+			err = executeChannelClose(ctx, client, req, txidChan, false)
 			if err != nil {
 				res.FailErr = fmt.Sprintf("unable to close "+
 					"channel: %v", err)
@@ -1019,18 +1019,18 @@ var abandonChannelCommand = cli.Command{
 	Action: actionDecorator(abandonChannel),
 }
 
-func abandonChannel(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func abandonChannel(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	// Show command help if no arguments and flags were provided.
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		cli.ShowCommandHelp(ctx, "abandonchannel")
+	if cliCtx.NArg() == 0 && cliCtx.NumFlags() == 0 {
+		cli.ShowCommandHelp(cliCtx, "abandonchannel")
 		return nil
 	}
 
-	channelPoint, err := parseChannelPoint(ctx)
+	channelPoint, err := parseChannelPoint(cliCtx)
 	if err != nil {
 		return err
 	}
@@ -1039,7 +1039,7 @@ func abandonChannel(ctx *cli.Context) error {
 		ChannelPoint: channelPoint,
 	}
 
-	resp, err := client.AbandonChannel(ctxb, req)
+	resp, err := client.AbandonChannel(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -1050,15 +1050,15 @@ func abandonChannel(ctx *cli.Context) error {
 
 // parseChannelPoint parses a funding txid and output index from the command
 // line. Both named options as well as unnamed parameters are supported.
-func parseChannelPoint(ctx *cli.Context) (*lnrpc.ChannelPoint, error) {
+func parseChannelPoint(cliCtx *cli.Context) (*lnrpc.ChannelPoint, error) {
 	channelPoint := &lnrpc.ChannelPoint{}
 
-	args := ctx.Args()
+	args := cliCtx.Args()
 
 	switch {
-	case ctx.IsSet("funding_txid"):
+	case cliCtx.IsSet("funding_txid"):
 		channelPoint.FundingTxid = &lnrpc.ChannelPoint_FundingTxidStr{
-			FundingTxidStr: ctx.String("funding_txid"),
+			FundingTxidStr: cliCtx.String("funding_txid"),
 		}
 	case args.Present():
 		channelPoint.FundingTxid = &lnrpc.ChannelPoint_FundingTxidStr{
@@ -1070,8 +1070,8 @@ func parseChannelPoint(ctx *cli.Context) (*lnrpc.ChannelPoint, error) {
 	}
 
 	switch {
-	case ctx.IsSet("output_index"):
-		channelPoint.OutputIndex = uint32(ctx.Int("output_index"))
+	case cliCtx.IsSet("output_index"):
+		channelPoint.OutputIndex = uint32(cliCtx.Int("output_index"))
 	case args.Present():
 		index, err := strconv.ParseUint(args.First(), 10, 32)
 		if err != nil {
@@ -1098,17 +1098,17 @@ var listPeersCommand = cli.Command{
 	Action: actionDecorator(listPeers),
 }
 
-func listPeers(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func listPeers(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	// By default, we display a single error on the cli. If the user
 	// specifically requests a full error set, then we will provide it.
 	req := &lnrpc.ListPeersRequest{
-		LatestError: !ctx.IsSet("list_errors"),
+		LatestError: !cliCtx.IsSet("list_errors"),
 	}
-	resp, err := client.ListPeers(ctxb, req)
+	resp, err := client.ListPeers(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -1192,9 +1192,9 @@ func monowidthColumns(words []string, ncols int) []string {
 	return finalWords
 }
 
-func create(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getWalletUnlockerClient(ctx)
+func create(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getWalletUnlockerClient(cliCtx)
 	defer cleanUp()
 
 	var (
@@ -1205,7 +1205,7 @@ func create(ctx *cli.Context) error {
 		restoreSCB = false
 	)
 
-	backups, err := parseChanBackups(ctx)
+	backups, err := parseChanBackups(cliCtx)
 
 	// We'll check to see if the user provided any static channel backups (SCB),
 	// if so, we will warn the user that SCB recovery closes all open channels
@@ -1415,7 +1415,7 @@ mnemonicCheck:
 		genSeedReq := &lnrpc.GenSeedRequest{
 			AezeedPassphrase: aezeedPass,
 		}
-		seedResp, err := client.GenSeed(ctxb, genSeedReq)
+		seedResp, err := client.GenSeed(ctx, genSeedReq)
 		if err != nil {
 			return fmt.Errorf("unable to generate seed: %v", err)
 		}
@@ -1454,7 +1454,7 @@ mnemonicCheck:
 		RecoveryWindow:     recoveryWindow,
 		ChannelBackups:     chanBackups,
 	}
-	if _, err := client.InitWallet(ctxb, req); err != nil {
+	if _, err := client.InitWallet(ctx, req); err != nil {
 		return err
 	}
 
@@ -1545,9 +1545,9 @@ var unlockCommand = cli.Command{
 	Action: actionDecorator(unlock),
 }
 
-func unlock(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getWalletUnlockerClient(ctx)
+func unlock(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getWalletUnlockerClient(cliCtx)
 	defer cleanUp()
 
 	var (
@@ -1559,7 +1559,7 @@ func unlock(ctx *cli.Context) error {
 	// only be used if the password is piped into lncli from some sort of
 	// password manager. If the user types the password instead, it will be
 	// echoed in the console.
-	case ctx.IsSet("stdin"):
+	case cliCtx.IsSet("stdin"):
 		reader := bufio.NewReader(os.Stdin)
 		pw, err = reader.ReadBytes('\n')
 
@@ -1582,15 +1582,15 @@ func unlock(ctx *cli.Context) error {
 		return err
 	}
 
-	args := ctx.Args()
+	args := cliCtx.Args()
 
 	// Parse the optional recovery window if it is specified. By default,
 	// the recovery window will be 0, indicating no lookahead should be
 	// used.
 	var recoveryWindow int32
 	switch {
-	case ctx.IsSet("recovery_window"):
-		recoveryWindow = int32(ctx.Int64("recovery_window"))
+	case cliCtx.IsSet("recovery_window"):
+		recoveryWindow = int32(cliCtx.Int64("recovery_window"))
 	case args.Present():
 		window, err := strconv.ParseInt(args.First(), 10, 64)
 		if err != nil {
@@ -1603,7 +1603,7 @@ func unlock(ctx *cli.Context) error {
 		WalletPassword: pw,
 		RecoveryWindow: recoveryWindow,
 	}
-	_, err = client.UnlockWallet(ctxb, req)
+	_, err = client.UnlockWallet(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -1632,9 +1632,9 @@ var changePasswordCommand = cli.Command{
 	Action: actionDecorator(changePassword),
 }
 
-func changePassword(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getWalletUnlockerClient(ctx)
+func changePassword(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getWalletUnlockerClient(cliCtx)
 	defer cleanUp()
 
 	fmt.Printf("Input current wallet password: ")
@@ -1667,7 +1667,7 @@ func changePassword(ctx *cli.Context) error {
 		NewPassword:     newPw,
 	}
 
-	_, err = client.ChangePassword(ctxb, req)
+	_, err = client.ChangePassword(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -1682,13 +1682,13 @@ var walletBalanceCommand = cli.Command{
 	Action:   actionDecorator(walletBalance),
 }
 
-func walletBalance(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func walletBalance(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	req := &lnrpc.WalletBalanceRequest{}
-	resp, err := client.WalletBalance(ctxb, req)
+	resp, err := client.WalletBalance(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -1705,13 +1705,13 @@ var channelBalanceCommand = cli.Command{
 	Action: actionDecorator(channelBalance),
 }
 
-func channelBalance(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func channelBalance(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	req := &lnrpc.ChannelBalanceRequest{}
-	resp, err := client.ChannelBalance(ctxb, req)
+	resp, err := client.ChannelBalance(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -1726,13 +1726,13 @@ var getInfoCommand = cli.Command{
 	Action: actionDecorator(getInfo),
 }
 
-func getInfo(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func getInfo(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	req := &lnrpc.GetInfoRequest{}
-	resp, err := client.GetInfo(ctxb, req)
+	resp, err := client.GetInfo(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -1747,13 +1747,13 @@ var getRecoveryInfoCommand = cli.Command{
 	Action: actionDecorator(getRecoveryInfo),
 }
 
-func getRecoveryInfo(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func getRecoveryInfo(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	req := &lnrpc.GetRecoveryInfoRequest{}
-	resp, err := client.GetRecoveryInfo(ctxb, req)
+	resp, err := client.GetRecoveryInfo(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -1769,13 +1769,13 @@ var pendingChannelsCommand = cli.Command{
 	Action:   actionDecorator(pendingChannels),
 }
 
-func pendingChannels(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func pendingChannels(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	req := &lnrpc.PendingChannelsRequest{}
-	resp, err := client.PendingChannels(ctxb, req)
+	resp, err := client.PendingChannels(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -1816,12 +1816,12 @@ var listChannelsCommand = cli.Command{
 	Action: actionDecorator(listChannels),
 }
 
-func listChannels(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func listChannels(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
-	peer := ctx.String("peer")
+	peer := cliCtx.String("peer")
 
 	// If the user requested channels with a particular key, parse the
 	// provided pubkey.
@@ -1836,14 +1836,14 @@ func listChannels(ctx *cli.Context) error {
 	}
 
 	req := &lnrpc.ListChannelsRequest{
-		ActiveOnly:   ctx.Bool("active_only"),
-		InactiveOnly: ctx.Bool("inactive_only"),
-		PublicOnly:   ctx.Bool("public_only"),
-		PrivateOnly:  ctx.Bool("private_only"),
+		ActiveOnly:   cliCtx.Bool("active_only"),
+		InactiveOnly: cliCtx.Bool("inactive_only"),
+		PublicOnly:   cliCtx.Bool("public_only"),
+		PrivateOnly:  cliCtx.Bool("private_only"),
 		Peer:         peerKey,
 	}
 
-	resp, err := client.ListChannels(ctxb, req)
+	resp, err := client.ListChannels(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -1891,21 +1891,21 @@ var closedChannelsCommand = cli.Command{
 	Action: actionDecorator(closedChannels),
 }
 
-func closedChannels(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func closedChannels(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	req := &lnrpc.ClosedChannelsRequest{
-		Cooperative:     ctx.Bool("cooperative"),
-		LocalForce:      ctx.Bool("local_force"),
-		RemoteForce:     ctx.Bool("remote_force"),
-		Breach:          ctx.Bool("breach"),
-		FundingCanceled: ctx.Bool("funding_canceled"),
-		Abandoned:       ctx.Bool("abandoned"),
+		Cooperative:     cliCtx.Bool("cooperative"),
+		LocalForce:      cliCtx.Bool("local_force"),
+		RemoteForce:     cliCtx.Bool("remote_force"),
+		Breach:          cliCtx.Bool("breach"),
+		FundingCanceled: cliCtx.Bool("funding_canceled"),
+		Abandoned:       cliCtx.Bool("abandoned"),
 	}
 
-	resp, err := client.ClosedChannels(ctxb, req)
+	resp, err := client.ClosedChannels(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -1932,16 +1932,16 @@ var describeGraphCommand = cli.Command{
 	Action: actionDecorator(describeGraph),
 }
 
-func describeGraph(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func describeGraph(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	req := &lnrpc.ChannelGraphRequest{
-		IncludeUnannounced: ctx.Bool("include_unannounced"),
+		IncludeUnannounced: cliCtx.Bool("include_unannounced"),
 	}
 
-	graph, err := client.DescribeGraph(ctxb, req)
+	graph, err := client.DescribeGraph(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -1958,16 +1958,16 @@ var getNodeMetricsCommand = cli.Command{
 	Action:      actionDecorator(getNodeMetrics),
 }
 
-func getNodeMetrics(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func getNodeMetrics(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	req := &lnrpc.NodeMetricsRequest{
 		Types: []lnrpc.NodeMetricType{lnrpc.NodeMetricType_BETWEENNESS_CENTRALITY},
 	}
 
-	nodeMetrics, err := client.GetNodeMetrics(ctxb, req)
+	nodeMetrics, err := client.GetNodeMetrics(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -2021,19 +2021,19 @@ var listPaymentsCommand = cli.Command{
 	Action: actionDecorator(listPayments),
 }
 
-func listPayments(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func listPayments(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	req := &lnrpc.ListPaymentsRequest{
-		IncludeIncomplete: ctx.Bool("include_incomplete"),
-		IndexOffset:       uint64(ctx.Uint("index_offset")),
-		MaxPayments:       uint64(ctx.Uint("max_payments")),
-		Reversed:          !ctx.Bool("paginate_forwards"),
+		IncludeIncomplete: cliCtx.Bool("include_incomplete"),
+		IndexOffset:       uint64(cliCtx.Uint("index_offset")),
+		MaxPayments:       uint64(cliCtx.Uint("max_payments")),
+		Reversed:          !cliCtx.Bool("paginate_forwards"),
 	}
 
-	payments, err := client.ListPayments(ctxb, req)
+	payments, err := client.ListPayments(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -2058,9 +2058,9 @@ var getChanInfoCommand = cli.Command{
 	Action: actionDecorator(getChanInfo),
 }
 
-func getChanInfo(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func getChanInfo(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	var (
@@ -2069,10 +2069,10 @@ func getChanInfo(ctx *cli.Context) error {
 	)
 
 	switch {
-	case ctx.IsSet("chan_id"):
-		chanID = ctx.Int64("chan_id")
-	case ctx.Args().Present():
-		chanID, err = strconv.ParseInt(ctx.Args().First(), 10, 64)
+	case cliCtx.IsSet("chan_id"):
+		chanID = cliCtx.Int64("chan_id")
+	case cliCtx.Args().Present():
+		chanID, err = strconv.ParseInt(cliCtx.Args().First(), 10, 64)
 		if err != nil {
 			return fmt.Errorf("error parsing chan_id: %s", err)
 		}
@@ -2084,7 +2084,7 @@ func getChanInfo(ctx *cli.Context) error {
 		ChanId: uint64(chanID),
 	}
 
-	chanInfo, err := client.GetChanInfo(ctxb, req)
+	chanInfo, err := client.GetChanInfo(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -2114,17 +2114,17 @@ var getNodeInfoCommand = cli.Command{
 	Action: actionDecorator(getNodeInfo),
 }
 
-func getNodeInfo(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func getNodeInfo(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
-	args := ctx.Args()
+	args := cliCtx.Args()
 
 	var pubKey string
 	switch {
-	case ctx.IsSet("pub_key"):
-		pubKey = ctx.String("pub_key")
+	case cliCtx.IsSet("pub_key"):
+		pubKey = cliCtx.String("pub_key")
 	case args.Present():
 		pubKey = args.First()
 	default:
@@ -2133,10 +2133,10 @@ func getNodeInfo(ctx *cli.Context) error {
 
 	req := &lnrpc.NodeInfoRequest{
 		PubKey:          pubKey,
-		IncludeChannels: ctx.Bool("include_channels"),
+		IncludeChannels: cliCtx.Bool("include_channels"),
 	}
 
-	nodeInfo, err := client.GetNodeInfo(ctxb, req)
+	nodeInfo, err := client.GetNodeInfo(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -2185,9 +2185,9 @@ var queryRoutesCommand = cli.Command{
 	Action: actionDecorator(queryRoutes),
 }
 
-func queryRoutes(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func queryRoutes(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	var (
@@ -2196,11 +2196,11 @@ func queryRoutes(ctx *cli.Context) error {
 		err  error
 	)
 
-	args := ctx.Args()
+	args := cliCtx.Args()
 
 	switch {
-	case ctx.IsSet("dest"):
-		dest = ctx.String("dest")
+	case cliCtx.IsSet("dest"):
+		dest = cliCtx.String("dest")
 	case args.Present():
 		dest = args.First()
 		args = args.Tail()
@@ -2209,8 +2209,8 @@ func queryRoutes(ctx *cli.Context) error {
 	}
 
 	switch {
-	case ctx.IsSet("amt"):
-		amt = ctx.Int64("amt")
+	case cliCtx.IsSet("amt"):
+		amt = cliCtx.Int64("amt")
 	case args.Present():
 		amt, err = strconv.ParseInt(args.First(), 10, 64)
 		if err != nil {
@@ -2220,7 +2220,7 @@ func queryRoutes(ctx *cli.Context) error {
 		return fmt.Errorf("amt argument missing")
 	}
 
-	feeLimit, err := retrieveFeeLimitLegacy(ctx)
+	feeLimit, err := retrieveFeeLimitLegacy(cliCtx)
 	if err != nil {
 		return err
 	}
@@ -2229,12 +2229,12 @@ func queryRoutes(ctx *cli.Context) error {
 		PubKey:            dest,
 		Amt:               amt,
 		FeeLimit:          feeLimit,
-		FinalCltvDelta:    int32(ctx.Int("final_cltv_delta")),
-		UseMissionControl: ctx.Bool("use_mc"),
-		CltvLimit:         uint32(ctx.Uint64(cltvLimitFlag.Name)),
+		FinalCltvDelta:    int32(cliCtx.Int("final_cltv_delta")),
+		UseMissionControl: cliCtx.Bool("use_mc"),
+		CltvLimit:         uint32(cliCtx.Uint64(cltvLimitFlag.Name)),
 	}
 
-	route, err := client.QueryRoutes(ctxb, req)
+	route, err := client.QueryRoutes(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -2246,19 +2246,19 @@ func queryRoutes(ctx *cli.Context) error {
 // retrieveFeeLimitLegacy retrieves the fee limit based on the different fee
 // limit flags passed. This function will eventually disappear in favor of
 // retrieveFeeLimit and the new payment rpc.
-func retrieveFeeLimitLegacy(ctx *cli.Context) (*lnrpc.FeeLimit, error) {
+func retrieveFeeLimitLegacy(cliCtx *cli.Context) (*lnrpc.FeeLimit, error) {
 	switch {
-	case ctx.IsSet("fee_limit") && ctx.IsSet("fee_limit_percent"):
+	case cliCtx.IsSet("fee_limit") && cliCtx.IsSet("fee_limit_percent"):
 		return nil, fmt.Errorf("either fee_limit or fee_limit_percent " +
 			"can be set, but not both")
-	case ctx.IsSet("fee_limit"):
+	case cliCtx.IsSet("fee_limit"):
 		return &lnrpc.FeeLimit{
 			Limit: &lnrpc.FeeLimit_Fixed{
-				Fixed: ctx.Int64("fee_limit"),
+				Fixed: cliCtx.Int64("fee_limit"),
 			},
 		}, nil
-	case ctx.IsSet("fee_limit_percent"):
-		feeLimitPercent := ctx.Int64("fee_limit_percent")
+	case cliCtx.IsSet("fee_limit_percent"):
+		feeLimitPercent := cliCtx.Int64("fee_limit_percent")
 		if feeLimitPercent < 0 {
 			return nil, errors.New("negative fee limit percentage " +
 				"provided")
@@ -2285,14 +2285,14 @@ var getNetworkInfoCommand = cli.Command{
 	Action: actionDecorator(getNetworkInfo),
 }
 
-func getNetworkInfo(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func getNetworkInfo(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	req := &lnrpc.NetworkInfoRequest{}
 
-	netInfo, err := client.GetNetworkInfo(ctxb, req)
+	netInfo, err := client.GetNetworkInfo(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -2321,16 +2321,16 @@ var debugLevelCommand = cli.Command{
 	Action: actionDecorator(debugLevel),
 }
 
-func debugLevel(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func debugLevel(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 	req := &lnrpc.DebugLevelRequest{
-		Show:      ctx.Bool("show"),
-		LevelSpec: ctx.String("level"),
+		Show:      cliCtx.Bool("show"),
+		LevelSpec: cliCtx.String("level"),
 	}
 
-	resp, err := client.DebugLevel(ctxb, req)
+	resp, err := client.DebugLevel(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -2373,21 +2373,21 @@ var listChainTxnsCommand = cli.Command{
 	Action: actionDecorator(listChainTxns),
 }
 
-func listChainTxns(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func listChainTxns(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	req := &lnrpc.GetTransactionsRequest{}
 
-	if ctx.IsSet("start_height") {
-		req.StartHeight = int32(ctx.Int64("start_height"))
+	if cliCtx.IsSet("start_height") {
+		req.StartHeight = int32(cliCtx.Int64("start_height"))
 	}
-	if ctx.IsSet("end_height") {
-		req.EndHeight = int32(ctx.Int64("end_height"))
+	if cliCtx.IsSet("end_height") {
+		req.EndHeight = int32(cliCtx.Int64("end_height"))
 	}
 
-	resp, err := client.GetTransactions(ctxb, req)
+	resp, err := client.GetTransactions(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -2405,12 +2405,12 @@ var stopCommand = cli.Command{
 	Action: actionDecorator(stopDaemon),
 }
 
-func stopDaemon(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func stopDaemon(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
-	_, err := client.StopDaemon(ctxb, &lnrpc.StopRequest{})
+	_, err := client.StopDaemon(ctx, &lnrpc.StopRequest{})
 	if err != nil {
 		return err
 	}
@@ -2437,23 +2437,23 @@ var signMessageCommand = cli.Command{
 	Action: actionDecorator(signMessage),
 }
 
-func signMessage(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func signMessage(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	var msg []byte
 
 	switch {
-	case ctx.IsSet("msg"):
-		msg = []byte(ctx.String("msg"))
-	case ctx.Args().Present():
-		msg = []byte(ctx.Args().First())
+	case cliCtx.IsSet("msg"):
+		msg = []byte(cliCtx.String("msg"))
+	case cliCtx.Args().Present():
+		msg = []byte(cliCtx.Args().First())
 	default:
 		return fmt.Errorf("msg argument missing")
 	}
 
-	resp, err := client.SignMessage(ctxb, &lnrpc.SignMessageRequest{Msg: msg})
+	resp, err := client.SignMessage(ctx, &lnrpc.SignMessageRequest{Msg: msg})
 	if err != nil {
 		return err
 	}
@@ -2486,9 +2486,9 @@ var verifyMessageCommand = cli.Command{
 	Action: actionDecorator(verifyMessage),
 }
 
-func verifyMessage(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func verifyMessage(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	var (
@@ -2496,21 +2496,21 @@ func verifyMessage(ctx *cli.Context) error {
 		sig string
 	)
 
-	args := ctx.Args()
+	args := cliCtx.Args()
 
 	switch {
-	case ctx.IsSet("msg"):
-		msg = []byte(ctx.String("msg"))
+	case cliCtx.IsSet("msg"):
+		msg = []byte(cliCtx.String("msg"))
 	case args.Present():
-		msg = []byte(ctx.Args().First())
+		msg = []byte(cliCtx.Args().First())
 		args = args.Tail()
 	default:
 		return fmt.Errorf("msg argument missing")
 	}
 
 	switch {
-	case ctx.IsSet("sig"):
-		sig = ctx.String("sig")
+	case cliCtx.IsSet("sig"):
+		sig = cliCtx.String("sig")
 	case args.Present():
 		sig = args.First()
 	default:
@@ -2518,7 +2518,7 @@ func verifyMessage(ctx *cli.Context) error {
 	}
 
 	req := &lnrpc.VerifyMessageRequest{Msg: msg, Signature: sig}
-	resp, err := client.VerifyMessage(ctxb, req)
+	resp, err := client.VerifyMessage(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -2537,13 +2537,13 @@ var feeReportCommand = cli.Command{
 	Action: actionDecorator(feeReport),
 }
 
-func feeReport(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func feeReport(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	req := &lnrpc.FeeReportRequest{}
-	resp, err := client.FeeReport(ctxb, req)
+	resp, err := client.FeeReport(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -2630,9 +2630,9 @@ func parseChanPoint(s string) (*lnrpc.ChannelPoint, error) {
 	}, nil
 }
 
-func updateChannelPolicy(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func updateChannelPolicy(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	var (
@@ -2641,11 +2641,11 @@ func updateChannelPolicy(ctx *cli.Context) error {
 		timeLockDelta int64
 		err           error
 	)
-	args := ctx.Args()
+	args := cliCtx.Args()
 
 	switch {
-	case ctx.IsSet("base_fee_msat"):
-		baseFee = ctx.Int64("base_fee_msat")
+	case cliCtx.IsSet("base_fee_msat"):
+		baseFee = cliCtx.Int64("base_fee_msat")
 	case args.Present():
 		baseFee, err = strconv.ParseInt(args.First(), 10, 64)
 		if err != nil {
@@ -2657,8 +2657,8 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	}
 
 	switch {
-	case ctx.IsSet("fee_rate"):
-		feeRate = ctx.Float64("fee_rate")
+	case cliCtx.IsSet("fee_rate"):
+		feeRate = cliCtx.Float64("fee_rate")
 	case args.Present():
 		feeRate, err = strconv.ParseFloat(args.First(), 64)
 		if err != nil {
@@ -2671,8 +2671,8 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	}
 
 	switch {
-	case ctx.IsSet("time_lock_delta"):
-		timeLockDelta = ctx.Int64("time_lock_delta")
+	case cliCtx.IsSet("time_lock_delta"):
+		timeLockDelta = cliCtx.Int64("time_lock_delta")
 	case args.Present():
 		timeLockDelta, err = strconv.ParseInt(args.First(), 10, 64)
 		if err != nil {
@@ -2691,8 +2691,8 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	)
 
 	switch {
-	case ctx.IsSet("chan_point"):
-		chanPointStr = ctx.String("chan_point")
+	case cliCtx.IsSet("chan_point"):
+		chanPointStr = cliCtx.String("chan_point")
 	case args.Present():
 		chanPointStr = args.First()
 	}
@@ -2708,11 +2708,11 @@ func updateChannelPolicy(ctx *cli.Context) error {
 		BaseFeeMsat:   baseFee,
 		FeeRate:       feeRate,
 		TimeLockDelta: uint32(timeLockDelta),
-		MaxHtlcMsat:   ctx.Uint64("max_htlc_msat"),
+		MaxHtlcMsat:   cliCtx.Uint64("max_htlc_msat"),
 	}
 
-	if ctx.IsSet("min_htlc_msat") {
-		req.MinHtlcMsat = ctx.Uint64("min_htlc_msat")
+	if cliCtx.IsSet("min_htlc_msat") {
+		req.MinHtlcMsat = cliCtx.Uint64("min_htlc_msat")
 		req.MinHtlcMsatSpecified = true
 	}
 
@@ -2726,7 +2726,7 @@ func updateChannelPolicy(ctx *cli.Context) error {
 		}
 	}
 
-	resp, err := client.UpdateChannelPolicy(ctxb, req)
+	resp, err := client.UpdateChannelPolicy(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -2781,9 +2781,9 @@ var forwardingHistoryCommand = cli.Command{
 	Action: actionDecorator(forwardingHistory),
 }
 
-func forwardingHistory(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func forwardingHistory(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	var (
@@ -2791,12 +2791,12 @@ func forwardingHistory(ctx *cli.Context) error {
 		indexOffset, maxEvents uint32
 		err                    error
 	)
-	args := ctx.Args()
+	args := cliCtx.Args()
 	now := time.Now()
 
 	switch {
-	case ctx.IsSet("start_time"):
-		startTime, err = parseTime(ctx.String("start_time"), now)
+	case cliCtx.IsSet("start_time"):
+		startTime, err = parseTime(cliCtx.String("start_time"), now)
 	case args.Present():
 		startTime, err = parseTime(args.First(), now)
 		args = args.Tail()
@@ -2809,8 +2809,8 @@ func forwardingHistory(ctx *cli.Context) error {
 	}
 
 	switch {
-	case ctx.IsSet("end_time"):
-		endTime, err = parseTime(ctx.String("end_time"), now)
+	case cliCtx.IsSet("end_time"):
+		endTime, err = parseTime(cliCtx.String("end_time"), now)
 	case args.Present():
 		endTime, err = parseTime(args.First(), now)
 		args = args.Tail()
@@ -2822,8 +2822,8 @@ func forwardingHistory(ctx *cli.Context) error {
 	}
 
 	switch {
-	case ctx.IsSet("index_offset"):
-		indexOffset = uint32(ctx.Int64("index_offset"))
+	case cliCtx.IsSet("index_offset"):
+		indexOffset = uint32(cliCtx.Int64("index_offset"))
 	case args.Present():
 		i, err := strconv.ParseInt(args.First(), 10, 64)
 		if err != nil {
@@ -2834,8 +2834,8 @@ func forwardingHistory(ctx *cli.Context) error {
 	}
 
 	switch {
-	case ctx.IsSet("max_events"):
-		maxEvents = uint32(ctx.Int64("max_events"))
+	case cliCtx.IsSet("max_events"):
+		maxEvents = uint32(cliCtx.Int64("max_events"))
 	case args.Present():
 		m, err := strconv.ParseInt(args.First(), 10, 64)
 		if err != nil {
@@ -2851,7 +2851,7 @@ func forwardingHistory(ctx *cli.Context) error {
 		IndexOffset:  indexOffset,
 		NumMaxEvents: maxEvents,
 	}
-	resp, err := client.ForwardingHistory(ctxb, req)
+	resp, err := client.ForwardingHistory(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -2913,14 +2913,14 @@ var exportChanBackupCommand = cli.Command{
 	Action: actionDecorator(exportChanBackup),
 }
 
-func exportChanBackup(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func exportChanBackup(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	// Show command help if no arguments provided
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		cli.ShowCommandHelp(ctx, "exportchanbackup")
+	if cliCtx.NArg() == 0 && cliCtx.NumFlags() == 0 {
+		cli.ShowCommandHelp(cliCtx, "exportchanbackup")
 		return nil
 	}
 
@@ -2928,16 +2928,16 @@ func exportChanBackup(ctx *cli.Context) error {
 		err          error
 		chanPointStr string
 	)
-	args := ctx.Args()
+	args := cliCtx.Args()
 
 	switch {
-	case ctx.IsSet("chan_point"):
-		chanPointStr = ctx.String("chan_point")
+	case cliCtx.IsSet("chan_point"):
+		chanPointStr = cliCtx.String("chan_point")
 
 	case args.Present():
 		chanPointStr = args.First()
 
-	case !ctx.IsSet("all"):
+	case !cliCtx.IsSet("all"):
 		return fmt.Errorf("must specify chan_point if --all isn't set")
 	}
 
@@ -2948,7 +2948,7 @@ func exportChanBackup(ctx *cli.Context) error {
 		}
 
 		chanBackup, err := client.ExportChannelBackup(
-			ctxb, &lnrpc.ExportChannelBackupRequest{
+			ctx, &lnrpc.ExportChannelBackupRequest{
 				ChanPoint: chanPointRPC,
 			},
 		)
@@ -2978,20 +2978,20 @@ func exportChanBackup(ctx *cli.Context) error {
 		return nil
 	}
 
-	if !ctx.IsSet("all") {
+	if !cliCtx.IsSet("all") {
 		return fmt.Errorf("if a channel isn't specified, -all must be")
 	}
 
 	chanBackup, err := client.ExportAllChannelBackups(
-		ctxb, &lnrpc.ChanBackupExportRequest{},
+		ctx, &lnrpc.ChanBackupExportRequest{},
 	)
 	if err != nil {
 		return err
 	}
 
-	if ctx.IsSet("output_file") {
+	if cliCtx.IsSet("output_file") {
 		return ioutil.WriteFile(
-			ctx.String("output_file"),
+			cliCtx.String("output_file"),
 			chanBackup.MultiChanBackup.MultiChanBackup,
 			0666,
 		)
@@ -3058,18 +3058,18 @@ var verifyChanBackupCommand = cli.Command{
 	Action: actionDecorator(verifyChanBackup),
 }
 
-func verifyChanBackup(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func verifyChanBackup(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	// Show command help if no arguments provided
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		cli.ShowCommandHelp(ctx, "verifychanbackup")
+	if cliCtx.NArg() == 0 && cliCtx.NumFlags() == 0 {
+		cli.ShowCommandHelp(cliCtx, "verifychanbackup")
 		return nil
 	}
 
-	backups, err := parseChanBackups(ctx)
+	backups, err := parseChanBackups(cliCtx)
 	if err != nil {
 		return err
 	}
@@ -3085,7 +3085,7 @@ func verifyChanBackup(ctx *cli.Context) error {
 		}
 	}
 
-	resp, err := client.VerifyChanBackup(ctxb, &verifyReq)
+	resp, err := client.VerifyChanBackup(ctx, &verifyReq)
 	if err != nil {
 		return err
 	}
@@ -3144,11 +3144,11 @@ var restoreChanBackupCommand = cli.Command{
 // backup from a CLI command and it is missing.
 var errMissingChanBackup = errors.New("missing channel backup")
 
-func parseChanBackups(ctx *cli.Context) (*lnrpc.RestoreChanBackupRequest, error) {
+func parseChanBackups(cliCtx *cli.Context) (*lnrpc.RestoreChanBackupRequest, error) {
 	switch {
-	case ctx.IsSet("single_backup"):
+	case cliCtx.IsSet("single_backup"):
 		packedBackup, err := hex.DecodeString(
-			ctx.String("single_backup"),
+			cliCtx.String("single_backup"),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode single packed "+
@@ -3167,9 +3167,9 @@ func parseChanBackups(ctx *cli.Context) (*lnrpc.RestoreChanBackupRequest, error)
 			},
 		}, nil
 
-	case ctx.IsSet("multi_backup"):
+	case cliCtx.IsSet("multi_backup"):
 		packedMulti, err := hex.DecodeString(
-			ctx.String("multi_backup"),
+			cliCtx.String("multi_backup"),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode multi packed "+
@@ -3182,8 +3182,8 @@ func parseChanBackups(ctx *cli.Context) (*lnrpc.RestoreChanBackupRequest, error)
 			},
 		}, nil
 
-	case ctx.IsSet("multi_file"):
-		packedMulti, err := ioutil.ReadFile(ctx.String("multi_file"))
+	case cliCtx.IsSet("multi_file"):
+		packedMulti, err := ioutil.ReadFile(cliCtx.String("multi_file"))
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode multi packed "+
 				"backup: %v", err)
@@ -3200,27 +3200,27 @@ func parseChanBackups(ctx *cli.Context) (*lnrpc.RestoreChanBackupRequest, error)
 	}
 }
 
-func restoreChanBackup(ctx *cli.Context) error {
-	ctxb := getContext()
-	client, cleanUp := getClient(ctx)
+func restoreChanBackup(cliCtx *cli.Context) error {
+	ctx := getContext()
+	client, cleanUp := getClient(cliCtx)
 	defer cleanUp()
 
 	// Show command help if no arguments provided
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		cli.ShowCommandHelp(ctx, "restorechanbackup")
+	if cliCtx.NArg() == 0 && cliCtx.NumFlags() == 0 {
+		cli.ShowCommandHelp(cliCtx, "restorechanbackup")
 		return nil
 	}
 
 	var req lnrpc.RestoreChanBackupRequest
 
-	backups, err := parseChanBackups(ctx)
+	backups, err := parseChanBackups(cliCtx)
 	if err != nil {
 		return err
 	}
 
 	req.Backup = backups.Backup
 
-	_, err = client.RestoreChannelBackups(ctxb, &req)
+	_, err = client.RestoreChannelBackups(ctx, &req)
 	if err != nil {
 		return fmt.Errorf("unable to restore chan backups: %v", err)
 	}

@@ -148,6 +148,7 @@ type Config struct {
 	TLSExtraDomains    []string `long:"tlsextradomain" description:"Adds an extra domain to the generated certificate"`
 	TLSAutoRefresh     bool     `long:"tlsautorefresh" description:"Re-generate TLS certificate and key if the IPs or domains are changed"`
 	TLSDisableAutofill bool     `long:"tlsdisableautofill" description:"Do not include the interface IPs or the system hostname in TLS certificate, use first --tlsextradomain as Common Name instead, if set"`
+	TLSEncryptKey      bool     `long:"tlsencryptkey" description:"Automatically encrypts the TLS private key and generates ephemeral TLS key pairs when the wallet is locked or not initialized"`
 
 	NoMacaroons     bool          `long:"no-macaroons" description:"Disable macaroon authentication"`
 	AdminMacPath    string        `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
@@ -352,11 +353,11 @@ func DefaultConfig() Config {
 		ChanEnableTimeout:             defaultChanEnableTimeout,
 		ChanDisableTimeout:            defaultChanDisableTimeout,
 		HeightHintCacheQueryDisable:   defaultHeightHintCacheQueryDisable,
-		Alias:                         defaultAlias,
-		Color:                         defaultColor,
-		MinChanSize:                   int64(minChanFundingSize),
-		NumGraphSyncPeers:             defaultMinPeers,
-		HistoricalSyncInterval:        discovery.DefaultHistoricalSyncInterval,
+		Alias:                  defaultAlias,
+		Color:                  defaultColor,
+		MinChanSize:            int64(minChanFundingSize),
+		NumGraphSyncPeers:      defaultMinPeers,
+		HistoricalSyncInterval: discovery.DefaultHistoricalSyncInterval,
 		Tor: &lncfg.Tor{
 			SOCKS:   defaultTorSOCKS,
 			DNS:     defaultTorDNS,

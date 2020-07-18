@@ -24,17 +24,17 @@ var (
 	}
 )
 
-// LoadCert loads a certificate and its corresponding private key from the PEM
-// files indicated and returns the certificate in the two formats it is most
+// LoadCert loads a certificate and its corresponding private key from the
+// bytes indicated and returns the certificate in the two formats it is most
 // commonly used.
-func LoadCert(certPath, keyPath string) (tls.Certificate, *x509.Certificate,
+func LoadCert(certBuf, keyBuf []byte) (tls.Certificate, *x509.Certificate,
 	error) {
 
 	// The certData returned here is just a wrapper around the PEM blocks
 	// loaded from the file. The PEM is not yet fully parsed but a basic
 	// check is performed that the certificate and private key actually
 	// belong together.
-	certData, err := tls.LoadX509KeyPair(certPath, keyPath)
+	certData, err := tls.X509KeyPair(certBuf, keyBuf)
 	if err != nil {
 		return tls.Certificate{}, nil, err
 	}

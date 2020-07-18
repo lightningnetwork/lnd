@@ -153,14 +153,24 @@
 <time> [ERR] RPCS: [/lnrpc.Lightning/SendPayment]: rpc server shutting down
 <time> [ERR] RPCS: [/lnrpc.Lightning/SendToRoute]: rpc error: code = Canceled desc = context canceled
 <time> [ERR] RPCS: [/lnrpc.Lightning/SendToRoute]: rpc error: code = DeadlineExceeded desc = context deadline exceeded
+<time> [ERR] RPCS: [/lnrpc.Lightning/SendToRoute]: context canceled
+<time> [ERR] RPCS: [/lnrpc.Lightning/SendToRoute]: context deadline exceeded
 <time> [ERR] RPCS: [/lnrpc.Lightning/SendToRoute]: rpc server shutting down
 <time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelEvents]: rpc error: code = Canceled desc = context canceled
-<time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: ChannelRouter shutting down
-<time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: router not started
+<time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelEvents]: rpc error: code = DeadlineExceeded desc = context deadline exceeded
+<time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelEvents]: context canceled
+<time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelEvents]: context deadline exceeded
 <time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: rpc error: code = Canceled desc = context canceled
 <time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: rpc error: code = DeadlineExceeded desc = context deadline exceeded
+<time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: context canceled
+<time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: context deadline exceeded
+<time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: ChannelRouter shutting down
+<time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: router not started
 <time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: rpc error: code = Internal desc = transport: transport: the stream is done or WriteHeader was already called
 <time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeInvoices]: rpc error: code = Canceled desc = context canceled
+<time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeInvoices]: rpc error: code = DeadlineExceeded desc = context deadline exceeded
+<time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeInvoices]: context canceled
+<time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeInvoices]: context deadline exceeded
 <time> [ERR] RPCS: [/routerrpc.Router/SendPayment]: routerrpc server shutting down
 <time> [ERR] RPCS: [/routerrpc.Router/SendPaymentV2]: context canceled
 <time> [ERR] RPCS: [/routerrpc.Router/SendPaymentV2]: routerrpc server shutting down

@@ -1923,6 +1923,8 @@ out:
 
 				break out
 			}
+		case <-updateStream.Context().Done():
+			return updateStream.Context().Err()
 		case <-r.quit:
 			return nil
 		}
@@ -1975,6 +1977,8 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 			},
 			OutputIndex: chanUpdate.OutputIndex,
 		}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	case <-r.quit:
 		return nil, nil
 	}
@@ -2242,6 +2246,8 @@ out:
 					"txid(%v)", h)
 				break out
 			}
+		case <-updateStream.Context().Done():
+			return updateStream.Context().Err()
 		case <-r.quit:
 			return nil
 		}
@@ -2666,6 +2672,8 @@ func (r *rpcServer) SubscribePeerEvents(req *lnrpc.PeerEventSubscription,
 			if err := eventStream.Send(event); err != nil {
 				return err
 			}
+		case <-eventStream.Context().Done():
+			return eventStream.Context().Err()
 		case <-r.quit:
 			return nil
 		}
@@ -3804,6 +3812,8 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 			if err := updateStream.Send(update); err != nil {
 				return err
 			}
+		case <-updateStream.Context().Done():
+			return updateStream.Context().Err()
 		case <-r.quit:
 			return nil
 		}
@@ -3833,7 +3843,7 @@ type rpcPaymentRequest struct {
 func (r *rpcServer) SendPayment(stream lnrpc.Lightning_SendPaymentServer) error {
 	var lock sync.Mutex
 
-	return r.sendPayment(&paymentStream{
+	return r.sendPayment(stream.Context(), &paymentStream{
 		recv: func() (*rpcPaymentRequest, error) {
 			req, err := stream.Recv()
 			if err != nil {
@@ -3861,7 +3871,7 @@ func (r *rpcServer) SendPayment(stream lnrpc.Lightning_SendPaymentServer) error 
 func (r *rpcServer) SendToRoute(stream lnrpc.Lightning_SendToRouteServer) error {
 	var lock sync.Mutex
 
-	return r.sendPayment(&paymentStream{
+	return r.sendPayment(stream.Context(), &paymentStream{
 		recv: func() (*rpcPaymentRequest, error) {
 			req, err := stream.Recv()
 			if err != nil {
@@ -4219,7 +4229,8 @@ func (r *rpcServer) dispatchPaymentIntent(
 // the write end of the stream. Responses will also be streamed back to the
 // client via the write end of the stream. This method is by both SendToRoute
 // and SendPayment as the logic is virtually identical.
-func (r *rpcServer) sendPayment(stream *paymentStream) error {
+func (r *rpcServer) sendPayment(ctx context.Context,
+	stream *paymentStream) error {
 	payChan := make(chan *rpcPaymentIntent)
 	errChan := make(chan error, 1)
 
@@ -4261,6 +4272,13 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 		for {
 			select {
 			case <-reqQuit:
+				return
+
+			case <-ctx.Done():
+				select {
+				case errChan <- ctx.Err():
+				default:
+				}
 				return
 
 			default:
@@ -4329,6 +4347,9 @@ sendLoop:
 		// receiving, we return directly, closing the stream.
 		case err := <-errChan:
 			return err
+
+		case <-ctx.Done():
+			return ctx.Err()
 
 		case <-r.quit:
 			return errors.New("rpc server shutting down")
@@ -4702,6 +4723,9 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 				return err
 			}
 
+		case <-updateStream.Context().Done():
+			return updateStream.Context().Err()
+
 		case <-r.quit:
 			return nil
 		}
@@ -4758,6 +4782,9 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 			if err := updateStream.Send(detail); err != nil {
 				return err
 			}
+
+		case <-updateStream.Context().Done():
+			return updateStream.Context().Err()
 
 		case <-r.quit:
 			return nil
@@ -5277,6 +5304,11 @@ func (r *rpcServer) SubscribeChannelGraph(req *lnrpc.GraphTopologySubscription,
 			if err := updateStream.Send(graphUpdate); err != nil {
 				return err
 			}
+
+		// The context was cancelled so we report a cancellation error
+		// and exit immediately.
+		case <-updateStream.Context().Done():
+			return updateStream.Context().Err()
 
 		// The server is quitting, so we'll exit immediately. Returning
 		// nil will close the clients read end of the stream.
@@ -6181,6 +6213,9 @@ func (r *rpcServer) SubscribeChannelBackups(req *lnrpc.ChannelBackupSubscription
 				return err
 			}
 
+		case <-updateStream.Context().Done():
+			return updateStream.Context().Err()
+
 		case <-r.quit:
 			return nil
 		}
@@ -6232,6 +6267,8 @@ func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer
 			rpcsLog.Errorf("RPCAcceptor returned false - reached timeout of %d",
 				r.cfg.AcceptorTimeout)
 			return false
+		case <-stream.Context().Done():
+			return false
 		case <-quit:
 			return false
 		case <-r.quit:
@@ -6246,6 +6283,8 @@ func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer
 		case <-timeout:
 			rpcsLog.Errorf("RPCAcceptor returned false - reached timeout of %d",
 				r.cfg.AcceptorTimeout)
+			return false
+		case <-stream.Context().Done():
 			return false
 		case <-quit:
 			return false
@@ -6289,6 +6328,9 @@ func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer
 			// the responses chan.
 			select {
 			case responses <- openChanResp:
+			case <-stream.Context().Done():
+				errChan <- stream.Context().Err()
+				return
 			case <-quit:
 				return
 			case <-r.quit:
@@ -6346,6 +6388,8 @@ func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer
 		case err := <-errChan:
 			rpcsLog.Errorf("Received an error: %v, shutting down", err)
 			return err
+		case <-stream.Context().Done():
+			return stream.Context().Err()
 		case <-r.quit:
 			return fmt.Errorf("RPC server is shutting down")
 		}

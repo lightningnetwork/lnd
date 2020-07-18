@@ -24,6 +24,7 @@ import (
 	"github.com/lightninglabs/protobuf-hex-display/proto"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/urfave/cli"
 	"golang.org/x/crypto/ssh/terminal"
@@ -37,6 +38,16 @@ import (
 // TODO(roasbeef): expose all fee conf targets
 
 const defaultRecoveryWindow int32 = 2500
+
+func getContext() context.Context {
+	ctxb, cancel := context.WithCancel(context.Background())
+	go func() {
+		<-signal.ShutdownChannel()
+		cancel()
+
+	}()
+	return ctxb
+}
 
 func printJSON(resp interface{}) {
 	b, err := json.Marshal(resp)
@@ -118,6 +129,7 @@ var newAddressCommand = cli.Command{
 }
 
 func newAddress(ctx *cli.Context) error {
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -136,7 +148,6 @@ func newAddress(ctx *cli.Context) error {
 			"are: p2wkh and np2wkh", stringAddrType)
 	}
 
-	ctxb := context.Background()
 	addr, err := client.NewAddress(ctxb, &lnrpc.NewAddressRequest{
 		Type: addrType,
 	})
@@ -178,7 +189,7 @@ func estimateFees(ctx *cli.Context) error {
 		return err
 	}
 
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -291,7 +302,7 @@ func sendCoins(ctx *cli.Context) error {
 			"sweep all coins out of the wallet")
 	}
 
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -402,7 +413,7 @@ func listUnspent(ctx *cli.Context) error {
 		maxConfirms = math.MaxInt32
 	}
 
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -475,7 +486,7 @@ func sendMany(ctx *cli.Context) error {
 			"set, but not both")
 	}
 
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -510,7 +521,7 @@ var connectCommand = cli.Command{
 }
 
 func connectPeer(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -555,7 +566,7 @@ var disconnectCommand = cli.Command{
 }
 
 func disconnectPeer(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -652,6 +663,7 @@ var closeChannelCommand = cli.Command{
 }
 
 func closeChannel(ctx *cli.Context) error {
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -694,7 +706,7 @@ func closeChannel(ctx *cli.Context) error {
 		})
 	}()
 
-	err = executeChannelClose(client, req, txidChan, ctx.Bool("block"))
+	err = executeChannelClose(ctxb, client, req, txidChan, ctx.Bool("block"))
 	if err != nil {
 		return err
 	}
@@ -711,10 +723,10 @@ func closeChannel(ctx *cli.Context) error {
 // transaction ID is sent through `txidChan` as soon as it is broadcasted to the
 // network. The block boolean is used to determine if we should block until the
 // closing transaction receives all of its required confirmations.
-func executeChannelClose(client lnrpc.LightningClient, req *lnrpc.CloseChannelRequest,
-	txidChan chan<- string, block bool) error {
+func executeChannelClose(ctxb context.Context, client lnrpc.LightningClient,
+	req *lnrpc.CloseChannelRequest, txidChan chan<- string, block bool) error {
 
-	stream, err := client.CloseChannel(context.Background(), req)
+	stream, err := client.CloseChannel(ctxb, req)
 	if err != nil {
 		return err
 	}
@@ -797,11 +809,12 @@ var closeAllChannelsCommand = cli.Command{
 }
 
 func closeAllChannels(ctx *cli.Context) error {
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
 	listReq := &lnrpc.ListChannelsRequest{}
-	openChannels, err := client.ListChannels(context.Background(), listReq)
+	openChannels, err := client.ListChannels(ctxb, listReq)
 	if err != nil {
 		return fmt.Errorf("unable to fetch open channels: %v", err)
 	}
@@ -932,7 +945,7 @@ func closeAllChannels(ctx *cli.Context) error {
 			}
 
 			txidChan := make(chan string, 1)
-			err = executeChannelClose(client, req, txidChan, false)
+			err = executeChannelClose(ctxb, client, req, txidChan, false)
 			if err != nil {
 				res.FailErr = fmt.Sprintf("unable to close "+
 					"channel: %v", err)
@@ -1007,8 +1020,7 @@ var abandonChannelCommand = cli.Command{
 }
 
 func abandonChannel(ctx *cli.Context) error {
-	ctxb := context.Background()
-
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -1087,7 +1099,7 @@ var listPeersCommand = cli.Command{
 }
 
 func listPeers(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -1181,7 +1193,7 @@ func monowidthColumns(words []string, ncols int) []string {
 }
 
 func create(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getWalletUnlockerClient(ctx)
 	defer cleanUp()
 
@@ -1534,7 +1546,7 @@ var unlockCommand = cli.Command{
 }
 
 func unlock(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getWalletUnlockerClient(ctx)
 	defer cleanUp()
 
@@ -1621,7 +1633,7 @@ var changePasswordCommand = cli.Command{
 }
 
 func changePassword(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getWalletUnlockerClient(ctx)
 	defer cleanUp()
 
@@ -1671,7 +1683,7 @@ var walletBalanceCommand = cli.Command{
 }
 
 func walletBalance(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -1694,7 +1706,7 @@ var channelBalanceCommand = cli.Command{
 }
 
 func channelBalance(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -1715,7 +1727,7 @@ var getInfoCommand = cli.Command{
 }
 
 func getInfo(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -1736,7 +1748,7 @@ var getRecoveryInfoCommand = cli.Command{
 }
 
 func getRecoveryInfo(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -1758,7 +1770,7 @@ var pendingChannelsCommand = cli.Command{
 }
 
 func pendingChannels(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -1805,7 +1817,7 @@ var listChannelsCommand = cli.Command{
 }
 
 func listChannels(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -1880,7 +1892,7 @@ var closedChannelsCommand = cli.Command{
 }
 
 func closedChannels(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -1921,6 +1933,7 @@ var describeGraphCommand = cli.Command{
 }
 
 func describeGraph(ctx *cli.Context) error {
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -1928,7 +1941,7 @@ func describeGraph(ctx *cli.Context) error {
 		IncludeUnannounced: ctx.Bool("include_unannounced"),
 	}
 
-	graph, err := client.DescribeGraph(context.Background(), req)
+	graph, err := client.DescribeGraph(ctxb, req)
 	if err != nil {
 		return err
 	}
@@ -1946,6 +1959,7 @@ var getNodeMetricsCommand = cli.Command{
 }
 
 func getNodeMetrics(ctx *cli.Context) error {
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -1953,7 +1967,7 @@ func getNodeMetrics(ctx *cli.Context) error {
 		Types: []lnrpc.NodeMetricType{lnrpc.NodeMetricType_BETWEENNESS_CENTRALITY},
 	}
 
-	nodeMetrics, err := client.GetNodeMetrics(context.Background(), req)
+	nodeMetrics, err := client.GetNodeMetrics(ctxb, req)
 	if err != nil {
 		return err
 	}
@@ -2008,6 +2022,7 @@ var listPaymentsCommand = cli.Command{
 }
 
 func listPayments(ctx *cli.Context) error {
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -2018,7 +2033,7 @@ func listPayments(ctx *cli.Context) error {
 		Reversed:          !ctx.Bool("paginate_forwards"),
 	}
 
-	payments, err := client.ListPayments(context.Background(), req)
+	payments, err := client.ListPayments(ctxb, req)
 	if err != nil {
 		return err
 	}
@@ -2044,7 +2059,7 @@ var getChanInfoCommand = cli.Command{
 }
 
 func getChanInfo(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -2100,7 +2115,7 @@ var getNodeInfoCommand = cli.Command{
 }
 
 func getNodeInfo(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -2171,7 +2186,7 @@ var queryRoutesCommand = cli.Command{
 }
 
 func queryRoutes(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -2271,7 +2286,7 @@ var getNetworkInfoCommand = cli.Command{
 }
 
 func getNetworkInfo(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -2307,7 +2322,7 @@ var debugLevelCommand = cli.Command{
 }
 
 func debugLevel(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 	req := &lnrpc.DebugLevelRequest{
@@ -2359,7 +2374,7 @@ var listChainTxnsCommand = cli.Command{
 }
 
 func listChainTxns(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -2391,7 +2406,7 @@ var stopCommand = cli.Command{
 }
 
 func stopDaemon(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -2423,7 +2438,7 @@ var signMessageCommand = cli.Command{
 }
 
 func signMessage(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -2472,7 +2487,7 @@ var verifyMessageCommand = cli.Command{
 }
 
 func verifyMessage(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -2523,7 +2538,7 @@ var feeReportCommand = cli.Command{
 }
 
 func feeReport(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -2616,7 +2631,7 @@ func parseChanPoint(s string) (*lnrpc.ChannelPoint, error) {
 }
 
 func updateChannelPolicy(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -2767,7 +2782,7 @@ var forwardingHistoryCommand = cli.Command{
 }
 
 func forwardingHistory(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -2899,7 +2914,7 @@ var exportChanBackupCommand = cli.Command{
 }
 
 func exportChanBackup(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -3044,7 +3059,7 @@ var verifyChanBackupCommand = cli.Command{
 }
 
 func verifyChanBackup(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -3186,7 +3201,7 @@ func parseChanBackups(ctx *cli.Context) (*lnrpc.RestoreChanBackupRequest, error)
 }
 
 func restoreChanBackup(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxb := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 

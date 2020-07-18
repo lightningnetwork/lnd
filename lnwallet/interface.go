@@ -103,6 +103,9 @@ type TransactionDetail struct {
 	// DestAddresses are the destinations for a transaction
 	DestAddresses []btcutil.Address
 
+	// DestAmounts are the values of the outputs.
+	DestAmounts []int64
+
 	// RawTx returns the raw serialized transaction.
 	RawTx []byte
 

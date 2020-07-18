@@ -543,6 +543,8 @@ message Transaction {
 
     // A label that was optionally set on transaction broadcast.
     string label = 10;
+
+    repeated int64 dest_amounts = 11;
 }
 message GetTransactionsRequest {
     /*

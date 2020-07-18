@@ -5291,6 +5291,13 @@
         "label": {
           "type": "string",
           "description": "A label that was optionally set on transaction broadcast."
+        },
+        "dest_amounts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "int64"
+          }
         }
       }
     },

@@ -4737,6 +4737,7 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 				TotalFees:        tx.TotalFees,
 				DestAddresses:    destAddresses,
 				RawTxHex:         hex.EncodeToString(tx.RawTx),
+				DestAmounts:      tx.DestAmounts,
 			}
 			if err := updateStream.Send(detail); err != nil {
 				return err
@@ -4754,6 +4755,7 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 				TotalFees:     tx.TotalFees,
 				DestAddresses: destAddresses,
 				RawTxHex:      hex.EncodeToString(tx.RawTx),
+				DestAmounts:   tx.DestAmounts,
 			}
 			if err := updateStream.Send(detail); err != nil {
 				return err

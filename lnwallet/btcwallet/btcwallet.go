@@ -553,6 +553,7 @@ func minedTransactionsToDetails(
 		}
 
 		var destAddresses []btcutil.Address
+		var destAmounts []int64
 		for _, txOut := range wireTx.TxOut {
 			_, outAddresses, _, err := txscript.ExtractPkScriptAddrs(
 				txOut.PkScript, chainParams,
@@ -561,7 +562,10 @@ func minedTransactionsToDetails(
 				return nil, err
 			}
 
-			destAddresses = append(destAddresses, outAddresses...)
+			for _, addr := range outAddresses {
+				destAddresses = append(destAddresses, addr)
+				destAmounts = append(destAmounts, txOut.Value)
+			}
 		}
 
 		txDetail := &lnwallet.TransactionDetail{
@@ -574,6 +578,7 @@ func minedTransactionsToDetails(
 			DestAddresses:    destAddresses,
 			RawTx:            tx.Transaction,
 			Label:            tx.Label,
+			DestAmounts:      destAmounts,
 		}
 
 		balanceDelta, err := extractBalanceDelta(tx, wireTx)

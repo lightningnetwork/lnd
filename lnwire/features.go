@@ -103,11 +103,11 @@ const (
 
 	// WumboChannelsRequired is a required feature bit that signals that a
 	// node is willing to accept channels larger than 2^24 satoshis.
-	WumboChannelsRequired = 18
+	WumboChannelsRequired FeatureBit = 18
 
-	// WumboChannelsRequired is an optional feature bit that signals that a
+	// WumboChannelsOptional is an optional feature bit that signals that a
 	// node is willing to accept channels larger than 2^24 satoshis.
-	WumboChannelsOptional = 19
+	WumboChannelsOptional FeatureBit = 19
 
 	// AnchorsRequired is a required feature bit that signals that the node
 	// requires channels to be made using commitments having anchor

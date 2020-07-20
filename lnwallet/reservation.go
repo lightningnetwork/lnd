@@ -287,10 +287,24 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 			chanType |= channeldb.SingleFunderBit
 		}
 
+		switch a := fundingAssembler.(type) {
+		// The first channels of a batch shouldn't publish the batch TX
+		// to avoid problems if some of the funding flows can't be
+		// completed. Only the last channel of a batch should publish.
+		case chanfunding.ConditionalPublishAssembler:
+			if !a.ShouldPublishFundingTx() {
+				chanType |= channeldb.NoFundingTxBit
+			}
+
+		// Normal funding flow, the assembler creates a TX from the
+		// internal wallet.
+		case chanfunding.FundingTxAssembler:
+			// Do nothing, a FundingTxAssembler has the transaction.
+
 		// If this intent isn't one that's able to provide us with a
 		// funding transaction, then we'll set the chanType bit to
 		// signal that we don't have access to one.
-		if _, ok := fundingAssembler.(chanfunding.FundingTxAssembler); !ok {
+		default:
 			chanType |= channeldb.NoFundingTxBit
 		}
 

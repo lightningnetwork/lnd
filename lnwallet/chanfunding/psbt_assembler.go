@@ -387,6 +387,10 @@ type PsbtAssembler struct {
 	// netParams are the network parameters used to encode the P2WSH funding
 	// address.
 	netParams *chaincfg.Params
+
+	// shouldPublish specifies if the assembler should publish the
+	// transaction once the channel funding has completed.
+	shouldPublish bool
 }
 
 // NewPsbtAssembler creates a new CannedAssembler from the material required
@@ -394,12 +398,13 @@ type PsbtAssembler struct {
 // be supplied which will be used to add the channel output to instead of
 // creating a new one.
 func NewPsbtAssembler(fundingAmt btcutil.Amount, basePsbt *psbt.Packet,
-	netParams *chaincfg.Params) *PsbtAssembler {
+	netParams *chaincfg.Params, shouldPublish bool) *PsbtAssembler {
 
 	return &PsbtAssembler{
-		fundingAmt: fundingAmt,
-		basePsbt:   basePsbt,
-		netParams:  netParams,
+		fundingAmt:    fundingAmt,
+		basePsbt:      basePsbt,
+		netParams:     netParams,
+		shouldPublish: shouldPublish,
 	}
 }
 
@@ -436,16 +441,18 @@ func (p *PsbtAssembler) ProvisionChannel(req *Request) (Intent, error) {
 	return intent, nil
 }
 
-// FundingTxAvailable is an empty method that an assembler can implement to
-// signal to callers that its able to provide the funding transaction for the
-// channel via the intent it returns.
+// ShouldPublishFundingTx is a method of the assembler that signals if the
+// funding transaction should be published after the channel negotiations are
+// completed with the remote peer.
 //
-// NOTE: This method is a part of the FundingTxAssembler interface.
-func (p *PsbtAssembler) FundingTxAvailable() {}
+// NOTE: This method is a part of the ConditionalPublishAssembler interface.
+func (p *PsbtAssembler) ShouldPublishFundingTx() bool {
+	return p.shouldPublish
+}
 
-// A compile-time assertion to ensure PsbtAssembler meets the Assembler
-// interface.
-var _ Assembler = (*PsbtAssembler)(nil)
+// A compile-time assertion to ensure PsbtAssembler meets the
+// ConditionalPublishAssembler interface.
+var _ ConditionalPublishAssembler = (*PsbtAssembler)(nil)
 
 // sumUtxoInputValues tries to extract the sum of all inputs specified in the
 // UTXO fields of the PSBT. An error is returned if an input is specified that

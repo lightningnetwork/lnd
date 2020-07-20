@@ -4816,6 +4816,11 @@
           "type": "string",
           "format": "byte",
           "description": "An optional base PSBT the new channel output will be added to. If this is\nnon-empty, it must be a binary serialized PSBT."
+        },
+        "no_publish": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "If a channel should be part of a batch (multiple channel openings in one\ntransaction), it can be dangerous if the whole batch transaction is\npublished too early before all channel opening negotiations are completed.\nThis flag prevents this particular channel from broadcasting the transaction\nafter the negotiation with the remote peer. In a batch of channel openings\nthis flag should be set to true for every channel but the very last."
         }
       }
     },

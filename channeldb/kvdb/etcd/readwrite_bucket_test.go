@@ -403,3 +403,121 @@ func TestBucketSequence(t *testing.T) {
 
 	require.Nil(t, err)
 }
+
+// TestKeyClash tests that one cannot create a bucket if a value with the same
+// key exists and the same is true in reverse: that a value cannot be put if
+// a bucket with the same key exists.
+func TestKeyClash(t *testing.T) {
+	t.Parallel()
+
+	f := NewEtcdTestFixture(t)
+	defer f.Cleanup()
+
+	db, err := newEtcdBackend(f.BackendConfig())
+	require.NoError(t, err)
+
+	// First:
+	// put: /apple/key -> val
+	// create bucket: /apple/banana
+	err = db.Update(func(tx walletdb.ReadWriteTx) error {
+		apple, err := tx.CreateTopLevelBucket([]byte("apple"))
+		require.Nil(t, err)
+		require.NotNil(t, apple)
+
+		require.NoError(t, apple.Put([]byte("key"), []byte("val")))
+
+		banana, err := apple.CreateBucket([]byte("banana"))
+		require.Nil(t, err)
+		require.NotNil(t, banana)
+
+		return nil
+	})
+
+	require.Nil(t, err)
+
+	// Next try to:
+	// put: /apple/banana -> val => will fail (as /apple/banana is a bucket)
+	// create bucket: /apple/key => will fail (as /apple/key is a value)
+	err = db.Update(func(tx walletdb.ReadWriteTx) error {
+		apple, err := tx.CreateTopLevelBucket([]byte("apple"))
+		require.Nil(t, err)
+		require.NotNil(t, apple)
+
+		require.Error(t,
+			walletdb.ErrIncompatibleValue,
+			apple.Put([]byte("banana"), []byte("val")),
+		)
+
+		b, err := apple.CreateBucket([]byte("key"))
+		require.Nil(t, b)
+		require.Error(t, walletdb.ErrIncompatibleValue, b)
+
+		b, err = apple.CreateBucketIfNotExists([]byte("key"))
+		require.Nil(t, b)
+		require.Error(t, walletdb.ErrIncompatibleValue, b)
+
+		return nil
+	})
+
+	require.Nil(t, err)
+
+	// Except that the only existing items in the db are:
+	// bucket: /apple
+	// bucket: /apple/banana
+	// value: /apple/key -> val
+	expected := map[string]string{
+		bkey("apple"):           bval("apple"),
+		bkey("apple", "banana"): bval("apple", "banana"),
+		vkey("key", "apple"):    "val",
+	}
+	require.Equal(t, expected, f.Dump())
+
+}
+
+// TestBucketCreateDelete tests that creating then deleting then creating a
+// bucket suceeds.
+func TestBucketCreateDelete(t *testing.T) {
+	t.Parallel()
+	f := NewEtcdTestFixture(t)
+	defer f.Cleanup()
+
+	db, err := newEtcdBackend(f.BackendConfig())
+	require.NoError(t, err)
+
+	err = db.Update(func(tx walletdb.ReadWriteTx) error {
+		apple, err := tx.CreateTopLevelBucket([]byte("apple"))
+		require.NoError(t, err)
+		require.NotNil(t, apple)
+
+		banana, err := apple.CreateBucket([]byte("banana"))
+		require.NoError(t, err)
+		require.NotNil(t, banana)
+
+		return nil
+	})
+	require.NoError(t, err)
+
+	err = db.Update(func(tx walletdb.ReadWriteTx) error {
+		apple := tx.ReadWriteBucket([]byte("apple"))
+		require.NotNil(t, apple)
+		require.NoError(t, apple.DeleteNestedBucket([]byte("banana")))
+
+		return nil
+	})
+	require.NoError(t, err)
+
+	err = db.Update(func(tx walletdb.ReadWriteTx) error {
+		apple := tx.ReadWriteBucket([]byte("apple"))
+		require.NotNil(t, apple)
+		require.NoError(t, apple.Put([]byte("banana"), []byte("value")))
+
+		return nil
+	})
+	require.NoError(t, err)
+
+	expected := map[string]string{
+		vkey("banana", "apple"): "value",
+		bkey("apple"):           bval("apple"),
+	}
+	require.Equal(t, expected, f.Dump())
+}

@@ -34,16 +34,6 @@ func rootBucket(tx *readWriteTx) *readWriteBucket {
 	return newReadWriteBucket(tx, tx.rootBucketID[:], tx.rootBucketID[:])
 }
 
-// put updates the passed key/value.
-func (tx *readWriteTx) put(key, val string) {
-	tx.stm.Put(key, val)
-}
-
-// del marks the passed key deleted.
-func (tx *readWriteTx) del(key string) {
-	tx.stm.Del(key)
-}
-
 // ReadBucket opens the root bucket for read only access.  If the bucket
 // described by the key does not exist, nil is returned.
 func (tx *readWriteTx) ReadBucket(key []byte) walletdb.ReadBucket {

@@ -352,6 +352,15 @@ func (s *stm) fetch(key string, opts ...v3.OpOption) ([]KV, error) {
 		}
 	}
 
+	if len(resp.Kvs) == 0 {
+		// Add assertion to the read set which will extend our commit
+		// constraint such that the commit will fail if the key is
+		// present in the database.
+		s.rset[key] = stmGet{
+			rev: 0,
+		}
+	}
+
 	var result []KV
 
 	// Fill the read set with key/values returned.
@@ -395,12 +404,22 @@ func (s *stm) Get(key string) ([]byte, error) {
 	// the prefetch set.
 	if getValue, ok := s.prefetch[key]; ok {
 		delete(s.prefetch, key)
-		s.rset[key] = getValue
+
+		// Use the prefetched value only if it is for
+		// an existing key.
+		if getValue.rev != 0 {
+			s.rset[key] = getValue
+		}
 	}
 
 	// Return value if alread in read set.
-	if getVal, ok := s.rset[key]; ok {
-		return []byte(getVal.val), nil
+	if getValue, ok := s.rset[key]; ok {
+		// Return the value if the rset contains an existing key.
+		if getValue.rev != 0 {
+			return []byte(getValue.val), nil
+		} else {
+			return nil, nil
+		}
 	}
 
 	// Fetch and return value.

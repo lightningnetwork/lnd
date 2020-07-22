@@ -1481,7 +1481,7 @@ func capturePassword(instruction string, optional bool,
 			continue
 		}
 
-		fmt.Println("Confirm password:")
+		fmt.Printf("Confirm password: ")
 		passwordConfirmed, err := terminal.ReadPassword(
 			int(syscall.Stdin),
 		)

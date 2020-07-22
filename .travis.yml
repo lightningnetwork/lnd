@@ -42,6 +42,12 @@ jobs:
       script:
         - make itest backend=neutrino
 
+    - name: Btcd Integration ARM
+      script:
+        - GOARM=7 GOARCH=arm GOOS=linux CGO_ENABLED=0 make btcd build-itest
+        - file lnd-itest
+        - GOARM=7 GOARCH=arm GOOS=linux CGO_ENABLED=0 make itest-only
+      arch: arm64
 
 after_script:
   - LOG_FILES=./lntest/itest/*.log

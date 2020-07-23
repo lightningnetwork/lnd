@@ -4,6 +4,9 @@ package itest
 
 import (
 	"context"
+	"encoding/hex"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -165,4 +168,309 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, t *harnessTest) {
 	if !strings.HasPrefix(res.Address, "bcrt1") {
 		t.Fatalf("returned address was not a regtest address")
 	}
+}
+
+// testBakeMacaroon checks that when creating macaroons, the permissions param
+// in the request must be set correctly, and the baked macaroon has the intended
+// permissions.
+func testBakeMacaroon(net *lntest.NetworkHarness, t *harnessTest) {
+	var (
+		ctxb     = context.Background()
+		req      = &lnrpc.BakeMacaroonRequest{}
+		testNode = net.Alice
+	)
+
+	// First test: when the permission list is empty in the request, an error
+	// should be returned.
+	adminMac, err := testNode.ReadMacaroon(
+		testNode.AdminMacPath(), defaultTimeout,
+	)
+	if err != nil {
+		t.Fatalf("unable to read admin.macaroon from node: %v", err)
+	}
+	conn, err := testNode.ConnectRPCWithMacaroon(adminMac)
+	if err != nil {
+		t.Fatalf("unable to connect to alice: %v", err)
+	}
+	defer conn.Close()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	adminMacConnection := lnrpc.NewLightningClient(conn)
+	_, err = adminMacConnection.BakeMacaroon(ctxt, req)
+	if err == nil || !errContains(err, "permission list cannot be empty") {
+		t.Fatalf("expected an error, got %v", err)
+	}
+
+	// Second test: when the action in the permission list is not valid,
+	// an error should be returned.
+	req = &lnrpc.BakeMacaroonRequest{
+		Permissions: []*lnrpc.MacaroonPermission{
+			{
+				Entity: "macaroon",
+				Action: "invalid123",
+			},
+		},
+	}
+	_, err = adminMacConnection.BakeMacaroon(ctxt, req)
+	if err == nil || !errContains(err, "invalid permission action") {
+		t.Fatalf("expected an error, got %v", err)
+	}
+
+	// Third test: when the entity in the permission list is not valid,
+	// an error should be returned.
+	req = &lnrpc.BakeMacaroonRequest{
+		Permissions: []*lnrpc.MacaroonPermission{
+			{
+				Entity: "invalid123",
+				Action: "read",
+			},
+		},
+	}
+	_, err = adminMacConnection.BakeMacaroon(ctxt, req)
+	if err == nil || !errContains(err, "invalid permission entity") {
+		t.Fatalf("expected an error, got %v", err)
+	}
+
+	// Fourth test: check that when no root key ID is specified, the default
+	// root key ID is used.
+	req = &lnrpc.BakeMacaroonRequest{
+		Permissions: []*lnrpc.MacaroonPermission{
+			{
+				Entity: "macaroon",
+				Action: "read",
+			},
+		},
+	}
+	_, err = adminMacConnection.BakeMacaroon(ctxt, req)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	listReq := &lnrpc.ListMacaroonIDsRequest{}
+	resp, err := adminMacConnection.ListMacaroonIDs(ctxt, listReq)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if resp.RootKeyIds[0] != 0 {
+		t.Fatalf("expected ID to be 0, found: %v", resp.RootKeyIds)
+	}
+
+	// Fifth test: create a macaroon use a non-default root key ID.
+	rootKeyID := uint64(4200)
+	req = &lnrpc.BakeMacaroonRequest{
+		RootKeyId: rootKeyID,
+		Permissions: []*lnrpc.MacaroonPermission{
+			{
+				Entity: "macaroon",
+				Action: "read",
+			},
+		},
+	}
+	bakeResp, err := adminMacConnection.BakeMacaroon(ctxt, req)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	listReq = &lnrpc.ListMacaroonIDsRequest{}
+	resp, err = adminMacConnection.ListMacaroonIDs(ctxt, listReq)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	// the ListMacaroonIDs should give a list of two IDs, the default ID 0, and
+	// the newly created ID. The returned response is sorted to guarantee the
+	// order so that we can compare them one by one.
+	sort.Slice(resp.RootKeyIds, func(i, j int) bool {
+		return resp.RootKeyIds[i] < resp.RootKeyIds[j]
+	})
+	if resp.RootKeyIds[0] != 0 {
+		t.Fatalf("expected ID to be %v, found: %v", 0, resp.RootKeyIds[0])
+	}
+	if resp.RootKeyIds[1] != rootKeyID {
+		t.Fatalf(
+			"expected ID to be %v, found: %v",
+			rootKeyID, resp.RootKeyIds[1],
+		)
+	}
+
+	// Sixth test: check the baked macaroon has the intended permissions. It
+	// should succeed in reading, and fail to write a macaroon.
+	newMac, err := readMacaroonFromHex(bakeResp.Macaroon)
+	if err != nil {
+		t.Fatalf("failed to load macaroon from bytes, error: %v", err)
+	}
+	conn, err = testNode.ConnectRPCWithMacaroon(newMac)
+	if err != nil {
+		t.Fatalf("unable to connect to alice: %v", err)
+	}
+	defer conn.Close()
+	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	newMacConnection := lnrpc.NewLightningClient(conn)
+
+	// BakeMacaroon requires a write permission, so this call should return an
+	// error.
+	_, err = newMacConnection.BakeMacaroon(ctxt, req)
+	if err == nil || !errContains(err, "permission denied") {
+		t.Fatalf("expected an error, got %v", err)
+	}
+
+	// ListMacaroon requires a read permission, so this call should succeed.
+	listReq = &lnrpc.ListMacaroonIDsRequest{}
+	resp, err = newMacConnection.ListMacaroonIDs(ctxt, listReq)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	// Current macaroon can only work on entity macaroon, so a GetInfo request
+	// will fail.
+	infoReq := &lnrpc.GetInfoRequest{}
+	_, err = newMacConnection.GetInfo(ctxt, infoReq)
+	if err == nil || !errContains(err, "permission denied") {
+		t.Fatalf("expected error not returned, got %v", err)
+	}
+}
+
+// testDeleteMacaroonID checks that when deleting a macaroon ID, it removes the
+// specified ID and invalidates all macaroons derived from the key with that ID.
+// Also, it checks deleting the reserved marcaroon ID, DefaultRootKeyID or is
+// forbidden.
+func testDeleteMacaroonID(net *lntest.NetworkHarness, t *harnessTest) {
+	var (
+		ctxb     = context.Background()
+		testNode = net.Alice
+	)
+
+	// Use admin macaroon to create a connection.
+	adminMac, err := testNode.ReadMacaroon(
+		testNode.AdminMacPath(), defaultTimeout,
+	)
+	if err != nil {
+		t.Fatalf("unable to read admin.macaroon from node: %v", err)
+	}
+	conn, err := testNode.ConnectRPCWithMacaroon(adminMac)
+	if err != nil {
+		t.Fatalf("unable to connect to alice: %v", err)
+	}
+	defer conn.Close()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	adminMacConnection := lnrpc.NewLightningClient(conn)
+
+	// Record the number of macaroon IDs before creation.
+	listReq := &lnrpc.ListMacaroonIDsRequest{}
+	listResp, err := adminMacConnection.ListMacaroonIDs(ctxt, listReq)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	numMacIDs := len(listResp.RootKeyIds)
+
+	// Create macaroons for testing.
+	rootKeyIDs := []uint64{1, 2, 3}
+	macList := []string{}
+	for _, id := range rootKeyIDs {
+		req := &lnrpc.BakeMacaroonRequest{
+			RootKeyId: id,
+			Permissions: []*lnrpc.MacaroonPermission{
+				{
+					Entity: "macaroon",
+					Action: "read",
+				},
+			},
+		}
+		resp, err := adminMacConnection.BakeMacaroon(ctxt, req)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		macList = append(macList, resp.Macaroon)
+	}
+
+	// Check that the creation is successful.
+	listReq = &lnrpc.ListMacaroonIDsRequest{}
+	listResp, err = adminMacConnection.ListMacaroonIDs(ctxt, listReq)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	// The number of macaroon IDs should be increased by len(rootKeyIDs)
+	if len(listResp.RootKeyIds) != numMacIDs+len(rootKeyIDs) {
+		t.Fatalf(
+			"expected to have %v ids, found: %v",
+			numMacIDs+len(rootKeyIDs), len(listResp.RootKeyIds),
+		)
+	}
+
+	// First test: check deleting the DefaultRootKeyID returns an error.
+	defaultID, _ := strconv.ParseUint(
+		string(macaroons.DefaultRootKeyID), 10, 64,
+	)
+	req := &lnrpc.DeleteMacaroonIDRequest{
+		RootKeyId: defaultID,
+	}
+	_, err = adminMacConnection.DeleteMacaroonID(ctxt, req)
+	if err == nil || !errContains(err, macaroons.ErrDeletionForbidden.Error()) {
+		t.Fatalf("expected an error, got %v", err)
+	}
+
+	// Second test: check deleting the customized ID returns success.
+	req = &lnrpc.DeleteMacaroonIDRequest{
+		RootKeyId: rootKeyIDs[0],
+	}
+	resp, err := adminMacConnection.DeleteMacaroonID(ctxt, req)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if resp.Deleted != true {
+		t.Fatalf("expected the ID to be deleted")
+	}
+
+	// Check that the deletion is successful.
+	listReq = &lnrpc.ListMacaroonIDsRequest{}
+	listResp, err = adminMacConnection.ListMacaroonIDs(ctxt, listReq)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	// The number of macaroon IDs should be decreased by 1.
+	if len(listResp.RootKeyIds) != numMacIDs+len(rootKeyIDs)-1 {
+		t.Fatalf(
+			"expected to have %v ids, found: %v",
+			numMacIDs+len(rootKeyIDs)-1, len(listResp.RootKeyIds),
+		)
+	}
+
+	// Check that the deleted macaroon can no longer access macaroon:read.
+	deletedMac, err := readMacaroonFromHex(macList[0])
+	if err != nil {
+		t.Fatalf("failed to load macaroon from bytes, error: %v", err)
+	}
+	conn, err = testNode.ConnectRPCWithMacaroon(deletedMac)
+	if err != nil {
+		t.Fatalf("unable to connect to alice: %v", err)
+	}
+	defer conn.Close()
+	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	deletedMacConnection := lnrpc.NewLightningClient(conn)
+
+	// Because the macaroon is deleted, it will be treated as an invalid one.
+	listReq = &lnrpc.ListMacaroonIDsRequest{}
+	_, err = deletedMacConnection.ListMacaroonIDs(ctxt, listReq)
+	if err == nil || !errContains(err, "cannot get macaroon") {
+		t.Fatalf("expected error not returned, got %v", err)
+	}
+
+}
+
+// readMacaroonFromHex loads a macaroon from a hex string.
+func readMacaroonFromHex(macHex string) (*macaroon.Macaroon, error) {
+	macBytes, err := hex.DecodeString(macHex)
+	if err != nil {
+		return nil, err
+	}
+
+	mac := &macaroon.Macaroon{}
+	if err := mac.UnmarshalBinary(macBytes); err != nil {
+		return nil, err
+	}
+	return mac, nil
 }

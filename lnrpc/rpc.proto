@@ -491,6 +491,19 @@ service Lightning {
     offline.
     */
     rpc BakeMacaroon (BakeMacaroonRequest) returns (BakeMacaroonResponse);
+
+    /* lncli: `listmacaroonids`
+    ListMacaroonIDs returns all root key IDs that are in use.
+    */
+    rpc ListMacaroonIDs (ListMacaroonIDsRequest)
+        returns (ListMacaroonIDsResponse);
+
+    /* lncli: `deletemacaroonid`
+    DeleteMacaroonID deletes the specified macaroon ID and invalidates all
+    macaroons derived from that ID.
+    */
+    rpc DeleteMacaroonID (DeleteMacaroonIDRequest)
+        returns (DeleteMacaroonIDResponse);
 }
 
 message Utxo {
@@ -3327,10 +3340,29 @@ message MacaroonPermission {
 message BakeMacaroonRequest {
     // The list of permissions the new macaroon should grant.
     repeated MacaroonPermission permissions = 1;
+
+    // The root key ID used to create the macaroon, must be a positive integer.
+    uint64 root_key_id = 2;
 }
 message BakeMacaroonResponse {
     // The hex encoded macaroon, serialized in binary format.
     string macaroon = 1;
+}
+
+message ListMacaroonIDsRequest {
+}
+message ListMacaroonIDsResponse {
+    // The list of root key IDs that are in use.
+    repeated uint64 root_key_ids = 1;
+}
+
+message DeleteMacaroonIDRequest {
+    // The root key ID to be removed.
+    uint64 root_key_id = 1;
+}
+message DeleteMacaroonIDResponse {
+    // A boolean indicates that the deletion is successful.
+    bool deleted = 1;
 }
 
 message Failure {

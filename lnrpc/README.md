@@ -129,6 +129,11 @@ description):
   * BakeMacaroon
      * Bakes a new macaroon with the provided list of permissions and
        restrictions
+  * ListMacaroonIDs
+     * List all the macaroon root key IDs that are in use.
+  * DeleteMacaroonID
+     * Remove a specific macaroon root key ID from the database and invalidates
+       all macaroons derived from the key with that ID. 
 
 ## Service: WalletUnlocker
 

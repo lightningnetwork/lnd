@@ -51,13 +51,45 @@ func TestStore(t *testing.T) {
 		t.Fatalf("Error creating store encryption key: %v", err)
 	}
 
-	key, id, err := store.RootKey(context.TODO())
+	// Check ErrContextRootKeyID is returned when no root key ID found in
+	// context.
+	_, _, err = store.RootKey(context.TODO())
+	if err != macaroons.ErrContextRootKeyID {
+		t.Fatalf("Received %v instead of ErrContextRootKeyID", err)
+	}
+
+	// Check ErrMissingRootKeyID is returned when empty root key ID is used.
+	emptyKeyID := []byte{}
+	badCtx := macaroons.ContextWithRootKeyID(context.TODO(), emptyKeyID)
+	_, _, err = store.RootKey(badCtx)
+	if err != macaroons.ErrMissingRootKeyID {
+		t.Fatalf("Received %v instead of ErrMissingRootKeyID", err)
+	}
+
+	// Create a context with illegal root key ID value.
+	encryptedKeyID := []byte("enckey")
+	badCtx = macaroons.ContextWithRootKeyID(context.TODO(), encryptedKeyID)
+	_, _, err = store.RootKey(badCtx)
+	if err != macaroons.ErrKeyValueForbidden {
+		t.Fatalf("Received %v instead of ErrKeyValueForbidden", err)
+	}
+
+	// Create a context with root key ID value.
+	ctx := macaroons.ContextWithRootKeyID(
+		context.TODO(), macaroons.DefaultRootKeyID,
+	)
+	key, id, err := store.RootKey(ctx)
 	if err != nil {
 		t.Fatalf("Error getting root key from store: %v", err)
 	}
-	rootID := id
 
-	key2, err := store.Get(context.TODO(), id)
+	rootID := id
+	if !bytes.Equal(rootID, macaroons.DefaultRootKeyID) {
+		t.Fatalf("Root key ID doesn't match: expected %v, got %v",
+			macaroons.DefaultRootKeyID, rootID)
+	}
+
+	key2, err := store.Get(ctx, id)
 	if err != nil {
 		t.Fatalf("Error getting key with ID %s: %v", string(id), err)
 	}
@@ -100,12 +132,12 @@ func TestStore(t *testing.T) {
 		t.Fatalf("Received %v instead of ErrPasswordRequired", err)
 	}
 
-	_, _, err = store.RootKey(context.TODO())
+	_, _, err = store.RootKey(ctx)
 	if err != macaroons.ErrStoreLocked {
 		t.Fatalf("Received %v instead of ErrStoreLocked", err)
 	}
 
-	_, err = store.Get(context.TODO(), nil)
+	_, err = store.Get(ctx, nil)
 	if err != macaroons.ErrStoreLocked {
 		t.Fatalf("Received %v instead of ErrStoreLocked", err)
 	}
@@ -115,7 +147,7 @@ func TestStore(t *testing.T) {
 		t.Fatalf("Error unlocking root key store: %v", err)
 	}
 
-	key, err = store.Get(context.TODO(), rootID)
+	key, err = store.Get(ctx, rootID)
 	if err != nil {
 		t.Fatalf("Error getting key with ID %s: %v",
 			string(rootID), err)
@@ -125,7 +157,7 @@ func TestStore(t *testing.T) {
 			key2, key)
 	}
 
-	key, id, err = store.RootKey(context.TODO())
+	key, id, err = store.RootKey(ctx)
 	if err != nil {
 		t.Fatalf("Error getting root key from store: %v", err)
 	}

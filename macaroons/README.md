@@ -95,8 +95,8 @@ command line.
 Users can create their own macaroons with custom permissions if the provided
 default macaroons (`admin`, `invoice` and `readonly`) are not sufficient.
 
-For example, a macaroon that is only allowed to manage peers would be created
-with the following command:
+For example, a macaroon that is only allowed to manage peers with a default root
+key `0` would be created with the following command:
 
 `lncli bakemacaroon peers:read peers:write`
 
@@ -114,3 +114,19 @@ removing all three default macaroons (`admin.macaroon`, `invoice.macaroon` and
 `readonly.macaroon`, **NOT** the `macaroons.db`!) from their
 `data/chain/<chain>/<network>/` directory inside the lnd data directory and
 restarting lnd.
+
+
+## Root key rotation
+
+To manage the root keys used by macaroons, there are `listmacaroonids` and
+`deletemacaroonid` available through gPRC and command line.
+Users can view a list of all macaroon root key IDs that are in use using:
+
+`lncli listmacaroonids`
+
+And remove a specific macaroon root key ID using command:
+
+`lncli deletemacaroonid root_key_id`
+
+Be careful with the `deletemacaroonid` command as when a root key is deleted,
+**all the macaroons created from it are invalidated**.

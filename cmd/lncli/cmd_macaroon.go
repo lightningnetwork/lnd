@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
 	"net"
+	"strconv"
 	"strings"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -18,7 +20,7 @@ var bakeMacaroonCommand = cli.Command{
 	Name:     "bakemacaroon",
 	Category: "Macaroons",
 	Usage: "Bakes a new macaroon with the provided list of permissions " +
-		"and restrictions",
+		"and restrictions.",
 	ArgsUsage: "[--save_to=] [--timeout=] [--ip_address=] permissions...",
 	Description: `
 	Bake a new macaroon that grants the provided permissions and
@@ -48,6 +50,10 @@ var bakeMacaroonCommand = cli.Command{
 			Name:  "ip_address",
 			Usage: "the IP address the macaroon will be bound to",
 		},
+		cli.Uint64Flag{
+			Name:  "root_key_id",
+			Usage: "the numerical root key ID used to create the macaroon",
+		},
 	},
 	Action: actionDecorator(bakeMacaroon),
 }
@@ -66,6 +72,7 @@ func bakeMacaroon(ctx *cli.Context) error {
 		savePath          string
 		timeout           int64
 		ipAddress         net.IP
+		rootKeyID         uint64
 		parsedPermissions []*lnrpc.MacaroonPermission
 		err               error
 	)
@@ -87,6 +94,10 @@ func bakeMacaroon(ctx *cli.Context) error {
 			return fmt.Errorf("unable to parse ip_address: %s",
 				ctx.String("ip_address"))
 		}
+	}
+
+	if ctx.IsSet("root_key_id") {
+		rootKeyID = ctx.Uint64("root_key_id")
 	}
 
 	// A command line argument can't be an empty string. So we'll check each
@@ -122,6 +133,7 @@ func bakeMacaroon(ctx *cli.Context) error {
 	// RPC call.
 	req := &lnrpc.BakeMacaroonRequest{
 		Permissions: parsedPermissions,
+		RootKeyId:   rootKeyID,
 	}
 	resp, err := client.BakeMacaroon(context.Background(), req)
 	if err != nil {
@@ -178,5 +190,82 @@ func bakeMacaroon(ctx *cli.Context) error {
 		fmt.Printf("%s\n", hex.EncodeToString(macBytes))
 	}
 
+	return nil
+}
+
+var listMacaroonIDsCommand = cli.Command{
+	Name:     "listmacaroonids",
+	Category: "Macaroons",
+	Usage:    "List all macaroons root key IDs in use.",
+	Action:   actionDecorator(listMacaroonIDs),
+}
+
+func listMacaroonIDs(ctx *cli.Context) error {
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	req := &lnrpc.ListMacaroonIDsRequest{}
+	resp, err := client.ListMacaroonIDs(context.Background(), req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var deleteMacaroonIDCommand = cli.Command{
+	Name:      "deletemacaroonid",
+	Category:  "Macaroons",
+	Usage:     "Delete a specific macaroon ID.",
+	ArgsUsage: "root_key_id",
+	Description: `
+	Remove a macaroon ID using the specified root key ID. For example:
+
+	lncli deletemacaroonid 1
+
+	WARNING
+	When the ID is deleted, all macaroons created from that root key will
+	be invalidated.
+
+	Note that the default root key ID 0 cannot be deleted.
+	`,
+	Action: actionDecorator(deleteMacaroonID),
+}
+
+func deleteMacaroonID(ctx *cli.Context) error {
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	// Validate args length. Only one argument is allowed.
+	if ctx.NArg() != 1 {
+		return cli.ShowCommandHelp(ctx, "deletemacaroonid")
+	}
+
+	rootKeyIDString := ctx.Args().First()
+
+	// Convert string into uint64.
+	rootKeyID, err := strconv.ParseUint(rootKeyIDString, 10, 64)
+	if err != nil {
+		return fmt.Errorf("root key ID must be a positive integer")
+	}
+
+	// Check that the value is not equal to DefaultRootKeyID. Note that the
+	// server also validates the root key ID when removing it. However, we check
+	// it here too so that we can give users a nice warning.
+	if bytes.Equal([]byte(rootKeyIDString), macaroons.DefaultRootKeyID) {
+		return fmt.Errorf("deleting the default root key ID 0 is not allowed")
+	}
+
+	// Make the actual RPC call.
+	req := &lnrpc.DeleteMacaroonIDRequest{
+		RootKeyId: rootKeyID,
+	}
+	resp, err := client.DeleteMacaroonID(context.Background(), req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
 	return nil
 }

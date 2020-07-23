@@ -101,7 +101,8 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 		// yet, exist, so we need to create it with the help of the
 		// main macaroon service.
 		invoicesMac, err := cfg.MacService.NewMacaroon(
-			context.Background(), macaroons.DefaultRootKeyID, macaroonOps...,
+			context.Background(), macaroons.DefaultRootKeyID,
+			macaroonOps...,
 		)
 		if err != nil {
 			return nil, nil, err

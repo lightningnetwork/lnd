@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/zpay32"
 )
 
@@ -228,6 +229,14 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		return nil, nil, fmt.Errorf("CLTV delta of %v is too large, max "+
 			"accepted is: %v", invoice.CltvExpiry, math.MaxUint16)
 	case invoice.CltvExpiry != 0:
+		// Disallow user-chosen final CLTV deltas below the required
+		// minimum.
+		if invoice.CltvExpiry < routing.MinCLTVDelta {
+			return nil, nil, fmt.Errorf("CLTV delta of %v must be "+
+				"greater than minimum of %v",
+				routing.MinCLTVDelta, invoice.CltvExpiry)
+		}
+
 		options = append(options,
 			zpay32.CLTVExpiry(invoice.CltvExpiry))
 	default:

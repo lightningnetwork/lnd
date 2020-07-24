@@ -673,7 +673,7 @@ func (c *ChannelGraph) addChannelEdge(tx kvdb.RwTx, edge *ChannelEdgeInfo) error
 	// Finally we add it to the channel index which maps channel points
 	// (outpoints) to the shorter channel ID's.
 	var b bytes.Buffer
-	if err := writeOutpoint(&b, &edge.ChannelPoint); err != nil {
+	if err := WriteOutpoint(&b, &edge.ChannelPoint); err != nil {
 		return err
 	}
 	return chanIndex.Put(b.Bytes(), chanKey[:])
@@ -874,7 +874,7 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 			// if NOT if filter
 
 			var opBytes bytes.Buffer
-			if err := writeOutpoint(&opBytes, chanPoint); err != nil {
+			if err := WriteOutpoint(&opBytes, chanPoint); err != nil {
 				return err
 			}
 
@@ -1322,7 +1322,7 @@ func (c *ChannelGraph) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
 // getChanID returns the assigned channel ID for a given channel point.
 func getChanID(tx kvdb.RTx, chanPoint *wire.OutPoint) (uint64, error) {
 	var b bytes.Buffer
-	if err := writeOutpoint(&b, chanPoint); err != nil {
+	if err := WriteOutpoint(&b, chanPoint); err != nil {
 		return 0, err
 	}
 
@@ -1876,7 +1876,7 @@ func delChannelEdge(edges, edgeIndex, chanIndex, zombieIndex,
 		return err
 	}
 	var b bytes.Buffer
-	if err := writeOutpoint(&b, &edgeInfo.ChannelPoint); err != nil {
+	if err := WriteOutpoint(&b, &edgeInfo.ChannelPoint); err != nil {
 		return err
 	}
 	if err := chanIndex.Delete(b.Bytes()); err != nil {
@@ -2899,7 +2899,7 @@ func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint,
 			return ErrGraphNoEdgesFound
 		}
 		var b bytes.Buffer
-		if err := writeOutpoint(&b, op); err != nil {
+		if err := WriteOutpoint(&b, op); err != nil {
 			return err
 		}
 		chanID := chanIndex.Get(b.Bytes())
@@ -3156,7 +3156,7 @@ func (c *ChannelGraph) ChannelView() ([]EdgePoint, error) {
 			chanPointReader := bytes.NewReader(chanPointBytes)
 
 			var chanPoint wire.OutPoint
-			err := readOutpoint(chanPointReader, &chanPoint)
+			err := ReadOutpoint(chanPointReader, &chanPoint)
 			if err != nil {
 				return err
 			}
@@ -3594,7 +3594,7 @@ func putChanEdgeInfo(edgeIndex kvdb.RwBucket, edgeInfo *ChannelEdgeInfo, chanID 
 		return err
 	}
 
-	if err := writeOutpoint(&b, &edgeInfo.ChannelPoint); err != nil {
+	if err := WriteOutpoint(&b, &edgeInfo.ChannelPoint); err != nil {
 		return err
 	}
 	if err := binary.Write(&b, byteOrder, uint64(edgeInfo.Capacity)); err != nil {
@@ -3678,7 +3678,7 @@ func deserializeChanEdgeInfo(r io.Reader) (ChannelEdgeInfo, error) {
 	}
 
 	edgeInfo.ChannelPoint = wire.OutPoint{}
-	if err := readOutpoint(r, &edgeInfo.ChannelPoint); err != nil {
+	if err := ReadOutpoint(r, &edgeInfo.ChannelPoint); err != nil {
 		return ChannelEdgeInfo{}, err
 	}
 	if err := binary.Read(r, byteOrder, &edgeInfo.Capacity); err != nil {

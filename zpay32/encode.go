@@ -35,8 +35,7 @@ func (invoice *Invoice) Encode(signer MessageSigner) (string, error) {
 
 	// Add zero bytes to the first timestampBase32Len-len(timestampBase32)
 	// groups, then add the non-zero groups.
-	zeroes := make([]byte, timestampBase32Len-len(timestampBase32),
-		timestampBase32Len-len(timestampBase32))
+	zeroes := make([]byte, timestampBase32Len-len(timestampBase32))
 	_, err := bufferBase32.Write(zeroes)
 	if err != nil {
 		return "", fmt.Errorf("unable to write to buffer: %v", err)
@@ -157,7 +156,7 @@ func writeTaggedFields(bufferBase32 *bytes.Buffer, invoice *Invoice) error {
 	}
 
 	if invoice.minFinalCLTVExpiry != nil {
-		finalDelta := uint64ToBase32(uint64(*invoice.minFinalCLTVExpiry))
+		finalDelta := uint64ToBase32(*invoice.minFinalCLTVExpiry)
 		err := writeTaggedField(bufferBase32, fieldTypeC, finalDelta)
 		if err != nil {
 			return err
@@ -336,7 +335,7 @@ func uint64ToBase32(num uint64) []byte {
 	for num > 0 {
 		i--
 		arr[i] = byte(num & uint64(31)) // 0b11111 in binary
-		num = num >> 5
+		num >>= 5
 	}
 
 	// We only return non-zero leading groups.

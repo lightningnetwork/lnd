@@ -318,7 +318,7 @@ func parse32Bytes(data []byte) (*[32]byte, error) {
 		return nil, err
 	}
 
-	copy(paymentHash[:], hash[:])
+	copy(paymentHash[:], hash)
 
 	return &paymentHash, nil
 }

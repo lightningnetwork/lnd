@@ -1246,7 +1246,8 @@ func (rs *retributionStore) Add(ret *retributionInfo) error {
 		}
 
 		var outBuf bytes.Buffer
-		if err := writeOutpoint(&outBuf, &ret.chanPoint); err != nil {
+		err = channeldb.WriteVarOutpoint(&outBuf, &ret.chanPoint)
+		if err != nil {
 			return err
 		}
 
@@ -1271,7 +1272,8 @@ func (rs *retributionStore) Finalize(chanPoint *wire.OutPoint,
 		}
 
 		var chanBuf bytes.Buffer
-		if err := writeOutpoint(&chanBuf, chanPoint); err != nil {
+		err = channeldb.WriteVarOutpoint(&chanBuf, chanPoint)
+		if err != nil {
 			return err
 		}
 
@@ -1298,7 +1300,8 @@ func (rs *retributionStore) GetFinalizedTxn(
 		}
 
 		var chanBuf bytes.Buffer
-		if err := writeOutpoint(&chanBuf, chanPoint); err != nil {
+		err := channeldb.WriteVarOutpoint(&chanBuf, chanPoint)
+		if err != nil {
 			return err
 		}
 
@@ -1332,7 +1335,8 @@ func (rs *retributionStore) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
 		}
 
 		var chanBuf bytes.Buffer
-		if err := writeOutpoint(&chanBuf, chanPoint); err != nil {
+		err := channeldb.WriteVarOutpoint(&chanBuf, chanPoint)
+		if err != nil {
 			return err
 		}
 
@@ -1364,7 +1368,8 @@ func (rs *retributionStore) Remove(chanPoint *wire.OutPoint) error {
 
 		// Serialize the channel point we are intending to remove.
 		var chanBuf bytes.Buffer
-		if err := writeOutpoint(&chanBuf, chanPoint); err != nil {
+		err := channeldb.WriteVarOutpoint(&chanBuf, chanPoint)
+		if err != nil {
 			return err
 		}
 		chanBytes := chanBuf.Bytes()
@@ -1420,7 +1425,8 @@ func (ret *retributionInfo) Encode(w io.Writer) error {
 		return err
 	}
 
-	if err := writeOutpoint(w, &ret.chanPoint); err != nil {
+	err := channeldb.WriteVarOutpoint(w, &ret.chanPoint)
+	if err != nil {
 		return err
 	}
 
@@ -1460,7 +1466,7 @@ func (ret *retributionInfo) Decode(r io.Reader) error {
 	}
 	ret.commitHash = *hash
 
-	if err := readOutpoint(r, &ret.chanPoint); err != nil {
+	if err := channeldb.ReadVarOutpoint(r, &ret.chanPoint); err != nil {
 		return err
 	}
 
@@ -1503,11 +1509,12 @@ func (bo *breachedOutput) Encode(w io.Writer) error {
 		return err
 	}
 
-	if err := writeOutpoint(w, &bo.outpoint); err != nil {
+	err := channeldb.WriteVarOutpoint(w, &bo.outpoint)
+	if err != nil {
 		return err
 	}
 
-	err := input.WriteSignDescriptor(w, &bo.signDesc)
+	err = input.WriteSignDescriptor(w, &bo.signDesc)
 	if err != nil {
 		return err
 	}
@@ -1534,7 +1541,7 @@ func (bo *breachedOutput) Decode(r io.Reader) error {
 	}
 	bo.amt = btcutil.Amount(binary.BigEndian.Uint64(scratch[:8]))
 
-	if err := readOutpoint(r, &bo.outpoint); err != nil {
+	if err := channeldb.ReadVarOutpoint(r, &bo.outpoint); err != nil {
 		return err
 	}
 

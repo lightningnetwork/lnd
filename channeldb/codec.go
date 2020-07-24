@@ -41,6 +41,43 @@ func readOutpoint(r io.Reader, o *wire.OutPoint) error {
 	return nil
 }
 
+// WriteVarOutpoint writes an outpoint in var byte encoding to the passed
+// writer.
+// NOTE: Only provided since this is an old encoding scheme that uses an
+// extra byte. Should not be used in new code.
+func WriteVarOutpoint(w io.Writer, o *wire.OutPoint) error {
+	scratch := make([]byte, 4)
+
+	if err := wire.WriteVarBytes(w, 0, o.Hash[:]); err != nil {
+		return err
+	}
+
+	byteOrder.PutUint32(scratch, o.Index)
+	_, err := w.Write(scratch)
+	return err
+}
+
+// ReadVarOutpoint reads an outpoint in var byte encoding from the passed
+// reader.
+// NOTE: Only provided since this is an old encoding scheme that uses an
+// extra byte. Should not be used in new code.
+func ReadVarOutpoint(r io.Reader, o *wire.OutPoint) error {
+	scratch := make([]byte, 4)
+
+	txid, err := wire.ReadVarBytes(r, 0, 32, "prevout")
+	if err != nil {
+		return err
+	}
+	copy(o.Hash[:], txid)
+
+	if _, err := r.Read(scratch); err != nil {
+		return err
+	}
+	o.Index = byteOrder.Uint32(scratch)
+
+	return nil
+}
+
 // UnknownElementType is an error returned when the codec is unable to encode or
 // decode a particular type.
 type UnknownElementType struct {

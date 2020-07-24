@@ -221,7 +221,7 @@ func prefixOutputKey(statePrefix []byte,
 		return nil, err
 	}
 
-	err := writeOutpoint(&pfxOutputBuffer, outpoint)
+	err := channeldb.WriteVarOutpoint(&pfxOutputBuffer, outpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -734,7 +734,7 @@ func (ns *nurseryStore) ListChannels() ([]wire.OutPoint, error) {
 
 		return chanIndex.ForEach(func(chanBytes, _ []byte) error {
 			var chanPoint wire.OutPoint
-			err := readOutpoint(bytes.NewReader(chanBytes), &chanPoint)
+			err := channeldb.ReadVarOutpoint(bytes.NewReader(chanBytes), &chanPoint)
 			if err != nil {
 				return err
 			}
@@ -798,12 +798,13 @@ func (ns *nurseryStore) RemoveChannel(chanPoint *wire.OutPoint) error {
 		// Serialize the provided channel point, such that we can delete
 		// the mature channel bucket.
 		var chanBuffer bytes.Buffer
-		if err := writeOutpoint(&chanBuffer, chanPoint); err != nil {
+		err := channeldb.WriteVarOutpoint(&chanBuffer, chanPoint)
+		if err != nil {
 			return err
 		}
 		chanBytes := chanBuffer.Bytes()
 
-		err := ns.forChanOutputs(tx, chanPoint, func(k, v []byte) error {
+		err = ns.forChanOutputs(tx, chanPoint, func(k, v []byte) error {
 			if !bytes.HasPrefix(k, gradPrefix) {
 				return ErrImmatureChannel
 			}
@@ -953,7 +954,8 @@ func (ns *nurseryStore) createChannelBucket(tx kvdb.RwTx,
 	// Serialize the provided channel point, as this provides the name of
 	// the channel bucket of interest.
 	var chanBuffer bytes.Buffer
-	if err := writeOutpoint(&chanBuffer, chanPoint); err != nil {
+	err = channeldb.WriteVarOutpoint(&chanBuffer, chanPoint)
+	if err != nil {
 		return nil, err
 	}
 
@@ -983,7 +985,8 @@ func (ns *nurseryStore) getChannelBucket(tx kvdb.RTx,
 	// Serialize the provided channel point and return the bucket matching
 	// the serialized key.
 	var chanBuffer bytes.Buffer
-	if err := writeOutpoint(&chanBuffer, chanPoint); err != nil {
+	err := channeldb.WriteVarOutpoint(&chanBuffer, chanPoint)
+	if err != nil {
 		return nil
 	}
 
@@ -1011,7 +1014,8 @@ func (ns *nurseryStore) getChannelBucketWrite(tx kvdb.RwTx,
 	// Serialize the provided channel point and return the bucket matching
 	// the serialized key.
 	var chanBuffer bytes.Buffer
-	if err := writeOutpoint(&chanBuffer, chanPoint); err != nil {
+	err := channeldb.WriteVarOutpoint(&chanBuffer, chanPoint)
+	if err != nil {
 		return nil
 	}
 
@@ -1135,7 +1139,8 @@ func (ns *nurseryStore) createHeightChanBucket(tx kvdb.RwTx,
 	// Serialize the provided channel point, as this generates the name of
 	// the subdirectory corresponding to the channel of interest.
 	var chanBuffer bytes.Buffer
-	if err := writeOutpoint(&chanBuffer, chanPoint); err != nil {
+	err = channeldb.WriteVarOutpoint(&chanBuffer, chanPoint)
+	if err != nil {
 		return nil, err
 	}
 	chanBytes := chanBuffer.Bytes()
@@ -1161,7 +1166,8 @@ func (ns *nurseryStore) getHeightChanBucketWrite(tx kvdb.RwTx,
 	// Serialize the provided channel point, which generates the key for
 	// looking up the proper height-channel bucket inside the height bucket.
 	var chanBuffer bytes.Buffer
-	if err := writeOutpoint(&chanBuffer, chanPoint); err != nil {
+	err := channeldb.WriteVarOutpoint(&chanBuffer, chanPoint)
+	if err != nil {
 		return nil
 	}
 	chanBytes := chanBuffer.Bytes()
@@ -1305,13 +1311,14 @@ func (ns *nurseryStore) removeOutputFromHeight(tx kvdb.RwTx, height uint32,
 	}
 
 	var chanBuffer bytes.Buffer
-	if err := writeOutpoint(&chanBuffer, chanPoint); err != nil {
+	err := channeldb.WriteVarOutpoint(&chanBuffer, chanPoint)
+	if err != nil {
 		return err
 	}
 
 	// Try to remove the channel-height bucket if it this was the last
 	// output in the bucket.
-	err := removeBucketIfEmpty(hghtBucket, chanBuffer.Bytes())
+	err = removeBucketIfEmpty(hghtBucket, chanBuffer.Bytes())
 	if err != nil && err != errBucketNotEmpty {
 		return err
 	} else if err == errBucketNotEmpty {

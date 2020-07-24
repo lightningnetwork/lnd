@@ -1339,10 +1339,12 @@ func (k *kidOutput) Encode(w io.Writer) error {
 		return err
 	}
 
-	if err := writeOutpoint(w, k.OutPoint()); err != nil {
+	err := channeldb.WriteVarOutpoint(w, k.OutPoint())
+	if err != nil {
 		return err
 	}
-	if err := writeOutpoint(w, k.OriginChanPoint()); err != nil {
+	err = channeldb.WriteVarOutpoint(w, k.OriginChanPoint())
+	if err != nil {
 		return err
 	}
 
@@ -1384,11 +1386,12 @@ func (k *kidOutput) Decode(r io.Reader) error {
 	}
 	k.amt = btcutil.Amount(byteOrder.Uint64(scratch[:]))
 
-	if err := readOutpoint(io.LimitReader(r, 40), &k.outpoint); err != nil {
+	err := channeldb.ReadVarOutpoint(io.LimitReader(r, 40), &k.outpoint)
+	if err != nil {
 		return err
 	}
 
-	err := readOutpoint(io.LimitReader(r, 40), &k.originChanPoint)
+	err = channeldb.ReadVarOutpoint(io.LimitReader(r, 40), &k.originChanPoint)
 	if err != nil {
 		return err
 	}
@@ -1418,40 +1421,6 @@ func (k *kidOutput) Decode(r io.Reader) error {
 	k.witnessType = input.StandardWitnessType(byteOrder.Uint16(scratch[:2]))
 
 	return input.ReadSignDescriptor(r, &k.signDesc)
-}
-
-// TODO(bvu): copied from channeldb, remove repetition
-func writeOutpoint(w io.Writer, o *wire.OutPoint) error {
-	// TODO(roasbeef): make all scratch buffers on the stack
-	scratch := make([]byte, 4)
-
-	// TODO(roasbeef): write raw 32 bytes instead of wasting the extra
-	// byte.
-	if err := wire.WriteVarBytes(w, 0, o.Hash[:]); err != nil {
-		return err
-	}
-
-	byteOrder.PutUint32(scratch, o.Index)
-	_, err := w.Write(scratch)
-	return err
-}
-
-// TODO(bvu): copied from channeldb, remove repetition
-func readOutpoint(r io.Reader, o *wire.OutPoint) error {
-	scratch := make([]byte, 4)
-
-	txid, err := wire.ReadVarBytes(r, 0, 32, "prevout")
-	if err != nil {
-		return err
-	}
-	copy(o.Hash[:], txid)
-
-	if _, err := r.Read(scratch); err != nil {
-		return err
-	}
-	o.Index = byteOrder.Uint32(scratch)
-
-	return nil
 }
 
 // Compile-time constraint to ensure kidOutput implements the

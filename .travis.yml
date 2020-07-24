@@ -26,37 +26,22 @@ env:
 
 sudo: required
 
-addons:
-  apt:
-    packages:
-      - clang-format
-
-before_script:
-  - bash ./scripts/install_travis_proto.sh
-  - bash ./scripts/install_bitcoind.sh
-
 jobs:
   include:
-    - stage: Build
-      script:
-        - make rpc-check
-        - make unit pkg=... case=_NONE_
-        - make lint workers=1
-        - make btcd
-        - make release sys=windows-amd64
-        - make mobile-rpc
-        - go build --tags="mobile" ./mobile
-    - stage: Test
-      script: make travis-cover
-      name: Unit Cover
-    - script: make travis-race
-      name: Unit Race
-    - script: make itest
+    - stage: Integration Test
       name: Btcd Integration
-    - script: make itest backend=bitcoind
-      name: Bitcoind Integration
-    - script: make itest backend=neutrino
-      name: Neutrino Integration
+      script:
+        - make itest
+
+    - name: Bitcoind Integration
+      script:
+        - bash ./scripts/install_bitcoind.sh
+        - make itest backend=bitcoind
+
+    - name: Neutrino Integration
+      script:
+        - make itest backend=neutrino
+
 
 after_script:
   - LOG_FILES=./lntest/itest/*.log

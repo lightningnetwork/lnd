@@ -42,7 +42,7 @@ var _ Message = (*FundingCreated)(nil)
 // This is part of the lnwire.Message interface.
 func (f *FundingCreated) Encode(w io.Writer, pver uint32) error {
 	return WriteElements(
-		w, f.PendingChannelID[:], f.FundingPoint, f.CommitSig,
+		w, pver, f.PendingChannelID[:], f.FundingPoint, f.CommitSig,
 		f.ExtraData,
 	)
 }
@@ -54,7 +54,7 @@ func (f *FundingCreated) Encode(w io.Writer, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (f *FundingCreated) Decode(r io.Reader, pver uint32) error {
 	return ReadElements(
-		r, f.PendingChannelID[:], &f.FundingPoint, &f.CommitSig,
+		r, pver, f.PendingChannelID[:], &f.FundingPoint, &f.CommitSig,
 		&f.ExtraData,
 	)
 }

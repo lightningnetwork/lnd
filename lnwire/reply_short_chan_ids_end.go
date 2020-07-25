@@ -44,6 +44,7 @@ var _ Message = (*ReplyShortChanIDsEnd)(nil)
 // This is part of the lnwire.Message interface.
 func (c *ReplyShortChanIDsEnd) Decode(r io.Reader, pver uint32) error {
 	return ReadElements(r,
+		pver,
 		c.ChainHash[:],
 		&c.Complete,
 		&c.ExtraData,
@@ -56,6 +57,7 @@ func (c *ReplyShortChanIDsEnd) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *ReplyShortChanIDsEnd) Encode(w io.Writer, pver uint32) error {
 	return WriteElements(w,
+		pver,
 		c.ChainHash[:],
 		c.Complete,
 		c.ExtraData,

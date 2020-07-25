@@ -110,6 +110,7 @@ var _ Message = (*NodeAnnouncement)(nil)
 // This is part of the lnwire.Message interface.
 func (a *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
 	return ReadElements(r,
+		pver,
 		&a.Signature,
 		&a.Features,
 		&a.Timestamp,
@@ -126,6 +127,7 @@ func (a *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
 //
 func (a *NodeAnnouncement) Encode(w io.Writer, pver uint32) error {
 	return WriteElements(w,
+		pver,
 		a.Signature,
 		a.Features,
 		a.Timestamp,
@@ -159,6 +161,9 @@ func (a *NodeAnnouncement) DataToSign() ([]byte, error) {
 	// We should not include the signatures itself.
 	var w bytes.Buffer
 	err := WriteElements(&w,
+		// We always use the modern protocol version as we need to
+		// include all data for forawrds compatability.
+		ProtocolVersionTLV,
 		a.Features,
 		a.Timestamp,
 		a.NodeID,

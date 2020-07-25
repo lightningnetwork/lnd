@@ -63,12 +63,13 @@ func TestEncodeDecodeCode(t *testing.T) {
 	for _, failure1 := range onionFailures {
 		var b bytes.Buffer
 
-		if err := EncodeFailure(&b, failure1, 0); err != nil {
+		err := EncodeFailure(&b, failure1, ProtocolVersionTLV)
+		if err != nil {
 			t.Fatalf("unable to encode failure code(%v): %v",
 				failure1.Code(), err)
 		}
 
-		failure2, err := DecodeFailure(&b, 0)
+		failure2, err := DecodeFailure(&b, ProtocolVersionTLV)
 		if err != nil {
 			t.Fatalf("unable to decode failure code(%v): %v",
 				failure1.Code(), err)
@@ -90,7 +91,7 @@ func TestChannelUpdateCompatabilityParsing(t *testing.T) {
 	// We'll start by taking out test channel update, and encoding it into
 	// a set of raw bytes.
 	var b bytes.Buffer
-	if err := testChannelUpdate.Encode(&b, 0); err != nil {
+	if err := testChannelUpdate.Encode(&b, ProtocolVersionTLV); err != nil {
 		t.Fatalf("unable to encode chan update: %v", err)
 	}
 
@@ -99,7 +100,7 @@ func TestChannelUpdateCompatabilityParsing(t *testing.T) {
 	// encoded channel update message.
 	var newChanUpdate ChannelUpdate
 	err := parseChannelUpdateCompatabilityMode(
-		bufio.NewReader(&b), &newChanUpdate, 0,
+		bufio.NewReader(&b), &newChanUpdate, ProtocolVersionTLV,
 	)
 	if err != nil {
 		t.Fatalf("unable to parse channel update: %v", err)
@@ -120,7 +121,7 @@ func TestChannelUpdateCompatabilityParsing(t *testing.T) {
 	var tByte [2]byte
 	binary.BigEndian.PutUint16(tByte[:], MsgChannelUpdate)
 	b.Write(tByte[:])
-	if err := testChannelUpdate.Encode(&b, 0); err != nil {
+	if err := testChannelUpdate.Encode(&b, ProtocolVersionTLV); err != nil {
 		t.Fatalf("unable to encode chan update: %v", err)
 	}
 
@@ -128,7 +129,7 @@ func TestChannelUpdateCompatabilityParsing(t *testing.T) {
 	// message even with the extra two bytes.
 	var newChanUpdate2 ChannelUpdate
 	err = parseChannelUpdateCompatabilityMode(
-		bufio.NewReader(&b), &newChanUpdate2, 0,
+		bufio.NewReader(&b), &newChanUpdate2, ProtocolVersionTLV,
 	)
 	if err != nil {
 		t.Fatalf("unable to parse channel update: %v", err)
@@ -165,7 +166,7 @@ func TestWriteOnionErrorChanUpdate(t *testing.T) {
 	// Finally, read the length encoded and ensure that it matches the raw
 	// length.
 	var encodedLen uint16
-	if err := ReadElement(&errorBuf, &encodedLen); err != nil {
+	if err := ReadElement(&errorBuf, ProtocolVersionTLV, &encodedLen); err != nil {
 		t.Fatalf("unable to read len: %v", err)
 	}
 	if uint16(trueUpdateLength) != encodedLen {
@@ -276,5 +277,5 @@ func (f *mockFailIncorrectDetailsNoHeight) Decode(r io.Reader, pver uint32) erro
 }
 
 func (f *mockFailIncorrectDetailsNoHeight) Encode(w io.Writer, pver uint32) error {
-	return WriteElement(w, f.amount)
+	return WriteElement(w, ProtocolVersionTLV, f.amount)
 }

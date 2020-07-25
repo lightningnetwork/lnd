@@ -77,11 +77,12 @@ func (a addressType) AddrLen() uint16 {
 // WriteElement is a one-stop shop to write the big endian representation of
 // any element which is to be serialized for the wire protocol. The passed
 // io.Writer should be backed by an appropriately sized byte slice, or be able
-// to dynamically expand to accommodate additional data.
+// to dynamically expand to accommodate additional data. The passed protocol
+// version may affect how items are encoded.
 //
 // TODO(roasbeef): this should eventually draw from a buffer pool for
 // serialization.
-func WriteElement(w io.Writer, element interface{}) error {
+func WriteElement(w io.Writer, pver uint32, element interface{}) error {
 	switch e := element.(type) {
 	case NodeAlias:
 		if _, err := w.Write(e[:]); err != nil {
@@ -168,7 +169,7 @@ func WriteElement(w io.Writer, element interface{}) error {
 		}
 
 		for _, sig := range e {
-			if err := WriteElement(w, sig); err != nil {
+			if err := WriteElement(w, pver, sig); err != nil {
 				return err
 			}
 		}
@@ -269,7 +270,7 @@ func WriteElement(w io.Writer, element interface{}) error {
 			return err
 		}
 	case FailCode:
-		if err := WriteElement(w, uint16(e)); err != nil {
+		if err := WriteElement(w, pver, uint16(e)); err != nil {
 			return err
 		}
 	case ShortChannelID:
@@ -383,7 +384,8 @@ func WriteElement(w io.Writer, element interface{}) error {
 		// length of the addresses.
 		var addrBuf bytes.Buffer
 		for _, address := range e {
-			if err := WriteElement(&addrBuf, address); err != nil {
+			err := WriteElement(&addrBuf, pver, address)
+			if err != nil {
 				return err
 			}
 		}
@@ -391,7 +393,7 @@ func WriteElement(w io.Writer, element interface{}) error {
 		// With the addresses fully encoded, we can now write out the
 		// number of bytes needed to encode them.
 		addrLen := addrBuf.Len()
-		if err := WriteElement(w, uint16(addrLen)); err != nil {
+		if err := WriteElement(w, pver, uint16(addrLen)); err != nil {
 			return err
 		}
 
@@ -403,7 +405,7 @@ func WriteElement(w io.Writer, element interface{}) error {
 			}
 		}
 	case color.RGBA:
-		if err := WriteElements(w, e.R, e.G, e.B); err != nil {
+		if err := WriteElements(w, pver, e.R, e.G, e.B); err != nil {
 			return err
 		}
 
@@ -427,7 +429,7 @@ func WriteElement(w io.Writer, element interface{}) error {
 		}
 
 	case ExtraOpaqueData:
-		return e.Encode(w)
+		return e.Encode(w, pver)
 
 	case TypedDeliveryAddress:
 		return e.Encode(w)
@@ -441,9 +443,9 @@ func WriteElement(w io.Writer, element interface{}) error {
 
 // WriteElements is writes each element in the elements slice to the passed
 // io.Writer using WriteElement.
-func WriteElements(w io.Writer, elements ...interface{}) error {
+func WriteElements(w io.Writer, pver uint32, elements ...interface{}) error {
 	for _, element := range elements {
-		err := WriteElement(w, element)
+		err := WriteElement(w, pver, element)
 		if err != nil {
 			return err
 		}
@@ -452,8 +454,9 @@ func WriteElements(w io.Writer, elements ...interface{}) error {
 }
 
 // ReadElement is a one-stop utility function to deserialize any datastructure
-// encoded using the serialization format of lnwire.
-func ReadElement(r io.Reader, element interface{}) error {
+// encoded using the serialization format of lnwire. The passed protocol
+// version may affect how items are decoded.
+func ReadElement(r io.Reader, pver uint32, element interface{}) error {
 	var err error
 	switch e := element.(type) {
 	case *bool:
@@ -569,7 +572,8 @@ func ReadElement(r io.Reader, element interface{}) error {
 		if numSigs > 0 {
 			sigs = make([]Sig, numSigs)
 			for i := 0; i < int(numSigs); i++ {
-				if err := ReadElement(r, &sigs[i]); err != nil {
+				err := ReadElement(r, pver, &sigs[i])
+				if err != nil {
 					return err
 				}
 			}
@@ -661,7 +665,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 			Index: uint32(index),
 		}
 	case *FailCode:
-		if err := ReadElement(r, (*uint16)(e)); err != nil {
+		if err := ReadElement(r, pver, (*uint16)(e)); err != nil {
 			return err
 		}
 	case *ChannelID:
@@ -816,6 +820,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 		*e = addresses
 	case *color.RGBA:
 		err := ReadElements(r,
+			pver,
 			&e.R,
 			&e.G,
 			&e.B,
@@ -840,7 +845,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 		*e = addrBytes[:length]
 
 	case *ExtraOpaqueData:
-		return e.Decode(r)
+		return e.Decode(r, pver)
 
 	case *TypedDeliveryAddress:
 		return e.Decode(r)
@@ -854,10 +859,10 @@ func ReadElement(r io.Reader, element interface{}) error {
 
 // ReadElements deserializes a variable number of elements into the passed
 // io.Reader, with each element being deserialized according to the ReadElement
-// function.
-func ReadElements(r io.Reader, elements ...interface{}) error {
+// function. The passed protocol version may affect how the items are encoded.
+func ReadElements(r io.Reader, pver uint32, elements ...interface{}) error {
 	for _, element := range elements {
-		err := ReadElement(r, element)
+		err := ReadElement(r, pver, element)
 		if err != nil {
 			return err
 		}

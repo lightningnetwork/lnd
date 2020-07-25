@@ -52,6 +52,7 @@ var _ Message = (*AnnounceSignatures)(nil)
 // This is part of the lnwire.Message interface.
 func (a *AnnounceSignatures) Decode(r io.Reader, pver uint32) error {
 	return ReadElements(r,
+		pver,
 		&a.ChannelID,
 		&a.ShortChannelID,
 		&a.NodeSignature,
@@ -66,6 +67,7 @@ func (a *AnnounceSignatures) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (a *AnnounceSignatures) Encode(w io.Writer, pver uint32) error {
 	return WriteElements(w,
+		pver,
 		a.ChannelID,
 		a.ShortChannelID,
 		a.NodeSignature,

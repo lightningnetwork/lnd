@@ -49,6 +49,7 @@ var _ Message = (*UpdateFulfillHTLC)(nil)
 // This is part of the lnwire.Message interface.
 func (c *UpdateFulfillHTLC) Decode(r io.Reader, pver uint32) error {
 	return ReadElements(r,
+		pver,
 		&c.ChanID,
 		&c.ID,
 		c.PaymentPreimage[:],
@@ -62,6 +63,7 @@ func (c *UpdateFulfillHTLC) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *UpdateFulfillHTLC) Encode(w io.Writer, pver uint32) error {
 	return WriteElements(w,
+		pver,
 		c.ChanID,
 		c.ID,
 		c.PaymentPreimage[:],

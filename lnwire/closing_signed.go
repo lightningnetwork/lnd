@@ -55,7 +55,8 @@ var _ Message = (*ClosingSigned)(nil)
 // This is part of the lnwire.Message interface.
 func (c *ClosingSigned) Decode(r io.Reader, pver uint32) error {
 	return ReadElements(
-		r, &c.ChannelID, &c.FeeSatoshis, &c.Signature, &c.ExtraData,
+		r, pver, &c.ChannelID, &c.FeeSatoshis, &c.Signature,
+		&c.ExtraData,
 	)
 }
 
@@ -65,7 +66,7 @@ func (c *ClosingSigned) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *ClosingSigned) Encode(w io.Writer, pver uint32) error {
 	return WriteElements(
-		w, c.ChannelID, c.FeeSatoshis, c.Signature, c.ExtraData,
+		w, pver, c.ChannelID, c.FeeSatoshis, c.Signature, c.ExtraData,
 	)
 }
 

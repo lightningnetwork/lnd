@@ -77,6 +77,7 @@ var _ Message = (*ChannelReestablish)(nil)
 // This is part of the lnwire.Message interface.
 func (a *ChannelReestablish) Encode(w io.Writer, pver uint32) error {
 	err := WriteElements(w,
+		pver,
 		a.ChanID,
 		a.NextLocalCommitHeight,
 		a.RemoteCommitTailHeight,
@@ -93,11 +94,12 @@ func (a *ChannelReestablish) Encode(w io.Writer, pver uint32) error {
 		//
 		// NOTE: This is here primarily for the quickcheck tests, in
 		// practice, we'll always populate this field.
-		return WriteElements(w, a.ExtraData)
+		return WriteElements(w, pver, a.ExtraData)
 	}
 
 	// Otherwise, we'll write out the remaining elements.
 	return WriteElements(w,
+		pver,
 		a.LastRemoteCommitSecret[:],
 		a.LocalUnrevokedCommitPoint,
 		a.ExtraData,
@@ -110,6 +112,7 @@ func (a *ChannelReestablish) Encode(w io.Writer, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
 	err := ReadElements(r,
+		pver,
 		&a.ChanID,
 		&a.NextLocalCommitHeight,
 		&a.RemoteCommitTailHeight,
@@ -145,11 +148,11 @@ func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
 	// We'll conclude by parsing out the commitment point. We don't check
 	// the error in this case, as it they included the commit secret, then
 	// they MUST also include the commit point.
-	if err = ReadElement(r, &a.LocalUnrevokedCommitPoint); err != nil {
+	if err = ReadElement(r, pver, &a.LocalUnrevokedCommitPoint); err != nil {
 		return err
 	}
 
-	return a.ExtraData.Decode(r)
+	return a.ExtraData.Decode(r, pver)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

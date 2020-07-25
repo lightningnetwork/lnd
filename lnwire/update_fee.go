@@ -41,6 +41,7 @@ var _ Message = (*UpdateFee)(nil)
 // This is part of the lnwire.Message interface.
 func (c *UpdateFee) Decode(r io.Reader, pver uint32) error {
 	return ReadElements(r,
+		pver,
 		&c.ChanID,
 		&c.FeePerKw,
 		&c.ExtraData,
@@ -53,6 +54,7 @@ func (c *UpdateFee) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *UpdateFee) Encode(w io.Writer, pver uint32) error {
 	return WriteElements(w,
+		pver,
 		c.ChanID,
 		c.FeePerKw,
 		c.ExtraData,

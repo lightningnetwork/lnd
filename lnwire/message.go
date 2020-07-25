@@ -56,6 +56,20 @@ const (
 	MsgGossipTimestampRange                = 265
 )
 
+const (
+	// ProtocolVersionLegacy is the legacy protocol version. When reading
+	// or writing messages using this protocol version, any optional fields
+	// appended to the end of the message will be ignored.
+	ProtocolVersionLegacy uint32 = 0
+
+	// ProtocolVersionTLV is the current modern protocol version. When
+	// reading/writing messages with this version, decoding will continue
+	// until the entire payload has been ready. When writing with this
+	// version, any optional fields appended to the end of the main message
+	// will also be written out.
+	ProtocolVersionTLV uint32 = 1
+)
+
 // String return the string representation of message type.
 func (t MessageType) String() string {
 	switch t {

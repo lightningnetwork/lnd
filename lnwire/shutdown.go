@@ -53,7 +53,7 @@ var _ Message = (*Shutdown)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (s *Shutdown) Decode(r io.Reader, pver uint32) error {
-	return ReadElements(r, &s.ChannelID, &s.Address, &s.ExtraData)
+	return ReadElements(r, pver, &s.ChannelID, &s.Address, &s.ExtraData)
 }
 
 // Encode serializes the target Shutdown into the passed io.Writer observing
@@ -61,7 +61,7 @@ func (s *Shutdown) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (s *Shutdown) Encode(w io.Writer, pver uint32) error {
-	return WriteElements(w, s.ChannelID, s.Address, s.ExtraData)
+	return WriteElements(w, pver, s.ChannelID, s.Address, s.ExtraData)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

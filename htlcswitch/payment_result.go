@@ -76,7 +76,7 @@ func deserializeNetworkResult(r io.Reader) (*networkResult, error) {
 
 	n := &networkResult{}
 
-	n.msg, err = lnwire.ReadMessage(r, 0)
+	n.msg, err = lnwire.ReadMessage(r, lnwire.ProtocolVersionTLV)
 	if err != nil {
 		return nil, err
 	}

@@ -1871,7 +1871,8 @@ func serializeCommitDiff(w io.Writer, diff *CommitDiff) error {
 		return err
 	}
 
-	if err := diff.CommitSig.Encode(w, 0); err != nil {
+	err := diff.CommitSig.Encode(w, lnwire.ProtocolVersionTLV)
+	if err != nil {
 		return err
 	}
 
@@ -1918,7 +1919,7 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 	}
 
 	d.CommitSig = &lnwire.CommitSig{}
-	if err := d.CommitSig.Decode(r, 0); err != nil {
+	if err := d.CommitSig.Decode(r, lnwire.ProtocolVersionTLV); err != nil {
 		return nil, err
 	}
 

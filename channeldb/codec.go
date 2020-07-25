@@ -178,7 +178,8 @@ func WriteElement(w io.Writer, element interface{}) error {
 		}
 
 	case lnwire.Message:
-		if _, err := lnwire.WriteMessage(w, e, 0); err != nil {
+		_, err := lnwire.WriteMessage(w, e, lnwire.ProtocolVersionTLV)
+		if err != nil {
 			return err
 		}
 
@@ -394,7 +395,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 		*e = bytes
 
 	case *lnwire.Message:
-		msg, err := lnwire.ReadMessage(r, 0)
+		msg, err := lnwire.ReadMessage(r, lnwire.ProtocolVersionTLV)
 		if err != nil {
 			return err
 		}

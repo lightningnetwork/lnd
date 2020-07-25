@@ -110,7 +110,10 @@ func ValidateNodeAnn(a *lnwire.NodeAnnouncement) error {
 	dataHash := chainhash.DoubleHashB(data)
 	if !nodeSig.Verify(dataHash, nodeKey) {
 		var msgBuf bytes.Buffer
-		if _, err := lnwire.WriteMessage(&msgBuf, a, 0); err != nil {
+		_, err := lnwire.WriteMessage(
+			&msgBuf, a, lnwire.ProtocolVersionTLV,
+		)
+		if err != nil {
 			return err
 		}
 

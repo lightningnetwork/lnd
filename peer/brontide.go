@@ -919,7 +919,7 @@ func (p *Brontide) readNextMessage() (lnwire.Message, error) {
 	// Next, create a new io.Reader implementation from the raw message,
 	// and use this to decode the message directly from.
 	msgReader := bytes.NewReader(rawMsg)
-	nextMsg, err := lnwire.ReadMessage(msgReader, 0)
+	nextMsg, err := lnwire.ReadMessage(msgReader, lnwire.ProtocolVersionTLV)
 	if err != nil {
 		return nil, err
 	}

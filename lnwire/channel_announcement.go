@@ -68,6 +68,7 @@ var _ Message = (*ChannelAnnouncement)(nil)
 // This is part of the lnwire.Message interface.
 func (a *ChannelAnnouncement) Decode(r io.Reader, pver uint32) error {
 	return ReadElements(r,
+		pver,
 		&a.NodeSig1,
 		&a.NodeSig2,
 		&a.BitcoinSig1,
@@ -89,6 +90,7 @@ func (a *ChannelAnnouncement) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (a *ChannelAnnouncement) Encode(w io.Writer, pver uint32) error {
 	return WriteElements(w,
+		pver,
 		a.NodeSig1,
 		a.NodeSig2,
 		a.BitcoinSig1,
@@ -126,6 +128,10 @@ func (a *ChannelAnnouncement) DataToSign() ([]byte, error) {
 	// We should not include the signatures itself.
 	var w bytes.Buffer
 	err := WriteElements(&w,
+		// We always use the modern protocol version here as we always
+		// need to include any optional data in the signature digest
+		// for forwards compatibility.
+		ProtocolVersionTLV,
 		a.Features,
 		a.ChainHash[:],
 		a.ShortChannelID,

@@ -58,6 +58,7 @@ var _ Message = (*CommitSig)(nil)
 // This is part of the lnwire.Message interface.
 func (c *CommitSig) Decode(r io.Reader, pver uint32) error {
 	return ReadElements(r,
+		pver,
 		&c.ChanID,
 		&c.CommitSig,
 		&c.HtlcSigs,
@@ -71,6 +72,7 @@ func (c *CommitSig) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *CommitSig) Encode(w io.Writer, pver uint32) error {
 	return WriteElements(w,
+		pver,
 		c.ChanID,
 		c.CommitSig,
 		c.HtlcSigs,

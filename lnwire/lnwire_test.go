@@ -232,7 +232,7 @@ func TestMaxOutPointIndex(t *testing.T) {
 	}
 
 	var b bytes.Buffer
-	if err := WriteElement(&b, op); err == nil {
+	if err := WriteElement(&b, ProtocolVersionTLV, op); err == nil {
 		t.Fatalf("write of outPoint should fail, index exceeds 16-bits")
 	}
 }
@@ -265,7 +265,8 @@ func TestLightningWireProtocol(t *testing.T) {
 		// Give a new message, we'll serialize the message into a new
 		// bytes buffer.
 		var b bytes.Buffer
-		if _, err := WriteMessage(&b, msg, 0); err != nil {
+		_, err := WriteMessage(&b, msg, ProtocolVersionTLV)
+		if err != nil {
 			t.Fatalf("unable to write msg: %v", err)
 			return false
 		}
@@ -282,7 +283,7 @@ func TestLightningWireProtocol(t *testing.T) {
 
 		// Finally, we'll deserialize the message from the written
 		// buffer, and finally assert that the messages are equal.
-		newMsg, err := ReadMessage(&b, 0)
+		newMsg, err := ReadMessage(&b, ProtocolVersionTLV)
 		if err != nil {
 			t.Fatalf("unable to read msg: %v", err)
 			return false

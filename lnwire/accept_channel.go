@@ -110,6 +110,7 @@ var _ Message = (*AcceptChannel)(nil)
 // This is part of the lnwire.Message interface.
 func (a *AcceptChannel) Encode(w io.Writer, pver uint32) error {
 	return WriteElements(w,
+		pver,
 		a.PendingChannelID[:],
 		a.DustLimit,
 		a.MaxValueInFlight,
@@ -137,6 +138,7 @@ func (a *AcceptChannel) Encode(w io.Writer, pver uint32) error {
 func (a *AcceptChannel) Decode(r io.Reader, pver uint32) error {
 	// Read all the mandatory fields in the accept message.
 	return ReadElements(r,
+		pver,
 		a.PendingChannelID[:],
 		&a.DustLimit,
 		&a.MaxValueInFlight,

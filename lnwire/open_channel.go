@@ -146,6 +146,7 @@ var _ Message = (*OpenChannel)(nil)
 // This is part of the lnwire.Message interface.
 func (o *OpenChannel) Encode(w io.Writer, pver uint32) error {
 	return WriteElements(w,
+		pver,
 		o.ChainHash[:],
 		o.PendingChannelID[:],
 		o.FundingAmount,
@@ -176,6 +177,7 @@ func (o *OpenChannel) Encode(w io.Writer, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 	return ReadElements(r,
+		pver,
 		o.ChainHash[:],
 		o.PendingChannelID[:],
 		&o.FundingAmount,

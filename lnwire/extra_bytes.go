@@ -16,9 +16,15 @@ import (
 type ExtraOpaqueData []byte
 
 // Encode attempts to encode the raw extra bytes into the passed io.Writer.
-func (e *ExtraOpaqueData) Encode(w io.Writer) error {
+func (e *ExtraOpaqueData) Encode(w io.Writer, pver uint32) error {
+	// Only write out the extra data if we're using the new modern protocol
+	// version.
+	if pver != ProtocolVersionTLV {
+		return nil
+	}
+
 	eBytes := []byte((*e)[:])
-	if err := WriteElements(w, eBytes); err != nil {
+	if err := WriteElements(w, pver, eBytes); err != nil {
 		return err
 	}
 
@@ -27,7 +33,13 @@ func (e *ExtraOpaqueData) Encode(w io.Writer) error {
 
 // Decode attempts to unpack the raw bytes encoded in the passed io.Reader as a
 // set of extra opaque data.
-func (e *ExtraOpaqueData) Decode(r io.Reader) error {
+func (e *ExtraOpaqueData) Decode(r io.Reader, pver uint32) error {
+	// Only if we're using the modern protocl version will we attempt to
+	// keep on decoding past the end of the "main message".
+	if pver != ProtocolVersionTLV {
+		return nil
+	}
+
 	// First, we'll attempt to read a set of bytes contained within the
 	// passed io.Reader (if any exist).
 	rawBytes, err := ioutil.ReadAll(r)

@@ -80,7 +80,9 @@ func TestReplyChannelRangeEmpty(t *testing.T) {
 			// identical to the one created above.
 			var req2 ReplyChannelRange
 			b, _ := hex.DecodeString(test.encodedHex)
-			err := req2.Decode(bytes.NewReader(b), 0)
+			err := req2.Decode(
+				bytes.NewReader(b), ProtocolVersionTLV,
+			)
 			if err != nil {
 				t.Fatalf("unable to decode req: %v", err)
 			}
@@ -93,7 +95,7 @@ func TestReplyChannelRangeEmpty(t *testing.T) {
 			// request created above, and assert that it matches
 			// the raw byte encoding.
 			var b2 bytes.Buffer
-			err = req.Encode(&b2, 0)
+			err = req.Encode(&b2, ProtocolVersionTLV)
 			if err != nil {
 				t.Fatalf("unable to encode req: %v", err)
 			}

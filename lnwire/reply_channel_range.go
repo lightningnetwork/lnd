@@ -64,6 +64,7 @@ var _ Message = (*ReplyChannelRange)(nil)
 // This is part of the lnwire.Message interface.
 func (c *ReplyChannelRange) Decode(r io.Reader, pver uint32) error {
 	err := ReadElements(r,
+		pver,
 		c.ChainHash[:],
 		&c.FirstBlockHeight,
 		&c.NumBlocks,
@@ -73,12 +74,12 @@ func (c *ReplyChannelRange) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	c.EncodingType, c.ShortChanIDs, err = decodeShortChanIDs(r)
+	c.EncodingType, c.ShortChanIDs, err = decodeShortChanIDs(r, pver)
 	if err != nil {
 		return err
 	}
 
-	return c.ExtraData.Decode(r)
+	return c.ExtraData.Decode(r, pver)
 }
 
 // Encode serializes the target ReplyChannelRange into the passed io.Writer
@@ -87,6 +88,7 @@ func (c *ReplyChannelRange) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *ReplyChannelRange) Encode(w io.Writer, pver uint32) error {
 	err := WriteElements(w,
+		pver,
 		c.ChainHash[:],
 		c.FirstBlockHeight,
 		c.NumBlocks,
@@ -96,12 +98,14 @@ func (c *ReplyChannelRange) Encode(w io.Writer, pver uint32) error {
 		return err
 	}
 
-	err = encodeShortChanIDs(w, c.EncodingType, c.ShortChanIDs, c.noSort)
+	err = encodeShortChanIDs(
+		w, c.EncodingType, c.ShortChanIDs, c.noSort, pver,
+	)
 	if err != nil {
 		return err
 	}
 
-	return c.ExtraData.Encode(w)
+	return c.ExtraData.Encode(w, pver)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

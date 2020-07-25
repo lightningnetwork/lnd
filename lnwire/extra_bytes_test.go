@@ -36,13 +36,13 @@ func TestExtraOpaqueDataEncodeDecode(t *testing.T) {
 
 		copy(extraData[:], test.inputBytes)
 
-		if err := extraData.Encode(&b); err != nil {
+		if err := extraData.Encode(&b, ProtocolVersionTLV); err != nil {
 			t.Fatalf("unable to encode extra data: %v", err)
 			return false
 		}
 
 		var newBytes ExtraOpaqueData
-		if err := newBytes.Decode(&b); err != nil {
+		if err := newBytes.Decode(&b, ProtocolVersionTLV); err != nil {
 			t.Fatalf("unable to decode extra bytes: %v", err)
 			return false
 		}
@@ -144,4 +144,57 @@ func TestExtraOpaqueDataPackUnpackRecords(t *testing.T) {
 	if _, ok := typeMap[type2]; !ok {
 		t.Fatalf("type2 not found in typeMap")
 	}
+}
+
+// TestExtraOpaqueDataProtocolVersion tests that the encode/decode methods will
+// observe the passed protocol version.
+func TestExtraOpaqueDataProtocolVersion(t *testing.T) {
+	t.Parallel()
+
+	extraData := ExtraOpaqueData([]byte("kek"))
+
+	var b bytes.Buffer
+	if err := extraData.Encode(&b, ProtocolVersionLegacy); err != nil {
+		t.Fatalf("unable to encode: %v", err)
+	}
+
+	// The statement above shouldn't have included the extra data since
+	// we're using the legacy protocol version.
+	if len(b.Bytes()) != 0 {
+		t.Fatalf("bytes were encoded using legacy "+
+			"protocol version: %x", b.Bytes())
+	}
+
+	// If we encode using the proper version, then we should find the same
+	// data encoded on the other side.
+	if err := extraData.Encode(&b, ProtocolVersionTLV); err != nil {
+		t.Fatalf("unable to encode: %v", err)
+	}
+	if !bytes.Equal(b.Bytes(), extraData[:]) {
+		t.Fatalf("encoding mismatch: expected %x, got %x",
+			b.Bytes(), extraData[:])
+	}
+
+	// Now for the other direction, we'll attempt to decode into a fresh
+	// buffer, but using the legacy version. In the end, no bytes should be
+	// decoded.
+	var newExtraData ExtraOpaqueData
+	if err := newExtraData.Decode(&b, ProtocolVersionLegacy); err != nil {
+		t.Fatalf("unable to decode data: %v", err)
+	}
+
+	if len(newExtraData[:]) != 0 {
+		t.Fatalf("expected not data to be decoded!")
+	}
+
+	// Finally, if we decode using the proper protocol version, we should get
+	// the same bytes out that we put in.
+	if err := newExtraData.Decode(&b, ProtocolVersionTLV); err != nil {
+		t.Fatalf("unable to decode data: %v", err)
+	}
+	if !bytes.Equal(extraData[:], newExtraData[:]) {
+		t.Fatalf("encoding mismatch: expected %x, got %x",
+			extraData, newExtraData)
+	}
+
 }

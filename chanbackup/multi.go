@@ -63,7 +63,9 @@ func (m Multi) PackToWriter(w io.Writer, keyRing keychain.KeyRing) error {
 	var multiBackupBuffer bytes.Buffer
 
 	// First, we'll write out the version of this multi channel baackup.
-	err := lnwire.WriteElements(&multiBackupBuffer, byte(m.Version))
+	err := lnwire.WriteElements(
+		&multiBackupBuffer, lnwire.ProtocolVersionTLV, byte(m.Version),
+	)
 	if err != nil {
 		return err
 	}
@@ -111,7 +113,9 @@ func (m *Multi) UnpackFromReader(r io.Reader, keyRing keychain.KeyRing) error {
 	// First, we'll need to read the version of this multi-back up so we
 	// can know how to unpack each of the individual SCB's.
 	var multiVersion byte
-	err = lnwire.ReadElements(backupReader, &multiVersion)
+	err = lnwire.ReadElements(
+		backupReader, lnwire.ProtocolVersionTLV, &multiVersion,
+	)
 	if err != nil {
 		return err
 	}
@@ -127,7 +131,9 @@ func (m *Multi) UnpackFromReader(r io.Reader, keyRing keychain.KeyRing) error {
 		// backup is the same size, so we can continue until we've
 		// parsed out everything.
 		var numBackups uint32
-		err = lnwire.ReadElements(backupReader, &numBackups)
+		err = lnwire.ReadElements(
+			backupReader, lnwire.ProtocolVersionTLV, &numBackups,
+		)
 		if err != nil {
 			return err
 		}

@@ -207,6 +207,7 @@ func (s *Single) Serialize(w io.Writer) error {
 	var singleBytes bytes.Buffer
 	if err := lnwire.WriteElements(
 		&singleBytes,
+		lnwire.ProtocolVersionTLV,
 		s.IsInitiator,
 		s.ChainHash[:],
 		s.FundingOutpoint,
@@ -249,6 +250,7 @@ func (s *Single) Serialize(w io.Writer) error {
 
 	return lnwire.WriteElements(
 		w,
+		lnwire.ProtocolVersionTLV,
 		byte(s.Version),
 		uint16(len(singleBytes.Bytes())),
 		singleBytes.Bytes(),
@@ -290,12 +292,14 @@ func readLocalKeyDesc(r io.Reader) (keychain.KeyDescriptor, error) {
 	var keyDesc keychain.KeyDescriptor
 
 	var keyFam uint32
-	if err := lnwire.ReadElements(r, &keyFam); err != nil {
+	err := lnwire.ReadElements(r, lnwire.ProtocolVersionTLV, &keyFam)
+	if err != nil {
 		return keyDesc, err
 	}
 	keyDesc.Family = keychain.KeyFamily(keyFam)
 
-	if err := lnwire.ReadElements(r, &keyDesc.Index); err != nil {
+	err = lnwire.ReadElements(r, lnwire.ProtocolVersionTLV, &keyDesc.Index)
+	if err != nil {
 		return keyDesc, err
 	}
 
@@ -333,7 +337,7 @@ func (s *Single) Deserialize(r io.Reader) error {
 	// First, we'll need to read the version of this single-back up so we
 	// can know how to unpack each of the SCB.
 	var version byte
-	err := lnwire.ReadElements(r, &version)
+	err := lnwire.ReadElements(r, lnwire.ProtocolVersionTLV, &version)
 	if err != nil {
 		return err
 	}
@@ -350,19 +354,23 @@ func (s *Single) Deserialize(r io.Reader) error {
 	}
 
 	var length uint16
-	if err := lnwire.ReadElements(r, &length); err != nil {
+	err = lnwire.ReadElements(r, lnwire.ProtocolVersionTLV, &length)
+	if err != nil {
 		return err
 	}
 
 	err = lnwire.ReadElements(
-		r, &s.IsInitiator, s.ChainHash[:], &s.FundingOutpoint,
-		&s.ShortChannelID, &s.RemoteNodePub, &s.Addresses, &s.Capacity,
+		r, lnwire.ProtocolVersionTLV, &s.IsInitiator, s.ChainHash[:],
+		&s.FundingOutpoint, &s.ShortChannelID, &s.RemoteNodePub,
+		&s.Addresses, &s.Capacity,
 	)
 	if err != nil {
 		return err
 	}
 
-	err = lnwire.ReadElements(r, &s.LocalChanCfg.CsvDelay)
+	err = lnwire.ReadElements(
+		r, lnwire.ProtocolVersionTLV, &s.LocalChanCfg.CsvDelay,
+	)
 	if err != nil {
 		return err
 	}
@@ -387,7 +395,9 @@ func (s *Single) Deserialize(r io.Reader) error {
 		return err
 	}
 
-	err = lnwire.ReadElements(r, &s.RemoteChanCfg.CsvDelay)
+	err = lnwire.ReadElements(
+		r, lnwire.ProtocolVersionTLV, &s.RemoteChanCfg.CsvDelay,
+	)
 	if err != nil {
 		return err
 	}
@@ -417,7 +427,8 @@ func (s *Single) Deserialize(r io.Reader) error {
 		shaChainPub [33]byte
 		zeroPub     [33]byte
 	)
-	if err := lnwire.ReadElements(r, shaChainPub[:]); err != nil {
+	err = lnwire.ReadElements(r, lnwire.ProtocolVersionTLV, shaChainPub[:])
+	if err != nil {
 		return err
 	}
 
@@ -433,12 +444,17 @@ func (s *Single) Deserialize(r io.Reader) error {
 	}
 
 	var shaKeyFam uint32
-	if err := lnwire.ReadElements(r, &shaKeyFam); err != nil {
+	err = lnwire.ReadElements(
+		r, lnwire.ProtocolVersionTLV, &shaKeyFam,
+	)
+	if err != nil {
 		return err
 	}
 	s.ShaChainRootDesc.KeyLocator.Family = keychain.KeyFamily(shaKeyFam)
 
-	return lnwire.ReadElements(r, &s.ShaChainRootDesc.KeyLocator.Index)
+	return lnwire.ReadElements(
+		r, lnwire.ProtocolVersionTLV, &s.ShaChainRootDesc.KeyLocator.Index,
+	)
 }
 
 // UnpackFromReader is similar to Deserialize method, but it expects the passed

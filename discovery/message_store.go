@@ -120,7 +120,8 @@ func (s *MessageStore) AddMessage(msg lnwire.Message, peerPubKey [33]byte) error
 
 	// Serialize the message with its wire encoding.
 	var b bytes.Buffer
-	if _, err := lnwire.WriteMessage(&b, msg, 0); err != nil {
+	_, err = lnwire.WriteMessage(&b, msg, lnwire.ProtocolVersionTLV)
+	if err != nil {
 		return err
 	}
 
@@ -163,7 +164,9 @@ func (s *MessageStore) DeleteMessage(msg lnwire.Message,
 				return nil
 			}
 
-			dbMsg, err := lnwire.ReadMessage(bytes.NewReader(v), 0)
+			dbMsg, err := lnwire.ReadMessage(
+				bytes.NewReader(v), lnwire.ProtocolVersionTLV,
+			)
 			if err != nil {
 				return err
 			}
@@ -182,7 +185,9 @@ func (s *MessageStore) DeleteMessage(msg lnwire.Message,
 // readMessage reads a message from its serialized form and ensures its
 // supported by the current version of the message store.
 func readMessage(msgBytes []byte) (lnwire.Message, error) {
-	msg, err := lnwire.ReadMessage(bytes.NewReader(msgBytes), 0)
+	msg, err := lnwire.ReadMessage(
+		bytes.NewReader(msgBytes), lnwire.ProtocolVersionTLV,
+	)
 	if err != nil {
 		return nil, err
 	}

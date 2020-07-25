@@ -227,7 +227,8 @@ func (p *WaitingProof) Encode(w io.Writer) error {
 		return err
 	}
 
-	if err := p.AnnounceSignatures.Encode(w, 0); err != nil {
+	err := p.AnnounceSignatures.Encode(w, lnwire.ProtocolVersionTLV)
+	if err != nil {
 		return err
 	}
 
@@ -242,7 +243,7 @@ func (p *WaitingProof) Decode(r io.Reader) error {
 	}
 
 	msg := &lnwire.AnnounceSignatures{}
-	if err := msg.Decode(r, 0); err != nil {
+	if err := msg.Decode(r, lnwire.ProtocolVersionTLV); err != nil {
 		return err
 	}
 

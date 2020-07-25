@@ -724,7 +724,8 @@ func MigrateGossipMessageStoreKeys(tx kvdb.RwTx) error {
 
 		// Serialize the message with its wire encoding.
 		var b bytes.Buffer
-		if _, err := lnwire.WriteMessage(&b, msg, 0); err != nil {
+		_, err := lnwire.WriteMessage(&b, msg, lnwire.ProtocolVersionTLV)
+		if err != nil {
 			return err
 		}
 

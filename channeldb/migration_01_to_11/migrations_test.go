@@ -529,7 +529,9 @@ func TestMigrateGossipMessageStoreKeys(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		gotMsg, err := lnwire.ReadMessage(bytes.NewReader(rawMsg), 0)
+		gotMsg, err := lnwire.ReadMessage(
+			bytes.NewReader(rawMsg), lnwire.ProtocolVersionLegacy,
+		)
 		if err != nil {
 			t.Fatalf("unable to deserialize raw message: %v", err)
 		}

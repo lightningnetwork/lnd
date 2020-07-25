@@ -222,7 +222,7 @@ func deserializeNetworkResultLegacy(r io.Reader) (*networkResult, error) {
 
 	n := &networkResult{}
 
-	n.msg, err = lnwire.ReadMessage(r, 0)
+	n.msg, err = lnwire.ReadMessage(r, lnwire.ProtocolVersionLegacy)
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +237,8 @@ func deserializeNetworkResultLegacy(r io.Reader) (*networkResult, error) {
 }
 
 func serializeNetworkResultLegacy(w io.Writer, n *networkResult) error {
-	if _, err := lnwire.WriteMessage(w, n.msg, 0); err != nil {
+	_, err := lnwire.WriteMessage(w, n.msg, lnwire.ProtocolVersionLegacy)
+	if err != nil {
 		return err
 	}
 
@@ -320,7 +321,7 @@ func deserializeCloseChannelSummaryLegacy(r io.Reader) (*ChannelCloseSummary, er
 	if hasChanSyncMsg {
 		// We must pass in reference to a lnwire.Message for the codec
 		// to support it.
-		msg, err := lnwire.ReadMessage(r, 0)
+		msg, err := lnwire.ReadMessage(r, lnwire.ProtocolVersionLegacy)
 		if err != nil {
 			return nil, err
 		}
@@ -396,7 +397,9 @@ func serializeChannelCloseSummaryLegacy(w io.Writer, cs *ChannelCloseSummary) er
 
 	// Write the channel sync message, if present.
 	if cs.LastChanSyncMsg != nil {
-		_, err = lnwire.WriteMessage(w, cs.LastChanSyncMsg, 0)
+		_, err = lnwire.WriteMessage(
+			w, cs.LastChanSyncMsg, lnwire.ProtocolVersionLegacy,
+		)
 		if err != nil {
 			return err
 		}

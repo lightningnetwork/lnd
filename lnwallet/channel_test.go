@@ -7119,7 +7119,7 @@ func restoreAndAssert(t *testing.T, channel *LightningChannel, numAddsLocal,
 	assertInLog(t, newChannel.remoteUpdateLog, numAddsRemote, numFailsRemote)
 }
 
-// TesstChannelRestoreUpdateLogsFailedHTLC runs through a scenario where an
+// TestChannelRestoreUpdateLogsFailedHTLC runs through a scenario where an
 // HTLC is added and failed, and asserts along the way that we would restore
 // the update logs of the channel to the expected state at any point.
 func TestChannelRestoreUpdateLogsFailedHTLC(t *testing.T) {
@@ -7224,10 +7224,10 @@ func TestChannelRestoreUpdateLogsFailedHTLC(t *testing.T) {
 	}
 
 	// When sending a new commitment, Alice will add a pending commit to
-	// here remote chain. In this case it doesn't contain any new updates,
-	// so it won't affect the restoration.
+	// her remote chain. Since the unsigned acked updates aren't deleted
+	// until we receive a revocation, the fail should still be present.
 	assertInLogs(t, aliceChannel, 1, 0, 0, 1)
-	restoreAndAssert(t, aliceChannel, 1, 0, 0, 0)
+	restoreAndAssert(t, aliceChannel, 1, 0, 0, 1)
 
 	// When Alice receives Bob's revocation, the Fail is irrevocably locked
 	// in on both sides. She should compact the logs, removing the HTLC and
@@ -9095,4 +9095,120 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 			checkHeights(t, update, test.expectedHeights)
 		})
 	}
+}
+
+// TestChannelUnsignedAckedFailure tests that unsigned acked updates are
+// properly restored after signing for them and disconnecting.
+//
+// The full state transition of this test is:
+//
+// Alice                   Bob
+//         -----add----->
+//         -----sig----->
+//         <----rev------
+//         <----sig------
+//         -----rev----->
+//         <----fail-----
+//         <----sig------
+//         -----rev----->
+//         -----sig-----X (does not reach Bob! Alice dies!)
+//
+//         -----sig----->
+//         <----rev------
+//         <----add------
+//         <----sig------
+//
+// The last sig was rejected with the old behavior of deleting unsigned
+// acked updates from the database after signing for them. The current
+// behavior of filtering them for deletion upon receiving a revocation
+// causes Alice to accept the signature as valid.
+func TestChannelUnsignedAckedFailure(t *testing.T) {
+	t.Parallel()
+
+	// Create a test channel so that we can test the buggy behavior.
+	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels(
+		channeldb.SingleFunderTweaklessBit,
+	)
+	require.NoError(t, err)
+	defer cleanUp()
+
+	// First we create an HTLC that Alice sends to Bob.
+	htlc, _ := createHTLC(0, lnwire.MilliSatoshi(500000))
+
+	// -----add----->
+	_, err = aliceChannel.AddHTLC(htlc, nil)
+	require.NoError(t, err)
+	_, err = bobChannel.ReceiveHTLC(htlc)
+	require.NoError(t, err)
+
+	// Force a state transition to lock in this add on both commitments.
+	// -----sig----->
+	// <----rev------
+	// <----sig------
+	// -----rev----->
+	err = ForceStateTransition(aliceChannel, bobChannel)
+	require.NoError(t, err)
+
+	// Now Bob should fail the htlc back to Alice.
+	// <----fail-----
+	err = bobChannel.FailHTLC(0, []byte("failreason"), nil, nil, nil)
+	require.NoError(t, err)
+	err = aliceChannel.ReceiveFailHTLC(0, []byte("bad"))
+	require.NoError(t, err)
+
+	// Bob should send a commitment signature to Alice.
+	// <----sig------
+	bobSig, bobHtlcSigs, _, err := bobChannel.SignNextCommitment()
+	require.NoError(t, err)
+	err = aliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
+	require.NoError(t, err)
+
+	// Alice should reply with a revocation.
+	// -----rev----->
+	aliceRevocation, _, err := aliceChannel.RevokeCurrentCommitment()
+	require.NoError(t, err)
+	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	require.NoError(t, err)
+
+	// Alice should sign the next commitment and go down before
+	// sending it.
+	// -----sig-----X
+	aliceSig, aliceHtlcSigs, _, err := aliceChannel.SignNextCommitment()
+	require.NoError(t, err)
+
+	newAliceChannel, err := NewLightningChannel(
+		aliceChannel.Signer, aliceChannel.channelState,
+		aliceChannel.sigPool,
+	)
+	require.NoError(t, err)
+
+	// Bob receives Alice's signature.
+	// -----sig----->
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	require.NoError(t, err)
+
+	// Bob revokes his current commitment and sends a revocation
+	// to Alice.
+	// <----rev------
+	bobRevocation, _, err := bobChannel.RevokeCurrentCommitment()
+	require.NoError(t, err)
+	_, _, _, _, err = newAliceChannel.ReceiveRevocation(bobRevocation)
+	require.NoError(t, err)
+
+	// Now Bob sends an HTLC to Alice.
+	htlc2, _ := createHTLC(0, lnwire.MilliSatoshi(500000))
+
+	// <----add------
+	_, err = bobChannel.AddHTLC(htlc2, nil)
+	require.NoError(t, err)
+	_, err = newAliceChannel.ReceiveHTLC(htlc2)
+	require.NoError(t, err)
+
+	// Bob sends the final signature to Alice and Alice should not
+	// reject it, given that we properly restore the unsigned acked
+	// updates and therefore our update log is structured correctly.
+	bobSig, bobHtlcSigs, _, err = bobChannel.SignNextCommitment()
+	require.NoError(t, err)
+	err = newAliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
+	require.NoError(t, err)
 }

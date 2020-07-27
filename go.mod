@@ -64,7 +64,7 @@ require (
 	github.com/urfave/cli v1.18.0
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
 	go.uber.org/zap v1.14.1 // indirect
-	golang.org/x/crypto v0.0.0-20200510223506-06a226fb4e37
+	golang.org/x/crypto v0.0.0-20200709230013-948cd5f35899
 	golang.org/x/net v0.0.0-20191002035440-2ec189313ef0
 	golang.org/x/time v0.0.0-20180412165947-fbb02b2291d2
 	google.golang.org/grpc v1.24.0
@@ -84,9 +84,5 @@ replace github.com/lightningnetwork/lnd/cert => ./cert
 replace github.com/lightningnetwork/lnd/clock => ./clock
 
 replace git.schwanenlied.me/yawning/bsaes.git => github.com/Yawning/bsaes v0.0.0-20180720073208-c0276d75487e
-
-// Pin this version that we know works explicitly, even though the
-// btcsuite/btcutil package requests a newer version.
-replace golang.org/x/crypto => golang.org/x/crypto v0.0.0-20190211182817-74369b46fc67
 
 go 1.12

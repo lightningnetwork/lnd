@@ -46,6 +46,27 @@ const (
 	// stats related to processing new channels, updates, or node
 	// announcements.
 	defaultStatInterval = time.Minute
+
+	// MinCLTVDelta is the minimum CLTV value accepted by LND for all
+	// timelock deltas. This includes both forwarding CLTV deltas set on
+	// channel updates, as well as final CLTV deltas used to create BOLT 11
+	// payment requests.
+	//
+	// NOTE: For payment requests, BOLT 11 stipulates that a final CLTV
+	// delta of 9 should be used when no value is decoded. This however
+	// leads to inflexiblity in upgrading this default parameter, since it
+	// can create inconsistencies around the assumed value between sender
+	// and receiver. Specifically, if the receiver assumes a higher value
+	// than the sender, the receiver will always see the received HTLCs as
+	// invalid due to their timelock not meeting the required delta.
+	//
+	// We skirt this by always setting an explicit CLTV delta when creating
+	// invoices. This allows LND nodes to freely update the minimum without
+	// creating incompatibilities during the upgrade process. For some time
+	// LND has used an explicit default final CLTV delta of 40 blocks for
+	// bitcoin (160 for litecoin), though we now clamp the lower end of this
+	// range for user-chosen deltas to 18 blocks to be conservative.
+	MinCLTVDelta = 18
 )
 
 var (

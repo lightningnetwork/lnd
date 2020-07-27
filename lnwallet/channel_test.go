@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 // createHTLC is a utility function for generating an HTLC with a given
@@ -363,6 +364,106 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 			testAddSettleWorkflow(t, tweakless)
 		})
 	}
+}
+
+// TestChannelZeroAddLocalHeight tests that we properly set the addCommitHeightLocal
+// field during state log restoration.
+//
+// The full state transition of this test is:
+//
+// Alice                   Bob
+//        -----add------>
+//        -----sig------>
+//        <----rev-------
+//        <----sig-------
+//        -----rev------>
+//        <---settle-----
+//        <----sig-------
+//        -----rev------>
+//          *alice dies*
+//        <----add-------
+//        x----sig-------
+//
+// The last sig will be rejected if addCommitHeightLocal is not set for the
+// initial add that Alice sent. This test checks that this behavior does
+// not occur and that we properly set the addCommitHeightLocal field.
+func TestChannelZeroAddLocalHeight(t *testing.T) {
+	t.Parallel()
+
+	// Create a test channel so that we can test the buggy behavior.
+	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels(
+		channeldb.SingleFunderTweaklessBit,
+	)
+	require.NoError(t, err)
+	defer cleanUp()
+
+	// First we create an HTLC that Alice sends to Bob.
+	htlc, _ := createHTLC(0, lnwire.MilliSatoshi(500000))
+
+	// -----add----->
+	_, err = aliceChannel.AddHTLC(htlc, nil)
+	require.NoError(t, err)
+	_, err = bobChannel.ReceiveHTLC(htlc)
+	require.NoError(t, err)
+
+	// Force a state transition to lock in this add on both commitments.
+	// -----sig----->
+	// <----rev------
+	// <----sig------
+	// -----rev----->
+	err = ForceStateTransition(aliceChannel, bobChannel)
+	require.NoError(t, err)
+
+	// Now Bob should fail the htlc back to Alice.
+	// <----fail-----
+	err = bobChannel.FailHTLC(0, []byte("failreason"), nil, nil, nil)
+	require.NoError(t, err)
+	err = aliceChannel.ReceiveFailHTLC(0, []byte("bad"))
+	require.NoError(t, err)
+
+	// Bob should send a commitment signature to Alice.
+	// <----sig------
+	bobSig, bobHtlcSigs, _, err := bobChannel.SignNextCommitment()
+	require.NoError(t, err)
+
+	err = aliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
+	require.NoError(t, err)
+
+	// Alice should reply with a revocation.
+	// -----rev----->
+	aliceRevocation, _, err := aliceChannel.RevokeCurrentCommitment()
+	require.NoError(t, err)
+
+	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	require.NoError(t, err)
+
+	// We now restore Alice's channel as this was the point at which
+	// the addCommitHeightLocal field wouldn't be set, causing a force
+	// close.
+	newAliceChannel, err := NewLightningChannel(
+		aliceChannel.Signer, aliceChannel.channelState,
+		aliceChannel.sigPool,
+	)
+	require.NoError(t, err)
+
+	// Bob now sends an htlc to Alice
+	htlc2, _ := createHTLC(0, lnwire.MilliSatoshi(500000))
+
+	// <----add-----
+	_, err = bobChannel.AddHTLC(htlc2, nil)
+	require.NoError(t, err)
+	_, err = newAliceChannel.ReceiveHTLC(htlc2)
+	require.NoError(t, err)
+
+	// Bob should now send a commitment signature to Alice.
+	// <----sig-----
+	bobSig, bobHtlcSigs, _, err = bobChannel.SignNextCommitment()
+	require.NoError(t, err)
+
+	// Alice should accept the commitment. Previously she would
+	// force close here.
+	err = newAliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
+	require.NoError(t, err)
 }
 
 // TestCheckCommitTxSize checks that estimation size of commitment
@@ -7379,8 +7480,9 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 
 	// The HTLC should only be on the pending remote commitment, so the
 	// only the remote add height should be set during a restore.
-	aliceChannel = restoreAndAssertCommitHeights(t, aliceChannel, false,
-		0, 0, 1)
+	aliceChannel = restoreAndAssertCommitHeights(
+		t, aliceChannel, false, 0, 0, 1,
+	)
 
 	// Bob receives this commitment signature, and revokes his old state.
 	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
@@ -7405,8 +7507,9 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 
 	// However, the HTLC is still not locked into her local commitment, so
 	// the local add height should still be 0 after a restoration.
-	aliceChannel = restoreAndAssertCommitHeights(t, aliceChannel, false,
-		0, 0, 1)
+	aliceChannel = restoreAndAssertCommitHeights(
+		t, aliceChannel, false, 0, 0, 1,
+	)
 
 	// Now let Bob send the commitment signature making the HTLC lock in on
 	// Alice's commitment.
@@ -7430,8 +7533,9 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 	}
 
 	// Now both the local and remote add heights should be properly set.
-	aliceChannel = restoreAndAssertCommitHeights(t, aliceChannel, false,
-		0, 1, 1)
+	aliceChannel = restoreAndAssertCommitHeights(
+		t, aliceChannel, false, 0, 1, 1,
+	)
 
 	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	if err != nil {
@@ -7462,10 +7566,12 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 
 	// A restoration should keep the add heights iof the first HTLC, and
 	// the new HTLC should have a remote add height 2.
-	aliceChannel = restoreAndAssertCommitHeights(t, aliceChannel, false,
-		0, 1, 1)
-	aliceChannel = restoreAndAssertCommitHeights(t, aliceChannel, false,
-		1, 0, 2)
+	aliceChannel = restoreAndAssertCommitHeights(
+		t, aliceChannel, false, 0, 1, 1,
+	)
+	aliceChannel = restoreAndAssertCommitHeights(
+		t, aliceChannel, false, 1, 0, 2,
+	)
 
 	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
 	if err != nil {
@@ -7483,6 +7589,21 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 0, 2, 1)
 	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 1, 2, 0)
 
+	// Alice receives the revocation, ACKing her pending commitment for Bob.
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	if err != nil {
+		t.Fatalf("unable to receive revocation: %v", err)
+	}
+
+	// Alice receiving Bob's revocation should bump both addCommitHeightRemote
+	// heights to 2.
+	aliceChannel = restoreAndAssertCommitHeights(
+		t, aliceChannel, false, 0, 1, 2,
+	)
+	aliceChannel = restoreAndAssertCommitHeights(
+		t, aliceChannel, false, 1, 0, 2,
+	)
+
 	// Sign a new state for Alice, making Bob have a pending remote
 	// commitment.
 	bobSig, bobHtlcSigs, _, err = bobChannel.SignNextCommitment()
@@ -7494,6 +7615,70 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 	// HTLC an add height.
 	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 0, 2, 1)
 	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 1, 2, 2)
+
+	// Alice should receive the commitment and send over a revocation.
+	err = aliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
+	if err != nil {
+		t.Fatalf("unable to receive commitment: %v", err)
+	}
+	aliceRevocation, _, err = aliceChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("unable to revoke commitment: %v", err)
+	}
+
+	// Both heights should be 2 and they are on both commitments.
+	aliceChannel = restoreAndAssertCommitHeights(
+		t, aliceChannel, false, 0, 2, 2,
+	)
+	aliceChannel = restoreAndAssertCommitHeights(
+		t, aliceChannel, false, 1, 2, 2,
+	)
+
+	// Bob receives the revocation, which should set both addCommitHeightRemote
+	// fields to 2.
+	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	if err != nil {
+		t.Fatalf("unable to receive revocation: %v", err)
+	}
+
+	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 0, 2, 2)
+	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 1, 2, 2)
+
+	// Bob now fails back the htlc that was just locked in.
+	err = bobChannel.FailHTLC(0, []byte("failreason"), nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unable to cancel HTLC: %v", err)
+	}
+	err = aliceChannel.ReceiveFailHTLC(0, []byte("bad"))
+	if err != nil {
+		t.Fatalf("unable to recv htlc cancel: %v", err)
+	}
+
+	// Now Bob signs for the fail update.
+	bobSig, bobHtlcSigs, _, err = bobChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("unable to sign commitment: %v", err)
+	}
+
+	// Bob has a pending commitment for Alice, it shouldn't affect the add
+	// commit heights though.
+	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 0, 2, 2)
+	_ = restoreAndAssertCommitHeights(t, bobChannel, true, 1, 2, 2)
+
+	// Alice receives commitment, sends revocation.
+	err = aliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
+	if err != nil {
+		t.Fatalf("unable to receive commitment: %v", err)
+	}
+	_, _, err = aliceChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("unable to revoke commitment: %v", err)
+	}
+
+	aliceChannel = restoreAndAssertCommitHeights(
+		t, aliceChannel, false, 0, 3, 2,
+	)
+	_ = restoreAndAssertCommitHeights(t, aliceChannel, false, 1, 3, 2)
 }
 
 // TestForceCloseFailLocalDataLoss tests that we don't allow a force close of a

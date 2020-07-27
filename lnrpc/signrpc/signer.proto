@@ -54,8 +54,9 @@ service Signer {
     /*
     DeriveSharedKey returns a shared secret key by performing Diffie-Hellman key
     derivation between the ephemeral public key in the request and the node's
-    key specified in the key_loc parameter (or the node's identity private key
-    if no key locator is specified):
+    key specified in the key_desc parameter. Either a key locator or a raw
+    public key is expected in the key_desc, if neither is supplied, defaults to
+    the node's identity private key:
         P_shared = privKeyNode * ephemeralPubkey
     The resulting shared public key is serialized in the compressed format and
     hashed with sha256, resulting in the final key length of 256bit.
@@ -220,10 +221,18 @@ message SharedKeyRequest {
     bytes ephemeral_pubkey = 1;
 
     /*
-    The optional key locator of the local key that should be used. If this
-    parameter is not set then the node's identity private key will be used.
+    Deprecated. The optional key locator of the local key that should be used.
+    If this parameter is not set then the node's identity private key will be
+    used.
     */
-    KeyLocator key_loc = 2;
+    KeyLocator key_loc = 2 [deprecated = true];
+
+    /*
+    A key descriptor describes the key used for performing ECDH. Either a key
+    locator or a raw public key is expected, if neither is supplied, defaults to
+    the node's identity private key.
+    */
+    KeyDescriptor key_desc = 3;
 }
 
 message SharedKeyResponse {

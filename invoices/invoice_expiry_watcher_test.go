@@ -158,24 +158,14 @@ func TestInvoiceExpiryWhenAddingMultipleInvoices(t *testing.T) {
 	t.Parallel()
 
 	test := newInvoiceExpiryWatcherTest(t, testTime, 5, 5)
-	var invoices []channeldb.InvoiceWithPaymentHash
+	invoices := make(map[lntypes.Hash]*channeldb.Invoice)
 
 	for hash, invoice := range test.testData.expiredInvoices {
-		invoices = append(invoices,
-			channeldb.InvoiceWithPaymentHash{
-				Invoice:     *invoice,
-				PaymentHash: hash,
-			},
-		)
+		invoices[hash] = invoice
 	}
 
 	for hash, invoice := range test.testData.pendingInvoices {
-		invoices = append(invoices,
-			channeldb.InvoiceWithPaymentHash{
-				Invoice:     *invoice,
-				PaymentHash: hash,
-			},
-		)
+		invoices[hash] = invoice
 	}
 
 	test.watcher.AddInvoices(invoices)

@@ -622,9 +622,9 @@ func TestInvoiceAddTimeSeries(t *testing.T) {
 	}
 }
 
-// Tests that FetchAllInvoicesWithPaymentHash returns all invoices with their
-// corresponding payment hashes.
-func TestFetchAllInvoicesWithPaymentHash(t *testing.T) {
+// TestScanInvoices tests that ScanInvoices scans trough all stored invoices
+// correctly.
+func TestScanInvoices(t *testing.T) {
 	t.Parallel()
 
 	db, cleanup, err := MakeTestDB()
@@ -633,97 +633,54 @@ func TestFetchAllInvoicesWithPaymentHash(t *testing.T) {
 		t.Fatalf("unable to make test db: %v", err)
 	}
 
-	// With an empty DB we expect to return no error and an empty list.
-	empty, err := db.FetchAllInvoicesWithPaymentHash(false)
-	if err != nil {
-		t.Fatalf("failed to call FetchAllInvoicesWithPaymentHash on empty DB: %v",
-			err)
+	var invoices map[lntypes.Hash]*Invoice
+	callCount := 0
+	resetCount := 0
+
+	// reset is used to reset/initialize results and is called once
+	// upon calling ScanInvoices and when the underlying transaction is
+	// retried.
+	reset := func() {
+		invoices = make(map[lntypes.Hash]*Invoice)
+		callCount = 0
+		resetCount++
+
 	}
 
-	if len(empty) != 0 {
-		t.Fatalf("expected empty list as a result, got: %v", empty)
+	scanFunc := func(paymentHash lntypes.Hash, invoice *Invoice) error {
+		invoices[paymentHash] = invoice
+		callCount++
+
+		return nil
 	}
 
-	states := []ContractState{
-		ContractOpen, ContractSettled, ContractCanceled, ContractAccepted,
-	}
+	// With an empty DB we expect to not scan any invoices.
+	require.NoError(t, db.ScanInvoices(scanFunc, reset))
+	require.Equal(t, 0, len(invoices))
+	require.Equal(t, 0, callCount)
+	require.Equal(t, 1, resetCount)
 
-	numInvoices := len(states) * 2
-	testPendingInvoices := make(map[lntypes.Hash]*Invoice)
-	testAllInvoices := make(map[lntypes.Hash]*Invoice)
+	numInvoices := 5
+	testInvoices := make(map[lntypes.Hash]*Invoice)
 
 	// Now populate the DB and check if we can get all invoices with their
 	// payment hashes as expected.
 	for i := 1; i <= numInvoices; i++ {
 		invoice, err := randInvoice(lnwire.MilliSatoshi(i))
-		if err != nil {
-			t.Fatalf("unable to create invoice: %v", err)
-		}
+		require.NoError(t, err)
 
-		// Set the contract state of the next invoice such that there's an equal
-		// number for all possbile states.
-		invoice.State = states[i%len(states)]
 		paymentHash := invoice.Terms.PaymentPreimage.Hash()
+		testInvoices[paymentHash] = invoice
 
-		if invoice.IsPending() {
-			testPendingInvoices[paymentHash] = invoice
-		}
-
-		testAllInvoices[paymentHash] = invoice
-
-		if _, err := db.AddInvoice(invoice, paymentHash); err != nil {
-			t.Fatalf("unable to add invoice: %v", err)
-		}
+		_, err = db.AddInvoice(invoice, paymentHash)
+		require.NoError(t, err)
 	}
 
-	pendingInvoices, err := db.FetchAllInvoicesWithPaymentHash(true)
-	if err != nil {
-		t.Fatalf("can't fetch invoices with payment hash: %v", err)
-	}
-
-	if len(testPendingInvoices) != len(pendingInvoices) {
-		t.Fatalf("expected %v pending invoices, got: %v",
-			len(testPendingInvoices), len(pendingInvoices))
-	}
-
-	allInvoices, err := db.FetchAllInvoicesWithPaymentHash(false)
-	if err != nil {
-		t.Fatalf("can't fetch invoices with payment hash: %v", err)
-	}
-
-	if len(testAllInvoices) != len(allInvoices) {
-		t.Fatalf("expected %v invoices, got: %v",
-			len(testAllInvoices), len(allInvoices))
-	}
-
-	for i := range pendingInvoices {
-		expected, ok := testPendingInvoices[pendingInvoices[i].PaymentHash]
-		if !ok {
-			t.Fatalf("coulnd't find invoice with hash: %v",
-				pendingInvoices[i].PaymentHash)
-		}
-
-		// Zero out add index to not confuse require.Equal.
-		pendingInvoices[i].Invoice.AddIndex = 0
-		expected.AddIndex = 0
-
-		require.Equal(t, *expected, pendingInvoices[i].Invoice)
-	}
-
-	for i := range allInvoices {
-		expected, ok := testAllInvoices[allInvoices[i].PaymentHash]
-		if !ok {
-			t.Fatalf("coulnd't find invoice with hash: %v",
-				allInvoices[i].PaymentHash)
-		}
-
-		// Zero out add index to not confuse require.Equal.
-		allInvoices[i].Invoice.AddIndex = 0
-		expected.AddIndex = 0
-
-		require.Equal(t, *expected, allInvoices[i].Invoice)
-	}
-
+	resetCount = 0
+	require.NoError(t, db.ScanInvoices(scanFunc, reset))
+	require.Equal(t, numInvoices, callCount)
+	require.Equal(t, testInvoices, invoices)
+	require.Equal(t, 1, resetCount)
 }
 
 // TestDuplicateSettleInvoice tests that if we add a new invoice and settle it

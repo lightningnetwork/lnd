@@ -147,21 +147,39 @@ func NewRegistry(cdb *channeldb.DB, expiryWatcher *InvoiceExpiryWatcher,
 	}
 }
 
-// populateExpiryWatcher fetches all active invoices and their corresponding
-// payment hashes from ChannelDB and adds them to the expiry watcher.
-func (i *InvoiceRegistry) populateExpiryWatcher() error {
-	pendingOnly := true
-	pendingInvoices, err := i.cdb.FetchAllInvoicesWithPaymentHash(pendingOnly)
-	if err != nil && err != channeldb.ErrNoInvoicesCreated {
-		log.Errorf(
-			"Error while prefetching active invoices from the database: %v", err,
-		)
+// scanInvoicesOnStart will scan all invoices on start and add active invoices
+// to the invoice expiry watcher.
+func (i *InvoiceRegistry) scanInvoicesOnStart() error {
+	var pending map[lntypes.Hash]*channeldb.Invoice
+
+	reset := func() {
+		// Zero out our results on start and if the scan is ever run
+		// more than once. This latter case can happen if the kvdb
+		// layer needs to retry the View transaction underneath (eg.
+		// using the etcd driver, where all transactions are allowed
+		// to retry for serializability).
+		pending = make(map[lntypes.Hash]*channeldb.Invoice)
+	}
+
+	scanFunc := func(
+		paymentHash lntypes.Hash, invoice *channeldb.Invoice) error {
+
+		if invoice.IsPending() {
+			pending[paymentHash] = invoice
+		}
+
+		return nil
+	}
+
+	err := i.cdb.ScanInvoices(scanFunc, reset)
+	if err != nil {
 		return err
 	}
 
 	log.Debugf("Adding %d pending invoices to the expiry watcher",
-		len(pendingInvoices))
-	i.expiryWatcher.AddInvoices(pendingInvoices)
+		len(pending))
+	i.expiryWatcher.AddInvoices(pending)
+
 	return nil
 }
 
@@ -178,8 +196,9 @@ func (i *InvoiceRegistry) Start() error {
 	i.wg.Add(1)
 	go i.invoiceEventLoop()
 
-	// Now prefetch all pending invoices to the expiry watcher.
-	err = i.populateExpiryWatcher()
+	// Now scan all pending and removable invoices to the expiry watcher or
+	// delete them.
+	err = i.scanInvoicesOnStart()
 	if err != nil {
 		i.Stop()
 		return err

@@ -723,28 +723,21 @@ func fetchInvoiceNumByRef(invoiceIndex, payAddrIndex kvdb.RBucket,
 	}
 }
 
-// InvoiceWithPaymentHash is used to store an invoice and its corresponding
-// payment hash. This struct is only used to store results of
-// ChannelDB.FetchAllInvoicesWithPaymentHash() call.
-type InvoiceWithPaymentHash struct {
-	// Invoice holds the invoice as selected from the invoices bucket.
-	Invoice Invoice
+// ScanInvoices scans trough all invoices and calls the passed scanFunc for
+// for each invoice with its respective payment hash. Additionally a reset()
+// closure is passed which is used to reset/initialize partial results and also
+// to signal if the kvdb.View transaction has been retried.
+func (d *DB) ScanInvoices(
+	scanFunc func(lntypes.Hash, *Invoice) error, reset func()) error {
 
-	// PaymentHash is the payment hash for the Invoice.
-	PaymentHash lntypes.Hash
-}
+	return kvdb.View(d, func(tx kvdb.RTx) error {
+		// Reset partial results. As transaction commit success is not
+		// guaranteed when using etcd, we need to be prepared to redo
+		// the whole view transaction. In order to be able to do that
+		// we need a way to reset existing results. This is also done
+		// upon first run for initialization.
+		reset()
 
-// FetchAllInvoicesWithPaymentHash returns all invoices and their payment hashes
-// currently stored within the database. If the pendingOnly param is true, then
-// only open or accepted invoices and their payment hashes will be returned,
-// skipping all invoices that are fully settled or canceled. Note that the
-// returned array is not ordered by add index.
-func (d *DB) FetchAllInvoicesWithPaymentHash(pendingOnly bool) (
-	[]InvoiceWithPaymentHash, error) {
-
-	var result []InvoiceWithPaymentHash
-
-	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		invoices := tx.ReadBucket(invoiceBucket)
 		if invoices == nil {
 			return ErrNoInvoicesCreated
@@ -775,26 +768,12 @@ func (d *DB) FetchAllInvoicesWithPaymentHash(pendingOnly bool) (
 				return err
 			}
 
-			if pendingOnly && !invoice.IsPending() {
-				return nil
-			}
+			var paymentHash lntypes.Hash
+			copy(paymentHash[:], k)
 
-			invoiceWithPaymentHash := InvoiceWithPaymentHash{
-				Invoice: invoice,
-			}
-
-			copy(invoiceWithPaymentHash.PaymentHash[:], k)
-			result = append(result, invoiceWithPaymentHash)
-
-			return nil
+			return scanFunc(paymentHash, &invoice)
 		})
 	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	return result, nil
 }
 
 // InvoiceQuery represents a query to the invoice database. The query allows a

@@ -129,14 +129,11 @@ func (ew *InvoiceExpiryWatcher) prepareInvoice(
 
 // AddInvoices adds multiple invoices to the InvoiceExpiryWatcher.
 func (ew *InvoiceExpiryWatcher) AddInvoices(
-	invoices []channeldb.InvoiceWithPaymentHash) {
+	invoices map[lntypes.Hash]*channeldb.Invoice) {
 
 	invoicesWithExpiry := make([]*invoiceExpiry, 0, len(invoices))
-	for _, invoiceWithPaymentHash := range invoices {
-		newInvoiceExpiry := ew.prepareInvoice(
-			invoiceWithPaymentHash.PaymentHash,
-			&invoiceWithPaymentHash.Invoice,
-		)
+	for paymentHash, invoice := range invoices {
+		newInvoiceExpiry := ew.prepareInvoice(paymentHash, invoice)
 		if newInvoiceExpiry != nil {
 			invoicesWithExpiry = append(
 				invoicesWithExpiry, newInvoiceExpiry,

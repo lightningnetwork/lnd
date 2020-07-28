@@ -242,6 +242,8 @@ type Config struct {
 
 	KeysendHoldTime time.Duration `long:"keysend-hold-time" description:"If non-zero, keysend payments are accepted but not immediately settled. If the payment isn't settled manually after the specified time, it is canceled automatically. [experimental]"`
 
+	GcCanceledInvoicesOnStartup bool `long:"gc-canceled-invoices-on-startup" description:"If true, we'll attempt to garbage collect canceled invoices upon start."`
+
 	Routing *routing.Conf `group:"routing" namespace:"routing"`
 
 	Workers *lncfg.Workers `group:"workers" namespace:"workers"`

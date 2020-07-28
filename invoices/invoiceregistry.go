@@ -57,6 +57,10 @@ type RegistryConfig struct {
 	// send payments.
 	AcceptKeySend bool
 
+	// GcCanceledInvoicesOnStartup if set, we'll attempt to garbage collect
+	// all canceled invoices upon start.
+	GcCanceledInvoicesOnStartup bool
+
 	// KeysendHoldTime indicates for how long we want to accept and hold
 	// spontaneous keysend payments.
 	KeysendHoldTime time.Duration
@@ -171,7 +175,9 @@ func (i *InvoiceRegistry) scanInvoicesOnStart() error {
 
 		if invoice.IsPending() {
 			pending[paymentHash] = invoice
-		} else if invoice.State == channeldb.ContractCanceled {
+		} else if i.cfg.GcCanceledInvoicesOnStartup &&
+			invoice.State == channeldb.ContractCanceled {
+
 			// Consider invoice for removal if it is already
 			// canceled. Invoices that are expired but not yet
 			// canceled, will be queued up for cancellation after

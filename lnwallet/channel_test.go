@@ -9212,3 +9212,88 @@ func TestChannelUnsignedAckedFailure(t *testing.T) {
 	err = newAliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
 	require.NoError(t, err)
 }
+
+// TestChannelLocalUnsignedUpdatesFailure checks that updates from the local
+// log are restored if the remote hasn't sent us a signature covering them.
+//
+// The full state transition is:
+//
+// Alice                Bob
+//       <----add-----
+//       <----sig-----
+//       -----rev---->
+//       -----sig---->
+//       <----rev-----
+//       ----fail---->
+//       -----sig---->
+//       <----rev-----
+//        *reconnect*
+//       <----sig-----
+//
+// Alice should reject the last signature since the settle is not restored
+// into the local update log and thus calculates Bob's signature as invalid.
+func TestChannelLocalUnsignedUpdatesFailure(t *testing.T) {
+	t.Parallel()
+
+	// Create a test channel so that we can test the buggy behavior.
+	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels(
+		channeldb.SingleFunderTweaklessBit,
+	)
+	require.NoError(t, err)
+	defer cleanUp()
+
+	// First we create an htlc that Bob sends to Alice.
+	htlc, _ := createHTLC(0, lnwire.MilliSatoshi(500000))
+
+	// <----add-----
+	_, err = bobChannel.AddHTLC(htlc, nil)
+	require.NoError(t, err)
+	_, err = aliceChannel.ReceiveHTLC(htlc)
+	require.NoError(t, err)
+
+	// Force a state transition to lock in this add on both commitments.
+	// <----sig-----
+	// -----rev---->
+	// -----sig---->
+	// <----rev-----
+	err = ForceStateTransition(bobChannel, aliceChannel)
+	require.NoError(t, err)
+
+	// Now Alice should fail the htlc back to Bob.
+	// -----fail--->
+	err = aliceChannel.FailHTLC(0, []byte("failreason"), nil, nil, nil)
+	require.NoError(t, err)
+	err = bobChannel.ReceiveFailHTLC(0, []byte("bad"))
+	require.NoError(t, err)
+
+	// Alice should send a commitment signature to Bob.
+	// -----sig---->
+	aliceSig, aliceHtlcSigs, _, err := aliceChannel.SignNextCommitment()
+	require.NoError(t, err)
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	require.NoError(t, err)
+
+	// Bob should reply with a revocation and Alice should save the fail as
+	// an unsigned local update.
+	// <----rev-----
+	bobRevocation, _, err := bobChannel.RevokeCurrentCommitment()
+	require.NoError(t, err)
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	require.NoError(t, err)
+
+	// Restart Alice and assert that she can receive Bob's next commitment
+	// signature.
+	// *reconnect*
+	newAliceChannel, err := NewLightningChannel(
+		aliceChannel.Signer, aliceChannel.channelState,
+		aliceChannel.sigPool,
+	)
+	require.NoError(t, err)
+
+	// Bob sends the final signature and Alice should not reject it.
+	// <----sig-----
+	bobSig, bobHtlcSigs, _, err := bobChannel.SignNextCommitment()
+	require.NoError(t, err)
+	err = newAliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
+	require.NoError(t, err)
+}

@@ -1,6 +1,7 @@
 package invoices
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -1076,4 +1077,78 @@ func TestInvoiceExpiryWithRegistry(t *testing.T) {
 			t.Fatalf("expected canceled invoice, got: %v", invoice.State)
 		}
 	}
+}
+
+// TestOldInvoiceRemovalOnStart tests that we'll attempt to remove old canceled
+// invoices upon start while keeping all settled ones.
+func TestOldInvoiceRemovalOnStart(t *testing.T) {
+	t.Parallel()
+
+	testClock := clock.NewTestClock(testTime)
+	cdb, cleanup, err := newTestChannelDB(testClock)
+	defer cleanup()
+
+	require.NoError(t, err)
+
+	cfg := RegistryConfig{
+		FinalCltvRejectDelta: testFinalCltvRejectDelta,
+		Clock:                testClock,
+	}
+
+	expiryWatcher := NewInvoiceExpiryWatcher(cfg.Clock)
+	registry := NewRegistry(cdb, expiryWatcher, &cfg)
+
+	// First prefill the Channel DB with some pre-existing expired invoices.
+	const numExpired = 5
+	const numPending = 0
+	existingInvoices := generateInvoiceExpiryTestData(
+		t, testTime, 0, numExpired, numPending,
+	)
+
+	i := 0
+	for paymentHash, invoice := range existingInvoices.expiredInvoices {
+		// Mark half of the invoices as settled, the other hald as
+		// canceled.
+		if i%2 == 0 {
+			invoice.State = channeldb.ContractSettled
+		} else {
+			invoice.State = channeldb.ContractCanceled
+		}
+
+		_, err := cdb.AddInvoice(invoice, paymentHash)
+		require.NoError(t, err)
+		i++
+	}
+
+	// Collect all settled invoices for our expectation set.
+	var expected []channeldb.Invoice
+
+	// Perform a scan query to collect all invoices.
+	query := channeldb.InvoiceQuery{
+		IndexOffset:    0,
+		NumMaxInvoices: math.MaxUint64,
+	}
+
+	response, err := cdb.QueryInvoices(query)
+	require.NoError(t, err)
+
+	// Save all settled invoices for our expectation set.
+	for _, invoice := range response.Invoices {
+		if invoice.State == channeldb.ContractSettled {
+			expected = append(expected, invoice)
+		}
+	}
+
+	// Start the registry which should collect and delete all canceled
+	// invoices upon start.
+	err = registry.Start()
+	require.NoError(t, err, "cannot start the registry")
+
+	// Perform a scan query to collect all invoices.
+	response, err = cdb.QueryInvoices(query)
+	require.NoError(t, err)
+
+	// Check that we really only kept the settled invoices after the
+	// registry start.
+	require.Equal(t, expected, response.Invoices)
 }

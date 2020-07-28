@@ -148,9 +148,13 @@ func NewRegistry(cdb *channeldb.DB, expiryWatcher *InvoiceExpiryWatcher,
 }
 
 // scanInvoicesOnStart will scan all invoices on start and add active invoices
-// to the invoice expiry watcher.
+// to the invoice expirt watcher while also attempting to delete all canceled
+// invoices.
 func (i *InvoiceRegistry) scanInvoicesOnStart() error {
-	var pending map[lntypes.Hash]*channeldb.Invoice
+	var (
+		pending   map[lntypes.Hash]*channeldb.Invoice
+		removable []channeldb.InvoiceDeleteRef
+	)
 
 	reset := func() {
 		// Zero out our results on start and if the scan is ever run
@@ -159,6 +163,7 @@ func (i *InvoiceRegistry) scanInvoicesOnStart() error {
 		// using the etcd driver, where all transactions are allowed
 		// to retry for serializability).
 		pending = make(map[lntypes.Hash]*channeldb.Invoice)
+		removable = make([]channeldb.InvoiceDeleteRef, 0)
 	}
 
 	scanFunc := func(
@@ -166,8 +171,23 @@ func (i *InvoiceRegistry) scanInvoicesOnStart() error {
 
 		if invoice.IsPending() {
 			pending[paymentHash] = invoice
-		}
+		} else if invoice.State == channeldb.ContractCanceled {
+			// Consider invoice for removal if it is already
+			// canceled. Invoices that are expired but not yet
+			// canceled, will be queued up for cancellation after
+			// startup and will be deleted afterwards.
+			ref := channeldb.InvoiceDeleteRef{
+				PayHash:     paymentHash,
+				AddIndex:    invoice.AddIndex,
+				SettleIndex: invoice.SettleIndex,
+			}
 
+			if invoice.Terms.PaymentAddr != channeldb.BlankPayAddr {
+				ref.PayAddr = &invoice.Terms.PaymentAddr
+			}
+
+			removable = append(removable, ref)
+		}
 		return nil
 	}
 
@@ -179,6 +199,10 @@ func (i *InvoiceRegistry) scanInvoicesOnStart() error {
 	log.Debugf("Adding %d pending invoices to the expiry watcher",
 		len(pending))
 	i.expiryWatcher.AddInvoices(pending)
+
+	if err := i.cdb.DeleteInvoice(removable); err != nil {
+		log.Warnf("Deleting old invoices failed: %v", err)
+	}
 
 	return nil
 }

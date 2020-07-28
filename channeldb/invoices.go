@@ -1740,3 +1740,134 @@ func setSettleMetaFields(settleIndex kvdb.RwBucket, invoiceNum []byte,
 
 	return nil
 }
+
+// InvoiceDeleteRef holds a refererence to an invoice to be deleted.
+type InvoiceDeleteRef struct {
+	// PayHash is the payment hash of the target invoice. All invoices are
+	// currently indexed by payment hash.
+	PayHash lntypes.Hash
+
+	// PayAddr is the payment addr of the target invoice. Newer invoices
+	// (0.11 and up) are indexed by payment address in addition to payment
+	// hash, but pre 0.8 invoices do not have one at all.
+	PayAddr *[32]byte
+
+	// AddIndex is the add index of the invoice.
+	AddIndex uint64
+
+	// SettleIndex is the settle index of the invoice.
+	SettleIndex uint64
+}
+
+// DeleteInvoice attempts to delete the passed invoices from the database in
+// one transaction. The passed delete references hold all keys required to
+// delete the invoices without also needing to deserialze them.
+func (d *DB) DeleteInvoice(invoicesToDelete []InvoiceDeleteRef) error {
+	err := kvdb.Update(d, func(tx kvdb.RwTx) error {
+		invoices := tx.ReadWriteBucket(invoiceBucket)
+		if invoices == nil {
+			return ErrNoInvoicesCreated
+		}
+
+		invoiceIndex := invoices.NestedReadWriteBucket(
+			invoiceIndexBucket,
+		)
+		if invoiceIndex == nil {
+			return ErrNoInvoicesCreated
+		}
+
+		invoiceAddIndex := invoices.NestedReadWriteBucket(
+			addIndexBucket,
+		)
+		if invoiceAddIndex == nil {
+			return ErrNoInvoicesCreated
+		}
+		// settleIndex can be nil, as the bucket is created lazily
+		// when the first invoice is settled.
+		settleIndex := invoices.NestedReadWriteBucket(settleIndexBucket)
+
+		payAddrIndex := tx.ReadWriteBucket(payAddrIndexBucket)
+
+		for _, ref := range invoicesToDelete {
+			// Fetch the invoice key for using it to check for
+			// consistency and also to delete from the invoice index.
+			invoiceKey := invoiceIndex.Get(ref.PayHash[:])
+			if invoiceKey == nil {
+				return ErrInvoiceNotFound
+			}
+
+			err := invoiceIndex.Delete(ref.PayHash[:])
+			if err != nil {
+				return err
+			}
+
+			// Delete payment address index reference if there's a
+			// valid payment address passed.
+			if ref.PayAddr != nil {
+				// To ensure consistency check that the already
+				// fetched invoice key matches the one in the
+				// payment address index.
+				key := payAddrIndex.Get(ref.PayAddr[:])
+				if !bytes.Equal(key, invoiceKey) {
+					return fmt.Errorf("unknown invoice")
+				}
+
+				// Delete from the payment address index.
+				err := payAddrIndex.Delete(ref.PayAddr[:])
+				if err != nil {
+					return err
+				}
+			}
+
+			var addIndexKey [8]byte
+			byteOrder.PutUint64(addIndexKey[:], ref.AddIndex)
+
+			// To ensure consistency check that the key stored in
+			// the add index also matches the previously fetched
+			// invoice key.
+			key := invoiceAddIndex.Get(addIndexKey[:])
+			if !bytes.Equal(key, invoiceKey) {
+				return fmt.Errorf("unknown invoice")
+			}
+
+			// Remove from the add index.
+			err = invoiceAddIndex.Delete(addIndexKey[:])
+			if err != nil {
+				return err
+			}
+
+			// Remove from the settle index if available and
+			// if the invoice is settled.
+			if settleIndex != nil && ref.SettleIndex > 0 {
+				var settleIndexKey [8]byte
+				byteOrder.PutUint64(
+					settleIndexKey[:], ref.SettleIndex,
+				)
+
+				// To ensure consistency check that the already
+				// fetched invoice key matches the one in the
+				// settle index
+				key := settleIndex.Get(settleIndexKey[:])
+				if !bytes.Equal(key, invoiceKey) {
+					return fmt.Errorf("unknown invoice")
+				}
+
+				err = settleIndex.Delete(settleIndexKey[:])
+				if err != nil {
+					return err
+				}
+			}
+
+			// Finally remove the serialized invoice from the
+			// invoice bucket.
+			err = invoices.Delete(invoiceKey)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	return err
+}

@@ -1151,3 +1151,96 @@ func TestInvoiceRef(t *testing.T) {
 	require.Equal(t, payHash, refByHashAndAddr.PayHash())
 	require.Equal(t, &payAddr, refByHashAndAddr.PayAddr())
 }
+
+// TestDeleteInvoices tests that deleting a list of invoices will succeed
+// if all delete references are valid, or will fail otherwise.
+func TestDeleteInvoices(t *testing.T) {
+	t.Parallel()
+
+	db, cleanup, err := MakeTestDB()
+	defer cleanup()
+	require.NoError(t, err, "unable to make test db")
+
+	// Add some invoices to the test db.
+	numInvoices := 3
+	invoicesToDelete := make([]InvoiceDeleteRef, numInvoices)
+
+	for i := 0; i < numInvoices; i++ {
+		invoice, err := randInvoice(lnwire.MilliSatoshi(i + 1))
+		require.NoError(t, err)
+
+		paymentHash := invoice.Terms.PaymentPreimage.Hash()
+		addIndex, err := db.AddInvoice(invoice, paymentHash)
+		require.NoError(t, err)
+
+		// Settle the second invoice.
+		if i == 1 {
+			invoice, err = db.UpdateInvoice(
+				InvoiceRefByHash(paymentHash),
+				getUpdateInvoice(invoice.Terms.Value),
+			)
+			require.NoError(t, err, "unable to settle invoice")
+		}
+
+		// store the delete ref for later.
+		invoicesToDelete[i] = InvoiceDeleteRef{
+			PayHash:     paymentHash,
+			PayAddr:     &invoice.Terms.PaymentAddr,
+			AddIndex:    addIndex,
+			SettleIndex: invoice.SettleIndex,
+		}
+	}
+
+	// assertInvoiceCount asserts that the number of invoices equals
+	// to the passed count.
+	assertInvoiceCount := func(count int) {
+		// Query to collect all invoices.
+		query := InvoiceQuery{
+			IndexOffset:    0,
+			NumMaxInvoices: math.MaxUint64,
+		}
+
+		// Check that we really have 3 invoices.
+		response, err := db.QueryInvoices(query)
+		require.NoError(t, err)
+		require.Equal(t, count, len(response.Invoices))
+	}
+
+	// XOR one byte of one of the references' hash and attempt to delete.
+	invoicesToDelete[0].PayHash[2] ^= 3
+	require.Error(t, db.DeleteInvoice(invoicesToDelete))
+	assertInvoiceCount(3)
+
+	// Restore the hash.
+	invoicesToDelete[0].PayHash[2] ^= 3
+
+	// XOR one byte of one of the references' payment address and attempt
+	// to delete.
+	invoicesToDelete[1].PayAddr[5] ^= 7
+	require.Error(t, db.DeleteInvoice(invoicesToDelete))
+	assertInvoiceCount(3)
+
+	// Restore the payment address.
+	invoicesToDelete[1].PayAddr[5] ^= 7
+
+	// XOR the second invoice's payment settle index as it is settled, and
+	// attempt to delete.
+	invoicesToDelete[1].SettleIndex ^= 11
+	require.Error(t, db.DeleteInvoice(invoicesToDelete))
+	assertInvoiceCount(3)
+
+	// Restore the settle index.
+	invoicesToDelete[1].SettleIndex ^= 11
+
+	// XOR the add index for one of the references and attempt to delete.
+	invoicesToDelete[2].AddIndex ^= 13
+	require.Error(t, db.DeleteInvoice(invoicesToDelete))
+	assertInvoiceCount(3)
+
+	// Restore the add index.
+	invoicesToDelete[2].AddIndex ^= 13
+
+	// Delete should succeed with all the valid references.
+	require.NoError(t, db.DeleteInvoice(invoicesToDelete))
+	assertInvoiceCount(0)
+}

@@ -14237,6 +14237,10 @@ var testsCases = []*testCase{
 		test: testNodeSignVerify,
 	},
 	{
+		name: "derive shared key",
+		test: testDeriveSharedKey,
+	},
+	{
 		name: "async payments benchmark",
 		test: testAsyncPayments,
 	},

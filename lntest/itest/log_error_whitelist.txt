@@ -227,3 +227,7 @@
 <time> [ERR] RPCS: [/lnrpc.Lightning/ConnectPeer]: dial tcp <ip>: i/o timeout
 <time> [ERR] RPCS: [connectpeer]: error connecting to peer: dial tcp <ip>: i/o timeout
 <time> [ERR] SRVR: Unable to connect to <hex>@<ip>: dial tcp <ip>: i/o timeout
+<time> [ERR] RPCS: [/signrpc.Signer/DeriveSharedKey]: use either key_desc or key_loc
+<time> [ERR] RPCS: [/signrpc.Signer/DeriveSharedKey]: use either raw_key_bytes or key_index
+<time> [ERR] RPCS: [/signrpc.Signer/DeriveSharedKey]: when setting key_desc the field key_desc.key_loc must also be set
+<time> [ERR] RPCS: [/signrpc.Signer/DeriveSharedKey]: must provide ephemeral pubkey

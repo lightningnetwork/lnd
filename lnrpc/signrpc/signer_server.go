@@ -446,9 +446,17 @@ func (s *Server) SignMessage(ctx context.Context,
 		},
 	}
 
-	// The signature is over the sha256 hash of the message.
 	var digest [32]byte
-	copy(digest[:], chainhash.HashB(in.Msg))
+	if in.NoHashing {
+		if len(in.Msg) != 32 {
+			return nil, fmt.Errorf("msg MUST be 32 bytes")
+		}
+		copy(digest[:], in.Msg)
+	} else {
+		// The signature is by default over the sha256 hash of the
+		// message
+		copy(digest[:], chainhash.HashB(in.Msg))
+	}
 
 	// Create the raw ECDSA signature first and convert it to the final wire
 	// format after.

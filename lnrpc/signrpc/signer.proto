@@ -189,6 +189,9 @@ message SignMessageReq {
 
     // The key locator that identifies which key to use for signing.
     KeyLocator key_loc = 2;
+
+    // Whether message should be hashed (SHA256) before being signed.
+    bool no_hashing = 3;
 }
 message SignMessageResp {
     /*

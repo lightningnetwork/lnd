@@ -348,6 +348,11 @@
         "key_loc": {
           "$ref": "#/definitions/signrpcKeyLocator",
           "description": "The key locator that identifies which key to use for signing."
+        },
+        "no_hashing": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Whether message should be hashed (SHA256) before being signed."
         }
       }
     },

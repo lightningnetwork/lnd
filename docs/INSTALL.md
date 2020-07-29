@@ -95,7 +95,7 @@
   * **Go modules:** This project uses [Go modules](https://github.com/golang/go/wiki/Modules) 
     to manage dependencies as well as to provide *reproducible builds*.
 
-    Usage of Go modules (with Go 1.12) means that you no longer need to clone
+    Usage of Go modules (with Go 1.13) means that you no longer need to clone
     `lnd` into your `$GOPATH` for development purposes. Instead, your `lnd`
     repo can now live anywhere!
 
@@ -124,7 +124,7 @@ make install
 
 
 **NOTE**: Our instructions still use the `$GOPATH` directory from prior
-versions of Go, but with Go 1.12, it's now possible for `lnd` to live
+versions of Go, but with Go 1.13, it's now possible for `lnd` to live
 _anywhere_ on your file system.
 
 For Windows WSL users, make will need to be referenced directly via

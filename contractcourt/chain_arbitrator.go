@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -715,7 +716,10 @@ func (c *ChainArbitrator) rebroadcast(channel *channeldb.OpenChannel,
 	log.Infof("Re-publishing %s close tx(%v) for channel %v",
 		kind, closeTx.TxHash(), chanPoint)
 
-	err = c.cfg.PublishTx(closeTx, "")
+	label := labels.MakeLabel(
+		labels.LabelTypeChannelClose, &channel.ShortChannelID,
+	)
+	err = c.cfg.PublishTx(closeTx, label)
 	if err != nil && err != lnwallet.ErrDoubleSpend {
 		log.Warnf("Unable to broadcast %s close tx(%v): %v",
 			kind, closeTx.TxHash(), err)

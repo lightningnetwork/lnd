@@ -971,8 +971,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		IDKey:              nodeKeyECDH.PubKey(),
 		Wallet:             cc.wallet,
 		PublishTransaction: cc.wallet.PublishTransaction,
-		Notifier:           cc.chainNotifier,
-		FeeEstimator:       cc.feeEstimator,
+		UpdateLabel: func(hash chainhash.Hash, label string) error {
+			return cc.wallet.LabelTransaction(hash, label, true)
+		},
+		Notifier:     cc.chainNotifier,
+		FeeEstimator: cc.feeEstimator,
 		SignMessage: func(pubKey *btcec.PublicKey,
 			msg []byte) (input.Signature, error) {
 

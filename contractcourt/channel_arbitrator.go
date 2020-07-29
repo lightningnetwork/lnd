@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -874,7 +875,11 @@ func (c *ChannelArbitrator) stateStep(
 
 		// At this point, we'll now broadcast the commitment
 		// transaction itself.
-		if err := c.cfg.PublishTx(closeTx, ""); err != nil {
+		label := labels.MakeLabel(
+			labels.LabelTypeChannelClose, &c.cfg.ShortChanID,
+		)
+
+		if err := c.cfg.PublishTx(closeTx, label); err != nil {
 			log.Errorf("ChannelArbitrator(%v): unable to broadcast "+
 				"close tx: %v", c.cfg.ChanPoint, err)
 			if err != lnwallet.ErrDoubleSpend {

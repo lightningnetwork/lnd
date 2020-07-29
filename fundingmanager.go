@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -242,6 +243,10 @@ type fundingConfig struct {
 	// PublishTransaction facilitates the process of broadcasting a
 	// transaction to the network.
 	PublishTransaction func(*wire.MsgTx, string) error
+
+	// UpdateLabel updates the label that a transaction has in our wallet,
+	// overwriting any existing labels.
+	UpdateLabel func(chainhash.Hash, string) error
 
 	// FeeEstimator calculates appropriate fee rates based on historical
 	// transaction information.
@@ -576,8 +581,15 @@ func (f *fundingManager) start() error {
 					channel.FundingOutpoint,
 					fundingTxBuf.Bytes())
 
+				// Set a nil short channel ID at this stage
+				// because we do not know it until our funding
+				// tx confirms.
+				label := labels.MakeLabel(
+					labels.LabelTypeChannelOpen, nil,
+				)
+
 				err = f.cfg.PublishTransaction(
-					channel.FundingTxn, "",
+					channel.FundingTxn, label,
 				)
 				if err != nil {
 					fndgLog.Errorf("Unable to rebroadcast "+
@@ -2032,7 +2044,13 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 		fndgLog.Infof("Broadcasting funding tx for ChannelPoint(%v): %x",
 			completeChan.FundingOutpoint, fundingTxBuf.Bytes())
 
-		err = f.cfg.PublishTransaction(fundingTx, "")
+		// Set a nil short channel ID at this stage because we do not
+		// know it until our funding tx confirms.
+		label := labels.MakeLabel(
+			labels.LabelTypeChannelOpen, nil,
+		)
+
+		err = f.cfg.PublishTransaction(fundingTx, label)
 		if err != nil {
 			fndgLog.Errorf("Unable to broadcast funding tx %x for "+
 				"ChannelPoint(%v): %v", fundingTxBuf.Bytes(),
@@ -2370,6 +2388,25 @@ func (f *fundingManager) handleFundingConfirmation(
 	err = f.cfg.ReportShortChanID(fundingPoint)
 	if err != nil {
 		fndgLog.Errorf("unable to report short chan id: %v", err)
+	}
+
+	// If we opened the channel, and lnd's wallet published our funding tx
+	// (which is not the case for some channels) then we update our
+	// transaction label with our short channel ID, which is known now that
+	// our funding transaction has confirmed. We do not label transactions
+	// we did not publish, because our wallet has no knowledge of them.
+	if completeChan.IsInitiator && completeChan.ChanType.HasFundingTx() {
+		shortChanID := completeChan.ShortChanID()
+		label := labels.MakeLabel(
+			labels.LabelTypeChannelOpen, &shortChanID,
+		)
+
+		err = f.cfg.UpdateLabel(
+			completeChan.FundingOutpoint.Hash, label,
+		)
+		if err != nil {
+			fndgLog.Errorf("unable to update label: %v", err)
+		}
 	}
 
 	// Close the discoverySignal channel, indicating to a separate

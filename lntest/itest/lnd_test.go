@@ -35,6 +35,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
@@ -2905,12 +2906,17 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to convert funding txid into chainhash.Hash:"+
 			" %v", err)
 	}
+	fundingTxStr := fundingTxID.String()
 
 	// Mine a block, then wait for Alice's node to notify us that the
 	// channel has been opened. The funding transaction should be found
 	// within the newly mined block.
 	block := mineBlocks(t, net, 1, 1)[0]
 	assertTxInBlock(t, block, fundingTxID)
+
+	// Get the height that our transaction confirmed at.
+	_, height, err := net.Miner.Node.GetBestBlock()
+	require.NoError(t.t, err, "could not get best block")
 
 	// Restart both nodes to test that the appropriate state has been
 	// persisted and that both nodes recover gracefully.
@@ -2933,6 +2939,16 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	if _, err := net.Miner.Node.Generate(3); err != nil {
 		t.Fatalf("unable to mine blocks: %v", err)
 	}
+
+	// Assert that our wallet has our opening transaction with a label
+	// that does not have a channel ID set yet, because we have not
+	// reached our required confirmations.
+	tx := findTxAtHeight(ctxt, t, height, fundingTxStr, net, net.Alice)
+
+	// At this stage, we expect the transaction to be labelled, but not with
+	// our channel ID because our transaction has not yet confirmed.
+	label := labels.MakeLabel(labels.LabelTypeChannelOpen, nil)
+	require.Equal(t.t, label, tx.Label, "open channel label wrong")
 
 	// Both nodes should still show a single channel as pending.
 	time.Sleep(time.Second * 1)
@@ -2957,9 +2973,27 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		Index: pendingUpdate.OutputIndex,
 	}
 
+	// Re-lookup our transaction in the block that it confirmed in.
+	tx = findTxAtHeight(ctxt, t, height, fundingTxStr, net, net.Alice)
+
+	// Create an additional check for our channel assertion that will
+	// check that our label is as expected.
+	check := func(channel *lnrpc.Channel) {
+		shortChanID := lnwire.NewShortChanIDFromInt(
+			channel.ChanId,
+		)
+
+		label := labels.MakeLabel(
+			labels.LabelTypeChannelOpen, &shortChanID,
+		)
+		require.Equal(t.t, label, tx.Label,
+			"open channel label not updated")
+	}
+
 	// Check both nodes to ensure that the channel is ready for operation.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.AssertChannelExists(ctxt, net.Alice, &outPoint); err != nil {
+	err = net.AssertChannelExists(ctxt, net.Alice, &outPoint, check)
+	if err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -2978,6 +3012,30 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+}
+
+// findTxAtHeight gets all of the transactions that a node's wallet has a record
+// of at the target height, and finds and returns the tx with the target txid,
+// failing if it is not found.
+func findTxAtHeight(ctx context.Context, t *harnessTest, height int32,
+	target string, net *lntest.NetworkHarness,
+	node *lntest.HarnessNode) *lnrpc.Transaction {
+
+	txns, err := node.LightningClient.GetTransactions(
+		ctx, &lnrpc.GetTransactionsRequest{
+			StartHeight: height,
+			EndHeight:   height,
+		},
+	)
+	require.NoError(t.t, err, "could not get transactions")
+
+	for _, tx := range txns.Transactions {
+		if tx.TxHash == target {
+			return tx
+		}
+	}
+
+	return nil
 }
 
 // testChannelBalance creates a new channel between Alice and  Bob, then

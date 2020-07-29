@@ -28,6 +28,25 @@ sudo: required
 
 jobs:
   include:
+    - stage: Sanity Check
+      name: Lint and compile
+      before_script:
+        # Install the RPC tools as a before step so Travis collapses the output
+        # after it's done.
+        - ./scripts/install_travis_proto.sh
+
+      script:
+        # Step 1: Make sure no diff is produced when compiling with the correct
+        # version.
+        - make rpc-check
+
+        # Step 2: Make sure the unit tests compile, but don't run them. They run
+        # in a GitHub Workflow.
+        - make unit pkg=... case=_NONE_
+
+        # Step 3: Lint go code. Limit to 1 worker to reduce memory usage.
+        - make lint workers=1
+
     - stage: Integration Test
       name: Btcd Integration
       script:

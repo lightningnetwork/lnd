@@ -171,13 +171,18 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// channel edges to relatively large non default values. This makes it
 	// possible to pick up more subtle fee calculation errors.
 	maxHtlc := uint64(calculateMaxHtlc(chanAmt))
+	const aliceBaseFeeSat = 1
+	const aliceFeeRatePPM = 100000
 	updateChannelPolicy(
-		t, net.Alice, chanPointAlice, 1000, 100000,
-		lnd.DefaultBitcoinTimeLockDelta, maxHtlc, carol,
+		t, net.Alice, chanPointAlice, aliceBaseFeeSat*1000,
+		aliceFeeRatePPM, lnd.DefaultBitcoinTimeLockDelta, maxHtlc,
+		carol,
 	)
 
+	const daveBaseFeeSat = 5
+	const daveFeeRatePPM = 150000
 	updateChannelPolicy(
-		t, dave, chanPointDave, 5000, 150000,
+		t, dave, chanPointDave, daveBaseFeeSat*1000, daveFeeRatePPM,
 		lnd.DefaultBitcoinTimeLockDelta, maxHtlc, carol,
 	)
 
@@ -224,11 +229,6 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to send payments: %v", err)
 	}
 
-	// When asserting the amount of satoshis moved, we'll factor in the
-	// default base fee, as we didn't modify the fee structure when
-	// creating the seed nodes in the network.
-	const baseFee = 1
-
 	// At this point all the channels within our proto network should be
 	// shifted by 5k satoshis in the direction of Bob, the sink within the
 	// payment flow generated above. The order of asserts corresponds to
@@ -237,7 +237,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// Alice, David, Carol.
 
 	// The final node bob expects to get paid five times 1000 sat.
-	expectedAmountPaidAtoB := int64(5 * 1000)
+	expectedAmountPaidAtoB := int64(numPayments * paymentAmt)
 
 	assertAmountPaid(t, "Alice(local) => Bob(remote)", net.Bob,
 		aliceFundPoint, int64(0), expectedAmountPaidAtoB)
@@ -246,7 +246,9 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// To forward a payment of 1000 sat, Alice is charging a fee of
 	// 1 sat + 10% = 101 sat.
-	const expectedFeeAlice = 5 * 101
+	const aliceFeePerPayment = aliceBaseFeeSat +
+		(paymentAmt * aliceFeeRatePPM / 1_000_000)
+	const expectedFeeAlice = numPayments * aliceFeePerPayment
 
 	// Dave needs to pay what Alice pays plus Alice's fee.
 	expectedAmountPaidDtoA := expectedAmountPaidAtoB + expectedFeeAlice
@@ -258,7 +260,10 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// To forward a payment of 1101 sat, Dave is charging a fee of
 	// 5 sat + 15% = 170.15 sat. This is rounded down in rpcserver to 170.
-	const expectedFeeDave = 5 * 170
+	const davePaymentAmt = paymentAmt + aliceFeePerPayment
+	const daveFeePerPayment = daveBaseFeeSat +
+		(davePaymentAmt * daveFeeRatePPM / 1_000_000)
+	const expectedFeeDave = numPayments * daveFeePerPayment
 
 	// Carol needs to pay what Dave pays plus Dave's fee.
 	expectedAmountPaidCtoD := expectedAmountPaidDtoA + expectedFeeDave
@@ -303,9 +308,10 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to query for fee report: %v", err)
 	}
-	if len(fwdingHistory.ForwardingEvents) != 5 {
+	if len(fwdingHistory.ForwardingEvents) != numPayments {
 		t.Fatalf("wrong number of forwarding event: expected %v, "+
-			"got %v", 5, len(fwdingHistory.ForwardingEvents))
+			"got %v", numPayments,
+			len(fwdingHistory.ForwardingEvents))
 	}
 	expectedForwardingFee := uint64(expectedFeeDave / numPayments)
 	for _, event := range fwdingHistory.ForwardingEvents {

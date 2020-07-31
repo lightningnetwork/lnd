@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -2462,9 +2463,14 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 
 	// Set up a new miner that we can use to cause a reorg.
-	args := []string{"--rejectnonstd", "--txindex"}
-	tempMiner, err := rpctest.New(harnessNetParams,
-		&rpcclient.NotificationHandlers{}, args)
+	args := []string{
+		"--rejectnonstd",
+		"--txindex",
+		"--nowinservice",
+	}
+	tempMiner, err := rpctest.New(
+		harnessNetParams, &rpcclient.NotificationHandlers{}, args,
+	)
 	if err != nil {
 		t.Fatalf("unable to create mining node: %v", err)
 	}
@@ -15284,6 +15290,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		"--debuglevel=debug",
 		"--logdir=" + minerLogDir,
 		"--trickleinterval=100ms",
+		"--nowinservice",
 	}
 	handlers := &rpcclient.NotificationHandlers{
 		OnTxAccepted: func(hash *chainhash.Hash, amt btcutil.Amount) {
@@ -15329,11 +15336,24 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		ht.Fatalf("unable to request transaction notifications: %v", err)
 	}
 
+	binary := itestLndBinary
+	if runtime.GOOS == "windows" {
+		// Windows (even in a bash like environment like git bash as on
+		// Travis) doesn't seem to like relative paths to exe files...
+		currentDir, err := os.Getwd()
+		if err != nil {
+			ht.Fatalf("unable to get working directory: %v", err)
+		}
+		targetPath := filepath.Join(currentDir, "../../lnd-itest.exe")
+		binary, err = filepath.Abs(targetPath)
+		if err != nil {
+			ht.Fatalf("unable to get absolute path: %v", err)
+		}
+	}
+
 	// Now we can set up our test harness (LND instance), with the chain
 	// backend we just created.
-	lndHarness, err = lntest.NewNetworkHarness(
-		miner, chainBackend, itestLndBinary,
-	)
+	lndHarness, err = lntest.NewNetworkHarness(miner, chainBackend, binary)
 	if err != nil {
 		ht.Fatalf("unable to create lightning network harness: %v", err)
 	}

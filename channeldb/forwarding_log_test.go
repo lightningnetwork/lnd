@@ -4,11 +4,11 @@ import (
 	"math/rand"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnwire"
-
-	"time"
+	"github.com/stretchr/testify/assert"
 )
 
 // TestForwardingLogBasicStorageAndQuery tests that we're able to store and
@@ -20,10 +20,11 @@ func TestForwardingLogBasicStorageAndQuery(t *testing.T) {
 	// forwarding event log that we'll be using for the duration of the
 	// test.
 	db, cleanUp, err := MakeTestDB()
-	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test db: %v", err)
 	}
+	defer cleanUp()
+
 	log := ForwardingLog{
 		db: db,
 	}
@@ -92,10 +93,11 @@ func TestForwardingLogQueryOptions(t *testing.T) {
 	// forwarding event log that we'll be using for the duration of the
 	// test.
 	db, cleanUp, err := MakeTestDB()
-	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test db: %v", err)
 	}
+	defer cleanUp()
+
 	log := ForwardingLog{
 		db: db,
 	}
@@ -197,10 +199,11 @@ func TestForwardingLogQueryLimit(t *testing.T) {
 	// forwarding event log that we'll be using for the duration of the
 	// test.
 	db, cleanUp, err := MakeTestDB()
-	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test db: %v", err)
 	}
+	defer cleanUp()
+
 	log := ForwardingLog{
 		db: db,
 	}
@@ -261,5 +264,120 @@ func TestForwardingLogQueryLimit(t *testing.T) {
 	if timeSlice.LastIndexOffset != 100 {
 		t.Fatalf("wrong index offset: expected %v, got %v", 100,
 			timeSlice.LastIndexOffset)
+	}
+}
+
+// TestForwardingLogMakeUniqueTimestamps makes sure the function that creates
+// unique timestamps does it job correctly.
+func TestForwardingLogMakeUniqueTimestamps(t *testing.T) {
+	t.Parallel()
+
+	// Create a list of events where some of the timestamps collide. We
+	// expect no existing timestamp to be overwritten, instead the "gaps"
+	// between them should be filled.
+	inputSlice := []ForwardingEvent{
+		{Timestamp: time.Unix(0, 1001)},
+		{Timestamp: time.Unix(0, 2001)},
+		{Timestamp: time.Unix(0, 1001)},
+		{Timestamp: time.Unix(0, 1002)},
+		{Timestamp: time.Unix(0, 1004)},
+		{Timestamp: time.Unix(0, 1004)},
+		{Timestamp: time.Unix(0, 1007)},
+		{Timestamp: time.Unix(0, 1001)},
+	}
+	expectedSlice := []ForwardingEvent{
+		{Timestamp: time.Unix(0, 1001)},
+		{Timestamp: time.Unix(0, 1002)},
+		{Timestamp: time.Unix(0, 1003)},
+		{Timestamp: time.Unix(0, 1004)},
+		{Timestamp: time.Unix(0, 1005)},
+		{Timestamp: time.Unix(0, 1006)},
+		{Timestamp: time.Unix(0, 1007)},
+		{Timestamp: time.Unix(0, 2001)},
+	}
+
+	makeUniqueTimestamps(inputSlice)
+
+	for idx, in := range inputSlice {
+		expect := expectedSlice[idx]
+		assert.Equal(
+			t, expect.Timestamp.UnixNano(), in.Timestamp.UnixNano(),
+		)
+	}
+}
+
+// TestForwardingLogStoreEvent makes sure forwarding events are stored without
+// colliding on duplicate timestamps.
+func TestForwardingLogStoreEvent(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll set up a test database, and use that to instantiate the
+	// forwarding event log that we'll be using for the duration of the
+	// test.
+	db, cleanUp, err := MakeTestDB()
+	if err != nil {
+		t.Fatalf("unable to make test db: %v", err)
+	}
+	defer cleanUp()
+
+	log := ForwardingLog{
+		db: db,
+	}
+
+	// We'll create 20 random events, with each event having a timestamp
+	// with just one nanosecond apart.
+	numEvents := 20
+	events := make([]ForwardingEvent, numEvents)
+	ts := time.Now().UnixNano()
+	for i := 0; i < numEvents; i++ {
+		events[i] = ForwardingEvent{
+			Timestamp:      time.Unix(0, ts+int64(i)),
+			IncomingChanID: lnwire.NewShortChanIDFromInt(uint64(rand.Int63())),
+			OutgoingChanID: lnwire.NewShortChanIDFromInt(uint64(rand.Int63())),
+			AmtIn:          lnwire.MilliSatoshi(rand.Int63()),
+			AmtOut:         lnwire.MilliSatoshi(rand.Int63()),
+		}
+	}
+
+	// Now that all of our events are constructed, we'll add them to the
+	// database in a batched manner.
+	if err := log.AddForwardingEvents(events); err != nil {
+		t.Fatalf("unable to add events: %v", err)
+	}
+
+	// Because timestamps are de-duplicated when adding them in a single
+	// batch before they even hit the DB, we add the same events again but
+	// in a new batch. They now have to be de-duplicated on the DB level.
+	if err := log.AddForwardingEvents(events); err != nil {
+		t.Fatalf("unable to add second batch of events: %v", err)
+	}
+
+	// With all of our events added, we should be able to query for all
+	// events with a range of just 40 nanoseconds (2 times 20 events, all
+	// spaced one nanosecond apart).
+	eventQuery := ForwardingEventQuery{
+		StartTime:    time.Unix(0, ts),
+		EndTime:      time.Unix(0, ts+int64(numEvents*2)),
+		IndexOffset:  0,
+		NumMaxEvents: uint32(numEvents * 3),
+	}
+	timeSlice, err := log.Query(eventQuery)
+	if err != nil {
+		t.Fatalf("unable to query for events: %v", err)
+	}
+
+	// We should get exactly 40 events back.
+	if len(timeSlice.ForwardingEvents) != numEvents*2 {
+		t.Fatalf("wrong number of events: expected %v, got %v",
+			numEvents*2, len(timeSlice.ForwardingEvents))
+	}
+
+	// The timestamps should be spaced out evenly and in order.
+	for i := 0; i < numEvents*2; i++ {
+		eventTs := timeSlice.ForwardingEvents[i].Timestamp.UnixNano()
+		if eventTs != ts+int64(i) {
+			t.Fatalf("unexpected timestamp of event %d: expected "+
+				"%d, got %d", i, ts+int64(i), eventTs)
+		}
 	}
 }

@@ -12,7 +12,7 @@ import (
 func TestWitnessCacheSha256Retrieval(t *testing.T) {
 	t.Parallel()
 
-	cdb, cleanUp, err := makeTestDB()
+	cdb, cleanUp, err := MakeTestDB()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestWitnessCacheSha256Retrieval(t *testing.T) {
 func TestWitnessCacheSha256Deletion(t *testing.T) {
 	t.Parallel()
 
-	cdb, cleanUp, err := makeTestDB()
+	cdb, cleanUp, err := MakeTestDB()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestWitnessCacheSha256Deletion(t *testing.T) {
 func TestWitnessCacheUnknownWitness(t *testing.T) {
 	t.Parallel()
 
-	cdb, cleanUp, err := makeTestDB()
+	cdb, cleanUp, err := MakeTestDB()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestWitnessCacheUnknownWitness(t *testing.T) {
 // TestAddSha256Witnesses tests that insertion using AddSha256Witnesses behaves
 // identically to the insertion via the generalized interface.
 func TestAddSha256Witnesses(t *testing.T) {
-	cdb, cleanUp, err := makeTestDB()
+	cdb, cleanUp, err := MakeTestDB()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}

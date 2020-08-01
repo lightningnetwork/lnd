@@ -32,11 +32,6 @@ type STM interface {
 	// set. Returns nil if there's no matching key, or the key is empty.
 	Get(key string) ([]byte, error)
 
-	// Lock adds a key to the lock set. If the lock set is not empty, we'll
-	// only check for conflicts in the lock set and the write set, instead
-	// of all read keys plus the write set.
-	Lock(key string)
-
 	// Put adds a value for a key to the txn's write set.
 	Put(key, val string)
 
@@ -151,9 +146,6 @@ type stm struct {
 	// wset holds overwritten keys and their values.
 	wset writeSet
 
-	// lset holds keys we intent to lock on.
-	lset map[string]interface{}
-
 	// getOpts are the opts used for gets.
 	getOpts []v3.OpOption
 
@@ -247,19 +239,19 @@ loop:
 
 		default:
 		}
-
-		// Apply the transaction closure and abort the STM if there was an
-		// application error.
+		// Apply the transaction closure and abort the STM if there was
+		// an application error.
 		if err = apply(s); err != nil {
 			break loop
 		}
 
 		stats, err = s.commit()
 
-		// Re-apply only upon commit error (meaning the database was changed).
+		// Retry the apply closure only upon commit error (meaning the
+		// database was changed).
 		if _, ok := err.(CommitError); !ok {
-			// Anything that's not a CommitError
-			// aborts the STM run loop.
+			// Anything that's not a CommitError aborts the STM
+			// run loop.
 			break loop
 		}
 
@@ -303,24 +295,14 @@ func (rs readSet) gets() []v3.Op {
 	return ops
 }
 
-// cmps returns a cmp list testing values in read set didn't change.
-func (rs readSet) cmps(lset map[string]interface{}) []v3.Cmp {
-	if len(lset) > 0 {
-		cmps := make([]v3.Cmp, 0, len(lset))
-		for key := range lset {
-			if getValue, ok := rs[key]; ok {
-				cmps = append(
-					cmps,
-					v3.Compare(v3.ModRevision(key), "=", getValue.rev),
-				)
-			}
-		}
-		return cmps
-	}
-
+// cmps returns a compare list which will serve as a precondition testing that
+// the values in the read set didn't change.
+func (rs readSet) cmps() []v3.Cmp {
 	cmps := make([]v3.Cmp, 0, len(rs))
 	for key, getValue := range rs {
-		cmps = append(cmps, v3.Compare(v3.ModRevision(key), "=", getValue.rev))
+		cmps = append(cmps, v3.Compare(
+			v3.ModRevision(key), "=", getValue.rev,
+		))
 	}
 
 	return cmps
@@ -370,6 +352,15 @@ func (s *stm) fetch(key string, opts ...v3.OpOption) ([]KV, error) {
 		}
 	}
 
+	if len(resp.Kvs) == 0 {
+		// Add assertion to the read set which will extend our commit
+		// constraint such that the commit will fail if the key is
+		// present in the database.
+		s.rset[key] = stmGet{
+			rev: 0,
+		}
+	}
+
 	var result []KV
 
 	// Fill the read set with key/values returned.
@@ -413,12 +404,22 @@ func (s *stm) Get(key string) ([]byte, error) {
 	// the prefetch set.
 	if getValue, ok := s.prefetch[key]; ok {
 		delete(s.prefetch, key)
-		s.rset[key] = getValue
+
+		// Use the prefetched value only if it is for
+		// an existing key.
+		if getValue.rev != 0 {
+			s.rset[key] = getValue
+		}
 	}
 
 	// Return value if alread in read set.
-	if getVal, ok := s.rset[key]; ok {
-		return []byte(getVal.val), nil
+	if getValue, ok := s.rset[key]; ok {
+		// Return the value if the rset contains an existing key.
+		if getValue.rev != 0 {
+			return []byte(getValue.val), nil
+		} else {
+			return nil, nil
+		}
 	}
 
 	// Fetch and return value.
@@ -433,13 +434,6 @@ func (s *stm) Get(key string) ([]byte, error) {
 
 	// Return empty result if key not in DB.
 	return nil, nil
-}
-
-// Lock adds a key to the lock set. If the lock set is
-// not empty, we'll only check conflicts for the keys
-// in the lock set.
-func (s *stm) Lock(key string) {
-	s.lset[key] = nil
 }
 
 // First returns the first key/value matching prefix. If there's no key starting
@@ -711,7 +705,7 @@ func (s *stm) OnCommit(cb func()) {
 // because the keys have changed return a CommitError, otherwise return a
 // DatabaseError.
 func (s *stm) commit() (CommitStats, error) {
-	rset := s.rset.cmps(s.lset)
+	rset := s.rset.cmps()
 	wset := s.wset.cmps(s.revision + 1)
 
 	stats := CommitStats{
@@ -775,7 +769,6 @@ func (s *stm) Commit() error {
 func (s *stm) Rollback() {
 	s.rset = make(map[string]stmGet)
 	s.wset = make(map[string]stmPut)
-	s.lset = make(map[string]interface{})
 	s.getOpts = nil
 	s.revision = math.MaxInt64 - 1
 }

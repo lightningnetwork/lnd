@@ -5,7 +5,6 @@ package lnd
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"math"
 	"os"
 	"reflect"
@@ -407,6 +406,7 @@ type nurseryTestContext struct {
 	sweeper     *mockSweeper
 	timeoutChan chan chan time.Time
 	t           *testing.T
+	dbCleanup   func()
 }
 
 func createNurseryTestContext(t *testing.T,
@@ -416,12 +416,7 @@ func createNurseryTestContext(t *testing.T,
 	// alternative, mocking nurseryStore, is not chosen because there is
 	// still considerable logic in the store.
 
-	tempDirName, err := ioutil.TempDir("", "channeldb")
-	if err != nil {
-		t.Fatalf("unable to create temp dir: %v", err)
-	}
-
-	cdb, err := channeldb.Open(tempDirName)
+	cdb, cleanup, err := channeldb.MakeTestDB()
 	if err != nil {
 		t.Fatalf("unable to open channeldb: %v", err)
 	}
@@ -484,6 +479,7 @@ func createNurseryTestContext(t *testing.T,
 		sweeper:     sweeper,
 		timeoutChan: timeoutChan,
 		t:           t,
+		dbCleanup:   cleanup,
 	}
 
 	ctx.receiveTx = func() wire.MsgTx {
@@ -531,6 +527,8 @@ func (ctx *nurseryTestContext) notifyEpoch(height int32) {
 }
 
 func (ctx *nurseryTestContext) finish() {
+	defer ctx.dbCleanup()
+
 	// Add a final restart point in this state
 	ctx.restart()
 

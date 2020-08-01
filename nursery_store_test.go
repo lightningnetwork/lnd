@@ -3,39 +3,12 @@
 package lnd
 
 import (
-	"io/ioutil"
-	"os"
 	"reflect"
 	"testing"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 )
-
-// makeTestDB creates a new instance of the ChannelDB for testing purposes. A
-// callback which cleans up the created temporary directories is also returned
-// and intended to be executed after the test completes.
-func makeTestDB() (*channeldb.DB, func(), error) {
-	// First, create a temporary directory to be used for the duration of
-	// this test.
-	tempDirName, err := ioutil.TempDir("", "channeldb")
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// Next, create channeldb for the first time.
-	cdb, err := channeldb.Open(tempDirName)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	cleanUp := func() {
-		cdb.Close()
-		os.RemoveAll(tempDirName)
-	}
-
-	return cdb, cleanUp, nil
-}
 
 type incubateTest struct {
 	nOutputs    int
@@ -75,7 +48,7 @@ func initIncubateTests() {
 // TestNurseryStoreInit verifies basic properties of the nursery store before
 // any modifying calls are made.
 func TestNurseryStoreInit(t *testing.T) {
-	cdb, cleanUp, err := makeTestDB()
+	cdb, cleanUp, err := channeldb.MakeTestDB()
 	if err != nil {
 		t.Fatalf("unable to open channel db: %v", err)
 	}
@@ -95,7 +68,7 @@ func TestNurseryStoreInit(t *testing.T) {
 // outputs through the nursery store, verifying the properties of the
 // intermediate states.
 func TestNurseryStoreIncubate(t *testing.T) {
-	cdb, cleanUp, err := makeTestDB()
+	cdb, cleanUp, err := channeldb.MakeTestDB()
 	if err != nil {
 		t.Fatalf("unable to open channel db: %v", err)
 	}
@@ -336,7 +309,7 @@ func TestNurseryStoreIncubate(t *testing.T) {
 // populated entries from the height index as it is purged, and that the last
 // purged height is set appropriately.
 func TestNurseryStoreGraduate(t *testing.T) {
-	cdb, cleanUp, err := makeTestDB()
+	cdb, cleanUp, err := channeldb.MakeTestDB()
 	if err != nil {
 		t.Fatalf("unable to open channel db: %v", err)
 	}

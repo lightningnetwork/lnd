@@ -19,7 +19,7 @@ func TestForwardingLogBasicStorageAndQuery(t *testing.T) {
 	// First, we'll set up a test database, and use that to instantiate the
 	// forwarding event log that we'll be using for the duration of the
 	// test.
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test db: %v", err)
@@ -91,7 +91,7 @@ func TestForwardingLogQueryOptions(t *testing.T) {
 	// First, we'll set up a test database, and use that to instantiate the
 	// forwarding event log that we'll be using for the duration of the
 	// test.
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test db: %v", err)
@@ -196,7 +196,7 @@ func TestForwardingLogQueryLimit(t *testing.T) {
 	// First, we'll set up a test database, and use that to instantiate the
 	// forwarding event log that we'll be using for the duration of the
 	// test.
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test db: %v", err)

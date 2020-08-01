@@ -73,7 +73,7 @@ func createTestVertex(db *DB) (*LightningNode, error) {
 func TestNodeInsertionAndDeletion(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -139,7 +139,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 func TestPartialNode(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -201,7 +201,7 @@ func TestPartialNode(t *testing.T) {
 func TestAliasLookup(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -255,7 +255,7 @@ func TestAliasLookup(t *testing.T) {
 func TestSourceNode(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -296,7 +296,7 @@ func TestSourceNode(t *testing.T) {
 func TestEdgeInsertionDeletion(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -431,7 +431,7 @@ func createEdge(height, txIndex uint32, txPosition uint16, outPointIndex uint32,
 func TestDisconnectBlockAtHeight(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -718,7 +718,7 @@ func createChannelEdge(db *DB, node1, node2 *LightningNode) (*ChannelEdgeInfo,
 func TestEdgeInfoUpdates(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -848,7 +848,7 @@ func newEdgePolicy(chanID uint64, op wire.OutPoint, db *DB,
 func TestGraphTraversal(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -1109,7 +1109,7 @@ func assertChanViewEqualChanPoints(t *testing.T, a []EdgePoint, b []*wire.OutPoi
 func TestGraphPruning(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -1317,7 +1317,7 @@ func TestGraphPruning(t *testing.T) {
 func TestHighestChanID(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -1394,7 +1394,7 @@ func TestHighestChanID(t *testing.T) {
 func TestChanUpdatesInHorizon(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -1570,7 +1570,7 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 func TestNodeUpdatesInHorizon(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -1693,7 +1693,7 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 func TestFilterKnownChanIDs(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -1810,7 +1810,7 @@ func TestFilterKnownChanIDs(t *testing.T) {
 func TestFilterChannelRange(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -1929,7 +1929,7 @@ func TestFilterChannelRange(t *testing.T) {
 func TestFetchChanInfos(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -2057,7 +2057,7 @@ func TestFetchChanInfos(t *testing.T) {
 func TestIncompleteChannelPolicies(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -2172,7 +2172,7 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -2327,7 +2327,7 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 func TestPruneGraphNodes(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -2411,7 +2411,7 @@ func TestPruneGraphNodes(t *testing.T) {
 func TestAddChannelEdgeShellNodes(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -2465,7 +2465,7 @@ func TestAddChannelEdgeShellNodes(t *testing.T) {
 func TestNodePruningUpdateIndexDeletion(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -2535,7 +2535,7 @@ func TestNodeIsPublic(t *testing.T) {
 	// We'll need to create a separate database and channel graph for each
 	// participant to replicate real-world scenarios (private edges being in
 	// some graphs but not others, etc.).
-	aliceDB, cleanUp, err := makeTestDB()
+	aliceDB, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -2549,7 +2549,7 @@ func TestNodeIsPublic(t *testing.T) {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
-	bobDB, cleanUp, err := makeTestDB()
+	bobDB, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -2563,7 +2563,7 @@ func TestNodeIsPublic(t *testing.T) {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
-	carolDB, cleanUp, err := makeTestDB()
+	carolDB, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -2684,7 +2684,7 @@ func TestNodeIsPublic(t *testing.T) {
 func TestDisabledChannelIDs(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
@@ -2782,7 +2782,7 @@ func TestDisabledChannelIDs(t *testing.T) {
 func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
@@ -2962,7 +2962,7 @@ func TestGraphZombieIndex(t *testing.T) {
 	t.Parallel()
 
 	// We'll start by creating our test graph along with a test edge.
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create test database: %v", err)
@@ -3151,7 +3151,7 @@ func TestLightningNodeSigVerification(t *testing.T) {
 	}
 
 	// Create a LightningNode from the same private key.
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}

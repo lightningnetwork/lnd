@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
 
@@ -1259,4 +1260,38 @@ func (db *DB) FetchHistoricalChannel(outPoint *wire.OutPoint) (*OpenChannel, err
 	}
 
 	return channel, nil
+}
+
+// MakeTestDB creates a new instance of the ChannelDB for testing purposes.
+// A callback which cleans up the created temporary directories is also
+// returned and intended to be executed after the test completes.
+func MakeTestDB(modifiers ...OptionModifier) (*DB, func(), error) {
+	// First, create a temporary directory to be used for the duration of
+	// this test.
+	tempDirName, err := ioutil.TempDir("", "channeldb")
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Next, create channeldb for the first time.
+	backend, backendCleanup, err := kvdb.GetTestBackend(tempDirName, "cdb")
+	if err != nil {
+		backendCleanup()
+		return nil, nil, err
+	}
+
+	cdb, err := CreateWithBackend(backend, modifiers...)
+	if err != nil {
+		backendCleanup()
+		os.RemoveAll(tempDirName)
+		return nil, nil, err
+	}
+
+	cleanUp := func() {
+		cdb.Close()
+		backendCleanup()
+		os.RemoveAll(tempDirName)
+	}
+
+	return cdb, cleanUp, nil
 }

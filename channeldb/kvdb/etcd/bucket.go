@@ -11,9 +11,9 @@ const (
 )
 
 var (
-	bucketPrefix   = []byte("b")
-	valuePrefix    = []byte("v")
-	sequencePrefix = []byte("$")
+	valuePostfix   = []byte{0x00}
+	bucketPostfix  = []byte{0xFF}
+	sequencePrefix = []byte("$seq$")
 )
 
 // makeBucketID returns a deterministic key for the passed byte slice.
@@ -28,52 +28,65 @@ func isValidBucketID(s []byte) bool {
 	return len(s) == bucketIDLength
 }
 
-// makeKey concatenates prefix, parent and key into one byte slice.
-// The prefix indicates the use of this key (whether bucket, value or sequence),
-// while parentID refers to the parent bucket.
-func makeKey(prefix, parent, key []byte) []byte {
-	keyBuf := make([]byte, len(prefix)+len(parent)+len(key))
-	copy(keyBuf, prefix)
-	copy(keyBuf[len(prefix):], parent)
-	copy(keyBuf[len(prefix)+len(parent):], key)
+// makeKey concatenates parent, key and postfix into one byte slice.
+// The postfix indicates the use of this key (whether bucket or value), while
+// parent refers to the parent bucket.
+func makeKey(parent, key, postfix []byte) []byte {
+	keyBuf := make([]byte, len(parent)+len(key)+len(postfix))
+	copy(keyBuf, parent)
+	copy(keyBuf[len(parent):], key)
+	copy(keyBuf[len(parent)+len(key):], postfix)
 
 	return keyBuf
-}
-
-// makePrefix concatenates prefix with parent into one byte slice.
-func makePrefix(prefix []byte, parent []byte) []byte {
-	prefixBuf := make([]byte, len(prefix)+len(parent))
-	copy(prefixBuf, prefix)
-	copy(prefixBuf[len(prefix):], parent)
-
-	return prefixBuf
 }
 
 // makeBucketKey returns a bucket key from the passed parent bucket id and
 // the key.
 func makeBucketKey(parent []byte, key []byte) []byte {
-	return makeKey(bucketPrefix, parent, key)
+	return makeKey(parent, key, bucketPostfix)
 }
 
 // makeValueKey returns a value key from the passed parent bucket id and
 // the key.
 func makeValueKey(parent []byte, key []byte) []byte {
-	return makeKey(valuePrefix, parent, key)
+	return makeKey(parent, key, valuePostfix)
 }
 
 // makeSequenceKey returns a sequence key of the passed parent bucket id.
 func makeSequenceKey(parent []byte) []byte {
-	return makeKey(sequencePrefix, parent, nil)
+	keyBuf := make([]byte, len(sequencePrefix)+len(parent))
+	copy(keyBuf, sequencePrefix)
+	copy(keyBuf[len(sequencePrefix):], parent)
+	return keyBuf
 }
 
-// makeBucketPrefix returns the bucket prefix of the passed parent bucket id.
-// This prefix is used for all sub buckets.
-func makeBucketPrefix(parent []byte) []byte {
-	return makePrefix(bucketPrefix, parent)
+// isBucketKey returns true if the passed key is a bucket key, meaning it
+// keys a bucket name.
+func isBucketKey(key string) bool {
+	if len(key) < bucketIDLength+1 {
+		return false
+	}
+
+	return key[len(key)-1] == bucketPostfix[0]
 }
 
-// makeValuePrefix returns the value prefix of the passed parent bucket id.
-// This prefix is used for all key/values in the bucket.
-func makeValuePrefix(parent []byte) []byte {
-	return makePrefix(valuePrefix, parent)
+// getKey chops out the key from the raw key (by removing the bucket id
+// prefixing the key and the postfix indicating whether it is a bucket or
+// a value key)
+func getKey(rawKey string) []byte {
+	return []byte(rawKey[bucketIDLength : len(rawKey)-1])
+}
+
+// getKeyVal chops out the key from the raw key (by removing the bucket id
+// prefixing the key and the postfix indicating whether it is a bucket or
+// a value key) and also returns the appropriate value for the key, which is
+// nil in case of buckets (or the set value otherwise).
+func getKeyVal(kv *KV) ([]byte, []byte) {
+	var val []byte
+
+	if !isBucketKey(kv.key) {
+		val = []byte(kv.val)
+	}
+
+	return getKey(kv.key), val
 }

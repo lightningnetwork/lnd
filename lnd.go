@@ -514,7 +514,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		towerDBDir := filepath.Join(
 			cfg.Watchtower.TowerDir,
 			cfg.registeredChains.PrimaryChain().String(),
-			normalizeNetwork(activeNetParams.Name),
+			normalizeNetwork(cfg.ActiveNetParams.Name),
 		)
 
 		towerDB, err := wtdb.OpenTowerDB(towerDBDir)
@@ -552,7 +552,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 				towerKeyDesc, activeChainControl.keyRing,
 			),
 			PublishTx: activeChainControl.wallet.PublishTransaction,
-			ChainHash: *activeNetParams.GenesisHash,
+			ChainHash: *cfg.ActiveNetParams.GenesisHash,
 		}
 
 		// If there is a tor controller (user wants auto hidden services), then
@@ -604,7 +604,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	// Set up an autopilot manager from the current config. This will be
 	// used to manage the underlying autopilot agent, starting and stopping
 	// it at will.
-	atplCfg, err := initAutoPilot(server, cfg.Autopilot, mainChain)
+	atplCfg, err := initAutoPilot(server, cfg.Autopilot, mainChain, cfg.ActiveNetParams)
 	if err != nil {
 		err := fmt.Errorf("unable to initialize autopilot: %v", err)
 		ltndLog.Error(err)
@@ -974,7 +974,7 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 		cfg.AdminMacPath, cfg.ReadMacPath, cfg.InvoiceMacPath,
 	}
 	pwService := walletunlocker.New(
-		chainConfig.ChainDir, activeNetParams.Params, !cfg.SyncFreelist,
+		chainConfig.ChainDir, cfg.ActiveNetParams.Params, !cfg.SyncFreelist,
 		macaroonFiles,
 	)
 	lnrpc.RegisterWalletUnlockerServer(grpcServer, pwService)
@@ -1069,10 +1069,10 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 		}
 
 		netDir := btcwallet.NetworkDir(
-			chainConfig.ChainDir, activeNetParams.Params,
+			chainConfig.ChainDir, cfg.ActiveNetParams.Params,
 		)
 		loader := wallet.NewLoader(
-			activeNetParams.Params, netDir, !cfg.SyncFreelist,
+			cfg.ActiveNetParams.Params, netDir, !cfg.SyncFreelist,
 			recoveryWindow,
 		)
 

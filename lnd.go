@@ -269,7 +269,6 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		chanDbBackend,
 		channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),
 		channeldb.OptionSetChannelCacheSize(cfg.Caches.ChannelCacheSize),
-		channeldb.OptionSetSyncFreelist(cfg.SyncFreelist),
 		channeldb.OptionDryRunMigration(cfg.DryRunMigration),
 	)
 	switch {

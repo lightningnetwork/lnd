@@ -39,14 +39,21 @@ listeners="lightning=lightningLis walletunlocker=walletUnlockerLis"
 # one proto file is being parsed, it should only be done once.
 mem_rpc=1
 
+PROTOS="rpc.proto walletunlocker.proto"
+
 opts="package_name=$pkg,target_package=$target_pkg,listeners=$listeners,mem_rpc=$mem_rpc"
-protoc -I/usr/local/include -I. \
-       -I$GOPATH/src/github.com/grpc-ecosystem/grpc-gateway/third_party/googleapis \
-       --plugin=protoc-gen-custom=$falafel\
-       --custom_out=./build \
-       --custom_opt="$opts" \
-       --proto_path=../lnrpc \
-       rpc.proto
+
+for file in $PROTOS; do
+  echo "Generating mobile protos from ${file}"
+
+  protoc -I/usr/local/include -I. \
+         -I$GOPATH/src/github.com/grpc-ecosystem/grpc-gateway/third_party/googleapis \
+         --plugin=protoc-gen-custom=$falafel\
+         --custom_out=./build \
+         --custom_opt="$opts" \
+         --proto_path=../lnrpc \
+         "${file}"
+done
 
 # If prefix=1 is specified, prefix the generated methods with subserver name.
 # This must be enabled to support subservers with name conflicts.

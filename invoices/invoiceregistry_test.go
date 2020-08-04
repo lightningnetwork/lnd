@@ -220,10 +220,13 @@ func TestSettleInvoice(t *testing.T) {
 	}
 }
 
-// TestCancelInvoice tests cancelation of an invoice and related notifications.
-func TestCancelInvoice(t *testing.T) {
+func testCancelInvoice(t *testing.T, gc bool) {
 	ctx := newTestContext(t)
 	defer ctx.cleanup()
+
+	// If set to true, then also delete the invoice from the DB after
+	// cancellation.
+	ctx.registry.cfg.GcCanceledInvoicesOnTheFly = gc
 
 	allSubscriptions, err := ctx.registry.SubscribeNotifications(0, 0)
 	assert.Nil(t, err)
@@ -299,13 +302,26 @@ func TestCancelInvoice(t *testing.T) {
 		t.Fatal("no update received")
 	}
 
+	if gc {
+		// Check that the invoice has been deleted from the db.
+		_, err = ctx.cdb.LookupInvoice(
+			channeldb.InvoiceRefByHash(testInvoicePaymentHash),
+		)
+		require.Error(t, err)
+	}
+
 	// We expect no cancel notification to be sent to all invoice
 	// subscribers (backwards compatibility).
 
-	// Try to cancel again.
+	// Try to cancel again. Expect that we report ErrInvoiceNotFound if the
+	// invoice has been garbage collected (since the invoice has been
+	// deleted when it was canceled), and no error otherwise.
 	err = ctx.registry.CancelInvoice(testInvoicePaymentHash)
-	if err != nil {
-		t.Fatal("expected cancelation of a canceled invoice to succeed")
+
+	if gc {
+		require.Error(t, err, channeldb.ErrInvoiceNotFound)
+	} else {
+		require.NoError(t, err)
 	}
 
 	// Notify arrival of a new htlc paying to this invoice. This should
@@ -327,10 +343,31 @@ func TestCancelInvoice(t *testing.T) {
 		t.Fatalf("expected acceptHeight %v, but got %v",
 			testCurrentHeight, failResolution.AcceptHeight)
 	}
-	if failResolution.Outcome != ResultInvoiceAlreadyCanceled {
-		t.Fatalf("expected expiry too soon, got: %v",
-			failResolution.Outcome)
+
+	// If the invoice has been deleted (or not present) then we expect the
+	// outcome to be ResultInvoiceNotFound instead of when the invoice is
+	// in our database in which case we expect ResultInvoiceAlreadyCanceled.
+	if gc {
+		require.Equal(t, failResolution.Outcome, ResultInvoiceNotFound)
+	} else {
+		require.Equal(t,
+			failResolution.Outcome,
+			ResultInvoiceAlreadyCanceled,
+		)
 	}
+}
+
+// TestCancelInvoice tests cancelation of an invoice and related notifications.
+func TestCancelInvoice(t *testing.T) {
+	// Test cancellation both with garbage collection (meaning that canceled
+	// invoice will be deleted) and without (meain it'll be kept).
+	t.Run("garbage collect", func(t *testing.T) {
+		testCancelInvoice(t, true)
+	})
+
+	t.Run("no garbage collect", func(t *testing.T) {
+		testCancelInvoice(t, false)
+	})
 }
 
 // TestSettleHoldInvoice tests settling of a hold invoice and related

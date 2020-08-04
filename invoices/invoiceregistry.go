@@ -61,6 +61,10 @@ type RegistryConfig struct {
 	// all canceled invoices upon start.
 	GcCanceledInvoicesOnStartup bool
 
+	// GcCanceledInvoicesOnTheFly if set, we'll garbage collect all newly
+	// canceled invoices on the fly.
+	GcCanceledInvoicesOnTheFly bool
+
 	// KeysendHoldTime indicates for how long we want to accept and hold
 	// spontaneous keysend payments.
 	KeysendHoldTime time.Duration
@@ -1123,6 +1127,32 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
 		)
 	}
 	i.notifyClients(payHash, invoice, channeldb.ContractCanceled)
+
+	// Attempt to also delete the invoice if requested through the registry
+	// config.
+	if i.cfg.GcCanceledInvoicesOnTheFly {
+		// Assemble the delete reference and attempt to delete through
+		// the invocice from the DB.
+		deleteRef := channeldb.InvoiceDeleteRef{
+			PayHash:     payHash,
+			AddIndex:    invoice.AddIndex,
+			SettleIndex: invoice.SettleIndex,
+		}
+		if invoice.Terms.PaymentAddr != channeldb.BlankPayAddr {
+			deleteRef.PayAddr = &invoice.Terms.PaymentAddr
+		}
+
+		err = i.cdb.DeleteInvoice(
+			[]channeldb.InvoiceDeleteRef{deleteRef},
+		)
+		// If by any chance deletion failed, then log it instead of
+		// returning the error, as the invoice itsels has already been
+		// canceled.
+		if err != nil {
+			log.Warnf("Invoice%v could not be deleted: %v",
+				ref, err)
+		}
+	}
 
 	return nil
 }

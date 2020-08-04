@@ -9,8 +9,8 @@ import (
 
 const (
 	dbName      = "channel.db"
-	boltBackend = "bolt"
-	etcdBackend = "etcd"
+	BoltBackend = "bolt"
+	EtcdBackend = "etcd"
 )
 
 // DB holds database configuration for LND.
@@ -25,26 +25,24 @@ type DB struct {
 // NewDB creates and returns a new default DB config.
 func DefaultDB() *DB {
 	return &DB{
-		Backend: boltBackend,
-		Bolt: &kvdb.BoltConfig{
-			NoFreeListSync: true,
-		},
+		Backend: BoltBackend,
+		Bolt:    &kvdb.BoltConfig{},
 	}
 }
 
 // Validate validates the DB config.
 func (db *DB) Validate() error {
 	switch db.Backend {
-	case boltBackend:
+	case BoltBackend:
 
-	case etcdBackend:
+	case EtcdBackend:
 		if db.Etcd.Host == "" {
 			return fmt.Errorf("etcd host must be set")
 		}
 
 	default:
 		return fmt.Errorf("unknown backend, must be either \"%v\" or \"%v\"",
-			boltBackend, etcdBackend)
+			BoltBackend, EtcdBackend)
 	}
 
 	return nil
@@ -54,12 +52,14 @@ func (db *DB) Validate() error {
 func (db *DB) GetBackend(ctx context.Context, dbPath string,
 	networkName string) (kvdb.Backend, error) {
 
-	if db.Backend == etcdBackend {
+	if db.Backend == EtcdBackend {
 		// Prefix will separate key/values in the db.
 		return kvdb.GetEtcdBackend(ctx, networkName, db.Etcd)
 	}
 
-	return kvdb.GetBoltBackend(dbPath, dbName, db.Bolt.NoFreeListSync)
+	// The implementation by walletdb accepts "noFreelistSync" as the
+	// second parameter, so we negate here.
+	return kvdb.GetBoltBackend(dbPath, dbName, !db.Bolt.SyncFreelist)
 }
 
 // Compile-time constraint to ensure Workers implements the Validator interface.

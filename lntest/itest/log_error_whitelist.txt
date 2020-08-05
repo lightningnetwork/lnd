@@ -203,3 +203,4 @@
 <time> [ERR] RPCS: [/lnrpc.Lightning/OpenChannel]: received funding error from <hex>: chan_id=<hex>, err=channel too large
 <time> [ERR] RPCS: unable to open channel to NodeKey(<hex>): received funding error from <hex>: chan_id=<hex>, err=channel too large
 <time> [ERR] NTNF: unable to get hash from block with height <height>
+<time> [ERR] FNDG: Unable to add new channel <chan_point> with peer <hex>: canceled adding new channel

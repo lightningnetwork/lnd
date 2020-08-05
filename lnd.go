@@ -255,6 +255,11 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	if cfg.DB.Backend == lncfg.BoltBackend {
+		ltndLog.Infof("Opening bbolt database, sync_freelist=%v",
+			cfg.DB.Bolt.SyncFreelist)
+	}
+
 	chanDbBackend, err := cfg.DB.GetBackend(ctx,
 		cfg.localDatabaseDir(), cfg.networkName(),
 	)
@@ -269,7 +274,6 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		chanDbBackend,
 		channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),
 		channeldb.OptionSetChannelCacheSize(cfg.Caches.ChannelCacheSize),
-		channeldb.OptionSetSyncFreelist(cfg.SyncFreelist),
 		channeldb.OptionDryRunMigration(cfg.DryRunMigration),
 	)
 	switch {

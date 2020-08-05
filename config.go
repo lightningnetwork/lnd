@@ -1097,6 +1097,14 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 			"minbackoff")
 	}
 
+	// Newer versions of lnd added a new sub-config for bolt-specific
+	// parameters. However we want to also allow existing users to use the
+	// value on the top-level config. If the outer config value is set,
+	// then we'll use that directly.
+	if cfg.SyncFreelist {
+		cfg.DB.Bolt.SyncFreelist = cfg.SyncFreelist
+	}
+
 	// Validate the subconfigs for workers, caches, and the tower client.
 	err = lncfg.Validate(
 		cfg.Workers,

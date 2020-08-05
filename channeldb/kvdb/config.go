@@ -12,7 +12,7 @@ const EtcdBackendName = "etcd"
 
 // BoltConfig holds bolt configuration.
 type BoltConfig struct {
-	NoFreeListSync bool `long:"nofreelistsync" description:"If true, prevents the database from syncing its freelist to disk"`
+	SyncFreelist bool `long:"nofreelistsync" description:"Whether the databases used within lnd should sync their freelist to disk. This is disabled by default resulting in improved memory performance during operation, but with an increase in startup time."`
 }
 
 // EtcdConfig holds etcd configuration.

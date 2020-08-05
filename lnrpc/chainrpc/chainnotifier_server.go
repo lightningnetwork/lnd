@@ -67,7 +67,7 @@ var (
 
 	// ErrChainNotifierServerNotActive indicates that the chain notifier hasn't
 	// finished the startup process.
-	ErrChainNotifierServerNotActive = errors.New("chain notifier RPC is" +
+	ErrChainNotifierServerNotActive = errors.New("chain notifier RPC is " +
 		"still in the process of starting")
 )
 

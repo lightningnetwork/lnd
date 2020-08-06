@@ -42,25 +42,48 @@ func testHtlcErrorPropagation(net *lntest.NetworkHarness, t *harnessTest) {
 
 	commitFee := cType.calcStaticFee(0)
 	assertBaseBalance := func() {
-		balReq := &lnrpc.ChannelBalanceRequest{}
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		aliceBal, err := net.Alice.ChannelBalance(ctxt, balReq)
-		if err != nil {
-			t.Fatalf("unable to get channel balance: %v", err)
+		// Alice has opened a channel with Bob with zero push amount, so
+		// it's remote balance is zero.
+		expBalanceAlice := &lnrpc.ChannelBalanceResponse{
+			LocalBalance: &lnrpc.Amount{
+				Sat: uint64(chanAmt - commitFee),
+				Msat: uint64(lnwire.NewMSatFromSatoshis(
+					chanAmt - commitFee,
+				)),
+			},
+			RemoteBalance:            &lnrpc.Amount{},
+			UnsettledLocalBalance:    &lnrpc.Amount{},
+			UnsettledRemoteBalance:   &lnrpc.Amount{},
+			PendingOpenLocalBalance:  &lnrpc.Amount{},
+			PendingOpenRemoteBalance: &lnrpc.Amount{},
+			// Deprecated fields.
+			Balance: int64(chanAmt - commitFee),
 		}
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		bobBal, err := net.Bob.ChannelBalance(ctxt, balReq)
-		if err != nil {
-			t.Fatalf("unable to get channel balance: %v", err)
+		assertChannelBalanceResp(t, net.Alice, expBalanceAlice)
+
+		// Bob has a channel with Alice and another with Carol, so it's
+		// local and remote balances are both chanAmt - commitFee.
+		expBalanceBob := &lnrpc.ChannelBalanceResponse{
+			LocalBalance: &lnrpc.Amount{
+				Sat: uint64(chanAmt - commitFee),
+				Msat: uint64(lnwire.NewMSatFromSatoshis(
+					chanAmt - commitFee,
+				)),
+			},
+			RemoteBalance: &lnrpc.Amount{
+				Sat: uint64(chanAmt - commitFee),
+				Msat: uint64(lnwire.NewMSatFromSatoshis(
+					chanAmt - commitFee,
+				)),
+			},
+			UnsettledLocalBalance:    &lnrpc.Amount{},
+			UnsettledRemoteBalance:   &lnrpc.Amount{},
+			PendingOpenLocalBalance:  &lnrpc.Amount{},
+			PendingOpenRemoteBalance: &lnrpc.Amount{},
+			// Deprecated fields.
+			Balance: int64(chanAmt - commitFee),
 		}
-		if aliceBal.Balance != int64(chanAmt-commitFee) {
-			t.Fatalf("alice has an incorrect balance: expected %v got %v",
-				int64(chanAmt-commitFee), aliceBal)
-		}
-		if bobBal.Balance != int64(chanAmt-commitFee) {
-			t.Fatalf("bob has an incorrect balance: expected %v got %v",
-				int64(chanAmt-commitFee), bobBal)
-		}
+		assertChannelBalanceResp(t, net.Bob, expBalanceBob)
 	}
 
 	// Since we'd like to test some multi-hop failure scenarios, we'll

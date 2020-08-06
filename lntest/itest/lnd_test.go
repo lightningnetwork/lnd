@@ -1096,6 +1096,23 @@ func channelCommitType(node *lntest.HarnessNode,
 	return 0, fmt.Errorf("channel point %v not found", chanPoint)
 }
 
+// assertChannelBalanceResp makes a ChannelBalance request and checks the
+// returned reponse matches the expected.
+func assertChannelBalanceResp(t *harnessTest,
+	node *lntest.HarnessNode, expected *lnrpc.ChannelBalanceResponse) {
+
+	t.t.Helper()
+
+	ctxt, _ := context.WithTimeout(context.Background(), defaultTimeout)
+	req := &lnrpc.ChannelBalanceRequest{}
+	resp, err := node.ChannelBalance(ctxt, req)
+
+	require.NoError(t.t, err, "unable to get node's balance")
+	require.Equal(
+		t.t, expected, resp, "balance is incorrect",
+	)
+}
+
 // basicChannelFundingTest is a sub-test of the main testBasicChannelFunding
 // test. Given two nodes: Alice and Bob, it'll assert proper channel creation,
 // then return a function closure that should be called to assert proper
@@ -1144,33 +1161,46 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 
 	// With the channel open, ensure that the amount specified above has
 	// properly been pushed to Bob.
-	balReq := &lnrpc.ChannelBalanceRequest{}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	aliceBal, err := alice.ChannelBalance(ctxt, balReq)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("unable to get alice's "+
-			"balance: %v", err)
+	aliceLocalBalance := chanAmt - pushAmt - cType.calcStaticFee(0)
+	expBalanceAlice := &lnrpc.ChannelBalanceResponse{
+		LocalBalance: &lnrpc.Amount{
+			Sat: uint64(aliceLocalBalance),
+			Msat: uint64(lnwire.NewMSatFromSatoshis(
+				aliceLocalBalance,
+			)),
+		},
+		RemoteBalance: &lnrpc.Amount{
+			Sat:  uint64(pushAmt),
+			Msat: uint64(lnwire.NewMSatFromSatoshis(pushAmt)),
+		},
+		UnsettledLocalBalance:    &lnrpc.Amount{},
+		UnsettledRemoteBalance:   &lnrpc.Amount{},
+		PendingOpenLocalBalance:  &lnrpc.Amount{},
+		PendingOpenRemoteBalance: &lnrpc.Amount{},
+		// Deprecated fields.
+		Balance: int64(aliceLocalBalance),
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	bobBal, err := bob.ChannelBalance(ctxt, balReq)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("unable to get bobs's "+
-			"balance: %v", err)
-	}
+	assertChannelBalanceResp(t, alice, expBalanceAlice)
 
-	expBalanceAlice := chanAmt - pushAmt - cType.calcStaticFee(0)
-	aliceBalance := btcutil.Amount(aliceBal.Balance)
-	if aliceBalance != expBalanceAlice {
-		return nil, nil, nil, fmt.Errorf("alice's balance is "+
-			"incorrect: expected %v got %v",
-			expBalanceAlice, aliceBalance)
+	expBalanceBob := &lnrpc.ChannelBalanceResponse{
+		LocalBalance: &lnrpc.Amount{
+			Sat:  uint64(pushAmt),
+			Msat: uint64(lnwire.NewMSatFromSatoshis(pushAmt)),
+		},
+		RemoteBalance: &lnrpc.Amount{
+			Sat: uint64(aliceLocalBalance),
+			Msat: uint64(lnwire.NewMSatFromSatoshis(
+				aliceLocalBalance,
+			)),
+		},
+		UnsettledLocalBalance:    &lnrpc.Amount{},
+		UnsettledRemoteBalance:   &lnrpc.Amount{},
+		PendingOpenLocalBalance:  &lnrpc.Amount{},
+		PendingOpenRemoteBalance: &lnrpc.Amount{},
+		// Deprecated fields.
+		Balance: int64(pushAmt),
 	}
-
-	bobBalance := btcutil.Amount(bobBal.Balance)
-	if bobBalance != pushAmt {
-		return nil, nil, nil, fmt.Errorf("bob's balance is incorrect: "+
-			"expected %v got %v", pushAmt, bobBalance)
-	}
+	assertChannelBalanceResp(t, bob, expBalanceBob)
 
 	req := &lnrpc.ListChannelsRequest{}
 	aliceChannel, err := alice.ListChannels(context.Background(), req)
@@ -1422,25 +1452,48 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// With the channel open, we'll check the balances on each side of the
 	// channel as a sanity check to ensure things worked out as intended.
-	balReq := &lnrpc.ChannelBalanceRequest{}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	carolBal, err := carol.ChannelBalance(ctxt, balReq)
-	if err != nil {
-		t.Fatalf("unable to get carol's balance: %v", err)
+	carolLocalBalance := chanAmt - pushAmt - cType.calcStaticFee(0)
+	expBalanceCarol := &lnrpc.ChannelBalanceResponse{
+		LocalBalance: &lnrpc.Amount{
+			Sat: uint64(carolLocalBalance),
+			Msat: uint64(lnwire.NewMSatFromSatoshis(
+				carolLocalBalance,
+			)),
+		},
+		RemoteBalance: &lnrpc.Amount{
+			Sat: uint64(pushAmt),
+			Msat: uint64(lnwire.NewMSatFromSatoshis(
+				pushAmt,
+			)),
+		},
+		UnsettledLocalBalance:    &lnrpc.Amount{},
+		UnsettledRemoteBalance:   &lnrpc.Amount{},
+		PendingOpenLocalBalance:  &lnrpc.Amount{},
+		PendingOpenRemoteBalance: &lnrpc.Amount{},
+		// Deprecated fields.
+		Balance: int64(carolLocalBalance),
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	aliceBal, err := net.Alice.ChannelBalance(ctxt, balReq)
-	if err != nil {
-		t.Fatalf("unable to get alice's balance: %v", err)
+	assertChannelBalanceResp(t, carol, expBalanceCarol)
+
+	expBalanceAlice := &lnrpc.ChannelBalanceResponse{
+		LocalBalance: &lnrpc.Amount{
+			Sat:  uint64(pushAmt),
+			Msat: uint64(lnwire.NewMSatFromSatoshis(pushAmt)),
+		},
+		RemoteBalance: &lnrpc.Amount{
+			Sat: uint64(carolLocalBalance),
+			Msat: uint64(lnwire.NewMSatFromSatoshis(
+				carolLocalBalance,
+			)),
+		},
+		UnsettledLocalBalance:    &lnrpc.Amount{},
+		UnsettledRemoteBalance:   &lnrpc.Amount{},
+		PendingOpenLocalBalance:  &lnrpc.Amount{},
+		PendingOpenRemoteBalance: &lnrpc.Amount{},
+		// Deprecated fields.
+		Balance: int64(pushAmt),
 	}
-	if carolBal.Balance != int64(chanAmt-pushAmt-cType.calcStaticFee(0)) {
-		t.Fatalf("carol's balance is incorrect: expected %v got %v",
-			chanAmt-pushAmt-cType.calcStaticFee(0), carolBal)
-	}
-	if aliceBal.Balance != int64(pushAmt) {
-		t.Fatalf("alice's balance is incorrect: expected %v got %v",
-			pushAmt, aliceBal.Balance)
-	}
+	assertChannelBalanceResp(t, net.Alice, expBalanceAlice)
 
 	// Now that we're done with the test, the channel can be closed.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
@@ -2858,8 +2911,8 @@ func findTxAtHeight(ctx context.Context, t *harnessTest, height int32,
 	return nil
 }
 
-// testChannelBalance creates a new channel between Alice and  Bob, then
-// checks channel balance to be equal amount specified while creation of channel.
+// testChannelBalance creates a new channel between Alice and Bob, then checks
+// channel balance to be equal amount specified while creation of channel.
 func testChannelBalance(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
@@ -2869,20 +2922,28 @@ func testChannelBalance(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Creates a helper closure to be used below which asserts the proper
 	// response to a channel balance RPC.
-	checkChannelBalance := func(node lnrpc.LightningClient,
-		amount btcutil.Amount) {
+	checkChannelBalance := func(node *lntest.HarnessNode,
+		local, remote btcutil.Amount) {
 
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		response, err := node.ChannelBalance(ctxt, &lnrpc.ChannelBalanceRequest{})
-		if err != nil {
-			t.Fatalf("unable to get channel balance: %v", err)
+		expectedResponse := &lnrpc.ChannelBalanceResponse{
+			LocalBalance: &lnrpc.Amount{
+				Sat:  uint64(local),
+				Msat: uint64(lnwire.NewMSatFromSatoshis(local)),
+			},
+			RemoteBalance: &lnrpc.Amount{
+				Sat: uint64(remote),
+				Msat: uint64(lnwire.NewMSatFromSatoshis(
+					remote,
+				)),
+			},
+			UnsettledLocalBalance:    &lnrpc.Amount{},
+			UnsettledRemoteBalance:   &lnrpc.Amount{},
+			PendingOpenLocalBalance:  &lnrpc.Amount{},
+			PendingOpenRemoteBalance: &lnrpc.Amount{},
+			// Deprecated fields.
+			Balance: int64(local),
 		}
-
-		balance := btcutil.Amount(response.Balance)
-		if balance != amount {
-			t.Fatalf("channel balance wrong: %v != %v", balance,
-				amount)
-		}
+		assertChannelBalanceResp(t, node, expectedResponse)
 	}
 
 	// Before beginning, make sure alice and bob are connected.
@@ -2920,10 +2981,10 @@ func testChannelBalance(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// As this is a single funder channel, Alice's balance should be
 	// exactly 0.5 BTC since now state transitions have taken place yet.
-	checkChannelBalance(net.Alice, amount-cType.calcStaticFee(0))
+	checkChannelBalance(net.Alice, amount-cType.calcStaticFee(0), 0)
 
 	// Ensure Bob currently has no available balance within the channel.
-	checkChannelBalance(net.Bob, 0)
+	checkChannelBalance(net.Bob, 0, amount-cType.calcStaticFee(0))
 
 	// Finally close the channel between Alice and Bob, asserting that the
 	// channel has been properly closed on-chain.
@@ -9154,10 +9215,10 @@ func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 			t.Fatalf("unable to get dave's balance: %v", err)
 		}
 
-		if daveBalResp.Balance != 0 {
+		if daveBalResp.LocalBalance.Sat != 0 {
 			predErr = fmt.Errorf("Dave should end up with zero "+
 				"channel balance, instead has %d",
-				daveBalResp.Balance)
+				daveBalResp.LocalBalance.Sat)
 			return false
 		}
 

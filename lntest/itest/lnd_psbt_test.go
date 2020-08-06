@@ -301,7 +301,7 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to get carol's balance: %v", err)
 	}
-	if balRes.Balance == 0 {
+	if balRes.LocalBalance.Sat == 0 {
 		t.Fatalf("carol has an empty channel balance")
 	}
 

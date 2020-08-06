@@ -205,3 +205,4 @@
 <time> [ERR] NTNF: unable to get hash from block with height <height>
 <time> [ERR] FNDG: Unable to add new channel <chan_point> with peer <hex>: canceled adding new channel
 <time> [ERR] RPCS: WS: error closing upgraded conn: write tcp4 <ip>-><ip>: write: connection reset by peer
+<time> [ERR] NTFN: chain notifier shutting down

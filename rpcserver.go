@@ -2852,16 +2852,36 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 // ChannelBalance returns the total available channel flow across all open
 // channels in satoshis.
 func (r *rpcServer) ChannelBalance(ctx context.Context,
-	in *lnrpc.ChannelBalanceRequest) (*lnrpc.ChannelBalanceResponse, error) {
+	in *lnrpc.ChannelBalanceRequest) (
+	*lnrpc.ChannelBalanceResponse, error) {
+
+	var (
+		localBalance             lnwire.MilliSatoshi
+		remoteBalance            lnwire.MilliSatoshi
+		unsettledLocalBalance    lnwire.MilliSatoshi
+		unsettledRemoteBalance   lnwire.MilliSatoshi
+		pendingOpenLocalBalance  lnwire.MilliSatoshi
+		pendingOpenRemoteBalance lnwire.MilliSatoshi
+	)
 
 	openChannels, err := r.server.remoteChanDB.FetchAllOpenChannels()
 	if err != nil {
 		return nil, err
 	}
 
-	var balance btcutil.Amount
 	for _, channel := range openChannels {
-		balance += channel.LocalCommitment.LocalBalance.ToSatoshis()
+		c := channel.LocalCommitment
+		localBalance += c.LocalBalance
+		remoteBalance += c.RemoteBalance
+
+		// Add pending htlc amount.
+		for _, htlc := range c.Htlcs {
+			if htlc.Incoming {
+				unsettledLocalBalance += htlc.Amt
+			} else {
+				unsettledRemoteBalance += htlc.Amt
+			}
+		}
 	}
 
 	pendingChannels, err := r.server.remoteChanDB.FetchPendingChannels()
@@ -2869,17 +2889,48 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 		return nil, err
 	}
 
-	var pendingOpenBalance btcutil.Amount
 	for _, channel := range pendingChannels {
-		pendingOpenBalance += channel.LocalCommitment.LocalBalance.ToSatoshis()
+		c := channel.LocalCommitment
+		pendingOpenLocalBalance += c.LocalBalance
+		pendingOpenRemoteBalance += c.RemoteBalance
 	}
 
-	rpcsLog.Debugf("[channelbalance] balance=%v pending-open=%v",
-		balance, pendingOpenBalance)
+	rpcsLog.Debugf("[channelbalance] local_balance=%v remote_balance=%v "+
+		"unsettled_local_balance=%v unsettled_remote_balance=%v "+
+		"pending_open_local_balance=%v pending_open_remove_balance",
+		localBalance, remoteBalance, unsettledLocalBalance,
+		unsettledRemoteBalance, pendingOpenLocalBalance,
+		pendingOpenRemoteBalance)
 
 	return &lnrpc.ChannelBalanceResponse{
-		Balance:            int64(balance),
-		PendingOpenBalance: int64(pendingOpenBalance),
+		LocalBalance: &lnrpc.Amount{
+			Sat:  uint64(localBalance.ToSatoshis()),
+			Msat: uint64(localBalance),
+		},
+		RemoteBalance: &lnrpc.Amount{
+			Sat:  uint64(remoteBalance.ToSatoshis()),
+			Msat: uint64(remoteBalance),
+		},
+		UnsettledLocalBalance: &lnrpc.Amount{
+			Sat:  uint64(unsettledLocalBalance.ToSatoshis()),
+			Msat: uint64(unsettledLocalBalance),
+		},
+		UnsettledRemoteBalance: &lnrpc.Amount{
+			Sat:  uint64(unsettledRemoteBalance.ToSatoshis()),
+			Msat: uint64(unsettledRemoteBalance),
+		},
+		PendingOpenLocalBalance: &lnrpc.Amount{
+			Sat:  uint64(pendingOpenLocalBalance.ToSatoshis()),
+			Msat: uint64(pendingOpenLocalBalance),
+		},
+		PendingOpenRemoteBalance: &lnrpc.Amount{
+			Sat:  uint64(pendingOpenRemoteBalance.ToSatoshis()),
+			Msat: uint64(pendingOpenRemoteBalance),
+		},
+
+		// Deprecated fields.
+		Balance:            int64(localBalance.ToSatoshis()),
+		PendingOpenBalance: int64(pendingOpenLocalBalance.ToSatoshis()),
 	}, nil
 }
 

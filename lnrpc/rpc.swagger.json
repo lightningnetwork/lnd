@@ -36,7 +36,7 @@
     },
     "/v1/balance/channels": {
       "get": {
-        "summary": "lncli: `channelbalance`\nChannelBalance returns the total funds available across all open channels\nin satoshis.",
+        "summary": "lncli: `channelbalance`\nChannelBalance returns a report on the total funds across all open channels,\ncategorized in local/remote, pending local/remote and unsettled local/remote\nbalances.",
         "operationId": "ChannelBalance",
         "responses": {
           "200": {
@@ -2476,6 +2476,21 @@
       "description": "- `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)\n- `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)",
       "title": "`AddressType` has to be one of:"
     },
+    "lnrpcAmount": {
+      "type": "object",
+      "properties": {
+        "sat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Value denominated in satoshis."
+        },
+        "msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Value denominated in milli-satoshis."
+        }
+      }
+    },
     "lnrpcBakeMacaroonRequest": {
       "type": "object",
       "properties": {
@@ -2813,12 +2828,36 @@
         "balance": {
           "type": "string",
           "format": "int64",
-          "title": "Sum of channels balances denominated in satoshis"
+          "title": "Deprecated. Sum of channels balances denominated in satoshis"
         },
         "pending_open_balance": {
           "type": "string",
           "format": "int64",
-          "title": "Sum of channels pending balances denominated in satoshis"
+          "title": "Deprecated. Sum of channels pending balances denominated in satoshis"
+        },
+        "local_balance": {
+          "$ref": "#/definitions/lnrpcAmount",
+          "description": "Sum of channels local balances."
+        },
+        "remote_balance": {
+          "$ref": "#/definitions/lnrpcAmount",
+          "description": "Sum of channels remote balances."
+        },
+        "unsettled_local_balance": {
+          "$ref": "#/definitions/lnrpcAmount",
+          "description": "Sum of channels local unsettled balances."
+        },
+        "unsettled_remote_balance": {
+          "$ref": "#/definitions/lnrpcAmount",
+          "description": "Sum of channels remote unsettled balances."
+        },
+        "pending_open_local_balance": {
+          "$ref": "#/definitions/lnrpcAmount",
+          "description": "Sum of channels pending local balances."
+        },
+        "pending_open_remote_balance": {
+          "$ref": "#/definitions/lnrpcAmount",
+          "description": "Sum of channels pending remote balances."
         }
       }
     },

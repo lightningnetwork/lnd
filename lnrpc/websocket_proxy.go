@@ -21,6 +21,16 @@ const (
 	// This is necessary because the WebSocket API specifies that a
 	// handshake request must always be done through a GET request.
 	MethodOverrideParam = "method"
+
+	// HeaderWebSocketProtocol is the name of the WebSocket protocol
+	// exchange header field that we use to transport additional header
+	// fields.
+	HeaderWebSocketProtocol = "Sec-Websocket-Protocol"
+
+	// WebSocketProtocolDelimiter is the delimiter we use between the
+	// additional header field and its value. We use the plus symbol because
+	// the default delimiters aren't allowed in the protocol names.
+	WebSocketProtocolDelimiter = "+"
 )
 
 var (
@@ -30,6 +40,13 @@ var (
 	defaultHeadersToForward = map[string]bool{
 		"Origin":                 true,
 		"Referer":                true,
+		"Grpc-Metadata-Macaroon": true,
+	}
+
+	// defaultProtocolsToAllow are additional header fields that we allow
+	// to be transported inside of the Sec-Websocket-Protocol field to be
+	// forwarded to the backend.
+	defaultProtocolsToAllow = map[string]bool{
 		"Grpc-Metadata-Macaroon": true,
 	}
 )
@@ -101,13 +118,13 @@ func (p *WebsocketProxy) upgradeToWebSocketProxy(w http.ResponseWriter,
 		p.logger.Errorf("WS: error preparing request:", err)
 		return
 	}
-	for header := range r.Header {
-		headerName := textproto.CanonicalMIMEHeaderKey(header)
-		forward, ok := defaultHeadersToForward[headerName]
-		if ok && forward {
-			request.Header.Set(headerName, r.Header.Get(header))
-		}
-	}
+
+	// Allow certain headers to be forwarded, either from source headers
+	// or the special Sec-Websocket-Protocol header field.
+	forwardHeaders(r.Header, request.Header)
+
+	// Also allow the target request method to be overwritten, as all
+	// WebSocket establishment calls MUST be GET requests.
 	if m := r.URL.Query().Get(MethodOverrideParam); m != "" {
 		request.Method = m
 	}
@@ -179,6 +196,38 @@ func (p *WebsocketProxy) upgradeToWebSocketProxy(w http.ResponseWriter,
 	}
 	if err := responseForwarder.Err(); err != nil && !IsClosedConnError(err) {
 		p.logger.Errorf("WS: scanner err: %v", err)
+	}
+}
+
+// forwardHeaders forwards certain allowed header fields from the source request
+// to the target request. Because browsers are limited in what header fields
+// they can send on the WebSocket setup call, we also allow additional fields to
+// be transported in the special Sec-Websocket-Protocol field.
+func forwardHeaders(source, target http.Header) {
+	// Forward allowed header fields directly.
+	for header := range source {
+		headerName := textproto.CanonicalMIMEHeaderKey(header)
+		forward, ok := defaultHeadersToForward[headerName]
+		if ok && forward {
+			target.Set(headerName, source.Get(header))
+		}
+	}
+
+	// Browser aren't allowed to set custom header fields on WebSocket
+	// requests. We need to allow them to submit the macaroon as a WS
+	// protocol, which is the only allowed header. Set any "protocols" we
+	// declare valid as header fields on the forwarded request.
+	protocol := source.Get(HeaderWebSocketProtocol)
+	for key := range defaultProtocolsToAllow {
+		if strings.HasPrefix(protocol, key) {
+			// The format is "<protocol name>+<value>". We know the
+			// protocol string starts with the name so we only need
+			// to set the value.
+			values := strings.Split(
+				protocol, WebSocketProtocolDelimiter,
+			)
+			target.Set(key, values[1])
+		}
 	}
 }
 

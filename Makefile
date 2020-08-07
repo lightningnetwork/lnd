@@ -132,6 +132,11 @@ build-itest:
 	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lnd-itest $(ITEST_LDFLAGS) $(PKG)/cmd/lnd
 	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lncli-itest $(ITEST_LDFLAGS) $(PKG)/cmd/lncli
 
+build-itest-windows:
+	@$(call print, "Building itest lnd and lncli.")
+	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lnd-itest.exe $(ITEST_LDFLAGS) $(PKG)/cmd/lnd
+	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lncli-itest.exe $(ITEST_LDFLAGS) $(PKG)/cmd/lncli
+
 install:
 	@$(call print, "Installing lnd and lncli.")
 	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)/cmd/lnd
@@ -157,6 +162,8 @@ itest-only:
 	lntest/itest/log_check_errors.sh
 
 itest: btcd build-itest itest-only
+
+itest-windows: btcd build-itest-windows itest-only
 
 unit: btcd
 	@$(call print, "Running unit tests.")

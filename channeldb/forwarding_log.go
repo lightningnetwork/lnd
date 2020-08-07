@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -104,10 +105,9 @@ func decodeForwardingEvent(r io.Reader, f *ForwardingEvent) error {
 func (f *ForwardingLog) AddForwardingEvents(events []ForwardingEvent) error {
 	// Before we create the database transaction, we'll ensure that the set
 	// of forwarding events are properly sorted according to their
-	// timestamp.
-	sort.Slice(events, func(i, j int) bool {
-		return events[i].Timestamp.Before(events[j].Timestamp)
-	})
+	// timestamp and that no duplicate timestamps exist to avoid collisions
+	// in the key we are going to store the events under.
+	makeUniqueTimestamps(events)
 
 	var timestamp [8]byte
 
@@ -124,22 +124,7 @@ func (f *ForwardingLog) AddForwardingEvents(events []ForwardingEvent) error {
 		// With the bucket obtained, we can now begin to write out the
 		// series of events.
 		for _, event := range events {
-			var eventBytes [forwardingEventSize]byte
-			eventBuf := bytes.NewBuffer(eventBytes[0:0:forwardingEventSize])
-
-			// First, we'll serialize this timestamp into our
-			// timestamp buffer.
-			byteOrder.PutUint64(
-				timestamp[:], uint64(event.Timestamp.UnixNano()),
-			)
-
-			// With the key encoded, we'll then encode the event
-			// into our buffer, then write it out to disk.
-			err := encodeForwardingEvent(eventBuf, &event)
-			if err != nil {
-				return err
-			}
-			err = logBucket.Put(timestamp[:], eventBuf.Bytes())
+			err := storeEvent(logBucket, event, timestamp[:])
 			if err != nil {
 				return err
 			}
@@ -147,6 +132,55 @@ func (f *ForwardingLog) AddForwardingEvents(events []ForwardingEvent) error {
 
 		return nil
 	})
+}
+
+// storeEvent tries to store a forwarding event into the given bucket by trying
+// to avoid collisions. If a key for the event timestamp already exists in the
+// database, the timestamp is incremented in nanosecond intervals until a "free"
+// slot is found.
+func storeEvent(bucket walletdb.ReadWriteBucket, event ForwardingEvent,
+	timestampScratchSpace []byte) error {
+
+	// First, we'll serialize this timestamp into our
+	// timestamp buffer.
+	byteOrder.PutUint64(
+		timestampScratchSpace, uint64(event.Timestamp.UnixNano()),
+	)
+
+	// Next we'll loop until we find a "free" slot in the bucket to store
+	// the event under. This should almost never happen unless we're running
+	// on a system that has a very bad system clock that doesn't properly
+	// resolve to nanosecond scale. We try up to 100 times (which would come
+	// to a maximum shift of 0.1 microsecond which is acceptable for most
+	// use cases). If we don't find a free slot, we just give up and let
+	// the collision happen. Something must be wrong with the data in that
+	// case, even on a very fast machine forwarding payments _will_ take a
+	// few microseconds at least so we should find a nanosecond slot
+	// somewhere.
+	const maxTries = 100
+	tries := 0
+	for tries < maxTries {
+		val := bucket.Get(timestampScratchSpace)
+		if val == nil {
+			break
+		}
+
+		// Collision, try the next nanosecond timestamp.
+		nextNano := event.Timestamp.UnixNano() + 1
+		event.Timestamp = time.Unix(0, nextNano)
+		byteOrder.PutUint64(timestampScratchSpace, uint64(nextNano))
+		tries++
+	}
+
+	// With the key encoded, we'll then encode the event
+	// into our buffer, then write it out to disk.
+	var eventBytes [forwardingEventSize]byte
+	eventBuf := bytes.NewBuffer(eventBytes[0:0:forwardingEventSize])
+	err := encodeForwardingEvent(eventBuf, &event)
+	if err != nil {
+		return err
+	}
+	return bucket.Put(timestampScratchSpace, eventBuf.Bytes())
 }
 
 // ForwardingEventQuery represents a query to the forwarding log payment
@@ -271,4 +305,35 @@ func (f *ForwardingLog) Query(q ForwardingEventQuery) (ForwardingLogTimeSlice, e
 	resp.LastIndexOffset = recordOffset
 
 	return resp, nil
+}
+
+// makeUniqueTimestamps takes a slice of forwarding events, sorts it by the
+// event timestamps and then makes sure there are no duplicates in the
+// timestamps. If duplicates are found, some of the timestamps are increased on
+// the nanosecond scale until only unique values remain. This is a fix to
+// address the problem that in some environments (looking at you, Windows) the
+// system clock has such a bad resolution that two serial invocations of
+// time.Now() might return the same timestamp, even if some time has elapsed
+// between the calls.
+func makeUniqueTimestamps(events []ForwardingEvent) {
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].Timestamp.Before(events[j].Timestamp)
+	})
+
+	// Now that we know the events are sorted by timestamp, we can go
+	// through the list and fix all duplicates until only unique values
+	// remain.
+	for outer := 0; outer < len(events)-1; outer++ {
+		current := events[outer].Timestamp.UnixNano()
+		next := events[outer+1].Timestamp.UnixNano()
+
+		// We initially sorted the slice. So if the current is now
+		// greater or equal to the next one, it's either because it's a
+		// duplicate or because we increased the current in the last
+		// iteration.
+		if current >= next {
+			next = current + 1
+			events[outer+1].Timestamp = time.Unix(0, next)
+		}
+	}
 }

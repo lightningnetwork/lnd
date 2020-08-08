@@ -204,7 +204,9 @@ type server struct {
 
 	fundingMgr *fundingManager
 
-	chanDB *channeldb.DB
+	localChanDB *channeldb.DB
+
+	remoteChanDB *channeldb.DB
 
 	htlcSwitch *htlcswitch.Switch
 
@@ -328,7 +330,8 @@ func noiseDial(idKey keychain.SingleKeyECDH,
 
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
-func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
+func newServer(cfg *Config, listenAddrs []net.Addr,
+	localChanDB, remoteChanDB *channeldb.DB,
 	towerClientDB *wtdb.ClientDB, cc *chainControl,
 	nodeKeyDesc *keychain.KeyDescriptor,
 	chansToRestore walletunlocker.ChannelsToRecover,
@@ -360,8 +363,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 	copy(serializedPubKey[:], nodeKeyECDH.PubKey().SerializeCompressed())
 
 	// Initialize the sphinx router, placing it's persistent replay log in
-	// the same directory as the channel graph database.
-	sharedSecretPath := filepath.Join(cfg.localDatabaseDir(), "sphinxreplay.db")
+	// the same directory as the channel graph database. We don't need to
+	// replicate this data, so we'll store it locally.
+	sharedSecretPath := filepath.Join(
+		cfg.localDatabaseDir(), defaultSphinxDbName,
+	)
 	replayLog := htlcswitch.NewDecayedLog(sharedSecretPath, cc.chainNotifier)
 	sphinxRouter := sphinx.NewRouter(
 		nodeKeyECDH, activeNetParams.Params, replayLog,
@@ -405,7 +411,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 
 	s := &server{
 		cfg:            cfg,
-		chanDB:         chanDB,
+		localChanDB:    localChanDB,
+		remoteChanDB:   remoteChanDB,
 		cc:             cc,
 		sigPool:        lnwallet.NewSigPool(cfg.Workers.Sig, cc.signer),
 		writePool:      writePool,
@@ -413,11 +420,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		chansToRestore: chansToRestore,
 
 		invoices: invoices.NewRegistry(
-			chanDB, invoices.NewInvoiceExpiryWatcher(clock.NewDefaultClock()),
+			remoteChanDB, invoices.NewInvoiceExpiryWatcher(clock.NewDefaultClock()),
 			&registryConfig,
 		),
 
-		channelNotifier: channelnotifier.New(chanDB),
+		channelNotifier: channelnotifier.New(remoteChanDB),
 
 		identityECDH: nodeKeyECDH,
 		nodeSigner:   netann.NewNodeSigner(nodeKeySigner),
@@ -449,7 +456,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 	}
 
 	s.witnessBeacon = &preimageBeacon{
-		wCache:      chanDB.NewWitnessCache(),
+		wCache:      remoteChanDB.NewWitnessCache(),
 		subscribers: make(map[uint64]*preimageSubscriber),
 	}
 
@@ -461,7 +468,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 	s.htlcNotifier = htlcswitch.NewHtlcNotifier(time.Now)
 
 	s.htlcSwitch, err = htlcswitch.New(htlcswitch.Config{
-		DB: chanDB,
+		DB: remoteChanDB,
 		LocalChannelClose: func(pubKey []byte,
 			request *htlcswitch.ChanClose) {
 
@@ -476,7 +483,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 
 			peer.HandleLocalCloseChanReqs(request)
 		},
-		FwdingLog:              chanDB.ForwardingLog(),
+		FwdingLog:              remoteChanDB.ForwardingLog(),
 		SwitchPackager:         channeldb.NewSwitchPackager(),
 		ExtractErrorEncrypter:  s.sphinx.ExtractErrorEncrypter,
 		FetchLastChannelUpdate: s.fetchLastChanUpdate(),
@@ -503,8 +510,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		MessageSigner:            s.nodeSigner,
 		IsChannelActive:          s.htlcSwitch.HasActiveLink,
 		ApplyChannelUpdate:       s.applyChannelUpdate,
-		DB:                       chanDB,
-		Graph:                    chanDB.ChannelGraph(),
+		DB:                       remoteChanDB,
+		Graph:                    localChanDB.ChannelGraph(),
 	}
 
 	chanStatusMgr, err := netann.NewChanStatusManager(chanStatusMgrCfg)
@@ -594,7 +601,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 	selfAddrs := make([]net.Addr, 0, len(externalIPs))
 	selfAddrs = append(selfAddrs, externalIPs...)
 
-	chanGraph := chanDB.ChannelGraph()
+	// As the graph can be obtained at anytime from the network, we won't
+	// replicate it, and instead it'll only be stored locally.
+	chanGraph := localChanDB.ChannelGraph()
 
 	// We'll now reconstruct a node announcement based on our current
 	// configuration so we can send it out as a sort of heart beat within
@@ -661,7 +670,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 
 	// The router will get access to the payment ID sequencer, such that it
 	// can generate unique payment IDs.
-	sequencer, err := htlcswitch.NewPersistentSequencer(chanDB)
+	sequencer, err := htlcswitch.NewPersistentSequencer(remoteChanDB)
 	if err != nil {
 		return nil, err
 	}
@@ -694,7 +703,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 	routingConfig := routerrpc.GetRoutingConfig(cfg.SubRPCServers.RouterRPC)
 
 	s.missionControl, err = routing.NewMissionControl(
-		chanDB,
+		remoteChanDB,
 		&routing.MissionControlConfig{
 			AprioriHopProbability:   routingConfig.AprioriHopProbability,
 			PenaltyHalfLife:         routingConfig.PenaltyHalfLife,
@@ -727,7 +736,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		PathFindingConfig: pathFindingConfig,
 	}
 
-	paymentControl := channeldb.NewPaymentControl(chanDB)
+	paymentControl := channeldb.NewPaymentControl(remoteChanDB)
 
 	s.controlTower = routing.NewControlTower(paymentControl)
 
@@ -751,12 +760,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		return nil, fmt.Errorf("can't create router: %v", err)
 	}
 
-	chanSeries := discovery.NewChanSeries(s.chanDB.ChannelGraph())
-	gossipMessageStore, err := discovery.NewMessageStore(s.chanDB)
+	chanSeries := discovery.NewChanSeries(s.localChanDB.ChannelGraph())
+	gossipMessageStore, err := discovery.NewMessageStore(s.remoteChanDB)
 	if err != nil {
 		return nil, err
 	}
-	waitingProofStore, err := channeldb.NewWaitingProofStore(s.chanDB)
+	waitingProofStore, err := channeldb.NewWaitingProofStore(s.remoteChanDB)
 	if err != nil {
 		return nil, err
 	}
@@ -793,10 +802,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		ForAllOutgoingChannels:    s.chanRouter.ForAllOutgoingChannels,
 		PropagateChanPolicyUpdate: s.authGossiper.PropagateChanPolicyUpdate,
 		UpdateForwardingPolicies:  s.htlcSwitch.UpdateForwardingPolicies,
-		FetchChannel:              s.chanDB.FetchChannel,
+		FetchChannel:              s.remoteChanDB.FetchChannel,
 	}
 
-	utxnStore, err := newNurseryStore(activeNetParams.GenesisHash, chanDB)
+	utxnStore, err := newNurseryStore(
+		activeNetParams.GenesisHash, remoteChanDB,
+	)
 	if err != nil {
 		srvrLog.Errorf("unable to create nursery store: %v", err)
 		return nil, err
@@ -806,7 +817,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		sweep.DefaultBatchWindowDuration)
 
 	sweeperStore, err := sweep.NewSweeperStore(
-		chanDB, activeNetParams.GenesisHash,
+		remoteChanDB, activeNetParams.GenesisHash,
 	)
 	if err != nil {
 		srvrLog.Errorf("unable to create sweeper store: %v", err)
@@ -833,8 +844,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 	s.utxoNursery = newUtxoNursery(&NurseryConfig{
 		ChainIO:             cc.chainIO,
 		ConfDepth:           1,
-		FetchClosedChannels: chanDB.FetchClosedChannels,
-		FetchClosedChannel:  chanDB.FetchClosedChannel,
+		FetchClosedChannels: remoteChanDB.FetchClosedChannels,
+		FetchClosedChannel:  remoteChanDB.FetchClosedChannel,
 		Notifier:            cc.chainNotifier,
 		PublishTransaction:  cc.wallet.PublishTransaction,
 		Store:               utxnStore,
@@ -935,18 +946,18 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		PaymentsExpirationGracePeriod: cfg.PaymentsExpirationGracePeriod,
 		IsForwardedHTLC:               s.htlcSwitch.IsForwardedHTLC,
 		Clock:                         clock.NewDefaultClock(),
-	}, chanDB)
+	}, remoteChanDB)
 
 	s.breachArbiter = newBreachArbiter(&BreachConfig{
 		CloseLink:          closeLink,
-		DB:                 chanDB,
+		DB:                 remoteChanDB,
 		Estimator:          s.cc.feeEstimator,
 		GenSweepScript:     newSweepPkScriptGen(cc.wallet),
 		Notifier:           cc.chainNotifier,
 		PublishTransaction: cc.wallet.PublishTransaction,
 		ContractBreaches:   contractBreaches,
 		Signer:             cc.wallet.Cfg.Signer,
-		Store:              newRetributionStore(chanDB),
+		Store:              newRetributionStore(remoteChanDB),
 	})
 
 	// Select the configuration and furnding parameters for Bitcoin or
@@ -997,7 +1008,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 		FindChannel: func(chanID lnwire.ChannelID) (
 			*channeldb.OpenChannel, error) {
 
-			dbChannels, err := chanDB.FetchAllChannels()
+			dbChannels, err := remoteChanDB.FetchAllChannels()
 			if err != nil {
 				return nil, err
 			}
@@ -1161,10 +1172,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 	// static backup of the latest channel state.
 	chanNotifier := &channelNotifier{
 		chanNotifier: s.channelNotifier,
-		addrs:        s.chanDB,
+		addrs:        s.remoteChanDB,
 	}
 	backupFile := chanbackup.NewMultiFile(cfg.BackupFilePath)
-	startingChans, err := chanbackup.FetchStaticChanBackups(s.chanDB)
+	startingChans, err := chanbackup.FetchStaticChanBackups(s.remoteChanDB)
 	if err != nil {
 		return nil, err
 	}
@@ -1183,7 +1194,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 	s.chanEventStore = chanfitness.NewChannelEventStore(&chanfitness.Config{
 		SubscribeChannelEvents: s.channelNotifier.SubscribeChannelEvents,
 		SubscribePeerEvents:    s.peerNotifier.SubscribePeerEvents,
-		GetOpenChannels:        s.chanDB.FetchAllOpenChannels,
+		GetOpenChannels:        s.remoteChanDB.FetchAllOpenChannels,
 	})
 
 	if cfg.WtClient.Active {
@@ -1384,7 +1395,7 @@ func (s *server) Start() error {
 		// that have all the information we need to handle channel
 		// recovery _before_ we even accept connections from any peers.
 		chanRestorer := &chanDBRestorer{
-			db:         s.chanDB,
+			db:         s.remoteChanDB,
 			secretKeys: s.cc.keyRing,
 			chainArb:   s.chainArb,
 		}
@@ -1424,7 +1435,7 @@ func (s *server) Start() error {
 		// we'll prune our set of link nodes found within the database
 		// to ensure we don't reconnect to any nodes we no longer have
 		// open channels with.
-		if err := s.chanDB.PruneLinkNodes(); err != nil {
+		if err := s.remoteChanDB.PruneLinkNodes(); err != nil {
 			startErr = err
 			return
 		}
@@ -1730,7 +1741,7 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 	// First, we'll create an instance of the ChannelGraphBootstrapper as
 	// this can be used by default if we've already partially seeded the
 	// network.
-	chanGraph := autopilot.ChannelGraphFromDatabase(s.chanDB.ChannelGraph())
+	chanGraph := autopilot.ChannelGraphFromDatabase(s.localChanDB.ChannelGraph())
 	graphBootstrapper, err := discovery.NewGraphBootstrapper(chanGraph)
 	if err != nil {
 		return nil, err
@@ -2062,7 +2073,7 @@ func (s *server) createNewHiddenService() error {
 		AuthSigBytes: newNodeAnn.Signature.ToSignatureBytes(),
 	}
 	copy(selfNode.PubKeyBytes[:], s.identityECDH.PubKey().SerializeCompressed())
-	if err := s.chanDB.ChannelGraph().SetSourceNode(selfNode); err != nil {
+	if err := s.localChanDB.ChannelGraph().SetSourceNode(selfNode); err != nil {
 		return fmt.Errorf("can't set self node: %v", err)
 	}
 
@@ -2119,7 +2130,7 @@ func (s *server) establishPersistentConnections() error {
 	// Iterate through the list of LinkNodes to find addresses we should
 	// attempt to connect to based on our set of previous connections. Set
 	// the reconnection port to the default peer port.
-	linkNodes, err := s.chanDB.FetchAllLinkNodes()
+	linkNodes, err := s.remoteChanDB.FetchAllLinkNodes()
 	if err != nil && err != channeldb.ErrLinkNodesNotFound {
 		return err
 	}
@@ -2135,7 +2146,7 @@ func (s *server) establishPersistentConnections() error {
 	// After checking our previous connections for addresses to connect to,
 	// iterate through the nodes in our channel graph to find addresses
 	// that have been added via NodeAnnouncement messages.
-	chanGraph := s.chanDB.ChannelGraph()
+	chanGraph := s.localChanDB.ChannelGraph()
 	sourceNode, err := chanGraph.SourceNode()
 	if err != nil {
 		return err
@@ -2842,7 +2853,8 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		ReadPool:                s.readPool,
 		Switch:                  s.htlcSwitch,
 		InterceptSwitch:         s.interceptableSwitch,
-		ChannelDB:               s.chanDB,
+		ChannelDB:               s.localChanDB,
+		ChannelGraph:            s.remoteChanDB.ChannelGraph(),
 		ChainArb:                s.chainArb,
 		AuthGossiper:            s.authGossiper,
 		ChanStatusMgr:           s.chanStatusMgr,
@@ -3543,7 +3555,7 @@ func (s *server) fetchNodeAdvertisedAddr(pub *btcec.PublicKey) (net.Addr, error)
 		return nil, err
 	}
 
-	node, err := s.chanDB.ChannelGraph().FetchLightningNode(nil, vertex)
+	node, err := s.localChanDB.ChannelGraph().FetchLightningNode(nil, vertex)
 	if err != nil {
 		return nil, err
 	}

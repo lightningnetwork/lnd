@@ -63,7 +63,7 @@ func TestAbortContext(t *testing.T) {
 	// Expect that the update will fail.
 	err = db.Update(func(tx walletdb.ReadWriteTx) error {
 		_, err := tx.CreateTopLevelBucket([]byte("bucket"))
-		require.NoError(t, err)
+		require.Error(t, err, "context canceled")
 
 		return nil
 	})

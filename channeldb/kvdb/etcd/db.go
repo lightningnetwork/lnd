@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	// etcdConnectionTimeout is the timeout until successful connection to the
-	// etcd instance.
+	// etcdConnectionTimeout is the timeout until successful connection to
+	// the etcd instance.
 	etcdConnectionTimeout = 10 * time.Second
 
 	// etcdLongTimeout is a timeout for longer taking etcd operatons.
@@ -34,7 +34,8 @@ type callerStats struct {
 
 func (s callerStats) String() string {
 	return fmt.Sprintf("count: %d, retries: %d, rset: %d, wset: %d",
-		s.count, s.commitStats.Retries, s.commitStats.Rset, s.commitStats.Wset)
+		s.count, s.commitStats.Retries, s.commitStats.Rset,
+		s.commitStats.Wset)
 }
 
 // commitStatsCollector collects commit stats for commits succeeding
@@ -117,6 +118,7 @@ type db struct {
 	config               BackendConfig
 	cli                  *clientv3.Client
 	commitStatsCollector *commitStatsCollector
+	txQueue              *commitQueue
 }
 
 // Enforce db implements the walletdb.DB interface.
@@ -188,8 +190,9 @@ func newEtcdBackend(config BackendConfig) (*db, error) {
 	}
 
 	backend := &db{
-		cli:    cli,
-		config: config,
+		cli:     cli,
+		config:  config,
+		txQueue: NewCommitQueue(config.Ctx),
 	}
 
 	if config.CollectCommitStats {
@@ -201,7 +204,9 @@ func newEtcdBackend(config BackendConfig) (*db, error) {
 
 // getSTMOptions creats all STM options based on the backend config.
 func (db *db) getSTMOptions() []STMOptionFunc {
-	opts := []STMOptionFunc{WithAbortContext(db.config.Ctx)}
+	opts := []STMOptionFunc{
+		WithAbortContext(db.config.Ctx),
+	}
 
 	if db.config.CollectCommitStats {
 		opts = append(opts,
@@ -221,7 +226,7 @@ func (db *db) View(f func(tx walletdb.ReadTx) error) error {
 		return f(newReadWriteTx(stm, db.config.Prefix))
 	}
 
-	return RunSTM(db.cli, apply, db.getSTMOptions()...)
+	return RunSTM(db.cli, apply, db.txQueue, db.getSTMOptions()...)
 }
 
 // Update opens a database read/write transaction and executes the function f
@@ -235,7 +240,7 @@ func (db *db) Update(f func(tx walletdb.ReadWriteTx) error) error {
 		return f(newReadWriteTx(stm, db.config.Prefix))
 	}
 
-	return RunSTM(db.cli, apply, db.getSTMOptions()...)
+	return RunSTM(db.cli, apply, db.txQueue, db.getSTMOptions()...)
 }
 
 // PrintStats returns all collected stats pretty printed into a string.
@@ -247,18 +252,18 @@ func (db *db) PrintStats() string {
 	return ""
 }
 
-// BeginReadTx opens a database read transaction.
+// BeginReadWriteTx opens a database read+write transaction.
 func (db *db) BeginReadWriteTx() (walletdb.ReadWriteTx, error) {
 	return newReadWriteTx(
-		NewSTM(db.cli, db.getSTMOptions()...),
+		NewSTM(db.cli, db.txQueue, db.getSTMOptions()...),
 		db.config.Prefix,
 	), nil
 }
 
-// BeginReadWriteTx opens a database read+write transaction.
+// BeginReadTx opens a database read transaction.
 func (db *db) BeginReadTx() (walletdb.ReadTx, error) {
 	return newReadWriteTx(
-		NewSTM(db.cli, db.getSTMOptions()...),
+		NewSTM(db.cli, db.txQueue, db.getSTMOptions()...),
 		db.config.Prefix,
 	), nil
 }

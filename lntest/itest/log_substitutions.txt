@@ -18,3 +18,4 @@ s/sync failed: remote believes our tail height is [[:digit:]]+, while we have [[
 s/sync failed: remote's next commit height is [[:digit:]]+, while we believe it is [[:digit:]]+/sync failed: remote's next commit height is <height>, while we believe it is <height>/g
 s/replacement transaction <hex> has an insufficient absolute fee: needs [[:digit:]]+, has [[:digit:]]+/replacement transaction <hex> has an insufficient absolute fee: needs <amt>, has <amt>/g
 s/Rescan for [[:digit:]]+ addresses/Rescan for <num> addresses/g
+s/unable to get hash from block with height [[:digit:]]+/unable to get hash from block with height <height>/g

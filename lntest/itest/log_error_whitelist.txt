@@ -202,3 +202,8 @@
 <time> [ERR] FNDG: received funding error from <hex>: chan_id=<hex>, err=channel too large
 <time> [ERR] RPCS: [/lnrpc.Lightning/OpenChannel]: received funding error from <hex>: chan_id=<hex>, err=channel too large
 <time> [ERR] RPCS: unable to open channel to NodeKey(<hex>): received funding error from <hex>: chan_id=<hex>, err=channel too large
+<time> [ERR] NTNF: unable to get hash from block with height <height>
+<time> [ERR] FNDG: Unable to add new channel <chan_point> with peer <hex>: canceled adding new channel
+<time> [ERR] RPCS: WS: error closing upgraded conn: write tcp4 <ip>-><ip>: write: connection reset by peer
+<time> [ERR] NTFN: chain notifier shutting down
+<time> [ERR] NTFN: Failed getting UTXO: get utxo request cancelled

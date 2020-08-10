@@ -254,113 +254,14 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 			return nil, nil, fmt.Errorf("could not fetch all channels")
 		}
 
-		graph := cfg.ChanDB.ChannelGraph()
+		// We'll restrict the number of individual route hints
+		// to 20 to avoid creating overly large invoices.
+		const numMaxHophints = 20
+		hopHints := selectHopHints(
+			amtMSat, cfg, openChannels, numMaxHophints,
+		)
 
-		numHints := 0
-		for _, channel := range openChannels {
-			// We'll restrict the number of individual route hints
-			// to 20 to avoid creating overly large invoices.
-			if numHints >= 20 {
-				break
-			}
-
-			// Since we're only interested in our private channels,
-			// we'll skip public ones.
-			isPublic := channel.ChannelFlags&lnwire.FFAnnounceChannel != 0
-			if isPublic {
-				continue
-			}
-
-			// Make sure the counterparty has enough balance in the
-			// channel for our amount. We do this in order to reduce
-			// payment errors when attempting to use this channel
-			// as a hint.
-			chanPoint := lnwire.NewChanIDFromOutPoint(
-				&channel.FundingOutpoint,
-			)
-			if amtMSat >= channel.LocalCommitment.RemoteBalance {
-				log.Debugf("Skipping channel %v due to "+
-					"not having enough remote balance",
-					chanPoint)
-				continue
-			}
-
-			// Make sure the channel is active.
-			if !cfg.IsChannelActive(chanPoint) {
-				log.Debugf("Skipping channel %v due to not "+
-					"being eligible to forward payments",
-					chanPoint)
-				continue
-			}
-
-			// To ensure we don't leak unadvertised nodes, we'll
-			// make sure our counterparty is publicly advertised
-			// within the network. Otherwise, we'll end up leaking
-			// information about nodes that intend to stay
-			// unadvertised, like in the case of a node only having
-			// private channels.
-			var remotePub [33]byte
-			copy(remotePub[:], channel.IdentityPub.SerializeCompressed())
-			isRemoteNodePublic, err := graph.IsPublicNode(remotePub)
-			if err != nil {
-				log.Errorf("Unable to determine if node %x "+
-					"is advertised: %v", remotePub, err)
-				continue
-			}
-
-			if !isRemoteNodePublic {
-				log.Debugf("Skipping channel %v due to "+
-					"counterparty %x being unadvertised",
-					chanPoint, remotePub)
-				continue
-			}
-
-			// Fetch the policies for each end of the channel.
-			chanID := channel.ShortChanID().ToUint64()
-			info, p1, p2, err := graph.FetchChannelEdgesByID(chanID)
-			if err != nil {
-				log.Errorf("Unable to fetch the routing "+
-					"policies for the edges of the channel "+
-					"%v: %v", chanPoint, err)
-				continue
-			}
-
-			// Now, we'll need to determine which is the correct
-			// policy for HTLCs being sent from the remote node.
-			var remotePolicy *channeldb.ChannelEdgePolicy
-			if bytes.Equal(remotePub[:], info.NodeKey1Bytes[:]) {
-				remotePolicy = p1
-			} else {
-				remotePolicy = p2
-			}
-
-			// If for some reason we don't yet have the edge for
-			// the remote party, then we'll just skip adding this
-			// channel as a routing hint.
-			if remotePolicy == nil {
-				continue
-			}
-
-			// Finally, create the routing hint for this channel and
-			// add it to our list of route hints.
-			hint := zpay32.HopHint{
-				NodeID:      channel.IdentityPub,
-				ChannelID:   chanID,
-				FeeBaseMSat: uint32(remotePolicy.FeeBaseMSat),
-				FeeProportionalMillionths: uint32(
-					remotePolicy.FeeProportionalMillionths,
-				),
-				CLTVExpiryDelta: remotePolicy.TimeLockDelta,
-			}
-
-			// Include the route hint in our set of options that
-			// will be used when creating the invoice.
-			routeHint := []zpay32.HopHint{hint}
-			options = append(options, zpay32.RouteHint(routeHint))
-
-			numHints++
-		}
-
+		options = append(options, hopHints...)
 	}
 
 	// Set our desired invoice features and add them to our list of options.
@@ -422,4 +323,120 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	}
 
 	return &paymentHash, newInvoice, nil
+}
+
+// selectHopHints will selects up to numMaxHophints from the set of passed open
+// channels. The set of hop hints will be returned as a slice of functional
+// options that'll append the route hint to the set of all route hints.
+func selectHopHints(amtMSat lnwire.MilliSatoshi, cfg *AddInvoiceConfig,
+	openChannels []*channeldb.OpenChannel,
+	numMaxHophints int) []func(*zpay32.Invoice) {
+
+	graph := cfg.ChanDB.ChannelGraph()
+
+	numHints := 0
+	hopHints := make([]func(*zpay32.Invoice), 0, numMaxHophints)
+	for _, channel := range openChannels {
+		if numHints >= numMaxHophints {
+			break
+		}
+
+		// Since we're only interested in our private channels, we'll
+		// skip public ones.
+		isPublic := channel.ChannelFlags&lnwire.FFAnnounceChannel != 0
+		if isPublic {
+			continue
+		}
+
+		// Make sure the counterparty has enough balance in the channel
+		// for our amount. We do this in order to reduce payment errors
+		// when attempting to use this channel as a hint.
+		chanPoint := lnwire.NewChanIDFromOutPoint(
+			&channel.FundingOutpoint,
+		)
+		if amtMSat >= channel.LocalCommitment.RemoteBalance {
+			log.Debugf("Skipping channel %v due to "+
+				"not having enough remote balance",
+				chanPoint)
+			continue
+		}
+
+		// Make sure the channel is active.
+		if !cfg.IsChannelActive(chanPoint) {
+			log.Debugf("Skipping channel %v due to not "+
+				"being eligible to forward payments",
+				chanPoint)
+			continue
+		}
+
+		// To ensure we don't leak unadvertised nodes, we'll make sure
+		// our counterparty is publicly advertised within the network.
+		// Otherwise, we'll end up leaking information about nodes that
+		// intend to stay unadvertised, like in the case of a node only
+		// having private channels.
+		var remotePub [33]byte
+		copy(remotePub[:], channel.IdentityPub.SerializeCompressed())
+		isRemoteNodePublic, err := graph.IsPublicNode(remotePub)
+		if err != nil {
+			log.Errorf("Unable to determine if node %x "+
+				"is advertised: %v", remotePub, err)
+			continue
+		}
+
+		if !isRemoteNodePublic {
+			log.Debugf("Skipping channel %v due to "+
+				"counterparty %x being unadvertised",
+				chanPoint, remotePub)
+			continue
+		}
+
+		// Fetch the policies for each end of the channel.
+		chanID := channel.ShortChanID().ToUint64()
+		info, p1, p2, err := graph.FetchChannelEdgesByID(chanID)
+		if err != nil {
+			log.Errorf("Unable to fetch the routing "+
+				"policies for the edges of the channel "+
+				"%v: %v", chanPoint, err)
+			continue
+		}
+
+		// Now, we'll need to determine which is the correct policy for
+		// HTLCs being sent from the remote node.
+		var remotePolicy *channeldb.ChannelEdgePolicy
+		if bytes.Equal(remotePub[:], info.NodeKey1Bytes[:]) {
+			remotePolicy = p1
+		} else {
+			remotePolicy = p2
+		}
+
+		// If for some reason we don't yet have the edge for the remote
+		// party, then we'll just skip adding this channel as a routing
+		// hint.
+		if remotePolicy == nil {
+			continue
+		}
+
+		// Finally, create the routing hint for this channel and add it
+		// to our list of route hints.
+		hint := zpay32.HopHint{
+			NodeID:      channel.IdentityPub,
+			ChannelID:   chanID,
+			FeeBaseMSat: uint32(remotePolicy.FeeBaseMSat),
+			FeeProportionalMillionths: uint32(
+				remotePolicy.FeeProportionalMillionths,
+			),
+			CLTVExpiryDelta: remotePolicy.TimeLockDelta,
+		}
+
+		// Include the route hint in our set of options that will be
+		// used when creating the invoice.
+		hopHints = append(
+			hopHints,
+			zpay32.RouteHint([]zpay32.HopHint{hint}),
+		)
+
+		numHints++
+	}
+
+	return hopHints
 }

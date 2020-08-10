@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 
@@ -394,7 +395,7 @@ func chanCanBeHopHint(channel *channeldb.OpenChannel,
 
 // addHopHint creates a hop hint out of the passed channel and channel policy.
 // The new hop hint is appended to the passed slice.
-func addHopHint(hopHints []func(*zpay32.Invoice),
+func addHopHint(hopHints *[]func(*zpay32.Invoice),
 	channel *channeldb.OpenChannel, chanPolicy *channeldb.ChannelEdgePolicy) {
 
 	hopHint := zpay32.HopHint{
@@ -406,28 +407,80 @@ func addHopHint(hopHints []func(*zpay32.Invoice),
 		),
 		CLTVExpiryDelta: chanPolicy.TimeLockDelta,
 	}
-	hopHints = append(
-		hopHints, zpay32.RouteHint([]zpay32.HopHint{hopHint}),
+	*hopHints = append(
+		*hopHints, zpay32.RouteHint([]zpay32.HopHint{hopHint}),
 	)
 }
 
-// selectHopHints will selects up to numMaxHophints from the set of passed open
+// selectHopHints will select up to numMaxHophints from the set of passed open
 // channels. The set of hop hints will be returned as a slice of functional
 // options that'll append the route hint to the set of all route hints.
+//
+// TODO(roasbeef): do proper sub-set sum max hints usually << numChans
 func selectHopHints(amtMSat lnwire.MilliSatoshi, cfg *AddInvoiceConfig,
 	openChannels []*channeldb.OpenChannel,
 	numMaxHophints int) []func(*zpay32.Invoice) {
 
 	graph := cfg.ChanDB.ChannelGraph()
 
-	numHints := 0
+	// We'll add our hop hints in two passes, first we'll add all channels
+	// that are eligible to be hop hints, and also have a local balance
+	// above the payment amount.
+	var totalHintBandwidth lnwire.MilliSatoshi
+	hopHintChans := make(map[wire.OutPoint]struct{})
 	hopHints := make([]func(*zpay32.Invoice), 0, numMaxHophints)
 	for _, channel := range openChannels {
-		if numHints >= numMaxHophints {
+		// If this channel can't be a hop hint, then skip it.
+		edgePolicy, canBeHopHint := chanCanBeHopHint(
+			channel, graph, cfg,
+		)
+		if edgePolicy == nil || !canBeHopHint {
+			continue
+		}
+
+		// Similarly, in this first pass, we'll ignore all channels in
+		// isolation can't satisfy this payment.
+		if channel.LocalCommitment.RemoteBalance < amtMSat {
+			continue
+		}
+
+		// Now that we now this channel use usable, add it as a hop
+		// hint and the indexes we'll use later.
+		addHopHint(&hopHints, channel, edgePolicy)
+
+		hopHintChans[channel.FundingOutpoint] = struct{}{}
+		totalHintBandwidth += channel.LocalCommitment.RemoteBalance
+	}
+
+	// If we have enough hop hints at this point, then we'll exit early.
+	// Otherwise, we'll continue to add more that may help out mpp users.
+	if len(hopHints) >= numMaxHophints {
+		return hopHints
+	}
+
+	// In this second pass we'll add channels, and we'll either stop when
+	// we have 20 hop hints, we've run through all the available channels,
+	// or if the sum of available bandwidth in the routing hints exceeds 2x
+	// the payment amount. We do 2x here to account for a margin of error
+	// if some of the selected channels no longer become operable.
+	hopHintFactor := lnwire.MilliSatoshi(2)
+	for i := 0; i < len(openChannels); i++ {
+		// If we hit either of our early termination conditions, then
+		// we'll break the loop here.
+		if totalHintBandwidth > amtMSat*hopHintFactor ||
+			len(hopHints) >= numMaxHophints {
+
 			break
 		}
 
-		// If the channel can't a hop hint, then we'll skip it.
+		channel := openChannels[i]
+
+		// Skip the channel if we already selected it.
+		if _, ok := hopHintChans[channel.FundingOutpoint]; ok {
+			continue
+		}
+
+		// If the channel can't be a hop hint, then we'll skip it.
 		// Otherwise, we'll use the policy information to populate the
 		// hop hint.
 		remotePolicy, canBeHopHint := chanCanBeHopHint(
@@ -439,9 +492,13 @@ func selectHopHints(amtMSat lnwire.MilliSatoshi, cfg *AddInvoiceConfig,
 
 		// Include the route hint in our set of options that will be
 		// used when creating the invoice.
-		addHopHint(hopHints, channel, remotePolicy)
+		addHopHint(&hopHints, channel, remotePolicy)
 
-		numHints++
+		// As we've just added a new hop hint, we'll accumulate it's
+		// available balance now to update our tally.
+		//
+		// TODO(roasbeef): have a cut off based on min bandwidth?
+		totalHintBandwidth += channel.LocalCommitment.RemoteBalance
 	}
 
 	return hopHints

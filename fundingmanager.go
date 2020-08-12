@@ -124,6 +124,7 @@ type reservationWithCtx struct {
 	remoteCsvDelay uint16
 	remoteMinHtlc  lnwire.MilliSatoshi
 	remoteMaxValue lnwire.MilliSatoshi
+	remoteMaxHtlcs uint16
 
 	updateMtx   sync.RWMutex
 	lastUpdated time.Time
@@ -1411,6 +1412,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		remoteCsvDelay: remoteCsvDelay,
 		remoteMinHtlc:  minHtlc,
 		remoteMaxValue: remoteMaxValue,
+		remoteMaxHtlcs: maxHtlcs,
 		err:            make(chan error, 1),
 		peer:           fmsg.peer,
 	}
@@ -1560,7 +1562,6 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	// here so we can properly commit their accepted constraints to the
 	// reservation.
 	chanReserve := f.cfg.RequiredRemoteChanReserve(resCtx.chanAmt, msg.DustLimit)
-	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(resCtx.chanAmt)
 
 	// The remote node has responded with their portion of the channel
 	// contribution. At this point, we can process their contribution which
@@ -1574,7 +1575,7 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 				MaxPendingAmount: resCtx.remoteMaxValue,
 				ChanReserve:      chanReserve,
 				MinHTLC:          resCtx.remoteMinHtlc,
-				MaxAcceptedHtlcs: maxHtlcs,
+				MaxAcceptedHtlcs: resCtx.remoteMaxHtlcs,
 				CsvDelay:         resCtx.remoteCsvDelay,
 			},
 			MultiSigKey: keychain.KeyDescriptor{
@@ -3267,6 +3268,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		remoteCsvDelay: remoteCsvDelay,
 		remoteMinHtlc:  minHtlcIn,
 		remoteMaxValue: maxValue,
+		remoteMaxHtlcs: maxHtlcs,
 		reservation:    reservation,
 		peer:           msg.peer,
 		updates:        msg.updates,

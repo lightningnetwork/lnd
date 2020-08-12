@@ -8,6 +8,8 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/stretchr/testify/require"
 )
 
 // testChannelBackupRestore tests that we're able to recover from, and initiate
@@ -932,11 +935,14 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 		t.Fatalf("unable to prep node restoration: %v", err)
 	}
 
-	// TODO(roasbeef): assert recovery state in channel
-
 	// Now that we're able to make our restored now, we'll shutdown the old
 	// Dave node as we'll be storing it shortly below.
 	shutdownAndAssert(net, t, dave)
+
+	// To make sure the channel state is advanced correctly if the channel
+	// peer is not online at first, we also shutdown Carol.
+	restartCarol, err := net.SuspendNode(carol)
+	require.NoError(t.t, err)
 
 	// Next, we'll make a new Dave and start the bulk of our recovery
 	// workflow.
@@ -965,6 +971,49 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	if err != nil {
 		t.Fatalf("On-chain balance not restored: %v", err)
 	}
+
+	// We now check that the restored channel is in the proper state. It
+	// should not yet be force closing as no connection with the remote
+	// peer was established yet. We should also not be able to close the
+	// channel.
+	assertNumPendingChannels(t, dave, 1, 0)
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	pendingChanResp, err := dave.PendingChannels(
+		ctxt, &lnrpc.PendingChannelsRequest{},
+	)
+	require.NoError(t.t, err)
+
+	// We also want to make sure we cannot force close in this state. That
+	// would get the state machine in a weird state.
+	chanPointParts := strings.Split(
+		pendingChanResp.WaitingCloseChannels[0].Channel.ChannelPoint,
+		":",
+	)
+	chanPointIndex, _ := strconv.ParseUint(chanPointParts[1], 10, 32)
+	resp, err := dave.CloseChannel(ctxt, &lnrpc.CloseChannelRequest{
+		ChannelPoint: &lnrpc.ChannelPoint{
+			FundingTxid: &lnrpc.ChannelPoint_FundingTxidStr{
+				FundingTxidStr: chanPointParts[0],
+			},
+			OutputIndex: uint32(chanPointIndex),
+		},
+		Force: true,
+	})
+
+	// We don't get an error directly but only when reading the first
+	// message of the stream.
+	require.NoError(t.t, err)
+	_, err = resp.Recv()
+	require.Error(t.t, err)
+	require.Contains(t.t, err.Error(), "cannot close channel with state: ")
+	require.Contains(t.t, err.Error(), "ChanStatusRestored")
+
+	// Now that we have ensured that the channels restored by the backup are
+	// in the correct state even without the remote peer telling us so,
+	// let's start up Carol again.
+	err = restartCarol()
+	require.NoError(t.t, err)
 
 	// Now that we have our new node up, we expect that it'll re-connect to
 	// Carol automatically based on the restored backup.

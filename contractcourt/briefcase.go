@@ -727,7 +727,7 @@ func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 			numOutgoing uint32
 		)
 
-		// Next, we'll read out he incoming and outgoing HTLC
+		// Next, we'll read out the incoming and outgoing HTLC
 		// resolutions.
 		err = binary.Read(resReader, endian, &numIncoming)
 		if err != nil {

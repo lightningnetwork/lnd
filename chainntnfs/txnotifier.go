@@ -262,7 +262,7 @@ type HistoricalConfDispatch struct {
 	// inclusion of within the chain.
 	ConfRequest
 
-	// StartHeight specifies the block height at which to being the
+	// StartHeight specifies the block height at which to begin the
 	// historical rescan.
 	StartHeight uint32
 

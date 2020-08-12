@@ -2072,6 +2072,19 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		return err
 	}
 
+	// We can't coop or force close restored channels or channels that have
+	// experienced local data loss. Normally we would detect this in the
+	// channel arbitrator if the channel has the status
+	// ChanStatusLocalDataLoss after connecting to its peer. But if no
+	// connection can be established, the channel arbitrator doesn't know it
+	// can't be force closed yet.
+	if channel.HasChanStatus(channeldb.ChanStatusRestored) ||
+		channel.HasChanStatus(channeldb.ChanStatusLocalDataLoss) {
+
+		return fmt.Errorf("cannot close channel with state: %v",
+			channel.ChanStatus())
+	}
+
 	// Retrieve the best height of the chain, which we'll use to complete
 	// either closing flow.
 	_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()

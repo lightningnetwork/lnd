@@ -255,14 +255,16 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 			return nil, nil, fmt.Errorf("could not fetch all channels")
 		}
 
-		// We'll restrict the number of individual route hints
-		// to 20 to avoid creating overly large invoices.
-		const numMaxHophints = 20
-		hopHints := selectHopHints(
-			amtMSat, cfg, openChannels, numMaxHophints,
-		)
+		if len(openChannels) > 0 {
+			// We'll restrict the number of individual route hints
+			// to 20 to avoid creating overly large invoices.
+			const numMaxHophints = 20
+			hopHints := selectHopHints(
+				amtMSat, cfg, openChannels, numMaxHophints,
+			)
 
-		options = append(options, hopHints...)
+			options = append(options, hopHints...)
+		}
 	}
 
 	// Set our desired invoice features and add them to our list of options.

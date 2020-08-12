@@ -4786,14 +4786,21 @@ func assertChannelConstraintsEqual(
 func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
+	const aliceRemoteMaxHtlcs = 50
+	const bobRemoteMaxHtlcs = 100
+
 	// Create two fresh nodes and open a channel between them.
-	alice, err := net.NewNode("Alice", nil)
+	alice, err := net.NewNode("Alice", []string{
+		fmt.Sprintf("--default-remote-max-htlcs=%v", aliceRemoteMaxHtlcs),
+	})
 	if err != nil {
 		t.Fatalf("unable to create new node: %v", err)
 	}
 	defer shutdownAndAssert(net, t, alice)
 
-	bob, err := net.NewNode("Bob", nil)
+	bob, err := net.NewNode("Bob", []string{
+		fmt.Sprintf("--default-remote-max-htlcs=%v", bobRemoteMaxHtlcs),
+	})
 	if err != nil {
 		t.Fatalf("unable to create new node: %v", err)
 	}
@@ -4869,7 +4876,7 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 		DustLimitSat:      uint64(lnwallet.DefaultDustLimit()),
 		MaxPendingAmtMsat: 99000000,
 		MinHtlcMsat:       1,
-		MaxAcceptedHtlcs:  input.MaxHTLCNumber / 2,
+		MaxAcceptedHtlcs:  bobRemoteMaxHtlcs,
 	}
 	assertChannelConstraintsEqual(
 		t, defaultConstraints, aliceChannel.LocalConstraints,
@@ -4885,7 +4892,7 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 		DustLimitSat:      uint64(lnwallet.DefaultDustLimit()),
 		MaxPendingAmtMsat: 99000000,
 		MinHtlcMsat:       customizedMinHtlc,
-		MaxAcceptedHtlcs:  input.MaxHTLCNumber / 2,
+		MaxAcceptedHtlcs:  aliceRemoteMaxHtlcs,
 	}
 	assertChannelConstraintsEqual(
 		t, customizedConstraints, aliceChannel.RemoteConstraints,
@@ -14386,7 +14393,10 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// initialization of the network. args - list of lnd arguments,
 	// example: "--debuglevel=debug"
 	// TODO(roasbeef): create master balanced channel with all the monies?
-	if err = lndHarness.SetUp(nil); err != nil {
+	aliceBobArgs := []string{
+		"--default-remote-max-htlcs=483",
+	}
+	if err = lndHarness.SetUp(aliceBobArgs); err != nil {
 		ht.Fatalf("unable to set up test lightning network: %v", err)
 	}
 

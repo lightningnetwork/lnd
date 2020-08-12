@@ -855,6 +855,11 @@ type OpenChannelParams struct {
 	// MinHtlc is the htlc_minimum_msat value set when opening the channel.
 	MinHtlc lnwire.MilliSatoshi
 
+	// RemoteMaxHtlcs is the remote_max_htlcs value set when opening the
+	// channel, restricting the number of concurrent HTLCs the remote party
+	// can add to a commitment.
+	RemoteMaxHtlcs uint16
+
 	// FundingShim is an optional funding shim that the caller can specify
 	// in order to modify the channel funding workflow.
 	FundingShim *lnrpc.FundingShim
@@ -893,6 +898,7 @@ func (n *NetworkHarness) OpenChannel(ctx context.Context,
 		MinConfs:           minConfs,
 		SpendUnconfirmed:   p.SpendUnconfirmed,
 		MinHtlcMsat:        int64(p.MinHtlc),
+		RemoteMaxHtlcs:     uint32(p.RemoteMaxHtlcs),
 		FundingShim:        p.FundingShim,
 	}
 

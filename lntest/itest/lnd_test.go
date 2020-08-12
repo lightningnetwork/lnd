@@ -4848,9 +4848,7 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	const bobRemoteMaxHtlcs = 100
 
 	// Create two fresh nodes and open a channel between them.
-	alice, err := net.NewNode("Alice", []string{
-		fmt.Sprintf("--default-remote-max-htlcs=%v", aliceRemoteMaxHtlcs),
-	})
+	alice, err := net.NewNode("Alice", nil)
 	if err != nil {
 		t.Fatalf("unable to create new node: %v", err)
 	}
@@ -4887,8 +4885,9 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	chanPoint := openChannelAndAssert(
 		ctxt, t, net, alice, bob,
 		lntest.OpenChannelParams{
-			Amt:     chanAmt,
-			MinHtlc: customizedMinHtlc,
+			Amt:            chanAmt,
+			MinHtlc:        customizedMinHtlc,
+			RemoteMaxHtlcs: aliceRemoteMaxHtlcs,
 		},
 	)
 

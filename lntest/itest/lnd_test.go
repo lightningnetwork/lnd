@@ -4798,6 +4798,8 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 func assertChannelConstraintsEqual(
 	t *harnessTest, want, got *lnrpc.ChannelConstraints) {
 
+	t.t.Helper()
+
 	if want.CsvDelay != got.CsvDelay {
 		t.Fatalf("CsvDelay mismatched, want: %v, got: %v",
 			want.CsvDelay, got.CsvDelay,

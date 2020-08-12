@@ -874,7 +874,7 @@ func (n *NetworkHarness) OpenChannel(ctx context.Context,
 	// prevents any funding workflows from being kicked off if the chain
 	// isn't yet synced.
 	if err := srcNode.WaitForBlockchainSync(ctx); err != nil {
-		return nil, fmt.Errorf("enable to sync srcNode chain: %v", err)
+		return nil, fmt.Errorf("unable to sync srcNode chain: %v", err)
 	}
 	if err := destNode.WaitForBlockchainSync(ctx); err != nil {
 		return nil, fmt.Errorf("unable to sync destNode chain: %v", err)

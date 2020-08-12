@@ -1685,6 +1685,12 @@ message OpenChannelRequest {
     the channel. It only applies to the remote party.
     */
     uint64 remote_max_value_in_flight_msat = 15;
+
+    /*
+    The maximum number of concurrent HTLCs we will allow the remote party to add
+    to the commitment transaction.
+    */
+    uint32 remote_max_htlcs = 16;
 }
 message OpenStatusUpdate {
     oneof update {

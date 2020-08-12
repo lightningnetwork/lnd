@@ -4494,6 +4494,11 @@
           "type": "string",
           "format": "uint64",
           "description": "The maximum amount of coins in millisatoshi that can be pending within\nthe channel. It only applies to the remote party."
+        },
+        "remote_max_htlcs": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The maximum number of concurrent HTLCs we will allow the remote party to add\nto the commitment transaction."
         }
       }
     },

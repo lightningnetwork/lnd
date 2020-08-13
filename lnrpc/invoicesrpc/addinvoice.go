@@ -392,6 +392,25 @@ func chanCanBeHopHint(channel *channeldb.OpenChannel,
 	return remotePolicy, true
 }
 
+// addHopHint creates a hop hint out of the passed channel and channel policy.
+// The new hop hint is appended to the passed slice.
+func addHopHint(hopHints []func(*zpay32.Invoice),
+	channel *channeldb.OpenChannel, chanPolicy *channeldb.ChannelEdgePolicy) {
+
+	hopHint := zpay32.HopHint{
+		NodeID:      channel.IdentityPub,
+		ChannelID:   channel.ShortChanID().ToUint64(),
+		FeeBaseMSat: uint32(chanPolicy.FeeBaseMSat),
+		FeeProportionalMillionths: uint32(
+			chanPolicy.FeeProportionalMillionths,
+		),
+		CLTVExpiryDelta: chanPolicy.TimeLockDelta,
+	}
+	hopHints = append(
+		hopHints, zpay32.RouteHint([]zpay32.HopHint{hopHint}),
+	)
+}
+
 // selectHopHints will selects up to numMaxHophints from the set of passed open
 // channels. The set of hop hints will be returned as a slice of functional
 // options that'll append the route hint to the set of all route hints.
@@ -408,42 +427,19 @@ func selectHopHints(amtMSat lnwire.MilliSatoshi, cfg *AddInvoiceConfig,
 			break
 		}
 
-		// If the channel can'tbe a hop hint, then we'll skip it.
+		// If the channel can't a hop hint, then we'll skip it.
 		// Otherwise, we'll use the policy information to populate the
 		// hop hint.
 		remotePolicy, canBeHopHint := chanCanBeHopHint(
 			channel, graph, cfg,
 		)
-		if !canBeHopHint {
+		if !canBeHopHint || remotePolicy == nil {
 			continue
-		}
-
-		// If for some reason we don't yet have the edge for the remote
-		// party, then we'll just skip adding this channel as a routing
-		// hint.
-		if remotePolicy == nil {
-			continue
-		}
-
-		// Finally, create the routing hint for this channel and add it
-		// to our list of route hints.
-		chanID := channel.ShortChanID().ToUint64()
-		hint := zpay32.HopHint{
-			NodeID:      channel.IdentityPub,
-			ChannelID:   chanID,
-			FeeBaseMSat: uint32(remotePolicy.FeeBaseMSat),
-			FeeProportionalMillionths: uint32(
-				remotePolicy.FeeProportionalMillionths,
-			),
-			CLTVExpiryDelta: remotePolicy.TimeLockDelta,
 		}
 
 		// Include the route hint in our set of options that will be
 		// used when creating the invoice.
-		hopHints = append(
-			hopHints,
-			zpay32.RouteHint([]zpay32.HopHint{hint}),
-		)
+		addHopHint(hopHints, channel, remotePolicy)
 
 		numHints++
 	}

@@ -37,8 +37,8 @@ github.com/btcsuite/btcutil v1.0.2 h1:9iZ1Terx9fMIOtq1VrwdqfsATL9MC2l8ZrUY6YZ2ut
 github.com/btcsuite/btcutil v1.0.2/go.mod h1:j9HUFwoQRsZL3V4n+qG+CUnEGHOarIxfC3Le2Yhbcts=
 github.com/btcsuite/btcutil/psbt v1.0.2 h1:gCVY3KxdoEVU7Q6TjusPO+GANIwVgr9yTLqM+a6CZr8=
 github.com/btcsuite/btcutil/psbt v1.0.2/go.mod h1:LVveMu4VaNSkIRTZu2+ut0HDBRuYjqGocxDMNS1KuGQ=
-github.com/btcsuite/btcwallet v0.11.1-0.20200612012534-48addcd5591a h1:AZ1Mf0gd9mgJqrTTIFUc17ep9EKUbQusVAIzJ6X+x3Q=
-github.com/btcsuite/btcwallet v0.11.1-0.20200612012534-48addcd5591a/go.mod h1:9+AH3V5mcTtNXTKe+fe63fDLKGOwQbZqmvOVUef+JFE=
+github.com/btcsuite/btcwallet v0.11.1-0.20200813190807-eb8bb02086b9 h1:djRqMxT/sVwdRL+DAsBBJC9SmReszEzg/3h5jkoZa1o=
+github.com/btcsuite/btcwallet v0.11.1-0.20200813190807-eb8bb02086b9/go.mod h1:YkEbJaCyN6yncq5gEp2xG0OKDwus2QxGCEXTNF27w5I=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.0.0 h1:KGHMW5sd7yDdDMkCZ/JpP0KltolFsQcB973brBnfj4c=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.0.0/go.mod h1:VufDts7bd/zs3GV13f/lXc/0lXrPnvxD/NvmpG/FEKU=
 github.com/btcsuite/btcwallet/wallet/txrules v1.0.0 h1:2VsfS0sBedcM5KmDzRMT3+b6xobqWveZGvjb+jFez5w=
@@ -47,8 +47,6 @@ github.com/btcsuite/btcwallet/wallet/txsizes v1.0.0 h1:6DxkcoMnCPY4E9cUDPB5tbuuf
 github.com/btcsuite/btcwallet/wallet/txsizes v1.0.0/go.mod h1:pauEU8UuMFiThe5PB3EO+gO5kx87Me5NvdQDsTuq6cs=
 github.com/btcsuite/btcwallet/walletdb v1.0.0/go.mod h1:bZTy9RyYZh9fLnSua+/CD48TJtYJSHjjYcSaszuxCCk=
 github.com/btcsuite/btcwallet/walletdb v1.2.0/go.mod h1:9cwc1Yyg4uvd4ZdfdoMnALji+V9gfWSMfxEdLdR5Vwc=
-github.com/btcsuite/btcwallet/walletdb v1.3.1 h1:lW1Ac3F1jJY4K11P+YQtRNcP5jFk27ASfrV7C6mvRU0=
-github.com/btcsuite/btcwallet/walletdb v1.3.1/go.mod h1:9cwc1Yyg4uvd4ZdfdoMnALji+V9gfWSMfxEdLdR5Vwc=
 github.com/btcsuite/btcwallet/walletdb v1.3.2 h1:nFnMBVgkqoVOx08Z756oDwNc9sdVgYR52T1ONSXs90w=
 github.com/btcsuite/btcwallet/walletdb v1.3.2/go.mod h1:GZCMPNpUu5KE3ASoVd+k06p/1OW8OwNGCCaNWRto2cQ=
 github.com/btcsuite/btcwallet/walletdb v1.3.3 h1:u6e7vRIKBF++cJy+hOHaMGg+88ZTwvpaY27AFvtB668=

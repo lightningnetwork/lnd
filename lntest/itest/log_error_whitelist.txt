@@ -137,6 +137,7 @@
 <time> [ERR] RPCS: [/chainrpc.ChainNotifier/RegisterBlockEpochNtfn]: chain notifier shutting down
 <time> [ERR] RPCS: [/chainrpc.ChainNotifier/RegisterBlockEpochNtfn]: context canceled
 <time> [ERR] RPCS: [/invoicesrpc.Invoices/SubscribeSingleInvoice]: rpc error: code = Canceled desc = context canceled
+<time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: cannot close channel with state: ChanStatusRestored
 <time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: cannot co-op close frozen channel as initiator until height=<height>, (current_height=<height>)
 <time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: cannot co-op close frozen channel as initiator until height=3059, (current_height=3055)
 <time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: chain notifier shutting down

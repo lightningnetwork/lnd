@@ -1959,19 +1959,21 @@ func (n *TxNotifier) TearDown() {
 	defer n.Unlock()
 
 	for _, confSet := range n.confNotifications {
-		for _, ntfn := range confSet.ntfns {
+		for confID, ntfn := range confSet.ntfns {
 			close(ntfn.Event.Confirmed)
 			close(ntfn.Event.Updates)
 			close(ntfn.Event.NegativeConf)
 			close(ntfn.Event.Done)
+			delete(confSet.ntfns, confID)
 		}
 	}
 
 	for _, spendSet := range n.spendNotifications {
-		for _, ntfn := range spendSet.ntfns {
+		for spendID, ntfn := range spendSet.ntfns {
 			close(ntfn.Event.Spend)
 			close(ntfn.Event.Reorg)
 			close(ntfn.Event.Done)
+			delete(spendSet.ntfns, spendID)
 		}
 	}
 }

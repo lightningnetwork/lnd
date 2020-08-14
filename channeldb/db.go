@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration20"
 	"github.com/lightningnetwork/lnd/channeldb/migration21"
 	"github.com/lightningnetwork/lnd/channeldb/migration23"
+	"github.com/lightningnetwork/lnd/channeldb/migration24"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -197,6 +198,11 @@ var (
 		{
 			number:    23,
 			migration: migration23.MigrateHtlcAttempts,
+		},
+		{
+			// Remove old forwarding packages of closed channels.
+			number:    24,
+			migration: migration24.MigrateFwdPkgCleanup,
 		},
 	}
 

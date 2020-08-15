@@ -29,7 +29,7 @@
 
     **Note**: The minimum version of Go supported is Go 1.13. We recommend that
     users use the latest version of Go, which at the time of writing is
-    [`1.13`](https://blog.golang.org/go1.13).
+    [`1.15`](https://blog.golang.org/go1.15).
 
 
     On Linux:

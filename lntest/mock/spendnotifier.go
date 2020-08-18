@@ -1,4 +1,4 @@
-package lnd
+package mock
 
 import (
 	"sync"
@@ -6,21 +6,21 @@ import (
 	"github.com/btcsuite/btcd/wire"
 
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/lntest/mock"
 )
 
-// mockSpendNotifier extends the mock.ChainNotifier so that spend
+// SpendNotifier extends the mock.ChainNotifier so that spend
 // notifications can be triggered and delivered to subscribers.
-type mockSpendNotifier struct {
-	*mock.ChainNotifier
+type SpendNotifier struct {
+	*ChainNotifier
 	spendMap map[wire.OutPoint][]chan *chainntnfs.SpendDetail
 	spends   map[wire.OutPoint]*chainntnfs.SpendDetail
 	mtx      sync.Mutex
 }
 
-func makeMockSpendNotifier() *mockSpendNotifier {
-	return &mockSpendNotifier{
-		ChainNotifier: &mock.ChainNotifier{
+// MakeMockSpendNotifier creates a SpendNotifier.
+func MakeMockSpendNotifier() *SpendNotifier {
+	return &SpendNotifier{
+		ChainNotifier: &ChainNotifier{
 			SpendChan: make(chan *chainntnfs.SpendDetail),
 			EpochChan: make(chan *chainntnfs.BlockEpoch),
 			ConfChan:  make(chan *chainntnfs.TxConfirmation),
@@ -30,13 +30,15 @@ func makeMockSpendNotifier() *mockSpendNotifier {
 	}
 }
 
-func (m *mockSpendNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
+// RegisterSpendNtfn registers a spend notification for a specified outpoint.
+func (s *SpendNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	_ []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
-	m.mtx.Lock()
-	defer m.mtx.Unlock()
+
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
 
 	spendChan := make(chan *chainntnfs.SpendDetail, 1)
-	if detail, ok := m.spends[*outpoint]; ok {
+	if detail, ok := s.spends[*outpoint]; ok {
 		// Deliver spend immediately if details are already known.
 		spendChan <- &chainntnfs.SpendDetail{
 			SpentOutPoint:     detail.SpentOutPoint,
@@ -48,22 +50,22 @@ func (m *mockSpendNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	} else {
 		// Otherwise, queue the notification for delivery if the spend
 		// is ever received.
-		m.spendMap[*outpoint] = append(m.spendMap[*outpoint], spendChan)
+		s.spendMap[*outpoint] = append(s.spendMap[*outpoint], spendChan)
 	}
 
 	return &chainntnfs.SpendEvent{
-		Spend: spendChan,
-		Cancel: func() {
-		},
+		Spend:  spendChan,
+		Cancel: func() {},
 	}, nil
 }
 
 // Spend dispatches SpendDetails to all subscribers of the outpoint. The details
-// will include the transaction and height provided by the caller.
-func (m *mockSpendNotifier) Spend(outpoint *wire.OutPoint, height int32,
+// will includethe transaction and height provided by the caller.
+func (s *SpendNotifier) Spend(outpoint *wire.OutPoint, height int32,
 	txn *wire.MsgTx) {
-	m.mtx.Lock()
-	defer m.mtx.Unlock()
+
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
 
 	txnHash := txn.TxHash()
 	details := &chainntnfs.SpendDetail{
@@ -75,13 +77,13 @@ func (m *mockSpendNotifier) Spend(outpoint *wire.OutPoint, height int32,
 	}
 
 	// Cache details in case of late registration.
-	if _, ok := m.spends[*outpoint]; !ok {
-		m.spends[*outpoint] = details
+	if _, ok := s.spends[*outpoint]; !ok {
+		s.spends[*outpoint] = details
 	}
 
 	// Deliver any backlogged spend notifications.
-	if spendChans, ok := m.spendMap[*outpoint]; ok {
-		delete(m.spendMap, *outpoint)
+	if spendChans, ok := s.spendMap[*outpoint]; ok {
+		delete(s.spendMap, *outpoint)
 		for _, spendChan := range spendChans {
 			spendChan <- &chainntnfs.SpendDetail{
 				SpentOutPoint:     details.SpentOutPoint,

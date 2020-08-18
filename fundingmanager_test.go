@@ -55,6 +55,9 @@ const (
 	// maxPending is the maximum number of channels we allow opening to the
 	// same peer in the max pending channels test.
 	maxPending = 4
+
+	// A dummy value to use for the funding broadcast height.
+	fundingBroadcastHeight = 123
 )
 
 var (

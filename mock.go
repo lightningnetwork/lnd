@@ -9,9 +9,6 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/mock"
 )
 
-// The block height returned by the mock BlockChainIO's GetBestBlock.
-const fundingBroadcastHeight = 123
-
 // mockSpendNotifier extends the mock.ChainNotifier so that spend
 // notifications can be triggered and delivered to subscribers.
 type mockSpendNotifier struct {

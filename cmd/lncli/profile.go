@@ -35,11 +35,19 @@ type profileEntry struct {
 }
 
 // cert returns the profile's TLS certificate as a x509 certificate pool.
+// we attempt to use the system's certificate pool. If there is no
+// certificate present, assume lnd will send us a valid,
+// non self-signed certificate.
 func (e *profileEntry) cert() (*x509.CertPool, error) {
-	cp := x509.NewCertPool()
-	if !cp.AppendCertsFromPEM([]byte(e.TLSCert)) {
-		return nil, fmt.Errorf("credentials: failed to append " +
-			"certificate")
+	cp, _ := x509.SystemCertPool()
+	if cp == nil {
+		cp = x509.NewCertPool()
+	}
+	if e.TLSCert != "" {
+		if !cp.AppendCertsFromPEM([]byte(e.TLSCert)) {
+			return nil, fmt.Errorf("credentials: failed to append " +
+				"certificate")
+		}
 	}
 	return cp, nil
 }
@@ -108,18 +116,22 @@ func getGlobalOptions(ctx *cli.Context) (*profileEntry, error) {
 func profileFromContext(ctx *cli.Context, store bool) (*profileEntry, error) {
 	// Parse the paths of the cert and macaroon. This will validate the
 	// chain and network value as well.
+	tlsCert := []byte("")
 	tlsCertPath, macPath, err := extractPathArgs(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	// Load the certificate file now. We store it as plain PEM directly.
-	tlsCert, err := ioutil.ReadFile(tlsCertPath)
-	if err != nil {
-		return nil, fmt.Errorf("could not load TLS cert file %s: %v",
-			tlsCertPath, err)
+	// Because we use the system's cert pool, Only attempt to load it
+	// if the file exists.
+	if fileExists(tlsCertPath) {
+		tlsCert, err = ioutil.ReadFile(tlsCertPath)
+		if err != nil {
+			return nil, fmt.Errorf("could not load TLS cert file %s: %v",
+				tlsCertPath, err)
+		}
 	}
-
 	// Now load and possibly encrypt the macaroon file.
 	macBytes, err := ioutil.ReadFile(macPath)
 	if err != nil {

@@ -1,5 +1,3 @@
-// +build dev
-
 package lookout
 
 import (

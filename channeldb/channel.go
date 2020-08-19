@@ -2409,16 +2409,24 @@ func (c *OpenChannel) SetFwdFilter(height uint64, fwdFilter *PkgFilter) error {
 	})
 }
 
-// RemoveFwdPkg atomically removes a forwarding package specified by the remote
-// commitment height.
+// RemoveFwdPkgs atomically removes forwarding packages specified by the remote
+// commitment heights. If one of the intermediate RemovePkg calls fails, then the
+// later packages won't be removed.
 //
 // NOTE: This method should only be called on packages marked FwdStateCompleted.
-func (c *OpenChannel) RemoveFwdPkg(height uint64) error {
+func (c *OpenChannel) RemoveFwdPkgs(heights ...uint64) error {
 	c.Lock()
 	defer c.Unlock()
 
 	return kvdb.Update(c.Db, func(tx kvdb.RwTx) error {
-		return c.Packager.RemovePkg(tx, height)
+		for _, height := range heights {
+			err := c.Packager.RemovePkg(tx, height)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
 	})
 }
 

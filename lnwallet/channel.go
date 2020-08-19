@@ -4850,9 +4850,9 @@ func (lc *LightningChannel) SetFwdFilter(height uint64,
 	return lc.channelState.SetFwdFilter(height, fwdFilter)
 }
 
-// RemoveFwdPkg permanently deletes the forwarding package at the given height.
-func (lc *LightningChannel) RemoveFwdPkg(height uint64) error {
-	return lc.channelState.RemoveFwdPkg(height)
+// RemoveFwdPkgs permanently deletes the forwarding package at the given heights.
+func (lc *LightningChannel) RemoveFwdPkgs(heights ...uint64) error {
+	return lc.channelState.RemoveFwdPkgs(heights...)
 }
 
 // NextRevocationKey returns the commitment point for the _next_ commitment

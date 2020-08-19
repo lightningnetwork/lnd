@@ -139,10 +139,15 @@ type htlcDesc struct {
 }
 
 type testCase struct {
-	Name                    string
-	LocalBalance            lnwire.MilliSatoshi
-	RemoteBalance           lnwire.MilliSatoshi
-	FeePerKw                btcutil.Amount
+	Name          string
+	LocalBalance  lnwire.MilliSatoshi
+	RemoteBalance lnwire.MilliSatoshi
+	FeePerKw      btcutil.Amount
+
+	// UseTestHtlcs defined whether the fixed set of test htlc should be
+	// added to the channel before checking the commitment assertions.
+	UseTestHtlcs bool
+
 	HtlcDescs               []htlcDesc
 	ExpectedCommitmentTxHex string
 	RemoteSigHex            string
@@ -252,7 +257,7 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 	remoteBalance := test.RemoteBalance
 	localBalance := test.LocalBalance
 
-	if test.HtlcDescs != nil {
+	if test.UseTestHtlcs {
 		for _, htlc := range testHtlcs {
 			if htlc.incoming {
 				remoteBalance += htlc.amount
@@ -276,7 +281,7 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 	// map that allows us to identify the htlcs in the scripts later on and
 	// retrieve the corresponding preimage.
 	var hash160map map[[20]byte]lntypes.Preimage
-	if test.HtlcDescs != nil {
+	if test.UseTestHtlcs {
 		hash160map = addTestHtlcs(t, remoteChannel, localChannel)
 	}
 

@@ -524,7 +524,7 @@ func (u *UnlockerService) ChangePassword(ctx context.Context,
 	err = func(dbDir string, oldPw, newPw []byte, rotateKey bool) error {
 		// Attempt to open the macaroon DB, unlock it and then change
 		// the passphrase.
-		macaroonService, err := macaroons.NewService(dbDir)
+		macaroonService, err := macaroons.NewService(dbDir, in.StatelessInit)
 		if err != nil {
 			return err
 		}

@@ -395,7 +395,9 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	if !cfg.NoMacaroons {
 		// Create the macaroon authentication/authorization service.
 		macaroonService, err = macaroons.NewService(
-			cfg.networkDir, macaroons.IPLockChecker,
+			cfg.networkDir,
+			walletInitParams.StatelessInit,
+			macaroons.IPLockChecker,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to set up macaroon "+

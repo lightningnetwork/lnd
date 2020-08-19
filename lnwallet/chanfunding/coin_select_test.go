@@ -245,6 +245,27 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 			expectedChange:     0,
 		},
 		{
+			// We have 1.0 BTC available and spend half of it. This
+			// should lead to a funding TX with a change output.
+			name: "spend with change",
+			coins: []Coin{
+				{
+					TxOut: wire.TxOut{
+						PkScript: p2wkhScript,
+						Value:    1 * btcutil.SatoshiPerBitcoin,
+					},
+				},
+			},
+			spendValue: 0.5 * btcutil.SatoshiPerBitcoin,
+
+			// The one and only input will be selected.
+			expectedInput: []btcutil.Amount{
+				1 * btcutil.SatoshiPerBitcoin,
+			},
+			expectedFundingAmt: 0.5*btcutil.SatoshiPerBitcoin - fundingFee(feeRate, 1, true),
+			expectedChange:     0.5 * btcutil.SatoshiPerBitcoin,
+		},
+		{
 			// The total funds available is below the dust limit
 			// after paying fees.
 			name: "dust output",

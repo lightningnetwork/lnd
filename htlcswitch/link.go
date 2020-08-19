@@ -843,33 +843,49 @@ func (l *channelLink) fwdPkgGarbager() {
 	l.cfg.FwdPkgGCTicker.Resume()
 	defer l.cfg.FwdPkgGCTicker.Stop()
 
+	if err := l.loadAndRemove(); err != nil {
+		l.log.Warnf("unable to run initial fwd pkgs gc: %v", err)
+	}
+
 	for {
 		select {
 		case <-l.cfg.FwdPkgGCTicker.Ticks():
-			fwdPkgs, err := l.channel.LoadFwdPkgs()
-			if err != nil {
-				l.log.Warnf("unable to load fwdpkgs for gc: %v",
+			if err := l.loadAndRemove(); err != nil {
+				l.log.Warnf("unable to remove fwd pkgs: %v",
 					err)
 				continue
-			}
-
-			// TODO(conner): batch removal of forward packages.
-			for _, fwdPkg := range fwdPkgs {
-				if fwdPkg.State != channeldb.FwdStateCompleted {
-					continue
-				}
-
-				err = l.channel.RemoveFwdPkgs(fwdPkg.Height)
-				if err != nil {
-					l.log.Warnf("unable to remove fwd pkg "+
-						"for height=%d: %v",
-						fwdPkg.Height, err)
-				}
 			}
 		case <-l.quit:
 			return
 		}
 	}
+}
+
+// loadAndRemove loads all the channels forwarding packages and determines if
+// they can be removed. It is called once before the FwdPkgGCTicker ticks so that
+// a longer tick interval can be used.
+func (l *channelLink) loadAndRemove() error {
+	fwdPkgs, err := l.channel.LoadFwdPkgs()
+	if err != nil {
+		return err
+	}
+
+	var removeHeights []uint64
+	for _, fwdPkg := range fwdPkgs {
+		if fwdPkg.State != channeldb.FwdStateCompleted {
+			continue
+		}
+
+		removeHeights = append(removeHeights, fwdPkg.Height)
+	}
+
+	// If removeHeights is empty, return early so we don't use a db
+	// transaction.
+	if len(removeHeights) == 0 {
+		return nil
+	}
+
+	return l.channel.RemoveFwdPkgs(removeHeights...)
 }
 
 // htlcManager is the primary goroutine which drives a channel's commitment

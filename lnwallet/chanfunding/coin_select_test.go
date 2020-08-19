@@ -205,11 +205,13 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 	t.Parallel()
 
 	const feeRate = chainfee.SatPerKWeight(100)
+	const highFeeRate = chainfee.SatPerKWeight(1000)
 	const dustLimit = btcutil.Amount(1000)
 	const dust = btcutil.Amount(100)
 
 	type testCase struct {
 		name       string
+		highFee    bool
 		spendValue btcutil.Amount
 		coins      []Coin
 
@@ -320,16 +322,17 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 		},
 		{
 			// If more than 20% of funds goes to fees, it should fail.
-			name: "high fee",
+			name:    "high fee",
+			highFee: true,
 			coins: []Coin{
 				{
 					TxOut: wire.TxOut{
 						PkScript: p2wkhScript,
-						Value:    int64(5 * fundingFee(feeRate, 1, false)),
+						Value:    int64(5 * fundingFee(highFeeRate, 1, false)),
 					},
 				},
 			},
-			spendValue: 5 * fundingFee(feeRate, 1, false),
+			spendValue: 5 * fundingFee(highFeeRate, 1, false),
 
 			expectErr: true,
 		},
@@ -339,6 +342,11 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
+			feeRate := feeRate
+			if test.highFee {
+				feeRate = highFeeRate
+			}
+
 			selected, localFundingAmt, changeAmt, err := CoinSelectSubtractFees(
 				feeRate, test.spendValue, dustLimit, test.coins,
 			)

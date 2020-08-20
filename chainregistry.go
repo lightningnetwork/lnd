@@ -212,8 +212,8 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 		Birthday:       birthday,
 		RecoveryWindow: recoveryWindow,
 		DataDir:        homeChainConfig.ChainDir,
-		NetParams:      activeNetParams.Params,
-		CoinType:       activeNetParams.CoinType,
+		NetParams:      cfg.ActiveNetParams.Params,
+		CoinType:       cfg.ActiveNetParams.CoinType,
 		Wallet:         wallet,
 	}
 
@@ -267,7 +267,7 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 		}
 
 		walletConfig.ChainSource = chain.NewNeutrinoClient(
-			activeNetParams.Params, neutrinoCS,
+			cfg.ActiveNetParams.Params, neutrinoCS,
 		)
 
 	case "bitcoind", "litecoind":
@@ -291,7 +291,7 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 			// btcd, which picks a different port so that btcwallet
 			// can use the same RPC port as bitcoind. We convert
 			// this back to the btcwallet/bitcoind port.
-			rpcPort, err := strconv.Atoi(activeNetParams.rpcPort)
+			rpcPort, err := strconv.Atoi(cfg.ActiveNetParams.rpcPort)
 			if err != nil {
 				return nil, err
 			}
@@ -319,7 +319,7 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 		// Establish the connection to bitcoind and create the clients
 		// required for our relevant subsystems.
 		bitcoindConn, err := chain.NewBitcoindConn(
-			activeNetParams.Params, bitcoindHost,
+			cfg.ActiveNetParams.Params, bitcoindHost,
 			bitcoindMode.RPCUser, bitcoindMode.RPCPass,
 			bitcoindMode.ZMQPubRawBlock, bitcoindMode.ZMQPubRawTx,
 			5*time.Second,
@@ -334,7 +334,7 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 		}
 
 		cc.chainNotifier = bitcoindnotify.New(
-			bitcoindConn, activeNetParams.Params, hintCache, hintCache,
+			bitcoindConn, cfg.ActiveNetParams.Params, hintCache, hintCache,
 		)
 		cc.chainView = chainview.NewBitcoindFilteredChainView(bitcoindConn)
 		walletConfig.ChainSource = bitcoindConn.NewBitcoindClient()
@@ -432,7 +432,7 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 			btcdHost = btcdMode.RPCHost
 		} else {
 			btcdHost = fmt.Sprintf("%v:%v", btcdMode.RPCHost,
-				activeNetParams.rpcPort)
+				cfg.ActiveNetParams.rpcPort)
 		}
 
 		btcdUser := btcdMode.RPCUser
@@ -448,7 +448,7 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 			DisableAutoReconnect: false,
 		}
 		cc.chainNotifier, err = btcdnotify.New(
-			rpcConfig, activeNetParams.Params, hintCache, hintCache,
+			rpcConfig, cfg.ActiveNetParams.Params, hintCache, hintCache,
 		)
 		if err != nil {
 			return nil, err
@@ -464,7 +464,7 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 
 		// Create a special websockets rpc client for btcd which will be used
 		// by the wallet for notifications, calls, etc.
-		chainRPC, err := chain.NewRPCClient(activeNetParams.Params, btcdHost,
+		chainRPC, err := chain.NewRPCClient(cfg.ActiveNetParams.Params, btcdHost,
 			btcdUser, btcdPass, rpcCert, false, 20)
 		if err != nil {
 			return nil, err
@@ -517,7 +517,7 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 	}
 
 	keyRing := keychain.NewBtcWalletKeyRing(
-		wc.InternalWallet(), activeNetParams.CoinType,
+		wc.InternalWallet(), cfg.ActiveNetParams.CoinType,
 	)
 	cc.keyRing = keyRing
 
@@ -532,7 +532,7 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 		SecretKeyRing:      keyRing,
 		ChainIO:            cc.chainIO,
 		DefaultConstraints: channelConstraints,
-		NetParams:          *activeNetParams.Params,
+		NetParams:          *cfg.ActiveNetParams.Params,
 	}
 	lnWallet, err := lnwallet.NewLightningWallet(walletCfg)
 	if err != nil {
@@ -734,7 +734,7 @@ func initNeutrinoBackend(cfg *Config, chainDir string) (*neutrino.ChainService,
 	// match the behavior of btcwallet.
 	dbPath := filepath.Join(
 		chainDir,
-		normalizeNetwork(activeNetParams.Name),
+		normalizeNetwork(cfg.ActiveNetParams.Name),
 	)
 
 	// Ensure that the neutrino db path exists.
@@ -763,7 +763,7 @@ func initNeutrinoBackend(cfg *Config, chainDir string) (*neutrino.ChainService,
 	config := neutrino.Config{
 		DataDir:      dbPath,
 		Database:     db,
-		ChainParams:  *activeNetParams.Params,
+		ChainParams:  *cfg.ActiveNetParams.Params,
 		AddPeers:     cfg.NeutrinoMode.AddPeers,
 		ConnectPeers: cfg.NeutrinoMode.ConnectPeers,
 		Dialer: func(addr net.Addr) (net.Conn, error) {

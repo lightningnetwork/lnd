@@ -10,10 +10,6 @@ import (
 	litecoinWire "github.com/ltcsuite/ltcd/wire"
 )
 
-// activeNetParams is a pointer to the parameters specific to the currently
-// active bitcoin network.
-var activeNetParams = bitcoinTestNetParams
-
 // bitcoinNetParams couples the p2p parameters of a network with the
 // corresponding RPC port of a daemon running on the particular network.
 type bitcoinNetParams struct {

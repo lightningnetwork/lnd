@@ -274,6 +274,9 @@ type Config struct {
 	// network. This path will hold the files related to each different
 	// network.
 	networkDir string
+
+	// ActiveNetParams contains parameters of the target chain.
+	ActiveNetParams bitcoinNetParams
 }
 
 // DefaultConfig returns all default values for the Config struct.
@@ -380,6 +383,7 @@ func DefaultConfig() Config {
 		LogWriter:               build.NewRotatingLogWriter(),
 		DB:                      lncfg.DefaultDB(),
 		registeredChains:        newChainRegistry(),
+		ActiveNetParams:         bitcoinTestNetParams,
 	}
 }
 
@@ -736,12 +740,12 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 		// throughout the codebase we required chaincfg.Params. So as a
 		// temporary hack, we'll mutate the default net params for
 		// bitcoin with the litecoin specific information.
-		applyLitecoinParams(&activeNetParams, &ltcParams)
+		applyLitecoinParams(&cfg.ActiveNetParams, &ltcParams)
 
 		switch cfg.Litecoin.Node {
 		case "ltcd":
 			err := parseRPCParams(cfg.Litecoin, cfg.LtcdMode,
-				litecoinChain, funcName)
+				litecoinChain, funcName, cfg.ActiveNetParams)
 			if err != nil {
 				err := fmt.Errorf("unable to load RPC "+
 					"credentials for ltcd: %v", err)
@@ -753,7 +757,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 					"support simnet", funcName)
 			}
 			err := parseRPCParams(cfg.Litecoin, cfg.LitecoindMode,
-				litecoinChain, funcName)
+				litecoinChain, funcName, cfg.ActiveNetParams)
 			if err != nil {
 				err := fmt.Errorf("unable to load RPC "+
 					"credentials for litecoind: %v", err)
@@ -781,19 +785,19 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 		numNets := 0
 		if cfg.Bitcoin.MainNet {
 			numNets++
-			activeNetParams = bitcoinMainNetParams
+			cfg.ActiveNetParams = bitcoinMainNetParams
 		}
 		if cfg.Bitcoin.TestNet3 {
 			numNets++
-			activeNetParams = bitcoinTestNetParams
+			cfg.ActiveNetParams = bitcoinTestNetParams
 		}
 		if cfg.Bitcoin.RegTest {
 			numNets++
-			activeNetParams = bitcoinRegTestNetParams
+			cfg.ActiveNetParams = bitcoinRegTestNetParams
 		}
 		if cfg.Bitcoin.SimNet {
 			numNets++
-			activeNetParams = bitcoinSimNetParams
+			cfg.ActiveNetParams = bitcoinSimNetParams
 		}
 		if numNets > 1 {
 			str := "%s: The mainnet, testnet, regtest, and " +
@@ -822,6 +826,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 		case "btcd":
 			err := parseRPCParams(
 				cfg.Bitcoin, cfg.BtcdMode, bitcoinChain, funcName,
+				cfg.ActiveNetParams,
 			)
 			if err != nil {
 				err := fmt.Errorf("unable to load RPC "+
@@ -836,6 +841,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 
 			err := parseRPCParams(
 				cfg.Bitcoin, cfg.BitcoindMode, bitcoinChain, funcName,
+				cfg.ActiveNetParams,
 			)
 			if err != nil {
 				err := fmt.Errorf("unable to load RPC "+
@@ -913,7 +919,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 	cfg.networkDir = filepath.Join(
 		cfg.DataDir, defaultChainSubDirname,
 		cfg.registeredChains.PrimaryChain().String(),
-		normalizeNetwork(activeNetParams.Name),
+		normalizeNetwork(cfg.ActiveNetParams.Name),
 	)
 
 	// If a custom macaroon directory wasn't specified and the data
@@ -947,7 +953,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 	// per network in the same fashion as the data directory.
 	cfg.LogDir = filepath.Join(cfg.LogDir,
 		cfg.registeredChains.PrimaryChain().String(),
-		normalizeNetwork(activeNetParams.Name))
+		normalizeNetwork(cfg.ActiveNetParams.Name))
 
 	// A log writer must be passed in, otherwise we can't function and would
 	// run into a panic later on.
@@ -1135,11 +1141,11 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 func (c *Config) localDatabaseDir() string {
 	return filepath.Join(c.DataDir,
 		defaultGraphSubDirname,
-		normalizeNetwork(activeNetParams.Name))
+		normalizeNetwork(c.ActiveNetParams.Name))
 }
 
 func (c *Config) networkName() string {
-	return normalizeNetwork(activeNetParams.Name)
+	return normalizeNetwork(c.ActiveNetParams.Name)
 }
 
 // CleanAndExpandPath expands environment variables and leading ~ in the
@@ -1169,7 +1175,7 @@ func CleanAndExpandPath(path string) string {
 }
 
 func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{}, net chainCode,
-	funcName string) error { // nolint:unparam
+	funcName string, netParams bitcoinNetParams) error { // nolint:unparam
 
 	// First, we'll check our node config to make sure the RPC parameters
 	// were set correctly. We'll also determine the path to the conf file
@@ -1279,7 +1285,7 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{}, net chainCode,
 	case "bitcoind", "litecoind":
 		nConf := nodeConfig.(*lncfg.Bitcoind)
 		rpcUser, rpcPass, zmqBlockHost, zmqTxHost, err :=
-			extractBitcoindRPCParams(confFile)
+			extractBitcoindRPCParams(netParams.Params.Name, confFile)
 		if err != nil {
 			return fmt.Errorf("unable to extract RPC credentials:"+
 				" %v, cannot start w/o RPC connection",
@@ -1339,13 +1345,13 @@ func extractBtcdRPCParams(btcdConfigPath string) (string, string, error) {
 	return string(userSubmatches[1]), string(passSubmatches[1]), nil
 }
 
-// extractBitcoindParams attempts to extract the RPC credentials for an
+// extractBitcoindRPCParams attempts to extract the RPC credentials for an
 // existing bitcoind node instance. The passed path is expected to be the
 // location of bitcoind's bitcoin.conf on the target system. The routine looks
 // for a cookie first, optionally following the datadir configuration option in
 // the bitcoin.conf. If it doesn't find one, it looks for rpcuser/rpcpassword.
-func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string,
-	string, error) {
+func extractBitcoindRPCParams(networkName string,
+	bitcoindConfigPath string) (string, string, string, string, error) {
 
 	// First, we'll open up the bitcoind configuration file found at the
 	// target destination.
@@ -1403,7 +1409,7 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 	}
 
 	chainDir := "/"
-	switch activeNetParams.Params.Name {
+	switch networkName {
 	case "testnet3":
 		chainDir = "/testnet3/"
 	case "testnet4":

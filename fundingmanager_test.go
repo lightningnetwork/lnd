@@ -99,6 +99,8 @@ var (
 	}
 	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
 	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
+
+	fundingNetParams = bitcoinTestNetParams
 )
 
 type mockNotifier struct {
@@ -282,7 +284,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	addr *lnwire.NetAddress, tempTestDir string,
 	options ...cfgOption) (*testNode, error) {
 
-	netParams := activeNetParams.Params
+	netParams := fundingNetParams.Params
 	estimator := chainfee.NewStaticEstimator(62500, 0)
 
 	chainNotifier := &mockNotifier{
@@ -649,7 +651,7 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	errChan := make(chan error, 1)
 	initReq := &openChanReq{
 		targetPubkey:    bob.privKey.PubKey(),
-		chainHash:       *activeNetParams.GenesisHash,
+		chainHash:       *fundingNetParams.GenesisHash,
 		subtractFees:    subtractFees,
 		localFundingAmt: localFundingAmt,
 		pushAmt:         lnwire.NewMSatFromSatoshis(pushAmt),
@@ -1573,7 +1575,7 @@ func TestFundingManagerPeerTimeoutAfterInitFunding(t *testing.T) {
 	errChan := make(chan error, 1)
 	initReq := &openChanReq{
 		targetPubkey:    bob.privKey.PubKey(),
-		chainHash:       *activeNetParams.GenesisHash,
+		chainHash:       *fundingNetParams.GenesisHash,
 		localFundingAmt: 500000,
 		pushAmt:         lnwire.NewMSatFromSatoshis(0),
 		private:         false,
@@ -1635,7 +1637,7 @@ func TestFundingManagerPeerTimeoutAfterFundingOpen(t *testing.T) {
 	errChan := make(chan error, 1)
 	initReq := &openChanReq{
 		targetPubkey:    bob.privKey.PubKey(),
-		chainHash:       *activeNetParams.GenesisHash,
+		chainHash:       *fundingNetParams.GenesisHash,
 		localFundingAmt: 500000,
 		pushAmt:         lnwire.NewMSatFromSatoshis(0),
 		private:         false,
@@ -1706,7 +1708,7 @@ func TestFundingManagerPeerTimeoutAfterFundingAccept(t *testing.T) {
 	errChan := make(chan error, 1)
 	initReq := &openChanReq{
 		targetPubkey:    bob.privKey.PubKey(),
-		chainHash:       *activeNetParams.GenesisHash,
+		chainHash:       *fundingNetParams.GenesisHash,
 		localFundingAmt: 500000,
 		pushAmt:         lnwire.NewMSatFromSatoshis(0),
 		private:         false,
@@ -2430,7 +2432,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	errChan := make(chan error, 1)
 	initReq := &openChanReq{
 		targetPubkey:     bob.privKey.PubKey(),
-		chainHash:        *activeNetParams.GenesisHash,
+		chainHash:        *fundingNetParams.GenesisHash,
 		localFundingAmt:  localAmt,
 		pushAmt:          lnwire.NewMSatFromSatoshis(pushAmt),
 		private:          false,
@@ -2715,7 +2717,7 @@ func TestFundingManagerMaxPendingChannels(t *testing.T) {
 		errChan := make(chan error, 1)
 		initReq := &openChanReq{
 			targetPubkey:    bob.privKey.PubKey(),
-			chainHash:       *activeNetParams.GenesisHash,
+			chainHash:       *fundingNetParams.GenesisHash,
 			localFundingAmt: 5000000,
 			pushAmt:         lnwire.NewMSatFromSatoshis(0),
 			private:         false,
@@ -2885,7 +2887,7 @@ func TestFundingManagerRejectPush(t *testing.T) {
 	errChan := make(chan error, 1)
 	initReq := &openChanReq{
 		targetPubkey:    bob.privKey.PubKey(),
-		chainHash:       *activeNetParams.GenesisHash,
+		chainHash:       *fundingNetParams.GenesisHash,
 		localFundingAmt: 500000,
 		pushAmt:         lnwire.NewMSatFromSatoshis(10),
 		private:         true,
@@ -2942,7 +2944,7 @@ func TestFundingManagerMaxConfs(t *testing.T) {
 	errChan := make(chan error, 1)
 	initReq := &openChanReq{
 		targetPubkey:    bob.privKey.PubKey(),
-		chainHash:       *activeNetParams.GenesisHash,
+		chainHash:       *fundingNetParams.GenesisHash,
 		localFundingAmt: 500000,
 		pushAmt:         lnwire.NewMSatFromSatoshis(10),
 		private:         false,
@@ -3224,7 +3226,7 @@ func TestWumboChannelConfig(t *testing.T) {
 	errChan := make(chan error, 1)
 	initReq := &openChanReq{
 		targetPubkey:    bob.privKey.PubKey(),
-		chainHash:       *activeNetParams.GenesisHash,
+		chainHash:       *fundingNetParams.GenesisHash,
 		localFundingAmt: MaxFundingAmount,
 		pushAmt:         lnwire.NewMSatFromSatoshis(0),
 		private:         false,

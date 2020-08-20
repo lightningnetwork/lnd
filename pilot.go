@@ -76,6 +76,7 @@ type chanController struct {
 	minConfs      int32
 	confTarget    uint32
 	chanMinHtlcIn lnwire.MilliSatoshi
+	netParams     bitcoinNetParams
 }
 
 // OpenChannel opens a channel to a target peer, with a capacity of the
@@ -97,7 +98,7 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 	// the funding workflow.
 	req := &openChanReq{
 		targetPubkey:     target,
-		chainHash:        *activeNetParams.GenesisHash,
+		chainHash:        *c.netParams.GenesisHash,
 		subtractFees:     true,
 		localFundingAmt:  amt,
 		pushAmt:          0,
@@ -141,7 +142,8 @@ var _ autopilot.ChannelController = (*chanController)(nil)
 // interfaces needed to drive it won't be launched before the Manager's
 // StartAgent method is called.
 func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
-	chainCfg *lncfg.Chain) (*autopilot.ManagerCfg, error) {
+	chainCfg *lncfg.Chain, netParams bitcoinNetParams) (*autopilot.ManagerCfg,
+	error) {
 
 	atplLog.Infof("Instantiating autopilot with active=%v, "+
 		"max_channels=%d, allocation=%f, min_chan_size=%d, "+
@@ -181,6 +183,7 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 			minConfs:      cfg.MinConfs,
 			confTarget:    cfg.ConfTarget,
 			chanMinHtlcIn: chainCfg.MinHTLCIn,
+			netParams:     netParams,
 		},
 		WalletBalance: func() (btcutil.Amount, error) {
 			return svr.cc.wallet.ConfirmedBalance(cfg.MinConfs)
@@ -206,7 +209,7 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 
 			lnAddr := &lnwire.NetAddress{
 				IdentityKey: target,
-				ChainNet:    activeNetParams.Net,
+				ChainNet:    netParams.Net,
 			}
 
 			// We'll attempt to successively connect to each of the

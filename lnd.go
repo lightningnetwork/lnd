@@ -1011,7 +1011,7 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 		return nil, err
 	}
 
-	srv := &http.Server{Handler: mux}
+	srv := &http.Server{Handler: allowCORS(mux, cfg.RestCORS)}
 
 	for _, restEndpoint := range restEndpoints {
 		lis, err := lncfg.TLSListenOnAddress(restEndpoint, tlsConf)

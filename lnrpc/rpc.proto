@@ -235,8 +235,10 @@ service Lightning {
     /* lncli: `abandonchannel`
     AbandonChannel removes all channel state from the database except for a
     close summary. This method can be used to get rid of permanently unusable
-    channels due to bugs fixed in newer versions of lnd. Only available
-    when in debug builds of lnd.
+    channels due to bugs fixed in newer versions of lnd. This method can also be
+    used to remove externally funded channels where the funding transaction was
+    never broadcast. Only available for non-externally funded channels in dev
+    build.
     */
     rpc AbandonChannel (AbandonChannelRequest) returns (AbandonChannelResponse);
 
@@ -3058,6 +3060,8 @@ message DeleteAllPaymentsResponse {
 
 message AbandonChannelRequest {
     ChannelPoint channel_point = 1;
+
+    bool pending_funding_shim_only = 2;
 }
 
 message AbandonChannelResponse {

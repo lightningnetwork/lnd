@@ -2358,13 +2358,14 @@ func abandonChanFromGraph(chanGraph *channeldb.ChannelGraph,
 // AbandonChannel removes all channel state from the database except for a
 // close summary. This method can be used to get rid of permanently unusable
 // channels due to bugs fixed in newer versions of lnd.
-func (r *rpcServer) AbandonChannel(ctx context.Context,
+func (r *rpcServer) AbandonChannel(_ context.Context,
 	in *lnrpc.AbandonChannelRequest) (*lnrpc.AbandonChannelResponse, error) {
 
 	// If this isn't the dev build, then we won't allow the RPC to be
 	// executed, as it's an advanced feature and won't be activated in
-	// regular production/release builds.
-	if !build.IsDevBuild() {
+	// regular production/release builds except for the explicit case of
+	// externally funded channels that are still pending.
+	if !in.PendingFundingShimOnly && !build.IsDevBuild() {
 		return nil, fmt.Errorf("AbandonChannel RPC call only " +
 			"available in dev builds")
 	}
@@ -2396,6 +2397,20 @@ func (r *rpcServer) AbandonChannel(ctx context.Context,
 	// on-disk state, we'll remove the channel from the switch and peer
 	// state if it's been loaded in.
 	case err == nil:
+		// If the user requested the more safe version that only allows
+		// the removal of externally (shim) funded channels that are
+		// still pending, we enforce this option now that we know the
+		// state of the channel.
+		//
+		// TODO(guggero): Properly store the funding type (wallet, shim,
+		// PSBT) on the channel so we don't need to use the thaw height.
+		isShimFunded := dbChan.ThawHeight > 0
+		isPendingShimFunded := isShimFunded && dbChan.IsPending
+		if in.PendingFundingShimOnly && !isPendingShimFunded {
+			return nil, fmt.Errorf("channel %v is not externally "+
+				"funded or not pending", chanPoint)
+		}
+
 		// We'll mark the channel as borked before we remove the state
 		// from the switch/peer so it won't be loaded back in if the
 		// peer reconnects.

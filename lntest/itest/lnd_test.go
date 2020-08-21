@@ -13795,32 +13795,24 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 	// First, we'll create two new nodes that we'll use to open channel
 	// between for this test.
 	carol, err := net.NewNode("carol", nil)
-	if err != nil {
-		t.Fatalf("unable to start new node: %v", err)
-	}
+	require.NoError(t.t, err)
 	defer shutdownAndAssert(net, t, carol)
 
 	dave, err := net.NewNode("dave", nil)
-	if err != nil {
-		t.Fatalf("unable to start new node: %v", err)
-	}
+	require.NoError(t.t, err)
 	defer shutdownAndAssert(net, t, dave)
 
 	// Carol will be funding the channel, so we'll send some coins over to
 	// her and ensure they have enough confirmations before we proceed.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
-	if err != nil {
-		t.Fatalf("unable to send coins to carol: %v", err)
-	}
+	require.NoError(t.t, err)
 
 	// Before we start the test, we'll ensure both sides are connected to
 	// the funding flow can properly be executed.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = net.EnsureConnected(ctxt, carol, dave)
-	if err != nil {
-		t.Fatalf("unable to connect peers: %v", err)
-	}
+	require.NoError(t.t, err)
 
 	// At this point, we're ready to simulate our external channel funding
 	// flow. To start with, we'll get to new keys from both sides which
@@ -13837,9 +13829,7 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 	carolChan, daveChan, _, err := basicChannelFundingTest(
 		t, net, carol, dave, fundingShim,
 	)
-	if err != nil {
-		t.Fatalf("unable to open channels: %v", err)
-	}
+	require.NoError(t.t, err)
 
 	// Both channels should be marked as frozen with the proper thaw
 	// height.
@@ -13861,17 +13851,13 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	resp, err := dave.AddInvoice(ctxt, invoice)
-	if err != nil {
-		t.Fatalf("unable to add invoice: %v", err)
-	}
+	require.NoError(t.t, err)
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
 		ctxt, carol, carol.RouterClient, []string{resp.PaymentRequest},
 		true,
 	)
-	if err != nil {
-		t.Fatalf("unable to make payments between Carol and Dave")
-	}
+	require.NoError(t.t, err)
 
 	// Now that the channels are open, and we've confirmed that they're
 	// operational, we'll now ensure that the channels are frozen as
@@ -13905,13 +13891,9 @@ func deriveFundingShim(net *lntest.NetworkHarness, t *harnessTest,
 		KeyIndex:  keyIndex,
 	}
 	carolFundingKey, err := carol.WalletKitClient.DeriveKey(ctxb, keyLoc)
-	if err != nil {
-		t.Fatalf("unable to get carol funding key: %v", err)
-	}
+	require.NoError(t.t, err)
 	daveFundingKey, err := dave.WalletKitClient.DeriveKey(ctxb, keyLoc)
-	if err != nil {
-		t.Fatalf("unable to get dave funding key: %v", err)
-	}
+	require.NoError(t.t, err)
 
 	// Now that we have the multi-sig keys for each party, we can manually
 	// construct the funding transaction. We'll instruct the backend to
@@ -13923,23 +13905,18 @@ func deriveFundingShim(net *lntest.NetworkHarness, t *harnessTest,
 		carolFundingKey.RawKeyBytes, daveFundingKey.RawKeyBytes,
 		int64(chanSize),
 	)
-	if err != nil {
-		t.Fatalf("unable to create funding script: %v", err)
-	}
+	require.NoError(t.t, err)
 	txid, err := net.Miner.SendOutputsWithoutChange(
 		[]*wire.TxOut{fundingOutput}, 5,
 	)
-	if err != nil {
-		t.Fatalf("unable to create funding output: %v", err)
-	}
+	require.NoError(t.t, err)
 
 	// At this point, we can being our external channel funding workflow.
 	// We'll start by generating a pending channel ID externally that will
 	// be used to track this new funding type.
 	var pendingChanID [32]byte
-	if _, err := rand.Read(pendingChanID[:]); err != nil {
-		t.Fatalf("unable to gen pending chan ID: %v", err)
-	}
+	_, err = rand.Read(pendingChanID[:])
+	require.NoError(t.t, err)
 
 	// Now that we have the pending channel ID, Dave (our responder) will
 	// register the intent to receive a new channel funding workflow using
@@ -13973,9 +13950,7 @@ func deriveFundingShim(net *lntest.NetworkHarness, t *harnessTest,
 			ShimRegister: fundingShim,
 		},
 	})
-	if err != nil {
-		t.Fatalf("unable to walk funding state forward: %v", err)
-	}
+	require.NoError(t.t, err)
 
 	// If we attempt to register the same shim (has the same pending chan
 	// ID), then we should get an error.

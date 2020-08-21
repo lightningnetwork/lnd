@@ -13815,19 +13815,36 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 	require.NoError(t.t, err)
 
 	// At this point, we're ready to simulate our external channel funding
-	// flow. To start with, we'll get to new keys from both sides which
-	// will be used to create the multi-sig output for the external funding
-	// transaction.
-	thawHeight := uint32(10)
-	fundingShim, chanPoint := deriveFundingShim(
-		net, t, carol, dave, thawHeight, 1,
+	// flow. To start with, we'll create a pending channel with a shim for
+	// a transaction that will never be published.
+	const thawHeight uint32 = 10
+	const chanSize = lnd.MaxBtcFundingAmount
+	fundingShim1, chanPoint1, _ := deriveFundingShim(
+		net, t, carol, dave, chanSize, thawHeight, 1, false,
+	)
+	_ = openChannelStream(
+		ctxb, t, net, carol, dave, lntest.OpenChannelParams{
+			Amt:         chanSize,
+			FundingShim: fundingShim1,
+		},
+	)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	assertNumOpenChannelsPending(ctxt, t, carol, dave, 1)
+
+	// That channel is now pending forever and normally would saturate the
+	// max pending channel limit for both nodes. But because the channel is
+	// externally funded, we should still be able to open another one. Let's
+	// do exactly that now. For this one we publish the transaction so we
+	// can mine it later.
+	fundingShim2, chanPoint2, _ := deriveFundingShim(
+		net, t, carol, dave, chanSize, thawHeight, 2, true,
 	)
 
 	// At this point, we'll now carry out the normal basic channel funding
 	// test as everything should now proceed as normal (a regular channel
 	// funding flow).
 	carolChan, daveChan, _, err := basicChannelFundingTest(
-		t, net, carol, dave, fundingShim,
+		t, net, carol, dave, fundingShim2,
 	)
 	require.NoError(t.t, err)
 
@@ -13867,7 +13884,7 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 	// should fail as a frozen channel only allows the responder to
 	// initiate a channel close.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	_, _, err = net.CloseChannel(ctxt, carol, chanPoint, false)
+	_, _, err = net.CloseChannel(ctxt, carol, chanPoint2, false)
 	if err == nil {
 		t.Fatalf("carol wasn't denied a co-op close attempt for a " +
 			"frozen channel")
@@ -13876,14 +13893,37 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 	// Next we'll try but this time with Dave (the responder) as the
 	// initiator. This time the channel should be closed as normal.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, dave, chanPoint, false)
+	closeChannelAndAssert(ctxt, t, net, dave, chanPoint2, false)
+
+	// As a last step, we check if we still have the pending channel hanging
+	// around because we never published the funding TX.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	assertNumOpenChannelsPending(ctxt, t, carol, dave, 1)
+
+	// Let's make sure we can abandon it.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	_, err = carol.AbandonChannel(ctxt, &lnrpc.AbandonChannelRequest{
+		ChannelPoint:           chanPoint1,
+		PendingFundingShimOnly: true,
+	})
+	require.NoError(t.t, err)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	_, err = dave.AbandonChannel(ctxt, &lnrpc.AbandonChannelRequest{
+		ChannelPoint:           chanPoint1,
+		PendingFundingShimOnly: true,
+	})
+	require.NoError(t.t, err)
+
+	// It should now not appear in the pending channels anymore.
+	assertNumOpenChannelsPending(ctxt, t, carol, dave, 0)
 }
 
 // deriveFundingShim creates a channel funding shim by deriving the necessary
 // keys on both sides.
 func deriveFundingShim(net *lntest.NetworkHarness, t *harnessTest,
-	carol, dave *lntest.HarnessNode, thawHeight uint32, keyIndex int32) (
-	*lnrpc.FundingShim, *lnrpc.ChannelPoint) {
+	carol, dave *lntest.HarnessNode, chanSize btcutil.Amount,
+	thawHeight uint32, keyIndex int32, publish bool) (*lnrpc.FundingShim,
+	*lnrpc.ChannelPoint, *chainhash.Hash) {
 
 	ctxb := context.Background()
 	keyLoc := &signrpc.KeyLocator{
@@ -13900,16 +13940,26 @@ func deriveFundingShim(net *lntest.NetworkHarness, t *harnessTest,
 	// immediately create and broadcast a transaction paying out an exact
 	// amount. Normally this would reside in the mempool, but we just
 	// confirm it now for simplicity.
-	const chanSize = lnd.MaxBtcFundingAmount
 	_, fundingOutput, err := input.GenFundingPkScript(
 		carolFundingKey.RawKeyBytes, daveFundingKey.RawKeyBytes,
 		int64(chanSize),
 	)
 	require.NoError(t.t, err)
-	txid, err := net.Miner.SendOutputsWithoutChange(
-		[]*wire.TxOut{fundingOutput}, 5,
-	)
-	require.NoError(t.t, err)
+
+	var txid *chainhash.Hash
+	targetOutputs := []*wire.TxOut{fundingOutput}
+	if publish {
+		txid, err = net.Miner.SendOutputsWithoutChange(
+			targetOutputs, 5,
+		)
+		require.NoError(t.t, err)
+	} else {
+		tx, err := net.Miner.CreateTransaction(targetOutputs, 5, false)
+		require.NoError(t.t, err)
+
+		txHash := tx.TxHash()
+		txid = &txHash
+	}
 
 	// At this point, we can being our external channel funding workflow.
 	// We'll start by generating a pending channel ID externally that will
@@ -13976,7 +14026,7 @@ func deriveFundingShim(net *lntest.NetworkHarness, t *harnessTest,
 	}
 	fundingShim.GetChanPointShim().RemoteKey = daveFundingKey.RawKeyBytes
 
-	return fundingShim, chanPoint
+	return fundingShim, chanPoint, txid
 }
 
 // sendAndAssertSuccess sends the given payment requests and asserts that the

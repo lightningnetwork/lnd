@@ -675,11 +675,22 @@ func CoopCloseBalance(chanType channeldb.ChannelType, isInitiator bool,
 
 	// We'll make sure we account for the complete balance by adding the
 	// current dangling commitment fee to the balance of the initiator.
-	commitFee := localCommit.CommitFee
+	initiatorDelta := localCommit.CommitFee
+
+	// Since the initiator's balance also is stored after subtracting the
+	// anchor values, add that back in case this was an anchor commitment.
+	if chanType.HasAnchors() {
+		initiatorDelta += 2 * anchorSize
+	}
+
+	// The initiator will pay the full coop close fee, subtract that value
+	// from their balance.
+	initiatorDelta -= coopCloseFee
+
 	if isInitiator {
-		ourBalance = ourBalance - coopCloseFee + commitFee
+		ourBalance += initiatorDelta
 	} else {
-		theirBalance = theirBalance - coopCloseFee + commitFee
+		theirBalance += initiatorDelta
 	}
 
 	return ourBalance, theirBalance

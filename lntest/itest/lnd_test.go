@@ -13822,111 +13822,14 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to connect peers: %v", err)
 	}
 
-	// At this point, we're ready to simulate our external channle funding
+	// At this point, we're ready to simulate our external channel funding
 	// flow. To start with, we'll get to new keys from both sides which
 	// will be used to create the multi-sig output for the external funding
 	// transaction.
-	keyLoc := &signrpc.KeyLocator{
-		KeyFamily: 9999,
-		KeyIndex:  1,
-	}
-	carolFundingKey, err := carol.WalletKitClient.DeriveKey(ctxb, keyLoc)
-	if err != nil {
-		t.Fatalf("unable to get carol funding key: %v", err)
-	}
-	daveFundingKey, err := dave.WalletKitClient.DeriveKey(ctxb, keyLoc)
-	if err != nil {
-		t.Fatalf("unable to get dave funding key: %v", err)
-	}
-
-	// Now that we have the multi-sig keys for each party, we can manually
-	// construct the funding transaction. We'll instruct the backend to
-	// immediately create and broadcast a transaction paying out an exact
-	// amount. Normally this would reside in the mempool, but we just
-	// confirm it now for simplicity.
-	const chanSize = lnd.MaxBtcFundingAmount
-	_, fundingOutput, err := input.GenFundingPkScript(
-		carolFundingKey.RawKeyBytes, daveFundingKey.RawKeyBytes,
-		int64(chanSize),
-	)
-	if err != nil {
-		t.Fatalf("unable to create funding script: %v", err)
-	}
-	txid, err := net.Miner.SendOutputsWithoutChange(
-		[]*wire.TxOut{fundingOutput}, 5,
-	)
-	if err != nil {
-		t.Fatalf("unable to create funding output: %v", err)
-	}
-
-	// At this point, we can being our external channel funding workflow.
-	// We'll start by generating a pending channel ID externally that will
-	// be used to track this new funding type.
-	var pendingChanID [32]byte
-	if _, err := rand.Read(pendingChanID[:]); err != nil {
-		t.Fatalf("unable to gen pending chan ID: %v", err)
-	}
-
-	// Now that we have the pending channel ID, Dave (our responder) will
-	// register the intent to receive a new channel funding workflow using
-	// the pending channel ID.
-	chanPoint := &lnrpc.ChannelPoint{
-		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
-			FundingTxidBytes: txid[:],
-		},
-	}
 	thawHeight := uint32(10)
-	chanPointShim := &lnrpc.ChanPointShim{
-		Amt:       int64(chanSize),
-		ChanPoint: chanPoint,
-		LocalKey: &lnrpc.KeyDescriptor{
-			RawKeyBytes: daveFundingKey.RawKeyBytes,
-			KeyLoc: &lnrpc.KeyLocator{
-				KeyFamily: daveFundingKey.KeyLoc.KeyFamily,
-				KeyIndex:  daveFundingKey.KeyLoc.KeyIndex,
-			},
-		},
-		RemoteKey:     carolFundingKey.RawKeyBytes,
-		PendingChanId: pendingChanID[:],
-		ThawHeight:    thawHeight,
-	}
-	fundingShim := &lnrpc.FundingShim{
-		Shim: &lnrpc.FundingShim_ChanPointShim{
-			ChanPointShim: chanPointShim,
-		},
-	}
-	_, err = dave.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
-		Trigger: &lnrpc.FundingTransitionMsg_ShimRegister{
-			ShimRegister: fundingShim,
-		},
-	})
-	if err != nil {
-		t.Fatalf("unable to walk funding state forward: %v", err)
-	}
-
-	// If we attempt to register the same shim (has the same pending chan
-	// ID), then we should get an error.
-	_, err = dave.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
-		Trigger: &lnrpc.FundingTransitionMsg_ShimRegister{
-			ShimRegister: fundingShim,
-		},
-	})
-	if err == nil {
-		t.Fatalf("duplicate pending channel ID funding shim " +
-			"registration should trigger an error")
-	}
-
-	// We'll take the chan point shim we just registered for Dave (the
-	// responder), and swap the local/remote keys before we feed it in as
-	// Carol's funding shim as the initiator.
-	fundingShim.GetChanPointShim().LocalKey = &lnrpc.KeyDescriptor{
-		RawKeyBytes: carolFundingKey.RawKeyBytes,
-		KeyLoc: &lnrpc.KeyLocator{
-			KeyFamily: carolFundingKey.KeyLoc.KeyFamily,
-			KeyIndex:  carolFundingKey.KeyLoc.KeyIndex,
-		},
-	}
-	fundingShim.GetChanPointShim().RemoteKey = daveFundingKey.RawKeyBytes
+	fundingShim, chanPoint := deriveFundingShim(
+		net, t, carol, dave, thawHeight, 1,
+	)
 
 	// At this point, we'll now carry out the normal basic channel funding
 	// test as everything should now proceed as normal (a regular channel
@@ -13988,6 +13891,117 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 	// initiator. This time the channel should be closed as normal.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssert(ctxt, t, net, dave, chanPoint, false)
+}
+
+// deriveFundingShim creates a channel funding shim by deriving the necessary
+// keys on both sides.
+func deriveFundingShim(net *lntest.NetworkHarness, t *harnessTest,
+	carol, dave *lntest.HarnessNode, thawHeight uint32, keyIndex int32) (
+	*lnrpc.FundingShim, *lnrpc.ChannelPoint) {
+
+	ctxb := context.Background()
+	keyLoc := &signrpc.KeyLocator{
+		KeyFamily: 9999,
+		KeyIndex:  keyIndex,
+	}
+	carolFundingKey, err := carol.WalletKitClient.DeriveKey(ctxb, keyLoc)
+	if err != nil {
+		t.Fatalf("unable to get carol funding key: %v", err)
+	}
+	daveFundingKey, err := dave.WalletKitClient.DeriveKey(ctxb, keyLoc)
+	if err != nil {
+		t.Fatalf("unable to get dave funding key: %v", err)
+	}
+
+	// Now that we have the multi-sig keys for each party, we can manually
+	// construct the funding transaction. We'll instruct the backend to
+	// immediately create and broadcast a transaction paying out an exact
+	// amount. Normally this would reside in the mempool, but we just
+	// confirm it now for simplicity.
+	const chanSize = lnd.MaxBtcFundingAmount
+	_, fundingOutput, err := input.GenFundingPkScript(
+		carolFundingKey.RawKeyBytes, daveFundingKey.RawKeyBytes,
+		int64(chanSize),
+	)
+	if err != nil {
+		t.Fatalf("unable to create funding script: %v", err)
+	}
+	txid, err := net.Miner.SendOutputsWithoutChange(
+		[]*wire.TxOut{fundingOutput}, 5,
+	)
+	if err != nil {
+		t.Fatalf("unable to create funding output: %v", err)
+	}
+
+	// At this point, we can being our external channel funding workflow.
+	// We'll start by generating a pending channel ID externally that will
+	// be used to track this new funding type.
+	var pendingChanID [32]byte
+	if _, err := rand.Read(pendingChanID[:]); err != nil {
+		t.Fatalf("unable to gen pending chan ID: %v", err)
+	}
+
+	// Now that we have the pending channel ID, Dave (our responder) will
+	// register the intent to receive a new channel funding workflow using
+	// the pending channel ID.
+	chanPoint := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: txid[:],
+		},
+	}
+	chanPointShim := &lnrpc.ChanPointShim{
+		Amt:       int64(chanSize),
+		ChanPoint: chanPoint,
+		LocalKey: &lnrpc.KeyDescriptor{
+			RawKeyBytes: daveFundingKey.RawKeyBytes,
+			KeyLoc: &lnrpc.KeyLocator{
+				KeyFamily: daveFundingKey.KeyLoc.KeyFamily,
+				KeyIndex:  daveFundingKey.KeyLoc.KeyIndex,
+			},
+		},
+		RemoteKey:     carolFundingKey.RawKeyBytes,
+		PendingChanId: pendingChanID[:],
+		ThawHeight:    thawHeight,
+	}
+	fundingShim := &lnrpc.FundingShim{
+		Shim: &lnrpc.FundingShim_ChanPointShim{
+			ChanPointShim: chanPointShim,
+		},
+	}
+	_, err = dave.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_ShimRegister{
+			ShimRegister: fundingShim,
+		},
+	})
+	if err != nil {
+		t.Fatalf("unable to walk funding state forward: %v", err)
+	}
+
+	// If we attempt to register the same shim (has the same pending chan
+	// ID), then we should get an error.
+	_, err = dave.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_ShimRegister{
+			ShimRegister: fundingShim,
+		},
+	})
+	if err == nil {
+		t.Fatalf("duplicate pending channel ID funding shim " +
+			"registration should trigger an error")
+	}
+
+	// We'll take the chan point shim we just registered for Dave (the
+	// responder), and swap the local/remote keys before we feed it in as
+	// Carol's funding shim as the initiator.
+	fundingShim.GetChanPointShim().LocalKey = &lnrpc.KeyDescriptor{
+		RawKeyBytes: carolFundingKey.RawKeyBytes,
+		KeyLoc: &lnrpc.KeyLocator{
+			KeyFamily: carolFundingKey.KeyLoc.KeyFamily,
+			KeyIndex:  carolFundingKey.KeyLoc.KeyIndex,
+		},
+	}
+	fundingShim.GetChanPointShim().RemoteKey = daveFundingKey.RawKeyBytes
+
+	return fundingShim, chanPoint
 }
 
 // sendAndAssertSuccess sends the given payment requests and asserts that the

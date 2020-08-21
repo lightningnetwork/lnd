@@ -18,7 +18,7 @@ env:
   GOPATH: /home/runner/work/go
   DOWNLOAD_CACHE: /home/runner/work/download_cache
   BITCOIN_VERSION: 0.19.1
-  GO_VERSION: 1.14.4
+  GO_VERSION: 1.15.2
 
 jobs:
   ########################

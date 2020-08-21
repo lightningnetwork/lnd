@@ -1,4 +1,5 @@
 s/[0-9a-f]{64}\:[[:digit:]]+/<chan_point>/g
+s/short_chan_id=[[:digit:]]+/short_chan_id=<cid>/g
 s/[0-9a-f]{16,}/<hex>/g
 s/[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+\:[[:digit:]]+/<ip>/g
 s/[[:digit:]]{4}-[[:digit:]]{2}-[[:digit:]]{2} [[:digit:]]{2}:[[:digit:]]{2}:[[:digit:]]{2}\.[[:digit:]]{3}/<time>/g

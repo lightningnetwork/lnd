@@ -863,8 +863,8 @@ func genMacaroons(ctx context.Context, svc *macaroons.Service,
 	// access invoice related calls. This is useful for merchants and other
 	// services to allow an isolated instance that can only query and
 	// modify invoices.
-	invoiceMac, err := svc.Oven.NewMacaroon(
-		ctx, bakery.LatestVersion, nil, invoicePermissions...,
+	invoiceMac, err := svc.NewMacaroon(
+		ctx, macaroons.DefaultRootKeyID, invoicePermissions...,
 	)
 	if err != nil {
 		return err
@@ -880,8 +880,8 @@ func genMacaroons(ctx context.Context, svc *macaroons.Service,
 	}
 
 	// Generate the read-only macaroon and write it to a file.
-	roMacaroon, err := svc.Oven.NewMacaroon(
-		ctx, bakery.LatestVersion, nil, readPermissions...,
+	roMacaroon, err := svc.NewMacaroon(
+		ctx, macaroons.DefaultRootKeyID, readPermissions...,
 	)
 	if err != nil {
 		return err
@@ -897,8 +897,8 @@ func genMacaroons(ctx context.Context, svc *macaroons.Service,
 
 	// Generate the admin macaroon and write it to a file.
 	adminPermissions := append(readPermissions, writePermissions...)
-	admMacaroon, err := svc.Oven.NewMacaroon(
-		ctx, bakery.LatestVersion, nil, adminPermissions...,
+	admMacaroon, err := svc.NewMacaroon(
+		ctx, macaroons.DefaultRootKeyID, adminPermissions...,
 	)
 	if err != nil {
 		return err

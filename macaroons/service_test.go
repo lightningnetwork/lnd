@@ -10,6 +10,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/metadata"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 	"gopkg.in/macaroon-bakery.v2/bakery/checkers"
@@ -72,8 +73,13 @@ func TestNewService(t *testing.T) {
 	}
 
 	// Third, check if the created service can bake macaroons.
-	macaroon, err := service.Oven.NewMacaroon(
-		context.TODO(), bakery.LatestVersion, nil, testOperation,
+	_, err = service.NewMacaroon(context.TODO(), nil, testOperation)
+	if err != macaroons.ErrMissingRootKeyID {
+		t.Fatalf("Received %v instead of ErrMissingRootKeyID", err)
+	}
+
+	macaroon, err := service.NewMacaroon(
+		context.TODO(), macaroons.DefaultRootKeyID, testOperation,
 	)
 	if err != nil {
 		t.Fatalf("Error creating macaroon from service: %v", err)
@@ -117,8 +123,8 @@ func TestValidateMacaroon(t *testing.T) {
 	}
 
 	// Then, create a new macaroon that we can serialize.
-	macaroon, err := service.Oven.NewMacaroon(
-		context.TODO(), bakery.LatestVersion, nil, testOperation,
+	macaroon, err := service.NewMacaroon(
+		context.TODO(), macaroons.DefaultRootKeyID, testOperation,
 	)
 	if err != nil {
 		t.Fatalf("Error creating macaroon from service: %v", err)
@@ -140,4 +146,85 @@ func TestValidateMacaroon(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error validating the macaroon: %v", err)
 	}
+}
+
+// TestListMacaroonIDs checks that ListMacaroonIDs returns the expected result.
+func TestListMacaroonIDs(t *testing.T) {
+	// First, initialize a dummy DB file with a store that the service
+	// can read from. Make sure the file is removed in the end.
+	tempDir := setupTestRootKeyStorage(t)
+	defer os.RemoveAll(tempDir)
+
+	// Second, create the new service instance, unlock it and pass in a
+	// checker that we expect it to add to the bakery.
+	service, err := macaroons.NewService(tempDir, macaroons.IPLockChecker)
+	require.NoError(t, err, "Error creating new service")
+	defer service.Close()
+
+	err = service.CreateUnlock(&defaultPw)
+	require.NoError(t, err, "Error unlocking root key storage")
+
+	// Third, make 3 new macaroons with different root key IDs.
+	expectedIDs := [][]byte{{1}, {2}, {3}}
+	for _, v := range expectedIDs {
+		_, err := service.NewMacaroon(context.TODO(), v, testOperation)
+		require.NoError(t, err, "Error creating macaroon from service")
+	}
+
+	// Finally, check that calling List return the expected values.
+	ids, _ := service.ListMacaroonIDs(context.TODO())
+	require.Equal(t, expectedIDs, ids, "root key IDs mismatch")
+}
+
+// TestDeleteMacaroonID removes the specific root key ID.
+func TestDeleteMacaroonID(t *testing.T) {
+	ctxb := context.Background()
+
+	// First, initialize a dummy DB file with a store that the service
+	// can read from. Make sure the file is removed in the end.
+	tempDir := setupTestRootKeyStorage(t)
+	defer os.RemoveAll(tempDir)
+
+	// Second, create the new service instance, unlock it and pass in a
+	// checker that we expect it to add to the bakery.
+	service, err := macaroons.NewService(tempDir, macaroons.IPLockChecker)
+	require.NoError(t, err, "Error creating new service")
+	defer service.Close()
+
+	err = service.CreateUnlock(&defaultPw)
+	require.NoError(t, err, "Error unlocking root key storage")
+
+	// Third, checks that removing encryptedKeyID returns an error.
+	encryptedKeyID := []byte("enckey")
+	_, err = service.DeleteMacaroonID(ctxb, encryptedKeyID)
+	require.Equal(t, macaroons.ErrDeletionForbidden, err)
+
+	// Fourth, checks that removing DefaultKeyID returns an error.
+	_, err = service.DeleteMacaroonID(ctxb, macaroons.DefaultRootKeyID)
+	require.Equal(t, macaroons.ErrDeletionForbidden, err)
+
+	// Fifth, checks that removing empty key id returns an error.
+	_, err = service.DeleteMacaroonID(ctxb, []byte{})
+	require.Equal(t, macaroons.ErrMissingRootKeyID, err)
+
+	// Sixth, checks that removing a non-existed key id returns nil.
+	nonExistedID := []byte("test-non-existed")
+	deletedID, err := service.DeleteMacaroonID(ctxb, nonExistedID)
+	require.NoError(t, err, "deleting macaroon ID got an error")
+	require.Nil(t, deletedID, "deleting non-existed ID should return nil")
+
+	// Seventh, make 3 new macaroons with different root key IDs, and delete
+	// one.
+	expectedIDs := [][]byte{{1}, {2}, {3}}
+	for _, v := range expectedIDs {
+		_, err := service.NewMacaroon(ctxb, v, testOperation)
+		require.NoError(t, err, "Error creating macaroon from service")
+	}
+	deletedID, err = service.DeleteMacaroonID(ctxb, expectedIDs[0])
+	require.NoError(t, err, "deleting macaroon ID got an error")
+
+	// Finally, check that the ID is deleted.
+	require.Equal(t, expectedIDs[0], deletedID, "expected ID to be removed")
+	ids, _ := service.ListMacaroonIDs(ctxb)
+	require.Equal(t, expectedIDs[1:], ids, "root key IDs mismatch")
 }

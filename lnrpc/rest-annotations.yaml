@@ -133,6 +133,10 @@ http:
     - selector: lnrpc.Lightning.BakeMacaroon
       post: "/v1/macaroon"
       body: "*"
+    - selector: lnrpc.Lightning.ListMacaroonIDs
+      get: "/v1/macaroon/ids"
+    - selector: lnrpc.Lightning.DeleteMacaroonID
+      delete: "/v1/macaroon/{root_key_id}"
 
     # walletunlocker.proto
     - selector: lnrpc.WalletUnlocker.GenSeed

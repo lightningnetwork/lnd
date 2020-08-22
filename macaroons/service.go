@@ -20,6 +20,13 @@ var (
 	// DBFilename is the filename within the data directory which contains
 	// the macaroon stores.
 	DBFilename = "macaroons.db"
+
+	// ErrMissingRootKeyID specifies the root key ID is missing.
+	ErrMissingRootKeyID = fmt.Errorf("missing root key ID")
+
+	// ErrDeletionForbidden is used when attempting to delete the
+	// DefaultRootKeyID or the encryptedKeyID.
+	ErrDeletionForbidden = fmt.Errorf("the specified ID cannot be deleted")
 )
 
 // Service encapsulates bakery.Bakery and adds a Close() method that zeroes the
@@ -196,4 +203,40 @@ func (svc *Service) Close() error {
 // the result.
 func (svc *Service) CreateUnlock(password *[]byte) error {
 	return svc.rks.CreateUnlock(password)
+}
+
+// NewMacaroon wraps around the function Oven.NewMacaroon with the defaults,
+//  - version is always bakery.LatestVersion;
+//  - caveats is always nil.
+// In addition, it takes a rootKeyID parameter, and puts it into the context.
+// The context is passed through Oven.NewMacaroon(), in which calls the function
+// RootKey(), that reads the context for rootKeyID.
+func (svc *Service) NewMacaroon(
+	ctx context.Context, rootKeyID []byte,
+	ops ...bakery.Op) (*bakery.Macaroon, error) {
+
+	// Check rootKeyID is not called with nil or empty bytes. We want the
+	// caller to be aware the value of root key ID used, so we won't replace
+	// it with the DefaultRootKeyID if not specified.
+	if len(rootKeyID) == 0 {
+		return nil, ErrMissingRootKeyID
+	}
+
+	// // Pass the root key ID to context.
+	ctx = ContextWithRootKeyID(ctx, rootKeyID)
+
+	return svc.Oven.NewMacaroon(ctx, bakery.LatestVersion, nil, ops...)
+}
+
+// ListMacaroonIDs returns all the root key ID values except the value of
+// encryptedKeyID.
+func (svc *Service) ListMacaroonIDs(ctxt context.Context) ([][]byte, error) {
+	return svc.rks.ListMacaroonIDs(ctxt)
+}
+
+// DeleteMacaroonID removes one specific root key ID. If the root key ID is
+// found and deleted, it will be returned.
+func (svc *Service) DeleteMacaroonID(ctxt context.Context,
+	rootKeyID []byte) ([]byte, error) {
+	return svc.rks.DeleteMacaroonID(ctxt, rootKeyID)
 }

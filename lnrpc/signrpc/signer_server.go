@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -111,8 +112,8 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 		// At this point, we know that the signer macaroon doesn't yet,
 		// exist, so we need to create it with the help of the main
 		// macaroon service.
-		signerMac, err := cfg.MacService.Oven.NewMacaroon(
-			context.Background(), bakery.LatestVersion, nil,
+		signerMac, err := cfg.MacService.NewMacaroon(
+			context.Background(), macaroons.DefaultRootKeyID,
 			macaroonOps...,
 		)
 		if err != nil {

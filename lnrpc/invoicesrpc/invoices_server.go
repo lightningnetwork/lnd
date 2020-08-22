@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/macaroons"
 )
 
 const (
@@ -99,8 +100,8 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 		// At this point, we know that the invoices macaroon doesn't
 		// yet, exist, so we need to create it with the help of the
 		// main macaroon service.
-		invoicesMac, err := cfg.MacService.Oven.NewMacaroon(
-			context.Background(), bakery.LatestVersion, nil,
+		invoicesMac, err := cfg.MacService.NewMacaroon(
+			context.Background(), macaroons.DefaultRootKeyID,
 			macaroonOps...,
 		)
 		if err != nil {

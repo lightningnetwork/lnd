@@ -1426,6 +1426,62 @@
         ]
       }
     },
+    "/v1/macaroon/ids": {
+      "get": {
+        "summary": "lncli: `listmacaroonids`\nListMacaroonIDs returns all root key IDs that are in use.",
+        "operationId": "ListMacaroonIDs",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcListMacaroonIDsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/macaroon/{root_key_id}": {
+      "delete": {
+        "summary": "lncli: `deletemacaroonid`\nDeleteMacaroonID deletes the specified macaroon ID and invalidates all\nmacaroons derived from that ID.",
+        "operationId": "DeleteMacaroonID",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcDeleteMacaroonIDResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "root_key_id",
+            "description": "The root key ID to be removed.",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uint64"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/newaddress": {
       "get": {
         "summary": "lncli: `newaddress`\nNewAddress creates a new address under control of the local wallet.",
@@ -2399,6 +2455,11 @@
             "$ref": "#/definitions/lnrpcMacaroonPermission"
           },
           "description": "The list of permissions the new macaroon should grant."
+        },
+        "root_key_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The root key ID used to create the macaroon, must be a positive integer."
         }
       }
     },
@@ -3160,6 +3221,16 @@
     },
     "lnrpcDeleteAllPaymentsResponse": {
       "type": "object"
+    },
+    "lnrpcDeleteMacaroonIDResponse": {
+      "type": "object",
+      "properties": {
+        "deleted": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "A boolean indicates that the deletion is successful."
+        }
+      }
     },
     "lnrpcDisconnectPeerResponse": {
       "type": "object"
@@ -4092,6 +4163,19 @@
           "type": "string",
           "format": "uint64",
           "description": "The index of the last item in the set of returned invoices. This can be used\nto seek backwards, pagination style."
+        }
+      }
+    },
+    "lnrpcListMacaroonIDsResponse": {
+      "type": "object",
+      "properties": {
+        "root_key_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "The list of root key IDs that are in use."
         }
       }
     },

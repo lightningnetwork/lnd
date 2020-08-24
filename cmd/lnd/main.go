@@ -19,7 +19,10 @@ func main() {
 	}
 
 	// Hook interceptor for os signals.
-	signal.Intercept()
+	if err := signal.Intercept(); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 
 	// Call the "real" main in a nested manner so the defers will properly
 	// be executed in the case of a graceful shutdown.

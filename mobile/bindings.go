@@ -54,7 +54,10 @@ func Start(extraArgs string, unlockerReady, rpcReady Callback) {
 	}
 
 	// Hook interceptor for os signals.
-	signal.Intercept()
+	if err := signal.Intercept(); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 
 	// Set up channels that will be notified when the RPC servers are ready
 	// to accept calls.

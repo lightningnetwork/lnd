@@ -414,7 +414,10 @@ func openChannelPsbt(ctx *cli.Context, client lnrpc.LightningClient,
 	if err != nil {
 		return fmt.Errorf("opening stream to server failed: %v", err)
 	}
-	signal.Intercept()
+
+	if err := signal.Intercept(); err != nil {
+		return err
+	}
 
 	// We also need to spawn a goroutine that reads from the server. This
 	// will copy the messages to the channel as long as they come in or add

@@ -37,7 +37,9 @@ func newInvoiceExpiryWatcherTest(t *testing.T, now time.Time,
 	err := test.watcher.Start(func(paymentHash lntypes.Hash,
 		force bool) error {
 
-		test.canceledInvoices = append(test.canceledInvoices, paymentHash)
+		test.canceledInvoices = append(
+			test.canceledInvoices, paymentHash,
+		)
 		test.wg.Done()
 		return nil
 	})
@@ -70,7 +72,8 @@ func (t *invoiceExpiryWatcherTest) checkExpectations() {
 	// that expired.
 	if len(t.canceledInvoices) != len(t.testData.expiredInvoices) {
 		t.t.Fatalf("expected %v cancellations, got %v",
-			len(t.testData.expiredInvoices), len(t.canceledInvoices))
+			len(t.testData.expiredInvoices),
+			len(t.canceledInvoices))
 	}
 
 	for i := range t.canceledInvoices {
@@ -155,24 +158,14 @@ func TestInvoiceExpiryWhenAddingMultipleInvoices(t *testing.T) {
 	t.Parallel()
 
 	test := newInvoiceExpiryWatcherTest(t, testTime, 5, 5)
-	var invoices []channeldb.InvoiceWithPaymentHash
+	invoices := make(map[lntypes.Hash]*channeldb.Invoice)
 
 	for hash, invoice := range test.testData.expiredInvoices {
-		invoices = append(invoices,
-			channeldb.InvoiceWithPaymentHash{
-				Invoice:     *invoice,
-				PaymentHash: hash,
-			},
-		)
+		invoices[hash] = invoice
 	}
 
 	for hash, invoice := range test.testData.pendingInvoices {
-		invoices = append(invoices,
-			channeldb.InvoiceWithPaymentHash{
-				Invoice:     *invoice,
-				PaymentHash: hash,
-			},
-		)
+		invoices[hash] = invoice
 	}
 
 	test.watcher.AddInvoices(invoices)

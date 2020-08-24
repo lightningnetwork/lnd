@@ -402,11 +402,13 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	registryConfig := invoices.RegistryConfig{
-		FinalCltvRejectDelta: lncfg.DefaultFinalCltvRejectDelta,
-		HtlcHoldDuration:     invoices.DefaultHtlcHoldDuration,
-		Clock:                clock.NewDefaultClock(),
-		AcceptKeySend:        cfg.AcceptKeySend,
-		KeysendHoldTime:      cfg.KeysendHoldTime,
+		FinalCltvRejectDelta:        lncfg.DefaultFinalCltvRejectDelta,
+		HtlcHoldDuration:            invoices.DefaultHtlcHoldDuration,
+		Clock:                       clock.NewDefaultClock(),
+		AcceptKeySend:               cfg.AcceptKeySend,
+		GcCanceledInvoicesOnStartup: cfg.GcCanceledInvoicesOnStartup,
+		GcCanceledInvoicesOnTheFly:  cfg.GcCanceledInvoicesOnTheFly,
+		KeysendHoldTime:             cfg.KeysendHoldTime,
 	}
 
 	s := &server{

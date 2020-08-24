@@ -37,6 +37,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/healthcheck"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
@@ -275,6 +276,9 @@ type server struct {
 	chanEventStore *chanfitness.ChannelEventStore
 
 	hostAnn *netann.HostAnnouncer
+
+	// livelinessMonitor monitors that lnd has access to critical resources.
+	livelinessMonitor *healthcheck.Monitor
 
 	quit chan struct{}
 
@@ -1254,6 +1258,32 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		})
 	}
 
+	// Create a set of health checks using our configured values. If a
+	// health check has been disabled by setting attempts to 0, our monitor
+	// will not run it.
+	chainHealthCheck := healthcheck.NewObservation(
+		"chain backend",
+		func() error {
+			_, _, err := cc.chainIO.GetBestBlock()
+			return err
+		},
+		cfg.HealthChecks.ChainCheck.Interval,
+		cfg.HealthChecks.ChainCheck.Timeout,
+		cfg.HealthChecks.ChainCheck.Backoff,
+		cfg.HealthChecks.ChainCheck.Attempts,
+	)
+
+	// If we have not disabled all of our health checks, we create a
+	// liveliness monitor with our configured checks.
+	s.livelinessMonitor = healthcheck.NewMonitor(
+		&healthcheck.Config{
+			Checks: []*healthcheck.Observation{
+				chainHealthCheck,
+			},
+			Shutdown: srvrLog.Criticalf,
+		},
+	)
+
 	// Create the connection manager which will be responsible for
 	// maintaining persistent outbound connections and also accepting new
 	// incoming connections
@@ -1299,6 +1329,13 @@ func (s *server) Start() error {
 
 		if s.hostAnn != nil {
 			if err := s.hostAnn.Start(); err != nil {
+				startErr = err
+				return
+			}
+		}
+
+		if s.livelinessMonitor != nil {
+			if err := s.livelinessMonitor.Start(); err != nil {
 				startErr = err
 				return
 			}
@@ -1532,6 +1569,13 @@ func (s *server) Stop() error {
 			if err := s.hostAnn.Stop(); err != nil {
 				srvrLog.Warnf("unable to shut down host "+
 					"annoucner: %v", err)
+			}
+		}
+
+		if s.livelinessMonitor != nil {
+			if err := s.livelinessMonitor.Stop(); err != nil {
+				srvrLog.Warnf("unable to shutdown liveliness "+
+					"monitor: %v", err)
 			}
 		}
 

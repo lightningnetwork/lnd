@@ -86,6 +86,11 @@ const (
 	// HostAnnouncer will wait between DNS resolutions to check if the
 	// backing IP of a host has changed.
 	defaultHostSampleInterval = time.Minute * 5
+
+	defaultChainInterval = time.Minute
+	defaultChainTimeout  = time.Second * 10
+	defaultChainBackoff  = time.Second * 30
+	defaultChainAttempts = 3
 )
 
 var (
@@ -265,6 +270,8 @@ type Config struct {
 
 	AllowCircularRoute bool `long:"allow-circular-route" description:"If true, our node will allow htlc forwards that arrive and depart on the same channel."`
 
+	HealthChecks *lncfg.HealthCheckConfig `group:"healthcheck" namespace:"healthcheck"`
+
 	DB *lncfg.DB `group:"db" namespace:"db"`
 
 	// LogWriter is the root logger that all of the daemon's subloggers are
@@ -382,6 +389,14 @@ func DefaultConfig() Config {
 		Prometheus: lncfg.DefaultPrometheus(),
 		Watchtower: &lncfg.Watchtower{
 			TowerDir: defaultTowerDir,
+		},
+		HealthChecks: &lncfg.HealthCheckConfig{
+			ChainCheck: &lncfg.CheckConfig{
+				Interval: defaultChainInterval,
+				Timeout:  defaultChainTimeout,
+				Attempts: defaultChainAttempts,
+				Backoff:  defaultChainBackoff,
+			},
 		},
 		MaxOutgoingCltvExpiry:   htlcswitch.DefaultMaxOutgoingCltvExpiry,
 		MaxChannelFeeAllocation: htlcswitch.DefaultMaxLinkFeeAllocation,
@@ -1124,6 +1139,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 		cfg.Caches,
 		cfg.WtClient,
 		cfg.DB,
+		cfg.HealthChecks,
 	)
 	if err != nil {
 		return nil, err

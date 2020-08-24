@@ -667,7 +667,7 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 // the cooperative close tx, given the channel type and transaction fee.
 func CoopCloseBalance(chanType channeldb.ChannelType, isInitiator bool,
 	coopCloseFee btcutil.Amount, localCommit channeldb.ChannelCommitment) (
-	btcutil.Amount, btcutil.Amount) {
+	btcutil.Amount, btcutil.Amount, error) {
 
 	// Get both parties' balances from the latest commitment.
 	ourBalance := localCommit.LocalBalance.ToSatoshis()
@@ -693,7 +693,15 @@ func CoopCloseBalance(chanType channeldb.ChannelType, isInitiator bool,
 		theirBalance += initiatorDelta
 	}
 
-	return ourBalance, theirBalance
+	// During fee negotiation it should always be verified that the
+	// initiator can pay the proposed fee, but we do a sanity check just to
+	// be sure here.
+	if ourBalance < 0 || theirBalance < 0 {
+		return 0, 0, fmt.Errorf("initiator cannot afford proposed " +
+			"coop close fee")
+	}
+
+	return ourBalance, theirBalance, nil
 }
 
 // genHtlcScript generates the proper P2WSH public key scripts for the HTLC

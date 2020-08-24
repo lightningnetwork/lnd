@@ -2230,11 +2230,11 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 			"got %v", 2, len(closeTx.TxOut))
 	}
 
-	// We'll reset the channel states before proceeding to our nest test.
+	// We'll reset the channel states before proceeding to our next test.
 	resetChannelState()
 
 	// Next we'll modify the current balances and dust limits such that
-	// Bob's current balance is above _below_ his dust limit.
+	// Bob's current balance is _below_ his dust limit.
 	aliceBal := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	bobBal := lnwire.NewMSatFromSatoshis(250)
 	setBalances(aliceBal, bobBal)
@@ -2277,9 +2277,24 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 			int64(closeTx.TxOut[0].Value))
 	}
 
-	// Finally, we'll modify the current balances and dust limits such that
-	// Alice's current balance is _below_ his her limit.
+	// We'll modify the current balances and dust limits such that
+	// Alice's current balance is too low to pay the proposed fee.
 	setBalances(bobBal, aliceBal)
+	resetChannelState()
+
+	// Attempting to close with this fee now should fail, since Alice
+	// cannot afford it.
+	_, _, _, err = aliceChannel.CreateCloseProposal(
+		aliceFee, aliceDeliveryScript, bobDeliveryScript,
+	)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+
+	// Finally, we'll modify the current balances and dust limits such that
+	// Alice's balance after paying the coop fee is _below_ her dust limit.
+	lowBalance := lnwire.NewMSatFromSatoshis(aliceFee) + 1000
+	setBalances(lowBalance, aliceBal)
 	resetChannelState()
 
 	// Our final attempt at another cooperative channel closure. It should

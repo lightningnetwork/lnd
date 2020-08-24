@@ -1273,12 +1273,36 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		cfg.HealthChecks.ChainCheck.Attempts,
 	)
 
+	diskCheck := healthcheck.NewObservation(
+		"disk space",
+		func() error {
+			free, err := healthcheck.AvailableDiskSpace(cfg.LndDir)
+			if err != nil {
+				return err
+			}
+
+			// If we have more free space than we require,
+			// we return a nil error.
+			if free > cfg.HealthChecks.DiskCheck.RequiredRemaining {
+				return nil
+			}
+
+			return fmt.Errorf("require: %v free space, got: %v",
+				cfg.HealthChecks.DiskCheck.RequiredRemaining,
+				free)
+		},
+		cfg.HealthChecks.DiskCheck.Interval,
+		cfg.HealthChecks.DiskCheck.Timeout,
+		cfg.HealthChecks.DiskCheck.Backoff,
+		cfg.HealthChecks.DiskCheck.Attempts,
+	)
+
 	// If we have not disabled all of our health checks, we create a
 	// liveliness monitor with our configured checks.
 	s.livelinessMonitor = healthcheck.NewMonitor(
 		&healthcheck.Config{
 			Checks: []*healthcheck.Observation{
-				chainHealthCheck,
+				chainHealthCheck, diskCheck,
 			},
 			Shutdown: srvrLog.Criticalf,
 		},

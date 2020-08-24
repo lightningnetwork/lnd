@@ -91,6 +91,16 @@ const (
 	defaultChainTimeout  = time.Second * 10
 	defaultChainBackoff  = time.Second * 30
 	defaultChainAttempts = 3
+
+	// By default, we will shutdown if less than 10% of disk space is
+	// available. We allow a longer interval for disk space checks, because
+	// this check is less likely to deteriorate quickly. However, we allow
+	// fewer retries because this should not be a flakey check.
+	defaultRequiredDisk = 0.1
+	defaultDiskInterval = time.Hour * 12
+	defaultDiskTimeout  = time.Second * 5
+	defaultDiskBackoff  = time.Minute
+	defaultDiskAttempts = 2
 )
 
 var (
@@ -396,6 +406,15 @@ func DefaultConfig() Config {
 				Timeout:  defaultChainTimeout,
 				Attempts: defaultChainAttempts,
 				Backoff:  defaultChainBackoff,
+			},
+			DiskCheck: &lncfg.DiskCheckConfig{
+				RequiredRemaining: defaultRequiredDisk,
+				CheckConfig: &lncfg.CheckConfig{
+					Interval: defaultDiskInterval,
+					Attempts: defaultDiskAttempts,
+					Timeout:  defaultDiskTimeout,
+					Backoff:  defaultDiskBackoff,
+				},
 			},
 		},
 		MaxOutgoingCltvExpiry:   htlcswitch.DefaultMaxOutgoingCltvExpiry,

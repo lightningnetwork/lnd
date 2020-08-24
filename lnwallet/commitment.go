@@ -663,6 +663,28 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 	return commitTx, nil
 }
 
+// CoopCloseBalance returns the final balances that should be used to create
+// the cooperative close tx, given the channel type and transaction fee.
+func CoopCloseBalance(chanType channeldb.ChannelType, isInitiator bool,
+	coopCloseFee btcutil.Amount, localCommit channeldb.ChannelCommitment) (
+	btcutil.Amount, btcutil.Amount) {
+
+	// Get both parties' balances from the latest commitment.
+	ourBalance := localCommit.LocalBalance.ToSatoshis()
+	theirBalance := localCommit.RemoteBalance.ToSatoshis()
+
+	// We'll make sure we account for the complete balance by adding the
+	// current dangling commitment fee to the balance of the initiator.
+	commitFee := localCommit.CommitFee
+	if isInitiator {
+		ourBalance = ourBalance - coopCloseFee + commitFee
+	} else {
+		theirBalance = theirBalance - coopCloseFee + commitFee
+	}
+
+	return ourBalance, theirBalance
+}
+
 // genHtlcScript generates the proper P2WSH public key scripts for the HTLC
 // output modified by two-bits denoting if this is an incoming HTLC, and if the
 // HTLC is being applied to their commitment transaction or ours.

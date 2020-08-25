@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tor"
 )
 
 // Conn is an implementation of net.Conn which enforces an authenticated key
@@ -34,12 +35,12 @@ var _ net.Conn = (*Conn)(nil)
 // public key. In the case of a handshake failure, the connection is closed and
 // a non-nil error is returned.
 func Dial(local keychain.SingleKeyECDH, netAddr *lnwire.NetAddress,
-	dialer func(string, string) (net.Conn, error)) (*Conn, error) {
+	timeout time.Duration, dialer tor.DialFunc) (*Conn, error) {
 
 	ipAddr := netAddr.Address.String()
 	var conn net.Conn
 	var err error
-	conn, err = dialer("tcp", ipAddr)
+	conn, err = dialer("tcp", ipAddr, timeout)
 	if err != nil {
 		return nil, err
 	}

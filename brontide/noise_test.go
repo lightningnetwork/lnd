@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tor"
 )
 
 type maybeNetConn struct {
@@ -66,7 +67,10 @@ func establishTestConnection() (net.Conn, net.Conn, func(), error) {
 	// successful.
 	remoteConnChan := make(chan maybeNetConn, 1)
 	go func() {
-		remoteConn, err := Dial(remoteKeyECDH, netAddr, net.Dial)
+		remoteConn, err := Dial(
+			remoteKeyECDH, netAddr,
+			tor.DefaultConnTimeout, net.DialTimeout,
+		)
 		remoteConnChan <- maybeNetConn{remoteConn, err}
 	}()
 
@@ -196,7 +200,10 @@ func TestConcurrentHandshakes(t *testing.T) {
 	remoteKeyECDH := &keychain.PrivKeyECDH{PrivKey: remotePriv}
 
 	go func() {
-		remoteConn, err := Dial(remoteKeyECDH, netAddr, net.Dial)
+		remoteConn, err := Dial(
+			remoteKeyECDH, netAddr,
+			tor.DefaultConnTimeout, net.DialTimeout,
+		)
 		connChan <- maybeNetConn{remoteConn, err}
 	}()
 

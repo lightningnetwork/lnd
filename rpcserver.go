@@ -833,12 +833,6 @@ func (r *rpcServer) Start() error {
 	// Wrap the default grpc-gateway handler with the WebSocket handler.
 	restHandler := lnrpc.NewWebSocketProxy(restMux, rpcsLog)
 
-	// Set the CORS headers if configured. This wraps the HTTP handler with
-	// another handler.
-	if len(r.cfg.RestCORS) > 0 {
-		restHandler = allowCORS(restHandler, r.cfg.RestCORS)
-	}
-
 	// With our custom REST proxy mux created, register our main RPC and
 	// give all subservers a chance to register as well.
 	err := lnrpc.RegisterLightningHandlerFromEndpoint(
@@ -894,7 +888,8 @@ func (r *rpcServer) Start() error {
 			// through the following chain:
 			// req ---> CORS handler --> WS proxy --->
 			//   REST proxy --> gRPC endpoint
-			err := http.Serve(lis, restHandler)
+			corsHandler := allowCORS(restHandler, r.cfg.RestCORS)
+			err := http.Serve(lis, corsHandler)
 			if err != nil && !lnrpc.IsClosedConnError(err) {
 				rpcsLog.Error(err)
 			}
@@ -968,6 +963,12 @@ func allowCORS(handler http.Handler, origins []string) http.Handler {
 	allowHeaders := "Access-Control-Allow-Headers"
 	allowMethods := "Access-Control-Allow-Methods"
 	allowOrigin := "Access-Control-Allow-Origin"
+
+	// If the user didn't supply any origins that means CORS is disabled
+	// and we should return the original handler.
+	if len(origins) == 0 {
+		return handler
+	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")

@@ -4798,6 +4798,8 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 func assertChannelConstraintsEqual(
 	t *harnessTest, want, got *lnrpc.ChannelConstraints) {
 
+	t.t.Helper()
+
 	if want.CsvDelay != got.CsvDelay {
 		t.Fatalf("CsvDelay mismatched, want: %v, got: %v",
 			want.CsvDelay, got.CsvDelay,
@@ -4842,6 +4844,9 @@ func assertChannelConstraintsEqual(
 func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
+	const aliceRemoteMaxHtlcs = 50
+	const bobRemoteMaxHtlcs = 100
+
 	// Create two fresh nodes and open a channel between them.
 	alice, err := net.NewNode("Alice", nil)
 	if err != nil {
@@ -4849,7 +4854,9 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	defer shutdownAndAssert(net, t, alice)
 
-	bob, err := net.NewNode("Bob", nil)
+	bob, err := net.NewNode("Bob", []string{
+		fmt.Sprintf("--default-remote-max-htlcs=%v", bobRemoteMaxHtlcs),
+	})
 	if err != nil {
 		t.Fatalf("unable to create new node: %v", err)
 	}
@@ -4878,8 +4885,9 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	chanPoint := openChannelAndAssert(
 		ctxt, t, net, alice, bob,
 		lntest.OpenChannelParams{
-			Amt:     chanAmt,
-			MinHtlc: customizedMinHtlc,
+			Amt:            chanAmt,
+			MinHtlc:        customizedMinHtlc,
+			RemoteMaxHtlcs: aliceRemoteMaxHtlcs,
 		},
 	)
 
@@ -4925,10 +4933,10 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 		DustLimitSat:      uint64(lnwallet.DefaultDustLimit()),
 		MaxPendingAmtMsat: 99000000,
 		MinHtlcMsat:       1,
-		MaxAcceptedHtlcs:  input.MaxHTLCNumber / 2,
+		MaxAcceptedHtlcs:  bobRemoteMaxHtlcs,
 	}
 	assertChannelConstraintsEqual(
-		t, aliceChannel.LocalConstraints, defaultConstraints,
+		t, defaultConstraints, aliceChannel.LocalConstraints,
 	)
 
 	// customizedConstraints is a ChannelConstraints with customized values.
@@ -4941,10 +4949,10 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 		DustLimitSat:      uint64(lnwallet.DefaultDustLimit()),
 		MaxPendingAmtMsat: 99000000,
 		MinHtlcMsat:       customizedMinHtlc,
-		MaxAcceptedHtlcs:  input.MaxHTLCNumber / 2,
+		MaxAcceptedHtlcs:  aliceRemoteMaxHtlcs,
 	}
 	assertChannelConstraintsEqual(
-		t, aliceChannel.RemoteConstraints, customizedConstraints,
+		t, customizedConstraints, aliceChannel.RemoteConstraints,
 	)
 
 	// Get the ListChannel response for Bob.
@@ -14450,7 +14458,10 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// initialization of the network. args - list of lnd arguments,
 	// example: "--debuglevel=debug"
 	// TODO(roasbeef): create master balanced channel with all the monies?
-	if err = lndHarness.SetUp(nil); err != nil {
+	aliceBobArgs := []string{
+		"--default-remote-max-htlcs=483",
+	}
+	if err = lndHarness.SetUp(aliceBobArgs); err != nil {
 		ht.Fatalf("unable to set up test lightning network: %v", err)
 	}
 

@@ -1156,6 +1156,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			return lnwire.NewMSatFromSatoshis(chanAmt) - reserve
 		},
 		RequiredRemoteMaxHTLCs: func(chanAmt btcutil.Amount) uint16 {
+			if cfg.DefaultRemoteMaxHtlcs > 0 {
+				return cfg.DefaultRemoteMaxHtlcs
+			}
+
 			// By default, we'll permit them to utilize the full
 			// channel bandwidth.
 			return uint16(input.MaxHTLCNumber / 2)
@@ -3342,6 +3346,8 @@ type openChanReq struct {
 	// maxValueInFlight is the maximum amount of coins in millisatoshi that can
 	// be pending within the channel. It only applies to the remote party.
 	maxValueInFlight lnwire.MilliSatoshi
+
+	maxHtlcs uint16
 
 	// TODO(roasbeef): add ability to specify channel constraints as well
 

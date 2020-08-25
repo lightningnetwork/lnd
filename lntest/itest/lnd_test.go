@@ -14378,6 +14378,10 @@ var testsCases = []*testCase{
 		name: "maximum channel size",
 		test: testMaxChannelSize,
 	},
+	{
+		name: "connection timeout",
+		test: testNetworkConnectionTimeout,
+	},
 }
 
 // TestLightningNetworkDaemon performs a series of integration tests amongst a

@@ -767,7 +767,10 @@ func initNeutrinoBackend(cfg *Config, chainDir string) (*neutrino.ChainService,
 		AddPeers:     cfg.NeutrinoMode.AddPeers,
 		ConnectPeers: cfg.NeutrinoMode.ConnectPeers,
 		Dialer: func(addr net.Addr) (net.Conn, error) {
-			return cfg.net.Dial(addr.Network(), addr.String())
+			return cfg.net.Dial(
+				addr.Network(), addr.String(),
+				cfg.ConnectionTimeout,
+			)
 		},
 		NameResolver: func(host string) ([]net.IP, error) {
 			addrs, err := cfg.net.LookupHost(host)

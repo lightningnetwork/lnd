@@ -558,7 +558,9 @@ func minedTransactionsToDetails(
 				txOut.PkScript, chainParams,
 			)
 			if err != nil {
-				return nil, err
+				// Skip any unsupported addresses to prevent
+				// other transactions from not being returned.
+				continue
 			}
 
 			destAddresses = append(destAddresses, outAddresses...)
@@ -607,7 +609,9 @@ func unminedTransactionsToDetail(
 		_, outAddresses, _, err :=
 			txscript.ExtractPkScriptAddrs(txOut.PkScript, chainParams)
 		if err != nil {
-			return nil, err
+			// Skip any unsupported addresses to prevent other
+			// transactions from not being returned.
+			continue
 		}
 
 		destAddresses = append(destAddresses, outAddresses...)

@@ -496,12 +496,27 @@ var connectCommand = cli.Command{
 	Category:  "Peers",
 	Usage:     "Connect to a remote lnd peer.",
 	ArgsUsage: "<pubkey>@host",
+	Description: `
+	Connect to a peer using its <pubkey> and host.
+
+	A custom timeout on the connection is supported. For instance, to timeout
+	the connection request in 30 seconds, use the following:
+
+	lncli connect <pubkey>@host --timeout 30s
+	`,
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name: "perm",
 			Usage: "If set, the daemon will attempt to persistently " +
 				"connect to the target peer.\n" +
 				"           If not, the call will be synchronous.",
+		},
+		cli.DurationFlag{
+			Name: "timeout",
+			Usage: "The connection timeout value for current request. " +
+				"Valid uints are {ms, s, m, h}.\n" +
+				"If not set, the global connection " +
+				"timeout value (default to 120s) is used.",
 		},
 	},
 	Action: actionDecorator(connectPeer),
@@ -524,8 +539,9 @@ func connectPeer(ctx *cli.Context) error {
 		Host:   splitAddr[1],
 	}
 	req := &lnrpc.ConnectPeerRequest{
-		Addr: addr,
-		Perm: ctx.Bool("perm"),
+		Addr:    addr,
+		Perm:    ctx.Bool("perm"),
+		Timeout: uint64(ctx.Duration("timeout").Seconds()),
 	}
 
 	lnid, err := client.ConnectPeer(ctxb, req)

@@ -3223,6 +3223,11 @@
           "type": "boolean",
           "format": "boolean",
           "description": "If set, the daemon will attempt to persistently connect to the target\npeer. Otherwise, the call will be synchronous."
+        },
+        "timeout": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The connection timeout value (in seconds) for this request. It won't affect\nother requests."
         }
       }
     },

@@ -33,6 +33,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -301,8 +302,8 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	wc := &mockWalletController{
 		rootKey: alicePrivKey,
 	}
-	signer := &mockSigner{
-		key: alicePrivKey,
+	signer := &mock.SingleSigner{
+		Privkey: alicePrivKey,
 	}
 	bio := &mockChainIO{
 		bestHeight: fundingBroadcastHeight,

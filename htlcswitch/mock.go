@@ -16,7 +16,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
@@ -25,7 +24,6 @@ import (
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
-	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -854,67 +852,6 @@ func (i *mockInvoiceRegistry) HodlUnsubscribeAll(subscriber chan<- interface{}) 
 }
 
 var _ InvoiceDatabase = (*mockInvoiceRegistry)(nil)
-
-type mockSigner struct {
-	key *btcec.PrivateKey
-}
-
-func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx,
-	signDesc *input.SignDescriptor) (input.Signature, error) {
-
-	amt := signDesc.Output.Value
-	witnessScript := signDesc.WitnessScript
-	privKey := m.key
-
-	if !privKey.PubKey().IsEqual(signDesc.KeyDesc.PubKey) {
-		return nil, fmt.Errorf("incorrect key passed")
-	}
-
-	switch {
-	case signDesc.SingleTweak != nil:
-		privKey = input.TweakPrivKey(privKey,
-			signDesc.SingleTweak)
-	case signDesc.DoubleTweak != nil:
-		privKey = input.DeriveRevocationPrivKey(privKey,
-			signDesc.DoubleTweak)
-	}
-
-	sig, err := txscript.RawTxInWitnessSignature(tx, signDesc.SigHashes,
-		signDesc.InputIndex, amt, witnessScript, signDesc.HashType,
-		privKey)
-	if err != nil {
-		return nil, err
-	}
-
-	return btcec.ParseDERSignature(sig[:len(sig)-1], btcec.S256())
-}
-func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *input.SignDescriptor) (*input.Script, error) {
-
-	// TODO(roasbeef): expose tweaked signer from lnwallet so don't need to
-	// duplicate this code?
-
-	privKey := m.key
-
-	switch {
-	case signDesc.SingleTweak != nil:
-		privKey = input.TweakPrivKey(privKey,
-			signDesc.SingleTweak)
-	case signDesc.DoubleTweak != nil:
-		privKey = input.DeriveRevocationPrivKey(privKey,
-			signDesc.DoubleTweak)
-	}
-
-	witnessScript, err := txscript.WitnessSignature(tx, signDesc.SigHashes,
-		signDesc.InputIndex, signDesc.Output.Value, signDesc.Output.PkScript,
-		signDesc.HashType, privKey, true)
-	if err != nil {
-		return nil, err
-	}
-
-	return &input.Script{
-		Witness: witnessScript,
-	}, nil
-}
 
 type mockNotifier struct {
 	epochChan chan *chainntnfs.BlockEpoch

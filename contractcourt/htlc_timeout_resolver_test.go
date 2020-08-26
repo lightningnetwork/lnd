@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
@@ -15,32 +14,10 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
-
-type dummySignature struct{}
-
-func (s *dummySignature) Serialize() []byte {
-	return []byte{}
-}
-
-func (s *dummySignature) Verify(_ []byte, _ *btcec.PublicKey) bool {
-	return true
-}
-
-type mockSigner struct {
-}
-
-func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx,
-	signDesc *input.SignDescriptor) (input.Signature, error) {
-	return &dummySignature{}, nil
-}
-
-func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx,
-	signDesc *input.SignDescriptor) (*input.Script, error) {
-	return nil, nil
-}
 
 type mockWitnessBeacon struct {
 	preImageUpdates chan lntypes.Preimage
@@ -93,7 +70,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 
 	copy(fakePreimage[:], fakePreimageBytes)
 
-	signer := &mockSigner{}
+	signer := &mock.DummySigner{}
 	sweepTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
 			{
@@ -164,7 +141,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 			timeout:      true,
 			txToBroadcast: func() (*wire.MsgTx, error) {
 				witness, err := input.SenderHtlcSpendTimeout(
-					&dummySignature{}, txscript.SigHashAll,
+					&mock.DummySignature{}, txscript.SigHashAll,
 					signer, fakeSignDesc, sweepTx,
 				)
 				if err != nil {
@@ -189,7 +166,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 			timeout:      false,
 			txToBroadcast: func() (*wire.MsgTx, error) {
 				witness, err := input.ReceiverHtlcSpendRedeem(
-					&dummySignature{}, txscript.SigHashAll,
+					&mock.DummySignature{}, txscript.SigHashAll,
 					fakePreimageBytes, signer, fakeSignDesc,
 					sweepTx,
 				)

@@ -29,6 +29,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -1670,7 +1671,7 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 
 	aliceKeyPriv, _ := btcec.PrivKeyFromBytes(btcec.S256(),
 		alicesPrivKey)
-	signer := &mockSigner{key: aliceKeyPriv}
+	signer := &mock.SingleSigner{Privkey: aliceKeyPriv}
 
 	// Assemble our test arbiter.
 	notifier := makeMockSpendNotifier()
@@ -1897,8 +1898,8 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 
-	aliceSigner := &mockSigner{aliceKeyPriv}
-	bobSigner := &mockSigner{bobKeyPriv}
+	aliceSigner := &mock.SingleSigner{Privkey: aliceKeyPriv}
+	bobSigner := &mock.SingleSigner{Privkey: bobKeyPriv}
 
 	alicePool := lnwallet.NewSigPool(1, aliceSigner)
 	channelAlice, err := lnwallet.NewLightningChannel(

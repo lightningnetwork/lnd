@@ -862,7 +862,7 @@ func createExternalCert(cfg *Config, keyBytes []byte, certLocation string) (retu
 			rpcsLog.Infof("starting certificate validator server at %s",
 				addr)
 			err := certServer.ListenAndServe()
-			if err != nil {
+			if err != nil && err != http.ErrServerClosed {
 				rpcsLog.Errorf("there was a problem starting external cert validation server: %v",
 					err)
 				return
@@ -887,6 +887,11 @@ func createExternalCert(cfg *Config, keyBytes []byte, certLocation string) (retu
 				if err != nil {
 					return returnCert, err
 				}
+			}
+			if signal.Listening() == false {
+				rpcsLog.Info("received shutdown on cert server")
+				certServer.Close()
+				return returnCert, err
 			}
 			time.Sleep(2 * time.Second)
 		}
@@ -1261,34 +1266,43 @@ func genMacaroons(ctx context.Context, svc *macaroons.Service,
 	// access invoice related calls. This is useful for merchants and other
 	// services to allow an isolated instance that can only query and
 	// modify invoices.
-	invoiceMacBytes, err := bakeMacaroon(ctx, svc, invoicePermissions)
+	_, err := bakeMacaroon(ctx, svc, invoicePermissions)
 	if err != nil {
 		return err
 	}
-	err = ioutil.WriteFile(invoiceFile, invoiceMacBytes, 0644)
-	if err != nil {
-		os.Remove(invoiceFile)
-		return err
-	}
+	// Don't write any macaroons to disk for Voltage
+	/*
+		err = ioutil.WriteFile(invoiceFile, invoiceMacBytes, 0644)
+		if err != nil {
+			os.Remove(invoiceFile)
+			return err
+		}
+	*/
 
 	// Generate the read-only macaroon and write it to a file.
-	roBytes, err := bakeMacaroon(ctx, svc, readPermissions)
+	_, err = bakeMacaroon(ctx, svc, readPermissions)
 	if err != nil {
 		return err
 	}
-	if err = ioutil.WriteFile(roFile, roBytes, 0644); err != nil {
-		os.Remove(admFile)
-		return err
-	}
+	// Don't write any macaroons to disk for Voltage
+	/*
+		if err = ioutil.WriteFile(roFile, roBytes, 0644); err != nil {
+			os.Remove(admFile)
+			return err
+		}
+	*/
 
 	// Generate the admin macaroon and write it to a file.
-	admBytes, err := bakeMacaroon(ctx, svc, adminPermissions)
+	_, err = bakeMacaroon(ctx, svc, adminPermissions)
 	if err != nil {
 		return err
 	}
-	if err = ioutil.WriteFile(admFile, admBytes, 0600); err != nil {
-		return err
-	}
+	// Don't write any macaroons to disk for Voltage
+	/*
+		if err = ioutil.WriteFile(admFile, admBytes, 0600); err != nil {
+			return err
+		}
+	*/
 
 	return nil
 }

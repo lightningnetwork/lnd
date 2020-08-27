@@ -4800,6 +4800,16 @@
             "$ref": "#/definitions/lnrpcTimestampedError"
           },
           "description": "The latest errors received from our peer with timestamps, limited to the 10\nmost recent errors. These errors are tracked across peer connections, but\nare not persisted across lnd restarts. Note that these errors are only\nstored for peers that we have channels open with, to prevent peers from\nspamming us with errors at no cost."
+        },
+        "flap_count": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of times we have recorded this peer going offline or coming\nonline, recorded across restarts. Note that this value is decreased over\ntime if the peer has not recently flapped, so that we can forgive peers\nwith historically high flap counts."
+        },
+        "last_flap_ns": {
+          "type": "string",
+          "format": "int64",
+          "description": "The timestamp of the last flap we observed for this peer. If this value is\nzero, we have not observed any flaps for this peer."
         }
       }
     },

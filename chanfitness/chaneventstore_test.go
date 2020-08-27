@@ -290,3 +290,54 @@ func TestGetChanInfo(t *testing.T) {
 
 	ctx.stop()
 }
+
+// TestFlapCount tests querying the store for peer flap counts, covering the
+// case where the peer is tracked in memory, and the case where we need to
+// lookup the peer on disk.
+func TestFlapCount(t *testing.T) {
+	clock := clock.NewTestClock(testNow)
+
+	var (
+		peer          = route.Vertex{9, 9, 9}
+		peerFlapCount = 3
+		lastFlap      = clock.Now()
+	)
+
+	// Create a test context with one peer's flap count already recorded,
+	// which mocks it already having its flap count stored on disk.
+	ctx := newChanEventStoreTestCtx(t)
+	ctx.flapUpdates[peer] = &channeldb.FlapCount{
+		Count:    uint32(peerFlapCount),
+		LastFlap: lastFlap,
+	}
+
+	ctx.start()
+
+	// Create test variables for a peer and channel, but do not add it to
+	// our store yet.
+	peer1 := route.Vertex{1, 2, 3}
+
+	// First, query for a peer that we have no record of in memory or on
+	// disk and confirm that we indicate that the peer was not found.
+	_, ts, err := ctx.store.FlapCount(peer1)
+	require.NoError(t, err)
+	require.Nil(t, ts)
+
+	// Send an online event for our peer.
+	ctx.peerEvent(peer1, true)
+
+	// Assert that we now find a record of the peer with flap count = 1.
+	count, ts, err := ctx.store.FlapCount(peer1)
+	require.NoError(t, err)
+	require.Equal(t, lastFlap, *ts)
+	require.Equal(t, 1, count)
+
+	// Make a request for our peer that not tracked in memory, but does
+	// have its flap count stored on disk.
+	count, ts, err = ctx.store.FlapCount(peer)
+	require.NoError(t, err)
+	require.Equal(t, lastFlap, *ts)
+	require.Equal(t, peerFlapCount, count)
+
+	ctx.stop()
+}

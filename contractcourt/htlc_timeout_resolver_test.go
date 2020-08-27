@@ -203,10 +203,10 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 		},
 	}
 
-	notifier := &mockNotifier{
-		epochChan: make(chan *chainntnfs.BlockEpoch),
-		spendChan: make(chan *chainntnfs.SpendDetail),
-		confChan:  make(chan *chainntnfs.TxConfirmation),
+	notifier := &mock.ChainNotifier{
+		EpochChan: make(chan *chainntnfs.BlockEpoch),
+		SpendChan: make(chan *chainntnfs.SpendDetail),
+		ConfChan:  make(chan *chainntnfs.TxConfirmation),
 	}
 	witnessBeacon := newMockWitnessBeacon()
 
@@ -331,7 +331,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 		spendTxHash := spendingTx.TxHash()
 
 		select {
-		case notifier.spendChan <- &chainntnfs.SpendDetail{
+		case notifier.SpendChan <- &chainntnfs.SpendDetail{
 			SpendingTx:    spendingTx,
 			SpenderTxHash: &spendTxHash,
 		}:
@@ -388,7 +388,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 			// only if this is a local commitment transaction.
 			if !testCase.remoteCommit {
 				select {
-				case notifier.spendChan <- &chainntnfs.SpendDetail{
+				case notifier.SpendChan <- &chainntnfs.SpendDetail{
 					SpendingTx:    spendingTx,
 					SpenderTxHash: &spendTxHash,
 				}:

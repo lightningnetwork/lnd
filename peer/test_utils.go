@@ -99,74 +99,6 @@ var (
 // call the setup code with no custom values on the channels set up.
 var noUpdate = func(a, b *channeldb.OpenChannel) {}
 
-type mockChainIO struct {
-	bestHeight int32
-}
-
-func (m *mockChainIO) GetBestBlock() (*chainhash.Hash, int32, error) {
-	return nil, m.bestHeight, nil
-}
-
-func (*mockChainIO) GetUtxo(op *wire.OutPoint, _ []byte,
-	heightHint uint32, _ <-chan struct{}) (*wire.TxOut, error) {
-	return nil, nil
-}
-
-func (*mockChainIO) GetBlockHash(blockHeight int64) (*chainhash.Hash, error) {
-	return nil, nil
-}
-
-func (*mockChainIO) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) {
-	return nil, nil
-}
-
-var _ lnwallet.BlockChainIO = (*mockChainIO)(nil)
-
-type mockNotifier struct {
-	confChannel chan *chainntnfs.TxConfirmation
-}
-
-func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
-	_ []byte, numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent,
-	error) {
-
-	return &chainntnfs.ConfirmationEvent{
-		Confirmed: m.confChannel,
-	}, nil
-}
-
-func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ []byte,
-	heightHint uint32) (*chainntnfs.SpendEvent, error) {
-
-	return &chainntnfs.SpendEvent{
-		Spend:  make(chan *chainntnfs.SpendDetail),
-		Cancel: func() {},
-	}, nil
-}
-
-func (m *mockNotifier) RegisterBlockEpochNtfn(
-	bestBlock *chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent, error) {
-
-	return &chainntnfs.BlockEpochEvent{
-		Epochs: make(chan *chainntnfs.BlockEpoch),
-		Cancel: func() {},
-	}, nil
-}
-
-func (m *mockNotifier) Start() error {
-	return nil
-}
-
-func (m *mockNotifier) Stop() error {
-	return nil
-}
-
-func (m *mockNotifier) Started() bool {
-	return true
-}
-
-var _ chainntnfs.ChainNotifier = (*mockNotifier)(nil)
-
 // createTestPeer creates a channel between two nodes, and returns a peer for
 // one of the nodes, together with the channel seen from both nodes. It takes
 // an updateChan function which can be used to modify the default values on
@@ -414,8 +346,8 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	}
 	_ = bobPool.Start()
 
-	chainIO := &mockChainIO{
-		bestHeight: broadcastHeight,
+	chainIO := &mock.ChainIO{
+		BestHeight: broadcastHeight,
 	}
 	wallet := &lnwallet.LightningWallet{
 		WalletController: &mock.WalletController{

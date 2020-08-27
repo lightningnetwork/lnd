@@ -1435,7 +1435,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	// Notify that the breaching transaction is confirmed, to trigger the
 	// retribution logic.
 	notifier := brar.cfg.Notifier.(*mockSpendNotifier)
-	notifier.confChannel <- &chainntnfs.TxConfirmation{}
+	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
 
 	// The breach arbiter should attempt to sweep all outputs on the
 	// breached commitment. We'll pretend that the HTLC output has been
@@ -1511,7 +1511,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 
 	// Deliver confirmation of sweep if the test expects it.
 	if test.sendFinalConf {
-		notifier.confChannel <- &chainntnfs.TxConfirmation{}
+		notifier.ConfChan <- &chainntnfs.TxConfirmation{}
 	}
 
 	// Assert that the channel is fully resolved.

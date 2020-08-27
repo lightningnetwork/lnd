@@ -10,6 +10,7 @@ import (
 
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/lntest/mock"
 )
 
 const (
@@ -28,16 +29,18 @@ func tempDecayedLogPath(t *testing.T) string {
 }
 
 // startup sets up the DecayedLog and possibly the garbage collector.
-func startup(dbPath string, notifier bool) (sphinx.ReplayLog, *mockNotifier,
-	*sphinx.HashPrefix, error) {
+func startup(dbPath string, notifier bool) (sphinx.ReplayLog,
+	*mock.ChainNotifier, *sphinx.HashPrefix, error) {
 
 	var log sphinx.ReplayLog
-	var chainNotifier *mockNotifier
+	var chainNotifier *mock.ChainNotifier
 	if notifier {
 
 		// Create the MockNotifier which triggers the garbage collector
-		chainNotifier = &mockNotifier{
-			epochChan: make(chan *chainntnfs.BlockEpoch, 1),
+		chainNotifier = &mock.ChainNotifier{
+			SpendChan: make(chan *chainntnfs.SpendDetail),
+			EpochChan: make(chan *chainntnfs.BlockEpoch, 1),
+			ConfChan:  make(chan *chainntnfs.TxConfirmation),
 		}
 
 		// Initialize the DecayedLog object
@@ -99,7 +102,7 @@ func TestDecayedLogGarbageCollector(t *testing.T) {
 	// should remove the entry by block 100001.
 
 	// Send block 100000
-	notifier.epochChan <- &chainntnfs.BlockEpoch{
+	notifier.EpochChan <- &chainntnfs.BlockEpoch{
 		Height: 100000,
 	}
 
@@ -114,7 +117,7 @@ func TestDecayedLogGarbageCollector(t *testing.T) {
 	}
 
 	// Send block 100001 (expiry block)
-	notifier.epochChan <- &chainntnfs.BlockEpoch{
+	notifier.EpochChan <- &chainntnfs.BlockEpoch{
 		Height: 100001,
 	}
 
@@ -175,7 +178,7 @@ func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
 
 	// Send a block notification to the garbage collector that expires
 	// the stored CLTV.
-	notifier2.epochChan <- &chainntnfs.BlockEpoch{
+	notifier2.EpochChan <- &chainntnfs.BlockEpoch{
 		Height: int32(100001),
 	}
 

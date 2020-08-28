@@ -1210,9 +1210,21 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// sum of the active reservations and the channels pending open in the
 	// database.
 	f.resMtx.RLock()
-	numPending := len(f.activeReservations[peerIDKey])
+	reservations := f.activeReservations[peerIDKey]
 	f.resMtx.RUnlock()
 
+	// We don't count reservations that were created from a canned funding
+	// shim. The user has registered the shim and therefore expects this
+	// channel to arrive.
+	numPending := 0
+	for _, res := range reservations {
+		if !res.reservation.IsCannedShim() {
+			numPending++
+		}
+	}
+
+	// Also count the channels that are already pending. There we don't know
+	// the underlying intent anymore, unfortunately.
 	channels, err := f.cfg.Wallet.Cfg.Database.FetchOpenChannels(peerPubKey)
 	if err != nil {
 		f.failFundingFlow(
@@ -1222,7 +1234,13 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	}
 
 	for _, c := range channels {
-		if c.IsPending {
+		// Pending channels that have a non-zero thaw height were also
+		// created through a canned funding shim. Those also don't
+		// count towards the DoS protection limit.
+		//
+		// TODO(guggero): Properly store the funding type (wallet, shim,
+		// PSBT) on the channel so we don't need to use the thaw height.
+		if c.IsPending && c.ThawHeight == 0 {
 			numPending++
 		}
 	}

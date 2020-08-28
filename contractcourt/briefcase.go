@@ -442,7 +442,6 @@ func (b *boltArbitratorLog) CurrentState() (ArbitratorState, error) {
 //
 // NOTE: Part of the ContractResolver interface.
 func (b *boltArbitratorLog) CommitState(s ArbitratorState) error {
-	fmt.Printf("yeee: %T\n", b.db)
 	return kvdb.Batch(b.db, func(tx kvdb.RwTx) error {
 		scopeBucket, err := tx.CreateTopLevelBucket(b.scopeKey[:])
 		if err != nil {

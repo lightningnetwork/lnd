@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y \
 ARG PROTOC_GEN_VERSION
 ARG GRPC_GATEWAY_VERSION
 
-ENV FALAFEL_VERSION="v0.8.1"
+ENV FALAFEL_VERSION="v0.9.0"
 ENV GOCACHE=/tmp/build/.cache
 ENV GOMODCACHE=/tmp/build/.modcache
 

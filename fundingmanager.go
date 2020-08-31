@@ -1206,12 +1206,10 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	msg := fmsg.msg
 	amt := msg.FundingAmount
 
-	// We count the number of pending channels for this peer. This is the
-	// sum of the active reservations and the channels pending open in the
-	// database.
+	// We get all pending channels for this peer. This is the list of the
+	// active reservations and the channels pending open in the database.
 	f.resMtx.RLock()
 	reservations := f.activeReservations[peerIDKey]
-	f.resMtx.RUnlock()
 
 	// We don't count reservations that were created from a canned funding
 	// shim. The user has registered the shim and therefore expects this
@@ -1222,6 +1220,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 			numPending++
 		}
 	}
+	f.resMtx.RUnlock()
 
 	// Also count the channels that are already pending. There we don't know
 	// the underlying intent anymore, unfortunately.

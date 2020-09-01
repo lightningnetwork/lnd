@@ -54,7 +54,6 @@ mobile/*_generated.go
 *.db
 *.bin
 
-vendor
 *.idea
 *.iml
 profile.cov

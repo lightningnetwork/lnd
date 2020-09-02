@@ -14445,7 +14445,11 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	if err != nil {
 		ht.Fatalf("unable to start backend: %v", err)
 	}
-	defer cleanUp()
+	defer func() {
+		require.NoError(
+			t, cleanUp(), "failed to clean up chain backend",
+		)
+	}()
 
 	if err := miner.SetUp(true, 50); err != nil {
 		ht.Fatalf("unable to set up mining node: %v", err)

@@ -44,12 +44,12 @@ func (b NeutrinoBackendConfig) Name() string {
 
 // NewBackend starts and returns a NeutrinoBackendConfig for the node.
 func NewBackend(miner string, _ *chaincfg.Params) (
-	*NeutrinoBackendConfig, func(), error) {
+	*NeutrinoBackendConfig, func() error, error) {
 
 	bd := &NeutrinoBackendConfig{
 		minerAddr: miner,
 	}
 
-	cleanUp := func() {}
+	cleanUp := func() error { return nil }
 	return bd, cleanUp, nil
 }

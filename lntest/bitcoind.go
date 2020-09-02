@@ -3,6 +3,7 @@
 package lntest
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -71,7 +72,7 @@ func (b BitcoindBackendConfig) Name() string {
 // NewBackend starts a bitcoind node and returns a BitoindBackendConfig for
 // that node.
 func NewBackend(miner string, netParams *chaincfg.Params) (
-	*BitcoindBackendConfig, func(), error) {
+	*BitcoindBackendConfig, func() error, error) {
 
 	if netParams != &chaincfg.RegressionNetParams {
 		return nil, nil, fmt.Errorf("only regtest supported")
@@ -121,21 +122,32 @@ func NewBackend(miner string, netParams *chaincfg.Params) (
 		return nil, nil, fmt.Errorf("couldn't start bitcoind: %v", err)
 	}
 
-	cleanUp := func() {
+	cleanUp := func() error {
 		bitcoind.Process.Kill()
 		bitcoind.Wait()
 
+		var errStr string
 		// After shutting down the chain backend, we'll make a copy of
 		// the log file before deleting the temporary log dir.
 		err := CopyFile("./output_bitcoind_chainbackend.log", logFile)
 		if err != nil {
-			fmt.Printf("unable to copy file: %v\n", err)
+			errStr += fmt.Sprintf("unable to copy file: %v\n", err)
 		}
 		if err = os.RemoveAll(logDir); err != nil {
-			fmt.Printf("Cannot remove dir %s: %v\n", logDir, err)
+			errStr += fmt.Sprintf(
+				"cannot remove dir %s: %v\n", logDir, err,
+			)
 		}
-
-		os.RemoveAll(tempBitcoindDir)
+		if err := os.RemoveAll(tempBitcoindDir); err != nil {
+			errStr += fmt.Sprintf(
+				"cannot remove dir %s: %v\n",
+				tempBitcoindDir, err,
+			)
+		}
+		if errStr != "" {
+			return errors.New(errStr)
+		}
+		return nil
 	}
 
 	// Allow process to start.

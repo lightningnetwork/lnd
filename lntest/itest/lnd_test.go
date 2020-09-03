@@ -2467,6 +2467,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 		"--rejectnonstd",
 		"--txindex",
 		"--nowinservice",
+		"--nobanning",
 	}
 	tempMiner, err := rpctest.New(
 		harnessNetParams, &rpcclient.NotificationHandlers{}, args,
@@ -14407,6 +14408,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		"--logdir=" + minerLogDir,
 		"--trickleinterval=100ms",
 		"--nowinservice",
+		"--nobanning",
 	}
 	handlers := &rpcclient.NotificationHandlers{
 		OnTxAccepted: func(hash *chainhash.Hash, amt btcutil.Amount) {
@@ -14457,6 +14459,12 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	if err := miner.Node.NotifyNewTransactions(false); err != nil {
 		ht.Fatalf("unable to request transaction notifications: %v", err)
 	}
+
+	// Connect chainbackend to miner.
+	require.NoError(
+		t, chainBackend.ConnectMiner(),
+		"failed to connect to miner",
+	)
 
 	binary := itestLndBinary
 	if runtime.GOOS == "windows" {

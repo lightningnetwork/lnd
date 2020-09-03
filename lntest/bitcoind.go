@@ -174,14 +174,6 @@ func NewBackend(miner string, netParams *chaincfg.Params) (
 			err)
 	}
 
-	// We start by adding the miner to the bitcoind addnode list. We do
-	// this instead of connecting using command line flags, because it will
-	// allow us to disconnect the miner using the AddNode command later.
-	if err := client.AddNode(miner, rpcclient.ANAdd); err != nil {
-		cleanUp()
-		return nil, nil, fmt.Errorf("unable to add node: %v", err)
-	}
-
 	bd := BitcoindBackendConfig{
 		rpcHost:      rpcHost,
 		rpcUser:      rpcUser,

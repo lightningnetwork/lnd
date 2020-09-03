@@ -17,11 +17,11 @@ import (
 // logDir is the name of the temporary log directory.
 const logDir = "./.backendlogs"
 
-// perm is used to signal we want to establish a permanent connection using the
+// temp is used to signal we want to establish a temporary connection using the
 // btcd Node API.
 //
 // NOTE: Cannot be const, since the node API expects a reference.
-var perm = "perm"
+var temp = "temp"
 
 // BtcdBackendConfig is an implementation of the BackendConfig interface
 // backed by a btcd node.
@@ -56,12 +56,12 @@ func (b BtcdBackendConfig) GenArgs() []string {
 
 // ConnectMiner is called to establish a connection to the test miner.
 func (b BtcdBackendConfig) ConnectMiner() error {
-	return b.harness.Node.Node(btcjson.NConnect, b.minerAddr, &perm)
+	return b.harness.Node.Node(btcjson.NConnect, b.minerAddr, &temp)
 }
 
 // DisconnectMiner is called to disconnect the miner.
 func (b BtcdBackendConfig) DisconnectMiner() error {
-	return b.harness.Node.Node(btcjson.NRemove, b.minerAddr, &perm)
+	return b.harness.Node.Node(btcjson.NDisconnect, b.minerAddr, &temp)
 }
 
 // Name returns the name of the backend type.
@@ -81,8 +81,11 @@ func NewBackend(miner string, netParams *chaincfg.Params) (
 		"--trickleinterval=100ms",
 		"--debuglevel=debug",
 		"--logdir=" + logDir,
-		"--connect=" + miner,
 		"--nowinservice",
+		// The miner will get banned and disconnected from the node if
+		// its requested data are not found. We add a nobanning flag to
+		// make sure they stay connected if it happens.
+		"--nobanning",
 	}
 	chainBackend, err := rpctest.New(netParams, nil, args)
 	if err != nil {

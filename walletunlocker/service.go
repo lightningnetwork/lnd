@@ -81,6 +81,10 @@ type WalletUnlockMsg struct {
 	// ChanBackups a set of static channel backups that should be received
 	// after the wallet has been unlocked.
 	ChanBackups ChannelsToRecover
+
+	// UnloadWallet is a function for unloading the wallet, which should
+	// be called on shutdown.
+	UnloadWallet func() error
 }
 
 // UnlockerService implements the WalletUnlocker service used to provide lnd
@@ -346,6 +350,7 @@ func (u *UnlockerService) UnlockWallet(ctx context.Context,
 		Passphrase:     password,
 		RecoveryWindow: recoveryWindow,
 		Wallet:         unlockedWallet,
+		UnloadWallet:   loader.UnloadWallet,
 	}
 
 	// Before we return the unlock payload, we'll check if we can extract

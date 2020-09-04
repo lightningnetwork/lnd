@@ -214,6 +214,7 @@ jobs:
       matrix:
         unit_type:
           - btcd unit-cover
+          - unit tags=kvdb_etcd
           - travis-race
     steps:
       - name: git checkout

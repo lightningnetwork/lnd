@@ -96,6 +96,10 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 	// hop logic.
 	waitForInvoiceAccepted(t, carol, payHash)
 
+	// Increase the fee estimate so that the following force close tx will
+	// be cpfp'ed.
+	net.SetFeeEstimate(30000)
+
 	// At this point, Bob decides that he wants to exit the channel
 	// immediately, so he force closes his commitment transaction.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)

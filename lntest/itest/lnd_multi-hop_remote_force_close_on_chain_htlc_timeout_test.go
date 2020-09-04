@@ -80,6 +80,10 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
+	// Increase the fee estimate so that the following force close tx will
+	// be cpfp'ed.
+	net.SetFeeEstimate(30000)
+
 	// At this point, we'll now instruct Carol to force close the
 	// transaction. This will let us exercise that Bob is able to sweep the
 	// expired HTLC on Carol's version of the commitment transaction. If

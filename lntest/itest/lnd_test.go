@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -3460,6 +3461,9 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		numInvoices = 6
 	)
 
+	const commitFeeRate = 20000
+	net.SetFeeEstimate(commitFeeRate)
+
 	// TODO(roasbeef): should check default value in config here
 	// instead, or make delay a param
 	defaultCLTV := uint32(lnd.DefaultBitcoinTimeLockDelta)
@@ -3574,6 +3578,9 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	// execute a force closure of the channel. This will also assert that
 	// the commitment transaction was immediately broadcast in order to
 	// fulfill the force closure request.
+	const actualFeeRate = 30000
+	net.SetFeeEstimate(actualFeeRate)
+
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	_, closingTxID, err := net.CloseChannel(ctxt, alice, chanPoint, true)
 	if err != nil {
@@ -3635,16 +3642,34 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	// broadcast as a result of the force closure. If there are anchors, we
 	// also expect the anchor sweep tx to be in the mempool.
 	expectedTxes := 1
+	expectedFeeRate := commitFeeRate
 	if channelType == commitTypeAnchors {
 		expectedTxes = 2
+		expectedFeeRate = actualFeeRate
 	}
 
-	sweepTxns, err := waitForNTxsInMempool(
+	sweepTxns, err := getNTxsFromMempool(
 		net.Miner.Node, expectedTxes, minerMempoolTimeout,
 	)
 	if err != nil {
 		t.Fatalf("failed to find commitment in miner mempool: %v", err)
 	}
+
+	// Verify fee rate of the commitment tx plus anchor if present.
+	var totalWeight, totalFee int64
+	for _, tx := range sweepTxns {
+		utx := btcutil.NewTx(tx)
+		totalWeight += blockchain.GetTransactionWeight(utx)
+
+		fee, err := getTxFee(net.Miner.Node, tx)
+		require.NoError(t.t, err)
+		totalFee += int64(fee)
+	}
+	feeRate := totalFee * 1000 / totalWeight
+
+	// Allow some deviation because weight estimates during tx generation
+	// are estimates.
+	require.InEpsilon(t.t, expectedFeeRate, feeRate, 0.005)
 
 	// Find alice's commit sweep and anchor sweep (if present) in the
 	// mempool.
@@ -3737,7 +3762,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	// Carol's sweep tx should be in the mempool already, as her output is
 	// not timelocked. If there are anchors, we also expect Carol's anchor
 	// sweep now.
-	sweepTxns, err = waitForNTxsInMempool(
+	sweepTxns, err = getNTxsFromMempool(
 		net.Miner.Node, expectedTxes, minerMempoolTimeout,
 	)
 	if err != nil {
@@ -4416,12 +4441,13 @@ type sweptOutput struct {
 // we have to bring another input to add fees to the anchor. Note that the
 // anchor swept output may be nil if the channel did not have anchors.
 func findCommitAndAnchor(t *harnessTest, net *lntest.NetworkHarness,
-	sweepTxns []*chainhash.Hash, closeTx string) (*sweptOutput, *sweptOutput) {
+	sweepTxns []*wire.MsgTx, closeTx string) (*sweptOutput, *sweptOutput) {
 
 	var commitSweep, anchorSweep *sweptOutput
 
 	for _, tx := range sweepTxns {
-		sweepTx, err := net.Miner.Node.GetRawTransaction(tx)
+		txHash := tx.TxHash()
+		sweepTx, err := net.Miner.Node.GetRawTransaction(&txHash)
 		require.NoError(t.t, err)
 
 		// We expect our commitment sweep to have a single input, and,
@@ -4434,7 +4460,7 @@ func findCommitAndAnchor(t *harnessTest, net *lntest.NetworkHarness,
 		if len(inputs) == 1 {
 			commitSweep = &sweptOutput{
 				OutPoint: inputs[0].PreviousOutPoint,
-				SweepTx:  tx.String(),
+				SweepTx:  txHash.String(),
 			}
 		} else {
 			// Since we have more than one input, we run through
@@ -4445,7 +4471,7 @@ func findCommitAndAnchor(t *harnessTest, net *lntest.NetworkHarness,
 				if outpointStr == closeTx {
 					anchorSweep = &sweptOutput{
 						OutPoint: txin.PreviousOutPoint,
-						SweepTx:  tx.String(),
+						SweepTx:  txHash.String(),
 					}
 				}
 			}
@@ -7574,6 +7600,28 @@ func getNTxsFromMempool(miner *rpcclient.Client, n int,
 	return txes, nil
 }
 
+// getTxFee retrieves parent transactions and reconstructs the fee paid.
+func getTxFee(miner *rpcclient.Client, tx *wire.MsgTx) (btcutil.Amount, error) {
+	var balance btcutil.Amount
+	for _, in := range tx.TxIn {
+		parentHash := in.PreviousOutPoint.Hash
+		rawTx, err := miner.GetRawTransaction(&parentHash)
+		if err != nil {
+			return 0, err
+		}
+		parent := rawTx.MsgTx()
+		balance += btcutil.Amount(
+			parent.TxOut[in.PreviousOutPoint.Index].Value,
+		)
+	}
+
+	for _, out := range tx.TxOut {
+		balance -= btcutil.Amount(out.Value)
+	}
+
+	return balance, nil
+}
+
 // testFailingChannel tests that we will fail the channel by force closing ii
 // in the case where a counterparty tries to settle an HTLC with the wrong
 // preimage.
@@ -9422,6 +9470,10 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	carol *lntest.HarnessNode, carolStartingBalance int64,
 	dave *lntest.HarnessNode, daveStartingBalance int64,
 	anchors bool) {
+
+	// Increase the fee estimate so that the following force close tx will
+	// be cpfp'ed.
+	net.SetFeeEstimate(30000)
 
 	// We disabled auto-reconnect for some tests to avoid timing issues.
 	// To make sure the nodes are initiating DLP now, we have to manually
@@ -14526,6 +14578,9 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		if err := lndHarness.Bob.AddToLog(logLine); err != nil {
 			t.Fatalf("unable to add to log: %v", err)
 		}
+
+		// Start every test with the default static fee estimate.
+		lndHarness.SetFeeEstimate(12500)
 
 		success := t.Run(testCase.name, func(t1 *testing.T) {
 			ht := newHarnessTest(t1, lndHarness)

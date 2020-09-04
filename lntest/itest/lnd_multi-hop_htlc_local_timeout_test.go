@@ -105,6 +105,10 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest,
 		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
+	// Increase the fee estimate so that the following force close tx will
+	// be cpfp'ed.
+	net.SetFeeEstimate(30000)
+
 	// We'll now mine enough blocks to trigger Bob's broadcast of his
 	// commitment transaction due to the fact that the HTLC is about to
 	// timeout. With the default outgoing broadcast delta of zero, this will

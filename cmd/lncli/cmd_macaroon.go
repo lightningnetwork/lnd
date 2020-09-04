@@ -34,6 +34,19 @@ var bakeMacaroonCommand = cli.Command{
 	colon. Multiple operations can be added as arguments, for example:
 
 	lncli bakemacaroon info:read invoices:write foo:bar
+
+	For even more fine-grained permission control, it is also possible to
+	specify single RPC method URIs that are allowed to be accessed by a
+	macaroon. This can be achieved by specifying "uri:<methodURI>" pairs,
+	for example:
+
+	lncli bakemacaroon uri:/lnrpc.Lightning/GetInfo uri:/verrpc.Versioner/GetVersion
+
+	The macaroon created by this command would only be allowed to use the
+	"lncli getinfo" and "lncli version" commands.
+
+	To get a list of all available URIs and permissions, use the
+	"lncli listpermissions" command.
 	`,
 	Flags: []cli.Flag{
 		cli.StringFlag{

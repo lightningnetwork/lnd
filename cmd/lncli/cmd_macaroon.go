@@ -10,9 +10,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/urfave/cli"
+	"gopkg.in/macaroon-bakery.v2/bakery"
 	"gopkg.in/macaroon.v2"
 )
 
@@ -302,6 +304,105 @@ func listPermissions(ctx *cli.Context) error {
 	}
 
 	printRespJSON(response)
+
+	return nil
+}
+
+type macaroonContent struct {
+	Version     uint16   `json:"version"`
+	Location    string   `json:"location"`
+	RootKeyID   string   `json:"root_key_id"`
+	Permissions []string `json:"permissions"`
+	Caveats     []string `json:"caveats"`
+}
+
+var printMacaroonCommand = cli.Command{
+	Name:      "printmacaroon",
+	Category:  "Macaroons",
+	Usage:     "Print the content of a macaroon in a human readable format.",
+	ArgsUsage: "[macaroon_content_hex]",
+	Description: `
+	Decode a macaroon and show its content in a more human readable format.
+	The macaroon can either be passed as a hex encoded positional parameter
+	or loaded from a file.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "macaroon_file",
+			Usage: "load the macaroon from a file instead of the " +
+				"command line directly",
+		},
+	},
+	Action: actionDecorator(printMacaroon),
+}
+
+func printMacaroon(ctx *cli.Context) error {
+	// Show command help if no arguments or flags are set.
+	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
+		return cli.ShowCommandHelp(ctx, "printmacaroon")
+	}
+
+	var (
+		macBytes []byte
+		err      error
+		args     = ctx.Args()
+	)
+	switch {
+	case ctx.IsSet("macaroon_file"):
+		macPath := cleanAndExpandPath(ctx.String("macaroon_file"))
+
+		// Load the specified macaroon file.
+		macBytes, err = ioutil.ReadFile(macPath)
+		if err != nil {
+			return fmt.Errorf("unable to read macaroon path %v: %v",
+				macPath, err)
+		}
+
+	case args.Present():
+		macBytes, err = hex.DecodeString(args.First())
+		if err != nil {
+			return fmt.Errorf("unable to hex decode macaroon: %v",
+				err)
+		}
+
+	default:
+		return fmt.Errorf("macaroon parameter missing")
+	}
+
+	// Decode the macaroon and its protobuf encoded internal identifier.
+	mac := &macaroon.Macaroon{}
+	if err = mac.UnmarshalBinary(macBytes); err != nil {
+		return fmt.Errorf("unable to decode macaroon: %v", err)
+	}
+	rawID := mac.Id()
+	if rawID[0] != byte(bakery.LatestVersion) {
+		return fmt.Errorf("invalid macaroon version: %x", rawID)
+	}
+	decodedID := &lnrpc.MacaroonId{}
+	idProto := rawID[1:]
+	err = proto.Unmarshal(idProto, decodedID)
+	if err != nil {
+		return fmt.Errorf("unable to decode macaroon version: %v", err)
+	}
+
+	// Prepare everything to be printed in a more human readable format.
+	content := &macaroonContent{
+		Version:     uint16(mac.Version()),
+		Location:    mac.Location(),
+		RootKeyID:   string(decodedID.StorageId),
+		Permissions: nil,
+		Caveats:     nil,
+	}
+
+	for _, caveat := range mac.Caveats() {
+		content.Caveats = append(content.Caveats, string(caveat.Id))
+	}
+	for _, op := range decodedID.Ops {
+		permission := fmt.Sprintf("%s:%s", op.Entity, op.Actions[0])
+		content.Permissions = append(content.Permissions, permission)
+	}
+
+	printJSON(content)
 
 	return nil
 }

@@ -3559,3 +3559,14 @@ message ChannelUpdate {
     */
     bytes extra_opaque_data = 12;
 }
+
+message MacaroonId {
+    bytes nonce = 1;
+    bytes storageId = 2;
+    repeated Op ops = 3;
+}
+
+message Op {
+    string entity = 1;
+    repeated string actions = 2;
+}

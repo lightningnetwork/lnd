@@ -1456,6 +1456,29 @@
         ]
       }
     },
+    "/v1/macaroon/permissions": {
+      "get": {
+        "summary": "lncli: `listpermissions`\nListPermissions lists all RPC method URIs and their required macaroon\npermissions to access them.",
+        "operationId": "ListPermissions",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcListPermissionsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/macaroon/{root_key_id}": {
       "delete": {
         "summary": "lncli: `deletemacaroonid`\nDeleteMacaroonID deletes the specified macaroon ID and invalidates all\nmacaroons derived from that ID.",
@@ -4220,6 +4243,18 @@
         }
       }
     },
+    "lnrpcListPermissionsResponse": {
+      "type": "object",
+      "properties": {
+        "method_permissions": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/lnrpcMacaroonPermissionList"
+          },
+          "description": "A map between all RPC method URIs and their required macaroon permissions to\naccess them."
+        }
+      }
+    },
     "lnrpcListUnspentResponse": {
       "type": "object",
       "properties": {
@@ -4257,6 +4292,18 @@
         "action": {
           "type": "string",
           "description": "The action that is granted."
+        }
+      }
+    },
+    "lnrpcMacaroonPermissionList": {
+      "type": "object",
+      "properties": {
+        "permissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcMacaroonPermission"
+          },
+          "description": "A list of macaroon permissions."
         }
       }
     },

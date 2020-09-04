@@ -453,6 +453,10 @@ func mainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "macaroon",
 			Action: "write",
 		}},
+		"/lnrpc.Lightning/ListPermissions": {{
+			Entity: "info",
+			Action: "read",
+		}},
 		"/lnrpc.Lightning/SubscribePeerEvents": {{
 			Entity: "peers",
 			Action: "read",
@@ -6569,6 +6573,33 @@ func (r *rpcServer) DeleteMacaroonID(ctx context.Context,
 		// If the root key ID doesn't exist, it won't be deleted. We
 		// will return a response with deleted = false, otherwise true.
 		Deleted: deletedIDBytes != nil,
+	}, nil
+}
+
+// ListPermissions lists all RPC method URIs and their required macaroon
+// permissions to access them.
+func (r *rpcServer) ListPermissions(_ context.Context,
+	_ *lnrpc.ListPermissionsRequest) (*lnrpc.ListPermissionsResponse,
+	error) {
+
+	rpcsLog.Debugf("[listpermissions]")
+
+	permissionMap := make(map[string]*lnrpc.MacaroonPermissionList)
+	for uri, perms := range r.allPermissions {
+		rpcPerms := make([]*lnrpc.MacaroonPermission, len(perms))
+		for idx, perm := range perms {
+			rpcPerms[idx] = &lnrpc.MacaroonPermission{
+				Entity: perm.Entity,
+				Action: perm.Action,
+			}
+		}
+		permissionMap[uri] = &lnrpc.MacaroonPermissionList{
+			Permissions: rpcPerms,
+		}
+	}
+
+	return &lnrpc.ListPermissionsResponse{
+		MethodPermissions: permissionMap,
 	}, nil
 }
 

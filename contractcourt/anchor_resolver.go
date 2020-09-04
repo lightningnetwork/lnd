@@ -99,6 +99,7 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 		input.CommitmentAnchor,
 		&c.anchorSignDescriptor,
 		c.broadcastHeight,
+		nil,
 	)
 
 	resultChan, err := c.Sweeper.SweepInput(

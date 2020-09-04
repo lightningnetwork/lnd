@@ -71,9 +71,6 @@ func (t *txInputSetState) clone() txInputSetState {
 type txInputSet struct {
 	txInputSetState
 
-	// feePerKW is the fee rate used to calculate the tx fee.
-	feePerKW chainfee.SatPerKWeight
-
 	// dustLimit is the minimum output value of the tx.
 	dustLimit btcutil.Amount
 
@@ -96,11 +93,10 @@ func newTxInputSet(wallet Wallet, feePerKW,
 	)
 
 	state := txInputSetState{
-		weightEstimate: newWeightEstimator(),
+		weightEstimate: newWeightEstimator(feePerKW),
 	}
 
 	b := txInputSet{
-		feePerKW:        feePerKW,
 		dustLimit:       dustLimit,
 		maxInputs:       maxInputs,
 		wallet:          wallet,
@@ -146,8 +142,7 @@ func (t *txInputSet) addToState(inp input.Input, constraints addConstraints) *tx
 	s.inputTotal += value
 
 	// Recalculate the tx fee.
-	weight := s.weightEstimate.weight()
-	fee := t.feePerKW.FeeForWeight(int64(weight))
+	fee := s.weightEstimate.fee()
 
 	// Calculate the new output value.
 	s.outputValue = s.inputTotal - fee

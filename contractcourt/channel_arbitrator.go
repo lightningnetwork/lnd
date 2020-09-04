@@ -1073,6 +1073,7 @@ func (c *ChannelArbitrator) sweepAnchors(anchors []*lnwallet.AnchorResolution,
 			input.CommitmentAnchor,
 			&anchor.AnchorSignDescriptor,
 			heightHint,
+			nil,
 		)
 
 		// Sweep anchor output with the minimum fee rate. This usually

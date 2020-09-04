@@ -13,6 +13,7 @@ import (
 
 var (
 	defaultTestTimeout = 5 * time.Second
+	processingDelay    = 1 * time.Second
 	mockChainHash, _   = chainhash.NewHashFromStr("00aabbccddeeff")
 	mockChainHeight    = int32(100)
 )

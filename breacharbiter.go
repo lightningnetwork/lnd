@@ -914,6 +914,11 @@ func (bo *breachedOutput) HeightHint() uint32 {
 	return bo.confHeight
 }
 
+// UnconfParent returns information about a possibly unconfirmed parent tx.
+func (bo *breachedOutput) UnconfParent() *input.TxInfo {
+	return nil
+}
+
 // Add compile-time constraint ensuring breachedOutput implements the Input
 // interface.
 var _ input.Input = (*breachedOutput)(nil)

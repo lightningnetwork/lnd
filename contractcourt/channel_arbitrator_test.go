@@ -2237,9 +2237,9 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 		t.Fatalf("expected anchor resolver, got %T", resolver)
 	}
 
-	// The anchor resolver is expected to offer the anchor input to the
+	// The anchor resolver is expected to re-offer the anchor input to the
 	// sweeper.
-	<-chanArbCtx.sweeper.updatedInputs
+	<-chanArbCtx.sweeper.sweptInputs
 
 	// The mock sweeper immediately signals success for that input. This
 	// should transition the channel to the resolved state.

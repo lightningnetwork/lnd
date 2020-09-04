@@ -44,8 +44,8 @@ jobs:
         # in a GitHub Workflow.
         - make unit pkg=... case=_NONE_
 
-        # Step 3: Lint go code. Limit to 1 worker to reduce memory usage.
-        - make lint workers=1
+        # Step 3: Lint go code. Invoke GC more often to reduce memory usage.
+        - GOGC=30 make lint
 
     - stage: Integration Test
       name: Btcd Integration

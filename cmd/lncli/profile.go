@@ -44,6 +44,65 @@ func (e *profileEntry) cert() (*x509.CertPool, error) {
 	return cp, nil
 }
 
+// getGlobalOptions returns the global connection options. If a profile file
+// exists, these global options might be read from a predefined profile. If no
+// profile exists, the global options from the command line are returned as an
+// ephemeral profile entry.
+func getGlobalOptions(ctx *cli.Context) (*profileEntry, error) {
+	var profileName string
+
+	// Try to load the default profile file and depending on its existence
+	// what profile to use.
+	f, err := loadProfileFile(defaultProfileFile)
+	switch {
+	// The legacy case where no profile file exists and the user also didn't
+	// request to use one. We only consider the global options here.
+	case err == errNoProfileFile && !ctx.GlobalIsSet("profile"):
+		return profileFromContext(ctx, false)
+
+	// The file doesn't exist but the user specified an explicit profile.
+	case err == errNoProfileFile && ctx.GlobalIsSet("profile"):
+		return nil, fmt.Errorf("profile file %s does not exist",
+			defaultProfileFile)
+
+	// There is a file but we couldn't read/parse it.
+	case err != nil:
+		return nil, fmt.Errorf("could not read profile file %s: "+
+			"%v", defaultProfileFile, err)
+
+	// The user explicitly disabled the use of profiles for this command by
+	// setting the flag to an empty string. We fall back to the default/old
+	// behavior.
+	case ctx.GlobalIsSet("profile") && ctx.GlobalString("profile") == "":
+		return profileFromContext(ctx, false)
+
+	// There is a file, but no default profile is specified. The user also
+	// didn't specify a profile to use so we fall back to the default/old
+	// behavior.
+	case !ctx.GlobalIsSet("profile") && len(f.Default) == 0:
+		return profileFromContext(ctx, false)
+
+	// The user didn't specify a profile but there is a default one defined.
+	case !ctx.GlobalIsSet("profile") && len(f.Default) > 0:
+		profileName = f.Default
+
+	// The user specified a specific profile to use.
+	case ctx.GlobalIsSet("profile"):
+		profileName = ctx.GlobalString("profile")
+	}
+
+	// If we got to here, we do have a profile file and know the name of the
+	// profile to use. Now we just need to make sure it does exist.
+	for _, prof := range f.Profiles {
+		if prof.Name == profileName {
+			return prof, nil
+		}
+	}
+
+	return nil, fmt.Errorf("profile '%s' not found in file %s", profileName,
+		defaultProfileFile)
+}
+
 // profileFromContext creates an ephemeral profile entry from the global options
 // set in the CLI context.
 func profileFromContext(ctx *cli.Context, store bool) (*profileEntry, error) {

@@ -6,12 +6,10 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
-
-	macaroon "gopkg.in/macaroon.v2"
+	"syscall"
 
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/build"
@@ -20,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/urfave/cli"
 
+	"golang.org/x/crypto/ssh/terminal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -68,18 +67,20 @@ func getClient(ctx *cli.Context) (lnrpc.LightningClient, func()) {
 }
 
 func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
-	// First, we'll parse the args from the command.
-	tlsCertPath, macPath, err := extractPathArgs(ctx)
+	// First, we'll get the selected stored profile or an ephemeral one
+	// created from the global options in the CLI context.
+	profile, err := getGlobalOptions(ctx)
 	if err != nil {
-		fatal(err)
+		fatal(fmt.Errorf("could not load global options: %v", err))
 	}
 
 	// Load the specified TLS certificate and build transport credentials
 	// with it.
-	creds, err := credentials.NewClientTLSFromFile(tlsCertPath, "")
+	certPool, err := profile.cert()
 	if err != nil {
-		fatal(err)
+		fatal(fmt.Errorf("could not create cert pool: %v", err))
 	}
+	creds := credentials.NewClientTLSFromCert(certPool, "")
 
 	// Create a dial options array.
 	opts := []grpc.DialOption{
@@ -88,17 +89,31 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 
 	// Only process macaroon credentials if --no-macaroons isn't set and
 	// if we're not skipping macaroon processing.
-	if !ctx.GlobalBool("no-macaroons") && !skipMacaroons {
-		// Load the specified macaroon file.
-		macBytes, err := ioutil.ReadFile(macPath)
-		if err != nil {
-			fatal(fmt.Errorf("unable to read macaroon path (check "+
-				"the network setting!): %v", err))
+	if !profile.NoMacaroons && !skipMacaroons {
+		// Find out which macaroon to load.
+		macName := profile.Macaroons.Default
+		if ctx.GlobalIsSet("macfromjar") {
+			macName = ctx.GlobalString("macfromjar")
+		}
+		var macEntry *macaroonEntry
+		for _, entry := range profile.Macaroons.Jar {
+			if entry.Name == macName {
+				macEntry = entry
+				break
+			}
+		}
+		if macEntry == nil {
+			fatal(fmt.Errorf("macaroon with name '%s' not found "+
+				"in profile", macName))
 		}
 
-		mac := &macaroon.Macaroon{}
-		if err = mac.UnmarshalBinary(macBytes); err != nil {
-			fatal(fmt.Errorf("unable to decode macaroon: %v", err))
+		// Get and possibly decrypt the specified macaroon.
+		//
+		// TODO(guggero): Make it possible to cache the password so we
+		// don't need to ask for it every time.
+		mac, err := macEntry.loadMacaroon(readPassword)
+		if err != nil {
+			fatal(fmt.Errorf("could not load macaroon: %v", err))
 		}
 
 		macConstraints := []macaroons.Constraint{
@@ -113,16 +128,18 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 			// altogether if, in the latter case, this time is more than 60
 			// seconds).
 			// TODO(aakselrod): add better anti-replay protection.
-			macaroons.TimeoutConstraint(ctx.GlobalInt64("macaroontimeout")),
+			macaroons.TimeoutConstraint(profile.Macaroons.Timeout),
 
 			// Lock macaroon down to a specific IP address.
-			macaroons.IPLockConstraint(ctx.GlobalString("macaroonip")),
+			macaroons.IPLockConstraint(profile.Macaroons.IP),
 
 			// ... Add more constraints if needed.
 		}
 
 		// Apply constraints to the macaroon.
-		constrainedMac, err := macaroons.AddConstraints(mac, macConstraints...)
+		constrainedMac, err := macaroons.AddConstraints(
+			mac, macConstraints...,
+		)
 		if err != nil {
 			fatal(err)
 		}
@@ -138,7 +155,7 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 	opts = append(opts, grpc.WithContextDialer(genericDialer))
 	opts = append(opts, grpc.WithDefaultCallOptions(maxMsgRecvSize))
 
-	conn, err := grpc.Dial(ctx.GlobalString("rpcserver"), opts...)
+	conn, err := grpc.Dial(profile.RPCServer, opts...)
 	if err != nil {
 		fatal(fmt.Errorf("unable to connect to RPC server: %v", err))
 	}
@@ -210,45 +227,60 @@ func main() {
 		cli.StringFlag{
 			Name:  "rpcserver",
 			Value: defaultRPCHostPort,
-			Usage: "host:port of ln daemon",
+			Usage: "The host:port of LN daemon.",
 		},
 		cli.StringFlag{
 			Name:  "lnddir",
 			Value: defaultLndDir,
-			Usage: "path to lnd's base directory",
+			Usage: "The path to lnd's base directory.",
 		},
 		cli.StringFlag{
 			Name:  "tlscertpath",
 			Value: defaultTLSCertPath,
-			Usage: "path to TLS certificate",
+			Usage: "The path to lnd's TLS certificate.",
 		},
 		cli.StringFlag{
 			Name:  "chain, c",
-			Usage: "the chain lnd is running on e.g. bitcoin",
+			Usage: "The chain lnd is running on, e.g. bitcoin.",
 			Value: "bitcoin",
 		},
 		cli.StringFlag{
 			Name: "network, n",
-			Usage: "the network lnd is running on e.g. mainnet, " +
+			Usage: "The network lnd is running on, e.g. mainnet, " +
 				"testnet, etc.",
 			Value: "mainnet",
 		},
 		cli.BoolFlag{
 			Name:  "no-macaroons",
-			Usage: "disable macaroon authentication",
+			Usage: "Disable macaroon authentication.",
 		},
 		cli.StringFlag{
 			Name:  "macaroonpath",
-			Usage: "path to macaroon file",
+			Usage: "The path to macaroon file.",
 		},
 		cli.Int64Flag{
 			Name:  "macaroontimeout",
 			Value: 60,
-			Usage: "anti-replay macaroon validity time in seconds",
+			Usage: "Anti-replay macaroon validity time in seconds.",
 		},
 		cli.StringFlag{
 			Name:  "macaroonip",
-			Usage: "if set, lock macaroon to specific IP address",
+			Usage: "If set, lock macaroon to specific IP address.",
+		},
+		cli.StringFlag{
+			Name: "profile, p",
+			Usage: "Instead of reading settings from command " +
+				"line parameters or using the default " +
+				"profile, use a specific profile. If " +
+				"a default profile is set, this flag can be " +
+				"set to an empty string to disable reading " +
+				"values from the profiles file.",
+		},
+		cli.StringFlag{
+			Name: "macfromjar",
+			Usage: "Use this macaroon from the profile's " +
+				"macaroon jar instead of the default one. " +
+				"Can only be used if profiles are defined.",
 		},
 	}
 	app.Commands = []cli.Command{
@@ -320,4 +352,17 @@ func main() {
 	if err := app.Run(os.Args); err != nil {
 		fatal(err)
 	}
+}
+
+// readPassword reads a password from the terminal. This requires there to be an
+// actual TTY so passing in a password from stdin won't work.
+func readPassword(text string) ([]byte, error) {
+	fmt.Print(text)
+
+	// The variable syscall.Stdin is of a different type in the Windows API
+	// that's why we need the explicit cast. And of course the linter
+	// doesn't like it either.
+	pw, err := terminal.ReadPassword(int(syscall.Stdin)) // nolint:unconvert
+	fmt.Println()
+	return pw, err
 }

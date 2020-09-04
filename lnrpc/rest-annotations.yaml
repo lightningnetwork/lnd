@@ -133,6 +133,8 @@ http:
     - selector: lnrpc.Lightning.BakeMacaroon
       post: "/v1/macaroon"
       body: "*"
+    - selector: lnrpc.Lightning.ListPermissions
+      get: "/v1/macaroon/permissions"
 
     # walletunlocker.proto
     - selector: lnrpc.WalletUnlocker.GenSeed

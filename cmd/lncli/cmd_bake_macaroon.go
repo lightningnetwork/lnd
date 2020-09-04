@@ -193,3 +193,26 @@ func bakeMacaroon(ctx *cli.Context) error {
 
 	return nil
 }
+
+var listPermissionsCommand = cli.Command{
+	Name:     "listpermissions",
+	Category: "Macaroons",
+	Usage: "Lists all RPC method URIs and the macaroon permissions they " +
+		"require to be invoked.",
+	Action: actionDecorator(listPermissions),
+}
+
+func listPermissions(ctx *cli.Context) error {
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	request := &lnrpc.ListPermissionsRequest{}
+	response, err := client.ListPermissions(context.Background(), request)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(response)
+
+	return nil
+}

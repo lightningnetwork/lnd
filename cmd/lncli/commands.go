@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -26,7 +25,6 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/urfave/cli"
-	"golang.org/x/crypto/ssh/terminal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -1340,14 +1338,12 @@ mnemonicCheck:
 		// Additionally, the user may have a passphrase, that will also
 		// need to be provided so the daemon can properly decipher the
 		// cipher seed.
-		fmt.Printf("Input your cipher seed passphrase (press enter if " +
-			"your seed doesn't have a passphrase): ")
-		passphrase, err := terminal.ReadPassword(int(syscall.Stdin))
+		aezeedPass, err = readPassword("Input your cipher seed " +
+			"passphrase (press enter if your seed doesn't have a " +
+			"passphrase): ")
 		if err != nil {
 			return err
 		}
-
-		aezeedPass = []byte(passphrase)
 
 		for {
 			fmt.Println()
@@ -1460,12 +1456,10 @@ func capturePassword(instruction string, optional bool,
 	validate func([]byte) error) ([]byte, error) {
 
 	for {
-		fmt.Printf(instruction)
-		password, err := terminal.ReadPassword(int(syscall.Stdin))
+		password, err := readPassword(instruction)
 		if err != nil {
 			return nil, err
 		}
-		fmt.Println()
 
 		// Do not require users to repeat password if
 		// it is optional and they are not using one.
@@ -1481,21 +1475,16 @@ func capturePassword(instruction string, optional bool,
 			continue
 		}
 
-		fmt.Printf("Confirm password: ")
-		passwordConfirmed, err := terminal.ReadPassword(
-			int(syscall.Stdin),
-		)
+		passwordConfirmed, err := readPassword("Confirm password: ")
 		if err != nil {
 			return nil, err
 		}
-		fmt.Println()
 
 		if bytes.Equal(password, passwordConfirmed) {
 			return password, nil
 		}
 
-		fmt.Println("Passwords don't match, " +
-			"please try again")
+		fmt.Println("Passwords don't match, please try again")
 		fmt.Println()
 	}
 }
@@ -1558,13 +1547,7 @@ func unlock(ctx *cli.Context) error {
 	// terminal to be a real tty and will fail if a string is piped into
 	// lncli.
 	default:
-		fmt.Printf("Input wallet password: ")
-
-		// The variable syscall.Stdin is of a different type in the
-		// Windows API that's why we need the explicit cast. And of
-		// course the linter doesn't like it either.
-		pw, err = terminal.ReadPassword(int(syscall.Stdin)) // nolint:unconvert
-		fmt.Println()
+		pw, err = readPassword("Input wallet password: ")
 	}
 	if err != nil {
 		return err
@@ -1625,26 +1608,20 @@ func changePassword(ctx *cli.Context) error {
 	client, cleanUp := getWalletUnlockerClient(ctx)
 	defer cleanUp()
 
-	fmt.Printf("Input current wallet password: ")
-	currentPw, err := terminal.ReadPassword(int(syscall.Stdin))
+	currentPw, err := readPassword("Input current wallet password: ")
 	if err != nil {
 		return err
 	}
-	fmt.Println()
 
-	fmt.Printf("Input new wallet password: ")
-	newPw, err := terminal.ReadPassword(int(syscall.Stdin))
+	newPw, err := readPassword("Input new wallet password: ")
 	if err != nil {
 		return err
 	}
-	fmt.Println()
 
-	fmt.Printf("Confirm new wallet password: ")
-	confirmPw, err := terminal.ReadPassword(int(syscall.Stdin))
+	confirmPw, err := readPassword("Confirm new wallet password: ")
 	if err != nil {
 		return err
 	}
-	fmt.Println()
 
 	if !bytes.Equal(newPw, confirmPw) {
 		return fmt.Errorf("passwords don't match")

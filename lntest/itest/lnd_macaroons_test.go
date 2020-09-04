@@ -12,6 +12,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gopkg.in/macaroon.v2"
 )
 
@@ -38,9 +40,7 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, t *harnessTest) {
 	// First test: Make sure we get an error if we use no macaroons but try
 	// to connect to a node that has macaroon authentication enabled.
 	conn, err := testNode.ConnectRPC(false)
-	if err != nil {
-		t.Fatalf("unable to connect to alice: %v", err)
-	}
+	require.NoError(t.t, err)
 	defer conn.Close()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
@@ -57,9 +57,7 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, t *harnessTest) {
 		macaroon.LatestVersion,
 	)
 	conn, err = testNode.ConnectRPCWithMacaroon(invalidMac)
-	if err != nil {
-		t.Fatalf("unable to connect to alice: %v", err)
-	}
+	require.NoError(t.t, err)
 	defer conn.Close()
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
@@ -74,13 +72,9 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, t *harnessTest) {
 	readonlyMac, err := testNode.ReadMacaroon(
 		testNode.ReadMacPath(), defaultTimeout,
 	)
-	if err != nil {
-		t.Fatalf("unable to read readonly.macaroon from node: %v", err)
-	}
+	require.NoError(t.t, err)
 	conn, err = testNode.ConnectRPCWithMacaroon(readonlyMac)
-	if err != nil {
-		t.Fatalf("unable to connect to alice: %v", err)
-	}
+	require.NoError(t.t, err)
 	defer conn.Close()
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
@@ -96,14 +90,9 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, t *harnessTest) {
 	timeoutMac, err := macaroons.AddConstraints(
 		readonlyMac, macaroons.TimeoutConstraint(-30),
 	)
-	if err != nil {
-		t.Fatalf("unable to add constraint to readonly macaroon: %v",
-			err)
-	}
+	require.NoError(t.t, err)
 	conn, err = testNode.ConnectRPCWithMacaroon(timeoutMac)
-	if err != nil {
-		t.Fatalf("unable to connect to alice: %v", err)
-	}
+	require.NoError(t.t, err)
 	defer conn.Close()
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
@@ -118,14 +107,9 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, t *harnessTest) {
 	invalidIpAddrMac, err := macaroons.AddConstraints(
 		readonlyMac, macaroons.IPLockConstraint("1.1.1.1"),
 	)
-	if err != nil {
-		t.Fatalf("unable to add constraint to readonly macaroon: %v",
-			err)
-	}
+	require.NoError(t.t, err)
 	conn, err = testNode.ConnectRPCWithMacaroon(invalidIpAddrMac)
-	if err != nil {
-		t.Fatalf("unable to connect to alice: %v", err)
-	}
+	require.NoError(t.t, err)
 	defer conn.Close()
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
@@ -142,32 +126,21 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, t *harnessTest) {
 	adminMac, err := testNode.ReadMacaroon(
 		testNode.AdminMacPath(), defaultTimeout,
 	)
-	if err != nil {
-		t.Fatalf("unable to read admin.macaroon from node: %v", err)
-	}
+	require.NoError(t.t, err)
 	adminMac, err = macaroons.AddConstraints(
 		adminMac, macaroons.TimeoutConstraint(30),
 		macaroons.IPLockConstraint("127.0.0.1"),
 	)
-	if err != nil {
-		t.Fatalf("unable to add constraints to admin macaroon: %v", err)
-	}
+	require.NoError(t.t, err)
 	conn, err = testNode.ConnectRPCWithMacaroon(adminMac)
-	if err != nil {
-		t.Fatalf("unable to connect to alice: %v", err)
-	}
+	require.NoError(t.t, err)
 	defer conn.Close()
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 	adminMacConnection := lnrpc.NewLightningClient(conn)
 	res, err := adminMacConnection.NewAddress(ctxt, newAddrReq)
-	if err != nil {
-		t.Fatalf("unable to get new address with valid macaroon: %v",
-			err)
-	}
-	if !strings.HasPrefix(res.Address, "bcrt1") {
-		t.Fatalf("returned address was not a regtest address")
-	}
+	require.NoError(t.t, err)
+	assert.Contains(t.t, res.Address, "bcrt1")
 }
 
 // testBakeMacaroon checks that when creating macaroons, the permissions param
@@ -185,13 +158,9 @@ func testBakeMacaroon(net *lntest.NetworkHarness, t *harnessTest) {
 	adminMac, err := testNode.ReadMacaroon(
 		testNode.AdminMacPath(), defaultTimeout,
 	)
-	if err != nil {
-		t.Fatalf("unable to read admin.macaroon from node: %v", err)
-	}
+	require.NoError(t.t, err)
 	conn, err := testNode.ConnectRPCWithMacaroon(adminMac)
-	if err != nil {
-		t.Fatalf("unable to connect to alice: %v", err)
-	}
+	require.NoError(t.t, err)
 	defer conn.Close()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
@@ -242,15 +211,11 @@ func testBakeMacaroon(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	}
 	_, err = adminMacConnection.BakeMacaroon(ctxt, req)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+	require.NoError(t.t, err)
 
 	listReq := &lnrpc.ListMacaroonIDsRequest{}
 	resp, err := adminMacConnection.ListMacaroonIDs(ctxt, listReq)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+	require.NoError(t.t, err)
 	if resp.RootKeyIds[0] != 0 {
 		t.Fatalf("expected ID to be 0, found: %v", resp.RootKeyIds)
 	}
@@ -267,15 +232,11 @@ func testBakeMacaroon(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	}
 	bakeResp, err := adminMacConnection.BakeMacaroon(ctxt, req)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+	require.NoError(t.t, err)
 
 	listReq = &lnrpc.ListMacaroonIDsRequest{}
 	resp, err = adminMacConnection.ListMacaroonIDs(ctxt, listReq)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+	require.NoError(t.t, err)
 
 	// the ListMacaroonIDs should give a list of two IDs, the default ID 0, and
 	// the newly created ID. The returned response is sorted to guarantee the
@@ -296,13 +257,9 @@ func testBakeMacaroon(net *lntest.NetworkHarness, t *harnessTest) {
 	// Sixth test: check the baked macaroon has the intended permissions. It
 	// should succeed in reading, and fail to write a macaroon.
 	newMac, err := readMacaroonFromHex(bakeResp.Macaroon)
-	if err != nil {
-		t.Fatalf("failed to load macaroon from bytes, error: %v", err)
-	}
+	require.NoError(t.t, err)
 	conn, err = testNode.ConnectRPCWithMacaroon(newMac)
-	if err != nil {
-		t.Fatalf("unable to connect to alice: %v", err)
-	}
+	require.NoError(t.t, err)
 	defer conn.Close()
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
@@ -318,9 +275,7 @@ func testBakeMacaroon(net *lntest.NetworkHarness, t *harnessTest) {
 	// ListMacaroon requires a read permission, so this call should succeed.
 	listReq = &lnrpc.ListMacaroonIDsRequest{}
 	resp, err = newMacConnection.ListMacaroonIDs(ctxt, listReq)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+	require.NoError(t.t, err)
 
 	// Current macaroon can only work on entity macaroon, so a GetInfo request
 	// will fail.
@@ -345,13 +300,9 @@ func testDeleteMacaroonID(net *lntest.NetworkHarness, t *harnessTest) {
 	adminMac, err := testNode.ReadMacaroon(
 		testNode.AdminMacPath(), defaultTimeout,
 	)
-	if err != nil {
-		t.Fatalf("unable to read admin.macaroon from node: %v", err)
-	}
+	require.NoError(t.t, err)
 	conn, err := testNode.ConnectRPCWithMacaroon(adminMac)
-	if err != nil {
-		t.Fatalf("unable to connect to alice: %v", err)
-	}
+	require.NoError(t.t, err)
 	defer conn.Close()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
@@ -360,45 +311,32 @@ func testDeleteMacaroonID(net *lntest.NetworkHarness, t *harnessTest) {
 	// Record the number of macaroon IDs before creation.
 	listReq := &lnrpc.ListMacaroonIDsRequest{}
 	listResp, err := adminMacConnection.ListMacaroonIDs(ctxt, listReq)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+	require.NoError(t.t, err)
 	numMacIDs := len(listResp.RootKeyIds)
 
 	// Create macaroons for testing.
 	rootKeyIDs := []uint64{1, 2, 3}
-	macList := []string{}
+	macList := make([]string, 0, len(rootKeyIDs))
 	for _, id := range rootKeyIDs {
 		req := &lnrpc.BakeMacaroonRequest{
 			RootKeyId: id,
-			Permissions: []*lnrpc.MacaroonPermission{
-				{
-					Entity: "macaroon",
-					Action: "read",
-				},
-			},
+			Permissions: []*lnrpc.MacaroonPermission{{
+				Entity: "macaroon",
+				Action: "read",
+			}},
 		}
 		resp, err := adminMacConnection.BakeMacaroon(ctxt, req)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		require.NoError(t.t, err)
 		macList = append(macList, resp.Macaroon)
 	}
 
 	// Check that the creation is successful.
 	listReq = &lnrpc.ListMacaroonIDsRequest{}
 	listResp, err = adminMacConnection.ListMacaroonIDs(ctxt, listReq)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+	require.NoError(t.t, err)
 
-	// The number of macaroon IDs should be increased by len(rootKeyIDs)
-	if len(listResp.RootKeyIds) != numMacIDs+len(rootKeyIDs) {
-		t.Fatalf(
-			"expected to have %v ids, found: %v",
-			numMacIDs+len(rootKeyIDs), len(listResp.RootKeyIds),
-		)
-	}
+	// The number of macaroon IDs should be increased by len(rootKeyIDs).
+	require.Equal(t.t, numMacIDs+len(rootKeyIDs), len(listResp.RootKeyIds))
 
 	// First test: check deleting the DefaultRootKeyID returns an error.
 	defaultID, _ := strconv.ParseUint(
@@ -408,45 +346,32 @@ func testDeleteMacaroonID(net *lntest.NetworkHarness, t *harnessTest) {
 		RootKeyId: defaultID,
 	}
 	_, err = adminMacConnection.DeleteMacaroonID(ctxt, req)
-	if err == nil || !errContains(err, macaroons.ErrDeletionForbidden.Error()) {
-		t.Fatalf("expected an error, got %v", err)
-	}
+	require.Error(t.t, err)
+	require.Contains(
+		t.t, err.Error(), macaroons.ErrDeletionForbidden.Error(),
+	)
 
 	// Second test: check deleting the customized ID returns success.
 	req = &lnrpc.DeleteMacaroonIDRequest{
 		RootKeyId: rootKeyIDs[0],
 	}
 	resp, err := adminMacConnection.DeleteMacaroonID(ctxt, req)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if resp.Deleted != true {
-		t.Fatalf("expected the ID to be deleted")
-	}
+	require.NoError(t.t, err)
+	require.True(t.t, resp.Deleted)
 
 	// Check that the deletion is successful.
 	listReq = &lnrpc.ListMacaroonIDsRequest{}
 	listResp, err = adminMacConnection.ListMacaroonIDs(ctxt, listReq)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+	require.NoError(t.t, err)
+
 	// The number of macaroon IDs should be decreased by 1.
-	if len(listResp.RootKeyIds) != numMacIDs+len(rootKeyIDs)-1 {
-		t.Fatalf(
-			"expected to have %v ids, found: %v",
-			numMacIDs+len(rootKeyIDs)-1, len(listResp.RootKeyIds),
-		)
-	}
+	require.Equal(t.t, numMacIDs+len(rootKeyIDs)-1, len(listResp.RootKeyIds))
 
 	// Check that the deleted macaroon can no longer access macaroon:read.
 	deletedMac, err := readMacaroonFromHex(macList[0])
-	if err != nil {
-		t.Fatalf("failed to load macaroon from bytes, error: %v", err)
-	}
+	require.NoError(t.t, err)
 	conn, err = testNode.ConnectRPCWithMacaroon(deletedMac)
-	if err != nil {
-		t.Fatalf("unable to connect to alice: %v", err)
-	}
+	require.NoError(t.t, err)
 	defer conn.Close()
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
@@ -455,10 +380,8 @@ func testDeleteMacaroonID(net *lntest.NetworkHarness, t *harnessTest) {
 	// Because the macaroon is deleted, it will be treated as an invalid one.
 	listReq = &lnrpc.ListMacaroonIDsRequest{}
 	_, err = deletedMacConnection.ListMacaroonIDs(ctxt, listReq)
-	if err == nil || !errContains(err, "cannot get macaroon") {
-		t.Fatalf("expected error not returned, got %v", err)
-	}
-
+	require.Error(t.t, err)
+	require.Contains(t.t, err.Error(), "cannot get macaroon")
 }
 
 // readMacaroonFromHex loads a macaroon from a hex string.

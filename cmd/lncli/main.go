@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"os/user"
 	"path/filepath"
 	"strings"
 
@@ -171,13 +170,13 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 	// properly read the macaroons (if needed) and also the cert. This will
 	// either be the default, or will have been overwritten by the end
 	// user.
-	lndDir := cleanAndExpandPath(ctx.GlobalString("lnddir"))
+	lndDir := lncfg.CleanAndExpandPath(ctx.GlobalString("lnddir"))
 
 	// If the macaroon path as been manually provided, then we'll only
 	// target the specified file.
 	var macPath string
 	if ctx.GlobalString("macaroonpath") != "" {
-		macPath = cleanAndExpandPath(ctx.GlobalString("macaroonpath"))
+		macPath = lncfg.CleanAndExpandPath(ctx.GlobalString("macaroonpath"))
 	} else {
 		// Otherwise, we'll go into the path:
 		// lnddir/data/chain/<chain>/<network> in order to fetch the
@@ -188,7 +187,7 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 		)
 	}
 
-	tlsCertPath := cleanAndExpandPath(ctx.GlobalString("tlscertpath"))
+	tlsCertPath := lncfg.CleanAndExpandPath(ctx.GlobalString("tlscertpath"))
 
 	// If a custom lnd directory was set, we'll also check if custom paths
 	// for the TLS cert and macaroon file were set as well. If not, we'll
@@ -321,30 +320,4 @@ func main() {
 	if err := app.Run(os.Args); err != nil {
 		fatal(err)
 	}
-}
-
-// cleanAndExpandPath expands environment variables and leading ~ in the
-// passed path, cleans the result, and returns it.
-// This function is taken from https://github.com/btcsuite/btcd
-func cleanAndExpandPath(path string) string {
-	if path == "" {
-		return ""
-	}
-
-	// Expand initial ~ to OS specific home directory.
-	if strings.HasPrefix(path, "~") {
-		var homeDir string
-		user, err := user.Current()
-		if err == nil {
-			homeDir = user.HomeDir
-		} else {
-			homeDir = os.Getenv("HOME")
-		}
-
-		path = strings.Replace(path, "~", homeDir, 1)
-	}
-
-	// NOTE: The os.ExpandEnv doesn't work with Windows-style %VARIABLE%,
-	// but the variables can still be expanded via POSIX-style $VARIABLE.
-	return filepath.Clean(os.ExpandEnv(path))
 }

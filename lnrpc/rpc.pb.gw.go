@@ -1985,6 +1985,24 @@ func local_request_Lightning_DeleteMacaroonID_0(ctx context.Context, marshaler r
 
 }
 
+func request_Lightning_ListPermissions_0(ctx context.Context, marshaler runtime.Marshaler, client LightningClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq ListPermissionsRequest
+	var metadata runtime.ServerMetadata
+
+	msg, err := client.ListPermissions(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+
+}
+
+func local_request_Lightning_ListPermissions_0(ctx context.Context, marshaler runtime.Marshaler, server LightningServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq ListPermissionsRequest
+	var metadata runtime.ServerMetadata
+
+	msg, err := server.ListPermissions(ctx, &protoReq)
+	return msg, metadata, err
+
+}
+
 // RegisterLightningHandlerServer registers the http handlers for service Lightning to "mux".
 // UnaryRPC     :call LightningServer directly.
 // StreamingRPC :currently unsupported pending https://github.com/grpc/grpc-go/issues/906.
@@ -2983,6 +3001,26 @@ func RegisterLightningHandlerServer(ctx context.Context, mux *runtime.ServeMux, 
 		}
 
 		forward_Lightning_DeleteMacaroonID_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
+	mux.Handle("GET", pattern_Lightning_ListPermissions_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req)
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_Lightning_ListPermissions_0(rctx, inboundMarshaler, server, req, pathParams)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_Lightning_ListPermissions_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -4127,6 +4165,26 @@ func RegisterLightningHandlerClient(ctx context.Context, mux *runtime.ServeMux, 
 
 	})
 
+	mux.Handle("GET", pattern_Lightning_ListPermissions_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		rctx, err := runtime.AnnotateContext(ctx, mux, req)
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_Lightning_ListPermissions_0(rctx, inboundMarshaler, client, req, pathParams)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_Lightning_ListPermissions_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
 	return nil
 }
 
@@ -4240,6 +4298,8 @@ var (
 	pattern_Lightning_ListMacaroonIDs_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "macaroon", "ids"}, "", runtime.AssumeColonVerbOpt(true)))
 
 	pattern_Lightning_DeleteMacaroonID_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 1, 5, 2}, []string{"v1", "macaroon", "root_key_id"}, "", runtime.AssumeColonVerbOpt(true)))
+
+	pattern_Lightning_ListPermissions_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "macaroon", "permissions"}, "", runtime.AssumeColonVerbOpt(true)))
 )
 
 var (
@@ -4352,4 +4412,6 @@ var (
 	forward_Lightning_ListMacaroonIDs_0 = runtime.ForwardResponseMessage
 
 	forward_Lightning_DeleteMacaroonID_0 = runtime.ForwardResponseMessage
+
+	forward_Lightning_ListPermissions_0 = runtime.ForwardResponseMessage
 )

@@ -100,8 +100,18 @@ key `0` would be created with the following command:
 
 `lncli bakemacaroon peers:read peers:write`
 
-A full and up-to-date list of available entity/action pairs can be found by
-looking at the `rpcserver.go` in the root folder of the project.
+For even more fine-grained permission control, it is also possible to specify
+single RPC method URIs that are allowed to be accessed by a macaroon. This can
+be achieved by passing `uri:<methodURI>` pairs to `bakemacaroon`, for example:
+
+`lncli bakemacaroon uri:/lnrpc.Lightning/GetInfo uri:/verrpc.Versioner/GetVersion`
+
+The macaroon created by this call would only be allowed to call the `GetInfo` and
+`GetVersion` methods instead of all methods that have similar permissions (like
+`info:read` for example).
+
+A full list of available entity/action pairs and RPC method URIs can be queried
+by using the `lncli listpermissions` command.
 
 ### Upgrading from v0.8.0-beta or earlier
 

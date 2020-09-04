@@ -208,7 +208,7 @@
 <time> [ERR] RPCS: WS: error closing upgraded conn: write tcp4 <ip>-><ip>: write: connection reset by peer
 <time> [ERR] NTFN: chain notifier shutting down
 <time> [ERR] NTFN: Failed getting UTXO: get utxo request cancelled
-<time> [ERR] RPCS: [/lnrpc.Lightning/BakeMacaroon]: invalid permission action. supported actions are [read write generate], supported entities are [onchain offchain address message peers info invoices signer macaroon]
-<time> [ERR] RPCS: [/lnrpc.Lightning/BakeMacaroon]: invalid permission entity. supported actions are [read write generate], supported entities are [onchain offchain address message peers info invoices signer macaroon]
-<time> [ERR] RPCS: [/lnrpc.Lightning/BakeMacaroon]: permission list cannot be empty. specify at least one action/entity pair. supported actions are [read write generate], supported entities are [onchain offchain address message peers info invoices signer macaroon]
+<time> [ERR] RPCS: [/lnrpc.Lightning/BakeMacaroon]: invalid permission action. supported actions are [read write generate], supported entities are [onchain offchain address message peers info invoices signer macaroon uri]
+<time> [ERR] RPCS: [/lnrpc.Lightning/BakeMacaroon]: invalid permission entity. supported actions are [read write generate], supported entities are [onchain offchain address message peers info invoices signer macaroon uri]
+<time> [ERR] RPCS: [/lnrpc.Lightning/BakeMacaroon]: permission list cannot be empty. specify at least one action/entity pair. supported actions are [read write generate], supported entities are [onchain offchain address message peers info invoices signer macaroon uri]
 <time> [ERR] RPCS: [/lnrpc.Lightning/DeleteMacaroonID]: the specified ID cannot be deleted

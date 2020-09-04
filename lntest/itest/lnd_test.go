@@ -13124,7 +13124,8 @@ func testSweepAllCoins(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Our error will be wrapped in a rpc error, so we check that it
 	// contains the error we expect.
-	if !strings.Contains(err.Error(), walletrpc.ErrZeroLabel.Error()) {
+	errZeroLabel := "cannot label transaction with empty label"
+	if !strings.Contains(err.Error(), errZeroLabel) {
 		t.Fatalf("expected: zero label error, got: %v", err)
 	}
 

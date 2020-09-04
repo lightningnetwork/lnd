@@ -184,6 +184,7 @@ var (
 	validEntities = []string{
 		"onchain", "offchain", "address", "message",
 		"peers", "info", "invoices", "signer", "macaroon",
+		macaroons.PermissionEntityCustomURI,
 	}
 )
 
@@ -502,6 +503,10 @@ type rpcServer struct {
 
 	// selfNode is our own pubkey.
 	selfNode route.Vertex
+
+	// allPermissions is a map of all registered gRPC URIs (including
+	// internal and external subservers) to the permissions they require.
+	allPermissions map[string][]bakery.Op
 }
 
 // A compile time check to ensure that rpcServer fully implements the
@@ -709,6 +714,7 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 		quit:            make(chan struct{}, 1),
 		macService:      macService,
 		selfNode:        selfNode.PubKeyBytes,
+		allPermissions:  permissions,
 	}
 	lnrpc.RegisterLightningServer(grpcServer, rootRPCServer)
 
@@ -6422,13 +6428,25 @@ func (r *rpcServer) BakeMacaroon(ctx context.Context,
 	// the bakery.
 	requestedPermissions := make([]bakery.Op, len(req.Permissions))
 	for idx, op := range req.Permissions {
-		if !stringInSlice(op.Action, validActions) {
-			return nil, fmt.Errorf("invalid permission action. %s",
-				helpMsg)
-		}
 		if !stringInSlice(op.Entity, validEntities) {
 			return nil, fmt.Errorf("invalid permission entity. %s",
 				helpMsg)
+		}
+
+		// Either we have the special entity "uri" which specifies a
+		// full gRPC URI or we have one of the pre-defined actions.
+		if op.Entity == macaroons.PermissionEntityCustomURI {
+			_, ok := r.allPermissions[op.Action]
+			if !ok {
+				return nil, fmt.Errorf("invalid permission " +
+					"action, must be an existing URI in " +
+					"the format /package.Service/" +
+					"MethodName")
+			}
+		} else if !stringInSlice(op.Action, validActions) {
+			return nil, fmt.Errorf("invalid permission action. %s",
+				helpMsg)
+
 		}
 
 		requestedPermissions[idx] = bakery.Op{

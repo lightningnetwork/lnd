@@ -145,6 +145,56 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, t *harnessTest) {
 			require.NoError(t, err, "get new address")
 			assert.Contains(t, res.Address, "bcrt1")
 		},
+	}, {
+		// Seventh test: Bake a macaroon that can only access exactly
+		// two RPCs and make sure it works as expected.
+		name: "custom URI permissions",
+		run: func(ctxt context.Context, t *testing.T) {
+			entity := macaroons.PermissionEntityCustomURI
+			req := &lnrpc.BakeMacaroonRequest{
+				Permissions: []*lnrpc.MacaroonPermission{{
+					Entity: entity,
+					Action: "/lnrpc.Lightning/GetInfo",
+				}, {
+					Entity: entity,
+					Action: "/lnrpc.Lightning/List" +
+						"Permissions",
+				}},
+			}
+			bakeRes, err := testNode.BakeMacaroon(ctxt, req)
+			require.NoError(t, err)
+
+			// Create a connection that uses the custom macaroon.
+			customMacBytes, err := hex.DecodeString(
+				bakeRes.Macaroon,
+			)
+			require.NoError(t, err)
+			customMac := &macaroon.Macaroon{}
+			err = customMac.UnmarshalBinary(customMacBytes)
+			require.NoError(t, err)
+			cleanup, client := macaroonClient(
+				t, testNode, customMac,
+			)
+			defer cleanup()
+
+			// Call GetInfo which should succeed.
+			_, err = client.GetInfo(ctxt, infoReq)
+			require.NoError(t, err)
+
+			// Call ListPermissions which should also succeed.
+			permReq := &lnrpc.ListPermissionsRequest{}
+			permRes, err := client.ListPermissions(ctxt, permReq)
+			require.NoError(t, err)
+			require.Greater(
+				t, len(permRes.MethodPermissions), 10,
+				"permissions",
+			)
+
+			// Try NewAddress which should be denied.
+			_, err = client.NewAddress(ctxt, newAddrReq)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "permission denied")
+		},
 	}}
 
 	for _, tc := range testCases {

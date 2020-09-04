@@ -27,6 +27,15 @@ var (
 	// ErrDeletionForbidden is used when attempting to delete the
 	// DefaultRootKeyID or the encryptedKeyID.
 	ErrDeletionForbidden = fmt.Errorf("the specified ID cannot be deleted")
+
+	// PermissionEntityCustomURI is a special entity name for a permission
+	// that does not describe an entity:action pair but instead specifies a
+	// specific URI that needs to be granted access to. This can be used for
+	// more fine-grained permissions where a macaroon only grants access to
+	// certain methods instead of a whole list of methods that define the
+	// same entity:action pairs. For example: uri:/lnrpc.Lightning/GetInfo
+	// only gives access to the GetInfo call.
+	PermissionEntityCustomURI = "uri"
 )
 
 // Service encapsulates bakery.Bakery and adds a Close() method that zeroes the
@@ -118,12 +127,15 @@ func (svc *Service) UnaryServerInterceptor(
 		info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler) (interface{}, error) {
 
-		if _, ok := permissionMap[info.FullMethod]; !ok {
+		uriPermissions, ok := permissionMap[info.FullMethod]
+		if !ok {
 			return nil, fmt.Errorf("%s: unknown permissions "+
 				"required for method", info.FullMethod)
 		}
 
-		err := svc.ValidateMacaroon(ctx, permissionMap[info.FullMethod])
+		err := svc.ValidateMacaroon(
+			ctx, uriPermissions, info.FullMethod,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -140,13 +152,14 @@ func (svc *Service) StreamServerInterceptor(
 	return func(srv interface{}, ss grpc.ServerStream,
 		info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 
-		if _, ok := permissionMap[info.FullMethod]; !ok {
+		uriPermissions, ok := permissionMap[info.FullMethod]
+		if !ok {
 			return fmt.Errorf("%s: unknown permissions required "+
 				"for method", info.FullMethod)
 		}
 
 		err := svc.ValidateMacaroon(
-			ss.Context(), permissionMap[info.FullMethod],
+			ss.Context(), uriPermissions, info.FullMethod,
 		)
 		if err != nil {
 			return err
@@ -161,7 +174,7 @@ func (svc *Service) StreamServerInterceptor(
 // expect a macaroon to be encoded as request metadata using the key
 // "macaroon".
 func (svc *Service) ValidateMacaroon(ctx context.Context,
-	requiredPermissions []bakery.Op) error {
+	requiredPermissions []bakery.Op, fullMethod string) error {
 
 	// Get macaroon bytes from context and unmarshal into macaroon.
 	md, ok := metadata.FromIncomingContext(ctx)
@@ -190,6 +203,20 @@ func (svc *Service) ValidateMacaroon(ctx context.Context,
 	// the expiration time and IP address and return the result.
 	authChecker := svc.Checker.Auth(macaroon.Slice{mac})
 	_, err = authChecker.Allow(ctx, requiredPermissions...)
+
+	// If the macaroon contains broad permissions and checks out, we're
+	// done.
+	if err == nil {
+		return nil
+	}
+
+	// To also allow the special permission of "uri:<FullMethod>" to be a
+	// valid permission, we need to check it manually in case there is no
+	// broader scope permission defined.
+	_, err = authChecker.Allow(ctx, bakery.Op{
+		Entity: PermissionEntityCustomURI,
+		Action: fullMethod,
+	})
 	return err
 }
 

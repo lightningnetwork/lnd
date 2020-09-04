@@ -120,7 +120,7 @@ func generateInputPartitionings(sweepableInputs []txInput,
 			"has yield=%v, weight=%v",
 			inputCount, len(txInputs.inputs)-inputCount,
 			txInputs.outputValue-txInputs.walletInputTotal,
-			txInputs.weightEstimate.Weight())
+			txInputs.weightEstimate.weight())
 
 		sets = append(sets, txInputs.inputs)
 		sweepableInputs = sweepableInputs[inputCount:]
@@ -222,11 +222,11 @@ func getWeightEstimate(inputs []input.Input) ([]input.Input, int64) {
 	//
 	// TODO(roasbeef): can be more intelligent about buffering outputs to
 	// be more efficient on-chain.
-	var weightEstimate input.TxWeightEstimator
+	weightEstimate := newWeightEstimator()
 
 	// Our sweep transaction will pay to a single segwit p2wkh address,
 	// ensure it contributes to our weight estimate.
-	weightEstimate.AddP2WKHOutput()
+	weightEstimate.addP2WKHOutput()
 
 	// For each output, use its witness type to determine the estimate
 	// weight of its witness, and add it to the proper set of spendable
@@ -235,8 +235,7 @@ func getWeightEstimate(inputs []input.Input) ([]input.Input, int64) {
 	for i := range inputs {
 		inp := inputs[i]
 
-		wt := inp.WitnessType()
-		err := wt.AddWeightEstimation(&weightEstimate)
+		err := weightEstimate.add(inp)
 		if err != nil {
 			log.Warn(err)
 
@@ -248,7 +247,7 @@ func getWeightEstimate(inputs []input.Input) ([]input.Input, int64) {
 		sweepInputs = append(sweepInputs, inp)
 	}
 
-	return sweepInputs, int64(weightEstimate.Weight())
+	return sweepInputs, int64(weightEstimate.weight())
 }
 
 // inputSummary returns a string containing a human readable summary about the

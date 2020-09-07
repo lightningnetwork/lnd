@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/stretchr/testify/require"
 )
 
 // testPsbtChanFunding makes sure a channel can be opened between carol and dave
@@ -119,14 +120,14 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	// encoded in the PSBT. We'll let the miner do it and convert the final
 	// TX into a PSBT, that's way easier than assembling a PSBT manually.
 	allOuts := append(packet.UnsignedTx.TxOut, packet2.UnsignedTx.TxOut...)
-	tx, err := net.Miner.CreateTransaction(allOuts, 5, true)
+	finalTx, err := net.Miner.CreateTransaction(allOuts, 5, true)
 	if err != nil {
 		t.Fatalf("unable to create funding transaction: %v", err)
 	}
 
 	// The helper function splits the final TX into the non-witness data
 	// encoded in a PSBT and the witness data returned separately.
-	unsignedPsbt, scripts, witnesses, err := createPsbtFromSignedTx(tx)
+	unsignedPsbt, scripts, witnesses, err := createPsbtFromSignedTx(finalTx)
 	if err != nil {
 		t.Fatalf("unable to convert funding transaction into PSBT: %v",
 			err)
@@ -185,7 +186,7 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	// complete and signed transaction that can be finalized. We'll trick
 	// a bit by putting the script sig back directly, because we know we
 	// will only get non-witness outputs from the miner wallet.
-	for idx := range tx.TxIn {
+	for idx := range finalTx.TxIn {
 		if len(witnesses[idx]) > 0 {
 			t.Fatalf("unexpected witness inputs in wallet TX")
 		}
@@ -239,12 +240,16 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unexpected txes in mempool: %v", mempool)
 	}
 
-	// Let's progress the second channel now.
+	// Let's progress the second channel now. This time we'll use the raw
+	// wire format transaction directly.
+	buf.Reset()
+	err = finalTx.Serialize(&buf)
+	require.NoError(t.t, err)
 	_, err = carol.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
 		Trigger: &lnrpc.FundingTransitionMsg_PsbtFinalize{
 			PsbtFinalize: &lnrpc.FundingPsbtFinalize{
 				PendingChanId: pendingChanID2[:],
-				SignedPsbt:    buf.Bytes(),
+				FinalRawTx:    buf.Bytes(),
 			},
 		},
 	})
@@ -275,7 +280,7 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Great, now we can mine a block to get the transaction confirmed, then
 	// wait for the new channel to be propagated through the network.
-	txHash := tx.TxHash()
+	txHash := finalTx.TxHash()
 	block := mineBlocks(t, net, 6, 1)[0]
 	assertTxInBlock(t, block, &txHash)
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)

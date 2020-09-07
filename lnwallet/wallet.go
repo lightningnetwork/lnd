@@ -536,8 +536,8 @@ func (l *LightningWallet) PsbtFundingVerify(pid [32]byte,
 // PsbtFundingFinalize looks up a previously registered funding intent by its
 // pending channel ID and tries to advance the state machine by finalizing the
 // passed PSBT.
-func (l *LightningWallet) PsbtFundingFinalize(pid [32]byte,
-	packet *psbt.Packet) error {
+func (l *LightningWallet) PsbtFundingFinalize(pid [32]byte, packet *psbt.Packet,
+	rawTx *wire.MsgTx) error {
 
 	l.intentMtx.Lock()
 	defer l.intentMtx.Unlock()
@@ -551,9 +551,23 @@ func (l *LightningWallet) PsbtFundingFinalize(pid [32]byte,
 	if !ok {
 		return fmt.Errorf("incompatible funding intent")
 	}
-	err := psbtIntent.Finalize(packet)
-	if err != nil {
-		return fmt.Errorf("error finalizing PSBT: %v", err)
+
+	// Either the PSBT or the raw TX must be set.
+	switch {
+	case packet != nil && rawTx == nil:
+		err := psbtIntent.Finalize(packet)
+		if err != nil {
+			return fmt.Errorf("error finalizing PSBT: %v", err)
+		}
+
+	case rawTx != nil && packet == nil:
+		err := psbtIntent.FinalizeRawTX(rawTx)
+		if err != nil {
+			return fmt.Errorf("error finalizing raw TX: %v", err)
+		}
+
+	default:
+		return fmt.Errorf("either a PSBT or raw TX must be specified")
 	}
 
 	return nil

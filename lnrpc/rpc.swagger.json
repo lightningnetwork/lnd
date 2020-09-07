@@ -3537,12 +3537,17 @@
         "signed_psbt": {
           "type": "string",
           "format": "byte",
-          "description": "The funded PSBT that contains all witness data to send the exact channel\ncapacity amount to the PK script returned in the open channel message in a\nprevious step."
+          "description": "The funded PSBT that contains all witness data to send the exact channel\ncapacity amount to the PK script returned in the open channel message in a\nprevious step. Cannot be set at the same time as final_raw_tx."
         },
         "pending_chan_id": {
           "type": "string",
           "format": "byte",
           "description": "The pending channel ID of the channel to get the PSBT for."
+        },
+        "final_raw_tx": {
+          "type": "string",
+          "format": "byte",
+          "description": "As an alternative to the signed PSBT with all witness data, the final raw\nwire format transaction can also be specified directly. Cannot be set at the\nsame time as signed_psbt."
         }
       }
     },

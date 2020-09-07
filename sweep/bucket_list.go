@@ -9,9 +9,20 @@ func (b bucket) tryAdd(input *pendingInput) bool {
 	if exclusiveGroup != nil {
 		for _, input := range b {
 			existingGroup := input.params.ExclusiveGroup
-			if existingGroup != nil &&
-				*existingGroup == *exclusiveGroup {
 
+			// Don't add an exclusive group input if other inputs
+			// are non-exclusive. The exclusive group input may be
+			// invalid (for example in the case of commitment
+			// anchors) and could thereby block sweeping of the
+			// other inputs.
+			if existingGroup == nil {
+				return false
+			}
+
+			// Don't combine inputs from the same exclusive group.
+			// Because only one input is valid, this may result in
+			// txes that are always invalid.
+			if *existingGroup == *exclusiveGroup {
 				return false
 			}
 		}

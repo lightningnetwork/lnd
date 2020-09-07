@@ -316,6 +316,14 @@ func (i *PsbtIntent) FinalizeRawTX(rawTx *wire.MsgTx) error {
 		return fmt.Errorf("inputs differ from verified PSBT: %v", err)
 	}
 
+	// We also check that we have a signed TX. This is only necessary if the
+	// FinalizeRawTX is called directly with a wire format TX instead of
+	// extracting the TX from a PSBT.
+	err = verifyInputsSigned(rawTx.TxIn)
+	if err != nil {
+		return fmt.Errorf("inputs not signed: %v", err)
+	}
+
 	// As far as we can tell, this TX is ok to be used as a funding
 	// transaction.
 	i.State = PsbtFinalized
@@ -535,6 +543,21 @@ func verifyInputPrevOutpointsEqual(ins1, ins2 []*wire.TxIn) error {
 		if in.PreviousOutPoint != ins2[idx].PreviousOutPoint {
 			return fmt.Errorf("previous outpoint of input %d is "+
 				"different", idx)
+		}
+	}
+	return nil
+}
+
+// verifyInputsSigned verifies that the given list of inputs is non-empty and
+// that all the inputs either contain a script signature or a witness stack.
+func verifyInputsSigned(ins []*wire.TxIn) error {
+	if len(ins) == 0 {
+		return fmt.Errorf("no inputs in transaction")
+	}
+	for idx, in := range ins {
+		if len(in.SignatureScript) == 0 && len(in.Witness) == 0 {
+			return fmt.Errorf("input %d has no signature data "+
+				"attached", idx)
 		}
 	}
 	return nil

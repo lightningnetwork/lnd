@@ -204,6 +204,47 @@ func TestRateLimitAdd(t *testing.T) {
 		require.Equal(t, []*event{peerEvent}, peerLog.onlineEvents)
 		require.Equal(t, nextEvent, peerLog.stagedEvent)
 	}
+
+	// Now, we test the case where a peer's flap count is cooled down
+	// because it has not flapped for a while. Set our peer's flap count so
+	// that we fall within our second rate limiting tier and assert that we
+	// are at this level.
+	peerLog.flapCount = rateLimitScale + 1
+	rateLimit := getRateLimit(peerLog.flapCount)
+	require.Equal(t, rateLimits[1], rateLimit)
+
+	// Progress our clock to the point where we will have our flap count
+	// cooled.
+	newNow = mockedClock.Now().Add(flapCountCooldownPeriod)
+	mockedClock.SetTime(newNow)
+
+	// Add an online event, and expect it to be staged.
+	onlineEvent := &event{
+		timestamp: newNow,
+		eventType: peerOnlineEvent,
+	}
+	peerLog.onlineEvent(true)
+	require.Equal(t, onlineEvent, peerLog.stagedEvent)
+
+	// Progress our clock by the rate limit level that we will be on if
+	// our flap rate is cooled down to a lower level.
+	newNow = mockedClock.Now().Add(rateLimits[0] + 1)
+	mockedClock.SetTime(newNow)
+
+	// Add another event. We expect this event to be staged and our previous
+	// event to be flushed to the event log (because our cooldown has been
+	// applied).
+	offlineEvent := &event{
+		timestamp: newNow,
+		eventType: peerOfflineEvent,
+	}
+	peerLog.onlineEvent(false)
+	require.Equal(t, offlineEvent, peerLog.stagedEvent)
+
+	flushedEventIdx := len(peerLog.onlineEvents) - 1
+	require.Equal(
+		t, onlineEvent, peerLog.onlineEvents[flushedEventIdx],
+	)
 }
 
 // TestGetOnlinePeriod tests the getOnlinePeriod function. It tests the case

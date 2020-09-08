@@ -117,6 +117,16 @@ func newChannelInfo(openedAt time.Time) *channelInfo {
 func (p *peerLog) onlineEvent(online bool) {
 	eventTime := p.clock.Now()
 
+	// If we have a non-nil last flap time, potentially apply a cooldown
+	// factor to the peer's flap count before we rate limit it. This allows
+	// us to decrease the penalty for historical flaps over time, provided
+	// the peer has not flapped for a while.
+	if p.lastFlap != nil {
+		p.flapCount = cooldownFlapCount(
+			p.clock.Now(), p.flapCount, *p.lastFlap,
+		)
+	}
+
 	// Record flap count information and online state regardless of whether
 	// we have any channels open with this peer.
 	p.flapCount++

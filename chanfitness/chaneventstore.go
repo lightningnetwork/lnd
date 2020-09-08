@@ -62,11 +62,11 @@ type ChannelEventStore struct {
 type Config struct {
 	// SubscribeChannelEvents provides a subscription client which provides
 	// a stream of channel events.
-	SubscribeChannelEvents func() (*subscribe.Client, error)
+	SubscribeChannelEvents func() (subscribe.Subscription, error)
 
 	// SubscribePeerEvents provides a subscription client which provides a
 	// stream of peer online/offline events.
-	SubscribePeerEvents func() (*subscribe.Client, error)
+	SubscribePeerEvents func() (subscribe.Subscription, error)
 
 	// GetOpenChannels provides a list of existing open channels which is
 	// used to populate the ChannelEventStore with a set of channels on

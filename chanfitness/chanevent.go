@@ -84,11 +84,17 @@ type peerLog struct {
 	channels map[wire.OutPoint]*channelInfo
 }
 
-// newPeerLog creates a log for a peer.
-func newPeerLog(clock clock.Clock) *peerLog {
+// newPeerLog creates a log for a peer, taking its historical flap count and
+// last flap time as parameters. These values may be zero/nil if we have no
+// record of historical flap count for the peer.
+func newPeerLog(clock clock.Clock, flapCount int,
+	lastFlap *time.Time) *peerLog {
+
 	return &peerLog{
-		clock:    clock,
-		channels: make(map[wire.OutPoint]*channelInfo),
+		clock:     clock,
+		flapCount: flapCount,
+		lastFlap:  lastFlap,
+		channels:  make(map[wire.OutPoint]*channelInfo),
 	}
 }
 

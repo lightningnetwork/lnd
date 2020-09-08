@@ -179,6 +179,51 @@ func testEventStore(t *testing.T, generateEvents func(*chanEventStoreTestCtx),
 	require.Equal(t, expectedChannels, monitor.channelCount())
 }
 
+// TestStoreFlapCount tests flushing of flap counts to disk on timer ticks and
+// on store shutdown.
+func TestStoreFlapCount(t *testing.T) {
+	testCtx := newChanEventStoreTestCtx(t)
+	testCtx.start()
+
+	pubkey, _, _ := testCtx.createChannel()
+	testCtx.peerEvent(pubkey, false)
+
+	// Now, we tick our flap count ticker. We expect our main goroutine to
+	// flush our tick count to disk.
+	testCtx.tickFlapCount()
+
+	// Since we just tracked a offline event, we expect a single flap for
+	// our peer.
+	expectedUpdate := peerFlapCountMap{
+		pubkey: {
+			Count:    1,
+			LastFlap: testCtx.clock.Now(),
+		},
+	}
+
+	testCtx.assertFlapCountUpdated()
+	testCtx.assertFlapCountUpdates(expectedUpdate)
+
+	// Create three events for out peer, online/offline/online.
+	testCtx.peerEvent(pubkey, true)
+	testCtx.peerEvent(pubkey, false)
+	testCtx.peerEvent(pubkey, true)
+
+	// Trigger another write.
+	testCtx.tickFlapCount()
+
+	// Since we have processed 3 more events for our peer, we update our
+	// expected online map to have a flap count of 4 for this peer.
+	expectedUpdate[pubkey] = &channeldb.FlapCount{
+		Count:    4,
+		LastFlap: testCtx.clock.Now(),
+	}
+	testCtx.assertFlapCountUpdated()
+	testCtx.assertFlapCountUpdates(expectedUpdate)
+
+	testCtx.stop()
+}
+
 // TestGetChanInfo tests the GetChanInfo function for the cases where a channel
 // is known and unknown to the store.
 func TestGetChanInfo(t *testing.T) {

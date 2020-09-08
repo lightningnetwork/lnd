@@ -12,7 +12,7 @@ import (
 // TestPeerLog tests the functionality of the peer log struct.
 func TestPeerLog(t *testing.T) {
 	clock := clock.NewTestClock(testNow)
-	peerLog := newPeerLog(clock)
+	peerLog := newPeerLog(clock, 0, nil)
 
 	// assertFlapCount is a helper that asserts that our peer's flap count
 	// and timestamp is set to expected values.
@@ -135,7 +135,7 @@ func TestRateLimitAdd(t *testing.T) {
 	mockedClock := clock.NewTestClock(testNow)
 
 	// Create a new peer log.
-	peerLog := newPeerLog(mockedClock)
+	peerLog := newPeerLog(mockedClock, 0, nil)
 	require.Nil(t, peerLog.stagedEvent)
 
 	// Create a channel for our peer log, otherwise it will not track online

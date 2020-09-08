@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/subscribe"
+	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,6 +39,17 @@ type chanEventStoreTestCtx struct {
 
 	// clock is the clock that our test store will use.
 	clock *clock.TestClock
+
+	// flapUpdates stores our most recent set of updates flap counts.
+	flapUpdates peerFlapCountMap
+
+	// flapCountUpdates is a channel which receives new flap counts.
+	flapCountUpdates chan peerFlapCountMap
+
+	// stopped is closed when our test context is fully shutdown. It is
+	// used to prevent calling of functions which can only be called after
+	// shutdown.
+	stopped chan struct{}
 }
 
 // newChanEventStoreTestCtx creates a test context which can be used to test
@@ -48,6 +60,9 @@ func newChanEventStoreTestCtx(t *testing.T) *chanEventStoreTestCtx {
 		channelSubscription: newMockSubscription(t),
 		peerSubscription:    newMockSubscription(t),
 		clock:               clock.NewTestClock(testNow),
+		flapUpdates:         make(peerFlapCountMap),
+		flapCountUpdates:    make(chan peerFlapCountMap),
+		stopped:             make(chan struct{}),
 	}
 
 	cfg := &Config{
@@ -61,6 +76,28 @@ func newChanEventStoreTestCtx(t *testing.T) *chanEventStoreTestCtx {
 		GetOpenChannels: func() ([]*channeldb.OpenChannel, error) {
 			return nil, nil
 		},
+		WriteFlapCount: func(updates map[route.Vertex]*channeldb.FlapCount) error {
+			// Send our whole update map into the test context's
+			// updates channel. The test will need to assert flap
+			// count updated or this send will timeout.
+			select {
+			case testCtx.flapCountUpdates <- updates:
+
+			case <-time.After(timeout):
+				t.Fatalf("WriteFlapCount timeout")
+			}
+
+			return nil
+		},
+		ReadFlapCount: func(peer route.Vertex) (*channeldb.FlapCount, error) {
+			count, ok := testCtx.flapUpdates[peer]
+			if !ok {
+				return nil, channeldb.ErrNoPeerBucket
+			}
+
+			return count, nil
+		},
+		FlapCountTicker: ticker.NewForce(FlapCountFlushRate),
 	}
 
 	testCtx.store = NewChannelEventStore(cfg)
@@ -75,7 +112,25 @@ func (c *chanEventStoreTestCtx) start() {
 
 // stop stops the channel event store's subscribe servers and the store itself.
 func (c *chanEventStoreTestCtx) stop() {
-	c.store.Stop()
+	// On shutdown of our event store, we write flap counts to disk. In our
+	// test context, this write function is blocked on asserting that the
+	// update has occurred. We stop our store in a goroutine so that we
+	// can shut it down and assert that it performs these on-shutdown
+	// updates. The stopped channel is used to ensure that we do not finish
+	// our test before this shutdown has completed.
+	go func() {
+		c.store.Stop()
+		close(c.stopped)
+	}()
+
+	// We write our flap count to disk on shutdown, assert that the most
+	// recent record that the server has is written on shutdown. Calling
+	// this assert unblocks the stop function above. We don't check values
+	// here, so that our tests don't all require providing an expected swap
+	// count, but at least assert that the write occurred.
+	c.assertFlapCountUpdated()
+
+	<-c.stopped
 
 	// Make sure that the cancel function was called for both of our
 	// subscription mocks.
@@ -137,6 +192,18 @@ func (c *chanEventStoreTestCtx) closeChannel(channel wire.OutPoint,
 	c.channelSubscription.sendUpdate(update)
 }
 
+// tickFlapCount forces a tick for our flap count ticker with the current time.
+func (c *chanEventStoreTestCtx) tickFlapCount() {
+	testTicker := c.store.cfg.FlapCountTicker.(*ticker.Force)
+
+	select {
+	case testTicker.Force <- c.store.cfg.Clock.Now():
+
+	case <-time.After(timeout):
+		c.t.Fatalf("could not tick flap count ticker")
+	}
+}
+
 // peerEvent sends a peer online or offline event to the store for the peer
 // provided.
 func (c *chanEventStoreTestCtx) peerEvent(peer route.Vertex, online bool) {
@@ -163,6 +230,24 @@ func (c *chanEventStoreTestCtx) sendChannelOpenedUpdate(pubkey *btcec.PublicKey,
 	}
 
 	c.channelSubscription.sendUpdate(update)
+}
+
+// assertFlapCountUpdated asserts that our store has made an attempt to write
+// our current set of flap counts to disk and sets this value in our test ctx.
+// Note that it does not check the values of the update.
+func (c *chanEventStoreTestCtx) assertFlapCountUpdated() {
+	select {
+	case c.flapUpdates = <-c.flapCountUpdates:
+
+	case <-time.After(timeout):
+		c.t.Fatalf("assertFlapCountUpdated timeout")
+	}
+}
+
+// assertFlapCountUpdates asserts that out current record of flap counts is
+// as expected.
+func (c *chanEventStoreTestCtx) assertFlapCountUpdates(expected peerFlapCountMap) {
+	require.Equal(c.t, expected, c.flapUpdates)
 }
 
 // mockSubscription is a mock subscription client that blocks on sends into the

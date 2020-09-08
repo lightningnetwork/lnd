@@ -1212,6 +1212,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		},
 		GetOpenChannels: s.remoteChanDB.FetchAllOpenChannels,
 		Clock:           clock.NewDefaultClock(),
+		ReadFlapCount:   s.remoteChanDB.ReadFlapCount,
+		WriteFlapCount:  s.remoteChanDB.WriteFlapCounts,
+		FlapCountTicker: ticker.New(chanfitness.FlapCountFlushRate),
 	})
 
 	if cfg.WtClient.Active {

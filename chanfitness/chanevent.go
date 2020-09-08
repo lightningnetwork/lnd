@@ -107,8 +107,11 @@ type onlinePeriod struct {
 // getOnlinePeriods returns a list of all the periods that the event log has
 // recorded the remote peer as being online. In the unexpected case where there
 // are no events, the function returns early. Online periods are defined as a
-// peer online event which is terminated by a peer offline event. This function
-// expects the event log provided to be ordered by ascending timestamp.
+// peer online event which is terminated by a peer offline event. If the event
+// log ends on a peer online event, it appends a final period which is
+// calculated until the present. This function expects the event log provided
+// to be ordered by ascending timestamp, and can tolerate multiple consecutive
+// online or offline events.
 func (e *chanEventLog) getOnlinePeriods() []*onlinePeriod {
 	// Return early if there are no events, there are no online periods.
 	if len(e.events) == 0 {
@@ -116,8 +119,11 @@ func (e *chanEventLog) getOnlinePeriods() []*onlinePeriod {
 	}
 
 	var (
-		lastOnline    time.Time
-		offline       bool
+		// lastEvent tracks the last event that we had that was of
+		// a different type to our own. It is used to determine the
+		// start time of our online periods when we experience an
+		// offline event, and to track our last recorded state.
+		lastEvent     *channelEvent
 		onlinePeriods []*onlinePeriod
 	)
 
@@ -128,51 +134,72 @@ func (e *chanEventLog) getOnlinePeriods() []*onlinePeriod {
 	// recent event is tracked using the offline bool so that we can add a
 	// final online period if necessary.
 	for _, event := range e.events {
-
 		switch event.eventType {
 		case peerOnlineEvent:
-			lastOnline = event.timestamp
-			offline = false
-
-		case peerOfflineEvent:
-			offline = true
-
-			// Do not add to uptime if there is no previous online
-			// timestamp, the event log has started with an offline
-			// event
-			if lastOnline.IsZero() {
-				continue
+			// If our previous event is nil, we just set it and
+			// break out of the switch.
+			if lastEvent == nil {
+				lastEvent = event
+				break
 			}
 
-			// The eventLog has recorded an offline event, having
-			// previously been online so we add an online period to
-			// set of online periods.
-			onlinePeriods = append(onlinePeriods, &onlinePeriod{
-				start: lastOnline,
-				end:   event.timestamp,
-			})
+			// If our previous event was an offline event, we update
+			// it to this event. We do not do this if it was an
+			// online event because duplicate online events would
+			// progress our online timestamp forward (rather than
+			// keep it at our earliest online event timestamp).
+			if lastEvent.eventType == peerOfflineEvent {
+				lastEvent = event
+			}
+
+		case peerOfflineEvent:
+			// If our previous event is nil, we just set it and
+			// break out of the switch since we cannot record an
+			// online period from this single event.
+			if lastEvent == nil {
+				lastEvent = event
+				break
+			}
+
+			// If the last event we saw was an online event, we
+			// add an online period to our set and progress our
+			// previous event to this offline event. We do not
+			// do this if we have had duplicate offline events
+			// because we would be tracking the most recent offline
+			// event (rather than keep it at our earliest offline
+			// event timestamp).
+			if lastEvent.eventType == peerOnlineEvent {
+				onlinePeriods = append(
+					onlinePeriods, &onlinePeriod{
+						start: lastEvent.timestamp,
+						end:   event.timestamp,
+					},
+				)
+
+				lastEvent = event
+			}
 		}
 	}
 
 	// If the last event was an peer offline event, we do not need to
 	// calculate a final online period and can return online periods as is.
-	if offline {
+	if lastEvent.eventType == peerOfflineEvent {
 		return onlinePeriods
 	}
 
 	// The log ended on an online event, so we need to add a final online
 	// event. If the channel is closed, this period is until channel
 	// closure. It it is still open, we calculate it until the present.
-	endTime := e.closedAt
-	if endTime.IsZero() {
-		endTime = e.clock.Now()
+	finalEvent := &onlinePeriod{
+		start: lastEvent.timestamp,
+		end:   e.closedAt,
+	}
+	if finalEvent.end.IsZero() {
+		finalEvent.end = e.clock.Now()
 	}
 
 	// Add the final online period to the set and return.
-	return append(onlinePeriods, &onlinePeriod{
-		start: lastOnline,
-		end:   endTime,
-	})
+	return append(onlinePeriods, finalEvent)
 }
 
 // uptime calculates the total uptime we have recorded for a channel over the

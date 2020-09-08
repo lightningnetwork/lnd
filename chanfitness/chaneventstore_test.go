@@ -107,9 +107,7 @@ func TestMonitorChannelEvents(t *testing.T) {
 			ctx.peerEvent(peer1, true)
 		}
 
-		testEventStore(t, gen, 1, map[route.Vertex]bool{
-			peer1: true,
-		})
+		testEventStore(t, gen, peer1, 1)
 	})
 
 	t.Run("duplicate channel open events", func(t *testing.T) {
@@ -119,9 +117,7 @@ func TestMonitorChannelEvents(t *testing.T) {
 			ctx.peerEvent(peer1, true)
 		}
 
-		testEventStore(t, gen, 1, map[route.Vertex]bool{
-			peer1: true,
-		})
+		testEventStore(t, gen, peer1, 1)
 	})
 
 	t.Run("peer online before channel created", func(t *testing.T) {
@@ -130,9 +126,7 @@ func TestMonitorChannelEvents(t *testing.T) {
 			ctx.sendChannelOpenedUpdate(pubKey, chan1)
 		}
 
-		testEventStore(t, gen, 1, map[route.Vertex]bool{
-			peer1: true,
-		})
+		testEventStore(t, gen, peer1, 1)
 	})
 
 	t.Run("multiple channels for peer", func(t *testing.T) {
@@ -144,9 +138,7 @@ func TestMonitorChannelEvents(t *testing.T) {
 			ctx.sendChannelOpenedUpdate(pubKey, chan2)
 		}
 
-		testEventStore(t, gen, 2, map[route.Vertex]bool{
-			peer1: false,
-		})
+		testEventStore(t, gen, peer1, 2)
 	})
 
 	t.Run("multiple channels for peer, one closed", func(t *testing.T) {
@@ -161,18 +153,15 @@ func TestMonitorChannelEvents(t *testing.T) {
 			ctx.peerEvent(peer1, true)
 		}
 
-		testEventStore(t, gen, 2, map[route.Vertex]bool{
-			peer1: true,
-		})
+		testEventStore(t, gen, peer1, 1)
 	})
 
 }
 
 // testEventStore creates a new test contexts, generates a set of events for it
-// and tests that it has the number of channels and online state for peers that
-// we expect.
+// and tests that it has the number of channels we expect.
 func testEventStore(t *testing.T, generateEvents func(*chanEventStoreTestCtx),
-	expectedChannels int, expectedPeers map[route.Vertex]bool) {
+	peer route.Vertex, expectedChannels int) {
 
 	testCtx := newChanEventStoreTestCtx(t)
 	testCtx.start()
@@ -182,36 +171,12 @@ func testEventStore(t *testing.T, generateEvents func(*chanEventStoreTestCtx),
 	// Shutdown the store so that we can safely access the maps in our event
 	// store.
 	testCtx.stop()
-	require.Len(t, testCtx.store.channels, expectedChannels)
-	require.Equal(t, expectedPeers, testCtx.store.peers)
-}
 
-// TestAddChannel tests that channels are added to the event store with
-// appropriate timestamps. This test addresses a bug where offline channels
-// did not have an opened time set, and checks that an online event is set for
-// peers that are online at the time that a channel is opened.
-func TestAddChannel(t *testing.T) {
-	ctx := newChanEventStoreTestCtx(t)
-	ctx.start()
+	// Get our peer and check that it has the channels we expect.
+	monitor, ok := testCtx.store.peers[peer]
+	require.True(t, ok)
 
-	// Create a channel for a peer that is not online yet.
-	_, _, channel1 := ctx.createChannel()
-
-	// Get a set of values for another channel, but do not create it yet.
-	//
-	peer2, pubkey2, channel2 := ctx.newChannel()
-	ctx.peerEvent(peer2, true)
-	ctx.sendChannelOpenedUpdate(pubkey2, channel2)
-
-	ctx.stop()
-
-	// Assert that our peer that was offline on connection has no events
-	// and our peer that was online on connection has one.
-	require.Len(t, ctx.store.channels[channel1].events, 0)
-
-	chan2Events := ctx.store.channels[channel2].events
-	require.Len(t, chan2Events, 1)
-	require.Equal(t, peerOnlineEvent, chan2Events[0].eventType)
+	require.Equal(t, expectedChannels, monitor.channelCount())
 }
 
 // TestGetChanInfo tests the GetChanInfo function for the cases where a channel
@@ -232,7 +197,7 @@ func TestGetChanInfo(t *testing.T) {
 
 	// Try to get info for a channel that has not been opened yet, we
 	// expect to get an error.
-	_, err := ctx.store.GetChanInfo(channel)
+	_, err := ctx.store.GetChanInfo(channel, peer)
 	require.Equal(t, ErrChannelNotFound, err)
 
 	// Now we send our store a notification that a channel has been opened.
@@ -242,7 +207,7 @@ func TestGetChanInfo(t *testing.T) {
 	// for the channel to be created so that we do not update our time
 	// before the channel open is processed.
 	require.Eventually(t, func() bool {
-		_, err = ctx.store.GetChanInfo(channel)
+		_, err = ctx.store.GetChanInfo(channel, peer)
 		return err == nil
 	}, timeout, time.Millisecond*20)
 
@@ -251,7 +216,7 @@ func TestGetChanInfo(t *testing.T) {
 	ctx.clock.SetTime(now)
 
 	// At this stage our channel has been open and online for an hour.
-	info, err := ctx.store.GetChanInfo(channel)
+	info, err := ctx.store.GetChanInfo(channel, peer)
 	require.NoError(t, err)
 	require.Equal(t, time.Hour, info.Lifetime)
 	require.Equal(t, time.Hour, info.Uptime)
@@ -262,7 +227,7 @@ func TestGetChanInfo(t *testing.T) {
 	// Since we have not bumped our mocked time, our uptime calculations
 	// should be the same, even though we've just processed an offline
 	// event.
-	info, err = ctx.store.GetChanInfo(channel)
+	info, err = ctx.store.GetChanInfo(channel, peer)
 	require.NoError(t, err)
 	require.Equal(t, time.Hour, info.Lifetime)
 	require.Equal(t, time.Hour, info.Uptime)
@@ -273,7 +238,7 @@ func TestGetChanInfo(t *testing.T) {
 	now = now.Add(time.Hour)
 	ctx.clock.SetTime(now)
 
-	info, err = ctx.store.GetChanInfo(channel)
+	info, err = ctx.store.GetChanInfo(channel, peer)
 	require.NoError(t, err)
 	require.Equal(t, time.Hour*2, info.Lifetime)
 	require.Equal(t, time.Hour, info.Uptime)

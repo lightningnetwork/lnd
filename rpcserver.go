@@ -3536,12 +3536,17 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		return channel, nil
 	}
 
+	peer, err := route.NewVertexFromBytes(nodePub.SerializeCompressed())
+	if err != nil {
+		return nil, err
+	}
+
 	// Query the event store for additional information about the channel.
 	// Do not fail if it is not available, because there is a potential
 	// race between a channel being added to our node and the event store
 	// being notified of it.
 	outpoint := dbChannel.FundingOutpoint
-	info, err := r.server.chanEventStore.GetChanInfo(outpoint)
+	info, err := r.server.chanEventStore.GetChanInfo(outpoint, peer)
 	switch err {
 	// If the store does not know about the channel, we just log it.
 	case chanfitness.ErrChannelNotFound:

@@ -4,55 +4,97 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/stretchr/testify/require"
 )
 
-// TestAdd tests adding events to an event log. It tests the case where the
-// channel is open, and should have an event added, and the case where it is
-// closed and the event should not be added.
-func TestAdd(t *testing.T) {
-	tests := []struct {
-		name           string
-		eventLog       *chanEventLog
-		event          eventType
-		expectedEvents []*channelEvent
-	}{
-		{
-			name: "Channel open",
-			eventLog: &chanEventLog{
-				clock: clock.NewTestClock(testNow),
-			},
-			event: peerOnlineEvent,
-			expectedEvents: []*channelEvent{
-				{
-					eventType: peerOnlineEvent,
-					timestamp: testNow,
-				},
-			},
-		},
-		{
-			name: "Channel closed, event not added",
-			eventLog: &chanEventLog{
-				clock:    clock.NewTestClock(testNow),
-				closedAt: testNow,
-			},
-			event:          peerOnlineEvent,
-			expectedEvents: nil,
-		},
+// TestPeerLog tests the functionality of the peer log struct.
+func TestPeerLog(t *testing.T) {
+	clock := clock.NewTestClock(testNow)
+	peerLog := newPeerLog(clock)
+
+	require.Zero(t, peerLog.channelCount())
+	require.False(t, peerLog.online)
+
+	// Test that looking up an unknown channel fails.
+	_, _, err := peerLog.channelUptime(wire.OutPoint{Index: 1})
+	require.Error(t, err)
+
+	// Add an offline event, since we have no channels, we do not expect
+	// to have any online periods recorded for our peer.
+	peerLog.onlineEvent(false)
+	require.Len(t, peerLog.getOnlinePeriods(), 0)
+
+	// Likewise, if we have an online event, nothing beyond the online state
+	// of our peer log should change.
+	peerLog.onlineEvent(true)
+	require.Len(t, peerLog.getOnlinePeriods(), 0)
+
+	// Add a channel and assert that we have one channel listed.
+	chan1 := wire.OutPoint{
+		Index: 1,
 	}
+	require.NoError(t, peerLog.addChannel(chan1))
+	require.Equal(t, 1, peerLog.channelCount())
 
-	for _, test := range tests {
-		test := test
+	// Assert that we can now successfully get our added channel.
+	_, _, err = peerLog.channelUptime(chan1)
+	require.NoError(t, err)
 
-		t.Run(test.name, func(t *testing.T) {
-			test.eventLog.add(test.event)
+	// Bump our test clock's time so that our current time is different to
+	// channel open time.
+	now := testNow.Add(time.Hour)
+	clock.SetTime(now)
 
-			require.Equal(
-				t, test.expectedEvents, test.eventLog.events,
-			)
-		})
+	// Now that we have added a channel and an hour has passed, we expect
+	// our uptime and lifetime to both equal an hour.
+	lifetime, uptime, err := peerLog.channelUptime(chan1)
+	require.NoError(t, err)
+	require.Equal(t, time.Hour, lifetime)
+	require.Equal(t, time.Hour, uptime)
+
+	// Add an offline event for our peer.
+	peerLog.onlineEvent(false)
+
+	// Now we add another channel to our store and assert that we now report
+	// two channels for this peer.
+	chan2 := wire.OutPoint{
+		Index: 2,
 	}
+	require.NoError(t, peerLog.addChannel(chan2))
+	require.Equal(t, 2, peerLog.channelCount())
+
+	// Progress our time again, so that our peer has now been offline for
+	// two hours.
+	now = now.Add(time.Hour * 2)
+	clock.SetTime(now)
+
+	// Our first channel should report as having been monitored for three
+	// hours, but only online for one of those hours.
+	lifetime, uptime, err = peerLog.channelUptime(chan1)
+	require.NoError(t, err)
+	require.Equal(t, time.Hour*3, lifetime)
+	require.Equal(t, time.Hour, uptime)
+
+	// Remove our first channel and check that we can still correctly query
+	// uptime for the second channel.
+	require.NoError(t, peerLog.removeChannel(chan1))
+	require.Equal(t, 1, peerLog.channelCount())
+
+	// Our second channel, which was created when our peer was offline,
+	// should report as having been monitored for two hours, but have zero
+	// uptime.
+	lifetime, uptime, err = peerLog.channelUptime(chan2)
+	require.NoError(t, err)
+	require.Equal(t, time.Hour*2, lifetime)
+	require.Equal(t, time.Duration(0), uptime)
+
+	// Finally, remove our second channel and assert that our peer cleans
+	// up its in memory set of events.
+	require.NoError(t, peerLog.removeChannel(chan2))
+	require.Equal(t, 0, peerLog.channelCount())
+	require.Len(t, peerLog.onlineEvents, 0)
 }
 
 // TestGetOnlinePeriod tests the getOnlinePeriod function. It tests the case
@@ -62,21 +104,18 @@ func TestGetOnlinePeriod(t *testing.T) {
 	fourHoursAgo := testNow.Add(time.Hour * -4)
 	threeHoursAgo := testNow.Add(time.Hour * -3)
 	twoHoursAgo := testNow.Add(time.Hour * -2)
-	oneHourAgo := testNow.Add(time.Hour * -1)
 
 	tests := []struct {
 		name           string
-		events         []*channelEvent
+		events         []*event
 		expectedOnline []*onlinePeriod
-		openedAt       time.Time
-		closedAt       time.Time
 	}{
 		{
 			name: "no events",
 		},
 		{
 			name: "start on online period",
-			events: []*channelEvent{
+			events: []*event{
 				{
 					timestamp: threeHoursAgo,
 					eventType: peerOnlineEvent,
@@ -95,7 +134,7 @@ func TestGetOnlinePeriod(t *testing.T) {
 		},
 		{
 			name: "start on offline period",
-			events: []*channelEvent{
+			events: []*event{
 				{
 					timestamp: fourHoursAgo,
 					eventType: peerOfflineEvent,
@@ -103,8 +142,8 @@ func TestGetOnlinePeriod(t *testing.T) {
 			},
 		},
 		{
-			name: "end on an online period, channel not closed",
-			events: []*channelEvent{
+			name: "end on an online period",
+			events: []*event{
 				{
 					timestamp: fourHoursAgo,
 					eventType: peerOnlineEvent,
@@ -118,24 +157,8 @@ func TestGetOnlinePeriod(t *testing.T) {
 			},
 		},
 		{
-			name: "end on an online period, channel closed",
-			events: []*channelEvent{
-				{
-					timestamp: fourHoursAgo,
-					eventType: peerOnlineEvent,
-				},
-			},
-			expectedOnline: []*onlinePeriod{
-				{
-					start: fourHoursAgo,
-					end:   oneHourAgo,
-				},
-			},
-			closedAt: oneHourAgo,
-		},
-		{
-			name: "duplicate online events, channel not closed",
-			events: []*channelEvent{
+			name: "duplicate online events",
+			events: []*event{
 				{
 					timestamp: fourHoursAgo,
 					eventType: peerOnlineEvent,
@@ -153,28 +176,8 @@ func TestGetOnlinePeriod(t *testing.T) {
 			},
 		},
 		{
-			name: "duplicate online events, channel closed",
-			events: []*channelEvent{
-				{
-					timestamp: fourHoursAgo,
-					eventType: peerOnlineEvent,
-				},
-				{
-					timestamp: twoHoursAgo,
-					eventType: peerOnlineEvent,
-				},
-			},
-			expectedOnline: []*onlinePeriod{
-				{
-					start: fourHoursAgo,
-					end:   threeHoursAgo,
-				},
-			},
-			closedAt: threeHoursAgo,
-		},
-		{
-			name: "duplicate offline events, channel not closed",
-			events: []*channelEvent{
+			name: "duplicate offline events",
+			events: []*event{
 				{
 					timestamp: fourHoursAgo,
 					eventType: peerOfflineEvent,
@@ -188,7 +191,7 @@ func TestGetOnlinePeriod(t *testing.T) {
 		},
 		{
 			name: "duplicate online then offline",
-			events: []*channelEvent{
+			events: []*event{
 				{
 					timestamp: fourHoursAgo,
 					eventType: peerOnlineEvent,
@@ -211,7 +214,7 @@ func TestGetOnlinePeriod(t *testing.T) {
 		},
 		{
 			name: "duplicate offline then online",
-			events: []*channelEvent{
+			events: []*event{
 				{
 					timestamp: fourHoursAgo,
 					eventType: peerOfflineEvent,
@@ -240,11 +243,9 @@ func TestGetOnlinePeriod(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			score := &chanEventLog{
-				events:   test.events,
-				clock:    clock.NewTestClock(testNow),
-				openedAt: test.openedAt,
-				closedAt: test.closedAt,
+			score := &peerLog{
+				onlineEvents: test.events,
+				clock:        clock.NewTestClock(testNow),
 			}
 
 			online := score.getOnlinePeriods()
@@ -265,18 +266,9 @@ func TestUptime(t *testing.T) {
 	tests := []struct {
 		name string
 
-		// opened at is the time the channel was recorded as being open,
-		// and is never expected to be zero.
-		openedAt time.Time
-
-		// closed at is the time the channel was recorded as being
-		// closed, and can have a zero value if the channel is not
-		// closed.
-		closedAt time.Time
-
 		// events is the set of event log that we are calculating uptime
 		// for.
-		events []*channelEvent
+		events []*event
 
 		// startTime is the beginning of the period that we are
 		// calculating uptime for, it cannot have a zero value.
@@ -306,23 +298,8 @@ func TestUptime(t *testing.T) {
 			expectErr: true,
 		},
 		{
-			name:     "Online event and closed",
-			openedAt: fourHoursAgo,
-			closedAt: oneHourAgo,
-			events: []*channelEvent{
-				{
-					timestamp: fourHoursAgo,
-					eventType: peerOnlineEvent,
-				},
-			},
-			startTime:      fourHoursAgo,
-			endTime:        testNow,
-			expectedUptime: time.Hour * 3,
-		},
-		{
-			name:     "Online event and not closed",
-			openedAt: fourHoursAgo,
-			events: []*channelEvent{
+			name: "online event and no offline",
+			events: []*event{
 				{
 					timestamp: fourHoursAgo,
 					eventType: peerOnlineEvent,
@@ -333,37 +310,8 @@ func TestUptime(t *testing.T) {
 			expectedUptime: time.Hour * 4,
 		},
 		{
-			name:     "Offline event and closed",
-			openedAt: fourHoursAgo,
-			closedAt: threeHoursAgo,
-			events: []*channelEvent{
-				{
-					timestamp: fourHoursAgo,
-					eventType: peerOfflineEvent,
-				},
-			},
-			startTime: fourHoursAgo,
-			endTime:   testNow,
-		},
-		{
-			name:     "Online event before close",
-			openedAt: fourHoursAgo,
-			closedAt: oneHourAgo,
-			events: []*channelEvent{
-				{
-					timestamp: twoHoursAgo,
-					eventType: peerOnlineEvent,
-				},
-			},
-			startTime:      fourHoursAgo,
-			endTime:        testNow,
-			expectedUptime: time.Hour,
-		},
-		{
-			name:     "Online then offline event",
-			openedAt: fourHoursAgo,
-			closedAt: oneHourAgo,
-			events: []*channelEvent{
+			name: "online then offline event",
+			events: []*event{
 				{
 					timestamp: threeHoursAgo,
 					eventType: peerOnlineEvent,
@@ -378,10 +326,8 @@ func TestUptime(t *testing.T) {
 			expectedUptime: time.Hour,
 		},
 		{
-			name:     "Online event before uptime period",
-			openedAt: fourHoursAgo,
-			closedAt: oneHourAgo,
-			events: []*channelEvent{
+			name: "online event before uptime period",
+			events: []*event{
 				{
 					timestamp: threeHoursAgo,
 					eventType: peerOnlineEvent,
@@ -389,12 +335,11 @@ func TestUptime(t *testing.T) {
 			},
 			startTime:      twoHoursAgo,
 			endTime:        testNow,
-			expectedUptime: time.Hour,
+			expectedUptime: time.Hour * 2,
 		},
 		{
-			name:     "Offline event after uptime period",
-			openedAt: fourHoursAgo,
-			events: []*channelEvent{
+			name: "offline event after uptime period",
+			events: []*event{
 				{
 					timestamp: fourHoursAgo,
 					eventType: peerOnlineEvent,
@@ -409,9 +354,8 @@ func TestUptime(t *testing.T) {
 			expectedUptime: time.Hour * 2,
 		},
 		{
-			name:     "All events within period",
-			openedAt: fourHoursAgo,
-			events: []*channelEvent{
+			name: "all events within period",
+			events: []*event{
 				{
 					timestamp: twoHoursAgo,
 					eventType: peerOnlineEvent,
@@ -422,9 +366,8 @@ func TestUptime(t *testing.T) {
 			expectedUptime: time.Hour,
 		},
 		{
-			name:     "Multiple online and offline",
-			openedAt: testNow.Add(time.Hour * -8),
-			events: []*channelEvent{
+			name: "multiple online and offline",
+			events: []*event{
 				{
 					timestamp: testNow.Add(time.Hour * -7),
 					eventType: peerOnlineEvent,
@@ -456,11 +399,9 @@ func TestUptime(t *testing.T) {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
-			score := &chanEventLog{
-				events:   test.events,
-				clock:    clock.NewTestClock(testNow),
-				openedAt: test.openedAt,
-				closedAt: test.closedAt,
+			score := &peerLog{
+				onlineEvents: test.events,
+				clock:        clock.NewTestClock(testNow),
 			}
 
 			uptime, err := score.uptime(

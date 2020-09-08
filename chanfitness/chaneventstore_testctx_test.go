@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/subscribe"
@@ -34,6 +35,9 @@ type chanEventStoreTestCtx struct {
 	// for a single pubkey + channel combination because its actual value
 	// does not matter.
 	testVarIdx int
+
+	// clock is the clock that our test store will use.
+	clock *clock.TestClock
 }
 
 // newChanEventStoreTestCtx creates a test context which can be used to test
@@ -43,9 +47,11 @@ func newChanEventStoreTestCtx(t *testing.T) *chanEventStoreTestCtx {
 		t:                   t,
 		channelSubscription: newMockSubscription(t),
 		peerSubscription:    newMockSubscription(t),
+		clock:               clock.NewTestClock(testNow),
 	}
 
 	cfg := &Config{
+		Clock: testCtx.clock,
 		SubscribeChannelEvents: func() (subscribe.Subscription, error) {
 			return testCtx.channelSubscription, nil
 		},

@@ -3,6 +3,8 @@ package chanfitness
 import (
 	"testing"
 	"time"
+
+	"github.com/lightningnetwork/lnd/clock"
 )
 
 // TestAdd tests adding events to an event log. It tests the case where the
@@ -18,7 +20,7 @@ func TestAdd(t *testing.T) {
 		{
 			name: "Channel open",
 			eventLog: &chanEventLog{
-				now: time.Now,
+				clock: clock.NewTestClock(testNow),
 			},
 			event:    peerOnlineEvent,
 			expected: []eventType{peerOnlineEvent},
@@ -26,7 +28,7 @@ func TestAdd(t *testing.T) {
 		{
 			name: "Channel closed, event not added",
 			eventLog: &chanEventLog{
-				now: time.Now,
+				clock: clock.NewTestClock(testNow),
 			},
 			event:    peerOnlineEvent,
 			expected: []eventType{},
@@ -55,13 +57,10 @@ func TestAdd(t *testing.T) {
 // where no events present, and the case where an additional online period
 // must be added because the event log ends on an online event.
 func TestGetOnlinePeriod(t *testing.T) {
-	// Set time for consistent testing.
-	now := time.Now()
-
-	fourHoursAgo := now.Add(time.Hour * -4)
-	threeHoursAgo := now.Add(time.Hour * -3)
-	twoHoursAgo := now.Add(time.Hour * -2)
-	oneHourAgo := now.Add(time.Hour * -1)
+	fourHoursAgo := testNow.Add(time.Hour * -4)
+	threeHoursAgo := testNow.Add(time.Hour * -3)
+	twoHoursAgo := testNow.Add(time.Hour * -2)
+	oneHourAgo := testNow.Add(time.Hour * -1)
 
 	tests := []struct {
 		name           string
@@ -112,7 +111,7 @@ func TestGetOnlinePeriod(t *testing.T) {
 			expectedOnline: []*onlinePeriod{
 				{
 					start: fourHoursAgo,
-					end:   now,
+					end:   testNow,
 				},
 			},
 		},
@@ -139,10 +138,8 @@ func TestGetOnlinePeriod(t *testing.T) {
 
 		t.Run(test.name, func(t *testing.T) {
 			score := &chanEventLog{
-				events: test.events,
-				now: func() time.Time {
-					return now
-				},
+				events:   test.events,
+				clock:    clock.NewTestClock(testNow),
 				openedAt: test.openedAt,
 				closedAt: test.closedAt,
 			}
@@ -172,13 +169,10 @@ func TestGetOnlinePeriod(t *testing.T) {
 
 // TestUptime tests channel uptime calculation based on its event log.
 func TestUptime(t *testing.T) {
-	// Set time for consistent testing.
-	now := time.Now()
-
-	fourHoursAgo := now.Add(time.Hour * -4)
-	threeHoursAgo := now.Add(time.Hour * -3)
-	twoHoursAgo := now.Add(time.Hour * -2)
-	oneHourAgo := now.Add(time.Hour * -1)
+	fourHoursAgo := testNow.Add(time.Hour * -4)
+	threeHoursAgo := testNow.Add(time.Hour * -3)
+	twoHoursAgo := testNow.Add(time.Hour * -2)
+	oneHourAgo := testNow.Add(time.Hour * -1)
 
 	tests := []struct {
 		name string
@@ -216,7 +210,7 @@ func TestUptime(t *testing.T) {
 		{
 			name:      "End before start",
 			endTime:   threeHoursAgo,
-			startTime: now,
+			startTime: testNow,
 			expectErr: true,
 		},
 		{
@@ -234,7 +228,7 @@ func TestUptime(t *testing.T) {
 				},
 			},
 			startTime:      fourHoursAgo,
-			endTime:        now,
+			endTime:        testNow,
 			expectedUptime: time.Hour * 3,
 		},
 		{
@@ -247,7 +241,7 @@ func TestUptime(t *testing.T) {
 				},
 			},
 			startTime:      fourHoursAgo,
-			endTime:        now,
+			endTime:        testNow,
 			expectedUptime: time.Hour * 4,
 		},
 		{
@@ -261,7 +255,7 @@ func TestUptime(t *testing.T) {
 				},
 			},
 			startTime: fourHoursAgo,
-			endTime:   now,
+			endTime:   testNow,
 		},
 		{
 			name:     "Online event before close",
@@ -274,7 +268,7 @@ func TestUptime(t *testing.T) {
 				},
 			},
 			startTime:      fourHoursAgo,
-			endTime:        now,
+			endTime:        testNow,
 			expectedUptime: time.Hour,
 		},
 		{
@@ -292,7 +286,7 @@ func TestUptime(t *testing.T) {
 				},
 			},
 			startTime:      fourHoursAgo,
-			endTime:        now,
+			endTime:        testNow,
 			expectedUptime: time.Hour,
 		},
 		{
@@ -306,7 +300,7 @@ func TestUptime(t *testing.T) {
 				},
 			},
 			startTime:      twoHoursAgo,
-			endTime:        now,
+			endTime:        testNow,
 			expectedUptime: time.Hour,
 		},
 		{
@@ -318,12 +312,12 @@ func TestUptime(t *testing.T) {
 					eventType: peerOnlineEvent,
 				},
 				{
-					timestamp: now.Add(time.Hour),
+					timestamp: testNow.Add(time.Hour),
 					eventType: peerOfflineEvent,
 				},
 			},
 			startTime:      twoHoursAgo,
-			endTime:        now,
+			endTime:        testNow,
 			expectedUptime: time.Hour * 2,
 		},
 		{
@@ -341,30 +335,30 @@ func TestUptime(t *testing.T) {
 		},
 		{
 			name:     "Multiple online and offline",
-			openedAt: now.Add(time.Hour * -8),
+			openedAt: testNow.Add(time.Hour * -8),
 			events: []*channelEvent{
 				{
-					timestamp: now.Add(time.Hour * -7),
+					timestamp: testNow.Add(time.Hour * -7),
 					eventType: peerOnlineEvent,
 				},
 				{
-					timestamp: now.Add(time.Hour * -6),
+					timestamp: testNow.Add(time.Hour * -6),
 					eventType: peerOfflineEvent,
 				},
 				{
-					timestamp: now.Add(time.Hour * -5),
+					timestamp: testNow.Add(time.Hour * -5),
 					eventType: peerOnlineEvent,
 				},
 				{
-					timestamp: now.Add(time.Hour * -4),
+					timestamp: testNow.Add(time.Hour * -4),
 					eventType: peerOfflineEvent,
 				},
 				{
-					timestamp: now.Add(time.Hour * -3),
+					timestamp: testNow.Add(time.Hour * -3),
 					eventType: peerOnlineEvent,
 				},
 			},
-			startTime:      now.Add(time.Hour * -8),
+			startTime:      testNow.Add(time.Hour * -8),
 			endTime:        oneHourAgo,
 			expectedUptime: time.Hour * 4,
 		},
@@ -375,10 +369,8 @@ func TestUptime(t *testing.T) {
 
 		t.Run(test.name, func(t *testing.T) {
 			score := &chanEventLog{
-				events: test.events,
-				now: func() time.Time {
-					return now
-				},
+				events:   test.events,
+				clock:    clock.NewTestClock(testNow),
 				openedAt: test.openedAt,
 				closedAt: test.closedAt,
 			}

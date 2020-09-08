@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/subscribe"
@@ -72,6 +73,10 @@ type Config struct {
 	// used to populate the ChannelEventStore with a set of channels on
 	// startup.
 	GetOpenChannels func() ([]*channeldb.OpenChannel, error)
+
+	// Clock is the time source that the subsystem uses, provided here
+	// for ease of testing.
+	Clock clock.Clock
 }
 
 // lifespanRequest contains the channel ID required to query the store for a
@@ -212,7 +217,7 @@ func (c *ChannelEventStore) addChannel(channelPoint wire.OutPoint,
 	}
 
 	// Create an event log for the channel.
-	eventLog := newEventLog(channelPoint, peer, time.Now)
+	eventLog := newEventLog(channelPoint, peer, c.cfg.Clock)
 
 	// If the peer is already online, add a peer online event to record
 	// the starting state of the peer.

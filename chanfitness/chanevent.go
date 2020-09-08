@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -46,9 +47,8 @@ type chanEventLog struct {
 	// events is a log of timestamped events observed for the channel.
 	events []*channelEvent
 
-	// now is expected to return the current time. It is supplied as an
-	// external function to enable deterministic unit tests.
-	now func() time.Time
+	// clock allows creation of deterministic unit tests.
+	clock clock.Clock
 
 	// openedAt tracks the first time this channel was seen. This is not
 	// necessarily the time that it confirmed on chain because channel
@@ -62,13 +62,13 @@ type chanEventLog struct {
 
 // newEventLog creates an event log for a channel with the openedAt time set.
 func newEventLog(channelPoint wire.OutPoint, peer route.Vertex,
-	now func() time.Time) *chanEventLog {
+	clock clock.Clock) *chanEventLog {
 
 	eventlog := &chanEventLog{
 		channelPoint: channelPoint,
 		peer:         peer,
-		now:          now,
-		openedAt:     now(),
+		clock:        clock,
+		openedAt:     clock.Now(),
 	}
 
 	return eventlog
@@ -76,7 +76,7 @@ func newEventLog(channelPoint wire.OutPoint, peer route.Vertex,
 
 // close sets the closing time for an event log.
 func (e *chanEventLog) close() {
-	e.closedAt = e.now()
+	e.closedAt = e.clock.Now()
 }
 
 // add appends an event with the given type and current time to the event log.
@@ -91,7 +91,7 @@ func (e *chanEventLog) add(eventType eventType) {
 
 	// Add the event to the eventLog with the current timestamp.
 	event := &channelEvent{
-		timestamp: e.now(),
+		timestamp: e.clock.Now(),
 		eventType: eventType,
 	}
 	e.events = append(e.events, event)
@@ -165,7 +165,7 @@ func (e *chanEventLog) getOnlinePeriods() []*onlinePeriod {
 	// closure. It it is still open, we calculate it until the present.
 	endTime := e.closedAt
 	if endTime.IsZero() {
-		endTime = e.now()
+		endTime = e.clock.Now()
 	}
 
 	// Add the final online period to the set and return.

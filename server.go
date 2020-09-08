@@ -724,12 +724,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	srvrLog.Debugf("Instantiating payment session source with config: "+
-		"PaymentAttemptPenalty=%v, MinRouteProbability=%v",
+		"AttemptCost=%v, MinRouteProbability=%v",
 		int64(routingConfig.AttemptCost),
 		routingConfig.MinRouteProbability)
 
 	pathFindingConfig := routing.PathFindingConfig{
-		PaymentAttemptPenalty: lnwire.NewMSatFromSatoshis(
+		AttemptCost: lnwire.NewMSatFromSatoshis(
 			routingConfig.AttemptCost,
 		),
 		MinProbability: routingConfig.MinRouteProbability,

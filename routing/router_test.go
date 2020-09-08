@@ -79,8 +79,8 @@ func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGr
 	chainView := newMockChainView(chain)
 
 	pathFindingConfig := PathFindingConfig{
-		MinProbability:        0.01,
-		PaymentAttemptPenalty: 100,
+		MinProbability: 0.01,
+		AttemptCost:    100,
 	}
 
 	mcConfig := &MissionControlConfig{

@@ -29,9 +29,9 @@ type RoutingConfig struct {
 	// channel is back at 50% probability.
 	PenaltyHalfLife time.Duration `long:"penaltyhalflife" description:"Defines the duration after which a penalized node or channel is back at 50% probability"`
 
-	// AttemptCost is the virtual cost in path finding weight units of
-	// executing a payment attempt that fails. It is used to trade off
-	// potentially better routes against their probability of succeeding.
+	// AttemptCost is the fixed virtual cost in path finding of a failed
+	// payment attempt. It is used to trade off potentially better routes
+	// against their probability of succeeding.
 	AttemptCost btcutil.Amount `long:"attemptcost" description:"The (virtual) cost in sats of a failed payment attempt"`
 
 	// MaxMcHistory defines the maximum number of payment results that

@@ -46,9 +46,8 @@ func DefaultConfig() *Config {
 		AprioriWeight:         routing.DefaultAprioriWeight,
 		MinRouteProbability:   routing.DefaultMinRouteProbability,
 		PenaltyHalfLife:       routing.DefaultPenaltyHalfLife,
-		AttemptCost: routing.DefaultPaymentAttemptPenalty.
-			ToSatoshis(),
-		MaxMcHistory: routing.DefaultMaxMcHistory,
+		AttemptCost:           routing.DefaultAttemptCost.ToSatoshis(),
+		MaxMcHistory:          routing.DefaultMaxMcHistory,
 	}
 
 	return &Config{

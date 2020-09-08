@@ -122,6 +122,88 @@ func TestPeerLog(t *testing.T) {
 	require.Equal(t, 0, peerLog.channelCount())
 	require.Len(t, peerLog.onlineEvents, 0)
 	assertFlapCount(3, &lastFlap)
+
+	require.Len(t, peerLog.listEvents(), 0)
+	require.Nil(t, peerLog.stagedEvent)
+}
+
+// TestRateLimitAdd tests the addition of events to the event log with rate
+// limiting in place.
+func TestRateLimitAdd(t *testing.T) {
+	// Create a mock clock specifically for this test so that we can
+	// progress time without affecting the other tests.
+	mockedClock := clock.NewTestClock(testNow)
+
+	// Create a new peer log.
+	peerLog := newPeerLog(mockedClock)
+	require.Nil(t, peerLog.stagedEvent)
+
+	// Create a channel for our peer log, otherwise it will not track online
+	// events.
+	require.NoError(t, peerLog.addChannel(wire.OutPoint{}))
+
+	// First, we add an event to the event log. Since we have no previous
+	// events, we expect this event to staged immediately.
+	peerEvent := &event{
+		timestamp: testNow,
+		eventType: peerOfflineEvent,
+	}
+
+	peerLog.onlineEvent(false)
+	require.Equal(t, peerEvent, peerLog.stagedEvent)
+
+	// We immediately add another event to our event log. We expect our
+	// staged event to be replaced with this new event, because insufficient
+	// time has passed since our last event.
+	peerEvent = &event{
+		timestamp: testNow,
+		eventType: peerOnlineEvent,
+	}
+
+	peerLog.onlineEvent(true)
+	require.Equal(t, peerEvent, peerLog.stagedEvent)
+
+	// We get the amount of time that we need to pass before we record an
+	// event from our rate limiting tiers. We then progress our test clock
+	// to just after this point.
+	delta := getRateLimit(peerLog.flapCount)
+	newNow := testNow.Add(delta + 1)
+	mockedClock.SetTime(newNow)
+
+	// Now, when we add an event, we expect our staged event to be added
+	// to our events list and for our new event to be staged.
+	newEvent := &event{
+		timestamp: newNow,
+		eventType: peerOfflineEvent,
+	}
+	peerLog.onlineEvent(false)
+
+	require.Equal(t, []*event{peerEvent}, peerLog.onlineEvents)
+	require.Equal(t, newEvent, peerLog.stagedEvent)
+
+	// Now, we test the case where we add many events to our log. We expect
+	// our set of events to be untouched, but for our staged event to be
+	// updated.
+	nextEvent := &event{
+		timestamp: newNow,
+		eventType: peerOnlineEvent,
+	}
+
+	for i := 0; i < 5; i++ {
+		// We flip the kind of event for each type so that we can check
+		// that our staged event is definitely changing each time.
+		if i%2 == 0 {
+			nextEvent.eventType = peerOfflineEvent
+		} else {
+			nextEvent.eventType = peerOnlineEvent
+		}
+
+		online := nextEvent.eventType == peerOnlineEvent
+
+		peerLog.onlineEvent(online)
+		require.Equal(t, []*event{peerEvent}, peerLog.onlineEvents)
+		require.Equal(t, nextEvent, peerLog.stagedEvent)
+	}
 }
 
 // TestGetOnlinePeriod tests the getOnlinePeriod function. It tests the case

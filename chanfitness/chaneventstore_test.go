@@ -186,181 +186,6 @@ func testEventStore(t *testing.T, generateEvents func(*chanEventStoreTestCtx),
 	require.Equal(t, expectedPeers, testCtx.store.peers)
 }
 
-// TestGetLifetime tests the GetLifetime function for the cases where a channel
-// is known and unknown to the store.
-func TestGetLifetime(t *testing.T) {
-	tests := []struct {
-		name          string
-		channelFound  bool
-		channelPoint  wire.OutPoint
-		opened        time.Time
-		closed        time.Time
-		expectedError error
-	}{
-		{
-			name:          "Channel found",
-			channelFound:  true,
-			opened:        testNow,
-			closed:        testNow.Add(time.Hour * -1),
-			expectedError: nil,
-		},
-		{
-			name:          "Channel not found",
-			expectedError: ErrChannelNotFound,
-		},
-	}
-
-	for _, test := range tests {
-		test := test
-
-		t.Run(test.name, func(t *testing.T) {
-			ctx := newChanEventStoreTestCtx(t)
-
-			// Add channel to eventStore if the test indicates that
-			// it should be present.
-			if test.channelFound {
-				ctx.store.channels[test.channelPoint] =
-					&chanEventLog{
-						openedAt: test.opened,
-						closedAt: test.closed,
-					}
-			}
-
-			ctx.start()
-
-			open, close, err := ctx.store.GetLifespan(test.channelPoint)
-			require.Equal(t, test.expectedError, err)
-
-			require.Equal(t, test.opened, open)
-			require.Equal(t, test.closed, close)
-
-			ctx.stop()
-		})
-	}
-}
-
-// TestGetUptime tests the getUptime call for channels known to the event store.
-// It does not test the trivial case where a channel is unknown to the store,
-// because this is simply a zero return if an item is not found in a map. It
-// tests the unexpected edge cases where a tracked channel does not have any
-// events recorded, and when a zero time is specified for the uptime range.
-func TestGetUptime(t *testing.T) {
-	twoHoursAgo := testNow.Add(time.Hour * -2)
-	fourHoursAgo := testNow.Add(time.Hour * -4)
-
-	tests := []struct {
-		name string
-
-		channelPoint wire.OutPoint
-
-		// events is the set of events we expect to find in the channel
-		// store.
-		events []*channelEvent
-
-		// openedAt is the time the channel is recorded as open by the
-		// store.
-		openedAt time.Time
-
-		// closedAt is the time the channel is recorded as closed by the
-		// store. If the channel is still open, this value is zero.
-		closedAt time.Time
-
-		// channelFound is true if we expect to find the channel in the
-		// store.
-		channelFound bool
-
-		// startTime specifies the beginning of the uptime range we want
-		// to calculate.
-		startTime time.Time
-
-		// endTime specified the end of the uptime range we want to
-		// calculate.
-		endTime time.Time
-
-		expectedUptime time.Duration
-
-		expectedError error
-	}{
-		{
-			name:          "No events",
-			startTime:     twoHoursAgo,
-			endTime:       testNow,
-			channelFound:  true,
-			expectedError: nil,
-		},
-		{
-			name: "50% Uptime",
-			events: []*channelEvent{
-				{
-					timestamp: fourHoursAgo,
-					eventType: peerOnlineEvent,
-				},
-				{
-					timestamp: twoHoursAgo,
-					eventType: peerOfflineEvent,
-				},
-			},
-			openedAt:       fourHoursAgo,
-			expectedUptime: time.Hour * 2,
-			startTime:      fourHoursAgo,
-			endTime:        testNow,
-			channelFound:   true,
-			expectedError:  nil,
-		},
-		{
-			name: "Zero start time",
-			events: []*channelEvent{
-				{
-					timestamp: fourHoursAgo,
-					eventType: peerOnlineEvent,
-				},
-			},
-			openedAt:       fourHoursAgo,
-			expectedUptime: time.Hour * 4,
-			endTime:        testNow,
-			channelFound:   true,
-			expectedError:  nil,
-		},
-		{
-			name:          "Channel not found",
-			startTime:     twoHoursAgo,
-			endTime:       testNow,
-			channelFound:  false,
-			expectedError: ErrChannelNotFound,
-		},
-	}
-
-	for _, test := range tests {
-		test := test
-
-		t.Run(test.name, func(t *testing.T) {
-			ctx := newChanEventStoreTestCtx(t)
-
-			// If we're supposed to find the channel for this test,
-			// add events for it to the store.
-			if test.channelFound {
-				eventLog := &chanEventLog{
-					events:   test.events,
-					clock:    clock.NewTestClock(testNow),
-					openedAt: test.openedAt,
-					closedAt: test.closedAt,
-				}
-				ctx.store.channels[test.channelPoint] = eventLog
-			}
-
-			ctx.start()
-
-			uptime, err := ctx.store.GetUptime(
-				test.channelPoint, test.startTime, test.endTime,
-			)
-			require.Equal(t, test.expectedError, err)
-			require.Equal(t, test.expectedUptime, uptime)
-
-			ctx.stop()
-		})
-	}
-}
-
 // TestAddChannel tests that channels are added to the event store with
 // appropriate timestamps. This test addresses a bug where offline channels
 // did not have an opened time set, and checks that an online event is set for
@@ -387,4 +212,71 @@ func TestAddChannel(t *testing.T) {
 	chan2Events := ctx.store.channels[channel2].events
 	require.Len(t, chan2Events, 1)
 	require.Equal(t, peerOnlineEvent, chan2Events[0].eventType)
+}
+
+// TestGetChanInfo tests the GetChanInfo function for the cases where a channel
+// is known and unknown to the store.
+func TestGetChanInfo(t *testing.T) {
+	ctx := newChanEventStoreTestCtx(t)
+	ctx.start()
+
+	// Make a note of the time that our mocked clock starts on.
+	now := ctx.clock.Now()
+
+	// Create mock vars for a channel but do not add them to our store yet.
+	peer, pk, channel := ctx.newChannel()
+
+	// Send an online event for our peer, although we do not yet have an
+	// open channel.
+	ctx.peerEvent(peer, true)
+
+	// Try to get info for a channel that has not been opened yet, we
+	// expect to get an error.
+	_, err := ctx.store.GetChanInfo(channel)
+	require.Equal(t, ErrChannelNotFound, err)
+
+	// Now we send our store a notification that a channel has been opened.
+	ctx.sendChannelOpenedUpdate(pk, channel)
+
+	// Wait for our channel to be recognized by our store. We need to wait
+	// for the channel to be created so that we do not update our time
+	// before the channel open is processed.
+	require.Eventually(t, func() bool {
+		_, err = ctx.store.GetChanInfo(channel)
+		return err == nil
+	}, timeout, time.Millisecond*20)
+
+	// Increment our test clock by an hour.
+	now = now.Add(time.Hour)
+	ctx.clock.SetTime(now)
+
+	// At this stage our channel has been open and online for an hour.
+	info, err := ctx.store.GetChanInfo(channel)
+	require.NoError(t, err)
+	require.Equal(t, time.Hour, info.Lifetime)
+	require.Equal(t, time.Hour, info.Uptime)
+
+	// Now we send a peer offline event for our channel.
+	ctx.peerEvent(peer, false)
+
+	// Since we have not bumped our mocked time, our uptime calculations
+	// should be the same, even though we've just processed an offline
+	// event.
+	info, err = ctx.store.GetChanInfo(channel)
+	require.NoError(t, err)
+	require.Equal(t, time.Hour, info.Lifetime)
+	require.Equal(t, time.Hour, info.Uptime)
+
+	// Progress our time again. This time, our peer is currently tracked as
+	// being offline, so we expect our channel info to reflect that the peer
+	// has been offline for this period.
+	now = now.Add(time.Hour)
+	ctx.clock.SetTime(now)
+
+	info, err = ctx.store.GetChanInfo(channel)
+	require.NoError(t, err)
+	require.Equal(t, time.Hour*2, info.Lifetime)
+	require.Equal(t, time.Hour, info.Uptime)
+
+	ctx.stop()
 }

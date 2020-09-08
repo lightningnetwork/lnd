@@ -3536,41 +3536,27 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		return channel, nil
 	}
 
-	// Get the lifespan observed by the channel event store. If the channel is
-	// not known to the channel event store, return early because we cannot
-	// calculate any further uptime information.
+	// Query the event store for additional information about the channel.
+	// Do not fail if it is not available, because there is a potential
+	// race between a channel being added to our node and the event store
+	// being notified of it.
 	outpoint := dbChannel.FundingOutpoint
-	startTime, endTime, err := r.server.chanEventStore.GetLifespan(outpoint)
+	info, err := r.server.chanEventStore.GetChanInfo(outpoint)
 	switch err {
+	// If the store does not know about the channel, we just log it.
 	case chanfitness.ErrChannelNotFound:
 		rpcsLog.Infof("channel: %v not found by channel event store",
 			outpoint)
 
-		return channel, nil
+	// If we got our channel info, we further populate the channel.
 	case nil:
-		// If there is no error getting lifespan, continue to uptime
-		// calculation.
+		channel.Uptime = int64(info.Uptime.Seconds())
+		channel.Lifetime = int64(info.Lifetime.Seconds())
+
+	// If we get an unexpected error, we return it.
 	default:
 		return nil, err
 	}
-
-	// If endTime is zero, the channel is still open, progress endTime to
-	// the present so we can calculate lifetime.
-	if endTime.IsZero() {
-		endTime = time.Now()
-	}
-	channel.Lifetime = int64(endTime.Sub(startTime).Seconds())
-
-	// Once we have successfully obtained channel lifespan, we know that the
-	// channel is known to the event store, so we can return any non-nil error
-	// that occurs.
-	uptime, err := r.server.chanEventStore.GetUptime(
-		outpoint, startTime, endTime,
-	)
-	if err != nil {
-		return nil, err
-	}
-	channel.Uptime = int64(uptime.Seconds())
 
 	return channel, nil
 }

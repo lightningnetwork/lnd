@@ -2461,6 +2461,7 @@ func TestProbabilityRouting(t *testing.T) {
 		p10, p11, p20  float64
 		minProbability float64
 		expectedChan   uint64
+		amount         btcutil.Amount
 	}{
 		// Test two variations with probabilities that should multiply
 		// to the same total route probability. In both cases the three
@@ -2474,12 +2475,14 @@ func TestProbabilityRouting(t *testing.T) {
 			p10:  0.8, p11: 0.5, p20: 0.7,
 			minProbability: 0.1,
 			expectedChan:   10,
+			amount:         100,
 		},
 		{
 			name: "three hop 2",
 			p10:  0.5, p11: 0.8, p20: 0.7,
 			minProbability: 0.1,
 			expectedChan:   10,
+			amount:         100,
 		},
 
 		// If the probability of the two hop route is increased, its
@@ -2492,6 +2495,7 @@ func TestProbabilityRouting(t *testing.T) {
 			p10:  0.5, p11: 0.8, p20: 0.85,
 			minProbability: 0.1,
 			expectedChan:   20,
+			amount:         100,
 		},
 
 		// If the same probabilities are used with a probability lower bound of
@@ -2502,6 +2506,7 @@ func TestProbabilityRouting(t *testing.T) {
 			p10:  0.8, p11: 0.5, p20: 0.7,
 			minProbability: 0.5,
 			expectedChan:   20,
+			amount:         100,
 		},
 
 		// With a probability limit above the probability of both routes, we
@@ -2512,21 +2517,24 @@ func TestProbabilityRouting(t *testing.T) {
 			p10:  0.8, p11: 0.5, p20: 0.7,
 			minProbability: 0.8,
 			expectedChan:   0,
+			amount:         100,
 		},
 	}
 
 	for _, tc := range testCases {
+		tc := tc
+
 		t.Run(tc.name, func(t *testing.T) {
 			testProbabilityRouting(
-				t, tc.p10, tc.p11, tc.p20,
+				t, tc.amount, tc.p10, tc.p11, tc.p20,
 				tc.minProbability, tc.expectedChan,
 			)
 		})
 	}
 }
 
-func testProbabilityRouting(t *testing.T, p10, p11, p20, minProbability float64,
-	expectedChan uint64) {
+func testProbabilityRouting(t *testing.T, paymentAmt btcutil.Amount,
+	p10, p11, p20, minProbability float64, expectedChan uint64) {
 
 	t.Parallel()
 
@@ -2558,7 +2566,6 @@ func testProbabilityRouting(t *testing.T, p10, p11, p20, minProbability float64,
 
 	alias := ctx.testGraphInstance.aliasMap
 
-	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := ctx.testGraphInstance.aliasMap["target"]
 
 	// Configure a probability source with the test parameters.
@@ -2586,7 +2593,9 @@ func testProbabilityRouting(t *testing.T, p10, p11, p20, minProbability float64,
 		MinProbability: minProbability,
 	}
 
-	path, err := ctx.findPath(target, paymentAmt)
+	path, err := ctx.findPath(
+		target, lnwire.NewMSatFromSatoshis(paymentAmt),
+	)
 	if expectedChan == 0 {
 		if err != errNoPathFound {
 			t.Fatalf("expected no path found, but got %v", err)

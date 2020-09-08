@@ -46,6 +46,14 @@ type peerLog struct {
 	// onlineEvents is a log of timestamped events observed for the peer.
 	onlineEvents []*event
 
+	// flapCount is the number of times this peer has been observed as
+	// going offline.
+	flapCount int
+
+	// lastFlap is the timestamp of the last flap we recorded for the peer.
+	// This value will be nil if we have never recorded a flap for the peer.
+	lastFlap *time.Time
+
 	// clock allows creation of deterministic unit tests.
 	clock clock.Clock
 
@@ -76,8 +84,15 @@ func newChannelInfo(openedAt time.Time) *channelInfo {
 	}
 }
 
-// onlineEvent records a peer online or offline event in the log.
+// onlineEvent records a peer online or offline event in the log and increments
+// the peer's flap count.
 func (p *peerLog) onlineEvent(online bool) {
+	eventTime := p.clock.Now()
+
+	// Record flap count information and online state regardless of whether
+	// we have any channels open with this peer.
+	p.flapCount++
+	p.lastFlap = &eventTime
 	p.online = online
 
 	// If we have no channels currently open with the peer, we do not want
@@ -87,7 +102,7 @@ func (p *peerLog) onlineEvent(online bool) {
 		return
 	}
 
-	p.addEvent(online, p.clock.Now())
+	p.addEvent(online, eventTime)
 }
 
 // addEvent records an online or offline event in our event log.
@@ -174,6 +189,12 @@ func (p *peerLog) channelUptime(channelPoint wire.OutPoint) (time.Duration,
 	}
 
 	return now.Sub(channel.openedAt), uptime, nil
+}
+
+// getFlapCount returns the peer's flap count and the timestamp that we last
+// recorded a flap.
+func (p *peerLog) getFlapCount() (int, *time.Time) {
+	return p.flapCount, p.lastFlap
 }
 
 // onlinePeriod represents a period of time over which a peer was online.

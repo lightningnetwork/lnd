@@ -14,29 +14,53 @@ func TestPeerLog(t *testing.T) {
 	clock := clock.NewTestClock(testNow)
 	peerLog := newPeerLog(clock)
 
+	// assertFlapCount is a helper that asserts that our peer's flap count
+	// and timestamp is set to expected values.
+	assertFlapCount := func(expectedCount int, expectedTs *time.Time) {
+		flapCount, flapTs := peerLog.getFlapCount()
+		require.Equal(t, expectedCount, flapCount)
+		require.Equal(t, expectedTs, flapTs)
+	}
+
 	require.Zero(t, peerLog.channelCount())
 	require.False(t, peerLog.online)
+	assertFlapCount(0, nil)
 
 	// Test that looking up an unknown channel fails.
 	_, _, err := peerLog.channelUptime(wire.OutPoint{Index: 1})
 	require.Error(t, err)
 
+	lastFlap := clock.Now()
+
 	// Add an offline event, since we have no channels, we do not expect
-	// to have any online periods recorded for our peer.
+	// to have any online periods recorded for our peer. However, we should
+	// increment our flap count for the peer.
 	peerLog.onlineEvent(false)
 	require.Len(t, peerLog.getOnlinePeriods(), 0)
+	assertFlapCount(1, &lastFlap)
+
+	// Bump our test clock's time by an hour so that we can create an online
+	// event with a distinct time.
+	lastFlap = testNow.Add(time.Hour)
+	clock.SetTime(lastFlap)
 
 	// Likewise, if we have an online event, nothing beyond the online state
-	// of our peer log should change.
+	// of our peer log should change, but our flap count should change.
 	peerLog.onlineEvent(true)
 	require.Len(t, peerLog.getOnlinePeriods(), 0)
+	assertFlapCount(2, &lastFlap)
 
-	// Add a channel and assert that we have one channel listed.
+	// Add a channel and assert that we have one channel listed. Since this
+	// is the first channel we track for the peer, we expect an online
+	// event to be added, however, our flap count should not change because
+	// this is not a new online event, we are just copying one into our log
+	// for our purposes.
 	chan1 := wire.OutPoint{
 		Index: 1,
 	}
 	require.NoError(t, peerLog.addChannel(chan1))
 	require.Equal(t, 1, peerLog.channelCount())
+	assertFlapCount(2, &lastFlap)
 
 	// Assert that we can now successfully get our added channel.
 	_, _, err = peerLog.channelUptime(chan1)
@@ -44,8 +68,8 @@ func TestPeerLog(t *testing.T) {
 
 	// Bump our test clock's time so that our current time is different to
 	// channel open time.
-	now := testNow.Add(time.Hour)
-	clock.SetTime(now)
+	lastFlap = clock.Now().Add(time.Hour)
+	clock.SetTime(lastFlap)
 
 	// Now that we have added a channel and an hour has passed, we expect
 	// our uptime and lifetime to both equal an hour.
@@ -54,8 +78,10 @@ func TestPeerLog(t *testing.T) {
 	require.Equal(t, time.Hour, lifetime)
 	require.Equal(t, time.Hour, uptime)
 
-	// Add an offline event for our peer.
+	// Add an offline event for our peer and assert that our flap count is
+	// incremented.
 	peerLog.onlineEvent(false)
+	assertFlapCount(3, &lastFlap)
 
 	// Now we add another channel to our store and assert that we now report
 	// two channels for this peer.
@@ -67,7 +93,7 @@ func TestPeerLog(t *testing.T) {
 
 	// Progress our time again, so that our peer has now been offline for
 	// two hours.
-	now = now.Add(time.Hour * 2)
+	now := lastFlap.Add(time.Hour * 2)
 	clock.SetTime(now)
 
 	// Our first channel should report as having been monitored for three
@@ -91,10 +117,11 @@ func TestPeerLog(t *testing.T) {
 	require.Equal(t, time.Duration(0), uptime)
 
 	// Finally, remove our second channel and assert that our peer cleans
-	// up its in memory set of events.
+	// up its in memory set of events but keeps its flap count record.
 	require.NoError(t, peerLog.removeChannel(chan2))
 	require.Equal(t, 0, peerLog.channelCount())
 	require.Len(t, peerLog.onlineEvents, 0)
+	assertFlapCount(3, &lastFlap)
 }
 
 // TestGetOnlinePeriod tests the getOnlinePeriod function. It tests the case

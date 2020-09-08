@@ -45,10 +45,22 @@ type pathFinder = func(g *graphParams, r *RestrictParams,
 	[]*channeldb.ChannelEdgePolicy, error)
 
 var (
-	// DefaultAttemptCost is the default virtual cost in path finding of a
-	// failed payment attempt. It is used to trade off potentially better
-	// routes against their probability of succeeding.
+	// DefaultAttemptCost is the default fixed virtual cost in path finding
+	// of a failed payment attempt. It is used to trade off potentially
+	// better routes against their probability of succeeding.
 	DefaultAttemptCost = lnwire.NewMSatFromSatoshis(100)
+
+	// DefaultAttemptCostPPM is the default proportional virtual cost in
+	// path finding weight units of executing a payment attempt that fails.
+	// It is used to trade off potentially better routes against their
+	// probability of succeeding. This parameter is expressed in parts per
+	// million of the payment amount.
+	//
+	// It is impossible to pick a perfect default value. The current value
+	// of 0.1% is based on the idea that a transaction fee of 1% is within
+	// reasonable territory and that a payment shouldn't need more than 10
+	// attempts.
+	DefaultAttemptCostPPM = int64(1000)
 
 	// DefaultMinRouteProbability is the default minimum probability for routes
 	// returned from findPath.
@@ -314,10 +326,16 @@ type RestrictParams struct {
 // PathFindingConfig defines global parameters that control the trade-off in
 // path finding between fees and probabiity.
 type PathFindingConfig struct {
-	// AttemptCost is the virtual cost in path finding of a failed
+	// AttemptCost is the fixed virtual cost in path finding of a failed
 	// payment attempt. It is used to trade off potentially better routes
 	// against their probability of succeeding.
 	AttemptCost lnwire.MilliSatoshi
+
+	// AttemptCostPPM is the proportional virtual cost in path finding of a
+	// failed payment attempt. It is used to trade off potentially better
+	// routes against their probability of succeeding. This parameter is
+	// expressed in parts per million of the total payment amount.
+	AttemptCostPPM int64
 
 	// MinProbability defines the minimum success probability of the
 	// returned route.
@@ -548,6 +566,14 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// if the cltv limit is MaxUint32.
 	absoluteCltvLimit := uint64(r.CltvLimit) + uint64(finalHtlcExpiry)
 
+	// Calculate the absolute attempt cost that is used for probability
+	// estimation.
+	absoluteAttemptCost := int64(cfg.AttemptCost) +
+		int64(amt)*cfg.AttemptCostPPM/1000000
+
+	log.Debugf("Pathfinding absolute attempt cost: %v sats",
+		float64(absoluteAttemptCost)/1000)
+
 	// processEdge is a helper closure that will be used to make sure edges
 	// satisfy our specific requirements.
 	processEdge := func(fromVertex route.Vertex,
@@ -642,7 +668,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// probability.
 		tempDist := getProbabilityBasedDist(
 			tempWeight, probability,
-			int64(cfg.AttemptCost),
+			absoluteAttemptCost,
 		)
 
 		// If there is already a best route stored, compare this

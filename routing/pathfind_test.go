@@ -2467,9 +2467,9 @@ func TestProbabilityRouting(t *testing.T) {
 		// to the same total route probability. In both cases the three
 		// hop route should be the best route. The three hop route has a
 		// probability of 0.5 * 0.8 = 0.4. The fee is 5 (chan 10) + 8
-		// (chan 11) = 13. Path finding distance should work out to: 13
-		// + 10 (attempt penalty) / 0.4 = 38. The two hop route is 25 +
-		// 10 / 0.7 = 39.
+		// (chan 11) = 13. The attempt cost is 9 + 1% * 100 = 10. Path
+		// finding distance should work out to: 13 + 10 (attempt
+		// penalty) / 0.4 = 38. The two hop route is 25 + 10 / 0.7 = 39.
 		{
 			name: "three hop 1",
 			p10:  0.8, p11: 0.5, p20: 0.7,
@@ -2483,6 +2483,21 @@ func TestProbabilityRouting(t *testing.T) {
 			minProbability: 0.1,
 			expectedChan:   10,
 			amount:         100,
+		},
+
+		// If a larger amount is sent, the effect of the proportional
+		// attempt cost becomes more noticeable. This amount in this
+		// test brings the attempt cost to 9 + 1% * 300 = 12 sat. The
+		// three hop path finding distance should work out to: 13 + 12
+		// (attempt penalty) / 0.4 = 43. The two hop route is 25 + 12 /
+		// 0.7 = 42. For this higher amount, the two hop route is
+		// expected to be selected.
+		{
+			name: "two hop high amount",
+			p10:  0.8, p11: 0.5, p20: 0.7,
+			minProbability: 0.1,
+			expectedChan:   20,
+			amount:         300,
 		},
 
 		// If the probability of the two hop route is increased, its
@@ -2589,7 +2604,8 @@ func testProbabilityRouting(t *testing.T, paymentAmt btcutil.Amount,
 	}
 
 	ctx.pathFindingConfig = PathFindingConfig{
-		AttemptCost:    lnwire.NewMSatFromSatoshis(10),
+		AttemptCost:    lnwire.NewMSatFromSatoshis(9),
+		AttemptCostPPM: 10000,
 		MinProbability: minProbability,
 	}
 

@@ -47,6 +47,7 @@ func DefaultConfig() *Config {
 		MinRouteProbability:   routing.DefaultMinRouteProbability,
 		PenaltyHalfLife:       routing.DefaultPenaltyHalfLife,
 		AttemptCost:           routing.DefaultAttemptCost.ToSatoshis(),
+		AttemptCostPPM:        routing.DefaultAttemptCostPPM,
 		MaxMcHistory:          routing.DefaultMaxMcHistory,
 	}
 
@@ -62,6 +63,7 @@ func GetRoutingConfig(cfg *Config) *RoutingConfig {
 		AprioriWeight:         cfg.AprioriWeight,
 		MinRouteProbability:   cfg.MinRouteProbability,
 		AttemptCost:           cfg.AttemptCost,
+		AttemptCostPPM:        cfg.AttemptCostPPM,
 		PenaltyHalfLife:       cfg.PenaltyHalfLife,
 		MaxMcHistory:          cfg.MaxMcHistory,
 	}

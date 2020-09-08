@@ -32,7 +32,13 @@ type RoutingConfig struct {
 	// AttemptCost is the fixed virtual cost in path finding of a failed
 	// payment attempt. It is used to trade off potentially better routes
 	// against their probability of succeeding.
-	AttemptCost btcutil.Amount `long:"attemptcost" description:"The (virtual) cost in sats of a failed payment attempt"`
+	AttemptCost btcutil.Amount `long:"attemptcost" description:"The fixed (virtual) cost in sats of a failed payment attempt"`
+
+	// AttemptCostPPM is the proportional virtual cost in path finding of a
+	// failed payment attempt. It is used to trade off potentially better
+	// routes against their probability of succeeding. This parameter is
+	// expressed in parts per million of the total payment amount.
+	AttemptCostPPM int64 `long:"attemptcostppm" description:"The proportional (virtual) cost in sats of a failed payment attempt expressed in parts per million of the total payment amount"`
 
 	// MaxMcHistory defines the maximum number of payment results that
 	// are held on disk by mission control.

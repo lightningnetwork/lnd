@@ -40,9 +40,11 @@ func TestAdd(t *testing.T) {
 			test.eventLog.add(test.event)
 
 			for i, e := range test.expected {
-				if test.eventLog.events[i].eventType != e {
-					t.Fatalf("Expected event type: %v, got: %v",
-						e, test.eventLog.events[i].eventType)
+				eventType := test.eventLog.events[i].eventType
+				if eventType != e {
+					t.Fatalf("Expected event type: %v, "+
+						"got: %v", e, eventType,
+					)
 				}
 			}
 		})
@@ -154,13 +156,13 @@ func TestGetOnlinePeriod(t *testing.T) {
 
 			for i, o := range test.expectedOnline {
 				if online[i].start != o.start {
-					t.Errorf("Expected start: %v, got %v", o.start,
-						online[i].start)
+					t.Errorf("Expected start: %v, got "+
+						"%v", o.start, online[i].start)
 				}
 
 				if online[i].end != o.end {
-					t.Errorf("Expected end: %v, got %v", o.end,
-						online[i].end)
+					t.Errorf("Expected end: %v, got %v",
+						o.end, online[i].end)
 				}
 			}
 		})
@@ -181,31 +183,34 @@ func TestUptime(t *testing.T) {
 	tests := []struct {
 		name string
 
-		// opened at is the time the channel was recorded as being open, and is
-		// never expected to be zero.
+		// opened at is the time the channel was recorded as being open,
+		// and is never expected to be zero.
 		openedAt time.Time
 
-		// closed at is the tim the channel was recorded as being closed, and
-		// can have a zero value if the.
+		// closed at is the time the channel was recorded as being
+		// closed, and can have a zero value if the channel is not
+		// closed.
 		closedAt time.Time
 
-		// events is the set of event log that we are calculating uptime for.
+		// events is the set of event log that we are calculating uptime
+		// for.
 		events []*channelEvent
 
-		// startTime is the beginning of the period that we are calculating
-		// uptime for, it cannot have a zero value.
+		// startTime is the beginning of the period that we are
+		// calculating uptime for, it cannot have a zero value.
 		startTime time.Time
 
-		// endTime is the end of the period that we are calculating uptime for,
-		// it cannot have a zero value.
+		// endTime is the end of the period that we are calculating
+		// uptime for, it cannot have a zero value.
 		endTime time.Time
 
-		// expectedUptime is the amount of uptime we expect to be calculated
-		// over the period specified by startTime and endTime.
+		// expectedUptime is the amount of uptime we expect to be
+		// calculated over the period specified by startTime and
+		// endTime.
 		expectedUptime time.Duration
 
-		// expectErr is set to true if we expect an error to be returned when
-		// calling the uptime function
+		// expectErr is set to true if we expect an error to be returned
+		// when calling the uptime function.
 		expectErr bool
 	}{
 		{
@@ -378,7 +383,9 @@ func TestUptime(t *testing.T) {
 				closedAt: test.closedAt,
 			}
 
-			uptime, err := score.uptime(test.startTime, test.endTime)
+			uptime, err := score.uptime(
+				test.startTime, test.endTime,
+			)
 			if test.expectErr && err == nil {
 				t.Fatal("Expected an error, got nil")
 			}

@@ -24,12 +24,12 @@ import (
 )
 
 var (
-	// errShuttingDown is returned when the store cannot respond to a query because
-	// it has received the shutdown signal.
+	// errShuttingDown is returned when the store cannot respond to a query
+	// because it has received the shutdown signal.
 	errShuttingDown = errors.New("channel event store shutting down")
 
-	// ErrChannelNotFound is returned when a query is made for a channel that
-	// the event store does not have knowledge of.
+	// ErrChannelNotFound is returned when a query is made for a channel
+	// that the event store does not have knowledge of.
 	ErrChannelNotFound = errors.New("channel not found in event store")
 )
 
@@ -41,8 +41,8 @@ type ChannelEventStore struct {
 	// channels maps channel points to event logs.
 	channels map[wire.OutPoint]*chanEventLog
 
-	// peers tracks the current online status of peers based on online/offline
-	// events.
+	// peers tracks the current online status of peers based on online
+	// and offline events.
 	peers map[route.Vertex]bool
 
 	// lifespanRequests serves requests for the lifespan of channels.
@@ -60,16 +60,17 @@ type ChannelEventStore struct {
 // activity. All elements of the config must be non-nil for the event store to
 // operate.
 type Config struct {
-	// SubscribeChannelEvents provides a subscription client which provides a
-	// stream of channel events.
+	// SubscribeChannelEvents provides a subscription client which provides
+	// a stream of channel events.
 	SubscribeChannelEvents func() (*subscribe.Client, error)
 
 	// SubscribePeerEvents provides a subscription client which provides a
 	// stream of peer online/offline events.
 	SubscribePeerEvents func() (*subscribe.Client, error)
 
-	// GetOpenChannels provides a list of existing open channels which is used
-	// to populate the ChannelEventStore with a set of channels on startup.
+	// GetOpenChannels provides a list of existing open channels which is
+	// used to populate the ChannelEventStore with a set of channels on
+	// startup.
 	GetOpenChannels func() ([]*channeldb.OpenChannel, error)
 }
 
@@ -140,7 +141,8 @@ func (c *ChannelEventStore) Start() error {
 		return err
 	}
 
-	// cancel should be called to cancel all subscriptions if an error occurs.
+	// cancel should be called to cancel all subscriptions if an error
+	// occurs.
 	cancel := func() {
 		channelClient.Cancel()
 		peerClient.Cancel()
@@ -166,8 +168,8 @@ func (c *ChannelEventStore) Start() error {
 			return err
 		}
 
-		// Add existing channels to the channel store with an initial peer
-		// online or offline event.
+		// Add existing channels to the channel store with an initial
+		// peer online or offline event.
 		c.addChannel(ch.FundingOutpoint, peerKey)
 	}
 
@@ -200,10 +202,12 @@ func (c *ChannelEventStore) Stop() {
 func (c *ChannelEventStore) addChannel(channelPoint wire.OutPoint,
 	peer route.Vertex) {
 
-	// Check for the unexpected case where the channel is already in the store.
+	// Check for the unexpected case where the channel is already in the
+	// store.
 	_, ok := c.channels[channelPoint]
 	if ok {
-		log.Errorf("Channel %v duplicated in channel store", channelPoint)
+		log.Errorf("Channel %v duplicated in channel store",
+			channelPoint)
 		return
 	}
 
@@ -222,7 +226,8 @@ func (c *ChannelEventStore) addChannel(channelPoint wire.OutPoint,
 // closeChannel records a closed time for a channel, and returns early is the
 // channel is not known to the event store.
 func (c *ChannelEventStore) closeChannel(channelPoint wire.OutPoint) {
-	// Check for the unexpected case where the channel is unknown to the store.
+	// Check for the unexpected case where the channel is unknown to the
+	// store.
 	eventLog, ok := c.channels[channelPoint]
 	if !ok {
 		log.Errorf("Close channel %v unknown to store", channelPoint)
@@ -265,21 +270,24 @@ func (c *ChannelEventStore) consume(subscriptions *subscriptions) {
 		// Process channel opened and closed events.
 		case e := <-subscriptions.channelUpdates:
 			switch event := e.(type) {
-			// A new channel has been opened, we must add the channel to the
-			// store and record a channel open event.
+			// A new channel has been opened, we must add the
+			// channel to the store and record a channel open event.
 			case channelnotifier.OpenChannelEvent:
+				compressed := event.Channel.IdentityPub.SerializeCompressed()
 				peerKey, err := route.NewVertexFromBytes(
-					event.Channel.IdentityPub.SerializeCompressed(),
+					compressed,
 				)
 				if err != nil {
-					log.Errorf("Could not get vertex from: %v",
-						event.Channel.IdentityPub.SerializeCompressed())
+					log.Errorf("Could not get vertex "+
+						"from: %v", compressed)
 				}
 
-				c.addChannel(event.Channel.FundingOutpoint, peerKey)
+				c.addChannel(
+					event.Channel.FundingOutpoint, peerKey,
+				)
 
-			// A channel has been closed, we must remove the channel from the
-			// store and record a channel closed event.
+			// A channel has been closed, we must remove the channel
+			// from the store and record a channel closed event.
 			case channelnotifier.ClosedChannelEvent:
 				c.closeChannel(event.CloseSummary.ChanPoint)
 			}
@@ -287,13 +295,15 @@ func (c *ChannelEventStore) consume(subscriptions *subscriptions) {
 		// Process peer online and offline events.
 		case e := <-subscriptions.peerUpdates:
 			switch event := e.(type) {
-			// We have reestablished a connection with our peer, and should
-			// record an online event for any channels with that peer.
+			// We have reestablished a connection with our peer,
+			// and should record an online event for any channels
+			// with that peer.
 			case peernotifier.PeerOnlineEvent:
 				c.peerEvent(event.PubKey, peerOnlineEvent)
 
-			// We have lost a connection with our peer, and should record an
-			// offline event for any channels with that peer.
+			// We have lost a connection with our peer, and should
+			// record an offline event for any channels with that
+			// peer.
 			case peernotifier.PeerOfflineEvent:
 				c.peerEvent(event.PubKey, peerOfflineEvent)
 			}
@@ -320,7 +330,10 @@ func (c *ChannelEventStore) consume(subscriptions *subscriptions) {
 			if !ok {
 				resp.err = ErrChannelNotFound
 			} else {
-				uptime, err := channel.uptime(req.startTime, req.endTime)
+				uptime, err := channel.uptime(
+					req.startTime, req.endTime,
+				)
+
 				resp.uptime = uptime
 				resp.err = err
 			}
@@ -346,16 +359,16 @@ func (c *ChannelEventStore) GetLifespan(
 	}
 
 	// Send a request for the channel's lifespan to the main event loop, or
-	// return early with an error if the store has already received a shutdown
-	// signal.
+	// return early with an error if the store has already received a
+	// shutdown signal.
 	select {
 	case c.lifespanRequests <- request:
 	case <-c.quit:
 		return time.Time{}, time.Time{}, errShuttingDown
 	}
 
-	// Return the response we receive on the response channel or exit early if
-	// the store is instructed to exit.
+	// Return the response we receive on the response channel or exit early
+	// if the store is instructed to exit.
 	select {
 	case resp := <-request.responseChan:
 		return resp.start, resp.end, resp.err
@@ -378,16 +391,16 @@ func (c *ChannelEventStore) GetUptime(channelPoint wire.OutPoint, startTime,
 	}
 
 	// Send a request for the channel's uptime to the main event loop, or
-	// return early with an error if the store has already received a shutdown
-	// signal.
+	// return early with an error if the store has already received a
+	// shutdown signal.
 	select {
 	case c.uptimeRequests <- request:
 	case <-c.quit:
 		return 0, errShuttingDown
 	}
 
-	// Return the response we receive on the response channel or exit early if
-	// the store is instructed to exit.
+	// Return the response we receive on the response channel or exit early
+	// if the store is instructed to exit.
 	select {
 	case resp := <-request.responseChan:
 		return resp.uptime, resp.err

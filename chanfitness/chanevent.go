@@ -51,12 +51,12 @@ type chanEventLog struct {
 	now func() time.Time
 
 	// openedAt tracks the first time this channel was seen. This is not
-	// necessarily the time that it confirmed on chain because channel events
-	// are not persisted at present.
+	// necessarily the time that it confirmed on chain because channel
+	// events are not persisted at present.
 	openedAt time.Time
 
-	// closedAt is the time that the channel was closed. If the channel has not
-	// been closed yet, it is zero.
+	// closedAt is the time that the channel was closed. If the channel has
+	// not been closed yet, it is zero.
 	closedAt time.Time
 }
 
@@ -83,7 +83,8 @@ func (e *chanEventLog) close() {
 // The open time for the eventLog will be set to the event's timestamp if it is
 // not set yet.
 func (e *chanEventLog) add(eventType eventType) {
-	// If the channel is already closed, return early without adding an event.
+	// If the channel is already closed, return early without adding an
+	// event.
 	if !e.closedAt.IsZero() {
 		return
 	}
@@ -136,14 +137,16 @@ func (e *chanEventLog) getOnlinePeriods() []*onlinePeriod {
 		case peerOfflineEvent:
 			offline = true
 
-			// Do not add to uptime if there is no previous online timestamp,
-			// the event log has started with an offline event
+			// Do not add to uptime if there is no previous online
+			// timestamp, the event log has started with an offline
+			// event
 			if lastOnline.IsZero() {
 				continue
 			}
 
-			// The eventLog has recorded an offline event, having previously
-			// been online so we add an online period to to set of online periods.
+			// The eventLog has recorded an offline event, having
+			// previously been online so we add an online period to
+			// set of online periods.
 			onlinePeriods = append(onlinePeriods, &onlinePeriod{
 				start: lastOnline,
 				end:   event.timestamp,
@@ -151,15 +154,15 @@ func (e *chanEventLog) getOnlinePeriods() []*onlinePeriod {
 		}
 	}
 
-	// If the last event was an peer offline event, we do not need to calculate
-	// a final online period and can return online periods as is.
+	// If the last event was an peer offline event, we do not need to
+	// calculate a final online period and can return online periods as is.
 	if offline {
 		return onlinePeriods
 	}
 
-	// The log ended on an online event, so we need to add a final online event.
-	// If the channel is closed, this period is until channel closure. It it is
-	// still open, we calculate it until the present.
+	// The log ended on an online event, so we need to add a final online
+	// event. If the channel is closed, this period is until channel
+	// closure. It it is still open, we calculate it until the present.
 	endTime := e.closedAt
 	if endTime.IsZero() {
 		endTime = e.now()
@@ -176,7 +179,8 @@ func (e *chanEventLog) getOnlinePeriods() []*onlinePeriod {
 // inclusive range specified. An error is returned if the end of the range is
 // before the start or a zero end time is returned.
 func (e *chanEventLog) uptime(start, end time.Time) (time.Duration, error) {
-	// Error if we are provided with an invalid range to calculate uptime for.
+	// Error if we are provided with an invalid range to calculate uptime
+	// for.
 	if end.Before(start) {
 		return 0, fmt.Errorf("end time: %v before start time: %v",
 			end, start)
@@ -188,25 +192,27 @@ func (e *chanEventLog) uptime(start, end time.Time) (time.Duration, error) {
 	var uptime time.Duration
 
 	for _, p := range e.getOnlinePeriods() {
-		// The online period ends before the range we're looking at, so we can
-		// skip over it.
+		// The online period ends before the range we're looking at, so
+		// we can skip over it.
 		if p.end.Before(start) {
 			continue
 		}
-		// The online period starts after the range we're looking at, so can
-		// stop calculating uptime.
+		// The online period starts after the range we're looking at, so
+		// can stop calculating uptime.
 		if p.start.After(end) {
 			break
 		}
 
-		// If the online period starts before our range, shift the start time up
-		// so that we only calculate uptime from the start of our range.
+		// If the online period starts before our range, shift the start
+		// time up so that we only calculate uptime from the start of
+		// our range.
 		if p.start.Before(start) {
 			p.start = start
 		}
 
-		// If the online period ends before our range, shift the end time
-		// forward so that we only calculate uptime until the end of the range.
+		// If the online period ends before our range, shift the end
+		// time forward so that we only calculate uptime until the end
+		// of the range.
 		if p.end.After(end) {
 			p.end = end
 		}

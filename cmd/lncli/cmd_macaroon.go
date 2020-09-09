@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/golang/protobuf/proto"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/urfave/cli"
@@ -93,7 +94,7 @@ func bakeMacaroon(ctx *cli.Context) error {
 	)
 
 	if ctx.String("save_to") != "" {
-		savePath = cleanAndExpandPath(ctx.String("save_to"))
+		savePath = lncfg.CleanAndExpandPath(ctx.String("save_to"))
 	}
 
 	if ctx.IsSet("timeout") {
@@ -349,7 +350,7 @@ func printMacaroon(ctx *cli.Context) error {
 	)
 	switch {
 	case ctx.IsSet("macaroon_file"):
-		macPath := cleanAndExpandPath(ctx.String("macaroon_file"))
+		macPath := lncfg.CleanAndExpandPath(ctx.String("macaroon_file"))
 
 		// Load the specified macaroon file.
 		macBytes, err = ioutil.ReadFile(macPath)

@@ -154,6 +154,8 @@ type NodeConfig struct {
 	ProfilePort int
 
 	AcceptKeySend bool
+
+	FeeURL string
 }
 
 func (cfg NodeConfig) P2PAddr() string {
@@ -230,6 +232,10 @@ func (cfg NodeConfig) genArgs() []string {
 
 	if cfg.AcceptKeySend {
 		args = append(args, "--accept-keysend")
+	}
+
+	if cfg.FeeURL != "" {
+		args = append(args, "--feeurl="+cfg.FeeURL)
 	}
 
 	return args

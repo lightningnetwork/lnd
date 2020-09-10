@@ -213,9 +213,9 @@ func stringInSlice(a string, slice []string) bool {
 	return false
 }
 
-// mainRPCServerPermissions returns a mapping of the main RPC server calls to
+// MainRPCServerPermissions returns a mapping of the main RPC server calls to
 // the permissions they require.
-func mainRPCServerPermissions() map[string][]bakery.Op {
+func MainRPCServerPermissions() map[string][]bakery.Op {
 	return map[string][]bakery.Op{
 		"/lnrpc.Lightning/SendCoins": {{
 			Entity: "onchain",
@@ -640,7 +640,7 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 	// Next, we need to merge the set of sub server macaroon permissions
 	// with the main RPC server permissions so we can unite them under a
 	// single set of interceptors.
-	permissions := mainRPCServerPermissions()
+	permissions := MainRPCServerPermissions()
 	for _, subServerPerm := range subServerPerms {
 		for method, ops := range subServerPerm {
 			// For each new method:ops combo, we also ensure that
@@ -661,10 +661,12 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 		return nil, err
 	}
 
-	// External subserver possibly need to register their own permissions.
+	// External subserver possibly need to register their own permissions
+	// and macaroon validator.
 	for _, lis := range listeners {
 		extSubserver := lis.ExternalRPCSubserverCfg
 		if extSubserver != nil {
+			macValidator := extSubserver.MacaroonValidator
 			for method, ops := range extSubserver.Permissions {
 				// For each new method:ops combo, we also ensure
 				// that non of the sub-servers try to override
@@ -677,6 +679,23 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 				}
 
 				permissions[method] = ops
+
+				// Give the external subservers the possibility
+				// to also use their own validator to check any
+				// macaroons attached to calls to this method.
+				// This allows them to have their own root key
+				// ID database and permission entities.
+				if macValidator != nil {
+					err := macService.RegisterExternalValidator(
+						method, macValidator,
+					)
+					if err != nil {
+						return nil, fmt.Errorf("could "+
+							"not register "+
+							"external macaroon "+
+							"validator: %v", err)
+					}
+				}
 			}
 		}
 	}

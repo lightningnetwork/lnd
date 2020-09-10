@@ -2142,6 +2142,11 @@ var queryRoutesCommand = cli.Command{
 			Name:  "use_mc",
 			Usage: "use mission control probabilities",
 		},
+		cli.Uint64Flag{
+			Name: "outgoing_chanid",
+			Usage: "(optional) the channel id of the channel " +
+				"that must be taken to the first hop",
+		},
 		cltvLimitFlag,
 	},
 	Action: actionDecorator(queryRoutes),
@@ -2194,6 +2199,7 @@ func queryRoutes(ctx *cli.Context) error {
 		FinalCltvDelta:    int32(ctx.Int("final_cltv_delta")),
 		UseMissionControl: ctx.Bool("use_mc"),
 		CltvLimit:         uint32(ctx.Uint64(cltvLimitFlag.Name)),
+		OutgoingChanId:    ctx.Uint64("outgoing_chanid"),
 	}
 
 	route, err := client.QueryRoutes(ctxb, req)

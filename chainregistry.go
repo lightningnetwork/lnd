@@ -257,6 +257,7 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 				chainfee.SparseConfFeeSource{
 					URL: cfg.NeutrinoMode.FeeURL,
 				},
+				false,
 			)
 
 			if err := estimator.Start(); err != nil {

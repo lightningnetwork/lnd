@@ -8,8 +8,10 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
@@ -80,8 +82,12 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 	published := make(map[chainhash.Hash]int)
 
 	chainArbCfg := ChainArbitratorConfig{
-		ChainIO:  &mockChainIO{},
-		Notifier: &mockNotifier{},
+		ChainIO: &mock.ChainIO{},
+		Notifier: &mock.ChainNotifier{
+			SpendChan: make(chan *chainntnfs.SpendDetail),
+			EpochChan: make(chan *chainntnfs.BlockEpoch),
+			ConfChan:  make(chan *chainntnfs.TxConfirmation),
+		},
 		PublishTx: func(tx *wire.MsgTx, _ string) error {
 			published[tx.TxHash()]++
 			return nil
@@ -172,8 +178,12 @@ func TestResolveContract(t *testing.T) {
 	// chain arbitrator that should pick up these new channels and launch
 	// resolver for them.
 	chainArbCfg := ChainArbitratorConfig{
-		ChainIO:  &mockChainIO{},
-		Notifier: &mockNotifier{},
+		ChainIO: &mock.ChainIO{},
+		Notifier: &mock.ChainNotifier{
+			SpendChan: make(chan *chainntnfs.SpendDetail),
+			EpochChan: make(chan *chainntnfs.BlockEpoch),
+			ConfChan:  make(chan *chainntnfs.TxConfirmation),
+		},
 		PublishTx: func(tx *wire.MsgTx, _ string) error {
 			return nil
 		},

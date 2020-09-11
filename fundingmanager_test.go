@@ -33,6 +33,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -54,6 +55,9 @@ const (
 	// maxPending is the maximum number of channels we allow opening to the
 	// same peer in the max pending channels test.
 	maxPending = 4
+
+	// A dummy value to use for the funding broadcast height.
+	fundingBroadcastHeight = 123
 )
 
 var (
@@ -298,14 +302,14 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	publTxChan := make(chan *wire.MsgTx, 1)
 	shutdownChan := make(chan struct{})
 
-	wc := &mockWalletController{
-		rootKey: alicePrivKey,
+	wc := &mock.WalletController{
+		RootKey: alicePrivKey,
 	}
-	signer := &mockSigner{
-		key: alicePrivKey,
+	signer := &mock.SingleSigner{
+		Privkey: alicePrivKey,
 	}
-	bio := &mockChainIO{
-		bestHeight: fundingBroadcastHeight,
+	bio := &mock.ChainIO{
+		BestHeight: fundingBroadcastHeight,
 	}
 
 	// The mock channel event notifier will receive events for each pending
@@ -325,8 +329,8 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		return nil, err
 	}
 
-	keyRing := &mockSecretKeyRing{
-		rootKey: alicePrivKey,
+	keyRing := &mock.SecretKeyRing{
+		RootKey: alicePrivKey,
 	}
 
 	lnw, err := createTestWallet(
@@ -3013,7 +3017,7 @@ func TestFundingManagerFundAll(t *testing.T) {
 			Value: btcutil.Amount(
 				0.05 * btcutil.SatoshiPerBitcoin,
 			),
-			PkScript: coinPkScript,
+			PkScript: mock.CoinPkScript,
 			OutPoint: wire.OutPoint{
 				Hash:  chainhash.Hash{},
 				Index: 0,
@@ -3024,7 +3028,7 @@ func TestFundingManagerFundAll(t *testing.T) {
 			Value: btcutil.Amount(
 				0.06 * btcutil.SatoshiPerBitcoin,
 			),
-			PkScript: coinPkScript,
+			PkScript: mock.CoinPkScript,
 			OutPoint: wire.OutPoint{
 				Hash:  chainhash.Hash{},
 				Index: 1,
@@ -3058,7 +3062,7 @@ func TestFundingManagerFundAll(t *testing.T) {
 		alice, bob := setupFundingManagers(t)
 		defer tearDownFundingManagers(t, alice, bob)
 
-		alice.fundingMgr.cfg.Wallet.WalletController.(*mockWalletController).utxos = allCoins
+		alice.fundingMgr.cfg.Wallet.WalletController.(*mock.WalletController).Utxos = allCoins
 
 		// We will consume the channel updates as we go, so no
 		// buffering is needed.

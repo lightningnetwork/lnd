@@ -6,11 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/input"
 )
 
 var (
@@ -18,31 +16,6 @@ var (
 	mockChainHash, _   = chainhash.NewHashFromStr("00aabbccddeeff")
 	mockChainHeight    = int32(100)
 )
-
-type dummySignature struct{}
-
-func (s *dummySignature) Serialize() []byte {
-	return []byte{}
-}
-
-func (s *dummySignature) Verify(_ []byte, _ *btcec.PublicKey) bool {
-	return true
-}
-
-type mockSigner struct {
-}
-
-func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx,
-	signDesc *input.SignDescriptor) (input.Signature, error) {
-
-	return &dummySignature{}, nil
-}
-
-func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx,
-	signDesc *input.SignDescriptor) (*input.Script, error) {
-
-	return &input.Script{}, nil
-}
 
 // MockNotifier simulates the chain notifier for test purposes. This type is
 // exported because it is used in nursery tests.

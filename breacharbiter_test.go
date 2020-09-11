@@ -29,6 +29,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -1433,8 +1434,8 @@ func testBreachSpends(t *testing.T, test breachTest) {
 
 	// Notify that the breaching transaction is confirmed, to trigger the
 	// retribution logic.
-	notifier := brar.cfg.Notifier.(*mockSpendNotifier)
-	notifier.confChannel <- &chainntnfs.TxConfirmation{}
+	notifier := brar.cfg.Notifier.(*mock.SpendNotifier)
+	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
 
 	// The breach arbiter should attempt to sweep all outputs on the
 	// breached commitment. We'll pretend that the HTLC output has been
@@ -1510,7 +1511,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 
 	// Deliver confirmation of sweep if the test expects it.
 	if test.sendFinalConf {
-		notifier.confChannel <- &chainntnfs.TxConfirmation{}
+		notifier.ConfChan <- &chainntnfs.TxConfirmation{}
 	}
 
 	// Assert that the channel is fully resolved.
@@ -1670,10 +1671,10 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 
 	aliceKeyPriv, _ := btcec.PrivKeyFromBytes(btcec.S256(),
 		alicesPrivKey)
-	signer := &mockSigner{key: aliceKeyPriv}
+	signer := &mock.SingleSigner{Privkey: aliceKeyPriv}
 
 	// Assemble our test arbiter.
-	notifier := makeMockSpendNotifier()
+	notifier := mock.MakeMockSpendNotifier()
 	ba := newBreachArbiter(&BreachConfig{
 		CloseLink:          func(_ *wire.OutPoint, _ htlcswitch.ChannelCloseType) {},
 		DB:                 db,
@@ -1897,8 +1898,8 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 
-	aliceSigner := &mockSigner{aliceKeyPriv}
-	bobSigner := &mockSigner{bobKeyPriv}
+	aliceSigner := &mock.SingleSigner{Privkey: aliceKeyPriv}
+	bobSigner := &mock.SingleSigner{Privkey: bobKeyPriv}
 
 	alicePool := lnwallet.NewSigPool(1, aliceSigner)
 	channelAlice, err := lnwallet.NewLightningChannel(

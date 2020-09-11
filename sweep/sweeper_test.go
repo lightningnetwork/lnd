@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -128,7 +129,7 @@ func createSweeperTestContext(t *testing.T) *sweeperTestContext {
 			return c
 		},
 		Store:  store,
-		Signer: &mockSigner{},
+		Signer: &mock.DummySigner{},
 		GenSweepScript: func() ([]byte, error) {
 			script := []byte{outputScriptCount}
 			outputScriptCount++

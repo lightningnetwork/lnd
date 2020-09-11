@@ -2785,11 +2785,11 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 func (p *Brontide) HandleLocalCloseChanReqs(req *htlcswitch.ChanClose) {
 	select {
 	case p.localCloseChanReqs <- req:
-		peerLog.Infof("Local close channel request delivered to peer: %v",
-			p.PubKey())
+		peerLog.Infof("Local close channel request delivered to "+
+			"peer: %x", p.PubKey())
 	case <-p.quit:
-		peerLog.Infof("Unable to deliver local close channel request to peer "+
-			"%x", p.PubKey())
+		peerLog.Infof("Unable to deliver local close channel request "+
+			"to peer %x", p.PubKey())
 	}
 }
 

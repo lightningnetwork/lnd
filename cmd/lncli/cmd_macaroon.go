@@ -399,8 +399,12 @@ func printMacaroon(ctx *cli.Context) error {
 		content.Caveats = append(content.Caveats, string(caveat.Id))
 	}
 	for _, op := range decodedID.Ops {
-		permission := fmt.Sprintf("%s:%s", op.Entity, op.Actions[0])
-		content.Permissions = append(content.Permissions, permission)
+		for _, action := range op.Actions {
+			permission := fmt.Sprintf("%s:%s", op.Entity, action)
+			content.Permissions = append(
+				content.Permissions, permission,
+			)
+		}
 	}
 
 	printJSON(content)

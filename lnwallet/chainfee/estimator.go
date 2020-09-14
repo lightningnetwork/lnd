@@ -540,23 +540,16 @@ type WebAPIEstimator struct {
 	feesMtx          sync.Mutex
 	feeByBlockTarget map[uint32]uint32
 
-	// defaultFeePerKw is a fallback value that we'll use if we're unable
-	// to query the API for any reason.
-	defaultFeePerKw SatPerKWeight
-
 	quit chan struct{}
 	wg   sync.WaitGroup
 }
 
 // NewWebAPIEstimator creates a new WebAPIEstimator from a given URL and a
 // fallback default fee. The fees are updated whenever a new block is mined.
-func NewWebAPIEstimator(
-	api WebAPIFeeSource, defaultFee SatPerKWeight) *WebAPIEstimator {
-
+func NewWebAPIEstimator(api WebAPIFeeSource) *WebAPIEstimator {
 	return &WebAPIEstimator{
 		apiSource:        api,
 		feeByBlockTarget: make(map[uint32]uint32),
-		defaultFeePerKw:  defaultFee,
 		quit:             make(chan struct{}),
 	}
 }

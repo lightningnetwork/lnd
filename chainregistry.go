@@ -253,17 +253,12 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 		if cfg.NeutrinoMode.FeeURL != "" {
 			ltndLog.Infof("Using API fee estimator!")
 
-			estimator := chainfee.NewWebAPIEstimator(
+			cc.feeEstimator = chainfee.NewWebAPIEstimator(
 				chainfee.SparseConfFeeSource{
 					URL: cfg.NeutrinoMode.FeeURL,
 				},
 				false,
 			)
-
-			if err := estimator.Start(); err != nil {
-				return nil, err
-			}
-			cc.feeEstimator = estimator
 		}
 
 		walletConfig.ChainSource = chain.NewNeutrinoClient(
@@ -366,9 +361,6 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 			if err != nil {
 				return nil, err
 			}
-			if err := cc.feeEstimator.Start(); err != nil {
-				return nil, err
-			}
 		} else if cfg.Litecoin.Active && !cfg.Litecoin.RegTest {
 			ltndLog.Infof("Initializing litecoind backed fee estimator in "+
 				"%s mode", bitcoindMode.EstimateMode)
@@ -383,9 +375,6 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 				fallBackFeeRate.FeePerKWeight(),
 			)
 			if err != nil {
-				return nil, err
-			}
-			if err := cc.feeEstimator.Start(); err != nil {
 				return nil, err
 			}
 		}
@@ -490,13 +479,15 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 			if err != nil {
 				return nil, err
 			}
-			if err := cc.feeEstimator.Start(); err != nil {
-				return nil, err
-			}
 		}
 	default:
 		return nil, fmt.Errorf("unknown node type: %s",
 			homeChainConfig.Node)
+	}
+
+	// Start fee estimator.
+	if err := cc.feeEstimator.Start(); err != nil {
+		return nil, err
 	}
 
 	wc, err := btcwallet.New(*walletConfig)

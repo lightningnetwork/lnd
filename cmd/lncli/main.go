@@ -301,6 +301,8 @@ func main() {
 		verifyChanBackupCommand,
 		restoreChanBackupCommand,
 		bakeMacaroonCommand,
+		listPermissionsCommand,
+		printMacaroonCommand,
 		trackPaymentCommand,
 		versionCommand,
 	}

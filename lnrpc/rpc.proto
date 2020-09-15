@@ -493,6 +493,13 @@ service Lightning {
     offline.
     */
     rpc BakeMacaroon (BakeMacaroonRequest) returns (BakeMacaroonResponse);
+
+    /* lncli: `listpermissions`
+    ListPermissions lists all RPC method URIs and their required macaroon
+    permissions to access them.
+    */
+    rpc ListPermissions (ListPermissionsRequest)
+        returns (ListPermissionsResponse);
 }
 
 message Utxo {
@@ -3343,6 +3350,21 @@ message BakeMacaroonResponse {
     string macaroon = 1;
 }
 
+message MacaroonPermissionList {
+    // A list of macaroon permissions.
+    repeated MacaroonPermission permissions = 1;
+}
+
+message ListPermissionsRequest {
+}
+message ListPermissionsResponse {
+    /*
+    A map between all RPC method URIs and their required macaroon permissions to
+    access them.
+    */
+    map<string, MacaroonPermissionList> method_permissions = 1;
+}
+
 message Failure {
     enum FailureCode {
         /*
@@ -3504,4 +3526,15 @@ message ChannelUpdate {
     network in a forwards compatible manner.
     */
     bytes extra_opaque_data = 12;
+}
+
+message MacaroonId {
+    bytes nonce = 1;
+    bytes storageId = 2;
+    repeated Op ops = 3;
+}
+
+message Op {
+    string entity = 1;
+    repeated string actions = 2;
 }

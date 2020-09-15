@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
+	"github.com/stretchr/testify/require"
 )
 
 func makePubKey(i uint64) blob.PubKey {
@@ -219,9 +220,7 @@ func testBlobJusticeKitEncryptDecrypt(t *testing.T, test descriptorTest) {
 func TestJusticeKitRemoteWitnessConstruction(t *testing.T) {
 	// Generate the to-remote pubkey.
 	toRemotePrivKey, err := btcec.NewPrivateKey(btcec.S256())
-	if err != nil {
-		t.Fatalf("unable to generate to-remote priv key: %v", err)
-	}
+	require.Nil(t, err)
 
 	// Copy the to-remote pubkey into the format expected by our justice
 	// kit.
@@ -232,16 +231,11 @@ func TestJusticeKitRemoteWitnessConstruction(t *testing.T) {
 	// doesn't matter as we won't be validating the signature's validity.
 	digest := bytes.Repeat([]byte("a"), 32)
 	rawToRemoteSig, err := toRemotePrivKey.Sign(digest)
-	if err != nil {
-		t.Fatalf("unable to generate to-remote signature: %v", err)
-	}
+	require.Nil(t, err)
 
 	// Convert the DER-encoded signature into a fixed-size sig.
 	commitToRemoteSig, err := lnwire.NewSigFromSignature(rawToRemoteSig)
-	if err != nil {
-		t.Fatalf("unable to convert raw to-remote signature to "+
-			"Sig: %v", err)
-	}
+	require.Nil(t, err)
 
 	// Populate the justice kit fields relevant to the to-remote output.
 	justiceKit := &blob.JusticeKit{
@@ -252,29 +246,15 @@ func TestJusticeKitRemoteWitnessConstruction(t *testing.T) {
 	// Now, compute the to-remote witness script returned by the justice
 	// kit.
 	toRemoteScript, err := justiceKit.CommitToRemoteWitnessScript()
-	if err != nil {
-		t.Fatalf("unable to compute to-remote witness script: %v", err)
-	}
+	require.Nil(t, err)
 
 	// Assert this is exactly the to-remote, compressed pubkey.
-	if !bytes.Equal(toRemoteScript, toRemotePubKey[:]) {
-		t.Fatalf("to-remote witness script should be equal to "+
-			"to-remote pubkey, want: %x, got %x",
-			toRemotePubKey[:], toRemoteScript)
-	}
+	require.Equal(t, toRemoteScript, toRemotePubKey[:])
 
 	// Next, compute the to-remote witness stack, which should be a p2wkh
 	// witness stack consisting solely of a signature.
 	toRemoteWitnessStack, err := justiceKit.CommitToRemoteWitnessStack()
-	if err != nil {
-		t.Fatalf("unable to compute to-remote witness stack: %v", err)
-	}
-
-	// Assert that the witness stack only has one element.
-	if len(toRemoteWitnessStack) != 1 {
-		t.Fatalf("to-remote witness stack should be of length 1, is %d",
-			len(toRemoteWitnessStack))
-	}
+	require.Nil(t, err)
 
 	// Compute the expected first element, by appending a sighash all byte
 	// to our raw DER-encoded signature.
@@ -282,13 +262,11 @@ func TestJusticeKitRemoteWitnessConstruction(t *testing.T) {
 		rawToRemoteSig.Serialize(), byte(txscript.SigHashAll),
 	)
 
-	// Assert that the expected signature matches the first element in the
-	// witness stack.
-	if !bytes.Equal(rawToRemoteSigWithSigHash, toRemoteWitnessStack[0]) {
-		t.Fatalf("mismatched sig in to-remote witness stack, want: %v, "+
-			"got: %v", rawToRemoteSigWithSigHash,
-			toRemoteWitnessStack[0])
+	// Assert that the expected witness stack is returned.
+	expWitnessStack := [][]byte{
+		rawToRemoteSigWithSigHash,
 	}
+	require.Equal(t, expWitnessStack, toRemoteWitnessStack)
 
 	// Finally, set the CommitToRemotePubKey to be a blank value.
 	justiceKit.CommitToRemotePubKey = blob.PubKey{}
@@ -297,9 +275,7 @@ func TestJusticeKitRemoteWitnessConstruction(t *testing.T) {
 	// ErrNoCommitToRemoteOutput since a valid pubkey could not be parsed
 	// from CommitToRemotePubKey.
 	_, err = justiceKit.CommitToRemoteWitnessScript()
-	if err != blob.ErrNoCommitToRemoteOutput {
-		t.Fatalf("expected ErrNoCommitToRemoteOutput, got: %v", err)
-	}
+	require.Error(t, blob.ErrNoCommitToRemoteOutput, err)
 }
 
 // TestJusticeKitToLocalWitnessConstruction tests that a JusticeKit returns the
@@ -310,14 +286,10 @@ func TestJusticeKitToLocalWitnessConstruction(t *testing.T) {
 
 	// Generate the revocation and delay private keys.
 	revPrivKey, err := btcec.NewPrivateKey(btcec.S256())
-	if err != nil {
-		t.Fatalf("unable to generate revocation priv key: %v", err)
-	}
+	require.Nil(t, err)
 
 	delayPrivKey, err := btcec.NewPrivateKey(btcec.S256())
-	if err != nil {
-		t.Fatalf("unable to generate delay priv key: %v", err)
-	}
+	require.Nil(t, err)
 
 	// Copy the revocation and delay pubkeys into the format expected by our
 	// justice kit.
@@ -331,16 +303,11 @@ func TestJusticeKitToLocalWitnessConstruction(t *testing.T) {
 	// doesn't matter as we won't be validating the signature's validity.
 	digest := bytes.Repeat([]byte("a"), 32)
 	rawRevSig, err := revPrivKey.Sign(digest)
-	if err != nil {
-		t.Fatalf("unable to generate revocation signature: %v", err)
-	}
+	require.Nil(t, err)
 
 	// Convert the DER-encoded signature into a fixed-size sig.
 	commitToLocalSig, err := lnwire.NewSigFromSignature(rawRevSig)
-	if err != nil {
-		t.Fatalf("unable to convert raw revocation signature to "+
-			"Sig: %v", err)
-	}
+	require.Nil(t, err)
 
 	// Populate the justice kit with fields relevant to the to-local output.
 	justiceKit := &blob.JusticeKit{
@@ -355,52 +322,29 @@ func TestJusticeKitToLocalWitnessConstruction(t *testing.T) {
 	expToLocalScript, err := input.CommitScriptToSelf(
 		csvDelay, delayPrivKey.PubKey(), revPrivKey.PubKey(),
 	)
-	if err != nil {
-		t.Fatalf("unable to generate expected to-local script: %v", err)
-	}
+	require.Nil(t, err)
 
 	// Compute the to-local script that is returned by the justice kit.
 	toLocalScript, err := justiceKit.CommitToLocalWitnessScript()
-	if err != nil {
-		t.Fatalf("unable to compute to-local witness script: %v", err)
-	}
+	require.Nil(t, err)
 
 	// Assert that the expected to-local script matches the actual script.
-	if !bytes.Equal(expToLocalScript, toLocalScript) {
-		t.Fatalf("mismatched to-local witness script, want: %v, got %v",
-			expToLocalScript, toLocalScript)
-	}
+	require.Equal(t, expToLocalScript, toLocalScript)
 
 	// Next, compute the to-local witness stack returned by the justice kit.
 	toLocalWitnessStack, err := justiceKit.CommitToLocalRevokeWitnessStack()
-	if err != nil {
-		t.Fatalf("unable to compute to-local witness stack: %v", err)
-	}
+	require.Nil(t, err)
 
-	// A valid witness that spends the revocation path should have exactly
-	// two elements on the stack.
-	if len(toLocalWitnessStack) != 2 {
-		t.Fatalf("to-local witness stack should be of length 2, is %d",
-			len(toLocalWitnessStack))
-	}
-
-	// First, we'll verify that the top element is 0x01, which triggers the
-	// revocation path within the to-local witness script.
-	if !bytes.Equal(toLocalWitnessStack[1], []byte{0x01}) {
-		t.Fatalf("top item on witness stack should be 0x01, found: %v",
-			toLocalWitnessStack[1])
-	}
-
-	// Next, compute the expected signature in the bottom element of the
-	// stack, by appending a sighash all flag to the raw DER signature.
+	// Compute the expected signature in the bottom element of the stack, by
+	// appending a sighash all flag to the raw DER signature.
 	rawRevSigWithSigHash := append(
 		rawRevSig.Serialize(), byte(txscript.SigHashAll),
 	)
 
-	// Assert that the second element on the stack matches our expected
-	// signature under the revocation pubkey.
-	if !bytes.Equal(rawRevSigWithSigHash, toLocalWitnessStack[0]) {
-		t.Fatalf("mismatched sig in to-local witness stack, want: %v, "+
-			"got: %v", rawRevSigWithSigHash, toLocalWitnessStack[0])
+	// Finally, validate against our expected witness stack.
+	expWitnessStack := [][]byte{
+		rawRevSigWithSigHash,
+		{1},
 	}
+	require.Equal(t, expWitnessStack, toLocalWitnessStack)
 }

@@ -50,6 +50,8 @@ var (
 	)
 
 	altruistCommitType = blob.FlagCommitOutputs.Type()
+
+	altruistAnchorCommitType = blob.TypeAltruistAnchorCommit
 )
 
 // TestJusticeDescriptor asserts that a JusticeDescriptor is able to produce the
@@ -67,6 +69,10 @@ func TestJusticeDescriptor(t *testing.T) {
 			name:     "altruist and commit type",
 			blobType: altruistCommitType,
 		},
+		{
+			name:     "altruist anchor commit type",
+			blobType: altruistAnchorCommitType,
+		},
 	}
 
 	for _, test := range tests {
@@ -77,6 +83,8 @@ func TestJusticeDescriptor(t *testing.T) {
 }
 
 func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
+	isAnchorChannel := blobType.IsAnchorChannel()
+
 	const (
 		localAmount  = btcutil.Amount(100000)
 		remoteAmount = btcutil.Amount(200000)
@@ -111,9 +119,54 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 	toLocalScriptHash, err := input.WitnessScriptHash(toLocalScript)
 	require.Nil(t, err)
 
-	// Compute the to-remote witness script hash.
-	toRemoteScriptHash, err := input.CommitScriptUnencumbered(toRemotePK)
-	require.Nil(t, err)
+	// Compute the to-remote redeem script, witness script hash, and
+	// sequence numbers.
+	//
+	// NOTE: This is pretty subtle.
+	//
+	// The actual redeem script for a p2wkh output is just the pubkey, but
+	// the witness sighash calculation injects the classic p2kh script:
+	// OP_DUP OP_HASH160 <pubkey-hash160> OP_EQUALVERIFY OP_CHECKSIG. When
+	// signing for p2wkh we don't pass the raw pubkey as the witness script
+	// to the sign descriptor (since that's also not a valid script).
+	// Instead we give it the _pkscript_ of the form OP_0 <pubkey-hash160>
+	// from which pubkey-hash160 is extracted during sighash calculation.
+	//
+	// On the other hand, signing for the anchor p2wsh to-remote outputs
+	// requires the sign descriptor to contain the redeem script ver batim.
+	// This difference in behavior forces us to use a distinct
+	// toRemoteSigningScript to handle both cases.
+	var (
+		toRemoteSequence      uint32
+		toRemoteRedeemScript  []byte
+		toRemoteScriptHash    []byte
+		toRemoteSigningScript []byte
+	)
+	if isAnchorChannel {
+		toRemoteSequence = 1
+		toRemoteRedeemScript, err = input.CommitScriptToRemoteConfirmed(
+			toRemotePK,
+		)
+		require.Nil(t, err)
+
+		toRemoteScriptHash, err = input.WitnessScriptHash(
+			toRemoteRedeemScript,
+		)
+		require.Nil(t, err)
+
+		// As it should be.
+		toRemoteSigningScript = toRemoteRedeemScript
+
+	} else {
+		toRemoteRedeemScript = toRemotePK.SerializeCompressed()
+		toRemoteScriptHash, err = input.CommitScriptUnencumbered(
+			toRemotePK,
+		)
+		require.Nil(t, err)
+
+		// NOTE: This is the _pkscript_.
+		toRemoteSigningScript = toRemoteScriptHash
+	}
 
 	// Construct the breaching commitment txn, containing the to-local and
 	// to-remote outputs. We don't need any inputs for this test.
@@ -142,7 +195,11 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 	// create signatures using the original weight estimate.
 	weightEstimate.AddWitnessInput(input.ToLocalPenaltyWitnessSize - 1)
 
-	weightEstimate.AddWitnessInput(input.P2WKHWitnessSize)
+	if isAnchorChannel {
+		weightEstimate.AddWitnessInput(input.ToRemoteConfirmedWitnessSize)
+	} else {
+		weightEstimate.AddWitnessInput(input.P2WKHWitnessSize)
+	}
 	weightEstimate.AddP2WKHOutput()
 	if blobType.Has(blob.FlagReward) {
 		weightEstimate.AddP2WKHOutput()
@@ -167,6 +224,7 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 	// Begin to assemble the justice kit, starting with the sweep address,
 	// pubkeys, and csv delay.
 	justiceKit := &blob.JusticeKit{
+		BlobType:     blobType,
 		SweepAddress: makeAddrSlice(22),
 		CSVDelay:     csvDelay,
 	}
@@ -192,6 +250,7 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 					Hash:  breachTxID,
 					Index: 1,
 				},
+				Sequence: toRemoteSequence,
 			},
 		},
 	}
@@ -226,7 +285,7 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 			KeyLocator: toRemoteKeyLoc,
 			PubKey:     toRemotePK,
 		},
-		WitnessScript: toRemoteScriptHash,
+		WitnessScript: toRemoteSigningScript,
 		Output:        breachTxn.TxOut[1],
 		SigHashes:     hashCache,
 		InputIndex:    1,
@@ -245,18 +304,15 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 	// Compute the witness for the to-remote input. The first element is a
 	// DER-encoded signature under the to-remote pubkey. The sighash flag is
 	// also present, so we trim it.
-	toRemoteWitness, err := input.CommitSpendNoDelay(
-		signer, toRemoteSignDesc, justiceTxn, false,
-	)
+	toRemoteSigRaw, err := signer.SignOutputRaw(justiceTxn, toRemoteSignDesc)
 	require.Nil(t, err)
-	toRemoteSigRaw := toRemoteWitness[0][:len(toRemoteWitness[0])-1]
 
 	// Convert the DER to-local sig into a fixed-size signature.
 	toLocalSig, err := lnwire.NewSigFromSignature(toLocalSigRaw)
 	require.Nil(t, err)
 
 	// Convert the DER to-remote sig into a fixed-size signature.
-	toRemoteSig, err := lnwire.NewSigFromRawSignature(toRemoteSigRaw)
+	toRemoteSig, err := lnwire.NewSigFromSignature(toRemoteSigRaw)
 	require.Nil(t, err)
 
 	// Complete our justice kit by copying the signatures into the payload.
@@ -301,9 +357,9 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 
 	// Construct the test's to-remote witness.
 	justiceTxn.TxIn[1].Witness = make([][]byte, 2)
-	justiceTxn.TxIn[1].Witness[0] = append(toRemoteSigRaw,
+	justiceTxn.TxIn[1].Witness[0] = append(toRemoteSigRaw.Serialize(),
 		byte(txscript.SigHashAll))
-	justiceTxn.TxIn[1].Witness[1] = toRemotePK.SerializeCompressed()
+	justiceTxn.TxIn[1].Witness[1] = toRemoteRedeemScript
 
 	// Assert that the watchtower derives the same justice txn.
 	require.Equal(t, justiceTxn, wtJusticeTxn)

@@ -93,15 +93,16 @@ const (
 	defaultChainBackoff  = time.Second * 30
 	defaultChainAttempts = 3
 
-	// By default, we will shutdown if less than 10% of disk space is
-	// available. We allow a longer interval for disk space checks, because
-	// this check is less likely to deteriorate quickly. However, we allow
-	// fewer retries because this should not be a flakey check.
+	// Set defaults for a health check which ensures that we have space
+	// available on disk. Although this check is off by default so that we
+	// avoid breaking any existing setups (particularly on mobile), we still
+	// set the other default values so that the health check can be easily
+	// enabled with sane defaults.
 	defaultRequiredDisk = 0.1
 	defaultDiskInterval = time.Hour * 12
 	defaultDiskTimeout  = time.Second * 5
 	defaultDiskBackoff  = time.Minute
-	defaultDiskAttempts = 2
+	defaultDiskAttempts = 0
 
 	// defaultRemoteMaxHtlcs specifies the default limit for maximum
 	// concurrent HTLCs the remote party may add to commitment transactions.

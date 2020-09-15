@@ -150,6 +150,7 @@ func TestBlobJusticeKitEncryptDecrypt(t *testing.T) {
 
 func testBlobJusticeKitEncryptDecrypt(t *testing.T, test descriptorTest) {
 	boj := &blob.JusticeKit{
+		BlobType:             test.encVersion,
 		SweepAddress:         test.sweepAddr,
 		RevocationPubKey:     test.revPubKey,
 		LocalDelayPubKey:     test.delayPubKey,
@@ -170,7 +171,7 @@ func testBlobJusticeKitEncryptDecrypt(t *testing.T, test descriptorTest) {
 
 	// Encrypt the blob plaintext using the generated key and
 	// target version for this test.
-	ctxt, err := boj.Encrypt(key, test.encVersion)
+	ctxt, err := boj.Encrypt(key)
 	if err != test.encErr {
 		t.Fatalf("unable to encrypt blob: %v", err)
 	} else if test.encErr != nil {

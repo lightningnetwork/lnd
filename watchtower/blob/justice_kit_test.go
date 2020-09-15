@@ -215,10 +215,45 @@ func testBlobJusticeKitEncryptDecrypt(t *testing.T, test descriptorTest) {
 	}
 }
 
+type remoteWitnessTest struct {
+	name             string
+	blobType         blob.Type
+	expWitnessScript func(pk *btcec.PublicKey) []byte
+}
+
 // TestJusticeKitRemoteWitnessConstruction tests that a JusticeKit returns the
 // proper to-remote witnes script and to-remote witness stack. This should be
 // equivalent to p2wkh spend.
 func TestJusticeKitRemoteWitnessConstruction(t *testing.T) {
+	tests := []remoteWitnessTest{
+		{
+			name:     "legacy commitment",
+			blobType: blob.Type(blob.FlagCommitOutputs),
+			expWitnessScript: func(pk *btcec.PublicKey) []byte {
+				return pk.SerializeCompressed()
+			},
+		},
+		{
+			name: "anchor commitment",
+			blobType: blob.Type(blob.FlagCommitOutputs |
+				blob.FlagAnchorChannel),
+			expWitnessScript: func(pk *btcec.PublicKey) []byte {
+				script, _ := input.CommitScriptToRemoteConfirmed(pk)
+				return script
+			},
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			testJusticeKitRemoteWitnessConstruction(t, test)
+		})
+	}
+}
+
+func testJusticeKitRemoteWitnessConstruction(
+	t *testing.T, test remoteWitnessTest) {
+
 	// Generate the to-remote pubkey.
 	toRemotePrivKey, err := btcec.NewPrivateKey(btcec.S256())
 	require.Nil(t, err)
@@ -240,6 +275,7 @@ func TestJusticeKitRemoteWitnessConstruction(t *testing.T) {
 
 	// Populate the justice kit fields relevant to the to-remote output.
 	justiceKit := &blob.JusticeKit{
+		BlobType:             test.blobType,
 		CommitToRemotePubKey: toRemotePubKey,
 		CommitToRemoteSig:    commitToRemoteSig,
 	}
@@ -250,7 +286,8 @@ func TestJusticeKitRemoteWitnessConstruction(t *testing.T) {
 	require.Nil(t, err)
 
 	// Assert this is exactly the to-remote, compressed pubkey.
-	require.Equal(t, toRemoteScript, toRemotePubKey[:])
+	expToRemoteScript := test.expWitnessScript(toRemotePrivKey.PubKey())
+	require.Equal(t, expToRemoteScript, toRemoteScript)
 
 	// Next, compute the to-remote witness stack, which should be a p2wkh
 	// witness stack consisting solely of a signature.

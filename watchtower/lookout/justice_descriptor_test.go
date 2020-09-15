@@ -192,8 +192,13 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 	// An older ToLocalPenaltyWitnessSize constant used to underestimate the
 	// size by one byte. The diferrence in weight can cause different output
 	// values on the sweep transaction, so we mimic the original bug and
-	// create signatures using the original weight estimate.
-	weightEstimate.AddWitnessInput(input.ToLocalPenaltyWitnessSize - 1)
+	// create signatures using the original weight estimate. For anchor
+	// channels we fix this and use the correct witness size.
+	if isAnchorChannel {
+		weightEstimate.AddWitnessInput(input.ToLocalPenaltyWitnessSize)
+	} else {
+		weightEstimate.AddWitnessInput(input.ToLocalPenaltyWitnessSize - 1)
+	}
 
 	if isAnchorChannel {
 		weightEstimate.AddWitnessInput(input.ToRemoteConfirmedWitnessSize)

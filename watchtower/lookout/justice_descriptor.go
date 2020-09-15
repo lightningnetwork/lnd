@@ -284,8 +284,13 @@ func (p *JusticeDescriptor) CreateJusticeTxn() (*wire.MsgTx, error) {
 	// An older ToLocalPenaltyWitnessSize constant used to underestimate the
 	// size by one byte. The diferrence in weight can cause different output
 	// values on the sweep transaction, so we mimic the original bug to
-	// avoid invalidating signatures by older clients.
-	weightEstimate.AddWitnessInput(input.ToLocalPenaltyWitnessSize - 1)
+	// avoid invalidating signatures by older clients. For anchor channels
+	// we correct this and use the correct witness size.
+	if p.JusticeKit.BlobType.IsAnchorChannel() {
+		weightEstimate.AddWitnessInput(input.ToLocalPenaltyWitnessSize)
+	} else {
+		weightEstimate.AddWitnessInput(input.ToLocalPenaltyWitnessSize - 1)
+	}
 
 	sweepInputs = append(sweepInputs, toLocalInput)
 

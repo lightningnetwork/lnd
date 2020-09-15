@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	_ "net/http/pprof" // Blank import to set up profiling HTTP handlers.
 	"os"
 	"path/filepath"
 	"runtime/pprof"
@@ -18,19 +19,15 @@ import (
 	"sync"
 	"time"
 
-	// Blank import to set up profiling HTTP handlers.
-	_ "net/http/pprof"
-
-	"gopkg.in/macaroon-bakery.v2/bakery"
-	"gopkg.in/macaroon.v2"
-
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/wallet"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightninglabs/neutrino"
+	"golang.org/x/crypto/acme/autocert"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"gopkg.in/macaroon-bakery.v2/bakery"
+	"gopkg.in/macaroon.v2"
 
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
@@ -268,12 +265,14 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	defer cleanUp()
 
 	// Only process macaroons if --no-macaroons isn't set.
-	tlsCfg, restCreds, restProxyDest, err := getTLSConfig(cfg)
+	tlsCfg, restCreds, restProxyDest, cleanUp, err := getTLSConfig(cfg)
 	if err != nil {
 		err := fmt.Errorf("unable to load TLS credentials: %v", err)
 		ltndLog.Error(err)
 		return err
 	}
+
+	defer cleanUp()
 
 	serverCreds := credentials.NewTLS(tlsCfg)
 	serverOpts := []grpc.ServerOption{grpc.Creds(serverCreds)}
@@ -752,7 +751,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 // getTLSConfig returns a TLS configuration for the gRPC server and credentials
 // and a proxy destination for the REST reverse proxy.
 func getTLSConfig(cfg *Config) (*tls.Config, *credentials.TransportCredentials,
-	string, error) {
+	string, func(), error) {
 
 	// Ensure we create TLS key and certificate if they don't exist.
 	if !fileExists(cfg.TLSCertPath) && !fileExists(cfg.TLSKeyPath) {
@@ -763,7 +762,7 @@ func getTLSConfig(cfg *Config) (*tls.Config, *credentials.TransportCredentials,
 			cfg.TLSDisableAutofill, cert.DefaultAutogenValidity,
 		)
 		if err != nil {
-			return nil, nil, "", err
+			return nil, nil, "", nil, err
 		}
 		rpcsLog.Infof("Done generating TLS certificates")
 	}
@@ -772,7 +771,7 @@ func getTLSConfig(cfg *Config) (*tls.Config, *credentials.TransportCredentials,
 		cfg.TLSCertPath, cfg.TLSKeyPath,
 	)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", nil, err
 	}
 
 	// We check whether the certifcate we have on disk match the IPs and
@@ -786,7 +785,7 @@ func getTLSConfig(cfg *Config) (*tls.Config, *credentials.TransportCredentials,
 			cfg.TLSExtraDomains, cfg.TLSDisableAutofill,
 		)
 		if err != nil {
-			return nil, nil, "", err
+			return nil, nil, "", nil, err
 		}
 	}
 
@@ -798,12 +797,12 @@ func getTLSConfig(cfg *Config) (*tls.Config, *credentials.TransportCredentials,
 
 		err := os.Remove(cfg.TLSCertPath)
 		if err != nil {
-			return nil, nil, "", err
+			return nil, nil, "", nil, err
 		}
 
 		err = os.Remove(cfg.TLSKeyPath)
 		if err != nil {
-			return nil, nil, "", err
+			return nil, nil, "", nil, err
 		}
 
 		rpcsLog.Infof("Renewing TLS certificates...")
@@ -813,7 +812,7 @@ func getTLSConfig(cfg *Config) (*tls.Config, *credentials.TransportCredentials,
 			cfg.TLSDisableAutofill, cert.DefaultAutogenValidity,
 		)
 		if err != nil {
-			return nil, nil, "", err
+			return nil, nil, "", nil, err
 		}
 		rpcsLog.Infof("Done renewing TLS certificates")
 
@@ -822,14 +821,15 @@ func getTLSConfig(cfg *Config) (*tls.Config, *credentials.TransportCredentials,
 			cfg.TLSCertPath, cfg.TLSKeyPath,
 		)
 		if err != nil {
-			return nil, nil, "", err
+			return nil, nil, "", nil, err
 		}
 	}
 
 	tlsCfg := cert.TLSConfFromCert(certData)
+
 	restCreds, err := credentials.NewClientTLSFromFile(cfg.TLSCertPath, "")
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", nil, err
 	}
 
 	restProxyDest := cfg.RPCListeners[0].String()
@@ -845,7 +845,65 @@ func getTLSConfig(cfg *Config) (*tls.Config, *credentials.TransportCredentials,
 		)
 	}
 
-	return tlsCfg, &restCreds, restProxyDest, nil
+	// If Let's Encrypt is enabled, instantiate autocert to request/renew
+	// the certificates.
+	cleanUp := func() {}
+	if cfg.LetsEncryptDomain != "" {
+		ltndLog.Infof("Using Let's Encrypt certificate for domain %v",
+			cfg.LetsEncryptDomain)
+
+		manager := autocert.Manager{
+			Cache:      autocert.DirCache(cfg.LetsEncryptDir),
+			Prompt:     autocert.AcceptTOS,
+			HostPolicy: autocert.HostWhitelist(cfg.LetsEncryptDomain),
+		}
+
+		addr := fmt.Sprintf(":%v", cfg.LetsEncryptPort)
+		srv := &http.Server{
+			Addr:    addr,
+			Handler: manager.HTTPHandler(nil),
+		}
+		shutdownCompleted := make(chan struct{})
+		cleanUp = func() {
+			err := srv.Shutdown(context.Background())
+			if err != nil {
+				ltndLog.Errorf("Autocert listener shutdown "+
+					" error: %v", err)
+
+				return
+			}
+			<-shutdownCompleted
+			ltndLog.Infof("Autocert challenge listener stopped")
+		}
+
+		go func() {
+			ltndLog.Infof("Autocert challenge listener started "+
+				"at %v", addr)
+
+			err := srv.ListenAndServe()
+			if err != http.ErrServerClosed {
+				ltndLog.Errorf("autocert http: %v", err)
+			}
+			close(shutdownCompleted)
+		}()
+
+		getCertificate := func(h *tls.ClientHelloInfo) (
+			*tls.Certificate, error) {
+
+			lecert, err := manager.GetCertificate(h)
+			if err != nil {
+				ltndLog.Errorf("GetCertificate: %v", err)
+				return &certData, nil
+			}
+
+			return lecert, err
+		}
+
+		// The self-signed tls.cert remains available as fallback.
+		tlsCfg.GetCertificate = getCertificate
+	}
+
+	return tlsCfg, &restCreds, restProxyDest, cleanUp, nil
 }
 
 // fileExists reports whether the named file or directory exists.

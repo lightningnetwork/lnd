@@ -36,6 +36,10 @@ type profileEntry struct {
 
 // cert returns the profile's TLS certificate as a x509 certificate pool.
 func (e *profileEntry) cert() (*x509.CertPool, error) {
+	if e.TLSCert == "" {
+		return nil, nil
+	}
+
 	cp := x509.NewCertPool()
 	if !cp.AppendCertsFromPEM([]byte(e.TLSCert)) {
 		return nil, fmt.Errorf("credentials: failed to append " +
@@ -113,11 +117,16 @@ func profileFromContext(ctx *cli.Context, store bool) (*profileEntry, error) {
 		return nil, err
 	}
 
-	// Load the certificate file now. We store it as plain PEM directly.
-	tlsCert, err := ioutil.ReadFile(tlsCertPath)
-	if err != nil {
-		return nil, fmt.Errorf("could not load TLS cert file %s: %v",
-			tlsCertPath, err)
+	// Load the certificate file now, if specified. We store it as plain PEM
+	// directly.
+	var tlsCert []byte
+	if lnrpc.FileExists(tlsCertPath) {
+		var err error
+		tlsCert, err = ioutil.ReadFile(tlsCertPath)
+		if err != nil {
+			return nil, fmt.Errorf("could not load TLS cert file "+
+				"%s: %v", tlsCertPath, err)
+		}
 	}
 
 	// Now load and possibly encrypt the macaroon file.

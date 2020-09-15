@@ -663,6 +663,47 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 	return commitTx, nil
 }
 
+// CoopCloseBalance returns the final balances that should be used to create
+// the cooperative close tx, given the channel type and transaction fee.
+func CoopCloseBalance(chanType channeldb.ChannelType, isInitiator bool,
+	coopCloseFee btcutil.Amount, localCommit channeldb.ChannelCommitment) (
+	btcutil.Amount, btcutil.Amount, error) {
+
+	// Get both parties' balances from the latest commitment.
+	ourBalance := localCommit.LocalBalance.ToSatoshis()
+	theirBalance := localCommit.RemoteBalance.ToSatoshis()
+
+	// We'll make sure we account for the complete balance by adding the
+	// current dangling commitment fee to the balance of the initiator.
+	initiatorDelta := localCommit.CommitFee
+
+	// Since the initiator's balance also is stored after subtracting the
+	// anchor values, add that back in case this was an anchor commitment.
+	if chanType.HasAnchors() {
+		initiatorDelta += 2 * anchorSize
+	}
+
+	// The initiator will pay the full coop close fee, subtract that value
+	// from their balance.
+	initiatorDelta -= coopCloseFee
+
+	if isInitiator {
+		ourBalance += initiatorDelta
+	} else {
+		theirBalance += initiatorDelta
+	}
+
+	// During fee negotiation it should always be verified that the
+	// initiator can pay the proposed fee, but we do a sanity check just to
+	// be sure here.
+	if ourBalance < 0 || theirBalance < 0 {
+		return 0, 0, fmt.Errorf("initiator cannot afford proposed " +
+			"coop close fee")
+	}
+
+	return ourBalance, theirBalance, nil
+}
+
 // genHtlcScript generates the proper P2WSH public key scripts for the HTLC
 // output modified by two-bits denoting if this is an incoming HTLC, and if the
 // HTLC is being applied to their commitment transaction or ours.

@@ -206,8 +206,7 @@ const (
 
 	// AnchorOutputsBit indicates that the channel makes use of anchor
 	// outputs to bump the commitment transaction's effective feerate. This
-	// channel type also uses a delayed to_remote output script. If bit is
-	// set, we'll find the size of the anchor outputs in the database.
+	// channel type also uses a delayed to_remote output script.
 	AnchorOutputsBit ChannelType = 1 << 3
 
 	// FrozenBit indicates that the channel is a frozen channel, meaning

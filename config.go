@@ -240,6 +240,7 @@ type Config struct {
 	Alias                         string        `long:"alias" description:"The node alias. Used as a moniker by peers and intelligence services"`
 	Color                         string        `long:"color" description:"The color of the node in hex format (i.e. '#3399FF'). Used to customize node appearance in intelligence services"`
 	MinChanSize                   int64         `long:"minchansize" description:"The smallest channel size (in satoshis) that we should accept. Incoming channels smaller than this will be rejected"`
+	MaxChanSize                   int64         `long:"maxchansize" description:"The largest channel size (in satoshis) that we should accept. Incoming channels larger than this will be rejected"`
 
 	DefaultRemoteMaxHtlcs uint16 `long:"default-remote-max-htlcs" description:"The default max_htlc applied when opening or accepting channels. This value limits the number of concurrent HTLCs that the remote party can add to the commitment. The maximum possible value is 483."`
 
@@ -387,6 +388,7 @@ func DefaultConfig() Config {
 		Alias:                         defaultAlias,
 		Color:                         defaultColor,
 		MinChanSize:                   int64(minChanFundingSize),
+		MaxChanSize:                   int64(0),
 		DefaultRemoteMaxHtlcs:         defaultRemoteMaxHtlcs,
 		NumGraphSyncPeers:             defaultMinPeers,
 		HistoricalSyncInterval:        discovery.DefaultHistoricalSyncInterval,
@@ -610,7 +612,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 	}
 
 	// Ensure that the specified values for the min and max channel size
-	// don't are within the bounds of the normal chan size constraints.
+	// are within the bounds of the normal chan size constraints.
 	if cfg.Autopilot.MinChannelSize < int64(minChanFundingSize) {
 		cfg.Autopilot.MinChannelSize = int64(minChanFundingSize)
 	}
@@ -620,6 +622,38 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 
 	if _, err := validateAtplCfg(cfg.Autopilot); err != nil {
 		return nil, err
+	}
+
+	// Ensure that --maxchansize is properly handled when set by user.
+	// For non-Wumbo channels this limit remains 16777215 satoshis by default
+	// as specified in BOLT-02. For wumbo channels this limit is 1,000,000,000.
+	// satoshis (10 BTC). Always enforce --maxchansize explicitly set by user.
+	// If unset (marked by 0 value), then enforce proper default.
+	if cfg.MaxChanSize == 0 {
+		if cfg.ProtocolOptions.Wumbo() {
+			cfg.MaxChanSize = int64(MaxBtcFundingAmountWumbo)
+		} else {
+			cfg.MaxChanSize = int64(MaxBtcFundingAmount)
+		}
+	}
+
+	// Ensure that the user specified values for the min and max channel
+	// size make sense.
+	if cfg.MaxChanSize < cfg.MinChanSize {
+		return nil, fmt.Errorf("invalid channel size parameters: "+
+			"max channel size %v, must be no less than min chan size %v",
+			cfg.MaxChanSize, cfg.MinChanSize,
+		)
+	}
+
+	// Don't allow superflous --maxchansize greater than
+	// BOLT 02 soft-limit for non-wumbo channel
+	if !cfg.ProtocolOptions.Wumbo() && cfg.MaxChanSize > int64(MaxFundingAmount) {
+		return nil, fmt.Errorf("invalid channel size parameters: "+
+			"maximum channel size %v is greater than maximum non-wumbo"+
+			" channel size %v",
+			cfg.MaxChanSize, MaxFundingAmount,
+		)
 	}
 
 	// Ensure a valid max channel fee allocation was set.

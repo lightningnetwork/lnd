@@ -432,6 +432,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		},
 		ZombieSweeperInterval:         1 * time.Hour,
 		ReservationTimeout:            1 * time.Nanosecond,
+		MaxChanSize:                   MaxFundingAmount,
 		MaxPendingChannels:            lncfg.DefaultMaxPendingChannels,
 		NotifyOpenChannelEvent:        evt.NotifyOpenChannelEvent,
 		OpenChannelPredicate:          chainedAcceptor,
@@ -3212,6 +3213,75 @@ func expectOpenChannelMsg(t *testing.T, msgChan chan lnwire.Message) *lnwire.Ope
 	return openChannelReq
 }
 
+func TestMaxChannelSizeConfig(t *testing.T) {
+	t.Parallel()
+
+	// Create a set of funding managers that will reject wumbo
+	// channels but set --maxchansize explicitly lower than soft-limit.
+	// Verify that wumbo rejecting funding managers will respect --maxchansize
+	// below 16777215 satoshi (MaxFundingAmount) limit.
+	alice, bob := setupFundingManagers(t, func(cfg *fundingConfig) {
+		cfg.NoWumboChans = true
+		cfg.MaxChanSize = MaxFundingAmount - 1
+	})
+
+	// Attempt to create a channel above the limit
+	// imposed by --maxchansize, which should be rejected.
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+	errChan := make(chan error, 1)
+	initReq := &openChanReq{
+		targetPubkey:    bob.privKey.PubKey(),
+		chainHash:       *fundingNetParams.GenesisHash,
+		localFundingAmt: MaxFundingAmount,
+		pushAmt:         lnwire.NewMSatFromSatoshis(0),
+		private:         false,
+		updates:         updateChan,
+		err:             errChan,
+	}
+
+	// After processing the funding open message, bob should respond with
+	// an error rejecting the channel that exceeds size limit.
+	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	openChanMsg := expectOpenChannelMsg(t, alice.msgChan)
+	bob.fundingMgr.processFundingOpen(openChanMsg, alice)
+	assertErrorSent(t, bob.msgChan)
+
+	// Create a set of funding managers that will reject wumbo
+	// channels but set --maxchansize explicitly higher than soft-limit
+	// A --maxchansize greater than this limit should have no effect.
+	tearDownFundingManagers(t, alice, bob)
+	alice, bob = setupFundingManagers(t, func(cfg *fundingConfig) {
+		cfg.NoWumboChans = true
+		cfg.MaxChanSize = MaxFundingAmount + 1
+	})
+
+	// We expect Bob to respond with an Accept channel message.
+	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	openChanMsg = expectOpenChannelMsg(t, alice.msgChan)
+	bob.fundingMgr.processFundingOpen(openChanMsg, alice)
+	assertFundingMsgSent(t, bob.msgChan, "AcceptChannel")
+
+	// Verify that wumbo accepting funding managers will respect --maxchansize
+	// Create the funding managers, this time allowing
+	// wumbo channels but setting --maxchansize explicitly.
+	tearDownFundingManagers(t, alice, bob)
+	alice, bob = setupFundingManagers(t, func(cfg *fundingConfig) {
+		cfg.NoWumboChans = false
+		cfg.MaxChanSize = btcutil.Amount(100000000)
+	})
+
+	// Attempt to create a channel above the limit
+	// imposed by --maxchansize, which should be rejected.
+	initReq.localFundingAmt = btcutil.SatoshiPerBitcoin + 1
+
+	// After processing the funding open message, bob should respond with
+	// an error rejecting the channel that exceeds size limit.
+	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	openChanMsg = expectOpenChannelMsg(t, alice.msgChan)
+	bob.fundingMgr.processFundingOpen(openChanMsg, alice)
+	assertErrorSent(t, bob.msgChan)
+}
+
 // TestWumboChannelConfig tests that the funding manager will respect the wumbo
 // channel config param when creating or accepting new channels.
 func TestWumboChannelConfig(t *testing.T) {
@@ -3260,6 +3330,7 @@ func TestWumboChannelConfig(t *testing.T) {
 	tearDownFundingManagers(t, alice, bob)
 	alice, bob = setupFundingManagers(t, func(cfg *fundingConfig) {
 		cfg.NoWumboChans = false
+		cfg.MaxChanSize = MaxBtcFundingAmountWumbo
 	})
 
 	// We should now be able to initiate a wumbo channel funding w/o any

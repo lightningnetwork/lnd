@@ -142,6 +142,16 @@ func ErrChanTooSmall(chanSize, minChanSize btcutil.Amount) ReservationError {
 	}
 }
 
+// ErrChanTooLarge returns an error indicating that an incoming channel request
+// was too large. We'll reject any incoming channels if they're above our
+// configured value for the max channel size we'll accept.
+func ErrChanTooLarge(chanSize, maxChanSize btcutil.Amount) ReservationError {
+	return ReservationError{
+		fmt.Errorf("chan size of %v exceeds maximum chan size of %v",
+			chanSize, maxChanSize),
+	}
+}
+
 // ErrHtlcIndexAlreadyFailed is returned when the HTLC index has already been
 // failed, but has not been committed by our commitment state.
 type ErrHtlcIndexAlreadyFailed uint64

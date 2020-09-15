@@ -67,6 +67,11 @@ const (
 	// in the real world.
 	MaxBtcFundingAmount = btcutil.Amount(1<<24) - 1
 
+	// MaxBtcFundingAmountWumbo is a soft-limit on the maximum size of wumbo
+	// channels. This limit is 10 BTC and is the only thing standing between
+	// you and limitless channel size (apart from 21 million cap)
+	MaxBtcFundingAmountWumbo = btcutil.Amount(1000000000)
+
 	// maxLtcFundingAmount is a soft-limit of the maximum channel size
 	// currently accepted on the Litecoin chain within the Lightning
 	// Protocol.
@@ -359,6 +364,11 @@ type fundingConfig struct {
 	// flood us with very small channels that would never really be usable
 	// due to fees.
 	MinChanSize btcutil.Amount
+
+	// MaxChanSize is the largest channel size that we'll accept as an
+	// inbound channel. We have such a parameter, so that you may decide how
+	// WUMBO you would like your channel.
+	MaxChanSize btcutil.Amount
 
 	// MaxPendingChannels is the maximum number of pending channels we
 	// allow for each peer.
@@ -1269,13 +1279,11 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		return
 	}
 
-	// We'll reject any request to create a channel that's above the
-	// current soft-limit for channel size, but only if we're rejecting all
-	// wumbo channel initiations.
-	if f.cfg.NoWumboChans && msg.FundingAmount > MaxFundingAmount {
+	// Ensure that the remote party respects our maximum channel size.
+	if amt > f.cfg.MaxChanSize {
 		f.failFundingFlow(
 			fmsg.peer, fmsg.msg.PendingChannelID,
-			lnwire.ErrChanTooLarge,
+			lnwallet.ErrChanTooLarge(amt, f.cfg.MaxChanSize),
 		)
 		return
 	}

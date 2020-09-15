@@ -62,7 +62,7 @@ func testWumboChannels(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// The test should indicate a failure due to the channel being too
 	// large.
-	if !strings.Contains(err.Error(), "channel too large") {
+	if !strings.Contains(err.Error(), "exceeds maximum chan size") {
 		t.Fatalf("channel should be rejected due to size, instead "+
 			"error was: %v", err)
 	}

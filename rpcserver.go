@@ -6738,19 +6738,50 @@ func (r *rpcServer) FundingStateStep(ctx context.Context,
 	// the final PSBT to the previously verified one and if nothing
 	// unexpected was changed, continue the channel opening process.
 	case in.GetPsbtFinalize() != nil:
+		msg := in.GetPsbtFinalize()
 		rpcsLog.Debugf("Finalizing PSBT for pending_id=%x",
-			in.GetPsbtFinalize().PendingChanId)
+			msg.PendingChanId)
 
 		copy(pendingChanID[:], in.GetPsbtFinalize().PendingChanId)
-		packet, err := psbt.NewFromRawBytes(
-			bytes.NewReader(in.GetPsbtFinalize().SignedPsbt), false,
+
+		var (
+			packet *psbt.Packet
+			rawTx  *wire.MsgTx
+			err    error
 		)
-		if err != nil {
-			return nil, fmt.Errorf("error parsing psbt: %v", err)
+
+		// Either the signed PSBT or the raw transaction need to be set
+		// but not both at the same time.
+		switch {
+		case len(msg.SignedPsbt) > 0 && len(msg.FinalRawTx) > 0:
+			return nil, fmt.Errorf("cannot set both signed PSBT " +
+				"and final raw TX at the same time")
+
+		case len(msg.SignedPsbt) > 0:
+			packet, err = psbt.NewFromRawBytes(
+				bytes.NewReader(in.GetPsbtFinalize().SignedPsbt),
+				false,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing psbt: %v",
+					err)
+			}
+
+		case len(msg.FinalRawTx) > 0:
+			rawTx = &wire.MsgTx{}
+			err = rawTx.Deserialize(bytes.NewReader(msg.FinalRawTx))
+			if err != nil {
+				return nil, fmt.Errorf("error parsing final "+
+					"raw TX: %v", err)
+			}
+
+		default:
+			return nil, fmt.Errorf("PSBT or raw transaction to " +
+				"finalize missing")
 		}
 
 		err = r.server.cc.wallet.PsbtFundingFinalize(
-			pendingChanID, packet,
+			pendingChanID, packet, rawTx,
 		)
 		if err != nil {
 			return nil, err

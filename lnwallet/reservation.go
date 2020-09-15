@@ -492,6 +492,13 @@ func (r *ChannelReservation) IsPsbt() bool {
 	return ok
 }
 
+// IsCannedShim returns true if there is a canned shim funding intent mapped to
+// this reservation.
+func (r *ChannelReservation) IsCannedShim() bool {
+	_, ok := r.fundingIntent.(*chanfunding.ShimIntent)
+	return ok
+}
+
 // ProcessPsbt continues a previously paused funding flow that involves PSBT to
 // construct the funding transaction. This method can be called once the PSBT is
 // finalized and the signed transaction is available.

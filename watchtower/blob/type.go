@@ -14,11 +14,11 @@ const (
 	// include the reward script negotiated during session creation. Without
 	// the flag, there is only one output sweeping clients funds back to
 	// them solely.
-	FlagReward Flag = 1 << iota
+	FlagReward Flag = 1
 
 	// FlagCommitOutputs signals that the blob contains the information
 	// required to sweep commitment outputs.
-	FlagCommitOutputs
+	FlagCommitOutputs Flag = 1 << 1
 )
 
 // Type returns a Type consisting solely of this flag enabled.

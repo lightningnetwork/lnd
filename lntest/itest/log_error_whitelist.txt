@@ -221,3 +221,9 @@
 <time> [ERR] RPCS: [/lnrpc.Lightning/BakeMacaroon]: invalid permission entity. supported actions are [read write generate], supported entities are [onchain offchain address message peers info invoices signer macaroon uri]
 <time> [ERR] RPCS: [/lnrpc.Lightning/BakeMacaroon]: permission list cannot be empty. specify at least one action/entity pair. supported actions are [read write generate], supported entities are [onchain offchain address message peers info invoices signer macaroon uri]
 <time> [ERR] RPCS: [/lnrpc.Lightning/DeleteMacaroonID]: the specified ID cannot be deleted
+<time> [ERR] RPCS: [/lnrpc.Lightning/ConnectPeer]: dial tcp <ip>: i/o timeout
+<time> [ERR] RPCS: [connectpeer]: error connecting to peer: dial tcp <ip>: i/o timeout
+<time> [ERR] SRVR: Unable to connect to <hex>@<ip>: dial tcp <ip>: i/o timeout
+<time> [ERR] RPCS: [/lnrpc.Lightning/ConnectPeer]: dial tcp <ip>: i/o timeout
+<time> [ERR] RPCS: [connectpeer]: error connecting to peer: dial tcp <ip>: i/o timeout
+<time> [ERR] SRVR: Unable to connect to <hex>@<ip>: dial tcp <ip>: i/o timeout

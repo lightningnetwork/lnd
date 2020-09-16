@@ -969,6 +969,12 @@ message ConnectPeerRequest {
     /* If set, the daemon will attempt to persistently connect to the target
      * peer. Otherwise, the call will be synchronous. */
     bool perm = 2;
+
+    /*
+    The connection timeout value (in seconds) for this request. It won't affect
+    other requests.
+    */
+    uint64 timeout = 3;
 }
 message ConnectPeerResponse {
 }

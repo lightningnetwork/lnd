@@ -271,7 +271,7 @@ func (s *server) ConnectPeer(nodePub *btcec.PublicKey, addrs []net.Addr) error {
 		// Attempt to connect to the peer using this full address. If
 		// we're unable to connect to them, then we'll try the next
 		// address in place of it.
-		err := s.ConnectToPeer(netAddr, true)
+		err := s.ConnectToPeer(netAddr, true, s.cfg.ConnectionTimeout)
 
 		// If we're already connected to this peer, then we don't
 		// consider this an error, so we'll exit here.

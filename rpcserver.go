@@ -1512,8 +1512,25 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 	rpcsLog.Debugf("[connectpeer] requested connection to %x@%s",
 		peerAddr.IdentityKey.SerializeCompressed(), peerAddr.Address)
 
-	if err := r.server.ConnectToPeer(peerAddr, in.Perm); err != nil {
-		rpcsLog.Errorf("[connectpeer]: error connecting to peer: %v", err)
+	// By default, we will use the global connection timeout value.
+	timeout := r.cfg.ConnectionTimeout
+
+	// Check if the connection timeout is set. If set, we will use it in our
+	// request.
+	if in.Timeout != 0 {
+		timeout = time.Duration(in.Timeout) * time.Second
+		rpcsLog.Debugf(
+			"[connectpeer] connection timeout is set to %v",
+			timeout,
+		)
+	}
+
+	if err := r.server.ConnectToPeer(peerAddr,
+		in.Perm, timeout); err != nil {
+
+		rpcsLog.Errorf(
+			"[connectpeer]: error connecting to peer: %v", err,
+		)
 		return nil, err
 	}
 
@@ -1980,8 +1997,8 @@ out:
 			// If a final channel open update is being sent, then
 			// we can break out of our recv loop as we no longer
 			// need to process any further updates.
-			switch update := fundingUpdate.Update.(type) {
-			case *lnrpc.OpenStatusUpdate_ChanOpen:
+			update, ok := fundingUpdate.Update.(*lnrpc.OpenStatusUpdate_ChanOpen)
+			if ok {
 				chanPoint := update.ChanOpen.ChannelPoint
 				txid, err := GetChanPointFundingTxid(chanPoint)
 				if err != nil {

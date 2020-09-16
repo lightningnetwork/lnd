@@ -763,9 +763,7 @@ func (n *TxNotifier) CancelConf(confRequest ConfRequest, confID uint64) {
 	if confSet.details != nil {
 		confHeight := confSet.details.BlockHeight +
 			ntfn.NumConfirmations - 1
-		if confHeight <= n.currentHeight {
-			delete(n.ntfnsByConfirmHeight[confHeight], ntfn)
-		}
+		delete(n.ntfnsByConfirmHeight[confHeight], ntfn)
 	}
 }
 

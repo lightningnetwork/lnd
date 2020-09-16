@@ -75,7 +75,7 @@ jobs:
       before_install:
         - choco upgrade --no-progress -y make netcat curl findutils
         - export MAKE=mingw32-make
-      after_script:
+      after_failure:
         - |-
           case $TRAVIS_OS_NAME in
             windows)
@@ -84,7 +84,7 @@ jobs:
               ;;
           esac
 
-after_script:
+after_failure:
   - |-
     case $TRAVIS_OS_NAME in
       windows)

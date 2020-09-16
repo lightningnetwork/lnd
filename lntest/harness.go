@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"google.golang.org/grpc/grpclog"
 )
@@ -63,6 +64,10 @@ type NetworkHarness struct {
 	// to main process.
 	lndErrorChan chan error
 
+	// feeService is a web service that provides external fee estimates to
+	// lnd.
+	feeService *feeService
+
 	quit chan struct{}
 
 	mtx sync.Mutex
@@ -75,6 +80,8 @@ type NetworkHarness struct {
 func NewNetworkHarness(r *rpctest.Harness, b BackendConfig, lndBinary string) (
 	*NetworkHarness, error) {
 
+	feeService := startFeeService()
+
 	n := NetworkHarness{
 		activeNodes:          make(map[int]*HarnessNode),
 		nodesByPub:           make(map[string]*HarnessNode),
@@ -84,6 +91,7 @@ func NewNetworkHarness(r *rpctest.Harness, b BackendConfig, lndBinary string) (
 		netParams:            r.ActiveNet,
 		Miner:                r,
 		BackendCfg:           b,
+		feeService:           feeService,
 		quit:                 make(chan struct{}),
 		lndBinary:            lndBinary,
 	}
@@ -251,6 +259,8 @@ func (n *NetworkHarness) TearDownAll() error {
 	close(n.lndErrorChan)
 	close(n.quit)
 
+	n.feeService.stop()
+
 	return nil
 }
 
@@ -358,6 +368,7 @@ func (n *NetworkHarness) newNode(name string, extraArgs []string,
 		BackendCfg: n.BackendCfg,
 		NetParams:  n.netParams,
 		ExtraArgs:  extraArgs,
+		FeeURL:     n.feeService.url,
 	})
 	if err != nil {
 		return nil, err
@@ -1402,6 +1413,10 @@ func (n *NetworkHarness) sendCoins(ctx context.Context, amt btcutil.Amount,
 
 	expectedBalance := btcutil.Amount(initialBalance.ConfirmedBalance) + amt
 	return target.WaitForBalance(expectedBalance, true)
+}
+
+func (n *NetworkHarness) SetFeeEstimate(fee chainfee.SatPerKWeight) {
+	n.feeService.setFee(fee)
 }
 
 // CopyFile copies the file src to dest.

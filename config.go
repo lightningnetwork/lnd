@@ -218,6 +218,8 @@ type Config struct {
 	MaxPendingChannels int    `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
 	BackupFilePath     string `long:"backupfilepath" description:"The target location of the channel backup file"`
 
+	FeeURL string `long:"feeurl" description:"Optional URL for external fee estimation. If no URL is specified, the method for fee estimation will depend on the chosen backend and network."`
+
 	Bitcoin      *lncfg.Chain    `group:"Bitcoin" namespace:"bitcoin"`
 	BtcdMode     *lncfg.Btcd     `group:"btcd" namespace:"btcd"`
 	BitcoindMode *lncfg.Bitcoind `group:"bitcoind" namespace:"bitcoind"`

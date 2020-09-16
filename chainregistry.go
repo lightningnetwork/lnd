@@ -2,6 +2,7 @@ package lnd
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -249,21 +250,15 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 			return nil, err
 		}
 
-		// If the user provided an API for fee estimation, activate it now.
+		// Map the deprecated neutrino feeurl flag to the general fee
+		// url.
 		if cfg.NeutrinoMode.FeeURL != "" {
-			ltndLog.Infof("Using API fee estimator!")
-
-			estimator := chainfee.NewWebAPIEstimator(
-				chainfee.SparseConfFeeSource{
-					URL: cfg.NeutrinoMode.FeeURL,
-				},
-				defaultBitcoinStaticFeePerKW,
-			)
-
-			if err := estimator.Start(); err != nil {
-				return nil, err
+			if cfg.FeeURL != "" {
+				return nil, errors.New("feeurl and " +
+					"neutrino.feeurl are mutually exclusive")
 			}
-			cc.feeEstimator = estimator
+
+			cfg.FeeURL = cfg.NeutrinoMode.FeeURL
 		}
 
 		walletConfig.ChainSource = chain.NewNeutrinoClient(
@@ -366,9 +361,6 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 			if err != nil {
 				return nil, err
 			}
-			if err := cc.feeEstimator.Start(); err != nil {
-				return nil, err
-			}
 		} else if cfg.Litecoin.Active && !cfg.Litecoin.RegTest {
 			ltndLog.Infof("Initializing litecoind backed fee estimator in "+
 				"%s mode", bitcoindMode.EstimateMode)
@@ -383,9 +375,6 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 				fallBackFeeRate.FeePerKWeight(),
 			)
 			if err != nil {
-				return nil, err
-			}
-			if err := cc.feeEstimator.Start(); err != nil {
 				return nil, err
 			}
 		}
@@ -490,13 +479,32 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 			if err != nil {
 				return nil, err
 			}
-			if err := cc.feeEstimator.Start(); err != nil {
-				return nil, err
-			}
 		}
 	default:
 		return nil, fmt.Errorf("unknown node type: %s",
 			homeChainConfig.Node)
+	}
+
+	// Override default fee estimator if an external service is specified.
+	if cfg.FeeURL != "" {
+		// Do not cache fees on regtest to make it easier to execute
+		// manual or automated test cases.
+		cacheFees := !cfg.Bitcoin.RegTest
+
+		ltndLog.Infof("Using external fee estimator %v: cached=%v",
+			cfg.FeeURL, cacheFees)
+
+		cc.feeEstimator = chainfee.NewWebAPIEstimator(
+			chainfee.SparseConfFeeSource{
+				URL: cfg.FeeURL,
+			},
+			!cacheFees,
+		)
+	}
+
+	// Start fee estimator.
+	if err := cc.feeEstimator.Start(); err != nil {
+		return nil, err
 	}
 
 	wc, err := btcwallet.New(*walletConfig)

@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/sweep"
 )
 
@@ -86,41 +85,32 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 	// situation. We don't want to force sweep anymore, because the anchor
 	// lost its special purpose to get the commitment confirmed. It is just
 	// an output that we want to sweep only if it is economical to do so.
+	//
+	// An exclusive group is not necessary anymore, because we know that
+	// this is the only anchor that can be swept.
+	//
+	// After a restart or when the remote force closes, the sweeper is not
+	// yet aware of the anchor. In that case, it will be added as new input
+	// to the sweeper.
 	relayFeeRate := c.Sweeper.RelayFeePerKW()
 
-	resultChan, err := c.Sweeper.UpdateParams(
-		c.anchor,
-		sweep.ParamsUpdate{
+	anchorInput := input.MakeBaseInput(
+		&c.anchor,
+		input.CommitmentAnchor,
+		&c.anchorSignDescriptor,
+		c.broadcastHeight,
+	)
+
+	resultChan, err := c.Sweeper.SweepInput(
+		&anchorInput,
+		sweep.Params{
 			Fee: sweep.FeePreference{
 				FeeRate: relayFeeRate,
 			},
-			Force: false,
 		},
 	)
-
-	// After a restart or when the remote force closes, the sweeper is not
-	// yet aware of the anchor. In that case, offer it as a new input to the
-	// sweeper. An exclusive group is not necessary anymore, because we know
-	// that this is the only anchor that can be swept.
-	if err == lnwallet.ErrNotMine {
-		anchorInput := input.MakeBaseInput(
-			&c.anchor,
-			input.CommitmentAnchor,
-			&c.anchorSignDescriptor,
-			c.broadcastHeight,
-		)
-
-		resultChan, err = c.Sweeper.SweepInput(
-			&anchorInput,
-			sweep.Params{
-				Fee: sweep.FeePreference{
-					FeeRate: relayFeeRate,
-				},
-			},
-		)
-		if err != nil {
-			return nil, err
-		}
+	if err != nil {
+		return nil, err
 	}
 
 	var (

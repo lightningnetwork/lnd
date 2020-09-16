@@ -505,6 +505,9 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 				log.Debugf("Already pending input %v received",
 					outpoint)
 
+				// Update sweep parameters.
+				pendInput.params = input.params
+
 				// Add additional result channel to signal
 				// spend of this input.
 				pendInput.listeners = append(
@@ -1131,8 +1134,9 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 
 // UpdateParams allows updating the sweep parameters of a pending input in the
 // UtxoSweeper. This function can be used to provide an updated fee preference
-// that will be used for a new sweep transaction of the input that will act as a
-// replacement transaction (RBF) of the original sweeping transaction, if any.
+// and force flag that will be used for a new sweep transaction of the input
+// that will act as a replacement transaction (RBF) of the original sweeping
+// transaction, if any. The exclusive group is left unchanged.
 //
 // NOTE: This currently doesn't do any fee rate validation to ensure that a bump
 // is actually successful. The responsibility of doing so should be handled by

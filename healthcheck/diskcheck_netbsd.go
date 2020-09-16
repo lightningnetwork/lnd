@@ -1,13 +1,12 @@
-// +build !windows,!solaris,!netbsd,!openbsd
-
 package healthcheck
 
-import "syscall"
+import "golang.org/x/sys/unix"
 
-// AvailableDiskSpace returns ratio of available disk space to total capacity.
+// AvailableDiskSpace returns ratio of available disk space to total capacity
+// for solaris.
 func AvailableDiskSpace(path string) (float64, error) {
-	s := syscall.Statfs_t{}
-	err := syscall.Statfs(path, &s)
+	s := unix.Statvfs_t{}
+	err := unix.Statvfs(path, &s)
 	if err != nil {
 		return 0, err
 	}

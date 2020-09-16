@@ -552,23 +552,28 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 		}
 	}
 
-	// Create the lnd directory if it doesn't already exist.
 	funcName := "loadConfig"
-	if err := os.MkdirAll(lndDir, 0700); err != nil {
-		// Show a nicer error message if it's because a symlink is
-		// linked to a directory that does not exist (probably because
-		// it's not mounted).
-		if e, ok := err.(*os.PathError); ok && os.IsExist(err) {
-			if link, lerr := os.Readlink(e.Path); lerr == nil {
-				str := "is symlink %s -> %s mounted?"
-				err = fmt.Errorf(str, e.Path, link)
+	makeDirectory := func(dir string) error {
+		err := os.MkdirAll(dir, 0700)
+		if err != nil {
+			// Show a nicer error message if it's because a symlink
+			// is linked to a directory that does not exist
+			// (probably because it's not mounted).
+			if e, ok := err.(*os.PathError); ok && os.IsExist(err) {
+				link, lerr := os.Readlink(e.Path)
+				if lerr == nil {
+					str := "is symlink %s -> %s mounted?"
+					err = fmt.Errorf(str, e.Path, link)
+				}
 			}
+
+			str := "%s: Failed to create lnd directory: %v"
+			err := fmt.Errorf(str, funcName, err)
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			return err
 		}
 
-		str := "%s: Failed to create lnd directory: %v"
-		err := fmt.Errorf(str, funcName, err)
-		_, _ = fmt.Fprintln(os.Stderr, err)
-		return nil, err
+		return nil
 	}
 
 	// As soon as we're done parsing configuration options, ensure all paths
@@ -589,6 +594,24 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 	cfg.Tor.PrivateKeyPath = CleanAndExpandPath(cfg.Tor.PrivateKeyPath)
 	cfg.Tor.WatchtowerKeyPath = CleanAndExpandPath(cfg.Tor.WatchtowerKeyPath)
 	cfg.Watchtower.TowerDir = CleanAndExpandPath(cfg.Watchtower.TowerDir)
+
+	// Create the lnd directory and all other sub directories if they don't
+	// already exist. This makes sure that directory trees are also created
+	// for files that point to outside of the lnddir.
+	dirs := []string{
+		lndDir, cfg.DataDir,
+		cfg.LetsEncryptDir, cfg.Watchtower.TowerDir,
+		filepath.Dir(cfg.TLSCertPath), filepath.Dir(cfg.TLSKeyPath),
+		filepath.Dir(cfg.AdminMacPath), filepath.Dir(cfg.ReadMacPath),
+		filepath.Dir(cfg.InvoiceMacPath),
+		filepath.Dir(cfg.Tor.PrivateKeyPath),
+		filepath.Dir(cfg.Tor.WatchtowerKeyPath),
+	}
+	for _, dir := range dirs {
+		if err := makeDirectory(dir); err != nil {
+			return nil, err
+		}
+	}
 
 	// Ensure that the user didn't attempt to specify negative values for
 	// any of the autopilot params.

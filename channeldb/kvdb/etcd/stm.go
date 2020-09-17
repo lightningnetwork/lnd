@@ -134,6 +134,10 @@ type stm struct {
 	// execute in the STM run loop.
 	manual bool
 
+	// txQueue is lightweight contention manager, which is used to detect
+	// transaction conflicts and reduce retries.
+	txQueue *commitQueue
+
 	// options stores optional settings passed by the user.
 	options *STMOptions
 
@@ -183,18 +187,22 @@ func WithCommitStatsCallback(cb func(bool, CommitStats)) STMOptionFunc {
 
 // RunSTM runs the apply function by creating an STM using serializable snapshot
 // isolation, passing it to the apply and handling commit errors and retries.
-func RunSTM(cli *v3.Client, apply func(STM) error, so ...STMOptionFunc) error {
-	return runSTM(makeSTM(cli, false, so...), apply)
+func RunSTM(cli *v3.Client, apply func(STM) error, txQueue *commitQueue,
+	so ...STMOptionFunc) error {
+
+	return runSTM(makeSTM(cli, false, txQueue, so...), apply)
 }
 
 // NewSTM creates a new STM instance, using serializable snapshot isolation.
-func NewSTM(cli *v3.Client, so ...STMOptionFunc) STM {
-	return makeSTM(cli, true, so...)
+func NewSTM(cli *v3.Client, txQueue *commitQueue, so ...STMOptionFunc) STM {
+	return makeSTM(cli, true, txQueue, so...)
 }
 
 // makeSTM is the actual constructor of the stm. It first apply all passed
 // options then creates the stm object and resets it before returning.
-func makeSTM(cli *v3.Client, manual bool, so ...STMOptionFunc) *stm {
+func makeSTM(cli *v3.Client, manual bool, txQueue *commitQueue,
+	so ...STMOptionFunc) *stm {
+
 	opts := &STMOptions{
 		ctx: cli.Ctx(),
 	}
@@ -207,6 +215,7 @@ func makeSTM(cli *v3.Client, manual bool, so ...STMOptionFunc) *stm {
 	s := &stm{
 		client:   cli,
 		manual:   manual,
+		txQueue:  txQueue,
 		options:  opts,
 		prefetch: make(map[string]stmGet),
 	}
@@ -222,50 +231,72 @@ func makeSTM(cli *v3.Client, manual bool, so ...STMOptionFunc) *stm {
 // CommitError which is used to indicate a necessary retry.
 func runSTM(s *stm, apply func(STM) error) error {
 	var (
-		retries int
-		stats   CommitStats
-		err     error
+		retries    int
+		stats      CommitStats
+		executeErr error
 	)
 
-loop:
-	// In a loop try to apply and commit and roll back if the database has
-	// changed (CommitError).
-	for {
-		select {
-		// Check if the STM is aborted and break the retry loop if it is.
-		case <-s.options.ctx.Done():
-			err = fmt.Errorf("aborted")
-			break loop
+	done := make(chan struct{})
 
-		default:
+	execute := func() {
+		defer close(done)
+
+		for {
+			select {
+			// Check if the STM is aborted and break the retry loop
+			// if it is.
+			case <-s.options.ctx.Done():
+				executeErr = fmt.Errorf("aborted")
+				return
+
+			default:
+			}
+
+			stats, executeErr = s.commit()
+
+			// Re-apply only upon commit error (meaning the
+			// keys were changed).
+			if _, ok := executeErr.(CommitError); !ok {
+				// Anything that's not a CommitError
+				// aborts the transaction.
+				return
+			}
+
+			// Rollback before trying to re-apply.
+			s.Rollback()
+			retries++
+
+			// Re-apply the transaction closure.
+			if executeErr = apply(s); executeErr != nil {
+				return
+			}
 		}
-		// Apply the transaction closure and abort the STM if there was
-		// an application error.
-		if err = apply(s); err != nil {
-			break loop
-		}
-
-		stats, err = s.commit()
-
-		// Retry the apply closure only upon commit error (meaning the
-		// database was changed).
-		if _, ok := err.(CommitError); !ok {
-			// Anything that's not a CommitError aborts the STM
-			// run loop.
-			break loop
-		}
-
-		// Rollback before trying to re-apply.
-		s.Rollback()
-		retries++
 	}
+
+	// Run the tx closure to construct the read and write sets.
+	// Also we expect that if there are no conflicting transactions
+	// in the queue, then we only run apply once.
+	if preApplyErr := apply(s); preApplyErr != nil {
+		return preApplyErr
+	}
+
+	// Queue up the transaction for execution.
+	s.txQueue.Add(execute, s.rset, s.wset)
+
+	// Wait for the transaction to execute, or break if aborted.
+	select {
+	case <-done:
+	case <-s.options.ctx.Done():
+	}
+
+	s.txQueue.Done(s.rset, s.wset)
 
 	if s.options.commitStatsCallback != nil {
 		stats.Retries = retries
-		s.options.commitStatsCallback(err == nil, stats)
+		s.options.commitStatsCallback(executeErr == nil, stats)
 	}
 
-	return err
+	return executeErr
 }
 
 // add inserts a txn response to the read set. This is useful when the txn

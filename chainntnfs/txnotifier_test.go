@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -1138,7 +1139,7 @@ func TestTxNotifierCancelConf(t *testing.T) {
 	hintCache := newMockHintCache()
 	n := chainntnfs.NewTxNotifier(startingHeight, 100, hintCache, hintCache)
 
-	// We'll register three notification requests. The last two will be
+	// We'll register four notification requests. The last three will be
 	// canceled.
 	tx1 := wire.NewMsgTx(1)
 	tx1.AddTxOut(&wire.TxOut{PkScript: testRawScript})
@@ -1159,7 +1160,12 @@ func TestTxNotifierCancelConf(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to register spend ntfn: %v", err)
 	}
-	cancelConfRequest := ntfn2.HistoricalDispatch.ConfRequest
+
+	// This request will have a three block num confs.
+	ntfn4, err := n.RegisterConf(&tx2Hash, testRawScript, 3, 1)
+	if err != nil {
+		t.Fatalf("unable to register spend ntfn: %v", err)
+	}
 
 	// Extend the chain with a block that will confirm both transactions.
 	// This will queue confirmation notifications to dispatch once their
@@ -1175,7 +1181,7 @@ func TestTxNotifierCancelConf(t *testing.T) {
 	}
 
 	// Cancel the second notification before connecting the block.
-	n.CancelConf(cancelConfRequest, 2)
+	ntfn2.Event.Cancel()
 
 	err = n.ConnectTip(block.Hash(), startingHeight+1, block.Transactions())
 	if err != nil {
@@ -1184,7 +1190,7 @@ func TestTxNotifierCancelConf(t *testing.T) {
 
 	// Cancel the third notification before notifying to ensure its queued
 	// confirmation notification gets removed as well.
-	n.CancelConf(cancelConfRequest, 3)
+	ntfn3.Event.Cancel()
 
 	if err := n.NotifyHeight(startingHeight + 1); err != nil {
 		t.Fatalf("unable to dispatch notifications: %v", err)
@@ -1217,6 +1223,54 @@ func TestTxNotifierCancelConf(t *testing.T) {
 		}
 	default:
 		t.Fatal("expected Confirmed channel to be closed")
+	}
+
+	// Connect yet another block.
+	block1 := btcutil.NewBlock(&wire.MsgBlock{
+		Transactions: []*wire.MsgTx{},
+	})
+
+	err = n.ConnectTip(block1.Hash(), startingHeight+2, block1.Transactions())
+	if err != nil {
+		t.Fatalf("unable to connect block: %v", err)
+	}
+
+	if err := n.NotifyHeight(startingHeight + 2); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
+	}
+
+	// Since neither it reached the set confirmation height or was
+	// canceled, nothing should happen to ntfn4 in this block.
+	select {
+	case <-ntfn4.Event.Confirmed:
+		t.Fatal("expected nothing to happen")
+	case <-time.After(10 * time.Millisecond):
+	}
+
+	// Now cancel the notification.
+	ntfn4.Event.Cancel()
+	select {
+	case _, ok := <-ntfn4.Event.Confirmed:
+		if ok {
+			t.Fatal("expected Confirmed channel to be closed")
+		}
+	default:
+		t.Fatal("expected Confirmed channel to be closed")
+	}
+
+	// Finally, confirm a block that would trigger ntfn4 confirmation
+	// hadn't it already been canceled.
+	block2 := btcutil.NewBlock(&wire.MsgBlock{
+		Transactions: []*wire.MsgTx{},
+	})
+
+	err = n.ConnectTip(block2.Hash(), startingHeight+3, block2.Transactions())
+	if err != nil {
+		t.Fatalf("unable to connect block: %v", err)
+	}
+
+	if err := n.NotifyHeight(startingHeight + 3); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 }
 

@@ -55,7 +55,7 @@ const (
 	// KeyFamilyRevocationBase are keys that are used within channels to
 	// create revocation basepoints that the remote party will use to
 	// create revocation keys for us.
-	KeyFamilyRevocationBase = 1
+	KeyFamilyRevocationBase KeyFamily = 1
 
 	// KeyFamilyHtlcBase are keys used within channels that will be
 	// combined with per-state randomness to produce public keys that will

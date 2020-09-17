@@ -47,7 +47,7 @@
     },
     "/v2/signer/sharedkey": {
       "post": {
-        "summary": "DeriveSharedKey returns a shared secret key by performing Diffie-Hellman key\nderivation between the ephemeral public key in the request and the node's\nkey specified in the key_loc parameter (or the node's identity private key\nif no key locator is specified):\nP_shared = privKeyNode * ephemeralPubkey\nThe resulting shared public key is serialized in the compressed format and\nhashed with sha256, resulting in the final key length of 256bit.",
+        "summary": "DeriveSharedKey returns a shared secret key by performing Diffie-Hellman key\nderivation between the ephemeral public key in the request and the node's\nkey specified in the key_desc parameter. Either a key locator or a raw\npublic key is expected in the key_desc, if neither is supplied, defaults to\nthe node's identity private key:\nP_shared = privKeyNode * ephemeralPubkey\nThe resulting shared public key is serialized in the compressed format and\nhashed with sha256, resulting in the final key length of 256bit.",
         "operationId": "DeriveSharedKey",
         "responses": {
           "200": {
@@ -284,7 +284,11 @@
         },
         "key_loc": {
           "$ref": "#/definitions/signrpcKeyLocator",
-          "description": "The optional key locator of the local key that should be used. If this\nparameter is not set then the node's identity private key will be used."
+          "description": "Deprecated. The optional key locator of the local key that should be used.\nIf this parameter is not set then the node's identity private key will be\nused."
+        },
+        "key_desc": {
+          "$ref": "#/definitions/signrpcKeyDescriptor",
+          "description": "A key descriptor describes the key used for performing ECDH. Either a key\nlocator or a raw public key is expected, if neither is supplied, defaults to\nthe node's identity private key."
         }
       }
     },

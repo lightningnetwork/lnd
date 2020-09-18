@@ -89,6 +89,9 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 	// An exclusive group is not necessary anymore, because we know that
 	// this is the only anchor that can be swept.
 	//
+	// We also clear the parent tx information for cpfp, because the
+	// commitment tx is confirmed.
+	//
 	// After a restart or when the remote force closes, the sweeper is not
 	// yet aware of the anchor. In that case, it will be added as new input
 	// to the sweeper.
@@ -99,6 +102,7 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 		input.CommitmentAnchor,
 		&c.anchorSignDescriptor,
 		c.broadcastHeight,
+		nil,
 	)
 
 	resultChan, err := c.Sweeper.SweepInput(

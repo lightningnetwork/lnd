@@ -368,6 +368,10 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 	for _, testCase := range testCases {
 		success := t.t.Run(testCase.name, func(t *testing.T) {
 			h := newHarnessTest(t, net)
+
+			// Start each test with the default static fee estimate.
+			net.SetFeeEstimate(12500)
+
 			testChanRestoreScenario(h, net, &testCase, password)
 		})
 		if !success {

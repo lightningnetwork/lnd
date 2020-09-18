@@ -30,6 +30,12 @@ var (
 		"process of being force closed")
 )
 
+const (
+	// anchorSweepConfTarget is the conf target used when sweeping
+	// commitment anchors.
+	anchorSweepConfTarget = 6
+)
+
 // WitnessSubscription represents an intent to be notified once new witnesses
 // are discovered by various active contract resolvers. A contract resolver may
 // use this to be notified of when it can satisfy an incoming contract after we
@@ -1060,9 +1066,6 @@ func (c *ChannelArbitrator) sweepAnchors(anchors []*lnwallet.AnchorResolution,
 	// anchors from being batched together.
 	exclusiveGroup := c.cfg.ShortChanID.ToUint64()
 
-	// Retrieve the current minimum fee rate from the sweeper.
-	minFeeRate := c.cfg.Sweeper.RelayFeePerKW()
-
 	for _, anchor := range anchors {
 		log.Debugf("ChannelArbitrator(%v): pre-confirmation sweep of "+
 			"anchor of tx %v", c.cfg.ChanPoint, anchor.CommitAnchor)
@@ -1073,18 +1076,25 @@ func (c *ChannelArbitrator) sweepAnchors(anchors []*lnwallet.AnchorResolution,
 			input.CommitmentAnchor,
 			&anchor.AnchorSignDescriptor,
 			heightHint,
+			&input.TxInfo{
+				Fee:    anchor.CommitFee,
+				Weight: anchor.CommitWeight,
+			},
 		)
 
-		// Sweep anchor output with the minimum fee rate. This usually
-		// (up to a min relay fee of 3 sat/b) means that the anchor
-		// sweep will be economical. Also signal that this is a force
-		// sweep. If the user decides to bump the fee on the anchor
-		// sweep, it will be swept even if it isn't economical.
+		// Sweep anchor output with a confirmation target fee
+		// preference. Because this is a cpfp-operation, the anchor will
+		// only be attempted to sweep when the current fee estimate for
+		// the confirmation target exceeds the commit fee rate.
+		//
+		// Also signal that this is a force sweep, so that the anchor
+		// will be swept even if it isn't economical purely based on the
+		// anchor value.
 		_, err := c.cfg.Sweeper.SweepInput(
 			&anchorInput,
 			sweep.Params{
 				Fee: sweep.FeePreference{
-					FeeRate: minFeeRate,
+					ConfTarget: anchorSweepConfTarget,
 				},
 				Force:          true,
 				ExclusiveGroup: &exclusiveGroup,

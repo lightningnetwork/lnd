@@ -255,7 +255,9 @@ func CraftSweepAllTx(feeRate chainfee.SatPerKWeight, blockHeight uint32,
 		// Now that we've constructed the items required, we'll make an
 		// input which can be passed to the sweeper for ultimate
 		// sweeping.
-		input := input.MakeBaseInput(&output.OutPoint, witnessType, signDesc, 0)
+		input := input.MakeBaseInput(
+			&output.OutPoint, witnessType, signDesc, 0, nil,
+		)
 		inputsToSweep = append(inputsToSweep, &input)
 	}
 

@@ -101,6 +101,10 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 				success := ht.t.Run(subTest.name, func(t *testing.T) {
 					ht := newHarnessTest(t, net)
 
+					// Start each test with the default
+					// static fee estimate.
+					net.SetFeeEstimate(12500)
+
 					subTest.test(net, ht, alice, bob, commitType)
 				})
 				if !success {

@@ -33,7 +33,7 @@ const (
 type txInputSetState struct {
 	// weightEstimate is the (worst case) tx weight with the current set of
 	// inputs.
-	weightEstimate input.TxWeightEstimator
+	weightEstimate *weightEstimator
 
 	// inputTotal is the total value of all inputs.
 	inputTotal btcutil.Amount
@@ -54,7 +54,7 @@ type txInputSetState struct {
 
 func (t *txInputSetState) clone() txInputSetState {
 	s := txInputSetState{
-		weightEstimate:   t.weightEstimate,
+		weightEstimate:   t.weightEstimate.clone(),
 		inputTotal:       t.inputTotal,
 		outputValue:      t.outputValue,
 		walletInputTotal: t.walletInputTotal,
@@ -70,9 +70,6 @@ func (t *txInputSetState) clone() txInputSetState {
 // on various properties of the tx.
 type txInputSet struct {
 	txInputSetState
-
-	// feePerKW is the fee rate used to calculate the tx fee.
-	feePerKW chainfee.SatPerKWeight
 
 	// dustLimit is the minimum output value of the tx.
 	dustLimit btcutil.Amount
@@ -95,15 +92,19 @@ func newTxInputSet(wallet Wallet, feePerKW,
 		btcutil.Amount(relayFee.FeePerKVByte()),
 	)
 
+	state := txInputSetState{
+		weightEstimate: newWeightEstimator(feePerKW),
+	}
+
 	b := txInputSet{
-		feePerKW:  feePerKW,
-		dustLimit: dustLimit,
-		maxInputs: maxInputs,
-		wallet:    wallet,
+		dustLimit:       dustLimit,
+		maxInputs:       maxInputs,
+		wallet:          wallet,
+		txInputSetState: state,
 	}
 
 	// Add the sweep tx output to the weight estimate.
-	b.weightEstimate.AddP2WKHOutput()
+	b.weightEstimate.addP2WKHOutput()
 
 	return &b
 }
@@ -126,30 +127,22 @@ func (t *txInputSet) addToState(inp input.Input, constraints addConstraints) *tx
 		return nil
 	}
 
-	// Can ignore error, because it has already been checked when
-	// calculating the yields.
-	size, isNestedP2SH, _ := inp.WitnessType().SizeUpperBound()
-
 	// Clone the current set state.
 	s := t.clone()
 
 	// Add the new input.
 	s.inputs = append(s.inputs, inp)
 
-	// Add weight of the new input.
-	if isNestedP2SH {
-		s.weightEstimate.AddNestedP2WSHInput(size)
-	} else {
-		s.weightEstimate.AddWitnessInput(size)
-	}
+	// Can ignore error, because it has already been checked when
+	// calculating the yields.
+	_ = s.weightEstimate.add(inp)
 
 	// Add the value of the new input.
 	value := btcutil.Amount(inp.SignDesc().Output.Value)
 	s.inputTotal += value
 
 	// Recalculate the tx fee.
-	weight := s.weightEstimate.Weight()
-	fee := t.feePerKW.FeeForWeight(int64(weight))
+	fee := s.weightEstimate.fee()
 
 	// Calculate the new output value.
 	s.outputValue = s.inputTotal - fee

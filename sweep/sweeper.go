@@ -505,8 +505,11 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 				log.Debugf("Already pending input %v received",
 					outpoint)
 
-				// Update sweep parameters.
+				// Update input details and sweep parameters.
+				// The re-offered input details may contain a
+				// change to the unconfirmed parent tx info.
 				pendInput.params = input.params
+				pendInput.Input = input.input
 
 				// Add additional result channel to signal
 				// spend of this input.
@@ -763,6 +766,26 @@ func (s *UtxoSweeper) clusterBySweepFeeRate() []inputCluster {
 			log.Warnf("Skipping input %v: %v", op, err)
 			continue
 		}
+
+		// Only try to sweep inputs with an unconfirmed parent if the
+		// current sweep fee rate exceeds the parent tx fee rate. This
+		// assumes that such inputs are offered to the sweeper solely
+		// for the purpose of anchoring down the parent tx using cpfp.
+		parentTx := input.UnconfParent()
+		if parentTx != nil {
+			parentFeeRate :=
+				chainfee.SatPerKWeight(parentTx.Fee*1000) /
+					chainfee.SatPerKWeight(parentTx.Weight)
+
+			if parentFeeRate >= feeRate {
+				log.Debugf("Skipping cpfp input %v: fee_rate=%v, "+
+					"parent_fee_rate=%v", op, feeRate,
+					parentFeeRate)
+
+				continue
+			}
+		}
+
 		feeGroup := s.bucketForFeeRate(feeRate)
 
 		// Create a bucket list for this fee rate if there isn't one

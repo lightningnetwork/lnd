@@ -5961,6 +5961,12 @@ type AnchorResolution struct {
 
 	// CommitAnchor is the anchor outpoint on the commit tx.
 	CommitAnchor wire.OutPoint
+
+	// CommitFee is the fee of the commit tx.
+	CommitFee btcutil.Amount
+
+	// CommitWeight is the weight of the commit tx.
+	CommitWeight int64
 }
 
 // LocalForceCloseSummary describes the final commitment state before the
@@ -6399,9 +6405,24 @@ func NewAnchorResolution(chanState *channeldb.OpenChannel,
 		HashType: txscript.SigHashAll,
 	}
 
+	// Calculate commit tx weight. This commit tx doesn't yet include the
+	// witness spending the funding output, so we add the (worst case)
+	// weight for that too.
+	utx := btcutil.NewTx(commitTx)
+	weight := blockchain.GetTransactionWeight(utx) +
+		input.WitnessCommitmentTxWeight
+
+	// Calculate commit tx fee.
+	fee := chanState.Capacity
+	for _, out := range commitTx.TxOut {
+		fee -= btcutil.Amount(out.Value)
+	}
+
 	return &AnchorResolution{
 		CommitAnchor:         *outPoint,
 		AnchorSignDescriptor: *signDesc,
+		CommitWeight:         weight,
+		CommitFee:            fee,
 	}, nil
 }
 

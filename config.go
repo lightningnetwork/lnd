@@ -20,6 +20,7 @@ import (
 
 	"github.com/btcsuite/btcutil"
 	flags "github.com/jessevdk/go-flags"
+	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chanbackup"
@@ -312,6 +313,10 @@ func DefaultConfig() Config {
 			Dir:          defaultLitecoindDir,
 			RPCHost:      defaultRPCHost,
 			EstimateMode: defaultBitcoindEstimateMode,
+		},
+		NeutrinoMode: &lncfg.Neutrino{
+			UserAgentName:    neutrino.UserAgentName,
+			UserAgentVersion: neutrino.UserAgentVersion,
 		},
 		UnsafeDisconnect:   true,
 		MaxPendingChannels: lncfg.DefaultMaxPendingChannels,

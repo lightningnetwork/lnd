@@ -18,6 +18,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -494,6 +495,44 @@ func TestPsbtFinalize(t *testing.T) {
 				prevout := &p.UnsignedTx.TxIn[0].PreviousOutPoint
 				prevout.Hash = chainhash.Hash{77, 88, 99, 11}
 				return i.Finalize(p)
+			},
+		},
+		{
+			name:        "raw tx - nil transaction",
+			expectedErr: "raw transaction is nil",
+			doFinalize: func(amt int64, p *psbt.Packet,
+				i *PsbtIntent) error {
+
+				return i.FinalizeRawTX(nil)
+			},
+		},
+		{
+			name: "raw tx - no witness data in raw tx",
+			expectedErr: "inputs not signed: input 0 has no " +
+				"signature data attached",
+			doFinalize: func(amt int64, p *psbt.Packet,
+				i *PsbtIntent) error {
+
+				rawTx, err := psbt.Extract(p)
+				require.NoError(t, err)
+				rawTx.TxIn[0].Witness = nil
+
+				return i.FinalizeRawTX(rawTx)
+			},
+		},
+		{
+			name:        "happy path",
+			expectedErr: "",
+			doFinalize: func(amt int64, p *psbt.Packet,
+				i *PsbtIntent) error {
+
+				err := i.Finalize(p)
+				require.NoError(t, err)
+
+				require.Equal(t, PsbtFinalized, i.State)
+				require.NotNil(t, i.FinalTX)
+
+				return nil
 			},
 		},
 	}

@@ -3219,7 +3219,7 @@ func TestMaxChannelSizeConfig(t *testing.T) {
 	errChan := make(chan error, 1)
 	initReq := &openChanReq{
 		targetPubkey:    bob.privKey.PubKey(),
-		chainHash:       *fundingNetParams.GenesisHash,
+		chainHash:       *activeNetParams.GenesisHash,
 		localFundingAmt: MaxFundingAmount,
 		pushAmt:         lnwire.NewMSatFromSatoshis(0),
 		private:         false,

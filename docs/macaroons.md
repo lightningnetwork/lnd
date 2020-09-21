@@ -102,6 +102,51 @@ timeout can be changed with the `--macaroontimeout` option; this can be
 increased for making RPC calls between systems whose clocks are more than 60s
 apart.
 
+## Stateless initialization
+
+As mentioned above, by default `lnd` creates three macaroon files in its
+directory. These are unencrypted and in case of the `admin.macaroon` provide
+full access to the daemon. This can be seen as quite a big security risk if
+the `lnd` daemon runs in an environment that is not fully trusted (on a cloud
+service for example, even if this is not really recommended).
+
+The macaroon files are the only files with highly sensitive information that
+are not encrypted (unlike the wallet file and the macaroon database file that
+contains the [root key](../macaroons/README.md), these are always encrypted,
+even if no password is used).
+
+To avoid leaking the macaroon information, `lnd` supports the so called 
+`stateless initialization` mode:
+* The three startup commands `create`, `unlock` and `changepassword` of `lncli`
+  all have a flag called `--stateless_init` that instructs the daemon **not**
+  to create `*.macaroon` files.
+* The two operations `create` and `changepassword` that actually create/update
+  the macaroon database will return the admin macaroon in the RPC call.
+  Assuming that the daemon and the `lncli` are not used on the same machine,
+  this will leave no unencrypted information on the machine where `lnd` runs
+  on.
+  * To be more precise: By default, when using the `changepassword` command, the
+    macaroon root key in the macaroon DB is just re-encrypted with the new
+    password. But the key remains the same and therefore the macaroons issued
+    before the `changepassword` command still remain valid. If an user wants
+    to invalidate all previously created macaroons, the `--new_mac_root_key` 
+    flag of the `changepassword` command should be used! 
+* An user of `lncli` will see the returned admin macaroon printed to the screen
+  or saved to a file if the parameter `--save_to=some_file.macaroon` is used.
+* **Important:** By default, `lnd` will create the macaroon files during the
+  `unlock` phase, if the `--stateless_init` flag is not used. So to avoid
+  leakage of the macaroon information, use the stateless initialization flag
+  for all three startup commands of the wallet unlocker service!
+
+Examples:
+
+* Create a new wallet stateless (first run):
+  * `lncli create --stateless_init --save_to=/safe/location/admin.macaroon`
+* Unlock a wallet that has previously been initialized stateless:
+  * `lncli unlock --stateless_init`
+* Use the created macaroon:
+  * `lncli --macaroonpath=/safe/location/admin.macaroon getinfo`
+
 ## Using Macaroons with GRPC clients
 
 When interacting with `lnd` using the GRPC interface, the macaroons are encoded

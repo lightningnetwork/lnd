@@ -102,9 +102,11 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 	}
 
 	// Now that we know the full path of the signer macaroon, we can check
-	// to see if we need to create it or not.
+	// to see if we need to create it or not. If stateless_init is set
+	// then we don't write the macaroons.
 	macFilePath := cfg.SignerMacPath
-	if cfg.MacService != nil && !lnrpc.FileExists(macFilePath) {
+	if cfg.MacService != nil && !cfg.MacService.StatelessInit &&
+		!fileExists(macFilePath) {
 		log.Infof("Making macaroons for Signer RPC Server at: %v",
 			macFilePath)
 
@@ -546,4 +548,15 @@ func (s *Server) DeriveSharedKey(_ context.Context, in *SharedKeyRequest) (
 	}
 
 	return &SharedKeyResponse{SharedKey: sharedKeyHash[:]}, nil
+}
+
+// fileExists reports whether the named file or directory exists.
+// This function is taken from https://github.com/btcsuite/btcd
+func fileExists(name string) bool {
+	if _, err := os.Stat(name); err != nil {
+		if os.IsNotExist(err) {
+			return false
+		}
+	}
+	return true
 }

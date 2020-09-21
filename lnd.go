@@ -5,8 +5,10 @@
 package lnd
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -35,10 +37,12 @@ import (
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/cert"
+	"github.com/lightningnetwork/lnd/certprovider"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
+	"github.com/lightningnetwork/lnd/lnencrypt"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
@@ -267,8 +271,23 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 
 	defer cleanUp()
 
-	// Only process macaroons if --no-macaroons isn't set.
-	tlsCfg, restCreds, restProxyDest, err := getTLSConfig(cfg)
+	var tlsCfg *tls.Config
+	var restCreds *credentials.TransportCredentials
+	var restProxyDest string
+
+	// The real KeyRing isn't available until after the wallet is unlocked,
+	// but we need one now. Because we aren't encrypting anything here it can
+	// be an empty KeyRing.
+	var emptyKeyRing keychain.KeyRing
+	// If --tlsencryptkey is set then generate a throwaway TLS pair in memory
+	// so we can still have TLS even though the wallet isn't unlocked. These
+	// get thrown away for the real certificates once the wallet is unlocked.
+	// If TLSEncryptKey is false, then get the TLSConfig like normal.
+	if cfg.TLSEncryptKey {
+		tlsCfg, restCreds, restProxyDest, err = getEphemeralTLSConfig(cfg, emptyKeyRing)
+	} else {
+		tlsCfg, restCreds, restProxyDest, err = getTLSConfig(cfg, emptyKeyRing)
+	}
 	if err != nil {
 		err := fmt.Errorf("unable to load TLS credentials: %v", err)
 		ltndLog.Error(err)
@@ -314,6 +333,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 
 	var (
 		walletInitParams WalletUnlockParams
+		shutdownUnlocker = func() {}
 		privateWalletPw  = lnwallet.DefaultPrivatePassphrase
 		publicWalletPw   = lnwallet.DefaultPublicPassphrase
 	)
@@ -373,7 +393,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	// started with the --noseedbackup flag, we use the default password
 	// for wallet encryption.
 	if !cfg.NoSeedBackup {
-		params, err := waitForWalletPassword(
+		params, shutdown, err := waitForWalletPassword(
 			cfg, cfg.RESTListeners, serverOpts, restDialOpts,
 			restProxyDest, tlsCfg, walletUnlockerListeners,
 		)
@@ -385,6 +405,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		}
 
 		walletInitParams = *params
+		shutdownUnlocker = shutdown
 		privateWalletPw = walletInitParams.Password
 		publicWalletPw = walletInitParams.Password
 
@@ -399,7 +420,10 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	if !cfg.NoMacaroons {
 		// Create the macaroon authentication/authorization service.
 		macaroonService, err = macaroons.NewService(
-			cfg.networkDir, "lnd", macaroons.IPLockChecker,
+			cfg.networkDir,
+			"lnd",
+			walletInitParams.StatelessInit,
+			macaroons.IPLockChecker,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to set up macaroon "+
@@ -410,17 +434,32 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		defer macaroonService.Close()
 
 		// Try to unlock the macaroon store with the private password.
+		// Ignore ErrAlreadyUnlocked since it could be unlocked by the
+		// wallet unlocker.
 		err = macaroonService.CreateUnlock(&privateWalletPw)
-		if err != nil {
+		if err != nil && err != macaroons.ErrAlreadyUnlocked {
 			err := fmt.Errorf("unable to unlock macaroons: %v", err)
 			ltndLog.Error(err)
 			return err
 		}
 
-		// Create macaroon files for lncli to use if they don't exist.
-		if !fileExists(cfg.AdminMacPath) && !fileExists(cfg.ReadMacPath) &&
+		// If the user requested a stateless initialization, no macaroon
+		// files should be created but instead the admin macaroon
+		// should be returned in the InitWallet response.
+		if walletInitParams.StatelessInit {
+			adminMacBytes, err := bakeMacaroon(
+				ctx, macaroonService, adminPermissions,
+			)
+			if err != nil {
+				return err
+			}
+			walletInitParams.MacResponseChannel <- adminMacBytes
+		} else if !fileExists(cfg.AdminMacPath) &&
+			!fileExists(cfg.ReadMacPath) &&
 			!fileExists(cfg.InvoiceMacPath) {
 
+			// Create macaroon files for lncli to use if they don't
+			// exist.
 			err = genMacaroons(
 				ctx, macaroonService, cfg.AdminMacPath,
 				cfg.ReadMacPath, cfg.InvoiceMacPath,
@@ -433,6 +472,10 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 			}
 		}
 	}
+
+	// Now we're definitely done with the unlocker, shut it down so we can
+	// start the main RPC service later.
+	shutdownUnlocker()
 
 	// With the information parsed from the configuration, create valid
 	// instances of the pertinent interfaces required to operate the
@@ -566,6 +609,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		if torController != nil {
 			wtCfg.TorController = torController
 			wtCfg.WatchtowerKeyPath = cfg.Tor.WatchtowerKeyPath
+			wtCfg.EncryptKey = cfg.Tor.EncryptKey
+			wtCfg.KeyRing = activeChainControl.keyRing
 
 			switch {
 			case cfg.Tor.V2:
@@ -629,6 +674,39 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		return err
 	}
 	defer atplManager.Stop()
+
+	// If --tlsencryptkey is set, we previously generated a throwaway TLSConfig
+	// Now we want to remove that and load the persistent TLSConfig
+	// The wallet is unlocked at this point so we can use the real KeyRing
+	if cfg.TLSEncryptKey {
+		tmpCertPath := cfg.TLSCertPath + ".tmp"
+		tmpExternalCertPath := fmt.Sprintf("%s/%s/tls.cert.tmp", cfg.LndDir, cfg.ExternalSSLProvider)
+		err = os.Remove(tmpCertPath)
+		if err != nil {
+			ltndLog.Warn("unable to delete temp cert at %v", tmpCertPath)
+		}
+		err = os.Remove(tmpExternalCertPath)
+		if err != nil {
+			ltndLog.Warn("unable to delete temp external cert at %v", tmpExternalCertPath)
+		}
+		tlsCfg, restCreds, restProxyDest, err = getTLSConfig(cfg, activeChainControl.keyRing)
+		if err != nil {
+			err := fmt.Errorf("unable to load TLS credentials: %v", err)
+			ltndLog.Error(err)
+			return err
+		}
+
+		// We also must regenerate the serverOpts and resetDialOpts to use the
+		// persistent certificate on the main gRPC server.
+		serverCreds = credentials.NewTLS(tlsCfg)
+		serverOpts = []grpc.ServerOption{grpc.Creds(serverCreds)}
+		restDialOpts = []grpc.DialOption{
+			grpc.WithTransportCredentials(*restCreds),
+			grpc.WithDefaultCallOptions(
+				grpc.MaxCallRecvMsgSize(1 * 1024 * 1024 * 200),
+			),
+		}
+	}
 
 	// rpcListeners is a closure we'll hand to the rpc server, that will be
 	// called when it needs listeners for its GPRC server.
@@ -736,6 +814,9 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 
 	if cfg.Watchtower.Active {
 		if err := tower.Start(); err != nil {
+			if err == tor.ErrEncryptedPrivateKey {
+				return lncfg.ErrEncryptedTorPrivateKey
+			}
 			err := fmt.Errorf("unable to start watchtower: %v", err)
 			ltndLog.Error(err)
 			return err
@@ -749,27 +830,267 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	return nil
 }
 
-// getTLSConfig returns a TLS configuration for the gRPC server and credentials
-// and a proxy destination for the REST reverse proxy.
-func getTLSConfig(cfg *Config) (*tls.Config, *credentials.TransportCredentials,
-	string, error) {
+// createExternalCert creates an Externally provisioned SSL Certificate
+func createExternalCert(cfg *Config, keyBytes []byte, certLocation string) (returnCert tls.Certificate, err error) {
+	var certServer *http.Server
+	if cfg.ExternalSSLProvider == "zerossl" {
+		csr, err := certprovider.ZeroSSLGenerateCsr(keyBytes, cfg.ExternalSSLDomain)
+		if err != nil {
+			return returnCert, err
+		}
+		rpcsLog.Debugf("created csr for %s", cfg.ExternalSSLDomain)
+		externalCert, err := certprovider.ZeroSSLRequestCert(csr, cfg.ExternalSSLDomain)
+		if err != nil {
+			return returnCert, err
+		}
+		rpcsLog.Debugf("received cert request with id %s", externalCert.Id)
+		domain := externalCert.CommonName
+		path := externalCert.Validation.OtherValidation[domain].FileValidationUrlHttp
+		path = strings.Replace(path, "http://"+domain, "", -1)
+		content := strings.Join(externalCert.Validation.OtherValidation[domain].FileValidationContent[:], "\n")
+		go func() {
+			addr := fmt.Sprintf(":%v", cfg.ExternalSSLPort)
+			http.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/plain")
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(content))
+			})
+			certServer = &http.Server{
+				Addr:    addr,
+				Handler: http.DefaultServeMux,
+			}
+			rpcsLog.Infof("starting certificate validator server at %s",
+				addr)
+			err := certServer.ListenAndServe()
+			if err != nil {
+				rpcsLog.Errorf("there was a problem starting external cert validation server: %v",
+					err)
+				return
+			}
+		}()
+		err = certprovider.ZeroSSLValidateCert(externalCert)
+		if err != nil {
+			return returnCert, err
+		}
+		rpcsLog.Debug("requested certificate to be validated")
+		for {
+			newCert, err := certprovider.ZeroSSLGetCert(externalCert)
+			if err != nil {
+				return returnCert, err
+			}
+			status := newCert.Status
+			rpcsLog.Debugf("found certificate in state %s", status)
+			if status == "issued" {
+				break
+			} else if status == "draft" {
+				err = certprovider.ZeroSSLValidateCert(externalCert)
+				if err != nil {
+					return returnCert, err
+				}
+			}
+			time.Sleep(2 * time.Second)
+		}
+		certificate, caBundle, err := certprovider.ZeroSSLDownloadCert(externalCert)
+		if err != nil {
+			return returnCert, err
+		}
+		externalCertBytes := []byte(certificate + "\n" + caBundle)
+		if err = ioutil.WriteFile(certLocation, externalCertBytes, 0644); err != nil {
+			return returnCert, err
+		}
+		rpcsLog.Infof("successfully wrote external SSL certificate to %s",
+			certLocation)
+		externalCertData, _, err := cert.LoadCert(
+			externalCertBytes, keyBytes,
+		)
+		if err != nil {
+			return returnCert, err
+		}
+		rpcsLog.Info("shutting down certificate validator server")
+		certServer.Close()
+		return externalCertData, nil
+	} else {
+		return returnCert, fmt.Errorf("Unknown external certificate provider: %s", cfg.ExternalSSLProvider)
+	}
+}
 
-	// Ensure we create TLS key and certificate if they don't exist.
-	if !fileExists(cfg.TLSCertPath) && !fileExists(cfg.TLSKeyPath) {
-		rpcsLog.Infof("Generating TLS certificates...")
-		err := cert.GenCertPair(
-			"lnd autogenerated cert", cfg.TLSCertPath,
-			cfg.TLSKeyPath, cfg.TLSExtraIPs, cfg.TLSExtraDomains,
-			cfg.TLSDisableAutofill, cert.DefaultAutogenValidity,
+// getEphemeralTLSConfig returns a TLS configuration with the TLS key and
+// cert for the gRPC server and credentials and a proxy destination for the
+// REST reverse proxy. The cert and key are not written to disk.
+func getEphemeralTLSConfig(cfg *Config, keyRing keychain.KeyRing) (*tls.Config,
+	*credentials.TransportCredentials, string, error) {
+
+	rpcsLog.Infof("Generating ephemeral TLS certificates...")
+	tmpValidity := 24 * time.Hour
+	// Append .tmp to the end of the cert for differentiation.
+	tmpCertPath := cfg.TLSCertPath + ".tmp"
+	var externalSSLCertPath string
+	keyType := "ec"
+	if cfg.ExternalSSLProvider != "" {
+		keyType = "rsa"
+		externalSSLCertPath = fmt.Sprintf("%s/%s/tls.cert.tmp", cfg.LndDir, cfg.ExternalSSLProvider)
+	}
+
+	// Pass in blank string for the key path so the
+	// function doesn't write them to disk.
+	certBytes, keyBytes, err := cert.GenCertPair(
+		"lnd temporary autogenerated cert", tmpCertPath,
+		"", cfg.TLSExtraIPs, cfg.TLSExtraDomains,
+		tmpValidity, cfg.TLSDisableAutofill, false, keyRing,
+		keyType,
+	)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	var externalCertData tls.Certificate
+	if cfg.ExternalSSLProvider != "" {
+		externalCertData, err = createExternalCert(
+			cfg, keyBytes, externalSSLCertPath,
 		)
 		if err != nil {
 			return nil, nil, "", err
 		}
+	}
+
+	rpcsLog.Infof("Done generating ephemeral TLS certificates")
+
+	certData, parsedCert, err := cert.LoadCert(
+		certBytes, keyBytes,
+	)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	certList := []tls.Certificate{certData}
+	if cfg.ExternalSSLProvider != "" {
+		certList = append(certList, externalCertData)
+	}
+
+	tlsCfg := cert.TLSConfFromCert(certList)
+	certPool := x509.NewCertPool()
+	certPool.AddCert(parsedCert)
+	restCreds := credentials.NewClientTLSFromCert(certPool, "")
+
+	restProxyDest := cfg.RPCListeners[0].String()
+	switch {
+	case strings.Contains(restProxyDest, "0.0.0.0"):
+		restProxyDest = strings.Replace(
+			restProxyDest, "0.0.0.0", "127.0.0.1", 1,
+		)
+
+	case strings.Contains(restProxyDest, "[::]"):
+		restProxyDest = strings.Replace(
+			restProxyDest, "[::]", "[::1]", 1,
+		)
+	}
+
+	return tlsCfg, &restCreds, restProxyDest, nil
+}
+
+// getTLSConfig returns a TLS configuration for the gRPC server and credentials
+// and a proxy destination for the REST reverse proxy. The cert and key are
+// written to disk and the private key can be optionally encrypted.
+func getTLSConfig(cfg *Config, keyRing keychain.KeyRing) (*tls.Config,
+	*credentials.TransportCredentials, string, error) {
+	externalSSLCertPath := fmt.Sprintf("%s/%s/tls.cert", cfg.LndDir, cfg.ExternalSSLProvider)
+	keyType := "ec"
+	privateKeyPrefix := []byte("-----BEGIN EC PRIVATE KEY-----")
+	if cfg.ExternalSSLProvider != "" {
+		keyType = "rsa"
+		privateKeyPrefix = []byte("-----BEGIN RSA PRIVATE KEY-----")
+	}
+
+	// Ensure we create TLS key and certificate if they don't exist.
+	if !fileExists(cfg.TLSCertPath) && !fileExists(cfg.TLSKeyPath) {
+		rpcsLog.Infof("Generating TLS certificates...")
+		_, _, err := cert.GenCertPair(
+			"lnd autogenerated cert", cfg.TLSCertPath,
+			cfg.TLSKeyPath, cfg.TLSExtraIPs, cfg.TLSExtraDomains,
+			cert.DefaultAutogenValidity, cfg.TLSDisableAutofill,
+			cfg.TLSEncryptKey, keyRing, keyType,
+		)
+		if err != nil {
+			return nil, nil, "", err
+		}
+
+		// If the external ssl provider is supplied and there was a key rotation
+		// then we need to rotate the external SSL too. Just delete here so it
+		// can be regenerated a little farther down
+		if cfg.ExternalSSLProvider != "" {
+			os.Remove(externalSSLCertPath)
+		}
+
 		rpcsLog.Infof("Done generating TLS certificates")
 	}
 
+	certBytes, err := ioutil.ReadFile(cfg.TLSCertPath)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	keyBytes, err := ioutil.ReadFile(cfg.TLSKeyPath)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	// Do a check to see if the TLS private key is encrypted. If it's encrypted,
+	// try to decrypt it. If it's in plaintext but should be encrypted,
+	// then encrypt it.
+	if !bytes.HasPrefix(keyBytes, privateKeyPrefix) {
+		// If the private key is encrypted but the user didn't pass
+		// --tlsencryptkey we error out. This is because the wallet is not
+		// unlocked yet and we don't have access to the keys yet for decrypt.
+		if !cfg.TLSEncryptKey {
+			return nil, nil, "", fmt.Errorf("It appears the TLS key is " +
+				"encrypted but you didn't pass the --tlsencryptkey flag. " +
+				"Please restart lnd with the --tlsencryptkey flag or delete " +
+				"the TLS files for regeneration.\n")
+		}
+		reader := bytes.NewReader(keyBytes)
+		keyBytes, err = lnencrypt.DecryptPayloadFromReader(reader, keyRing)
+		if err != nil {
+			return nil, nil, "", err
+		}
+	} else {
+		// If the user requests an encrypted key but the key is in plaintext
+		// we encrypt the key before writing to disk.
+		if cfg.TLSEncryptKey {
+			keyBuf := bytes.NewBuffer(keyBytes)
+			var b bytes.Buffer
+			lnencrypt.EncryptPayloadToWriter(*keyBuf, &b, keyRing)
+			if err = ioutil.WriteFile(cfg.TLSKeyPath, b.Bytes(), 0600); err != nil {
+				return nil, nil, "", err
+			}
+		}
+	}
+
+	var externalCertData tls.Certificate
+	if cfg.ExternalSSLProvider != "" {
+		// Ensure we create external TLS certificate if they don't exist.
+		if !fileExists(externalSSLCertPath) {
+			ltndLog.Infof("Requesting external certificate for domain %v",
+				cfg.ExternalSSLDomain)
+			_, err = createExternalCert(
+				cfg, keyBytes, externalSSLCertPath,
+			)
+			if err != nil {
+				return nil, nil, "", err
+			}
+		}
+		externalCertBytes, err := ioutil.ReadFile(externalSSLCertPath)
+		if err != nil {
+			return nil, nil, "", err
+		}
+		externalCertData, _, err = cert.LoadCert(
+			externalCertBytes, keyBytes,
+		)
+		if err != nil {
+			return nil, nil, "", err
+		}
+	}
+
 	certData, parsedCert, err := cert.LoadCert(
-		cfg.TLSCertPath, cfg.TLSKeyPath,
+		certBytes, keyBytes,
 	)
 	if err != nil {
 		return nil, nil, "", err
@@ -806,11 +1127,19 @@ func getTLSConfig(cfg *Config) (*tls.Config, *credentials.TransportCredentials,
 			return nil, nil, "", err
 		}
 
+		if cfg.ExternalSSLProvider != "" {
+			err = os.Remove(externalSSLCertPath)
+			if err != nil {
+				return nil, nil, "", err
+			}
+		}
+
 		rpcsLog.Infof("Renewing TLS certificates...")
-		err = cert.GenCertPair(
+		_, _, err = cert.GenCertPair(
 			"lnd autogenerated cert", cfg.TLSCertPath,
 			cfg.TLSKeyPath, cfg.TLSExtraIPs, cfg.TLSExtraDomains,
-			cfg.TLSDisableAutofill, cert.DefaultAutogenValidity,
+			cert.DefaultAutogenValidity, cfg.TLSDisableAutofill,
+			cfg.TLSEncryptKey, keyRing, keyType,
 		)
 		if err != nil {
 			return nil, nil, "", err
@@ -818,15 +1147,63 @@ func getTLSConfig(cfg *Config) (*tls.Config, *credentials.TransportCredentials,
 		rpcsLog.Infof("Done renewing TLS certificates")
 
 		// Reload the certificate data.
+		certBytes, err := ioutil.ReadFile(cfg.TLSCertPath)
+		if err != nil {
+			return nil, nil, "", err
+		}
+		keyBytes, err := ioutil.ReadFile(cfg.TLSKeyPath)
+		if err != nil {
+			return nil, nil, "", err
+		}
+
+		if cfg.ExternalSSLProvider != "" {
+			// Ensure we create external TLS certificate if they don't exist.
+			if !fileExists(externalSSLCertPath) {
+				ltndLog.Infof("Requesting external certificate for domain %v",
+					cfg.ExternalSSLDomain)
+				_, err = createExternalCert(
+					cfg, keyBytes, externalSSLCertPath,
+				)
+				if err != nil {
+					return nil, nil, "", err
+				}
+			}
+			externalCertBytes, err := ioutil.ReadFile(externalSSLCertPath)
+			if err != nil {
+				return nil, nil, "", err
+			}
+			externalCertData, _, err = cert.LoadCert(
+				externalCertBytes, keyBytes,
+			)
+			if err != nil {
+				return nil, nil, "", err
+			}
+		}
+
+		// If key encryption is set, then decrypt the file.
+		// We don't need to do a file type check here because GenCertPair
+		// has been ran with the same value for cfg.TLSEncryptKey.
+		if cfg.TLSEncryptKey {
+			reader := bytes.NewReader(keyBytes)
+			keyBytes, err = lnencrypt.DecryptPayloadFromReader(reader, keyRing)
+			if err != nil {
+				return nil, nil, "", err
+			}
+		}
+
 		certData, _, err = cert.LoadCert(
-			cfg.TLSCertPath, cfg.TLSKeyPath,
+			certBytes, keyBytes,
 		)
 		if err != nil {
 			return nil, nil, "", err
 		}
 	}
 
-	tlsCfg := cert.TLSConfFromCert(certData)
+	certList := []tls.Certificate{certData}
+	if cfg.ExternalSSLProvider != "" {
+		certList = append(certList, externalCertData)
+	}
+	tlsCfg := cert.TLSConfFromCert(certList)
 	restCreds, err := credentials.NewClientTLSFromFile(cfg.TLSCertPath, "")
 	if err != nil {
 		return nil, nil, "", err
@@ -859,6 +1236,21 @@ func fileExists(name string) bool {
 	return true
 }
 
+// bakeMacaroon creates a new macaroon with newest version and the given
+// permissions then returns it binary serialized.
+func bakeMacaroon(ctx context.Context, svc *macaroons.Service,
+	permissions []bakery.Op) ([]byte, error) {
+
+	mac, err := svc.Oven.NewMacaroon(
+		ctx, bakery.LatestVersion, nil, permissions...,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return mac.M().MarshalBinary()
+}
+
 // genMacaroons generates three macaroon files; one admin-level, one for
 // invoice access and one read-only. These can also be used to generate more
 // granular macaroons.
@@ -869,13 +1261,7 @@ func genMacaroons(ctx context.Context, svc *macaroons.Service,
 	// access invoice related calls. This is useful for merchants and other
 	// services to allow an isolated instance that can only query and
 	// modify invoices.
-	invoiceMac, err := svc.Oven.NewMacaroon(
-		ctx, bakery.LatestVersion, nil, invoicePermissions...,
-	)
-	if err != nil {
-		return err
-	}
-	invoiceMacBytes, err := invoiceMac.M().MarshalBinary()
+	invoiceMacBytes, err := bakeMacaroon(ctx, svc, invoicePermissions)
 	if err != nil {
 		return err
 	}
@@ -886,13 +1272,7 @@ func genMacaroons(ctx context.Context, svc *macaroons.Service,
 	}
 
 	// Generate the read-only macaroon and write it to a file.
-	roMacaroon, err := svc.Oven.NewMacaroon(
-		ctx, bakery.LatestVersion, nil, readPermissions...,
-	)
-	if err != nil {
-		return err
-	}
-	roBytes, err := roMacaroon.M().MarshalBinary()
+	roBytes, err := bakeMacaroon(ctx, svc, readPermissions)
 	if err != nil {
 		return err
 	}
@@ -902,14 +1282,7 @@ func genMacaroons(ctx context.Context, svc *macaroons.Service,
 	}
 
 	// Generate the admin macaroon and write it to a file.
-	adminPermissions := append(readPermissions, writePermissions...)
-	admMacaroon, err := svc.Oven.NewMacaroon(
-		ctx, bakery.LatestVersion, nil, adminPermissions...,
-	)
-	if err != nil {
-		return err
-	}
-	admBytes, err := admMacaroon.M().MarshalBinary()
+	admBytes, err := bakeMacaroon(ctx, svc, adminPermissions)
 	if err != nil {
 		return err
 	}
@@ -944,6 +1317,16 @@ type WalletUnlockParams struct {
 	// ChansToRestore a set of static channel backups that should be
 	// restored before the main server instance starts up.
 	ChansToRestore walletunlocker.ChannelsToRecover
+
+	// StatelessInit signals that the user requested the daemon to be
+	// initialized stateless, which means no unencrypted macaroons should be
+	// written to disk.
+	StatelessInit bool
+
+	// MacResponseChannel is an optional channel for sending back the admin
+	// macaroon to the WalletUnlocker service. If the above StatelessInit is
+	// set to true, the service expects a message on the channel.
+	MacResponseChannel chan []byte
 }
 
 // waitForWalletPassword will spin up gRPC and REST endpoints for the
@@ -952,37 +1335,43 @@ type WalletUnlockParams struct {
 func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 	serverOpts []grpc.ServerOption, restDialOpts []grpc.DialOption,
 	restProxyDest string, tlsConf *tls.Config,
-	getListeners rpcListeners) (*WalletUnlockParams, error) {
+	getListeners rpcListeners) (*WalletUnlockParams, func(), error) {
+
+	shutdownFuncs := make([]func(), 0)
+	shutdown := func() {
+		for _, shutdownFn := range shutdownFuncs {
+			shutdownFn()
+		}
+	}
 
 	// Start a gRPC server listening for HTTP/2 connections, solely used
 	// for getting the encryption password from the client.
 	listeners, cleanup, err := getListeners()
 	if err != nil {
-		return nil, err
+		return nil, shutdown, err
 	}
-	defer cleanup()
+	shutdownFuncs = append(shutdownFuncs, cleanup)
 
 	// Set up a new PasswordService, which will listen for passwords
 	// provided over RPC.
 	grpcServer := grpc.NewServer(serverOpts...)
-	defer grpcServer.GracefulStop()
+	shutdownFuncs = append(shutdownFuncs, grpcServer.GracefulStop)
 
 	chainConfig := cfg.Bitcoin
 	if cfg.registeredChains.PrimaryChain() == litecoinChain {
 		chainConfig = cfg.Litecoin
 	}
 
-	// The macaroon files are passed to the wallet unlocker since they are
-	// also encrypted with the wallet's password. These files will be
-	// deleted within it and recreated when successfully changing the
-	// wallet's password.
+	// The macaroonFiles are passed to the wallet unlocker so they can be
+	// deleted and recreated in case the root macaroon key is also changed
+	// during the change password operation.
 	macaroonFiles := []string{
 		filepath.Join(cfg.networkDir, macaroons.DBFilename),
 		cfg.AdminMacPath, cfg.ReadMacPath, cfg.InvoiceMacPath,
 	}
 	pwService := walletunlocker.New(
 		chainConfig.ChainDir, activeNetParams.Params, !cfg.SyncFreelist,
-		macaroonFiles,
+		cfg.networkDir, macaroonFiles,
 	)
 	lnrpc.RegisterWalletUnlockerServer(grpcServer, pwService)
 
@@ -993,21 +1382,21 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 	for _, lis := range listeners {
 		wg.Add(1)
 		go func(lis *ListenerWithSignal) {
-			rpcsLog.Infof("password RPC server listening on %s",
+			rpcsLog.Infof("Password RPC server listening on %s",
 				lis.Addr())
 
 			// Close the ready chan to indicate we are listening.
 			close(lis.Ready)
 
 			wg.Done()
-			grpcServer.Serve(lis)
+			_ = grpcServer.Serve(lis)
 		}(lis)
 	}
 
 	// Start a REST proxy for our gRPC server above.
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	shutdownFuncs = append(shutdownFuncs, cancel)
 
 	mux := proxy.NewServeMux()
 
@@ -1015,7 +1404,7 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 		ctx, mux, restProxyDest, restDialOpts,
 	)
 	if err != nil {
-		return nil, err
+		return nil, shutdown, err
 	}
 
 	srv := &http.Server{Handler: allowCORS(mux, cfg.RestCORS)}
@@ -1023,22 +1412,24 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 	for _, restEndpoint := range restEndpoints {
 		lis, err := lncfg.TLSListenOnAddress(restEndpoint, tlsConf)
 		if err != nil {
-			ltndLog.Errorf(
-				"password gRPC proxy unable to listen on %s",
-				restEndpoint,
-			)
-			return nil, err
+			ltndLog.Errorf("Password gRPC proxy unable to listen "+
+				"on %s", restEndpoint)
+			return nil, shutdown, err
 		}
-		defer lis.Close()
+		shutdownFuncs = append(shutdownFuncs, func() {
+			err := lis.Close()
+			if err != nil {
+				rpcsLog.Errorf("Error closing listener: %v",
+					err)
+			}
+		})
 
 		wg.Add(1)
 		go func() {
-			rpcsLog.Infof(
-				"password gRPC proxy started at %s",
-				lis.Addr(),
-			)
+			rpcsLog.Infof("Password gRPC proxy started at %s",
+				lis.Addr())
 			wg.Done()
-			srv.Serve(lis)
+			_ = srv.Serve(lis)
 		}()
 	}
 
@@ -1069,8 +1460,8 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 		// version, then we'll return an error as we don't understand
 		// this.
 		if cipherSeed.InternalVersion != keychain.KeyDerivationVersion {
-			return nil, fmt.Errorf("invalid internal seed version "+
-				"%v, current version is %v",
+			return nil, shutdown, fmt.Errorf("invalid internal "+
+				"seed version %v, current version is %v",
 				cipherSeed.InternalVersion,
 				keychain.KeyDerivationVersion)
 		}
@@ -1096,29 +1487,33 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 				ltndLog.Errorf("Could not unload new "+
 					"wallet: %v", err)
 			}
-			return nil, err
+			return nil, shutdown, err
 		}
 
 		return &WalletUnlockParams{
-			Password:       password,
-			Birthday:       birthday,
-			RecoveryWindow: recoveryWindow,
-			Wallet:         newWallet,
-			ChansToRestore: initMsg.ChanBackups,
-		}, nil
+			Password:           password,
+			Birthday:           birthday,
+			RecoveryWindow:     recoveryWindow,
+			Wallet:             newWallet,
+			ChansToRestore:     initMsg.ChanBackups,
+			StatelessInit:      initMsg.StatelessInit,
+			MacResponseChannel: initMsg.MacResponseChannel,
+		}, shutdown, nil
 
 	// The wallet has already been created in the past, and is simply being
 	// unlocked. So we'll just return these passphrases.
 	case unlockMsg := <-pwService.UnlockMsgs:
 		return &WalletUnlockParams{
-			Password:       unlockMsg.Passphrase,
-			RecoveryWindow: unlockMsg.RecoveryWindow,
-			Wallet:         unlockMsg.Wallet,
-			ChansToRestore: unlockMsg.ChanBackups,
-		}, nil
+			Password:           unlockMsg.Passphrase,
+			RecoveryWindow:     unlockMsg.RecoveryWindow,
+			Wallet:             unlockMsg.Wallet,
+			ChansToRestore:     unlockMsg.ChanBackups,
+			StatelessInit:      unlockMsg.StatelessInit,
+			MacResponseChannel: unlockMsg.MacResponseChannel,
+		}, shutdown, nil
 
 	case <-signal.ShutdownChannel():
-		return nil, fmt.Errorf("shutting down")
+		return nil, shutdown, fmt.Errorf("shutting down")
 	}
 }
 

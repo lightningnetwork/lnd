@@ -141,8 +141,22 @@ message InitWalletRequest {
     recover the funds in each channel from a remote force closed transaction.
     */
     ChanBackupSnapshot channel_backups = 5;
+
+    /*
+    stateless_init is an optional argument instructing the daemon NOT to
+    create any *.macaroon files but instead return the binary serialized admin
+    macaroon in the response.
+    */
+    bool stateless_init = 6;
 }
 message InitWalletResponse {
+    /*
+    admin_macaroon is an optional argument that contains the binary serialized
+    admin macaroon in case the stateless_init argument was set to true in the
+    request. If this argument is set, it means no *.macaroon files have been
+    created by the daemon in the initialization process.
+    */
+    bytes admin_macaroon = 1;
 }
 
 message UnlockWalletRequest {
@@ -171,6 +185,12 @@ message UnlockWalletRequest {
     recover the funds in each channel from a remote force closed transaction.
     */
     ChanBackupSnapshot channel_backups = 3;
+
+    /*
+    stateless_init is an optional argument instructing the daemon NOT to
+    create any *.macaroon files.
+    */
+    bool stateless_init = 4;
 }
 message UnlockWalletResponse {
 }
@@ -187,6 +207,27 @@ message ChangePasswordRequest {
     daemon. When using REST, this field must be encoded as base64.
     */
     bytes new_password = 2;
+
+    /*
+    stateless_init is an optional argument instructing the daemon NOT to
+    create any *.macaroon files but instead return the binary serialized admin
+    macaroon in the response.
+    */
+    bool stateless_init = 3;
+
+    /*
+    new_macaroon_root_key is an optional argument instructing the daemon
+    to rotate the macaroon root key when set to true. This will invalidate all
+    previously generated macaroons.
+    */
+    bool new_macaroon_root_key = 4;
 }
 message ChangePasswordResponse {
+    /*
+    admin_macaroon is an optional argument that contains the binary serialized
+    admin macaroon in case it was detected that the daemon was initialized
+    stateless. If this argument is set, it means no *.macaroon files have been
+    (re-)created by the daemon in the password change process.
+    */
+    bytes admin_macaroon = 1;
 }

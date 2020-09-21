@@ -1,5 +1,3 @@
-// +build rpctest
-
 package itest
 
 import (
@@ -170,7 +168,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// Set the fee policies of the Alice -> Bob and the Dave -> Alice
 	// channel edges to relatively large non default values. This makes it
 	// possible to pick up more subtle fee calculation errors.
-	maxHtlc := uint64(calculateMaxHtlc(chanAmt))
+	maxHtlc := calculateMaxHtlc(chanAmt)
 	const aliceBaseFeeSat = 1
 	const aliceFeeRatePPM = 100000
 	updateChannelPolicy(

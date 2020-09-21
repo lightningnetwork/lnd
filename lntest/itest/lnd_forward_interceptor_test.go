@@ -1,5 +1,3 @@
-// +build rpctest
-
 package itest
 
 import (
@@ -122,7 +120,7 @@ func testForwardInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 					t.t.Errorf("expected payment to fail, instead got %v", attempt.Status)
 				}
 
-			// For settle and resume we make sure the payment is successfull.
+			// For settle and resume we make sure the payment is successful.
 			case routerrpc.ResolveHoldForwardAction_SETTLE:
 				fallthrough
 
@@ -166,7 +164,7 @@ func testForwardInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 			}
 
 			// For all other packets we resolve according to the test case.
-			interceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
+			_ = interceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
 				IncomingCircuitKey: request.IncomingCircuitKey,
 				Action:             testCase.interceptorAction,
 				Preimage:           testCase.invoice.RPreimage,

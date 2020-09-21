@@ -1,5 +1,3 @@
-// +build rpctest
-
 package itest
 
 import (
@@ -402,7 +400,7 @@ func receiveChanUpdate(ctx context.Context,
 	errChan := make(chan error)
 	go func() {
 		// Consume one message. This will block until the message is
-		// recieved.
+		// received.
 		resp, err := stream.Recv()
 		if err != nil {
 			errChan <- err

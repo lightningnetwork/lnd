@@ -1,5 +1,3 @@
-// +build rpctest
-
 package itest
 
 import (
@@ -81,7 +79,7 @@ func assertTimeoutError(ctxt context.Context, t *harnessTest,
 	ctxt, cancel := context.WithTimeout(ctxt, defaultTimeout)
 	defer cancel()
 
-	err := connect(node, ctxt, req)
+	err := connect(ctxt, node, req)
 
 	// a DeadlineExceeded error will appear in the context if the above
 	// ctxtTimeout value is reached.
@@ -94,7 +92,7 @@ func assertTimeoutError(ctxt context.Context, t *harnessTest,
 	)
 }
 
-func connect(node *lntest.HarnessNode, ctxt context.Context,
+func connect(ctxt context.Context, node *lntest.HarnessNode,
 	req *lnrpc.ConnectPeerRequest) error {
 
 	syncTimeout := time.After(15 * time.Second)

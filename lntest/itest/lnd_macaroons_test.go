@@ -1,5 +1,3 @@
-// +build rpctest
-
 package itest
 
 import (
@@ -110,14 +108,14 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, t *harnessTest) {
 				testNode.ReadMacPath(), defaultTimeout,
 			)
 			require.NoError(t, err)
-			invalidIpAddrMac, err := macaroons.AddConstraints(
+			invalidIPAddrMac, err := macaroons.AddConstraints(
 				readonlyMac, macaroons.IPLockConstraint(
 					"1.1.1.1",
 				),
 			)
 			require.NoError(t, err)
 			cleanup, client := macaroonClient(
-				t, testNode, invalidIpAddrMac,
+				t, testNode, invalidIPAddrMac,
 			)
 			defer cleanup()
 			_, err = client.GetInfo(ctxt, infoReq)

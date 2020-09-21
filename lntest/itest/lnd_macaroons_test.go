@@ -5,7 +5,6 @@ package itest
 import (
 	"context"
 	"encoding/hex"
-	"sort"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -275,58 +274,6 @@ func testBakeMacaroon(net *lntest.NetworkHarness, t *harnessTest) {
 			)
 		},
 	}, {
-		// Fourth test: check that when no root key ID is specified, the
-		// default root keyID is used.
-		name: "default root key ID",
-		run: func(ctxt context.Context, t *testing.T,
-			adminClient lnrpc.LightningClient) {
-
-			req := &lnrpc.BakeMacaroonRequest{
-				Permissions: []*lnrpc.MacaroonPermission{{
-					Entity: "macaroon",
-					Action: "read",
-				}},
-			}
-			_, err := adminClient.BakeMacaroon(ctxt, req)
-			require.NoError(t, err)
-
-			listReq := &lnrpc.ListMacaroonIDsRequest{}
-			resp, err := adminClient.ListMacaroonIDs(ctxt, listReq)
-			require.NoError(t, err)
-			require.Equal(t, resp.RootKeyIds[0], uint64(0))
-		},
-	}, {
-		// Fifth test: create a macaroon use a non-default root key ID.
-		name: "custom root key ID",
-		run: func(ctxt context.Context, t *testing.T,
-			adminClient lnrpc.LightningClient) {
-
-			rootKeyID := uint64(4200)
-			req := &lnrpc.BakeMacaroonRequest{
-				RootKeyId: rootKeyID,
-				Permissions: []*lnrpc.MacaroonPermission{{
-					Entity: "macaroon",
-					Action: "read",
-				}},
-			}
-			_, err := adminClient.BakeMacaroon(ctxt, req)
-			require.NoError(t, err)
-
-			listReq := &lnrpc.ListMacaroonIDsRequest{}
-			resp, err := adminClient.ListMacaroonIDs(ctxt, listReq)
-			require.NoError(t, err)
-
-			// the ListMacaroonIDs should give a list of two IDs,
-			// the default ID 0, and the newly created ID. The
-			// returned response is sorted to guarantee the order so
-			// that we can compare them one by one.
-			sort.Slice(resp.RootKeyIds, func(i, j int) bool {
-				return resp.RootKeyIds[i] < resp.RootKeyIds[j]
-			})
-			require.Equal(t, resp.RootKeyIds[0], uint64(0))
-			require.Equal(t, resp.RootKeyIds[1], rootKeyID)
-		},
-	}, {
 		// Sixth test: check the baked macaroon has the intended
 		// permissions. It should succeed in reading, and fail to write
 		// a macaroon.
@@ -334,9 +281,7 @@ func testBakeMacaroon(net *lntest.NetworkHarness, t *harnessTest) {
 		run: func(ctxt context.Context, t *testing.T,
 			adminClient lnrpc.LightningClient) {
 
-			rootKeyID := uint64(4200)
 			req := &lnrpc.BakeMacaroonRequest{
-				RootKeyId: rootKeyID,
 				Permissions: []*lnrpc.MacaroonPermission{{
 					Entity: "macaroon",
 					Action: "read",
@@ -357,12 +302,6 @@ func testBakeMacaroon(net *lntest.NetworkHarness, t *harnessTest) {
 			_, err = readOnlyClient.BakeMacaroon(ctxt, req)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "permission denied")
-
-			// ListMacaroon requires a read permission, so this call
-			// should succeed.
-			listReq := &lnrpc.ListMacaroonIDsRequest{}
-			_, err = readOnlyClient.ListMacaroonIDs(ctxt, listReq)
-			require.NoError(t, err)
 
 			// Current macaroon can only work on entity macaroon, so
 			// a GetInfo request will fail.

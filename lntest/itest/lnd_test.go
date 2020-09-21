@@ -14277,6 +14277,10 @@ var testsCases = []*testCase{
 		test: testMacaroonAuthentication,
 	},
 	{
+		name: "bake macaroon",
+		test: testBakeMacaroon,
+	},
+	{
 		name: "immediate payment after channel opened",
 		test: testPaymentFollowingChannelOpen,
 	},

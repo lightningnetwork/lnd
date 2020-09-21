@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "master"
+  pull_request:
+    branches:
+      - "*"
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  GOPATH: /home/runner/work/go
+  GO_VERSION: 1.13.0
+  LND_DIR: /home/runner/work/go/src/github.com/lightningnetwork/lnd
+  GO111MODULE: on
+
+jobs:
+  ########################
+  # fuzz check
+  ########################
+  fuzz-check:
+    name: fuzz check
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v2
+
+      - name: build fuzz
+        run:  ./scripts/run_fuzzers.sh

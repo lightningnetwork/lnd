@@ -194,6 +194,7 @@ func (t *backupTask) craftSessionPayload(
 	// to-local script, and the remote CSV delay.
 	keyRing := t.breachInfo.KeyRing
 	justiceKit := &blob.JusticeKit{
+		BlobType:         t.blobType,
 		SweepAddress:     t.sweepPkScript,
 		RevocationPubKey: toBlobPubKey(keyRing.RevocationKey),
 		LocalDelayPubKey: toBlobPubKey(keyRing.ToLocalKey),
@@ -299,7 +300,7 @@ func (t *backupTask) craftSessionPayload(
 	// Then, we'll encrypt the computed justice kit using the full breach
 	// transaction id, which will allow the tower to recover the contents
 	// after the transaction is seen in the chain or mempool.
-	encBlob, err := justiceKit.Encrypt(key, t.blobType)
+	encBlob, err := justiceKit.Encrypt(key)
 	if err != nil {
 		return hint, nil, err
 	}

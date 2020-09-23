@@ -100,6 +100,15 @@ type PubKey [33]byte
 // and for a watchtower to later decrypt if action must be taken. The encoding
 // format is versioned to allow future extensions.
 type JusticeKit struct {
+	// BlobType encodes a bitfield that inform the tower of various features
+	// requested by the client when resolving a breach. Examples include
+	// whether the justice transaction contains a reward for the tower, or
+	// whether the channel is a legacy or anchor channel.
+	//
+	// NOTE: This value is not serialized in the encrypted payload. It is
+	// stored separately and added to the JusticeKit after decryption.
+	BlobType Type
+
 	// SweepAddress is the witness program of the output where the client's
 	// fund will be deposited. This value is included in the blobs, as
 	// opposed to the session info, such that the sweep addresses can't be
@@ -187,17 +196,33 @@ func (b *JusticeKit) HasCommitToRemoteOutput() bool {
 }
 
 // CommitToRemoteWitnessScript returns the witness script for the commitment
-// to-remote p2wkh output, which is the pubkey itself.
+// to-remote output given the blob type. The script returned will either be for
+// a p2wpkh to-remote output or an p2wsh anchor to-remote output which includes
+// a CSV delay.
 func (b *JusticeKit) CommitToRemoteWitnessScript() ([]byte, error) {
 	if !btcec.IsCompressedPubKey(b.CommitToRemotePubKey[:]) {
 		return nil, ErrNoCommitToRemoteOutput
+	}
+
+	// If this is a blob for an anchor channel, we'll return the p2wsh
+	// output containing a CSV delay of 1.
+	if b.BlobType.IsAnchorChannel() {
+		pk, err := btcec.ParsePubKey(
+			b.CommitToRemotePubKey[:], btcec.S256(),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return input.CommitScriptToRemoteConfirmed(pk)
 	}
 
 	return b.CommitToRemotePubKey[:], nil
 }
 
 // CommitToRemoteWitnessStack returns a witness stack spending the commitment
-// to-remote output, which is a regular p2wkh.
+// to-remote output, which consists of a single signature satisfying either the
+// legacy or anchor witness scripts.
 //   <to-remote-sig>
 func (b *JusticeKit) CommitToRemoteWitnessStack() ([][]byte, error) {
 	toRemoteSig, err := b.CommitToRemoteSig.ToSignature()
@@ -218,11 +243,11 @@ func (b *JusticeKit) CommitToRemoteWitnessStack() ([][]byte, error) {
 //
 // NOTE: It is the caller's responsibility to ensure that this method is only
 // called once for a given (nonce, key) pair.
-func (b *JusticeKit) Encrypt(key BreachKey, blobType Type) ([]byte, error) {
+func (b *JusticeKit) Encrypt(key BreachKey) ([]byte, error) {
 	// Encode the plaintext using the provided version, to obtain the
 	// plaintext bytes.
 	var ptxtBuf bytes.Buffer
-	err := b.encode(&ptxtBuf, blobType)
+	err := b.encode(&ptxtBuf, b.BlobType)
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +261,7 @@ func (b *JusticeKit) Encrypt(key BreachKey, blobType Type) ([]byte, error) {
 	// Allocate the ciphertext, which will contain the nonce, encrypted
 	// plaintext and MAC.
 	plaintext := ptxtBuf.Bytes()
-	ciphertext := make([]byte, Size(blobType))
+	ciphertext := make([]byte, Size(b.BlobType))
 
 	// Generate a random  24-byte nonce in the ciphertext's prefix.
 	nonce := ciphertext[:NonceSize]
@@ -284,7 +309,9 @@ func Decrypt(key BreachKey, ciphertext []byte,
 
 	// If decryption succeeded, we will then decode the plaintext bytes
 	// using the specified blob version.
-	boj := &JusticeKit{}
+	boj := &JusticeKit{
+		BlobType: blobType,
+	}
 	err = boj.decode(bytes.NewReader(plaintext), blobType)
 	if err != nil {
 		return nil, err

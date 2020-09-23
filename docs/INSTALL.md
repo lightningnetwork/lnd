@@ -211,6 +211,8 @@ neutrino:
       --neutrino.maxpeers=                                    Max number of inbound and outbound peers
       --neutrino.banduration=                                 How long to ban misbehaving peers.  Valid time units are {s, m, h}.  Minimum 1 second
       --neutrino.banthreshold=                                Maximum allowed ban score before disconnecting and banning misbehaving peers.
+      --neutrino.useragentname=                               Used to help identify ourselves to other bitcoin peers.
+      --neutrino.useragentversion=                            Used to help identify ourselves to other bitcoin peers.
 ```
 
 ## Bitcoind Options

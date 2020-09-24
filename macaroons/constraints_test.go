@@ -1,6 +1,7 @@
 package macaroons_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -14,12 +15,13 @@ var (
 	testID                      = []byte("dummyId")
 	testLocation                = "lnd"
 	testVersion                 = macaroon.LatestVersion
-	expectedTimeCaveatSubstring = "time-before " + string(time.Now().Year())
+	expectedTimeCaveatSubstring = fmt.Sprintf("time-before %d", time.Now().Year())
 )
 
 func createDummyMacaroon(t *testing.T) *macaroon.Macaroon {
-	dummyMacaroon, err := macaroon.New(testRootKey, testID,
-		testLocation, testVersion)
+	dummyMacaroon, err := macaroon.New(
+		testRootKey, testID, testLocation, testVersion,
+	)
 	if err != nil {
 		t.Fatalf("Error creating initial macaroon: %v", err)
 	}
@@ -35,8 +37,9 @@ func TestAddConstraints(t *testing.T) {
 
 	// Now add a constraint and make sure we have a cloned macaroon
 	// with the constraint applied instead of a mutated initial one.
-	newMac, err := macaroons.AddConstraints(initialMac,
-		macaroons.TimeoutConstraint(1))
+	newMac, err := macaroons.AddConstraints(
+		initialMac, macaroons.TimeoutConstraint(1),
+	)
 	if err != nil {
 		t.Fatalf("Error adding constraint: %v", err)
 	}
@@ -67,9 +70,11 @@ func TestTimeoutConstraint(t *testing.T) {
 	}
 
 	// Finally, check that the created caveat has an
-	// acceptable value
-	if strings.HasPrefix(string(testMacaroon.Caveats()[0].Id),
-		expectedTimeCaveatSubstring) {
+	// acceptable value.
+	if !strings.HasPrefix(
+		string(testMacaroon.Caveats()[0].Id),
+		expectedTimeCaveatSubstring,
+	) {
 		t.Fatalf("Added caveat '%s' does not meet the expectations!",
 			testMacaroon.Caveats()[0].Id)
 	}
@@ -90,7 +95,7 @@ func TestIpLockConstraint(t *testing.T) {
 	}
 
 	// Finally, check that the created caveat has an
-	// acceptable value
+	// acceptable value.
 	if string(testMacaroon.Caveats()[0].Id) != "ipaddr 127.0.0.1" {
 		t.Fatalf("Added caveat '%s' does not meet the expectations!",
 			testMacaroon.Caveats()[0].Id)

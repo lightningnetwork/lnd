@@ -110,7 +110,7 @@ func TestConnectionCorrectness(t *testing.T) {
 
 	// Test out some message full-message reads.
 	for i := 0; i < 10; i++ {
-		msg := []byte("hello" + string(i))
+		msg := []byte(fmt.Sprintf("hello%d", i))
 
 		if _, err := localConn.Write(msg); err != nil {
 			t.Fatalf("remote conn failed to write: %v", err)

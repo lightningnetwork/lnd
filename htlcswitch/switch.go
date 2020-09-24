@@ -438,6 +438,14 @@ func (s *Switch) GetPaymentResult(paymentID uint64, paymentHash lntypes.Hash,
 	return resultChan, nil
 }
 
+// CleanStore calls the underlying result store, telling it is safe to delete
+// all entries except the ones in the keepPids map. This should be called
+// preiodically to let the switch clean up payment results that we have
+// handled.
+func (s *Switch) CleanStore(keepPids map[uint64]struct{}) error {
+	return s.networkResults.cleanStore(keepPids)
+}
+
 // SendHTLC is used by other subsystems which aren't belong to htlc switch
 // package in order to send the htlc update. The paymentID used MUST be unique
 // for this HTLC, and MUST be used only once, otherwise the switch might reject

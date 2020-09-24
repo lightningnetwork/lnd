@@ -197,7 +197,6 @@ out:
 	// an unknown payment hash.
 	// TODO(roasbeef): return failure response rather than failing entire
 	// stream on payment error.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	sendReq := &routerrpc.SendPaymentRequest{
 		PaymentHash:    makeFakePayHash(t),
 		Dest:           carol.PubKey[:],

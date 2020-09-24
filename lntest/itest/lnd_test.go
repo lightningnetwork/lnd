@@ -1097,7 +1097,7 @@ func channelCommitType(node *lntest.HarnessNode,
 }
 
 // assertChannelBalanceResp makes a ChannelBalance request and checks the
-// returned reponse matches the expected.
+// returned response matches the expected.
 func assertChannelBalanceResp(t *harnessTest,
 	node *lntest.HarnessNode, expected *lnrpc.ChannelBalanceResponse) {
 
@@ -11202,10 +11202,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// the nodes in the network.
 	err = wait.Predicate(func() bool {
 		predErr = assertNumActiveHtlcs(nodes, 0)
-		if predErr != nil {
-			return false
-		}
-		return true
+		return predErr == nil
 
 	}, time.Second*15)
 	if err != nil {

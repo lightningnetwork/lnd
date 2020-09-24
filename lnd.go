@@ -990,6 +990,12 @@ func getTLSConfig(cfg *Config) ([]grpc.ServerOption, []grpc.DialOption,
 	// Return a function closure that can be used to listen on a given
 	// address with the current TLS config.
 	restListen := func(addr net.Addr) (net.Listener, error) {
+		// For restListen we will call ListenOnAddress if TLS is
+		// disabled.
+		if cfg.DisableRestTLS {
+			return lncfg.ListenOnAddress(addr)
+		}
+
 		return lncfg.TLSListenOnAddress(addr, tlsCfg)
 	}
 

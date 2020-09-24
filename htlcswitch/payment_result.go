@@ -258,3 +258,48 @@ func fetchResult(tx kvdb.RTx, pid uint64) (*networkResult, error) {
 
 	return deserializeNetworkResult(r)
 }
+
+// cleanStore removes all entries from the store, except the payment IDs given.
+// NOTE: Since every result not listed in the keep map will be deleted, care
+// should be taken to ensure no new payment attempts are being made
+// concurrently while this process is ongoing, as its result might end up being
+// deleted.
+func (store *networkResultStore) cleanStore(keep map[uint64]struct{}) error {
+	return kvdb.Update(store.db.Backend, func(tx kvdb.RwTx) error {
+		networkResults, err := tx.CreateTopLevelBucket(
+			networkResultStoreBucketKey,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Iterate through the bucket, deleting all items not in the
+		// keep map.
+		var toClean [][]byte
+		if err := networkResults.ForEach(func(k, _ []byte) error {
+			pid := binary.BigEndian.Uint64(k)
+			if _, ok := keep[pid]; ok {
+				return nil
+			}
+
+			toClean = append(toClean, k)
+			return nil
+		}); err != nil {
+			return err
+		}
+
+		for _, k := range toClean {
+			err := networkResults.Delete(k)
+			if err != nil {
+				return err
+			}
+		}
+
+		if len(toClean) > 0 {
+			log.Infof("Removed %d stale entries from network "+
+				"result store", len(toClean))
+		}
+
+		return nil
+	})
+}

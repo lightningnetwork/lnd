@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 // TestNetworkResultSerialization checks that NetworkResults are properly
@@ -180,7 +181,6 @@ func TestNetworkResultStore(t *testing.T) {
 
 	// Since we don't delete results from the store (yet), make sure we
 	// will get subscriptions for all of them.
-	// TODO(halseth): check deletion when we have reliable handoff.
 	for i := uint64(0); i < numResults; i++ {
 		sub, err := store.subscribeResult(i)
 		if err != nil {
@@ -192,5 +192,26 @@ func TestNetworkResultStore(t *testing.T) {
 		case <-time.After(1 * time.Second):
 			t.Fatalf("no result received")
 		}
+	}
+
+	// Clean the store keeping the first two results.
+	toKeep := map[uint64]struct{}{
+		0: {},
+		1: {},
+	}
+	// Finally, delete the result.
+	err = store.cleanStore(toKeep)
+	require.NoError(t, err)
+
+	// Payment IDs 0 and 1 should be found, 2 and 3 should be deleted.
+	for i := uint64(0); i < numResults; i++ {
+		_, err = store.getResult(i)
+		if i <= 1 {
+			require.NoError(t, err, "unable to get result")
+		}
+		if i >= 2 && err != ErrPaymentIDNotFound {
+			t.Fatalf("expected ErrPaymentIDNotFound, got %v", err)
+		}
+
 	}
 }

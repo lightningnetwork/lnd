@@ -446,13 +446,8 @@ func (m *mockControlTower) FetchInFlightPayments() (
 			continue
 		}
 
-		var attempts []channeldb.HTLCAttemptInfo
-		for _, a := range p.attempts {
-			attempts = append(attempts, a.HTLCAttemptInfo)
-		}
 		ifl := channeldb.InFlightPayment{
-			Info:     &p.info,
-			Attempts: attempts,
+			Info: &p.info,
 		}
 
 		fl = append(fl, &ifl)

@@ -1035,13 +1035,23 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 				)
 			}
 
-			// Stop searching if this link can forward the htlc.
-			if failure == nil {
-				destination = link
-				break
+			// If this link can't forward the htlc, record the
+			// failure and continue searching.
+			if failure != nil {
+				linkErrs[link.ShortChanID()] = failure
+				continue
 			}
 
-			linkErrs[link.ShortChanID()] = failure
+			// Update the current best channel. If we find a lower
+			// capacity channel that can also carry the htlc, we
+			// prefer that. This is measure to increase the attack
+			// cost of channel jamming when there are multiple
+			// channels with this peer.
+			if destination == nil ||
+				destination.Capacity() > link.Capacity() {
+
+				destination = link
+			}
 		}
 
 		// If we had a forwarding failure due to the HTLC not

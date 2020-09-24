@@ -2,6 +2,7 @@ package htlcswitch
 
 import (
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -129,6 +130,9 @@ type ChannelLink interface {
 	// takes into account any forwarded but un-cleared HTLC's, and any
 	// HTLC's which have been set to the over flow queue.
 	Bandwidth() lnwire.MilliSatoshi
+
+	// Capacity returns the channel capacity in sats.
+	Capacity() btcutil.Amount
 
 	// Stats return the statistics of channel link. Number of updates,
 	// total sent/received milli-satoshis.

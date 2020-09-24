@@ -16,6 +16,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -651,6 +652,8 @@ type mockChannelLink struct {
 	checkHtlcTransitResult *LinkError
 
 	checkHtlcForwardResult *LinkError
+
+	capacity btcutil.Amount
 }
 
 // completeCircuit is a helper method for adding the finalized payment circuit
@@ -690,12 +693,15 @@ func newMockChannelLink(htlcSwitch *Switch, chanID lnwire.ChannelID,
 	shortChanID lnwire.ShortChannelID, peer lnpeer.Peer, eligible bool,
 ) *mockChannelLink {
 
+	const testCapacity = 99999999
+
 	return &mockChannelLink{
 		htlcSwitch:  htlcSwitch,
 		chanID:      chanID,
 		shortChanID: shortChanID,
 		peer:        peer,
 		eligible:    eligible,
+		capacity:    testCapacity,
 	}
 }
 
@@ -745,6 +751,7 @@ func (f *mockChannelLink) Start() error {
 func (f *mockChannelLink) ChanID() lnwire.ChannelID                     { return f.chanID }
 func (f *mockChannelLink) ShortChanID() lnwire.ShortChannelID           { return f.shortChanID }
 func (f *mockChannelLink) Bandwidth() lnwire.MilliSatoshi               { return 99999999 }
+func (f *mockChannelLink) Capacity() btcutil.Amount                     { return f.capacity }
 func (f *mockChannelLink) Peer() lnpeer.Peer                            { return f.peer }
 func (f *mockChannelLink) ChannelPoint() *wire.OutPoint                 { return &wire.OutPoint{} }
 func (f *mockChannelLink) Stop()                                        {}

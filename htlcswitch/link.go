@@ -12,6 +12,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/build"
@@ -2139,6 +2140,11 @@ func (l *channelLink) Bandwidth() lnwire.MilliSatoshi {
 	// the channel reserve into account so HTLCs up to this value won't
 	// violate it.
 	return l.channel.AvailableBalance()
+}
+
+// Capacity returns the channel capacity in sats.
+func (l *channelLink) Capacity() btcutil.Amount {
+	return l.channel.Capacity
 }
 
 // AttachMailBox updates the current mailbox used by this link, and hooks up

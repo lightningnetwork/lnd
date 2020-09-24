@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/ticker"
+	"github.com/stretchr/testify/require"
 )
 
 var zeroCircuit = channeldb.CircuitKey{}
@@ -1366,6 +1367,7 @@ type multiHopFwdTest struct {
 	eligible1, eligible2 bool
 	failure1, failure2   *LinkError
 	expectedReply        lnwire.FailCode
+	expectedLink         int
 }
 
 // TestCircularForwards tests the allowing/disallowing of circular payments
@@ -1571,6 +1573,7 @@ func TestSkipIneligibleLinksMultiHopForward(t *testing.T) {
 			name:          "non-strict success",
 			eligible2:     true,
 			expectedReply: lnwire.CodeNone,
+			expectedLink:  2,
 		},
 
 		// The requested channel has insufficient bandwidth and the
@@ -1587,6 +1590,16 @@ func TestSkipIneligibleLinksMultiHopForward(t *testing.T) {
 				lnwire.NewFinalIncorrectCltvExpiry(0),
 			),
 			expectedReply: lnwire.CodeTemporaryChannelFailure,
+		},
+
+		// Both channels are eligible. It is expected that the lowest
+		// capacity channel is chosen.
+		{
+			name:          "lowest capacity channel success",
+			eligible1:     true,
+			eligible2:     true,
+			expectedReply: lnwire.CodeNone,
+			expectedLink:  2,
 		},
 	}
 
@@ -1643,6 +1656,9 @@ func testSkipIneligibleLinksMultiHopForward(t *testing.T,
 	)
 	bobChannelLink1.checkHtlcForwardResult = testCase.failure1
 
+	// Give the first link a bigger capacity.
+	bobChannelLink1.capacity *= 2
+
 	chanID3, bobChanID3 := genID()
 	bobChannelLink2 := newMockChannelLink(
 		s, chanID3, bobChanID3, bobPeer, testCase.eligible2,
@@ -1682,14 +1698,19 @@ func testSkipIneligibleLinksMultiHopForward(t *testing.T,
 
 	// We select from all links and extract the error if exists.
 	// The packet must be selected but we don't always expect a link error.
-	var linkError *LinkError
+	var (
+		linkError *LinkError
+		bobLink   int
+	)
 	select {
 	case p := <-aliceChannelLink.packets:
 		linkError = p.linkFailure
 	case p := <-bobChannelLink1.packets:
 		linkError = p.linkFailure
+		bobLink = 1
 	case p := <-bobChannelLink2.packets:
 		linkError = p.linkFailure
+		bobLink = 2
 	case <-time.After(time.Second):
 		t.Fatal("no timely reply from switch")
 	}
@@ -1701,6 +1722,7 @@ func testSkipIneligibleLinksMultiHopForward(t *testing.T,
 		if failure != nil {
 			t.Fatalf("unexpected failure %T", failure)
 		}
+		require.Equal(t, testCase.expectedLink, bobLink)
 	} else {
 		if linkError == nil {
 			t.Fatalf("forwarding should have failed due to " +

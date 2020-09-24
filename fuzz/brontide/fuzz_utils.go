@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/keychain"
 )
 
 var (
@@ -114,8 +115,11 @@ func getBrontideMachines() (*brontide.Machine, *brontide.Machine) {
 	respPriv, _ := btcec.NewPrivateKey(btcec.S256())
 	respPub := (*btcec.PublicKey)(&respPriv.PublicKey)
 
-	initiator := brontide.NewBrontideMachine(true, initPriv, respPub)
-	responder := brontide.NewBrontideMachine(false, respPriv, nil)
+	initPrivECDH := &keychain.PrivKeyECDH{PrivKey: initPriv}
+	respPrivECDH := &keychain.PrivKeyECDH{PrivKey: respPriv}
+
+	initiator := brontide.NewBrontideMachine(true, initPrivECDH, respPub)
+	responder := brontide.NewBrontideMachine(false, respPrivECDH, nil)
 
 	return initiator, responder
 }
@@ -126,11 +130,14 @@ func getStaticBrontideMachines() (*brontide.Machine, *brontide.Machine) {
 	initPriv, _ := btcec.PrivKeyFromBytes(btcec.S256(), initBytes)
 	respPriv, respPub := btcec.PrivKeyFromBytes(btcec.S256(), respBytes)
 
+	initPrivECDH := &keychain.PrivKeyECDH{PrivKey: initPriv}
+	respPrivECDH := &keychain.PrivKeyECDH{PrivKey: respPriv}
+
 	initiator := brontide.NewBrontideMachine(
-		true, initPriv, respPub, initEphemeral,
+		true, initPrivECDH, respPub, initEphemeral,
 	)
 	responder := brontide.NewBrontideMachine(
-		false, respPriv, nil, respEphemeral,
+		false, respPrivECDH, nil, respEphemeral,
 	)
 
 	return initiator, responder

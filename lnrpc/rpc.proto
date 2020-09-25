@@ -32,8 +32,9 @@ service Lightning {
     rpc WalletBalance (WalletBalanceRequest) returns (WalletBalanceResponse);
 
     /* lncli: `channelbalance`
-    ChannelBalance returns the total funds available across all open channels
-    in satoshis.
+    ChannelBalance returns a report on the total funds across all open channels,
+    categorized in local/remote, pending local/remote and unsettled local/remote
+    balances.
     */
     rpc ChannelBalance (ChannelBalanceRequest) returns (ChannelBalanceResponse);
 
@@ -2133,14 +2134,40 @@ message WalletBalanceResponse {
     int64 unconfirmed_balance = 3;
 }
 
+message Amount {
+    // Value denominated in satoshis.
+    uint64 sat = 1;
+
+    // Value denominated in milli-satoshis.
+    uint64 msat = 2;
+}
+
 message ChannelBalanceRequest {
 }
 message ChannelBalanceResponse {
-    // Sum of channels balances denominated in satoshis
-    int64 balance = 1;
+    // Deprecated. Sum of channels balances denominated in satoshis
+    int64 balance = 1 [deprecated = true];
 
-    // Sum of channels pending balances denominated in satoshis
-    int64 pending_open_balance = 2;
+    // Deprecated. Sum of channels pending balances denominated in satoshis
+    int64 pending_open_balance = 2 [deprecated = true];
+
+    // Sum of channels local balances.
+    Amount local_balance = 3;
+
+    // Sum of channels remote balances.
+    Amount remote_balance = 4;
+
+    // Sum of channels local unsettled balances.
+    Amount unsettled_local_balance = 5;
+
+    // Sum of channels remote unsettled balances.
+    Amount unsettled_remote_balance = 6;
+
+    // Sum of channels pending local balances.
+    Amount pending_open_local_balance = 7;
+
+    // Sum of channels pending remote balances.
+    Amount pending_open_remote_balance = 8;
 }
 
 message QueryRoutesRequest {

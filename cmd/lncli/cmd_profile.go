@@ -117,7 +117,7 @@ func profileAdd(ctx *cli.Context) error {
 	}
 
 	// Create a profile struct from all the global options.
-	profile, err := profileFromContext(ctx, true)
+	profile, err := profileFromContext(ctx, true, false)
 	if err != nil {
 		return fmt.Errorf("could not load global options: %v", err)
 	}

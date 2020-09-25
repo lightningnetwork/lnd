@@ -2946,7 +2946,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// htlcs, an extra block is added to prevent the channel from being
 	// closed when the htlc is outstanding and a new block comes in.
 	pCfg := peer.Config{
-		Conn:                    conn,
+		Conn:                    brontideConn,
 		ConnReq:                 connReq,
 		Addr:                    peerAddr,
 		Inbound:                 inbound,

@@ -2,9 +2,41 @@ package chanbackup
 
 import (
 	"bytes"
+	"fmt"
 	"net"
 	"testing"
+
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnencrypt"
 )
+
+var (
+	testWalletPrivKey = []byte{
+		0x2b, 0xd8, 0x06, 0xc9, 0x7f, 0x0e, 0x00, 0xaf,
+		0x1a, 0x1f, 0xc3, 0x32, 0x8f, 0xa7, 0x63, 0xa9,
+		0x26, 0x97, 0x23, 0xc8, 0xdb, 0x8f, 0xac, 0x4f,
+		0x93, 0xaf, 0x71, 0xdb, 0x18, 0x6d, 0x6e, 0x90,
+	}
+)
+
+type mockKeyRing struct {
+	fail bool
+}
+
+func (m *mockKeyRing) DeriveNextKey(keyFam keychain.KeyFamily) (keychain.KeyDescriptor, error) {
+	return keychain.KeyDescriptor{}, nil
+}
+func (m *mockKeyRing) DeriveKey(keyLoc keychain.KeyLocator) (keychain.KeyDescriptor, error) {
+	if m.fail {
+		return keychain.KeyDescriptor{}, fmt.Errorf("fail")
+	}
+
+	_, pub := btcec.PrivKeyFromBytes(btcec.S256(), testWalletPrivKey)
+	return keychain.KeyDescriptor{
+		PubKey: pub,
+	}, nil
+}
 
 // TestMultiPackUnpack...
 func TestMultiPackUnpack(t *testing.T) {
@@ -97,7 +129,7 @@ func TestMultiPackUnpack(t *testing.T) {
 			fakeRawMulti := bytes.NewBuffer(
 				bytes.Repeat([]byte{99}, 20),
 			)
-			err := encryptPayloadToWriter(
+			err := lnencrypt.EncryptPayloadToWriter(
 				*fakeRawMulti, &fakePackedMulti, keyRing,
 			)
 			if err != nil {

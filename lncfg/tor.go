@@ -1,5 +1,16 @@
 package lncfg
 
+import "errors"
+
+var (
+	// ErrEncryptedTorPrivateKey is thrown when a tor private key is
+	// encrypted, but the user requested an unencrypted key.
+	ErrEncryptedTorPrivateKey = errors.New("it appears the Tor private key " +
+		"is encrypted but you didn't pass the --tor.encryptkey flag. " +
+		"Please restart lnd with the --tor.encryptkey flag or delete " +
+		"the Tor key file for regeneration")
+)
+
 // Tor holds the configuration options for the daemon's connection to tor.
 type Tor struct {
 	Active            bool   `long:"active" description:"Allow outbound and inbound connections to be routed through Tor"`
@@ -12,5 +23,6 @@ type Tor struct {
 	V2                bool   `long:"v2" description:"Automatically set up a v2 onion service to listen for inbound connections"`
 	V3                bool   `long:"v3" description:"Automatically set up a v3 onion service to listen for inbound connections"`
 	PrivateKeyPath    string `long:"privatekeypath" description:"The path to the private key of the onion service being created"`
+	EncryptKey        bool   `long:"encryptkey" description:"Encrypts the Tor private key file on disk"`
 	WatchtowerKeyPath string `long:"watchtowerkeypath" description:"The path to the private key of the watchtower onion service being created"`
 }

@@ -29,7 +29,7 @@ func (b NeutrinoBackendConfig) GenArgs() []string {
 
 // ConnectMiner is called to establish a connection to the test miner.
 func (b NeutrinoBackendConfig) ConnectMiner() error {
-	return fmt.Errorf("unimplemented")
+	return nil
 }
 
 // DisconnectMiner is called to disconnect the miner.
@@ -44,12 +44,12 @@ func (b NeutrinoBackendConfig) Name() string {
 
 // NewBackend starts and returns a NeutrinoBackendConfig for the node.
 func NewBackend(miner string, _ *chaincfg.Params) (
-	*NeutrinoBackendConfig, func(), error) {
+	*NeutrinoBackendConfig, func() error, error) {
 
 	bd := &NeutrinoBackendConfig{
 		minerAddr: miner,
 	}
 
-	cleanUp := func() {}
+	cleanUp := func() error { return nil }
 	return bd, cleanUp, nil
 }

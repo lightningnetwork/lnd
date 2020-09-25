@@ -2283,6 +2283,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 		"--rejectnonstd",
 		"--txindex",
 		"--nowinservice",
+		"--nobanning",
 	}
 	tempMiner, err := rpctest.New(
 		harnessNetParams, &rpcclient.NotificationHandlers{}, args,
@@ -2293,7 +2294,12 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	if err := tempMiner.SetUp(false, 0); err != nil {
 		t.Fatalf("unable to set up mining node: %v", err)
 	}
-	defer tempMiner.TearDown()
+	defer func() {
+		require.NoError(
+			t.t, tempMiner.TearDown(),
+			"failed to tear down temp miner",
+		)
+	}()
 
 	// We start by connecting the new miner to our original miner,
 	// such that it will sync to our original chain.
@@ -13936,6 +13942,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		"--logdir=" + minerLogDir,
 		"--trickleinterval=100ms",
 		"--nowinservice",
+		"--nobanning",
 	}
 	handlers := &rpcclient.NotificationHandlers{
 		OnTxAccepted: func(hash *chainhash.Hash, amt btcutil.Amount) {
@@ -13948,7 +13955,9 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		ht.Fatalf("unable to create mining node: %v", err)
 	}
 	defer func() {
-		miner.TearDown()
+		require.NoError(
+			t, miner.TearDown(), "failed to tear down miner",
+		)
 
 		// After shutting down the miner, we'll make a copy of the log
 		// file before deleting the temporary log dir.
@@ -13972,7 +13981,11 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	if err != nil {
 		ht.Fatalf("unable to start backend: %v", err)
 	}
-	defer cleanUp()
+	defer func() {
+		require.NoError(
+			t, cleanUp(), "failed to clean up chain backend",
+		)
+	}()
 
 	if err := miner.SetUp(true, 50); err != nil {
 		ht.Fatalf("unable to set up mining node: %v", err)
@@ -13980,6 +13993,12 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	if err := miner.Node.NotifyNewTransactions(false); err != nil {
 		ht.Fatalf("unable to request transaction notifications: %v", err)
 	}
+
+	// Connect chainbackend to miner.
+	require.NoError(
+		t, chainBackend.ConnectMiner(),
+		"failed to connect to miner",
+	)
 
 	binary := itestLndBinary
 	if runtime.GOOS == "windows" {

@@ -52,7 +52,9 @@ func (e *profileEntry) cert() (*x509.CertPool, error) {
 // exists, these global options might be read from a predefined profile. If no
 // profile exists, the global options from the command line are returned as an
 // ephemeral profile entry.
-func getGlobalOptions(ctx *cli.Context) (*profileEntry, error) {
+func getGlobalOptions(ctx *cli.Context, skipMacaroons bool) (*profileEntry,
+	error) {
+
 	var profileName string
 
 	// Try to load the default profile file and depending on its existence
@@ -62,7 +64,7 @@ func getGlobalOptions(ctx *cli.Context) (*profileEntry, error) {
 	// The legacy case where no profile file exists and the user also didn't
 	// request to use one. We only consider the global options here.
 	case err == errNoProfileFile && !ctx.GlobalIsSet("profile"):
-		return profileFromContext(ctx, false)
+		return profileFromContext(ctx, false, skipMacaroons)
 
 	// The file doesn't exist but the user specified an explicit profile.
 	case err == errNoProfileFile && ctx.GlobalIsSet("profile"):
@@ -78,13 +80,13 @@ func getGlobalOptions(ctx *cli.Context) (*profileEntry, error) {
 	// setting the flag to an empty string. We fall back to the default/old
 	// behavior.
 	case ctx.GlobalIsSet("profile") && ctx.GlobalString("profile") == "":
-		return profileFromContext(ctx, false)
+		return profileFromContext(ctx, false, skipMacaroons)
 
 	// There is a file, but no default profile is specified. The user also
 	// didn't specify a profile to use so we fall back to the default/old
 	// behavior.
 	case !ctx.GlobalIsSet("profile") && len(f.Default) == 0:
-		return profileFromContext(ctx, false)
+		return profileFromContext(ctx, false, skipMacaroons)
 
 	// The user didn't specify a profile but there is a default one defined.
 	case !ctx.GlobalIsSet("profile") && len(f.Default) > 0:
@@ -109,7 +111,9 @@ func getGlobalOptions(ctx *cli.Context) (*profileEntry, error) {
 
 // profileFromContext creates an ephemeral profile entry from the global options
 // set in the CLI context.
-func profileFromContext(ctx *cli.Context, store bool) (*profileEntry, error) {
+func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
+	*profileEntry, error) {
+
 	// Parse the paths of the cert and macaroon. This will validate the
 	// chain and network value as well.
 	tlsCertPath, macPath, err := extractPathArgs(ctx)
@@ -127,6 +131,22 @@ func profileFromContext(ctx *cli.Context, store bool) (*profileEntry, error) {
 			return nil, fmt.Errorf("could not load TLS cert file "+
 				"%s: %v", tlsCertPath, err)
 		}
+	}
+
+	entry := &profileEntry{
+		RPCServer:   ctx.GlobalString("rpcserver"),
+		LndDir:      lncfg.CleanAndExpandPath(ctx.GlobalString("lnddir")),
+		Chain:       ctx.GlobalString("chain"),
+		Network:     ctx.GlobalString("network"),
+		NoMacaroons: ctx.GlobalBool("no-macaroons"),
+		TLSCert:     string(tlsCert),
+	}
+
+	// If we aren't using macaroons in general (flag --no-macaroons) or
+	// don't need macaroons for this command (wallet unlocker), we can now
+	// return already.
+	if skipMacaroons || ctx.GlobalBool("no-macaroons") {
+		return entry, nil
 	}
 
 	// Now load and possibly encrypt the macaroon file.
@@ -166,22 +186,16 @@ func profileFromContext(ctx *cli.Context, store bool) (*profileEntry, error) {
 		macEntry.Name = strings.TrimSuffix(macEntry.Name, ".macaroon")
 	}
 
-	// Now that we have the complicated arguments behind us, let's return
-	// the new entry with all the values populated.
-	return &profileEntry{
-		RPCServer:   ctx.GlobalString("rpcserver"),
-		LndDir:      lncfg.CleanAndExpandPath(ctx.GlobalString("lnddir")),
-		Chain:       ctx.GlobalString("chain"),
-		Network:     ctx.GlobalString("network"),
-		NoMacaroons: ctx.GlobalBool("no-macaroons"),
-		TLSCert:     string(tlsCert),
-		Macaroons: &macaroonJar{
-			Default: macEntry.Name,
-			Timeout: ctx.GlobalInt64("macaroontimeout"),
-			IP:      ctx.GlobalString("macaroonip"),
-			Jar:     []*macaroonEntry{macEntry},
-		},
-	}, nil
+	// Now that we have the macaroon jar as well, let's return the entry
+	// with all the values populated.
+	entry.Macaroons = &macaroonJar{
+		Default: macEntry.Name,
+		Timeout: ctx.GlobalInt64("macaroontimeout"),
+		IP:      ctx.GlobalString("macaroonip"),
+		Jar:     []*macaroonEntry{macEntry},
+	}
+
+	return entry, nil
 }
 
 // loadProfileFile tries to load the file specified and JSON deserialize it into

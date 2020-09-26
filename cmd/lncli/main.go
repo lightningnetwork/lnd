@@ -70,7 +70,7 @@ func getClient(ctx *cli.Context) (lnrpc.LightningClient, func()) {
 func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 	// First, we'll get the selected stored profile or an ephemeral one
 	// created from the global options in the CLI context.
-	profile, err := getGlobalOptions(ctx)
+	profile, err := getGlobalOptions(ctx, skipMacaroons)
 	if err != nil {
 		fatal(fmt.Errorf("could not load global options: %v", err))
 	}

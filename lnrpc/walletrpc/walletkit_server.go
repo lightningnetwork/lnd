@@ -473,6 +473,13 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 		})
 	}
 
+	// Then, we'll extract the minimum number of confirmations that each
+	// output we use to fund the transaction should satisfy.
+	minConfs, err := lnrpc.ExtractMinConfs(req.MinConfs, req.SpendUnconfirmed)
+	if err != nil {
+		return nil, err
+	}
+
 	label, err := labels.ValidateAPI(req.Label)
 	if err != nil {
 		return nil, err
@@ -481,7 +488,7 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 	// Now that we have the outputs mapped, we can request that the wallet
 	// attempt to create this transaction.
 	tx, err := w.cfg.Wallet.SendOutputs(
-		outputsToCreate, chainfee.SatPerKWeight(req.SatPerKw), label,
+		outputsToCreate, chainfee.SatPerKWeight(req.SatPerKw), minConfs, label,
 	)
 	if err != nil {
 		return nil, err

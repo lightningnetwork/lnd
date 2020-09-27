@@ -78,7 +78,7 @@ func (w *WalletController) IsOurAddress(a btcutil.Address) bool {
 
 // SendOutputs currently returns dummy values.
 func (w *WalletController) SendOutputs(outputs []*wire.TxOut,
-	_ chainfee.SatPerKWeight, _ string) (*wire.MsgTx, error) {
+	_ chainfee.SatPerKWeight, _ int32, _ string) (*wire.MsgTx, error) {
 
 	return nil, nil
 }

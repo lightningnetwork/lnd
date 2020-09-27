@@ -21,8 +21,7 @@ import (
 )
 
 const (
-	defaultUtxoMinConf = 1
-	userMsgFund        = `PSBT funding initiated with peer %x.
+	userMsgFund = `PSBT funding initiated with peer %x.
 Please create a PSBT that sends %v (%d satoshi) to the funding address %s.
 
 Note: The whole process should be completed within 10 minutes, otherwise there
@@ -43,7 +42,7 @@ Paste the funded PSBT here to continue the funding flow.
 Base64 encoded PSBT: `
 
 	userMsgSign = `
-PSBT verified by lnd, please continue the funding flow by signing the PSBT by 
+PSBT verified by lnd, please continue the funding flow by signing the PSBT by
 all required parties/devices. Once the transaction is fully signed, paste it
 again here either in base64 PSBT or hex encoded raw wire TX format.
 
@@ -68,7 +67,7 @@ var openChannelCommand = cli.Command{
 	amount to the remote node as part of the channel opening. Once the channel is open,
 	a channelPoint (txid:vout) of the funding output is returned.
 
-	If the remote peer supports the option upfront shutdown feature bit (query 
+	If the remote peer supports the option upfront shutdown feature bit (query
 	listpeers to see their supported feature bits), an address to enforce
 	payout of funds on cooperative close can optionally be provided. Note that
 	if you set this value, you will not be able to cooperatively close out to

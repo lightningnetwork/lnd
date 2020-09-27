@@ -233,6 +233,13 @@ message SendOutputsRequest {
 
     // An optional label for the transaction, limited to 500 characters.
     string label = 3;
+
+    // The minimum number of confirmations each one of your outputs used for
+    // the transaction must satisfy.
+    int32 min_confs = 4;
+
+    // Whether unconfirmed outputs should be used as inputs for the transaction.
+    bool spend_unconfirmed = 5;
 }
 message SendOutputsResponse {
     /*

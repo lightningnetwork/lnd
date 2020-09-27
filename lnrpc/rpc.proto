@@ -863,6 +863,13 @@ message SendManyRequest {
 
     // An optional label for the transaction, limited to 500 characters.
     string label = 6;
+
+    // The minimum number of confirmations each one of your outputs used for
+    // the transaction must satisfy.
+    int32 min_confs = 7;
+
+    // Whether unconfirmed outputs should be used as inputs for the transaction.
+    bool spend_unconfirmed = 8;
 }
 message SendManyResponse {
     // The id of the transaction
@@ -893,6 +900,13 @@ message SendCoinsRequest {
 
     // An optional label for the transaction, limited to 500 characters.
     string label = 7;
+
+    // The minimum number of confirmations each one of your outputs used for
+    // the transaction must satisfy.
+    int32 min_confs = 8;
+
+    // Whether unconfirmed outputs should be used as inputs for the transaction.
+    bool spend_unconfirmed = 9;
 }
 message SendCoinsResponse {
     // The transaction ID of the transaction

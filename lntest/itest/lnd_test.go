@@ -2339,27 +2339,24 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 
 	// Set up a new miner that we can use to cause a reorg.
-	args := []string{
-		"--rejectnonstd",
-		"--txindex",
-		"--nowinservice",
-		"--nobanning",
-	}
-	tempMiner, err := rpctest.New(
-		harnessNetParams, &rpcclient.NotificationHandlers{}, args,
+	tempLogDir := "./.tempminerlogs"
+	logFilename := "output-open_channel_reorg-temp_miner.log"
+	tempMiner, tempMinerCleanUp, err := lntest.NewMiner(
+		tempLogDir, logFilename,
+		harnessNetParams, &rpcclient.NotificationHandlers{},
 	)
-	if err != nil {
-		t.Fatalf("unable to create mining node: %v", err)
-	}
-	if err := tempMiner.SetUp(false, 0); err != nil {
-		t.Fatalf("unable to set up mining node: %v", err)
-	}
+	require.NoError(t.t, err, "failed to create temp miner")
 	defer func() {
 		require.NoError(
-			t.t, tempMiner.TearDown(),
-			"failed to tear down temp miner",
+			t.t, tempMinerCleanUp(),
+			"failed to clean up temp miner",
 		)
 	}()
+
+	// Setup the temp miner
+	require.NoError(
+		t.t, tempMiner.SetUp(false, 0), "unable to set up mining node",
+	)
 
 	// We start by connecting the new miner to our original miner,
 	// such that it will sync to our original chain.
@@ -14060,43 +14057,18 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	//
 	// We will also connect it to our chain backend.
 	minerLogDir := "./.minerlogs"
-	args := []string{
-		"--rejectnonstd",
-		"--txindex",
-		"--debuglevel=debug",
-		"--logdir=" + minerLogDir,
-		"--trickleinterval=100ms",
-		"--nowinservice",
-		"--nobanning",
-	}
 	handlers := &rpcclient.NotificationHandlers{
 		OnTxAccepted: func(hash *chainhash.Hash, amt btcutil.Amount) {
 			lndHarness.OnTxAccepted(hash)
 		},
 	}
-
-	miner, err := rpctest.New(harnessNetParams, handlers, args)
-	if err != nil {
-		ht.Fatalf("unable to create mining node: %v", err)
-	}
+	miner, minerCleanUp, err := lntest.NewMiner(
+		minerLogDir, "output_btcd_miner.log",
+		harnessNetParams, handlers,
+	)
+	require.NoError(t, err, "failed to create new miner")
 	defer func() {
-		require.NoError(
-			t, miner.TearDown(), "failed to tear down miner",
-		)
-
-		// After shutting down the miner, we'll make a copy of the log
-		// file before deleting the temporary log dir.
-		logFile := fmt.Sprintf(
-			"%s/%s/btcd.log", minerLogDir, harnessNetParams.Name,
-		)
-		err := lntest.CopyFile("./output_btcd_miner.log", logFile)
-		if err != nil {
-			fmt.Printf("unable to copy file: %v\n", err)
-		}
-		if err = os.RemoveAll(minerLogDir); err != nil {
-			fmt.Printf("Cannot remove dir %s: %v\n",
-				minerLogDir, err)
-		}
+		require.NoError(t, minerCleanUp(), "failed to clean up miner")
 	}()
 
 	// Start a chain backend.

@@ -16,8 +16,6 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/chain"
-	"github.com/btcsuite/btcwallet/wallet"
-	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainntnfs/bitcoindnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
@@ -130,29 +128,26 @@ type chainControl struct {
 	minHtlcIn lnwire.MilliSatoshi
 }
 
-// newChainControlFromConfig attempts to create a chainControl instance
-// according to the parameters in the passed lnd configuration. Currently three
+// newChainControl attempts to create a chainControl instance according
+// to the parameters in the passed configuration. Currently three
 // branches of chainControl instances exist: one backed by a running btcd
 // full-node, another backed by a running bitcoind full-node, and the other
 // backed by a running neutrino light client instance. When running with a
 // neutrino light client instance, `neutrinoCS` must be non-nil.
-func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
-	privateWalletPw, publicWalletPw []byte, birthday time.Time,
-	recoveryWindow uint32, wallet *wallet.Wallet,
-	neutrinoCS *neutrino.ChainService) (*chainControl, error) {
+func newChainControl(cfg *chainreg.Config) (*chainControl, error) {
 
 	// Set the RPC config from the "home" chain. Multi-chain isn't yet
 	// active, so we'll restrict usage to a particular chain for now.
 	homeChainConfig := cfg.Bitcoin
-	if cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
+	if cfg.PrimaryChain() == chainreg.LitecoinChain {
 		homeChainConfig = cfg.Litecoin
 	}
 	ltndLog.Infof("Primary chain is set to: %v",
-		cfg.registeredChains.PrimaryChain())
+		cfg.PrimaryChain())
 
 	cc := &chainControl{}
 
-	switch cfg.registeredChains.PrimaryChain() {
+	switch cfg.PrimaryChain() {
 	case chainreg.BitcoinChain:
 		cc.routingPolicy = htlcswitch.ForwardingPolicy{
 			MinHTLCOut:    cfg.Bitcoin.MinHTLCOut,
@@ -178,18 +173,18 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 		)
 	default:
 		return nil, fmt.Errorf("default routing policy for chain %v is "+
-			"unknown", cfg.registeredChains.PrimaryChain())
+			"unknown", cfg.PrimaryChain())
 	}
 
 	walletConfig := &btcwallet.Config{
-		PrivatePass:    privateWalletPw,
-		PublicPass:     publicWalletPw,
-		Birthday:       birthday,
-		RecoveryWindow: recoveryWindow,
+		PrivatePass:    cfg.PrivateWalletPw,
+		PublicPass:     cfg.PublicWalletPw,
+		Birthday:       cfg.Birthday,
+		RecoveryWindow: cfg.RecoveryWindow,
 		DataDir:        homeChainConfig.ChainDir,
 		NetParams:      cfg.ActiveNetParams.Params,
 		CoinType:       cfg.ActiveNetParams.CoinType,
-		Wallet:         wallet,
+		Wallet:         cfg.Wallet,
 	}
 
 	var err error
@@ -202,7 +197,9 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 	}
 
 	// Initialize the height hint cache within the chain directory.
-	hintCache, err := chainntnfs.NewHeightHintCache(heightHintCacheConfig, localDB)
+	hintCache, err := chainntnfs.NewHeightHintCache(
+		heightHintCacheConfig, cfg.LocalChanDB,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to initialize height hint "+
 			"cache: %v", err)
@@ -217,9 +214,9 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 		// along with the wallet's ChainSource, which are all backed by
 		// the neutrino light client.
 		cc.chainNotifier = neutrinonotify.New(
-			neutrinoCS, hintCache, hintCache,
+			cfg.NeutrinoCS, hintCache, hintCache,
 		)
-		cc.chainView, err = chainview.NewCfFilteredChainView(neutrinoCS)
+		cc.chainView, err = chainview.NewCfFilteredChainView(cfg.NeutrinoCS)
 		if err != nil {
 			return nil, err
 		}
@@ -236,7 +233,7 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 		}
 
 		walletConfig.ChainSource = chain.NewNeutrinoClient(
-			cfg.ActiveNetParams.Params, neutrinoCS,
+			cfg.ActiveNetParams.Params, cfg.NeutrinoCS,
 		)
 
 	case "bitcoind", "litecoind":
@@ -260,7 +257,7 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 			// btcd, which picks a different port so that btcwallet
 			// can use the same RPC port as bitcoind. We convert
 			// this back to the btcwallet/bitcoind port.
-			rpcPort, err := strconv.Atoi(cfg.ActiveNetParams.rpcPort)
+			rpcPort, err := strconv.Atoi(cfg.ActiveNetParams.RPCPort)
 			if err != nil {
 				return nil, err
 			}
@@ -395,7 +392,7 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 			btcdHost = btcdMode.RPCHost
 		} else {
 			btcdHost = fmt.Sprintf("%v:%v", btcdMode.RPCHost,
-				cfg.ActiveNetParams.rpcPort)
+				cfg.ActiveNetParams.RPCPort)
 		}
 
 		btcdUser := btcdMode.RPCUser
@@ -494,7 +491,7 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 
 	// Select the default channel constraints for the primary chain.
 	channelConstraints := defaultBtcChannelConstraints
-	if cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
+	if cfg.PrimaryChain() == chainreg.LitecoinChain {
 		channelConstraints = defaultLtcChannelConstraints
 	}
 
@@ -506,7 +503,7 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 	// Create, and start the lnwallet, which handles the core payment
 	// channel logic, and exposes control via proxy state machines.
 	walletCfg := lnwallet.Config{
-		Database:           remoteDB,
+		Database:           cfg.RemoteChanDB,
 		Notifier:           cc.chainNotifier,
 		WalletController:   wc,
 		Signer:             cc.signer,
@@ -622,7 +619,7 @@ type chainRegistry struct {
 	sync.RWMutex
 
 	activeChains map[chainreg.ChainCode]*chainControl
-	netParams    map[chainreg.ChainCode]*bitcoinNetParams
+	netParams    map[chainreg.ChainCode]*chainreg.BitcoinNetParams
 
 	primaryChain chainreg.ChainCode
 }
@@ -631,7 +628,7 @@ type chainRegistry struct {
 func newChainRegistry() *chainRegistry {
 	return &chainRegistry{
 		activeChains: make(map[chainreg.ChainCode]*chainControl),
-		netParams:    make(map[chainreg.ChainCode]*bitcoinNetParams),
+		netParams:    make(map[chainreg.ChainCode]*chainreg.BitcoinNetParams),
 	}
 }
 

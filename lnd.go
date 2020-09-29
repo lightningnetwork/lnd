@@ -450,11 +450,29 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	// When we create the chain control, we need storage for the height
 	// hints and also the wallet itself, for these two we want them to be
 	// replicated, so we'll pass in the remote channel DB instance.
-	activeChainControl, err := newChainControlFromConfig(
-		cfg, localChanDB, remoteChanDB, privateWalletPw, publicWalletPw,
-		walletInitParams.Birthday, walletInitParams.RecoveryWindow,
-		walletInitParams.Wallet, neutrinoCS,
-	)
+	chainControlCfg := &chainreg.Config{
+		Bitcoin:                     cfg.Bitcoin,
+		Litecoin:                    cfg.Litecoin,
+		PrimaryChain:                cfg.registeredChains.PrimaryChain,
+		HeightHintCacheQueryDisable: cfg.HeightHintCacheQueryDisable,
+		NeutrinoMode:                cfg.NeutrinoMode,
+		BitcoindMode:                cfg.BitcoindMode,
+		LitecoindMode:               cfg.LitecoindMode,
+		BtcdMode:                    cfg.BtcdMode,
+		LtcdMode:                    cfg.LtcdMode,
+		LocalChanDB:                 localChanDB,
+		RemoteChanDB:                remoteChanDB,
+		PrivateWalletPw:             privateWalletPw,
+		PublicWalletPw:              publicWalletPw,
+		Birthday:                    walletInitParams.Birthday,
+		RecoveryWindow:              walletInitParams.RecoveryWindow,
+		Wallet:                      walletInitParams.Wallet,
+		NeutrinoCS:                  neutrinoCS,
+		ActiveNetParams:             cfg.ActiveNetParams,
+		FeeURL:                      cfg.FeeURL,
+	}
+
+	activeChainControl, err := newChainControl(chainControlCfg)
 	if err != nil {
 		err := fmt.Errorf("unable to create chain control: %v", err)
 		ltndLog.Error(err)

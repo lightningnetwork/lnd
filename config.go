@@ -320,7 +320,7 @@ type Config struct {
 	networkDir string
 
 	// ActiveNetParams contains parameters of the target chain.
-	ActiveNetParams bitcoinNetParams
+	ActiveNetParams chainreg.BitcoinNetParams
 }
 
 // DefaultConfig returns all default values for the Config struct.
@@ -453,7 +453,7 @@ func DefaultConfig() Config {
 		LogWriter:               build.NewRotatingLogWriter(),
 		DB:                      lncfg.DefaultDB(),
 		registeredChains:        newChainRegistry(),
-		ActiveNetParams:         bitcoinTestNetParams,
+		ActiveNetParams:         chainreg.BitcoinTestNetParams,
 	}
 }
 
@@ -830,22 +830,22 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 		// number of network flags passed; assign active network params
 		// while we're at it.
 		numNets := 0
-		var ltcParams litecoinNetParams
+		var ltcParams chainreg.LitecoinNetParams
 		if cfg.Litecoin.MainNet {
 			numNets++
-			ltcParams = litecoinMainNetParams
+			ltcParams = chainreg.LitecoinMainNetParams
 		}
 		if cfg.Litecoin.TestNet3 {
 			numNets++
-			ltcParams = litecoinTestNetParams
+			ltcParams = chainreg.LitecoinTestNetParams
 		}
 		if cfg.Litecoin.RegTest {
 			numNets++
-			ltcParams = litecoinRegTestNetParams
+			ltcParams = chainreg.LitecoinRegTestNetParams
 		}
 		if cfg.Litecoin.SimNet {
 			numNets++
-			ltcParams = litecoinSimNetParams
+			ltcParams = chainreg.LitecoinSimNetParams
 		}
 
 		if numNets > 1 {
@@ -869,7 +869,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 		// throughout the codebase we required chaincfg.Params. So as a
 		// temporary hack, we'll mutate the default net params for
 		// bitcoin with the litecoin specific information.
-		applyLitecoinParams(&cfg.ActiveNetParams, &ltcParams)
+		chainreg.ApplyLitecoinParams(&cfg.ActiveNetParams, &ltcParams)
 
 		switch cfg.Litecoin.Node {
 		case "ltcd":
@@ -914,19 +914,19 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 		numNets := 0
 		if cfg.Bitcoin.MainNet {
 			numNets++
-			cfg.ActiveNetParams = bitcoinMainNetParams
+			cfg.ActiveNetParams = chainreg.BitcoinMainNetParams
 		}
 		if cfg.Bitcoin.TestNet3 {
 			numNets++
-			cfg.ActiveNetParams = bitcoinTestNetParams
+			cfg.ActiveNetParams = chainreg.BitcoinTestNetParams
 		}
 		if cfg.Bitcoin.RegTest {
 			numNets++
-			cfg.ActiveNetParams = bitcoinRegTestNetParams
+			cfg.ActiveNetParams = chainreg.BitcoinRegTestNetParams
 		}
 		if cfg.Bitcoin.SimNet {
 			numNets++
-			cfg.ActiveNetParams = bitcoinSimNetParams
+			cfg.ActiveNetParams = chainreg.BitcoinSimNetParams
 		}
 		if numNets > 1 {
 			str := "%s: The mainnet, testnet, regtest, and " +
@@ -1315,7 +1315,7 @@ func CleanAndExpandPath(path string) string {
 
 func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 	net chainreg.ChainCode, funcName string,
-	netParams bitcoinNetParams) error { // nolint:unparam
+	netParams chainreg.BitcoinNetParams) error { // nolint:unparam
 
 	// First, we'll check our node config to make sure the RPC parameters
 	// were set correctly. We'll also determine the path to the conf file

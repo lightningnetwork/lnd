@@ -23,6 +23,7 @@ import (
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/discovery"
@@ -873,7 +874,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 		switch cfg.Litecoin.Node {
 		case "ltcd":
 			err := parseRPCParams(cfg.Litecoin, cfg.LtcdMode,
-				litecoinChain, funcName, cfg.ActiveNetParams)
+				chainreg.LitecoinChain, funcName, cfg.ActiveNetParams)
 			if err != nil {
 				err := fmt.Errorf("unable to load RPC "+
 					"credentials for ltcd: %v", err)
@@ -885,7 +886,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 					"support simnet", funcName)
 			}
 			err := parseRPCParams(cfg.Litecoin, cfg.LitecoindMode,
-				litecoinChain, funcName, cfg.ActiveNetParams)
+				chainreg.LitecoinChain, funcName, cfg.ActiveNetParams)
 			if err != nil {
 				err := fmt.Errorf("unable to load RPC "+
 					"credentials for litecoind: %v", err)
@@ -899,11 +900,11 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 
 		cfg.Litecoin.ChainDir = filepath.Join(cfg.DataDir,
 			defaultChainSubDirname,
-			litecoinChain.String())
+			chainreg.LitecoinChain.String())
 
 		// Finally we'll register the litecoin chain as our current
 		// primary chain.
-		cfg.registeredChains.RegisterPrimaryChain(litecoinChain)
+		cfg.registeredChains.RegisterPrimaryChain(chainreg.LitecoinChain)
 		MaxFundingAmount = maxLtcFundingAmount
 
 	case cfg.Bitcoin.Active:
@@ -953,7 +954,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 		switch cfg.Bitcoin.Node {
 		case "btcd":
 			err := parseRPCParams(
-				cfg.Bitcoin, cfg.BtcdMode, bitcoinChain, funcName,
+				cfg.Bitcoin, cfg.BtcdMode, chainreg.BitcoinChain, funcName,
 				cfg.ActiveNetParams,
 			)
 			if err != nil {
@@ -968,7 +969,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 			}
 
 			err := parseRPCParams(
-				cfg.Bitcoin, cfg.BitcoindMode, bitcoinChain, funcName,
+				cfg.Bitcoin, cfg.BitcoindMode, chainreg.BitcoinChain, funcName,
 				cfg.ActiveNetParams,
 			)
 			if err != nil {
@@ -987,11 +988,11 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 
 		cfg.Bitcoin.ChainDir = filepath.Join(cfg.DataDir,
 			defaultChainSubDirname,
-			bitcoinChain.String())
+			chainreg.BitcoinChain.String())
 
 		// Finally we'll register the bitcoin chain as our current
 		// primary chain.
-		cfg.registeredChains.RegisterPrimaryChain(bitcoinChain)
+		cfg.registeredChains.RegisterPrimaryChain(chainreg.BitcoinChain)
 	}
 
 	// Ensure that the user didn't attempt to specify negative values for
@@ -1312,8 +1313,9 @@ func CleanAndExpandPath(path string) string {
 	return filepath.Clean(os.ExpandEnv(path))
 }
 
-func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{}, net chainCode,
-	funcName string, netParams bitcoinNetParams) error { // nolint:unparam
+func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
+	net chainreg.ChainCode, funcName string,
+	netParams bitcoinNetParams) error { // nolint:unparam
 
 	// First, we'll check our node config to make sure the RPC parameters
 	// were set correctly. We'll also determine the path to the conf file
@@ -1329,11 +1331,11 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{}, net chainCode,
 
 		// Get the daemon name for displaying proper errors.
 		switch net {
-		case bitcoinChain:
+		case chainreg.BitcoinChain:
 			daemonName = "btcd"
 			confDir = conf.Dir
 			confFile = "btcd"
-		case litecoinChain:
+		case chainreg.LitecoinChain:
 			daemonName = "ltcd"
 			confDir = conf.Dir
 			confFile = "ltcd"
@@ -1376,11 +1378,11 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{}, net chainCode,
 
 		// Get the daemon name for displaying proper errors.
 		switch net {
-		case bitcoinChain:
+		case chainreg.BitcoinChain:
 			daemonName = "bitcoind"
 			confDir = conf.Dir
 			confFile = "bitcoin"
-		case litecoinChain:
+		case chainreg.LitecoinChain:
 			daemonName = "litecoind"
 			confDir = conf.Dir
 			confFile = "litecoin"

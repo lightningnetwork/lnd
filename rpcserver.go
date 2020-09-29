@@ -32,6 +32,7 @@ import (
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/chanfitness"
@@ -4679,7 +4680,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	invoice *lnrpc.Invoice) (*lnrpc.AddInvoiceResponse, error) {
 
 	defaultDelta := r.cfg.Bitcoin.TimeLockDelta
-	if r.cfg.registeredChains.PrimaryChain() == litecoinChain {
+	if r.cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
 		defaultDelta = r.cfg.Litecoin.TimeLockDelta
 	}
 

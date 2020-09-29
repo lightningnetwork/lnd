@@ -27,6 +27,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/chanfitness"
@@ -974,7 +975,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	chainCfg := cfg.Bitcoin
 	minRemoteDelay := minBtcRemoteDelay
 	maxRemoteDelay := maxBtcRemoteDelay
-	if primaryChain == litecoinChain {
+	if primaryChain == chainreg.LitecoinChain {
 		chainCfg = cfg.Litecoin
 		minRemoteDelay = minLtcRemoteDelay
 		maxRemoteDelay = maxLtcRemoteDelay

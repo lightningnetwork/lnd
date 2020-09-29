@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/autopilot"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -211,7 +212,7 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config, cc *chainControl
 				reflect.ValueOf(nodeSigner),
 			)
 			defaultDelta := cfg.Bitcoin.TimeLockDelta
-			if cfg.registeredChains.PrimaryChain() == litecoinChain {
+			if cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
 				defaultDelta = cfg.Litecoin.TimeLockDelta
 			}
 			subCfgValue.FieldByName("DefaultCLTVExpiry").Set(

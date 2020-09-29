@@ -15,6 +15,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
@@ -3060,9 +3061,9 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// We'll determine our dust limit depending on which chain is active.
 	var ourDustLimit btcutil.Amount
 	switch f.cfg.RegisteredChains.PrimaryChain() {
-	case bitcoinChain:
+	case chainreg.BitcoinChain:
 		ourDustLimit = lnwallet.DefaultDustLimit()
-	case litecoinChain:
+	case chainreg.LitecoinChain:
 		ourDustLimit = defaultLitecoinDustLimit
 	}
 

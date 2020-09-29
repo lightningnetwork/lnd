@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs/bitcoindnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
@@ -102,30 +103,6 @@ var defaultLtcChannelConstraints = channeldb.ChannelConstraints{
 	MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 }
 
-// chainCode is an enum-like structure for keeping track of the chains
-// currently supported within lnd.
-type chainCode uint32
-
-const (
-	// bitcoinChain is Bitcoin's testnet chain.
-	bitcoinChain chainCode = iota
-
-	// litecoinChain is Litecoin's testnet chain.
-	litecoinChain
-)
-
-// String returns a string representation of the target chainCode.
-func (c chainCode) String() string {
-	switch c {
-	case bitcoinChain:
-		return "bitcoin"
-	case litecoinChain:
-		return "litecoin"
-	default:
-		return "kekcoin"
-	}
-}
-
 // chainControl couples the three primary interfaces lnd utilizes for a
 // particular chain together. A single chainControl instance will exist for all
 // the chains lnd is currently active on.
@@ -167,7 +144,7 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 	// Set the RPC config from the "home" chain. Multi-chain isn't yet
 	// active, so we'll restrict usage to a particular chain for now.
 	homeChainConfig := cfg.Bitcoin
-	if cfg.registeredChains.PrimaryChain() == litecoinChain {
+	if cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
 		homeChainConfig = cfg.Litecoin
 	}
 	ltndLog.Infof("Primary chain is set to: %v",
@@ -176,7 +153,7 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 	cc := &chainControl{}
 
 	switch cfg.registeredChains.PrimaryChain() {
-	case bitcoinChain:
+	case chainreg.BitcoinChain:
 		cc.routingPolicy = htlcswitch.ForwardingPolicy{
 			MinHTLCOut:    cfg.Bitcoin.MinHTLCOut,
 			BaseFee:       cfg.Bitcoin.BaseFee,
@@ -188,7 +165,7 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 			defaultBitcoinStaticFeePerKW,
 			defaultBitcoinStaticMinRelayFeeRate,
 		)
-	case litecoinChain:
+	case chainreg.LitecoinChain:
 		cc.routingPolicy = htlcswitch.ForwardingPolicy{
 			MinHTLCOut:    cfg.Litecoin.MinHTLCOut,
 			BaseFee:       cfg.Litecoin.BaseFee,
@@ -517,7 +494,7 @@ func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 
 	// Select the default channel constraints for the primary chain.
 	channelConstraints := defaultBtcChannelConstraints
-	if cfg.registeredChains.PrimaryChain() == litecoinChain {
+	if cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
 		channelConstraints = defaultLtcChannelConstraints
 	}
 
@@ -592,13 +569,13 @@ var (
 	})
 
 	// chainMap is a simple index that maps a chain's genesis hash to the
-	// chainCode enum for that chain.
-	chainMap = map[chainhash.Hash]chainCode{
-		bitcoinTestnetGenesis:  bitcoinChain,
-		litecoinTestnetGenesis: litecoinChain,
+	// ChainCode enum for that chain.
+	chainMap = map[chainhash.Hash]chainreg.ChainCode{
+		bitcoinTestnetGenesis:  chainreg.BitcoinChain,
+		litecoinTestnetGenesis: chainreg.LitecoinChain,
 
-		bitcoinMainnetGenesis:  bitcoinChain,
-		litecoinMainnetGenesis: litecoinChain,
+		bitcoinMainnetGenesis:  chainreg.BitcoinChain,
+		litecoinMainnetGenesis: chainreg.LitecoinChain,
 	}
 
 	// chainDNSSeeds is a map of a chain's hash to the set of DNS seeds
@@ -644,23 +621,25 @@ var (
 type chainRegistry struct {
 	sync.RWMutex
 
-	activeChains map[chainCode]*chainControl
-	netParams    map[chainCode]*bitcoinNetParams
+	activeChains map[chainreg.ChainCode]*chainControl
+	netParams    map[chainreg.ChainCode]*bitcoinNetParams
 
-	primaryChain chainCode
+	primaryChain chainreg.ChainCode
 }
 
 // newChainRegistry creates a new chainRegistry.
 func newChainRegistry() *chainRegistry {
 	return &chainRegistry{
-		activeChains: make(map[chainCode]*chainControl),
-		netParams:    make(map[chainCode]*bitcoinNetParams),
+		activeChains: make(map[chainreg.ChainCode]*chainControl),
+		netParams:    make(map[chainreg.ChainCode]*bitcoinNetParams),
 	}
 }
 
 // RegisterChain assigns an active chainControl instance to a target chain
-// identified by its chainCode.
-func (c *chainRegistry) RegisterChain(newChain chainCode, cc *chainControl) {
+// identified by its ChainCode.
+func (c *chainRegistry) RegisterChain(newChain chainreg.ChainCode,
+	cc *chainControl) {
+
 	c.Lock()
 	c.activeChains[newChain] = cc
 	c.Unlock()
@@ -668,7 +647,9 @@ func (c *chainRegistry) RegisterChain(newChain chainCode, cc *chainControl) {
 
 // LookupChain attempts to lookup an active chainControl instance for the
 // target chain.
-func (c *chainRegistry) LookupChain(targetChain chainCode) (*chainControl, bool) {
+func (c *chainRegistry) LookupChain(targetChain chainreg.ChainCode) (
+	*chainControl, bool) {
+
 	c.RLock()
 	cc, ok := c.activeChains[targetChain]
 	c.RUnlock()
@@ -691,7 +672,7 @@ func (c *chainRegistry) LookupChainByHash(chainHash chainhash.Hash) (*chainContr
 }
 
 // RegisterPrimaryChain sets a target chain as the "home chain" for lnd.
-func (c *chainRegistry) RegisterPrimaryChain(cc chainCode) {
+func (c *chainRegistry) RegisterPrimaryChain(cc chainreg.ChainCode) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -701,7 +682,7 @@ func (c *chainRegistry) RegisterPrimaryChain(cc chainCode) {
 // PrimaryChain returns the primary chain for this running lnd instance. The
 // primary chain is considered the "home base" while the other registered
 // chains are treated as secondary chains.
-func (c *chainRegistry) PrimaryChain() chainCode {
+func (c *chainRegistry) PrimaryChain() chainreg.ChainCode {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -709,11 +690,11 @@ func (c *chainRegistry) PrimaryChain() chainCode {
 }
 
 // ActiveChains returns a slice containing the active chains.
-func (c *chainRegistry) ActiveChains() []chainCode {
+func (c *chainRegistry) ActiveChains() []chainreg.ChainCode {
 	c.RLock()
 	defer c.RUnlock()
 
-	chains := make([]chainCode, 0, len(c.activeChains))
+	chains := make([]chainreg.ChainCode, 0, len(c.activeChains))
 	for activeChain := range c.activeChains {
 		chains = append(chains, activeChain)
 	}

@@ -36,6 +36,7 @@ import (
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/cert"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -297,7 +298,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	// light client instance, if enabled, in order to allow it to sync
 	// while the rest of the daemon continues startup.
 	mainChain := cfg.Bitcoin
-	if cfg.registeredChains.PrimaryChain() == litecoinChain {
+	if cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
 		mainChain = cfg.Litecoin
 	}
 	var neutrinoCS *neutrino.ChainService
@@ -1038,7 +1039,7 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 	defer grpcServer.GracefulStop()
 
 	chainConfig := cfg.Bitcoin
-	if cfg.registeredChains.PrimaryChain() == litecoinChain {
+	if cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
 		chainConfig = cfg.Litecoin
 	}
 

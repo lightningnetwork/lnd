@@ -231,3 +231,5 @@
 <time> [ERR] RPCS: [/signrpc.Signer/DeriveSharedKey]: use either raw_key_bytes or key_index
 <time> [ERR] RPCS: [/signrpc.Signer/DeriveSharedKey]: when setting key_desc the field key_desc.key_loc must also be set
 <time> [ERR] RPCS: [/signrpc.Signer/DeriveSharedKey]: must provide ephemeral pubkey
+<time> [ERR] BTCN: Can't accept connection: unable to accept connection from <ip>: chacha20poly1305: message authentication failed
+<time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to update commitment: link shutting down with error: internal error

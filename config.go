@@ -1176,9 +1176,10 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 
 	// For each of the RPC listeners (REST+gRPC), we'll ensure that users
 	// have specified a safe combo for authentication. If not, we'll bail
-	// out with an error.
+	// out with an error. Since we don't allow disabling TLS for gRPC
+	// connections we pass in tlsActive=true.
 	err = lncfg.EnforceSafeAuthentication(
-		cfg.RPCListeners, !cfg.NoMacaroons,
+		cfg.RPCListeners, !cfg.NoMacaroons, true,
 	)
 	if err != nil {
 		return nil, err
@@ -1189,7 +1190,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 		cfg.RESTListeners = nil
 	} else {
 		err = lncfg.EnforceSafeAuthentication(
-			cfg.RESTListeners, !cfg.NoMacaroons,
+			cfg.RESTListeners, !cfg.NoMacaroons, !cfg.DisableRestTLS,
 		)
 		if err != nil {
 			return nil, err

@@ -1,0 +1,43 @@
+# This workflow will inititiave a Veracide Static Analysis Pipeline scan, return a results.json and convert to SARIF for upload as a code scanning alert
+
+name: Veracode Static Analysis Pipeline Scan
+
+# Controls when the action will run. Triggers the workflow on push or pull request
+# events but only for the master branch
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a job to build and submit pipeline scan, you will need to customize the build process accordingly and make sure the artifact you build is used as the file input to the pipeline scan file parameter
+  build-and-pipeline-scan:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+    steps:
+
+    - uses: wei/curl@master
+      with:
+        args: -O https://downloads.veracode.com/securityscan/pipeline-scan-LATEST.zip
+    - run: unzip -o pipeline-scan-LATEST.zip
+    
+    - uses: actions/setup-java@v1
+      with:
+        java-version: 1.8
+    - run: java -Dpipeline.debug=true -jar pipeline-scan.jar --veracode_api_id "${{secrets.VERACODE_API_ID}}" --veracode_api_key "${{secrets.VERACODE_API_KEY}}" --fail_on_severity="Very High, High" --file "example.jar"
+      continue-on-error: true
+    - uses: actions/upload-artifact@v1
+      with:
+        name: ScanResults
+        path: results.json
+    - name: Convert pipeline scan output to SARIF format 
+      id: convert
+      uses: Lerer/veracode-pipeline-scan-results-to-sarif@v1.0.1
+      with:
+        pipeline-results-json: results.json
+    - uses: github/codeql-action/upload-sarif@v1
+      with:
+        # Path to SARIF file relative to the root of the repository
+        sarif_file: veracode-results.sarif

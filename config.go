@@ -96,7 +96,7 @@ const (
 	defaultChainInterval = time.Minute
 	defaultChainTimeout  = time.Second * 10
 	defaultChainBackoff  = time.Second * 30
-	defaultChainAttempts = 3
+	defaultChainAttempts = 0
 
 	// Set defaults for a health check which ensures that we have space
 	// available on disk. Although this check is off by default so that we

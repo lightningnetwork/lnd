@@ -329,6 +329,12 @@ func (w *WalletKit) LeaseOutput(ctx context.Context,
 		return nil, errors.New("id must be 32 random bytes")
 	}
 
+	// Don't allow our internal ID to be used externally for locking. Only
+	// unlocking is allowed.
+	if lockID == LndInternalLockID {
+		return nil, errors.New("reserved id cannot be used")
+	}
+
 	op, err := unmarshallOutPoint(req.Outpoint)
 	if err != nil {
 		return nil, err

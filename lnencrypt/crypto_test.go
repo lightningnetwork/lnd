@@ -1,4 +1,4 @@
-package chanbackup
+package lnencrypt
 
 import (
 	"bytes"
@@ -88,7 +88,7 @@ func TestEncryptDecryptPayload(t *testing.T) {
 
 		// First, we'll encrypt the passed payload with our scheme.
 		payloadReader := bytes.NewBuffer(payloadCase.plaintext)
-		err := encryptPayloadToWriter(
+		err := EncryptPayloadToWriter(
 			*payloadReader, &cipherBuffer, keyRing,
 		)
 		if err != nil {
@@ -107,7 +107,7 @@ func TestEncryptDecryptPayload(t *testing.T) {
 			cipherBuffer.Write(cipherText)
 		}
 
-		plaintext, err := decryptPayloadFromReader(&cipherBuffer, keyRing)
+		plaintext, err := DecryptPayloadFromReader(&cipherBuffer, keyRing)
 
 		switch {
 		// If this was meant to be a valid decryption, but we failed,
@@ -137,7 +137,7 @@ func TestInvalidKeyEncryption(t *testing.T) {
 	t.Parallel()
 
 	var b bytes.Buffer
-	err := encryptPayloadToWriter(b, &b, &mockKeyRing{true})
+	err := EncryptPayloadToWriter(b, &b, &mockKeyRing{true})
 	if err == nil {
 		t.Fatalf("expected error due to fail key gen")
 	}
@@ -149,7 +149,7 @@ func TestInvalidKeyDecrytion(t *testing.T) {
 	t.Parallel()
 
 	var b bytes.Buffer
-	_, err := decryptPayloadFromReader(&b, &mockKeyRing{true})
+	_, err := DecryptPayloadFromReader(&b, &mockKeyRing{true})
 	if err == nil {
 		t.Fatalf("expected error due to fail key gen")
 	}

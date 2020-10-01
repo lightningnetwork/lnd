@@ -91,8 +91,10 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 	)
 
 	// Now that we know the full path of the invoices macaroon, we can
-	// check to see if we need to create it or not.
-	if !lnrpc.FileExists(macFilePath) && cfg.MacService != nil {
+	// check to see if we need to create it or not. If stateless_init is set
+	// then we don't write the macaroons.
+	if cfg.MacService != nil && !cfg.MacService.StatelessInit &&
+		!fileExists(macFilePath) {
 		log.Infof("Baking macaroons for invoices RPC Server at: %v",
 			macFilePath)
 
@@ -309,4 +311,15 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 	return &AddHoldInvoiceResp{
 		PaymentRequest: string(dbInvoice.PaymentRequest),
 	}, nil
+}
+
+// fileExists reports whether the named file or directory exists.
+// This function is taken from https://github.com/btcsuite/btcd
+func fileExists(name string) bool {
+	if _, err := os.Stat(name); err != nil {
+		if os.IsNotExist(err) {
+			return false
+		}
+	}
+	return true
 }

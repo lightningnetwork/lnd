@@ -169,8 +169,11 @@ func (w *Standalone) createNewHiddenService() error {
 	onionCfg := tor.AddOnionConfig{
 		VirtualPort: DefaultPeerPort,
 		TargetPorts: listenPorts,
-		Store:       tor.NewOnionFile(w.cfg.WatchtowerKeyPath, 0600),
-		Type:        w.cfg.Type,
+		Store: tor.NewOnionFile(
+			w.cfg.WatchtowerKeyPath, 0600,
+			w.cfg.EncryptKey, w.cfg.KeyRing,
+		),
+		Type: w.cfg.Type,
 	}
 
 	addr, err := w.cfg.TorController.AddOnion(onionCfg)

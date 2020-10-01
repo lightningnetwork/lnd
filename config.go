@@ -51,6 +51,7 @@ const (
 	defaultRPCPort            = 10009
 	defaultRESTPort           = 8080
 	defaultPeerPort           = 9735
+	defaultExternalSSLPort    = 8787
 	defaultRPCHost            = "localhost"
 
 	defaultNoSeedBackup                  = false
@@ -170,6 +171,7 @@ type Config struct {
 	TLSExtraDomains    []string `long:"tlsextradomain" description:"Adds an extra domain to the generated certificate"`
 	TLSAutoRefresh     bool     `long:"tlsautorefresh" description:"Re-generate TLS certificate and key if the IPs or domains are changed"`
 	TLSDisableAutofill bool     `long:"tlsdisableautofill" description:"Do not include the interface IPs or the system hostname in TLS certificate, use first --tlsextradomain as Common Name instead, if set"`
+	TLSEncryptKey      bool     `long:"tlsencryptkey" description:"Automatically encrypts the TLS private key and generates ephemeral TLS key pairs when the wallet is locked or not initialized"`
 
 	NoMacaroons     bool          `long:"no-macaroons" description:"Disable macaroon authentication"`
 	AdminMacPath    string        `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
@@ -179,6 +181,10 @@ type Config struct {
 	MaxLogFiles     int           `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation)"`
 	MaxLogFileSize  int           `long:"maxlogfilesize" description:"Maximum logfile size in MB"`
 	AcceptorTimeout time.Duration `long:"acceptortimeout" description:"Time after which an RPCAcceptor will time out and return false if it hasn't yet received a response"`
+
+	ExternalSSLProvider string `long:"externalsslprovider" description:"The provider to use when requesting SSL Certificates"`
+	ExternalSSLPort     int    `long:"externalsslport" description:"The port on which lnd will listen for certificate validation challenges."`
+	ExternalSSLDomain   string `long:"externalssldomain" description:"Request an external certificate for this domain"`
 
 	// We'll parse these 'raw' string arguments into real net.Addrs in the
 	// loadConfig function. We need to expose the 'raw' strings so the
@@ -313,6 +319,7 @@ func DefaultConfig() Config {
 		DebugLevel:      defaultLogLevel,
 		TLSCertPath:     defaultTLSCertPath,
 		TLSKeyPath:      defaultTLSKeyPath,
+		ExternalSSLPort: defaultExternalSSLPort,
 		LogDir:          defaultLogDir,
 		MaxLogFiles:     defaultMaxLogFiles,
 		MaxLogFileSize:  defaultMaxLogFileSize,
@@ -379,13 +386,13 @@ func DefaultConfig() Config {
 		ChanEnableTimeout:             defaultChanEnableTimeout,
 		ChanDisableTimeout:            defaultChanDisableTimeout,
 		HeightHintCacheQueryDisable:   defaultHeightHintCacheQueryDisable,
-		Alias:                         defaultAlias,
-		Color:                         defaultColor,
-		MinChanSize:                   int64(minChanFundingSize),
-		MaxChanSize:                   int64(0),
-		DefaultRemoteMaxHtlcs:         defaultRemoteMaxHtlcs,
-		NumGraphSyncPeers:             defaultMinPeers,
-		HistoricalSyncInterval:        discovery.DefaultHistoricalSyncInterval,
+		Alias:                  defaultAlias,
+		Color:                  defaultColor,
+		MinChanSize:            int64(minChanFundingSize),
+		MaxChanSize:            int64(0),
+		DefaultRemoteMaxHtlcs:  defaultRemoteMaxHtlcs,
+		NumGraphSyncPeers:      defaultMinPeers,
+		HistoricalSyncInterval: discovery.DefaultHistoricalSyncInterval,
 		Tor: &lncfg.Tor{
 			SOCKS:   defaultTorSOCKS,
 			DNS:     defaultTorDNS,
@@ -506,6 +513,15 @@ func LoadConfig() (*Config, error) {
 	return cleanCfg, nil
 }
 
+func contains(s []string, e string) bool {
+	for _, a := range s {
+		if a == e {
+			return true
+		}
+	}
+	return false
+}
+
 // ValidateConfig check the given configuration to be sane. This makes sure no
 // illegal values or combination of values are set. All file system paths are
 // normalized. The cleaned up config is returned on success.
@@ -525,6 +541,24 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 		if cfg.Watchtower.TowerDir == defaultTowerDir {
 			cfg.Watchtower.TowerDir =
 				filepath.Join(cfg.DataDir, defaultTowerSubDirname)
+		}
+	}
+
+	if cfg.ExternalSSLProvider != "" {
+		if cfg.ExternalSSLDomain == "" {
+			return nil, fmt.Errorf("you must supply a domain when requesting external certificates")
+		}
+
+		supportedSSLProviders := []string{"zerossl"}
+		isSupported := contains(supportedSSLProviders, cfg.ExternalSSLProvider)
+		if !isSupported {
+			return nil, fmt.Errorf("Received unsupported external ssl provider: %s", cfg.ExternalSSLProvider)
+		}
+
+		if cfg.ExternalSSLProvider != "" {
+			if err := os.MkdirAll(fmt.Sprintf("%s/%s/", lndDir, cfg.ExternalSSLProvider), 0700); err != nil {
+				return nil, err
+			}
 		}
 	}
 

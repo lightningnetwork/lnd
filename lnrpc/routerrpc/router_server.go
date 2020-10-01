@@ -130,16 +130,6 @@ type Server struct {
 // gRPC service.
 var _ RouterServer = (*Server)(nil)
 
-// fileExists reports whether the named file or directory exists.
-func fileExists(name string) bool {
-	if _, err := os.Stat(name); err != nil {
-		if os.IsNotExist(err) {
-			return false
-		}
-	}
-	return true
-}
-
 // New creates a new instance of the RouterServer given a configuration struct
 // that contains all external dependencies. If the target macaroon exists, and
 // we're unable to create it, then an error will be returned. We also return
@@ -155,9 +145,11 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 	}
 
 	// Now that we know the full path of the router macaroon, we can check
-	// to see if we need to create it or not.
+	// to see if we need to create it or not. If stateless_init is set
+	// then we don't write the macaroons.
 	macFilePath := cfg.RouterMacPath
-	if !fileExists(macFilePath) && cfg.MacService != nil {
+	if cfg.MacService != nil && !cfg.MacService.StatelessInit &&
+		!fileExists(macFilePath) {
 		log.Infof("Making macaroons for Router RPC Server at: %v",
 			macFilePath)
 
@@ -639,4 +631,15 @@ func (s *Server) HtlcInterceptor(stream Router_HtlcInterceptorServer) error {
 
 	// run the forward interceptor.
 	return newForwardInterceptor(s, stream).run()
+}
+
+// fileExists reports whether the named file or directory exists.
+// This function is taken from https://github.com/btcsuite/btcd
+func fileExists(name string) bool {
+	if _, err := os.Stat(name); err != nil {
+		if os.IsNotExist(err) {
+			return false
+		}
+	}
+	return true
 }

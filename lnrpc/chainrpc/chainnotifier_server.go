@@ -71,16 +71,6 @@ var (
 		"still in the process of starting")
 )
 
-// fileExists reports whether the named file or directory exists.
-func fileExists(name string) bool {
-	if _, err := os.Stat(name); err != nil {
-		if os.IsNotExist(err) {
-			return false
-		}
-	}
-	return true
-}
-
 // Server is a sub-server of the main RPC server: the chain notifier RPC. This
 // RPC sub-server allows external callers to access the full chain notifier
 // capabilities of lnd. This allows callers to create custom protocols, external
@@ -110,9 +100,11 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 	}
 
 	// Now that we know the full path of the chain notifier macaroon, we can
-	// check to see if we need to create it or not.
+	// check to see if we need to create it or not. If stateless_init is set
+	// then we don't write the macaroons.
 	macFilePath := cfg.ChainNotifierMacPath
-	if cfg.MacService != nil && !fileExists(macFilePath) {
+	if cfg.MacService != nil && !cfg.MacService.StatelessInit &&
+		!fileExists(macFilePath) {
 		log.Infof("Baking macaroons for ChainNotifier RPC Server at: %v",
 			macFilePath)
 
@@ -490,4 +482,15 @@ func (s *Server) RegisterBlockEpochNtfn(in *BlockEpoch,
 			return ErrChainNotifierServerShuttingDown
 		}
 	}
+}
+
+// fileExists reports whether the named file or directory exists.
+// This function is taken from https://github.com/btcsuite/btcd
+func fileExists(name string) bool {
+	if _, err := os.Stat(name); err != nil {
+		if os.IsNotExist(err) {
+			return false
+		}
+	}
+	return true
 }

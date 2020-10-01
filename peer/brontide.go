@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/fmgr"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -268,33 +269,8 @@ type Config struct {
 	FetchLastChanUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate,
 		error)
 
-	// ProcessFundingOpen is used to hand off an OpenChannel message to the
-	// funding manager.
-	ProcessFundingOpen func(*lnwire.OpenChannel, lnpeer.Peer)
-
-	// ProcessFundingAccept is used to hand off an AcceptChannel message to the
-	// funding manager.
-	ProcessFundingAccept func(*lnwire.AcceptChannel, lnpeer.Peer)
-
-	// ProcessFundingCreated is used to hand off a FundingCreated message to
-	// the funding manager.
-	ProcessFundingCreated func(*lnwire.FundingCreated, lnpeer.Peer)
-
-	// ProcessFundingSigned is used to hand off a FundingSigned message to the
-	// funding manager.
-	ProcessFundingSigned func(*lnwire.FundingSigned, lnpeer.Peer)
-
-	// ProcessFundingLocked is used to hand off a FundingLocked message to the
-	// funding manager.
-	ProcessFundingLocked func(*lnwire.FundingLocked, lnpeer.Peer)
-
-	// ProcessFundingError is used to hand off an Error message to the funding
-	// manager.
-	ProcessFundingError func(*lnwire.Error, *btcec.PublicKey)
-
-	// IsPendingChannel is used to determine whether to send an Error message
-	// to the funding manager or not.
-	IsPendingChannel func([32]byte, *btcec.PublicKey) bool
+	// FundingManager is an implementation of the fmgr.Manager interface.
+	FundingManager fmgr.Manager
 
 	// Hodl is used when creating ChannelLinks to specify HodlFlags as
 	// breakpoints in dev builds.
@@ -1336,16 +1312,13 @@ out:
 			pongBytes := make([]byte, msg.NumPongBytes)
 			p.queueMsg(lnwire.NewPong(pongBytes), nil)
 
-		case *lnwire.OpenChannel:
-			p.cfg.ProcessFundingOpen(msg, p)
-		case *lnwire.AcceptChannel:
-			p.cfg.ProcessFundingAccept(msg, p)
-		case *lnwire.FundingCreated:
-			p.cfg.ProcessFundingCreated(msg, p)
-		case *lnwire.FundingSigned:
-			p.cfg.ProcessFundingSigned(msg, p)
-		case *lnwire.FundingLocked:
-			p.cfg.ProcessFundingLocked(msg, p)
+		case *lnwire.OpenChannel,
+			*lnwire.AcceptChannel,
+			*lnwire.FundingCreated,
+			*lnwire.FundingSigned,
+			*lnwire.FundingLocked:
+
+			p.cfg.FundingManager.ProcessFundingMsg(msg, p)
 
 		case *lnwire.Shutdown:
 			select {
@@ -1483,8 +1456,6 @@ func (p *Brontide) storeError(err error) {
 //
 // NOTE: This method should only be called from within the readHandler.
 func (p *Brontide) handleError(msg *lnwire.Error) bool {
-	key := p.cfg.Addr.IdentityKey
-
 	// Store the error we have received.
 	p.storeError(msg)
 
@@ -1500,8 +1471,8 @@ func (p *Brontide) handleError(msg *lnwire.Error) bool {
 
 	// If the channel ID for the error message corresponds to a pending
 	// channel, then the funding manager will handle the error.
-	case p.cfg.IsPendingChannel(msg.ChanID, key):
-		p.cfg.ProcessFundingError(msg, key)
+	case p.cfg.FundingManager.IsPendingChannel(msg.ChanID, p):
+		p.cfg.FundingManager.ProcessFundingMsg(msg, p)
 		return false
 
 	// If not we hand the error to the channel link for this channel.

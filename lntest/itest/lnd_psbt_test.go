@@ -8,9 +8,9 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/psbt"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/stretchr/testify/require"
 )
@@ -22,8 +22,9 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 	const chanSize = lnd.MaxBtcFundingAmount
 
-	// First, we'll create two new nodes that we'll use to open channel
-	// between for this test.
+	// First, we'll create two new nodes that we'll use to open channels
+	// between for this test. Dave gets some coins that will be used to
+	// fund the PSBT, just to make sure that Carol has an empty wallet.
 	carol, err := net.NewNode("carol", nil)
 	require.NoError(t.t, err)
 	defer shutdownAndAssert(net, t, carol)
@@ -31,6 +32,10 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	dave, err := net.NewNode("dave", nil)
 	require.NoError(t.t, err)
 	defer shutdownAndAssert(net, t, dave)
+	err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, dave)
+	if err != nil {
+		t.Fatalf("unable to send coins to dave: %v", err)
+	}
 
 	// Before we start the test, we'll ensure both sides are connected so
 	// the funding flow can be properly executed.
@@ -58,7 +63,7 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	// publishing the whole batch TX too early.
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
-	chanUpdates, psbtBytes, err := openChannelPsbt(
+	chanUpdates, tempPsbt, err := openChannelPsbt(
 		ctxt, carol, dave, lntest.OpenChannelParams{
 			Amt: chanSize,
 			FundingShim: &lnrpc.FundingShim{
@@ -72,11 +77,10 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	)
 	require.NoError(t.t, err)
-	packet, err := psbt.NewFromRawBytes(bytes.NewReader(psbtBytes), false)
-	require.NoError(t.t, err)
 
-	// Let's add a second channel to the batch. This time between carol and
-	// alice. We will the batch TX once this channel funding is complete.
+	// Let's add a second channel to the batch. This time between Carol and
+	// Alice. We will publish the batch TX once this channel funding is
+	// complete.
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 	chanUpdates2, psbtBytes2, err := openChannelPsbt(
@@ -87,47 +91,28 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 					PsbtShim: &lnrpc.PsbtShim{
 						PendingChanId: pendingChanID2[:],
 						NoPublish:     false,
+						BasePsbt:      tempPsbt,
 					},
 				},
 			},
 		},
 	)
 	require.NoError(t.t, err)
-	packet2, err := psbt.NewFromRawBytes(bytes.NewReader(psbtBytes2), false)
-	require.NoError(t.t, err)
 
-	// We'll now create a fully signed transaction that sends to the outputs
-	// encoded in the PSBT. We'll let the miner do it and convert the final
-	// TX into a PSBT, that's way easier than assembling a PSBT manually.
-	allOuts := append(packet.UnsignedTx.TxOut, packet2.UnsignedTx.TxOut...)
-	finalTx, err := net.Miner.CreateTransaction(allOuts, 5, true)
-	require.NoError(t.t, err)
-
-	// The helper function splits the final TX into the non-witness data
-	// encoded in a PSBT and the witness data returned separately.
-	unsignedPsbt, scripts, witnesses, err := createPsbtFromSignedTx(finalTx)
-	require.NoError(t.t, err)
-
-	// The PSBT will also be checked if there are large enough inputs
-	// present. We need to add some fake UTXO information to the PSBT to
-	// tell it what size of inputs we have.
-	for idx, txIn := range unsignedPsbt.UnsignedTx.TxIn {
-		utxPrevOut := txIn.PreviousOutPoint.Index
-		fakeUtxo := &wire.MsgTx{
-			Version: 2,
-			TxIn:    []*wire.TxIn{{}},
-			TxOut:   make([]*wire.TxOut, utxPrevOut+1),
-		}
-		for idx := range fakeUtxo.TxOut {
-			fakeUtxo.TxOut[idx] = &wire.TxOut{}
-		}
-		fakeUtxo.TxOut[utxPrevOut].Value = 10000000000
-		unsignedPsbt.Inputs[idx].NonWitnessUtxo = fakeUtxo
+	// We'll now ask Dave's wallet to fund the PSBT for us. This will return
+	// a packet with inputs and outputs set but without any witness data.
+	// This is exactly what we need for the next step.
+	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	fundReq := &walletrpc.FundPsbtRequest{
+		Template: &walletrpc.FundPsbtRequest_Psbt{
+			Psbt: psbtBytes2,
+		},
+		Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
+			SatPerVbyte: 2,
+		},
 	}
-
-	// Serialize the PSBT with the faked UTXO information.
-	var buf bytes.Buffer
-	err = unsignedPsbt.Serialize(&buf)
+	fundResp, err := dave.WalletKitClient.FundPsbt(ctxt, fundReq)
 	require.NoError(t.t, err)
 
 	// We have a PSBT that has no witness data yet, which is exactly what we
@@ -136,7 +121,7 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		Trigger: &lnrpc.FundingTransitionMsg_PsbtVerify{
 			PsbtVerify: &lnrpc.FundingPsbtVerify{
 				PendingChanId: pendingChanID[:],
-				FundedPsbt:    buf.Bytes(),
+				FundedPsbt:    fundResp.FundedPsbt,
 			},
 		},
 	})
@@ -145,30 +130,28 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		Trigger: &lnrpc.FundingTransitionMsg_PsbtVerify{
 			PsbtVerify: &lnrpc.FundingPsbtVerify{
 				PendingChanId: pendingChanID2[:],
-				FundedPsbt:    buf.Bytes(),
+				FundedPsbt:    fundResp.FundedPsbt,
 			},
 		},
 	})
 	require.NoError(t.t, err)
 
-	// Now we'll add the witness data back into the PSBT to make it a
-	// complete and signed transaction that can be finalized. We'll trick
-	// a bit by putting the script sig back directly, because we know we
-	// will only get non-witness outputs from the miner wallet.
-	for idx := range finalTx.TxIn {
-		require.Greater(t.t, len(witnesses[idx]), 0)
-		unsignedPsbt.Inputs[idx].FinalScriptSig = scripts[idx]
+	// Now we'll ask Dave's wallet to sign the PSBT so we can finish the
+	// funding flow.
+	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	finalizeReq := &walletrpc.FinalizePsbtRequest{
+		FundedPsbt: fundResp.FundedPsbt,
 	}
+	finalizeRes, err := dave.WalletKitClient.FinalizePsbt(ctxt, finalizeReq)
+	require.NoError(t.t, err)
 
 	// We've signed our PSBT now, let's pass it to the intent again.
-	buf.Reset()
-	err = unsignedPsbt.Serialize(&buf)
-	require.NoError(t.t, err)
 	_, err = carol.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
 		Trigger: &lnrpc.FundingTransitionMsg_PsbtFinalize{
 			PsbtFinalize: &lnrpc.FundingPsbtFinalize{
 				PendingChanId: pendingChanID[:],
-				SignedPsbt:    buf.Bytes(),
+				SignedPsbt:    finalizeRes.SignedPsbt,
 			},
 		},
 	})
@@ -196,14 +179,12 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Let's progress the second channel now. This time we'll use the raw
 	// wire format transaction directly.
-	buf.Reset()
-	err = finalTx.Serialize(&buf)
 	require.NoError(t.t, err)
 	_, err = carol.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
 		Trigger: &lnrpc.FundingTransitionMsg_PsbtFinalize{
 			PsbtFinalize: &lnrpc.FundingPsbtFinalize{
 				PendingChanId: pendingChanID2[:],
-				FinalRawTx:    buf.Bytes(),
+				FinalRawTx:    finalizeRes.RawFinalTx,
 			},
 		},
 	})
@@ -227,6 +208,10 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Great, now we can mine a block to get the transaction confirmed, then
 	// wait for the new channel to be propagated through the network.
+	var finalTx wire.MsgTx
+	err = finalTx.Deserialize(bytes.NewReader(finalizeRes.RawFinalTx))
+	require.NoError(t.t, err)
+
 	txHash := finalTx.TxHash()
 	block := mineBlocks(t, net, 6, 1)[0]
 	assertTxInBlock(t, block, &txHash)
@@ -357,32 +342,4 @@ func receiveChanUpdate(ctx context.Context,
 	case updateMsg := <-chanMsg:
 		return updateMsg, nil
 	}
-}
-
-// createPsbtFromSignedTx is a utility function to create a PSBT from an
-// already-signed transaction, so we can test reconstructing, signing and
-// extracting it. Returned are: an unsigned transaction serialization, a list
-// of scriptSigs, one per input, and a list of witnesses, one per input.
-func createPsbtFromSignedTx(tx *wire.MsgTx) (*psbt.Packet, [][]byte,
-	[]wire.TxWitness, error) {
-
-	scriptSigs := make([][]byte, 0, len(tx.TxIn))
-	witnesses := make([]wire.TxWitness, 0, len(tx.TxIn))
-	tx2 := tx.Copy()
-
-	// Blank out signature info in inputs
-	for i, tin := range tx2.TxIn {
-		tin.SignatureScript = nil
-		scriptSigs = append(scriptSigs, tx.TxIn[i].SignatureScript)
-		tin.Witness = nil
-		witnesses = append(witnesses, tx.TxIn[i].Witness)
-	}
-
-	// Outputs always contain: (value, scriptPubkey) so don't need
-	// amending.  Now tx2 is tx with all signing data stripped out
-	unsignedPsbt, err := psbt.NewFromUnsignedTx(tx2)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	return unsignedPsbt, scriptSigs, witnesses, nil
 }

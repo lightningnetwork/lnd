@@ -200,7 +200,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	}()
 
 	// Show version at startup.
-	ltndLog.Infof("Version: %s commit=%s, build=%s, logging=%s debuglevel=%s",
+	ltndLog.Infof("Version: %s commit=%s, build=%s, logging=%s, debuglevel=%s",
 		build.Version(), build.Commit, build.Deployment,
 		build.LoggingType, cfg.DebugLevel)
 

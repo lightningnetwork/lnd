@@ -297,7 +297,7 @@ func (b *BtcWallet) IsOurAddress(a btcutil.Address) bool {
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
-	feeRate chainfee.SatPerKWeight, label string) (*wire.MsgTx, error) {
+	feeRate chainfee.SatPerKWeight, minconf int32, label string) (*wire.MsgTx, error) {
 
 	// Convert our fee rate from sat/kw to sat/kb since it's required by
 	// SendOutputs.
@@ -308,8 +308,13 @@ func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
 		return nil, lnwallet.ErrNoOutputs
 	}
 
+	// Sanity check minconf.
+	if minconf < 0 {
+		return nil, lnwallet.ErrInvalidMinconf
+	}
+
 	return b.wallet.SendOutputs(
-		outputs, defaultAccount, 1, feeSatPerKB, label,
+		outputs, defaultAccount, minconf, feeSatPerKB, label,
 	)
 }
 

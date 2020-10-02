@@ -56,6 +56,11 @@ var (
 // or send coins to a set of outputs that is empty.
 var ErrNoOutputs = errors.New("no outputs")
 
+// ErrInvalidMinconf is returned if we try to create a transaction with
+// invalid minconf value.
+var ErrInvalidMinconf = errors.New("minimum number of confirmations must " +
+	"be a non-negative number")
+
 // Utxo is an unspent output denoted by its outpoint, and output value of the
 // original output.
 type Utxo struct {
@@ -181,7 +186,7 @@ type WalletController interface {
 	//
 	// NOTE: This method requires the global coin selection lock to be held.
 	SendOutputs(outputs []*wire.TxOut,
-		feeRate chainfee.SatPerKWeight, label string) (*wire.MsgTx, error)
+		feeRate chainfee.SatPerKWeight, minconf int32, label string) (*wire.MsgTx, error)
 
 	// CreateSimpleTx creates a Bitcoin transaction paying to the specified
 	// outputs. The transaction is not broadcasted to the network. In the

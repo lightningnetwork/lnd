@@ -100,7 +100,7 @@ func (h *agentConstraints) ChannelBudget(channels []LocalChannel,
 	// present within the set of active channels.
 	var totalChanAllocation btcutil.Amount
 	for _, channel := range channels {
-		totalChanAllocation += channel.Capacity
+		totalChanAllocation += channel.Balance
 	}
 
 	// With this value known, we'll now compute the total amount of fund

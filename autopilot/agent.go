@@ -829,8 +829,8 @@ func (a *Agent) executeDirective(directive AttachmentDirective) {
 	// peers if the connection attempt happens to take too long.
 	delete(a.pendingConns, nodeID)
 	a.pendingOpens[nodeID] = LocalChannel{
-		Capacity: directive.ChanAmt,
-		Node:     nodeID,
+		Balance: directive.ChanAmt,
+		Node:    nodeID,
 	}
 	a.pendingMtx.Unlock()
 

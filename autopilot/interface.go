@@ -44,8 +44,8 @@ type LocalChannel struct {
 	// BOLT-0007.
 	ChanID lnwire.ShortChannelID
 
-	// Capacity is the capacity of the channel expressed in satoshis.
-	Capacity btcutil.Amount
+	// Balance is the local balance of the channel expressed in satoshis.
+	Balance btcutil.Amount
 
 	// Node is the peer that this channel has been established with.
 	Node NodeID

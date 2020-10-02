@@ -260,15 +260,34 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 			chanState := make([]autopilot.LocalChannel,
 				len(activeChannels))
 			for i, channel := range activeChannels {
+				localCommit := channel.LocalCommitment
+				balance := localCommit.LocalBalance.ToSatoshis()
+
 				chanState[i] = autopilot.LocalChannel{
-					ChanID:   channel.ShortChanID(),
-					Capacity: channel.Capacity,
+					ChanID:  channel.ShortChanID(),
+					Balance: balance,
 					Node: autopilot.NewNodeID(
-						channel.IdentityPub),
+						channel.IdentityPub,
+					),
 				}
 			}
 
 			return chanState, nil
+		},
+		ChannelInfo: func(chanPoint wire.OutPoint) (
+			*autopilot.LocalChannel, error) {
+
+			channel, err := svr.remoteChanDB.FetchChannel(chanPoint)
+			if err != nil {
+				return nil, err
+			}
+
+			localCommit := channel.LocalCommitment
+			return &autopilot.LocalChannel{
+				ChanID:  channel.ShortChanID(),
+				Balance: localCommit.LocalBalance.ToSatoshis(),
+				Node:    autopilot.NewNodeID(channel.IdentityPub),
+			}, nil
 		},
 		SubscribeTransactions: svr.cc.wallet.SubscribeTransactions,
 		SubscribeTopology:     svr.chanRouter.SubscribeTopology,

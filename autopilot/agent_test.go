@@ -292,8 +292,8 @@ func TestAgentChannelOpenSignal(t *testing.T) {
 	// Next we'll signal a new channel being opened by the backing LN node,
 	// with a capacity of 1 BTC.
 	newChan := LocalChannel{
-		ChanID:   randChanID(),
-		Capacity: btcutil.SatoshiPerBitcoin,
+		ChanID:  randChanID(),
+		Balance: btcutil.SatoshiPerBitcoin,
 	}
 	testCtx.agent.OnChannelOpen(newChan)
 
@@ -434,12 +434,12 @@ func TestAgentChannelCloseSignal(t *testing.T) {
 	// We'll start the agent with two channels already being active.
 	initialChans := []LocalChannel{
 		{
-			ChanID:   randChanID(),
-			Capacity: btcutil.SatoshiPerBitcoin,
+			ChanID:  randChanID(),
+			Balance: btcutil.SatoshiPerBitcoin,
 		},
 		{
-			ChanID:   randChanID(),
-			Capacity: btcutil.SatoshiPerBitcoin * 2,
+			ChanID:  randChanID(),
+			Balance: btcutil.SatoshiPerBitcoin * 2,
 		},
 	}
 
@@ -730,9 +730,9 @@ func TestAgentPendingChannelState(t *testing.T) {
 			t.Fatalf("should include pending chan in current "+
 				"state, instead have %v chans", len(req.chans))
 		}
-		if req.chans[0].Capacity != chanAmt {
-			t.Fatalf("wrong chan capacity: expected %v, got %v",
-				req.chans[0].Capacity, chanAmt)
+		if req.chans[0].Balance != chanAmt {
+			t.Fatalf("wrong chan balance: expected %v, got %v",
+				req.chans[0].Balance, chanAmt)
 		}
 		if req.chans[0].Node != nodeID {
 			t.Fatalf("wrong node ID: expected %x, got %x",

@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
@@ -24,6 +25,10 @@ type ManagerCfg struct {
 	// ChannelState is a function closure that returns the current set of
 	// channels managed by this node.
 	ChannelState func() ([]LocalChannel, error)
+
+	// ChannelInfo is a function closure that returns the channel managed
+	// by the node given by the passed channel point.
+	ChannelInfo func(wire.OutPoint) (*LocalChannel, error)
 
 	// SubscribeTransactions is used to get a subscription for transactions
 	// relevant to this node's wallet.
@@ -194,18 +199,16 @@ func (m *Manager) StartAgent() error {
 					// opened, then we'll convert it to the
 					// autopilot.Channel format, and notify
 					// the pilot of the new channel.
-					chanNode := NewNodeID(
-						edgeUpdate.ConnectingNode,
-					)
-					chanID := lnwire.NewShortChanIDFromInt(
-						edgeUpdate.ChanID,
-					)
-					edge := LocalChannel{
-						ChanID:   chanID,
-						Capacity: edgeUpdate.Capacity,
-						Node:     chanNode,
+					cp := edgeUpdate.ChanPoint
+					edge, err := m.cfg.ChannelInfo(cp)
+					if err != nil {
+						log.Errorf("Unable to fetch "+
+							"channel info for %v: "+
+							"%v", cp, err)
+						continue
 					}
-					pilot.OnChannelOpen(edge)
+
+					pilot.OnChannelOpen(*edge)
 				}
 
 				// For each closed channel, we'll obtain

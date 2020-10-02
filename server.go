@@ -2982,14 +2982,9 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 
 		PrunePersistentPeerConnection: s.prunePersistentPeerConnection,
 
-		FetchLastChanUpdate:   s.fetchLastChanUpdate(),
-		ProcessFundingOpen:    s.fundingMgr.processFundingOpen,
-		ProcessFundingAccept:  s.fundingMgr.processFundingAccept,
-		ProcessFundingCreated: s.fundingMgr.processFundingCreated,
-		ProcessFundingSigned:  s.fundingMgr.processFundingSigned,
-		ProcessFundingLocked:  s.fundingMgr.processFundingLocked,
-		ProcessFundingError:   s.fundingMgr.processFundingError,
-		IsPendingChannel:      s.fundingMgr.IsPendingChannel,
+		FetchLastChanUpdate: s.fetchLastChanUpdate(),
+
+		FundingManager: s.fundingMgr,
 
 		Hodl:                    s.cfg.Hodl,
 		UnsafeReplay:            s.cfg.UnsafeReplay,

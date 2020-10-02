@@ -50,7 +50,7 @@ func (g *TopCentrality) Name() string {
 // As our current implementation of betweenness centrality is non-incremental,
 // NodeScores will recalculate the centrality values on every call, which is
 // slow for large graphs.
-func (g *TopCentrality) NodeScores(graph ChannelGraph, chans []Channel,
+func (g *TopCentrality) NodeScores(graph ChannelGraph, chans []LocalChannel,
 	chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
 	map[NodeID]*NodeScore, error) {
 

@@ -70,7 +70,7 @@ func (c *WeightedCombAttachment) Name() string {
 // is the maximum possible improvement in connectivity.
 //
 // NOTE: This is a part of the AttachmentHeuristic interface.
-func (c *WeightedCombAttachment) NodeScores(g ChannelGraph, chans []Channel,
+func (c *WeightedCombAttachment) NodeScores(g ChannelGraph, chans []LocalChannel,
 	chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
 	map[NodeID]*NodeScore, error) {
 

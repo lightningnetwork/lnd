@@ -65,11 +65,11 @@ type Config struct {
 // channelState is a type that represents the set of active channels of the
 // backing LN node that the Agent should be aware of. This type contains a few
 // helper utility methods.
-type channelState map[lnwire.ShortChannelID]Channel
+type channelState map[lnwire.ShortChannelID]LocalChannel
 
 // Channels returns a slice of all the active channels.
-func (c channelState) Channels() []Channel {
-	chans := make([]Channel, 0, len(c))
+func (c channelState) Channels() []LocalChannel {
+	chans := make([]LocalChannel, 0, len(c))
 	for _, channel := range c {
 		chans = append(chans, channel)
 	}
@@ -163,7 +163,7 @@ type Agent struct {
 	// initiated, but haven't yet been confirmed as being fully opened.
 	// This state is required as otherwise, we may go over our allotted
 	// channel limit, or open multiple channels to the same node.
-	pendingOpens map[NodeID]Channel
+	pendingOpens map[NodeID]LocalChannel
 	pendingMtx   sync.Mutex
 
 	quit chan struct{}
@@ -174,10 +174,10 @@ type Agent struct {
 // configuration and initial channel state. The initial channel state slice
 // should be populated with the set of Channels that are currently opened by
 // the backing Lightning Node.
-func New(cfg Config, initialState []Channel) (*Agent, error) {
+func New(cfg Config, initialState []LocalChannel) (*Agent, error) {
 	a := &Agent{
 		cfg:                cfg,
-		chanState:          make(map[lnwire.ShortChannelID]Channel),
+		chanState:          make(map[lnwire.ShortChannelID]LocalChannel),
 		quit:               make(chan struct{}),
 		stateUpdates:       make(chan interface{}),
 		balanceUpdates:     make(chan *balanceUpdate, 1),
@@ -187,7 +187,7 @@ func New(cfg Config, initialState []Channel) (*Agent, error) {
 		pendingOpenUpdates: make(chan *chanPendingOpenUpdate, 1),
 		failedNodes:        make(map[NodeID]struct{}),
 		pendingConns:       make(map[NodeID]struct{}),
-		pendingOpens:       make(map[NodeID]Channel),
+		pendingOpens:       make(map[NodeID]LocalChannel),
 	}
 
 	for _, c := range initialState {
@@ -249,7 +249,7 @@ type nodeUpdates struct{}
 // channel has been opened, either by the Agent itself (within the main
 // controller loop), or by an external user to the system.
 type chanOpenUpdate struct {
-	newChan Channel
+	newChan LocalChannel
 }
 
 // chanPendingOpenUpdate is a type of external state update that indicates a new
@@ -294,7 +294,7 @@ func (a *Agent) OnNodeUpdates() {
 
 // OnChannelOpen is a callback that should be executed each time a new channel
 // is manually opened by the user or any system outside the autopilot agent.
-func (a *Agent) OnChannelOpen(c Channel) {
+func (a *Agent) OnChannelOpen(c LocalChannel) {
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
@@ -356,7 +356,7 @@ func (a *Agent) OnHeuristicUpdate(h AttachmentHeuristic) {
 // channels open to, with the other sets of nodes that should be removed from
 // consideration during heuristic selection. This ensures that the Agent doesn't
 // attempt to open any "duplicate" channels to the same node.
-func mergeNodeMaps(c map[NodeID]Channel,
+func mergeNodeMaps(c map[NodeID]LocalChannel,
 	skips ...map[NodeID]struct{}) map[NodeID]struct{} {
 
 	numNodes := len(c)
@@ -380,11 +380,11 @@ func mergeNodeMaps(c map[NodeID]Channel,
 // mergeChanState merges the Agent's set of active channels, with the set of
 // channels awaiting confirmation. This ensures that the agent doesn't go over
 // the prescribed channel limit or fund allocation limit.
-func mergeChanState(pendingChans map[NodeID]Channel,
-	activeChans channelState) []Channel {
+func mergeChanState(pendingChans map[NodeID]LocalChannel,
+	activeChans channelState) []LocalChannel {
 
 	numChans := len(pendingChans) + len(activeChans)
-	totalChans := make([]Channel, 0, numChans)
+	totalChans := make([]LocalChannel, 0, numChans)
 
 	totalChans = append(totalChans, activeChans.Channels()...)
 
@@ -549,7 +549,7 @@ func (a *Agent) controller() {
 // openChans queries the agent's heuristic for a set of channel candidates, and
 // attempts to open channels to them.
 func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
-	totalChans []Channel) error {
+	totalChans []LocalChannel) error {
 
 	// As channel size we'll use the maximum channel size available.
 	chanSize := a.cfg.Constraints.MaxChanSize()
@@ -828,7 +828,7 @@ func (a *Agent) executeDirective(directive AttachmentDirective) {
 	// opens. We do this here to ensure we don't stall on selecting new
 	// peers if the connection attempt happens to take too long.
 	delete(a.pendingConns, nodeID)
-	a.pendingOpens[nodeID] = Channel{
+	a.pendingOpens[nodeID] = LocalChannel{
 		Capacity: directive.ChanAmt,
 		Node:     nodeID,
 	}

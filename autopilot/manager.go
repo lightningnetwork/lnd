@@ -23,7 +23,7 @@ type ManagerCfg struct {
 
 	// ChannelState is a function closure that returns the current set of
 	// channels managed by this node.
-	ChannelState func() ([]Channel, error)
+	ChannelState func() ([]LocalChannel, error)
 
 	// SubscribeTransactions is used to get a subscription for transactions
 	// relevant to this node's wallet.
@@ -200,7 +200,7 @@ func (m *Manager) StartAgent() error {
 					chanID := lnwire.NewShortChanIDFromInt(
 						edgeUpdate.ChanID,
 					)
-					edge := Channel{
+					edge := LocalChannel{
 						ChanID:   chanID,
 						Capacity: edgeUpdate.Capacity,
 						Node:     chanNode,
@@ -292,7 +292,7 @@ func (m *Manager) queryHeuristics(nodes map[NodeID]struct{}, localState bool) (
 	// If we want to take the local state into action when querying the
 	// heuristics, we fetch it. If not we'll just pass an emply slice to
 	// the heuristic.
-	var totalChans []Channel
+	var totalChans []LocalChannel
 	var err error
 	if localState {
 		// Fetch the current set of channels.

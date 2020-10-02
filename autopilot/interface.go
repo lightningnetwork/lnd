@@ -36,10 +36,10 @@ type Node interface {
 	ForEachChannel(func(ChannelEdge) error) error
 }
 
-// Channel is a simple struct which contains relevant details of a particular
-// channel within the channel graph. The fields in this struct may be used a
-// signals for various AttachmentHeuristic implementations.
-type Channel struct {
+// LocalChannel is a simple struct which contains relevant details of a
+// particular channel the local node has. The fields in this struct may be used
+// a signals for various AttachmentHeuristic implementations.
+type LocalChannel struct {
 	// ChanID is the short channel ID for this channel as defined within
 	// BOLT-0007.
 	ChanID lnwire.ShortChannelID
@@ -59,8 +59,12 @@ type Channel struct {
 // edge within the graph. The existence of this reference to the connected node
 // will allow callers to traverse the graph in an object-oriented manner.
 type ChannelEdge struct {
-	// Channel contains the attributes of this channel.
-	Channel
+	// ChanID is the short channel ID for this channel as defined within
+	// BOLT-0007.
+	ChanID lnwire.ShortChannelID
+
+	// Capacity is the capacity of the channel expressed in satoshis.
+	Capacity btcutil.Amount
 
 	// Peer is the peer that this channel creates an edge to in the channel
 	// graph.
@@ -136,7 +140,7 @@ type AttachmentHeuristic interface {
 	//
 	// NOTE: A NodeID not found in the returned map is implicitly given a
 	// score of 0.
-	NodeScores(g ChannelGraph, chans []Channel,
+	NodeScores(g ChannelGraph, chans []LocalChannel,
 		chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
 		map[NodeID]*NodeScore, error)
 }

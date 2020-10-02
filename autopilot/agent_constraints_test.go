@@ -37,7 +37,7 @@ func TestConstraintsChannelBudget(t *testing.T) {
 	}
 
 	testCases := []struct {
-		channels  []Channel
+		channels  []LocalChannel
 		walletAmt btcutil.Amount
 
 		needMore     bool
@@ -47,7 +47,7 @@ func TestConstraintsChannelBudget(t *testing.T) {
 		// Many available funds, but already have too many active open
 		// channels.
 		{
-			[]Channel{
+			[]LocalChannel{
 				{
 					ChanID:   randChanID(),
 					Capacity: btcutil.Amount(prand.Int31()),
@@ -70,7 +70,7 @@ func TestConstraintsChannelBudget(t *testing.T) {
 		// Ratio of funds in channels and total funds meets the
 		// threshold.
 		{
-			[]Channel{
+			[]LocalChannel{
 				{
 					ChanID:   randChanID(),
 					Capacity: btcutil.Amount(btcutil.SatoshiPerBitcoin),
@@ -93,7 +93,7 @@ func TestConstraintsChannelBudget(t *testing.T) {
 		// recommended. We should also request 2 more channels as the
 		// limit is 3.
 		{
-			[]Channel{
+			[]LocalChannel{
 				{
 					ChanID:   randChanID(),
 					Capacity: btcutil.Amount(btcutil.SatoshiPerBitcoin),
@@ -113,7 +113,7 @@ func TestConstraintsChannelBudget(t *testing.T) {
 		// to be committed. We should only request a single additional
 		// channel as the limit is 3.
 		{
-			[]Channel{
+			[]LocalChannel{
 				{
 					ChanID:   randChanID(),
 					Capacity: btcutil.Amount(btcutil.SatoshiPerBitcoin),
@@ -132,7 +132,7 @@ func TestConstraintsChannelBudget(t *testing.T) {
 		// Ratio of funds in channels and total funds is above the
 		// threshold.
 		{
-			[]Channel{
+			[]LocalChannel{
 				{
 					ChanID:   randChanID(),
 					Capacity: btcutil.Amount(btcutil.SatoshiPerBitcoin),

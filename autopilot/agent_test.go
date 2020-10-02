@@ -19,7 +19,7 @@ type moreChansResp struct {
 }
 
 type moreChanArg struct {
-	chans   []Channel
+	chans   []LocalChannel
 	balance btcutil.Amount
 }
 
@@ -29,7 +29,7 @@ type mockConstraints struct {
 	quit           chan struct{}
 }
 
-func (m *mockConstraints) ChannelBudget(chans []Channel,
+func (m *mockConstraints) ChannelBudget(chans []LocalChannel,
 	balance btcutil.Amount) (btcutil.Amount, uint32) {
 
 	if m.moreChanArgs != nil {
@@ -76,7 +76,7 @@ type mockHeuristic struct {
 type directiveArg struct {
 	graph ChannelGraph
 	amt   btcutil.Amount
-	chans []Channel
+	chans []LocalChannel
 	nodes map[NodeID]struct{}
 }
 
@@ -84,7 +84,7 @@ func (m *mockHeuristic) Name() string {
 	return "mock"
 }
 
-func (m *mockHeuristic) NodeScores(g ChannelGraph, chans []Channel,
+func (m *mockHeuristic) NodeScores(g ChannelGraph, chans []LocalChannel,
 	chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
 	map[NodeID]*NodeScore, error) {
 
@@ -154,7 +154,7 @@ type testContext struct {
 	sync.Mutex
 }
 
-func setup(t *testing.T, initialChans []Channel) (*testContext, func()) {
+func setup(t *testing.T, initialChans []LocalChannel) (*testContext, func()) {
 	t.Helper()
 
 	// First, we'll create all the dependencies that we'll need in order to
@@ -291,7 +291,7 @@ func TestAgentChannelOpenSignal(t *testing.T) {
 
 	// Next we'll signal a new channel being opened by the backing LN node,
 	// with a capacity of 1 BTC.
-	newChan := Channel{
+	newChan := LocalChannel{
 		ChanID:   randChanID(),
 		Capacity: btcutil.SatoshiPerBitcoin,
 	}
@@ -432,7 +432,7 @@ func TestAgentChannelFailureSignal(t *testing.T) {
 func TestAgentChannelCloseSignal(t *testing.T) {
 	t.Parallel()
 	// We'll start the agent with two channels already being active.
-	initialChans := []Channel{
+	initialChans := []LocalChannel{
 		{
 			ChanID:   randChanID(),
 			Capacity: btcutil.SatoshiPerBitcoin,

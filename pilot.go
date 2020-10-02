@@ -249,7 +249,7 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 	return &autopilot.ManagerCfg{
 		Self:     self,
 		PilotCfg: &pilotCfg,
-		ChannelState: func() ([]autopilot.Channel, error) {
+		ChannelState: func() ([]autopilot.LocalChannel, error) {
 			// We'll fetch the current state of open
 			// channels from the database to use as initial
 			// state for the auto-pilot agent.
@@ -257,10 +257,10 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 			if err != nil {
 				return nil, err
 			}
-			chanState := make([]autopilot.Channel,
+			chanState := make([]autopilot.LocalChannel,
 				len(activeChannels))
 			for i, channel := range activeChannels {
-				chanState[i] = autopilot.Channel{
+				chanState[i] = autopilot.LocalChannel{
 					ChanID:   channel.ShortChanID(),
 					Capacity: channel.Capacity,
 					Node: autopilot.NewNodeID(

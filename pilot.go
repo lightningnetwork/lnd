@@ -124,14 +124,6 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 func (c *chanController) CloseChannel(chanPoint *wire.OutPoint) error {
 	return nil
 }
-func (c *chanController) SpliceIn(chanPoint *wire.OutPoint,
-	amt btcutil.Amount) (*autopilot.Channel, error) {
-	return nil, nil
-}
-func (c *chanController) SpliceOut(chanPoint *wire.OutPoint,
-	amt btcutil.Amount) (*autopilot.Channel, error) {
-	return nil, nil
-}
 
 // A compile time assertion to ensure chanController meets the
 // autopilot.ChannelController interface.

@@ -211,14 +211,4 @@ type ChannelController interface {
 	//
 	// TODO(roasbeef): add force option?
 	CloseChannel(chanPoint *wire.OutPoint) error
-
-	// SpliceIn attempts to add additional funds to the target channel via
-	// a splice in mechanism. The new channel with an updated capacity
-	// should be returned.
-	SpliceIn(chanPoint *wire.OutPoint, amt btcutil.Amount) (*Channel, error)
-
-	// SpliceOut attempts to remove funds from an existing channels using a
-	// splice out mechanism. The removed funds from the channel should be
-	// returned to an output under the control of the backing wallet.
-	SpliceOut(chanPoint *wire.OutPoint, amt btcutil.Amount) (*Channel, error)
 }

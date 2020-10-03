@@ -1,15 +1,12 @@
 package btcwallet
 
 import (
-	"fmt"
-
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/waddrmgr"
-	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/input"
@@ -24,80 +21,27 @@ import (
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*lnwallet.Utxo, error) {
-	// We manually look up the output within the tx store.
-	txid := &prevOut.Hash
-	txDetail, err := base.UnstableAPI(b.wallet).TxDetails(txid)
+	_, txOut, confirmations, err := b.wallet.FetchInputInfo(prevOut)
 	if err != nil {
-		return nil, err
-	} else if txDetail == nil {
-		return nil, lnwallet.ErrNotMine
-	}
-
-	// With the output retrieved, we'll make an additional check to ensure
-	// we actually have control of this output. We do this because the check
-	// above only guarantees that the transaction is somehow relevant to us,
-	// like in the event of us being the sender of the transaction.
-	numOutputs := uint32(len(txDetail.TxRecord.MsgTx.TxOut))
-	if prevOut.Index >= numOutputs {
-		return nil, fmt.Errorf("invalid output index %v for "+
-			"transaction with %v outputs", prevOut.Index, numOutputs)
-	}
-	pkScript := txDetail.TxRecord.MsgTx.TxOut[prevOut.Index].PkScript
-	if _, err := b.fetchOutputAddr(pkScript); err != nil {
 		return nil, err
 	}
 
 	// Then, we'll populate all of the information required by the struct.
 	addressType := lnwallet.UnknownAddressType
 	switch {
-	case txscript.IsPayToWitnessPubKeyHash(pkScript):
+	case txscript.IsPayToWitnessPubKeyHash(txOut.PkScript):
 		addressType = lnwallet.WitnessPubKey
-	case txscript.IsPayToScriptHash(pkScript):
+	case txscript.IsPayToScriptHash(txOut.PkScript):
 		addressType = lnwallet.NestedWitnessPubKey
 	}
 
-	// Determine the number of confirmations the output currently has.
-	_, currentHeight, err := b.GetBestBlock()
-	if err != nil {
-		return nil, fmt.Errorf("unable to retrieve current height: %v",
-			err)
-	}
-	confs := int64(0)
-	if txDetail.Block.Height != -1 {
-		confs = int64(currentHeight - txDetail.Block.Height)
-	}
-
 	return &lnwallet.Utxo{
-		AddressType: addressType,
-		Value: btcutil.Amount(
-			txDetail.TxRecord.MsgTx.TxOut[prevOut.Index].Value,
-		),
-		PkScript:      pkScript,
-		Confirmations: confs,
+		AddressType:   addressType,
+		Value:         btcutil.Amount(txOut.Value),
+		PkScript:      txOut.PkScript,
+		Confirmations: confirmations,
 		OutPoint:      *prevOut,
 	}, nil
-}
-
-// fetchOutputAddr attempts to fetch the managed address corresponding to the
-// passed output script. This function is used to look up the proper key which
-// should be used to sign a specified input.
-func (b *BtcWallet) fetchOutputAddr(script []byte) (waddrmgr.ManagedAddress, error) {
-	_, addrs, _, err := txscript.ExtractPkScriptAddrs(script, b.netParams)
-	if err != nil {
-		return nil, err
-	}
-
-	// If the case of a multi-sig output, several address may be extracted.
-	// Therefore, we simply select the key for the first address we know
-	// of.
-	for _, addr := range addrs {
-		addr, err := b.wallet.AddressInfo(addr)
-		if err == nil {
-			return addr, nil
-		}
-	}
-
-	return nil, lnwallet.ErrNotMine
 }
 
 // deriveFromKeyLoc attempts to derive a private key using a fully specified
@@ -273,83 +217,26 @@ func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx,
 func (b *BtcWallet) ComputeInputScript(tx *wire.MsgTx,
 	signDesc *input.SignDescriptor) (*input.Script, error) {
 
-	outputScript := signDesc.Output.PkScript
-	walletAddr, err := b.fetchOutputAddr(outputScript)
-	if err != nil {
-		return nil, err
-	}
-
-	pka := walletAddr.(waddrmgr.ManagedPubKeyAddress)
-	privKey, err := pka.PrivKey()
-	if err != nil {
-		return nil, err
-	}
-
-	var witnessProgram []byte
-	inputScript := &input.Script{}
-
-	switch {
-
-	// If we're spending p2wkh output nested within a p2sh output, then
-	// we'll need to attach a sigScript in addition to witness data.
-	case pka.AddrType() == waddrmgr.NestedWitnessPubKey:
-		pubKey := privKey.PubKey()
-		pubKeyHash := btcutil.Hash160(pubKey.SerializeCompressed())
-
-		// Next, we'll generate a valid sigScript that will allow us to
-		// spend the p2sh output. The sigScript will contain only a
-		// single push of the p2wkh witness program corresponding to
-		// the matching public key of this address.
-		p2wkhAddr, err := btcutil.NewAddressWitnessPubKeyHash(
-			pubKeyHash, b.netParams,
-		)
-		if err != nil {
-			return nil, err
-		}
-		witnessProgram, err = txscript.PayToAddrScript(p2wkhAddr)
-		if err != nil {
-			return nil, err
-		}
-
-		bldr := txscript.NewScriptBuilder()
-		bldr.AddData(witnessProgram)
-		sigScript, err := bldr.Script()
-		if err != nil {
-			return nil, err
-		}
-
-		inputScript.SigScript = sigScript
-
-	// Otherwise, this is a regular p2wkh output, so we include the
-	// witness program itself as the subscript to generate the proper
-	// sighash digest. As part of the new sighash digest algorithm, the
-	// p2wkh witness program will be expanded into a regular p2kh
-	// script.
-	default:
-		witnessProgram = outputScript
-	}
-
 	// If a tweak (single or double) is specified, then we'll need to use
 	// this tweak to derive the final private key to be used for signing
 	// this output.
-	privKey, err = maybeTweakPrivKey(signDesc, privKey)
-	if err != nil {
-		return nil, err
+	privKeyTweaker := func(k *btcec.PrivateKey) (*btcec.PrivateKey, error) {
+		return maybeTweakPrivKey(signDesc, k)
 	}
 
-	// Generate a valid witness stack for the input.
-	// TODO(roasbeef): adhere to passed HashType
-	witnessScript, err := txscript.WitnessSignature(tx, signDesc.SigHashes,
-		signDesc.InputIndex, signDesc.Output.Value, witnessProgram,
-		signDesc.HashType, privKey, true,
+	// Let the wallet compute the input script now.
+	witness, sigScript, err := b.wallet.ComputeInputScript(
+		tx, signDesc.Output, signDesc.InputIndex, signDesc.SigHashes,
+		signDesc.HashType, privKeyTweaker,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	inputScript.Witness = witnessScript
-
-	return inputScript, nil
+	return &input.Script{
+		Witness:   witness,
+		SigScript: sigScript,
+	}, nil
 }
 
 // A compile time check to ensure that BtcWallet implements the Signer

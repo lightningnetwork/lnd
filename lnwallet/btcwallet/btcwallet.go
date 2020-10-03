@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/psbt"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	base "github.com/btcsuite/btcwallet/wallet"
@@ -688,6 +689,51 @@ func (b *BtcWallet) ListTransactionDetails(startHeight,
 	}
 
 	return txDetails, nil
+}
+
+// FundPsbt creates a fully populated PSBT packet that contains enough
+// inputs to fund the outputs specified in the passed in packet with the
+// specified fee rate. If there is change left, a change output from the
+// internal wallet is added and the index of the change output is returned.
+// Otherwise no additional output is created and the index -1 is returned.
+//
+// NOTE: If the packet doesn't contain any inputs, coin selection is
+// performed automatically. If the packet does contain any inputs, it is
+// assumed that full coin selection happened externally and no
+// additional inputs are added. If the specified inputs aren't enough to
+// fund the outputs with the given fee rate, an error is returned.
+// No lock lease is acquired for any of the selected/validated inputs.
+// It is in the caller's responsibility to lock the inputs before
+// handing them out.
+//
+// This is a part of the WalletController interface.
+func (b *BtcWallet) FundPsbt(packet *psbt.Packet,
+	feeRate chainfee.SatPerKWeight) (int32, error) {
+
+	// The fee rate is passed in using units of sat/kw, so we'll convert
+	// this to sat/KB as the CreateSimpleTx method requires this unit.
+	feeSatPerKB := btcutil.Amount(feeRate.FeePerKVByte())
+
+	// Let the wallet handle coin selection and/or fee estimation based on
+	// the partial TX information in the packet.
+	return b.wallet.FundPsbt(packet, defaultAccount, feeSatPerKB)
+}
+
+// FinalizePsbt expects a partial transaction with all inputs and
+// outputs fully declared and tries to sign all inputs that belong to
+// the wallet. Lnd must be the last signer of the transaction. That
+// means, if there are any unsigned non-witness inputs or inputs without
+// UTXO information attached or inputs without witness data that do not
+// belong to lnd's wallet, this method will fail. If no error is
+// returned, the PSBT is ready to be extracted and the final TX within
+// to be broadcast.
+//
+// NOTE: This method does NOT publish the transaction after it's been
+// finalized successfully.
+//
+// This is a part of the WalletController interface.
+func (b *BtcWallet) FinalizePsbt(packet *psbt.Packet) error {
+	return b.wallet.FinalizePsbt(packet)
 }
 
 // txSubscriptionClient encapsulates the transaction notification client from

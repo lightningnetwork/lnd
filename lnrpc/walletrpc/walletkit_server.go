@@ -15,6 +15,8 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/psbt"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightningnetwork/lnd/input"
@@ -114,12 +116,32 @@ var (
 			Entity: "onchain",
 			Action: "read",
 		}},
+		"/walletrpc.WalletKit/FundPsbt": {{
+			Entity: "onchain",
+			Action: "write",
+		}},
+		"/walletrpc.WalletKit/FinalizePsbt": {{
+			Entity: "onchain",
+			Action: "write",
+		}},
 	}
 
 	// DefaultWalletKitMacFilename is the default name of the wallet kit
 	// macaroon that we expect to find via a file handle within the main
 	// configuration file in this package.
 	DefaultWalletKitMacFilename = "walletkit.macaroon"
+
+	// LndInternalLockID is the binary representation of the SHA256 hash of
+	// the string "lnd-internal-lock-id" and is used for UTXO lock leases to
+	// identify that we ourselves are locking an UTXO, for example when
+	// giving out a funded PSBT. The ID corresponds to the hex value of
+	// ede19a92ed321a4705f8a1cccc1d4f6182545d4bb4fae08bd5937831b7e38f98.
+	LndInternalLockID = wtxmgr.LockID{
+		0xed, 0xe1, 0x9a, 0x92, 0xed, 0x32, 0x1a, 0x47,
+		0x05, 0xf8, 0xa1, 0xcc, 0xcc, 0x1d, 0x4f, 0x61,
+		0x82, 0x54, 0x5d, 0x4b, 0xb4, 0xfa, 0xe0, 0x8b,
+		0xd5, 0x93, 0x78, 0x31, 0xb7, 0xe3, 0x8f, 0x98,
+	}
 )
 
 // ErrZeroLabel is returned when an attempt is made to label a transaction with
@@ -305,6 +327,12 @@ func (w *WalletKit) LeaseOutput(ctx context.Context,
 	// Don't allow ID's of 32 bytes, but all zeros.
 	if lockID == (wtxmgr.LockID{}) {
 		return nil, errors.New("id must be 32 random bytes")
+	}
+
+	// Don't allow our internal ID to be used externally for locking. Only
+	// unlocking is allowed.
+	if lockID == LndInternalLockID {
+		return nil, errors.New("reserved id cannot be used")
 	}
 
 	op, err := unmarshallOutPoint(req.Outpoint)
@@ -829,4 +857,263 @@ func (w *WalletKit) LabelTransaction(ctx context.Context,
 
 	err = w.cfg.Wallet.LabelTransaction(*hash, req.Label, req.Overwrite)
 	return &LabelTransactionResponse{}, err
+}
+
+// FundPsbt creates a fully populated PSBT that contains enough inputs to fund
+// the outputs specified in the template. There are two ways of specifying a
+// template: Either by passing in a PSBT with at least one output declared or
+// by passing in a raw TxTemplate message. If there are no inputs specified in
+// the template, coin selection is performed automatically. If the template does
+// contain any inputs, it is assumed that full coin selection happened
+// externally and no additional inputs are added. If the specified inputs aren't
+// enough to fund the outputs with the given fee rate, an error is returned.
+// After either selecting or verifying the inputs, all input UTXOs are locked
+// with an internal app ID.
+//
+// NOTE: If this method returns without an error, it is the caller's
+// responsibility to either spend the locked UTXOs (by finalizing and then
+// publishing the transaction) or to unlock/release the locked UTXOs in case of
+// an error on the caller's side.
+func (w *WalletKit) FundPsbt(_ context.Context,
+	req *FundPsbtRequest) (*FundPsbtResponse, error) {
+
+	var (
+		err         error
+		packet      *psbt.Packet
+		feeSatPerKW chainfee.SatPerKWeight
+		locks       []*utxoLock
+		rawPsbt     bytes.Buffer
+	)
+
+	// There are two ways a user can specify what we call the template (a
+	// list of inputs and outputs to use in the PSBT): Either as a PSBT
+	// packet directly or as a special RPC message. Find out which one the
+	// user wants to use, they are mutually exclusive.
+	switch {
+	// The template is specified as a PSBT. All we have to do is parse it.
+	case req.GetPsbt() != nil:
+		r := bytes.NewReader(req.GetPsbt())
+		packet, err = psbt.NewFromRawBytes(r, false)
+		if err != nil {
+			return nil, fmt.Errorf("could not parse PSBT: %v", err)
+		}
+
+	// The template is specified as a RPC message. We need to create a new
+	// PSBT and copy the RPC information over.
+	case req.GetRaw() != nil:
+		tpl := req.GetRaw()
+		if len(tpl.Outputs) == 0 {
+			return nil, fmt.Errorf("no outputs specified")
+		}
+
+		txOut := make([]*wire.TxOut, 0, len(tpl.Outputs))
+		for addrStr, amt := range tpl.Outputs {
+			addr, err := btcutil.DecodeAddress(
+				addrStr, w.cfg.ChainParams,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing address "+
+					"%s for network %s: %v", addrStr,
+					w.cfg.ChainParams.Name, err)
+			}
+			pkScript, err := txscript.PayToAddrScript(addr)
+			if err != nil {
+				return nil, fmt.Errorf("error getting pk "+
+					"script for address %s: %v", addrStr,
+					err)
+			}
+
+			txOut = append(txOut, &wire.TxOut{
+				Value:    int64(amt),
+				PkScript: pkScript,
+			})
+		}
+
+		txIn := make([]*wire.OutPoint, len(tpl.Inputs))
+		for idx, in := range tpl.Inputs {
+			op, err := unmarshallOutPoint(in)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing "+
+					"outpoint: %v", err)
+			}
+			txIn[idx] = op
+		}
+
+		sequences := make([]uint32, len(txIn))
+		packet, err = psbt.New(txIn, txOut, 2, 0, sequences)
+		if err != nil {
+			return nil, fmt.Errorf("could not create PSBT: %v", err)
+		}
+
+	default:
+		return nil, fmt.Errorf("transaction template missing, need " +
+			"to specify either PSBT or raw TX template")
+	}
+
+	// Determine the desired transaction fee.
+	switch {
+	// Estimate the fee by the target number of blocks to confirmation.
+	case req.GetTargetConf() != 0:
+		targetConf := req.GetTargetConf()
+		if targetConf < 2 {
+			return nil, fmt.Errorf("confirmation target must be " +
+				"greater than 1")
+		}
+
+		feeSatPerKW, err = w.cfg.FeeEstimator.EstimateFeePerKW(
+			targetConf,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("could not estimate fee: %v",
+				err)
+		}
+
+	// Convert the fee to sat/kW from the specified sat/vByte.
+	case req.GetSatPerVbyte() != 0:
+		feeSatPerKW = chainfee.SatPerKVByte(
+			req.GetSatPerVbyte() * 1000,
+		).FeePerKWeight()
+
+	default:
+		return nil, fmt.Errorf("fee definition missing, need to " +
+			"specify either target_conf or set_per_vbyte")
+	}
+
+	// The RPC parsing part is now over. Several of the following operations
+	// require us to hold the global coin selection lock so we do the rest
+	// of the tasks while holding the lock. The result is a list of locked
+	// UTXOs.
+	changeIndex := int32(-1)
+	err = w.cfg.CoinSelectionLocker.WithCoinSelectLock(func() error {
+		// In case the user did specify inputs, we need to make sure
+		// they are known to us, still unspent and not yet locked.
+		if len(packet.UnsignedTx.TxIn) > 0 {
+			// Get a list of all unspent witness outputs.
+			utxos, err := w.cfg.Wallet.ListUnspentWitness(
+				defaultMinConf, defaultMaxConf,
+			)
+			if err != nil {
+				return err
+			}
+
+			// Validate all inputs against our known list of UTXOs
+			// now.
+			err = verifyInputsUnspent(packet.UnsignedTx.TxIn, utxos)
+			if err != nil {
+				return err
+			}
+		}
+
+		// We made sure the input from the user is as sane as possible.
+		// We can now ask the wallet to fund the TX. This will not yet
+		// lock any coins but might still change the wallet DB by
+		// generating a new change address.
+		changeIndex, err = w.cfg.Wallet.FundPsbt(packet, feeSatPerKW)
+		if err != nil {
+			return fmt.Errorf("wallet couldn't fund PSBT: %v", err)
+		}
+
+		// Make sure we can properly serialize the packet. If this goes
+		// wrong then something isn't right with the inputs and we
+		// probably shouldn't try to lock any of them.
+		err = packet.Serialize(&rawPsbt)
+		if err != nil {
+			return fmt.Errorf("error serializing funded PSBT: %v",
+				err)
+		}
+
+		// Now we have obtained a set of coins that can be used to fund
+		// the TX. Let's lock them to be sure they aren't spent by the
+		// time the PSBT is published. This is the action we do here
+		// that could cause an error. Therefore if some of the UTXOs
+		// cannot be locked, the rollback of the other's locks also
+		// happens in this function. If we ever need to do more after
+		// this function, we need to extract the rollback needs to be
+		// extracted into a defer.
+		locks, err = lockInputs(w.cfg.Wallet, packet)
+		if err != nil {
+			return fmt.Errorf("could not lock inputs: %v", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert the lock leases to the RPC format.
+	rpcLocks := make([]*UtxoLease, len(locks))
+	for idx, lock := range locks {
+		rpcLocks[idx] = &UtxoLease{
+			Id: lock.lockID[:],
+			Outpoint: &lnrpc.OutPoint{
+				TxidBytes:   lock.outpoint.Hash[:],
+				TxidStr:     lock.outpoint.String(),
+				OutputIndex: lock.outpoint.Index,
+			},
+			Expiration: uint64(lock.expiration.Unix()),
+		}
+	}
+
+	return &FundPsbtResponse{
+		FundedPsbt:        rawPsbt.Bytes(),
+		ChangeOutputIndex: changeIndex,
+		LockedUtxos:       rpcLocks,
+	}, nil
+}
+
+// FinalizePsbt expects a partial transaction with all inputs and outputs fully
+// declared and tries to sign all inputs that belong to the wallet. Lnd must be
+// the last signer of the transaction. That means, if there are any unsigned
+// non-witness inputs or inputs without UTXO information attached or inputs
+// without witness data that do not belong to lnd's wallet, this method will
+// fail. If no error is returned, the PSBT is ready to be extracted and the
+// final TX within to be broadcast.
+//
+// NOTE: This method does NOT publish the transaction once finalized. It is the
+// caller's responsibility to either publish the transaction on success or
+// unlock/release any locked UTXOs in case of an error in this method.
+func (w *WalletKit) FinalizePsbt(_ context.Context,
+	req *FinalizePsbtRequest) (*FinalizePsbtResponse, error) {
+
+	// Parse the funded PSBT. No additional checks are required at this
+	// level as the wallet will perform all of them.
+	packet, err := psbt.NewFromRawBytes(
+		bytes.NewReader(req.FundedPsbt), false,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing PSBT: %v", err)
+	}
+
+	// Let the wallet do the heavy lifting. This will sign all inputs that
+	// we have the UTXO for. If some inputs can't be signed and don't have
+	// witness data attached, this will fail.
+	err = w.cfg.Wallet.FinalizePsbt(packet)
+	if err != nil {
+		return nil, fmt.Errorf("error finalizing PSBT: %v", err)
+	}
+
+	var (
+		finalPsbtBytes bytes.Buffer
+		finalTxBytes   bytes.Buffer
+	)
+
+	// Serialize the finalized PSBT in both the packet and wire format.
+	err = packet.Serialize(&finalPsbtBytes)
+	if err != nil {
+		return nil, fmt.Errorf("error serializing PSBT: %v", err)
+	}
+	finalTx, err := psbt.Extract(packet)
+	if err != nil {
+		return nil, fmt.Errorf("unable to extract final TX: %v", err)
+	}
+	err = finalTx.Serialize(&finalTxBytes)
+	if err != nil {
+		return nil, fmt.Errorf("error serializing final TX: %v", err)
+	}
+
+	return &FinalizePsbtResponse{
+		SignedPsbt: finalPsbtBytes.Bytes(),
+		RawFinalTx: finalTxBytes.Bytes(),
+	}, nil
 }

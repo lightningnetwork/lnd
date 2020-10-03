@@ -8,9 +8,9 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/psbt"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/stretchr/testify/require"
 )
@@ -22,53 +22,48 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 	const chanSize = lnd.MaxBtcFundingAmount
 
-	// First, we'll create two new nodes that we'll use to open channel
-	// between for this test.
+	// First, we'll create two new nodes that we'll use to open channels
+	// between for this test. Dave gets some coins that will be used to
+	// fund the PSBT, just to make sure that Carol has an empty wallet.
 	carol, err := net.NewNode("carol", nil)
-	if err != nil {
-		t.Fatalf("unable to start new node: %v", err)
-	}
+	require.NoError(t.t, err)
 	defer shutdownAndAssert(net, t, carol)
 
 	dave, err := net.NewNode("dave", nil)
-	if err != nil {
-		t.Fatalf("unable to start new node: %v", err)
-	}
+	require.NoError(t.t, err)
 	defer shutdownAndAssert(net, t, dave)
+	err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, dave)
+	if err != nil {
+		t.Fatalf("unable to send coins to dave: %v", err)
+	}
 
 	// Before we start the test, we'll ensure both sides are connected so
 	// the funding flow can be properly executed.
 	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 	err = net.EnsureConnected(ctxt, carol, dave)
-	if err != nil {
-		t.Fatalf("unable to connect peers: %v", err)
-	}
+	require.NoError(t.t, err)
 	err = net.EnsureConnected(ctxt, carol, net.Alice)
-	if err != nil {
-		t.Fatalf("unable to connect peers: %v", err)
-	}
+	require.NoError(t.t, err)
 
 	// At this point, we can begin our PSBT channel funding workflow. We'll
 	// start by generating a pending channel ID externally that will be used
 	// to track this new funding type.
 	var pendingChanID [32]byte
-	if _, err := rand.Read(pendingChanID[:]); err != nil {
-		t.Fatalf("unable to gen pending chan ID: %v", err)
-	}
+	_, err = rand.Read(pendingChanID[:])
+	require.NoError(t.t, err)
 
 	// We'll also test batch funding of two channels so we need another ID.
 	var pendingChanID2 [32]byte
-	if _, err := rand.Read(pendingChanID2[:]); err != nil {
-		t.Fatalf("unable to gen pending chan ID: %v", err)
-	}
+	_, err = rand.Read(pendingChanID2[:])
+	require.NoError(t.t, err)
 
 	// Now that we have the pending channel ID, Carol will open the channel
 	// by specifying a PSBT shim. We use the NoPublish flag here to avoid
 	// publishing the whole batch TX too early.
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
-	chanUpdates, psbtBytes, err := openChannelPsbt(
+	chanUpdates, tempPsbt, err := openChannelPsbt(
 		ctxt, carol, dave, lntest.OpenChannelParams{
 			Amt: chanSize,
 			FundingShim: &lnrpc.FundingShim{
@@ -81,16 +76,11 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 			},
 		},
 	)
-	if err != nil {
-		t.Fatalf("unable to open channel to dave: %v", err)
-	}
-	packet, err := psbt.NewFromRawBytes(bytes.NewReader(psbtBytes), false)
-	if err != nil {
-		t.Fatalf("unable to parse returned PSBT: %v", err)
-	}
+	require.NoError(t.t, err)
 
-	// Let's add a second channel to the batch. This time between carol and
-	// alice. We will the batch TX once this channel funding is complete.
+	// Let's add a second channel to the batch. This time between Carol and
+	// Alice. We will publish the batch TX once this channel funding is
+	// complete.
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 	chanUpdates2, psbtBytes2, err := openChannelPsbt(
@@ -101,59 +91,29 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 					PsbtShim: &lnrpc.PsbtShim{
 						PendingChanId: pendingChanID2[:],
 						NoPublish:     false,
+						BasePsbt:      tempPsbt,
 					},
 				},
 			},
 		},
 	)
-	if err != nil {
-		t.Fatalf("unable to open channel to alice: %v", err)
-	}
-	packet2, err := psbt.NewFromRawBytes(bytes.NewReader(psbtBytes2), false)
-	if err != nil {
-		t.Fatalf("unable to parse returned PSBT: %v", err)
-	}
+	require.NoError(t.t, err)
 
-	// We'll now create a fully signed transaction that sends to the outputs
-	// encoded in the PSBT. We'll let the miner do it and convert the final
-	// TX into a PSBT, that's way easier than assembling a PSBT manually.
-	allOuts := append(packet.UnsignedTx.TxOut, packet2.UnsignedTx.TxOut...)
-	finalTx, err := net.Miner.CreateTransaction(allOuts, 5, true)
-	if err != nil {
-		t.Fatalf("unable to create funding transaction: %v", err)
+	// We'll now ask Dave's wallet to fund the PSBT for us. This will return
+	// a packet with inputs and outputs set but without any witness data.
+	// This is exactly what we need for the next step.
+	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	fundReq := &walletrpc.FundPsbtRequest{
+		Template: &walletrpc.FundPsbtRequest_Psbt{
+			Psbt: psbtBytes2,
+		},
+		Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
+			SatPerVbyte: 2,
+		},
 	}
-
-	// The helper function splits the final TX into the non-witness data
-	// encoded in a PSBT and the witness data returned separately.
-	unsignedPsbt, scripts, witnesses, err := createPsbtFromSignedTx(finalTx)
-	if err != nil {
-		t.Fatalf("unable to convert funding transaction into PSBT: %v",
-			err)
-	}
-
-	// The PSBT will also be checked if there are large enough inputs
-	// present. We need to add some fake UTXO information to the PSBT to
-	// tell it what size of inputs we have.
-	for idx, txIn := range unsignedPsbt.UnsignedTx.TxIn {
-		utxPrevOut := txIn.PreviousOutPoint.Index
-		fakeUtxo := &wire.MsgTx{
-			Version: 2,
-			TxIn:    []*wire.TxIn{{}},
-			TxOut:   make([]*wire.TxOut, utxPrevOut+1),
-		}
-		for idx := range fakeUtxo.TxOut {
-			fakeUtxo.TxOut[idx] = &wire.TxOut{}
-		}
-		fakeUtxo.TxOut[utxPrevOut].Value = 10000000000
-		unsignedPsbt.Inputs[idx].NonWitnessUtxo = fakeUtxo
-	}
-
-	// Serialize the PSBT with the faked UTXO information.
-	var buf bytes.Buffer
-	err = unsignedPsbt.Serialize(&buf)
-	if err != nil {
-		t.Fatalf("error serializing PSBT: %v", err)
-	}
+	fundResp, err := dave.WalletKitClient.FundPsbt(ctxt, fundReq)
+	require.NoError(t.t, err)
 
 	// We have a PSBT that has no witness data yet, which is exactly what we
 	// need for the next step: Verify the PSBT with the funding intents.
@@ -161,67 +121,50 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		Trigger: &lnrpc.FundingTransitionMsg_PsbtVerify{
 			PsbtVerify: &lnrpc.FundingPsbtVerify{
 				PendingChanId: pendingChanID[:],
-				FundedPsbt:    buf.Bytes(),
+				FundedPsbt:    fundResp.FundedPsbt,
 			},
 		},
 	})
-	if err != nil {
-		t.Fatalf("error verifying PSBT with funding intent: %v", err)
-	}
+	require.NoError(t.t, err)
 	_, err = carol.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
 		Trigger: &lnrpc.FundingTransitionMsg_PsbtVerify{
 			PsbtVerify: &lnrpc.FundingPsbtVerify{
 				PendingChanId: pendingChanID2[:],
-				FundedPsbt:    buf.Bytes(),
+				FundedPsbt:    fundResp.FundedPsbt,
 			},
 		},
 	})
-	if err != nil {
-		t.Fatalf("error verifying PSBT with funding intent 2: %v", err)
-	}
+	require.NoError(t.t, err)
 
-	// Now we'll add the witness data back into the PSBT to make it a
-	// complete and signed transaction that can be finalized. We'll trick
-	// a bit by putting the script sig back directly, because we know we
-	// will only get non-witness outputs from the miner wallet.
-	for idx := range finalTx.TxIn {
-		if len(witnesses[idx]) > 0 {
-			t.Fatalf("unexpected witness inputs in wallet TX")
-		}
-		unsignedPsbt.Inputs[idx].FinalScriptSig = scripts[idx]
+	// Now we'll ask Dave's wallet to sign the PSBT so we can finish the
+	// funding flow.
+	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	finalizeReq := &walletrpc.FinalizePsbtRequest{
+		FundedPsbt: fundResp.FundedPsbt,
 	}
+	finalizeRes, err := dave.WalletKitClient.FinalizePsbt(ctxt, finalizeReq)
+	require.NoError(t.t, err)
 
 	// We've signed our PSBT now, let's pass it to the intent again.
-	buf.Reset()
-	err = unsignedPsbt.Serialize(&buf)
-	if err != nil {
-		t.Fatalf("error serializing PSBT: %v", err)
-	}
 	_, err = carol.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
 		Trigger: &lnrpc.FundingTransitionMsg_PsbtFinalize{
 			PsbtFinalize: &lnrpc.FundingPsbtFinalize{
 				PendingChanId: pendingChanID[:],
-				SignedPsbt:    buf.Bytes(),
+				SignedPsbt:    finalizeRes.SignedPsbt,
 			},
 		},
 	})
-	if err != nil {
-		t.Fatalf("error finalizing PSBT with funding intent: %v", err)
-	}
+	require.NoError(t.t, err)
 
 	// Consume the "channel pending" update. This waits until the funding
 	// transaction was fully compiled.
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 	updateResp, err := receiveChanUpdate(ctxt, chanUpdates)
-	if err != nil {
-		t.Fatalf("unable to consume channel update message: %v", err)
-	}
+	require.NoError(t.t, err)
 	upd, ok := updateResp.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
-	if !ok {
-		t.Fatalf("expected PSBT funding update, instead got %v",
-			updateResp)
-	}
+	require.True(t.t, ok)
 	chanPoint := &lnrpc.ChannelPoint{
 		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
 			FundingTxidBytes: upd.ChanPending.Txid,
@@ -231,29 +174,21 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// No transaction should have been published yet.
 	mempool, err := net.Miner.Node.GetRawMempool()
-	if err != nil {
-		t.Fatalf("error querying mempool: %v", err)
-	}
-	if len(mempool) != 0 {
-		t.Fatalf("unexpected txes in mempool: %v", mempool)
-	}
+	require.NoError(t.t, err)
+	require.Equal(t.t, 0, len(mempool))
 
 	// Let's progress the second channel now. This time we'll use the raw
 	// wire format transaction directly.
-	buf.Reset()
-	err = finalTx.Serialize(&buf)
 	require.NoError(t.t, err)
 	_, err = carol.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
 		Trigger: &lnrpc.FundingTransitionMsg_PsbtFinalize{
 			PsbtFinalize: &lnrpc.FundingPsbtFinalize{
 				PendingChanId: pendingChanID2[:],
-				FinalRawTx:    buf.Bytes(),
+				FinalRawTx:    finalizeRes.RawFinalTx,
 			},
 		},
 	})
-	if err != nil {
-		t.Fatalf("error finalizing PSBT with funding intent 2: %v", err)
-	}
+	require.NoError(t.t, err)
 
 	// Consume the "channel pending" update for the second channel. This
 	// waits until the funding transaction was fully compiled and in this
@@ -261,14 +196,9 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 	updateResp2, err := receiveChanUpdate(ctxt, chanUpdates2)
-	if err != nil {
-		t.Fatalf("unable to consume channel update message: %v", err)
-	}
+	require.NoError(t.t, err)
 	upd2, ok := updateResp2.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
-	if !ok {
-		t.Fatalf("expected PSBT funding update, instead got %v",
-			updateResp2)
-	}
+	require.True(t.t, ok)
 	chanPoint2 := &lnrpc.ChannelPoint{
 		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
 			FundingTxidBytes: upd2.ChanPending.Txid,
@@ -278,19 +208,19 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Great, now we can mine a block to get the transaction confirmed, then
 	// wait for the new channel to be propagated through the network.
+	var finalTx wire.MsgTx
+	err = finalTx.Deserialize(bytes.NewReader(finalizeRes.RawFinalTx))
+	require.NoError(t.t, err)
+
 	txHash := finalTx.TxHash()
 	block := mineBlocks(t, net, 6, 1)[0]
 	assertTxInBlock(t, block, &txHash)
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 	err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint)
-	if err != nil {
-		t.Fatalf("carol didn't report channel: %v", err)
-	}
+	require.NoError(t.t, err)
 	err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint2)
-	if err != nil {
-		t.Fatalf("carol didn't report channel 2: %v", err)
-	}
+	require.NoError(t.t, err)
 
 	// With the channel open, ensure that it is counted towards Carol's
 	// total channel balance.
@@ -298,12 +228,8 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 	balRes, err := carol.ChannelBalance(ctxt, balReq)
-	if err != nil {
-		t.Fatalf("unable to get carol's balance: %v", err)
-	}
-	if balRes.LocalBalance.Sat == 0 {
-		t.Fatalf("carol has an empty channel balance")
-	}
+	require.NoError(t.t, err)
+	require.NotEqual(t.t, int64(0), balRes.LocalBalance.Sat)
 
 	// Next, to make sure the channel functions as normal, we'll make some
 	// payments within the channel.
@@ -314,17 +240,13 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	resp, err := dave.AddInvoice(ctxt, invoice)
-	if err != nil {
-		t.Fatalf("unable to add invoice: %v", err)
-	}
+	require.NoError(t.t, err)
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
 		ctxt, carol, carol.RouterClient, []string{resp.PaymentRequest},
 		true,
 	)
-	if err != nil {
-		t.Fatalf("unable to make payments between Carol and Dave")
-	}
+	require.NoError(t.t, err)
 
 	// To conclude, we'll close the newly created channel between Carol and
 	// Dave. This function will also block until the channel is closed and
@@ -420,32 +342,4 @@ func receiveChanUpdate(ctx context.Context,
 	case updateMsg := <-chanMsg:
 		return updateMsg, nil
 	}
-}
-
-// createPsbtFromSignedTx is a utility function to create a PSBT from an
-// already-signed transaction, so we can test reconstructing, signing and
-// extracting it. Returned are: an unsigned transaction serialization, a list
-// of scriptSigs, one per input, and a list of witnesses, one per input.
-func createPsbtFromSignedTx(tx *wire.MsgTx) (*psbt.Packet, [][]byte,
-	[]wire.TxWitness, error) {
-
-	scriptSigs := make([][]byte, 0, len(tx.TxIn))
-	witnesses := make([]wire.TxWitness, 0, len(tx.TxIn))
-	tx2 := tx.Copy()
-
-	// Blank out signature info in inputs
-	for i, tin := range tx2.TxIn {
-		tin.SignatureScript = nil
-		scriptSigs = append(scriptSigs, tx.TxIn[i].SignatureScript)
-		tin.Witness = nil
-		witnesses = append(witnesses, tx.TxIn[i].Witness)
-	}
-
-	// Outputs always contain: (value, scriptPubkey) so don't need
-	// amending.  Now tx2 is tx with all signing data stripped out
-	unsignedPsbt, err := psbt.NewFromUnsignedTx(tx2)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	return unsignedPsbt, scriptSigs, witnesses, nil
 }

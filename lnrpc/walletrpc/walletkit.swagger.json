@@ -177,6 +177,74 @@
         ]
       }
     },
+    "/v2/wallet/psbt/finalize": {
+      "post": {
+        "summary": "FinalizePsbt expects a partial transaction with all inputs and outputs fully\ndeclared and tries to sign all inputs that belong to the wallet. Lnd must be\nthe last signer of the transaction. That means, if there are any unsigned\nnon-witness inputs or inputs without UTXO information attached or inputs\nwithout witness data that do not belong to lnd's wallet, this method will\nfail. If no error is returned, the PSBT is ready to be extracted and the\nfinal TX within to be broadcast.",
+        "description": "NOTE: This method does NOT publish the transaction once finalized. It is the\ncaller's responsibility to either publish the transaction on success or\nunlock/release any locked UTXOs in case of an error in this method.",
+        "operationId": "FinalizePsbt",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/walletrpcFinalizePsbtResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/walletrpcFinalizePsbtRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WalletKit"
+        ]
+      }
+    },
+    "/v2/wallet/psbt/fund": {
+      "post": {
+        "summary": "FundPsbt creates a fully populated PSBT that contains enough inputs to fund\nthe outputs specified in the template. There are two ways of specifying a\ntemplate: Either by passing in a PSBT with at least one output declared or\nby passing in a raw TxTemplate message.",
+        "description": "If there are no inputs specified in the template, coin selection is\nperformed automatically. If the template does contain any inputs, it is\nassumed that full coin selection happened externally and no additional\ninputs are added. If the specified inputs aren't enough to fund the outputs\nwith the given fee rate, an error is returned.\n\nAfter either selecting or verifying the inputs, all input UTXOs are locked\nwith an internal app ID.\n\nNOTE: If this method returns without an error, it is the caller's\nresponsibility to either spend the locked UTXOs (by finalizing and then\npublishing the transaction) or to unlock/release the locked UTXOs in case of\nan error on the caller's side.",
+        "operationId": "FundPsbt",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/walletrpcFundPsbtResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/walletrpcFundPsbtRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WalletKit"
+        ]
+      }
+    },
     "/v2/wallet/send": {
       "post": {
         "summary": "SendOutputs is similar to the existing sendmany call in Bitcoind, and\nallows the caller to create a transaction that sends to several outputs at\nonce. This is ideal when wanting to batch create a set of transactions.",
@@ -689,6 +757,77 @@
         }
       }
     },
+    "walletrpcFinalizePsbtRequest": {
+      "type": "object",
+      "properties": {
+        "funded_psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "A PSBT that should be signed and finalized. The PSBT must contain all\nrequired inputs, outputs, UTXO data and partial signatures of all other\nsigners."
+        }
+      }
+    },
+    "walletrpcFinalizePsbtResponse": {
+      "type": "object",
+      "properties": {
+        "signed_psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "The fully signed and finalized transaction in PSBT format."
+        },
+        "raw_final_tx": {
+          "type": "string",
+          "format": "byte",
+          "description": "The fully signed and finalized transaction in the raw wire format."
+        }
+      }
+    },
+    "walletrpcFundPsbtRequest": {
+      "type": "object",
+      "properties": {
+        "psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "Use an existing PSBT packet as the template for the funded PSBT.\n\nThe packet must contain at least one non-dust output. If one or more\ninputs are specified, no coin selection is performed. In that case every\ninput must be an UTXO known to the wallet that has not been locked\nbefore. The sum of all inputs must be sufficiently greater than the sum\nof all outputs to pay a miner fee with the specified fee rate. A change\noutput is added to the PSBT if necessary."
+        },
+        "raw": {
+          "$ref": "#/definitions/walletrpcTxTemplate",
+          "description": "Use the outputs and optional inputs from this raw template."
+        },
+        "target_conf": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The target number of blocks that the transaction should be confirmed in."
+        },
+        "sat_per_vbyte": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The fee rate, expressed in sat/vbyte, that should be used to spend the\ninput with."
+        }
+      }
+    },
+    "walletrpcFundPsbtResponse": {
+      "type": "object",
+      "properties": {
+        "funded_psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "The funded but not yet signed PSBT packet."
+        },
+        "change_output_index": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The index of the added change output or -1 if no change was left over."
+        },
+        "locked_utxos": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/walletrpcUtxoLease"
+          },
+          "description": "The list of lock leases that were acquired for the inputs in the funded PSBT\npacket."
+        }
+      }
+    },
     "walletrpcKeyReq": {
       "type": "object",
       "properties": {
@@ -911,6 +1050,45 @@
         "label": {
           "type": "string",
           "description": "An optional label to save with the transaction. Limited to 500 characters."
+        }
+      }
+    },
+    "walletrpcTxTemplate": {
+      "type": "object",
+      "properties": {
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcOutPoint"
+          },
+          "description": "An optional list of inputs to use. Every input must be an UTXO known to the\nwallet that has not been locked before. The sum of all inputs must be\nsufficiently greater than the sum of all outputs to pay a miner fee with the\nfee rate specified in the parent message.\n\nIf no inputs are specified, coin selection will be performed instead and\ninputs of sufficient value will be added to the resulting PSBT."
+        },
+        "outputs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "A map of all addresses and the amounts to send to in the funded PSBT."
+        }
+      }
+    },
+    "walletrpcUtxoLease": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "byte",
+          "description": "A 32 byte random ID that identifies the lease."
+        },
+        "outpoint": {
+          "$ref": "#/definitions/lnrpcOutPoint",
+          "description": "The identifying outpoint of the output being leased."
+        },
+        "expiration": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The absolute expiration of the output lease represented as a unix timestamp."
         }
       }
     },

@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/psbt"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/input"
@@ -272,6 +273,37 @@ type WalletController interface {
 	// has a label, this call will fail unless the overwrite parameter
 	// is set. Labels must not be empty, and they are limited to 500 chars.
 	LabelTransaction(hash chainhash.Hash, label string, overwrite bool) error
+
+	// FundPsbt creates a fully populated PSBT packet that contains enough
+	// inputs to fund the outputs specified in the passed in packet with the
+	// specified fee rate. If there is change left, a change output from the
+	// internal wallet is added and the index of the change output is
+	// returned. Otherwise no additional output is created and the index -1
+	// is returned.
+	//
+	// NOTE: If the packet doesn't contain any inputs, coin selection is
+	// performed automatically. If the packet does contain any inputs, it is
+	// assumed that full coin selection happened externally and no
+	// additional inputs are added. If the specified inputs aren't enough to
+	// fund the outputs with the given fee rate, an error is returned.
+	// No lock lease is acquired for any of the selected/validated inputs.
+	// It is in the caller's responsibility to lock the inputs before
+	// handing them out.
+	FundPsbt(packet *psbt.Packet, feeRate chainfee.SatPerKWeight) (int32,
+		error)
+
+	// FinalizePsbt expects a partial transaction with all inputs and
+	// outputs fully declared and tries to sign all inputs that belong to
+	// the wallet. Lnd must be the last signer of the transaction. That
+	// means, if there are any unsigned non-witness inputs or inputs without
+	// UTXO information attached or inputs without witness data that do not
+	// belong to lnd's wallet, this method will fail. If no error is
+	// returned, the PSBT is ready to be extracted and the final TX within
+	// to be broadcast.
+	//
+	// NOTE: This method does NOT publish the transaction after it's been
+	// finalized successfully.
+	FinalizePsbt(packet *psbt.Packet) error
 
 	// SubscribeTransactions returns a TransactionSubscription client which
 	// is capable of receiving async notifications as new transactions

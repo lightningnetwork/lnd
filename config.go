@@ -395,7 +395,7 @@ func DefaultConfig() Config {
 			MinConfs:       1,
 			ConfTarget:     autopilot.DefaultConfTarget,
 			Heuristic: map[string]float64{
-				"preferential": 1.0,
+				"top_centrality": 1.0,
 			},
 		},
 		PaymentsExpirationGracePeriod: defaultPaymentsExpirationGracePeriod,

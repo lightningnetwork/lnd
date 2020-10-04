@@ -215,7 +215,7 @@ func (o *Observation) retryCheck(quit chan struct{}, shutdown shutdownFunc) {
 			return
 		}
 
-		log.Debugf("Health check: %v, call: %v failed with: %v, "+
+		log.Infof("Health check: %v, call: %v failed with: %v, "+
 			"backing off for: %v", o, count, err, o.Backoff)
 
 		// If we are still within the number of calls allowed for this

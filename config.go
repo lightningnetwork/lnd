@@ -339,8 +339,8 @@ func DefaultConfig() Config {
 		MaxLogFileSize:    defaultMaxLogFileSize,
 		AcceptorTimeout:   defaultAcceptorTimeout,
 		Bitcoin: &lncfg.Chain{
-			MinHTLCIn:     defaultBitcoinMinHTLCInMSat,
-			MinHTLCOut:    defaultBitcoinMinHTLCOutMSat,
+			MinHTLCIn:     DefaultBitcoinMinHTLCInMSat,
+			MinHTLCOut:    DefaultBitcoinMinHTLCOutMSat,
 			BaseFee:       DefaultBitcoinBaseFeeMSat,
 			FeeRate:       DefaultBitcoinFeeRate,
 			TimeLockDelta: DefaultBitcoinTimeLockDelta,
@@ -357,11 +357,11 @@ func DefaultConfig() Config {
 			EstimateMode: defaultBitcoindEstimateMode,
 		},
 		Litecoin: &lncfg.Chain{
-			MinHTLCIn:     defaultLitecoinMinHTLCInMSat,
-			MinHTLCOut:    defaultLitecoinMinHTLCOutMSat,
-			BaseFee:       defaultLitecoinBaseFeeMSat,
-			FeeRate:       defaultLitecoinFeeRate,
-			TimeLockDelta: defaultLitecoinTimeLockDelta,
+			MinHTLCIn:     DefaultLitecoinMinHTLCInMSat,
+			MinHTLCOut:    DefaultLitecoinMinHTLCOutMSat,
+			BaseFee:       DefaultLitecoinBaseFeeMSat,
+			FeeRate:       DefaultLitecoinFeeRate,
+			TimeLockDelta: DefaultLitecoinTimeLockDelta,
 			Node:          "ltcd",
 		},
 		LtcdMode: &lncfg.Btcd{

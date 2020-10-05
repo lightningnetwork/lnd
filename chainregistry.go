@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	// defaultBitcoinMinHTLCMSat is the default smallest value htlc this
+	// DefaultBitcoinMinHTLCMSat is the default smallest value htlc this
 	// node will accept. This value is proposed in the channel open sequence
 	// and cannot be changed during the life of the channel. It is 1 msat by
 	// default to allow maximum flexibility in deciding what size payments
@@ -43,13 +43,13 @@ const (
 	// All forwarded payments are subjected to the min htlc constraint of
 	// the routing policy of the outgoing channel. This implicitly controls
 	// the minimum htlc value on the incoming channel too.
-	defaultBitcoinMinHTLCInMSat = lnwire.MilliSatoshi(1)
+	DefaultBitcoinMinHTLCInMSat = lnwire.MilliSatoshi(1)
 
-	// defaultBitcoinMinHTLCOutMSat is the default minimum htlc value that
+	// DefaultBitcoinMinHTLCOutMSat is the default minimum htlc value that
 	// we require for sending out htlcs. Our channel peer may have a lower
 	// min htlc channel parameter, but we - by default - don't forward
 	// anything under the value defined here.
-	defaultBitcoinMinHTLCOutMSat = lnwire.MilliSatoshi(1000)
+	DefaultBitcoinMinHTLCOutMSat = lnwire.MilliSatoshi(1000)
 
 	// DefaultBitcoinBaseFeeMSat is the default forwarding base fee.
 	DefaultBitcoinBaseFeeMSat = lnwire.MilliSatoshi(1000)
@@ -61,43 +61,43 @@ const (
 	// delta.
 	DefaultBitcoinTimeLockDelta = 40
 
-	defaultLitecoinMinHTLCInMSat  = lnwire.MilliSatoshi(1)
-	defaultLitecoinMinHTLCOutMSat = lnwire.MilliSatoshi(1000)
-	defaultLitecoinBaseFeeMSat    = lnwire.MilliSatoshi(1000)
-	defaultLitecoinFeeRate        = lnwire.MilliSatoshi(1)
-	defaultLitecoinTimeLockDelta  = 576
-	defaultLitecoinDustLimit      = btcutil.Amount(54600)
+	DefaultLitecoinMinHTLCInMSat  = lnwire.MilliSatoshi(1)
+	DefaultLitecoinMinHTLCOutMSat = lnwire.MilliSatoshi(1000)
+	DefaultLitecoinBaseFeeMSat    = lnwire.MilliSatoshi(1000)
+	DefaultLitecoinFeeRate        = lnwire.MilliSatoshi(1)
+	DefaultLitecoinTimeLockDelta  = 576
+	DefaultLitecoinDustLimit      = btcutil.Amount(54600)
 
-	// defaultBitcoinStaticFeePerKW is the fee rate of 50 sat/vbyte
+	// DefaultBitcoinStaticFeePerKW is the fee rate of 50 sat/vbyte
 	// expressed in sat/kw.
-	defaultBitcoinStaticFeePerKW = chainfee.SatPerKWeight(12500)
+	DefaultBitcoinStaticFeePerKW = chainfee.SatPerKWeight(12500)
 
-	// defaultBitcoinStaticMinRelayFeeRate is the min relay fee used for
+	// DefaultBitcoinStaticMinRelayFeeRate is the min relay fee used for
 	// static estimators.
-	defaultBitcoinStaticMinRelayFeeRate = chainfee.FeePerKwFloor
+	DefaultBitcoinStaticMinRelayFeeRate = chainfee.FeePerKwFloor
 
-	// defaultLitecoinStaticFeePerKW is the fee rate of 200 sat/vbyte
+	// DefaultLitecoinStaticFeePerKW is the fee rate of 200 sat/vbyte
 	// expressed in sat/kw.
-	defaultLitecoinStaticFeePerKW = chainfee.SatPerKWeight(50000)
+	DefaultLitecoinStaticFeePerKW = chainfee.SatPerKWeight(50000)
 
-	// btcToLtcConversionRate is a fixed ratio used in order to scale up
+	// BtcToLtcConversionRate is a fixed ratio used in order to scale up
 	// payments when running on the Litecoin chain.
-	btcToLtcConversionRate = 60
+	BtcToLtcConversionRate = 60
 )
 
-// defaultBtcChannelConstraints is the default set of channel constraints that are
+// DefaultBtcChannelConstraints is the default set of channel constraints that are
 // meant to be used when initially funding a Bitcoin channel.
 //
 // TODO(halseth): make configurable at startup?
-var defaultBtcChannelConstraints = channeldb.ChannelConstraints{
+var DefaultBtcChannelConstraints = channeldb.ChannelConstraints{
 	DustLimit:        lnwallet.DefaultDustLimit(),
 	MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 }
 
-// defaultLtcChannelConstraints is the default set of channel constraints that are
+// DefaultLtcChannelConstraints is the default set of channel constraints that are
 // meant to be used when initially funding a Litecoin channel.
-var defaultLtcChannelConstraints = channeldb.ChannelConstraints{
-	DustLimit:        defaultLitecoinDustLimit,
+var DefaultLtcChannelConstraints = channeldb.ChannelConstraints{
+	DustLimit:        DefaultLitecoinDustLimit,
 	MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 }
 
@@ -157,8 +157,8 @@ func newChainControl(cfg *chainreg.Config) (*chainControl, error) {
 		}
 		cc.minHtlcIn = cfg.Bitcoin.MinHTLCIn
 		cc.feeEstimator = chainfee.NewStaticEstimator(
-			defaultBitcoinStaticFeePerKW,
-			defaultBitcoinStaticMinRelayFeeRate,
+			DefaultBitcoinStaticFeePerKW,
+			DefaultBitcoinStaticMinRelayFeeRate,
 		)
 	case chainreg.LitecoinChain:
 		cc.routingPolicy = htlcswitch.ForwardingPolicy{
@@ -169,7 +169,7 @@ func newChainControl(cfg *chainreg.Config) (*chainControl, error) {
 		}
 		cc.minHtlcIn = cfg.Litecoin.MinHTLCIn
 		cc.feeEstimator = chainfee.NewStaticEstimator(
-			defaultLitecoinStaticFeePerKW, 0,
+			DefaultLitecoinStaticFeePerKW, 0,
 		)
 	default:
 		return nil, fmt.Errorf("default routing policy for chain %v is "+
@@ -490,9 +490,9 @@ func newChainControl(cfg *chainreg.Config) (*chainControl, error) {
 	cc.wc = wc
 
 	// Select the default channel constraints for the primary chain.
-	channelConstraints := defaultBtcChannelConstraints
+	channelConstraints := DefaultBtcChannelConstraints
 	if cfg.PrimaryChain() == chainreg.LitecoinChain {
-		channelConstraints = defaultLtcChannelConstraints
+		channelConstraints = DefaultLtcChannelConstraints
 	}
 
 	keyRing := keychain.NewBtcWalletKeyRing(
@@ -531,34 +531,34 @@ func newChainControl(cfg *chainreg.Config) (*chainControl, error) {
 }
 
 var (
-	// bitcoinTestnetGenesis is the genesis hash of Bitcoin's testnet
+	// BitcoinTestnetGenesis is the genesis hash of Bitcoin's testnet
 	// chain.
-	bitcoinTestnetGenesis = chainhash.Hash([chainhash.HashSize]byte{
+	BitcoinTestnetGenesis = chainhash.Hash([chainhash.HashSize]byte{
 		0x43, 0x49, 0x7f, 0xd7, 0xf8, 0x26, 0x95, 0x71,
 		0x08, 0xf4, 0xa3, 0x0f, 0xd9, 0xce, 0xc3, 0xae,
 		0xba, 0x79, 0x97, 0x20, 0x84, 0xe9, 0x0e, 0xad,
 		0x01, 0xea, 0x33, 0x09, 0x00, 0x00, 0x00, 0x00,
 	})
 
-	// bitcoinMainnetGenesis is the genesis hash of Bitcoin's main chain.
-	bitcoinMainnetGenesis = chainhash.Hash([chainhash.HashSize]byte{
+	// BitcoinMainnetGenesis is the genesis hash of Bitcoin's main chain.
+	BitcoinMainnetGenesis = chainhash.Hash([chainhash.HashSize]byte{
 		0x6f, 0xe2, 0x8c, 0x0a, 0xb6, 0xf1, 0xb3, 0x72,
 		0xc1, 0xa6, 0xa2, 0x46, 0xae, 0x63, 0xf7, 0x4f,
 		0x93, 0x1e, 0x83, 0x65, 0xe1, 0x5a, 0x08, 0x9c,
 		0x68, 0xd6, 0x19, 0x00, 0x00, 0x00, 0x00, 0x00,
 	})
 
-	// litecoinTestnetGenesis is the genesis hash of Litecoin's testnet4
+	// LitecoinTestnetGenesis is the genesis hash of Litecoin's testnet4
 	// chain.
-	litecoinTestnetGenesis = chainhash.Hash([chainhash.HashSize]byte{
+	LitecoinTestnetGenesis = chainhash.Hash([chainhash.HashSize]byte{
 		0xa0, 0x29, 0x3e, 0x4e, 0xeb, 0x3d, 0xa6, 0xe6,
 		0xf5, 0x6f, 0x81, 0xed, 0x59, 0x5f, 0x57, 0x88,
 		0x0d, 0x1a, 0x21, 0x56, 0x9e, 0x13, 0xee, 0xfd,
 		0xd9, 0x51, 0x28, 0x4b, 0x5a, 0x62, 0x66, 0x49,
 	})
 
-	// litecoinMainnetGenesis is the genesis hash of Litecoin's main chain.
-	litecoinMainnetGenesis = chainhash.Hash([chainhash.HashSize]byte{
+	// LitecoinMainnetGenesis is the genesis hash of Litecoin's main chain.
+	LitecoinMainnetGenesis = chainhash.Hash([chainhash.HashSize]byte{
 		0xe2, 0xbf, 0x04, 0x7e, 0x7e, 0x5a, 0x19, 0x1a,
 		0xa4, 0xef, 0x34, 0xd3, 0x14, 0x97, 0x9d, 0xc9,
 		0x98, 0x6e, 0x0f, 0x19, 0x25, 0x1e, 0xda, 0xba,
@@ -568,11 +568,11 @@ var (
 	// chainMap is a simple index that maps a chain's genesis hash to the
 	// ChainCode enum for that chain.
 	chainMap = map[chainhash.Hash]chainreg.ChainCode{
-		bitcoinTestnetGenesis:  chainreg.BitcoinChain,
-		litecoinTestnetGenesis: chainreg.LitecoinChain,
+		BitcoinTestnetGenesis:  chainreg.BitcoinChain,
+		LitecoinTestnetGenesis: chainreg.LitecoinChain,
 
-		bitcoinMainnetGenesis:  chainreg.BitcoinChain,
-		litecoinMainnetGenesis: chainreg.LitecoinChain,
+		BitcoinMainnetGenesis:  chainreg.BitcoinChain,
+		LitecoinMainnetGenesis: chainreg.LitecoinChain,
 	}
 
 	// chainDNSSeeds is a map of a chain's hash to the set of DNS seeds
@@ -588,7 +588,7 @@ var (
 	// TODO(roasbeef): extend and collapse these and chainparams.go into
 	// struct like chaincfg.Params
 	chainDNSSeeds = map[chainhash.Hash][][2]string{
-		bitcoinMainnetGenesis: {
+		BitcoinMainnetGenesis: {
 			{
 				"nodes.lightning.directory",
 				"soa.nodes.lightning.directory",
@@ -598,14 +598,14 @@ var (
 			},
 		},
 
-		bitcoinTestnetGenesis: {
+		BitcoinTestnetGenesis: {
 			{
 				"test.nodes.lightning.directory",
 				"soa.nodes.lightning.directory",
 			},
 		},
 
-		litecoinMainnetGenesis: {
+		LitecoinMainnetGenesis: {
 			{
 				"ltc.nodes.lightning.directory",
 				"soa.nodes.lightning.directory",

@@ -76,7 +76,7 @@ const (
 	// maxLtcFundingAmount is a soft-limit of the maximum channel size
 	// currently accepted on the Litecoin chain within the Lightning
 	// Protocol.
-	maxLtcFundingAmount = MaxBtcFundingAmount * btcToLtcConversionRate
+	maxLtcFundingAmount = MaxBtcFundingAmount * BtcToLtcConversionRate
 )
 
 var (
@@ -3064,7 +3064,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	case chainreg.BitcoinChain:
 		ourDustLimit = lnwallet.DefaultDustLimit()
 	case chainreg.LitecoinChain:
-		ourDustLimit = defaultLitecoinDustLimit
+		ourDustLimit = DefaultLitecoinDustLimit
 	}
 
 	fndgLog.Infof("Initiating fundingRequest(local_amt=%v "+

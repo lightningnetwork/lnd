@@ -124,14 +124,6 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 func (c *chanController) CloseChannel(chanPoint *wire.OutPoint) error {
 	return nil
 }
-func (c *chanController) SpliceIn(chanPoint *wire.OutPoint,
-	amt btcutil.Amount) (*autopilot.Channel, error) {
-	return nil, nil
-}
-func (c *chanController) SpliceOut(chanPoint *wire.OutPoint,
-	amt btcutil.Amount) (*autopilot.Channel, error) {
-	return nil, nil
-}
 
 // A compile time assertion to ensure chanController meets the
 // autopilot.ChannelController interface.
@@ -257,7 +249,7 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 	return &autopilot.ManagerCfg{
 		Self:     self,
 		PilotCfg: &pilotCfg,
-		ChannelState: func() ([]autopilot.Channel, error) {
+		ChannelState: func() ([]autopilot.LocalChannel, error) {
 			// We'll fetch the current state of open
 			// channels from the database to use as initial
 			// state for the auto-pilot agent.
@@ -265,18 +257,37 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 			if err != nil {
 				return nil, err
 			}
-			chanState := make([]autopilot.Channel,
+			chanState := make([]autopilot.LocalChannel,
 				len(activeChannels))
 			for i, channel := range activeChannels {
-				chanState[i] = autopilot.Channel{
-					ChanID:   channel.ShortChanID(),
-					Capacity: channel.Capacity,
+				localCommit := channel.LocalCommitment
+				balance := localCommit.LocalBalance.ToSatoshis()
+
+				chanState[i] = autopilot.LocalChannel{
+					ChanID:  channel.ShortChanID(),
+					Balance: balance,
 					Node: autopilot.NewNodeID(
-						channel.IdentityPub),
+						channel.IdentityPub,
+					),
 				}
 			}
 
 			return chanState, nil
+		},
+		ChannelInfo: func(chanPoint wire.OutPoint) (
+			*autopilot.LocalChannel, error) {
+
+			channel, err := svr.remoteChanDB.FetchChannel(chanPoint)
+			if err != nil {
+				return nil, err
+			}
+
+			localCommit := channel.LocalCommitment
+			return &autopilot.LocalChannel{
+				ChanID:  channel.ShortChanID(),
+				Balance: localCommit.LocalBalance.ToSatoshis(),
+				Node:    autopilot.NewNodeID(channel.IdentityPub),
+			}, nil
 		},
 		SubscribeTransactions: svr.cc.wallet.SubscribeTransactions,
 		SubscribeTopology:     svr.chanRouter.SubscribeTopology,

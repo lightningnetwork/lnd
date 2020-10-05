@@ -80,7 +80,7 @@ func (s *ExternalScoreAttachment) SetNodeScores(targetHeuristic string,
 // not known will get a score of 0.
 //
 // NOTE: This is a part of the AttachmentHeuristic interface.
-func (s *ExternalScoreAttachment) NodeScores(g ChannelGraph, chans []Channel,
+func (s *ExternalScoreAttachment) NodeScores(g ChannelGraph, chans []LocalChannel,
 	chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
 	map[NodeID]*NodeScore, error) {
 

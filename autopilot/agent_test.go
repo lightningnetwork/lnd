@@ -19,7 +19,7 @@ type moreChansResp struct {
 }
 
 type moreChanArg struct {
-	chans   []Channel
+	chans   []LocalChannel
 	balance btcutil.Amount
 }
 
@@ -29,7 +29,7 @@ type mockConstraints struct {
 	quit           chan struct{}
 }
 
-func (m *mockConstraints) ChannelBudget(chans []Channel,
+func (m *mockConstraints) ChannelBudget(chans []LocalChannel,
 	balance btcutil.Amount) (btcutil.Amount, uint32) {
 
 	if m.moreChanArgs != nil {
@@ -76,7 +76,7 @@ type mockHeuristic struct {
 type directiveArg struct {
 	graph ChannelGraph
 	amt   btcutil.Amount
-	chans []Channel
+	chans []LocalChannel
 	nodes map[NodeID]struct{}
 }
 
@@ -84,7 +84,7 @@ func (m *mockHeuristic) Name() string {
 	return "mock"
 }
 
-func (m *mockHeuristic) NodeScores(g ChannelGraph, chans []Channel,
+func (m *mockHeuristic) NodeScores(g ChannelGraph, chans []LocalChannel,
 	chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
 	map[NodeID]*NodeScore, error) {
 
@@ -139,14 +139,6 @@ func (m *mockChanController) OpenChannel(target *btcec.PublicKey,
 func (m *mockChanController) CloseChannel(chanPoint *wire.OutPoint) error {
 	return nil
 }
-func (m *mockChanController) SpliceIn(chanPoint *wire.OutPoint,
-	amt btcutil.Amount) (*Channel, error) {
-	return nil, nil
-}
-func (m *mockChanController) SpliceOut(chanPoint *wire.OutPoint,
-	amt btcutil.Amount) (*Channel, error) {
-	return nil, nil
-}
 
 var _ ChannelController = (*mockChanController)(nil)
 
@@ -162,7 +154,7 @@ type testContext struct {
 	sync.Mutex
 }
 
-func setup(t *testing.T, initialChans []Channel) (*testContext, func()) {
+func setup(t *testing.T, initialChans []LocalChannel) (*testContext, func()) {
 	t.Helper()
 
 	// First, we'll create all the dependencies that we'll need in order to
@@ -299,9 +291,9 @@ func TestAgentChannelOpenSignal(t *testing.T) {
 
 	// Next we'll signal a new channel being opened by the backing LN node,
 	// with a capacity of 1 BTC.
-	newChan := Channel{
-		ChanID:   randChanID(),
-		Capacity: btcutil.SatoshiPerBitcoin,
+	newChan := LocalChannel{
+		ChanID:  randChanID(),
+		Balance: btcutil.SatoshiPerBitcoin,
 	}
 	testCtx.agent.OnChannelOpen(newChan)
 
@@ -391,14 +383,6 @@ func (m *mockFailingChanController) OpenChannel(target *btcec.PublicKey,
 func (m *mockFailingChanController) CloseChannel(chanPoint *wire.OutPoint) error {
 	return nil
 }
-func (m *mockFailingChanController) SpliceIn(chanPoint *wire.OutPoint,
-	amt btcutil.Amount) (*Channel, error) {
-	return nil, nil
-}
-func (m *mockFailingChanController) SpliceOut(chanPoint *wire.OutPoint,
-	amt btcutil.Amount) (*Channel, error) {
-	return nil, nil
-}
 
 var _ ChannelController = (*mockFailingChanController)(nil)
 
@@ -448,14 +432,14 @@ func TestAgentChannelFailureSignal(t *testing.T) {
 func TestAgentChannelCloseSignal(t *testing.T) {
 	t.Parallel()
 	// We'll start the agent with two channels already being active.
-	initialChans := []Channel{
+	initialChans := []LocalChannel{
 		{
-			ChanID:   randChanID(),
-			Capacity: btcutil.SatoshiPerBitcoin,
+			ChanID:  randChanID(),
+			Balance: btcutil.SatoshiPerBitcoin,
 		},
 		{
-			ChanID:   randChanID(),
-			Capacity: btcutil.SatoshiPerBitcoin * 2,
+			ChanID:  randChanID(),
+			Balance: btcutil.SatoshiPerBitcoin * 2,
 		},
 	}
 
@@ -746,9 +730,9 @@ func TestAgentPendingChannelState(t *testing.T) {
 			t.Fatalf("should include pending chan in current "+
 				"state, instead have %v chans", len(req.chans))
 		}
-		if req.chans[0].Capacity != chanAmt {
-			t.Fatalf("wrong chan capacity: expected %v, got %v",
-				req.chans[0].Capacity, chanAmt)
+		if req.chans[0].Balance != chanAmt {
+			t.Fatalf("wrong chan balance: expected %v, got %v",
+				req.chans[0].Balance, chanAmt)
 		}
 		if req.chans[0].Node != nodeID {
 			t.Fatalf("wrong node ID: expected %x, got %x",

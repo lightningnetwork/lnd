@@ -20,6 +20,10 @@ const (
 	// to fail the link.
 	ErrRemoteError
 
+	// ErrRemoteUnresponsive indicates that our peer took too long to
+	// complete a commitment dance.
+	ErrRemoteUnresponsive
+
 	// ErrSyncError indicates that we failed synchronizing the state of the
 	// channel with our peer.
 	ErrSyncError
@@ -34,6 +38,11 @@ const (
 	// ErrInvalidRevocation indicates that the remote peer send us an
 	// invalid revocation message.
 	ErrInvalidRevocation
+
+	// ErrRecoveryError the channel was unable to be resumed, we need the
+	// remote party to force close the channel out on chain now as a
+	// result.
+	ErrRecoveryError
 )
 
 // LinkFailureError encapsulates an error that will make us fail the current
@@ -66,6 +75,8 @@ func (e LinkFailureError) Error() string {
 		return "internal error"
 	case ErrRemoteError:
 		return "remote error"
+	case ErrRemoteUnresponsive:
+		return "remote unresponsive"
 	case ErrSyncError:
 		return "sync error"
 	case ErrInvalidUpdate:
@@ -74,6 +85,8 @@ func (e LinkFailureError) Error() string {
 		return "invalid commitment"
 	case ErrInvalidRevocation:
 		return "invalid revocation"
+	case ErrRecoveryError:
+		return "unable to resume channel, recovery required"
 	default:
 		return "unknown error"
 	}
@@ -83,13 +96,23 @@ func (e LinkFailureError) Error() string {
 // the link fails with this LinkFailureError.
 func (e LinkFailureError) ShouldSendToPeer() bool {
 	switch e.code {
-	// If the failure is a result of the peer sending us an error, we don't
-	// have to respond with one.
-	case ErrRemoteError:
-		return false
 
-	// In all other cases we will attempt to send our peer an error message.
-	default:
+	// Since sending an error can lead some nodes to force close the
+	// channel, create a whitelist of the failures we want to send so that
+	// newly added error codes aren't automatically sent to the remote peer.
+	case
+		ErrInternalError,
+		ErrRemoteError,
+		ErrSyncError,
+		ErrInvalidUpdate,
+		ErrInvalidCommitment,
+		ErrInvalidRevocation,
+		ErrRecoveryError:
+
 		return true
+
+	// In all other cases we will not attempt to send our peer an error.
+	default:
+		return false
 	}
 }

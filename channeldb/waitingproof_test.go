@@ -14,9 +14,9 @@ import (
 func TestWaitingProofStore(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup, err := makeTestDB()
+	db, cleanup, err := MakeTestDB()
 	if err != nil {
-
+		t.Fatalf("failed to make test database: %s", err)
 	}
 	defer cleanup()
 

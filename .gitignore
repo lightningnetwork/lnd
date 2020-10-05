@@ -32,15 +32,20 @@ _testmain.go
 /lncli-itest
 
 # Integration test log files
-output*.log
-/.backendlogs
-/.minerlogs
+lntest/itest/output*.log
+lntest/itest/pprof*.log
+lntest/itest/.backendlogs
+lntest/itest/.minerlogs
 
 cmd/cmd
 *.key
 *.hex
 
 cmd/lncli/lncli
+
+# Files from mobile build.
+mobile/build
+mobile/*_generated.go
 
 # vim
 *.swp
@@ -58,3 +63,6 @@ profile.tmp
 .DS_Store
 
 .vscode
+
+# Coverage test
+coverage.txt

@@ -4,6 +4,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 )
 
@@ -37,7 +38,7 @@ type DB interface {
 	// QueryMatches searches its database for any state updates matching the
 	// provided breach hints. If any matches are found, they will be
 	// returned along with encrypted blobs so that justice can be exacted.
-	QueryMatches([]wtdb.BreachHint) ([]wtdb.Match, error)
+	QueryMatches([]blob.BreachHint) ([]wtdb.Match, error)
 
 	// SetLookoutTip writes the best epoch for which the watchtower has
 	// queried for breach hints.

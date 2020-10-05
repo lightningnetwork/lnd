@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package watchtowerrpc;
+
+option go_package = "github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc";
+
+// Watchtower is a service that grants access to the watchtower server
+// functionality of the daemon.
+service Watchtower {
+    /* lncli: tower info
+    GetInfo returns general information concerning the companion watchtower
+    including its public key and URIs where the server is currently
+    listening for clients.
+    */
+    rpc GetInfo (GetInfoRequest) returns (GetInfoResponse);
+}
+
+message GetInfoRequest {
+}
+
+message GetInfoResponse {
+    // The public key of the watchtower.
+    bytes pubkey = 1;
+
+    // The listening addresses of the watchtower.
+    repeated string listeners = 2;
+
+    // The URIs of the watchtower.
+    repeated string uris = 3;
+}

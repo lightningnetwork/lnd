@@ -1,0 +1,661 @@
+syntax = "proto3";
+
+import "rpc.proto";
+
+package routerrpc;
+
+option go_package = "github.com/lightningnetwork/lnd/lnrpc/routerrpc";
+
+// Router is a service that offers advanced interaction with the router
+// subsystem of the daemon.
+service Router {
+    /*
+    SendPaymentV2 attempts to route a payment described by the passed
+    PaymentRequest to the final destination. The call returns a stream of
+    payment updates.
+    */
+    rpc SendPaymentV2 (SendPaymentRequest) returns (stream lnrpc.Payment);
+
+    /*
+    TrackPaymentV2 returns an update stream for the payment identified by the
+    payment hash.
+    */
+    rpc TrackPaymentV2 (TrackPaymentRequest) returns (stream lnrpc.Payment);
+
+    /*
+    EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
+    may cost to send an HTLC to the target end destination.
+    */
+    rpc EstimateRouteFee (RouteFeeRequest) returns (RouteFeeResponse);
+
+    /*
+    Deprecated, use SendToRouteV2. SendToRoute attempts to make a payment via
+    the specified route. This method differs from SendPayment in that it
+    allows users to specify a full route manually. This can be used for
+    things like rebalancing, and atomic swaps. It differs from the newer
+    SendToRouteV2 in that it doesn't return the full HTLC information.
+    */
+    rpc SendToRoute (SendToRouteRequest) returns (SendToRouteResponse) {
+        option deprecated = true;
+    }
+
+    /*
+    SendToRouteV2 attempts to make a payment via the specified route. This
+    method differs from SendPayment in that it allows users to specify a full
+    route manually. This can be used for things like rebalancing, and atomic
+    swaps.
+    */
+    rpc SendToRouteV2 (SendToRouteRequest) returns (lnrpc.HTLCAttempt);
+
+    /*
+    ResetMissionControl clears all mission control state and starts with a clean
+    slate.
+    */
+    rpc ResetMissionControl (ResetMissionControlRequest)
+        returns (ResetMissionControlResponse);
+
+    /*
+    QueryMissionControl exposes the internal mission control state to callers.
+    It is a development feature.
+    */
+    rpc QueryMissionControl (QueryMissionControlRequest)
+        returns (QueryMissionControlResponse);
+
+    /*
+    QueryProbability returns the current success probability estimate for a
+    given node pair and amount.
+    */
+    rpc QueryProbability (QueryProbabilityRequest)
+        returns (QueryProbabilityResponse);
+
+    /*
+    BuildRoute builds a fully specified route based on a list of hop public
+    keys. It retrieves the relevant channel policies from the graph in order to
+    calculate the correct fees and time locks.
+    */
+    rpc BuildRoute (BuildRouteRequest) returns (BuildRouteResponse);
+
+    /*
+    SubscribeHtlcEvents creates a uni-directional stream from the server to
+    the client which delivers a stream of htlc events.
+    */
+    rpc SubscribeHtlcEvents (SubscribeHtlcEventsRequest)
+        returns (stream HtlcEvent);
+
+    /*
+    Deprecated, use SendPaymentV2. SendPayment attempts to route a payment
+    described by the passed PaymentRequest to the final destination. The call
+    returns a stream of payment status updates.
+    */
+    rpc SendPayment (SendPaymentRequest) returns (stream PaymentStatus) {
+        option deprecated = true;
+    }
+
+    /*
+    Deprecated, use TrackPaymentV2. TrackPayment returns an update stream for
+    the payment identified by the payment hash.
+    */
+    rpc TrackPayment (TrackPaymentRequest) returns (stream PaymentStatus) {
+        option deprecated = true;
+    }
+
+    /**
+    HtlcInterceptor dispatches a bi-directional streaming RPC in which
+    Forwarded HTLC requests are sent to the client and the client responds with
+    a boolean that tells LND if this htlc should be intercepted.
+    In case of interception, the htlc can be either settled, cancelled or
+    resumed later by using the ResolveHoldForward endpoint.
+    */
+    rpc HtlcInterceptor (stream ForwardHtlcInterceptResponse)
+        returns (stream ForwardHtlcInterceptRequest);
+}
+
+message SendPaymentRequest {
+    // The identity pubkey of the payment recipient
+    bytes dest = 1;
+
+    /*
+    Number of satoshis to send.
+
+    The fields amt and amt_msat are mutually exclusive.
+    */
+    int64 amt = 2;
+
+    /*
+    Number of millisatoshis to send.
+
+    The fields amt and amt_msat are mutually exclusive.
+    */
+    int64 amt_msat = 12;
+
+    // The hash to use within the payment's HTLC
+    bytes payment_hash = 3;
+
+    /*
+    The CLTV delta from the current height that should be used to set the
+    timelock for the final hop.
+    */
+    int32 final_cltv_delta = 4;
+
+    /*
+    A bare-bones invoice for a payment within the Lightning Network.  With the
+    details of the invoice, the sender has all the data necessary to send a
+    payment to the recipient. The amount in the payment request may be zero. In
+    that case it is required to set the amt field as well. If no payment request
+    is specified, the following fields are required: dest, amt and payment_hash.
+    */
+    string payment_request = 5;
+
+    /*
+    An upper limit on the amount of time we should spend when attempting to
+    fulfill the payment. This is expressed in seconds. If we cannot make a
+    successful payment within this time frame, an error will be returned.
+    This field must be non-zero.
+    */
+    int32 timeout_seconds = 6;
+
+    /*
+    The maximum number of satoshis that will be paid as a fee of the payment.
+    If this field is left to the default value of 0, only zero-fee routes will
+    be considered. This usually means single hop routes connecting directly to
+    the destination. To send the payment without a fee limit, use max int here.
+
+    The fields fee_limit_sat and fee_limit_msat are mutually exclusive.
+    */
+    int64 fee_limit_sat = 7;
+
+    /*
+    The maximum number of millisatoshis that will be paid as a fee of the
+    payment. If this field is left to the default value of 0, only zero-fee
+    routes will be considered. This usually means single hop routes connecting
+    directly to the destination. To send the payment without a fee limit, use
+    max int here.
+
+    The fields fee_limit_sat and fee_limit_msat are mutually exclusive.
+    */
+    int64 fee_limit_msat = 13;
+
+    /*
+    Deprecated, use outgoing_chan_ids. The channel id of the channel that must
+    be taken to the first hop. If zero, any channel may be used (unless
+    outgoing_chan_ids are set).
+    */
+    uint64 outgoing_chan_id = 8 [jstype = JS_STRING, deprecated = true];
+
+    /*
+    The channel ids of the channels are allowed for the first hop. If empty,
+    any channel may be used.
+    */
+    repeated uint64 outgoing_chan_ids = 19;
+
+    /*
+    The pubkey of the last hop of the route. If empty, any hop may be used.
+    */
+    bytes last_hop_pubkey = 14;
+
+    /*
+    An optional maximum total time lock for the route. This should not exceed
+    lnd's `--max-cltv-expiry` setting. If zero, then the value of
+    `--max-cltv-expiry` is enforced.
+    */
+    int32 cltv_limit = 9;
+
+    /*
+    Optional route hints to reach the destination through private channels.
+    */
+    repeated lnrpc.RouteHint route_hints = 10;
+
+    /*
+    An optional field that can be used to pass an arbitrary set of TLV records
+    to a peer which understands the new records. This can be used to pass
+    application specific data during the payment attempt. Record types are
+    required to be in the custom range >= 65536. When using REST, the values
+    must be encoded as base64.
+    */
+    map<uint64, bytes> dest_custom_records = 11;
+
+    // If set, circular payments to self are permitted.
+    bool allow_self_payment = 15;
+
+    /*
+    Features assumed to be supported by the final node. All transitive feature
+    dependencies must also be set properly. For a given feature bit pair, either
+    optional or remote may be set, but not both. If this field is nil or empty,
+    the router will try to load destination features from the graph as a
+    fallback.
+    */
+    repeated lnrpc.FeatureBit dest_features = 16;
+
+    /*
+    The maximum number of partial payments that may be use to complete the full
+    amount.
+    */
+    uint32 max_parts = 17;
+
+    /*
+    If set, only the final payment update is streamed back. Intermediate updates
+    that show which htlcs are still in flight are suppressed.
+    */
+    bool no_inflight_updates = 18;
+}
+
+message TrackPaymentRequest {
+    // The hash of the payment to look up.
+    bytes payment_hash = 1;
+
+    /*
+    If set, only the final payment update is streamed back. Intermediate updates
+    that show which htlcs are still in flight are suppressed.
+    */
+    bool no_inflight_updates = 2;
+}
+
+message RouteFeeRequest {
+    /*
+    The destination once wishes to obtain a routing fee quote to.
+    */
+    bytes dest = 1;
+
+    /*
+    The amount one wishes to send to the target destination.
+    */
+    int64 amt_sat = 2;
+}
+
+message RouteFeeResponse {
+    /*
+    A lower bound of the estimated fee to the target destination within the
+    network, expressed in milli-satoshis.
+    */
+    int64 routing_fee_msat = 1;
+
+    /*
+    An estimate of the worst case time delay that can occur. Note that callers
+    will still need to factor in the final CLTV delta of the last hop into this
+    value.
+    */
+    int64 time_lock_delay = 2;
+}
+
+message SendToRouteRequest {
+    // The payment hash to use for the HTLC.
+    bytes payment_hash = 1;
+
+    // Route that should be used to attempt to complete the payment.
+    lnrpc.Route route = 2;
+}
+
+message SendToRouteResponse {
+    // The preimage obtained by making the payment.
+    bytes preimage = 1;
+
+    // The failure message in case the payment failed.
+    lnrpc.Failure failure = 2;
+}
+
+message ResetMissionControlRequest {
+}
+
+message ResetMissionControlResponse {
+}
+
+message QueryMissionControlRequest {
+}
+
+// QueryMissionControlResponse contains mission control state.
+message QueryMissionControlResponse {
+    reserved 1;
+
+    // Node pair-level mission control state.
+    repeated PairHistory pairs = 2;
+}
+
+// PairHistory contains the mission control state for a particular node pair.
+message PairHistory {
+    // The source node pubkey of the pair.
+    bytes node_from = 1;
+
+    // The destination node pubkey of the pair.
+    bytes node_to = 2;
+
+    reserved 3, 4, 5, 6;
+
+    PairData history = 7;
+}
+
+message PairData {
+    // Time of last failure.
+    int64 fail_time = 1;
+
+    /*
+    Lowest amount that failed to forward rounded to whole sats. This may be
+    set to zero if the failure is independent of amount.
+    */
+    int64 fail_amt_sat = 2;
+
+    /*
+    Lowest amount that failed to forward in millisats. This may be
+    set to zero if the failure is independent of amount.
+    */
+    int64 fail_amt_msat = 4;
+
+    reserved 3;
+
+    // Time of last success.
+    int64 success_time = 5;
+
+    // Highest amount that we could successfully forward rounded to whole sats.
+    int64 success_amt_sat = 6;
+
+    // Highest amount that we could successfully forward in millisats.
+    int64 success_amt_msat = 7;
+}
+
+message QueryProbabilityRequest {
+    // The source node pubkey of the pair.
+    bytes from_node = 1;
+
+    // The destination node pubkey of the pair.
+    bytes to_node = 2;
+
+    // The amount for which to calculate a probability.
+    int64 amt_msat = 3;
+}
+
+message QueryProbabilityResponse {
+    // The success probability for the requested pair.
+    double probability = 1;
+
+    // The historical data for the requested pair.
+    PairData history = 2;
+}
+
+message BuildRouteRequest {
+    /*
+    The amount to send expressed in msat. If set to zero, the minimum routable
+    amount is used.
+    */
+    int64 amt_msat = 1;
+
+    /*
+    CLTV delta from the current height that should be used for the timelock
+    of the final hop
+    */
+    int32 final_cltv_delta = 2;
+
+    /*
+    The channel id of the channel that must be taken to the first hop. If zero,
+    any channel may be used.
+    */
+    uint64 outgoing_chan_id = 3 [jstype = JS_STRING];
+
+    /*
+    A list of hops that defines the route. This does not include the source hop
+    pubkey.
+    */
+    repeated bytes hop_pubkeys = 4;
+}
+
+message BuildRouteResponse {
+    /*
+    Fully specified route that can be used to execute the payment.
+    */
+    lnrpc.Route route = 1;
+}
+
+message SubscribeHtlcEventsRequest {
+}
+
+/*
+HtlcEvent contains the htlc event that was processed. These are served on a
+best-effort basis; events are not persisted, delivery is not guaranteed
+(in the event of a crash in the switch, forward events may be lost) and
+some events may be replayed upon restart. Events consumed from this package
+should be de-duplicated by the htlc's unique combination of incoming and
+outgoing channel id and htlc id. [EXPERIMENTAL]
+*/
+message HtlcEvent {
+    /*
+    The short channel id that the incoming htlc arrived at our node on. This
+    value is zero for sends.
+    */
+    uint64 incoming_channel_id = 1;
+
+    /*
+    The short channel id that the outgoing htlc left our node on. This value
+    is zero for receives.
+    */
+    uint64 outgoing_channel_id = 2;
+
+    /*
+    Incoming id is the index of the incoming htlc in the incoming channel.
+    This value is zero for sends.
+    */
+    uint64 incoming_htlc_id = 3;
+
+    /*
+    Outgoing id is the index of the outgoing htlc in the outgoing channel.
+    This value is zero for receives.
+    */
+    uint64 outgoing_htlc_id = 4;
+
+    /*
+    The time in unix nanoseconds that the event occurred.
+    */
+    uint64 timestamp_ns = 5;
+
+    enum EventType {
+        UNKNOWN = 0;
+        SEND = 1;
+        RECEIVE = 2;
+        FORWARD = 3;
+    }
+
+    /*
+    The event type indicates whether the htlc was part of a send, receive or
+    forward.
+    */
+    EventType event_type = 6;
+
+    oneof event {
+        ForwardEvent forward_event = 7;
+        ForwardFailEvent forward_fail_event = 8;
+        SettleEvent settle_event = 9;
+        LinkFailEvent link_fail_event = 10;
+    }
+}
+
+message HtlcInfo {
+    // The timelock on the incoming htlc.
+    uint32 incoming_timelock = 1;
+
+    // The timelock on the outgoing htlc.
+    uint32 outgoing_timelock = 2;
+
+    // The amount of the incoming htlc.
+    uint64 incoming_amt_msat = 3;
+
+    // The amount of the outgoing htlc.
+    uint64 outgoing_amt_msat = 4;
+}
+
+message ForwardEvent {
+    // Info contains details about the htlc that was forwarded.
+    HtlcInfo info = 1;
+}
+
+message ForwardFailEvent {
+}
+
+message SettleEvent {
+}
+
+message LinkFailEvent {
+    // Info contains details about the htlc that we failed.
+    HtlcInfo info = 1;
+
+    // FailureCode is the BOLT error code for the failure.
+    lnrpc.Failure.FailureCode wire_failure = 2;
+
+    /*
+    FailureDetail provides additional information about the reason for the
+    failure. This detail enriches the information provided by the wire message
+    and may be 'no detail' if the wire message requires no additional metadata.
+    */
+    FailureDetail failure_detail = 3;
+
+    // A string representation of the link failure.
+    string failure_string = 4;
+}
+
+enum FailureDetail {
+    UNKNOWN = 0;
+    NO_DETAIL = 1;
+    ONION_DECODE = 2;
+    LINK_NOT_ELIGIBLE = 3;
+    ON_CHAIN_TIMEOUT = 4;
+    HTLC_EXCEEDS_MAX = 5;
+    INSUFFICIENT_BALANCE = 6;
+    INCOMPLETE_FORWARD = 7;
+    HTLC_ADD_FAILED = 8;
+    FORWARDS_DISABLED = 9;
+    INVOICE_CANCELED = 10;
+    INVOICE_UNDERPAID = 11;
+    INVOICE_EXPIRY_TOO_SOON = 12;
+    INVOICE_NOT_OPEN = 13;
+    MPP_INVOICE_TIMEOUT = 14;
+    ADDRESS_MISMATCH = 15;
+    SET_TOTAL_MISMATCH = 16;
+    SET_TOTAL_TOO_LOW = 17;
+    SET_OVERPAID = 18;
+    UNKNOWN_INVOICE = 19;
+    INVALID_KEYSEND = 20;
+    MPP_IN_PROGRESS = 21;
+    CIRCULAR_ROUTE = 22;
+}
+
+enum PaymentState {
+    /*
+    Payment is still in flight.
+    */
+    IN_FLIGHT = 0;
+
+    /*
+    Payment completed successfully.
+    */
+    SUCCEEDED = 1;
+
+    /*
+    There are more routes to try, but the payment timeout was exceeded.
+    */
+    FAILED_TIMEOUT = 2;
+
+    /*
+    All possible routes were tried and failed permanently. Or were no
+    routes to the destination at all.
+    */
+    FAILED_NO_ROUTE = 3;
+
+    /*
+    A non-recoverable error has occured.
+    */
+    FAILED_ERROR = 4;
+
+    /*
+    Payment details incorrect (unknown hash, invalid amt or
+    invalid final cltv delta)
+    */
+    FAILED_INCORRECT_PAYMENT_DETAILS = 5;
+
+    /*
+    Insufficient local balance.
+    */
+    FAILED_INSUFFICIENT_BALANCE = 6;
+}
+
+message PaymentStatus {
+    // Current state the payment is in.
+    PaymentState state = 1;
+
+    /*
+    The pre-image of the payment when state is SUCCEEDED.
+    */
+    bytes preimage = 2;
+
+    reserved 3;
+
+    /*
+    The HTLCs made in attempt to settle the payment [EXPERIMENTAL].
+    */
+    repeated lnrpc.HTLCAttempt htlcs = 4;
+}
+
+message CircuitKey {
+    /// The id of the channel that the is part of this circuit.
+    uint64 chan_id = 1;
+
+    /// The index of the incoming htlc in the incoming channel.
+    uint64 htlc_id = 2;
+}
+
+message ForwardHtlcInterceptRequest {
+    /*
+    The key of this forwarded htlc. It defines the incoming channel id and
+    the index in this channel.
+    */
+    CircuitKey incoming_circuit_key = 1;
+
+    // The incoming htlc amount.
+    uint64 incoming_amount_msat = 5;
+
+    // The incoming htlc expiry.
+    uint32 incoming_expiry = 6;
+
+    /*
+    The htlc payment hash. This value is not guaranteed to be unique per
+    request.
+    */
+    bytes payment_hash = 2;
+
+    // The requested outgoing channel id for this forwarded htlc. Because of
+    // non-strict forwarding, this isn't necessarily the channel over which the
+    // packet will be forwarded eventually. A different channel to the same peer
+    // may be selected as well.
+    uint64 outgoing_requested_chan_id = 7;
+
+    // The outgoing htlc amount.
+    uint64 outgoing_amount_msat = 3;
+
+    // The outgoing htlc expiry.
+    uint32 outgoing_expiry = 4;
+
+    // Any custom records that were present in the payload.
+    map<uint64, bytes> custom_records = 8;
+}
+
+/**
+ForwardHtlcInterceptResponse enables the caller to resolve a previously hold
+forward. The caller can choose either to:
+- `Resume`: Execute the default behavior (usually forward).
+- `Reject`: Fail the htlc backwards.
+- `Settle`: Settle this htlc with a given preimage.
+*/
+message ForwardHtlcInterceptResponse {
+    /**
+    The key of this forwarded htlc. It defines the incoming channel id and
+    the index in this channel.
+    */
+    CircuitKey incoming_circuit_key = 1;
+
+    // The resolve action for this intercepted htlc.
+    ResolveHoldForwardAction action = 2;
+
+    // The preimage in case the resolve action is Settle.
+    bytes preimage = 3;
+}
+
+enum ResolveHoldForwardAction {
+    SETTLE = 0;
+    FAIL = 1;
+    RESUME = 2;
+}

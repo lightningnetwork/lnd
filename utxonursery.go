@@ -1,4 +1,4 @@
-package main
+package lnd
 
 import (
 	"bytes"
@@ -8,14 +8,13 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
-
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/sweep"
 )
@@ -155,6 +154,12 @@ import (
 
 var byteOrder = binary.BigEndian
 
+const (
+	// kgtnOutputConfTarget is the default confirmation target we'll use for
+	// sweeps of CSV delayed outputs.
+	kgtnOutputConfTarget = 6
+)
+
 var (
 	// ErrContractNotFound is returned when the nursery is unable to
 	// retrieve information about a queried contract.
@@ -189,14 +194,14 @@ type NurseryConfig struct {
 
 	// PublishTransaction facilitates the process of broadcasting a signed
 	// transaction to the appropriate network.
-	PublishTransaction func(*wire.MsgTx) error
+	PublishTransaction func(*wire.MsgTx, string) error
 
 	// Store provides access to and modification of the persistent state
 	// maintained about the utxo nursery's incubating outputs.
 	Store NurseryStore
 
 	// Sweep sweeps an input back to the wallet.
-	SweepInput func(input input.Input) (chan sweep.Result, error)
+	SweepInput func(input.Input, sweep.Params) (chan sweep.Result, error)
 }
 
 // utxoNursery is a system dedicated to incubating time-locked outputs created
@@ -325,7 +330,6 @@ func (u *utxoNursery) Stop() error {
 // they're CLTV absolute time locked, or if they're CSV relative time locked.
 // Once all outputs reach maturity, they'll be swept back into the wallet.
 func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
-	commitResolution *lnwallet.CommitOutputResolution,
 	outgoingHtlcs []lnwallet.OutgoingHtlcResolution,
 	incomingHtlcs []lnwallet.IncomingHtlcResolution,
 	broadcastHeight uint32) error {
@@ -347,8 +351,6 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 
 	numHtlcs := len(incomingHtlcs) + len(outgoingHtlcs)
 	var (
-		hasCommit bool
-
 		// Kid outputs can be swept after an initial confirmation
 		// followed by a maturity period.Baby outputs are two stage and
 		// will need to wait for an absolute time out to reach a
@@ -358,28 +360,6 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	)
 
 	// 1. Build all the spendable outputs that we will try to incubate.
-
-	// It could be that our to-self output was below the dust limit. In
-	// that case the commit resolution would be nil and we would not have
-	// that output to incubate.
-	if commitResolution != nil {
-		hasCommit = true
-		selfOutput := makeKidOutput(
-			&commitResolution.SelfOutPoint,
-			&chanPoint,
-			commitResolution.MaturityDelay,
-			input.CommitmentTimeLock,
-			&commitResolution.SelfOutputSignDesc,
-			0,
-		)
-
-		// We'll skip any zero valued outputs as this indicates we
-		// don't have a settled balance within the commitment
-		// transaction.
-		if selfOutput.Amount() > 0 {
-			kidOutputs = append(kidOutputs, selfOutput)
-		}
-	}
 
 	// TODO(roasbeef): query and see if we already have, if so don't add?
 
@@ -417,10 +397,11 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 
 		// Otherwise, this is actually a kid output as we can sweep it
 		// once the commitment transaction confirms, and the absolute
-		// CLTV lock has expired. We set the CSV delay to zero to
-		// indicate this is actually a CLTV output.
+		// CLTV lock has expired. We set the CSV delay what the
+		// resolution encodes, since the sequence number must be set
+		// accordingly.
 		htlcOutput := makeKidOutput(
-			&htlcRes.ClaimOutpoint, &chanPoint, 0,
+			&htlcRes.ClaimOutpoint, &chanPoint, htlcRes.CsvDelay,
 			input.HtlcOfferedRemoteTimeout,
 			&htlcRes.SweepSignDesc, htlcRes.Expiry,
 		)
@@ -431,8 +412,8 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	//  * need ability to cancel in the case that we learn of pre-image or
 	//    remote party pulls
 
-	utxnLog.Infof("Incubating Channel(%s) has-commit=%v, num-htlcs=%d",
-		chanPoint, hasCommit, numHtlcs)
+	utxnLog.Infof("Incubating Channel(%s) num-htlcs=%d",
+		chanPoint, numHtlcs)
 
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -455,9 +436,11 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	// We'll examine all the baby outputs just inserted into the database,
 	// if the output has already expired, then we'll *immediately* sweep
 	// it. This may happen if the caller raced a block to call this method.
-	for _, babyOutput := range babyOutputs {
+	for i, babyOutput := range babyOutputs {
 		if uint32(bestHeight) >= babyOutput.expiry {
-			err = u.sweepCribOutput(babyOutput.expiry, &babyOutput)
+			err = u.sweepCribOutput(
+				babyOutput.expiry, &babyOutputs[i],
+			)
 			if err != nil {
 				return err
 			}
@@ -468,9 +451,9 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	// confirmation notification that will transition it to the
 	// kindergarten bucket.
 	if len(kidOutputs) != 0 {
-		for _, kidOutput := range kidOutputs {
+		for i := range kidOutputs {
 			err := u.registerPreschoolConf(
-				&kidOutput, broadcastHeight,
+				&kidOutputs[i], broadcastHeight,
 			)
 			if err != nil {
 				return err
@@ -491,7 +474,7 @@ func (u *utxoNursery) NurseryReport(
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
-	utxnLog.Infof("NurseryReport: building nursery report for channel %v",
+	utxnLog.Debugf("NurseryReport: building nursery report for channel %v",
 		chanPoint)
 
 	report := &contractMaturityReport{}
@@ -531,8 +514,6 @@ func (u *utxoNursery) NurseryReport(
 				// Preschool outputs are awaiting the
 				// confirmation of the commitment transaction.
 				switch kid.WitnessType() {
-				case input.CommitmentTimeLock:
-					report.AddLimboCommitment(&kid)
 
 				case input.HtlcAcceptedSuccessSecondLevel:
 					// An HTLC output on our commitment transaction
@@ -554,11 +535,6 @@ func (u *utxoNursery) NurseryReport(
 				// We can distinguish them via their witness
 				// types.
 				switch kid.WitnessType() {
-				case input.CommitmentTimeLock:
-					// The commitment transaction has been
-					// confirmed, and we are waiting the CSV
-					// delay to expire.
-					report.AddLimboCommitment(&kid)
 
 				case input.HtlcOfferedRemoteTimeout:
 					// This is an HTLC output on the
@@ -583,11 +559,6 @@ func (u *utxoNursery) NurseryReport(
 				// will contribute towards the recovered
 				// balance.
 				switch kid.WitnessType() {
-				case input.CommitmentTimeLock:
-					// The commitment output was
-					// successfully swept back into a
-					// regular p2wkh output.
-					report.AddRecoveredCommitment(&kid)
 
 				case input.HtlcAcceptedSuccessSecondLevel:
 					fallthrough
@@ -802,12 +773,15 @@ func (u *utxoNursery) sweepMatureOutputs(classHeight uint32,
 	utxnLog.Infof("Sweeping %v CSV-delayed outputs with sweep tx for "+
 		"height %v", len(kgtnOutputs), classHeight)
 
+	feePref := sweep.FeePreference{ConfTarget: kgtnOutputConfTarget}
 	for _, output := range kgtnOutputs {
 		// Create local copy to prevent pointer to loop variable to be
-		// passed in with disastruous consequences.
+		// passed in with disastrous consequences.
 		local := output
 
-		resultChan, err := u.cfg.SweepInput(&local)
+		resultChan, err := u.cfg.SweepInput(
+			&local, sweep.Params{Fee: feePref},
+		)
 		if err != nil {
 			return err
 		}
@@ -893,7 +867,8 @@ func (u *utxoNursery) sweepCribOutput(classHeight uint32, baby *babyOutput) erro
 
 	// We'll now broadcast the HTLC transaction, then wait for it to be
 	// confirmed before transitioning it to kindergarten.
-	err := u.cfg.PublishTransaction(baby.timeoutTx)
+	label := labels.MakeLabel(labels.LabelTypeSweepTransaction, nil)
+	err := u.cfg.PublishTransaction(baby.timeoutTx, label)
 	if err != nil && err != lnwallet.ErrDoubleSpend {
 		utxnLog.Errorf("Unable to broadcast baby tx: "+
 			"%v, %v", err, spew.Sdump(baby.timeoutTx))
@@ -940,7 +915,7 @@ func (u *utxoNursery) waitForTimeoutConf(baby *babyOutput,
 	select {
 	case txConfirmation, ok := <-confChan.Confirmed:
 		if !ok {
-			utxnLog.Errorf("Notification chan "+
+			utxnLog.Debugf("Notification chan "+
 				"closed, can't advance baby output %v",
 				baby.OutPoint())
 			return
@@ -1063,11 +1038,6 @@ type contractMaturityReport struct {
 	// recoveredBalance is the total value that has been successfully swept
 	// back to the user's wallet.
 	recoveredBalance btcutil.Amount
-
-	// maturityHeight is the absolute block height that this output will
-	// mature at.
-	maturityHeight uint32
-
 	// htlcs records a maturity report for each htlc output in this channel.
 	htlcs []htlcMaturityReport
 }
@@ -1090,26 +1060,6 @@ type htlcMaturityReport struct {
 	// to its expiry height, while a stage 2 htlc's maturity height will be
 	// set to its confirmation height plus the maturity requirement.
 	stage uint32
-}
-
-// AddLimboCommitment adds an incubating commitment output to maturity
-// report's htlcs, and contributes its amount to the limbo balance.
-func (c *contractMaturityReport) AddLimboCommitment(kid *kidOutput) {
-	c.limboBalance += kid.Amount()
-
-	// If the confirmation height is set, then this means the contract has
-	// been confirmed, and we know the final maturity height.
-	if kid.ConfHeight() != 0 {
-		c.maturityHeight = kid.BlocksToMaturity() + kid.ConfHeight()
-	}
-}
-
-// AddRecoveredCommitment adds a graduated commitment output to maturity
-// report's  htlcs, and contributes its amount to the recovered balance.
-func (c *contractMaturityReport) AddRecoveredCommitment(kid *kidOutput) {
-	c.recoveredBalance += kid.Amount()
-
-	c.maturityHeight = kid.BlocksToMaturity() + kid.ConfHeight()
 }
 
 // AddLimboStage1TimeoutHtlc adds an htlc crib output to the maturity report's
@@ -1222,19 +1172,6 @@ func (u *utxoNursery) closeAndRemoveIfMature(chanPoint *wire.OutPoint) error {
 	return nil
 }
 
-// newSweepPkScript creates a new public key script which should be used to
-// sweep any time-locked, or contested channel funds into the wallet.
-// Specifically, the script generated is a version 0, pay-to-witness-pubkey-hash
-// (p2wkh) output.
-func newSweepPkScript(wallet lnwallet.WalletController) ([]byte, error) {
-	sweepAddr, err := wallet.NewAddress(lnwallet.WitnessPubKey, false)
-	if err != nil {
-		return nil, err
-	}
-
-	return txscript.PayToAddrScript(sweepAddr)
-}
-
 // babyOutput represents a two-stage CSV locked output, and is used to track
 // htlc outputs through incubation. The first stage requires broadcasting a
 // presigned timeout txn that spends from the CLTV locked output on the
@@ -1336,7 +1273,8 @@ type kidOutput struct {
 	// output.
 	//
 	// NOTE: This will be set for: commitment outputs, and incoming HTLC's.
-	// Otherwise, this will be zero.
+	// Otherwise, this will be zero. It will also be non-zero for
+	// commitment types which requires confirmed spends.
 	blocksToMaturity uint32
 
 	// absoluteMaturity is the absolute height that this output will be
@@ -1349,7 +1287,7 @@ type kidOutput struct {
 }
 
 func makeKidOutput(outpoint, originChanPoint *wire.OutPoint,
-	blocksToMaturity uint32, witnessType input.WitnessType,
+	blocksToMaturity uint32, witnessType input.StandardWitnessType,
 	signDescriptor *input.SignDescriptor,
 	absoluteMaturity uint32) kidOutput {
 
@@ -1428,7 +1366,7 @@ func (k *kidOutput) Encode(w io.Writer) error {
 		return err
 	}
 
-	byteOrder.PutUint16(scratch[:2], uint16(k.WitnessType()))
+	byteOrder.PutUint16(scratch[:2], uint16(k.witnessType))
 	if _, err := w.Write(scratch[:2]); err != nil {
 		return err
 	}
@@ -1478,7 +1416,7 @@ func (k *kidOutput) Decode(r io.Reader) error {
 	if _, err := r.Read(scratch[:2]); err != nil {
 		return err
 	}
-	k.witnessType = input.WitnessType(byteOrder.Uint16(scratch[:2]))
+	k.witnessType = input.StandardWitnessType(byteOrder.Uint16(scratch[:2]))
 
 	return input.ReadSignDescriptor(r, &k.signDesc)
 }

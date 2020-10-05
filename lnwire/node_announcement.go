@@ -10,11 +10,6 @@ import (
 	"unicode/utf8"
 )
 
-var (
-	startPort uint16 = 1024
-	endPort   uint16 = 49151
-)
-
 // ErrUnknownAddrType is an error returned if we encounter an unknown address type
 // when parsing addresses.
 type ErrUnknownAddrType struct {
@@ -104,14 +99,6 @@ type NodeAnnouncement struct {
 	// and ensure we're able to make upgrades to the network in a forwards
 	// compatible manner.
 	ExtraOpaqueData []byte
-}
-
-// UpdateNodeAnnAddrs is a functional option that allows updating the addresses
-// of the given node announcement.
-func UpdateNodeAnnAddrs(addrs []net.Addr) func(*NodeAnnouncement) {
-	return func(nodeAnn *NodeAnnouncement) {
-		nodeAnn.Addresses = addrs
-	}
 }
 
 // A compile time check to ensure NodeAnnouncement implements the

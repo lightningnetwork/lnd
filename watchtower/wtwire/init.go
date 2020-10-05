@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -92,12 +93,7 @@ func (msg *Init) CheckRemoteInit(remoteInit *Init,
 
 	// Check that the remote peer doesn't have any required connection
 	// feature bits that we ourselves are unaware of.
-	unknownConnFeatures := remoteConnFeatures.UnknownRequiredFeatures()
-	if len(unknownConnFeatures) > 0 {
-		return NewErrUnknownRequiredFeatures(unknownConnFeatures...)
-	}
-
-	return nil
+	return feature.ValidateRequired(remoteConnFeatures)
 }
 
 // ErrUnknownChainHash signals that the remote Init has a different chain hash
@@ -115,25 +111,4 @@ func NewErrUnknownChainHash(hash chainhash.Hash) *ErrUnknownChainHash {
 // Error returns a human-readable error displaying the unknown chain hash.
 func (e *ErrUnknownChainHash) Error() string {
 	return fmt.Sprintf("remote init has unknown chain hash: %s", e.hash)
-}
-
-// ErrUnknownRequiredFeatures signals that the remote Init has required feature
-// bits that were unknown to us.
-type ErrUnknownRequiredFeatures struct {
-	unknownFeatures []lnwire.FeatureBit
-}
-
-// NewErrUnknownRequiredFeatures creates an ErrUnknownRequiredFeatures using the
-// remote Init's required features that were unknown to us.
-func NewErrUnknownRequiredFeatures(
-	unknownFeatures ...lnwire.FeatureBit) *ErrUnknownRequiredFeatures {
-
-	return &ErrUnknownRequiredFeatures{unknownFeatures}
-}
-
-// Error returns a human-readable error displaying the unknown required feature
-// bits.
-func (e *ErrUnknownRequiredFeatures) Error() string {
-	return fmt.Sprintf("remote init has unknown required features: %v",
-		e.unknownFeatures)
 }

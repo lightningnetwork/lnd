@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
 const (
@@ -27,15 +28,23 @@ type FeePreference struct {
 
 	// FeeRate if non-zero, signals a fee pre fence expressed in the fee
 	// rate expressed in sat/kw for a particular transaction.
-	FeeRate lnwallet.SatPerKWeight
+	FeeRate chainfee.SatPerKWeight
+}
+
+// String returns a human-readable string of the fee preference.
+func (p FeePreference) String() string {
+	if p.ConfTarget != 0 {
+		return fmt.Sprintf("%v blocks", p.ConfTarget)
+	}
+	return p.FeeRate.String()
 }
 
 // DetermineFeePerKw will determine the fee in sat/kw that should be paid given
 // an estimator, a confirmation target, and a manual value for sat/byte. A
 // value is chosen based on the two free parameters as one, or both of them can
 // be zero.
-func DetermineFeePerKw(feeEstimator lnwallet.FeeEstimator,
-	feePref FeePreference) (lnwallet.SatPerKWeight, error) {
+func DetermineFeePerKw(feeEstimator chainfee.Estimator,
+	feePref FeePreference) (chainfee.SatPerKWeight, error) {
 
 	switch {
 	// If both values are set, then we'll return an error as we require a
@@ -62,12 +71,12 @@ func DetermineFeePerKw(feeEstimator lnwallet.FeeEstimator,
 	// internally.
 	case feePref.FeeRate != 0:
 		feePerKW := feePref.FeeRate
-		if feePerKW < lnwallet.FeePerKwFloor {
+		if feePerKW < chainfee.FeePerKwFloor {
 			log.Infof("Manual fee rate input of %d sat/kw is "+
 				"too low, using %d sat/kw instead", feePerKW,
-				lnwallet.FeePerKwFloor)
+				chainfee.FeePerKwFloor)
 
-			feePerKW = lnwallet.FeePerKwFloor
+			feePerKW = chainfee.FeePerKwFloor
 		}
 
 		return feePerKW, nil
@@ -93,11 +102,6 @@ type UtxoSource interface {
 	// ListUnspentWitness returns all UTXOs from the source that have
 	// between minConfs and maxConfs number of confirmations.
 	ListUnspentWitness(minConfs, maxConfs int32) ([]*lnwallet.Utxo, error)
-
-	// FetchInputInfo returns the matching output for an outpoint. If the
-	// outpoint doesn't belong to this UTXO source, then an error should be
-	// returned.
-	FetchInputInfo(*wire.OutPoint) (*wire.TxOut, error)
 }
 
 // CoinSelectionLocker is an interface that allows the caller to perform an
@@ -108,7 +112,7 @@ type UtxoSource interface {
 type CoinSelectionLocker interface {
 	// WithCoinSelectLock will execute the passed function closure in a
 	// synchronized manner preventing any coin selection operations from
-	// proceeding while the closure if executing. This can be seen as the
+	// proceeding while the closure is executing. This can be seen as the
 	// ability to execute a function closure under an exclusive coin
 	// selection lock.
 	WithCoinSelectLock(func() error) error
@@ -116,7 +120,7 @@ type CoinSelectionLocker interface {
 
 // OutpointLocker allows a caller to lock/unlock an outpoint. When locked, the
 // outpoints shouldn't be used for any sort of channel funding of coin
-// selection. Locked outpoints are not expect to be persisted between restarts.
+// selection. Locked outpoints are not expected to be persisted between restarts.
 type OutpointLocker interface {
 	// LockOutpoint locks a target outpoint, rendering it unusable for coin
 	// selection.
@@ -149,10 +153,10 @@ type WalletSweepPackage struct {
 // by the delivery address. The sweep transaction will be crafted with the
 // target fee rate, and will use the utxoSource and outpointLocker as sources
 // for wallet funds.
-func CraftSweepAllTx(feeRate lnwallet.SatPerKWeight, blockHeight uint32,
+func CraftSweepAllTx(feeRate chainfee.SatPerKWeight, blockHeight uint32,
 	deliveryAddr btcutil.Address, coinSelectLocker CoinSelectionLocker,
 	utxoSource UtxoSource, outpointLocker OutpointLocker,
-	feeEstimator lnwallet.FeeEstimator,
+	feeEstimator chainfee.Estimator,
 	signer input.Signer) (*WalletSweepPackage, error) {
 
 	// TODO(roasbeef): turn off ATPL as well when available?
@@ -209,41 +213,34 @@ func CraftSweepAllTx(feeRate lnwallet.SatPerKWeight, blockHeight uint32,
 	// sweeper to generate and sign a transaction for us.
 	var inputsToSweep []input.Input
 	for _, output := range allOutputs {
-		// We'll consult the utxoSource for information concerning this
-		// outpoint, we'll need to properly populate a signDescriptor
-		// for this output.
-		outputInfo, err := utxoSource.FetchInputInfo(&output.OutPoint)
-		if err != nil {
-			unlockOutputs()
-
-			return nil, err
-		}
-
 		// As we'll be signing for outputs under control of the wallet,
 		// we only need to populate the output value and output script.
 		// The rest of the items will be populated internally within
 		// the sweeper via the witness generation function.
 		signDesc := &input.SignDescriptor{
-			Output:   outputInfo,
+			Output: &wire.TxOut{
+				PkScript: output.PkScript,
+				Value:    int64(output.Value),
+			},
 			HashType: txscript.SigHashAll,
 		}
 
-		pkScript := outputInfo.PkScript
+		pkScript := output.PkScript
 
 		// Based on the output type, we'll map it to the proper witness
 		// type so we can generate the set of input scripts needed to
 		// sweep the output.
 		var witnessType input.WitnessType
-		switch {
+		switch output.AddressType {
 
 		// If this is a p2wkh output, then we'll assume it's a witness
 		// key hash witness type.
-		case txscript.IsPayToWitnessPubKeyHash(pkScript):
+		case lnwallet.WitnessPubKey:
 			witnessType = input.WitnessKeyHash
 
 		// If this is a p2sh output, then as since it's under control
 		// of the wallet, we'll assume it's a nested p2sh output.
-		case txscript.IsPayToScriptHash(pkScript):
+		case lnwallet.NestedWitnessPubKey:
 			witnessType = input.NestedWitnessKeyHash
 
 		// All other output types we count as unknown and will fail to
@@ -258,7 +255,9 @@ func CraftSweepAllTx(feeRate lnwallet.SatPerKWeight, blockHeight uint32,
 		// Now that we've constructed the items required, we'll make an
 		// input which can be passed to the sweeper for ultimate
 		// sweeping.
-		input := input.MakeBaseInput(&output.OutPoint, witnessType, signDesc, 0)
+		input := input.MakeBaseInput(
+			&output.OutPoint, witnessType, signDesc, 0, nil,
+		)
 		inputsToSweep = append(inputsToSweep, &input)
 	}
 

@@ -1,21 +1,30 @@
 PKG := github.com/lightningnetwork/lnd
 ESCPKG := github.com\/lightningnetwork\/lnd
+MOBILE_PKG := $(PKG)/mobile
 
 BTCD_PKG := github.com/btcsuite/btcd
 GOVERALLS_PKG := github.com/mattn/goveralls
-LINT_PKG := gopkg.in/alecthomas/gometalinter.v2
+LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
 GOACC_PKG := github.com/ory/go-acc
+FALAFEL_PKG := github.com/lightninglabs/falafel
+GOIMPORTS_PKG := golang.org/x/tools/cmd/goimports
 
 GO_BIN := ${GOPATH}/bin
 BTCD_BIN := $(GO_BIN)/btcd
+GOMOBILE_BIN := GO111MODULE=off $(GO_BIN)/gomobile
 GOVERALLS_BIN := $(GO_BIN)/goveralls
-LINT_BIN := $(GO_BIN)/gometalinter.v2
+LINT_BIN := $(GO_BIN)/golangci-lint
 GOACC_BIN := $(GO_BIN)/go-acc
 
 BTCD_DIR :=${GOPATH}/src/$(BTCD_PKG)
+MOBILE_BUILD_DIR :=${GOPATH}/src/$(MOBILE_PKG)/build
+IOS_BUILD_DIR := $(MOBILE_BUILD_DIR)/ios
+IOS_BUILD := $(IOS_BUILD_DIR)/Lndmobile.framework
+ANDROID_BUILD_DIR := $(MOBILE_BUILD_DIR)/android
+ANDROID_BUILD := $(ANDROID_BUILD_DIR)/Lndmobile.aar
 
 COMMIT := $(shell git describe --abbrev=40 --dirty)
-LDFLAGS := -ldflags "-X $(PKG)/build.Commit=$(COMMIT)"
+COMMIT_HASH := $(shell git rev-parse HEAD)
 
 BTCD_COMMIT := $(shell cat go.mod | \
 		grep $(BTCD_PKG) | \
@@ -23,16 +32,17 @@ BTCD_COMMIT := $(shell cat go.mod | \
 		awk -F " " '{ print $$2 }' | \
 		awk -F "/" '{ print $$1 }')
 
+LINT_COMMIT := v1.18.0
 GOACC_COMMIT := ddc355013f90fea78d83d3a6c71f1d37ac07ecd5
+FALAFEL_COMMIT := v0.7.1
 
+DEPGET := cd /tmp && GO111MODULE=on go get -v
 GOBUILD := GO111MODULE=on go build -v
 GOINSTALL := GO111MODULE=on go install -v
-GOTEST := GO111MODULE=on go test -v
+GOTEST := GO111MODULE=on go test 
 
+GOVERSION := $(shell go version | awk '{print $$3}')
 GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*")
-GOLIST := go list $(PKG)/... | grep -v '/vendor/'
-GOLISTCOVER := $(shell go list -f '{{.ImportPath}}' ./... | sed -e 's/^$(ESCPKG)/./')
-GOLISTLINT := $(shell go list -f '{{.Dir}}' ./... | grep -v 'lnrpc')
 
 RM := rm -f
 CP := cp
@@ -40,18 +50,33 @@ MAKE := make
 XARGS := xargs -L 1
 
 include make/testing_flags.mk
+include make/release_flags.mk
 
 DEV_TAGS := $(if ${tags},$(DEV_TAGS) ${tags},$(DEV_TAGS))
 
-LINT = $(LINT_BIN) \
-	--disable-all \
-	--enable=gofmt \
-	--enable=vet \
-	--enable=golint \
-	--line-length=72 \
-	--deadline=4m $(GOLISTLINT) 2>&1 | \
-	grep -v 'ALL_CAPS\|OP_' 2>&1 | \
-	tee /dev/stderr
+# We only return the part inside the double quote here to avoid escape issues
+# when calling the external release script. The second parameter can be used to
+# add additional ldflags if needed (currently only used for the release).
+make_ldflags = $(2) -X $(PKG)/build.Commit=$(COMMIT) \
+	-X $(PKG)/build.CommitHash=$(COMMIT_HASH) \
+	-X $(PKG)/build.GoVersion=$(GOVERSION) \
+	-X $(PKG)/build.RawTags=$(shell echo $(1) | sed -e 's/ /,/g')
+
+LDFLAGS := -ldflags "$(call make_ldflags, ${tags}, -s -w)"
+DEV_LDFLAGS := -ldflags "$(call make_ldflags, $(DEV_TAGS))"
+ITEST_LDFLAGS := -ldflags "$(call make_ldflags, $(ITEST_TAGS))"
+
+# For the release, we want to remove the symbol table and debug information (-s)
+# and omit the DWARF symbol table (-w). Also we clear the build ID.
+RELEASE_LDFLAGS := $(call make_ldflags, $(RELEASE_TAGS), -s -w -buildid=)
+
+# Linting uses a lot of memory, so keep it under control by limiting the number
+# of workers if requested.
+ifneq ($(workers),)
+LINT_WORKERS = --concurrency=$(workers)
+endif
+
+LINT = $(LINT_BIN) run -v $(LINT_WORKERS)
 
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
@@ -72,17 +97,24 @@ $(GOVERALLS_BIN):
 	go get -u $(GOVERALLS_PKG)
 
 $(LINT_BIN):
-	@$(call print, "Fetching gometalinter.v2")
-	GO111MODULE=off go get -u $(LINT_PKG)
+	@$(call print, "Fetching linter")
+	$(DEPGET) $(LINT_PKG)@$(LINT_COMMIT)
 
 $(GOACC_BIN):
 	@$(call print, "Fetching go-acc")
-	go get -u -v $(GOACC_PKG)@$(GOACC_COMMIT)
-	$(GOINSTALL) $(GOACC_PKG)
+	$(DEPGET) $(GOACC_PKG)@$(GOACC_COMMIT)
 
 btcd:
 	@$(call print, "Installing btcd.")
-	GO111MODULE=on go get -v github.com/btcsuite/btcd/@$(BTCD_COMMIT)
+	$(DEPGET) $(BTCD_PKG)@$(BTCD_COMMIT)
+
+falafel:
+	@$(call print, "Installing falafel.")
+	$(DEPGET) $(FALAFEL_PKG)@$(FALAFEL_COMMIT)
+
+goimports:
+	@$(call print, "Installing goimports.")
+	$(DEPGET) $(GOIMPORTS_PKG)
 
 # ============
 # INSTALLATION
@@ -90,18 +122,28 @@ btcd:
 
 build:
 	@$(call print, "Building debug lnd and lncli.")
-	$(GOBUILD) -tags="$(DEV_TAGS)" -o lnd-debug $(LDFLAGS) $(PKG)
-	$(GOBUILD) -tags="$(DEV_TAGS)" -o lncli-debug $(LDFLAGS) $(PKG)/cmd/lncli
+	$(GOBUILD) -tags="$(DEV_TAGS)" -o lnd-debug $(DEV_LDFLAGS) $(PKG)/cmd/lnd
+	$(GOBUILD) -tags="$(DEV_TAGS)" -o lncli-debug $(DEV_LDFLAGS) $(PKG)/cmd/lncli
 
 build-itest:
 	@$(call print, "Building itest lnd and lncli.")
-	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lnd-itest $(LDFLAGS) $(PKG)
-	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lncli-itest $(LDFLAGS) $(PKG)/cmd/lncli
+	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lnd-itest $(ITEST_LDFLAGS) $(PKG)/cmd/lnd
+	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lncli-itest $(ITEST_LDFLAGS) $(PKG)/cmd/lncli
+
+build-itest-windows:
+	@$(call print, "Building itest lnd and lncli.")
+	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lnd-itest.exe $(ITEST_LDFLAGS) $(PKG)/cmd/lnd
+	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lncli-itest.exe $(ITEST_LDFLAGS) $(PKG)/cmd/lncli
 
 install:
 	@$(call print, "Installing lnd and lncli.")
-	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)
+	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)/cmd/lnd
 	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)/cmd/lncli
+
+release:
+	@$(call print, "Releasing lnd and lncli binaries.")
+	$(VERSION_CHECK)
+	./scripts/release.sh build-release "$(VERSION_TAG)" "$(BUILD_SYSTEM)" "$(RELEASE_TAGS)" "$(RELEASE_LDFLAGS)"
 
 scratch: build
 
@@ -113,10 +155,13 @@ scratch: build
 check: unit itest
 
 itest-only:
-	@$(call print, "Running integration tests.")
+	@$(call print, "Running integration tests with ${backend} backend.")
 	$(ITEST)
+	lntest/itest/log_check_errors.sh
 
 itest: btcd build-itest itest-only
+
+itest-windows: btcd build-itest-windows itest-only
 
 unit: btcd
 	@$(call print, "Running unit tests.")
@@ -124,7 +169,8 @@ unit: btcd
 
 unit-cover: $(GOACC_BIN)
 	@$(call print, "Running unit coverage tests.")
-	$(GOACC_BIN) $$(go list ./... | grep -v lnrpc) -- -test.tags="$(DEV_TAGS) $(LOG_TAGS)"
+	$(GOACC_BIN) $(COVER_PKG) -- -test.tags="$(DEV_TAGS) $(LOG_TAGS)"
+
 
 unit-race:
 	@$(call print, "Running unit race tests.")
@@ -135,24 +181,21 @@ goveralls: $(GOVERALLS_BIN)
 	$(GOVERALLS_BIN) -coverprofile=coverage.txt -service=travis-ci
 
 
-travis-race: lint btcd unit-race
+travis-race: btcd unit-race
 
-travis-cover: lint btcd unit-cover goveralls
-
-travis-itest: lint itest
+travis-cover: btcd unit-cover goveralls
 
 # =============
 # FLAKE HUNTING
 # =============
 
 flakehunter: build-itest
-	@$(call print, "Flake hunting integration tests.")
+	@$(call print, "Flake hunting ${backend} integration tests.")
 	while [ $$? -eq 0 ]; do $(ITEST); done
 
 flake-unit:
 	@$(call print, "Flake hunting unit tests.")
-	GOTRACEBACK=all $(UNIT) -count=1
-	while [ $$? -eq 0 ]; do /bin/sh -c "GOTRACEBACK=all $(UNIT) -count=1"; done
+	while [ $$? -eq 0 ]; do GOTRACEBACK=all $(UNIT) -count=1; done
 
 # =========
 # UTILITIES
@@ -164,8 +207,7 @@ fmt:
 
 lint: $(LINT_BIN)
 	@$(call print, "Linting source.")
-	GO111MODULE=off $(LINT_BIN) --install 1> /dev/null
-	test -z "$$($(LINT))"
+	$(LINT)
 
 list:
 	@$(call print, "Listing commands.")
@@ -177,6 +219,35 @@ list:
 rpc:
 	@$(call print, "Compiling protos.")
 	cd ./lnrpc; ./gen_protos.sh
+
+rpc-format:
+	@$(call print, "Formatting protos.")
+	cd ./lnrpc; find . -name "*.proto" | xargs clang-format --style=file -i
+
+rpc-check: rpc
+	@$(call print, "Verifying protos.")
+	for rpc in $$(find lnrpc/ -name "*.proto" | $(XARGS) awk '/    rpc /{print $$2}'); do if ! grep -q $$rpc lnrpc/rest-annotations.yaml; then echo "RPC $$rpc not added to lnrpc/rest-annotations.yaml"; exit 1; fi; done
+	if test -n "$$(git describe --dirty | grep dirty)"; then echo "Protos not properly formatted or not compiled with v3.4.0"; git status; git diff; exit 1; fi
+
+mobile-rpc: falafel goimports
+	@$(call print, "Creating mobile RPC from protos.")
+	cd ./mobile; ./gen_bindings.sh $(FALAFEL_COMMIT)
+
+vendor:
+	@$(call print, "Re-creating vendor directory.")
+	rm -r vendor/; GO111MODULE=on go mod vendor
+
+ios: vendor mobile-rpc
+	@$(call print, "Building iOS framework ($(IOS_BUILD)).")
+	mkdir -p $(IOS_BUILD_DIR)
+	$(GOMOBILE_BIN) bind -target=ios -tags="mobile $(DEV_TAGS) autopilotrpc experimental" $(LDFLAGS) -v -o $(IOS_BUILD) $(MOBILE_PKG)
+
+android: vendor mobile-rpc
+	@$(call print, "Building Android library ($(ANDROID_BUILD)).")
+	mkdir -p $(ANDROID_BUILD_DIR)
+	$(GOMOBILE_BIN) bind -target=android -tags="mobile $(DEV_TAGS) autopilotrpc experimental" $(LDFLAGS) -v -o $(ANDROID_BUILD) $(MOBILE_PKG)
+
+mobile: ios android
 
 clean:
 	@$(call print, "Cleaning source.$(NC)")
@@ -197,6 +268,7 @@ clean:
 	unit \
 	unit-cover \
 	unit-race \
+	falafel \
 	goveralls \
 	travis-race \
 	travis-cover \
@@ -207,4 +279,11 @@ clean:
 	lint \
 	list \
 	rpc \
+	rpc-format \
+	rpc-check \
+	mobile-rpc \
+	vendor \
+	ios \
+	android \
+	mobile \
 	clean

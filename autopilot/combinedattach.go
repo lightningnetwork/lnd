@@ -25,7 +25,7 @@ type WeightedCombAttachment struct {
 
 // NewWeightedCombAttachment creates a new instance of a WeightedCombAttachment.
 func NewWeightedCombAttachment(h ...*WeightedHeuristic) (
-	AttachmentHeuristic, error) {
+	*WeightedCombAttachment, error) {
 
 	// The sum of weights given to the sub-heuristics must sum to exactly
 	// 1.0.
@@ -44,8 +44,9 @@ func NewWeightedCombAttachment(h ...*WeightedHeuristic) (
 }
 
 // A compile time assertion to ensure WeightedCombAttachment meets the
-// AttachmentHeuristic interface.
+// AttachmentHeuristic and ScoreSettable interfaces.
 var _ AttachmentHeuristic = (*WeightedCombAttachment)(nil)
+var _ ScoreSettable = (*WeightedCombAttachment)(nil)
 
 // Name returns the name of this heuristic.
 //
@@ -77,6 +78,8 @@ func (c *WeightedCombAttachment) NodeScores(g ChannelGraph, chans []Channel,
 	// nodes for the given channel size.
 	var subScores []map[NodeID]*NodeScore
 	for _, h := range c.heuristics {
+		log.Tracef("Getting scores from sub heuristic %v", h.Name())
+
 		s, err := h.NodeScores(
 			g, chans, chanSize, nodes,
 		)
@@ -101,13 +104,23 @@ func (c *WeightedCombAttachment) NodeScores(g ChannelGraph, chans []Channel,
 		for i, h := range c.heuristics {
 			sub, ok := subScores[i][nID]
 			if !ok {
+				log.Tracef("No score given to node %x by sub "+
+					"heuristic %v", nID[:], h.Name())
 				continue
 			}
 			// Use the heuristic's weight factor to determine of
 			// how much weight we should give to this particular
 			// score.
-			score.Score += h.Weight * sub.Score
+			subScore := h.Weight * sub.Score
+			log.Tracef("Giving node %x a sub score of %v "+
+				"(%v * %v) from sub heuristic %v", nID[:],
+				subScore, h.Weight, sub.Score, h.Name())
+
+			score.Score += subScore
 		}
+
+		log.Tracef("Node %x got final combined score %v", nID[:],
+			score.Score)
 
 		switch {
 		// Instead of adding a node with score 0 to the returned set,
@@ -117,7 +130,7 @@ func (c *WeightedCombAttachment) NodeScores(g ChannelGraph, chans []Channel,
 
 		// Sanity check the new score.
 		case score.Score < 0 || score.Score > 1.0:
-			return nil, fmt.Errorf("Invalid node score from "+
+			return nil, fmt.Errorf("invalid node score from "+
 				"combination: %v", score.Score)
 		}
 
@@ -125,4 +138,37 @@ func (c *WeightedCombAttachment) NodeScores(g ChannelGraph, chans []Channel,
 	}
 
 	return scores, nil
+}
+
+// SetNodeScores is used to set the internal map from NodeIDs to scores. The
+// passed scores must be in the range [0, 1.0]. The fist parameter is the name
+// of the targeted heuristic, to allow recursively target specific
+// sub-heuristics. The returned boolean indicates whether the targeted
+// heuristic was found.
+//
+// Since this heuristic doesn't keep any internal scores, it will recursively
+// apply the scores to its sub-heuristics.
+//
+// NOTE: This is a part of the ScoreSettable interface.
+func (c *WeightedCombAttachment) SetNodeScores(targetHeuristic string,
+	newScores map[NodeID]float64) (bool, error) {
+
+	found := false
+	for _, h := range c.heuristics {
+		// It must be ScoreSettable to be available for external
+		// scores.
+		s, ok := h.AttachmentHeuristic.(ScoreSettable)
+		if !ok {
+			continue
+		}
+
+		// Heuristic supports scoring, attempt to set them.
+		applied, err := s.SetNodeScores(targetHeuristic, newScores)
+		if err != nil {
+			return false, err
+		}
+		found = found || applied
+	}
+
+	return found, nil
 }

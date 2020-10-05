@@ -1,10 +1,14 @@
+// +build !bitcoind,!neutrino
+
 package lntest
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/rpcclient"
@@ -13,15 +17,28 @@ import (
 // logDir is the name of the temporary log directory.
 const logDir = "./.backendlogs"
 
+// temp is used to signal we want to establish a temporary connection using the
+// btcd Node API.
+//
+// NOTE: Cannot be const, since the node API expects a reference.
+var temp = "temp"
+
 // BtcdBackendConfig is an implementation of the BackendConfig interface
 // backed by a btcd node.
 type BtcdBackendConfig struct {
 	// rpcConfig houses the connection config to the backing btcd instance.
 	rpcConfig rpcclient.ConnConfig
 
-	// p2pAddress is the p2p address of the btcd instance.
-	p2pAddress string
+	// harness is the backing btcd instance.
+	harness *rpctest.Harness
+
+	// minerAddr is the p2p address of the miner to connect to.
+	minerAddr string
 }
+
+// A compile time assertion to ensure BtcdBackendConfig meets the BackendConfig
+// interface.
+var _ BackendConfig = (*BtcdBackendConfig)(nil)
 
 // GenArgs returns the arguments needed to be passed to LND at startup for
 // using this node as a chain backend.
@@ -37,23 +54,39 @@ func (b BtcdBackendConfig) GenArgs() []string {
 	return args
 }
 
-// P2PAddr returns the address of this node to be used when connection over the
-// Bitcoin P2P network.
-func (b BtcdBackendConfig) P2PAddr() string {
-	return b.p2pAddress
+// ConnectMiner is called to establish a connection to the test miner.
+func (b BtcdBackendConfig) ConnectMiner() error {
+	return b.harness.Node.Node(btcjson.NConnect, b.minerAddr, &temp)
 }
 
-// NewBtcdBackend starts a new rpctest.Harness and returns a BtcdBackendConfig
-// for that node.
-func NewBtcdBackend() (*BtcdBackendConfig, func(), error) {
+// DisconnectMiner is called to disconnect the miner.
+func (b BtcdBackendConfig) DisconnectMiner() error {
+	return b.harness.Node.Node(btcjson.NDisconnect, b.minerAddr, &temp)
+}
+
+// Name returns the name of the backend type.
+func (b BtcdBackendConfig) Name() string {
+	return "btcd"
+}
+
+// NewBackend starts a new rpctest.Harness and returns a BtcdBackendConfig for
+// that node. miner should be set to the P2P address of the miner to connect
+// to.
+func NewBackend(miner string, netParams *chaincfg.Params) (
+	*BtcdBackendConfig, func() error, error) {
+
 	args := []string{
 		"--rejectnonstd",
 		"--txindex",
 		"--trickleinterval=100ms",
 		"--debuglevel=debug",
 		"--logdir=" + logDir,
+		"--nowinservice",
+		// The miner will get banned and disconnected from the node if
+		// its requested data are not found. We add a nobanning flag to
+		// make sure they stay connected if it happens.
+		"--nobanning",
 	}
-	netParams := &chaincfg.SimNetParams
 	chainBackend, err := rpctest.New(netParams, nil, args)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create btcd node: %v", err)
@@ -64,23 +97,33 @@ func NewBtcdBackend() (*BtcdBackendConfig, func(), error) {
 	}
 
 	bd := &BtcdBackendConfig{
-		rpcConfig:  chainBackend.RPCConfig(),
-		p2pAddress: chainBackend.P2PAddress(),
+		rpcConfig: chainBackend.RPCConfig(),
+		harness:   chainBackend,
+		minerAddr: miner,
 	}
 
-	cleanUp := func() {
-		chainBackend.TearDown()
+	cleanUp := func() error {
+		var errStr string
+		if err := chainBackend.TearDown(); err != nil {
+			errStr += err.Error() + "\n"
+		}
 
 		// After shutting down the chain backend, we'll make a copy of
 		// the log file before deleting the temporary log dir.
 		logFile := logDir + "/" + netParams.Name + "/btcd.log"
 		err := CopyFile("./output_btcd_chainbackend.log", logFile)
 		if err != nil {
-			fmt.Printf("unable to copy file: %v\n", err)
+			errStr += fmt.Sprintf("unable to copy file: %v\n", err)
 		}
 		if err = os.RemoveAll(logDir); err != nil {
-			fmt.Printf("Cannot remove dir %s: %v\n", logDir, err)
+			errStr += fmt.Sprintf(
+				"cannot remove dir %s: %v\n", logDir, err,
+			)
 		}
+		if errStr != "" {
+			return errors.New(errStr)
+		}
+		return nil
 	}
 
 	return bd, cleanUp, nil

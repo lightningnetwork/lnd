@@ -1,11 +1,10 @@
 // +build !rpctest
 
-package main
+package lnd
 
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"math"
 	"os"
 	"reflect"
@@ -21,6 +20,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/sweep"
 )
@@ -399,7 +399,7 @@ func TestBabyOutputSerialization(t *testing.T) {
 type nurseryTestContext struct {
 	nursery     *utxoNursery
 	notifier    *sweep.MockNotifier
-	chainIO     *mockChainIO
+	chainIO     *mock.ChainIO
 	publishChan chan wire.MsgTx
 	store       *nurseryStoreInterceptor
 	restart     func() bool
@@ -407,6 +407,7 @@ type nurseryTestContext struct {
 	sweeper     *mockSweeper
 	timeoutChan chan chan time.Time
 	t           *testing.T
+	dbCleanup   func()
 }
 
 func createNurseryTestContext(t *testing.T,
@@ -416,12 +417,7 @@ func createNurseryTestContext(t *testing.T,
 	// alternative, mocking nurseryStore, is not chosen because there is
 	// still considerable logic in the store.
 
-	tempDirName, err := ioutil.TempDir("", "channeldb")
-	if err != nil {
-		t.Fatalf("unable to create temp dir: %v", err)
-	}
-
-	cdb, err := channeldb.Open(tempDirName)
+	cdb, cleanup, err := channeldb.MakeTestDB()
 	if err != nil {
 		t.Fatalf("unable to open channeldb: %v", err)
 	}
@@ -446,8 +442,8 @@ func createNurseryTestContext(t *testing.T,
 
 	timeoutChan := make(chan chan time.Time)
 
-	chainIO := &mockChainIO{
-		bestHeight: 0,
+	chainIO := &mock.ChainIO{
+		BestHeight: 0,
 	}
 
 	sweeper := newMockSweeper(t)
@@ -467,7 +463,7 @@ func createNurseryTestContext(t *testing.T,
 		Store:      storeIntercepter,
 		ChainIO:    chainIO,
 		SweepInput: sweeper.sweepInput,
-		PublishTransaction: func(tx *wire.MsgTx) error {
+		PublishTransaction: func(tx *wire.MsgTx, _ string) error {
 			return publishFunc(tx, "nursery")
 		},
 	}
@@ -484,6 +480,7 @@ func createNurseryTestContext(t *testing.T,
 		sweeper:     sweeper,
 		timeoutChan: timeoutChan,
 		t:           t,
+		dbCleanup:   cleanup,
 	}
 
 	ctx.receiveTx = func() wire.MsgTx {
@@ -526,11 +523,13 @@ func createNurseryTestContext(t *testing.T,
 func (ctx *nurseryTestContext) notifyEpoch(height int32) {
 	ctx.t.Helper()
 
-	ctx.chainIO.bestHeight = height
+	ctx.chainIO.BestHeight = height
 	ctx.notifier.NotifyEpoch(height)
 }
 
 func (ctx *nurseryTestContext) finish() {
+	defer ctx.dbCleanup()
+
 	// Add a final restart point in this state
 	ctx.restart()
 
@@ -603,7 +602,6 @@ func createOutgoingRes(onLocalCommitment bool) *lnwallet.OutgoingHtlcResolution 
 				Value: 10000,
 			},
 		},
-		CsvDelay: 2,
 	}
 
 	if onLocalCommitment {
@@ -620,26 +618,13 @@ func createOutgoingRes(onLocalCommitment bool) *lnwallet.OutgoingHtlcResolution 
 		}
 
 		outgoingRes.SignedTimeoutTx = timeoutTx
+		outgoingRes.CsvDelay = 2
 	} else {
 		outgoingRes.ClaimOutpoint = htlcOp
+		outgoingRes.CsvDelay = 0
 	}
 
 	return &outgoingRes
-}
-
-func createCommitmentRes() *lnwallet.CommitOutputResolution {
-	// Set up a commitment output resolution to hand off to nursery.
-	commitRes := lnwallet.CommitOutputResolution{
-		SelfOutPoint: wire.OutPoint{},
-		SelfOutputSignDesc: input.SignDescriptor{
-			Output: &wire.TxOut{
-				Value: 10000,
-			},
-		},
-		MaturityDelay: 2,
-	}
-
-	return &commitRes
 }
 
 func incubateTestOutput(t *testing.T, nursery *utxoNursery,
@@ -650,7 +635,6 @@ func incubateTestOutput(t *testing.T, nursery *utxoNursery,
 	// Hand off to nursery.
 	err := nursery.IncubateOutputs(
 		testChanPoint,
-		nil,
 		[]lnwallet.OutgoingHtlcResolution{*outgoingRes},
 		nil, 0,
 	)
@@ -839,59 +823,6 @@ func testNurseryOutgoingHtlcSuccessOnRemote(t *testing.T,
 	ctx.finish()
 }
 
-func TestNurseryCommitSuccessOnLocal(t *testing.T) {
-	testRestartLoop(t, testNurseryCommitSuccessOnLocal)
-}
-
-func testNurseryCommitSuccessOnLocal(t *testing.T,
-	checkStartStop func(func()) bool) {
-
-	ctx := createNurseryTestContext(t, checkStartStop)
-
-	commitRes := createCommitmentRes()
-
-	// Hand off to nursery.
-	err := ctx.nursery.IncubateOutputs(
-		testChanPoint,
-		commitRes, nil, nil, 0,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Verify that commitment output is showing up in nursery report as
-	// limbo balance.
-	assertNurseryReport(t, ctx.nursery, 0, 0, 10000)
-
-	ctx.restart()
-
-	// Notify confirmation of the commitment tx.
-	err = ctx.notifier.ConfirmTx(&commitRes.SelfOutPoint.Hash, 124)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Wait for output to be promoted from PSCL to KNDR.
-	select {
-	case <-ctx.store.preschoolToKinderChan:
-	case <-time.After(defaultTestTimeout):
-		t.Fatalf("output not promoted to KNDR")
-	}
-
-	ctx.restart()
-
-	// Notify arrival of block where commit output CSV expires.
-	ctx.notifyEpoch(126)
-
-	// Check final sweep into wallet.
-	testSweep(t, ctx, func() {
-		// Check limbo balance after sweep publication
-		assertNurseryReport(t, ctx.nursery, 0, 0, 10000)
-	})
-
-	ctx.finish()
-}
-
 func testSweepHtlc(t *testing.T, ctx *nurseryTestContext) {
 	testSweep(t, ctx, func() {
 		// Verify stage in nursery report. HTLCs should now both still
@@ -1019,21 +950,6 @@ func (i *nurseryStoreInterceptor) RemoveChannel(chanPoint *wire.OutPoint) error 
 	return i.ns.RemoveChannel(chanPoint)
 }
 
-type nurseryMockSigner struct {
-}
-
-func (m *nurseryMockSigner) SignOutputRaw(tx *wire.MsgTx,
-	signDesc *input.SignDescriptor) ([]byte, error) {
-
-	return []byte{}, nil
-}
-
-func (m *nurseryMockSigner) ComputeInputScript(tx *wire.MsgTx,
-	signDesc *input.SignDescriptor) (*input.Script, error) {
-
-	return &input.Script{}, nil
-}
-
 type mockSweeper struct {
 	lock sync.Mutex
 
@@ -1051,7 +967,9 @@ func newMockSweeper(t *testing.T) *mockSweeper {
 	}
 }
 
-func (s *mockSweeper) sweepInput(input input.Input) (chan sweep.Result, error) {
+func (s *mockSweeper) sweepInput(input input.Input,
+	_ sweep.Params) (chan sweep.Result, error) {
+
 	utxnLog.Debugf("mockSweeper sweepInput called for %v", *input.OutPoint())
 
 	select {

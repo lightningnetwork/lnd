@@ -5,18 +5,18 @@ import "github.com/lightningnetwork/lnd/lnwire"
 // FeatureNames holds a mapping from each feature bit understood by this
 // implementation to its common name.
 var FeatureNames = map[lnwire.FeatureBit]string{
-	WtSessionsRequired: "wt-sessions",
-	WtSessionsOptional: "wt-sessions",
+	AltruistSessionsRequired: "altruist-sessions",
+	AltruistSessionsOptional: "altruist-sessions",
 }
 
 const (
-	// WtSessionsRequired specifies that the advertising node requires the
-	// remote party to understand the protocol for creating and updating
+	// AltruistSessionsRequired specifies that the advertising node requires
+	// the remote party to understand the protocol for creating and updating
 	// watchtower sessions.
-	WtSessionsRequired lnwire.FeatureBit = 8
+	AltruistSessionsRequired lnwire.FeatureBit = 0
 
-	// WtSessionsOptional specifies that the advertising node can support
-	// a remote party who understand the protocol for creating and updating
-	// watchtower sessions.
-	WtSessionsOptional lnwire.FeatureBit = 9
+	// AltruistSessionsOptional specifies that the advertising node can
+	// support a remote party who understand the protocol for creating and
+	// updating watchtower sessions.
+	AltruistSessionsOptional lnwire.FeatureBit = 1
 )

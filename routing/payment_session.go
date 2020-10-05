@@ -2,102 +2,188 @@ package routing
 
 import (
 	"fmt"
-	"time"
 
+	"github.com/btcsuite/btclog"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
+
+// BlockPadding is used to increment the finalCltvDelta value for the last hop
+// to prevent an HTLC being failed if some blocks are mined while it's in-flight.
+const BlockPadding uint16 = 3
+
+// noRouteError encodes a non-critical error encountered during path finding.
+type noRouteError uint8
+
+const (
+	// errNoTlvPayload is returned when the destination hop does not support
+	// a tlv payload.
+	errNoTlvPayload noRouteError = iota
+
+	// errNoPaymentAddr is returned when the destination hop does not
+	// support payment addresses.
+	errNoPaymentAddr
+
+	// errNoPathFound is returned when a path to the target destination does
+	// not exist in the graph.
+	errNoPathFound
+
+	// errInsufficientLocalBalance is returned when none of the local
+	// channels have enough balance for the payment.
+	errInsufficientBalance
+
+	// errEmptyPaySession is returned when the empty payment session is
+	// queried for a route.
+	errEmptyPaySession
+
+	// errUnknownRequiredFeature is returned when the destination node
+	// requires an unknown feature.
+	errUnknownRequiredFeature
+
+	// errMissingDependentFeature is returned when the destination node
+	// misses a feature that a feature that we require depends on.
+	errMissingDependentFeature
+)
+
+var (
+	// DefaultShardMinAmt is the default amount beyond which we won't try to
+	// further split the payment if no route is found. It is the minimum
+	// amount that we use as the shard size when splitting.
+	DefaultShardMinAmt = lnwire.NewMSatFromSatoshis(10000)
+)
+
+// Error returns the string representation of the noRouteError
+func (e noRouteError) Error() string {
+	switch e {
+	case errNoTlvPayload:
+		return "destination hop doesn't understand new TLV payloads"
+
+	case errNoPaymentAddr:
+		return "destination hop doesn't understand payment addresses"
+
+	case errNoPathFound:
+		return "unable to find a path to destination"
+
+	case errEmptyPaySession:
+		return "empty payment session"
+
+	case errInsufficientBalance:
+		return "insufficient local balance"
+
+	case errUnknownRequiredFeature:
+		return "unknown required feature"
+
+	case errMissingDependentFeature:
+		return "missing dependent feature"
+
+	default:
+		return "unknown no-route error"
+	}
+}
+
+// FailureReason converts a path finding error into a payment-level failure.
+func (e noRouteError) FailureReason() channeldb.FailureReason {
+	switch e {
+	case
+		errNoTlvPayload,
+		errNoPaymentAddr,
+		errNoPathFound,
+		errEmptyPaySession,
+		errUnknownRequiredFeature,
+		errMissingDependentFeature:
+
+		return channeldb.FailureReasonNoRoute
+
+	case errInsufficientBalance:
+		return channeldb.FailureReasonInsufficientBalance
+
+	default:
+		return channeldb.FailureReasonError
+	}
+}
+
+// PaymentSession is used during SendPayment attempts to provide routes to
+// attempt. It also defines methods to give the PaymentSession additional
+// information learned during the previous attempts.
+type PaymentSession interface {
+	// RequestRoute returns the next route to attempt for routing the
+	// specified HTLC payment to the target node. The returned route should
+	// carry at most maxAmt to the target node, and pay at most feeLimit in
+	// fees. It can carry less if the payment is MPP. The activeShards
+	// argument should be set to instruct the payment session about the
+	// number of in flight HTLCS for the payment, such that it can choose
+	// splitting strategy accordingly.
+	//
+	// A noRouteError is returned if a non-critical error is encountered
+	// during path finding.
+	RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
+		activeShards, height uint32) (*route.Route, error)
+}
 
 // paymentSession is used during an HTLC routings session to prune the local
 // chain view in response to failures, and also report those failures back to
-// missionControl. The snapshot copied for this session will only ever grow,
+// MissionControl. The snapshot copied for this session will only ever grow,
 // and will now be pruned after a decay like the main view within mission
 // control. We do this as we want to avoid the case where we continually try a
 // bad edge or route multiple times in a session. This can lead to an infinite
 // loop if payment attempts take long enough. An additional set of edges can
 // also be provided to assist in reaching the payment's destination.
 type paymentSession struct {
-	pruneViewSnapshot graphPruneView
+	additionalEdges map[route.Vertex][]*channeldb.ChannelEdgePolicy
 
-	additionalEdges map[Vertex][]*channeldb.ChannelEdgePolicy
+	getBandwidthHints func() (map[uint64]lnwire.MilliSatoshi, error)
 
-	bandwidthHints map[uint64]lnwire.MilliSatoshi
+	payment *LightningPayment
 
-	// errFailedFeeChans is a map of the short channel IDs that were the
-	// source of policy related routing failures during this payment attempt.
-	// We'll use this map to prune out channels when the first error may not
-	// require pruning, but any subsequent ones do.
-	errFailedPolicyChans map[edgeLocator]struct{}
+	empty bool
 
-	mc *missionControl
+	pathFinder pathFinder
 
-	haveRoutes     bool
-	preBuiltRoutes []*Route
+	getRoutingGraph func() (routingGraph, func(), error)
+
+	// pathFindingConfig defines global parameters that control the
+	// trade-off in path finding between fees and probabiity.
+	pathFindingConfig PathFindingConfig
+
+	missionControl MissionController
+
+	// minShardAmt is the amount beyond which we won't try to further split
+	// the payment if no route is found. If the maximum number of htlcs
+	// specified in the payment is one, under no circumstances splitting
+	// will happen and this value remains unused.
+	minShardAmt lnwire.MilliSatoshi
+
+	// log is a payment session-specific logger.
+	log btclog.Logger
 }
 
-// ReportVertexFailure adds a vertex to the graph prune view after a client
-// reports a routing failure localized to the vertex. The time the vertex was
-// added is noted, as it'll be pruned from the shared view after a period of
-// vertexDecay. However, the vertex will remain pruned for the *local* session.
-// This ensures we don't retry this vertex during the payment attempt.
-func (p *paymentSession) ReportVertexFailure(v Vertex) {
-	log.Debugf("Reporting vertex %v failure to Mission Control", v)
+// newPaymentSession instantiates a new payment session.
+func newPaymentSession(p *LightningPayment,
+	getBandwidthHints func() (map[uint64]lnwire.MilliSatoshi, error),
+	getRoutingGraph func() (routingGraph, func(), error),
+	missionControl MissionController, pathFindingConfig PathFindingConfig) (
+	*paymentSession, error) {
 
-	// First, we'll add the failed vertex to our local prune view snapshot.
-	p.pruneViewSnapshot.vertexes[v] = struct{}{}
-
-	// With the vertex added, we'll now report back to the global prune
-	// view, with this new piece of information so it can be utilized for
-	// new payment sessions.
-	p.mc.Lock()
-	p.mc.failedVertexes[v] = time.Now()
-	p.mc.Unlock()
-}
-
-// ReportChannelFailure adds a channel to the graph prune view. The time the
-// channel was added is noted, as it'll be pruned from the global view after a
-// period of edgeDecay. However, the edge will remain pruned for the duration
-// of the *local* session. This ensures that we don't flap by continually
-// retrying an edge after its pruning has expired.
-//
-// TODO(roasbeef): also add value attempted to send and capacity of channel
-func (p *paymentSession) ReportEdgeFailure(e *edgeLocator) {
-	log.Debugf("Reporting edge %v failure to Mission Control", e)
-
-	// First, we'll add the failed edge to our local prune view snapshot.
-	p.pruneViewSnapshot.edges[*e] = struct{}{}
-
-	// With the edge added, we'll now report back to the global prune view,
-	// with this new piece of information so it can be utilized for new
-	// payment sessions.
-	p.mc.Lock()
-	p.mc.failedEdges[*e] = time.Now()
-	p.mc.Unlock()
-}
-
-// ReportChannelPolicyFailure handles a failure message that relates to a
-// channel policy. For these types of failures, the policy is updated and we
-// want to keep it included during path finding. This function does mark the
-// edge as 'policy failed once'. The next time it fails, the whole node will be
-// pruned. This is to prevent nodes from keeping us busy by continuously sending
-// new channel updates.
-func (p *paymentSession) ReportEdgePolicyFailure(
-	errSource Vertex, failedEdge *edgeLocator) {
-
-	// Check to see if we've already reported a policy related failure for
-	// this channel. If so, then we'll prune out the vertex.
-	_, ok := p.errFailedPolicyChans[*failedEdge]
-	if ok {
-		// TODO(joostjager): is this aggresive pruning still necessary?
-		// Just pruning edges may also work unless there is a huge
-		// number of failing channels from that node?
-		p.ReportVertexFailure(errSource)
-
-		return
+	edges, err := RouteHintsToEdges(p.RouteHints, p.Target)
+	if err != nil {
+		return nil, err
 	}
 
-	// Finally, we'll record a policy failure from this node and move on.
-	p.errFailedPolicyChans[*failedEdge] = struct{}{}
+	logPrefix := fmt.Sprintf("PaymentSession(%x):", p.PaymentHash)
+
+	return &paymentSession{
+		additionalEdges:   edges,
+		getBandwidthHints: getBandwidthHints,
+		payment:           p,
+		pathFinder:        findPath,
+		getRoutingGraph:   getRoutingGraph,
+		pathFindingConfig: pathFindingConfig,
+		missionControl:    missionControl,
+		minShardAmt:       DefaultShardMinAmt,
+		log:               build.NewPrefixLog(logPrefix, log),
+	}, nil
 }
 
 // RequestRoute returns a route which is likely to be capable for successfully
@@ -108,69 +194,147 @@ func (p *paymentSession) ReportEdgePolicyFailure(
 // will be explored, which feeds into the recommendations made for routing.
 //
 // NOTE: This function is safe for concurrent access.
-func (p *paymentSession) RequestRoute(payment *LightningPayment,
-	height uint32, finalCltvDelta uint16) (*Route, error) {
+// NOTE: Part of the PaymentSession interface.
+func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
+	activeShards, height uint32) (*route.Route, error) {
 
-	switch {
-	// If we have a set of pre-built routes, then we'll just pop off the
-	// next route from the queue, and use it directly.
-	case p.haveRoutes && len(p.preBuiltRoutes) > 0:
-		nextRoute := p.preBuiltRoutes[0]
-		p.preBuiltRoutes[0] = nil // Set to nil to avoid GC leak.
-		p.preBuiltRoutes = p.preBuiltRoutes[1:]
-
-		return nextRoute, nil
-
-	// If we were instantiated with a set of pre-built routes, and we've
-	// run out, then we'll return a terminal error.
-	case p.haveRoutes && len(p.preBuiltRoutes) == 0:
-		return nil, fmt.Errorf("pre-built routes exhausted")
+	if p.empty {
+		return nil, errEmptyPaySession
 	}
 
-	// Otherwise we actually need to perform path finding, so we'll obtain
-	// our current prune view snapshot. This view will only ever grow
-	// during the duration of this payment session, never shrinking.
-	pruneView := p.pruneViewSnapshot
+	// Add BlockPadding to the finalCltvDelta so that the receiving node
+	// does not reject the HTLC if some blocks are mined while it's in-flight.
+	finalCltvDelta := p.payment.FinalCLTVDelta
+	finalCltvDelta += BlockPadding
 
-	log.Debugf("Mission Control session using prune view of %v "+
-		"edges, %v vertexes", len(pruneView.edges),
-		len(pruneView.vertexes))
+	// We need to subtract the final delta before passing it into path
+	// finding. The optimal path is independent of the final cltv delta and
+	// the path finding algorithm is unaware of this value.
+	cltvLimit := p.payment.CltvLimit - uint32(finalCltvDelta)
 
 	// TODO(roasbeef): sync logic amongst dist sys
 
 	// Taking into account this prune view, we'll attempt to locate a path
 	// to our destination, respecting the recommendations from
-	// missionControl.
-	path, err := findPath(
-		&graphParams{
-			graph:           p.mc.graph,
-			additionalEdges: p.additionalEdges,
-			bandwidthHints:  p.bandwidthHints,
-		},
-		&restrictParams{
-			ignoredNodes:      pruneView.vertexes,
-			ignoredEdges:      pruneView.edges,
-			feeLimit:          payment.FeeLimit,
-			outgoingChannelID: payment.OutgoingChannelID,
-		},
-		p.mc.selfNode, payment.Target, payment.Amount,
-	)
-	if err != nil {
-		return nil, err
+	// MissionControl.
+	restrictions := &RestrictParams{
+		ProbabilitySource:  p.missionControl.GetProbability,
+		FeeLimit:           feeLimit,
+		OutgoingChannelIDs: p.payment.OutgoingChannelIDs,
+		LastHop:            p.payment.LastHop,
+		CltvLimit:          cltvLimit,
+		DestCustomRecords:  p.payment.DestCustomRecords,
+		DestFeatures:       p.payment.DestFeatures,
+		PaymentAddr:        p.payment.PaymentAddr,
 	}
 
-	// With the next candidate path found, we'll attempt to turn this into
-	// a route by applying the time-lock and fee requirements.
-	sourceVertex := Vertex(p.mc.selfNode.PubKeyBytes)
-	route, err := newRoute(
-		payment.Amount, payment.FeeLimit, sourceVertex, path, height,
-		finalCltvDelta,
-	)
-	if err != nil {
-		// TODO(roasbeef): return which edge/vertex didn't work
-		// out
-		return nil, err
-	}
+	finalHtlcExpiry := int32(height) + int32(finalCltvDelta)
 
-	return route, err
+	for {
+		// We'll also obtain a set of bandwidthHints from the lower
+		// layer for each of our outbound channels. This will allow the
+		// path finding to skip any links that aren't active or just
+		// don't have enough bandwidth to carry the payment. New
+		// bandwidth hints are queried for every new path finding
+		// attempt, because concurrent payments may change balances.
+		bandwidthHints, err := p.getBandwidthHints()
+		if err != nil {
+			return nil, err
+		}
+
+		p.log.Debugf("pathfinding for amt=%v", maxAmt)
+
+		// Get a routing graph.
+		routingGraph, cleanup, err := p.getRoutingGraph()
+		if err != nil {
+			return nil, err
+		}
+
+		sourceVertex := routingGraph.sourceNode()
+
+		// Find a route for the current amount.
+		path, err := p.pathFinder(
+			&graphParams{
+				additionalEdges: p.additionalEdges,
+				bandwidthHints:  bandwidthHints,
+				graph:           routingGraph,
+			},
+			restrictions, &p.pathFindingConfig,
+			sourceVertex, p.payment.Target,
+			maxAmt, finalHtlcExpiry,
+		)
+
+		// Close routing graph.
+		cleanup()
+
+		switch {
+		case err == errNoPathFound:
+			// Don't split if this is a legacy payment without mpp
+			// record.
+			if p.payment.PaymentAddr == nil {
+				p.log.Debugf("not splitting because payment " +
+					"address is unspecified")
+
+				return nil, errNoPathFound
+			}
+
+			// No splitting if this is the last shard.
+			isLastShard := activeShards+1 >= p.payment.MaxParts
+			if isLastShard {
+				p.log.Debugf("not splitting because shard "+
+					"limit %v has been reached",
+					p.payment.MaxParts)
+
+				return nil, errNoPathFound
+			}
+
+			// This is where the magic happens. If we can't find a
+			// route, try it for half the amount.
+			maxAmt /= 2
+
+			// Put a lower bound on the minimum shard size.
+			if maxAmt < p.minShardAmt {
+				p.log.Debugf("not splitting because minimum "+
+					"shard amount %v has been reached",
+					p.minShardAmt)
+
+				return nil, errNoPathFound
+			}
+
+			// Go pathfinding.
+			continue
+
+		// If there isn't enough local bandwidth, there is no point in
+		// splitting. It won't be possible to create a complete set in
+		// any case, but the sent out partial payments would be held by
+		// the receiver until the mpp timeout.
+		case err == errInsufficientBalance:
+			p.log.Debug("not splitting because local balance " +
+				"is insufficient")
+
+			return nil, err
+
+		case err != nil:
+			return nil, err
+		}
+
+		// With the next candidate path found, we'll attempt to turn
+		// this into a route by applying the time-lock and fee
+		// requirements.
+		route, err := newRoute(
+			sourceVertex, path, height,
+			finalHopParams{
+				amt:         maxAmt,
+				totalAmt:    p.payment.Amount,
+				cltvDelta:   finalCltvDelta,
+				records:     p.payment.DestCustomRecords,
+				paymentAddr: p.payment.PaymentAddr,
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return route, err
+	}
 }

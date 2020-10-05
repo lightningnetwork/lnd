@@ -8,9 +8,20 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/stretchr/testify/require"
 )
 
 func initHintCache(t *testing.T) *HeightHintCache {
+	t.Helper()
+
+	defaultCfg := CacheConfig{
+		QueryDisable: false,
+	}
+
+	return initHintCacheWithConfig(t, defaultCfg)
+}
+
+func initHintCacheWithConfig(t *testing.T, cfg CacheConfig) *HeightHintCache {
 	t.Helper()
 
 	tempDir, err := ioutil.TempDir("", "kek")
@@ -21,7 +32,7 @@ func initHintCache(t *testing.T) *HeightHintCache {
 	if err != nil {
 		t.Fatalf("unable to create db: %v", err)
 	}
-	hintCache, err := NewHeightHintCache(db)
+	hintCache, err := NewHeightHintCache(cfg, db)
 	if err != nil {
 		t.Fatalf("unable to create hint cache: %v", err)
 	}
@@ -150,4 +161,43 @@ func TestHeightHintCacheSpends(t *testing.T) {
 			t.Fatalf("expected ErrSpendHintNotFound, got: %v", err)
 		}
 	}
+}
+
+// TestQueryDisable asserts querying for confirmation or spend hints always
+// return height zero when QueryDisabled is set to true in the CacheConfig.
+func TestQueryDisable(t *testing.T) {
+	cfg := CacheConfig{
+		QueryDisable: true,
+	}
+
+	hintCache := initHintCacheWithConfig(t, cfg)
+
+	// Insert a new confirmation hint with a non-zero height.
+	const confHeight = 100
+	confRequest := ConfRequest{
+		TxID: chainhash.Hash{0x01, 0x02, 0x03},
+	}
+	err := hintCache.CommitConfirmHint(confHeight, confRequest)
+	require.Nil(t, err)
+
+	// Query for the confirmation hint, which should return zero.
+	cachedConfHeight, err := hintCache.QueryConfirmHint(confRequest)
+	require.Nil(t, err)
+	require.Equal(t, uint32(0), cachedConfHeight)
+
+	// Insert a new spend hint with a non-zero height.
+	const spendHeight = 200
+	spendRequest := SpendRequest{
+		OutPoint: wire.OutPoint{
+			Hash:  chainhash.Hash{0x4, 0x05, 0x06},
+			Index: 42,
+		},
+	}
+	err = hintCache.CommitSpendHint(spendHeight, spendRequest)
+	require.Nil(t, err)
+
+	// Query for the spend hint, which should return zero.
+	cachedSpendHeight, err := hintCache.QuerySpendHint(spendRequest)
+	require.Nil(t, err)
+	require.Equal(t, uint32(0), cachedSpendHeight)
 }

@@ -1,4 +1,4 @@
-package main
+package lnd
 
 import (
 	"github.com/btcsuite/btcd/chaincfg"
@@ -9,10 +9,6 @@ import (
 	litecoinCfg "github.com/ltcsuite/ltcd/chaincfg"
 	litecoinWire "github.com/ltcsuite/ltcd/wire"
 )
-
-// activeNetParams is a pointer to the parameters specific to the currently
-// active bitcoin network.
-var activeNetParams = bitcoinTestNetParams
 
 // bitcoinNetParams couples the p2p parameters of a network with the
 // corresponding RPC port of a daemon running on the particular network.
@@ -54,6 +50,14 @@ var bitcoinSimNetParams = bitcoinNetParams{
 	CoinType: keychain.CoinTypeTestnet,
 }
 
+// litecoinSimNetParams contains parameters specific to the simulation test
+// network.
+var litecoinSimNetParams = litecoinNetParams{
+	Params:   &litecoinCfg.SimNetParams,
+	rpcPort:  "18556",
+	CoinType: keychain.CoinTypeTestnet,
+}
+
 // litecoinTestNetParams contains parameters specific to the 4th version of the
 // test network.
 var litecoinTestNetParams = litecoinNetParams{
@@ -70,8 +74,17 @@ var litecoinMainNetParams = litecoinNetParams{
 	CoinType: keychain.CoinTypeLitecoin,
 }
 
-// regTestNetParams contains parameters specific to a local regtest network.
-var regTestNetParams = bitcoinNetParams{
+// litecoinRegTestNetParams contains parameters specific to a local litecoin
+// regtest network.
+var litecoinRegTestNetParams = litecoinNetParams{
+	Params:   &litecoinCfg.RegressionNetParams,
+	rpcPort:  "18334",
+	CoinType: keychain.CoinTypeTestnet,
+}
+
+// bitcoinRegTestNetParams contains parameters specific to a local bitcoin
+// regtest network.
+var bitcoinRegTestNetParams = bitcoinNetParams{
 	Params:   &bitcoinCfg.RegressionNetParams,
 	rpcPort:  "18334",
 	CoinType: keychain.CoinTypeTestnet,

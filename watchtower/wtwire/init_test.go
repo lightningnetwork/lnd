@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/wtwire"
 )
@@ -26,42 +27,42 @@ type checkRemoteInitTest struct {
 var checkRemoteInitTests = []checkRemoteInitTest{
 	{
 		name:      "same chain, local-optional remote-required",
-		lFeatures: lnwire.NewRawFeatureVector(wtwire.WtSessionsOptional),
+		lFeatures: lnwire.NewRawFeatureVector(wtwire.AltruistSessionsOptional),
 		lHash:     testnetChainHash,
-		rFeatures: lnwire.NewRawFeatureVector(wtwire.WtSessionsRequired),
+		rFeatures: lnwire.NewRawFeatureVector(wtwire.AltruistSessionsRequired),
 		rHash:     testnetChainHash,
 	},
 	{
 		name:      "same chain, local-required remote-optional",
-		lFeatures: lnwire.NewRawFeatureVector(wtwire.WtSessionsRequired),
+		lFeatures: lnwire.NewRawFeatureVector(wtwire.AltruistSessionsRequired),
 		lHash:     testnetChainHash,
-		rFeatures: lnwire.NewRawFeatureVector(wtwire.WtSessionsOptional),
+		rFeatures: lnwire.NewRawFeatureVector(wtwire.AltruistSessionsOptional),
 		rHash:     testnetChainHash,
 	},
 	{
 		name:      "different chain, local-optional remote-required",
-		lFeatures: lnwire.NewRawFeatureVector(wtwire.WtSessionsOptional),
+		lFeatures: lnwire.NewRawFeatureVector(wtwire.AltruistSessionsOptional),
 		lHash:     testnetChainHash,
-		rFeatures: lnwire.NewRawFeatureVector(wtwire.WtSessionsRequired),
+		rFeatures: lnwire.NewRawFeatureVector(wtwire.AltruistSessionsRequired),
 		rHash:     mainnetChainHash,
 		expErr:    wtwire.NewErrUnknownChainHash(mainnetChainHash),
 	},
 	{
 		name:      "different chain, local-required remote-optional",
-		lFeatures: lnwire.NewRawFeatureVector(wtwire.WtSessionsOptional),
+		lFeatures: lnwire.NewRawFeatureVector(wtwire.AltruistSessionsOptional),
 		lHash:     testnetChainHash,
-		rFeatures: lnwire.NewRawFeatureVector(wtwire.WtSessionsRequired),
+		rFeatures: lnwire.NewRawFeatureVector(wtwire.AltruistSessionsRequired),
 		rHash:     mainnetChainHash,
 		expErr:    wtwire.NewErrUnknownChainHash(mainnetChainHash),
 	},
 	{
 		name:      "same chain, remote-unknown-required",
-		lFeatures: lnwire.NewRawFeatureVector(wtwire.WtSessionsOptional),
+		lFeatures: lnwire.NewRawFeatureVector(wtwire.AltruistSessionsOptional),
 		lHash:     testnetChainHash,
 		rFeatures: lnwire.NewRawFeatureVector(lnwire.GossipQueriesRequired),
 		rHash:     testnetChainHash,
-		expErr: wtwire.NewErrUnknownRequiredFeatures(
-			lnwire.GossipQueriesRequired,
+		expErr: feature.NewErrUnknownRequired(
+			[]lnwire.FeatureBit{lnwire.GossipQueriesRequired},
 		),
 	},
 }

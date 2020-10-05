@@ -3,20 +3,32 @@ package channeldb
 import (
 	"bytes"
 	"io/ioutil"
+	"os"
 	"testing"
 
-	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 )
 
 // applyMigration is a helper test function that encapsulates the general steps
 // which are needed to properly check the result of applying migration function.
 func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
-	migrationFunc migration, shouldFail bool) {
+	migrationFunc migration, shouldFail bool, dryRun bool) {
 
-	cdb, cleanUp, err := makeTestDB()
+	cdb, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
+		t.Fatal(err)
+	}
+	cdb.dryRun = dryRun
+
+	// Create a test node that will be our source node.
+	testNode, err := createTestVertex(cdb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph := cdb.ChannelGraph()
+	if err := graph.SetSourceNode(testNode); err != nil {
 		t.Fatal(err)
 	}
 
@@ -44,13 +56,16 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 
 	defer func() {
 		if r := recover(); r != nil {
+			if dryRun && r != ErrDryRunMigrationOK {
+				t.Fatalf("expected dry run migration OK")
+			}
 			err = errors.New(r)
 		}
 
 		if err == nil && shouldFail {
 			t.Fatal("error wasn't received on migration stage")
 		} else if err != nil && !shouldFail {
-			t.Fatal("error was received on migration stage")
+			t.Fatalf("error was received on migration stage: %v", err)
 		}
 
 		// afterMigration usually used for checking the database state and
@@ -60,6 +75,9 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 
 	// Sync with the latest version - applying migration function.
 	err = cdb.syncVersions(versions)
+	if err != nil {
+		log.Error(err)
+	}
 }
 
 // TestVersionFetchPut checks the propernces of fetch/put methods
@@ -68,7 +86,7 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 func TestVersionFetchPut(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
+	db, cleanUp, err := MakeTestDB()
 	defer cleanUp()
 	if err != nil {
 		t.Fatal(err)
@@ -108,11 +126,11 @@ func TestOrderOfMigrations(t *testing.T) {
 	versions := []version{
 		{0, nil},
 		{1, nil},
-		{2, func(tx *bbolt.Tx) error {
+		{2, func(tx kvdb.RwTx) error {
 			appliedMigration = 2
 			return nil
 		}},
-		{3, func(tx *bbolt.Tx) error {
+		{3, func(tx kvdb.RwTx) error {
 			appliedMigration = 3
 			return nil
 		}},
@@ -184,21 +202,23 @@ func TestMigrationWithPanic(t *testing.T) {
 	beforeMigrationFunc := func(d *DB) {
 		// Insert data in database and in order then make sure that the
 		// key isn't changes in case of panic or fail.
-		d.Update(func(tx *bbolt.Tx) error {
-			bucket, err := tx.CreateBucketIfNotExists(bucketPrefix)
+		err := kvdb.Update(d, func(tx kvdb.RwTx) error {
+			bucket, err := tx.CreateTopLevelBucket(bucketPrefix)
 			if err != nil {
 				return err
 			}
 
-			bucket.Put(keyPrefix, beforeMigration)
-			return nil
+			return bucket.Put(keyPrefix, beforeMigration)
 		})
+		if err != nil {
+			t.Fatalf("unable to insert: %v", err)
+		}
 	}
 
 	// Create migration function which changes the initially created data and
 	// throw the panic, in this case we pretending that something goes.
-	migrationWithPanic := func(tx *bbolt.Tx) error {
-		bucket, err := tx.CreateBucketIfNotExists(bucketPrefix)
+	migrationWithPanic := func(tx kvdb.RwTx) error {
+		bucket, err := tx.CreateTopLevelBucket(bucketPrefix)
 		if err != nil {
 			return err
 		}
@@ -218,8 +238,8 @@ func TestMigrationWithPanic(t *testing.T) {
 			t.Fatal("migration panicked but version is changed")
 		}
 
-		err = d.Update(func(tx *bbolt.Tx) error {
-			bucket, err := tx.CreateBucketIfNotExists(bucketPrefix)
+		err = kvdb.Update(d, func(tx kvdb.RwTx) error {
+			bucket, err := tx.CreateTopLevelBucket(bucketPrefix)
 			if err != nil {
 				return err
 			}
@@ -241,7 +261,8 @@ func TestMigrationWithPanic(t *testing.T) {
 		beforeMigrationFunc,
 		afterMigrationFunc,
 		migrationWithPanic,
-		true)
+		true,
+		false)
 }
 
 // TestMigrationWithFatal asserts that migrations which fail do not modify the
@@ -255,22 +276,24 @@ func TestMigrationWithFatal(t *testing.T) {
 	afterMigration := []byte("aftermigration")
 
 	beforeMigrationFunc := func(d *DB) {
-		d.Update(func(tx *bbolt.Tx) error {
-			bucket, err := tx.CreateBucketIfNotExists(bucketPrefix)
+		err := kvdb.Update(d, func(tx kvdb.RwTx) error {
+			bucket, err := tx.CreateTopLevelBucket(bucketPrefix)
 			if err != nil {
 				return err
 			}
 
-			bucket.Put(keyPrefix, beforeMigration)
-			return nil
+			return bucket.Put(keyPrefix, beforeMigration)
 		})
+		if err != nil {
+			t.Fatalf("unable to insert pre migration key: %v", err)
+		}
 	}
 
 	// Create migration function which changes the initially created data and
 	// return the error, in this case we pretending that something goes
 	// wrong.
-	migrationWithFatal := func(tx *bbolt.Tx) error {
-		bucket, err := tx.CreateBucketIfNotExists(bucketPrefix)
+	migrationWithFatal := func(tx kvdb.RwTx) error {
+		bucket, err := tx.CreateTopLevelBucket(bucketPrefix)
 		if err != nil {
 			return err
 		}
@@ -290,8 +313,8 @@ func TestMigrationWithFatal(t *testing.T) {
 			t.Fatal("migration failed but version is changed")
 		}
 
-		err = d.Update(func(tx *bbolt.Tx) error {
-			bucket, err := tx.CreateBucketIfNotExists(bucketPrefix)
+		err = kvdb.Update(d, func(tx kvdb.RwTx) error {
+			bucket, err := tx.CreateTopLevelBucket(bucketPrefix)
 			if err != nil {
 				return err
 			}
@@ -313,7 +336,8 @@ func TestMigrationWithFatal(t *testing.T) {
 		beforeMigrationFunc,
 		afterMigrationFunc,
 		migrationWithFatal,
-		true)
+		true,
+		false)
 }
 
 // TestMigrationWithoutErrors asserts that a successful migration has its
@@ -328,20 +352,22 @@ func TestMigrationWithoutErrors(t *testing.T) {
 
 	// Populate database with initial data.
 	beforeMigrationFunc := func(d *DB) {
-		d.Update(func(tx *bbolt.Tx) error {
-			bucket, err := tx.CreateBucketIfNotExists(bucketPrefix)
+		err := kvdb.Update(d, func(tx kvdb.RwTx) error {
+			bucket, err := tx.CreateTopLevelBucket(bucketPrefix)
 			if err != nil {
 				return err
 			}
 
-			bucket.Put(keyPrefix, beforeMigration)
-			return nil
+			return bucket.Put(keyPrefix, beforeMigration)
 		})
+		if err != nil {
+			t.Fatalf("unable to update db pre migration: %v", err)
+		}
 	}
 
 	// Create migration function which changes the initially created data.
-	migrationWithoutErrors := func(tx *bbolt.Tx) error {
-		bucket, err := tx.CreateBucketIfNotExists(bucketPrefix)
+	migrationWithoutErrors := func(tx kvdb.RwTx) error {
+		bucket, err := tx.CreateTopLevelBucket(bucketPrefix)
 		if err != nil {
 			return err
 		}
@@ -362,8 +388,8 @@ func TestMigrationWithoutErrors(t *testing.T) {
 				"successfully applied migration")
 		}
 
-		err = d.Update(func(tx *bbolt.Tx) error {
-			bucket, err := tx.CreateBucketIfNotExists(bucketPrefix)
+		err = kvdb.Update(d, func(tx kvdb.RwTx) error {
+			bucket, err := tx.CreateTopLevelBucket(bucketPrefix)
 			if err != nil {
 				return err
 			}
@@ -385,6 +411,7 @@ func TestMigrationWithoutErrors(t *testing.T) {
 		beforeMigrationFunc,
 		afterMigrationFunc,
 		migrationWithoutErrors,
+		false,
 		false)
 }
 
@@ -395,18 +422,27 @@ func TestMigrationReversion(t *testing.T) {
 	t.Parallel()
 
 	tempDirName, err := ioutil.TempDir("", "channeldb")
+	defer func() {
+		os.RemoveAll(tempDirName)
+	}()
 	if err != nil {
 		t.Fatalf("unable to create temp dir: %v", err)
 	}
 
-	cdb, err := Open(tempDirName)
+	backend, cleanup, err := kvdb.GetTestBackend(tempDirName, "cdb")
 	if err != nil {
+		t.Fatalf("unable to get test db backend: %v", err)
+	}
+
+	cdb, err := CreateWithBackend(backend)
+	if err != nil {
+		cleanup()
 		t.Fatalf("unable to open channeldb: %v", err)
 	}
 
 	// Update the database metadata to point to one more than the highest
 	// known version.
-	err = cdb.Update(func(tx *bbolt.Tx) error {
+	err = kvdb.Update(cdb, func(tx kvdb.RwTx) error {
 		newMeta := &Meta{
 			DbVersionNumber: getLatestDBVersion(dbVersions) + 1,
 		}
@@ -416,14 +452,56 @@ func TestMigrationReversion(t *testing.T) {
 
 	// Close the database. Even if we succeeded, our next step is to reopen.
 	cdb.Close()
+	cleanup()
 
 	if err != nil {
 		t.Fatalf("unable to increase db version: %v", err)
 	}
 
-	_, err = Open(tempDirName)
+	backend, cleanup, err = kvdb.GetTestBackend(tempDirName, "cdb")
+	if err != nil {
+		t.Fatalf("unable to get test db backend: %v", err)
+	}
+	defer cleanup()
+
+	_, err = CreateWithBackend(backend)
 	if err != ErrDBReversion {
 		t.Fatalf("unexpected error when opening channeldb, "+
 			"want: %v, got: %v", ErrDBReversion, err)
 	}
+}
+
+// TestMigrationDryRun ensures that opening the database in dry run migration
+// mode will fail and not commit the migration.
+func TestMigrationDryRun(t *testing.T) {
+	t.Parallel()
+
+	// Nothing to do, will inspect version number.
+	beforeMigrationFunc := func(d *DB) {}
+
+	// Check that version of database version is not modified.
+	afterMigrationFunc := func(d *DB) {
+		err := kvdb.View(d, func(tx kvdb.RTx) error {
+			meta, err := d.FetchMeta(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if meta.DbVersionNumber != 0 {
+				t.Fatal("dry run migration was not aborted")
+			}
+
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("unable to apply after func: %v", err)
+		}
+	}
+
+	applyMigration(t,
+		beforeMigrationFunc,
+		afterMigrationFunc,
+		func(kvdb.RwTx) error { return nil },
+		true,
+		true)
 }

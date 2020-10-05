@@ -2,9 +2,10 @@ package chanbackup
 
 import (
 	"bytes"
+	"fmt"
 	"net"
+	"os"
 	"sync"
-	"sync/atomic"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -18,12 +19,14 @@ type Swapper interface {
 	// UpdateAndSwap attempts to atomically update the main multi back up
 	// file location with the new fully packed multi-channel backup.
 	UpdateAndSwap(newBackup PackedMulti) error
+
+	// ExtractMulti attempts to obtain and decode the current SCB instance
+	// stored by the Swapper instance.
+	ExtractMulti(keychain keychain.KeyRing) (*Multi, error)
 }
 
 // ChannelWithAddrs bundles an open channel along with all the addresses for
 // the channel peer.
-//
-// TODO(roasbeef): use channel shell instead?
 type ChannelWithAddrs struct {
 	*channeldb.OpenChannel
 
@@ -47,9 +50,9 @@ type ChannelEvent struct {
 // ChannelSubscription represents an intent to be notified of any updates to
 // the primary channel state.
 type ChannelSubscription struct {
-	// ChanUpdates is a read-only channel that will be sent upon once the
-	// primary channel state is updated.
-	ChanUpdates <-chan ChannelEvent
+	// ChanUpdates is a channel that will be sent upon once the primary
+	// channel state is updated.
+	ChanUpdates chan ChannelEvent
 
 	// Cancel is a closure that allows the caller to cancel their
 	// subscription and free up any resources allocated.
@@ -75,11 +78,9 @@ type ChannelNotifier interface {
 // update the file state on disk with the new set of open channels.  This can
 // be used to implement a system that always keeps the multi-chan backup file
 // on disk in a consistent state for safety purposes.
-//
-// TODO(roasbeef): better name lol
 type SubSwapper struct {
-	started uint32
-	stopped uint32
+	started sync.Once
+	stopped sync.Once
 
 	// backupState are the set of SCBs for all open channels we know of.
 	backupState map[wire.OutPoint]Single
@@ -134,28 +135,106 @@ func NewSubSwapper(startingChans []Single, chanNotifier ChannelNotifier,
 
 // Start starts the chanbackup.SubSwapper.
 func (s *SubSwapper) Start() error {
-	if !atomic.CompareAndSwapUint32(&s.started, 0, 1) {
-		return nil
-	}
+	var startErr error
+	s.started.Do(func() {
+		log.Infof("Starting chanbackup.SubSwapper")
 
-	log.Infof("Starting chanbackup.SubSwapper")
+		// Before we enter our main loop, we'll update the on-disk
+		// state with the latest Single state, as nodes may have new
+		// advertised addresses.
+		if err := s.updateBackupFile(); err != nil {
+			startErr = fmt.Errorf("unable to refresh backup "+
+				"file: %v", err)
+			return
+		}
 
-	s.wg.Add(1)
-	go s.backupUpdater()
+		s.wg.Add(1)
+		go s.backupUpdater()
+	})
 
-	return nil
+	return startErr
 }
 
 // Stop signals the SubSwapper to being a graceful shutdown.
 func (s *SubSwapper) Stop() error {
-	if !atomic.CompareAndSwapUint32(&s.stopped, 0, 1) {
-		return nil
+	s.stopped.Do(func() {
+		log.Infof("Stopping chanbackup.SubSwapper")
+
+		close(s.quit)
+		s.wg.Wait()
+	})
+	return nil
+}
+
+// updateBackupFile updates the backup file in place given the current state of
+// the SubSwapper. We accept the set of channels that were closed between this
+// update and the last to make sure we leave them out of our backup set union.
+func (s *SubSwapper) updateBackupFile(closedChans ...wire.OutPoint) error {
+	// Before we pack the new set of SCBs, we'll first decode what we
+	// already have on-disk, to make sure we can decode it (proper seed)
+	// and that we're able to combine it with our new data.
+	diskMulti, err := s.Swapper.ExtractMulti(s.keyRing)
+
+	// If the file doesn't exist on disk, then that's OK as it was never
+	// created. In this case we'll continue onwards as it isn't a critical
+	// error.
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("unable to extract on disk encrypted "+
+			"SCB: %v", err)
 	}
 
-	log.Infof("Stopping chanbackup.SubSwapper")
+	// Now that we have channels stored on-disk, we'll create a new set of
+	// the combined old and new channels to make sure we retain what's
+	// already on-disk.
+	//
+	// NOTE: The ordering of this operations means that our in-memory
+	// structure will replace what we read from disk.
+	combinedBackup := make(map[wire.OutPoint]Single)
+	if diskMulti != nil {
+		for _, diskChannel := range diskMulti.StaticBackups {
+			chanPoint := diskChannel.FundingOutpoint
+			combinedBackup[chanPoint] = diskChannel
+		}
+	}
+	for _, memChannel := range s.backupState {
+		chanPoint := memChannel.FundingOutpoint
+		if _, ok := combinedBackup[chanPoint]; ok {
+			log.Warnf("Replacing disk backup for ChannelPoint(%v) "+
+				"w/ newer version", chanPoint)
+		}
 
-	close(s.quit)
-	s.wg.Wait()
+		combinedBackup[chanPoint] = memChannel
+	}
+
+	// Remove the set of closed channels from the final set of backups.
+	for _, closedChan := range closedChans {
+		delete(combinedBackup, closedChan)
+	}
+
+	// With our updated channel state obtained, we'll create a new multi
+	// from our series of singles.
+	var newMulti Multi
+	for _, backup := range combinedBackup {
+		newMulti.StaticBackups = append(
+			newMulti.StaticBackups, backup,
+		)
+	}
+
+	// Now that our multi has been assembled, we'll attempt to pack
+	// (encrypt+encode) the new channel state to our target reader.
+	var b bytes.Buffer
+	err = newMulti.PackToWriter(&b, s.keyRing)
+	if err != nil {
+		return fmt.Errorf("unable to pack multi backup: %v", err)
+	}
+
+	// Finally, we'll swap out the old backup for this new one in a single
+	// atomic step, combining the file already on-disk with this set of new
+	// channels.
+	err = s.Swapper.UpdateAndSwap(PackedMulti(b.Bytes()))
+	if err != nil {
+		return fmt.Errorf("unable to update multi backup: %v", err)
+	}
 
 	return nil
 }
@@ -183,7 +262,7 @@ func (s *SubSwapper) backupUpdater() {
 			// For all new open channels, we'll create a new SCB
 			// given the required information.
 			for _, newChan := range chanUpdate.NewChans {
-				log.Debugf("Adding chanenl %v to backup state",
+				log.Debugf("Adding channel %v to backup state",
 					newChan.FundingOutpoint)
 
 				s.backupState[newChan.FundingOutpoint] = NewSingle(
@@ -193,51 +272,35 @@ func (s *SubSwapper) backupUpdater() {
 
 			// For all closed channels, we'll remove the prior
 			// backup state.
-			for _, closedChan := range chanUpdate.ClosedChans {
+			closedChans := make(
+				[]wire.OutPoint, 0, len(chanUpdate.ClosedChans),
+			)
+			for i, closedChan := range chanUpdate.ClosedChans {
 				log.Debugf("Removing channel %v from backup "+
 					"state", newLogClosure(func() string {
-					return closedChan.String()
+					return chanUpdate.ClosedChans[i].String()
 				}))
 
 				delete(s.backupState, closedChan)
+
+				closedChans = append(closedChans, closedChan)
 			}
 
 			newStateSize := len(s.backupState)
-
-			// With our updated channel state obtained, we'll
-			// create a new multi from our series of singles.
-			var newMulti Multi
-			for _, backup := range s.backupState {
-				newMulti.StaticBackups = append(
-					newMulti.StaticBackups, backup,
-				)
-			}
-
-			// Now that our multi has been assembled, we'll attempt
-			// to pack (encrypt+encode) the new channel state to
-			// our target reader.
-			var b bytes.Buffer
-			err := newMulti.PackToWriter(&b, s.keyRing)
-			if err != nil {
-				log.Errorf("unable to pack multi backup: %v",
-					err)
-				continue
-			}
 
 			log.Infof("Updating on-disk multi SCB backup: "+
 				"num_old_chans=%v, num_new_chans=%v",
 				oldStateSize, newStateSize)
 
-			// Finally, we'll swap out the old backup for this new
-			// one in a single atomic step.
-			err = s.Swapper.UpdateAndSwap(
-				PackedMulti(b.Bytes()),
-			)
-			if err != nil {
-				log.Errorf("unable to update multi "+
-					"backup: %v", err)
-				continue
+			// With out new state constructed, we'll, atomically
+			// update the on-disk backup state.
+			if err := s.updateBackupFile(closedChans...); err != nil {
+				log.Errorf("unable to update backup file: %v",
+					err)
 			}
+
+		// TODO(roasbeef): refresh periodically on a time basis due to
+		// possible addr changes from node
 
 		// Exit at once if a quit signal is detected.
 		case <-s.quit:

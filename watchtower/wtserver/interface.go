@@ -63,4 +63,8 @@ type DB interface {
 	// validates the update against the current SessionInfo stored under the
 	// update's session id..
 	InsertStateUpdate(*wtdb.SessionStateUpdate) (uint16, error)
+
+	// DeleteSession removes all data associated with a particular session
+	// id from the tower's database.
+	DeleteSession(wtdb.SessionID) error
 }

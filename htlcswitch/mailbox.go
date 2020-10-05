@@ -1,18 +1,26 @@
 package htlcswitch
 
 import (
+	"bytes"
 	"container/list"
 	"errors"
+	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// ErrMailBoxShuttingDown is returned when the mailbox is interrupted by a
-// shutdown request.
-var ErrMailBoxShuttingDown = errors.New("mailbox is shutting down")
+var (
+	// ErrMailBoxShuttingDown is returned when the mailbox is interrupted by
+	// a shutdown request.
+	ErrMailBoxShuttingDown = errors.New("mailbox is shutting down")
+
+	// ErrPacketAlreadyExists signals that an attempt to add a packet failed
+	// because it already exists in the mailbox.
+	ErrPacketAlreadyExists = errors.New("mailbox already has packet")
+)
 
 // MailBox is an interface which represents a concurrent-safe, in-order
 // delivery queue for messages from the network and also from the main switch.
@@ -32,8 +40,17 @@ type MailBox interface {
 
 	// AckPacket removes a packet from the mailboxes in-memory replay
 	// buffer. This will prevent a packet from being delivered after a link
-	// restarts if the switch has remained online.
-	AckPacket(CircuitKey) error
+	// restarts if the switch has remained online. The returned boolean
+	// indicates whether or not a packet with the passed incoming circuit
+	// key was removed.
+	AckPacket(CircuitKey) bool
+
+	// FailAdd fails an UpdateAddHTLC that exists within the mailbox,
+	// removing it from the in-memory replay buffer. This will prevent the
+	// packet from being delivered after the link restarts if the switch has
+	// remained online. The generated LinkError will show an
+	// OutgoingFailureDownstreamHtlcAdd FailureDetail.
+	FailAdd(pkt *htlcPacket)
 
 	// MessageOutBox returns a channel that any new messages ready for
 	// delivery will be sent on.
@@ -51,49 +68,86 @@ type MailBox interface {
 
 	// Start starts the mailbox and any goroutines it needs to operate
 	// properly.
-	Start() error
+	Start()
 
 	// Stop signals the mailbox and its goroutines for a graceful shutdown.
-	Stop() error
+	Stop()
+}
+
+type mailBoxConfig struct {
+	// shortChanID is the short channel id of the channel this mailbox
+	// belongs to.
+	shortChanID lnwire.ShortChannelID
+
+	// fetchUpdate retreives the most recent channel update for the channel
+	// this mailbox belongs to.
+	fetchUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error)
+
+	// forwardPackets send a varidic number of htlcPackets to the switch to
+	// be routed. A quit channel should be provided so that the call can
+	// properly exit during shutdown.
+	forwardPackets func(chan struct{}, ...*htlcPacket) error
+
+	// clock is a time source for the mailbox.
+	clock clock.Clock
+
+	// expiry is the interval after which Adds will be cancelled if they
+	// have not been yet been delivered. The computed deadline will expiry
+	// this long after the Adds are added via AddPacket.
+	expiry time.Duration
 }
 
 // memoryMailBox is an implementation of the MailBox struct backed by purely
 // in-memory queues.
 type memoryMailBox struct {
-	started uint32 // To be used atomically.
-	stopped uint32 // To be used atomically.
+	started sync.Once
+	stopped sync.Once
+
+	cfg *mailBoxConfig
 
 	wireMessages *list.List
-	wireHead     *list.Element
 	wireMtx      sync.Mutex
 	wireCond     *sync.Cond
 
 	messageOutbox chan lnwire.Message
 	msgReset      chan chan struct{}
 
-	htlcPkts *list.List
-	pktIndex map[CircuitKey]*list.Element
-	pktHead  *list.Element
-	pktMtx   sync.Mutex
-	pktCond  *sync.Cond
+	// repPkts is a queue for reply packets, e.g. Settles and Fails.
+	repPkts  *list.List
+	repIndex map[CircuitKey]*list.Element
+	repHead  *list.Element
+
+	// addPkts is a dedicated queue for Adds.
+	addPkts  *list.List
+	addIndex map[CircuitKey]*list.Element
+	addHead  *list.Element
+
+	pktMtx  sync.Mutex
+	pktCond *sync.Cond
 
 	pktOutbox chan *htlcPacket
 	pktReset  chan chan struct{}
 
-	wg   sync.WaitGroup
-	quit chan struct{}
+	wireShutdown chan struct{}
+	pktShutdown  chan struct{}
+	quit         chan struct{}
 }
 
 // newMemoryMailBox creates a new instance of the memoryMailBox.
-func newMemoryMailBox() *memoryMailBox {
+func newMemoryMailBox(cfg *mailBoxConfig) *memoryMailBox {
 	box := &memoryMailBox{
+		cfg:           cfg,
 		wireMessages:  list.New(),
-		htlcPkts:      list.New(),
+		repPkts:       list.New(),
+		addPkts:       list.New(),
 		messageOutbox: make(chan lnwire.Message),
 		pktOutbox:     make(chan *htlcPacket),
 		msgReset:      make(chan chan struct{}, 1),
 		pktReset:      make(chan chan struct{}, 1),
-		pktIndex:      make(map[CircuitKey]*list.Element),
+		repIndex:      make(map[CircuitKey]*list.Element),
+		addIndex:      make(map[CircuitKey]*list.Element),
+		wireShutdown:  make(chan struct{}),
+		pktShutdown:   make(chan struct{}),
 		quit:          make(chan struct{}),
 	}
 	box.wireCond = sync.NewCond(&box.wireMtx)
@@ -122,16 +176,11 @@ const (
 // Start starts the mailbox and any goroutines it needs to operate properly.
 //
 // NOTE: This method is part of the MailBox interface.
-func (m *memoryMailBox) Start() error {
-	if !atomic.CompareAndSwapUint32(&m.started, 0, 1) {
-		return nil
-	}
-
-	m.wg.Add(2)
-	go m.mailCourier(wireCourier)
-	go m.mailCourier(pktCourier)
-
-	return nil
+func (m *memoryMailBox) Start() {
+	m.started.Do(func() {
+		go m.mailCourier(wireCourier)
+		go m.mailCourier(pktCourier)
+	})
 }
 
 // ResetMessages blocks until all buffered wire messages are cleared.
@@ -163,6 +212,7 @@ func (m *memoryMailBox) signalUntilReset(cType courierType,
 	done chan struct{}) error {
 
 	for {
+
 		switch cType {
 		case wireCourier:
 			m.wireCond.Signal()
@@ -182,29 +232,59 @@ func (m *memoryMailBox) signalUntilReset(cType courierType,
 }
 
 // AckPacket removes the packet identified by it's incoming circuit key from the
-// queue of packets to be delivered.
+// queue of packets to be delivered. The returned boolean indicates whether or
+// not a packet with the passed incoming circuit key was removed.
 //
 // NOTE: It is safe to call this method multiple times for the same circuit key.
-func (m *memoryMailBox) AckPacket(inKey CircuitKey) error {
+func (m *memoryMailBox) AckPacket(inKey CircuitKey) bool {
 	m.pktCond.L.Lock()
-	entry, ok := m.pktIndex[inKey]
-	if !ok {
-		m.pktCond.L.Unlock()
-		return nil
+	defer m.pktCond.L.Unlock()
+
+	if entry, ok := m.repIndex[inKey]; ok {
+		// Check whether we are removing the head of the queue. If so,
+		// we must advance the head to the next packet before removing.
+		// It's possible that the courier has already advanced the
+		// repHead, so this check prevents the repHead from getting
+		// desynchronized.
+		if entry == m.repHead {
+			m.repHead = entry.Next()
+		}
+		m.repPkts.Remove(entry)
+		delete(m.repIndex, inKey)
+
+		return true
 	}
 
-	m.htlcPkts.Remove(entry)
-	delete(m.pktIndex, inKey)
-	m.pktCond.L.Unlock()
+	if entry, ok := m.addIndex[inKey]; ok {
+		// Check whether we are removing the head of the queue. If so,
+		// we must advance the head to the next add before removing.
+		// It's possible that the courier has already advanced the
+		// addHead, so this check prevents the addHead from getting
+		// desynchronized.
+		//
+		// NOTE: While this event is rare for Settles or Fails, it could
+		// be very common for Adds since the mailbox has the ability to
+		// cancel Adds before they are delivered. When that occurs, the
+		// head of addPkts has only been peeked and we expect to be
+		// removing the head of the queue.
+		if entry == m.addHead {
+			m.addHead = entry.Next()
+		}
 
-	return nil
+		m.addPkts.Remove(entry)
+		delete(m.addIndex, inKey)
+
+		return true
+	}
+
+	return false
 }
 
 // HasPacket queries the packets for a circuit key, this is used to drop packets
 // bound for the switch that already have a queued response.
 func (m *memoryMailBox) HasPacket(inKey CircuitKey) bool {
 	m.pktCond.L.Lock()
-	_, ok := m.pktIndex[inKey]
+	_, ok := m.repIndex[inKey]
 	m.pktCond.L.Unlock()
 
 	return ok
@@ -213,17 +293,52 @@ func (m *memoryMailBox) HasPacket(inKey CircuitKey) bool {
 // Stop signals the mailbox and its goroutines for a graceful shutdown.
 //
 // NOTE: This method is part of the MailBox interface.
-func (m *memoryMailBox) Stop() error {
-	if !atomic.CompareAndSwapUint32(&m.stopped, 0, 1) {
-		return nil
+func (m *memoryMailBox) Stop() {
+	m.stopped.Do(func() {
+		close(m.quit)
+
+		m.signalUntilShutdown(wireCourier)
+		m.signalUntilShutdown(pktCourier)
+	})
+}
+
+// signalUntilShutdown strobes the condition variable of the passed courier
+// type, blocking until the worker has exited.
+func (m *memoryMailBox) signalUntilShutdown(cType courierType) {
+	var (
+		cond     *sync.Cond
+		shutdown chan struct{}
+	)
+
+	switch cType {
+	case wireCourier:
+		cond = m.wireCond
+		shutdown = m.wireShutdown
+	case pktCourier:
+		cond = m.pktCond
+		shutdown = m.pktShutdown
 	}
 
-	close(m.quit)
+	for {
+		select {
+		case <-time.After(time.Millisecond):
+			cond.Signal()
+		case <-shutdown:
+			return
+		}
+	}
+}
 
-	m.wireCond.Signal()
-	m.pktCond.Signal()
+// pktWithExpiry wraps an incoming packet and records the time at which it it
+// should be canceled from the mailbox. This will be used to detect if it gets
+// stuck in the mailbox and inform when to cancel back.
+type pktWithExpiry struct {
+	pkt    *htlcPacket
+	expiry time.Time
+}
 
-	return nil
+func (p *pktWithExpiry) deadline(clock clock.Clock) <-chan time.Time {
+	return clock.TickAfter(p.expiry.Sub(clock.Now()))
 }
 
 // mailCourier is a dedicated goroutine whose job is to reliably deliver
@@ -231,7 +346,12 @@ func (m *memoryMailBox) Stop() error {
 // couriers, and mail couriers. Depending on the passed courierType, this
 // goroutine will assume one of two roles.
 func (m *memoryMailBox) mailCourier(cType courierType) {
-	defer m.wg.Done()
+	switch cType {
+	case wireCourier:
+		defer close(m.wireShutdown)
+	case pktCourier:
+		defer close(m.pktShutdown)
+	}
 
 	// TODO(roasbeef): refactor...
 
@@ -258,7 +378,7 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 
 		case pktCourier:
 			m.pktCond.L.Lock()
-			for m.pktHead == nil {
+			for m.repHead == nil && m.addHead == nil {
 				m.pktCond.Wait()
 
 				select {
@@ -267,9 +387,11 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 				// any un-ACK'd messages are re-delivered upon
 				// reconnect.
 				case pktDone := <-m.pktReset:
-					m.pktHead = m.htlcPkts.Front()
+					m.repHead = m.repPkts.Front()
+					m.addHead = m.addPkts.Front()
 
 					close(pktDone)
+
 				case <-m.quit:
 					m.pktCond.L.Unlock()
 					return
@@ -279,8 +401,11 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 		}
 
 		var (
-			nextPkt *htlcPacket
-			nextMsg lnwire.Message
+			nextRep   *htlcPacket
+			nextRepEl *list.Element
+			nextAdd   *pktWithExpiry
+			nextAddEl *list.Element
+			nextMsg   lnwire.Message
 		)
 		switch cType {
 		// Grab the datum off the front of the queue, shifting the
@@ -295,8 +420,20 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 		// doesn't make it into a commitment, then it'll be
 		// re-delivered once the link comes back online.
 		case pktCourier:
-			nextPkt = m.pktHead.Value.(*htlcPacket)
-			m.pktHead = m.pktHead.Next()
+			// Peek at the head of the Settle/Fails and Add queues.
+			// We peak both even if there is a Settle/Fail present
+			// because we need to set a deadline for the next
+			// pending Add if it's present. Due to clock
+			// monotonicity, we know that the head of the Adds is
+			// the next to expire.
+			if m.repHead != nil {
+				nextRep = m.repHead.Value.(*htlcPacket)
+				nextRepEl = m.repHead
+			}
+			if m.addHead != nil {
+				nextAdd = m.addHead.Value.(*pktWithExpiry)
+				nextAddEl = m.addHead
+			}
 		}
 
 		// Now that we're done with the condition, we can unlock it to
@@ -326,14 +463,77 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 			}
 
 		case pktCourier:
+			var (
+				pktOutbox chan *htlcPacket
+				addOutbox chan *htlcPacket
+				add       *htlcPacket
+				deadline  <-chan time.Time
+			)
+
+			// Prioritize delivery of Settle/Fail packets over Adds.
+			// This ensures that we actively clear the commitment of
+			// existing HTLCs before trying to add new ones. This
+			// can help to improve forwarding performance since the
+			// time to sign a commitment is linear in the number of
+			// HTLCs manifested on the commitments.
+			//
+			// NOTE: Both types are eventually delivered over the
+			// same channel, but we can control which is delivered
+			// by exclusively making one nil and the other non-nil.
+			// We know from our loop condition that at least one
+			// nextRep and nextAdd are non-nil.
+			if nextRep != nil {
+				pktOutbox = m.pktOutbox
+			} else {
+				addOutbox = m.pktOutbox
+			}
+
+			// If we have a pending Add, we'll also construct the
+			// deadline so we can fail it back if we are unable to
+			// deliver any message in time. We also dereference the
+			// nextAdd's packet, since we will need access to it in
+			// the case we are delivering it and/or if the deadline
+			// expires.
+			//
+			// NOTE: It's possible after this point for add to be
+			// nil, but this can only occur when addOutbox is also
+			// nil, hence we won't accidentally deliver a nil
+			// packet.
+			if nextAdd != nil {
+				add = nextAdd.pkt
+				deadline = nextAdd.deadline(m.cfg.clock)
+			}
+
 			select {
-			case m.pktOutbox <- nextPkt:
+			case pktOutbox <- nextRep:
+				m.pktCond.L.Lock()
+				// Only advance the repHead if this Settle or
+				// Fail is still at the head of the queue.
+				if m.repHead != nil && m.repHead == nextRepEl {
+					m.repHead = m.repHead.Next()
+				}
+				m.pktCond.L.Unlock()
+
+			case addOutbox <- add:
+				m.pktCond.L.Lock()
+				// Only advance the addHead if this Add is still
+				// at the head of the queue.
+				if m.addHead != nil && m.addHead == nextAddEl {
+					m.addHead = m.addHead.Next()
+				}
+				m.pktCond.L.Unlock()
+
+			case <-deadline:
+				m.FailAdd(add)
+
 			case pktDone := <-m.pktReset:
 				m.pktCond.L.Lock()
-				m.pktHead = m.htlcPkts.Front()
+				m.repHead = m.repPkts.Front()
+				m.addHead = m.addPkts.Front()
 				m.pktCond.L.Unlock()
 
 				close(pktDone)
+
 			case <-m.quit:
 				return
 			}
@@ -365,18 +565,41 @@ func (m *memoryMailBox) AddMessage(msg lnwire.Message) error {
 // NOTE: This method is safe for concrete use and part of the MailBox
 // interface.
 func (m *memoryMailBox) AddPacket(pkt *htlcPacket) error {
-	// First, we'll lock the condition, and add the packet to the end of
-	// the htlc packet inbox.
 	m.pktCond.L.Lock()
-	if _, ok := m.pktIndex[pkt.inKey()]; ok {
-		m.pktCond.L.Unlock()
-		return nil
-	}
+	switch htlc := pkt.htlc.(type) {
 
-	entry := m.htlcPkts.PushBack(pkt)
-	m.pktIndex[pkt.inKey()] = entry
-	if m.pktHead == nil {
-		m.pktHead = entry
+	// Split off Settle/Fail packets into the repPkts queue.
+	case *lnwire.UpdateFulfillHTLC, *lnwire.UpdateFailHTLC:
+		if _, ok := m.repIndex[pkt.inKey()]; ok {
+			m.pktCond.L.Unlock()
+			return ErrPacketAlreadyExists
+		}
+
+		entry := m.repPkts.PushBack(pkt)
+		m.repIndex[pkt.inKey()] = entry
+		if m.repHead == nil {
+			m.repHead = entry
+		}
+
+	// Split off Add packets into the addPkts queue.
+	case *lnwire.UpdateAddHTLC:
+		if _, ok := m.addIndex[pkt.inKey()]; ok {
+			m.pktCond.L.Unlock()
+			return ErrPacketAlreadyExists
+		}
+
+		entry := m.addPkts.PushBack(&pktWithExpiry{
+			pkt:    pkt,
+			expiry: m.cfg.clock.Now().Add(m.cfg.expiry),
+		})
+		m.addIndex[pkt.inKey()] = entry
+		if m.addHead == nil {
+			m.addHead = entry
+		}
+
+	default:
+		m.pktCond.L.Unlock()
+		return fmt.Errorf("unknown htlc type: %T", htlc)
 	}
 	m.pktCond.L.Unlock()
 
@@ -385,6 +608,82 @@ func (m *memoryMailBox) AddPacket(pkt *htlcPacket) error {
 	m.pktCond.Signal()
 
 	return nil
+}
+
+// FailAdd fails an UpdateAddHTLC that exists within the mailbox, removing it
+// from the in-memory replay buffer. This will prevent the packet from being
+// delivered after the link restarts if the switch has remained online. The
+// generated LinkError will show an OutgoingFailureDownstreamHtlcAdd
+// FailureDetail.
+func (m *memoryMailBox) FailAdd(pkt *htlcPacket) {
+	// First, remove the packet from mailbox. If we didn't find the packet
+	// because it has already been acked, we'll exit early to avoid sending
+	// a duplicate fail message through the switch.
+	if !m.AckPacket(pkt.inKey()) {
+		return
+	}
+
+	var (
+		localFailure = false
+		reason       lnwire.OpaqueReason
+	)
+
+	// Create a temporary channel failure which we will send back to our
+	// peer if this is a forward, or report to the user if the failed
+	// payment was locally initiated.
+	var failure lnwire.FailureMessage
+	update, err := m.cfg.fetchUpdate(m.cfg.shortChanID)
+	if err != nil {
+		failure = &lnwire.FailTemporaryNodeFailure{}
+	} else {
+		failure = lnwire.NewTemporaryChannelFailure(update)
+	}
+
+	// If the payment was locally initiated (which is indicated by a nil
+	// obfuscator), we do not need to encrypt it back to the sender.
+	if pkt.obfuscator == nil {
+		var b bytes.Buffer
+		err := lnwire.EncodeFailure(&b, failure, 0)
+		if err != nil {
+			log.Errorf("Unable to encode failure: %v", err)
+			return
+		}
+		reason = lnwire.OpaqueReason(b.Bytes())
+		localFailure = true
+	} else {
+		// If the packet is part of a forward, (identified by a non-nil
+		// obfuscator) we need to encrypt the error back to the source.
+		var err error
+		reason, err = pkt.obfuscator.EncryptFirstHop(failure)
+		if err != nil {
+			log.Errorf("Unable to obfuscate error: %v", err)
+			return
+		}
+	}
+
+	// Create a link error containing the temporary channel failure and a
+	// detail which indicates the we failed to add the htlc.
+	linkError := NewDetailedLinkError(
+		failure, OutgoingFailureDownstreamHtlcAdd,
+	)
+
+	failPkt := &htlcPacket{
+		incomingChanID: pkt.incomingChanID,
+		incomingHTLCID: pkt.incomingHTLCID,
+		circuit:        pkt.circuit,
+		sourceRef:      pkt.sourceRef,
+		hasSource:      true,
+		localFailure:   localFailure,
+		linkFailure:    linkError,
+		htlc: &lnwire.UpdateFailHTLC{
+			Reason: reason,
+		},
+	}
+
+	if err := m.cfg.forwardPackets(m.quit, failPkt); err != nil {
+		log.Errorf("Unhandled error while reforwarding packets "+
+			"settle/fail over htlcswitch: %v", err)
+	}
 }
 
 // MessageOutBox returns a channel that any new messages ready for delivery
@@ -411,6 +710,8 @@ func (m *memoryMailBox) PacketOutBox() chan *htlcPacket {
 type mailOrchestrator struct {
 	mu sync.RWMutex
 
+	cfg *mailOrchConfig
+
 	// mailboxes caches exactly one mailbox for all known channels.
 	mailboxes map[lnwire.ChannelID]MailBox
 
@@ -431,9 +732,29 @@ type mailOrchestrator struct {
 	unclaimedPackets map[lnwire.ShortChannelID][]*htlcPacket
 }
 
+type mailOrchConfig struct {
+	// forwardPackets send a varidic number of htlcPackets to the switch to
+	// be routed. A quit channel should be provided so that the call can
+	// properly exit during shutdown.
+	forwardPackets func(chan struct{}, ...*htlcPacket) error
+
+	// fetchUpdate retreives the most recent channel update for the channel
+	// this mailbox belongs to.
+	fetchUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error)
+
+	// clock is a time source for the generated mailboxes.
+	clock clock.Clock
+
+	// expiry is the interval after which Adds will be cancelled if they
+	// have not been yet been delivered. The computed deadline will expiry
+	// this long after the Adds are added to a mailbox via AddPacket.
+	expiry time.Duration
+}
+
 // newMailOrchestrator initializes a fresh mailOrchestrator.
-func newMailOrchestrator() *mailOrchestrator {
+func newMailOrchestrator(cfg *mailOrchConfig) *mailOrchestrator {
 	return &mailOrchestrator{
+		cfg:              cfg,
 		mailboxes:        make(map[lnwire.ChannelID]MailBox),
 		liveIndex:        make(map[lnwire.ShortChannelID]lnwire.ChannelID),
 		unclaimedPackets: make(map[lnwire.ShortChannelID][]*htlcPacket),
@@ -449,7 +770,9 @@ func (mo *mailOrchestrator) Stop() {
 
 // GetOrCreateMailBox returns an existing mailbox belonging to `chanID`, or
 // creates and returns a new mailbox if none is found.
-func (mo *mailOrchestrator) GetOrCreateMailBox(chanID lnwire.ChannelID) MailBox {
+func (mo *mailOrchestrator) GetOrCreateMailBox(chanID lnwire.ChannelID,
+	shortChanID lnwire.ShortChannelID) MailBox {
+
 	// First, try lookup the mailbox directly using only the shared mutex.
 	mo.mu.RLock()
 	mailbox, ok := mo.mailboxes[chanID]
@@ -462,7 +785,7 @@ func (mo *mailOrchestrator) GetOrCreateMailBox(chanID lnwire.ChannelID) MailBox 
 	// Otherwise, we will try again with exclusive lock, creating a mailbox
 	// if one still has not been created.
 	mo.mu.Lock()
-	mailbox = mo.exclusiveGetOrCreateMailBox(chanID)
+	mailbox = mo.exclusiveGetOrCreateMailBox(chanID, shortChanID)
 	mo.mu.Unlock()
 
 	return mailbox
@@ -474,11 +797,17 @@ func (mo *mailOrchestrator) GetOrCreateMailBox(chanID lnwire.ChannelID) MailBox 
 //
 // NOTE: This method MUST be invoked with the mailOrchestrator's exclusive lock.
 func (mo *mailOrchestrator) exclusiveGetOrCreateMailBox(
-	chanID lnwire.ChannelID) MailBox {
+	chanID lnwire.ChannelID, shortChanID lnwire.ShortChannelID) MailBox {
 
 	mailbox, ok := mo.mailboxes[chanID]
 	if !ok {
-		mailbox = newMemoryMailBox()
+		mailbox = newMemoryMailBox(&mailBoxConfig{
+			shortChanID:    shortChanID,
+			fetchUpdate:    mo.cfg.fetchUpdate,
+			forwardPackets: mo.cfg.forwardPackets,
+			clock:          mo.cfg.clock,
+			expiry:         mo.cfg.expiry,
+		})
 		mailbox.Start()
 		mo.mailboxes[chanID] = mailbox
 	}
@@ -558,7 +887,7 @@ func (mo *mailOrchestrator) Deliver(
 		// index should only be set if the mailbox had been initialized
 		// beforehand.  However, this does ensure that this case is
 		// handled properly in the event that it could happen.
-		mailbox = mo.exclusiveGetOrCreateMailBox(chanID)
+		mailbox = mo.exclusiveGetOrCreateMailBox(chanID, sid)
 		mo.mu.Unlock()
 
 		// Deliver the packet to the mailbox if it was found or created.

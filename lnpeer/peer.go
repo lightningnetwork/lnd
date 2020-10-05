@@ -9,13 +9,19 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// Peer is an interface which represents the remote lightning node inside our
-// system.
+// Peer is an interface which represents a remote lightning node.
 type Peer interface {
-	// SendMessage sends a variadic number of message to remote peer. The
-	// first argument denotes if the method should block until the message
-	// has been sent to the remote peer.
-	SendMessage(sync bool, msg ...lnwire.Message) error
+	// SendMessage sends a variadic number of high-priority message to
+	// remote peer.  The first argument denotes if the method should block
+	// until the messages have been sent to the remote peer or an error is
+	// returned, otherwise it returns immediately after queuing.
+	SendMessage(sync bool, msgs ...lnwire.Message) error
+
+	// SendMessageLazy sends a variadic number of low-priority message to
+	// remote peer. The first argument denotes if the method should block
+	// until the messages have been sent to the remote peer or an error is
+	// returned, otherwise it returns immediately after queueing.
+	SendMessageLazy(sync bool, msgs ...lnwire.Message) error
 
 	// AddNewChannel adds a new channel to the peer. The channel should fail
 	// to be added if the cancel channel is closed.
@@ -23,7 +29,7 @@ type Peer interface {
 
 	// WipeChannel removes the channel uniquely identified by its channel
 	// point from all indexes associated with the peer.
-	WipeChannel(*wire.OutPoint) error
+	WipeChannel(*wire.OutPoint)
 
 	// PubKey returns the serialized public key of the remote peer.
 	PubKey() [33]byte
@@ -39,4 +45,15 @@ type Peer interface {
 	// using the interface to cancel any processing in the event the backing
 	// implementation exits.
 	QuitSignal() <-chan struct{}
+
+	// LocalFeatures returns the set of features that has been advertised by
+	// the us to the remote peer. This allows sub-systems that use this
+	// interface to gate their behavior off the set of negotiated feature
+	// bits.
+	LocalFeatures() *lnwire.FeatureVector
+
+	// RemoteFeatures returns the set of features that has been advertised
+	// by the remote peer. This allows sub-systems that use this interface
+	// to gate their behavior off the set of negotiated feature bits.
+	RemoteFeatures() *lnwire.FeatureVector
 }

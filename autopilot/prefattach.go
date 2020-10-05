@@ -8,6 +8,12 @@ import (
 	"github.com/btcsuite/btcutil"
 )
 
+// minMedianChanSizeFraction determines the minimum size a channel must have to
+// count positively when calculating the scores using preferential attachment.
+// The minimum channel size is calculated as median/minMedianChanSizeFraction,
+// where median is the median channel size of the entire graph.
+const minMedianChanSizeFraction = 4
+
 // PrefAttachment is an implementation of the AttachmentHeuristic interface
 // that implement a non-linear preferential attachment heuristic. This means
 // that given a threshold to allocate to automatic channel establishment, the
@@ -64,6 +70,10 @@ func (p *PrefAttachment) Name() string {
 // implemented globally for each new participant, this results in a channel
 // graph that is scale-free and follows a power law distribution with k=-3.
 //
+// To avoid assigning a high score to nodes with a large number of small
+// channels, we only count channels at least as large as a given fraction of
+// the graph's median channel size.
+//
 // The returned scores will be in the range [0.0, 1.0], where higher scores are
 // given to nodes already having high connectivity in the graph.
 //
@@ -72,12 +82,52 @@ func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 	chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
 	map[NodeID]*NodeScore, error) {
 
-	// Count the number of channels for each particular node in the graph.
+	// We first run though the graph once in order to find the median
+	// channel size.
+	var (
+		allChans  []btcutil.Amount
+		seenChans = make(map[uint64]struct{})
+	)
+	if err := g.ForEachNode(func(n Node) error {
+		err := n.ForEachChannel(func(e ChannelEdge) error {
+			if _, ok := seenChans[e.ChanID.ToUint64()]; ok {
+				return nil
+			}
+			seenChans[e.ChanID.ToUint64()] = struct{}{}
+			allChans = append(allChans, e.Capacity)
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	medianChanSize := Median(allChans)
+	log.Tracef("Found channel median %v for preferential score heuristic",
+		medianChanSize)
+
+	// Count the number of large-ish channels for each particular node in
+	// the graph.
 	var maxChans int
 	nodeChanNum := make(map[NodeID]int)
 	if err := g.ForEachNode(func(n Node) error {
 		var nodeChans int
-		err := n.ForEachChannel(func(_ ChannelEdge) error {
+		err := n.ForEachChannel(func(e ChannelEdge) error {
+			// Since connecting to nodes with a lot of small
+			// channels actually worsens our connectivity in the
+			// graph (we will potentially waste time trying to use
+			// these useless channels in path finding), we decrease
+			// the counter for such channels.
+			if e.Capacity < medianChanSize/minMedianChanSizeFraction {
+				nodeChans--
+				return nil
+			}
+
+			// Larger channels we count.
 			nodeChans++
 			return nil
 		})
@@ -95,11 +145,14 @@ func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 		// early.
 		nID := NodeID(n.PubKey())
 		if _, ok := nodes[nID]; !ok {
+			log.Tracef("Node %x not among nodes to score, "+
+				"ignoring", nID[:])
 			return nil
 		}
 
 		// Otherwise we'll record the number of channels.
 		nodeChanNum[nID] = nodeChans
+		log.Tracef("Counted %v channels for node %x", nodeChans, nID[:])
 
 		return nil
 	}); err != nil {
@@ -110,6 +163,7 @@ func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 	// preferences, so we return, indicating all candidates get a score of
 	// zero.
 	if maxChans == 0 {
+		log.Tracef("No channels in the graph")
 		return nil, nil
 	}
 
@@ -123,18 +177,19 @@ func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 	candidates := make(map[NodeID]*NodeScore)
 	for nID, nodeChans := range nodeChanNum {
 
-		_, ok := existingPeers[nID]
-
-		switch {
-
 		// If the node is among or existing channel peers, we don't
 		// need another channel.
-		case ok:
+		if _, ok := existingPeers[nID]; ok {
+			log.Tracef("Node %x among existing peers for pref "+
+				"attach heuristic, giving zero score", nID[:])
 			continue
+		}
 
-		// If the node had no channels, we skip it, since it would have
-		// gotten a zero score anyway.
-		case nodeChans == 0:
+		// If the node had no large channels, we skip it, since it
+		// would have gotten a zero score anyway.
+		if nodeChans <= 0 {
+			log.Tracef("Skipping node %x with channel count %v",
+				nID[:], nodeChans)
 			continue
 		}
 
@@ -142,6 +197,9 @@ func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 		// channels in the graph, scaled such that the highest-degree
 		// node will be given a score of 1.0.
 		score := float64(nodeChans) / float64(maxChans)
+		log.Tracef("Giving node %x a pref attach score of %v",
+			nID[:], score)
+
 		candidates[nID] = &NodeScore{
 			NodeID: nID,
 			Score:  score,

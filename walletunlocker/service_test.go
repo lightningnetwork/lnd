@@ -2,6 +2,7 @@ package walletunlocker_test
 
 import (
 	"bytes"
+	"context"
 	"io/ioutil"
 	"os"
 	"strings"
@@ -9,17 +10,14 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcwallet/snacl"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/aezeed"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/walletunlocker"
-	"golang.org/x/net/context"
-)
-
-const (
-	walletDbName = "wallet.db"
 )
 
 var (
@@ -39,8 +37,21 @@ var (
 )
 
 func createTestWallet(t *testing.T, dir string, netParams *chaincfg.Params) {
+	// Instruct waddrmgr to use the cranked down scrypt parameters when
+	// creating new wallet encryption keys.
+	fastScrypt := waddrmgr.FastScryptOptions
+	keyGen := func(passphrase *[]byte, config *waddrmgr.ScryptOptions) (
+		*snacl.SecretKey, error) {
+
+		return snacl.NewSecretKey(
+			passphrase, fastScrypt.N, fastScrypt.R, fastScrypt.P,
+		)
+	}
+	waddrmgr.SetSecretKeyGen(keyGen)
+
+	// Create a new test wallet that uses fast scrypt as KDF.
 	netDir := btcwallet.NetworkDir(dir, netParams)
-	loader := wallet.NewLoader(netParams, netDir, 0)
+	loader := wallet.NewLoader(netParams, netDir, true, 0)
 	_, err := loader.CreateNewWallet(
 		testPassword, testPassword, testSeed, time.Time{},
 	)
@@ -66,7 +77,7 @@ func TestGenSeed(t *testing.T) {
 	}
 	defer os.RemoveAll(testDir)
 
-	service := walletunlocker.New(testDir, testNetParams, nil)
+	service := walletunlocker.New(testDir, testNetParams, true, nil)
 
 	// Now that the service has been created, we'll ask it to generate a
 	// new seed for us given a test passphrase.
@@ -107,7 +118,7 @@ func TestGenSeedGenerateEntropy(t *testing.T) {
 	defer func() {
 		os.RemoveAll(testDir)
 	}()
-	service := walletunlocker.New(testDir, testNetParams, nil)
+	service := walletunlocker.New(testDir, testNetParams, true, nil)
 
 	// Now that the service has been created, we'll ask it to generate a
 	// new seed for us given a test passphrase. Note that we don't actually
@@ -147,7 +158,7 @@ func TestGenSeedInvalidEntropy(t *testing.T) {
 	defer func() {
 		os.RemoveAll(testDir)
 	}()
-	service := walletunlocker.New(testDir, testNetParams, nil)
+	service := walletunlocker.New(testDir, testNetParams, true, nil)
 
 	// Now that the service has been created, we'll ask it to generate a
 	// new seed for us given a test passphrase. However, we'll be using an
@@ -185,7 +196,7 @@ func TestInitWallet(t *testing.T) {
 	}()
 
 	// Create new UnlockerService.
-	service := walletunlocker.New(testDir, testNetParams, nil)
+	service := walletunlocker.New(testDir, testNetParams, true, nil)
 
 	// Once we have the unlocker service created, we'll now instantiate a
 	// new cipher seed instance.
@@ -286,7 +297,7 @@ func TestCreateWalletInvalidEntropy(t *testing.T) {
 	}()
 
 	// Create new UnlockerService.
-	service := walletunlocker.New(testDir, testNetParams, nil)
+	service := walletunlocker.New(testDir, testNetParams, true, nil)
 
 	// We'll attempt to init the wallet with an invalid cipher seed and
 	// passphrase.
@@ -319,7 +330,7 @@ func TestUnlockWallet(t *testing.T) {
 	}()
 
 	// Create new UnlockerService.
-	service := walletunlocker.New(testDir, testNetParams, nil)
+	service := walletunlocker.New(testDir, testNetParams, true, nil)
 
 	ctx := context.Background()
 	req := &lnrpc.UnlockWalletRequest{
@@ -393,7 +404,7 @@ func TestChangeWalletPassword(t *testing.T) {
 	}
 
 	// Create a new UnlockerService with our temp files.
-	service := walletunlocker.New(testDir, testNetParams, tempFiles)
+	service := walletunlocker.New(testDir, testNetParams, true, tempFiles)
 
 	ctx := context.Background()
 	newPassword := []byte("hunter2???")

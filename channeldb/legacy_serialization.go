@@ -1,6 +1,8 @@
 package channeldb
 
-import "io"
+import (
+	"io"
+)
 
 // deserializeCloseChannelSummaryV6 reads the v6 database format for
 // ChannelCloseSummary.

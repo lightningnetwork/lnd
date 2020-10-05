@@ -7,7 +7,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/lightningnetwork/lnd/keychain"
 )
 
 // defaultHandshakes is the maximum number of handshakes that can be done in
@@ -20,7 +20,7 @@ const defaultHandshakes = 1000
 // details w.r.t the handshake and encryption scheme used within the
 // connection.
 type Listener struct {
-	localStatic *btcec.PrivateKey
+	localStatic keychain.SingleKeyECDH
 
 	tcp *net.TCPListener
 
@@ -34,8 +34,9 @@ var _ net.Listener = (*Listener)(nil)
 
 // NewListener returns a new net.Listener which enforces the Brontide scheme
 // during both initial connection establishment and data transfer.
-func NewListener(localStatic *btcec.PrivateKey, listenAddr string) (*Listener,
-	error) {
+func NewListener(localStatic keychain.SingleKeyECDH,
+	listenAddr string) (*Listener, error) {
+
 	addr, err := net.ResolveTCPAddr("tcp", listenAddr)
 	if err != nil {
 		return nil, err
@@ -116,7 +117,12 @@ func (l *Listener) doHandshake(conn net.Conn) {
 	// We'll ensure that we get ActOne from the remote peer in a timely
 	// manner. If they don't respond within 1s, then we'll kill the
 	// connection.
-	conn.SetReadDeadline(time.Now().Add(handshakeReadTimeout))
+	err := conn.SetReadDeadline(time.Now().Add(handshakeReadTimeout))
+	if err != nil {
+		brontideConn.conn.Close()
+		l.rejectConn(rejectedConnErr(err, remoteAddr))
+		return
+	}
 
 	// Attempt to carry out the first act of the handshake protocol. If the
 	// connecting node doesn't know our long-term static public key, then
@@ -156,7 +162,12 @@ func (l *Listener) doHandshake(conn net.Conn) {
 	// We'll ensure that we get ActTwo from the remote peer in a timely
 	// manner. If they don't respond within 1 second, then we'll kill the
 	// connection.
-	conn.SetReadDeadline(time.Now().Add(handshakeReadTimeout))
+	err = conn.SetReadDeadline(time.Now().Add(handshakeReadTimeout))
+	if err != nil {
+		brontideConn.conn.Close()
+		l.rejectConn(rejectedConnErr(err, remoteAddr))
+		return
+	}
 
 	// Finally, finish the handshake processes by reading and decrypting
 	// the connection peer's static public key. If this succeeds then both
@@ -175,7 +186,12 @@ func (l *Listener) doHandshake(conn net.Conn) {
 
 	// We'll reset the deadline as it's no longer critical beyond the
 	// initial handshake.
-	conn.SetReadDeadline(time.Time{})
+	err = conn.SetReadDeadline(time.Time{})
+	if err != nil {
+		brontideConn.conn.Close()
+		l.rejectConn(rejectedConnErr(err, remoteAddr))
+		return
+	}
 
 	l.acceptConn(brontideConn)
 }

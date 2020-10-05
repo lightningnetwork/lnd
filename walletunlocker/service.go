@@ -1,6 +1,7 @@
 package walletunlocker
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -10,12 +11,25 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/aezeed"
+	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
-	"golang.org/x/net/context"
 )
+
+// ChannelsToRecover wraps any set of packed (serialized+encrypted) channel
+// back ups together. These can be passed in when unlocking the wallet, or
+// creating a new wallet for the first time with an existing seed.
+type ChannelsToRecover struct {
+	// PackedMultiChanBackup is an encrypted and serialized multi-channel
+	// backup.
+	PackedMultiChanBackup chanbackup.PackedMulti
+
+	// PackedSingleChanBackups is a series of encrypted and serialized
+	// single-channel backup for one or more channels.
+	PackedSingleChanBackups chanbackup.PackedSingles
+}
 
 // WalletInitMsg is a message sent by the UnlockerService when a user wishes to
 // set up the internal wallet for the first time. The user MUST provide a
@@ -36,6 +50,10 @@ type WalletInitMsg struct {
 	// recovery should be attempted, such as after the wallet's initial
 	// creation.
 	RecoveryWindow uint32
+
+	// ChanBackups a set of static channel backups that should be received
+	// after the wallet has been initialized.
+	ChanBackups ChannelsToRecover
 }
 
 // WalletUnlockMsg is a message sent by the UnlockerService when a user wishes
@@ -53,12 +71,20 @@ type WalletUnlockMsg struct {
 	// creation, but before any addresses have been created.
 	RecoveryWindow uint32
 
-	// Wallet is the loaded and unlocked Wallet. This is returned
-	// through the channel to avoid it being unlocked twice (once to check
-	// if the password is correct, here in the WalletUnlocker and again
-	// later when lnd actually uses it). Because unlocking involves scrypt
-	// which is resource intensive, we want to avoid doing it twice.
+	// Wallet is the loaded and unlocked Wallet. This is returned through
+	// the channel to avoid it being unlocked twice (once to check if the
+	// password is correct, here in the WalletUnlocker and again later when
+	// lnd actually uses it). Because unlocking involves scrypt which is
+	// resource intensive, we want to avoid doing it twice.
 	Wallet *wallet.Wallet
+
+	// ChanBackups a set of static channel backups that should be received
+	// after the wallet has been unlocked.
+	ChanBackups ChannelsToRecover
+
+	// UnloadWallet is a function for unloading the wallet, which should
+	// be called on shutdown.
+	UnloadWallet func() error
 }
 
 // UnlockerService implements the WalletUnlocker service used to provide lnd
@@ -74,13 +100,14 @@ type UnlockerService struct {
 	// sent.
 	UnlockMsgs chan *WalletUnlockMsg
 
-	chainDir      string
-	netParams     *chaincfg.Params
-	macaroonFiles []string
+	chainDir       string
+	noFreelistSync bool
+	netParams      *chaincfg.Params
+	macaroonFiles  []string
 }
 
 // New creates and returns a new UnlockerService.
-func New(chainDir string, params *chaincfg.Params,
+func New(chainDir string, params *chaincfg.Params, noFreelistSync bool,
 	macaroonFiles []string) *UnlockerService {
 
 	return &UnlockerService{
@@ -106,7 +133,7 @@ func (u *UnlockerService) GenSeed(ctx context.Context,
 	// Before we start, we'll ensure that the wallet hasn't already created
 	// so we don't show a *new* seed to the user if one already exists.
 	netDir := btcwallet.NetworkDir(u.chainDir, u.netParams)
-	loader := wallet.NewLoader(u.netParams, netDir, 0)
+	loader := wallet.NewLoader(u.netParams, netDir, u.noFreelistSync, 0)
 	walletExists, err := loader.WalletExists()
 	if err != nil {
 		return nil, err
@@ -167,6 +194,43 @@ func (u *UnlockerService) GenSeed(ctx context.Context,
 	}, nil
 }
 
+// extractChanBackups is a helper function that extracts the set of channel
+// backups from the proto into a format that we'll pass to higher level
+// sub-systems.
+func extractChanBackups(chanBackups *lnrpc.ChanBackupSnapshot) *ChannelsToRecover {
+	// If there aren't any populated channel backups, then we can exit
+	// early as there's nothing to extract.
+	if chanBackups == nil || (chanBackups.SingleChanBackups == nil &&
+		chanBackups.MultiChanBackup == nil) {
+		return nil
+	}
+
+	// Now that we know there's at least a single back up populated, we'll
+	// extract the multi-chan backup (if it's there).
+	var backups ChannelsToRecover
+	if chanBackups.MultiChanBackup != nil {
+		multiBackup := chanBackups.MultiChanBackup
+		backups.PackedMultiChanBackup = chanbackup.PackedMulti(
+			multiBackup.MultiChanBackup,
+		)
+	}
+
+	if chanBackups.SingleChanBackups == nil {
+		return &backups
+	}
+
+	// Finally, we can extract all the single chan backups as well.
+	for _, backup := range chanBackups.SingleChanBackups.ChanBackups {
+		singleChanBackup := backup.ChanBackup
+
+		backups.PackedSingleChanBackups = append(
+			backups.PackedSingleChanBackups, singleChanBackup,
+		)
+	}
+
+	return &backups
+}
+
 // InitWallet is used when lnd is starting up for the first time to fully
 // initialize the daemon and its internal wallet. At the very least a wallet
 // password must be provided. This will be used to encrypt sensitive material
@@ -184,7 +248,7 @@ func (u *UnlockerService) InitWallet(ctx context.Context,
 
 	// Make sure the password meets our constraints.
 	password := in.WalletPassword
-	if err := validatePassword(password); err != nil {
+	if err := ValidatePassword(password); err != nil {
 		return nil, err
 	}
 
@@ -198,7 +262,9 @@ func (u *UnlockerService) InitWallet(ctx context.Context,
 	// We'll then open up the directory that will be used to store the
 	// wallet's files so we can check if the wallet already exists.
 	netDir := btcwallet.NetworkDir(u.chainDir, u.netParams)
-	loader := wallet.NewLoader(u.netParams, netDir, uint32(recoveryWindow))
+	loader := wallet.NewLoader(
+		u.netParams, netDir, u.noFreelistSync, uint32(recoveryWindow),
+	)
 
 	walletExists, err := loader.WalletExists()
 	if err != nil {
@@ -233,6 +299,13 @@ func (u *UnlockerService) InitWallet(ctx context.Context,
 		RecoveryWindow: uint32(recoveryWindow),
 	}
 
+	// Before we return the unlock payload, we'll check if we can extract
+	// any channel backups to pass up to the higher level sub-system.
+	chansToRestore := extractChanBackups(in.ChannelBackups)
+	if chansToRestore != nil {
+		initMsg.ChanBackups = *chansToRestore
+	}
+
 	u.InitMsgs <- initMsg
 
 	return &lnrpc.InitWalletResponse{}, nil
@@ -248,7 +321,9 @@ func (u *UnlockerService) UnlockWallet(ctx context.Context,
 	recoveryWindow := uint32(in.RecoveryWindow)
 
 	netDir := btcwallet.NetworkDir(u.chainDir, u.netParams)
-	loader := wallet.NewLoader(u.netParams, netDir, recoveryWindow)
+	loader := wallet.NewLoader(
+		u.netParams, netDir, u.noFreelistSync, recoveryWindow,
+	)
 
 	// Check if wallet already exists.
 	walletExists, err := loader.WalletExists()
@@ -275,6 +350,14 @@ func (u *UnlockerService) UnlockWallet(ctx context.Context,
 		Passphrase:     password,
 		RecoveryWindow: recoveryWindow,
 		Wallet:         unlockedWallet,
+		UnloadWallet:   loader.UnloadWallet,
+	}
+
+	// Before we return the unlock payload, we'll check if we can extract
+	// any channel backups to pass up to the higher level sub-system.
+	chansToRestore := extractChanBackups(in.ChannelBackups)
+	if chansToRestore != nil {
+		walletUnlockMsg.ChanBackups = *chansToRestore
 	}
 
 	// At this point we was able to open the existing wallet with the
@@ -292,7 +375,7 @@ func (u *UnlockerService) ChangePassword(ctx context.Context,
 	in *lnrpc.ChangePasswordRequest) (*lnrpc.ChangePasswordResponse, error) {
 
 	netDir := btcwallet.NetworkDir(u.chainDir, u.netParams)
-	loader := wallet.NewLoader(u.netParams, netDir, 0)
+	loader := wallet.NewLoader(u.netParams, netDir, u.noFreelistSync, 0)
 
 	// First, we'll make sure the wallet exists for the specific chain and
 	// network.
@@ -316,7 +399,7 @@ func (u *UnlockerService) ChangePassword(ctx context.Context,
 	}
 
 	// Make sure the new password meets our constraints.
-	if err := validatePassword(in.NewPassword); err != nil {
+	if err := ValidatePassword(in.NewPassword); err != nil {
 		return nil, err
 	}
 
@@ -358,8 +441,8 @@ func (u *UnlockerService) ChangePassword(ctx context.Context,
 	return &lnrpc.ChangePasswordResponse{}, nil
 }
 
-// validatePassword assures the password meets all of our constraints.
-func validatePassword(password []byte) error {
+// ValidatePassword assures the password meets all of our constraints.
+func ValidatePassword(password []byte) error {
 	// Passwords should have a length of at least 8 characters.
 	if len(password) < 8 {
 		return errors.New("password must have at least 8 characters")

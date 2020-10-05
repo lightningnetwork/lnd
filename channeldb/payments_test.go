@@ -3,251 +3,712 @@ package channeldb
 import (
 	"bytes"
 	"fmt"
-	"math/rand"
+	"math"
 	"reflect"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 )
 
-func makeFakePayment() *OutgoingPayment {
-	fakeInvoice := &Invoice{
+var (
+	priv, _ = btcec.NewPrivateKey(btcec.S256())
+	pub     = priv.PubKey()
+
+	testHop1 = &route.Hop{
+		PubKeyBytes:      route.NewVertex(pub),
+		ChannelID:        12345,
+		OutgoingTimeLock: 111,
+		AmtToForward:     555,
+		CustomRecords: record.CustomSet{
+			65536: []byte{},
+			80001: []byte{},
+		},
+		MPP: record.NewMPP(32, [32]byte{0x42}),
+	}
+
+	testHop2 = &route.Hop{
+		PubKeyBytes:      route.NewVertex(pub),
+		ChannelID:        12345,
+		OutgoingTimeLock: 111,
+		AmtToForward:     555,
+		LegacyPayload:    true,
+	}
+
+	testRoute = route.Route{
+		TotalTimeLock: 123,
+		TotalAmount:   1234567,
+		SourcePubKey:  route.NewVertex(pub),
+		Hops: []*route.Hop{
+			testHop2,
+			testHop1,
+		},
+	}
+)
+
+func makeFakeInfo() (*PaymentCreationInfo, *HTLCAttemptInfo) {
+	var preimg lntypes.Preimage
+	copy(preimg[:], rev[:])
+
+	c := &PaymentCreationInfo{
+		PaymentHash: preimg.Hash(),
+		Value:       1000,
 		// Use single second precision to avoid false positive test
 		// failures due to the monotonic time component.
-		CreationDate:   time.Unix(time.Now().Unix(), 0),
-		Memo:           []byte("fake memo"),
-		Receipt:        []byte("fake receipt"),
+		CreationTime:   time.Unix(time.Now().Unix(), 0),
 		PaymentRequest: []byte(""),
 	}
 
-	copy(fakeInvoice.Terms.PaymentPreimage[:], rev[:])
-	fakeInvoice.Terms.Value = lnwire.NewMSatFromSatoshis(10000)
-
-	fakePath := make([][33]byte, 3)
-	for i := 0; i < 3; i++ {
-		copy(fakePath[i][:], bytes.Repeat([]byte{byte(i)}, 33))
+	a := &HTLCAttemptInfo{
+		AttemptID:   44,
+		SessionKey:  priv,
+		Route:       testRoute,
+		AttemptTime: time.Unix(100, 0),
 	}
-
-	fakePayment := &OutgoingPayment{
-		Invoice:        *fakeInvoice,
-		Fee:            101,
-		Path:           fakePath,
-		TimeLockLength: 1000,
-	}
-	copy(fakePayment.PaymentPreimage[:], rev[:])
-	return fakePayment
+	return c, a
 }
 
-func makeFakePaymentHash() [32]byte {
-	var paymentHash [32]byte
-	rBytes, _ := randomBytes(0, 32)
-	copy(paymentHash[:], rBytes)
-
-	return paymentHash
-}
-
-// randomBytes creates random []byte with length in range [minLen, maxLen)
-func randomBytes(minLen, maxLen int) ([]byte, error) {
-	randBuf := make([]byte, minLen+rand.Intn(maxLen-minLen))
-
-	if _, err := rand.Read(randBuf); err != nil {
-		return nil, fmt.Errorf("Internal error. "+
-			"Cannot generate random string: %v", err)
-	}
-
-	return randBuf, nil
-}
-
-func makeRandomFakePayment() (*OutgoingPayment, error) {
-	var err error
-	fakeInvoice := &Invoice{
-		// Use single second precision to avoid false positive test
-		// failures due to the monotonic time component.
-		CreationDate: time.Unix(time.Now().Unix(), 0),
-	}
-
-	fakeInvoice.Memo, err = randomBytes(1, 50)
-	if err != nil {
-		return nil, err
-	}
-
-	fakeInvoice.Receipt, err = randomBytes(1, 50)
-	if err != nil {
-		return nil, err
-	}
-
-	fakeInvoice.PaymentRequest = []byte("")
-
-	preImg, err := randomBytes(32, 33)
-	if err != nil {
-		return nil, err
-	}
-	copy(fakeInvoice.Terms.PaymentPreimage[:], preImg)
-
-	fakeInvoice.Terms.Value = lnwire.MilliSatoshi(rand.Intn(10000))
-
-	fakePathLen := 1 + rand.Intn(5)
-	fakePath := make([][33]byte, fakePathLen)
-	for i := 0; i < fakePathLen; i++ {
-		b, err := randomBytes(33, 34)
-		if err != nil {
-			return nil, err
-		}
-		copy(fakePath[i][:], b)
-	}
-
-	fakePayment := &OutgoingPayment{
-		Invoice:        *fakeInvoice,
-		Fee:            lnwire.MilliSatoshi(rand.Intn(1001)),
-		Path:           fakePath,
-		TimeLockLength: uint32(rand.Intn(10000)),
-	}
-	copy(fakePayment.PaymentPreimage[:], fakeInvoice.Terms.PaymentPreimage[:])
-
-	return fakePayment, nil
-}
-
-func TestOutgoingPaymentSerialization(t *testing.T) {
+func TestSentPaymentSerialization(t *testing.T) {
 	t.Parallel()
 
-	fakePayment := makeFakePayment()
+	c, s := makeFakeInfo()
 
 	var b bytes.Buffer
-	if err := serializeOutgoingPayment(&b, fakePayment); err != nil {
-		t.Fatalf("unable to serialize outgoing payment: %v", err)
+	if err := serializePaymentCreationInfo(&b, c); err != nil {
+		t.Fatalf("unable to serialize creation info: %v", err)
 	}
 
-	newPayment, err := deserializeOutgoingPayment(&b)
+	newCreationInfo, err := deserializePaymentCreationInfo(&b)
 	if err != nil {
-		t.Fatalf("unable to deserialize outgoing payment: %v", err)
+		t.Fatalf("unable to deserialize creation info: %v", err)
 	}
 
-	if !reflect.DeepEqual(fakePayment, newPayment) {
+	if !reflect.DeepEqual(c, newCreationInfo) {
 		t.Fatalf("Payments do not match after "+
 			"serialization/deserialization %v vs %v",
-			spew.Sdump(fakePayment),
-			spew.Sdump(newPayment),
+			spew.Sdump(c), spew.Sdump(newCreationInfo),
+		)
+	}
+
+	b.Reset()
+	if err := serializeHTLCAttemptInfo(&b, s); err != nil {
+		t.Fatalf("unable to serialize info: %v", err)
+	}
+
+	newWireInfo, err := deserializeHTLCAttemptInfo(&b)
+	if err != nil {
+		t.Fatalf("unable to deserialize info: %v", err)
+	}
+	newWireInfo.AttemptID = s.AttemptID
+
+	// First we verify all the records match up porperly, as they aren't
+	// able to be properly compared using reflect.DeepEqual.
+	err = assertRouteEqual(&s.Route, &newWireInfo.Route)
+	if err != nil {
+		t.Fatalf("Routes do not match after "+
+			"serialization/deserialization: %v", err)
+	}
+
+	// Clear routes to allow DeepEqual to compare the remaining fields.
+	newWireInfo.Route = route.Route{}
+	s.Route = route.Route{}
+
+	if !reflect.DeepEqual(s, newWireInfo) {
+		s.SessionKey.Curve = nil
+		newWireInfo.SessionKey.Curve = nil
+		t.Fatalf("Payments do not match after "+
+			"serialization/deserialization %v vs %v",
+			spew.Sdump(s), spew.Sdump(newWireInfo),
 		)
 	}
 }
 
-func TestOutgoingPaymentWorkflow(t *testing.T) {
+// assertRouteEquals compares to routes for equality and returns an error if
+// they are not equal.
+func assertRouteEqual(a, b *route.Route) error {
+	if !reflect.DeepEqual(a, b) {
+		return fmt.Errorf("HTLCAttemptInfos don't match: %v vs %v",
+			spew.Sdump(a), spew.Sdump(b))
+	}
+
+	return nil
+}
+
+func TestRouteSerialization(t *testing.T) {
 	t.Parallel()
 
-	db, cleanUp, err := makeTestDB()
-	defer cleanUp()
+	var b bytes.Buffer
+	if err := SerializeRoute(&b, testRoute); err != nil {
+		t.Fatal(err)
+	}
+
+	r := bytes.NewReader(b.Bytes())
+	route2, err := DeserializeRoute(r)
 	if err != nil {
-		t.Fatalf("unable to make test db: %v", err)
+		t.Fatal(err)
 	}
 
-	fakePayment := makeFakePayment()
-	if err = db.AddPayment(fakePayment); err != nil {
-		t.Fatalf("unable to put payment in DB: %v", err)
-	}
-
-	payments, err := db.FetchAllPayments()
+	// First we verify all the records match up porperly, as they aren't
+	// able to be properly compared using reflect.DeepEqual.
+	err = assertRouteEqual(&testRoute, &route2)
 	if err != nil {
-		t.Fatalf("unable to fetch payments from DB: %v", err)
+		t.Fatalf("routes not equal: \n%v vs \n%v",
+			spew.Sdump(testRoute), spew.Sdump(route2))
 	}
+}
 
-	expectedPayments := []*OutgoingPayment{fakePayment}
-	if !reflect.DeepEqual(payments, expectedPayments) {
-		t.Fatalf("Wrong payments after reading from DB."+
-			"Got %v, want %v",
-			spew.Sdump(payments),
-			spew.Sdump(expectedPayments),
-		)
-	}
+// deletePayment removes a payment with paymentHash from the payments database.
+func deletePayment(t *testing.T, db *DB, paymentHash lntypes.Hash, seqNr uint64) {
+	t.Helper()
 
-	// Make some random payments
-	for i := 0; i < 5; i++ {
-		randomPayment, err := makeRandomFakePayment()
+	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
+		payments := tx.ReadWriteBucket(paymentsRootBucket)
+
+		// Delete the payment bucket.
+		err := payments.DeleteNestedBucket(paymentHash[:])
 		if err != nil {
-			t.Fatalf("Internal error in tests: %v", err)
+			return err
 		}
 
-		if err = db.AddPayment(randomPayment); err != nil {
-			t.Fatalf("unable to put payment in DB: %v", err)
-		}
+		key := make([]byte, 8)
+		byteOrder.PutUint64(key, seqNr)
 
-		expectedPayments = append(expectedPayments, randomPayment)
-	}
+		// Delete the index that references this payment.
+		indexes := tx.ReadWriteBucket(paymentsIndexBucket)
+		return indexes.Delete(key)
+	})
 
-	payments, err = db.FetchAllPayments()
 	if err != nil {
-		t.Fatalf("Can't get payments from DB: %v", err)
-	}
-
-	if !reflect.DeepEqual(payments, expectedPayments) {
-		t.Fatalf("Wrong payments after reading from DB."+
-			"Got %v, want %v",
-			spew.Sdump(payments),
-			spew.Sdump(expectedPayments),
-		)
-	}
-
-	// Delete all payments.
-	if err = db.DeleteAllPayments(); err != nil {
-		t.Fatalf("unable to delete payments from DB: %v", err)
-	}
-
-	// Check that there is no payments after deletion
-	paymentsAfterDeletion, err := db.FetchAllPayments()
-	if err != nil {
-		t.Fatalf("Can't get payments after deletion: %v", err)
-	}
-	if len(paymentsAfterDeletion) != 0 {
-		t.Fatalf("After deletion DB has %v payments, want %v",
-			len(paymentsAfterDeletion), 0)
+		t.Fatalf("could not delete "+
+			"payment: %v", err)
 	}
 }
 
-func TestPaymentStatusWorkflow(t *testing.T) {
-	t.Parallel()
+// TestQueryPayments tests retrieval of payments with forwards and reversed
+// queries.
+func TestQueryPayments(t *testing.T) {
+	// Define table driven test for QueryPayments.
+	// Test payments have sequence indices [1, 3, 4, 5, 6, 7].
+	// Note that the payment with index 7 has the same payment hash as 6,
+	// and is stored in a nested bucket within payment 6 rather than being
+	// its own entry in the payments bucket. We do this to test retrieval
+	// of legacy payments.
+	tests := []struct {
+		name       string
+		query      PaymentsQuery
+		firstIndex uint64
+		lastIndex  uint64
 
-	db, cleanUp, err := makeTestDB()
-	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test db: %v", err)
-	}
-
-	testCases := []struct {
-		paymentHash [32]byte
-		status      PaymentStatus
+		// expectedSeqNrs contains the set of sequence numbers we expect
+		// our query to return.
+		expectedSeqNrs []uint64
 	}{
 		{
-			paymentHash: makeFakePaymentHash(),
-			status:      StatusGrounded,
+			name: "IndexOffset at the end of the payments range",
+			query: PaymentsQuery{
+				IndexOffset:       7,
+				MaxPayments:       7,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     0,
+			lastIndex:      0,
+			expectedSeqNrs: nil,
 		},
 		{
-			paymentHash: makeFakePaymentHash(),
-			status:      StatusInFlight,
+			name: "query in forwards order, start at beginning",
+			query: PaymentsQuery{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      3,
+			expectedSeqNrs: []uint64{1, 3},
 		},
 		{
-			paymentHash: makeFakePaymentHash(),
-			status:      StatusCompleted,
+			name: "query in forwards order, start at end, overflow",
+			query: PaymentsQuery{
+				IndexOffset:       6,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     7,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{7},
+		},
+		{
+			name: "start at offset index outside of payments",
+			query: PaymentsQuery{
+				IndexOffset:       20,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     0,
+			lastIndex:      0,
+			expectedSeqNrs: nil,
+		},
+		{
+			name: "overflow in forwards order",
+			query: PaymentsQuery{
+				IndexOffset:       4,
+				MaxPayments:       math.MaxUint64,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     5,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{5, 6, 7},
+		},
+		{
+			name: "start at offset index outside of payments, " +
+				"reversed order",
+			query: PaymentsQuery{
+				IndexOffset:       9,
+				MaxPayments:       2,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     6,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{6, 7},
+		},
+		{
+			name: "query in reverse order, start at end",
+			query: PaymentsQuery{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     6,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{6, 7},
+		},
+		{
+			name: "query in reverse order, starting in middle",
+			query: PaymentsQuery{
+				IndexOffset:       4,
+				MaxPayments:       2,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      3,
+			expectedSeqNrs: []uint64{1, 3},
+		},
+		{
+			name: "query in reverse order, starting in middle, " +
+				"with underflow",
+			query: PaymentsQuery{
+				IndexOffset:       4,
+				MaxPayments:       5,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      3,
+			expectedSeqNrs: []uint64{1, 3},
+		},
+		{
+			name: "all payments in reverse, order maintained",
+			query: PaymentsQuery{
+				IndexOffset:       0,
+				MaxPayments:       7,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{1, 3, 4, 5, 6, 7},
+		},
+		{
+			name: "exclude incomplete payments",
+			query: PaymentsQuery{
+				IndexOffset:       0,
+				MaxPayments:       7,
+				Reversed:          false,
+				IncludeIncomplete: false,
+			},
+			firstIndex:     0,
+			lastIndex:      0,
+			expectedSeqNrs: nil,
+		},
+		{
+			name: "query payments at index gap",
+			query: PaymentsQuery{
+				IndexOffset:       1,
+				MaxPayments:       7,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     3,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{3, 4, 5, 6, 7},
+		},
+		{
+			name: "query payments reverse before index gap",
+			query: PaymentsQuery{
+				IndexOffset:       3,
+				MaxPayments:       7,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      1,
+			expectedSeqNrs: []uint64{1},
+		},
+		{
+			name: "query payments reverse on index gap",
+			query: PaymentsQuery{
+				IndexOffset:       2,
+				MaxPayments:       7,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      1,
+			expectedSeqNrs: []uint64{1},
+		},
+		{
+			name: "query payments forward on index gap",
+			query: PaymentsQuery{
+				IndexOffset:       2,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     3,
+			lastIndex:      4,
+			expectedSeqNrs: []uint64{3, 4},
 		},
 	}
 
-	for _, testCase := range testCases {
-		err := db.UpdatePaymentStatus(testCase.paymentHash, testCase.status)
-		if err != nil {
-			t.Fatalf("unable to put payment in DB: %v", err)
-		}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-		status, err := db.FetchPaymentStatus(testCase.paymentHash)
-		if err != nil {
-			t.Fatalf("unable to fetch payments from DB: %v", err)
-		}
+			db, cleanup, err := MakeTestDB()
+			if err != nil {
+				t.Fatalf("unable to init db: %v", err)
+			}
+			defer cleanup()
 
-		if status != testCase.status {
-			t.Fatalf("Wrong payments status after reading from DB."+
-				"Got %v, want %v",
-				spew.Sdump(status),
-				spew.Sdump(testCase.status),
-			)
-		}
+			// Make a preliminary query to make sure it's ok to
+			// query when we have no payments.
+			resp, err := db.QueryPayments(tt.query)
+			require.NoError(t, err)
+			require.Len(t, resp.Payments, 0)
+
+			// Populate the database with a set of test payments.
+			// We create 6 original payments, deleting the payment
+			// at index 2 so that we cover the case where sequence
+			// numbers are missing. We also add a duplicate payment
+			// to the last payment added to test the legacy case
+			// where we have duplicates in the nested duplicates
+			// bucket.
+			nonDuplicatePayments := 6
+			pControl := NewPaymentControl(db)
+
+			for i := 0; i < nonDuplicatePayments; i++ {
+				// Generate a test payment.
+				info, _, _, err := genInfo()
+				if err != nil {
+					t.Fatalf("unable to create test "+
+						"payment: %v", err)
+				}
+
+				// Create a new payment entry in the database.
+				err = pControl.InitPayment(info.PaymentHash, info)
+				if err != nil {
+					t.Fatalf("unable to initialize "+
+						"payment in database: %v", err)
+				}
+
+				// Immediately delete the payment with index 2.
+				if i == 1 {
+					pmt, err := pControl.FetchPayment(
+						info.PaymentHash,
+					)
+					require.NoError(t, err)
+
+					deletePayment(t, db, info.PaymentHash,
+						pmt.SequenceNum)
+				}
+
+				// If we are on the last payment entry, add a
+				// duplicate payment with sequence number equal
+				// to the parent payment + 1.
+				if i == (nonDuplicatePayments - 1) {
+					pmt, err := pControl.FetchPayment(
+						info.PaymentHash,
+					)
+					require.NoError(t, err)
+
+					appendDuplicatePayment(
+						t, pControl.db,
+						info.PaymentHash,
+						pmt.SequenceNum+1,
+					)
+				}
+			}
+
+			// Fetch all payments in the database.
+			allPayments, err := db.FetchPayments()
+			if err != nil {
+				t.Fatalf("payments could not be fetched from "+
+					"database: %v", err)
+			}
+
+			if len(allPayments) != 6 {
+				t.Fatalf("Number of payments received does not "+
+					"match expected one. Got %v, want %v.",
+					len(allPayments), 6)
+			}
+
+			querySlice, err := db.QueryPayments(tt.query)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.firstIndex != querySlice.FirstIndexOffset ||
+				tt.lastIndex != querySlice.LastIndexOffset {
+				t.Errorf("First or last index does not match "+
+					"expected index. Want (%d, %d), got (%d, %d).",
+					tt.firstIndex, tt.lastIndex,
+					querySlice.FirstIndexOffset,
+					querySlice.LastIndexOffset)
+			}
+
+			if len(querySlice.Payments) != len(tt.expectedSeqNrs) {
+				t.Errorf("expected: %v payments, got: %v",
+					len(allPayments), len(querySlice.Payments))
+			}
+
+			for i, seqNr := range tt.expectedSeqNrs {
+				q := querySlice.Payments[i]
+				if seqNr != q.SequenceNum {
+					t.Errorf("sequence numbers do not match, "+
+						"got %v, want %v", q.SequenceNum, seqNr)
+				}
+			}
+		})
 	}
+}
+
+// TestFetchPaymentWithSequenceNumber tests lookup of payments with their
+// sequence number. It sets up one payment with no duplicates, and another with
+// two duplicates in its duplicates bucket then uses these payments to test the
+// case where a specific duplicate is not found and the duplicates bucket is not
+// present when we expect it to be.
+func TestFetchPaymentWithSequenceNumber(t *testing.T) {
+	db, cleanup, err := MakeTestDB()
+	require.NoError(t, err)
+
+	defer cleanup()
+
+	pControl := NewPaymentControl(db)
+
+	// Generate a test payment which does not have duplicates.
+	noDuplicates, _, _, err := genInfo()
+	require.NoError(t, err)
+
+	// Create a new payment entry in the database.
+	err = pControl.InitPayment(noDuplicates.PaymentHash, noDuplicates)
+	require.NoError(t, err)
+
+	// Fetch the payment so we can get its sequence nr.
+	noDuplicatesPayment, err := pControl.FetchPayment(
+		noDuplicates.PaymentHash,
+	)
+	require.NoError(t, err)
+
+	// Generate a test payment which we will add duplicates to.
+	hasDuplicates, _, _, err := genInfo()
+	require.NoError(t, err)
+
+	// Create a new payment entry in the database.
+	err = pControl.InitPayment(hasDuplicates.PaymentHash, hasDuplicates)
+	require.NoError(t, err)
+
+	// Fetch the payment so we can get its sequence nr.
+	hasDuplicatesPayment, err := pControl.FetchPayment(
+		hasDuplicates.PaymentHash,
+	)
+	require.NoError(t, err)
+
+	// We declare the sequence numbers used here so that we can reference
+	// them in tests.
+	var (
+		duplicateOneSeqNr = hasDuplicatesPayment.SequenceNum + 1
+		duplicateTwoSeqNr = hasDuplicatesPayment.SequenceNum + 2
+	)
+
+	// Add two duplicates to our second payment.
+	appendDuplicatePayment(
+		t, db, hasDuplicates.PaymentHash, duplicateOneSeqNr,
+	)
+	appendDuplicatePayment(
+		t, db, hasDuplicates.PaymentHash, duplicateTwoSeqNr,
+	)
+
+	tests := []struct {
+		name           string
+		paymentHash    lntypes.Hash
+		sequenceNumber uint64
+		expectedErr    error
+	}{
+		{
+			name:           "lookup payment without duplicates",
+			paymentHash:    noDuplicates.PaymentHash,
+			sequenceNumber: noDuplicatesPayment.SequenceNum,
+			expectedErr:    nil,
+		},
+		{
+			name:           "lookup payment with duplicates",
+			paymentHash:    hasDuplicates.PaymentHash,
+			sequenceNumber: hasDuplicatesPayment.SequenceNum,
+			expectedErr:    nil,
+		},
+		{
+			name:           "lookup first duplicate",
+			paymentHash:    hasDuplicates.PaymentHash,
+			sequenceNumber: duplicateOneSeqNr,
+			expectedErr:    nil,
+		},
+		{
+			name:           "lookup second duplicate",
+			paymentHash:    hasDuplicates.PaymentHash,
+			sequenceNumber: duplicateTwoSeqNr,
+			expectedErr:    nil,
+		},
+		{
+			name:           "lookup non-existent duplicate",
+			paymentHash:    hasDuplicates.PaymentHash,
+			sequenceNumber: 999999,
+			expectedErr:    ErrDuplicateNotFound,
+		},
+		{
+			name:           "lookup duplicate, no duplicates bucket",
+			paymentHash:    noDuplicates.PaymentHash,
+			sequenceNumber: duplicateTwoSeqNr,
+			expectedErr:    ErrNoDuplicateBucket,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			err := kvdb.Update(db,
+				func(tx walletdb.ReadWriteTx) error {
+
+					var seqNrBytes [8]byte
+					byteOrder.PutUint64(
+						seqNrBytes[:], test.sequenceNumber,
+					)
+
+					_, err := fetchPaymentWithSequenceNumber(
+						tx, test.paymentHash, seqNrBytes[:],
+					)
+					return err
+				})
+			require.Equal(t, test.expectedErr, err)
+		})
+	}
+}
+
+// appendDuplicatePayment adds a duplicate payment to an existing payment. Note
+// that this function requires a unique sequence number.
+//
+// This code is *only* intended to replicate legacy duplicate payments in lnd,
+// our current schema does not allow duplicates.
+func appendDuplicatePayment(t *testing.T, db *DB, paymentHash lntypes.Hash,
+	seqNr uint64) {
+
+	err := kvdb.Update(db, func(tx walletdb.ReadWriteTx) error {
+		bucket, err := fetchPaymentBucketUpdate(
+			tx, paymentHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Create the duplicates bucket if it is not
+		// present.
+		dup, err := bucket.CreateBucketIfNotExists(
+			duplicatePaymentsBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		var sequenceKey [8]byte
+		byteOrder.PutUint64(sequenceKey[:], seqNr)
+
+		// Create duplicate payments for the two dup
+		// sequence numbers we've setup.
+		putDuplicatePayment(t, dup, sequenceKey[:], paymentHash)
+
+		// Finally, once we have created our entry we add an index for
+		// it.
+		err = createPaymentIndexEntry(tx, sequenceKey[:], paymentHash)
+		require.NoError(t, err)
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("could not create payment: %v", err)
+	}
+}
+
+// putDuplicatePayment creates a duplicate payment in the duplicates bucket
+// provided with the minimal information required for successful reading.
+func putDuplicatePayment(t *testing.T, duplicateBucket kvdb.RwBucket,
+	sequenceKey []byte, paymentHash lntypes.Hash) {
+
+	paymentBucket, err := duplicateBucket.CreateBucketIfNotExists(
+		sequenceKey,
+	)
+	require.NoError(t, err)
+
+	err = paymentBucket.Put(duplicatePaymentSequenceKey, sequenceKey)
+	require.NoError(t, err)
+
+	// Generate fake information for the duplicate payment.
+	info, _, _, err := genInfo()
+	require.NoError(t, err)
+
+	// Write the payment info to disk under the creation info key. This code
+	// is copied rather than using serializePaymentCreationInfo to ensure
+	// we always write in the legacy format used by duplicate payments.
+	var b bytes.Buffer
+	var scratch [8]byte
+	_, err = b.Write(paymentHash[:])
+	require.NoError(t, err)
+
+	byteOrder.PutUint64(scratch[:], uint64(info.Value))
+	_, err = b.Write(scratch[:])
+	require.NoError(t, err)
+
+	err = serializeTime(&b, info.CreationTime)
+	require.NoError(t, err)
+
+	byteOrder.PutUint32(scratch[:4], 0)
+	_, err = b.Write(scratch[:4])
+	require.NoError(t, err)
+
+	// Get the PaymentCreationInfo.
+	err = paymentBucket.Put(duplicatePaymentCreationInfoKey, b.Bytes())
+	require.NoError(t, err)
 }

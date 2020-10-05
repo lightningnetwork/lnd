@@ -2,13 +2,13 @@ package macaroons_test
 
 import (
 	"bytes"
+	"context"
 	"io/ioutil"
 	"os"
 	"path"
 	"testing"
 
-	"github.com/coreos/bbolt"
-
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/macaroons"
 
 	"github.com/btcsuite/btcwallet/snacl"
@@ -21,8 +21,9 @@ func TestStore(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	db, err := bbolt.Open(path.Join(tempDir, "weks.db"), 0600,
-		bbolt.DefaultOptions)
+	db, err := kvdb.Create(
+		kvdb.BoltBackendName, path.Join(tempDir, "weks.db"), true,
+	)
 	if err != nil {
 		t.Fatalf("Error opening store DB: %v", err)
 	}
@@ -34,12 +35,12 @@ func TestStore(t *testing.T) {
 	}
 	defer store.Close()
 
-	key, id, err := store.RootKey(nil)
+	_, _, err = store.RootKey(context.TODO())
 	if err != macaroons.ErrStoreLocked {
 		t.Fatalf("Received %v instead of ErrStoreLocked", err)
 	}
 
-	key, err = store.Get(nil, nil)
+	_, err = store.Get(context.TODO(), nil)
 	if err != macaroons.ErrStoreLocked {
 		t.Fatalf("Received %v instead of ErrStoreLocked", err)
 	}
@@ -50,13 +51,45 @@ func TestStore(t *testing.T) {
 		t.Fatalf("Error creating store encryption key: %v", err)
 	}
 
-	key, id, err = store.RootKey(nil)
+	// Check ErrContextRootKeyID is returned when no root key ID found in
+	// context.
+	_, _, err = store.RootKey(context.TODO())
+	if err != macaroons.ErrContextRootKeyID {
+		t.Fatalf("Received %v instead of ErrContextRootKeyID", err)
+	}
+
+	// Check ErrMissingRootKeyID is returned when empty root key ID is used.
+	emptyKeyID := []byte{}
+	badCtx := macaroons.ContextWithRootKeyID(context.TODO(), emptyKeyID)
+	_, _, err = store.RootKey(badCtx)
+	if err != macaroons.ErrMissingRootKeyID {
+		t.Fatalf("Received %v instead of ErrMissingRootKeyID", err)
+	}
+
+	// Create a context with illegal root key ID value.
+	encryptedKeyID := []byte("enckey")
+	badCtx = macaroons.ContextWithRootKeyID(context.TODO(), encryptedKeyID)
+	_, _, err = store.RootKey(badCtx)
+	if err != macaroons.ErrKeyValueForbidden {
+		t.Fatalf("Received %v instead of ErrKeyValueForbidden", err)
+	}
+
+	// Create a context with root key ID value.
+	ctx := macaroons.ContextWithRootKeyID(
+		context.TODO(), macaroons.DefaultRootKeyID,
+	)
+	key, id, err := store.RootKey(ctx)
 	if err != nil {
 		t.Fatalf("Error getting root key from store: %v", err)
 	}
-	rootID := id
 
-	key2, err := store.Get(nil, id)
+	rootID := id
+	if !bytes.Equal(rootID, macaroons.DefaultRootKeyID) {
+		t.Fatalf("Root key ID doesn't match: expected %v, got %v",
+			macaroons.DefaultRootKeyID, rootID)
+	}
+
+	key2, err := store.Get(ctx, id)
 	if err != nil {
 		t.Fatalf("Error getting key with ID %s: %v", string(id), err)
 	}
@@ -72,11 +105,13 @@ func TestStore(t *testing.T) {
 	}
 
 	store.Close()
+
 	// Between here and the re-opening of the store, it's possible to get
 	// a double-close, but that's not such a big deal since the tests will
 	// fail anyway in that case.
-	db, err = bbolt.Open(path.Join(tempDir, "weks.db"), 0600,
-		bbolt.DefaultOptions)
+	db, err = kvdb.Create(
+		kvdb.BoltBackendName, path.Join(tempDir, "weks.db"), true,
+	)
 	if err != nil {
 		t.Fatalf("Error opening store DB: %v", err)
 	}
@@ -97,12 +132,12 @@ func TestStore(t *testing.T) {
 		t.Fatalf("Received %v instead of ErrPasswordRequired", err)
 	}
 
-	key, id, err = store.RootKey(nil)
+	_, _, err = store.RootKey(ctx)
 	if err != macaroons.ErrStoreLocked {
 		t.Fatalf("Received %v instead of ErrStoreLocked", err)
 	}
 
-	key, err = store.Get(nil, nil)
+	_, err = store.Get(ctx, nil)
 	if err != macaroons.ErrStoreLocked {
 		t.Fatalf("Received %v instead of ErrStoreLocked", err)
 	}
@@ -112,7 +147,7 @@ func TestStore(t *testing.T) {
 		t.Fatalf("Error unlocking root key store: %v", err)
 	}
 
-	key, err = store.Get(nil, rootID)
+	key, err = store.Get(ctx, rootID)
 	if err != nil {
 		t.Fatalf("Error getting key with ID %s: %v",
 			string(rootID), err)
@@ -122,7 +157,7 @@ func TestStore(t *testing.T) {
 			key2, key)
 	}
 
-	key, id, err = store.RootKey(nil)
+	key, id, err = store.RootKey(ctx)
 	if err != nil {
 		t.Fatalf("Error getting root key from store: %v", err)
 	}

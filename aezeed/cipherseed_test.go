@@ -543,8 +543,12 @@ func TestDecipherUnknownMnenomicWord(t *testing.T) {
 		t.Fatalf("expected ErrUnknownMnenomicWord instead got %T", err)
 	}
 
-	if wordErr.word != "kek" {
-		t.Fatalf("word mismatch: expected %v, got %v", "kek", wordErr.word)
+	if wordErr.Word != "kek" {
+		t.Fatalf("word mismatch: expected %v, got %v", "kek", wordErr.Word)
+	}
+	if int32(wordErr.Index) != randIndex {
+		t.Fatalf("wrong index detected: expected %v, got %v",
+			randIndex, wordErr.Index)
 	}
 }
 

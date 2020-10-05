@@ -1,0 +1,167 @@
+syntax = "proto3";
+
+package wtclientrpc;
+
+option go_package = "github.com/lightningnetwork/lnd/lnrpc/wtclientrpc";
+
+// WatchtowerClient is a service that grants access to the watchtower client
+// functionality of the daemon.
+service WatchtowerClient {
+    /*
+    AddTower adds a new watchtower reachable at the given address and
+    considers it for new sessions. If the watchtower already exists, then
+    any new addresses included will be considered when dialing it for
+    session negotiations and backups.
+    */
+    rpc AddTower (AddTowerRequest) returns (AddTowerResponse);
+
+    /*
+    RemoveTower removes a watchtower from being considered for future session
+    negotiations and from being used for any subsequent backups until it's added
+    again. If an address is provided, then this RPC only serves as a way of
+    removing the address from the watchtower instead.
+    */
+    rpc RemoveTower (RemoveTowerRequest) returns (RemoveTowerResponse);
+
+    // ListTowers returns the list of watchtowers registered with the client.
+    rpc ListTowers (ListTowersRequest) returns (ListTowersResponse);
+
+    // GetTowerInfo retrieves information for a registered watchtower.
+    rpc GetTowerInfo (GetTowerInfoRequest) returns (Tower);
+
+    // Stats returns the in-memory statistics of the client since startup.
+    rpc Stats (StatsRequest) returns (StatsResponse);
+
+    // Policy returns the active watchtower client policy configuration.
+    rpc Policy (PolicyRequest) returns (PolicyResponse);
+}
+
+message AddTowerRequest {
+    // The identifying public key of the watchtower to add.
+    bytes pubkey = 1;
+
+    // A network address the watchtower is reachable over.
+    string address = 2;
+}
+
+message AddTowerResponse {
+}
+
+message RemoveTowerRequest {
+    // The identifying public key of the watchtower to remove.
+    bytes pubkey = 1;
+
+    /*
+    If set, then the record for this address will be removed, indicating that is
+    is stale. Otherwise, the watchtower will no longer be used for future
+    session negotiations and backups.
+    */
+    string address = 2;
+}
+
+message RemoveTowerResponse {
+}
+
+message GetTowerInfoRequest {
+    // The identifying public key of the watchtower to retrieve information for.
+    bytes pubkey = 1;
+
+    // Whether we should include sessions with the watchtower in the response.
+    bool include_sessions = 2;
+}
+
+message TowerSession {
+    /*
+    The total number of successful backups that have been made to the
+    watchtower session.
+    */
+    uint32 num_backups = 1;
+
+    /*
+    The total number of backups in the session that are currently pending to be
+    acknowledged by the watchtower.
+    */
+    uint32 num_pending_backups = 2;
+
+    // The maximum number of backups allowed by the watchtower session.
+    uint32 max_backups = 3;
+
+    /*
+    The fee rate, in satoshis per vbyte, that will be used by the watchtower for
+    the justice transaction in the event of a channel breach.
+    */
+    uint32 sweep_sat_per_byte = 4;
+}
+
+message Tower {
+    // The identifying public key of the watchtower.
+    bytes pubkey = 1;
+
+    // The list of addresses the watchtower is reachable over.
+    repeated string addresses = 2;
+
+    // Whether the watchtower is currently a candidate for new sessions.
+    bool active_session_candidate = 3;
+
+    // The number of sessions that have been negotiated with the watchtower.
+    uint32 num_sessions = 4;
+
+    // The list of sessions that have been negotiated with the watchtower.
+    repeated TowerSession sessions = 5;
+}
+
+message ListTowersRequest {
+    // Whether we should include sessions with the watchtower in the response.
+    bool include_sessions = 1;
+}
+
+message ListTowersResponse {
+    // The list of watchtowers available for new backups.
+    repeated Tower towers = 1;
+}
+
+message StatsRequest {
+}
+
+message StatsResponse {
+    /*
+    The total number of backups made to all active and exhausted watchtower
+    sessions.
+    */
+    uint32 num_backups = 1;
+
+    /*
+    The total number of backups that are pending to be acknowledged by all
+    active and exhausted watchtower sessions.
+    */
+    uint32 num_pending_backups = 2;
+
+    /*
+    The total number of backups that all active and exhausted watchtower
+    sessions have failed to acknowledge.
+    */
+    uint32 num_failed_backups = 3;
+
+    // The total number of new sessions made to watchtowers.
+    uint32 num_sessions_acquired = 4;
+
+    // The total number of watchtower sessions that have been exhausted.
+    uint32 num_sessions_exhausted = 5;
+}
+
+message PolicyRequest {
+}
+
+message PolicyResponse {
+    /*
+    The maximum number of updates each session we negotiate with watchtowers
+    should allow.
+    */
+    uint32 max_updates = 1;
+
+    /*
+    The fee rate, in satoshis per vbyte, that will be used by watchtowers for
+    justice transactions in response to channel breaches.
+    */
+    uint32 sweep_sat_per_byte = 2;
+}

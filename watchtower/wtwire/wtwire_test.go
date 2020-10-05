@@ -127,6 +127,18 @@ func TestWatchtowerWireProtocol(t *testing.T) {
 			},
 		},
 		{
+			msgType: wtwire.MsgDeleteSession,
+			scenario: func(m wtwire.DeleteSession) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: wtwire.MsgDeleteSessionReply,
+			scenario: func(m wtwire.DeleteSessionReply) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
 			msgType: wtwire.MsgError,
 			scenario: func(m wtwire.Error) bool {
 				return mainScenario(&m)

@@ -30,7 +30,7 @@ func NewMockSigner() *MockSigner {
 // in the sign descriptor. The returned signature is the raw DER-encoded
 // signature without the signhash flag.
 func (s *MockSigner) SignOutputRaw(tx *wire.MsgTx,
-	signDesc *input.SignDescriptor) ([]byte, error) {
+	signDesc *input.SignDescriptor) (input.Signature, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -50,7 +50,7 @@ func (s *MockSigner) SignOutputRaw(tx *wire.MsgTx,
 		return nil, err
 	}
 
-	return sig[:len(sig)-1], nil
+	return btcec.ParseDERSignature(sig[:len(sig)-1], btcec.S256())
 }
 
 // ComputeInputScript is not implemented.

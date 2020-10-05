@@ -96,10 +96,17 @@ func disable(ctx *cli.Context) error {
 
 var queryScoresCommand = cli.Command{
 	Name:        "query",
-	Usage:       "Query the autopilot heuristcs for nodes' scores.",
-	ArgsUsage:   "<pubkey> <pubkey> <pubkey> ...",
+	Usage:       "Query the autopilot heuristics for nodes' scores.",
+	ArgsUsage:   "[flags] <pubkey> <pubkey> <pubkey> ...",
 	Description: "",
 	Action:      actionDecorator(queryScores),
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name: "ignorelocalstate, i",
+			Usage: "Ignore local channel state when calculating " +
+				"scores.",
+		},
+	},
 }
 
 func queryScores(ctx *cli.Context) error {
@@ -123,7 +130,8 @@ loop:
 	}
 
 	req := &autopilotrpc.QueryScoresRequest{
-		Pubkeys: pubs,
+		Pubkeys:          pubs,
+		IgnoreLocalState: ctx.Bool("ignorelocalstate"),
 	}
 
 	resp, err := client.QueryScores(ctxb, req)

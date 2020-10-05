@@ -1,0 +1,1401 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "routerrpc/router.proto",
+    "version": "version not set"
+  },
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v2/router/htlcevents": {
+      "get": {
+        "summary": "SubscribeHtlcEvents creates a uni-directional stream from the server to\nthe client which delivers a stream of htlc events.",
+        "operationId": "SubscribeHtlcEvents",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/routerrpcHtlcEvent"
+                },
+                "error": {
+                  "$ref": "#/definitions/runtimeStreamError"
+                }
+              },
+              "title": "Stream result of routerrpcHtlcEvent"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "tags": [
+          "Router"
+        ]
+      }
+    },
+    "/v2/router/mc": {
+      "get": {
+        "summary": "QueryMissionControl exposes the internal mission control state to callers.\nIt is a development feature.",
+        "operationId": "QueryMissionControl",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/routerrpcQueryMissionControlResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "tags": [
+          "Router"
+        ]
+      }
+    },
+    "/v2/router/mc/probability/{from_node}/{to_node}/{amt_msat}": {
+      "get": {
+        "summary": "QueryProbability returns the current success probability estimate for a\ngiven node pair and amount.",
+        "operationId": "QueryProbability",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/routerrpcQueryProbabilityResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "from_node",
+            "description": "The source node pubkey of the pair.",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "to_node",
+            "description": "The destination node pubkey of the pair.",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "amt_msat",
+            "description": "The amount for which to calculate a probability.",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "int64"
+          }
+        ],
+        "tags": [
+          "Router"
+        ]
+      }
+    },
+    "/v2/router/mc/reset": {
+      "post": {
+        "summary": "ResetMissionControl clears all mission control state and starts with a clean\nslate.",
+        "operationId": "ResetMissionControl",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/routerrpcResetMissionControlResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/routerrpcResetMissionControlRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Router"
+        ]
+      }
+    },
+    "/v2/router/route": {
+      "post": {
+        "summary": "BuildRoute builds a fully specified route based on a list of hop public\nkeys. It retrieves the relevant channel policies from the graph in order to\ncalculate the correct fees and time locks.",
+        "operationId": "BuildRoute",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/routerrpcBuildRouteResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/routerrpcBuildRouteRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Router"
+        ]
+      }
+    },
+    "/v2/router/route/estimatefee": {
+      "post": {
+        "summary": "EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it\nmay cost to send an HTLC to the target end destination.",
+        "operationId": "EstimateRouteFee",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/routerrpcRouteFeeResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/routerrpcRouteFeeRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Router"
+        ]
+      }
+    },
+    "/v2/router/route/send": {
+      "post": {
+        "summary": "SendToRouteV2 attempts to make a payment via the specified route. This\nmethod differs from SendPayment in that it allows users to specify a full\nroute manually. This can be used for things like rebalancing, and atomic\nswaps.",
+        "operationId": "SendToRouteV2",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcHTLCAttempt"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/routerrpcSendToRouteRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Router"
+        ]
+      }
+    },
+    "/v2/router/send": {
+      "post": {
+        "summary": "SendPaymentV2 attempts to route a payment described by the passed\nPaymentRequest to the final destination. The call returns a stream of\npayment updates.",
+        "operationId": "SendPaymentV2",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/lnrpcPayment"
+                },
+                "error": {
+                  "$ref": "#/definitions/runtimeStreamError"
+                }
+              },
+              "title": "Stream result of lnrpcPayment"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/routerrpcSendPaymentRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Router"
+        ]
+      }
+    },
+    "/v2/router/track/{payment_hash}": {
+      "get": {
+        "summary": "TrackPaymentV2 returns an update stream for the payment identified by the\npayment hash.",
+        "operationId": "TrackPaymentV2",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/lnrpcPayment"
+                },
+                "error": {
+                  "$ref": "#/definitions/runtimeStreamError"
+                }
+              },
+              "title": "Stream result of lnrpcPayment"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "payment_hash",
+            "description": "The hash of the payment to look up.",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "no_inflight_updates",
+            "description": "If set, only the final payment update is streamed back. Intermediate updates\nthat show which htlcs are still in flight are suppressed.",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
+          }
+        ],
+        "tags": [
+          "Router"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "FailureFailureCode": {
+      "type": "string",
+      "enum": [
+        "RESERVED",
+        "INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS",
+        "INCORRECT_PAYMENT_AMOUNT",
+        "FINAL_INCORRECT_CLTV_EXPIRY",
+        "FINAL_INCORRECT_HTLC_AMOUNT",
+        "FINAL_EXPIRY_TOO_SOON",
+        "INVALID_REALM",
+        "EXPIRY_TOO_SOON",
+        "INVALID_ONION_VERSION",
+        "INVALID_ONION_HMAC",
+        "INVALID_ONION_KEY",
+        "AMOUNT_BELOW_MINIMUM",
+        "FEE_INSUFFICIENT",
+        "INCORRECT_CLTV_EXPIRY",
+        "CHANNEL_DISABLED",
+        "TEMPORARY_CHANNEL_FAILURE",
+        "REQUIRED_NODE_FEATURE_MISSING",
+        "REQUIRED_CHANNEL_FEATURE_MISSING",
+        "UNKNOWN_NEXT_PEER",
+        "TEMPORARY_NODE_FAILURE",
+        "PERMANENT_NODE_FAILURE",
+        "PERMANENT_CHANNEL_FAILURE",
+        "EXPIRY_TOO_FAR",
+        "MPP_TIMEOUT",
+        "INTERNAL_FAILURE",
+        "UNKNOWN_FAILURE",
+        "UNREADABLE_FAILURE"
+      ],
+      "default": "RESERVED",
+      "description": " - RESERVED: The numbers assigned in this enumeration match the failure codes as\ndefined in BOLT #4. Because protobuf 3 requires enums to start with 0,\na RESERVED value is added.\n - INTERNAL_FAILURE: An internal error occurred.\n - UNKNOWN_FAILURE: The error source is known, but the failure itself couldn't be decoded.\n - UNREADABLE_FAILURE: An unreadable failure result is returned if the received failure message\ncannot be decrypted. In that case the error source is unknown."
+    },
+    "HTLCAttemptHTLCStatus": {
+      "type": "string",
+      "enum": [
+        "IN_FLIGHT",
+        "SUCCEEDED",
+        "FAILED"
+      ],
+      "default": "IN_FLIGHT"
+    },
+    "lnrpcChannelUpdate": {
+      "type": "object",
+      "properties": {
+        "signature": {
+          "type": "string",
+          "format": "byte",
+          "description": "The signature that validates the announced data and proves the ownership\nof node id."
+        },
+        "chain_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The target chain that this channel was opened within. This value\nshould be the genesis hash of the target chain. Along with the short\nchannel ID, this uniquely identifies the channel globally in a\nblockchain."
+        },
+        "chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unique description of the funding transaction."
+        },
+        "timestamp": {
+          "type": "integer",
+          "format": "int64",
+          "description": "A timestamp that allows ordering in the case of multiple announcements.\nWe should ignore the message if timestamp is not greater than the\nlast-received."
+        },
+        "message_flags": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The bitfield that describes whether optional fields are present in this\nupdate. Currently, the least-significant bit must be set to 1 if the\noptional field MaxHtlc is present."
+        },
+        "channel_flags": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The bitfield that describes additional meta-data concerning how the\nupdate is to be interpreted. Currently, the least-significant bit must be\nset to 0 if the creating node corresponds to the first node in the\npreviously sent channel announcement and 1 otherwise. If the second bit\nis set, then the channel is set to be disabled."
+        },
+        "time_lock_delta": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The minimum number of blocks this node requires to be added to the expiry\nof HTLCs. This is a security parameter determined by the node operator.\nThis value represents the required gap between the time locks of the\nincoming and outgoing HTLC's set to this node."
+        },
+        "htlc_minimum_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The minimum HTLC value which will be accepted."
+        },
+        "base_fee": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The base fee that must be used for incoming HTLC's to this particular\nchannel. This value will be tacked onto the required for a payment\nindependent of the size of the payment."
+        },
+        "fee_rate": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The fee rate that will be charged per millionth of a satoshi."
+        },
+        "htlc_maximum_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The maximum HTLC value which will be accepted."
+        },
+        "extra_opaque_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "The set of data that was appended to this message, some of which we may\nnot actually know how to iterate or parse. By holding onto this data, we\nensure that we're able to properly validate the set of signatures that\ncover these new fields, and ensure we're able to make upgrades to the\nnetwork in a forwards compatible manner."
+        }
+      }
+    },
+    "lnrpcFailure": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "#/definitions/FailureFailureCode",
+          "title": "Failure code as defined in the Lightning spec"
+        },
+        "channel_update": {
+          "$ref": "#/definitions/lnrpcChannelUpdate",
+          "description": "An optional channel update message."
+        },
+        "htlc_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "A failure type-dependent htlc value."
+        },
+        "onion_sha_256": {
+          "type": "string",
+          "format": "byte",
+          "description": "The sha256 sum of the onion payload."
+        },
+        "cltv_expiry": {
+          "type": "integer",
+          "format": "int64",
+          "description": "A failure type-dependent cltv expiry value."
+        },
+        "flags": {
+          "type": "integer",
+          "format": "int64",
+          "description": "A failure type-dependent flags value."
+        },
+        "failure_source_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The position in the path of the intermediate or final node that generated\nthe failure message. Position zero is the sender node."
+        },
+        "height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "A failure type-dependent block height."
+        }
+      }
+    },
+    "lnrpcFeatureBit": {
+      "type": "string",
+      "enum": [
+        "DATALOSS_PROTECT_REQ",
+        "DATALOSS_PROTECT_OPT",
+        "INITIAL_ROUING_SYNC",
+        "UPFRONT_SHUTDOWN_SCRIPT_REQ",
+        "UPFRONT_SHUTDOWN_SCRIPT_OPT",
+        "GOSSIP_QUERIES_REQ",
+        "GOSSIP_QUERIES_OPT",
+        "TLV_ONION_REQ",
+        "TLV_ONION_OPT",
+        "EXT_GOSSIP_QUERIES_REQ",
+        "EXT_GOSSIP_QUERIES_OPT",
+        "STATIC_REMOTE_KEY_REQ",
+        "STATIC_REMOTE_KEY_OPT",
+        "PAYMENT_ADDR_REQ",
+        "PAYMENT_ADDR_OPT",
+        "MPP_REQ",
+        "MPP_OPT"
+      ],
+      "default": "DATALOSS_PROTECT_REQ"
+    },
+    "lnrpcHTLCAttempt": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/HTLCAttemptHTLCStatus",
+          "description": "The status of the HTLC."
+        },
+        "route": {
+          "$ref": "#/definitions/lnrpcRoute",
+          "description": "The route taken by this HTLC."
+        },
+        "attempt_time_ns": {
+          "type": "string",
+          "format": "int64",
+          "description": "The time in UNIX nanoseconds at which this HTLC was sent."
+        },
+        "resolve_time_ns": {
+          "type": "string",
+          "format": "int64",
+          "description": "The time in UNIX nanoseconds at which this HTLC was settled or failed.\nThis value will not be set if the HTLC is still IN_FLIGHT."
+        },
+        "failure": {
+          "$ref": "#/definitions/lnrpcFailure",
+          "description": "Detailed htlc failure info."
+        },
+        "preimage": {
+          "type": "string",
+          "format": "byte",
+          "description": "The preimage that was used to settle the HTLC."
+        }
+      }
+    },
+    "lnrpcHop": {
+      "type": "object",
+      "properties": {
+        "chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unique channel ID for the channel. The first 3 bytes are the block\nheight, the next 3 the index within the block, and the last 2 bytes are the\noutput index for the channel."
+        },
+        "chan_capacity": {
+          "type": "string",
+          "format": "int64"
+        },
+        "amt_to_forward": {
+          "type": "string",
+          "format": "int64"
+        },
+        "fee": {
+          "type": "string",
+          "format": "int64"
+        },
+        "expiry": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "amt_to_forward_msat": {
+          "type": "string",
+          "format": "int64"
+        },
+        "fee_msat": {
+          "type": "string",
+          "format": "int64"
+        },
+        "pub_key": {
+          "type": "string",
+          "description": "An optional public key of the hop. If the public key is given, the payment\ncan be executed without relying on a copy of the channel graph."
+        },
+        "tlv_payload": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "If set to true, then this hop will be encoded using the new variable length\nTLV format. Note that if any custom tlv_records below are specified, then\nthis field MUST be set to true for them to be encoded properly."
+        },
+        "mpp_record": {
+          "$ref": "#/definitions/lnrpcMPPRecord",
+          "description": "An optional TLV record that signals the use of an MPP payment. If present,\nthe receiver will enforce that that the same mpp_record is included in the\nfinal hop payload of all non-zero payments in the HTLC set. If empty, a\nregular single-shot payment is or was attempted."
+        },
+        "custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "An optional set of key-value TLV records. This is useful within the context\nof the SendToRoute call as it allows callers to specify arbitrary K-V pairs\nto drop off at each hop within the onion."
+        }
+      }
+    },
+    "lnrpcHopHint": {
+      "type": "object",
+      "properties": {
+        "node_id": {
+          "type": "string",
+          "description": "The public key of the node at the start of the channel."
+        },
+        "chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unique identifier of the channel."
+        },
+        "fee_base_msat": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The base fee of the channel denominated in millisatoshis."
+        },
+        "fee_proportional_millionths": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The fee rate of the channel for sending one satoshi across it denominated in\nmillionths of a satoshi."
+        },
+        "cltv_expiry_delta": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The time-lock delta of the channel."
+        }
+      }
+    },
+    "lnrpcMPPRecord": {
+      "type": "object",
+      "properties": {
+        "payment_addr": {
+          "type": "string",
+          "format": "byte",
+          "description": "A unique, random identifier used to authenticate the sender as the intended\npayer of a multi-path payment. The payment_addr must be the same for all\nsubpayments, and match the payment_addr provided in the receiver's invoice.\nThe same payment_addr must be used on all subpayments."
+        },
+        "total_amt_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total amount in milli-satoshis being sent as part of a larger multi-path\npayment. The caller is responsible for ensuring subpayments to the same node\nand payment_hash sum exactly to total_amt_msat. The same\ntotal_amt_msat must be used on all subpayments."
+        }
+      }
+    },
+    "lnrpcPayment": {
+      "type": "object",
+      "properties": {
+        "payment_hash": {
+          "type": "string",
+          "title": "The payment hash"
+        },
+        "value": {
+          "type": "string",
+          "format": "int64",
+          "description": "Deprecated, use value_sat or value_msat."
+        },
+        "creation_date": {
+          "type": "string",
+          "format": "int64",
+          "title": "Deprecated, use creation_time_ns"
+        },
+        "fee": {
+          "type": "string",
+          "format": "int64",
+          "description": "Deprecated, use fee_sat or fee_msat."
+        },
+        "payment_preimage": {
+          "type": "string",
+          "title": "The payment preimage"
+        },
+        "value_sat": {
+          "type": "string",
+          "format": "int64",
+          "title": "The value of the payment in satoshis"
+        },
+        "value_msat": {
+          "type": "string",
+          "format": "int64",
+          "title": "The value of the payment in milli-satoshis"
+        },
+        "payment_request": {
+          "type": "string",
+          "description": "The optional payment request being fulfilled."
+        },
+        "status": {
+          "$ref": "#/definitions/lnrpcPaymentPaymentStatus",
+          "description": "The status of the payment."
+        },
+        "fee_sat": {
+          "type": "string",
+          "format": "int64",
+          "title": "The fee paid for this payment in satoshis"
+        },
+        "fee_msat": {
+          "type": "string",
+          "format": "int64",
+          "title": "The fee paid for this payment in milli-satoshis"
+        },
+        "creation_time_ns": {
+          "type": "string",
+          "format": "int64",
+          "description": "The time in UNIX nanoseconds at which the payment was created."
+        },
+        "htlcs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcHTLCAttempt"
+          },
+          "description": "The HTLCs made in attempt to settle the payment."
+        },
+        "payment_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The creation index of this payment. Each payment can be uniquely identified\nby this index, which may not strictly increment by 1 for payments made in\nolder versions of lnd."
+        },
+        "failure_reason": {
+          "$ref": "#/definitions/lnrpcPaymentFailureReason"
+        }
+      }
+    },
+    "lnrpcPaymentFailureReason": {
+      "type": "string",
+      "enum": [
+        "FAILURE_REASON_NONE",
+        "FAILURE_REASON_TIMEOUT",
+        "FAILURE_REASON_NO_ROUTE",
+        "FAILURE_REASON_ERROR",
+        "FAILURE_REASON_INCORRECT_PAYMENT_DETAILS",
+        "FAILURE_REASON_INSUFFICIENT_BALANCE"
+      ],
+      "default": "FAILURE_REASON_NONE",
+      "description": " - FAILURE_REASON_NONE: Payment isn't failed (yet).\n - FAILURE_REASON_TIMEOUT: There are more routes to try, but the payment timeout was exceeded.\n - FAILURE_REASON_NO_ROUTE: All possible routes were tried and failed permanently. Or were no\nroutes to the destination at all.\n - FAILURE_REASON_ERROR: A non-recoverable error has occured.\n - FAILURE_REASON_INCORRECT_PAYMENT_DETAILS: Payment details incorrect (unknown hash, invalid amt or\ninvalid final cltv delta)\n - FAILURE_REASON_INSUFFICIENT_BALANCE: Insufficient local balance."
+    },
+    "lnrpcPaymentPaymentStatus": {
+      "type": "string",
+      "enum": [
+        "UNKNOWN",
+        "IN_FLIGHT",
+        "SUCCEEDED",
+        "FAILED"
+      ],
+      "default": "UNKNOWN"
+    },
+    "lnrpcRoute": {
+      "type": "object",
+      "properties": {
+        "total_time_lock": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The cumulative (final) time lock across the entire route. This is the CLTV\nvalue that should be extended to the first hop in the route. All other hops\nwill decrement the time-lock as advertised, leaving enough time for all\nhops to wait for or present the payment preimage to complete the payment."
+        },
+        "total_fees": {
+          "type": "string",
+          "format": "int64",
+          "description": "The sum of the fees paid at each hop within the final route. In the case\nof a one-hop payment, this value will be zero as we don't need to pay a fee\nto ourselves."
+        },
+        "total_amt": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total amount of funds required to complete a payment over this route.\nThis value includes the cumulative fees at each hop. As a result, the HTLC\nextended to the first-hop in the route will need to have at least this many\nsatoshis, otherwise the route will fail at an intermediate node due to an\ninsufficient amount of fees."
+        },
+        "hops": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcHop"
+          },
+          "description": "Contains details concerning the specific forwarding details at each hop."
+        },
+        "total_fees_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total fees in millisatoshis."
+        },
+        "total_amt_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total amount in millisatoshis."
+        }
+      },
+      "description": "A path through the channel graph which runs over one or more channels in\nsuccession. This struct carries all the information required to craft the\nSphinx onion packet, and send the payment along the first hop in the path. A\nroute is only selected as valid if all the channels have sufficient capacity to\ncarry the initial payment amount after fees are accounted for."
+    },
+    "lnrpcRouteHint": {
+      "type": "object",
+      "properties": {
+        "hop_hints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcHopHint"
+          },
+          "description": "A list of hop hints that when chained together can assist in reaching a\nspecific destination."
+        }
+      }
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "routerrpcBuildRouteRequest": {
+      "type": "object",
+      "properties": {
+        "amt_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The amount to send expressed in msat. If set to zero, the minimum routable\namount is used."
+        },
+        "final_cltv_delta": {
+          "type": "integer",
+          "format": "int32",
+          "title": "CLTV delta from the current height that should be used for the timelock\nof the final hop"
+        },
+        "outgoing_chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The channel id of the channel that must be taken to the first hop. If zero,\nany channel may be used."
+        },
+        "hop_pubkeys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "A list of hops that defines the route. This does not include the source hop\npubkey."
+        }
+      }
+    },
+    "routerrpcBuildRouteResponse": {
+      "type": "object",
+      "properties": {
+        "route": {
+          "$ref": "#/definitions/lnrpcRoute",
+          "description": "Fully specified route that can be used to execute the payment."
+        }
+      }
+    },
+    "routerrpcCircuitKey": {
+      "type": "object",
+      "properties": {
+        "chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The id of the channel that the is part of this circuit."
+        },
+        "htlc_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The index of the incoming htlc in the incoming channel."
+        }
+      }
+    },
+    "routerrpcFailureDetail": {
+      "type": "string",
+      "enum": [
+        "UNKNOWN",
+        "NO_DETAIL",
+        "ONION_DECODE",
+        "LINK_NOT_ELIGIBLE",
+        "ON_CHAIN_TIMEOUT",
+        "HTLC_EXCEEDS_MAX",
+        "INSUFFICIENT_BALANCE",
+        "INCOMPLETE_FORWARD",
+        "HTLC_ADD_FAILED",
+        "FORWARDS_DISABLED",
+        "INVOICE_CANCELED",
+        "INVOICE_UNDERPAID",
+        "INVOICE_EXPIRY_TOO_SOON",
+        "INVOICE_NOT_OPEN",
+        "MPP_INVOICE_TIMEOUT",
+        "ADDRESS_MISMATCH",
+        "SET_TOTAL_MISMATCH",
+        "SET_TOTAL_TOO_LOW",
+        "SET_OVERPAID",
+        "UNKNOWN_INVOICE",
+        "INVALID_KEYSEND",
+        "MPP_IN_PROGRESS",
+        "CIRCULAR_ROUTE"
+      ],
+      "default": "UNKNOWN"
+    },
+    "routerrpcForwardEvent": {
+      "type": "object",
+      "properties": {
+        "info": {
+          "$ref": "#/definitions/routerrpcHtlcInfo",
+          "description": "Info contains details about the htlc that was forwarded."
+        }
+      }
+    },
+    "routerrpcForwardFailEvent": {
+      "type": "object"
+    },
+    "routerrpcForwardHtlcInterceptRequest": {
+      "type": "object",
+      "properties": {
+        "incoming_circuit_key": {
+          "$ref": "#/definitions/routerrpcCircuitKey",
+          "description": "The key of this forwarded htlc. It defines the incoming channel id and\nthe index in this channel."
+        },
+        "incoming_amount_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The incoming htlc amount."
+        },
+        "incoming_expiry": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The incoming htlc expiry."
+        },
+        "payment_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The htlc payment hash. This value is not guaranteed to be unique per\nrequest."
+        },
+        "outgoing_requested_chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The requested outgoing channel id for this forwarded htlc. Because of\nnon-strict forwarding, this isn't necessarily the channel over which the\npacket will be forwarded eventually. A different channel to the same peer\nmay be selected as well."
+        },
+        "outgoing_amount_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The outgoing htlc amount."
+        },
+        "outgoing_expiry": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The outgoing htlc expiry."
+        },
+        "custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Any custom records that were present in the payload."
+        }
+      }
+    },
+    "routerrpcHtlcEvent": {
+      "type": "object",
+      "properties": {
+        "incoming_channel_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The short channel id that the incoming htlc arrived at our node on. This\nvalue is zero for sends."
+        },
+        "outgoing_channel_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The short channel id that the outgoing htlc left our node on. This value\nis zero for receives."
+        },
+        "incoming_htlc_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Incoming id is the index of the incoming htlc in the incoming channel.\nThis value is zero for sends."
+        },
+        "outgoing_htlc_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Outgoing id is the index of the outgoing htlc in the outgoing channel.\nThis value is zero for receives."
+        },
+        "timestamp_ns": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The time in unix nanoseconds that the event occurred."
+        },
+        "event_type": {
+          "$ref": "#/definitions/routerrpcHtlcEventEventType",
+          "description": "The event type indicates whether the htlc was part of a send, receive or\nforward."
+        },
+        "forward_event": {
+          "$ref": "#/definitions/routerrpcForwardEvent"
+        },
+        "forward_fail_event": {
+          "$ref": "#/definitions/routerrpcForwardFailEvent"
+        },
+        "settle_event": {
+          "$ref": "#/definitions/routerrpcSettleEvent"
+        },
+        "link_fail_event": {
+          "$ref": "#/definitions/routerrpcLinkFailEvent"
+        }
+      },
+      "title": "HtlcEvent contains the htlc event that was processed. These are served on a\nbest-effort basis; events are not persisted, delivery is not guaranteed\n(in the event of a crash in the switch, forward events may be lost) and\nsome events may be replayed upon restart. Events consumed from this package\nshould be de-duplicated by the htlc's unique combination of incoming and\noutgoing channel id and htlc id. [EXPERIMENTAL]"
+    },
+    "routerrpcHtlcEventEventType": {
+      "type": "string",
+      "enum": [
+        "UNKNOWN",
+        "SEND",
+        "RECEIVE",
+        "FORWARD"
+      ],
+      "default": "UNKNOWN"
+    },
+    "routerrpcHtlcInfo": {
+      "type": "object",
+      "properties": {
+        "incoming_timelock": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The timelock on the incoming htlc."
+        },
+        "outgoing_timelock": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The timelock on the outgoing htlc."
+        },
+        "incoming_amt_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount of the incoming htlc."
+        },
+        "outgoing_amt_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount of the outgoing htlc."
+        }
+      }
+    },
+    "routerrpcLinkFailEvent": {
+      "type": "object",
+      "properties": {
+        "info": {
+          "$ref": "#/definitions/routerrpcHtlcInfo",
+          "description": "Info contains details about the htlc that we failed."
+        },
+        "wire_failure": {
+          "$ref": "#/definitions/FailureFailureCode",
+          "description": "FailureCode is the BOLT error code for the failure."
+        },
+        "failure_detail": {
+          "$ref": "#/definitions/routerrpcFailureDetail",
+          "description": "FailureDetail provides additional information about the reason for the\nfailure. This detail enriches the information provided by the wire message\nand may be 'no detail' if the wire message requires no additional metadata."
+        },
+        "failure_string": {
+          "type": "string",
+          "description": "A string representation of the link failure."
+        }
+      }
+    },
+    "routerrpcPairData": {
+      "type": "object",
+      "properties": {
+        "fail_time": {
+          "type": "string",
+          "format": "int64",
+          "description": "Time of last failure."
+        },
+        "fail_amt_sat": {
+          "type": "string",
+          "format": "int64",
+          "description": "Lowest amount that failed to forward rounded to whole sats. This may be\nset to zero if the failure is independent of amount."
+        },
+        "fail_amt_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "Lowest amount that failed to forward in millisats. This may be\nset to zero if the failure is independent of amount."
+        },
+        "success_time": {
+          "type": "string",
+          "format": "int64",
+          "description": "Time of last success."
+        },
+        "success_amt_sat": {
+          "type": "string",
+          "format": "int64",
+          "description": "Highest amount that we could successfully forward rounded to whole sats."
+        },
+        "success_amt_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "Highest amount that we could successfully forward in millisats."
+        }
+      }
+    },
+    "routerrpcPairHistory": {
+      "type": "object",
+      "properties": {
+        "node_from": {
+          "type": "string",
+          "format": "byte",
+          "description": "The source node pubkey of the pair."
+        },
+        "node_to": {
+          "type": "string",
+          "format": "byte",
+          "description": "The destination node pubkey of the pair."
+        },
+        "history": {
+          "$ref": "#/definitions/routerrpcPairData"
+        }
+      },
+      "description": "PairHistory contains the mission control state for a particular node pair."
+    },
+    "routerrpcPaymentState": {
+      "type": "string",
+      "enum": [
+        "IN_FLIGHT",
+        "SUCCEEDED",
+        "FAILED_TIMEOUT",
+        "FAILED_NO_ROUTE",
+        "FAILED_ERROR",
+        "FAILED_INCORRECT_PAYMENT_DETAILS",
+        "FAILED_INSUFFICIENT_BALANCE"
+      ],
+      "default": "IN_FLIGHT",
+      "description": " - IN_FLIGHT: Payment is still in flight.\n - SUCCEEDED: Payment completed successfully.\n - FAILED_TIMEOUT: There are more routes to try, but the payment timeout was exceeded.\n - FAILED_NO_ROUTE: All possible routes were tried and failed permanently. Or were no\nroutes to the destination at all.\n - FAILED_ERROR: A non-recoverable error has occured.\n - FAILED_INCORRECT_PAYMENT_DETAILS: Payment details incorrect (unknown hash, invalid amt or\ninvalid final cltv delta)\n - FAILED_INSUFFICIENT_BALANCE: Insufficient local balance."
+    },
+    "routerrpcPaymentStatus": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "$ref": "#/definitions/routerrpcPaymentState",
+          "description": "Current state the payment is in."
+        },
+        "preimage": {
+          "type": "string",
+          "format": "byte",
+          "description": "The pre-image of the payment when state is SUCCEEDED."
+        },
+        "htlcs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcHTLCAttempt"
+          },
+          "description": "The HTLCs made in attempt to settle the payment [EXPERIMENTAL]."
+        }
+      }
+    },
+    "routerrpcQueryMissionControlResponse": {
+      "type": "object",
+      "properties": {
+        "pairs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/routerrpcPairHistory"
+          },
+          "description": "Node pair-level mission control state."
+        }
+      },
+      "description": "QueryMissionControlResponse contains mission control state."
+    },
+    "routerrpcQueryProbabilityResponse": {
+      "type": "object",
+      "properties": {
+        "probability": {
+          "type": "number",
+          "format": "double",
+          "description": "The success probability for the requested pair."
+        },
+        "history": {
+          "$ref": "#/definitions/routerrpcPairData",
+          "description": "The historical data for the requested pair."
+        }
+      }
+    },
+    "routerrpcResetMissionControlRequest": {
+      "type": "object"
+    },
+    "routerrpcResetMissionControlResponse": {
+      "type": "object"
+    },
+    "routerrpcResolveHoldForwardAction": {
+      "type": "string",
+      "enum": [
+        "SETTLE",
+        "FAIL",
+        "RESUME"
+      ],
+      "default": "SETTLE"
+    },
+    "routerrpcRouteFeeRequest": {
+      "type": "object",
+      "properties": {
+        "dest": {
+          "type": "string",
+          "format": "byte",
+          "description": "The destination once wishes to obtain a routing fee quote to."
+        },
+        "amt_sat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The amount one wishes to send to the target destination."
+        }
+      }
+    },
+    "routerrpcRouteFeeResponse": {
+      "type": "object",
+      "properties": {
+        "routing_fee_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "A lower bound of the estimated fee to the target destination within the\nnetwork, expressed in milli-satoshis."
+        },
+        "time_lock_delay": {
+          "type": "string",
+          "format": "int64",
+          "description": "An estimate of the worst case time delay that can occur. Note that callers\nwill still need to factor in the final CLTV delta of the last hop into this\nvalue."
+        }
+      }
+    },
+    "routerrpcSendPaymentRequest": {
+      "type": "object",
+      "properties": {
+        "dest": {
+          "type": "string",
+          "format": "byte",
+          "title": "The identity pubkey of the payment recipient"
+        },
+        "amt": {
+          "type": "string",
+          "format": "int64",
+          "description": "Number of satoshis to send.\n\nThe fields amt and amt_msat are mutually exclusive."
+        },
+        "amt_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "Number of millisatoshis to send.\n\nThe fields amt and amt_msat are mutually exclusive."
+        },
+        "payment_hash": {
+          "type": "string",
+          "format": "byte",
+          "title": "The hash to use within the payment's HTLC"
+        },
+        "final_cltv_delta": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The CLTV delta from the current height that should be used to set the\ntimelock for the final hop."
+        },
+        "payment_request": {
+          "type": "string",
+          "description": "A bare-bones invoice for a payment within the Lightning Network.  With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient. The amount in the payment request may be zero. In\nthat case it is required to set the amt field as well. If no payment request\nis specified, the following fields are required: dest, amt and payment_hash."
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "format": "int32",
+          "description": "An upper limit on the amount of time we should spend when attempting to\nfulfill the payment. This is expressed in seconds. If we cannot make a\nsuccessful payment within this time frame, an error will be returned.\nThis field must be non-zero."
+        },
+        "fee_limit_sat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The maximum number of satoshis that will be paid as a fee of the payment.\nIf this field is left to the default value of 0, only zero-fee routes will\nbe considered. This usually means single hop routes connecting directly to\nthe destination. To send the payment without a fee limit, use max int here.\n\nThe fields fee_limit_sat and fee_limit_msat are mutually exclusive."
+        },
+        "fee_limit_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The maximum number of millisatoshis that will be paid as a fee of the\npayment. If this field is left to the default value of 0, only zero-fee\nroutes will be considered. This usually means single hop routes connecting\ndirectly to the destination. To send the payment without a fee limit, use\nmax int here.\n\nThe fields fee_limit_sat and fee_limit_msat are mutually exclusive."
+        },
+        "outgoing_chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Deprecated, use outgoing_chan_ids. The channel id of the channel that must\nbe taken to the first hop. If zero, any channel may be used (unless\noutgoing_chan_ids are set)."
+        },
+        "outgoing_chan_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "The channel ids of the channels are allowed for the first hop. If empty,\nany channel may be used."
+        },
+        "last_hop_pubkey": {
+          "type": "string",
+          "format": "byte",
+          "description": "The pubkey of the last hop of the route. If empty, any hop may be used."
+        },
+        "cltv_limit": {
+          "type": "integer",
+          "format": "int32",
+          "description": "An optional maximum total time lock for the route. This should not exceed\nlnd's `--max-cltv-expiry` setting. If zero, then the value of\n`--max-cltv-expiry` is enforced."
+        },
+        "route_hints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcRouteHint"
+          },
+          "description": "Optional route hints to reach the destination through private channels."
+        },
+        "dest_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "An optional field that can be used to pass an arbitrary set of TLV records\nto a peer which understands the new records. This can be used to pass\napplication specific data during the payment attempt. Record types are\nrequired to be in the custom range \u003e= 65536. When using REST, the values\nmust be encoded as base64."
+        },
+        "allow_self_payment": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "If set, circular payments to self are permitted."
+        },
+        "dest_features": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcFeatureBit"
+          },
+          "description": "Features assumed to be supported by the final node. All transitive feature\ndependencies must also be set properly. For a given feature bit pair, either\noptional or remote may be set, but not both. If this field is nil or empty,\nthe router will try to load destination features from the graph as a\nfallback."
+        },
+        "max_parts": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The maximum number of partial payments that may be use to complete the full\namount."
+        },
+        "no_inflight_updates": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "If set, only the final payment update is streamed back. Intermediate updates\nthat show which htlcs are still in flight are suppressed."
+        }
+      }
+    },
+    "routerrpcSendToRouteRequest": {
+      "type": "object",
+      "properties": {
+        "payment_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment hash to use for the HTLC."
+        },
+        "route": {
+          "$ref": "#/definitions/lnrpcRoute",
+          "description": "Route that should be used to attempt to complete the payment."
+        }
+      }
+    },
+    "routerrpcSendToRouteResponse": {
+      "type": "object",
+      "properties": {
+        "preimage": {
+          "type": "string",
+          "format": "byte",
+          "description": "The preimage obtained by making the payment."
+        },
+        "failure": {
+          "$ref": "#/definitions/lnrpcFailure",
+          "description": "The failure message in case the payment failed."
+        }
+      }
+    },
+    "routerrpcSettleEvent": {
+      "type": "object"
+    },
+    "runtimeError": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "runtimeStreamError": {
+      "type": "object",
+      "properties": {
+        "grpc_code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "http_code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "http_status": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    }
+  }
+}

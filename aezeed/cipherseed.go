@@ -102,10 +102,6 @@ const (
 	// checkSumSize is the index within an enciphered cipher seed that
 	// marks the start of the checksum.
 	checkSumOffset = EncipheredCipherSeedSize - checkSumSize
-
-	// encipheredSeedSize is the size of the cipherseed before applying the
-	// external version, salt, and checksum for the final encoding.
-	encipheredSeedSize = DecipheredCipherSeedSize + CipherTextExpansion
 )
 
 var (
@@ -353,7 +349,7 @@ func cipherTextToMnemonic(cipherText [EncipheredCipherSeedSize]byte) (Mnemonic, 
 	for i := 0; i < NummnemonicWords; i++ {
 		index, err := cipherBits.ReadBits(bitsPerWord)
 		if err != nil {
-			return words, nil
+			return Mnemonic{}, err
 		}
 
 		words[i] = defaultWordList[index]
@@ -370,7 +366,7 @@ func (c *CipherSeed) ToMnemonic(pass []byte) (Mnemonic, error) {
 	// with our KDF salt appended to it.
 	cipherText, err := c.encipher(pass)
 	if err != nil {
-		return Mnemonic{}, nil
+		return Mnemonic{}, err
 	}
 
 	// Now that we have our cipher text, we'll convert it into a mnemonic
@@ -510,10 +506,13 @@ func (m *Mnemonic) Decipher(pass []byte) ([DecipheredCipherSeedSize]byte, error)
 	// Before we attempt to map the mnemonic back to the original
 	// ciphertext, we'll ensure that all the word are actually a part of
 	// the current default word list.
-	for _, word := range m {
+	for i, word := range m {
 		if !strings.Contains(englishWordList, word) {
 			emptySeed := [DecipheredCipherSeedSize]byte{}
-			return emptySeed, ErrUnknownMnenomicWord{word}
+			return emptySeed, ErrUnknownMnenomicWord{
+				Word:  word,
+				Index: uint8(i),
+			}
 		}
 	}
 

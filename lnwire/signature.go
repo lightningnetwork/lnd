@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/lightningnetwork/lnd/input"
 )
 
 // Sig is a fixed-sized ECDSA signature. Unlike Bitcoin, we use fixed sized
@@ -64,7 +65,7 @@ func NewSigFromRawSignature(sig []byte) (Sig, error) {
 
 // NewSigFromSignature creates a new signature as used on the wire, from an
 // existing btcec.Signature.
-func NewSigFromSignature(e *btcec.Signature) (Sig, error) {
+func NewSigFromSignature(e input.Signature) (Sig, error) {
 	if e == nil {
 		return Sig{}, fmt.Errorf("cannot decode empty signature")
 	}

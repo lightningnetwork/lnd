@@ -1,0 +1,97 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "watchtowerrpc/watchtower.proto",
+    "version": "version not set"
+  },
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v2/watchtower/server": {
+      "get": {
+        "summary": "lncli: tower info\nGetInfo returns general information concerning the companion watchtower\nincluding its public key and URIs where the server is currently\nlistening for clients.",
+        "operationId": "GetInfo",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/watchtowerrpcGetInfoResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "tags": [
+          "Watchtower"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "runtimeError": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "watchtowerrpcGetInfoResponse": {
+      "type": "object",
+      "properties": {
+        "pubkey": {
+          "type": "string",
+          "format": "byte",
+          "description": "The public key of the watchtower."
+        },
+        "listeners": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The listening addresses of the watchtower."
+        },
+        "uris": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The URIs of the watchtower."
+        }
+      }
+    }
+  }
+}

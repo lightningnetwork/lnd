@@ -1,8 +1,13 @@
 package main
 
 import (
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
@@ -11,7 +16,30 @@ type OutPoint string
 
 // NewOutPointFromProto formats the lnrpc.OutPoint into an OutPoint for display.
 func NewOutPointFromProto(op *lnrpc.OutPoint) OutPoint {
-	return OutPoint(fmt.Sprintf("%s:%d", op.TxidStr, op.OutputIndex))
+	var hash chainhash.Hash
+	copy(hash[:], op.TxidBytes)
+	return OutPoint(fmt.Sprintf("%v:%d", hash, op.OutputIndex))
+}
+
+// NewProtoOutPoint parses an OutPoint into its corresponding lnrpc.OutPoint
+// type.
+func NewProtoOutPoint(op string) (*lnrpc.OutPoint, error) {
+	parts := strings.Split(op, ":")
+	if len(parts) != 2 {
+		return nil, errors.New("outpoint should be of the form txid:index")
+	}
+	txid := parts[0]
+	if hex.DecodedLen(len(txid)) != chainhash.HashSize {
+		return nil, fmt.Errorf("invalid hex-encoded txid %v", txid)
+	}
+	outputIndex, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("invalid output index: %v", err)
+	}
+	return &lnrpc.OutPoint{
+		TxidStr:     txid,
+		OutputIndex: uint32(outputIndex),
+	}, nil
 }
 
 // Utxo displays information about an unspent output, including its address,
@@ -30,7 +58,7 @@ type Utxo struct {
 // printed in base64.
 func NewUtxoFromProto(utxo *lnrpc.Utxo) *Utxo {
 	return &Utxo{
-		Type:          utxo.Type,
+		Type:          utxo.AddressType,
 		Address:       utxo.Address,
 		AmountSat:     utxo.AmountSat,
 		PkScript:      utxo.PkScript,

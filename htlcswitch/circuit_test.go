@@ -9,9 +9,11 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	bitcoinCfg "github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
-	"github.com/lightningnetwork/lightning-onion"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -30,7 +32,7 @@ var (
 
 	// testExtracter is a precomputed extraction of testEphemeralKey, using
 	// the sphinxPrivKey.
-	testExtracter *htlcswitch.SphinxErrorEncrypter
+	testExtracter *hop.SphinxErrorEncrypter
 )
 
 func init() {
@@ -67,7 +69,7 @@ func initTestExtracter() {
 		testEphemeralKey,
 	)
 
-	sphinxExtracter, ok := obfuscator.(*htlcswitch.SphinxErrorEncrypter)
+	sphinxExtracter, ok := obfuscator.(*hop.SphinxErrorEncrypter)
 	if !ok {
 		panic("did not extract sphinx error encrypter")
 	}
@@ -81,16 +83,17 @@ func initTestExtracter() {
 
 // newOnionProcessor creates starts a new htlcswitch.OnionProcessor using a temp
 // db and no garbage collection.
-func newOnionProcessor(t *testing.T) *htlcswitch.OnionProcessor {
+func newOnionProcessor(t *testing.T) *hop.OnionProcessor {
 	sphinxRouter := sphinx.NewRouter(
-		sphinxPrivKey, &bitcoinCfg.SimNetParams, sphinx.NewMemoryReplayLog(),
+		&keychain.PrivKeyECDH{PrivKey: sphinxPrivKey},
+		&bitcoinCfg.SimNetParams, sphinx.NewMemoryReplayLog(),
 	)
 
 	if err := sphinxRouter.Start(); err != nil {
 		t.Fatalf("unable to start sphinx router: %v", err)
 	}
 
-	return htlcswitch.NewOnionProcessor(sphinxRouter)
+	return hop.NewOnionProcessor(sphinxRouter)
 }
 
 // newCircuitMap creates a new htlcswitch.CircuitMap using a temp db and a
@@ -128,7 +131,7 @@ var halfCircuitTests = []struct {
 	outValue  btcutil.Amount
 	chanID    lnwire.ShortChannelID
 	htlcID    uint64
-	encrypter htlcswitch.ErrorEncrypter
+	encrypter hop.ErrorEncrypter
 }{
 	{
 		hash:      hash1,
@@ -534,7 +537,7 @@ func TestCircuitMapPersistence(t *testing.T) {
 
 	// Check that the circuit map is empty, even after restarting.
 	assertNumCircuitsWithHash(t, circuitMap, hash3, 0)
-	cfg, circuitMap = restartCircuitMap(t, cfg)
+	_, circuitMap = restartCircuitMap(t, cfg)
 	assertNumCircuitsWithHash(t, circuitMap, hash3, 0)
 }
 
@@ -546,18 +549,6 @@ func assertHasKeystone(t *testing.T, cm htlcswitch.CircuitMap,
 	circuit := cm.LookupOpenCircuit(outKey)
 	if !equalIgnoreLFD(circuit, c) {
 		t.Fatalf("unexpected circuit, want: %v, got %v", c, circuit)
-	}
-}
-
-// assertDoesNotHaveKeystone tests that the circuit map does not contain a
-// circuit for the provided outgoing circuit key.
-func assertDoesNotHaveKeystone(t *testing.T, cm htlcswitch.CircuitMap,
-	outKey htlcswitch.CircuitKey) {
-
-	circuit := cm.LookupOpenCircuit(outKey)
-	if circuit != nil {
-		t.Fatalf("expected no circuit for keystone %s, found %v",
-			outKey, circuit)
 	}
 }
 
@@ -616,17 +607,6 @@ func equalIgnoreLFD(c, c2 *htlcswitch.PaymentCircuit) bool {
 	c2.LoadedFromDisk = ogLFD2
 
 	return isEqual
-}
-
-// assertDoesNotHaveCircuit queries the circuit map using the circuit's
-// incoming circuit key, and fails if it is found.
-func assertDoesNotHaveCircuit(t *testing.T, cm htlcswitch.CircuitMap,
-	c *htlcswitch.PaymentCircuit) {
-
-	c2 := cm.LookupCircuit(c.Incoming)
-	if c2 != nil {
-		t.Fatalf("expected no circuit for %v, got %v", c, c2)
-	}
 }
 
 // makeCircuitDB initializes a new test channeldb for testing the persistence of
@@ -739,7 +719,7 @@ func TestCircuitMapCommitCircuits(t *testing.T) {
 	// to be loaded from disk. Since the keystone was never set, subsequent
 	// attempts to commit the circuit should cause the circuit map to
 	// indicate that the HTLC should be failed back.
-	cfg, circuitMap = restartCircuitMap(t, cfg)
+	_, circuitMap = restartCircuitMap(t, cfg)
 
 	actions, err = circuitMap.CommitCircuits(circuit)
 	if err != nil {
@@ -859,7 +839,7 @@ func TestCircuitMapOpenCircuits(t *testing.T) {
 	//
 	// NOTE: The channel db doesn't have any channel data, so no keystones
 	// will be trimmed.
-	cfg, circuitMap = restartCircuitMap(t, cfg)
+	_, circuitMap = restartCircuitMap(t, cfg)
 
 	// Check that we can still query for the open circuit.
 	circuit2 = circuitMap.LookupOpenCircuit(keystone.OutKey)
@@ -1103,7 +1083,7 @@ func TestCircuitMapTrimOpenCircuits(t *testing.T) {
 
 	// Restart the circuit map one last time to make sure the changes are
 	// persisted.
-	cfg, circuitMap = restartCircuitMap(t, cfg)
+	_, circuitMap = restartCircuitMap(t, cfg)
 
 	assertCircuitsOpenedPostRestart(
 		t,
@@ -1142,7 +1122,7 @@ func TestCircuitMapCloseOpenCircuits(t *testing.T) {
 			ChanID: chan1,
 			HtlcID: 3,
 		},
-		ErrorEncrypter: &htlcswitch.SphinxErrorEncrypter{
+		ErrorEncrypter: &hop.SphinxErrorEncrypter{
 			EphemeralKey: testEphemeralKey,
 		},
 	}
@@ -1201,7 +1181,7 @@ func TestCircuitMapCloseOpenCircuits(t *testing.T) {
 	//
 	// NOTE: The channel db doesn't have any channel data, so no keystones
 	// will be trimmed.
-	cfg, circuitMap = restartCircuitMap(t, cfg)
+	_, circuitMap = restartCircuitMap(t, cfg)
 
 	// Close the open circuit for the first time, which should succeed.
 	_, err = circuitMap.FailCircuit(circuit.Incoming)
@@ -1259,7 +1239,7 @@ func TestCircuitMapCloseUnopenedCircuit(t *testing.T) {
 
 	// Now, restart the circuit map, which will result in the circuit being
 	// reopened, since no attempt to delete the circuit was made.
-	cfg, circuitMap = restartCircuitMap(t, cfg)
+	_, circuitMap = restartCircuitMap(t, cfg)
 
 	// Close the open circuit for the first time, which should succeed.
 	_, err = circuitMap.FailCircuit(circuit.Incoming)
@@ -1323,7 +1303,7 @@ func TestCircuitMapDeleteUnopenedCircuit(t *testing.T) {
 
 	// Now, restart the circuit map, and check that the deletion survived
 	// the restart.
-	cfg, circuitMap = restartCircuitMap(t, cfg)
+	_, circuitMap = restartCircuitMap(t, cfg)
 
 	circuit2 = circuitMap.LookupCircuit(circuit.Incoming)
 	if circuit2 != nil {
@@ -1396,7 +1376,7 @@ func TestCircuitMapDeleteOpenCircuit(t *testing.T) {
 
 	// Now, restart the circuit map, and check that the deletion survived
 	// the restart.
-	cfg, circuitMap = restartCircuitMap(t, cfg)
+	_, circuitMap = restartCircuitMap(t, cfg)
 
 	circuit2 = circuitMap.LookupOpenCircuit(keystone.OutKey)
 	if circuit2 != nil {

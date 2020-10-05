@@ -1,5 +1,11 @@
 package wtdb
 
+import (
+	"io"
+
+	"github.com/lightningnetwork/lnd/watchtower/blob"
+)
+
 // SessionStateUpdate holds a state update sent by a client along with its
 // SessionID.
 type SessionStateUpdate struct {
@@ -14,10 +20,32 @@ type SessionStateUpdate struct {
 	LastApplied uint16
 
 	// Hint is the 16-byte prefix of the revoked commitment transaction.
-	Hint BreachHint
+	Hint blob.BreachHint
 
 	// EncryptedBlob is a ciphertext containing the sweep information for
 	// exacting justice if the commitment transaction matching the breach
-	// hint is braodcast.
+	// hint is broadcast.
 	EncryptedBlob []byte
+}
+
+// Encode serializes the state update into the provided io.Writer.
+func (u *SessionStateUpdate) Encode(w io.Writer) error {
+	return WriteElements(w,
+		u.ID,
+		u.SeqNum,
+		u.LastApplied,
+		u.Hint,
+		u.EncryptedBlob,
+	)
+}
+
+// Decode deserializes the target state update from the provided io.Reader.
+func (u *SessionStateUpdate) Decode(r io.Reader) error {
+	return ReadElements(r,
+		&u.ID,
+		&u.SeqNum,
+		&u.LastApplied,
+		&u.Hint,
+		&u.EncryptedBlob,
+	)
 }

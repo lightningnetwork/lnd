@@ -4,7 +4,9 @@ import (
 	"net"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/watchtower/lookout"
 	"github.com/lightningnetwork/lnd/watchtower/wtserver"
 )
@@ -19,6 +21,9 @@ type Standalone struct {
 	stopped uint32 // to be used atomically
 
 	cfg *Config
+
+	// listeners is a reference to the wtserver's listeners.
+	listeners []net.Listener
 
 	// server is the client endpoint, used for negotiating sessions and
 	// uploading state updates.
@@ -67,7 +72,7 @@ func New(cfg *Config) (*Standalone, error) {
 	listeners := make([]net.Listener, 0, len(cfg.ListenAddrs))
 	for _, listenAddr := range cfg.ListenAddrs {
 		listener, err := brontide.NewListener(
-			cfg.NodePrivKey, listenAddr.String(),
+			cfg.NodeKeyECDH, listenAddr.String(),
 		)
 		if err != nil {
 			return nil, err
@@ -78,22 +83,24 @@ func New(cfg *Config) (*Standalone, error) {
 
 	// Initialize the server with its required resources.
 	server, err := wtserver.New(&wtserver.Config{
-		ChainHash:    cfg.ChainHash,
-		DB:           cfg.DB,
-		NodePrivKey:  cfg.NodePrivKey,
-		Listeners:    listeners,
-		ReadTimeout:  cfg.ReadTimeout,
-		WriteTimeout: cfg.WriteTimeout,
-		NewAddress:   cfg.NewAddress,
+		ChainHash:     cfg.ChainHash,
+		DB:            cfg.DB,
+		NodeKeyECDH:   cfg.NodeKeyECDH,
+		Listeners:     listeners,
+		ReadTimeout:   cfg.ReadTimeout,
+		WriteTimeout:  cfg.WriteTimeout,
+		NewAddress:    cfg.NewAddress,
+		DisableReward: true,
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &Standalone{
-		cfg:     cfg,
-		server:  server,
-		lookout: lookout,
+		cfg:       cfg,
+		listeners: listeners,
+		server:    server,
+		lookout:   lookout,
 	}, nil
 }
 
@@ -105,6 +112,15 @@ func (w *Standalone) Start() error {
 	}
 
 	log.Infof("Starting watchtower")
+
+	// If a tor controller exists in the config, then automatically create a
+	// hidden service for the watchtower to accept inbound connections from.
+	if w.cfg.TorController != nil {
+		log.Infof("Creating watchtower hidden service")
+		if err := w.createNewHiddenService(); err != nil {
+			return err
+		}
+	}
 
 	if err := w.lookout.Start(); err != nil {
 		return err
@@ -134,4 +150,69 @@ func (w *Standalone) Stop() error {
 	log.Infof("Watchtower stopped successfully")
 
 	return nil
+}
+
+// createNewHiddenService automatically sets up a v2 or v3 onion service in
+// order to listen for inbound connections over Tor.
+func (w *Standalone) createNewHiddenService() error {
+	// Get all the ports the watchtower is listening on. These will be used to
+	// map the hidden service's virtual port.
+	listenPorts := make([]int, 0, len(w.listeners))
+	for _, listener := range w.listeners {
+		port := listener.Addr().(*net.TCPAddr).Port
+		listenPorts = append(listenPorts, port)
+	}
+
+	// Once we've created the port mapping, we can automatically create the
+	// hidden service. The service's private key will be saved on disk in order
+	// to persistently have access to this hidden service across restarts.
+	onionCfg := tor.AddOnionConfig{
+		VirtualPort: DefaultPeerPort,
+		TargetPorts: listenPorts,
+		Store:       tor.NewOnionFile(w.cfg.WatchtowerKeyPath, 0600),
+		Type:        w.cfg.Type,
+	}
+
+	addr, err := w.cfg.TorController.AddOnion(onionCfg)
+	if err != nil {
+		return err
+	}
+
+	// Append this address to ExternalIPs so that it will be exposed in
+	// tower info calls.
+	w.cfg.ExternalIPs = append(w.cfg.ExternalIPs, addr)
+
+	return nil
+}
+
+// PubKey returns the public key for the watchtower used to authentication and
+// encrypt traffic with clients.
+//
+// NOTE: Part of the watchtowerrpc.WatchtowerBackend interface.
+func (w *Standalone) PubKey() *btcec.PublicKey {
+	return w.cfg.NodeKeyECDH.PubKey()
+}
+
+// ListeningAddrs returns the listening addresses where the watchtower server
+// can accept client connections.
+//
+// NOTE: Part of the watchtowerrpc.WatchtowerBackend interface.
+func (w *Standalone) ListeningAddrs() []net.Addr {
+	addrs := make([]net.Addr, 0, len(w.listeners))
+	for _, listener := range w.listeners {
+		addrs = append(addrs, listener.Addr())
+	}
+
+	return addrs
+}
+
+// ExternalIPs returns the addresses where the watchtower can be reached by
+// clients externally.
+//
+// NOTE: Part of the watchtowerrpc.WatchtowerBackend interface.
+func (w *Standalone) ExternalIPs() []net.Addr {
+	addrs := make([]net.Addr, 0, len(w.cfg.ExternalIPs))
+	addrs = append(addrs, w.cfg.ExternalIPs...)
+
+	return addrs
 }

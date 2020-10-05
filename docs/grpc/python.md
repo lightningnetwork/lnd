@@ -3,46 +3,61 @@
 This section enumerates what you need to do to write a client that communicates
 with `lnd` in Python.
 
-### Setup and Installation
+## Setup and Installation
 
 Lnd uses the gRPC protocol for communication with clients like lncli. gRPC is
 based on protocol buffers and as such, you will need to compile the lnd proto
 file in Python before you can use it to communicate with lnd.
 
-* Create a virtual environment for your project
-```
-$ virtualenv lnd
-```
-* Activate the virtual environment
-```
-$ source lnd/bin/activate
-```
-* Install dependencies (googleapis-common-protos is required due to the use of
+1. Create a virtual environment for your project
+    ```
+    $ virtualenv lnd
+    ```
+2. Activate the virtual environment
+    ```
+    $ source lnd/bin/activate
+    ```
+3. Install dependencies (googleapis-common-protos is required due to the use of
   google/api/annotations.proto)
-```
-(lnd)$ pip install grpcio grpcio-tools googleapis-common-protos
-```
-* Clone the google api's repository (required due to the use of
+    ```
+    (lnd)$ pip install grpcio grpcio-tools googleapis-common-protos
+    ```
+4. Clone the google api's repository (required due to the use of
   google/api/annotations.proto)
-```
-(lnd)$ git clone https://github.com/googleapis/googleapis.git
-```
-* Copy the lnd rpc.proto file (you'll find this at
+    ```
+    (lnd)$ git clone https://github.com/googleapis/googleapis.git
+    ```
+5. Copy the lnd rpc.proto file (you'll find this at
   [lnrpc/rpc.proto](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/rpc.proto))
   or just download it
-```
-(lnd)$ curl -o rpc.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/rpc.proto
-```
-* Compile the proto file
-```
-(lnd)$ python -m grpc_tools.protoc --proto_path=googleapis:. --python_out=. --grpc_python_out=. rpc.proto
-```
+    ```
+    (lnd)$ curl -o rpc.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/rpc.proto
+    ```
+6. Compile the proto file
+    ```
+    (lnd)$ python -m grpc_tools.protoc --proto_path=googleapis:. --python_out=. --grpc_python_out=. rpc.proto
+    ```
 
 After following these steps, two files `rpc_pb2.py` and `rpc_pb2_grpc.py` will
 be generated. These files will be imported in your project anytime you use
 Python gRPC.
 
-#### Imports and Client
+### Generating RPC modules for subservers
+
+If you want to use any of the subservers' functionality, you also need to
+generate the python modules for them.
+
+For example, if you want to generate the RPC modules for the `Router` subserver
+(located/defined in `routerrpc/router.proto`), you need to run the following two
+extra steps (after completing all 6 step described above) to get the
+`router_pb2.py` and `router_pb2_grpc.py`:
+
+```
+(lnd)$ curl -o router.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/routerrpc/router.proto
+(lnd)$ python -m grpc_tools.protoc --proto_path=googleapis:. --python_out=. --grpc_python_out=. router.proto
+```
+
+### Imports and Client
 
 Every time you use Python gRPC, you will have to import the generated rpc modules
 and set up a channel and stub to your connect to your `lnd` node:
@@ -66,13 +81,13 @@ channel = grpc.secure_channel('localhost:10009', creds)
 stub = lnrpc.LightningStub(channel)
 ```
 
-### Examples
+## Examples
 
 Let's walk through some examples of Python gRPC clients. These examples assume
 that you have at least two `lnd` nodes running, the RPC location of one of which
 is at the default `localhost:10009`, with an open channel between the two nodes.
 
-#### Simple RPC
+### Simple RPC
 
 ```python
 # Retrieve and display the wallet balance
@@ -80,7 +95,7 @@ response = stub.WalletBalance(ln.WalletBalanceRequest())
 print(response.total_balance)
 ```
 
-#### Response-streaming RPC
+### Response-streaming RPC
 
 ```python
 request = ln.InvoiceSubscription()
@@ -102,7 +117,7 @@ $ lncli sendpayment --pay_req=<PAY_REQ>
 Your Python console should now display the details of the recently satisfied
 invoice.
 
-#### Bidirectional-streaming RPC
+### Bidirectional-streaming RPC
 
 ```python
 from time import sleep
@@ -133,7 +148,7 @@ for payment in stub.SendPayment(request_iterable):
 ```
 This example will send a payment of 100 satoshis every 2 seconds.
 
-#### Using Macaroons
+### Using Macaroons
 
 To authenticate using macaroons you need to include the macaroon in the metadata of the request.
 
@@ -180,7 +195,7 @@ stub.GetInfo(ln.GetInfoRequest())
 ```
 
 
-### Conclusion
+## Conclusion
 
 With the above, you should have all the `lnd` related `gRPC` dependencies
 installed locally into your virtual environment. In order to get up to speed
@@ -189,3 +204,9 @@ Python](https://developers.google.com/protocol-buffers/docs/pythontutorial).
 Additionally, [this official gRPC
 resource](http://www.grpc.io/docs/tutorials/basic/python.html) provides more
 details around how to drive `gRPC` from Python.
+
+## API documentation
+
+There is an [online API documentation](https://api.lightning.community?python)
+available that shows all currently existing RPC methods, including code snippets
+on how to use them.

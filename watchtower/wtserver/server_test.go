@@ -1,5 +1,3 @@
-// +build dev
-
 package wtserver_test
 
 import (
@@ -29,6 +27,8 @@ var (
 	addrScript, _ = txscript.PayToAddrScript(addr)
 
 	testnetChainHash = *chaincfg.TestNet3Params.GenesisHash
+
+	testBlob = make([]byte, blob.Size(blob.TypeAltruistCommit))
 )
 
 // randPubKey generates a new secp keypair, and returns the public key.
@@ -51,7 +51,7 @@ func initServer(t *testing.T, db wtserver.DB,
 	t.Helper()
 
 	if db == nil {
-		db = wtdb.NewMockDB()
+		db = wtmock.NewTowerDB()
 	}
 
 	s, err := wtserver.New(&wtserver.Config{
@@ -87,10 +87,12 @@ func TestServerOnlyAcceptOnePeer(t *testing.T) {
 	s := initServer(t, nil, timeoutDuration)
 	defer s.Stop()
 
+	localPub := randPubKey(t)
+
 	// Create two peers using the same session id.
 	peerPub := randPubKey(t)
-	peer1 := wtmock.NewMockPeer(peerPub, nil, 0)
-	peer2 := wtmock.NewMockPeer(peerPub, nil, 0)
+	peer1 := wtmock.NewMockPeer(localPub, peerPub, nil, 0)
+	peer2 := wtmock.NewMockPeer(localPub, peerPub, nil, 0)
 
 	// Serialize a Init message to be sent by both peers.
 	init := wtwire.NewInitMessage(
@@ -150,33 +152,80 @@ func TestServerOnlyAcceptOnePeer(t *testing.T) {
 }
 
 type createSessionTestCase struct {
-	name        string
-	initMsg     *wtwire.Init
-	createMsg   *wtwire.CreateSession
-	expReply    *wtwire.CreateSessionReply
-	expDupReply *wtwire.CreateSessionReply
+	name            string
+	initMsg         *wtwire.Init
+	createMsg       *wtwire.CreateSession
+	expReply        *wtwire.CreateSessionReply
+	expDupReply     *wtwire.CreateSessionReply
+	sendStateUpdate bool
 }
 
 var createSessionTests = []createSessionTestCase{
 	{
-		name: "reject duplicate session create",
+		name: "duplicate session create",
 		initMsg: wtwire.NewInitMessage(
 			lnwire.NewRawFeatureVector(),
 			testnetChainHash,
 		),
 		createMsg: &wtwire.CreateSession{
-			BlobType:     blob.TypeDefault,
+			BlobType:     blob.TypeAltruistCommit,
 			MaxUpdates:   1000,
 			RewardBase:   0,
 			RewardRate:   0,
-			SweepFeeRate: 1,
+			SweepFeeRate: 10000,
+		},
+		expReply: &wtwire.CreateSessionReply{
+			Code: wtwire.CodeOK,
+			Data: []byte{},
+		},
+		expDupReply: &wtwire.CreateSessionReply{
+			Code: wtwire.CodeOK,
+			Data: []byte{},
+		},
+	},
+	{
+		name: "duplicate session create after use",
+		initMsg: wtwire.NewInitMessage(
+			lnwire.NewRawFeatureVector(),
+			testnetChainHash,
+		),
+		createMsg: &wtwire.CreateSession{
+			BlobType:     blob.TypeAltruistCommit,
+			MaxUpdates:   1000,
+			RewardBase:   0,
+			RewardRate:   0,
+			SweepFeeRate: 10000,
+		},
+		expReply: &wtwire.CreateSessionReply{
+			Code: wtwire.CodeOK,
+			Data: []byte{},
+		},
+		expDupReply: &wtwire.CreateSessionReply{
+			Code:        wtwire.CreateSessionCodeAlreadyExists,
+			LastApplied: 1,
+			Data:        []byte{},
+		},
+		sendStateUpdate: true,
+	},
+	{
+		name: "duplicate session create reward",
+		initMsg: wtwire.NewInitMessage(
+			lnwire.NewRawFeatureVector(),
+			testnetChainHash,
+		),
+		createMsg: &wtwire.CreateSession{
+			BlobType:     blob.TypeRewardCommit,
+			MaxUpdates:   1000,
+			RewardBase:   0,
+			RewardRate:   0,
+			SweepFeeRate: 10000,
 		},
 		expReply: &wtwire.CreateSessionReply{
 			Code: wtwire.CodeOK,
 			Data: addrScript,
 		},
 		expDupReply: &wtwire.CreateSessionReply{
-			Code: wtwire.CreateSessionCodeAlreadyExists,
+			Code: wtwire.CodeOK,
 			Data: addrScript,
 		},
 	},
@@ -191,7 +240,7 @@ var createSessionTests = []createSessionTestCase{
 			MaxUpdates:   1000,
 			RewardBase:   0,
 			RewardRate:   0,
-			SweepFeeRate: 1,
+			SweepFeeRate: 10000,
 		},
 		expReply: &wtwire.CreateSessionReply{
 			Code: wtwire.CreateSessionCodeRejectBlobType,
@@ -219,16 +268,18 @@ func testServerCreateSession(t *testing.T, i int, test createSessionTestCase) {
 	s := initServer(t, nil, timeoutDuration)
 	defer s.Stop()
 
+	localPub := randPubKey(t)
+
 	// Create a new client and connect to server.
 	peerPub := randPubKey(t)
-	peer := wtmock.NewMockPeer(peerPub, nil, 0)
-	connect(t, i, s, peer, test.initMsg, timeoutDuration)
+	peer := wtmock.NewMockPeer(localPub, peerPub, nil, 0)
+	connect(t, s, peer, test.initMsg, timeoutDuration)
 
 	// Send the CreateSession message, and wait for a reply.
-	sendMsg(t, i, test.createMsg, peer, timeoutDuration)
+	sendMsg(t, test.createMsg, peer, timeoutDuration)
 
 	reply := recvReply(
-		t, i, "CreateSessionReply", peer, timeoutDuration,
+		t, "MsgCreateSessionReply", peer, timeoutDuration,
 	).(*wtwire.CreateSessionReply)
 
 	// Verify that the server's response matches our expectation.
@@ -247,23 +298,36 @@ func testServerCreateSession(t *testing.T, i int, test createSessionTestCase) {
 		return
 	}
 
+	if test.sendStateUpdate {
+		peer = wtmock.NewMockPeer(localPub, peerPub, nil, 0)
+		connect(t, s, peer, test.initMsg, timeoutDuration)
+		update := &wtwire.StateUpdate{
+			SeqNum:        1,
+			IsComplete:    1,
+			EncryptedBlob: testBlob,
+		}
+		sendMsg(t, update, peer, timeoutDuration)
+
+		assertConnClosed(t, peer, 2*timeoutDuration)
+	}
+
 	// Simulate a peer with the same session id connection to the server
 	// again.
-	peer = wtmock.NewMockPeer(peerPub, nil, 0)
-	connect(t, i, s, peer, test.initMsg, timeoutDuration)
+	peer = wtmock.NewMockPeer(localPub, peerPub, nil, 0)
+	connect(t, s, peer, test.initMsg, timeoutDuration)
 
 	// Send the _same_ CreateSession message as the first attempt.
-	sendMsg(t, i, test.createMsg, peer, timeoutDuration)
+	sendMsg(t, test.createMsg, peer, timeoutDuration)
 
 	reply = recvReply(
-		t, i, "CreateSessionReply", peer, timeoutDuration,
+		t, "MsgCreateSessionReply", peer, timeoutDuration,
 	).(*wtwire.CreateSessionReply)
 
 	// Ensure that the server's reply matches our expected response for a
 	// duplicate send.
 	if !reflect.DeepEqual(reply, test.expDupReply) {
-		t.Fatalf("[test %d] expected reply %v, got %d",
-			i, test.expReply, reply)
+		t.Fatalf("[test %d] expected reply %v, got %v",
+			i, test.expDupReply, reply)
 	}
 
 	// Finally, check that the server tore down the connection.
@@ -287,17 +351,17 @@ var stateUpdateTests = []stateUpdateTestCase{
 			testnetChainHash,
 		),
 		createMsg: &wtwire.CreateSession{
-			BlobType:     blob.TypeDefault,
+			BlobType:     blob.TypeAltruistCommit,
 			MaxUpdates:   3,
 			RewardBase:   0,
 			RewardRate:   0,
-			SweepFeeRate: 1,
+			SweepFeeRate: 10000,
 		},
 		updates: []*wtwire.StateUpdate{
-			{SeqNum: 1, LastApplied: 0},
-			{SeqNum: 2, LastApplied: 1},
-			{SeqNum: 3, LastApplied: 2},
-			{SeqNum: 3, LastApplied: 3},
+			{SeqNum: 1, LastApplied: 0, EncryptedBlob: testBlob},
+			{SeqNum: 2, LastApplied: 1, EncryptedBlob: testBlob},
+			{SeqNum: 3, LastApplied: 2, EncryptedBlob: testBlob},
+			{SeqNum: 3, LastApplied: 3, EncryptedBlob: testBlob},
 		},
 		replies: []*wtwire.StateUpdateReply{
 			{Code: wtwire.CodeOK, LastApplied: 1},
@@ -317,14 +381,14 @@ var stateUpdateTests = []stateUpdateTestCase{
 			testnetChainHash,
 		),
 		createMsg: &wtwire.CreateSession{
-			BlobType:     blob.TypeDefault,
+			BlobType:     blob.TypeAltruistCommit,
 			MaxUpdates:   4,
 			RewardBase:   0,
 			RewardRate:   0,
-			SweepFeeRate: 1,
+			SweepFeeRate: 10000,
 		},
 		updates: []*wtwire.StateUpdate{
-			{SeqNum: 2, LastApplied: 0},
+			{SeqNum: 2, LastApplied: 0, EncryptedBlob: testBlob},
 		},
 		replies: []*wtwire.StateUpdateReply{
 			{
@@ -341,16 +405,16 @@ var stateUpdateTests = []stateUpdateTestCase{
 			testnetChainHash,
 		),
 		createMsg: &wtwire.CreateSession{
-			BlobType:     blob.TypeDefault,
+			BlobType:     blob.TypeAltruistCommit,
 			MaxUpdates:   4,
 			RewardBase:   0,
 			RewardRate:   0,
-			SweepFeeRate: 1,
+			SweepFeeRate: 10000,
 		},
 		updates: []*wtwire.StateUpdate{
-			{SeqNum: 1, LastApplied: 0},
-			{SeqNum: 2, LastApplied: 0},
-			{SeqNum: 1, LastApplied: 0},
+			{SeqNum: 1, LastApplied: 0, EncryptedBlob: testBlob},
+			{SeqNum: 2, LastApplied: 0, EncryptedBlob: testBlob},
+			{SeqNum: 1, LastApplied: 0, EncryptedBlob: testBlob},
 		},
 		replies: []*wtwire.StateUpdateReply{
 			{Code: wtwire.CodeOK, LastApplied: 1},
@@ -369,17 +433,17 @@ var stateUpdateTests = []stateUpdateTestCase{
 			testnetChainHash,
 		),
 		createMsg: &wtwire.CreateSession{
-			BlobType:     blob.TypeDefault,
+			BlobType:     blob.TypeAltruistCommit,
 			MaxUpdates:   4,
 			RewardBase:   0,
 			RewardRate:   0,
-			SweepFeeRate: 1,
+			SweepFeeRate: 10000,
 		},
 		updates: []*wtwire.StateUpdate{
-			{SeqNum: 1, LastApplied: 0},
-			{SeqNum: 2, LastApplied: 1},
-			{SeqNum: 3, LastApplied: 2},
-			{SeqNum: 4, LastApplied: 1},
+			{SeqNum: 1, LastApplied: 0, EncryptedBlob: testBlob},
+			{SeqNum: 2, LastApplied: 1, EncryptedBlob: testBlob},
+			{SeqNum: 3, LastApplied: 2, EncryptedBlob: testBlob},
+			{SeqNum: 4, LastApplied: 1, EncryptedBlob: testBlob},
 		},
 		replies: []*wtwire.StateUpdateReply{
 			{Code: wtwire.CodeOK, LastApplied: 1},
@@ -397,18 +461,18 @@ var stateUpdateTests = []stateUpdateTestCase{
 			testnetChainHash,
 		),
 		createMsg: &wtwire.CreateSession{
-			BlobType:     blob.TypeDefault,
+			BlobType:     blob.TypeAltruistCommit,
 			MaxUpdates:   4,
 			RewardBase:   0,
 			RewardRate:   0,
-			SweepFeeRate: 1,
+			SweepFeeRate: 10000,
 		},
 		updates: []*wtwire.StateUpdate{
-			{SeqNum: 1, LastApplied: 0},
-			{SeqNum: 2, LastApplied: 1},
+			{SeqNum: 1, LastApplied: 0, EncryptedBlob: testBlob},
+			{SeqNum: 2, LastApplied: 1, EncryptedBlob: testBlob},
 			nil, // Wait for read timeout to drop conn, then reconnect.
-			{SeqNum: 3, LastApplied: 2},
-			{SeqNum: 4, LastApplied: 3},
+			{SeqNum: 3, LastApplied: 2, EncryptedBlob: testBlob},
+			{SeqNum: 4, LastApplied: 3, EncryptedBlob: testBlob},
 		},
 		replies: []*wtwire.StateUpdateReply{
 			{Code: wtwire.CodeOK, LastApplied: 1},
@@ -418,8 +482,8 @@ var stateUpdateTests = []stateUpdateTestCase{
 			{Code: wtwire.CodeOK, LastApplied: 4},
 		},
 	},
-	// Valid update sequence with disconnection, ensure resumes resume.
-	// Client doesn't echo last applied until last message.
+	// Valid update sequence with disconnection, resume next update. Client
+	// doesn't echo last applied until last message.
 	{
 		name: "resume after disconnect lagging lastapplied",
 		initMsg: wtwire.NewInitMessage(
@@ -427,23 +491,55 @@ var stateUpdateTests = []stateUpdateTestCase{
 			testnetChainHash,
 		),
 		createMsg: &wtwire.CreateSession{
-			BlobType:     blob.TypeDefault,
+			BlobType:     blob.TypeAltruistCommit,
 			MaxUpdates:   4,
 			RewardBase:   0,
 			RewardRate:   0,
-			SweepFeeRate: 1,
+			SweepFeeRate: 10000,
 		},
 		updates: []*wtwire.StateUpdate{
-			{SeqNum: 1, LastApplied: 0},
-			{SeqNum: 2, LastApplied: 0},
+			{SeqNum: 1, LastApplied: 0, EncryptedBlob: testBlob},
+			{SeqNum: 2, LastApplied: 0, EncryptedBlob: testBlob},
 			nil, // Wait for read timeout to drop conn, then reconnect.
-			{SeqNum: 3, LastApplied: 0},
-			{SeqNum: 4, LastApplied: 3},
+			{SeqNum: 3, LastApplied: 0, EncryptedBlob: testBlob},
+			{SeqNum: 4, LastApplied: 3, EncryptedBlob: testBlob},
 		},
 		replies: []*wtwire.StateUpdateReply{
 			{Code: wtwire.CodeOK, LastApplied: 1},
 			{Code: wtwire.CodeOK, LastApplied: 2},
 			nil,
+			{Code: wtwire.CodeOK, LastApplied: 3},
+			{Code: wtwire.CodeOK, LastApplied: 4},
+		},
+	},
+	// Valid update sequence with disconnection, resume last update.  Client
+	// doesn't echo last applied until last message.
+	{
+		name: "resume after disconnect lagging lastapplied",
+		initMsg: wtwire.NewInitMessage(
+			lnwire.NewRawFeatureVector(),
+			testnetChainHash,
+		),
+		createMsg: &wtwire.CreateSession{
+			BlobType:     blob.TypeAltruistCommit,
+			MaxUpdates:   4,
+			RewardBase:   0,
+			RewardRate:   0,
+			SweepFeeRate: 10000,
+		},
+		updates: []*wtwire.StateUpdate{
+			{SeqNum: 1, LastApplied: 0, EncryptedBlob: testBlob},
+			{SeqNum: 2, LastApplied: 0, EncryptedBlob: testBlob},
+			nil, // Wait for read timeout to drop conn, then reconnect.
+			{SeqNum: 2, LastApplied: 0, EncryptedBlob: testBlob},
+			{SeqNum: 3, LastApplied: 0, EncryptedBlob: testBlob},
+			{SeqNum: 4, LastApplied: 3, EncryptedBlob: testBlob},
+		},
+		replies: []*wtwire.StateUpdateReply{
+			{Code: wtwire.CodeOK, LastApplied: 1},
+			{Code: wtwire.CodeOK, LastApplied: 2},
+			nil,
+			{Code: wtwire.CodeOK, LastApplied: 2},
 			{Code: wtwire.CodeOK, LastApplied: 3},
 			{Code: wtwire.CodeOK, LastApplied: 4},
 		},
@@ -456,17 +552,17 @@ var stateUpdateTests = []stateUpdateTestCase{
 			testnetChainHash,
 		),
 		createMsg: &wtwire.CreateSession{
-			BlobType:     blob.TypeDefault,
+			BlobType:     blob.TypeAltruistCommit,
 			MaxUpdates:   3,
 			RewardBase:   0,
 			RewardRate:   0,
-			SweepFeeRate: 1,
+			SweepFeeRate: 10000,
 		},
 		updates: []*wtwire.StateUpdate{
-			{SeqNum: 1, LastApplied: 0},
-			{SeqNum: 2, LastApplied: 1},
-			{SeqNum: 3, LastApplied: 2},
-			{SeqNum: 4, LastApplied: 3},
+			{SeqNum: 1, LastApplied: 0, EncryptedBlob: testBlob},
+			{SeqNum: 2, LastApplied: 1, EncryptedBlob: testBlob},
+			{SeqNum: 3, LastApplied: 2, EncryptedBlob: testBlob},
+			{SeqNum: 4, LastApplied: 3, EncryptedBlob: testBlob},
 		},
 		replies: []*wtwire.StateUpdateReply{
 			{Code: wtwire.CodeOK, LastApplied: 1},
@@ -486,14 +582,14 @@ var stateUpdateTests = []stateUpdateTestCase{
 			testnetChainHash,
 		),
 		createMsg: &wtwire.CreateSession{
-			BlobType:     blob.TypeDefault,
+			BlobType:     blob.TypeAltruistCommit,
 			MaxUpdates:   3,
 			RewardBase:   0,
 			RewardRate:   0,
-			SweepFeeRate: 1,
+			SweepFeeRate: 10000,
 		},
 		updates: []*wtwire.StateUpdate{
-			{SeqNum: 0, LastApplied: 0},
+			{SeqNum: 0, LastApplied: 0, EncryptedBlob: testBlob},
 		},
 		replies: []*wtwire.StateUpdateReply{
 			{
@@ -514,33 +610,35 @@ var stateUpdateTests = []stateUpdateTestCase{
 func TestServerStateUpdates(t *testing.T) {
 	t.Parallel()
 
-	for i, test := range stateUpdateTests {
+	for _, test := range stateUpdateTests {
 		t.Run(test.name, func(t *testing.T) {
-			testServerStateUpdates(t, i, test)
+			testServerStateUpdates(t, test)
 		})
 	}
 }
 
-func testServerStateUpdates(t *testing.T, i int, test stateUpdateTestCase) {
+func testServerStateUpdates(t *testing.T, test stateUpdateTestCase) {
 	const timeoutDuration = 100 * time.Millisecond
 
 	s := initServer(t, nil, timeoutDuration)
 	defer s.Stop()
 
+	localPub := randPubKey(t)
+
 	// Create a new client and connect to the server.
 	peerPub := randPubKey(t)
-	peer := wtmock.NewMockPeer(peerPub, nil, 0)
-	connect(t, i, s, peer, test.initMsg, timeoutDuration)
+	peer := wtmock.NewMockPeer(localPub, peerPub, nil, 0)
+	connect(t, s, peer, test.initMsg, timeoutDuration)
 
 	// Register a session for this client to use in the subsequent tests.
-	sendMsg(t, i, test.createMsg, peer, timeoutDuration)
+	sendMsg(t, test.createMsg, peer, timeoutDuration)
 	initReply := recvReply(
-		t, i, "CreateSessionReply", peer, timeoutDuration,
+		t, "MsgCreateSessionReply", peer, timeoutDuration,
 	).(*wtwire.CreateSessionReply)
 
 	// Fail if the server rejected our proposed CreateSession message.
 	if initReply.Code != wtwire.CodeOK {
-		t.Fatalf("[test %d] server rejected session init", i)
+		t.Fatalf("server rejected session init")
 	}
 
 	// Check that the server closed the connection used to register the
@@ -549,8 +647,8 @@ func testServerStateUpdates(t *testing.T, i int, test stateUpdateTestCase) {
 
 	// Now that the original connection has been closed, connect a new
 	// client with the same session id.
-	peer = wtmock.NewMockPeer(peerPub, nil, 0)
-	connect(t, i, s, peer, test.initMsg, timeoutDuration)
+	peer = wtmock.NewMockPeer(localPub, peerPub, nil, 0)
+	connect(t, s, peer, test.initMsg, timeoutDuration)
 
 	// Send the intended StateUpdate messages in series.
 	for j, update := range test.updates {
@@ -560,22 +658,22 @@ func testServerStateUpdates(t *testing.T, i int, test stateUpdateTestCase) {
 		if update == nil {
 			assertConnClosed(t, peer, 2*timeoutDuration)
 
-			peer = wtmock.NewMockPeer(peerPub, nil, 0)
-			connect(t, i, s, peer, test.initMsg, timeoutDuration)
+			peer = wtmock.NewMockPeer(localPub, peerPub, nil, 0)
+			connect(t, s, peer, test.initMsg, timeoutDuration)
 
 			continue
 		}
 
 		// Send the state update and verify it against our expected
 		// response.
-		sendMsg(t, i, update, peer, timeoutDuration)
+		sendMsg(t, update, peer, timeoutDuration)
 		reply := recvReply(
-			t, i, "StateUpdateReply", peer, timeoutDuration,
+			t, "MsgStateUpdateReply", peer, timeoutDuration,
 		).(*wtwire.StateUpdateReply)
 
 		if !reflect.DeepEqual(reply, test.replies[j]) {
-			t.Fatalf("[test %d, update %d] expected reply "+
-				"%v, got %d", i, j,
+			t.Fatalf("[update %d] expected reply "+
+				"%v, got %d", j,
 				test.replies[j], reply)
 		}
 	}
@@ -584,16 +682,148 @@ func testServerStateUpdates(t *testing.T, i int, test stateUpdateTestCase) {
 	assertConnClosed(t, peer, 2*timeoutDuration)
 }
 
-func connect(t *testing.T, i int, s wtserver.Interface, peer *wtmock.MockPeer,
+// TestServerDeleteSession asserts the response to a DeleteSession request, and
+// checking that the proper error is returned when the session doesn't exist and
+// that a successful deletion does not disrupt other sessions.
+func TestServerDeleteSession(t *testing.T) {
+	db := wtmock.NewTowerDB()
+
+	localPub := randPubKey(t)
+
+	// Initialize two distinct peers with different session ids.
+	peerPub1 := randPubKey(t)
+	peerPub2 := randPubKey(t)
+
+	id1 := wtdb.NewSessionIDFromPubKey(peerPub1)
+	id2 := wtdb.NewSessionIDFromPubKey(peerPub2)
+
+	// Create closure to simplify assertions on session existence with the
+	// server's database.
+	hasSession := func(t *testing.T, id *wtdb.SessionID, shouldHave bool) {
+		t.Helper()
+
+		_, err := db.GetSessionInfo(id)
+		switch {
+		case shouldHave && err != nil:
+			t.Fatalf("expected server to have session %s, got: %v",
+				id, err)
+		case !shouldHave && err != wtdb.ErrSessionNotFound:
+			t.Fatalf("expected ErrSessionNotFound for session %s, "+
+				"got: %v", id, err)
+		}
+	}
+
+	initMsg := wtwire.NewInitMessage(
+		lnwire.NewRawFeatureVector(),
+		testnetChainHash,
+	)
+
+	createSession := &wtwire.CreateSession{
+		BlobType:     blob.TypeAltruistCommit,
+		MaxUpdates:   1000,
+		RewardBase:   0,
+		RewardRate:   0,
+		SweepFeeRate: 10000,
+	}
+
+	const timeoutDuration = 100 * time.Millisecond
+
+	s := initServer(t, db, timeoutDuration)
+	defer s.Stop()
+
+	// Create a session for peer2 so that the server's db isn't completely
+	// empty.
+	peer2 := wtmock.NewMockPeer(localPub, peerPub2, nil, 0)
+	connect(t, s, peer2, initMsg, timeoutDuration)
+	sendMsg(t, createSession, peer2, timeoutDuration)
+	assertConnClosed(t, peer2, 2*timeoutDuration)
+
+	// Our initial assertions are that peer2 has a valid session, but peer1
+	// has not created one.
+	hasSession(t, &id1, false)
+	hasSession(t, &id2, true)
+
+	peer1Msgs := []struct {
+		send   wtwire.Message
+		recv   wtwire.Message
+		assert func(t *testing.T)
+	}{
+		{
+			// Deleting unknown session should fail.
+			send: &wtwire.DeleteSession{},
+			recv: &wtwire.DeleteSessionReply{
+				Code: wtwire.DeleteSessionCodeNotFound,
+			},
+			assert: func(t *testing.T) {
+				// Peer2 should still be only session.
+				hasSession(t, &id1, false)
+				hasSession(t, &id2, true)
+			},
+		},
+		{
+			// Create session for peer1.
+			send: createSession,
+			recv: &wtwire.CreateSessionReply{
+				Code: wtwire.CodeOK,
+				Data: []byte{},
+			},
+			assert: func(t *testing.T) {
+				// Both peers should have sessions.
+				hasSession(t, &id1, true)
+				hasSession(t, &id2, true)
+			},
+		},
+
+		{
+			// Delete peer1's session.
+			send: &wtwire.DeleteSession{},
+			recv: &wtwire.DeleteSessionReply{
+				Code: wtwire.CodeOK,
+			},
+			assert: func(t *testing.T) {
+				// Peer1's session should have been removed.
+				hasSession(t, &id1, false)
+				hasSession(t, &id2, true)
+			},
+		},
+	}
+
+	// Now as peer1, process the canned messages defined above. This will:
+	// 1. Try to delete an unknown session and get a not found error code.
+	// 2. Create a new session using the same parameters as peer2.
+	// 3. Delete the newly created session and get an OK.
+	for _, msg := range peer1Msgs {
+		peer1 := wtmock.NewMockPeer(localPub, peerPub1, nil, 0)
+		connect(t, s, peer1, initMsg, timeoutDuration)
+		sendMsg(t, msg.send, peer1, timeoutDuration)
+		reply := recvReply(
+			t, msg.recv.MsgType().String(), peer1, timeoutDuration,
+		)
+
+		if !reflect.DeepEqual(reply, msg.recv) {
+			t.Fatalf("expected reply: %v, got: %v", msg.recv, reply)
+		}
+
+		assertConnClosed(t, peer1, 2*timeoutDuration)
+
+		// Invoke assertions after completing the request/response
+		// dance.
+		msg.assert(t)
+	}
+}
+
+func connect(t *testing.T, s wtserver.Interface, peer *wtmock.MockPeer,
 	initMsg *wtwire.Init, timeout time.Duration) {
 
+	t.Helper()
+
 	s.InboundPeerConnected(peer)
-	sendMsg(t, i, initMsg, peer, timeout)
-	recvReply(t, i, "Init", peer, timeout)
+	sendMsg(t, initMsg, peer, timeout)
+	recvReply(t, "MsgInit", peer, timeout)
 }
 
 // sendMsg sends a wtwire.Message message via a wtmock.MockPeer.
-func sendMsg(t *testing.T, i int, msg wtwire.Message,
+func sendMsg(t *testing.T, msg wtwire.Message,
 	peer *wtmock.MockPeer, timeout time.Duration) {
 
 	t.Helper()
@@ -601,22 +831,22 @@ func sendMsg(t *testing.T, i int, msg wtwire.Message,
 	var b bytes.Buffer
 	_, err := wtwire.WriteMessage(&b, msg, 0)
 	if err != nil {
-		t.Fatalf("[test %d] unable to encode %T message: %v",
-			i, msg, err)
+		t.Fatalf("unable to encode %T message: %v",
+			msg, err)
 	}
 
 	select {
 	case peer.IncomingMsgs <- b.Bytes():
 	case <-time.After(2 * timeout):
-		t.Fatalf("[test %d] unable to send %T message", i, msg)
+		t.Fatalf("unable to send %T message", msg)
 	}
 }
 
 // recvReply receives a message from the server, and parses it according to
 // expected reply type. The supported replies are CreateSessionReply and
 // StateUpdateReply.
-func recvReply(t *testing.T, i int, name string,
-	peer *wtmock.MockPeer, timeout time.Duration) wtwire.Message {
+func recvReply(t *testing.T, name string, peer *wtmock.MockPeer,
+	timeout time.Duration) wtwire.Message {
 
 	t.Helper()
 
@@ -629,29 +859,34 @@ func recvReply(t *testing.T, i int, name string,
 	case b := <-peer.OutgoingMsgs:
 		msg, err = wtwire.ReadMessage(bytes.NewReader(b), 0)
 		if err != nil {
-			t.Fatalf("[test %d] unable to decode server "+
-				"reply: %v", i, err)
+			t.Fatalf("unable to decode server "+
+				"reply: %v", err)
 		}
 
 	case <-time.After(2 * timeout):
-		t.Fatalf("[test %d] server did not reply", i)
+		t.Fatalf("server did not reply")
 	}
 
 	switch name {
-	case "Init":
+	case "MsgInit":
 		if _, ok := msg.(*wtwire.Init); !ok {
-			t.Fatalf("[test %d] expected %s reply "+
-				"message, got %T", i, name, msg)
+			t.Fatalf("expected %s reply message, "+
+				"got %T", name, msg)
 		}
-	case "CreateSessionReply":
+	case "MsgCreateSessionReply":
 		if _, ok := msg.(*wtwire.CreateSessionReply); !ok {
-			t.Fatalf("[test %d] expected %s reply "+
-				"message, got %T", i, name, msg)
+			t.Fatalf("expected %s reply message, "+
+				"got %T", name, msg)
 		}
-	case "StateUpdateReply":
+	case "MsgStateUpdateReply":
 		if _, ok := msg.(*wtwire.StateUpdateReply); !ok {
-			t.Fatalf("[test %d] expected %s reply "+
-				"message, got %T", i, name, msg)
+			t.Fatalf("expected %s reply message, "+
+				"got %T", name, msg)
+		}
+	case "MsgDeleteSessionReply":
+		if _, ok := msg.(*wtwire.DeleteSessionReply); !ok {
+			t.Fatalf("expected %s reply message, "+
+				"got %T", name, msg)
 		}
 	}
 

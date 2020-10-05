@@ -6,15 +6,6 @@ import (
 )
 
 const (
-	// CommitWeight is the weight of the base commitment transaction which
-	// includes: one p2wsh input, out p2wkh output, and one p2wsh output.
-	CommitWeight int64 = 724
-
-	// HtlcWeight is the weight of an HTLC output.
-	HtlcWeight int64 = 172
-)
-
-const (
 	// witnessScaleFactor determines the level of "discount" witness data
 	// receives compared to "base" data. A scale factor of 4, denotes that
 	// witness data is 1/4 as cheap as regular non-witness data. Value copied
@@ -34,11 +25,21 @@ const (
 	//	- PublicKeyHASH160: 20 bytes
 	P2WPKHSize = 1 + 1 + 20
 
+	// NestedP2WPKHSize 23 bytes
+	//      - OP_DATA: 1 byte (P2WPKHSize)
+	//      - P2WPKHWitnessProgram: 22 bytes
+	NestedP2WPKHSize = 1 + P2WPKHSize
+
 	// P2WSHSize 34 bytes
 	//	- OP_0: 1 byte
 	//	- OP_DATA: 1 byte (WitnessScriptSHA256 length)
 	//	- WitnessScriptSHA256: 32 bytes
 	P2WSHSize = 1 + 1 + 32
+
+	// NestedP2WSHSize 35 bytes
+	//      - OP_DATA: 1 byte (P2WSHSize)
+	//      - P2WSHWitnessProgram: 34 bytes
+	NestedP2WSHSize = 1 + P2WSHSize
 
 	// P2PKHOutputSize 34 bytes
 	//      - value: 8 bytes
@@ -89,7 +90,7 @@ const (
 	//	- OP_CHECKMULTISIG: 1 byte
 	MultiSigSize = 1 + 1 + 33 + 1 + 33 + 1 + 1
 
-	// WitnessSize 222 bytes
+	// MultiSigWitnessSize 222 bytes
 	//	- NumberOfWitnessElements: 1 byte
 	//	- NilLength: 1 byte
 	//	- sigAliceLength: 1 byte
@@ -98,7 +99,7 @@ const (
 	//	- sigBob: 73 bytes
 	//	- WitnessScriptLength: 1 byte
 	//	- WitnessScript (MultiSig)
-	WitnessSize = 1 + 1 + 1 + 73 + 1 + 73 + 1 + MultiSigSize
+	MultiSigWitnessSize = 1 + 1 + 1 + 73 + 1 + 73 + 1 + MultiSigSize
 
 	// InputSize 41 bytes
 	//	- PreviousOutPoint:
@@ -130,6 +131,12 @@ const (
 	//	- VarInt: 1 byte (PkScript length)
 	//	- PkScript (P2WPKH)
 	CommitmentKeyHashOutput = 8 + 1 + P2WPKHSize
+
+	// CommitmentAnchorOutput 43 bytes
+	//	- Value: 8 bytes
+	//	- VarInt: 1 byte (PkScript length)
+	//	- PkScript (P2WSH)
+	CommitmentAnchorOutput = 8 + 1 + P2WSHSize
 
 	// HTLCSize 43 bytes
 	//	- Value: 8 bytes
@@ -166,7 +173,33 @@ const (
 	BaseCommitmentTxWeight = witnessScaleFactor * BaseCommitmentTxSize
 
 	// WitnessCommitmentTxWeight 224 weight
-	WitnessCommitmentTxWeight = WitnessHeaderSize + WitnessSize
+	WitnessCommitmentTxWeight = WitnessHeaderSize + MultiSigWitnessSize
+
+	// BaseAnchorCommitmentTxSize 225 + 43 * num-htlc-outputs bytes
+	//	- Version: 4 bytes
+	//	- WitnessHeader <---- part of the witness data
+	//	- CountTxIn: 1 byte
+	//	- TxIn: 41 bytes
+	//		FundingInput
+	//	- CountTxOut: 3 byte
+	//	- TxOut: 4*43 + 43 * num-htlc-outputs bytes
+	//		OutputPayingToThem,
+	//		OutputPayingToUs,
+	//		AnchorPayingToThem,
+	//		AnchorPayingToUs,
+	//		....HTLCOutputs...
+	//	- LockTime: 4 bytes
+	BaseAnchorCommitmentTxSize = 4 + 1 + FundingInputSize + 3 +
+		2*CommitmentDelayOutput + 2*CommitmentAnchorOutput + 4
+
+	// BaseAnchorCommitmentTxWeight 900 weight
+	BaseAnchorCommitmentTxWeight = witnessScaleFactor * BaseAnchorCommitmentTxSize
+
+	// CommitWeight 724 weight
+	CommitWeight = BaseCommitmentTxWeight + WitnessCommitmentTxWeight
+
+	// AnchorCommitWeight 1124 weight
+	AnchorCommitWeight = BaseAnchorCommitmentTxWeight + WitnessCommitmentTxWeight
 
 	// HTLCWeight 172 weight
 	HTLCWeight = witnessScaleFactor * HTLCSize
@@ -178,6 +211,23 @@ const (
 	// HtlcSuccessWeight is the weight of the HTLC success transaction
 	// which will transition an incoming HTLC to the delay-and-claim state.
 	HtlcSuccessWeight = 703
+
+	// HtlcConfirmedScriptOverhead is the extra length of an HTLC script
+	// that requires confirmation before it can be spent. These extra bytes
+	// is a result of the extra CSV check.
+	HtlcConfirmedScriptOverhead = 3
+
+	// HtlcTimeoutWeightConfirmed is the weight of the HTLC timeout
+	// transaction which will transition an outgoing HTLC to the
+	// delay-and-claim state, for the confirmed HTLC outputs. It is 3 bytes
+	// larger because of the additional CSV check in the input script.
+	HtlcTimeoutWeightConfirmed = HtlcTimeoutWeight + HtlcConfirmedScriptOverhead
+
+	// HtlcSuccessWeightCOnfirmed is the weight of the HTLC success
+	// transaction which will transition an incoming HTLC to the
+	// delay-and-claim state, for the confirmed HTLC outputs. It is 3 bytes
+	// larger because of the cdditional CSV check in the input script.
+	HtlcSuccessWeightConfirmed = HtlcSuccessWeight + HtlcConfirmedScriptOverhead
 
 	// MaxHTLCNumber is the maximum number HTLCs which can be included in a
 	// commitment transaction. This limit was chosen such that, in the case
@@ -210,16 +260,33 @@ const (
 	//      - witness_script (to_local_script)
 	ToLocalTimeoutWitnessSize = 1 + 1 + 73 + 1 + 1 + ToLocalScriptSize
 
-	// ToLocalPenaltyWitnessSize 156 bytes
+	// ToLocalPenaltyWitnessSize 157 bytes
 	//      - number_of_witness_elements: 1 byte
 	//      - revocation_sig_length: 1 byte
 	//      - revocation_sig: 73 bytes
+	//      - OP_TRUE_length: 1 byte
 	//      - OP_TRUE: 1 byte
 	//      - witness_script_length: 1 byte
 	//      - witness_script (to_local_script)
-	ToLocalPenaltyWitnessSize = 1 + 1 + 73 + 1 + 1 + ToLocalScriptSize
+	ToLocalPenaltyWitnessSize = 1 + 1 + 73 + 1 + 1 + 1 + ToLocalScriptSize
 
-	// AcceptedHtlcScriptSize 139 bytes
+	// ToRemoteConfirmedScriptSize 37 bytes
+	//      - OP_DATA: 1 byte
+	//      - to_remote_key: 33 bytes
+	//      - OP_CHECKSIGVERIFY: 1 byte
+	//      - OP_1: 1 byte
+	//      - OP_CHECKSEQUENCEVERIFY: 1 byte
+	ToRemoteConfirmedScriptSize = 1 + 33 + 1 + 1 + 1
+
+	// ToRemoteConfirmedWitnessSize 113 bytes
+	//      - number_of_witness_elements: 1 byte
+	//      - sig_length: 1 byte
+	//      - sig: 73 bytes
+	//      - witness_script_length: 1 byte
+	//      - witness_script (to_remote_delayed_script)
+	ToRemoteConfirmedWitnessSize = 1 + 1 + 73 + 1 + ToRemoteConfirmedScriptSize
+
+	// AcceptedHtlcScriptSize 143 bytes
 	//      - OP_DUP: 1 byte
 	//      - OP_HASH160: 1 byte
 	//      - OP_DATA: 1 byte (RIPEMD160(SHA256(revocationkey)) length)
@@ -232,6 +299,7 @@ const (
 	//              - remotekey: 33 bytes
 	//              - OP_SWAP: 1 byte
 	//              - OP_SIZE: 1 byte
+	//              - OP_DATA: 1 byte (32 length)
 	//              - 32: 1 byte
 	//              - OP_EQUAL: 1 byte
 	//              - OP_IF: 1 byte
@@ -253,11 +321,14 @@ const (
 	//                      - OP_DROP: 1 byte
 	//                      - OP_CHECKSIG: 1 byte
 	//              - OP_ENDIF: 1 byte
+	//              - OP_1: 1 byte		// These 3 extra bytes are used for both confirmed and regular
+	//              - OP_CSV: 1 byte	// HTLC script types. The size won't be correct in all cases,
+	//              - OP_DROP: 1 byte	// but it is just an upper bound used for fee estimation in any case.
 	//      - OP_ENDIF: 1 byte
-	AcceptedHtlcScriptSize = 3*1 + 20 + 5*1 + 33 + 7*1 + 20 + 4*1 +
-		33 + 5*1 + 4 + 5*1
+	AcceptedHtlcScriptSize = 3*1 + 20 + 5*1 + 33 + 8*1 + 20 + 4*1 +
+		33 + 5*1 + 4 + 8*1
 
-	// AcceptedHtlcTimeoutWitnessSize 216
+	// AcceptedHtlcTimeoutWitnessSize 219
 	//      - number_of_witness_elements: 1 byte
 	//      - sender_sig_length: 1 byte
 	//      - sender_sig: 73 bytes
@@ -265,6 +336,16 @@ const (
 	//      - witness_script_length: 1 byte
 	//      - witness_script: (accepted_htlc_script)
 	AcceptedHtlcTimeoutWitnessSize = 1 + 1 + 73 + 1 + 1 + AcceptedHtlcScriptSize
+
+	// AcceptedHtlcPenaltyWitnessSize 252 bytes
+	//      - number_of_witness_elements: 1 byte
+	//      - revocation_sig_length: 1 byte
+	//      - revocation_sig: 73 bytes
+	//      - revocation_key_length: 1 byte
+	//      - revocation_key: 33 bytes
+	//      - witness_script_length: 1 byte
+	//      - witness_script (accepted_htlc_script)
+	AcceptedHtlcPenaltyWitnessSize = 1 + 1 + 73 + 1 + 33 + 1 + AcceptedHtlcScriptSize
 
 	// AcceptedHtlcSuccessWitnessSize 322 bytes
 	//      - number_of_witness_elements: 1 byte
@@ -277,19 +358,10 @@ const (
 	//      - preimage: 32 bytes
 	//      - witness_script_length: 1 byte
 	//      - witness_script (accepted_htlc_script)
-	AcceptedHtlcSuccessWitnessSize = 1 + 1 + 73 + 1 + 73 + 1 + 32 + 1 + AcceptedHtlcScriptSize
+	AcceptedHtlcSuccessWitnessSize = 1 + 1 + 1 + 73 + 1 + 73 + 1 + 32 + 1 +
+		AcceptedHtlcScriptSize
 
-	// AcceptedHtlcPenaltyWitnessSize 249 bytes
-	//      - number_of_witness_elements: 1 byte
-	//      - revocation_sig_length: 1 byte
-	//      - revocation_sig: 73 bytes
-	//      - revocation_key_length: 1 byte
-	//      - revocation_key: 33 bytes
-	//      - witness_script_length: 1 byte
-	//      - witness_script (accepted_htlc_script)
-	AcceptedHtlcPenaltyWitnessSize = 1 + 1 + 73 + 1 + 33 + 1 + AcceptedHtlcScriptSize
-
-	// OfferedHtlcScriptSize 133 bytes
+	// OfferedHtlcScriptSize 136 bytes
 	//      - OP_DUP: 1 byte
 	//      - OP_HASH160: 1 byte
 	//      - OP_DATA: 1 byte (RIPEMD160(SHA256(revocationkey)) length)
@@ -320,8 +392,21 @@ const (
 	//                      - OP_EQUALVERIFY: 1 byte
 	//                      - OP_CHECKSIG: 1 byte
 	//              - OP_ENDIF: 1 byte
+	//              - OP_1: 1 byte
+	//              - OP_CSV: 1 byte
+	//              - OP_DROP: 1 byte
 	//      - OP_ENDIF: 1 byte
-	OfferedHtlcScriptSize = 3*1 + 20 + 5*1 + 33 + 10*1 + 33 + 5*1 + 20 + 4*1
+	OfferedHtlcScriptSize = 3*1 + 20 + 5*1 + 33 + 10*1 + 33 + 5*1 + 20 + 7*1
+
+	// OfferedHtlcSuccessWitnessSize 245 bytes
+	//      - number_of_witness_elements: 1 byte
+	//      - receiver_sig_length: 1 byte
+	//      - receiver_sig: 73 bytes
+	//      - payment_preimage_length: 1 byte
+	//      - payment_preimage: 32 bytes
+	//      - witness_script_length: 1 byte
+	//      - witness_script (offered_htlc_script)
+	OfferedHtlcSuccessWitnessSize = 1 + 1 + 73 + 1 + 32 + 1 + OfferedHtlcScriptSize
 
 	// OfferedHtlcTimeoutWitnessSize 285 bytes
 	//      - number_of_witness_elements: 1 byte
@@ -335,20 +420,7 @@ const (
 	//      - witness_script (offered_htlc_script)
 	OfferedHtlcTimeoutWitnessSize = 1 + 1 + 1 + 73 + 1 + 73 + 1 + 1 + OfferedHtlcScriptSize
 
-	// OfferedHtlcSuccessWitnessSize 317 bytes
-	//      - number_of_witness_elements: 1 byte
-	//      - nil_length: 1 byte
-	//      - receiver_sig_length: 1 byte
-	//      - receiver_sig: 73 bytes
-	//      - sender_sig_length: 1 byte
-	//      - sender_sig: 73 bytes
-	//      - payment_preimage_length: 1 byte
-	//      - payment_preimage: 32 bytes
-	//      - witness_script_length: 1 byte
-	//      - witness_script (offered_htlc_script)
-	OfferedHtlcSuccessWitnessSize = 1 + 1 + 1 + 73 + 1 + 73 + 1 + 32 + 1 + OfferedHtlcScriptSize
-
-	// OfferedHtlcPenaltyWitnessSize 243 bytes
+	// OfferedHtlcPenaltyWitnessSize 246 bytes
 	//      - number_of_witness_elements: 1 byte
 	//      - revocation_sig_length: 1 byte
 	//      - revocation_sig: 73 bytes
@@ -357,6 +429,25 @@ const (
 	//      - witness_script_length: 1 byte
 	//      - witness_script (offered_htlc_script)
 	OfferedHtlcPenaltyWitnessSize = 1 + 1 + 73 + 1 + 33 + 1 + OfferedHtlcScriptSize
+
+	// AnchorScriptSize 40 bytes
+	//      - pubkey_length: 1 byte
+	//      - pubkey: 33 bytes
+	//      - OP_CHECKSIG: 1 byte
+	//      - OP_IFDUP: 1 byte
+	//      - OP_NOTIF: 1 byte
+	//              - OP_16: 1 byte
+	//              - OP_CSV 1 byte
+	//      - OP_ENDIF: 1 byte
+	AnchorScriptSize = 1 + 33 + 6*1
+
+	// AnchorWitnessSize 116 bytes
+	//      - number_of_witnes_elements: 1 byte
+	//      - signature_length: 1 byte
+	//      - signature: 73 bytes
+	//      - witness_script_length: 1 byte
+	//      - witness_script (anchor_script)
+	AnchorWitnessSize = 1 + 1 + 73 + 1 + AnchorScriptSize
 )
 
 // EstimateCommitTxWeight estimate commitment transaction weight depending on
@@ -423,9 +514,9 @@ func (twe *TxWeightEstimator) AddWitnessInput(witnessSize int) *TxWeightEstimato
 // AddNestedP2WKHInput updates the weight estimate to account for an additional
 // input spending a P2SH output with a nested P2WKH redeem script.
 func (twe *TxWeightEstimator) AddNestedP2WKHInput() *TxWeightEstimator {
-	twe.inputSize += InputSize + P2WPKHSize
+	twe.inputSize += InputSize + NestedP2WPKHSize
 	twe.inputWitnessSize += P2WKHWitnessSize
-	twe.inputSize++
+	twe.inputCount++
 	twe.hasWitness = true
 
 	return twe
@@ -434,9 +525,9 @@ func (twe *TxWeightEstimator) AddNestedP2WKHInput() *TxWeightEstimator {
 // AddNestedP2WSHInput updates the weight estimate to account for an additional
 // input spending a P2SH output with a nested P2WSH redeem script.
 func (twe *TxWeightEstimator) AddNestedP2WSHInput(witnessSize int) *TxWeightEstimator {
-	twe.inputSize += InputSize + P2WSHSize
+	twe.inputSize += InputSize + NestedP2WSHSize
 	twe.inputWitnessSize += witnessSize
-	twe.inputSize++
+	twe.inputCount++
 	twe.hasWitness = true
 
 	return twe

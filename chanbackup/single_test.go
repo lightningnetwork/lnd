@@ -42,6 +42,10 @@ func assertSingleEqual(t *testing.T, a, b Single) {
 		t.Fatalf("versions don't match: %v vs %v", a.Version,
 			b.Version)
 	}
+	if a.IsInitiator != b.IsInitiator {
+		t.Fatalf("initiators don't match: %v vs %v", a.IsInitiator,
+			b.IsInitiator)
+	}
 	if a.ChainHash != b.ChainHash {
 		t.Fatalf("chainhash doesn't match: %v vs %v", a.ChainHash,
 			b.ChainHash)
@@ -54,24 +58,29 @@ func assertSingleEqual(t *testing.T, a, b Single) {
 		t.Fatalf("chan id doesn't match: %v vs %v",
 			a.ShortChannelID, b.ShortChannelID)
 	}
+	if a.Capacity != b.Capacity {
+		t.Fatalf("capacity doesn't match: %v vs %v",
+			a.Capacity, b.Capacity)
+	}
 	if !a.RemoteNodePub.IsEqual(b.RemoteNodePub) {
 		t.Fatalf("node pubs don't match %x vs %x",
 			a.RemoteNodePub.SerializeCompressed(),
 			b.RemoteNodePub.SerializeCompressed())
 	}
-	if a.CsvDelay != b.CsvDelay {
-		t.Fatalf("csv delay doesn't match: %v vs %v", a.CsvDelay,
-			b.CsvDelay)
+	if !reflect.DeepEqual(a.LocalChanCfg, b.LocalChanCfg) {
+		t.Fatalf("local chan config doesn't match: %v vs %v",
+			spew.Sdump(a.LocalChanCfg),
+			spew.Sdump(b.LocalChanCfg))
 	}
-	if !reflect.DeepEqual(a.PaymentBasePoint, b.PaymentBasePoint) {
-		t.Fatalf("base point doesn't match: %v vs %v",
-			spew.Sdump(a.PaymentBasePoint),
-			spew.Sdump(b.PaymentBasePoint))
+	if !reflect.DeepEqual(a.RemoteChanCfg, b.RemoteChanCfg) {
+		t.Fatalf("remote chan config doesn't match: %v vs %v",
+			spew.Sdump(a.RemoteChanCfg),
+			spew.Sdump(b.RemoteChanCfg))
 	}
 	if !reflect.DeepEqual(a.ShaChainRootDesc, b.ShaChainRootDesc) {
 		t.Fatalf("sha chain point doesn't match: %v vs %v",
-			spew.Sdump(a.PaymentBasePoint),
-			spew.Sdump(b.PaymentBasePoint))
+			spew.Sdump(a.ShaChainRootDesc),
+			spew.Sdump(b.ShaChainRootDesc))
 	}
 
 	if len(a.Addresses) != len(b.Addresses) {
@@ -110,8 +119,20 @@ func genRandomOpenChannelShell() (*channeldb.OpenChannel, error) {
 
 	shaChainProducer := shachain.NewRevocationProducer(shaChainRoot)
 
+	var isInitiator bool
+	if rand.Int63()%2 == 0 {
+		isInitiator = true
+	}
+
+	chanType := channeldb.SingleFunderBit
+	if rand.Int63()%2 == 0 {
+		chanType = channeldb.SingleFunderTweaklessBit
+	}
+
 	return &channeldb.OpenChannel{
 		ChainHash:       chainHash,
+		ChanType:        chanType,
+		IsInitiator:     isInitiator,
 		FundingOutpoint: chanPoint,
 		ShortChannelID: lnwire.NewShortChanIDFromInt(
 			uint64(rand.Int63()),
@@ -121,11 +142,55 @@ func genRandomOpenChannelShell() (*channeldb.OpenChannel, error) {
 			ChannelConstraints: channeldb.ChannelConstraints{
 				CsvDelay: uint16(rand.Int63()),
 			},
+			MultiSigKey: keychain.KeyDescriptor{
+				KeyLocator: keychain.KeyLocator{
+					Family: keychain.KeyFamily(rand.Int63()),
+					Index:  uint32(rand.Int63()),
+				},
+			},
+			RevocationBasePoint: keychain.KeyDescriptor{
+				KeyLocator: keychain.KeyLocator{
+					Family: keychain.KeyFamily(rand.Int63()),
+					Index:  uint32(rand.Int63()),
+				},
+			},
 			PaymentBasePoint: keychain.KeyDescriptor{
 				KeyLocator: keychain.KeyLocator{
 					Family: keychain.KeyFamily(rand.Int63()),
 					Index:  uint32(rand.Int63()),
 				},
+			},
+			DelayBasePoint: keychain.KeyDescriptor{
+				KeyLocator: keychain.KeyLocator{
+					Family: keychain.KeyFamily(rand.Int63()),
+					Index:  uint32(rand.Int63()),
+				},
+			},
+			HtlcBasePoint: keychain.KeyDescriptor{
+				KeyLocator: keychain.KeyLocator{
+					Family: keychain.KeyFamily(rand.Int63()),
+					Index:  uint32(rand.Int63()),
+				},
+			},
+		},
+		RemoteChanCfg: channeldb.ChannelConfig{
+			ChannelConstraints: channeldb.ChannelConstraints{
+				CsvDelay: uint16(rand.Int63()),
+			},
+			MultiSigKey: keychain.KeyDescriptor{
+				PubKey: pub,
+			},
+			RevocationBasePoint: keychain.KeyDescriptor{
+				PubKey: pub,
+			},
+			PaymentBasePoint: keychain.KeyDescriptor{
+				PubKey: pub,
+			},
+			DelayBasePoint: keychain.KeyDescriptor{
+				PubKey: pub,
+			},
+			HtlcBasePoint: keychain.KeyDescriptor{
+				PubKey: pub,
 			},
 		},
 		RevocationProducer: shaChainProducer,
@@ -161,6 +226,20 @@ func TestSinglePackUnpack(t *testing.T) {
 		// The default version, should pack/unpack with no problem.
 		{
 			version: DefaultSingleVersion,
+			valid:   true,
+		},
+
+		// The new tweakless version, should pack/unpack with no
+		// problem.
+		{
+			version: TweaklessCommitVersion,
+			valid:   true,
+		},
+
+		// The new anchor version, should pack/unpack with no
+		// problem.
+		{
+			version: AnchorsCommitVersion,
 			valid:   true,
 		},
 
@@ -215,7 +294,7 @@ func TestSinglePackUnpack(t *testing.T) {
 			}
 
 			rawBytes := rawSingle.Bytes()
-			rawBytes[0] ^= 1
+			rawBytes[0] ^= 5
 
 			newReader := bytes.NewReader(rawBytes)
 			err = unpackedSingle.Deserialize(newReader)
@@ -336,6 +415,46 @@ func TestSinglePackStaticChanBackups(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatalf("pack attempt should fail")
+	}
+}
+
+// TestSingleUnconfirmedChannel tests that unconfirmed channels get serialized
+// correctly by encoding the funding broadcast height as block height of the
+// short channel ID.
+func TestSingleUnconfirmedChannel(t *testing.T) {
+	t.Parallel()
+
+	var fundingBroadcastHeight = uint32(1234)
+
+	// Let's create an open channel shell that contains all the information
+	// we need to create a static channel backup but simulate an
+	// unconfirmed channel by setting the block height to 0.
+	channel, err := genRandomOpenChannelShell()
+	if err != nil {
+		t.Fatalf("unable to gen open channel: %v", err)
+	}
+	channel.ShortChannelID.BlockHeight = 0
+	channel.FundingBroadcastHeight = fundingBroadcastHeight
+
+	singleChanBackup := NewSingle(channel, []net.Addr{addr1, addr2})
+	keyRing := &mockKeyRing{}
+
+	// Pack it and then unpack it again to make sure everything is written
+	// correctly, then check that the block height of the unpacked
+	// is the funding broadcast height we set before.
+	var b bytes.Buffer
+	if err := singleChanBackup.PackToWriter(&b, keyRing); err != nil {
+		t.Fatalf("unable to pack single: %v", err)
+	}
+	var unpackedSingle Single
+	err = unpackedSingle.UnpackFromReader(&b, keyRing)
+	if err != nil {
+		t.Fatalf("unable to unpack single: %v", err)
+	}
+	if unpackedSingle.ShortChannelID.BlockHeight != fundingBroadcastHeight {
+		t.Fatalf("invalid block height. got %d expected %d.",
+			unpackedSingle.ShortChannelID.BlockHeight,
+			fundingBroadcastHeight)
 	}
 }
 

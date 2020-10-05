@@ -9,6 +9,11 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
+// DefaultConfTarget is the default confirmation target for autopilot channels.
+// TODO(halseth): possibly make dynamic, going aggressive->lax as more channels
+// are opened.
+const DefaultConfTarget = 3
+
 // Node node is an interface which represents n abstract vertex within the
 // channel graph. All nodes should have at least a single edge to/from them
 // within the graph.
@@ -142,11 +147,45 @@ type AttachmentHeuristic interface {
 		map[NodeID]*NodeScore, error)
 }
 
+// NodeMetric is a common interface for all graph metrics that are not
+// directly used as autopilot node scores but may be used in compositional
+// heuristics or statistical information exposed to users.
+type NodeMetric interface {
+	// Name returns the unique name of this metric.
+	Name() string
+
+	// Refresh refreshes the metric values based on the current graph.
+	Refresh(graph ChannelGraph) error
+
+	// GetMetric returns the latest value of this metric. Values in the
+	// map are per node and can be in arbitrary domain. If normalize is
+	// set to true, then the returned values are normalized to either
+	// [0, 1] or [-1, 1] depending on the metric.
+	GetMetric(normalize bool) map[NodeID]float64
+}
+
+// ScoreSettable is an interface that indicates that the scores returned by the
+// heuristic can be mutated by an external caller. The ExternalScoreAttachment
+// currently implements this interface, and so should any heuristic that is
+// using the ExternalScoreAttachment as a sub-heuristic, or keeps their own
+// internal list of mutable scores, to allow access to setting the internal
+// scores.
+type ScoreSettable interface {
+	// SetNodeScores is used to set the internal map from NodeIDs to
+	// scores. The passed scores must be in the range [0, 1.0]. The fist
+	// parameter is the name of the targeted heuristic, to allow
+	// recursively target specific sub-heuristics. The returned boolean
+	// indicates whether the targeted heuristic was found.
+	SetNodeScores(string, map[NodeID]float64) (bool, error)
+}
+
 var (
 	// availableHeuristics holds all heuristics possible to combine for use
 	// with the autopilot agent.
 	availableHeuristics = []AttachmentHeuristic{
 		NewPrefAttachment(),
+		NewExternalScoreAttachment(),
+		NewTopCentrality(),
 	}
 
 	// AvailableHeuristics is a map that holds the name of available
@@ -167,10 +206,11 @@ func init() {
 // open a channel within the graph to a target peer, close targeted channels,
 // or add/remove funds from existing channels via a splice in/out mechanisms.
 type ChannelController interface {
-	// OpenChannel opens a channel to a target peer, with a capacity of the
-	// specified amount. This function should un-block immediately after
-	// the funding transaction that marks the channel open has been
-	// broadcast.
+	// OpenChannel opens a channel to a target peer, using at most amt
+	// funds. This means that the resulting channel capacity might be
+	// slightly less to account for fees. This function should un-block
+	// immediately after the funding transaction that marks the channel
+	// open has been broadcast.
 	OpenChannel(target *btcec.PublicKey, amt btcutil.Amount) error
 
 	// CloseChannel attempts to close out the target channel.

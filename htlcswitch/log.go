@@ -3,6 +3,7 @@ package htlcswitch
 import (
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 )
 
 // log is a logger that is initialized with no output filters.  This
@@ -12,7 +13,9 @@ var log btclog.Logger
 
 // The default amount of logging is none.
 func init() {
-	UseLogger(build.NewSubLogger("HSWC", nil))
+	logger := build.NewSubLogger("HSWC", nil)
+
+	UseLogger(logger)
 }
 
 // DisableLog disables all library log output.  Logging output is disabled
@@ -26,6 +29,7 @@ func DisableLog() {
 // using btclog.
 func UseLogger(logger btclog.Logger) {
 	log = logger
+	hop.UseLogger(logger)
 }
 
 // logClosure is used to provide a closure over expensive logging operations so

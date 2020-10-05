@@ -46,7 +46,7 @@ You're done! Build the project and verify that it works.
 
 #### Imports and Client
 
-After installing these, use the code below to set up a channel and client to connect to your `lnd` node:
+Use the code below to set up a channel and client to connect to your `lnd` node:
 
 ```c#
 

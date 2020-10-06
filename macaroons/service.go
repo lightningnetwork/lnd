@@ -62,6 +62,10 @@ type Service struct {
 	// If no external validator for an URI is specified, the service will
 	// use the internal validator.
 	externalValidators map[string]MacaroonValidator
+
+	// StatelessInit denotes if the service was initialized in the stateless
+	// mode where no macaroon files should be created on disk.
+	StatelessInit bool
 }
 
 // NewService returns a service backed by the macaroon Bolt DB stored in the
@@ -71,7 +75,9 @@ type Service struct {
 // listing the same checker more than once is not harmful. Default checkers,
 // such as those for `allow`, `time-before`, `declared`, and `error` caveats
 // are registered automatically and don't need to be added.
-func NewService(dir, location string, checks ...Checker) (*Service, error) {
+func NewService(dir, location string, statelessInit bool,
+	checks ...Checker) (*Service, error) {
+
 	// Ensure that the path to the directory exists.
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		if err := os.MkdirAll(dir, 0700); err != nil {
@@ -118,6 +124,7 @@ func NewService(dir, location string, checks ...Checker) (*Service, error) {
 		Bakery:             *svc,
 		rks:                rootKeyStore,
 		externalValidators: make(map[string]MacaroonValidator),
+		StatelessInit:      statelessInit,
 	}, nil
 }
 

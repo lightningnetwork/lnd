@@ -1043,19 +1043,6 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 	restProxyDest string, tlsConf *tls.Config,
 	getListeners rpcListeners) (*WalletUnlockParams, error) {
 
-	// Start a gRPC server listening for HTTP/2 connections, solely used
-	// for getting the encryption password from the client.
-	listeners, cleanup, err := getListeners()
-	if err != nil {
-		return nil, err
-	}
-	defer cleanup()
-
-	// Set up a new PasswordService, which will listen for passwords
-	// provided over RPC.
-	grpcServer := grpc.NewServer(serverOpts...)
-	defer grpcServer.GracefulStop()
-
 	chainConfig := cfg.Bitcoin
 	if cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
 		chainConfig = cfg.Litecoin
@@ -1070,10 +1057,23 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 		cfg.AdminMacPath, cfg.ReadMacPath, cfg.InvoiceMacPath,
 	}
 	pwService := walletunlocker.New(
-		chainConfig.ChainDir, cfg.ActiveNetParams.Params, !cfg.SyncFreelist,
-		macaroonFiles,
+		chainConfig.ChainDir, cfg.ActiveNetParams.Params,
+		!cfg.SyncFreelist, macaroonFiles,
 	)
+
+	// Set up a new PasswordService, which will listen for passwords
+	// provided over RPC.
+	grpcServer := grpc.NewServer(serverOpts...)
+	defer grpcServer.GracefulStop()
 	lnrpc.RegisterWalletUnlockerServer(grpcServer, pwService)
+
+	// Start a gRPC server listening for HTTP/2 connections, solely used
+	// for getting the encryption password from the client.
+	listeners, cleanup, err := getListeners()
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
 
 	// Use a WaitGroup so we can be sure the instructions on how to input the
 	// password is the last thing to be printed to the console.

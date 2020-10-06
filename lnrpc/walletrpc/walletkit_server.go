@@ -1048,7 +1048,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 			Id: lock.lockID[:],
 			Outpoint: &lnrpc.OutPoint{
 				TxidBytes:   lock.outpoint.Hash[:],
-				TxidStr:     lock.outpoint.String(),
+				TxidStr:     lock.outpoint.Hash.String(),
 				OutputIndex: lock.outpoint.Index,
 			},
 			Expiration: uint64(lock.expiration.Unix()),

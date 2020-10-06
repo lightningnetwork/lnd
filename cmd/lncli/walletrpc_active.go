@@ -415,12 +415,19 @@ func labelTransaction(ctx *cli.Context) error {
 	return nil
 }
 
-// fundPsbtResponse is a struct that contains JSOn annotations for nice result
+// utxoLease contains JSON annotations for a lease on an unspent output.
+type utxoLease struct {
+	ID         string   `json:"id"`
+	OutPoint   OutPoint `json:"outpoint"`
+	Expiration uint64   `json:"expiration"`
+}
+
+// fundPsbtResponse is a struct that contains JSON annotations for nice result
 // serialization.
 type fundPsbtResponse struct {
-	Psbt              string                 `json:"psbt"`
-	ChangeOutputIndex int32                  `json:"change_output_index"`
-	Locks             []*walletrpc.UtxoLease `json:"locks"`
+	Psbt              string       `json:"psbt"`
+	ChangeOutputIndex int32        `json:"change_output_index"`
+	Locks             []*utxoLease `json:"locks"`
 }
 
 var fundPsbtCommand = cli.Command{
@@ -592,12 +599,21 @@ func fundPsbt(ctx *cli.Context) error {
 		return err
 	}
 
+	jsonLocks := make([]*utxoLease, len(response.LockedUtxos))
+	for idx, lock := range response.LockedUtxos {
+		jsonLocks[idx] = &utxoLease{
+			ID:         hex.EncodeToString(lock.Id),
+			OutPoint:   NewOutPointFromProto(lock.Outpoint),
+			Expiration: lock.Expiration,
+		}
+	}
+
 	printJSON(&fundPsbtResponse{
 		Psbt: base64.StdEncoding.EncodeToString(
 			response.FundedPsbt,
 		),
 		ChangeOutputIndex: response.ChangeOutputIndex,
-		Locks:             response.LockedUtxos,
+		Locks:             jsonLocks,
 	})
 
 	return nil

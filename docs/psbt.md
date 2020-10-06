@@ -34,11 +34,7 @@ $ lncli wallet psbt fund --outputs='{"bcrt1qjrdns4f5zwkv29ln86plqzs092yd5fg6nsz8
         "locks": [
                 {
                         "id": "ede19a92ed321a4705f8a1cccc1d4f6182545d4bb4fae08bd5937831b7e38f98",
-                        "outpoint": {
-                                "txid_bytes": "e25063654b46dbad2a04181546a310aa6315f974532ae6eb1db73ae983a5eff8",
-                                "txid_str": "f8efa583e93ab71debe62a5374f91563aa10a3461518042aaddb464b656350e2:1",
-                                "output_index": 1
-                        },
+                        "outpoint": "f8efa583e93ab71debe62a5374f91563aa10a3461518042aaddb464b656350e2:1",
                         "expiration": 1601553408
                 }
         ]
@@ -174,20 +170,12 @@ $ lncli wallet psbt fund --outputs='{"bcrt1qjrdns4f5zwkv29ln86plqzs092yd5fg6nsz8
         "locks": [
                 {
                         "id": "ede19a92ed321a4705f8a1cccc1d4f6182545d4bb4fae08bd5937831b7e38f98",
-                        "outpoint": {
-                                "txid_bytes": "488c765c45dccdb456976708c2b434e904a044c6e806b81e90bc56ff51b49735",
-                                "txid_str": "3597b451ff56bc901eb806e8c644a004e934b4c208679756b4cddc455c768c48:1",
-                                "output_index": 1
-                        },
+                        "outpoint": "3597b451ff56bc901eb806e8c644a004e934b4c208679756b4cddc455c768c48:1",
                         "expiration": 1601560626
                 },
                 {
                         "id": "ede19a92ed321a4705f8a1cccc1d4f6182545d4bb4fae08bd5937831b7e38f98",
-                        "outpoint": {
-                                "txid_bytes": "e25063654b46dbad2a04181546a310aa6315f974532ae6eb1db73ae983a5eff8",
-                                "txid_str": "f8efa583e93ab71debe62a5374f91563aa10a3461518042aaddb464b656350e2:1",
-                                "output_index": 1
-                        },
+                        "outpoint": "f8efa583e93ab71debe62a5374f91563aa10a3461518042aaddb464b656350e2:1",
                         "expiration": 1601560626
                 }
         ]
@@ -475,11 +463,7 @@ $ lncli wallet psbt fund --outputs='{"bcrt1qh33ghvgjj3ef625nl9jxz6nnrz2z9e65vsde
         "locks": [
                 {
                         "id": "ede19a92ed321a4705f8a1cccc1d4f6182545d4bb4fae08bd5937831b7e38f98",
-                        "outpoint": {
-                                "txid_bytes": "488c765c45dccdb456976708c2b434e904a044c6e806b81e90bc56ff51b49735",
-                                "txid_str": "3597b451ff56bc901eb806e8c644a004e934b4c208679756b4cddc455c768c48:1",
-                                "output_index": 1
-                        },
+                        "outpoint": "3597b451ff56bc901eb806e8c644a004e934b4c208679756b4cddc455c768c48:1",
                         "expiration": 1601562037
                 }
         ]

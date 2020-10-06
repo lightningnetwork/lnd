@@ -1578,7 +1578,9 @@ func (s *server) Stop() error {
 
 		// Shutdown the wallet, funding manager, and the rpc server.
 		s.chanStatusMgr.Stop()
-		s.cc.ChainNotifier.Stop()
+		if err := s.cc.ChainNotifier.Stop(); err != nil {
+			srvrLog.Warnf("Unable to stop ChainNotifier: %v", err)
+		}
 		s.chanRouter.Stop()
 		s.htlcSwitch.Stop()
 		s.sphinx.Stop()
@@ -1590,10 +1592,16 @@ func (s *server) Stop() error {
 		s.channelNotifier.Stop()
 		s.peerNotifier.Stop()
 		s.htlcNotifier.Stop()
-		s.cc.Wallet.Shutdown()
-		s.cc.ChainView.Stop()
+		if err := s.cc.Wallet.Shutdown(); err != nil {
+			srvrLog.Warnf("Unable to stop Wallet: %v", err)
+		}
+		if err := s.cc.ChainView.Stop(); err != nil {
+			srvrLog.Warnf("Unable to stop ChainView: %v", err)
+		}
 		s.connMgr.Stop()
-		s.cc.FeeEstimator.Stop()
+		if err := s.cc.FeeEstimator.Stop(); err != nil {
+			srvrLog.Warnf("Unable to stop FeeEstimator: %v", err)
+		}
 		s.invoices.Stop()
 		s.fundingMgr.Stop()
 		s.chanSubSwapper.Stop()

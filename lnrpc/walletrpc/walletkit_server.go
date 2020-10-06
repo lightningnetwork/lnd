@@ -170,9 +170,12 @@ func New(cfg *Config) (*WalletKit, lnrpc.MacaroonPerms, error) {
 	}
 
 	// Now that we know the full path of the wallet kit macaroon, we can
-	// check to see if we need to create it or not.
+	// check to see if we need to create it or not. If stateless_init is set
+	// then we don't write the macaroons.
 	macFilePath := cfg.WalletKitMacPath
-	if !lnrpc.FileExists(macFilePath) && cfg.MacService != nil {
+	if cfg.MacService != nil && !cfg.MacService.StatelessInit &&
+		!lnrpc.FileExists(macFilePath) {
+
 		log.Infof("Baking macaroons for WalletKit RPC Server at: %v",
 			macFilePath)
 
@@ -180,8 +183,7 @@ func New(cfg *Config) (*WalletKit, lnrpc.MacaroonPerms, error) {
 		// yet, exist, so we need to create it with the help of the
 		// main macaroon service.
 		walletKitMac, err := cfg.MacService.NewMacaroon(
-			context.Background(),
-			macaroons.DefaultRootKeyID,
+			context.Background(), macaroons.DefaultRootKeyID,
 			macaroonOps...,
 		)
 		if err != nil {
@@ -193,7 +195,7 @@ func New(cfg *Config) (*WalletKit, lnrpc.MacaroonPerms, error) {
 		}
 		err = ioutil.WriteFile(macFilePath, walletKitMacBytes, 0644)
 		if err != nil {
-			os.Remove(macFilePath)
+			_ = os.Remove(macFilePath)
 			return nil, nil, err
 		}
 	}

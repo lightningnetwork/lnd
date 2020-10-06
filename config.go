@@ -1048,7 +1048,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 	cfg.networkDir = filepath.Join(
 		cfg.DataDir, defaultChainSubDirname,
 		cfg.registeredChains.PrimaryChain().String(),
-		normalizeNetwork(cfg.ActiveNetParams.Name),
+		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 	)
 
 	// If a custom macaroon directory wasn't specified and the data
@@ -1082,7 +1082,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 	// per network in the same fashion as the data directory.
 	cfg.LogDir = filepath.Join(cfg.LogDir,
 		cfg.registeredChains.PrimaryChain().String(),
-		normalizeNetwork(cfg.ActiveNetParams.Name))
+		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name))
 
 	// A log writer must be passed in, otherwise we can't function and would
 	// run into a panic later on.
@@ -1280,11 +1280,11 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 func (c *Config) localDatabaseDir() string {
 	return filepath.Join(c.DataDir,
 		defaultGraphSubDirname,
-		normalizeNetwork(c.ActiveNetParams.Name))
+		lncfg.NormalizeNetwork(c.ActiveNetParams.Name))
 }
 
 func (c *Config) networkName() string {
-	return normalizeNetwork(c.ActiveNetParams.Name)
+	return lncfg.NormalizeNetwork(c.ActiveNetParams.Name)
 }
 
 // CleanAndExpandPath expands environment variables and leading ~ in the
@@ -1618,14 +1618,4 @@ func checkEstimateMode(estimateMode string) error {
 
 	return fmt.Errorf("estimatemode must be one of the following: %v",
 		bitcoindEstimateModes[:])
-}
-
-// normalizeNetwork returns the common name of a network type used to create
-// file paths. This allows differently versioned networks to use the same path.
-func normalizeNetwork(network string) string {
-	if strings.HasPrefix(network, "testnet") {
-		return "testnet"
-	}
-
-	return network
 }

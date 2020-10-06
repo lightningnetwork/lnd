@@ -547,7 +547,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		towerDBDir := filepath.Join(
 			cfg.Watchtower.TowerDir,
 			cfg.registeredChains.PrimaryChain().String(),
-			normalizeNetwork(cfg.ActiveNetParams.Name),
+			lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 		)
 
 		towerDB, err := wtdb.OpenTowerDB(towerDBDir)
@@ -1344,8 +1344,7 @@ func initNeutrinoBackend(cfg *Config, chainDir string) (*neutrino.ChainService,
 	// database if needed. We append the normalized network name here to
 	// match the behavior of btcwallet.
 	dbPath := filepath.Join(
-		chainDir,
-		normalizeNetwork(cfg.ActiveNetParams.Name),
+		chainDir, lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 	)
 
 	// Ensure that the neutrino db path exists.

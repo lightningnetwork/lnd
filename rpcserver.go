@@ -2533,7 +2533,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 			"with current best block in the main chain: %v", err)
 	}
 
-	network := normalizeNetwork(r.cfg.ActiveNetParams.Name)
+	network := lncfg.NormalizeNetwork(r.cfg.ActiveNetParams.Name)
 	activeChains := make([]*lnrpc.Chain, r.cfg.registeredChains.NumActiveChains())
 	for i, chain := range r.cfg.registeredChains.ActiveChains() {
 		activeChains[i] = &lnrpc.Chain{

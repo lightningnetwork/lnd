@@ -282,4 +282,8 @@ var allTestCases = []*testCase{
 		name: "connection timeout",
 		test: testNetworkConnectionTimeout,
 	},
+	{
+		name: "stateless init",
+		test: testStatelessInit,
+	},
 }

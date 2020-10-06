@@ -1051,7 +1051,7 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 		return nil, err
 	}
 
-	tx, err := r.server.cc.wallet.SendOutputs(outputs, feeRate, minconf, label)
+	tx, err := r.server.cc.Wallet.SendOutputs(outputs, feeRate, minconf, label)
 	if err != nil {
 		return nil, err
 	}
@@ -1083,8 +1083,8 @@ func (r *rpcServer) ListUnspent(ctx context.Context,
 	// any other concurrent processes attempting to lock any UTXOs which may
 	// be shown available to us.
 	var utxos []*lnwallet.Utxo
-	err = r.server.cc.wallet.WithCoinSelectLock(func() error {
-		utxos, err = r.server.cc.wallet.ListUnspentWitness(
+	err = r.server.cc.Wallet.WithCoinSelectLock(func() error {
+		utxos, err = r.server.cc.Wallet.ListUnspentWitness(
 			minConfs, maxConfs,
 		)
 		return err
@@ -1126,7 +1126,7 @@ func (r *rpcServer) EstimateFee(ctx context.Context,
 	// target.
 	target := in.TargetConf
 	feePerKw, err := sweep.DetermineFeePerKw(
-		r.server.cc.feeEstimator, sweep.FeePreference{
+		r.server.cc.FeeEstimator, sweep.FeePreference{
 			ConfTarget: uint32(target),
 		},
 	)
@@ -1137,7 +1137,7 @@ func (r *rpcServer) EstimateFee(ctx context.Context,
 	// We will ask the wallet to create a tx using this fee rate. We set
 	// dryRun=true to avoid inflating the change addresses in the db.
 	var tx *txauthor.AuthoredTx
-	wallet := r.server.cc.wallet
+	wallet := r.server.cc.Wallet
 	err = wallet.WithCoinSelectLock(func() error {
 		tx, err = wallet.CreateSimpleTx(outputs, feePerKw, true)
 		return err
@@ -1173,7 +1173,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 	// appropriate fee rate for this transaction.
 	satPerKw := chainfee.SatPerKVByte(in.SatPerByte * 1000).FeePerKWeight()
 	feePerKw, err := sweep.DetermineFeePerKw(
-		r.server.cc.feeEstimator, sweep.FeePreference{
+		r.server.cc.FeeEstimator, sweep.FeePreference{
 			ConfTarget: uint32(in.TargetConf),
 			FeeRate:    satPerKw,
 		},
@@ -1226,7 +1226,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 
 	var txid *chainhash.Hash
 
-	wallet := r.server.cc.wallet
+	wallet := r.server.cc.Wallet
 
 	// If the send all flag is active, then we'll attempt to sweep all the
 	// coins in the wallet in a single transaction (if possible),
@@ -1240,7 +1240,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 				"active")
 		}
 
-		_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
+		_, bestHeight, err := r.server.cc.ChainIO.GetBestBlock()
 		if err != nil {
 			return nil, err
 		}
@@ -1252,7 +1252,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		sweepTxPkg, err := sweep.CraftSweepAllTx(
 			feePerKw, uint32(bestHeight), targetAddr, wallet,
 			wallet.WalletController, wallet.WalletController,
-			r.server.cc.feeEstimator, r.server.cc.signer,
+			r.server.cc.FeeEstimator, r.server.cc.Signer,
 		)
 		if err != nil {
 			return nil, err
@@ -1312,7 +1312,7 @@ func (r *rpcServer) SendMany(ctx context.Context,
 	// appropriate fee rate for this transaction.
 	satPerKw := chainfee.SatPerKVByte(in.SatPerByte * 1000).FeePerKWeight()
 	feePerKw, err := sweep.DetermineFeePerKw(
-		r.server.cc.feeEstimator, sweep.FeePreference{
+		r.server.cc.FeeEstimator, sweep.FeePreference{
 			ConfTarget: uint32(in.TargetConf),
 			FeeRate:    satPerKw,
 		},
@@ -1341,7 +1341,7 @@ func (r *rpcServer) SendMany(ctx context.Context,
 	// We'll attempt to send to the target set of outputs, ensuring that we
 	// synchronize with any other ongoing coin selection attempts which
 	// happen to also be concurrently executing.
-	wallet := r.server.cc.wallet
+	wallet := r.server.cc.Wallet
 	err = wallet.WithCoinSelectLock(func() error {
 		sendManyTXID, err := r.sendCoinsOnChain(
 			in.AddrToAmount, feePerKw, minConfs, label,
@@ -1375,7 +1375,7 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 	)
 	switch in.Type {
 	case lnrpc.AddressType_WITNESS_PUBKEY_HASH:
-		addr, err = r.server.cc.wallet.NewAddress(
+		addr, err = r.server.cc.Wallet.NewAddress(
 			lnwallet.WitnessPubKey, false,
 		)
 		if err != nil {
@@ -1383,7 +1383,7 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 		}
 
 	case lnrpc.AddressType_NESTED_PUBKEY_HASH:
-		addr, err = r.server.cc.wallet.NewAddress(
+		addr, err = r.server.cc.Wallet.NewAddress(
 			lnwallet.NestedWitnessPubKey, false,
 		)
 		if err != nil {
@@ -1391,7 +1391,7 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 		}
 
 	case lnrpc.AddressType_UNUSED_WITNESS_PUBKEY_HASH:
-		addr, err = r.server.cc.wallet.LastUnusedAddress(
+		addr, err = r.server.cc.Wallet.LastUnusedAddress(
 			lnwallet.WitnessPubKey,
 		)
 		if err != nil {
@@ -1399,7 +1399,7 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 		}
 
 	case lnrpc.AddressType_UNUSED_NESTED_PUBKEY_HASH:
-		addr, err = r.server.cc.wallet.LastUnusedAddress(
+		addr, err = r.server.cc.Wallet.LastUnusedAddress(
 			lnwallet.NestedWitnessPubKey,
 		)
 		if err != nil {
@@ -1743,7 +1743,7 @@ func (r *rpcServer) canOpenChannel() error {
 
 	// Creation of channels before the wallet syncs up is currently
 	// disallowed.
-	isSynced, _, err := r.server.cc.wallet.IsSynced()
+	isSynced, _, err := r.server.cc.Wallet.IsSynced()
 	if err != nil {
 		return err
 	}
@@ -1863,7 +1863,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	// appropriate fee rate for the funding transaction.
 	satPerKw := chainfee.SatPerKVByte(in.SatPerByte * 1000).FeePerKWeight()
 	feeRate, err := sweep.DetermineFeePerKw(
-		r.server.cc.feeEstimator, sweep.FeePreference{
+		r.server.cc.FeeEstimator, sweep.FeePreference{
 			ConfTarget: uint32(in.TargetConf),
 			FeeRate:    satPerKw,
 		},
@@ -1931,7 +1931,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 			// to obtain the channel point details.
 			copy(req.pendingChanID[:], chanPointShim.PendingChanId)
 			req.chanFunder, err = newFundingShimAssembler(
-				chanPointShim, true, r.server.cc.keyRing,
+				chanPointShim, true, r.server.cc.KeyRing,
 			)
 			if err != nil {
 				return err
@@ -1950,7 +1950,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 			copy(req.pendingChanID[:], psbtShim.PendingChanId)
 			req.chanFunder, err = newPsbtAssembler(
 				in, req.minConfs, psbtShim,
-				&r.server.cc.wallet.Cfg.NetParams,
+				&r.server.cc.Wallet.Cfg.NetParams,
 			)
 			if err != nil {
 				return err
@@ -2155,7 +2155,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 	// Retrieve the best height of the chain, which we'll use to complete
 	// either closing flow.
-	_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
+	_, bestHeight, err := r.server.cc.ChainIO.GetBestBlock()
 	if err != nil {
 		return err
 	}
@@ -2202,7 +2202,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		}
 
 		errChan = make(chan error, 1)
-		notifier := r.server.cc.chainNotifier
+		notifier := r.server.cc.ChainNotifier
 		go peer.WaitForChanToClose(uint32(bestHeight), notifier, errChan, chanPoint,
 			&closingTxid, closingTx.TxOut[0].PkScript, func() {
 				// Respond to the local subsystem which
@@ -2246,7 +2246,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			in.SatPerByte * 1000,
 		).FeePerKWeight()
 		feeRate, err := sweep.DetermineFeePerKw(
-			r.server.cc.feeEstimator, sweep.FeePreference{
+			r.server.cc.FeeEstimator, sweep.FeePreference{
 				ConfTarget: uint32(in.TargetConf),
 				FeeRate:    satPerKw,
 			},
@@ -2408,7 +2408,7 @@ func (r *rpcServer) AbandonChannel(_ context.Context,
 
 	// When we remove the channel from the database, we need to set a close
 	// height, so we'll just use the current best known height.
-	_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
+	_, bestHeight, err := r.server.cc.ChainIO.GetBestBlock()
 	if err != nil {
 		return nil, err
 	}
@@ -2522,12 +2522,12 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 	idPub := r.server.identityECDH.PubKey().SerializeCompressed()
 	encodedIDPub := hex.EncodeToString(idPub)
 
-	bestHash, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
+	bestHash, bestHeight, err := r.server.cc.ChainIO.GetBestBlock()
 	if err != nil {
 		return nil, fmt.Errorf("unable to get best block info: %v", err)
 	}
 
-	isSynced, bestHeaderTimestamp, err := r.server.cc.wallet.IsSynced()
+	isSynced, bestHeaderTimestamp, err := r.server.cc.Wallet.IsSynced()
 	if err != nil {
 		return nil, fmt.Errorf("unable to sync PoV of the wallet "+
 			"with current best block in the main chain: %v", err)
@@ -2603,7 +2603,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 func (r *rpcServer) GetRecoveryInfo(ctx context.Context,
 	in *lnrpc.GetRecoveryInfoRequest) (*lnrpc.GetRecoveryInfoResponse, error) {
 
-	isRecoveryMode, progress, err := r.server.cc.wallet.GetRecoveryInfo()
+	isRecoveryMode, progress, err := r.server.cc.Wallet.GetRecoveryInfo()
 	if err != nil {
 		return nil, fmt.Errorf("unable to get wallet recovery info: %v", err)
 	}
@@ -2804,7 +2804,7 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 	in *lnrpc.WalletBalanceRequest) (*lnrpc.WalletBalanceResponse, error) {
 
 	// Get total balance, from txs that have >= 0 confirmations.
-	totalBal, err := r.server.cc.wallet.ConfirmedBalance(0)
+	totalBal, err := r.server.cc.Wallet.ConfirmedBalance(0)
 	if err != nil {
 		return nil, err
 	}
@@ -2812,7 +2812,7 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 	// Get confirmed balance, from txs that have >= 1 confirmations.
 	// TODO(halseth): get both unconfirmed and confirmed balance in one
 	// call, as this is racy.
-	confirmedBal, err := r.server.cc.wallet.ConfirmedBalance(1)
+	confirmedBal, err := r.server.cc.Wallet.ConfirmedBalance(1)
 	if err != nil {
 		return nil, err
 	}
@@ -2980,7 +2980,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		}
 	}
 
-	_, currentHeight, err := r.server.cc.chainIO.GetBestBlock()
+	_, currentHeight, err := r.server.cc.ChainIO.GetBestBlock()
 	if err != nil {
 		return nil, err
 	}
@@ -4880,7 +4880,7 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 	updateStream lnrpc.Lightning_SubscribeTransactionsServer) error {
 
-	txClient, err := r.server.cc.wallet.SubscribeTransactions()
+	txClient, err := r.server.cc.Wallet.SubscribeTransactions()
 	if err != nil {
 		return err
 	}
@@ -4946,7 +4946,7 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 		endHeight = req.EndHeight
 	}
 
-	transactions, err := r.server.cc.wallet.ListTransactionDetails(
+	transactions, err := r.server.cc.Wallet.ListTransactionDetails(
 		req.StartHeight, endHeight,
 	)
 	if err != nil {
@@ -6047,7 +6047,7 @@ func (r *rpcServer) ExportChannelBackup(ctx context.Context,
 	// backup.
 	packedBackups, err := chanbackup.PackStaticChanBackups(
 		[]chanbackup.Single{*unpackedBackup},
-		r.server.cc.keyRing,
+		r.server.cc.KeyRing,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("packing of back ups failed: %v", err)
@@ -6104,7 +6104,7 @@ func (r *rpcServer) VerifyChanBackup(ctx context.Context,
 		// With our PackedSingles created, we'll attempt to unpack the
 		// backup. If this fails, then we know the backup is invalid for
 		// some reason.
-		_, err := chanBackup.Unpack(r.server.cc.keyRing)
+		_, err := chanBackup.Unpack(r.server.cc.KeyRing)
 		if err != nil {
 			return nil, fmt.Errorf("invalid single channel "+
 				"backup: %v", err)
@@ -6118,7 +6118,7 @@ func (r *rpcServer) VerifyChanBackup(ctx context.Context,
 
 		// We'll now attempt to unpack the Multi. If this fails, then we
 		// know it's invalid.
-		_, err := packedMulti.Unpack(r.server.cc.keyRing)
+		_, err := packedMulti.Unpack(r.server.cc.KeyRing)
 		if err != nil {
 			return nil, fmt.Errorf("invalid multi channel backup: "+
 				"%v", err)
@@ -6137,7 +6137,7 @@ func (r *rpcServer) createBackupSnapshot(backups []chanbackup.Single) (
 	// Once we have the set of back ups, we'll attempt to pack them all
 	// into a series of single channel backups.
 	singleChanPackedBackups, err := chanbackup.PackStaticChanBackups(
-		backups, r.server.cc.keyRing,
+		backups, r.server.cc.KeyRing,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to pack set of chan "+
@@ -6175,7 +6175,7 @@ func (r *rpcServer) createBackupSnapshot(backups []chanbackup.Single) (
 	unpackedMultiBackup := chanbackup.Multi{
 		StaticBackups: backups,
 	}
-	err = unpackedMultiBackup.PackToWriter(&b, r.server.cc.keyRing)
+	err = unpackedMultiBackup.PackToWriter(&b, r.server.cc.KeyRing)
 	if err != nil {
 		return nil, fmt.Errorf("unable to multi-pack backups: %v", err)
 	}
@@ -6230,7 +6230,7 @@ func (r *rpcServer) RestoreChannelBackups(ctx context.Context,
 	// backups.
 	chanRestorer := &chanDBRestorer{
 		db:         r.server.remoteChanDB,
-		secretKeys: r.server.cc.keyRing,
+		secretKeys: r.server.cc.KeyRing,
 		chainArb:   r.server.chainArb,
 	}
 
@@ -6255,7 +6255,7 @@ func (r *rpcServer) RestoreChannelBackups(ctx context.Context,
 		// channel peers.
 		err := chanbackup.UnpackAndRecoverSingles(
 			chanbackup.PackedSingles(packedBackups),
-			r.server.cc.keyRing, chanRestorer, r.server,
+			r.server.cc.KeyRing, chanRestorer, r.server,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to unpack single "+
@@ -6271,7 +6271,7 @@ func (r *rpcServer) RestoreChannelBackups(ctx context.Context,
 		// channel peers.
 		packedMulti := chanbackup.PackedMulti(packedMultiBackup)
 		err := chanbackup.UnpackAndRecoverMulti(
-			packedMulti, r.server.cc.keyRing, chanRestorer,
+			packedMulti, r.server.cc.KeyRing, chanRestorer,
 			r.server,
 		)
 		if err != nil {
@@ -6714,7 +6714,7 @@ func (r *rpcServer) FundingStateStep(ctx context.Context,
 		// chanfunding.Assembler that is able to express proper
 		// formulation of this expected channel.
 		shimAssembler, err := newFundingShimAssembler(
-			rpcShimIntent, false, r.server.cc.keyRing,
+			rpcShimIntent, false, r.server.cc.KeyRing,
 		)
 		if err != nil {
 			return nil, err
@@ -6732,7 +6732,7 @@ func (r *rpcServer) FundingStateStep(ctx context.Context,
 		// pending channel ID, then this shim will be dispatched in
 		// place of our regular funding workflow.
 		copy(pendingChanID[:], rpcShimIntent.PendingChanId)
-		err = r.server.cc.wallet.RegisterFundingIntent(
+		err = r.server.cc.Wallet.RegisterFundingIntent(
 			pendingChanID, shimIntent,
 		)
 		if err != nil {
@@ -6756,7 +6756,7 @@ func (r *rpcServer) FundingStateStep(ctx context.Context,
 			in.GetShimCancel().PendingChanId)
 
 		copy(pendingChanID[:], in.GetShimCancel().PendingChanId)
-		err := r.server.cc.wallet.CancelFundingIntent(pendingChanID)
+		err := r.server.cc.Wallet.CancelFundingIntent(pendingChanID)
 		if err != nil {
 			return nil, err
 		}
@@ -6776,7 +6776,7 @@ func (r *rpcServer) FundingStateStep(ctx context.Context,
 			return nil, fmt.Errorf("error parsing psbt: %v", err)
 		}
 
-		err = r.server.cc.wallet.PsbtFundingVerify(
+		err = r.server.cc.Wallet.PsbtFundingVerify(
 			pendingChanID, packet,
 		)
 		if err != nil {
@@ -6829,7 +6829,7 @@ func (r *rpcServer) FundingStateStep(ctx context.Context,
 				"finalize missing")
 		}
 
-		err = r.server.cc.wallet.PsbtFundingFinalize(
+		err = r.server.cc.Wallet.PsbtFundingFinalize(
 			pendingChanID, packet, rawTx,
 		)
 		if err != nil {

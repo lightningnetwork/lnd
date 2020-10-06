@@ -101,40 +101,53 @@ var DefaultLtcChannelConstraints = channeldb.ChannelConstraints{
 	MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 }
 
-// chainControl couples the three primary interfaces lnd utilizes for a
-// particular chain together. A single chainControl instance will exist for all
+// ChainControl couples the three primary interfaces lnd utilizes for a
+// particular chain together. A single ChainControl instance will exist for all
 // the chains lnd is currently active on.
-type chainControl struct {
-	chainIO lnwallet.BlockChainIO
+type ChainControl struct {
+	// ChainIO represents an abstraction over a source that can query the blockchain.
+	ChainIO lnwallet.BlockChainIO
 
-	feeEstimator chainfee.Estimator
+	// FeeEstimator is used to estimate an optimal fee for transactions important to us.
+	FeeEstimator chainfee.Estimator
 
-	signer input.Signer
+	// Signer is used to provide signatures over things like transactions.
+	Signer input.Signer
 
-	keyRing keychain.SecretKeyRing
+	// KeyRing represents a set of keys that we have the private keys to.
+	KeyRing keychain.SecretKeyRing
 
-	wc lnwallet.WalletController
+	// Wc is an abstraction over some basic wallet commands. This base set of commands
+	// will be provided to the Wallet *LightningWallet raw pointer below.
+	Wc lnwallet.WalletController
 
-	msgSigner lnwallet.MessageSigner
+	// MsgSigner is used to sign arbitrary messages.
+	MsgSigner lnwallet.MessageSigner
 
-	chainNotifier chainntnfs.ChainNotifier
+	// ChainNotifier is used to receive blockchain events that we are interested in.
+	ChainNotifier chainntnfs.ChainNotifier
 
-	chainView chainview.FilteredChainView
+	// ChainView is used in the router for maintaining an up-to-date graph.
+	ChainView chainview.FilteredChainView
 
-	wallet *lnwallet.LightningWallet
+	// Wallet is our LightningWallet that also contains the abstract Wc above. This wallet
+	// handles all of the lightning operations.
+	Wallet *lnwallet.LightningWallet
 
-	routingPolicy htlcswitch.ForwardingPolicy
+	// RoutingPolicy is the routing policy we have decided to use.
+	RoutingPolicy htlcswitch.ForwardingPolicy
 
-	minHtlcIn lnwire.MilliSatoshi
+	// MinHtlcIn is the minimum HTLC we will accept.
+	MinHtlcIn lnwire.MilliSatoshi
 }
 
-// newChainControl attempts to create a chainControl instance according
+// NewChainControl attempts to create a ChainControl instance according
 // to the parameters in the passed configuration. Currently three
-// branches of chainControl instances exist: one backed by a running btcd
+// branches of ChainControl instances exist: one backed by a running btcd
 // full-node, another backed by a running bitcoind full-node, and the other
 // backed by a running neutrino light client instance. When running with a
 // neutrino light client instance, `neutrinoCS` must be non-nil.
-func newChainControl(cfg *chainreg.Config) (*chainControl, error) {
+func NewChainControl(cfg *chainreg.Config) (*ChainControl, error) {
 
 	// Set the RPC config from the "home" chain. Multi-chain isn't yet
 	// active, so we'll restrict usage to a particular chain for now.
@@ -145,30 +158,30 @@ func newChainControl(cfg *chainreg.Config) (*chainControl, error) {
 	ltndLog.Infof("Primary chain is set to: %v",
 		cfg.PrimaryChain())
 
-	cc := &chainControl{}
+	cc := &ChainControl{}
 
 	switch cfg.PrimaryChain() {
 	case chainreg.BitcoinChain:
-		cc.routingPolicy = htlcswitch.ForwardingPolicy{
+		cc.RoutingPolicy = htlcswitch.ForwardingPolicy{
 			MinHTLCOut:    cfg.Bitcoin.MinHTLCOut,
 			BaseFee:       cfg.Bitcoin.BaseFee,
 			FeeRate:       cfg.Bitcoin.FeeRate,
 			TimeLockDelta: cfg.Bitcoin.TimeLockDelta,
 		}
-		cc.minHtlcIn = cfg.Bitcoin.MinHTLCIn
-		cc.feeEstimator = chainfee.NewStaticEstimator(
+		cc.MinHtlcIn = cfg.Bitcoin.MinHTLCIn
+		cc.FeeEstimator = chainfee.NewStaticEstimator(
 			DefaultBitcoinStaticFeePerKW,
 			DefaultBitcoinStaticMinRelayFeeRate,
 		)
 	case chainreg.LitecoinChain:
-		cc.routingPolicy = htlcswitch.ForwardingPolicy{
+		cc.RoutingPolicy = htlcswitch.ForwardingPolicy{
 			MinHTLCOut:    cfg.Litecoin.MinHTLCOut,
 			BaseFee:       cfg.Litecoin.BaseFee,
 			FeeRate:       cfg.Litecoin.FeeRate,
 			TimeLockDelta: cfg.Litecoin.TimeLockDelta,
 		}
-		cc.minHtlcIn = cfg.Litecoin.MinHTLCIn
-		cc.feeEstimator = chainfee.NewStaticEstimator(
+		cc.MinHtlcIn = cfg.Litecoin.MinHTLCIn
+		cc.FeeEstimator = chainfee.NewStaticEstimator(
 			DefaultLitecoinStaticFeePerKW, 0,
 		)
 	default:
@@ -213,10 +226,10 @@ func newChainControl(cfg *chainreg.Config) (*chainControl, error) {
 		// We'll create ChainNotifier and FilteredChainView instances,
 		// along with the wallet's ChainSource, which are all backed by
 		// the neutrino light client.
-		cc.chainNotifier = neutrinonotify.New(
+		cc.ChainNotifier = neutrinonotify.New(
 			cfg.NeutrinoCS, hintCache, hintCache,
 		)
-		cc.chainView, err = chainview.NewCfFilteredChainView(cfg.NeutrinoCS)
+		cc.ChainView, err = chainview.NewCfFilteredChainView(cfg.NeutrinoCS)
 		if err != nil {
 			return nil, err
 		}
@@ -299,10 +312,10 @@ func newChainControl(cfg *chainreg.Config) (*chainControl, error) {
 				"%v", err)
 		}
 
-		cc.chainNotifier = bitcoindnotify.New(
+		cc.ChainNotifier = bitcoindnotify.New(
 			bitcoindConn, cfg.ActiveNetParams.Params, hintCache, hintCache,
 		)
-		cc.chainView = chainview.NewBitcoindFilteredChainView(bitcoindConn)
+		cc.ChainView = chainview.NewBitcoindFilteredChainView(bitcoindConn)
 		walletConfig.ChainSource = bitcoindConn.NewBitcoindClient()
 
 		// If we're not in regtest mode, then we'll attempt to use a
@@ -325,7 +338,7 @@ func newChainControl(cfg *chainreg.Config) (*chainControl, error) {
 			// use live fee estimates, rather than a statically
 			// coded value.
 			fallBackFeeRate := chainfee.SatPerKVByte(25 * 1000)
-			cc.feeEstimator, err = chainfee.NewBitcoindEstimator(
+			cc.FeeEstimator, err = chainfee.NewBitcoindEstimator(
 				*rpcConfig, bitcoindMode.EstimateMode,
 				fallBackFeeRate.FeePerKWeight(),
 			)
@@ -341,7 +354,7 @@ func newChainControl(cfg *chainreg.Config) (*chainControl, error) {
 			// use live fee estimates, rather than a statically
 			// coded value.
 			fallBackFeeRate := chainfee.SatPerKVByte(25 * 1000)
-			cc.feeEstimator, err = chainfee.NewBitcoindEstimator(
+			cc.FeeEstimator, err = chainfee.NewBitcoindEstimator(
 				*rpcConfig, bitcoindMode.EstimateMode,
 				fallBackFeeRate.FeePerKWeight(),
 			)
@@ -407,7 +420,7 @@ func newChainControl(cfg *chainreg.Config) (*chainControl, error) {
 			DisableConnectOnNew:  true,
 			DisableAutoReconnect: false,
 		}
-		cc.chainNotifier, err = btcdnotify.New(
+		cc.ChainNotifier, err = btcdnotify.New(
 			rpcConfig, cfg.ActiveNetParams.Params, hintCache, hintCache,
 		)
 		if err != nil {
@@ -416,7 +429,7 @@ func newChainControl(cfg *chainreg.Config) (*chainControl, error) {
 
 		// Finally, we'll create an instance of the default chain view to be
 		// used within the routing layer.
-		cc.chainView, err = chainview.NewBtcdFilteredChainView(*rpcConfig)
+		cc.ChainView, err = chainview.NewBtcdFilteredChainView(*rpcConfig)
 		if err != nil {
 			srvrLog.Errorf("unable to create chain view: %v", err)
 			return nil, err
@@ -444,7 +457,7 @@ func newChainControl(cfg *chainreg.Config) (*chainControl, error) {
 			// live fee estimates, rather than a statically coded
 			// value.
 			fallBackFeeRate := chainfee.SatPerKVByte(25 * 1000)
-			cc.feeEstimator, err = chainfee.NewBtcdEstimator(
+			cc.FeeEstimator, err = chainfee.NewBtcdEstimator(
 				*rpcConfig, fallBackFeeRate.FeePerKWeight(),
 			)
 			if err != nil {
@@ -465,7 +478,7 @@ func newChainControl(cfg *chainreg.Config) (*chainControl, error) {
 		ltndLog.Infof("Using external fee estimator %v: cached=%v",
 			cfg.FeeURL, cacheFees)
 
-		cc.feeEstimator = chainfee.NewWebAPIEstimator(
+		cc.FeeEstimator = chainfee.NewWebAPIEstimator(
 			chainfee.SparseConfFeeSource{
 				URL: cfg.FeeURL,
 			},
@@ -474,7 +487,7 @@ func newChainControl(cfg *chainreg.Config) (*chainControl, error) {
 	}
 
 	// Start fee estimator.
-	if err := cc.feeEstimator.Start(); err != nil {
+	if err := cc.FeeEstimator.Start(); err != nil {
 		return nil, err
 	}
 
@@ -484,10 +497,10 @@ func newChainControl(cfg *chainreg.Config) (*chainControl, error) {
 		return nil, err
 	}
 
-	cc.msgSigner = wc
-	cc.signer = wc
-	cc.chainIO = wc
-	cc.wc = wc
+	cc.MsgSigner = wc
+	cc.Signer = wc
+	cc.ChainIO = wc
+	cc.Wc = wc
 
 	// Select the default channel constraints for the primary chain.
 	channelConstraints := DefaultBtcChannelConstraints
@@ -498,18 +511,18 @@ func newChainControl(cfg *chainreg.Config) (*chainControl, error) {
 	keyRing := keychain.NewBtcWalletKeyRing(
 		wc.InternalWallet(), cfg.ActiveNetParams.CoinType,
 	)
-	cc.keyRing = keyRing
+	cc.KeyRing = keyRing
 
 	// Create, and start the lnwallet, which handles the core payment
 	// channel logic, and exposes control via proxy state machines.
 	walletCfg := lnwallet.Config{
 		Database:           cfg.RemoteChanDB,
-		Notifier:           cc.chainNotifier,
+		Notifier:           cc.ChainNotifier,
 		WalletController:   wc,
-		Signer:             cc.signer,
-		FeeEstimator:       cc.feeEstimator,
+		Signer:             cc.Signer,
+		FeeEstimator:       cc.FeeEstimator,
 		SecretKeyRing:      keyRing,
-		ChainIO:            cc.chainIO,
+		ChainIO:            cc.ChainIO,
 		DefaultConstraints: channelConstraints,
 		NetParams:          *cfg.ActiveNetParams.Params,
 	}
@@ -525,7 +538,7 @@ func newChainControl(cfg *chainreg.Config) (*chainControl, error) {
 
 	ltndLog.Info("LightningWallet opened")
 
-	cc.wallet = lnWallet
+	cc.Wallet = lnWallet
 
 	return cc, nil
 }
@@ -575,7 +588,7 @@ var (
 		LitecoinMainnetGenesis: chainreg.LitecoinChain,
 	}
 
-	// chainDNSSeeds is a map of a chain's hash to the set of DNS seeds
+	// ChainDNSSeeds is a map of a chain's hash to the set of DNS seeds
 	// that will be use to bootstrap peers upon first startup.
 	//
 	// The first item in the array is the primary host we'll use to attempt
@@ -587,7 +600,7 @@ var (
 	//
 	// TODO(roasbeef): extend and collapse these and chainparams.go into
 	// struct like chaincfg.Params
-	chainDNSSeeds = map[chainhash.Hash][][2]string{
+	ChainDNSSeeds = map[chainhash.Hash][][2]string{
 		BitcoinMainnetGenesis: {
 			{
 				"nodes.lightning.directory",
@@ -614,38 +627,38 @@ var (
 	}
 )
 
-// chainRegistry keeps track of the current chains
-type chainRegistry struct {
+// ChainRegistry keeps track of the current chains
+type ChainRegistry struct {
 	sync.RWMutex
 
-	activeChains map[chainreg.ChainCode]*chainControl
+	activeChains map[chainreg.ChainCode]*ChainControl
 	netParams    map[chainreg.ChainCode]*chainreg.BitcoinNetParams
 
 	primaryChain chainreg.ChainCode
 }
 
-// newChainRegistry creates a new chainRegistry.
-func newChainRegistry() *chainRegistry {
-	return &chainRegistry{
-		activeChains: make(map[chainreg.ChainCode]*chainControl),
+// NewChainRegistry creates a new ChainRegistry.
+func NewChainRegistry() *ChainRegistry {
+	return &ChainRegistry{
+		activeChains: make(map[chainreg.ChainCode]*ChainControl),
 		netParams:    make(map[chainreg.ChainCode]*chainreg.BitcoinNetParams),
 	}
 }
 
-// RegisterChain assigns an active chainControl instance to a target chain
+// RegisterChain assigns an active ChainControl instance to a target chain
 // identified by its ChainCode.
-func (c *chainRegistry) RegisterChain(newChain chainreg.ChainCode,
-	cc *chainControl) {
+func (c *ChainRegistry) RegisterChain(newChain chainreg.ChainCode,
+	cc *ChainControl) {
 
 	c.Lock()
 	c.activeChains[newChain] = cc
 	c.Unlock()
 }
 
-// LookupChain attempts to lookup an active chainControl instance for the
+// LookupChain attempts to lookup an active ChainControl instance for the
 // target chain.
-func (c *chainRegistry) LookupChain(targetChain chainreg.ChainCode) (
-	*chainControl, bool) {
+func (c *ChainRegistry) LookupChain(targetChain chainreg.ChainCode) (
+	*ChainControl, bool) {
 
 	c.RLock()
 	cc, ok := c.activeChains[targetChain]
@@ -653,9 +666,9 @@ func (c *chainRegistry) LookupChain(targetChain chainreg.ChainCode) (
 	return cc, ok
 }
 
-// LookupChainByHash attempts to look up an active chainControl which
+// LookupChainByHash attempts to look up an active ChainControl which
 // corresponds to the passed genesis hash.
-func (c *chainRegistry) LookupChainByHash(chainHash chainhash.Hash) (*chainControl, bool) {
+func (c *ChainRegistry) LookupChainByHash(chainHash chainhash.Hash) (*ChainControl, bool) {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -669,7 +682,7 @@ func (c *chainRegistry) LookupChainByHash(chainHash chainhash.Hash) (*chainContr
 }
 
 // RegisterPrimaryChain sets a target chain as the "home chain" for lnd.
-func (c *chainRegistry) RegisterPrimaryChain(cc chainreg.ChainCode) {
+func (c *ChainRegistry) RegisterPrimaryChain(cc chainreg.ChainCode) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -679,7 +692,7 @@ func (c *chainRegistry) RegisterPrimaryChain(cc chainreg.ChainCode) {
 // PrimaryChain returns the primary chain for this running lnd instance. The
 // primary chain is considered the "home base" while the other registered
 // chains are treated as secondary chains.
-func (c *chainRegistry) PrimaryChain() chainreg.ChainCode {
+func (c *ChainRegistry) PrimaryChain() chainreg.ChainCode {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -687,7 +700,7 @@ func (c *chainRegistry) PrimaryChain() chainreg.ChainCode {
 }
 
 // ActiveChains returns a slice containing the active chains.
-func (c *chainRegistry) ActiveChains() []chainreg.ChainCode {
+func (c *ChainRegistry) ActiveChains() []chainreg.ChainCode {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -700,7 +713,7 @@ func (c *chainRegistry) ActiveChains() []chainreg.ChainCode {
 }
 
 // NumActiveChains returns the total number of active chains.
-func (c *chainRegistry) NumActiveChains() uint32 {
+func (c *ChainRegistry) NumActiveChains() uint32 {
 	c.RLock()
 	defer c.RUnlock()
 

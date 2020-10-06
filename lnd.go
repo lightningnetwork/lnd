@@ -472,7 +472,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		FeeURL:                      cfg.FeeURL,
 	}
 
-	activeChainControl, err := newChainControl(chainControlCfg)
+	activeChainControl, err := NewChainControl(chainControlCfg)
 	if err != nil {
 		err := fmt.Errorf("unable to create chain control: %v", err)
 		ltndLog.Error(err)
@@ -486,7 +486,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	cfg.registeredChains.RegisterChain(primaryChain, activeChainControl)
 
 	// TODO(roasbeef): add rotation
-	idKeyDesc, err := activeChainControl.keyRing.DeriveKey(
+	idKeyDesc, err := activeChainControl.KeyRing.DeriveKey(
 		keychain.KeyLocator{
 			Family: keychain.KeyFamilyNodeKey,
 			Index:  0,
@@ -559,7 +559,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		}
 		defer towerDB.Close()
 
-		towerKeyDesc, err := activeChainControl.keyRing.DeriveKey(
+		towerKeyDesc, err := activeChainControl.KeyRing.DeriveKey(
 			keychain.KeyLocator{
 				Family: keychain.KeyFamilyTowerID,
 				Index:  0,
@@ -572,19 +572,19 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		}
 
 		wtCfg := &watchtower.Config{
-			BlockFetcher:   activeChainControl.chainIO,
+			BlockFetcher:   activeChainControl.ChainIO,
 			DB:             towerDB,
-			EpochRegistrar: activeChainControl.chainNotifier,
+			EpochRegistrar: activeChainControl.ChainNotifier,
 			Net:            cfg.net,
 			NewAddress: func() (btcutil.Address, error) {
-				return activeChainControl.wallet.NewAddress(
+				return activeChainControl.Wallet.NewAddress(
 					lnwallet.WitnessPubKey, false,
 				)
 			},
 			NodeKeyECDH: keychain.NewPubKeyECDH(
-				towerKeyDesc, activeChainControl.keyRing,
+				towerKeyDesc, activeChainControl.KeyRing,
 			),
-			PublishTx: activeChainControl.wallet.PublishTransaction,
+			PublishTx: activeChainControl.Wallet.PublishTransaction,
 			ChainHash: *cfg.ActiveNetParams.GenesisHash,
 		}
 
@@ -697,7 +697,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	if !(cfg.Bitcoin.RegTest || cfg.Bitcoin.SimNet ||
 		cfg.Litecoin.RegTest || cfg.Litecoin.SimNet) {
 
-		_, bestHeight, err := activeChainControl.chainIO.GetBestBlock()
+		_, bestHeight, err := activeChainControl.ChainIO.GetBestBlock()
 		if err != nil {
 			err := fmt.Errorf("unable to determine chain tip: %v",
 				err)
@@ -713,7 +713,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 				return nil
 			}
 
-			synced, _, err := activeChainControl.wallet.IsSynced()
+			synced, _, err := activeChainControl.Wallet.IsSynced()
 			if err != nil {
 				err := fmt.Errorf("unable to determine if "+
 					"wallet is synced: %v", err)
@@ -728,7 +728,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 			time.Sleep(time.Second * 1)
 		}
 
-		_, bestHeight, err = activeChainControl.chainIO.GetBestBlock()
+		_, bestHeight, err = activeChainControl.ChainIO.GetBestBlock()
 		if err != nil {
 			err := fmt.Errorf("unable to determine chain tip: %v",
 				err)

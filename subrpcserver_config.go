@@ -82,7 +82,7 @@ type subRPCServerConfigs struct {
 //
 // NOTE: This MUST be called before any callers are permitted to execute the
 // FetchConfig method.
-func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config, cc *chainControl,
+func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config, cc *ChainControl,
 	networkDir string, macService *macaroons.Service,
 	atpl *autopilot.Manager,
 	invoiceRegistry *invoices.InvoiceRegistry,
@@ -133,10 +133,10 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config, cc *chainControl
 				reflect.ValueOf(networkDir),
 			)
 			subCfgValue.FieldByName("Signer").Set(
-				reflect.ValueOf(cc.signer),
+				reflect.ValueOf(cc.Signer),
 			)
 			subCfgValue.FieldByName("KeyRing").Set(
-				reflect.ValueOf(cc.keyRing),
+				reflect.ValueOf(cc.KeyRing),
 			)
 
 		case *walletrpc.Config:
@@ -149,22 +149,22 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config, cc *chainControl
 				reflect.ValueOf(macService),
 			)
 			subCfgValue.FieldByName("FeeEstimator").Set(
-				reflect.ValueOf(cc.feeEstimator),
+				reflect.ValueOf(cc.FeeEstimator),
 			)
 			subCfgValue.FieldByName("Wallet").Set(
-				reflect.ValueOf(cc.wallet),
+				reflect.ValueOf(cc.Wallet),
 			)
 			subCfgValue.FieldByName("CoinSelectionLocker").Set(
-				reflect.ValueOf(cc.wallet),
+				reflect.ValueOf(cc.Wallet),
 			)
 			subCfgValue.FieldByName("KeyRing").Set(
-				reflect.ValueOf(cc.keyRing),
+				reflect.ValueOf(cc.KeyRing),
 			)
 			subCfgValue.FieldByName("Sweeper").Set(
 				reflect.ValueOf(sweeper),
 			)
 			subCfgValue.FieldByName("Chain").Set(
-				reflect.ValueOf(cc.chainIO),
+				reflect.ValueOf(cc.ChainIO),
 			)
 			subCfgValue.FieldByName("ChainParams").Set(
 				reflect.ValueOf(activeNetParams),
@@ -187,7 +187,7 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config, cc *chainControl
 				reflect.ValueOf(macService),
 			)
 			subCfgValue.FieldByName("ChainNotifier").Set(
-				reflect.ValueOf(cc.chainNotifier),
+				reflect.ValueOf(cc.ChainNotifier),
 			)
 
 		case *invoicesrpc.Config:

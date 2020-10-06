@@ -358,7 +358,7 @@ type fundingConfig struct {
 
 	// RegisteredChains keeps track of all chains that have been registered
 	// with the daemon.
-	RegisteredChains *chainRegistry
+	RegisteredChains *ChainRegistry
 }
 
 // fundingManager acts as an orchestrator/bridge between the wallet's

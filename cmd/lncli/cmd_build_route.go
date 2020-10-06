@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/lightningnetwork/lnd"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/urfave/cli"
@@ -27,7 +27,7 @@ var buildRouteCommand = cli.Command{
 			Name: "final_cltv_delta",
 			Usage: "number of blocks the last hop has to reveal " +
 				"the preimage",
-			Value: lnd.DefaultBitcoinTimeLockDelta,
+			Value: chainreg.DefaultBitcoinTimeLockDelta,
 		},
 		cli.StringFlag{
 			Name:  "hops",

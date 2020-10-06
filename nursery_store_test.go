@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/channeldb"
 )
 
@@ -54,7 +55,7 @@ func TestNurseryStoreInit(t *testing.T) {
 	}
 	defer cleanUp()
 
-	ns, err := newNurseryStore(&BitcoinTestnetGenesis, cdb)
+	ns, err := newNurseryStore(&chainreg.BitcoinTestnetGenesis, cdb)
 	if err != nil {
 		t.Fatalf("unable to open nursery store: %v", err)
 	}
@@ -74,7 +75,7 @@ func TestNurseryStoreIncubate(t *testing.T) {
 	}
 	defer cleanUp()
 
-	ns, err := newNurseryStore(&BitcoinTestnetGenesis, cdb)
+	ns, err := newNurseryStore(&chainreg.BitcoinTestnetGenesis, cdb)
 	if err != nil {
 		t.Fatalf("unable to open nursery store: %v", err)
 	}
@@ -315,7 +316,7 @@ func TestNurseryStoreGraduate(t *testing.T) {
 	}
 	defer cleanUp()
 
-	ns, err := newNurseryStore(&BitcoinTestnetGenesis, cdb)
+	ns, err := newNurseryStore(&chainreg.BitcoinTestnetGenesis, cdb)
 	if err != nil {
 		t.Fatalf("unable to open nursery store: %v", err)
 	}

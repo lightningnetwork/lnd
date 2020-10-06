@@ -76,7 +76,7 @@ const (
 	// maxLtcFundingAmount is a soft-limit of the maximum channel size
 	// currently accepted on the Litecoin chain within the Lightning
 	// Protocol.
-	maxLtcFundingAmount = MaxBtcFundingAmount * BtcToLtcConversionRate
+	maxLtcFundingAmount = MaxBtcFundingAmount * chainreg.BtcToLtcConversionRate
 )
 
 var (
@@ -358,7 +358,7 @@ type fundingConfig struct {
 
 	// RegisteredChains keeps track of all chains that have been registered
 	// with the daemon.
-	RegisteredChains *ChainRegistry
+	RegisteredChains *chainreg.ChainRegistry
 }
 
 // fundingManager acts as an orchestrator/bridge between the wallet's
@@ -3064,7 +3064,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	case chainreg.BitcoinChain:
 		ourDustLimit = lnwallet.DefaultDustLimit()
 	case chainreg.LitecoinChain:
-		ourDustLimit = DefaultLitecoinDustLimit
+		ourDustLimit = chainreg.DefaultLitecoinDustLimit
 	}
 
 	fndgLog.Infof("Initiating fundingRequest(local_amt=%v "+

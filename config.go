@@ -312,7 +312,7 @@ type Config struct {
 
 	// registeredChains keeps track of all chains that have been registered
 	// with the daemon.
-	registeredChains *ChainRegistry
+	registeredChains *chainreg.ChainRegistry
 
 	// networkDir is the path to the directory of the currently active
 	// network. This path will hold the files related to each different
@@ -339,11 +339,11 @@ func DefaultConfig() Config {
 		MaxLogFileSize:    defaultMaxLogFileSize,
 		AcceptorTimeout:   defaultAcceptorTimeout,
 		Bitcoin: &lncfg.Chain{
-			MinHTLCIn:     DefaultBitcoinMinHTLCInMSat,
-			MinHTLCOut:    DefaultBitcoinMinHTLCOutMSat,
-			BaseFee:       DefaultBitcoinBaseFeeMSat,
-			FeeRate:       DefaultBitcoinFeeRate,
-			TimeLockDelta: DefaultBitcoinTimeLockDelta,
+			MinHTLCIn:     chainreg.DefaultBitcoinMinHTLCInMSat,
+			MinHTLCOut:    chainreg.DefaultBitcoinMinHTLCOutMSat,
+			BaseFee:       chainreg.DefaultBitcoinBaseFeeMSat,
+			FeeRate:       chainreg.DefaultBitcoinFeeRate,
+			TimeLockDelta: chainreg.DefaultBitcoinTimeLockDelta,
 			Node:          "btcd",
 		},
 		BtcdMode: &lncfg.Btcd{
@@ -357,11 +357,11 @@ func DefaultConfig() Config {
 			EstimateMode: defaultBitcoindEstimateMode,
 		},
 		Litecoin: &lncfg.Chain{
-			MinHTLCIn:     DefaultLitecoinMinHTLCInMSat,
-			MinHTLCOut:    DefaultLitecoinMinHTLCOutMSat,
-			BaseFee:       DefaultLitecoinBaseFeeMSat,
-			FeeRate:       DefaultLitecoinFeeRate,
-			TimeLockDelta: DefaultLitecoinTimeLockDelta,
+			MinHTLCIn:     chainreg.DefaultLitecoinMinHTLCInMSat,
+			MinHTLCOut:    chainreg.DefaultLitecoinMinHTLCOutMSat,
+			BaseFee:       chainreg.DefaultLitecoinBaseFeeMSat,
+			FeeRate:       chainreg.DefaultLitecoinFeeRate,
+			TimeLockDelta: chainreg.DefaultLitecoinTimeLockDelta,
 			Node:          "ltcd",
 		},
 		LtcdMode: &lncfg.Btcd{
@@ -452,7 +452,7 @@ func DefaultConfig() Config {
 		MaxChannelFeeAllocation: htlcswitch.DefaultMaxLinkFeeAllocation,
 		LogWriter:               build.NewRotatingLogWriter(),
 		DB:                      lncfg.DefaultDB(),
-		registeredChains:        NewChainRegistry(),
+		registeredChains:        chainreg.NewChainRegistry(),
 		ActiveNetParams:         chainreg.BitcoinTestNetParams,
 	}
 }

@@ -271,7 +271,7 @@ func createTestWallet(cdb *channeldb.DB, netParams *chaincfg.Params,
 		ChainIO:            bio,
 		FeeEstimator:       estimator,
 		NetParams:          *netParams,
-		DefaultConstraints: DefaultBtcChannelConstraints,
+		DefaultConstraints: chainreg.DefaultBtcChannelConstraints,
 	})
 	if err != nil {
 		return nil, err
@@ -437,7 +437,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		NotifyOpenChannelEvent:        evt.NotifyOpenChannelEvent,
 		OpenChannelPredicate:          chainedAcceptor,
 		NotifyPendingOpenChannelEvent: evt.NotifyPendingOpenChannelEvent,
-		RegisteredChains:              NewChainRegistry(),
+		RegisteredChains:              chainreg.NewChainRegistry(),
 	}
 
 	for _, op := range options {

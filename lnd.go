@@ -472,7 +472,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		FeeURL:                      cfg.FeeURL,
 	}
 
-	activeChainControl, err := NewChainControl(chainControlCfg)
+	activeChainControl, err := chainreg.NewChainControl(chainControlCfg)
 	if err != nil {
 		err := fmt.Errorf("unable to create chain control: %v", err)
 		ltndLog.Error(err)

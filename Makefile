@@ -254,6 +254,10 @@ rpc-check: rpc
 	for rpc in $$(find lnrpc/ -name "*.proto" | $(XARGS) awk '/    rpc /{print $$2}'); do if ! grep -q $$rpc lnrpc/rest-annotations.yaml; then echo "RPC $$rpc not added to lnrpc/rest-annotations.yaml"; exit 1; fi; done
 	if test -n "$$(git describe --dirty | grep dirty)"; then echo "Protos not properly formatted or not compiled with v3.4.0"; git status; git diff; exit 1; fi
 
+sample-conf-check:
+	@$(call print, "Making sure every flag has an example in the sample-lnd.conf file")
+	for flag in $$(GO_FLAGS_COMPLETION=1 go run -tags="$(RELEASE_TAGS)" $(PKG)/cmd/lnd -- | grep -v help | cut -c3-); do if ! grep -q $$flag sample-lnd.conf; then echo "Command line flag --$$flag not added to sample-lnd.conf"; exit 1; fi; done
+
 mobile-rpc: falafel goimports
 	@$(call print, "Creating mobile RPC from protos.")
 	cd ./mobile; ./gen_bindings.sh $(FALAFEL_COMMIT)

@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,9 +17,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/wallet"
-	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightninglabs/neutrino"
-	"github.com/lightninglabs/neutrino/headerfs"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainntnfs/bitcoindnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
@@ -730,127 +727,4 @@ func (c *chainRegistry) NumActiveChains() uint32 {
 	defer c.RUnlock()
 
 	return uint32(len(c.activeChains))
-}
-
-// initNeutrinoBackend inits a new instance of the neutrino light client
-// backend given a target chain directory to store the chain state.
-func initNeutrinoBackend(cfg *Config, chainDir string) (*neutrino.ChainService,
-	func(), error) {
-
-	// First we'll open the database file for neutrino, creating the
-	// database if needed. We append the normalized network name here to
-	// match the behavior of btcwallet.
-	dbPath := filepath.Join(
-		chainDir,
-		normalizeNetwork(cfg.ActiveNetParams.Name),
-	)
-
-	// Ensure that the neutrino db path exists.
-	if err := os.MkdirAll(dbPath, 0700); err != nil {
-		return nil, nil, err
-	}
-
-	dbName := filepath.Join(dbPath, "neutrino.db")
-	db, err := walletdb.Create("bdb", dbName, !cfg.SyncFreelist)
-	if err != nil {
-		return nil, nil, fmt.Errorf("unable to create neutrino "+
-			"database: %v", err)
-	}
-
-	headerStateAssertion, err := parseHeaderStateAssertion(
-		cfg.NeutrinoMode.AssertFilterHeader,
-	)
-	if err != nil {
-		db.Close()
-		return nil, nil, err
-	}
-
-	// With the database open, we can now create an instance of the
-	// neutrino light client. We pass in relevant configuration parameters
-	// required.
-	config := neutrino.Config{
-		DataDir:      dbPath,
-		Database:     db,
-		ChainParams:  *cfg.ActiveNetParams.Params,
-		AddPeers:     cfg.NeutrinoMode.AddPeers,
-		ConnectPeers: cfg.NeutrinoMode.ConnectPeers,
-		Dialer: func(addr net.Addr) (net.Conn, error) {
-			return cfg.net.Dial(
-				addr.Network(), addr.String(),
-				cfg.ConnectionTimeout,
-			)
-		},
-		NameResolver: func(host string) ([]net.IP, error) {
-			addrs, err := cfg.net.LookupHost(host)
-			if err != nil {
-				return nil, err
-			}
-
-			ips := make([]net.IP, 0, len(addrs))
-			for _, strIP := range addrs {
-				ip := net.ParseIP(strIP)
-				if ip == nil {
-					continue
-				}
-
-				ips = append(ips, ip)
-			}
-
-			return ips, nil
-		},
-		AssertFilterHeader: headerStateAssertion,
-	}
-
-	neutrino.MaxPeers = 8
-	neutrino.BanDuration = time.Hour * 48
-	neutrino.UserAgentName = cfg.NeutrinoMode.UserAgentName
-	neutrino.UserAgentVersion = cfg.NeutrinoMode.UserAgentVersion
-
-	neutrinoCS, err := neutrino.NewChainService(config)
-	if err != nil {
-		db.Close()
-		return nil, nil, fmt.Errorf("unable to create neutrino light "+
-			"client: %v", err)
-	}
-
-	if err := neutrinoCS.Start(); err != nil {
-		db.Close()
-		return nil, nil, err
-	}
-
-	cleanUp := func() {
-		neutrinoCS.Stop()
-		db.Close()
-	}
-
-	return neutrinoCS, cleanUp, nil
-}
-
-// parseHeaderStateAssertion parses the user-specified neutrino header state
-// into a headerfs.FilterHeader.
-func parseHeaderStateAssertion(state string) (*headerfs.FilterHeader, error) {
-	if len(state) == 0 {
-		return nil, nil
-	}
-
-	split := strings.Split(state, ":")
-	if len(split) != 2 {
-		return nil, fmt.Errorf("header state assertion %v in "+
-			"unexpected format, expected format height:hash", state)
-	}
-
-	height, err := strconv.ParseUint(split[0], 10, 32)
-	if err != nil {
-		return nil, fmt.Errorf("invalid filter header height: %v", err)
-	}
-
-	hash, err := chainhash.NewHashFromStr(split[1])
-	if err != nil {
-		return nil, fmt.Errorf("invalid filter header hash: %v", err)
-	}
-
-	return &headerfs.FilterHeader{
-		Height:     uint32(height),
-		FilterHash: *hash,
-	}, nil
 }

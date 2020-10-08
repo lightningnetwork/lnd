@@ -171,6 +171,14 @@ type PaymentAttemptDispatcher interface {
 	GetPaymentResult(paymentID uint64, paymentHash lntypes.Hash,
 		deobfuscator htlcswitch.ErrorDecrypter) (
 		<-chan *htlcswitch.PaymentResult, error)
+
+	// CleanStore calls the underlying result store, telling it is safe to
+	// delete all entries except the ones in the keepPids map. This should
+	// be called preiodically to let the switch clean up payment results
+	// that we have handled.
+	// NOTE: New payment attempts MUST NOT be made after the keepPids map
+	// has been created and this method has returned.
+	CleanStore(keepPids map[uint64]struct{}) error
 }
 
 // PaymentSessionSource is an interface that defines a source for the router to
@@ -535,6 +543,30 @@ func (r *ChannelRouter) Start() error {
 	// results are properly handled.
 	payments, err := r.cfg.Control.FetchInFlightPayments()
 	if err != nil {
+		return err
+	}
+
+	// Before we restart existing payments and start accepting more
+	// payments to be made, we clean the network result store of the
+	// Switch. We do this here at startup to ensure no more payments can be
+	// made concurrently, so we know the toKeep map will be up-to-date
+	// until the cleaning has finished.
+	toKeep := make(map[uint64]struct{})
+	for _, p := range payments {
+		payment, err := r.cfg.Control.FetchPayment(
+			p.Info.PaymentHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		for _, a := range payment.HTLCs {
+			toKeep[a.AttemptID] = struct{}{}
+		}
+	}
+
+	log.Debugf("Cleaning network result store.")
+	if err := r.cfg.Payer.CleanStore(toKeep); err != nil {
 		return err
 	}
 

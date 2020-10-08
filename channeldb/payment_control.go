@@ -673,16 +673,11 @@ func ensureInFlight(payment *MPPayment) error {
 	}
 }
 
-// InFlightPayment is a wrapper around a payment that has status InFlight.
+// InFlightPayment is a wrapper around the info for a payment that has status
+// InFlight.
 type InFlightPayment struct {
 	// Info is the PaymentCreationInfo of the in-flight payment.
 	Info *PaymentCreationInfo
-
-	// Attempts is the set of payment attempts that was made to this
-	// payment hash.
-	//
-	// NOTE: Might be empty.
-	Attempts []HTLCAttemptInfo
 }
 
 // FetchInFlightPayments returns all payments with status InFlight.
@@ -716,33 +711,6 @@ func (p *PaymentControl) FetchInFlightPayments() ([]*InFlightPayment, error) {
 			inFlight.Info, err = fetchCreationInfo(bucket)
 			if err != nil {
 				return err
-			}
-
-			htlcsBucket := bucket.NestedReadBucket(
-				paymentHtlcsBucket,
-			)
-			if htlcsBucket == nil {
-				return nil
-			}
-
-			// Fetch all HTLCs attempted for this payment.
-			htlcs, err := fetchHtlcAttempts(htlcsBucket)
-			if err != nil {
-				return err
-			}
-
-			// We only care about the static info for the HTLCs
-			// still in flight, so convert the result to a slice of
-			// HTLCAttemptInfos.
-			for _, h := range htlcs {
-				// Skip HTLCs not in flight.
-				if h.Settle != nil || h.Failure != nil {
-					continue
-				}
-
-				inFlight.Attempts = append(
-					inFlight.Attempts, h.HTLCAttemptInfo,
-				)
 			}
 
 			inFlights = append(inFlights, inFlight)

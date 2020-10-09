@@ -71,7 +71,7 @@ func (b BitcoindBackendConfig) Name() string {
 
 // newBackend starts a bitcoind node with the given extra parameters and returns
 // a BitcoindBackendConfig for that node.
-func newBackend(miner string, netParams *chaincfg.Params, _ []string) (
+func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string) (
 	*BitcoindBackendConfig, func() error, error) {
 
 	if netParams != &chaincfg.RegressionNetParams {
@@ -98,33 +98,33 @@ func newBackend(miner string, netParams *chaincfg.Params, _ []string) (
 	rpcPort := rand.Int()%(65536-1024) + 1024
 	p2pPort := rand.Int()%(65536-1024) + 1024
 
-	bitcoind := exec.Command(
-		"bitcoind",
-		"-datadir="+tempBitcoindDir,
-		"-debug",
-		"-regtest",
-		"-txindex",
+	cmdArgs := []string{
+		"-datadir=" + tempBitcoindDir,
 		"-whitelist=127.0.0.1", // whitelist localhost to speed up relay
-		"-rpcauth=weks:469e9bb14ab2360f8e226efed5ca6f"+
-			"d$507c670e800a95284294edb5773b05544b"+
+		"-rpcauth=weks:469e9bb14ab2360f8e226efed5ca6f" +
+			"d$507c670e800a95284294edb5773b05544b" +
 			"220110063096c221be9933c82d38e1",
 		fmt.Sprintf("-rpcport=%d", rpcPort),
 		fmt.Sprintf("-port=%d", p2pPort),
-		"-disablewallet",
-		"-zmqpubrawblock="+zmqBlockPath,
-		"-zmqpubrawtx="+zmqTxPath,
-		"-debuglogfile="+logFile,
-	)
+		"-zmqpubrawblock=" + zmqBlockPath,
+		"-zmqpubrawtx=" + zmqTxPath,
+		"-debuglogfile=" + logFile,
+	}
+	cmdArgs = append(cmdArgs, extraArgs...)
+	bitcoind := exec.Command("bitcoind", cmdArgs...)
 
 	err = bitcoind.Start()
 	if err != nil {
-		os.RemoveAll(tempBitcoindDir)
+		if err := os.RemoveAll(tempBitcoindDir); err != nil {
+			fmt.Printf("unable to remote temp dir %v: %v",
+				tempBitcoindDir, err)
+		}
 		return nil, nil, fmt.Errorf("couldn't start bitcoind: %v", err)
 	}
 
 	cleanUp := func() error {
-		bitcoind.Process.Kill()
-		bitcoind.Wait()
+		_ = bitcoind.Process.Kill()
+		_ = bitcoind.Wait()
 
 		var errStr string
 		// After shutting down the chain backend, we'll make a copy of
@@ -169,7 +169,7 @@ func newBackend(miner string, netParams *chaincfg.Params, _ []string) (
 
 	client, err := rpcclient.New(&rpcCfg, nil)
 	if err != nil {
-		cleanUp()
+		_ = cleanUp()
 		return nil, nil, fmt.Errorf("unable to create rpc client: %v",
 			err)
 	}

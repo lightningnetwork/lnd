@@ -52,10 +52,15 @@ jobs:
       script:
         - make itest
 
-    - name: Bitcoind Integration
+    - name: Bitcoind Integration (txindex enabled)
       script:
         - bash ./scripts/install_bitcoind.sh
         - make itest backend=bitcoind
+
+    - name: Bitcoind Integration (txindex disabled)
+      script:
+        - bash ./scripts/install_bitcoind.sh
+        - make itest backend="bitcoind notxindex"
 
     - name: Neutrino Integration
       script:

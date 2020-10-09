@@ -13,7 +13,7 @@ import (
 func Fuzz_static_init_enc_dec(data []byte) int {
 	// Ensure that length of message is not greater than max allowed size.
 	if len(data) > math.MaxUint16 {
-		return 0
+		return 1
 	}
 
 	// This will return brontide machines with static keys.

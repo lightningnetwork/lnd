@@ -17,7 +17,7 @@ env:
   GOCACHE: /home/runner/work/go/pkg/build
   GOPATH: /home/runner/work/go
   DOWNLOAD_CACHE: /home/runner/work/download_cache
-  BITCOIN_VERSION: 0.19.1
+  BITCOIN_VERSION: 0.20.1
   GO_VERSION: 1.15.2
 
 jobs:
@@ -235,14 +235,6 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: '~${{ env.GO_VERSION }}'
-
-      - name: bitcoin cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/bitcoin/bitcoin-${{ env.BITCOIN_VERSION }}/bin
-          key: lnd-${{ runner.os }}-bitcoin-${{ env.BITCOIN_VERSION }}
-          restore-keys: |
-            lnd-${{ runner.os }}-bitcoin-${{ env.BITCOIN_VERSION }}
 
       - name: install bitcoind
         run: ./scripts/install_bitcoind.sh

@@ -1,7 +1,6 @@
 language: go
 cache:
   directories:
-    - ~/bitcoin/bitcoin-0.19.1/bin
     - $DOWNLOAD_CACHE
     - $GOCACHE
     - $GOPATH/pkg/mod
@@ -23,6 +22,7 @@ env:
   global:
     - GOCACHE=$HOME/.go-build
     - DOWNLOAD_CACHE=$HOME/download_cache
+    - BITCOIN_VERSION=0.20.1
 
 sudo: required
 

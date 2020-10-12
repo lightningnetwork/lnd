@@ -26,9 +26,9 @@ import (
 )
 
 const (
-	// paymentTimeoutSeconds is the default timeout for the payment loop in
-	// lnd. No new attempts will be started after the timeout.
-	paymentTimeoutSeconds = 60
+	// paymentTimeout is the default timeout for the payment loop in lnd.
+	// No new attempts will be started after the timeout.
+	paymentTimeout = time.Second * 60
 )
 
 var (
@@ -90,6 +90,13 @@ func paymentFlags() []cli.Flag {
 			Usage: "percentage of the payment's amount used as " +
 				"the maximum fee allowed when sending the " +
 				"payment",
+		},
+		cli.DurationFlag{
+			Name: "timeout",
+			Usage: "the maximum amount of time we should spend " +
+				"trying to fulfill the payment, failing " +
+				"after the timeout has elapsed",
+			Value: paymentTimeout,
 		},
 		cltvLimitFlag,
 		lastHopFlag,
@@ -336,7 +343,12 @@ func sendPaymentRequest(ctx *cli.Context,
 	}
 
 	req.CltvLimit = int32(ctx.Int(cltvLimitFlag.Name))
-	req.TimeoutSeconds = paymentTimeoutSeconds
+
+	pmtTimeout := ctx.Duration("timeout")
+	if pmtTimeout <= 0 {
+		return errors.New("payment timeout must be greater than zero")
+	}
+	req.TimeoutSeconds = int32(pmtTimeout.Seconds())
 
 	req.AllowSelfPayment = ctx.Bool("allow_self_payment")
 

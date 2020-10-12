@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 const (
@@ -44,6 +45,13 @@ var (
 	//
 	// TODO(roasbeef): flesh out comment
 	openChannelBucket = []byte("open-chan-bucket")
+
+	// outpointBucket stores all of our channel outpoints and a tlv
+	// stream containing channel data.
+	//
+	// outpoint -> tlv stream
+	//
+	outpointBucket = []byte("outpoint-bucket")
 
 	// historicalChannelBucket stores all channels that have seen their
 	// commitment tx confirm. All information from their previous open state
@@ -167,10 +175,33 @@ var (
 	// the height requested in the revocation log.
 	ErrLogEntryNotFound = fmt.Errorf("log entry not found")
 
+	// ErrMissingIndexEntry is returned when a caller attempts to close a
+	// channel and the outpoint is missing from the index.
+	ErrMissingIndexEntry = fmt.Errorf("missing outpoint from index")
+
 	// errHeightNotFound is returned when a query for channel balances at
 	// a height that we have not reached yet is made.
 	errHeightNotReached = fmt.Errorf("height requested greater than " +
 		"current commit height")
+)
+
+const (
+	// A tlv type definition used to serialize an outpoint's indexStatus
+	// for use in the outpoint index.
+	indexStatusType tlv.Type = 0
+)
+
+// indexStatus is an enum-like type that describes what state the
+// outpoint is in. Currently only two possible values.
+type indexStatus uint8
+
+const (
+	// outpointOpen represents an outpoint that is open in the outpoint index.
+	outpointOpen indexStatus = 0
+
+	// outpointClosed represents an outpoint that is closed in the outpoint
+	// index.
+	outpointClosed indexStatus = 1
 )
 
 // ChannelType is an enum-like type that describes one of several possible
@@ -827,6 +858,39 @@ func fetchChanBucketRw(tx kvdb.RwTx, nodeKey *btcec.PublicKey, // nolint:interfa
 // fullSync syncs the contents of an OpenChannel while re-using an existing
 // database transaction.
 func (c *OpenChannel) fullSync(tx kvdb.RwTx) error {
+	// Fetch the outpoint bucket and check if the outpoint already exists.
+	opBucket := tx.ReadWriteBucket(outpointBucket)
+
+	var chanPointBuf bytes.Buffer
+	if err := writeOutpoint(&chanPointBuf, &c.FundingOutpoint); err != nil {
+		return err
+	}
+
+	// Now, check if the outpoint exists in our index.
+	if opBucket.Get(chanPointBuf.Bytes()) != nil {
+		return ErrChanAlreadyExists
+	}
+
+	status := uint8(outpointOpen)
+
+	// Write the status of this outpoint as the first entry in a tlv
+	// stream.
+	statusRecord := tlv.MakePrimitiveRecord(indexStatusType, &status)
+	opStream, err := tlv.NewStream(statusRecord)
+	if err != nil {
+		return err
+	}
+
+	var b bytes.Buffer
+	if err := opStream.Encode(&b); err != nil {
+		return err
+	}
+
+	// Add the outpoint to our outpoint index with the tlv stream.
+	if err := opBucket.Put(chanPointBuf.Bytes(), b.Bytes()); err != nil {
+		return err
+	}
+
 	// First fetch the top level bucket which stores all data related to
 	// current, active channels.
 	openChanBucket, err := tx.CreateTopLevelBucket(openChannelBucket)
@@ -851,10 +915,6 @@ func (c *OpenChannel) fullSync(tx kvdb.RwTx) error {
 
 	// With the bucket for the node fetched, we can now go down another
 	// level, creating the bucket for this channel itself.
-	var chanPointBuf bytes.Buffer
-	if err := writeOutpoint(&chanPointBuf, &c.FundingOutpoint); err != nil {
-		return err
-	}
 	chanBucket, err := chainBucket.CreateBucket(
 		chanPointBuf.Bytes(),
 	)
@@ -1258,7 +1318,7 @@ func (c *OpenChannel) clearChanStatus(status ChannelStatus) error {
 	return nil
 }
 
-// putChannel serializes, and stores the current state of the channel in its
+// putOpenChannel serializes, and stores the current state of the channel in its
 // entirety.
 func putOpenChannel(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 	// First, we'll write out all the relatively static fields, that are
@@ -2769,6 +2829,36 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary,
 
 		err = chainBucket.DeleteNestedBucket(chanPointBuf.Bytes())
 		if err != nil {
+			return err
+		}
+
+		// Fetch the outpoint bucket to see if the outpoint exists or
+		// not.
+		opBucket := tx.ReadWriteBucket(outpointBucket)
+
+		// Add the closed outpoint to our outpoint index. This should
+		// replace an open outpoint in the index.
+		if opBucket.Get(chanPointBuf.Bytes()) == nil {
+			return ErrMissingIndexEntry
+		}
+
+		status := uint8(outpointClosed)
+
+		// Write the IndexStatus of this outpoint as the first entry in a tlv
+		// stream.
+		statusRecord := tlv.MakePrimitiveRecord(indexStatusType, &status)
+		opStream, err := tlv.NewStream(statusRecord)
+		if err != nil {
+			return err
+		}
+
+		var b bytes.Buffer
+		if err := opStream.Encode(&b); err != nil {
+			return err
+		}
+
+		// Finally add the closed outpoint and tlv stream to the index.
+		if err := opBucket.Put(chanPointBuf.Bytes(), b.Bytes()); err != nil {
 			return err
 		}
 

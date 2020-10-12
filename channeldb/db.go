@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration12"
 	"github.com/lightningnetwork/lnd/channeldb/migration13"
 	"github.com/lightningnetwork/lnd/channeldb/migration16"
+	"github.com/lightningnetwork/lnd/channeldb/migration20"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -170,6 +171,17 @@ var (
 			number:    18,
 			migration: mig.CreateTLB(peersBucket),
 		},
+		{
+			// Create a top level bucket which holds outpoint
+			// information.
+			number:    19,
+			migration: mig.CreateTLB(outpointBucket),
+		},
+		{
+			// Migrate some data to the outpoint index.
+			number:    20,
+			migration: migration20.MigrateOutpointIndex,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over
@@ -309,6 +321,7 @@ var topLevelBuckets = [][]byte{
 	graphMetaBucket,
 	metaBucket,
 	closeSummaryBucket,
+	outpointBucket,
 }
 
 // createChannelDB creates and initializes a fresh version of channeldb. In

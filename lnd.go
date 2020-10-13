@@ -843,7 +843,7 @@ func createExternalCert(cfg *Config, keyBytes []byte, certLocation string) (retu
 		if err != nil {
 			return returnCert, err
 		}
-		rpcsLog.Debugf("received cert request with id %s", externalCert.Id)
+		rpcsLog.Infof("received cert request with id %s", externalCert.Id)
 		domain := externalCert.CommonName
 		path := externalCert.Validation.OtherValidation[domain].FileValidationUrlHttp
 		path = strings.Replace(path, "http://"+domain, "", -1)
@@ -862,7 +862,7 @@ func createExternalCert(cfg *Config, keyBytes []byte, certLocation string) (retu
 			rpcsLog.Infof("starting certificate validator server at %s",
 				addr)
 			err := certServer.ListenAndServe()
-			if err != nil && err != http.ErrServerClosed {
+			if err != nil {
 				rpcsLog.Errorf("there was a problem starting external cert validation server: %v",
 					err)
 				return
@@ -873,6 +873,8 @@ func createExternalCert(cfg *Config, keyBytes []byte, certLocation string) (retu
 			return returnCert, err
 		}
 		rpcsLog.Debug("requested certificate to be validated")
+		checkCount := 0
+		retries := 0
 		for {
 			newCert, err := certprovider.ZeroSSLGetCert(externalCert)
 			if err != nil {
@@ -881,6 +883,7 @@ func createExternalCert(cfg *Config, keyBytes []byte, certLocation string) (retu
 			status := newCert.Status
 			rpcsLog.Debugf("found certificate in state %s", status)
 			if status == "issued" {
+				rpcsLog.Info("Certificate was issued.")
 				break
 			} else if status == "draft" {
 				err = certprovider.ZeroSSLValidateCert(externalCert)
@@ -888,11 +891,21 @@ func createExternalCert(cfg *Config, keyBytes []byte, certLocation string) (retu
 					return returnCert, err
 				}
 			}
-			if signal.Listening() == false {
-				rpcsLog.Info("received shutdown on cert server")
-				certServer.Close()
-				return returnCert, err
+			if retries > 3 {
+				rpcsLog.Error("Still can't get a certificate after 3 retries. Failing...")
+				return returnCert, fmt.Errorf("Timed out trying to create SSL Certificate")
 			}
+			if checkCount > 60 {
+				rpcsLog.Warn("Timed out waiting for cert. Requesting a new one.")
+				externalCert, err = certprovider.ZeroSSLRequestCert(csr, cfg.ExternalSSLDomain)
+				if err != nil {
+					return returnCert, err
+				}
+				rpcsLog.Infof("received cert request with id %s", externalCert.Id)
+				retries += 1
+				checkCount = 0
+			}
+			checkCount += 1
 			time.Sleep(2 * time.Second)
 		}
 		certificate, caBundle, err := certprovider.ZeroSSLDownloadCert(externalCert)

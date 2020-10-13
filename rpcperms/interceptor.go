@@ -13,6 +13,18 @@ import (
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
+var (
+	// macaroonWhitelist defines methods that we don't require macaroons to
+	// access.
+	macaroonWhitelist = map[string]struct{}{
+		// We allow all calls to the WalletUnlocker without macaroons.
+		"/lnrpc.WalletUnlocker/GenSeed":        {},
+		"/lnrpc.WalletUnlocker/InitWallet":     {},
+		"/lnrpc.WalletUnlocker/UnlockWallet":   {},
+		"/lnrpc.WalletUnlocker/ChangePassword": {},
+	}
+)
+
 // InterceptorChain is a struct that can be added to the running GRPC server,
 // intercepting API calls. This is useful for logging, enforcing permissions
 // etc.
@@ -159,6 +171,52 @@ func errorLogStreamServerInterceptor(logger btclog.Logger) grpc.StreamServerInte
 	}
 }
 
+// checkMacaroon validates that the context contains the macaroon needed to
+// invoke the given RPC method.
+func (r *InterceptorChain) checkMacaroon(ctx context.Context,
+	fullMethod string) error {
+
+	// If noMacaroons is set, we'll always allow the call.
+	if r.noMacaroons {
+		return nil
+	}
+
+	// Check whether the method is whitelisted, if so we'll allow it
+	// regardless of macaroons.
+	_, ok := macaroonWhitelist[fullMethod]
+	if ok {
+		return nil
+	}
+
+	r.RLock()
+	svc := r.svc
+	r.RUnlock()
+
+	// If the macaroon service is not yet active, we cannot allow
+	// the call.
+	if svc == nil {
+		return fmt.Errorf("unable to determine macaroon permissions")
+	}
+
+	r.RLock()
+	uriPermissions, ok := r.permissionMap[fullMethod]
+	r.RUnlock()
+	if !ok {
+		return fmt.Errorf("%s: unknown permissions required for method",
+			fullMethod)
+	}
+
+	// Find out if there is an external validator registered for
+	// this method. Fall back to the internal one if there isn't.
+	validator, ok := svc.ExternalValidators[fullMethod]
+	if !ok {
+		validator = svc
+	}
+
+	// Now that we know what validator to use, let it do its work.
+	return validator.ValidateMacaroon(ctx, uriPermissions, fullMethod)
+}
+
 // macaroonUnaryServerInterceptor is a GRPC interceptor that checks whether the
 // request is authorized by the included macaroons.
 func (r *InterceptorChain) macaroonUnaryServerInterceptor() grpc.UnaryServerInterceptor {
@@ -166,42 +224,8 @@ func (r *InterceptorChain) macaroonUnaryServerInterceptor() grpc.UnaryServerInte
 		info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler) (interface{}, error) {
 
-		// If noMacaroons are set, we'll always allow the call.
-		if r.noMacaroons {
-			return handler(ctx, req)
-		}
-
-		r.RLock()
-		svc := r.svc
-		r.RUnlock()
-
-		// If the macaroon service is not yet active, allow the call.
-		// THis means that the wallet has not yet been unlocked, and we
-		// allow calls to the WalletUnlockerService.
-		if svc == nil {
-			return handler(ctx, req)
-		}
-
-		r.RLock()
-		uriPermissions, ok := r.permissionMap[info.FullMethod]
-		r.RUnlock()
-		if !ok {
-			return nil, fmt.Errorf("%s: unknown permissions "+
-				"required for method", info.FullMethod)
-		}
-
-		// Find out if there is an external validator registered for
-		// this method. Fall back to the internal one if there isn't.
-		validator, ok := svc.ExternalValidators[info.FullMethod]
-		if !ok {
-			validator = svc
-		}
-
-		// Now that we know what validator to use, let it do its work.
-		err := validator.ValidateMacaroon(
-			ctx, uriPermissions, info.FullMethod,
-		)
-		if err != nil {
+		// Check macaroons.
+		if err := r.checkMacaroon(ctx, info.FullMethod); err != nil {
 			return nil, err
 		}
 
@@ -215,41 +239,8 @@ func (r *InterceptorChain) macaroonStreamServerInterceptor() grpc.StreamServerIn
 	return func(srv interface{}, ss grpc.ServerStream,
 		info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 
-		// If noMacaroons are set, we'll always allow the call.
-		if r.noMacaroons {
-			return handler(srv, ss)
-		}
-
-		r.RLock()
-		svc := r.svc
-		r.RUnlock()
-
-		// If the macaroon service is not yet active, allow the call.
-		// THis means that the wallet has not yet been unlocked, and we
-		// allow calls to the WalletUnlockerService.
-		if svc == nil {
-			return handler(srv, ss)
-		}
-
-		r.RLock()
-		uriPermissions, ok := r.permissionMap[info.FullMethod]
-		r.RUnlock()
-		if !ok {
-			return fmt.Errorf("%s: unknown permissions required "+
-				"for method", info.FullMethod)
-		}
-
-		// Find out if there is an external validator registered for
-		// this method. Fall back to the internal one if there isn't.
-		validator, ok := svc.ExternalValidators[info.FullMethod]
-		if !ok {
-			validator = svc
-		}
-
-		// Now that we know what validator to use, let it do its work.
-		err := validator.ValidateMacaroon(
-			ss.Context(), uriPermissions, info.FullMethod,
-		)
+		// Check macaroons.
+		err := r.checkMacaroon(ss.Context(), info.FullMethod)
 		if err != nil {
 			return err
 		}

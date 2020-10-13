@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
 	"gopkg.in/macaroon-bakery.v2/bakery"
@@ -58,11 +57,11 @@ type Service struct {
 
 	rks *RootKeyStorage
 
-	// externalValidators is a map between an absolute gRPC URIs and the
+	// ExternalValidators is a map between an absolute gRPC URIs and the
 	// corresponding external macaroon validator to be used for that URI.
 	// If no external validator for an URI is specified, the service will
 	// use the internal validator.
-	externalValidators map[string]MacaroonValidator
+	ExternalValidators map[string]MacaroonValidator
 
 	// StatelessInit denotes if the service was initialized in the stateless
 	// mode where no macaroon files should be created on disk.
@@ -125,7 +124,7 @@ func NewService(dir, location string, statelessInit bool,
 	return &Service{
 		Bakery:             *svc,
 		rks:                rootKeyStore,
-		externalValidators: make(map[string]MacaroonValidator),
+		ExternalValidators: make(map[string]MacaroonValidator),
 		StatelessInit:      statelessInit,
 	}, nil
 }
@@ -159,81 +158,14 @@ func (svc *Service) RegisterExternalValidator(fullMethod string,
 		return fmt.Errorf("validator cannot be nil")
 	}
 
-	_, ok := svc.externalValidators[fullMethod]
+	_, ok := svc.ExternalValidators[fullMethod]
 	if ok {
 		return fmt.Errorf("external validator for method %s already "+
 			"registered", fullMethod)
 	}
 
-	svc.externalValidators[fullMethod] = validator
+	svc.ExternalValidators[fullMethod] = validator
 	return nil
-}
-
-// UnaryServerInterceptor is a GRPC interceptor that checks whether the
-// request is authorized by the included macaroons.
-func (svc *Service) UnaryServerInterceptor(
-	permissionMap map[string][]bakery.Op) grpc.UnaryServerInterceptor {
-
-	return func(ctx context.Context, req interface{},
-		info *grpc.UnaryServerInfo,
-		handler grpc.UnaryHandler) (interface{}, error) {
-
-		uriPermissions, ok := permissionMap[info.FullMethod]
-		if !ok {
-			return nil, fmt.Errorf("%s: unknown permissions "+
-				"required for method", info.FullMethod)
-		}
-
-		// Find out if there is an external validator registered for
-		// this method. Fall back to the internal one if there isn't.
-		validator, ok := svc.externalValidators[info.FullMethod]
-		if !ok {
-			validator = svc
-		}
-
-		// Now that we know what validator to use, let it do its work.
-		err := validator.ValidateMacaroon(
-			ctx, uriPermissions, info.FullMethod,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		return handler(ctx, req)
-	}
-}
-
-// StreamServerInterceptor is a GRPC interceptor that checks whether the
-// request is authorized by the included macaroons.
-func (svc *Service) StreamServerInterceptor(
-	permissionMap map[string][]bakery.Op) grpc.StreamServerInterceptor {
-
-	return func(srv interface{}, ss grpc.ServerStream,
-		info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-
-		uriPermissions, ok := permissionMap[info.FullMethod]
-		if !ok {
-			return fmt.Errorf("%s: unknown permissions required "+
-				"for method", info.FullMethod)
-		}
-
-		// Find out if there is an external validator registered for
-		// this method. Fall back to the internal one if there isn't.
-		validator, ok := svc.externalValidators[info.FullMethod]
-		if !ok {
-			validator = svc
-		}
-
-		// Now that we know what validator to use, let it do its work.
-		err := validator.ValidateMacaroon(
-			ss.Context(), uriPermissions, info.FullMethod,
-		)
-		if err != nil {
-			return err
-		}
-
-		return handler(srv, ss)
-	}
 }
 
 // ValidateMacaroon validates the capabilities of a given request given a

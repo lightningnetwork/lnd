@@ -45,6 +45,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/walletunlocker"
@@ -375,6 +376,15 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		return getListeners()
 	}
 
+	// Create a new RPC interceptor chain that we'll add to the GRPC
+	// server. This will be used to log the API calls invoked on the GRPC
+	// server.
+	interceptorChain := rpcperms.NewInterceptorChain(
+		rpcsLog, cfg.NoMacaroons,
+	)
+	rpcServerOpts := interceptorChain.CreateServerOpts()
+	serverOpts = append(serverOpts, rpcServerOpts...)
+
 	// We wait until the user provides a password over RPC. In case lnd is
 	// started with the --noseedbackup flag, we use the default password
 	// for wallet encryption.
@@ -492,6 +502,11 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 				ltndLog.Warnf(msg, "invoice", cfg.InvoiceMacPath)
 			}
 		}
+
+		// We add the macaroon service to our RPC interceptor. This
+		// will start checking macaroons against permissions on every
+		// RPC invocation.
+		interceptorChain.AddMacaroonService(macaroonService)
 	}
 
 	// Now we're definitely done with the unlocker, shut it down so we can
@@ -737,6 +752,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		cfg, server, macaroonService, cfg.SubRPCServers, serverOpts,
 		restDialOpts, restProxyDest, atplManager, server.invoices,
 		tower, restListen, rpcListeners, chainedAcceptor,
+		interceptorChain,
 	)
 	if err != nil {
 		err := fmt.Errorf("unable to create RPC server: %v", err)

@@ -28,7 +28,6 @@ import (
 	"github.com/btcsuite/btcutil/psbt"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/davecgh/go-spew/spew"
-	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
@@ -67,6 +66,7 @@ import (
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/watchtower"
@@ -539,9 +539,8 @@ type rpcServer struct {
 	// selfNode is our own pubkey.
 	selfNode route.Vertex
 
-	// allPermissions is a map of all registered gRPC URIs (including
-	// internal and external subservers) to the permissions they require.
-	allPermissions map[string][]bakery.Op
+	// interceptorChain is the the interceptor added to our gRPC server.
+	interceptorChain *rpcperms.InterceptorChain
 }
 
 // A compile time check to ensure that rpcServer fully implements the
@@ -559,8 +558,8 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 	atpl *autopilot.Manager, invoiceRegistry *invoices.InvoiceRegistry,
 	tower *watchtower.Standalone,
 	restListen func(net.Addr) (net.Listener, error),
-	getListeners rpcListeners,
-	chanPredicate *chanacceptor.ChainedAcceptor) (*rpcServer, error) {
+	getListeners rpcListeners, chanPredicate *chanacceptor.ChainedAcceptor,
+	interceptorChain *rpcperms.InterceptorChain) (*rpcServer, error) {
 
 	// Set up router rpc backend.
 	channelGraph := s.localChanDB.ChannelGraph()
@@ -659,18 +658,19 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 	// Next, we need to merge the set of sub server macaroon permissions
 	// with the main RPC server permissions so we can unite them under a
 	// single set of interceptors.
-	permissions := MainRPCServerPermissions()
+	for m, ops := range MainRPCServerPermissions() {
+		err := interceptorChain.AddPermission(m, ops)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	for _, subServerPerm := range subServerPerms {
 		for method, ops := range subServerPerm {
-			// For each new method:ops combo, we also ensure that
-			// non of the sub-servers try to override each other.
-			if _, ok := permissions[method]; ok {
-				return nil, fmt.Errorf("detected duplicate "+
-					"macaroon constraints for path: %v",
-					method)
+			err := interceptorChain.AddPermission(method, ops)
+			if err != nil {
+				return nil, err
 			}
-
-			permissions[method] = ops
 		}
 	}
 
@@ -687,17 +687,10 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 		if extSubserver != nil {
 			macValidator := extSubserver.MacaroonValidator
 			for method, ops := range extSubserver.Permissions {
-				// For each new method:ops combo, we also ensure
-				// that non of the sub-servers try to override
-				// each other.
-				if _, ok := permissions[method]; ok {
-					return nil, fmt.Errorf("detected "+
-						"duplicate macaroon "+
-						"constraints for path: %v",
-						method)
+				err := interceptorChain.AddPermission(method, ops)
+				if err != nil {
+					return nil, err
 				}
-
-				permissions[method] = ops
 
 				// Give the external subservers the possibility
 				// to also use their own validator to check any
@@ -719,68 +712,26 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 		}
 	}
 
-	// If macaroons aren't disabled (a non-nil service), then we'll set up
-	// our set of interceptors which will allow us to handle the macaroon
-	// authentication in a single location.
-	macUnaryInterceptors := []grpc.UnaryServerInterceptor{}
-	macStrmInterceptors := []grpc.StreamServerInterceptor{}
-	if macService != nil {
-		unaryInterceptor := macService.UnaryServerInterceptor(permissions)
-		macUnaryInterceptors = append(macUnaryInterceptors, unaryInterceptor)
-
-		strmInterceptor := macService.StreamServerInterceptor(permissions)
-		macStrmInterceptors = append(macStrmInterceptors, strmInterceptor)
-	}
-
-	// Get interceptors for Prometheus to gather gRPC performance metrics.
-	// If monitoring is disabled, GetPromInterceptors() will return empty
-	// slices.
-	promUnaryInterceptors, promStrmInterceptors := monitoring.GetPromInterceptors()
-
-	// Concatenate the slices of unary and stream interceptors respectively.
-	unaryInterceptors := append(macUnaryInterceptors, promUnaryInterceptors...)
-	strmInterceptors := append(macStrmInterceptors, promStrmInterceptors...)
-
-	// We'll also add our logging interceptors as well, so we can
-	// automatically log all errors that happen during RPC calls.
-	unaryInterceptors = append(
-		unaryInterceptors, errorLogUnaryServerInterceptor(rpcsLog),
-	)
-	strmInterceptors = append(
-		strmInterceptors, errorLogStreamServerInterceptor(rpcsLog),
-	)
-
-	// If any interceptors have been set up, add them to the server options.
-	if len(unaryInterceptors) != 0 && len(strmInterceptors) != 0 {
-		chainedUnary := grpc_middleware.WithUnaryServerChain(
-			unaryInterceptors...,
-		)
-		chainedStream := grpc_middleware.WithStreamServerChain(
-			strmInterceptors...,
-		)
-		serverOpts = append(serverOpts, chainedUnary, chainedStream)
-	}
-
 	// Finally, with all the pre-set up complete,  we can create the main
 	// gRPC server, and register the main lnrpc server along side.
 	grpcServer := grpc.NewServer(serverOpts...)
 	rootRPCServer := &rpcServer{
-		cfg:             cfg,
-		restDialOpts:    restDialOpts,
-		listeners:       listeners,
-		listenerCleanUp: []func(){cleanup},
-		restProxyDest:   restProxyDest,
-		subServers:      subServers,
-		subGrpcHandlers: subGrpcHandlers,
-		restListen:      restListen,
-		grpcServer:      grpcServer,
-		server:          s,
-		routerBackend:   routerBackend,
-		chanPredicate:   chanPredicate,
-		quit:            make(chan struct{}, 1),
-		macService:      macService,
-		selfNode:        selfNode.PubKeyBytes,
-		allPermissions:  permissions,
+		cfg:              cfg,
+		restDialOpts:     restDialOpts,
+		listeners:        listeners,
+		listenerCleanUp:  []func(){cleanup},
+		restProxyDest:    restProxyDest,
+		subServers:       subServers,
+		subGrpcHandlers:  subGrpcHandlers,
+		restListen:       restListen,
+		grpcServer:       grpcServer,
+		server:           s,
+		routerBackend:    routerBackend,
+		chanPredicate:    chanPredicate,
+		quit:             make(chan struct{}, 1),
+		macService:       macService,
+		selfNode:         selfNode.PubKeyBytes,
+		interceptorChain: interceptorChain,
 	}
 	lnrpc.RegisterLightningServer(grpcServer, rootRPCServer)
 
@@ -6546,7 +6497,8 @@ func (r *rpcServer) BakeMacaroon(ctx context.Context,
 		// Either we have the special entity "uri" which specifies a
 		// full gRPC URI or we have one of the pre-defined actions.
 		if op.Entity == macaroons.PermissionEntityCustomURI {
-			_, ok := r.allPermissions[op.Action]
+			allPermissions := r.interceptorChain.Permissions()
+			_, ok := allPermissions[op.Action]
 			if !ok {
 				return nil, fmt.Errorf("invalid permission " +
 					"action, must be an existing URI in " +
@@ -6661,7 +6613,7 @@ func (r *rpcServer) ListPermissions(_ context.Context,
 	rpcsLog.Debugf("[listpermissions]")
 
 	permissionMap := make(map[string]*lnrpc.MacaroonPermissionList)
-	for uri, perms := range r.allPermissions {
+	for uri, perms := range r.interceptorChain.Permissions() {
 		rpcPerms := make([]*lnrpc.MacaroonPermission, len(perms))
 		for idx, perm := range perms {
 			rpcPerms[idx] = &lnrpc.MacaroonPermission{

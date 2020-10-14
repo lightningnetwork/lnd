@@ -1006,6 +1006,9 @@ message HTLC {
     int64 amount = 2;
     bytes hash_lock = 3;
     uint32 expiration_height = 4;
+
+    // Index identifying the htlc on the channel.
+    uint64 htlc_index = 5;
 }
 
 enum CommitmentType {

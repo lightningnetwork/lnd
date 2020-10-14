@@ -3577,6 +3577,7 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 			Amount:           int64(htlc.Amt.ToSatoshis()),
 			HashLock:         rHash[:],
 			ExpirationHeight: htlc.RefundTimeout,
+			HtlcIndex:        htlc.HtlcIndex,
 		}
 
 		// Add the Pending Htlc Amount to UnsettledBalance field.

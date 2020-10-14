@@ -3813,6 +3813,11 @@
         "expiration_height": {
           "type": "integer",
           "format": "int64"
+        },
+        "htlc_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Index identifying the htlc on the channel."
         }
       }
     },

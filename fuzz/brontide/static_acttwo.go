@@ -11,7 +11,7 @@ import (
 func Fuzz_static_acttwo(data []byte) int {
 	// Check if data is large enough.
 	if len(data) < brontide.ActTwoSize {
-		return -1
+		return 1
 	}
 
 	// This will return brontide machines with static keys.

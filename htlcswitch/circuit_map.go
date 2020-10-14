@@ -63,6 +63,18 @@ type CircuitModifier interface {
 	DeleteCircuits(inKeys ...CircuitKey) error
 }
 
+// CircuitLookup is a common interface used to lookup information that is stored
+// in the circuit map.
+type CircuitLookup interface {
+	// LookupCircuit queries the circuit map for the circuit identified by
+	// inKey.
+	LookupCircuit(inKey CircuitKey) *PaymentCircuit
+
+	// LookupOpenCircuit queries the circuit map for a circuit identified
+	// by its outgoing circuit key.
+	LookupOpenCircuit(outKey CircuitKey) *PaymentCircuit
+}
+
 // CircuitFwdActions represents the forwarding decision made by the circuit
 // map, and is returned from CommitCircuits. The sequence of circuits provided
 // to CommitCircuits is split into three sub-sequences, allowing the caller to
@@ -87,6 +99,8 @@ type CircuitFwdActions struct {
 type CircuitMap interface {
 	CircuitModifier
 
+	CircuitLookup
+
 	// CommitCircuits attempts to add the given circuits to the circuit
 	// map. The list of circuits is split into three distinct
 	// sub-sequences, corresponding to adds, drops, and fails. Adds should
@@ -103,14 +117,6 @@ type CircuitMap interface {
 	// identified by `inKey` as closing in-memory, which prevents duplicate
 	// settles/fails from being accepted for the same circuit.
 	FailCircuit(inKey CircuitKey) (*PaymentCircuit, error)
-
-	// LookupCircuit queries the circuit map for the circuit identified by
-	// inKey.
-	LookupCircuit(inKey CircuitKey) *PaymentCircuit
-
-	// LookupOpenCircuit queries the circuit map for a circuit identified
-	// by its outgoing circuit key.
-	LookupOpenCircuit(outKey CircuitKey) *PaymentCircuit
 
 	// LookupByPaymentHash queries the circuit map and returns all open
 	// circuits that use the given payment hash.

@@ -541,6 +541,14 @@ type rpcServer struct {
 
 	// interceptorChain is the the interceptor added to our gRPC server.
 	interceptorChain *rpcperms.InterceptorChain
+
+	// extSubserverCfg is optional and specifies the registration
+	// callback and permissions to register external gRPC subservers.
+	extSubserverCfg *RPCSubserverConfig
+
+	// extRestRegistrar  is optional and specifies the registration
+	// callback to register external REST subservers.
+	extRestRegistrar RestRegistrar
 }
 
 // A compile time check to ensure that rpcServer fully implements the
@@ -559,7 +567,9 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 	tower *watchtower.Standalone,
 	restListen func(net.Addr) (net.Listener, error),
 	getListeners rpcListeners, chanPredicate *chanacceptor.ChainedAcceptor,
-	interceptorChain *rpcperms.InterceptorChain) (*rpcServer, error) {
+	interceptorChain *rpcperms.InterceptorChain,
+	extSubserverCfg *RPCSubserverConfig, extRestRegistrar RestRegistrar) (
+	*rpcServer, error) {
 
 	// Set up router rpc backend.
 	channelGraph := s.localChanDB.ChannelGraph()
@@ -682,31 +692,28 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 
 	// External subserver possibly need to register their own permissions
 	// and macaroon validator.
-	for _, lis := range listeners {
-		extSubserver := lis.ExternalRPCSubserverCfg
-		if extSubserver != nil {
-			macValidator := extSubserver.MacaroonValidator
-			for method, ops := range extSubserver.Permissions {
-				err := interceptorChain.AddPermission(method, ops)
-				if err != nil {
-					return nil, err
-				}
+	if extSubserverCfg != nil {
+		macValidator := extSubserverCfg.MacaroonValidator
+		for method, ops := range extSubserverCfg.Permissions {
+			err := interceptorChain.AddPermission(method, ops)
+			if err != nil {
+				return nil, err
+			}
 
-				// Give the external subservers the possibility
-				// to also use their own validator to check any
-				// macaroons attached to calls to this method.
-				// This allows them to have their own root key
-				// ID database and permission entities.
-				if macValidator != nil {
-					err := macService.RegisterExternalValidator(
-						method, macValidator,
-					)
-					if err != nil {
-						return nil, fmt.Errorf("could "+
-							"not register "+
-							"external macaroon "+
-							"validator: %v", err)
-					}
+			// Give the external subservers the possibility
+			// to also use their own validator to check any
+			// macaroons attached to calls to this method.
+			// This allows them to have their own root key
+			// ID database and permission entities.
+			if macValidator != nil {
+				err := macService.RegisterExternalValidator(
+					method, macValidator,
+				)
+				if err != nil {
+					return nil, fmt.Errorf("could "+
+						"not register "+
+						"external macaroon "+
+						"validator: %v", err)
 				}
 			}
 		}
@@ -732,6 +739,8 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 		macService:       macService,
 		selfNode:         selfNode.PubKeyBytes,
 		interceptorChain: interceptorChain,
+		extSubserverCfg:  extSubserverCfg,
+		extRestRegistrar: extRestRegistrar,
 	}
 	lnrpc.RegisterLightningServer(grpcServer, rootRPCServer)
 
@@ -768,31 +777,26 @@ func (r *rpcServer) Start() error {
 		}
 	}
 
+	// Before actually listening on the gRPC listener, give external
+	// subservers the chance to register to our gRPC server. Those external
+	// subservers (think GrUB) are responsible for starting/stopping on
+	// their own, we just let them register their services to the same
+	// server instance so all of them can be exposed on the same
+	// port/listener.
+	if r.extSubserverCfg != nil && r.extSubserverCfg.Registrar != nil {
+		registerer := r.extSubserverCfg.Registrar
+		err := registerer.RegisterGrpcSubserver(r.grpcServer)
+		if err != nil {
+			rpcsLog.Errorf("error registering external gRPC "+
+				"subserver: %v", err)
+		}
+	}
+
 	// With all the sub-servers started, we'll spin up the listeners for
 	// the main RPC server itself.
 	for _, lis := range r.listeners {
 		go func(lis *ListenerWithSignal) {
 			rpcsLog.Infof("RPC server listening on %s", lis.Addr())
-
-			// Before actually listening on the gRPC listener, give
-			// external subservers the chance to register to our
-			// gRPC server. Those external subservers (think GrUB)
-			// are responsible for starting/stopping on their own,
-			// we just let them register their services to the same
-			// server instance so all of them can be exposed on the
-			// same port/listener.
-			extSubCfg := lis.ExternalRPCSubserverCfg
-			if extSubCfg != nil && extSubCfg.Registrar != nil {
-				registerer := extSubCfg.Registrar
-				err := registerer.RegisterGrpcSubserver(
-					r.grpcServer,
-				)
-				if err != nil {
-					rpcsLog.Errorf("error registering "+
-						"external gRPC subserver: %v",
-						err)
-				}
-			}
 
 			// Close the ready chan to indicate we are listening.
 			close(lis.Ready)
@@ -853,16 +857,14 @@ func (r *rpcServer) Start() error {
 	// Before listening on any of the interfaces, we also want to give the
 	// external subservers a chance to register their own REST proxy stub
 	// with our mux instance.
-	for _, lis := range r.listeners {
-		if lis.ExternalRestRegistrar != nil {
-			err := lis.ExternalRestRegistrar.RegisterRestSubserver(
-				restCtx, restMux, r.restProxyDest,
-				r.restDialOpts,
-			)
-			if err != nil {
-				rpcsLog.Errorf("error registering "+
-					"external REST subserver: %v", err)
-			}
+	if r.extRestRegistrar != nil {
+		err := r.extRestRegistrar.RegisterRestSubserver(
+			restCtx, restMux, r.restProxyDest,
+			r.restDialOpts,
+		)
+		if err != nil {
+			rpcsLog.Errorf("error registering "+
+				"external REST subserver: %v", err)
 		}
 	}
 

@@ -163,14 +163,6 @@ type ListenerWithSignal struct {
 
 	// Ready will be closed by the server listening on Listener.
 	Ready chan struct{}
-
-	// ExternalRPCSubserverCfg is optional and specifies the registration
-	// callback and permissions to register external gRPC subservers.
-	ExternalRPCSubserverCfg *RPCSubserverConfig
-
-	// ExternalRestRegistrar is optional and specifies the registration
-	// callback to register external REST subservers.
-	ExternalRestRegistrar RestRegistrar
 }
 
 // ListenerCfg is a wrapper around custom listeners that can be passed to lnd
@@ -183,6 +175,14 @@ type ListenerCfg struct {
 	// RPCListener can be set to the listener to use for the RPC server. If
 	// nil a regular network listener will be created.
 	RPCListener *ListenerWithSignal
+
+	// ExternalRPCSubserverCfg is optional and specifies the registration
+	// callback and permissions to register external gRPC subservers.
+	ExternalRPCSubserverCfg *RPCSubserverConfig
+
+	// ExternalRestRegistrar is optional and specifies the registration
+	// callback to register external REST subservers.
+	ExternalRestRegistrar RestRegistrar
 }
 
 // rpcListeners is a function type used for closures that fetches a set of RPC
@@ -752,7 +752,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		cfg, server, macaroonService, cfg.SubRPCServers, serverOpts,
 		restDialOpts, restProxyDest, atplManager, server.invoices,
 		tower, restListen, rpcListeners, chainedAcceptor,
-		interceptorChain,
+		interceptorChain, lisCfg.ExternalRPCSubserverCfg,
+		lisCfg.ExternalRestRegistrar,
 	)
 	if err != nil {
 		err := fmt.Errorf("unable to create RPC server: %v", err)

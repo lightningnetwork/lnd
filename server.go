@@ -1133,10 +1133,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			// the chain arb so it can react to on-chain events.
 			return s.chainArb.WatchNewChannel(channel)
 		},
-		ReportShortChanID: func(chanPoint wire.OutPoint) error {
-			cid := lnwire.NewChanIDFromOutPoint(&chanPoint)
-			return s.htlcSwitch.UpdateShortChanID(cid)
-		},
 		RequiredRemoteChanReserve: func(chanAmt,
 			dustLimit btcutil.Amount) btcutil.Amount {
 

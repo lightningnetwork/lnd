@@ -420,9 +420,6 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		WatchNewChannel: func(*channeldb.OpenChannel, *btcec.PublicKey) error {
 			return nil
 		},
-		ReportShortChanID: func(wire.OutPoint) error {
-			return nil
-		},
 		PublishTransaction: func(txn *wire.MsgTx, _ string) error {
 			publTxChan <- txn
 			return nil

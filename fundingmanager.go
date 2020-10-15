@@ -306,11 +306,6 @@ type fundingConfig struct {
 	// node we're establishing a channel with for reconnection purposes.
 	WatchNewChannel func(*channeldb.OpenChannel, *btcec.PublicKey) error
 
-	// ReportShortChanID allows the funding manager to report the newly
-	// discovered short channel ID of a formerly pending channel to outside
-	// sub-systems.
-	ReportShortChanID func(wire.OutPoint) error
-
 	// ZombieSweeperInterval is the periodic time interval in which the
 	// zombie sweeper is run.
 	ZombieSweeperInterval time.Duration
@@ -2335,14 +2330,6 @@ func (f *fundingManager) handleFundingConfirmation(
 	// Inform the ChannelNotifier that the channel has transitioned from
 	// pending open to open.
 	f.cfg.NotifyOpenChannelEvent(completeChan.FundingOutpoint)
-
-	// As there might already be an active link in the switch with an
-	// outdated short chan ID, we'll instruct the switch to load the updated
-	// short chan id from disk.
-	err = f.cfg.ReportShortChanID(fundingPoint)
-	if err != nil {
-		fndgLog.Errorf("unable to report short chan id: %v", err)
-	}
 
 	// If we opened the channel, and lnd's wallet published our funding tx
 	// (which is not the case for some channels) then we update our

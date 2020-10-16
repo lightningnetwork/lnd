@@ -203,6 +203,44 @@ jobs:
         run: go build --tags="mobile" ./mobile
 
   ########################
+  # sample configuration check
+  ########################
+  sample-conf-check:
+    name: sample configuration check
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v2
+
+      - name: go cache
+        uses: actions/cache@v1
+        with:
+          path: /home/runner/work/go
+          key: lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
+            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
+            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-
+            lnd-${{ runner.os }}-go-
+
+      - name: setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v2
+        with:
+          go-version: '~${{ env.GO_VERSION }}'
+
+      - name: download cache
+        uses: actions/cache@v1
+        with:
+          path: /home/runner/work/download_cache
+          key: lnd-${{ runner.os }}-download-${{ hashFiles('**/install_travis_proto.sh') }}
+          restore-keys: |
+            lnd-${{ runner.os }}-download-${{ hashFiles('**/install_travis_proto.sh') }}
+            lnd-${{ runner.os }}-download-
+
+      - name: check all command line flags exist in sample-lnd.conf file
+        run: make sample-conf-check
+
+  ########################
   # run unit tests
   ########################
   unit-test:

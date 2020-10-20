@@ -902,7 +902,7 @@ message EstimateFeeResponse {
     // The total fee in satoshis.
     int64 fee_sat = 1;
 
-    // The fee rate in satoshi/byte.
+    // The fee rate in satoshi/vbyte.
     int64 feerate_sat_per_byte = 2;
 }
 
@@ -914,7 +914,7 @@ message SendManyRequest {
     // by.
     int32 target_conf = 3;
 
-    // A manual fee rate set in sat/byte that should be used when crafting the
+    // A manual fee rate set in sat/vbyte that should be used when crafting the
     // transaction.
     int64 sat_per_byte = 5;
 
@@ -944,7 +944,7 @@ message SendCoinsRequest {
     // by.
     int32 target_conf = 3;
 
-    // A manual fee rate set in sat/byte that should be used when crafting the
+    // A manual fee rate set in sat/vbyte that should be used when crafting the
     // transaction.
     int64 sat_per_byte = 5;
 
@@ -1685,7 +1685,7 @@ message CloseChannelRequest {
     // confirmed by.
     int32 target_conf = 3;
 
-    // A manual fee rate set in sat/byte that should be used when crafting the
+    // A manual fee rate set in sat/vbyte that should be used when crafting the
     // closure transaction.
     int64 sat_per_byte = 4;
 
@@ -1756,7 +1756,7 @@ message OpenChannelRequest {
     // confirmed by.
     int32 target_conf = 6;
 
-    // A manual fee rate set in sat/byte that should be used when crafting the
+    // A manual fee rate set in sat/vbyte that should be used when crafting the
     // funding transaction.
     int64 sat_per_byte = 7;
 

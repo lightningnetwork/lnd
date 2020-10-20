@@ -121,7 +121,7 @@ var openChannelCommand = cli.Command{
 		cli.Int64Flag{
 			Name: "sat_per_byte",
 			Usage: "(optional) a manual fee expressed in " +
-				"sat/byte that should be used when crafting " +
+				"sat/vbyte that should be used when crafting " +
 				"the transaction",
 		},
 		cli.BoolFlag{

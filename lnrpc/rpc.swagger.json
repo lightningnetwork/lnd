@@ -672,7 +672,7 @@
           },
           {
             "name": "sat_per_byte",
-            "description": "A manual fee rate set in sat/byte that should be used when crafting the\nclosure transaction.",
+            "description": "A manual fee rate set in sat/vbyte that should be used when crafting the\nclosure transaction.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -3397,7 +3397,7 @@
         "feerate_sat_per_byte": {
           "type": "string",
           "format": "int64",
-          "description": "The fee rate in satoshi/byte."
+          "description": "The fee rate in satoshi/vbyte."
         }
       }
     },
@@ -4667,7 +4667,7 @@
         "sat_per_byte": {
           "type": "string",
           "format": "int64",
-          "description": "A manual fee rate set in sat/byte that should be used when crafting the\nfunding transaction."
+          "description": "A manual fee rate set in sat/vbyte that should be used when crafting the\nfunding transaction."
         },
         "private": {
           "type": "boolean",
@@ -5347,7 +5347,7 @@
         "sat_per_byte": {
           "type": "string",
           "format": "int64",
-          "description": "A manual fee rate set in sat/byte that should be used when crafting the\ntransaction."
+          "description": "A manual fee rate set in sat/vbyte that should be used when crafting the\ntransaction."
         },
         "send_all": {
           "type": "boolean",
@@ -5398,7 +5398,7 @@
         "sat_per_byte": {
           "type": "string",
           "format": "int64",
-          "description": "A manual fee rate set in sat/byte that should be used when crafting the\ntransaction."
+          "description": "A manual fee rate set in sat/vbyte that should be used when crafting the\ntransaction."
         },
         "label": {
           "type": "string",

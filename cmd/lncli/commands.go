@@ -255,7 +255,7 @@ var sendCoinsCommand = cli.Command{
 		cli.Int64Flag{
 			Name: "sat_per_byte",
 			Usage: "(optional) a manual fee expressed in " +
-				"sat/byte that should be used when crafting " +
+				"sat/vbyte that should be used when crafting " +
 				"the transaction",
 		},
 		cli.Uint64Flag{
@@ -481,7 +481,7 @@ var sendManyCommand = cli.Command{
 		},
 		cli.Int64Flag{
 			Name: "sat_per_byte",
-			Usage: "(optional) a manual fee expressed in sat/byte that should be " +
+			Usage: "(optional) a manual fee expressed in sat/vbyte that should be " +
 				"used when crafting the transaction",
 		},
 		cli.Uint64Flag{
@@ -692,7 +692,7 @@ var closeChannelCommand = cli.Command{
 		cli.Int64Flag{
 			Name: "sat_per_byte",
 			Usage: "(optional) a manual fee expressed in " +
-				"sat/byte that should be used when crafting " +
+				"sat/vbyte that should be used when crafting " +
 				"the transaction",
 		},
 		cli.StringFlag{
@@ -845,7 +845,7 @@ var closeAllChannelsCommand = cli.Command{
 		cli.Int64Flag{
 			Name: "sat_per_byte",
 			Usage: "(optional) a manual fee expressed in " +
-				"sat/byte that should be used when crafting " +
+				"sat/vbyte that should be used when crafting " +
 				"the closing transactions",
 		},
 	},

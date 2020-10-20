@@ -2075,7 +2075,7 @@ func (m *EstimateFeeRequest) GetTargetConf() int32 {
 type EstimateFeeResponse struct {
 	// The total fee in satoshis.
 	FeeSat int64 `protobuf:"varint,1,opt,name=fee_sat,json=feeSat,proto3" json:"fee_sat,omitempty"`
-	// The fee rate in satoshi/byte.
+	// The fee rate in satoshi/vbyte.
 	FeerateSatPerByte    int64    `protobuf:"varint,2,opt,name=feerate_sat_per_byte,json=feerateSatPerByte,proto3" json:"feerate_sat_per_byte,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -2127,7 +2127,7 @@ type SendManyRequest struct {
 	// The target number of blocks that this transaction should be confirmed
 	// by.
 	TargetConf int32 `protobuf:"varint,3,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
-	// A manual fee rate set in sat/byte that should be used when crafting the
+	// A manual fee rate set in sat/vbyte that should be used when crafting the
 	// transaction.
 	SatPerByte int64 `protobuf:"varint,5,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
 	// An optional label for the transaction, limited to 500 characters.
@@ -2257,7 +2257,7 @@ type SendCoinsRequest struct {
 	// The target number of blocks that this transaction should be confirmed
 	// by.
 	TargetConf int32 `protobuf:"varint,3,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
-	// A manual fee rate set in sat/byte that should be used when crafting the
+	// A manual fee rate set in sat/vbyte that should be used when crafting the
 	// transaction.
 	SatPerByte int64 `protobuf:"varint,5,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
 	//
@@ -4801,7 +4801,7 @@ type CloseChannelRequest struct {
 	// The target number of blocks that the closure transaction should be
 	// confirmed by.
 	TargetConf int32 `protobuf:"varint,3,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
-	// A manual fee rate set in sat/byte that should be used when crafting the
+	// A manual fee rate set in sat/vbyte that should be used when crafting the
 	// closure transaction.
 	SatPerByte int64 `protobuf:"varint,4,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
 	//
@@ -5085,7 +5085,7 @@ type OpenChannelRequest struct {
 	// The target number of blocks that the funding transaction should be
 	// confirmed by.
 	TargetConf int32 `protobuf:"varint,6,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
-	// A manual fee rate set in sat/byte that should be used when crafting the
+	// A manual fee rate set in sat/vbyte that should be used when crafting the
 	// funding transaction.
 	SatPerByte int64 `protobuf:"varint,7,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
 	// Whether this channel should be private, not announced to the greater

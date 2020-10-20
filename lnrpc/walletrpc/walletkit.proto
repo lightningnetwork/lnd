@@ -409,9 +409,9 @@ message PendingSweep {
     uint32 amount_sat = 3;
 
     /*
-    The fee rate we'll use to sweep the output. The fee rate is only determined
-    once a sweeping transaction for the output is created, so it's possible for
-    this to be 0 before this.
+    The fee rate we'll use to sweep the output, expressed in sat/vbyte. The fee
+    rate is only determined once a sweeping transaction for the output is
+    created, so it's possible for this to be 0 before this.
     */
     uint32 sat_per_byte = 4;
 
@@ -427,7 +427,7 @@ message PendingSweep {
     // The requested confirmation target for this output.
     uint32 requested_conf_target = 8;
 
-    // The requested fee rate, expressed in sat/byte, for this output.
+    // The requested fee rate, expressed in sat/vbyte, for this output.
     uint32 requested_sat_per_byte = 9;
 
     /*
@@ -455,7 +455,7 @@ message BumpFeeRequest {
     uint32 target_conf = 2;
 
     /*
-    The fee rate, expressed in sat/byte, that should be used to spend the input
+    The fee rate, expressed in sat/vbyte, that should be used to spend the input
     with.
     */
     uint32 sat_per_byte = 3;

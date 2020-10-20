@@ -154,7 +154,7 @@ var bumpFeeCommand = cli.Command{
 		},
 		cli.Uint64Flag{
 			Name: "sat_per_byte",
-			Usage: "a manual fee expressed in sat/byte that " +
+			Usage: "a manual fee expressed in sat/vbyte that " +
 				"should be used when sweeping the output",
 		},
 		cli.BoolFlag{
@@ -217,7 +217,7 @@ var bumpCloseFeeCommand = cli.Command{
 		},
 		cli.Uint64Flag{
 			Name: "sat_per_byte",
-			Usage: "a manual fee expressed in sat/byte that " +
+			Usage: "a manual fee expressed in sat/vbyte that " +
 				"should be used when sweeping the output",
 		},
 	},

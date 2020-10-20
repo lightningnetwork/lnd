@@ -758,7 +758,7 @@
         "sat_per_byte": {
           "type": "integer",
           "format": "int64",
-          "description": "The fee rate, expressed in sat/byte, that should be used to spend the input\nwith."
+          "description": "The fee rate, expressed in sat/vbyte, that should be used to spend the input\nwith."
         },
         "force": {
           "type": "boolean",
@@ -971,7 +971,7 @@
         "sat_per_byte": {
           "type": "integer",
           "format": "int64",
-          "description": "The fee rate we'll use to sweep the output. The fee rate is only determined\nonce a sweeping transaction for the output is created, so it's possible for\nthis to be 0 before this."
+          "description": "The fee rate we'll use to sweep the output, expressed in sat/vbyte. The fee\nrate is only determined once a sweeping transaction for the output is\ncreated, so it's possible for this to be 0 before this."
         },
         "broadcast_attempts": {
           "type": "integer",
@@ -991,7 +991,7 @@
         "requested_sat_per_byte": {
           "type": "integer",
           "format": "int64",
-          "description": "The requested fee rate, expressed in sat/byte, for this output."
+          "description": "The requested fee rate, expressed in sat/vbyte, for this output."
         },
         "force": {
           "type": "boolean",

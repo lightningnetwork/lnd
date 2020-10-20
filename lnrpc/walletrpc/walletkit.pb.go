@@ -839,9 +839,9 @@ type PendingSweep struct {
 	// The value of the output we're attempting to sweep.
 	AmountSat uint32 `protobuf:"varint,3,opt,name=amount_sat,json=amountSat,proto3" json:"amount_sat,omitempty"`
 	//
-	//The fee rate we'll use to sweep the output. The fee rate is only determined
-	//once a sweeping transaction for the output is created, so it's possible for
-	//this to be 0 before this.
+	//The fee rate we'll use to sweep the output, expressed in sat/vbyte. The fee
+	//rate is only determined once a sweeping transaction for the output is
+	//created, so it's possible for this to be 0 before this.
 	SatPerByte uint32 `protobuf:"varint,4,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
 	// The number of broadcast attempts we've made to sweep the output.
 	BroadcastAttempts uint32 `protobuf:"varint,5,opt,name=broadcast_attempts,json=broadcastAttempts,proto3" json:"broadcast_attempts,omitempty"`
@@ -851,7 +851,7 @@ type PendingSweep struct {
 	NextBroadcastHeight uint32 `protobuf:"varint,6,opt,name=next_broadcast_height,json=nextBroadcastHeight,proto3" json:"next_broadcast_height,omitempty"`
 	// The requested confirmation target for this output.
 	RequestedConfTarget uint32 `protobuf:"varint,8,opt,name=requested_conf_target,json=requestedConfTarget,proto3" json:"requested_conf_target,omitempty"`
-	// The requested fee rate, expressed in sat/byte, for this output.
+	// The requested fee rate, expressed in sat/vbyte, for this output.
 	RequestedSatPerByte uint32 `protobuf:"varint,9,opt,name=requested_sat_per_byte,json=requestedSatPerByte,proto3" json:"requested_sat_per_byte,omitempty"`
 	//
 	//Whether this input must be force-swept. This means that it is swept even
@@ -1028,7 +1028,7 @@ type BumpFeeRequest struct {
 	// The target number of blocks that the input should be spent within.
 	TargetConf uint32 `protobuf:"varint,2,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
 	//
-	//The fee rate, expressed in sat/byte, that should be used to spend the input
+	//The fee rate, expressed in sat/vbyte, that should be used to spend the input
 	//with.
 	SatPerByte uint32 `protobuf:"varint,3,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
 	//

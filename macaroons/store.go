@@ -150,6 +150,8 @@ func (r *RootKeyStorage) Get(_ context.Context, id []byte) ([]byte, error) {
 		rootKey = make([]byte, len(decKey))
 		copy(rootKey[:], decKey)
 		return nil
+	}, func() {
+		rootKey = nil
 	})
 	if err != nil {
 		return nil, err
@@ -257,6 +259,8 @@ func (r *RootKeyStorage) ListMacaroonIDs(_ context.Context) ([][]byte, error) {
 		}
 
 		return tx.ReadBucket(rootKeyBucketName).ForEach(appendRootKey)
+	}, func() {
+		rootKeySlice = nil
 	})
 	if err != nil {
 		return nil, err

@@ -250,6 +250,8 @@ func (d DB) FetchChannelReports(chainHash chainhash.Hash,
 
 			return nil
 		})
+	}, func() {
+		reports = nil
 	}); err != nil {
 		return nil, err
 	}

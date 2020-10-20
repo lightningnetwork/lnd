@@ -3538,7 +3538,7 @@ func (f *fundingManager) getChannelOpeningState(chanPoint *wire.OutPoint) (
 		state = channelOpeningState(byteOrder.Uint16(value[:2]))
 		shortChanID = lnwire.NewShortChanIDFromInt(byteOrder.Uint64(value[2:]))
 		return nil
-	})
+	}, func() {})
 	if err != nil {
 		return 0, nil, err
 	}

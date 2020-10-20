@@ -133,6 +133,8 @@ func (t *TowerDB) Version() (uint32, error) {
 		var err error
 		version, err = getDBVersion(tx)
 		return err
+	}, func() {
+		version = 0
 	})
 	if err != nil {
 		return 0, err
@@ -159,6 +161,8 @@ func (t *TowerDB) GetSessionInfo(id *SessionID) (*SessionInfo, error) {
 		var err error
 		session, err = getSession(sessions, id[:])
 		return err
+	}, func() {
+		session = nil
 	})
 	if err != nil {
 		return nil, err
@@ -460,6 +464,8 @@ func (t *TowerDB) QueryMatches(breachHints []blob.BreachHint) ([]Match, error) {
 		}
 
 		return nil
+	}, func() {
+		matches = nil
 	})
 	if err != nil {
 		return nil, err
@@ -494,6 +500,8 @@ func (t *TowerDB) GetLookoutTip() (*chainntnfs.BlockEpoch, error) {
 		epoch = getLookoutEpoch(lookoutTip)
 
 		return nil
+	}, func() {
+		epoch = nil
 	})
 	if err != nil {
 		return nil, err

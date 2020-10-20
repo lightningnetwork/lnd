@@ -103,6 +103,8 @@ func (b *missionControlStore) fetchAll() ([]*paymentResult, error) {
 			return nil
 		})
 
+	}, func() {
+		results = nil
 	})
 	if err != nil {
 		return nil, err

@@ -197,6 +197,8 @@ func (store *networkResultStore) subscribeResult(paymentID uint64) (
 		default:
 			return nil
 		}
+	}, func() {
+		result = nil
 	})
 	if err != nil {
 		return nil, err
@@ -230,6 +232,8 @@ func (store *networkResultStore) getResult(pid uint64) (
 		var err error
 		result, err = fetchResult(tx, pid)
 		return err
+	}, func() {
+		result = nil
 	})
 	if err != nil {
 		return nil, err

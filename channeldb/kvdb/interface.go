@@ -21,11 +21,18 @@ func Update(db Backend, f func(tx RwTx) error) error {
 // View opens a database read transaction and executes the function f with the
 // transaction passed as a parameter. After f exits, the transaction is rolled
 // back. If f errors, its error is returned, not a rollback error (if any
-// occur).
-func View(db Backend, f func(tx RTx) error) error {
+// occur). The passed reset function is called before the start of the
+// transaction and can be used to reset intermediate state. As callers may
+// expect retries of the f closure (depending on the database backend used), the
+// reset function will be called before each retry respectively.
+func View(db Backend, f func(tx RTx) error, reset func()) error {
 	if extendedDB, ok := db.(ExtendedBackend); ok {
-		return extendedDB.View(f)
+		return extendedDB.View(f, reset)
 	}
+
+	// Since we know that walletdb simply calls into bbolt which never
+	// retries transactions, we'll call the reset function here before View.
+	reset()
 
 	return walletdb.View(db, f)
 }
@@ -55,11 +62,15 @@ type ExtendedBackend interface {
 	// PrintStats returns all collected stats pretty printed into a string.
 	PrintStats() string
 
-	// View opens a database read transaction and executes the function f with
-	// the transaction passed as a parameter. After f exits, the transaction is
-	// rolled back. If f errors, its error is returned, not a rollback error
-	// (if any occur).
-	View(f func(tx walletdb.ReadTx) error) error
+	// View opens a database read transaction and executes the function f
+	// with the transaction passed as a parameter. After f exits, the
+	// transaction is rolled back. If f errors, its error is returned, not a
+	// rollback error (if any occur). The passed reset function is called
+	// before the start of the transaction and can be used to reset
+	// intermediate state. As callers may expect retries of the f closure
+	// (depending on the database backend used), the reset function will be
+	//called before each retry respectively.
+	View(f func(tx walletdb.ReadTx) error, reset func()) error
 
 	// Update opens a database read/write transaction and executes the function
 	// f with the transaction passed as a parameter. After f exits, if f did not

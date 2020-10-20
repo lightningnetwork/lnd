@@ -113,6 +113,8 @@ func (d *DB) ReadFlapCount(pubkey route.Vertex) (*FlapCount, error) {
 		}
 
 		return ReadElements(r, &flapCount.Count)
+	}, func() {
+		flapCount = FlapCount{}
 	}); err != nil {
 		return nil, err
 	}

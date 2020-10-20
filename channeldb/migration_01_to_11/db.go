@@ -203,6 +203,8 @@ func (d *DB) FetchClosedChannels(pendingOnly bool) ([]*ChannelCloseSummary, erro
 			chanSummaries = append(chanSummaries, chanSummary)
 			return nil
 		})
+	}, func() {
+		chanSummaries = nil
 	}); err != nil {
 		return nil, err
 	}

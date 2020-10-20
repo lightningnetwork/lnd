@@ -786,6 +786,8 @@ func loadFwdPkgs(t *testing.T, db kvdb.Backend,
 		var err error
 		fwdPkgs, err = packager.LoadFwdPkgs(tx)
 		return err
+	}, func() {
+		fwdPkgs = nil
 	}); err != nil {
 		t.Fatalf("unable to load fwd pkgs: %v", err)
 	}

@@ -1833,6 +1833,8 @@ func (s *Switch) loadChannelFwdPkgs(source lnwire.ShortChannelID) ([]*channeldb.
 			tx, source,
 		)
 		return err
+	}, func() {
+		fwdPkgs = nil
 	}); err != nil {
 		return nil, err
 	}

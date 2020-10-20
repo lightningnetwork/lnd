@@ -418,6 +418,8 @@ func TestMigrateOptionalChannelCloseSummaryFields(t *testing.T) {
 						"serialization")
 				}
 				return nil
+			}, func() {
+				dbSummary = nil
 			})
 			if err != nil {
 				t.Fatalf("unable to view DB: %v", err)
@@ -521,6 +523,8 @@ func TestMigrateGossipMessageStoreKeys(t *testing.T) {
 			}
 
 			return nil
+		}, func() {
+			rawMsg = nil
 		})
 		if err != nil {
 			t.Fatal(err)

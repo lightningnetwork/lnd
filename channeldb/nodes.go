@@ -158,6 +158,8 @@ func (db *DB) FetchLinkNode(identity *btcec.PublicKey) (*LinkNode, error) {
 
 		linkNode = node
 		return nil
+	}, func() {
+		linkNode = nil
 	})
 
 	return linkNode, err
@@ -199,6 +201,8 @@ func (db *DB) FetchAllLinkNodes() ([]*LinkNode, error) {
 
 		linkNodes = nodes
 		return nil
+	}, func() {
+		linkNodes = nil
 	})
 	if err != nil {
 		return nil, err

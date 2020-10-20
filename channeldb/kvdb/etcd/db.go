@@ -218,11 +218,15 @@ func (db *db) getSTMOptions() []STMOptionFunc {
 }
 
 // View opens a database read transaction and executes the function f with the
-// transaction passed as a parameter.  After f exits, the transaction is rolled
-// back.  If f errors, its error is returned, not a rollback error (if any
-// occur).
-func (db *db) View(f func(tx walletdb.ReadTx) error) error {
+// transaction passed as a parameter. After f exits, the transaction is rolled
+// back. If f errors, its error is returned, not a rollback error (if any
+// occur). The passed reset function is called before the start of the
+// transaction and can be used to reset intermediate state. As callers may
+// expect retries of the f closure (depending on the database backend used), the
+// reset function will be called before each retry respectively.
+func (db *db) View(f func(tx walletdb.ReadTx) error, reset func()) error {
 	apply := func(stm STM) error {
+		reset()
 		return f(newReadWriteTx(stm, db.config.Prefix))
 	}
 

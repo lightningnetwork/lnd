@@ -179,6 +179,8 @@ func (c *HeightHintCache) QuerySpendHint(spendRequest SpendRequest) (uint32, err
 		}
 
 		return channeldb.ReadElement(bytes.NewReader(spendHint), &hint)
+	}, func() {
+		hint = 0
 	})
 	if err != nil {
 		return 0, err
@@ -278,6 +280,8 @@ func (c *HeightHintCache) QueryConfirmHint(confRequest ConfRequest) (uint32, err
 		}
 
 		return channeldb.ReadElement(bytes.NewReader(confirmHint), &hint)
+	}, func() {
+		hint = 0
 	})
 	if err != nil {
 		return 0, err

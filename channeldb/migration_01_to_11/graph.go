@@ -190,6 +190,8 @@ func (c *ChannelGraph) SourceNode() (*LightningNode, error) {
 		source = node
 
 		return nil
+	}, func() {
+		source = nil
 	})
 	if err != nil {
 		return nil, err

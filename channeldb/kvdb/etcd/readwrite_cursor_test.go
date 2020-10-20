@@ -49,7 +49,7 @@ func TestReadCursorEmptyInterval(t *testing.T) {
 		require.Nil(t, v)
 
 		return nil
-	})
+	}, func() {})
 	require.NoError(t, err)
 }
 
@@ -125,7 +125,7 @@ func TestReadCursorNonEmptyInterval(t *testing.T) {
 		require.Nil(t, v)
 
 		return nil
-	})
+	}, func() {})
 
 	require.NoError(t, err)
 }
@@ -354,7 +354,7 @@ func TestReadWriteCursorWithBucketAndValue(t *testing.T) {
 		require.Equal(t, []byte("val"), v)
 
 		return nil
-	})
+	}, func() {})
 
 	require.NoError(t, err)
 

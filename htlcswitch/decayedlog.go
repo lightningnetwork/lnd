@@ -280,6 +280,8 @@ func (d *DecayedLog) Get(hash *sphinx.HashPrefix) (uint32, error) {
 		value = uint32(binary.BigEndian.Uint32(valueBytes))
 
 		return nil
+	}, func() {
+		value = 0
 	})
 	if err != nil {
 		return value, err

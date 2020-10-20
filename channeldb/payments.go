@@ -269,6 +269,8 @@ func (db *DB) FetchPayments() ([]*MPPayment, error) {
 			payments = append(payments, duplicatePayments...)
 			return nil
 		})
+	}, func() {
+		payments = nil
 	})
 	if err != nil {
 		return nil, err
@@ -572,6 +574,8 @@ func (db *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 		}
 
 		return nil
+	}, func() {
+		resp = PaymentsResponse{}
 	}); err != nil {
 		return resp, err
 	}

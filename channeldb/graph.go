@@ -249,7 +249,7 @@ func (c *ChannelGraph) ForEachChannel(cb func(*ChannelEdgeInfo, *ChannelEdgePoli
 			// be aborted.
 			return cb(&edgeInfo, edge1, edge2)
 		})
-	})
+	}, func() {})
 }
 
 // ForEachNodeChannel iterates through all channels of a given node, executing the
@@ -279,7 +279,7 @@ func (c *ChannelGraph) ForEachNodeChannel(tx kvdb.RTx, nodePub []byte,
 // have their disabled bit on.
 func (c *ChannelGraph) DisabledChannelIDs() ([]uint64, error) {
 	var disabledChanIDs []uint64
-	chanEdgeFound := make(map[uint64]struct{})
+	var chanEdgeFound map[uint64]struct{}
 
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		edges := tx.ReadBucket(edgeBucket)
@@ -308,6 +308,9 @@ func (c *ChannelGraph) DisabledChannelIDs() ([]uint64, error) {
 			chanEdgeFound[chanID] = struct{}{}
 			return nil
 		})
+	}, func() {
+		disabledChanIDs = nil
+		chanEdgeFound = make(map[uint64]struct{})
 	})
 	if err != nil {
 		return nil, err
@@ -353,7 +356,7 @@ func (c *ChannelGraph) ForEachNode(cb func(kvdb.RTx, *LightningNode) error) erro
 		})
 	}
 
-	return kvdb.View(c.db, traversal)
+	return kvdb.View(c.db, traversal, func() {})
 }
 
 // SourceNode returns the source node of the graph. The source node is treated
@@ -377,6 +380,8 @@ func (c *ChannelGraph) SourceNode() (*LightningNode, error) {
 		source = node
 
 		return nil
+	}, func() {
+		source = nil
 	})
 	if err != nil {
 		return nil, err
@@ -493,6 +498,8 @@ func (c *ChannelGraph) LookupAlias(pub *btcec.PublicKey) (string, error) {
 		// package...
 		alias = string(a)
 		return nil
+	}, func() {
+		alias = ""
 	})
 	if err != nil {
 		return "", err
@@ -774,7 +781,7 @@ func (c *ChannelGraph) HasChannelEdge(
 		}
 
 		return nil
-	}); err != nil {
+	}, func() {}); err != nil {
 		return time.Time{}, time.Time{}, exists, isZombie, err
 	}
 
@@ -1235,7 +1242,7 @@ func (c *ChannelGraph) PruneTip() (*chainhash.Hash, uint32, error) {
 		tipHeight = byteOrder.Uint32(k[:])
 
 		return nil
-	})
+	}, func() {})
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1312,6 +1319,8 @@ func (c *ChannelGraph) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
 		var err error
 		chanID, err = getChanID(tx, chanPoint)
 		return err
+	}, func() {
+		chanID = 0
 	}); err != nil {
 		return 0, err
 	}
@@ -1379,6 +1388,8 @@ func (c *ChannelGraph) HighestChanID() (uint64, error) {
 		// to the caller.
 		cid = byteOrder.Uint64(lastChanID)
 		return nil
+	}, func() {
+		cid = 0
 	})
 	if err != nil && err != ErrGraphNoEdgesFound {
 		return 0, err
@@ -1409,8 +1420,8 @@ func (c *ChannelGraph) ChanUpdatesInHorizon(startTime, endTime time.Time) ([]Cha
 	// To ensure we don't return duplicate ChannelEdges, we'll use an
 	// additional map to keep track of the edges already seen to prevent
 	// re-adding it.
-	edgesSeen := make(map[uint64]struct{})
-	edgesToCache := make(map[uint64]ChannelEdge)
+	var edgesSeen map[uint64]struct{}
+	var edgesToCache map[uint64]ChannelEdge
 	var edgesInHorizon []ChannelEdge
 
 	c.cacheMu.Lock()
@@ -1507,6 +1518,10 @@ func (c *ChannelGraph) ChanUpdatesInHorizon(startTime, endTime time.Time) ([]Cha
 		}
 
 		return nil
+	}, func() {
+		edgesSeen = make(map[uint64]struct{})
+		edgesToCache = make(map[uint64]ChannelEdge)
+		edgesInHorizon = nil
 	})
 	switch {
 	case err == ErrGraphNoEdgesFound:
@@ -1577,6 +1592,8 @@ func (c *ChannelGraph) NodeUpdatesInHorizon(startTime, endTime time.Time) ([]Lig
 		}
 
 		return nil
+	}, func() {
+		nodesInHorizon = nil
 	})
 	switch {
 	case err == ErrGraphNoEdgesFound:
@@ -1637,6 +1654,8 @@ func (c *ChannelGraph) FilterKnownChanIDs(chanIDs []uint64) ([]uint64, error) {
 		}
 
 		return nil
+	}, func() {
+		newChanIDs = nil
 	})
 	switch {
 	// If we don't know of any edges yet, then we'll return the entire set
@@ -1701,7 +1720,10 @@ func (c *ChannelGraph) FilterChannelRange(startHeight, endHeight uint32) ([]uint
 		}
 
 		return nil
+	}, func() {
+		chanIDs = nil
 	})
+
 	switch {
 	// If we don't know of any channels yet, then there's nothing to
 	// filter, so we'll return an empty slice.
@@ -1775,6 +1797,8 @@ func (c *ChannelGraph) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
 			})
 		}
 		return nil
+	}, func() {
+		chanEdges = nil
 	})
 	if err != nil {
 		return nil, err
@@ -2209,7 +2233,7 @@ func (c *ChannelGraph) FetchLightningNode(tx kvdb.RTx, nodePub route.Vertex) (
 
 	var err error
 	if tx == nil {
-		err = kvdb.View(c.db, fetchNode)
+		err = kvdb.View(c.db, fetchNode, func() {})
 	} else {
 		err = fetchNode(tx)
 	}
@@ -2259,6 +2283,9 @@ func (c *ChannelGraph) HasLightningNode(nodePub [33]byte) (time.Time, bool, erro
 		exists = true
 		updateTime = node.LastUpdate
 		return nil
+	}, func() {
+		updateTime = time.Time{}
+		exists = false
 	})
 	if err != nil {
 		return time.Time{}, exists, err
@@ -2346,7 +2373,7 @@ func nodeTraversal(tx kvdb.RTx, nodePub []byte, db *DB,
 	// If no transaction was provided, then we'll create a new transaction
 	// to execute the transaction within.
 	if tx == nil {
-		return kvdb.View(db, traversal)
+		return kvdb.View(db, traversal, func() {})
 	}
 
 	// Otherwise, we re-use the existing transaction to execute the graph
@@ -2596,7 +2623,7 @@ func (c *ChannelEdgeInfo) FetchOtherNode(tx kvdb.RTx, thisNodeKey []byte) (*Ligh
 	// otherwise we can use the existing db transaction.
 	var err error
 	if tx == nil {
-		err = kvdb.View(c.db, fetchNodeFunc)
+		err = kvdb.View(c.db, fetchNodeFunc, func() { targetNode = nil })
 	} else {
 		err = fetchNodeFunc(tx)
 	}
@@ -2929,6 +2956,10 @@ func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint,
 		policy1 = e1
 		policy2 = e2
 		return nil
+	}, func() {
+		edgeInfo = nil
+		policy1 = nil
+		policy2 = nil
 	})
 	if err != nil {
 		return nil, nil, nil, err
@@ -3030,6 +3061,10 @@ func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64,
 		policy1 = e1
 		policy2 = e2
 		return nil
+	}, func() {
+		edgeInfo = nil
+		policy1 = nil
+		policy2 = nil
 	})
 	if err == ErrZombieEdge {
 		return edgeInfo, nil, nil, err
@@ -3062,6 +3097,8 @@ func (c *ChannelGraph) IsPublicNode(pubKey [33]byte) (bool, error) {
 
 		nodeIsPublic, err = node.isPublic(tx, ourPubKey)
 		return err
+	}, func() {
+		nodeIsPublic = false
 	})
 	if err != nil {
 		return false, err
@@ -3183,6 +3220,8 @@ func (c *ChannelGraph) ChannelView() ([]EdgePoint, error) {
 
 			return nil
 		})
+	}, func() {
+		edgePoints = nil
 	}); err != nil {
 		return nil, err
 	}
@@ -3261,6 +3300,10 @@ func (c *ChannelGraph) IsZombieEdge(chanID uint64) (bool, [33]byte, [33]byte) {
 
 		isZombie, pubKey1, pubKey2 = isZombieEdge(zombieIndex, chanID)
 		return nil
+	}, func() {
+		isZombie = false
+		pubKey1 = [33]byte{}
+		pubKey2 = [33]byte{}
 	})
 	if err != nil {
 		return false, [33]byte{}, [33]byte{}
@@ -3307,6 +3350,8 @@ func (c *ChannelGraph) NumZombies() (uint64, error) {
 			numZombies++
 			return nil
 		})
+	}, func() {
+		numZombies = 0
 	})
 	if err != nil {
 		return 0, err

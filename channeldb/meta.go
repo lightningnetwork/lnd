@@ -23,10 +23,12 @@ type Meta struct {
 // FetchMeta fetches the meta data from boltdb and returns filled meta
 // structure.
 func (d *DB) FetchMeta(tx kvdb.RTx) (*Meta, error) {
-	meta := &Meta{}
+	var meta *Meta
 
 	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		return fetchMeta(meta, tx)
+	}, func() {
+		meta = &Meta{}
 	})
 	if err != nil {
 		return nil, err

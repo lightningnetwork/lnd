@@ -201,12 +201,16 @@ func (db *DB) Update(f func(tx walletdb.ReadWriteTx) error) error {
 
 // View is a wrapper around walletdb.View which calls into the extended
 // backend when available. This call is needed to be able to cast DB to
-// ExtendedBackend.
-func (db *DB) View(f func(tx walletdb.ReadTx) error) error {
+// ExtendedBackend. The passed reset function is called before the start of the
+// transaction and can be used to reset intermediate state. As callers may
+// expect retries of the f closure (depending on the database backend used), the
+// reset function will be called before each retry respectively.
+func (db *DB) View(f func(tx walletdb.ReadTx) error, reset func()) error {
 	if v, ok := db.Backend.(kvdb.ExtendedBackend); ok {
-		return v.View(f)
+		return v.View(f, reset)
 	}
 
+	reset()
 	return walletdb.View(db, f)
 }
 
@@ -389,6 +393,8 @@ func (d *DB) FetchOpenChannels(nodeID *btcec.PublicKey) ([]*OpenChannel, error) 
 		var err error
 		channels, err = d.fetchOpenChannels(tx, nodeID)
 		return err
+	}, func() {
+		channels = nil
 	})
 
 	return channels, err
@@ -574,7 +580,7 @@ func (d *DB) FetchChannel(chanPoint wire.OutPoint) (*OpenChannel, error) {
 		})
 	}
 
-	err := kvdb.View(d, chanScan)
+	err := kvdb.View(d, chanScan, func() {})
 	if err != nil {
 		return nil, err
 	}
@@ -741,6 +747,8 @@ func fetchChannels(d *DB, filters ...fetchChannelsFilter) ([]*OpenChannel, error
 			})
 
 		})
+	}, func() {
+		channels = nil
 	})
 	if err != nil {
 		return nil, err
@@ -781,6 +789,8 @@ func (d *DB) FetchClosedChannels(pendingOnly bool) ([]*ChannelCloseSummary, erro
 			chanSummaries = append(chanSummaries, chanSummary)
 			return nil
 		})
+	}, func() {
+		chanSummaries = nil
 	}); err != nil {
 		return nil, err
 	}
@@ -817,6 +827,8 @@ func (d *DB) FetchClosedChannel(chanID *wire.OutPoint) (*ChannelCloseSummary, er
 		chanSummary, err = deserializeCloseChannelSummary(summaryReader)
 
 		return err
+	}, func() {
+		chanSummary = nil
 	}); err != nil {
 		return nil, err
 	}
@@ -865,6 +877,8 @@ func (d *DB) FetchClosedChannelForID(cid lnwire.ChannelID) (
 			return nil
 		}
 		return ErrClosedChannelNotFound
+	}, func() {
+		chanSummary = nil
 	}); err != nil {
 		return nil, err
 	}
@@ -1052,6 +1066,8 @@ func (d *DB) AddrsForNode(nodePub *btcec.PublicKey) ([]net.Addr, error) {
 		}
 
 		return nil
+	}, func() {
+		linkNode = nil
 	})
 	if dbErr != nil {
 		return nil, dbErr
@@ -1261,6 +1277,8 @@ func (db *DB) FetchHistoricalChannel(outPoint *wire.OutPoint) (*OpenChannel, err
 
 		channel, err = fetchOpenChannel(chanBucket, outPoint)
 		return err
+	}, func() {
+		channel = nil
 	})
 	if err != nil {
 		return nil, err

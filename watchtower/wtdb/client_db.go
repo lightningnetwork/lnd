@@ -192,6 +192,8 @@ func (c *ClientDB) Version() (uint32, error) {
 		var err error
 		version, err = getDBVersion(tx)
 		return err
+	}, func() {
+		version = 0
 	})
 	if err != nil {
 		return 0, err
@@ -392,6 +394,8 @@ func (c *ClientDB) LoadTowerByID(towerID TowerID) (*Tower, error) {
 		var err error
 		tower, err = getTower(towers, towerID.Bytes())
 		return err
+	}, func() {
+		tower = nil
 	})
 	if err != nil {
 		return nil, err
@@ -421,6 +425,8 @@ func (c *ClientDB) LoadTower(pubKey *btcec.PublicKey) (*Tower, error) {
 		var err error
 		tower, err = getTower(towers, towerIDBytes)
 		return err
+	}, func() {
+		tower = nil
 	})
 	if err != nil {
 		return nil, err
@@ -446,6 +452,8 @@ func (c *ClientDB) ListTowers() ([]*Tower, error) {
 			towers = append(towers, tower)
 			return nil
 		})
+	}, func() {
+		towers = nil
 	})
 	if err != nil {
 		return nil, err
@@ -566,6 +574,8 @@ func (c *ClientDB) ListClientSessions(id *TowerID) (map[SessionID]*ClientSession
 		var err error
 		clientSessions, err = listClientSessions(sessions, id)
 		return err
+	}, func() {
+		clientSessions = nil
 	})
 	if err != nil {
 		return nil, err
@@ -611,7 +621,7 @@ func listClientSessions(sessions kvdb.RBucket,
 // FetchChanSummaries loads a mapping from all registered channels to their
 // channel summaries.
 func (c *ClientDB) FetchChanSummaries() (ChannelSummaries, error) {
-	summaries := make(map[lnwire.ChannelID]ClientChanSummary)
+	var summaries map[lnwire.ChannelID]ClientChanSummary
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		chanSummaries := tx.ReadBucket(cChanSummaryBkt)
 		if chanSummaries == nil {
@@ -632,6 +642,8 @@ func (c *ClientDB) FetchChanSummaries() (ChannelSummaries, error) {
 
 			return nil
 		})
+	}, func() {
+		summaries = make(map[lnwire.ChannelID]ClientChanSummary)
 	})
 	if err != nil {
 		return nil, err

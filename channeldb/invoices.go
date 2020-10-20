@@ -624,6 +624,8 @@ func (d *DB) InvoicesAddedSince(sinceAddIndex uint64) ([]Invoice, error) {
 		}
 
 		return nil
+	}, func() {
+		newInvoices = nil
 	})
 	if err != nil {
 		return nil, err
@@ -669,7 +671,7 @@ func (d *DB) LookupInvoice(ref InvoiceRef) (Invoice, error) {
 		invoice = i
 
 		return nil
-	})
+	}, func() {})
 	if err != nil {
 		return invoice, err
 	}
@@ -731,13 +733,6 @@ func (d *DB) ScanInvoices(
 	scanFunc func(lntypes.Hash, *Invoice) error, reset func()) error {
 
 	return kvdb.View(d, func(tx kvdb.RTx) error {
-		// Reset partial results. As transaction commit success is not
-		// guaranteed when using etcd, we need to be prepared to redo
-		// the whole view transaction. In order to be able to do that
-		// we need a way to reset existing results. This is also done
-		// upon first run for initialization.
-		reset()
-
 		invoices := tx.ReadBucket(invoiceBucket)
 		if invoices == nil {
 			return ErrNoInvoicesCreated
@@ -773,7 +768,7 @@ func (d *DB) ScanInvoices(
 
 			return scanFunc(paymentHash, &invoice)
 		})
-	})
+	}, reset)
 }
 
 // InvoiceQuery represents a query to the invoice database. The query allows a
@@ -825,9 +820,7 @@ type InvoiceSlice struct {
 // QueryInvoices allows a caller to query the invoice database for invoices
 // within the specified add index range.
 func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
-	resp := InvoiceSlice{
-		InvoiceQuery: q,
-	}
+	var resp InvoiceSlice
 
 	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		// If the bucket wasn't found, then there aren't any invoices
@@ -892,6 +885,10 @@ func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
 		}
 
 		return nil
+	}, func() {
+		resp = InvoiceSlice{
+			InvoiceQuery: q,
+		}
 	})
 	if err != nil && err != ErrNoInvoicesCreated {
 		return resp, err
@@ -1011,6 +1008,8 @@ func (d *DB) InvoicesSettledSince(sinceSettleIndex uint64) ([]Invoice, error) {
 		}
 
 		return nil
+	}, func() {
+		settledInvoices = nil
 	})
 	if err != nil {
 		return nil, err

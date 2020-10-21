@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -161,6 +162,10 @@ type ChannelReservation struct {
 	chanFunder chanfunding.Assembler
 
 	fundingIntent chanfunding.Intent
+
+	// nextRevocationKeyLoc stores the key locator information for this
+	// channel.
+	nextRevocationKeyLoc keychain.KeyLocator
 }
 
 // NewChannelReservation creates a new channel reservation. This function is

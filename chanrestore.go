@@ -48,20 +48,7 @@ type chanDBRestorer struct {
 func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 	*channeldb.ChannelShell, error) {
 
-	// First, we'll also need to obtain the private key for the shachain
-	// root from the encoded public key.
-	//
-	// TODO(roasbeef): now adds req for hardware signers to impl
-	// shachain...
-	privKey, err := c.secretKeys.DerivePrivKey(backup.ShaChainRootDesc)
-	if err != nil {
-		return nil, fmt.Errorf("unable to derive shachain root key: %v", err)
-	}
-	revRoot, err := chainhash.NewHash(privKey.Serialize())
-	if err != nil {
-		return nil, err
-	}
-	shaChainProducer := shachain.NewRevocationProducer(*revRoot)
+	var err error
 
 	// Each of the keys in our local channel config only have their
 	// locators populate, so we'll re-derive the raw key now as we'll need
@@ -97,6 +84,53 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 		return nil, fmt.Errorf("unable to derive htlc key: %v", err)
 	}
 
+	// The shachain root that seeds RevocationProducer for this channel.
+	// It currently has two possible formats.
+	var revRoot *chainhash.Hash
+
+	// If the PubKey field is non-nil, then this shachain root is using the
+	// legacy non-ECDH scheme.
+	if backup.ShaChainRootDesc.PubKey != nil {
+		ltndLog.Debugf("Using legacy revocation producer format for "+
+			"channel point %v", backup.FundingOutpoint)
+
+		// Obtain the private key for the shachain root from the
+		// encoded public key.
+		privKey, err := c.secretKeys.DerivePrivKey(
+			backup.ShaChainRootDesc,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("could not derive private key "+
+				"for legacy channel revocation root format: "+
+				"%v", err)
+		}
+
+		revRoot, err = chainhash.NewHash(privKey.Serialize())
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		ltndLog.Debugf("Using new ECDH revocation producer format "+
+			"for channel point %v", backup.FundingOutpoint)
+
+		// This is the scheme in which the shachain root is derived via
+		// an ECDH operation on the private key of ShaChainRootDesc and
+		// our public multisig key.
+		ecdh, err := c.secretKeys.ECDH(
+			backup.ShaChainRootDesc,
+			backup.LocalChanCfg.MultiSigKey.PubKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to derive shachain "+
+				"root: %v", err)
+		}
+
+		ch := chainhash.Hash(ecdh)
+		revRoot = &ch
+	}
+
+	shaChainProducer := shachain.NewRevocationProducer(*revRoot)
+
 	var chanType channeldb.ChannelType
 	switch backup.Version {
 
@@ -119,8 +153,8 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 		return nil, fmt.Errorf("unknown Single version: %v", err)
 	}
 
-	ltndLog.Infof("SCB Recovery: created channel shell for ChannelPoint(%v), "+
-		"chan_type=%v", backup.FundingOutpoint, chanType)
+	ltndLog.Infof("SCB Recovery: created channel shell for ChannelPoint"+
+		"(%v), chan_type=%v", backup.FundingOutpoint, chanType)
 
 	chanShell := channeldb.ChannelShell{
 		NodeAddrs: backup.Addresses,

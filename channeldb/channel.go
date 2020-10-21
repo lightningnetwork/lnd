@@ -194,6 +194,10 @@ const (
 	// A tlv type definition used to serialize an outpoint's indexStatus
 	// for use in the outpoint index.
 	indexStatusType tlv.Type = 0
+
+	// A tlv type definition used to serialize and deserialize a KeyLocator
+	// from the database.
+	keyLocType tlv.Type = 1
 )
 
 // indexStatus is an enum-like type that describes what state the
@@ -718,6 +722,11 @@ type OpenChannel struct {
 	// LastWasRevoke is a boolean that determines if the last update we sent
 	// was a revocation (true) or a commitment signature (false).
 	LastWasRevoke bool
+
+	// RevocationKeyLocator stores the KeyLocator information that we will
+	// need to derive the shachain root for this channel. This allows us to
+	// have private key isolation from lnd.
+	RevocationKeyLocator keychain.KeyLocator
 
 	// TODO(roasbeef): eww
 	Db *DB
@@ -3286,6 +3295,20 @@ func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 		return err
 	}
 
+	// Write the RevocationKeyLocator as the first entry in a tlv stream.
+	keyLocRecord := MakeKeyLocRecord(
+		keyLocType, &channel.RevocationKeyLocator,
+	)
+
+	tlvStream, err := tlv.NewStream(keyLocRecord)
+	if err != nil {
+		return err
+	}
+
+	if err := tlvStream.Encode(&w); err != nil {
+		return err
+	}
+
 	if err := chanBucket.Put(chanInfoKey, w.Bytes()); err != nil {
 		return err
 	}
@@ -3473,6 +3496,16 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 		if err != nil {
 			return err
 		}
+	}
+
+	keyLocRecord := MakeKeyLocRecord(keyLocType, &channel.RevocationKeyLocator)
+	tlvStream, err := tlv.NewStream(keyLocRecord)
+	if err != nil {
+		return err
+	}
+
+	if err := tlvStream.Decode(r); err != nil {
+		return err
 	}
 
 	channel.Packager = NewChannelPackager(channel.ShortChannelID)

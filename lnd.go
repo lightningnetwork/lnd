@@ -1188,6 +1188,12 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 			return nil, err
 		}
 
+		// For new wallets, the ResetWalletTransactions flag is a no-op.
+		if cfg.ResetWalletTransactions {
+			ltndLog.Warnf("Ignoring reset-wallet-transactions " +
+				"flag for new wallet as it has no effect")
+		}
+
 		return &WalletUnlockParams{
 			Password:       password,
 			Birthday:       birthday,
@@ -1200,6 +1206,28 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 	// The wallet has already been created in the past, and is simply being
 	// unlocked. So we'll just return these passphrases.
 	case unlockMsg := <-pwService.UnlockMsgs:
+		// Resetting the transactions is something the user likely only
+		// wants to do once so we add a prominent warning to the log to
+		// remind the user to turn off the setting again after
+		// successful completion.
+		if cfg.ResetWalletTransactions {
+			ltndLog.Warnf("Dropping all transaction history from " +
+				"on-chain wallet. Remember to disable " +
+				"reset-wallet-transactions flag for next " +
+				"start of lnd")
+
+			err := wallet.DropTransactionHistory(
+				unlockMsg.Wallet.Database(), true,
+			)
+			if err != nil {
+				if err := unlockMsg.UnloadWallet(); err != nil {
+					ltndLog.Errorf("Could not unload "+
+						"wallet: %v", err)
+				}
+				return nil, err
+			}
+		}
+
 		return &WalletUnlockParams{
 			Password:       unlockMsg.Passphrase,
 			RecoveryWindow: unlockMsg.RecoveryWindow,

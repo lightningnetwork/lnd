@@ -34,7 +34,8 @@ func testGetRecoveryInfo(net *lntest.NetworkHarness, t *harnessTest) {
 		// Restore Carol, passing in the password, mnemonic, and
 		// desired recovery window.
 		node, err := net.RestoreNodeWithSeed(
-			"Carol", nil, password, mnemonic, recoveryWindow, nil,
+			"Carol", nil, password, mnemonic, "", recoveryWindow,
+			nil,
 		)
 		if err != nil {
 			t.Fatalf("unable to restore node: %v", err)
@@ -130,6 +131,11 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	shutdownAndAssert(net, t, carol)
 
+	// As long as the mnemonic is non-nil and the extended key is empty, the
+	// closure below will always restore the node from the seed. The tests
+	// need to manually overwrite this value to change that behavior.
+	rootKey := ""
+
 	// Create a closure for testing the recovery of Carol's wallet. This
 	// method takes the expected value of Carol's balance when using the
 	// given recovery window. Additionally, the caller can specify an action
@@ -140,7 +146,8 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 		// Restore Carol, passing in the password, mnemonic, and
 		// desired recovery window.
 		node, err := net.RestoreNodeWithSeed(
-			"Carol", nil, password, mnemonic, recoveryWindow, nil,
+			"Carol", nil, password, mnemonic, rootKey,
+			recoveryWindow, nil,
 		)
 		if err != nil {
 			t.Fatalf("unable to restore node: %v", err)

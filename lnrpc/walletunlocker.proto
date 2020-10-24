@@ -149,6 +149,33 @@ message InitWalletRequest {
     RPC as otherwise all access to the daemon will be lost!
     */
     bool stateless_init = 6;
+
+    /*
+    extended_master_key is an alternative to specifying cipher_seed_mnemonic and
+    aezeed_passphrase. Instead of deriving the master root key from the entropy
+    of an aezeed cipher seed, the given extended master root key is used
+    directly as the wallet's master key. This allows users to import/use a
+    master key from another wallet. When doing so, lnd still uses its default
+    SegWit only (BIP49/84) derivation paths and funds from custom/non-default
+    derivation paths will not automatically appear in the on-chain wallet. Using
+    an 'xprv' instead of an aezeed also has the disadvantage that the wallet's
+    birthday is not known as that is an information that's only encoded in the
+    aezeed, not the xprv. Therefore a birthday needs to be specified in
+    extended_master_key_birthday_timestamp or a "safe" default value will be
+    used.
+    */
+    string extended_master_key = 7;
+
+    /*
+    extended_master_key_birthday_timestamp is the optional unix timestamp in
+    seconds to use as the wallet's birthday when using an extended master key
+    to restore the wallet. lnd will only start scanning for funds in blocks that
+    are after the birthday which can speed up the process significantly. If the
+    birthday is not known, this should be left at its default value of 0 in
+    which case lnd will start scanning from the first SegWit block (481824 on
+    mainnet).
+    */
+    uint64 extended_master_key_birthday_timestamp = 8;
 }
 message InitWalletResponse {
     /*

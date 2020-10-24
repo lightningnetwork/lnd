@@ -300,6 +300,15 @@
         "stateless_init": {
           "type": "boolean",
           "title": "stateless_init is an optional argument instructing the daemon NOT to create\nany *.macaroon files in its filesystem. If this parameter is set, then the\nadmin macaroon returned in the response MUST be stored by the caller of the\nRPC as otherwise all access to the daemon will be lost!"
+        },
+        "extended_master_key": {
+          "type": "string",
+          "description": "extended_master_key is an alternative to specifying cipher_seed_mnemonic and\naezeed_passphrase. Instead of deriving the master root key from the entropy\nof an aezeed cipher seed, the given extended master root key is used\ndirectly as the wallet's master key. This allows users to import/use a\nmaster key from another wallet. When doing so, lnd still uses its default\nSegWit only (BIP49/84) derivation paths and funds from custom/non-default\nderivation paths will not automatically appear in the on-chain wallet. Using\nan 'xprv' instead of an aezeed also has the disadvantage that the wallet's\nbirthday is not known as that is an information that's only encoded in the\naezeed, not the xprv. Therefore a birthday needs to be specified in\nextended_master_key_birthday_timestamp or a \"safe\" default value will be\nused."
+        },
+        "extended_master_key_birthday_timestamp": {
+          "type": "string",
+          "format": "uint64",
+          "description": "extended_master_key_birthday_timestamp is the optional unix timestamp in\nseconds to use as the wallet's birthday when using an extended master key\nto restore the wallet. lnd will only start scanning for funds in blocks that\nare after the birthday which can speed up the process significantly. If the\nbirthday is not known, this should be left at its default value of 0 in\nwhich case lnd will start scanning from the first SegWit block (481824 on\nmainnet)."
         }
       }
     },

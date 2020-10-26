@@ -330,37 +330,68 @@ func waitForChannelPendingForceClose(ctx context.Context,
 		Index: fundingChanPoint.OutputIndex,
 	}
 
-	var predErr error
-	err = wait.Predicate(func() bool {
+	return wait.NoError(func() error {
 		pendingChansRequest := &lnrpc.PendingChannelsRequest{}
 		pendingChanResp, err := node.PendingChannels(
 			ctx, pendingChansRequest,
 		)
 		if err != nil {
-			predErr = fmt.Errorf("unable to get pending "+
-				"channels: %v", err)
-			return false
+			return fmt.Errorf("unable to get pending channels: %v",
+				err)
 		}
 
 		forceClose, err := findForceClosedChannel(pendingChanResp, &op)
 		if err != nil {
-			predErr = err
-			return false
+			return err
 		}
 
 		// We must wait until the UTXO nursery has received the channel
 		// and is aware of its maturity height.
 		if forceClose.MaturityHeight == 0 {
-			predErr = fmt.Errorf("channel had maturity height of 0")
-			return false
+			return fmt.Errorf("channel had maturity height of 0")
 		}
-		return true
-	}, time.Second*15)
-	if err != nil {
-		return predErr
-	}
 
-	return nil
+		return nil
+	}, defaultTimeout)
+}
+
+// lnrpcForceCloseChannel is a short type alias for a ridiculously long type
+// name in the lnrpc package.
+type lnrpcForceCloseChannel = lnrpc.PendingChannelsResponse_ForceClosedChannel
+
+// waitForNumChannelPendingForceClose waits for the node to report a certain
+// number of channels in state pending force close.
+func waitForNumChannelPendingForceClose(ctx context.Context,
+	node *lntest.HarnessNode, expectedNum int,
+	perChanCheck func(channel *lnrpcForceCloseChannel) error) error {
+
+	return wait.NoError(func() error {
+		resp, err := node.PendingChannels(
+			ctx, &lnrpc.PendingChannelsRequest{},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to get pending channels: %v",
+				err)
+		}
+
+		forceCloseChans := resp.PendingForceClosingChannels
+		if len(forceCloseChans) != expectedNum {
+			return fmt.Errorf("bob should have %d pending "+
+				"force close channels but has %d", expectedNum,
+				len(forceCloseChans))
+		}
+
+		if perChanCheck != nil {
+			for _, forceCloseChan := range forceCloseChans {
+				err := perChanCheck(forceCloseChan)
+				if err != nil {
+					return err
+				}
+			}
+		}
+
+		return nil
+	}, defaultTimeout)
 }
 
 // cleanupForceClose mines a force close commitment found in the mempool and

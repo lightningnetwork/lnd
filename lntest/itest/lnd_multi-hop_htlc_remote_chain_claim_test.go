@@ -2,11 +2,8 @@ package itest
 
 import (
 	"context"
-	"fmt"
-	"time"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -15,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/stretchr/testify/require"
 )
 
 // testMultiHopHtlcRemoteChainClaim tests that in the multi-hop HTLC scenario,
@@ -51,9 +49,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 	carolInvoice, err := carol.AddHoldInvoice(ctxt, invoiceReq)
-	if err != nil {
-		t.Fatalf("unable to add invoice: %v", err)
-	}
+	require.NoError(t.t, err)
 
 	// Now that we've created the invoice, we'll send a single payment from
 	// Alice to Carol. We won't wait for the response however, as Carol
@@ -62,32 +58,21 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	defer cancel()
 
 	_, err = alice.RouterClient.SendPaymentV2(
-		ctx,
-		&routerrpc.SendPaymentRequest{
+		ctx, &routerrpc.SendPaymentRequest{
 			PaymentRequest: carolInvoice.PaymentRequest,
 			TimeoutSeconds: 60,
 			FeeLimitMsat:   noFeeLimitMsat,
 		},
 	)
-	if err != nil {
-		t.Fatalf("unable to send payment: %v", err)
-	}
+	require.NoError(t.t, err)
 
 	// At this point, all 3 nodes should now have an active channel with
 	// the created HTLC pending on all of them.
-	var predErr error
 	nodes := []*lntest.HarnessNode{alice, bob, carol}
-	err = wait.Predicate(func() bool {
-		predErr = assertActiveHtlcs(nodes, payHash[:])
-		if predErr != nil {
-			return false
-		}
-
-		return true
-	}, time.Second*15)
-	if err != nil {
-		t.Fatalf("htlc mismatch: %v", predErr)
-	}
+	err = wait.NoError(func() error {
+		return assertActiveHtlcs(nodes, payHash[:])
+	}, defaultTimeout)
+	require.NoError(t.t, err)
 
 	// Wait for carol to mark invoice as accepted. There is a small gap to
 	// bridge between adding the htlc to the channel and executing the exit
@@ -102,22 +87,20 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// immediately force close the channel by broadcast her commitment
 	// transaction.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	aliceForceClose := closeChannelAndAssertType(ctxt, t, net, alice,
-		aliceChanPoint, c == commitTypeAnchors, true)
+	aliceForceClose := closeChannelAndAssertType(
+		ctxt, t, net, alice, aliceChanPoint, c == commitTypeAnchors,
+		true,
+	)
 
 	// Wait for the channel to be marked pending force close.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = waitForChannelPendingForceClose(ctxt, alice, aliceChanPoint)
-	if err != nil {
-		t.Fatalf("channel not pending force close: %v", err)
-	}
+	require.NoError(t.t, err)
 
 	// Mine enough blocks for Alice to sweep her funds from the force
 	// closed channel.
 	_, err = net.Miner.Node.Generate(defaultCSV)
-	if err != nil {
-		t.Fatalf("unable to generate blocks: %v", err)
-	}
+	require.NoError(t.t, err)
 
 	// Alice should now sweep her funds. If there are anchors, Alice should
 	// also sweep hers.
@@ -125,16 +108,14 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	if c == commitTypeAnchors {
 		expectedTxes = 2
 	}
-	_, err = waitForNTxsInMempool(net.Miner.Node, expectedTxes, minerMempoolTimeout)
-	if err != nil {
-		t.Fatalf("unable to find sweeping tx in mempool: %v", err)
-	}
+	_, err = waitForNTxsInMempool(
+		net.Miner.Node, expectedTxes, minerMempoolTimeout,
+	)
+	require.NoError(t.t, err)
 
 	// Suspend bob, so Carol is forced to go on chain.
 	restartBob, err := net.SuspendNode(bob)
-	if err != nil {
-		t.Fatalf("unable to suspend bob: %v", err)
-	}
+	require.NoError(t.t, err)
 
 	// Settle invoice. This will just mark the invoice as settled, as there
 	// is no link anymore to remove the htlc from the commitment tx. For
@@ -146,31 +127,25 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	_, err = carol.SettleInvoice(ctx, &invoicesrpc.SettleInvoiceMsg{
 		Preimage: preimage[:],
 	})
-	if err != nil {
-		t.Fatalf("settle invoice: %v", err)
-	}
+	require.NoError(t.t, err)
 
 	// We'll now mine enough blocks so Carol decides that she needs to go
 	// on-chain to claim the HTLC as Bob has been inactive.
-	numBlocks := padCLTV(uint32(invoiceReq.CltvExpiry-
-		lncfg.DefaultIncomingBroadcastDelta) - defaultCSV)
+	numBlocks := padCLTV(uint32(
+		invoiceReq.CltvExpiry-lncfg.DefaultIncomingBroadcastDelta,
+	) - defaultCSV)
 
-	if _, err := net.Miner.Node.Generate(numBlocks); err != nil {
-		t.Fatalf("unable to generate blocks")
-	}
+	_, err = net.Miner.Node.Generate(numBlocks)
+	require.NoError(t.t, err)
 
 	// Carol's commitment transaction should now be in the mempool. If there
 	// are anchors, Carol also sweeps her anchor.
 	_, err = waitForNTxsInMempool(
 		net.Miner.Node, expectedTxes, minerMempoolTimeout,
 	)
-	if err != nil {
-		t.Fatalf("unable to find carol's txes: %v", err)
-	}
+	require.NoError(t.t, err)
 	bobFundingTxid, err := lnd.GetChanPointFundingTxid(bobChanPoint)
-	if err != nil {
-		t.Fatalf("unable to get txid: %v", err)
-	}
+	require.NoError(t.t, err)
 	carolFundingPoint := wire.OutPoint{
 		Hash:  *bobFundingTxid,
 		Index: bobChanPoint.OutputIndex,
@@ -186,16 +161,12 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// Mine a block, which should contain: the commitment, possibly an
 	// anchor sweep and the coinbase tx.
 	block := mineBlocks(t, net, 1, expectedTxes)[0]
-	if len(block.Transactions) != expectedTxes+1 {
-		t.Fatalf("expected %v transactions in block, got %v",
-			expectedTxes, len(block.Transactions))
-	}
+	require.Len(t.t, block.Transactions, expectedTxes+1)
 	assertTxInBlock(t, block, &closingTxid)
 
 	// Restart bob again.
-	if err := restartBob(); err != nil {
-		t.Fatalf("unable to restart bob: %v", err)
-	}
+	err = restartBob()
+	require.NoError(t.t, err)
 
 	// After the force close transacion is mined, Carol should broadcast her
 	// second level HTLC transacion. Bob will broadcast a sweep tx to sweep
@@ -206,21 +177,17 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	if c == commitTypeAnchors {
 		expectedTxes = 3
 	}
-	txes, err := getNTxsFromMempool(net.Miner.Node, expectedTxes,
-		minerMempoolTimeout)
-	if err != nil {
-		t.Fatalf("transactions not found in mempool: %v", err)
-	}
+	txes, err := getNTxsFromMempool(
+		net.Miner.Node, expectedTxes, minerMempoolTimeout,
+	)
+	require.NoError(t.t, err)
 
 	// All transactions should be pending from the commitment transaction.
 	assertAllTxesSpendFrom(t, txes, closingTxid)
 
 	// Mine a block to confirm the two transactions (+ coinbase).
 	block = mineBlocks(t, net, 1, expectedTxes)[0]
-	if len(block.Transactions) != expectedTxes+1 {
-		t.Fatalf("expected 3 transactions in block, got %v",
-			len(block.Transactions))
-	}
+	require.Len(t.t, block.Transactions, expectedTxes+1)
 
 	// Keep track of the second level tx maturity.
 	carolSecondLevelCSV := uint32(defaultCSV)
@@ -228,114 +195,60 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// When Bob notices Carol's second level transaction in the block, he
 	// will extract the preimage and broadcast a sweep tx to directly claim
 	// the HTLC in his (already closed) channel with Alice.
-	bobHtlcSweep, err := waitForTxInMempool(net.Miner.Node,
-		minerMempoolTimeout)
-	if err != nil {
-		t.Fatalf("transactions not found in mempool: %v", err)
-	}
+	bobHtlcSweep, err := waitForTxInMempool(
+		net.Miner.Node, minerMempoolTimeout,
+	)
+	require.NoError(t.t, err)
 
 	// It should spend from the commitment in the channel with Alice.
 	tx, err := net.Miner.Node.GetRawTransaction(bobHtlcSweep)
-	if err != nil {
-		t.Fatalf("unable to get txn: %v", err)
-	}
-	if tx.MsgTx().TxIn[0].PreviousOutPoint.Hash != *aliceForceClose {
-		t.Fatalf("tx did not spend from alice's force close tx")
-	}
+	require.NoError(t.t, err)
+	require.Equal(
+		t.t, *aliceForceClose, tx.MsgTx().TxIn[0].PreviousOutPoint.Hash,
+	)
 
 	// We'll now mine a block which should confirm Bob's HTLC sweep
 	// transaction.
 	block = mineBlocks(t, net, 1, 1)[0]
-	if len(block.Transactions) != 2 {
-		t.Fatalf("expected 2 transactions in block, got %v",
-			len(block.Transactions))
-	}
+	require.Len(t.t, block.Transactions, 2)
 	assertTxInBlock(t, block, bobHtlcSweep)
 	carolSecondLevelCSV--
 
 	// Now that the sweeping transaction has been confirmed, Bob should now
 	// recognize that all contracts have been fully resolved, and show no
 	// pending close channels.
-	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
-	err = wait.Predicate(func() bool {
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err := bob.PendingChannels(
-			ctxt, pendingChansRequest,
-		)
-		if err != nil {
-			predErr = fmt.Errorf("unable to query for pending "+
-				"channels: %v", err)
-			return false
-		}
-		if len(pendingChanResp.PendingForceClosingChannels) != 0 {
-			predErr = fmt.Errorf("bob still has pending channels "+
-				"but shouldn't: %v", spew.Sdump(pendingChanResp))
-			return false
-		}
-
-		return true
-	}, time.Second*15)
-	if err != nil {
-		t.Fatalf(predErr.Error())
-	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = waitForNumChannelPendingForceClose(ctxt, bob, 0, nil)
+	require.NoError(t.t, err)
 
 	// If we then mine 3 additional blocks, Carol's second level tx will
 	// mature, and she should pull the funds.
-	if _, err := net.Miner.Node.Generate(carolSecondLevelCSV); err != nil {
-		t.Fatalf("unable to generate block: %v", err)
-	}
+	_, err = net.Miner.Node.Generate(carolSecondLevelCSV)
+	require.NoError(t.t, err)
 
-	carolSweep, err := waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
-	if err != nil {
-		t.Fatalf("unable to find Carol's sweeping transaction: %v", err)
-	}
+	carolSweep, err := waitForTxInMempool(
+		net.Miner.Node, minerMempoolTimeout,
+	)
+	require.NoError(t.t, err)
 
 	// When Carol's sweep gets confirmed, she should have no more pending
 	// channels.
 	block = mineBlocks(t, net, 1, 1)[0]
 	assertTxInBlock(t, block, carolSweep)
 
-	pendingChansRequest = &lnrpc.PendingChannelsRequest{}
-	err = wait.Predicate(func() bool {
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err := carol.PendingChannels(
-			ctxt, pendingChansRequest,
-		)
-		if err != nil {
-			predErr = fmt.Errorf("unable to query for pending "+
-				"channels: %v", err)
-			return false
-		}
-		if len(pendingChanResp.PendingForceClosingChannels) != 0 {
-			predErr = fmt.Errorf("carol still has pending channels "+
-				"but shouldn't: %v", spew.Sdump(pendingChanResp))
-			return false
-		}
-
-		return true
-	}, time.Second*15)
-	if err != nil {
-		t.Fatalf(predErr.Error())
-	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = waitForNumChannelPendingForceClose(ctxt, carol, 0, nil)
+	require.NoError(t.t, err)
 
 	// The invoice should show as settled for Carol, indicating that it was
 	// swept on-chain.
 	invoicesReq := &lnrpc.ListInvoiceRequest{}
 	invoicesResp, err := carol.ListInvoices(ctxb, invoicesReq)
-	if err != nil {
-		t.Fatalf("unable to retrieve invoices: %v", err)
-	}
-	if len(invoicesResp.Invoices) != 1 {
-		t.Fatalf("expected 1 invoice, got %d", len(invoicesResp.Invoices))
-	}
+	require.NoError(t.t, err)
+	require.Len(t.t, invoicesResp.Invoices, 1)
 	invoice := invoicesResp.Invoices[0]
-	if invoice.State != lnrpc.Invoice_SETTLED {
-		t.Fatalf("expected invoice to be settled on chain")
-	}
-	if invoice.AmtPaidSat != invoiceAmt {
-		t.Fatalf("expected invoice to be settled with %d sat, got "+
-			"%d sat", invoiceAmt, invoice.AmtPaidSat)
-	}
+	require.Equal(t.t, lnrpc.Invoice_SETTLED, invoice.State)
+	require.Equal(t.t, int64(invoiceAmt), invoice.AmtPaidSat)
 
 	// Finally, check that the Alice's payment is correctly marked
 	// succeeded.
@@ -343,7 +256,5 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	err = checkPaymentStatus(
 		ctxt, alice, preimage, lnrpc.Payment_SUCCEEDED,
 	)
-	if err != nil {
-		t.Fatalf(err.Error())
-	}
+	require.NoError(t.t, err)
 }

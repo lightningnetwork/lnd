@@ -5381,14 +5381,23 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 		payAddrs = append(payAddrs, resp.PaymentAddr)
 	}
 
-	// Query for routes to pay from Carol to Dave.
-	// We set FinalCltvDelta to 40 since by default QueryRoutes returns
-	// the last hop with a final cltv delta of 9 where as the default in
-	// htlcswitch is 40.
+	// Assert Carol and Dave are synced to the chain before proceeding, to
+	// ensure the queried route will have a valid final CLTV once the HTLC
+	// reaches Dave.
+	_, minerHeight, err := net.Miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get best height: %v", err)
+	}
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	require.NoError(t.t, waitForNodeBlockHeight(ctxt, carol, minerHeight))
+	require.NoError(t.t, waitForNodeBlockHeight(ctxt, dave, minerHeight))
+
+	// Query for routes to pay from Carol to Dave using the default CLTV
+	// config.
 	routesReq := &lnrpc.QueryRoutesRequest{
-		PubKey:         dave.PubKeyStr,
-		Amt:            paymentAmtSat,
-		FinalCltvDelta: lnd.DefaultBitcoinTimeLockDelta,
+		PubKey: dave.PubKeyStr,
+		Amt:    paymentAmtSat,
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	routes, err := carol.QueryRoutes(ctxt, routesReq)

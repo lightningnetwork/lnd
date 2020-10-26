@@ -54,6 +54,7 @@
 <time> [ERR] FNDG: Unable to advance pending state of ChannelPoint(<chan_point>): error waiting for funding confirmation for ChannelPoint(<chan_point>): epoch client shutting down
 <time> [ERR] FNDG: Unable to advance pending state of ChannelPoint(<chan_point>): error waiting for funding confirmation for ChannelPoint(<chan_point>): funding manager shutting down
 <time> [ERR] FNDG: Unable to advance pending state of ChannelPoint(<chan_point>): error waiting for funding confirmation for ChannelPoint(<chan_point>): waiting for fundingconfirmation failed
+<time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: ChainNotifier shutting down, cannot complete funding flow for ChannelPoint(<chan_point>)
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: channel  announcement proof for short_chan_id=<cid> isn't valid: can't verify first bitcoin signature
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: funding manager shutting down
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: gossiper is shutting down
@@ -135,6 +136,7 @@
 <time> [ERR] PEER: unable to send msg to remote peer: peer exiting
 <time> [ERR] PEER: unable to send msg to remote peer: write tcp <ip>-><ip>: write: broken pipe
 <time> [ERR] PEER: unable to send msg to remote peer: write tcp <ip>-><ip>: write: connection reset by peer
+<time> [ERR] PEER: Allowed test error from <ip> (inbound): ReadMessage: unhandled command [sendaddrv2]
 <time> [ERR] RPCS: [/chainrpc.ChainNotifier/RegisterBlockEpochNtfn]: chain notifier shutting down
 <time> [ERR] RPCS: [/chainrpc.ChainNotifier/RegisterBlockEpochNtfn]: context canceled
 <time> [ERR] RPCS: [/invoicesrpc.Invoices/SubscribeSingleInvoice]: rpc error: code = Canceled desc = context canceled

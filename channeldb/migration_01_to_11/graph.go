@@ -244,7 +244,7 @@ func (c *ChannelGraph) SetSourceNode(node *LightningNode) error {
 		// Finally, we commit the information of the lightning node
 		// itself.
 		return addLightningNode(tx, node)
-	})
+	}, func() {})
 }
 
 func addLightningNode(tx kvdb.RwTx, node *LightningNode) error {

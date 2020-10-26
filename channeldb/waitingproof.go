@@ -80,7 +80,7 @@ func (s *WaitingProofStore) Add(proof *WaitingProof) error {
 		key := proof.Key()
 
 		return bucket.Put(key[:], b.Bytes())
-	})
+	}, func() {})
 	if err != nil {
 		return err
 	}
@@ -109,7 +109,7 @@ func (s *WaitingProofStore) Remove(key WaitingProofKey) error {
 		}
 
 		return bucket.Delete(key[:])
-	})
+	}, func() {})
 	if err != nil {
 		return err
 	}

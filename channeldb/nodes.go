@@ -108,7 +108,7 @@ func (l *LinkNode) Sync() error {
 		}
 
 		return putLinkNode(nodeMetaBucket, l)
-	})
+	}, func() {})
 }
 
 // putLinkNode serializes then writes the encoded version of the passed link
@@ -132,7 +132,7 @@ func putLinkNode(nodeMetaBucket kvdb.RwBucket, l *LinkNode) error {
 func (db *DB) DeleteLinkNode(identity *btcec.PublicKey) error {
 	return kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return db.deleteLinkNode(tx, identity)
-	})
+	}, func() {})
 }
 
 func (db *DB) deleteLinkNode(tx kvdb.RwTx, identity *btcec.PublicKey) error {

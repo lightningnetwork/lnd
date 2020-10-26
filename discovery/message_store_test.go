@@ -239,7 +239,7 @@ func TestMessageStoreUnsupportedMessage(t *testing.T) {
 	err = kvdb.Update(msgStore.db, func(tx kvdb.RwTx) error {
 		messageStore := tx.ReadWriteBucket(messageStoreBucket)
 		return messageStore.Put(msgKey, rawMsg.Bytes())
-	})
+	}, func() {})
 	if err != nil {
 		t.Fatalf("unable to add unsupported message to store: %v", err)
 	}

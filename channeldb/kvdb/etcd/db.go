@@ -234,13 +234,15 @@ func (db *db) View(f func(tx walletdb.ReadTx) error, reset func()) error {
 }
 
 // Update opens a database read/write transaction and executes the function f
-// with the transaction passed as a parameter.  After f exits, if f did not
-// error, the transaction is committed.  Otherwise, if f did error, the
-// transaction is rolled back.  If the rollback fails, the original error
-// returned by f is still returned.  If the commit fails, the commit error is
-// returned.
-func (db *db) Update(f func(tx walletdb.ReadWriteTx) error) error {
+// with the transaction passed as a parameter. After f exits, if f did not
+// error, the transaction is committed. Otherwise, if f did error, the
+// transaction is rolled back. If the rollback fails, the original error
+// returned by f is still returned. If the commit fails, the commit error is
+// returned. As callers may expect retries of the f closure, the reset function
+// will be called before each retry respectively.
+func (db *db) Update(f func(tx walletdb.ReadWriteTx) error, reset func()) error {
 	apply := func(stm STM) error {
+		reset()
 		return f(newReadWriteTx(stm, db.config.Prefix))
 	}
 
@@ -304,5 +306,5 @@ func (db *db) Close() error {
 //
 // Batch is only useful when there are multiple goroutines calling it.
 func (db *db) Batch(apply func(tx walletdb.ReadWriteTx) error) error {
-	return db.Update(apply)
+	return db.Update(apply, func() {})
 }

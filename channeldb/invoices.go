@@ -562,6 +562,8 @@ func (d *DB) AddInvoice(newInvoice *Invoice, paymentHash lntypes.Hash) (
 
 		invoiceAddIndex = newIndex
 		return nil
+	}, func() {
+		invoiceAddIndex = 0
 	})
 	if err != nil {
 		return 0, err
@@ -950,6 +952,8 @@ func (d *DB) UpdateInvoice(ref InvoiceRef,
 		)
 
 		return err
+	}, func() {
+		updatedInvoice = nil
 	})
 
 	return updatedInvoice, err
@@ -1866,7 +1870,7 @@ func (d *DB) DeleteInvoice(invoicesToDelete []InvoiceDeleteRef) error {
 		}
 
 		return nil
-	})
+	}, func() {})
 
 	return err
 }

@@ -2894,7 +2894,7 @@ func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
 		}
 
 		return edges.Put(edgeKey[:], stripped)
-	})
+	}, func() {})
 	if err != nil {
 		t.Fatalf("error writing db: %v", err)
 	}

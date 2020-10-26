@@ -191,11 +191,16 @@ type DB struct {
 
 // Update is a wrapper around walletdb.Update which calls into the extended
 // backend when available. This call is needed to be able to cast DB to
-// ExtendedBackend.
-func (db *DB) Update(f func(tx walletdb.ReadWriteTx) error) error {
+// ExtendedBackend. The passed reset function is called before the start of the
+// transaction and can be used to reset intermediate state. As callers may
+// expect retries of the f closure (depending on the database backend used), the
+// reset function will be called before each retry respectively.
+func (db *DB) Update(f func(tx walletdb.ReadWriteTx) error, reset func()) error {
 	if v, ok := db.Backend.(kvdb.ExtendedBackend); ok {
-		return v.Update(f)
+		return v.Update(f, reset)
 	}
+
+	reset()
 	return walletdb.Update(db, f)
 }
 
@@ -310,7 +315,7 @@ func (d *DB) Wipe() error {
 			}
 		}
 		return nil
-	})
+	}, func() {})
 }
 
 // createChannelDB creates and initializes a fresh version of channeldb. In
@@ -364,7 +369,7 @@ func initChannelDB(db kvdb.Backend) error {
 
 		meta.DbVersionNumber = getLatestDBVersion(dbVersions)
 		return putMeta(meta, tx)
-	})
+	}, func() {})
 	if err != nil {
 		return fmt.Errorf("unable to create new channeldb: %v", err)
 	}
@@ -939,7 +944,7 @@ func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
 		// garbage collect it to ensure we don't establish persistent
 		// connections to peers without open channels.
 		return d.pruneLinkNode(tx, chanSummary.RemotePub)
-	})
+	}, func() {})
 }
 
 // pruneLinkNode determines whether we should garbage collect a link node from
@@ -979,7 +984,7 @@ func (d *DB) PruneLinkNodes() error {
 		}
 
 		return nil
-	})
+	}, func() {})
 }
 
 // ChannelShell is a shell of a channel that is meant to be used for channel
@@ -1026,7 +1031,7 @@ func (d *DB) RestoreChannelShells(channelShells ...*ChannelShell) error {
 		}
 
 		return nil
-	})
+	}, func() {})
 	if err != nil {
 		return err
 	}
@@ -1210,7 +1215,7 @@ func (d *DB) syncVersions(versions []version) error {
 		}
 
 		return nil
-	})
+	}, func() {})
 }
 
 // ChannelGraph returns a new instance of the directed channel graph.

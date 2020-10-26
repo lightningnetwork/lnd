@@ -749,7 +749,7 @@ func (db *DB) DeletePayments() error {
 		}
 
 		return nil
-	})
+	}, func() {})
 }
 
 // fetchSequenceNumbers fetches all the sequence numbers associated with a

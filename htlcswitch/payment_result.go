@@ -305,5 +305,5 @@ func (store *networkResultStore) cleanStore(keep map[uint64]struct{}) error {
 		}
 
 		return nil
-	})
+	}, func() {})
 }

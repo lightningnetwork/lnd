@@ -209,7 +209,7 @@ func TestPackagerEmptyFwdPkg(t *testing.T) {
 
 	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.AddFwdPkg(tx, fwdPkg)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to add fwd pkg: %v", err)
 	}
 
@@ -228,7 +228,7 @@ func TestPackagerEmptyFwdPkg(t *testing.T) {
 	// fwd filter.
 	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.SetFwdFilter(tx, fwdPkg.Height, fwdPkg.FwdFilter)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to set fwdfiter: %v", err)
 	}
 
@@ -246,7 +246,7 @@ func TestPackagerEmptyFwdPkg(t *testing.T) {
 	// Lastly, remove the completed forwarding package from disk.
 	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.RemovePkg(tx, fwdPkg.Height)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to remove fwdpkg: %v", err)
 	}
 
@@ -281,7 +281,7 @@ func TestPackagerOnlyAdds(t *testing.T) {
 
 	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.AddFwdPkg(tx, fwdPkg)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to add fwd pkg: %v", err)
 	}
 
@@ -302,7 +302,7 @@ func TestPackagerOnlyAdds(t *testing.T) {
 	// was failed locally.
 	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.SetFwdFilter(tx, fwdPkg.Height, fwdPkg.FwdFilter)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to set fwdfiter: %v", err)
 	}
 
@@ -326,7 +326,7 @@ func TestPackagerOnlyAdds(t *testing.T) {
 
 		if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 			return packager.AckAddHtlcs(tx, addRef)
-		}); err != nil {
+		}, func() {}); err != nil {
 			t.Fatalf("unable to ack add htlc: %v", err)
 		}
 	}
@@ -345,7 +345,7 @@ func TestPackagerOnlyAdds(t *testing.T) {
 	// Lastly, remove the completed forwarding package from disk.
 	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.RemovePkg(tx, fwdPkg.Height)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to remove fwdpkg: %v", err)
 	}
 
@@ -383,7 +383,7 @@ func TestPackagerOnlySettleFails(t *testing.T) {
 
 	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.AddFwdPkg(tx, fwdPkg)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to add fwd pkg: %v", err)
 	}
 
@@ -404,7 +404,7 @@ func TestPackagerOnlySettleFails(t *testing.T) {
 	// was failed locally.
 	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.SetFwdFilter(tx, fwdPkg.Height, fwdPkg.FwdFilter)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to set fwdfiter: %v", err)
 	}
 
@@ -430,7 +430,7 @@ func TestPackagerOnlySettleFails(t *testing.T) {
 
 		if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 			return packager.AckSettleFails(tx, failSettleRef)
-		}); err != nil {
+		}, func() {}); err != nil {
 			t.Fatalf("unable to ack add htlc: %v", err)
 		}
 	}
@@ -450,7 +450,7 @@ func TestPackagerOnlySettleFails(t *testing.T) {
 	// Lastly, remove the completed forwarding package from disk.
 	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.RemovePkg(tx, fwdPkg.Height)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to remove fwdpkg: %v", err)
 	}
 
@@ -488,7 +488,7 @@ func TestPackagerAddsThenSettleFails(t *testing.T) {
 
 	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.AddFwdPkg(tx, fwdPkg)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to add fwd pkg: %v", err)
 	}
 
@@ -509,7 +509,7 @@ func TestPackagerAddsThenSettleFails(t *testing.T) {
 	// was failed locally.
 	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.SetFwdFilter(tx, fwdPkg.Height, fwdPkg.FwdFilter)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to set fwdfiter: %v", err)
 	}
 
@@ -534,7 +534,7 @@ func TestPackagerAddsThenSettleFails(t *testing.T) {
 
 		if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 			return packager.AckAddHtlcs(tx, addRef)
-		}); err != nil {
+		}, func() {}); err != nil {
 			t.Fatalf("unable to ack add htlc: %v", err)
 		}
 	}
@@ -561,7 +561,7 @@ func TestPackagerAddsThenSettleFails(t *testing.T) {
 
 		if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 			return packager.AckSettleFails(tx, failSettleRef)
-		}); err != nil {
+		}, func() {}); err != nil {
 			t.Fatalf("unable to remove settle/fail htlc: %v", err)
 		}
 	}
@@ -581,7 +581,7 @@ func TestPackagerAddsThenSettleFails(t *testing.T) {
 	// Lastly, remove the completed forwarding package from disk.
 	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.RemovePkg(tx, fwdPkg.Height)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to remove fwdpkg: %v", err)
 	}
 
@@ -621,7 +621,7 @@ func TestPackagerSettleFailsThenAdds(t *testing.T) {
 
 	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.AddFwdPkg(tx, fwdPkg)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to add fwd pkg: %v", err)
 	}
 
@@ -642,7 +642,7 @@ func TestPackagerSettleFailsThenAdds(t *testing.T) {
 	// was failed locally.
 	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.SetFwdFilter(tx, fwdPkg.Height, fwdPkg.FwdFilter)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to set fwdfiter: %v", err)
 	}
 
@@ -671,7 +671,7 @@ func TestPackagerSettleFailsThenAdds(t *testing.T) {
 
 		if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 			return packager.AckSettleFails(tx, failSettleRef)
-		}); err != nil {
+		}, func() {}); err != nil {
 			t.Fatalf("unable to remove settle/fail htlc: %v", err)
 		}
 	}
@@ -698,7 +698,7 @@ func TestPackagerSettleFailsThenAdds(t *testing.T) {
 
 		if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 			return packager.AckAddHtlcs(tx, addRef)
-		}); err != nil {
+		}, func() {}); err != nil {
 			t.Fatalf("unable to ack add htlc: %v", err)
 		}
 	}
@@ -718,7 +718,7 @@ func TestPackagerSettleFailsThenAdds(t *testing.T) {
 	// Lastly, remove the completed forwarding package from disk.
 	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.RemovePkg(tx, fwdPkg.Height)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to remove fwdpkg: %v", err)
 	}
 

@@ -3505,7 +3505,7 @@ func (f *fundingManager) saveChannelOpeningState(chanPoint *wire.OutPoint,
 		byteOrder.PutUint64(scratch[2:], shortChanID.ToUint64())
 
 		return bucket.Put(outpointBytes.Bytes(), scratch)
-	})
+	}, func() {})
 }
 
 // getChannelOpeningState fetches the channelOpeningState for the provided
@@ -3560,5 +3560,5 @@ func (f *fundingManager) deleteChannelOpeningState(chanPoint *wire.OutPoint) err
 		}
 
 		return bucket.Delete(outpointBytes.Bytes())
-	})
+	}, func() {})
 }

@@ -152,7 +152,7 @@ func createChannelDB(dbPath string) error {
 			DbVersionNumber: 0,
 		}
 		return putMeta(meta, tx)
-	})
+	}, func() {})
 	if err != nil {
 		return fmt.Errorf("unable to create new channeldb")
 	}

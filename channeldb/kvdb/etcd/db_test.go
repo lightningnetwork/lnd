@@ -28,7 +28,7 @@ func TestCopy(t *testing.T) {
 
 		require.NoError(t, apple.Put([]byte("key"), []byte("val")))
 		return nil
-	})
+	}, func() {})
 
 	// Expect non-zero copy.
 	var buf bytes.Buffer
@@ -66,7 +66,7 @@ func TestAbortContext(t *testing.T) {
 		require.Error(t, err, "context canceled")
 
 		return nil
-	})
+	}, func() {})
 
 	require.Error(t, err, "context canceled")
 

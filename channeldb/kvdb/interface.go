@@ -10,11 +10,15 @@ import (
 // error, the transaction is committed. Otherwise, if f did error, the
 // transaction is rolled back. If the rollback fails, the original error
 // returned by f is still returned. If the commit fails, the commit error is
-// returned.
-func Update(db Backend, f func(tx RwTx) error) error {
+// returned. As callers may expect retries of the f closure (depending on the
+// database backend used), the reset function will be called before each retry
+// respectively.
+func Update(db Backend, f func(tx RwTx) error, reset func()) error {
 	if extendedDB, ok := db.(ExtendedBackend); ok {
-		return extendedDB.Update(f)
+		return extendedDB.Update(f, reset)
 	}
+
+	reset()
 	return walletdb.Update(db, f)
 }
 
@@ -72,13 +76,15 @@ type ExtendedBackend interface {
 	//called before each retry respectively.
 	View(f func(tx walletdb.ReadTx) error, reset func()) error
 
-	// Update opens a database read/write transaction and executes the function
-	// f with the transaction passed as a parameter. After f exits, if f did not
-	// error, the transaction is committed. Otherwise, if f did error, the
-	// transaction is rolled back. If the rollback fails, the original error
-	// returned by f is still returned. If the commit fails, the commit error is
-	// returned.
-	Update(f func(tx walletdb.ReadWriteTx) error) error
+	// Update opens a database read/write transaction and executes the
+	// function f with the transaction passed as a parameter. After f exits,
+	// if f did not error, the transaction is committed. Otherwise, if f did
+	// error, the transaction is rolled back. If the rollback fails, the
+	// original error returned by f is still returned. If the commit fails,
+	// the commit error is returned. As callers may expect retries of the f
+	// closure (depending on the database backend used), the reset function
+	// will be called before each retry respectively.
+	Update(f func(tx walletdb.ReadWriteTx) error, reset func()) error
 }
 
 // Open opens an existing database for the specified type. The arguments are

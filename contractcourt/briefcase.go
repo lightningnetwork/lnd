@@ -924,7 +924,7 @@ func (b *boltArbitratorLog) WipeHistory() error {
 
 		// Finally, we'll delete the enclosing bucket itself.
 		return tx.DeleteTopLevelBucket(b.scopeKey[:])
-	})
+	}, func() {})
 }
 
 // checkpointContract is a private method that will be fed into
@@ -951,7 +951,7 @@ func (b *boltArbitratorLog) checkpointContract(c ContractResolver,
 		}
 
 		return nil
-	})
+	}, func() {})
 }
 
 func encodeIncomingResolution(w io.Writer, i *lnwallet.IncomingHtlcResolution) error {

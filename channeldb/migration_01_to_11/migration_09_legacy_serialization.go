@@ -95,7 +95,7 @@ func (db *DB) addPayment(payment *outgoingPayment) error {
 		binary.BigEndian.PutUint64(paymentIDBytes, paymentID)
 
 		return payments.Put(paymentIDBytes, paymentBytes)
-	})
+	}, func() {})
 }
 
 // fetchAllPayments returns all outgoing payments in DB.

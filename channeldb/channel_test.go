@@ -1447,7 +1447,7 @@ func TestBalanceAtHeight(t *testing.T) {
 			commit.RemoteBalance = remote
 
 			return appendChannelLogEntry(logBucket, &commit)
-		})
+		}, func() {})
 
 		return err
 	}

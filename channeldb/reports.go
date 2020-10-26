@@ -130,7 +130,7 @@ func (d *DB) PutResolverReport(tx kvdb.RwTx, chainHash chainhash.Hash,
 
 	// If the transaction is nil, we'll create a new one.
 	if tx == nil {
-		return kvdb.Update(d, putReportFunc)
+		return kvdb.Update(d, putReportFunc, func() {})
 	}
 
 	// Otherwise, we can write the report to disk using the existing

@@ -283,7 +283,7 @@ func (ns *nurseryStore) Incubate(kids []kidOutput, babies []babyOutput) error {
 		}
 
 		return nil
-	})
+	}, func() {})
 }
 
 // CribToKinder atomically moves a babyOutput in the crib bucket to the
@@ -365,7 +365,7 @@ func (ns *nurseryStore) CribToKinder(bby *babyOutput) error {
 		// This informs the utxo nursery that it should attempt to spend
 		// this output when the blockchain reaches the maturity height.
 		return hghtChanBucketCsv.Put(pfxOutputKey, []byte{})
-	})
+	}, func() {})
 }
 
 // PreschoolToKinder atomically moves a kidOutput from the preschool bucket to
@@ -463,7 +463,7 @@ func (ns *nurseryStore) PreschoolToKinder(kid *kidOutput,
 		// that this CSV delayed output will be ready to broadcast at
 		// the maturity height, after a brief period of incubation.
 		return hghtChanBucket.Put(pfxOutputKey, []byte{})
-	})
+	}, func() {})
 }
 
 // GraduateKinder atomically moves an output at the provided height into the
@@ -525,7 +525,7 @@ func (ns *nurseryStore) GraduateKinder(height uint32, kid *kidOutput) error {
 		// using graduate-prefixed key.
 		return chanBucket.Put(pfxOutputKey,
 			gradBuffer.Bytes())
-	})
+	}, func() {})
 }
 
 // FetchClass returns a list of babyOutputs in the crib bucket whose CLTV
@@ -844,7 +844,7 @@ func (ns *nurseryStore) RemoveChannel(chanPoint *wire.OutPoint) error {
 		}
 
 		return removeBucketIfExists(chanIndex, chanBytes)
-	})
+	}, func() {})
 }
 
 // Helper Methods

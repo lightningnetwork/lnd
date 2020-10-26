@@ -60,7 +60,7 @@ func fetchMeta(meta *Meta, tx kvdb.RTx) error {
 func (d *DB) PutMeta(meta *Meta) error {
 	return kvdb.Update(d, func(tx kvdb.RwTx) error {
 		return putMeta(meta, tx)
-	})
+	}, func() {})
 }
 
 // putMeta is an internal helper function used in order to allow callers to

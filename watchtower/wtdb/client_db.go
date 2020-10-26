@@ -146,7 +146,7 @@ func OpenClientDB(dbPath string) (*ClientDB, error) {
 	// initialized. This allows us to assume their presence throughout all
 	// operations. If an known top-level bucket is expected to exist but is
 	// missing, this will trigger a ErrUninitializedDB error.
-	err = kvdb.Update(clientDB.db, initClientDBBuckets)
+	err = kvdb.Update(clientDB.db, initClientDBBuckets, func() {})
 	if err != nil {
 		bdb.Close()
 		return nil, err
@@ -293,6 +293,8 @@ func (c *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*Tower, error) {
 
 		// Store the new or updated tower under its tower id.
 		return putTower(towers, tower)
+	}, func() {
+		tower = nil
 	})
 	if err != nil {
 		return nil, err
@@ -379,7 +381,7 @@ func (c *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
 		}
 
 		return nil
-	})
+	}, func() {})
 }
 
 // LoadTowerByID retrieves a tower by its tower ID.
@@ -506,6 +508,8 @@ func (c *ClientDB) NextSessionKeyIndex(towerID TowerID) (uint32, error) {
 
 		// Record the reserved session key index under this tower's id.
 		return keyIndex.Put(towerIDBytes, indexBuf[:])
+	}, func() {
+		index = 0
 	})
 	if err != nil {
 		return 0, err
@@ -558,7 +562,7 @@ func (c *ClientDB) CreateClientSession(session *ClientSession) error {
 		// Finally, write the client session's body in the sessions
 		// bucket.
 		return putClientSessionBody(sessions, session)
-	})
+	}, func() {})
 }
 
 // ListClientSessions returns the set of all client sessions known to the db. An
@@ -686,7 +690,7 @@ func (c *ClientDB) RegisterChannel(chanID lnwire.ChannelID,
 		}
 
 		return putChanSummary(chanSummaries, chanID, &summary)
-	})
+	}, func() {})
 }
 
 // MarkBackupIneligible records that the state identified by the (channel id,
@@ -794,6 +798,8 @@ func (c *ClientDB) CommitUpdate(id *SessionID,
 
 		return nil
 
+	}, func() {
+		lastApplied = 0
 	})
 	if err != nil {
 		return 0, err
@@ -899,7 +905,7 @@ func (c *ClientDB) AckUpdate(id *SessionID, seqNum uint16,
 
 		// Finally, insert the ack into the sessionAcks sub-bucket.
 		return sessionAcks.Put(seqNumBuf[:], b.Bytes())
-	})
+	}, func() {})
 }
 
 // getClientSessionBody loads the body of a ClientSession from the sessions

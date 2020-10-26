@@ -125,7 +125,7 @@ func TestPaymentStatusesMigration(t *testing.T) {
 			}
 
 			return circuits.Put(inFlightKey, inFlightCircuit)
-		})
+		}, func() {})
 		if err != nil {
 			t.Fatalf("unable to add circuit map entry: %v", err)
 		}
@@ -385,7 +385,7 @@ func TestMigrateOptionalChannelCloseSummaryFields(t *testing.T) {
 					return err
 				}
 				return closedChanBucket.Put(chanID, old)
-			})
+			}, func() {})
 			if err != nil {
 				t.Fatalf("unable to add old serialization: %v",
 					err)
@@ -493,7 +493,7 @@ func TestMigrateGossipMessageStoreKeys(t *testing.T) {
 			}
 
 			return messageStore.Put(oldMsgKey[:], b.Bytes())
-		})
+		}, func() {})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -683,7 +683,7 @@ func TestOutgoingPaymentsMigration(t *testing.T) {
 			}
 
 			return nil
-		})
+		}, func() {})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -859,6 +859,8 @@ func TestPaymentRouteSerialization(t *testing.T) {
 			}
 
 			return nil
+		}, func() {
+			oldPayments = nil
 		})
 		if err != nil {
 			t.Fatalf("unable to create test payments: %v", err)

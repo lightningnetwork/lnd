@@ -80,7 +80,7 @@ func (d *DB) WriteFlapCounts(flapCounts map[route.Vertex]*FlapCount) error {
 		}
 
 		return nil
-	})
+	}, func() {})
 }
 
 // ReadFlapCount attempts to read the flap count for a peer, failing if the

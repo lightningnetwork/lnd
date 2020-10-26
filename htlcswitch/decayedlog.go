@@ -131,7 +131,7 @@ func (d *DecayedLog) initBuckets() error {
 		}
 
 		return nil
-	})
+	}, func() {})
 }
 
 // Stop halts the garbage collector and closes boltdb.

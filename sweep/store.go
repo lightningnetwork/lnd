@@ -92,7 +92,7 @@ func NewSweeperStore(db kvdb.Backend, chainHash *chainhash.Hash) (
 		err = migrateTxHashes(tx, txHashesBucket, chainHash)
 
 		return err
-	})
+	}, func() {})
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +193,7 @@ func (s *sweeperStore) NotifyPublishTx(sweepTx *wire.MsgTx) error {
 		hash := sweepTx.TxHash()
 
 		return txHashesBucket.Put(hash[:], []byte{})
-	})
+	}, func() {})
 }
 
 // GetLastPublishedTx returns the last tx that we called NotifyPublishTx

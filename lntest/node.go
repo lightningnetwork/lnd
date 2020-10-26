@@ -199,9 +199,13 @@ func (cfg NodeConfig) RESTAddr() string {
 	return net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.RESTPort))
 }
 
+// DBDir returns the holding directory path of the graph database.
+func (cfg NodeConfig) DBDir() string {
+	return filepath.Join(cfg.DataDir, "graph", cfg.NetParams.Name)
+}
+
 func (cfg NodeConfig) DBPath() string {
-	return filepath.Join(cfg.DataDir, "graph",
-		fmt.Sprintf("%v/channel.db", cfg.NetParams.Name))
+	return filepath.Join(cfg.DBDir(), "channel.db")
 }
 
 func (cfg NodeConfig) ChanBackupPath() string {
@@ -438,6 +442,11 @@ func NewMiner(logDir, logFilename string, netParams *chaincfg.Params,
 // DBPath returns the filepath to the channeldb database file for this node.
 func (hn *HarnessNode) DBPath() string {
 	return hn.Cfg.DBPath()
+}
+
+// DBDir returns the path for the directory holding channeldb file(s).
+func (hn *HarnessNode) DBDir() string {
+	return hn.Cfg.DBDir()
 }
 
 // Name returns the name of this node set during initialization.

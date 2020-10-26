@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -1402,4 +1403,48 @@ func CopyFile(dest, src string) error {
 	}
 
 	return d.Close()
+}
+
+// FileExists returns true if the file at path exists.
+func FileExists(path string) bool {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return false
+	}
+
+	return true
+}
+
+// CopyAll copies all files and directories from srcDir to dstDir recursively.
+// Note that this function does not support links.
+func CopyAll(dstDir, srcDir string) error {
+	entries, err := ioutil.ReadDir(srcDir)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(srcDir, entry.Name())
+		dstPath := filepath.Join(dstDir, entry.Name())
+
+		info, err := os.Stat(srcPath)
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			err := os.Mkdir(dstPath, info.Mode())
+			if err != nil && !os.IsExist(err) {
+				return err
+			}
+
+			err = CopyAll(dstPath, srcPath)
+			if err != nil {
+				return err
+			}
+		} else if err := CopyFile(dstPath, srcPath); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

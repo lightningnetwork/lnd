@@ -4736,6 +4736,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		NodeSigner:        r.server.nodeSigner,
 		DefaultCLTVExpiry: defaultDelta,
 		ChanDB:            r.server.remoteChanDB,
+		Graph:             r.server.localChanDB.ChannelGraph(),
 		GenInvoiceFeatures: func() *lnwire.FeatureVector {
 			return r.server.featureMgr.Get(feature.SetInvoice)
 		},

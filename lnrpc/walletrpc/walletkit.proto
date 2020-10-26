@@ -143,7 +143,7 @@ service WalletKit {
 
     After either selecting or verifying the inputs, all input UTXOs are locked
     with an internal app ID.
-    
+
     NOTE: If this method returns without an error, it is the caller's
     responsibility to either spend the locked UTXOs (by finalizing and then
     publishing the transaction) or to unlock/release the locked UTXOs in case of

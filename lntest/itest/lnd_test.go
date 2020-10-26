@@ -14079,14 +14079,9 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	//
 	// We will also connect it to our chain backend.
 	minerLogDir := "./.minerlogs"
-	handlers := &rpcclient.NotificationHandlers{
-		OnTxAccepted: func(hash *chainhash.Hash, amt btcutil.Amount) {
-			lndHarness.OnTxAccepted(hash)
-		},
-	}
 	miner, minerCleanUp, err := lntest.NewMiner(
 		minerLogDir, "output_btcd_miner.log",
-		harnessNetParams, handlers,
+		harnessNetParams, &rpcclient.NotificationHandlers{},
 	)
 	require.NoError(t, err, "failed to create new miner")
 	defer func() {

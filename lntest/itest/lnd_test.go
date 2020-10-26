@@ -13984,19 +13984,26 @@ func sendAndAssertSuccess(t *harnessTest, node *lntest.HarnessNode,
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 
-	stream, err := node.RouterClient.SendPaymentV2(ctx, req)
-	if err != nil {
-		t.Fatalf("unable to send payment: %v", err)
-	}
+	var result *lnrpc.Payment
+	err := wait.NoError(func() error {
+		stream, err := node.RouterClient.SendPaymentV2(ctx, req)
+		if err != nil {
+			return fmt.Errorf("unable to send payment: %v", err)
+		}
 
-	result, err := getPaymentResult(stream)
-	if err != nil {
-		t.Fatalf("unable to get payment result: %v", err)
-	}
+		result, err = getPaymentResult(stream)
+		if err != nil {
+			return fmt.Errorf("unable to get payment result: %v",
+				err)
+		}
 
-	if result.Status != lnrpc.Payment_SUCCEEDED {
-		t.Fatalf("payment failed: %v", result.Status)
-	}
+		if result.Status != lnrpc.Payment_SUCCEEDED {
+			return fmt.Errorf("payment failed: %v", result.Status)
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(t.t, err)
 
 	return result
 }

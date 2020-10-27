@@ -277,6 +277,11 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 	)
 	defer cleanUp()
 
+	// Since these test vectors create states where our fee siphon check
+	// would fail, we skip it.
+	remoteChannel.skipFeeSiphonCheck = true
+	localChannel.skipFeeSiphonCheck = true
+
 	// Add htlcs (if any) to the update logs of both sides and save a hash
 	// map that allows us to identify the htlcs in the scripts later on and
 	// retrieve the corresponding preimage.

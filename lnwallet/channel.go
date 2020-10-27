@@ -61,6 +61,14 @@ var (
 	ErrBelowChanReserve = fmt.Errorf("commitment transaction dips peer " +
 		"below chan reserve")
 
+	// ErrHTLCTimeoutFeesTooLarge is returned when a proposed combination
+	// of added HTLCs and fee rate would create a state where the fees for
+	// 2nd level HTLC timeout transactions are greater than the peers's
+	// channel reserve. We disallow this state since it could be in the
+	// peer's incentive to breach using this state.
+	ErrHTLCTimeoutFeesTooLarge = fmt.Errorf("total HTLC timeout fees " +
+		"greater than reserve")
+
 	// ErrBelowMinHTLC is returned when a proposed HTLC has a value that
 	// is below the minimum HTLC value constraint for either us or our
 	// peer depending on which flags are set.
@@ -1298,6 +1306,11 @@ type LightningChannel struct {
 
 	// log is a channel-specific logging instance.
 	log btclog.Logger
+
+	// skipFeeSiphonCheck will make us skip the fee siphon check in
+	// validateCommitmentSanity. This _should only be set true for certain
+	// tests_.
+	skipFeeSiphonCheck bool
 
 	sync.RWMutex
 }
@@ -2583,12 +2596,15 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	// these balances will be *before* taking a commitment fee from the
 	// initiator.
 	htlcView := lc.fetchHTLCView(theirLogIndex, ourLogIndex)
-	ourBalance, theirBalance, _, filteredHTLCView, err := lc.computeView(
+	computedView, err := lc.computeView(
 		htlcView, remoteChain, true,
 	)
 	if err != nil {
 		return nil, err
 	}
+	filteredHTLCView := computedView.filteredView
+	ourBalance := computedView.ourBalance
+	theirBalance := computedView.theirBalance
 	feePerKw := filteredHTLCView.feePerKw
 
 	// Actually generate unsigned commitment transaction for this view.
@@ -3372,13 +3388,33 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	ourInitialBalance := commitChain.tip().ourBalance
 	theirInitialBalance := commitChain.tip().theirBalance
 
-	ourBalance, theirBalance, commitWeight, filteredView, err := lc.computeView(
-		view, remoteChain, false,
-	)
+	computedView, err := lc.computeView(view, remoteChain, false)
 	if err != nil {
 		return err
 	}
+	ourBalance := computedView.ourBalance
+	theirBalance := computedView.theirBalance
+	commitWeight := computedView.commitWeight
+	filteredView := computedView.filteredView
 	feePerKw := filteredView.feePerKw
+
+	// For the anchor channel type, we want to disallow states where the
+	// potential fees siphoned from HTLC timeout transactions are greater
+	// than what is owed to the node in any future state. Since we know
+	// that they must always keep the reserve available for punishment, we
+	// disallow any state where this wouldn't be the case.
+	reserve := lc.channelState.LocalChanCfg.ChanReserve
+	if remoteChain {
+		reserve = lc.channelState.RemoteChanCfg.ChanReserve
+	}
+
+	// TODO(halseth): this limits the number of HTLCs that can be used
+	// together with small channel reserves. Should move to a channel type
+	// where the committed fees for HTLC transactions are zero (only BYOF)
+	// or zero for both commitment+HTLCs (needs package relay).
+	if !lc.skipFeeSiphonCheck && computedView.feeSiphon > reserve {
+		return ErrHTLCTimeoutFeesTooLarge
+	}
 
 	// Calculate the commitment fee, and subtract it from the initiator's
 	// balance.
@@ -3960,6 +3996,33 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 	return updates, openedCircuits, closedCircuits, nil
 }
 
+// computedHtlcView holds information for an evaluated HTLC view where we
+// computed the final balances and commitment, after applying the HTLCs to the
+// latest commmitment.
+//
+// NOTE: The balances are the balances *before* subtracting the commitment fee
+// from the initiator's balance.
+type computedHtlcView struct {
+	// ourBalance is the balance of the local node (us) after evaluating
+	// this view.
+	ourBalance lnwire.MilliSatoshi
+
+	// theirBalance is the balance of the remote node (them) after
+	// evaluating this view.
+	theirBalance lnwire.MilliSatoshi
+
+	// commitWeight is the weight of the commitment.
+	commitWeight int64
+
+	// feeSiphon is the total HTLC timeout fees, that can potentially be
+	// siphoned off in case this is a anchor type channel.
+	feeSiphon btcutil.Amount
+
+	// filteredView is the evaluated HTLC view where we have removed any
+	// settled or failed HTLC from the view.
+	filteredView *htlcView
+}
+
 // computeView takes the given htlcView, and calculates the balances, filtered
 // view (settling unsettled HTLCs), commitment weight and feePerKw, after
 // applying the HTLCs to the latest commitment. The returned balances are the
@@ -3969,8 +4032,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 // If the updateState boolean is set true, the add and remove heights of the
 // HTLCs will be set to the next commitment height.
 func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
-	updateState bool) (lnwire.MilliSatoshi, lnwire.MilliSatoshi, int64,
-	*htlcView, error) {
+	updateState bool) (*computedHtlcView, error) {
 
 	commitChain := lc.localCommitChain
 	dustLimit := lc.channelState.LocalChanCfg.DustLimit
@@ -4012,13 +4074,21 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 	filteredHTLCView, err := lc.evaluateHTLCView(view, &ourBalance,
 		&theirBalance, nextHeight, remoteChain, updateState)
 	if err != nil {
-		return 0, 0, 0, nil, err
+		return nil, err
 	}
 	feePerKw := filteredHTLCView.feePerKw
 
 	// Now go through all HTLCs at this stage, to calculate the total
 	// weight, needed to calculate the transaction fee.
 	var totalHtlcWeight int64
+
+	// For non-dust HTLCs offered for anchor channels, the offerer can
+	// potentially avoid retribution by publishing a revoked state and
+	// siphon fees off the HTLC timeout transactions. We want to disallow
+	// these states, so we count how much fees are available to do this.
+	var htlcTimeoutFees btcutil.Amount
+	anchors := lc.channelState.ChanType.HasAnchors()
+
 	for _, htlc := range filteredHTLCView.ourUpdates {
 		if htlcIsDust(
 			lc.channelState.ChanType, false, !remoteChain,
@@ -4028,7 +4098,17 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 		}
 
 		totalHtlcWeight += input.HTLCWeight
+
+		// For local commitments, we don't want to allow signing states
+		// that violate the fee siphoning invariant.
+		if anchors && !remoteChain {
+			htlcFee := HtlcTimeoutFee(
+				lc.channelState.ChanType, feePerKw,
+			)
+			htlcTimeoutFees += htlcFee
+		}
 	}
+
 	for _, htlc := range filteredHTLCView.theirUpdates {
 		if htlcIsDust(
 			lc.channelState.ChanType, true, !remoteChain,
@@ -4038,11 +4118,25 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 		}
 
 		totalHtlcWeight += input.HTLCWeight
+
+		// Calculate potential siphoned fees by the remote.
+		if anchors && remoteChain {
+			htlcFee := HtlcTimeoutFee(
+				lc.channelState.ChanType, feePerKw,
+			)
+			htlcTimeoutFees += htlcFee
+		}
 	}
 
 	totalCommitWeight := CommitWeight(lc.channelState.ChanType) +
 		totalHtlcWeight
-	return ourBalance, theirBalance, totalCommitWeight, filteredHTLCView, nil
+	return &computedHtlcView{
+		ourBalance:   ourBalance,
+		theirBalance: theirBalance,
+		commitWeight: totalCommitWeight,
+		feeSiphon:    htlcTimeoutFees,
+		filteredView: filteredHTLCView,
+	}, nil
 }
 
 // genHtlcSigValidationJobs generates a series of signatures verification jobs
@@ -6490,13 +6584,15 @@ func (lc *LightningChannel) availableCommitmentBalance(view *htlcView,
 	// Compute the current balances for this commitment. This will take
 	// into account HTLCs to determine the commit weight, which the
 	// initiator must pay the fee for.
-	ourBalance, theirBalance, commitWeight, filteredView, err := lc.computeView(
-		view, remoteChain, false,
-	)
+	computedView, err := lc.computeView(view, remoteChain, false)
 	if err != nil {
 		lc.log.Errorf("Unable to fetch available balance: %v", err)
 		return 0, 0
 	}
+	ourBalance := computedView.ourBalance
+	theirBalance := computedView.theirBalance
+	filteredView := computedView.filteredView
+	commitWeight := computedView.commitWeight
 
 	// We can never spend from the channel reserve, so we'll subtract it
 	// from our available balance.

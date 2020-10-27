@@ -6593,6 +6593,7 @@ func (lc *LightningChannel) availableCommitmentBalance(view *htlcView,
 	theirBalance := computedView.theirBalance
 	filteredView := computedView.filteredView
 	commitWeight := computedView.commitWeight
+	feeSiphon := computedView.feeSiphon
 
 	// We can never spend from the channel reserve, so we'll subtract it
 	// from our available balance.
@@ -6612,6 +6613,19 @@ func (lc *LightningChannel) availableCommitmentBalance(view *htlcView,
 	htlcCommitFee := lnwire.NewMSatFromSatoshis(
 		feePerKw.FeeForWeight(commitWeight + input.HTLCWeight),
 	)
+
+	// We want to make sure we won't try to add an HTLC that will violate
+	// the fee siphoning invariant. So if we are adding an HTLC on our
+	// commitment, the HTLC timeout fee shouldn't take the total fees that
+	// can be siphoned above our reserve.
+	if lc.channelState.ChanType.HasAnchors() && !remoteChain {
+		htlcTimeoutFee := HtlcTimeoutFee(
+			lc.channelState.ChanType, feePerKw,
+		)
+		if feeSiphon+htlcTimeoutFee > lc.channelState.LocalChanCfg.ChanReserve {
+			return 0, commitWeight
+		}
+	}
 
 	// If we are the channel initiator, we must to subtract this commitment
 	// fee from our available balance in order to ensure we can afford both
@@ -6759,6 +6773,24 @@ func (lc *LightningChannel) UpdateFee(feePerKw chainfee.SatPerKWeight) error {
 		LogIndex:  lc.localUpdateLog.logIndex,
 		Amount:    lnwire.NewMSatFromSatoshis(btcutil.Amount(feePerKw)),
 		EntryType: FeeUpdate,
+	}
+
+	// Make sure updating the fee won't violate any of the constraints we
+	// must keep on the commitment transactions.
+	remoteACKedIndex := lc.localCommitChain.tail().theirMessageIndex
+	err := lc.validateCommitmentSanity(
+		remoteACKedIndex, lc.localUpdateLog.logIndex, true, pd, nil,
+	)
+	if err != nil {
+		return err
+	}
+
+	err = lc.validateCommitmentSanity(
+		lc.remoteUpdateLog.logIndex, lc.localUpdateLog.logIndex,
+		false, pd, nil,
+	)
+	if err != nil {
+		return err
 	}
 
 	lc.localUpdateLog.appendUpdate(pd)

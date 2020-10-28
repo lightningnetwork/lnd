@@ -330,37 +330,68 @@ func waitForChannelPendingForceClose(ctx context.Context,
 		Index: fundingChanPoint.OutputIndex,
 	}
 
-	var predErr error
-	err = wait.Predicate(func() bool {
+	return wait.NoError(func() error {
 		pendingChansRequest := &lnrpc.PendingChannelsRequest{}
 		pendingChanResp, err := node.PendingChannels(
 			ctx, pendingChansRequest,
 		)
 		if err != nil {
-			predErr = fmt.Errorf("unable to get pending "+
-				"channels: %v", err)
-			return false
+			return fmt.Errorf("unable to get pending channels: %v",
+				err)
 		}
 
 		forceClose, err := findForceClosedChannel(pendingChanResp, &op)
 		if err != nil {
-			predErr = err
-			return false
+			return err
 		}
 
 		// We must wait until the UTXO nursery has received the channel
 		// and is aware of its maturity height.
 		if forceClose.MaturityHeight == 0 {
-			predErr = fmt.Errorf("channel had maturity height of 0")
-			return false
+			return fmt.Errorf("channel had maturity height of 0")
 		}
-		return true
-	}, time.Second*15)
-	if err != nil {
-		return predErr
-	}
 
-	return nil
+		return nil
+	}, defaultTimeout)
+}
+
+// lnrpcForceCloseChannel is a short type alias for a ridiculously long type
+// name in the lnrpc package.
+type lnrpcForceCloseChannel = lnrpc.PendingChannelsResponse_ForceClosedChannel
+
+// waitForNumChannelPendingForceClose waits for the node to report a certain
+// number of channels in state pending force close.
+func waitForNumChannelPendingForceClose(ctx context.Context,
+	node *lntest.HarnessNode, expectedNum int,
+	perChanCheck func(channel *lnrpcForceCloseChannel) error) error {
+
+	return wait.NoError(func() error {
+		resp, err := node.PendingChannels(
+			ctx, &lnrpc.PendingChannelsRequest{},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to get pending channels: %v",
+				err)
+		}
+
+		forceCloseChans := resp.PendingForceClosingChannels
+		if len(forceCloseChans) != expectedNum {
+			return fmt.Errorf("bob should have %d pending "+
+				"force close channels but has %d", expectedNum,
+				len(forceCloseChans))
+		}
+
+		if perChanCheck != nil {
+			for _, forceCloseChan := range forceCloseChans {
+				err := perChanCheck(forceCloseChan)
+				if err != nil {
+					return err
+				}
+			}
+		}
+
+		return nil
+	}, defaultTimeout)
 }
 
 // cleanupForceClose mines a force close commitment found in the mempool and
@@ -1518,7 +1549,7 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 
 // testPaymentFollowingChannelOpen tests that the channel transition from
 // 'pending' to 'open' state does not cause any inconsistencies within other
-// subsystems trying to udpate the channel state in the db. We follow this
+// subsystems trying to update the channel state in the db. We follow this
 // transition with a payment that updates the commitment state and verify that
 // the pending state is up to date.
 func testPaymentFollowingChannelOpen(net *lntest.NetworkHarness, t *harnessTest) {
@@ -1550,7 +1581,7 @@ func testPaymentFollowingChannelOpen(net *lntest.NetworkHarness, t *harnessTest)
 		t.Fatalf("Bob restart failed: %v", err)
 	}
 
-	// We ensure that Bob reconnets to Alice.
+	// We ensure that Bob reconnects to Alice.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	if err := net.EnsureConnected(ctxt, net.Bob, net.Alice); err != nil {
 		t.Fatalf("peers unable to reconnect after restart: %v", err)
@@ -1559,7 +1590,7 @@ func testPaymentFollowingChannelOpen(net *lntest.NetworkHarness, t *harnessTest)
 	// We mine one block for the channel to be confirmed.
 	_ = mineBlocks(t, net, 6, 1)[0]
 
-	// We verify that the chanel is open from both nodes point of view.
+	// We verify that the channel is open from both nodes point of view.
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 	assertNumOpenChannelsPending(ctxt, t, net.Alice, net.Bob, 0)
@@ -1575,14 +1606,11 @@ func testPaymentFollowingChannelOpen(net *lntest.NetworkHarness, t *harnessTest)
 
 	// Send payment to Bob so that a channel update to disk will be
 	// executed.
-	sendAndAssertSuccess(
-		t, net.Alice,
-		&routerrpc.SendPaymentRequest{
-			PaymentRequest: bobPayReqs[0],
-			TimeoutSeconds: 60,
-			FeeLimitSat:    1000000,
-		},
-	)
+	sendAndAssertSuccess(t, net.Alice, &routerrpc.SendPaymentRequest{
+		PaymentRequest: bobPayReqs[0],
+		TimeoutSeconds: 60,
+		FeeLimitSat:    1000000,
+	})
 
 	// At this point we want to make sure the channel is opened and not
 	// pending.
@@ -13987,19 +14015,26 @@ func sendAndAssertSuccess(t *harnessTest, node *lntest.HarnessNode,
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 
-	stream, err := node.RouterClient.SendPaymentV2(ctx, req)
-	if err != nil {
-		t.Fatalf("unable to send payment: %v", err)
-	}
+	var result *lnrpc.Payment
+	err := wait.NoError(func() error {
+		stream, err := node.RouterClient.SendPaymentV2(ctx, req)
+		if err != nil {
+			return fmt.Errorf("unable to send payment: %v", err)
+		}
 
-	result, err := getPaymentResult(stream)
-	if err != nil {
-		t.Fatalf("unable to get payment result: %v", err)
-	}
+		result, err = getPaymentResult(stream)
+		if err != nil {
+			return fmt.Errorf("unable to get payment result: %v",
+				err)
+		}
 
-	if result.Status != lnrpc.Payment_SUCCEEDED {
-		t.Fatalf("payment failed: %v", result.Status)
-	}
+		if result.Status != lnrpc.Payment_SUCCEEDED {
+			return fmt.Errorf("payment failed: %v", result.Status)
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(t.t, err)
 
 	return result
 }
@@ -14054,7 +14089,7 @@ func getPaymentResult(stream routerrpc.Router_SendPaymentV2Client) (
 // TestLightningNetworkDaemon performs a series of integration tests amongst a
 // programmatically driven network of lnd nodes.
 func TestLightningNetworkDaemon(t *testing.T) {
-	// If no tests are regsitered, then we can exit early.
+	// If no tests are registered, then we can exit early.
 	if len(testsCases) == 0 {
 		t.Skip("integration tests not selected with flag 'rpctest'")
 	}
@@ -14075,14 +14110,9 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	//
 	// We will also connect it to our chain backend.
 	minerLogDir := "./.minerlogs"
-	handlers := &rpcclient.NotificationHandlers{
-		OnTxAccepted: func(hash *chainhash.Hash, amt btcutil.Amount) {
-			lndHarness.OnTxAccepted(hash)
-		},
-	}
 	miner, minerCleanUp, err := lntest.NewMiner(
 		minerLogDir, "output_btcd_miner.log",
-		harnessNetParams, handlers,
+		harnessNetParams, &rpcclient.NotificationHandlers{},
 	)
 	require.NoError(t, err, "failed to create new miner")
 	defer func() {

@@ -578,6 +578,15 @@ func completePaymentRequests(ctx context.Context, client lnrpc.LightningClient,
 			return false
 		}
 
+		// If the number of open channels is now lower than before
+		// attempting the payments, it means one of the payments
+		// triggered a force closure (for example, due to an incorrect
+		// preimage). Return early since it's clear the payment was
+		// attempted.
+		if len(newListResp.Channels) < len(listResp.Channels) {
+			return true
+		}
+
 		for _, c1 := range listResp.Channels {
 			for _, c2 := range newListResp.Channels {
 				if c1.ChannelPoint != c2.ChannelPoint {

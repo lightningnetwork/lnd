@@ -383,15 +383,14 @@ func (r *ChannelReservation) SetNumConfsRequired(numConfs uint16) {
 // of satoshis that can be transferred in a single commitment. This function
 // will also attempt to verify the constraints for sanity, returning an error
 // if the parameters are seemed unsound.
-func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints) error {
+func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints,
+	maxLocalCSVDelay uint16) error {
 	r.Lock()
 	defer r.Unlock()
 
-	// Fail if we consider csvDelay excessively large.
-	// TODO(halseth): find a more scientific choice of value.
-	const maxDelay = 10000
-	if c.CsvDelay > maxDelay {
-		return ErrCsvDelayTooLarge(c.CsvDelay, maxDelay)
+	// Fail if the csv delay for our funds exceeds our maximum.
+	if c.CsvDelay > maxLocalCSVDelay {
+		return ErrCsvDelayTooLarge(c.CsvDelay, maxLocalCSVDelay)
 	}
 
 	// The channel reserve should always be greater or equal to the dust

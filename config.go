@@ -112,6 +112,11 @@ const (
 	// concurrent HTLCs the remote party may add to commitment transactions.
 	// This value can be overridden with --default-remote-max-htlcs.
 	defaultRemoteMaxHtlcs = 483
+
+	// defaultMaxLocalCSVDelay is the maximum delay we accept on our
+	// commitment output.
+	// TODO(halseth): find a more scientific choice of value.
+	defaultMaxLocalCSVDelay = 10000
 )
 
 var (
@@ -344,6 +349,7 @@ func DefaultConfig() Config {
 			BaseFee:       chainreg.DefaultBitcoinBaseFeeMSat,
 			FeeRate:       chainreg.DefaultBitcoinFeeRate,
 			TimeLockDelta: chainreg.DefaultBitcoinTimeLockDelta,
+			MaxLocalDelay: defaultMaxLocalCSVDelay,
 			Node:          "btcd",
 		},
 		BtcdMode: &lncfg.Btcd{
@@ -362,6 +368,7 @@ func DefaultConfig() Config {
 			BaseFee:       chainreg.DefaultLitecoinBaseFeeMSat,
 			FeeRate:       chainreg.DefaultLitecoinFeeRate,
 			TimeLockDelta: chainreg.DefaultLitecoinTimeLockDelta,
+			MaxLocalDelay: defaultMaxLocalCSVDelay,
 			Node:          "ltcd",
 		},
 		LtcdMode: &lncfg.Btcd{
@@ -822,10 +829,11 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 			"litecoin.active must be set to 1 (true)", funcName)
 
 	case cfg.Litecoin.Active:
-		if cfg.Litecoin.TimeLockDelta < minTimeLockDelta {
-			return nil, fmt.Errorf("timelockdelta must be at least %v",
-				minTimeLockDelta)
+		err := cfg.Litecoin.Validate(minTimeLockDelta, minLtcRemoteDelay)
+		if err != nil {
+			return nil, err
 		}
+
 		// Multiple networks can't be selected simultaneously.  Count
 		// number of network flags passed; assign active network params
 		// while we're at it.
@@ -946,9 +954,9 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 			return nil, err
 		}
 
-		if cfg.Bitcoin.TimeLockDelta < minTimeLockDelta {
-			return nil, fmt.Errorf("timelockdelta must be at least %v",
-				minTimeLockDelta)
+		err := cfg.Bitcoin.Validate(minTimeLockDelta, minBtcRemoteDelay)
+		if err != nil {
+			return nil, err
 		}
 
 		switch cfg.Bitcoin.Node {

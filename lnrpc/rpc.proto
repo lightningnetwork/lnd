@@ -1750,6 +1750,12 @@ message OpenChannelRequest {
     to the commitment transaction.
     */
     uint32 remote_max_htlcs = 16;
+
+    /*
+    Max local csv is the maximum csv delay we will allow for our own commitment
+    transaction.
+    */
+    uint32 max_local_csv = 17;
 }
 message OpenStatusUpdate {
     oneof update {

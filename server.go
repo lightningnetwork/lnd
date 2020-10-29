@@ -3384,6 +3384,10 @@ type openChanReq struct {
 
 	maxHtlcs uint16
 
+	// maxLocalCsv is the maximum local csv delay we will accept from our
+	// peer.
+	maxLocalCsv uint16
+
 	// TODO(roasbeef): add ability to specify channel constraints as well
 
 	// chanFunder is an optional channel funder that allows the caller to

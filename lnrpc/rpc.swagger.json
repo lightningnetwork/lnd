@@ -4617,6 +4617,11 @@
           "type": "integer",
           "format": "int64",
           "description": "The maximum number of concurrent HTLCs we will allow the remote party to add\nto the commitment transaction."
+        },
+        "max_local_csv": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Max local csv is the maximum csv delay we will allow for our own commitment\ntransaction."
         }
       }
     },

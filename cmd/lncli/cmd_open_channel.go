@@ -136,6 +136,13 @@ var openChannelCommand = cli.Command{
 				"channel size",
 		},
 		cli.Uint64Flag{
+			Name: "max_local_csv",
+			Usage: "(optional) the maximum number of blocks that " +
+				"we will allow the remote peer to require we " +
+				"wait before accessing our funds in the case " +
+				"of a unilateral close.",
+		},
+		cli.Uint64Flag{
 			Name: "min_confs",
 			Usage: "(optional) the minimum number of confirmations " +
 				"each one of your outputs used for the funding " +
@@ -207,6 +214,7 @@ func openChannel(ctx *cli.Context) error {
 		SpendUnconfirmed:           minConfs == 0,
 		CloseAddress:               ctx.String("close_address"),
 		RemoteMaxValueInFlightMsat: ctx.Uint64("remote_max_value_in_flight_msat"),
+		MaxLocalCsv:                uint32(ctx.Uint64("max_local_csv")),
 	}
 
 	switch {

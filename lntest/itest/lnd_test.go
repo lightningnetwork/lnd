@@ -14278,16 +14278,13 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		err := lndHarness.EnsureConnected(
 			context.Background(), lndHarness.Alice, lndHarness.Bob,
 		)
-		if err != nil {
-			t.Fatalf("unable to connect alice to bob: %v", err)
-		}
+		require.NoError(t, err, "unable to connect alice to bob")
 
-		if err := lndHarness.Alice.AddToLog(logLine); err != nil {
-			t.Fatalf("unable to add to log: %v", err)
-		}
-		if err := lndHarness.Bob.AddToLog(logLine); err != nil {
-			t.Fatalf("unable to add to log: %v", err)
-		}
+		err = lndHarness.Alice.AddToLog(logLine)
+		require.NoError(t, err, "unable to add to Alice's log")
+
+		err = lndHarness.Bob.AddToLog(logLine)
+		require.NoError(t, err, "unable to add to Bob's log")
 
 		// Start every test with the default static fee estimate.
 		lndHarness.SetFeeEstimate(12500)

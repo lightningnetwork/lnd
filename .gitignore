@@ -32,8 +32,7 @@ _testmain.go
 /lncli-itest
 
 # Integration test log files
-lntest/itest/output*.log
-lntest/itest/pprof*.log
+lntest/itest/*.log
 lntest/itest/.backendlogs
 lntest/itest/.minerlogs
 lntest/itest/lnd-itest

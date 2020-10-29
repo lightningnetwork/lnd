@@ -14232,7 +14232,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	if err != nil {
 		ht.Fatalf("unable to create lightning network harness: %v", err)
 	}
-	defer lndHarness.TearDownAll()
+	defer lndHarness.Stop()
 
 	// Spawn a new goroutine to watch for any fatal errors that any of the
 	// running lnd processes encounter. If an error occurs, then the test
@@ -14265,34 +14265,52 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	aliceBobArgs := []string{
 		"--default-remote-max-htlcs=483",
 	}
-	if err = lndHarness.SetUp(aliceBobArgs); err != nil {
-		ht.Fatalf("unable to set up test lightning network: %v", err)
-	}
 
 	// Run the subset of the test cases selected in this tranche.
 	for idx, testCase := range testCases {
 		testCase := testCase
-		logLine := fmt.Sprintf("STARTING ============ %v ============\n",
-			testCase.name)
-
-		err := lndHarness.EnsureConnected(
-			context.Background(), lndHarness.Alice, lndHarness.Bob,
-		)
-		require.NoError(t, err, "unable to connect alice to bob")
-
-		err = lndHarness.Alice.AddToLog(logLine)
-		require.NoError(t, err, "unable to add to Alice's log")
-
-		err = lndHarness.Bob.AddToLog(logLine)
-		require.NoError(t, err, "unable to add to Bob's log")
-
-		// Start every test with the default static fee estimate.
-		lndHarness.SetFeeEstimate(12500)
-
 		name := fmt.Sprintf("%02d-of-%d/%s/%s",
 			trancheOffset+uint(idx)+1, len(allTestCases),
 			chainBackend.Name(), testCase.name)
+
 		success := t.Run(name, func(t1 *testing.T) {
+			cleanTestCaseName := strings.ReplaceAll(
+				testCase.name, " ", "_",
+			)
+
+			err = lndHarness.SetUp(cleanTestCaseName, aliceBobArgs)
+			require.NoError(t1,
+				err, "unable to set up test lightning network",
+			)
+			defer func() {
+				require.NoError(t1, lndHarness.TearDown())
+			}()
+
+			err = lndHarness.EnsureConnected(
+				context.Background(), lndHarness.Alice,
+				lndHarness.Bob,
+			)
+			require.NoError(t1,
+				err, "unable to connect alice to bob",
+			)
+
+			logLine := fmt.Sprintf(
+				"STARTING ============ %v ============\n",
+				testCase.name,
+			)
+
+			err = lndHarness.Alice.AddToLog(logLine)
+			require.NoError(t1, err, "unable to add to log")
+
+			err = lndHarness.Bob.AddToLog(logLine)
+			require.NoError(t1, err, "unable to add to log")
+
+			// Start every test with the default static fee estimate.
+			lndHarness.SetFeeEstimate(12500)
+
+			// Create a separate harness test for the testcase to
+			// avoid overwriting the external harness test that is
+			// tied to the parent test.
 			ht := newHarnessTest(t1, lndHarness)
 			ht.RunTestCase(testCase)
 		})

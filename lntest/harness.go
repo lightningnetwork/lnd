@@ -36,6 +36,9 @@ const DefaultCSV = 4
 type NetworkHarness struct {
 	netParams *chaincfg.Params
 
+	// currentTestCase holds the name for the currently run test case.
+	currentTestCase string
+
 	// lndBinary is the full path to the lnd binary that was specifically
 	// compiled with all required itest flags.
 	lndBinary string
@@ -131,10 +134,11 @@ func (f *fakeLogger) Println(args ...interface{})               {}
 // rpc clients capable of communicating with the initial seeder nodes are
 // created. Nodes are initialized with the given extra command line flags, which
 // should be formatted properly - "--arg=value".
-func (n *NetworkHarness) SetUp(lndArgs []string) error {
+func (n *NetworkHarness) SetUp(testCase string, lndArgs []string) error {
 	// Swap out grpc's default logger with out fake logger which drops the
 	// statements on the floor.
 	grpclog.SetLogger(&fakeLogger{})
+	n.currentTestCase = testCase
 
 	// Start the initial seeder nodes within the test network, then connect
 	// their respective RPC clients.
@@ -241,21 +245,23 @@ out:
 	return nil
 }
 
-// TearDownAll tears down all active nodes within the test lightning network.
-func (n *NetworkHarness) TearDownAll() error {
-
+// TearDown tears down all active nodes within the test lightning network.
+func (n *NetworkHarness) TearDown() error {
 	for _, node := range n.activeNodes {
 		if err := n.ShutdownNode(node); err != nil {
 			return err
 		}
 	}
 
+	return nil
+}
+
+// Stop stops the test harness.
+func (n *NetworkHarness) Stop() {
 	close(n.lndErrorChan)
 	close(n.quit)
 
 	n.feeService.stop()
-
-	return nil
 }
 
 // NewNode fully initializes a returns a new HarnessNode bound to the
@@ -358,17 +364,18 @@ func (n *NetworkHarness) RestoreNodeWithSeed(name string, extraArgs []string,
 // wallet with or without a seed. If hasSeed is false, the returned harness node
 // can be used immediately. Otherwise, the node will require an additional
 // initialization phase where the wallet is either created or restored.
-func (n *NetworkHarness) newNode(name string, extraArgs []string,
-	hasSeed bool, password []byte) (*HarnessNode, error) {
+func (n *NetworkHarness) newNode(name string, extraArgs []string, hasSeed bool,
+	password []byte) (*HarnessNode, error) {
 
 	node, err := newNode(NodeConfig{
-		Name:       name,
-		HasSeed:    hasSeed,
-		Password:   password,
-		BackendCfg: n.BackendCfg,
-		NetParams:  n.netParams,
-		ExtraArgs:  extraArgs,
-		FeeURL:     n.feeService.url,
+		Name:              name,
+		LogFilenamePrefix: n.currentTestCase,
+		HasSeed:           hasSeed,
+		Password:          password,
+		BackendCfg:        n.BackendCfg,
+		NetParams:         n.netParams,
+		ExtraArgs:         extraArgs,
+		FeeURL:            n.feeService.url,
 	})
 	if err != nil {
 		return nil, err

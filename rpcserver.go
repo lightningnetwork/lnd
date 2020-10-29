@@ -42,6 +42,7 @@ import (
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -3572,11 +3573,54 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 	for i, htlc := range localCommit.Htlcs {
 		var rHash [32]byte
 		copy(rHash[:], htlc.RHash[:])
+
+		circuitMap := r.server.htlcSwitch.CircuitLookup()
+
+		var forwardingChannel, forwardingHtlcIndex uint64
+		switch {
+		case htlc.Incoming:
+			circuit := circuitMap.LookupCircuit(
+				htlcswitch.CircuitKey{
+					ChanID: dbChannel.ShortChannelID,
+					HtlcID: htlc.HtlcIndex,
+				},
+			)
+			if circuit != nil && circuit.Outgoing != nil {
+				forwardingChannel = circuit.Outgoing.ChanID.
+					ToUint64()
+
+				forwardingHtlcIndex = circuit.Outgoing.HtlcID
+			}
+
+		case !htlc.Incoming:
+			circuit := circuitMap.LookupOpenCircuit(
+				htlcswitch.CircuitKey{
+					ChanID: dbChannel.ShortChannelID,
+					HtlcID: htlc.HtlcIndex,
+				},
+			)
+
+			// If the incoming channel id is the special hop.Source
+			// value, the htlc index is a local payment identifier.
+			// In this case, report nothing.
+			if circuit != nil &&
+				circuit.Incoming.ChanID != hop.Source {
+
+				forwardingChannel = circuit.Incoming.ChanID.
+					ToUint64()
+
+				forwardingHtlcIndex = circuit.Incoming.HtlcID
+			}
+		}
+
 		channel.PendingHtlcs[i] = &lnrpc.HTLC{
-			Incoming:         htlc.Incoming,
-			Amount:           int64(htlc.Amt.ToSatoshis()),
-			HashLock:         rHash[:],
-			ExpirationHeight: htlc.RefundTimeout,
+			Incoming:            htlc.Incoming,
+			Amount:              int64(htlc.Amt.ToSatoshis()),
+			HashLock:            rHash[:],
+			ExpirationHeight:    htlc.RefundTimeout,
+			HtlcIndex:           htlc.HtlcIndex,
+			ForwardingChannel:   forwardingChannel,
+			ForwardingHtlcIndex: forwardingHtlcIndex,
 		}
 
 		// Add the Pending Htlc Amount to UnsettledBalance field.

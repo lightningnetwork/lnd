@@ -3813,6 +3813,21 @@
         "expiration_height": {
           "type": "integer",
           "format": "int64"
+        },
+        "htlc_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Index identifying the htlc on the channel."
+        },
+        "forwarding_channel": {
+          "type": "string",
+          "format": "uint64",
+          "description": "If this HTLC is involved in a forwarding operation, this field indicates\nthe forwarding channel. For an outgoing htlc, it is the incoming channel.\nFor an incoming htlc, it is the outgoing channel. When the htlc\noriginates from this node or this node is the final destination,\nforwarding_channel will be zero. The forwarding channel will also be zero\nfor htlcs that need to be forwarded but don't have a forwarding decision\npersisted yet."
+        },
+        "forwarding_htlc_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Index identifying the htlc on the forwarding channel."
         }
       }
     },

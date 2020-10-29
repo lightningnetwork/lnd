@@ -2186,6 +2186,12 @@ func (s *Switch) CircuitModifier() CircuitModifier {
 	return s.circuits
 }
 
+// CircuitLookup returns a reference to subset of the interfaces provided by the
+// circuit map, to allow looking up circuits.
+func (s *Switch) CircuitLookup() CircuitLookup {
+	return s.circuits
+}
+
 // commitCircuits persistently adds a circuit to the switch's circuit map.
 func (s *Switch) commitCircuits(circuits ...*PaymentCircuit) (
 	*CircuitFwdActions, error) {

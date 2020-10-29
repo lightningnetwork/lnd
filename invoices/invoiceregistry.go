@@ -160,7 +160,7 @@ func NewRegistry(cdb *channeldb.DB, expiryWatcher *InvoiceExpiryWatcher,
 // invoices.
 func (i *InvoiceRegistry) scanInvoicesOnStart() error {
 	var (
-		pending   map[lntypes.Hash]*channeldb.Invoice
+		pending   []*invoiceExpiry
 		removable []channeldb.InvoiceDeleteRef
 	)
 
@@ -170,7 +170,7 @@ func (i *InvoiceRegistry) scanInvoicesOnStart() error {
 		// layer needs to retry the View transaction underneath (eg.
 		// using the etcd driver, where all transactions are allowed
 		// to retry for serializability).
-		pending = make(map[lntypes.Hash]*channeldb.Invoice)
+		pending = nil
 		removable = make([]channeldb.InvoiceDeleteRef, 0)
 	}
 
@@ -178,7 +178,10 @@ func (i *InvoiceRegistry) scanInvoicesOnStart() error {
 		paymentHash lntypes.Hash, invoice *channeldb.Invoice) error {
 
 		if invoice.IsPending() {
-			pending[paymentHash] = invoice
+			expiryRef := makeInvoiceExpiry(paymentHash, invoice)
+			if expiryRef != nil {
+				pending = append(pending, expiryRef)
+			}
 		} else if i.cfg.GcCanceledInvoicesOnStartup &&
 			invoice.State == channeldb.ContractCanceled {
 
@@ -208,7 +211,7 @@ func (i *InvoiceRegistry) scanInvoicesOnStart() error {
 
 	log.Debugf("Adding %d pending invoices to the expiry watcher",
 		len(pending))
-	i.expiryWatcher.AddInvoices(pending)
+	i.expiryWatcher.AddInvoices(pending...)
 
 	if err := i.cdb.DeleteInvoice(removable); err != nil {
 		log.Warnf("Deleting old invoices failed: %v", err)
@@ -562,7 +565,10 @@ func (i *InvoiceRegistry) AddInvoice(invoice *channeldb.Invoice,
 	// InvoiceExpiryWatcher.AddInvoice must not be locked by InvoiceRegistry
 	// to avoid deadlock when a new invoice is added while an other is being
 	// canceled.
-	i.expiryWatcher.AddInvoice(paymentHash, invoice)
+	invoiceExpiryRef := makeInvoiceExpiry(paymentHash, invoice)
+	if invoiceExpiryRef != nil {
+		i.expiryWatcher.AddInvoices(invoiceExpiryRef)
+	}
 
 	return addIndex, nil
 }

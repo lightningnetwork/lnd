@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"hash/crc32"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/Yawning/aez"
@@ -506,8 +505,13 @@ func (m *Mnemonic) Decipher(pass []byte) ([DecipheredCipherSeedSize]byte, error)
 	// Before we attempt to map the mnemonic back to the original
 	// ciphertext, we'll ensure that all the word are actually a part of
 	// the current default word list.
+	wordDict := make(map[string]struct{}, len(defaultWordList))
+	for _, word := range defaultWordList {
+		wordDict[word] = struct{}{}
+	}
+
 	for i, word := range m {
-		if !strings.Contains(englishWordList, word) {
+		if _, ok := wordDict[word]; !ok {
 			emptySeed := [DecipheredCipherSeedSize]byte{}
 			return emptySeed, ErrUnknownMnenomicWord{
 				Word:  word,

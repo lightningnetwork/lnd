@@ -409,7 +409,10 @@ func cleanupForceClose(t *harnessTest, net *lntest.NetworkHarness,
 
 	// Mine enough blocks for the node to sweep its funds from the force
 	// closed channel.
-	_, err = net.Miner.Node.Generate(defaultCSV)
+	//
+	// The commit sweep resolver is able to broadcast the sweep tx up to
+	// one block before the CSV elapses, so wait until defaulCSV-1.
+	_, err = net.Miner.Node.Generate(defaultCSV - 1)
 	if err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
@@ -7726,7 +7729,7 @@ func testFailingChannel(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Mine enough blocks for Alice to sweep her funds from the force
 	// closed channel.
-	_, err = net.Miner.Node.Generate(defaultCSV)
+	_, err = net.Miner.Node.Generate(defaultCSV - 1)
 	if err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
@@ -9505,7 +9508,11 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	}
 
 	// After the Carol's output matures, she should also reclaim her funds.
-	mineBlocks(t, net, defaultCSV-1, 0)
+	//
+	// The commit sweep resolver publishes the sweep tx at defaultCSV-1 and
+	// we already mined one block after the commitmment was published, so
+	// take that into account.
+	mineBlocks(t, net, defaultCSV-1-1, 0)
 	carolSweep, err := waitForTxInMempool(
 		net.Miner.Node, minerMempoolTimeout,
 	)
@@ -9796,7 +9803,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Mine enough blocks for Carol to sweep her funds.
-	mineBlocks(t, net, defaultCSV, 0)
+	mineBlocks(t, net, defaultCSV-1, 0)
 
 	carolSweep, err := waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
 	if err != nil {

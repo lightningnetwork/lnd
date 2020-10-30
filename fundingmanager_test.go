@@ -21,9 +21,8 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/lightningnetwork/lnd/lncfg"
-
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
@@ -31,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/mock"
@@ -104,7 +104,7 @@ var (
 	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
 	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
 
-	fundingNetParams = bitcoinTestNetParams
+	fundingNetParams = chainreg.BitcoinTestNetParams
 )
 
 type mockNotifier struct {
@@ -271,7 +271,7 @@ func createTestWallet(cdb *channeldb.DB, netParams *chaincfg.Params,
 		ChainIO:            bio,
 		FeeEstimator:       estimator,
 		NetParams:          *netParams,
-		DefaultConstraints: defaultBtcChannelConstraints,
+		DefaultConstraints: chainreg.DefaultBtcChannelConstraints,
 	})
 	if err != nil {
 		return nil, err
@@ -437,7 +437,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		NotifyOpenChannelEvent:        evt.NotifyOpenChannelEvent,
 		OpenChannelPredicate:          chainedAcceptor,
 		NotifyPendingOpenChannelEvent: evt.NotifyPendingOpenChannelEvent,
-		RegisteredChains:              newChainRegistry(),
+		RegisteredChains:              chainreg.NewChainRegistry(),
 	}
 
 	for _, op := range options {

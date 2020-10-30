@@ -15,6 +15,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
@@ -75,7 +76,7 @@ const (
 	// maxLtcFundingAmount is a soft-limit of the maximum channel size
 	// currently accepted on the Litecoin chain within the Lightning
 	// Protocol.
-	maxLtcFundingAmount = MaxBtcFundingAmount * btcToLtcConversionRate
+	maxLtcFundingAmount = MaxBtcFundingAmount * chainreg.BtcToLtcConversionRate
 )
 
 var (
@@ -357,7 +358,7 @@ type fundingConfig struct {
 
 	// RegisteredChains keeps track of all chains that have been registered
 	// with the daemon.
-	RegisteredChains *chainRegistry
+	RegisteredChains *chainreg.ChainRegistry
 }
 
 // fundingManager acts as an orchestrator/bridge between the wallet's
@@ -3060,10 +3061,10 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// We'll determine our dust limit depending on which chain is active.
 	var ourDustLimit btcutil.Amount
 	switch f.cfg.RegisteredChains.PrimaryChain() {
-	case bitcoinChain:
+	case chainreg.BitcoinChain:
 		ourDustLimit = lnwallet.DefaultDustLimit()
-	case litecoinChain:
-		ourDustLimit = defaultLitecoinDustLimit
+	case chainreg.LitecoinChain:
+		ourDustLimit = chainreg.DefaultLitecoinDustLimit
 	}
 
 	fndgLog.Infof("Initiating fundingRequest(local_amt=%v "+

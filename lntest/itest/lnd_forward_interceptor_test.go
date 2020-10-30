@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -402,7 +403,7 @@ func (c *interceptorTestContext) buildRoute(ctx context.Context, amtMsat int64, 
 
 	req := &routerrpc.BuildRouteRequest{
 		AmtMsat:        amtMsat,
-		FinalCltvDelta: lnd.DefaultBitcoinTimeLockDelta,
+		FinalCltvDelta: chainreg.DefaultBitcoinTimeLockDelta,
 		HopPubkeys:     rpcHops,
 	}
 

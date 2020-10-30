@@ -15,14 +15,18 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/pprof"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/btcsuite/btcwallet/walletdb"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightninglabs/neutrino"
+	"github.com/lightninglabs/neutrino/headerfs"
 	"golang.org/x/crypto/acme/autocert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -32,6 +36,7 @@ import (
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/cert"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -293,7 +298,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	// light client instance, if enabled, in order to allow it to sync
 	// while the rest of the daemon continues startup.
 	mainChain := cfg.Bitcoin
-	if cfg.registeredChains.PrimaryChain() == litecoinChain {
+	if cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
 		mainChain = cfg.Litecoin
 	}
 	var neutrinoCS *neutrino.ChainService
@@ -445,11 +450,29 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	// When we create the chain control, we need storage for the height
 	// hints and also the wallet itself, for these two we want them to be
 	// replicated, so we'll pass in the remote channel DB instance.
-	activeChainControl, err := newChainControlFromConfig(
-		cfg, localChanDB, remoteChanDB, privateWalletPw, publicWalletPw,
-		walletInitParams.Birthday, walletInitParams.RecoveryWindow,
-		walletInitParams.Wallet, neutrinoCS,
-	)
+	chainControlCfg := &chainreg.Config{
+		Bitcoin:                     cfg.Bitcoin,
+		Litecoin:                    cfg.Litecoin,
+		PrimaryChain:                cfg.registeredChains.PrimaryChain,
+		HeightHintCacheQueryDisable: cfg.HeightHintCacheQueryDisable,
+		NeutrinoMode:                cfg.NeutrinoMode,
+		BitcoindMode:                cfg.BitcoindMode,
+		LitecoindMode:               cfg.LitecoindMode,
+		BtcdMode:                    cfg.BtcdMode,
+		LtcdMode:                    cfg.LtcdMode,
+		LocalChanDB:                 localChanDB,
+		RemoteChanDB:                remoteChanDB,
+		PrivateWalletPw:             privateWalletPw,
+		PublicWalletPw:              publicWalletPw,
+		Birthday:                    walletInitParams.Birthday,
+		RecoveryWindow:              walletInitParams.RecoveryWindow,
+		Wallet:                      walletInitParams.Wallet,
+		NeutrinoCS:                  neutrinoCS,
+		ActiveNetParams:             cfg.ActiveNetParams,
+		FeeURL:                      cfg.FeeURL,
+	}
+
+	activeChainControl, err := chainreg.NewChainControl(chainControlCfg)
 	if err != nil {
 		err := fmt.Errorf("unable to create chain control: %v", err)
 		ltndLog.Error(err)
@@ -463,7 +486,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	cfg.registeredChains.RegisterChain(primaryChain, activeChainControl)
 
 	// TODO(roasbeef): add rotation
-	idKeyDesc, err := activeChainControl.keyRing.DeriveKey(
+	idKeyDesc, err := activeChainControl.KeyRing.DeriveKey(
 		keychain.KeyLocator{
 			Family: keychain.KeyFamilyNodeKey,
 			Index:  0,
@@ -524,7 +547,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		towerDBDir := filepath.Join(
 			cfg.Watchtower.TowerDir,
 			cfg.registeredChains.PrimaryChain().String(),
-			normalizeNetwork(cfg.ActiveNetParams.Name),
+			lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 		)
 
 		towerDB, err := wtdb.OpenTowerDB(towerDBDir)
@@ -536,7 +559,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		}
 		defer towerDB.Close()
 
-		towerKeyDesc, err := activeChainControl.keyRing.DeriveKey(
+		towerKeyDesc, err := activeChainControl.KeyRing.DeriveKey(
 			keychain.KeyLocator{
 				Family: keychain.KeyFamilyTowerID,
 				Index:  0,
@@ -549,19 +572,19 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		}
 
 		wtCfg := &watchtower.Config{
-			BlockFetcher:   activeChainControl.chainIO,
+			BlockFetcher:   activeChainControl.ChainIO,
 			DB:             towerDB,
-			EpochRegistrar: activeChainControl.chainNotifier,
+			EpochRegistrar: activeChainControl.ChainNotifier,
 			Net:            cfg.net,
 			NewAddress: func() (btcutil.Address, error) {
-				return activeChainControl.wallet.NewAddress(
+				return activeChainControl.Wallet.NewAddress(
 					lnwallet.WitnessPubKey, false,
 				)
 			},
 			NodeKeyECDH: keychain.NewPubKeyECDH(
-				towerKeyDesc, activeChainControl.keyRing,
+				towerKeyDesc, activeChainControl.KeyRing,
 			),
-			PublishTx: activeChainControl.wallet.PublishTransaction,
+			PublishTx: activeChainControl.Wallet.PublishTransaction,
 			ChainHash: *cfg.ActiveNetParams.GenesisHash,
 		}
 
@@ -674,7 +697,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	if !(cfg.Bitcoin.RegTest || cfg.Bitcoin.SimNet ||
 		cfg.Litecoin.RegTest || cfg.Litecoin.SimNet) {
 
-		_, bestHeight, err := activeChainControl.chainIO.GetBestBlock()
+		_, bestHeight, err := activeChainControl.ChainIO.GetBestBlock()
 		if err != nil {
 			err := fmt.Errorf("unable to determine chain tip: %v",
 				err)
@@ -690,7 +713,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 				return nil
 			}
 
-			synced, _, err := activeChainControl.wallet.IsSynced()
+			synced, _, err := activeChainControl.Wallet.IsSynced()
 			if err != nil {
 				err := fmt.Errorf("unable to determine if "+
 					"wallet is synced: %v", err)
@@ -705,7 +728,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 			time.Sleep(time.Second * 1)
 		}
 
-		_, bestHeight, err = activeChainControl.chainIO.GetBestBlock()
+		_, bestHeight, err = activeChainControl.ChainIO.GetBestBlock()
 		if err != nil {
 			err := fmt.Errorf("unable to determine chain tip: %v",
 				err)
@@ -1034,7 +1057,7 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 	defer grpcServer.GracefulStop()
 
 	chainConfig := cfg.Bitcoin
-	if cfg.registeredChains.PrimaryChain() == litecoinChain {
+	if cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
 		chainConfig = cfg.Litecoin
 	}
 
@@ -1310,4 +1333,128 @@ func initializeDatabases(ctx context.Context,
 	}
 
 	return localChanDB, remoteChanDB, cleanUp, nil
+}
+
+// initNeutrinoBackend inits a new instance of the neutrino light client
+// backend given a target chain directory to store the chain state.
+func initNeutrinoBackend(cfg *Config, chainDir string) (*neutrino.ChainService,
+	func(), error) {
+
+	// First we'll open the database file for neutrino, creating the
+	// database if needed. We append the normalized network name here to
+	// match the behavior of btcwallet.
+	dbPath := filepath.Join(
+		chainDir, lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
+	)
+
+	// Ensure that the neutrino db path exists.
+	if err := os.MkdirAll(dbPath, 0700); err != nil {
+		return nil, nil, err
+	}
+
+	dbName := filepath.Join(dbPath, "neutrino.db")
+	db, err := walletdb.Create("bdb", dbName, !cfg.SyncFreelist)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to create neutrino "+
+			"database: %v", err)
+	}
+
+	headerStateAssertion, err := parseHeaderStateAssertion(
+		cfg.NeutrinoMode.AssertFilterHeader,
+	)
+	if err != nil {
+		db.Close()
+		return nil, nil, err
+	}
+
+	// With the database open, we can now create an instance of the
+	// neutrino light client. We pass in relevant configuration parameters
+	// required.
+	config := neutrino.Config{
+		DataDir:      dbPath,
+		Database:     db,
+		ChainParams:  *cfg.ActiveNetParams.Params,
+		AddPeers:     cfg.NeutrinoMode.AddPeers,
+		ConnectPeers: cfg.NeutrinoMode.ConnectPeers,
+		Dialer: func(addr net.Addr) (net.Conn, error) {
+			return cfg.net.Dial(
+				addr.Network(), addr.String(),
+				cfg.ConnectionTimeout,
+			)
+		},
+		NameResolver: func(host string) ([]net.IP, error) {
+			addrs, err := cfg.net.LookupHost(host)
+			if err != nil {
+				return nil, err
+			}
+
+			ips := make([]net.IP, 0, len(addrs))
+			for _, strIP := range addrs {
+				ip := net.ParseIP(strIP)
+				if ip == nil {
+					continue
+				}
+
+				ips = append(ips, ip)
+			}
+
+			return ips, nil
+		},
+		AssertFilterHeader: headerStateAssertion,
+	}
+
+	neutrino.MaxPeers = 8
+	neutrino.BanDuration = time.Hour * 48
+	neutrino.UserAgentName = cfg.NeutrinoMode.UserAgentName
+	neutrino.UserAgentVersion = cfg.NeutrinoMode.UserAgentVersion
+
+	neutrinoCS, err := neutrino.NewChainService(config)
+	if err != nil {
+		db.Close()
+		return nil, nil, fmt.Errorf("unable to create neutrino light "+
+			"client: %v", err)
+	}
+
+	if err := neutrinoCS.Start(); err != nil {
+		db.Close()
+		return nil, nil, err
+	}
+
+	cleanUp := func() {
+		if err := neutrinoCS.Stop(); err != nil {
+			ltndLog.Infof("Unable to stop neutrino light client: %v", err)
+		}
+		db.Close()
+	}
+
+	return neutrinoCS, cleanUp, nil
+}
+
+// parseHeaderStateAssertion parses the user-specified neutrino header state
+// into a headerfs.FilterHeader.
+func parseHeaderStateAssertion(state string) (*headerfs.FilterHeader, error) {
+	if len(state) == 0 {
+		return nil, nil
+	}
+
+	split := strings.Split(state, ":")
+	if len(split) != 2 {
+		return nil, fmt.Errorf("header state assertion %v in "+
+			"unexpected format, expected format height:hash", state)
+	}
+
+	height, err := strconv.ParseUint(split[0], 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("invalid filter header height: %v", err)
+	}
+
+	hash, err := chainhash.NewHashFromStr(split[1])
+	if err != nil {
+		return nil, fmt.Errorf("invalid filter header hash: %v", err)
+	}
+
+	return &headerfs.FilterHeader{
+		Height:     uint32(height),
+		FilterHash: *hash,
+	}, nil
 }

@@ -87,3 +87,13 @@ func CleanAndExpandPath(path string) string {
 	// but the variables can still be expanded via POSIX-style $VARIABLE.
 	return filepath.Clean(os.ExpandEnv(path))
 }
+
+// NormalizeNetwork returns the common name of a network type used to create
+// file paths. This allows differently versioned networks to use the same path.
+func NormalizeNetwork(network string) string {
+	if strings.HasPrefix(network, "testnet") {
+		return "testnet"
+	}
+
+	return network
+}

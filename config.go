@@ -23,6 +23,7 @@ import (
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/discovery"
@@ -311,7 +312,7 @@ type Config struct {
 
 	// registeredChains keeps track of all chains that have been registered
 	// with the daemon.
-	registeredChains *chainRegistry
+	registeredChains *chainreg.ChainRegistry
 
 	// networkDir is the path to the directory of the currently active
 	// network. This path will hold the files related to each different
@@ -319,7 +320,7 @@ type Config struct {
 	networkDir string
 
 	// ActiveNetParams contains parameters of the target chain.
-	ActiveNetParams bitcoinNetParams
+	ActiveNetParams chainreg.BitcoinNetParams
 }
 
 // DefaultConfig returns all default values for the Config struct.
@@ -338,11 +339,11 @@ func DefaultConfig() Config {
 		MaxLogFileSize:    defaultMaxLogFileSize,
 		AcceptorTimeout:   defaultAcceptorTimeout,
 		Bitcoin: &lncfg.Chain{
-			MinHTLCIn:     defaultBitcoinMinHTLCInMSat,
-			MinHTLCOut:    defaultBitcoinMinHTLCOutMSat,
-			BaseFee:       DefaultBitcoinBaseFeeMSat,
-			FeeRate:       DefaultBitcoinFeeRate,
-			TimeLockDelta: DefaultBitcoinTimeLockDelta,
+			MinHTLCIn:     chainreg.DefaultBitcoinMinHTLCInMSat,
+			MinHTLCOut:    chainreg.DefaultBitcoinMinHTLCOutMSat,
+			BaseFee:       chainreg.DefaultBitcoinBaseFeeMSat,
+			FeeRate:       chainreg.DefaultBitcoinFeeRate,
+			TimeLockDelta: chainreg.DefaultBitcoinTimeLockDelta,
 			Node:          "btcd",
 		},
 		BtcdMode: &lncfg.Btcd{
@@ -356,11 +357,11 @@ func DefaultConfig() Config {
 			EstimateMode: defaultBitcoindEstimateMode,
 		},
 		Litecoin: &lncfg.Chain{
-			MinHTLCIn:     defaultLitecoinMinHTLCInMSat,
-			MinHTLCOut:    defaultLitecoinMinHTLCOutMSat,
-			BaseFee:       defaultLitecoinBaseFeeMSat,
-			FeeRate:       defaultLitecoinFeeRate,
-			TimeLockDelta: defaultLitecoinTimeLockDelta,
+			MinHTLCIn:     chainreg.DefaultLitecoinMinHTLCInMSat,
+			MinHTLCOut:    chainreg.DefaultLitecoinMinHTLCOutMSat,
+			BaseFee:       chainreg.DefaultLitecoinBaseFeeMSat,
+			FeeRate:       chainreg.DefaultLitecoinFeeRate,
+			TimeLockDelta: chainreg.DefaultLitecoinTimeLockDelta,
 			Node:          "ltcd",
 		},
 		LtcdMode: &lncfg.Btcd{
@@ -451,8 +452,8 @@ func DefaultConfig() Config {
 		MaxChannelFeeAllocation: htlcswitch.DefaultMaxLinkFeeAllocation,
 		LogWriter:               build.NewRotatingLogWriter(),
 		DB:                      lncfg.DefaultDB(),
-		registeredChains:        newChainRegistry(),
-		ActiveNetParams:         bitcoinTestNetParams,
+		registeredChains:        chainreg.NewChainRegistry(),
+		ActiveNetParams:         chainreg.BitcoinTestNetParams,
 	}
 }
 
@@ -829,22 +830,22 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 		// number of network flags passed; assign active network params
 		// while we're at it.
 		numNets := 0
-		var ltcParams litecoinNetParams
+		var ltcParams chainreg.LitecoinNetParams
 		if cfg.Litecoin.MainNet {
 			numNets++
-			ltcParams = litecoinMainNetParams
+			ltcParams = chainreg.LitecoinMainNetParams
 		}
 		if cfg.Litecoin.TestNet3 {
 			numNets++
-			ltcParams = litecoinTestNetParams
+			ltcParams = chainreg.LitecoinTestNetParams
 		}
 		if cfg.Litecoin.RegTest {
 			numNets++
-			ltcParams = litecoinRegTestNetParams
+			ltcParams = chainreg.LitecoinRegTestNetParams
 		}
 		if cfg.Litecoin.SimNet {
 			numNets++
-			ltcParams = litecoinSimNetParams
+			ltcParams = chainreg.LitecoinSimNetParams
 		}
 
 		if numNets > 1 {
@@ -868,12 +869,12 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 		// throughout the codebase we required chaincfg.Params. So as a
 		// temporary hack, we'll mutate the default net params for
 		// bitcoin with the litecoin specific information.
-		applyLitecoinParams(&cfg.ActiveNetParams, &ltcParams)
+		chainreg.ApplyLitecoinParams(&cfg.ActiveNetParams, &ltcParams)
 
 		switch cfg.Litecoin.Node {
 		case "ltcd":
 			err := parseRPCParams(cfg.Litecoin, cfg.LtcdMode,
-				litecoinChain, funcName, cfg.ActiveNetParams)
+				chainreg.LitecoinChain, funcName, cfg.ActiveNetParams)
 			if err != nil {
 				err := fmt.Errorf("unable to load RPC "+
 					"credentials for ltcd: %v", err)
@@ -885,7 +886,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 					"support simnet", funcName)
 			}
 			err := parseRPCParams(cfg.Litecoin, cfg.LitecoindMode,
-				litecoinChain, funcName, cfg.ActiveNetParams)
+				chainreg.LitecoinChain, funcName, cfg.ActiveNetParams)
 			if err != nil {
 				err := fmt.Errorf("unable to load RPC "+
 					"credentials for litecoind: %v", err)
@@ -899,11 +900,11 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 
 		cfg.Litecoin.ChainDir = filepath.Join(cfg.DataDir,
 			defaultChainSubDirname,
-			litecoinChain.String())
+			chainreg.LitecoinChain.String())
 
 		// Finally we'll register the litecoin chain as our current
 		// primary chain.
-		cfg.registeredChains.RegisterPrimaryChain(litecoinChain)
+		cfg.registeredChains.RegisterPrimaryChain(chainreg.LitecoinChain)
 		MaxFundingAmount = maxLtcFundingAmount
 
 	case cfg.Bitcoin.Active:
@@ -913,19 +914,19 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 		numNets := 0
 		if cfg.Bitcoin.MainNet {
 			numNets++
-			cfg.ActiveNetParams = bitcoinMainNetParams
+			cfg.ActiveNetParams = chainreg.BitcoinMainNetParams
 		}
 		if cfg.Bitcoin.TestNet3 {
 			numNets++
-			cfg.ActiveNetParams = bitcoinTestNetParams
+			cfg.ActiveNetParams = chainreg.BitcoinTestNetParams
 		}
 		if cfg.Bitcoin.RegTest {
 			numNets++
-			cfg.ActiveNetParams = bitcoinRegTestNetParams
+			cfg.ActiveNetParams = chainreg.BitcoinRegTestNetParams
 		}
 		if cfg.Bitcoin.SimNet {
 			numNets++
-			cfg.ActiveNetParams = bitcoinSimNetParams
+			cfg.ActiveNetParams = chainreg.BitcoinSimNetParams
 		}
 		if numNets > 1 {
 			str := "%s: The mainnet, testnet, regtest, and " +
@@ -953,7 +954,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 		switch cfg.Bitcoin.Node {
 		case "btcd":
 			err := parseRPCParams(
-				cfg.Bitcoin, cfg.BtcdMode, bitcoinChain, funcName,
+				cfg.Bitcoin, cfg.BtcdMode, chainreg.BitcoinChain, funcName,
 				cfg.ActiveNetParams,
 			)
 			if err != nil {
@@ -968,7 +969,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 			}
 
 			err := parseRPCParams(
-				cfg.Bitcoin, cfg.BitcoindMode, bitcoinChain, funcName,
+				cfg.Bitcoin, cfg.BitcoindMode, chainreg.BitcoinChain, funcName,
 				cfg.ActiveNetParams,
 			)
 			if err != nil {
@@ -987,11 +988,11 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 
 		cfg.Bitcoin.ChainDir = filepath.Join(cfg.DataDir,
 			defaultChainSubDirname,
-			bitcoinChain.String())
+			chainreg.BitcoinChain.String())
 
 		// Finally we'll register the bitcoin chain as our current
 		// primary chain.
-		cfg.registeredChains.RegisterPrimaryChain(bitcoinChain)
+		cfg.registeredChains.RegisterPrimaryChain(chainreg.BitcoinChain)
 	}
 
 	// Ensure that the user didn't attempt to specify negative values for
@@ -1047,7 +1048,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 	cfg.networkDir = filepath.Join(
 		cfg.DataDir, defaultChainSubDirname,
 		cfg.registeredChains.PrimaryChain().String(),
-		normalizeNetwork(cfg.ActiveNetParams.Name),
+		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 	)
 
 	// If a custom macaroon directory wasn't specified and the data
@@ -1081,7 +1082,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 	// per network in the same fashion as the data directory.
 	cfg.LogDir = filepath.Join(cfg.LogDir,
 		cfg.registeredChains.PrimaryChain().String(),
-		normalizeNetwork(cfg.ActiveNetParams.Name))
+		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name))
 
 	// A log writer must be passed in, otherwise we can't function and would
 	// run into a panic later on.
@@ -1279,11 +1280,11 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 func (c *Config) localDatabaseDir() string {
 	return filepath.Join(c.DataDir,
 		defaultGraphSubDirname,
-		normalizeNetwork(c.ActiveNetParams.Name))
+		lncfg.NormalizeNetwork(c.ActiveNetParams.Name))
 }
 
 func (c *Config) networkName() string {
-	return normalizeNetwork(c.ActiveNetParams.Name)
+	return lncfg.NormalizeNetwork(c.ActiveNetParams.Name)
 }
 
 // CleanAndExpandPath expands environment variables and leading ~ in the
@@ -1312,8 +1313,9 @@ func CleanAndExpandPath(path string) string {
 	return filepath.Clean(os.ExpandEnv(path))
 }
 
-func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{}, net chainCode,
-	funcName string, netParams bitcoinNetParams) error { // nolint:unparam
+func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
+	net chainreg.ChainCode, funcName string,
+	netParams chainreg.BitcoinNetParams) error { // nolint:unparam
 
 	// First, we'll check our node config to make sure the RPC parameters
 	// were set correctly. We'll also determine the path to the conf file
@@ -1329,11 +1331,11 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{}, net chainCode,
 
 		// Get the daemon name for displaying proper errors.
 		switch net {
-		case bitcoinChain:
+		case chainreg.BitcoinChain:
 			daemonName = "btcd"
 			confDir = conf.Dir
 			confFile = "btcd"
-		case litecoinChain:
+		case chainreg.LitecoinChain:
 			daemonName = "ltcd"
 			confDir = conf.Dir
 			confFile = "ltcd"
@@ -1376,11 +1378,11 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{}, net chainCode,
 
 		// Get the daemon name for displaying proper errors.
 		switch net {
-		case bitcoinChain:
+		case chainreg.BitcoinChain:
 			daemonName = "bitcoind"
 			confDir = conf.Dir
 			confFile = "bitcoin"
-		case litecoinChain:
+		case chainreg.LitecoinChain:
 			daemonName = "litecoind"
 			confDir = conf.Dir
 			confFile = "litecoin"
@@ -1616,14 +1618,4 @@ func checkEstimateMode(estimateMode string) error {
 
 	return fmt.Errorf("estimatemode must be one of the following: %v",
 		bitcoindEstimateModes[:])
-}
-
-// normalizeNetwork returns the common name of a network type used to create
-// file paths. This allows differently versioned networks to use the same path.
-func normalizeNetwork(network string) string {
-	if strings.HasPrefix(network, "testnet") {
-		return "testnet"
-	}
-
-	return network
 }

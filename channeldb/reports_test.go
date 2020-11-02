@@ -139,7 +139,7 @@ func TestFetchChannelWriteBucket(t *testing.T) {
 		error) {
 
 		var chanPointBuf bytes.Buffer
-		err := writeOutpoint(&chanPointBuf, &testChanPoint1)
+		err := WriteOutpoint(&chanPointBuf, &testChanPoint1)
 		require.NoError(t, err)
 
 		return chainHash.CreateBucketIfNotExists(chanPointBuf.Bytes())

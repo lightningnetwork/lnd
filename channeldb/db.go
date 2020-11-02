@@ -468,7 +468,7 @@ func (db *DB) fetchNodeChannels(chainBucket kvdb.RBucket) ([]*OpenChannel, error
 		chanBucket := chainBucket.NestedReadBucket(chanPoint)
 
 		var outPoint wire.OutPoint
-		err := readOutpoint(bytes.NewReader(chanPoint), &outPoint)
+		err := ReadOutpoint(bytes.NewReader(chanPoint), &outPoint)
 		if err != nil {
 			return err
 		}
@@ -498,7 +498,7 @@ func (d *DB) FetchChannel(chanPoint wire.OutPoint) (*OpenChannel, error) {
 		targetChanPoint bytes.Buffer
 	)
 
-	if err := writeOutpoint(&targetChanPoint, &chanPoint); err != nil {
+	if err := WriteOutpoint(&targetChanPoint, &chanPoint); err != nil {
 		return nil, err
 	}
 
@@ -804,7 +804,7 @@ func (d *DB) FetchClosedChannel(chanID *wire.OutPoint) (*ChannelCloseSummary, er
 
 		var b bytes.Buffer
 		var err error
-		if err = writeOutpoint(&b, chanID); err != nil {
+		if err = WriteOutpoint(&b, chanID); err != nil {
 			return err
 		}
 
@@ -844,7 +844,7 @@ func (d *DB) FetchClosedChannelForID(cid lnwire.ChannelID) (
 		// We scan over all possible candidates for this channel ID.
 		for ; op != nil && bytes.Compare(cid[:30], op[:30]) <= 0; op, c = cursor.Next() {
 			var outPoint wire.OutPoint
-			err := readOutpoint(bytes.NewReader(op), &outPoint)
+			err := ReadOutpoint(bytes.NewReader(op), &outPoint)
 			if err != nil {
 				return err
 			}
@@ -880,7 +880,7 @@ func (d *DB) FetchClosedChannelForID(cid lnwire.ChannelID) (
 func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
 	return kvdb.Update(d, func(tx kvdb.RwTx) error {
 		var b bytes.Buffer
-		if err := writeOutpoint(&b, chanPoint); err != nil {
+		if err := WriteOutpoint(&b, chanPoint); err != nil {
 			return err
 		}
 
@@ -1238,7 +1238,7 @@ func fetchHistoricalChanBucket(tx kvdb.RTx,
 	// With the bucket for the node and chain fetched, we can now go down
 	// another level, for the channel itself.
 	var chanPointBuf bytes.Buffer
-	if err := writeOutpoint(&chanPointBuf, outPoint); err != nil {
+	if err := WriteOutpoint(&chanPointBuf, outPoint); err != nil {
 		return nil, err
 	}
 	chanBucket := historicalChanBucket.NestedReadBucket(chanPointBuf.Bytes())

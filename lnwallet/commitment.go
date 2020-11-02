@@ -17,6 +17,27 @@ import (
 // anchorSize is the constant anchor output size.
 const anchorSize = btcutil.Amount(330)
 
+// DefaultAnchorsCommitMaxFeeRateSatPerVByte is the default max fee rate in
+// sat/vbyte the initiator will use for anchor channels.
+//
+// This caps the update fee the initiator will send when the anchors channel
+// type is used. We do not limit anything on the receiver side, only on the
+// sender (initiator) side. This keeps us spec compatible, while defaulting to
+// a reasonable feerate if initiator is lnd. Receiver side we will allow any
+// fee and add updates as long as the fee siphon invariant is not violated.
+//
+// Defaults to 10 sat/vbyte. This will make give HTLC a timeout fee of
+//
+// 666 * 2500 / 1000 = 1665 sats
+//
+// An example:
+// For a channel size of 0.01 BTC = 1,000,000 sats and a channel reserve of
+// 1%, this leaves room for (1,000,000 / 100) / 1665 = 6 HTLCs.
+//
+// Bigger channels, larger reserves, or lower fee rates will open up for more
+// room.
+const DefaultAnchorsCommitMaxFeeRateSatPerVByte = 10
+
 // CommitmentKeyRing holds all derived keys needed to construct commitment and
 // HTLC transactions. The keys are derived differently depending whether the
 // commitment transaction is ours or the remote peer's. Private keys associated

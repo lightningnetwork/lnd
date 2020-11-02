@@ -7996,6 +7996,19 @@ func TestForceCloseBorkedState(t *testing.T) {
 func TestChannelMaxFeeRate(t *testing.T) {
 	t.Parallel()
 
+	assertMaxFeeRate := func(c *LightningChannel,
+		maxAlloc float64, anchorMax, expFeeRate chainfee.SatPerKWeight) {
+
+		t.Helper()
+
+		maxFeeRate := c.MaxFeeRate(maxAlloc, anchorMax)
+		if maxFeeRate != expFeeRate {
+			t.Fatalf("expected max fee rate of %v with max "+
+				"allocation of %v, got %v", expFeeRate,
+				maxAlloc, maxFeeRate)
+		}
+	}
+
 	aliceChannel, _, cleanUp, err := CreateTestChannels(
 		channeldb.SingleFunderTweaklessBit,
 	)
@@ -8004,21 +8017,32 @@ func TestChannelMaxFeeRate(t *testing.T) {
 	}
 	defer cleanUp()
 
-	assertMaxFeeRate := func(maxAlloc float64,
-		expFeeRate chainfee.SatPerKWeight) {
+	assertMaxFeeRate(aliceChannel, 1.0, 0, 690607734)
+	assertMaxFeeRate(aliceChannel, 0.001, 0, 690607)
+	assertMaxFeeRate(aliceChannel, 0.000001, 0, 690)
+	assertMaxFeeRate(aliceChannel, 0.0000001, 0, chainfee.FeePerKwFloor)
 
-		maxFeeRate := aliceChannel.MaxFeeRate(maxAlloc)
-		if maxFeeRate != expFeeRate {
-			t.Fatalf("expected max fee rate of %v with max "+
-				"allocation of %v, got %v", expFeeRate,
-				maxAlloc, maxFeeRate)
-		}
+	// Check that anchor channels are capped at their max fee rate.
+	anchorChannel, _, cleanUp, err := CreateTestChannels(
+		channeldb.SingleFunderTweaklessBit | channeldb.AnchorOutputsBit,
+	)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
 	}
+	defer cleanUp()
 
-	assertMaxFeeRate(1.0, 690607734)
-	assertMaxFeeRate(0.001, 690607)
-	assertMaxFeeRate(0.000001, 690)
-	assertMaxFeeRate(0.0000001, chainfee.FeePerKwFloor)
+	// Anchor commitments are heavier, hence will the same allocation lead
+	// to slightly lower fee rates.
+	assertMaxFeeRate(
+		anchorChannel, 1.0, chainfee.FeePerKwFloor,
+		chainfee.FeePerKwFloor,
+	)
+	assertMaxFeeRate(anchorChannel, 0.001, 1000000, 444839)
+	assertMaxFeeRate(anchorChannel, 0.001, 300000, 300000)
+	assertMaxFeeRate(anchorChannel, 0.000001, 700, 444)
+	assertMaxFeeRate(
+		anchorChannel, 0.0000001, 1000000, chainfee.FeePerKwFloor,
+	)
 }
 
 // TestChannelFeeRateFloor asserts that valid commitments can be proposed and

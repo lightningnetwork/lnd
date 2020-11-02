@@ -3474,7 +3474,8 @@ func (f *fundingManager) saveChannelOpeningState(chanPoint *wire.OutPoint,
 		}
 
 		var outpointBytes bytes.Buffer
-		if err = writeOutpoint(&outpointBytes, chanPoint); err != nil {
+		err = channeldb.WriteOutpoint(&outpointBytes, chanPoint)
+		if err != nil {
 			return err
 		}
 
@@ -3506,7 +3507,8 @@ func (f *fundingManager) getChannelOpeningState(chanPoint *wire.OutPoint) (
 		}
 
 		var outpointBytes bytes.Buffer
-		if err := writeOutpoint(&outpointBytes, chanPoint); err != nil {
+		err := channeldb.WriteOutpoint(&outpointBytes, chanPoint)
+		if err != nil {
 			return err
 		}
 
@@ -3535,7 +3537,8 @@ func (f *fundingManager) deleteChannelOpeningState(chanPoint *wire.OutPoint) err
 		}
 
 		var outpointBytes bytes.Buffer
-		if err := writeOutpoint(&outpointBytes, chanPoint); err != nil {
+		err := channeldb.WriteOutpoint(&outpointBytes, chanPoint)
+		if err != nil {
 			return err
 		}
 

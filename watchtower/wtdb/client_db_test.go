@@ -445,7 +445,7 @@ func testRemoveTower(h *clientDBHarness) {
 
 	// We'll then remove the first address. We should now see that the tower
 	// has no addresses left.
-	h.removeTower(pk, addr1, false, nil)
+	h.removeTower(pk, addr1, false, wtdb.ErrLastTowerAddr)
 
 	// Removing the tower as a whole from the database should succeed since
 	// there aren't any active sessions for it.

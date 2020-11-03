@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1534,6 +1535,57 @@ func (s *server) Start() error {
 		if err := s.establishPersistentConnections(); err != nil {
 			startErr = err
 			return
+		}
+
+		// setSeedList is a helper function that turns multiple DNS seed
+		// server tuples from the command line or config file into the
+		// data structure we need and does a basic formal sanity check
+		// in the process.
+		setSeedList := func(tuples []string, genesisHash chainhash.Hash) {
+			if len(tuples) == 0 {
+				return
+			}
+
+			result := make([][2]string, len(tuples))
+			for idx, tuple := range tuples {
+				tuple = strings.TrimSpace(tuple)
+				if len(tuple) == 0 {
+					return
+				}
+
+				servers := strings.Split(tuple, ",")
+				if len(servers) > 2 || len(servers) == 0 {
+					srvrLog.Warnf("Ignoring invalid DNS "+
+						"seed tuple: %v", servers)
+					return
+				}
+
+				copy(result[idx][:], servers)
+			}
+
+			chainreg.ChainDNSSeeds[genesisHash] = result
+		}
+
+		// Let users overwrite the DNS seed nodes. We only allow them
+		// for bitcoin mainnet/testnet and litecoin mainnet, all other
+		// combinations will just be ignored.
+		if s.cfg.Bitcoin.Active && s.cfg.Bitcoin.MainNet {
+			setSeedList(
+				s.cfg.Bitcoin.DNSSeeds,
+				chainreg.BitcoinMainnetGenesis,
+			)
+		}
+		if s.cfg.Bitcoin.Active && s.cfg.Bitcoin.TestNet3 {
+			setSeedList(
+				s.cfg.Bitcoin.DNSSeeds,
+				chainreg.BitcoinTestnetGenesis,
+			)
+		}
+		if s.cfg.Litecoin.Active && s.cfg.Litecoin.MainNet {
+			setSeedList(
+				s.cfg.Litecoin.DNSSeeds,
+				chainreg.LitecoinMainnetGenesis,
+			)
 		}
 
 		// If network bootstrapping hasn't been disabled, then we'll

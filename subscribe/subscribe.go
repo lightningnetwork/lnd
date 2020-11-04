@@ -14,9 +14,9 @@ var ErrServerShuttingDown = errors.New("subscription server shutting down")
 
 // Client is used to get notified about updates the caller has subscribed to,
 type Client struct {
-	// Cancel should be called in case the client no longer wants to
+	// cancel should be called in case the client no longer wants to
 	// subscribe for updates from the server.
-	Cancel func()
+	cancel func()
 
 	updates *queue.ConcurrentQueue
 	quit    chan struct{}
@@ -32,6 +32,12 @@ func (c *Client) Updates() <-chan interface{} {
 // longer deliver updates to this client.
 func (c *Client) Quit() <-chan struct{} {
 	return c.quit
+}
+
+// Cancel should be called in case the client no longer wants to
+// subscribe for updates from the server.
+func (c *Client) Cancel() {
+	c.cancel()
 }
 
 // Server is a struct that manages a set of subscriptions and their
@@ -118,7 +124,7 @@ func (s *Server) Subscribe() (*Client, error) {
 	client := &Client{
 		updates: queue.NewConcurrentQueue(20),
 		quit:    make(chan struct{}),
-		Cancel: func() {
+		cancel: func() {
 			select {
 			case s.clientUpdates <- &clientUpdate{
 				cancel:   true,

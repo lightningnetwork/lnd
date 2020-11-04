@@ -287,6 +287,10 @@ type DNSSeedBootstrapper struct {
 	// the network seed.
 	dnsSeeds [][2]string
 	net      tor.Net
+
+	// timeout is the maximum amount of time a dial will wait for a connect to
+	// complete.
+	timeout time.Duration
 }
 
 // A compile time assertion to ensure that DNSSeedBootstrapper meets the
@@ -300,8 +304,10 @@ var _ NetworkPeerBootstrapper = (*ChannelGraphBootstrapper)(nil)
 // used as a fallback for manual TCP resolution in the case of an error
 // receiving the UDP response. The second host should return a single A record
 // with the IP address of the authoritative name server.
-func NewDNSSeedBootstrapper(seeds [][2]string, net tor.Net) NetworkPeerBootstrapper {
-	return &DNSSeedBootstrapper{dnsSeeds: seeds, net: net}
+func NewDNSSeedBootstrapper(
+	seeds [][2]string, net tor.Net,
+	timeout time.Duration) NetworkPeerBootstrapper {
+	return &DNSSeedBootstrapper{dnsSeeds: seeds, net: net, timeout: timeout}
 }
 
 // fallBackSRVLookup attempts to manually query for SRV records we need to
@@ -327,7 +333,7 @@ func (d *DNSSeedBootstrapper) fallBackSRVLookup(soaShim string,
 	// Once we have the IP address, we'll establish a TCP connection using
 	// port 53.
 	dnsServer := net.JoinHostPort(addrs[0], "53")
-	conn, err := d.net.Dial("tcp", dnsServer)
+	conn, err := d.net.Dial("tcp", dnsServer, d.timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -389,7 +395,9 @@ search:
 		// obtain a random sample of the encoded public keys of nodes.
 		// We use the lndLookupSRV function for this task.
 		primarySeed := dnsSeedTuple[0]
-		_, addrs, err := d.net.LookupSRV("nodes", "tcp", primarySeed)
+		_, addrs, err := d.net.LookupSRV(
+			"nodes", "tcp", primarySeed, d.timeout,
+		)
 		if err != nil {
 			log.Tracef("Unable to lookup SRV records via "+
 				"primary seed (%v): %v", primarySeed, err)

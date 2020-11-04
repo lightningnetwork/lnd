@@ -1,5 +1,3 @@
-// +build dev
-
 package wtclient_test
 
 import (
@@ -18,12 +16,14 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/lightningnetwork/lnd/watchtower/wtmock"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 	"github.com/lightningnetwork/lnd/watchtower/wtserver"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -85,7 +85,9 @@ func newMockNet(cb func(wtserver.Peer)) *mockNet {
 	}
 }
 
-func (m *mockNet) Dial(network string, address string) (net.Conn, error) {
+func (m *mockNet) Dial(network string, address string,
+	timeout time.Duration) (net.Conn, error) {
+
 	return nil, nil
 }
 
@@ -101,8 +103,9 @@ func (m *mockNet) ResolveTCPAddr(network string, address string) (*net.TCPAddr, 
 	panic("not implemented")
 }
 
-func (m *mockNet) AuthDial(local keychain.SingleKeyECDH, netAddr *lnwire.NetAddress,
-	dialer func(string, string) (net.Conn, error)) (wtserver.Peer, error) {
+func (m *mockNet) AuthDial(local keychain.SingleKeyECDH,
+	netAddr *lnwire.NetAddress,
+	dialer tor.DialFunc) (wtserver.Peer, error) {
 
 	localPk := local.PubKey()
 	localAddr := &net.TCPAddr{
@@ -434,10 +437,8 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 	clientDB := wtmock.NewClientDB()
 
 	clientCfg := &wtclient.Config{
-		Signer: signer,
-		Dial: func(string, string) (net.Conn, error) {
-			return nil, nil
-		},
+		Signer:        signer,
+		Dial:          mockNet.Dial,
 		DB:            clientDB,
 		AuthDial:      mockNet.AuthDial,
 		SecretKeyRing: wtmock.NewSecretKeyRing(),
@@ -1457,7 +1458,8 @@ var clientTests = []clientTest{
 			// Re-add the tower. We prevent the tower from acking
 			// session creation to ensure the inactive sessions are
 			// not used.
-			h.server.Stop()
+			err := h.server.Stop()
+			require.Nil(h.t, err)
 			h.serverCfg.NoAckCreateSession = true
 			h.startServer()
 			h.addTower(h.serverAddr)
@@ -1466,7 +1468,8 @@ var clientTests = []clientTest{
 			// Finally, allow the tower to ack session creation,
 			// allowing the state updates to be sent through the new
 			// session.
-			h.server.Stop()
+			err = h.server.Stop()
+			require.Nil(h.t, err)
 			h.serverCfg.NoAckCreateSession = false
 			h.startServer()
 			h.waitServerUpdates(hints[numUpdates/2:], 5*time.Second)

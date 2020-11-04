@@ -683,14 +683,37 @@ func testCommitHTLCSigTieBreak(t *testing.T, restart bool) {
 	}
 }
 
+// TestCooperativeChannelClosure checks that the coop close process finishes
+// with an agreement from both parties, and that the final balances of the
+// close tx check out.
 func TestCooperativeChannelClosure(t *testing.T) {
+	t.Run("tweakless", func(t *testing.T) {
+		testCoopClose(t, &coopCloseTestCase{
+			chanType: channeldb.SingleFunderTweaklessBit,
+		})
+	})
+	t.Run("anchors", func(t *testing.T) {
+		testCoopClose(t, &coopCloseTestCase{
+			chanType: channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit,
+			anchorAmt: anchorSize * 2,
+		})
+	})
+}
+
+type coopCloseTestCase struct {
+	chanType  channeldb.ChannelType
+	anchorAmt btcutil.Amount
+}
+
+func testCoopClose(t *testing.T, testCase *coopCloseTestCase) {
 	t.Parallel()
 
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels(
-		channeldb.SingleFunderTweaklessBit,
+		testCase.chanType,
 	)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
@@ -707,7 +730,7 @@ func TestCooperativeChannelClosure(t *testing.T) {
 		bobChannel.channelState.LocalCommitment.FeePerKw,
 	)
 
-	// We'll store with both Alice and Bob creating a new close proposal
+	// We'll start with both Alice and Bob creating a new close proposal
 	// with the same fee.
 	aliceFee := aliceChannel.CalcFee(aliceFeeRate)
 	aliceSig, _, _, err := aliceChannel.CreateCloseProposal(
@@ -728,7 +751,7 @@ func TestCooperativeChannelClosure(t *testing.T) {
 	// With the proposals created, both sides should be able to properly
 	// process the other party's signature. This indicates that the
 	// transaction is well formed, and the signatures verify.
-	aliceCloseTx, _, err := bobChannel.CompleteCooperativeClose(
+	aliceCloseTx, bobTxBalance, err := bobChannel.CompleteCooperativeClose(
 		bobSig, aliceSig, bobDeliveryScript, aliceDeliveryScript,
 		bobFee,
 	)
@@ -737,7 +760,7 @@ func TestCooperativeChannelClosure(t *testing.T) {
 	}
 	bobCloseSha := aliceCloseTx.TxHash()
 
-	bobCloseTx, _, err := aliceChannel.CompleteCooperativeClose(
+	bobCloseTx, aliceTxBalance, err := aliceChannel.CompleteCooperativeClose(
 		aliceSig, bobSig, aliceDeliveryScript, bobDeliveryScript,
 		aliceFee,
 	)
@@ -748,6 +771,32 @@ func TestCooperativeChannelClosure(t *testing.T) {
 
 	if bobCloseSha != aliceCloseSha {
 		t.Fatalf("alice and bob close transactions don't match: %v", err)
+	}
+
+	// Finally, make sure the final balances are correct from both's
+	// perspective.
+	aliceBalance := aliceChannel.channelState.LocalCommitment.
+		LocalBalance.ToSatoshis()
+
+	// The commit balance have had the initiator's (Alice) commitfee and
+	// any anchors subtracted, so add that back to the final expected
+	// balance. Alice also pays the coop close fee, so that must be
+	// subtracted.
+	commitFee := aliceChannel.channelState.LocalCommitment.CommitFee
+	expBalanceAlice := aliceBalance + commitFee +
+		testCase.anchorAmt - bobFee
+	if aliceTxBalance != expBalanceAlice {
+		t.Fatalf("expected balance %v got %v", expBalanceAlice,
+			aliceTxBalance)
+	}
+
+	// Bob is not the initiator, so his final balance should simply be
+	// equal to the latest commitment balance.
+	expBalanceBob := bobChannel.channelState.LocalCommitment.
+		LocalBalance.ToSatoshis()
+	if bobTxBalance != expBalanceBob {
+		t.Fatalf("expected bob's balance to be %v got %v",
+			expBalanceBob, bobTxBalance)
 	}
 }
 
@@ -2181,11 +2230,11 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 			"got %v", 2, len(closeTx.TxOut))
 	}
 
-	// We'll reset the channel states before proceeding to our nest test.
+	// We'll reset the channel states before proceeding to our next test.
 	resetChannelState()
 
 	// Next we'll modify the current balances and dust limits such that
-	// Bob's current balance is above _below_ his dust limit.
+	// Bob's current balance is _below_ his dust limit.
 	aliceBal := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	bobBal := lnwire.NewMSatFromSatoshis(250)
 	setBalances(aliceBal, bobBal)
@@ -2228,9 +2277,24 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 			int64(closeTx.TxOut[0].Value))
 	}
 
-	// Finally, we'll modify the current balances and dust limits such that
-	// Alice's current balance is _below_ his her limit.
+	// We'll modify the current balances and dust limits such that
+	// Alice's current balance is too low to pay the proposed fee.
 	setBalances(bobBal, aliceBal)
+	resetChannelState()
+
+	// Attempting to close with this fee now should fail, since Alice
+	// cannot afford it.
+	_, _, _, err = aliceChannel.CreateCloseProposal(
+		aliceFee, aliceDeliveryScript, bobDeliveryScript,
+	)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+
+	// Finally, we'll modify the current balances and dust limits such that
+	// Alice's balance after paying the coop fee is _below_ her dust limit.
+	lowBalance := lnwire.NewMSatFromSatoshis(aliceFee) + 1000
+	setBalances(lowBalance, aliceBal)
 	resetChannelState()
 
 	// Our final attempt at another cooperative channel closure. It should
@@ -9208,6 +9272,91 @@ func TestChannelUnsignedAckedFailure(t *testing.T) {
 	// reject it, given that we properly restore the unsigned acked
 	// updates and therefore our update log is structured correctly.
 	bobSig, bobHtlcSigs, _, err = bobChannel.SignNextCommitment()
+	require.NoError(t, err)
+	err = newAliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
+	require.NoError(t, err)
+}
+
+// TestChannelLocalUnsignedUpdatesFailure checks that updates from the local
+// log are restored if the remote hasn't sent us a signature covering them.
+//
+// The full state transition is:
+//
+// Alice                Bob
+//       <----add-----
+//       <----sig-----
+//       -----rev---->
+//       -----sig---->
+//       <----rev-----
+//       ----fail---->
+//       -----sig---->
+//       <----rev-----
+//        *reconnect*
+//       <----sig-----
+//
+// Alice should reject the last signature since the settle is not restored
+// into the local update log and thus calculates Bob's signature as invalid.
+func TestChannelLocalUnsignedUpdatesFailure(t *testing.T) {
+	t.Parallel()
+
+	// Create a test channel so that we can test the buggy behavior.
+	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels(
+		channeldb.SingleFunderTweaklessBit,
+	)
+	require.NoError(t, err)
+	defer cleanUp()
+
+	// First we create an htlc that Bob sends to Alice.
+	htlc, _ := createHTLC(0, lnwire.MilliSatoshi(500000))
+
+	// <----add-----
+	_, err = bobChannel.AddHTLC(htlc, nil)
+	require.NoError(t, err)
+	_, err = aliceChannel.ReceiveHTLC(htlc)
+	require.NoError(t, err)
+
+	// Force a state transition to lock in this add on both commitments.
+	// <----sig-----
+	// -----rev---->
+	// -----sig---->
+	// <----rev-----
+	err = ForceStateTransition(bobChannel, aliceChannel)
+	require.NoError(t, err)
+
+	// Now Alice should fail the htlc back to Bob.
+	// -----fail--->
+	err = aliceChannel.FailHTLC(0, []byte("failreason"), nil, nil, nil)
+	require.NoError(t, err)
+	err = bobChannel.ReceiveFailHTLC(0, []byte("bad"))
+	require.NoError(t, err)
+
+	// Alice should send a commitment signature to Bob.
+	// -----sig---->
+	aliceSig, aliceHtlcSigs, _, err := aliceChannel.SignNextCommitment()
+	require.NoError(t, err)
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	require.NoError(t, err)
+
+	// Bob should reply with a revocation and Alice should save the fail as
+	// an unsigned local update.
+	// <----rev-----
+	bobRevocation, _, err := bobChannel.RevokeCurrentCommitment()
+	require.NoError(t, err)
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	require.NoError(t, err)
+
+	// Restart Alice and assert that she can receive Bob's next commitment
+	// signature.
+	// *reconnect*
+	newAliceChannel, err := NewLightningChannel(
+		aliceChannel.Signer, aliceChannel.channelState,
+		aliceChannel.sigPool,
+	)
+	require.NoError(t, err)
+
+	// Bob sends the final signature and Alice should not reject it.
+	// <----sig-----
+	bobSig, bobHtlcSigs, _, err := bobChannel.SignNextCommitment()
 	require.NoError(t, err)
 	err = newAliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
 	require.NoError(t, err)

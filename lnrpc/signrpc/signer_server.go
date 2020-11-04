@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -111,8 +112,8 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 		// At this point, we know that the signer macaroon doesn't yet,
 		// exist, so we need to create it with the help of the main
 		// macaroon service.
-		signerMac, err := cfg.MacService.Oven.NewMacaroon(
-			context.Background(), bakery.LatestVersion, nil,
+		signerMac, err := cfg.MacService.NewMacaroon(
+			context.Background(), macaroons.DefaultRootKeyID,
 			macaroonOps...,
 		)
 		if err != nil {
@@ -253,27 +254,11 @@ func (s *Server) SignOutputRaw(ctx context.Context, in *SignReq) (*SignResp, err
 		// If this method doesn't return nil, then we know that user is
 		// attempting to include a raw serialized pub key.
 		if keyDesc.GetRawKeyBytes() != nil {
-			rawKeyBytes := keyDesc.GetRawKeyBytes()
-
-			switch {
-			// If the user provided a raw key, but it's of the
-			// wrong length, then we'll return with an error.
-			case len(rawKeyBytes) != 0 && len(rawKeyBytes) != 33:
-
-				return nil, fmt.Errorf("pubkey must be " +
-					"serialized in compressed format if " +
-					"specified")
-
-			// If a proper raw key was provided, then we'll attempt
-			// to decode and parse it.
-			case len(rawKeyBytes) != 0 && len(rawKeyBytes) == 33:
-				targetPubKey, err = btcec.ParsePubKey(
-					rawKeyBytes, btcec.S256(),
-				)
-				if err != nil {
-					return nil, fmt.Errorf("unable to "+
-						"parse pubkey: %v", err)
-				}
+			targetPubKey, err = parseRawKeyBytes(
+				keyDesc.GetRawKeyBytes(),
+			)
+			if err != nil {
+				return nil, err
 			}
 		}
 
@@ -506,38 +491,82 @@ func (s *Server) VerifyMessage(ctx context.Context,
 
 // DeriveSharedKey returns a shared secret key by performing Diffie-Hellman key
 // derivation between the ephemeral public key in the request and the node's
-// key specified in the key_loc parameter (or the node's identity private key
-// if no key locator is specified):
-//     P_shared = privKeyNode * ephemeralPubkey
+// key specified in the key_desc parameter. Either a key locator or a raw public
+// key is expected in the key_desc, if neither is supplied, defaults to the
+// node's identity private key. The old key_loc parameter in the request
+// shouldn't be used anymore.
 // The resulting shared public key is serialized in the compressed format and
 // hashed with sha256, resulting in the final key length of 256bit.
 func (s *Server) DeriveSharedKey(_ context.Context, in *SharedKeyRequest) (
 	*SharedKeyResponse, error) {
 
-	if len(in.EphemeralPubkey) != 33 {
-		return nil, fmt.Errorf("ephemeral pubkey must be " +
-			"serialized in compressed format")
-	}
-	ephemeralPubkey, err := btcec.ParsePubKey(
-		in.EphemeralPubkey, btcec.S256(),
-	)
+	// Check that EphemeralPubkey is valid.
+	ephemeralPubkey, err := parseRawKeyBytes(in.EphemeralPubkey)
 	if err != nil {
-		return nil, fmt.Errorf("unable to parse pubkey: %v", err)
+		return nil, fmt.Errorf("error in ephemeral pubkey: %v", err)
+	}
+	if ephemeralPubkey == nil {
+		return nil, fmt.Errorf("must provide ephemeral pubkey")
 	}
 
-	// By default, use the node identity private key.
-	locator := keychain.KeyLocator{
-		Family: keychain.KeyFamilyNodeKey,
-		Index:  0,
+	// Check for backward compatibility. The caller either specifies the old
+	// key_loc field, or the new key_desc field, but not both.
+	if in.KeyDesc != nil && in.KeyLoc != nil {
+		return nil, fmt.Errorf("use either key_desc or key_loc")
 	}
-	if in.KeyLoc != nil {
-		locator.Family = keychain.KeyFamily(in.KeyLoc.KeyFamily)
-		locator.Index = uint32(in.KeyLoc.KeyIndex)
+
+	// When key_desc is used, the key_desc.key_loc is expected as the caller
+	// needs to specify the KeyFamily.
+	if in.KeyDesc != nil && in.KeyDesc.KeyLoc == nil {
+		return nil, fmt.Errorf("when setting key_desc the field " +
+			"key_desc.key_loc must also be set")
+	}
+
+	// We extract two params, rawKeyBytes and keyLoc. Notice their initial
+	// values will be overwritten if not using the deprecated RPC param.
+	var rawKeyBytes []byte
+	keyLoc := in.KeyLoc
+	if in.KeyDesc != nil {
+		keyLoc = in.KeyDesc.GetKeyLoc()
+		rawKeyBytes = in.KeyDesc.GetRawKeyBytes()
+	}
+
+	// When no keyLoc is supplied, defaults to the node's identity private
+	// key.
+	if keyLoc == nil {
+		keyLoc = &KeyLocator{
+			KeyFamily: int32(keychain.KeyFamilyNodeKey),
+			KeyIndex:  0,
+		}
+	}
+
+	// Check the caller is using either the key index or the raw public key
+	// to perform the ECDH, we can't have both.
+	if rawKeyBytes != nil && keyLoc.KeyIndex != 0 {
+		return nil, fmt.Errorf("use either raw_key_bytes or key_index")
+	}
+
+	// Check the raw public key is valid. Notice that if the rawKeyBytes is
+	// empty, the parseRawKeyBytes won't return an error, a nil
+	// *btcec.PublicKey is returned instead.
+	pk, err := parseRawKeyBytes(rawKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("error in raw pubkey: %v", err)
+	}
+
+	// Create a key descriptor. When the KeyIndex is not specified, it uses
+	// the empty value 0, and when the raw public key is not specified, the
+	// pk is nil.
+	keyDescriptor := keychain.KeyDescriptor{
+		KeyLocator: keychain.KeyLocator{
+			Family: keychain.KeyFamily(keyLoc.KeyFamily),
+			Index:  uint32(keyLoc.KeyIndex),
+		},
+		PubKey: pk,
 	}
 
 	// Derive the shared key using ECDH and hashing the serialized
 	// compressed shared point.
-	keyDescriptor := keychain.KeyDescriptor{KeyLocator: locator}
 	sharedKeyHash, err := s.cfg.KeyRing.ECDH(keyDescriptor, ephemeralPubkey)
 	if err != nil {
 		err := fmt.Errorf("unable to derive shared key: %v", err)
@@ -546,4 +575,30 @@ func (s *Server) DeriveSharedKey(_ context.Context, in *SharedKeyRequest) (
 	}
 
 	return &SharedKeyResponse{SharedKey: sharedKeyHash[:]}, nil
+}
+
+// parseRawKeyBytes checks that the provided raw public key is valid and returns
+// the public key. A nil public key is returned if the length of the rawKeyBytes
+// is zero.
+func parseRawKeyBytes(rawKeyBytes []byte) (*btcec.PublicKey, error) {
+	switch {
+
+	case len(rawKeyBytes) == 33:
+		// If a proper raw key was provided, then we'll attempt
+		// to decode and parse it.
+		return btcec.ParsePubKey(
+			rawKeyBytes, btcec.S256(),
+		)
+
+	case len(rawKeyBytes) == 0:
+		// No key is provided, return nil.
+		return nil, nil
+
+	default:
+		// If the user provided a raw key, but it's of the
+		// wrong length, then we'll return with an error.
+		return nil, fmt.Errorf("pubkey must be " +
+			"serialized in compressed format if " +
+			"specified")
+	}
 }

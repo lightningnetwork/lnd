@@ -151,7 +151,7 @@
     },
     "/v1/channels/abandon/{channel_point.funding_txid_str}/{channel_point.output_index}": {
       "delete": {
-        "summary": "lncli: `abandonchannel`\nAbandonChannel removes all channel state from the database except for a\nclose summary. This method can be used to get rid of permanently unusable\nchannels due to bugs fixed in newer versions of lnd. Only available\nwhen in debug builds of lnd.",
+        "summary": "lncli: `abandonchannel`\nAbandonChannel removes all channel state from the database except for a\nclose summary. This method can be used to get rid of permanently unusable\nchannels due to bugs fixed in newer versions of lnd. This method can also be\nused to remove externally funded channels where the funding transaction was\nnever broadcast. Only available for non-externally funded channels in dev\nbuild.",
         "operationId": "AbandonChannel",
         "responses": {
           "200": {
@@ -190,6 +190,13 @@
             "required": false,
             "type": "string",
             "format": "byte"
+          },
+          {
+            "name": "pending_funding_shim_only",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
           }
         ],
         "tags": [
@@ -1426,6 +1433,85 @@
         ]
       }
     },
+    "/v1/macaroon/ids": {
+      "get": {
+        "summary": "lncli: `listmacaroonids`\nListMacaroonIDs returns all root key IDs that are in use.",
+        "operationId": "ListMacaroonIDs",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcListMacaroonIDsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/macaroon/permissions": {
+      "get": {
+        "summary": "lncli: `listpermissions`\nListPermissions lists all RPC method URIs and their required macaroon\npermissions to access them.",
+        "operationId": "ListPermissions",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcListPermissionsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/macaroon/{root_key_id}": {
+      "delete": {
+        "summary": "lncli: `deletemacaroonid`\nDeleteMacaroonID deletes the specified macaroon ID and invalidates all\nmacaroons derived from that ID.",
+        "operationId": "DeleteMacaroonID",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcDeleteMacaroonIDResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "root_key_id",
+            "description": "The root key ID to be removed.",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uint64"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/newaddress": {
       "get": {
         "summary": "lncli: `newaddress`\nNewAddress creates a new address under control of the local wallet.",
@@ -2399,6 +2485,11 @@
             "$ref": "#/definitions/lnrpcMacaroonPermission"
           },
           "description": "The list of permissions the new macaroon should grant."
+        },
+        "root_key_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The root key ID used to create the macaroon, must be a positive integer."
         }
       }
     },
@@ -3132,6 +3223,11 @@
           "type": "boolean",
           "format": "boolean",
           "description": "If set, the daemon will attempt to persistently connect to the target\npeer. Otherwise, the call will be synchronous."
+        },
+        "timeout": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The connection timeout value (in seconds) for this request. It won't affect\nother requests."
         }
       }
     },
@@ -3160,6 +3256,16 @@
     },
     "lnrpcDeleteAllPaymentsResponse": {
       "type": "object"
+    },
+    "lnrpcDeleteMacaroonIDResponse": {
+      "type": "object",
+      "properties": {
+        "deleted": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "A boolean indicates that the deletion is successful."
+        }
+      }
     },
     "lnrpcDisconnectPeerResponse": {
       "type": "object"
@@ -3436,12 +3542,17 @@
         "signed_psbt": {
           "type": "string",
           "format": "byte",
-          "description": "The funded PSBT that contains all witness data to send the exact channel\ncapacity amount to the PK script returned in the open channel message in a\nprevious step."
+          "description": "The funded PSBT that contains all witness data to send the exact channel\ncapacity amount to the PK script returned in the open channel message in a\nprevious step. Cannot be set at the same time as final_raw_tx."
         },
         "pending_chan_id": {
           "type": "string",
           "format": "byte",
           "description": "The pending channel ID of the channel to get the PSBT for."
+        },
+        "final_raw_tx": {
+          "type": "string",
+          "format": "byte",
+          "description": "As an alternative to the signed PSBT with all witness data, the final raw\nwire format transaction can also be specified directly. Cannot be set at the\nsame time as signed_psbt."
         }
       }
     },
@@ -4095,6 +4206,19 @@
         }
       }
     },
+    "lnrpcListMacaroonIDsResponse": {
+      "type": "object",
+      "properties": {
+        "root_key_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "The list of root key IDs that are in use."
+        }
+      }
+    },
     "lnrpcListPaymentsResponse": {
       "type": "object",
       "properties": {
@@ -4126,6 +4250,18 @@
             "$ref": "#/definitions/lnrpcPeer"
           },
           "title": "The list of currently connected peers"
+        }
+      }
+    },
+    "lnrpcListPermissionsResponse": {
+      "type": "object",
+      "properties": {
+        "method_permissions": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/lnrpcMacaroonPermissionList"
+          },
+          "description": "A map between all RPC method URIs and their required macaroon permissions to\naccess them."
         }
       }
     },
@@ -4166,6 +4302,18 @@
         "action": {
           "type": "string",
           "description": "The action that is granted."
+        }
+      }
+    },
+    "lnrpcMacaroonPermissionList": {
+      "type": "object",
+      "properties": {
+        "permissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcMacaroonPermission"
+          },
+          "description": "A list of macaroon permissions."
         }
       }
     },
@@ -4410,6 +4558,11 @@
           "type": "string",
           "format": "uint64",
           "description": "The maximum amount of coins in millisatoshi that can be pending within\nthe channel. It only applies to the remote party."
+        },
+        "remote_max_htlcs": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The maximum number of concurrent HTLCs we will allow the remote party to add\nto the commitment transaction."
         }
       }
     },
@@ -4657,6 +4810,16 @@
             "$ref": "#/definitions/lnrpcTimestampedError"
           },
           "description": "The latest errors received from our peer with timestamps, limited to the 10\nmost recent errors. These errors are tracked across peer connections, but\nare not persisted across lnd restarts. Note that these errors are only\nstored for peers that we have channels open with, to prevent peers from\nspamming us with errors at no cost."
+        },
+        "flap_count": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of times we have recorded this peer going offline or coming\nonline, recorded across restarts. Note that this value is decreased over\ntime if the peer has not recently flapped, so that we can forgive peers\nwith historically high flap counts."
+        },
+        "last_flap_ns": {
+          "type": "string",
+          "format": "int64",
+          "description": "The timestamp of the last flap we observed for this peer. If this value is\nzero, we have not observed any flaps for this peer."
         }
       }
     },

@@ -32,11 +32,6 @@ type STM interface {
 	// set. Returns nil if there's no matching key, or the key is empty.
 	Get(key string) ([]byte, error)
 
-	// Lock adds a key to the lock set. If the lock set is not empty, we'll
-	// only check for conflicts in the lock set and the write set, instead
-	// of all read keys plus the write set.
-	Lock(key string)
-
 	// Put adds a value for a key to the txn's write set.
 	Put(key, val string)
 
@@ -139,6 +134,10 @@ type stm struct {
 	// execute in the STM run loop.
 	manual bool
 
+	// txQueue is lightweight contention manager, which is used to detect
+	// transaction conflicts and reduce retries.
+	txQueue *commitQueue
+
 	// options stores optional settings passed by the user.
 	options *STMOptions
 
@@ -150,9 +149,6 @@ type stm struct {
 
 	// wset holds overwritten keys and their values.
 	wset writeSet
-
-	// lset holds keys we intent to lock on.
-	lset map[string]interface{}
 
 	// getOpts are the opts used for gets.
 	getOpts []v3.OpOption
@@ -191,18 +187,22 @@ func WithCommitStatsCallback(cb func(bool, CommitStats)) STMOptionFunc {
 
 // RunSTM runs the apply function by creating an STM using serializable snapshot
 // isolation, passing it to the apply and handling commit errors and retries.
-func RunSTM(cli *v3.Client, apply func(STM) error, so ...STMOptionFunc) error {
-	return runSTM(makeSTM(cli, false, so...), apply)
+func RunSTM(cli *v3.Client, apply func(STM) error, txQueue *commitQueue,
+	so ...STMOptionFunc) error {
+
+	return runSTM(makeSTM(cli, false, txQueue, so...), apply)
 }
 
 // NewSTM creates a new STM instance, using serializable snapshot isolation.
-func NewSTM(cli *v3.Client, so ...STMOptionFunc) STM {
-	return makeSTM(cli, true, so...)
+func NewSTM(cli *v3.Client, txQueue *commitQueue, so ...STMOptionFunc) STM {
+	return makeSTM(cli, true, txQueue, so...)
 }
 
 // makeSTM is the actual constructor of the stm. It first apply all passed
 // options then creates the stm object and resets it before returning.
-func makeSTM(cli *v3.Client, manual bool, so ...STMOptionFunc) *stm {
+func makeSTM(cli *v3.Client, manual bool, txQueue *commitQueue,
+	so ...STMOptionFunc) *stm {
+
 	opts := &STMOptions{
 		ctx: cli.Ctx(),
 	}
@@ -215,6 +215,7 @@ func makeSTM(cli *v3.Client, manual bool, so ...STMOptionFunc) *stm {
 	s := &stm{
 		client:   cli,
 		manual:   manual,
+		txQueue:  txQueue,
 		options:  opts,
 		prefetch: make(map[string]stmGet),
 	}
@@ -230,50 +231,72 @@ func makeSTM(cli *v3.Client, manual bool, so ...STMOptionFunc) *stm {
 // CommitError which is used to indicate a necessary retry.
 func runSTM(s *stm, apply func(STM) error) error {
 	var (
-		retries int
-		stats   CommitStats
-		err     error
+		retries    int
+		stats      CommitStats
+		executeErr error
 	)
 
-loop:
-	// In a loop try to apply and commit and roll back if the database has
-	// changed (CommitError).
-	for {
-		select {
-		// Check if the STM is aborted and break the retry loop if it is.
-		case <-s.options.ctx.Done():
-			err = fmt.Errorf("aborted")
-			break loop
+	done := make(chan struct{})
 
-		default:
+	execute := func() {
+		defer close(done)
+
+		for {
+			select {
+			// Check if the STM is aborted and break the retry loop
+			// if it is.
+			case <-s.options.ctx.Done():
+				executeErr = fmt.Errorf("aborted")
+				return
+
+			default:
+			}
+
+			stats, executeErr = s.commit()
+
+			// Re-apply only upon commit error (meaning the
+			// keys were changed).
+			if _, ok := executeErr.(CommitError); !ok {
+				// Anything that's not a CommitError
+				// aborts the transaction.
+				return
+			}
+
+			// Rollback before trying to re-apply.
+			s.Rollback()
+			retries++
+
+			// Re-apply the transaction closure.
+			if executeErr = apply(s); executeErr != nil {
+				return
+			}
 		}
-
-		// Apply the transaction closure and abort the STM if there was an
-		// application error.
-		if err = apply(s); err != nil {
-			break loop
-		}
-
-		stats, err = s.commit()
-
-		// Re-apply only upon commit error (meaning the database was changed).
-		if _, ok := err.(CommitError); !ok {
-			// Anything that's not a CommitError
-			// aborts the STM run loop.
-			break loop
-		}
-
-		// Rollback before trying to re-apply.
-		s.Rollback()
-		retries++
 	}
+
+	// Run the tx closure to construct the read and write sets.
+	// Also we expect that if there are no conflicting transactions
+	// in the queue, then we only run apply once.
+	if preApplyErr := apply(s); preApplyErr != nil {
+		return preApplyErr
+	}
+
+	// Queue up the transaction for execution.
+	s.txQueue.Add(execute, s.rset, s.wset)
+
+	// Wait for the transaction to execute, or break if aborted.
+	select {
+	case <-done:
+	case <-s.options.ctx.Done():
+	}
+
+	s.txQueue.Done(s.rset, s.wset)
 
 	if s.options.commitStatsCallback != nil {
 		stats.Retries = retries
-		s.options.commitStatsCallback(err == nil, stats)
+		s.options.commitStatsCallback(executeErr == nil, stats)
 	}
 
-	return err
+	return executeErr
 }
 
 // add inserts a txn response to the read set. This is useful when the txn
@@ -303,24 +326,14 @@ func (rs readSet) gets() []v3.Op {
 	return ops
 }
 
-// cmps returns a cmp list testing values in read set didn't change.
-func (rs readSet) cmps(lset map[string]interface{}) []v3.Cmp {
-	if len(lset) > 0 {
-		cmps := make([]v3.Cmp, 0, len(lset))
-		for key := range lset {
-			if getValue, ok := rs[key]; ok {
-				cmps = append(
-					cmps,
-					v3.Compare(v3.ModRevision(key), "=", getValue.rev),
-				)
-			}
-		}
-		return cmps
-	}
-
+// cmps returns a compare list which will serve as a precondition testing that
+// the values in the read set didn't change.
+func (rs readSet) cmps() []v3.Cmp {
 	cmps := make([]v3.Cmp, 0, len(rs))
 	for key, getValue := range rs {
-		cmps = append(cmps, v3.Compare(v3.ModRevision(key), "=", getValue.rev))
+		cmps = append(cmps, v3.Compare(
+			v3.ModRevision(key), "=", getValue.rev,
+		))
 	}
 
 	return cmps
@@ -370,6 +383,15 @@ func (s *stm) fetch(key string, opts ...v3.OpOption) ([]KV, error) {
 		}
 	}
 
+	if len(resp.Kvs) == 0 {
+		// Add assertion to the read set which will extend our commit
+		// constraint such that the commit will fail if the key is
+		// present in the database.
+		s.rset[key] = stmGet{
+			rev: 0,
+		}
+	}
+
 	var result []KV
 
 	// Fill the read set with key/values returned.
@@ -413,12 +435,22 @@ func (s *stm) Get(key string) ([]byte, error) {
 	// the prefetch set.
 	if getValue, ok := s.prefetch[key]; ok {
 		delete(s.prefetch, key)
-		s.rset[key] = getValue
+
+		// Use the prefetched value only if it is for
+		// an existing key.
+		if getValue.rev != 0 {
+			s.rset[key] = getValue
+		}
 	}
 
 	// Return value if alread in read set.
-	if getVal, ok := s.rset[key]; ok {
-		return []byte(getVal.val), nil
+	if getValue, ok := s.rset[key]; ok {
+		// Return the value if the rset contains an existing key.
+		if getValue.rev != 0 {
+			return []byte(getValue.val), nil
+		} else {
+			return nil, nil
+		}
 	}
 
 	// Fetch and return value.
@@ -433,13 +465,6 @@ func (s *stm) Get(key string) ([]byte, error) {
 
 	// Return empty result if key not in DB.
 	return nil, nil
-}
-
-// Lock adds a key to the lock set. If the lock set is
-// not empty, we'll only check conflicts for the keys
-// in the lock set.
-func (s *stm) Lock(key string) {
-	s.lset[key] = nil
 }
 
 // First returns the first key/value matching prefix. If there's no key starting
@@ -711,7 +736,7 @@ func (s *stm) OnCommit(cb func()) {
 // because the keys have changed return a CommitError, otherwise return a
 // DatabaseError.
 func (s *stm) commit() (CommitStats, error) {
-	rset := s.rset.cmps(s.lset)
+	rset := s.rset.cmps()
 	wset := s.wset.cmps(s.revision + 1)
 
 	stats := CommitStats{
@@ -775,7 +800,6 @@ func (s *stm) Commit() error {
 func (s *stm) Rollback() {
 	s.rset = make(map[string]stmGet)
 	s.wset = make(map[string]stmPut)
-	s.lset = make(map[string]interface{})
 	s.getOpts = nil
 	s.revision = math.MaxInt64 - 1
 }

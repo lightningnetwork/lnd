@@ -505,6 +505,12 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 				log.Debugf("Already pending input %v received",
 					outpoint)
 
+				// Update input details and sweep parameters.
+				// The re-offered input details may contain a
+				// change to the unconfirmed parent tx info.
+				pendInput.params = input.params
+				pendInput.Input = input.input
+
 				// Add additional result channel to signal
 				// spend of this input.
 				pendInput.listeners = append(
@@ -760,6 +766,26 @@ func (s *UtxoSweeper) clusterBySweepFeeRate() []inputCluster {
 			log.Warnf("Skipping input %v: %v", op, err)
 			continue
 		}
+
+		// Only try to sweep inputs with an unconfirmed parent if the
+		// current sweep fee rate exceeds the parent tx fee rate. This
+		// assumes that such inputs are offered to the sweeper solely
+		// for the purpose of anchoring down the parent tx using cpfp.
+		parentTx := input.UnconfParent()
+		if parentTx != nil {
+			parentFeeRate :=
+				chainfee.SatPerKWeight(parentTx.Fee*1000) /
+					chainfee.SatPerKWeight(parentTx.Weight)
+
+			if parentFeeRate >= feeRate {
+				log.Debugf("Skipping cpfp input %v: fee_rate=%v, "+
+					"parent_fee_rate=%v", op, feeRate,
+					parentFeeRate)
+
+				continue
+			}
+		}
+
 		feeGroup := s.bucketForFeeRate(feeRate)
 
 		// Create a bucket list for this fee rate if there isn't one
@@ -1131,8 +1157,9 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 
 // UpdateParams allows updating the sweep parameters of a pending input in the
 // UtxoSweeper. This function can be used to provide an updated fee preference
-// that will be used for a new sweep transaction of the input that will act as a
-// replacement transaction (RBF) of the original sweeping transaction, if any.
+// and force flag that will be used for a new sweep transaction of the input
+// that will act as a replacement transaction (RBF) of the original sweeping
+// transaction, if any. The exclusive group is left unchanged.
 //
 // NOTE: This currently doesn't do any fee rate validation to ensure that a bump
 // is actually successful. The responsibility of doing so should be handled by

@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -59,7 +60,7 @@ type ChainArbitratorConfig struct {
 	// broadcast our commitment transaction if we have incoming htlcs. This
 	// value should be set based on our current fee estimation of the
 	// commitment transaction. We use this to determine when we should
-	// broadcast instead of the just the HTLC timeout, as we want to ensure
+	// broadcast instead of just the HTLC timeout, as we want to ensure
 	// that the commitment transaction is already confirmed, by the time the
 	// HTLC expires. Otherwise we may end up not settling the htlc on-chain
 	// because the other party managed to time it out.
@@ -89,7 +90,7 @@ type ChainArbitratorConfig struct {
 	DeliverResolutionMsg func(...ResolutionMsg) error
 
 	// MarkLinkInactive is a function closure that the ChainArbitrator will
-	// use to mark that active HTLC's shouldn't be attempt ted to be routed
+	// use to mark that active HTLC's shouldn't be attempted to be routed
 	// over a particular channel. This function will be called in that a
 	// ChannelArbitrator decides that it needs to go to chain in order to
 	// resolve contracts.
@@ -157,7 +158,7 @@ type ChainArbitratorConfig struct {
 	// resolution.
 	OnionProcessor OnionProcessor
 
-	// PaymentsExpirationGracePeriod indicates is a time window we let the
+	// PaymentsExpirationGracePeriod indicates a time window we let the
 	// other node to cancel an outgoing htlc that our node has initiated and
 	// has timed out.
 	PaymentsExpirationGracePeriod time.Duration
@@ -715,7 +716,10 @@ func (c *ChainArbitrator) rebroadcast(channel *channeldb.OpenChannel,
 	log.Infof("Re-publishing %s close tx(%v) for channel %v",
 		kind, closeTx.TxHash(), chanPoint)
 
-	err = c.cfg.PublishTx(closeTx, "")
+	label := labels.MakeLabel(
+		labels.LabelTypeChannelClose, &channel.ShortChannelID,
+	)
+	err = c.cfg.PublishTx(closeTx, label)
 	if err != nil && err != lnwallet.ErrDoubleSpend {
 		log.Warnf("Unable to broadcast %s close tx(%v): %v",
 			kind, closeTx.TxHash(), err)

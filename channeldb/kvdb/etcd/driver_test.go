@@ -6,25 +6,25 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcwallet/walletdb"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestOpenCreateFailure(t *testing.T) {
 	t.Parallel()
 
 	db, err := walletdb.Open(dbType)
-	assert.Error(t, err)
-	assert.Nil(t, db)
+	require.Error(t, err)
+	require.Nil(t, db)
 
 	db, err = walletdb.Open(dbType, "wrong")
-	assert.Error(t, err)
-	assert.Nil(t, db)
+	require.Error(t, err)
+	require.Nil(t, db)
 
 	db, err = walletdb.Create(dbType)
-	assert.Error(t, err)
-	assert.Nil(t, db)
+	require.Error(t, err)
+	require.Nil(t, db)
 
 	db, err = walletdb.Create(dbType, "wrong")
-	assert.Error(t, err)
-	assert.Nil(t, db)
+	require.Error(t, err)
+	require.Nil(t, db)
 }

@@ -5,7 +5,6 @@ package lnd
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"math"
 	"os"
 	"reflect"
@@ -21,6 +20,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/sweep"
 )
@@ -399,7 +399,7 @@ func TestBabyOutputSerialization(t *testing.T) {
 type nurseryTestContext struct {
 	nursery     *utxoNursery
 	notifier    *sweep.MockNotifier
-	chainIO     *mockChainIO
+	chainIO     *mock.ChainIO
 	publishChan chan wire.MsgTx
 	store       *nurseryStoreInterceptor
 	restart     func() bool
@@ -407,6 +407,7 @@ type nurseryTestContext struct {
 	sweeper     *mockSweeper
 	timeoutChan chan chan time.Time
 	t           *testing.T
+	dbCleanup   func()
 }
 
 func createNurseryTestContext(t *testing.T,
@@ -416,12 +417,7 @@ func createNurseryTestContext(t *testing.T,
 	// alternative, mocking nurseryStore, is not chosen because there is
 	// still considerable logic in the store.
 
-	tempDirName, err := ioutil.TempDir("", "channeldb")
-	if err != nil {
-		t.Fatalf("unable to create temp dir: %v", err)
-	}
-
-	cdb, err := channeldb.Open(tempDirName)
+	cdb, cleanup, err := channeldb.MakeTestDB()
 	if err != nil {
 		t.Fatalf("unable to open channeldb: %v", err)
 	}
@@ -446,8 +442,8 @@ func createNurseryTestContext(t *testing.T,
 
 	timeoutChan := make(chan chan time.Time)
 
-	chainIO := &mockChainIO{
-		bestHeight: 0,
+	chainIO := &mock.ChainIO{
+		BestHeight: 0,
 	}
 
 	sweeper := newMockSweeper(t)
@@ -484,6 +480,7 @@ func createNurseryTestContext(t *testing.T,
 		sweeper:     sweeper,
 		timeoutChan: timeoutChan,
 		t:           t,
+		dbCleanup:   cleanup,
 	}
 
 	ctx.receiveTx = func() wire.MsgTx {
@@ -526,11 +523,13 @@ func createNurseryTestContext(t *testing.T,
 func (ctx *nurseryTestContext) notifyEpoch(height int32) {
 	ctx.t.Helper()
 
-	ctx.chainIO.bestHeight = height
+	ctx.chainIO.BestHeight = height
 	ctx.notifier.NotifyEpoch(height)
 }
 
 func (ctx *nurseryTestContext) finish() {
+	defer ctx.dbCleanup()
+
 	// Add a final restart point in this state
 	ctx.restart()
 

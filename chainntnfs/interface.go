@@ -482,7 +482,7 @@ func GetClientMissedBlocks(chainConn ChainConn, clientBestBlock *BlockEpoch,
 	return missedBlocks, nil
 }
 
-// RewindChain handles internal state updates for the notifier's TxNotifier It
+// RewindChain handles internal state updates for the notifier's TxNotifier. It
 // has no effect if given a height greater than or equal to our current best
 // known height. It returns the new best block for the notifier.
 func RewindChain(chainConn ChainConn, txNotifier *TxNotifier,

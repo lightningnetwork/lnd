@@ -90,9 +90,12 @@ type Config struct {
 	// ChannelLinkConfig.
 	InterceptSwitch *htlcswitch.InterceptableSwitch
 
-	// ChannelDB is used to fetch opened channels, closed channels, and the
-	// channel graph.
+	// ChannelDB is used to fetch opened channels, and closed channels.
 	ChannelDB *channeldb.DB
+
+	// ChannelGraph is a pointer to the channel graph which is used to
+	// query information about the set of known active channels.
+	ChannelGraph *channeldb.ChannelGraph
 
 	// ChainArb is used to subscribe to channel events, update contract signals,
 	// and force close channels.

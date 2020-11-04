@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -27,6 +28,12 @@ var (
 	// close a channel that's already in the process of doing so.
 	errAlreadyForceClosed = errors.New("channel is already in the " +
 		"process of being force closed")
+)
+
+const (
+	// anchorSweepConfTarget is the conf target used when sweeping
+	// commitment anchors.
+	anchorSweepConfTarget = 6
 )
 
 // WitnessSubscription represents an intent to be notified once new witnesses
@@ -874,7 +881,11 @@ func (c *ChannelArbitrator) stateStep(
 
 		// At this point, we'll now broadcast the commitment
 		// transaction itself.
-		if err := c.cfg.PublishTx(closeTx, ""); err != nil {
+		label := labels.MakeLabel(
+			labels.LabelTypeChannelClose, &c.cfg.ShortChanID,
+		)
+
+		if err := c.cfg.PublishTx(closeTx, label); err != nil {
 			log.Errorf("ChannelArbitrator(%v): unable to broadcast "+
 				"close tx: %v", c.cfg.ChanPoint, err)
 			if err != lnwallet.ErrDoubleSpend {
@@ -1055,9 +1066,6 @@ func (c *ChannelArbitrator) sweepAnchors(anchors []*lnwallet.AnchorResolution,
 	// anchors from being batched together.
 	exclusiveGroup := c.cfg.ShortChanID.ToUint64()
 
-	// Retrieve the current minimum fee rate from the sweeper.
-	minFeeRate := c.cfg.Sweeper.RelayFeePerKW()
-
 	for _, anchor := range anchors {
 		log.Debugf("ChannelArbitrator(%v): pre-confirmation sweep of "+
 			"anchor of tx %v", c.cfg.ChanPoint, anchor.CommitAnchor)
@@ -1068,18 +1076,25 @@ func (c *ChannelArbitrator) sweepAnchors(anchors []*lnwallet.AnchorResolution,
 			input.CommitmentAnchor,
 			&anchor.AnchorSignDescriptor,
 			heightHint,
+			&input.TxInfo{
+				Fee:    anchor.CommitFee,
+				Weight: anchor.CommitWeight,
+			},
 		)
 
-		// Sweep anchor output with the minimum fee rate. This usually
-		// (up to a min relay fee of 3 sat/b) means that the anchor
-		// sweep will be economical. Also signal that this is a force
-		// sweep. If the user decides to bump the fee on the anchor
-		// sweep, it will be swept even if it isn't economical.
+		// Sweep anchor output with a confirmation target fee
+		// preference. Because this is a cpfp-operation, the anchor will
+		// only be attempted to sweep when the current fee estimate for
+		// the confirmation target exceeds the commit fee rate.
+		//
+		// Also signal that this is a force sweep, so that the anchor
+		// will be swept even if it isn't economical purely based on the
+		// anchor value.
 		_, err := c.cfg.Sweeper.SweepInput(
 			&anchorInput,
 			sweep.Params{
 				Fee: sweep.FeePreference{
-					FeeRate: minFeeRate,
+					ConfTarget: anchorSweepConfTarget,
 				},
 				Force:          true,
 				ExclusiveGroup: &exclusiveGroup,
@@ -1987,7 +2002,7 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 			switch {
 			// If this contract produced another, then this means
 			// the current contract was only able to be partially
-			// resolved in this step. So we'll not a contract swap
+			// resolved in this step. So we'll do a contract swap
 			// within our logs: the new contract will take the
 			// place of the old one.
 			case nextContract != nil:
@@ -2082,7 +2097,7 @@ func (c *ChannelArbitrator) UpdateContractSignals(newSignals *ContractSignals) {
 
 // channelAttendant is the primary goroutine that acts at the judicial
 // arbitrator between our channel state, the remote channel peer, and the
-// blockchain Our judge). This goroutine will ensure that we faithfully execute
+// blockchain (Our judge). This goroutine will ensure that we faithfully execute
 // all clauses of our contract in the case that we need to go on-chain for a
 // dispute. Currently, two such conditions warrant our intervention: when an
 // outgoing HTLC is about to timeout, and when we know the pre-image for an

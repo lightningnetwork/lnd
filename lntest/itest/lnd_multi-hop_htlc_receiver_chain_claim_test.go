@@ -1,5 +1,3 @@
-// +build rpctest
-
 package itest
 
 import (
@@ -117,6 +115,10 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 		t.Fatalf("settle invoice: %v", err)
 	}
 
+	// Increase the fee estimate so that the following force close tx will
+	// be cpfp'ed.
+	net.SetFeeEstimate(30000)
+
 	// Now we'll mine enough blocks to prompt carol to actually go to the
 	// chain in order to sweep her HTLC since the value is high enough.
 	// TODO(roasbeef): modify once go to chain policy changes
@@ -134,7 +136,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 	if c == commitTypeAnchors {
 		expectedTxes = 2
 	}
-	txes, err := getNTxsFromMempool(
+	_, err = getNTxsFromMempool(
 		net.Miner.Node, expectedTxes, minerMempoolTimeout,
 	)
 	if err != nil {
@@ -176,7 +178,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 	if c == commitTypeAnchors {
 		expectedTxes = 3
 	}
-	txes, err = getNTxsFromMempool(net.Miner.Node,
+	txes, err := getNTxsFromMempool(net.Miner.Node,
 		expectedTxes, minerMempoolTimeout)
 	if err != nil {
 		t.Fatalf("transactions not found in mempool: %v", err)

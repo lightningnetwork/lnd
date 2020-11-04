@@ -54,10 +54,10 @@ func NormalizeAddresses(addrs []string, defaultPort string,
 // interface.
 func EnforceSafeAuthentication(addrs []net.Addr, macaroonsActive bool) error {
 	// We'll now examine all addresses that this RPC server is listening
-	// on. If it's a localhost address, we'll skip it, otherwise, we'll
-	// return an error if macaroons are inactive.
+	// on. If it's a localhost address or a private address, we'll skip it,
+	// otherwise, we'll return an error if macaroons are inactive.
 	for _, addr := range addrs {
-		if IsLoopback(addr.String()) || IsUnix(addr) {
+		if IsLoopback(addr.String()) || IsUnix(addr) || IsPrivate(addr) {
 			continue
 		}
 
@@ -115,6 +115,39 @@ func IsLoopback(addr string) bool {
 // IsUnix returns true if an address describes an Unix socket address.
 func IsUnix(addr net.Addr) bool {
 	return strings.HasPrefix(addr.Network(), "unix")
+}
+
+// IsPrivate returns true if the address is private. The definitions are,
+//   https://en.wikipedia.org/wiki/Link-local_address
+//   https://en.wikipedia.org/wiki/Multicast_address
+//   Local IPv4 addresses, https://tools.ietf.org/html/rfc1918
+//   Local IPv6 addresses, https://tools.ietf.org/html/rfc4193
+func IsPrivate(addr net.Addr) bool {
+	switch addr := addr.(type) {
+	case *net.TCPAddr:
+		// Check 169.254.0.0/16 and fe80::/10.
+		if addr.IP.IsLinkLocalUnicast() {
+			return true
+		}
+
+		// Check 224.0.0.0/4 and ff00::/8.
+		if addr.IP.IsLinkLocalMulticast() {
+			return true
+		}
+
+		// Check 10.0.0.0/8, 172.16.0.0/12 and 192.168.0.0/16.
+		if ip4 := addr.IP.To4(); ip4 != nil {
+			return ip4[0] == 10 ||
+				(ip4[0] == 172 && ip4[1]&0xf0 == 16) ||
+				(ip4[0] == 192 && ip4[1] == 168)
+		}
+
+		// Check fc00::/7.
+		return len(addr.IP) == net.IPv6len && addr.IP[0]&0xfe == 0xfc
+
+	default:
+		return false
+	}
 }
 
 // ParseAddressString converts an address in string format to a net.Addr that is

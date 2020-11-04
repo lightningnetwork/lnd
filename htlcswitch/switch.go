@@ -1811,7 +1811,7 @@ func (s *Switch) reforwardResponses() error {
 func (s *Switch) loadChannelFwdPkgs(source lnwire.ShortChannelID) ([]*channeldb.FwdPkg, error) {
 
 	var fwdPkgs []*channeldb.FwdPkg
-	if err := kvdb.Update(s.cfg.DB, func(tx kvdb.RwTx) error {
+	if err := kvdb.View(s.cfg.DB, func(tx kvdb.RTx) error {
 		var err error
 		fwdPkgs, err = s.cfg.SwitchPackager.LoadChannelFwdPkgs(
 			tx, source,

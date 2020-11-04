@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -566,7 +567,8 @@ justiceTxBroadcast:
 
 	// We'll now attempt to broadcast the transaction which finalized the
 	// channel's retribution against the cheating counter party.
-	err = b.cfg.PublishTransaction(finalTx, "")
+	label := labels.MakeLabel(labels.LabelTypeJusticeTransaction, nil)
+	err = b.cfg.PublishTransaction(finalTx, label)
 	if err != nil {
 		brarLog.Errorf("Unable to broadcast justice tx: %v", err)
 
@@ -910,6 +912,11 @@ func (bo *breachedOutput) BlocksToMaturity() uint32 {
 // occur.
 func (bo *breachedOutput) HeightHint() uint32 {
 	return bo.confHeight
+}
+
+// UnconfParent returns information about a possibly unconfirmed parent tx.
+func (bo *breachedOutput) UnconfParent() *input.TxInfo {
+	return nil
 }
 
 // Add compile-time constraint ensuring breachedOutput implements the Input

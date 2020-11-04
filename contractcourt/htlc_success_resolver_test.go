@@ -8,6 +8,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -16,16 +17,16 @@ var testHtlcAmt = lnwire.MilliSatoshi(200000)
 
 type htlcSuccessResolverTestContext struct {
 	resolver           *htlcSuccessResolver
-	notifier           *mockNotifier
+	notifier           *mock.ChainNotifier
 	resolverResultChan chan resolveResult
 	t                  *testing.T
 }
 
 func newHtlcSuccessResolverTextContext(t *testing.T) *htlcSuccessResolverTestContext {
-	notifier := &mockNotifier{
-		epochChan: make(chan *chainntnfs.BlockEpoch),
-		spendChan: make(chan *chainntnfs.SpendDetail),
-		confChan:  make(chan *chainntnfs.TxConfirmation),
+	notifier := &mock.ChainNotifier{
+		EpochChan: make(chan *chainntnfs.BlockEpoch),
+		SpendChan: make(chan *chainntnfs.SpendDetail),
+		ConfChan:  make(chan *chainntnfs.TxConfirmation),
 	}
 
 	checkPointChan := make(chan struct{}, 1)
@@ -116,7 +117,7 @@ func TestSingleStageSuccess(t *testing.T) {
 	// We send a confirmation for our sweep tx to indicate that our sweep
 	// succeeded.
 	resolve := func(ctx *htlcSuccessResolverTestContext) {
-		ctx.notifier.confChan <- &chainntnfs.TxConfirmation{
+		ctx.notifier.ConfChan <- &chainntnfs.TxConfirmation{
 			Tx:          ctx.resolver.sweepTx,
 			BlockHeight: testInitialBlockHeight - 1,
 		}
@@ -165,7 +166,7 @@ func TestSecondStageResolution(t *testing.T) {
 
 	// We send a spend notification for our output to resolve our htlc.
 	resolve := func(ctx *htlcSuccessResolverTestContext) {
-		ctx.notifier.spendChan <- &chainntnfs.SpendDetail{
+		ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
 			SpendingTx:    sweepTx,
 			SpenderTxHash: &sweepHash,
 		}

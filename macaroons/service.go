@@ -20,7 +20,34 @@ var (
 	// DBFilename is the filename within the data directory which contains
 	// the macaroon stores.
 	DBFilename = "macaroons.db"
+
+	// ErrMissingRootKeyID specifies the root key ID is missing.
+	ErrMissingRootKeyID = fmt.Errorf("missing root key ID")
+
+	// ErrDeletionForbidden is used when attempting to delete the
+	// DefaultRootKeyID or the encryptedKeyID.
+	ErrDeletionForbidden = fmt.Errorf("the specified ID cannot be deleted")
+
+	// PermissionEntityCustomURI is a special entity name for a permission
+	// that does not describe an entity:action pair but instead specifies a
+	// specific URI that needs to be granted access to. This can be used for
+	// more fine-grained permissions where a macaroon only grants access to
+	// certain methods instead of a whole list of methods that define the
+	// same entity:action pairs. For example: uri:/lnrpc.Lightning/GetInfo
+	// only gives access to the GetInfo call.
+	PermissionEntityCustomURI = "uri"
 )
+
+// MacaroonValidator is an interface type that can check if macaroons are valid.
+type MacaroonValidator interface {
+	// ValidateMacaroon extracts the macaroon from the context's gRPC
+	// metadata, checks its signature, makes sure all specified permissions
+	// for the called method are contained within and finally ensures all
+	// caveat conditions are met. A non-nil error is returned if any of the
+	// checks fail.
+	ValidateMacaroon(ctx context.Context,
+		requiredPermissions []bakery.Op, fullMethod string) error
+}
 
 // Service encapsulates bakery.Bakery and adds a Close() method that zeroes the
 // root key service encryption keys, as well as utility methods to validate a
@@ -29,6 +56,12 @@ type Service struct {
 	bakery.Bakery
 
 	rks *RootKeyStorage
+
+	// externalValidators is a map between an absolute gRPC URIs and the
+	// corresponding external macaroon validator to be used for that URI.
+	// If no external validator for an URI is specified, the service will
+	// use the internal validator.
+	externalValidators map[string]MacaroonValidator
 }
 
 // NewService returns a service backed by the macaroon Bolt DB stored in the
@@ -38,7 +71,7 @@ type Service struct {
 // listing the same checker more than once is not harmful. Default checkers,
 // such as those for `allow`, `time-before`, `declared`, and `error` caveats
 // are registered automatically and don't need to be added.
-func NewService(dir string, checks ...Checker) (*Service, error) {
+func NewService(dir, location string, checks ...Checker) (*Service, error) {
 	// Ensure that the path to the directory exists.
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		if err := os.MkdirAll(dir, 0700); err != nil {
@@ -61,7 +94,7 @@ func NewService(dir string, checks ...Checker) (*Service, error) {
 	}
 
 	macaroonParams := bakery.BakeryParams{
-		Location:     "lnd",
+		Location:     location,
 		RootKeyStore: rootKeyStore,
 		// No third-party caveat support for now.
 		// TODO(aakselrod): Add third-party caveat support.
@@ -81,7 +114,11 @@ func NewService(dir string, checks ...Checker) (*Service, error) {
 		}
 	}
 
-	return &Service{*svc, rootKeyStore}, nil
+	return &Service{
+		Bakery:             *svc,
+		rks:                rootKeyStore,
+		externalValidators: make(map[string]MacaroonValidator),
+	}, nil
 }
 
 // isRegistered checks to see if the required checker has already been
@@ -102,6 +139,27 @@ func isRegistered(c *checkers.Checker, name string) bool {
 	return false
 }
 
+// RegisterExternalValidator registers a custom, external macaroon validator for
+// the specified absolute gRPC URI. That validator is then fully responsible to
+// make sure any macaroon passed for a request to that URI is valid and
+// satisfies all conditions.
+func (svc *Service) RegisterExternalValidator(fullMethod string,
+	validator MacaroonValidator) error {
+
+	if validator == nil {
+		return fmt.Errorf("validator cannot be nil")
+	}
+
+	_, ok := svc.externalValidators[fullMethod]
+	if ok {
+		return fmt.Errorf("external validator for method %s already "+
+			"registered", fullMethod)
+	}
+
+	svc.externalValidators[fullMethod] = validator
+	return nil
+}
+
 // UnaryServerInterceptor is a GRPC interceptor that checks whether the
 // request is authorized by the included macaroons.
 func (svc *Service) UnaryServerInterceptor(
@@ -111,12 +169,23 @@ func (svc *Service) UnaryServerInterceptor(
 		info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler) (interface{}, error) {
 
-		if _, ok := permissionMap[info.FullMethod]; !ok {
+		uriPermissions, ok := permissionMap[info.FullMethod]
+		if !ok {
 			return nil, fmt.Errorf("%s: unknown permissions "+
 				"required for method", info.FullMethod)
 		}
 
-		err := svc.ValidateMacaroon(ctx, permissionMap[info.FullMethod])
+		// Find out if there is an external validator registered for
+		// this method. Fall back to the internal one if there isn't.
+		validator, ok := svc.externalValidators[info.FullMethod]
+		if !ok {
+			validator = svc
+		}
+
+		// Now that we know what validator to use, let it do its work.
+		err := validator.ValidateMacaroon(
+			ctx, uriPermissions, info.FullMethod,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -133,13 +202,22 @@ func (svc *Service) StreamServerInterceptor(
 	return func(srv interface{}, ss grpc.ServerStream,
 		info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 
-		if _, ok := permissionMap[info.FullMethod]; !ok {
+		uriPermissions, ok := permissionMap[info.FullMethod]
+		if !ok {
 			return fmt.Errorf("%s: unknown permissions required "+
 				"for method", info.FullMethod)
 		}
 
-		err := svc.ValidateMacaroon(
-			ss.Context(), permissionMap[info.FullMethod],
+		// Find out if there is an external validator registered for
+		// this method. Fall back to the internal one if there isn't.
+		validator, ok := svc.externalValidators[info.FullMethod]
+		if !ok {
+			validator = svc
+		}
+
+		// Now that we know what validator to use, let it do its work.
+		err := validator.ValidateMacaroon(
+			ss.Context(), uriPermissions, info.FullMethod,
 		)
 		if err != nil {
 			return err
@@ -154,7 +232,7 @@ func (svc *Service) StreamServerInterceptor(
 // expect a macaroon to be encoded as request metadata using the key
 // "macaroon".
 func (svc *Service) ValidateMacaroon(ctx context.Context,
-	requiredPermissions []bakery.Op) error {
+	requiredPermissions []bakery.Op, fullMethod string) error {
 
 	// Get macaroon bytes from context and unmarshal into macaroon.
 	md, ok := metadata.FromIncomingContext(ctx)
@@ -183,6 +261,20 @@ func (svc *Service) ValidateMacaroon(ctx context.Context,
 	// the expiration time and IP address and return the result.
 	authChecker := svc.Checker.Auth(macaroon.Slice{mac})
 	_, err = authChecker.Allow(ctx, requiredPermissions...)
+
+	// If the macaroon contains broad permissions and checks out, we're
+	// done.
+	if err == nil {
+		return nil
+	}
+
+	// To also allow the special permission of "uri:<FullMethod>" to be a
+	// valid permission, we need to check it manually in case there is no
+	// broader scope permission defined.
+	_, err = authChecker.Allow(ctx, bakery.Op{
+		Entity: PermissionEntityCustomURI,
+		Action: fullMethod,
+	})
 	return err
 }
 
@@ -196,4 +288,40 @@ func (svc *Service) Close() error {
 // the result.
 func (svc *Service) CreateUnlock(password *[]byte) error {
 	return svc.rks.CreateUnlock(password)
+}
+
+// NewMacaroon wraps around the function Oven.NewMacaroon with the defaults,
+//  - version is always bakery.LatestVersion;
+//  - caveats is always nil.
+// In addition, it takes a rootKeyID parameter, and puts it into the context.
+// The context is passed through Oven.NewMacaroon(), in which calls the function
+// RootKey(), that reads the context for rootKeyID.
+func (svc *Service) NewMacaroon(
+	ctx context.Context, rootKeyID []byte,
+	ops ...bakery.Op) (*bakery.Macaroon, error) {
+
+	// Check rootKeyID is not called with nil or empty bytes. We want the
+	// caller to be aware the value of root key ID used, so we won't replace
+	// it with the DefaultRootKeyID if not specified.
+	if len(rootKeyID) == 0 {
+		return nil, ErrMissingRootKeyID
+	}
+
+	// // Pass the root key ID to context.
+	ctx = ContextWithRootKeyID(ctx, rootKeyID)
+
+	return svc.Oven.NewMacaroon(ctx, bakery.LatestVersion, nil, ops...)
+}
+
+// ListMacaroonIDs returns all the root key ID values except the value of
+// encryptedKeyID.
+func (svc *Service) ListMacaroonIDs(ctxt context.Context) ([][]byte, error) {
+	return svc.rks.ListMacaroonIDs(ctxt)
+}
+
+// DeleteMacaroonID removes one specific root key ID. If the root key ID is
+// found and deleted, it will be returned.
+func (svc *Service) DeleteMacaroonID(ctxt context.Context,
+	rootKeyID []byte) ([]byte, error) {
+	return svc.rks.DeleteMacaroonID(ctxt, rootKeyID)
 }

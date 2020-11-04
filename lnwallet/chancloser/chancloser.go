@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -551,7 +552,14 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 				return spew.Sdump(closeTx)
 			}),
 		)
-		if err := c.cfg.BroadcastTx(closeTx, ""); err != nil {
+
+		// Create a close channel label.
+		chanID := c.cfg.Channel.ShortChanID()
+		closeLabel := labels.MakeLabel(
+			labels.LabelTypeChannelClose, &chanID,
+		)
+
+		if err := c.cfg.BroadcastTx(closeTx, closeLabel); err != nil {
 			return nil, false, err
 		}
 

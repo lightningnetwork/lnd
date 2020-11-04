@@ -42,7 +42,8 @@ func NewEmbeddedEtcdInstance(path string) (*BackendConfig, func(), error) {
 	cfg.Dir = path
 
 	// To ensure that we can submit large transactions.
-	cfg.MaxTxnOps = 1000
+	cfg.MaxTxnOps = 8192
+	cfg.MaxRequestBytes = 16384 * 1024
 
 	// Listen on random free ports.
 	clientURL := fmt.Sprintf("127.0.0.1:%d", getFreePort())
@@ -63,8 +64,10 @@ func NewEmbeddedEtcdInstance(path string) (*BackendConfig, func(), error) {
 			fmt.Errorf("etcd failed to start after: %v", readyTimeout)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	connConfig := &BackendConfig{
-		Ctx:                context.Background(),
+		Ctx:                ctx,
 		Host:               "http://" + peerURL,
 		User:               "user",
 		Pass:               "pass",
@@ -72,6 +75,7 @@ func NewEmbeddedEtcdInstance(path string) (*BackendConfig, func(), error) {
 	}
 
 	return connConfig, func() {
+		cancel()
 		etcd.Close()
 	}, nil
 }

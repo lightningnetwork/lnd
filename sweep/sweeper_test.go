@@ -14,8 +14,10 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -76,6 +78,7 @@ func createTestInput(value int64, witnessType input.WitnessType) input.BaseInput
 			},
 		},
 		0,
+		nil,
 	)
 
 	testInputCount++
@@ -128,7 +131,7 @@ func createSweeperTestContext(t *testing.T) *sweeperTestContext {
 			return c
 		},
 		Store:  store,
-		Signer: &mockSigner{},
+		Signer: &mock.DummySigner{},
 		GenSweepScript: func() ([]byte, error) {
 			script := []byte{outputScriptCount}
 			outputScriptCount++
@@ -172,6 +175,18 @@ func (ctx *sweeperTestContext) tick() {
 	case <-time.After(defaultTestTimeout):
 		debug.PrintStack()
 		ctx.t.Fatal("tick timeout - no new timer created")
+	}
+}
+
+// assertNoTick asserts that the sweeper does not wait for a tick.
+func (ctx *sweeperTestContext) assertNoTick() {
+	ctx.t.Helper()
+
+	select {
+	case <-ctx.timeoutChan:
+		ctx.t.Fatal("unexpected tick")
+
+	case <-time.After(processingDelay):
 	}
 }
 
@@ -336,9 +351,10 @@ func assertTxFeeRate(t *testing.T, tx *wire.MsgTx,
 	outputAmt := tx.TxOut[0].Value
 
 	fee := btcutil.Amount(inputAmt - outputAmt)
-	_, txWeight := getWeightEstimate(inputs)
+	_, estimator := getWeightEstimate(inputs, 0)
+	txWeight := estimator.weight()
 
-	expectedFee := expectedFeeRate.FeeForWeight(txWeight)
+	expectedFee := expectedFeeRate.FeeForWeight(int64(txWeight))
 	if fee != expectedFee {
 		t.Fatalf("expected fee rate %v results in %v fee, got %v fee",
 			expectedFeeRate, expectedFee, fee)
@@ -1291,4 +1307,72 @@ func TestExclusiveGroup(t *testing.T) {
 	if result2.Err != ErrExclusiveGroupSpend {
 		t.Fatal("expected third input to be canceled")
 	}
+}
+
+// TestCpfp tests that the sweeper spends cpfp inputs at a fee rate that exceeds
+// the parent tx fee rate.
+func TestCpfp(t *testing.T) {
+	ctx := createSweeperTestContext(t)
+
+	ctx.estimator.updateFees(1000, chainfee.FeePerKwFloor)
+
+	// Offer an input with an unconfirmed parent tx to the sweeper. The
+	// parent tx pays 3000 sat/kw.
+	hash := chainhash.Hash{1}
+	input := input.MakeBaseInput(
+		&wire.OutPoint{Hash: hash},
+		input.CommitmentTimeLock,
+		&input.SignDescriptor{
+			Output: &wire.TxOut{
+				Value: 330,
+			},
+			KeyDesc: keychain.KeyDescriptor{
+				PubKey: testPubKey,
+			},
+		},
+		0,
+		&input.TxInfo{
+			Weight: 300,
+			Fee:    900,
+		},
+	)
+
+	feePref := FeePreference{ConfTarget: 6}
+	result, err := ctx.sweeper.SweepInput(
+		&input, Params{Fee: feePref, Force: true},
+	)
+	require.NoError(t, err)
+
+	// Because we sweep at 1000 sat/kw, the parent cannot be paid for. We
+	// expect the sweeper to remain idle.
+	ctx.assertNoTick()
+
+	// Increase the fee estimate to above the parent tx fee rate.
+	ctx.estimator.updateFees(5000, chainfee.FeePerKwFloor)
+
+	// Signal a new block. This is a trigger for the sweeper to refresh fee
+	// estimates.
+	ctx.notifier.NotifyEpoch(1000)
+
+	// Now we do expect a sweep transaction to be published with our input
+	// and an attached wallet utxo.
+	ctx.tick()
+	tx := ctx.receiveTx()
+	require.Len(t, tx.TxIn, 2)
+	require.Len(t, tx.TxOut, 1)
+
+	// As inputs we have 10000 sats from the wallet and 330 sats from the
+	// cpfp input. The sweep tx is weight expected to be 759 units. There is
+	// an additional 300 weight units from the parent to include in the
+	// package, making a total of 1059. At 5000 sat/kw, the required fee for
+	// the package is 5295 sats. The parent already paid 900 sats, so there
+	// is 4395 sat remaining to be paid. The expected output value is
+	// therefore: 10000 + 330 - 4395 = 5935.
+	require.Equal(t, int64(5935), tx.TxOut[0].Value)
+
+	// Mine the tx and assert that the result is passed back.
+	ctx.backend.mine()
+	ctx.expectResult(result, nil)
+
+	ctx.finish(1)
 }

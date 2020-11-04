@@ -28,6 +28,25 @@ sudo: required
 
 jobs:
   include:
+    - stage: Sanity Check
+      name: Lint and compile
+      before_script:
+        # Install the RPC tools as a before step so Travis collapses the output
+        # after it's done.
+        - ./scripts/install_travis_proto.sh
+
+      script:
+        # Step 1: Make sure no diff is produced when compiling with the correct
+        # version.
+        - make rpc-check
+
+        # Step 2: Make sure the unit tests compile, but don't run them. They run
+        # in a GitHub Workflow.
+        - make unit pkg=... case=_NONE_
+
+        # Step 3: Lint go code. Invoke GC more often to reduce memory usage.
+        - GOGC=30 make lint
+
     - stage: Integration Test
       name: Btcd Integration
       script:
@@ -49,7 +68,32 @@ jobs:
         - GOARM=7 GOARCH=arm GOOS=linux CGO_ENABLED=0 make itest-only
       arch: arm64
 
-after_script:
-  - LOG_FILES=./lntest/itest/*.log
-  - echo "Uploading to termbin.com..." && find $LOG_FILES | xargs -I{} sh -c "cat {} | nc termbin.com 9999 | xargs -r0 printf '{} uploaded to %s'"
-  - echo "Uploading to file.io..." && tar -zcvO $LOG_FILES | curl -s -F 'file=@-;filename=logs.tar.gz' https://file.io | xargs -r0 printf 'logs.tar.gz uploaded to %s\n'
+    - name: Btcd Integration Windows
+      script:
+        - make itest-windows
+      os: windows
+      before_install:
+        - choco upgrade --no-progress -y make netcat curl findutils
+        - export MAKE=mingw32-make
+      after_failure:
+        - |-
+          case $TRAVIS_OS_NAME in
+            windows)
+              echo "Uploading to termbin.com..."
+              for f in ./lntest/itest/*.log; do cat $f | nc termbin.com 9999 | xargs -r0 printf "$f"' uploaded to %s'; done
+              ;;
+          esac
+
+after_failure:
+  - |-
+    case $TRAVIS_OS_NAME in
+      windows)
+        # Needs other commands, see after_script of the Windows build
+        ;;
+
+      *)
+        LOG_FILES=./lntest/itest/*.log
+        echo "Uploading to termbin.com..." && find $LOG_FILES | xargs -I{} sh -c "cat {} | nc termbin.com 9999 | xargs -r0 printf '{} uploaded to %s'"
+        echo "Uploading to file.io..." && tar -zcvO $LOG_FILES | curl -s -F 'file=@-;filename=logs.tar.gz' https://file.io | xargs -r0 printf 'logs.tar.gz uploaded to %s\n'
+        ;;
+    esac

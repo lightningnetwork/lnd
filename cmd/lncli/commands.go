@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -26,7 +25,6 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/urfave/cli"
-	"golang.org/x/crypto/ssh/terminal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -221,7 +219,7 @@ var sendCoinsCommand = cli.Command{
 		cli.BoolFlag{
 			Name: "sweepall",
 			Usage: "if set, then the amount field will be ignored, " +
-				"and all the wallet will attempt to sweep all " +
+				"and the wallet will attempt to sweep all " +
 				"outputs within the wallet to the target " +
 				"address",
 		},
@@ -498,12 +496,27 @@ var connectCommand = cli.Command{
 	Category:  "Peers",
 	Usage:     "Connect to a remote lnd peer.",
 	ArgsUsage: "<pubkey>@host",
+	Description: `
+	Connect to a peer using its <pubkey> and host.
+
+	A custom timeout on the connection is supported. For instance, to timeout
+	the connection request in 30 seconds, use the following:
+
+	lncli connect <pubkey>@host --timeout 30s
+	`,
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name: "perm",
 			Usage: "If set, the daemon will attempt to persistently " +
 				"connect to the target peer.\n" +
 				"           If not, the call will be synchronous.",
+		},
+		cli.DurationFlag{
+			Name: "timeout",
+			Usage: "The connection timeout value for current request. " +
+				"Valid uints are {ms, s, m, h}.\n" +
+				"If not set, the global connection " +
+				"timeout value (default to 120s) is used.",
 		},
 	},
 	Action: actionDecorator(connectPeer),
@@ -526,8 +539,9 @@ func connectPeer(ctx *cli.Context) error {
 		Host:   splitAddr[1],
 	}
 	req := &lnrpc.ConnectPeerRequest{
-		Addr: addr,
-		Perm: ctx.Bool("perm"),
+		Addr:    addr,
+		Perm:    ctx.Bool("perm"),
+		Timeout: uint64(ctx.Duration("timeout").Seconds()),
 	}
 
 	lnid, err := client.ConnectPeer(ctxb, req)
@@ -1340,14 +1354,12 @@ mnemonicCheck:
 		// Additionally, the user may have a passphrase, that will also
 		// need to be provided so the daemon can properly decipher the
 		// cipher seed.
-		fmt.Printf("Input your cipher seed passphrase (press enter if " +
-			"your seed doesn't have a passphrase): ")
-		passphrase, err := terminal.ReadPassword(int(syscall.Stdin))
+		aezeedPass, err = readPassword("Input your cipher seed " +
+			"passphrase (press enter if your seed doesn't have a " +
+			"passphrase): ")
 		if err != nil {
 			return err
 		}
-
-		aezeedPass = []byte(passphrase)
 
 		for {
 			fmt.Println()
@@ -1460,12 +1472,10 @@ func capturePassword(instruction string, optional bool,
 	validate func([]byte) error) ([]byte, error) {
 
 	for {
-		fmt.Printf(instruction)
-		password, err := terminal.ReadPassword(int(syscall.Stdin))
+		password, err := readPassword(instruction)
 		if err != nil {
 			return nil, err
 		}
-		fmt.Println()
 
 		// Do not require users to repeat password if
 		// it is optional and they are not using one.
@@ -1481,21 +1491,16 @@ func capturePassword(instruction string, optional bool,
 			continue
 		}
 
-		fmt.Printf("Confirm password: ")
-		passwordConfirmed, err := terminal.ReadPassword(
-			int(syscall.Stdin),
-		)
+		passwordConfirmed, err := readPassword("Confirm password: ")
 		if err != nil {
 			return nil, err
 		}
-		fmt.Println()
 
 		if bytes.Equal(password, passwordConfirmed) {
 			return password, nil
 		}
 
-		fmt.Println("Passwords don't match, " +
-			"please try again")
+		fmt.Println("Passwords don't match, please try again")
 		fmt.Println()
 	}
 }
@@ -1558,13 +1563,7 @@ func unlock(ctx *cli.Context) error {
 	// terminal to be a real tty and will fail if a string is piped into
 	// lncli.
 	default:
-		fmt.Printf("Input wallet password: ")
-
-		// The variable syscall.Stdin is of a different type in the
-		// Windows API that's why we need the explicit cast. And of
-		// course the linter doesn't like it either.
-		pw, err = terminal.ReadPassword(int(syscall.Stdin)) // nolint:unconvert
-		fmt.Println()
+		pw, err = readPassword("Input wallet password: ")
 	}
 	if err != nil {
 		return err
@@ -1625,26 +1624,20 @@ func changePassword(ctx *cli.Context) error {
 	client, cleanUp := getWalletUnlockerClient(ctx)
 	defer cleanUp()
 
-	fmt.Printf("Input current wallet password: ")
-	currentPw, err := terminal.ReadPassword(int(syscall.Stdin))
+	currentPw, err := readPassword("Input current wallet password: ")
 	if err != nil {
 		return err
 	}
-	fmt.Println()
 
-	fmt.Printf("Input new wallet password: ")
-	newPw, err := terminal.ReadPassword(int(syscall.Stdin))
+	newPw, err := readPassword("Input new wallet password: ")
 	if err != nil {
 		return err
 	}
-	fmt.Println()
 
-	fmt.Printf("Confirm new wallet password: ")
-	confirmPw, err := terminal.ReadPassword(int(syscall.Stdin))
+	confirmPw, err := readPassword("Confirm new wallet password: ")
 	if err != nil {
 		return err
 	}
-	fmt.Println()
 
 	if !bytes.Equal(newPw, confirmPw) {
 		return fmt.Errorf("passwords don't match")
@@ -2165,6 +2158,11 @@ var queryRoutesCommand = cli.Command{
 			Name:  "use_mc",
 			Usage: "use mission control probabilities",
 		},
+		cli.Uint64Flag{
+			Name: "outgoing_chanid",
+			Usage: "(optional) the channel id of the channel " +
+				"that must be taken to the first hop",
+		},
 		cltvLimitFlag,
 	},
 	Action: actionDecorator(queryRoutes),
@@ -2217,6 +2215,7 @@ func queryRoutes(ctx *cli.Context) error {
 		FinalCltvDelta:    int32(ctx.Int("final_cltv_delta")),
 		UseMissionControl: ctx.Bool("use_mc"),
 		CltvLimit:         uint32(ctx.Uint64(cltvLimitFlag.Name)),
+		OutgoingChanId:    ctx.Uint64("outgoing_chanid"),
 	}
 
 	route, err := client.QueryRoutes(ctxb, req)

@@ -16,6 +16,7 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -67,7 +68,7 @@ var (
 
 	// ErrChainNotifierServerNotActive indicates that the chain notifier hasn't
 	// finished the startup process.
-	ErrChainNotifierServerNotActive = errors.New("chain notifier RPC is" +
+	ErrChainNotifierServerNotActive = errors.New("chain notifier RPC is " +
 		"still in the process of starting")
 )
 
@@ -119,8 +120,9 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 		// At this point, we know that the chain notifier macaroon
 		// doesn't yet, exist, so we need to create it with the help of
 		// the main macaroon service.
-		chainNotifierMac, err := cfg.MacService.Oven.NewMacaroon(
-			context.Background(), bakery.LatestVersion, nil,
+		chainNotifierMac, err := cfg.MacService.NewMacaroon(
+			context.Background(),
+			macaroons.DefaultRootKeyID,
 			macaroonOps...,
 		)
 		if err != nil {

@@ -18,17 +18,17 @@ var typeStringTests = []typeStringTest{
 	{
 		name:   "commit no-reward",
 		typ:    blob.TypeAltruistCommit,
-		expStr: "[FlagCommitOutputs|No-FlagReward]",
+		expStr: "[No-FlagAnchorChannel|FlagCommitOutputs|No-FlagReward]",
 	},
 	{
 		name:   "commit reward",
 		typ:    blob.TypeRewardCommit,
-		expStr: "[FlagCommitOutputs|FlagReward]",
+		expStr: "[No-FlagAnchorChannel|FlagCommitOutputs|FlagReward]",
 	},
 	{
 		name:   "unknown flag",
 		typ:    unknownFlag.Type(),
-		expStr: "0000000000010000[No-FlagCommitOutputs|No-FlagReward]",
+		expStr: "0000000000010000[No-FlagAnchorChannel|No-FlagCommitOutputs|No-FlagReward]",
 	},
 }
 

@@ -30,12 +30,10 @@ const (
 	constraintsForce
 )
 
-// txInputSet is an object that accumulates tx inputs and keeps running counters
-// on various properties of the tx.
-type txInputSet struct {
+type txInputSetState struct {
 	// weightEstimate is the (worst case) tx weight with the current set of
 	// inputs.
-	weightEstimate input.TxWeightEstimator
+	weightEstimate *weightEstimator
 
 	// inputTotal is the total value of all inputs.
 	inputTotal btcutil.Amount
@@ -43,11 +41,35 @@ type txInputSet struct {
 	// outputValue is the value of the tx output.
 	outputValue btcutil.Amount
 
-	// feePerKW is the fee rate used to calculate the tx fee.
-	feePerKW chainfee.SatPerKWeight
-
 	// inputs is the set of tx inputs.
 	inputs []input.Input
+
+	// walletInputTotal is the total value of inputs coming from the wallet.
+	walletInputTotal btcutil.Amount
+
+	// force indicates that this set must be swept even if the total yield
+	// is negative.
+	force bool
+}
+
+func (t *txInputSetState) clone() txInputSetState {
+	s := txInputSetState{
+		weightEstimate:   t.weightEstimate.clone(),
+		inputTotal:       t.inputTotal,
+		outputValue:      t.outputValue,
+		walletInputTotal: t.walletInputTotal,
+		force:            t.force,
+		inputs:           make([]input.Input, len(t.inputs)),
+	}
+	copy(s.inputs, t.inputs)
+
+	return s
+}
+
+// txInputSet is an object that accumulates tx inputs and keeps running counters
+// on various properties of the tx.
+type txInputSet struct {
+	txInputSetState
 
 	// dustLimit is the minimum output value of the tx.
 	dustLimit btcutil.Amount
@@ -56,16 +78,9 @@ type txInputSet struct {
 	// the set.
 	maxInputs int
 
-	// walletInputTotal is the total value of inputs coming from the wallet.
-	walletInputTotal btcutil.Amount
-
 	// wallet contains wallet functionality required by the input set to
 	// retrieve utxos.
 	wallet Wallet
-
-	// force indicates that this set must be swept even if the total yield
-	// is negative.
-	force bool
 }
 
 // newTxInputSet constructs a new, empty input set.
@@ -77,15 +92,19 @@ func newTxInputSet(wallet Wallet, feePerKW,
 		btcutil.Amount(relayFee.FeePerKVByte()),
 	)
 
+	state := txInputSetState{
+		weightEstimate: newWeightEstimator(feePerKW),
+	}
+
 	b := txInputSet{
-		feePerKW:  feePerKW,
-		dustLimit: dustLimit,
-		maxInputs: maxInputs,
-		wallet:    wallet,
+		dustLimit:       dustLimit,
+		maxInputs:       maxInputs,
+		wallet:          wallet,
+		txInputSetState: state,
 	}
 
 	// Add the sweep tx output to the weight estimate.
-	b.weightEstimate.AddP2WKHOutput()
+	b.weightEstimate.addP2WKHOutput()
 
 	return &b
 }
@@ -99,56 +118,49 @@ func (t *txInputSet) dustLimitReached() bool {
 // add adds a new input to the set. It returns a bool indicating whether the
 // input was added to the set. An input is rejected if it decreases the tx
 // output value after paying fees.
-func (t *txInputSet) add(input input.Input, constraints addConstraints) bool {
+func (t *txInputSet) addToState(inp input.Input, constraints addConstraints) *txInputSetState {
 	// Stop if max inputs is reached. Do not count additional wallet inputs,
 	// because we don't know in advance how many we may need.
 	if constraints != constraintsWallet &&
 		len(t.inputs) >= t.maxInputs {
 
-		return false
+		return nil
 	}
+
+	// Clone the current set state.
+	s := t.clone()
+
+	// Add the new input.
+	s.inputs = append(s.inputs, inp)
 
 	// Can ignore error, because it has already been checked when
 	// calculating the yields.
-	size, isNestedP2SH, _ := input.WitnessType().SizeUpperBound()
+	_ = s.weightEstimate.add(inp)
 
-	// Add weight of this new candidate input to a copy of the weight
-	// estimator.
-	newWeightEstimate := t.weightEstimate
-	if isNestedP2SH {
-		newWeightEstimate.AddNestedP2WSHInput(size)
-	} else {
-		newWeightEstimate.AddWitnessInput(size)
-	}
+	// Add the value of the new input.
+	value := btcutil.Amount(inp.SignDesc().Output.Value)
+	s.inputTotal += value
 
-	value := btcutil.Amount(input.SignDesc().Output.Value)
-	newInputTotal := t.inputTotal + value
+	// Recalculate the tx fee.
+	fee := s.weightEstimate.fee()
 
-	weight := newWeightEstimate.Weight()
-	fee := t.feePerKW.FeeForWeight(int64(weight))
-
-	// Calculate the output value if the current input would be
-	// added to the set.
-	newOutputValue := newInputTotal - fee
-
-	// Initialize new wallet total with the current wallet total. This is
-	// updated below if this input is a wallet input.
-	newWalletTotal := t.walletInputTotal
+	// Calculate the new output value.
+	s.outputValue = s.inputTotal - fee
 
 	// Calculate the yield of this input from the change in tx output value.
-	inputYield := newOutputValue - t.outputValue
+	inputYield := s.outputValue - t.outputValue
 
 	switch constraints {
 
 	// Don't sweep inputs that cost us more to sweep than they give us.
 	case constraintsRegular:
 		if inputYield <= 0 {
-			return false
+			return nil
 		}
 
 	// For force adds, no further constraints apply.
 	case constraintsForce:
-		t.force = true
+		s.force = true
 
 	// We are attaching a wallet input to raise the tx output value above
 	// the dust limit.
@@ -156,12 +168,12 @@ func (t *txInputSet) add(input input.Input, constraints addConstraints) bool {
 		// Skip this wallet input if adding it would lower the output
 		// value.
 		if inputYield <= 0 {
-			return false
+			return nil
 		}
 
 		// Calculate the total value that we spend in this tx from the
 		// wallet if we'd add this wallet input.
-		newWalletTotal += value
+		s.walletInputTotal += value
 
 		// In any case, we don't want to lose money by sweeping. If we
 		// don't get more out of the tx then we put in ourselves, do not
@@ -176,24 +188,29 @@ func (t *txInputSet) add(input input.Input, constraints addConstraints) bool {
 		// value of the wallet input and what we get out of this
 		// transaction. To prevent attaching and locking a big utxo for
 		// very little benefit.
-		if !t.force && newWalletTotal >= newOutputValue {
+		if !s.force && s.walletInputTotal >= s.outputValue {
 			log.Debugf("Rejecting wallet input of %v, because it "+
 				"would make a negative yielding transaction "+
 				"(%v)",
-				value, newOutputValue-newWalletTotal)
+				value, s.outputValue-s.walletInputTotal)
 
-			return false
+			return nil
 		}
 	}
 
-	// Update running values.
-	//
-	// TODO: Return new instance?
-	t.inputTotal = newInputTotal
-	t.outputValue = newOutputValue
-	t.inputs = append(t.inputs, input)
-	t.weightEstimate = newWeightEstimate
-	t.walletInputTotal = newWalletTotal
+	return &s
+}
+
+// add adds a new input to the set. It returns a bool indicating whether the
+// input was added to the set. An input is rejected if it decreases the tx
+// output value after paying fees.
+func (t *txInputSet) add(input input.Input, constraints addConstraints) bool {
+	newState := t.addToState(input, constraints)
+	if newState == nil {
+		return false
+	}
+
+	t.txInputSetState = *newState
 
 	return true
 }

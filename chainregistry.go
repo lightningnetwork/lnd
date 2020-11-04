@@ -2,6 +2,7 @@ package lnd
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -161,7 +162,7 @@ type chainControl struct {
 // full-node, another backed by a running bitcoind full-node, and the other
 // backed by a running neutrino light client instance. When running with a
 // neutrino light client instance, `neutrinoCS` must be non-nil.
-func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
+func newChainControlFromConfig(cfg *Config, localDB, remoteDB *channeldb.DB,
 	privateWalletPw, publicWalletPw []byte, birthday time.Time,
 	recoveryWindow uint32, wallet *wallet.Wallet,
 	neutrinoCS *neutrino.ChainService) (*chainControl, error) {
@@ -212,8 +213,8 @@ func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
 		Birthday:       birthday,
 		RecoveryWindow: recoveryWindow,
 		DataDir:        homeChainConfig.ChainDir,
-		NetParams:      activeNetParams.Params,
-		CoinType:       activeNetParams.CoinType,
+		NetParams:      cfg.ActiveNetParams.Params,
+		CoinType:       cfg.ActiveNetParams.CoinType,
 		Wallet:         wallet,
 	}
 
@@ -225,8 +226,9 @@ func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
 	if cfg.HeightHintCacheQueryDisable {
 		ltndLog.Infof("Height Hint Cache Queries disabled")
 	}
+
 	// Initialize the height hint cache within the chain directory.
-	hintCache, err := chainntnfs.NewHeightHintCache(heightHintCacheConfig, chanDB)
+	hintCache, err := chainntnfs.NewHeightHintCache(heightHintCacheConfig, localDB)
 	if err != nil {
 		return nil, fmt.Errorf("unable to initialize height hint "+
 			"cache: %v", err)
@@ -248,25 +250,19 @@ func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
 			return nil, err
 		}
 
-		// If the user provided an API for fee estimation, activate it now.
+		// Map the deprecated neutrino feeurl flag to the general fee
+		// url.
 		if cfg.NeutrinoMode.FeeURL != "" {
-			ltndLog.Infof("Using API fee estimator!")
-
-			estimator := chainfee.NewWebAPIEstimator(
-				chainfee.SparseConfFeeSource{
-					URL: cfg.NeutrinoMode.FeeURL,
-				},
-				defaultBitcoinStaticFeePerKW,
-			)
-
-			if err := estimator.Start(); err != nil {
-				return nil, err
+			if cfg.FeeURL != "" {
+				return nil, errors.New("feeurl and " +
+					"neutrino.feeurl are mutually exclusive")
 			}
-			cc.feeEstimator = estimator
+
+			cfg.FeeURL = cfg.NeutrinoMode.FeeURL
 		}
 
 		walletConfig.ChainSource = chain.NewNeutrinoClient(
-			activeNetParams.Params, neutrinoCS,
+			cfg.ActiveNetParams.Params, neutrinoCS,
 		)
 
 	case "bitcoind", "litecoind":
@@ -290,7 +286,7 @@ func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
 			// btcd, which picks a different port so that btcwallet
 			// can use the same RPC port as bitcoind. We convert
 			// this back to the btcwallet/bitcoind port.
-			rpcPort, err := strconv.Atoi(activeNetParams.rpcPort)
+			rpcPort, err := strconv.Atoi(cfg.ActiveNetParams.rpcPort)
 			if err != nil {
 				return nil, err
 			}
@@ -318,7 +314,7 @@ func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
 		// Establish the connection to bitcoind and create the clients
 		// required for our relevant subsystems.
 		bitcoindConn, err := chain.NewBitcoindConn(
-			activeNetParams.Params, bitcoindHost,
+			cfg.ActiveNetParams.Params, bitcoindHost,
 			bitcoindMode.RPCUser, bitcoindMode.RPCPass,
 			bitcoindMode.ZMQPubRawBlock, bitcoindMode.ZMQPubRawTx,
 			5*time.Second,
@@ -333,7 +329,7 @@ func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
 		}
 
 		cc.chainNotifier = bitcoindnotify.New(
-			bitcoindConn, activeNetParams.Params, hintCache, hintCache,
+			bitcoindConn, cfg.ActiveNetParams.Params, hintCache, hintCache,
 		)
 		cc.chainView = chainview.NewBitcoindFilteredChainView(bitcoindConn)
 		walletConfig.ChainSource = bitcoindConn.NewBitcoindClient()
@@ -365,9 +361,6 @@ func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
 			if err != nil {
 				return nil, err
 			}
-			if err := cc.feeEstimator.Start(); err != nil {
-				return nil, err
-			}
 		} else if cfg.Litecoin.Active && !cfg.Litecoin.RegTest {
 			ltndLog.Infof("Initializing litecoind backed fee estimator in "+
 				"%s mode", bitcoindMode.EstimateMode)
@@ -382,9 +375,6 @@ func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
 				fallBackFeeRate.FeePerKWeight(),
 			)
 			if err != nil {
-				return nil, err
-			}
-			if err := cc.feeEstimator.Start(); err != nil {
 				return nil, err
 			}
 		}
@@ -431,7 +421,7 @@ func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
 			btcdHost = btcdMode.RPCHost
 		} else {
 			btcdHost = fmt.Sprintf("%v:%v", btcdMode.RPCHost,
-				activeNetParams.rpcPort)
+				cfg.ActiveNetParams.rpcPort)
 		}
 
 		btcdUser := btcdMode.RPCUser
@@ -447,7 +437,7 @@ func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
 			DisableAutoReconnect: false,
 		}
 		cc.chainNotifier, err = btcdnotify.New(
-			rpcConfig, activeNetParams.Params, hintCache, hintCache,
+			rpcConfig, cfg.ActiveNetParams.Params, hintCache, hintCache,
 		)
 		if err != nil {
 			return nil, err
@@ -463,7 +453,7 @@ func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
 
 		// Create a special websockets rpc client for btcd which will be used
 		// by the wallet for notifications, calls, etc.
-		chainRPC, err := chain.NewRPCClient(activeNetParams.Params, btcdHost,
+		chainRPC, err := chain.NewRPCClient(cfg.ActiveNetParams.Params, btcdHost,
 			btcdUser, btcdPass, rpcCert, false, 20)
 		if err != nil {
 			return nil, err
@@ -489,13 +479,32 @@ func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
 			if err != nil {
 				return nil, err
 			}
-			if err := cc.feeEstimator.Start(); err != nil {
-				return nil, err
-			}
 		}
 	default:
 		return nil, fmt.Errorf("unknown node type: %s",
 			homeChainConfig.Node)
+	}
+
+	// Override default fee estimator if an external service is specified.
+	if cfg.FeeURL != "" {
+		// Do not cache fees on regtest to make it easier to execute
+		// manual or automated test cases.
+		cacheFees := !cfg.Bitcoin.RegTest
+
+		ltndLog.Infof("Using external fee estimator %v: cached=%v",
+			cfg.FeeURL, cacheFees)
+
+		cc.feeEstimator = chainfee.NewWebAPIEstimator(
+			chainfee.SparseConfFeeSource{
+				URL: cfg.FeeURL,
+			},
+			!cacheFees,
+		)
+	}
+
+	// Start fee estimator.
+	if err := cc.feeEstimator.Start(); err != nil {
+		return nil, err
 	}
 
 	wc, err := btcwallet.New(*walletConfig)
@@ -516,14 +525,14 @@ func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
 	}
 
 	keyRing := keychain.NewBtcWalletKeyRing(
-		wc.InternalWallet(), activeNetParams.CoinType,
+		wc.InternalWallet(), cfg.ActiveNetParams.CoinType,
 	)
 	cc.keyRing = keyRing
 
 	// Create, and start the lnwallet, which handles the core payment
 	// channel logic, and exposes control via proxy state machines.
 	walletCfg := lnwallet.Config{
-		Database:           chanDB,
+		Database:           remoteDB,
 		Notifier:           cc.chainNotifier,
 		WalletController:   wc,
 		Signer:             cc.signer,
@@ -531,7 +540,7 @@ func newChainControlFromConfig(cfg *Config, chanDB *channeldb.DB,
 		SecretKeyRing:      keyRing,
 		ChainIO:            cc.chainIO,
 		DefaultConstraints: channelConstraints,
-		NetParams:          *activeNetParams.Params,
+		NetParams:          *cfg.ActiveNetParams.Params,
 	}
 	lnWallet, err := lnwallet.NewLightningWallet(walletCfg)
 	if err != nil {
@@ -733,7 +742,7 @@ func initNeutrinoBackend(cfg *Config, chainDir string) (*neutrino.ChainService,
 	// match the behavior of btcwallet.
 	dbPath := filepath.Join(
 		chainDir,
-		normalizeNetwork(activeNetParams.Name),
+		normalizeNetwork(cfg.ActiveNetParams.Name),
 	)
 
 	// Ensure that the neutrino db path exists.
@@ -762,11 +771,14 @@ func initNeutrinoBackend(cfg *Config, chainDir string) (*neutrino.ChainService,
 	config := neutrino.Config{
 		DataDir:      dbPath,
 		Database:     db,
-		ChainParams:  *activeNetParams.Params,
+		ChainParams:  *cfg.ActiveNetParams.Params,
 		AddPeers:     cfg.NeutrinoMode.AddPeers,
 		ConnectPeers: cfg.NeutrinoMode.ConnectPeers,
 		Dialer: func(addr net.Addr) (net.Conn, error) {
-			return cfg.net.Dial(addr.Network(), addr.String())
+			return cfg.net.Dial(
+				addr.Network(), addr.String(),
+				cfg.ConnectionTimeout,
+			)
 		},
 		NameResolver: func(host string) ([]net.IP, error) {
 			addrs, err := cfg.net.LookupHost(host)

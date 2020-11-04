@@ -33,6 +33,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -54,6 +55,9 @@ const (
 	// maxPending is the maximum number of channels we allow opening to the
 	// same peer in the max pending channels test.
 	maxPending = 4
+
+	// A dummy value to use for the funding broadcast height.
+	fundingBroadcastHeight = 123
 )
 
 var (
@@ -99,6 +103,8 @@ var (
 	}
 	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
 	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
+
+	fundingNetParams = bitcoinTestNetParams
 )
 
 type mockNotifier struct {
@@ -282,7 +288,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	addr *lnwire.NetAddress, tempTestDir string,
 	options ...cfgOption) (*testNode, error) {
 
-	netParams := activeNetParams.Params
+	netParams := fundingNetParams.Params
 	estimator := chainfee.NewStaticEstimator(62500, 0)
 
 	chainNotifier := &mockNotifier{
@@ -296,14 +302,14 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	publTxChan := make(chan *wire.MsgTx, 1)
 	shutdownChan := make(chan struct{})
 
-	wc := &mockWalletController{
-		rootKey: alicePrivKey,
+	wc := &mock.WalletController{
+		RootKey: alicePrivKey,
 	}
-	signer := &mockSigner{
-		key: alicePrivKey,
+	signer := &mock.SingleSigner{
+		Privkey: alicePrivKey,
 	}
-	bio := &mockChainIO{
-		bestHeight: fundingBroadcastHeight,
+	bio := &mock.ChainIO{
+		BestHeight: fundingBroadcastHeight,
 	}
 
 	// The mock channel event notifier will receive events for each pending
@@ -323,8 +329,8 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		return nil, err
 	}
 
-	keyRing := &mockSecretKeyRing{
-		rootKey: alicePrivKey,
+	keyRing := &mock.SecretKeyRing{
+		RootKey: alicePrivKey,
 	}
 
 	lnw, err := createTestWallet(
@@ -421,8 +427,12 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			publTxChan <- txn
 			return nil
 		},
+		UpdateLabel: func(chainhash.Hash, string) error {
+			return nil
+		},
 		ZombieSweeperInterval:         1 * time.Hour,
 		ReservationTimeout:            1 * time.Nanosecond,
+		MaxChanSize:                   MaxFundingAmount,
 		MaxPendingChannels:            lncfg.DefaultMaxPendingChannels,
 		NotifyOpenChannelEvent:        evt.NotifyOpenChannelEvent,
 		OpenChannelPredicate:          chainedAcceptor,
@@ -522,6 +532,9 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		RequiredRemoteMaxValue: oldCfg.RequiredRemoteMaxValue,
 		PublishTransaction: func(txn *wire.MsgTx, _ string) error {
 			publishChan <- txn
+			return nil
+		},
+		UpdateLabel: func(chainhash.Hash, string) error {
 			return nil
 		},
 		ZombieSweeperInterval: oldCfg.ZombieSweeperInterval,
@@ -643,7 +656,7 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	errChan := make(chan error, 1)
 	initReq := &openChanReq{
 		targetPubkey:    bob.privKey.PubKey(),
-		chainHash:       *activeNetParams.GenesisHash,
+		chainHash:       *fundingNetParams.GenesisHash,
 		subtractFees:    subtractFees,
 		localFundingAmt: localFundingAmt,
 		pushAmt:         lnwire.NewMSatFromSatoshis(pushAmt),
@@ -1567,7 +1580,7 @@ func TestFundingManagerPeerTimeoutAfterInitFunding(t *testing.T) {
 	errChan := make(chan error, 1)
 	initReq := &openChanReq{
 		targetPubkey:    bob.privKey.PubKey(),
-		chainHash:       *activeNetParams.GenesisHash,
+		chainHash:       *fundingNetParams.GenesisHash,
 		localFundingAmt: 500000,
 		pushAmt:         lnwire.NewMSatFromSatoshis(0),
 		private:         false,
@@ -1629,7 +1642,7 @@ func TestFundingManagerPeerTimeoutAfterFundingOpen(t *testing.T) {
 	errChan := make(chan error, 1)
 	initReq := &openChanReq{
 		targetPubkey:    bob.privKey.PubKey(),
-		chainHash:       *activeNetParams.GenesisHash,
+		chainHash:       *fundingNetParams.GenesisHash,
 		localFundingAmt: 500000,
 		pushAmt:         lnwire.NewMSatFromSatoshis(0),
 		private:         false,
@@ -1700,7 +1713,7 @@ func TestFundingManagerPeerTimeoutAfterFundingAccept(t *testing.T) {
 	errChan := make(chan error, 1)
 	initReq := &openChanReq{
 		targetPubkey:    bob.privKey.PubKey(),
-		chainHash:       *activeNetParams.GenesisHash,
+		chainHash:       *fundingNetParams.GenesisHash,
 		localFundingAmt: 500000,
 		pushAmt:         lnwire.NewMSatFromSatoshis(0),
 		private:         false,
@@ -2424,7 +2437,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	errChan := make(chan error, 1)
 	initReq := &openChanReq{
 		targetPubkey:     bob.privKey.PubKey(),
-		chainHash:        *activeNetParams.GenesisHash,
+		chainHash:        *fundingNetParams.GenesisHash,
 		localFundingAmt:  localAmt,
 		pushAmt:          lnwire.NewMSatFromSatoshis(pushAmt),
 		private:          false,
@@ -2709,7 +2722,7 @@ func TestFundingManagerMaxPendingChannels(t *testing.T) {
 		errChan := make(chan error, 1)
 		initReq := &openChanReq{
 			targetPubkey:    bob.privKey.PubKey(),
-			chainHash:       *activeNetParams.GenesisHash,
+			chainHash:       *fundingNetParams.GenesisHash,
 			localFundingAmt: 5000000,
 			pushAmt:         lnwire.NewMSatFromSatoshis(0),
 			private:         false,
@@ -2879,7 +2892,7 @@ func TestFundingManagerRejectPush(t *testing.T) {
 	errChan := make(chan error, 1)
 	initReq := &openChanReq{
 		targetPubkey:    bob.privKey.PubKey(),
-		chainHash:       *activeNetParams.GenesisHash,
+		chainHash:       *fundingNetParams.GenesisHash,
 		localFundingAmt: 500000,
 		pushAmt:         lnwire.NewMSatFromSatoshis(10),
 		private:         true,
@@ -2936,7 +2949,7 @@ func TestFundingManagerMaxConfs(t *testing.T) {
 	errChan := make(chan error, 1)
 	initReq := &openChanReq{
 		targetPubkey:    bob.privKey.PubKey(),
-		chainHash:       *activeNetParams.GenesisHash,
+		chainHash:       *fundingNetParams.GenesisHash,
 		localFundingAmt: 500000,
 		pushAmt:         lnwire.NewMSatFromSatoshis(10),
 		private:         false,
@@ -3005,7 +3018,7 @@ func TestFundingManagerFundAll(t *testing.T) {
 			Value: btcutil.Amount(
 				0.05 * btcutil.SatoshiPerBitcoin,
 			),
-			PkScript: coinPkScript,
+			PkScript: mock.CoinPkScript,
 			OutPoint: wire.OutPoint{
 				Hash:  chainhash.Hash{},
 				Index: 0,
@@ -3016,7 +3029,7 @@ func TestFundingManagerFundAll(t *testing.T) {
 			Value: btcutil.Amount(
 				0.06 * btcutil.SatoshiPerBitcoin,
 			),
-			PkScript: coinPkScript,
+			PkScript: mock.CoinPkScript,
 			OutPoint: wire.OutPoint{
 				Hash:  chainhash.Hash{},
 				Index: 1,
@@ -3050,7 +3063,7 @@ func TestFundingManagerFundAll(t *testing.T) {
 		alice, bob := setupFundingManagers(t)
 		defer tearDownFundingManagers(t, alice, bob)
 
-		alice.fundingMgr.cfg.Wallet.WalletController.(*mockWalletController).utxos = allCoins
+		alice.fundingMgr.cfg.Wallet.WalletController.(*mock.WalletController).Utxos = allCoins
 
 		// We will consume the channel updates as we go, so no
 		// buffering is needed.
@@ -3200,6 +3213,75 @@ func expectOpenChannelMsg(t *testing.T, msgChan chan lnwire.Message) *lnwire.Ope
 	return openChannelReq
 }
 
+func TestMaxChannelSizeConfig(t *testing.T) {
+	t.Parallel()
+
+	// Create a set of funding managers that will reject wumbo
+	// channels but set --maxchansize explicitly lower than soft-limit.
+	// Verify that wumbo rejecting funding managers will respect --maxchansize
+	// below 16777215 satoshi (MaxFundingAmount) limit.
+	alice, bob := setupFundingManagers(t, func(cfg *fundingConfig) {
+		cfg.NoWumboChans = true
+		cfg.MaxChanSize = MaxFundingAmount - 1
+	})
+
+	// Attempt to create a channel above the limit
+	// imposed by --maxchansize, which should be rejected.
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+	errChan := make(chan error, 1)
+	initReq := &openChanReq{
+		targetPubkey:    bob.privKey.PubKey(),
+		chainHash:       *fundingNetParams.GenesisHash,
+		localFundingAmt: MaxFundingAmount,
+		pushAmt:         lnwire.NewMSatFromSatoshis(0),
+		private:         false,
+		updates:         updateChan,
+		err:             errChan,
+	}
+
+	// After processing the funding open message, bob should respond with
+	// an error rejecting the channel that exceeds size limit.
+	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	openChanMsg := expectOpenChannelMsg(t, alice.msgChan)
+	bob.fundingMgr.processFundingOpen(openChanMsg, alice)
+	assertErrorSent(t, bob.msgChan)
+
+	// Create a set of funding managers that will reject wumbo
+	// channels but set --maxchansize explicitly higher than soft-limit
+	// A --maxchansize greater than this limit should have no effect.
+	tearDownFundingManagers(t, alice, bob)
+	alice, bob = setupFundingManagers(t, func(cfg *fundingConfig) {
+		cfg.NoWumboChans = true
+		cfg.MaxChanSize = MaxFundingAmount + 1
+	})
+
+	// We expect Bob to respond with an Accept channel message.
+	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	openChanMsg = expectOpenChannelMsg(t, alice.msgChan)
+	bob.fundingMgr.processFundingOpen(openChanMsg, alice)
+	assertFundingMsgSent(t, bob.msgChan, "AcceptChannel")
+
+	// Verify that wumbo accepting funding managers will respect --maxchansize
+	// Create the funding managers, this time allowing
+	// wumbo channels but setting --maxchansize explicitly.
+	tearDownFundingManagers(t, alice, bob)
+	alice, bob = setupFundingManagers(t, func(cfg *fundingConfig) {
+		cfg.NoWumboChans = false
+		cfg.MaxChanSize = btcutil.Amount(100000000)
+	})
+
+	// Attempt to create a channel above the limit
+	// imposed by --maxchansize, which should be rejected.
+	initReq.localFundingAmt = btcutil.SatoshiPerBitcoin + 1
+
+	// After processing the funding open message, bob should respond with
+	// an error rejecting the channel that exceeds size limit.
+	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	openChanMsg = expectOpenChannelMsg(t, alice.msgChan)
+	bob.fundingMgr.processFundingOpen(openChanMsg, alice)
+	assertErrorSent(t, bob.msgChan)
+}
+
 // TestWumboChannelConfig tests that the funding manager will respect the wumbo
 // channel config param when creating or accepting new channels.
 func TestWumboChannelConfig(t *testing.T) {
@@ -3218,7 +3300,7 @@ func TestWumboChannelConfig(t *testing.T) {
 	errChan := make(chan error, 1)
 	initReq := &openChanReq{
 		targetPubkey:    bob.privKey.PubKey(),
-		chainHash:       *activeNetParams.GenesisHash,
+		chainHash:       *fundingNetParams.GenesisHash,
 		localFundingAmt: MaxFundingAmount,
 		pushAmt:         lnwire.NewMSatFromSatoshis(0),
 		private:         false,
@@ -3248,6 +3330,7 @@ func TestWumboChannelConfig(t *testing.T) {
 	tearDownFundingManagers(t, alice, bob)
 	alice, bob = setupFundingManagers(t, func(cfg *fundingConfig) {
 		cfg.NoWumboChans = false
+		cfg.MaxChanSize = MaxBtcFundingAmountWumbo
 	})
 
 	// We should now be able to initiate a wumbo channel funding w/o any

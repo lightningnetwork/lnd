@@ -10,6 +10,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/sweep"
 )
@@ -157,7 +158,10 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 		// Regardless of whether an existing transaction was found or newly
 		// constructed, we'll broadcast the sweep transaction to the
 		// network.
-		err := h.PublishTx(h.sweepTx, "")
+		label := labels.MakeLabel(
+			labels.LabelTypeChannelClose, &h.ShortChanID,
+		)
+		err := h.PublishTx(h.sweepTx, label)
 		if err != nil {
 			log.Infof("%T(%x): unable to publish tx: %v",
 				h, h.htlc.RHash[:], err)
@@ -206,7 +210,10 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	// the claiming process.
 	//
 	// TODO(roasbeef): after changing sighashes send to tx bundler
-	err := h.PublishTx(h.htlcResolution.SignedSuccessTx, "")
+	label := labels.MakeLabel(
+		labels.LabelTypeChannelClose, &h.ShortChanID,
+	)
+	err := h.PublishTx(h.htlcResolution.SignedSuccessTx, label)
 	if err != nil {
 		return nil, err
 	}

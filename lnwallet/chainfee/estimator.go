@@ -540,9 +540,9 @@ type WebAPIEstimator struct {
 	feesMtx          sync.Mutex
 	feeByBlockTarget map[uint32]uint32
 
-	// defaultFeePerKw is a fallback value that we'll use if we're unable
-	// to query the API for any reason.
-	defaultFeePerKw SatPerKWeight
+	// noCache determines whether the web estimator should cache fee
+	// estimates.
+	noCache bool
 
 	quit chan struct{}
 	wg   sync.WaitGroup
@@ -550,13 +550,11 @@ type WebAPIEstimator struct {
 
 // NewWebAPIEstimator creates a new WebAPIEstimator from a given URL and a
 // fallback default fee. The fees are updated whenever a new block is mined.
-func NewWebAPIEstimator(
-	api WebAPIFeeSource, defaultFee SatPerKWeight) *WebAPIEstimator {
-
+func NewWebAPIEstimator(api WebAPIFeeSource, noCache bool) *WebAPIEstimator {
 	return &WebAPIEstimator{
 		apiSource:        api,
 		feeByBlockTarget: make(map[uint32]uint32),
-		defaultFeePerKw:  defaultFee,
+		noCache:          noCache,
 		quit:             make(chan struct{}),
 	}
 }
@@ -571,6 +569,11 @@ func (w *WebAPIEstimator) EstimateFeePerKW(numBlocks uint32) (SatPerKWeight, err
 	} else if numBlocks < minBlockTarget {
 		return 0, fmt.Errorf("conf target of %v is too low, minimum "+
 			"accepted is %v", numBlocks, minBlockTarget)
+	}
+
+	// Get fee estimates now if we don't refresh periodically.
+	if w.noCache {
+		w.updateFeeEstimates()
 	}
 
 	feePerKb, err := w.getCachedFee(numBlocks)
@@ -596,6 +599,11 @@ func (w *WebAPIEstimator) EstimateFeePerKW(numBlocks uint32) (SatPerKWeight, err
 //
 // NOTE: This method is part of the Estimator interface.
 func (w *WebAPIEstimator) Start() error {
+	// No update loop is needed when we don't cache.
+	if w.noCache {
+		return nil
+	}
+
 	var err error
 	w.started.Do(func() {
 		log.Infof("Starting web API fee estimator")
@@ -615,6 +623,11 @@ func (w *WebAPIEstimator) Start() error {
 //
 // NOTE: This method is part of the Estimator interface.
 func (w *WebAPIEstimator) Stop() error {
+	// Update loop is not running when we don't cache.
+	if w.noCache {
+		return nil
+	}
+
 	w.stopped.Do(func() {
 		log.Infof("Stopping web API fee estimator")
 

@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
@@ -154,6 +155,8 @@ type NodeConfig struct {
 	ProfilePort int
 
 	AcceptKeySend bool
+
+	FeeURL string
 }
 
 func (cfg NodeConfig) P2PAddr() string {
@@ -232,6 +235,10 @@ func (cfg NodeConfig) genArgs() []string {
 		args = append(args, "--accept-keysend")
 	}
 
+	if cfg.FeeURL != "" {
+		args = append(args, "--feeurl="+cfg.FeeURL)
+	}
+
 	return args
 }
 
@@ -278,6 +285,10 @@ type HarnessNode struct {
 	lnrpc.WalletUnlockerClient
 
 	invoicesrpc.InvoicesClient
+
+	// SignerClient cannot be embedded because the name collisions of the
+	// methods SignMessage and VerifyMessage.
+	SignerClient signrpc.SignerClient
 
 	// conn is the underlying connection to the grpc endpoint of the node.
 	conn *grpc.ClientConn
@@ -578,6 +589,7 @@ func (hn *HarnessNode) initLightningClient(conn *grpc.ClientConn) error {
 	hn.WalletKitClient = walletrpc.NewWalletKitClient(conn)
 	hn.Watchtower = watchtowerrpc.NewWatchtowerClient(conn)
 	hn.WatchtowerClient = wtclientrpc.NewWatchtowerClientClient(conn)
+	hn.SignerClient = signrpc.NewSignerClient(conn)
 
 	// Set the harness node's pubkey to what the node claims in GetInfo.
 	err := hn.FetchNodeInfo()

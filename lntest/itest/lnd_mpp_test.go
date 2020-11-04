@@ -1,5 +1,3 @@
-// +build rpctest
-
 package itest
 
 import (
@@ -25,7 +23,7 @@ func testSendToRouteMultiPath(net *lntest.NetworkHarness, t *harnessTest) {
 	ctx := newMppTestContext(t, net)
 	defer ctx.shutdownNodes()
 
-	// To ensure the payment goes through seperate paths, we'll set a
+	// To ensure the payment goes through separate paths, we'll set a
 	// channel size that can only carry one shard at a time. We'll divide
 	// the payment into 3 shards.
 	const (

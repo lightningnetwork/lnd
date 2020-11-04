@@ -6,8 +6,10 @@
 package signal
 
 import (
+	"errors"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 )
 
@@ -19,6 +21,10 @@ var (
 	// gracefully, similar to when receiving SIGINT.
 	shutdownRequestChannel = make(chan struct{})
 
+	// started indicates whether we have started our main interrupt handler.
+	// This field should be used atomically.
+	started int32
+
 	// quit is closed when instructing the main interrupt handler to exit.
 	quit = make(chan struct{})
 
@@ -26,8 +32,13 @@ var (
 	shutdownChannel = make(chan struct{})
 )
 
-// Intercept starts the interception of interrupt signals.
-func Intercept() {
+// Intercept starts the interception of interrupt signals. Note that this
+// function can only be called once.
+func Intercept() error {
+	if !atomic.CompareAndSwapInt32(&started, 0, 1) {
+		return errors.New("intercept already started")
+	}
+
 	signalsToCatch := []os.Signal{
 		os.Interrupt,
 		os.Kill,
@@ -37,6 +48,8 @@ func Intercept() {
 	}
 	signal.Notify(interruptChannel, signalsToCatch...)
 	go mainInterruptHandler()
+
+	return nil
 }
 
 // mainInterruptHandler listens for SIGINT (Ctrl+C) signals on the
@@ -83,6 +96,20 @@ func mainInterruptHandler() {
 			return
 		}
 	}
+}
+
+// Listening returns true if the main interrupt handler has been started, and
+// has not been killed.
+func Listening() bool {
+	// If our started field is not set, we are not yet listening for
+	// interrupts.
+	if atomic.LoadInt32(&started) != 1 {
+		return false
+	}
+
+	// If we have started our main goroutine, we check whether we have
+	// stopped it yet.
+	return Alive()
 }
 
 // Alive returns true if the main interrupt handler has not been killed.

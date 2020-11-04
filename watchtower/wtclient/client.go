@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 	"github.com/lightningnetwork/lnd/watchtower/wtserver"
@@ -137,7 +138,7 @@ type Config struct {
 
 	// Dial connects to an addr using the specified net and returns the
 	// connection object.
-	Dial Dial
+	Dial tor.DialFunc
 
 	// AuthDialer establishes a brontide connection over an onion or clear
 	// network.

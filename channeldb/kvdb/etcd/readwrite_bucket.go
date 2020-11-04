@@ -3,7 +3,6 @@
 package etcd
 
 import (
-	"bytes"
 	"strconv"
 
 	"github.com/btcsuite/btcwallet/walletdb"
@@ -24,11 +23,6 @@ type readWriteBucket struct {
 // newReadWriteBucket creates a new rw bucket with the passed transaction
 // and bucket id.
 func newReadWriteBucket(tx *readWriteTx, key, id []byte) *readWriteBucket {
-	if !bytes.Equal(id, tx.rootBucketID[:]) {
-		// Add the bucket key/value to the lock set.
-		tx.lock(string(key), string(id))
-	}
-
 	return &readWriteBucket{
 		id: id,
 		tx: tx,
@@ -46,44 +40,23 @@ func (b *readWriteBucket) NestedReadBucket(key []byte) walletdb.ReadBucket {
 // is nil, but it does not include the key/value pairs within those
 // nested buckets.
 func (b *readWriteBucket) ForEach(cb func(k, v []byte) error) error {
-	prefix := makeValuePrefix(b.id)
-	prefixLen := len(prefix)
+	prefix := string(b.id)
 
 	// Get the first matching key that is in the bucket.
-	kv, err := b.tx.stm.First(string(prefix))
+	kv, err := b.tx.stm.First(prefix)
 	if err != nil {
 		return err
 	}
 
 	for kv != nil {
-		if err := cb([]byte(kv.key[prefixLen:]), []byte(kv.val)); err != nil {
+		key, val := getKeyVal(kv)
+
+		if err := cb(key, val); err != nil {
 			return err
 		}
 
 		// Step to the next key.
-		kv, err = b.tx.stm.Next(string(prefix), kv.key)
-		if err != nil {
-			return err
-		}
-	}
-
-	// Make a bucket prefix. This prefixes all sub buckets.
-	prefix = makeBucketPrefix(b.id)
-	prefixLen = len(prefix)
-
-	// Get the first bucket.
-	kv, err = b.tx.stm.First(string(prefix))
-	if err != nil {
-		return err
-	}
-
-	for kv != nil {
-		if err := cb([]byte(kv.key[prefixLen:]), nil); err != nil {
-			return err
-		}
-
-		// Step to the next bucket.
-		kv, err = b.tx.stm.Next(string(prefix), kv.key)
+		kv, err = b.tx.stm.Next(prefix, kv.key)
 		if err != nil {
 			return err
 		}
@@ -143,6 +116,20 @@ func (b *readWriteBucket) NestedReadWriteBucket(key []byte) walletdb.ReadWriteBu
 	return newReadWriteBucket(b.tx, bucketKey, bucketVal)
 }
 
+// assertNoValue checks if the value for the passed key exists.
+func (b *readWriteBucket) assertNoValue(key []byte) error {
+	val, err := b.tx.stm.Get(string(makeValueKey(b.id, key)))
+	if err != nil {
+		return err
+	}
+
+	if val != nil {
+		return walletdb.ErrIncompatibleValue
+	}
+
+	return nil
+}
+
 // CreateBucket creates and returns a new nested bucket with the given
 // key. Returns ErrBucketExists if the bucket already exists,
 // ErrBucketNameRequired if the key is empty, or ErrIncompatibleValue
@@ -168,11 +155,15 @@ func (b *readWriteBucket) CreateBucket(key []byte) (
 		return nil, walletdb.ErrBucketExists
 	}
 
+	if err := b.assertNoValue(key); err != nil {
+		return nil, err
+	}
+
 	// Create a deterministic bucket id from the bucket key.
 	newID := makeBucketID(bucketKey)
 
 	// Create the bucket.
-	b.tx.put(string(bucketKey), string(newID[:]))
+	b.tx.stm.Put(string(bucketKey), string(newID[:]))
 
 	return newReadWriteBucket(b.tx, bucketKey, newID[:]), nil
 }
@@ -198,8 +189,12 @@ func (b *readWriteBucket) CreateBucketIfNotExists(key []byte) (
 	}
 
 	if !isValidBucketID(bucketVal) {
+		if err := b.assertNoValue(key); err != nil {
+			return nil, err
+		}
+
 		newID := makeBucketID(bucketKey)
-		b.tx.put(string(bucketKey), string(newID[:]))
+		b.tx.stm.Put(string(bucketKey), string(newID[:]))
 
 		return newReadWriteBucket(b.tx, bucketKey, newID[:]), nil
 	}
@@ -241,46 +236,31 @@ func (b *readWriteBucket) DeleteNestedBucket(key []byte) error {
 		id := queue[0]
 		queue = queue[1:]
 
-		// Delete values in the current bucket
-		valuePrefix := string(makeValuePrefix(id))
-
-		kv, err := b.tx.stm.First(valuePrefix)
+		kv, err := b.tx.stm.First(string(id))
 		if err != nil {
 			return err
 		}
 
 		for kv != nil {
-			b.tx.del(kv.key)
+			b.tx.stm.Del(kv.key)
 
-			kv, err = b.tx.stm.Next(valuePrefix, kv.key)
+			if isBucketKey(kv.key) {
+				queue = append(queue, []byte(kv.val))
+			}
+
+			kv, err = b.tx.stm.Next(string(id), kv.key)
 			if err != nil {
 				return err
 			}
 		}
 
-		// Iterate sub buckets
-		bucketPrefix := string(makeBucketPrefix(id))
-
-		kv, err = b.tx.stm.First(bucketPrefix)
-		if err != nil {
-			return err
-		}
-
-		for kv != nil {
-			// Delete sub bucket key.
-			b.tx.del(kv.key)
-			// Queue it for traversal.
-			queue = append(queue, []byte(kv.val))
-
-			kv, err = b.tx.stm.Next(bucketPrefix, kv.key)
-			if err != nil {
-				return err
-			}
-		}
+		// Finally delete the sequence key for the bucket.
+		b.tx.stm.Del(string(makeSequenceKey(id)))
 	}
 
-	// Delete the top level bucket.
-	b.tx.del(bucketKey)
+	// Delete the top level bucket and sequence key.
+	b.tx.stm.Del(bucketKey)
+	b.tx.stm.Del(string(makeSequenceKey(bucketVal)))
 
 	return nil
 }
@@ -292,8 +272,17 @@ func (b *readWriteBucket) Put(key, value []byte) error {
 		return walletdb.ErrKeyRequired
 	}
 
+	val, err := b.tx.stm.Get(string(makeBucketKey(b.id, key)))
+	if err != nil {
+		return err
+	}
+
+	if val != nil {
+		return walletdb.ErrIncompatibleValue
+	}
+
 	// Update the transaction with the new value.
-	b.tx.put(string(makeValueKey(b.id, key)), string(value))
+	b.tx.stm.Put(string(makeValueKey(b.id, key)), string(value))
 
 	return nil
 }
@@ -306,7 +295,7 @@ func (b *readWriteBucket) Delete(key []byte) error {
 	}
 
 	// Update the transaction to delete the key/value.
-	b.tx.del(string(makeValueKey(b.id, key)))
+	b.tx.stm.Del(string(makeValueKey(b.id, key)))
 
 	return nil
 }
@@ -336,7 +325,7 @@ func (b *readWriteBucket) SetSequence(v uint64) error {
 	val := strconv.FormatUint(v, 10)
 
 	// Update the transaction with the new value for the sequence key.
-	b.tx.put(string(makeSequenceKey(b.id)), val)
+	b.tx.stm.Put(string(makeSequenceKey(b.id)), val)
 
 	return nil
 }

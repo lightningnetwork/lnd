@@ -456,7 +456,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		// Before we register this new link with the HTLC Switch, we'll
 		// need to fetch its current link-layer forwarding policy from
 		// the database.
-		graph := p.cfg.ChannelDB.ChannelGraph()
+		graph := p.cfg.ChannelGraph
 		info, p1, p2, err := graph.FetchChannelEdgesByOutpoint(chanPoint)
 		if err != nil && err != channeldb.ErrEdgeNotFound {
 			return nil, err
@@ -588,7 +588,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		OnChannelFailure:        onChannelFailure,
 		SyncStates:              syncStates,
 		BatchTicker:             ticker.New(50 * time.Millisecond),
-		FwdPkgGCTicker:          ticker.New(time.Minute),
+		FwdPkgGCTicker:          ticker.New(time.Hour),
 		PendingCommitTicker:     ticker.New(time.Minute),
 		BatchSize:               10,
 		UnsafeReplay:            p.cfg.UnsafeReplay,
@@ -2785,11 +2785,11 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 func (p *Brontide) HandleLocalCloseChanReqs(req *htlcswitch.ChanClose) {
 	select {
 	case p.localCloseChanReqs <- req:
-		peerLog.Infof("Local close channel request delivered to peer: %v",
-			p.PubKey())
+		peerLog.Infof("Local close channel request delivered to "+
+			"peer: %x", p.PubKey())
 	case <-p.quit:
-		peerLog.Infof("Unable to deliver local close channel request to peer "+
-			"%x", p.PubKey())
+		peerLog.Infof("Unable to deliver local close channel request "+
+			"to peer %x", p.PubKey())
 	}
 }
 

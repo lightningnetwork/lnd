@@ -1,5 +1,3 @@
-// +build rpctest
-
 package itest
 
 import (
@@ -73,6 +71,7 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 	for _, commitType := range commitTypes {
 		testName := fmt.Sprintf("committype=%v", commitType.String())
 
+		commitType := commitType
 		success := t.t.Run(testName, func(t *testing.T) {
 			ht := newHarnessTest(t, net)
 
@@ -100,6 +99,10 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 
 				success := ht.t.Run(subTest.name, func(t *testing.T) {
 					ht := newHarnessTest(t, net)
+
+					// Start each test with the default
+					// static fee estimate.
+					net.SetFeeEstimate(12500)
 
 					subTest.test(net, ht, alice, bob, commitType)
 				})

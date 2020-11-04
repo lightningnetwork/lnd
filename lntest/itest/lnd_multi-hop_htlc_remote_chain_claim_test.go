@@ -1,5 +1,3 @@
-// +build rpctest
-
 package itest
 
 import (
@@ -95,6 +93,10 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// bridge between adding the htlc to the channel and executing the exit
 	// hop logic.
 	waitForInvoiceAccepted(t, carol, payHash)
+
+	// Increase the fee estimate so that the following force close tx will
+	// be cpfp'ed.
+	net.SetFeeEstimate(30000)
 
 	// Next, Alice decides that she wants to exit the channel, so she'll
 	// immediately force close the channel by broadcast her commitment

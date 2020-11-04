@@ -40,7 +40,7 @@
 <time> [ERR] CRTR: Resuming payment with hash <hex> failed: no_route.
 <time> [ERR] CRTR: Resuming payment with hash <hex> failed: router shutting down.
 <time> [ERR] CRTR: Unable to retrieve channel by id: edge not found
-<time> [ERR] DISC: channel  announcement proof for short_chan_id=<hex> isn't valid: can't verify first bitcoin signature
+<time> [ERR] DISC: channel  announcement proof for short_chan_id=<cid> isn't valid: can't verify first bitcoin signature
 <time> [ERR] DISC: router shutting down
 <time> [ERR] DISC: unable add proof to the channel chanID=<hex>: edge marked as zombie
 <time> [ERR] DISC: unable add proof to the channel chanID=<hex>: edge not found
@@ -54,7 +54,7 @@
 <time> [ERR] FNDG: Unable to advance pending state of ChannelPoint(<chan_point>): error waiting for funding confirmation for ChannelPoint(<chan_point>): epoch client shutting down
 <time> [ERR] FNDG: Unable to advance pending state of ChannelPoint(<chan_point>): error waiting for funding confirmation for ChannelPoint(<chan_point>): funding manager shutting down
 <time> [ERR] FNDG: Unable to advance pending state of ChannelPoint(<chan_point>): error waiting for funding confirmation for ChannelPoint(<chan_point>): waiting for fundingconfirmation failed
-<time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: channel  announcement proof for short_chan_id=<hex> isn't valid: can't verify first bitcoin signature
+<time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: channel  announcement proof for short_chan_id=<cid> isn't valid: can't verify first bitcoin signature
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: funding manager shutting down
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: gossiper is shutting down
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: router shutting down
@@ -65,7 +65,7 @@
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): failed sending fundingLocked: funding manager shutting down
 <time> [ERR] FNDG: unable to cancel reservation: no active reservations for peer(<hex>)
 <time> [ERR] FNDG: unable to report short chan id: link <hex> not found
-<time> [ERR] FNDG: Unable to send channel proof: channel  announcement proof for short_chan_id=<hex> isn't valid: can't verify first bitcoin signature
+<time> [ERR] FNDG: Unable to send channel proof: channel  announcement proof for short_chan_id=<cid> isn't valid: can't verify first bitcoin signature
 <time> [ERR] FNDG: Unable to send channel proof: gossiper is shutting down
 <time> [ERR] FNDG: Unable to send channel proof: unable add proof to the channel chanID=<hex>: edge marked as zombie
 <time> [ERR] FNDG: Unable to send channel proof: unable add proof to the channel chanID=<hex>: edge not found
@@ -137,6 +137,7 @@
 <time> [ERR] RPCS: [/chainrpc.ChainNotifier/RegisterBlockEpochNtfn]: chain notifier shutting down
 <time> [ERR] RPCS: [/chainrpc.ChainNotifier/RegisterBlockEpochNtfn]: context canceled
 <time> [ERR] RPCS: [/invoicesrpc.Invoices/SubscribeSingleInvoice]: rpc error: code = Canceled desc = context canceled
+<time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: cannot close channel with state: ChanStatusRestored
 <time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: cannot co-op close frozen channel as initiator until height=<height>, (current_height=<height>)
 <time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: cannot co-op close frozen channel as initiator until height=3059, (current_height=3055)
 <time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: chain notifier shutting down
@@ -202,3 +203,31 @@
 <time> [ERR] FNDG: received funding error from <hex>: chan_id=<hex>, err=channel too large
 <time> [ERR] RPCS: [/lnrpc.Lightning/OpenChannel]: received funding error from <hex>: chan_id=<hex>, err=channel too large
 <time> [ERR] RPCS: unable to open channel to NodeKey(<hex>): received funding error from <hex>: chan_id=<hex>, err=channel too large
+<time> [ERR] FNDG: received funding error from <hex>: chan_id=<hex>, err=chan size of 0.16777216 BTC exceeds maximum chan size of 0.16777215 BTC
+<time> [ERR] RPCS: [/lnrpc.Lightning/OpenChannel]: received funding error from <hex>: chan_id=<hex>, err=chan size of 0.16777216 BTC exceeds maximum chan size of 0.16777215 BTC
+<time> [ERR] RPCS: unable to open channel to NodeKey(<hex>): received funding error from <hex>: chan_id=<hex>, err=chan size of 0.16777216 BTC exceeds maximum chan size of 0.16777215 BTC
+<time> [ERR] FNDG: received funding error from <hex>: chan_id=<hex>, err=chan size of 10.00000001 BTC exceeds maximum chan size of 10 BTC
+<time> [ERR] RPCS: [/lnrpc.Lightning/OpenChannel]: received funding error from <hex>: chan_id=<hex>, err=chan size of 10.00000001 BTC exceeds maximum chan size of 10 BTC
+<time> [ERR] RPCS: unable to open channel to NodeKey(<hex>): received funding error from <hex>: chan_id=<hex>, err=chan size of 10.00000001 BTC exceeds maximum chan size of 10 BTC
+<time> [ERR] FNDG: received funding error from <hex>: chan_id=<hex>, err=chan size of 10.00000001 BTC exceeds maximum chan size of 0.16777215 BTC
+<time> [ERR] RPCS: [/lnrpc.Lightning/OpenChannel]: received funding error from <hex>: chan_id=<hex>, err=chan size of 10.00000001 BTC exceeds maximum chan size of 0.16777215 BTC
+<time> [ERR] RPCS: unable to open channel to NodeKey(<hex>): received funding error from <hex>: chan_id=<hex>, err=chan size of 10.00000001 BTC exceeds maximum chan size of 0.16777215 BTC
+<time> [ERR] NTNF: unable to get hash from block with height <height>
+<time> [ERR] FNDG: Unable to add new channel <chan_point> with peer <hex>: canceled adding new channel
+<time> [ERR] RPCS: WS: error closing upgraded conn: write tcp4 <ip>-><ip>: write: connection reset by peer
+<time> [ERR] NTFN: chain notifier shutting down
+<time> [ERR] NTFN: Failed getting UTXO: get utxo request cancelled
+<time> [ERR] RPCS: [/lnrpc.Lightning/BakeMacaroon]: invalid permission action. supported actions are [read write generate], supported entities are [onchain offchain address message peers info invoices signer macaroon uri]
+<time> [ERR] RPCS: [/lnrpc.Lightning/BakeMacaroon]: invalid permission entity. supported actions are [read write generate], supported entities are [onchain offchain address message peers info invoices signer macaroon uri]
+<time> [ERR] RPCS: [/lnrpc.Lightning/BakeMacaroon]: permission list cannot be empty. specify at least one action/entity pair. supported actions are [read write generate], supported entities are [onchain offchain address message peers info invoices signer macaroon uri]
+<time> [ERR] RPCS: [/lnrpc.Lightning/DeleteMacaroonID]: the specified ID cannot be deleted
+<time> [ERR] RPCS: [/lnrpc.Lightning/ConnectPeer]: dial tcp <ip>: i/o timeout
+<time> [ERR] RPCS: [connectpeer]: error connecting to peer: dial tcp <ip>: i/o timeout
+<time> [ERR] SRVR: Unable to connect to <hex>@<ip>: dial tcp <ip>: i/o timeout
+<time> [ERR] RPCS: [/lnrpc.Lightning/ConnectPeer]: dial tcp <ip>: i/o timeout
+<time> [ERR] RPCS: [connectpeer]: error connecting to peer: dial tcp <ip>: i/o timeout
+<time> [ERR] SRVR: Unable to connect to <hex>@<ip>: dial tcp <ip>: i/o timeout
+<time> [ERR] RPCS: [/signrpc.Signer/DeriveSharedKey]: use either key_desc or key_loc
+<time> [ERR] RPCS: [/signrpc.Signer/DeriveSharedKey]: use either raw_key_bytes or key_index
+<time> [ERR] RPCS: [/signrpc.Signer/DeriveSharedKey]: when setting key_desc the field key_desc.key_loc must also be set
+<time> [ERR] RPCS: [/signrpc.Signer/DeriveSharedKey]: must provide ephemeral pubkey

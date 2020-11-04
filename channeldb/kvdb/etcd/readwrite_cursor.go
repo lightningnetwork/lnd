@@ -19,7 +19,7 @@ type readWriteCursor struct {
 func newReadWriteCursor(bucket *readWriteBucket) *readWriteCursor {
 	return &readWriteCursor{
 		bucket: bucket,
-		prefix: string(makeValuePrefix(bucket.id)),
+		prefix: string(bucket.id),
 	}
 }
 
@@ -35,8 +35,7 @@ func (c *readWriteCursor) First() (key, value []byte) {
 
 	if kv != nil {
 		c.currKey = kv.key
-		// Chop the prefix and return the key/value.
-		return []byte(kv.key[len(c.prefix):]), []byte(kv.val)
+		return getKeyVal(kv)
 	}
 
 	return nil, nil
@@ -53,8 +52,7 @@ func (c *readWriteCursor) Last() (key, value []byte) {
 
 	if kv != nil {
 		c.currKey = kv.key
-		// Chop the prefix and return the key/value.
-		return []byte(kv.key[len(c.prefix):]), []byte(kv.val)
+		return getKeyVal(kv)
 	}
 
 	return nil, nil
@@ -71,8 +69,7 @@ func (c *readWriteCursor) Next() (key, value []byte) {
 
 	if kv != nil {
 		c.currKey = kv.key
-		// Chop the prefix and return the key/value.
-		return []byte(kv.key[len(c.prefix):]), []byte(kv.val)
+		return getKeyVal(kv)
 	}
 
 	return nil, nil
@@ -89,8 +86,7 @@ func (c *readWriteCursor) Prev() (key, value []byte) {
 
 	if kv != nil {
 		c.currKey = kv.key
-		// Chop the prefix and return the key/value.
-		return []byte(kv.key[len(c.prefix):]), []byte(kv.val)
+		return getKeyVal(kv)
 	}
 
 	return nil, nil
@@ -115,8 +111,7 @@ func (c *readWriteCursor) Seek(seek []byte) (key, value []byte) {
 
 	if kv != nil {
 		c.currKey = kv.key
-		// Chop the prefix and return the key/value.
-		return []byte(kv.key[len(c.prefix):]), []byte(kv.val)
+		return getKeyVal(kv)
 	}
 
 	return nil, nil
@@ -133,11 +128,14 @@ func (c *readWriteCursor) Delete() error {
 		return err
 	}
 
-	// Delete the current key.
-	c.bucket.tx.stm.Del(c.currKey)
+	if isBucketKey(c.currKey) {
+		c.bucket.DeleteNestedBucket(getKey(c.currKey))
+	} else {
+		c.bucket.Delete(getKey(c.currKey))
+	}
 
-	// Set current key to the next one if possible.
 	if nextKey != nil {
+		// Set current key to the next one.
 		c.currKey = nextKey.key
 	}
 

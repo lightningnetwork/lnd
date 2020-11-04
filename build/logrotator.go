@@ -39,7 +39,10 @@ func NewRotatingLogWriter() *RotatingLogWriter {
 	logWriter := &LogWriter{}
 	backendLog := btclog.NewBackend(logWriter)
 	return &RotatingLogWriter{
-		GenSubLogger:     backendLog.Logger,
+		GenSubLogger: func(tag string) btclog.Logger {
+			logger := backendLog.Logger(tag)
+			return NewShutdownLogger(logger)
+		},
 		logWriter:        logWriter,
 		backendLog:       backendLog,
 		subsystemLoggers: SubLoggers{},

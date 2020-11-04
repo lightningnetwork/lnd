@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -335,7 +336,7 @@ func TestCraftSweepAllTx(t *testing.T) {
 
 	// First, we'll make a mock signer along with a fee estimator, We'll
 	// use zero fees to we can assert a precise output value.
-	signer := &mockSigner{}
+	signer := &mock.DummySigner{}
 	feeEstimator := newMockFeeEstimator(0, 0)
 
 	// For our UTXO source, we'll pass in all the UTXOs that we know of,

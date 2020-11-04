@@ -5,11 +5,11 @@ require (
 	github.com/NebulousLabs/fastrand v0.0.0-20181203155948-6fb6489aac4e // indirect
 	github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82
 	github.com/Yawning/aez v0.0.0-20180114000226-4dad034d9db2
-	github.com/btcsuite/btcd v0.20.1-beta.0.20200515232429-9f0179fd2c46
+	github.com/btcsuite/btcd v0.20.1-beta.0.20200730232343-1db1b6f8217f
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcutil v1.0.2
-	github.com/btcsuite/btcutil/psbt v1.0.2
-	github.com/btcsuite/btcwallet v0.11.1-0.20200612012534-48addcd5591a
+	github.com/btcsuite/btcutil/psbt v1.0.3-0.20200826194809-5f93e33af2b0
+	github.com/btcsuite/btcwallet v0.11.1-0.20200904022754-2c5947a45222
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.0.0
 	github.com/btcsuite/btcwallet/wallet/txrules v1.0.0
 	github.com/btcsuite/btcwallet/walletdb v1.3.3
@@ -48,7 +48,7 @@ require (
 	github.com/lightninglabs/neutrino v0.11.1-0.20200316235139-bffc52e8f200
 	github.com/lightninglabs/protobuf-hex-display v1.3.3-0.20191212020323-b444784ce75d
 	github.com/lightningnetwork/lightning-onion v1.0.2-0.20200501022730-3c8c8d0b89ea
-	github.com/lightningnetwork/lnd/cert v1.0.2
+	github.com/lightningnetwork/lnd/cert v1.0.3
 	github.com/lightningnetwork/lnd/clock v1.0.1
 	github.com/lightningnetwork/lnd/queue v1.0.4
 	github.com/lightningnetwork/lnd/ticker v1.0.0
@@ -66,6 +66,7 @@ require (
 	go.uber.org/zap v1.14.1 // indirect
 	golang.org/x/crypto v0.0.0-20200709230013-948cd5f35899
 	golang.org/x/net v0.0.0-20191002035440-2ec189313ef0
+	golang.org/x/sys v0.0.0-20200202164722-d101bd2416d5
 	golang.org/x/time v0.0.0-20180412165947-fbb02b2291d2
 	google.golang.org/grpc v1.24.0
 	gopkg.in/errgo.v1 v1.0.1 // indirect
@@ -85,4 +86,4 @@ replace github.com/lightningnetwork/lnd/clock => ./clock
 
 replace git.schwanenlied.me/yawning/bsaes.git => github.com/Yawning/bsaes v0.0.0-20180720073208-c0276d75487e
 
-go 1.12
+go 1.13

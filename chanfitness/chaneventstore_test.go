@@ -2,38 +2,40 @@ package chanfitness
 
 import (
 	"errors"
+	"math/big"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channelnotifier"
-	"github.com/lightningnetwork/lnd/peernotifier"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/subscribe"
+	"github.com/stretchr/testify/require"
 )
+
+// testNow is the current time tests will use.
+var testNow = time.Unix(1592465134, 0)
 
 // TestStartStoreError tests the starting of the store in cases where the setup
 // functions fail. It does not test the mechanics of consuming events because
 // these are covered in a separate set of tests.
 func TestStartStoreError(t *testing.T) {
-	// Ok and erroring subscribe functions are defined here to de-clutter tests.
-	okSubscribeFunc := func() (*subscribe.Client, error) {
-		return &subscribe.Client{
-			Cancel: func() {},
-		}, nil
+	// Ok and erroring subscribe functions are defined here to de-clutter
+	// tests.
+	okSubscribeFunc := func() (subscribe.Subscription, error) {
+		return newMockSubscription(t), nil
 	}
 
-	errSubscribeFunc := func() (client *subscribe.Client, e error) {
+	errSubscribeFunc := func() (subscribe.Subscription, error) {
 		return nil, errors.New("intentional test err")
 	}
 
 	tests := []struct {
 		name          string
-		ChannelEvents func() (*subscribe.Client, error)
-		PeerEvents    func() (*subscribe.Client, error)
+		ChannelEvents func() (subscribe.Subscription, error)
+		PeerEvents    func() (subscribe.Subscription, error)
 		GetChannels   func() ([]*channeldb.OpenChannel, error)
 	}{
 		{
@@ -49,7 +51,7 @@ func TestStartStoreError(t *testing.T) {
 			name:          "Get open channels fails",
 			ChannelEvents: okSubscribeFunc,
 			PeerEvents:    okSubscribeFunc,
-			GetChannels: func() (channels []*channeldb.OpenChannel, e error) {
+			GetChannels: func() ([]*channeldb.OpenChannel, error) {
 				return nil, errors.New("intentional test err")
 			},
 		},
@@ -59,42 +61,22 @@ func TestStartStoreError(t *testing.T) {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
+			clock := clock.NewTestClock(testNow)
+
 			store := NewChannelEventStore(&Config{
 				SubscribeChannelEvents: test.ChannelEvents,
 				SubscribePeerEvents:    test.PeerEvents,
 				GetOpenChannels:        test.GetChannels,
+				Clock:                  clock,
 			})
 
 			err := store.Start()
-			// Check that we receive an error, because the test only checks for
-			// error cases.
+			// Check that we receive an error, because the test only
+			// checks for error cases.
 			if err == nil {
 				t.Fatalf("Expected error on startup, got: nil")
 			}
 		})
-	}
-}
-
-// getTestChannel returns a non-zero peer pubKey, serialized pubKey and channel
-// outpoint for testing.
-func getTestChannel(t *testing.T) (*btcec.PublicKey, route.Vertex,
-	wire.OutPoint) {
-
-	privKey, err := btcec.NewPrivateKey(btcec.S256())
-	if err != nil {
-		t.Fatalf("Error getting pubkey: %v", err)
-	}
-
-	pubKey, err := route.NewVertexFromBytes(
-		privKey.PubKey().SerializeCompressed(),
-	)
-	if err != nil {
-		t.Fatalf("Could not create vertex: %v", err)
-	}
-
-	return privKey.PubKey(), pubKey, wire.OutPoint{
-		Hash:  [chainhash.HashSize]byte{1, 2, 3},
-		Index: 0,
 	}
 }
 
@@ -105,425 +87,257 @@ func getTestChannel(t *testing.T) (*btcec.PublicKey, route.Vertex,
 // through an eventLog which does not exist. This test does not test handling
 // of uptime and lifespan requests, as they are tested in their own tests.
 func TestMonitorChannelEvents(t *testing.T) {
-	pubKey, vertex, chanPoint := getTestChannel(t)
+	var (
+		pubKey = &btcec.PublicKey{
+			X:     big.NewInt(0),
+			Y:     big.NewInt(1),
+			Curve: btcec.S256(),
+		}
 
-	tests := []struct {
-		name string
+		chan1 = wire.OutPoint{Index: 1}
+		chan2 = wire.OutPoint{Index: 2}
+	)
 
-		// generateEvents takes channels which represent the updates channels
-		// for subscription clients and passes events in the desired order.
-		// This function is intended to be blocking so that the test does not
-		// have a data race with event consumption, so the channels should not
-		// be buffered.
-		generateEvents func(channelEvents, peerEvents chan<- interface{})
+	peer1, err := route.NewVertexFromBytes(pubKey.SerializeCompressed())
+	require.NoError(t, err)
 
-		// expectedEvents is the expected set of event types in the store.
-		expectedEvents []eventType
-	}{
-		{
-			name: "Channel opened, peer comes online",
-			generateEvents: func(channelEvents, peerEvents chan<- interface{}) {
-				// Add an open channel event
-				channelEvents <- channelnotifier.OpenChannelEvent{
-					Channel: &channeldb.OpenChannel{
-						FundingOutpoint: chanPoint,
-						IdentityPub:     pubKey,
-					},
-				}
+	t.Run("peer comes online after channel open", func(t *testing.T) {
+		gen := func(ctx *chanEventStoreTestCtx) {
+			ctx.sendChannelOpenedUpdate(pubKey, chan1)
+			ctx.peerEvent(peer1, true)
+		}
 
-				// Add a peer online event.
-				peerEvents <- peernotifier.PeerOnlineEvent{PubKey: vertex}
-			},
-			expectedEvents: []eventType{peerOnlineEvent},
-		},
-		{
-			name: "Duplicate channel open events",
-			generateEvents: func(channelEvents, peerEvents chan<- interface{}) {
-				// Add an open channel event
-				channelEvents <- channelnotifier.OpenChannelEvent{
-					Channel: &channeldb.OpenChannel{
-						FundingOutpoint: chanPoint,
-						IdentityPub:     pubKey,
-					},
-				}
+		testEventStore(t, gen, peer1, 1)
+	})
 
-				// Add a peer online event.
-				peerEvents <- peernotifier.PeerOnlineEvent{PubKey: vertex}
+	t.Run("duplicate channel open events", func(t *testing.T) {
+		gen := func(ctx *chanEventStoreTestCtx) {
+			ctx.sendChannelOpenedUpdate(pubKey, chan1)
+			ctx.sendChannelOpenedUpdate(pubKey, chan1)
+			ctx.peerEvent(peer1, true)
+		}
 
-				// Add a duplicate channel open event.
-				channelEvents <- channelnotifier.OpenChannelEvent{
-					Channel: &channeldb.OpenChannel{
-						FundingOutpoint: chanPoint,
-						IdentityPub:     pubKey,
-					},
-				}
-			},
-			expectedEvents: []eventType{peerOnlineEvent},
-		},
-		{
-			name: "Channel opened, peer already online",
-			generateEvents: func(channelEvents, peerEvents chan<- interface{}) {
-				// Add a peer online event.
-				peerEvents <- peernotifier.PeerOnlineEvent{PubKey: vertex}
+		testEventStore(t, gen, peer1, 1)
+	})
 
-				// Add an open channel event
-				channelEvents <- channelnotifier.OpenChannelEvent{
-					Channel: &channeldb.OpenChannel{
-						FundingOutpoint: chanPoint,
-						IdentityPub:     pubKey,
-					},
-				}
-			},
-			expectedEvents: []eventType{peerOnlineEvent},
-		},
+	t.Run("peer online before channel created", func(t *testing.T) {
+		gen := func(ctx *chanEventStoreTestCtx) {
+			ctx.peerEvent(peer1, true)
+			ctx.sendChannelOpenedUpdate(pubKey, chan1)
+		}
 
-		{
-			name: "Channel opened, peer offline, closed",
-			generateEvents: func(channelEvents, peerEvents chan<- interface{}) {
-				// Add an open channel event
-				channelEvents <- channelnotifier.OpenChannelEvent{
-					Channel: &channeldb.OpenChannel{
-						FundingOutpoint: chanPoint,
-						IdentityPub:     pubKey,
-					},
-				}
+		testEventStore(t, gen, peer1, 1)
+	})
 
-				// Add a peer online event.
-				peerEvents <- peernotifier.PeerOfflineEvent{PubKey: vertex}
+	t.Run("multiple channels for peer", func(t *testing.T) {
+		gen := func(ctx *chanEventStoreTestCtx) {
+			ctx.peerEvent(peer1, true)
+			ctx.sendChannelOpenedUpdate(pubKey, chan1)
 
-				// Add a close channel event.
-				channelEvents <- channelnotifier.ClosedChannelEvent{
-					CloseSummary: &channeldb.ChannelCloseSummary{
-						ChanPoint: chanPoint,
-					},
-				}
-			},
-			expectedEvents: []eventType{peerOfflineEvent},
-		},
-		{
-			name: "Event after channel close not recorded",
-			generateEvents: func(channelEvents, peerEvents chan<- interface{}) {
-				// Add an open channel event
-				channelEvents <- channelnotifier.OpenChannelEvent{
-					Channel: &channeldb.OpenChannel{
-						FundingOutpoint: chanPoint,
-						IdentityPub:     pubKey,
-					},
-				}
+			ctx.peerEvent(peer1, false)
+			ctx.sendChannelOpenedUpdate(pubKey, chan2)
+		}
 
-				// Add a close channel event.
-				channelEvents <- channelnotifier.ClosedChannelEvent{
-					CloseSummary: &channeldb.ChannelCloseSummary{
-						ChanPoint: chanPoint,
-					},
-				}
+		testEventStore(t, gen, peer1, 2)
+	})
 
-				// Add a peer online event.
-				peerEvents <- peernotifier.PeerOfflineEvent{PubKey: vertex}
-			},
-		},
-	}
+	t.Run("multiple channels for peer, one closed", func(t *testing.T) {
+		gen := func(ctx *chanEventStoreTestCtx) {
+			ctx.peerEvent(peer1, true)
+			ctx.sendChannelOpenedUpdate(pubKey, chan1)
 
-	for _, test := range tests {
-		test := test
+			ctx.peerEvent(peer1, false)
+			ctx.sendChannelOpenedUpdate(pubKey, chan2)
 
-		t.Run(test.name, func(t *testing.T) {
-			// Create a store with the channels and online peers specified
-			// by the test.
-			store := NewChannelEventStore(&Config{})
+			ctx.closeChannel(chan1, pubKey)
+			ctx.peerEvent(peer1, true)
+		}
 
-			// Create channels which represent the subscriptions we have to peer
-			// and client events.
-			channelEvents := make(chan interface{})
-			peerEvents := make(chan interface{})
+		testEventStore(t, gen, peer1, 1)
+	})
 
-			store.wg.Add(1)
-			go store.consume(&subscriptions{
-				channelUpdates: channelEvents,
-				peerUpdates:    peerEvents,
-				cancel:         func() {},
-			})
-
-			// Add events to the store then kill the goroutine using store.Stop.
-			test.generateEvents(channelEvents, peerEvents)
-			store.Stop()
-
-			// Retrieve the eventLog for the channel and check that its
-			// contents are as expected.
-			eventLog, ok := store.channels[chanPoint]
-			if !ok {
-				t.Fatalf("Expected to find event store")
-			}
-
-			for i, e := range eventLog.events {
-				if test.expectedEvents[i] != e.eventType {
-					t.Fatalf("Expected type: %v, got: %v",
-						test.expectedEvents[i], e.eventType)
-				}
-			}
-		})
-	}
 }
 
-// TestGetLifetime tests the GetLifetime function for the cases where a channel
+// testEventStore creates a new test contexts, generates a set of events for it
+// and tests that it has the number of channels we expect.
+func testEventStore(t *testing.T, generateEvents func(*chanEventStoreTestCtx),
+	peer route.Vertex, expectedChannels int) {
+
+	testCtx := newChanEventStoreTestCtx(t)
+	testCtx.start()
+
+	generateEvents(testCtx)
+
+	// Shutdown the store so that we can safely access the maps in our event
+	// store.
+	testCtx.stop()
+
+	// Get our peer and check that it has the channels we expect.
+	monitor, ok := testCtx.store.peers[peer]
+	require.True(t, ok)
+
+	require.Equal(t, expectedChannels, monitor.channelCount())
+}
+
+// TestStoreFlapCount tests flushing of flap counts to disk on timer ticks and
+// on store shutdown.
+func TestStoreFlapCount(t *testing.T) {
+	testCtx := newChanEventStoreTestCtx(t)
+	testCtx.start()
+
+	pubkey, _, _ := testCtx.createChannel()
+	testCtx.peerEvent(pubkey, false)
+
+	// Now, we tick our flap count ticker. We expect our main goroutine to
+	// flush our tick count to disk.
+	testCtx.tickFlapCount()
+
+	// Since we just tracked a offline event, we expect a single flap for
+	// our peer.
+	expectedUpdate := peerFlapCountMap{
+		pubkey: {
+			Count:    1,
+			LastFlap: testCtx.clock.Now(),
+		},
+	}
+
+	testCtx.assertFlapCountUpdated()
+	testCtx.assertFlapCountUpdates(expectedUpdate)
+
+	// Create three events for out peer, online/offline/online.
+	testCtx.peerEvent(pubkey, true)
+	testCtx.peerEvent(pubkey, false)
+	testCtx.peerEvent(pubkey, true)
+
+	// Trigger another write.
+	testCtx.tickFlapCount()
+
+	// Since we have processed 3 more events for our peer, we update our
+	// expected online map to have a flap count of 4 for this peer.
+	expectedUpdate[pubkey] = &channeldb.FlapCount{
+		Count:    4,
+		LastFlap: testCtx.clock.Now(),
+	}
+	testCtx.assertFlapCountUpdated()
+	testCtx.assertFlapCountUpdates(expectedUpdate)
+
+	testCtx.stop()
+}
+
+// TestGetChanInfo tests the GetChanInfo function for the cases where a channel
 // is known and unknown to the store.
-func TestGetLifetime(t *testing.T) {
-	now := time.Now()
+func TestGetChanInfo(t *testing.T) {
+	ctx := newChanEventStoreTestCtx(t)
+	ctx.start()
 
-	tests := []struct {
-		name          string
-		channelFound  bool
-		channelPoint  wire.OutPoint
-		opened        time.Time
-		closed        time.Time
-		expectedError error
-	}{
-		{
-			name:          "Channel found",
-			channelFound:  true,
-			opened:        now,
-			closed:        now.Add(time.Hour * -1),
-			expectedError: nil,
-		},
-		{
-			name:          "Channel not found",
-			expectedError: ErrChannelNotFound,
-		},
-	}
+	// Make a note of the time that our mocked clock starts on.
+	now := ctx.clock.Now()
 
-	for _, test := range tests {
-		test := test
+	// Create mock vars for a channel but do not add them to our store yet.
+	peer, pk, channel := ctx.newChannel()
 
-		t.Run(test.name, func(t *testing.T) {
-			// Create and  empty events store for testing.
-			store := NewChannelEventStore(&Config{})
+	// Send an online event for our peer, although we do not yet have an
+	// open channel.
+	ctx.peerEvent(peer, true)
 
-			// Start goroutine which consumes GetLifespan requests.
-			store.wg.Add(1)
-			go store.consume(&subscriptions{
-				channelUpdates: make(chan interface{}),
-				peerUpdates:    make(chan interface{}),
-				cancel:         func() {},
-			})
+	// Try to get info for a channel that has not been opened yet, we
+	// expect to get an error.
+	_, err := ctx.store.GetChanInfo(channel, peer)
+	require.Equal(t, ErrChannelNotFound, err)
 
-			// Stop the store's go routine.
-			defer store.Stop()
+	// Now we send our store a notification that a channel has been opened.
+	ctx.sendChannelOpenedUpdate(pk, channel)
 
-			// Add channel to eventStore if the test indicates that it should
-			// be present.
-			if test.channelFound {
-				store.channels[test.channelPoint] = &chanEventLog{
-					openedAt: test.opened,
-					closedAt: test.closed,
-				}
-			}
+	// Wait for our channel to be recognized by our store. We need to wait
+	// for the channel to be created so that we do not update our time
+	// before the channel open is processed.
+	require.Eventually(t, func() bool {
+		_, err = ctx.store.GetChanInfo(channel, peer)
+		return err == nil
+	}, timeout, time.Millisecond*20)
 
-			open, close, err := store.GetLifespan(test.channelPoint)
-			if test.expectedError != err {
-				t.Fatalf("Expected: %v, got: %v", test.expectedError, err)
-			}
+	// Increment our test clock by an hour.
+	now = now.Add(time.Hour)
+	ctx.clock.SetTime(now)
 
-			if open != test.opened {
-				t.Errorf("Expected: %v, got %v", test.opened, open)
-			}
+	// At this stage our channel has been open and online for an hour.
+	info, err := ctx.store.GetChanInfo(channel, peer)
+	require.NoError(t, err)
+	require.Equal(t, time.Hour, info.Lifetime)
+	require.Equal(t, time.Hour, info.Uptime)
 
-			if close != test.closed {
-				t.Errorf("Expected: %v, got %v", test.closed, close)
-			}
-		})
-	}
+	// Now we send a peer offline event for our channel.
+	ctx.peerEvent(peer, false)
+
+	// Since we have not bumped our mocked time, our uptime calculations
+	// should be the same, even though we've just processed an offline
+	// event.
+	info, err = ctx.store.GetChanInfo(channel, peer)
+	require.NoError(t, err)
+	require.Equal(t, time.Hour, info.Lifetime)
+	require.Equal(t, time.Hour, info.Uptime)
+
+	// Progress our time again. This time, our peer is currently tracked as
+	// being offline, so we expect our channel info to reflect that the peer
+	// has been offline for this period.
+	now = now.Add(time.Hour)
+	ctx.clock.SetTime(now)
+
+	info, err = ctx.store.GetChanInfo(channel, peer)
+	require.NoError(t, err)
+	require.Equal(t, time.Hour*2, info.Lifetime)
+	require.Equal(t, time.Hour, info.Uptime)
+
+	ctx.stop()
 }
 
-// TestGetUptime tests the getUptime call for channels known to the event store.
-// It does not test the trivial case where a channel is unknown to the store,
-// because this is simply a zero return if an item is not found in a map. It
-// tests the unexpected edge cases where a tracked channel does not have any
-// events recorded, and when a zero time is specified for the uptime range.
-func TestGetUptime(t *testing.T) {
-	// Set time for deterministic unit tests.
-	now := time.Now()
+// TestFlapCount tests querying the store for peer flap counts, covering the
+// case where the peer is tracked in memory, and the case where we need to
+// lookup the peer on disk.
+func TestFlapCount(t *testing.T) {
+	clock := clock.NewTestClock(testNow)
 
-	twoHoursAgo := now.Add(time.Hour * -2)
-	fourHoursAgo := now.Add(time.Hour * -4)
+	var (
+		peer          = route.Vertex{9, 9, 9}
+		peerFlapCount = 3
+		lastFlap      = clock.Now()
+	)
 
-	tests := []struct {
-		name string
-
-		channelPoint wire.OutPoint
-
-		// events is the set of events we expect to find in the channel store.
-		events []*channelEvent
-
-		// openedAt is the time the channel is recorded as open by the store.
-		openedAt time.Time
-
-		// closedAt is the time the channel is recorded as closed by the store.
-		// If the channel is still open, this value is zero.
-		closedAt time.Time
-
-		// channelFound is true if we expect to find the channel in the store.
-		channelFound bool
-
-		// startTime specifies the beginning of the uptime range we want to
-		// calculate.
-		startTime time.Time
-
-		// endTime specified the end of the uptime range we want to calculate.
-		endTime time.Time
-
-		expectedUptime time.Duration
-
-		expectedError error
-	}{
-		{
-			name:          "No events",
-			startTime:     twoHoursAgo,
-			endTime:       now,
-			channelFound:  true,
-			expectedError: nil,
-		},
-		{
-			name: "50% Uptime",
-			events: []*channelEvent{
-				{
-					timestamp: fourHoursAgo,
-					eventType: peerOnlineEvent,
-				},
-				{
-					timestamp: twoHoursAgo,
-					eventType: peerOfflineEvent,
-				},
-			},
-			openedAt:       fourHoursAgo,
-			expectedUptime: time.Hour * 2,
-			startTime:      fourHoursAgo,
-			endTime:        now,
-			channelFound:   true,
-			expectedError:  nil,
-		},
-		{
-			name: "Zero start time",
-			events: []*channelEvent{
-				{
-					timestamp: fourHoursAgo,
-					eventType: peerOnlineEvent,
-				},
-			},
-			openedAt:       fourHoursAgo,
-			expectedUptime: time.Hour * 4,
-			endTime:        now,
-			channelFound:   true,
-			expectedError:  nil,
-		},
-		{
-			name:          "Channel not found",
-			startTime:     twoHoursAgo,
-			endTime:       now,
-			channelFound:  false,
-			expectedError: ErrChannelNotFound,
-		},
+	// Create a test context with one peer's flap count already recorded,
+	// which mocks it already having its flap count stored on disk.
+	ctx := newChanEventStoreTestCtx(t)
+	ctx.flapUpdates[peer] = &channeldb.FlapCount{
+		Count:    uint32(peerFlapCount),
+		LastFlap: lastFlap,
 	}
 
-	for _, test := range tests {
-		test := test
+	ctx.start()
 
-		t.Run(test.name, func(t *testing.T) {
-			// Set up event store with the events specified for the test and
-			// mocked time.
-			store := NewChannelEventStore(&Config{})
+	// Create test variables for a peer and channel, but do not add it to
+	// our store yet.
+	peer1 := route.Vertex{1, 2, 3}
 
-			// Start goroutine which consumes GetUptime requests.
-			store.wg.Add(1)
-			go store.consume(&subscriptions{
-				channelUpdates: make(chan interface{}),
-				peerUpdates:    make(chan interface{}),
-				cancel:         func() {},
-			})
+	// First, query for a peer that we have no record of in memory or on
+	// disk and confirm that we indicate that the peer was not found.
+	_, ts, err := ctx.store.FlapCount(peer1)
+	require.NoError(t, err)
+	require.Nil(t, ts)
 
-			// Stop the store's goroutine.
-			defer store.Stop()
+	// Send an online event for our peer.
+	ctx.peerEvent(peer1, true)
 
-			// Add the channel to the store if it is intended to be found.
-			if test.channelFound {
-				store.channels[test.channelPoint] = &chanEventLog{
-					events:   test.events,
-					now:      func() time.Time { return now },
-					openedAt: test.openedAt,
-					closedAt: test.closedAt,
-				}
-			}
+	// Assert that we now find a record of the peer with flap count = 1.
+	count, ts, err := ctx.store.FlapCount(peer1)
+	require.NoError(t, err)
+	require.Equal(t, lastFlap, *ts)
+	require.Equal(t, 1, count)
 
-			uptime, err := store.GetUptime(test.channelPoint, test.startTime, test.endTime)
-			if test.expectedError != err {
-				t.Fatalf("Expected: %v, got: %v", test.expectedError, err)
-			}
+	// Make a request for our peer that not tracked in memory, but does
+	// have its flap count stored on disk.
+	count, ts, err = ctx.store.FlapCount(peer)
+	require.NoError(t, err)
+	require.Equal(t, lastFlap, *ts)
+	require.Equal(t, peerFlapCount, count)
 
-			if uptime != test.expectedUptime {
-				t.Fatalf("Expected uptime percentage: %v, got %v",
-					test.expectedUptime, uptime)
-			}
-
-		})
-	}
-}
-
-// TestAddChannel tests that channels are added to the event store with
-// appropriate timestamps. This test addresses a bug where offline channels
-// did not have an opened time set, and checks that an online event is set for
-// peers that are online at the time that a channel is opened.
-func TestAddChannel(t *testing.T) {
-	_, vertex, chanPoint := getTestChannel(t)
-
-	tests := []struct {
-		name string
-
-		// peers maps peers to an online state.
-		peers map[route.Vertex]bool
-
-		expectedEvents []eventType
-	}{
-		{
-			name:           "peer offline",
-			peers:          make(map[route.Vertex]bool),
-			expectedEvents: []eventType{},
-		},
-		{
-			name: "peer online",
-			peers: map[route.Vertex]bool{
-				vertex: true,
-			},
-			expectedEvents: []eventType{peerOnlineEvent},
-		},
-	}
-
-	for _, test := range tests {
-		test := test
-		t.Run(test.name, func(t *testing.T) {
-			store := NewChannelEventStore(&Config{})
-			store.peers = test.peers
-
-			// Add channel to the store.
-			store.addChannel(chanPoint, vertex)
-
-			// Check that the eventLog is successfully added.
-			eventLog, ok := store.channels[chanPoint]
-			if !ok {
-				t.Fatalf("channel should be in store")
-			}
-
-			// Check that the eventLog contains the events we
-			// expect.
-			for i, e := range test.expectedEvents {
-				if e != eventLog.events[i].eventType {
-					t.Fatalf("expected: %v, got: %v",
-						e, eventLog.events[i].eventType)
-				}
-			}
-
-			// Ensure that open time is always set.
-			if eventLog.openedAt.IsZero() {
-				t.Fatalf("channel should have opened at set")
-			}
-		})
-	}
+	ctx.stop()
 }

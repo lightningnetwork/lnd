@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"google.golang.org/grpc/grpclog"
 )
@@ -63,6 +64,10 @@ type NetworkHarness struct {
 	// to main process.
 	lndErrorChan chan error
 
+	// feeService is a web service that provides external fee estimates to
+	// lnd.
+	feeService *feeService
+
 	quit chan struct{}
 
 	mtx sync.Mutex
@@ -75,6 +80,8 @@ type NetworkHarness struct {
 func NewNetworkHarness(r *rpctest.Harness, b BackendConfig, lndBinary string) (
 	*NetworkHarness, error) {
 
+	feeService := startFeeService()
+
 	n := NetworkHarness{
 		activeNodes:          make(map[int]*HarnessNode),
 		nodesByPub:           make(map[string]*HarnessNode),
@@ -84,6 +91,7 @@ func NewNetworkHarness(r *rpctest.Harness, b BackendConfig, lndBinary string) (
 		netParams:            r.ActiveNet,
 		Miner:                r,
 		BackendCfg:           b,
+		feeService:           feeService,
 		quit:                 make(chan struct{}),
 		lndBinary:            lndBinary,
 	}
@@ -251,6 +259,8 @@ func (n *NetworkHarness) TearDownAll() error {
 	close(n.lndErrorChan)
 	close(n.quit)
 
+	n.feeService.stop()
+
 	return nil
 }
 
@@ -358,6 +368,7 @@ func (n *NetworkHarness) newNode(name string, extraArgs []string,
 		BackendCfg: n.BackendCfg,
 		NetParams:  n.netParams,
 		ExtraArgs:  extraArgs,
+		FeeURL:     n.feeService.url,
 	})
 	if err != nil {
 		return nil, err
@@ -452,7 +463,6 @@ func (n *NetworkHarness) EnsureConnected(ctx context.Context, a, b *HarnessNode)
 
 			err := n.connect(ctx, req, a)
 			switch {
-
 			// Request was successful, wait for both to display the
 			// connection.
 			case err == nil:
@@ -855,6 +865,11 @@ type OpenChannelParams struct {
 	// MinHtlc is the htlc_minimum_msat value set when opening the channel.
 	MinHtlc lnwire.MilliSatoshi
 
+	// RemoteMaxHtlcs is the remote_max_htlcs value set when opening the
+	// channel, restricting the number of concurrent HTLCs the remote party
+	// can add to a commitment.
+	RemoteMaxHtlcs uint16
+
 	// FundingShim is an optional funding shim that the caller can specify
 	// in order to modify the channel funding workflow.
 	FundingShim *lnrpc.FundingShim
@@ -874,7 +889,7 @@ func (n *NetworkHarness) OpenChannel(ctx context.Context,
 	// prevents any funding workflows from being kicked off if the chain
 	// isn't yet synced.
 	if err := srcNode.WaitForBlockchainSync(ctx); err != nil {
-		return nil, fmt.Errorf("enable to sync srcNode chain: %v", err)
+		return nil, fmt.Errorf("unable to sync srcNode chain: %v", err)
 	}
 	if err := destNode.WaitForBlockchainSync(ctx); err != nil {
 		return nil, fmt.Errorf("unable to sync destNode chain: %v", err)
@@ -893,6 +908,7 @@ func (n *NetworkHarness) OpenChannel(ctx context.Context,
 		MinConfs:           minConfs,
 		SpendUnconfirmed:   p.SpendUnconfirmed,
 		MinHtlcMsat:        int64(p.MinHtlc),
+		RemoteMaxHtlcs:     uint32(p.RemoteMaxHtlcs),
 		FundingShim:        p.FundingShim,
 	}
 
@@ -1204,9 +1220,14 @@ func (n *NetworkHarness) WaitForChannelClose(ctx context.Context,
 }
 
 // AssertChannelExists asserts that an active channel identified by the
-// specified channel point exists from the point-of-view of the node.
+// specified channel point exists from the point-of-view of the node. It takes
+// an optional set of check functions which can be used to make further
+// assertions using channel's values. These functions are responsible for
+// failing the test themselves if they do not pass.
+// nolint: interfacer
 func (n *NetworkHarness) AssertChannelExists(ctx context.Context,
-	node *HarnessNode, chanPoint *wire.OutPoint) error {
+	node *HarnessNode, chanPoint *wire.OutPoint,
+	checks ...func(*lnrpc.Channel)) error {
 
 	req := &lnrpc.ListChannelsRequest{}
 
@@ -1218,12 +1239,20 @@ func (n *NetworkHarness) AssertChannelExists(ctx context.Context,
 
 		for _, channel := range resp.Channels {
 			if channel.ChannelPoint == chanPoint.String() {
-				if channel.Active {
-					return nil
+				// First check whether our channel is active,
+				// failing early if it is not.
+				if !channel.Active {
+					return fmt.Errorf("channel %s inactive",
+						chanPoint)
 				}
 
-				return fmt.Errorf("channel %s inactive",
-					chanPoint)
+				// Apply any additional checks that we would
+				// like to verify.
+				for _, check := range checks {
+					check(channel)
+				}
+
+				return nil
 			}
 		}
 
@@ -1383,6 +1412,10 @@ func (n *NetworkHarness) sendCoins(ctx context.Context, amt btcutil.Amount,
 
 	expectedBalance := btcutil.Amount(initialBalance.ConfirmedBalance) + amt
 	return target.WaitForBalance(expectedBalance, true)
+}
+
+func (n *NetworkHarness) SetFeeEstimate(fee chainfee.SatPerKWeight) {
+	n.feeService.setFee(fee)
 }
 
 // CopyFile copies the file src to dest.

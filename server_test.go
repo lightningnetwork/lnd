@@ -119,10 +119,11 @@ func TestTLSAutoRegeneration(t *testing.T) {
 		TLSKeyPath:   keyPath,
 		RPCListeners: rpcListeners,
 	}
-	_, _, _, err = getTLSConfig(cfg)
+	_, _, _, cleanUp, err := getTLSConfig(cfg)
 	if err != nil {
 		t.Fatalf("couldn't retrieve TLS config")
 	}
+	defer cleanUp()
 
 	// Grab the certificate to test that getTLSConfig did its job correctly
 	// and generated a new cert.

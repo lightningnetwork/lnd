@@ -120,7 +120,7 @@ func generateInputPartitionings(sweepableInputs []txInput,
 			"has yield=%v, weight=%v",
 			inputCount, len(txInputs.inputs)-inputCount,
 			txInputs.outputValue-txInputs.walletInputTotal,
-			txInputs.weightEstimate.Weight())
+			txInputs.weightEstimate.weight())
 
 		sets = append(sets, txInputs.inputs)
 		sweepableInputs = sweepableInputs[inputCount:]
@@ -134,9 +134,9 @@ func createSweepTx(inputs []input.Input, outputPkScript []byte,
 	currentBlockHeight uint32, feePerKw chainfee.SatPerKWeight,
 	signer input.Signer) (*wire.MsgTx, error) {
 
-	inputs, txWeight := getWeightEstimate(inputs)
+	inputs, estimator := getWeightEstimate(inputs, feePerKw)
 
-	txFee := feePerKw.FeeForWeight(txWeight)
+	txFee := estimator.fee()
 
 	// Sum up the total value contained in the inputs.
 	var totalSum btcutil.Amount
@@ -208,25 +208,33 @@ func createSweepTx(inputs []input.Input, outputPkScript []byte,
 	}
 
 	log.Infof("Creating sweep transaction %v for %v inputs (%s) "+
-		"using %v sat/kw, tx_fee=%v", sweepTx.TxHash(), len(inputs),
-		inputTypeSummary(inputs), int64(feePerKw), txFee)
+		"using %v sat/kw, tx_weight=%v, tx_fee=%v, parents_count=%v, "+
+		"parents_fee=%v, parents_weight=%v",
+		sweepTx.TxHash(), len(inputs),
+		inputTypeSummary(inputs), int64(feePerKw),
+		estimator.weight(), txFee,
+		len(estimator.parents), estimator.parentsFee,
+		estimator.parentsWeight,
+	)
 
 	return sweepTx, nil
 }
 
 // getWeightEstimate returns a weight estimate for the given inputs.
 // Additionally, it returns counts for the number of csv and cltv inputs.
-func getWeightEstimate(inputs []input.Input) ([]input.Input, int64) {
+func getWeightEstimate(inputs []input.Input, feeRate chainfee.SatPerKWeight) (
+	[]input.Input, *weightEstimator) {
+
 	// We initialize a weight estimator so we can accurately asses the
 	// amount of fees we need to pay for this sweep transaction.
 	//
 	// TODO(roasbeef): can be more intelligent about buffering outputs to
 	// be more efficient on-chain.
-	var weightEstimate input.TxWeightEstimator
+	weightEstimate := newWeightEstimator(feeRate)
 
 	// Our sweep transaction will pay to a single segwit p2wkh address,
 	// ensure it contributes to our weight estimate.
-	weightEstimate.AddP2WKHOutput()
+	weightEstimate.addP2WKHOutput()
 
 	// For each output, use its witness type to determine the estimate
 	// weight of its witness, and add it to the proper set of spendable
@@ -235,8 +243,7 @@ func getWeightEstimate(inputs []input.Input) ([]input.Input, int64) {
 	for i := range inputs {
 		inp := inputs[i]
 
-		wt := inp.WitnessType()
-		err := wt.AddWeightEstimation(&weightEstimate)
+		err := weightEstimate.add(inp)
 		if err != nil {
 			log.Warn(err)
 
@@ -248,7 +255,7 @@ func getWeightEstimate(inputs []input.Input) ([]input.Input, int64) {
 		sweepInputs = append(sweepInputs, inp)
 	}
 
-	return sweepInputs, int64(weightEstimate.Weight())
+	return sweepInputs, weightEstimate
 }
 
 // inputSummary returns a string containing a human readable summary about the

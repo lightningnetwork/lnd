@@ -9,8 +9,8 @@ import (
 
 const (
 	dbName      = "channel.db"
-	boltBackend = "bolt"
-	etcdBackend = "etcd"
+	BoltBackend = "bolt"
+	EtcdBackend = "etcd"
 )
 
 // DB holds database configuration for LND.
@@ -25,41 +25,73 @@ type DB struct {
 // NewDB creates and returns a new default DB config.
 func DefaultDB() *DB {
 	return &DB{
-		Backend: boltBackend,
-		Bolt: &kvdb.BoltConfig{
-			NoFreeListSync: true,
-		},
+		Backend: BoltBackend,
+		Bolt:    &kvdb.BoltConfig{},
 	}
 }
 
 // Validate validates the DB config.
 func (db *DB) Validate() error {
 	switch db.Backend {
-	case boltBackend:
+	case BoltBackend:
 
-	case etcdBackend:
+	case EtcdBackend:
 		if db.Etcd.Host == "" {
 			return fmt.Errorf("etcd host must be set")
 		}
 
 	default:
 		return fmt.Errorf("unknown backend, must be either \"%v\" or \"%v\"",
-			boltBackend, etcdBackend)
+			BoltBackend, EtcdBackend)
 	}
 
 	return nil
 }
 
-// GetBackend returns a kvdb.Backend as set in the DB config.
-func (db *DB) GetBackend(ctx context.Context, dbPath string,
-	networkName string) (kvdb.Backend, error) {
+// DatabaseBackends is a two-tuple that holds the set of active database
+// backends for the daemon. The two backends we expose are the local database
+// backend, and the remote backend. The LocalDB attribute will always be
+// populated. However, the remote DB will only be set if a replicated database
+// is active.
+type DatabaseBackends struct {
+	// LocalDB points to the local non-replicated backend.
+	LocalDB kvdb.Backend
 
-	if db.Backend == etcdBackend {
+	// RemoteDB points to a possibly networked replicated backend. If no
+	// replicated backend is active, then this pointer will be nil.
+	RemoteDB kvdb.Backend
+}
+
+// GetBackends returns a set of kvdb.Backends as set in the DB config.  The
+// local database will ALWAYS be non-nil, while the remote database will only
+// be populated if etcd is specified.
+func (db *DB) GetBackends(ctx context.Context, dbPath string,
+	networkName string) (*DatabaseBackends, error) {
+
+	var (
+		localDB, remoteDB kvdb.Backend
+		err               error
+	)
+
+	if db.Backend == EtcdBackend {
 		// Prefix will separate key/values in the db.
-		return kvdb.GetEtcdBackend(ctx, networkName, db.Etcd)
+		remoteDB, err = kvdb.GetEtcdBackend(ctx, networkName, db.Etcd)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return kvdb.GetBoltBackend(dbPath, dbName, db.Bolt.NoFreeListSync)
+	localDB, err = kvdb.GetBoltBackend(
+		dbPath, dbName, !db.Bolt.SyncFreelist,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &DatabaseBackends{
+		LocalDB:  localDB,
+		RemoteDB: remoteDB,
+	}, nil
 }
 
 // Compile-time constraint to ensure Workers implements the Validator interface.

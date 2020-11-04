@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
+	"github.com/lightningnetwork/lnd/healthcheck"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc/autopilotrpc"
@@ -129,6 +130,7 @@ func SetupLoggers(root *build.RotatingLogWriter) {
 	AddSubLogger(root, routerrpc.Subsystem, routerrpc.UseLogger)
 	AddSubLogger(root, chanfitness.Subsystem, chanfitness.UseLogger)
 	AddSubLogger(root, verrpc.Subsystem, verrpc.UseLogger)
+	AddSubLogger(root, healthcheck.Subsystem, healthcheck.UseLogger)
 }
 
 // AddSubLogger is a helper method to conveniently create and register the

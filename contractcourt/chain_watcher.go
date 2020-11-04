@@ -500,7 +500,7 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 
 	select {
 	// We've detected a spend of the channel onchain! Depending on the type
-	// of spend, we'll act accordingly , so we'll examine the spending
+	// of spend, we'll act accordingly, so we'll examine the spending
 	// transaction to determine what we should do.
 	//
 	// TODO(Roasbeef): need to be able to ensure this only triggers
@@ -568,7 +568,7 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 
 		// Next, we'll check to see if this is a cooperative channel
 		// closure or not. This is characterized by having an input
-		// sequence number that's finalized.  This won't happen with
+		// sequence number that's finalized. This won't happen with
 		// regular commitment transactions due to the state hint
 		// encoding scheme.
 		if commitTxBroadcast.TxIn[0].Sequence == wire.MaxTxInSequenceNum {

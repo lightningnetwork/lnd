@@ -1,7 +1,13 @@
 DEV_TAGS = dev
+RPC_TAGS = autopilotrpc chainrpc invoicesrpc routerrpc signrpc verrpc walletrpc watchtowerrpc wtclientrpc
 LOG_TAGS =
 TEST_FLAGS =
 COVER_PKG = $$(go list -deps ./... | grep '$(PKG)' | grep -v lnrpc)
+
+# If rpc option is set also add all extra RPC tags to DEV_TAGS
+ifneq ($(with-rpc),)
+DEV_TAGS += $(RPC_TAGS)
+endif
 
 # If specific package is being unit tested, construct the full name of the
 # subpackage.
@@ -22,6 +28,10 @@ ifneq ($(icase),)
 TEST_FLAGS += -test.run=TestLightningNetworkDaemon/$(icase)
 endif
 
+ifneq ($(tags),)
+DEV_TAGS += ${tags}
+endif
+
 # Define the log tags that will be applied only when running unit tests. If none
 # are provided, we default to "nolog" which will be silent.
 ifneq ($(log),)
@@ -37,6 +47,9 @@ TEST_FLAGS += -test.timeout=$(timeout)
 else
 TEST_FLAGS += -test.timeout=40m
 endif
+
+GOLIST := go list -tags="$(DEV_TAGS)" -deps $(PKG)/... | grep '$(PKG)'| grep -v '/vendor/'
+GOLISTCOVER := $(shell go list -tags="$(DEV_TAGS)" -deps -f '{{.ImportPath}}' ./... | grep '$(PKG)' | sed -e 's/^$(ESCPKG)/./')
 
 # UNIT_TARGTED is undefined iff a specific package and/or unit test case is
 # not being targeted.
@@ -61,6 +74,6 @@ backend = btcd
 endif
 
 # Construct the integration test command with the added build flags.
-ITEST_TAGS := $(DEV_TAGS) rpctest chainrpc walletrpc signrpc invoicesrpc autopilotrpc watchtowerrpc $(backend)
+ITEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) rpctest $(backend)
 
 ITEST := rm lntest/itest/*.log; date; $(GOTEST) -v ./lntest/itest -tags="$(ITEST_TAGS)" $(TEST_FLAGS) -logoutput -goroutinedump

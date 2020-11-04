@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
 
@@ -164,8 +165,8 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 		// At this point, we know that the router macaroon doesn't yet,
 		// exist, so we need to create it with the help of the main
 		// macaroon service.
-		routerMac, err := cfg.MacService.Oven.NewMacaroon(
-			context.Background(), bakery.LatestVersion, nil,
+		routerMac, err := cfg.MacService.NewMacaroon(
+			context.Background(), macaroons.DefaultRootKeyID,
 			macaroonOps...,
 		)
 		if err != nil {
@@ -319,11 +320,13 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 	// that target amount, we'll only request a single route. Set a
 	// restriction for the default CLTV limit, otherwise we can find a route
 	// that exceeds it and is useless to us.
+	mc := s.cfg.RouterBackend.MissionControl
 	route, err := s.cfg.Router.FindRoute(
 		s.cfg.RouterBackend.SelfNode, destNode, amtMsat,
 		&routing.RestrictParams{
-			FeeLimit:  feeLimit,
-			CltvLimit: s.cfg.RouterBackend.MaxTotalTimelock,
+			FeeLimit:          feeLimit,
+			CltvLimit:         s.cfg.RouterBackend.MaxTotalTimelock,
+			ProbabilitySource: mc.GetProbability,
 		}, nil, nil, s.cfg.RouterBackend.DefaultFinalCltvDelta,
 	)
 	if err != nil {

@@ -326,7 +326,7 @@ type SettleFailAcker interface {
 type GlobalFwdPkgReader interface {
 	// LoadChannelFwdPkgs loads all known forwarding packages for the given
 	// channel.
-	LoadChannelFwdPkgs(tx kvdb.RwTx,
+	LoadChannelFwdPkgs(tx kvdb.RTx,
 		source lnwire.ShortChannelID) ([]*FwdPkg, error)
 }
 
@@ -364,7 +364,7 @@ func (*SwitchPackager) AckSettleFails(tx kvdb.RwTx,
 }
 
 // LoadChannelFwdPkgs loads all forwarding packages for a particular channel.
-func (*SwitchPackager) LoadChannelFwdPkgs(tx kvdb.RwTx,
+func (*SwitchPackager) LoadChannelFwdPkgs(tx kvdb.RTx,
 	source lnwire.ShortChannelID) ([]*FwdPkg, error) {
 
 	return loadChannelFwdPkgs(tx, source)

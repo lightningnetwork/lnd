@@ -1,4 +1,4 @@
-// +build btcd
+// +build !bitcoind,!neutrino
 
 package lntest
 
@@ -81,6 +81,7 @@ func NewBackend(miner string, netParams *chaincfg.Params) (
 		"--debuglevel=debug",
 		"--logdir=" + logDir,
 		"--connect=" + miner,
+		"--nowinservice",
 	}
 	chainBackend, err := rpctest.New(netParams, nil, args)
 	if err != nil {

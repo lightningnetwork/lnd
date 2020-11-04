@@ -43,7 +43,7 @@ const (
 	// defaultNodePort is the start of the range for listening ports of
 	// harness nodes. Ports are monotonically increasing starting from this
 	// number and are determined by the results of nextAvailablePort().
-	defaultNodePort = 19555
+	defaultNodePort = 5555
 
 	// logPubKeyBytes is the number of bytes of the node's PubKey that will
 	// be appended to the log file name. The whole PubKey is too long and
@@ -102,6 +102,12 @@ func nextAvailablePort() int {
 
 	// No ports available? Must be a mistake.
 	panic("no ports available for listening")
+}
+
+// ApplyPortOffset adds the given offset to the lastPort variable, making it
+// possible to run the tests in parallel without colliding on the same ports.
+func ApplyPortOffset(offset uint32) {
+	_ = atomic.AddUint32(&lastPort, offset)
 }
 
 // generateListeningPorts returns four ints representing ports to listen on

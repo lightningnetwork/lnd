@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -52,6 +53,60 @@ import (
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/require"
 )
+
+const (
+	// defaultSplitTranches is the default number of tranches we split the
+	// test cases into.
+	defaultSplitTranches uint = 1
+
+	// defaultRunTranche is the default index of the test cases tranche that
+	// we run.
+	defaultRunTranche uint = 0
+)
+
+var (
+	// testCasesSplitParts is the number of tranches the test cases should
+	// be split into. By default this is set to 1, so no splitting happens.
+	// If this value is increased, then the -runtranche flag must be
+	// specified as well to indicate which part should be run in the current
+	// invocation.
+	testCasesSplitTranches = flag.Uint(
+		"splittranches", defaultSplitTranches, "split the test cases "+
+			"in this many tranches and run the tranche at "+
+			"0-based index specified by the -runtranche flag",
+	)
+
+	// testCasesRunTranche is the 0-based index of the split test cases
+	// tranche to run in the current invocation.
+	testCasesRunTranche = flag.Uint(
+		"runtranche", defaultRunTranche, "run the tranche of the "+
+			"split test cases with the given (0-based) index",
+	)
+)
+
+// getTestCaseSplitTranche returns the sub slice of the test cases that should
+// be run as the current split tranche as well as the index and slice offset of
+// the tranche.
+func getTestCaseSplitTranche() ([]*testCase, uint, uint) {
+	numTranches := defaultSplitTranches
+	if testCasesSplitTranches != nil {
+		numTranches = *testCasesSplitTranches
+	}
+	runTranche := defaultRunTranche
+	if testCasesRunTranche != nil {
+		runTranche = *testCasesRunTranche
+	}
+
+	numCases := uint(len(allTestCases))
+	testsPerTranche := numCases / numTranches
+	trancheOffset := runTranche * testsPerTranche
+	trancheEnd := trancheOffset + testsPerTranche
+	if trancheEnd > numCases || runTranche == numTranches-1 {
+		trancheEnd = numCases
+	}
+
+	return allTestCases[trancheOffset:trancheEnd], runTranche, trancheOffset
+}
 
 func rpcPointToWirePoint(t *harnessTest, chanPoint *lnrpc.ChannelPoint) wire.OutPoint {
 	txid, err := lnd.GetChanPointFundingTxid(chanPoint)
@@ -14098,9 +14153,13 @@ func getPaymentResult(stream routerrpc.Router_SendPaymentV2Client) (
 // programmatically driven network of lnd nodes.
 func TestLightningNetworkDaemon(t *testing.T) {
 	// If no tests are registered, then we can exit early.
-	if len(testsCases) == 0 {
+	if len(allTestCases) == 0 {
 		t.Skip("integration tests not selected with flag 'rpctest'")
 	}
+
+	// Parse testing flags that influence our test execution.
+	testCases, trancheIndex, trancheOffset := getTestCaseSplitTranche()
+	lntest.ApplyPortOffset(uint32(trancheIndex) * 1000)
 
 	ht := newHarnessTest(t, nil)
 
@@ -14149,8 +14208,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 
 	// Connect chainbackend to miner.
 	require.NoError(
-		t, chainBackend.ConnectMiner(),
-		"failed to connect to miner",
+		t, chainBackend.ConnectMiner(), "failed to connect to miner",
 	)
 
 	binary := itestLndBinary
@@ -14187,7 +14245,8 @@ func TestLightningNetworkDaemon(t *testing.T) {
 				if !more {
 					return
 				}
-				ht.Logf("lnd finished with error (stderr):\n%v", err)
+				ht.Logf("lnd finished with error (stderr):\n%v",
+					err)
 			}
 		}
 	}()
@@ -14210,8 +14269,9 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		ht.Fatalf("unable to set up test lightning network: %v", err)
 	}
 
-	t.Logf("Running %v integration tests", len(testsCases))
-	for _, testCase := range testsCases {
+	// Run the subset of the test cases selected in this tranche.
+	for idx, testCase := range testCases {
+		testCase := testCase
 		logLine := fmt.Sprintf("STARTING ============ %v ============\n",
 			testCase.name)
 
@@ -14232,7 +14292,10 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		// Start every test with the default static fee estimate.
 		lndHarness.SetFeeEstimate(12500)
 
-		success := t.Run(testCase.name, func(t1 *testing.T) {
+		name := fmt.Sprintf("%02d-of-%d/%s/%s",
+			trancheOffset+uint(idx)+1, len(allTestCases),
+			chainBackend.Name(), testCase.name)
+		success := t.Run(name, func(t1 *testing.T) {
 			ht := newHarnessTest(t1, lndHarness)
 			ht.RunTestCase(testCase)
 		})
@@ -14242,8 +14305,9 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		if !success {
 			// Log failure time to help relate the lnd logs to the
 			// failure.
-			t.Logf("Failure time: %v",
-				time.Now().Format("2006-01-02 15:04:05.000"))
+			t.Logf("Failure time: %v", time.Now().Format(
+				"2006-01-02 15:04:05.000",
+			))
 			break
 		}
 	}

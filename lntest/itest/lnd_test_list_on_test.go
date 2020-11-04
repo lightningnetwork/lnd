@@ -2,7 +2,7 @@
 
 package itest
 
-var testsCases = []*testCase{
+var allTestCases = []*testCase{
 	{
 		name: "sweep coins",
 		test: testSweepAllCoins,

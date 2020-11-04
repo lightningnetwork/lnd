@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -93,10 +92,10 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string) (
 			fmt.Errorf("unable to create temp directory: %v", err)
 	}
 
-	zmqBlockPath := "ipc:///" + tempBitcoindDir + "/blocks.socket"
-	zmqTxPath := "ipc:///" + tempBitcoindDir + "/txs.socket"
-	rpcPort := rand.Int()%(65536-1024) + 1024
-	p2pPort := rand.Int()%(65536-1024) + 1024
+	zmqBlockAddr := fmt.Sprintf("tcp://127.0.0.1:%d", nextAvailablePort())
+	zmqTxAddr := fmt.Sprintf("tcp://127.0.0.1:%d", nextAvailablePort())
+	rpcPort := nextAvailablePort()
+	p2pPort := nextAvailablePort()
 
 	cmdArgs := []string{
 		"-datadir=" + tempBitcoindDir,
@@ -106,8 +105,8 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string) (
 			"220110063096c221be9933c82d38e1",
 		fmt.Sprintf("-rpcport=%d", rpcPort),
 		fmt.Sprintf("-port=%d", p2pPort),
-		"-zmqpubrawblock=" + zmqBlockPath,
-		"-zmqpubrawtx=" + zmqTxPath,
+		"-zmqpubrawblock=" + zmqBlockAddr,
+		"-zmqpubrawtx=" + zmqTxAddr,
 		"-debuglogfile=" + logFile,
 	}
 	cmdArgs = append(cmdArgs, extraArgs...)
@@ -178,8 +177,8 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string) (
 		rpcHost:      rpcHost,
 		rpcUser:      rpcUser,
 		rpcPass:      rpcPass,
-		zmqBlockPath: zmqBlockPath,
-		zmqTxPath:    zmqTxPath,
+		zmqBlockPath: zmqBlockAddr,
+		zmqTxPath:    zmqTxAddr,
 		p2pPort:      p2pPort,
 		rpcClient:    client,
 		minerAddr:    miner,

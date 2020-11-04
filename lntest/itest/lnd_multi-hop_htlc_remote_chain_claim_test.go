@@ -101,15 +101,17 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// bob will attempt to redeem his anchor commitment (if the channel
 	// type is of that type).
 	if c == commitTypeAnchors {
-		_, err = waitForNTxsInMempool(net.Miner.Node, 1, minerMempoolTimeout)
+		_, err = waitForNTxsInMempool(
+			net.Miner.Node, 1, minerMempoolTimeout,
+		)
 		if err != nil {
-			t.Fatalf("unable to find bob's anchor commit sweep: %v", err)
-
+			t.Fatalf("unable to find bob's anchor commit sweep: %v",
+				err)
 		}
 	}
 
 	// Mine enough blocks for Alice to sweep her funds from the force
-	// closed channel. closeCHannelAndAssertType() already mined a block
+	// closed channel. closeChannelAndAssertType() already mined a block
 	// containing the commitment tx and the commit sweep tx will be
 	// broadcast immediately before it can be included in a block, so mine
 	// one less than defaultCSV in order to perform mempool assertions.

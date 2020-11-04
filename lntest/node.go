@@ -70,6 +70,10 @@ var (
 	logOutput = flag.Bool("logoutput", false,
 		"log output from node n to file output-n.log")
 
+	// logSubDir is the default directory where the logs are written to if
+	// logOutput is true.
+	logSubDir = flag.String("logdir", ".", "default dir to write logs to")
+
 	// goroutineDump is a flag that can be set to dump the active
 	// goroutines of test nodes on failure.
 	goroutineDump = flag.Bool("goroutinedump", false,
@@ -108,6 +112,15 @@ func nextAvailablePort() int {
 // possible to run the tests in parallel without colliding on the same ports.
 func ApplyPortOffset(offset uint32) {
 	_ = atomic.AddUint32(&lastPort, offset)
+}
+
+// GetLogDir returns the passed --logdir flag or the default value if it wasn't
+// set.
+func GetLogDir() string {
+	if logSubDir != nil && *logSubDir != "" {
+		return *logSubDir
+	}
+	return "."
 }
 
 // generateListeningPorts returns four ints representing ports to listen on
@@ -392,11 +405,9 @@ func NewMiner(logDir, logFilename string, netParams *chaincfg.Params,
 
 		// After shutting down the miner, we'll make a copy of the log
 		// file before deleting the temporary log dir.
-		logFile := fmt.Sprintf(
-			"%s/%s/btcd.log", logDir, netParams.Name,
-		)
-		copyPath := fmt.Sprintf("./%s", logFilename)
-		err := CopyFile(copyPath, logFile)
+		logFile := fmt.Sprintf("%s/%s/btcd.log", logDir, netParams.Name)
+		copyPath := fmt.Sprintf("%s/../%s", logDir, logFilename)
+		err := CopyFile(filepath.Clean(copyPath), logFile)
 		if err != nil {
 			return fmt.Errorf("unable to copy file: %v", err)
 		}
@@ -481,24 +492,28 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error) error {
 	// If the logoutput flag is passed, redirect output from the nodes to
 	// log files.
 	if *logOutput {
-		fileName := fmt.Sprintf("output-%d-%s-%s.log", hn.NodeID,
+		dir := GetLogDir()
+		fileName := fmt.Sprintf("%s/output-%d-%s-%s.log", dir, hn.NodeID,
 			hn.Cfg.Name, hex.EncodeToString(hn.PubKey[:logPubKeyBytes]))
 
 		// If the node's PubKey is not yet initialized, create a temporary
 		// file name. Later, after the PubKey has been initialized, the
 		// file can be moved to its final name with the PubKey included.
 		if bytes.Equal(hn.PubKey[:4], []byte{0, 0, 0, 0}) {
-			fileName = fmt.Sprintf("output-%d-%s-tmp__.log", hn.NodeID,
-				hn.Cfg.Name)
+			fileName = fmt.Sprintf("%s/output-%d-%s-tmp__.log",
+				dir, hn.NodeID, hn.Cfg.Name)
 
 			// Once the node has done its work, the log file can be renamed.
 			finalizeLogfile = func() {
 				if hn.logFile != nil {
 					hn.logFile.Close()
 
-					newFileName := fmt.Sprintf("output-%d-%s-%s.log",
-						hn.NodeID, hn.Cfg.Name,
-						hex.EncodeToString(hn.PubKey[:logPubKeyBytes]))
+					pubKeyHex := hex.EncodeToString(
+						hn.PubKey[:logPubKeyBytes],
+					)
+					newFileName := fmt.Sprintf("%s/output"+
+						"-%d-%s-%s.log", dir, hn.NodeID,
+						hn.Cfg.Name, pubKeyHex)
 					err := os.Rename(fileName, newFileName)
 					if err != nil {
 						fmt.Printf("could not rename "+

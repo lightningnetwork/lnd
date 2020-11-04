@@ -14,8 +14,8 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 )
 
-// logDir is the name of the temporary log directory.
-const logDir = "./.backendlogs"
+// logDirPattern is the pattern of the name of the temporary log directory.
+const logDirPattern = "%s/.backendlogs"
 
 // temp is used to signal we want to establish a temporary connection using the
 // btcd Node API.
@@ -75,12 +75,13 @@ func (b BtcdBackendConfig) Name() string {
 func NewBackend(miner string, netParams *chaincfg.Params) (
 	*BtcdBackendConfig, func() error, error) {
 
+	baseLogDir := fmt.Sprintf(logDirPattern, GetLogDir())
 	args := []string{
 		"--rejectnonstd",
 		"--txindex",
 		"--trickleinterval=100ms",
 		"--debuglevel=debug",
-		"--logdir=" + logDir,
+		"--logdir=" + baseLogDir,
 		"--nowinservice",
 		// The miner will get banned and disconnected from the node if
 		// its requested data are not found. We add a nobanning flag to
@@ -110,14 +111,17 @@ func NewBackend(miner string, netParams *chaincfg.Params) (
 
 		// After shutting down the chain backend, we'll make a copy of
 		// the log file before deleting the temporary log dir.
-		logFile := logDir + "/" + netParams.Name + "/btcd.log"
-		err := CopyFile("./output_btcd_chainbackend.log", logFile)
+		logFile := baseLogDir + "/" + netParams.Name + "/btcd.log"
+		logDestination := fmt.Sprintf(
+			"%s/output_btcd_chainbackend.log", GetLogDir(),
+		)
+		err := CopyFile(logDestination, logFile)
 		if err != nil {
 			errStr += fmt.Sprintf("unable to copy file: %v\n", err)
 		}
-		if err = os.RemoveAll(logDir); err != nil {
+		if err = os.RemoveAll(baseLogDir); err != nil {
 			errStr += fmt.Sprintf(
-				"cannot remove dir %s: %v\n", logDir, err,
+				"cannot remove dir %s: %v\n", baseLogDir, err,
 			)
 		}
 		if errStr != "" {

@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14213,23 +14212,9 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		t, chainBackend.ConnectMiner(), "failed to connect to miner",
 	)
 
-	binary := itestLndBinary
-	if runtime.GOOS == "windows" {
-		// Windows (even in a bash like environment like git bash as on
-		// Travis) doesn't seem to like relative paths to exe files...
-		currentDir, err := os.Getwd()
-		if err != nil {
-			ht.Fatalf("unable to get working directory: %v", err)
-		}
-		targetPath := filepath.Join(currentDir, "../../lnd-itest.exe")
-		binary, err = filepath.Abs(targetPath)
-		if err != nil {
-			ht.Fatalf("unable to get absolute path: %v", err)
-		}
-	}
-
 	// Now we can set up our test harness (LND instance), with the chain
 	// backend we just created.
+	binary := ht.getLndBinary()
 	lndHarness, err = lntest.NewNetworkHarness(miner, chainBackend, binary)
 	if err != nil {
 		ht.Fatalf("unable to create lightning network harness: %v", err)

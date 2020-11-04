@@ -50,32 +50,30 @@ jobs:
     - stage: Integration Test
       name: Btcd Integration
       script:
-        - make itest
+        - make itest-parallel
 
     - name: Bitcoind Integration (txindex enabled)
       script:
         - bash ./scripts/install_bitcoind.sh
-        - make itest backend=bitcoind
+        - make itest-parallel backend=bitcoind
 
     - name: Bitcoind Integration (txindex disabled)
       script:
         - bash ./scripts/install_bitcoind.sh
-        - make itest backend="bitcoind notxindex"
+        - make itest-parallel backend="bitcoind notxindex"
 
     - name: Neutrino Integration
       script:
-        - make itest backend=neutrino
+        - make itest-parallel backend=neutrino
 
     - name: Btcd Integration ARM
       script:
-        - GOARM=7 GOARCH=arm GOOS=linux CGO_ENABLED=0 make btcd build-itest
-        - file lnd-itest
-        - GOARM=7 GOARCH=arm GOOS=linux CGO_ENABLED=0 make itest-only
+        - GOARM=7 GOARCH=arm GOOS=linux make itest-parallel
       arch: arm64
 
     - name: Btcd Integration Windows
       script:
-        - make itest-windows
+        - make itest-parallel-windows
       os: windows
       before_install:
         - choco upgrade --no-progress -y make netcat curl findutils
@@ -85,7 +83,8 @@ jobs:
           case $TRAVIS_OS_NAME in
             windows)
               echo "Uploading to termbin.com..."
-              for f in ./lntest/itest/*.log; do cat $f | nc termbin.com 9999 | xargs -r0 printf "$f"' uploaded to %s'; done
+              LOG_FILES=$(find ./lntest/itest -name '*.log')
+              for f in $LOG_FILES; do echo -n $f; cat $f | nc termbin.com 9999 | xargs -r0 printf ' uploaded to %s'; done
               ;;
           esac
 
@@ -97,8 +96,8 @@ after_failure:
         ;;
 
       *)
-        LOG_FILES=./lntest/itest/*.log
-        echo "Uploading to termbin.com..." && find $LOG_FILES | xargs -I{} sh -c "cat {} | nc termbin.com 9999 | xargs -r0 printf '{} uploaded to %s'"
+        LOG_FILES=$(find ./lntest/itest -name '*.log')
+        echo "Uploading to termbin.com..." && for f in $LOG_FILES; do echo -n $f; cat $f | nc termbin.com 9999 | xargs -r0 printf ' uploaded to %s'; done
         echo "Uploading to file.io..." && tar -zcvO $LOG_FILES | curl -s -F 'file=@-;filename=logs.tar.gz' https://file.io | xargs -r0 printf 'logs.tar.gz uploaded to %s\n'
         ;;
     esac

@@ -15,8 +15,8 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 )
 
-// logDir is the name of the temporary log directory.
-const logDir = "./.backendlogs"
+// logDirPattern is the pattern of the name of the temporary log directory.
+const logDirPattern = "%s/.backendlogs"
 
 // BitcoindBackendConfig is an implementation of the BackendConfig interface
 // backed by a Bitcoind node.
@@ -73,15 +73,16 @@ func (b BitcoindBackendConfig) Name() string {
 func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string) (
 	*BitcoindBackendConfig, func() error, error) {
 
+	baseLogDir := fmt.Sprintf(logDirPattern, GetLogDir())
 	if netParams != &chaincfg.RegressionNetParams {
 		return nil, nil, fmt.Errorf("only regtest supported")
 	}
 
-	if err := os.MkdirAll(logDir, 0700); err != nil {
+	if err := os.MkdirAll(baseLogDir, 0700); err != nil {
 		return nil, nil, err
 	}
 
-	logFile, err := filepath.Abs(logDir + "/bitcoind.log")
+	logFile, err := filepath.Abs(baseLogDir + "/bitcoind.log")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -128,13 +129,16 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string) (
 		var errStr string
 		// After shutting down the chain backend, we'll make a copy of
 		// the log file before deleting the temporary log dir.
-		err := CopyFile("./output_bitcoind_chainbackend.log", logFile)
+		logDestination := fmt.Sprintf(
+			"%s/output_bitcoind_chainbackend.log", GetLogDir(),
+		)
+		err := CopyFile(logDestination, logFile)
 		if err != nil {
 			errStr += fmt.Sprintf("unable to copy file: %v\n", err)
 		}
-		if err = os.RemoveAll(logDir); err != nil {
+		if err = os.RemoveAll(baseLogDir); err != nil {
 			errStr += fmt.Sprintf(
-				"cannot remove dir %s: %v\n", logDir, err,
+				"cannot remove dir %s: %v\n", baseLogDir, err,
 			)
 		}
 		if err := os.RemoveAll(tempBitcoindDir); err != nil {

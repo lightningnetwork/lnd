@@ -13,68 +13,40 @@ This section enumerates what you need to do to write a client that communicates 
 
 `lnd` uses the `gRPC` protocol for communication with clients like `lncli`.
 
-`gRPC` is based on protocol buffers, and as such, you will need to compile the `lnd` proto file in C# before you can use it to communicate with `lnd`.
+.NET natively supports gRPC proto files and generates the necessary C# classes. You can see the official Microsoft gRPC documentation [here](https://docs.microsoft.com/en-gb/aspnet/core/grpc/?view=aspnetcore-3.1)
 
 This assumes you are using a Windows machine, but it applies equally to Mac and Linux.
 
-Create a new `.net core` console application called `lndclient` at your root directory (On Windows : `C:/`), and install `Grpc.Tools` (1.17.0 at time of writing)
+Create a new `.net core` console application called `lndclient` at your root directory (On Windows : `C:/`).
 
-```bash
-mkdir lndclient
-cd lndclient
-dotnet new console
-dotnet add package Grpc.Tools --version 1.17.0
-```
+Create a folder `Grpc` in the root of your project and fetch the lnd proto files
 
-* Create the necessary folder structure, and then fetch the lnd [rpc.proto](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/rpc.proto) file:
 ```bash
 mkdir Grpc
 curl -o Grpc/rpc.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/rpc.proto
 ```
 
-* Copy Google's [annotations.proto](https://github.com/googleapis/googleapis/blob/master/google/api/annotations.proto) to the correct folder:
+Install `Grpc.Tools`, `Google.Protobuf`, `Grpc.Core` using NuGet or manually with `dotnet add`:
+
 ```bash
-mkdir Grpc/google
-mkdir Grpc/google/api
-curl -o Grpc/google/api/annotations.proto -s https://raw.githubusercontent.com/googleapis/googleapis/master/google/api/annotations.proto
+dotnet add package Grpc.Tools
+dotnet add package Google.Protobuf
+dotnet add package Grpc.Core
 ```
 
-* Copy Google's [http.proto](https://github.com/googleapis/googleapis/blob/master/google/api/http.proto) to the correct folder:
-```bash
-curl -o Grpc/google/api/http.proto -s https://raw.githubusercontent.com/googleapis/googleapis/master/google/api/http.proto
+Add the `rpc.proto` file to the `.csproj` file in an ItemGroup. (In Visual Studio you can do this by unloading the project, editing the `.csproj` file and then reloading it)
+
+```
+<ItemGroup>
+   <Protobuf Include="Grpc\rpc.proto" GrpcServices="Client" />
+</ItemGroup>
 ```
 
-* Copy Google's [descriptor.proto](https://github.com/protocolbuffers/protobuf/blob/master/src/google/protobuf/descriptor.proto) to the correct folder:
-```bash
-mkdir Grpc/google/protobuf
-curl -o Grpc/google/protobuf/descriptor.proto -s https://raw.githubusercontent.com/protocolbuffers/protobuf/master/src/google/protobuf/descriptor.proto
-```
-
-* Compile the proto file using `protoc.exe` from nuget package `Grpc.Tools` (possibly replace "YOUR_USER", version "1.17.0", or your OS in both paths):
-```bash
-# linux + mac nuget package location: ~/.nuget/packages
-cd Grpc
-C:/Users/<YOUR_USER>/.nuget/packages/grpc.tools/1.17.0/tools/windows_x64/protoc.exe --csharp_out . --grpc_out . rpc.proto --plugin=protoc-gen-grpc=C:/Users/<YOUR_USER>/.nuget/packages/grpc.tools/1.17.0/tools/windows_x64/grpc_csharp_plugin.exe
-```
-
-
-After following these steps, two files `Rpc.cs` and `RpcGrpc.cs` will be generated in the `Grpc` folder in your project.
-
-
+You're done! Build the project and verify that it works.
 
 #### Imports and Client
 
-Every time you use C# `gRPC`, you will have to import the generated rpc classes, and use `nuget` package manger to install `Grpc.Core` (1.17.0 at time of writing), `Google.Protobuf` (3.6.1), and `Google.Api.CommonProtos` (1.4.0).
-
-```bash
-# from project root, install packages using nuget 
-cd ../
-dotnet add package Grpc.Core --version 1.17.0
-dotnet add package Google.Protobuf --version 3.6.1
-dotnet add package Google.Api.CommonProtos --version 1.4.0
-```
-
-After installing these, use the code below to set up a channel and client to connect to your `lnd` node:
+Use the code below to set up a channel and client to connect to your `lnd` node:
 
 ```c#
 

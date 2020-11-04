@@ -1012,6 +1012,10 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	require.Contains(t.t, err.Error(), "cannot close channel with state: ")
 	require.Contains(t.t, err.Error(), "ChanStatusRestored")
 
+	// Increase the fee estimate so that the following force close tx will
+	// be cpfp'ed in case of anchor commitments.
+	net.SetFeeEstimate(30000)
+
 	// Now that we have ensured that the channels restored by the backup are
 	// in the correct state even without the remote peer telling us so,
 	// let's start up Carol again.

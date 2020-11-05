@@ -2,6 +2,7 @@ package chanfunding
 
 import (
 	"encoding/hex"
+	"regexp"
 	"testing"
 
 	"github.com/btcsuite/btcd/wire"
@@ -205,18 +206,26 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 	t.Parallel()
 
 	const feeRate = chainfee.SatPerKWeight(100)
+	const highFeeRate = chainfee.SatPerKWeight(1000)
 	const dustLimit = btcutil.Amount(1000)
 	const dust = btcutil.Amount(100)
 
+	// removeAmounts replaces any amounts in string with "<amt>".
+	removeAmounts := func(s string) string {
+		re := regexp.MustCompile(`[[:digit:]]+\.?[[:digit:]]*`)
+		return re.ReplaceAllString(s, "<amt>")
+	}
+
 	type testCase struct {
 		name       string
+		highFee    bool
 		spendValue btcutil.Amount
 		coins      []Coin
 
 		expectedInput      []btcutil.Amount
 		expectedFundingAmt btcutil.Amount
 		expectedChange     btcutil.Amount
-		expectErr          bool
+		expectErr          string
 	}
 
 	testCases := []testCase{
@@ -243,6 +252,27 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 			expectedChange:     0,
 		},
 		{
+			// We have 1.0 BTC available and spend half of it. This
+			// should lead to a funding TX with a change output.
+			name: "spend with change",
+			coins: []Coin{
+				{
+					TxOut: wire.TxOut{
+						PkScript: p2wkhScript,
+						Value:    1 * btcutil.SatoshiPerBitcoin,
+					},
+				},
+			},
+			spendValue: 0.5 * btcutil.SatoshiPerBitcoin,
+
+			// The one and only input will be selected.
+			expectedInput: []btcutil.Amount{
+				1 * btcutil.SatoshiPerBitcoin,
+			},
+			expectedFundingAmt: 0.5*btcutil.SatoshiPerBitcoin - fundingFee(feeRate, 1, true),
+			expectedChange:     0.5 * btcutil.SatoshiPerBitcoin,
+		},
+		{
 			// The total funds available is below the dust limit
 			// after paying fees.
 			name: "dust output",
@@ -250,13 +280,14 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 				{
 					TxOut: wire.TxOut{
 						PkScript: p2wkhScript,
-						Value:    int64(fundingFee(feeRate, 1, false) + dust),
+						Value:    int64(fundingFee(feeRate, 1, false) + dustLimit),
 					},
 				},
 			},
 			spendValue: fundingFee(feeRate, 1, false) + dust,
 
-			expectErr: true,
+			expectErr: "output amount(<amt> BTC) after subtracting " +
+				"fees(<amt> BTC) below dust limit(<amt> BTC)",
 		},
 		{
 			// After subtracting fees, the resulting change output
@@ -320,18 +351,19 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 		},
 		{
 			// If more than 20% of funds goes to fees, it should fail.
-			name: "high fee",
+			name:    "high fee",
+			highFee: true,
 			coins: []Coin{
 				{
 					TxOut: wire.TxOut{
 						PkScript: p2wkhScript,
-						Value:    int64(5 * fundingFee(feeRate, 1, false)),
+						Value:    int64(5 * fundingFee(highFeeRate, 1, false)),
 					},
 				},
 			},
-			spendValue: 5 * fundingFee(feeRate, 1, false),
+			spendValue: 5 * fundingFee(highFeeRate, 1, false),
 
-			expectErr: true,
+			expectErr: "fee <amt> BTC on total output value <amt> BTC",
 		},
 	}
 
@@ -339,20 +371,34 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
+			feeRate := feeRate
+			if test.highFee {
+				feeRate = highFeeRate
+			}
+
 			selected, localFundingAmt, changeAmt, err := CoinSelectSubtractFees(
 				feeRate, test.spendValue, dustLimit, test.coins,
 			)
-			if !test.expectErr && err != nil {
-				t.Fatalf(err.Error())
+			if err != nil {
+				switch {
+				case test.expectErr == "":
+					t.Fatalf(err.Error())
+
+				case test.expectErr != removeAmounts(err.Error()):
+					t.Fatalf("expected error '%v', got '%v'",
+						test.expectErr,
+						removeAmounts(err.Error()))
+
+				// If we got an expected error, there is
+				// nothing more to test.
+				default:
+					return
+				}
 			}
 
-			if test.expectErr && err == nil {
+			// Check that there was no expected error we missed.
+			if test.expectErr != "" {
 				t.Fatalf("expected error")
-			}
-
-			// If we got an expected error, there is nothing more to test.
-			if test.expectErr {
-				return
 			}
 
 			// Check that the selected inputs match what we expect.

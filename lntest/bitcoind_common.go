@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,8 +15,8 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 )
 
-// logDir is the name of the temporary log directory.
-const logDir = "./.backendlogs"
+// logDirPattern is the pattern of the name of the temporary log directory.
+const logDirPattern = "%s/.backendlogs"
 
 // BitcoindBackendConfig is an implementation of the BackendConfig interface
 // backed by a Bitcoind node.
@@ -74,15 +73,16 @@ func (b BitcoindBackendConfig) Name() string {
 func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string) (
 	*BitcoindBackendConfig, func() error, error) {
 
+	baseLogDir := fmt.Sprintf(logDirPattern, GetLogDir())
 	if netParams != &chaincfg.RegressionNetParams {
 		return nil, nil, fmt.Errorf("only regtest supported")
 	}
 
-	if err := os.MkdirAll(logDir, 0700); err != nil {
+	if err := os.MkdirAll(baseLogDir, 0700); err != nil {
 		return nil, nil, err
 	}
 
-	logFile, err := filepath.Abs(logDir + "/bitcoind.log")
+	logFile, err := filepath.Abs(baseLogDir + "/bitcoind.log")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -93,10 +93,10 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string) (
 			fmt.Errorf("unable to create temp directory: %v", err)
 	}
 
-	zmqBlockPath := "ipc:///" + tempBitcoindDir + "/blocks.socket"
-	zmqTxPath := "ipc:///" + tempBitcoindDir + "/txs.socket"
-	rpcPort := rand.Int()%(65536-1024) + 1024
-	p2pPort := rand.Int()%(65536-1024) + 1024
+	zmqBlockAddr := fmt.Sprintf("tcp://127.0.0.1:%d", nextAvailablePort())
+	zmqTxAddr := fmt.Sprintf("tcp://127.0.0.1:%d", nextAvailablePort())
+	rpcPort := nextAvailablePort()
+	p2pPort := nextAvailablePort()
 
 	cmdArgs := []string{
 		"-datadir=" + tempBitcoindDir,
@@ -106,8 +106,8 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string) (
 			"220110063096c221be9933c82d38e1",
 		fmt.Sprintf("-rpcport=%d", rpcPort),
 		fmt.Sprintf("-port=%d", p2pPort),
-		"-zmqpubrawblock=" + zmqBlockPath,
-		"-zmqpubrawtx=" + zmqTxPath,
+		"-zmqpubrawblock=" + zmqBlockAddr,
+		"-zmqpubrawtx=" + zmqTxAddr,
 		"-debuglogfile=" + logFile,
 	}
 	cmdArgs = append(cmdArgs, extraArgs...)
@@ -129,13 +129,16 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string) (
 		var errStr string
 		// After shutting down the chain backend, we'll make a copy of
 		// the log file before deleting the temporary log dir.
-		err := CopyFile("./output_bitcoind_chainbackend.log", logFile)
+		logDestination := fmt.Sprintf(
+			"%s/output_bitcoind_chainbackend.log", GetLogDir(),
+		)
+		err := CopyFile(logDestination, logFile)
 		if err != nil {
 			errStr += fmt.Sprintf("unable to copy file: %v\n", err)
 		}
-		if err = os.RemoveAll(logDir); err != nil {
+		if err = os.RemoveAll(baseLogDir); err != nil {
 			errStr += fmt.Sprintf(
-				"cannot remove dir %s: %v\n", logDir, err,
+				"cannot remove dir %s: %v\n", baseLogDir, err,
 			)
 		}
 		if err := os.RemoveAll(tempBitcoindDir); err != nil {
@@ -178,8 +181,8 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string) (
 		rpcHost:      rpcHost,
 		rpcUser:      rpcUser,
 		rpcPass:      rpcPass,
-		zmqBlockPath: zmqBlockPath,
-		zmqTxPath:    zmqTxPath,
+		zmqBlockPath: zmqBlockAddr,
+		zmqTxPath:    zmqTxAddr,
 		p2pPort:      p2pPort,
 		rpcClient:    client,
 		minerAddr:    miner,

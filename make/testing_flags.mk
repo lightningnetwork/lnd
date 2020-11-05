@@ -3,10 +3,16 @@ RPC_TAGS = autopilotrpc chainrpc invoicesrpc routerrpc signrpc verrpc walletrpc 
 LOG_TAGS =
 TEST_FLAGS =
 COVER_PKG = $$(go list -deps ./... | grep '$(PKG)' | grep -v lnrpc)
+NUM_ITEST_TRANCHES = 6
 
 # If rpc option is set also add all extra RPC tags to DEV_TAGS
 ifneq ($(with-rpc),)
 DEV_TAGS += $(RPC_TAGS)
+endif
+
+# Scale the number of parallel running itest tranches.
+ifneq ($(tranches),)
+NUM_ITEST_TRANCHES = $(tranches)
 endif
 
 # If specific package is being unit tested, construct the full name of the
@@ -25,7 +31,7 @@ endif
 
 # Define the integration test.run filter if the icase argument was provided.
 ifneq ($(icase),)
-TEST_FLAGS += -test.run=TestLightningNetworkDaemon/$(icase)
+TEST_FLAGS += -test.run="TestLightningNetworkDaemon/.*-of-.*/.*/$(icase)"
 endif
 
 ifneq ($(tags),)

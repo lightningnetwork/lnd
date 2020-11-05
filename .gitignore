@@ -36,6 +36,8 @@ lntest/itest/output*.log
 lntest/itest/pprof*.log
 lntest/itest/.backendlogs
 lntest/itest/.minerlogs
+lntest/itest/lnd-itest
+lntest/itest/.logs-*
 
 cmd/cmd
 *.key

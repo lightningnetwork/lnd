@@ -132,6 +132,9 @@ type reservationWithCtx struct {
 	remoteMaxValue lnwire.MilliSatoshi
 	remoteMaxHtlcs uint16
 
+	// maxLocalCsv is the maximum csv we will accept from the remote.
+	maxLocalCsv uint16
+
 	updateMtx   sync.RWMutex
 	lastUpdated time.Time
 
@@ -338,6 +341,10 @@ type fundingConfig struct {
 	// RejectPush is set true if the fundingmanager should reject any
 	// incoming channels having a non-zero push amount.
 	RejectPush bool
+
+	// MaxLocalCSVDelay is the maximum csv delay we will allow for our
+	// commit output. Channels that exceed this value will be failed.
+	MaxLocalCSVDelay uint16
 
 	// NotifyOpenChannelEvent informs the ChannelNotifier when channels
 	// transition from pending open to open.
@@ -1342,7 +1349,9 @@ func (f *fundingManager) handleFundingOpen(peer lnpeer.Peer,
 		MaxAcceptedHtlcs: msg.MaxAcceptedHTLCs,
 		CsvDelay:         msg.CsvDelay,
 	}
-	err = reservation.CommitConstraints(channelConstraints)
+	err = reservation.CommitConstraints(
+		channelConstraints, f.cfg.MaxLocalCSVDelay,
+	)
 	if err != nil {
 		fndgLog.Errorf("Unacceptable channel constraints: %v", err)
 		f.failFundingFlow(peer, msg.PendingChannelID, err)
@@ -1398,6 +1407,7 @@ func (f *fundingManager) handleFundingOpen(peer lnpeer.Peer,
 		remoteMinHtlc:  minHtlc,
 		remoteMaxValue: remoteMaxValue,
 		remoteMaxHtlcs: maxHtlcs,
+		maxLocalCsv:    f.cfg.MaxLocalCSVDelay,
 		err:            make(chan error, 1),
 		peer:           peer,
 	}
@@ -1525,7 +1535,9 @@ func (f *fundingManager) handleFundingAccept(peer lnpeer.Peer,
 		MaxAcceptedHtlcs: msg.MaxAcceptedHTLCs,
 		CsvDelay:         msg.CsvDelay,
 	}
-	err = resCtx.reservation.CommitConstraints(channelConstraints)
+	err = resCtx.reservation.CommitConstraints(
+		channelConstraints, resCtx.maxLocalCsv,
+	)
 	if err != nil {
 		fndgLog.Warnf("Unacceptable channel constraints: %v", err)
 		f.failFundingFlow(peer, msg.PendingChannelID, err)
@@ -3056,7 +3068,14 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		remoteCsvDelay = msg.remoteCsvDelay
 		maxValue       = msg.maxValueInFlight
 		maxHtlcs       = msg.maxHtlcs
+		maxCSV         = msg.maxLocalCsv
 	)
+
+	// If no maximum CSV delay was set for this channel, we use our default
+	// value.
+	if maxCSV == 0 {
+		maxCSV = f.cfg.MaxLocalCSVDelay
+	}
 
 	// We'll determine our dust limit depending on which chain is active.
 	var ourDustLimit btcutil.Amount
@@ -3213,6 +3232,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		remoteMinHtlc:  minHtlcIn,
 		remoteMaxValue: maxValue,
 		remoteMaxHtlcs: maxHtlcs,
+		maxLocalCsv:    maxCSV,
 		reservation:    reservation,
 		peer:           msg.peer,
 		updates:        msg.updates,

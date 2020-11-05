@@ -1174,6 +1174,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		MaxChanSize:                   btcutil.Amount(cfg.MaxChanSize),
 		MaxPendingChannels:            cfg.MaxPendingChannels,
 		RejectPush:                    cfg.RejectPush,
+		MaxLocalCSVDelay:              chainCfg.MaxLocalDelay,
 		NotifyOpenChannelEvent:        s.channelNotifier.NotifyOpenChannelEvent,
 		OpenChannelPredicate:          chanPredicate,
 		NotifyPendingOpenChannelEvent: s.channelNotifier.NotifyPendingOpenChannelEvent,
@@ -3382,6 +3383,10 @@ type openChanReq struct {
 	maxValueInFlight lnwire.MilliSatoshi
 
 	maxHtlcs uint16
+
+	// maxLocalCsv is the maximum local csv delay we will accept from our
+	// peer.
+	maxLocalCsv uint16
 
 	// TODO(roasbeef): add ability to specify channel constraints as well
 

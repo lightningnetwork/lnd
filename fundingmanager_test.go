@@ -37,6 +37,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -433,6 +434,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		ZombieSweeperInterval:         1 * time.Hour,
 		ReservationTimeout:            1 * time.Nanosecond,
 		MaxChanSize:                   MaxFundingAmount,
+		MaxLocalCSVDelay:              defaultMaxLocalCSVDelay,
 		MaxPendingChannels:            lncfg.DefaultMaxPendingChannels,
 		NotifyOpenChannelEvent:        evt.NotifyOpenChannelEvent,
 		OpenChannelPredicate:          chainedAcceptor,
@@ -1271,6 +1273,159 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 	// The internal state-machine should now have deleted the channelStates
 	// from the database, as the channel is announced.
 	assertNoChannelState(t, alice, bob, fundingOutPoint)
+}
+
+// TestFundingManagerRejectCSV tests checking of local CSV values against our
+// local CSV limit for incoming and outgoing channels.
+func TestFundingManagerRejectCSV(t *testing.T) {
+	t.Run("csv too high", func(t *testing.T) {
+		testLocalCSVLimit(t, 400, 500)
+	})
+	t.Run("csv within limit", func(t *testing.T) {
+		testLocalCSVLimit(t, 600, 500)
+	})
+}
+
+// testLocalCSVLimit creates two funding managers, alice and bob, where alice
+// has a limit on her maximum local CSV and bob sets his required CSV for alice.
+// We test an incoming and outgoing channel, ensuring that alice accepts csvs
+// below her maximum, and rejects those above it.
+func testLocalCSVLimit(t *testing.T, aliceMaxCSV, bobRequiredCSV uint16) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	defer tearDownFundingManagers(t, alice, bob)
+
+	// Set a maximum local delay in alice's config to aliceMaxCSV and overwrite
+	// bob's required remote delay function to return bobRequiredCSV.
+	alice.fundingMgr.cfg.MaxLocalCSVDelay = aliceMaxCSV
+	bob.fundingMgr.cfg.RequiredRemoteDelay = func(_ btcutil.Amount) uint16 {
+		return bobRequiredCSV
+	}
+
+	// For convenience, we bump our max pending channels to 2 so that we
+	// can test incoming and outgoing channels without needing to step
+	// through the full funding process.
+	alice.fundingMgr.cfg.MaxPendingChannels = 2
+	bob.fundingMgr.cfg.MaxPendingChannels = 2
+
+	// If our maximum is less than the value bob sets, we expect this test
+	// to fail.
+	expectFail := aliceMaxCSV < bobRequiredCSV
+
+	// First, we will initiate an outgoing channel from Alice -> Bob.
+	errChan := make(chan error, 1)
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+	initReq := &openChanReq{
+		targetPubkey:    bob.privKey.PubKey(),
+		chainHash:       *fundingNetParams.GenesisHash,
+		localFundingAmt: 200000,
+		fundingFeePerKw: 1000,
+		updates:         updateChan,
+		err:             errChan,
+	}
+
+	// Alice should have sent the OpenChannel message to Bob.
+	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	var aliceMsg lnwire.Message
+	select {
+	case aliceMsg = <-alice.msgChan:
+
+	case err := <-initReq.err:
+		t.Fatalf("error init funding workflow: %v", err)
+
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not send OpenChannel message")
+	}
+
+	openChannelReq, ok := aliceMsg.(*lnwire.OpenChannel)
+	require.True(t, ok)
+
+	// Let Bob handle the init message.
+	bob.fundingMgr.ProcessFundingMsg(openChannelReq, alice)
+
+	// Bob should answer with an AcceptChannel message.
+	acceptChannelResponse := assertFundingMsgSent(
+		t, bob.msgChan, "AcceptChannel",
+	).(*lnwire.AcceptChannel)
+
+	// They now should both have pending reservations for this channel
+	// active.
+	assertNumPendingReservations(t, alice, bobPubKey, 1)
+	assertNumPendingReservations(t, bob, alicePubKey, 1)
+
+	// Forward the response to Alice.
+	alice.fundingMgr.ProcessFundingMsg(acceptChannelResponse, bob)
+
+	// At this point, Alice has received an AcceptChannel message from
+	// bob with the CSV value that he has set for her, and has to evaluate
+	// whether she wants to accept this channel. If we get an error, we
+	// assert that we expected the channel to fail, otherwise we assert that
+	// she proceeded with the channel open as usual.
+	select {
+	case err := <-errChan:
+		require.Error(t, err)
+		require.True(t, expectFail)
+
+	case msg := <-alice.msgChan:
+		_, ok := msg.(*lnwire.FundingCreated)
+		require.True(t, ok)
+		require.False(t, expectFail)
+
+	case <-time.After(time.Second):
+		t.Fatal("funding flow was not failed")
+	}
+
+	// We do not need to complete the rest of the funding flow (it is
+	// covered in other tests). So now we test that Alice will appropriately
+	// handle incoming channels, opening a channel from Bob->Alice.
+	errChan = make(chan error, 1)
+	updateChan = make(chan *lnrpc.OpenStatusUpdate)
+	initReq = &openChanReq{
+		targetPubkey:    alice.privKey.PubKey(),
+		chainHash:       *fundingNetParams.GenesisHash,
+		localFundingAmt: 200000,
+		fundingFeePerKw: 1000,
+		updates:         updateChan,
+		err:             errChan,
+	}
+
+	bob.fundingMgr.initFundingWorkflow(alice, initReq)
+
+	// Bob should have sent the OpenChannel message to Alice.
+	var bobMsg lnwire.Message
+	select {
+	case bobMsg = <-bob.msgChan:
+
+	case err := <-initReq.err:
+		t.Fatalf("bob OpenChannel message failed: %v", err)
+
+	case <-time.After(time.Second * 5):
+		t.Fatalf("bob did not send OpenChannel message")
+	}
+
+	openChannelReq, ok = bobMsg.(*lnwire.OpenChannel)
+	require.True(t, ok)
+
+	// Let Alice handle the init message.
+	alice.fundingMgr.ProcessFundingMsg(openChannelReq, bob)
+
+	// We expect a error message from Alice if we're expecting the channel
+	// to fail, otherwise we expect her to proceed with the channel as
+	// usual.
+	select {
+	case msg := <-alice.msgChan:
+		var ok bool
+		if expectFail {
+			_, ok = msg.(*lnwire.Error)
+		} else {
+			_, ok = msg.(*lnwire.AcceptChannel)
+		}
+		require.True(t, ok)
+
+	case <-time.After(time.Second * 5):
+		t.Fatal("funding flow was not failed")
+	}
 }
 
 func TestFundingManagerRestartBehavior(t *testing.T) {

@@ -95,7 +95,7 @@ func (db *DB) addPayment(payment *outgoingPayment) error {
 		binary.BigEndian.PutUint64(paymentIDBytes, paymentID)
 
 		return payments.Put(paymentIDBytes, paymentBytes)
-	})
+	}, func() {})
 }
 
 // fetchAllPayments returns all outgoing payments in DB.
@@ -126,6 +126,8 @@ func (db *DB) fetchAllPayments() ([]*outgoingPayment, error) {
 			payments = append(payments, payment)
 			return nil
 		})
+	}, func() {
+		payments = nil
 	})
 	if err != nil {
 		return nil, err
@@ -144,6 +146,8 @@ func (db *DB) fetchPaymentStatus(paymentHash [32]byte) (PaymentStatus, error) {
 		var err error
 		paymentStatus, err = fetchPaymentStatusTx(tx, paymentHash)
 		return err
+	}, func() {
+		paymentStatus = StatusUnknown
 	})
 	if err != nil {
 		return StatusUnknown, err
@@ -424,6 +428,8 @@ func (db *DB) fetchPaymentsMigration9() ([]*Payment, error) {
 				return nil
 			})
 		})
+	}, func() {
+		payments = nil
 	})
 	if err != nil {
 		return nil, err

@@ -131,7 +131,7 @@ func (d *DecayedLog) initBuckets() error {
 		}
 
 		return nil
-	})
+	}, func() {})
 }
 
 // Stop halts the garbage collector and closes boltdb.
@@ -280,6 +280,8 @@ func (d *DecayedLog) Get(hash *sphinx.HashPrefix) (uint32, error) {
 		value = uint32(binary.BigEndian.Uint32(valueBytes))
 
 		return nil
+	}, func() {
+		value = 0
 	})
 	if err != nil {
 		return value, err

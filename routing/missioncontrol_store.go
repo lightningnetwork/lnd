@@ -41,10 +41,7 @@ type missionControlStore struct {
 }
 
 func newMissionControlStore(db kvdb.Backend, maxRecords int) (*missionControlStore, error) {
-	store := &missionControlStore{
-		db:         db,
-		maxRecords: maxRecords,
-	}
+	var store *missionControlStore
 
 	// Create buckets if not yet existing.
 	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
@@ -64,6 +61,11 @@ func newMissionControlStore(db kvdb.Backend, maxRecords int) (*missionControlSto
 		}
 
 		return nil
+	}, func() {
+		store = &missionControlStore{
+			db:         db,
+			maxRecords: maxRecords,
+		}
 	})
 	if err != nil {
 		return nil, err
@@ -81,7 +83,7 @@ func (b *missionControlStore) clear() error {
 
 		_, err := tx.CreateTopLevelBucket(resultsKey)
 		return err
-	})
+	}, func() {})
 }
 
 // fetchAll returns all results currently stored in the database.
@@ -103,6 +105,8 @@ func (b *missionControlStore) fetchAll() ([]*paymentResult, error) {
 			return nil
 		})
 
+	}, func() {
+		results = nil
 	})
 	if err != nil {
 		return nil, err
@@ -249,7 +253,7 @@ func (b *missionControlStore) AddResult(rp *paymentResult) error {
 
 		// Put into results bucket.
 		return bucket.Put(k, v)
-	})
+	}, func() {})
 }
 
 // getResultKey returns a byte slice representing a unique key for this payment

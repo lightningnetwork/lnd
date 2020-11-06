@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -50,7 +50,7 @@ type FlapCount struct {
 // bucket for the peer's pubkey if necessary. Note that this function overwrites
 // the current value.
 func (d *DB) WriteFlapCounts(flapCounts map[route.Vertex]*FlapCount) error {
-	return d.Update(func(tx walletdb.ReadWriteTx) error {
+	return kvdb.Update(d, func(tx kvdb.RwTx) error {
 		// Run through our set of flap counts and record them for
 		// each peer, creating a bucket for the peer pubkey if required.
 		for peer, flapCount := range flapCounts {
@@ -80,7 +80,7 @@ func (d *DB) WriteFlapCounts(flapCounts map[route.Vertex]*FlapCount) error {
 		}
 
 		return nil
-	})
+	}, func() {})
 }
 
 // ReadFlapCount attempts to read the flap count for a peer, failing if the
@@ -88,7 +88,7 @@ func (d *DB) WriteFlapCounts(flapCounts map[route.Vertex]*FlapCount) error {
 func (d *DB) ReadFlapCount(pubkey route.Vertex) (*FlapCount, error) {
 	var flapCount FlapCount
 
-	if err := d.View(func(tx walletdb.ReadTx) error {
+	if err := kvdb.View(d, func(tx kvdb.RTx) error {
 		peers := tx.ReadBucket(peersBucket)
 
 		peerBucket := peers.NestedReadBucket(pubkey[:])
@@ -113,6 +113,8 @@ func (d *DB) ReadFlapCount(pubkey route.Vertex) (*FlapCount, error) {
 		}
 
 		return ReadElements(r, &flapCount.Count)
+	}, func() {
+		flapCount = FlapCount{}
 	}); err != nil {
 		return nil, err
 	}

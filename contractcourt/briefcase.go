@@ -430,6 +430,8 @@ func (b *boltArbitratorLog) CurrentState() (ArbitratorState, error) {
 
 		s = ArbitratorState(stateBytes[0])
 		return nil
+	}, func() {
+		s = 0
 	})
 	if err != nil && err != errScopeBucketNoExist {
 		return s, err
@@ -521,6 +523,8 @@ func (b *boltArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver, erro
 			contracts = append(contracts, res)
 			return nil
 		})
+	}, func() {
+		contracts = nil
 	})
 	if err != nil && err != errScopeBucketNoExist && err != errNoContracts {
 		return nil, err
@@ -685,7 +689,7 @@ func (b *boltArbitratorLog) LogContractResolutions(c *ContractResolutions) error
 //
 // NOTE: Part of the ContractResolver interface.
 func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, error) {
-	c := &ContractResolutions{}
+	var c *ContractResolutions
 	err := kvdb.View(b.db, func(tx kvdb.RTx) error {
 		scopeBucket := tx.ReadBucket(b.scopeKey[:])
 		if scopeBucket == nil {
@@ -769,6 +773,8 @@ func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 		}
 
 		return nil
+	}, func() {
+		c = &ContractResolutions{}
 	})
 	if err != nil {
 		return nil, err
@@ -783,7 +789,7 @@ func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 //
 // NOTE: Part of the ContractResolver interface.
 func (b *boltArbitratorLog) FetchChainActions() (ChainActionMap, error) {
-	actionsMap := make(ChainActionMap)
+	var actionsMap ChainActionMap
 
 	err := kvdb.View(b.db, func(tx kvdb.RTx) error {
 		scopeBucket := tx.ReadBucket(b.scopeKey[:])
@@ -813,6 +819,8 @@ func (b *boltArbitratorLog) FetchChainActions() (ChainActionMap, error) {
 
 			return nil
 		})
+	}, func() {
+		actionsMap = make(ChainActionMap)
 	})
 	if err != nil {
 		return nil, err
@@ -866,6 +874,8 @@ func (b *boltArbitratorLog) FetchConfirmedCommitSet() (*CommitSet, error) {
 
 		c = commitSet
 		return nil
+	}, func() {
+		c = nil
 	})
 	if err != nil {
 		return nil, err
@@ -914,7 +924,7 @@ func (b *boltArbitratorLog) WipeHistory() error {
 
 		// Finally, we'll delete the enclosing bucket itself.
 		return tx.DeleteTopLevelBucket(b.scopeKey[:])
-	})
+	}, func() {})
 }
 
 // checkpointContract is a private method that will be fed into
@@ -941,7 +951,7 @@ func (b *boltArbitratorLog) checkpointContract(c ContractResolver,
 		}
 
 		return nil
-	})
+	}, func() {})
 }
 
 func encodeIncomingResolution(w io.Writer, i *lnwallet.IncomingHtlcResolution) error {

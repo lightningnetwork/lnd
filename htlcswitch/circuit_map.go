@@ -227,7 +227,7 @@ func (cm *circuitMap) initBuckets() error {
 
 		_, err = tx.CreateTopLevelBucket(circuitAddKey)
 		return err
-	})
+	}, func() {})
 }
 
 // restoreMemState loads the contents of the half circuit and full circuit
@@ -240,8 +240,8 @@ func (cm *circuitMap) restoreMemState() error {
 	log.Infof("Restoring in-memory circuit state from disk")
 
 	var (
-		opened  = make(map[CircuitKey]*PaymentCircuit)
-		pending = make(map[CircuitKey]*PaymentCircuit)
+		opened  map[CircuitKey]*PaymentCircuit
+		pending map[CircuitKey]*PaymentCircuit
 	)
 
 	if err := kvdb.Update(cm.cfg.DB, func(tx kvdb.RwTx) error {
@@ -331,6 +331,9 @@ func (cm *circuitMap) restoreMemState() error {
 
 		return nil
 
+	}, func() {
+		opened = make(map[CircuitKey]*PaymentCircuit)
+		pending = make(map[CircuitKey]*PaymentCircuit)
 	}); err != nil {
 		return err
 	}
@@ -483,7 +486,7 @@ func (cm *circuitMap) TrimOpenCircuits(chanID lnwire.ShortChannelID,
 		}
 
 		return nil
-	})
+	}, func() {})
 }
 
 // LookupByHTLC looks up the payment circuit by the outgoing channel and HTLC
@@ -730,7 +733,7 @@ func (cm *circuitMap) OpenCircuits(keystones ...Keystone) error {
 		}
 
 		return nil
-	})
+	}, func() {})
 
 	if err != nil {
 		return err

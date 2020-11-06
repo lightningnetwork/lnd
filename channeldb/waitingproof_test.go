@@ -53,7 +53,7 @@ func TestWaitingProofStore(t *testing.T) {
 
 	if err := store.ForAll(func(proof *WaitingProof) error {
 		return errors.New("storage should be empty")
-	}); err != nil && err != ErrWaitingProofNotFound {
+	}, func() {}); err != nil && err != ErrWaitingProofNotFound {
 		t.Fatal(err)
 	}
 }

@@ -218,11 +218,15 @@ func (db *db) getSTMOptions() []STMOptionFunc {
 }
 
 // View opens a database read transaction and executes the function f with the
-// transaction passed as a parameter.  After f exits, the transaction is rolled
-// back.  If f errors, its error is returned, not a rollback error (if any
-// occur).
-func (db *db) View(f func(tx walletdb.ReadTx) error) error {
+// transaction passed as a parameter. After f exits, the transaction is rolled
+// back. If f errors, its error is returned, not a rollback error (if any
+// occur). The passed reset function is called before the start of the
+// transaction and can be used to reset intermediate state. As callers may
+// expect retries of the f closure (depending on the database backend used), the
+// reset function will be called before each retry respectively.
+func (db *db) View(f func(tx walletdb.ReadTx) error, reset func()) error {
 	apply := func(stm STM) error {
+		reset()
 		return f(newReadWriteTx(stm, db.config.Prefix))
 	}
 
@@ -230,13 +234,15 @@ func (db *db) View(f func(tx walletdb.ReadTx) error) error {
 }
 
 // Update opens a database read/write transaction and executes the function f
-// with the transaction passed as a parameter.  After f exits, if f did not
-// error, the transaction is committed.  Otherwise, if f did error, the
-// transaction is rolled back.  If the rollback fails, the original error
-// returned by f is still returned.  If the commit fails, the commit error is
-// returned.
-func (db *db) Update(f func(tx walletdb.ReadWriteTx) error) error {
+// with the transaction passed as a parameter. After f exits, if f did not
+// error, the transaction is committed. Otherwise, if f did error, the
+// transaction is rolled back. If the rollback fails, the original error
+// returned by f is still returned. If the commit fails, the commit error is
+// returned. As callers may expect retries of the f closure, the reset function
+// will be called before each retry respectively.
+func (db *db) Update(f func(tx walletdb.ReadWriteTx) error, reset func()) error {
 	apply := func(stm STM) error {
+		reset()
 		return f(newReadWriteTx(stm, db.config.Prefix))
 	}
 
@@ -300,5 +306,5 @@ func (db *db) Close() error {
 //
 // Batch is only useful when there are multiple goroutines calling it.
 func (db *db) Batch(apply func(tx walletdb.ReadWriteTx) error) error {
-	return db.Update(apply)
+	return db.Update(apply, func() {})
 }

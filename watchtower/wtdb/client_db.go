@@ -146,7 +146,7 @@ func OpenClientDB(dbPath string) (*ClientDB, error) {
 	// initialized. This allows us to assume their presence throughout all
 	// operations. If an known top-level bucket is expected to exist but is
 	// missing, this will trigger a ErrUninitializedDB error.
-	err = kvdb.Update(clientDB.db, initClientDBBuckets)
+	err = kvdb.Update(clientDB.db, initClientDBBuckets, func() {})
 	if err != nil {
 		bdb.Close()
 		return nil, err
@@ -192,6 +192,8 @@ func (c *ClientDB) Version() (uint32, error) {
 		var err error
 		version, err = getDBVersion(tx)
 		return err
+	}, func() {
+		version = 0
 	})
 	if err != nil {
 		return 0, err
@@ -291,6 +293,8 @@ func (c *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*Tower, error) {
 
 		// Store the new or updated tower under its tower id.
 		return putTower(towers, tower)
+	}, func() {
+		tower = nil
 	})
 	if err != nil {
 		return nil, err
@@ -377,7 +381,7 @@ func (c *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
 		}
 
 		return nil
-	})
+	}, func() {})
 }
 
 // LoadTowerByID retrieves a tower by its tower ID.
@@ -392,6 +396,8 @@ func (c *ClientDB) LoadTowerByID(towerID TowerID) (*Tower, error) {
 		var err error
 		tower, err = getTower(towers, towerID.Bytes())
 		return err
+	}, func() {
+		tower = nil
 	})
 	if err != nil {
 		return nil, err
@@ -421,6 +427,8 @@ func (c *ClientDB) LoadTower(pubKey *btcec.PublicKey) (*Tower, error) {
 		var err error
 		tower, err = getTower(towers, towerIDBytes)
 		return err
+	}, func() {
+		tower = nil
 	})
 	if err != nil {
 		return nil, err
@@ -446,6 +454,8 @@ func (c *ClientDB) ListTowers() ([]*Tower, error) {
 			towers = append(towers, tower)
 			return nil
 		})
+	}, func() {
+		towers = nil
 	})
 	if err != nil {
 		return nil, err
@@ -498,6 +508,8 @@ func (c *ClientDB) NextSessionKeyIndex(towerID TowerID) (uint32, error) {
 
 		// Record the reserved session key index under this tower's id.
 		return keyIndex.Put(towerIDBytes, indexBuf[:])
+	}, func() {
+		index = 0
 	})
 	if err != nil {
 		return 0, err
@@ -550,7 +562,7 @@ func (c *ClientDB) CreateClientSession(session *ClientSession) error {
 		// Finally, write the client session's body in the sessions
 		// bucket.
 		return putClientSessionBody(sessions, session)
-	})
+	}, func() {})
 }
 
 // ListClientSessions returns the set of all client sessions known to the db. An
@@ -566,6 +578,8 @@ func (c *ClientDB) ListClientSessions(id *TowerID) (map[SessionID]*ClientSession
 		var err error
 		clientSessions, err = listClientSessions(sessions, id)
 		return err
+	}, func() {
+		clientSessions = nil
 	})
 	if err != nil {
 		return nil, err
@@ -611,7 +625,7 @@ func listClientSessions(sessions kvdb.RBucket,
 // FetchChanSummaries loads a mapping from all registered channels to their
 // channel summaries.
 func (c *ClientDB) FetchChanSummaries() (ChannelSummaries, error) {
-	summaries := make(map[lnwire.ChannelID]ClientChanSummary)
+	var summaries map[lnwire.ChannelID]ClientChanSummary
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		chanSummaries := tx.ReadBucket(cChanSummaryBkt)
 		if chanSummaries == nil {
@@ -632,6 +646,8 @@ func (c *ClientDB) FetchChanSummaries() (ChannelSummaries, error) {
 
 			return nil
 		})
+	}, func() {
+		summaries = make(map[lnwire.ChannelID]ClientChanSummary)
 	})
 	if err != nil {
 		return nil, err
@@ -674,7 +690,7 @@ func (c *ClientDB) RegisterChannel(chanID lnwire.ChannelID,
 		}
 
 		return putChanSummary(chanSummaries, chanID, &summary)
-	})
+	}, func() {})
 }
 
 // MarkBackupIneligible records that the state identified by the (channel id,
@@ -782,6 +798,8 @@ func (c *ClientDB) CommitUpdate(id *SessionID,
 
 		return nil
 
+	}, func() {
+		lastApplied = 0
 	})
 	if err != nil {
 		return 0, err
@@ -887,7 +905,7 @@ func (c *ClientDB) AckUpdate(id *SessionID, seqNum uint16,
 
 		// Finally, insert the ack into the sessionAcks sub-bucket.
 		return sessionAcks.Put(seqNumBuf[:], b.Bytes())
-	})
+	}, func() {})
 }
 
 // getClientSessionBody loads the body of a ClientSession from the sessions

@@ -183,7 +183,7 @@ func deletePayment(t *testing.T, db *DB, paymentHash lntypes.Hash, seqNr uint64)
 		// Delete the index that references this payment.
 		indexes := tx.ReadWriteBucket(paymentsIndexBucket)
 		return indexes.Delete(key)
-	})
+	}, func() {})
 
 	if err != nil {
 		t.Fatalf("could not delete "+
@@ -622,7 +622,7 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 						tx, test.paymentHash, seqNrBytes[:],
 					)
 					return err
-				})
+				}, func() {})
 			require.Equal(t, test.expectedErr, err)
 		})
 	}
@@ -666,7 +666,7 @@ func appendDuplicatePayment(t *testing.T, db *DB, paymentHash lntypes.Hash,
 		require.NoError(t, err)
 
 		return nil
-	})
+	}, func() {})
 	if err != nil {
 		t.Fatalf("could not create payment: %v", err)
 	}

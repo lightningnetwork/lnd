@@ -550,6 +550,8 @@ func (p *PaymentControl) FetchPayment(paymentHash lntypes.Hash) (
 		payment, err = fetchPayment(bucket)
 
 		return err
+	}, func() {
+		payment = nil
 	})
 	if err != nil {
 		return nil, err
@@ -716,6 +718,8 @@ func (p *PaymentControl) FetchInFlightPayments() ([]*InFlightPayment, error) {
 			inFlights = append(inFlights, inFlight)
 			return nil
 		})
+	}, func() {
+		inFlights = nil
 	})
 	if err != nil {
 		return nil, err

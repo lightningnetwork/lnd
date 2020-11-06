@@ -152,7 +152,7 @@ func createChannelDB(dbPath string) error {
 			DbVersionNumber: 0,
 		}
 		return putMeta(meta, tx)
-	})
+	}, func() {})
 	if err != nil {
 		return fmt.Errorf("unable to create new channeldb")
 	}
@@ -203,6 +203,8 @@ func (d *DB) FetchClosedChannels(pendingOnly bool) ([]*ChannelCloseSummary, erro
 			chanSummaries = append(chanSummaries, chanSummary)
 			return nil
 		})
+	}, func() {
+		chanSummaries = nil
 	}); err != nil {
 		return nil, err
 	}

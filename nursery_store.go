@@ -129,7 +129,7 @@ type NurseryStore interface {
 	// the caller to process each key-value pair. The key will be a prefixed
 	// outpoint, and the value will be the serialized bytes for an output,
 	// whose type should be inferred from the key's prefix.
-	ForChanOutputs(*wire.OutPoint, func([]byte, []byte) error) error
+	ForChanOutputs(*wire.OutPoint, func([]byte, []byte) error, func()) error
 
 	// ListChannels returns all channels the nursery is currently tracking.
 	ListChannels() ([]wire.OutPoint, error)
@@ -283,7 +283,7 @@ func (ns *nurseryStore) Incubate(kids []kidOutput, babies []babyOutput) error {
 		}
 
 		return nil
-	})
+	}, func() {})
 }
 
 // CribToKinder atomically moves a babyOutput in the crib bucket to the
@@ -365,7 +365,7 @@ func (ns *nurseryStore) CribToKinder(bby *babyOutput) error {
 		// This informs the utxo nursery that it should attempt to spend
 		// this output when the blockchain reaches the maturity height.
 		return hghtChanBucketCsv.Put(pfxOutputKey, []byte{})
-	})
+	}, func() {})
 }
 
 // PreschoolToKinder atomically moves a kidOutput from the preschool bucket to
@@ -463,7 +463,7 @@ func (ns *nurseryStore) PreschoolToKinder(kid *kidOutput,
 		// that this CSV delayed output will be ready to broadcast at
 		// the maturity height, after a brief period of incubation.
 		return hghtChanBucket.Put(pfxOutputKey, []byte{})
-	})
+	}, func() {})
 }
 
 // GraduateKinder atomically moves an output at the provided height into the
@@ -525,7 +525,7 @@ func (ns *nurseryStore) GraduateKinder(height uint32, kid *kidOutput) error {
 		// using graduate-prefixed key.
 		return chanBucket.Put(pfxOutputKey,
 			gradBuffer.Bytes())
-	})
+	}, func() {})
 }
 
 // FetchClass returns a list of babyOutputs in the crib bucket whose CLTV
@@ -582,6 +582,9 @@ func (ns *nurseryStore) FetchClass(
 
 			})
 
+	}, func() {
+		kids = nil
+		babies = nil
 	}); err != nil {
 		return nil, nil, err
 	}
@@ -655,6 +658,8 @@ func (ns *nurseryStore) FetchPreschools() ([]kidOutput, error) {
 		}
 
 		return nil
+	}, func() {
+		kids = nil
 	}); err != nil {
 		return nil, err
 	}
@@ -693,6 +698,8 @@ func (ns *nurseryStore) HeightsBelowOrEqual(height uint32) ([]uint32, error) {
 		}
 
 		return nil
+	}, func() {
+		activeHeights = nil
 	})
 	if err != nil {
 		return nil, err
@@ -709,11 +716,11 @@ func (ns *nurseryStore) HeightsBelowOrEqual(height uint32) ([]uint32, error) {
 // NOTE: The callback should not modify the provided byte slices and is
 // preferably non-blocking.
 func (ns *nurseryStore) ForChanOutputs(chanPoint *wire.OutPoint,
-	callback func([]byte, []byte) error) error {
+	callback func([]byte, []byte) error, reset func()) error {
 
 	return kvdb.View(ns.db, func(tx kvdb.RTx) error {
 		return ns.forChanOutputs(tx, chanPoint, callback)
-	})
+	}, reset)
 }
 
 // ListChannels returns all channels the nursery is currently tracking.
@@ -743,6 +750,8 @@ func (ns *nurseryStore) ListChannels() ([]wire.OutPoint, error) {
 
 			return nil
 		})
+	}, func() {
+		activeChannels = nil
 	}); err != nil {
 		return nil, err
 	}
@@ -765,7 +774,7 @@ func (ns *nurseryStore) IsMatureChannel(chanPoint *wire.OutPoint) (bool, error) 
 				return nil
 			})
 
-	})
+	}, func() {})
 	if err != nil && err != ErrImmatureChannel {
 		return false, err
 	}
@@ -835,7 +844,7 @@ func (ns *nurseryStore) RemoveChannel(chanPoint *wire.OutPoint) error {
 		}
 
 		return removeBucketIfExists(chanIndex, chanBytes)
-	})
+	}, func() {})
 }
 
 // Helper Methods

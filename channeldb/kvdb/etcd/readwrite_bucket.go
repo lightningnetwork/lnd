@@ -290,6 +290,9 @@ func (b *readWriteBucket) Put(key, value []byte) error {
 // Delete deletes the key/value pointed to by the passed key.
 // Returns ErrKeyRequred if the passed key is empty.
 func (b *readWriteBucket) Delete(key []byte) error {
+	if key == nil {
+		return nil
+	}
 	if len(key) == 0 {
 		return walletdb.ErrKeyRequired
 	}

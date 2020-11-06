@@ -79,7 +79,7 @@ func TestBucketCreation(t *testing.T) {
 		require.NotNil(t, apple.NestedReadWriteBucket([]byte("banana")))
 		require.NotNil(t, apple.NestedReadBucket([]byte("banana")))
 		return nil
-	})
+	}, func() {})
 
 	require.Nil(t, err)
 
@@ -189,7 +189,7 @@ func TestBucketDeletion(t *testing.T) {
 		// "aple/banana" exists
 		require.NotNil(t, apple.NestedReadWriteBucket([]byte("banana")))
 		return nil
-	})
+	}, func() {})
 
 	require.Nil(t, err)
 
@@ -261,7 +261,7 @@ func TestBucketForEach(t *testing.T) {
 		require.Equal(t, expected, got)
 
 		return nil
-	})
+	}, func() {})
 
 	require.Nil(t, err)
 
@@ -354,7 +354,7 @@ func TestBucketForEachWithError(t *testing.T) {
 		require.Equal(t, expected, got)
 		require.Error(t, err)
 		return nil
-	})
+	}, func() {})
 
 	require.Nil(t, err)
 
@@ -399,7 +399,7 @@ func TestBucketSequence(t *testing.T) {
 		}
 
 		return nil
-	})
+	}, func() {})
 
 	require.Nil(t, err)
 }
@@ -431,7 +431,7 @@ func TestKeyClash(t *testing.T) {
 		require.NotNil(t, banana)
 
 		return nil
-	})
+	}, func() {})
 
 	require.Nil(t, err)
 
@@ -457,7 +457,7 @@ func TestKeyClash(t *testing.T) {
 		require.Error(t, walletdb.ErrIncompatibleValue, b)
 
 		return nil
-	})
+	}, func() {})
 
 	require.Nil(t, err)
 
@@ -494,7 +494,7 @@ func TestBucketCreateDelete(t *testing.T) {
 		require.NotNil(t, banana)
 
 		return nil
-	})
+	}, func() {})
 	require.NoError(t, err)
 
 	err = db.Update(func(tx walletdb.ReadWriteTx) error {
@@ -503,7 +503,7 @@ func TestBucketCreateDelete(t *testing.T) {
 		require.NoError(t, apple.DeleteNestedBucket([]byte("banana")))
 
 		return nil
-	})
+	}, func() {})
 	require.NoError(t, err)
 
 	err = db.Update(func(tx walletdb.ReadWriteTx) error {
@@ -512,7 +512,7 @@ func TestBucketCreateDelete(t *testing.T) {
 		require.NoError(t, apple.Put([]byte("banana"), []byte("value")))
 
 		return nil
-	})
+	}, func() {})
 	require.NoError(t, err)
 
 	expected := map[string]string{

@@ -42,13 +42,14 @@ type WaitingProofStore struct {
 // NewWaitingProofStore creates new instance of proofs storage.
 func NewWaitingProofStore(db *DB) (*WaitingProofStore, error) {
 	s := &WaitingProofStore{
-		db:    db,
-		cache: make(map[WaitingProofKey]struct{}),
+		db: db,
 	}
 
 	if err := s.ForAll(func(proof *WaitingProof) error {
 		s.cache[proof.Key()] = struct{}{}
 		return nil
+	}, func() {
+		s.cache = make(map[WaitingProofKey]struct{})
 	}); err != nil && err != ErrWaitingProofNotFound {
 		return nil, err
 	}
@@ -79,7 +80,7 @@ func (s *WaitingProofStore) Add(proof *WaitingProof) error {
 		key := proof.Key()
 
 		return bucket.Put(key[:], b.Bytes())
-	})
+	}, func() {})
 	if err != nil {
 		return err
 	}
@@ -108,7 +109,7 @@ func (s *WaitingProofStore) Remove(key WaitingProofKey) error {
 		}
 
 		return bucket.Delete(key[:])
-	})
+	}, func() {})
 	if err != nil {
 		return err
 	}
@@ -122,7 +123,9 @@ func (s *WaitingProofStore) Remove(key WaitingProofKey) error {
 
 // ForAll iterates thought all waiting proofs and passing the waiting proof
 // in the given callback.
-func (s *WaitingProofStore) ForAll(cb func(*WaitingProof) error) error {
+func (s *WaitingProofStore) ForAll(cb func(*WaitingProof) error,
+	reset func()) error {
+
 	return kvdb.View(s.db, func(tx kvdb.RTx) error {
 		bucket := tx.ReadBucket(waitingProofsBucketKey)
 		if bucket == nil {
@@ -144,12 +147,12 @@ func (s *WaitingProofStore) ForAll(cb func(*WaitingProof) error) error {
 
 			return cb(proof)
 		})
-	})
+	}, reset)
 }
 
 // Get returns the object which corresponds to the given index.
 func (s *WaitingProofStore) Get(key WaitingProofKey) (*WaitingProof, error) {
-	proof := &WaitingProof{}
+	var proof *WaitingProof
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -172,6 +175,8 @@ func (s *WaitingProofStore) Get(key WaitingProofKey) (*WaitingProof, error) {
 
 		r := bytes.NewReader(v)
 		return proof.Decode(r)
+	}, func() {
+		proof = &WaitingProof{}
 	})
 
 	return proof, err

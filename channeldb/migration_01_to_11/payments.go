@@ -303,6 +303,8 @@ func (db *DB) FetchPayments() ([]*Payment, error) {
 				return nil
 			})
 		})
+	}, func() {
+		payments = nil
 	})
 	if err != nil {
 		return nil, err

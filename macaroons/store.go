@@ -62,7 +62,7 @@ func NewRootKeyStorage(db kvdb.Backend) (*RootKeyStorage, error) {
 	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		_, err := tx.CreateTopLevelBucket(rootKeyBucketName)
 		return err
-	})
+	}, func() {})
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +123,7 @@ func (r *RootKeyStorage) CreateUnlock(password *[]byte) error {
 
 		r.encKey = encKey
 		return nil
-	})
+	}, func() {})
 }
 
 // Get implements the Get method for the bakery.RootKeyStorage interface.
@@ -150,6 +150,8 @@ func (r *RootKeyStorage) Get(_ context.Context, id []byte) ([]byte, error) {
 		rootKey = make([]byte, len(decKey))
 		copy(rootKey[:], decKey)
 		return nil
+	}, func() {
+		rootKey = nil
 	})
 	if err != nil {
 		return nil, err
@@ -209,6 +211,8 @@ func (r *RootKeyStorage) RootKey(ctx context.Context) ([]byte, []byte, error) {
 			return err
 		}
 		return ns.Put(id, encKey)
+	}, func() {
+		rootKey = nil
 	})
 	if err != nil {
 		return nil, nil, err
@@ -257,6 +261,8 @@ func (r *RootKeyStorage) ListMacaroonIDs(_ context.Context) ([][]byte, error) {
 		}
 
 		return tx.ReadBucket(rootKeyBucketName).ForEach(appendRootKey)
+	}, func() {
+		rootKeySlice = nil
 	})
 	if err != nil {
 		return nil, err
@@ -306,6 +312,8 @@ func (r *RootKeyStorage) DeleteMacaroonID(
 		rootKeyIDDeleted = rootKeyID
 
 		return nil
+	}, func() {
+		rootKeyIDDeleted = nil
 	})
 	if err != nil {
 		return nil, err

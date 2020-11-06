@@ -15,6 +15,12 @@ type Input interface {
 	// construct the corresponding transaction input.
 	OutPoint() *wire.OutPoint
 
+	// RequiredTxOut returns a non-nil TxOut if input commits to a certain
+	// transaction output. This is used in the SINGLE|ANYONECANPAY case to
+	// make sure any presigned input is still valid by including the
+	// output.
+	RequiredTxOut() *wire.TxOut
+
 	// RequiredLockTime returns whether this input commits to a tx locktime
 	// that must be used in the transaction including it.
 	RequiredLockTime() (uint32, bool)
@@ -77,6 +83,11 @@ type inputKit struct {
 // a transaction input.
 func (i *inputKit) OutPoint() *wire.OutPoint {
 	return &i.outpoint
+}
+
+// RequiredTxOut returns a nil for the base input type.
+func (i *inputKit) RequiredTxOut() *wire.TxOut {
+	return nil
 }
 
 // RequiredLockTime returns whether this input commits to a tx locktime that

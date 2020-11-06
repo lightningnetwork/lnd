@@ -1254,7 +1254,8 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		// single transaction. This will be generated in a concurrent
 		// safe manner, so no need to worry about locking.
 		sweepTxPkg, err := sweep.CraftSweepAllTx(
-			feePerKw, uint32(bestHeight), targetAddr, wallet,
+			feePerKw, lnwallet.DefaultDustLimit(),
+			uint32(bestHeight), targetAddr, wallet,
 			wallet.WalletController, wallet.WalletController,
 			r.server.cc.FeeEstimator, r.server.cc.Signer,
 		)

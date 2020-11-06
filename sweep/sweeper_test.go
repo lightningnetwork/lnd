@@ -2,6 +2,7 @@ package sweep
 
 import (
 	"os"
+	"reflect"
 	"runtime/debug"
 	"runtime/pprof"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -1375,4 +1377,222 @@ func TestCpfp(t *testing.T) {
 	ctx.expectResult(result, nil)
 
 	ctx.finish(1)
+}
+
+var (
+	testInputsA = pendingInputs{
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 0}: &pendingInput{},
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 1}: &pendingInput{},
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 2}: &pendingInput{},
+	}
+
+	testInputsB = pendingInputs{
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 10}: &pendingInput{},
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 11}: &pendingInput{},
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 12}: &pendingInput{},
+	}
+
+	testInputsC = pendingInputs{
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 0}:  &pendingInput{},
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 1}:  &pendingInput{},
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 2}:  &pendingInput{},
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 10}: &pendingInput{},
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 11}: &pendingInput{},
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 12}: &pendingInput{},
+	}
+)
+
+// TestMergeClusters check that we properly can merge clusters together,
+// according to their required locktime.
+func TestMergeClusters(t *testing.T) {
+	t.Parallel()
+
+	lockTime1 := uint32(100)
+	lockTime2 := uint32(200)
+
+	testCases := []struct {
+		name string
+		a    inputCluster
+		b    inputCluster
+		res  []inputCluster
+	}{
+		{
+			name: "max fee rate",
+			a: inputCluster{
+				sweepFeeRate: 5000,
+				inputs:       testInputsA,
+			},
+			b: inputCluster{
+				sweepFeeRate: 7000,
+				inputs:       testInputsB,
+			},
+			res: []inputCluster{
+				{
+					sweepFeeRate: 7000,
+					inputs:       testInputsC,
+				},
+			},
+		},
+		{
+			name: "same locktime",
+			a: inputCluster{
+				lockTime:     &lockTime1,
+				sweepFeeRate: 5000,
+				inputs:       testInputsA,
+			},
+			b: inputCluster{
+				lockTime:     &lockTime1,
+				sweepFeeRate: 7000,
+				inputs:       testInputsB,
+			},
+			res: []inputCluster{
+				{
+					lockTime:     &lockTime1,
+					sweepFeeRate: 7000,
+					inputs:       testInputsC,
+				},
+			},
+		},
+		{
+			name: "diff locktime",
+			a: inputCluster{
+				lockTime:     &lockTime1,
+				sweepFeeRate: 5000,
+				inputs:       testInputsA,
+			},
+			b: inputCluster{
+				lockTime:     &lockTime2,
+				sweepFeeRate: 7000,
+				inputs:       testInputsB,
+			},
+			res: []inputCluster{
+				{
+					lockTime:     &lockTime1,
+					sweepFeeRate: 5000,
+					inputs:       testInputsA,
+				},
+				{
+					lockTime:     &lockTime2,
+					sweepFeeRate: 7000,
+					inputs:       testInputsB,
+				},
+			},
+		},
+	}
+
+	for _, test := range testCases {
+		merged := mergeClusters(test.a, test.b)
+		if !reflect.DeepEqual(merged, test.res) {
+			t.Fatalf("[%s] unexpected result: %v",
+				test.name, spew.Sdump(merged))
+		}
+	}
+}
+
+// TestZipClusters tests that we can merge lists of inputs clusters correctly.
+func TestZipClusters(t *testing.T) {
+	t.Parallel()
+
+	createCluster := func(inp pendingInputs, f chainfee.SatPerKWeight) inputCluster {
+		return inputCluster{
+			sweepFeeRate: f,
+			inputs:       inp,
+		}
+	}
+
+	testCases := []struct {
+		name string
+		as   []inputCluster
+		bs   []inputCluster
+		res  []inputCluster
+	}{
+		{
+			name: "merge A into B",
+			as: []inputCluster{
+				createCluster(testInputsA, 5000),
+			},
+			bs: []inputCluster{
+				createCluster(testInputsB, 7000),
+			},
+			res: []inputCluster{
+				createCluster(testInputsC, 7000),
+			},
+		},
+		{
+			name: "A can't merge with B",
+			as: []inputCluster{
+				createCluster(testInputsA, 7000),
+			},
+			bs: []inputCluster{
+				createCluster(testInputsB, 5000),
+			},
+			res: []inputCluster{
+				createCluster(testInputsA, 7000),
+				createCluster(testInputsB, 5000),
+			},
+		},
+		{
+			name: "empty bs",
+			as: []inputCluster{
+				createCluster(testInputsA, 7000),
+			},
+			bs: []inputCluster{},
+			res: []inputCluster{
+				createCluster(testInputsA, 7000),
+			},
+		},
+		{
+			name: "empty as",
+			as:   []inputCluster{},
+			bs: []inputCluster{
+				createCluster(testInputsB, 5000),
+			},
+			res: []inputCluster{
+				createCluster(testInputsB, 5000),
+			},
+		},
+
+		{
+			name: "zip 3xA into 3xB",
+			as: []inputCluster{
+				createCluster(testInputsA, 5000),
+				createCluster(testInputsA, 5000),
+				createCluster(testInputsA, 5000),
+			},
+			bs: []inputCluster{
+				createCluster(testInputsB, 7000),
+				createCluster(testInputsB, 7000),
+				createCluster(testInputsB, 7000),
+			},
+			res: []inputCluster{
+				createCluster(testInputsC, 7000),
+				createCluster(testInputsC, 7000),
+				createCluster(testInputsC, 7000),
+			},
+		},
+		{
+			name: "zip A into 3xB",
+			as: []inputCluster{
+				createCluster(testInputsA, 2500),
+			},
+			bs: []inputCluster{
+				createCluster(testInputsB, 3000),
+				createCluster(testInputsB, 2000),
+				createCluster(testInputsB, 1000),
+			},
+			res: []inputCluster{
+				createCluster(testInputsC, 3000),
+				createCluster(testInputsB, 2000),
+				createCluster(testInputsB, 1000),
+			},
+		},
+	}
+
+	for _, test := range testCases {
+		zipped := zipClusters(test.as, test.bs)
+		if !reflect.DeepEqual(zipped, test.res) {
+			t.Fatalf("[%s] unexpected result: %v",
+				test.name, spew.Sdump(zipped))
+		}
+	}
 }

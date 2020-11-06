@@ -144,6 +144,7 @@ type pendingInputs = map[wire.OutPoint]*pendingInput
 // inputCluster is a helper struct to gather a set of pending inputs that should
 // be swept with the specified fee rate.
 type inputCluster struct {
+	lockTime     *uint32
 	sweepFeeRate chainfee.SatPerKWeight
 	inputs       pendingInputs
 }
@@ -831,6 +832,99 @@ func (s *UtxoSweeper) clusterBySweepFeeRate(inputs pendingInputs) []inputCluster
 	}
 
 	return inputClusters
+}
+
+// zipClusters merges pairwise clusters from as and bs such that cluster a from
+// as is merged with a cluster from bs that has at least the fee rate of a.
+// This to ensure we don't delay confirmation by decreasing the fee rate (the
+// lock time inputs are typically second level HTLC transactions, that are time
+// sensitive).
+func zipClusters(as, bs []inputCluster) []inputCluster {
+	// Sort the clusters by decreasing fee rates.
+	sort.Slice(as, func(i, j int) bool {
+		return as[i].sweepFeeRate >
+			as[j].sweepFeeRate
+	})
+	sort.Slice(bs, func(i, j int) bool {
+		return bs[i].sweepFeeRate >
+			bs[j].sweepFeeRate
+	})
+
+	var (
+		finalClusters []inputCluster
+		j             int
+	)
+
+	// Go through each cluster in as, and merge with the next one from bs
+	// if it has at least the fee rate needed.
+	for i := range as {
+		a := as[i]
+
+		switch {
+
+		// If the fee rate for the next one from bs is at least a's, we
+		// merge.
+		case j < len(bs) && bs[j].sweepFeeRate >= a.sweepFeeRate:
+			merged := mergeClusters(a, bs[j])
+			finalClusters = append(finalClusters, merged...)
+
+			// Increment j for the next round.
+			j++
+
+		// We did not merge, meaning all the remining clusters from bs
+		// have lower fee rate. Instead we add a directly to the final
+		// clusters.
+		default:
+			finalClusters = append(finalClusters, a)
+		}
+	}
+
+	// Add any remaining clusters from bs.
+	for ; j < len(bs); j++ {
+		b := bs[j]
+		finalClusters = append(finalClusters, b)
+	}
+
+	return finalClusters
+}
+
+// mergeClusters attempts to merge cluster a and b if they are compatible. The
+// new cluster will have the locktime set if a or b had a locktime set, and a
+// sweep fee rate that is the maximum of a and b's. If the two clusters are not
+// compatible, they will be returned unchanged.
+func mergeClusters(a, b inputCluster) []inputCluster {
+	newCluster := inputCluster{}
+
+	switch {
+
+	// Incompatible locktimes, return the sets without merging them.
+	case a.lockTime != nil && b.lockTime != nil && *a.lockTime != *b.lockTime:
+		return []inputCluster{a, b}
+
+	case a.lockTime != nil:
+		newCluster.lockTime = a.lockTime
+
+	case b.lockTime != nil:
+		newCluster.lockTime = b.lockTime
+	}
+
+	if a.sweepFeeRate > b.sweepFeeRate {
+		newCluster.sweepFeeRate = a.sweepFeeRate
+	} else {
+		newCluster.sweepFeeRate = b.sweepFeeRate
+	}
+
+	newCluster.inputs = make(pendingInputs)
+
+	for op, in := range a.inputs {
+		newCluster.inputs[op] = in
+	}
+
+	for op, in := range b.inputs {
+		newCluster.inputs[op] = in
+	}
+
+	return []inputCluster{newCluster}
 }
 
 // scheduleSweep starts the sweep timer to create an opportunity for more inputs

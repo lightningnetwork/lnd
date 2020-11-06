@@ -647,7 +647,7 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 			// this to ensure any inputs which have had their fee
 			// rate bumped are broadcast first in order enforce the
 			// RBF policy.
-			inputClusters := s.clusterBySweepFeeRate()
+			inputClusters := s.createInputClusters()
 			sort.Slice(inputClusters, func(i, j int) bool {
 				return inputClusters[i].sweepFeeRate >
 					inputClusters[j].sweepFeeRate
@@ -750,17 +750,26 @@ func (s *UtxoSweeper) bucketForFeeRate(
 	return 1 + int(feeRate-s.relayFeeRate)/s.cfg.FeeRateBucketSize
 }
 
+// createInputClusters creates a list of input clusters from the set of pending
+// inputs known by the UtxoSweeper.
+func (s *UtxoSweeper) createInputClusters() []inputCluster {
+	inputs := s.pendingInputs
+
+	feeClusters := s.clusterBySweepFeeRate(inputs)
+	return feeClusters
+}
+
 // clusterBySweepFeeRate takes the set of pending inputs within the UtxoSweeper
 // and clusters those together with similar fee rates. Each cluster contains a
 // sweep fee rate, which is determined by calculating the average fee rate of
 // all inputs within that cluster.
-func (s *UtxoSweeper) clusterBySweepFeeRate() []inputCluster {
+func (s *UtxoSweeper) clusterBySweepFeeRate(inputs pendingInputs) []inputCluster {
 	bucketInputs := make(map[int]*bucketList)
 	inputFeeRates := make(map[wire.OutPoint]chainfee.SatPerKWeight)
 
 	// First, we'll group together all inputs with similar fee rates. This
 	// is done by determining the fee rate bucket they should belong in.
-	for op, input := range s.pendingInputs {
+	for op, input := range inputs {
 		feeRate, err := s.feeRateForPreference(input.params.Fee)
 		if err != nil {
 			log.Warnf("Skipping input %v: %v", op, err)
@@ -836,7 +845,7 @@ func (s *UtxoSweeper) scheduleSweep(currentHeight int32) error {
 
 	// We'll only start our timer once we have inputs we're able to sweep.
 	startTimer := false
-	for _, cluster := range s.clusterBySweepFeeRate() {
+	for _, cluster := range s.createInputClusters() {
 		// Examine pending inputs and try to construct lists of inputs.
 		// We don't need to obtain the coin selection lock, because we
 		// just need an indication as to whether we can sweep. More

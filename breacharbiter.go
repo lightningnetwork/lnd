@@ -866,6 +866,12 @@ func (bo *breachedOutput) OutPoint() *wire.OutPoint {
 	return &bo.outpoint
 }
 
+// RequiredLockTime returns whether this input commits to a tx locktime that
+// must be used in the transaction including it.
+func (bo *breachedOutput) RequiredLockTime() (uint32, bool) {
+	return 0, false
+}
+
 // WitnessType returns the type of witness that must be generated to spend the
 // breached output.
 func (bo *breachedOutput) WitnessType() input.WitnessType {

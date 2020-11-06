@@ -90,7 +90,7 @@ func createTestInput(value int64, witnessType input.WitnessType) input.BaseInput
 
 func init() {
 	// Create a set of test spendable inputs.
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 20; i++ {
 		input := createTestInput(int64(10000+i*500),
 			input.CommitmentTimeLock)
 
@@ -1593,6 +1593,131 @@ func TestZipClusters(t *testing.T) {
 		if !reflect.DeepEqual(zipped, test.res) {
 			t.Fatalf("[%s] unexpected result: %v",
 				test.name, spew.Sdump(zipped))
+		}
+	}
+}
+
+type testInput struct {
+	*input.BaseInput
+
+	locktime *uint32
+}
+
+func (i *testInput) RequiredLockTime() (uint32, bool) {
+	if i.locktime != nil {
+		return *i.locktime, true
+	}
+
+	return 0, false
+}
+
+// TestLockTimes checks that the sweeper properly groups inputs requiring the
+// same locktime together into sweep transactions.
+func TestLockTimes(t *testing.T) {
+	ctx := createSweeperTestContext(t)
+
+	// We increase the number of max inputs to a tx so that won't
+	// impact our test.
+	ctx.sweeper.cfg.MaxInputsPerTx = 100
+
+	// We will set up the lock times in such a way that we expect the
+	// sweeper to divide the inputs into 4 diffeerent transactions.
+	const numSweeps = 4
+
+	// Sweep 8 inputs, using 4 different lock times.
+	var (
+		results []chan Result
+		inputs  = make(map[wire.OutPoint]input.Input)
+	)
+	for i := 0; i < numSweeps*2; i++ {
+		lt := uint32(10 + (i % numSweeps))
+		inp := &testInput{
+			BaseInput: spendableInputs[i],
+			locktime:  &lt,
+		}
+
+		result, err := ctx.sweeper.SweepInput(
+			inp, Params{
+				Fee: FeePreference{ConfTarget: 6},
+			},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		results = append(results, result)
+
+		op := inp.OutPoint()
+		inputs[*op] = inp
+	}
+
+	// We also add 3 regular inputs that don't require any specific lock
+	// time.
+	for i := 0; i < 3; i++ {
+		inp := spendableInputs[i+numSweeps*2]
+		result, err := ctx.sweeper.SweepInput(
+			inp, Params{
+				Fee: FeePreference{ConfTarget: 6},
+			},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		results = append(results, result)
+
+		op := inp.OutPoint()
+		inputs[*op] = inp
+	}
+
+	// We expect all inputs to be published in separate transactions, even
+	// though they share the same fee preference.
+	ctx.tick()
+
+	// Check the sweeps transactions, ensuring all inputs are there, and
+	// all the locktimes are satisfied.
+	for i := 0; i < numSweeps; i++ {
+		sweepTx := ctx.receiveTx()
+		if len(sweepTx.TxOut) != 1 {
+			t.Fatal("expected a single tx out in the sweep tx")
+		}
+
+		for _, txIn := range sweepTx.TxIn {
+			op := txIn.PreviousOutPoint
+			inp, ok := inputs[op]
+			if !ok {
+				t.Fatalf("Unexpected outpoint: %v", op)
+			}
+
+			delete(inputs, op)
+
+			// If this input had a required locktime, ensure the tx
+			// has that set correctly.
+			lt, ok := inp.RequiredLockTime()
+			if !ok {
+				continue
+			}
+
+			if lt != sweepTx.LockTime {
+				t.Fatalf("Input required locktime %v, sweep "+
+					"tx had locktime %v", lt, sweepTx.LockTime)
+			}
+
+		}
+	}
+
+	// The should be no inputs not foud in any of the sweeps.
+	if len(inputs) != 0 {
+		t.Fatalf("had unsweeped inputs")
+	}
+
+	// Mine the first sweeps
+	ctx.backend.mine()
+
+	// Results should all come back.
+	for i := range results {
+		result := <-results[i]
+		if result.Err != nil {
+			t.Fatal("expected input to be swept")
 		}
 	}
 }

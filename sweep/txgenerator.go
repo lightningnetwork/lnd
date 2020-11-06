@@ -138,33 +138,51 @@ func createSweepTx(inputs []input.Input, outputPkScript []byte,
 
 	txFee := estimator.fee()
 
-	// Sum up the total value contained in the inputs.
+	// Create the sweep transaction that we will be building. We use
+	// version 2 as it is required for CSV.
+	sweepTx := wire.NewMsgTx(2)
+
+	// Track whether any of the inputs require a certain locktime.
+	locktime := int32(-1)
+
+	// Sum up the total value contained in the inputs, and add all inputs
+	// to the sweep transaction. Ensure that for each csvInput, we set the
+	// sequence number properly.
 	var totalSum btcutil.Amount
 	for _, o := range inputs {
+		sweepTx.AddTxIn(&wire.TxIn{
+			PreviousOutPoint: *o.OutPoint(),
+			Sequence:         o.BlocksToMaturity(),
+		})
+
+		if lt, ok := o.RequiredLockTime(); ok {
+			// If another input commits to a different locktime,
+			// they cannot be combined in the same transcation.
+			if locktime != -1 && locktime != int32(lt) {
+				return nil, fmt.Errorf("incompatible locktime")
+			}
+
+			locktime = int32(lt)
+		}
+
 		totalSum += btcutil.Amount(o.SignDesc().Output.Value)
 	}
 
 	// Sweep as much possible, after subtracting txn fees.
 	sweepAmt := int64(totalSum - txFee)
 
-	// Create the sweep transaction that we will be building. We use
-	// version 2 as it is required for CSV. The txn will sweep the amount
-	// after fees to the pkscript generated above.
-	sweepTx := wire.NewMsgTx(2)
+	// The txn will sweep the amount after fees to the pkscript generated
+	// above.
 	sweepTx.AddTxOut(&wire.TxOut{
 		PkScript: outputPkScript,
 		Value:    sweepAmt,
 	})
 
+	// We'll default to using the current block height as locktime, if none
+	// of the inputs commits to a different locktime.
 	sweepTx.LockTime = currentBlockHeight
-
-	// Add all inputs to the sweep transaction. Ensure that for each
-	// csvInput, we set the sequence number properly.
-	for _, input := range inputs {
-		sweepTx.AddTxIn(&wire.TxIn{
-			PreviousOutPoint: *input.OutPoint(),
-			Sequence:         input.BlocksToMaturity(),
-		})
+	if locktime != -1 {
+		sweepTx.LockTime = uint32(locktime)
 	}
 
 	// Before signing the transaction, check to ensure that it meets some

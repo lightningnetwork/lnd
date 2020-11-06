@@ -752,12 +752,86 @@ func (s *UtxoSweeper) bucketForFeeRate(
 }
 
 // createInputClusters creates a list of input clusters from the set of pending
-// inputs known by the UtxoSweeper.
+// inputs known by the UtxoSweeper. It clusters inputs by
+// 1) Required tx locktime
+// 2) Similar fee rates
 func (s *UtxoSweeper) createInputClusters() []inputCluster {
 	inputs := s.pendingInputs
 
-	feeClusters := s.clusterBySweepFeeRate(inputs)
-	return feeClusters
+	// We start by getting the inputs clusters by locktime. Since the
+	// inputs commit to the locktime, they can only be clustered together
+	// if the locktime is equal.
+	lockTimeClusters, nonLockTimeInputs := s.clusterByLockTime(inputs)
+
+	// Cluster the the remaining inputs by sweep fee rate.
+	feeClusters := s.clusterBySweepFeeRate(nonLockTimeInputs)
+
+	// Since the inputs that we clustered by fee rate don't commit to a
+	// specific locktime, we can try to merge a locktime cluster with a fee
+	// cluster.
+	return zipClusters(lockTimeClusters, feeClusters)
+}
+
+// clusterByLockTime takes the given set of pending inputs and clusters those
+// with equal locktime together. Each cluster contains a sweep fee rate, which
+// is determined by calculating the average fee rate of all inputs within that
+// cluster. In addition to the created clusters, inputs that did not specify a
+// required lock time are returned.
+func (s *UtxoSweeper) clusterByLockTime(inputs pendingInputs) ([]inputCluster,
+	pendingInputs) {
+
+	locktimes := make(map[uint32]pendingInputs)
+	inputFeeRates := make(map[wire.OutPoint]chainfee.SatPerKWeight)
+	rem := make(pendingInputs)
+
+	// Go through all inputs and check if they require a certain locktime.
+	for op, input := range inputs {
+		lt, ok := input.RequiredLockTime()
+		if !ok {
+			rem[op] = input
+			continue
+		}
+
+		// Check if we already have inputs with this locktime.
+		p, ok := locktimes[lt]
+		if !ok {
+			p = make(pendingInputs)
+		}
+
+		p[op] = input
+		locktimes[lt] = p
+
+		// We also get the preferred fee rate for this input.
+		feeRate, err := s.feeRateForPreference(input.params.Fee)
+		if err != nil {
+			log.Warnf("Skipping input %v: %v", op, err)
+			continue
+		}
+
+		input.lastFeeRate = feeRate
+		inputFeeRates[op] = feeRate
+	}
+
+	// We'll then determine the sweep fee rate for each set of inputs by
+	// calculating the average fee rate of the inputs within each set.
+	inputClusters := make([]inputCluster, 0, len(locktimes))
+	for lt, inputs := range locktimes {
+		lt := lt
+
+		var sweepFeeRate chainfee.SatPerKWeight
+		for op := range inputs {
+			sweepFeeRate += inputFeeRates[op]
+		}
+
+		sweepFeeRate /= chainfee.SatPerKWeight(len(inputs))
+		inputClusters = append(inputClusters, inputCluster{
+			lockTime:     &lt,
+			sweepFeeRate: sweepFeeRate,
+			inputs:       inputs,
+		})
+	}
+
+	return inputClusters, rem
 }
 
 // clusterBySweepFeeRate takes the set of pending inputs within the UtxoSweeper

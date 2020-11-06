@@ -15,6 +15,10 @@ type Input interface {
 	// construct the corresponding transaction input.
 	OutPoint() *wire.OutPoint
 
+	// RequiredLockTime returns whether this input commits to a tx locktime
+	// that must be used in the transaction including it.
+	RequiredLockTime() (uint32, bool)
+
 	// WitnessType returns an enum specifying the type of witness that must
 	// be generated in order to spend this output.
 	WitnessType() WitnessType
@@ -73,6 +77,13 @@ type inputKit struct {
 // a transaction input.
 func (i *inputKit) OutPoint() *wire.OutPoint {
 	return &i.outpoint
+}
+
+// RequiredLockTime returns whether this input commits to a tx locktime that
+// must be used in the transaction including it. This will be false for the
+// base input type since we can re-sign for any lock time.
+func (i *inputKit) RequiredLockTime() (uint32, bool) {
+	return 0, false
 }
 
 // WitnessType returns the type of witness that must be generated to spend the

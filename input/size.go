@@ -533,6 +533,14 @@ func (twe *TxWeightEstimator) AddNestedP2WSHInput(witnessSize int) *TxWeightEsti
 	return twe
 }
 
+// AddTxOutput adds a known TxOut to the weight estimator.
+func (twe *TxWeightEstimator) AddTxOutput(txOut *wire.TxOut) *TxWeightEstimator {
+	twe.outputSize += txOut.SerializeSize()
+	twe.outputCount++
+
+	return twe
+}
+
 // AddP2PKHOutput updates the weight estimate to account for an additional P2PKH
 // output.
 func (twe *TxWeightEstimator) AddP2PKHOutput() *TxWeightEstimator {

@@ -26,22 +26,6 @@ func newWeightEstimator(feeRate chainfee.SatPerKWeight) *weightEstimator {
 	}
 }
 
-// clone returns a copy of this weight estimator.
-func (w *weightEstimator) clone() *weightEstimator {
-	parents := make(map[chainhash.Hash]struct{}, len(w.parents))
-	for hash := range w.parents {
-		parents[hash] = struct{}{}
-	}
-
-	return &weightEstimator{
-		estimator:     w.estimator,
-		feeRate:       w.feeRate,
-		parents:       parents,
-		parentsFee:    w.parentsFee,
-		parentsWeight: w.parentsWeight,
-	}
-}
-
 // add adds the weight of the given input to the weight estimate.
 func (w *weightEstimator) add(inp input.Input) error {
 	// If there is a parent tx, add the parent's fee and weight.

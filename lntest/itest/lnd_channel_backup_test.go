@@ -797,8 +797,8 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	// First, we'll create a brand new node we'll use within the test. If
 	// we have a custom backup file specified, then we'll also create that
 	// for use.
-	dave, mnemonic, err := net.NewNodeWithSeed(
-		"dave", nodeArgs, password,
+	dave, mnemonic, _, err := net.NewNodeWithSeed(
+		"dave", nodeArgs, password, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to create new node: %v", err)

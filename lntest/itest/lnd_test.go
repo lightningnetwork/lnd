@@ -774,7 +774,9 @@ func testGetRecoveryInfo(net *lntest.NetworkHarness, t *harnessTest) {
 	// used for key derivation. This will bring up Carol with an empty
 	// wallet, and such that she is synced up.
 	password := []byte("The Magic Words are Squeamish Ossifrage")
-	carol, mnemonic, err := net.NewNodeWithSeed("Carol", nil, password)
+	carol, mnemonic, _, err := net.NewNodeWithSeed(
+		"Carol", nil, password, false,
+	)
 	if err != nil {
 		t.Fatalf("unable to create node with seed; %v", err)
 	}
@@ -875,7 +877,9 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 	// used for key derivation. This will bring up Carol with an empty
 	// wallet, and such that she is synced up.
 	password := []byte("The Magic Words are Squeamish Ossifrage")
-	carol, mnemonic, err := net.NewNodeWithSeed("Carol", nil, password)
+	carol, mnemonic, _, err := net.NewNodeWithSeed(
+		"Carol", nil, password, false,
+	)
 	if err != nil {
 		t.Fatalf("unable to create node with seed; %v", err)
 	}

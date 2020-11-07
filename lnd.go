@@ -318,6 +318,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 
 	var (
 		walletInitParams WalletUnlockParams
+		shutdownUnlocker = func() {}
 		privateWalletPw  = lnwallet.DefaultPrivatePassphrase
 		publicWalletPw   = lnwallet.DefaultPublicPassphrase
 	)
@@ -377,7 +378,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	// started with the --noseedbackup flag, we use the default password
 	// for wallet encryption.
 	if !cfg.NoSeedBackup {
-		params, err := waitForWalletPassword(
+		params, shutdown, err := waitForWalletPassword(
 			cfg, cfg.RESTListeners, serverOpts, restDialOpts,
 			restProxyDest, tlsCfg, walletUnlockerListeners,
 		)
@@ -389,6 +390,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		}
 
 		walletInitParams = *params
+		shutdownUnlocker = shutdown
 		privateWalletPw = walletInitParams.Password
 		publicWalletPw = walletInitParams.Password
 		defer func() {
@@ -408,7 +410,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	if !cfg.NoMacaroons {
 		// Create the macaroon authentication/authorization service.
 		macaroonService, err = macaroons.NewService(
-			cfg.networkDir, "lnd", macaroons.IPLockChecker,
+			cfg.networkDir, "lnd", walletInitParams.StatelessInit,
+			macaroons.IPLockChecker,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to set up macaroon "+
@@ -419,17 +422,42 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		defer macaroonService.Close()
 
 		// Try to unlock the macaroon store with the private password.
+		// Ignore ErrAlreadyUnlocked since it could be unlocked by the
+		// wallet unlocker.
 		err = macaroonService.CreateUnlock(&privateWalletPw)
-		if err != nil {
+		if err != nil && err != macaroons.ErrAlreadyUnlocked {
 			err := fmt.Errorf("unable to unlock macaroons: %v", err)
 			ltndLog.Error(err)
 			return err
 		}
 
-		// Create macaroon files for lncli to use if they don't exist.
-		if !fileExists(cfg.AdminMacPath) && !fileExists(cfg.ReadMacPath) &&
+		// In case we actually needed to unlock the wallet, we now need
+		// to create an instance of the admin macaroon and send it to
+		// the unlocker so it can forward it to the user. In no seed
+		// backup mode, there's nobody listening on the channel and we'd
+		// block here forever.
+		if !cfg.NoSeedBackup {
+			adminMacBytes, err := bakeMacaroon(
+				ctx, macaroonService, adminPermissions(),
+			)
+			if err != nil {
+				return err
+			}
+
+			// The channel is buffered by one element so writing
+			// should not block here.
+			walletInitParams.MacResponseChan <- adminMacBytes
+		}
+
+		// If the user requested a stateless initialization, no macaroon
+		// files should be created.
+		if !walletInitParams.StatelessInit &&
+			!fileExists(cfg.AdminMacPath) &&
+			!fileExists(cfg.ReadMacPath) &&
 			!fileExists(cfg.InvoiceMacPath) {
 
+			// Create macaroon files for lncli to use if they don't
+			// exist.
 			err = genMacaroons(
 				ctx, macaroonService, cfg.AdminMacPath,
 				cfg.ReadMacPath, cfg.InvoiceMacPath,
@@ -441,7 +469,33 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 				return err
 			}
 		}
+
+		// As a security service to the user, if they requested
+		// stateless initialization and there are macaroon files on disk
+		// we log a warning.
+		if walletInitParams.StatelessInit {
+			msg := "Found %s macaroon on disk (%s) even though " +
+				"--stateless_init was requested. Unencrypted " +
+				"state is accessible by the host system. You " +
+				"should change the password and use " +
+				"--new_mac_root_key with --stateless_init to " +
+				"clean up and invalidate old macaroons."
+
+			if fileExists(cfg.AdminMacPath) {
+				ltndLog.Warnf(msg, "admin", cfg.AdminMacPath)
+			}
+			if fileExists(cfg.ReadMacPath) {
+				ltndLog.Warnf(msg, "readonly", cfg.ReadMacPath)
+			}
+			if fileExists(cfg.InvoiceMacPath) {
+				ltndLog.Warnf(msg, "invoice", cfg.InvoiceMacPath)
+			}
+		}
 	}
+
+	// Now we're definitely done with the unlocker, shut it down so we can
+	// start the main RPC service later.
+	shutdownUnlocker()
 
 	// With the information parsed from the configuration, create valid
 	// instances of the pertinent interfaces required to operate the
@@ -944,6 +998,21 @@ func fileExists(name string) bool {
 	return true
 }
 
+// bakeMacaroon creates a new macaroon with newest version and the given
+// permissions then returns it binary serialized.
+func bakeMacaroon(ctx context.Context, svc *macaroons.Service,
+	permissions []bakery.Op) ([]byte, error) {
+
+	mac, err := svc.NewMacaroon(
+		ctx, macaroons.DefaultRootKeyID, permissions...,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return mac.M().MarshalBinary()
+}
+
 // genMacaroons generates three macaroon files; one admin-level, one for
 // invoice access and one read-only. These can also be used to generate more
 // granular macaroons.
@@ -954,55 +1023,46 @@ func genMacaroons(ctx context.Context, svc *macaroons.Service,
 	// access invoice related calls. This is useful for merchants and other
 	// services to allow an isolated instance that can only query and
 	// modify invoices.
-	invoiceMac, err := svc.NewMacaroon(
-		ctx, macaroons.DefaultRootKeyID, invoicePermissions...,
-	)
-	if err != nil {
-		return err
-	}
-	invoiceMacBytes, err := invoiceMac.M().MarshalBinary()
+	invoiceMacBytes, err := bakeMacaroon(ctx, svc, invoicePermissions)
 	if err != nil {
 		return err
 	}
 	err = ioutil.WriteFile(invoiceFile, invoiceMacBytes, 0644)
 	if err != nil {
-		os.Remove(invoiceFile)
+		_ = os.Remove(invoiceFile)
 		return err
 	}
 
 	// Generate the read-only macaroon and write it to a file.
-	roMacaroon, err := svc.NewMacaroon(
-		ctx, macaroons.DefaultRootKeyID, readPermissions...,
-	)
-	if err != nil {
-		return err
-	}
-	roBytes, err := roMacaroon.M().MarshalBinary()
+	roBytes, err := bakeMacaroon(ctx, svc, readPermissions)
 	if err != nil {
 		return err
 	}
 	if err = ioutil.WriteFile(roFile, roBytes, 0644); err != nil {
-		os.Remove(admFile)
+		_ = os.Remove(roFile)
 		return err
 	}
 
 	// Generate the admin macaroon and write it to a file.
-	adminPermissions := append(readPermissions, writePermissions...)
-	admMacaroon, err := svc.NewMacaroon(
-		ctx, macaroons.DefaultRootKeyID, adminPermissions...,
-	)
-	if err != nil {
-		return err
-	}
-	admBytes, err := admMacaroon.M().MarshalBinary()
+	admBytes, err := bakeMacaroon(ctx, svc, adminPermissions())
 	if err != nil {
 		return err
 	}
 	if err = ioutil.WriteFile(admFile, admBytes, 0600); err != nil {
+		_ = os.Remove(admFile)
 		return err
 	}
 
 	return nil
+}
+
+// adminPermissions returns a list of all permissions in a safe way that doesn't
+// modify any of the source lists.
+func adminPermissions() []bakery.Op {
+	admin := make([]bakery.Op, len(readPermissions)+len(writePermissions))
+	copy(admin[:len(readPermissions)], readPermissions)
+	copy(admin[len(readPermissions):], writePermissions)
+	return admin
 }
 
 // WalletUnlockParams holds the variables used to parameterize the unlocking of
@@ -1033,6 +1093,15 @@ type WalletUnlockParams struct {
 	// UnloadWallet is a function for unloading the wallet, which should
 	// be called on shutdown.
 	UnloadWallet func() error
+
+	// StatelessInit signals that the user requested the daemon to be
+	// initialized stateless, which means no unencrypted macaroons should be
+	// written to disk.
+	StatelessInit bool
+
+	// MacResponseChan is the channel for sending back the admin macaroon to
+	// the WalletUnlocker service.
+	MacResponseChan chan []byte
 }
 
 // waitForWalletPassword will spin up gRPC and REST endpoints for the
@@ -1041,39 +1110,48 @@ type WalletUnlockParams struct {
 func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 	serverOpts []grpc.ServerOption, restDialOpts []grpc.DialOption,
 	restProxyDest string, tlsConf *tls.Config,
-	getListeners rpcListeners) (*WalletUnlockParams, error) {
-
-	// Start a gRPC server listening for HTTP/2 connections, solely used
-	// for getting the encryption password from the client.
-	listeners, cleanup, err := getListeners()
-	if err != nil {
-		return nil, err
-	}
-	defer cleanup()
-
-	// Set up a new PasswordService, which will listen for passwords
-	// provided over RPC.
-	grpcServer := grpc.NewServer(serverOpts...)
-	defer grpcServer.GracefulStop()
+	getListeners rpcListeners) (*WalletUnlockParams, func(), error) {
 
 	chainConfig := cfg.Bitcoin
 	if cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
 		chainConfig = cfg.Litecoin
 	}
 
-	// The macaroon files are passed to the wallet unlocker since they are
-	// also encrypted with the wallet's password. These files will be
-	// deleted within it and recreated when successfully changing the
-	// wallet's password.
+	// The macaroonFiles are passed to the wallet unlocker so they can be
+	// deleted and recreated in case the root macaroon key is also changed
+	// during the change password operation.
 	macaroonFiles := []string{
-		filepath.Join(cfg.networkDir, macaroons.DBFilename),
 		cfg.AdminMacPath, cfg.ReadMacPath, cfg.InvoiceMacPath,
 	}
 	pwService := walletunlocker.New(
-		chainConfig.ChainDir, cfg.ActiveNetParams.Params, !cfg.SyncFreelist,
-		macaroonFiles,
+		chainConfig.ChainDir, cfg.ActiveNetParams.Params,
+		!cfg.SyncFreelist, macaroonFiles,
 	)
+
+	// Set up a new PasswordService, which will listen for passwords
+	// provided over RPC.
+	grpcServer := grpc.NewServer(serverOpts...)
 	lnrpc.RegisterWalletUnlockerServer(grpcServer, pwService)
+
+	var shutdownFuncs []func()
+	shutdown := func() {
+		// Make sure nothing blocks on reading on the macaroon channel,
+		// otherwise the GracefulStop below will never return.
+		close(pwService.MacResponseChan)
+
+		for _, shutdownFn := range shutdownFuncs {
+			shutdownFn()
+		}
+	}
+	shutdownFuncs = append(shutdownFuncs, grpcServer.GracefulStop)
+
+	// Start a gRPC server listening for HTTP/2 connections, solely used
+	// for getting the encryption password from the client.
+	listeners, cleanup, err := getListeners()
+	if err != nil {
+		return nil, shutdown, err
+	}
+	shutdownFuncs = append(shutdownFuncs, cleanup)
 
 	// Use a WaitGroup so we can be sure the instructions on how to input the
 	// password is the last thing to be printed to the console.
@@ -1082,21 +1160,21 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 	for _, lis := range listeners {
 		wg.Add(1)
 		go func(lis *ListenerWithSignal) {
-			rpcsLog.Infof("password RPC server listening on %s",
+			rpcsLog.Infof("Password RPC server listening on %s",
 				lis.Addr())
 
 			// Close the ready chan to indicate we are listening.
 			close(lis.Ready)
 
 			wg.Done()
-			grpcServer.Serve(lis)
+			_ = grpcServer.Serve(lis)
 		}(lis)
 	}
 
 	// Start a REST proxy for our gRPC server above.
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	shutdownFuncs = append(shutdownFuncs, cancel)
 
 	mux := proxy.NewServeMux()
 
@@ -1104,7 +1182,7 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 		ctx, mux, restProxyDest, restDialOpts,
 	)
 	if err != nil {
-		return nil, err
+		return nil, shutdown, err
 	}
 
 	srv := &http.Server{Handler: allowCORS(mux, cfg.RestCORS)}
@@ -1112,22 +1190,24 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 	for _, restEndpoint := range restEndpoints {
 		lis, err := lncfg.TLSListenOnAddress(restEndpoint, tlsConf)
 		if err != nil {
-			ltndLog.Errorf(
-				"password gRPC proxy unable to listen on %s",
-				restEndpoint,
-			)
-			return nil, err
+			ltndLog.Errorf("Password gRPC proxy unable to listen "+
+				"on %s", restEndpoint)
+			return nil, shutdown, err
 		}
-		defer lis.Close()
+		shutdownFuncs = append(shutdownFuncs, func() {
+			err := lis.Close()
+			if err != nil {
+				rpcsLog.Errorf("Error closing listener: %v",
+					err)
+			}
+		})
 
 		wg.Add(1)
 		go func() {
-			rpcsLog.Infof(
-				"password gRPC proxy started at %s",
-				lis.Addr(),
-			)
+			rpcsLog.Infof("Password gRPC proxy started at %s",
+				lis.Addr())
 			wg.Done()
-			srv.Serve(lis)
+			_ = srv.Serve(lis)
 		}()
 	}
 
@@ -1158,8 +1238,8 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 		// version, then we'll return an error as we don't understand
 		// this.
 		if cipherSeed.InternalVersion != keychain.KeyDerivationVersion {
-			return nil, fmt.Errorf("invalid internal seed version "+
-				"%v, current version is %v",
+			return nil, shutdown, fmt.Errorf("invalid internal "+
+				"seed version %v, current version is %v",
 				cipherSeed.InternalVersion,
 				keychain.KeyDerivationVersion)
 		}
@@ -1185,31 +1265,35 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 				ltndLog.Errorf("Could not unload new "+
 					"wallet: %v", err)
 			}
-			return nil, err
+			return nil, shutdown, err
 		}
 
 		return &WalletUnlockParams{
-			Password:       password,
-			Birthday:       birthday,
-			RecoveryWindow: recoveryWindow,
-			Wallet:         newWallet,
-			ChansToRestore: initMsg.ChanBackups,
-			UnloadWallet:   loader.UnloadWallet,
-		}, nil
+			Password:        password,
+			Birthday:        birthday,
+			RecoveryWindow:  recoveryWindow,
+			Wallet:          newWallet,
+			ChansToRestore:  initMsg.ChanBackups,
+			UnloadWallet:    loader.UnloadWallet,
+			StatelessInit:   initMsg.StatelessInit,
+			MacResponseChan: pwService.MacResponseChan,
+		}, shutdown, nil
 
 	// The wallet has already been created in the past, and is simply being
 	// unlocked. So we'll just return these passphrases.
 	case unlockMsg := <-pwService.UnlockMsgs:
 		return &WalletUnlockParams{
-			Password:       unlockMsg.Passphrase,
-			RecoveryWindow: unlockMsg.RecoveryWindow,
-			Wallet:         unlockMsg.Wallet,
-			ChansToRestore: unlockMsg.ChanBackups,
-			UnloadWallet:   unlockMsg.UnloadWallet,
-		}, nil
+			Password:        unlockMsg.Passphrase,
+			RecoveryWindow:  unlockMsg.RecoveryWindow,
+			Wallet:          unlockMsg.Wallet,
+			ChansToRestore:  unlockMsg.ChanBackups,
+			UnloadWallet:    unlockMsg.UnloadWallet,
+			StatelessInit:   unlockMsg.StatelessInit,
+			MacResponseChan: pwService.MacResponseChan,
+		}, shutdown, nil
 
 	case <-signal.ShutdownChannel():
-		return nil, fmt.Errorf("shutting down")
+		return nil, shutdown, fmt.Errorf("shutting down")
 	}
 }
 

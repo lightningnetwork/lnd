@@ -62,6 +62,10 @@ type Service struct {
 	// If no external validator for an URI is specified, the service will
 	// use the internal validator.
 	externalValidators map[string]MacaroonValidator
+
+	// StatelessInit denotes if the service was initialized in the stateless
+	// mode where no macaroon files should be created on disk.
+	StatelessInit bool
 }
 
 // NewService returns a service backed by the macaroon Bolt DB stored in the
@@ -71,7 +75,9 @@ type Service struct {
 // listing the same checker more than once is not harmful. Default checkers,
 // such as those for `allow`, `time-before`, `declared`, and `error` caveats
 // are registered automatically and don't need to be added.
-func NewService(dir, location string, checks ...Checker) (*Service, error) {
+func NewService(dir, location string, statelessInit bool,
+	checks ...Checker) (*Service, error) {
+
 	// Ensure that the path to the directory exists.
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		if err := os.MkdirAll(dir, 0700); err != nil {
@@ -118,6 +124,7 @@ func NewService(dir, location string, checks ...Checker) (*Service, error) {
 		Bakery:             *svc,
 		rks:                rootKeyStore,
 		externalValidators: make(map[string]MacaroonValidator),
+		StatelessInit:      statelessInit,
 	}, nil
 }
 
@@ -257,8 +264,8 @@ func (svc *Service) ValidateMacaroon(ctx context.Context,
 		return err
 	}
 
-	// Check the method being called against the permitted operation and
-	// the expiration time and IP address and return the result.
+	// Check the method being called against the permitted operation, the
+	// expiration time and IP address and return the result.
 	authChecker := svc.Checker.Auth(macaroon.Slice{mac})
 	_, err = authChecker.Allow(ctx, requiredPermissions...)
 
@@ -324,4 +331,16 @@ func (svc *Service) ListMacaroonIDs(ctxt context.Context) ([][]byte, error) {
 func (svc *Service) DeleteMacaroonID(ctxt context.Context,
 	rootKeyID []byte) ([]byte, error) {
 	return svc.rks.DeleteMacaroonID(ctxt, rootKeyID)
+}
+
+// GenerateNewRootKey calls the underlying root key store's GenerateNewRootKey
+// and returns the result.
+func (svc *Service) GenerateNewRootKey() error {
+	return svc.rks.GenerateNewRootKey()
+}
+
+// ChangePassword calls the underlying root key store's ChangePassword and
+// returns the result.
+func (svc *Service) ChangePassword(oldPw, newPw []byte) error {
+	return svc.rks.ChangePassword(oldPw, newPw)
 }

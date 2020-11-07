@@ -1,10 +1,13 @@
 package itest
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
+	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -484,6 +487,105 @@ func testDeleteMacaroonID(net *lntest.NetworkHarness, t *harnessTest) {
 	_, err = client.ListMacaroonIDs(ctxt, listReq)
 	require.Error(t.t, err)
 	require.Contains(t.t, err.Error(), "cannot get macaroon")
+}
+
+// testStatelessInit checks that the stateless initialization of the daemon
+// does not write any macaroon files to the daemon's file system and returns
+// the admin macaroon in the response. It then checks that the password
+// change of the wallet can also happen stateless.
+func testStatelessInit(net *lntest.NetworkHarness, t *harnessTest) {
+	var (
+		initPw     = []byte("stateless")
+		newPw      = []byte("stateless-new")
+		newAddrReq = &lnrpc.NewAddressRequest{
+			Type: AddrTypeWitnessPubkeyHash,
+		}
+	)
+
+	// First, create a new node and request it to initialize stateless.
+	// This should return us the binary serialized admin macaroon that we
+	// can then use for further calls.
+	carol, _, macBytes, err := net.NewNodeWithSeed(
+		"Carol", nil, initPw, true,
+	)
+	require.NoError(t.t, err)
+	if len(macBytes) == 0 {
+		t.Fatalf("invalid macaroon returned in stateless init")
+	}
+
+	// Now make sure no macaroon files have been created by the node Carol.
+	_, err = os.Stat(carol.AdminMacPath())
+	require.Error(t.t, err)
+	_, err = os.Stat(carol.ReadMacPath())
+	require.Error(t.t, err)
+	_, err = os.Stat(carol.InvoiceMacPath())
+	require.Error(t.t, err)
+
+	// Then check that we can unmarshal the binary serialized macaroon.
+	adminMac := &macaroon.Macaroon{}
+	err = adminMac.UnmarshalBinary(macBytes)
+	require.NoError(t.t, err)
+
+	// Find out if we can actually use the macaroon that has been returned
+	// to us for a RPC call.
+	conn, err := carol.ConnectRPCWithMacaroon(adminMac)
+	require.NoError(t.t, err)
+	defer conn.Close()
+	adminMacClient := lnrpc.NewLightningClient(conn)
+	ctxt, _ := context.WithTimeout(context.Background(), defaultTimeout)
+	res, err := adminMacClient.NewAddress(ctxt, newAddrReq)
+	require.NoError(t.t, err)
+	if !strings.HasPrefix(res.Address, harnessNetParams.Bech32HRPSegwit) {
+		t.Fatalf("returned address was not a regtest address")
+	}
+
+	// As a second part, shut down the node and then try to change the
+	// password when we start it up again.
+	if err := net.RestartNodeNoUnlock(carol, nil); err != nil {
+		t.Fatalf("Node restart failed: %v", err)
+	}
+	changePwReq := &lnrpc.ChangePasswordRequest{
+		CurrentPassword: initPw,
+		NewPassword:     newPw,
+		StatelessInit:   true,
+	}
+	ctxb := context.Background()
+	response, err := carol.InitChangePassword(ctxb, changePwReq)
+	require.NoError(t.t, err)
+
+	// Again, make  sure no macaroon files have been created by the node
+	// Carol.
+	_, err = os.Stat(carol.AdminMacPath())
+	require.Error(t.t, err)
+	_, err = os.Stat(carol.ReadMacPath())
+	require.Error(t.t, err)
+	_, err = os.Stat(carol.InvoiceMacPath())
+	require.Error(t.t, err)
+
+	// Then check that we can unmarshal the new binary serialized macaroon
+	// and that it really is a new macaroon.
+	if err = adminMac.UnmarshalBinary(response.AdminMacaroon); err != nil {
+		t.Fatalf("unable to unmarshal macaroon: %v", err)
+	}
+	if bytes.Equal(response.AdminMacaroon, macBytes) {
+		t.Fatalf("expected new macaroon to be different")
+	}
+
+	// Finally, find out if we can actually use the new macaroon that has
+	// been returned to us for a RPC call.
+	conn2, err := carol.ConnectRPCWithMacaroon(adminMac)
+	require.NoError(t.t, err)
+	defer conn2.Close()
+	adminMacClient = lnrpc.NewLightningClient(conn2)
+
+	// Changing the password takes a while, so we use the default timeout
+	// of 30 seconds to wait for the connection to be ready.
+	ctxt, _ = context.WithTimeout(context.Background(), defaultTimeout)
+	res, err = adminMacClient.NewAddress(ctxt, newAddrReq)
+	require.NoError(t.t, err)
+	if !strings.HasPrefix(res.Address, harnessNetParams.Bech32HRPSegwit) {
+		t.Fatalf("returned address was not a regtest address")
+	}
 }
 
 // readMacaroonFromHex loads a macaroon from a hex string.

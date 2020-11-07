@@ -33,7 +33,7 @@ var defaultSetDesc = setDesc{
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
-	lnwire.PaymentAddrOptional: {
+	lnwire.PaymentAddrRequired: {
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 		SetInvoice: {}, // 9

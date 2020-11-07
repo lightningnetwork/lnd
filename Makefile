@@ -184,7 +184,7 @@ itest-parallel: btcd
 
 	@$(call print, "Running tests")
 	rm -rf lntest/itest/*.log lntest/itest/.logs-*
-	echo -n "$$(seq 0 $$(expr $(NUM_ITEST_TRANCHES) - 1))" | xargs -P $(NUM_ITEST_TRANCHES) -n 1 -I {} scripts/itest_part.sh {} $(NUM_ITEST_TRANCHES) $(TEST_FLAGS)
+	echo "$$(seq 0 $$(expr $(ITEST_PARALLELISM) - 1))" | xargs -P $(ITEST_PARALLELISM) -n 1 -I {} scripts/itest_part.sh {} $(NUM_ITEST_TRANCHES) $(TEST_FLAGS)
 
 itest-parallel-windows: btcd
 	@$(call print, "Building lnd binary")
@@ -194,7 +194,7 @@ itest-parallel-windows: btcd
 	CGO_ENABLED=0 $(GOTEST) -v ./lntest/itest -tags="$(DEV_TAGS) $(RPC_TAGS) rpctest $(backend)" -logoutput -goroutinedump -c -o lntest/itest/itest.test.exe
 
 	@$(call print, "Running tests")
-	EXEC_SUFFIX=".exe" echo -n "$$(seq 0 $$(expr $(NUM_ITEST_TRANCHES) - 1))" | xargs -P $(NUM_ITEST_TRANCHES) -n 1 -I {} scripts/itest_part.sh {} $(NUM_ITEST_TRANCHES) $(TEST_FLAGS)
+	EXEC_SUFFIX=".exe" echo "$$(seq 0 $$(expr $(ITEST_PARALLELISM) - 1))" | xargs -P $(ITEST_PARALLELISM) -n 1 -I {} scripts/itest_part.sh {} $(NUM_ITEST_TRANCHES) $(TEST_FLAGS)
 
 itest-windows: btcd build-itest-windows itest-only
 
@@ -231,6 +231,10 @@ flakehunter: build-itest
 flake-unit:
 	@$(call print, "Flake hunting unit tests.")
 	while [ $$? -eq 0 ]; do GOTRACEBACK=all $(UNIT) -count=1; done
+
+flakehunter-parallel:
+	@$(call print, "Flake hunting ${backend} integration tests in parallel.")
+	while [ $$? -eq 0 ]; do make itest-parallel tranches=1 parallel=${ITEST_PARALLELISM} icase='${icase}' backend='${backend}'; done
 
 # =============
 # FUZZING

@@ -4,6 +4,7 @@ LOG_TAGS =
 TEST_FLAGS =
 COVER_PKG = $$(go list -deps ./... | grep '$(PKG)' | grep -v lnrpc)
 NUM_ITEST_TRANCHES = 6
+ITEST_PARALLELISM = $(NUM_ITEST_TRANCHES)
 
 # If rpc option is set also add all extra RPC tags to DEV_TAGS
 ifneq ($(with-rpc),)
@@ -13,6 +14,12 @@ endif
 # Scale the number of parallel running itest tranches.
 ifneq ($(tranches),)
 NUM_ITEST_TRANCHES = $(tranches)
+ITEST_PARALLELISM = $(NUM_ITEST_TRANCHES)
+endif
+
+# Give the ability to run the same tranche multiple times at the same time.
+ifneq ($(parallel),)
+ITEST_PARALLELISM = $(parallel)
 endif
 
 # If specific package is being unit tested, construct the full name of the

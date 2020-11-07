@@ -24,7 +24,7 @@ var defaultSetDesc = setDesc{
 		SetInvoice:      {}, // 9
 		SetLegacyGlobal: {},
 	},
-	lnwire.StaticRemoteKeyOptional: {
+	lnwire.StaticRemoteKeyRequired: {
 		SetInit:         {}, // I
 		SetNodeAnn:      {}, // N
 		SetLegacyGlobal: {},

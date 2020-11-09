@@ -83,9 +83,13 @@ func (db *DB) GetBackends(ctx context.Context, dbPath string,
 		}
 	}
 
-	localDB, err = kvdb.GetBoltBackend(
-		dbPath, dbName, !db.Bolt.SyncFreelist,
-	)
+	localDB, err = kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
+		DBPath:            dbPath,
+		DBFileName:        dbName,
+		NoFreelistSync:    !db.Bolt.SyncFreelist,
+		AutoCompact:       db.Bolt.AutoCompact,
+		AutoCompactMinAge: db.Bolt.AutoCompactMinAge,
+	})
 	if err != nil {
 		return nil, err
 	}

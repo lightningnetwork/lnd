@@ -1,6 +1,11 @@
 package channeldb
 
-import "github.com/lightningnetwork/lnd/clock"
+import (
+	"time"
+
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+	"github.com/lightningnetwork/lnd/clock"
+)
 
 const (
 	// DefaultRejectCacheSize is the default number of rejectCacheEntries to
@@ -16,6 +21,8 @@ const (
 
 // Options holds parameters for tuning and customizing a channeldb.DB.
 type Options struct {
+	kvdb.BoltBackendConfig
+
 	// RejectCacheSize is the maximum number of rejectCacheEntries to hold
 	// in the rejection cache.
 	RejectCacheSize int
@@ -23,11 +30,6 @@ type Options struct {
 	// ChannelCacheSize is the maximum number of ChannelEdges to hold in the
 	// channel cache.
 	ChannelCacheSize int
-
-	// NoFreelistSync, if true, prevents the database from syncing its
-	// freelist to disk, resulting in improved performance at the expense of
-	// increased startup time.
-	NoFreelistSync bool
 
 	// clock is the time source used by the database.
 	clock clock.Clock
@@ -40,9 +42,13 @@ type Options struct {
 // DefaultOptions returns an Options populated with default values.
 func DefaultOptions() Options {
 	return Options{
+		BoltBackendConfig: kvdb.BoltBackendConfig{
+			NoFreelistSync:    true,
+			AutoCompact:       false,
+			AutoCompactMinAge: kvdb.DefaultBoltAutoCompactMinAge,
+		},
 		RejectCacheSize:  DefaultRejectCacheSize,
 		ChannelCacheSize: DefaultChannelCacheSize,
-		NoFreelistSync:   true,
 		clock:            clock.NewDefaultClock(),
 	}
 }
@@ -68,6 +74,21 @@ func OptionSetChannelCacheSize(n int) OptionModifier {
 func OptionSetSyncFreelist(b bool) OptionModifier {
 	return func(o *Options) {
 		o.NoFreelistSync = !b
+	}
+}
+
+// OptionAutoCompact turns on automatic database compaction on startup.
+func OptionAutoCompact() OptionModifier {
+	return func(o *Options) {
+		o.AutoCompact = true
+	}
+}
+
+// OptionAutoCompactMinAge sets the minimum age for automatic database
+// compaction.
+func OptionAutoCompactMinAge(minAge time.Duration) OptionModifier {
+	return func(o *Options) {
+		o.AutoCompactMinAge = minAge
 	}
 }
 

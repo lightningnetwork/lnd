@@ -26,7 +26,9 @@ type DB struct {
 func DefaultDB() *DB {
 	return &DB{
 		Backend: BoltBackend,
-		Bolt:    &kvdb.BoltConfig{},
+		Bolt: &kvdb.BoltConfig{
+			AutoCompactMinAge: kvdb.DefaultBoltAutoCompactMinAge,
+		},
 	}
 }
 

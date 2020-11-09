@@ -1,7 +1,9 @@
 package kvdb
 
 import (
+	"encoding/binary"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"time"
@@ -14,6 +16,15 @@ const (
 	// file that we'll use to atomically compact the primary DB file on
 	// startup.
 	DefaultTempDBFileName = "temp-dont-use.db"
+
+	// LastCompactionFileNameSuffix is the suffix we append to the file name
+	// of a database file to record the timestamp when the last compaction
+	// occurred.
+	LastCompactionFileNameSuffix = ".last-compacted"
+)
+
+var (
+	byteOrder = binary.BigEndian
 )
 
 // fileExists returns true if the file exists, and false otherwise.
@@ -95,6 +106,22 @@ func compactAndSwap(cfg *BoltBackendConfig) error {
 	sourceFilePath := filepath.Join(cfg.DBPath, sourceName)
 	tempDestFilePath := filepath.Join(cfg.DBPath, DefaultTempDBFileName)
 
+	// Let's find out how long ago the last compaction of the source file
+	// occurred and possibly skip compacting it again now.
+	lastCompactionDate, err := lastCompactionDate(sourceFilePath)
+	if err != nil {
+		return fmt.Errorf("cannot determine last compaction date of "+
+			"source DB file: %v", err)
+	}
+	compactAge := time.Since(lastCompactionDate)
+	if cfg.AutoCompactMinAge != 0 && compactAge <= cfg.AutoCompactMinAge {
+		log.Infof("Not compacting database file at %v, it was last "+
+			"compacted at %v (%v ago), min age is set to %v",
+			sourceFilePath, lastCompactionDate,
+			compactAge.Truncate(time.Second), cfg.AutoCompactMinAge)
+		return nil
+	}
+
 	log.Infof("Compacting database file at %v", sourceFilePath)
 
 	// If the old temporary DB file still exists, then we'll delete it
@@ -141,6 +168,18 @@ func compactAndSwap(cfg *BoltBackendConfig) error {
 		sourceFilePath, initialSize, newSize,
 		float64(initialSize)/float64(newSize))
 
+	// We try to store the current timestamp in a file with the suffix
+	// .last-compacted so we can figure out how long ago the last compaction
+	// was. But since this shouldn't fail the compaction process itself, we
+	// only log the error. Worst case if this file cannot be written is that
+	// we compact on every startup.
+	err = updateLastCompactionDate(sourceFilePath)
+	if err != nil {
+		log.Warnf("Could not update last compaction timestamp in "+
+			"%s%s: %v", sourceFilePath,
+			LastCompactionFileNameSuffix, err)
+	}
+
 	log.Infof("Swapping old DB file from %v to %v", tempDestFilePath,
 		sourceFilePath)
 
@@ -148,6 +187,38 @@ func compactAndSwap(cfg *BoltBackendConfig) error {
 	// the main back up file. If this succeeds, then we'll only have a
 	// single file on disk once this method exits.
 	return os.Rename(tempDestFilePath, sourceFilePath)
+}
+
+// lastCompactionDate returns the date the given database file was last
+// compacted or a zero time.Time if no compaction was recorded before. The
+// compaction date is read from a file in the same directory and with the same
+// name as the DB file, but with the suffix ".last-compacted".
+func lastCompactionDate(dbFile string) (time.Time, error) {
+	zeroTime := time.Unix(0, 0)
+
+	tsFile := fmt.Sprintf("%s%s", dbFile, LastCompactionFileNameSuffix)
+	if !fileExists(tsFile) {
+		return zeroTime, nil
+	}
+
+	tsBytes, err := ioutil.ReadFile(tsFile)
+	if err != nil {
+		return zeroTime, err
+	}
+
+	tsNano := byteOrder.Uint64(tsBytes)
+	return time.Unix(0, int64(tsNano)), nil
+}
+
+// updateLastCompactionDate stores the current time as a timestamp in a file
+// in the same directory and with the same name as the DB file, but with the
+// suffix ".last-compacted".
+func updateLastCompactionDate(dbFile string) error {
+	var tsBytes [8]byte
+	byteOrder.PutUint64(tsBytes[:], uint64(time.Now().UnixNano()))
+
+	tsFile := fmt.Sprintf("%s%s", dbFile, LastCompactionFileNameSuffix)
+	return ioutil.WriteFile(tsFile, tsBytes[:], 0600)
 }
 
 // GetTestBackend opens (or creates if doesn't exist) a bbolt or etcd

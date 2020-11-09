@@ -64,7 +64,7 @@ var (
 func createTestInput(value int64, witnessType input.WitnessType) input.BaseInput {
 	hash := chainhash.Hash{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-		byte(testInputCount)}
+		byte(testInputCount + 1)}
 
 	input := input.MakeBaseInput(
 		&wire.OutPoint{
@@ -106,7 +106,7 @@ func createSweeperTestContext(t *testing.T) *sweeperTestContext {
 	backend := newMockBackend(t, notifier)
 	backend.walletUtxos = []*lnwallet.Utxo{
 		{
-			Value:       btcutil.Amount(10000),
+			Value:       btcutil.Amount(1_000_000),
 			AddressType: lnwallet.WitnessPubKey,
 		},
 	}
@@ -493,8 +493,9 @@ func TestWalletUtxo(t *testing.T) {
 			"inputs instead", len(sweepTx.TxIn))
 	}
 
-	// Calculate expected output value based on wallet utxo of 10000 sats.
-	expectedOutputValue := int64(294 + 10000 - 180)
+	// Calculate expected output value based on wallet utxo of 1_000_000
+	// sats.
+	expectedOutputValue := int64(294 + 1_000_000 - 180)
 	if sweepTx.TxOut[0].Value != expectedOutputValue {
 		t.Fatalf("Expected output value of %v, but got %v",
 			expectedOutputValue, sweepTx.TxOut[0].Value)
@@ -1369,8 +1370,8 @@ func TestCpfp(t *testing.T) {
 	// package, making a total of 1059. At 5000 sat/kw, the required fee for
 	// the package is 5295 sats. The parent already paid 900 sats, so there
 	// is 4395 sat remaining to be paid. The expected output value is
-	// therefore: 10000 + 330 - 4395 = 5935.
-	require.Equal(t, int64(5935), tx.TxOut[0].Value)
+	// therefore: 1_000_000 + 330 - 4395 = 995 935.
+	require.Equal(t, int64(995_935), tx.TxOut[0].Value)
 
 	// Mine the tx and assert that the result is passed back.
 	ctx.backend.mine()

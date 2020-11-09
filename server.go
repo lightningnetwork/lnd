@@ -1302,7 +1302,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	diskCheck := healthcheck.NewObservation(
 		"disk space",
 		func() error {
-			free, err := healthcheck.AvailableDiskSpace(cfg.LndDir)
+			free, err := healthcheck.AvailableDiskSpaceRatio(
+				cfg.LndDir,
+			)
 			if err != nil {
 				return err
 			}

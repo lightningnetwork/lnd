@@ -50,6 +50,8 @@ func (c *ChainedAcceptor) Accept(req *ChannelAcceptRequest) *ChannelAcceptRespon
 	c.acceptorsMtx.RLock()
 	defer c.acceptorsMtx.RUnlock()
 
+	var finalResp ChannelAcceptResponse
+
 	for _, acceptor := range c.acceptors {
 		// Call our acceptor to determine whether we want to accept this
 		// channel.
@@ -61,11 +63,31 @@ func (c *ChainedAcceptor) Accept(req *ChannelAcceptRequest) *ChannelAcceptRespon
 		if acceptorResponse.RejectChannel() {
 			return acceptorResponse
 		}
+
+		// If we have accepted the channel, we need to set the other
+		// fields that were set in the response. However, since we are
+		// dealing with multiple responses, we need to make sure that we
+		// have not received inconsistent values (eg a csv delay of 1
+		// from one acceptor, and a delay of 120 from another). We
+		// set each value on our final response if it has not been set
+		// yet, and allow duplicate sets if the value is the same. If
+		// we cannot set a field, we return an error response.
+		var err error
+		finalResp, err = mergeResponse(finalResp, *acceptorResponse)
+		if err != nil {
+			log.Errorf("response for: %x has inconsistent values: %v",
+				req.OpenChanMsg.PendingChannelID, err)
+
+			return NewChannelAcceptResponse(
+				false, errChannelRejected, nil, 0, 0,
+				0, 0, 0, 0,
+			)
+		}
 	}
 
 	// If we have gone through all of our acceptors with no objections, we
 	// can return an acceptor with a nil error.
-	return NewChannelAcceptResponse(true, nil)
+	return &finalResp
 }
 
 // A compile-time constraint to ensure ChainedAcceptor implements the

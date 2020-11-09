@@ -1,12 +1,18 @@
 package chanacceptor
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 var (
@@ -17,10 +23,25 @@ var (
 	errCustomLength = fmt.Errorf("custom error message exceeds length "+
 		"limit: %v", maxErrorLength)
 
+	// errInvalidUpfrontShutdown is returned when we cannot parse the
+	// upfront shutdown address returned.
+	errInvalidUpfrontShutdown = fmt.Errorf("could not parse upfront " +
+		"shutdown address")
+
+	// errInsufficientReserve is returned when the reserve proposed by for
+	// a channel is less than the dust limit originally supplied.
+	errInsufficientReserve = fmt.Errorf("reserve lower than proposed dust " +
+		"limit")
+
 	// errAcceptWithError is returned when we get a response which accepts
 	// a channel but ambiguously also sets a custom error message.
 	errAcceptWithError = errors.New("channel acceptor response accepts " +
 		"channel, but also includes custom error")
+
+	// errMaxHtlcTooHigh is returned if our htlc count exceeds the number
+	// hard-set by BOLT 2.
+	errMaxHtlcTooHigh = fmt.Errorf("htlc limit exceeds spec limit of: %v",
+		input.MaxHTLCNumber/2)
 
 	// maxErrorLength is the maximum error length we allow the error we
 	// send to our peer to be.
@@ -54,6 +75,9 @@ type RPCAcceptor struct {
 	// acceptor, and the time it takes to receive a response.
 	timeout time.Duration
 
+	// params are our current chain params.
+	params *chaincfg.Params
+
 	// done is closed when the rpc client terminates.
 	done chan struct{}
 
@@ -83,7 +107,7 @@ func (r *RPCAcceptor) Accept(req *ChannelAcceptRequest) *ChannelAcceptResponse {
 	// Create a rejection response which we can use for the cases where we
 	// reject the channel.
 	rejectChannel := NewChannelAcceptResponse(
-		false, errChannelRejected,
+		false, errChannelRejected, nil, 0, 0, 0, 0, 0, 0,
 	)
 
 	// Send the request to the newRequests channel.
@@ -123,14 +147,15 @@ func (r *RPCAcceptor) Accept(req *ChannelAcceptRequest) *ChannelAcceptResponse {
 
 // NewRPCAcceptor creates and returns an instance of the RPCAcceptor.
 func NewRPCAcceptor(receive func() (*lnrpc.ChannelAcceptResponse, error),
-	send func(*lnrpc.ChannelAcceptRequest) error,
-	timeout time.Duration, quit chan struct{}) *RPCAcceptor {
+	send func(*lnrpc.ChannelAcceptRequest) error, timeout time.Duration,
+	params *chaincfg.Params, quit chan struct{}) *RPCAcceptor {
 
 	return &RPCAcceptor{
 		receive:  receive,
 		send:     send,
 		requests: make(chan *chanAcceptInfo),
 		timeout:  timeout,
+		params:   params,
 		done:     make(chan struct{}),
 		quit:     quit,
 	}
@@ -181,9 +206,16 @@ func (r *RPCAcceptor) receiveResponses(errChan chan error,
 		copy(pendingID[:], resp.PendingChanId)
 
 		openChanResp := lnrpc.ChannelAcceptResponse{
-			Accept:        resp.Accept,
-			PendingChanId: pendingID[:],
-			Error:         resp.Error,
+			Accept:          resp.Accept,
+			PendingChanId:   pendingID[:],
+			Error:           resp.Error,
+			UpfrontShutdown: resp.UpfrontShutdown,
+			CsvDelay:        resp.CsvDelay,
+			ReserveSat:      resp.ReserveSat,
+			InFlightMaxMsat: resp.InFlightMaxMsat,
+			MaxHtlcCount:    resp.MaxHtlcCount,
+			MinHtlcIn:       resp.MinHtlcIn,
+			MinAcceptDepth:  resp.MinAcceptDepth,
 		}
 
 		// We have received a decision for one of our channel
@@ -210,7 +242,10 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 	// listening and any in-progress requests should be terminated.
 	defer close(r.done)
 
-	acceptRequests := make(map[[32]byte]chan *ChannelAcceptResponse)
+	// Create a map of pending channel IDs to our original open channel
+	// request and a response channel. We keep the original chanel open
+	// message so that we can validate our response against it.
+	acceptRequests := make(map[[32]byte]*chanAcceptInfo)
 
 	for {
 		select {
@@ -221,7 +256,7 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 			req := newRequest.request
 			pendingChanID := req.OpenChanMsg.PendingChannelID
 
-			acceptRequests[pendingChanID] = newRequest.response
+			acceptRequests[pendingChanID] = newRequest
 
 			// A ChannelAcceptRequest has been received, send it to the client.
 			chanAcceptReq := &lnrpc.ChannelAcceptRequest{
@@ -253,7 +288,7 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 			// over it.
 			var pendingID [32]byte
 			copy(pendingID[:], resp.PendingChanId)
-			respChan, ok := acceptRequests[pendingID]
+			requestInfo, ok := acceptRequests[pendingID]
 			if !ok {
 				continue
 			}
@@ -261,14 +296,22 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 			// Validate the response we have received. If it is not
 			// valid, we log our error and proceed to deliver the
 			// rejection.
-			accept, acceptErr, err := validateAcceptorResponse(resp)
+			accept, acceptErr, shutdown, err := r.validateAcceptorResponse(
+				requestInfo.request.OpenChanMsg.DustLimit, resp,
+			)
 			if err != nil {
 				log.Errorf("Invalid acceptor response: %v", err)
 			}
 
-			// Send the response boolean over the buffered response
-			// channel.
-			respChan <- NewChannelAcceptResponse(accept, acceptErr)
+			requestInfo.response <- NewChannelAcceptResponse(
+				accept, acceptErr, shutdown,
+				uint16(resp.CsvDelay),
+				uint16(resp.MaxHtlcCount),
+				uint16(resp.MinAcceptDepth),
+				btcutil.Amount(resp.ReserveSat),
+				lnwire.MilliSatoshi(resp.InFlightMaxMsat),
+				lnwire.MilliSatoshi(resp.MinHtlcIn),
+			)
 
 			// Delete the channel from the acceptRequests map.
 			delete(acceptRequests, pendingID)
@@ -288,12 +331,49 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 // validateAcceptorResponse validates the response we get from the channel
 // acceptor, returning a boolean indicating whether to accept the channel, an
 // error to send to the peer, and any validation errors that occurred.
-func validateAcceptorResponse(req lnrpc.ChannelAcceptResponse) (bool, error,
+func (r *RPCAcceptor) validateAcceptorResponse(dustLimit btcutil.Amount,
+	req lnrpc.ChannelAcceptResponse) (bool, error, lnwire.DeliveryAddress,
 	error) {
+
+	channelStr := hex.EncodeToString(req.PendingChanId)
+
+	// Check that the max htlc count is within the BOLT 2 hard-limit of 483.
+	// The initiating side should fail values above this anyway, but we
+	// catch the invalid user input here.
+	if req.MaxHtlcCount > input.MaxHTLCNumber/2 {
+		log.Errorf("Max htlc count: %v for channel: %v is greater "+
+			"than limit of: %v", req.MaxHtlcCount, channelStr,
+			input.MaxHTLCNumber/2)
+
+		return false, errChannelRejected, nil, errMaxHtlcTooHigh
+	}
+
+	// Ensure that the reserve that has been proposed, if it is set, is at
+	// least the dust limit that was proposed by the remote peer. This is
+	// required by BOLT 2.
+	reserveSat := btcutil.Amount(req.ReserveSat)
+	if reserveSat != 0 && reserveSat < dustLimit {
+		log.Errorf("Remote reserve: %v sat for channel: %v must be "+
+			"at least equal to proposed dust limit: %v",
+			req.ReserveSat, channelStr, dustLimit)
+
+		return false, errChannelRejected, nil, errInsufficientReserve
+	}
+
+	// Attempt to parse the upfront shutdown address provided.
+	upfront, err := chancloser.ParseUpfrontShutdownAddress(
+		req.UpfrontShutdown, r.params,
+	)
+	if err != nil {
+		log.Errorf("Could not parse upfront shutdown for "+
+			"%v: %v", channelStr, err)
+
+		return false, errChannelRejected, nil, errInvalidUpfrontShutdown
+	}
 
 	// Check that the custom error provided is valid.
 	if len(req.Error) > maxErrorLength {
-		return false, errChannelRejected, errCustomLength
+		return false, errChannelRejected, nil, errCustomLength
 	}
 
 	var haveCustomError = len(req.Error) != 0
@@ -302,21 +382,21 @@ func validateAcceptorResponse(req lnrpc.ChannelAcceptResponse) (bool, error,
 	// If accept is true, but we also have an error specified, we fail
 	// because this result is ambiguous.
 	case req.Accept && haveCustomError:
-		return false, errChannelRejected, errAcceptWithError
+		return false, errChannelRejected, nil, errAcceptWithError
 
 	// If we accept without an error message, we can just return a nil
 	// error.
 	case req.Accept:
-		return true, nil, nil
+		return true, nil, upfront, nil
 
 	// If we reject the channel, and have a custom error, then we use it.
 	case haveCustomError:
-		return false, fmt.Errorf(req.Error), nil
+		return false, fmt.Errorf(req.Error), nil, nil
 
 	// Otherwise, we have rejected the channel with no custom error, so we
 	// just use a generic error to fail the channel.
 	default:
-		return false, errChannelRejected, nil
+		return false, errChannelRejected, nil, nil
 	}
 }
 

@@ -746,6 +746,8 @@ func (f *fundingManager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 		msg = lnwire.ErrorData(e.Error())
 	case lnwire.FundingError:
 		msg = lnwire.ErrorData(e.Error())
+	case chanacceptor.ChanAcceptError:
+		msg = lnwire.ErrorData(e.Error())
 
 	// For all other error types we just send a generic error.
 	default:
@@ -1282,10 +1284,13 @@ func (f *fundingManager) handleFundingOpen(peer lnpeer.Peer,
 		OpenChanMsg: msg,
 	}
 
-	if !f.cfg.OpenChannelPredicate.Accept(chanReq) {
+	// Query our channel acceptor to determine whether we should reject
+	// the channel.
+	acceptorResp := f.cfg.OpenChannelPredicate.Accept(chanReq)
+	if acceptorResp.RejectChannel() {
 		f.failFundingFlow(
 			peer, msg.PendingChannelID,
-			fmt.Errorf("open channel request rejected"),
+			acceptorResp.ChanAcceptError,
 		)
 		return
 	}

@@ -791,6 +791,16 @@ message ChannelAcceptResponse {
 
     // The pending channel id to which this response applies.
     bytes pending_chan_id = 2;
+
+    /*
+    An optional error to send the initiating party to indicate why the channel
+    was rejected. This field *should not* contain sensitive information, it will
+    be sent to the initiating party. This field should only be set if accept is
+    false, the channel will be rejected if an error is set with accept=true
+    because the meaning of this response is ambiguous. Limited to 500
+    characters.
+    */
+    string error = 3;
 }
 
 message ChannelPoint {

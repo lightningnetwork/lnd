@@ -2,19 +2,36 @@ package chanacceptor
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
-var errShuttingDown = errors.New("server shutting down")
+var (
+	errShuttingDown = errors.New("server shutting down")
+
+	// errCustomLength is returned when our custom error's length exceeds
+	// our maximum.
+	errCustomLength = fmt.Errorf("custom error message exceeds length "+
+		"limit: %v", maxErrorLength)
+
+	// errAcceptWithError is returned when we get a response which accepts
+	// a channel but ambiguously also sets a custom error message.
+	errAcceptWithError = errors.New("channel acceptor response accepts " +
+		"channel, but also includes custom error")
+
+	// maxErrorLength is the maximum error length we allow the error we
+	// send to our peer to be.
+	maxErrorLength = 500
+)
 
 // chanAcceptInfo contains a request for a channel acceptor decision, and a
 // channel that the response should be sent on.
 type chanAcceptInfo struct {
 	request  *ChannelAcceptRequest
-	response chan bool
+	response chan *ChannelAcceptResponse
 }
 
 // RPCAcceptor represents the RPC-controlled variant of the ChannelAcceptor.
@@ -52,8 +69,8 @@ type RPCAcceptor struct {
 // receives, failing the request if the timeout elapses.
 //
 // NOTE: Part of the ChannelAcceptor interface.
-func (r *RPCAcceptor) Accept(req *ChannelAcceptRequest) bool {
-	respChan := make(chan bool, 1)
+func (r *RPCAcceptor) Accept(req *ChannelAcceptRequest) *ChannelAcceptResponse {
+	respChan := make(chan *ChannelAcceptResponse, 1)
 
 	newRequest := &chanAcceptInfo{
 		request:  req,
@@ -63,6 +80,12 @@ func (r *RPCAcceptor) Accept(req *ChannelAcceptRequest) bool {
 	// timeout is the time after which ChannelAcceptRequests expire.
 	timeout := time.After(r.timeout)
 
+	// Create a rejection response which we can use for the cases where we
+	// reject the channel.
+	rejectChannel := NewChannelAcceptResponse(
+		false, errChannelRejected,
+	)
+
 	// Send the request to the newRequests channel.
 	select {
 	case r.requests <- newRequest:
@@ -70,13 +93,13 @@ func (r *RPCAcceptor) Accept(req *ChannelAcceptRequest) bool {
 	case <-timeout:
 		log.Errorf("RPCAcceptor returned false - reached timeout of %v",
 			r.timeout)
-		return false
+		return rejectChannel
 
 	case <-r.done:
-		return false
+		return rejectChannel
 
 	case <-r.quit:
-		return false
+		return rejectChannel
 	}
 
 	// Receive the response and return it. If no response has been received
@@ -88,13 +111,13 @@ func (r *RPCAcceptor) Accept(req *ChannelAcceptRequest) bool {
 	case <-timeout:
 		log.Errorf("RPCAcceptor returned false - reached timeout of %v",
 			r.timeout)
-		return false
+		return rejectChannel
 
 	case <-r.done:
-		return false
+		return rejectChannel
 
 	case <-r.quit:
-		return false
+		return rejectChannel
 	}
 }
 
@@ -160,6 +183,7 @@ func (r *RPCAcceptor) receiveResponses(errChan chan error,
 		openChanResp := lnrpc.ChannelAcceptResponse{
 			Accept:        resp.Accept,
 			PendingChanId: pendingID[:],
+			Error:         resp.Error,
 		}
 
 		// We have received a decision for one of our channel
@@ -186,7 +210,7 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 	// listening and any in-progress requests should be terminated.
 	defer close(r.done)
 
-	acceptRequests := make(map[[32]byte]chan bool)
+	acceptRequests := make(map[[32]byte]chan *ChannelAcceptResponse)
 
 	for {
 		select {
@@ -234,9 +258,17 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 				continue
 			}
 
+			// Validate the response we have received. If it is not
+			// valid, we log our error and proceed to deliver the
+			// rejection.
+			accept, acceptErr, err := validateAcceptorResponse(resp)
+			if err != nil {
+				log.Errorf("Invalid acceptor response: %v", err)
+			}
+
 			// Send the response boolean over the buffered response
 			// channel.
-			respChan <- resp.Accept
+			respChan <- NewChannelAcceptResponse(accept, acceptErr)
 
 			// Delete the channel from the acceptRequests map.
 			delete(acceptRequests, pendingID)
@@ -250,6 +282,41 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 		case <-r.quit:
 			return errShuttingDown
 		}
+	}
+}
+
+// validateAcceptorResponse validates the response we get from the channel
+// acceptor, returning a boolean indicating whether to accept the channel, an
+// error to send to the peer, and any validation errors that occurred.
+func validateAcceptorResponse(req lnrpc.ChannelAcceptResponse) (bool, error,
+	error) {
+
+	// Check that the custom error provided is valid.
+	if len(req.Error) > maxErrorLength {
+		return false, errChannelRejected, errCustomLength
+	}
+
+	var haveCustomError = len(req.Error) != 0
+
+	switch {
+	// If accept is true, but we also have an error specified, we fail
+	// because this result is ambiguous.
+	case req.Accept && haveCustomError:
+		return false, errChannelRejected, errAcceptWithError
+
+	// If we accept without an error message, we can just return a nil
+	// error.
+	case req.Accept:
+		return true, nil, nil
+
+	// If we reject the channel, and have a custom error, then we use it.
+	case haveCustomError:
+		return false, fmt.Errorf(req.Error), nil
+
+	// Otherwise, we have rejected the channel with no custom error, so we
+	// just use a generic error to fail the channel.
+	default:
+		return false, errChannelRejected, nil
 	}
 }
 

@@ -46,18 +46,26 @@ func (c *ChainedAcceptor) RemoveAcceptor(id uint64) {
 // and returns the conjunction of all these predicates.
 //
 // NOTE: Part of the ChannelAcceptor interface.
-func (c *ChainedAcceptor) Accept(req *ChannelAcceptRequest) bool {
-	result := true
-
+func (c *ChainedAcceptor) Accept(req *ChannelAcceptRequest) *ChannelAcceptResponse {
 	c.acceptorsMtx.RLock()
-	for _, acceptor := range c.acceptors {
-		// We call Accept first in case any acceptor (perhaps an RPCAcceptor)
-		// wishes to be notified about ChannelAcceptRequest.
-		result = acceptor.Accept(req) && result
-	}
-	c.acceptorsMtx.RUnlock()
+	defer c.acceptorsMtx.RUnlock()
 
-	return result
+	for _, acceptor := range c.acceptors {
+		// Call our acceptor to determine whether we want to accept this
+		// channel.
+		acceptorResponse := acceptor.Accept(req)
+
+		// If we should reject the channel, we can just exit early. This
+		// has the effect of returning the error belonging to our first
+		// failed acceptor.
+		if acceptorResponse.RejectChannel() {
+			return acceptorResponse
+		}
+	}
+
+	// If we have gone through all of our acceptors with no objections, we
+	// can return an acceptor with a nil error.
+	return NewChannelAcceptResponse(true, nil)
 }
 
 // A compile-time constraint to ensure ChainedAcceptor implements the

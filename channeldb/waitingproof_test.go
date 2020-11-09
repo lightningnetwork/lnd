@@ -14,9 +14,9 @@ import (
 func TestWaitingProofStore(t *testing.T) {
 	t.Parallel()
 
-	db, cleanup, err := makeTestDB()
+	db, cleanup, err := MakeTestDB()
 	if err != nil {
-
+		t.Fatalf("failed to make test database: %s", err)
 	}
 	defer cleanup()
 
@@ -53,7 +53,7 @@ func TestWaitingProofStore(t *testing.T) {
 
 	if err := store.ForAll(func(proof *WaitingProof) error {
 		return errors.New("storage should be empty")
-	}); err != nil && err != ErrWaitingProofNotFound {
+	}, func() {}); err != nil && err != ErrWaitingProofNotFound {
 		t.Fatal(err)
 	}
 }

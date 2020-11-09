@@ -1,17 +1,17 @@
 package lntest
 
 import (
+	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
 	"time"
-
-	"golang.org/x/net/context"
-	"google.golang.org/grpc/grpclog"
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -19,37 +19,26 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"google.golang.org/grpc/grpclog"
 )
 
-const (
-	// DefaultCSV is the CSV delay (remotedelay) we will start our test
-	// nodes with.
-	DefaultCSV = 4
-
-	// MinerMempoolTimeout is the max time we will wait for a transaction
-	// to propagate to the mining node's mempool.
-	MinerMempoolTimeout = time.Second * 30
-
-	// ChannelOpenTimeout is the max time we will wait before a channel to
-	// be considered opened.
-	ChannelOpenTimeout = time.Second * 30
-
-	// ChannelCloseTimeout is the max time we will wait before a channel is
-	// considered closed.
-	ChannelCloseTimeout = time.Second * 30
-
-	// DefaultTimeout is a timeout that will be used for various wait
-	// scenarios where no custom timeout value is defined.
-	DefaultTimeout = time.Second * 30
-)
+// DefaultCSV is the CSV delay (remotedelay) we will start our test nodes with.
+const DefaultCSV = 4
 
 // NetworkHarness is an integration testing harness for the lightning network.
 // The harness by default is created with two active nodes on the network:
 // Alice and Bob.
 type NetworkHarness struct {
 	netParams *chaincfg.Params
+
+	// lndBinary is the full path to the lnd binary that was specifically
+	// compiled with all required itest flags.
+	lndBinary string
 
 	// Miner is a reference to a running full node that can be used to create
 	// new blocks on the network.
@@ -68,12 +57,13 @@ type NetworkHarness struct {
 	Alice *HarnessNode
 	Bob   *HarnessNode
 
-	seenTxns             chan *chainhash.Hash
-	bitcoinWatchRequests chan *txWatchRequest
-
 	// Channel for transmitting stderr output from failed lightning node
 	// to main process.
 	lndErrorChan chan error
+
+	// feeService is a web service that provides external fee estimates to
+	// lnd.
+	feeService *feeService
 
 	quit chan struct{}
 
@@ -84,19 +74,22 @@ type NetworkHarness struct {
 // TODO(roasbeef): add option to use golang's build library to a binary of the
 // current repo. This will save developers from having to manually `go install`
 // within the repo each time before changes
-func NewNetworkHarness(r *rpctest.Harness, b BackendConfig) (*NetworkHarness, error) {
+func NewNetworkHarness(r *rpctest.Harness, b BackendConfig, lndBinary string) (
+	*NetworkHarness, error) {
+
+	feeService := startFeeService()
+
 	n := NetworkHarness{
-		activeNodes:          make(map[int]*HarnessNode),
-		nodesByPub:           make(map[string]*HarnessNode),
-		seenTxns:             make(chan *chainhash.Hash),
-		bitcoinWatchRequests: make(chan *txWatchRequest),
-		lndErrorChan:         make(chan error),
-		netParams:            r.ActiveNet,
-		Miner:                r,
-		BackendCfg:           b,
-		quit:                 make(chan struct{}),
+		activeNodes:  make(map[int]*HarnessNode),
+		nodesByPub:   make(map[string]*HarnessNode),
+		lndErrorChan: make(chan error),
+		netParams:    r.ActiveNet,
+		Miner:        r,
+		BackendCfg:   b,
+		feeService:   feeService,
+		quit:         make(chan struct{}),
+		lndBinary:    lndBinary,
 	}
-	go n.networkWatcher()
 	return &n, nil
 }
 
@@ -220,12 +213,13 @@ func (n *NetworkHarness) SetUp(lndArgs []string) error {
 	// Now block until both wallets have fully synced up.
 	expectedBalance := int64(btcutil.SatoshiPerBitcoin * 10)
 	balReq := &lnrpc.WalletBalanceRequest{}
-	balanceTicker := time.Tick(time.Millisecond * 50)
+	balanceTicker := time.NewTicker(time.Millisecond * 50)
+	defer balanceTicker.Stop()
 	balanceTimeout := time.After(time.Second * 30)
 out:
 	for {
 		select {
-		case <-balanceTicker:
+		case <-balanceTicker.C:
 			aliceResp, err := n.Alice.WalletBalance(ctxb, balReq)
 			if err != nil {
 				return err
@@ -259,6 +253,8 @@ func (n *NetworkHarness) TearDownAll() error {
 	close(n.lndErrorChan)
 	close(n.quit)
 
+	n.feeService.stop()
+
 	return nil
 }
 
@@ -266,7 +262,7 @@ func (n *NetworkHarness) TearDownAll() error {
 // current instance of the network harness. The created node is running, but
 // not yet connected to other nodes within the network.
 func (n *NetworkHarness) NewNode(name string, extraArgs []string) (*HarnessNode, error) {
-	return n.newNode(name, extraArgs, false)
+	return n.newNode(name, extraArgs, false, nil)
 }
 
 // NewNodeWithSeed fully initializes a new HarnessNode after creating a fresh
@@ -274,11 +270,12 @@ func (n *NetworkHarness) NewNode(name string, extraArgs []string) (*HarnessNode,
 // wallet password. The generated mnemonic is returned along with the
 // initialized harness node.
 func (n *NetworkHarness) NewNodeWithSeed(name string, extraArgs []string,
-	password []byte) (*HarnessNode, []string, error) {
+	password []byte, statelessInit bool) (*HarnessNode, []string, []byte,
+	error) {
 
-	node, err := n.newNode(name, extraArgs, true)
+	node, err := n.newNode(name, extraArgs, true, password)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	timeout := time.Duration(time.Second * 15)
@@ -293,7 +290,7 @@ func (n *NetworkHarness) NewNodeWithSeed(name string, extraArgs []string,
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	genSeedResp, err := node.GenSeed(ctxt, genSeedReq)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// With the seed created, construct the init request to the node,
@@ -302,31 +299,37 @@ func (n *NetworkHarness) NewNodeWithSeed(name string, extraArgs []string,
 		WalletPassword:     password,
 		CipherSeedMnemonic: genSeedResp.CipherSeedMnemonic,
 		AezeedPassphrase:   password,
+		StatelessInit:      statelessInit,
 	}
 
 	// Pass the init request via rpc to finish unlocking the node. This will
 	// also initialize the macaroon-authenticated LightningClient.
-	err = node.Init(ctxb, initReq)
+	response, err := node.Init(ctxb, initReq)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// With the node started, we can now record its public key within the
 	// global mapping.
 	n.RegisterNode(node)
 
-	return node, genSeedResp.CipherSeedMnemonic, nil
+	// In stateless initialization mode we get a macaroon back that we have
+	// to return to the test, otherwise gRPC calls won't be possible since
+	// there are no macaroon files created in that mode.
+	// In stateful init the admin macaroon will just be nil.
+	return node, genSeedResp.CipherSeedMnemonic, response.AdminMacaroon, nil
 }
 
 // RestoreNodeWithSeed fully initializes a HarnessNode using a chosen mnemonic,
-// password, and recovery window. After providing the initialization request to
-// unlock the node, this method will finish initializing the LightningClient
-// such that the HarnessNode can be used for regular rpc operations.
+// password, recovery window, and optionally a set of static channel backups.
+// After providing the initialization request to unlock the node, this method
+// will finish initializing the LightningClient such that the HarnessNode can
+// be used for regular rpc operations.
 func (n *NetworkHarness) RestoreNodeWithSeed(name string, extraArgs []string,
-	password []byte, mnemonic []string,
-	recoveryWindow int32) (*HarnessNode, error) {
+	password []byte, mnemonic []string, recoveryWindow int32,
+	chanBackups *lnrpc.ChanBackupSnapshot) (*HarnessNode, error) {
 
-	node, err := n.newNode(name, extraArgs, true)
+	node, err := n.newNode(name, extraArgs, true, password)
 	if err != nil {
 		return nil, err
 	}
@@ -336,9 +339,10 @@ func (n *NetworkHarness) RestoreNodeWithSeed(name string, extraArgs []string,
 		CipherSeedMnemonic: mnemonic,
 		AezeedPassphrase:   password,
 		RecoveryWindow:     recoveryWindow,
+		ChannelBackups:     chanBackups,
 	}
 
-	err = node.Init(context.Background(), initReq)
+	_, err = node.Init(context.Background(), initReq)
 	if err != nil {
 		return nil, err
 	}
@@ -355,13 +359,16 @@ func (n *NetworkHarness) RestoreNodeWithSeed(name string, extraArgs []string,
 // can be used immediately. Otherwise, the node will require an additional
 // initialization phase where the wallet is either created or restored.
 func (n *NetworkHarness) newNode(name string, extraArgs []string,
-	hasSeed bool) (*HarnessNode, error) {
-	node, err := newNode(nodeConfig{
+	hasSeed bool, password []byte) (*HarnessNode, error) {
+
+	node, err := newNode(NodeConfig{
 		Name:       name,
 		HasSeed:    hasSeed,
+		Password:   password,
 		BackendCfg: n.BackendCfg,
 		NetParams:  n.netParams,
 		ExtraArgs:  extraArgs,
+		FeeURL:     n.feeService.url,
 	})
 	if err != nil {
 		return nil, err
@@ -373,14 +380,14 @@ func (n *NetworkHarness) newNode(name string, extraArgs []string,
 	n.activeNodes[node.NodeID] = node
 	n.mtx.Unlock()
 
-	if err := node.start(n.lndErrorChan); err != nil {
+	if err := node.start(n.lndBinary, n.lndErrorChan); err != nil {
 		return nil, err
 	}
 
 	// If this node is to have a seed, it will need to be unlocked or
 	// initialized via rpc. Delay registering it with the network until it
 	// can be driven via an unlocked rpc connection.
-	if node.cfg.HasSeed {
+	if node.Cfg.HasSeed {
 		return node, nil
 	}
 
@@ -407,7 +414,9 @@ func (n *NetworkHarness) connect(ctx context.Context,
 tryconnect:
 	if _, err := a.ConnectPeer(ctx, req); err != nil {
 		// If the chain backend is still syncing, retry.
-		if strings.Contains(err.Error(), "still syncing") {
+		if strings.Contains(err.Error(), lnd.ErrServerNotActive.Error()) ||
+			strings.Contains(err.Error(), "i/o timeout") {
+
 			select {
 			case <-time.After(100 * time.Millisecond):
 				goto tryconnect
@@ -443,48 +452,64 @@ func (n *NetworkHarness) EnsureConnected(ctx context.Context, a, b *HarnessNode)
 		req := &lnrpc.ConnectPeerRequest{
 			Addr: &lnrpc.LightningAddress{
 				Pubkey: bInfo.IdentityPubkey,
-				Host:   b.cfg.P2PAddr(),
+				Host:   b.Cfg.P2PAddr(),
 			},
 		}
 
-		ctxt, _ = context.WithTimeout(ctx, 15*time.Second)
-		err = n.connect(ctxt, req, a)
-		switch {
+		var predErr error
+		err = wait.Predicate(func() bool {
+			ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			defer cancel()
 
-		// Request was successful, wait for both to display the
-		// connection.
-		case err == nil:
-			return errConnectionRequested
+			err := n.connect(ctx, req, a)
+			switch {
+			// Request was successful, wait for both to display the
+			// connection.
+			case err == nil:
+				predErr = errConnectionRequested
+				return true
 
-		// If the two are already connected, we return early with no
-		// error.
-		case strings.Contains(err.Error(), "already connected to peer"):
-			return nil
+			// If the two are already connected, we return early
+			// with no error.
+			case strings.Contains(
+				err.Error(), "already connected to peer",
+			):
+				predErr = nil
+				return true
 
-		default:
-			return err
+			default:
+				predErr = err
+				return false
+			}
+
+		}, DefaultTimeout)
+		if err != nil {
+			return fmt.Errorf("connection not succeeded within 15 "+
+				"seconds: %v", predErr)
 		}
+
+		return predErr
 	}
 
 	aErr := tryConnect(a, b)
 	bErr := tryConnect(b, a)
 	switch {
+	// If both reported already being connected to each other, we can exit
+	// early.
 	case aErr == nil && bErr == nil:
-		// If both reported already being connected to each other, we
-		// can exit early.
 		return nil
 
-	case aErr != errConnectionRequested:
-		// Return any critical errors returned by either alice.
+	// Return any critical errors returned by either alice.
+	case aErr != nil && aErr != errConnectionRequested:
 		return aErr
 
-	case bErr != errConnectionRequested:
-		// Return any critical errors returned by either bob.
+	// Return any critical errors returned by either bob.
+	case bErr != nil && bErr != errConnectionRequested:
 		return bErr
 
+	// Otherwise one or both requested a connection, so we wait for the
+	// peers lists to reflect the connection.
 	default:
-		// Otherwise one or both requested a connection, so we wait for
-		// the peers lists to reflect the connection.
 	}
 
 	findSelfInPeerList := func(a, b *HarnessNode) bool {
@@ -506,7 +531,7 @@ func (n *NetworkHarness) EnsureConnected(ctx context.Context, a, b *HarnessNode)
 		return false
 	}
 
-	err := WaitPredicate(func() bool {
+	err := wait.Predicate(func() bool {
 		return findSelfInPeerList(a, b) && findSelfInPeerList(b, a)
 	}, time.Second*15)
 	if err != nil {
@@ -531,7 +556,7 @@ func (n *NetworkHarness) ConnectNodes(ctx context.Context, a, b *HarnessNode) er
 	req := &lnrpc.ConnectPeerRequest{
 		Addr: &lnrpc.LightningAddress{
 			Pubkey: bobInfo.IdentityPubkey,
-			Host:   b.cfg.P2PAddr(),
+			Host:   b.Cfg.P2PAddr(),
 		},
 	}
 
@@ -539,7 +564,7 @@ func (n *NetworkHarness) ConnectNodes(ctx context.Context, a, b *HarnessNode) er
 		return err
 	}
 
-	err = WaitPredicate(func() bool {
+	err = wait.Predicate(func() bool {
 		// If node B is seen in the ListPeers response from node A,
 		// then we can exit early as the connection has been fully
 		// established.
@@ -591,8 +616,44 @@ func (n *NetworkHarness) DisconnectNodes(ctx context.Context, a, b *HarnessNode)
 //
 // This method can be useful when testing edge cases such as a node broadcast
 // and invalidated prior state, or persistent state recovery, simulating node
-// crashes, etc.
-func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error) error {
+// crashes, etc. Additionally, each time the node is restarted, the caller can
+// pass a set of SCBs to pass in via the Unlock method allowing them to restore
+// channels during restart.
+func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error,
+	chanBackups ...*lnrpc.ChanBackupSnapshot) error {
+
+	err := n.RestartNodeNoUnlock(node, callback)
+	if err != nil {
+		return err
+	}
+
+	// If the node doesn't have a password set, then we can exit here as we
+	// don't need to unlock it.
+	if len(node.Cfg.Password) == 0 {
+		return nil
+	}
+
+	// Otherwise, we'll unlock the wallet, then complete the final steps
+	// for the node initialization process.
+	unlockReq := &lnrpc.UnlockWalletRequest{
+		WalletPassword: node.Cfg.Password,
+	}
+	if len(chanBackups) != 0 {
+		unlockReq.ChannelBackups = chanBackups[0]
+		unlockReq.RecoveryWindow = 1000
+	}
+
+	return node.Unlock(context.Background(), unlockReq)
+}
+
+// RestartNodeNoUnlock attempts to restart a lightning node by shutting it down
+// cleanly, then restarting the process. In case the node was setup with a seed,
+// it will be left in the unlocked state. This function is fully blocking. If
+// the callback parameter is non-nil, then the function will be executed after
+// the node shuts down, but *before* the process has been started up again.
+func (n *NetworkHarness) RestartNodeNoUnlock(node *HarnessNode,
+	callback func() error) error {
+
 	if err := node.stop(); err != nil {
 		return err
 	}
@@ -603,7 +664,7 @@ func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error) e
 		}
 	}
 
-	return node.start(n.lndErrorChan)
+	return node.start(n.lndBinary, n.lndErrorChan)
 }
 
 // SuspendNode stops the given node and returns a callback that can be used to
@@ -614,7 +675,7 @@ func (n *NetworkHarness) SuspendNode(node *HarnessNode) (func() error, error) {
 	}
 
 	restart := func() error {
-		return node.start(n.lndErrorChan)
+		return node.start(n.lndBinary, n.lndErrorChan)
 	}
 
 	return restart, nil
@@ -638,81 +699,71 @@ func (n *NetworkHarness) StopNode(node *HarnessNode) error {
 	return node.stop()
 }
 
-// TODO(roasbeef): add a WithChannel higher-order function?
-//  * python-like context manager w.r.t using a channel within a test
-//  * possibly  adds more funds to the target wallet if the funds are not
-//    enough
+// SaveProfilesPages hits profiles pages of all active nodes and writes it to
+// disk using a similar naming scheme as to the regular set of logs.
+func (n *NetworkHarness) SaveProfilesPages() {
+	// Only write gorutine dumps if flag is active.
+	if !(*goroutineDump) {
+		return
+	}
 
-// txWatchRequest encapsulates a request to the harness' Bitcoin network
-// watcher to dispatch a notification once a transaction with the target txid
-// is seen within the test network.
-type txWatchRequest struct {
-	txid      chainhash.Hash
-	eventChan chan struct{}
-}
-
-// networkWatcher is a goroutine which accepts async notification
-// requests for the broadcast of a target transaction, and then dispatches the
-// transaction once its seen on the Bitcoin network.
-func (n *NetworkHarness) networkWatcher() {
-	seenTxns := make(map[chainhash.Hash]struct{})
-	clients := make(map[chainhash.Hash][]chan struct{})
-
-	for {
-
-		select {
-		case <-n.quit:
-			return
-
-		case req := <-n.bitcoinWatchRequests:
-			// If we've already seen this transaction, then
-			// immediately dispatch the request. Otherwise, append
-			// to the list of clients who are watching for the
-			// broadcast of this transaction.
-			if _, ok := seenTxns[req.txid]; ok {
-				close(req.eventChan)
-			} else {
-				clients[req.txid] = append(clients[req.txid], req.eventChan)
-			}
-		case txid := <-n.seenTxns:
-			// Add this txid to our set of "seen" transactions. So
-			// we're able to dispatch any notifications for this
-			// txid which arrive *after* it's seen within the
-			// network.
-			seenTxns[*txid] = struct{}{}
-
-			// If there isn't a registered notification for this
-			// transaction then ignore it.
-			txClients, ok := clients[*txid]
-			if !ok {
-				continue
-			}
-
-			// Otherwise, dispatch the notification to all clients,
-			// cleaning up the now un-needed state.
-			for _, client := range txClients {
-				close(client)
-			}
-			delete(clients, *txid)
+	for _, node := range n.activeNodes {
+		if err := saveProfilesPage(node); err != nil {
+			fmt.Printf("Error: %v\n", err)
 		}
 	}
 }
 
-// OnTxAccepted is a callback to be called each time a new transaction has been
-// broadcast on the network.
-func (n *NetworkHarness) OnTxAccepted(hash *chainhash.Hash) {
-	select {
-	case n.seenTxns <- hash:
-	case <-n.quit:
-		return
+// saveProfilesPage saves the profiles page for the given node to file.
+func saveProfilesPage(node *HarnessNode) error {
+	resp, err := http.Get(
+		fmt.Sprintf(
+			"http://localhost:%d/debug/pprof/goroutine?debug=1",
+			node.Cfg.ProfilePort,
+		),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to get profile page "+
+			"(node_id=%d, name=%s): %v",
+			node.NodeID, node.Cfg.Name, err)
 	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read profile page "+
+			"(node_id=%d, name=%s): %v",
+			node.NodeID, node.Cfg.Name, err)
+	}
+
+	fileName := fmt.Sprintf(
+		"pprof-%d-%s-%s.log", node.NodeID, node.Cfg.Name,
+		hex.EncodeToString(node.PubKey[:logPubKeyBytes]),
+	)
+
+	logFile, err := os.Create(fileName)
+	if err != nil {
+		return fmt.Errorf("failed to create file for profile page "+
+			"(node_id=%d, name=%s): %v",
+			node.NodeID, node.Cfg.Name, err)
+	}
+	defer logFile.Close()
+
+	_, err = logFile.Write(body)
+	if err != nil {
+		return fmt.Errorf("failed to save profile page "+
+			"(node_id=%d, name=%s): %v",
+			node.NodeID, node.Cfg.Name, err)
+	}
+	return nil
 }
 
-// WaitForTxBroadcast blocks until the target txid is seen on the network. If
+// WaitForTxInMempool blocks until the target txid is seen in the mempool. If
 // the transaction isn't seen within the network before the passed timeout,
 // then an error is returned.
-// TODO(roasbeef): add another method which creates queue of all seen transactions
-func (n *NetworkHarness) WaitForTxBroadcast(ctx context.Context, txid chainhash.Hash) error {
+func (n *NetworkHarness) WaitForTxInMempool(ctx context.Context,
+	txid chainhash.Hash) error {
+
 	// Return immediately if harness has been torn down.
 	select {
 	case <-n.quit:
@@ -720,20 +771,29 @@ func (n *NetworkHarness) WaitForTxBroadcast(ctx context.Context, txid chainhash.
 	default:
 	}
 
-	eventChan := make(chan struct{})
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
 
-	n.bitcoinWatchRequests <- &txWatchRequest{
-		txid:      txid,
-		eventChan: eventChan,
-	}
+	var mempool []*chainhash.Hash
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wanted %v, found %v txs "+
+				"in mempool: %v", txid, len(mempool), mempool)
 
-	select {
-	case <-eventChan:
-		return nil
-	case <-n.quit:
-		return fmt.Errorf("NetworkHarness has been torn down")
-	case <-ctx.Done():
-		return fmt.Errorf("tx not seen before context timeout")
+		case <-ticker.C:
+			var err error
+			mempool, err = n.Miner.Node.GetRawMempool()
+			if err != nil {
+				return err
+			}
+
+			for _, mempoolTx := range mempool {
+				if *mempoolTx == txid {
+					return nil
+				}
+			}
+		}
 	}
 }
 
@@ -756,6 +816,15 @@ type OpenChannelParams struct {
 
 	// MinHtlc is the htlc_minimum_msat value set when opening the channel.
 	MinHtlc lnwire.MilliSatoshi
+
+	// RemoteMaxHtlcs is the remote_max_htlcs value set when opening the
+	// channel, restricting the number of concurrent HTLCs the remote party
+	// can add to a commitment.
+	RemoteMaxHtlcs uint16
+
+	// FundingShim is an optional funding shim that the caller can specify
+	// in order to modify the channel funding workflow.
+	FundingShim *lnrpc.FundingShim
 }
 
 // OpenChannel attempts to open a channel between srcNode and destNode with the
@@ -772,10 +841,10 @@ func (n *NetworkHarness) OpenChannel(ctx context.Context,
 	// prevents any funding workflows from being kicked off if the chain
 	// isn't yet synced.
 	if err := srcNode.WaitForBlockchainSync(ctx); err != nil {
-		return nil, fmt.Errorf("Unable to sync srcNode chain: %v", err)
+		return nil, fmt.Errorf("unable to sync srcNode chain: %v", err)
 	}
 	if err := destNode.WaitForBlockchainSync(ctx); err != nil {
-		return nil, fmt.Errorf("Unable to sync destNode chain: %v", err)
+		return nil, fmt.Errorf("unable to sync destNode chain: %v", err)
 	}
 
 	minConfs := int32(1)
@@ -791,6 +860,8 @@ func (n *NetworkHarness) OpenChannel(ctx context.Context,
 		MinConfs:           minConfs,
 		SpendUnconfirmed:   p.SpendUnconfirmed,
 		MinHtlcMsat:        int64(p.MinHtlc),
+		RemoteMaxHtlcs:     uint32(p.RemoteMaxHtlcs),
+		FundingShim:        p.FundingShim,
 	}
 
 	respStream, err := srcNode.OpenChannel(ctx, openReq)
@@ -840,10 +911,10 @@ func (n *NetworkHarness) OpenPendingChannel(ctx context.Context,
 
 	// Wait until srcNode and destNode have blockchain synced
 	if err := srcNode.WaitForBlockchainSync(ctx); err != nil {
-		return nil, fmt.Errorf("Unable to sync srcNode chain: %v", err)
+		return nil, fmt.Errorf("unable to sync srcNode chain: %v", err)
 	}
 	if err := destNode.WaitForBlockchainSync(ctx); err != nil {
-		return nil, fmt.Errorf("Unable to sync destNode chain: %v", err)
+		return nil, fmt.Errorf("unable to sync destNode chain: %v", err)
 	}
 
 	openReq := &lnrpc.OpenChannelRequest{
@@ -998,12 +1069,12 @@ func (n *NetworkHarness) CloseChannel(ctx context.Context,
 
 		// Before proceeding, we'll ensure that the channel is active
 		// for both nodes.
-		err = WaitPredicate(activeChanPredicate(lnNode), timeout)
+		err = wait.Predicate(activeChanPredicate(lnNode), timeout)
 		if err != nil {
 			return nil, nil, fmt.Errorf("channel of closing " +
 				"node not active in time")
 		}
-		err = WaitPredicate(activeChanPredicate(receivingNode), timeout)
+		err = wait.Predicate(activeChanPredicate(receivingNode), timeout)
 		if err != nil {
 			return nil, nil, fmt.Errorf("channel of receiving " +
 				"node not active in time")
@@ -1027,7 +1098,8 @@ func (n *NetworkHarness) CloseChannel(ctx context.Context,
 		// within the network.
 		closeResp, err := closeRespStream.Recv()
 		if err != nil {
-			errChan <- err
+			errChan <- fmt.Errorf("unable to recv() from close "+
+				"stream: %v", err)
 			return
 		}
 		pendingClose, ok := closeResp.Update.(*lnrpc.CloseStatusUpdate_ClosePending)
@@ -1039,11 +1111,13 @@ func (n *NetworkHarness) CloseChannel(ctx context.Context,
 
 		closeTxid, err := chainhash.NewHash(pendingClose.ClosePending.Txid)
 		if err != nil {
-			errChan <- err
+			errChan <- fmt.Errorf("unable to decode closeTxid: "+
+				"%v", err)
 			return
 		}
-		if err := n.WaitForTxBroadcast(ctx, *closeTxid); err != nil {
-			errChan <- err
+		if err := n.WaitForTxInMempool(ctx, *closeTxid); err != nil {
+			errChan <- fmt.Errorf("error while waiting for "+
+				"broadcast tx: %v", err)
 			return
 		}
 		fin <- closeTxid
@@ -1052,9 +1126,6 @@ func (n *NetworkHarness) CloseChannel(ctx context.Context,
 	// Wait until either the deadline for the context expires, an error
 	// occurs, or the channel close update is received.
 	select {
-	case <-ctx.Done():
-		return nil, nil, fmt.Errorf("timeout reached before channel close " +
-			"initiated")
 	case err := <-errChan:
 		return nil, nil, err
 	case closeTxid := <-fin:
@@ -1101,106 +1172,44 @@ func (n *NetworkHarness) WaitForChannelClose(ctx context.Context,
 }
 
 // AssertChannelExists asserts that an active channel identified by the
-// specified channel point exists from the point-of-view of the node.
+// specified channel point exists from the point-of-view of the node. It takes
+// an optional set of check functions which can be used to make further
+// assertions using channel's values. These functions are responsible for
+// failing the test themselves if they do not pass.
+// nolint: interfacer
 func (n *NetworkHarness) AssertChannelExists(ctx context.Context,
-	node *HarnessNode, chanPoint *wire.OutPoint) error {
+	node *HarnessNode, chanPoint *wire.OutPoint,
+	checks ...func(*lnrpc.Channel)) error {
 
 	req := &lnrpc.ListChannelsRequest{}
 
-	var predErr error
-	pred := func() bool {
+	return wait.NoError(func() error {
 		resp, err := node.ListChannels(ctx, req)
 		if err != nil {
-			predErr = fmt.Errorf("unable fetch node's channels: %v", err)
-			return false
+			return fmt.Errorf("unable fetch node's channels: %v", err)
 		}
 
 		for _, channel := range resp.Channels {
 			if channel.ChannelPoint == chanPoint.String() {
-				return channel.Active
+				// First check whether our channel is active,
+				// failing early if it is not.
+				if !channel.Active {
+					return fmt.Errorf("channel %s inactive",
+						chanPoint)
+				}
+
+				// Apply any additional checks that we would
+				// like to verify.
+				for _, check := range checks {
+					check(channel)
+				}
+
+				return nil
 			}
-
-		}
-		return false
-	}
-
-	if err := WaitPredicate(pred, time.Second*15); err != nil {
-		return fmt.Errorf("channel not found: %v", predErr)
-	}
-
-	return nil
-}
-
-// WaitPredicate is a helper test function that will wait for a timeout period
-// of time until the passed predicate returns true. This function is helpful as
-// timing doesn't always line up well when running integration tests with
-// several running lnd nodes. This function gives callers a way to assert that
-// some property is upheld within a particular time frame.
-func WaitPredicate(pred func() bool, timeout time.Duration) error {
-	const pollInterval = 20 * time.Millisecond
-
-	exitTimer := time.After(timeout)
-	for {
-		<-time.After(pollInterval)
-
-		select {
-		case <-exitTimer:
-			return fmt.Errorf("predicate not satisfied after time out")
-		default:
 		}
 
-		if pred() {
-			return nil
-		}
-	}
-}
-
-// WaitNoError is a wrapper around WaitPredicate that waits for the passed
-// method f to execute without error, and returns the last error encountered if
-// this doesn't happen within the timeout.
-func WaitNoError(f func() error, timeout time.Duration) error {
-	var predErr error
-	pred := func() bool {
-		if err := f(); err != nil {
-			predErr = err
-			return false
-		}
-		return true
-	}
-
-	// If f() doesn't succeed within the timeout, return the last
-	// encountered error.
-	if err := WaitPredicate(pred, timeout); err != nil {
-		return predErr
-	}
-
-	return nil
-}
-
-// WaitInvariant is a helper test function that will wait for a timeout period
-// of time, verifying that a statement remains true for the entire duration.
-// This function is helpful as timing doesn't always line up well when running
-// integration tests with several running lnd nodes. This function gives callers
-// a way to assert that some property is maintained over a particular time
-// frame.
-func WaitInvariant(statement func() bool, timeout time.Duration) error {
-	const pollInterval = 20 * time.Millisecond
-
-	exitTimer := time.After(timeout)
-	for {
-		<-time.After(pollInterval)
-
-		// Fail if the invariant is broken while polling.
-		if !statement() {
-			return fmt.Errorf("invariant broken before time out")
-		}
-
-		select {
-		case <-exitTimer:
-			return nil
-		default:
-		}
-	}
+		return fmt.Errorf("channel %s not found", chanPoint)
+	}, 15*time.Second)
 }
 
 // DumpLogs reads the current logs generated by the passed node, and returns
@@ -1209,7 +1218,7 @@ func WaitInvariant(statement func() bool, timeout time.Duration) error {
 // Logs from lightning node being generated with delay - you should
 // add time.Sleep() in order to get all logs.
 func (n *NetworkHarness) DumpLogs(node *HarnessNode) (string, error) {
-	logFile := fmt.Sprintf("%v/simnet/lnd.log", node.cfg.LogDir)
+	logFile := fmt.Sprintf("%v/simnet/lnd.log", node.Cfg.LogDir)
 
 	buf, err := ioutil.ReadFile(logFile)
 	if err != nil {
@@ -1297,6 +1306,47 @@ func (n *NetworkHarness) sendCoins(ctx context.Context, amt btcutil.Amount,
 		return err
 	}
 
+	// Encode the pkScript in hex as this the format that it will be
+	// returned via rpc.
+	expPkScriptStr := hex.EncodeToString(addrScript)
+
+	// Now, wait for ListUnspent to show the unconfirmed transaction
+	// containing the correct pkscript.
+	err = wait.NoError(func() error {
+		// Since neutrino doesn't support unconfirmed outputs, skip
+		// this check.
+		if target.Cfg.BackendCfg.Name() == "neutrino" {
+			return nil
+		}
+
+		req := &lnrpc.ListUnspentRequest{}
+		resp, err := target.ListUnspent(ctx, req)
+		if err != nil {
+			return err
+		}
+
+		// When using this method, there should only ever be on
+		// unconfirmed transaction.
+		if len(resp.Utxos) != 1 {
+			return fmt.Errorf("number of unconfirmed utxos "+
+				"should be 1, found %d", len(resp.Utxos))
+		}
+
+		// Assert that the lone unconfirmed utxo contains the same
+		// pkscript as the output generated above.
+		pkScriptStr := resp.Utxos[0].PkScript
+		if strings.Compare(pkScriptStr, expPkScriptStr) != 0 {
+			return fmt.Errorf("pkscript mismatch, want: %s, "+
+				"found: %s", expPkScriptStr, pkScriptStr)
+		}
+
+		return nil
+	}, 15*time.Second)
+	if err != nil {
+		return fmt.Errorf("unconfirmed utxo was not found in "+
+			"ListUnspent: %v", err)
+	}
+
 	// If the transaction should remain unconfirmed, then we'll wait until
 	// the target node's unconfirmed balance reflects the expected balance
 	// and exit.
@@ -1314,6 +1364,10 @@ func (n *NetworkHarness) sendCoins(ctx context.Context, amt btcutil.Amount,
 
 	expectedBalance := btcutil.Amount(initialBalance.ConfirmedBalance) + amt
 	return target.WaitForBalance(expectedBalance, true)
+}
+
+func (n *NetworkHarness) SetFeeEstimate(fee chainfee.SatPerKWeight) {
+	n.feeService.setFee(fee)
 }
 
 // CopyFile copies the file src to dest.

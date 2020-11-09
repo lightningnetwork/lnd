@@ -87,3 +87,56 @@ be found in `constraints.go`:
 * `IPLockConstraint`: Locks the macaroon to a specific IP address.
   This constraint can be set by adding the parameter `--macaroonip a.b.c.d` to
   the `lncli` command.
+
+## Bakery
+
+As of lnd `v0.9.0-beta` there is a macaroon bakery available through gRPC and
+command line.
+Users can create their own macaroons with custom permissions if the provided
+default macaroons (`admin`, `invoice` and `readonly`) are not sufficient.
+
+For example, a macaroon that is only allowed to manage peers with a default root
+key `0` would be created with the following command:
+
+`lncli bakemacaroon peers:read peers:write`
+
+For even more fine-grained permission control, it is also possible to specify
+single RPC method URIs that are allowed to be accessed by a macaroon. This can
+be achieved by passing `uri:<methodURI>` pairs to `bakemacaroon`, for example:
+
+`lncli bakemacaroon uri:/lnrpc.Lightning/GetInfo uri:/verrpc.Versioner/GetVersion`
+
+The macaroon created by this call would only be allowed to call the `GetInfo` and
+`GetVersion` methods instead of all methods that have similar permissions (like
+`info:read` for example).
+
+A full list of available entity/action pairs and RPC method URIs can be queried
+by using the `lncli listpermissions` command.
+
+### Upgrading from v0.8.0-beta or earlier
+
+Users upgrading from a version prior to `v0.9.0-beta` might get a `permission
+denied ` error when trying to use the `lncli bakemacaroon` command.
+This is because the bakery requires a new permission (`macaroon/generate`) to
+access.
+Users can obtain a new `admin.macaroon` that contains this permission by
+removing all three default macaroons (`admin.macaroon`, `invoice.macaroon` and
+`readonly.macaroon`, **NOT** the `macaroons.db`!) from their
+`data/chain/<chain>/<network>/` directory inside the lnd data directory and
+restarting lnd.
+
+
+## Root key rotation
+
+To manage the root keys used by macaroons, there are `listmacaroonids` and
+`deletemacaroonid` available through gPRC and command line.
+Users can view a list of all macaroon root key IDs that are in use using:
+
+`lncli listmacaroonids`
+
+And remove a specific macaroon root key ID using command:
+
+`lncli deletemacaroonid root_key_id`
+
+Be careful with the `deletemacaroonid` command as when a root key is deleted,
+**all the macaroons created from it are invalidated**.

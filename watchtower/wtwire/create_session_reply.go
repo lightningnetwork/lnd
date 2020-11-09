@@ -14,9 +14,9 @@ const (
 	// reply was never received and/or processed by the client.
 	CreateSessionCodeAlreadyExists CreateSessionCode = 60
 
-	// CreateSessionCodeRejectRejectMaxUpdates the tower rejected the maximum
+	// CreateSessionCodeRejectMaxUpdates the tower rejected the maximum
 	// number of state updates proposed by the client.
-	CreateSessionCodeRejectRejectMaxUpdates CreateSessionCode = 61
+	CreateSessionCodeRejectMaxUpdates CreateSessionCode = 61
 
 	// CreateSessionCodeRejectRewardRate the tower rejected the reward rate
 	// proposed by the client.
@@ -43,6 +43,12 @@ type CreateSessionReply struct {
 	// Code will be non-zero if the watchtower rejected the session init.
 	Code CreateSessionCode
 
+	// LastApplied is the tower's last accepted sequence number for the
+	// session. This is useful when the session already exists but the
+	// client doesn't realize it's already used the session, such as after a
+	// restoration.
+	LastApplied uint16
+
 	// Data is a byte slice returned the caller of the message, and is to be
 	// interpreted according to the error Code. When the response is
 	// CreateSessionCodeOK, data encodes the reward address to be included in
@@ -63,6 +69,7 @@ var _ Message = (*CreateSessionReply)(nil)
 func (m *CreateSessionReply) Decode(r io.Reader, pver uint32) error {
 	return ReadElements(r,
 		&m.Code,
+		&m.LastApplied,
 		&m.Data,
 	)
 }
@@ -74,6 +81,7 @@ func (m *CreateSessionReply) Decode(r io.Reader, pver uint32) error {
 func (m *CreateSessionReply) Encode(w io.Writer, pver uint32) error {
 	return WriteElements(w,
 		m.Code,
+		m.LastApplied,
 		m.Data,
 	)
 }

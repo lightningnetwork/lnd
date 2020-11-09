@@ -51,6 +51,14 @@ func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (lnrpc.S
 	case config.KeyRing == nil:
 		return nil, nil, fmt.Errorf("KeyRing must be set to create " +
 			"WalletKit RPC server")
+
+	case config.Sweeper == nil:
+		return nil, nil, fmt.Errorf("Sweeper must be set to create " +
+			"WalletKit RPC server")
+
+	case config.Chain == nil:
+		return nil, nil, fmt.Errorf("Chain must be set to create " +
+			"WalletKit RPC server")
 	}
 
 	return New(config)

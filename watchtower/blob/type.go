@@ -14,11 +14,16 @@ const (
 	// include the reward script negotiated during session creation. Without
 	// the flag, there is only one output sweeping clients funds back to
 	// them solely.
-	FlagReward Flag = 1 << iota
+	FlagReward Flag = 1
 
 	// FlagCommitOutputs signals that the blob contains the information
 	// required to sweep commitment outputs.
-	FlagCommitOutputs
+	FlagCommitOutputs Flag = 1 << 1
+
+	// FlagAnchorChannel signals that this blob is meant to spend an anchor
+	// channel, and therefore must expect a P2WSH-style to-remote output if
+	// one exists.
+	FlagAnchorChannel Flag = 1 << 2
 )
 
 // Type returns a Type consisting solely of this flag enabled.
@@ -33,6 +38,8 @@ func (f Flag) String() string {
 		return "FlagReward"
 	case FlagCommitOutputs:
 		return "FlagCommitOutputs"
+	case FlagAnchorChannel:
+		return "FlagAnchorChannel"
 	default:
 		return "FlagUnknown"
 	}
@@ -45,9 +52,20 @@ func (f Flag) String() string {
 // of the blob itself.
 type Type uint16
 
-// TypeDefault sweeps only commitment outputs to a sweep address controlled by
-// the user, and does not give the tower a reward.
-const TypeDefault = Type(FlagCommitOutputs)
+const (
+	// TypeAltruistCommit sweeps only commitment outputs to a sweep address
+	// controlled by the user, and does not give the tower a reward.
+	TypeAltruistCommit = Type(FlagCommitOutputs)
+
+	// TypeAltruistAnchorCommit sweeps only commitment outputs from an
+	// anchor commitment to a sweep address controlled by the user, and does
+	// not give the tower a reward.
+	TypeAltruistAnchorCommit = Type(FlagCommitOutputs | FlagAnchorChannel)
+
+	// TypeRewardCommit sweeps only commitment outputs to a sweep address
+	// controlled by the user, and pays a negotiated reward to the tower.
+	TypeRewardCommit = Type(FlagCommitOutputs | FlagReward)
+)
 
 // Has returns true if the Type has the passed flag enabled.
 func (t Type) Has(flag Flag) bool {
@@ -64,10 +82,16 @@ func TypeFromFlags(flags ...Flag) Type {
 	return typ
 }
 
+// IsAnchorChannel returns true if the blob type is for an anchor channel.
+func (t Type) IsAnchorChannel() bool {
+	return t.Has(FlagAnchorChannel)
+}
+
 // knownFlags maps the supported flags to their name.
 var knownFlags = map[Flag]struct{}{
 	FlagReward:        {},
 	FlagCommitOutputs: {},
+	FlagAnchorChannel: {},
 }
 
 // String returns a human readable description of a Type.
@@ -114,8 +138,8 @@ func (t Type) String() string {
 // supportedTypes is the set of all configurations known to be supported by the
 // package.
 var supportedTypes = map[Type]struct{}{
-	FlagCommitOutputs.Type():                {},
-	(FlagCommitOutputs | FlagReward).Type(): {},
+	TypeAltruistCommit: {},
+	TypeRewardCommit:   {},
 }
 
 // IsSupportedType returns true if the given type is supported by the package.

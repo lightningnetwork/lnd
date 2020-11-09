@@ -7,7 +7,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
-	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 )
 
 // Config houses the Lookout's required resources to properly fulfill it's duty,
@@ -69,7 +68,7 @@ func (l *Lookout) Start() error {
 	if startEpoch == nil {
 		log.Infof("Starting lookout from chain tip")
 	} else {
-		log.Infof("Starting lookout from epoch(height=%d hash=%x)",
+		log.Infof("Starting lookout from epoch(height=%d hash=%v)",
 			startEpoch.Height, startEpoch.Hash)
 	}
 
@@ -159,11 +158,11 @@ func (l *Lookout) processEpoch(epoch *chainntnfs.BlockEpoch,
 	// Iterate over the transactions contained in the block, deriving a
 	// breach hint for each transaction and constructing an index mapping
 	// the hint back to it's original transaction.
-	hintToTx := make(map[wtdb.BreachHint]*wire.MsgTx, numTxnsInBlock)
-	txHints := make([]wtdb.BreachHint, 0, numTxnsInBlock)
+	hintToTx := make(map[blob.BreachHint]*wire.MsgTx, numTxnsInBlock)
+	txHints := make([]blob.BreachHint, 0, numTxnsInBlock)
 	for _, tx := range block.Transactions {
 		hash := tx.TxHash()
-		hint := wtdb.NewBreachHintFromHash(&hash)
+		hint := blob.NewBreachHintFromHash(&hash)
 
 		txHints = append(txHints, hint)
 		hintToTx[hint] = tx
@@ -203,13 +202,16 @@ func (l *Lookout) processEpoch(epoch *chainntnfs.BlockEpoch,
 
 		// The decryption key for the state update should be the full
 		// txid of the breaching commitment transaction.
-		commitTxID := commitTx.TxHash()
+		// The decryption key for the state update should be computed as
+		//   key = SHA256(txid).
+		breachTxID := commitTx.TxHash()
+		breachKey := blob.NewBreachKeyFromHash(&breachTxID)
 
 		// Now, decrypt the blob of justice that we received in the
 		// state update. This will contain all information required to
 		// sweep the breached commitment outputs.
 		justiceKit, err := blob.Decrypt(
-			commitTxID[:], match.EncryptedBlob,
+			breachKey, match.EncryptedBlob,
 			match.SessionInfo.Policy.BlobType,
 		)
 		if err != nil {

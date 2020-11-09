@@ -12,7 +12,6 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/bech32"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing"
 )
 
 // TestDecodeAmount ensures that the amount string in the hrp of the Invoice
@@ -315,10 +314,10 @@ func TestParseFieldDataLength(t *testing.T) {
 	}
 }
 
-// TestParsePaymentHash checks that the payment hash is properly parsed.
+// TestParse32Bytes checks that the payment hash is properly parsed.
 // If the data does not have a length of 52 bytes, we skip over parsing the
 // field and do not return an error.
-func TestParsePaymentHash(t *testing.T) {
+func TestParse32Bytes(t *testing.T) {
 	t.Parallel()
 
 	testPaymentHashData, _ := bech32.ConvertBits(testPaymentHash[:], 8, 5, true)
@@ -351,7 +350,7 @@ func TestParsePaymentHash(t *testing.T) {
 	}
 
 	for i, test := range tests {
-		paymentHash, err := parsePaymentHash(test.data)
+		paymentHash, err := parse32Bytes(test.data)
 		if (err == nil) != test.valid {
 			t.Errorf("payment hash decoding test %d failed: %v", i, err)
 			return
@@ -454,56 +453,6 @@ func TestParseDestination(t *testing.T) {
 			t.Fatalf("test %d failed decoding destination: "+
 				"expected %x, got %x",
 				i, *test.result, *destination)
-			return
-		}
-	}
-}
-
-// TestParseDescriptionHash checks that the description hash is properly parsed.
-// If the data does not have a length of 52 bytes, we skip over parsing the
-// field and do not return an error.
-func TestParseDescriptionHash(t *testing.T) {
-	t.Parallel()
-
-	testDescriptionHashData, _ := bech32.ConvertBits(testDescriptionHash[:], 8, 5, true)
-
-	tests := []struct {
-		data   []byte
-		valid  bool
-		result *[32]byte
-	}{
-		{
-			data:   []byte{},
-			valid:  true,
-			result: nil, // skip unknown length, not 52 bytes
-		},
-		{
-			data:   []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
-			valid:  true,
-			result: nil, // skip unknown length, not 52 bytes
-		},
-		{
-			data:   testDescriptionHashData,
-			valid:  true,
-			result: &testDescriptionHash,
-		},
-		{
-			data:   append(testDescriptionHashData, 0x0),
-			valid:  true,
-			result: nil, // skip unknown length, not 52 bytes
-		},
-	}
-
-	for i, test := range tests {
-		descriptionHash, err := parseDescriptionHash(test.data)
-		if (err == nil) != test.valid {
-			t.Errorf("description hash decoding test %d failed: %v", i, err)
-			return
-		}
-		if test.valid && !compareHashes(descriptionHash, test.result) {
-			t.Fatalf("test %d failed decoding description hash: "+
-				"expected %x, got %x",
-				i, *test.result, *descriptionHash)
 			return
 		}
 	}
@@ -738,7 +687,7 @@ func TestParseRouteHint(t *testing.T) {
 	tests := []struct {
 		data   []byte
 		valid  bool
-		result []routing.HopHint
+		result []HopHint
 	}{
 		{
 			data:  []byte{0x0, 0x0, 0x0, 0x0},
@@ -747,7 +696,7 @@ func TestParseRouteHint(t *testing.T) {
 		{
 			data:   []byte{},
 			valid:  true,
-			result: []routing.HopHint{},
+			result: []HopHint{},
 		},
 		{
 			data:   testSingleHopData,
@@ -776,5 +725,77 @@ func TestParseRouteHint(t *testing.T) {
 				t.Fatalf("test %d failed decoding routing info: %v", i, err)
 			}
 		}
+	}
+}
+
+// TestParseTaggedFields checks that tagged field data is correctly parsed or
+// errors as expected.
+func TestParseTaggedFields(t *testing.T) {
+	t.Parallel()
+
+	netParams := &chaincfg.SimNetParams
+
+	tests := []struct {
+		name    string
+		data    []byte
+		wantErr error
+	}{
+		{
+			name: "nil data",
+			data: nil,
+		},
+		{
+			name: "empty data",
+			data: []byte{},
+		},
+		{
+			// Type 0xff cannot be encoded in a single 5-bit
+			// element, so it's technically invalid but
+			// parseTaggedFields doesn't error on non-5bpp
+			// compatible codes so we can use a code in tests which
+			// will never become known in the future.
+			name: "valid unknown field",
+			data: []byte{0xff, 0x00, 0x00},
+		},
+		{
+			name: "unknown field valid data",
+			data: []byte{0xff, 0x00, 0x01, 0xab},
+		},
+		{
+			name:    "only type specified",
+			data:    []byte{0x0d},
+			wantErr: ErrBrokenTaggedField,
+		},
+		{
+			name:    "not enough bytes for len",
+			data:    []byte{0x0d, 0x00},
+			wantErr: ErrBrokenTaggedField,
+		},
+		{
+			name:    "no bytes after len",
+			data:    []byte{0x0d, 0x00, 0x01},
+			wantErr: ErrInvalidFieldLength,
+		},
+		{
+			name:    "not enough bytes after len",
+			data:    []byte{0x0d, 0x00, 0x02, 0x01},
+			wantErr: ErrInvalidFieldLength,
+		},
+		{
+			name:    "not enough bytes after len with unknown type",
+			data:    []byte{0xff, 0x00, 0x02, 0x01},
+			wantErr: ErrInvalidFieldLength,
+		},
+	}
+	for _, tc := range tests {
+		tc := tc // pin
+		t.Run(tc.name, func(t *testing.T) {
+			var invoice Invoice
+			gotErr := parseTaggedFields(&invoice, tc.data, netParams)
+			if tc.wantErr != gotErr {
+				t.Fatalf("Unexpected error. want=%v got=%v",
+					tc.wantErr, gotErr)
+			}
+		})
 	}
 }

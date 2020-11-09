@@ -320,11 +320,7 @@ func testSpendNotification(miner *rpctest.Harness,
 	// Make sure notifications are not yet sent. We launch a go routine for
 	// all the spend clients, such that we can wait for them all in
 	// parallel.
-	//
-	// Since bitcoind is at times very slow at notifying about txs in the
-	// mempool, we use a quite large timeout of 10 seconds.
-	// TODO(halseth): change this when mempool spends are removed.
-	mempoolSpendTimeout := 10 * time.Second
+	mempoolSpendTimeout := 2 * chainntnfs.TrickleInterval
 	mempoolSpends := make(chan *chainntnfs.SpendDetail, numClients)
 	for _, c := range spendClients {
 		go func(client *chainntnfs.SpendEvent) {
@@ -660,10 +656,27 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
+	// We'll also register for a confirmation notification with the pkscript
+	// of a different transaction. This notification shouldn't fire since we
+	// match on both txid and pkscript.
+	var ntfn4 *chainntnfs.ConfirmationEvent
+	ntfn4, err = notifier.RegisterConfirmationsNtfn(
+		txid3, pkScript2, 1, uint32(currentHeight-1),
+	)
+	if err != nil {
+		t.Fatalf("unable to register ntfn: %v", err)
+	}
+
 	select {
 	case <-ntfn3.Confirmed:
 	case <-time.After(10 * time.Second):
 		t.Fatalf("confirmation notification never received")
+	}
+
+	select {
+	case <-ntfn4.Confirmed:
+		t.Fatalf("confirmation notification received")
+	case <-time.After(5 * time.Second):
 	}
 
 	time.Sleep(1 * time.Second)
@@ -906,7 +919,7 @@ func testCancelSpendNtfn(node *rpctest.Harness,
 	notifier chainntnfs.TestChainNotifier, scriptDispatch bool, t *testing.T) {
 
 	// We'd like to test that once a spend notification is registered, it
-	// can be cancelled before the notification is dispatched.
+	// can be canceled before the notification is dispatched.
 
 	// First, we'll start by creating a new output that we can spend
 	// ourselves.
@@ -993,10 +1006,10 @@ func testCancelSpendNtfn(node *rpctest.Harness,
 	select {
 	case _, ok := <-spendClients[1].Spend:
 		if ok {
-			t.Fatalf("spend ntfn should have been cancelled")
+			t.Fatalf("spend ntfn should have been canceled")
 		}
 	case <-time.After(20 * time.Second):
-		t.Fatalf("spend ntfn never cancelled")
+		t.Fatalf("spend ntfn never canceled")
 	}
 }
 
@@ -1032,7 +1045,7 @@ func testCancelEpochNtfn(node *rpctest.Harness,
 	select {
 	case _, ok := <-epochClients[0].Epochs:
 		if ok {
-			t.Fatalf("epoch notification should have been cancelled")
+			t.Fatalf("epoch notification should have been canceled")
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatalf("epoch notification not sent")
@@ -1043,7 +1056,7 @@ func testCancelEpochNtfn(node *rpctest.Harness,
 	select {
 	case _, ok := <-epochClients[1].Epochs:
 		if !ok {
-			t.Fatalf("epoch was cancelled")
+			t.Fatalf("epoch was canceled")
 		}
 	case <-time.After(20 * time.Second):
 		t.Fatalf("epoch notification not sent")
@@ -1898,7 +1911,10 @@ func TestInterfaces(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unable to create db: %v", err)
 		}
-		hintCache, err := chainntnfs.NewHeightHintCache(db)
+		testCfg := chainntnfs.CacheConfig{
+			QueryDisable: false,
+		}
+		hintCache, err := chainntnfs.NewHeightHintCache(testCfg, db)
 		if err != nil {
 			t.Fatalf("unable to create height hint cache: %v", err)
 		}

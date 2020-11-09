@@ -17,18 +17,18 @@ type typeStringTest struct {
 var typeStringTests = []typeStringTest{
 	{
 		name:   "commit no-reward",
-		typ:    blob.TypeDefault,
-		expStr: "[FlagCommitOutputs|No-FlagReward]",
+		typ:    blob.TypeAltruistCommit,
+		expStr: "[No-FlagAnchorChannel|FlagCommitOutputs|No-FlagReward]",
 	},
 	{
 		name:   "commit reward",
-		typ:    (blob.FlagCommitOutputs | blob.FlagReward).Type(),
-		expStr: "[FlagCommitOutputs|FlagReward]",
+		typ:    blob.TypeRewardCommit,
+		expStr: "[No-FlagAnchorChannel|FlagCommitOutputs|FlagReward]",
 	},
 	{
 		name:   "unknown flag",
 		typ:    unknownFlag.Type(),
-		expStr: "0000000000010000[No-FlagCommitOutputs|No-FlagReward]",
+		expStr: "0000000000010000[No-FlagAnchorChannel|No-FlagCommitOutputs|No-FlagReward]",
 	},
 }
 
@@ -75,7 +75,7 @@ var typeFromFlagTests = []typeFromFlagTest{
 	{
 		name:    "multiple flags",
 		flags:   []blob.Flag{blob.FlagReward, blob.FlagCommitOutputs},
-		expType: blob.Type(blob.FlagReward | blob.FlagCommitOutputs),
+		expType: blob.TypeRewardCommit,
 	},
 	{
 		name:    "duplicate flag",
@@ -119,8 +119,8 @@ func TestTypeFromFlags(t *testing.T) {
 // blob.DefaultType returns true.
 func TestSupportedTypes(t *testing.T) {
 	// Assert that the package's default type is supported.
-	if !blob.IsSupportedType(blob.TypeDefault) {
-		t.Fatalf("default type %s is not supported", blob.TypeDefault)
+	if !blob.IsSupportedType(blob.TypeAltruistCommit) {
+		t.Fatalf("default type %s is not supported", blob.TypeAltruistCommit)
 	}
 
 	// Assert that all claimed supported types are actually supported.

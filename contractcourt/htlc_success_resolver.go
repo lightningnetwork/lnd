@@ -2,15 +2,15 @@ package contractcourt
 
 import (
 	"encoding/binary"
-	"fmt"
-	"github.com/lightningnetwork/lnd/input"
 	"io"
 
-	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/lnwire"
-
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/sweep"
 )
@@ -40,9 +40,6 @@ type htlcSuccessResolver struct {
 	// historical queries to the chain for spends/confirmations.
 	broadcastHeight uint32
 
-	// payHash is the payment hash of the original HTLC extended to us.
-	payHash [32]byte
-
 	// sweepTx will be non-nil if we've already crafted a transaction to
 	// sweep a direct HTLC output. This is only a concern if we're sweeping
 	// from the commitment transaction of the remote party.
@@ -50,11 +47,23 @@ type htlcSuccessResolver struct {
 	// TODO(roasbeef): send off to utxobundler
 	sweepTx *wire.MsgTx
 
-	// htlcAmt is the original amount of the htlc, not taking into
-	// account any fees that may have to be paid if it goes on chain.
-	htlcAmt lnwire.MilliSatoshi
+	// htlc contains information on the htlc that we are resolving on-chain.
+	htlc channeldb.HTLC
 
-	ResolverKit
+	contractResolverKit
+}
+
+// newSuccessResolver instanties a new htlc success resolver.
+func newSuccessResolver(res lnwallet.IncomingHtlcResolution,
+	broadcastHeight uint32, htlc channeldb.HTLC,
+	resCfg ResolverConfig) *htlcSuccessResolver {
+
+	return &htlcSuccessResolver{
+		contractResolverKit: *newContractResolverKit(resCfg),
+		htlcResolution:      res,
+		broadcastHeight:     broadcastHeight,
+		htlc:                htlc,
+	}
 }
 
 // ResolverKey returns an identifier which should be globally unique for this
@@ -78,9 +87,11 @@ func (h *htlcSuccessResolver) ResolverKey() []byte {
 }
 
 // Resolve attempts to resolve an unresolved incoming HTLC that we know the
-// preimage to. If the HTLC is on the commitment of the remote party, then
-// we'll simply sweep it directly. Otherwise, we'll hand this off to the utxo
-// nursery to do its duty.
+// preimage to. If the HTLC is on the commitment of the remote party, then we'll
+// simply sweep it directly. Otherwise, we'll hand this off to the utxo nursery
+// to do its duty. There is no need to make a call to the invoice registry
+// anymore. Every HTLC has already passed through the incoming contest resolver
+// and in there the invoice was already marked as settled.
 //
 // TODO(roasbeef): create multi to batch
 //
@@ -99,7 +110,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 		if h.sweepTx == nil {
 			log.Infof("%T(%x): crafting sweep tx for "+
 				"incoming+remote htlc confirmed", h,
-				h.payHash[:])
+				h.htlc.RHash[:])
 
 			// Before we can craft out sweeping transaction, we
 			// need to create an input which contains all the items
@@ -110,6 +121,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 				&h.htlcResolution.SweepSignDesc,
 				h.htlcResolution.Preimage[:],
 				h.broadcastHeight,
+				h.htlcResolution.CsvDelay,
 			)
 
 			// With the input created, we can now generate the full
@@ -133,7 +145,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 			}
 
 			log.Infof("%T(%x): crafted sweep tx=%v", h,
-				h.payHash[:], spew.Sdump(h.sweepTx))
+				h.htlc.RHash[:], spew.Sdump(h.sweepTx))
 
 			// With the sweep transaction signed, we'll now
 			// Checkpoint our state.
@@ -146,10 +158,13 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 		// Regardless of whether an existing transaction was found or newly
 		// constructed, we'll broadcast the sweep transaction to the
 		// network.
-		err := h.PublishTx(h.sweepTx)
-		if err != nil && err != lnwallet.ErrDoubleSpend {
+		label := labels.MakeLabel(
+			labels.LabelTypeChannelClose, &h.ShortChanID,
+		)
+		err := h.PublishTx(h.sweepTx, label)
+		if err != nil {
 			log.Infof("%T(%x): unable to publish tx: %v",
-				h, h.payHash[:], err)
+				h, h.htlc.RHash[:], err)
 			return nil, err
 		}
 
@@ -165,41 +180,41 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 		}
 
 		log.Infof("%T(%x): waiting for sweep tx (txid=%v) to be "+
-			"confirmed", h, h.payHash[:], sweepTXID)
+			"confirmed", h, h.htlc.RHash[:], sweepTXID)
 
 		select {
 		case _, ok := <-confNtfn.Confirmed:
 			if !ok {
-				return nil, fmt.Errorf("quitting")
+				return nil, errResolverShuttingDown
 			}
 
-		case <-h.Quit:
-			return nil, fmt.Errorf("quitting")
-		}
-
-		// With the HTLC claimed, we can attempt to settle its
-		// corresponding invoice if we were the original destination.
-		err = h.SettleInvoice(h.payHash, h.htlcAmt)
-		if err != nil && err != channeldb.ErrInvoiceNotFound {
-			log.Errorf("Unable to settle invoice with payment "+
-				"hash %x: %v", h.payHash, err)
+		case <-h.quit:
+			return nil, errResolverShuttingDown
 		}
 
 		// Once the transaction has received a sufficient number of
 		// confirmations, we'll mark ourselves as fully resolved and exit.
 		h.resolved = true
-		return nil, h.Checkpoint(h)
+
+		// Checkpoint the resolver, and write the outcome to disk.
+		return nil, h.checkpointClaim(
+			&sweepTXID,
+			channeldb.ResolverOutcomeClaimed,
+		)
 	}
 
 	log.Infof("%T(%x): broadcasting second-layer transition tx: %v",
-		h, h.payHash[:], spew.Sdump(h.htlcResolution.SignedSuccessTx))
+		h, h.htlc.RHash[:], spew.Sdump(h.htlcResolution.SignedSuccessTx))
 
 	// We'll now broadcast the second layer transaction so we can kick off
 	// the claiming process.
 	//
 	// TODO(roasbeef): after changing sighashes send to tx bundler
-	err := h.PublishTx(h.htlcResolution.SignedSuccessTx)
-	if err != nil && err != lnwallet.ErrDoubleSpend {
+	label := labels.MakeLabel(
+		labels.LabelTypeChannelClose, &h.ShortChanID,
+	)
+	err := h.PublishTx(h.htlcResolution.SignedSuccessTx, label)
+	if err != nil {
 		return nil, err
 	}
 
@@ -208,10 +223,10 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	// done so.
 	if !h.outputIncubating {
 		log.Infof("%T(%x): incubating incoming htlc output",
-			h, h.payHash[:])
+			h, h.htlc.RHash[:])
 
 		err := h.IncubateOutputs(
-			h.ChanPoint, nil, nil, &h.htlcResolution,
+			h.ChanPoint, nil, &h.htlcResolution,
 			h.broadcastHeight,
 		)
 		if err != nil {
@@ -238,28 +253,65 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	}
 
 	log.Infof("%T(%x): waiting for second-level HTLC output to be spent "+
-		"after csv_delay=%v", h, h.payHash[:], h.htlcResolution.CsvDelay)
+		"after csv_delay=%v", h, h.htlc.RHash[:], h.htlcResolution.CsvDelay)
 
+	var spendTxid *chainhash.Hash
 	select {
-	case _, ok := <-spendNtfn.Spend:
+	case spend, ok := <-spendNtfn.Spend:
 		if !ok {
-			return nil, fmt.Errorf("quitting")
+			return nil, errResolverShuttingDown
 		}
+		spendTxid = spend.SpenderTxHash
 
-	case <-h.Quit:
-		return nil, fmt.Errorf("quitting")
-	}
-
-	// With the HTLC claimed, we can attempt to settle its corresponding
-	// invoice if we were the original destination.
-	err = h.SettleInvoice(h.payHash, h.htlcAmt)
-	if err != nil && err != channeldb.ErrInvoiceNotFound {
-		log.Errorf("Unable to settle invoice with payment "+
-			"hash %x: %v", h.payHash, err)
+	case <-h.quit:
+		return nil, errResolverShuttingDown
 	}
 
 	h.resolved = true
-	return nil, h.Checkpoint(h)
+	return nil, h.checkpointClaim(
+		spendTxid, channeldb.ResolverOutcomeClaimed,
+	)
+}
+
+// checkpointClaim checkpoints the success resolver with the reports it needs.
+// If this htlc was claimed two stages, it will write reports for both stages,
+// otherwise it will just write for the single htlc claim.
+func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash,
+	outcome channeldb.ResolverOutcome) error {
+
+	// Create a resolver report for claiming of the htlc itself.
+	amt := btcutil.Amount(h.htlcResolution.SweepSignDesc.Output.Value)
+	reports := []*channeldb.ResolverReport{
+		{
+			OutPoint:        h.htlcResolution.ClaimOutpoint,
+			Amount:          amt,
+			ResolverType:    channeldb.ResolverTypeIncomingHtlc,
+			ResolverOutcome: outcome,
+			SpendTxID:       spendTx,
+		},
+	}
+
+	// If we have a success tx, we append a report to represent our first
+	// stage claim.
+	if h.htlcResolution.SignedSuccessTx != nil {
+		// If the SignedSuccessTx is not nil, we are claiming the htlc
+		// in two stages, so we need to create a report for the first
+		// stage transaction as well.
+		spendTx := h.htlcResolution.SignedSuccessTx
+		spendTxID := spendTx.TxHash()
+
+		report := &channeldb.ResolverReport{
+			OutPoint:        spendTx.TxIn[0].PreviousOutPoint,
+			Amount:          h.htlc.Amt.ToSatoshis(),
+			ResolverType:    channeldb.ResolverTypeIncomingHtlc,
+			ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
+			SpendTxID:       &spendTxID,
+		}
+		reports = append(reports, report)
+	}
+
+	// Finally, we checkpoint the resolver with our report(s).
+	return h.Checkpoint(h, reports...)
 }
 
 // Stop signals the resolver to cancel any current resolution processes, and
@@ -267,7 +319,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 //
 // NOTE: Part of the ContractResolver interface.
 func (h *htlcSuccessResolver) Stop() {
-	close(h.Quit)
+	close(h.quit)
 }
 
 // IsResolved returns true if the stored state in the resolve is fully
@@ -299,50 +351,61 @@ func (h *htlcSuccessResolver) Encode(w io.Writer) error {
 	if err := binary.Write(w, endian, h.broadcastHeight); err != nil {
 		return err
 	}
-	if _, err := w.Write(h.payHash[:]); err != nil {
+	if _, err := w.Write(h.htlc.RHash[:]); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// Decode attempts to decode an encoded ContractResolver from the passed Reader
-// instance, returning an active ContractResolver instance.
-//
-// NOTE: Part of the ContractResolver interface.
-func (h *htlcSuccessResolver) Decode(r io.Reader) error {
+// newSuccessResolverFromReader attempts to decode an encoded ContractResolver
+// from the passed Reader instance, returning an active ContractResolver
+// instance.
+func newSuccessResolverFromReader(r io.Reader, resCfg ResolverConfig) (
+	*htlcSuccessResolver, error) {
+
+	h := &htlcSuccessResolver{
+		contractResolverKit: *newContractResolverKit(resCfg),
+	}
+
 	// First we'll decode our inner HTLC resolution.
 	if err := decodeIncomingResolution(r, &h.htlcResolution); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Next, we'll read all the fields that are specified to the contract
 	// resolver.
 	if err := binary.Read(r, endian, &h.outputIncubating); err != nil {
-		return err
+		return nil, err
 	}
 	if err := binary.Read(r, endian, &h.resolved); err != nil {
-		return err
+		return nil, err
 	}
 	if err := binary.Read(r, endian, &h.broadcastHeight); err != nil {
-		return err
+		return nil, err
 	}
-	if _, err := io.ReadFull(r, h.payHash[:]); err != nil {
-		return err
+	if _, err := io.ReadFull(r, h.htlc.RHash[:]); err != nil {
+		return nil, err
 	}
 
-	return nil
+	return h, nil
 }
 
-// AttachResolverKit should be called once a resolved is successfully decoded
-// from its stored format. This struct delivers a generic tool kit that
-// resolvers need to complete their duty.
+// Supplement adds additional information to the resolver that is required
+// before Resolve() is called.
 //
-// NOTE: Part of the ContractResolver interface.
-func (h *htlcSuccessResolver) AttachResolverKit(r ResolverKit) {
-	h.ResolverKit = r
+// NOTE: Part of the htlcContractResolver interface.
+func (h *htlcSuccessResolver) Supplement(htlc channeldb.HTLC) {
+	h.htlc = htlc
+}
+
+// HtlcPoint returns the htlc's outpoint on the commitment tx.
+//
+// NOTE: Part of the htlcContractResolver interface.
+func (h *htlcSuccessResolver) HtlcPoint() wire.OutPoint {
+	return h.htlcResolution.HtlcPoint()
 }
 
 // A compile time assertion to ensure htlcSuccessResolver meets the
 // ContractResolver interface.
-var _ ContractResolver = (*htlcSuccessResolver)(nil)
+var _ htlcContractResolver = (*htlcSuccessResolver)(nil)

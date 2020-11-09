@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tor"
 )
 
 // Conn is an implementation of net.Conn which enforces an authenticated key
@@ -32,19 +34,20 @@ var _ net.Conn = (*Conn)(nil)
 // remote peer located at address which has remotePub as its long-term static
 // public key. In the case of a handshake failure, the connection is closed and
 // a non-nil error is returned.
-func Dial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress,
-	dialer func(string, string) (net.Conn, error)) (*Conn, error) {
+func Dial(local keychain.SingleKeyECDH, netAddr *lnwire.NetAddress,
+	timeout time.Duration, dialer tor.DialFunc) (*Conn, error) {
+
 	ipAddr := netAddr.Address.String()
 	var conn net.Conn
 	var err error
-	conn, err = dialer("tcp", ipAddr)
+	conn, err = dialer("tcp", ipAddr, timeout)
 	if err != nil {
 		return nil, err
 	}
 
 	b := &Conn{
 		conn:  conn,
-		noise: NewBrontideMachine(true, localPriv, netAddr.IdentityKey),
+		noise: NewBrontideMachine(true, local, netAddr.IdentityKey),
 	}
 
 	// Initiate the handshake by sending the first act to the receiver.
@@ -61,7 +64,11 @@ func Dial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress,
 	// We'll ensure that we get ActTwo from the remote peer in a timely
 	// manner. If they don't respond within 1s, then we'll kill the
 	// connection.
-	conn.SetReadDeadline(time.Now().Add(handshakeReadTimeout))
+	err = conn.SetReadDeadline(time.Now().Add(handshakeReadTimeout))
+	if err != nil {
+		b.conn.Close()
+		return nil, err
+	}
 
 	// If the first act was successful (we know that address is actually
 	// remotePub), then read the second act after which we'll be able to
@@ -91,16 +98,41 @@ func Dial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress,
 
 	// We'll reset the deadline as it's no longer critical beyond the
 	// initial handshake.
-	conn.SetReadDeadline(time.Time{})
+	err = conn.SetReadDeadline(time.Time{})
+	if err != nil {
+		b.conn.Close()
+		return nil, err
+	}
 
 	return b, nil
 }
 
-// ReadNextMessage uses the connection in a message-oriented instructing it to
-// read the next _full_ message with the brontide stream. This function will
-// block until the read succeeds.
+// ReadNextMessage uses the connection in a message-oriented manner, instructing
+// it to read the next _full_ message with the brontide stream. This function
+// will block until the read of the header and body succeeds.
+//
+// NOTE: This method SHOULD NOT be used in the case that the connection may be
+// adversarial and induce long delays. If the caller needs to set read deadlines
+// appropriately, it is preferred that they use the split ReadNextHeader and
+// ReadNextBody methods so that the deadlines can be set appropriately on each.
 func (c *Conn) ReadNextMessage() ([]byte, error) {
 	return c.noise.ReadMessage(c.conn)
+}
+
+// ReadNextHeader uses the connection to read the next header from the brontide
+// stream. This function will block until the read of the header succeeds and
+// return the packet length (including MAC overhead) that is expected from the
+// subsequent call to ReadNextBody.
+func (c *Conn) ReadNextHeader() (uint32, error) {
+	return c.noise.ReadHeader(c.conn)
+}
+
+// ReadNextBody uses the connection to read the next message body from the
+// brontide stream. This function will block until the read of the body succeeds
+// and return the decrypted payload. The provided buffer MUST be the packet
+// length returned by the preceding call to ReadNextHeader.
+func (c *Conn) ReadNextBody(buf []byte) ([]byte, error) {
+	return c.noise.ReadBody(c.conn, buf)
 }
 
 // Read reads data from the connection.  Read can be made to time out and
@@ -137,7 +169,11 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 	// If the message doesn't require any chunking, then we can go ahead
 	// with a single write.
 	if len(b) <= math.MaxUint16 {
-		return len(b), c.noise.WriteMessage(c.conn, b)
+		err = c.noise.WriteMessage(b)
+		if err != nil {
+			return 0, err
+		}
+		return c.noise.Flush(c.conn)
 	}
 
 	// If we need to split the message into fragments, then we'll write
@@ -156,14 +192,41 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 		// Slice off the next chunk to be written based on our running
 		// counter and next chunk size.
 		chunk := b[bytesWritten : bytesWritten+chunkSize]
-		if err := c.noise.WriteMessage(c.conn, chunk); err != nil {
+		if err := c.noise.WriteMessage(chunk); err != nil {
 			return bytesWritten, err
 		}
 
-		bytesWritten += len(chunk)
+		n, err := c.noise.Flush(c.conn)
+		bytesWritten += n
+		if err != nil {
+			return bytesWritten, err
+		}
 	}
 
 	return bytesWritten, nil
+}
+
+// WriteMessage encrypts and buffers the next message p for the connection. The
+// ciphertext of the message is prepended with an encrypt+auth'd length which
+// must be used as the AD to the AEAD construction when being decrypted by the
+// other side.
+//
+// NOTE: This DOES NOT write the message to the wire, it should be followed by a
+// call to Flush to ensure the message is written.
+func (c *Conn) WriteMessage(b []byte) error {
+	return c.noise.WriteMessage(b)
+}
+
+// Flush attempts to write a message buffered using WriteMessage to the
+// underlying connection. If no buffered message exists, this will result in a
+// NOP. Otherwise, it will continue to write the remaining bytes, picking up
+// where the byte stream left off in the event of a partial write. The number of
+// bytes returned reflects the number of plaintext bytes in the payload, and
+// does not account for the overhead of the header or MACs.
+//
+// NOTE: It is safe to call this method again iff a timeout error is returned.
+func (c *Conn) Flush() (int, error) {
+	return c.noise.Flush(c.conn)
 }
 
 // Close closes the connection.  Any blocked Read or Write operations will be

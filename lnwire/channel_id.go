@@ -56,11 +56,11 @@ func NewChanIDFromOutPoint(op *wire.OutPoint) ChannelID {
 // ChannelID. To do this, we expect the cid parameter to contain the txid
 // unaltered and the outputIndex to be the output index
 func xorTxid(cid *ChannelID, outputIndex uint16) {
-	var buf [32]byte
-	binary.BigEndian.PutUint16(buf[30:], outputIndex)
+	var buf [2]byte
+	binary.BigEndian.PutUint16(buf[:], outputIndex)
 
-	cid[30] = cid[30] ^ buf[30]
-	cid[31] = cid[31] ^ buf[31]
+	cid[30] ^= buf[0]
+	cid[31] ^= buf[1]
 }
 
 // GenPossibleOutPoints generates all the possible outputs given a channel ID.
@@ -69,13 +69,13 @@ func xorTxid(cid *ChannelID, outputIndex uint16) {
 // mapping from channelID back to OutPoint.
 func (c *ChannelID) GenPossibleOutPoints() [MaxFundingTxOutputs]wire.OutPoint {
 	var possiblePoints [MaxFundingTxOutputs]wire.OutPoint
-	for i := uint32(0); i < MaxFundingTxOutputs; i++ {
+	for i := uint16(0); i < MaxFundingTxOutputs; i++ {
 		cidCopy := *c
-		xorTxid(&cidCopy, uint16(i))
+		xorTxid(&cidCopy, i)
 
 		possiblePoints[i] = wire.OutPoint{
 			Hash:  chainhash.Hash(cidCopy),
-			Index: i,
+			Index: uint32(i),
 		}
 	}
 

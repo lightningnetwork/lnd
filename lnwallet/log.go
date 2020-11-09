@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcwallet/wtxmgr"
 
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
 // walletLog is a logger that is initialized with no output filters.  This
@@ -34,6 +35,7 @@ func UseLogger(logger btclog.Logger) {
 	btcwallet.UseLogger(logger)
 	wtxmgr.UseLogger(logger)
 	chain.UseLogger(logger)
+	chainfee.UseLogger(logger)
 }
 
 // logClosure is used to provide a closure over expensive logging operations

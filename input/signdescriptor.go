@@ -17,9 +17,9 @@ var (
 	ErrTweakOverdose = errors.New("sign descriptor should only have one tweak")
 )
 
-// SignDescriptor houses the necessary information required to successfully sign
-// a given output. This struct is used by the Signer interface in order to gain
-// access to critical data needed to generate a valid signature.
+// SignDescriptor houses the necessary information required to successfully
+// sign a given segwit output. This struct is used by the Signer interface in
+// order to gain access to critical data needed to generate a valid signature.
 type SignDescriptor struct {
 	// KeyDesc is a descriptor that precisely describes *which* key to use
 	// for signing. This may provide the raw public key directly, or
@@ -56,8 +56,9 @@ type SignDescriptor struct {
 	DoubleTweak *btcec.PrivateKey
 
 	// WitnessScript is the full script required to properly redeem the
-	// output. This field will only be populated if a p2wsh or a p2sh
-	// output is being signed.
+	// output. This field should be set to the full script if a p2wsh
+	// output is being signed. For p2wkh it should be set to the hashed
+	// script (PkScript).
 	WitnessScript []byte
 
 	// Output is the target output which should be signed. The PkScript and

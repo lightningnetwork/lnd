@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -207,9 +207,9 @@ func TestPackagerEmptyFwdPkg(t *testing.T) {
 	// Next, create and write a new forwarding package with no htlcs.
 	fwdPkg := channeldb.NewFwdPkg(shortChanID, 0, nil, nil)
 
-	if err := db.Update(func(tx *bbolt.Tx) error {
+	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.AddFwdPkg(tx, fwdPkg)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to add fwd pkg: %v", err)
 	}
 
@@ -226,9 +226,9 @@ func TestPackagerEmptyFwdPkg(t *testing.T) {
 
 	// Now, write the forwarding decision. In this case, its just an empty
 	// fwd filter.
-	if err := db.Update(func(tx *bbolt.Tx) error {
+	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.SetFwdFilter(tx, fwdPkg.Height, fwdPkg.FwdFilter)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to set fwdfiter: %v", err)
 	}
 
@@ -244,9 +244,9 @@ func TestPackagerEmptyFwdPkg(t *testing.T) {
 	assertAckFilterIsFull(t, fwdPkgs[0], true)
 
 	// Lastly, remove the completed forwarding package from disk.
-	if err := db.Update(func(tx *bbolt.Tx) error {
+	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.RemovePkg(tx, fwdPkg.Height)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to remove fwdpkg: %v", err)
 	}
 
@@ -279,9 +279,9 @@ func TestPackagerOnlyAdds(t *testing.T) {
 
 	nAdds := len(adds)
 
-	if err := db.Update(func(tx *bbolt.Tx) error {
+	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.AddFwdPkg(tx, fwdPkg)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to add fwd pkg: %v", err)
 	}
 
@@ -300,9 +300,9 @@ func TestPackagerOnlyAdds(t *testing.T) {
 	// added any adds to the fwdfilter, this would indicate that all of the
 	// adds were 1) settled locally by this link (exit hop), or 2) the htlc
 	// was failed locally.
-	if err := db.Update(func(tx *bbolt.Tx) error {
+	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.SetFwdFilter(tx, fwdPkg.Height, fwdPkg.FwdFilter)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to set fwdfiter: %v", err)
 	}
 
@@ -324,9 +324,9 @@ func TestPackagerOnlyAdds(t *testing.T) {
 			Index:  uint16(i),
 		}
 
-		if err := db.Update(func(tx *bbolt.Tx) error {
+		if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 			return packager.AckAddHtlcs(tx, addRef)
-		}); err != nil {
+		}, func() {}); err != nil {
 			t.Fatalf("unable to ack add htlc: %v", err)
 		}
 	}
@@ -343,9 +343,9 @@ func TestPackagerOnlyAdds(t *testing.T) {
 	assertAckFilterIsFull(t, fwdPkgs[0], true)
 
 	// Lastly, remove the completed forwarding package from disk.
-	if err := db.Update(func(tx *bbolt.Tx) error {
+	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.RemovePkg(tx, fwdPkg.Height)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to remove fwdpkg: %v", err)
 	}
 
@@ -381,9 +381,9 @@ func TestPackagerOnlySettleFails(t *testing.T) {
 
 	nSettleFails := len(settleFails)
 
-	if err := db.Update(func(tx *bbolt.Tx) error {
+	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.AddFwdPkg(tx, fwdPkg)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to add fwd pkg: %v", err)
 	}
 
@@ -402,9 +402,9 @@ func TestPackagerOnlySettleFails(t *testing.T) {
 	// added any adds to the fwdfilter, this would indicate that all of the
 	// adds were 1) settled locally by this link (exit hop), or 2) the htlc
 	// was failed locally.
-	if err := db.Update(func(tx *bbolt.Tx) error {
+	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.SetFwdFilter(tx, fwdPkg.Height, fwdPkg.FwdFilter)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to set fwdfiter: %v", err)
 	}
 
@@ -428,9 +428,9 @@ func TestPackagerOnlySettleFails(t *testing.T) {
 			Index:  uint16(i),
 		}
 
-		if err := db.Update(func(tx *bbolt.Tx) error {
+		if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 			return packager.AckSettleFails(tx, failSettleRef)
-		}); err != nil {
+		}, func() {}); err != nil {
 			t.Fatalf("unable to ack add htlc: %v", err)
 		}
 	}
@@ -448,9 +448,9 @@ func TestPackagerOnlySettleFails(t *testing.T) {
 	assertAckFilterIsFull(t, fwdPkgs[0], true)
 
 	// Lastly, remove the completed forwarding package from disk.
-	if err := db.Update(func(tx *bbolt.Tx) error {
+	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.RemovePkg(tx, fwdPkg.Height)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to remove fwdpkg: %v", err)
 	}
 
@@ -486,9 +486,9 @@ func TestPackagerAddsThenSettleFails(t *testing.T) {
 	nAdds := len(adds)
 	nSettleFails := len(settleFails)
 
-	if err := db.Update(func(tx *bbolt.Tx) error {
+	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.AddFwdPkg(tx, fwdPkg)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to add fwd pkg: %v", err)
 	}
 
@@ -507,9 +507,9 @@ func TestPackagerAddsThenSettleFails(t *testing.T) {
 	// added any adds to the fwdfilter, this would indicate that all of the
 	// adds were 1) settled locally by this link (exit hop), or 2) the htlc
 	// was failed locally.
-	if err := db.Update(func(tx *bbolt.Tx) error {
+	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.SetFwdFilter(tx, fwdPkg.Height, fwdPkg.FwdFilter)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to set fwdfiter: %v", err)
 	}
 
@@ -532,9 +532,9 @@ func TestPackagerAddsThenSettleFails(t *testing.T) {
 			Index:  uint16(i),
 		}
 
-		if err := db.Update(func(tx *bbolt.Tx) error {
+		if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 			return packager.AckAddHtlcs(tx, addRef)
-		}); err != nil {
+		}, func() {}); err != nil {
 			t.Fatalf("unable to ack add htlc: %v", err)
 		}
 	}
@@ -559,9 +559,9 @@ func TestPackagerAddsThenSettleFails(t *testing.T) {
 			Index:  uint16(i),
 		}
 
-		if err := db.Update(func(tx *bbolt.Tx) error {
+		if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 			return packager.AckSettleFails(tx, failSettleRef)
-		}); err != nil {
+		}, func() {}); err != nil {
 			t.Fatalf("unable to remove settle/fail htlc: %v", err)
 		}
 	}
@@ -579,9 +579,9 @@ func TestPackagerAddsThenSettleFails(t *testing.T) {
 	assertAckFilterIsFull(t, fwdPkgs[0], true)
 
 	// Lastly, remove the completed forwarding package from disk.
-	if err := db.Update(func(tx *bbolt.Tx) error {
+	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.RemovePkg(tx, fwdPkg.Height)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to remove fwdpkg: %v", err)
 	}
 
@@ -619,9 +619,9 @@ func TestPackagerSettleFailsThenAdds(t *testing.T) {
 	nAdds := len(adds)
 	nSettleFails := len(settleFails)
 
-	if err := db.Update(func(tx *bbolt.Tx) error {
+	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.AddFwdPkg(tx, fwdPkg)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to add fwd pkg: %v", err)
 	}
 
@@ -640,9 +640,9 @@ func TestPackagerSettleFailsThenAdds(t *testing.T) {
 	// added any adds to the fwdfilter, this would indicate that all of the
 	// adds were 1) settled locally by this link (exit hop), or 2) the htlc
 	// was failed locally.
-	if err := db.Update(func(tx *bbolt.Tx) error {
+	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.SetFwdFilter(tx, fwdPkg.Height, fwdPkg.FwdFilter)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to set fwdfiter: %v", err)
 	}
 
@@ -669,9 +669,9 @@ func TestPackagerSettleFailsThenAdds(t *testing.T) {
 			Index:  uint16(i),
 		}
 
-		if err := db.Update(func(tx *bbolt.Tx) error {
+		if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 			return packager.AckSettleFails(tx, failSettleRef)
-		}); err != nil {
+		}, func() {}); err != nil {
 			t.Fatalf("unable to remove settle/fail htlc: %v", err)
 		}
 	}
@@ -696,9 +696,9 @@ func TestPackagerSettleFailsThenAdds(t *testing.T) {
 			Index:  uint16(i),
 		}
 
-		if err := db.Update(func(tx *bbolt.Tx) error {
+		if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 			return packager.AckAddHtlcs(tx, addRef)
-		}); err != nil {
+		}, func() {}); err != nil {
 			t.Fatalf("unable to ack add htlc: %v", err)
 		}
 	}
@@ -716,9 +716,9 @@ func TestPackagerSettleFailsThenAdds(t *testing.T) {
 	assertAckFilterIsFull(t, fwdPkgs[0], true)
 
 	// Lastly, remove the completed forwarding package from disk.
-	if err := db.Update(func(tx *bbolt.Tx) error {
+	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.RemovePkg(tx, fwdPkg.Height)
-	}); err != nil {
+	}, func() {}); err != nil {
 		t.Fatalf("unable to remove fwdpkg: %v", err)
 	}
 
@@ -778,14 +778,16 @@ func assertSettleFailFilterIsFull(t *testing.T, fwdPkg *channeldb.FwdPkg, expect
 
 // loadFwdPkgs is a helper method that reads all forwarding packages for a
 // particular packager.
-func loadFwdPkgs(t *testing.T, db *bbolt.DB,
+func loadFwdPkgs(t *testing.T, db kvdb.Backend,
 	packager channeldb.FwdPackager) []*channeldb.FwdPkg {
 
 	var fwdPkgs []*channeldb.FwdPkg
-	if err := db.View(func(tx *bbolt.Tx) error {
+	if err := kvdb.View(db, func(tx kvdb.RTx) error {
 		var err error
 		fwdPkgs, err = packager.LoadFwdPkgs(tx)
 		return err
+	}, func() {
+		fwdPkgs = nil
 	}); err != nil {
 		t.Fatalf("unable to load fwd pkgs: %v", err)
 	}
@@ -795,7 +797,7 @@ func loadFwdPkgs(t *testing.T, db *bbolt.DB,
 
 // makeFwdPkgDB initializes a test database for forwarding packages. If the
 // provided path is an empty, it will create a temp dir/file to use.
-func makeFwdPkgDB(t *testing.T, path string) *bbolt.DB {
+func makeFwdPkgDB(t *testing.T, path string) kvdb.Backend { // nolint:unparam
 	if path == "" {
 		var err error
 		path, err = ioutil.TempDir("", "fwdpkgdb")
@@ -806,10 +808,10 @@ func makeFwdPkgDB(t *testing.T, path string) *bbolt.DB {
 		path = filepath.Join(path, "fwdpkg.db")
 	}
 
-	db, err := bbolt.Open(path, 0600, nil)
+	bdb, err := kvdb.Create(kvdb.BoltBackendName, path, true)
 	if err != nil {
 		t.Fatalf("unable to open boltdb: %v", err)
 	}
 
-	return db
+	return bdb
 }

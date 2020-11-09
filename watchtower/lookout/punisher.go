@@ -2,14 +2,14 @@ package lookout
 
 import (
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/labels"
 )
 
 // PunisherConfig houses the resources required by the Punisher.
 type PunisherConfig struct {
 	// PublishTx provides the ability to send a signed transaction to the
 	// network.
-	PublishTx func(*wire.MsgTx) error
+	PublishTx func(*wire.MsgTx, string) error
 
 	// TODO(conner) add DB tracking and spend ntfn registration to see if
 	// ours confirmed or not
@@ -43,8 +43,9 @@ func (p *BreachPunisher) Punish(desc *JusticeDescriptor, quit <-chan struct{}) e
 	log.Infof("Publishing justice transaction for client=%s with txid=%s",
 		desc.SessionInfo.ID, justiceTxn.TxHash())
 
-	err = p.cfg.PublishTx(justiceTxn)
-	if err != nil && err != lnwallet.ErrDoubleSpend {
+	label := labels.MakeLabel(labels.LabelTypeJusticeTransaction, nil)
+	err = p.cfg.PublishTx(justiceTxn, label)
+	if err != nil {
 		log.Errorf("Unable to publish justice txn for client=%s"+
 			"with breach-txid=%s: %v",
 			desc.SessionInfo.ID, desc.BreachedCommitTx.TxHash(), err)

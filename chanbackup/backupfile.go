@@ -39,9 +39,6 @@ type MultiFile struct {
 	// fileName is the file name of the main back up file.
 	fileName string
 
-	// mainFile is an open handle to the main back up file.
-	mainFile *os.File
-
 	// tempFileName is the name of the file that we'll use to stage a new
 	// packed multi-chan backup, and the rename to the main back up file.
 	tempFileName string
@@ -76,6 +73,8 @@ func (b *MultiFile) UpdateAndSwap(newBackup PackedMulti) error {
 		return ErrNoBackupFileExists
 	}
 
+	log.Infof("Updating backup file at %v", b.fileName)
+
 	// If the old back up file still exists, then we'll delete it before
 	// proceeding.
 	if _, err := os.Stat(b.tempFileName); err == nil {
@@ -94,22 +93,29 @@ func (b *MultiFile) UpdateAndSwap(newBackup PackedMulti) error {
 	var err error
 	b.tempFile, err = os.Create(b.tempFileName)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to create temp file: %v", err)
 	}
 
 	// With the file created, we'll write the new packed multi backup and
 	// remove the temporary file all together once this method exits.
 	_, err = b.tempFile.Write([]byte(newBackup))
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to write backup to temp file: %v", err)
 	}
 	if err := b.tempFile.Sync(); err != nil {
-		return err
+		return fmt.Errorf("unable to sync temp file: %v", err)
 	}
 	defer os.Remove(b.tempFileName)
 
 	log.Infof("Swapping old multi backup file from %v to %v",
 		b.tempFileName, b.fileName)
+
+	// Before we rename the swap (atomic name swap), we'll make
+	// sure to close the current file as some OSes don't support
+	// renaming a file that's already open (Windows).
+	if err := b.tempFile.Close(); err != nil {
+		return fmt.Errorf("unable to close file: %v", err)
+	}
 
 	// Finally, we'll attempt to atomically rename the temporary file to
 	// the main back up file. If this succeeds, then we'll only have a
@@ -123,32 +129,15 @@ func (b *MultiFile) UpdateAndSwap(newBackup PackedMulti) error {
 func (b *MultiFile) ExtractMulti(keyChain keychain.KeyRing) (*Multi, error) {
 	var err error
 
-	// If the backup file isn't already set, then we'll attempt to open it
-	// anew.
-	if b.mainFile == nil {
-		// We'll return an error if the main file isn't currently set.
-		if b.fileName == "" {
-			return nil, ErrNoBackupFileExists
-		}
-
-		// Otherwise, we'll open the file to prep for reading the
-		// contents.
-		b.mainFile, err = os.Open(b.fileName)
-		if err != nil {
-			return nil, err
-		}
+	// We'll return an error if the main file isn't currently set.
+	if b.fileName == "" {
+		return nil, ErrNoBackupFileExists
 	}
 
-	// Before we start to read the file, we'll ensure that the next read
-	// call will start from the front of the file.
-	_, err = b.mainFile.Seek(0, 0)
-	if err != nil {
-		return nil, err
-	}
-
-	// With our seek successful, we'll now attempt to read the contents of
-	// the entire file in one swoop.
-	multiBytes, err := ioutil.ReadAll(b.mainFile)
+	// Now that we've confirmed the target file is populated, we'll read
+	// all the contents of the file. This function ensures that file is
+	// always closed, even if we can't read the contents.
+	multiBytes, err := ioutil.ReadFile(b.fileName)
 	if err != nil {
 		return nil, err
 	}

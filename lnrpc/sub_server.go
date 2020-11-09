@@ -1,9 +1,11 @@
 package lnrpc
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -36,6 +38,13 @@ type SubServer interface {
 	// server. Until this is called, each sub-server won't be able to have
 	// requests routed towards it.
 	RegisterWithRootServer(*grpc.Server) error
+
+	// RegisterWithRestServer will be called by the root REST mux to direct
+	// a sub RPC server to register itself with the main REST mux server.
+	// Until this is called, each sub-server won't be able to have requests
+	// routed towards it.
+	RegisterWithRestServer(context.Context, *runtime.ServeMux, string,
+		[]grpc.DialOption) error
 }
 
 // SubServerConfigDispatcher is an interface that all sub-servers will use to

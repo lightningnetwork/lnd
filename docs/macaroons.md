@@ -81,7 +81,14 @@ methods. This means a few important things:
 You can also run `lnd` with the `--no-macaroons` option, which skips the
 creation of the macaroon files and all macaroon checks within the RPC server.
 This means you can still pass a macaroon to the RPC server with a client, but
-it won't be checked for validity.
+it won't be checked for validity. Note that disabling authentication of a server
+that's listening on a public interface is not allowed. This means the
+`--no-macaroons` option is only permitted when the RPC server is in a private
+network. In CIDR notation, the following IPs are considered private,
+- [`169.254.0.0/16` and `fe80::/10`](https://en.wikipedia.org/wiki/Link-local_address).
+- [`224.0.0.0/4` and `ff00::/8`](https://en.wikipedia.org/wiki/Multicast_address).
+- [`10.0.0.0/8`, `172.16.0.0/12` and `192.168.0.0/16`](https://tools.ietf.org/html/rfc1918).
+- [`fc00::/7`](https://tools.ietf.org/html/rfc4193).
 
 Since `lnd` requires macaroons by default in order to call RPC methods, `lncli`
 now reads a macaroon and provides it in the RPC call. Unless the path is
@@ -102,6 +109,49 @@ timeout can be changed with the `--macaroontimeout` option; this can be
 increased for making RPC calls between systems whose clocks are more than 60s
 apart.
 
+## Stateless initialization
+
+As mentioned above, by default `lnd` creates several macaroon files in its
+directory. These are unencrypted and in case of the `admin.macaroon` provide
+full access to the daemon. This can be seen as quite a big security risk if
+the `lnd` daemon runs in an environment that is not fully trusted.
+
+The macaroon files are the only files with highly sensitive information that
+are not encrypted (unlike the wallet file and the macaroon database file that
+contains the [root key](../macaroons/README.md), these are always encrypted,
+even if no password is used).
+
+To avoid leaking the macaroon information, `lnd` supports the so called 
+`stateless initialization` mode:
+* The three startup commands `create`, `unlock` and `changepassword` of `lncli`
+  all have a flag called `--stateless_init` that instructs the daemon **not**
+  to create `*.macaroon` files.
+* The two operations `create` and `changepassword` that actually create/update
+  the macaroon database will return the admin macaroon in the RPC call.
+  Assuming the daemon and the `lncli` are not used on the same machine, this
+  will leave no unencrypted information on the machine where `lnd` runs on.
+  * To be more precise: By default, when using the `changepassword` command, the
+    macaroon root key in the macaroon DB is just re-encrypted with the new
+    password. But the key remains the same and therefore the macaroons issued
+    before the `changepassword` command still remain valid. If a user wants to
+    invalidate all previously created macaroons, the `--new_mac_root_key` flag
+    of the `changepassword` command should be used! 
+* An user of `lncli` will see the returned admin macaroon printed to the screen
+  or saved to a file if the parameter `--save_to=some_file.macaroon` is used.
+* **Important:** By default, `lnd` will create the macaroon files during the
+  `unlock` phase, if the `--stateless_init` flag is not used. So to avoid
+  leakage of the macaroon information, use the stateless initialization flag
+  for all three startup commands of the wallet unlocker service!
+
+Examples:
+
+* Create a new wallet stateless (first run):
+  * `lncli create --stateless_init --save_to=/safe/location/admin.macaroon`
+* Unlock a wallet that has previously been initialized stateless:
+  * `lncli unlock --stateless_init`
+* Use the created macaroon:
+  * `lncli --macaroonpath=/safe/location/admin.macaroon getinfo`
+
 ## Using Macaroons with GRPC clients
 
 When interacting with `lnd` using the GRPC interface, the macaroons are encoded
@@ -119,6 +169,11 @@ A very simple example using `curl` may look something like this:
 
 Have a look at the [Java GRPC example](/docs/grpc/java.md) for programmatic usage details.
 
+## Creating macaroons with custom permissions
+
+The macaroon bakery is described in more detail in the
+[README in the macaroons package](../macaroons/README.md).
+
 ## Future improvements to the `lnd` macaroon implementation
 
 The existing macaroon implementation in `lnd` and `lncli` lays the groundwork
@@ -130,8 +185,6 @@ such as:
 * Macaroon database encryption
 
 * Root key rotation and possibly macaroon invalidation/rotation
-
-* Tools to allow you to easily delegate macaroons in more flexible ways
 
 * Additional restrictions, such as limiting payments to use (or not use)
   specific routes, channels, nodes, etc.

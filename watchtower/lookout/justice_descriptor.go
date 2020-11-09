@@ -48,6 +48,7 @@ type breachedInput struct {
 	txOut    *wire.TxOut
 	outPoint wire.OutPoint
 	witness  [][]byte
+	sequence uint32
 }
 
 // commitToLocalInput extracts the information required to spend the commit
@@ -104,20 +105,35 @@ func (p *JusticeDescriptor) commitToRemoteInput() (*breachedInput, error) {
 		return nil, err
 	}
 
-	// Since the to-remote witness script should just be a regular p2wkh
-	// output, we'll parse it to retrieve the public key.
-	toRemotePubKey, err := btcec.ParsePubKey(toRemoteScript, btcec.S256())
-	if err != nil {
-		return nil, err
-	}
-
-	// Compute the witness script hash from the to-remote pubkey, which will
-	// be used to locate the input on the breach commitment transaction.
-	toRemoteScriptHash, err := input.CommitScriptUnencumbered(
-		toRemotePubKey,
+	var (
+		toRemoteScriptHash []byte
+		toRemoteSequence   uint32
 	)
-	if err != nil {
-		return nil, err
+	if p.JusticeKit.BlobType.IsAnchorChannel() {
+		toRemoteScriptHash, err = input.WitnessScriptHash(
+			toRemoteScript,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		toRemoteSequence = 1
+	} else {
+		// Since the to-remote witness script should just be a regular p2wkh
+		// output, we'll parse it to retrieve the public key.
+		toRemotePubKey, err := btcec.ParsePubKey(toRemoteScript, btcec.S256())
+		if err != nil {
+			return nil, err
+		}
+
+		// Compute the witness script hash from the to-remote pubkey, which will
+		// be used to locate the input on the breach commitment transaction.
+		toRemoteScriptHash, err = input.CommitScriptUnencumbered(
+			toRemotePubKey,
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Locate the to-remote output on the breaching commitment transaction.
@@ -146,6 +162,7 @@ func (p *JusticeDescriptor) commitToRemoteInput() (*breachedInput, error) {
 		txOut:    toRemoteTxOut,
 		outPoint: toRemoteOutPoint,
 		witness:  buildWitness(witnessStack, toRemoteScript),
+		sequence: toRemoteSequence,
 	}, nil
 }
 
@@ -164,6 +181,7 @@ func (p *JusticeDescriptor) assembleJusticeTxn(txWeight int64,
 		totalAmt += btcutil.Amount(input.txOut.Value)
 		justiceTxn.AddTxIn(&wire.TxIn{
 			PreviousOutPoint: input.outPoint,
+			Sequence:         input.sequence,
 		})
 	}
 
@@ -225,6 +243,12 @@ func (p *JusticeDescriptor) assembleJusticeTxn(txWeight int64,
 // CreateJusticeTxn computes the justice transaction that sweeps a breaching
 // commitment transaction. The justice transaction is constructed by assembling
 // the witnesses using data provided by the client in a prior state update.
+//
+// NOTE: An older version of ToLocalPenaltyWitnessSize underestimated the size
+// of the witness by one byte, which could cause the signature(s) to break if
+// the tower is reconstructing with the newer constant because the output values
+// might differ. This method retains that original behavior to not invalidate
+// historical signatures.
 func (p *JusticeDescriptor) CreateJusticeTxn() (*wire.MsgTx, error) {
 	var (
 		sweepInputs    = make([]*breachedInput, 0, 2)
@@ -256,7 +280,18 @@ func (p *JusticeDescriptor) CreateJusticeTxn() (*wire.MsgTx, error) {
 	if err != nil {
 		return nil, err
 	}
-	weightEstimate.AddWitnessInput(input.ToLocalPenaltyWitnessSize)
+
+	// An older ToLocalPenaltyWitnessSize constant used to underestimate the
+	// size by one byte. The diferrence in weight can cause different output
+	// values on the sweep transaction, so we mimic the original bug to
+	// avoid invalidating signatures by older clients. For anchor channels
+	// we correct this and use the correct witness size.
+	if p.JusticeKit.BlobType.IsAnchorChannel() {
+		weightEstimate.AddWitnessInput(input.ToLocalPenaltyWitnessSize)
+	} else {
+		weightEstimate.AddWitnessInput(input.ToLocalPenaltyWitnessSize - 1)
+	}
+
 	sweepInputs = append(sweepInputs, toLocalInput)
 
 	// If the justice kit specifies that we have to sweep the to-remote
@@ -267,8 +302,13 @@ func (p *JusticeDescriptor) CreateJusticeTxn() (*wire.MsgTx, error) {
 		if err != nil {
 			return nil, err
 		}
-		weightEstimate.AddWitnessInput(input.P2WKHWitnessSize)
 		sweepInputs = append(sweepInputs, toRemoteInput)
+
+		if p.JusticeKit.BlobType.IsAnchorChannel() {
+			weightEstimate.AddWitnessInput(input.ToRemoteConfirmedWitnessSize)
+		} else {
+			weightEstimate.AddWitnessInput(input.P2WKHWitnessSize)
+		}
 	}
 
 	// TODO(conner): sweep htlc outputs

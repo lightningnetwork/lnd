@@ -85,14 +85,14 @@ func FetchStaticChanBackups(chanSource LiveChannelSource) ([]Single, error) {
 	// Now that we have all the channels, we'll use the chanSource to
 	// obtain any auxiliary information we need to craft a backup for each
 	// channel.
-	staticChanBackups := make([]Single, len(openChans))
-	for i, openChan := range openChans {
+	staticChanBackups := make([]Single, 0, len(openChans))
+	for _, openChan := range openChans {
 		chanBackup, err := assembleChanBackup(chanSource, openChan)
 		if err != nil {
 			return nil, err
 		}
 
-		staticChanBackups[i] = *chanBackup
+		staticChanBackups = append(staticChanBackups, *chanBackup)
 	}
 
 	return staticChanBackups, nil

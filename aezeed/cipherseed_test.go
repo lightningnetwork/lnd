@@ -543,8 +543,28 @@ func TestDecipherUnknownMnenomicWord(t *testing.T) {
 		t.Fatalf("expected ErrUnknownMnenomicWord instead got %T", err)
 	}
 
-	if wordErr.word != "kek" {
-		t.Fatalf("word mismatch: expected %v, got %v", "kek", wordErr.word)
+	if wordErr.Word != "kek" {
+		t.Fatalf("word mismatch: expected %v, got %v", "kek", wordErr.Word)
+	}
+	if int32(wordErr.Index) != randIndex {
+		t.Fatalf("wrong index detected: expected %v, got %v",
+			randIndex, wordErr.Index)
+	}
+
+	// If the mnemonic includes a word that is not in the englishList
+	// it fails, even when it is a substring of a valid word
+	// Example: `heart` is in the list, `hear` is not
+	mnemonic[randIndex] = "hear"
+
+	// If we attempt to map back to the original cipher seed now, then we
+	// should get ErrUnknownMnenomicWord.
+	_, err = mnemonic.ToCipherSeed(pass)
+	if err == nil {
+		t.Fatalf("expected ErrUnknownMnenomicWord error")
+	}
+	_, ok = err.(ErrUnknownMnenomicWord)
+	if !ok {
+		t.Fatalf("expected ErrUnknownMnenomicWord instead got %T", err)
 	}
 }
 
@@ -578,7 +598,6 @@ func TestDecipherIncorrectMnemonic(t *testing.T) {
 	if err != ErrIncorrectMnemonic {
 		t.Fatalf("expected ErrIncorrectMnemonic error")
 	}
-
 }
 
 // TODO(roasbeef): add test failure checksum fail is modified, new error

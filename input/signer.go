@@ -14,7 +14,8 @@ type Signer interface {
 	// according to the data within the passed SignDescriptor.
 	//
 	// NOTE: The resulting signature should be void of a sighash byte.
-	SignOutputRaw(tx *wire.MsgTx, signDesc *SignDescriptor) ([]byte, error)
+	SignOutputRaw(tx *wire.MsgTx,
+		signDesc *SignDescriptor) (Signature, error)
 
 	// ComputeInputScript generates a complete InputIndex for the passed
 	// transaction with the signature as defined within the passed

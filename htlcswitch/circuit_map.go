@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -62,6 +63,18 @@ type CircuitModifier interface {
 	DeleteCircuits(inKeys ...CircuitKey) error
 }
 
+// CircuitLookup is a common interface used to lookup information that is stored
+// in the circuit map.
+type CircuitLookup interface {
+	// LookupCircuit queries the circuit map for the circuit identified by
+	// inKey.
+	LookupCircuit(inKey CircuitKey) *PaymentCircuit
+
+	// LookupOpenCircuit queries the circuit map for a circuit identified
+	// by its outgoing circuit key.
+	LookupOpenCircuit(outKey CircuitKey) *PaymentCircuit
+}
+
 // CircuitFwdActions represents the forwarding decision made by the circuit
 // map, and is returned from CommitCircuits. The sequence of circuits provided
 // to CommitCircuits is split into three sub-sequences, allowing the caller to
@@ -86,6 +99,8 @@ type CircuitFwdActions struct {
 type CircuitMap interface {
 	CircuitModifier
 
+	CircuitLookup
+
 	// CommitCircuits attempts to add the given circuits to the circuit
 	// map. The list of circuits is split into three distinct
 	// sub-sequences, corresponding to adds, drops, and fails. Adds should
@@ -102,14 +117,6 @@ type CircuitMap interface {
 	// identified by `inKey` as closing in-memory, which prevents duplicate
 	// settles/fails from being accepted for the same circuit.
 	FailCircuit(inKey CircuitKey) (*PaymentCircuit, error)
-
-	// LookupCircuit queries the circuit map for the circuit identified by
-	// inKey.
-	LookupCircuit(inKey CircuitKey) *PaymentCircuit
-
-	// LookupOpenCircuit queries the circuit map for a circuit identified
-	// by its outgoing circuit key.
-	LookupOpenCircuit(outKey CircuitKey) *PaymentCircuit
 
 	// LookupByPaymentHash queries the circuit map and returns all open
 	// circuits that use the given payment hash.
@@ -178,7 +185,7 @@ type CircuitMapConfig struct {
 
 	// ExtractErrorEncrypter derives the shared secret used to encrypt
 	// errors from the obfuscator's ephemeral public key.
-	ExtractErrorEncrypter ErrorEncrypterExtracter
+	ExtractErrorEncrypter hop.ErrorEncrypterExtracter
 }
 
 // NewCircuitMap creates a new instance of the circuitMap.
@@ -212,15 +219,15 @@ func NewCircuitMap(cfg *CircuitMapConfig) (CircuitMap, error) {
 // initBuckets ensures that the primary buckets used by the circuit are
 // initialized so that we can assume their existence after startup.
 func (cm *circuitMap) initBuckets() error {
-	return cm.cfg.DB.Update(func(tx *bbolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(circuitKeystoneKey)
+	return kvdb.Update(cm.cfg.DB, func(tx kvdb.RwTx) error {
+		_, err := tx.CreateTopLevelBucket(circuitKeystoneKey)
 		if err != nil {
 			return err
 		}
 
-		_, err = tx.CreateBucketIfNotExists(circuitAddKey)
+		_, err = tx.CreateTopLevelBucket(circuitAddKey)
 		return err
-	})
+	}, func() {})
 }
 
 // restoreMemState loads the contents of the half circuit and full circuit
@@ -233,14 +240,14 @@ func (cm *circuitMap) restoreMemState() error {
 	log.Infof("Restoring in-memory circuit state from disk")
 
 	var (
-		opened  = make(map[CircuitKey]*PaymentCircuit)
-		pending = make(map[CircuitKey]*PaymentCircuit)
+		opened  map[CircuitKey]*PaymentCircuit
+		pending map[CircuitKey]*PaymentCircuit
 	)
 
-	if err := cm.cfg.DB.Update(func(tx *bbolt.Tx) error {
+	if err := kvdb.Update(cm.cfg.DB, func(tx kvdb.RwTx) error {
 		// Restore any of the circuits persisted in the circuit bucket
 		// back into memory.
-		circuitBkt := tx.Bucket(circuitAddKey)
+		circuitBkt := tx.ReadWriteBucket(circuitAddKey)
 		if circuitBkt == nil {
 			return ErrCorruptedCircuitMap
 		}
@@ -261,7 +268,7 @@ func (cm *circuitMap) restoreMemState() error {
 
 		// Furthermore, load the keystone bucket and resurrect the
 		// keystones used in any open circuits.
-		keystoneBkt := tx.Bucket(circuitKeystoneKey)
+		keystoneBkt := tx.ReadWriteBucket(circuitKeystoneKey)
 		if keystoneBkt == nil {
 			return ErrCorruptedCircuitMap
 		}
@@ -311,7 +318,7 @@ func (cm *circuitMap) restoreMemState() error {
 			// documented case of stray keystones emerges for
 			// forwarded payments, this check should be removed, but
 			// with extreme caution.
-			if strayKeystone.OutKey.ChanID != sourceHop {
+			if strayKeystone.OutKey.ChanID != hop.Source {
 				continue
 			}
 
@@ -324,6 +331,9 @@ func (cm *circuitMap) restoreMemState() error {
 
 		return nil
 
+	}, func() {
+		opened = make(map[CircuitKey]*PaymentCircuit)
+		pending = make(map[CircuitKey]*PaymentCircuit)
 	}); err != nil {
 		return err
 	}
@@ -396,9 +406,9 @@ func (cm *circuitMap) trimAllOpenCircuits() error {
 
 		// First, skip any channels that have not been assigned their
 		// final channel identifier, otherwise we would try to trim
-		// htlcs belonging to the all-zero, sourceHop ID.
+		// htlcs belonging to the all-zero, hop.Source ID.
 		chanID := activeChannel.ShortChanID()
-		if chanID == sourceHop {
+		if chanID == hop.Source {
 			continue
 		}
 
@@ -462,8 +472,8 @@ func (cm *circuitMap) TrimOpenCircuits(chanID lnwire.ShortChannelID,
 		return nil
 	}
 
-	return cm.cfg.DB.Update(func(tx *bbolt.Tx) error {
-		keystoneBkt := tx.Bucket(circuitKeystoneKey)
+	return kvdb.Update(cm.cfg.DB, func(tx kvdb.RwTx) error {
+		keystoneBkt := tx.ReadWriteBucket(circuitKeystoneKey)
 		if keystoneBkt == nil {
 			return ErrCorruptedCircuitMap
 		}
@@ -476,7 +486,7 @@ func (cm *circuitMap) TrimOpenCircuits(chanID lnwire.ShortChannelID,
 		}
 
 		return nil
-	})
+	}, func() {})
 }
 
 // LookupByHTLC looks up the payment circuit by the outgoing channel and HTLC
@@ -615,8 +625,8 @@ func (cm *circuitMap) CommitCircuits(circuits ...*PaymentCircuit) (
 	// Write the entire batch of circuits to the persistent circuit bucket
 	// using bolt's Batch write. This method must be called from multiple,
 	// distinct goroutines to have any impact on performance.
-	err := cm.cfg.DB.Batch(func(tx *bbolt.Tx) error {
-		circuitBkt := tx.Bucket(circuitAddKey)
+	err := kvdb.Batch(cm.cfg.DB.Backend, func(tx kvdb.RwTx) error {
+		circuitBkt := tx.ReadWriteBucket(circuitAddKey)
 		if circuitBkt == nil {
 			return ErrCorruptedCircuitMap
 		}
@@ -705,10 +715,10 @@ func (cm *circuitMap) OpenCircuits(keystones ...Keystone) error {
 	}
 	cm.mtx.RUnlock()
 
-	err := cm.cfg.DB.Update(func(tx *bbolt.Tx) error {
+	err := kvdb.Update(cm.cfg.DB, func(tx kvdb.RwTx) error {
 		// Now, load the circuit bucket to which we will write the
 		// already serialized circuit.
-		keystoneBkt := tx.Bucket(circuitKeystoneKey)
+		keystoneBkt := tx.ReadWriteBucket(circuitKeystoneKey)
 		if keystoneBkt == nil {
 			return ErrCorruptedCircuitMap
 		}
@@ -723,7 +733,7 @@ func (cm *circuitMap) OpenCircuits(keystones ...Keystone) error {
 		}
 
 		return nil
-	})
+	}, func() {})
 
 	if err != nil {
 		return err
@@ -846,13 +856,13 @@ func (cm *circuitMap) DeleteCircuits(inKeys ...CircuitKey) error {
 	}
 	cm.mtx.Unlock()
 
-	err := cm.cfg.DB.Batch(func(tx *bbolt.Tx) error {
+	err := kvdb.Batch(cm.cfg.DB.Backend, func(tx kvdb.RwTx) error {
 		for _, circuit := range removedCircuits {
 			// If this htlc made it to an outgoing link, load the
 			// keystone bucket from which we will remove the
 			// outgoing circuit key.
 			if circuit.HasKeystone() {
-				keystoneBkt := tx.Bucket(circuitKeystoneKey)
+				keystoneBkt := tx.ReadWriteBucket(circuitKeystoneKey)
 				if keystoneBkt == nil {
 					return ErrCorruptedCircuitMap
 				}
@@ -867,7 +877,7 @@ func (cm *circuitMap) DeleteCircuits(inKeys ...CircuitKey) error {
 
 			// Remove the circuit itself based on the incoming
 			// circuit key.
-			circuitBkt := tx.Bucket(circuitAddKey)
+			circuitBkt := tx.ReadWriteBucket(circuitAddKey)
 			if circuitBkt == nil {
 				return ErrCorruptedCircuitMap
 			}

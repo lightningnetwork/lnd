@@ -13,7 +13,7 @@ import (
 func TestLinkNodeEncodeDecode(t *testing.T) {
 	t.Parallel()
 
-	cdb, cleanUp, err := makeTestDB()
+	cdb, cleanUp, err := MakeTestDB()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestLinkNodeEncodeDecode(t *testing.T) {
 func TestDeleteLinkNode(t *testing.T) {
 	t.Parallel()
 
-	cdb, cleanUp, err := makeTestDB()
+	cdb, cleanUp, err := MakeTestDB()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}

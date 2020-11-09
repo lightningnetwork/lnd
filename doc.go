@@ -1,1 +1,1 @@
-package main
+package lnd

@@ -6,9 +6,15 @@ import (
 	"github.com/btcsuite/btcutil"
 )
 
-// mSatScale is a value that's used to scale satoshis to milli-satoshis, and
-// the other way around.
-const mSatScale uint64 = 1000
+const (
+	// mSatScale is a value that's used to scale satoshis to milli-satoshis, and
+	// the other way around.
+	mSatScale uint64 = 1000
+
+	// MaxMilliSatoshi is the maximum number of msats that can be expressed
+	// in this data type.
+	MaxMilliSatoshi = ^MilliSatoshi(0)
+)
 
 // MilliSatoshi are the native unit of the Lightning Network. A milli-satoshi
 // is simply 1/1000th of a satoshi. There are 1000 milli-satoshis in a single

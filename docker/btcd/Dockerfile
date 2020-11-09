@@ -1,14 +1,18 @@
-FROM golang:1.11-alpine as builder
+FROM golang:1.12-alpine as builder
 
-MAINTAINER Olaoluwa Osuntokun <laolu@lightning.network>
+LABEL maintainer="Olaoluwa Osuntokun <laolu@lightning.engineering>"
 
 # Install build dependencies such as git and glide.
 RUN apk add --no-cache git gcc musl-dev
 
 WORKDIR $GOPATH/src/github.com/btcsuite/btcd
 
+# Pin down btcd to a version that we know works with lnd.
+ARG BTCD_VERSION=v0.20.1-beta
+
 # Grab and install the latest version of of btcd and all related dependencies.
 RUN git clone https://github.com/btcsuite/btcd.git . \
+    && git checkout $BTCD_VERSION \
     &&  GO111MODULE=on go install -v . ./cmd/...
 
 # Start a new image

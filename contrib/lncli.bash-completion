@@ -17,7 +17,7 @@ _lncli() {
     case "$prev" in
         # example of further completion
         newaddress)
-            COMPREPLY=( $( compgen -W "p2wkh np2wkh p2pkh" -- "$cur" ) )
+            COMPREPLY=( $( compgen -W "p2wkh np2wkh" -- "$cur" ) )
             return 0
             ;;
     esac

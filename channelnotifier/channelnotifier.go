@@ -1,7 +1,7 @@
 package channelnotifier
 
 import (
-	"sync/atomic"
+	"sync"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -12,12 +12,25 @@ import (
 // events pipe through. It takes subscriptions for its events, and whenever
 // it receives a new event it notifies its subscribers over the proper channel.
 type ChannelNotifier struct {
-	started uint32
-	stopped uint32
+	started sync.Once
+	stopped sync.Once
 
 	ntfnServer *subscribe.Server
 
 	chanDB *channeldb.DB
+}
+
+// PendingOpenChannelEvent represents a new event where a new channel has
+// entered a pending open state.
+type PendingOpenChannelEvent struct {
+	// ChannelPoint is the channel outpoint for the new channel.
+	ChannelPoint *wire.OutPoint
+
+	// PendingChannel is the channel configuration for the newly created
+	// channel. This might not have been persisted to the channel DB yet
+	// because we are still waiting for the final message from the remote
+	// peer.
+	PendingChannel *channeldb.OpenChannel
 }
 
 // OpenChannelEvent represents a new event where a channel goes from pending
@@ -25,6 +38,13 @@ type ChannelNotifier struct {
 type OpenChannelEvent struct {
 	// Channel is the channel that has become open.
 	Channel *channeldb.OpenChannel
+}
+
+// ActiveLinkEvent represents a new event where the link becomes active in the
+// switch. This happens before the ActiveChannelEvent.
+type ActiveLinkEvent struct {
+	// ChannelPoint is the channel point for the newly active channel.
+	ChannelPoint *wire.OutPoint
 }
 
 // ActiveChannelEvent represents a new event where a channel becomes active.
@@ -57,32 +77,47 @@ func New(chanDB *channeldb.DB) *ChannelNotifier {
 
 // Start starts the ChannelNotifier and all goroutines it needs to carry out its task.
 func (c *ChannelNotifier) Start() error {
-	if !atomic.CompareAndSwapUint32(&c.started, 0, 1) {
-		return nil
-	}
-
-	log.Tracef("ChannelNotifier %v starting", c)
-
-	if err := c.ntfnServer.Start(); err != nil {
-		return err
-	}
-
-	return nil
+	var err error
+	c.started.Do(func() {
+		log.Trace("ChannelNotifier starting")
+		err = c.ntfnServer.Start()
+	})
+	return err
 }
 
 // Stop signals the notifier for a graceful shutdown.
 func (c *ChannelNotifier) Stop() {
-	if !atomic.CompareAndSwapUint32(&c.stopped, 0, 1) {
-		return
-	}
-
-	c.ntfnServer.Stop()
+	c.stopped.Do(func() {
+		c.ntfnServer.Stop()
+	})
 }
 
 // SubscribeChannelEvents returns a subscribe.Client that will receive updates
-// any time the Server is made aware of a new event.
+// any time the Server is made aware of a new event. The subscription provides
+// channel events from the point of subscription onwards.
+//
+// TODO(carlaKC): update  to allow subscriptions to specify a block height from
+// which we would like to subscribe to events.
 func (c *ChannelNotifier) SubscribeChannelEvents() (*subscribe.Client, error) {
 	return c.ntfnServer.Subscribe()
+}
+
+// NotifyPendingOpenChannelEvent notifies the channelEventNotifier goroutine
+// that a new channel is pending. The pending channel is passed as a parameter
+// instead of read from the database because it might not yet have been
+// persisted to the DB because we still wait for the final message from the
+// remote peer.
+func (c *ChannelNotifier) NotifyPendingOpenChannelEvent(chanPoint wire.OutPoint,
+	pendingChan *channeldb.OpenChannel) {
+
+	event := PendingOpenChannelEvent{
+		ChannelPoint:   &chanPoint,
+		PendingChannel: pendingChan,
+	}
+
+	if err := c.ntfnServer.SendUpdate(event); err != nil {
+		log.Warnf("Unable to send pending open channel update: %v", err)
+	}
 }
 
 // NotifyOpenChannelEvent notifies the channelEventNotifier goroutine that a
@@ -115,6 +150,15 @@ func (c *ChannelNotifier) NotifyClosedChannelEvent(chanPoint wire.OutPoint) {
 	event := ClosedChannelEvent{CloseSummary: closeSummary}
 	if err := c.ntfnServer.SendUpdate(event); err != nil {
 		log.Warnf("Unable to send closed channel update: %v", err)
+	}
+}
+
+// NotifyActiveLinkEvent notifies the channelEventNotifier goroutine that a
+// link has been added to the switch.
+func (c *ChannelNotifier) NotifyActiveLinkEvent(chanPoint wire.OutPoint) {
+	event := ActiveLinkEvent{ChannelPoint: &chanPoint}
+	if err := c.ntfnServer.SendUpdate(event); err != nil {
+		log.Warnf("Unable to send active link update: %v", err)
 	}
 }
 

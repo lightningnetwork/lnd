@@ -117,12 +117,6 @@ func WriteElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
-	case ErrorCode:
-		var b [2]byte
-		binary.BigEndian.PutUint16(b[:], uint16(e))
-		if _, err := w.Write(b[:]); err != nil {
-			return err
-		}
 	case MilliSatoshi:
 		var b [8]byte
 		binary.BigEndian.PutUint64(b[:], uint64(e))
@@ -416,8 +410,16 @@ func WriteElement(w io.Writer, element interface{}) error {
 			return err
 		}
 
+	case bool:
+		var b [1]byte
+		if e {
+			b[0] = 1
+		}
+		if _, err := w.Write(b[:]); err != nil {
+			return err
+		}
 	default:
-		return fmt.Errorf("Unknown type in WriteElement: %T", e)
+		return fmt.Errorf("unknown type in WriteElement: %T", e)
 	}
 
 	return nil
@@ -440,6 +442,16 @@ func WriteElements(w io.Writer, elements ...interface{}) error {
 func ReadElement(r io.Reader, element interface{}) error {
 	var err error
 	switch e := element.(type) {
+	case *bool:
+		var b [1]byte
+		if _, err := io.ReadFull(r, b[:]); err != nil {
+			return err
+		}
+
+		if b[0] == 1 {
+			*e = true
+		}
+
 	case *NodeAlias:
 		var a [32]byte
 		if _, err := io.ReadFull(r, a[:]); err != nil {
@@ -488,12 +500,6 @@ func ReadElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = ChanUpdateChanFlags(b[0])
-	case *ErrorCode:
-		var b [2]byte
-		if _, err := io.ReadFull(r, b[:]); err != nil {
-			return err
-		}
-		*e = ErrorCode(binary.BigEndian.Uint16(b[:]))
 	case *uint32:
 		var b [4]byte
 		if _, err := io.ReadFull(r, b[:]); err != nil {
@@ -810,16 +816,16 @@ func ReadElement(r io.Reader, element interface{}) error {
 		}
 		length := binary.BigEndian.Uint16(addrLen[:])
 
-		var addrBytes [34]byte
-		if length > 34 {
-			return fmt.Errorf("Cannot read %d bytes into addrBytes", length)
+		var addrBytes [deliveryAddressMaxSize]byte
+		if length > deliveryAddressMaxSize {
+			return fmt.Errorf("cannot read %d bytes into addrBytes", length)
 		}
 		if _, err = io.ReadFull(r, addrBytes[:length]); err != nil {
 			return err
 		}
 		*e = addrBytes[:length]
 	default:
-		return fmt.Errorf("Unknown type in ReadElement: %T", e)
+		return fmt.Errorf("unknown type in ReadElement: %T", e)
 	}
 
 	return nil

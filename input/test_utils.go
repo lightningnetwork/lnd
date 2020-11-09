@@ -50,7 +50,9 @@ type MockSigner struct {
 
 // SignOutputRaw generates a signature for the passed transaction according to
 // the data within the passed SignDescriptor.
-func (m *MockSigner) SignOutputRaw(tx *wire.MsgTx, signDesc *SignDescriptor) ([]byte, error) {
+func (m *MockSigner) SignOutputRaw(tx *wire.MsgTx,
+	signDesc *SignDescriptor) (Signature, error) {
+
 	pubkey := signDesc.KeyDesc.PubKey
 	switch {
 	case signDesc.SingleTweak != nil:
@@ -62,17 +64,17 @@ func (m *MockSigner) SignOutputRaw(tx *wire.MsgTx, signDesc *SignDescriptor) ([]
 	hash160 := btcutil.Hash160(pubkey.SerializeCompressed())
 	privKey := m.findKey(hash160, signDesc.SingleTweak, signDesc.DoubleTweak)
 	if privKey == nil {
-		return nil, fmt.Errorf("Mock signer does not have key")
+		return nil, fmt.Errorf("mock signer does not have key")
 	}
 
 	sig, err := txscript.RawTxInWitnessSignature(tx, signDesc.SigHashes,
 		signDesc.InputIndex, signDesc.Output.Value, signDesc.WitnessScript,
-		txscript.SigHashAll, privKey)
+		signDesc.HashType, privKey)
 	if err != nil {
 		return nil, err
 	}
 
-	return sig[:len(sig)-1], nil
+	return btcec.ParseDERSignature(sig[:len(sig)-1], btcec.S256())
 }
 
 // ComputeInputScript generates a complete InputIndex for the passed transaction
@@ -91,7 +93,7 @@ func (m *MockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor
 		privKey := m.findKey(addresses[0].ScriptAddress(), signDesc.SingleTweak,
 			signDesc.DoubleTweak)
 		if privKey == nil {
-			return nil, fmt.Errorf("Mock signer does not have key for "+
+			return nil, fmt.Errorf("mock signer does not have key for "+
 				"address %v", addresses[0])
 		}
 
@@ -109,7 +111,7 @@ func (m *MockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor
 		privKey := m.findKey(addresses[0].ScriptAddress(), signDesc.SingleTweak,
 			signDesc.DoubleTweak)
 		if privKey == nil {
-			return nil, fmt.Errorf("Mock signer does not have key for "+
+			return nil, fmt.Errorf("mock signer does not have key for "+
 				"address %v", addresses[0])
 		}
 
@@ -123,7 +125,7 @@ func (m *MockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor
 		return &Script{Witness: witnessScript}, nil
 
 	default:
-		return nil, fmt.Errorf("Unexpected script type: %v", scriptType)
+		return nil, fmt.Errorf("unexpected script type: %v", scriptType)
 	}
 }
 

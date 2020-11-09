@@ -1,0 +1,79 @@
+aezeed/* @roasbeef @cfromknecht
+
+autopilot/* @halseth @roasbeef
+
+brontide/* @roasbeef @cfromknecht
+
+buffer/* @cfromknecht
+
+build/* @cfromknecht
+
+chainntnfs/* @halseth @wpaulino
+
+chanbackup/* @roasbeef
+
+channeldb/channel.go @roasbeef
+
+channeldb/forwarding_log.go @roasbeef
+
+channeldb/graph.go @roasbeef @halseth
+
+channeldb/invoices.go @roasbeef @joostjager
+
+channeldb/payment_control.go @halseth @joostjager
+
+channeldb/payments.go @halseth @joostjager
+
+channeldb/reject_cache.go @cfromknecht
+
+channelnotifier/* @valentinewallace
+
+contractcourt/* @roasbeef @joostjager
+
+discovery/* @halseth @wpaulino
+
+htlcswitch/* @roasbeef @cfromknecht
+
+input/* @joostjager @roasbeef
+
+keychain/* @roasbeef
+
+lnwallet/* @roasbeef @halseth
+
+macaroons/* @roasbeef
+
+monitoring/* @valentinewallace
+
+nat/* @wpaulino
+
+pool/* @cfromknecht
+
+queue/* @cfromknecht
+
+routing/* @joostjager @roasbeef
+
+sweep/* @joostjager
+
+tor/* @wpaulino
+
+walletunlocker/* @roasbeef
+
+watchtower/* @cfromknecht @roasbeef
+
+zpay32/* @halseth @roasbeef
+
+breacharbiter.go @cfromknecht @roasbeef
+
+chanrestore.go @roasbeef
+
+fundingmanager.go @halseth @roasbeef
+
+nursery_store.go @cfromknecht
+
+peer.go @cfromknecht @roasbeef
+
+pilot.go @halseth @roasbeef
+
+server.go @cfromknecht @roasbeef
+
+utxonursery.go @cfromknecht @roasbeef

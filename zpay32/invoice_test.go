@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,7 +18,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing"
 
 	litecoinCfg "github.com/ltcsuite/ltcd/chaincfg"
 )
@@ -25,12 +25,33 @@ import (
 var (
 	testMillisat24BTC    = lnwire.MilliSatoshi(2400000000000)
 	testMillisat2500uBTC = lnwire.MilliSatoshi(250000000)
+	testMillisat25mBTC   = lnwire.MilliSatoshi(2500000000)
 	testMillisat20mBTC   = lnwire.MilliSatoshi(2000000000)
 
-	testPaymentHashSlice, _ = hex.DecodeString("0001020304050607080900010203040506070809000102030405060708090102")
+	testPaymentHash = [32]byte{
+		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+		0x08, 0x09, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
+		0x06, 0x07, 0x08, 0x09, 0x00, 0x01, 0x02, 0x03,
+		0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x01, 0x02,
+	}
+
+	testPaymentAddr = [32]byte{
+		0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x01, 0x02,
+		0x06, 0x07, 0x08, 0x09, 0x00, 0x01, 0x02, 0x03,
+		0x08, 0x09, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
+		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+	}
+
+	specPaymentAddr = [32]byte{
+		0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+		0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+		0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+		0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+	}
 
 	testEmptyString    = ""
 	testCupOfCoffee    = "1 cup coffee"
+	testCoffeeBeans    = "coffee beans"
 	testCupOfNonsense  = "ナンセンス 1杯"
 	testPleaseConsider = "Please consider supporting this project"
 
@@ -53,7 +74,7 @@ var (
 	testHopHintPubkeyBytes2, _ = hex.DecodeString("039e03a901b85534ff1e92c43c74431f7ce72046060fcf7a95c37e148f78c77255")
 	testHopHintPubkey2, _      = btcec.ParsePubKey(testHopHintPubkeyBytes2, btcec.S256())
 
-	testSingleHop = []routing.HopHint{
+	testSingleHop = []HopHint{
 		{
 			NodeID:                    testHopHintPubkey1,
 			ChannelID:                 0x0102030405060708,
@@ -62,7 +83,7 @@ var (
 			CLTVExpiryDelta:           3,
 		},
 	}
-	testDoubleHop = []routing.HopHint{
+	testDoubleHop = []HopHint{
 		{
 			NodeID:                    testHopHintPubkey1,
 			ChannelID:                 0x0102030405060708,
@@ -91,8 +112,9 @@ var (
 		},
 	}
 
+	emptyFeatures = lnwire.NewFeatureVector(nil, lnwire.Features)
+
 	// Must be initialized in init().
-	testPaymentHash     [32]byte
 	testDescriptionHash [32]byte
 
 	ltcTestNetParams chaincfg.Params
@@ -100,7 +122,6 @@ var (
 )
 
 func init() {
-	copy(testPaymentHash[:], testPaymentHashSlice[:])
 	copy(testDescriptionHash[:], testDescriptionHashSlice[:])
 
 	// Initialize litecoin testnet and mainnet params by applying key fields
@@ -178,6 +199,7 @@ func TestDecodeEncode(t *testing.T) {
 					Timestamp:       time.Unix(1496314658, 0),
 					DescriptionHash: &testDescriptionHash,
 					Destination:     testPubKey,
+					Features:        emptyFeatures,
 				}
 			},
 		},
@@ -194,6 +216,7 @@ func TestDecodeEncode(t *testing.T) {
 					Description:     &testPleaseConsider,
 					DescriptionHash: &testDescriptionHash,
 					Destination:     testPubKey,
+					Features:        emptyFeatures,
 				}
 			},
 		},
@@ -208,6 +231,7 @@ func TestDecodeEncode(t *testing.T) {
 					Timestamp:   time.Unix(1496314658, 0),
 					PaymentHash: &testPaymentHash,
 					Destination: testPubKey,
+					Features:    emptyFeatures,
 				}
 			},
 		},
@@ -223,6 +247,7 @@ func TestDecodeEncode(t *testing.T) {
 					PaymentHash: &testPaymentHash,
 					Description: &testPleaseConsider,
 					Destination: testPubKey,
+					Features:    emptyFeatures,
 				}
 			},
 			skipEncoding: true, // Skip encoding since we don't have the unknown fields to encode.
@@ -239,6 +264,7 @@ func TestDecodeEncode(t *testing.T) {
 					PaymentHash:     &testPaymentHash,
 					DescriptionHash: &testDescriptionHash,
 					Destination:     testPubKey,
+					Features:        emptyFeatures,
 				}
 			},
 			skipEncoding: true, // Skip encoding since we don't have the unknown fields to encode.
@@ -255,6 +281,7 @@ func TestDecodeEncode(t *testing.T) {
 					PaymentHash:     &testPaymentHash,
 					Destination:     testPubKey,
 					DescriptionHash: &testDescriptionHash,
+					Features:        emptyFeatures,
 				}
 			},
 			skipEncoding: true, // Skip encoding since we don't have the unknown fields to encode.
@@ -270,6 +297,7 @@ func TestDecodeEncode(t *testing.T) {
 					PaymentHash: &testPaymentHash,
 					Description: &testCupOfCoffee,
 					Destination: testPubKey,
+					Features:    emptyFeatures,
 				}
 			},
 			beforeEncoding: func(i *Invoice) {
@@ -290,6 +318,7 @@ func TestDecodeEncode(t *testing.T) {
 					PaymentHash: &testPaymentHash,
 					Description: &testPleaseConsider,
 					Destination: testPubKey,
+					Features:    emptyFeatures,
 				}
 			},
 			beforeEncoding: func(i *Invoice) {
@@ -311,6 +340,7 @@ func TestDecodeEncode(t *testing.T) {
 					PaymentHash: &testPaymentHash,
 					Destination: testPubKey,
 					Description: &testEmptyString,
+					Features:    emptyFeatures,
 				}
 			},
 		},
@@ -370,6 +400,7 @@ func TestDecodeEncode(t *testing.T) {
 					PaymentHash:     &testPaymentHash,
 					DescriptionHash: &testDescriptionHash,
 					Destination:     testPubKey,
+					Features:        emptyFeatures,
 				}
 			},
 			beforeEncoding: func(i *Invoice) {
@@ -392,6 +423,7 @@ func TestDecodeEncode(t *testing.T) {
 					DescriptionHash: &testDescriptionHash,
 					Destination:     testPubKey,
 					FallbackAddr:    testAddrTestnet,
+					Features:        emptyFeatures,
 				}
 			},
 			beforeEncoding: func(i *Invoice) {
@@ -414,7 +446,8 @@ func TestDecodeEncode(t *testing.T) {
 					DescriptionHash: &testDescriptionHash,
 					Destination:     testPubKey,
 					FallbackAddr:    testRustyAddr,
-					RouteHints:      [][]routing.HopHint{testSingleHop},
+					RouteHints:      [][]HopHint{testSingleHop},
+					Features:        emptyFeatures,
 				}
 			},
 			beforeEncoding: func(i *Invoice) {
@@ -437,7 +470,8 @@ func TestDecodeEncode(t *testing.T) {
 					DescriptionHash: &testDescriptionHash,
 					Destination:     testPubKey,
 					FallbackAddr:    testRustyAddr,
-					RouteHints:      [][]routing.HopHint{testDoubleHop},
+					RouteHints:      [][]HopHint{testDoubleHop},
+					Features:        emptyFeatures,
 				}
 			},
 			beforeEncoding: func(i *Invoice) {
@@ -460,6 +494,61 @@ func TestDecodeEncode(t *testing.T) {
 					DescriptionHash: &testDescriptionHash,
 					Destination:     testPubKey,
 					FallbackAddr:    testAddrMainnetP2SH,
+					Features:        emptyFeatures,
+				}
+			},
+			beforeEncoding: func(i *Invoice) {
+				// Since this destination pubkey was recovered
+				// from the signature, we must set it nil before
+				// encoding to get back the same invoice string.
+				i.Destination = nil
+			},
+		},
+		{
+			// On mainnet, please send $30 coffee beans supporting
+			// features 9, 15 and 99, using secret 0x11...
+			encodedInvoice: "lnbc25m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5vdhkven9v5sxyetpdeessp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygs9q5sqqqqqqqqqqqqqqqpqsq67gye39hfg3zd8rgc80k32tvy9xk2xunwm5lzexnvpx6fd77en8qaq424dxgt56cag2dpt359k3ssyhetktkpqh24jqnjyw6uqd08sgptq44qu",
+			valid:          true,
+			decodedInvoice: func() *Invoice {
+				return &Invoice{
+					Net:         &chaincfg.MainNetParams,
+					MilliSat:    &testMillisat25mBTC,
+					Timestamp:   time.Unix(1496314658, 0),
+					PaymentHash: &testPaymentHash,
+					PaymentAddr: &specPaymentAddr,
+					Description: &testCoffeeBeans,
+					Destination: testPubKey,
+					Features: lnwire.NewFeatureVector(
+						lnwire.NewRawFeatureVector(9, 15, 99),
+						lnwire.Features,
+					),
+				}
+			},
+			beforeEncoding: func(i *Invoice) {
+				// Since this destination pubkey was recovered
+				// from the signature, we must set it nil before
+				// encoding to get back the same invoice string.
+				i.Destination = nil
+			},
+		},
+		{
+			// On mainnet, please send $30 coffee beans supporting
+			// features 9, 15, 99, and 100, using secret 0x11...
+			encodedInvoice: "lnbc25m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5vdhkven9v5sxyetpdeessp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygs9q4psqqqqqqqqqqqqqqqpqsqq40wa3khl49yue3zsgm26jrepqr2eghqlx86rttutve3ugd05em86nsefzh4pfurpd9ek9w2vp95zxqnfe2u7ckudyahsa52q66tgzcp6t2dyk",
+			valid:          true,
+			decodedInvoice: func() *Invoice {
+				return &Invoice{
+					Net:         &chaincfg.MainNetParams,
+					MilliSat:    &testMillisat25mBTC,
+					Timestamp:   time.Unix(1496314658, 0),
+					PaymentHash: &testPaymentHash,
+					PaymentAddr: &specPaymentAddr,
+					Description: &testCoffeeBeans,
+					Destination: testPubKey,
+					Features: lnwire.NewFeatureVector(
+						lnwire.NewRawFeatureVector(9, 15, 99, 100),
+						lnwire.Features,
+					),
 				}
 			},
 			beforeEncoding: func(i *Invoice) {
@@ -482,6 +571,7 @@ func TestDecodeEncode(t *testing.T) {
 					DescriptionHash: &testDescriptionHash,
 					Destination:     testPubKey,
 					FallbackAddr:    testAddrMainnetP2WPKH,
+					Features:        emptyFeatures,
 				}
 			},
 			beforeEncoding: func(i *Invoice) {
@@ -504,6 +594,7 @@ func TestDecodeEncode(t *testing.T) {
 					DescriptionHash: &testDescriptionHash,
 					Destination:     testPubKey,
 					FallbackAddr:    testAddrMainnetP2WSH,
+					Features:        emptyFeatures,
 				}
 			},
 			beforeEncoding: func(i *Invoice) {
@@ -533,6 +624,25 @@ func TestDecodeEncode(t *testing.T) {
 			},
 		},
 		{
+			// Send 2500uBTC for a cup of coffee with a payment
+			// address.
+			encodedInvoice: "lnbc2500u1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5xysxxatsyp3k7enxv4jsnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66sp5qszsvpcgpyqsyps8pqysqqgzqvyqjqqpqgpsgpgqqypqxpq9qcrsusq8nx2hdt3st3ankwz23xy9w7udvqq3f0mdlpc6ga5ew3y67u4qkx8vu72ejg5x6tqhyclm28r7r0mg6lx9x3vls9g6glp2qy3y34cpry54xp",
+			valid:          true,
+			decodedInvoice: func() *Invoice {
+				i, _ := NewInvoice(
+					&chaincfg.MainNetParams,
+					testPaymentHash,
+					time.Unix(1496314658, 0),
+					Amount(testMillisat2500uBTC),
+					Description(testCupOfCoffee),
+					Destination(testPubKey),
+					PaymentAddr(testPaymentAddr),
+				)
+
+				return i
+			},
+		},
+		{
 			// Decode a mainnet invoice while expecting active net to be testnet
 			encodedInvoice: "lnbc241pveeq09pp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdqqnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66jd3m5klcwhq68vdsmx2rjgxeay5v0tkt2v5sjaky4eqahe4fx3k9sqavvce3capfuwv8rvjng57jrtfajn5dkpqv8yelsewtljwmmycq62k443",
 			valid:          false,
@@ -544,6 +654,7 @@ func TestDecodeEncode(t *testing.T) {
 					PaymentHash: &testPaymentHash,
 					Destination: testPubKey,
 					Description: &testEmptyString,
+					Features:    emptyFeatures,
 				}
 			},
 			skipEncoding: true, // Skip encoding since we were given the wrong net
@@ -561,6 +672,7 @@ func TestDecodeEncode(t *testing.T) {
 					PaymentHash:     &testPaymentHash,
 					DescriptionHash: &testDescriptionHash,
 					Destination:     testPubKey,
+					Features:        emptyFeatures,
 				}
 			},
 		},
@@ -576,6 +688,7 @@ func TestDecodeEncode(t *testing.T) {
 					PaymentHash:     &testPaymentHash,
 					DescriptionHash: &testDescriptionHash,
 					Destination:     testPubKey,
+					Features:        emptyFeatures,
 				}
 			},
 		},
@@ -596,7 +709,7 @@ func TestDecodeEncode(t *testing.T) {
 		}
 
 		if test.valid {
-			if err := compareInvoices(test.decodedInvoice(), invoice); err != nil {
+			if err := compareInvoices(decodedInvoice, invoice); err != nil {
 				t.Errorf("Invoice decoding result %d not as expected: %v", i, err)
 				return
 			}
@@ -757,6 +870,88 @@ func TestNewInvoice(t *testing.T) {
 	}
 }
 
+// TestMaxInvoiceLength tests that attempting to decode an invoice greater than
+// maxInvoiceLength fails with ErrInvoiceTooLarge.
+func TestMaxInvoiceLength(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		encodedInvoice string
+		expectedError  error
+	}{
+		{
+			// Valid since it is less than maxInvoiceLength.
+			encodedInvoice: "lnbc25m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5vdhkven9v5sxyetpdeesrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv660a66stp9cgqfnp8xklqlxm655zp9x435k6px4hnsajsp00dtcgrxygq67f32qrmxvfk9qcs8mwhzxu8gxr24k2s7364jc9rn4xtn3ncq4t8cej",
+		},
+		{
+			// Invalid since it is greater than maxInvoiceLength.
+			encodedInvoice: "lnbc20m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvrzjq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66fxq08u2ye04k6d2v2hgd8naeu0mfszlz2h6ze5mnufsc7y07s2z5v7vswj7jjcqumqchd646hnrx9pznxfj98565uc84zpc82x3nr8sqqn2zzu",
+			expectedError:  ErrInvoiceTooLarge,
+		},
+	}
+
+	net := &chaincfg.MainNetParams
+
+	for i, test := range tests {
+		_, err := Decode(test.encodedInvoice, net)
+		if err != test.expectedError {
+			t.Errorf("Expected test %d to have error: %v, instead have: %v",
+				i, test.expectedError, err)
+			return
+		}
+	}
+}
+
+// TestInvoiceChecksumMalleability ensures that the malleability of the
+// checksum in bech32 strings cannot cause a signature to become valid and
+// therefore cause a wrong destination to be decoded for invoices where the
+// destination is extracted from the signature.
+func TestInvoiceChecksumMalleability(t *testing.T) {
+	privKeyHex := "a50f3bdf9b6c4b1fdd7c51a8bbf4b5855cf381f413545ed155c0282f4412a1b1"
+	privKeyBytes, _ := hex.DecodeString(privKeyHex)
+	chain := &chaincfg.SimNetParams
+	var payHash [32]byte
+	ts := time.Unix(0, 0)
+
+	privKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), privKeyBytes)
+	msgSigner := MessageSigner{
+		SignCompact: func(hash []byte) ([]byte, error) {
+			return btcec.SignCompact(btcec.S256(), privKey, hash, true)
+		},
+	}
+	opts := []func(*Invoice){Description("test")}
+	invoice, err := NewInvoice(chain, payHash, ts, opts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	encoded, err := invoice.Encode(msgSigner)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Changing a bech32 string which checksum ends in "p" to "(q*)p" can
+	// cause the checksum to return as a valid bech32 string _but_ the
+	// signature field immediately preceding it would be mutaded.  In rare
+	// cases (about 3%) it is still seen as a valid signature and public
+	// key recovery causes a different node than the originally intended
+	// one to be derived.
+	//
+	// We thus modify the checksum here and verify the invoice gets broken
+	// enough that it fails to decode.
+	if !strings.HasSuffix(encoded, "p") {
+		t.Logf("Invoice: %s", encoded)
+		t.Fatalf("Generated invoice checksum does not end in 'p'")
+	}
+	encoded = encoded[:len(encoded)-1] + "qp"
+
+	_, err = Decode(encoded, chain)
+	if err == nil {
+		t.Fatalf("Did not get expected error when decoding invoice")
+	}
+
+}
+
 func compareInvoices(expected, actual *Invoice) error {
 	if !reflect.DeepEqual(expected.Net, actual.Net) {
 		return fmt.Errorf("expected net %v, got %v",
@@ -815,6 +1010,11 @@ func compareInvoices(expected, actual *Invoice) error {
 		}
 	}
 
+	if !reflect.DeepEqual(expected.Features, actual.Features) {
+		return fmt.Errorf("expected features %v, got %v",
+			expected.Features, actual.Features)
+	}
+
 	return nil
 }
 
@@ -844,7 +1044,7 @@ func compareHashes(a, b *[32]byte) bool {
 	return bytes.Equal(a[:], b[:])
 }
 
-func compareRouteHints(a, b []routing.HopHint) error {
+func compareRouteHints(a, b []HopHint) error {
 	if len(a) != len(b) {
 		return fmt.Errorf("expected len routingInfo %d, got %d",
 			len(a), len(b))

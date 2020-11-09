@@ -2,7 +2,9 @@ package wtdb
 
 import (
 	"errors"
+	"io"
 
+	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 )
 
@@ -59,6 +61,28 @@ type SessionInfo struct {
 	// TODO(conner): store client metrics, DOS score, etc
 }
 
+// Encode serializes the session info to the given io.Writer.
+func (s *SessionInfo) Encode(w io.Writer) error {
+	return WriteElements(w,
+		s.ID,
+		s.Policy,
+		s.LastApplied,
+		s.ClientLastApplied,
+		s.RewardAddress,
+	)
+}
+
+// Decode deserializes the session infor from the given io.Reader.
+func (s *SessionInfo) Decode(r io.Reader) error {
+	return ReadElements(r,
+		&s.ID,
+		&s.Policy,
+		&s.LastApplied,
+		&s.ClientLastApplied,
+		&s.RewardAddress,
+	)
+}
+
 // AcceptUpdateSequence validates that a state update's sequence number and last
 // applied are valid given our past history with the client. These checks ensure
 // that clients are properly in sync and following the update protocol properly.
@@ -82,7 +106,7 @@ func (s *SessionInfo) AcceptUpdateSequence(seqNum, lastApplied uint16) error {
 		return ErrSessionConsumed
 
 	// Client update does not match our expected next seqnum.
-	case seqNum != s.LastApplied+1:
+	case seqNum != s.LastApplied && seqNum != s.LastApplied+1:
 		return ErrUpdateOutOfOrder
 	}
 
@@ -111,7 +135,7 @@ type Match struct {
 	SeqNum uint16
 
 	// Hint is the breach hint that triggered the match.
-	Hint BreachHint
+	Hint blob.BreachHint
 
 	// EncryptedBlob is the encrypted payload containing the justice kit
 	// uploaded by the client.

@@ -1,42 +1,103 @@
 language: go
 cache:
   directories:
+    - $DOWNLOAD_CACHE
     - $GOCACHE
     - $GOPATH/pkg/mod
     - $GOPATH/src/github.com/btcsuite
     - $GOPATH/src/github.com/golang
+    - $GOPATH/src/github.com/grpc-ecosystem
     - $GOPATH/src/gopkg.in/alecthomas
+    - $GOPATH/src/google.golang.org
+
+# Remove Travis' default flag --depth=50 from the git clone command to make sure
+# we have the whole git history, including the commit we lint against.
+git:
+  depth: false
 
 go:
-  - "1.11.x"
+  - "1.15.x"
 
 env:
   global:
     - GOCACHE=$HOME/.go-build
-  matrix:
-    - RACE=true
-    - ITEST=true
-    - COVER=true 
+    - DOWNLOAD_CACHE=$HOME/download_cache
+    - BITCOIN_VERSION=0.20.1
 
 sudo: required
-install:
-  - sudo add-apt-repository -y ppa:bitcoin/bitcoin -y
-  - sudo apt-get update -q
-  - sudo apt-get install bitcoind -y
-  - export PATH=$PATH:$PWD/linux-amd64/
 
-script:
-  - export GO111MODULE=on
+jobs:
+  include:
+    - stage: Sanity Check
+      name: Lint and compile
+      before_script:
+        # Install the RPC tools as a before step so Travis collapses the output
+        # after it's done.
+        - ./scripts/install_travis_proto.sh
 
-  # Run unit tests with race condition detector.
-  - 'if [ "$RACE" = true ]; then make travis-race ; fi'
+      script:
+        # Step 1: Make sure no diff is produced when compiling with the correct
+        # version.
+        - make rpc-check
 
-  # Run integration tests.
-  - 'if [ "$ITEST" = true ]; then make travis-itest; fi'
+        # Step 2: Make sure the unit tests compile, but don't run them. They run
+        # in a GitHub Workflow.
+        - make unit pkg=... case=_NONE_
 
-  # Run unit tests and generate coverage report.
-  - 'if [ "$COVER" = true ]; then make travis-cover; fi'
+        # Step 3: Lint go code. Invoke GC more often to reduce memory usage.
+        - GOGC=30 make lint
 
-after_script:
-  - echo "Uploading to termbin.com..." && find *.log | xargs -I{} sh -c "cat {} | nc termbin.com 9999 | xargs -r0 printf '{} uploaded to %s'"
-  - echo "Uploading to file.io..." && tar -zcvO *.log | curl -s -F 'file=@-;filename=logs.tar.gz' https://file.io | xargs -r0 printf 'logs.tar.gz uploaded to %s\n'
+    - stage: Integration Test
+      name: Btcd Integration
+      script:
+        - make itest-parallel
+
+    - name: Bitcoind Integration (txindex enabled)
+      script:
+        - bash ./scripts/install_bitcoind.sh
+        - make itest-parallel backend=bitcoind
+
+    - name: Bitcoind Integration (txindex disabled)
+      script:
+        - bash ./scripts/install_bitcoind.sh
+        - make itest-parallel backend="bitcoind notxindex"
+
+    - name: Neutrino Integration
+      script:
+        - make itest-parallel backend=neutrino
+
+    - name: Btcd Integration ARM
+      script:
+        - GOARM=7 GOARCH=arm GOOS=linux make itest-parallel
+      arch: arm64
+
+    - name: Btcd Integration Windows
+      script:
+        - make itest-parallel-windows
+      os: windows
+      before_install:
+        - choco upgrade --no-progress -y make netcat curl findutils
+        - export MAKE=mingw32-make
+      after_failure:
+        - |-
+          case $TRAVIS_OS_NAME in
+            windows)
+              echo "Uploading to termbin.com..."
+              LOG_FILES=$(find ./lntest/itest -name '*.log')
+              for f in $LOG_FILES; do echo -n $f; cat $f | nc termbin.com 9999 | xargs -r0 printf ' uploaded to %s'; done
+              ;;
+          esac
+
+after_failure:
+  - |-
+    case $TRAVIS_OS_NAME in
+      windows)
+        # Needs other commands, see after_script of the Windows build
+        ;;
+
+      *)
+        LOG_FILES=$(find ./lntest/itest -name '*.log')
+        echo "Uploading to termbin.com..." && for f in $LOG_FILES; do echo -n $f; cat $f | nc termbin.com 9999 | xargs -r0 printf ' uploaded to %s'; done
+        echo "Uploading to file.io..." && tar -zcvO $LOG_FILES | curl -s -F 'file=@-;filename=logs.tar.gz' https://file.io | xargs -r0 printf 'logs.tar.gz uploaded to %s\n'
+        ;;
+    esac

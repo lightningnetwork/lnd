@@ -7,10 +7,8 @@ import (
 	"github.com/lightningnetwork/lnd/queue"
 )
 
-// mockRecycler implements the queue.Recycler interface using a NOP.
-type mockRecycler bool
-
-func (*mockRecycler) Recycle() {}
+// testItem is an item type we'll be using to test the GCQueue.
+type testItem uint32
 
 // TestGCQueueGCCycle asserts that items that are kept in the GCQueue past their
 // expiration will be released by a subsequent gc cycle.
@@ -23,7 +21,7 @@ func TestGCQueueGCCycle(t *testing.T) {
 		numItems       = 6
 	)
 
-	newItem := func() queue.Recycler { return new(mockRecycler) }
+	newItem := func() interface{} { return new(testItem) }
 
 	bp := queue.NewGCQueue(newItem, 100, gcInterval, expiryInterval)
 
@@ -61,7 +59,7 @@ func TestGCQueuePartialGCCycle(t *testing.T) {
 		numItems       = 6
 	)
 
-	newItem := func() queue.Recycler { return new(mockRecycler) }
+	newItem := func() interface{} { return new(testItem) }
 
 	bp := queue.NewGCQueue(newItem, 100, gcInterval, expiryInterval)
 
@@ -104,10 +102,10 @@ func TestGCQueuePartialGCCycle(t *testing.T) {
 
 // takeN draws n items from the provided GCQueue. This method also asserts that
 // n unique items are drawn, and then returns the resulting set.
-func takeN(t *testing.T, q *queue.GCQueue, n int) map[queue.Recycler]struct{} {
+func takeN(t *testing.T, q *queue.GCQueue, n int) map[interface{}]struct{} {
 	t.Helper()
 
-	items := make(map[queue.Recycler]struct{})
+	items := make(map[interface{}]struct{})
 	for i := 0; i < n; i++ {
 		// Wait a small duration to ensure the tests behave reliable,
 		// and don't activate the non-blocking case unintentionally.
@@ -125,7 +123,7 @@ func takeN(t *testing.T, q *queue.GCQueue, n int) map[queue.Recycler]struct{} {
 }
 
 // returnAll returns the items of the given set back to the GCQueue.
-func returnAll(q *queue.GCQueue, items map[queue.Recycler]struct{}) {
+func returnAll(q *queue.GCQueue, items map[interface{}]struct{}) {
 	for item := range items {
 		q.Return(item)
 
@@ -138,11 +136,11 @@ func returnAll(q *queue.GCQueue, items map[queue.Recycler]struct{}) {
 // returnN returns n items at random from the set of items back to the GCQueue.
 // This method fails if the set's cardinality is smaller than n.
 func returnN(t *testing.T, q *queue.GCQueue,
-	items map[queue.Recycler]struct{}, n int) map[queue.Recycler]struct{} {
+	items map[interface{}]struct{}, n int) map[interface{}]struct{} {
 
 	t.Helper()
 
-	var remainingItems = make(map[queue.Recycler]struct{})
+	var remainingItems = make(map[interface{}]struct{})
 	var numReturned int
 	for item := range items {
 		if numReturned < n {

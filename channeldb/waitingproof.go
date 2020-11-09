@@ -8,8 +8,8 @@ import (
 
 	"bytes"
 
-	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -42,13 +42,14 @@ type WaitingProofStore struct {
 // NewWaitingProofStore creates new instance of proofs storage.
 func NewWaitingProofStore(db *DB) (*WaitingProofStore, error) {
 	s := &WaitingProofStore{
-		db:    db,
-		cache: make(map[WaitingProofKey]struct{}),
+		db: db,
 	}
 
 	if err := s.ForAll(func(proof *WaitingProof) error {
 		s.cache[proof.Key()] = struct{}{}
 		return nil
+	}, func() {
+		s.cache = make(map[WaitingProofKey]struct{})
 	}); err != nil && err != ErrWaitingProofNotFound {
 		return nil, err
 	}
@@ -61,12 +62,12 @@ func (s *WaitingProofStore) Add(proof *WaitingProof) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	err := s.db.Update(func(tx *bbolt.Tx) error {
+	err := kvdb.Update(s.db, func(tx kvdb.RwTx) error {
 		var err error
 		var b bytes.Buffer
 
 		// Get or create the bucket.
-		bucket, err := tx.CreateBucketIfNotExists(waitingProofsBucketKey)
+		bucket, err := tx.CreateTopLevelBucket(waitingProofsBucketKey)
 		if err != nil {
 			return err
 		}
@@ -79,7 +80,7 @@ func (s *WaitingProofStore) Add(proof *WaitingProof) error {
 		key := proof.Key()
 
 		return bucket.Put(key[:], b.Bytes())
-	})
+	}, func() {})
 	if err != nil {
 		return err
 	}
@@ -100,15 +101,15 @@ func (s *WaitingProofStore) Remove(key WaitingProofKey) error {
 		return ErrWaitingProofNotFound
 	}
 
-	err := s.db.Update(func(tx *bbolt.Tx) error {
+	err := kvdb.Update(s.db, func(tx kvdb.RwTx) error {
 		// Get or create the top bucket.
-		bucket := tx.Bucket(waitingProofsBucketKey)
+		bucket := tx.ReadWriteBucket(waitingProofsBucketKey)
 		if bucket == nil {
 			return ErrWaitingProofNotFound
 		}
 
 		return bucket.Delete(key[:])
-	})
+	}, func() {})
 	if err != nil {
 		return err
 	}
@@ -122,9 +123,11 @@ func (s *WaitingProofStore) Remove(key WaitingProofKey) error {
 
 // ForAll iterates thought all waiting proofs and passing the waiting proof
 // in the given callback.
-func (s *WaitingProofStore) ForAll(cb func(*WaitingProof) error) error {
-	return s.db.View(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket(waitingProofsBucketKey)
+func (s *WaitingProofStore) ForAll(cb func(*WaitingProof) error,
+	reset func()) error {
+
+	return kvdb.View(s.db, func(tx kvdb.RTx) error {
+		bucket := tx.ReadBucket(waitingProofsBucketKey)
 		if bucket == nil {
 			return ErrWaitingProofNotFound
 		}
@@ -144,12 +147,12 @@ func (s *WaitingProofStore) ForAll(cb func(*WaitingProof) error) error {
 
 			return cb(proof)
 		})
-	})
+	}, reset)
 }
 
 // Get returns the object which corresponds to the given index.
 func (s *WaitingProofStore) Get(key WaitingProofKey) (*WaitingProof, error) {
-	proof := &WaitingProof{}
+	var proof *WaitingProof
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -158,8 +161,8 @@ func (s *WaitingProofStore) Get(key WaitingProofKey) (*WaitingProof, error) {
 		return nil, ErrWaitingProofNotFound
 	}
 
-	err := s.db.View(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket(waitingProofsBucketKey)
+	err := kvdb.View(s.db, func(tx kvdb.RTx) error {
+		bucket := tx.ReadBucket(waitingProofsBucketKey)
 		if bucket == nil {
 			return ErrWaitingProofNotFound
 		}
@@ -172,6 +175,8 @@ func (s *WaitingProofStore) Get(key WaitingProofKey) (*WaitingProof, error) {
 
 		r := bytes.NewReader(v)
 		return proof.Decode(r)
+	}, func() {
+		proof = &WaitingProof{}
 	})
 
 	return proof, err

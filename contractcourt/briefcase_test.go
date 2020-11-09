@@ -14,12 +14,11 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 var (
@@ -45,6 +44,15 @@ var (
 			0x2d, 0xe7, 0x93, 0xe4,
 		},
 		Index: 2,
+	}
+
+	testChanPoint3 = wire.OutPoint{
+		Hash: chainhash.Hash{
+			0x48, 0x59, 0xe6, 0x96, 0x31, 0x13, 0xa1, 0x17,
+			0x51, 0xb6, 0x37, 0xd8, 0xfc, 0xd2, 0xc6, 0xda,
+			0x2d, 0xe7, 0x93, 0xe4,
+		},
+		Index: 3,
 	}
 
 	testPreimage = [32]byte{
@@ -96,7 +104,7 @@ var (
 	}
 )
 
-func makeTestDB() (*bbolt.DB, func(), error) {
+func makeTestDB() (kvdb.Backend, func(), error) {
 	// First, create a temporary directory to be used for the duration of
 	// this test.
 	tempDirName, err := ioutil.TempDir("", "arblog")
@@ -104,7 +112,7 @@ func makeTestDB() (*bbolt.DB, func(), error) {
 		return nil, nil, err
 	}
 
-	db, err := bbolt.Open(tempDirName+"/test.db", 0600, nil)
+	db, err := kvdb.Create(kvdb.BoltBackendName, tempDirName+"/test.db", true)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -125,7 +133,12 @@ func newTestBoltArbLog(chainhash chainhash.Hash,
 		return nil, nil, err
 	}
 
-	testArbCfg := ChannelArbitratorConfig{}
+	testArbCfg := ChannelArbitratorConfig{
+		PutResolverReport: func(_ kvdb.RwTx,
+			_ *channeldb.ResolverReport) error {
+			return nil
+		},
+	}
 	testLog, err := newBoltArbitratorLog(testDB, testArbCfg, chainhash, op)
 	if err != nil {
 		return nil, nil, err
@@ -162,9 +175,9 @@ func assertResolversEqual(t *testing.T, originalResolver ContractResolver,
 			t.Fatalf("expected %v, got %v",
 				ogRes.broadcastHeight, diskRes.broadcastHeight)
 		}
-		if ogRes.htlcIndex != diskRes.htlcIndex {
-			t.Fatalf("expected %v, got %v", ogRes.htlcIndex,
-				diskRes.htlcIndex)
+		if ogRes.htlc.HtlcIndex != diskRes.htlc.HtlcIndex {
+			t.Fatalf("expected %v, got %v", ogRes.htlc.HtlcIndex,
+				diskRes.htlc.HtlcIndex)
 		}
 	}
 
@@ -185,9 +198,9 @@ func assertResolversEqual(t *testing.T, originalResolver ContractResolver,
 			t.Fatalf("expected %v, got %v",
 				ogRes.broadcastHeight, diskRes.broadcastHeight)
 		}
-		if ogRes.payHash != diskRes.payHash {
-			t.Fatalf("expected %v, got %v", ogRes.payHash,
-				diskRes.payHash)
+		if ogRes.htlc.RHash != diskRes.htlc.RHash {
+			t.Fatalf("expected %v, got %v", ogRes.htlc.RHash,
+				diskRes.htlc.RHash)
 		}
 	}
 
@@ -266,7 +279,9 @@ func TestContractInsertionRetrieval(t *testing.T) {
 		outputIncubating: true,
 		resolved:         true,
 		broadcastHeight:  102,
-		htlcIndex:        12,
+		htlc: channeldb.HTLC{
+			HtlcIndex: 12,
+		},
 	}
 	successResolver := htlcSuccessResolver{
 		htlcResolution: lnwallet.IncomingHtlcResolution{
@@ -279,8 +294,10 @@ func TestContractInsertionRetrieval(t *testing.T) {
 		outputIncubating: true,
 		resolved:         true,
 		broadcastHeight:  109,
-		payHash:          testPreimage,
-		sweepTx:          nil,
+		htlc: channeldb.HTLC{
+			RHash: testPreimage,
+		},
+		sweepTx: nil,
 	}
 	resolvers := []ContractResolver{
 		&timeoutResolver,
@@ -321,8 +338,10 @@ func TestContractInsertionRetrieval(t *testing.T) {
 	resolverMap[string(resolvers[3].ResolverKey())] = resolvers[3]
 	resolverMap[string(resolvers[4].ResolverKey())] = resolvers[4]
 
-	// Now, we'll insert the resolver into the log.
-	if err := testLog.InsertUnresolvedContracts(resolvers...); err != nil {
+	// Now, we'll insert the resolver into the log, we do not need to apply
+	// any closures, so we will pass in nil.
+	err = testLog.InsertUnresolvedContracts(nil, resolvers...)
+	if err != nil {
 		t.Fatalf("unable to insert resolvers: %v", err)
 	}
 
@@ -359,6 +378,9 @@ func TestContractInsertionRetrieval(t *testing.T) {
 		t.Fatalf("unable to wipe log: %v", err)
 	}
 	diskResolvers, err = testLog.FetchUnresolvedContracts()
+	if err != nil {
+		t.Fatalf("unable to fetch unresolved contracts: %v", err)
+	}
 	if len(diskResolvers) != 0 {
 		t.Fatalf("no resolvers should be found, instead %v were",
 			len(diskResolvers))
@@ -393,12 +415,15 @@ func TestContractResolution(t *testing.T) {
 		outputIncubating: true,
 		resolved:         true,
 		broadcastHeight:  192,
-		htlcIndex:        9912,
+		htlc: channeldb.HTLC{
+			HtlcIndex: 9912,
+		},
 	}
 
 	// First, we'll insert the resolver into the database and ensure that
-	// we get the same resolver out the other side.
-	err = testLog.InsertUnresolvedContracts(timeoutResolver)
+	// we get the same resolver out the other side. We do not need to apply
+	// any closures.
+	err = testLog.InsertUnresolvedContracts(nil, timeoutResolver)
 	if err != nil {
 		t.Fatalf("unable to insert contract into db: %v", err)
 	}
@@ -452,14 +477,17 @@ func TestContractSwapping(t *testing.T) {
 		outputIncubating: true,
 		resolved:         true,
 		broadcastHeight:  102,
-		htlcIndex:        12,
+		htlc: channeldb.HTLC{
+			HtlcIndex: 12,
+		},
 	}
 	contestResolver := &htlcOutgoingContestResolver{
 		htlcTimeoutResolver: timeoutResolver,
 	}
 
-	// We'll first insert the contest resolver into the log.
-	err = testLog.InsertUnresolvedContracts(contestResolver)
+	// We'll first insert the contest resolver into the log with no
+	// additional updates.
+	err = testLog.InsertUnresolvedContracts(nil, contestResolver)
 	if err != nil {
 		t.Fatalf("unable to insert contract into db: %v", err)
 	}
@@ -530,6 +558,10 @@ func TestContractResolutionsStorage(t *testing.T) {
 				},
 			},
 		},
+		AnchorResolution: &lnwallet.AnchorResolution{
+			CommitAnchor:         testChanPoint3,
+			AnchorSignDescriptor: testSignDesc,
+		},
 	}
 
 	// First make sure that fetching unlogged contract resolutions will
@@ -562,133 +594,6 @@ func TestContractResolutionsStorage(t *testing.T) {
 	_, err = testLog.FetchContractResolutions()
 	if err != errScopeBucketNoExist {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-// TestChainActionStorage tests that were able to properly store a set of chain
-// actions, and then retrieve the same set of chain actions from disk.
-func TestChainActionStorage(t *testing.T) {
-	t.Parallel()
-
-	// First, we'll create a test instance of the ArbitratorLog
-	// implementation backed by boltdb.
-	testLog, cleanUp, err := newTestBoltArbLog(
-		testChainHash, testChanPoint2,
-	)
-	if err != nil {
-		t.Fatalf("unable to create test log: %v", err)
-	}
-	defer cleanUp()
-
-	chainActions := ChainActionMap{
-		NoAction: []channeldb.HTLC{
-			{
-				RHash:         testPreimage,
-				Amt:           lnwire.MilliSatoshi(prand.Uint64()),
-				RefundTimeout: prand.Uint32(),
-				OutputIndex:   int32(prand.Uint32()),
-				Incoming:      true,
-				HtlcIndex:     prand.Uint64(),
-				LogIndex:      prand.Uint64(),
-				OnionBlob:     make([]byte, 0),
-				Signature:     make([]byte, 0),
-			},
-		},
-		HtlcTimeoutAction: []channeldb.HTLC{
-			{
-				RHash:         testPreimage,
-				Amt:           lnwire.MilliSatoshi(prand.Uint64()),
-				RefundTimeout: prand.Uint32(),
-				OutputIndex:   int32(prand.Uint32()),
-				Incoming:      true,
-				HtlcIndex:     prand.Uint64(),
-				LogIndex:      prand.Uint64(),
-				OnionBlob:     make([]byte, 0),
-				Signature:     make([]byte, 0),
-			},
-		},
-		HtlcClaimAction: []channeldb.HTLC{
-			{
-				RHash:         testPreimage,
-				Amt:           lnwire.MilliSatoshi(prand.Uint64()),
-				RefundTimeout: prand.Uint32(),
-				OutputIndex:   int32(prand.Uint32()),
-				Incoming:      true,
-				HtlcIndex:     prand.Uint64(),
-				LogIndex:      prand.Uint64(),
-				OnionBlob:     make([]byte, 0),
-				Signature:     make([]byte, 0),
-			},
-		},
-		HtlcFailNowAction: []channeldb.HTLC{
-			{
-				RHash:         testPreimage,
-				Amt:           lnwire.MilliSatoshi(prand.Uint64()),
-				RefundTimeout: prand.Uint32(),
-				OutputIndex:   int32(prand.Uint32()),
-				Incoming:      true,
-				HtlcIndex:     prand.Uint64(),
-				LogIndex:      prand.Uint64(),
-				OnionBlob:     make([]byte, 0),
-				Signature:     make([]byte, 0),
-			},
-		},
-		HtlcOutgoingWatchAction: []channeldb.HTLC{
-			{
-				RHash:         testPreimage,
-				Amt:           lnwire.MilliSatoshi(prand.Uint64()),
-				RefundTimeout: prand.Uint32(),
-				OutputIndex:   int32(prand.Uint32()),
-				Incoming:      true,
-				HtlcIndex:     prand.Uint64(),
-				LogIndex:      prand.Uint64(),
-				OnionBlob:     make([]byte, 0),
-				Signature:     make([]byte, 0),
-			},
-		},
-		HtlcIncomingWatchAction: []channeldb.HTLC{
-			{
-				RHash:         testPreimage,
-				Amt:           lnwire.MilliSatoshi(prand.Uint64()),
-				RefundTimeout: prand.Uint32(),
-				OutputIndex:   int32(prand.Uint32()),
-				Incoming:      true,
-				HtlcIndex:     prand.Uint64(),
-				LogIndex:      prand.Uint64(),
-				OnionBlob:     make([]byte, 0),
-				Signature:     make([]byte, 0),
-			},
-		},
-	}
-
-	// With our set of test chain actions constructed, we'll now insert
-	// them into the database, retrieve them, then assert equality with the
-	// set of chain actions create above.
-	if err := testLog.LogChainActions(chainActions); err != nil {
-		t.Fatalf("unable to write chain actions: %v", err)
-	}
-	diskActions, err := testLog.FetchChainActions()
-	if err != nil {
-		t.Fatalf("unable to read chain actions: %v", err)
-	}
-
-	for k, contracts := range chainActions {
-		diskContracts := diskActions[k]
-		if !reflect.DeepEqual(contracts, diskContracts) {
-			t.Fatalf("chain action mismatch: expected %v, got %v",
-				spew.Sdump(contracts), spew.Sdump(diskContracts))
-		}
-	}
-
-	// We'll now delete the state, then attempt to retrieve the set of
-	// chain actions, no resolutions should be found.
-	if err := testLog.WipeHistory(); err != nil {
-		t.Fatalf("unable to wipe log: %v", err)
-	}
-	actions, err := testLog.FetchChainActions()
-	if len(actions) != 0 {
-		t.Fatalf("expected no chain actions, instead found: %v",
-			len(actions))
 	}
 }
 
@@ -739,6 +644,9 @@ func TestStateMutation(t *testing.T) {
 	// If we try to query for the state again, we should get the default
 	// state again.
 	arbState, err = testLog.CurrentState()
+	if err != nil {
+		t.Fatalf("unable to query current state: %v", err)
+	}
 	if arbState != StateDefault {
 		t.Fatalf("state mismatch: expected %v, got %v", StateDefault,
 			arbState)
@@ -800,6 +708,62 @@ func TestScopeIsolation(t *testing.T) {
 		t.Fatalf("state mismatch: expected %v, got %v",
 			StateContractClosed, log2State)
 	}
+}
+
+// TestCommitSetStorage tests that we're able to properly read/write active
+// commitment sets.
+func TestCommitSetStorage(t *testing.T) {
+	t.Parallel()
+
+	testLog, cleanUp, err := newTestBoltArbLog(
+		testChainHash, testChanPoint1,
+	)
+	if err != nil {
+		t.Fatalf("unable to create test log: %v", err)
+	}
+	defer cleanUp()
+
+	activeHTLCs := []channeldb.HTLC{
+		{
+			Amt:       1000,
+			OnionBlob: make([]byte, 0),
+			Signature: make([]byte, 0),
+		},
+	}
+
+	confTypes := []HtlcSetKey{
+		LocalHtlcSet, RemoteHtlcSet, RemotePendingHtlcSet,
+	}
+	for _, pendingRemote := range []bool{true, false} {
+		for _, confType := range confTypes {
+			commitSet := &CommitSet{
+				ConfCommitKey: &confType,
+				HtlcSets:      make(map[HtlcSetKey][]channeldb.HTLC),
+			}
+			commitSet.HtlcSets[LocalHtlcSet] = activeHTLCs
+			commitSet.HtlcSets[RemoteHtlcSet] = activeHTLCs
+
+			if pendingRemote {
+				commitSet.HtlcSets[RemotePendingHtlcSet] = activeHTLCs
+			}
+
+			err := testLog.InsertConfirmedCommitSet(commitSet)
+			if err != nil {
+				t.Fatalf("unable to write commit set: %v", err)
+			}
+
+			diskCommitSet, err := testLog.FetchConfirmedCommitSet()
+			if err != nil {
+				t.Fatalf("unable to read commit set: %v", err)
+			}
+
+			if !reflect.DeepEqual(commitSet, diskCommitSet) {
+				t.Fatalf("commit set mismatch: expected %v, got %v",
+					spew.Sdump(commitSet), spew.Sdump(diskCommitSet))
+			}
+		}
+	}
+
 }
 
 func init() {

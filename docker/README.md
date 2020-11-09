@@ -23,7 +23,7 @@ environment for testing as one doesn't need to wait tens of minutes for blocks
 to arrive in order to test channel related functionality. Additionally, it's
 possible to spin up an arbitrary number of `lnd` instances within containers to
 create a mini development cluster. All state is saved between instances using a
-shared value.
+shared volume.
 
 Current workflow is big because we recreate the whole network by ourselves,
 next versions will use the started `btcd` bitcoin node in `testnet` and
@@ -63,8 +63,12 @@ bitcoin into.
 # Init bitcoin network env variable:
 $ export NETWORK="simnet" 
 
+# Create persistent volumes for alice and bob.
+$ docker volume create simnet_lnd_alice
+$ docker volume create simnet_lnd_bob
+
 # Run the "Alice" container and log into it:
-$ docker-compose run -d --name alice lnd_btc
+$ docker-compose run -d --name alice --volume simnet_lnd_alice:/root/.lnd lnd
 $ docker exec -i -t alice bash
 
 # Generate a new backward compatible nested p2sh address for Alice:
@@ -75,10 +79,10 @@ $ MINING_ADDRESS=<alice_address> docker-compose up -d btcd
 
 # Generate 400 blocks (we need at least "100 >=" blocks because of coinbase 
 # block maturity and "300 ~=" in order to activate segwit):
-$ docker-compose run btcctl generate 400
+$ docker exec -it btcd /start-btcctl.sh generate 400
 
 # Check that segwit is active:
-$ docker-compose run btcctl getblockchaininfo | grep -A 1 segwit
+$ docker exec -it btcd /start-btcctl.sh getblockchaininfo | grep -A 1 segwit
 ```
 
 Check `Alice` balance:
@@ -90,7 +94,7 @@ Connect `Bob` node to `Alice` node.
 
 ```bash
 # Run "Bob" node and log into it:
-$ docker-compose run -d --name bob lnd_btc
+$ docker-compose run -d --name bob --volume simnet_lnd_bob:/root/.lnd lnd
 $ docker exec -i -t bob bash
 
 # Get the identity pubkey of "Bob" node:
@@ -159,7 +163,7 @@ Create the `Alice<->Bob` channel.
 alice$ lncli --network=simnet openchannel --node_key=<bob_identity_pubkey> --local_amt=1000000
 
 # Include funding transaction in block thereby opening the channel:
-$ docker-compose run btcctl generate 3
+$ docker exec -it btcd /start-btcctl.sh generate 3
 
 # Check that channel with "Bob" was opened:
 alice$ lncli --network=simnet listchannels
@@ -243,7 +247,7 @@ alice$ lncli --network=simnet listchannels
 alice$ lncli --network=simnet closechannel --funding_txid=<funding_txid> --output_index=<output_index>
 
 # Include close transaction in a block thereby closing the channel:
-$ docker-compose run btcctl generate 3
+$ docker exec -it btcd /start-btcctl.sh generate 3
 
 # Check "Alice" on-chain balance was credited by her settled amount in the channel:
 alice$ lncli --network=simnet walletbalance
@@ -295,10 +299,7 @@ First of all you need to run `btcd` node in `testnet` and wait for it to be
 synced with test network (`May the Force and Patience be with you`).
 ```bash 
 # Init bitcoin network env variable:
-$ export NETWORK="testnet"
-
-# Run "btcd" node:
-$ docker-compose up -d "btcd"
+$ NETWORK="testnet" docker-compose up
 ```
 
 After `btcd` synced, connect `Alice` to the `Faucet` node.
@@ -307,10 +308,10 @@ The `Faucet` node address can be found at the [Faucet Lightning Community webpag
 
 ```bash 
 # Run "Alice" container and log into it:
-$ docker-compose up -d "alice"; docker exec -i -t "alice" bash
+$ docker-compose run -d --name alice lnd_btc; docker exec -i -t "alice" bash
 
 # Connect "Alice" to the "Faucet" node:
-alice$ lncli --network=simnet connect <faucet_identity_address>@<faucet_host>
+alice$ lncli --network=testnet connect <faucet_identity_address>@<faucet_host>
 ```
 
 After a connection is achieved, the `Faucet` node should create the channel

@@ -44,8 +44,12 @@ RPCPASS=$(set_default "$RPCPASS" "devpass")
 DEBUG=$(set_default "$DEBUG" "info")
 NETWORK=$(set_default "$NETWORK" "simnet")
 
-PARAMS=$(echo \
-    "--$NETWORK" \
+PARAMS=""
+if [ "$NETWORK" != "mainnet" ]; then
+   PARAMS="--$NETWORK"
+fi
+
+PARAMS=$(echo $PARAMS \
     "--debuglevel=$DEBUG" \
     "--rpcuser=$RPCUSER" \
     "--rpcpass=$RPCPASS" \
@@ -68,4 +72,3 @@ PARAMS="$PARAMS $@"
 # Print command and start bitcoin node.
 echo "Command: ltcd $PARAMS"
 exec ltcd $PARAMS
-

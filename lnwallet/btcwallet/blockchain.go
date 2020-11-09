@@ -10,8 +10,8 @@ import (
 	"github.com/btcsuite/btcutil"
 
 	"github.com/btcsuite/btcwallet/chain"
-	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/neutrino"
+	"github.com/lightninglabs/neutrino/headerfs"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
@@ -38,7 +38,7 @@ func (b *BtcWallet) GetBestBlock() (*chainhash.Hash, int32, error) {
 //
 // This method is a part of the lnwallet.BlockChainIO interface.
 func (b *BtcWallet) GetUtxo(op *wire.OutPoint, pkScript []byte,
-	heightHint uint32) (*wire.TxOut, error) {
+	heightHint uint32, cancel <-chan struct{}) (*wire.TxOut, error) {
 
 	switch backend := b.chain.(type) {
 
@@ -48,9 +48,10 @@ func (b *BtcWallet) GetUtxo(op *wire.OutPoint, pkScript []byte,
 				OutPoint: *op,
 				PkScript: pkScript,
 			}),
-			neutrino.StartBlock(&waddrmgr.BlockStamp{
+			neutrino.StartBlock(&headerfs.BlockStamp{
 				Height: int32(heightHint),
 			}),
+			neutrino.QuitChan(cancel),
 		)
 		if err != nil {
 			return nil, err

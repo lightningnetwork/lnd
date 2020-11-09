@@ -8,7 +8,7 @@ import (
 )
 
 // TestSubscribe tests that the subscription clients receive the updates sent
-// to them after they subscribe, and that cancelled clients don't get more
+// to them after they subscribe, and that canceled clients don't get more
 // updates.
 func TestSubscribe(t *testing.T) {
 	t.Parallel()
@@ -69,13 +69,13 @@ func TestSubscribe(t *testing.T) {
 		switch {
 
 		// We expect the first third of the clients to quit, since they
-		// were cancelled.
+		// were canceled.
 		case i < numClients/3:
 			select {
 			case <-c.Quit():
 				continue
 			case <-time.After(1 * time.Second):
-				t.Fatalf("cancelled client %v did not quit", i)
+				t.Fatalf("canceled client %v did not quit", i)
 			}
 
 		// The next third should receive all updates.

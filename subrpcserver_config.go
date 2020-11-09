@@ -1,18 +1,32 @@
-package main
+package lnd
 
 import (
 	"fmt"
 	"reflect"
 
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/autopilot"
+	"github.com/lightningnetwork/lnd/chainreg"
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/invoices"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc/autopilotrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/sweep"
+	"github.com/lightningnetwork/lnd/watchtower"
+	"github.com/lightningnetwork/lnd/watchtower/wtclient"
 )
 
 // subRPCServerConfigs is special sub-config in the main configuration that
@@ -44,6 +58,22 @@ type subRPCServerConfigs struct {
 	// InvoicesRPC is a sub-RPC server that exposes invoice related methods
 	// as a gRPC service.
 	InvoicesRPC *invoicesrpc.Config `group:"invoicesrpc" namespace:"invoicesrpc"`
+
+	// RouterRPC is a sub-RPC server the exposes functionality that allows
+	// clients to send payments on the network, and perform Lightning
+	// payment related queries such as requests for estimates of off-chain
+	// fees.
+	RouterRPC *routerrpc.Config `group:"routerrpc" namespace:"routerrpc"`
+
+	// WatchtowerRPC is a sub-RPC server that exposes functionality allowing
+	// clients to monitor and control their embedded watchtower.
+	WatchtowerRPC *watchtowerrpc.Config `group:"watchtowerrpc" namespace:"watchtowerrpc"`
+
+	// WatchtowerClientRPC is a sub-RPC server that exposes functionality
+	// that allows clients to interact with the active watchtower client
+	// instance within lnd in order to add, remove, list registered client
+	// towers, etc.
+	WatchtowerClientRPC *wtclientrpc.Config `group:"wtclientrpc" namespace:"wtclientrpc"`
 }
 
 // PopulateDependencies attempts to iterate through all the sub-server configs
@@ -52,11 +82,23 @@ type subRPCServerConfigs struct {
 //
 // NOTE: This MUST be called before any callers are permitted to execute the
 // FetchConfig method.
-func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
+func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
+	cc *chainreg.ChainControl,
 	networkDir string, macService *macaroons.Service,
 	atpl *autopilot.Manager,
 	invoiceRegistry *invoices.InvoiceRegistry,
-	activeNetParams *chaincfg.Params) error {
+	htlcSwitch *htlcswitch.Switch,
+	activeNetParams *chaincfg.Params,
+	chanRouter *routing.ChannelRouter,
+	routerBackend *routerrpc.RouterBackend,
+	nodeSigner *netann.NodeSigner,
+	chanDB *channeldb.DB,
+	sweeper *sweep.UtxoSweeper,
+	tower *watchtower.Standalone,
+	towerClient wtclient.Client,
+	tcpResolver lncfg.TCPResolver,
+	genInvoiceFeatures func() *lnwire.FeatureVector,
+	rpcLogger btclog.Logger) error {
 
 	// First, we'll use reflect to obtain a version of the config struct
 	// that allows us to programmatically inspect its fields.
@@ -81,9 +123,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 			continue
 		}
 
-		switch cfg := field.Interface().(type) {
+		switch subCfg := field.Interface().(type) {
 		case *signrpc.Config:
-			subCfgValue := extractReflectValue(cfg)
+			subCfgValue := extractReflectValue(subCfg)
 
 			subCfgValue.FieldByName("MacService").Set(
 				reflect.ValueOf(macService),
@@ -92,11 +134,14 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 				reflect.ValueOf(networkDir),
 			)
 			subCfgValue.FieldByName("Signer").Set(
-				reflect.ValueOf(cc.signer),
+				reflect.ValueOf(cc.Signer),
+			)
+			subCfgValue.FieldByName("KeyRing").Set(
+				reflect.ValueOf(cc.KeyRing),
 			)
 
 		case *walletrpc.Config:
-			subCfgValue := extractReflectValue(cfg)
+			subCfgValue := extractReflectValue(subCfg)
 
 			subCfgValue.FieldByName("NetworkDir").Set(
 				reflect.ValueOf(networkDir),
@@ -105,24 +150,36 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 				reflect.ValueOf(macService),
 			)
 			subCfgValue.FieldByName("FeeEstimator").Set(
-				reflect.ValueOf(cc.feeEstimator),
+				reflect.ValueOf(cc.FeeEstimator),
 			)
 			subCfgValue.FieldByName("Wallet").Set(
-				reflect.ValueOf(cc.wallet),
+				reflect.ValueOf(cc.Wallet),
+			)
+			subCfgValue.FieldByName("CoinSelectionLocker").Set(
+				reflect.ValueOf(cc.Wallet),
 			)
 			subCfgValue.FieldByName("KeyRing").Set(
-				reflect.ValueOf(cc.keyRing),
+				reflect.ValueOf(cc.KeyRing),
+			)
+			subCfgValue.FieldByName("Sweeper").Set(
+				reflect.ValueOf(sweeper),
+			)
+			subCfgValue.FieldByName("Chain").Set(
+				reflect.ValueOf(cc.ChainIO),
+			)
+			subCfgValue.FieldByName("ChainParams").Set(
+				reflect.ValueOf(activeNetParams),
 			)
 
 		case *autopilotrpc.Config:
-			subCfgValue := extractReflectValue(cfg)
+			subCfgValue := extractReflectValue(subCfg)
 
 			subCfgValue.FieldByName("Manager").Set(
 				reflect.ValueOf(atpl),
 			)
 
 		case *chainrpc.Config:
-			subCfgValue := extractReflectValue(cfg)
+			subCfgValue := extractReflectValue(subCfg)
 
 			subCfgValue.FieldByName("NetworkDir").Set(
 				reflect.ValueOf(networkDir),
@@ -131,11 +188,11 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 				reflect.ValueOf(macService),
 			)
 			subCfgValue.FieldByName("ChainNotifier").Set(
-				reflect.ValueOf(cc.chainNotifier),
+				reflect.ValueOf(cc.ChainNotifier),
 			)
 
 		case *invoicesrpc.Config:
-			subCfgValue := extractReflectValue(cfg)
+			subCfgValue := extractReflectValue(subCfg)
 
 			subCfgValue.FieldByName("NetworkDir").Set(
 				reflect.ValueOf(networkDir),
@@ -146,8 +203,59 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 			subCfgValue.FieldByName("InvoiceRegistry").Set(
 				reflect.ValueOf(invoiceRegistry),
 			)
+			subCfgValue.FieldByName("IsChannelActive").Set(
+				reflect.ValueOf(htlcSwitch.HasActiveLink),
+			)
 			subCfgValue.FieldByName("ChainParams").Set(
 				reflect.ValueOf(activeNetParams),
+			)
+			subCfgValue.FieldByName("NodeSigner").Set(
+				reflect.ValueOf(nodeSigner),
+			)
+			defaultDelta := cfg.Bitcoin.TimeLockDelta
+			if cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
+				defaultDelta = cfg.Litecoin.TimeLockDelta
+			}
+			subCfgValue.FieldByName("DefaultCLTVExpiry").Set(
+				reflect.ValueOf(defaultDelta),
+			)
+			subCfgValue.FieldByName("ChanDB").Set(
+				reflect.ValueOf(chanDB),
+			)
+			subCfgValue.FieldByName("GenInvoiceFeatures").Set(
+				reflect.ValueOf(genInvoiceFeatures),
+			)
+
+		// RouterRPC isn't conditionally compiled and doesn't need to be
+		// populated using reflection.
+		case *routerrpc.Config:
+
+		case *watchtowerrpc.Config:
+			subCfgValue := extractReflectValue(subCfg)
+
+			subCfgValue.FieldByName("Active").Set(
+				reflect.ValueOf(tower != nil),
+			)
+			subCfgValue.FieldByName("Tower").Set(
+				reflect.ValueOf(tower),
+			)
+
+		case *wtclientrpc.Config:
+			subCfgValue := extractReflectValue(subCfg)
+
+			if towerClient != nil {
+				subCfgValue.FieldByName("Active").Set(
+					reflect.ValueOf(towerClient != nil),
+				)
+				subCfgValue.FieldByName("Client").Set(
+					reflect.ValueOf(towerClient),
+				)
+			}
+			subCfgValue.FieldByName("Resolver").Set(
+				reflect.ValueOf(tcpResolver),
+			)
+			subCfgValue.FieldByName("Log").Set(
+				reflect.ValueOf(rpcLogger),
 			)
 
 		default:
@@ -155,6 +263,12 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 				cfg)
 		}
 	}
+
+	// Populate routerrpc dependencies.
+	s.RouterRPC.NetworkDir = networkDir
+	s.RouterRPC.MacService = macService
+	s.RouterRPC.Router = chanRouter
+	s.RouterRPC.RouterBackend = routerBackend
 
 	return nil
 }

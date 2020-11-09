@@ -62,10 +62,6 @@ func (u *UPnP) AddPortMapping(port uint16) error {
 	u.forwardedPortsMtx.Lock()
 	defer u.forwardedPortsMtx.Unlock()
 
-	if _, exists := u.forwardedPorts[port]; exists {
-		return nil
-	}
-
 	if err := u.device.Forward(port, ""); err != nil {
 		return err
 	}

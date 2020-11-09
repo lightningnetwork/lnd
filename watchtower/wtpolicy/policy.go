@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 )
 
@@ -27,7 +28,11 @@ const (
 
 	// DefaultSweepFeeRate specifies the fee rate used to construct justice
 	// transactions. The value is expressed in satoshis per kilo-weight.
-	DefaultSweepFeeRate = 3000
+	DefaultSweepFeeRate = chainfee.SatPerKWeight(2500)
+
+	// MinSweepFeeRate is the minimum sweep fee rate a client may use in its
+	// policy, the current value is 4 sat/vbyte.
+	MinSweepFeeRate = chainfee.SatPerKWeight(1000)
 )
 
 var (
@@ -43,33 +48,41 @@ var (
 	// ErrCreatesDust signals that the session's policy would create a dust
 	// output for the victim.
 	ErrCreatesDust = errors.New("justice transaction creates dust at fee rate")
+
+	// ErrAltruistReward signals that the policy is invalid because it
+	// contains a non-zero RewardBase or RewardRate on an altruist policy.
+	ErrAltruistReward = errors.New("altruist policy has reward params")
+
+	// ErrNoMaxUpdates signals that the policy specified zero MaxUpdates.
+	ErrNoMaxUpdates = errors.New("max updates must be positive")
+
+	// ErrSweepFeeRateTooLow signals that the policy's fee rate is too low
+	// to get into the mempool during low congestion.
+	ErrSweepFeeRateTooLow = errors.New("sweep fee rate too low")
 )
 
 // DefaultPolicy returns a Policy containing the default parameters that can be
 // used by clients or servers.
 func DefaultPolicy() Policy {
 	return Policy{
-		BlobType:   blob.TypeDefault,
+		TxPolicy: TxPolicy{
+			BlobType:     blob.TypeAltruistCommit,
+			SweepFeeRate: DefaultSweepFeeRate,
+		},
 		MaxUpdates: DefaultMaxUpdates,
-		RewardRate: DefaultRewardRate,
-		SweepFeeRate: lnwallet.SatPerKWeight(
-			DefaultSweepFeeRate,
-		),
 	}
 }
 
-// Policy defines the negotiated parameters for a session between a client and
-// server. The parameters specify the format of encrypted blobs sent to the
-// tower, the reward schedule for the tower, and the number of encrypted blobs a
-// client can send in one session.
-type Policy struct {
+// TxPolicy defines the negotiate parameters that determine the form of the
+// justice transaction for a given breached state. Thus, for any given revoked
+// state, an identical key will result in an identical justice transaction
+// (barring signatures). The parameters specify the format of encrypted blobs
+// sent to the tower, the reward schedule for the tower, and the number of
+// encrypted blobs a client can send in one session.
+type TxPolicy struct {
 	// BlobType specifies the blob format that must be used by all updates sent
 	// under the session key used to negotiate this session.
 	BlobType blob.Type
-
-	// MaxUpdates is the maximum number of updates the watchtower will honor
-	// for this session.
-	MaxUpdates uint16
 
 	// RewardBase is the fixed amount allocated to the tower when the
 	// policy's blob type specifies a reward for the tower. This is taken
@@ -85,7 +98,19 @@ type Policy struct {
 	// constructing the justice transaction. All sweep transactions created
 	// for this session must use this value during construction, and the
 	// signatures must implicitly commit to the resulting output values.
-	SweepFeeRate lnwallet.SatPerKWeight
+	SweepFeeRate chainfee.SatPerKWeight
+}
+
+// Policy defines the negotiated parameters for a session between a client and
+// server. In addition to the TxPolicy that governs the shape of the justice
+// transaction, the Policy also includes features which only affect the
+// operation of the session.
+type Policy struct {
+	TxPolicy
+
+	// MaxUpdates is the maximum number of updates the watchtower will honor
+	// for this session.
+	MaxUpdates uint16
 }
 
 // String returns a human-readable description of the current policy.
@@ -93,6 +118,31 @@ func (p Policy) String() string {
 	return fmt.Sprintf("(blob-type=%b max-updates=%d reward-rate=%d "+
 		"sweep-fee-rate=%d)", p.BlobType, p.MaxUpdates, p.RewardRate,
 		p.SweepFeeRate)
+}
+
+// Validate ensures that the policy satisfies some minimal correctness
+// constraints.
+func (p Policy) Validate() error {
+	// RewardBase and RewardRate should not be set if the policy doesn't
+	// have a reward.
+	if !p.BlobType.Has(blob.FlagReward) &&
+		(p.RewardBase != 0 || p.RewardRate != 0) {
+
+		return ErrAltruistReward
+	}
+
+	// MaxUpdates must be positive.
+	if p.MaxUpdates == 0 {
+		return ErrNoMaxUpdates
+	}
+
+	// SweepFeeRate must be sane enough to get in the mempool during low
+	// congestion.
+	if p.SweepFeeRate < MinSweepFeeRate {
+		return ErrSweepFeeRateTooLow
+	}
+
+	return nil
 }
 
 // ComputeAltruistOutput computes the lone output value of a justice transaction
@@ -122,7 +172,7 @@ func (p *Policy) ComputeAltruistOutput(totalAmt btcutil.Amount,
 
 // ComputeRewardOutputs splits the total funds in a breaching commitment
 // transaction between the victim and the tower, according to the sweep fee rate
-// and reward rate. The reward to he tower is substracted first, before
+// and reward rate. The reward to he tower is subtracted first, before
 // splitting the remaining balance amongst the victim and fees.
 func (p *Policy) ComputeRewardOutputs(totalAmt btcutil.Amount,
 	txWeight int64) (btcutil.Amount, btcutil.Amount, error) {

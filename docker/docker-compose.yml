@@ -1,93 +1,42 @@
 version: '2'
 services:
-
     # btc is an image of bitcoin node which used as base image for btcd and
     # btccli. The environment variables default values determined on stage of
     # container start within starting script.
-    btc:
+    btcd:
       image: btcd
+      container_name: btcd
       build:
         context: btcd/
       volumes:
-            - shared:/rpc
-            - bitcoin:/data
+        - shared:/rpc
+        - bitcoin:/data
       environment:
         - RPCUSER
         - RPCPASS
         - NETWORK
-
-    btcd:
-        extends: btc
-        container_name: btcd
-        environment:
-          - DEBUG
-          - MINING_ADDRESS
-        entrypoint: ["./start-btcd.sh"]
-
-    btcctl:
-        extends: btc
-        container_name: btcctl
-        links:
-            - "btcd:rpcserver"
-        entrypoint: ["./start-btcctl.sh"]
-
-
-    # ltc is an image of litecoin node which used as base image for ltcd and
-    # ltcctl. The environment variables default values determined on stage of
-    # container start within starting script.
-    ltc:
-      image: ltcd
-      build:
-        context: ltcd/
-      volumes:
-            - shared:/rpc
-            - litecoin:/data
-      environment:
-        - RPCUSER
-        - RPCPASS
-        - NETWORK
-
-    ltcd:
-        extends: ltc
-        container_name: ltcd
-        environment:
-          - DEBUG
-          - MINING_ADDRESS
-        entrypoint: ["./start-ltcd.sh"]
-
-    ltcctl:
-        extends: ltc
-        container_name: ltcctl
-        links:
-            - "ltcd:rpcserver"
-        entrypoint: ["./start-ltcctl.sh"]
+        - DEBUG
+        - MINING_ADDRESS
+      entrypoint: ["./start-btcd.sh"]
 
     lnd:
-        image: lnd
-        build:
-          context: ../
-          dockerfile: docker/lnd/Dockerfile
-        environment:
-          - RPCUSER
-          - RPCPASS
-          - NETWORK
-          - CHAIN
-          - DEBUG
-        volumes:
-            - shared:/rpc
-        entrypoint: ["./start-lnd.sh"]
-
-    lnd_ltc:
-      extends: lnd
-      container_name: lnd_ltc
+      image: lnd
+      container_name: lnd
+      build:
+        context: ../
+        dockerfile: docker/lnd/Dockerfile
+      environment:
+        - RPCUSER
+        - RPCPASS
+        - NETWORK
+        - CHAIN
+        - DEBUG
+      volumes:
+        - shared:/rpc
+        - lnd:/root/.lnd
+      entrypoint: ["./start-lnd.sh"]
       links:
-          - "ltcd:blockchain"
-
-    lnd_btc:
-      extends: lnd
-      container_name: lnd_btc
-      links:
-          - "btcd:blockchain"
+        - "btcd:blockchain"
 
 volumes:
   # shared volume is need to store the btcd rpc certificates and use it within
@@ -100,7 +49,7 @@ volumes:
   bitcoin:
     driver: local
 
-  # litecoin volume is needed for maintaining blockchain persistence
-  # during ltcd container recreation.
-  litecoin:
+  # lnd volume is used for persisting lnd application data and chain state
+  # during container lifecycle.
+  lnd:
     driver: local

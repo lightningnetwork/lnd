@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"io"
 	"reflect"
 	"testing"
 
@@ -15,6 +16,8 @@ var (
 	testAmount        = MilliSatoshi(1)
 	testCtlvExpiry    = uint32(2)
 	testFlags         = uint16(2)
+	testType          = uint64(3)
+	testOffset        = uint16(24)
 	sig, _            = NewSigFromSignature(testSig)
 	testChannelUpdate = ChannelUpdate{
 		Signature:      sig,
@@ -35,8 +38,9 @@ var onionFailures = []FailureMessage{
 	&FailUnknownNextPeer{},
 	&FailIncorrectPaymentAmount{},
 	&FailFinalExpiryTooSoon{},
+	&FailMPPTimeout{},
 
-	NewFailUnknownPaymentHash(99),
+	NewFailIncorrectDetails(99, 100),
 	NewInvalidOnionVersion(testOnionHash),
 	NewInvalidOnionHmac(testOnionHash),
 	NewInvalidOnionKey(testOnionHash),
@@ -49,6 +53,7 @@ var onionFailures = []FailureMessage{
 	NewChannelDisabled(testFlags, testChannelUpdate),
 	NewFinalIncorrectCltvExpiry(testCtlvExpiry),
 	NewFinalIncorrectHtlcAmount(testAmount),
+	NewInvalidOnionPayload(testType, testOffset),
 }
 
 // TestEncodeDecodeCode tests the ability of onion errors to be properly encoded
@@ -168,16 +173,13 @@ func TestWriteOnionErrorChanUpdate(t *testing.T) {
 	}
 }
 
-// TestFailUnknownPaymentHashOptionalAmount tests that we're able to decode an
-// UnknownPaymentHash error that doesn't have the optional amount. This ensures
-// we're able to decode FailUnknownPaymentHash messages from older nodes.
-func TestFailUnknownPaymentHashOptionalAmount(t *testing.T) {
+// TestFailIncorrectDetailsOptionalAmount tests that we're able to decode an
+// FailIncorrectDetails error that doesn't have the optional amount. This
+// ensures we're able to decode FailIncorrectDetails messages from older nodes.
+func TestFailIncorrectDetailsOptionalAmount(t *testing.T) {
 	t.Parallel()
 
-	// Creation an error that is a non-pointer will allow us to skip the
-	// type assertion for the Serializable interface. As a result, the
-	// amount body won't be written.
-	onionError := FailUnknownPaymentHash{}
+	onionError := &mockFailIncorrectDetailsNoAmt{}
 
 	var b bytes.Buffer
 	if err := EncodeFailure(&b, onionError, 0); err != nil {
@@ -189,8 +191,89 @@ func TestFailUnknownPaymentHashOptionalAmount(t *testing.T) {
 		t.Fatalf("unable to decode error: %v", err)
 	}
 
-	if !reflect.DeepEqual(onionError, onionError) {
-		t.Fatalf("expected %v, got %v", spew.Sdump(onionError),
-			spew.Sdump(onionError2))
+	invalidDetailsErr, ok := onionError2.(*FailIncorrectDetails)
+	if !ok {
+		t.Fatalf("expected FailIncorrectDetails, but got %T",
+			onionError2)
 	}
+
+	if invalidDetailsErr.amount != 0 {
+		t.Fatalf("expected amount to be zero")
+	}
+	if invalidDetailsErr.height != 0 {
+		t.Fatalf("height incorrect")
+	}
+}
+
+type mockFailIncorrectDetailsNoAmt struct {
+}
+
+func (f *mockFailIncorrectDetailsNoAmt) Code() FailCode {
+	return CodeIncorrectOrUnknownPaymentDetails
+}
+
+func (f *mockFailIncorrectDetailsNoAmt) Error() string {
+	return ""
+}
+
+func (f *mockFailIncorrectDetailsNoAmt) Decode(r io.Reader, pver uint32) error {
+	return nil
+}
+
+func (f *mockFailIncorrectDetailsNoAmt) Encode(w io.Writer, pver uint32) error {
+	return nil
+}
+
+// TestFailIncorrectDetailsOptionalHeight tests that we're able to decode an
+// FailIncorrectDetails error that doesn't have the optional height. This
+// ensures we're able to decode FailIncorrectDetails messages from older nodes.
+func TestFailIncorrectDetailsOptionalHeight(t *testing.T) {
+	t.Parallel()
+
+	onionError := &mockFailIncorrectDetailsNoHeight{
+		amount: uint64(123),
+	}
+
+	var b bytes.Buffer
+	if err := EncodeFailure(&b, onionError, 0); err != nil {
+		t.Fatalf("unable to encode failure: %v", err)
+	}
+
+	onionError2, err := DecodeFailure(bytes.NewReader(b.Bytes()), 0)
+	if err != nil {
+		t.Fatalf("unable to decode error: %v", err)
+	}
+
+	invalidDetailsErr, ok := onionError2.(*FailIncorrectDetails)
+	if !ok {
+		t.Fatalf("expected FailIncorrectDetails, but got %T",
+			onionError2)
+	}
+
+	if invalidDetailsErr.amount != 123 {
+		t.Fatalf("amount incorrect")
+	}
+	if invalidDetailsErr.height != 0 {
+		t.Fatalf("height incorrect")
+	}
+}
+
+type mockFailIncorrectDetailsNoHeight struct {
+	amount uint64
+}
+
+func (f *mockFailIncorrectDetailsNoHeight) Code() FailCode {
+	return CodeIncorrectOrUnknownPaymentDetails
+}
+
+func (f *mockFailIncorrectDetailsNoHeight) Error() string {
+	return ""
+}
+
+func (f *mockFailIncorrectDetailsNoHeight) Decode(r io.Reader, pver uint32) error {
+	return nil
+}
+
+func (f *mockFailIncorrectDetailsNoHeight) Encode(w io.Writer, pver uint32) error {
+	return WriteElement(w, f.amount)
 }

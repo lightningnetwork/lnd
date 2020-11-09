@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/stretchr/testify/require"
 )
 
 // addressTest defines a test vector for an address that contains the non-
@@ -263,5 +264,59 @@ func validateAddr(t *testing.T, addr net.Addr, test addressTest) {
 			"%v, got %v for addr %s",
 			test.isUnix, isAddrUnix, test.address,
 		)
+	}
+}
+
+func TestIsPrivate(t *testing.T) {
+	nonPrivateIPList := []net.IP{
+		net.IPv4(169, 255, 0, 0),
+		{0xfe, 0x79, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		net.IPv4(225, 0, 0, 0),
+		{0xff, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		net.IPv4(11, 0, 0, 0),
+		net.IPv4(172, 15, 0, 0),
+		net.IPv4(192, 169, 0, 0),
+		{0xfe, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		net.IPv4(8, 8, 8, 8),
+		{2, 0, 0, 1, 4, 8, 6, 0, 4, 8, 6, 0, 8, 8, 8, 8},
+	}
+	privateIPList := []net.IP{
+		net.IPv4(169, 254, 0, 0),
+		{0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		net.IPv4(224, 0, 0, 0),
+		{0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		net.IPv4(10, 0, 0, 1),
+		net.IPv4(172, 16, 0, 1),
+		net.IPv4(172, 31, 255, 255),
+		net.IPv4(192, 168, 0, 1),
+		{0xfc, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	}
+
+	testParams := []struct {
+		name    string
+		ipList  []net.IP
+		private bool
+	}{
+		{
+			"Non-private addresses should return false",
+			nonPrivateIPList, false,
+		},
+		{
+			"Private addresses should return true",
+			privateIPList, true,
+		},
+	}
+
+	for _, tt := range testParams {
+		test := tt
+		t.Run(test.name, func(t *testing.T) {
+			for _, ip := range test.ipList {
+				addr := &net.TCPAddr{IP: ip}
+				require.Equal(
+					t, test.private, IsPrivate(addr),
+					"expected IP: %s to be %v", ip, test.private,
+				)
+			}
+		})
 	}
 }

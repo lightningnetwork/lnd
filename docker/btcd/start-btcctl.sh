@@ -45,14 +45,14 @@ NETWORK=$(set_default "$NETWORK" "simnet")
 
 PARAMS=""
 if [ "$NETWORK" != "mainnet" ]; then
-    PARAMS=$(echo --$NETWORK)
+    PARAMS="--$NETWORK"
 fi
 
 PARAMS=$(echo $PARAMS \
     "--rpccert=/rpc/rpc.cert" \
     "--rpcuser=$RPCUSER" \
     "--rpcpass=$RPCPASS" \
-    "--rpcserver=rpcserver" \
+    "--rpcserver=localhost" \
 )
 
 PARAMS="$PARAMS $@"

@@ -13,6 +13,8 @@ import (
 type MockPeer struct {
 	remotePub  *btcec.PublicKey
 	remoteAddr net.Addr
+	localPub   *btcec.PublicKey
+	localAddr  net.Addr
 
 	IncomingMsgs chan []byte
 	OutgoingMsgs chan []byte
@@ -20,18 +22,57 @@ type MockPeer struct {
 	writeDeadline <-chan time.Time
 	readDeadline  <-chan time.Time
 
-	Quit chan struct{}
+	RemoteQuit chan struct{}
+	Quit       chan struct{}
 }
 
 // NewMockPeer returns a fresh MockPeer.
-func NewMockPeer(pk *btcec.PublicKey, addr net.Addr, bufferSize int) *MockPeer {
+func NewMockPeer(lpk, rpk *btcec.PublicKey, addr net.Addr,
+	bufferSize int) *MockPeer {
+
 	return &MockPeer{
-		remotePub:    pk,
-		remoteAddr:   addr,
+		remotePub:  rpk,
+		remoteAddr: addr,
+		localAddr: &net.TCPAddr{
+			IP:   net.IP{0x32, 0x31, 0x30, 0x29},
+			Port: 36723,
+		},
+		localPub:     lpk,
 		IncomingMsgs: make(chan []byte, bufferSize),
 		OutgoingMsgs: make(chan []byte, bufferSize),
 		Quit:         make(chan struct{}),
 	}
+}
+
+// NewMockConn establishes a bidirectional connection between two MockPeers.
+func NewMockConn(localPk, remotePk *btcec.PublicKey,
+	localAddr, remoteAddr net.Addr,
+	bufferSize int) (*MockPeer, *MockPeer) {
+
+	localPeer := &MockPeer{
+		remotePub:    remotePk,
+		remoteAddr:   remoteAddr,
+		localPub:     localPk,
+		localAddr:    localAddr,
+		IncomingMsgs: make(chan []byte, bufferSize),
+		OutgoingMsgs: make(chan []byte, bufferSize),
+		Quit:         make(chan struct{}),
+	}
+
+	remotePeer := &MockPeer{
+		remotePub:    localPk,
+		remoteAddr:   localAddr,
+		localPub:     remotePk,
+		localAddr:    remoteAddr,
+		IncomingMsgs: localPeer.OutgoingMsgs,
+		OutgoingMsgs: localPeer.IncomingMsgs,
+		Quit:         make(chan struct{}),
+	}
+
+	localPeer.RemoteQuit = remotePeer.Quit
+	remotePeer.RemoteQuit = localPeer.Quit
+
+	return localPeer, remotePeer
 }
 
 // Write sends the raw bytes as the next full message read to the remote peer.
@@ -39,11 +80,16 @@ func NewMockPeer(pk *btcec.PublicKey, addr net.Addr, bufferSize int) *MockPeer {
 // deadline expires. The passed bytes slice is copied before sending, thus the
 // bytes may be reused once the method returns.
 func (p *MockPeer) Write(b []byte) (n int, err error) {
+	bb := make([]byte, len(b))
+	copy(bb, b)
+
 	select {
-	case p.OutgoingMsgs <- b:
+	case p.OutgoingMsgs <- bb:
 		return len(b), nil
 	case <-p.writeDeadline:
 		return 0, fmt.Errorf("write timeout expired")
+	case <-p.RemoteQuit:
+		return 0, fmt.Errorf("remote closed connected")
 	case <-p.Quit:
 		return 0, fmt.Errorf("connection closed")
 	}
@@ -69,6 +115,8 @@ func (p *MockPeer) ReadNextMessage() ([]byte, error) {
 		return b, nil
 	case <-p.readDeadline:
 		return nil, fmt.Errorf("read timeout expired")
+	case <-p.RemoteQuit:
+		return nil, fmt.Errorf("remote closed connected")
 	case <-p.Quit:
 		return nil, fmt.Errorf("connection closed")
 	}
@@ -112,6 +160,25 @@ func (p *MockPeer) RemoteAddr() net.Addr {
 	return p.remoteAddr
 }
 
+// LocalAddr returns the local net address of the peer.
+func (p *MockPeer) LocalAddr() net.Addr {
+	return p.localAddr
+}
+
+// Read is not implemented.
+func (p *MockPeer) Read(dst []byte) (int, error) {
+	panic("not implemented")
+}
+
+// SetDeadline is not implemented.
+func (p *MockPeer) SetDeadline(t time.Time) error {
+	panic("not implemented")
+}
+
 // Compile-time constraint ensuring the MockPeer implements the wserver.Peer
 // interface.
 var _ wtserver.Peer = (*MockPeer)(nil)
+
+// Compile-time constraint ensuring the MockPeer implements the net.Conn
+// interface.
+var _ net.Conn = (*MockPeer)(nil)

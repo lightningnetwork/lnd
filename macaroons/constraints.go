@@ -1,6 +1,7 @@
 package macaroons
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"time"
@@ -9,8 +10,6 @@ import (
 
 	"gopkg.in/macaroon-bakery.v2/bakery/checkers"
 	macaroon "gopkg.in/macaroon.v2"
-
-	"golang.org/x/net/context"
 )
 
 // Constraint type adds a layer of indirection over macaroon caveats.

@@ -65,10 +65,6 @@ func (p *PMP) AddPortMapping(port uint16) error {
 	p.forwardedPortsMtx.Lock()
 	defer p.forwardedPortsMtx.Unlock()
 
-	if _, exists := p.forwardedPorts[port]; exists {
-		return nil
-	}
-
 	_, err := p.client.AddPortMapping("tcp", int(port), int(port), 0)
 	if err != nil {
 		return err

@@ -11,9 +11,11 @@ import (
 // it.
 var log btclog.Logger
 
+const Subsystem = "CRTR"
+
 // The default amount of logging is none.
 func init() {
-	UseLogger(build.NewSubLogger("CRTR", nil))
+	UseLogger(build.NewSubLogger(Subsystem, nil))
 }
 
 // DisableLog disables all library log output.  Logging output is disabled by

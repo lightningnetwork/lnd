@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -51,7 +52,7 @@ type PaymentCircuit struct {
 
 	// ErrorEncrypter is used to re-encrypt the onion failure before
 	// sending it back to the originator of the payment.
-	ErrorEncrypter ErrorEncrypter
+	ErrorEncrypter hop.ErrorEncrypter
 
 	// LoadedFromDisk is set true for any circuits loaded after the circuit
 	// map is reloaded from disk.
@@ -136,7 +137,7 @@ func (c *PaymentCircuit) Encode(w io.Writer) error {
 	}
 
 	// Defaults to EncrypterTypeNone.
-	var encrypterType EncrypterType
+	var encrypterType hop.EncrypterType
 	if c.ErrorEncrypter != nil {
 		encrypterType = c.ErrorEncrypter.Type()
 	}
@@ -147,7 +148,7 @@ func (c *PaymentCircuit) Encode(w io.Writer) error {
 	}
 
 	// Skip encoding of error encrypter if this half add does not have one.
-	if encrypterType == EncrypterTypeNone {
+	if encrypterType == hop.EncrypterTypeNone {
 		return nil
 	}
 
@@ -183,23 +184,23 @@ func (c *PaymentCircuit) Decode(r io.Reader) error {
 		binary.BigEndian.Uint64(scratch[:]))
 
 	// Read the encrypter type used for this circuit.
-	var encrypterType EncrypterType
+	var encrypterType hop.EncrypterType
 	err := binary.Read(r, binary.BigEndian, &encrypterType)
 	if err != nil {
 		return err
 	}
 
 	switch encrypterType {
-	case EncrypterTypeNone:
+	case hop.EncrypterTypeNone:
 		// No encrypter was provided, such as when the payment is
 		// locally initiated.
 		return nil
 
-	case EncrypterTypeSphinx:
+	case hop.EncrypterTypeSphinx:
 		// Sphinx encrypter was used as this is a forwarded HTLC.
-		c.ErrorEncrypter = NewSphinxErrorEncrypter()
+		c.ErrorEncrypter = hop.NewSphinxErrorEncrypter()
 
-	case EncrypterTypeMock:
+	case hop.EncrypterTypeMock:
 		// Test encrypter.
 		c.ErrorEncrypter = NewMockObfuscator()
 

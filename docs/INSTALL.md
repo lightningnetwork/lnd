@@ -12,6 +12,7 @@
     * [Running lnd using the btcd backend](#running-lnd-using-the-btcd-backend)
   * [Using Neutrino](#using-neutrino)
   * [Using bitcoind or litecoind](#using-bitcoind-or-litecoind)
+* [Creating a Wallet](#creating-a-wallet)
 * [Macaroons](#macaroons)
 * [Network Reachability](#network-reachability)
 * [Simnet vs. Testnet Development](#simnet-vs-testnet-development)
@@ -26,46 +27,46 @@
   * **Go:** `lnd` is written in Go. To install, run one of the following commands:
 
 
-    **Note**: The minimum version of Go supported is Go 1.11. We recommend that
+    **Note**: The minimum version of Go supported is Go 1.13. We recommend that
     users use the latest version of Go, which at the time of writing is
-    [`1.11`](https://blog.golang.org/go1.11).
+    [`1.15`](https://blog.golang.org/go1.15).
 
 
     On Linux:
 
     (x86-64)
     ```
-    wget https://dl.google.com/go/go1.11.4.linux-amd64.tar.gz
-    sha256sum go1.11.4.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
+    wget https://dl.google.com/go/go1.13.linux-amd64.tar.gz
+    sha256sum go1.13.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
     ```
 
     The final output of the command above should be
-    `fb26c30e6a04ad937bbc657a1b5bba92f80096af1e8ee6da6430c045a8db3a5b`. If it
+    `68a2297eb099d1a76097905a2ce334e3155004ec08cdea85f24527be3c48e856`. If it
     isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
     this version of Go. If it matches, then proceed to install Go:
     ```
-    tar -C /usr/local -xzf go1.11.4.linux-amd64.tar.gz
+    tar -C /usr/local -xzf go1.13.linux-amd64.tar.gz
     export PATH=$PATH:/usr/local/go/bin
     ```
 
     (ARMv6)
     ```
-    wget https://dl.google.com/go/go1.11.4.linux-armv6l.tar.gz
-    sha256sum go1.11.4.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
+    wget https://dl.google.com/go/go1.13.linux-armv6l.tar.gz
+    sha256sum go1.13.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
     ```
 
     The final output of the command above should be
-    `9f7a71d27fef69f654a93e265560c8d9db1a2ca3f1dcdbe5288c46facfde5821`. If it
+    `931906d67cae1222f501e7be26e0ee73ba89420be0c4591925901cb9a4e156f0`. If it
     isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
     this version of Go. If it matches, then proceed to install Go:
     ```
-    tar -C /usr/local -xzf go1.11.4.linux-armv6l.tar.gz
+    tar -C /usr/local -xzf go1.13.linux-armv6l.tar.gz
     export PATH=$PATH:/usr/local/go/bin
     ```
 
     On Mac OS X:
     ```
-    brew install go@1.11
+    brew install go@1.13
     ```
 
     On FreeBSD:
@@ -74,9 +75,9 @@
     ```
 
     Alternatively, one can download the pre-compiled binaries hosted on the
-    [golang download page](https://golang.org/dl/). If one seeks to install
+    [Golang download page](https://golang.org/dl/). If one seeks to install
     from source, then more detailed installation instructions can be found
-    [here](http://golang.org/doc/install).
+    [here](https://golang.org/doc/install).
 
     At this point, you should set your `$GOPATH` environment variable, which
     represents the path to your workspace. By default, `$GOPATH` is set to
@@ -91,10 +92,10 @@
     We recommend placing the above in your .bashrc or in a setup script so that
     you can avoid typing this every time you open a new terminal window.
 
-  * **go modules:** This project uses [go modules](https://github.com/golang/go/wiki/Modules) 
+  * **Go modules:** This project uses [Go modules](https://github.com/golang/go/wiki/Modules) 
     to manage dependencies as well as to provide *reproducible builds*.
 
-    Usage of go modules (with go 1.11) means that you no longer need to clone
+    Usage of Go modules (with Go 1.13) means that you no longer need to clone
     `lnd` into your `$GOPATH` for development purposes. Instead, your `lnd`
     repo can now live anywhere!
 
@@ -103,13 +104,27 @@
 With the preliminary steps completed, to install `lnd`, `lncli`, and all
 related dependencies run the following commands:
 ```
-go get -d github.com/lightningnetwork/lnd
-cd $GOPATH/src/github.com/lightningnetwork/lnd
-make && make install
+git clone https://github.com/lightningnetwork/lnd
+cd lnd
+make install
 ```
 
+The command above will install the current _master_ branch of `lnd`. If you
+wish to install a tagged release of `lnd` (as the master branch can at times be
+unstable), then [visit then release page to locate the latest
+release](https://github.com/lightningnetwork/lnd/releases). Assuming the name
+of the release is `v0.x.x`, then you can compile this release from source with
+a small modification to the above command: 
+```
+git clone https://github.com/lightningnetwork/lnd
+cd lnd
+git checkout v0.x.x
+make install
+```
+
+
 **NOTE**: Our instructions still use the `$GOPATH` directory from prior
-versions of Go, but with go 1.11, it's now possible for `lnd` to live
+versions of Go, but with Go 1.13, it's now possible for `lnd` to live
 _anywhere_ on your file system.
 
 For Windows WSL users, make will need to be referenced directly via
@@ -157,6 +172,9 @@ To check that `lnd` was installed properly run the following command:
 make check
 ```
 
+This command requires `bitcoind` (almost any version should do) to be available
+in the system's `$PATH` variable. Otherwise some of the tests will fail.
+
 # Available Backend Operating Modes
 
 In order to run, `lnd` requires, that the user specify a chain backend. At the
@@ -193,6 +211,8 @@ neutrino:
       --neutrino.maxpeers=                                    Max number of inbound and outbound peers
       --neutrino.banduration=                                 How long to ban misbehaving peers.  Valid time units are {s, m, h}.  Minimum 1 second
       --neutrino.banthreshold=                                Maximum allowed ban score before disconnecting and banning misbehaving peers.
+      --neutrino.useragentname=                               Used to help identify ourselves to other bitcoin peers.
+      --neutrino.useragentversion=                            Used to help identify ourselves to other bitcoin peers.
 ```
 
 ## Bitcoind Options
@@ -204,6 +224,7 @@ bitcoind:
       --bitcoind.rpcpass=                                     Password for RPC connections
       --bitcoind.zmqpubrawblock=                              The address listening for ZMQ connections to deliver raw block notifications
       --bitcoind.zmqpubrawtx=                                 The address listening for ZMQ connections to deliver raw transaction notifications
+      --bitcoind.estimatemode=                                The fee estimate mode. Must be either "ECONOMICAL" or "CONSERVATIVE". (default: CONSERVATIVE)
 ```
 
 ## Using btcd
@@ -268,7 +289,7 @@ btcctl --testnet --rpcuser=REPLACEME --rpcpass=REPLACEME getpeerinfo | more
 If you are on testnet, run this command after `btcd` has finished syncing.
 Otherwise, replace `--bitcoin.testnet` with `--bitcoin.simnet`. If you are
 installing `lnd` in preparation for the
-[tutorial](http://dev.lightning.community/tutorial), you may skip this step.
+[tutorial](https://dev.lightning.community/tutorial), you may skip this step.
 ```
 lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --btcd.rpcuser=kek --btcd.rpcpass=kek --externalip=X.X.X.X
 ```
@@ -277,8 +298,8 @@ lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --btcd.rpcuser=kek --b
 
 In order to run `lnd` in its light client mode, you'll need to locate a
 full-node which is capable of serving this new light client mode. `lnd` uses
-[BIP 157](https://github.com/bitcoin/bips/tree/master/bip-0157) and [BIP
-158](https://github.com/bitcoin/bips/tree/master/bip-0158) for its light client
+[BIP 157](https://github.com/bitcoin/bips/blob/master/bip-0157.mediawiki) and [BIP
+158](https://github.com/bitcoin/bips/blob/master/bip-0158.mediawiki) for its light client
 mode.  A public instance of such a node can be found at
 `faucet.lightning.community`.
 
@@ -363,6 +384,23 @@ lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.node=bitcoin
   the default `bitcoind` settings, having more than one instance of `lnd`, or
   `lnd` plus any application that consumes the RPC could cause `lnd` to miss
   crucial updates from the backend.
+- The default fee estimate mode in `bitcoind` is CONSERVATIVE. You can set
+  `bitcoind.estimatemode=ECONOMICAL` to change it into ECONOMICAL. Futhermore,
+  if you start `bitcoind` in `regtest`, this configuration won't take any effect.
+
+
+# Creating a wallet
+If `lnd` is being run for the first time, create a new wallet with:
+```
+lncli create
+```
+This will prompt for a wallet password, and optionally a cipher seed
+passphrase.
+
+`lnd` will then print a 24 word cipher seed mnemonic, which can be used to
+recover the wallet in case of data loss. The user should write this down and
+keep in a safe place.
+
 
 # Macaroons
 

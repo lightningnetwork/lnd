@@ -1,12 +1,26 @@
 DEV_TAGS = dev
+RPC_TAGS = autopilotrpc chainrpc invoicesrpc routerrpc signrpc verrpc walletrpc watchtowerrpc wtclientrpc
 LOG_TAGS =
 TEST_FLAGS =
+COVER_PKG = $$(go list -deps ./... | grep '$(PKG)' | grep -v lnrpc)
+NUM_ITEST_TRANCHES = 6
+
+# If rpc option is set also add all extra RPC tags to DEV_TAGS
+ifneq ($(with-rpc),)
+DEV_TAGS += $(RPC_TAGS)
+endif
+
+# Scale the number of parallel running itest tranches.
+ifneq ($(tranches),)
+NUM_ITEST_TRANCHES = $(tranches)
+endif
 
 # If specific package is being unit tested, construct the full name of the
 # subpackage.
 ifneq ($(pkg),)
 UNITPKG := $(PKG)/$(pkg)
 UNIT_TARGETED = yes
+COVER_PKG = $(PKG)/$(pkg)
 endif
 
 # If a specific unit test case is being target, construct test.run filter.
@@ -17,7 +31,11 @@ endif
 
 # Define the integration test.run filter if the icase argument was provided.
 ifneq ($(icase),)
-TEST_FLAGS += -test.run=TestLightningNetworkDaemon/$(icase)
+TEST_FLAGS += -test.run="TestLightningNetworkDaemon/.*-of-.*/.*/$(icase)"
+endif
+
+ifneq ($(tags),)
+DEV_TAGS += ${tags}
 endif
 
 # Define the log tags that will be applied only when running unit tests. If none
@@ -33,8 +51,11 @@ endif
 ifneq ($(timeout),)
 TEST_FLAGS += -test.timeout=$(timeout)
 else
-TEST_FLAGS += -test.timeout=20m
+TEST_FLAGS += -test.timeout=40m
 endif
+
+GOLIST := go list -tags="$(DEV_TAGS)" -deps $(PKG)/... | grep '$(PKG)'| grep -v '/vendor/'
+GOLISTCOVER := $(shell go list -tags="$(DEV_TAGS)" -deps -f '{{.ImportPath}}' ./... | grep '$(PKG)' | sed -e 's/^$(ESCPKG)/./')
 
 # UNIT_TARGTED is undefined iff a specific package and/or unit test case is
 # not being targeted.
@@ -53,6 +74,12 @@ UNIT_RACE := $(UNIT) -race
 endif
 
 
+# Default to btcd backend if not set.
+ifeq ($(backend),)
+backend = btcd
+endif
+
 # Construct the integration test command with the added build flags.
-ITEST_TAGS := $(DEV_TAGS) rpctest chainrpc walletrpc signrpc invoicesrpc autopilotrpc
-ITEST := rm output*.log; date; $(GOTEST) -tags="$(ITEST_TAGS)" $(TEST_FLAGS) -logoutput
+ITEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) rpctest $(backend)
+
+ITEST := rm lntest/itest/*.log; date; $(GOTEST) -v ./lntest/itest -tags="$(ITEST_TAGS)" $(TEST_FLAGS) -logoutput -goroutinedump

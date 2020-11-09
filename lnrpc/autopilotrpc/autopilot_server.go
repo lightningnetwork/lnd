@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"google.golang.org/grpc"
@@ -39,6 +40,13 @@ var (
 		"/autopilotrpc.Autopilot/QueryScores": {{
 			Entity: "info",
 			Action: "read",
+		}},
+		"/autopilotrpc.Autopilot/SetScores": {{
+			Entity: "onchain",
+			Action: "write",
+		}, {
+			Entity: "offchain",
+			Action: "write",
 		}},
 	}
 )
@@ -122,6 +130,28 @@ func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	return nil
 }
 
+// RegisterWithRestServer will be called by the root REST mux to direct a sub
+// RPC server to register itself with the main REST mux server. Until this is
+// called, each sub-server won't be able to have requests routed towards it.
+//
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (s *Server) RegisterWithRestServer(ctx context.Context,
+	mux *runtime.ServeMux, dest string, opts []grpc.DialOption) error {
+
+	// We make sure that we register it with the main REST server to ensure
+	// all our methods are routed properly.
+	err := RegisterAutopilotHandlerFromEndpoint(ctx, mux, dest, opts)
+	if err != nil {
+		log.Errorf("Could not register Autopilot REST server "+
+			"with root REST server: %v", err)
+		return err
+	}
+
+	log.Debugf("Autopilot REST server successfully registered with " +
+		"root REST server")
+	return nil
+}
+
 // Status returns the current status of the autopilot agent.
 //
 // NOTE: Part of the AutopilotServer interface.
@@ -173,7 +203,9 @@ func (s *Server) QueryScores(ctx context.Context, in *QueryScoresRequest) (
 	}
 
 	// Query the heuristics.
-	heuristicScores, err := s.manager.QueryHeuristics(nodes)
+	heuristicScores, err := s.manager.QueryHeuristics(
+		nodes, !in.IgnoreLocalState,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -205,4 +237,31 @@ func (s *Server) QueryScores(ctx context.Context, in *QueryScoresRequest) (
 	}
 
 	return resp, nil
+}
+
+// SetScores sets the scores of the external score heuristic, if active.
+//
+// NOTE: Part of the AutopilotServer interface.
+func (s *Server) SetScores(ctx context.Context,
+	in *SetScoresRequest) (*SetScoresResponse, error) {
+
+	scores := make(map[autopilot.NodeID]float64)
+	for pubStr, score := range in.Scores {
+		pubHex, err := hex.DecodeString(pubStr)
+		if err != nil {
+			return nil, err
+		}
+		pubKey, err := btcec.ParsePubKey(pubHex, btcec.S256())
+		if err != nil {
+			return nil, err
+		}
+		nID := autopilot.NewNodeID(pubKey)
+		scores[nID] = score
+	}
+
+	if err := s.manager.SetNodeScores(in.Heuristic, scores); err != nil {
+		return nil, err
+	}
+
+	return &SetScoresResponse{}, nil
 }

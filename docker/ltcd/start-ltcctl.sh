@@ -43,10 +43,17 @@ RPCUSER=$(set_default "$RPCUSER" "devuser")
 RPCPASS=$(set_default "$RPCPASS" "devpass")
 NETWORK=$(set_default "$NETWORK" "simnet")
 
-exec ltcctl \
-    "--$NETWORK" \
-    --rpccert="/rpc/rpc.cert" \
-    --rpcuser="$RPCUSER" \
-    --rpcpass="$RPCPASS" \
-    --rpcserver="rpcserver" \
-    "$@"
+PARAMS=""
+if [ "$NETWORK" != "mainnet" ]; then
+    PARAMS="--$NETWORK"
+fi
+
+PARAMS=$(echo $PARAMS \
+    "--rpccert=/rpc/rpc.cert" \
+    "--rpcuser=$RPCUSER" \
+    "--rpcpass=$RPCPASS" \
+    "--rpcserver=localhost" \
+)
+
+PARAMS="$PARAMS $@"
+exec ltcctl $PARAMS

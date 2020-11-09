@@ -846,7 +846,7 @@ var interfaceImpls = []struct {
 			}
 
 			dbName := filepath.Join(spvDir, "neutrino.db")
-			spvDatabase, err := walletdb.Create("bdb", dbName)
+			spvDatabase, err := walletdb.Create("bdb", dbName, true)
 			if err != nil {
 				return nil, nil, err
 			}

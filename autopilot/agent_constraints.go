@@ -8,12 +8,12 @@ import (
 // limits it will need to stay inside when opening channels.
 type AgentConstraints interface {
 	// ChannelBudget should, given the passed parameters, return whether
-	// more channels can be be opened while still staying withing the set
+	// more channels can be be opened while still staying within the set
 	// constraints. If the constraints allow us to open more channels, then
 	// the first return value will represent the amount of additional funds
 	// available towards creating channels. The second return value is the
 	// exact *number* of additional channels available.
-	ChannelBudget(chans []Channel, balance btcutil.Amount) (
+	ChannelBudget(chans []LocalChannel, balance btcutil.Amount) (
 		btcutil.Amount, uint32)
 
 	// MaxPendingOpens returns the maximum number of pending channel
@@ -75,14 +75,14 @@ func NewConstraints(minChanSize, maxChanSize btcutil.Amount, chanLimit,
 }
 
 // ChannelBudget should, given the passed parameters, return whether more
-// channels can be be opened while still staying withing the set constraints.
+// channels can be be opened while still staying within the set constraints.
 // If the constraints allow us to open more channels, then the first return
 // value will represent the amount of additional funds available towards
 // creating channels. The second return value is the exact *number* of
 // additional channels available.
 //
 // Note: part of the AgentConstraints interface.
-func (h *agentConstraints) ChannelBudget(channels []Channel,
+func (h *agentConstraints) ChannelBudget(channels []LocalChannel,
 	funds btcutil.Amount) (btcutil.Amount, uint32) {
 
 	// If we're already over our maximum allowed number of channels, then
@@ -100,7 +100,7 @@ func (h *agentConstraints) ChannelBudget(channels []Channel,
 	// present within the set of active channels.
 	var totalChanAllocation btcutil.Amount
 	for _, channel := range channels {
-		totalChanAllocation += channel.Capacity
+		totalChanAllocation += channel.Balance
 	}
 
 	// With this value known, we'll now compute the total amount of fund

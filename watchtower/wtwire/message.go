@@ -24,22 +24,29 @@ type MessageType uint16
 // Watchtower protocol.
 const (
 	// MsgInit identifies an encoded Init message.
-	MsgInit MessageType = 300
+	MsgInit MessageType = 600
 
 	// MsgError identifies an encoded Error message.
-	MsgError = 301
+	MsgError MessageType = 601
 
 	// MsgCreateSession identifies an encoded CreateSession message.
-	MsgCreateSession MessageType = 302
+	MsgCreateSession MessageType = 602
 
 	// MsgCreateSessionReply identifies an encoded CreateSessionReply message.
-	MsgCreateSessionReply MessageType = 303
+	MsgCreateSessionReply MessageType = 603
 
 	// MsgStateUpdate identifies an encoded StateUpdate message.
-	MsgStateUpdate MessageType = 304
+	MsgStateUpdate MessageType = 604
 
 	// MsgStateUpdateReply identifies an encoded StateUpdateReply message.
-	MsgStateUpdateReply MessageType = 305
+	MsgStateUpdateReply MessageType = 605
+
+	// MsgDeleteSession identifies an encoded DeleteSession message.
+	MsgDeleteSession MessageType = 606
+
+	// MsgDeleteSessionReply identifies an encoded DeleteSessionReply
+	// message.
+	MsgDeleteSessionReply MessageType = 607
 )
 
 // String returns a human readable description of the message type.
@@ -55,6 +62,10 @@ func (m MessageType) String() string {
 		return "MsgStateUpdate"
 	case MsgStateUpdateReply:
 		return "MsgStateUpdateReply"
+	case MsgDeleteSession:
+		return "MsgDeleteSession"
+	case MsgDeleteSessionReply:
+		return "MsgDeleteSessionReply"
 	case MsgError:
 		return "Error"
 	default:
@@ -97,6 +108,10 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 		msg = &StateUpdate{}
 	case MsgStateUpdateReply:
 		msg = &StateUpdateReply{}
+	case MsgDeleteSession:
+		msg = &DeleteSession{}
+	case MsgDeleteSessionReply:
+		msg = &DeleteSessionReply{}
 	case MsgError:
 		msg = &Error{}
 	default:

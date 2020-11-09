@@ -1,13 +1,13 @@
 package lncfg
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"net"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -18,12 +18,14 @@ var (
 	loopBackAddrs = []string{"localhost", "127.0.0.1", "[::1]"}
 )
 
-type tcpResolver = func(network, addr string) (*net.TCPAddr, error)
+// TCPResolver is a function signature that resolves an address on a given
+// network.
+type TCPResolver = func(network, addr string) (*net.TCPAddr, error)
 
 // NormalizeAddresses returns a new slice with all the passed addresses
 // normalized with the given default port and all duplicates removed.
 func NormalizeAddresses(addrs []string, defaultPort string,
-	tcpResolver tcpResolver) ([]net.Addr, error) {
+	tcpResolver TCPResolver) ([]net.Addr, error) {
 
 	result := make([]net.Addr, 0, len(addrs))
 	seen := map[string]struct{}{}
@@ -52,10 +54,10 @@ func NormalizeAddresses(addrs []string, defaultPort string,
 // interface.
 func EnforceSafeAuthentication(addrs []net.Addr, macaroonsActive bool) error {
 	// We'll now examine all addresses that this RPC server is listening
-	// on. If it's a localhost address, we'll skip it, otherwise, we'll
-	// return an error if macaroons are inactive.
+	// on. If it's a localhost address or a private address, we'll skip it,
+	// otherwise, we'll return an error if macaroons are inactive.
 	for _, addr := range addrs {
-		if IsLoopback(addr.String()) || IsUnix(addr) {
+		if IsLoopback(addr.String()) || IsUnix(addr) || IsPrivate(addr) {
 			continue
 		}
 
@@ -70,15 +72,33 @@ func EnforceSafeAuthentication(addrs []net.Addr, macaroonsActive bool) error {
 	return nil
 }
 
+// parseNetwork parses the network type of the given address.
+func parseNetwork(addr net.Addr) string {
+	switch addr := addr.(type) {
+	// TCP addresses resolved through net.ResolveTCPAddr give a default
+	// network of "tcp", so we'll map back the correct network for the given
+	// address. This ensures that we can listen on the correct interface
+	// (IPv4 vs IPv6).
+	case *net.TCPAddr:
+		if addr.IP.To4() != nil {
+			return "tcp4"
+		}
+		return "tcp6"
+
+	default:
+		return addr.Network()
+	}
+}
+
 // ListenOnAddress creates a listener that listens on the given address.
 func ListenOnAddress(addr net.Addr) (net.Listener, error) {
-	return net.Listen(addr.Network(), addr.String())
+	return net.Listen(parseNetwork(addr), addr.String())
 }
 
 // TLSListenOnAddress creates a TLS listener that listens on the given address.
 func TLSListenOnAddress(addr net.Addr,
 	config *tls.Config) (net.Listener, error) {
-	return tls.Listen(addr.Network(), addr.String(), config)
+	return tls.Listen(parseNetwork(addr), addr.String(), config)
 }
 
 // IsLoopback returns true if an address describes a loopback interface.
@@ -97,12 +117,45 @@ func IsUnix(addr net.Addr) bool {
 	return strings.HasPrefix(addr.Network(), "unix")
 }
 
+// IsPrivate returns true if the address is private. The definitions are,
+//   https://en.wikipedia.org/wiki/Link-local_address
+//   https://en.wikipedia.org/wiki/Multicast_address
+//   Local IPv4 addresses, https://tools.ietf.org/html/rfc1918
+//   Local IPv6 addresses, https://tools.ietf.org/html/rfc4193
+func IsPrivate(addr net.Addr) bool {
+	switch addr := addr.(type) {
+	case *net.TCPAddr:
+		// Check 169.254.0.0/16 and fe80::/10.
+		if addr.IP.IsLinkLocalUnicast() {
+			return true
+		}
+
+		// Check 224.0.0.0/4 and ff00::/8.
+		if addr.IP.IsLinkLocalMulticast() {
+			return true
+		}
+
+		// Check 10.0.0.0/8, 172.16.0.0/12 and 192.168.0.0/16.
+		if ip4 := addr.IP.To4(); ip4 != nil {
+			return ip4[0] == 10 ||
+				(ip4[0] == 172 && ip4[1]&0xf0 == 16) ||
+				(ip4[0] == 192 && ip4[1] == 168)
+		}
+
+		// Check fc00::/7.
+		return len(addr.IP) == net.IPv6len && addr.IP[0]&0xfe == 0xfc
+
+	default:
+		return false
+	}
+}
+
 // ParseAddressString converts an address in string format to a net.Addr that is
 // compatible with lnd. UDP is not supported because lnd needs reliable
 // connections. We accept a custom function to resolve any TCP addresses so
 // that caller is able control exactly how resolution is performed.
 func ParseAddressString(strAddress string, defaultPort string,
-	tcpResolver tcpResolver) (net.Addr, error) {
+	tcpResolver TCPResolver) (net.Addr, error) {
 
 	var parsedNetwork, parsedAddr string
 
@@ -170,9 +223,9 @@ func ParseAddressString(strAddress string, defaultPort string,
 // 33-byte, compressed public key that lies on the secp256k1 curve. The <addr>
 // may be any address supported by ParseAddressString. If no port is specified,
 // the defaultPort will be used. Any tcp addresses that need resolving will be
-// resolved using the custom tcpResolver.
+// resolved using the custom TCPResolver.
 func ParseLNAddressString(strAddress string, defaultPort string,
-	tcpResolver tcpResolver) (*lnwire.NetAddress, error) {
+	tcpResolver TCPResolver) (*lnwire.NetAddress, error) {
 
 	// Split the address string around the @ sign.
 	parts := strings.Split(strAddress, "@")
@@ -254,8 +307,10 @@ func verifyPort(address string, defaultPort string) string {
 
 // ClientAddressDialer creates a gRPC dialer that can also dial unix socket
 // addresses instead of just TCP addresses.
-func ClientAddressDialer(defaultPort string) func(string, time.Duration) (net.Conn, error) {
-	return func(addr string, timeout time.Duration) (net.Conn, error) {
+func ClientAddressDialer(defaultPort string) func(context.Context,
+	string) (net.Conn, error) {
+
+	return func(ctx context.Context, addr string) (net.Conn, error) {
 		parsedAddr, err := ParseAddressString(
 			addr, defaultPort, net.ResolveTCPAddr,
 		)
@@ -263,8 +318,9 @@ func ClientAddressDialer(defaultPort string) func(string, time.Duration) (net.Co
 			return nil, err
 		}
 
-		return net.DialTimeout(
-			parsedAddr.Network(), parsedAddr.String(), timeout,
+		d := net.Dialer{}
+		return d.DialContext(
+			ctx, parsedAddr.Network(), parsedAddr.String(),
 		)
 	}
 }

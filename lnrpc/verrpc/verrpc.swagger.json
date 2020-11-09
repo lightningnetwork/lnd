@@ -1,0 +1,120 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "verrpc/verrpc.proto",
+    "version": "version not set"
+  },
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v2/versioner/version": {
+      "get": {
+        "summary": "lncli: `version`\nGetVersion returns the current version and build information of the running\ndaemon.",
+        "operationId": "GetVersion",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/verrpcVersion"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "tags": [
+          "Versioner"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "runtimeError": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "verrpcVersion": {
+      "type": "object",
+      "properties": {
+        "commit": {
+          "type": "string",
+          "description": "A verbose description of the daemon's commit."
+        },
+        "commit_hash": {
+          "type": "string",
+          "description": "The SHA1 commit hash that the daemon is compiled with."
+        },
+        "version": {
+          "type": "string",
+          "description": "The semantic version."
+        },
+        "app_major": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The major application version."
+        },
+        "app_minor": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The minor application version."
+        },
+        "app_patch": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The application patch number."
+        },
+        "app_pre_release": {
+          "type": "string",
+          "description": "The application pre-release modifier, possibly empty."
+        },
+        "build_tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The list of build tags that were supplied during compilation."
+        },
+        "go_version": {
+          "type": "string",
+          "description": "The version of go that compiled the executable."
+        }
+      }
+    }
+  }
+}

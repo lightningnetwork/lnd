@@ -1,9 +1,8 @@
 package macaroons
 
 import (
+	"context"
 	"encoding/hex"
-
-	"golang.org/x/net/context"
 
 	macaroon "gopkg.in/macaroon.v2"
 )

@@ -20,7 +20,7 @@ var tickers = []struct {
 	},
 	{
 		"mock ticker",
-		ticker.MockNew(interval),
+		ticker.NewForce(interval),
 	},
 }
 

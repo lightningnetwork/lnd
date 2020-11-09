@@ -23,13 +23,6 @@ import (
 )
 
 var (
-	revHash = [32]byte{
-		0xb7, 0x94, 0x38, 0x5f, 0x2d, 0x1e, 0xf7, 0xab,
-		0x4d, 0x92, 0x73, 0xd1, 0x90, 0x63, 0x81, 0xb4,
-		0x4f, 0x2f, 0x6f, 0x25, 0x88, 0xa3, 0xef, 0xb9,
-		0x6a, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
-	}
-
 	shaHash1Bytes, _ = hex.DecodeString("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
 	shaHash1, _      = chainhash.NewHash(shaHash1Bytes)
 	outpoint1        = wire.NewOutPoint(shaHash1, 0)
@@ -72,6 +65,15 @@ func randRawKey() ([33]byte, error) {
 	copy(n[:], priv.PubKey().SerializeCompressed())
 
 	return n, nil
+}
+
+func randDeliveryAddress(r *rand.Rand) (DeliveryAddress, error) {
+	// Generate size minimum one. Empty scripts should be tested specifically.
+	size := r.Intn(deliveryAddressMaxSize) + 1
+	da := DeliveryAddress(make([]byte, size))
+
+	_, err := r.Read(da)
+	return da, err
 }
 
 func randRawFeatureVector(r *rand.Rand) *RawFeatureVector {
@@ -248,6 +250,9 @@ func TestEmptyMessageUnknownType(t *testing.T) {
 // TestLightningWireProtocol uses the testing/quick package to create a series
 // of fuzz tests to attempt to break a primary scenario which is implemented as
 // property based testing scenario.
+//
+// Debug help: when the message payload can reach a size larger than the return
+// value of MaxPayloadLength, the test can panic without a helpful message.
 func TestLightningWireProtocol(t *testing.T) {
 	t.Parallel()
 
@@ -360,6 +365,17 @@ func TestLightningWireProtocol(t *testing.T) {
 				return
 			}
 
+			// 1/2 chance empty upfront shutdown script.
+			if r.Intn(2) == 0 {
+				req.UpfrontShutdownScript, err = randDeliveryAddress(r)
+				if err != nil {
+					t.Fatalf("unable to generate delivery address: %v", err)
+					return
+				}
+			} else {
+				req.UpfrontShutdownScript = []byte{}
+			}
+
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgAcceptChannel: func(v []reflect.Value, r *rand.Rand) {
@@ -408,6 +424,17 @@ func TestLightningWireProtocol(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unable to generate key: %v", err)
 				return
+			}
+
+			// 1/2 chance empty upfront shutdown script.
+			if r.Intn(2) == 0 {
+				req.UpfrontShutdownScript, err = randDeliveryAddress(r)
+				if err != nil {
+					t.Fatalf("unable to generate delivery address: %v", err)
+					return
+				}
+			} else {
+				req.UpfrontShutdownScript = []byte{}
 			}
 
 			v[0] = reflect.ValueOf(req)

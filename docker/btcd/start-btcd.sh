@@ -46,7 +46,7 @@ NETWORK=$(set_default "$NETWORK" "simnet")
 
 PARAMS=""
 if [ "$NETWORK" != "mainnet" ]; then
-   PARAMS=$(echo --$NETWORK)
+   PARAMS="--$NETWORK"
 fi
 
 PARAMS=$(echo $PARAMS \
@@ -72,4 +72,3 @@ PARAMS="$PARAMS $@"
 # Print command and start bitcoin node.
 echo "Command: btcd $PARAMS"
 exec btcd $PARAMS
-

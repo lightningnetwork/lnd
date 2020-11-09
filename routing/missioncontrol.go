@@ -4,61 +4,87 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 const (
-	// vertexDecay is the decay period of colored vertexes added to
-	// missionControl. Once vertexDecay passes after an entry has been
-	// added to the prune view, it is garbage collected. This value is
-	// larger than edgeDecay as an edge failure typical indicates an
-	// unbalanced channel, while a vertex failure indicates a node is not
-	// online and active.
-	vertexDecay = time.Duration(time.Minute * 5)
+	// DefaultPenaltyHalfLife is the default half-life duration. The
+	// half-life duration defines after how much time a penalized node or
+	// channel is back at 50% probability.
+	DefaultPenaltyHalfLife = time.Hour
 
-	// edgeDecay is the decay period of colored edges added to
-	// missionControl. Once edgeDecay passed after an entry has been added,
-	// it is garbage collected. This value is smaller than vertexDecay as
-	// an edge related failure during payment sending typically indicates
-	// that a channel was unbalanced, a condition which may quickly change.
+	// minSecondChanceInterval is the minimum time required between
+	// second-chance failures.
 	//
-	// TODO(roasbeef): instead use random delay on each?
-	edgeDecay = time.Duration(time.Second * 5)
+	// If nodes return a channel policy related failure, they may get a
+	// second chance to forward the payment. It could be that the channel
+	// policy that we are aware of is not up to date. This is especially
+	// important in case of mobile apps that are mostly offline.
+	//
+	// However, we don't want to give nodes the option to endlessly return
+	// new channel updates so that we are kept busy trying to route through
+	// that node until the payment loop times out.
+	//
+	// Therefore we only grant a second chance to a node if the previous
+	// second chance is sufficiently long ago. This is what
+	// minSecondChanceInterval defines. If a second policy failure comes in
+	// within that interval, we will apply a penalty.
+	//
+	// Second chances granted are tracked on the level of node pairs. This
+	// means that if a node has multiple channels to the same peer, they
+	// will only get a single second chance to route to that peer again.
+	// Nodes forward non-strict, so it isn't necessary to apply a less
+	// restrictive channel level tracking scheme here.
+	minSecondChanceInterval = time.Minute
+
+	// DefaultMaxMcHistory is the default maximum history size.
+	DefaultMaxMcHistory = 1000
+
+	// prevSuccessProbability is the assumed probability for node pairs that
+	// successfully relayed the previous attempt.
+	prevSuccessProbability = 0.95
+
+	// DefaultAprioriWeight is the default a priori weight. See
+	// MissionControlConfig for further explanation.
+	DefaultAprioriWeight = 0.5
+
+	// DefaultMinFailureRelaxInterval is the default minimum time that must
+	// have passed since the previously recorded failure before the failure
+	// amount may be raised.
+	DefaultMinFailureRelaxInterval = time.Minute
 )
 
-// missionControl contains state which summarizes the past attempts of HTLC
-// routing by external callers when sending payments throughout the network.
-// missionControl remembers the outcome of these past routing attempts (success
-// and failure), and is able to provide hints/guidance to future HTLC routing
-// attempts.  missionControl maintains a decaying network view of the
-// edges/vertexes that should be marked as "pruned" during path finding. This
-// graph view acts as a shared memory during HTLC payment routing attempts.
-// With each execution, if an error is encountered, based on the type of error
-// and the location of the error within the route, an edge or vertex is added
-// to the view. Later sending attempts will then query the view for all the
-// vertexes/edges that should be ignored. Items in the view decay after a set
-// period of time, allowing the view to be dynamic w.r.t network changes.
-type missionControl struct {
-	// failedEdges maps a short channel ID to be pruned, to the time that
-	// it was added to the prune view. Edges are added to this map if a
-	// caller reports to missionControl a failure localized to that edge
-	// when sending a payment.
-	failedEdges map[edgeLocator]time.Time
+// NodeResults contains previous results from a node to its peers.
+type NodeResults map[route.Vertex]TimedPairResult
 
-	// failedVertexes maps a node's public key that should be pruned, to
-	// the time that it was added to the prune view. Vertexes are added to
-	// this map if a caller reports to missionControl a failure localized
-	// to that particular vertex.
-	failedVertexes map[Vertex]time.Time
+// MissionControl contains state which summarizes the past attempts of HTLC
+// routing by external callers when sending payments throughout the network. It
+// acts as a shared memory during routing attempts with the goal to optimize the
+// payment attempt success rate.
+//
+// Failed payment attempts are reported to mission control. These reports are
+// used to track the time of the last node or channel level failure. The time
+// since the last failure is used to estimate a success probability that is fed
+// into the path finding process for subsequent payment attempts.
+type MissionControl struct {
+	// state is the internal mission control state that is input for
+	// probability estimation.
+	state *missionControlState
 
-	graph *channeldb.ChannelGraph
+	// now is expected to return the current time. It is supplied as an
+	// external function to enable deterministic unit tests.
+	now func() time.Time
 
-	selfNode *channeldb.LightningNode
+	cfg *MissionControlConfig
 
-	queryBandwidth func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi
+	store *missionControlStore
+
+	// estimator is the probability estimator that is used with the payment
+	// results that mission control collects.
+	estimator *probabilityEstimator
 
 	sync.Mutex
 
@@ -68,214 +94,337 @@ type missionControl struct {
 	// TODO(roasbeef): also add favorable metrics for nodes
 }
 
-// newMissionControl returns a new instance of missionControl.
-//
-// TODO(roasbeef): persist memory
-func newMissionControl(g *channeldb.ChannelGraph, selfNode *channeldb.LightningNode,
-	qb func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi) *missionControl {
+// MissionControlConfig defines parameters that control mission control
+// behaviour.
+type MissionControlConfig struct {
+	// PenaltyHalfLife defines after how much time a penalized node or
+	// channel is back at 50% probability.
+	PenaltyHalfLife time.Duration
 
-	return &missionControl{
-		failedEdges:    make(map[edgeLocator]time.Time),
-		failedVertexes: make(map[Vertex]time.Time),
-		selfNode:       selfNode,
-		queryBandwidth: qb,
-		graph:          g,
-	}
+	// AprioriHopProbability is the assumed success probability of a hop in
+	// a route when no other information is available.
+	AprioriHopProbability float64
+
+	// MaxMcHistory defines the maximum number of payment results that are
+	// held on disk.
+	MaxMcHistory int
+
+	// AprioriWeight is a value in the range [0, 1] that defines to what
+	// extent historical results should be extrapolated to untried
+	// connections. Setting it to one will completely ignore historical
+	// results and always assume the configured a priori probability for
+	// untried connections. A value of zero will ignore the a priori
+	// probability completely and only base the probability on historical
+	// results, unless there are none available.
+	AprioriWeight float64
+
+	// MinFailureRelaxInterval is the minimum time that must have passed
+	// since the previously recorded failure before the failure amount may
+	// be raised.
+	MinFailureRelaxInterval time.Duration
+
+	// SelfNode is our own pubkey.
+	SelfNode route.Vertex
 }
 
-// graphPruneView is a filter of sorts that path finding routines should
-// consult during the execution. Any edges or vertexes within the view should
-// be ignored during path finding. The contents of the view reflect the current
-// state of the wider network from the PoV of mission control compiled via HTLC
-// routing attempts in the past.
-type graphPruneView struct {
-	edges map[edgeLocator]struct{}
+// TimedPairResult describes a timestamped pair result.
+type TimedPairResult struct {
+	// FailTime is the time of the last failure.
+	FailTime time.Time
 
-	vertexes map[Vertex]struct{}
+	// FailAmt is the amount of the last failure. This amount may be pushed
+	// up if a later success is higher than the last failed amount.
+	FailAmt lnwire.MilliSatoshi
+
+	// SuccessTime is the time of the last success.
+	SuccessTime time.Time
+
+	// SuccessAmt is the highest amount that successfully forwarded. This
+	// isn't necessarily the last success amount. The value of this field
+	// may also be pushed down if a later failure is lower than the highest
+	// success amount. Because of this, SuccessAmt may not match
+	// SuccessTime.
+	SuccessAmt lnwire.MilliSatoshi
 }
 
-// GraphPruneView returns a new graphPruneView instance which is to be
-// consulted during path finding. If a vertex/edge is found within the returned
-// prune view, it is to be ignored as a goroutine has had issues routing
-// through it successfully. Within this method the main view of the
-// missionControl is garbage collected as entries are detected to be "stale".
-func (m *missionControl) GraphPruneView() graphPruneView {
-	// First, we'll grab the current time, this value will be used to
-	// determine if an entry is stale or not.
-	now := time.Now()
-
-	m.Lock()
-
-	// For each of the vertexes that have been added to the prune view, if
-	// it is now "stale", then we'll ignore it and avoid adding it to the
-	// view we'll return.
-	vertexes := make(map[Vertex]struct{})
-	for vertex, pruneTime := range m.failedVertexes {
-		if now.Sub(pruneTime) >= vertexDecay {
-			log.Tracef("Pruning decayed failure report for vertex %v "+
-				"from Mission Control", vertex)
-
-			delete(m.failedVertexes, vertex)
-			continue
-		}
-
-		vertexes[vertex] = struct{}{}
-	}
-
-	// We'll also do the same for edges, but use the edgeDecay this time
-	// rather than the decay for vertexes.
-	edges := make(map[edgeLocator]struct{})
-	for edge, pruneTime := range m.failedEdges {
-		if now.Sub(pruneTime) >= edgeDecay {
-			log.Tracef("Pruning decayed failure report for edge %v "+
-				"from Mission Control", edge)
-
-			delete(m.failedEdges, edge)
-			continue
-		}
-
-		edges[edge] = struct{}{}
-	}
-
-	m.Unlock()
-
-	log.Debugf("Mission Control returning prune view of %v edges, %v "+
-		"vertexes", len(edges), len(vertexes))
-
-	return graphPruneView{
-		edges:    edges,
-		vertexes: vertexes,
-	}
+// MissionControlSnapshot contains a snapshot of the current state of mission
+// control.
+type MissionControlSnapshot struct {
+	// Pairs is a list of channels for which specific information is
+	// logged.
+	Pairs []MissionControlPairSnapshot
 }
 
-// NewPaymentSession creates a new payment session backed by the latest prune
-// view from Mission Control. An optional set of routing hints can be provided
-// in order to populate additional edges to explore when finding a path to the
-// payment's destination.
-func (m *missionControl) NewPaymentSession(routeHints [][]HopHint,
-	target *btcec.PublicKey) (*paymentSession, error) {
+// MissionControlPairSnapshot contains a snapshot of the current node pair
+// state in mission control.
+type MissionControlPairSnapshot struct {
+	// Pair is the node pair of which the state is described.
+	Pair DirectedNodePair
 
-	viewSnapshot := m.GraphPruneView()
+	// TimedPairResult contains the data for this pair.
+	TimedPairResult
+}
 
-	edges := make(map[Vertex][]*channeldb.ChannelEdgePolicy)
+// paymentResult is the information that becomes available when a payment
+// attempt completes.
+type paymentResult struct {
+	id                 uint64
+	timeFwd, timeReply time.Time
+	route              *route.Route
+	success            bool
+	failureSourceIdx   *int
+	failure            lnwire.FailureMessage
+}
 
-	// Traverse through all of the available hop hints and include them in
-	// our edges map, indexed by the public key of the channel's starting
-	// node.
-	for _, routeHint := range routeHints {
-		// If multiple hop hints are provided within a single route
-		// hint, we'll assume they must be chained together and sorted
-		// in forward order in order to reach the target successfully.
-		for i, hopHint := range routeHint {
-			// In order to determine the end node of this hint,
-			// we'll need to look at the next hint's start node. If
-			// we've reached the end of the hints list, we can
-			// assume we've reached the destination.
-			endNode := &channeldb.LightningNode{}
-			if i != len(routeHint)-1 {
-				endNode.AddPubKey(routeHint[i+1].NodeID)
-			} else {
-				endNode.AddPubKey(target)
-			}
+// NewMissionControl returns a new instance of missionControl.
+func NewMissionControl(db kvdb.Backend, cfg *MissionControlConfig) (
+	*MissionControl, error) {
 
-			// Finally, create the channel edge from the hop hint
-			// and add it to list of edges corresponding to the node
-			// at the start of the channel.
-			edge := &channeldb.ChannelEdgePolicy{
-				Node:      endNode,
-				ChannelID: hopHint.ChannelID,
-				FeeBaseMSat: lnwire.MilliSatoshi(
-					hopHint.FeeBaseMSat,
-				),
-				FeeProportionalMillionths: lnwire.MilliSatoshi(
-					hopHint.FeeProportionalMillionths,
-				),
-				TimeLockDelta: hopHint.CLTVExpiryDelta,
-			}
+	log.Debugf("Instantiating mission control with config: "+
+		"PenaltyHalfLife=%v, AprioriHopProbability=%v, "+
+		"AprioriWeight=%v", cfg.PenaltyHalfLife,
+		cfg.AprioriHopProbability, cfg.AprioriWeight)
 
-			v := NewVertex(hopHint.NodeID)
-			edges[v] = append(edges[v], edge)
-		}
-	}
-
-	// We'll also obtain a set of bandwidthHints from the lower layer for
-	// each of our outbound channels. This will allow the path finding to
-	// skip any links that aren't active or just don't have enough
-	// bandwidth to carry the payment.
-	sourceNode, err := m.graph.SourceNode()
-	if err != nil {
-		return nil, err
-	}
-	bandwidthHints, err := generateBandwidthHints(
-		sourceNode, m.queryBandwidth,
-	)
+	store, err := newMissionControlStore(db, cfg.MaxMcHistory)
 	if err != nil {
 		return nil, err
 	}
 
-	return &paymentSession{
-		pruneViewSnapshot:    viewSnapshot,
-		additionalEdges:      edges,
-		bandwidthHints:       bandwidthHints,
-		errFailedPolicyChans: make(map[edgeLocator]struct{}),
-		mc:                   m,
-	}, nil
-}
-
-// NewPaymentSessionFromRoutes creates a new paymentSession instance that will
-// skip all path finding, and will instead utilize a set of pre-built routes.
-// This constructor allows callers to specify their own routes which can be
-// used for things like channel rebalancing, and swaps.
-func (m *missionControl) NewPaymentSessionFromRoutes(routes []*Route) *paymentSession {
-	return &paymentSession{
-		pruneViewSnapshot:    m.GraphPruneView(),
-		haveRoutes:           true,
-		preBuiltRoutes:       routes,
-		errFailedPolicyChans: make(map[edgeLocator]struct{}),
-		mc:                   m,
+	estimator := &probabilityEstimator{
+		aprioriHopProbability:  cfg.AprioriHopProbability,
+		aprioriWeight:          cfg.AprioriWeight,
+		penaltyHalfLife:        cfg.PenaltyHalfLife,
+		prevSuccessProbability: prevSuccessProbability,
 	}
-}
 
-// generateBandwidthHints is a helper function that's utilized the main
-// findPath function in order to obtain hints from the lower layer w.r.t to the
-// available bandwidth of edges on the network. Currently, we'll only obtain
-// bandwidth hints for the edges we directly have open ourselves. Obtaining
-// these hints allows us to reduce the number of extraneous attempts as we can
-// skip channels that are inactive, or just don't have enough bandwidth to
-// carry the payment.
-func generateBandwidthHints(sourceNode *channeldb.LightningNode,
-	queryBandwidth func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi) (map[uint64]lnwire.MilliSatoshi, error) {
+	mc := &MissionControl{
+		state:     newMissionControlState(cfg.MinFailureRelaxInterval),
+		now:       time.Now,
+		cfg:       cfg,
+		store:     store,
+		estimator: estimator,
+	}
 
-	// First, we'll collect the set of outbound edges from the target
-	// source node.
-	var localChans []*channeldb.ChannelEdgeInfo
-	err := sourceNode.ForEachChannel(nil, func(tx *bbolt.Tx,
-		edgeInfo *channeldb.ChannelEdgeInfo,
-		_, _ *channeldb.ChannelEdgePolicy) error {
-
-		localChans = append(localChans, edgeInfo)
-		return nil
-	})
-	if err != nil {
+	if err := mc.init(); err != nil {
 		return nil, err
 	}
 
-	// Now that we have all of our outbound edges, we'll populate the set
-	// of bandwidth hints, querying the lower switch layer for the most up
-	// to date values.
-	bandwidthHints := make(map[uint64]lnwire.MilliSatoshi)
-	for _, localChan := range localChans {
-		bandwidthHints[localChan.ChannelID] = queryBandwidth(localChan)
-	}
-
-	return bandwidthHints, nil
+	return mc, nil
 }
 
-// ResetHistory resets the history of missionControl returning it to a state as
+// init initializes mission control with historical data.
+func (m *MissionControl) init() error {
+	log.Debugf("Mission control state reconstruction started")
+
+	start := time.Now()
+
+	results, err := m.store.fetchAll()
+	if err != nil {
+		return err
+	}
+
+	for _, result := range results {
+		m.applyPaymentResult(result)
+	}
+
+	log.Debugf("Mission control state reconstruction finished: "+
+		"n=%v, time=%v", len(results), time.Since(start))
+
+	return nil
+}
+
+// ResetHistory resets the history of MissionControl returning it to a state as
 // if no payment attempts have been made.
-func (m *missionControl) ResetHistory() {
+func (m *MissionControl) ResetHistory() error {
 	m.Lock()
-	m.failedEdges = make(map[edgeLocator]time.Time)
-	m.failedVertexes = make(map[Vertex]time.Time)
-	m.Unlock()
+	defer m.Unlock()
+
+	if err := m.store.clear(); err != nil {
+		return err
+	}
+
+	m.state.resetHistory()
+
+	log.Debugf("Mission control history cleared")
+
+	return nil
+}
+
+// GetProbability is expected to return the success probability of a payment
+// from fromNode along edge.
+func (m *MissionControl) GetProbability(fromNode, toNode route.Vertex,
+	amt lnwire.MilliSatoshi) float64 {
+
+	m.Lock()
+	defer m.Unlock()
+
+	now := m.now()
+	results, _ := m.state.getLastPairResult(fromNode)
+
+	// Use a distinct probability estimation function for local channels.
+	if fromNode == m.cfg.SelfNode {
+		return m.estimator.getLocalPairProbability(now, results, toNode)
+	}
+
+	return m.estimator.getPairProbability(now, results, toNode, amt)
+}
+
+// GetHistorySnapshot takes a snapshot from the current mission control state
+// and actual probability estimates.
+func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
+	m.Lock()
+	defer m.Unlock()
+
+	log.Debugf("Requesting history snapshot from mission control")
+
+	return m.state.getSnapshot()
+}
+
+// GetPairHistorySnapshot returns the stored history for a given node pair.
+func (m *MissionControl) GetPairHistorySnapshot(
+	fromNode, toNode route.Vertex) TimedPairResult {
+
+	m.Lock()
+	defer m.Unlock()
+
+	results, ok := m.state.getLastPairResult(fromNode)
+	if !ok {
+		return TimedPairResult{}
+	}
+
+	result, ok := results[toNode]
+	if !ok {
+		return TimedPairResult{}
+	}
+
+	return result
+}
+
+// ReportPaymentFail reports a failed payment to mission control as input for
+// future probability estimates. The failureSourceIdx argument indicates the
+// failure source. If it is nil, the failure source is unknown. This function
+// returns a reason if this failure is a final failure. In that case no further
+// payment attempts need to be made.
+func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
+	failureSourceIdx *int, failure lnwire.FailureMessage) (
+	*channeldb.FailureReason, error) {
+
+	timestamp := m.now()
+
+	result := &paymentResult{
+		success:          false,
+		timeFwd:          timestamp,
+		timeReply:        timestamp,
+		id:               paymentID,
+		failureSourceIdx: failureSourceIdx,
+		failure:          failure,
+		route:            rt,
+	}
+
+	return m.processPaymentResult(result)
+}
+
+// ReportPaymentSuccess reports a successful payment to mission control as input
+// for future probability estimates.
+func (m *MissionControl) ReportPaymentSuccess(paymentID uint64,
+	rt *route.Route) error {
+
+	timestamp := m.now()
+
+	result := &paymentResult{
+		timeFwd:   timestamp,
+		timeReply: timestamp,
+		id:        paymentID,
+		success:   true,
+		route:     rt,
+	}
+
+	_, err := m.processPaymentResult(result)
+	return err
+}
+
+// processPaymentResult stores a payment result in the mission control store and
+// updates mission control's in-memory state.
+func (m *MissionControl) processPaymentResult(result *paymentResult) (
+	*channeldb.FailureReason, error) {
+
+	// Store complete result in database.
+	if err := m.store.AddResult(result); err != nil {
+		return nil, err
+	}
+
+	// Apply result to update mission control state.
+	reason := m.applyPaymentResult(result)
+
+	return reason, nil
+}
+
+// applyPaymentResult applies a payment result as input for future probability
+// estimates. It returns a bool indicating whether this error is a final error
+// and no further payment attempts need to be made.
+func (m *MissionControl) applyPaymentResult(
+	result *paymentResult) *channeldb.FailureReason {
+
+	// Interpret result.
+	i := interpretResult(
+		result.route, result.success, result.failureSourceIdx,
+		result.failure,
+	)
+
+	// Update mission control state using the interpretation.
+	m.Lock()
+	defer m.Unlock()
+
+	if i.policyFailure != nil {
+		if m.state.requestSecondChance(
+			result.timeReply,
+			i.policyFailure.From, i.policyFailure.To,
+		) {
+			return nil
+		}
+	}
+
+	// If there is a node-level failure, record a failure for every tried
+	// connection of that node. A node-level failure can be considered as a
+	// failure that would have occurred with any of the node's channels.
+	//
+	// Ideally we'd also record the failure for the untried connections of
+	// the node. Unfortunately this would require access to the graph and
+	// adding this dependency and db calls does not outweigh the benefits.
+	//
+	// Untried connections will fall back to the node probability. After the
+	// call to setAllPairResult below, the node probability will be equal to
+	// the probability of the tried channels except that the a priori
+	// probability is mixed in too. This effect is controlled by the
+	// aprioriWeight parameter. If that parameter isn't set to an extreme
+	// and there are a few known connections, there shouldn't be much of a
+	// difference. The largest difference occurs when aprioriWeight is 1. In
+	// that case, a node-level failure would not be applied to untried
+	// channels.
+	if i.nodeFailure != nil {
+		log.Debugf("Reporting node failure to Mission Control: "+
+			"node=%v", *i.nodeFailure)
+
+		m.state.setAllFail(*i.nodeFailure, result.timeReply)
+	}
+
+	for pair, pairResult := range i.pairResults {
+		pairResult := pairResult
+
+		if pairResult.success {
+			log.Debugf("Reporting pair success to Mission "+
+				"Control: pair=%v, amt=%v",
+				pair, pairResult.amt)
+		} else {
+			log.Debugf("Reporting pair failure to Mission "+
+				"Control: pair=%v, amt=%v",
+				pair, pairResult.amt)
+		}
+
+		m.state.setLastPairResult(
+			pair.From, pair.To, result.timeReply, &pairResult,
+		)
+	}
+
+	return i.finalFailureReason
 }

@@ -56,6 +56,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -1876,7 +1877,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	rpcsLog.Debugf("[openchannel]: using fee of %v sat/kw for funding tx",
 		int64(feeRate))
 
-	script, err := parseUpfrontShutdownAddress(
+	script, err := chancloser.ParseUpfrontShutdownAddress(
 		in.CloseAddress, r.cfg.ActiveNetParams.Params,
 	)
 	if err != nil {
@@ -2049,26 +2050,6 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	case <-r.quit:
 		return nil, nil
 	}
-}
-
-// parseUpfrontShutdownScript attempts to parse an upfront shutdown address.
-// If the address is empty, it returns nil. If it successfully decoded the
-// address, it returns a script that pays out to the address.
-func parseUpfrontShutdownAddress(address string,
-	params *chaincfg.Params) (lnwire.DeliveryAddress, error) {
-
-	if len(address) == 0 {
-		return nil, nil
-	}
-
-	addr, err := btcutil.DecodeAddress(
-		address, params,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("invalid address: %v", err)
-	}
-
-	return txscript.PayToAddrScript(addr)
 }
 
 // GetChanPointFundingTxid returns the given channel point's funding txid in

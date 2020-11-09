@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
@@ -716,4 +718,24 @@ func calcCompromiseFee(chanPoint wire.OutPoint, ourIdealFee, lastSentFee,
 		// TODO(roasbeef): fail if their fee isn't in expected range
 		return remoteFee
 	}
+}
+
+// ParseUpfrontShutdownAddress attempts to parse an upfront shutdown address.
+// If the address is empty, it returns nil. If it successfully decoded the
+// address, it returns a script that pays out to the address.
+func ParseUpfrontShutdownAddress(address string,
+	params *chaincfg.Params) (lnwire.DeliveryAddress, error) {
+
+	if len(address) == 0 {
+		return nil, nil
+	}
+
+	addr, err := btcutil.DecodeAddress(
+		address, params,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("invalid address: %v", err)
+	}
+
+	return txscript.PayToAddrScript(addr)
 }

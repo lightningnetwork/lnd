@@ -16,6 +16,8 @@ const (
 	// NextHopOnionType is the type used in the onion to reference the ID
 	// of the next hop.
 	NextHopOnionType tlv.Type = 6
+
+	NextHopPubKeyType tlv.Type = 10
 )
 
 // NewAmtToFwdRecord creates a tlv.Record that encodes the amount_to_forward
@@ -44,4 +46,8 @@ func NewLockTimeRecord(lockTime *uint32) tlv.Record {
 // (type 6) for an onion payload.
 func NewNextHopIDRecord(cid *uint64) tlv.Record {
 	return tlv.MakePrimitiveRecord(NextHopOnionType, cid)
+}
+
+func NewNextHopPubKeyRecord(key *[33]byte) tlv.Record {
+	return tlv.MakePrimitiveRecord(NextHopPubKeyType, key)
 }

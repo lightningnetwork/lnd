@@ -153,7 +153,7 @@ func (h *Hop) Copy() *Hop {
 // references the _outgoing_ channel ID that follows this hop. This field
 // follows the same semantics as the NextAddress field in the onion: it should
 // be set to zero to indicate the terminal hop.
-func (h *Hop) PackHopPayload(w io.Writer, nextChanID uint64) error {
+func (h *Hop) PackHopPayload(w io.Writer, nextChanID uint64, nextHopPubKey *Vertex) error {
 	// If this is a legacy payload, then we'll exit here as this method
 	// shouldn't be called.
 	if h.LegacyPayload == true {
@@ -180,6 +180,13 @@ func (h *Hop) PackHopPayload(w io.Writer, nextChanID uint64) error {
 		records = append(records,
 			record.NewNextHopIDRecord(&nextChanID),
 		)
+	} else {
+		if nextHopPubKey != nil {
+			pubKey := [33]byte(*nextHopPubKey)
+			records = append(records,
+				record.NewNextHopPubKeyRecord(&pubKey),
+			)
+		}
 	}
 
 	// If an MPP record is destined for this hop, ensure that we only ever
@@ -449,7 +456,11 @@ func (r *Route) ToSphinxPath() (*sphinx.PaymentPath, error) {
 			// channel should be forwarded to so we can construct a
 			// valid payload.
 			var b bytes.Buffer
-			err := hop.PackHopPayload(&b, nextHop)
+			var nextHopPubKey *Vertex
+			if i < len(r.Hops)-1 {
+				nextHopPubKey = &r.Hops[i+1].PubKeyBytes
+			}
+			err := hop.PackHopPayload(&b, nextHop, nextHopPubKey)
 			if err != nil {
 				return nil, err
 			}

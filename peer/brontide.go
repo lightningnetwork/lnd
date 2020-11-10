@@ -2496,6 +2496,13 @@ type linkFailureReport struct {
 // force closing the channel depending on severity, and sending the error
 // message back to the remote party.
 func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
+	// Retrieve the channel from the map of active channels. We do this to
+	// have access to it even after WipeChannel remove it from the map.
+	chanID := lnwire.NewChanIDFromOutPoint(&failure.chanPoint)
+	p.activeChanMtx.Lock()
+	lnChan := p.activeChannels[chanID]
+	p.activeChanMtx.Unlock()
+
 	// We begin by wiping the link, which will remove it from the switch,
 	// such that it won't be attempted used for any more updates.
 	//
@@ -2521,6 +2528,17 @@ func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 			peerLog.Infof("channel(%v) force "+
 				"closed with txid %v",
 				failure.shortChanID, closeTx.TxHash())
+		}
+	}
+
+	// If this is a permanent failure, we will mark the channel borked.
+	if failure.linkErr.PermanentFailure && lnChan != nil {
+		peerLog.Warnf("Marking link(%v) borked due to permanent "+
+			"failure", failure.shortChanID)
+
+		if err := lnChan.State().MarkBorked(); err != nil {
+			peerLog.Errorf("Unable to mark channel %v borked: %v",
+				failure.shortChanID, err)
 		}
 	}
 

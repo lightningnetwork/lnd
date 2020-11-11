@@ -96,6 +96,15 @@ func getTestCaseSplitTranche() ([]*testCase, uint, uint) {
 		runTranche = *testCasesRunTranche
 	}
 
+	// There's a special flake-hunt mode where we run the same test multiple
+	// times in parallel. In that case the tranche index is equal to the
+	// thread ID, but we need to actually run all tests for the regex
+	// selection to work.
+	threadID := runTranche
+	if numTranches == 1 {
+		runTranche = 0
+	}
+
 	numCases := uint(len(allTestCases))
 	testsPerTranche := numCases / numTranches
 	trancheOffset := runTranche * testsPerTranche
@@ -104,7 +113,7 @@ func getTestCaseSplitTranche() ([]*testCase, uint, uint) {
 		trancheEnd = numCases
 	}
 
-	return allTestCases[trancheOffset:trancheEnd], runTranche, trancheOffset
+	return allTestCases[trancheOffset:trancheEnd], threadID, trancheOffset
 }
 
 func rpcPointToWirePoint(t *harnessTest, chanPoint *lnrpc.ChannelPoint) wire.OutPoint {

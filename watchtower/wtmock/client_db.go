@@ -101,6 +101,9 @@ func (m *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
 
 	if addr != nil {
 		tower.RemoveAddress(addr)
+		if len(tower.Addresses) == 0 {
+			return wtdb.ErrLastTowerAddr
+		}
 		m.towers[tower.ID] = tower
 		return nil
 	}

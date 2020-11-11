@@ -108,6 +108,10 @@ var (
 	// created because session key index differs from the reserved key
 	// index.
 	ErrIncorrectKeyIndex = errors.New("incorrect key index")
+
+	// ErrLastTowerAddr is an error returned when the last address of a
+	// watchtower is attempted to be removed.
+	ErrLastTowerAddr = errors.New("cannot remove last tower address")
 )
 
 // ClientDB is single database providing a persistent storage engine for the
@@ -337,7 +341,13 @@ func (c *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
 			if err != nil {
 				return err
 			}
+
+			// Towers should always have at least one address saved.
 			tower.RemoveAddress(addr)
+			if len(tower.Addresses) == 0 {
+				return ErrLastTowerAddr
+			}
+
 			return putTower(towers, tower)
 		}
 

@@ -1125,7 +1125,10 @@ func (c *TowerClient) handleStaleTower(msg *staleTowerMsg) error {
 	if err := c.cfg.DB.RemoveTower(msg.pubKey, msg.addr); err != nil {
 		return err
 	}
-	c.candidateTowers.RemoveCandidate(tower.ID, msg.addr)
+	err = c.candidateTowers.RemoveCandidate(tower.ID, msg.addr)
+	if err != nil {
+		return err
+	}
 
 	// If an address was provided, then we're only meant to remove the
 	// address from the tower, so there's nothing left for us to do.

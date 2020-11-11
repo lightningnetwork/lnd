@@ -210,6 +210,7 @@ type Config struct {
 	ExternalIPs       []net.Addr
 	DisableListen     bool          `long:"nolisten" description:"Disable listening for incoming peer connections"`
 	DisableRest       bool          `long:"norest" description:"Disable REST API"`
+	DisableRestTLS    bool          `long:"no-rest-tls" description:"Disable TLS for REST connections"`
 	NAT               bool          `long:"nat" description:"Toggle NAT traversal support (using either UPnP or NAT-PMP) to automatically advertise your external IP address to the network -- NOTE this does not support devices behind multiple NATs"`
 	MinBackoff        time.Duration `long:"minbackoff" description:"Shortest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
 	MaxBackoff        time.Duration `long:"maxbackoff" description:"Longest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
@@ -1175,9 +1176,10 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 
 	// For each of the RPC listeners (REST+gRPC), we'll ensure that users
 	// have specified a safe combo for authentication. If not, we'll bail
-	// out with an error.
+	// out with an error. Since we don't allow disabling TLS for gRPC
+	// connections we pass in tlsActive=true.
 	err = lncfg.EnforceSafeAuthentication(
-		cfg.RPCListeners, !cfg.NoMacaroons,
+		cfg.RPCListeners, !cfg.NoMacaroons, true,
 	)
 	if err != nil {
 		return nil, err
@@ -1188,7 +1190,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 		cfg.RESTListeners = nil
 	} else {
 		err = lncfg.EnforceSafeAuthentication(
-			cfg.RESTListeners, !cfg.NoMacaroons,
+			cfg.RESTListeners, !cfg.NoMacaroons, !cfg.DisableRestTLS,
 		)
 		if err != nil {
 			return nil, err

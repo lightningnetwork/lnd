@@ -97,6 +97,10 @@ type AddInvoiceData struct {
 	// HodlInvoice signals that this invoice shouldn't be settled
 	// immediately upon receiving the payment.
 	HodlInvoice bool
+
+	// RouteHints are optional route hints that can each be individually used
+	// to assist in reaching the invoice's destination.
+	RouteHints [][]zpay32.HopHint
 }
 
 // AddInvoice attempts to add a new invoice to the invoice database. Any
@@ -249,6 +253,27 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		options = append(options, zpay32.CLTVExpiry(uint64(defaultDelta)))
 	}
 
+	// We make sure that the given invoice routing hints number is within the
+	// valid range
+	if len(invoice.RouteHints) > 20 {
+		return nil, nil, fmt.Errorf("number of routing hints must not exceed " +
+			"maximum of 20")
+	}
+
+	// We continue by populating the requested routing hints indexing their
+	// corresponding channels so we won't duplicate them.
+	forcedHints := make(map[uint64]struct{})
+	for _, h := range invoice.RouteHints {
+		if len(h) == 0 {
+			return nil, nil, fmt.Errorf("number of hop hint within a route must " +
+				"be positive")
+		}
+		options = append(options, zpay32.RouteHint(h))
+
+		// Only this first hop is our direct channel.
+		forcedHints[h[0].ChannelID] = struct{}{}
+	}
+
 	// If we were requested to include routing hints in the invoice, then
 	// we'll fetch all of our available private channels and create routing
 	// hints for them.
@@ -259,11 +284,21 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		}
 
 		if len(openChannels) > 0 {
+			// We filter the channels by excluding the ones that were specified by
+			// the caller and were already added.
+			var filteredChannels []*channeldb.OpenChannel
+			for _, c := range openChannels {
+				if _, ok := forcedHints[c.ShortChanID().ToUint64()]; ok {
+					continue
+				}
+				filteredChannels = append(filteredChannels, c)
+			}
+
 			// We'll restrict the number of individual route hints
 			// to 20 to avoid creating overly large invoices.
-			const numMaxHophints = 20
+			numMaxHophints := 20 - len(forcedHints)
 			hopHints := selectHopHints(
-				amtMSat, cfg, openChannels, numMaxHophints,
+				amtMSat, cfg, filteredChannels, numMaxHophints,
 			)
 
 			options = append(options, hopHints...)

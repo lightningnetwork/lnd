@@ -197,8 +197,6 @@ type chanArbTestCtx struct {
 
 	resolvedChan chan struct{}
 
-	blockEpochs chan *chainntnfs.BlockEpoch
-
 	incubationRequests chan struct{}
 
 	resolutions chan []ResolutionMsg
@@ -304,12 +302,6 @@ func withMarkClosed(markClosed func(*channeldb.ChannelCloseSummary,
 func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 	opts ...testChanArbOption) (*chanArbTestCtx, error) {
 
-	blockEpochs := make(chan *chainntnfs.BlockEpoch)
-	blockEpoch := &chainntnfs.BlockEpochEvent{
-		Epochs: blockEpochs,
-		Cancel: func() {},
-	}
-
 	chanPoint := wire.OutPoint{}
 	shortChanID := lnwire.ShortChannelID{}
 	chanEvents := &ChainEventSubscription{
@@ -366,7 +358,6 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 	arbCfg := &ChannelArbitratorConfig{
 		ChanPoint:   chanPoint,
 		ShortChanID: shortChanID,
-		BlockEpochs: blockEpoch,
 		MarkChannelResolved: func() error {
 			resolvedChan <- struct{}{}
 			return nil
@@ -433,7 +424,6 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 		cleanUp:            cleanUp,
 		resolvedChan:       resolvedChan,
 		resolutions:        resolutionChan,
-		blockEpochs:        blockEpochs,
 		log:                log,
 		incubationRequests: incubateChan,
 		sweeper:            mockSweeper,
@@ -1759,7 +1749,7 @@ func TestChannelArbitratorDanglingCommitForceClose(t *testing.T) {
 			// now mine a block (height 5), which is 5 blocks away
 			// (our grace delta) from the expiry of that HTLC.
 			case testCase.htlcExpired:
-				chanArbCtx.blockEpochs <- &chainntnfs.BlockEpoch{Height: 5}
+				chanArbCtx.chanArb.blocks <- 5
 
 			// Otherwise, we'll just trigger a regular force close
 			// request.
@@ -1863,7 +1853,7 @@ func TestChannelArbitratorDanglingCommitForceClose(t *testing.T) {
 			// so instead, we'll mine another block which'll cause
 			// it to re-examine its state and realize there're no
 			// more HTLCs.
-			chanArbCtx.blockEpochs <- &chainntnfs.BlockEpoch{Height: 6}
+			chanArbCtx.chanArb.blocks <- 6
 			chanArbCtx.AssertStateTransitions(StateFullyResolved)
 		})
 	}
@@ -1940,13 +1930,13 @@ func TestChannelArbitratorPendingExpiredHTLC(t *testing.T) {
 	// We will advance the uptime to 10 seconds which should be still within
 	// the grace period and should not trigger going to chain.
 	testClock.SetTime(startTime.Add(time.Second * 10))
-	chanArbCtx.blockEpochs <- &chainntnfs.BlockEpoch{Height: 5}
+	chanArbCtx.chanArb.blocks <- 5
 	chanArbCtx.AssertState(StateDefault)
 
 	// We will advance the uptime to 16 seconds which should trigger going
 	// to chain.
 	testClock.SetTime(startTime.Add(time.Second * 16))
-	chanArbCtx.blockEpochs <- &chainntnfs.BlockEpoch{Height: 6}
+	chanArbCtx.chanArb.blocks <- 6
 	chanArbCtx.AssertStateTransitions(
 		StateBroadcastCommit,
 		StateCommitmentBroadcasted,

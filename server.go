@@ -1292,10 +1292,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// will not run it.
 	chainHealthCheck := healthcheck.NewObservation(
 		"chain backend",
-		func() error {
-			_, _, err := cc.ChainIO.GetBestBlock()
-			return err
-		},
+		cc.HealthCheck,
 		cfg.HealthChecks.ChainCheck.Interval,
 		cfg.HealthChecks.ChainCheck.Timeout,
 		cfg.HealthChecks.ChainCheck.Backoff,

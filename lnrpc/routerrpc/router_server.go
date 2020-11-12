@@ -368,6 +368,13 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 		return rpcAttempt, nil
 	}
 
+	// Transform user errors to grpc code.
+	if err == channeldb.ErrPaymentInFlight ||
+		err == channeldb.ErrAlreadyPaid {
+
+		return nil, status.Error(codes.AlreadyExists, err.Error())
+	}
+
 	return nil, err
 }
 

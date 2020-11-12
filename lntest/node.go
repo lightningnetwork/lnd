@@ -153,7 +153,12 @@ type BackendConfig interface {
 }
 
 type NodeConfig struct {
-	Name       string
+	Name string
+
+	// LogFilenamePrefix is is used to prefix node log files. Can be used
+	// to store the current test case for simpler postmortem debugging.
+	LogFilenamePrefix string
+
 	BackendCfg BackendConfig
 	NetParams  *chaincfg.Params
 	BaseDir    string
@@ -493,17 +498,21 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error) error {
 	// log files.
 	if *logOutput {
 		dir := GetLogDir()
-		fileName := fmt.Sprintf("%s/output-%d-%s-%s.log", dir, hn.NodeID,
-			hn.Cfg.Name, hex.EncodeToString(hn.PubKey[:logPubKeyBytes]))
+		fileName := fmt.Sprintf("%s/%d-%s-%s-%s.log", dir, hn.NodeID,
+			hn.Cfg.LogFilenamePrefix, hn.Cfg.Name,
+			hex.EncodeToString(hn.PubKey[:logPubKeyBytes]))
 
-		// If the node's PubKey is not yet initialized, create a temporary
-		// file name. Later, after the PubKey has been initialized, the
-		// file can be moved to its final name with the PubKey included.
+		// If the node's PubKey is not yet initialized, create a
+		// temporary file name. Later, after the PubKey has been
+		// initialized, the file can be moved to its final name with
+		// the PubKey included.
 		if bytes.Equal(hn.PubKey[:4], []byte{0, 0, 0, 0}) {
-			fileName = fmt.Sprintf("%s/output-%d-%s-tmp__.log",
-				dir, hn.NodeID, hn.Cfg.Name)
+			fileName = fmt.Sprintf("%s/%d-%s-%s-tmp__.log", dir,
+				hn.NodeID, hn.Cfg.LogFilenamePrefix,
+				hn.Cfg.Name)
 
-			// Once the node has done its work, the log file can be renamed.
+			// Once the node has done its work, the log file can be
+			// renamed.
 			finalizeLogfile = func() {
 				if hn.logFile != nil {
 					hn.logFile.Close()
@@ -511,8 +520,10 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error) error {
 					pubKeyHex := hex.EncodeToString(
 						hn.PubKey[:logPubKeyBytes],
 					)
-					newFileName := fmt.Sprintf("%s/output"+
-						"-%d-%s-%s.log", dir, hn.NodeID,
+					newFileName := fmt.Sprintf("%s/"+
+						"%d-%s-%s-%s.log",
+						dir, hn.NodeID,
+						hn.Cfg.LogFilenamePrefix,
 						hn.Cfg.Name, pubKeyHex)
 					err := os.Rename(fileName, newFileName)
 					if err != nil {

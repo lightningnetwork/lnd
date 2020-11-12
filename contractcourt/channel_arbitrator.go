@@ -379,16 +379,58 @@ func NewChannelArbitrator(cfg ChannelArbitratorConfig,
 	}
 }
 
+// chanArbStartState contains the information from disk that we need to start
+// up a channel arbitrator.
+type chanArbStartState struct {
+	currentState ArbitratorState
+	commitSet    *CommitSet
+}
+
+// getStartState retrieves the information from disk that our channel arbitrator
+// requires to start.
+func (c *ChannelArbitrator) getStartState(tx kvdb.RTx) (*chanArbStartState,
+	error) {
+
+	// First, we'll read our last state from disk, so our internal state
+	// machine can act accordingly.
+	state, err := c.log.CurrentState(tx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Next we'll fetch our confirmed commitment set. This will only exist
+	// if the channel has been closed out on chain for modern nodes. For
+	// older nodes, this won't be found at all, and will rely on the
+	// existing written chain actions. Additionally, if this channel hasn't
+	// logged any actions in the log, then this field won't be present.
+	commitSet, err := c.log.FetchConfirmedCommitSet(tx)
+	if err != nil && err != errNoCommitSet && err != errScopeBucketNoExist {
+		return nil, err
+	}
+
+	return &chanArbStartState{
+		currentState: state,
+		commitSet:    commitSet,
+	}, nil
+}
+
 // Start starts all the goroutines that the ChannelArbitrator needs to operate.
-func (c *ChannelArbitrator) Start() error {
+// If takes a start state, which will be looked up on disk if it is not
+// provided.
+func (c *ChannelArbitrator) Start(state *chanArbStartState) error {
 	if !atomic.CompareAndSwapInt32(&c.started, 0, 1) {
 		return nil
 	}
 	c.startTimestamp = c.cfg.Clock.Now()
 
-	var (
-		err error
-	)
+	// If the state passed in is nil, we look it up now.
+	if state == nil {
+		var err error
+		state, err = c.getStartState(nil)
+		if err != nil {
+			return err
+		}
+	}
 
 	log.Debugf("Starting ChannelArbitrator(%v), htlc_set=%v",
 		c.cfg.ChanPoint, newLogClosure(func() string {
@@ -396,12 +438,8 @@ func (c *ChannelArbitrator) Start() error {
 		}),
 	)
 
-	// First, we'll read our last state from disk, so our internal state
-	// machine can act accordingly.
-	c.state, err = c.log.CurrentState(nil)
-	if err != nil {
-		return err
-	}
+	// Set our state from our starting state.
+	c.state = state.currentState
 
 	_, bestHeight, err := c.cfg.ChainIO.GetBestBlock()
 	if err != nil {
@@ -449,21 +487,11 @@ func (c *ChannelArbitrator) Start() error {
 		"triggerHeight=%v", c.cfg.ChanPoint, c.state, trigger,
 		triggerHeight)
 
-	// Next we'll fetch our confirmed commitment set. This will only exist
-	// if the channel has been closed out on chain for modern nodes. For
-	// older nodes, this won't be found at all, and will rely on the
-	// existing written chain actions. Additionally, if this channel hasn't
-	// logged any actions in the log, then this field won't be present.
-	commitSet, err := c.log.FetchConfirmedCommitSet(nil)
-	if err != nil && err != errNoCommitSet && err != errScopeBucketNoExist {
-		return err
-	}
-
 	// We'll now attempt to advance our state forward based on the current
 	// on-chain state, and our set of active contracts.
 	startingState := c.state
 	nextState, _, err := c.advanceState(
-		triggerHeight, trigger, commitSet,
+		triggerHeight, trigger, state.commitSet,
 	)
 	if err != nil {
 		switch err {
@@ -500,7 +528,8 @@ func (c *ChannelArbitrator) Start() error {
 		// receive a chain event from the chain watcher than the
 		// commitment has been confirmed on chain, and before we
 		// advance our state step, we call InsertConfirmedCommitSet.
-		if err := c.relaunchResolvers(commitSet, triggerHeight); err != nil {
+		err := c.relaunchResolvers(state.commitSet, triggerHeight)
+		if err != nil {
 			return err
 		}
 	}

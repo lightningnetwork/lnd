@@ -398,7 +398,7 @@ func (c *ChannelArbitrator) Start() error {
 
 	// First, we'll read our last state from disk, so our internal state
 	// machine can act accordingly.
-	c.state, err = c.log.CurrentState()
+	c.state, err = c.log.CurrentState(nil)
 	if err != nil {
 		return err
 	}
@@ -454,7 +454,7 @@ func (c *ChannelArbitrator) Start() error {
 	// older nodes, this won't be found at all, and will rely on the
 	// existing written chain actions. Additionally, if this channel hasn't
 	// logged any actions in the log, then this field won't be present.
-	commitSet, err := c.log.FetchConfirmedCommitSet()
+	commitSet, err := c.log.FetchConfirmedCommitSet(nil)
 	if err != nil && err != errNoCommitSet && err != errScopeBucketNoExist {
 		return err
 	}

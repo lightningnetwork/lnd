@@ -51,7 +51,7 @@ type mockArbitratorLog struct {
 // interface.
 var _ ArbitratorLog = (*mockArbitratorLog)(nil)
 
-func (b *mockArbitratorLog) CurrentState() (ArbitratorState, error) {
+func (b *mockArbitratorLog) CurrentState(kvdb.RTx) (ArbitratorState, error) {
 	return b.state, nil
 }
 
@@ -140,7 +140,7 @@ func (b *mockArbitratorLog) InsertConfirmedCommitSet(c *CommitSet) error {
 	return nil
 }
 
-func (b *mockArbitratorLog) FetchConfirmedCommitSet() (*CommitSet, error) {
+func (b *mockArbitratorLog) FetchConfirmedCommitSet(kvdb.RTx) (*CommitSet, error) {
 	return b.commitSet, nil
 }
 

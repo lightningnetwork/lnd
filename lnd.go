@@ -1321,7 +1321,7 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 					ltndLog.Errorf("Could not unload "+
 						"wallet: %v", err)
 				}
-				return nil, err
+				return nil, shutdown, err
 			}
 		}
 

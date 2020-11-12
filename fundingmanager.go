@@ -746,6 +746,8 @@ func (f *fundingManager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 		msg = lnwire.ErrorData(e.Error())
 	case lnwire.FundingError:
 		msg = lnwire.ErrorData(e.Error())
+	case chanacceptor.ChanAcceptError:
+		msg = lnwire.ErrorData(e.Error())
 
 	// For all other error types we just send a generic error.
 	default:
@@ -1282,10 +1284,13 @@ func (f *fundingManager) handleFundingOpen(peer lnpeer.Peer,
 		OpenChanMsg: msg,
 	}
 
-	if !f.cfg.OpenChannelPredicate.Accept(chanReq) {
+	// Query our channel acceptor to determine whether we should reject
+	// the channel.
+	acceptorResp := f.cfg.OpenChannelPredicate.Accept(chanReq)
+	if acceptorResp.RejectChannel() {
 		f.failFundingFlow(
 			peer, msg.PendingChannelID,
-			fmt.Errorf("open channel request rejected"),
+			acceptorResp.ChanAcceptError,
 		)
 		return
 	}
@@ -1335,8 +1340,12 @@ func (f *fundingManager) handleFundingOpen(peer lnpeer.Peer,
 	// that we require before both of us consider the channel open. We'll
 	// use our mapping to derive the proper number of confirmations based on
 	// the amount of the channel, and also if any funds are being pushed to
-	// us.
+	// us. If a depth value was set by our channel acceptor, we will use
+	// that value instead.
 	numConfsReq := f.cfg.NumRequiredConfs(msg.FundingAmount, msg.PushAmount)
+	if acceptorResp.MinAcceptDepth != 0 {
+		numConfsReq = acceptorResp.MinAcceptDepth
+	}
 	reservation.SetNumConfsRequired(numConfsReq)
 
 	// We'll also validate and apply all the constraints the initiating
@@ -1360,10 +1369,10 @@ func (f *fundingManager) handleFundingOpen(peer lnpeer.Peer,
 
 	// Check whether the peer supports upfront shutdown, and get a new wallet
 	// address if our node is configured to set shutdown addresses by default.
-	// A nil address is set in place of user input, because this channel open
-	// was not initiated by the user.
+	// We use the upfront shutdown script provided by our channel acceptor
+	// (if any) in lieu of user input.
 	shutdown, err := getUpfrontShutdownScript(
-		f.cfg.EnableUpfrontShutdown, peer, nil,
+		f.cfg.EnableUpfrontShutdown, peer, acceptorResp.UpfrontShutdown,
 		func() (lnwire.DeliveryAddress, error) {
 			addr, err := f.cfg.Wallet.NewAddress(lnwallet.WitnessPubKey, false)
 			if err != nil {
@@ -1386,12 +1395,34 @@ func (f *fundingManager) handleFundingOpen(peer lnpeer.Peer,
 		msg.PendingChannelID, amt, msg.PushAmount,
 		commitType, msg.UpfrontShutdownScript)
 
-	// Generate our required constraints for the remote party.
+	// Generate our required constraints for the remote party, using the
+	// values provided by the channel acceptor if they are non-zero.
 	remoteCsvDelay := f.cfg.RequiredRemoteDelay(amt)
+	if acceptorResp.CSVDelay != 0 {
+		remoteCsvDelay = acceptorResp.CSVDelay
+	}
+
 	chanReserve := f.cfg.RequiredRemoteChanReserve(amt, msg.DustLimit)
+	if acceptorResp.Reserve != 0 {
+		chanReserve = acceptorResp.Reserve
+	}
+
 	remoteMaxValue := f.cfg.RequiredRemoteMaxValue(amt)
+	if acceptorResp.InFlightTotal != 0 {
+		remoteMaxValue = acceptorResp.InFlightTotal
+	}
+
 	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(amt)
+	if acceptorResp.HtlcLimit != 0 {
+		maxHtlcs = acceptorResp.HtlcLimit
+	}
+
+	// Default to our default minimum hltc value, replacing it with the
+	// channel acceptor's value if it is set.
 	minHtlc := f.cfg.DefaultMinHtlcIn
+	if acceptorResp.MinHtlcIn != 0 {
+		minHtlc = acceptorResp.MinHtlcIn
+	}
 
 	// Once the reservation has been created successfully, we add it to
 	// this peer's map of pending reservations to track this particular

@@ -5347,12 +5347,18 @@ func TestChanCommitWeightDustHtlcs(t *testing.T) {
 	}
 	defer cleanUp()
 
+	aliceDustlimit := lnwire.NewMSatFromSatoshis(
+		aliceChannel.channelState.LocalChanCfg.DustLimit,
+	)
 	bobDustlimit := lnwire.NewMSatFromSatoshis(
 		bobChannel.channelState.LocalChanCfg.DustLimit,
 	)
 
 	feeRate := chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
+	)
+	htlcTimeoutFee := lnwire.NewMSatFromSatoshis(
+		HtlcTimeoutFee(aliceChannel.channelState.ChanType, feeRate),
 	)
 	htlcSuccessFee := lnwire.NewMSatFromSatoshis(
 		HtlcSuccessFee(aliceChannel.channelState.ChanType, feeRate),
@@ -5435,6 +5441,27 @@ func TestChanCommitWeightDustHtlcs(t *testing.T) {
 	require.Equal(t, calcFee, remoteCommitFee)
 
 	// Settle the HTLC, bringing commitment weight back to base.
+	settleHtlc(preimg)
+
+	// Now we do a similar check from Bob's POV. Start with getting his
+	// current view of Alice's commitment weight.
+	weight1 = remoteCommitWeight(bobChannel)
+
+	// We'll add an HTLC from Alice to Bob, that is just above dust on
+	// Alice's commitment. Now we'll use the timeout fee.
+	aliceDustHtlc := aliceDustlimit + htlcTimeoutFee
+	preimg = addHtlc(aliceDustHtlc)
+
+	// Get the current remote commitment weight from Bob's POV, and ensure
+	// it is now heavier, since Alice added a non-dust HTLC.
+	weight2 = remoteCommitWeight(bobChannel)
+	require.Greater(t, weight2, weight1)
+
+	// Ensure the current remote commit has the expected commitfee.
+	calcFee = feeRate.FeeForWeight(weight2)
+	remoteCommitFee = bobChannel.channelState.RemoteCommitment.CommitFee
+	require.Equal(t, calcFee, remoteCommitFee)
+
 	settleHtlc(preimg)
 }
 

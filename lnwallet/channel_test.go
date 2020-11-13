@@ -5331,6 +5331,113 @@ func TestChanAvailableBalanceNearHtlcFee(t *testing.T) {
 	checkBalance(t, expAliceBalance, expBobBalance)
 }
 
+// TestChanCommitWeightDustHtlcs checks that we correctly calculate the
+// commitment weight when some HTLCs are dust.
+func TestChanCommitWeightDustHtlcs(t *testing.T) {
+	t.Parallel()
+
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels(
+		channeldb.SingleFunderTweaklessBit,
+	)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	bobDustlimit := lnwire.NewMSatFromSatoshis(
+		bobChannel.channelState.LocalChanCfg.DustLimit,
+	)
+
+	feeRate := chainfee.SatPerKWeight(
+		aliceChannel.channelState.LocalCommitment.FeePerKw,
+	)
+	htlcSuccessFee := lnwire.NewMSatFromSatoshis(
+		HtlcSuccessFee(aliceChannel.channelState.ChanType, feeRate),
+	)
+
+	// Helper method to add an HTLC from Alice to Bob.
+	htlcIndex := uint64(0)
+	addHtlc := func(htlcAmt lnwire.MilliSatoshi) lntypes.Preimage {
+		t.Helper()
+
+		htlc, preImage := createHTLC(int(htlcIndex), htlcAmt)
+		if _, err := aliceChannel.AddHTLC(htlc, nil); err != nil {
+			t.Fatalf("unable to add htlc: %v", err)
+		}
+		if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+			t.Fatalf("unable to recv htlc: %v", err)
+		}
+
+		if err := ForceStateTransition(aliceChannel, bobChannel); err != nil {
+			t.Fatalf("unable to complete alice's state "+
+				"transition: %v", err)
+		}
+
+		return preImage
+	}
+
+	settleHtlc := func(preImage lntypes.Preimage) {
+		t.Helper()
+
+		err = bobChannel.SettleHTLC(preImage, htlcIndex, nil, nil, nil)
+		if err != nil {
+			t.Fatalf("unable to settle htlc: %v", err)
+		}
+		err = aliceChannel.ReceiveHTLCSettle(preImage, htlcIndex)
+		if err != nil {
+			t.Fatalf("unable to settle htlc: %v", err)
+		}
+
+		if err := ForceStateTransition(aliceChannel, bobChannel); err != nil {
+			t.Fatalf("unable to complete alice's state "+
+				"transition: %v", err)
+		}
+		htlcIndex++
+	}
+
+	// Helper method that fetches the current remote commitment weight
+	// fromt the given channel's POV.
+	remoteCommitWeight := func(lc *LightningChannel) int64 {
+		remoteACKedIndex := lc.localCommitChain.tip().theirMessageIndex
+		htlcView := lc.fetchHTLCView(remoteACKedIndex,
+			lc.localUpdateLog.logIndex)
+
+		_, w := lc.availableCommitmentBalance(
+			htlcView, true,
+		)
+
+		return w
+	}
+
+	// Start by getting the initial remote commitment wight seen from
+	// Alice's perspective. At this point there are no HTLCs on the
+	// commitment.
+	weight1 := remoteCommitWeight(aliceChannel)
+
+	// Now add an HTLC that will be just below Bob's dustlimit.
+	// Since this is an HTLC added from Alice on Bob's commitment, we will
+	// use the HTLC success fee.
+	bobDustHtlc := bobDustlimit + htlcSuccessFee - 1
+	preimg := addHtlc(bobDustHtlc)
+
+	// Now get the current wight of the remote commitment. We expect it to
+	// not have changed, since the HTLC we added is considered dust.
+	weight2 := remoteCommitWeight(aliceChannel)
+	require.Equal(t, weight1, weight2)
+
+	// In addition, we expect this weight to result in the fee we currently
+	// see being paid on the remote commitent.
+	calcFee := feeRate.FeeForWeight(weight2)
+	remoteCommitFee := aliceChannel.channelState.RemoteCommitment.CommitFee
+	require.Equal(t, calcFee, remoteCommitFee)
+
+	// Settle the HTLC, bringing commitment weight back to base.
+	settleHtlc(preimg)
+}
+
 // TestSignCommitmentFailNotLockedIn tests that a channel will not attempt to
 // create a new state if it doesn't yet know of the next revocation point for
 // the remote party.

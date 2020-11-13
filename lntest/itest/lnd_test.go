@@ -3975,11 +3975,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	}
 
 	// Check that we can find the commitment sweep in our set of known
-	// sweeps.
-	err = findSweep(ctxb, alice, sweepingTXID)
-	if err != nil {
-		t.Fatalf("csv sweep not found: %v", err)
-	}
+	// sweeps, using the simple transaction id ListSweeps output.
+	assertSweepFound(ctxb, t.t, alice, sweepingTXID.String(), false)
 
 	// Restart Alice to ensure that she resumes watching the finalized
 	// commitment sweep txid.
@@ -4368,11 +4365,9 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		}
 	}
 
-	// Check that we can find the htlc sweep in our set of sweeps.
-	err = findSweep(ctxb, alice, htlcSweepTx.Hash())
-	if err != nil {
-		t.Fatalf("htlc sweep not found: %v", err)
-	}
+	// Check that we can find the htlc sweep in our set of sweeps using
+	// the verbose output of the listsweeps output.
+	assertSweepFound(ctxb, t.t, alice, htlcSweepTx.Hash().String(), true)
 
 	// The following restart checks to ensure that the nursery store is
 	// storing the txid of the previously broadcast htlc sweep txn, and that
@@ -4571,33 +4566,60 @@ func assertReports(ctxb context.Context, t *harnessTest,
 	}
 }
 
-// findSweep looks up a sweep in a nodes list of broadcast sweeps.
-func findSweep(ctx context.Context, node *lntest.HarnessNode,
-	sweep *chainhash.Hash) error {
+// assertSweepFound looks up a sweep in a nodes list of broadcast sweeps.
+func assertSweepFound(ctx context.Context, t *testing.T, node *lntest.HarnessNode,
+	sweep string, verbose bool) {
 
 	// List all sweeps that alice's node had broadcast.
 	ctx, _ = context.WithTimeout(ctx, defaultTimeout)
 	sweepResp, err := node.WalletKitClient.ListSweeps(
 		ctx, &walletrpc.ListSweepsRequest{
-			Verbose: false,
-		})
-	if err != nil {
-		return fmt.Errorf("list sweeps error: %v", err)
+			Verbose: verbose,
+		},
+	)
+	require.NoError(t, err)
+
+	var found bool
+	if verbose {
+		found = findSweepInDetails(t, sweep, sweepResp)
+	} else {
+		found = findSweepInTxids(t, sweep, sweepResp)
 	}
 
-	sweepTxIDs, ok := sweepResp.Sweeps.(*walletrpc.ListSweepsResponse_TransactionIds)
-	if !ok {
-		return errors.New("expected sweep txids in response")
-	}
+	require.True(t, found, "sweep: %v not found", sweep)
+}
+
+func findSweepInTxids(t *testing.T, sweepTxid string,
+	sweepResp *walletrpc.ListSweepsResponse) bool {
+
+	sweepTxIDs := sweepResp.GetTransactionIds()
+	require.NotNil(t, sweepTxIDs, "expected transaction ids")
+	require.Nil(t, sweepResp.GetTransactionDetails())
 
 	// Check that the sweep tx we have just produced is present.
-	for _, tx := range sweepTxIDs.TransactionIds.TransactionIds {
-		if tx == sweep.String() {
-			return nil
+	for _, tx := range sweepTxIDs.TransactionIds {
+		if tx == sweepTxid {
+			return true
 		}
 	}
 
-	return fmt.Errorf("sweep: %v not found", sweep.String())
+	return false
+}
+
+func findSweepInDetails(t *testing.T, sweepTxid string,
+	sweepResp *walletrpc.ListSweepsResponse) bool {
+
+	sweepDetails := sweepResp.GetTransactionDetails()
+	require.NotNil(t, sweepDetails, "expected transaction details")
+	require.Nil(t, sweepResp.GetTransactionIds())
+
+	for _, tx := range sweepDetails.Transactions {
+		if tx.TxHash == sweepTxid {
+			return true
+		}
+	}
+
+	return false
 }
 
 // assertAmountSent generates a closure which queries listchannels for sndr and

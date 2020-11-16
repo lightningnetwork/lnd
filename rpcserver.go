@@ -42,6 +42,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
@@ -1803,9 +1804,9 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	// Restrict the size of the channel we'll actually open. At a later
 	// level, we'll ensure that the output we create after accounting for
 	// fees that a dust output isn't created.
-	if localFundingAmt < minChanFundingSize {
+	if localFundingAmt < funding.MinChanFundingSize {
 		return nil, fmt.Errorf("channel is too small, the minimum "+
-			"channel size is: %v SAT", int64(minChanFundingSize))
+			"channel size is: %v SAT", int64(funding.MinChanFundingSize))
 	}
 
 	// Prevent users from submitting a max-htlc value that would exceed the

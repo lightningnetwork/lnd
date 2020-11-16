@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/discovery"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -433,7 +434,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		},
 		ZombieSweeperInterval:         1 * time.Hour,
 		ReservationTimeout:            1 * time.Nanosecond,
-		MaxChanSize:                   MaxFundingAmount,
+		MaxChanSize:                   funding.MaxBtcFundingAmount,
 		MaxLocalCSVDelay:              defaultMaxLocalCSVDelay,
 		MaxPendingChannels:            lncfg.DefaultMaxPendingChannels,
 		NotifyOpenChannelEvent:        evt.NotifyOpenChannelEvent,
@@ -3374,10 +3375,10 @@ func TestMaxChannelSizeConfig(t *testing.T) {
 	// Create a set of funding managers that will reject wumbo
 	// channels but set --maxchansize explicitly lower than soft-limit.
 	// Verify that wumbo rejecting funding managers will respect --maxchansize
-	// below 16777215 satoshi (MaxFundingAmount) limit.
+	// below 16777215 satoshi (funding.MaxBtcFundingAmount) limit.
 	alice, bob := setupFundingManagers(t, func(cfg *fundingConfig) {
 		cfg.NoWumboChans = true
-		cfg.MaxChanSize = MaxFundingAmount - 1
+		cfg.MaxChanSize = funding.MaxBtcFundingAmount - 1
 	})
 
 	// Attempt to create a channel above the limit
@@ -3387,7 +3388,7 @@ func TestMaxChannelSizeConfig(t *testing.T) {
 	initReq := &openChanReq{
 		targetPubkey:    bob.privKey.PubKey(),
 		chainHash:       *fundingNetParams.GenesisHash,
-		localFundingAmt: MaxFundingAmount,
+		localFundingAmt: funding.MaxBtcFundingAmount,
 		pushAmt:         lnwire.NewMSatFromSatoshis(0),
 		private:         false,
 		updates:         updateChan,
@@ -3407,7 +3408,7 @@ func TestMaxChannelSizeConfig(t *testing.T) {
 	tearDownFundingManagers(t, alice, bob)
 	alice, bob = setupFundingManagers(t, func(cfg *fundingConfig) {
 		cfg.NoWumboChans = true
-		cfg.MaxChanSize = MaxFundingAmount + 1
+		cfg.MaxChanSize = funding.MaxBtcFundingAmount + 1
 	})
 
 	// We expect Bob to respond with an Accept channel message.
@@ -3456,7 +3457,7 @@ func TestWumboChannelConfig(t *testing.T) {
 	initReq := &openChanReq{
 		targetPubkey:    bob.privKey.PubKey(),
 		chainHash:       *fundingNetParams.GenesisHash,
-		localFundingAmt: MaxFundingAmount,
+		localFundingAmt: funding.MaxBtcFundingAmount,
 		pushAmt:         lnwire.NewMSatFromSatoshis(0),
 		private:         false,
 		updates:         updateChan,
@@ -3485,7 +3486,7 @@ func TestWumboChannelConfig(t *testing.T) {
 	tearDownFundingManagers(t, alice, bob)
 	alice, bob = setupFundingManagers(t, func(cfg *fundingConfig) {
 		cfg.NoWumboChans = false
-		cfg.MaxChanSize = MaxBtcFundingAmountWumbo
+		cfg.MaxChanSize = funding.MaxBtcFundingAmountWumbo
 	})
 
 	// We should now be able to initiate a wumbo channel funding w/o any

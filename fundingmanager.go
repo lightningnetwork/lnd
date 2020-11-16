@@ -39,59 +39,13 @@ const (
 	// TODO(roasbeef): tune
 	msgBufferSize = 50
 
-	// minBtcRemoteDelay and maxBtcRemoteDelay is the extremes of the
-	// Bitcoin CSV delay we will require the remote to use for its
-	// commitment transaction. The actual delay we will require will be
-	// somewhere between these values, depending on channel size.
-	minBtcRemoteDelay uint16 = 144
-	maxBtcRemoteDelay uint16 = 2016
-
-	// minLtcRemoteDelay and maxLtcRemoteDelay is the extremes of the
-	// Litecoin CSV delay we will require the remote to use for its
-	// commitment transaction. The actual delay we will require will be
-	// somewhere between these values, depending on channel size.
-	minLtcRemoteDelay uint16 = 576
-	maxLtcRemoteDelay uint16 = 8064
-
 	// maxWaitNumBlocksFundingConf is the maximum number of blocks to wait
 	// for the funding transaction to be confirmed before forgetting
 	// channels that aren't initiated by us. 2016 blocks is ~2 weeks.
 	maxWaitNumBlocksFundingConf = 2016
-
-	// minChanFundingSize is the smallest channel that we'll allow to be
-	// created over the RPC interface.
-	minChanFundingSize = btcutil.Amount(20000)
-
-	// MaxBtcFundingAmount is a soft-limit of the maximum channel size
-	// currently accepted on the Bitcoin chain within the Lightning
-	// Protocol. This limit is defined in BOLT-0002, and serves as an
-	// initial precautionary limit while implementations are battle tested
-	// in the real world.
-	MaxBtcFundingAmount = btcutil.Amount(1<<24) - 1
-
-	// MaxBtcFundingAmountWumbo is a soft-limit on the maximum size of wumbo
-	// channels. This limit is 10 BTC and is the only thing standing between
-	// you and limitless channel size (apart from 21 million cap)
-	MaxBtcFundingAmountWumbo = btcutil.Amount(1000000000)
-
-	// maxLtcFundingAmount is a soft-limit of the maximum channel size
-	// currently accepted on the Litecoin chain within the Lightning
-	// Protocol.
-	maxLtcFundingAmount = MaxBtcFundingAmount * chainreg.BtcToLtcConversionRate
 )
 
 var (
-	// MaxFundingAmount is a soft-limit of the maximum channel size
-	// currently accepted within the Lightning Protocol. This limit is
-	// defined in BOLT-0002, and serves as an initial precautionary limit
-	// while implementations are battle tested in the real world.
-	//
-	// At the moment, this value depends on which chain is active. It is set
-	// to the value under the Bitcoin chain as default.
-	//
-	// TODO(roasbeef): add command line param to modify
-	MaxFundingAmount = MaxBtcFundingAmount
-
 	// ErrFundingManagerShuttingDown is an error returned when attempting to
 	// process a funding request/message but the funding manager has already
 	// been signaled to shut down.

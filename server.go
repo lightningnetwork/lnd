@@ -39,6 +39,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/healthcheck"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -114,6 +115,17 @@ var (
 	// validColorRegexp is a regexp that lets you check if a particular
 	// color string matches the standard hex color format #RRGGBB.
 	validColorRegexp = regexp.MustCompile("^#[A-Fa-f0-9]{6}$")
+
+	// MaxFundingAmount is a soft-limit of the maximum channel size
+	// currently accepted within the Lightning Protocol. This is
+	// defined in BOLT-0002, and serves as an initial precautionary limit
+	// while implementations are battle tested in the real world.
+	//
+	// At the moment, this value depends on which chain is active. It is set
+	// to the value under the Bitcoin chain as default.
+	//
+	// TODO(roasbeef): add command line param to modify
+	MaxFundingAmount = funding.MaxBtcFundingAmount
 )
 
 // errPeerAlreadyConnected is an error returned by the server when we're
@@ -977,12 +989,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// Litecoin, depending on the primary registered chain.
 	primaryChain := cfg.registeredChains.PrimaryChain()
 	chainCfg := cfg.Bitcoin
-	minRemoteDelay := minBtcRemoteDelay
-	maxRemoteDelay := maxBtcRemoteDelay
+	minRemoteDelay := funding.MinBtcRemoteDelay
+	maxRemoteDelay := funding.MaxBtcRemoteDelay
 	if primaryChain == chainreg.LitecoinChain {
 		chainCfg = cfg.Litecoin
-		minRemoteDelay = minLtcRemoteDelay
-		maxRemoteDelay = maxLtcRemoteDelay
+		minRemoteDelay = funding.MinLtcRemoteDelay
+		maxRemoteDelay = funding.MaxLtcRemoteDelay
 	}
 
 	var chanIDSeed [32]byte

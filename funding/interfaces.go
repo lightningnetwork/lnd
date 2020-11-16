@@ -1,4 +1,4 @@
-package fmgr
+package funding
 
 import (
 	"github.com/lightningnetwork/lnd/lnpeer"

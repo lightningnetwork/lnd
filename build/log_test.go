@@ -75,6 +75,20 @@ func TestParseAndSetDebugLevels(t *testing.T) {
 				"SRVR": "debug",
 			},
 		},
+		{
+			name:       "valid global+subsystem debug level",
+			debugLevel: "trace,PEER=info,SRVR=debug",
+			expGlobal:  "trace",
+			expSubLevels: map[string]string{
+				"PEER": "info",
+				"SRVR": "debug",
+			},
+		},
+		{
+			name:       "invalid global+subsystem debug level",
+			debugLevel: "PEER=info,debug,SRVR=debug",
+			expErr:     "invalid",
+		},
 	}
 
 	for _, test := range testCases {

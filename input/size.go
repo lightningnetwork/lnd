@@ -115,6 +115,7 @@ const (
 	//	- Sequence: 4 bytes
 	InputSize = 32 + 4 + 1 + 4
 
+	// FundingInputSize 41 bytes
 	// FundingInputSize represents the size of an input to a funding
 	// transaction, and is equivalent to the size of a standard segwit input
 	// as calculated above.
@@ -204,31 +205,37 @@ const (
 	// HTLCWeight 172 weight
 	HTLCWeight = witnessScaleFactor * HTLCSize
 
+	// HtlcTimeoutWeight 663 weight
 	// HtlcTimeoutWeight is the weight of the HTLC timeout transaction
 	// which will transition an outgoing HTLC to the delay-and-claim state.
 	HtlcTimeoutWeight = 663
 
+	// HtlcSuccessWeight 703 weight
 	// HtlcSuccessWeight is the weight of the HTLC success transaction
 	// which will transition an incoming HTLC to the delay-and-claim state.
 	HtlcSuccessWeight = 703
 
+	// HtlcConfirmedScriptOverhead 3 bytes
 	// HtlcConfirmedScriptOverhead is the extra length of an HTLC script
 	// that requires confirmation before it can be spent. These extra bytes
 	// is a result of the extra CSV check.
 	HtlcConfirmedScriptOverhead = 3
 
+	// HtlcTimeoutWeightConfirmed 666 weight
 	// HtlcTimeoutWeightConfirmed is the weight of the HTLC timeout
 	// transaction which will transition an outgoing HTLC to the
 	// delay-and-claim state, for the confirmed HTLC outputs. It is 3 bytes
 	// larger because of the additional CSV check in the input script.
 	HtlcTimeoutWeightConfirmed = HtlcTimeoutWeight + HtlcConfirmedScriptOverhead
 
-	// HtlcSuccessWeightCOnfirmed is the weight of the HTLC success
+	// HtlcSuccessWeightConfirmed 706 weight
+	// HtlcSuccessWeightConfirmed is the weight of the HTLC success
 	// transaction which will transition an incoming HTLC to the
 	// delay-and-claim state, for the confirmed HTLC outputs. It is 3 bytes
 	// larger because of the cdditional CSV check in the input script.
 	HtlcSuccessWeightConfirmed = HtlcSuccessWeight + HtlcConfirmedScriptOverhead
 
+	// MaxHTLCNumber 966
 	// MaxHTLCNumber is the maximum number HTLCs which can be included in a
 	// commitment transaction. This limit was chosen such that, in the case
 	// of a contract breach, the punishment transaction is able to sweep
@@ -332,7 +339,7 @@ const (
 	AcceptedHtlcScriptSizeConfirmed = AcceptedHtlcScriptSize +
 		HtlcConfirmedScriptOverhead
 
-	// AcceptedHtlcTimeoutWitnessSize 216
+	// AcceptedHtlcTimeoutWitnessSize 217 bytes
 	//      - number_of_witness_elements: 1 byte
 	//      - sender_sig_length: 1 byte
 	//      - sender_sig: 73 bytes
@@ -341,11 +348,11 @@ const (
 	//      - witness_script: (accepted_htlc_script)
 	AcceptedHtlcTimeoutWitnessSize = 1 + 1 + 73 + 1 + 1 + AcceptedHtlcScriptSize
 
-	// AcceptedHtlcTimeoutWitnessSizeConfirmed 219 bytes
+	// AcceptedHtlcTimeoutWitnessSizeConfirmed 220 bytes
 	AcceptedHtlcTimeoutWitnessSizeConfirmed = 1 + 1 + 73 + 1 + 1 +
 		AcceptedHtlcScriptSizeConfirmed
 
-	// AcceptedHtlcPenaltyWitnessSize 249 bytes
+	// AcceptedHtlcPenaltyWitnessSize 250 bytes
 	//      - number_of_witness_elements: 1 byte
 	//      - revocation_sig_length: 1 byte
 	//      - revocation_sig: 73 bytes
@@ -355,11 +362,11 @@ const (
 	//      - witness_script (accepted_htlc_script)
 	AcceptedHtlcPenaltyWitnessSize = 1 + 1 + 73 + 1 + 33 + 1 + AcceptedHtlcScriptSize
 
-	// AcceptedHtlcPenaltyWitnessSizeConfirmed 252 bytes
+	// AcceptedHtlcPenaltyWitnessSizeConfirmed 253 bytes
 	AcceptedHtlcPenaltyWitnessSizeConfirmed = 1 + 1 + 73 + 1 + 33 + 1 +
 		AcceptedHtlcScriptSizeConfirmed
 
-	// AcceptedHtlcSuccessWitnessSize 319 bytes
+	// AcceptedHtlcSuccessWitnessSize 324 bytes
 	//      - number_of_witness_elements: 1 byte
 	//      - nil_length: 1 byte
 	//      - sig_alice_length: 1 byte
@@ -375,7 +382,7 @@ const (
 	AcceptedHtlcSuccessWitnessSize = 1 + 1 + 1 + 73 + 1 + 73 + 1 + 32 + 1 +
 		AcceptedHtlcScriptSize
 
-	// AcceptedHtlcSuccessWitnessSizeConfirmed 322 bytes
+	// AcceptedHtlcSuccessWitnessSizeConfirmed 327 bytes
 	//
 	// Input to second level success tx, spending 1 CSV delayed HTLC output.
 	AcceptedHtlcSuccessWitnessSizeConfirmed = 1 + 1 + 1 + 73 + 1 + 73 + 1 + 32 + 1 +
@@ -436,7 +443,7 @@ const (
 	OfferedHtlcSuccessWitnessSizeConfirmed = 1 + 1 + 73 + 1 + 32 + 1 +
 		OfferedHtlcScriptSizeConfirmed
 
-	// OfferedHtlcTimeoutWitnessSize 282 bytes
+	// OfferedHtlcTimeoutWitnessSize 285 bytes
 	//      - number_of_witness_elements: 1 byte
 	//      - nil_length: 1 byte
 	//      - sig_alice_length: 1 byte
@@ -451,7 +458,7 @@ const (
 	OfferedHtlcTimeoutWitnessSize = 1 + 1 + 1 + 73 + 1 + 73 + 1 + 1 +
 		OfferedHtlcScriptSize
 
-	// OfferedHtlcTimeoutWitnessSizeConfirmed 285 bytes
+	// OfferedHtlcTimeoutWitnessSizeConfirmed 288 bytes
 	//
 	// Input to second level timeout tx, spending 1 CSV delayed HTLC output.
 	OfferedHtlcTimeoutWitnessSizeConfirmed = 1 + 1 + 1 + 73 + 1 + 73 + 1 + 1 +

@@ -35,7 +35,7 @@ var (
 	TimelockShift = uint32(1 << 29)
 )
 
-// createHtlcSuccessTx creates a transaction that spends the output on the
+// CreateHtlcSuccessTx creates a transaction that spends the output on the
 // commitment transaction of the peer that receives an HTLC. This transaction
 // essentially acts as an off-chain covenant as it's only permitted to spend
 // the designated HTLC output, and also that spend can _only_ be used as a
@@ -45,7 +45,7 @@ var (
 // In order to spend the HTLC output, the witness for the passed transaction
 // should be:
 //   * <0> <sender sig> <recvr sig> <preimage>
-func createHtlcSuccessTx(chanType channeldb.ChannelType,
+func CreateHtlcSuccessTx(chanType channeldb.ChannelType,
 	htlcOutput wire.OutPoint, htlcAmt btcutil.Amount, csvDelay uint32,
 	revocationKey, delayKey *btcec.PublicKey) (*wire.MsgTx, error) {
 
@@ -85,7 +85,7 @@ func createHtlcSuccessTx(chanType channeldb.ChannelType,
 	return successTx, nil
 }
 
-// createHtlcTimeoutTx creates a transaction that spends the HTLC output on the
+// CreateHtlcTimeoutTx creates a transaction that spends the HTLC output on the
 // commitment transaction of the peer that created an HTLC (the sender). This
 // transaction essentially acts as an off-chain covenant as it spends a 2-of-2
 // multi-sig output. This output requires a signature from both the sender and
@@ -101,7 +101,7 @@ func createHtlcSuccessTx(chanType channeldb.ChannelType,
 // NOTE: The passed amount for the HTLC should take into account the required
 // fee rate at the time the HTLC was created. The fee should be able to
 // entirely pay for this (tiny: 1-in 1-out) transaction.
-func createHtlcTimeoutTx(chanType channeldb.ChannelType,
+func CreateHtlcTimeoutTx(chanType channeldb.ChannelType,
 	htlcOutput wire.OutPoint, htlcAmt btcutil.Amount,
 	cltvExpiry, csvDelay uint32,
 	revocationKey, delayKey *btcec.PublicKey) (*wire.MsgTx, error) {

@@ -273,8 +273,8 @@ type Config struct {
 	FetchLastChanUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate,
 		error)
 
-	// FundingManager is an implementation of the funding.Manager interface.
-	FundingManager funding.Manager
+	// FundingManager is an implementation of the funding.Controller interface.
+	FundingManager funding.Controller
 
 	// Hodl is used when creating ChannelLinks to specify HodlFlags as
 	// breakpoints in dev builds.

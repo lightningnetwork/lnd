@@ -1353,8 +1353,9 @@ func initializeDatabases(ctx context.Context,
 		"minutes...")
 
 	if cfg.DB.Backend == lncfg.BoltBackend {
-		ltndLog.Infof("Opening bbolt database, sync_freelist=%v",
-			cfg.DB.Bolt.SyncFreelist)
+		ltndLog.Infof("Opening bbolt database, sync_freelist=%v, "+
+			"auto_compact=%v", cfg.DB.Bolt.SyncFreelist,
+			cfg.DB.Bolt.AutoCompact)
 	}
 
 	startOpenTime := time.Now()

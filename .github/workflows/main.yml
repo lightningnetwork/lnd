@@ -129,12 +129,6 @@ jobs:
   cross-compile:
     name: cross compilation
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        build_sys:
-          - windows-amd64
-          - freebsd-amd64
-          - solaris-amd64
     steps:
       - name: git checkout
         uses: actions/checkout@v2
@@ -155,8 +149,8 @@ jobs:
         with:
           go-version: '~${{ env.GO_VERSION }}'
 
-      - name: build release for architecture
-        run: make release sys=${{ matrix.build_sys }}
+      - name: build release for all architectures
+        run: make release
 
   ########################
   # mobile compilation

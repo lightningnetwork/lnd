@@ -533,6 +533,19 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 			commitTxBroadcast, obfuscator,
 		)
 
+		// We'll go on to check whether it could be our own commitment
+		// that was published and know is confirmed.
+		ok, err = c.handleKnownLocalState(commitSpend, chainSet)
+		if err != nil {
+			log.Errorf("Unable to handle known local state: %v",
+				err)
+			return
+		}
+
+		if ok {
+			return
+		}
+
 		// Based on the output scripts within this commitment, we'll
 		// determine if this is our commitment transaction or not (a
 		// self force close).
@@ -722,6 +735,38 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 	case <-c.quit:
 		return
 	}
+}
+
+// handleKnownLocalState checks whether the passed spend is a local state that
+// is known to us (the current state). If so we will act on this state using
+// the passed chainSet. If this is not a known local state, false is returned.
+func (c *chainWatcher) handleKnownLocalState(
+	commitSpend *chainntnfs.SpendDetail, chainSet *chainSet) (bool, error) {
+
+	// If the channel is recovered, we won't have a local commit to check
+	// against, so immediately return.
+	if c.cfg.chanState.HasChanStatus(channeldb.ChanStatusRestored) {
+		return false, nil
+	}
+
+	commitTxBroadcast := commitSpend.SpendingTx
+	commitHash := commitTxBroadcast.TxHash()
+
+	// Check whether our latest local state hit the chain.
+	if chainSet.localCommit.CommitTx.TxHash() != commitHash {
+		return false, nil
+	}
+
+	chainSet.commitSet.ConfCommitKey = &LocalHtlcSet
+	if err := c.dispatchLocalForceClose(
+		commitSpend, chainSet.localCommit, chainSet.commitSet,
+	); err != nil {
+		return false, fmt.Errorf("unable to handle local"+
+			"close for chan_point=%v: %v",
+			c.cfg.chanState.FundingOutpoint, err)
+	}
+
+	return true, nil
 }
 
 // toSelfAmount takes a transaction and returns the sum of all outputs that pay

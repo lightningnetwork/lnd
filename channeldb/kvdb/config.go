@@ -30,6 +30,8 @@ type BoltConfig struct {
 
 // EtcdConfig holds etcd configuration.
 type EtcdConfig struct {
+	Embedded bool `long:"embedded" description:"Use embedded etcd instance instead of the external one."`
+
 	Host string `long:"host" description:"Etcd database host."`
 
 	User string `long:"user" description:"Etcd database user."`

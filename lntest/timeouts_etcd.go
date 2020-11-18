@@ -1,4 +1,4 @@
-// +build !darwin, !kvdb_etcd
+// +build !darwin, kvdb_etcd
 
 package lntest
 
@@ -15,7 +15,7 @@ const (
 
 	// ChannelCloseTimeout is the max time we will wait before a channel is
 	// considered closed.
-	ChannelCloseTimeout = time.Second * 30
+	ChannelCloseTimeout = time.Second * 120
 
 	// DefaultTimeout is a timeout that will be used for various wait
 	// scenarios where no custom timeout value is defined.

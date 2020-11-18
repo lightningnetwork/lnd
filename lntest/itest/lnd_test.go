@@ -12,7 +12,6 @@ import (
 	"io/ioutil"
 	"math"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -81,6 +80,9 @@ var (
 		"runtranche", defaultRunTranche, "run the tranche of the "+
 			"split test cases with the given (0-based) index",
 	)
+
+	// useEtcd test LND nodes use (embedded) etcd as remote db.
+	useEtcd = flag.Bool("etcd", false, "Use etcd backend for lnd.")
 )
 
 // getTestCaseSplitTranche returns the sub slice of the test cases that should
@@ -8238,13 +8240,12 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to create temp db folder: %v", err)
 	}
-	bobTempDbFile := filepath.Join(bobTempDbPath, "channel.db")
 	defer os.Remove(bobTempDbPath)
 
 	// With the temporary file created, copy Bob's current state into the
 	// temporary file we created above. Later after more updates, we'll
 	// restore this state.
-	if err := lntest.CopyFile(bobTempDbFile, net.Bob.DBPath()); err != nil {
+	if err := lntest.CopyAll(bobTempDbPath, net.Bob.DBDir()); err != nil {
 		t.Fatalf("unable to copy database files: %v", err)
 	}
 
@@ -8270,7 +8271,7 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	// state. With this, we essentially force Bob to travel back in time
 	// within the channel's history.
 	if err = net.RestartNode(net.Bob, func() error {
-		return os.Rename(bobTempDbFile, net.Bob.DBPath())
+		return lntest.CopyAll(net.Bob.DBDir(), bobTempDbPath)
 	}); err != nil {
 		t.Fatalf("unable to restart node: %v", err)
 	}
@@ -8493,13 +8494,12 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	if err != nil {
 		t.Fatalf("unable to create temp db folder: %v", err)
 	}
-	carolTempDbFile := filepath.Join(carolTempDbPath, "channel.db")
 	defer os.Remove(carolTempDbPath)
 
 	// With the temporary file created, copy Carol's current state into the
 	// temporary file we created above. Later after more updates, we'll
 	// restore this state.
-	if err := lntest.CopyFile(carolTempDbFile, carol.DBPath()); err != nil {
+	if err := lntest.CopyAll(carolTempDbPath, carol.DBDir()); err != nil {
 		t.Fatalf("unable to copy database files: %v", err)
 	}
 
@@ -8524,7 +8524,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	// state. With this, we essentially force Carol to travel back in time
 	// within the channel's history.
 	if err = net.RestartNode(carol, func() error {
-		return os.Rename(carolTempDbFile, carol.DBPath())
+		return lntest.CopyAll(carol.DBDir(), carolTempDbPath)
 	}); err != nil {
 		t.Fatalf("unable to restart node: %v", err)
 	}
@@ -8817,13 +8817,12 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	if err != nil {
 		t.Fatalf("unable to create temp db folder: %v", err)
 	}
-	carolTempDbFile := filepath.Join(carolTempDbPath, "channel.db")
 	defer os.Remove(carolTempDbPath)
 
 	// With the temporary file created, copy Carol's current state into the
 	// temporary file we created above. Later after more updates, we'll
 	// restore this state.
-	if err := lntest.CopyFile(carolTempDbFile, carol.DBPath()); err != nil {
+	if err := lntest.CopyAll(carolTempDbPath, carol.DBDir()); err != nil {
 		t.Fatalf("unable to copy database files: %v", err)
 	}
 
@@ -8857,7 +8856,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// state. With this, we essentially force Carol to travel back in time
 	// within the channel's history.
 	if err = net.RestartNode(carol, func() error {
-		return os.Rename(carolTempDbFile, carol.DBPath())
+		return lntest.CopyAll(carol.DBDir(), carolTempDbPath)
 	}); err != nil {
 		t.Fatalf("unable to restart node: %v", err)
 	}
@@ -9219,13 +9218,12 @@ func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 	if err != nil {
 		t.Fatalf("unable to create temp db folder: %v", err)
 	}
-	carolTempDbFile := filepath.Join(carolTempDbPath, "channel.db")
 	defer os.Remove(carolTempDbPath)
 
 	// With the temporary file created, copy Carol's current state into the
 	// temporary file we created above. Later after more updates, we'll
 	// restore this state.
-	if err := lntest.CopyFile(carolTempDbFile, carol.DBPath()); err != nil {
+	if err := lntest.CopyAll(carolTempDbPath, carol.DBDir()); err != nil {
 		t.Fatalf("unable to copy database files: %v", err)
 	}
 
@@ -9282,7 +9280,7 @@ func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 	// state. With this, we essentially force Carol to travel back in time
 	// within the channel's history.
 	if err = net.RestartNode(carol, func() error {
-		return os.Rename(carolTempDbFile, carol.DBPath())
+		return lntest.CopyAll(carol.DBDir(), carolTempDbPath)
 	}); err != nil {
 		t.Fatalf("unable to restart node: %v", err)
 	}
@@ -9766,13 +9764,12 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 		if err != nil {
 			t.Fatalf("unable to create temp db folder: %v", err)
 		}
-		tempDbFile := filepath.Join(tempDbPath, "channel.db")
 		defer os.Remove(tempDbPath)
 
 		// With the temporary file created, copy the current state into
 		// the temporary file we created above. Later after more
 		// updates, we'll restore this state.
-		if err := lntest.CopyFile(tempDbFile, node.DBPath()); err != nil {
+		if err := lntest.CopyAll(tempDbPath, node.DBDir()); err != nil {
 			t.Fatalf("unable to copy database files: %v", err)
 		}
 
@@ -9799,7 +9796,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 		// force the node to travel back in time within the channel's
 		// history.
 		if err = net.RestartNode(node, func() error {
-			return os.Rename(tempDbFile, node.DBPath())
+			return lntest.CopyAll(node.DBDir(), tempDbPath)
 		}); err != nil {
 			t.Fatalf("unable to restart node: %v", err)
 		}
@@ -11607,10 +11604,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	var predErr error
 	err = wait.Predicate(func() bool {
 		predErr = assertNumActiveHtlcs(nodes, numPayments)
-		if predErr != nil {
-			return false
-		}
-		return true
+		return predErr == nil
 	}, time.Second*15)
 	if err != nil {
 		t.Fatalf("htlc mismatch: %v", predErr)
@@ -14250,7 +14244,9 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// Now we can set up our test harness (LND instance), with the chain
 	// backend we just created.
 	binary := ht.getLndBinary()
-	lndHarness, err = lntest.NewNetworkHarness(miner, chainBackend, binary)
+	lndHarness, err = lntest.NewNetworkHarness(
+		miner, chainBackend, binary, *useEtcd,
+	)
 	if err != nil {
 		ht.Fatalf("unable to create lightning network harness: %v", err)
 	}

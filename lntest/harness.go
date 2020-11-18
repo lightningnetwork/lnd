@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -60,6 +61,10 @@ type NetworkHarness struct {
 	Alice *HarnessNode
 	Bob   *HarnessNode
 
+	// useEtcd is set to true if new nodes are to be created with an
+	// embedded etcd backend instead of just bbolt.
+	useEtcd bool
+
 	// Channel for transmitting stderr output from failed lightning node
 	// to main process.
 	lndErrorChan chan error
@@ -77,8 +82,8 @@ type NetworkHarness struct {
 // TODO(roasbeef): add option to use golang's build library to a binary of the
 // current repo. This will save developers from having to manually `go install`
 // within the repo each time before changes
-func NewNetworkHarness(r *rpctest.Harness, b BackendConfig, lndBinary string) (
-	*NetworkHarness, error) {
+func NewNetworkHarness(r *rpctest.Harness, b BackendConfig, lndBinary string,
+	useEtcd bool) (*NetworkHarness, error) {
 
 	feeService := startFeeService()
 
@@ -92,6 +97,7 @@ func NewNetworkHarness(r *rpctest.Harness, b BackendConfig, lndBinary string) (
 		feeService:   feeService,
 		quit:         make(chan struct{}),
 		lndBinary:    lndBinary,
+		useEtcd:      useEtcd,
 	}
 	return &n, nil
 }
@@ -376,6 +382,7 @@ func (n *NetworkHarness) newNode(name string, extraArgs []string, hasSeed bool,
 		NetParams:         n.netParams,
 		ExtraArgs:         extraArgs,
 		FeeURL:            n.feeService.url,
+		Etcd:              n.useEtcd,
 	})
 	if err != nil {
 		return nil, err
@@ -1396,4 +1403,48 @@ func CopyFile(dest, src string) error {
 	}
 
 	return d.Close()
+}
+
+// FileExists returns true if the file at path exists.
+func FileExists(path string) bool {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return false
+	}
+
+	return true
+}
+
+// CopyAll copies all files and directories from srcDir to dstDir recursively.
+// Note that this function does not support links.
+func CopyAll(dstDir, srcDir string) error {
+	entries, err := ioutil.ReadDir(srcDir)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(srcDir, entry.Name())
+		dstPath := filepath.Join(dstDir, entry.Name())
+
+		info, err := os.Stat(srcPath)
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			err := os.Mkdir(dstPath, info.Mode())
+			if err != nil && !os.IsExist(err) {
+				return err
+			}
+
+			err = CopyAll(dstPath, srcPath)
+			if err != nil {
+				return err
+			}
+		} else if err := CopyFile(dstPath, srcPath); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

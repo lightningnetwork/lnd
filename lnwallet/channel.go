@@ -6038,7 +6038,7 @@ func (lc *LightningChannel) ForceClose() (*LocalForceCloseSummary, error) {
 	localCommitment := lc.channelState.LocalCommitment
 	summary, err := NewLocalForceCloseSummary(
 		lc.channelState, lc.Signer, commitTx,
-		localCommitment,
+		localCommitment.CommitHeight,
 	)
 	if err != nil {
 		return nil, err
@@ -6054,8 +6054,8 @@ func (lc *LightningChannel) ForceClose() (*LocalForceCloseSummary, error) {
 // NewLocalForceCloseSummary generates a LocalForceCloseSummary from the given
 // channel state.  The passed commitTx must be a fully signed commitment
 // transaction corresponding to localCommit.
-func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel, signer input.Signer,
-	commitTx *wire.MsgTx, localCommit channeldb.ChannelCommitment) (
+func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
+	signer input.Signer, commitTx *wire.MsgTx, stateNum uint64) (
 	*LocalForceCloseSummary, error) {
 
 	// Re-derive the original pkScript for to-self output within the
@@ -6063,9 +6063,11 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	// output in the commitment transaction and potentially for creating
 	// the sign descriptor.
 	csvTimeout := uint32(chanState.LocalChanCfg.CsvDelay)
-	revocation, err := chanState.RevocationProducer.AtIndex(
-		localCommit.CommitHeight,
-	)
+
+	// We use the passed state num to derive our scripts, since in case
+	// this is after recovery, our latest channels state might not be up to
+	// date.
+	revocation, err := chanState.RevocationProducer.AtIndex(stateNum)
 	if err != nil {
 		return nil, err
 	}
@@ -6090,8 +6092,8 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	// We'll return the details of this output to the caller so they can
 	// sweep it once it's mature.
 	var (
-		delayIndex  uint32
-		delayScript []byte
+		delayIndex uint32
+		delayOut   *wire.TxOut
 	)
 	for i, txOut := range commitTx.TxOut {
 		if !bytes.Equal(payToUsScriptHash, txOut.PkScript) {
@@ -6099,7 +6101,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 		}
 
 		delayIndex = uint32(i)
-		delayScript = txOut.PkScript
+		delayOut = txOut
 		break
 	}
 
@@ -6110,8 +6112,8 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	// If the output is non-existent (dust), have the sign descriptor be
 	// nil.
 	var commitResolution *CommitOutputResolution
-	if len(delayScript) != 0 {
-		localBalance := localCommit.LocalBalance
+	if delayOut != nil {
+		localBalance := delayOut.Value
 		commitResolution = &CommitOutputResolution{
 			SelfOutPoint: wire.OutPoint{
 				Hash:  commitTx.TxHash(),
@@ -6122,8 +6124,8 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 				SingleTweak:   keyRing.LocalCommitKeyTweak,
 				WitnessScript: selfScript,
 				Output: &wire.TxOut{
-					PkScript: delayScript,
-					Value:    int64(localBalance.ToSatoshis()),
+					PkScript: delayOut.PkScript,
+					Value:    localBalance,
 				},
 				HashType: txscript.SigHashAll,
 			},
@@ -6133,8 +6135,11 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 
 	// Once the delay output has been found (if it exists), then we'll also
 	// need to create a series of sign descriptors for any lingering
-	// outgoing HTLC's that we'll need to claim as well.
+	// outgoing HTLC's that we'll need to claim as well. If this is after
+	// recovery there is not much we can do with HTLCs, so we'll always
+	// use what we have in our latest state when extracting resolutions.
 	txHash := commitTx.TxHash()
+	localCommit := chanState.LocalCommitment
 	htlcResolutions, err := extractHtlcResolutions(
 		chainfee.SatPerKWeight(localCommit.FeePerKw), true, signer,
 		localCommit.Htlcs, keyRing, &chanState.LocalChanCfg,

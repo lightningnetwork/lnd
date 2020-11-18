@@ -411,7 +411,7 @@ func (c *chainWatcher) handleUnknownLocalState(
 	// though we won't be able to sweep HTLCs.
 	chainSet.commitSet.ConfCommitKey = &LocalHtlcSet
 	if err := c.dispatchLocalForceClose(
-		commitSpend, chainSet.localCommit, chainSet.commitSet,
+		commitSpend, broadcastStateNum, chainSet.commitSet,
 	); err != nil {
 		return false, fmt.Errorf("unable to handle local"+
 			"close for chan_point=%v: %v",
@@ -564,7 +564,9 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 
 		// We'll go on to check whether it could be our own commitment
 		// that was published and know is confirmed.
-		ok, err = c.handleKnownLocalState(commitSpend, chainSet)
+		ok, err = c.handleKnownLocalState(
+			commitSpend, broadcastStateNum, chainSet,
+		)
 		if err != nil {
 			log.Errorf("Unable to handle known local state: %v",
 				err)
@@ -657,7 +659,8 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 // is known to us (the current state). If so we will act on this state using
 // the passed chainSet. If this is not a known local state, false is returned.
 func (c *chainWatcher) handleKnownLocalState(
-	commitSpend *chainntnfs.SpendDetail, chainSet *chainSet) (bool, error) {
+	commitSpend *chainntnfs.SpendDetail, broadcastStateNum uint64,
+	chainSet *chainSet) (bool, error) {
 
 	// If the channel is recovered, we won't have a local commit to check
 	// against, so immediately return.
@@ -675,7 +678,7 @@ func (c *chainWatcher) handleKnownLocalState(
 
 	chainSet.commitSet.ConfCommitKey = &LocalHtlcSet
 	if err := c.dispatchLocalForceClose(
-		commitSpend, chainSet.localCommit, chainSet.commitSet,
+		commitSpend, broadcastStateNum, chainSet.commitSet,
 	); err != nil {
 		return false, fmt.Errorf("unable to handle local"+
 			"close for chan_point=%v: %v",
@@ -945,14 +948,14 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 // dispatchLocalForceClose processes a unilateral close by us being confirmed.
 func (c *chainWatcher) dispatchLocalForceClose(
 	commitSpend *chainntnfs.SpendDetail,
-	localCommit channeldb.ChannelCommitment, commitSet CommitSet) error {
+	stateNum uint64, commitSet CommitSet) error {
 
 	log.Infof("Local unilateral close of ChannelPoint(%v) "+
 		"detected", c.cfg.chanState.FundingOutpoint)
 
 	forceClose, err := lnwallet.NewLocalForceCloseSummary(
 		c.cfg.chanState, c.cfg.signer,
-		commitSpend.SpendingTx, localCommit,
+		commitSpend.SpendingTx, stateNum,
 	)
 	if err != nil {
 		return err

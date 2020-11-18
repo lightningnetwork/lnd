@@ -364,7 +364,7 @@ func mergeNodeMaps(c map[NodeID]LocalChannel,
 		numNodes += len(skip)
 	}
 
-	res := make(map[NodeID]struct{}, len(c)+numNodes)
+	res := make(map[NodeID]struct{}, numNodes)
 	for nodeID := range c {
 		res[nodeID] = struct{}{}
 	}

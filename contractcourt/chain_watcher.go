@@ -613,78 +613,25 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 		log.Warnf("Unprompted commitment broadcast for "+
 			"ChannelPoint(%v) ", c.cfg.chanState.FundingOutpoint)
 
-		// If this channel has been recovered, then we'll modify our
-		// behavior as it isn't possible for us to close out the
-		// channel off-chain ourselves. It can only be the remote party
-		// force closing, or a cooperative closure we signed off on
-		// before losing data getting confirmed in the chain.
-		isRecoveredChan := c.cfg.chanState.HasChanStatus(
-			channeldb.ChanStatusRestored,
+		// Since it was neither a known remote state, nor a local state
+		// that was published, it most likely mean we lost state and
+		// the remote node closed. In this case we must start the DLP
+		// protocol in hope of getting our money back.
+		ok, err = c.handleUnknownRemoteState(
+			commitSpend, broadcastStateNum, chainSet,
 		)
-
-		switch {
-		// If the remote party has broadcasted a state beyond our best
-		// known state for them, and they don't have a pending
-		// commitment (we write them to disk before sending out), then
-		// this means that we've lost data. In this case, we'll enter
-		// the DLP protocol. Otherwise, if we've recovered our channel
-		// state from scratch, then we don't know what the precise
-		// current state is, so we assume either the remote party
-		// forced closed or we've been breached. In the latter case,
-		// our tower will take care of us.
-		case broadcastStateNum > chainSet.remoteStateNum || isRecoveredChan:
-			log.Warnf("Remote node broadcast state #%v, "+
-				"which is more than 1 beyond best known "+
-				"state #%v!!! Attempting recovery...",
-				broadcastStateNum, chainSet.remoteStateNum)
-
-			// If this isn't a tweakless commitment, then we'll
-			// need to wait for the remote party's latest unrevoked
-			// commitment point to be presented to us as we need
-			// this to sweep. Otherwise, we can dispatch the remote
-			// close and sweep immediately using a fake commitPoint
-			// as it isn't actually needed for recovery anymore.
-			commitPoint := c.cfg.chanState.RemoteCurrentRevocation
-			tweaklessCommit := c.cfg.chanState.ChanType.IsTweakless()
-			if !tweaklessCommit {
-				commitPoint = c.waitForCommitmentPoint()
-				if commitPoint == nil {
-					return
-				}
-
-				log.Infof("Recovered commit point(%x) for "+
-					"channel(%v)! Now attempting to use it to "+
-					"sweep our funds...",
-					commitPoint.SerializeCompressed(),
-					c.cfg.chanState.FundingOutpoint)
-
-			} else {
-				log.Infof("ChannelPoint(%v) is tweakless, "+
-					"moving to sweep directly on chain",
-					c.cfg.chanState.FundingOutpoint)
-			}
-
-			// Since we don't have the commitment stored for this
-			// state, we'll just pass an empty commitment within
-			// the commitment set. Note that this means we won't be
-			// able to recover any HTLC funds.
-			//
-			// TODO(halseth): can we try to recover some HTLCs?
-			chainSet.commitSet.ConfCommitKey = &RemoteHtlcSet
-			err = c.dispatchRemoteForceClose(
-				commitSpend, channeldb.ChannelCommitment{},
-				chainSet.commitSet, commitPoint,
-			)
-			if err != nil {
-				log.Errorf("unable to handle remote "+
-					"close for chan_point=%v: %v",
-					c.cfg.chanState.FundingOutpoint, err)
-			}
-
+		if err != nil {
+			log.Errorf("Unable to handle unknown remote state: %v",
+				err)
+			return
 		}
 
-		// Now that a spend has been detected, we've done our job, so
-		// we'll exit immediately.
+		if ok {
+			return
+		}
+
+		log.Warnf("Unable to handle spending tx %v of channel point %v",
+			commitTxBroadcast.TxHash(), c.cfg.chanState.FundingOutpoint)
 		return
 
 	// The chainWatcher has been signalled to exit, so we'll do so now.
@@ -828,6 +775,64 @@ func (c *chainWatcher) handleKnownRemoteState(
 	if err != nil {
 		return false, fmt.Errorf("unable to handle channel "+
 			"breach for chan_point=%v: %v",
+			c.cfg.chanState.FundingOutpoint, err)
+	}
+
+	return true, nil
+}
+
+// handleUnknownRemoteState is the last attempt we make at reclaiming funds
+// from the closed channel, by checkin whether the passed spend _could_ be a
+// remote spend that is unknown to us (we lost state). We will try to initiate
+// Data Loss Protection in order to restore our commit point and reclaim our
+// funds from the channel. If we are not able to act on it, false is returned.
+func (c *chainWatcher) handleUnknownRemoteState(
+	commitSpend *chainntnfs.SpendDetail, broadcastStateNum uint64,
+	chainSet *chainSet) (bool, error) {
+
+	log.Warnf("Remote node broadcast state #%v, "+
+		"which is more than 1 beyond best known "+
+		"state #%v!!! Attempting recovery...",
+		broadcastStateNum, chainSet.remoteStateNum)
+
+	// If this isn't a tweakless commitment, then we'll need to wait for
+	// the remote party's latest unrevoked commitment point to be presented
+	// to us as we need this to sweep. Otherwise, we can dispatch the
+	// remote close and sweep immediately using a fake commitPoint as it
+	// isn't actually needed for recovery anymore.
+	commitPoint := c.cfg.chanState.RemoteCurrentRevocation
+	tweaklessCommit := c.cfg.chanState.ChanType.IsTweakless()
+	if !tweaklessCommit {
+		commitPoint = c.waitForCommitmentPoint()
+		if commitPoint == nil {
+			return false, fmt.Errorf("unable to get commit point")
+		}
+
+		log.Infof("Recovered commit point(%x) for "+
+			"channel(%v)! Now attempting to use it to "+
+			"sweep our funds...",
+			commitPoint.SerializeCompressed(),
+			c.cfg.chanState.FundingOutpoint)
+
+	} else {
+		log.Infof("ChannelPoint(%v) is tweakless, "+
+			"moving to sweep directly on chain",
+			c.cfg.chanState.FundingOutpoint)
+	}
+
+	// Since we don't have the commitment stored for this state, we'll just
+	// pass an empty commitment within the commitment set. Note that this
+	// means we won't be able to recover any HTLC funds.
+	//
+	// TODO(halseth): can we try to recover some HTLCs?
+	chainSet.commitSet.ConfCommitKey = &RemoteHtlcSet
+	err := c.dispatchRemoteForceClose(
+		commitSpend, channeldb.ChannelCommitment{},
+		chainSet.commitSet, commitPoint,
+	)
+	if err != nil {
+		return false, fmt.Errorf("unable to handle remote "+
+			"close for chan_point=%v: %v",
 			c.cfg.chanState.FundingOutpoint, err)
 	}
 

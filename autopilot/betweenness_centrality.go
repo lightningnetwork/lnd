@@ -84,7 +84,7 @@ func NewBetweennessCentralityMetric(workers int) (*BetweennessCentrality, error)
 
 // Name returns the name of the metric.
 func (bc *BetweennessCentrality) Name() string {
-	return "betweeness_centrality"
+	return "betweenness_centrality"
 }
 
 // betweennessCentrality is the core of Brandes' algorithm.

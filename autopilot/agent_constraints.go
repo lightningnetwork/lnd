@@ -8,7 +8,7 @@ import (
 // limits it will need to stay inside when opening channels.
 type AgentConstraints interface {
 	// ChannelBudget should, given the passed parameters, return whether
-	// more channels can be be opened while still staying within the set
+	// more channels can be opened while still staying within the set
 	// constraints. If the constraints allow us to open more channels, then
 	// the first return value will represent the amount of additional funds
 	// available towards creating channels. The second return value is the
@@ -39,15 +39,15 @@ type agentConstraints struct {
 	// create.
 	minChanSize btcutil.Amount
 
-	// maxChanSize the largest channel that the autopilot agent should
+	// maxChanSize is the largest channel that the autopilot agent should
 	// create.
 	maxChanSize btcutil.Amount
 
-	// chanLimit the maximum number of channels that should be created.
+	// chanLimit is the maximum number of channels that should be created.
 	chanLimit uint16
 
-	// allocation the percentage of total funds that should be committed to
-	// automatic channel establishment.
+	// allocation is the percentage of total funds that should be committed
+	// to automatic channel establishment.
 	allocation float64
 
 	// maxPendingOpens is the maximum number of pending channel

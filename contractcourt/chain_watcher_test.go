@@ -446,7 +446,7 @@ func TestChainWatcherLocalForceCloseDetect(t *testing.T) {
 	// table driven tests. We'll assert that for any number of state
 	// updates, and if the commitment transaction has our output or not,
 	// we're able to properly detect a local force close.
-	localForceCloseScenario := func(t *testing.T, numUpdates uint8,
+	localForceCloseScenario := func(t *testing.T, numUpdates, localState uint8,
 		remoteOutputOnly, localOutputOnly bool) bool {
 
 		// First, we'll create two channels which already have
@@ -475,7 +475,7 @@ func TestChainWatcherLocalForceCloseDetect(t *testing.T) {
 		defer cleanStates()
 
 		// We'll use the state this test case wants Alice to start at.
-		aliceChanState := states[numUpdates]
+		aliceChanState := states[localState]
 
 		// With the channels created, we'll now create a chain watcher
 		// instance which will be watching for any closes of Alice's
@@ -530,7 +530,19 @@ func TestChainWatcherLocalForceCloseDetect(t *testing.T) {
 		// should be able to detect the close based on the commitment
 		// outputs.
 		select {
-		case <-chanEvents.LocalUnilateralClosure:
+		case summary := <-chanEvents.LocalUnilateralClosure:
+			// Make sure we correctly extracted the commit
+			// resolution if we had a local output.
+			if remoteOutputOnly {
+				if summary.CommitResolution != nil {
+					t.Fatalf("expected no commit resolution")
+				}
+			} else {
+				if summary.CommitResolution == nil {
+					t.Fatalf("expected commit resolution")
+				}
+			}
+
 			return true
 
 		case <-time.After(time.Second * 5):
@@ -544,31 +556,53 @@ func TestChainWatcherLocalForceCloseDetect(t *testing.T) {
 	// present and absent with non or some number of updates in the channel.
 	testCases := []struct {
 		numUpdates       uint8
+		localState       uint8
 		remoteOutputOnly bool
 		localOutputOnly  bool
 	}{
 		{
 			numUpdates:       0,
+			localState:       0,
 			remoteOutputOnly: true,
 		},
 		{
 			numUpdates:       0,
+			localState:       0,
 			remoteOutputOnly: false,
 		},
 		{
 			numUpdates:      0,
+			localState:      0,
 			localOutputOnly: true,
 		},
 		{
 			numUpdates:       20,
+			localState:       20,
 			remoteOutputOnly: false,
 		},
 		{
 			numUpdates:       20,
+			localState:       20,
 			remoteOutputOnly: true,
 		},
 		{
 			numUpdates:      20,
+			localState:      20,
+			localOutputOnly: true,
+		},
+		{
+			numUpdates:       20,
+			localState:       5,
+			remoteOutputOnly: false,
+		},
+		{
+			numUpdates:       20,
+			localState:       5,
+			remoteOutputOnly: true,
+		},
+		{
+			numUpdates:      20,
+			localState:      5,
 			localOutputOnly: true,
 		},
 	}
@@ -584,7 +618,8 @@ func TestChainWatcherLocalForceCloseDetect(t *testing.T) {
 			t.Parallel()
 
 			localForceCloseScenario(
-				t, testCase.numUpdates, testCase.remoteOutputOnly,
+				t, testCase.numUpdates, testCase.localState,
+				testCase.remoteOutputOnly,
 				testCase.localOutputOnly,
 			)
 		})

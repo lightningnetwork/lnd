@@ -1,4 +1,4 @@
-// +build !darwin, !kvdb_etcd
+// +build !darwin,!kvdb_etcd
 
 package lntest
 

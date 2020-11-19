@@ -29,6 +29,13 @@ function red() {
 function check_tag_correct() {
   local tag=$1
 
+  # For automated builds we can skip this check as they will only be triggered
+  # on tags.
+  if [[ "$SKIP_VERSION_CHECK" -eq "1" ]]; then
+    green "skipping version check, assuming automated build"
+    exit 0
+  fi
+
   # If a tag is specified, ensure that that tag is present and checked out.
   if [[ $tag != $(git describe) ]]; then
     red "tag $tag not checked out"

@@ -143,8 +143,8 @@ func (f *interceptedForward) Resume(outgoingAmount lnwire.MilliSatoshi, outgoing
 }
 
 // Fail forward a failed packet to the switch.
-func (f *interceptedForward) Fail() error {
-	reason, err := f.packet.obfuscator.EncryptFirstHop(lnwire.NewTemporaryChannelFailure(nil))
+func (f *interceptedForward) Fail(failureMessage lnwire.FailureMessage) error {
+	reason, err := f.packet.obfuscator.EncryptFirstHop(failureMessage)
 	if err != nil {
 		return fmt.Errorf("failed to encrypt failure reason %v", err)
 	}

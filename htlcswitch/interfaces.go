@@ -255,7 +255,7 @@ type InterceptedForward interface {
 	Settle(lntypes.Preimage) error
 
 	// Fails notifies the intention to fail an existing hold forward
-	Fail() error
+	Fail(lnwire.FailureMessage) error
 }
 
 // htlcNotifier is an interface which represents the input side of the

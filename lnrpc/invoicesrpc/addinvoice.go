@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
@@ -329,7 +330,10 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 	payReqString, err := payReq.Encode(
 		zpay32.MessageSigner{
-			SignCompact: cfg.NodeSigner.SignDigestCompact,
+			SignCompact: func(msg []byte) ([]byte, error) {
+				hash := chainhash.HashB(msg)
+				return cfg.NodeSigner.SignDigestCompact(hash)
+			},
 		},
 	)
 	if err != nil {

@@ -398,7 +398,7 @@ func mergeChanState(pendingChans map[NodeID]LocalChannel,
 // controller implements the closed-loop control system of the Agent. The
 // controller will make a decision w.r.t channel placement within the graph
 // based on: its current internal state of the set of active channels open,
-// and external state changes as a result of decisions it  makes w.r.t channel
+// and external state changes as a result of decisions it makes w.r.t channel
 // allocation, or attributes affecting its control loop being updated by the
 // backing Lightning Node.
 func (a *Agent) controller() {
@@ -690,7 +690,7 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 	// available to open channels. If there are any, we will attempt
 	// to dispatch the retrieved directives since we can't be
 	// certain which ones may actually succeed. If too many
-	// connections succeed, we will they will be ignored and made
+	// connections succeed, they will be ignored and made
 	// available to future heuristic selections.
 	a.pendingMtx.Lock()
 	defer a.pendingMtx.Unlock()

@@ -655,6 +655,12 @@ message ForwardHtlcInterceptResponse {
 
     // The preimage in case the resolve action is Settle.
     bytes preimage = 3;
+
+    // The outgoing htlc amount.
+    uint64 outgoing_amount_msat = 4;
+
+    // The onion blob for the next hop.
+    bytes onion_blob = 5;
 }
 
 enum ResolveHoldForwardAction {

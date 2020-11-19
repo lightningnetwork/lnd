@@ -189,7 +189,7 @@ func (r *forwardInterceptor) resolveFromClient(
 	case ResolveHoldForwardAction_RESUME:
 		var onionBlob [lnwire.OnionPacketSize]byte
 		copy(onionBlob[:], in.OnionBlob)
-		return interceptedForward.Resume(lnwire.MilliSatoshi(in.OutgoingAmountMsat), onionBlob)
+		return interceptedForward.Resume(lnwire.MilliSatoshi(in.OutgoingAmountMsat), lnwire.NewShortChanIDFromInt(in.OutgoingRequestedChanId), onionBlob)
 	case ResolveHoldForwardAction_FAIL:
 		return interceptedForward.Fail()
 	case ResolveHoldForwardAction_SETTLE:
@@ -215,7 +215,7 @@ func (r *forwardInterceptor) onDisconnect() {
 
 	log.Infof("RPC interceptor disconnected, resolving held packets")
 	for key, forward := range r.holdForwards {
-		if err := forward.Resume(forward.Packet().OutgoingAmount, forward.Packet().OnionBlob); err != nil {
+		if err := forward.Resume(forward.Packet().OutgoingAmount, forward.Packet().OutgoingChanID, forward.Packet().OnionBlob); err != nil {
 			log.Errorf("failed to resume hold forward %v", err)
 		}
 		delete(r.holdForwards, key)

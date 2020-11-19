@@ -659,8 +659,14 @@ message ForwardHtlcInterceptResponse {
     // The outgoing htlc amount.
     uint64 outgoing_amount_msat = 4;
 
+    // The requested outgoing channel id for this forwarded htlc. Because of
+    // non-strict forwarding, this isn't necessarily the channel over which the
+    // packet will be forwarded eventually. A different channel to the same peer
+    // may be selected as well.
+    uint64 outgoing_requested_chan_id = 5;
+
     // The onion blob for the next hop.
-    bytes onion_blob = 5;
+    bytes onion_blob = 6;
 }
 
 enum ResolveHoldForwardAction {

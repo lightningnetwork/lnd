@@ -133,11 +133,12 @@ func (f *interceptedForward) Packet() InterceptedPacket {
 }
 
 // Resume resumes the default behavior as if the packet was not intercepted.
-func (f *interceptedForward) Resume(outgoingAmount lnwire.MilliSatoshi, onionBlob [lnwire.OnionPacketSize]byte) error {
+func (f *interceptedForward) Resume(outgoingAmount lnwire.MilliSatoshi, outgoingChanID lnwire.ShortChannelID, onionBlob [lnwire.OnionPacketSize]byte) error {
 	f.htlc.OnionBlob = onionBlob
 	f.htlc.Amount = outgoingAmount
 	f.packet.htlc = f.htlc
 	f.packet.amount = outgoingAmount
+	f.packet.outgoingChanID = outgoingChanID
 	return f.htlcSwitch.ForwardPackets(f.linkQuit, f.packet)
 }
 

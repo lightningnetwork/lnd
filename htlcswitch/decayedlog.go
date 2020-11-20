@@ -73,6 +73,7 @@ func NewDecayedLog(dbPath, dbFileName string, boltCfg *kvdb.BoltConfig,
 		NoFreelistSync:    true,
 		AutoCompact:       boltCfg.AutoCompact,
 		AutoCompactMinAge: boltCfg.AutoCompactMinAge,
+		DBTimeout:         boltCfg.DBTimeout,
 	}
 
 	// Use default path for log database

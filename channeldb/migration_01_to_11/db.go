@@ -55,7 +55,10 @@ func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 
 	// Specify bbolt freelist options to reduce heap pressure in case the
 	// freelist grows to be very large.
-	bdb, err := kvdb.Open(kvdb.BoltBackendName, path, opts.NoFreelistSync)
+	bdb, err := kvdb.Open(
+		kvdb.BoltBackendName, path,
+		opts.NoFreelistSync, opts.DBTimeout,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +87,9 @@ func createChannelDB(dbPath string) error {
 	}
 
 	path := filepath.Join(dbPath, dbName)
-	bdb, err := kvdb.Create(kvdb.BoltBackendName, path, false)
+	bdb, err := kvdb.Create(
+		kvdb.BoltBackendName, path, false, kvdb.DefaultDBTimeout,
+	)
 	if err != nil {
 		return err
 	}

@@ -80,6 +80,10 @@ type Config struct {
 	// freelist to disk, resulting in improved performance at the expense of
 	// increased startup time.
 	NoFreelistSync bool
+
+	// DBTimeOut specifies the timeout value to use when opening the wallet
+	// database.
+	DBTimeOut time.Duration
 }
 
 // NetworkDir returns the directory name of a network directory to hold wallet

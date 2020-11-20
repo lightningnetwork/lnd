@@ -28,6 +28,7 @@ func DefaultDB() *DB {
 		Backend: BoltBackend,
 		Bolt: &kvdb.BoltConfig{
 			AutoCompactMinAge: kvdb.DefaultBoltAutoCompactMinAge,
+			DBTimeout:         kvdb.DefaultDBTimeout,
 		},
 	}
 }
@@ -90,6 +91,7 @@ func (db *DB) GetBackends(ctx context.Context, dbPath string,
 	localDB, err = kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
 		DBPath:            dbPath,
 		DBFileName:        dbName,
+		DBTimeout:         db.Bolt.DBTimeout,
 		NoFreelistSync:    !db.Bolt.SyncFreelist,
 		AutoCompact:       db.Bolt.AutoCompact,
 		AutoCompactMinAge: db.Bolt.AutoCompactMinAge,

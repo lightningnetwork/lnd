@@ -3210,6 +3210,7 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			// instance, and initialize a btcwallet driver for it.
 			aliceDB, err := walletdb.Create(
 				"bdb", tempTestDirAlice+"/neutrino.db", true,
+				kvdb.DefaultDBTimeout,
 			)
 			if err != nil {
 				t.Fatalf("unable to create DB: %v", err)
@@ -3238,6 +3239,7 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			// instance, and initialize a btcwallet driver for it.
 			bobDB, err := walletdb.Create(
 				"bdb", tempTestDirBob+"/neutrino.db", true,
+				kvdb.DefaultDBTimeout,
 			)
 			if err != nil {
 				t.Fatalf("unable to create DB: %v", err)

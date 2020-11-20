@@ -24,6 +24,7 @@ import (
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightninglabs/neutrino"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 )
 
 var (
@@ -268,7 +269,9 @@ func NewNeutrinoBackend(t *testing.T, minerAddr string) (*neutrino.ChainService,
 	}
 
 	dbName := filepath.Join(spvDir, "neutrino.db")
-	spvDatabase, err := walletdb.Create("bdb", dbName, true)
+	spvDatabase, err := walletdb.Create(
+		"bdb", dbName, true, kvdb.DefaultDBTimeout,
+	)
 	if err != nil {
 		os.RemoveAll(spvDir)
 		t.Fatalf("unable to create walletdb: %v", err)

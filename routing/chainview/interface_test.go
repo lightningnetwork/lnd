@@ -27,6 +27,7 @@ import (
 
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 )
 
 var (
@@ -846,7 +847,9 @@ var interfaceImpls = []struct {
 			}
 
 			dbName := filepath.Join(spvDir, "neutrino.db")
-			spvDatabase, err := walletdb.Create("bdb", dbName, true)
+			spvDatabase, err := walletdb.Create(
+				"bdb", dbName, true, kvdb.DefaultDBTimeout,
+			)
 			if err != nil {
 				return nil, nil, err
 			}

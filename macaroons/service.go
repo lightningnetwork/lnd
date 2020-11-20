@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"google.golang.org/grpc"
@@ -76,7 +77,7 @@ type Service struct {
 // such as those for `allow`, `time-before`, `declared`, and `error` caveats
 // are registered automatically and don't need to be added.
 func NewService(dir, location string, statelessInit bool,
-	checks ...Checker) (*Service, error) {
+	dbTimeout time.Duration, checks ...Checker) (*Service, error) {
 
 	// Ensure that the path to the directory exists.
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -89,6 +90,7 @@ func NewService(dir, location string, statelessInit bool,
 	// and all generated macaroons+caveats.
 	macaroonDB, err := kvdb.Create(
 		kvdb.BoltBackendName, path.Join(dir, DBFilename), true,
+		dbTimeout,
 	)
 	if err != nil {
 		return nil, err

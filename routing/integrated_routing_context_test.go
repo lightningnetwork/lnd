@@ -105,7 +105,9 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32) ([]htlcAttempt,
 	dbPath := file.Name()
 	defer os.Remove(dbPath)
 
-	db, err := kvdb.Open(kvdb.BoltBackendName, dbPath, true)
+	db, err := kvdb.Open(
+		kvdb.BoltBackendName, dbPath, true, kvdb.DefaultDBTimeout,
+	)
 	if err != nil {
 		c.t.Fatal(err)
 	}

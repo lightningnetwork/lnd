@@ -244,6 +244,7 @@ func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 		NoFreelistSync:    opts.NoFreelistSync,
 		AutoCompact:       opts.AutoCompact,
 		AutoCompactMinAge: opts.AutoCompactMinAge,
+		DBTimeout:         opts.DBTimeout,
 	})
 	if err != nil {
 		return nil, err

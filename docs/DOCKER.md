@@ -1,9 +1,25 @@
 # Docker Instructions
 
+There are two flavors of Dockerfiles available:
+ - `Dockerfile`: Used for production builds. Checks out the source code from
+   GitHub during build. The build argument `--build-arg checkout=v0.x.x-beta`
+   can be used to specify what git tag or commit to check out before building.
+ - `dev.Dockerfile` Used for development or testing builds. Uses the local code
+   when building and allows local changes to be tested more easily.
+
 ## Development/testing
 
-For development or testing, or to spin up a `btcd` backend alongside `lnd`,
-check out the documentation at [docker/README.md](../docker/README.md).
+To build a standalone development image from the local source directory, use the
+following command:
+
+```
+$ docker build --tag=myrepository/lnd-dev -f dev.Dockerfile .
+```
+
+There is also a `docker-compose` setup available for development or testing that
+spins up a `btcd` backend alongside `lnd`. Check out the documentation at
+[docker/README.md](../docker/README.md) to learn more about how to use that
+setup to create a small local Lightning Network.
 
 ## Production
 

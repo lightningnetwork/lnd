@@ -42,7 +42,7 @@ type ManagerCfg struct {
 // Manager is struct that manages an autopilot agent, making it possible to
 // enable and disable it at will, and hand it relevant external information.
 // It implements the autopilot grpc service, which is used to get data about
-// the running autopilot, and give it relevant information.
+// the running autopilot, and gives it relevant information.
 type Manager struct {
 	started sync.Once
 	stopped sync.Once
@@ -222,9 +222,9 @@ func (m *Manager) StartAgent() error {
 					pilot.OnChannelClose(chanID)
 				}
 
-				// If new nodes were added to the graph, or nod
-				// information has changed, we'll poke autopilot
-				// to see if it can make use of them.
+				// If new nodes were added to the graph, or
+				// node information has changed, we'll poke
+				// autopilot to see if it can make use of them.
 				if len(topChange.NodeUpdates) > 0 {
 					pilot.OnNodeUpdates()
 				}

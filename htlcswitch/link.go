@@ -1902,8 +1902,15 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// characters are printable ASCII.
 		l.fail(
 			LinkFailureError{
-				code:             ErrRemoteError,
-				PermanentFailure: true,
+				code: ErrRemoteError,
+
+				// TODO(halseth): we currently don't fail the
+				// channel permanently, as there are some sync
+				// issues with other implementations that will
+				// lead to them sending an error message, but
+				// we can recover from on next connection. See
+				// https://github.com/ElementsProject/lightning/issues/4212
+				PermanentFailure: false,
 			},
 			"ChannelPoint(%v): received error from peer: %v",
 			l.channel.ChannelPoint(), msg.Error(),

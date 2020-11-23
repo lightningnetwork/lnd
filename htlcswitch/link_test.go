@@ -5273,7 +5273,9 @@ func TestChannelLinkFail(t *testing.T) {
 				c.HandleChannelUpdate(err)
 			},
 			false,
-			true,
+			// TODO(halseth) For compatibility with CL we currently
+			// don't treat Errors as permanent errors.
+			false,
 		},
 	}
 

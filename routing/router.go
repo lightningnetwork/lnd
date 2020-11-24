@@ -2006,8 +2006,8 @@ func (r *ChannelRouter) tryApplyChannelUpdate(rt *route.Route,
 // processSendError analyzes the error for the payment attempt received from the
 // switch and updates mission control and/or channel policies. Depending on the
 // error type, this error is either the final outcome of the payment or we need
-// to continue with an alternative route. This is indicated by the boolean
-// return value.
+// to continue with an alternative route. A final outcome is indicated by a
+// non-nil return value.
 func (r *ChannelRouter) processSendError(paymentID uint64, rt *route.Route,
 	sendErr error) *channeldb.FailureReason {
 

@@ -114,12 +114,12 @@ func (r *reservationWithCtx) updateTimestamp() {
 	r.lastUpdated = time.Now()
 }
 
-// initFundingMsg is sent by an outside subsystem to the funding manager in
+// InitFundingMsg is sent by an outside subsystem to the funding manager in
 // order to kick off a funding workflow with a specified target peer. The
 // original request which defines the parameters of the funding workflow are
 // embedded within this message giving the funding manager full context w.r.t
 // the workflow.
-type initFundingMsg struct {
+type InitFundingMsg struct {
 	peer lnpeer.Peer
 	*openChanReq
 }
@@ -374,7 +374,7 @@ type Manager struct {
 
 	// fundingRequests is a channel used to receive channel initiation
 	// requests from a local subsystem within the daemon.
-	fundingRequests chan *initFundingMsg
+	fundingRequests chan *InitFundingMsg
 
 	// newChanBarriers is a map from a channel ID to a 'barrier' which will
 	// be signalled once the channel is fully open. This barrier acts as a
@@ -439,7 +439,7 @@ func NewFundingManager(cfg fundingConfig) (*Manager, error) {
 		signedReservations:          make(map[lnwire.ChannelID][32]byte),
 		newChanBarriers:             make(map[lnwire.ChannelID]chan struct{}),
 		fundingMsgs:                 make(chan *fundingMsg, msgBufferSize),
-		fundingRequests:             make(chan *initFundingMsg, msgBufferSize),
+		fundingRequests:             make(chan *InitFundingMsg, msgBufferSize),
 		localDiscoverySignals:       make(map[lnwire.ChannelID]chan struct{}),
 		handleFundingLockedBarriers: make(map[lnwire.ChannelID]struct{}),
 		quit:                        make(chan struct{}),
@@ -2920,7 +2920,7 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey, localFundingKey,
 // to initiate a single funder workflow with the source peer.
 // TODO(roasbeef): re-visit blocking nature..
 func (f *Manager) InitFundingWorkflow(peer lnpeer.Peer, req *openChanReq) {
-	f.fundingRequests <- &initFundingMsg{
+	f.fundingRequests <- &InitFundingMsg{
 		peer:        peer,
 		openChanReq: req,
 	}
@@ -2973,7 +2973,7 @@ func getUpfrontShutdownScript(enableUpfrontShutdown bool, peer lnpeer.Peer,
 // handleInitFundingMsg creates a channel reservation within the daemon's
 // wallet, then sends a funding request to the remote peer kicking off the
 // funding workflow.
-func (f *Manager) handleInitFundingMsg(msg *initFundingMsg) {
+func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	var (
 		peerKey        = msg.peer.IdentityKey()
 		localAmt       = msg.localFundingAmt
@@ -3161,7 +3161,7 @@ func (f *Manager) handleInitFundingMsg(msg *initFundingMsg) {
 	f.activeReservations[peerIDKey][chanID] = resCtx
 	f.resMtx.Unlock()
 
-	// Update the timestamp once the initFundingMsg has been handled.
+	// Update the timestamp once the InitFundingMsg has been handled.
 	defer resCtx.updateTimestamp()
 
 	// Once the reservation has been created, and indexed, queue a funding

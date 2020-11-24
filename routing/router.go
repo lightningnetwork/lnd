@@ -2432,7 +2432,7 @@ func (e ErrNoChannel) Error() string {
 // outgoing channel, use the outgoingChan parameter.
 func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	hops []route.Vertex, outgoingChan *uint64,
-	finalCltvDelta int32) (*route.Route, error) {
+	finalCltvDelta int32, payAddr *[32]byte) (*route.Route, error) {
 
 	log.Tracef("BuildRoute called: hopsCount=%v, amt=%v",
 		len(hops), amt)
@@ -2582,10 +2582,11 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	return newRoute(
 		source, pathEdges, uint32(height),
 		finalHopParams{
-			amt:       receiverAmt,
-			totalAmt:  receiverAmt,
-			cltvDelta: uint16(finalCltvDelta),
-			records:   nil,
+			amt:         receiverAmt,
+			totalAmt:    receiverAmt,
+			cltvDelta:   uint16(finalCltvDelta),
+			records:     nil,
+			paymentAddr: payAddr,
 		},
 	)
 }

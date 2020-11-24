@@ -27,6 +27,7 @@ var (
 
 type interceptorTestCase struct {
 	amountMsat        int64
+	payAddr           []byte
 	invoice           *lnrpc.Invoice
 	shouldHold        bool
 	interceptorAction routerrpc.ResolveHoldForwardAction
@@ -105,7 +106,9 @@ func testForwardInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 		defer wg.Done()
 		for _, tc := range testCases {
 			attempt, err := testContext.sendAliceToCarolPayment(
-				context.Background(), tc.invoice.ValueMsat, tc.invoice.RHash)
+				context.Background(), tc.invoice.ValueMsat,
+				tc.invoice.RHash, tc.payAddr,
+			)
 
 			if t.t.Failed() {
 				return
@@ -118,7 +121,8 @@ func testForwardInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 			// For 'fail' interceptor action we make sure the payment failed.
 			case routerrpc.ResolveHoldForwardAction_FAIL:
 				if attempt.Status != lnrpc.HTLCAttempt_FAILED {
-					t.t.Errorf("expected payment to fail, instead got %v", attempt.Status)
+					t.t.Errorf("expected payment to fail, "+
+						"instead got %v", attempt.Status)
 				}
 
 			// For settle and resume we make sure the payment is successful.
@@ -127,7 +131,8 @@ func testForwardInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 
 			case routerrpc.ResolveHoldForwardAction_RESUME:
 				if attempt.Status != lnrpc.HTLCAttempt_SUCCEEDED {
-					t.t.Errorf("expected payment to succeed, instead got %v", attempt.Status)
+					t.t.Errorf("expected payment to "+
+						"succeed, instead got %v", attempt.Status)
 				}
 			}
 		}
@@ -202,7 +207,9 @@ func testForwardInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 				foundPayment.Status != lnrpc.Payment_IN_FLIGHT {
 
 				t.Fatalf("expected to find in flight payment for"+
-					"amount %v, %v", testCase.invoice.ValueMsat, foundPayment.Status)
+					"amount %v, %v",
+					testCase.invoice.ValueMsat,
+					foundPayment.Status)
 			}
 		}
 	}
@@ -294,12 +301,25 @@ func (c *interceptorTestContext) prepareTestCases() (
 		if err != nil {
 			return nil, fmt.Errorf("unable to add invoice: %v", err)
 		}
+
+		// We'll need to also decode the returned invoice so we can
+		// grab the payment address which is now required for ALL
+		// payments.
+		payReq, err := c.carol.DecodePayReq(context.Background(), &lnrpc.PayReqString{
+			PayReq: invoice.PaymentRequest,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode invoice: %v", err)
+		}
 		t.invoice = invoice
+		t.payAddr = payReq.PaymentAddr
 	}
 	return cases, nil
 }
 
-func (c *interceptorTestContext) openChannel(from, to *lntest.HarnessNode, chanSize btcutil.Amount) {
+func (c *interceptorTestContext) openChannel(from, to *lntest.HarnessNode,
+	chanSize btcutil.Amount) {
+
 	ctxb := context.Background()
 
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
@@ -365,10 +385,14 @@ func (c *interceptorTestContext) waitForChannels() {
 // sendAliceToCarolPayment sends a payment from alice to carol and make an
 // attempt to pay. The lnrpc.HTLCAttempt is returned.
 func (c *interceptorTestContext) sendAliceToCarolPayment(ctx context.Context,
-	amtMsat int64, paymentHash []byte) (*lnrpc.HTLCAttempt, error) {
+	amtMsat int64,
+	paymentHash, paymentAddr []byte) (*lnrpc.HTLCAttempt, error) {
 
 	// Build a route from alice to carol.
-	route, err := c.buildRoute(ctx, amtMsat, []*lntest.HarnessNode{c.bob, c.carol})
+	route, err := c.buildRoute(
+		ctx, amtMsat, []*lntest.HarnessNode{c.bob, c.carol},
+		paymentAddr,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -387,8 +411,8 @@ func (c *interceptorTestContext) sendAliceToCarolPayment(ctx context.Context,
 }
 
 // buildRoute is a helper function to build a route with given hops.
-func (c *interceptorTestContext) buildRoute(ctx context.Context, amtMsat int64, hops []*lntest.HarnessNode) (
-	*lnrpc.Route, error) {
+func (c *interceptorTestContext) buildRoute(ctx context.Context, amtMsat int64,
+	hops []*lntest.HarnessNode, payAddr []byte) (*lnrpc.Route, error) {
 
 	rpcHops := make([][]byte, 0, len(hops))
 	for _, hop := range hops {
@@ -405,6 +429,7 @@ func (c *interceptorTestContext) buildRoute(ctx context.Context, amtMsat int64, 
 		AmtMsat:        amtMsat,
 		FinalCltvDelta: chainreg.DefaultBitcoinTimeLockDelta,
 		HopPubkeys:     rpcHops,
+		PaymentAddr:    payAddr,
 	}
 
 	routeResp, err := c.alice.RouterClient.BuildRoute(ctx, req)

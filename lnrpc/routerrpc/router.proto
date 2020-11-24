@@ -394,6 +394,9 @@ message BuildRouteRequest {
     pubkey.
     */
     repeated bytes hop_pubkeys = 4;
+
+    // An optional payment addr to be included within the last hop of the route.
+    bytes payment_addr = 5;
 }
 
 message BuildRouteResponse {

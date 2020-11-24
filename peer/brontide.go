@@ -1836,6 +1836,8 @@ out:
 		}
 	}
 
+	// Avoid an exit deadlock by ensuring WaitGroups are decremented before
+	// disconnect.
 	p.wg.Done()
 
 	p.Disconnect(exitErr)

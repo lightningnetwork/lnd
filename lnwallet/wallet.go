@@ -425,6 +425,8 @@ func (l *LightningWallet) ActiveReservations() []*ChannelReservation {
 // requestHandler is the primary goroutine(s) responsible for handling, and
 // dispatching replies to all messages.
 func (l *LightningWallet) requestHandler() {
+	defer l.wg.Done()
+
 out:
 	for {
 		select {
@@ -450,8 +452,6 @@ out:
 			break out
 		}
 	}
-
-	l.wg.Done()
 }
 
 // InitChannelReservation kicks off the 3-step workflow required to successfully

@@ -322,6 +322,12 @@ and send some amount of bitcoins to `Alice`.
 - Connect `Bob` node to the `Faucet` and make multihop payment (`Alice->Faucet->Bob`)
 - Close channel with `Faucet` and check the onchain balance.
 
+### Building standalone docker images
+
+Instructions on how to build standalone docker images (for development or
+production), outside of `docker-compose`, see the
+[docker docs](../docs/DOCKER.md).
+
 ### Questions
 [![Irc](https://img.shields.io/badge/chat-on%20freenode-brightgreen.svg)](https://webchat.freenode.net/?channels=lnd)
 

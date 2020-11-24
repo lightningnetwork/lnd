@@ -107,7 +107,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 	for _, a := range payment.InFlightHTLCs() {
 		a := a
 
-		log.Debugf("Resuming payment shard %v for hash %v",
+		log.Infof("Resuming payment shard %v for hash %v",
 			a.AttemptID, p.paymentHash)
 
 		shardHandler.collectResultAsync(&a.HTLCAttemptInfo)
@@ -687,7 +687,7 @@ func (p *shardHandler) handleSendError(attempt *channeldb.HTLCAttemptInfo,
 		return nil
 	}
 
-	log.Debugf("Payment %v failed: final_outcome=%v, raw_err=%v",
+	log.Infof("Payment %v failed: final_outcome=%v, raw_err=%v",
 		p.paymentHash, *reason, sendErr)
 
 	err := p.router.cfg.Control.Fail(p.paymentHash, *reason)

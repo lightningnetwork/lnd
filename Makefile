@@ -46,7 +46,7 @@ GOINSTALL := GO111MODULE=on go install -v
 GOTEST := GO111MODULE=on go test 
 
 GOVERSION := $(shell go version | awk '{print $$3}')
-GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*")
+GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*" -not -name "*pb.go" -not -name "*pb.gw.go")
 
 RM := rm -f
 CP := cp

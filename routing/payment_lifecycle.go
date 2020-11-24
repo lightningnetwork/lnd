@@ -14,6 +14,9 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
+// errShardHandlerExiting is returned from the shardHandler when it exits.
+var errShardHandlerExiting = fmt.Errorf("shard handler exiting")
+
 // paymentLifecycle holds all information about the current state of a payment
 // needed to resume if from any point.
 type paymentLifecycle struct {
@@ -308,7 +311,7 @@ func (p *shardHandler) waitForShard() error {
 		return err
 
 	case <-p.quit:
-		return fmt.Errorf("shard handler quitting")
+		return errShardHandlerExiting
 
 	case <-p.router.quit:
 		return ErrRouterShuttingDown
@@ -326,7 +329,7 @@ func (p *shardHandler) checkShards() error {
 			}
 
 		case <-p.quit:
-			return fmt.Errorf("shard handler quitting")
+			return errShardHandlerExiting
 
 		case <-p.router.quit:
 			return ErrRouterShuttingDown
@@ -421,7 +424,8 @@ func (p *shardHandler) collectResultAsync(attempt *channeldb.HTLCAttemptInfo) {
 		result, err := p.collectResult(attempt)
 		if err != nil {
 			if err != ErrRouterShuttingDown &&
-				err != htlcswitch.ErrSwitchExiting {
+				err != htlcswitch.ErrSwitchExiting &&
+				err != errShardHandlerExiting {
 
 				log.Errorf("Error collecting result for "+
 					"shard %v for payment %v: %v",
@@ -531,7 +535,7 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 		return nil, ErrRouterShuttingDown
 
 	case <-p.quit:
-		return nil, fmt.Errorf("shard handler exiting")
+		return nil, errShardHandlerExiting
 	}
 
 	// In case of a payment failure, fail the attempt with the control

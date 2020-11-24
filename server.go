@@ -3734,7 +3734,7 @@ func (s *server) OpenChannel(
 	// manager. This allows the server to continue handling queries instead
 	// of blocking on this request which is exported as a synchronous
 	// request to the outside world.
-	go s.fundingMgr.initFundingWorkflow(peer, req)
+	go s.fundingMgr.InitFundingWorkflow(peer, req)
 
 	return req.updates, req.err
 }

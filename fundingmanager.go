@@ -2916,10 +2916,10 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey, localFundingKey,
 	return nil
 }
 
-// initFundingWorkflow sends a message to the funding manager instructing it
+// InitFundingWorkflow sends a message to the funding manager instructing it
 // to initiate a single funder workflow with the source peer.
 // TODO(roasbeef): re-visit blocking nature..
-func (f *Manager) initFundingWorkflow(peer lnpeer.Peer, req *openChanReq) {
+func (f *Manager) InitFundingWorkflow(peer lnpeer.Peer, req *openChanReq) {
 	f.fundingRequests <- &initFundingMsg{
 		peer:        peer,
 		openChanReq: req,

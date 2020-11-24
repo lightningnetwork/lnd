@@ -669,7 +669,7 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 		err:             errChan,
 	}
 
-	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	alice.fundingMgr.InitFundingWorkflow(bob, initReq)
 
 	// Alice should have sent the OpenChannel message to Bob.
 	var aliceMsg lnwire.Message
@@ -1327,7 +1327,7 @@ func testLocalCSVLimit(t *testing.T, aliceMaxCSV, bobRequiredCSV uint16) {
 	}
 
 	// Alice should have sent the OpenChannel message to Bob.
-	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	alice.fundingMgr.InitFundingWorkflow(bob, initReq)
 	var aliceMsg lnwire.Message
 	select {
 	case aliceMsg = <-alice.msgChan:
@@ -1391,7 +1391,7 @@ func testLocalCSVLimit(t *testing.T, aliceMaxCSV, bobRequiredCSV uint16) {
 		err:             errChan,
 	}
 
-	bob.fundingMgr.initFundingWorkflow(alice, initReq)
+	bob.fundingMgr.InitFundingWorkflow(alice, initReq)
 
 	// Bob should have sent the OpenChannel message to Alice.
 	var bobMsg lnwire.Message
@@ -1744,7 +1744,7 @@ func TestFundingManagerPeerTimeoutAfterInitFunding(t *testing.T) {
 		err:             errChan,
 	}
 
-	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	alice.fundingMgr.InitFundingWorkflow(bob, initReq)
 
 	// Alice should have sent the OpenChannel message to Bob.
 	var aliceMsg lnwire.Message
@@ -1806,7 +1806,7 @@ func TestFundingManagerPeerTimeoutAfterFundingOpen(t *testing.T) {
 		err:             errChan,
 	}
 
-	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	alice.fundingMgr.InitFundingWorkflow(bob, initReq)
 
 	// Alice should have sent the OpenChannel message to Bob.
 	var aliceMsg lnwire.Message
@@ -1877,7 +1877,7 @@ func TestFundingManagerPeerTimeoutAfterFundingAccept(t *testing.T) {
 		err:             errChan,
 	}
 
-	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	alice.fundingMgr.InitFundingWorkflow(bob, initReq)
 
 	// Alice should have sent the OpenChannel message to Bob.
 	var aliceMsg lnwire.Message
@@ -2604,7 +2604,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 		err:              errChan,
 	}
 
-	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	alice.fundingMgr.InitFundingWorkflow(bob, initReq)
 
 	// Alice should have sent the OpenChannel message to Bob.
 	var aliceMsg lnwire.Message
@@ -2892,7 +2892,7 @@ func TestFundingManagerMaxPendingChannels(t *testing.T) {
 	var accepts []*lnwire.AcceptChannel
 	var lastOpen *lnwire.OpenChannel
 	for i, initReq := range initReqs {
-		alice.fundingMgr.initFundingWorkflow(bob, initReq)
+		alice.fundingMgr.InitFundingWorkflow(bob, initReq)
 
 		// Alice should have sent the OpenChannel message to Bob.
 		var aliceMsg lnwire.Message
@@ -3056,7 +3056,7 @@ func TestFundingManagerRejectPush(t *testing.T) {
 		err:             errChan,
 	}
 
-	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	alice.fundingMgr.InitFundingWorkflow(bob, initReq)
 
 	// Alice should have sent the OpenChannel message to Bob.
 	var aliceMsg lnwire.Message
@@ -3113,7 +3113,7 @@ func TestFundingManagerMaxConfs(t *testing.T) {
 		err:             errChan,
 	}
 
-	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	alice.fundingMgr.InitFundingWorkflow(bob, initReq)
 
 	// Alice should have sent the OpenChannel message to Bob.
 	var aliceMsg lnwire.Message
@@ -3397,7 +3397,7 @@ func TestMaxChannelSizeConfig(t *testing.T) {
 
 	// After processing the funding open message, bob should respond with
 	// an error rejecting the channel that exceeds size limit.
-	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	alice.fundingMgr.InitFundingWorkflow(bob, initReq)
 	openChanMsg := expectOpenChannelMsg(t, alice.msgChan)
 	bob.fundingMgr.ProcessFundingMsg(openChanMsg, alice)
 	assertErrorSent(t, bob.msgChan)
@@ -3412,7 +3412,7 @@ func TestMaxChannelSizeConfig(t *testing.T) {
 	})
 
 	// We expect Bob to respond with an Accept channel message.
-	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	alice.fundingMgr.InitFundingWorkflow(bob, initReq)
 	openChanMsg = expectOpenChannelMsg(t, alice.msgChan)
 	bob.fundingMgr.ProcessFundingMsg(openChanMsg, alice)
 	assertFundingMsgSent(t, bob.msgChan, "AcceptChannel")
@@ -3432,7 +3432,7 @@ func TestMaxChannelSizeConfig(t *testing.T) {
 
 	// After processing the funding open message, bob should respond with
 	// an error rejecting the channel that exceeds size limit.
-	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	alice.fundingMgr.InitFundingWorkflow(bob, initReq)
 	openChanMsg = expectOpenChannelMsg(t, alice.msgChan)
 	bob.fundingMgr.ProcessFundingMsg(openChanMsg, alice)
 	assertErrorSent(t, bob.msgChan)
@@ -3465,7 +3465,7 @@ func TestWumboChannelConfig(t *testing.T) {
 	}
 
 	// We expect Bob to respond with an Accept channel message.
-	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	alice.fundingMgr.InitFundingWorkflow(bob, initReq)
 	openChanMsg := expectOpenChannelMsg(t, alice.msgChan)
 	bob.fundingMgr.ProcessFundingMsg(openChanMsg, alice)
 	assertFundingMsgSent(t, bob.msgChan, "AcceptChannel")
@@ -3476,7 +3476,7 @@ func TestWumboChannelConfig(t *testing.T) {
 
 	// After processing the funding open message, bob should respond with
 	// an error rejecting the channel.
-	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	alice.fundingMgr.InitFundingWorkflow(bob, initReq)
 	openChanMsg = expectOpenChannelMsg(t, alice.msgChan)
 	bob.fundingMgr.ProcessFundingMsg(openChanMsg, alice)
 	assertErrorSent(t, bob.msgChan)
@@ -3491,7 +3491,7 @@ func TestWumboChannelConfig(t *testing.T) {
 
 	// We should now be able to initiate a wumbo channel funding w/o any
 	// issues.
-	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+	alice.fundingMgr.InitFundingWorkflow(bob, initReq)
 	openChanMsg = expectOpenChannelMsg(t, alice.msgChan)
 	bob.fundingMgr.ProcessFundingMsg(openChanMsg, alice)
 	assertFundingMsgSent(t, bob.msgChan, "AcceptChannel")

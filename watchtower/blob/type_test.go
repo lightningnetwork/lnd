@@ -123,6 +123,12 @@ func TestSupportedTypes(t *testing.T) {
 		t.Fatalf("default type %s is not supported", blob.TypeAltruistCommit)
 	}
 
+	// Assert that the altruist anchor commit types are supported.
+	if !blob.IsSupportedType(blob.TypeAltruistAnchorCommit) {
+		t.Fatalf("default type %s is not supported",
+			blob.TypeAltruistAnchorCommit)
+	}
+
 	// Assert that all claimed supported types are actually supported.
 	for _, supType := range blob.SupportedTypes() {
 		if blob.IsSupportedType(supType) {

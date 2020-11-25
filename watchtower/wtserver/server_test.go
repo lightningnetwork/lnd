@@ -162,6 +162,28 @@ type createSessionTestCase struct {
 
 var createSessionTests = []createSessionTestCase{
 	{
+		name: "duplicate session create altruist anchor commit",
+		initMsg: wtwire.NewInitMessage(
+			lnwire.NewRawFeatureVector(),
+			testnetChainHash,
+		),
+		createMsg: &wtwire.CreateSession{
+			BlobType:     blob.TypeAltruistAnchorCommit,
+			MaxUpdates:   1000,
+			RewardBase:   0,
+			RewardRate:   0,
+			SweepFeeRate: 10000,
+		},
+		expReply: &wtwire.CreateSessionReply{
+			Code: wtwire.CodeOK,
+			Data: []byte{},
+		},
+		expDupReply: &wtwire.CreateSessionReply{
+			Code: wtwire.CodeOK,
+			Data: []byte{},
+		},
+	},
+	{
 		name: "duplicate session create",
 		initMsg: wtwire.NewInitMessage(
 			lnwire.NewRawFeatureVector(),

@@ -149,7 +149,19 @@ message StatsResponse {
     uint32 num_sessions_exhausted = 5;
 }
 
+enum PolicyType {
+    // Selects the policy from the legacy tower client.
+    LEGACY = 0;
+
+    // Selects the policy from the anchor tower client.
+    ANCHOR = 1;
+}
+
 message PolicyRequest {
+    /*
+    The client type from which to retrieve the active offering policy.
+    */
+    PolicyType policy_type = 1;
 }
 
 message PolicyResponse {

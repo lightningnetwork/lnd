@@ -1707,7 +1707,10 @@ func (s *server) Stop() error {
 		// tower. If this is halted for any reason, the force quit timer
 		// will kick in and abort to allow this method to return.
 		if s.towerClient != nil {
-			s.towerClient.Stop()
+			if err := s.towerClient.Stop(); err != nil {
+				srvrLog.Warnf("Unable to shut down tower "+
+					"client: %v", err)
+			}
 		}
 		if s.anchorTowerClient != nil {
 			if err := s.anchorTowerClient.Stop(); err != nil {

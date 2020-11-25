@@ -1,6 +1,8 @@
 package wtclient
 
 import (
+	"fmt"
+
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
@@ -293,6 +295,9 @@ func (t *backupTask) craftSessionPayload(
 			fallthrough
 		case input.CommitmentNoDelay:
 			copy(justiceKit.CommitToRemoteSig[:], signature[:])
+		default:
+			return hint, nil, fmt.Errorf("invalid witness type: %v",
+				inp.WitnessType())
 		}
 	}
 

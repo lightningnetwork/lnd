@@ -41,13 +41,14 @@ const (
 	DefaultForceQuitDelay = 10 * time.Second
 )
 
-var (
-	// activeSessionFilter is a filter that ignored any sessions which are
-	// not active.
-	activeSessionFilter = func(s *wtdb.ClientSession) bool {
-		return s.Status == wtdb.CSessionActive
+// genActiveSessionFilter generates a filter that selects active sessions that
+// also match the desired channel type, either legacy or anchor.
+func genActiveSessionFilter(anchor bool) func(*wtdb.ClientSession) bool {
+	return func(s *wtdb.ClientSession) bool {
+		return s.Status == wtdb.CSessionActive &&
+			anchor == s.Policy.IsAnchorChannel()
 	}
-)
+}
 
 // RegisteredTower encompasses information about a registered watchtower with
 // the client.
@@ -280,6 +281,8 @@ func New(config *Config) (*TowerClient, error) {
 	// the client. We will use any of these session if their policies match
 	// the current policy of the client, otherwise they will be ignored and
 	// new sessions will be requested.
+	isAnchorClient := cfg.Policy.IsAnchorChannel()
+	activeSessionFilter := genActiveSessionFilter(isAnchorClient)
 	candidateSessions, err := getClientSessions(
 		cfg.DB, cfg.SecretKeyRing, nil, activeSessionFilter,
 	)
@@ -1068,6 +1071,8 @@ func (c *TowerClient) handleNewTower(msg *newTowerMsg) error {
 	c.candidateTowers.AddCandidate(tower)
 
 	// Include all of its corresponding sessions to our set of candidates.
+	isAnchorClient := c.cfg.Policy.IsAnchorChannel()
+	activeSessionFilter := genActiveSessionFilter(isAnchorClient)
 	sessions, err := getClientSessions(
 		c.cfg.DB, c.cfg.SecretKeyRing, &tower.ID, activeSessionFilter,
 	)

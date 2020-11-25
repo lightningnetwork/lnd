@@ -3077,6 +3077,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		ChannelNotifier:         s.channelNotifier,
 		HtlcNotifier:            s.htlcNotifier,
 		TowerClient:             s.towerClient,
+		AnchorTowerClient:       s.anchorTowerClient,
 		DisconnectPeer:          s.DisconnectPeer,
 		GenNodeAnnouncement:     s.genNodeAnnouncement,
 

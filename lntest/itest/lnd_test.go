@@ -2200,9 +2200,19 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	routes.Routes[0].Hops[1].AmtToForward = amtSat
 	routes.Routes[0].Hops[1].AmtToForwardMsat = amtMSat
 
+	// Manually set the MPP payload a new for each payment since
+	// the payment addr will change with each invoice, although we
+	// can re-use the route itself.
+	route := routes.Routes[0]
+	route.Hops[len(route.Hops)-1].TlvPayload = true
+	route.Hops[len(route.Hops)-1].MppRecord = &lnrpc.MPPRecord{
+		PaymentAddr:  resp.PaymentAddr,
+		TotalAmtMsat: amtMSat,
+	}
+
 	sendReq = &lnrpc.SendToRouteRequest{
 		PaymentHash: resp.RHash,
-		Route:       routes.Routes[0],
+		Route:       route,
 	}
 
 	err = alicePayStream.Send(sendReq)

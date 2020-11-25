@@ -12,7 +12,7 @@ type Init struct {
 	// merged with those presented in Features.
 	GlobalFeatures *RawFeatureVector
 
-	// Features is a feature vector containing a the features supported by
+	// Features is a feature vector containing the features supported by
 	// the remote node.
 	//
 	// NOTE: Older nodes may place some features in GlobalFeatures, but all

@@ -9,7 +9,7 @@ import (
 // ReplyShortChanIDsEnd is a message that marks the end of a streaming message
 // response to an initial QueryShortChanIDs message. This marks that the
 // receiver of the original QueryShortChanIDs for the target chain has either
-// sent all adequate responses it knows of, or doesn't now of any short chan
+// sent all adequate responses it knows of, or doesn't know of any short chan
 // ID's for the target chain.
 type ReplyShortChanIDsEnd struct {
 	// ChainHash denotes the target chain that we're respond to a short

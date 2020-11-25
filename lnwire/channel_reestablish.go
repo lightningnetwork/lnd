@@ -11,9 +11,9 @@ import (
 // to report their local state, and their current knowledge of the state of the
 // remote commitment chain. If a deviation is detected and can be recovered
 // from, then the necessary messages will be retransmitted. If the level of
-// desynchronization if irreconcilable, then the channel will be force closed.
+// desynchronization is irreconcilable, then the channel will be force closed.
 type ChannelReestablish struct {
-	// ChanID is the channel ID of the channel state we're attempting
+	// ChanID is the channel ID of the channel state we're attempting to
 	// synchronize with the remote party.
 	ChanID ChannelID
 
@@ -105,7 +105,7 @@ func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	// This message has to currently defined optional fields. As a result,
+	// This message has currently defined optional fields. As a result,
 	// we'll only proceed if there's still bytes remaining within the
 	// reader.
 	//
@@ -127,7 +127,7 @@ func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
 	copy(a.LastRemoteCommitSecret[:], buf[:])
 
 	// We'll conclude by parsing out the commitment point. We don't check
-	// the error in this case, as it hey included the commit secret, then
+	// the error in this case, as it has included the commit secret, then
 	// they MUST also include the commit point.
 	return ReadElement(r, &a.LocalUnrevokedCommitPoint)
 }

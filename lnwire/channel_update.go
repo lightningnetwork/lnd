@@ -75,7 +75,7 @@ type ChannelUpdate struct {
 	// ShortChannelID is the unique description of the funding transaction.
 	ShortChannelID ShortChannelID
 
-	// Timestamp allows ordering in the case of multiple announcements.  We
+	// Timestamp allows ordering in the case of multiple announcements. We
 	// should ignore the message if timestamp is not greater than
 	// the last-received.
 	Timestamp uint32

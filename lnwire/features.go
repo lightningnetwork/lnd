@@ -66,7 +66,7 @@ const (
 	// able to decode the new TLV information included in the onion packet.
 	TLVOnionPayloadRequired FeatureBit = 8
 
-	// TLVOnionPayloadRequired is an optional feature bit that indicates a
+	// TLVOnionPayloadOptional is an optional feature bit that indicates a
 	// node is able to decode the new TLV information included in the onion
 	// packet.
 	TLVOnionPayloadOptional FeatureBit = 9
@@ -114,7 +114,7 @@ const (
 	// outputs.
 	AnchorsRequired FeatureBit = 20
 
-	// AnchorsRequired is an optional feature bit that signals that the
+	// AnchorsOptional is an optional feature bit that signals that the
 	// node supports channels to be made using commitments having anchor
 	// outputs.
 	AnchorsOptional FeatureBit = 21
@@ -126,7 +126,7 @@ const (
 	// message to signal the type of message, that leaves us with 65533 bytes
 	// for the init message itself.  Next, we reserve 4 bytes to encode the
 	// lengths of both the local and global feature vectors, so 65529 bytes
-	// for the local and global features.  Knocking off one byte for the sake
+	// for the local and global features. Knocking off one byte for the sake
 	// of the calculation, that leads us to 32764 bytes for each feature
 	// vector, or 131056 different features.
 	maxAllowedSize = 32764
@@ -427,7 +427,7 @@ func (fv *FeatureVector) UnknownRequiredFeatures() []FeatureBit {
 
 // Name returns a string identifier for the feature represented by this bit. If
 // the bit does not represent a known feature, this returns a string indicating
-// as much.
+// as such.
 func (fv *FeatureVector) Name(bit FeatureBit) string {
 	name, known := fv.featureNames[bit]
 	if !known {

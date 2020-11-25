@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -103,7 +104,8 @@ type Client interface {
 	// negotiated policy. If the channel we're trying to back up doesn't
 	// have a tweak for the remote party's output, then isTweakless should
 	// be true.
-	BackupState(*lnwire.ChannelID, *lnwallet.BreachRetribution, bool) error
+	BackupState(*lnwire.ChannelID, *lnwallet.BreachRetribution,
+		channeldb.ChannelType) error
 
 	// Start initializes the watchtower client, allowing it process requests
 	// to backup revoked channel states.
@@ -592,7 +594,8 @@ func (c *TowerClient) RegisterChannel(chanID lnwire.ChannelID) error {
 //  - breached outputs contain too little value to sweep at the target sweep fee
 //    rate.
 func (c *TowerClient) BackupState(chanID *lnwire.ChannelID,
-	breachInfo *lnwallet.BreachRetribution, isTweakless bool) error {
+	breachInfo *lnwallet.BreachRetribution,
+	chanType channeldb.ChannelType) error {
 
 	// Retrieve the cached sweep pkscript used for this channel.
 	c.backupMu.Lock()
@@ -618,7 +621,7 @@ func (c *TowerClient) BackupState(chanID *lnwire.ChannelID,
 	c.backupMu.Unlock()
 
 	task := newBackupTask(
-		chanID, breachInfo, summary.SweepPkScript, isTweakless,
+		chanID, breachInfo, summary.SweepPkScript, chanType,
 	)
 
 	return c.pipeline.QueueBackupTask(task)

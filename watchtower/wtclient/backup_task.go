@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/txsort"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -54,7 +55,7 @@ type backupTask struct {
 // variables.
 func newBackupTask(chanID *lnwire.ChannelID,
 	breachInfo *lnwallet.BreachRetribution,
-	sweepPkScript []byte, isTweakless bool) *backupTask {
+	sweepPkScript []byte, chanType channeldb.ChannelType) *backupTask {
 
 	// Parse the non-dust outputs from the breach transaction,
 	// simultaneously computing the total amount contained in the inputs
@@ -85,9 +86,12 @@ func newBackupTask(chanID *lnwire.ChannelID,
 		totalAmt += breachInfo.RemoteOutputSignDesc.Output.Value
 	}
 	if breachInfo.LocalOutputSignDesc != nil {
-		witnessType := input.CommitmentNoDelay
-		if isTweakless {
+		var witnessType input.WitnessType
+		switch {
+		case chanType.IsTweakless():
 			witnessType = input.CommitSpendNoDelayTweakless
+		default:
+			witnessType = input.CommitmentNoDelay
 		}
 
 		toRemoteInput = input.NewBaseInput(

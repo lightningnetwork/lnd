@@ -1947,33 +1947,37 @@ func (c *ChannelGraph) UpdateEdgePolicy(edge *ChannelEdgePolicy) error {
 		return err
 	}
 
+	c.updateEdgeCache(edge, isUpdate1)
+
+	return nil
+}
+
+func (c *ChannelGraph) updateEdgeCache(e *ChannelEdgePolicy, isUpdate1 bool) {
 	// If an entry for this channel is found in reject cache, we'll modify
 	// the entry with the updated timestamp for the direction that was just
 	// written. If the edge doesn't exist, we'll load the cache entry lazily
 	// during the next query for this edge.
-	if entry, ok := c.rejectCache.get(edge.ChannelID); ok {
+	if entry, ok := c.rejectCache.get(e.ChannelID); ok {
 		if isUpdate1 {
-			entry.upd1Time = edge.LastUpdate.Unix()
+			entry.upd1Time = e.LastUpdate.Unix()
 		} else {
-			entry.upd2Time = edge.LastUpdate.Unix()
+			entry.upd2Time = e.LastUpdate.Unix()
 		}
-		c.rejectCache.insert(edge.ChannelID, entry)
+		c.rejectCache.insert(e.ChannelID, entry)
 	}
 
 	// If an entry for this channel is found in channel cache, we'll modify
 	// the entry with the updated policy for the direction that was just
 	// written. If the edge doesn't exist, we'll defer loading the info and
 	// policies and lazily read from disk during the next query.
-	if channel, ok := c.chanCache.get(edge.ChannelID); ok {
+	if channel, ok := c.chanCache.get(e.ChannelID); ok {
 		if isUpdate1 {
-			channel.Policy1 = edge
+			channel.Policy1 = e
 		} else {
-			channel.Policy2 = edge
+			channel.Policy2 = e
 		}
-		c.chanCache.insert(edge.ChannelID, channel)
+		c.chanCache.insert(e.ChannelID, channel)
 	}
-
-	return nil
 }
 
 // updateEdgePolicy attempts to update an edge's policy within the relevant

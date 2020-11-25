@@ -3,19 +3,23 @@ package lncfg
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 )
 
 const (
-	dbName      = "channel.db"
-	BoltBackend = "bolt"
-	EtcdBackend = "etcd"
+	dbName                     = "channel.db"
+	BoltBackend                = "bolt"
+	EtcdBackend                = "etcd"
+	DefaultBatchCommitInterval = 500 * time.Millisecond
 )
 
 // DB holds database configuration for LND.
 type DB struct {
 	Backend string `long:"backend" description:"The selected database backend."`
+
+	BatchCommitInterval time.Duration `long:"batch-commit-interval" description:"The maximum duration the channel graph batch schedulers will wait before attempting to commit a batch of pending updates. This can be tradeoff database contenion for commit latency."`
 
 	Etcd *kvdb.EtcdConfig `group:"etcd" namespace:"etcd" description:"Etcd settings."`
 
@@ -25,7 +29,8 @@ type DB struct {
 // NewDB creates and returns a new default DB config.
 func DefaultDB() *DB {
 	return &DB{
-		Backend: BoltBackend,
+		Backend:             BoltBackend,
+		BatchCommitInterval: DefaultBatchCommitInterval,
 		Bolt: &kvdb.BoltConfig{
 			AutoCompactMinAge: kvdb.DefaultBoltAutoCompactMinAge,
 		},

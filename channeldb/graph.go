@@ -185,17 +185,18 @@ type ChannelGraph struct {
 
 // newChannelGraph allocates a new ChannelGraph backed by a DB instance. The
 // returned instance has its own unique reject cache and channel cache.
-func newChannelGraph(db *DB, rejectCacheSize, chanCacheSize int) *ChannelGraph {
+func newChannelGraph(db *DB, rejectCacheSize, chanCacheSize int,
+	batchCommitInterval time.Duration) *ChannelGraph {
 	g := &ChannelGraph{
 		db:          db,
 		rejectCache: newRejectCache(rejectCacheSize),
 		chanCache:   newChannelCache(chanCacheSize),
 	}
 	g.chanScheduler = batch.NewTimeScheduler(
-		db.Backend, &g.cacheMu, 500*time.Millisecond,
+		db.Backend, &g.cacheMu, batchCommitInterval,
 	)
 	g.nodeScheduler = batch.NewTimeScheduler(
-		db.Backend, nil, 500*time.Millisecond,
+		db.Backend, nil, batchCommitInterval,
 	)
 	return g
 }

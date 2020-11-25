@@ -1846,31 +1846,36 @@ func getChannelPolicies(t *harnessTest, node *lntest.HarnessNode,
 	}
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	chanGraph, err := node.DescribeGraph(ctxt, descReq)
-	if err != nil {
-		t.Fatalf("unable to query for alice's graph: %v", err)
-	}
+	require.NoError(t.t, err, "unable to query for alice's graph")
 
 	var policies []*lnrpc.RoutingPolicy
-out:
-	for _, chanPoint := range chanPoints {
-		for _, e := range chanGraph.Edges {
-			if e.ChanPoint != txStr(chanPoint) {
-				continue
+	err = wait.NoError(func() error {
+	out:
+		for _, chanPoint := range chanPoints {
+			for _, e := range chanGraph.Edges {
+				if e.ChanPoint != txStr(chanPoint) {
+					continue
+				}
+
+				if e.Node1Pub == advertisingNode {
+					policies = append(policies,
+						e.Node1Policy)
+				} else {
+					policies = append(policies,
+						e.Node2Policy)
+				}
+
+				continue out
 			}
 
-			if e.Node1Pub == advertisingNode {
-				policies = append(policies, e.Node1Policy)
-			} else {
-				policies = append(policies, e.Node2Policy)
-			}
-
-			continue out
+			// If we've iterated over all the known edges and we weren't
+			// able to find this specific one, then we'll fail.
+			return fmt.Errorf("did not find edge %v", txStr(chanPoint))
 		}
 
-		// If we've iterated over all the known edges and we weren't
-		// able to find this specific one, then we'll fail.
-		t.Fatalf("did not find edge %v", txStr(chanPoint))
-	}
+		return nil
+	}, defaultTimeout)
+	require.NoError(t.t, err)
 
 	return policies
 }

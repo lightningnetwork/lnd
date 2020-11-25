@@ -31,6 +31,10 @@ type Options struct {
 	// channel cache.
 	ChannelCacheSize int
 
+	// BatchCommitInterval is the maximum duration the batch schedulers will
+	// wait before attempting to commit a pending set of updates.
+	BatchCommitInterval time.Duration
+
 	// clock is the time source used by the database.
 	clock clock.Clock
 
@@ -89,6 +93,14 @@ func OptionAutoCompact() OptionModifier {
 func OptionAutoCompactMinAge(minAge time.Duration) OptionModifier {
 	return func(o *Options) {
 		o.AutoCompactMinAge = minAge
+	}
+}
+
+// OptionSetBatchCommitInterval sets the batch commit interval for the internval
+// batch schedulers.
+func OptionSetBatchCommitInterval(interval time.Duration) OptionModifier {
+	return func(o *Options) {
+		o.BatchCommitInterval = interval
 	}
 }
 

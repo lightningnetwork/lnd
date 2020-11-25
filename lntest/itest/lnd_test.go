@@ -751,6 +751,10 @@ func createPayReqs(node *lntest.HarnessNode, paymentAmt btcutil.Amount,
 				"invoice: %v", err)
 		}
 
+		// Set the payment address in the invoice so the caller can
+		// properly use it.
+		invoice.PaymentAddr = resp.PaymentAddr
+
 		payReqs[i] = resp.PaymentRequest
 		rHashes[i] = resp.RHash
 		invoices[i] = invoice
@@ -5351,10 +5355,6 @@ type singleHopSendToRouteCase struct {
 	// routerrpc submits the request to the routerrpc subserver if true,
 	// otherwise submits to the main rpc server.
 	routerrpc bool
-
-	// mpp sets the MPP fields on the request if true, otherwise submits a
-	// regular payment.
-	mpp bool
 }
 
 var singleHopSendToRouteCases = []singleHopSendToRouteCase{
@@ -5371,17 +5371,14 @@ var singleHopSendToRouteCases = []singleHopSendToRouteCase{
 	},
 	{
 		name: "mpp main sync",
-		mpp:  true,
 	},
 	{
 		name:      "mpp main stream",
 		streaming: true,
-		mpp:       true,
 	},
 	{
 		name:      "mpp routerrpc sync",
 		routerrpc: true,
-		mpp:       true,
 	},
 }
 
@@ -5558,11 +5555,7 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 	//  - routerrpc server sync
 	sendToRouteSync := func() {
 		for i, rHash := range rHashes {
-			// Populate the MPP fields for the final hop if we are
-			// testing MPP payments.
-			if test.mpp {
-				setMPPFields(i)
-			}
+			setMPPFields(i)
 
 			sendReq := &lnrpc.SendToRouteRequest{
 				PaymentHash: rHash,
@@ -5591,11 +5584,7 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 		}
 
 		for i, rHash := range rHashes {
-			// Populate the MPP fields for the final hop if we are
-			// testing MPP payments.
-			if test.mpp {
-				setMPPFields(i)
-			}
+			setMPPFields(i)
 
 			sendReq := &lnrpc.SendToRouteRequest{
 				PaymentHash: rHash,
@@ -5619,11 +5608,7 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 	}
 	sendToRouteRouterRPC := func() {
 		for i, rHash := range rHashes {
-			// Populate the MPP fields for the final hop if we are
-			// testing MPP payments.
-			if test.mpp {
-				setMPPFields(i)
-			}
+			setMPPFields(i)
 
 			sendReq := &routerrpc.SendToRouteRequest{
 				PaymentHash: rHash,
@@ -5719,26 +5704,22 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 		// properly populated. Otherwise the hop should not have an MPP
 		// record.
 		hop := htlc.Route.Hops[0]
-		if test.mpp {
-			if hop.MppRecord == nil {
-				t.Fatalf("expected mpp record for mpp payment")
-			}
+		if hop.MppRecord == nil {
+			t.Fatalf("expected mpp record for mpp payment")
+		}
 
-			if hop.MppRecord.TotalAmtMsat != paymentAmtSat*1000 {
-				t.Fatalf("incorrect mpp total msat for payment %d "+
-					"want: %d, got: %d",
-					i, paymentAmtSat*1000,
-					hop.MppRecord.TotalAmtMsat)
-			}
+		if hop.MppRecord.TotalAmtMsat != paymentAmtSat*1000 {
+			t.Fatalf("incorrect mpp total msat for payment %d "+
+				"want: %d, got: %d",
+				i, paymentAmtSat*1000,
+				hop.MppRecord.TotalAmtMsat)
+		}
 
-			expAddr := payAddrs[i]
-			if !bytes.Equal(hop.MppRecord.PaymentAddr, expAddr) {
-				t.Fatalf("incorrect mpp payment addr for payment %d "+
-					"want: %x, got: %x",
-					i, expAddr, hop.MppRecord.PaymentAddr)
-			}
-		} else if hop.MppRecord != nil {
-			t.Fatalf("unexpected mpp record for non-mpp payment")
+		expAddr := payAddrs[i]
+		if !bytes.Equal(hop.MppRecord.PaymentAddr, expAddr) {
+			t.Fatalf("incorrect mpp payment addr for payment %d "+
+				"want: %x, got: %x",
+				i, expAddr, hop.MppRecord.PaymentAddr)
 		}
 	}
 
@@ -5877,11 +5858,23 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 	}
 
-	// Query for routes to pay from Alice to Carol.
-	// We set FinalCltvDelta to 40 since by default QueryRoutes returns
-	// the last hop with a final cltv delta of 9 where as the default in
-	// htlcswitch is 40.
-	const paymentAmt = 1000
+	// Create 5 invoices for Carol, which expect a payment from Alice for 1k
+	// satoshis with a different preimage each time.
+	const (
+		numPayments = 5
+		paymentAmt  = 1000
+	)
+	_, rHashes, invoices, err := createPayReqs(
+		carol, paymentAmt, numPayments,
+	)
+	if err != nil {
+		t.Fatalf("unable to create pay reqs: %v", err)
+	}
+
+	// Construct a route from Alice to Carol for each of the invoices
+	// created above.  We set FinalCltvDelta to 40 since by default
+	// QueryRoutes returns the last hop with a final cltv delta of 9 where
+	// as the default in htlcswitch is 40.
 	routesReq := &lnrpc.QueryRoutesRequest{
 		PubKey:         carol.PubKeyStr,
 		Amt:            paymentAmt,
@@ -5891,16 +5884,6 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 	routes, err := net.Alice.QueryRoutes(ctxt, routesReq)
 	if err != nil {
 		t.Fatalf("unable to get route: %v", err)
-	}
-
-	// Create 5 invoices for Carol, which expect a payment from Alice for 1k
-	// satoshis with a different preimage each time.
-	const numPayments = 5
-	_, rHashes, _, err := createPayReqs(
-		carol, paymentAmt, numPayments,
-	)
-	if err != nil {
-		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
 	// We'll wait for all parties to recognize the new channels within the
@@ -5916,30 +5899,31 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 	// Using Alice as the source, pay to the 5 invoices from Carol created
 	// above.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	alicePayStream, err := net.Alice.SendToRoute(ctxt)
-	if err != nil {
-		t.Fatalf("unable to create payment stream for alice: %v", err)
-	}
 
-	for _, rHash := range rHashes {
-		sendReq := &lnrpc.SendToRouteRequest{
+	for i, rHash := range rHashes {
+		// Manually set the MPP payload a new for each payment since
+		// the payment addr will change with each invoice, although we
+		// can re-use the route itself.
+		route := *routes.Routes[0]
+		route.Hops[len(route.Hops)-1].TlvPayload = true
+		route.Hops[len(route.Hops)-1].MppRecord = &lnrpc.MPPRecord{
+			PaymentAddr: invoices[i].PaymentAddr,
+			TotalAmtMsat: int64(
+				lnwire.NewMSatFromSatoshis(paymentAmt),
+			),
+		}
+
+		sendReq := &routerrpc.SendToRouteRequest{
 			PaymentHash: rHash,
-			Route:       routes.Routes[0],
+			Route:       &route,
 		}
-		err := alicePayStream.Send(sendReq)
-
+		resp, err := net.Alice.RouterClient.SendToRouteV2(ctxt, sendReq)
 		if err != nil {
 			t.Fatalf("unable to send payment: %v", err)
 		}
-	}
 
-	for range rHashes {
-		resp, err := alicePayStream.Recv()
-		if err != nil {
-			t.Fatalf("unable to send payment: %v", err)
-		}
-		if resp.PaymentError != "" {
-			t.Fatalf("received payment error: %v", resp.PaymentError)
+		if resp.Failure != nil {
+			t.Fatalf("received payment error: %v", resp.Failure)
 		}
 	}
 

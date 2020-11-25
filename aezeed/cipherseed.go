@@ -114,7 +114,7 @@ var (
 	// computing our checksum.
 	crcTable = crc32.MakeTable(crc32.Castagnoli)
 
-	// defaultPassphras is the default passphrase that will be used for
+	// defaultPassphrase is the default passphrase that will be used for
 	// encryption in the case that the user chooses not to specify their
 	// own passphrase.
 	defaultPassphrase = []byte("aezeed")
@@ -262,7 +262,7 @@ func encodeAD(version uint8, salt [saltSize]byte) [adSize]byte {
 }
 
 // extractAD extracts an associated data from a fully encoded and enciphered
-// cipher seed.  This is to be used when attempting to decrypt an enciphered
+// cipher seed. This is to be used when attempting to decrypt an enciphered
 // cipher seed.
 func extractAD(encipheredSeed [EncipheredCipherSeedSize]byte) [adSize]byte {
 	var ad [adSize]byte

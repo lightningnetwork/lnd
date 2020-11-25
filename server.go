@@ -66,6 +66,7 @@ import (
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/walletunlocker"
+	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 	"github.com/lightningnetwork/lnd/watchtower/wtserver"
@@ -246,6 +247,8 @@ type server struct {
 	sphinx *hop.OnionProcessor
 
 	towerClient wtclient.Client
+
+	anchorTowerClient wtclient.Client
 
 	connMgr *connmgr.ConnManager
 
@@ -1265,6 +1268,29 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		if err != nil {
 			return nil, err
 		}
+
+		// Copy the policy for legacy channels and set the blob flag
+		// signalling support for anchor channels.
+		anchorPolicy := policy
+		anchorPolicy.TxPolicy.BlobType |=
+			blob.Type(blob.FlagAnchorChannel)
+
+		s.anchorTowerClient, err = wtclient.New(&wtclient.Config{
+			Signer:         cc.Wallet.Cfg.Signer,
+			NewAddress:     newSweepPkScriptGen(cc.Wallet),
+			SecretKeyRing:  s.cc.KeyRing,
+			Dial:           cfg.net.Dial,
+			AuthDial:       authDial,
+			DB:             towerClientDB,
+			Policy:         anchorPolicy,
+			ChainHash:      *s.cfg.ActiveNetParams.GenesisHash,
+			MinBackoff:     10 * time.Second,
+			MaxBackoff:     5 * time.Minute,
+			ForceQuitDelay: wtclient.DefaultForceQuitDelay,
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if len(cfg.ExternalHosts) != 0 {
@@ -1434,6 +1460,12 @@ func (s *server) Start() error {
 		}
 		if s.towerClient != nil {
 			if err := s.towerClient.Start(); err != nil {
+				startErr = err
+				return
+			}
+		}
+		if s.anchorTowerClient != nil {
+			if err := s.anchorTowerClient.Start(); err != nil {
 				startErr = err
 				return
 			}
@@ -1676,6 +1708,12 @@ func (s *server) Stop() error {
 		// will kick in and abort to allow this method to return.
 		if s.towerClient != nil {
 			s.towerClient.Stop()
+		}
+		if s.anchorTowerClient != nil {
+			if err := s.anchorTowerClient.Stop(); err != nil {
+				srvrLog.Warnf("Unable to shut down anchor "+
+					"tower client: %v", err)
+			}
 		}
 
 		if s.hostAnn != nil {

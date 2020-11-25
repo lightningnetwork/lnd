@@ -3,7 +3,6 @@ package routing
 import (
 	"bytes"
 	"fmt"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -914,7 +913,7 @@ func (r *ChannelRouter) networkHandler() {
 
 	// We'll use this validation barrier to ensure that we process all jobs
 	// in the proper order during parallel validation.
-	validationBarrier := NewValidationBarrier(runtime.NumCPU()*4, r.quit)
+	validationBarrier := NewValidationBarrier(1000, r.quit)
 
 	for {
 

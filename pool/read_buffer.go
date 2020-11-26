@@ -26,7 +26,7 @@ type ReadBuffer struct {
 }
 
 // NewReadBuffer returns a freshly instantiated ReadBuffer, using the given
-// gcInterval and expieryInterval.
+// gcInterval and expiryInterval.
 func NewReadBuffer(gcInterval, expiryInterval time.Duration) *ReadBuffer {
 	return &ReadBuffer{
 		pool: NewRecycle(

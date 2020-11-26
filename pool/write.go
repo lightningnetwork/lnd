@@ -86,7 +86,7 @@ func (w *Write) newWorkerState() WorkerState {
 }
 
 // Cleanup returns the writeBuf to the underlying buffer pool, and removes the
-// goroutine's reference to the readBuf and encapsulating buf.
+// goroutine's reference to the writeBuf and encapsulating buf.
 func (w *writeWorkerState) Cleanup() {
 	w.bufferPool.Return(w.writeBuf)
 	w.writeBuf = nil

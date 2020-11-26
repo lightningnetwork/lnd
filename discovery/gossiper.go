@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"runtime"
 	"sync"
 	"time"
 
@@ -912,9 +911,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 
 	// We'll use this validation to ensure that we process jobs in their
 	// dependency order during parallel validation.
-	validationBarrier := routing.NewValidationBarrier(
-		runtime.NumCPU()*4, d.quit,
-	)
+	validationBarrier := routing.NewValidationBarrier(1000, d.quit)
 
 	for {
 		select {
@@ -1692,9 +1689,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			// If the edge was rejected due to already being known,
 			// then it may be that case that this new message has a
 			// fresh channel proof, so we'll check.
-			if routing.IsError(err, routing.ErrOutdated,
-				routing.ErrIgnored) {
-
+			if routing.IsError(err, routing.ErrIgnored) {
 				// Attempt to process the rejected message to
 				// see if we get any new announcements.
 				anns, rErr := d.processRejectedEdge(msg, proof)

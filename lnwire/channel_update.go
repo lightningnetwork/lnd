@@ -47,6 +47,11 @@ const (
 	ChanUpdateDisabled
 )
 
+// IsDisabled determines whether the channel flags has the disabled bit set.
+func (c ChanUpdateChanFlags) IsDisabled() bool {
+	return c&ChanUpdateDisabled == ChanUpdateDisabled
+}
+
 // String returns the bitfield flags as a string.
 func (c ChanUpdateChanFlags) String() string {
 	return fmt.Sprintf("%08b", c)

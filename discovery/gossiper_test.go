@@ -31,6 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/ticker"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -3941,4 +3942,137 @@ func TestBroadcastAnnsAfterGraphSynced(t *testing.T) {
 		t.Fatalf("unable to create channel announcement: %v", err)
 	}
 	assertBroadcast(chanAnn2, true, true)
+}
+
+// TestRateLimitChannelUpdates ensures that we properly rate limit incoming
+// channel updates.
+func TestRateLimitChannelUpdates(t *testing.T) {
+	t.Parallel()
+
+	// Create our test harness.
+	const blockHeight = 100
+	ctx, cleanup, err := createTestCtx(blockHeight)
+	if err != nil {
+		t.Fatalf("can't create context: %v", err)
+	}
+	defer cleanup()
+	ctx.gossiper.cfg.RebroadcastInterval = time.Hour
+
+	// The graph should start empty.
+	require.Empty(t, ctx.router.infos)
+	require.Empty(t, ctx.router.edges)
+
+	// We'll create a batch of signed announcements, including updates for
+	// both sides, for a channel and process them. They should all be
+	// forwarded as this is our first time learning about the channel.
+	batch, err := createAnnouncements(blockHeight)
+	require.NoError(t, err)
+
+	nodePeer1 := &mockPeer{nodeKeyPriv1.PubKey(), nil, nil}
+	select {
+	case err := <-ctx.gossiper.ProcessRemoteAnnouncement(
+		batch.remoteChanAnn, nodePeer1,
+	):
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("remote announcement not processed")
+	}
+
+	select {
+	case err := <-ctx.gossiper.ProcessRemoteAnnouncement(
+		batch.chanUpdAnn1, nodePeer1,
+	):
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("remote announcement not processed")
+	}
+
+	nodePeer2 := &mockPeer{nodeKeyPriv2.PubKey(), nil, nil}
+	select {
+	case err := <-ctx.gossiper.ProcessRemoteAnnouncement(
+		batch.chanUpdAnn2, nodePeer2,
+	):
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("remote announcement not processed")
+	}
+
+	timeout := time.After(2 * trickleDelay)
+	for i := 0; i < 3; i++ {
+		select {
+		case <-ctx.broadcastedMessage:
+		case <-timeout:
+			t.Fatal("expected announcement to be broadcast")
+		}
+	}
+
+	shortChanID := batch.remoteChanAnn.ShortChannelID.ToUint64()
+	require.Contains(t, ctx.router.infos, shortChanID)
+	require.Contains(t, ctx.router.edges, shortChanID)
+
+	// We'll define a helper to assert whether updates should be rate
+	// limited or not depending on their contents.
+	assertRateLimit := func(update *lnwire.ChannelUpdate, peer lnpeer.Peer,
+		shouldRateLimit bool) {
+
+		t.Helper()
+
+		select {
+		case err := <-ctx.gossiper.ProcessRemoteAnnouncement(update, peer):
+			require.NoError(t, err)
+		case <-time.After(time.Second):
+			t.Fatal("remote announcement not processed")
+		}
+
+		select {
+		case <-ctx.broadcastedMessage:
+			if shouldRateLimit {
+				t.Fatal("unexpected channel update broadcast")
+			}
+		case <-time.After(2 * trickleDelay):
+			if !shouldRateLimit {
+				t.Fatal("expected channel update broadcast")
+			}
+		}
+	}
+
+	// We'll start with the keep alive case.
+	//
+	// We rate limit any keep alive updates that have not at least spanned
+	// our rebroadcast interval.
+	rateLimitKeepAliveUpdate := *batch.chanUpdAnn1
+	rateLimitKeepAliveUpdate.Timestamp++
+	require.NoError(t, signUpdate(nodeKeyPriv1, &rateLimitKeepAliveUpdate))
+	assertRateLimit(&rateLimitKeepAliveUpdate, nodePeer1, true)
+
+	keepAliveUpdate := *batch.chanUpdAnn1
+	keepAliveUpdate.Timestamp = uint32(
+		time.Unix(int64(batch.chanUpdAnn1.Timestamp), 0).
+			Add(ctx.gossiper.cfg.RebroadcastInterval).Unix(),
+	)
+	require.NoError(t, signUpdate(nodeKeyPriv1, &keepAliveUpdate))
+	assertRateLimit(&keepAliveUpdate, nodePeer1, false)
+
+	// Then, we'll move on to the non keep alive cases.
+	//
+	// Non keep alive updates are limited to one per block per direction.
+	// Since we've already processed updates for both sides, the new updates
+	// for both directions will not be broadcast until a new block arrives.
+	updateSameDirection := keepAliveUpdate
+	updateSameDirection.Timestamp++
+	updateSameDirection.BaseFee++
+	require.NoError(t, signUpdate(nodeKeyPriv1, &updateSameDirection))
+	assertRateLimit(&updateSameDirection, nodePeer1, true)
+
+	updateDiffDirection := *batch.chanUpdAnn2
+	updateDiffDirection.Timestamp++
+	updateDiffDirection.BaseFee++
+	require.NoError(t, signUpdate(nodeKeyPriv2, &updateDiffDirection))
+	assertRateLimit(&updateDiffDirection, nodePeer2, true)
+
+	// Notify a new block and reprocess the updates. They should no longer
+	// be rate limited.
+	ctx.notifier.notifyBlock(chainhash.Hash{}, blockHeight+1)
+	assertRateLimit(&updateSameDirection, nodePeer1, false)
+	assertRateLimit(&updateDiffDirection, nodePeer2, false)
 }

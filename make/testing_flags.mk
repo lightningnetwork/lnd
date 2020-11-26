@@ -4,7 +4,7 @@ LOG_TAGS =
 TEST_FLAGS =
 ITEST_FLAGS = 
 COVER_PKG = $$(go list -deps ./... | grep '$(PKG)' | grep -v lnrpc)
-NUM_ITEST_TRANCHES = 6
+NUM_ITEST_TRANCHES = 1
 ITEST_PARALLELISM = $(NUM_ITEST_TRANCHES)
 
 # If rpc option is set also add all extra RPC tags to DEV_TAGS

@@ -832,6 +832,11 @@
             "format": "byte"
           },
           "description": "A list of hops that defines the route. This does not include the source hop\npubkey."
+        },
+        "payment_addr": {
+          "type": "string",
+          "format": "byte",
+          "description": "An optional payment addr to be included within the last hop of the route."
         }
       }
     },

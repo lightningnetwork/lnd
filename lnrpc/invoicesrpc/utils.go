@@ -148,6 +148,7 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 		Htlcs:           rpcHtlcs,
 		Features:        CreateRPCFeatures(invoice.Terms.Features),
 		IsKeysend:       len(invoice.PaymentRequest) == 0,
+		PaymentAddr:     invoice.Terms.PaymentAddr[:],
 	}
 
 	if preimage != nil {

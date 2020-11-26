@@ -1190,3 +1190,178 @@ func TestOldInvoiceRemovalOnStart(t *testing.T) {
 	// registry start.
 	require.Equal(t, expected, response.Invoices)
 }
+
+// TestSettleInvoicePaymentAddrRequired tests that if an incoming payment has
+// an invoice that requires the payment addr bit to be set, and the incoming
+// payment doesn't include an mpp payload, then the payment is rejected.
+func TestSettleInvoicePaymentAddrRequired(t *testing.T) {
+	t.Parallel()
+
+	ctx := newTestContext(t)
+	defer ctx.cleanup()
+
+	allSubscriptions, err := ctx.registry.SubscribeNotifications(0, 0)
+	assert.Nil(t, err)
+	defer allSubscriptions.Cancel()
+
+	// Subscribe to the not yet existing invoice.
+	subscription, err := ctx.registry.SubscribeSingleInvoice(
+		testInvoicePaymentHash,
+	)
+	require.NoError(t, err)
+	defer subscription.Cancel()
+
+	require.Equal(
+		t, subscription.invoiceRef.PayHash(), testInvoicePaymentHash,
+	)
+
+	// Add the invoice, which requires the MPP payload to always be
+	// included due to its set of feature bits.
+	addIdx, err := ctx.registry.AddInvoice(
+		testPayAddrReqInvoice, testInvoicePaymentHash,
+	)
+	require.NoError(t, err)
+	require.Equal(t, int(addIdx), 1)
+
+	// We expect the open state to be sent to the single invoice subscriber.
+	select {
+	case update := <-subscription.Updates:
+		if update.State != channeldb.ContractOpen {
+			t.Fatalf("expected state ContractOpen, but got %v",
+				update.State)
+		}
+	case <-time.After(testTimeout):
+		t.Fatal("no update received")
+	}
+
+	// We expect a new invoice notification to be sent out.
+	select {
+	case newInvoice := <-allSubscriptions.NewInvoices:
+		if newInvoice.State != channeldb.ContractOpen {
+			t.Fatalf("expected state ContractOpen, but got %v",
+				newInvoice.State)
+		}
+	case <-time.After(testTimeout):
+		t.Fatal("no update received")
+	}
+
+	hodlChan := make(chan interface{}, 1)
+
+	// Now try to settle the invoice, the testPayload doesn't have any mpp
+	// information, so it should be forced to the updateLegacy path then
+	// fail as a required feature bit exists.
+	resolution, err := ctx.registry.NotifyExitHopHtlc(
+		testInvoicePaymentHash, testInvoice.Terms.Value,
+		uint32(testCurrentHeight)+testInvoiceCltvDelta-1,
+		testCurrentHeight, getCircuitKey(10), hodlChan, testPayload,
+	)
+	require.NoError(t, err)
+
+	failResolution, ok := resolution.(*HtlcFailResolution)
+	if !ok {
+		t.Fatalf("expected fail resolution, got: %T",
+			resolution)
+	}
+	require.Equal(t, failResolution.AcceptHeight, testCurrentHeight)
+	require.Equal(t, failResolution.Outcome, ResultAddressMismatch)
+}
+
+// TestSettleInvoicePaymentAddrRequiredOptionalGrace tests that if an invoice
+// in the database has an optional payment addr required bit set, then we'll
+// still allow it to be paid by an incoming HTLC that doesn't include the MPP
+// payload. This ensures we don't break payment for any invoices in the wild.
+func TestSettleInvoicePaymentAddrRequiredOptionalGrace(t *testing.T) {
+	t.Parallel()
+
+	ctx := newTestContext(t)
+	defer ctx.cleanup()
+
+	allSubscriptions, err := ctx.registry.SubscribeNotifications(0, 0)
+	assert.Nil(t, err)
+	defer allSubscriptions.Cancel()
+
+	// Subscribe to the not yet existing invoice.
+	subscription, err := ctx.registry.SubscribeSingleInvoice(
+		testInvoicePaymentHash,
+	)
+	require.NoError(t, err)
+	defer subscription.Cancel()
+
+	require.Equal(
+		t, subscription.invoiceRef.PayHash(), testInvoicePaymentHash,
+	)
+
+	// Add the invoice, which requires the MPP payload to always be
+	// included due to its set of feature bits.
+	addIdx, err := ctx.registry.AddInvoice(
+		testPayAddrOptionalInvoice, testInvoicePaymentHash,
+	)
+	require.NoError(t, err)
+	require.Equal(t, int(addIdx), 1)
+
+	// We expect the open state to be sent to the single invoice
+	// subscriber.
+	select {
+	case update := <-subscription.Updates:
+		if update.State != channeldb.ContractOpen {
+			t.Fatalf("expected state ContractOpen, but got %v",
+				update.State)
+		}
+	case <-time.After(testTimeout):
+		t.Fatal("no update received")
+	}
+
+	// We expect a new invoice notification to be sent out.
+	select {
+	case newInvoice := <-allSubscriptions.NewInvoices:
+		if newInvoice.State != channeldb.ContractOpen {
+			t.Fatalf("expected state ContractOpen, but got %v",
+				newInvoice.State)
+		}
+	case <-time.After(testTimeout):
+		t.Fatal("no update received")
+	}
+
+	// We'll now attempt to settle the invoice as normal, this should work
+	// no problem as we should allow these existing invoices to be settled.
+	hodlChan := make(chan interface{}, 1)
+	resolution, err := ctx.registry.NotifyExitHopHtlc(
+		testInvoicePaymentHash, testInvoiceAmt,
+		testHtlcExpiry, testCurrentHeight,
+		getCircuitKey(10), hodlChan, testPayload,
+	)
+	require.NoError(t, err)
+
+	settleResolution, ok := resolution.(*HtlcSettleResolution)
+	if !ok {
+		t.Fatalf("expected settle resolution, got: %T",
+			resolution)
+	}
+	require.Equal(t, settleResolution.Outcome, ResultSettled)
+
+	// We expect the settled state to be sent to the single invoice
+	// subscriber.
+	select {
+	case update := <-subscription.Updates:
+		if update.State != channeldb.ContractSettled {
+			t.Fatalf("expected state ContractOpen, but got %v",
+				update.State)
+		}
+		if update.AmtPaid != testInvoice.Terms.Value {
+			t.Fatal("invoice AmtPaid incorrect")
+		}
+	case <-time.After(testTimeout):
+		t.Fatal("no update received")
+	}
+
+	// We expect a settled notification to be sent out.
+	select {
+	case settledInvoice := <-allSubscriptions.SettledInvoices:
+		if settledInvoice.State != channeldb.ContractSettled {
+			t.Fatalf("expected state ContractOpen, but got %v",
+				settledInvoice.State)
+		}
+	case <-time.After(testTimeout):
+		t.Fatal("no update received")
+	}
+}

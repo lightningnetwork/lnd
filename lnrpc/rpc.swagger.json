@@ -2461,6 +2461,11 @@
           "type": "string",
           "format": "uint64",
           "description": "The \"add\" index of this invoice. Each newly created invoice will increment\nthis index making it monotonically increasing. Callers to the\nSubscribeInvoices call can use this to instantly get notified of all added\ninvoices with an add_index greater than this one."
+        },
+        "payment_addr": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment address of the generated invoice. This value should be used\nin all payments for this invoice as we require it for end to end\nsecurity."
         }
       }
     },
@@ -4083,6 +4088,11 @@
           "type": "boolean",
           "format": "boolean",
           "description": "Indicates if this invoice was a spontaneous payment that arrived via keysend\n[EXPERIMENTAL]."
+        },
+        "payment_addr": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment address of this invoice. This value will be used in MPP\npayments, and also for newer invoies that always require the MPP paylaod\nfor added end-to-end security."
         }
       }
     },

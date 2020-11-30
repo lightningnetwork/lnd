@@ -231,6 +231,19 @@ func (n *sessionNegotiator) negotiate() {
 	// backoff.
 	var backoff time.Duration
 
+	// Create a closure to update the backoff upon failure such that it
+	// stays within our min and max backoff parameters.
+	updateBackoff := func() {
+		if backoff == 0 {
+			backoff = n.cfg.MinBackoff
+		} else {
+			backoff *= 2
+			if backoff > n.cfg.MaxBackoff {
+				backoff = n.cfg.MaxBackoff
+			}
+		}
+	}
+
 retryWithBackoff:
 	// If we are retrying, wait out the delay before continuing.
 	if backoff > 0 {
@@ -251,16 +264,8 @@ retryWithBackoff:
 		// Pull the next candidate from our list of addresses.
 		tower, err := n.cfg.Candidates.Next()
 		if err != nil {
-			if backoff == 0 {
-				backoff = n.cfg.MinBackoff
-			} else {
-				// We've run out of addresses, double and clamp
-				// backoff.
-				backoff *= 2
-				if backoff > n.cfg.MaxBackoff {
-					backoff = n.cfg.MaxBackoff
-				}
-			}
+			// We've run out of addresses, update our backoff.
+			updateBackoff()
 
 			log.Debugf("Unable to get new tower candidate, "+
 				"retrying after %v -- reason: %v", backoff, err)
@@ -293,10 +298,14 @@ retryWithBackoff:
 		// get a new session, trying all addresses if necessary.
 		err = n.createSession(tower, keyIndex)
 		if err != nil {
+			// An unexpected error occurred, updpate our backoff.
+			updateBackoff()
+
 			log.Debugf("Session negotiation with tower=%x "+
 				"failed, trying again -- reason: %v",
 				tower.IdentityKey.SerializeCompressed(), err)
-			continue
+
+			goto retryWithBackoff
 		}
 
 		// Success.

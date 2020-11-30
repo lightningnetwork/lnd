@@ -462,13 +462,7 @@ func (c *TowerClient) Stop() error {
 	c.stopped.Do(func() {
 		log.Debugf("Stopping watchtower client")
 
-		// 1. Shutdown the backup queue, which will prevent any further
-		// updates from being accepted. In practice, the links should be
-		// shutdown before the client has been stopped, so all updates
-		// would have been added prior.
-		c.pipeline.Stop()
-
-		// 2. To ensure we don't hang forever on shutdown due to
+		// 1. To ensure we don't hang forever on shutdown due to
 		// unintended failures, we'll delay a call to force quit the
 		// pipeline if a ForceQuitDelay is specified. This will have no
 		// effect if the pipeline shuts down cleanly before the delay
@@ -482,6 +476,12 @@ func (c *TowerClient) Stop() error {
 		if c.cfg.ForceQuitDelay > 0 {
 			time.AfterFunc(c.cfg.ForceQuitDelay, c.ForceQuit)
 		}
+
+		// 2. Shutdown the backup queue, which will prevent any further
+		// updates from being accepted. In practice, the links should be
+		// shutdown before the client has been stopped, so all updates
+		// would have been added prior.
+		c.pipeline.Stop()
 
 		// 3. Once the backup queue has shutdown, wait for the main
 		// dispatcher to exit. The backup queue will signal it's

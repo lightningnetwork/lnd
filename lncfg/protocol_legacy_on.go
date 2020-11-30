@@ -16,6 +16,12 @@ type LegacyProtocol struct {
 	// remote party's output in the commitment. If set to true, then we
 	// won't signal StaticRemoteKeyOptional.
 	CommitmentTweak bool `long:"committweak" description:"force node to not advertise the new commitment format"`
+
+	// NoGossipUpdateThrottle if true, then gossip updates won't be
+	// throttled using the current set of heuristics. This should mainly be
+	// used for integration tests where we want nearly instant propagation
+	// of gossip updates.
+	NoGossipUpdateThrottle bool `long:"no-gossip-throttle" description:"if true, then gossip updates will not be throttled to once per rebroadcast interval for non keep-alive updates"`
 }
 
 // LegacyOnion returns true if the old legacy onion format should be used when
@@ -29,4 +35,9 @@ func (l *LegacyProtocol) LegacyOnion() bool {
 // remote key should be used for new funded channels.
 func (l *LegacyProtocol) NoStaticRemoteKey() bool {
 	return l.CommitmentTweak
+}
+
+// NoGossipThrottle returns true if gossip updates shouldn't be throttled.
+func (l *LegacyProtocol) NoGossipThrottle() bool {
+	return l.NoGossipUpdateThrottle
 }

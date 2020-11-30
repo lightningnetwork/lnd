@@ -115,8 +115,8 @@ func (l *Listener) doHandshake(conn net.Conn) {
 	}
 
 	// We'll ensure that we get ActOne from the remote peer in a timely
-	// manner. If they don't respond within 1s, then we'll kill the
-	// connection.
+	// manner. If they don't respond within handshakeReadTimeout, then
+	// we'll kill the connection.
 	err := conn.SetReadDeadline(time.Now().Add(handshakeReadTimeout))
 	if err != nil {
 		brontideConn.conn.Close()
@@ -160,8 +160,8 @@ func (l *Listener) doHandshake(conn net.Conn) {
 	}
 
 	// We'll ensure that we get ActTwo from the remote peer in a timely
-	// manner. If they don't respond within 1 second, then we'll kill the
-	// connection.
+	// manner. If they don't respond within handshakeReadTimeout, then
+	// we'll kill the connection.
 	err = conn.SetReadDeadline(time.Now().Add(handshakeReadTimeout))
 	if err != nil {
 		brontideConn.conn.Close()

@@ -3237,6 +3237,36 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// SubtractFees=true.
 	capacity := reservation.Capacity()
 
+	// We'll use the current value of the channels and our default policy
+	// to determine of required commitment constraints for the remote
+	// party.
+	chanReserve := f.cfg.RequiredRemoteChanReserve(capacity, ourDustLimit)
+
+	// As a sanity check, we ensure that the user is not trying to open a
+	// tiny anchor channel that would be unusable because of the fee siphon
+	// check we do.
+	if commitType == lnwallet.CommitmentTypeAnchors {
+		timeoutFee := lnwallet.HtlcTimeoutFee(
+			channeldb.AnchorOutputsBit,
+			f.cfg.MaxAnchorsCommitFeeRate,
+		)
+
+		maxNumHtlcs := chanReserve / timeoutFee
+		if maxNumHtlcs < lnwallet.MinAnchorHtlcSlots {
+			if err := reservation.Cancel(); err != nil {
+				fndgLog.Errorf("unable to cancel "+
+					"reservation: %v", err)
+			}
+
+			maxHtlcErr := fmt.Errorf("tiny channel, only room "+
+				"for %d HTLCs. Consider making a larger "+
+				"channel or reducing the max commit fee rate",
+				maxNumHtlcs)
+			msg.err <- maxHtlcErr
+			return
+		}
+	}
+
 	fndgLog.Infof("Target commit tx sat/kw for pendingID(%x): %v", chanID,
 		int64(commitFeePerKw))
 
@@ -3291,11 +3321,6 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// Once the reservation has been created, and indexed, queue a funding
 	// request to the remote peer, kicking off the funding workflow.
 	ourContribution := reservation.OurContribution()
-
-	// Finally, we'll use the current value of the channels and our default
-	// policy to determine of required commitment constraints for the
-	// remote party.
-	chanReserve := f.cfg.RequiredRemoteChanReserve(capacity, ourDustLimit)
 
 	fndgLog.Infof("Starting funding workflow with %v for pending_id(%x), "+
 		"committype=%v", msg.peer.Address(), chanID, commitType)

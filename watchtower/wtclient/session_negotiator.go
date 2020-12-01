@@ -298,7 +298,9 @@ retryWithBackoff:
 		// Before proceeding, we will reserve a session key index to use
 		// with this specific tower. If one is already reserved, the
 		// existing index will be returned.
-		keyIndex, err := n.cfg.DB.NextSessionKeyIndex(tower.ID)
+		keyIndex, err := n.cfg.DB.NextSessionKeyIndex(
+			tower.ID, n.cfg.Policy.BlobType,
+		)
 		if err != nil {
 			log.Debugf("Unable to reserve session key index "+
 				"for tower=%x: %v", towerPub, err)

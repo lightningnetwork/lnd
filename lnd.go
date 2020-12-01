@@ -1508,12 +1508,43 @@ func initNeutrinoBackend(cfg *Config, chainDir string) (*neutrino.ChainService,
 		AddPeers:     cfg.NeutrinoMode.AddPeers,
 		ConnectPeers: cfg.NeutrinoMode.ConnectPeers,
 		Dialer: func(addr net.Addr) (net.Conn, error) {
+			dialAddr := addr
+			if tor.IsOnionFakeIP(addr) {
+				// Because the Neutrino address manager only
+				// knows IP addresses, we need to turn any fake
+				// tcp6 address that actually encodes an Onion
+				// v2 address back into the hostname
+				// representation before we can pass it to the
+				// dialer.
+				var err error
+				dialAddr, err = tor.FakeIPToOnionHost(addr)
+				if err != nil {
+					return nil, err
+				}
+			}
+
 			return cfg.net.Dial(
-				addr.Network(), addr.String(),
+				dialAddr.Network(), dialAddr.String(),
 				cfg.ConnectionTimeout,
 			)
 		},
 		NameResolver: func(host string) ([]net.IP, error) {
+			if tor.IsOnionHost(host) {
+				// Neutrino internally uses btcd's address
+				// manager which only operates on an IP level
+				// and does not understand onion hosts. We need
+				// to turn an onion host into a fake
+				// representation of an IP address to make it
+				// possible to connect to a block filter backend
+				// that serves on an Onion v2 hidden service.
+				fakeIP, err := tor.OnionHostToFakeIP(host)
+				if err != nil {
+					return nil, err
+				}
+
+				return []net.IP{fakeIP}, nil
+			}
+
 			addrs, err := cfg.net.LookupHost(host)
 			if err != nil {
 				return nil, err

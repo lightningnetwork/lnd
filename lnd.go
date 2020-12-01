@@ -561,10 +561,12 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 
 	// If the watchtower client should be active, open the client database.
 	// This is done here so that Close always executes when lndMain returns.
-	var towerClientDB *wtdb.ClientDB
+	var towerClientDB, anchorTowerClientDB *wtdb.ClientDB
 	if cfg.WtClient.Active {
 		var err error
-		towerClientDB, err = wtdb.OpenClientDB(cfg.localDatabaseDir())
+		towerClientDB, err = wtdb.OpenClientDB(
+			cfg.localDatabaseDir(), wtdb.ClientDBName,
+		)
 		if err != nil {
 			err := fmt.Errorf("unable to open watchtower client "+
 				"database: %v", err)
@@ -572,6 +574,17 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 			return err
 		}
 		defer towerClientDB.Close()
+
+		anchorTowerClientDB, err = wtdb.OpenClientDB(
+			cfg.localDatabaseDir(), wtdb.AnchorClientDBName,
+		)
+		if err != nil {
+			err := fmt.Errorf("unable to open anchor watchtower "+
+				"client database: %v", err)
+			ltndLog.Error(err)
+			return err
+		}
+		defer anchorTowerClientDB.Close()
 	}
 
 	// If tor is active and either v2 or v3 onion services have been specified,
@@ -680,8 +693,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	// connections.
 	server, err := newServer(
 		cfg, cfg.Listeners, localChanDB, remoteChanDB, towerClientDB,
-		activeChainControl, &idKeyDesc, walletInitParams.ChansToRestore,
-		chainedAcceptor, torController,
+		anchorTowerClientDB, activeChainControl, &idKeyDesc,
+		walletInitParams.ChansToRestore, chainedAcceptor, torController,
 	)
 	if err != nil {
 		err := fmt.Errorf("unable to create server: %v", err)

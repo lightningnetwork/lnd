@@ -13,8 +13,12 @@ import (
 )
 
 const (
-	// clientDBName is the filename of client database.
-	clientDBName = "wtclient.db"
+	// ClientDBName is the filename of client database.
+	ClientDBName = "wtclient.db"
+	
+	// AnchorClientDBName is the filename of the client database to use with
+	// anchor channels.
+	AnchorClientDBName = "wtclient-anchor.db"
 )
 
 var (
@@ -128,8 +132,8 @@ type ClientDB struct {
 // migrations will be applied before returning. Any attempt to open a database
 // with a version number higher that the latest version will fail to prevent
 // accidental reversion.
-func OpenClientDB(dbPath string) (*ClientDB, error) {
-	bdb, firstInit, err := createDBIfNotExist(dbPath, clientDBName)
+func OpenClientDB(dbPath, dbName string) (*ClientDB, error) {
+	bdb, firstInit, err := createDBIfNotExist(dbPath, dbName)
 	if err != nil {
 		return nil, err
 	}

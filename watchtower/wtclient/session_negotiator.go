@@ -336,9 +336,14 @@ func (n *sessionNegotiator) createSession(tower *wtdb.Tower,
 		return ErrNoTowerAddrs
 	}
 
+	family := keychain.KeyFamilyTowerSession
+	if n.cfg.Policy.IsAnchorChannel() {
+		family = keychain.KeyFamilyAnchorTowerSession
+	}
+
 	sessionKeyDesc, err := n.cfg.SecretKeyRing.DeriveKey(
 		keychain.KeyLocator{
-			Family: keychain.KeyFamilyTowerSession,
+			Family: family,
 			Index:  keyIndex,
 		},
 	)

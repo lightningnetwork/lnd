@@ -103,6 +103,12 @@ const (
 	// preventing others from having full access to the tower just as a
 	// result of knowing the node key.
 	KeyFamilyTowerID KeyFamily = 9
+	
+	// KeyFamilyAnchorTowerSession is the family of keys that will be used
+	// to derive session keys when negotiating anchor channel sessions with
+	// watchtowers. The session keys are limited to the lifetime of the
+	// session and are used to increase privacy in the watchtower protocol.
+	KeyFamilyAnchorTowerSession KeyFamily = 10
 )
 
 // KeyLocator is a two-tuple that can be used to derive *any* key that has ever

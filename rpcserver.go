@@ -619,8 +619,8 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 		cfg, s.cc, cfg.networkDir, macService, atpl, invoiceRegistry,
 		s.htlcSwitch, cfg.ActiveNetParams.Params, s.chanRouter,
 		routerBackend, s.nodeSigner, s.remoteChanDB, s.sweeper, tower,
-		s.towerClient, cfg.net.ResolveTCPAddr, genInvoiceFeatures,
-		rpcsLog,
+		s.towerClient, s.anchorTowerClient, cfg.net.ResolveTCPAddr,
+		genInvoiceFeatures, rpcsLog,
 	)
 	if err != nil {
 		return nil, err

@@ -14,6 +14,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower"
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
+	"github.com/lightningnetwork/lnd/watchtower/wtdb"
+	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -176,7 +178,12 @@ func (c *WatchtowerClient) AddTower(ctx context.Context,
 		IdentityKey: pubKey,
 		Address:     addr,
 	}
+
+	// TODO(conner): make atomic via multiplexed client
 	if err := c.cfg.Client.AddTower(towerAddr); err != nil {
+		return nil, err
+	}
+	if err := c.cfg.AnchorClient.AddTower(towerAddr); err != nil {
 		return nil, err
 	}
 
@@ -211,7 +218,13 @@ func (c *WatchtowerClient) RemoveTower(ctx context.Context,
 		}
 	}
 
-	if err := c.cfg.Client.RemoveTower(pubKey, addr); err != nil {
+	// TODO(conner): make atomic via multiplexed client
+	err = c.cfg.Client.RemoveTower(pubKey, addr)
+	if err != nil {
+		return nil, err
+	}
+	err = c.cfg.AnchorClient.RemoveTower(pubKey, addr)
+	if err != nil {
 		return nil, err
 	}
 
@@ -226,9 +239,23 @@ func (c *WatchtowerClient) ListTowers(ctx context.Context,
 		return nil, err
 	}
 
-	towers, err := c.cfg.Client.RegisteredTowers()
+	anchorTowers, err := c.cfg.AnchorClient.RegisteredTowers()
 	if err != nil {
 		return nil, err
+	}
+
+	legacyTowers, err := c.cfg.Client.RegisteredTowers()
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter duplicates.
+	towers := make(map[wtdb.TowerID]*wtclient.RegisteredTower)
+	for _, tower := range anchorTowers {
+		towers[tower.Tower.ID] = tower
+	}
+	for _, tower := range legacyTowers {
+		towers[tower.Tower.ID] = tower
 	}
 
 	rpcTowers := make([]*Tower, 0, len(towers))
@@ -253,7 +280,11 @@ func (c *WatchtowerClient) GetTowerInfo(ctx context.Context,
 		return nil, err
 	}
 
-	tower, err := c.cfg.Client.LookupTower(pubKey)
+	var tower *wtclient.RegisteredTower
+	tower, err = c.cfg.Client.LookupTower(pubKey)
+	if err == wtdb.ErrTowerNotFound {
+		tower, err = c.cfg.AnchorClient.LookupTower(pubKey)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -269,7 +300,24 @@ func (c *WatchtowerClient) Stats(ctx context.Context,
 		return nil, err
 	}
 
-	stats := c.cfg.Client.Stats()
+	clientStats := []wtclient.ClientStats{
+		c.cfg.Client.Stats(),
+		c.cfg.AnchorClient.Stats(),
+	}
+
+	var stats wtclient.ClientStats
+	for i := range clientStats {
+		// Grab a reference to the slice index rather than copying bc
+		// ClientStats contains a lock which cannot be copied by value.
+		stat := &clientStats[i]
+
+		stats.NumTasksAccepted += stat.NumTasksAccepted
+		stats.NumTasksIneligible += stat.NumTasksIneligible
+		stats.NumTasksReceived += stat.NumTasksReceived
+		stats.NumSessionsAcquired += stat.NumSessionsAcquired
+		stats.NumSessionsExhausted += stat.NumSessionsExhausted
+	}
+
 	return &StatsResponse{
 		NumBackups:           uint32(stats.NumTasksAccepted),
 		NumFailedBackups:     uint32(stats.NumTasksIneligible),
@@ -287,7 +335,17 @@ func (c *WatchtowerClient) Policy(ctx context.Context,
 		return nil, err
 	}
 
-	policy := c.cfg.Client.Policy()
+	var policy wtpolicy.Policy
+	switch req.PolicyType {
+	case PolicyType_LEGACY:
+		policy = c.cfg.Client.Policy()
+	case PolicyType_ANCHOR:
+		policy = c.cfg.AnchorClient.Policy()
+	default:
+		return nil, fmt.Errorf("unknown policy type: %v",
+			req.PolicyType)
+	}
+
 	return &PolicyResponse{
 		MaxUpdates:      uint32(policy.MaxUpdates),
 		SweepSatPerByte: uint32(policy.SweepFeeRate.FeePerKVByte() / 1000),

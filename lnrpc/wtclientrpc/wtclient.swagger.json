@@ -134,6 +134,20 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "policy_type",
+            "description": "The client type from which to retrieve the active offering policy.\n\n - LEGACY: Selects the policy from the legacy tower client.\n - ANCHOR: Selects the policy from the anchor tower client.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "LEGACY",
+              "ANCHOR"
+            ],
+            "default": "LEGACY"
+          }
+        ],
         "tags": [
           "WatchtowerClient"
         ]
@@ -280,6 +294,15 @@
           "description": "The fee rate, in satoshis per vbyte, that will be used by watchtowers for\njustice transactions in response to channel breaches."
         }
       }
+    },
+    "wtclientrpcPolicyType": {
+      "type": "string",
+      "enum": [
+        "LEGACY",
+        "ANCHOR"
+      ],
+      "default": "LEGACY",
+      "description": " - LEGACY: Selects the policy from the legacy tower client.\n - ANCHOR: Selects the policy from the anchor tower client."
     },
     "wtclientrpcRemoveTowerResponse": {
       "type": "object"

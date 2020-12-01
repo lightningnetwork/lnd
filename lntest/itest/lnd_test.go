@@ -9070,14 +9070,42 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 	t *harnessTest) {
 
-	t.t.Run("anchors", func(tt *testing.T) {
-		ht := newHarnessTest(tt, net)
-		testRevokedCloseRetributionAltruistWatchtowerCase(net, ht, true)
-	})
-	t.t.Run("legacy", func(tt *testing.T) {
-		ht := newHarnessTest(tt, net)
-		testRevokedCloseRetributionAltruistWatchtowerCase(net, ht, false)
-	})
+	testCases := []struct {
+		name    string
+		anchors bool
+	}{{
+		name:    "anchors",
+		anchors: true,
+	}, {
+		name:    "legacy",
+		anchors: false,
+	}}
+
+	for _, tc := range testCases {
+		tc := tc
+
+		success := t.t.Run(tc.name, func(tt *testing.T) {
+			ht := newHarnessTest(tt, net)
+			ht.RunTestCase(&testCase{
+				name: tc.name,
+				test: func(net1 *lntest.NetworkHarness, t1 *harnessTest) {
+					testRevokedCloseRetributionAltruistWatchtowerCase(
+						net1, t1, tc.anchors,
+					)
+				},
+			})
+		})
+
+		if !success {
+			// Log failure time to help relate the lnd logs to the
+			// failure.
+			t.Logf("Failure time: %v", time.Now().Format(
+				"2006-01-02 15:04:05.000",
+			))
+
+			break
+		}
+	}
 }
 
 func testRevokedCloseRetributionAltruistWatchtowerCase(

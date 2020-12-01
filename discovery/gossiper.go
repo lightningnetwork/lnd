@@ -228,6 +228,11 @@ type Config struct {
 	// This prevents ranges with old start times from causing us to dump the
 	// graph on connect.
 	IgnoreHistoricalFilters bool
+
+	// GossipUpdateThrottle if true, then the gossiper will throttle
+	// gossip updates to once per RebroadcastInterval for any keep-alive
+	// updates, and once per block for other types of updates.
+	GossipUpdateThrottle bool
 }
 
 // AuthenticatedGossiper is a subsystem which is responsible for receiving
@@ -1965,8 +1970,9 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 
 		// If we have a previous version of the edge being updated,
 		// we'll want to rate limit its updates to prevent spam
-		// throughout the network.
-		if nMsg.isRemote && edgeToUpdate != nil {
+		// throughout the network if we're currently throttling such
+		// updates.
+		if d.cfg.GossipUpdateThrottle && nMsg.isRemote && edgeToUpdate != nil {
 			// If it's a keep-alive update, we'll only propagate one
 			// if it's been a day since the previous. This follows
 			// our own heuristic of sending keep-alive updates after

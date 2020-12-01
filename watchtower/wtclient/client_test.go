@@ -446,10 +446,11 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		NewAddress: func() ([]byte, error) {
 			return addrScript, nil
 		},
-		ReadTimeout:  timeout,
-		WriteTimeout: timeout,
-		MinBackoff:   time.Millisecond,
-		MaxBackoff:   10 * time.Millisecond,
+		ReadTimeout:    timeout,
+		WriteTimeout:   timeout,
+		MinBackoff:     time.Millisecond,
+		MaxBackoff:     time.Second,
+		ForceQuitDelay: 10 * time.Second,
 	}
 	client, err := wtclient.New(clientCfg)
 	if err != nil {
@@ -1473,6 +1474,61 @@ var clientTests = []clientTest{
 			h.serverCfg.NoAckCreateSession = false
 			h.startServer()
 			h.waitServerUpdates(hints[numUpdates/2:], 5*time.Second)
+		},
+	},
+	{
+		// Asserts that the client's force quite delay will properly
+		// shutdown the client if it is unable to completely drain the
+		// task pipeline.
+		name: "force unclean shutdown",
+		cfg: harnessCfg{
+			localBalance:  localBalance,
+			remoteBalance: remoteBalance,
+			policy: wtpolicy.Policy{
+				TxPolicy: wtpolicy.TxPolicy{
+					BlobType:     blob.TypeAltruistCommit,
+					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
+				},
+				MaxUpdates: 5,
+			},
+		},
+		fn: func(h *testHarness) {
+			const (
+				chanID     = 0
+				numUpdates = 6
+				maxUpdates = 5
+			)
+
+			// Advance the channel to create all states.
+			hints := h.advanceChannelN(chanID, numUpdates)
+
+			// Back up 4 of the 5 states for the negotiated session.
+			h.backupStates(chanID, 0, maxUpdates-1, nil)
+			h.waitServerUpdates(hints[:maxUpdates-1], 5*time.Second)
+
+			// Now, restart the tower and prevent it from acking any
+			// new sessions. We do this here as once the last slot
+			// is exhausted the client will attempt to renegotiate.
+			err := h.server.Stop()
+			require.Nil(h.t, err)
+			h.serverCfg.NoAckCreateSession = true
+			h.startServer()
+
+			// Back up the remaining two states. Once the first is
+			// processed, the session will be exhausted but the
+			// client won't be able to regnegotiate a session for
+			// the final state. We'll only wait for the first five
+			// states to arrive at the tower.
+			h.backupStates(chanID, maxUpdates-1, numUpdates, nil)
+			h.waitServerUpdates(hints[:maxUpdates], 5*time.Second)
+
+			// Finally, stop the client which will continue to
+			// attempt session negotiation since it has one more
+			// state to process. After the force quite delay
+			// expires, the client should force quite itself and
+			// allow the test to complete.
+			err = h.client.Stop()
+			require.Nil(h.t, err)
 		},
 	},
 }

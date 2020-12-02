@@ -918,8 +918,7 @@ func TestPrematureAnnouncement(t *testing.T) {
 
 	// Pretending that we receive the valid channel update announcement from
 	// remote side, but block height of this announcement is greater than
-	// highest know to us, for that reason it should be added to the
-	// repeat/premature batch.
+	// highest known to us, so it should be rejected.
 	ua, err := createUpdateAnnouncement(1, 0, nodeKeyPriv1, timestamp)
 	if err != nil {
 		t.Fatalf("can't create update announcement: %v", err)
@@ -933,31 +932,6 @@ func TestPrematureAnnouncement(t *testing.T) {
 
 	if len(ctx.router.edges) != 0 {
 		t.Fatal("edge update was added to router")
-	}
-
-	// Generate new block and waiting the previously added announcements
-	// to be proceeded.
-	newBlock := &wire.MsgBlock{}
-	ctx.notifier.notifyBlock(newBlock.Header.BlockHash(), 1)
-
-	select {
-	case <-ctx.broadcastedMessage:
-	case <-time.After(2 * trickleDelay):
-		t.Fatal("announcement wasn't broadcasted")
-	}
-
-	if len(ctx.router.infos) != 1 {
-		t.Fatalf("edge wasn't added to router: %v", err)
-	}
-
-	select {
-	case <-ctx.broadcastedMessage:
-	case <-time.After(2 * trickleDelay):
-		t.Fatal("announcement wasn't broadcasted")
-	}
-
-	if len(ctx.router.edges) != 1 {
-		t.Fatalf("edge update wasn't added to router: %v", err)
 	}
 }
 

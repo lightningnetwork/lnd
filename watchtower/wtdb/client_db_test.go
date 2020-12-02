@@ -60,15 +60,14 @@ func (h *clientDBHarness) listSessions(id *wtdb.TowerID) map[wtdb.SessionID]*wtd
 	return sessions
 }
 
-func (h *clientDBHarness) nextKeyIndex(id wtdb.TowerID, blobType blob.Type,
-	expErr error) uint32 {
+func (h *clientDBHarness) nextKeyIndex(id wtdb.TowerID,
+	blobType blob.Type) uint32 {
 
 	h.t.Helper()
 
 	index, err := h.db.NextSessionKeyIndex(id, blobType)
-	if err != expErr {
-		h.t.Fatalf("expected next session key index error: %v, got: %v",
-			expErr, err)
+	if err != nil {
+		h.t.Fatalf("unable to create next session key index: %v", err)
 	}
 
 	if index == 0 {
@@ -229,7 +228,7 @@ func (h *clientDBHarness) ackUpdate(id *wtdb.SessionID, seqNum uint16,
 //   - client sessions cannot be created with an incorrect session key index .
 //   - inserting duplicate sessions fails.
 func testCreateClientSession(h *clientDBHarness) {
-	const blobType = blob.TypeAltruistCommit
+	const blobType = blob.TypeAltruistAnchorCommit
 
 	// Create a test client session to insert.
 	session := &wtdb.ClientSession{
@@ -257,7 +256,7 @@ func testCreateClientSession(h *clientDBHarness) {
 	h.insertSession(session, wtdb.ErrNoReservedKeyIndex)
 
 	// Now, reserve a session key for this tower.
-	keyIndex := h.nextKeyIndex(session.TowerID, blobType, nil)
+	keyIndex := h.nextKeyIndex(session.TowerID, blobType)
 
 	// The client session hasn't been updated with the reserved key index
 	// (since it's still zero). Inserting should fail due to the mismatch.
@@ -266,7 +265,7 @@ func testCreateClientSession(h *clientDBHarness) {
 	// Reserve another key for the same index. Since no session has been
 	// successfully created, it should return the same index to maintain
 	// idempotency across restarts.
-	keyIndex2 := h.nextKeyIndex(session.TowerID, blobType, nil)
+	keyIndex2 := h.nextKeyIndex(session.TowerID, blobType)
 	if keyIndex != keyIndex2 {
 		h.t.Fatalf("next key index should be idempotent: want: %v, "+
 			"got %v", keyIndex, keyIndex2)
@@ -288,7 +287,7 @@ func testCreateClientSession(h *clientDBHarness) {
 
 	// Finally, assert that reserving another key index succeeds with a
 	// different key index, now that the first one has been finalized.
-	keyIndex3 := h.nextKeyIndex(session.TowerID, blobType, nil)
+	keyIndex3 := h.nextKeyIndex(session.TowerID, blobType)
 	if keyIndex == keyIndex3 {
 		h.t.Fatalf("key index still reserved after creating session")
 	}
@@ -307,7 +306,7 @@ func testFilterClientSessions(h *clientDBHarness) {
 		if i == numSessions-1 {
 			towerID = wtdb.TowerID(2)
 		}
-		keyIndex := h.nextKeyIndex(towerID, blobType, nil)
+		keyIndex := h.nextKeyIndex(towerID, blobType)
 		sessionID := wtdb.SessionID([33]byte{byte(i)})
 		h.insertSession(&wtdb.ClientSession{
 			ClientSessionBody: wtdb.ClientSessionBody{
@@ -480,7 +479,7 @@ func testRemoveTower(h *clientDBHarness) {
 				MaxUpdates: 100,
 			},
 			RewardPkScript: []byte{0x01, 0x02, 0x03},
-			KeyIndex:       h.nextKeyIndex(tower.ID, blobType, nil),
+			KeyIndex:       h.nextKeyIndex(tower.ID, blobType),
 		},
 		ID: wtdb.SessionID([33]byte{0x01}),
 	}
@@ -561,7 +560,7 @@ func testCommitUpdate(h *clientDBHarness) {
 	h.commitUpdate(&session.ID, update1, wtdb.ErrClientSessionNotFound)
 
 	// Reserve a session key index and insert the session.
-	session.KeyIndex = h.nextKeyIndex(session.TowerID, blobType, nil)
+	session.KeyIndex = h.nextKeyIndex(session.TowerID, blobType)
 	h.insertSession(session, nil)
 
 	// Now, try to commit the update that failed initially which should
@@ -661,7 +660,7 @@ func testAckUpdate(h *clientDBHarness) {
 	h.ackUpdate(&session.ID, 1, 0, wtdb.ErrClientSessionNotFound)
 
 	// Reserve a session key and insert the client session.
-	session.KeyIndex = h.nextKeyIndex(session.TowerID, blobType, nil)
+	session.KeyIndex = h.nextKeyIndex(session.TowerID, blobType)
 	h.insertSession(session, nil)
 
 	// Now, try to ack update 1. This should fail since update 1 was never

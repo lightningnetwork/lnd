@@ -343,15 +343,17 @@ func New(cfg Config, selfKey *btcec.PublicKey) *AuthenticatedGossiper {
 		channelMtx:              multimutex.NewMutex(),
 		recentRejects:           make(map[uint64]struct{}),
 		heightForLastChanUpdate: make(map[uint64][2]uint32),
-		syncMgr: newSyncManager(&SyncManagerCfg{
-			ChainHash:               cfg.ChainHash,
-			ChanSeries:              cfg.ChanSeries,
-			RotateTicker:            cfg.RotateTicker,
-			HistoricalSyncTicker:    cfg.HistoricalSyncTicker,
-			NumActiveSyncers:        cfg.NumActiveSyncers,
-			IgnoreHistoricalFilters: cfg.IgnoreHistoricalFilters,
-		}),
 	}
+
+	gossiper.syncMgr = newSyncManager(&SyncManagerCfg{
+		ChainHash:               cfg.ChainHash,
+		ChanSeries:              cfg.ChanSeries,
+		RotateTicker:            cfg.RotateTicker,
+		HistoricalSyncTicker:    cfg.HistoricalSyncTicker,
+		NumActiveSyncers:        cfg.NumActiveSyncers,
+		IgnoreHistoricalFilters: cfg.IgnoreHistoricalFilters,
+		BestHeight:              gossiper.latestHeight,
+	})
 
 	gossiper.reliableSender = newReliableSender(&reliableSenderCfg{
 		NotifyWhenOnline:  cfg.NotifyWhenOnline,
@@ -2643,4 +2645,11 @@ func IsKeepAliveUpdate(update *lnwire.ChannelUpdate,
 		return false
 	}
 	return true
+}
+
+// latestHeight returns the gossiper's latest height known of the chain.
+func (d *AuthenticatedGossiper) latestHeight() uint32 {
+	d.Lock()
+	defer d.Unlock()
+	return d.bestHeight
 }

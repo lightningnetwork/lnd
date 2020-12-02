@@ -237,6 +237,9 @@ type gossipSyncerCfg struct {
 	// This prevents ranges with old start times from causing us to dump the
 	// graph on connect.
 	ignoreHistoricalFilters bool
+
+	// bestHeight returns the latest height known of the chain.
+	bestHeight func() uint32
 }
 
 // GossipSyncer is a struct that handles synchronizing the channel graph state
@@ -834,9 +837,17 @@ func (g *GossipSyncer) genChanRangeQuery(
 		startHeight = uint32(newestChan.BlockHeight - chanRangeQueryBuffer)
 	}
 
+	// Determine the number of blocks to request based on our best height.
+	// We'll take into account any potential underflows and explicitly set
+	// numBlocks to its minimum value of 1 if so.
+	bestHeight := g.cfg.bestHeight()
+	numBlocks := bestHeight - startHeight
+	if int64(numBlocks) < 1 {
+		numBlocks = 1
+	}
+
 	log.Infof("GossipSyncer(%x): requesting new chans from height=%v "+
-		"and %v blocks after", g.cfg.peerPub[:], startHeight,
-		math.MaxUint32-startHeight)
+		"and %v blocks after", g.cfg.peerPub[:], startHeight, numBlocks)
 
 	// Finally, we'll craft the channel range query, using our starting
 	// height, then asking for all known channels to the foreseeable end of
@@ -844,7 +855,7 @@ func (g *GossipSyncer) genChanRangeQuery(
 	query := &lnwire.QueryChannelRange{
 		ChainHash:        g.cfg.chainHash,
 		FirstBlockHeight: startHeight,
-		NumBlocks:        math.MaxUint32 - startHeight,
+		NumBlocks:        numBlocks,
 	}
 	g.curQueryRangeMsg = query
 

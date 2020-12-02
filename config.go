@@ -108,6 +108,15 @@ const (
 	defaultDiskBackoff  = time.Minute
 	defaultDiskAttempts = 0
 
+	// Set defaults for a health check which ensures that the TLS certificate
+	// is not expired. Although this check is off by default (not all setups
+	// require it), we still set the other default values so that the health
+	// check can be easily enabled with sane defaults.
+	defaultTLSInterval = time.Minute
+	defaultTLSTimeout  = time.Second * 5
+	defaultTLSBackoff  = time.Minute
+	defaultTLSAttempts = 0
+
 	// defaultRemoteMaxHtlcs specifies the default limit for maximum
 	// concurrent HTLCs the remote party may add to commitment transactions.
 	// This value can be overridden with --default-remote-max-htlcs.
@@ -456,6 +465,12 @@ func DefaultConfig() Config {
 					Timeout:  defaultDiskTimeout,
 					Backoff:  defaultDiskBackoff,
 				},
+			},
+			TLSCheck: &lncfg.CheckConfig{
+				Interval: defaultTLSInterval,
+				Timeout:  defaultTLSTimeout,
+				Attempts: defaultTLSAttempts,
+				Backoff:  defaultTLSBackoff,
 			},
 		},
 		MaxOutgoingCltvExpiry:   htlcswitch.DefaultMaxOutgoingCltvExpiry,

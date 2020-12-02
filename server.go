@@ -27,6 +27,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/cert"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/chanbackup"
@@ -1352,12 +1353,38 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		cfg.HealthChecks.DiskCheck.Attempts,
 	)
 
+	tlsHealthCheck := healthcheck.NewObservation(
+		"tls",
+		func() error {
+			_, parsedCert, err := cert.LoadCert(
+				cfg.TLSCertPath, cfg.TLSKeyPath,
+			)
+			if err != nil {
+				return err
+			}
+
+			// If the current time is passed the certificate's
+			// expiry time, then it is considered expired
+			if time.Now().After(parsedCert.NotAfter) {
+				return fmt.Errorf("TLS certificate is expired as of %v", parsedCert.NotAfter)
+			}
+
+			// If the certificate is not outdated, no error needs to
+			// be returned
+			return nil
+		},
+		cfg.HealthChecks.TLSCheck.Interval,
+		cfg.HealthChecks.TLSCheck.Timeout,
+		cfg.HealthChecks.TLSCheck.Backoff,
+		cfg.HealthChecks.TLSCheck.Attempts,
+	)
+
 	// If we have not disabled all of our health checks, we create a
 	// liveliness monitor with our configured checks.
 	s.livelinessMonitor = healthcheck.NewMonitor(
 		&healthcheck.Config{
 			Checks: []*healthcheck.Observation{
-				chainHealthCheck, diskCheck,
+				chainHealthCheck, diskCheck, tlsHealthCheck,
 			},
 			Shutdown: srvrLog.Criticalf,
 		},

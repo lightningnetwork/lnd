@@ -39,10 +39,11 @@ type ChannelGraphTimeSeries interface {
 		superSet []lnwire.ShortChannelID) ([]lnwire.ShortChannelID, error)
 
 	// FilterChannelRange returns the set of channels that we created
-	// between the start height and the end height. We'll use this to to a
-	// remote peer's QueryChannelRange message.
+	// between the start height and the end height. The channel IDs are
+	// grouped by their common block height. We'll use this to to a remote
+	// peer's QueryChannelRange message.
 	FilterChannelRange(chain chainhash.Hash,
-		startHeight, endHeight uint32) ([]lnwire.ShortChannelID, error)
+		startHeight, endHeight uint32) ([]channeldb.BlockChannelRange, error)
 
 	// FetchChanAnns returns a full set of channel announcements as well as
 	// their updates that match the set of specified short channel ID's.
@@ -203,26 +204,15 @@ func (c *ChanSeries) FilterKnownChanIDs(chain chainhash.Hash,
 }
 
 // FilterChannelRange returns the set of channels that we created between the
-// start height and the end height. We'll use this respond to a remote peer's
-// QueryChannelRange message.
+// start height and the end height. The channel IDs are grouped by their common
+// block height. We'll use this respond to a remote peer's QueryChannelRange
+// message.
 //
 // NOTE: This is part of the ChannelGraphTimeSeries interface.
 func (c *ChanSeries) FilterChannelRange(chain chainhash.Hash,
-	startHeight, endHeight uint32) ([]lnwire.ShortChannelID, error) {
+	startHeight, endHeight uint32) ([]channeldb.BlockChannelRange, error) {
 
-	chansInRange, err := c.graph.FilterChannelRange(startHeight, endHeight)
-	if err != nil {
-		return nil, err
-	}
-
-	chanResp := make([]lnwire.ShortChannelID, 0, len(chansInRange))
-	for _, chanID := range chansInRange {
-		chanResp = append(
-			chanResp, lnwire.NewShortChanIDFromInt(chanID),
-		)
-	}
-
-	return chanResp, nil
+	return c.graph.FilterChannelRange(startHeight, endHeight)
 }
 
 // FetchChanAnns returns a full set of channel announcements as well as their

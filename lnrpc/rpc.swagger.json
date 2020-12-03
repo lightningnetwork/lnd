@@ -4550,6 +4550,13 @@
         },
         "color": {
           "type": "string"
+        },
+        "features": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/lnrpcFeature"
+          },
+          "description": "Features that the node has advertised in the init message, node\nannouncements and invoices."
         }
       }
     },

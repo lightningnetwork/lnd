@@ -44,9 +44,20 @@ type interceptorTestCase struct {
 // 4. When Interceptor disconnects it resumes all held htlcs, which result in
 //    valid payment (invoice is settled).
 func testForwardInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
-	// initialize the test context with 3 connected nodes.
-	testContext := newInterceptorTestContext(t, net)
-	defer testContext.shutdownNodes()
+	// Initialize the test context with 3 connected nodes.
+	alice, err := net.NewNode("alice", nil)
+	require.NoError(t.t, err, "unable to create alice")
+	defer shutdownAndAssert(net, t, alice)
+
+	bob, err := net.NewNode("bob", nil)
+	require.NoError(t.t, err, "unable to create bob")
+	defer shutdownAndAssert(net, t, alice)
+
+	carol, err := net.NewNode("carol", nil)
+	require.NoError(t.t, err, "unable to create carol")
+	defer shutdownAndAssert(net, t, alice)
+
+	testContext := newInterceptorTestContext(t, net, alice, bob, carol)
 
 	const (
 		chanAmt = btcutil.Amount(300000)
@@ -222,24 +233,17 @@ type interceptorTestContext struct {
 }
 
 func newInterceptorTestContext(t *harnessTest,
-	net *lntest.NetworkHarness) *interceptorTestContext {
+	net *lntest.NetworkHarness,
+	alice, bob, carol *lntest.HarnessNode) *interceptorTestContext {
 
 	ctxb := context.Background()
-
-	// Create a three-node context consisting of Alice, Bob and Carol
-	alice, err := net.NewNode("alice", nil)
-	require.NoError(t.t, err, "unable to create alice")
-	bob, err := net.NewNode("bob", nil)
-	require.NoError(t.t, err, "unable to create bob")
-	carol, err := net.NewNode("carol", nil)
-	require.NoError(t.t, err, "unable to create carol")
 
 	// Connect nodes
 	nodes := []*lntest.HarnessNode{alice, bob, carol}
 	for i := 0; i < len(nodes); i++ {
 		for j := i + 1; j < len(nodes); j++ {
 			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			err = net.EnsureConnected(ctxt, nodes[i], nodes[j])
+			err := net.EnsureConnected(ctxt, nodes[i], nodes[j])
 			require.NoError(t.t, err, "unable to connect nodes")
 		}
 	}
@@ -329,12 +333,6 @@ func (c *interceptorTestContext) closeChannels() {
 	for _, f := range c.closeChannelFuncs {
 		f()
 	}
-}
-
-func (c *interceptorTestContext) shutdownNodes() {
-	shutdownAndAssert(c.net, c.t, c.alice)
-	shutdownAndAssert(c.net, c.t, c.bob)
-	shutdownAndAssert(c.net, c.t, c.carol)
 }
 
 func (c *interceptorTestContext) waitForChannels() {

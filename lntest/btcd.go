@@ -88,7 +88,7 @@ func NewBackend(miner string, netParams *chaincfg.Params) (
 		// make sure they stay connected if it happens.
 		"--nobanning",
 	}
-	chainBackend, err := rpctest.New(netParams, nil, args)
+	chainBackend, err := rpctest.New(netParams, nil, args, GetBtcdBinary())
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create btcd node: %v", err)
 	}

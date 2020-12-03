@@ -2471,8 +2471,8 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	tempLogDir := fmt.Sprintf("%s/.tempminerlogs", lntest.GetLogDir())
 	logFilename := "output-open_channel_reorg-temp_miner.log"
 	tempMiner, tempMinerCleanUp, err := lntest.NewMiner(
-		tempLogDir, logFilename,
-		harnessNetParams, &rpcclient.NotificationHandlers{},
+		tempLogDir, logFilename, harnessNetParams,
+		&rpcclient.NotificationHandlers{}, lntest.GetBtcdBinary(),
 	)
 	require.NoError(t.t, err, "failed to create temp miner")
 	defer func() {
@@ -14258,8 +14258,8 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// We will also connect it to our chain backend.
 	minerLogDir := fmt.Sprintf("%s/.minerlogs", logDir)
 	miner, minerCleanUp, err := lntest.NewMiner(
-		minerLogDir, "output_btcd_miner.log",
-		harnessNetParams, &rpcclient.NotificationHandlers{},
+		minerLogDir, "output_btcd_miner.log", harnessNetParams,
+		&rpcclient.NotificationHandlers{}, lntest.GetBtcdBinary(),
 	)
 	require.NoError(t, err, "failed to create new miner")
 	defer func() {

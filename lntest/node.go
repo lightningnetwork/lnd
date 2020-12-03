@@ -78,6 +78,11 @@ var (
 	// goroutines of test nodes on failure.
 	goroutineDump = flag.Bool("goroutinedump", false,
 		"write goroutine dump from node n to file pprof-n.log")
+
+	// btcdExecutable is the full path to the btcd binary.
+	btcdExecutable = flag.String(
+		"btcdexec", "", "full path to btcd binary",
+	)
 )
 
 // nextAvailablePort returns the first port that is available for listening by
@@ -121,6 +126,16 @@ func GetLogDir() string {
 		return *logSubDir
 	}
 	return "."
+}
+
+// GetBtcdBinary returns the full path to the binary of the custom built btcd
+// executable or an empty string if none is set.
+func GetBtcdBinary() string {
+	if btcdExecutable != nil {
+		return *btcdExecutable
+	}
+
+	return ""
 }
 
 // generateListeningPorts returns four ints representing ports to listen on
@@ -394,8 +409,8 @@ func newNode(cfg NodeConfig) (*HarnessNode, error) {
 // miner node's log dir. When tests finished, during clean up, its logs are
 // copied to a file specified as logFilename.
 func NewMiner(logDir, logFilename string, netParams *chaincfg.Params,
-	handler *rpcclient.NotificationHandlers) (*rpctest.Harness,
-	func() error, error) {
+	handler *rpcclient.NotificationHandlers,
+	btcdBinary string) (*rpctest.Harness, func() error, error) {
 
 	args := []string{
 		"--rejectnonstd",
@@ -407,7 +422,7 @@ func NewMiner(logDir, logFilename string, netParams *chaincfg.Params,
 		"--trickleinterval=100ms",
 	}
 
-	miner, err := rpctest.New(netParams, handler, args)
+	miner, err := rpctest.New(netParams, handler, args, btcdBinary)
 	if err != nil {
 		return nil, nil, fmt.Errorf(
 			"unable to create mining node: %v", err,

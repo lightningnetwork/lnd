@@ -177,7 +177,7 @@ func NewMiner(t *testing.T, extraArgs []string, createChain bool,
 	trickle := fmt.Sprintf("--trickleinterval=%v", TrickleInterval)
 	extraArgs = append(extraArgs, trickle)
 
-	node, err := rpctest.New(NetParams, nil, extraArgs)
+	node, err := rpctest.New(NetParams, nil, extraArgs, "")
 	if err != nil {
 		t.Fatalf("unable to create backend node: %v", err)
 	}

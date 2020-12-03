@@ -227,11 +227,15 @@ func newInterceptorTestContext(t *harnessTest,
 	ctxb := context.Background()
 
 	// Create a three-node context consisting of Alice, Bob and Carol
+	alice, err := net.NewNode("alice", nil)
+	require.NoError(t.t, err, "unable to create alice")
+	bob, err := net.NewNode("bob", nil)
+	require.NoError(t.t, err, "unable to create bob")
 	carol, err := net.NewNode("carol", nil)
 	require.NoError(t.t, err, "unable to create carol")
 
 	// Connect nodes
-	nodes := []*lntest.HarnessNode{net.Alice, net.Bob, carol}
+	nodes := []*lntest.HarnessNode{alice, bob, carol}
 	for i := 0; i < len(nodes); i++ {
 		for j := i + 1; j < len(nodes); j++ {
 			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
@@ -243,8 +247,8 @@ func newInterceptorTestContext(t *harnessTest,
 	ctx := interceptorTestContext{
 		t:     t,
 		net:   net,
-		alice: net.Alice,
-		bob:   net.Bob,
+		alice: alice,
+		bob:   bob,
 		carol: carol,
 		nodes: nodes,
 	}
@@ -328,6 +332,8 @@ func (c *interceptorTestContext) closeChannels() {
 }
 
 func (c *interceptorTestContext) shutdownNodes() {
+	shutdownAndAssert(c.net, c.t, c.alice)
+	shutdownAndAssert(c.net, c.t, c.bob)
 	shutdownAndAssert(c.net, c.t, c.carol)
 }
 

@@ -3,6 +3,7 @@ RPC_TAGS = autopilotrpc chainrpc invoicesrpc routerrpc signrpc verrpc walletrpc 
 LOG_TAGS =
 TEST_FLAGS =
 ITEST_FLAGS = 
+EXEC_SUFFIX =
 COVER_PKG = $$(go list -deps ./... | grep '$(PKG)' | grep -v lnrpc)
 NUM_ITEST_TRANCHES = 6
 ITEST_PARALLELISM = $(NUM_ITEST_TRANCHES)
@@ -21,6 +22,12 @@ endif
 # Give the ability to run the same tranche multiple times at the same time.
 ifneq ($(parallel),)
 ITEST_PARALLELISM = $(parallel)
+endif
+
+# Windows needs to append a .exe suffix to all executable files, otherwise it
+# won't run them.
+ifneq ($(windows),)
+EXEC_SUFFIX = .exe
 endif
 
 # If specific package is being unit tested, construct the full name of the

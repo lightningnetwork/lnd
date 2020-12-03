@@ -95,5 +95,3 @@ endif
 
 # Construct the integration test command with the added build flags.
 ITEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) rpctest $(backend)
-
-ITEST := rm -f lntest/itest/*.log; date; $(GOTEST) -v ./lntest/itest -tags="$(ITEST_TAGS)" $(TEST_FLAGS) $(ITEST_FLAGS) -logoutput -goroutinedump

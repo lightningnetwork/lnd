@@ -170,7 +170,8 @@ check: unit itest
 
 itest-only:
 	@$(call print, "Running integration tests with ${backend} backend.")
-	$(ITEST)
+	rm -rf lntest/itest/*.log lntest/itest/.logs-*; date
+	scripts/itest_part.sh 0 1 $(TEST_FLAGS) $(ITEST_FLAGS)
 	lntest/itest/log_check_errors.sh
 
 itest: btcd build-itest itest-only
@@ -226,7 +227,7 @@ travis-cover: btcd unit-cover goveralls
 
 flakehunter: build-itest
 	@$(call print, "Flake hunting ${backend} integration tests.")
-	while [ $$? -eq 0 ]; do $(ITEST); done
+	while [ $$? -eq 0 ]; do make itest-only icase='${icase}' backend='${backend}'; done
 
 flake-unit:
 	@$(call print, "Flake hunting unit tests.")

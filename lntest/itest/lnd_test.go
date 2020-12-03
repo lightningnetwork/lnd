@@ -14241,7 +14241,10 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	testCases, trancheIndex, trancheOffset := getTestCaseSplitTranche()
 	lntest.ApplyPortOffset(uint32(trancheIndex) * 1000)
 
-	ht := newHarnessTest(t, nil)
+	// Before we start any node, we need to make sure that any btcd node
+	// that is started through the RPC harness uses a unique port as well to
+	// avoid any port collisions.
+	rpctest.ListenAddressGenerator = lntest.GenerateBtcdListenerAddresses
 
 	// Declare the network harness here to gain access to its
 	// 'OnTxAccepted' call back.
@@ -14270,29 +14273,27 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	chainBackend, cleanUp, err := lntest.NewBackend(
 		miner.P2PAddress(), harnessNetParams,
 	)
-	if err != nil {
-		ht.Fatalf("unable to start backend: %v", err)
-	}
+	require.NoError(t, err, "new backend")
 	defer func() {
-		require.NoError(
-			t, cleanUp(), "failed to clean up chain backend",
-		)
+		require.NoError(t, cleanUp(), "cleanup")
 	}()
 
-	if err := miner.SetUp(true, 50); err != nil {
-		ht.Fatalf("unable to set up mining node: %v", err)
-	}
-	if err := miner.Node.NotifyNewTransactions(false); err != nil {
-		ht.Fatalf("unable to request transaction notifications: %v", err)
-	}
+	// Before we start anything, we want to overwrite some of the connection
+	// settings to make the tests more robust. We might need to restart the
+	// miner while there are already blocks present, which will take a bit
+	// longer than the 1 second the default settings amount to. Doubling
+	// both values will give us retries up to 4 seconds.
+	miner.MaxConnRetries = rpctest.DefaultMaxConnectionRetries * 2
+	miner.ConnectionRetryTimeout = rpctest.DefaultConnectionRetryTimeout * 2
 
-	// Connect chainbackend to miner.
-	require.NoError(
-		t, chainBackend.ConnectMiner(), "failed to connect to miner",
-	)
+	// Set up miner and connect chain backend to it.
+	require.NoError(t, miner.SetUp(true, 50))
+	require.NoError(t, miner.Node.NotifyNewTransactions(false))
+	require.NoError(t, chainBackend.ConnectMiner(), "connect miner")
 
 	// Now we can set up our test harness (LND instance), with the chain
 	// backend we just created.
+	ht := newHarnessTest(t, nil)
 	binary := ht.getLndBinary()
 	lndHarness, err = lntest.NewNetworkHarness(
 		miner, chainBackend, binary, *useEtcd,

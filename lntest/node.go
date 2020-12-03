@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -54,6 +53,10 @@ const (
 	// trickleDelay is the amount of time in milliseconds between each
 	// release of announcements by AuthenticatedGossiper to the network.
 	trickleDelay = 50
+
+	// listenerFormat is the format string that is used to generate local
+	// listener addresses.
+	listenerFormat = "127.0.0.1:%d"
 )
 
 var (
@@ -98,7 +101,7 @@ func nextAvailablePort() int {
 		// the harness node, in practice in CI servers this seems much
 		// less likely than simply some other process already being
 		// bound at the start of the tests.
-		addr := fmt.Sprintf("127.0.0.1:%d", port)
+		addr := fmt.Sprintf(listenerFormat, port)
 		l, err := net.Listen("tcp4", addr)
 		if err == nil {
 			err := l.Close()
@@ -136,6 +139,14 @@ func GetBtcdBinary() string {
 	}
 
 	return ""
+}
+
+// GenerateBtcdListenerAddresses is a function that returns two listener
+// addresses with unique ports and should be used to overwrite rpctest's default
+// generator which is prone to use colliding ports.
+func GenerateBtcdListenerAddresses() (string, string) {
+	return fmt.Sprintf(listenerFormat, nextAvailablePort()),
+		fmt.Sprintf(listenerFormat, nextAvailablePort())
 }
 
 // generateListeningPorts returns four ints representing ports to listen on
@@ -203,15 +214,15 @@ type NodeConfig struct {
 }
 
 func (cfg NodeConfig) P2PAddr() string {
-	return net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.P2PPort))
+	return fmt.Sprintf(listenerFormat, cfg.P2PPort)
 }
 
 func (cfg NodeConfig) RPCAddr() string {
-	return net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.RPCPort))
+	return fmt.Sprintf(listenerFormat, cfg.RPCPort)
 }
 
 func (cfg NodeConfig) RESTAddr() string {
-	return net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.RESTPort))
+	return fmt.Sprintf(listenerFormat, cfg.RESTPort)
 }
 
 // DBDir returns the holding directory path of the graph database.

@@ -93,6 +93,14 @@ func NewBackend(miner string, netParams *chaincfg.Params) (
 		return nil, nil, fmt.Errorf("unable to create btcd node: %v", err)
 	}
 
+	// We want to overwrite some of the connection settings to make the
+	// tests more robust. We might need to restart the backend while there
+	// are already blocks present, which will take a bit longer than the
+	// 1 second the default settings amount to. Doubling both values will
+	// give us retries up to 4 seconds.
+	chainBackend.MaxConnRetries = rpctest.DefaultMaxConnectionRetries * 2
+	chainBackend.ConnectionRetryTimeout = rpctest.DefaultConnectionRetryTimeout * 2
+
 	if err := chainBackend.SetUp(false, 0); err != nil {
 		return nil, nil, fmt.Errorf("unable to set up btcd backend: %v", err)
 	}

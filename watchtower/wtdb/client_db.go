@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/watchtower/blob"
 )
 
 const (
@@ -479,7 +480,9 @@ func (c *ClientDB) ListTowers() ([]*Tower, error) {
 // CreateClientSession is invoked for that tower and index, at which point a new
 // index for that tower can be reserved. Multiple calls to this method before
 // CreateClientSession is invoked should return the same index.
-func (c *ClientDB) NextSessionKeyIndex(towerID TowerID) (uint32, error) {
+func (c *ClientDB) NextSessionKeyIndex(towerID TowerID,
+	blobType blob.Type) (uint32, error) {
+
 	var index uint32
 	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
 		keyIndex := tx.ReadWriteBucket(cSessionKeyIndexBkt)
@@ -490,10 +493,9 @@ func (c *ClientDB) NextSessionKeyIndex(towerID TowerID) (uint32, error) {
 		// Check the session key index to see if a key has already been
 		// reserved for this tower. If so, we'll deserialize and return
 		// the index directly.
-		towerIDBytes := towerID.Bytes()
-		indexBytes := keyIndex.Get(towerIDBytes)
-		if len(indexBytes) == 4 {
-			index = byteOrder.Uint32(indexBytes)
+		var err error
+		index, err = getSessionKeyIndex(keyIndex, towerID, blobType)
+		if err == nil {
 			return nil
 		}
 
@@ -511,13 +513,16 @@ func (c *ClientDB) NextSessionKeyIndex(towerID TowerID) (uint32, error) {
 			return fmt.Errorf("exhausted session key indexes")
 		}
 
+		// Create the key that will used to be store the reserved index.
+		keyBytes := createSessionKeyIndexKey(towerID, blobType)
+
 		index = uint32(index64)
 
 		var indexBuf [4]byte
 		byteOrder.PutUint32(indexBuf[:], index)
 
 		// Record the reserved session key index under this tower's id.
-		return keyIndex.Put(towerIDBytes, indexBuf[:])
+		return keyIndex.Put(keyBytes, indexBuf[:])
 	}, func() {
 		index = 0
 	})
@@ -549,30 +554,83 @@ func (c *ClientDB) CreateClientSession(session *ClientSession) error {
 			return ErrClientSessionAlreadyExists
 		}
 
+		towerID := session.TowerID
+		blobType := session.Policy.BlobType
+
 		// Check that this tower has a reserved key index.
-		towerIDBytes := session.TowerID.Bytes()
-		keyIndexBytes := keyIndexes.Get(towerIDBytes)
-		if len(keyIndexBytes) != 4 {
-			return ErrNoReservedKeyIndex
+		index, err := getSessionKeyIndex(keyIndexes, towerID, blobType)
+		if err != nil {
+			return err
 		}
 
 		// Assert that the key index of the inserted session matches the
 		// reserved session key index.
-		index := byteOrder.Uint32(keyIndexBytes)
 		if index != session.KeyIndex {
 			return ErrIncorrectKeyIndex
 		}
 
-		// Remove the key index reservation.
-		err := keyIndexes.Delete(towerIDBytes)
+		// Remove the key index reservation. For altruist commit
+		// sessions, we'll also purge under the old legacy key format.
+		key := createSessionKeyIndexKey(towerID, blobType)
+		err = keyIndexes.Delete(key)
 		if err != nil {
 			return err
+		}
+		if blobType == blob.TypeAltruistCommit {
+			err = keyIndexes.Delete(towerID.Bytes())
+			if err != nil {
+				return err
+			}
 		}
 
 		// Finally, write the client session's body in the sessions
 		// bucket.
 		return putClientSessionBody(sessions, session)
 	}, func() {})
+}
+
+// createSessionKeyIndexKey returns the indentifier used in the
+// session-key-index index, created as tower-id||blob-type.
+//
+// NOTE: The original serialization only used tower-id, which prevents
+// concurrent client types from reserving sessions with the same tower.
+func createSessionKeyIndexKey(towerID TowerID, blobType blob.Type) []byte {
+	towerIDBytes := towerID.Bytes()
+
+	// Session key indexes are stored under as tower-id||blob-type.
+	var keyBytes [6]byte
+	copy(keyBytes[:4], towerIDBytes)
+	byteOrder.PutUint16(keyBytes[4:], uint16(blobType))
+
+	return keyBytes[:]
+}
+
+// getSessionKeyIndex is a helper method
+func getSessionKeyIndex(keyIndexes kvdb.RwBucket, towerID TowerID,
+	blobType blob.Type) (uint32, error) {
+
+	// Session key indexes are store under as tower-id||blob-type. The
+	// original serialization only used tower-id, which prevents concurrent
+	// client types from reserving sessions with the same tower.
+	keyBytes := createSessionKeyIndexKey(towerID, blobType)
+
+	// Retrieve the index using the key bytes. If the key wasn't found, we
+	// will fall back to the legacy format that only uses the tower id, but
+	// _only_ if the blob type is for altruist commit sessions since that
+	// was the only operational session type prior to changing the key
+	// format.
+	keyIndexBytes := keyIndexes.Get(keyBytes)
+	if keyIndexBytes == nil && blobType == blob.TypeAltruistCommit {
+		keyIndexBytes = keyIndexes.Get(towerID.Bytes())
+	}
+
+	// All session key indexes should be serialized uint32's. If no key
+	// index was found, the length of keyIndexBytes will be 0.
+	if len(keyIndexBytes) != 4 {
+		return 0, ErrNoReservedKeyIndex
+	}
+
+	return byteOrder.Uint32(keyIndexBytes), nil
 }
 
 // ListClientSessions returns the set of all client sessions known to the db. An

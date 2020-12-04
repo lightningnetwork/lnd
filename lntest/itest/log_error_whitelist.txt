@@ -2,6 +2,7 @@
 <time> [ERR] BRAR: Unable to register for conf for txid(<hex>): TxNotifier is exiting
 <time> [ERR] BTCN: Broadcast attempt failed: rejected by <ip>: replacement transaction <hex> has an insufficient absolute fee: needs <amt>, has <amt>
 <time> [ERR] BTCN: Broadcast attempt failed: rejected by <ip>: replacement transaction <hex> has an insufficient fee rate: needs more than <amt>, has <amt>
+<time> [ERR] BTCN: Broadcast attempt failed: rejected by <ip>: transaction already exists
 <time> [ERR] BTCN: Can't accept connection: unable to accept connection from <ip>: chacha20poly1305: message authentication failed
 <time> [ERR] BTCN: Can't accept connection: unable to accept connection from <ip>: EOF
 <time> [ERR] BTCN: Can't accept connection: unable to accept connection from <ip>: read tcp <ip>-><ip>: i/o timeout
@@ -24,6 +25,7 @@
 <time> [ERR] CNCT: Unable to advance state: channel not found
 <time> [ERR] CNCT: unable to hand breached contract off to breachArbiter: server is shutting down
 <time> [ERR] CNCT: unable to handle channel breach for chan_point=<chan_point>: server is shutting down
+<time> [ERR] CNCT: Unable to handle known remote state: unable to handle channel breach for chan_point=<chan_point>: server is shutting down
 <time> [ERR] CRTR: Channel update of ourselves received
 <time> [ERR] CRTR: Error collecting result for shard <number> for payment <hex>: shard handler exiting
 <time> [ERR] CRTR: Error encountered during rescan: rescan exited
@@ -41,11 +43,13 @@
 <time> [ERR] CRTR: Resuming payment with hash <hex> failed: incorrect_payment_details.
 <time> [ERR] CRTR: Resuming payment with hash <hex> failed: no_route.
 <time> [ERR] CRTR: Resuming payment with hash <hex> failed: router shutting down.
+<time> [ERR] CRTR: unable to add channel: edge not found
 <time> [ERR] CRTR: Unable to retrieve channel by id: edge not found
 <time> [ERR] DISC: channel  announcement proof for short_chan_id=<cid> isn't valid: can't verify first bitcoin signature
 <time> [ERR] DISC: router shutting down
 <time> [ERR] DISC: unable add proof to the channel chanID=<hex>: edge marked as zombie
 <time> [ERR] DISC: unable add proof to the channel chanID=<hex>: edge not found
+<time> [ERR] DISC: unable to add channel: edge not found
 <time> [ERR] DISC: Unable to reply to peer query: set tcp <ip>: use of closed network connection
 <time> [ERR] DISC: Unable to reply to peer query: write tcp <ip>-><ip>: use of closed network connection
 <time> [ERR] DISC: Unable to reply to peer query: write tcp <ip>-><ip>: write: broken pipe
@@ -82,6 +86,7 @@
 <time> [ERR] FNDG: Unable to send node announcement: gossiper is shutting down
 <time> [ERR] FNDG: Unable to send node announcement: router shutting down
 <time> [ERR] HSWC: AmountBelowMinimum(amt=<amt>, update=(lnwire.ChannelUpdate) {
+<time> [ERR] HSWC: ChannelLink(<chan>): failing link: ChannelPoint(<chan_point>): received error from peer: chan_id=<hex>, err=internal error with error: remote error
 <time> [ERR] HSWC: ChannelLink(<chan>): failing link: ChannelPoint(<chan_point>): received error from peer: chan_id=<hex>, err=invalid update with error: remote error
 <time> [ERR] HSWC: ChannelLink(<chan>): failing link: ChannelPoint(<chan_point>): received error from peer: chan_id=<hex>, err=sync error with error: remote error
 <time> [ERR] HSWC: ChannelLink(<chan>): failing link: ChannelPoint(<chan_point>): received error from peer: chan_id=<hex>, err=unable to resume channel, recovery required with error: remote error
@@ -138,6 +143,9 @@
 <time> [ERR] NTFN: Rescan to determine the spend details of <chan_point> failed: the client has been shutdown
 <time> [ERR] NTFN: Unable to fetch block header: the client has been shutdown
 <time> [ERR] NTFN: unable to find blockhash for height=<height>: -1: Block number out of range
+<time> [ERR] NTFN: unable to get block: Post "http://<ip>": dial tcp <ip>: connect: connection refused
+<time> [ERR] NTFN: unable to get block: Post "http://<ip>": dial tcp <ip>: connect: connection reset by peer
+<time> [ERR] NTFN: unable to get block: Post "http://<ip>": read tcp <ip>-><ip>: read: connection reset by peer
 <time> [ERR] NTFN: unable to get block: the client has been shutdown
 <time> [ERR] NTFN: unable to get hash from block with height 790
 <time> [ERR] NTFN: unable to get missed blocks: starting height <height> is greater than ending height <height>
@@ -174,6 +182,7 @@
 <time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: cannot co-op close frozen channel as initiator until height=3059, (current_height=3055)
 <time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: cannot co-op close frozen channel as initiator until height=<height>, (current_height=<height>)
 <time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: chain notifier shutting down
+<time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: must specify channel point in close channel
 <time> [ERR] RPCS: [/lnrpc.Lightning/ConnectPeer]: already connected to peer: <hex>@<ip>
 <time> [ERR] RPCS: [/lnrpc.Lightning/ConnectPeer]: dial tcp <ip>: i/o timeout
 <time> [ERR] RPCS: [/lnrpc.Lightning/ConnectPeer]: dial tcp <ip>: i/o timeout
@@ -210,6 +219,7 @@
 <time> [ERR] RPCS: [/routerrpc.Router/HtlcInterceptor]: rpc error: code = Canceled desc = context canceled
 <time> [ERR] RPCS: [/routerrpc.Router/SendPayment]: routerrpc server shutting down
 <time> [ERR] RPCS: [/routerrpc.Router/SendPaymentV2]: context canceled
+<time> [ERR] RPCS: [/routerrpc.Router/SendPaymentV2]: context deadline exceeded
 <time> [ERR] RPCS: [/routerrpc.Router/SendPaymentV2]: routerrpc server shutting down
 <time> [ERR] RPCS: [/routerrpc.Router/SubscribeHtlcEvents]: context canceled
 <time> [ERR] RPCS: [/routerrpc.Router/SubscribeHtlcEvents]: htlc event subscription terminated

@@ -35,6 +35,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/ticker"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -1148,27 +1149,25 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 	)
 
 	// Wait for Alice to receive the revocation.
-	time.Sleep(100 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		if n.aliceChannelLink.Bandwidth() != aliceBandwidthBefore {
+			return false
+		}
 
-	if n.aliceChannelLink.Bandwidth() != aliceBandwidthBefore {
-		t.Fatal("the bandwidth of alice channel link which handles " +
-			"alice->bob channel should be the same")
-	}
+		if n.firstBobChannelLink.Bandwidth() != firstBobBandwidthBefore {
+			return false
+		}
 
-	if n.firstBobChannelLink.Bandwidth() != firstBobBandwidthBefore {
-		t.Fatal("the bandwidth of bob channel link which handles " +
-			"alice->bob channel should be the same")
-	}
+		if n.secondBobChannelLink.Bandwidth() != secondBobBandwidthBefore {
+			return false
+		}
 
-	if n.secondBobChannelLink.Bandwidth() != secondBobBandwidthBefore {
-		t.Fatal("the bandwidth of bob channel link which handles " +
-			"bob->carol channel should be the same")
-	}
+		if n.carolChannelLink.Bandwidth() != carolBandwidthBefore {
+			return false
+		}
 
-	if n.carolChannelLink.Bandwidth() != carolBandwidthBefore {
-		t.Fatal("the bandwidth of carol channel link which handles " +
-			"bob->carol channel should be the same")
-	}
+		return true
+	}, 10*time.Second, 100*time.Millisecond)
 }
 
 // TestChannelLinkMultiHopUnknownNextHop construct the chain of hops
@@ -3779,32 +3778,29 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 			t.Fatalf("alice didn't query for the new network fee")
 		}
 
-		// Give the links some time to process the fee update.
-		time.Sleep(time.Second)
-
 		// Record the fee rates after the links have processed the fee
 		// update and ensure they are correct based on whether a fee
 		// update should have been triggered.
-		aliceAfter := channels.aliceToBob.CommitFeeRate()
-		bobAfter := channels.bobToAlice.CommitFeeRate()
+		require.Eventually(t, func() bool {
+			aliceAfter := channels.aliceToBob.CommitFeeRate()
+			bobAfter := channels.bobToAlice.CommitFeeRate()
 
-		switch {
-		case shouldUpdate && aliceAfter != newFeeRate:
-			t.Fatalf("alice's fee rate didn't change: expected %v, "+
-				"got %v", newFeeRate, aliceAfter)
+			switch {
+			case shouldUpdate && aliceAfter != newFeeRate:
+				return false
 
-		case shouldUpdate && bobAfter != newFeeRate:
-			t.Fatalf("bob's fee rate didn't change: expected %v, "+
-				"got %v", newFeeRate, bobAfter)
+			case shouldUpdate && bobAfter != newFeeRate:
+				return false
 
-		case !shouldUpdate && aliceAfter != aliceBefore:
-			t.Fatalf("alice's fee rate shouldn't have changed: "+
-				"expected %v, got %v", aliceAfter, aliceAfter)
+			case !shouldUpdate && aliceAfter != aliceBefore:
+				return false
 
-		case !shouldUpdate && bobAfter != bobBefore:
-			t.Fatalf("bob's fee rate shouldn't have changed: "+
-				"expected %v, got %v", bobBefore, bobAfter)
-		}
+			case !shouldUpdate && bobAfter != bobBefore:
+				return false
+			}
+
+			return true
+		}, 10*time.Second, time.Second)
 	}
 
 	// Triggering the link to update the fee of the channel with the same

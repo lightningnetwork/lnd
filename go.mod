@@ -5,7 +5,7 @@ require (
 	github.com/NebulousLabs/fastrand v0.0.0-20181203155948-6fb6489aac4e // indirect
 	github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82
 	github.com/Yawning/aez v0.0.0-20180114000226-4dad034d9db2
-	github.com/btcsuite/btcd v0.20.1-beta.0.20200903105316-61634447e719
+	github.com/btcsuite/btcd v0.21.0-beta.0.20201114000516-e9c7a5ac6401
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcutil v1.0.2
 	github.com/btcsuite/btcutil/psbt v1.0.3-0.20200826194809-5f93e33af2b0

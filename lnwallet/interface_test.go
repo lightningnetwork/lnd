@@ -2187,7 +2187,7 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 
 	// Now we cause a reorganization as follows.
 	// Step 1: create a new miner and start it.
-	r2, err := rpctest.New(r.ActiveNet, nil, []string{"--txindex"})
+	r2, err := rpctest.New(r.ActiveNet, nil, []string{"--txindex"}, "")
 	if err != nil {
 		t.Fatalf("unable to create mining node: %v", err)
 	}
@@ -3093,7 +3093,9 @@ func TestLightningWallet(t *testing.T) {
 	// dedicated miner to generate blocks, cause re-orgs, etc. We'll set
 	// up this node with a chain length of 125, so we have plenty of BTC
 	// to play around with.
-	miningNode, err := rpctest.New(netParams, nil, []string{"--txindex"})
+	miningNode, err := rpctest.New(
+		netParams, nil, []string{"--txindex"}, "",
+	)
 	if err != nil {
 		t.Fatalf("unable to create mining node: %v", err)
 	}

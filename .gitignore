@@ -36,6 +36,7 @@ lntest/itest/*.log
 lntest/itest/.backendlogs
 lntest/itest/.minerlogs
 lntest/itest/lnd-itest
+lntest/itest/btcd-itest
 lntest/itest/.logs-*
 
 cmd/cmd

@@ -20,7 +20,6 @@ GOACC_BIN := $(GO_BIN)/go-acc
 GOFUZZ_BUILD_BIN := $(GO_BIN)/go-fuzz-build
 GOFUZZ_BIN := $(GO_BIN)/go-fuzz
 
-BTCD_DIR :=${GOPATH}/src/$(BTCD_PKG)
 MOBILE_BUILD_DIR :=${GOPATH}/src/$(MOBILE_PKG)/build
 IOS_BUILD_DIR := $(MOBILE_BUILD_DIR)/ios
 IOS_BUILD := $(IOS_BUILD_DIR)/Lndmobile.framework
@@ -32,7 +31,7 @@ COMMIT_HASH := $(shell git rev-parse HEAD)
 
 BTCD_COMMIT := $(shell cat go.mod | \
 		grep $(BTCD_PKG) | \
-		tail -n1 | \
+		head -n1 | \
 		awk -F " " '{ print $$2 }' | \
 		awk -F "/" '{ print $$1 }')
 
@@ -140,14 +139,12 @@ build:
 	$(GOBUILD) -tags="$(DEV_TAGS)" -o lncli-debug $(DEV_LDFLAGS) $(PKG)/cmd/lncli
 
 build-itest:
-	@$(call print, "Building itest lnd and lncli.")
-	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lnd-itest $(ITEST_LDFLAGS) $(PKG)/cmd/lnd
-	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lncli-itest $(ITEST_LDFLAGS) $(PKG)/cmd/lncli
+	@$(call print, "Building itest btcd and lnd.")
+	CGO_ENABLED=0 $(GOBUILD) -tags="rpctest" -o lntest/itest/btcd-itest$(EXEC_SUFFIX) $(ITEST_LDFLAGS) $(BTCD_PKG)
+	CGO_ENABLED=0 $(GOBUILD) -tags="$(ITEST_TAGS)" -o lntest/itest/lnd-itest$(EXEC_SUFFIX) $(ITEST_LDFLAGS) $(PKG)/cmd/lnd
 
-build-itest-windows:
-	@$(call print, "Building itest lnd and lncli.")
-	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lnd-itest.exe $(ITEST_LDFLAGS) $(PKG)/cmd/lnd
-	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lncli-itest.exe $(ITEST_LDFLAGS) $(PKG)/cmd/lncli
+	@$(call print, "Building itest binary for ${backend} backend.")
+	CGO_ENABLED=0 $(GOTEST) -v ./lntest/itest -tags="$(DEV_TAGS) $(RPC_TAGS) rpctest $(backend)" -c -o lntest/itest/itest.test$(EXEC_SUFFIX)
 
 install:
 	@$(call print, "Installing lnd and lncli.")
@@ -170,33 +167,17 @@ check: unit itest
 
 itest-only:
 	@$(call print, "Running integration tests with ${backend} backend.")
-	$(ITEST)
+	rm -rf lntest/itest/*.log lntest/itest/.logs-*; date
+	EXEC_SUFFIX=$(EXEC_SUFFIX) scripts/itest_part.sh 0 1 $(TEST_FLAGS) $(ITEST_FLAGS)
 	lntest/itest/log_check_errors.sh
 
-itest: btcd build-itest itest-only
+itest: build-itest itest-only
 
-itest-parallel: btcd
-	@$(call print, "Building lnd binary")
-	CGO_ENABLED=0 $(GOBUILD) -tags="$(ITEST_TAGS)" -o lntest/itest/lnd-itest $(ITEST_LDFLAGS) $(PKG)/cmd/lnd
-
-	@$(call print, "Building itest binary for $(backend) backend")
-	CGO_ENABLED=0 $(GOTEST) -v ./lntest/itest -tags="$(DEV_TAGS) $(RPC_TAGS) rpctest $(backend)" -logoutput -goroutinedump -c -o lntest/itest/itest.test
-
+itest-parallel: build-itest
 	@$(call print, "Running tests")
-	rm -rf lntest/itest/*.log lntest/itest/.logs-*
-	echo "$$(seq 0 $$(expr $(ITEST_PARALLELISM) - 1))" | xargs -P $(ITEST_PARALLELISM) -n 1 -I {} scripts/itest_part.sh {} $(NUM_ITEST_TRANCHES) $(TEST_FLAGS)
-
-itest-parallel-windows: btcd
-	@$(call print, "Building lnd binary")
-	CGO_ENABLED=0 $(GOBUILD) -tags="$(ITEST_TAGS)" -o lntest/itest/lnd-itest.exe $(ITEST_LDFLAGS) $(PKG)/cmd/lnd
-
-	@$(call print, "Building itest binary for $(backend) backend")
-	CGO_ENABLED=0 $(GOTEST) -v ./lntest/itest -tags="$(DEV_TAGS) $(RPC_TAGS) rpctest $(backend)" -logoutput -goroutinedump -c -o lntest/itest/itest.test.exe
-
-	@$(call print, "Running tests")
-	EXEC_SUFFIX=".exe" echo "$$(seq 0 $$(expr $(ITEST_PARALLELISM) - 1))" | xargs -P $(ITEST_PARALLELISM) -n 1 -I {} scripts/itest_part.sh {} $(NUM_ITEST_TRANCHES) $(TEST_FLAGS)
-
-itest-windows: btcd build-itest-windows itest-only
+	rm -rf lntest/itest/*.log lntest/itest/.logs-*; date
+	EXEC_SUFFIX=$(EXEC_SUFFIX) echo "$$(seq 0 $$(expr $(ITEST_PARALLELISM) - 1))" | xargs -P $(ITEST_PARALLELISM) -n 1 -I {} scripts/itest_part.sh {} $(NUM_ITEST_TRANCHES) $(TEST_FLAGS)
+	lntest/itest/log_check_errors.sh
 
 unit: btcd
 	@$(call print, "Running unit tests.")
@@ -226,7 +207,7 @@ travis-cover: btcd unit-cover goveralls
 
 flakehunter: build-itest
 	@$(call print, "Flake hunting ${backend} integration tests.")
-	while [ $$? -eq 0 ]; do $(ITEST); done
+	while [ $$? -eq 0 ]; do make itest-only icase='${icase}' backend='${backend}'; done
 
 flake-unit:
 	@$(call print, "Flake hunting unit tests.")

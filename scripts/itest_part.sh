@@ -15,9 +15,10 @@ shift
 # that here if necessary.
 EXEC="$WORKDIR"/itest.test"$EXEC_SUFFIX"
 LND_EXEC="$WORKDIR"/lnd-itest"$EXEC_SUFFIX"
-echo $EXEC -test.v "$@" -logoutput -goroutinedump -logdir=.logs-tranche$TRANCHE -lndexec=$LND_EXEC -splittranches=$NUM_TRANCHES -runtranche=$TRANCHE
+BTCD_EXEC="$WORKDIR"/btcd-itest"$EXEC_SUFFIX"
+echo $EXEC -test.v "$@" -logoutput -goroutinedump -logdir=.logs-tranche$TRANCHE -lndexec=$LND_EXEC -btcdexec=$BTCD_EXEC -splittranches=$NUM_TRANCHES -runtranche=$TRANCHE
 
 # Exit code 255 causes the parallel jobs to abort, so if one part fails the
 # other is aborted too.
 cd "$WORKDIR" || exit 255
-$EXEC -test.v "$@" -logoutput -goroutinedump -logdir=.logs-tranche$TRANCHE -lndexec=$LND_EXEC -splittranches=$NUM_TRANCHES -runtranche=$TRANCHE || exit 255
+$EXEC -test.v "$@" -logoutput -goroutinedump -logdir=.logs-tranche$TRANCHE -lndexec=$LND_EXEC -btcdexec=$BTCD_EXEC -splittranches=$NUM_TRANCHES -runtranche=$TRANCHE || exit 255

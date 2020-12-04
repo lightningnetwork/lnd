@@ -73,7 +73,7 @@ jobs:
 
     - name: Btcd Integration Windows
       script:
-        - make itest-parallel-windows
+        - make itest-parallel windows=1
       os: windows
       before_install:
         - choco upgrade --no-progress -y make netcat curl findutils

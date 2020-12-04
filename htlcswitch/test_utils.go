@@ -1412,7 +1412,7 @@ func timeout(t *testing.T) func() {
 	done := make(chan struct{})
 	go func() {
 		select {
-		case <-time.After(10 * time.Second):
+		case <-time.After(20 * time.Second):
 			pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
 
 			panic("test timeout")

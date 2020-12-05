@@ -508,7 +508,7 @@ func LoadConfig() (*Config, error) {
 	if configFilePath != DefaultConfigFile {
 		if _, err := os.Stat(configFilePath); os.IsNotExist(err) {
 			return nil, fmt.Errorf("command line config file does not exist " +
-						"in %s", configFilePath)
+				"in %s", configFilePath)
 		}
 	}
 

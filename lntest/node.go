@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -54,6 +53,10 @@ const (
 	// trickleDelay is the amount of time in milliseconds between each
 	// release of announcements by AuthenticatedGossiper to the network.
 	trickleDelay = 50
+
+	// listenerFormat is the format string that is used to generate local
+	// listener addresses.
+	listenerFormat = "127.0.0.1:%d"
 )
 
 var (
@@ -78,6 +81,11 @@ var (
 	// goroutines of test nodes on failure.
 	goroutineDump = flag.Bool("goroutinedump", false,
 		"write goroutine dump from node n to file pprof-n.log")
+
+	// btcdExecutable is the full path to the btcd binary.
+	btcdExecutable = flag.String(
+		"btcdexec", "", "full path to btcd binary",
+	)
 )
 
 // nextAvailablePort returns the first port that is available for listening by
@@ -93,7 +101,7 @@ func nextAvailablePort() int {
 		// the harness node, in practice in CI servers this seems much
 		// less likely than simply some other process already being
 		// bound at the start of the tests.
-		addr := fmt.Sprintf("127.0.0.1:%d", port)
+		addr := fmt.Sprintf(listenerFormat, port)
 		l, err := net.Listen("tcp4", addr)
 		if err == nil {
 			err := l.Close()
@@ -121,6 +129,24 @@ func GetLogDir() string {
 		return *logSubDir
 	}
 	return "."
+}
+
+// GetBtcdBinary returns the full path to the binary of the custom built btcd
+// executable or an empty string if none is set.
+func GetBtcdBinary() string {
+	if btcdExecutable != nil {
+		return *btcdExecutable
+	}
+
+	return ""
+}
+
+// GenerateBtcdListenerAddresses is a function that returns two listener
+// addresses with unique ports and should be used to overwrite rpctest's default
+// generator which is prone to use colliding ports.
+func GenerateBtcdListenerAddresses() (string, string) {
+	return fmt.Sprintf(listenerFormat, nextAvailablePort()),
+		fmt.Sprintf(listenerFormat, nextAvailablePort())
 }
 
 // generateListeningPorts returns four ints representing ports to listen on
@@ -153,7 +179,12 @@ type BackendConfig interface {
 }
 
 type NodeConfig struct {
-	Name       string
+	Name string
+
+	// LogFilenamePrefix is is used to prefix node log files. Can be used
+	// to store the current test case for simpler postmortem debugging.
+	LogFilenamePrefix string
+
 	BackendCfg BackendConfig
 	NetParams  *chaincfg.Params
 	BaseDir    string
@@ -178,23 +209,29 @@ type NodeConfig struct {
 	AcceptKeySend bool
 
 	FeeURL string
+
+	Etcd bool
 }
 
 func (cfg NodeConfig) P2PAddr() string {
-	return net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.P2PPort))
+	return fmt.Sprintf(listenerFormat, cfg.P2PPort)
 }
 
 func (cfg NodeConfig) RPCAddr() string {
-	return net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.RPCPort))
+	return fmt.Sprintf(listenerFormat, cfg.RPCPort)
 }
 
 func (cfg NodeConfig) RESTAddr() string {
-	return net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.RESTPort))
+	return fmt.Sprintf(listenerFormat, cfg.RESTPort)
+}
+
+// DBDir returns the holding directory path of the graph database.
+func (cfg NodeConfig) DBDir() string {
+	return filepath.Join(cfg.DataDir, "graph", cfg.NetParams.Name)
 }
 
 func (cfg NodeConfig) DBPath() string {
-	return filepath.Join(cfg.DataDir, "graph",
-		fmt.Sprintf("%v/channel.db", cfg.NetParams.Name))
+	return filepath.Join(cfg.DBDir(), "channel.db")
 }
 
 func (cfg NodeConfig) ChanBackupPath() string {
@@ -227,6 +264,7 @@ func (cfg NodeConfig) genArgs() []string {
 	args = append(args, "--nobootstrap")
 	args = append(args, "--debuglevel=debug")
 	args = append(args, "--bitcoin.defaultchanconfs=1")
+	args = append(args, fmt.Sprintf("--db.batch-commit-interval=%v", 10*time.Millisecond))
 	args = append(args, fmt.Sprintf("--bitcoin.defaultremotedelay=%v", DefaultCSV))
 	args = append(args, fmt.Sprintf("--rpclisten=%v", cfg.RPCAddr()))
 	args = append(args, fmt.Sprintf("--restlisten=%v", cfg.RESTAddr()))
@@ -243,6 +281,7 @@ func (cfg NodeConfig) genArgs() []string {
 	args = append(args, fmt.Sprintf("--invoicemacaroonpath=%v", cfg.InvoiceMacPath))
 	args = append(args, fmt.Sprintf("--trickledelay=%v", trickleDelay))
 	args = append(args, fmt.Sprintf("--profile=%d", cfg.ProfilePort))
+	args = append(args, fmt.Sprintf("--protocol.legacy.no-gossip-throttle"))
 
 	if !cfg.HasSeed {
 		args = append(args, "--noseedbackup")
@@ -254,6 +293,11 @@ func (cfg NodeConfig) genArgs() []string {
 
 	if cfg.AcceptKeySend {
 		args = append(args, "--accept-keysend")
+	}
+
+	if cfg.Etcd {
+		args = append(args, "--db.backend=etcd")
+		args = append(args, "--db.etcd.embedded")
 	}
 
 	if cfg.FeeURL != "" {
@@ -376,8 +420,8 @@ func newNode(cfg NodeConfig) (*HarnessNode, error) {
 // miner node's log dir. When tests finished, during clean up, its logs are
 // copied to a file specified as logFilename.
 func NewMiner(logDir, logFilename string, netParams *chaincfg.Params,
-	handler *rpcclient.NotificationHandlers) (*rpctest.Harness,
-	func() error, error) {
+	handler *rpcclient.NotificationHandlers,
+	btcdBinary string) (*rpctest.Harness, func() error, error) {
 
 	args := []string{
 		"--rejectnonstd",
@@ -389,7 +433,7 @@ func NewMiner(logDir, logFilename string, netParams *chaincfg.Params,
 		"--trickleinterval=100ms",
 	}
 
-	miner, err := rpctest.New(netParams, handler, args)
+	miner, err := rpctest.New(netParams, handler, args, btcdBinary)
 	if err != nil {
 		return nil, nil, fmt.Errorf(
 			"unable to create mining node: %v", err,
@@ -426,6 +470,11 @@ func NewMiner(logDir, logFilename string, netParams *chaincfg.Params,
 // DBPath returns the filepath to the channeldb database file for this node.
 func (hn *HarnessNode) DBPath() string {
 	return hn.Cfg.DBPath()
+}
+
+// DBDir returns the path for the directory holding channeldb file(s).
+func (hn *HarnessNode) DBDir() string {
+	return hn.Cfg.DBDir()
 }
 
 // Name returns the name of this node set during initialization.
@@ -493,17 +542,21 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error) error {
 	// log files.
 	if *logOutput {
 		dir := GetLogDir()
-		fileName := fmt.Sprintf("%s/output-%d-%s-%s.log", dir, hn.NodeID,
-			hn.Cfg.Name, hex.EncodeToString(hn.PubKey[:logPubKeyBytes]))
+		fileName := fmt.Sprintf("%s/%d-%s-%s-%s.log", dir, hn.NodeID,
+			hn.Cfg.LogFilenamePrefix, hn.Cfg.Name,
+			hex.EncodeToString(hn.PubKey[:logPubKeyBytes]))
 
-		// If the node's PubKey is not yet initialized, create a temporary
-		// file name. Later, after the PubKey has been initialized, the
-		// file can be moved to its final name with the PubKey included.
+		// If the node's PubKey is not yet initialized, create a
+		// temporary file name. Later, after the PubKey has been
+		// initialized, the file can be moved to its final name with
+		// the PubKey included.
 		if bytes.Equal(hn.PubKey[:4], []byte{0, 0, 0, 0}) {
-			fileName = fmt.Sprintf("%s/output-%d-%s-tmp__.log",
-				dir, hn.NodeID, hn.Cfg.Name)
+			fileName = fmt.Sprintf("%s/%d-%s-%s-tmp__.log", dir,
+				hn.NodeID, hn.Cfg.LogFilenamePrefix,
+				hn.Cfg.Name)
 
-			// Once the node has done its work, the log file can be renamed.
+			// Once the node has done its work, the log file can be
+			// renamed.
 			finalizeLogfile = func() {
 				if hn.logFile != nil {
 					hn.logFile.Close()
@@ -511,8 +564,10 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error) error {
 					pubKeyHex := hex.EncodeToString(
 						hn.PubKey[:logPubKeyBytes],
 					)
-					newFileName := fmt.Sprintf("%s/output"+
-						"-%d-%s-%s.log", dir, hn.NodeID,
+					newFileName := fmt.Sprintf("%s/"+
+						"%d-%s-%s-%s.log",
+						dir, hn.NodeID,
+						hn.Cfg.LogFilenamePrefix,
 						hn.Cfg.Name, pubKeyHex)
 					err := os.Rename(fileName, newFileName)
 					if err != nil {

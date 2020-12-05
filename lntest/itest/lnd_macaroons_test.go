@@ -22,7 +22,7 @@ import (
 // enabled on the gRPC interface, no requests with missing or invalid
 // macaroons are allowed. Further, the specific access rights (read/write,
 // entity based) and first-party caveats are tested as well.
-func testMacaroonAuthentication(net *lntest.NetworkHarness, t *harnessTest) {
+func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
 	var (
 		infoReq    = &lnrpc.GetInfoRequest{}
 		newAddrReq = &lnrpc.NewAddressRequest{
@@ -200,15 +200,13 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, t *harnessTest) {
 
 	for _, tc := range testCases {
 		tc := tc
-		t.t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
+		ht.t.Run(tc.name, func(tt *testing.T) {
 			ctxt, cancel := context.WithTimeout(
 				context.Background(), defaultTimeout,
 			)
 			defer cancel()
 
-			tc.run(ctxt, t)
+			tc.run(ctxt, tt)
 		})
 	}
 }
@@ -377,9 +375,7 @@ func testBakeMacaroon(net *lntest.NetworkHarness, t *harnessTest) {
 
 	for _, tc := range testCases {
 		tc := tc
-		t.t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
+		t.t.Run(tc.name, func(tt *testing.T) {
 			ctxt, cancel := context.WithTimeout(
 				context.Background(), defaultTimeout,
 			)
@@ -388,11 +384,11 @@ func testBakeMacaroon(net *lntest.NetworkHarness, t *harnessTest) {
 			adminMac, err := testNode.ReadMacaroon(
 				testNode.AdminMacPath(), defaultTimeout,
 			)
-			require.NoError(t, err)
-			cleanup, client := macaroonClient(t, testNode, adminMac)
+			require.NoError(tt, err)
+			cleanup, client := macaroonClient(tt, testNode, adminMac)
 			defer cleanup()
 
-			tc.run(ctxt, t, client)
+			tc.run(ctxt, tt, client)
 		})
 	}
 }

@@ -179,7 +179,7 @@ in the system's `$PATH` variable. Otherwise some of the tests will fail.
 
 In order to run, `lnd` requires, that the user specify a chain backend. At the
 time of writing of this document, there are three available chain backends:
-`btcd`, `neutrino`, `bitcoind`. All but neutrino (atm) can run on mainnet with
+`btcd`, `neutrino`, `bitcoind`. All including neutrino can run on mainnet with
 an out of the box `lnd` instance. We don't require `--txindex` when running
 with `bitcoind` or `btcd` but activating the `txindex` will generally make
 `lnd` run faster.

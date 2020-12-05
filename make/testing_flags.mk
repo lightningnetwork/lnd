@@ -2,8 +2,11 @@ DEV_TAGS = dev
 RPC_TAGS = autopilotrpc chainrpc invoicesrpc routerrpc signrpc verrpc walletrpc watchtowerrpc wtclientrpc
 LOG_TAGS =
 TEST_FLAGS =
+ITEST_FLAGS = 
+EXEC_SUFFIX =
 COVER_PKG = $$(go list -deps ./... | grep '$(PKG)' | grep -v lnrpc)
 NUM_ITEST_TRANCHES = 6
+ITEST_PARALLELISM = $(NUM_ITEST_TRANCHES)
 
 # If rpc option is set also add all extra RPC tags to DEV_TAGS
 ifneq ($(with-rpc),)
@@ -13,6 +16,18 @@ endif
 # Scale the number of parallel running itest tranches.
 ifneq ($(tranches),)
 NUM_ITEST_TRANCHES = $(tranches)
+ITEST_PARALLELISM = $(NUM_ITEST_TRANCHES)
+endif
+
+# Give the ability to run the same tranche multiple times at the same time.
+ifneq ($(parallel),)
+ITEST_PARALLELISM = $(parallel)
+endif
+
+# Windows needs to append a .exe suffix to all executable files, otherwise it
+# won't run them.
+ifneq ($(windows),)
+EXEC_SUFFIX = .exe
 endif
 
 # If specific package is being unit tested, construct the full name of the
@@ -32,6 +47,12 @@ endif
 # Define the integration test.run filter if the icase argument was provided.
 ifneq ($(icase),)
 TEST_FLAGS += -test.run="TestLightningNetworkDaemon/.*-of-.*/.*/$(icase)"
+endif
+
+# Run itests with etcd backend.
+ifeq ($(etcd),1)
+ITEST_FLAGS += -etcd
+DEV_TAGS += kvdb_etcd
 endif
 
 ifneq ($(tags),)
@@ -81,5 +102,3 @@ endif
 
 # Construct the integration test command with the added build flags.
 ITEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) rpctest $(backend)
-
-ITEST := rm lntest/itest/*.log; date; $(GOTEST) -v ./lntest/itest -tags="$(ITEST_TAGS)" $(TEST_FLAGS) -logoutput -goroutinedump

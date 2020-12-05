@@ -10,9 +10,9 @@ import (
 	"math/big"
 	prand "math/rand"
 	"net"
-	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,6 +27,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/cert"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/chanbackup"
@@ -66,6 +67,7 @@ import (
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/walletunlocker"
+	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 	"github.com/lightningnetwork/lnd/watchtower/wtserver"
@@ -247,6 +249,8 @@ type server struct {
 
 	towerClient wtclient.Client
 
+	anchorTowerClient wtclient.Client
+
 	connMgr *connmgr.ConnManager
 
 	sigPool *lnwallet.SigPool
@@ -371,10 +375,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// Initialize the sphinx router, placing it's persistent replay log in
 	// the same directory as the channel graph database. We don't need to
 	// replicate this data, so we'll store it locally.
-	sharedSecretPath := filepath.Join(
-		cfg.localDatabaseDir(), defaultSphinxDbName,
+	replayLog := htlcswitch.NewDecayedLog(
+		cfg.localDatabaseDir(), defaultSphinxDbName, cfg.DB.Bolt,
+		cc.ChainNotifier,
 	)
-	replayLog := htlcswitch.NewDecayedLog(sharedSecretPath, cc.ChainNotifier)
 	sphinxRouter := sphinx.NewRouter(
 		nodeKeyECDH, cfg.ActiveNetParams.Params, replayLog,
 	)
@@ -804,6 +808,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		MinimumBatchSize:        10,
 		SubBatchDelay:           time.Second * 5,
 		IgnoreHistoricalFilters: cfg.IgnoreHistoricalGossipFilters,
+		GossipUpdateThrottle:    !cfg.ProtocolOptions.NoGossipThrottle(),
 	},
 		s.identityECDH.PubKey(),
 	)
@@ -1265,6 +1270,29 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		if err != nil {
 			return nil, err
 		}
+
+		// Copy the policy for legacy channels and set the blob flag
+		// signalling support for anchor channels.
+		anchorPolicy := policy
+		anchorPolicy.TxPolicy.BlobType |=
+			blob.Type(blob.FlagAnchorChannel)
+
+		s.anchorTowerClient, err = wtclient.New(&wtclient.Config{
+			Signer:         cc.Wallet.Cfg.Signer,
+			NewAddress:     newSweepPkScriptGen(cc.Wallet),
+			SecretKeyRing:  s.cc.KeyRing,
+			Dial:           cfg.net.Dial,
+			AuthDial:       authDial,
+			DB:             towerClientDB,
+			Policy:         anchorPolicy,
+			ChainHash:      *s.cfg.ActiveNetParams.GenesisHash,
+			MinBackoff:     10 * time.Second,
+			MaxBackoff:     5 * time.Minute,
+			ForceQuitDelay: wtclient.DefaultForceQuitDelay,
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if len(cfg.ExternalHosts) != 0 {
@@ -1292,10 +1320,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// will not run it.
 	chainHealthCheck := healthcheck.NewObservation(
 		"chain backend",
-		func() error {
-			_, _, err := cc.ChainIO.GetBestBlock()
-			return err
-		},
+		cc.HealthCheck,
 		cfg.HealthChecks.ChainCheck.Interval,
 		cfg.HealthChecks.ChainCheck.Timeout,
 		cfg.HealthChecks.ChainCheck.Backoff,
@@ -1305,7 +1330,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	diskCheck := healthcheck.NewObservation(
 		"disk space",
 		func() error {
-			free, err := healthcheck.AvailableDiskSpace(cfg.LndDir)
+			free, err := healthcheck.AvailableDiskSpaceRatio(
+				cfg.LndDir,
+			)
 			if err != nil {
 				return err
 			}
@@ -1326,12 +1353,38 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		cfg.HealthChecks.DiskCheck.Attempts,
 	)
 
+	tlsHealthCheck := healthcheck.NewObservation(
+		"tls",
+		func() error {
+			_, parsedCert, err := cert.LoadCert(
+				cfg.TLSCertPath, cfg.TLSKeyPath,
+			)
+			if err != nil {
+				return err
+			}
+
+			// If the current time is passed the certificate's
+			// expiry time, then it is considered expired
+			if time.Now().After(parsedCert.NotAfter) {
+				return fmt.Errorf("TLS certificate is expired as of %v", parsedCert.NotAfter)
+			}
+
+			// If the certificate is not outdated, no error needs to
+			// be returned
+			return nil
+		},
+		cfg.HealthChecks.TLSCheck.Interval,
+		cfg.HealthChecks.TLSCheck.Timeout,
+		cfg.HealthChecks.TLSCheck.Backoff,
+		cfg.HealthChecks.TLSCheck.Attempts,
+	)
+
 	// If we have not disabled all of our health checks, we create a
 	// liveliness monitor with our configured checks.
 	s.livelinessMonitor = healthcheck.NewMonitor(
 		&healthcheck.Config{
 			Checks: []*healthcheck.Observation{
-				chainHealthCheck, diskCheck,
+				chainHealthCheck, diskCheck, tlsHealthCheck,
 			},
 			Shutdown: srvrLog.Criticalf,
 		},
@@ -1439,6 +1492,12 @@ func (s *server) Start() error {
 				return
 			}
 		}
+		if s.anchorTowerClient != nil {
+			if err := s.anchorTowerClient.Start(); err != nil {
+				startErr = err
+				return
+			}
+		}
 		if err := s.htlcSwitch.Start(); err != nil {
 			startErr = err
 			return
@@ -1539,6 +1598,57 @@ func (s *server) Start() error {
 			return
 		}
 
+		// setSeedList is a helper function that turns multiple DNS seed
+		// server tuples from the command line or config file into the
+		// data structure we need and does a basic formal sanity check
+		// in the process.
+		setSeedList := func(tuples []string, genesisHash chainhash.Hash) {
+			if len(tuples) == 0 {
+				return
+			}
+
+			result := make([][2]string, len(tuples))
+			for idx, tuple := range tuples {
+				tuple = strings.TrimSpace(tuple)
+				if len(tuple) == 0 {
+					return
+				}
+
+				servers := strings.Split(tuple, ",")
+				if len(servers) > 2 || len(servers) == 0 {
+					srvrLog.Warnf("Ignoring invalid DNS "+
+						"seed tuple: %v", servers)
+					return
+				}
+
+				copy(result[idx][:], servers)
+			}
+
+			chainreg.ChainDNSSeeds[genesisHash] = result
+		}
+
+		// Let users overwrite the DNS seed nodes. We only allow them
+		// for bitcoin mainnet/testnet and litecoin mainnet, all other
+		// combinations will just be ignored.
+		if s.cfg.Bitcoin.Active && s.cfg.Bitcoin.MainNet {
+			setSeedList(
+				s.cfg.Bitcoin.DNSSeeds,
+				chainreg.BitcoinMainnetGenesis,
+			)
+		}
+		if s.cfg.Bitcoin.Active && s.cfg.Bitcoin.TestNet3 {
+			setSeedList(
+				s.cfg.Bitcoin.DNSSeeds,
+				chainreg.BitcoinTestnetGenesis,
+			)
+		}
+		if s.cfg.Litecoin.Active && s.cfg.Litecoin.MainNet {
+			setSeedList(
+				s.cfg.Litecoin.DNSSeeds,
+				chainreg.LitecoinMainnetGenesis,
+			)
+		}
+
 		// If network bootstrapping hasn't been disabled, then we'll
 		// configure the set of active bootstrappers, and launch a
 		// dedicated goroutine to maintain a set of persistent
@@ -1625,7 +1735,16 @@ func (s *server) Stop() error {
 		// tower. If this is halted for any reason, the force quit timer
 		// will kick in and abort to allow this method to return.
 		if s.towerClient != nil {
-			s.towerClient.Stop()
+			if err := s.towerClient.Stop(); err != nil {
+				srvrLog.Warnf("Unable to shut down tower "+
+					"client: %v", err)
+			}
+		}
+		if s.anchorTowerClient != nil {
+			if err := s.anchorTowerClient.Stop(); err != nil {
+				srvrLog.Warnf("Unable to shut down anchor "+
+					"tower client: %v", err)
+			}
 		}
 
 		if s.hostAnn != nil {
@@ -2986,6 +3105,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		ChannelNotifier:         s.channelNotifier,
 		HtlcNotifier:            s.htlcNotifier,
 		TowerClient:             s.towerClient,
+		AnchorTowerClient:       s.anchorTowerClient,
 		DisconnectPeer:          s.DisconnectPeer,
 		GenNodeAnnouncement:     s.genNodeAnnouncement,
 

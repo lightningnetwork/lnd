@@ -183,7 +183,8 @@ type TowerClient interface {
 	// abide by the negotiated policy. If the channel we're trying to back
 	// up doesn't have a tweak for the remote party's output, then
 	// isTweakless should be true.
-	BackupState(*lnwire.ChannelID, *lnwallet.BreachRetribution, bool) error
+	BackupState(*lnwire.ChannelID, *lnwallet.BreachRetribution,
+		channeldb.ChannelType) error
 }
 
 // InterceptableHtlcForwarder is the interface to set the interceptor

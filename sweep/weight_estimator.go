@@ -2,6 +2,7 @@ package sweep
 
 import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -22,22 +23,6 @@ func newWeightEstimator(feeRate chainfee.SatPerKWeight) *weightEstimator {
 	return &weightEstimator{
 		feeRate: feeRate,
 		parents: make(map[chainhash.Hash]struct{}),
-	}
-}
-
-// clone returns a copy of this weight estimator.
-func (w *weightEstimator) clone() *weightEstimator {
-	parents := make(map[chainhash.Hash]struct{}, len(w.parents))
-	for hash := range w.parents {
-		parents[hash] = struct{}{}
-	}
-
-	return &weightEstimator{
-		estimator:     w.estimator,
-		feeRate:       w.feeRate,
-		parents:       parents,
-		parentsFee:    w.parentsFee,
-		parentsWeight: w.parentsWeight,
 	}
 }
 
@@ -90,6 +75,12 @@ func (w *weightEstimator) tryAddParent(inp input.Input) {
 // native P2WKH output.
 func (w *weightEstimator) addP2WKHOutput() {
 	w.estimator.AddP2WKHOutput()
+}
+
+// addOutput updates the weight estimate to account for the known
+// output given.
+func (w *weightEstimator) addOutput(txOut *wire.TxOut) {
+	w.estimator.AddTxOutput(txOut)
 }
 
 // weight gets the estimated weight of the transaction.

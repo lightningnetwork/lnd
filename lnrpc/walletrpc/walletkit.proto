@@ -464,7 +464,8 @@ message BumpFeeResponse {
 message ListSweepsRequest {
     /*
     Retrieve the full sweep transaction details. If false, only the sweep txids
-    will be returned.
+    will be returned. Note that some sweeps that LND publishes will have been
+    replaced-by-fee, so will not be included in this output.
     */
     bool verbose = 1;
 }

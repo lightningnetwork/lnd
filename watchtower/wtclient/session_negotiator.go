@@ -112,8 +112,19 @@ var _ SessionNegotiator = (*sessionNegotiator)(nil)
 
 // newSessionNegotiator initializes a fresh sessionNegotiator instance.
 func newSessionNegotiator(cfg *NegotiatorConfig) *sessionNegotiator {
+	// Generate the set of features the negitator will present to the tower
+	// upon connection. For anchor channels, we'll conditionally signal that
+	// we require support for anchor channels depdening on the requested
+	// policy.
+	features := []lnwire.FeatureBit{
+		wtwire.AltruistSessionsRequired,
+	}
+	if cfg.Policy.IsAnchorChannel() {
+		features = append(features, wtwire.AnchorCommitRequired)
+	}
+
 	localInit := wtwire.NewInitMessage(
-		lnwire.NewRawFeatureVector(wtwire.AltruistSessionsRequired),
+		lnwire.NewRawFeatureVector(features...),
 		cfg.ChainHash,
 	)
 
@@ -231,6 +242,19 @@ func (n *sessionNegotiator) negotiate() {
 	// backoff.
 	var backoff time.Duration
 
+	// Create a closure to update the backoff upon failure such that it
+	// stays within our min and max backoff parameters.
+	updateBackoff := func() {
+		if backoff == 0 {
+			backoff = n.cfg.MinBackoff
+		} else {
+			backoff *= 2
+			if backoff > n.cfg.MaxBackoff {
+				backoff = n.cfg.MaxBackoff
+			}
+		}
+	}
+
 retryWithBackoff:
 	// If we are retrying, wait out the delay before continuing.
 	if backoff > 0 {
@@ -251,16 +275,8 @@ retryWithBackoff:
 		// Pull the next candidate from our list of addresses.
 		tower, err := n.cfg.Candidates.Next()
 		if err != nil {
-			if backoff == 0 {
-				backoff = n.cfg.MinBackoff
-			} else {
-				// We've run out of addresses, double and clamp
-				// backoff.
-				backoff *= 2
-				if backoff > n.cfg.MaxBackoff {
-					backoff = n.cfg.MaxBackoff
-				}
-			}
+			// We've run out of addresses, update our backoff.
+			updateBackoff()
 
 			log.Debugf("Unable to get new tower candidate, "+
 				"retrying after %v -- reason: %v", backoff, err)
@@ -282,7 +298,9 @@ retryWithBackoff:
 		// Before proceeding, we will reserve a session key index to use
 		// with this specific tower. If one is already reserved, the
 		// existing index will be returned.
-		keyIndex, err := n.cfg.DB.NextSessionKeyIndex(tower.ID)
+		keyIndex, err := n.cfg.DB.NextSessionKeyIndex(
+			tower.ID, n.cfg.Policy.BlobType,
+		)
 		if err != nil {
 			log.Debugf("Unable to reserve session key index "+
 				"for tower=%x: %v", towerPub, err)
@@ -293,10 +311,14 @@ retryWithBackoff:
 		// get a new session, trying all addresses if necessary.
 		err = n.createSession(tower, keyIndex)
 		if err != nil {
+			// An unexpected error occurred, updpate our backoff.
+			updateBackoff()
+
 			log.Debugf("Session negotiation with tower=%x "+
 				"failed, trying again -- reason: %v",
 				tower.IdentityKey.SerializeCompressed(), err)
-			continue
+
+			goto retryWithBackoff
 		}
 
 		// Success.

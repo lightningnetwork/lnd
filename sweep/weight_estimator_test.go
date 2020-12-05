@@ -3,7 +3,10 @@ package sweep
 import (
 	"testing"
 
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
@@ -76,4 +79,33 @@ func TestWeightEstimator(t *testing.T) {
 	) - parentTxLowFee.Fee
 
 	require.Equal(t, expectedFee, w.fee())
+}
+
+// TestWeightEstimatorAddOutput tests that adding the raw P2WKH output to the
+// estimator yield the same result as an estimated add.
+func TestWeightEstimatorAddOutput(t *testing.T) {
+	testFeeRate := chainfee.SatPerKWeight(20000)
+
+	p2wkhAddr, err := btcutil.NewAddressWitnessPubKeyHash(
+		make([]byte, 20), &chaincfg.MainNetParams,
+	)
+	require.NoError(t, err)
+
+	p2wkhScript, err := txscript.PayToAddrScript(p2wkhAddr)
+	require.NoError(t, err)
+
+	// Create two estimators, add the raw P2WKH out to one.
+	txOut := &wire.TxOut{
+		PkScript: p2wkhScript,
+		Value:    10000,
+	}
+
+	w1 := newWeightEstimator(testFeeRate)
+	w1.addOutput(txOut)
+
+	w2 := newWeightEstimator(testFeeRate)
+	w2.addP2WKHOutput()
+
+	// Estimate hhould be the same.
+	require.Equal(t, w1.weight(), w2.weight())
 }

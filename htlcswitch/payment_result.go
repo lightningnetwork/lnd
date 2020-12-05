@@ -128,6 +128,8 @@ func (store *networkResultStore) storeResult(paymentID uint64,
 	store.paymentIDMtx.Lock(paymentID)
 	defer store.paymentIDMtx.Unlock(paymentID)
 
+	log.Debugf("Storing result for paymentID=%v", paymentID)
+
 	// Serialize the payment result.
 	var b bytes.Buffer
 	if err := serializeNetworkResult(&b, result); err != nil {
@@ -174,6 +176,8 @@ func (store *networkResultStore) subscribeResult(paymentID uint64) (
 	// of concurrent calls.
 	store.paymentIDMtx.Lock(paymentID)
 	defer store.paymentIDMtx.Unlock(paymentID)
+
+	log.Debugf("Subscribing to result for paymentID=%v", paymentID)
 
 	var (
 		result     *networkResult

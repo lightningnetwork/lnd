@@ -3,6 +3,7 @@ package channeldb
 import (
 	"bytes"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"image/color"
 	"math"
@@ -11,6 +12,7 @@ import (
 	"net"
 	"reflect"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -3193,5 +3196,150 @@ func TestComputeFee(t *testing.T) {
 	fwdFee := policy.ComputeFeeFromIncoming(outgoingAmt + fee)
 	if fwdFee != expectedFee {
 		t.Fatalf("expected fee %v, but got %v", fee, fwdFee)
+	}
+}
+
+// TestBatchedAddChannelEdge asserts that BatchedAddChannelEdge properly
+// executes multiple AddChannelEdge requests in a single txn.
+func TestBatchedAddChannelEdge(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := MakeTestDB()
+	require.Nil(t, err)
+	defer cleanUp()
+
+	graph := db.ChannelGraph()
+	sourceNode, err := createTestVertex(db)
+	require.Nil(t, err)
+	err = graph.SetSourceNode(sourceNode)
+	require.Nil(t, err)
+
+	// We'd like to test the insertion/deletion of edges, so we create two
+	// vertexes to connect.
+	node1, err := createTestVertex(db)
+	require.Nil(t, err)
+	node2, err := createTestVertex(db)
+	require.Nil(t, err)
+
+	// In addition to the fake vertexes we create some fake channel
+	// identifiers.
+	var spendOutputs []*wire.OutPoint
+	var blockHash chainhash.Hash
+	copy(blockHash[:], bytes.Repeat([]byte{1}, 32))
+
+	// Prune the graph a few times to make sure we have entries in the
+	// prune log.
+	_, err = graph.PruneGraph(spendOutputs, &blockHash, 155)
+	require.Nil(t, err)
+	var blockHash2 chainhash.Hash
+	copy(blockHash2[:], bytes.Repeat([]byte{2}, 32))
+
+	_, err = graph.PruneGraph(spendOutputs, &blockHash2, 156)
+	require.Nil(t, err)
+
+	// We'll create 3 almost identical edges, so first create a helper
+	// method containing all logic for doing so.
+
+	// Create an edge which has its block height at 156.
+	height := uint32(156)
+	edgeInfo, _ := createEdge(height, 0, 0, 0, node1, node2)
+
+	// Create an edge with block height 157. We give it
+	// maximum values for tx index and position, to make
+	// sure our database range scan get edges from the
+	// entire range.
+	edgeInfo2, _ := createEdge(
+		height+1, math.MaxUint32&0x00ffffff, math.MaxUint16, 1,
+		node1, node2,
+	)
+
+	// Create a third edge, this with a block height of 155.
+	edgeInfo3, _ := createEdge(height-1, 0, 0, 2, node1, node2)
+
+	edges := []ChannelEdgeInfo{edgeInfo, edgeInfo2, edgeInfo3}
+	errChan := make(chan error, len(edges))
+	errTimeout := errors.New("timeout adding batched channel")
+
+	// Now add all these new edges to the database.
+	var wg sync.WaitGroup
+	for _, edge := range edges {
+		wg.Add(1)
+		go func(edge ChannelEdgeInfo) {
+			defer wg.Done()
+
+			select {
+			case errChan <- graph.AddChannelEdge(&edge):
+			case <-time.After(2 * time.Second):
+				errChan <- errTimeout
+			}
+		}(edge)
+	}
+	wg.Wait()
+
+	for i := 0; i < len(edges); i++ {
+		err := <-errChan
+		require.Nil(t, err)
+	}
+}
+
+// TestBatchedUpdateEdgePolicy asserts that BatchedUpdateEdgePolicy properly
+// executes multiple UpdateEdgePolicy requests in a single txn.
+func TestBatchedUpdateEdgePolicy(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := MakeTestDB()
+	require.Nil(t, err)
+	defer cleanUp()
+
+	graph := db.ChannelGraph()
+
+	// We'd like to test the update of edges inserted into the database, so
+	// we create two vertexes to connect.
+	node1, err := createTestVertex(db)
+	require.Nil(t, err)
+	err = graph.AddLightningNode(node1)
+	require.Nil(t, err)
+	node2, err := createTestVertex(db)
+	require.Nil(t, err)
+	err = graph.AddLightningNode(node2)
+	require.Nil(t, err)
+
+	// Create an edge and add it to the db.
+	edgeInfo, edge1, edge2 := createChannelEdge(db, node1, node2)
+
+	// Make sure inserting the policy at this point, before the edge info
+	// is added, will fail.
+	err = graph.UpdateEdgePolicy(edge1)
+	require.Error(t, ErrEdgeNotFound, err)
+
+	// Add the edge info.
+	err = graph.AddChannelEdge(edgeInfo)
+	require.Nil(t, err)
+
+	errTimeout := errors.New("timeout adding batched channel")
+
+	updates := []*ChannelEdgePolicy{edge1, edge2}
+
+	errChan := make(chan error, len(updates))
+
+	// Now add all these new edges to the database.
+	var wg sync.WaitGroup
+	for _, update := range updates {
+		wg.Add(1)
+		go func(update *ChannelEdgePolicy) {
+			defer wg.Done()
+
+			select {
+			case errChan <- graph.UpdateEdgePolicy(update):
+			case <-time.After(2 * time.Second):
+				errChan <- errTimeout
+			}
+		}(update)
+	}
+	wg.Wait()
+
+	for i := 0; i < len(updates); i++ {
+		err := <-errChan
+		require.Nil(t, err)
 	}
 }

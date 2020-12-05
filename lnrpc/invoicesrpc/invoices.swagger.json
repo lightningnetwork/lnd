@@ -427,6 +427,11 @@
           "type": "boolean",
           "format": "boolean",
           "description": "Indicates if this invoice was a spontaneous payment that arrived via keysend\n[EXPERIMENTAL]."
+        },
+        "payment_addr": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment address of this invoice. This value will be used in MPP\npayments, and also for newer invoies that always require the MPP paylaod\nfor added end-to-end security."
         }
       }
     },

@@ -17,7 +17,6 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/shachain"
 )
 
 const (
@@ -324,18 +323,27 @@ func (c *chainWatcher) SubscribeChannelEvents() *ChainEventSubscription {
 	return sub
 }
 
-// isOurCommitment returns true if the passed commitSpend is a spend of the
-// funding transaction using our commitment transaction (a local force close).
-// In order to do this in a state agnostic manner, we'll make our decisions
-// based off of only the set of outputs included.
-func isOurCommitment(localChanCfg, remoteChanCfg channeldb.ChannelConfig,
+// handleUnknownLocalState checks whether the passed spend _could_ be a local
+// state that for some reason is unknown to us. This could be a state published
+// by us before we lost state, which we will try to sweep. Or it could be one
+// of our revoked states that somehow made it to the chain. If that's the case
+// we cannot really hope that we'll be able to get our money back, but we'll
+// try to sweep it anyway. If this is not an unknown local state, false is
+// returned.
+func (c *chainWatcher) handleUnknownLocalState(
 	commitSpend *chainntnfs.SpendDetail, broadcastStateNum uint64,
-	revocationProducer shachain.Producer,
-	chanType channeldb.ChannelType) (bool, error) {
+	chainSet *chainSet) (bool, error) {
+
+	// If the spend was a local commitment, at this point it must either be
+	// a past state (we breached!) or a future state (we lost state!). In
+	// either case, the only thing we can do is to attempt to sweep what is
+	// there.
 
 	// First, we'll re-derive our commitment point for this state since
 	// this is what we use to randomize each of the keys for this state.
-	commitSecret, err := revocationProducer.AtIndex(broadcastStateNum)
+	commitSecret, err := c.cfg.chanState.RevocationProducer.AtIndex(
+		broadcastStateNum,
+	)
 	if err != nil {
 		return false, err
 	}
@@ -345,13 +353,14 @@ func isOurCommitment(localChanCfg, remoteChanCfg channeldb.ChannelConfig,
 	// and remote keys for this state. We use our point as only we can
 	// revoke our own commitment.
 	commitKeyRing := lnwallet.DeriveCommitmentKeys(
-		commitPoint, true, chanType, &localChanCfg, &remoteChanCfg,
+		commitPoint, true, c.cfg.chanState.ChanType,
+		&c.cfg.chanState.LocalChanCfg, &c.cfg.chanState.RemoteChanCfg,
 	)
 
 	// With the keys derived, we'll construct the remote script that'll be
 	// present if they have a non-dust balance on the commitment.
 	remoteScript, _, err := lnwallet.CommitScriptToRemote(
-		chanType, commitKeyRing.ToRemoteKey,
+		c.cfg.chanState.ChanType, commitKeyRing.ToRemoteKey,
 	)
 	if err != nil {
 		return false, err
@@ -361,12 +370,13 @@ func isOurCommitment(localChanCfg, remoteChanCfg channeldb.ChannelConfig,
 	// the remote party allowing them to claim this output before the CSV
 	// delay if we breach.
 	localScript, err := input.CommitScriptToSelf(
-		uint32(localChanCfg.CsvDelay), commitKeyRing.ToLocalKey,
-		commitKeyRing.RevocationKey,
+		uint32(c.cfg.chanState.LocalChanCfg.CsvDelay),
+		commitKeyRing.ToLocalKey, commitKeyRing.RevocationKey,
 	)
 	if err != nil {
 		return false, err
 	}
+
 	localPkScript, err := input.WitnessScriptHash(localScript)
 	if err != nil {
 		return false, err
@@ -375,21 +385,40 @@ func isOurCommitment(localChanCfg, remoteChanCfg channeldb.ChannelConfig,
 	// With all our scripts assembled, we'll examine the outputs of the
 	// commitment transaction to determine if this is a local force close
 	// or not.
+	ourCommit := false
 	for _, output := range commitSpend.SpendingTx.TxOut {
 		pkScript := output.PkScript
 
 		switch {
 		case bytes.Equal(localPkScript, pkScript):
-			return true, nil
+			ourCommit = true
 
 		case bytes.Equal(remoteScript.PkScript, pkScript):
-			return true, nil
+			ourCommit = true
 		}
 	}
 
-	// If neither of these scripts are present, then it isn't a local force
-	// close.
-	return false, nil
+	// If the script is not present, this cannot be our commit.
+	if !ourCommit {
+		return false, nil
+	}
+
+	log.Warnf("Detected local unilateral close of unknown state %v "+
+		"(our state=%v)", broadcastStateNum,
+		chainSet.localCommit.CommitHeight)
+
+	// If this is our commitment transaction, then we try to act even
+	// though we won't be able to sweep HTLCs.
+	chainSet.commitSet.ConfCommitKey = &LocalHtlcSet
+	if err := c.dispatchLocalForceClose(
+		commitSpend, broadcastStateNum, chainSet.commitSet,
+	); err != nil {
+		return false, fmt.Errorf("unable to handle local"+
+			"close for chan_point=%v: %v",
+			c.cfg.chanState.FundingOutpoint, err)
+	}
+
+	return true, nil
 }
 
 // chainSet includes all the information we need to dispatch a channel close
@@ -533,36 +562,34 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 			commitTxBroadcast, obfuscator,
 		)
 
-		// Based on the output scripts within this commitment, we'll
-		// determine if this is our commitment transaction or not (a
-		// self force close).
-		isOurCommit, err := isOurCommitment(
-			c.cfg.chanState.LocalChanCfg,
-			c.cfg.chanState.RemoteChanCfg, commitSpend,
-			broadcastStateNum, c.cfg.chanState.RevocationProducer,
-			c.cfg.chanState.ChanType,
+		// We'll go on to check whether it could be our own commitment
+		// that was published and know is confirmed.
+		ok, err = c.handleKnownLocalState(
+			commitSpend, broadcastStateNum, chainSet,
 		)
 		if err != nil {
-			log.Errorf("unable to determine self commit for "+
-				"chan_point=%v: %v",
-				c.cfg.chanState.FundingOutpoint, err)
+			log.Errorf("Unable to handle known local state: %v",
+				err)
 			return
 		}
 
-		// If this is our commitment transaction, then we can exit here
-		// as we don't have any further processing we need to do (we
-		// can't cheat ourselves :p).
-		if isOurCommit {
-			chainSet.commitSet.ConfCommitKey = &LocalHtlcSet
+		if ok {
+			return
+		}
 
-			if err := c.dispatchLocalForceClose(
-				commitSpend, chainSet.localCommit,
-				chainSet.commitSet,
-			); err != nil {
-				log.Errorf("unable to handle local"+
-					"close for chan_point=%v: %v",
-					c.cfg.chanState.FundingOutpoint, err)
-			}
+		// Now that we know it is neither a non-cooperative closure nor
+		// a local close with the latest state, we check if it is the
+		// remote that closed with any prior or current state.
+		ok, err = c.handleKnownRemoteState(
+			commitSpend, broadcastStateNum, chainSet,
+		)
+		if err != nil {
+			log.Errorf("Unable to handle known remote state: %v",
+				err)
+			return
+		}
+
+		if ok {
 			return
 		}
 
@@ -581,147 +608,251 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 			return
 		}
 
-		log.Warnf("Unprompted commitment broadcast for "+
+		log.Warnf("Unknown commitment broadcast for "+
 			"ChannelPoint(%v) ", c.cfg.chanState.FundingOutpoint)
 
-		// If this channel has been recovered, then we'll modify our
-		// behavior as it isn't possible for us to close out the
-		// channel off-chain ourselves. It can only be the remote party
-		// force closing, or a cooperative closure we signed off on
-		// before losing data getting confirmed in the chain.
-		isRecoveredChan := c.cfg.chanState.HasChanStatus(
-			channeldb.ChanStatusRestored,
+		// We'll try to recover as best as possible from losing state.
+		// We first check if this was a local unknown state. This could
+		// happen if we force close, then lose state or attempt
+		// recovery before the commitment confirms.
+		ok, err = c.handleUnknownLocalState(
+			commitSpend, broadcastStateNum, chainSet,
 		)
-
-		switch {
-		// If state number spending transaction matches the current
-		// latest state, then they've initiated a unilateral close. So
-		// we'll trigger the unilateral close signal so subscribers can
-		// clean up the state as necessary.
-		case broadcastStateNum == chainSet.remoteStateNum &&
-			!isRecoveredChan:
-
-			log.Infof("Remote party broadcast base set, "+
-				"commit_num=%v", chainSet.remoteStateNum)
-
-			chainSet.commitSet.ConfCommitKey = &RemoteHtlcSet
-			err := c.dispatchRemoteForceClose(
-				commitSpend, chainSet.remoteCommit,
-				chainSet.commitSet,
-				c.cfg.chanState.RemoteCurrentRevocation,
-			)
-			if err != nil {
-				log.Errorf("unable to handle remote "+
-					"close for chan_point=%v: %v",
-					c.cfg.chanState.FundingOutpoint, err)
-			}
-
-		// We'll also handle the case of the remote party broadcasting
-		// their commitment transaction which is one height above ours.
-		// This case can arise when we initiate a state transition, but
-		// the remote party has a fail crash _after_ accepting the new
-		// state, but _before_ sending their signature to us.
-		case broadcastStateNum == chainSet.remoteStateNum+1 &&
-			chainSet.remotePendingCommit != nil && !isRecoveredChan:
-
-			log.Infof("Remote party broadcast pending set, "+
-				"commit_num=%v", chainSet.remoteStateNum+1)
-
-			chainSet.commitSet.ConfCommitKey = &RemotePendingHtlcSet
-			err := c.dispatchRemoteForceClose(
-				commitSpend, *chainSet.remotePendingCommit,
-				chainSet.commitSet,
-				c.cfg.chanState.RemoteNextRevocation,
-			)
-			if err != nil {
-				log.Errorf("unable to handle remote "+
-					"close for chan_point=%v: %v",
-					c.cfg.chanState.FundingOutpoint, err)
-			}
-
-		// If the remote party has broadcasted a state beyond our best
-		// known state for them, and they don't have a pending
-		// commitment (we write them to disk before sending out), then
-		// this means that we've lost data. In this case, we'll enter
-		// the DLP protocol. Otherwise, if we've recovered our channel
-		// state from scratch, then we don't know what the precise
-		// current state is, so we assume either the remote party
-		// forced closed or we've been breached. In the latter case,
-		// our tower will take care of us.
-		case broadcastStateNum > chainSet.remoteStateNum || isRecoveredChan:
-			log.Warnf("Remote node broadcast state #%v, "+
-				"which is more than 1 beyond best known "+
-				"state #%v!!! Attempting recovery...",
-				broadcastStateNum, chainSet.remoteStateNum)
-
-			// If this isn't a tweakless commitment, then we'll
-			// need to wait for the remote party's latest unrevoked
-			// commitment point to be presented to us as we need
-			// this to sweep. Otherwise, we can dispatch the remote
-			// close and sweep immediately using a fake commitPoint
-			// as it isn't actually needed for recovery anymore.
-			commitPoint := c.cfg.chanState.RemoteCurrentRevocation
-			tweaklessCommit := c.cfg.chanState.ChanType.IsTweakless()
-			if !tweaklessCommit {
-				commitPoint = c.waitForCommitmentPoint()
-				if commitPoint == nil {
-					return
-				}
-
-				log.Infof("Recovered commit point(%x) for "+
-					"channel(%v)! Now attempting to use it to "+
-					"sweep our funds...",
-					commitPoint.SerializeCompressed(),
-					c.cfg.chanState.FundingOutpoint)
-
-			} else {
-				log.Infof("ChannelPoint(%v) is tweakless, "+
-					"moving to sweep directly on chain",
-					c.cfg.chanState.FundingOutpoint)
-			}
-
-			// Since we don't have the commitment stored for this
-			// state, we'll just pass an empty commitment within
-			// the commitment set. Note that this means we won't be
-			// able to recover any HTLC funds.
-			//
-			// TODO(halseth): can we try to recover some HTLCs?
-			chainSet.commitSet.ConfCommitKey = &RemoteHtlcSet
-			err = c.dispatchRemoteForceClose(
-				commitSpend, channeldb.ChannelCommitment{},
-				chainSet.commitSet, commitPoint,
-			)
-			if err != nil {
-				log.Errorf("unable to handle remote "+
-					"close for chan_point=%v: %v",
-					c.cfg.chanState.FundingOutpoint, err)
-			}
-
-		// If the state number broadcast is lower than the remote
-		// node's current un-revoked height, then THEY'RE ATTEMPTING TO
-		// VIOLATE THE CONTRACT LAID OUT WITHIN THE PAYMENT CHANNEL.
-		// Therefore we close the signal indicating a revoked broadcast
-		// to allow subscribers to swiftly dispatch justice!!!
-		case broadcastStateNum < chainSet.remoteStateNum:
-			err := c.dispatchContractBreach(
-				commitSpend, &chainSet.remoteCommit,
-				broadcastStateNum,
-			)
-			if err != nil {
-				log.Errorf("unable to handle channel "+
-					"breach for chan_point=%v: %v",
-					c.cfg.chanState.FundingOutpoint, err)
-			}
+		if err != nil {
+			log.Errorf("Unable to handle known local state: %v",
+				err)
+			return
 		}
 
-		// Now that a spend has been detected, we've done our job, so
-		// we'll exit immediately.
+		if ok {
+			return
+		}
+
+		// Since it was neither a known remote state, nor a local state
+		// that was published, it most likely mean we lost state and
+		// the remote node closed. In this case we must start the DLP
+		// protocol in hope of getting our money back.
+		ok, err = c.handleUnknownRemoteState(
+			commitSpend, broadcastStateNum, chainSet,
+		)
+		if err != nil {
+			log.Errorf("Unable to handle unknown remote state: %v",
+				err)
+			return
+		}
+
+		if ok {
+			return
+		}
+
+		log.Warnf("Unable to handle spending tx %v of channel point %v",
+			commitTxBroadcast.TxHash(), c.cfg.chanState.FundingOutpoint)
 		return
 
 	// The chainWatcher has been signalled to exit, so we'll do so now.
 	case <-c.quit:
 		return
 	}
+}
+
+// handleKnownLocalState checks whether the passed spend is a local state that
+// is known to us (the current state). If so we will act on this state using
+// the passed chainSet. If this is not a known local state, false is returned.
+func (c *chainWatcher) handleKnownLocalState(
+	commitSpend *chainntnfs.SpendDetail, broadcastStateNum uint64,
+	chainSet *chainSet) (bool, error) {
+
+	// If the channel is recovered, we won't have a local commit to check
+	// against, so immediately return.
+	if c.cfg.chanState.HasChanStatus(channeldb.ChanStatusRestored) {
+		return false, nil
+	}
+
+	commitTxBroadcast := commitSpend.SpendingTx
+	commitHash := commitTxBroadcast.TxHash()
+
+	// Check whether our latest local state hit the chain.
+	if chainSet.localCommit.CommitTx.TxHash() != commitHash {
+		return false, nil
+	}
+
+	chainSet.commitSet.ConfCommitKey = &LocalHtlcSet
+	if err := c.dispatchLocalForceClose(
+		commitSpend, broadcastStateNum, chainSet.commitSet,
+	); err != nil {
+		return false, fmt.Errorf("unable to handle local"+
+			"close for chan_point=%v: %v",
+			c.cfg.chanState.FundingOutpoint, err)
+	}
+
+	return true, nil
+}
+
+// handleKnownRemoteState checks whether the passed spend is a remote state
+// that is known to us (a revoked, current or pending state). If so we will act
+// on this state using the passed chainSet. If this is not a known remote
+// state, false is returned.
+func (c *chainWatcher) handleKnownRemoteState(
+	commitSpend *chainntnfs.SpendDetail, broadcastStateNum uint64,
+	chainSet *chainSet) (bool, error) {
+
+	// If the channel is recovered, we won't have any remote commit to
+	// check against, so imemdiately return.
+	if c.cfg.chanState.HasChanStatus(channeldb.ChanStatusRestored) {
+		return false, nil
+	}
+
+	commitTxBroadcast := commitSpend.SpendingTx
+	commitHash := commitTxBroadcast.TxHash()
+	spendHeight := uint32(commitSpend.SpendingHeight)
+
+	switch {
+	// If the spending transaction matches the current latest state, then
+	// they've initiated a unilateral close. So we'll trigger the
+	// unilateral close signal so subscribers can clean up the state as
+	// necessary.
+	case chainSet.remoteCommit.CommitTx.TxHash() == commitHash:
+		log.Infof("Remote party broadcast base set, "+
+			"commit_num=%v", chainSet.remoteStateNum)
+
+		chainSet.commitSet.ConfCommitKey = &RemoteHtlcSet
+		err := c.dispatchRemoteForceClose(
+			commitSpend, chainSet.remoteCommit,
+			chainSet.commitSet,
+			c.cfg.chanState.RemoteCurrentRevocation,
+		)
+		if err != nil {
+			return false, fmt.Errorf("unable to handle remote "+
+				"close for chan_point=%v: %v",
+				c.cfg.chanState.FundingOutpoint, err)
+		}
+
+		return true, nil
+
+	// We'll also handle the case of the remote party broadcasting
+	// their commitment transaction which is one height above ours.
+	// This case can arise when we initiate a state transition, but
+	// the remote party has a fail crash _after_ accepting the new
+	// state, but _before_ sending their signature to us.
+	case chainSet.remotePendingCommit != nil &&
+		chainSet.remotePendingCommit.CommitTx.TxHash() == commitHash:
+
+		log.Infof("Remote party broadcast pending set, "+
+			"commit_num=%v", chainSet.remoteStateNum+1)
+
+		chainSet.commitSet.ConfCommitKey = &RemotePendingHtlcSet
+		err := c.dispatchRemoteForceClose(
+			commitSpend, *chainSet.remotePendingCommit,
+			chainSet.commitSet,
+			c.cfg.chanState.RemoteNextRevocation,
+		)
+		if err != nil {
+			return false, fmt.Errorf("unable to handle remote "+
+				"close for chan_point=%v: %v",
+				c.cfg.chanState.FundingOutpoint, err)
+		}
+
+		return true, nil
+	}
+
+	// We check if we have a revoked state at this state num that matches
+	// the spend transaction.
+	retribution, err := lnwallet.NewBreachRetribution(
+		c.cfg.chanState, broadcastStateNum, spendHeight,
+	)
+
+	switch {
+
+	// If we had no log entry at this height, this was not a revoked state.
+	case err == channeldb.ErrLogEntryNotFound:
+		return false, nil
+	case err == channeldb.ErrNoPastDeltas:
+		return false, nil
+
+	case err != nil:
+		return false, fmt.Errorf("unable to create breach "+
+			"retribution: %v", err)
+	}
+
+	// We found a revoked state at this height, but it could still be our
+	// own broadcasted state we are looking at. Therefore check that the
+	// commit matches before assuming it was a breach.
+	if retribution.BreachTransaction.TxHash() != commitHash {
+		return false, nil
+	}
+
+	// THEY'RE ATTEMPTING TO VIOLATE THE CONTRACT LAID OUT WITHIN THE
+	// PAYMENT CHANNEL. Therefore we close the signal indicating a revoked
+	// broadcast to allow subscribers to swiftly dispatch justice!!!
+	err = c.dispatchContractBreach(
+		commitSpend, &chainSet.remoteCommit,
+		broadcastStateNum, retribution,
+	)
+	if err != nil {
+		return false, fmt.Errorf("unable to handle channel "+
+			"breach for chan_point=%v: %v",
+			c.cfg.chanState.FundingOutpoint, err)
+	}
+
+	return true, nil
+}
+
+// handleUnknownRemoteState is the last attempt we make at reclaiming funds
+// from the closed channel, by checkin whether the passed spend _could_ be a
+// remote spend that is unknown to us (we lost state). We will try to initiate
+// Data Loss Protection in order to restore our commit point and reclaim our
+// funds from the channel. If we are not able to act on it, false is returned.
+func (c *chainWatcher) handleUnknownRemoteState(
+	commitSpend *chainntnfs.SpendDetail, broadcastStateNum uint64,
+	chainSet *chainSet) (bool, error) {
+
+	log.Warnf("Remote node broadcast state #%v, "+
+		"which is more than 1 beyond best known "+
+		"state #%v!!! Attempting recovery...",
+		broadcastStateNum, chainSet.remoteStateNum)
+
+	// If this isn't a tweakless commitment, then we'll need to wait for
+	// the remote party's latest unrevoked commitment point to be presented
+	// to us as we need this to sweep. Otherwise, we can dispatch the
+	// remote close and sweep immediately using a fake commitPoint as it
+	// isn't actually needed for recovery anymore.
+	commitPoint := c.cfg.chanState.RemoteCurrentRevocation
+	tweaklessCommit := c.cfg.chanState.ChanType.IsTweakless()
+	if !tweaklessCommit {
+		commitPoint = c.waitForCommitmentPoint()
+		if commitPoint == nil {
+			return false, fmt.Errorf("unable to get commit point")
+		}
+
+		log.Infof("Recovered commit point(%x) for "+
+			"channel(%v)! Now attempting to use it to "+
+			"sweep our funds...",
+			commitPoint.SerializeCompressed(),
+			c.cfg.chanState.FundingOutpoint)
+
+	} else {
+		log.Infof("ChannelPoint(%v) is tweakless, "+
+			"moving to sweep directly on chain",
+			c.cfg.chanState.FundingOutpoint)
+	}
+
+	// Since we don't have the commitment stored for this state, we'll just
+	// pass an empty commitment within the commitment set. Note that this
+	// means we won't be able to recover any HTLC funds.
+	//
+	// TODO(halseth): can we try to recover some HTLCs?
+	chainSet.commitSet.ConfCommitKey = &RemoteHtlcSet
+	err := c.dispatchRemoteForceClose(
+		commitSpend, channeldb.ChannelCommitment{},
+		chainSet.commitSet, commitPoint,
+	)
+	if err != nil {
+		return false, fmt.Errorf("unable to handle remote "+
+			"close for chan_point=%v: %v",
+			c.cfg.chanState.FundingOutpoint, err)
+	}
+
+	return true, nil
 }
 
 // toSelfAmount takes a transaction and returns the sum of all outputs that pay
@@ -817,14 +948,14 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 // dispatchLocalForceClose processes a unilateral close by us being confirmed.
 func (c *chainWatcher) dispatchLocalForceClose(
 	commitSpend *chainntnfs.SpendDetail,
-	localCommit channeldb.ChannelCommitment, commitSet CommitSet) error {
+	stateNum uint64, commitSet CommitSet) error {
 
 	log.Infof("Local unilateral close of ChannelPoint(%v) "+
 		"detected", c.cfg.chanState.FundingOutpoint)
 
 	forceClose, err := lnwallet.NewLocalForceCloseSummary(
 		c.cfg.chanState, c.cfg.signer,
-		commitSpend.SpendingTx, localCommit,
+		commitSpend.SpendingTx, stateNum,
 	)
 	if err != nil {
 		return err
@@ -948,8 +1079,8 @@ func (c *chainWatcher) dispatchRemoteForceClose(
 // materials required to bring the cheater to justice, then notify all
 // registered subscribers of this event.
 func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail,
-	remoteCommit *channeldb.ChannelCommitment,
-	broadcastStateNum uint64) error {
+	remoteCommit *channeldb.ChannelCommitment, broadcastStateNum uint64,
+	retribution *lnwallet.BreachRetribution) error {
 
 	log.Warnf("Remote peer has breached the channel contract for "+
 		"ChannelPoint(%v). Revoked state #%v was broadcast!!!",
@@ -960,17 +1091,6 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 	}
 
 	spendHeight := uint32(spendEvent.SpendingHeight)
-
-	// Create a new reach retribution struct which contains all the data
-	// needed to swiftly bring the cheating peer to justice.
-	//
-	// TODO(roasbeef): move to same package
-	retribution, err := lnwallet.NewBreachRetribution(
-		c.cfg.chanState, broadcastStateNum, spendHeight,
-	)
-	if err != nil {
-		return fmt.Errorf("unable to create breach retribution: %v", err)
-	}
 
 	// Nil the curve before printing.
 	if retribution.RemoteOutputSignDesc != nil &&

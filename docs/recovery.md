@@ -190,29 +190,24 @@ rescan.
 The recovery methods described above assume a clean slate for a node, so
 there's no existing UTXO or key data in the node's database. However, there're
 times when an _existing_ node may want to _manually_ rescan the chain. We have
-a tool for that! The tool is called
-[`dropwtxmgr`](https://github.com/btcsuite/btcwallet/tree/master/cmd/dropwtxmgr).
-It can be installed with the following command:
+a command line flag for that! Just start `lnd` and add the following flag:
 ```
-⛰  go get -v -u github.com/btcsuite/btcwallet/cmd/dropwtxmgr
+⛰  lnd --reset-wallet-transactions
 ```
 
-The `dropwtxmgr` tool will _reset_ the best synced height of the wallet back to
-its birthday, or genesis if the birthday isn't known (for some older wallets).
-In order to run the tool, you must first **shutdown `lnd`**. Once `lnd` is
-shutdown, the rescan can be initiated with the following commands:
-```
-⛰  cp $HOME/.lnd/data/chain/bitcoin/mainnet/wallet.db $HOME/wallet.db # Copy the existing databse just in case!
-⛰  dropwtxmgr --db=$HOME/.lnd/data/chain/bitcoin/mainnet/wallet.db
-```
+The `--reset-wallet-transactions` flag will _reset_ the best synced height of
+the wallet back to its birthday, or genesis if the birthday isn't known (for
+some older wallets).
 
-Once the above command returns (if it hangs for a while, then `lnd` may not
-actually be shutdown, so double check!), `lnd` can be restarted. After it's
-restarted, then the wallet should being rescanning. An entry resembling the
-following will show up in the logs once it's complete:
+Just run `lnd` with the flag, unlock it, then the wallet should begin
+rescanning. An entry resembling the following will show up in the logs once it's
+complete:
 ```
 [INF] LNWL: Finished rescan for 800 addresses (synced to block 3032830c812a4a6ea305d8ead13b52e9e69d6400ff3c997970b6f76fbc770920, height 748)
 ```
+
+**Remember to remove the flag once the rescan was completed successfully to
+avoid rescanning again for every restart of lnd**.
 
 ## Off-Chain Recovery
 

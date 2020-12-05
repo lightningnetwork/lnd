@@ -14,7 +14,7 @@ import (
 // are opened.
 const DefaultConfTarget = 3
 
-// Node node is an interface which represents n abstract vertex within the
+// Node is an interface which represents n abstract vertex within the
 // channel graph. All nodes should have at least a single edge to/from them
 // within the graph.
 //

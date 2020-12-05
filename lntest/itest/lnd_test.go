@@ -12,7 +12,6 @@ import (
 	"io/ioutil"
 	"math"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -81,6 +80,9 @@ var (
 		"runtranche", defaultRunTranche, "run the tranche of the "+
 			"split test cases with the given (0-based) index",
 	)
+
+	// useEtcd test LND nodes use (embedded) etcd as remote db.
+	useEtcd = flag.Bool("etcd", false, "Use etcd backend for lnd.")
 )
 
 // getTestCaseSplitTranche returns the sub slice of the test cases that should
@@ -96,6 +98,15 @@ func getTestCaseSplitTranche() ([]*testCase, uint, uint) {
 		runTranche = *testCasesRunTranche
 	}
 
+	// There's a special flake-hunt mode where we run the same test multiple
+	// times in parallel. In that case the tranche index is equal to the
+	// thread ID, but we need to actually run all tests for the regex
+	// selection to work.
+	threadID := runTranche
+	if numTranches == 1 {
+		runTranche = 0
+	}
+
 	numCases := uint(len(allTestCases))
 	testsPerTranche := numCases / numTranches
 	trancheOffset := runTranche * testsPerTranche
@@ -104,7 +115,7 @@ func getTestCaseSplitTranche() ([]*testCase, uint, uint) {
 		trancheEnd = numCases
 	}
 
-	return allTestCases[trancheOffset:trancheEnd], runTranche, trancheOffset
+	return allTestCases[trancheOffset:trancheEnd], threadID, trancheOffset
 }
 
 func rpcPointToWirePoint(t *harnessTest, chanPoint *lnrpc.ChannelPoint) wire.OutPoint {
@@ -739,6 +750,10 @@ func createPayReqs(node *lntest.HarnessNode, paymentAmt btcutil.Amount,
 			return nil, nil, nil, fmt.Errorf("unable to add "+
 				"invoice: %v", err)
 		}
+
+		// Set the payment address in the invoice so the caller can
+		// properly use it.
+		invoice.PaymentAddr = resp.PaymentAddr
 
 		payReqs[i] = resp.PaymentRequest
 		rHashes[i] = resp.RHash
@@ -1835,31 +1850,36 @@ func getChannelPolicies(t *harnessTest, node *lntest.HarnessNode,
 	}
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	chanGraph, err := node.DescribeGraph(ctxt, descReq)
-	if err != nil {
-		t.Fatalf("unable to query for alice's graph: %v", err)
-	}
+	require.NoError(t.t, err, "unable to query for alice's graph")
 
 	var policies []*lnrpc.RoutingPolicy
-out:
-	for _, chanPoint := range chanPoints {
-		for _, e := range chanGraph.Edges {
-			if e.ChanPoint != txStr(chanPoint) {
-				continue
+	err = wait.NoError(func() error {
+	out:
+		for _, chanPoint := range chanPoints {
+			for _, e := range chanGraph.Edges {
+				if e.ChanPoint != txStr(chanPoint) {
+					continue
+				}
+
+				if e.Node1Pub == advertisingNode {
+					policies = append(policies,
+						e.Node1Policy)
+				} else {
+					policies = append(policies,
+						e.Node2Policy)
+				}
+
+				continue out
 			}
 
-			if e.Node1Pub == advertisingNode {
-				policies = append(policies, e.Node1Policy)
-			} else {
-				policies = append(policies, e.Node2Policy)
-			}
-
-			continue out
+			// If we've iterated over all the known edges and we weren't
+			// able to find this specific one, then we'll fail.
+			return fmt.Errorf("did not find edge %v", txStr(chanPoint))
 		}
 
-		// If we've iterated over all the known edges and we weren't
-		// able to find this specific one, then we'll fail.
-		t.Fatalf("did not find edge %v", txStr(chanPoint))
-	}
+		return nil
+	}, defaultTimeout)
+	require.NoError(t.t, err)
 
 	return policies
 }
@@ -2185,9 +2205,19 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	routes.Routes[0].Hops[1].AmtToForward = amtSat
 	routes.Routes[0].Hops[1].AmtToForwardMsat = amtMSat
 
+	// Manually set the MPP payload a new for each payment since
+	// the payment addr will change with each invoice, although we
+	// can re-use the route itself.
+	route := routes.Routes[0]
+	route.Hops[len(route.Hops)-1].TlvPayload = true
+	route.Hops[len(route.Hops)-1].MppRecord = &lnrpc.MPPRecord{
+		PaymentAddr:  resp.PaymentAddr,
+		TotalAmtMsat: amtMSat,
+	}
+
 	sendReq = &lnrpc.SendToRouteRequest{
 		PaymentHash: resp.RHash,
-		Route:       routes.Routes[0],
+		Route:       route,
 	}
 
 	err = alicePayStream.Send(sendReq)
@@ -2441,8 +2471,8 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	tempLogDir := fmt.Sprintf("%s/.tempminerlogs", lntest.GetLogDir())
 	logFilename := "output-open_channel_reorg-temp_miner.log"
 	tempMiner, tempMinerCleanUp, err := lntest.NewMiner(
-		tempLogDir, logFilename,
-		harnessNetParams, &rpcclient.NotificationHandlers{},
+		tempLogDir, logFilename, harnessNetParams,
+		&rpcclient.NotificationHandlers{}, lntest.GetBtcdBinary(),
 	)
 	require.NoError(t.t, err, "failed to create temp miner")
 	defer func() {
@@ -3966,11 +3996,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	}
 
 	// Check that we can find the commitment sweep in our set of known
-	// sweeps.
-	err = findSweep(ctxb, alice, sweepingTXID)
-	if err != nil {
-		t.Fatalf("csv sweep not found: %v", err)
-	}
+	// sweeps, using the simple transaction id ListSweeps output.
+	assertSweepFound(ctxb, t.t, alice, sweepingTXID.String(), false)
 
 	// Restart Alice to ensure that she resumes watching the finalized
 	// commitment sweep txid.
@@ -4359,11 +4386,9 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		}
 	}
 
-	// Check that we can find the htlc sweep in our set of sweeps.
-	err = findSweep(ctxb, alice, htlcSweepTx.Hash())
-	if err != nil {
-		t.Fatalf("htlc sweep not found: %v", err)
-	}
+	// Check that we can find the htlc sweep in our set of sweeps using
+	// the verbose output of the listsweeps output.
+	assertSweepFound(ctxb, t.t, alice, htlcSweepTx.Hash().String(), true)
 
 	// The following restart checks to ensure that the nursery store is
 	// storing the txid of the previously broadcast htlc sweep txn, and that
@@ -4562,33 +4587,60 @@ func assertReports(ctxb context.Context, t *harnessTest,
 	}
 }
 
-// findSweep looks up a sweep in a nodes list of broadcast sweeps.
-func findSweep(ctx context.Context, node *lntest.HarnessNode,
-	sweep *chainhash.Hash) error {
+// assertSweepFound looks up a sweep in a nodes list of broadcast sweeps.
+func assertSweepFound(ctx context.Context, t *testing.T, node *lntest.HarnessNode,
+	sweep string, verbose bool) {
 
 	// List all sweeps that alice's node had broadcast.
 	ctx, _ = context.WithTimeout(ctx, defaultTimeout)
 	sweepResp, err := node.WalletKitClient.ListSweeps(
 		ctx, &walletrpc.ListSweepsRequest{
-			Verbose: false,
-		})
-	if err != nil {
-		return fmt.Errorf("list sweeps error: %v", err)
+			Verbose: verbose,
+		},
+	)
+	require.NoError(t, err)
+
+	var found bool
+	if verbose {
+		found = findSweepInDetails(t, sweep, sweepResp)
+	} else {
+		found = findSweepInTxids(t, sweep, sweepResp)
 	}
 
-	sweepTxIDs, ok := sweepResp.Sweeps.(*walletrpc.ListSweepsResponse_TransactionIds)
-	if !ok {
-		return errors.New("expected sweep txids in response")
-	}
+	require.True(t, found, "sweep: %v not found", sweep)
+}
+
+func findSweepInTxids(t *testing.T, sweepTxid string,
+	sweepResp *walletrpc.ListSweepsResponse) bool {
+
+	sweepTxIDs := sweepResp.GetTransactionIds()
+	require.NotNil(t, sweepTxIDs, "expected transaction ids")
+	require.Nil(t, sweepResp.GetTransactionDetails())
 
 	// Check that the sweep tx we have just produced is present.
-	for _, tx := range sweepTxIDs.TransactionIds.TransactionIds {
-		if tx == sweep.String() {
-			return nil
+	for _, tx := range sweepTxIDs.TransactionIds {
+		if tx == sweepTxid {
+			return true
 		}
 	}
 
-	return fmt.Errorf("sweep: %v not found", sweep.String())
+	return false
+}
+
+func findSweepInDetails(t *testing.T, sweepTxid string,
+	sweepResp *walletrpc.ListSweepsResponse) bool {
+
+	sweepDetails := sweepResp.GetTransactionDetails()
+	require.NotNil(t, sweepDetails, "expected transaction details")
+	require.Nil(t, sweepResp.GetTransactionIds())
+
+	for _, tx := range sweepDetails.Transactions {
+		if tx.TxHash == sweepTxid {
+			return true
+		}
+	}
+
+	return false
 }
 
 // assertAmountSent generates a closure which queries listchannels for sndr and
@@ -5318,10 +5370,6 @@ type singleHopSendToRouteCase struct {
 	// routerrpc submits the request to the routerrpc subserver if true,
 	// otherwise submits to the main rpc server.
 	routerrpc bool
-
-	// mpp sets the MPP fields on the request if true, otherwise submits a
-	// regular payment.
-	mpp bool
 }
 
 var singleHopSendToRouteCases = []singleHopSendToRouteCase{
@@ -5338,17 +5386,14 @@ var singleHopSendToRouteCases = []singleHopSendToRouteCase{
 	},
 	{
 		name: "mpp main sync",
-		mpp:  true,
 	},
 	{
 		name:      "mpp main stream",
 		streaming: true,
-		mpp:       true,
 	},
 	{
 		name:      "mpp routerrpc sync",
 		routerrpc: true,
-		mpp:       true,
 	},
 }
 
@@ -5525,11 +5570,7 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 	//  - routerrpc server sync
 	sendToRouteSync := func() {
 		for i, rHash := range rHashes {
-			// Populate the MPP fields for the final hop if we are
-			// testing MPP payments.
-			if test.mpp {
-				setMPPFields(i)
-			}
+			setMPPFields(i)
 
 			sendReq := &lnrpc.SendToRouteRequest{
 				PaymentHash: rHash,
@@ -5558,11 +5599,7 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 		}
 
 		for i, rHash := range rHashes {
-			// Populate the MPP fields for the final hop if we are
-			// testing MPP payments.
-			if test.mpp {
-				setMPPFields(i)
-			}
+			setMPPFields(i)
 
 			sendReq := &lnrpc.SendToRouteRequest{
 				PaymentHash: rHash,
@@ -5586,11 +5623,7 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 	}
 	sendToRouteRouterRPC := func() {
 		for i, rHash := range rHashes {
-			// Populate the MPP fields for the final hop if we are
-			// testing MPP payments.
-			if test.mpp {
-				setMPPFields(i)
-			}
+			setMPPFields(i)
 
 			sendReq := &routerrpc.SendToRouteRequest{
 				PaymentHash: rHash,
@@ -5686,26 +5719,22 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 		// properly populated. Otherwise the hop should not have an MPP
 		// record.
 		hop := htlc.Route.Hops[0]
-		if test.mpp {
-			if hop.MppRecord == nil {
-				t.Fatalf("expected mpp record for mpp payment")
-			}
+		if hop.MppRecord == nil {
+			t.Fatalf("expected mpp record for mpp payment")
+		}
 
-			if hop.MppRecord.TotalAmtMsat != paymentAmtSat*1000 {
-				t.Fatalf("incorrect mpp total msat for payment %d "+
-					"want: %d, got: %d",
-					i, paymentAmtSat*1000,
-					hop.MppRecord.TotalAmtMsat)
-			}
+		if hop.MppRecord.TotalAmtMsat != paymentAmtSat*1000 {
+			t.Fatalf("incorrect mpp total msat for payment %d "+
+				"want: %d, got: %d",
+				i, paymentAmtSat*1000,
+				hop.MppRecord.TotalAmtMsat)
+		}
 
-			expAddr := payAddrs[i]
-			if !bytes.Equal(hop.MppRecord.PaymentAddr, expAddr) {
-				t.Fatalf("incorrect mpp payment addr for payment %d "+
-					"want: %x, got: %x",
-					i, expAddr, hop.MppRecord.PaymentAddr)
-			}
-		} else if hop.MppRecord != nil {
-			t.Fatalf("unexpected mpp record for non-mpp payment")
+		expAddr := payAddrs[i]
+		if !bytes.Equal(hop.MppRecord.PaymentAddr, expAddr) {
+			t.Fatalf("incorrect mpp payment addr for payment %d "+
+				"want: %x, got: %x",
+				i, expAddr, hop.MppRecord.PaymentAddr)
 		}
 	}
 
@@ -5844,11 +5873,23 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 	}
 
-	// Query for routes to pay from Alice to Carol.
-	// We set FinalCltvDelta to 40 since by default QueryRoutes returns
-	// the last hop with a final cltv delta of 9 where as the default in
-	// htlcswitch is 40.
-	const paymentAmt = 1000
+	// Create 5 invoices for Carol, which expect a payment from Alice for 1k
+	// satoshis with a different preimage each time.
+	const (
+		numPayments = 5
+		paymentAmt  = 1000
+	)
+	_, rHashes, invoices, err := createPayReqs(
+		carol, paymentAmt, numPayments,
+	)
+	if err != nil {
+		t.Fatalf("unable to create pay reqs: %v", err)
+	}
+
+	// Construct a route from Alice to Carol for each of the invoices
+	// created above.  We set FinalCltvDelta to 40 since by default
+	// QueryRoutes returns the last hop with a final cltv delta of 9 where
+	// as the default in htlcswitch is 40.
 	routesReq := &lnrpc.QueryRoutesRequest{
 		PubKey:         carol.PubKeyStr,
 		Amt:            paymentAmt,
@@ -5858,16 +5899,6 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 	routes, err := net.Alice.QueryRoutes(ctxt, routesReq)
 	if err != nil {
 		t.Fatalf("unable to get route: %v", err)
-	}
-
-	// Create 5 invoices for Carol, which expect a payment from Alice for 1k
-	// satoshis with a different preimage each time.
-	const numPayments = 5
-	_, rHashes, _, err := createPayReqs(
-		carol, paymentAmt, numPayments,
-	)
-	if err != nil {
-		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
 	// We'll wait for all parties to recognize the new channels within the
@@ -5883,30 +5914,31 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 	// Using Alice as the source, pay to the 5 invoices from Carol created
 	// above.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	alicePayStream, err := net.Alice.SendToRoute(ctxt)
-	if err != nil {
-		t.Fatalf("unable to create payment stream for alice: %v", err)
-	}
 
-	for _, rHash := range rHashes {
-		sendReq := &lnrpc.SendToRouteRequest{
+	for i, rHash := range rHashes {
+		// Manually set the MPP payload a new for each payment since
+		// the payment addr will change with each invoice, although we
+		// can re-use the route itself.
+		route := *routes.Routes[0]
+		route.Hops[len(route.Hops)-1].TlvPayload = true
+		route.Hops[len(route.Hops)-1].MppRecord = &lnrpc.MPPRecord{
+			PaymentAddr: invoices[i].PaymentAddr,
+			TotalAmtMsat: int64(
+				lnwire.NewMSatFromSatoshis(paymentAmt),
+			),
+		}
+
+		sendReq := &routerrpc.SendToRouteRequest{
 			PaymentHash: rHash,
-			Route:       routes.Routes[0],
+			Route:       &route,
 		}
-		err := alicePayStream.Send(sendReq)
-
+		resp, err := net.Alice.RouterClient.SendToRouteV2(ctxt, sendReq)
 		if err != nil {
 			t.Fatalf("unable to send payment: %v", err)
 		}
-	}
 
-	for range rHashes {
-		resp, err := alicePayStream.Recv()
-		if err != nil {
-			t.Fatalf("unable to send payment: %v", err)
-		}
-		if resp.PaymentError != "" {
-			t.Fatalf("received payment error: %v", resp.PaymentError)
+		if resp.Failure != nil {
+			t.Fatalf("received payment error: %v", resp.Failure)
 		}
 	}
 
@@ -8207,13 +8239,12 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to create temp db folder: %v", err)
 	}
-	bobTempDbFile := filepath.Join(bobTempDbPath, "channel.db")
 	defer os.Remove(bobTempDbPath)
 
 	// With the temporary file created, copy Bob's current state into the
 	// temporary file we created above. Later after more updates, we'll
 	// restore this state.
-	if err := lntest.CopyFile(bobTempDbFile, net.Bob.DBPath()); err != nil {
+	if err := lntest.CopyAll(bobTempDbPath, net.Bob.DBDir()); err != nil {
 		t.Fatalf("unable to copy database files: %v", err)
 	}
 
@@ -8239,7 +8270,7 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	// state. With this, we essentially force Bob to travel back in time
 	// within the channel's history.
 	if err = net.RestartNode(net.Bob, func() error {
-		return os.Rename(bobTempDbFile, net.Bob.DBPath())
+		return lntest.CopyAll(net.Bob.DBDir(), bobTempDbPath)
 	}); err != nil {
 		t.Fatalf("unable to restart node: %v", err)
 	}
@@ -8462,13 +8493,12 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	if err != nil {
 		t.Fatalf("unable to create temp db folder: %v", err)
 	}
-	carolTempDbFile := filepath.Join(carolTempDbPath, "channel.db")
 	defer os.Remove(carolTempDbPath)
 
 	// With the temporary file created, copy Carol's current state into the
 	// temporary file we created above. Later after more updates, we'll
 	// restore this state.
-	if err := lntest.CopyFile(carolTempDbFile, carol.DBPath()); err != nil {
+	if err := lntest.CopyAll(carolTempDbPath, carol.DBDir()); err != nil {
 		t.Fatalf("unable to copy database files: %v", err)
 	}
 
@@ -8493,7 +8523,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	// state. With this, we essentially force Carol to travel back in time
 	// within the channel's history.
 	if err = net.RestartNode(carol, func() error {
-		return os.Rename(carolTempDbFile, carol.DBPath())
+		return lntest.CopyAll(carol.DBDir(), carolTempDbPath)
 	}); err != nil {
 		t.Fatalf("unable to restart node: %v", err)
 	}
@@ -8786,13 +8816,12 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	if err != nil {
 		t.Fatalf("unable to create temp db folder: %v", err)
 	}
-	carolTempDbFile := filepath.Join(carolTempDbPath, "channel.db")
 	defer os.Remove(carolTempDbPath)
 
 	// With the temporary file created, copy Carol's current state into the
 	// temporary file we created above. Later after more updates, we'll
 	// restore this state.
-	if err := lntest.CopyFile(carolTempDbFile, carol.DBPath()); err != nil {
+	if err := lntest.CopyAll(carolTempDbPath, carol.DBDir()); err != nil {
 		t.Fatalf("unable to copy database files: %v", err)
 	}
 
@@ -8826,7 +8855,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// state. With this, we essentially force Carol to travel back in time
 	// within the channel's history.
 	if err = net.RestartNode(carol, func() error {
-		return os.Rename(carolTempDbFile, carol.DBPath())
+		return lntest.CopyAll(carol.DBDir(), carolTempDbPath)
 	}); err != nil {
 		t.Fatalf("unable to restart node: %v", err)
 	}
@@ -9041,6 +9070,47 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 	t *harnessTest) {
 
+	testCases := []struct {
+		name    string
+		anchors bool
+	}{{
+		name:    "anchors",
+		anchors: true,
+	}, {
+		name:    "legacy",
+		anchors: false,
+	}}
+
+	for _, tc := range testCases {
+		tc := tc
+
+		success := t.t.Run(tc.name, func(tt *testing.T) {
+			ht := newHarnessTest(tt, net)
+			ht.RunTestCase(&testCase{
+				name: tc.name,
+				test: func(net1 *lntest.NetworkHarness, t1 *harnessTest) {
+					testRevokedCloseRetributionAltruistWatchtowerCase(
+						net1, t1, tc.anchors,
+					)
+				},
+			})
+		})
+
+		if !success {
+			// Log failure time to help relate the lnd logs to the
+			// failure.
+			t.Logf("Failure time: %v", time.Now().Format(
+				"2006-01-02 15:04:05.000",
+			))
+
+			break
+		}
+	}
+}
+
+func testRevokedCloseRetributionAltruistWatchtowerCase(
+	net *lntest.NetworkHarness, t *harnessTest, anchors bool) {
+
 	ctxb := context.Background()
 	const (
 		chanAmt     = lnd.MaxBtcFundingAmount
@@ -9051,7 +9121,11 @@ func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 
 	// Since we'd like to test some multi-hop failure scenarios, we'll
 	// introduce another node into our test network: Carol.
-	carol, err := net.NewNode("Carol", []string{"--hodl.exit-settle"})
+	carolArgs := []string{"--hodl.exit-settle"}
+	if anchors {
+		carolArgs = append(carolArgs, "--protocol.anchors")
+	}
+	carol, err := net.NewNode("Carol", carolArgs)
 	if err != nil {
 		t.Fatalf("unable to create new nodes: %v", err)
 	}
@@ -9104,10 +9178,14 @@ func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 	// Dave will be the breached party. We set --nolisten to ensure Carol
 	// won't be able to connect to him and trigger the channel data
 	// protection logic automatically.
-	dave, err := net.NewNode("Dave", []string{
+	daveArgs := []string{
 		"--nolisten",
 		"--wtclient.active",
-	})
+	}
+	if anchors {
+		daveArgs = append(daveArgs, "--protocol.anchors")
+	}
+	dave, err := net.NewNode("Dave", daveArgs)
 	if err != nil {
 		t.Fatalf("unable to create new node: %v", err)
 	}
@@ -9188,13 +9266,12 @@ func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 	if err != nil {
 		t.Fatalf("unable to create temp db folder: %v", err)
 	}
-	carolTempDbFile := filepath.Join(carolTempDbPath, "channel.db")
 	defer os.Remove(carolTempDbPath)
 
 	// With the temporary file created, copy Carol's current state into the
 	// temporary file we created above. Later after more updates, we'll
 	// restore this state.
-	if err := lntest.CopyFile(carolTempDbFile, carol.DBPath()); err != nil {
+	if err := lntest.CopyAll(carolTempDbPath, carol.DBDir()); err != nil {
 		t.Fatalf("unable to copy database files: %v", err)
 	}
 
@@ -9221,7 +9298,9 @@ func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 	err = wait.NoError(func() error {
 		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 		defer cancel()
-		bkpStats, err := dave.WatchtowerClient.Stats(ctxt, &wtclientrpc.StatsRequest{})
+		bkpStats, err := dave.WatchtowerClient.Stats(ctxt,
+			&wtclientrpc.StatsRequest{},
+		)
 		if err != nil {
 			return err
 
@@ -9251,7 +9330,7 @@ func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 	// state. With this, we essentially force Carol to travel back in time
 	// within the channel's history.
 	if err = net.RestartNode(carol, func() error {
-		return os.Rename(carolTempDbFile, carol.DBPath())
+		return lntest.CopyAll(carol.DBDir(), carolTempDbPath)
 	}); err != nil {
 		t.Fatalf("unable to restart node: %v", err)
 	}
@@ -9735,13 +9814,12 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 		if err != nil {
 			t.Fatalf("unable to create temp db folder: %v", err)
 		}
-		tempDbFile := filepath.Join(tempDbPath, "channel.db")
 		defer os.Remove(tempDbPath)
 
 		// With the temporary file created, copy the current state into
 		// the temporary file we created above. Later after more
 		// updates, we'll restore this state.
-		if err := lntest.CopyFile(tempDbFile, node.DBPath()); err != nil {
+		if err := lntest.CopyAll(tempDbPath, node.DBDir()); err != nil {
 			t.Fatalf("unable to copy database files: %v", err)
 		}
 
@@ -9768,7 +9846,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 		// force the node to travel back in time within the channel's
 		// history.
 		if err = net.RestartNode(node, func() error {
-			return os.Rename(tempDbFile, node.DBPath())
+			return lntest.CopyAll(node.DBDir(), tempDbPath)
 		}); err != nil {
 			t.Fatalf("unable to restart node: %v", err)
 		}
@@ -11576,10 +11654,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	var predErr error
 	err = wait.Predicate(func() bool {
 		predErr = assertNumActiveHtlcs(nodes, numPayments)
-		if predErr != nil {
-			return false
-		}
-		return true
+		return predErr == nil
 	}, time.Second*15)
 	if err != nil {
 		t.Fatalf("htlc mismatch: %v", predErr)
@@ -14166,7 +14241,10 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	testCases, trancheIndex, trancheOffset := getTestCaseSplitTranche()
 	lntest.ApplyPortOffset(uint32(trancheIndex) * 1000)
 
-	ht := newHarnessTest(t, nil)
+	// Before we start any node, we need to make sure that any btcd node
+	// that is started through the RPC harness uses a unique port as well to
+	// avoid any port collisions.
+	rpctest.ListenAddressGenerator = lntest.GenerateBtcdListenerAddresses
 
 	// Declare the network harness here to gain access to its
 	// 'OnTxAccepted' call back.
@@ -14183,8 +14261,8 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// We will also connect it to our chain backend.
 	minerLogDir := fmt.Sprintf("%s/.minerlogs", logDir)
 	miner, minerCleanUp, err := lntest.NewMiner(
-		minerLogDir, "output_btcd_miner.log",
-		harnessNetParams, &rpcclient.NotificationHandlers{},
+		minerLogDir, "output_btcd_miner.log", harnessNetParams,
+		&rpcclient.NotificationHandlers{}, lntest.GetBtcdBinary(),
 	)
 	require.NoError(t, err, "failed to create new miner")
 	defer func() {
@@ -14195,35 +14273,35 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	chainBackend, cleanUp, err := lntest.NewBackend(
 		miner.P2PAddress(), harnessNetParams,
 	)
-	if err != nil {
-		ht.Fatalf("unable to start backend: %v", err)
-	}
+	require.NoError(t, err, "new backend")
 	defer func() {
-		require.NoError(
-			t, cleanUp(), "failed to clean up chain backend",
-		)
+		require.NoError(t, cleanUp(), "cleanup")
 	}()
 
-	if err := miner.SetUp(true, 50); err != nil {
-		ht.Fatalf("unable to set up mining node: %v", err)
-	}
-	if err := miner.Node.NotifyNewTransactions(false); err != nil {
-		ht.Fatalf("unable to request transaction notifications: %v", err)
-	}
+	// Before we start anything, we want to overwrite some of the connection
+	// settings to make the tests more robust. We might need to restart the
+	// miner while there are already blocks present, which will take a bit
+	// longer than the 1 second the default settings amount to. Doubling
+	// both values will give us retries up to 4 seconds.
+	miner.MaxConnRetries = rpctest.DefaultMaxConnectionRetries * 2
+	miner.ConnectionRetryTimeout = rpctest.DefaultConnectionRetryTimeout * 2
 
-	// Connect chainbackend to miner.
-	require.NoError(
-		t, chainBackend.ConnectMiner(), "failed to connect to miner",
-	)
+	// Set up miner and connect chain backend to it.
+	require.NoError(t, miner.SetUp(true, 50))
+	require.NoError(t, miner.Node.NotifyNewTransactions(false))
+	require.NoError(t, chainBackend.ConnectMiner(), "connect miner")
 
 	// Now we can set up our test harness (LND instance), with the chain
 	// backend we just created.
+	ht := newHarnessTest(t, nil)
 	binary := ht.getLndBinary()
-	lndHarness, err = lntest.NewNetworkHarness(miner, chainBackend, binary)
+	lndHarness, err = lntest.NewNetworkHarness(
+		miner, chainBackend, binary, *useEtcd,
+	)
 	if err != nil {
 		ht.Fatalf("unable to create lightning network harness: %v", err)
 	}
-	defer lndHarness.TearDownAll()
+	defer lndHarness.Stop()
 
 	// Spawn a new goroutine to watch for any fatal errors that any of the
 	// running lnd processes encounter. If an error occurs, then the test
@@ -14256,37 +14334,52 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	aliceBobArgs := []string{
 		"--default-remote-max-htlcs=483",
 	}
-	if err = lndHarness.SetUp(aliceBobArgs); err != nil {
-		ht.Fatalf("unable to set up test lightning network: %v", err)
-	}
 
 	// Run the subset of the test cases selected in this tranche.
 	for idx, testCase := range testCases {
 		testCase := testCase
-		logLine := fmt.Sprintf("STARTING ============ %v ============\n",
-			testCase.name)
-
-		err := lndHarness.EnsureConnected(
-			context.Background(), lndHarness.Alice, lndHarness.Bob,
-		)
-		if err != nil {
-			t.Fatalf("unable to connect alice to bob: %v", err)
-		}
-
-		if err := lndHarness.Alice.AddToLog(logLine); err != nil {
-			t.Fatalf("unable to add to log: %v", err)
-		}
-		if err := lndHarness.Bob.AddToLog(logLine); err != nil {
-			t.Fatalf("unable to add to log: %v", err)
-		}
-
-		// Start every test with the default static fee estimate.
-		lndHarness.SetFeeEstimate(12500)
-
 		name := fmt.Sprintf("%02d-of-%d/%s/%s",
 			trancheOffset+uint(idx)+1, len(allTestCases),
 			chainBackend.Name(), testCase.name)
+
 		success := t.Run(name, func(t1 *testing.T) {
+			cleanTestCaseName := strings.ReplaceAll(
+				testCase.name, " ", "_",
+			)
+
+			err = lndHarness.SetUp(cleanTestCaseName, aliceBobArgs)
+			require.NoError(t1,
+				err, "unable to set up test lightning network",
+			)
+			defer func() {
+				require.NoError(t1, lndHarness.TearDown())
+			}()
+
+			err = lndHarness.EnsureConnected(
+				context.Background(), lndHarness.Alice,
+				lndHarness.Bob,
+			)
+			require.NoError(t1,
+				err, "unable to connect alice to bob",
+			)
+
+			logLine := fmt.Sprintf(
+				"STARTING ============ %v ============\n",
+				testCase.name,
+			)
+
+			err = lndHarness.Alice.AddToLog(logLine)
+			require.NoError(t1, err, "unable to add to log")
+
+			err = lndHarness.Bob.AddToLog(logLine)
+			require.NoError(t1, err, "unable to add to log")
+
+			// Start every test with the default static fee estimate.
+			lndHarness.SetFeeEstimate(12500)
+
+			// Create a separate harness test for the testcase to
+			// avoid overwriting the external harness test that is
+			// tied to the parent test.
 			ht := newHarnessTest(t1, lndHarness)
 			ht.RunTestCase(testCase)
 		})

@@ -2,6 +2,7 @@ package chainreg
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -177,6 +178,11 @@ type ChainControl struct {
 	// ChainIO represents an abstraction over a source that can query the blockchain.
 	ChainIO lnwallet.BlockChainIO
 
+	// HealthCheck is a function which can be used to send a low-cost, fast
+	// query to the chain backend to ensure we still have access to our
+	// node.
+	HealthCheck func() error
+
 	// FeeEstimator is used to estimate an optimal fee for transactions important to us.
 	FeeEstimator chainfee.Estimator
 
@@ -318,6 +324,12 @@ func NewChainControl(cfg *Config) (*ChainControl, error) {
 			cfg.ActiveNetParams.Params, cfg.NeutrinoCS,
 		)
 
+		// Get our best block as a health check.
+		cc.HealthCheck = func() error {
+			_, _, err := walletConfig.ChainSource.GetBestBlock()
+			return err
+		}
+
 	case "bitcoind", "litecoind":
 		var bitcoindMode *lncfg.Bitcoind
 		switch {
@@ -431,6 +443,27 @@ func NewChainControl(cfg *Config) (*ChainControl, error) {
 				return nil, err
 			}
 		}
+
+		// We need to use some apis that are not exposed by btcwallet,
+		// for a health check function so we create an ad-hoc bitcoind
+		// connection.
+		chainConn, err := rpcclient.New(rpcConfig, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		// The api we will use for our health check depends on the
+		// bitcoind version.
+		cmd, err := getBitcoindHealthCheckCmd(chainConn)
+		if err != nil {
+			return nil, err
+		}
+
+		cc.HealthCheck = func() error {
+			_, err := chainConn.RawRequest(cmd, nil)
+			return err
+		}
+
 	case "btcd", "ltcd":
 		// Otherwise, we'll be speaking directly via RPC to a node.
 		//
@@ -513,6 +546,12 @@ func NewChainControl(cfg *Config) (*ChainControl, error) {
 		}
 
 		walletConfig.ChainSource = chainRPC
+
+		// Use a query for our best block as a health check.
+		cc.HealthCheck = func() error {
+			_, _, err := walletConfig.ChainSource.GetBestBlock()
+			return err
+		}
 
 		// If we're not in simnet or regtest mode, then we'll attempt
 		// to use a proper fee estimator for testnet.
@@ -610,6 +649,39 @@ func NewChainControl(cfg *Config) (*ChainControl, error) {
 	cc.Wallet = lnWallet
 
 	return cc, nil
+}
+
+// getBitcoindHealthCheckCmd queries bitcoind for its version to decide which
+// api we should use for our health check. We prefer to use the uptime
+// command, because it has no locking and is an inexpensive call, which was
+// added in version 0.15. If we are on an earlier version, we fallback to using
+// getblockchaininfo.
+func getBitcoindHealthCheckCmd(client *rpcclient.Client) (string, error) {
+	// Query bitcoind to get our current version.
+	resp, err := client.RawRequest("getnetworkinfo", nil)
+	if err != nil {
+		return "", err
+	}
+
+	// Parse the response to retrieve bitcoind's version.
+	info := struct {
+		Version int64 `json:"version"`
+	}{}
+	if err := json.Unmarshal(resp, &info); err != nil {
+		return "", err
+	}
+
+	// Bitcoind returns a single value representing the semantic version:
+	// 1000000 * CLIENT_VERSION_MAJOR + 10000 * CLIENT_VERSION_MINOR
+	// + 100 * CLIENT_VERSION_REVISION + 1 * CLIENT_VERSION_BUILD
+	//
+	// The uptime call was added in version 0.15.0, so we return it for
+	// any version value >= 150000, as per the above calculation.
+	if info.Version >= 150000 {
+		return "uptime", nil
+	}
+
+	return "getblockchaininfo", nil
 }
 
 var (

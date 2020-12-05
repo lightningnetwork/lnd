@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -36,6 +37,9 @@ const DefaultCSV = 4
 type NetworkHarness struct {
 	netParams *chaincfg.Params
 
+	// currentTestCase holds the name for the currently run test case.
+	currentTestCase string
+
 	// lndBinary is the full path to the lnd binary that was specifically
 	// compiled with all required itest flags.
 	lndBinary string
@@ -57,6 +61,10 @@ type NetworkHarness struct {
 	Alice *HarnessNode
 	Bob   *HarnessNode
 
+	// useEtcd is set to true if new nodes are to be created with an
+	// embedded etcd backend instead of just bbolt.
+	useEtcd bool
+
 	// Channel for transmitting stderr output from failed lightning node
 	// to main process.
 	lndErrorChan chan error
@@ -74,8 +82,8 @@ type NetworkHarness struct {
 // TODO(roasbeef): add option to use golang's build library to a binary of the
 // current repo. This will save developers from having to manually `go install`
 // within the repo each time before changes
-func NewNetworkHarness(r *rpctest.Harness, b BackendConfig, lndBinary string) (
-	*NetworkHarness, error) {
+func NewNetworkHarness(r *rpctest.Harness, b BackendConfig, lndBinary string,
+	useEtcd bool) (*NetworkHarness, error) {
 
 	feeService := startFeeService()
 
@@ -89,6 +97,7 @@ func NewNetworkHarness(r *rpctest.Harness, b BackendConfig, lndBinary string) (
 		feeService:   feeService,
 		quit:         make(chan struct{}),
 		lndBinary:    lndBinary,
+		useEtcd:      useEtcd,
 	}
 	return &n, nil
 }
@@ -131,10 +140,11 @@ func (f *fakeLogger) Println(args ...interface{})               {}
 // rpc clients capable of communicating with the initial seeder nodes are
 // created. Nodes are initialized with the given extra command line flags, which
 // should be formatted properly - "--arg=value".
-func (n *NetworkHarness) SetUp(lndArgs []string) error {
+func (n *NetworkHarness) SetUp(testCase string, lndArgs []string) error {
 	// Swap out grpc's default logger with out fake logger which drops the
 	// statements on the floor.
 	grpclog.SetLogger(&fakeLogger{})
+	n.currentTestCase = testCase
 
 	// Start the initial seeder nodes within the test network, then connect
 	// their respective RPC clients.
@@ -241,21 +251,23 @@ out:
 	return nil
 }
 
-// TearDownAll tears down all active nodes within the test lightning network.
-func (n *NetworkHarness) TearDownAll() error {
-
+// TearDown tears down all active nodes within the test lightning network.
+func (n *NetworkHarness) TearDown() error {
 	for _, node := range n.activeNodes {
 		if err := n.ShutdownNode(node); err != nil {
 			return err
 		}
 	}
 
+	return nil
+}
+
+// Stop stops the test harness.
+func (n *NetworkHarness) Stop() {
 	close(n.lndErrorChan)
 	close(n.quit)
 
 	n.feeService.stop()
-
-	return nil
 }
 
 // NewNode fully initializes a returns a new HarnessNode bound to the
@@ -358,17 +370,19 @@ func (n *NetworkHarness) RestoreNodeWithSeed(name string, extraArgs []string,
 // wallet with or without a seed. If hasSeed is false, the returned harness node
 // can be used immediately. Otherwise, the node will require an additional
 // initialization phase where the wallet is either created or restored.
-func (n *NetworkHarness) newNode(name string, extraArgs []string,
-	hasSeed bool, password []byte) (*HarnessNode, error) {
+func (n *NetworkHarness) newNode(name string, extraArgs []string, hasSeed bool,
+	password []byte) (*HarnessNode, error) {
 
 	node, err := newNode(NodeConfig{
-		Name:       name,
-		HasSeed:    hasSeed,
-		Password:   password,
-		BackendCfg: n.BackendCfg,
-		NetParams:  n.netParams,
-		ExtraArgs:  extraArgs,
-		FeeURL:     n.feeService.url,
+		Name:              name,
+		LogFilenamePrefix: n.currentTestCase,
+		HasSeed:           hasSeed,
+		Password:          password,
+		BackendCfg:        n.BackendCfg,
+		NetParams:         n.netParams,
+		ExtraArgs:         extraArgs,
+		FeeURL:            n.feeService.url,
+		Etcd:              n.useEtcd,
 	})
 	if err != nil {
 		return nil, err
@@ -1389,4 +1403,48 @@ func CopyFile(dest, src string) error {
 	}
 
 	return d.Close()
+}
+
+// FileExists returns true if the file at path exists.
+func FileExists(path string) bool {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return false
+	}
+
+	return true
+}
+
+// CopyAll copies all files and directories from srcDir to dstDir recursively.
+// Note that this function does not support links.
+func CopyAll(dstDir, srcDir string) error {
+	entries, err := ioutil.ReadDir(srcDir)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(srcDir, entry.Name())
+		dstPath := filepath.Join(dstDir, entry.Name())
+
+		info, err := os.Stat(srcPath)
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			err := os.Mkdir(dstPath, info.Mode())
+			if err != nil && !os.IsExist(err) {
+				return err
+			}
+
+			err = CopyAll(dstPath, srcPath)
+			if err != nil {
+				return err
+			}
+		} else if err := CopyFile(dstPath, srcPath); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

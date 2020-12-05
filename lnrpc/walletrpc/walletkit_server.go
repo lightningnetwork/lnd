@@ -782,29 +782,14 @@ func (w *WalletKit) ListSweeps(ctx context.Context,
 	}
 
 	sweepTxns := make(map[string]bool)
-
-	txids := make([]string, len(sweeps))
-	for i, sweep := range sweeps {
+	for _, sweep := range sweeps {
 		sweepTxns[sweep.String()] = true
-		txids[i] = sweep.String()
 	}
 
-	// If the caller does not want verbose output, just return the set of
-	// sweep txids.
-	if !in.Verbose {
-		txidResp := &ListSweepsResponse_TransactionIDs{
-			TransactionIds: txids,
-		}
-
-		return &ListSweepsResponse{
-			Sweeps: &ListSweepsResponse_TransactionIds{
-				TransactionIds: txidResp,
-			},
-		}, nil
-	}
-
-	// If the caller does want full transaction lookups, query our wallet
-	// for all transactions, including unconfirmed transactions.
+	// Some of our sweeps could have been replaced by fee, or dropped out
+	// of the mempool. Here, we lookup our wallet transactions so that we
+	// can match our list of sweeps against the list of transactions that
+	// the wallet is still tracking.
 	transactions, err := w.cfg.Wallet.ListTransactionDetails(
 		0, btcwallet.UnconfirmedHeight,
 	)
@@ -812,26 +797,41 @@ func (w *WalletKit) ListSweeps(ctx context.Context,
 		return nil, err
 	}
 
-	var sweepTxDetails []*lnwallet.TransactionDetail
+	var (
+		txids     []string
+		txDetails []*lnwallet.TransactionDetail
+	)
+
 	for _, tx := range transactions {
 		_, ok := sweepTxns[tx.Hash.String()]
 		if !ok {
 			continue
 		}
 
-		sweepTxDetails = append(sweepTxDetails, tx)
+		// Add the txid or full tx details depending on whether we want
+		// verbose output or not.
+		if in.Verbose {
+			txDetails = append(txDetails, tx)
+		} else {
+			txids = append(txids, tx.Hash.String())
+		}
 	}
 
-	// Fail if we have not retrieved all of our sweep transactions from the
-	// wallet.
-	if len(sweepTxDetails) != len(txids) {
-		return nil, fmt.Errorf("not all sweeps found by list "+
-			"transactions: %v, %v", len(sweepTxDetails), len(txids))
+	if in.Verbose {
+		return &ListSweepsResponse{
+			Sweeps: &ListSweepsResponse_TransactionDetails{
+				TransactionDetails: lnrpc.RPCTransactionDetails(
+					txDetails,
+				),
+			},
+		}, nil
 	}
 
 	return &ListSweepsResponse{
-		Sweeps: &ListSweepsResponse_TransactionDetails{
-			TransactionDetails: lnrpc.RPCTransactionDetails(transactions),
+		Sweeps: &ListSweepsResponse_TransactionIds{
+			TransactionIds: &ListSweepsResponse_TransactionIDs{
+				TransactionIds: txids,
+			},
 		},
 	}, nil
 }

@@ -866,6 +866,19 @@ func (bo *breachedOutput) OutPoint() *wire.OutPoint {
 	return &bo.outpoint
 }
 
+// RequiredTxOut returns a non-nil TxOut if input commits to a certain
+// transaction output. This is used in the SINGLE|ANYONECANPAY case to make
+// sure any presigned input is still valid by including the output.
+func (bo *breachedOutput) RequiredTxOut() *wire.TxOut {
+	return nil
+}
+
+// RequiredLockTime returns whether this input commits to a tx locktime that
+// must be used in the transaction including it.
+func (bo *breachedOutput) RequiredLockTime() (uint32, bool) {
+	return 0, false
+}
+
 // WitnessType returns the type of witness that must be generated to spend the
 // breached output.
 func (bo *breachedOutput) WitnessType() input.WitnessType {

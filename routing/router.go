@@ -3,7 +3,6 @@ package routing
 import (
 	"bytes"
 	"fmt"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -914,7 +913,7 @@ func (r *ChannelRouter) networkHandler() {
 
 	// We'll use this validation barrier to ensure that we process all jobs
 	// in the proper order during parallel validation.
-	validationBarrier := NewValidationBarrier(runtime.NumCPU()*4, r.quit)
+	validationBarrier := NewValidationBarrier(1000, r.quit)
 
 	for {
 
@@ -2006,8 +2005,8 @@ func (r *ChannelRouter) tryApplyChannelUpdate(rt *route.Route,
 // processSendError analyzes the error for the payment attempt received from the
 // switch and updates mission control and/or channel policies. Depending on the
 // error type, this error is either the final outcome of the payment or we need
-// to continue with an alternative route. This is indicated by the boolean
-// return value.
+// to continue with an alternative route. A final outcome is indicated by a
+// non-nil return value.
 func (r *ChannelRouter) processSendError(paymentID uint64, rt *route.Route,
 	sendErr error) *channeldb.FailureReason {
 
@@ -2432,7 +2431,7 @@ func (e ErrNoChannel) Error() string {
 // outgoing channel, use the outgoingChan parameter.
 func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	hops []route.Vertex, outgoingChan *uint64,
-	finalCltvDelta int32) (*route.Route, error) {
+	finalCltvDelta int32, payAddr *[32]byte) (*route.Route, error) {
 
 	log.Tracef("BuildRoute called: hopsCount=%v, amt=%v",
 		len(hops), amt)
@@ -2582,10 +2581,11 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	return newRoute(
 		source, pathEdges, uint32(height),
 		finalHopParams{
-			amt:       receiverAmt,
-			totalAmt:  receiverAmt,
-			cltvDelta: uint16(finalCltvDelta),
-			records:   nil,
+			amt:         receiverAmt,
+			totalAmt:    receiverAmt,
+			cltvDelta:   uint16(finalCltvDelta),
+			records:     nil,
+			paymentAddr: payAddr,
 		},
 	)
 }

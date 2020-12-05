@@ -1,8 +1,18 @@
 package chanacceptor
 
 import (
+	"errors"
+
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
+)
+
+var (
+	// errChannelRejected is returned when the rpc channel acceptor rejects
+	// a channel due to acceptor timeout, shutdown, or because no custom
+	// error value is available when the channel was rejected.
+	errChannelRejected = errors.New("channel rejected")
 )
 
 // ChannelAcceptRequest is a struct containing the requesting node's public key
@@ -18,8 +28,88 @@ type ChannelAcceptRequest struct {
 	OpenChanMsg *lnwire.OpenChannel
 }
 
-// ChannelAcceptor is an interface that represents a predicate on the data
+// ChannelAcceptResponse is a struct containing the response to a request to
+// open an inbound channel. Note that fields added to this struct must be added
+// to the mergeResponse function to allow combining of responses from different
+// acceptors.
+type ChannelAcceptResponse struct {
+	// ChanAcceptError the error returned by the channel acceptor. If the
+	// channel was accepted, this value will be nil.
+	ChanAcceptError
+
+	// UpfrontShutdown is the address that we will set as our upfront
+	// shutdown address.
+	UpfrontShutdown lnwire.DeliveryAddress
+
+	// CSVDelay is the csv delay we require for the remote peer.
+	CSVDelay uint16
+
+	// Reserve is the amount that require the remote peer hold in reserve
+	// on the channel.
+	Reserve btcutil.Amount
+
+	// InFlightTotal is the maximum amount that we allow the remote peer to
+	// hold in outstanding htlcs.
+	InFlightTotal lnwire.MilliSatoshi
+
+	// HtlcLimit is the maximum number of htlcs that we allow the remote
+	// peer to offer us.
+	HtlcLimit uint16
+
+	// MinHtlcIn is the minimum incoming htlc value allowed on the channel.
+	MinHtlcIn lnwire.MilliSatoshi
+
+	// MinAcceptDepth is the minimum depth that the initiator of the
+	// channel should wait before considering the channel open.
+	MinAcceptDepth uint16
+}
+
+// NewChannelAcceptResponse is a constructor for a channel accept response,
+// which creates a response with an appropriately wrapped error (in the case of
+// a rejection) so that the error will be whitelisted and delivered to the
+// initiating peer. Accepted channels simply return a response containing a nil
+// error.
+func NewChannelAcceptResponse(accept bool, acceptErr error,
+	upfrontShutdown lnwire.DeliveryAddress, csvDelay, htlcLimit,
+	minDepth uint16, reserve btcutil.Amount, inFlight,
+	minHtlcIn lnwire.MilliSatoshi) *ChannelAcceptResponse {
+
+	resp := &ChannelAcceptResponse{
+		UpfrontShutdown: upfrontShutdown,
+		CSVDelay:        csvDelay,
+		Reserve:         reserve,
+		InFlightTotal:   inFlight,
+		HtlcLimit:       htlcLimit,
+		MinHtlcIn:       minHtlcIn,
+		MinAcceptDepth:  minDepth,
+	}
+
+	// If we want to accept the channel, we return a response with a nil
+	// error.
+	if accept {
+		return resp
+	}
+
+	// Use a generic error when no custom error is provided.
+	if acceptErr == nil {
+		acceptErr = errChannelRejected
+	}
+
+	resp.ChanAcceptError = ChanAcceptError{
+		error: acceptErr,
+	}
+
+	return resp
+}
+
+// RejectChannel returns a boolean that indicates whether we should reject the
+// channel.
+func (c *ChannelAcceptResponse) RejectChannel() bool {
+	return c.error != nil
+}
+
+// ChannelAcceptor is an interface that represents  a predicate on the data
 // contained in ChannelAcceptRequest.
 type ChannelAcceptor interface {
-	Accept(req *ChannelAcceptRequest) bool
+	Accept(req *ChannelAcceptRequest) *ChannelAcceptResponse
 }

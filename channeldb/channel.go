@@ -163,9 +163,9 @@ var (
 	// channel.
 	ErrChanBorked = fmt.Errorf("cannot mutate borked channel")
 
-	// errLogEntryNotFound is returned when we cannot find a log entry at
+	// ErrLogEntryNotFound is returned when we cannot find a log entry at
 	// the height requested in the revocation log.
-	errLogEntryNotFound = fmt.Errorf("log entry not found")
+	ErrLogEntryNotFound = fmt.Errorf("log entry not found")
 
 	// errHeightNotFound is returned when a query for channel balances at
 	// a height that we have not reached yet is made.
@@ -3469,7 +3469,7 @@ func fetchChannelLogEntry(log kvdb.RBucket,
 	logEntrykey := makeLogKey(updateNum)
 	commitBytes := log.Get(logEntrykey[:])
 	if commitBytes == nil {
-		return ChannelCommitment{}, errLogEntryNotFound
+		return ChannelCommitment{}, ErrLogEntryNotFound
 	}
 
 	commitReader := bytes.NewReader(commitBytes)

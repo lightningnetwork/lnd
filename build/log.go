@@ -122,24 +122,32 @@ type LeveledSubLogger interface {
 // the levels accordingly on the given logger. An appropriate error is returned
 // if anything is invalid.
 func ParseAndSetDebugLevels(level string, logger LeveledSubLogger) error {
-	// When the specified string doesn't have any delimiters, treat it as
-	// the log level for all subsystems.
-	if !strings.Contains(level, ",") && !strings.Contains(level, "=") {
+	// Split at the delimiter.
+	levels := strings.Split(level, ",")
+	if len(levels) == 0 {
+		return fmt.Errorf("invalid log level: %v", level)
+	}
+
+	// If the first entry has no =, treat is as the log level for all
+	// subsystems.
+	globalLevel := levels[0]
+	if !strings.Contains(globalLevel, "=") {
 		// Validate debug log level.
-		if !validLogLevel(level) {
+		if !validLogLevel(globalLevel) {
 			str := "the specified debug level [%v] is invalid"
-			return fmt.Errorf(str, level)
+			return fmt.Errorf(str, globalLevel)
 		}
 
 		// Change the logging level for all subsystems.
-		logger.SetLogLevels(level)
+		logger.SetLogLevels(globalLevel)
 
-		return nil
+		// The rest will target specific subsystems.
+		levels = levels[1:]
 	}
 
-	// Split the specified string into subsystem/level pairs while detecting
-	// issues and update the log levels accordingly.
-	for _, logLevelPair := range strings.Split(level, ",") {
+	// Go through the subsystem/level pairs while detecting issues and
+	// update the log levels accordingly.
+	for _, logLevelPair := range levels {
 		if !strings.Contains(logLevelPair, "=") {
 			str := "the specified debug level contains an " +
 				"invalid subsystem/level pair [%v]"

@@ -611,7 +611,7 @@ func TestStateMutation(t *testing.T) {
 	defer cleanUp()
 
 	// The default state of an arbitrator should be StateDefault.
-	arbState, err := testLog.CurrentState()
+	arbState, err := testLog.CurrentState(nil)
 	if err != nil {
 		t.Fatalf("unable to read arb state: %v", err)
 	}
@@ -625,7 +625,7 @@ func TestStateMutation(t *testing.T) {
 	if err := testLog.CommitState(StateFullyResolved); err != nil {
 		t.Fatalf("unable to write state: %v", err)
 	}
-	arbState, err = testLog.CurrentState()
+	arbState, err = testLog.CurrentState(nil)
 	if err != nil {
 		t.Fatalf("unable to read arb state: %v", err)
 	}
@@ -643,7 +643,7 @@ func TestStateMutation(t *testing.T) {
 
 	// If we try to query for the state again, we should get the default
 	// state again.
-	arbState, err = testLog.CurrentState()
+	arbState, err = testLog.CurrentState(nil)
 	if err != nil {
 		t.Fatalf("unable to query current state: %v", err)
 	}
@@ -687,11 +687,11 @@ func TestScopeIsolation(t *testing.T) {
 
 	// Querying each log, the states should be the prior one we set, and be
 	// disjoint.
-	log1State, err := testLog1.CurrentState()
+	log1State, err := testLog1.CurrentState(nil)
 	if err != nil {
 		t.Fatalf("unable to read arb state: %v", err)
 	}
-	log2State, err := testLog2.CurrentState()
+	log2State, err := testLog2.CurrentState(nil)
 	if err != nil {
 		t.Fatalf("unable to read arb state: %v", err)
 	}
@@ -752,7 +752,7 @@ func TestCommitSetStorage(t *testing.T) {
 				t.Fatalf("unable to write commit set: %v", err)
 			}
 
-			diskCommitSet, err := testLog.FetchConfirmedCommitSet()
+			diskCommitSet, err := testLog.FetchConfirmedCommitSet(nil)
 			if err != nil {
 				t.Fatalf("unable to read commit set: %v", err)
 			}

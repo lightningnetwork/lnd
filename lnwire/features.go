@@ -398,6 +398,20 @@ func (fv *FeatureVector) HasFeature(feature FeatureBit) bool {
 		(fv.isFeatureBitPair(feature) && fv.IsSet(feature^1))
 }
 
+// RequiresFeature returns true if the referenced feature vector *requires*
+// that the given required bit be set. This method can be used with both
+// optional and required feature bits as a parameter.
+func (fv *FeatureVector) RequiresFeature(feature FeatureBit) bool {
+	// If we weren't passed a required feature bit, then we'll flip the
+	// lowest bit to query for the required version of the feature. This
+	// lets callers pass in both the optional and required bits.
+	if !feature.IsRequired() {
+		feature ^= 1
+	}
+
+	return fv.IsSet(feature)
+}
+
 // UnknownRequiredFeatures returns a list of feature bits set in the vector
 // that are unknown and in an even bit position. Feature bits with an even
 // index must be known to a node receiving the feature vector in a message.

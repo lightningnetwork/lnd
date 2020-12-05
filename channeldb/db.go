@@ -238,7 +238,13 @@ func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 		modifier(&opts)
 	}
 
-	backend, err := kvdb.GetBoltBackend(dbPath, dbName, opts.NoFreelistSync)
+	backend, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
+		DBPath:            dbPath,
+		DBFileName:        dbName,
+		NoFreelistSync:    opts.NoFreelistSync,
+		AutoCompact:       opts.AutoCompact,
+		AutoCompactMinAge: opts.AutoCompactMinAge,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -269,6 +275,7 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB, 
 	}
 	chanDB.graph = newChannelGraph(
 		chanDB, opts.RejectCacheSize, opts.ChannelCacheSize,
+		opts.BatchCommitInterval,
 	)
 
 	// Synchronize the version of database and apply migrations if needed.

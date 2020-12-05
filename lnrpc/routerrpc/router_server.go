@@ -368,6 +368,13 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 		return rpcAttempt, nil
 	}
 
+	// Transform user errors to grpc code.
+	if err == channeldb.ErrPaymentInFlight ||
+		err == channeldb.ErrAlreadyPaid {
+
+		return nil, status.Error(codes.AlreadyExists, err.Error())
+	}
+
 	return nil, err
 }
 
@@ -557,9 +564,17 @@ func (s *Server) BuildRoute(ctx context.Context,
 		outgoingChan = &req.OutgoingChanId
 	}
 
+	var payAddr *[32]byte
+	if len(req.PaymentAddr) != 0 {
+		var backingPayAddr [32]byte
+		copy(backingPayAddr[:], req.PaymentAddr)
+
+		payAddr = &backingPayAddr
+	}
+
 	// Build the route and return it to the caller.
 	route, err := s.cfg.Router.BuildRoute(
-		amt, hops, outgoingChan, req.FinalCltvDelta,
+		amt, hops, outgoingChan, req.FinalCltvDelta, payAddr,
 	)
 	if err != nil {
 		return nil, err

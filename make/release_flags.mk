@@ -1,8 +1,7 @@
 VERSION_TAG = $(shell date +%Y%m%d)-01
 VERSION_CHECK = @$(call print, "Building master with date version tag")
 
-BUILD_SYSTEM = darwin-386 \
-darwin-amd64 \
+BUILD_SYSTEM = darwin-amd64 \
 dragonfly-amd64 \
 freebsd-386 \
 freebsd-amd64 \

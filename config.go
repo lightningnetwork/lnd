@@ -108,6 +108,15 @@ const (
 	defaultDiskBackoff  = time.Minute
 	defaultDiskAttempts = 0
 
+	// Set defaults for a health check which ensures that the TLS certificate
+	// is not expired. Although this check is off by default (not all setups
+	// require it), we still set the other default values so that the health
+	// check can be easily enabled with sane defaults.
+	defaultTLSInterval = time.Minute
+	defaultTLSTimeout  = time.Second * 5
+	defaultTLSBackoff  = time.Minute
+	defaultTLSAttempts = 0
+
 	// defaultRemoteMaxHtlcs specifies the default limit for maximum
 	// concurrent HTLCs the remote party may add to commitment transactions.
 	// This value can be overridden with --default-remote-max-htlcs.
@@ -210,12 +219,13 @@ type Config struct {
 	ExternalIPs       []net.Addr
 	DisableListen     bool          `long:"nolisten" description:"Disable listening for incoming peer connections"`
 	DisableRest       bool          `long:"norest" description:"Disable REST API"`
+	DisableRestTLS    bool          `long:"no-rest-tls" description:"Disable TLS for REST connections"`
 	NAT               bool          `long:"nat" description:"Toggle NAT traversal support (using either UPnP or NAT-PMP) to automatically advertise your external IP address to the network -- NOTE this does not support devices behind multiple NATs"`
 	MinBackoff        time.Duration `long:"minbackoff" description:"Shortest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
 	MaxBackoff        time.Duration `long:"maxbackoff" description:"Longest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
 	ConnectionTimeout time.Duration `long:"connectiontimeout" description:"The timeout value for network connections. Valid time units are {ms, s, m, h}."`
 
-	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
+	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <global-level>,<subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 
 	CPUProfile string `long:"cpuprofile" description:"Write CPU profile to the specified file"`
 
@@ -248,6 +258,8 @@ type Config struct {
 	NoNetBootstrap bool `long:"nobootstrap" description:"If true, then automatic network bootstrapping will not be attempted."`
 
 	NoSeedBackup bool `long:"noseedbackup" description:"If true, NO SEED WILL BE EXPOSED -- EVER, AND THE WALLET WILL BE ENCRYPTED USING THE DEFAULT PASSPHRASE. THIS FLAG IS ONLY FOR TESTING AND SHOULD NEVER BE USED ON MAINNET."`
+
+	ResetWalletTransactions bool `long:"reset-wallet-transactions" description:"Removes all transaction history from the on-chain wallet on startup, forcing a full chain rescan starting at the wallet's birthday. Implements the same functionality as btcwallet's dropwtxmgr command. Should be set to false after successful execution to avoid rescanning on every restart of lnd."`
 
 	PaymentsExpirationGracePeriod time.Duration `long:"payments-expiration-grace-period" description:"A period to wait before force closing channels with outgoing htlcs that have timed-out and are a result of this node initiated payments."`
 	TrickleDelay                  int           `long:"trickledelay" description:"Time in milliseconds between each release of announcements to the network"`
@@ -453,6 +465,12 @@ func DefaultConfig() Config {
 					Timeout:  defaultDiskTimeout,
 					Backoff:  defaultDiskBackoff,
 				},
+			},
+			TLSCheck: &lncfg.CheckConfig{
+				Interval: defaultTLSInterval,
+				Timeout:  defaultTLSTimeout,
+				Attempts: defaultTLSAttempts,
+				Backoff:  defaultTLSBackoff,
 			},
 		},
 		MaxOutgoingCltvExpiry:   htlcswitch.DefaultMaxOutgoingCltvExpiry,
@@ -1183,9 +1201,10 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 
 	// For each of the RPC listeners (REST+gRPC), we'll ensure that users
 	// have specified a safe combo for authentication. If not, we'll bail
-	// out with an error.
+	// out with an error. Since we don't allow disabling TLS for gRPC
+	// connections we pass in tlsActive=true.
 	err = lncfg.EnforceSafeAuthentication(
-		cfg.RPCListeners, !cfg.NoMacaroons,
+		cfg.RPCListeners, !cfg.NoMacaroons, true,
 	)
 	if err != nil {
 		return nil, err
@@ -1196,7 +1215,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 		cfg.RESTListeners = nil
 	} else {
 		err = lncfg.EnforceSafeAuthentication(
-			cfg.RESTListeners, !cfg.NoMacaroons,
+			cfg.RESTListeners, !cfg.NoMacaroons, !cfg.DisableRestTLS,
 		)
 		if err != nil {
 			return nil, err

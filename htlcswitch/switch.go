@@ -420,6 +420,9 @@ func (s *Switch) GetPaymentResult(paymentID uint64, paymentHash lntypes.Hash,
 			return
 		}
 
+		log.Debugf("Received network result %T for paymentID=%v", n.msg,
+			paymentID)
+
 		// Extract the result and pass it to the result channel.
 		result, err := s.extractResult(
 			deobfuscator, n, paymentID, paymentHash,

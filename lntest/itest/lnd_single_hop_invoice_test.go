@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 )
 
@@ -159,6 +160,68 @@ func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 	if err != nil {
 		t.Fatalf(err.Error())
+	}
+
+	// Now create an invoice and specify routing hints.
+	// We will test that the routing hints are encoded properly.
+	hintChannel := lnwire.ShortChannelID{BlockHeight: 10}
+	bobPubKey := hex.EncodeToString(net.Bob.PubKey[:])
+	hints := []*lnrpc.RouteHint{
+		{
+			HopHints: []*lnrpc.HopHint{
+				{
+					NodeId:                    bobPubKey,
+					ChanId:                    hintChannel.ToUint64(),
+					FeeBaseMsat:               1,
+					FeeProportionalMillionths: 1000000,
+					CltvExpiryDelta:           20,
+				},
+			},
+		},
+	}
+
+	invoice = &lnrpc.Invoice{
+		Memo:       "hints",
+		Value:      paymentAmt,
+		RouteHints: hints,
+	}
+
+	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
+	invoiceResp, err = net.Bob.AddInvoice(ctxt, invoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice: %v", err)
+	}
+	payreq, err := net.Bob.DecodePayReq(ctxt, &lnrpc.PayReqString{PayReq: invoiceResp.PaymentRequest})
+	if err != nil {
+		t.Fatalf("failed to decode payment request %v", err)
+	}
+	if len(payreq.RouteHints) != 1 {
+		t.Fatalf("expected one routing hint")
+	}
+	routingHint := payreq.RouteHints[0]
+	if len(routingHint.HopHints) != 1 {
+		t.Fatalf("expected one hop hint")
+	}
+	hopHint := routingHint.HopHints[0]
+	if hopHint.FeeProportionalMillionths != 1000000 {
+		t.Fatalf("wrong FeeProportionalMillionths %v",
+			hopHint.FeeProportionalMillionths)
+	}
+	if hopHint.NodeId != bobPubKey {
+		t.Fatalf("wrong NodeId %v",
+			hopHint.NodeId)
+	}
+	if hopHint.ChanId != hintChannel.ToUint64() {
+		t.Fatalf("wrong ChanId %v",
+			hopHint.ChanId)
+	}
+	if hopHint.FeeBaseMsat != 1 {
+		t.Fatalf("wrong FeeBaseMsat %v",
+			hopHint.FeeBaseMsat)
+	}
+	if hopHint.CltvExpiryDelta != 20 {
+		t.Fatalf("wrong CltvExpiryDelta %v",
+			hopHint.CltvExpiryDelta)
 	}
 
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)

@@ -248,8 +248,12 @@ type Config struct {
 	// HtlcNotifier is used when creating a ChannelLink.
 	HtlcNotifier *htlcswitch.HtlcNotifier
 
-	// TowerClient is used when creating a ChannelLink.
+	// TowerClient is used by legacy channels to backup revoked states.
 	TowerClient wtclient.Client
+
+	// AnchorTowerClient is used by anchor channels to backup revoked
+	// states.
+	AnchorTowerClient wtclient.Client
 
 	// DisconnectPeer is used to disconnect this peer if the cooperative close
 	// process fails.
@@ -757,6 +761,18 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		return p.cfg.ChainArb.UpdateContractSignals(*chanPoint, signals)
 	}
 
+	chanType := lnChan.State().ChanType
+
+	// Select the appropriate tower client based on the channel type. It's
+	// okay if the clients are disabled altogether and these values are nil,
+	// as the link will check for nilness before using either.
+	var towerClient htlcswitch.TowerClient
+	if chanType.HasAnchors() {
+		towerClient = p.cfg.AnchorTowerClient
+	} else {
+		towerClient = p.cfg.TowerClient
+	}
+
 	linkCfg := htlcswitch.ChannelLinkConfig{
 		Peer:                    p,
 		DecodeHopIterators:      p.cfg.Sphinx.DecodeHopIterators,
@@ -782,7 +798,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		MinFeeUpdateTimeout:     htlcswitch.DefaultMinLinkFeeUpdateTimeout,
 		MaxFeeUpdateTimeout:     htlcswitch.DefaultMaxLinkFeeUpdateTimeout,
 		OutgoingCltvRejectDelta: p.cfg.OutgoingCltvRejectDelta,
-		TowerClient:             p.cfg.TowerClient,
+		TowerClient:             towerClient,
 		MaxOutgoingCltvExpiry:   p.cfg.MaxOutgoingCltvExpiry,
 		MaxFeeAllocation:        p.cfg.MaxChannelFeeAllocation,
 		NotifyActiveLink:        p.cfg.ChannelNotifier.NotifyActiveLinkEvent,
@@ -1836,6 +1852,8 @@ out:
 		}
 	}
 
+	// Avoid an exit deadlock by ensuring WaitGroups are decremented before
+	// disconnect.
 	p.wg.Done()
 
 	p.Disconnect(exitErr)
@@ -2496,6 +2514,13 @@ type linkFailureReport struct {
 // force closing the channel depending on severity, and sending the error
 // message back to the remote party.
 func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
+	// Retrieve the channel from the map of active channels. We do this to
+	// have access to it even after WipeChannel remove it from the map.
+	chanID := lnwire.NewChanIDFromOutPoint(&failure.chanPoint)
+	p.activeChanMtx.Lock()
+	lnChan := p.activeChannels[chanID]
+	p.activeChanMtx.Unlock()
+
 	// We begin by wiping the link, which will remove it from the switch,
 	// such that it won't be attempted used for any more updates.
 	//
@@ -2521,6 +2546,17 @@ func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 			peerLog.Infof("channel(%v) force "+
 				"closed with txid %v",
 				failure.shortChanID, closeTx.TxHash())
+		}
+	}
+
+	// If this is a permanent failure, we will mark the channel borked.
+	if failure.linkErr.PermanentFailure && lnChan != nil {
+		peerLog.Warnf("Marking link(%v) borked due to permanent "+
+			"failure", failure.shortChanID)
+
+		if err := lnChan.State().MarkBorked(); err != nil {
+			peerLog.Errorf("Unable to mark channel %v borked: %v",
+				failure.shortChanID, err)
 		}
 	}
 

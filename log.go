@@ -10,6 +10,8 @@ import (
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainreg"
+	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/chanfitness"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -131,6 +133,8 @@ func SetupLoggers(root *build.RotatingLogWriter) {
 	AddSubLogger(root, chanfitness.Subsystem, chanfitness.UseLogger)
 	AddSubLogger(root, verrpc.Subsystem, verrpc.UseLogger)
 	AddSubLogger(root, healthcheck.Subsystem, healthcheck.UseLogger)
+	AddSubLogger(root, chainreg.Subsystem, chainreg.UseLogger)
+	AddSubLogger(root, chanacceptor.Subsystem, chanacceptor.UseLogger)
 }
 
 // AddSubLogger is a helper method to conveniently create and register the

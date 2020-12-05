@@ -100,11 +100,11 @@ var (
 // MessageSigner is passed to the Encode method to provide a signature
 // corresponding to the node's pubkey.
 type MessageSigner struct {
-	// SignCompact signs the passed hash with the node's privkey. The
-	// returned signature should be 65 bytes, where the last 64 are the
+	// SignCompact signs the hash of the passed msg with the node's privkey.
+	// The returned signature should be 65 bytes, where the last 64 are the
 	// compact signature, and the first one is a header byte. This is the
 	// format returned by btcec.SignCompact.
-	SignCompact func(hash []byte) ([]byte, error)
+	SignCompact func(msg []byte) ([]byte, error)
 }
 
 // Invoice represents a decoded invoice, or to-be-encoded invoice. Some of the

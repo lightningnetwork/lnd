@@ -138,8 +138,9 @@ func (t Type) String() string {
 // supportedTypes is the set of all configurations known to be supported by the
 // package.
 var supportedTypes = map[Type]struct{}{
-	TypeAltruistCommit: {},
-	TypeRewardCommit:   {},
+	TypeAltruistCommit:       {},
+	TypeRewardCommit:         {},
+	TypeAltruistAnchorCommit: {},
 }
 
 // IsSupportedType returns true if the given type is supported by the package.

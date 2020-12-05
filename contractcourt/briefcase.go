@@ -54,8 +54,10 @@ type ArbitratorLog interface {
 	// TODO(roasbeef): document on interface the errors expected to be
 	// returned
 
-	// CurrentState returns the current state of the ChannelArbitrator.
-	CurrentState() (ArbitratorState, error)
+	// CurrentState returns the current state of the ChannelArbitrator. It
+	// takes an optional database transaction, which will be used if it is
+	// non-nil, otherwise the lookup will be done in its own transaction.
+	CurrentState(tx kvdb.RTx) (ArbitratorState, error)
 
 	// CommitState persists, the current state of the chain attendant.
 	CommitState(ArbitratorState) error
@@ -96,8 +98,10 @@ type ArbitratorLog interface {
 	InsertConfirmedCommitSet(c *CommitSet) error
 
 	// FetchConfirmedCommitSet fetches the known confirmed active HTLC set
-	// from the database.
-	FetchConfirmedCommitSet() (*CommitSet, error)
+	// from the database. It takes an optional database transaction, which
+	// will be used if it is non-nil, otherwise the lookup will be done in
+	// its own transaction.
+	FetchConfirmedCommitSet(tx kvdb.RTx) (*CommitSet, error)
 
 	// FetchChainActions attempts to fetch the set of previously stored
 	// chain actions. We'll use this upon restart to properly advance our
@@ -412,32 +416,47 @@ func (b *boltArbitratorLog) writeResolver(contractBucket kvdb.RwBucket,
 	return contractBucket.Put(resKey, buf.Bytes())
 }
 
-// CurrentState returns the current state of the ChannelArbitrator.
+// CurrentState returns the current state of the ChannelArbitrator. It takes an
+// optional database transaction, which will be used if it is non-nil, otherwise
+// the lookup will be done in its own transaction.
 //
 // NOTE: Part of the ContractResolver interface.
-func (b *boltArbitratorLog) CurrentState() (ArbitratorState, error) {
-	var s ArbitratorState
-	err := kvdb.View(b.db, func(tx kvdb.RTx) error {
-		scopeBucket := tx.ReadBucket(b.scopeKey[:])
-		if scopeBucket == nil {
-			return errScopeBucketNoExist
-		}
+func (b *boltArbitratorLog) CurrentState(tx kvdb.RTx) (ArbitratorState, error) {
+	var (
+		s   ArbitratorState
+		err error
+	)
 
-		stateBytes := scopeBucket.Get(stateKey)
-		if stateBytes == nil {
-			return nil
-		}
+	if tx != nil {
+		s, err = b.currentState(tx)
+	} else {
+		err = kvdb.View(b.db, func(tx kvdb.RTx) error {
+			s, err = b.currentState(tx)
+			return err
+		}, func() {
+			s = 0
+		})
+	}
 
-		s = ArbitratorState(stateBytes[0])
-		return nil
-	}, func() {
-		s = 0
-	})
 	if err != nil && err != errScopeBucketNoExist {
 		return s, err
 	}
 
 	return s, nil
+}
+
+func (b *boltArbitratorLog) currentState(tx kvdb.RTx) (ArbitratorState, error) {
+	scopeBucket := tx.ReadBucket(b.scopeKey[:])
+	if scopeBucket == nil {
+		return 0, errScopeBucketNoExist
+	}
+
+	stateBytes := scopeBucket.Get(stateKey)
+	if stateBytes == nil {
+		return 0, nil
+	}
+
+	return ArbitratorState(stateBytes[0]), nil
 }
 
 // CommitState persists, the current state of the chain attendant.
@@ -851,29 +870,20 @@ func (b *boltArbitratorLog) InsertConfirmedCommitSet(c *CommitSet) error {
 }
 
 // FetchConfirmedCommitSet fetches the known confirmed active HTLC set from the
-// database.
+// database. It takes an optional database transaction, which will be used if it
+// is non-nil, otherwise the lookup will be done in its own transaction.
 //
 // NOTE: Part of the ContractResolver interface.
-func (b *boltArbitratorLog) FetchConfirmedCommitSet() (*CommitSet, error) {
+func (b *boltArbitratorLog) FetchConfirmedCommitSet(tx kvdb.RTx) (*CommitSet, error) {
+	if tx != nil {
+		return b.fetchConfirmedCommitSet(tx)
+	}
+
 	var c *CommitSet
 	err := kvdb.View(b.db, func(tx kvdb.RTx) error {
-		scopeBucket := tx.ReadBucket(b.scopeKey[:])
-		if scopeBucket == nil {
-			return errScopeBucketNoExist
-		}
-
-		commitSetBytes := scopeBucket.Get(commitSetKey)
-		if commitSetBytes == nil {
-			return errNoCommitSet
-		}
-
-		commitSet, err := decodeCommitSet(bytes.NewReader(commitSetBytes))
-		if err != nil {
-			return err
-		}
-
-		c = commitSet
-		return nil
+		var err error
+		c, err = b.fetchConfirmedCommitSet(tx)
+		return err
 	}, func() {
 		c = nil
 	})
@@ -882,6 +892,22 @@ func (b *boltArbitratorLog) FetchConfirmedCommitSet() (*CommitSet, error) {
 	}
 
 	return c, nil
+}
+
+func (b *boltArbitratorLog) fetchConfirmedCommitSet(tx kvdb.RTx) (*CommitSet,
+	error) {
+
+	scopeBucket := tx.ReadBucket(b.scopeKey[:])
+	if scopeBucket == nil {
+		return nil, errScopeBucketNoExist
+	}
+
+	commitSetBytes := scopeBucket.Get(commitSetKey)
+	if commitSetBytes == nil {
+		return nil, errNoCommitSet
+	}
+
+	return decodeCommitSet(bytes.NewReader(commitSetBytes))
 }
 
 // WipeHistory is to be called ONLY once *all* contracts have been fully

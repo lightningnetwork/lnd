@@ -7,6 +7,8 @@ import "github.com/lightningnetwork/lnd/lnwire"
 var FeatureNames = map[lnwire.FeatureBit]string{
 	AltruistSessionsRequired: "altruist-sessions",
 	AltruistSessionsOptional: "altruist-sessions",
+	AnchorCommitRequired:     "anchor-commit",
+	AnchorCommitOptional:     "anchor-commit",
 }
 
 const (
@@ -19,4 +21,13 @@ const (
 	// support a remote party who understand the protocol for creating and
 	// updating watchtower sessions.
 	AltruistSessionsOptional lnwire.FeatureBit = 1
+
+	// AnchorCommitRequired specifies that the advertising tower requires
+	// the remote party to negotiate sessions for protecting anchor
+	// channels.
+	AnchorCommitRequired lnwire.FeatureBit = 2
+
+	// AnchorCommitOptional specifies that the advertising tower allows the
+	// remote party to negotiate sessions for protecting anchor channels.
+	AnchorCommitOptional lnwire.FeatureBit = 3
 )

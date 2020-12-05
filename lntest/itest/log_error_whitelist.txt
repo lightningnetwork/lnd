@@ -49,6 +49,7 @@
 <time> [ERR] DISC: Unable to reply to peer query: set tcp <ip>: use of closed network connection
 <time> [ERR] DISC: Unable to reply to peer query: write tcp <ip>-><ip>: use of closed network connection
 <time> [ERR] DISC: Unable to reply to peer query: write tcp <ip>-><ip>: write: broken pipe
+<time> [ERR] DISC: Unable to reply to peer query: write tcp <ip>-><ip>: write: connection reset by peer
 <time> [ERR] FNDG: received funding error from <hex>: chan_id=<hex>, err=channel too large
 <time> [ERR] FNDG: received funding error from <hex>: chan_id=<hex>, err=chan size of 0.16777216 BTC exceeds maximum chan size of 0.16777215 BTC
 <time> [ERR] FNDG: received funding error from <hex>: chan_id=<hex>, err=chan size of 10.00000001 BTC exceeds maximum chan size of 0.16777215 BTC

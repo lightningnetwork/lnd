@@ -5,8 +5,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"io"
 	"io/ioutil"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -1333,8 +1335,12 @@ func (n *NetworkHarness) sendCoins(ctx context.Context, amt btcutil.Amount,
 			return nil
 		}
 
-		req := &lnrpc.ListUnspentRequest{}
-		resp, err := target.ListUnspent(ctx, req)
+		req := &walletrpc.ListUnspentRequest{
+			MinConfs: 0,
+			MaxConfs: math.MaxInt32,
+		}
+
+		resp, err := target.WalletKitClient.ListUnspent(ctx, req)
 		if err != nil {
 			return err
 		}

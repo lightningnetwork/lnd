@@ -192,10 +192,10 @@ there's no existing UTXO or key data in the node's database. However, there're
 times when an _existing_ node may want to _manually_ rescan the chain. We have
 a command line flag for that! Just start `lnd` and add the following flag:
 ```
-⛰  lnd --reset-wallet-transactions
+⛰  lnd reset-wallet-transactions
 ```
 
-The `--reset-wallet-transactions` flag will _reset_ the best synced height of
+The `reset-wallet-transactions` flag will _reset_ the best synced height of
 the wallet back to its birthday, or genesis if the birthday isn't known (for
 some older wallets).
 

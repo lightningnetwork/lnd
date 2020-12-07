@@ -39,6 +39,8 @@ github.com/btcsuite/btcutil/psbt v1.0.3-0.20200826194809-5f93e33af2b0 h1:3Zumkyl
 github.com/btcsuite/btcutil/psbt v1.0.3-0.20200826194809-5f93e33af2b0/go.mod h1:LVveMu4VaNSkIRTZu2+ut0HDBRuYjqGocxDMNS1KuGQ=
 github.com/btcsuite/btcwallet v0.11.1-0.20201104022105-a6f3888450e4 h1:iipg6ldTL0y69KLicrd0gLhY/yErB0rG4a84uQbu7ao=
 github.com/btcsuite/btcwallet v0.11.1-0.20201104022105-a6f3888450e4/go.mod h1:owv9oZqM0HnUW+ByF7VqOgfs2eb0ooiePW/+Tl/i/Nk=
+github.com/btcsuite/btcwallet v0.11.1-0.20201119022810-664f77ded195 h1:QjMLhLVZlpMjgWH5FK0dvwcXAhO2/80g4opgUDa9mAQ=
+github.com/btcsuite/btcwallet v0.11.1-0.20201119022810-664f77ded195/go.mod h1:owv9oZqM0HnUW+ByF7VqOgfs2eb0ooiePW/+Tl/i/Nk=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.0.0 h1:KGHMW5sd7yDdDMkCZ/JpP0KltolFsQcB973brBnfj4c=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.0.0/go.mod h1:VufDts7bd/zs3GV13f/lXc/0lXrPnvxD/NvmpG/FEKU=
 github.com/btcsuite/btcwallet/wallet/txrules v1.0.0 h1:2VsfS0sBedcM5KmDzRMT3+b6xobqWveZGvjb+jFez5w=
@@ -51,6 +53,8 @@ github.com/btcsuite/btcwallet/walletdb v1.3.2 h1:nFnMBVgkqoVOx08Z756oDwNc9sdVgYR
 github.com/btcsuite/btcwallet/walletdb v1.3.2/go.mod h1:GZCMPNpUu5KE3ASoVd+k06p/1OW8OwNGCCaNWRto2cQ=
 github.com/btcsuite/btcwallet/walletdb v1.3.3 h1:u6e7vRIKBF++cJy+hOHaMGg+88ZTwvpaY27AFvtB668=
 github.com/btcsuite/btcwallet/walletdb v1.3.3/go.mod h1:oJDxAEUHVtnmIIBaa22wSBPTVcs6hUp5NKWmI8xDwwU=
+github.com/btcsuite/btcwallet/walletdb v1.3.4-0.20201106155705-08308c81eda0 h1:1ErPv22GAP5CKfQ1cSv5ROu+mSlDvzUOHpOuSnjVU9g=
+github.com/btcsuite/btcwallet/walletdb v1.3.4-0.20201106155705-08308c81eda0/go.mod h1:oJDxAEUHVtnmIIBaa22wSBPTVcs6hUp5NKWmI8xDwwU=
 github.com/btcsuite/btcwallet/wtxmgr v1.0.0/go.mod h1:vc4gBprll6BP0UJ+AIGDaySoc7MdAmZf8kelfNb8CFY=
 github.com/btcsuite/btcwallet/wtxmgr v1.2.0 h1:ZUYPsSv8GjF9KK7lboB2OVHF0uYEcHxgrCfFWqPd9NA=
 github.com/btcsuite/btcwallet/wtxmgr v1.2.0/go.mod h1:h8hkcKUE3X7lMPzTUoGnNiw5g7VhGrKEW3KpR2r0VnY=

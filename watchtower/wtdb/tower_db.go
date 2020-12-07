@@ -3,6 +3,7 @@ package wtdb
 import (
 	"bytes"
 	"errors"
+	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -66,8 +67,10 @@ type TowerDB struct {
 // migrations will be applied before returning. Any attempt to open a database
 // with a version number higher that the latest version will fail to prevent
 // accidental reversion.
-func OpenTowerDB(dbPath string) (*TowerDB, error) {
-	bdb, firstInit, err := createDBIfNotExist(dbPath, towerDBName)
+func OpenTowerDB(dbPath string, dbTimeout time.Duration) (*TowerDB, error) {
+	bdb, firstInit, err := createDBIfNotExist(
+		dbPath, towerDBName, dbTimeout,
+	)
 	if err != nil {
 		return nil, err
 	}

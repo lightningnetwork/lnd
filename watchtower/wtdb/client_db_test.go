@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
@@ -783,7 +784,9 @@ func TestClientDB(t *testing.T) {
 						err)
 				}
 
-				db, err := wtdb.OpenClientDB(path)
+				db, err := wtdb.OpenClientDB(
+					path, kvdb.DefaultDBTimeout,
+				)
 				if err != nil {
 					os.RemoveAll(path)
 					t.Fatalf("unable to open db: %v", err)
@@ -806,14 +809,18 @@ func TestClientDB(t *testing.T) {
 						err)
 				}
 
-				db, err := wtdb.OpenClientDB(path)
+				db, err := wtdb.OpenClientDB(
+					path, kvdb.DefaultDBTimeout,
+				)
 				if err != nil {
 					os.RemoveAll(path)
 					t.Fatalf("unable to open db: %v", err)
 				}
 				db.Close()
 
-				db, err = wtdb.OpenClientDB(path)
+				db, err = wtdb.OpenClientDB(
+					path, kvdb.DefaultDBTimeout,
+				)
 				if err != nil {
 					os.RemoveAll(path)
 					t.Fatalf("unable to reopen db: %v", err)

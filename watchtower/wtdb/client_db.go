@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
@@ -129,8 +130,10 @@ type ClientDB struct {
 // migrations will be applied before returning. Any attempt to open a database
 // with a version number higher that the latest version will fail to prevent
 // accidental reversion.
-func OpenClientDB(dbPath string) (*ClientDB, error) {
-	bdb, firstInit, err := createDBIfNotExist(dbPath, clientDBName)
+func OpenClientDB(dbPath string, dbTimeout time.Duration) (*ClientDB, error) {
+	bdb, firstInit, err := createDBIfNotExist(
+		dbPath, clientDBName, dbTimeout,
+	)
 	if err != nil {
 		return nil, err
 	}

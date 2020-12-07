@@ -17,6 +17,10 @@ const (
 	// have passed since a bolt database file was last compacted for the
 	// compaction to be considered again.
 	DefaultBoltAutoCompactMinAge = time.Hour * 24 * 7
+
+	// DefaultDBTimeout specifies the default timeout value when opening
+	// the bbolt database.
+	DefaultDBTimeout = time.Second * 60
 )
 
 // BoltConfig holds bolt configuration.
@@ -26,6 +30,8 @@ type BoltConfig struct {
 	AutoCompact bool `long:"auto-compact" description:"Whether the databases used within lnd should automatically be compacted on every startup (and if the database has the configured minimum age). This is disabled by default because it requires additional disk space to be available during the compaction that is freed afterwards. In general compaction leads to smaller database files."`
 
 	AutoCompactMinAge time.Duration `long:"auto-compact-min-age" description:"How long ago the last compaction of a database file must be for it to be considered for auto compaction again. Can be set to 0 to compact on every startup."`
+
+	DBTimeout time.Duration `long:"dbtimeout" description:"Specify the timeout value used when opening the database."`
 }
 
 // EtcdConfig holds etcd configuration.

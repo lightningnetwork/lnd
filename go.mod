@@ -9,10 +9,10 @@ require (
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcutil v1.0.2
 	github.com/btcsuite/btcutil/psbt v1.0.3-0.20200826194809-5f93e33af2b0
-	github.com/btcsuite/btcwallet v0.11.1-0.20201104022105-a6f3888450e4
+	github.com/btcsuite/btcwallet v0.11.1-0.20201119022810-664f77ded195
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.0.0
 	github.com/btcsuite/btcwallet/wallet/txrules v1.0.0
-	github.com/btcsuite/btcwallet/walletdb v1.3.3
+	github.com/btcsuite/btcwallet/walletdb v1.3.4-0.20201106155705-08308c81eda0
 	github.com/btcsuite/btcwallet/wtxmgr v1.2.0
 	github.com/coreos/etcd v3.3.22+incompatible
 	github.com/coreos/go-semver v0.3.0 // indirect

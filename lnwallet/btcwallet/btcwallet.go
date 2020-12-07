@@ -98,7 +98,7 @@ func New(cfg Config) (*BtcWallet, error) {
 		}
 		loader := base.NewLoader(
 			cfg.NetParams, netDir, cfg.NoFreelistSync,
-			cfg.RecoveryWindow,
+			cfg.DBTimeOut, cfg.RecoveryWindow,
 		)
 		walletExists, err := loader.WalletExists()
 		if err != nil {

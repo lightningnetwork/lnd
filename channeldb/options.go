@@ -50,6 +50,7 @@ func DefaultOptions() Options {
 			NoFreelistSync:    true,
 			AutoCompact:       false,
 			AutoCompactMinAge: kvdb.DefaultBoltAutoCompactMinAge,
+			DBTimeout:         kvdb.DefaultDBTimeout,
 		},
 		RejectCacheSize:  DefaultRejectCacheSize,
 		ChannelCacheSize: DefaultChannelCacheSize,

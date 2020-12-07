@@ -43,7 +43,7 @@ var defaultSetDesc = setDesc{
 		SetNodeAnn: {}, // N
 		SetInvoice: {}, // 9
 	},
-	lnwire.AnchorsOptional: {
+	lnwire.AnchorsZeroFeeHtlcTxOptional: {
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},

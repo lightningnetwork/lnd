@@ -119,6 +119,16 @@ const (
 	// outputs.
 	AnchorsOptional FeatureBit = 21
 
+	// AnchorsZeroFeeHtlcTxRequired is a required feature bit that signals
+	// that the node requires channels having zero-fee second-level HTLC
+	// transactions, which also imply anchor commitments.
+	AnchorsZeroFeeHtlcTxRequired FeatureBit = 22
+
+	// AnchorsZeroFeeHtlcTxRequired is an optional feature bit that signals
+	// that the node supports channels having zero-fee second-level HTLC
+	// transactions, which also imply anchor commitments.
+	AnchorsZeroFeeHtlcTxOptional FeatureBit = 23
+
 	// maxAllowedSize is a maximum allowed size of feature vector.
 	//
 	// NOTE: Within the protocol, the maximum allowed message size is 65535
@@ -158,6 +168,8 @@ var Features = map[FeatureBit]string{
 	MPPRequired:                   "multi-path-payments",
 	AnchorsRequired:               "anchor-commitments",
 	AnchorsOptional:               "anchor-commitments",
+	AnchorsZeroFeeHtlcTxRequired:  "anchors-zero-fee-htlc-tx",
+	AnchorsZeroFeeHtlcTxOptional:  "anchors-zero-fee-htlc-tx",
 	WumboChannelsRequired:         "wumbo-channels",
 	WumboChannelsOptional:         "wumbo-channels",
 }

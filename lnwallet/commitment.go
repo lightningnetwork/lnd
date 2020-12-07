@@ -278,6 +278,12 @@ func CommitWeight(chanType channeldb.ChannelType) int64 {
 func HtlcTimeoutFee(chanType channeldb.ChannelType,
 	feePerKw chainfee.SatPerKWeight) btcutil.Amount {
 
+	// For zero-fee HTLC channels, this will always be zero, regardless of
+	// feerate.
+	if chanType.ZeroHtlcTxFee() {
+		return 0
+	}
+
 	if chanType.HasAnchors() {
 		return feePerKw.FeeForWeight(input.HtlcTimeoutWeightConfirmed)
 	}
@@ -289,6 +295,12 @@ func HtlcTimeoutFee(chanType channeldb.ChannelType,
 // transaction based on the current fee rate.
 func HtlcSuccessFee(chanType channeldb.ChannelType,
 	feePerKw chainfee.SatPerKWeight) btcutil.Amount {
+
+	// For zero-fee HTLC channels, this will always be zero, regardless of
+	// feerate.
+	if chanType.ZeroHtlcTxFee() {
+		return 0
+	}
 
 	if chanType.HasAnchors() {
 		return feePerKw.FeeForWeight(input.HtlcSuccessWeightConfirmed)

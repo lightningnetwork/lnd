@@ -137,28 +137,35 @@ func createSweepTx(inputs []input.Input, outputPkScript []byte,
 	dustLimit btcutil.Amount, signer input.Signer) (*wire.MsgTx, error) {
 
 	inputs, estimator := getWeightEstimate(inputs, feePerKw)
-
 	txFee := estimator.fee()
 
-	// Create the sweep transaction that we will be building. We use
-	// version 2 as it is required for CSV.
-	sweepTx := wire.NewMsgTx(2)
+	var (
+		// Create the sweep transaction that we will be building. We
+		// use version 2 as it is required for CSV.
+		sweepTx = wire.NewMsgTx(2)
 
-	// Track whether any of the inputs require a certain locktime.
-	locktime := int32(-1)
+		// Track whether any of the inputs require a certain locktime.
+		locktime = int32(-1)
+
+		// We keep track of total input amount, and required output
+		// amount to use for calculating the change amount below.
+		totalInput     btcutil.Amount
+		requiredOutput btcutil.Amount
+
+		// We'll add the inputs as we go so we know the final ordering
+		// of inputs to sign.
+		idxs []input.Input
+	)
 
 	// We start by adding all inputs that commit to an output. We do this
 	// since the input and output index must stay the same for the
 	// signatures to be valid.
-	var (
-		totalInput     btcutil.Amount
-		requiredOutput btcutil.Amount
-	)
 	for _, o := range inputs {
 		if o.RequiredTxOut() == nil {
 			continue
 		}
 
+		idxs = append(idxs, o)
 		sweepTx.AddTxIn(&wire.TxIn{
 			PreviousOutPoint: *o.OutPoint(),
 			Sequence:         o.BlocksToMaturity(),
@@ -186,6 +193,7 @@ func createSweepTx(inputs []input.Input, outputPkScript []byte,
 			continue
 		}
 
+		idxs = append(idxs, o)
 		sweepTx.AddTxIn(&wire.TxIn{
 			PreviousOutPoint: *o.OutPoint(),
 			Sequence:         o.BlocksToMaturity(),
@@ -255,10 +263,8 @@ func createSweepTx(inputs []input.Input, outputPkScript []byte,
 		return nil
 	}
 
-	// Finally we'll attach a valid input script to each csv and cltv input
-	// within the sweeping transaction.
-	for i, input := range inputs {
-		if err := addInputScript(i, input); err != nil {
+	for idx, inp := range idxs {
+		if err := addInputScript(idx, inp); err != nil {
 			return nil, err
 		}
 	}

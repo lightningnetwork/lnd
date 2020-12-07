@@ -1194,7 +1194,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 	}
 
 	rpcsLog.Infof("[sendcoins] addr=%v, amt=%v, sat/kw=%v, min_confs=%v, "+
-		"sweep_all=%v",
+		"send_all=%v",
 		in.Addr, btcutil.Amount(in.Amount), int64(feePerKw), minConfs,
 		in.SendAll)
 

@@ -290,7 +290,6 @@ func (n *NetworkHarness) NewNodeWithSeed(name string, extraArgs []string,
 		return nil, nil, nil, err
 	}
 
-	timeout := time.Duration(DefaultTimeout)
 	ctxb := context.Background()
 
 	// Create a request to generate a new aezeed. The new seed will have the
@@ -299,7 +298,8 @@ func (n *NetworkHarness) NewNodeWithSeed(name string, extraArgs []string,
 		AezeedPassphrase: password,
 	}
 
-	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	ctxt, cancel := context.WithTimeout(ctxb, DefaultTimeout)
+	defer cancel()
 	genSeedResp, err := node.GenSeed(ctxt, genSeedReq)
 	if err != nil {
 		return nil, nil, nil, err
@@ -457,7 +457,8 @@ func (n *NetworkHarness) EnsureConnected(ctx context.Context, a, b *HarnessNode)
 	errConnectionRequested := errors.New("connection request in progress")
 
 	tryConnect := func(a, b *HarnessNode) error {
-		ctxt, _ := context.WithTimeout(ctx, DefaultTimeout)
+		ctxt, cancel := context.WithTimeout(ctx, DefaultTimeout)
+		defer cancel()
 		bInfo, err := b.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
 		if err != nil {
 			return err
@@ -530,7 +531,8 @@ func (n *NetworkHarness) EnsureConnected(ctx context.Context, a, b *HarnessNode)
 		// If node B is seen in the ListPeers response from node A,
 		// then we can exit early as the connection has been fully
 		// established.
-		ctxt, _ := context.WithTimeout(ctx, DefaultTimeout)
+		ctxt, cancel := context.WithTimeout(ctx, DefaultTimeout)
+		defer cancel()
 		resp, err := b.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
 		if err != nil {
 			return false

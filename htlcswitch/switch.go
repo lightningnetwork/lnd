@@ -936,7 +936,7 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 			OutgoingFailureOnChainTimeout,
 		)
 
-		log.Info("%v: hash=%v, pid=%d",
+		log.Infof("%v: hash=%v, pid=%d",
 			linkError.FailureDetail.FailureString(),
 			paymentHash, paymentID)
 

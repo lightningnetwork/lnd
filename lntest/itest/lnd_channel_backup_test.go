@@ -520,7 +520,7 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 			}
 
 			return nil
-		}, time.Second*15)
+		}, defaultTimeout)
 		if err != nil {
 			t.Fatalf("backup state invalid: %v", err)
 		}
@@ -985,6 +985,33 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	pendingChanResp, err := dave.PendingChannels(
 		ctxt, &lnrpc.PendingChannelsRequest{},
 	)
+	require.NoError(t.t, err)
+
+	// We now need to make sure the server is fully started before we can
+	// actually close the channel. This is the first check in CloseChannel
+	// so we can try with a nil channel point until we get the correct error
+	// to find out if Dave is fully started.
+	err = wait.Predicate(func() bool {
+		const expectedErr = "must specify channel point"
+		ctxc, cancel := context.WithCancel(ctxt)
+		defer cancel()
+
+		resp, err := dave.CloseChannel(
+			ctxc, &lnrpc.CloseChannelRequest{},
+		)
+		if err != nil {
+			return false
+		}
+
+		defer func() { _ = resp.CloseSend() }()
+
+		_, err = resp.Recv()
+		if err != nil && strings.Contains(err.Error(), expectedErr) {
+			return true
+		}
+
+		return false
+	}, defaultTimeout)
 	require.NoError(t.t, err)
 
 	// We also want to make sure we cannot force close in this state. That

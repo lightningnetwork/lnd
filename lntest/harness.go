@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"io"
 	"io/ioutil"
 	"math"
@@ -15,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"

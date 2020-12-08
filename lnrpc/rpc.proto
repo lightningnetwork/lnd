@@ -2694,9 +2694,15 @@ message GraphTopologyUpdate {
 message NodeUpdate {
     repeated string addresses = 1;
     string identity_key = 2;
-    bytes global_features = 3;
+    bytes global_features = 3 [deprecated = true];
     string alias = 4;
     string color = 5;
+
+    /*
+    Features that the node has advertised in the init message, node
+    announcements and invoices.
+    */
+    map<uint32, Feature> features = 6;
 }
 message ChannelEdgeUpdate {
     /*

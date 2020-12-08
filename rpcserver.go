@@ -5509,11 +5509,13 @@ func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopol
 		}
 
 		nodeUpdates[i] = &lnrpc.NodeUpdate{
-			Addresses:      addrs,
-			IdentityKey:    encodeKey(nodeUpdate.IdentityKey),
-			GlobalFeatures: nodeUpdate.GlobalFeatures,
-			Alias:          nodeUpdate.Alias,
-			Color:          nodeUpdate.Color,
+			Addresses:   addrs,
+			IdentityKey: encodeKey(nodeUpdate.IdentityKey),
+			Alias:       nodeUpdate.Alias,
+			Color:       nodeUpdate.Color,
+			Features: invoicesrpc.CreateRPCFeatures(
+				nodeUpdate.Features,
+			),
 		}
 	}
 

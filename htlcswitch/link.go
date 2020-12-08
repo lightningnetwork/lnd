@@ -516,7 +516,14 @@ func (l *channelLink) Stop() {
 		l.cfg.ChainEvents.Cancel()
 	}
 
-	l.updateFeeTimer.Stop()
+	// Ensure the channel for the timer is drained.
+	if !l.updateFeeTimer.Stop() {
+		select {
+		case <-l.updateFeeTimer.C:
+		default:
+		}
+	}
+
 	l.hodlQueue.Stop()
 
 	close(l.quit)

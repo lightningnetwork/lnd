@@ -520,7 +520,7 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 			}
 
 			return nil
-		}, time.Second*15)
+		}, defaultTimeout)
 		if err != nil {
 			t.Fatalf("backup state invalid: %v", err)
 		}

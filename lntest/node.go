@@ -660,7 +660,7 @@ func (hn *HarnessNode) initClientWhenReady() error {
 	if err := wait.NoError(func() error {
 		conn, connErr = hn.ConnectRPC(true)
 		return connErr
-	}, 5*time.Second); err != nil {
+	}, DefaultTimeout); err != nil {
 		return err
 	}
 
@@ -1005,7 +1005,7 @@ func (hn *HarnessNode) stop() error {
 	// Wait for lnd process and other goroutines to exit.
 	select {
 	case <-hn.processExit:
-	case <-time.After(60 * time.Second):
+	case <-time.After(DefaultTimeout * 2):
 		return fmt.Errorf("process did not exit")
 	}
 
@@ -1357,7 +1357,7 @@ func (hn *HarnessNode) WaitForBalance(expectedBalance btcutil.Amount, confirmed 
 		return btcutil.Amount(balance.UnconfirmedBalance) == expectedBalance
 	}
 
-	err := wait.Predicate(doesBalanceMatch, 30*time.Second)
+	err := wait.Predicate(doesBalanceMatch, DefaultTimeout)
 	if err != nil {
 		return fmt.Errorf("balances not synced after deadline: "+
 			"expected %v, only have %v", expectedBalance, lastBalance)

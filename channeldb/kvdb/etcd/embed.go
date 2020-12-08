@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"sync/atomic"
 	"time"
 
 	"github.com/coreos/etcd/embed"
@@ -15,23 +16,40 @@ import (
 const (
 	// readyTimeout is the time until the embedded etcd instance should start.
 	readyTimeout = 10 * time.Second
+
+	// defaultEtcdPort is the start of the range for listening ports of
+	// embedded etcd servers. Ports are monotonically increasing starting
+	// from this number and are determined by the results of getFreePort().
+	defaultEtcdPort = 2379
 )
 
-// getFreePort returns a random open TCP port.
+var (
+	// lastPort is the last port determined to be free for use by a new
+	// embedded etcd server. It should be used atomically.
+	lastPort uint32 = defaultEtcdPort
+)
+
+// getFreePort returns the first port that is available for listening by a new
+// embedded etcd server. It panics if no port is found and the maximum available
+// TCP port is reached.
 func getFreePort() int {
-	ln, err := net.Listen("tcp", "[::]:0")
-	if err != nil {
-		panic(err)
+	port := atomic.AddUint32(&lastPort, 1)
+	for port < 65535 {
+		// If there are no errors while attempting to listen on this
+		// port, close the socket and return it as available.
+		addr := fmt.Sprintf("127.0.0.1:%d", port)
+		l, err := net.Listen("tcp4", addr)
+		if err == nil {
+			err := l.Close()
+			if err == nil {
+				return int(port)
+			}
+		}
+		port = atomic.AddUint32(&lastPort, 1)
 	}
 
-	port := ln.Addr().(*net.TCPAddr).Port
-
-	err = ln.Close()
-	if err != nil {
-		panic(err)
-	}
-
-	return port
+	// No ports available? Must be a mistake.
+	panic("no ports available for listening")
 }
 
 // NewEmbeddedEtcdInstance creates an embedded etcd instance for testing,

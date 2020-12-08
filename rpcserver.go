@@ -1138,12 +1138,30 @@ func (r *rpcServer) EstimateFee(ctx context.Context,
 		return nil, err
 	}
 
+	// minConfs can be provided by the RPC request,
+	// but defaults to defaultMinConf (1).
+	var minConfs int32 = 1
+
+	switch {
+	// If min_confs was specified as non-zero in the RPC request,
+	// and spend_unconfirmed is false (the default if not provided),
+	// set minConfs to that number
+	case in.GetMinConfs() != 0 && !in.GetSpendUnconfirmed():
+		minConfs = in.GetMinConfs()
+	// If spend_unconfirmed is true, set minConfs to 0
+	// to allow for spending of unconfirmed utxos
+	case in.GetSpendUnconfirmed():
+		minConfs = 0
+	}
+
 	// We will ask the wallet to create a tx using this fee rate. We set
 	// dryRun=true to avoid inflating the change addresses in the db.
 	var tx *txauthor.AuthoredTx
+
 	wallet := r.server.cc.Wallet
+
 	err = wallet.WithCoinSelectLock(func() error {
-		tx, err = wallet.CreateSimpleTx(outputs, feePerKw, true)
+		tx, err = wallet.CreateSimpleTx(outputs, feePerKw, minConfs, true)
 		return err
 	})
 	if err != nil {
@@ -1155,6 +1173,7 @@ func (r *rpcServer) EstimateFee(ctx context.Context,
 	for _, out := range tx.Tx.TxOut {
 		totalOutput += out.Value
 	}
+
 	totalFee := int64(tx.TotalInput) - totalOutput
 
 	resp := &lnrpc.EstimateFeeResponse{

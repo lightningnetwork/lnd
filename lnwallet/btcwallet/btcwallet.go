@@ -298,7 +298,7 @@ func (b *BtcWallet) IsOurAddress(a btcutil.Address) bool {
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
-	feeRate chainfee.SatPerKWeight, minconf int32, label string) (*wire.MsgTx, error) {
+	feeRate chainfee.SatPerKWeight, minConfs int32, label string) (*wire.MsgTx, error) {
 
 	// Convert our fee rate from sat/kw to sat/kb since it's required by
 	// SendOutputs.
@@ -309,13 +309,13 @@ func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
 		return nil, lnwallet.ErrNoOutputs
 	}
 
-	// Sanity check minconf.
-	if minconf < 0 {
+	// Sanity check minConfs.
+	if minConfs < 0 {
 		return nil, lnwallet.ErrInvalidMinconf
 	}
 
 	return b.wallet.SendOutputs(
-		outputs, defaultAccount, minconf, feeSatPerKB, label,
+		outputs, defaultAccount, minConfs, feeSatPerKB, label,
 	)
 }
 
@@ -333,7 +333,8 @@ func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) CreateSimpleTx(outputs []*wire.TxOut,
-	feeRate chainfee.SatPerKWeight, dryRun bool) (*txauthor.AuthoredTx, error) {
+	feeRate chainfee.SatPerKWeight, minConfs int32,
+	dryRun bool) (*txauthor.AuthoredTx, error) {
 
 	// The fee rate is passed in using units of sat/kw, so we'll convert
 	// this to sat/KB as the CreateSimpleTx method requires this unit.
@@ -343,6 +344,12 @@ func (b *BtcWallet) CreateSimpleTx(outputs []*wire.TxOut,
 	if len(outputs) < 1 {
 		return nil, lnwallet.ErrNoOutputs
 	}
+
+	// Sanity check minConfs.
+	if minConfs < 0 {
+		return nil, lnwallet.ErrInvalidMinconf
+	}
+
 	for _, output := range outputs {
 		// When checking an output for things like dusty-ness, we'll
 		// use the default mempool relay fee rather than the target
@@ -357,7 +364,7 @@ func (b *BtcWallet) CreateSimpleTx(outputs []*wire.TxOut,
 		}
 	}
 
-	return b.wallet.CreateSimpleTx(defaultAccount, outputs, 1, feeSatPerKB, dryRun)
+	return b.wallet.CreateSimpleTx(defaultAccount, outputs, minConfs, feeSatPerKB, dryRun)
 }
 
 // LockOutpoint marks an outpoint as locked meaning it will no longer be deemed

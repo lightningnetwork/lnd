@@ -187,7 +187,7 @@ type WalletController interface {
 	//
 	// NOTE: This method requires the global coin selection lock to be held.
 	SendOutputs(outputs []*wire.TxOut,
-		feeRate chainfee.SatPerKWeight, minconf int32, label string) (*wire.MsgTx, error)
+		feeRate chainfee.SatPerKWeight, minConfs int32, label string) (*wire.MsgTx, error)
 
 	// CreateSimpleTx creates a Bitcoin transaction paying to the specified
 	// outputs. The transaction is not broadcasted to the network. In the
@@ -202,7 +202,7 @@ type WalletController interface {
 	//
 	// NOTE: This method requires the global coin selection lock to be held.
 	CreateSimpleTx(outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight,
-		dryRun bool) (*txauthor.AuthoredTx, error)
+		minConfs int32, dryRun bool) (*txauthor.AuthoredTx, error)
 
 	// ListUnspentWitness returns all unspent outputs which are version 0
 	// witness programs. The 'minconfirms' and 'maxconfirms' parameters
@@ -213,7 +213,7 @@ type WalletController interface {
 	// outputs with at least 'minconfirms'.
 	//
 	// NOTE: This method requires the global coin selection lock to be held.
-	ListUnspentWitness(minconfirms, maxconfirms int32) ([]*Utxo, error)
+	ListUnspentWitness(minConfs, maxConfs int32) ([]*Utxo, error)
 
 	// ListTransactionDetails returns a list of all transactions which are
 	// relevant to the wallet over [startHeight;endHeight]. If start height

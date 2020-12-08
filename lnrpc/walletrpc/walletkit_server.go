@@ -981,6 +981,24 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 			"specify either target_conf or set_per_vbyte")
 	}
 
+	var (
+		// minConfs can be provided by the RPC request,
+		// but defaults to defaultMinConf (1).
+		minConfs = int32(defaultMinConf)
+	)
+
+	switch {
+	// If min_confs was specified as non-zero in the RPC request,
+	// and spend_unconfirmed is false (the default if not provided),
+	// set minConfs to that number
+	case req.GetMinConfs() != 0 && !req.GetSpendUnconfirmed():
+		minConfs = req.GetMinConfs()
+	// If spend_unconfirmed is true, set minConfs to 0
+	// to allow for spending of unconfirmed utxos
+	case req.GetSpendUnconfirmed():
+		minConfs = 0
+	}
+
 	// The RPC parsing part is now over. Several of the following operations
 	// require us to hold the global coin selection lock so we do the rest
 	// of the tasks while holding the lock. The result is a list of locked
@@ -992,7 +1010,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		if len(packet.UnsignedTx.TxIn) > 0 {
 			// Get a list of all unspent witness outputs.
 			utxos, err := w.cfg.Wallet.ListUnspentWitness(
-				defaultMinConf, defaultMaxConf,
+				minConfs, defaultMaxConf,
 			)
 			if err != nil {
 				return err

@@ -532,6 +532,13 @@ message FundPsbtRequest {
         */
         uint32 sat_per_vbyte = 4;
     }
+
+    // The minimum number of confirmations each one of your outputs used for
+    // the transaction must satisfy.
+    int32 min_confs = 5;
+
+    // Whether unconfirmed outputs should be used as inputs for the transaction.
+    bool spend_unconfirmed = 6;
 }
 message FundPsbtResponse {
     /*

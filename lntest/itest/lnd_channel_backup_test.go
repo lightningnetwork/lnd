@@ -895,7 +895,7 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	if testCase.channelsUpdated {
 		invoice := &lnrpc.Invoice{
 			Memo:  "testing",
-			Value: 10000,
+			Value: 100000,
 		}
 		invoiceResp, err := to.AddInvoice(ctxt, invoice)
 		if err != nil {

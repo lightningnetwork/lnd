@@ -2218,3 +2218,44 @@ func TestRequiredTxOuts(t *testing.T) {
 		})
 	}
 }
+
+// TestSweeperShutdownHandling tests that we notify callers when the sweeper
+// cannot handle requests since it's in the process of shutting down.
+func TestSweeperShutdownHandling(t *testing.T) {
+	ctx := createSweeperTestContext(t)
+
+	// Make the backing notifier break down. This is what happens during
+	// lnd shut down, since the notifier is stopped before the sweeper.
+	require.Len(t, ctx.notifier.epochChan, 1)
+	for epochChan := range ctx.notifier.epochChan {
+		close(epochChan)
+	}
+
+	// Give the collector some time to exit.
+	time.Sleep(50 * time.Millisecond)
+
+	// Now trying to sweep inputs should return an error on the error
+	// channel.
+	resultChan, err := ctx.sweeper.SweepInput(
+		spendableInputs[0], defaultFeePref,
+	)
+	require.NoError(t, err)
+
+	select {
+	case res := <-resultChan:
+		require.Equal(t, ErrSweeperShuttingDown, res.Err)
+
+	case <-time.After(defaultTestTimeout):
+		t.Fatalf("no result arrived")
+	}
+
+	// Stop the sweeper properly.
+	err = ctx.sweeper.Stop()
+	require.NoError(t, err)
+
+	// Now attempting to sweep an input should error out immediately.
+	_, err = ctx.sweeper.SweepInput(
+		spendableInputs[0], defaultFeePref,
+	)
+	require.Error(t, err)
+}

@@ -184,8 +184,24 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 	block = mineBlocks(t, net, 1, expectedTxes)[0]
 	require.Len(t.t, block.Transactions, expectedTxes+1)
 
+	var secondLevelMaturity uint32
+	switch c {
+
+	// If this is a channel of the anchor type, we will subtract one block
+	// from the default CSV, as the Sweeper will handle the input, and the Sweeper
+	// sweeps the input as soon as the lock expires.
+	case commitTypeAnchors:
+		secondLevelMaturity = defaultCSV - 1
+
+	// For non-anchor channel types, the nursery will handle sweeping the
+	// second level output, and it will wait one extra block before
+	// sweeping it.
+	default:
+		secondLevelMaturity = defaultCSV
+	}
+
 	// Keep track of the second level tx maturity.
-	carolSecondLevelCSV := uint32(defaultCSV)
+	carolSecondLevelCSV := secondLevelMaturity
 
 	// When Bob notices Carol's second level transaction in the block, he
 	// will extract the preimage and broadcast a second level tx to claim
@@ -236,7 +252,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 
 	// Keep track of Bob's second level maturity, and decrement our track
 	// of Carol's.
-	bobSecondLevelCSV := uint32(defaultCSV)
+	bobSecondLevelCSV := secondLevelMaturity
 	carolSecondLevelCSV--
 
 	// Now that the preimage from Bob has hit the chain, restart Alice to

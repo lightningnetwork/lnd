@@ -105,102 +105,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	// If we don't have a success transaction, then this means that this is
 	// an output on the remote party's commitment transaction.
 	if h.htlcResolution.SignedSuccessTx == nil {
-		// If we don't already have the sweep transaction constructed,
-		// we'll do so and broadcast it.
-		if h.sweepTx == nil {
-			log.Infof("%T(%x): crafting sweep tx for "+
-				"incoming+remote htlc confirmed", h,
-				h.htlc.RHash[:])
-
-			// Before we can craft out sweeping transaction, we
-			// need to create an input which contains all the items
-			// required to add this input to a sweeping transaction,
-			// and generate a witness.
-			inp := input.MakeHtlcSucceedInput(
-				&h.htlcResolution.ClaimOutpoint,
-				&h.htlcResolution.SweepSignDesc,
-				h.htlcResolution.Preimage[:],
-				h.broadcastHeight,
-				h.htlcResolution.CsvDelay,
-			)
-
-			// With the input created, we can now generate the full
-			// sweep transaction, that we'll use to move these
-			// coins back into the backing wallet.
-			//
-			// TODO: Set tx lock time to current block height
-			// instead of zero. Will be taken care of once sweeper
-			// implementation is complete.
-			//
-			// TODO: Use time-based sweeper and result chan.
-			var err error
-			h.sweepTx, err = h.Sweeper.CreateSweepTx(
-				[]input.Input{&inp},
-				sweep.FeePreference{
-					ConfTarget: sweepConfTarget,
-				}, 0,
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			log.Infof("%T(%x): crafted sweep tx=%v", h,
-				h.htlc.RHash[:], spew.Sdump(h.sweepTx))
-
-			// With the sweep transaction signed, we'll now
-			// Checkpoint our state.
-			if err := h.Checkpoint(h); err != nil {
-				log.Errorf("unable to Checkpoint: %v", err)
-				return nil, err
-			}
-		}
-
-		// Regardless of whether an existing transaction was found or newly
-		// constructed, we'll broadcast the sweep transaction to the
-		// network.
-		label := labels.MakeLabel(
-			labels.LabelTypeChannelClose, &h.ShortChanID,
-		)
-		err := h.PublishTx(h.sweepTx, label)
-		if err != nil {
-			log.Infof("%T(%x): unable to publish tx: %v",
-				h, h.htlc.RHash[:], err)
-			return nil, err
-		}
-
-		// With the sweep transaction broadcast, we'll wait for its
-		// confirmation.
-		sweepTXID := h.sweepTx.TxHash()
-		sweepScript := h.sweepTx.TxOut[0].PkScript
-		confNtfn, err := h.Notifier.RegisterConfirmationsNtfn(
-			&sweepTXID, sweepScript, 1, h.broadcastHeight,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		log.Infof("%T(%x): waiting for sweep tx (txid=%v) to be "+
-			"confirmed", h, h.htlc.RHash[:], sweepTXID)
-
-		select {
-		case _, ok := <-confNtfn.Confirmed:
-			if !ok {
-				return nil, errResolverShuttingDown
-			}
-
-		case <-h.quit:
-			return nil, errResolverShuttingDown
-		}
-
-		// Once the transaction has received a sufficient number of
-		// confirmations, we'll mark ourselves as fully resolved and exit.
-		h.resolved = true
-
-		// Checkpoint the resolver, and write the outcome to disk.
-		return nil, h.checkpointClaim(
-			&sweepTXID,
-			channeldb.ResolverOutcomeClaimed,
-		)
+		return h.resolveRemoteCommitOutput()
 	}
 
 	log.Infof("%T(%x): broadcasting second-layer transition tx: %v",
@@ -258,6 +163,108 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	h.resolved = true
 	return nil, h.checkpointClaim(
 		spend.SpenderTxHash, channeldb.ResolverOutcomeClaimed,
+	)
+}
+
+// resolveRemoteCommitOutput handles sweeping an HTLC output on the remote
+// commitment with the preimage. In this case we can sweep the output directly,
+// and don't have to broadcast a second-level transaction.
+func (h *htlcSuccessResolver) resolveRemoteCommitOutput() (
+	ContractResolver, error) {
+
+	// If we don't already have the sweep transaction constructed, we'll do
+	// so and broadcast it.
+	if h.sweepTx == nil {
+		log.Infof("%T(%x): crafting sweep tx for incoming+remote "+
+			"htlc confirmed", h, h.htlc.RHash[:])
+
+		// Before we can craft out sweeping transaction, we need to
+		// create an input which contains all the items required to add
+		// this input to a sweeping transaction, and generate a
+		// witness.
+		inp := input.MakeHtlcSucceedInput(
+			&h.htlcResolution.ClaimOutpoint,
+			&h.htlcResolution.SweepSignDesc,
+			h.htlcResolution.Preimage[:],
+			h.broadcastHeight,
+			h.htlcResolution.CsvDelay,
+		)
+
+		// With the input created, we can now generate the full sweep
+		// transaction, that we'll use to move these coins back into
+		// the backing wallet.
+		//
+		// TODO: Set tx lock time to current block height instead of
+		// zero. Will be taken care of once sweeper implementation is
+		// complete.
+		//
+		// TODO: Use time-based sweeper and result chan.
+		var err error
+		h.sweepTx, err = h.Sweeper.CreateSweepTx(
+			[]input.Input{&inp},
+			sweep.FeePreference{
+				ConfTarget: sweepConfTarget,
+			}, 0,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		log.Infof("%T(%x): crafted sweep tx=%v", h,
+			h.htlc.RHash[:], spew.Sdump(h.sweepTx))
+
+		// With the sweep transaction signed, we'll now Checkpoint our
+		// state.
+		if err := h.Checkpoint(h); err != nil {
+			log.Errorf("unable to Checkpoint: %v", err)
+			return nil, err
+		}
+	}
+
+	// Regardless of whether an existing transaction was found or newly
+	// constructed, we'll broadcast the sweep transaction to the network.
+	label := labels.MakeLabel(
+		labels.LabelTypeChannelClose, &h.ShortChanID,
+	)
+	err := h.PublishTx(h.sweepTx, label)
+	if err != nil {
+		log.Infof("%T(%x): unable to publish tx: %v",
+			h, h.htlc.RHash[:], err)
+		return nil, err
+	}
+
+	// With the sweep transaction broadcast, we'll wait for its
+	// confirmation.
+	sweepTXID := h.sweepTx.TxHash()
+	sweepScript := h.sweepTx.TxOut[0].PkScript
+	confNtfn, err := h.Notifier.RegisterConfirmationsNtfn(
+		&sweepTXID, sweepScript, 1, h.broadcastHeight,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Infof("%T(%x): waiting for sweep tx (txid=%v) to be "+
+		"confirmed", h, h.htlc.RHash[:], sweepTXID)
+
+	select {
+	case _, ok := <-confNtfn.Confirmed:
+		if !ok {
+			return nil, errResolverShuttingDown
+		}
+
+	case <-h.quit:
+		return nil, errResolverShuttingDown
+	}
+
+	// Once the transaction has received a sufficient number of
+	// confirmations, we'll mark ourselves as fully resolved and exit.
+	h.resolved = true
+
+	// Checkpoint the resolver, and write the outcome to disk.
+	return nil, h.checkpointClaim(
+		&sweepTXID,
+		channeldb.ResolverOutcomeClaimed,
 	)
 }
 

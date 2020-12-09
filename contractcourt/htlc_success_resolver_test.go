@@ -2,16 +2,19 @@ package contractcourt
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"reflect"
 	"testing"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -260,6 +263,186 @@ func TestHtlcSuccessSecondStageResolution(t *testing.T) {
 	testHtlcSuccess(
 		t, twoStageResolution, checkpoints,
 	)
+}
+
+// TestHtlcSuccessSecondStageResolutionSweeper test that a resolver with
+// non-nil SignDetails will offer the second-level transaction to the sweeper
+// for re-signing.
+func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
+	commitOutpoint := wire.OutPoint{Index: 2}
+	htlcOutpoint := wire.OutPoint{Index: 3}
+
+	successTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{
+				PreviousOutPoint: commitOutpoint,
+			},
+		},
+		TxOut: []*wire.TxOut{
+			{
+				Value:    123,
+				PkScript: []byte{0xff, 0xff},
+			},
+		},
+	}
+
+	reSignedSuccessTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{
+				PreviousOutPoint: wire.OutPoint{
+					Hash:  chainhash.Hash{0xaa, 0xbb},
+					Index: 0,
+				},
+			},
+			successTx.TxIn[0],
+			{
+				PreviousOutPoint: wire.OutPoint{
+					Hash:  chainhash.Hash{0xaa, 0xbb},
+					Index: 2,
+				},
+			},
+		},
+
+		TxOut: []*wire.TxOut{
+			{
+				Value:    111,
+				PkScript: []byte{0xaa, 0xaa},
+			},
+			successTx.TxOut[0],
+		},
+	}
+	reSignedHash := successTx.TxHash()
+
+	sweepTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+
+			{
+				PreviousOutPoint: wire.OutPoint{
+					Hash:  reSignedHash,
+					Index: 1,
+				},
+			},
+		},
+		TxOut: []*wire.TxOut{{}},
+	}
+	sweepHash := sweepTx.TxHash()
+
+	// twoStageResolution is a resolution for htlc on our own commitment
+	// which is spent from the signed success tx.
+	twoStageResolution := lnwallet.IncomingHtlcResolution{
+		Preimage:        [32]byte{},
+		CsvDelay:        4,
+		SignedSuccessTx: successTx,
+		SignDetails: &input.SignDetails{
+			SignDesc: testSignDesc,
+			PeerSig:  testSig,
+		},
+		ClaimOutpoint: htlcOutpoint,
+		SweepSignDesc: testSignDesc,
+	}
+
+	firstStage := &channeldb.ResolverReport{
+		OutPoint:        commitOutpoint,
+		Amount:          testHtlcAmt.ToSatoshis(),
+		ResolverType:    channeldb.ResolverTypeIncomingHtlc,
+		ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
+		SpendTxID:       &reSignedHash,
+	}
+
+	secondStage := &channeldb.ResolverReport{
+		OutPoint:        htlcOutpoint,
+		Amount:          btcutil.Amount(testSignDesc.Output.Value),
+		ResolverType:    channeldb.ResolverTypeIncomingHtlc,
+		ResolverOutcome: channeldb.ResolverOutcomeClaimed,
+		SpendTxID:       &sweepHash,
+	}
+
+	checkpoints := []checkpoint{
+		{
+			// The HTLC output on the commitment should be offered
+			// to the sweeper. We'll notify that it gets spent.
+			preCheckpoint: func(ctx *htlcSuccessResolverTestContext,
+				_ bool) error {
+
+				inp := <-ctx.resolver.Sweeper.(*mockSweeper).
+					sweptInputs
+				op := inp.OutPoint()
+				if *op != commitOutpoint {
+					return fmt.Errorf("outpoint %v swept, "+
+						"expected %v", op,
+						commitOutpoint)
+				}
+
+				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
+					SpendingTx:        reSignedSuccessTx,
+					SpenderTxHash:     &reSignedHash,
+					SpenderInputIndex: 1,
+					SpendingHeight:    10,
+				}
+				return nil
+
+			},
+			// incubating=true is used to signal that the
+			// second-level transaction was confirmed.
+			incubating: true,
+		},
+		{
+			// The resolver will wait for the second-level's CSV
+			// lock to expire.
+			preCheckpoint: func(ctx *htlcSuccessResolverTestContext,
+				resumed bool) error {
+
+				// If we are resuming from a checkpoint, we
+				// expect the resolver to re-subscribe to a
+				// spend, hence we must resend it.
+				if resumed {
+					ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
+						SpendingTx:        reSignedSuccessTx,
+						SpenderTxHash:     &reSignedHash,
+						SpenderInputIndex: 1,
+						SpendingHeight:    10,
+					}
+				}
+
+				ctx.notifier.EpochChan <- &chainntnfs.BlockEpoch{
+					Height: 13,
+				}
+
+				// We expect it to sweep the second-level
+				// transaction we notfied about above.
+				inp := <-ctx.resolver.Sweeper.(*mockSweeper).
+					sweptInputs
+				op := inp.OutPoint()
+				exp := wire.OutPoint{
+					Hash:  reSignedHash,
+					Index: 1,
+				}
+				if *op != exp {
+					return fmt.Errorf("swept outpoint %v, expected %v",
+						op, exp)
+				}
+
+				// Notify about the spend, which should resolve
+				// the resolver.
+				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
+					SpendingTx:     sweepTx,
+					SpenderTxHash:  &sweepHash,
+					SpendingHeight: 14,
+				}
+
+				return nil
+			},
+
+			incubating: true,
+			resolved:   true,
+			reports: []*channeldb.ResolverReport{
+				secondStage,
+				firstStage,
+			},
+		},
+	}
+
+	testHtlcSuccess(t, twoStageResolution, checkpoints)
 }
 
 // checkpoint holds expected data we expect the resolver to checkpoint itself

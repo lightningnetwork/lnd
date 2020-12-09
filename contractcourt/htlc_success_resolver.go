@@ -228,12 +228,9 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() (
 		log.Infof("%T(%x): crafted sweep tx=%v", h,
 			h.htlc.RHash[:], spew.Sdump(h.sweepTx))
 
-		// With the sweep transaction signed, we'll now Checkpoint our
-		// state.
-		if err := h.Checkpoint(h); err != nil {
-			log.Errorf("unable to Checkpoint: %v", err)
-			return nil, err
-		}
+		// TODO(halseth): should checkpoint sweep tx to DB? Since after
+		// a restart we might create a different tx, that will conflict
+		// with the published one.
 	}
 
 	// Regardless of whether an existing transaction was found or newly

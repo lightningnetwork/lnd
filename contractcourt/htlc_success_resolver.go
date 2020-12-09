@@ -108,6 +108,38 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 		return h.resolveRemoteCommitOutput()
 	}
 
+	// Otherwise this an output on our own commitment, and we must start by
+	// broadcasting the second-level success transaction.
+	secondLevelOutpoint, err := h.broadcastSuccessTx()
+	if err != nil {
+		return nil, err
+	}
+
+	// To wrap this up, we'll wait until the second-level transaction has
+	// been spent, then fully resolve the contract.
+	log.Infof("%T(%x): waiting for second-level HTLC output to be spent "+
+		"after csv_delay=%v", h, h.htlc.RHash[:], h.htlcResolution.CsvDelay)
+
+	spend, err := waitForSpend(
+		secondLevelOutpoint,
+		h.htlcResolution.SweepSignDesc.Output.PkScript,
+		h.broadcastHeight, h.Notifier, h.quit,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	h.resolved = true
+	return nil, h.checkpointClaim(
+		spend.SpenderTxHash, channeldb.ResolverOutcomeClaimed,
+	)
+}
+
+// broadcastSuccessTx handles an HTLC output on our local commitment by
+// broadcasting the second-level success transaction. It returns the ultimate
+// outpoint of the second-level tx, that we must wait to be spent for the
+// resolver to be fully resolved.
+func (h *htlcSuccessResolver) broadcastSuccessTx() (*wire.OutPoint, error) {
 	log.Infof("%T(%x): broadcasting second-layer transition tx: %v",
 		h, h.htlc.RHash[:], spew.Sdump(h.htlcResolution.SignedSuccessTx))
 
@@ -146,24 +178,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 		}
 	}
 
-	// To wrap this up, we'll wait until the second-level transaction has
-	// been spent, then fully resolve the contract.
-	log.Infof("%T(%x): waiting for second-level HTLC output to be spent "+
-		"after csv_delay=%v", h, h.htlc.RHash[:], h.htlcResolution.CsvDelay)
-
-	spend, err := waitForSpend(
-		&h.htlcResolution.ClaimOutpoint,
-		h.htlcResolution.SweepSignDesc.Output.PkScript,
-		h.broadcastHeight, h.Notifier, h.quit,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	h.resolved = true
-	return nil, h.checkpointClaim(
-		spend.SpenderTxHash, channeldb.ResolverOutcomeClaimed,
-	)
+	return &h.htlcResolution.ClaimOutpoint, nil
 }
 
 // resolveRemoteCommitOutput handles sweeping an HTLC output on the remote

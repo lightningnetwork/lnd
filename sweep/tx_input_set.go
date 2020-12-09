@@ -293,10 +293,10 @@ func (t *txInputSet) add(input input.Input, constraints addConstraints) bool {
 // minimizing any negative externalities we cause for the Bitcoin system as a
 // whole.
 func (t *txInputSet) addPositiveYieldInputs(sweepableInputs []txInput) {
-	for _, input := range sweepableInputs {
+	for i, inp := range sweepableInputs {
 		// Apply relaxed constraints for force sweeps.
 		constraints := constraintsRegular
-		if input.parameters().Force {
+		if inp.parameters().Force {
 			constraints = constraintsForce
 		}
 
@@ -304,16 +304,26 @@ func (t *txInputSet) addPositiveYieldInputs(sweepableInputs []txInput) {
 		// succeed because it wouldn't increase the output value,
 		// return. Assuming inputs are sorted by yield, any further
 		// inputs wouldn't increase the output value either.
-		if !t.add(input, constraints) {
+		if !t.add(inp, constraints) {
+			var rem []input.Input
+			for j := i; j < len(sweepableInputs); j++ {
+				rem = append(rem, sweepableInputs[j])
+			}
+			log.Debugf("%d negative yield inputs not added to "+
+				"input set: %v", len(rem),
+				inputTypeSummary(rem))
 			return
 		}
+
+		log.Debugf("Added positive yield input %v to input set",
+			inputTypeSummary([]input.Input{inp}))
 	}
 
 	// We managed to add all inputs to the set.
 }
 
-// tryAddWalletInputsIfNeeded retrieves utxos from the wallet and tries adding as
-// many as required to bring the tx output value above the given minimum.
+// tryAddWalletInputsIfNeeded retrieves utxos from the wallet and tries adding
+// as many as required to bring the tx output value above the given minimum.
 func (t *txInputSet) tryAddWalletInputsIfNeeded() error {
 	// If we've already have enough to pay the transaction fees and have at
 	// least one output materialize, no action is needed.

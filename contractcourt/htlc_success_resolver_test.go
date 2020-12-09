@@ -3,7 +3,6 @@ package contractcourt
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"reflect"
 	"testing"
 
@@ -22,36 +21,57 @@ import (
 
 var testHtlcAmt = lnwire.MilliSatoshi(200000)
 
-type htlcSuccessResolverTestContext struct {
-	resolver           *htlcSuccessResolver
+type htlcResolverTestContext struct {
+	resolver ContractResolver
+
+	checkpoint func(_ ContractResolver,
+		_ ...*channeldb.ResolverReport) error
+
 	notifier           *mock.ChainNotifier
 	resolverResultChan chan resolveResult
-	t                  *testing.T
+	resolutionChan     chan ResolutionMsg
+
+	t *testing.T
 }
 
-func newHtlcSuccessResolverTextContext(t *testing.T, checkpoint io.Reader) *htlcSuccessResolverTestContext {
+func newHtlcResolverTestContext(t *testing.T,
+	newResolver func(htlc channeldb.HTLC,
+		cfg ResolverConfig) ContractResolver) *htlcResolverTestContext {
+
 	notifier := &mock.ChainNotifier{
 		EpochChan: make(chan *chainntnfs.BlockEpoch, 1),
 		SpendChan: make(chan *chainntnfs.SpendDetail, 1),
 		ConfChan:  make(chan *chainntnfs.TxConfirmation, 1),
 	}
 
-	checkPointChan := make(chan struct{}, 1)
-
-	testCtx := &htlcSuccessResolverTestContext{
-		notifier: notifier,
-		t:        t,
+	testCtx := &htlcResolverTestContext{
+		checkpoint:     nil,
+		notifier:       notifier,
+		resolutionChan: make(chan ResolutionMsg, 1),
+		t:              t,
 	}
 
+	witnessBeacon := newMockWitnessBeacon()
 	chainCfg := ChannelArbitratorConfig{
 		ChainArbitratorConfig: ChainArbitratorConfig{
-			Notifier: notifier,
+			Notifier:   notifier,
+			PreimageDB: witnessBeacon,
 			PublishTx: func(_ *wire.MsgTx, _ string) error {
 				return nil
 			},
 			Sweeper: newMockSweeper(),
 			IncubateOutputs: func(wire.OutPoint, *lnwallet.OutgoingHtlcResolution,
 				*lnwallet.IncomingHtlcResolution, uint32) error {
+				return nil
+			},
+			DeliverResolutionMsg: func(msgs ...ResolutionMsg) error {
+				if len(msgs) != 1 {
+					return fmt.Errorf("expected 1 "+
+						"resolution msg, instead got %v",
+						len(msgs))
+				}
+
+				testCtx.resolutionChan <- msgs[0]
 				return nil
 			},
 		},
@@ -61,43 +81,31 @@ func newHtlcSuccessResolverTextContext(t *testing.T, checkpoint io.Reader) *htlc
 			return nil
 		},
 	}
+	// Since we want to replace this checkpoint method later in the test,
+	// we wrap the call to it in a closure. The linter will complain about
+	// this so set nolint directive.
+	checkpointFunc := func(c ContractResolver, // nolint
+		r ...*channeldb.ResolverReport) error {
+		return testCtx.checkpoint(c, r...)
+	}
 
 	cfg := ResolverConfig{
 		ChannelArbitratorConfig: chainCfg,
-		Checkpoint: func(_ ContractResolver,
-			_ ...*channeldb.ResolverReport) error {
-
-			checkPointChan <- struct{}{}
-			return nil
-		},
+		Checkpoint:              checkpointFunc,
 	}
+
 	htlc := channeldb.HTLC{
 		RHash:     testResHash,
 		OnionBlob: testOnionBlob,
 		Amt:       testHtlcAmt,
 	}
-	if checkpoint != nil {
-		var err error
-		testCtx.resolver, err = newSuccessResolverFromReader(checkpoint, cfg)
-		if err != nil {
-			t.Fatal(err)
-		}
 
-		testCtx.resolver.Supplement(htlc)
-
-	} else {
-
-		testCtx.resolver = &htlcSuccessResolver{
-			contractResolverKit: *newContractResolverKit(cfg),
-			htlcResolution:      lnwallet.IncomingHtlcResolution{},
-			htlc:                htlc,
-		}
-	}
+	testCtx.resolver = newResolver(htlc, cfg)
 
 	return testCtx
 }
 
-func (i *htlcSuccessResolverTestContext) resolve() {
+func (i *htlcResolverTestContext) resolve() {
 	// Start resolver.
 	i.resolverResultChan = make(chan resolveResult, 1)
 	go func() {
@@ -109,7 +117,7 @@ func (i *htlcSuccessResolverTestContext) resolve() {
 	}()
 }
 
-func (i *htlcSuccessResolverTestContext) waitForResult() {
+func (i *htlcResolverTestContext) waitForResult() {
 	i.t.Helper()
 
 	result := <-i.resolverResultChan
@@ -152,11 +160,12 @@ func TestHtlcSuccessSingleStage(t *testing.T) {
 		{
 			// We send a confirmation for our sweep tx to indicate
 			// that our sweep succeeded.
-			preCheckpoint: func(ctx *htlcSuccessResolverTestContext,
+			preCheckpoint: func(ctx *htlcResolverTestContext,
 				_ bool) error {
 				// The resolver will create and publish a sweep
 				// tx.
-				ctx.resolver.Sweeper.(*mockSweeper).
+				resolver := ctx.resolver.(*htlcSuccessResolver)
+				resolver.Sweeper.(*mockSweeper).
 					createSweepTxChan <- sweepTx
 
 				// Confirm the sweep, which should resolve it.
@@ -242,7 +251,7 @@ func TestHtlcSuccessSecondStageResolution(t *testing.T) {
 			// It will then wait for the Nursery to spend the
 			// output. We send a spend notification for our output
 			// to resolve our htlc.
-			preCheckpoint: func(ctx *htlcSuccessResolverTestContext,
+			preCheckpoint: func(ctx *htlcResolverTestContext,
 				_ bool) error {
 				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
 					SpendingTx:    sweepTx,
@@ -361,11 +370,11 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 		{
 			// The HTLC output on the commitment should be offered
 			// to the sweeper. We'll notify that it gets spent.
-			preCheckpoint: func(ctx *htlcSuccessResolverTestContext,
+			preCheckpoint: func(ctx *htlcResolverTestContext,
 				_ bool) error {
 
-				inp := <-ctx.resolver.Sweeper.(*mockSweeper).
-					sweptInputs
+				resolver := ctx.resolver.(*htlcSuccessResolver)
+				inp := <-resolver.Sweeper.(*mockSweeper).sweptInputs
 				op := inp.OutPoint()
 				if *op != commitOutpoint {
 					return fmt.Errorf("outpoint %v swept, "+
@@ -389,7 +398,7 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 		{
 			// The resolver will wait for the second-level's CSV
 			// lock to expire.
-			preCheckpoint: func(ctx *htlcSuccessResolverTestContext,
+			preCheckpoint: func(ctx *htlcResolverTestContext,
 				resumed bool) error {
 
 				// If we are resuming from a checkpoint, we
@@ -410,8 +419,8 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 
 				// We expect it to sweep the second-level
 				// transaction we notfied about above.
-				inp := <-ctx.resolver.Sweeper.(*mockSweeper).
-					sweptInputs
+				resolver := ctx.resolver.(*htlcSuccessResolver)
+				inp := <-resolver.Sweeper.(*mockSweeper).sweptInputs
 				op := inp.OutPoint()
 				exp := wire.OutPoint{
 					Hash:  reSignedHash,
@@ -451,7 +460,7 @@ type checkpoint struct {
 	// preCheckpoint is a method that will be called before we reach the
 	// checkpoint, to carry out any needed operations to drive the resolver
 	// in this stage.
-	preCheckpoint func(*htlcSuccessResolverTestContext, bool) error
+	preCheckpoint func(*htlcResolverTestContext, bool) error
 
 	// data we expect the resolver to be checkpointed with next.
 	incubating bool
@@ -471,8 +480,15 @@ func testHtlcSuccess(t *testing.T, resolution lnwallet.IncomingHtlcResolution,
 	// We first run the resolver from start to finish, ensuring it gets
 	// checkpointed at every expected stage. We store the checkpointed data
 	// for the next portion of the test.
-	ctx := newHtlcSuccessResolverTextContext(t, nil)
-	ctx.resolver.htlcResolution = resolution
+	ctx := newHtlcResolverTestContext(t,
+		func(htlc channeldb.HTLC, cfg ResolverConfig) ContractResolver {
+			return &htlcSuccessResolver{
+				contractResolverKit: *newContractResolverKit(cfg),
+				htlc:                htlc,
+				htlcResolution:      resolution,
+			}
+		},
+	)
 
 	checkpointedState := runFromCheckpoint(t, ctx, checkpoints)
 
@@ -480,8 +496,18 @@ func testHtlcSuccess(t *testing.T, resolution lnwallet.IncomingHtlcResolution,
 	// run the test from that checkpoint.
 	for i := range checkpointedState {
 		cp := bytes.NewReader(checkpointedState[i])
-		ctx := newHtlcSuccessResolverTextContext(t, cp)
-		ctx.resolver.htlcResolution = resolution
+		ctx := newHtlcResolverTestContext(t,
+			func(htlc channeldb.HTLC, cfg ResolverConfig) ContractResolver {
+				resolver, err := newSuccessResolverFromReader(cp, cfg)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				resolver.Supplement(htlc)
+				resolver.htlcResolution = resolution
+				return resolver
+			},
+		)
 
 		// Run from the given checkpoint, ensuring we'll hit the rest.
 		_ = runFromCheckpoint(t, ctx, checkpoints[i+1:])
@@ -490,7 +516,7 @@ func testHtlcSuccess(t *testing.T, resolution lnwallet.IncomingHtlcResolution,
 
 // runFromCheckpoint executes the Resolve method on the success resolver, and
 // asserts that it checkpoints itself according to the expected checkpoints.
-func runFromCheckpoint(t *testing.T, ctx *htlcSuccessResolverTestContext,
+func runFromCheckpoint(t *testing.T, ctx *htlcResolverTestContext,
 	expectedCheckpoints []checkpoint) [][]byte {
 
 	defer timeout(t)()
@@ -501,25 +527,34 @@ func runFromCheckpoint(t *testing.T, ctx *htlcSuccessResolverTestContext,
 	// checkpointed state and reports are equal to what we expect.
 	nextCheckpoint := 0
 	checkpointChan := make(chan struct{})
-	ctx.resolver.Checkpoint = func(resolver ContractResolver,
+	ctx.checkpoint = func(resolver ContractResolver,
 		reports ...*channeldb.ResolverReport) error {
 
 		if nextCheckpoint >= len(expectedCheckpoints) {
 			t.Fatal("did not expect more checkpoints")
 		}
 
-		h := resolver.(*htlcSuccessResolver)
-		cp := expectedCheckpoints[nextCheckpoint]
-
-		if h.resolved != cp.resolved {
-			t.Fatalf("expected checkpoint to be resolve=%v, had %v",
-				cp.resolved, h.resolved)
+		var resolved, incubating bool
+		if h, ok := resolver.(*htlcSuccessResolver); ok {
+			resolved = h.resolved
+			incubating = h.outputIncubating
+		}
+		if h, ok := resolver.(*htlcTimeoutResolver); ok {
+			resolved = h.resolved
+			incubating = h.outputIncubating
 		}
 
-		if !reflect.DeepEqual(h.outputIncubating, cp.incubating) {
+		cp := expectedCheckpoints[nextCheckpoint]
+
+		if resolved != cp.resolved {
+			t.Fatalf("expected checkpoint to be resolve=%v, had %v",
+				cp.resolved, resolved)
+		}
+
+		if !reflect.DeepEqual(incubating, cp.incubating) {
 			t.Fatalf("expected checkpoint to be have "+
 				"incubating=%v, had %v", cp.incubating,
-				h.outputIncubating)
+				incubating)
 
 		}
 

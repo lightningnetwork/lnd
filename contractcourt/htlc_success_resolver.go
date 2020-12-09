@@ -243,33 +243,21 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 
 	// To wrap this up, we'll wait until the second-level transaction has
 	// been spent, then fully resolve the contract.
-	spendNtfn, err := h.Notifier.RegisterSpendNtfn(
+	log.Infof("%T(%x): waiting for second-level HTLC output to be spent "+
+		"after csv_delay=%v", h, h.htlc.RHash[:], h.htlcResolution.CsvDelay)
+
+	spend, err := waitForSpend(
 		&h.htlcResolution.ClaimOutpoint,
 		h.htlcResolution.SweepSignDesc.Output.PkScript,
-		h.broadcastHeight,
+		h.broadcastHeight, h.Notifier, h.quit,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	log.Infof("%T(%x): waiting for second-level HTLC output to be spent "+
-		"after csv_delay=%v", h, h.htlc.RHash[:], h.htlcResolution.CsvDelay)
-
-	var spendTxid *chainhash.Hash
-	select {
-	case spend, ok := <-spendNtfn.Spend:
-		if !ok {
-			return nil, errResolverShuttingDown
-		}
-		spendTxid = spend.SpenderTxHash
-
-	case <-h.quit:
-		return nil, errResolverShuttingDown
-	}
-
 	h.resolved = true
 	return nil, h.checkpointClaim(
-		spendTxid, channeldb.ResolverOutcomeClaimed,
+		spend.SpenderTxHash, channeldb.ResolverOutcomeClaimed,
 	)
 }
 

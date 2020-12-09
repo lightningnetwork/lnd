@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
@@ -276,48 +275,11 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 		}
 	}
 
-	var spendTxID *chainhash.Hash
-
-	// waitForOutputResolution waits for the HTLC output to be fully
-	// resolved. The output is considered fully resolved once it has been
-	// spent, and the spending transaction has been fully confirmed.
-	waitForOutputResolution := func() error {
-		// We first need to register to see when the HTLC output itself
-		// has been spent by a confirmed transaction.
-		spendNtfn, err := h.Notifier.RegisterSpendNtfn(
-			&h.htlcResolution.ClaimOutpoint,
-			h.htlcResolution.SweepSignDesc.Output.PkScript,
-			h.broadcastHeight,
-		)
-		if err != nil {
-			return err
-		}
-
-		select {
-		case spendDetail, ok := <-spendNtfn.Spend:
-			if !ok {
-				return errResolverShuttingDown
-			}
-			spendTxID = spendDetail.SpenderTxHash
-
-		case <-h.quit:
-			return errResolverShuttingDown
-		}
-
-		return nil
-	}
-
 	// Now that we've handed off the HTLC to the nursery, we'll watch for a
 	// spend of the output, and make our next move off of that. Depending
 	// on if this is our commitment, or the remote party's commitment,
 	// we'll be watching a different outpoint and script.
 	outpointToWatch, scriptToWatch, err := h.chainDetailsToWatch()
-	if err != nil {
-		return nil, err
-	}
-	spendNtfn, err := h.Notifier.RegisterSpendNtfn(
-		outpointToWatch, scriptToWatch, h.broadcastHeight,
-	)
 	if err != nil {
 		return nil, err
 	}
@@ -328,20 +290,15 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 
 	// We'll block here until either we exit, or the HTLC output on the
 	// commitment transaction has been spent.
-	var (
-		spend *chainntnfs.SpendDetail
-		ok    bool
+	spend, err := waitForSpend(
+		outpointToWatch, scriptToWatch, h.broadcastHeight,
+		h.Notifier, h.quit,
 	)
-	select {
-	case spend, ok = <-spendNtfn.Spend:
-		if !ok {
-			return nil, errResolverShuttingDown
-		}
-		spendTxID = spend.SpenderTxHash
-
-	case <-h.quit:
-		return nil, errResolverShuttingDown
+	if err != nil {
+		return nil, err
 	}
+
+	spendTxID := spend.SpenderTxHash
 
 	// If the spend reveals the pre-image, then we'll enter the clean up
 	// workflow to pass the pre-image back to the incoming link, add it to
@@ -378,9 +335,17 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 	if h.htlcResolution.SignedTimeoutTx != nil {
 		log.Infof("%T(%v): waiting for nursery to spend CSV delayed "+
 			"output", h, h.htlcResolution.ClaimOutpoint)
-		if err := waitForOutputResolution(); err != nil {
+		sweep, err := waitForSpend(
+			&h.htlcResolution.ClaimOutpoint,
+			h.htlcResolution.SweepSignDesc.Output.PkScript,
+			h.broadcastHeight, h.Notifier, h.quit,
+		)
+		if err != nil {
 			return nil, err
 		}
+
+		// Update the spend txid to the hash of the sweep transaction.
+		spendTxID = sweep.SpenderTxHash
 
 		// Once our timeout tx has confirmed, we add a resolution for
 		// our timeoutTx tx first stage transaction.

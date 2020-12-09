@@ -108,6 +108,32 @@ func waitForHeight(waitHeight uint32, notifier chainntnfs.ChainNotifier,
 	}
 }
 
+// waitForSpend waits for the given outpoint to be spent, and returns the
+// details of the spending tx.
+func waitForSpend(op *wire.OutPoint, pkScript []byte, heightHint uint32,
+	notifier chainntnfs.ChainNotifier, quit <-chan struct{}) (
+	*chainntnfs.SpendDetail, error) {
+
+	spendNtfn, err := notifier.RegisterSpendNtfn(
+		op, pkScript, heightHint,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	select {
+	case spendDetail, ok := <-spendNtfn.Spend:
+		if !ok {
+			return nil, errResolverShuttingDown
+		}
+
+		return spendDetail, nil
+
+	case <-quit:
+		return nil, errResolverShuttingDown
+	}
+}
+
 // getCommitTxConfHeight waits for confirmation of the commitment tx and returns
 // the confirmation height.
 func (c *commitSweepResolver) getCommitTxConfHeight() (uint32, error) {

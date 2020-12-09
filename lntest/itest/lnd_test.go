@@ -11019,11 +11019,12 @@ func assertActiveHtlcs(nodes []*lntest.HarnessNode, payHashes ...[]byte) error {
 			// Record all payment hashes active for this channel.
 			htlcHashes := make(map[string]struct{})
 			for _, htlc := range channel.PendingHtlcs {
-				_, ok := htlcHashes[string(htlc.HashLock)]
+				h := hex.EncodeToString(htlc.HashLock)
+				_, ok := htlcHashes[h]
 				if ok {
 					return fmt.Errorf("duplicate HashLock")
 				}
-				htlcHashes[string(htlc.HashLock)] = struct{}{}
+				htlcHashes[h] = struct{}{}
 			}
 
 			// Channel should have exactly the payHashes active.
@@ -11035,12 +11036,13 @@ func assertActiveHtlcs(nodes []*lntest.HarnessNode, payHashes ...[]byte) error {
 
 			// Make sure all the payHashes are active.
 			for _, payHash := range payHashes {
-				if _, ok := htlcHashes[string(payHash)]; ok {
+				h := hex.EncodeToString(payHash)
+				if _, ok := htlcHashes[h]; ok {
 					continue
 				}
 				return fmt.Errorf("node %x didn't have the "+
 					"payHash %v active", node.PubKey[:],
-					payHash)
+					h)
 			}
 		}
 	}

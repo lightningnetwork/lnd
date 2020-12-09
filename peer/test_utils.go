@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -28,10 +29,15 @@ import (
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/lightningnetwork/lnd/ticker"
+	"github.com/stretchr/testify/require"
 )
 
 const (
 	broadcastHeight = 100
+
+	// timeout is a timeout value to use for tests which need to wait for
+	// a return value on a channel.
+	timeout = time.Second * 5
 )
 
 var (
@@ -442,4 +448,57 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	go alicePeer.channelManager()
 
 	return alicePeer, channelBob, cleanUpFunc, nil
+}
+
+type mockMessageConn struct {
+	t *testing.T
+
+	// MessageConn embeds our interface so that the mock does not need to
+	// implement every function. The mock will panic if an unspecified function
+	// is called.
+	MessageConn
+
+	// writtenMessages is a channel that our mock pushes written messages into.
+	writtenMessages chan []byte
+}
+
+func newMockConn(t *testing.T, expectedMessages int) *mockMessageConn {
+	return &mockMessageConn{
+		t:               t,
+		writtenMessages: make(chan []byte, expectedMessages),
+	}
+}
+
+// SetWriteDeadline mocks setting write deadline for our conn.
+func (m *mockMessageConn) SetWriteDeadline(time.Time) error {
+	return nil
+}
+
+// Flush mocks a message conn flush.
+func (m *mockMessageConn) Flush() (int, error) {
+	return 0, nil
+}
+
+// WriteMessage mocks sending of a message on our connection. It will push
+// the bytes sent into the mock's writtenMessages channel.
+func (m *mockMessageConn) WriteMessage(msg []byte) error {
+	select {
+	case m.writtenMessages <- msg:
+	case <-time.After(timeout):
+		m.t.Fatalf("timeout sending message: %v", msg)
+	}
+
+	return nil
+}
+
+// assertWrite asserts that our mock as had WriteMessage called with the byte
+// slice we expect.
+func (m *mockMessageConn) assertWrite(expected []byte) {
+	select {
+	case actual := <-m.writtenMessages:
+		require.Equal(m.t, expected, actual)
+
+	case <-time.After(timeout):
+		m.t.Fatalf("timeout waiting for write: %v", expected)
+	}
 }

@@ -253,62 +253,25 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 		return nil, nil
 	}
 
-	// If we haven't already sent the output to the utxo nursery, then
-	// we'll do so now.
-	if !h.outputIncubating {
-		log.Tracef("%T(%v): incubating htlc output", h,
-			h.htlcResolution.ClaimOutpoint)
-
-		err := h.IncubateOutputs(
-			h.ChanPoint, &h.htlcResolution, nil,
-			h.broadcastHeight,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		h.outputIncubating = true
-
-		if err := h.Checkpoint(h); err != nil {
-			log.Errorf("unable to Checkpoint: %v", err)
-			return nil, err
-		}
-	}
-
-	// Now that we've handed off the HTLC to the nursery, we'll watch for a
-	// spend of the output, and make our next move off of that. Depending
-	// on if this is our commitment, or the remote party's commitment,
-	// we'll be watching a different outpoint and script.
-	outpointToWatch, scriptToWatch, err := h.chainDetailsToWatch()
+	// Start by spending the HTLC output, either by broadcasting the
+	// second-level timeout transaction, or directly if this is the remote
+	// commitment.
+	commitSpend, err := h.spendHtlcOutput()
 	if err != nil {
 		return nil, err
 	}
 
-	log.Infof("%T(%v): waiting for HTLC output %v to be spent"+
-		"fully confirmed", h, h.htlcResolution.ClaimOutpoint,
-		outpointToWatch)
-
-	// We'll block here until either we exit, or the HTLC output on the
-	// commitment transaction has been spent.
-	spend, err := waitForSpend(
-		outpointToWatch, scriptToWatch, h.broadcastHeight,
-		h.Notifier, h.quit,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	spendTxID := spend.SpenderTxHash
+	spendTxID := commitSpend.SpenderTxHash
 
 	// If the spend reveals the pre-image, then we'll enter the clean up
 	// workflow to pass the pre-image back to the incoming link, add it to
 	// the witness cache, and exit.
-	if isSuccessSpend(spend, h.htlcResolution.SignedTimeoutTx != nil) {
+	if isSuccessSpend(commitSpend, h.htlcResolution.SignedTimeoutTx != nil) {
 		log.Infof("%T(%v): HTLC has been swept with pre-image by "+
 			"remote party during timeout flow! Adding pre-image to "+
 			"witness cache", h.htlcResolution.ClaimOutpoint)
 
-		return h.claimCleanUp(spend)
+		return h.claimCleanUp(commitSpend)
 	}
 
 	log.Infof("%T(%v): resolving htlc with incoming fail msg, fully "+
@@ -375,6 +338,60 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 	})
 
 	return nil, h.Checkpoint(h, reports...)
+}
+
+// spendHtlcOutput handles the initial spend of an HTLC output via the timeout
+// clause. If this is our local commitment, the second-level timeout TX will be
+// used to spend the output into the next stage. If this is the remote
+// commitment, the output will be swept directly without the timeout
+// transaction.
+func (h *htlcTimeoutResolver) spendHtlcOutput() (*chainntnfs.SpendDetail, error) {
+	// If we haven't already sent the output to the utxo nursery, then
+	// we'll do so now.
+	if !h.outputIncubating {
+		log.Tracef("%T(%v): incubating htlc output", h,
+			h.htlcResolution.ClaimOutpoint)
+
+		err := h.IncubateOutputs(
+			h.ChanPoint, &h.htlcResolution, nil,
+			h.broadcastHeight,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		h.outputIncubating = true
+
+		if err := h.Checkpoint(h); err != nil {
+			log.Errorf("unable to Checkpoint: %v", err)
+			return nil, err
+		}
+	}
+
+	// Now that we've handed off the HTLC to the nursery, we'll watch for a
+	// spend of the output, and make our next move off of that. Depending
+	// on if this is our commitment, or the remote party's commitment,
+	// we'll be watching a different outpoint and script.
+	outpointToWatch, scriptToWatch, err := h.chainDetailsToWatch()
+	if err != nil {
+		return nil, err
+	}
+
+	log.Infof("%T(%v): waiting for HTLC output %v to be spent"+
+		"fully confirmed", h, h.htlcResolution.ClaimOutpoint,
+		outpointToWatch)
+
+	// We'll block here until either we exit, or the HTLC output on the
+	// commitment transaction has been spent.
+	spend, err := waitForSpend(
+		outpointToWatch, scriptToWatch, h.broadcastHeight,
+		h.Notifier, h.quit,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return spend, err
 }
 
 // Stop signals the resolver to cancel any current resolution processes, and

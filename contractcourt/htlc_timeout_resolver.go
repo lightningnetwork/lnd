@@ -455,6 +455,12 @@ func (h *htlcTimeoutResolver) Encode(w io.Writer) error {
 		return err
 	}
 
+	// We encode the sign details last for backwards compatibility.
+	err := encodeSignDetails(w, h.htlcResolution.SignDetails)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -487,6 +493,16 @@ func newTimeoutResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 	}
 
 	if err := binary.Read(r, endian, &h.htlc.HtlcIndex); err != nil {
+		return nil, err
+	}
+
+	// Sign details is a new field that was added to the htlc resolution,
+	// so it is serialized last for backwards compatibility. We try to read
+	// it, but don't error out if there are not bytes left.
+	signDetails, err := decodeSignDetails(r)
+	if err == nil {
+		h.htlcResolution.SignDetails = signDetails
+	} else if err != io.EOF && err != io.ErrUnexpectedEOF {
 		return nil, err
 	}
 

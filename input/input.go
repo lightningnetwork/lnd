@@ -67,6 +67,22 @@ type TxInfo struct {
 	Weight int64
 }
 
+// SignDetails is a struct containing information needed to resign certain
+// inputs. It is used to re-sign 2nd level HTLC transactions that uses the
+// SINGLE|ANYONECANPAY sighash type, as we have a signature provided by our
+// peer, but we can aggregate multiple of these 2nd level transactions into a
+// new transaction, that needs to be signed by us.
+type SignDetails struct {
+	// SignDesc is the sign descriptor needed for us to sign the input.
+	SignDesc SignDescriptor
+
+	// PeerSig is the peer's signature for this input.
+	PeerSig Signature
+
+	// SigHashType is the sighash signed by the peer.
+	SigHashType txscript.SigHashType
+}
+
 type inputKit struct {
 	outpoint        wire.OutPoint
 	witnessType     WitnessType

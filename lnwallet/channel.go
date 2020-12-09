@@ -5517,6 +5517,14 @@ type IncomingHtlcResolution struct {
 	// claimed directly from the outpoint listed below.
 	SignedSuccessTx *wire.MsgTx
 
+	// SignDetails is non-nil if SignedSuccessTx is non-nil, and the
+	// channel is of the anchor type. As the above HTLC transaction will be
+	// signed by the channel peer using SINGLE|ANYONECANPAY for such
+	// channels, we can use the sign details to add the input-output pair
+	// of the HTLC transaction to another transaction, thereby aggregating
+	// multiple HTLC transactions together, and adding fees as needed.
+	SignDetails *input.SignDetails
+
 	// CsvDelay is the relative time lock (expressed in blocks) that must
 	// pass after the SignedSuccessTx is confirmed in the chain before the
 	// output can be swept.
@@ -5557,6 +5565,14 @@ type OutgoingHtlcResolution struct {
 	// to go to the second level to claim this HTLC. Instead, it can be
 	// claimed directly from the outpoint listed below.
 	SignedTimeoutTx *wire.MsgTx
+
+	// SignDetails is non-nil if SignedTimeoutTx is non-nil, and the
+	// channel is of the anchor type. As the above HTLC transaction will be
+	// signed by the channel peer using SINGLE|ANYONECANPAY for such
+	// channels, we can use the sign details to add the input-output pair
+	// of the HTLC transaction to another transaction, thereby aggregating
+	// multiple HTLC transactions together, and adding fees as needed.
+	SignDetails *input.SignDetails
 
 	// CsvDelay is the relative time lock (expressed in blocks) that must
 	// pass after the SignedTimeoutTx is confirmed in the chain before the
@@ -5689,6 +5705,12 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	}
 	timeoutTx.TxIn[0].Witness = timeoutWitness
 
+	// If this is an anchor type channel, the sign details will let us
+	// re-sign an aggregated tx later.
+	txSignDetails := HtlcSignDetails(
+		chanType, timeoutSignDesc, sigHashType, htlcSig,
+	)
+
 	// Finally, we'll generate the script output that the timeout
 	// transaction creates so we can generate the signDesc required to
 	// complete the claim process after a delay period.
@@ -5709,6 +5731,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	return &OutgoingHtlcResolution{
 		Expiry:          htlc.RefundTimeout,
 		SignedTimeoutTx: timeoutTx,
+		SignDetails:     txSignDetails,
 		CsvDelay:        csvDelay,
 		ClaimOutpoint: wire.OutPoint{
 			Hash:  timeoutTx.TxHash(),
@@ -5821,6 +5844,12 @@ func newIncomingHtlcResolution(signer input.Signer,
 	}
 	successTx.TxIn[0].Witness = successWitness
 
+	// If this is an anchor type channel, the sign details will let us
+	// re-sign an aggregated tx later.
+	txSignDetails := HtlcSignDetails(
+		chanType, successSignDesc, sigHashType, htlcSig,
+	)
+
 	// Finally, we'll generate the script that the second-level transaction
 	// creates so we can generate the proper signDesc to sweep it after the
 	// CSV delay has passed.
@@ -5840,6 +5869,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 	)
 	return &IncomingHtlcResolution{
 		SignedSuccessTx: successTx,
+		SignDetails:     txSignDetails,
 		CsvDelay:        csvDelay,
 		ClaimOutpoint: wire.OutPoint{
 			Hash:  successTx.TxHash(),

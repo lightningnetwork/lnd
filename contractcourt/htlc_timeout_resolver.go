@@ -261,8 +261,6 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 		return nil, err
 	}
 
-	spendTxID := commitSpend.SpenderTxHash
-
 	// If the spend reveals the pre-image, then we'll enter the clean up
 	// workflow to pass the pre-image back to the incoming link, add it to
 	// the witness cache, and exit.
@@ -290,54 +288,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 		return nil, err
 	}
 
-	var reports []*channeldb.ResolverReport
-
-	// Finally, if this was an output on our commitment transaction, we'll
-	// wait for the second-level HTLC output to be spent, and for that
-	// transaction itself to confirm.
-	if h.htlcResolution.SignedTimeoutTx != nil {
-		log.Infof("%T(%v): waiting for nursery to spend CSV delayed "+
-			"output", h, h.htlcResolution.ClaimOutpoint)
-		sweep, err := waitForSpend(
-			&h.htlcResolution.ClaimOutpoint,
-			h.htlcResolution.SweepSignDesc.Output.PkScript,
-			h.broadcastHeight, h.Notifier, h.quit,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		// Update the spend txid to the hash of the sweep transaction.
-		spendTxID = sweep.SpenderTxHash
-
-		// Once our timeout tx has confirmed, we add a resolution for
-		// our timeoutTx tx first stage transaction.
-		timeoutTx := h.htlcResolution.SignedTimeoutTx
-		spendHash := timeoutTx.TxHash()
-
-		reports = append(reports, &channeldb.ResolverReport{
-			OutPoint:        timeoutTx.TxIn[0].PreviousOutPoint,
-			Amount:          h.htlc.Amt.ToSatoshis(),
-			ResolverType:    channeldb.ResolverTypeOutgoingHtlc,
-			ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
-			SpendTxID:       &spendHash,
-		})
-	}
-
-	// With the clean up message sent, we'll now mark the contract
-	// resolved, record the timeout and the sweep txid on disk, and wait.
-	h.resolved = true
-
-	amt := btcutil.Amount(h.htlcResolution.SweepSignDesc.Output.Value)
-	reports = append(reports, &channeldb.ResolverReport{
-		OutPoint:        h.htlcResolution.ClaimOutpoint,
-		Amount:          amt,
-		ResolverType:    channeldb.ResolverTypeOutgoingHtlc,
-		ResolverOutcome: channeldb.ResolverOutcomeTimeout,
-		SpendTxID:       spendTxID,
-	})
-
-	return nil, h.Checkpoint(h, reports...)
+	return h.sweepSecondLevelTransaction(commitSpend)
 }
 
 // spendHtlcOutput handles the initial spend of an HTLC output via the timeout
@@ -392,6 +343,71 @@ func (h *htlcTimeoutResolver) spendHtlcOutput() (*chainntnfs.SpendDetail, error)
 	}
 
 	return spend, err
+}
+
+// sweepSecondLevelTransaction sweeps the output of the confirmed second-level
+// timeout transaction into our wallet. The given SpendDetail should be the
+// confirmed timeout tx spending the HTLC output on the commitment tx.
+func (h *htlcTimeoutResolver) sweepSecondLevelTransaction(
+	commitSpend *chainntnfs.SpendDetail) (ContractResolver, error) {
+
+	var (
+		// spendTxID will be the ultimate spend of the claimOutpoint.
+		// We set it to the commit spend for now, as this is the
+		// ultimate spend in case this is a remote commitment. If we go
+		// through the second-level transaction, we'll update this
+		// accordingly.
+		spendTxID = commitSpend.SpenderTxHash
+
+		reports []*channeldb.ResolverReport
+	)
+
+	// Finally, if this was an output on our commitment transaction, we'll
+	// wait for the second-level HTLC output to be spent, and for that
+	// transaction itself to confirm.
+	if h.htlcResolution.SignedTimeoutTx != nil {
+		log.Infof("%T(%v): waiting for nursery to spend CSV delayed "+
+			"output", h, h.htlcResolution.ClaimOutpoint)
+		sweep, err := waitForSpend(
+			&h.htlcResolution.ClaimOutpoint,
+			h.htlcResolution.SweepSignDesc.Output.PkScript,
+			h.broadcastHeight, h.Notifier, h.quit,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Update the spend txid to the hash of the sweep transaction.
+		spendTxID = sweep.SpenderTxHash
+
+		// Once our sweep of the timeout tx has confirmed, we add a
+		// resolution for our timeoutTx tx first stage transaction.
+		timeoutTx := commitSpend.SpendingTx
+		spendHash := timeoutTx.TxHash()
+
+		reports = append(reports, &channeldb.ResolverReport{
+			OutPoint:        timeoutTx.TxIn[0].PreviousOutPoint,
+			Amount:          h.htlc.Amt.ToSatoshis(),
+			ResolverType:    channeldb.ResolverTypeOutgoingHtlc,
+			ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
+			SpendTxID:       &spendHash,
+		})
+	}
+
+	// With the clean up message sent, we'll now mark the contract
+	// resolved, record the timeout and the sweep txid on disk, and wait.
+	h.resolved = true
+
+	amt := btcutil.Amount(h.htlcResolution.SweepSignDesc.Output.Value)
+	reports = append(reports, &channeldb.ResolverReport{
+		OutPoint:        h.htlcResolution.ClaimOutpoint,
+		Amount:          amt,
+		ResolverType:    channeldb.ResolverTypeOutgoingHtlc,
+		ResolverOutcome: channeldb.ResolverOutcomeTimeout,
+		SpendTxID:       spendTxID,
+	})
+
+	return nil, h.Checkpoint(h, reports...)
 }
 
 // Stop signals the resolver to cancel any current resolution processes, and

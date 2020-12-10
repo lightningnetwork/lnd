@@ -15,6 +15,8 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/pool"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -23,10 +25,6 @@ var (
 
 	// p2wshAddress is a valid pay to witness script hash address.
 	p2wshAddress = "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3"
-
-	// timeout is a timeout value to use for tests which need ot wait for
-	// a return value on a channel.
-	timeout = time.Second * 5
 )
 
 // TestPeerChannelClosureAcceptFeeResponder tests the shutdown responder's
@@ -858,6 +856,120 @@ func TestCustomShutdownScript(t *testing.T) {
 				t.Fatalf("expected delivery script: %x, got: %x",
 					test.expectedScript, shutdownMsg.Address)
 			}
+		})
+	}
+}
+
+// TestStaticRemoteDowngrade tests that we downgrade our static remote feature
+// bit to optional if we have legacy channels with a peer. This ensures that
+// we can stay connected to peers that don't support the feature bit that we
+// have channels with.
+func TestStaticRemoteDowngrade(t *testing.T) {
+	t.Parallel()
+
+	var (
+		// We set the same legacy feature bits for all tests, since
+		// these are not relevant to our test scenario
+		rawLegacy = lnwire.NewRawFeatureVector(
+			lnwire.UpfrontShutdownScriptOptional,
+		)
+		legacy = lnwire.NewFeatureVector(rawLegacy, nil)
+
+		rawFeatureOptional = lnwire.NewRawFeatureVector(
+			lnwire.StaticRemoteKeyOptional,
+		)
+
+		featureOptional = lnwire.NewFeatureVector(
+			rawFeatureOptional, nil,
+		)
+
+		rawFeatureRequired = lnwire.NewRawFeatureVector(
+			lnwire.StaticRemoteKeyRequired,
+		)
+
+		featureRequired = lnwire.NewFeatureVector(
+			rawFeatureRequired, nil,
+		)
+	)
+
+	tests := []struct {
+		name         string
+		legacy       bool
+		features     *lnwire.FeatureVector
+		expectedInit *lnwire.Init
+	}{
+		{
+			name:     "no legacy channel, static optional",
+			legacy:   false,
+			features: featureOptional,
+			expectedInit: &lnwire.Init{
+				GlobalFeatures: rawLegacy,
+				Features:       rawFeatureOptional,
+			},
+		},
+		{
+			name:     "legacy channel, static optional",
+			legacy:   true,
+			features: featureOptional,
+			expectedInit: &lnwire.Init{
+				GlobalFeatures: rawLegacy,
+				Features:       rawFeatureOptional,
+			},
+		},
+		{
+			name:     "no legacy channel, static required",
+			legacy:   false,
+			features: featureRequired,
+			expectedInit: &lnwire.Init{
+				GlobalFeatures: rawLegacy,
+				Features:       rawFeatureRequired,
+			},
+		},
+		{
+			name:     "legacy channel, static required",
+			legacy:   true,
+			features: featureRequired,
+			expectedInit: &lnwire.Init{
+				GlobalFeatures: rawLegacy,
+				Features:       rawFeatureOptional,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			writeBufferPool := pool.NewWriteBuffer(
+				pool.DefaultWriteBufferGCInterval,
+				pool.DefaultWriteBufferExpiryInterval,
+			)
+
+			writePool := pool.NewWrite(
+				writeBufferPool, 1, timeout,
+			)
+			require.NoError(t, writePool.Start())
+
+			mockConn := newMockConn(t, 1)
+
+			p := Brontide{
+				cfg: Config{
+					LegacyFeatures: legacy,
+					Features:       test.features,
+					Conn:           mockConn,
+					WritePool:      writePool,
+				},
+			}
+
+			var b bytes.Buffer
+			_, err := lnwire.WriteMessage(&b, test.expectedInit, 0)
+			require.NoError(t, err)
+
+			// Send our init message, assert that we write our expected message
+			// and shutdown our write pool.
+			require.NoError(t, p.sendInitMsg(test.legacy))
+			mockConn.assertWrite(b.Bytes())
+			require.NoError(t, writePool.Stop())
 		})
 	}
 }

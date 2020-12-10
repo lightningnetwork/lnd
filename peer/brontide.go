@@ -216,8 +216,8 @@ type Config struct {
 	// SigPool is used when creating *lnwallet.LightningChannel instances.
 	SigPool *lnwallet.SigPool
 
-	// Wallet is used to publish transactions and generate delivery scripts
-	// during the coop close process.
+	// Wallet is used to publish transactions and generates delivery
+	// scripts during the coop close process.
 	Wallet *lnwallet.LightningWallet
 
 	// ChainNotifier is used to receive confirmations of a coop close
@@ -438,7 +438,7 @@ func NewBrontide(cfg Config) *Brontide {
 }
 
 // Start starts all helper goroutines the peer needs for normal operations.  In
-// the case this peer has already been started, then this function is a loop.
+// the case this peer has already been started, then this function is a noop.
 func (p *Brontide) Start() error {
 	if atomic.AddInt32(&p.started, 1) != 1 {
 		return nil
@@ -1184,10 +1184,10 @@ func waitUntilLinkActive(p *Brontide,
 }
 
 // newChanMsgStream is used to create a msgStream between the peer and
-// particular channel link in the htlcswitch.  We utilize additional
+// particular channel link in the htlcswitch. We utilize additional
 // synchronization with the fundingManager to ensure we don't attempt to
 // dispatch a message to a channel before it is fully active. A reference to the
-// channel this stream forwards to his held in scope to prevent unnecessary
+// channel this stream forwards to is held in scope to prevent unnecessary
 // lookups.
 func newChanMsgStream(p *Brontide, cid lnwire.ChannelID) *msgStream {
 
@@ -1298,7 +1298,7 @@ out:
 				continue
 
 			// If they sent us an address type that we don't yet
-			// know of, then this isn't a dire error, so we'll
+			// know of, then this isn't a wire error, so we'll
 			// simply continue parsing the remainder of their
 			// messages.
 			case *lnwire.ErrUnknownAddrType:
@@ -1316,7 +1316,7 @@ out:
 				continue
 
 			// If the error we encountered wasn't just a message we
-			// didn't recognize, then we'll stop all processing s
+			// didn't recognize, then we'll stop all processing as
 			// this is a fatal error.
 			default:
 				break out
@@ -2053,7 +2053,7 @@ func (p *Brontide) channelManager() {
 	defer p.wg.Done()
 
 	// reenableTimeout will fire once after the configured channel status
-	// interval  has elapsed. This will trigger us to sign new channel
+	// interval has elapsed. This will trigger us to sign new channel
 	// updates and broadcast them with the "disabled" flag unset.
 	reenableTimeout := time.After(p.cfg.ChanActiveTimeout)
 
@@ -2185,7 +2185,7 @@ out:
 			close(newChanReq.err)
 
 		// We've just received a local request to close an active
-		// channel. If will either kick of a cooperative channel
+		// channel. It will either kick of a cooperative channel
 		// closure negotiation, or be a notification of a breached
 		// contract that should be abandoned.
 		case req := <-p.localCloseChanReqs:
@@ -2379,7 +2379,7 @@ func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
 func chooseDeliveryScript(upfront,
 	requested lnwire.DeliveryAddress) (lnwire.DeliveryAddress, error) {
 
-	// If no upfront upfront shutdown script was provided, return the user
+	// If no upfront shutdown script was provided, return the user
 	// requested address (which may be nil).
 	if len(upfront) == 0 {
 		return requested, nil
@@ -2545,7 +2545,7 @@ func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 	p.WipeChannel(&failure.chanPoint)
 
 	// If the error encountered was severe enough, we'll now force close the
-	// channel to prevent readding it to the switch in the future.
+	// channel to prevent reading it to the switch in the future.
 	if failure.linkErr.ForceClose {
 		peerLog.Warnf("Force closing link(%v)",
 			failure.shortChanID)

@@ -38,7 +38,7 @@ type Node interface {
 
 // LocalChannel is a simple struct which contains relevant details of a
 // particular channel the local node has. The fields in this struct may be used
-// a signals for various AttachmentHeuristic implementations.
+// as signals for various AttachmentHeuristic implementations.
 type LocalChannel struct {
 	// ChanID is the short channel ID for this channel as defined within
 	// BOLT-0007.
@@ -118,7 +118,7 @@ type AttachmentDirective struct {
 // AttachmentHeuristic is one of the primary interfaces within this package.
 // Implementations of this interface will be used to implement a control system
 // which automatically regulates channels of a particular agent, attempting to
-// optimize channels opened/closed based on various heuristics.  The purpose of
+// optimize channels opened/closed based on various heuristics. The purpose of
 // the interface is to allow an auto-pilot agent to decide if it needs more
 // channels, and if so, which exact channels should be opened.
 type AttachmentHeuristic interface {
@@ -170,7 +170,7 @@ type NodeMetric interface {
 // scores.
 type ScoreSettable interface {
 	// SetNodeScores is used to set the internal map from NodeIDs to
-	// scores. The passed scores must be in the range [0, 1.0]. The fist
+	// scores. The passed scores must be in the range [0, 1.0]. The first
 	// parameter is the name of the targeted heuristic, to allow
 	// recursively target specific sub-heuristics. The returned boolean
 	// indicates whether the targeted heuristic was found.

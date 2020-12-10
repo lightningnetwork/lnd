@@ -39,7 +39,7 @@ const (
 	// FlagPerm error flag indicates a permanent failure.
 	FlagPerm FailCode = 0x4000
 
-	// FlagNode error flag indicates anode failure.
+	// FlagNode error flag indicates a node failure.
 	FlagNode FailCode = 0x2000
 
 	// FlagUpdate error flag indicates a new channel update is enclosed

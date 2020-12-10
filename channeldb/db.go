@@ -311,21 +311,6 @@ var topLevelBuckets = [][]byte{
 	closeSummaryBucket,
 }
 
-// Wipe completely deletes all saved state within all used buckets within the
-// database. The deletion is done in a single transaction, therefore this
-// operation is fully atomic.
-func (d *DB) Wipe() error {
-	return kvdb.Update(d, func(tx kvdb.RwTx) error {
-		for _, tlb := range topLevelBuckets {
-			err := tx.DeleteTopLevelBucket(tlb)
-			if err != nil && err != kvdb.ErrBucketNotFound {
-				return err
-			}
-		}
-		return nil
-	}, func() {})
-}
-
 // createChannelDB creates and initializes a fresh version of channeldb. In
 // the case that the target path has not yet been created or doesn't yet exist,
 // then the path is created. Additionally, all required top-level buckets used

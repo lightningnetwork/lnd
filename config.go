@@ -33,6 +33,7 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/tor"
 )
@@ -289,6 +290,8 @@ type Config struct {
 
 	MaxChannelFeeAllocation float64 `long:"max-channel-fee-allocation" description:"The maximum percentage of total funds that can be allocated to a channel's commitment fee. This only applies for the initiator of the channel. Valid values are within [0.1, 1]."`
 
+	MaxCommitFeeRateAnchors uint64 `long:"max-commit-fee-rate-anchors" description:"The maximum fee rate in sat/vbyte that will be used for commitments of channels of the anchors type. Must be large enough to ensure transaction propagation"`
+
 	DryRunMigration bool `long:"dry-run-migration" description:"If true, lnd will abort committing a migration if it would otherwise have been successful. This leaves the database unmodified, and still compatible with the previously active version of lnd."`
 
 	net tor.Net
@@ -475,6 +478,7 @@ func DefaultConfig() Config {
 		},
 		MaxOutgoingCltvExpiry:   htlcswitch.DefaultMaxOutgoingCltvExpiry,
 		MaxChannelFeeAllocation: htlcswitch.DefaultMaxLinkFeeAllocation,
+		MaxCommitFeeRateAnchors: lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte,
 		LogWriter:               build.NewRotatingLogWriter(),
 		DB:                      lncfg.DefaultDB(),
 		registeredChains:        chainreg.NewChainRegistry(),
@@ -733,6 +737,12 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 		return nil, fmt.Errorf("invalid max channel fee allocation: "+
 			"%v, must be within (0, 1]",
 			cfg.MaxChannelFeeAllocation)
+	}
+
+	if cfg.MaxCommitFeeRateAnchors < 1 {
+		return nil, fmt.Errorf("invalid max commit fee rate anchors: "+
+			"%v, must be at least 1 sat/vbyte",
+			cfg.MaxCommitFeeRateAnchors)
 	}
 
 	// Validate the Tor config parameters.

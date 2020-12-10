@@ -1,4 +1,5 @@
 // +build rpctest
+// +build lowscrypt
 
 package btcwallet
 

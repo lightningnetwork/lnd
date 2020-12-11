@@ -6,6 +6,9 @@
 <time> [ERR] BTCN: Can't accept connection: unable to accept connection from <ip>: chacha20poly1305: message authentication failed
 <time> [ERR] BTCN: Can't accept connection: unable to accept connection from <ip>: EOF
 <time> [ERR] BTCN: Can't accept connection: unable to accept connection from <ip>: read tcp <ip>-><ip>: i/o timeout
+<time> [ERR] BTCN: Query failed with 0 out of 1 filters received
+<time> [ERR] BTCN: unable to get filter for hash=<hex>, retrying: neutrino shutting down
+<time> [ERR] BTCN: unable to get filter for hash=<hex>, retrying: unable to fetch cfilter
 <time> [ERR] BTCN: Unable to process block connected (height=<height>, hash=<hex>): out of order block <hex>: expected PrevBlock <hex>, got <hex>
 <time> [ERR] BTCN: Unknown connid=<id>
 <time> [ERR] CHFT: Close channel <chan_point> unknown to store

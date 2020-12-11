@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
+	"github.com/stretchr/testify/require"
 )
 
 func TestOpenWithCreate(t *testing.T) {
@@ -96,16 +97,13 @@ func TestWipe(t *testing.T) {
 		t.Fatalf("unable to wipe channeldb: %v", err)
 	}
 	// Check correct errors are returned
-	_, err = cdb.FetchAllOpenChannels()
-	if err != ErrNoActiveChannels {
-		t.Fatalf("fetching open channels: expected '%v' instead got '%v'",
-			ErrNoActiveChannels, err)
-	}
-	_, err = cdb.FetchClosedChannels(false)
-	if err != ErrNoClosedChannels {
-		t.Fatalf("fetching closed channels: expected '%v' instead got '%v'",
-			ErrNoClosedChannels, err)
-	}
+	openChannels, err := cdb.FetchAllOpenChannels()
+	require.NoError(t, err, "fetching open channels")
+	require.Equal(t, 0, len(openChannels))
+
+	closedChannels, err := cdb.FetchClosedChannels(false)
+	require.NoError(t, err, "fetching closed channels")
+	require.Equal(t, 0, len(closedChannels))
 }
 
 // TestFetchClosedChannelForID tests that we are able to properly retrieve a

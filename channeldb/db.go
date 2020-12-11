@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration12"
 	"github.com/lightningnetwork/lnd/channeldb/migration13"
 	"github.com/lightningnetwork/lnd/channeldb/migration16"
+	"github.com/lightningnetwork/lnd/channeldb/migration20"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -170,6 +171,17 @@ var (
 			number:    18,
 			migration: mig.CreateTLB(peersBucket),
 		},
+		{
+			// Create a top level bucket which holds outpoint
+			// information.
+			number:    19,
+			migration: mig.CreateTLB(outpointBucket),
+		},
+		{
+			// Migrate some data to the outpoint index.
+			number:    20,
+			migration: migration20.MigrateOutpointIndex,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over
@@ -309,13 +321,14 @@ var topLevelBuckets = [][]byte{
 	graphMetaBucket,
 	metaBucket,
 	closeSummaryBucket,
+	outpointBucket,
 }
 
 // Wipe completely deletes all saved state within all used buckets within the
 // database. The deletion is done in a single transaction, therefore this
 // operation is fully atomic.
 func (d *DB) Wipe() error {
-	return kvdb.Update(d, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(d, func(tx kvdb.RwTx) error {
 		for _, tlb := range topLevelBuckets {
 			err := tx.DeleteTopLevelBucket(tlb)
 			if err != nil && err != kvdb.ErrBucketNotFound {
@@ -324,6 +337,11 @@ func (d *DB) Wipe() error {
 		}
 		return nil
 	}, func() {})
+	if err != nil {
+		return err
+	}
+
+	return initChannelDB(d.Backend)
 }
 
 // createChannelDB creates and initializes a fresh version of channeldb. In

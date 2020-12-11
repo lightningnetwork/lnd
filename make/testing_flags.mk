@@ -4,7 +4,7 @@ LOG_TAGS =
 TEST_FLAGS =
 ITEST_FLAGS = 
 EXEC_SUFFIX =
-COVER_PKG = $$(go list -deps ./... | grep '$(PKG)' | grep -v lnrpc)
+COVER_PKG = $$(go list -deps -tags="$(DEV_TAGS)" ./... | grep '$(PKG)' | grep -v lnrpc)
 NUM_ITEST_TRANCHES = 4
 ITEST_PARALLELISM = $(NUM_ITEST_TRANCHES)
 
@@ -86,7 +86,7 @@ UNIT_TARGETED ?= no
 # targeted case. Otherwise, default to running all tests.
 ifeq ($(UNIT_TARGETED), yes)
 UNIT := $(GOTEST) -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS) $(UNITPKG)
-UNIT_RACE := $(GOTEST) -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS) -race $(UNITPKG)
+UNIT_RACE := $(GOTEST) -tags="$(DEV_TAGS) $(LOG_TAGS) lowscrypt" $(TEST_FLAGS) -race $(UNITPKG)
 endif
 
 ifeq ($(UNIT_TARGETED), no)

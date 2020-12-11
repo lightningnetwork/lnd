@@ -1,4 +1,4 @@
-package lnwallet_test
+package lnwallettest
 
 import (
 	"bytes"
@@ -3086,7 +3086,7 @@ func testSingleFunderExternalFundingTx(miner *rpctest.Harness,
 // below needs to be added which properly initializes the interface.
 //
 // TODO(roasbeef): purge bobNode in favor of dual lnwallet's
-func TestLightningWallet(t *testing.T) {
+func TestLightningWallet(t *testing.T, targetBackEnd string) {
 	t.Parallel()
 
 	// Initialize the harness around a btcd node which will serve as our
@@ -3140,6 +3140,10 @@ func TestLightningWallet(t *testing.T) {
 
 	for _, walletDriver := range lnwallet.RegisteredWallets() {
 		for _, backEnd := range walletDriver.BackEnds() {
+			if backEnd != targetBackEnd {
+				continue
+			}
+
 			if !runTests(t, walletDriver, backEnd, miningNode,
 				rpcConfig, chainNotifier) {
 				return

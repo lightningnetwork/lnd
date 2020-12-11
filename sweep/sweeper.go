@@ -1116,7 +1116,7 @@ func (s *UtxoSweeper) signalAndRemove(outpoint *wire.OutPoint, result Result) {
 // below the dust limit are not published. Those inputs remain pending and will
 // be bundled with future inputs if possible.
 func (s *UtxoSweeper) getInputLists(cluster inputCluster,
-	currentHeight int32) ([]inputSet, error) {
+	currentHeight int32) ([]*txInputSet, error) {
 
 	// Filter for inputs that need to be swept. Create two lists: all
 	// sweepable inputs and a list containing only the new, never tried
@@ -1146,7 +1146,7 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 
 	// If there is anything to retry, combine it with the new inputs and
 	// form input sets.
-	var allSets []inputSet
+	var allSets []*txInputSet
 	if len(retryInputs) > 0 {
 		var err error
 		allSets, err = generateInputPartitionings(
@@ -1178,7 +1178,7 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 
 // sweep takes a set of preselected inputs, creates a sweep tx and publishes the
 // tx. The output address is only marked as used if the publish succeeds.
-func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
+func (s *UtxoSweeper) sweep(inputSet *txInputSet, feeRate chainfee.SatPerKWeight,
 	currentHeight int32) error {
 
 	// Generate an output script if there isn't an unused script available.
@@ -1192,8 +1192,9 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 
 	// Create sweep tx.
 	tx, err := createSweepTx(
-		inputs, nil, s.currentOutputScript, uint32(currentHeight),
-		feeRate, dustLimit(s.relayFeeRate), s.cfg.Signer,
+		inputSet.inputs, nil, s.currentOutputScript,
+		uint32(currentHeight), feeRate, dustLimit(s.relayFeeRate),
+		s.cfg.Signer,
 	)
 	if err != nil {
 		return fmt.Errorf("create sweep tx: %v", err)

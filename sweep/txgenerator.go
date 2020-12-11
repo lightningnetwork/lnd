@@ -27,10 +27,6 @@ type txInput interface {
 	parameters() Params
 }
 
-// inputSet is a set of inputs that can be used as the basis to generate a tx
-// on.
-type inputSet []input.Input
-
 // generateInputPartitionings goes through all given inputs and constructs sets
 // of inputs that can be used to generate a sensible transaction. Each set
 // contains up to the configured maximum number of inputs. Negative yield
@@ -38,7 +34,7 @@ type inputSet []input.Input
 // dust limit are returned.
 func generateInputPartitionings(sweepableInputs []txInput,
 	relayFeePerKW, feePerKW chainfee.SatPerKWeight,
-	maxInputsPerTx int, wallet Wallet) ([]inputSet, error) {
+	maxInputsPerTx int, wallet Wallet) ([]*txInputSet, error) {
 
 	// Sort input by yield. We will start constructing input sets starting
 	// with the highest yield inputs. This is to prevent the construction
@@ -80,7 +76,7 @@ func generateInputPartitionings(sweepableInputs []txInput,
 	})
 
 	// Select blocks of inputs up to the configured maximum number.
-	var sets []inputSet
+	var sets []*txInputSet
 	for len(sweepableInputs) > 0 {
 		// Start building a set of positive-yield tx inputs under the
 		// condition that the tx will be published with the specified
@@ -124,7 +120,7 @@ func generateInputPartitionings(sweepableInputs []txInput,
 			txInputs.totalOutput()-txInputs.walletInputTotal,
 			txInputs.weightEstimate(true).weight())
 
-		sets = append(sets, txInputs.inputs)
+		sets = append(sets, txInputs)
 		sweepableInputs = sweepableInputs[inputCount:]
 	}
 

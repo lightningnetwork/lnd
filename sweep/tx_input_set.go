@@ -57,6 +57,14 @@ type txInputSetState struct {
 	// force indicates that this set must be swept even if the total yield
 	// is negative.
 	force bool
+
+	// exclusiveGroups are all exlusive groups of the inputs added to this
+	// set.
+	exclusiveGroups map[uint64]struct{}
+
+	// walletUtxos holds all the UTXOs we have chosen from the wallet to be
+	// part of this set.
+	walletUtxos []*lnwallet.Utxo
 }
 
 // weightEstimate is the (worst case) tx weight with the current set of
@@ -98,8 +106,14 @@ func (t *txInputSetState) clone() txInputSetState {
 		walletInputTotal: t.walletInputTotal,
 		force:            t.force,
 		inputs:           make([]input.Input, len(t.inputs)),
+		exclusiveGroups:  make(map[uint64]struct{}),
+		walletUtxos:      make([]*lnwallet.Utxo, len(t.walletUtxos)),
+	}
+	for k := range t.exclusiveGroups {
+		s.exclusiveGroups[k] = struct{}{}
 	}
 	copy(s.inputs, t.inputs)
+	copy(s.walletUtxos, t.walletUtxos)
 
 	return s
 }
@@ -180,7 +194,9 @@ func (t *txInputSet) enoughInput() bool {
 // add adds a new input to the set. It returns a bool indicating whether the
 // input was added to the set. An input is rejected if it decreases the tx
 // output value after paying fees.
-func (t *txInputSet) addToState(inp input.Input, constraints addConstraints) *txInputSetState {
+func (t *txInputSet) addToState(inp input.Input, exclusiveGroup *uint64,
+	constraints addConstraints) *txInputSetState {
+
 	// Stop if max inputs is reached. Do not count additional wallet inputs,
 	// because we don't know in advance how many we may need.
 	if constraints != constraintsWallet &&
@@ -198,6 +214,18 @@ func (t *txInputSet) addToState(inp input.Input, constraints addConstraints) *tx
 
 	// Clone the current set state.
 	s := t.clone()
+
+	// It this exclusive group was already part of the set, we cannot add
+	// this input.
+	if exclusiveGroup != nil {
+		eg := *exclusiveGroup
+		_, ok := s.exclusiveGroups[eg]
+		if ok {
+			return nil
+		}
+
+		s.exclusiveGroups[eg] = struct{}{}
+	}
 
 	// Add the new input.
 	s.inputs = append(s.inputs, inp)
@@ -273,8 +301,10 @@ func (t *txInputSet) addToState(inp input.Input, constraints addConstraints) *tx
 // add adds a new input to the set. It returns a bool indicating whether the
 // input was added to the set. An input is rejected if it decreases the tx
 // output value after paying fees.
-func (t *txInputSet) add(input input.Input, constraints addConstraints) bool {
-	newState := t.addToState(input, constraints)
+func (t *txInputSet) add(input input.Input, exclusiveGroup *uint64,
+	constraints addConstraints) bool {
+
+	newState := t.addToState(input, exclusiveGroup, constraints)
 	if newState == nil {
 		return false
 	}
@@ -304,7 +334,7 @@ func (t *txInputSet) addPositiveYieldInputs(sweepableInputs []txInput) {
 		// succeed because it wouldn't increase the output value,
 		// return. Assuming inputs are sorted by yield, any further
 		// inputs wouldn't increase the output value either.
-		if !t.add(inp, constraints) {
+		if !t.add(inp, inp.parameters().ExclusiveGroup, constraints) {
 			var rem []input.Input
 			for j := i; j < len(sweepableInputs); j++ {
 				rem = append(rem, sweepableInputs[j])
@@ -346,9 +376,12 @@ func (t *txInputSet) tryAddWalletInputsIfNeeded() error {
 
 		// If the wallet input isn't positively-yielding at this fee
 		// rate, skip it.
-		if !t.add(input, constraintsWallet) {
+		if !t.add(input, nil, constraintsWallet) {
 			continue
 		}
+
+		// The utxo was added, keep track of it.
+		t.walletUtxos = append(t.walletUtxos, utxo)
 
 		// Return if we've reached the minimum output amount.
 		if t.enoughInput() {

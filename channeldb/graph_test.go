@@ -1848,24 +1848,32 @@ func TestFilterChannelRange(t *testing.T) {
 		t.Fatalf("expected zero chans, instead got %v", len(resp))
 	}
 
-	// To start, we'll create a set of channels, each mined in a block 10
+	// To start, we'll create a set of channels, two mined in a block 10
 	// blocks after the prior one.
 	startHeight := uint32(100)
 	endHeight := startHeight
 	const numChans = 10
-	chanIDs := make([]uint64, 0, numChans)
-	for i := 0; i < numChans; i++ {
+	channelRanges := make([]BlockChannelRange, 0, numChans/2)
+	for i := 0; i < numChans/2; i++ {
 		chanHeight := endHeight
-		channel, chanID := createEdge(
-			uint32(chanHeight), uint32(i+1), 0, 0, node1, node2,
+		channel1, chanID1 := createEdge(
+			chanHeight, uint32(i+1), 0, 0, node1, node2,
 		)
-
-		if err := graph.AddChannelEdge(&channel); err != nil {
+		if err := graph.AddChannelEdge(&channel1); err != nil {
 			t.Fatalf("unable to create channel edge: %v", err)
 		}
 
-		chanIDs = append(chanIDs, chanID.ToUint64())
+		channel2, chanID2 := createEdge(
+			chanHeight, uint32(i+2), 0, 0, node1, node2,
+		)
+		if err := graph.AddChannelEdge(&channel2); err != nil {
+			t.Fatalf("unable to create channel edge: %v", err)
+		}
 
+		channelRanges = append(channelRanges, BlockChannelRange{
+			Height:   chanHeight,
+			Channels: []lnwire.ShortChannelID{chanID1, chanID2},
+		})
 		endHeight += 10
 	}
 
@@ -1876,7 +1884,7 @@ func TestFilterChannelRange(t *testing.T) {
 		startHeight uint32
 		endHeight   uint32
 
-		resp []uint64
+		resp []BlockChannelRange
 	}{
 		// If we query for the entire range, then we should get the same
 		// set of short channel IDs back.
@@ -1884,7 +1892,7 @@ func TestFilterChannelRange(t *testing.T) {
 			startHeight: startHeight,
 			endHeight:   endHeight,
 
-			resp: chanIDs,
+			resp: channelRanges,
 		},
 
 		// If we query for a range of channels right before our range, we
@@ -1900,7 +1908,7 @@ func TestFilterChannelRange(t *testing.T) {
 			startHeight: endHeight - 10,
 			endHeight:   endHeight - 10,
 
-			resp: chanIDs[9:],
+			resp: channelRanges[4:],
 		},
 
 		// If we query for just the first height, we should only get a
@@ -1909,7 +1917,14 @@ func TestFilterChannelRange(t *testing.T) {
 			startHeight: startHeight,
 			endHeight:   startHeight,
 
-			resp: chanIDs[:1],
+			resp: channelRanges[:1],
+		},
+
+		{
+			startHeight: startHeight + 10,
+			endHeight:   endHeight - 10,
+
+			resp: channelRanges[1:5],
 		},
 	}
 	for i, queryCase := range queryCases {

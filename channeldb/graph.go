@@ -10,6 +10,7 @@ import (
 	"io"
 	"math"
 	"net"
+	"sort"
 	"sync"
 	"time"
 
@@ -1704,12 +1705,25 @@ func (c *ChannelGraph) FilterKnownChanIDs(chanIDs []uint64) ([]uint64, error) {
 	return newChanIDs, nil
 }
 
+// BlockChannelRange represents a range of channels for a given block height.
+type BlockChannelRange struct {
+	// Height is the height of the block all of the channels below were
+	// included in.
+	Height uint32
+
+	// Channels is the list of channels identified by their short ID
+	// representation known to us that were included in the block height
+	// above.
+	Channels []lnwire.ShortChannelID
+}
+
 // FilterChannelRange returns the channel ID's of all known channels which were
-// mined in a block height within the passed range. This method can be used to
-// quickly share with a peer the set of channels we know of within a particular
-// range to catch them up after a period of time offline.
-func (c *ChannelGraph) FilterChannelRange(startHeight, endHeight uint32) ([]uint64, error) {
-	var chanIDs []uint64
+// mined in a block height within the passed range. The channel IDs are grouped
+// by their common block height. This method can be used to quickly share with a
+// peer the set of channels we know of within a particular range to catch them
+// up after a period of time offline.
+func (c *ChannelGraph) FilterChannelRange(startHeight,
+	endHeight uint32) ([]BlockChannelRange, error) {
 
 	startChanID := &lnwire.ShortChannelID{
 		BlockHeight: startHeight,
@@ -1728,6 +1742,7 @@ func (c *ChannelGraph) FilterChannelRange(startHeight, endHeight uint32) ([]uint
 	byteOrder.PutUint64(chanIDStart[:], startChanID.ToUint64())
 	byteOrder.PutUint64(chanIDEnd[:], endChanID.ToUint64())
 
+	var channelsPerBlock map[uint32][]lnwire.ShortChannelID
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		edges := tx.ReadBucket(edgeBucket)
 		if edges == nil {
@@ -1742,33 +1757,51 @@ func (c *ChannelGraph) FilterChannelRange(startHeight, endHeight uint32) ([]uint
 
 		// We'll now iterate through the database, and find each
 		// channel ID that resides within the specified range.
-		var cid uint64
 		for k, _ := cursor.Seek(chanIDStart[:]); k != nil &&
 			bytes.Compare(k, chanIDEnd[:]) <= 0; k, _ = cursor.Next() {
 
 			// This channel ID rests within the target range, so
-			// we'll convert it into an integer and add it to our
-			// returned set.
-			cid = byteOrder.Uint64(k)
-			chanIDs = append(chanIDs, cid)
+			// we'll add it to our returned set.
+			rawCid := byteOrder.Uint64(k)
+			cid := lnwire.NewShortChanIDFromInt(rawCid)
+			channelsPerBlock[cid.BlockHeight] = append(
+				channelsPerBlock[cid.BlockHeight], cid,
+			)
 		}
 
 		return nil
 	}, func() {
-		chanIDs = nil
+		channelsPerBlock = make(map[uint32][]lnwire.ShortChannelID)
 	})
 
 	switch {
 	// If we don't know of any channels yet, then there's nothing to
 	// filter, so we'll return an empty slice.
-	case err == ErrGraphNoEdgesFound:
-		return chanIDs, nil
+	case err == ErrGraphNoEdgesFound || len(channelsPerBlock) == 0:
+		return nil, nil
 
 	case err != nil:
 		return nil, err
 	}
 
-	return chanIDs, nil
+	// Return the channel ranges in ascending block height order.
+	blocks := make([]uint32, 0, len(channelsPerBlock))
+	for block := range channelsPerBlock {
+		blocks = append(blocks, block)
+	}
+	sort.Slice(blocks, func(i, j int) bool {
+		return blocks[i] < blocks[j]
+	})
+
+	channelRanges := make([]BlockChannelRange, 0, len(channelsPerBlock))
+	for _, block := range blocks {
+		channelRanges = append(channelRanges, BlockChannelRange{
+			Height:   block,
+			Channels: channelsPerBlock[block],
+		})
+	}
+
+	return channelRanges, nil
 }
 
 // FetchChanInfos returns the set of channel edges that correspond to the passed

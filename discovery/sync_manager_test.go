@@ -2,7 +2,6 @@ package discovery
 
 import (
 	"fmt"
-	"math"
 	"reflect"
 	"sync/atomic"
 	"testing"
@@ -12,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/ticker"
+	"github.com/stretchr/testify/require"
 )
 
 // randPeer creates a random peer.
@@ -34,6 +34,9 @@ func newTestSyncManager(numActiveSyncers int) *SyncManager {
 		RotateTicker:         ticker.NewForce(DefaultSyncerRotationInterval),
 		HistoricalSyncTicker: ticker.NewForce(DefaultHistoricalSyncInterval),
 		NumActiveSyncers:     numActiveSyncers,
+		BestHeight: func() uint32 {
+			return latestKnownHeight
+		},
 	})
 }
 
@@ -202,7 +205,7 @@ func TestSyncManagerInitialHistoricalSync(t *testing.T) {
 	syncMgr.InitSyncState(peer)
 	assertMsgSent(t, peer, &lnwire.QueryChannelRange{
 		FirstBlockHeight: 0,
-		NumBlocks:        math.MaxUint32,
+		NumBlocks:        latestKnownHeight,
 	})
 
 	// The graph should not be considered as synced since the initial
@@ -290,7 +293,7 @@ func TestSyncManagerForceHistoricalSync(t *testing.T) {
 	syncMgr.InitSyncState(peer)
 	assertMsgSent(t, peer, &lnwire.QueryChannelRange{
 		FirstBlockHeight: 0,
-		NumBlocks:        math.MaxUint32,
+		NumBlocks:        latestKnownHeight,
 	})
 
 	// If an additional peer connects, then a historical sync should not be
@@ -305,7 +308,7 @@ func TestSyncManagerForceHistoricalSync(t *testing.T) {
 	syncMgr.cfg.HistoricalSyncTicker.(*ticker.Force).Force <- time.Time{}
 	assertMsgSent(t, extraPeer, &lnwire.QueryChannelRange{
 		FirstBlockHeight: 0,
-		NumBlocks:        math.MaxUint32,
+		NumBlocks:        latestKnownHeight,
 	})
 }
 
@@ -326,7 +329,7 @@ func TestSyncManagerGraphSyncedAfterHistoricalSyncReplacement(t *testing.T) {
 	syncMgr.InitSyncState(peer)
 	assertMsgSent(t, peer, &lnwire.QueryChannelRange{
 		FirstBlockHeight: 0,
-		NumBlocks:        math.MaxUint32,
+		NumBlocks:        latestKnownHeight,
 	})
 
 	// The graph should not be considered as synced since the initial
@@ -531,14 +534,18 @@ func assertTransitionToChansSynced(t *testing.T, s *GossipSyncer, peer *mockPeer
 
 	query := &lnwire.QueryChannelRange{
 		FirstBlockHeight: 0,
-		NumBlocks:        math.MaxUint32,
+		NumBlocks:        latestKnownHeight,
 	}
 	assertMsgSent(t, peer, query)
 
-	s.ProcessQueryMsg(&lnwire.ReplyChannelRange{
+	require.Eventually(t, func() bool {
+		return s.syncState() == waitingQueryRangeReply
+	}, time.Second, 500*time.Millisecond)
+
+	require.NoError(t, s.ProcessQueryMsg(&lnwire.ReplyChannelRange{
 		QueryChannelRange: *query,
 		Complete:          1,
-	}, nil)
+	}, nil))
 
 	chanSeries := s.cfg.channelSeries.(*mockChannelGraphTimeSeries)
 

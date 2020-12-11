@@ -265,16 +265,6 @@ type AuthenticatedGossiper struct {
 	// every new block height.
 	blockEpochs *chainntnfs.BlockEpochEvent
 
-	// prematureAnnouncements maps a block height to a set of network
-	// messages which are "premature" from our PoV. A message is premature
-	// if it claims to be anchored in a block which is beyond the current
-	// main chain tip as we know it. Premature network messages will be
-	// processed once the chain tip as we know it extends to/past the
-	// premature height.
-	//
-	// TODO(roasbeef): limit premature networkMsgs to N
-	prematureAnnouncements map[uint32][]*networkMsg
-
 	// prematureChannelUpdates is a map of ChannelUpdates we have received
 	// that wasn't associated with any channel we know about.  We store
 	// them temporarily, such that we can reprocess them when a
@@ -338,20 +328,21 @@ func New(cfg Config, selfKey *btcec.PublicKey) *AuthenticatedGossiper {
 		networkMsgs:             make(chan *networkMsg),
 		quit:                    make(chan struct{}),
 		chanPolicyUpdates:       make(chan *chanPolicyUpdateRequest),
-		prematureAnnouncements:  make(map[uint32][]*networkMsg),
 		prematureChannelUpdates: make(map[uint64][]*networkMsg),
 		channelMtx:              multimutex.NewMutex(),
 		recentRejects:           make(map[uint64]struct{}),
 		heightForLastChanUpdate: make(map[uint64][2]uint32),
-		syncMgr: newSyncManager(&SyncManagerCfg{
-			ChainHash:               cfg.ChainHash,
-			ChanSeries:              cfg.ChanSeries,
-			RotateTicker:            cfg.RotateTicker,
-			HistoricalSyncTicker:    cfg.HistoricalSyncTicker,
-			NumActiveSyncers:        cfg.NumActiveSyncers,
-			IgnoreHistoricalFilters: cfg.IgnoreHistoricalFilters,
-		}),
 	}
+
+	gossiper.syncMgr = newSyncManager(&SyncManagerCfg{
+		ChainHash:               cfg.ChainHash,
+		ChanSeries:              cfg.ChanSeries,
+		RotateTicker:            cfg.RotateTicker,
+		HistoricalSyncTicker:    cfg.HistoricalSyncTicker,
+		NumActiveSyncers:        cfg.NumActiveSyncers,
+		IgnoreHistoricalFilters: cfg.IgnoreHistoricalFilters,
+		BestHeight:              gossiper.latestHeight,
+	})
 
 	gossiper.reliableSender = newReliableSender(&reliableSenderCfg{
 		NotifyWhenOnline:  cfg.NotifyWhenOnline,
@@ -1045,32 +1036,10 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			d.Lock()
 			blockHeight := uint32(newBlock.Height)
 			d.bestHeight = blockHeight
+			d.Unlock()
 
 			log.Debugf("New block: height=%d, hash=%s", blockHeight,
 				newBlock.Hash)
-
-			// Next we check if we have any premature announcements
-			// for this height, if so, then we process them once
-			// more as normal announcements.
-			premature := d.prematureAnnouncements[blockHeight]
-			if len(premature) == 0 {
-				d.Unlock()
-				continue
-			}
-			delete(d.prematureAnnouncements, blockHeight)
-			d.Unlock()
-
-			log.Infof("Re-processing %v premature announcements "+
-				"for height %v", len(premature), blockHeight)
-
-			for _, ann := range premature {
-				emittedAnnouncements := d.processNetworkAnnouncement(ann)
-				if emittedAnnouncements != nil {
-					announcements.AddMsgs(
-						emittedAnnouncements...,
-					)
-				}
-			}
 
 		// The trickle timer has ticked, which indicates we should
 		// flush to the network the pending batch of new announcements
@@ -1501,7 +1470,6 @@ func (d *AuthenticatedGossiper) addNode(msg *lnwire.NodeAnnouncement) error {
 func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 	nMsg *networkMsg) []networkMsg {
 
-	// isPremature *MUST* be called with the gossiper's lock held.
 	isPremature := func(chanID lnwire.ShortChannelID, delta uint32) bool {
 		// TODO(roasbeef) make height delta 6
 		//  * or configurable
@@ -1593,18 +1561,12 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// to be fully verified once we advance forward in the chain.
 		d.Lock()
 		if nMsg.isRemote && isPremature(msg.ShortChannelID, 0) {
-			blockHeight := msg.ShortChannelID.BlockHeight
 			log.Infof("Announcement for chan_id=(%v), is "+
 				"premature: advertises height %v, only "+
 				"height %v is known",
 				msg.ShortChannelID.ToUint64(),
 				msg.ShortChannelID.BlockHeight,
 				d.bestHeight)
-
-			d.prematureAnnouncements[blockHeight] = append(
-				d.prematureAnnouncements[blockHeight],
-				nMsg,
-			)
 			d.Unlock()
 			return nil
 		}
@@ -1824,11 +1786,6 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 				"height %v, only height %v is known",
 				shortChanID, blockHeight,
 				d.bestHeight)
-
-			d.prematureAnnouncements[blockHeight] = append(
-				d.prematureAnnouncements[blockHeight],
-				nMsg,
-			)
 			d.Unlock()
 			return nil
 		}
@@ -2124,10 +2081,6 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// to other clients if this constraint was changed.
 		d.Lock()
 		if isPremature(msg.ShortChannelID, d.cfg.ProofMatureDelta) {
-			d.prematureAnnouncements[needBlockHeight] = append(
-				d.prematureAnnouncements[needBlockHeight],
-				nMsg,
-			)
 			log.Infof("Premature proof announcement, "+
 				"current block height lower than needed: %v <"+
 				" %v, add announcement to reprocessing batch",
@@ -2643,4 +2596,11 @@ func IsKeepAliveUpdate(update *lnwire.ChannelUpdate,
 		return false
 	}
 	return true
+}
+
+// latestHeight returns the gossiper's latest height known of the chain.
+func (d *AuthenticatedGossiper) latestHeight() uint32 {
+	d.Lock()
+	defer d.Unlock()
+	return d.bestHeight
 }

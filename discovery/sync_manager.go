@@ -89,6 +89,9 @@ type SyncManagerCfg struct {
 	// This prevents ranges with old start times from causing us to dump the
 	// graph on connect.
 	IgnoreHistoricalFilters bool
+
+	// BestHeight returns the latest height known of the chain.
+	BestHeight func() uint32
 }
 
 // SyncManager is a subsystem of the gossiper that manages the gossip syncers
@@ -419,7 +422,11 @@ func (m *SyncManager) createGossipSyncer(peer lnpeer.Peer) *GossipSyncer {
 		sendToPeerSync: func(msgs ...lnwire.Message) error {
 			return peer.SendMessageLazy(true, msgs...)
 		},
-		ignoreHistoricalFilters: m.cfg.IgnoreHistoricalFilters,
+		ignoreHistoricalFilters:   m.cfg.IgnoreHistoricalFilters,
+		maxUndelayedQueryReplies:  DefaultMaxUndelayedQueryReplies,
+		delayedQueryReplyInterval: DefaultDelayedQueryReplyInterval,
+		bestHeight:                m.cfg.BestHeight,
+		maxQueryChanRangeReplies:  maxQueryChanRangeReplies,
 	})
 
 	// Gossip syncers are initialized by default in a PassiveSync type

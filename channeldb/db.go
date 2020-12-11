@@ -315,7 +315,7 @@ var topLevelBuckets = [][]byte{
 // database. The deletion is done in a single transaction, therefore this
 // operation is fully atomic.
 func (d *DB) Wipe() error {
-	return kvdb.Update(d, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(d, func(tx kvdb.RwTx) error {
 		for _, tlb := range topLevelBuckets {
 			err := tx.DeleteTopLevelBucket(tlb)
 			if err != nil && err != kvdb.ErrBucketNotFound {
@@ -324,6 +324,11 @@ func (d *DB) Wipe() error {
 		}
 		return nil
 	}, func() {})
+	if err != nil {
+		return err
+	}
+
+	return initChannelDB(d.Backend)
 }
 
 // createChannelDB creates and initializes a fresh version of channeldb. In

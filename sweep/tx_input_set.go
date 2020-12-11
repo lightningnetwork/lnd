@@ -353,8 +353,13 @@ func (t *txInputSet) addPositiveYieldInputs(sweepableInputs []txInput) {
 }
 
 // tryAddWalletInputsIfNeeded retrieves utxos from the wallet and tries adding
-// as many as required to bring the tx output value above the given minimum.
-func (t *txInputSet) tryAddWalletInputsIfNeeded() error {
+// as many as required to bring the tx output value above the given minimum. It
+// takes a list of preferred UTXOs that will be added first. This is used to
+// re-use UTXOs that have been used in other sweeps having inputs with the same
+// exclusive groups.
+func (t *txInputSet) tryAddWalletInputsIfNeeded(
+	preferredUtxos []*lnwallet.Utxo) error {
+
 	// If we've already have enough to pay the transaction fees and have at
 	// least one output materialize, no action is needed.
 	if t.enoughInput() {
@@ -363,9 +368,31 @@ func (t *txInputSet) tryAddWalletInputsIfNeeded() error {
 
 	// Retrieve wallet utxos. Only consider confirmed utxos to prevent
 	// problems around RBF rules for unconfirmed inputs.
-	utxos, err := t.wallet.ListUnspentWitness(1, math.MaxInt32)
+	newUtxos, err := t.wallet.ListUnspentWitness(1, math.MaxInt32)
 	if err != nil {
 		return err
+	}
+
+	// We merge the preferred and newly listed UTXOs, keeping the preferred
+	// ones first in the list, and de-duping as we go.
+	var (
+		utxos []*lnwallet.Utxo
+		added = make(map[wire.OutPoint]struct{})
+	)
+
+	addUtxo := func(utxo *lnwallet.Utxo) {
+		if _, ok := added[utxo.OutPoint]; ok {
+			return
+		}
+		utxos = append(utxos, utxo)
+		added[utxo.OutPoint] = struct{}{}
+	}
+
+	for _, u := range preferredUtxos {
+		addUtxo(u)
+	}
+	for _, u := range newUtxos {
+		addUtxo(u)
 	}
 
 	for _, utxo := range utxos {

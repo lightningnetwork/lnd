@@ -1166,7 +1166,7 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 		allSets, err = generateInputPartitionings(
 			append(retryInputs, newInputs...), s.relayFeeRate,
 			cluster.sweepFeeRate, s.cfg.MaxInputsPerTx,
-			s.cfg.Wallet,
+			s.cfg.Wallet, s.exclusiveGroupUtxos,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("input partitionings: %v", err)
@@ -1176,7 +1176,7 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 	// Create sets for just the new inputs.
 	newSets, err := generateInputPartitionings(
 		newInputs, s.relayFeeRate, cluster.sweepFeeRate,
-		s.cfg.MaxInputsPerTx, s.cfg.Wallet,
+		s.cfg.MaxInputsPerTx, s.cfg.Wallet, s.exclusiveGroupUtxos,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("input partitionings: %v", err)

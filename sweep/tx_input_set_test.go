@@ -92,7 +92,7 @@ func TestTxInputSetFromWallet(t *testing.T) {
 		t.Fatal("expected forced add to succeed")
 	}
 
-	err := set.tryAddWalletInputsIfNeeded()
+	err := set.tryAddWalletInputsIfNeeded(nil)
 	if err != nil {
 		t.Fatal(err)
 	}

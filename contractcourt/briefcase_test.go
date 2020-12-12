@@ -102,6 +102,58 @@ var (
 		},
 		HashType: txscript.SigHashAll,
 	}
+
+	testTx = &wire.MsgTx{
+		Version: 2,
+		TxIn: []*wire.TxIn{
+			{
+				PreviousOutPoint: testChanPoint2,
+				SignatureScript:  []byte{0x12, 0x34},
+				Witness: [][]byte{
+					{
+						0x00, 0x14, 0xee, 0x91, 0x41,
+						0x7e, 0x85, 0x6c, 0xde, 0x10,
+						0xa2, 0x91, 0x1e, 0xdc, 0xbd,
+						0xbd, 0x69, 0xe2, 0xef, 0xb5,
+						0x71, 0x48,
+					},
+				},
+				Sequence: 1,
+			},
+		},
+		TxOut: []*wire.TxOut{
+			{
+				Value: 5000000000,
+				PkScript: []byte{
+					0xc6, 0xa5, 0x9d, 0xc2, 0x26, 0xc2,
+					0x86, 0x24, 0xe1, 0x81, 0x75, 0xe8,
+					0x51, 0xc9, 0x6b, 0x97, 0x3d, 0x81,
+					0xb0, 0x1c, 0xc3, 0x1f, 0x04, 0x78,
+				},
+			},
+		},
+		LockTime: 123,
+	}
+
+	// A valid, DER-encoded signature (taken from btcec unit tests).
+	testSigBytes = []byte{
+		0x30, 0x44, 0x02, 0x20, 0x4e, 0x45, 0xe1, 0x69,
+		0x32, 0xb8, 0xaf, 0x51, 0x49, 0x61, 0xa1, 0xd3,
+		0xa1, 0xa2, 0x5f, 0xdf, 0x3f, 0x4f, 0x77, 0x32,
+		0xe9, 0xd6, 0x24, 0xc6, 0xc6, 0x15, 0x48, 0xab,
+		0x5f, 0xb8, 0xcd, 0x41, 0x02, 0x20, 0x18, 0x15,
+		0x22, 0xec, 0x8e, 0xca, 0x07, 0xde, 0x48, 0x60,
+		0xa4, 0xac, 0xdd, 0x12, 0x90, 0x9d, 0x83, 0x1c,
+		0xc5, 0x6c, 0xbb, 0xac, 0x46, 0x22, 0x08, 0x22,
+		0x21, 0xa8, 0x76, 0x8d, 0x1d, 0x09,
+	}
+	testSig, _ = btcec.ParseDERSignature(testSigBytes, btcec.S256())
+
+	testSignDetails = &input.SignDetails{
+		SignDesc:    testSignDesc,
+		SigHashType: txscript.SigHashSingle,
+		PeerSig:     testSig,
+	}
 )
 
 func makeTestDB() (kvdb.Backend, func(), error) {
@@ -219,13 +271,13 @@ func assertResolversEqual(t *testing.T, originalResolver ContractResolver,
 	case *htlcOutgoingContestResolver:
 		diskRes := diskResolver.(*htlcOutgoingContestResolver)
 		assertTimeoutResEqual(
-			&ogRes.htlcTimeoutResolver, &diskRes.htlcTimeoutResolver,
+			ogRes.htlcTimeoutResolver, diskRes.htlcTimeoutResolver,
 		)
 
 	case *htlcIncomingContestResolver:
 		diskRes := diskResolver.(*htlcIncomingContestResolver)
 		assertSuccessResEqual(
-			&ogRes.htlcSuccessResolver, &diskRes.htlcSuccessResolver,
+			ogRes.htlcSuccessResolver, diskRes.htlcSuccessResolver,
 		)
 
 		if ogRes.htlcExpiry != diskRes.htlcExpiry {
@@ -323,13 +375,13 @@ func TestContractInsertionRetrieval(t *testing.T) {
 	contestTimeout := timeoutResolver
 	contestTimeout.htlcResolution.ClaimOutpoint = randOutPoint()
 	resolvers = append(resolvers, &htlcOutgoingContestResolver{
-		htlcTimeoutResolver: contestTimeout,
+		htlcTimeoutResolver: &contestTimeout,
 	})
 	contestSuccess := successResolver
 	contestSuccess.htlcResolution.ClaimOutpoint = randOutPoint()
 	resolvers = append(resolvers, &htlcIncomingContestResolver{
 		htlcExpiry:          100,
-		htlcSuccessResolver: contestSuccess,
+		htlcSuccessResolver: &contestSuccess,
 	})
 
 	// For quick lookup during the test, we'll create this map which allow
@@ -469,7 +521,7 @@ func TestContractSwapping(t *testing.T) {
 
 	// We'll create two resolvers, a regular timeout resolver, and the
 	// contest resolver that eventually turns into the timeout resolver.
-	timeoutResolver := htlcTimeoutResolver{
+	timeoutResolver := &htlcTimeoutResolver{
 		htlcResolution: lnwallet.OutgoingHtlcResolution{
 			Expiry:          99,
 			SignedTimeoutTx: nil,
@@ -497,7 +549,7 @@ func TestContractSwapping(t *testing.T) {
 
 	// With the resolver inserted, we'll now attempt to atomically swap it
 	// for its underlying timeout resolver.
-	err = testLog.SwapContract(contestResolver, &timeoutResolver)
+	err = testLog.SwapContract(contestResolver, timeoutResolver)
 	if err != nil {
 		t.Fatalf("unable to swap contracts: %v", err)
 	}
@@ -514,7 +566,7 @@ func TestContractSwapping(t *testing.T) {
 	}
 
 	// That single contract should be the underlying timeout resolver.
-	assertResolversEqual(t, &timeoutResolver, dbContracts[0])
+	assertResolversEqual(t, timeoutResolver, dbContracts[0])
 }
 
 // TestContractResolutionsStorage tests that we're able to properly store and
@@ -550,11 +602,50 @@ func TestContractResolutionsStorage(t *testing.T) {
 					ClaimOutpoint:   randOutPoint(),
 					SweepSignDesc:   testSignDesc,
 				},
+
+				// We add a resolution with SignDetails.
+				{
+					Preimage:        testPreimage,
+					SignedSuccessTx: testTx,
+					SignDetails:     testSignDetails,
+					CsvDelay:        900,
+					ClaimOutpoint:   randOutPoint(),
+					SweepSignDesc:   testSignDesc,
+				},
+
+				// We add a resolution with a signed tx, but no
+				// SignDetails.
+				{
+					Preimage:        testPreimage,
+					SignedSuccessTx: testTx,
+					CsvDelay:        900,
+					ClaimOutpoint:   randOutPoint(),
+					SweepSignDesc:   testSignDesc,
+				},
 			},
 			OutgoingHTLCs: []lnwallet.OutgoingHtlcResolution{
+				// We add a resolution with a signed tx, but no
+				// SignDetails.
+				{
+					Expiry:          103,
+					SignedTimeoutTx: testTx,
+					CsvDelay:        923923,
+					ClaimOutpoint:   randOutPoint(),
+					SweepSignDesc:   testSignDesc,
+				},
+				// Resolution without signed tx.
 				{
 					Expiry:          103,
 					SignedTimeoutTx: nil,
+					CsvDelay:        923923,
+					ClaimOutpoint:   randOutPoint(),
+					SweepSignDesc:   testSignDesc,
+				},
+				// Resolution with SignDetails.
+				{
+					Expiry:          103,
+					SignedTimeoutTx: testTx,
+					SignDetails:     testSignDetails,
 					CsvDelay:        923923,
 					ClaimOutpoint:   randOutPoint(),
 					SweepSignDesc:   testSignDesc,
@@ -585,8 +676,15 @@ func TestContractResolutionsStorage(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(&res, diskRes) {
-		t.Fatalf("resolution mismatch: expected %#v\n, got %#v",
-			&res, diskRes)
+		for _, h := range res.HtlcResolutions.IncomingHTLCs {
+			h.SweepSignDesc.KeyDesc.PubKey.Curve = nil
+		}
+		for _, h := range diskRes.HtlcResolutions.IncomingHTLCs {
+			h.SweepSignDesc.KeyDesc.PubKey.Curve = nil
+		}
+
+		t.Fatalf("resolution mismatch: expected %v\n, got %v",
+			spew.Sdump(&res), spew.Sdump(diskRes))
 	}
 
 	// We'll now delete the state, then attempt to retrieve the set of

@@ -36,7 +36,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// opens up the base for out tests.
 	const (
 		finalCltvDelta = 40
-		htlcAmt        = btcutil.Amount(30000)
+		htlcAmt        = btcutil.Amount(300_000)
 	)
 	ctx, cancel := context.WithCancel(ctxb)
 	defer cancel()

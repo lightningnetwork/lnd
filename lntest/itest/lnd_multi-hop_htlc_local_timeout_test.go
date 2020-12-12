@@ -43,7 +43,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest,
 	// while the second will be a proper fully valued HTLC.
 	const (
 		dustHtlcAmt    = btcutil.Amount(100)
-		htlcAmt        = btcutil.Amount(30000)
+		htlcAmt        = btcutil.Amount(300_000)
 		finalCltvDelta = 40
 	)
 

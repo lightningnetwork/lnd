@@ -103,17 +103,19 @@ func (i *commitSweepResolverTestContext) waitForResult() {
 }
 
 type mockSweeper struct {
-	sweptInputs   chan input.Input
-	updatedInputs chan wire.OutPoint
-	sweepTx       *wire.MsgTx
-	sweepErr      error
+	sweptInputs       chan input.Input
+	updatedInputs     chan wire.OutPoint
+	sweepTx           *wire.MsgTx
+	sweepErr          error
+	createSweepTxChan chan *wire.MsgTx
 }
 
 func newMockSweeper() *mockSweeper {
 	return &mockSweeper{
-		sweptInputs:   make(chan input.Input),
-		updatedInputs: make(chan wire.OutPoint),
-		sweepTx:       &wire.MsgTx{},
+		sweptInputs:       make(chan input.Input),
+		updatedInputs:     make(chan wire.OutPoint),
+		sweepTx:           &wire.MsgTx{},
+		createSweepTxChan: make(chan *wire.MsgTx),
 	}
 }
 
@@ -133,7 +135,9 @@ func (s *mockSweeper) SweepInput(input input.Input, params sweep.Params) (
 func (s *mockSweeper) CreateSweepTx(inputs []input.Input, feePref sweep.FeePreference,
 	currentBlockHeight uint32) (*wire.MsgTx, error) {
 
-	return nil, nil
+	// We will wait for the test to supply the sweep tx to return.
+	sweepTx := <-s.createSweepTxChan
+	return sweepTx, nil
 }
 
 func (s *mockSweeper) RelayFeePerKW() chainfee.SatPerKWeight {

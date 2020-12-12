@@ -222,6 +222,9 @@ func createSweepTx(inputs []input.Input, outputPkScript []byte,
 			PkScript: outputPkScript,
 			Value:    int64(changeAmt),
 		})
+	} else {
+		log.Infof("Change amt %v below dustlimit %v, not adding "+
+			"change output", changeAmt, dustLimit)
 	}
 
 	// We'll default to using the current block height as locktime, if none

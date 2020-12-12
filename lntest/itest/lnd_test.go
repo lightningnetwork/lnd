@@ -3640,6 +3640,16 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		htlcCsvMaturityHeight = padCLTV(startHeight + defaultCLTV + 1 + defaultCSV)
 	)
 
+	// If we are dealing with an anchor channel type, the sweeper will
+	// sweep the HTLC second level output one block earlier (than the
+	// nursery that waits an additional block, and handles non-anchor
+	// channels). So we set a maturity height that is one less.
+	if channelType == commitTypeAnchors {
+		htlcCsvMaturityHeight = padCLTV(
+			startHeight + defaultCLTV + defaultCSV,
+		)
+	}
+
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	aliceChan, err := getChanInfo(ctxt, alice)
 	if err != nil {
@@ -4157,79 +4167,125 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 
 	// Since Alice had numInvoices (6) htlcs extended to Carol before force
 	// closing, we expect Alice to broadcast an htlc timeout txn for each
-	// one. Wait for them all to show up in the mempool.
-	htlcTxIDs, err := waitForNTxsInMempool(net.Miner.Node, numInvoices,
-		minerMempoolTimeout)
+	// one.
+	expectedTxes = numInvoices
+
+	// In case of anchors, the timeout txs will be aggregated into one.
+	if channelType == commitTypeAnchors {
+		expectedTxes = 1
+	}
+
+	// Wait for them all to show up in the mempool.
+	htlcTxIDs, err := waitForNTxsInMempool(
+		net.Miner.Node, expectedTxes, minerMempoolTimeout,
+	)
 	if err != nil {
 		t.Fatalf("unable to find htlc timeout txns in mempool: %v", err)
 	}
 
 	// Retrieve each htlc timeout txn from the mempool, and ensure it is
 	// well-formed. This entails verifying that each only spends from
-	// output, and that that output is from the commitment txn. We do not
-	// the sweeper check for these timeout transactions because they are
-	// not swept by the sweeper; the nursery broadcasts the pre-signed
-	// transaction.
+	// output, and that that output is from the commitment txn. In case
+	// this is an anchor channel, the transactions are aggregated by the
+	// sweeper into one.
+	numInputs := 1
+	if channelType == commitTypeAnchors {
+		numInputs = numInvoices + 1
+	}
+
+	// Construct a map of the already confirmed htlc timeout outpoints,
+	// that will count the number of times each is spent by the sweep txn.
+	// We prepopulate it in this way so that we can later detect if we are
+	// spending from an output that was not a confirmed htlc timeout txn.
+	var htlcTxOutpointSet = make(map[wire.OutPoint]int)
+
 	var htlcLessFees uint64
 	for _, htlcTxID := range htlcTxIDs {
 		// Fetch the sweep transaction, all input it's spending should
 		// be from the commitment transaction which was broadcast
-		// on-chain.
+		// on-chain. In case of an anchor type channel, we expect one
+		// extra input that is not spending from the commitment, that
+		// is added for fees.
 		htlcTx, err := net.Miner.Node.GetRawTransaction(htlcTxID)
 		if err != nil {
 			t.Fatalf("unable to fetch sweep tx: %v", err)
 		}
-		// Ensure the htlc transaction only has one input.
+
+		// Ensure the htlc transaction has the expected number of
+		// inputs.
 		inputs := htlcTx.MsgTx().TxIn
-		if len(inputs) != 1 {
-			t.Fatalf("htlc transaction should only have one txin, "+
-				"has %d", len(htlcTx.MsgTx().TxIn))
-		}
-		// Ensure the htlc transaction is spending from the commitment
-		// transaction.
-		txIn := inputs[0]
-		if !closingTxID.IsEqual(&txIn.PreviousOutPoint.Hash) {
-			t.Fatalf("htlc transaction not spending from commit "+
-				"tx %v, instead spending %v",
-				closingTxID, txIn.PreviousOutPoint)
+		if len(inputs) != numInputs {
+			t.Fatalf("htlc transaction should only have %d txin, "+
+				"has %d", numInputs, len(htlcTx.MsgTx().TxIn))
 		}
 
+		// The number of outputs should be the same.
 		outputs := htlcTx.MsgTx().TxOut
-		if len(outputs) != 1 {
-			t.Fatalf("htlc transaction should only have one "+
-				"txout, has: %v", len(outputs))
+		if len(outputs) != numInputs {
+			t.Fatalf("htlc transaction should only have %d"+
+				"txout, has: %v", numInputs, len(outputs))
 		}
 
-		// For each htlc timeout transaction, we expect a resolver
-		// report recording this on chain resolution for both alice and
-		// carol.
-		outpoint := txIn.PreviousOutPoint
-		resolutionOutpoint := &lnrpc.OutPoint{
-			TxidBytes:   outpoint.Hash[:],
-			TxidStr:     outpoint.Hash.String(),
-			OutputIndex: outpoint.Index,
-		}
+		// Ensure all the htlc transaction inputs are spending from the
+		// commitment transaction, except if this is an extra input
+		// added to pay for fees for anchor channels.
+		nonCommitmentInputs := 0
+		for i, txIn := range inputs {
+			if !closingTxID.IsEqual(&txIn.PreviousOutPoint.Hash) {
+				nonCommitmentInputs++
 
-		// We expect alice to have a timeout tx resolution with an
-		// amount equal to the payment amount.
-		aliceReports[outpoint.String()] = &lnrpc.Resolution{
-			ResolutionType: lnrpc.ResolutionType_OUTGOING_HTLC,
-			Outcome:        lnrpc.ResolutionOutcome_FIRST_STAGE,
-			SweepTxid:      htlcTx.Hash().String(),
-			Outpoint:       resolutionOutpoint,
-			AmountSat:      uint64(paymentAmt),
-		}
+				if nonCommitmentInputs > 1 {
+					t.Fatalf("htlc transaction not "+
+						"spending from commit "+
+						"tx %v, instead spending %v",
+						closingTxID,
+						txIn.PreviousOutPoint)
+				}
 
-		// We expect carol to have a resolution with an incoming htlc
-		// timeout which reflects the full amount of the htlc. It has
-		// no spend tx, because carol stops monitoring the htlc once
-		// it has timed out.
-		carolReports[outpoint.String()] = &lnrpc.Resolution{
-			ResolutionType: lnrpc.ResolutionType_INCOMING_HTLC,
-			Outcome:        lnrpc.ResolutionOutcome_TIMEOUT,
-			SweepTxid:      "",
-			Outpoint:       resolutionOutpoint,
-			AmountSat:      uint64(paymentAmt),
+				// This was an extra input added to pay fees,
+				// continue to the next one.
+				continue
+			}
+
+			// For each htlc timeout transaction, we expect a
+			// resolver report recording this on chain resolution
+			// for both alice and carol.
+			outpoint := txIn.PreviousOutPoint
+			resolutionOutpoint := &lnrpc.OutPoint{
+				TxidBytes:   outpoint.Hash[:],
+				TxidStr:     outpoint.Hash.String(),
+				OutputIndex: outpoint.Index,
+			}
+
+			// We expect alice to have a timeout tx resolution with
+			// an amount equal to the payment amount.
+			aliceReports[outpoint.String()] = &lnrpc.Resolution{
+				ResolutionType: lnrpc.ResolutionType_OUTGOING_HTLC,
+				Outcome:        lnrpc.ResolutionOutcome_FIRST_STAGE,
+				SweepTxid:      htlcTx.Hash().String(),
+				Outpoint:       resolutionOutpoint,
+				AmountSat:      uint64(paymentAmt),
+			}
+
+			// We expect carol to have a resolution with an
+			// incoming htlc timeout which reflects the full amount
+			// of the htlc. It has no spend tx, because carol stops
+			// monitoring the htlc once it has timed out.
+			carolReports[outpoint.String()] = &lnrpc.Resolution{
+				ResolutionType: lnrpc.ResolutionType_INCOMING_HTLC,
+				Outcome:        lnrpc.ResolutionOutcome_TIMEOUT,
+				SweepTxid:      "",
+				Outpoint:       resolutionOutpoint,
+				AmountSat:      uint64(paymentAmt),
+			}
+
+			// Recorf the HTLC outpoint, such that we can later
+			// check whether it gets swept
+			op := wire.OutPoint{
+				Hash:  *htlcTxID,
+				Index: uint32(i),
+			}
+			htlcTxOutpointSet[op] = 0
 		}
 
 		// We record the htlc amount less fees here, so that we know
@@ -4260,7 +4316,13 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	}
 
 	// Advance the chain until just before the 2nd-layer CSV delays expire.
-	blockHash, err = net.Miner.Node.Generate(defaultCSV - 1)
+	// For anchor channels thhis is one block earlier.
+	numBlocks := uint32(defaultCSV - 1)
+	if channelType == commitTypeAnchors {
+		numBlocks = defaultCSV - 2
+
+	}
+	_, err = net.Miner.Node.Generate(numBlocks)
 	if err != nil {
 		t.Fatalf("unable to generate block: %v", err)
 	}
@@ -4327,15 +4389,6 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		t.Fatalf("failed to get sweep tx from mempool: %v", err)
 	}
 
-	// Construct a map of the already confirmed htlc timeout txids, that
-	// will count the number of times each is spent by the sweep txn. We
-	// prepopulate it in this way so that we can later detect if we are
-	// spending from an output that was not a confirmed htlc timeout txn.
-	var htlcTxIDSet = make(map[chainhash.Hash]int)
-	for _, htlcTxID := range htlcTxIDs {
-		htlcTxIDSet[*htlcTxID] = 0
-	}
-
 	// Fetch the htlc sweep transaction from the mempool.
 	htlcSweepTx, err := net.Miner.Node.GetRawTransaction(htlcSweepTxID)
 	if err != nil {
@@ -4353,19 +4406,19 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 			"%v", outputCount)
 	}
 
-	// Ensure that each output spends from exactly one htlc timeout txn.
+	// Ensure that each output spends from exactly one htlc timeout output.
 	for _, txIn := range htlcSweepTx.MsgTx().TxIn {
-		outpoint := txIn.PreviousOutPoint.Hash
+		outpoint := txIn.PreviousOutPoint
 		// Check that the input is a confirmed htlc timeout txn.
-		if _, ok := htlcTxIDSet[outpoint]; !ok {
+		if _, ok := htlcTxOutpointSet[outpoint]; !ok {
 			t.Fatalf("htlc sweep output not spending from htlc "+
 				"tx, instead spending output %v", outpoint)
 		}
 		// Increment our count for how many times this output was spent.
-		htlcTxIDSet[outpoint]++
+		htlcTxOutpointSet[outpoint]++
 
 		// Check that each is only spent once.
-		if htlcTxIDSet[outpoint] > 1 {
+		if htlcTxOutpointSet[outpoint] > 1 {
 			t.Fatalf("htlc sweep tx has multiple spends from "+
 				"outpoint %v", outpoint)
 		}
@@ -4383,6 +4436,13 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 				OutputIndex: output.Index,
 			},
 			AmountSat: htlcLessFees,
+		}
+	}
+
+	// Check that each HTLC output was spent exactly onece.
+	for op, num := range htlcTxOutpointSet {
+		if num != 1 {
+			t.Fatalf("HTLC outpoint %v was spent %v times", op, num)
 		}
 	}
 
@@ -11019,11 +11079,12 @@ func assertActiveHtlcs(nodes []*lntest.HarnessNode, payHashes ...[]byte) error {
 			// Record all payment hashes active for this channel.
 			htlcHashes := make(map[string]struct{})
 			for _, htlc := range channel.PendingHtlcs {
-				_, ok := htlcHashes[string(htlc.HashLock)]
+				h := hex.EncodeToString(htlc.HashLock)
+				_, ok := htlcHashes[h]
 				if ok {
 					return fmt.Errorf("duplicate HashLock")
 				}
-				htlcHashes[string(htlc.HashLock)] = struct{}{}
+				htlcHashes[h] = struct{}{}
 			}
 
 			// Channel should have exactly the payHashes active.
@@ -11035,12 +11096,13 @@ func assertActiveHtlcs(nodes []*lntest.HarnessNode, payHashes ...[]byte) error {
 
 			// Make sure all the payHashes are active.
 			for _, payHash := range payHashes {
-				if _, ok := htlcHashes[string(payHash)]; ok {
+				h := hex.EncodeToString(payHash)
+				if _, ok := htlcHashes[h]; ok {
 					continue
 				}
 				return fmt.Errorf("node %x didn't have the "+
 					"payHash %v active", node.PubKey[:],
-					payHash)
+					h)
 			}
 		}
 	}

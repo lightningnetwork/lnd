@@ -61,6 +61,11 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 			name: "remote chain claim",
 			test: testMultiHopHtlcRemoteChainClaim,
 		},
+		{
+			// bob: outgoing and incoming, sweep all on chain
+			name: "local htlc aggregation",
+			test: testMultiHopHtlcAggregation,
+		},
 	}
 
 	commitTypes := []commitType{

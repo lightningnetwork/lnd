@@ -3034,16 +3034,15 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 		// Finally, we'll generate a sign descriptor to generate a
 		// signature to give to the remote party for this commitment
 		// transaction. Note we use the raw HTLC amount.
+		txOut := remoteCommitView.txn.TxOut[htlc.remoteOutputIndex]
 		sigJob.SignDesc = input.SignDescriptor{
 			KeyDesc:       localChanCfg.HtlcBasePoint,
 			SingleTweak:   keyRing.LocalHtlcKeyTweak,
 			WitnessScript: htlc.theirWitnessScript,
-			Output: &wire.TxOut{
-				Value: int64(htlc.Amount.ToSatoshis()),
-			},
-			HashType:   sigHashType,
-			SigHashes:  txscript.NewTxSigHashes(sigJob.Tx),
-			InputIndex: 0,
+			Output:        txOut,
+			HashType:      sigHashType,
+			SigHashes:     txscript.NewTxSigHashes(sigJob.Tx),
+			InputIndex:    0,
 		}
 		sigJob.OutputIndex = htlc.remoteOutputIndex
 
@@ -3087,16 +3086,15 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 		// Finally, we'll generate a sign descriptor to generate a
 		// signature to give to the remote party for this commitment
 		// transaction. Note we use the raw HTLC amount.
+		txOut := remoteCommitView.txn.TxOut[htlc.remoteOutputIndex]
 		sigJob.SignDesc = input.SignDescriptor{
 			KeyDesc:       localChanCfg.HtlcBasePoint,
 			SingleTweak:   keyRing.LocalHtlcKeyTweak,
 			WitnessScript: htlc.theirWitnessScript,
-			Output: &wire.TxOut{
-				Value: int64(htlc.Amount.ToSatoshis()),
-			},
-			HashType:   sigHashType,
-			SigHashes:  txscript.NewTxSigHashes(sigJob.Tx),
-			InputIndex: 0,
+			Output:        txOut,
+			HashType:      sigHashType,
+			SigHashes:     txscript.NewTxSigHashes(sigJob.Tx),
+			InputIndex:    0,
 		}
 		sigJob.OutputIndex = htlc.remoteOutputIndex
 
@@ -5396,7 +5394,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	htlcResolutions, err := extractHtlcResolutions(
 		chainfee.SatPerKWeight(remoteCommit.FeePerKw), false, signer,
 		remoteCommit.Htlcs, keyRing, &chanState.LocalChanCfg,
-		&chanState.RemoteChanCfg, *commitSpend.SpenderTxHash,
+		&chanState.RemoteChanCfg, commitSpend.SpendingTx,
 		chanState.ChanType,
 	)
 	if err != nil {
@@ -5519,6 +5517,14 @@ type IncomingHtlcResolution struct {
 	// claimed directly from the outpoint listed below.
 	SignedSuccessTx *wire.MsgTx
 
+	// SignDetails is non-nil if SignedSuccessTx is non-nil, and the
+	// channel is of the anchor type. As the above HTLC transaction will be
+	// signed by the channel peer using SINGLE|ANYONECANPAY for such
+	// channels, we can use the sign details to add the input-output pair
+	// of the HTLC transaction to another transaction, thereby aggregating
+	// multiple HTLC transactions together, and adding fees as needed.
+	SignDetails *input.SignDetails
+
 	// CsvDelay is the relative time lock (expressed in blocks) that must
 	// pass after the SignedSuccessTx is confirmed in the chain before the
 	// output can be swept.
@@ -5560,6 +5566,14 @@ type OutgoingHtlcResolution struct {
 	// claimed directly from the outpoint listed below.
 	SignedTimeoutTx *wire.MsgTx
 
+	// SignDetails is non-nil if SignedTimeoutTx is non-nil, and the
+	// channel is of the anchor type. As the above HTLC transaction will be
+	// signed by the channel peer using SINGLE|ANYONECANPAY for such
+	// channels, we can use the sign details to add the input-output pair
+	// of the HTLC transaction to another transaction, thereby aggregating
+	// multiple HTLC transactions together, and adding fees as needed.
+	SignDetails *input.SignDetails
+
 	// CsvDelay is the relative time lock (expressed in blocks) that must
 	// pass after the SignedTimeoutTx is confirmed in the chain before the
 	// output can be swept.
@@ -5599,13 +5613,13 @@ type HtlcResolutions struct {
 // allowing the caller to sweep an outgoing HTLC present on either their, or
 // the remote party's commitment transaction.
 func newOutgoingHtlcResolution(signer input.Signer,
-	localChanCfg *channeldb.ChannelConfig, commitHash chainhash.Hash,
+	localChanCfg *channeldb.ChannelConfig, commitTx *wire.MsgTx,
 	htlc *channeldb.HTLC, keyRing *CommitmentKeyRing,
 	feePerKw chainfee.SatPerKWeight, csvDelay uint32,
 	localCommit bool, chanType channeldb.ChannelType) (*OutgoingHtlcResolution, error) {
 
 	op := wire.OutPoint{
-		Hash:  commitHash,
+		Hash:  commitTx.TxHash(),
 		Index: uint32(htlc.OutputIndex),
 	}
 
@@ -5664,16 +5678,15 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	// With the transaction created, we can generate a sign descriptor
 	// that's capable of generating the signature required to spend the
 	// HTLC output using the timeout transaction.
+	txOut := commitTx.TxOut[htlc.OutputIndex]
 	timeoutSignDesc := input.SignDescriptor{
 		KeyDesc:       localChanCfg.HtlcBasePoint,
 		SingleTweak:   keyRing.LocalHtlcKeyTweak,
 		WitnessScript: htlcScript,
-		Output: &wire.TxOut{
-			Value: int64(htlc.Amt.ToSatoshis()),
-		},
-		HashType:   txscript.SigHashAll,
-		SigHashes:  txscript.NewTxSigHashes(timeoutTx),
-		InputIndex: 0,
+		Output:        txOut,
+		HashType:      txscript.SigHashAll,
+		SigHashes:     txscript.NewTxSigHashes(timeoutTx),
+		InputIndex:    0,
 	}
 
 	htlcSig, err := btcec.ParseDERSignature(htlc.Signature, btcec.S256())
@@ -5691,6 +5704,12 @@ func newOutgoingHtlcResolution(signer input.Signer,
 		return nil, err
 	}
 	timeoutTx.TxIn[0].Witness = timeoutWitness
+
+	// If this is an anchor type channel, the sign details will let us
+	// re-sign an aggregated tx later.
+	txSignDetails := HtlcSignDetails(
+		chanType, timeoutSignDesc, sigHashType, htlcSig,
+	)
 
 	// Finally, we'll generate the script output that the timeout
 	// transaction creates so we can generate the signDesc required to
@@ -5712,6 +5731,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	return &OutgoingHtlcResolution{
 		Expiry:          htlc.RefundTimeout,
 		SignedTimeoutTx: timeoutTx,
+		SignDetails:     txSignDetails,
 		CsvDelay:        csvDelay,
 		ClaimOutpoint: wire.OutPoint{
 			Hash:  timeoutTx.TxHash(),
@@ -5738,13 +5758,13 @@ func newOutgoingHtlcResolution(signer input.Signer,
 //
 // TODO(roasbeef) consolidate code with above func
 func newIncomingHtlcResolution(signer input.Signer,
-	localChanCfg *channeldb.ChannelConfig, commitHash chainhash.Hash,
+	localChanCfg *channeldb.ChannelConfig, commitTx *wire.MsgTx,
 	htlc *channeldb.HTLC, keyRing *CommitmentKeyRing,
 	feePerKw chainfee.SatPerKWeight, csvDelay uint32, localCommit bool,
 	chanType channeldb.ChannelType) (*IncomingHtlcResolution, error) {
 
 	op := wire.OutPoint{
-		Hash:  commitHash,
+		Hash:  commitTx.TxHash(),
 		Index: uint32(htlc.OutputIndex),
 	}
 
@@ -5795,16 +5815,15 @@ func newIncomingHtlcResolution(signer input.Signer,
 
 	// Once we've created the second-level transaction, we'll generate the
 	// SignDesc needed spend the HTLC output using the success transaction.
+	txOut := commitTx.TxOut[htlc.OutputIndex]
 	successSignDesc := input.SignDescriptor{
 		KeyDesc:       localChanCfg.HtlcBasePoint,
 		SingleTweak:   keyRing.LocalHtlcKeyTweak,
 		WitnessScript: htlcScript,
-		Output: &wire.TxOut{
-			Value: int64(htlc.Amt.ToSatoshis()),
-		},
-		HashType:   txscript.SigHashAll,
-		SigHashes:  txscript.NewTxSigHashes(successTx),
-		InputIndex: 0,
+		Output:        txOut,
+		HashType:      txscript.SigHashAll,
+		SigHashes:     txscript.NewTxSigHashes(successTx),
+		InputIndex:    0,
 	}
 
 	htlcSig, err := btcec.ParseDERSignature(htlc.Signature, btcec.S256())
@@ -5825,6 +5844,12 @@ func newIncomingHtlcResolution(signer input.Signer,
 	}
 	successTx.TxIn[0].Witness = successWitness
 
+	// If this is an anchor type channel, the sign details will let us
+	// re-sign an aggregated tx later.
+	txSignDetails := HtlcSignDetails(
+		chanType, successSignDesc, sigHashType, htlcSig,
+	)
+
 	// Finally, we'll generate the script that the second-level transaction
 	// creates so we can generate the proper signDesc to sweep it after the
 	// CSV delay has passed.
@@ -5844,6 +5869,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 	)
 	return &IncomingHtlcResolution{
 		SignedSuccessTx: successTx,
+		SignDetails:     txSignDetails,
 		CsvDelay:        csvDelay,
 		ClaimOutpoint: wire.OutPoint{
 			Hash:  successTx.TxHash(),
@@ -5892,7 +5918,7 @@ func (r *OutgoingHtlcResolution) HtlcPoint() wire.OutPoint {
 func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight, ourCommit bool,
 	signer input.Signer, htlcs []channeldb.HTLC, keyRing *CommitmentKeyRing,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
-	commitHash chainhash.Hash, chanType channeldb.ChannelType) (
+	commitTx *wire.MsgTx, chanType channeldb.ChannelType) (
 	*HtlcResolutions, error) {
 
 	// TODO(roasbeef): don't need to swap csv delay?
@@ -5924,7 +5950,7 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight, ourCommit bool,
 			// Otherwise, we'll create an incoming HTLC resolution
 			// as we can satisfy the contract.
 			ihr, err := newIncomingHtlcResolution(
-				signer, localChanCfg, commitHash, &htlc,
+				signer, localChanCfg, commitTx, &htlc,
 				keyRing, feePerKw, uint32(csvDelay), ourCommit,
 				chanType,
 			)
@@ -5937,7 +5963,7 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight, ourCommit bool,
 		}
 
 		ohr, err := newOutgoingHtlcResolution(
-			signer, localChanCfg, commitHash, &htlc, keyRing,
+			signer, localChanCfg, commitTx, &htlc, keyRing,
 			feePerKw, uint32(csvDelay), ourCommit, chanType,
 		)
 		if err != nil {
@@ -6138,12 +6164,11 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	// outgoing HTLC's that we'll need to claim as well. If this is after
 	// recovery there is not much we can do with HTLCs, so we'll always
 	// use what we have in our latest state when extracting resolutions.
-	txHash := commitTx.TxHash()
 	localCommit := chanState.LocalCommitment
 	htlcResolutions, err := extractHtlcResolutions(
 		chainfee.SatPerKWeight(localCommit.FeePerKw), true, signer,
 		localCommit.Htlcs, keyRing, &chanState.LocalChanCfg,
-		&chanState.RemoteChanCfg, txHash, chanState.ChanType,
+		&chanState.RemoteChanCfg, commitTx, chanState.ChanType,
 	)
 	if err != nil {
 		return nil, err

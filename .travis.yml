@@ -16,7 +16,12 @@ git:
   depth: false
 
 go:
-  - "1.15.x"
+  # If you change this value, please change it in the following files as well:
+  # /Dockerfile
+  # /dev.Dockerfile
+  # /.github/workflows/main.yml
+  # /.github/workflows/release.yml
+  - "1.15.6"
 
 env:
   global:

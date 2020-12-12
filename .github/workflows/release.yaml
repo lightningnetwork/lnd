@@ -12,7 +12,13 @@ defaults:
 env:
   DOCKER_REPO: lightninglabs
   DOCKER_IMAGE: lnd
-  GO_VERSION: 1.15.5
+  
+  # If you change this value, please change it in the following files as well:
+  # /.travis.yml
+  # /Dockerfile
+  # /dev.Dockerfile
+  # /.github/workflows/main.yml
+  GO_VERSION: 1.15.6
 
 jobs:
   main:

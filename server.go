@@ -404,7 +404,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	featureMgr, err := feature.NewManager(feature.Config{
 		NoTLVOnion:        cfg.ProtocolOptions.LegacyOnion(),
 		NoStaticRemoteKey: cfg.ProtocolOptions.NoStaticRemoteKey(),
-		NoAnchors:         !cfg.ProtocolOptions.AnchorCommitments(),
+		NoAnchors:         cfg.ProtocolOptions.NoAnchorCommitments(),
 		NoWumbo:           !cfg.ProtocolOptions.Wumbo(),
 	})
 	if err != nil {

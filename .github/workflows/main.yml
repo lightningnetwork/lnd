@@ -18,6 +18,12 @@ env:
   GOPATH: /home/runner/work/go
   DOWNLOAD_CACHE: /home/runner/work/download_cache
   BITCOIN_VERSION: 0.20.1
+
+  # If you change this value, please change it in the following files as well:
+  # /.travis.yml
+  # /Dockerfile
+  # /dev.Dockerfile
+  # /.github/workflows/release.yml
   GO_VERSION: 1.15.6
 
 jobs:

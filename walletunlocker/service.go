@@ -133,11 +133,16 @@ type UnlockerService struct {
 	// dbTimeout specifies the timeout value to use when opening the wallet
 	// database.
 	dbTimeout time.Duration
+
+	// resetWalletTransactions indicates that the wallet state should be
+	// reset on unlock to force a full chain rescan.
+	resetWalletTransactions bool
 }
 
 // New creates and returns a new UnlockerService.
 func New(chainDir string, params *chaincfg.Params, noFreelistSync bool,
-	macaroonFiles []string, dbTimeout time.Duration) *UnlockerService {
+	macaroonFiles []string, dbTimeout time.Duration,
+	resetWalletTransactions bool) *UnlockerService {
 
 	return &UnlockerService{
 		InitMsgs:   make(chan *WalletInitMsg, 1),
@@ -145,11 +150,13 @@ func New(chainDir string, params *chaincfg.Params, noFreelistSync bool,
 
 		// Make sure we buffer the channel is buffered so the main lnd
 		// goroutine isn't blocking on writing to it.
-		MacResponseChan: make(chan []byte, 1),
-		chainDir:        chainDir,
-		netParams:       params,
-		macaroonFiles:   macaroonFiles,
-		dbTimeout:       dbTimeout,
+		MacResponseChan:         make(chan []byte, 1),
+		chainDir:                chainDir,
+		netParams:               params,
+		macaroonFiles:           macaroonFiles,
+		dbTimeout:               dbTimeout,
+		noFreelistSync:          noFreelistSync,
+		resetWalletTransactions: resetWalletTransactions,
 	}
 }
 
@@ -397,6 +404,37 @@ func (u *UnlockerService) UnlockWallet(ctx context.Context,
 		// Could not open wallet, most likely this means that provided
 		// password was incorrect.
 		return nil, err
+	}
+
+	// The user requested to drop their whole wallet transaction state to
+	// force a full chain rescan for wallet addresses. Dropping the state
+	// only properly takes effect after opening the wallet. That's why we
+	// start, drop, stop and start again.
+	if u.resetWalletTransactions {
+		dropErr := wallet.DropTransactionHistory(
+			unlockedWallet.Database(), true,
+		)
+
+		// Even if dropping the history fails, we'll want to unload the
+		// wallet. If unloading fails, that error is probably more
+		// important to be returned to the user anyway.
+		if err := loader.UnloadWallet(); err != nil {
+			return nil, fmt.Errorf("could not unload "+
+				"wallet (tx history drop err: %v): %v", dropErr,
+				err)
+		}
+
+		// If dropping failed but unloading didn't, we'll still abort
+		// and inform the user.
+		if dropErr != nil {
+			return nil, dropErr
+		}
+
+		// All looks good, let's now open the wallet again.
+		unlockedWallet, err = loader.OpenExistingWallet(password, false)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// We successfully opened the wallet and pass the instance back to

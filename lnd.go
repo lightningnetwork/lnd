@@ -1146,6 +1146,7 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 	pwService := walletunlocker.New(
 		chainConfig.ChainDir, cfg.ActiveNetParams.Params,
 		!cfg.SyncFreelist, macaroonFiles, cfg.DB.Bolt.DBTimeout,
+		cfg.ResetWalletTransactions,
 	)
 
 	// Set up a new PasswordService, which will listen for passwords
@@ -1313,21 +1314,10 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 		// remind the user to turn off the setting again after
 		// successful completion.
 		if cfg.ResetWalletTransactions {
-			ltndLog.Warnf("Dropping all transaction history from " +
+			ltndLog.Warnf("Dropped all transaction history from " +
 				"on-chain wallet. Remember to disable " +
 				"reset-wallet-transactions flag for next " +
 				"start of lnd")
-
-			err := wallet.DropTransactionHistory(
-				unlockMsg.Wallet.Database(), true,
-			)
-			if err != nil {
-				if err := unlockMsg.UnloadWallet(); err != nil {
-					ltndLog.Errorf("Could not unload "+
-						"wallet: %v", err)
-				}
-				return nil, shutdown, err
-			}
 		}
 
 		return &WalletUnlockParams{

@@ -150,6 +150,7 @@ func New(chainDir string, params *chaincfg.Params, noFreelistSync bool,
 		netParams:       params,
 		macaroonFiles:   macaroonFiles,
 		dbTimeout:       dbTimeout,
+		noFreelistSync:  noFreelistSync,
 	}
 }
 

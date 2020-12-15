@@ -372,10 +372,6 @@ type fundingManager struct {
 	// external sub-systems using the ProcessFundingMsg call.
 	fundingMsgs chan *fundingMsg
 
-	// queries is a channel which receives requests to query the internal
-	// state of the funding manager.
-	queries chan interface{}
-
 	// fundingRequests is a channel used to receive channel initiation
 	// requests from a local subsystem within the daemon.
 	fundingRequests chan *initFundingMsg
@@ -446,7 +442,6 @@ func newFundingManager(cfg fundingConfig) (*fundingManager, error) {
 		fundingRequests:             make(chan *initFundingMsg, msgBufferSize),
 		localDiscoverySignals:       make(map[lnwire.ChannelID]chan struct{}),
 		handleFundingLockedBarriers: make(map[lnwire.ChannelID]struct{}),
-		queries:                     make(chan interface{}, 1),
 		quit:                        make(chan struct{}),
 	}, nil
 }
@@ -594,46 +589,6 @@ func (f *fundingManager) nextPendingChanID() [32]byte {
 	return nextChanID
 }
 
-type pendingChannel struct {
-	identityPub   *btcec.PublicKey
-	channelPoint  *wire.OutPoint
-	capacity      btcutil.Amount
-	localBalance  btcutil.Amount
-	remoteBalance btcutil.Amount
-}
-
-type pendingChansReq struct {
-	resp chan []*pendingChannel
-	err  chan error
-}
-
-// PendingChannels returns a slice describing all the channels which are
-// currently pending at the last state of the funding workflow.
-func (f *fundingManager) PendingChannels() ([]*pendingChannel, error) {
-	respChan := make(chan []*pendingChannel, 1)
-	errChan := make(chan error, 1)
-
-	req := &pendingChansReq{
-		resp: respChan,
-		err:  errChan,
-	}
-
-	select {
-	case f.queries <- req:
-	case <-f.quit:
-		return nil, ErrFundingManagerShuttingDown
-	}
-
-	select {
-	case resp := <-respChan:
-		return resp, nil
-	case err := <-errChan:
-		return nil, err
-	case <-f.quit:
-		return nil, ErrFundingManagerShuttingDown
-	}
-}
-
 // CancelPeerReservations cancels all active reservations associated with the
 // passed node. This will ensure any outputs which have been pre committed,
 // (and thus locked from coin selection), are properly freed.
@@ -760,11 +715,6 @@ func (f *fundingManager) reservationCoordinator() {
 		case <-zombieSweepTicker.C:
 			f.pruneZombieReservations()
 
-		case req := <-f.queries:
-			switch msg := req.(type) {
-			case *pendingChansReq:
-				f.handlePendingChannels(msg)
-			}
 		case <-f.quit:
 			return
 		}
@@ -1052,33 +1002,6 @@ func (f *fundingManager) advancePendingChannelState(
 	}
 
 	return nil
-}
-
-// handlePendingChannels responds to a request for details concerning all
-// currently pending channels waiting for the final phase of the funding
-// workflow (funding txn confirmation).
-func (f *fundingManager) handlePendingChannels(msg *pendingChansReq) {
-	var pendingChannels []*pendingChannel
-
-	dbPendingChannels, err := f.cfg.Wallet.Cfg.Database.FetchPendingChannels()
-	if err != nil {
-		msg.err <- err
-		return
-	}
-
-	for _, dbPendingChan := range dbPendingChannels {
-		pendingChan := &pendingChannel{
-			identityPub:   dbPendingChan.IdentityPub,
-			channelPoint:  &dbPendingChan.FundingOutpoint,
-			capacity:      dbPendingChan.Capacity,
-			localBalance:  dbPendingChan.LocalCommitment.LocalBalance.ToSatoshis(),
-			remoteBalance: dbPendingChan.LocalCommitment.RemoteBalance.ToSatoshis(),
-		}
-
-		pendingChannels = append(pendingChannels, pendingChan)
-	}
-
-	msg.resp <- pendingChannels
 }
 
 // ProcessFundingMsg sends a message to the internal fundingManager goroutine,

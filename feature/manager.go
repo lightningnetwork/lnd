@@ -83,8 +83,8 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 			raw.Unset(lnwire.StaticRemoteKeyRequired)
 		}
 		if cfg.NoAnchors {
-			raw.Unset(lnwire.AnchorsOptional)
-			raw.Unset(lnwire.AnchorsRequired)
+			raw.Unset(lnwire.AnchorsZeroFeeHtlcTxOptional)
+			raw.Unset(lnwire.AnchorsZeroFeeHtlcTxRequired)
 		}
 		if cfg.NoWumbo {
 			raw.Unset(lnwire.WumboChannelsOptional)

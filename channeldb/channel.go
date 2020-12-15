@@ -244,6 +244,10 @@ const (
 	// that only the responder can decide to cooperatively close the
 	// channel.
 	FrozenBit ChannelType = 1 << 4
+
+	// ZeroHtlcTxFeeBit indicates that the channel should use zero-fee
+	// second-level HTLC transactions.
+	ZeroHtlcTxFeeBit ChannelType = 1 << 5
 )
 
 // IsSingleFunder returns true if the channel type if one of the known single
@@ -273,6 +277,12 @@ func (c ChannelType) HasFundingTx() bool {
 // commitment.
 func (c ChannelType) HasAnchors() bool {
 	return c&AnchorOutputsBit == AnchorOutputsBit
+}
+
+// ZeroHtlcTxFee returns true if this channel type uses second-level HTLC
+// transactions signed with zero-fee.
+func (c ChannelType) ZeroHtlcTxFee() bool {
+	return c&ZeroHtlcTxFeeBit == ZeroHtlcTxFeeBit
 }
 
 // IsFrozen returns true if the channel is considered to be "frozen". A frozen

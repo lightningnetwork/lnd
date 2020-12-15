@@ -28,10 +28,11 @@ const (
 	// to_remote key is static.
 	CommitmentTypeTweakless
 
-	// CommitmentTypeAnchors is a commitment type that is tweakless, and
-	// has extra anchor ouputs in order to bump the fee of the commitment
-	// transaction.
-	CommitmentTypeAnchors
+	// CommitmentTypeAnchorsZeroFeeHtlcTx is a commitment type that is an
+	// extension of the outdated CommitmentTypeAnchors, which in addition
+	// requires second-level HTLC transactions to be signed using a
+	// zero-fee.
+	CommitmentTypeAnchorsZeroFeeHtlcTx
 )
 
 // String returns the name of the CommitmentType.
@@ -41,8 +42,8 @@ func (c CommitmentType) String() string {
 		return "legacy"
 	case CommitmentTypeTweakless:
 		return "tweakless"
-	case CommitmentTypeAnchors:
-		return "anchors"
+	case CommitmentTypeAnchorsZeroFeeHtlcTx:
+		return "anchors-zero-fee-second-level"
 	default:
 		return "invalid"
 	}
@@ -182,7 +183,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	// Based on the channel type, we determine the initial commit weight
 	// and fee.
 	commitWeight := int64(input.CommitWeight)
-	if commitType == CommitmentTypeAnchors {
+	if commitType == CommitmentTypeAnchorsZeroFeeHtlcTx {
 		commitWeight = input.AnchorCommitWeight
 	}
 	commitFee := commitFeePerKw.FeeForWeight(commitWeight)
@@ -195,7 +196,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	// The total fee paid by the initiator will be the commitment fee in
 	// addition to the two anchor outputs.
 	feeMSat := lnwire.NewMSatFromSatoshis(commitFee)
-	if commitType == CommitmentTypeAnchors {
+	if commitType == CommitmentTypeAnchorsZeroFeeHtlcTx {
 		feeMSat += 2 * lnwire.NewMSatFromSatoshis(anchorSize)
 	}
 
@@ -280,8 +281,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		// Both the tweakless type and the anchor type is tweakless,
 		// hence set the bit.
 		if commitType == CommitmentTypeTweakless ||
-			commitType == CommitmentTypeAnchors {
-
+			commitType == CommitmentTypeAnchorsZeroFeeHtlcTx {
 			chanType |= channeldb.SingleFunderTweaklessBit
 		} else {
 			chanType |= channeldb.SingleFunderBit
@@ -315,9 +315,11 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		chanType |= channeldb.DualFunderBit
 	}
 
-	// We are adding anchor outputs to our commitment.
-	if commitType == CommitmentTypeAnchors {
+	// We are adding anchor outputs to our commitment. We only support this
+	// in combination with zero-fee second-levels HTLCs.
+	if commitType == CommitmentTypeAnchorsZeroFeeHtlcTx {
 		chanType |= channeldb.AnchorOutputsBit
+		chanType |= channeldb.ZeroHtlcTxFeeBit
 	}
 
 	// If the channel is meant to be frozen, then we'll set the frozen bit

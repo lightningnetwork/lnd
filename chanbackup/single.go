@@ -36,6 +36,10 @@ const (
 	// implicitly denotes that this channel uses the new anchor commitment
 	// format.
 	AnchorsCommitVersion = 2
+
+	// AnchorsZeroFeeHtlcTxCommitVersion is a version that denotes this
+	// channel is using the zero-fee second-level anchor commitment format.
+	AnchorsZeroFeeHtlcTxCommitVersion = 3
 )
 
 // Single is a static description of an existing channel that can be used for
@@ -163,6 +167,9 @@ func NewSingle(channel *channeldb.OpenChannel,
 	}
 
 	switch {
+	case channel.ChanType.ZeroHtlcTxFee():
+		single.Version = AnchorsZeroFeeHtlcTxCommitVersion
+
 	case channel.ChanType.HasAnchors():
 		single.Version = AnchorsCommitVersion
 
@@ -185,6 +192,7 @@ func (s *Single) Serialize(w io.Writer) error {
 	case DefaultSingleVersion:
 	case TweaklessCommitVersion:
 	case AnchorsCommitVersion:
+	case AnchorsZeroFeeHtlcTxCommitVersion:
 	default:
 		return fmt.Errorf("unable to serialize w/ unknown "+
 			"version: %v", s.Version)
@@ -344,6 +352,7 @@ func (s *Single) Deserialize(r io.Reader) error {
 	case DefaultSingleVersion:
 	case TweaklessCommitVersion:
 	case AnchorsCommitVersion:
+	case AnchorsZeroFeeHtlcTxCommitVersion:
 	default:
 		return fmt.Errorf("unable to de-serialize w/ unknown "+
 			"version: %v", s.Version)

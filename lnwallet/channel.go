@@ -6809,11 +6809,14 @@ func (lc *LightningChannel) CalcFee(feeRate chainfee.SatPerKWeight) btcutil.Amou
 
 // MaxFeeRate returns the maximum fee rate given an allocation of the channel
 // initiator's spendable balance. This can be useful to determine when we should
-// stop proposing fee updates that exceed our maximum allocation.
+// stop proposing fee updates that exceed our maximum allocation. We also take
+// a fee rate cap that should be used for anchor type channels.
 //
 // NOTE: This should only be used for channels in which the local commitment is
 // the initiator.
-func (lc *LightningChannel) MaxFeeRate(maxAllocation float64) chainfee.SatPerKWeight {
+func (lc *LightningChannel) MaxFeeRate(maxAllocation float64,
+	maxAnchorFeeRate chainfee.SatPerKWeight) chainfee.SatPerKWeight {
+
 	lc.RLock()
 	defer lc.RUnlock()
 
@@ -6828,9 +6831,16 @@ func (lc *LightningChannel) MaxFeeRate(maxAllocation float64) chainfee.SatPerKWe
 	// Ensure the fee rate doesn't dip below the fee floor.
 	_, weight := lc.availableBalance()
 	maxFeeRate := maxFee / (float64(weight) / 1000)
-	return chainfee.SatPerKWeight(
+	feeRate := chainfee.SatPerKWeight(
 		math.Max(maxFeeRate, float64(chainfee.FeePerKwFloor)),
 	)
+
+	// Cap anchor fee rates.
+	if lc.channelState.ChanType.HasAnchors() && feeRate > maxAnchorFeeRate {
+		return maxAnchorFeeRate
+	}
+
+	return feeRate
 }
 
 // RemoteNextRevocation returns the channelState's RemoteNextRevocation.

@@ -17,6 +17,11 @@ import (
 // anchorSize is the constant anchor output size.
 const anchorSize = btcutil.Amount(330)
 
+// DefaultAnchorsCommitMaxFeeRateSatPerVByte is the default max fee rate in
+// sat/vbyte the initiator will use for anchor channels. This should be enough
+// to ensure propagation before anchoring down the commitment transaction.
+const DefaultAnchorsCommitMaxFeeRateSatPerVByte = 10
+
 // CommitmentKeyRing holds all derived keys needed to construct commitment and
 // HTLC transactions. The keys are derived differently depending whether the
 // commitment transaction is ours or the remote peer's. Private keys associated

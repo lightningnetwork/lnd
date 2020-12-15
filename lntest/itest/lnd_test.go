@@ -1166,8 +1166,12 @@ func (c commitType) calcStaticFee(numHTLCs int) btcutil.Amount {
 
 	// The anchor commitment type is slightly heavier, and we must also add
 	// the value of the two anchors to the resulting fee the initiator
-	// pays.
+	// pays. In addition the fee rate is capped at 10 sat/vbyte for anchor
+	// channels.
 	if c == commitTypeAnchors {
+		feePerKw = chainfee.SatPerKVByte(
+			lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte * 1000,
+		).FeePerKWeight()
 		commitWeight = input.AnchorCommitWeight
 		anchors = 2 * anchorSize
 	}

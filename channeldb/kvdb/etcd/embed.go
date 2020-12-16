@@ -21,6 +21,12 @@ const (
 	// embedded etcd servers. Ports are monotonically increasing starting
 	// from this number and are determined by the results of getFreePort().
 	defaultEtcdPort = 2379
+
+	// defaultNamespace is the namespace we'll use in our embedded etcd
+	// instance. Since it is only used for testing, we'll use the namespace
+	// name "test/" for this. Note that the namespace can be any string,
+	// the trailing / is not required.
+	defaultNamespace = "test/"
 )
 
 var (
@@ -90,6 +96,7 @@ func NewEmbeddedEtcdInstance(path string) (*BackendConfig, func(), error) {
 		User:               "user",
 		Pass:               "pass",
 		InsecureSkipVerify: true,
+		Namespace:          defaultNamespace,
 	}
 
 	return connConfig, func() {

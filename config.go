@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/discovery"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/input"
@@ -413,7 +414,7 @@ func DefaultConfig() Config {
 		Autopilot: &lncfg.AutoPilot{
 			MaxChannels:    5,
 			Allocation:     0.6,
-			MinChannelSize: int64(minChanFundingSize),
+			MinChannelSize: int64(funding.MinChanFundingSize),
 			MaxChannelSize: int64(MaxFundingAmount),
 			MinConfs:       1,
 			ConfTarget:     autopilot.DefaultConfTarget,
@@ -429,7 +430,7 @@ func DefaultConfig() Config {
 		HeightHintCacheQueryDisable:   defaultHeightHintCacheQueryDisable,
 		Alias:                         defaultAlias,
 		Color:                         defaultColor,
-		MinChanSize:                   int64(minChanFundingSize),
+		MinChanSize:                   int64(funding.MinChanFundingSize),
 		MaxChanSize:                   int64(0),
 		DefaultRemoteMaxHtlcs:         defaultRemoteMaxHtlcs,
 		NumGraphSyncPeers:             defaultMinPeers,
@@ -689,8 +690,8 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 
 	// Ensure that the specified values for the min and max channel size
 	// are within the bounds of the normal chan size constraints.
-	if cfg.Autopilot.MinChannelSize < int64(minChanFundingSize) {
-		cfg.Autopilot.MinChannelSize = int64(minChanFundingSize)
+	if cfg.Autopilot.MinChannelSize < int64(funding.MinChanFundingSize) {
+		cfg.Autopilot.MinChannelSize = int64(funding.MinChanFundingSize)
 	}
 	if cfg.Autopilot.MaxChannelSize > int64(MaxFundingAmount) {
 		cfg.Autopilot.MaxChannelSize = int64(MaxFundingAmount)
@@ -707,9 +708,9 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 	// If unset (marked by 0 value), then enforce proper default.
 	if cfg.MaxChanSize == 0 {
 		if cfg.ProtocolOptions.Wumbo() {
-			cfg.MaxChanSize = int64(MaxBtcFundingAmountWumbo)
+			cfg.MaxChanSize = int64(funding.MaxBtcFundingAmountWumbo)
 		} else {
-			cfg.MaxChanSize = int64(MaxBtcFundingAmount)
+			cfg.MaxChanSize = int64(funding.MaxBtcFundingAmount)
 		}
 	}
 
@@ -857,7 +858,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 			"litecoin.active must be set to 1 (true)", funcName)
 
 	case cfg.Litecoin.Active:
-		err := cfg.Litecoin.Validate(minTimeLockDelta, minLtcRemoteDelay)
+		err := cfg.Litecoin.Validate(minTimeLockDelta, funding.MinLtcRemoteDelay)
 		if err != nil {
 			return nil, err
 		}
@@ -941,7 +942,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 		// Finally we'll register the litecoin chain as our current
 		// primary chain.
 		cfg.registeredChains.RegisterPrimaryChain(chainreg.LitecoinChain)
-		MaxFundingAmount = maxLtcFundingAmount
+		MaxFundingAmount = funding.MaxLtcFundingAmount
 
 	case cfg.Bitcoin.Active:
 		// Multiple networks can't be selected simultaneously.  Count
@@ -982,7 +983,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 			return nil, err
 		}
 
-		err := cfg.Bitcoin.Validate(minTimeLockDelta, minBtcRemoteDelay)
+		err := cfg.Bitcoin.Validate(minTimeLockDelta, funding.MinBtcRemoteDelay)
 		if err != nil {
 			return nil, err
 		}
@@ -1060,8 +1061,8 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 
 	// Ensure that the specified values for the min and max channel size
 	// don't are within the bounds of the normal chan size constraints.
-	if cfg.Autopilot.MinChannelSize < int64(minChanFundingSize) {
-		cfg.Autopilot.MinChannelSize = int64(minChanFundingSize)
+	if cfg.Autopilot.MinChannelSize < int64(funding.MinChanFundingSize) {
+		cfg.Autopilot.MinChannelSize = int64(funding.MinChanFundingSize)
 	}
 	if cfg.Autopilot.MaxChannelSize > int64(MaxFundingAmount) {
 		cfg.Autopilot.MaxChannelSize = int64(MaxFundingAmount)

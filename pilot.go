@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/chainreg"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
@@ -97,18 +98,18 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 
 	// Construct the open channel request and send it to the server to begin
 	// the funding workflow.
-	req := &openChanReq{
-		targetPubkey:     target,
-		chainHash:        *c.netParams.GenesisHash,
-		subtractFees:     true,
-		localFundingAmt:  amt,
-		pushAmt:          0,
-		minHtlcIn:        c.chanMinHtlcIn,
-		fundingFeePerKw:  feePerKw,
-		private:          c.private,
-		remoteCsvDelay:   0,
-		minConfs:         c.minConfs,
-		maxValueInFlight: 0,
+	req := &funding.InitFundingMsg{
+		TargetPubkey:     target,
+		ChainHash:        *c.netParams.GenesisHash,
+		SubtractFees:     true,
+		LocalFundingAmt:  amt,
+		PushAmt:          0,
+		MinHtlcIn:        c.chanMinHtlcIn,
+		FundingFeePerKw:  feePerKw,
+		Private:          c.private,
+		RemoteCsvDelay:   0,
+		MinConfs:         c.minConfs,
+		MaxValueInFlight: 0,
 	}
 
 	updateStream, errChan := c.server.OpenChannel(req)

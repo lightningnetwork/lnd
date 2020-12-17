@@ -8,7 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/lightningnetwork/lnd"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -20,7 +20,7 @@ import (
 // multisig funding output.
 func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
-	const chanSize = lnd.MaxBtcFundingAmount
+	const chanSize = funding.MaxBtcFundingAmount
 
 	// First, we'll create two new nodes that we'll use to open channels
 	// between for this test. Dave gets some coins that will be used to

@@ -39,6 +39,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/healthcheck"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -51,7 +52,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
-	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/netann"
@@ -114,6 +114,17 @@ var (
 	// validColorRegexp is a regexp that lets you check if a particular
 	// color string matches the standard hex color format #RRGGBB.
 	validColorRegexp = regexp.MustCompile("^#[A-Fa-f0-9]{6}$")
+
+	// MaxFundingAmount is a soft-limit of the maximum channel size
+	// currently accepted within the Lightning Protocol. This is
+	// defined in BOLT-0002, and serves as an initial precautionary limit
+	// while implementations are battle tested in the real world.
+	//
+	// At the moment, this value depends on which chain is active. It is set
+	// to the value under the Bitcoin chain as default.
+	//
+	// TODO(roasbeef): add command line param to modify
+	MaxFundingAmount = funding.MaxBtcFundingAmount
 )
 
 // errPeerAlreadyConnected is an error returned by the server when we're
@@ -207,7 +218,7 @@ type server struct {
 
 	cc *chainreg.ChainControl
 
-	fundingMgr *fundingManager
+	fundingMgr *funding.Manager
 
 	localChanDB *channeldb.DB
 
@@ -977,12 +988,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// Litecoin, depending on the primary registered chain.
 	primaryChain := cfg.registeredChains.PrimaryChain()
 	chainCfg := cfg.Bitcoin
-	minRemoteDelay := minBtcRemoteDelay
-	maxRemoteDelay := maxBtcRemoteDelay
+	minRemoteDelay := funding.MinBtcRemoteDelay
+	maxRemoteDelay := funding.MaxBtcRemoteDelay
 	if primaryChain == chainreg.LitecoinChain {
 		chainCfg = cfg.Litecoin
-		minRemoteDelay = minLtcRemoteDelay
-		maxRemoteDelay = maxLtcRemoteDelay
+		minRemoteDelay = funding.MinLtcRemoteDelay
+		maxRemoteDelay = funding.MaxLtcRemoteDelay
 	}
 
 	var chanIDSeed [32]byte
@@ -990,7 +1001,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	s.fundingMgr, err = newFundingManager(fundingConfig{
+	s.fundingMgr, err = funding.NewFundingManager(funding.Config{
 		NoWumboChans:       !cfg.ProtocolOptions.Wumbo(),
 		IDKey:              nodeKeyECDH.PubKey(),
 		Wallet:             cc.Wallet,
@@ -3472,63 +3483,6 @@ func (s *server) removePeer(p *peer.Brontide) {
 	s.peerNotifier.NotifyPeerOffline(pubKey)
 }
 
-// openChanReq is a message sent to the server in order to request the
-// initiation of a channel funding workflow to the peer with either the
-// specified relative peer ID, or a global lightning  ID.
-type openChanReq struct {
-	targetPubkey *btcec.PublicKey
-
-	chainHash chainhash.Hash
-
-	subtractFees    bool
-	localFundingAmt btcutil.Amount
-
-	pushAmt lnwire.MilliSatoshi
-
-	fundingFeePerKw chainfee.SatPerKWeight
-
-	private bool
-
-	// minHtlcIn is the minimum incoming htlc that we accept.
-	minHtlcIn lnwire.MilliSatoshi
-
-	remoteCsvDelay uint16
-
-	// minConfs indicates the minimum number of confirmations that each
-	// output selected to fund the channel should satisfy.
-	minConfs int32
-
-	// shutdownScript is an optional upfront shutdown script for the channel.
-	// This value is optional, so may be nil.
-	shutdownScript lnwire.DeliveryAddress
-
-	// maxValueInFlight is the maximum amount of coins in millisatoshi that can
-	// be pending within the channel. It only applies to the remote party.
-	maxValueInFlight lnwire.MilliSatoshi
-
-	maxHtlcs uint16
-
-	// maxLocalCsv is the maximum local csv delay we will accept from our
-	// peer.
-	maxLocalCsv uint16
-
-	// TODO(roasbeef): add ability to specify channel constraints as well
-
-	// chanFunder is an optional channel funder that allows the caller to
-	// control exactly how the channel funding is carried out. If not
-	// specified, then the default chanfunding.WalletAssembler will be
-	// used.
-	chanFunder chanfunding.Assembler
-
-	// pendingChanID is not all zeroes (the default value), then this will
-	// be the pending channel ID used for the funding flow within the wire
-	// protocol.
-	pendingChanID [32]byte
-
-	updates chan *lnrpc.OpenStatusUpdate
-	err     chan error
-}
-
 // ConnectToPeer requests that the server connect to a Lightning Network peer
 // at the specified address. This function will *block* until either a
 // connection is established, or the initial handshake process fails.
@@ -3673,25 +3627,26 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 //
 // NOTE: This function is safe for concurrent access.
 func (s *server) OpenChannel(
-	req *openChanReq) (chan *lnrpc.OpenStatusUpdate, chan error) {
+	req *funding.InitFundingMsg) (chan *lnrpc.OpenStatusUpdate, chan error) {
 
 	// The updateChan will have a buffer of 2, since we expect a ChanPending
 	// + a ChanOpen update, and we want to make sure the funding process is
 	// not blocked if the caller is not reading the updates.
-	req.updates = make(chan *lnrpc.OpenStatusUpdate, 2)
-	req.err = make(chan error, 1)
+	req.Updates = make(chan *lnrpc.OpenStatusUpdate, 2)
+	req.Err = make(chan error, 1)
 
 	// First attempt to locate the target peer to open a channel with, if
 	// we're unable to locate the peer then this request will fail.
-	pubKeyBytes := req.targetPubkey.SerializeCompressed()
+	pubKeyBytes := req.TargetPubkey.SerializeCompressed()
 	s.mu.RLock()
 	peer, ok := s.peersByPub[string(pubKeyBytes)]
 	if !ok {
 		s.mu.RUnlock()
 
-		req.err <- fmt.Errorf("peer %x is not online", pubKeyBytes)
-		return req.updates, req.err
+		req.Err <- fmt.Errorf("peer %x is not online", pubKeyBytes)
+		return req.Updates, req.Err
 	}
+	req.Peer = peer
 	s.mu.RUnlock()
 
 	// We'll wait until the peer is active before beginning the channel
@@ -3699,32 +3654,32 @@ func (s *server) OpenChannel(
 	select {
 	case <-peer.ActiveSignal():
 	case <-peer.QuitSignal():
-		req.err <- fmt.Errorf("peer %x disconnected", pubKeyBytes)
-		return req.updates, req.err
+		req.Err <- fmt.Errorf("peer %x disconnected", pubKeyBytes)
+		return req.Updates, req.Err
 	case <-s.quit:
-		req.err <- ErrServerShuttingDown
-		return req.updates, req.err
+		req.Err <- ErrServerShuttingDown
+		return req.Updates, req.Err
 	}
 
 	// If the fee rate wasn't specified, then we'll use a default
 	// confirmation target.
-	if req.fundingFeePerKw == 0 {
+	if req.FundingFeePerKw == 0 {
 		estimator := s.cc.FeeEstimator
 		feeRate, err := estimator.EstimateFeePerKW(6)
 		if err != nil {
-			req.err <- err
-			return req.updates, req.err
+			req.Err <- err
+			return req.Updates, req.Err
 		}
-		req.fundingFeePerKw = feeRate
+		req.FundingFeePerKw = feeRate
 	}
 
 	// Spawn a goroutine to send the funding workflow request to the funding
 	// manager. This allows the server to continue handling queries instead
 	// of blocking on this request which is exported as a synchronous
 	// request to the outside world.
-	go s.fundingMgr.initFundingWorkflow(peer, req)
+	go s.fundingMgr.InitFundingWorkflow(req)
 
-	return req.updates, req.err
+	return req.Updates, req.Err
 }
 
 // Peers returns a slice of all active peers.

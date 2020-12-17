@@ -42,6 +42,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
@@ -1760,11 +1761,11 @@ func (r *rpcServer) canOpenChannel() error {
 	return nil
 }
 
-// praseOpenChannelReq parses an OpenChannelRequest message into the server's
-// native openChanReq struct. The logic is abstracted so that it can be shared
-// between OpenChannel and OpenChannelSync.
+// praseOpenChannelReq parses an OpenChannelRequest message into an InitFundingMsg
+// struct. The logic is abstracted so that it can be shared between OpenChannel
+// and OpenChannelSync.
 func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
-	isSync bool) (*openChanReq, error) {
+	isSync bool) (*funding.InitFundingMsg, error) {
 
 	rpcsLog.Debugf("[openchannel] request to NodeKey(%x) "+
 		"allocation(us=%v, them=%v)", in.NodePubkey,
@@ -1803,9 +1804,9 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	// Restrict the size of the channel we'll actually open. At a later
 	// level, we'll ensure that the output we create after accounting for
 	// fees that a dust output isn't created.
-	if localFundingAmt < minChanFundingSize {
+	if localFundingAmt < funding.MinChanFundingSize {
 		return nil, fmt.Errorf("channel is too small, the minimum "+
-			"channel size is: %v SAT", int64(minChanFundingSize))
+			"channel size is: %v SAT", int64(funding.MinChanFundingSize))
 	}
 
 	// Prevent users from submitting a max-htlc value that would exceed the
@@ -1891,20 +1892,20 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	// Instruct the server to trigger the necessary events to attempt to
 	// open a new channel. A stream is returned in place, this stream will
 	// be used to consume updates of the state of the pending channel.
-	return &openChanReq{
-		targetPubkey:     nodePubKey,
-		chainHash:        *r.cfg.ActiveNetParams.GenesisHash,
-		localFundingAmt:  localFundingAmt,
-		pushAmt:          lnwire.NewMSatFromSatoshis(remoteInitialBalance),
-		minHtlcIn:        minHtlcIn,
-		fundingFeePerKw:  feeRate,
-		private:          in.Private,
-		remoteCsvDelay:   remoteCsvDelay,
-		minConfs:         minConfs,
-		shutdownScript:   script,
-		maxValueInFlight: maxValue,
-		maxHtlcs:         maxHtlcs,
-		maxLocalCsv:      uint16(in.MaxLocalCsv),
+	return &funding.InitFundingMsg{
+		TargetPubkey:     nodePubKey,
+		ChainHash:        *r.cfg.ActiveNetParams.GenesisHash,
+		LocalFundingAmt:  localFundingAmt,
+		PushAmt:          lnwire.NewMSatFromSatoshis(remoteInitialBalance),
+		MinHtlcIn:        minHtlcIn,
+		FundingFeePerKw:  feeRate,
+		Private:          in.Private,
+		RemoteCsvDelay:   remoteCsvDelay,
+		MinConfs:         minConfs,
+		ShutdownScript:   script,
+		MaxValueInFlight: maxValue,
+		MaxHtlcs:         maxHtlcs,
+		MaxLocalCsv:      uint16(in.MaxLocalCsv),
 	}, nil
 }
 
@@ -1935,8 +1936,8 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 			// Map the channel point shim into a new
 			// chanfunding.CannedAssembler that the wallet will use
 			// to obtain the channel point details.
-			copy(req.pendingChanID[:], chanPointShim.PendingChanId)
-			req.chanFunder, err = newFundingShimAssembler(
+			copy(req.PendingChanID[:], chanPointShim.PendingChanId)
+			req.ChanFunder, err = newFundingShimAssembler(
 				chanPointShim, true, r.server.cc.KeyRing,
 			)
 			if err != nil {
@@ -1953,9 +1954,9 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 			// Instruct the wallet to use the new
 			// chanfunding.PsbtAssembler to construct the funding
 			// transaction.
-			copy(req.pendingChanID[:], psbtShim.PendingChanId)
-			req.chanFunder, err = newPsbtAssembler(
-				in, req.minConfs, psbtShim,
+			copy(req.PendingChanID[:], psbtShim.PendingChanId)
+			req.ChanFunder, err = newPsbtAssembler(
+				in, req.MinConfs, psbtShim,
 				&r.server.cc.Wallet.Cfg.NetParams,
 			)
 			if err != nil {
@@ -1972,7 +1973,7 @@ out:
 		select {
 		case err := <-errChan:
 			rpcsLog.Errorf("unable to open channel to NodeKey(%x): %v",
-				req.targetPubkey.SerializeCompressed(), err)
+				req.TargetPubkey.SerializeCompressed(), err)
 			return err
 		case fundingUpdate := <-updateChan:
 			rpcsLog.Tracef("[openchannel] sending update: %v",
@@ -2004,7 +2005,7 @@ out:
 	}
 
 	rpcsLog.Tracef("[openchannel] success NodeKey(%x), ChannelPoint(%v)",
-		req.targetPubkey.SerializeCompressed(), outpoint)
+		req.TargetPubkey.SerializeCompressed(), outpoint)
 	return nil
 }
 
@@ -2029,7 +2030,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	// If an error occurs them immediately return the error to the client.
 	case err := <-errChan:
 		rpcsLog.Errorf("unable to open channel to NodeKey(%x): %v",
-			req.targetPubkey.SerializeCompressed(), err)
+			req.TargetPubkey.SerializeCompressed(), err)
 		return nil, err
 
 	// Otherwise, wait for the first channel update. The first update sent

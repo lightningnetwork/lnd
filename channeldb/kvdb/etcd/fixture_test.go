@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/coreos/etcd/clientv3"
+	"github.com/coreos/etcd/clientv3/namespace"
 )
 
 const (
@@ -59,6 +60,11 @@ func NewEtcdTestFixture(t *testing.T) *EtcdTestFixture {
 		t.Fatalf("unable to create etcd test fixture: %v", err)
 	}
 
+	// Apply the default namespace (since that's what we use in tests).
+	cli.KV = namespace.NewKV(cli.KV, defaultNamespace)
+	cli.Watcher = namespace.NewWatcher(cli.Watcher, defaultNamespace)
+	cli.Lease = namespace.NewLease(cli.Lease, defaultNamespace)
+
 	return &EtcdTestFixture{
 		t:      t,
 		cli:    cli,
@@ -88,7 +94,7 @@ func (f *EtcdTestFixture) Get(key string) string {
 
 	resp, err := f.cli.Get(ctx, key)
 	if err != nil {
-		f.t.Fatalf("etcd test fixture failed to put: %v", err)
+		f.t.Fatalf("etcd test fixture failed to get: %v", err)
 	}
 
 	if len(resp.Kvs) > 0 {
@@ -103,9 +109,9 @@ func (f *EtcdTestFixture) Dump() map[string]string {
 	ctx, cancel := context.WithTimeout(context.TODO(), testEtcdTimeout)
 	defer cancel()
 
-	resp, err := f.cli.Get(ctx, "", clientv3.WithPrefix())
+	resp, err := f.cli.Get(ctx, "\x00", clientv3.WithFromKey())
 	if err != nil {
-		f.t.Fatalf("etcd test fixture failed to put: %v", err)
+		f.t.Fatalf("etcd test fixture failed to get: %v", err)
 	}
 
 	result := make(map[string]string)

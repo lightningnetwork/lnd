@@ -12,6 +12,7 @@ import (
 
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/coreos/etcd/clientv3"
+	"github.com/coreos/etcd/clientv3/namespace"
 	"github.com/coreos/etcd/pkg/transport"
 )
 
@@ -153,6 +154,9 @@ type BackendConfig struct {
 	// name spaces.
 	Prefix string
 
+	// Namespace is the etcd namespace that we'll use for all keys.
+	Namespace string
+
 	// CollectCommitStats indicates wheter to commit commit stats.
 	CollectCommitStats bool
 }
@@ -184,10 +188,14 @@ func newEtcdBackend(config BackendConfig) (*db, error) {
 		TLS:                tlsConfig,
 		MaxCallSendMsgSize: 16384*1024 - 1,
 	})
-
 	if err != nil {
 		return nil, err
 	}
+
+	// Apply the namespace.
+	cli.KV = namespace.NewKV(cli.KV, config.Namespace)
+	cli.Watcher = namespace.NewWatcher(cli.Watcher, config.Namespace)
+	cli.Lease = namespace.NewLease(cli.Lease, config.Namespace)
 
 	backend := &db{
 		cli:     cli,

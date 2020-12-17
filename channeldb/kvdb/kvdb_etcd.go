@@ -28,6 +28,7 @@ func GetEtcdBackend(ctx context.Context, prefix string,
 		KeyFile:            etcdConfig.KeyFile,
 		InsecureSkipVerify: etcdConfig.InsecureSkipVerify,
 		Prefix:             prefix,
+		Namespace:          etcdConfig.Namespace,
 		CollectCommitStats: etcdConfig.CollectStats,
 	}
 

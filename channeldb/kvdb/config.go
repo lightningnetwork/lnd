@@ -44,6 +44,8 @@ type EtcdConfig struct {
 
 	Pass string `long:"pass" description:"Password for the database user."`
 
+	Namespace string `long:"namespace" description:"The etcd namespace to use."`
+
 	CertFile string `long:"cert_file" description:"Path to the TLS certificate for etcd RPC."`
 
 	KeyFile string `long:"key_file" description:"Path to the TLS private key for etcd RPC."`

@@ -1765,7 +1765,7 @@ func (r *rpcServer) canOpenChannel() error {
 // struct. The logic is abstracted so that it can be shared between OpenChannel
 // and OpenChannelSync.
 func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
-	isSync bool) (*InitFundingMsg, error) {
+	isSync bool) (*funding.InitFundingMsg, error) {
 
 	rpcsLog.Debugf("[openchannel] request to NodeKey(%x) "+
 		"allocation(us=%v, them=%v)", in.NodePubkey,
@@ -1892,7 +1892,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	// Instruct the server to trigger the necessary events to attempt to
 	// open a new channel. A stream is returned in place, this stream will
 	// be used to consume updates of the state of the pending channel.
-	return &InitFundingMsg{
+	return &funding.InitFundingMsg{
 		TargetPubkey:     nodePubKey,
 		ChainHash:        *r.cfg.ActiveNetParams.GenesisHash,
 		LocalFundingAmt:  localFundingAmt,

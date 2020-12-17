@@ -218,7 +218,7 @@ type server struct {
 
 	cc *chainreg.ChainControl
 
-	fundingMgr *Manager
+	fundingMgr *funding.Manager
 
 	localChanDB *channeldb.DB
 
@@ -1001,7 +1001,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	s.fundingMgr, err = NewFundingManager(fundingConfig{
+	s.fundingMgr, err = funding.NewFundingManager(funding.Config{
 		NoWumboChans:       !cfg.ProtocolOptions.Wumbo(),
 		IDKey:              nodeKeyECDH.PubKey(),
 		Wallet:             cc.Wallet,
@@ -3627,7 +3627,7 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 //
 // NOTE: This function is safe for concurrent access.
 func (s *server) OpenChannel(
-	req *InitFundingMsg) (chan *lnrpc.OpenStatusUpdate, chan error) {
+	req *funding.InitFundingMsg) (chan *lnrpc.OpenStatusUpdate, chan error) {
 
 	// The updateChan will have a buffer of 2, since we expect a ChanPending
 	// + a ChanOpen update, and we want to make sure the funding process is

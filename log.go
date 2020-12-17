@@ -82,7 +82,6 @@ var (
 	ltndLog = addLndPkgLogger("LTND")
 	rpcsLog = addLndPkgLogger("RPCS")
 	srvrLog = addLndPkgLogger("SRVR")
-	fndgLog = addLndPkgLogger("FNDG")
 	utxnLog = addLndPkgLogger("UTXN")
 	brarLog = addLndPkgLogger("BRAR")
 	atplLog = addLndPkgLogger("ATPL")

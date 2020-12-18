@@ -875,6 +875,11 @@ func TestStaticRemoteDowngrade(t *testing.T) {
 		)
 		legacy = lnwire.NewFeatureVector(rawLegacy, nil)
 
+		legacyCombinedOptional = lnwire.NewRawFeatureVector(
+			lnwire.UpfrontShutdownScriptOptional,
+			lnwire.StaticRemoteKeyOptional,
+		)
+
 		rawFeatureOptional = lnwire.NewRawFeatureVector(
 			lnwire.StaticRemoteKeyOptional,
 		)
@@ -925,12 +930,17 @@ func TestStaticRemoteDowngrade(t *testing.T) {
 				Features:       rawFeatureRequired,
 			},
 		},
+
+		// In this case we need to flip our required bit to optional,
+		// this should also propagate to the legacy set of feature bits
+		// so we have proper consistency: a bit isn't set to optional
+		// in one field and required in the other.
 		{
 			name:     "legacy channel, static required",
 			legacy:   true,
 			features: featureRequired,
 			expectedInit: &lnwire.Init{
-				GlobalFeatures: rawLegacy,
+				GlobalFeatures: legacyCombinedOptional,
 				Features:       rawFeatureOptional,
 			},
 		},

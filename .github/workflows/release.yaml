@@ -10,9 +10,6 @@ defaults:
     shell: bash
 
 env:
-  DOCKER_REPO: lightninglabs
-  DOCKER_IMAGE: lnd
-  
   # If you change this value, please change it in the following files as well:
   # /.travis.yml
   # /Dockerfile
@@ -27,6 +24,8 @@ jobs:
     steps:
       - name: git checkout
         uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
 
       - name: go cache
         uses: actions/cache@v1

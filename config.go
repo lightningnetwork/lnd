@@ -5,6 +5,7 @@
 package lnd
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -17,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
 	flags "github.com/jessevdk/go-flags"
 	"github.com/lightninglabs/neutrino"
@@ -952,6 +954,10 @@ func ValidateConfig(cfg Config, usageMessage string,
 			numNets++
 			ltcParams = chainreg.LitecoinSimNetParams
 		}
+		if cfg.Litecoin.SigNet {
+			return nil, fmt.Errorf("%s: litecoin.signet is not "+
+				"supported", funcName)
+		}
 
 		if numNets > 1 {
 			str := "%s: The mainnet, testnet, and simnet params " +
@@ -1032,6 +1038,45 @@ func ValidateConfig(cfg Config, usageMessage string,
 		if cfg.Bitcoin.SimNet {
 			numNets++
 			cfg.ActiveNetParams = chainreg.BitcoinSimNetParams
+		}
+		if cfg.Bitcoin.SigNet {
+			numNets++
+			cfg.ActiveNetParams = chainreg.BitcoinSigNetParams
+
+			// Let the user overwrite the default signet parameters.
+			// The challenge defines the actual signet network to
+			// join and the seed nodes are needed for network
+			// discovery.
+			sigNetChallenge := chaincfg.DefaultSignetChallenge
+			sigNetSeeds := chaincfg.DefaultSignetDNSSeeds
+			if cfg.Bitcoin.SigNetChallenge != "" {
+				challenge, err := hex.DecodeString(
+					cfg.Bitcoin.SigNetChallenge,
+				)
+				if err != nil {
+					return nil, fmt.Errorf("%s: Invalid "+
+						"signet challenge, hex decode "+
+						"failed: %v", funcName, err)
+				}
+				sigNetChallenge = challenge
+			}
+
+			if len(cfg.Bitcoin.SigNetSeedNode) > 0 {
+				sigNetSeeds = make([]chaincfg.DNSSeed, len(
+					cfg.Bitcoin.SigNetSeedNode,
+				))
+				for idx, seed := range cfg.Bitcoin.SigNetSeedNode {
+					sigNetSeeds[idx] = chaincfg.DNSSeed{
+						Host:         seed,
+						HasFiltering: false,
+					}
+				}
+			}
+
+			chainParams := chaincfg.CustomSignetParams(
+				sigNetChallenge, sigNetSeeds,
+			)
+			cfg.ActiveNetParams.Params = &chainParams
 		}
 		if numNets > 1 {
 			str := "%s: The mainnet, testnet, regtest, and " +

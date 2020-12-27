@@ -1007,6 +1007,7 @@ func (c *TowerClient) newSessionQueue(s *wtdb.ClientSession) *sessionQueue {
 		DB:            c.cfg.DB,
 		MinBackoff:    c.cfg.MinBackoff,
 		MaxBackoff:    c.cfg.MaxBackoff,
+		Log:           c.log,
 	})
 }
 

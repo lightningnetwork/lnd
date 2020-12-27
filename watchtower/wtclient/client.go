@@ -317,7 +317,7 @@ func New(config *Config) (*TowerClient, error) {
 	c := &TowerClient{
 		cfg:               cfg,
 		log:               plog,
-		pipeline:          newTaskPipeline(),
+		pipeline:          newTaskPipeline(plog),
 		candidateTowers:   newTowerListIterator(candidateTowers...),
 		candidateSessions: candidateSessions,
 		activeSessions:    make(sessionQueueSet),

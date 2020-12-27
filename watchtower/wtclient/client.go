@@ -339,6 +339,7 @@ func New(config *Config) (*TowerClient, error) {
 		Candidates:    c.candidateTowers,
 		MinBackoff:    cfg.MinBackoff,
 		MaxBackoff:    cfg.MaxBackoff,
+		Log:           plog,
 	})
 
 	// Reconstruct the highest commit height processed for each channel

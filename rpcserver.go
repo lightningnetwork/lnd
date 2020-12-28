@@ -2865,7 +2865,7 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 
 	rpcsLog.Debugf("[channelbalance] local_balance=%v remote_balance=%v "+
 		"unsettled_local_balance=%v unsettled_remote_balance=%v "+
-		"pending_open_local_balance=%v pending_open_remove_balance",
+		"pending_open_local_balance=%v pending_open_remote_balance=%v",
 		localBalance, remoteBalance, unsettledLocalBalance,
 		unsettledRemoteBalance, pendingOpenLocalBalance,
 		pendingOpenRemoteBalance)

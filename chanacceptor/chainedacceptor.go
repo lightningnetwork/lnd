@@ -7,12 +7,12 @@ import (
 
 // ChainedAcceptor represents a conjunction of ChannelAcceptor results.
 type ChainedAcceptor struct {
+	acceptorID uint64 // To be used atomically.
+
 	// acceptors is a map of ChannelAcceptors that will be evaluated when
 	// the ChainedAcceptor's Accept method is called.
 	acceptors    map[uint64]ChannelAcceptor
 	acceptorsMtx sync.RWMutex
-
-	acceptorID uint64 // To be used atomically.
 }
 
 // NewChainedAcceptor initializes a ChainedAcceptor.

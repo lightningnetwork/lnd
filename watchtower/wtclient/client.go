@@ -469,7 +469,7 @@ func (c *TowerClient) Start() error {
 		c.wg.Add(1)
 		go c.backupDispatcher()
 
-		log.Infof("Watchtower client started successfully")
+		c.log.Infof("Watchtower client started successfully")
 	})
 	return err
 }

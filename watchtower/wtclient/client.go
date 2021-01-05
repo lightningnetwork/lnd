@@ -317,7 +317,7 @@ func New(config *Config) (*TowerClient, error) {
 	c := &TowerClient{
 		cfg:               cfg,
 		log:               plog,
-		pipeline:          newTaskPipeline(),
+		pipeline:          newTaskPipeline(plog),
 		candidateTowers:   newTowerListIterator(candidateTowers...),
 		candidateSessions: candidateSessions,
 		activeSessions:    make(sessionQueueSet),
@@ -339,6 +339,7 @@ func New(config *Config) (*TowerClient, error) {
 		Candidates:    c.candidateTowers,
 		MinBackoff:    cfg.MinBackoff,
 		MaxBackoff:    cfg.MaxBackoff,
+		Log:           plog,
 	})
 
 	// Reconstruct the highest commit height processed for each channel
@@ -468,7 +469,7 @@ func (c *TowerClient) Start() error {
 		c.wg.Add(1)
 		go c.backupDispatcher()
 
-		log.Infof("Watchtower client started successfully")
+		c.log.Infof("Watchtower client started successfully")
 	})
 	return err
 }
@@ -1006,6 +1007,7 @@ func (c *TowerClient) newSessionQueue(s *wtdb.ClientSession) *sessionQueue {
 		DB:            c.cfg.DB,
 		MinBackoff:    c.cfg.MinBackoff,
 		MaxBackoff:    c.cfg.MaxBackoff,
+		Log:           c.log,
 	})
 }
 

@@ -4032,3 +4032,167 @@ func TestRateLimitChannelUpdates(t *testing.T) {
 		assertRateLimit(&updateSameDirection, nodePeer1, shouldRateLimit)
 	}
 }
+
+// TestIgnoreOwnAnnouncement tests that the gossiper will ignore announcements
+// about our own channels when coming from a remote peer.
+func TestIgnoreOwnAnnouncement(t *testing.T) {
+	t.Parallel()
+
+	ctx, cleanup, err := createTestCtx(proofMatureDelta)
+	if err != nil {
+		t.Fatalf("can't create context: %v", err)
+	}
+	defer cleanup()
+
+	batch, err := createLocalAnnouncements(0)
+	if err != nil {
+		t.Fatalf("can't generate announcements: %v", err)
+	}
+
+	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:], btcec.S256())
+	if err != nil {
+		t.Fatalf("unable to parse pubkey: %v", err)
+	}
+	remotePeer := &mockPeer{remoteKey, nil, nil}
+
+	// Try to let the remote peer tell us about the channel we are part of.
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(
+		batch.chanAnn, remotePeer,
+	):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	// It should be ignored, since the gossiper only cares about local
+	// announcements for its own channels.
+	if err == nil || !strings.Contains(err.Error(), "ignoring") {
+		t.Fatalf("expected gossiper to ignore announcement, got: %v", err)
+	}
+
+	// Now do the local channelannouncement, node announcement, and channel
+	// update. No messages should be brodcasted yet, since we don't have
+	// the announcement signatures.
+	select {
+	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanAnn):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process local announcement")
+	}
+	if err != nil {
+		t.Fatalf("unable to process channel ann: %v", err)
+	}
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("channel announcement was broadcast")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	select {
+	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanUpdAnn1):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process local announcement")
+	}
+	if err != nil {
+		t.Fatalf("unable to process channel update: %v", err)
+	}
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("channel update announcement was broadcast")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	select {
+	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.nodeAnn1):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process local announcement")
+	}
+	if err != nil {
+		t.Fatalf("unable to process node ann: %v", err)
+	}
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("node announcement was broadcast")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	// We should accept the remote's channel update and node announcement.
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(
+		batch.chanUpdAnn2, remotePeer,
+	):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	if err != nil {
+		t.Fatalf("unable to process channel update: %v", err)
+	}
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("channel update announcement was broadcast")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(
+		batch.nodeAnn2, remotePeer,
+	):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	if err != nil {
+		t.Fatalf("unable to process node ann: %v", err)
+	}
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("node announcement was broadcast")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	// Now we exchange the proofs, the messages will be broadcasted to the
+	// network.
+	select {
+	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.localProofAnn):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	if err != nil {
+		t.Fatalf("unable to process local proof: %v", err)
+	}
+
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("announcements were broadcast")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(
+		batch.remoteProofAnn, remotePeer,
+	):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	if err != nil {
+		t.Fatalf("unable to process remote proof: %v", err)
+	}
+
+	for i := 0; i < 5; i++ {
+		select {
+		case <-ctx.broadcastedMessage:
+		case <-time.After(time.Second):
+			t.Fatal("announcement wasn't broadcast")
+		}
+	}
+
+	// Finally, we again check that we'll ignore the remote giving us
+	// announcements about our own channel.
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(
+		batch.chanAnn, remotePeer,
+	):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	if err == nil || !strings.Contains(err.Error(), "ignoring") {
+		t.Fatalf("expected gossiper to ignore announcement, got: %v", err)
+	}
+}

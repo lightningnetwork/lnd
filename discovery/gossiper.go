@@ -542,6 +542,22 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(msg lnwire.Message,
 
 		errChan <- nil
 		return errChan
+
+	// To avoid inserting edges in the graph for our own channels that we
+	// have already closed, we ignore such channel announcements coming
+	// from the remote.
+	case *lnwire.ChannelAnnouncement:
+		ownKey := d.selfKey.SerializeCompressed()
+		ownErr := fmt.Errorf("ignoring remote ChannelAnnouncement " +
+			"for own channel")
+
+		if bytes.Equal(m.NodeID1[:], ownKey) ||
+			bytes.Equal(m.NodeID2[:], ownKey) {
+
+			log.Warn(ownErr)
+			errChan <- ownErr
+			return errChan
+		}
 	}
 
 	nMsg := &networkMsg{

@@ -2245,17 +2245,17 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			source: nMsg.source,
 			msg:    chanAnn,
 		})
-		if e1Ann != nil {
+		if src, err := chanInfo.NodeKey1(); err == nil && e1Ann != nil {
 			announcements = append(announcements, networkMsg{
 				peer:   nMsg.peer,
-				source: nMsg.source,
+				source: src,
 				msg:    e1Ann,
 			})
 		}
-		if e2Ann != nil {
+		if src, err := chanInfo.NodeKey2(); err == nil && e2Ann != nil {
 			announcements = append(announcements, networkMsg{
 				peer:   nMsg.peer,
-				source: nMsg.source,
+				source: src,
 				msg:    e2Ann,
 			})
 		}

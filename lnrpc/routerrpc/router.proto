@@ -137,6 +137,9 @@ message SendPaymentRequest {
     */
     int32 final_cltv_delta = 4;
 
+    // An optional payment addr to be included within the last hop of the route.
+    bytes payment_addr = 20;
+
     /*
     A bare-bones invoice for a payment within the Lightning Network.  With the
     details of the invoice, the sender has all the data necessary to send a

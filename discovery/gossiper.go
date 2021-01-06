@@ -574,7 +574,7 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(msg lnwire.Message,
 // entire channel announcement and update messages will be re-constructed and
 // broadcast to the rest of the network.
 func (d *AuthenticatedGossiper) ProcessLocalAnnouncement(msg lnwire.Message,
-	source *btcec.PublicKey, optionalFields ...OptionalMsgField) chan error {
+	optionalFields ...OptionalMsgField) chan error {
 
 	optionalMsgFields := &optionalMsgFields{}
 	optionalMsgFields.apply(optionalFields...)
@@ -583,7 +583,7 @@ func (d *AuthenticatedGossiper) ProcessLocalAnnouncement(msg lnwire.Message,
 		msg:               msg,
 		optionalMsgFields: optionalMsgFields,
 		isRemote:          false,
-		source:            source,
+		source:            d.selfKey,
 		err:               make(chan error, 1),
 	}
 

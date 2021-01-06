@@ -1026,13 +1026,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement, error) {
 			return s.genNodeAnnouncement(true)
 		},
-		SendAnnouncement: func(msg lnwire.Message,
-			optionalFields ...discovery.OptionalMsgField) chan error {
-
-			return s.authGossiper.ProcessLocalAnnouncement(
-				msg, nodeKeyECDH.PubKey(), optionalFields...,
-			)
-		},
+		SendAnnouncement: s.authGossiper.ProcessLocalAnnouncement,
 		NotifyWhenOnline: s.NotifyWhenOnline,
 		TempChanIDSeed:   chanIDSeed,
 		FindChannel: func(chanID lnwire.ChannelID) (
@@ -3792,8 +3786,7 @@ func (s *server) fetchLastChanUpdate() func(lnwire.ShortChannelID) (
 // applyChannelUpdate applies the channel update to the different sub-systems of
 // the server.
 func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate) error {
-	pubKey := s.identityECDH.PubKey()
-	errChan := s.authGossiper.ProcessLocalAnnouncement(update, pubKey)
+	errChan := s.authGossiper.ProcessLocalAnnouncement(update)
 	select {
 	case err := <-errChan:
 		return err

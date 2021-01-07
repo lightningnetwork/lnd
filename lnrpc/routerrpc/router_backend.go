@@ -695,6 +695,15 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 			return nil, err
 		}
 
+		// If the payment addresses is specified, then we'll also
+		// populate that now as well.
+		if len(rpcPayReq.PaymentAddr) != 0 {
+			var payAddr [32]byte
+			copy(payAddr[:], rpcPayReq.PaymentAddr)
+
+			payIntent.PaymentAddr = &payAddr
+		}
+
 		payIntent.DestFeatures = features
 	}
 

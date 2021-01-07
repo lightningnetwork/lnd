@@ -1249,6 +1249,11 @@
           "format": "int32",
           "description": "The CLTV delta from the current height that should be used to set the\ntimelock for the final hop."
         },
+        "payment_addr": {
+          "type": "string",
+          "format": "byte",
+          "description": "An optional payment addr to be included within the last hop of the route."
+        },
         "payment_request": {
           "type": "string",
           "description": "A bare-bones invoice for a payment within the Lightning Network.  With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient. The amount in the payment request may be zero. In\nthat case it is required to set the amt field as well. If no payment request\nis specified, the following fields are required: dest, amt and payment_hash."

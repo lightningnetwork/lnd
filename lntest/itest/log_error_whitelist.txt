@@ -250,3 +250,4 @@
 <time> [ERR] UTXN: error while graduating class at height=<height>: TxNotifier is exiting
 <time> [ERR] UTXN: Failed to sweep first-stage HTLC (CLTV-delayed) output <chan_point>
 <time> [ERR] UTXN: Notification chan closed, can't advance output <chan_point>
+<time> [ERR] DISC: Unable to rebroadcast stale announcements: unable to retrieve outgoing channels: channel from self node has no policy

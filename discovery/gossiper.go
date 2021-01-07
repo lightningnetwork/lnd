@@ -265,13 +265,6 @@ type AuthenticatedGossiper struct {
 	// every new block height.
 	blockEpochs *chainntnfs.BlockEpochEvent
 
-	// prematureChannelUpdates is a map of ChannelUpdates we have received
-	// that wasn't associated with any channel we know about.  We store
-	// them temporarily, such that we can reprocess them when a
-	// ChannelAnnouncement for the channel is received.
-	prematureChannelUpdates map[uint64][]*networkMsg
-	pChanUpdMtx             sync.Mutex
-
 	// networkMsgs is a channel that carries new network broadcasted
 	// message from outside the gossiper service to be processed by the
 	// networkHandler.
@@ -328,7 +321,6 @@ func New(cfg Config, selfKey *btcec.PublicKey) *AuthenticatedGossiper {
 		networkMsgs:             make(chan *networkMsg),
 		quit:                    make(chan struct{}),
 		chanPolicyUpdates:       make(chan *chanPolicyUpdateRequest),
-		prematureChannelUpdates: make(map[uint64][]*networkMsg),
 		channelMtx:              multimutex.NewMutex(),
 		recentRejects:           make(map[uint64]struct{}),
 		heightForLastChanUpdate: make(map[uint64][2]uint32),
@@ -1022,8 +1014,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 
 			}()
 
-		// A new block has arrived, so we can re-process the previously
-		// premature announcements.
+		// A new block has arrived, update our best height.
 		case newBlock, ok := <-d.blockEpochs.Epochs:
 			// If the channel has been closed, then this indicates
 			// the daemon is shutting down, so we exit ourselves.
@@ -1690,55 +1681,6 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			return nil
 		}
 
-		// If we earlier received any ChannelUpdates for this channel,
-		// we can now process them, as the channel is added to the
-		// graph.
-		shortChanID := msg.ShortChannelID.ToUint64()
-		var channelUpdates []*networkMsg
-
-		d.pChanUpdMtx.Lock()
-		channelUpdates = append(channelUpdates, d.prematureChannelUpdates[shortChanID]...)
-
-		// Now delete the premature ChannelUpdates, since we added them
-		// all to the queue of network messages.
-		delete(d.prematureChannelUpdates, shortChanID)
-		d.pChanUpdMtx.Unlock()
-
-		// Launch a new goroutine to handle each ChannelUpdate, this to
-		// ensure we don't block here, as we can handle only one
-		// announcement at a time.
-		for _, cu := range channelUpdates {
-			d.wg.Add(1)
-			go func(nMsg *networkMsg) {
-				defer d.wg.Done()
-
-				switch msg := nMsg.msg.(type) {
-
-				// Reprocess the message, making sure we return
-				// an error to the original caller in case the
-				// gossiper shuts down.
-				case *lnwire.ChannelUpdate:
-					log.Debugf("Reprocessing"+
-						" ChannelUpdate for "+
-						"shortChanID=%v",
-						msg.ShortChannelID.ToUint64())
-
-					select {
-					case d.networkMsgs <- nMsg:
-					case <-d.quit:
-						nMsg.err <- ErrGossiperShuttingDown
-					}
-
-				// We don't expect any other message type than
-				// ChannelUpdate to be in this map.
-				default:
-					log.Errorf("Unsupported message type "+
-						"found among ChannelUpdates: "+
-						"%T", msg)
-				}
-			}(cu)
-		}
-
 		// Channel announcement was successfully proceeded and know it
 		// might be broadcast to other connected nodes if it was
 		// announcement with proof (remote).
@@ -1777,8 +1719,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		shortChanID := msg.ShortChannelID.ToUint64()
 
 		// If the advertised inclusionary block is beyond our knowledge
-		// of the chain tip, then we'll put the announcement in limbo
-		// to be fully verified once we advance forward in the chain.
+		// of the chain tip, then we'll ignore it.
 		d.Lock()
 		if nMsg.isRemote && isPremature(msg.ShortChannelID, 0) {
 			log.Infof("Update announcement for "+
@@ -1787,6 +1728,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 				shortChanID, blockHeight,
 				d.bestHeight)
 			d.Unlock()
+
+			nMsg.err <- nil
 			return nil
 		}
 		d.Unlock()
@@ -1857,43 +1800,19 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			log.Debugf("Removed edge with chan_id=%v from zombie "+
 				"index", msg.ShortChannelID)
 
-			// We'll fallthrough to ensure we stash the update until
-			// we receive its corresponding ChannelAnnouncement.
-			// This is needed to ensure the edge exists in the graph
-			// before applying the update.
-			fallthrough
+			nMsg.err <- nil
+			return nil
+
 		case channeldb.ErrGraphNotFound:
 			fallthrough
 		case channeldb.ErrGraphNoEdgesFound:
 			fallthrough
 		case channeldb.ErrEdgeNotFound:
-			// If the edge corresponding to this ChannelUpdate was
-			// not found in the graph, this might be a channel in
-			// the process of being opened, and we haven't processed
-			// our own ChannelAnnouncement yet, hence it is not
-			// found in the graph. This usually gets resolved after
-			// the channel proofs are exchanged and the channel is
-			// broadcasted to the rest of the network, but in case
-			// this is a private channel this won't ever happen.
-			// This can also happen in the case of a zombie channel
-			// with a fresh update for which we don't have a
-			// ChannelAnnouncement for since we reject them. Because
-			// of this, we temporarily add it to a map, and
-			// reprocess it after our own ChannelAnnouncement has
-			// been processed.
-			d.pChanUpdMtx.Lock()
-			d.prematureChannelUpdates[shortChanID] = append(
-				d.prematureChannelUpdates[shortChanID], nMsg,
-			)
-			d.pChanUpdMtx.Unlock()
-
 			log.Debugf("Got ChannelUpdate for edge not found in "+
-				"graph(shortChanID=%v), saving for "+
-				"reprocessing later", shortChanID)
+				"graph(shortChanID=%v)", shortChanID)
 
-			// NOTE: We don't return anything on the error channel
-			// for this message, as we expect that will be done when
-			// this ChannelUpdate is later reprocessed.
+			// TODO: Add to recentRejects like below? Return error?
+			nMsg.err <- nil
 			return nil
 
 		default:
@@ -2326,17 +2245,17 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			source: nMsg.source,
 			msg:    chanAnn,
 		})
-		if e1Ann != nil {
+		if src, err := chanInfo.NodeKey1(); err == nil && e1Ann != nil {
 			announcements = append(announcements, networkMsg{
 				peer:   nMsg.peer,
-				source: nMsg.source,
+				source: src,
 				msg:    e1Ann,
 			})
 		}
-		if e2Ann != nil {
+		if src, err := chanInfo.NodeKey2(); err == nil && e2Ann != nil {
 			announcements = append(announcements, networkMsg{
 				peer:   nMsg.peer,
-				source: nMsg.source,
+				source: src,
 				msg:    e2Ann,
 			})
 		}

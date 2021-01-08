@@ -97,6 +97,10 @@ var (
 	// both parties can retrieve their funds.
 	ErrCommitSyncRemoteDataLoss = fmt.Errorf("possible remote commitment " +
 		"state data loss")
+
+	// ErrNotEnoughHtlcSigs is returned when we receive a commitment with too
+	// few htlc signatures.
+	ErrNotEnoughHtlcSigs = fmt.Errorf("not enough HTLC signatures")
 )
 
 // ErrCommitSyncLocalDataLoss is returned in the case that we receive a valid
@@ -4121,8 +4125,7 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 
 			// Make sure there are more signatures left.
 			if i >= len(htlcSigs) {
-				return nil, fmt.Errorf("not enough HTLC " +
-					"signatures")
+				return nil, ErrNotEnoughHtlcSigs
 			}
 
 			// With the sighash generated, we'll also store the
@@ -4175,8 +4178,7 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 
 			// Make sure there are more signatures left.
 			if i >= len(htlcSigs) {
-				return nil, fmt.Errorf("not enough HTLC " +
-					"signatures")
+				return nil, ErrNotEnoughHtlcSigs
 			}
 
 			// With the sighash generated, we'll also store the

@@ -26,7 +26,7 @@ IOS_BUILD := $(IOS_BUILD_DIR)/Lndmobile.framework
 ANDROID_BUILD_DIR := $(MOBILE_BUILD_DIR)/android
 ANDROID_BUILD := $(ANDROID_BUILD_DIR)/Lndmobile.aar
 
-COMMIT := $(shell git describe --abbrev=40 --dirty)
+COMMIT := $(shell git describe --tags --dirty)
 COMMIT_HASH := $(shell git rev-parse HEAD)
 
 BTCD_COMMIT := $(shell cat go.mod | \
@@ -155,6 +155,14 @@ release:
 	@$(call print, "Releasing lnd and lncli binaries.")
 	$(VERSION_CHECK)
 	./scripts/release.sh build-release "$(VERSION_TAG)" "$(BUILD_SYSTEM)" "$(RELEASE_TAGS)" "$(RELEASE_LDFLAGS)"
+
+docker-release:
+	@$(call print, "Building release helper docker image.")
+	if [ "$(tag)" = "" ]; then echo "Must specify tag=<commit_or_tag>!"; exit 1; fi
+
+	docker build -t lnd-release-helper -f make/builder.Dockerfile make/
+	$(DOCKER_RELEASE_HELPER) scripts/release.sh check-tag "$(VERSION_TAG)"
+	$(DOCKER_RELEASE_HELPER) scripts/release.sh build-release "$(VERSION_TAG)" "$(BUILD_SYSTEM)" "$(RELEASE_TAGS)" "$(RELEASE_LDFLAGS)"
 
 scratch: build
 

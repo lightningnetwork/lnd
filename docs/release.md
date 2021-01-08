@@ -10,7 +10,23 @@ utilize a work around needed until `go1.13.2`.
 
 ## Building a New Release
 
-### macOS/Linux/Windows (WSL)
+### MacOS
+
+The first requirement is to have [`docker`](https://www.docker.com/)
+installed locally and running. The second requirement is to have `make`
+installed. Everything else (including `golang`) is included in the release
+helper image.
+
+To build a release, run the following commands:
+
+1. `git clone https://github.com/lightningnetwork/lnd.git`
+2. `cd lnd`
+3. `git checkout <TAG> # <TAG> is the name of the next release/tag`
+4. `make docker-release tag=<TAG>`
+
+Where `<TAG>` is the name of the next release of `lnd`.
+
+### Linux/Windows (WSL)
 
 No prior set up is needed on Linux or macOS is required in order to build the
 release binaries. However, on Windows, the only way to build the release
@@ -19,7 +35,8 @@ the release binaries following these steps:
 
 1. `git clone https://github.com/lightningnetwork/lnd.git`
 2. `cd lnd`
-3. `make release tag=<TAG> # <TAG> is the name of the next release/tag`
+3. `git checkout <TAG> # <TAG> is the name of the next release/tag`
+4. `make release tag=<TAG>`
 
 This will then create a directory of the form `lnd-<TAG>` containing archives
 of the release binaries for each supported operating system and architecture,

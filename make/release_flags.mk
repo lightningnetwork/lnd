@@ -1,6 +1,16 @@
 VERSION_TAG = $(shell date +%Y%m%d)-01
 VERSION_CHECK = @$(call print, "Building master with date version tag")
 
+DOCKER_RELEASE_HELPER = docker run \
+  -it \
+  --rm \
+  --user $(shell id -u):$(shell id -g) \
+  -v $(shell pwd):/tmp/build/lnd \
+  -v $(shell bash -c "go env GOCACHE || (mkdir -p /tmp/go-cache; echo /tmp/go-cache)"):/tmp/build/.cache \
+  -v $(shell bash -c "go env GOMODCACHE || (mkdir -p /tmp/go-modcache; echo /tmp/go-modcache)"):/tmp/build/.modcache \
+  -e SKIP_VERSION_CHECK \
+  lnd-release-helper
+
 BUILD_SYSTEM = darwin-amd64 \
 dragonfly-amd64 \
 freebsd-386 \

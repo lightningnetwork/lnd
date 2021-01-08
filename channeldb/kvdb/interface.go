@@ -44,8 +44,17 @@ func View(db Backend, f func(tx RTx) error, reset func()) error {
 // Batch is identical to the Update call, but it attempts to combine several
 // individual Update transactions into a single write database transaction on
 // an optimistic basis. This only has benefits if multiple goroutines call
-// Batch.
-var Batch = walletdb.Batch
+// Batch. For etcd Batch simply does an Update since combination is more complex
+// in that case due to STM retries.
+func Batch(db Backend, f func(tx RwTx) error) error {
+	if extendedDB, ok := db.(ExtendedBackend); ok {
+		// Since Batch calls handle external state reset, we can safely
+		// pass in an empty reset closure.
+		return extendedDB.Update(f, func() {})
+	}
+
+	return walletdb.Batch(db, f)
+}
 
 // Create initializes and opens a database for the specified type. The
 // arguments are specific to the database type driver. See the documentation

@@ -19,6 +19,7 @@ go:
   # If you change this value, please change it in the following files as well:
   # /Dockerfile
   # /dev.Dockerfile
+  # /make/builder.Dockerfile
   # /.github/workflows/main.yml
   # /.github/workflows/release.yml
   - "1.15.6"

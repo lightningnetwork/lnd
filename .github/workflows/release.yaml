@@ -14,6 +14,7 @@ env:
   # /.travis.yml
   # /Dockerfile
   # /dev.Dockerfile
+  # /make/builder.Dockerfile
   # /.github/workflows/main.yml
   GO_VERSION: 1.15.6
 

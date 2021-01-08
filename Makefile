@@ -156,6 +156,14 @@ release:
 	$(VERSION_CHECK)
 	./scripts/release.sh build-release "$(VERSION_TAG)" "$(BUILD_SYSTEM)" "$(RELEASE_TAGS)" "$(RELEASE_LDFLAGS)"
 
+docker-release:
+	@$(call print, "Building release helper docker image.")
+	if [ "$(tag)" = "" ]; then echo "Must specify tag=<commit_or_tag>!"; exit 1; fi
+
+	docker build -t lnd-release-helper -f make/builder.Dockerfile make/
+	$(DOCKER_RELEASE_HELPER) scripts/release.sh check-tag "$(VERSION_TAG)"
+	$(DOCKER_RELEASE_HELPER) scripts/release.sh build-release "$(VERSION_TAG)" "$(BUILD_SYSTEM)" "$(RELEASE_TAGS)" "$(RELEASE_LDFLAGS)"
+
 scratch: build
 
 

@@ -986,6 +986,27 @@ func (l *LightningWallet) CheckReservedValue(in []wire.OutPoint,
 	return reserved, nil
 }
 
+// CheckReservedValueTx calls CheckReservedValue with the inputs and outputs
+// from the given tx, with the number of anchor channels currently open in the
+// database.
+//
+// NOTE: This method should only be run with the CoinSelectLock held.
+func (l *LightningWallet) CheckReservedValueTx(tx *wire.MsgTx) (btcutil.Amount,
+	error) {
+
+	numAnchors, err := l.currentNumAnchorChans()
+	if err != nil {
+		return 0, err
+	}
+
+	var inputs []wire.OutPoint
+	for _, txIn := range tx.TxIn {
+		inputs = append(inputs, txIn.PreviousOutPoint)
+	}
+
+	return l.CheckReservedValue(inputs, tx.TxOut, numAnchors)
+}
+
 // initOurContribution initializes the given ChannelReservation with our coins
 // and change reserved for the channel, and derives the keys to use for this
 // channel.

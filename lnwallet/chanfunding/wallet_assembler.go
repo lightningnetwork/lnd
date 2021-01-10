@@ -152,6 +152,28 @@ func (f *FullIntent) CompileFundingTx(extraInputs []*wire.TxIn,
 	return fundingTx, nil
 }
 
+// Inputs returns all inputs to the final funding transaction that we
+// know about. Since this funding transaction is created all from our wallet,
+// it will be all inputs.
+func (f *FullIntent) Inputs() []wire.OutPoint {
+	var ins []wire.OutPoint
+	for _, coin := range f.InputCoins {
+		ins = append(ins, coin.OutPoint)
+	}
+
+	return ins
+}
+
+// Outputs returns all outputs of the final funding transaction that we
+// know about. This will be the funding output and the change outputs going
+// back to our wallet.
+func (f *FullIntent) Outputs() []*wire.TxOut {
+	outs := f.ShimIntent.Outputs()
+	outs = append(outs, f.ChangeOutputs...)
+
+	return outs
+}
+
 // Cancel allows the caller to cancel a funding Intent at any time.  This will
 // return any resources such as coins back to the eligible pool to be used in
 // order channel fundings.

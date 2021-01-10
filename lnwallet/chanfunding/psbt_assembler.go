@@ -392,6 +392,53 @@ func (i *PsbtIntent) Cancel() {
 	i.ShimIntent.Cancel()
 }
 
+// Inputs returns all inputs to the final funding transaction that we know
+// about. These are only known after the PSBT has been verified.
+func (i *PsbtIntent) Inputs() []wire.OutPoint {
+	var inputs []wire.OutPoint
+
+	switch i.State {
+
+	// We return the inputs to the pending psbt.
+	case PsbtVerified:
+		for _, in := range i.PendingPsbt.UnsignedTx.TxIn {
+			inputs = append(inputs, in.PreviousOutPoint)
+		}
+
+	// We return the inputs to the final funding tx.
+	case PsbtFinalized, PsbtFundingTxCompiled:
+		for _, in := range i.FinalTX.TxIn {
+			inputs = append(inputs, in.PreviousOutPoint)
+		}
+
+	// In all other states we cannot know the inputs to the funding tx, and
+	// return an empty list.
+	default:
+	}
+
+	return inputs
+}
+
+// Outputs returns all outputs of the final funding transaction that we
+// know about. These are only known after the PSBT has been verified.
+func (i *PsbtIntent) Outputs() []*wire.TxOut {
+	switch i.State {
+
+	// We return the outputs of the pending psbt.
+	case PsbtVerified:
+		return i.PendingPsbt.UnsignedTx.TxOut
+
+	// We return the outputs of the final funding tx.
+	case PsbtFinalized, PsbtFundingTxCompiled:
+		return i.FinalTX.TxOut
+
+	// In all other states we cannot know the final outputs, and return an
+	// empty list.
+	default:
+		return nil
+	}
+}
+
 // PsbtAssembler is a type of chanfunding.Assembler wherein the funding
 // transaction is constructed outside of lnd by using partially signed bitcoin
 // transactions (PSBT).

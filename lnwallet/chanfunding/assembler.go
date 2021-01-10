@@ -103,6 +103,16 @@ type Intent interface {
 	// change.
 	LocalFundingAmt() btcutil.Amount
 
+	// Inputs returns all inputs to the final funding transaction that we
+	// know about. Note that there might be more, but we are not (yet)
+	// aware of.
+	Inputs() []wire.OutPoint
+
+	// Outputs returns all outputs of the final funding transaction that we
+	// know about. Note that there might be more, but we are not (yet)
+	// aware of.
+	Outputs() []*wire.TxOut
+
 	// Cancel allows the caller to cancel a funding Intent at any time.
 	// This will return any resources such as coins back to the eligible
 	// pool to be used in order channel fundings.

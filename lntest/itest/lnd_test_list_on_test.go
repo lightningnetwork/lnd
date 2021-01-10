@@ -231,6 +231,10 @@ var allTestCases = []*testCase{
 		test: testCPFP,
 	},
 	{
+		name: "anchors reserved value",
+		test: testAnchorReservedValue,
+	},
+	{
 		name: "macaroon authentication",
 		test: testMacaroonAuthentication,
 	},

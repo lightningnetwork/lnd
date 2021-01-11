@@ -1128,19 +1128,6 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 		return err
 	}
 
-	// With the event processed, we'll now notify all subscribers of the
-	// event.
-	c.Lock()
-	for _, sub := range c.clientSubscriptions {
-		select {
-		case sub.ContractBreach <- retribution:
-		case <-c.quit:
-			c.Unlock()
-			return fmt.Errorf("quitting")
-		}
-	}
-	c.Unlock()
-
 	// At this point, we've successfully received an ack for the breach
 	// close. We now construct and persist  the close summary, marking the
 	// channel as pending force closed.
@@ -1181,6 +1168,19 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 
 	log.Infof("Breached channel=%v marked pending-closed",
 		c.cfg.chanState.FundingOutpoint)
+
+	// With the event processed and channel closed, we'll now notify all
+	// subscribers of the event.
+	c.Lock()
+	for _, sub := range c.clientSubscriptions {
+		select {
+		case sub.ContractBreach <- retribution:
+		case <-c.quit:
+			c.Unlock()
+			return fmt.Errorf("quitting")
+		}
+	}
+	c.Unlock()
 
 	return nil
 }

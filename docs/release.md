@@ -85,3 +85,19 @@ and `go` (matching the same version used in the release):
    release script and recompute the `SHA256` hash of the release binaries (lnd
    and lncli) with `shasum -a 256 <filename>`. These should match __exactly__
    as the ones noted above.
+
+## Verifying docker images
+
+To verify the `lnd` and `lncli` binaries inside the
+[official provided docker images](https://hub.docker.com/r/lightninglabs/lnd)
+against the signed, reproducible release binaries, there is a verification
+script in the image that can be called (before starting the container for
+example):
+
+```shell
+$ docker pull lightninglabs/lnd:v0.12.0-beta
+$ docker run --rm --entrypoint="" lightninglabs/lnd:v0.12.0-beta /verify-install.sh
+$ OK=$?
+$ if [ "$OK" -ne "0" ]; then echo "Verification failed!"; exit 1; done
+$ docker run lightninglabs/lnd [command-line options]
+```

@@ -95,8 +95,8 @@ const (
 	defaultHostSampleInterval = time.Minute * 5
 
 	defaultChainInterval = time.Minute
-	defaultChainTimeout  = time.Second * 10
-	defaultChainBackoff  = time.Second * 30
+	defaultChainTimeout  = time.Second * 30
+	defaultChainBackoff  = time.Minute * 2
 	defaultChainAttempts = 3
 
 	// Set defaults for a health check which ensures that we have space

@@ -3281,6 +3281,12 @@ enum FeatureBit {
     PAYMENT_ADDR_OPT = 15;
     MPP_REQ = 16;
     MPP_OPT = 17;
+    WUMBO_CHANNELS_REQ = 18;
+    WUMBO_CHANNELS_OPT = 19;
+    ANCHORS_REQ = 20;
+    ANCHORS_OPT = 21;
+    ANCHORS_ZERO_FEE_HTLC_REQ = 22;
+    ANCHORS_ZERO_FEE_HTLC_OPT = 23;
 }
 
 message Feature {

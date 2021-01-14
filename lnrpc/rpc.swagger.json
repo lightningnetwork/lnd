@@ -1179,7 +1179,13 @@
                 "PAYMENT_ADDR_REQ",
                 "PAYMENT_ADDR_OPT",
                 "MPP_REQ",
-                "MPP_OPT"
+                "MPP_OPT",
+                "WUMBO_CHANNELS_REQ",
+                "WUMBO_CHANNELS_OPT",
+                "ANCHORS_REQ",
+                "ANCHORS_OPT",
+                "ANCHORS_ZERO_FEE_HTLC_REQ",
+                "ANCHORS_ZERO_FEE_HTLC_OPT"
               ]
             },
             "collectionFormat": "multi"
@@ -3422,7 +3428,13 @@
         "PAYMENT_ADDR_REQ",
         "PAYMENT_ADDR_OPT",
         "MPP_REQ",
-        "MPP_OPT"
+        "MPP_OPT",
+        "WUMBO_CHANNELS_REQ",
+        "WUMBO_CHANNELS_OPT",
+        "ANCHORS_REQ",
+        "ANCHORS_OPT",
+        "ANCHORS_ZERO_FEE_HTLC_REQ",
+        "ANCHORS_ZERO_FEE_HTLC_OPT"
       ],
       "default": "DATALOSS_PROTECT_REQ"
     },

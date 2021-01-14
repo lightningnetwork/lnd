@@ -131,12 +131,14 @@ func generateInputPartitionings(sweepableInputs []txInput,
 	return sets, nil
 }
 
-// createSweepTx builds a signed tx spending the inputs to a the output script.
-func createSweepTx(inputs []input.Input, outputPkScript []byte,
-	currentBlockHeight uint32, feePerKw chainfee.SatPerKWeight,
-	dustLimit btcutil.Amount, signer input.Signer) (*wire.MsgTx, error) {
+// createSweepTx builds a signed tx spending the inputs to the given outputs,
+// sending any leftover change to the change script.
+func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
+	changePkScript []byte, currentBlockHeight uint32,
+	feePerKw chainfee.SatPerKWeight, dustLimit btcutil.Amount,
+	signer input.Signer) (*wire.MsgTx, error) {
 
-	inputs, estimator := getWeightEstimate(inputs, feePerKw)
+	inputs, estimator := getWeightEstimate(inputs, outputs, feePerKw)
 	txFee := estimator.fee()
 
 	var (
@@ -210,6 +212,16 @@ func createSweepTx(inputs []input.Input, outputPkScript []byte,
 		totalInput += btcutil.Amount(o.SignDesc().Output.Value)
 	}
 
+	// Add the outputs given, if any.
+	for _, o := range outputs {
+		sweepTx.AddTxOut(o)
+		requiredOutput += btcutil.Amount(o.Value)
+	}
+
+	if requiredOutput+txFee > totalInput {
+		return nil, fmt.Errorf("insufficient input to create sweep tx")
+	}
+
 	// The value remaining after the required output and fees, go to
 	// change. Not that this fee is what we would have to pay in case the
 	// sweep tx has a change output.
@@ -219,7 +231,7 @@ func createSweepTx(inputs []input.Input, outputPkScript []byte,
 	// above.
 	if changeAmt >= dustLimit {
 		sweepTx.AddTxOut(&wire.TxOut{
-			PkScript: outputPkScript,
+			PkScript: changePkScript,
 			Value:    int64(changeAmt),
 		})
 	} else {
@@ -287,8 +299,8 @@ func createSweepTx(inputs []input.Input, outputPkScript []byte,
 
 // getWeightEstimate returns a weight estimate for the given inputs.
 // Additionally, it returns counts for the number of csv and cltv inputs.
-func getWeightEstimate(inputs []input.Input, feeRate chainfee.SatPerKWeight) (
-	[]input.Input, *weightEstimator) {
+func getWeightEstimate(inputs []input.Input, outputs []*wire.TxOut,
+	feeRate chainfee.SatPerKWeight) ([]input.Input, *weightEstimator) {
 
 	// We initialize a weight estimator so we can accurately asses the
 	// amount of fees we need to pay for this sweep transaction.
@@ -297,13 +309,19 @@ func getWeightEstimate(inputs []input.Input, feeRate chainfee.SatPerKWeight) (
 	// be more efficient on-chain.
 	weightEstimate := newWeightEstimator(feeRate)
 
-	// Our sweep transaction will pay to a single segwit p2wkh address,
-	// ensure it contributes to our weight estimate. If the inputs we add
-	// have required TxOuts, then this will be our change address. Note
-	// that if we have required TxOuts, we might end up creating a sweep tx
-	// without a change output. It is okay to add the change output to the
-	// weight estimate regardless, since the estimated fee will just be
-	// subtracted from this already dust output, and trimmed.
+	// Our sweep transaction will always pay to the given set of outputs.
+	for _, o := range outputs {
+		weightEstimate.addOutput(o)
+	}
+
+	// If there is any leftover change after paying to the given outputs
+	// and required outputs, it will go to a single segwit p2wkh address.
+	// This will be our change address, so ensure it contributes to our
+	// weight estimate. Note that if we have other outputs, we might end up
+	// creating a sweep tx without a change output. It is okay to add the
+	// change output to the weight estimate regardless, since the estimated
+	// fee will just be subtracted from this already dust output, and
+	// trimmed.
 	weightEstimate.addP2WKHOutput()
 
 	// For each output, use its witness type to determine the estimate

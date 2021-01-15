@@ -12,6 +12,13 @@ import (
 // be recovered by XORing all n shares together.
 type Share [32]byte
 
+// Xor stores the byte-wise xor of shares x and y in z.
+func (z *Share) Xor(x, y *Share) {
+	for i := range z {
+		z[i] = x[i] ^ y[i]
+	}
+}
+
 // ChildDesc contains the information necessary to derive a child hash/preimage
 // pair that is attached to a particular HTLC. This information will be known by
 // both the sender and receiver in the process of fulfilling an AMP payment.

@@ -420,7 +420,7 @@ func NewChannelPackager(source lnwire.ShortChannelID) *ChannelPackager {
 }
 
 // AddFwdPkg writes a newly locked in forwarding package to disk.
-func (*ChannelPackager) AddFwdPkg(tx kvdb.RwTx, fwdPkg *FwdPkg) error {
+func (*ChannelPackager) AddFwdPkg(tx kvdb.RwTx, fwdPkg *FwdPkg) error { // nolint: dupl
 	fwdPkgBkt, err := tx.CreateTopLevelBucket(fwdPackagesKey)
 	if err != nil {
 		return err

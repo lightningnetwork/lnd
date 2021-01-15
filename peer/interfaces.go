@@ -4,6 +4,8 @@ import (
 	"net"
 	"time"
 
+	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -63,4 +65,26 @@ type MessageLink interface {
 
 	// HandleChannelUpdate passes lnwire.Message to the MessageLink.
 	HandleChannelUpdate(lnwire.Message)
+}
+
+// MessageSwitch is an interface that manages setup, retrieval, and shutdown of
+// MessageLink implementations.
+type MessageSwitch interface {
+	// BestHeight returns the best height known to the MessageSwitch.
+	BestHeight() uint32
+
+	// CircuitModifier returns a reference to a CircuitModifier.
+	CircuitModifier() htlcswitch.CircuitModifier
+
+	// GetLink retrieves a MessageLink given a ChannelID.
+	GetLink(lnwire.ChannelID) (MessageLink, error)
+
+	// InitLink creates a link given a ChannelLinkConfig and
+	// LightningChannel.
+	InitLink(htlcswitch.ChannelLinkConfig,
+		*lnwallet.LightningChannel) error
+
+	// RemoveLink removes a MessageLink from the MessageSwitch given a
+	// ChannelID.
+	RemoveLink(lnwire.ChannelID)
 }

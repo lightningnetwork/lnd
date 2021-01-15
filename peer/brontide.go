@@ -121,6 +121,56 @@ type TimestampedError struct {
 	Timestamp time.Time
 }
 
+// ChannelSwitch is an implementation of the MessageSwitch interface that wraps
+// htlcswitch.Switch.
+type ChannelSwitch struct {
+	*htlcswitch.Switch
+}
+
+// NewChannelSwitch initializes a ChannelSwitch given a raw *htlcswitch.Switch
+// pointer.
+func NewChannelSwitch(innerSwitch *htlcswitch.Switch) *ChannelSwitch {
+	return &ChannelSwitch{innerSwitch}
+}
+
+// BestHeight returns innerSwitch's BestHeight.
+func (s *ChannelSwitch) BestHeight() uint32 {
+	return s.Switch.BestHeight()
+}
+
+// CircuitModifier returns the innerSwitch's CircuitModifier.
+func (s *ChannelSwitch) CircuitModifier() htlcswitch.CircuitModifier {
+	return s.Switch.CircuitModifier()
+}
+
+// GetLink retrieves a MessageLink given a ChannelID from the inner Switch.
+func (s *ChannelSwitch) GetLink(cid lnwire.ChannelID) (MessageLink, error) {
+	return s.Switch.GetLink(cid)
+}
+
+// InitLink initializes a ChannelLink in the Switch.
+func (s *ChannelSwitch) InitLink(linkCfg htlcswitch.ChannelLinkConfig,
+	lnChan *lnwallet.LightningChannel) error {
+
+	link := htlcswitch.NewChannelLink(linkCfg, lnChan)
+
+	// Before adding our new link, purge the Switch of any pending or live
+	// links going by the same channel id. If one is found, we'll shut it
+	// down to ensure that the mailboxes are only ever under the control of
+	// one link.
+	s.RemoveLink(link.ChanID())
+
+	// With the ChannelLink created, we'll now notify the Switch so this
+	// channel can be used to dispatch local payments and also passively
+	// forward payments.
+	return s.AddLink(link)
+}
+
+// RemoveLink removes a ChannelLink from the Switch.
+func (s *ChannelSwitch) RemoveLink(cid lnwire.ChannelID) {
+	s.Switch.RemoveLink(cid)
+}
+
 // Config defines configuration fields that are necessary for a peer object
 // to function.
 type Config struct {
@@ -175,9 +225,9 @@ type Config struct {
 	// ReadPool is the task pool that manages reuse of read buffers.
 	ReadPool *pool.Read
 
-	// Switch is a pointer to the htlcswitch. It is used to setup, get, and
-	// tear-down ChannelLinks.
-	Switch *htlcswitch.Switch
+	// Switch is an implementation of MessageSwitch. It is used to setup,
+	// get, and tear-down MessageLinks.
+	Switch MessageSwitch
 
 	// InterceptSwitch is a pointer to the InterceptableSwitch, a wrapper around
 	// the regular Switch. We only export it here to pass ForwardPackets to the
@@ -841,18 +891,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		HtlcNotifier:            p.cfg.HtlcNotifier,
 	}
 
-	link := htlcswitch.NewChannelLink(linkCfg, lnChan)
-
-	// Before adding our new link, purge the switch of any pending or live
-	// links going by the same channel id. If one is found, we'll shut it
-	// down to ensure that the mailboxes are only ever under the control of
-	// one link.
-	p.cfg.Switch.RemoveLink(link.ChanID())
-
-	// With the channel link created, we'll now notify the htlc switch so
-	// this channel can be used to dispatch local payments and also
-	// passively forward payments.
-	return p.cfg.Switch.AddLink(link)
+	return p.cfg.Switch.InitLink(linkCfg, lnChan)
 }
 
 // maybeSendNodeAnn sends our node announcement to the remote peer if at least

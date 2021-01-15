@@ -371,7 +371,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		PubKeyBytes: pubKey,
 		ErrorBuffer: errBuffer,
 		ChainIO:     chainIO,
-		Switch:      htlcSwitch,
+		Switch:      NewChannelSwitch(htlcSwitch),
 
 		ChanActiveTimeout: chanActiveTimeout,
 		InterceptSwitch:   htlcswitch.NewInterceptableSwitch(htlcSwitch),

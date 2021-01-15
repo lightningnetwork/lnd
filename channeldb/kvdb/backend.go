@@ -253,7 +253,7 @@ func GetTestBackend(path, name string) (Backend, func(), error) {
 		}
 		return db, empty, nil
 	} else if TestBackend == EtcdBackendName {
-		return GetEtcdTestBackend(path, name)
+		return GetEtcdTestBackend(path, 0, 0)
 	}
 
 	return nil, nil, fmt.Errorf("unknown backend")

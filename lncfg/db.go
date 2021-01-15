@@ -83,10 +83,15 @@ func (db *DB) GetBackends(ctx context.Context, dbPath string,
 
 	if db.Backend == EtcdBackend {
 		if db.Etcd.Embedded {
-			remoteDB, _, err = kvdb.GetEtcdTestBackend(dbPath, dbName)
+			remoteDB, _, err = kvdb.GetEtcdTestBackend(
+				dbPath, db.Etcd.EmbeddedClientPort,
+				db.Etcd.EmbeddedPeerPort,
+			)
 		} else {
 			// Prefix will separate key/values in the db.
-			remoteDB, err = kvdb.GetEtcdBackend(ctx, networkName, db.Etcd)
+			remoteDB, err = kvdb.GetEtcdBackend(
+				ctx, networkName, db.Etcd,
+			)
 		}
 		if err != nil {
 			return nil, err

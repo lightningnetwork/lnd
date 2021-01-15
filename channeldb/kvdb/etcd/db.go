@@ -304,15 +304,3 @@ func (db *db) Copy(w io.Writer) error {
 func (db *db) Close() error {
 	return db.cli.Close()
 }
-
-// Batch opens a database read/write transaction and executes the function f
-// with the transaction passed as a parameter.  After f exits, if f did not
-// error, the transaction is committed.  Otherwise, if f did error, the
-// transaction is rolled back.  If the rollback fails, the original error
-// returned by f is still returned.  If the commit fails, the commit error is
-// returned.
-//
-// Batch is only useful when there are multiple goroutines calling it.
-func (db *db) Batch(apply func(tx walletdb.ReadWriteTx) error) error {
-	return db.Update(apply, func() {})
-}

@@ -298,6 +298,19 @@ func (cfg NodeConfig) genArgs() []string {
 	if cfg.Etcd {
 		args = append(args, "--db.backend=etcd")
 		args = append(args, "--db.etcd.embedded")
+		args = append(
+			args, fmt.Sprintf(
+				"--db.etcd.embedded_client_port=%v",
+				nextAvailablePort(),
+			),
+		)
+		args = append(
+			args, fmt.Sprintf(
+				"--db.etcd.embedded_peer_port=%v",
+				nextAvailablePort(),
+			),
+		)
+		args = append(args, "--db.etcd.embedded")
 	}
 
 	if cfg.FeeURL != "" {

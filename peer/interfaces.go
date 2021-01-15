@@ -54,3 +54,13 @@ type MessageConn interface {
 	// ReadNextBody reads the next body.
 	ReadNextBody([]byte) ([]byte, error)
 }
+
+// MessageLink is an interface that contains some functionality from a
+// htlcswitch.ChannelLink.
+type MessageLink interface {
+	// ChanID returns the ChannelID of the MessageLink.
+	ChanID() lnwire.ChannelID
+
+	// HandleChannelUpdate passes lnwire.Message to the MessageLink.
+	HandleChannelUpdate(lnwire.Message)
+}

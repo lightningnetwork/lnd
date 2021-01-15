@@ -1139,10 +1139,9 @@ func (ms *msgStream) AddMsg(msg lnwire.Message) {
 }
 
 // waitUntilLinkActive waits until the target link is active and returns a
-// ChannelLink to pass messages to. It accomplishes this by subscribing to
+// MessageLink to pass messages to. It accomplishes this by subscribing to
 // an ActiveLinkEvent which is emitted by the link when it first starts up.
-func waitUntilLinkActive(p *Brontide,
-	cid lnwire.ChannelID) htlcswitch.ChannelLink {
+func waitUntilLinkActive(p *Brontide, cid lnwire.ChannelID) MessageLink {
 
 	// Subscribe to receive channel events.
 	//
@@ -1211,7 +1210,7 @@ func waitUntilLinkActive(p *Brontide,
 // lookups.
 func newChanMsgStream(p *Brontide, cid lnwire.ChannelID) *msgStream {
 
-	var chanLink htlcswitch.ChannelLink
+	var chanLink MessageLink
 
 	apply := func(msg lnwire.Message) {
 		// This check is fine because if the link no longer exists, it will

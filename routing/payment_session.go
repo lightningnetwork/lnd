@@ -278,6 +278,12 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 				return nil, errNoPathFound
 			}
 
+			if !p.payment.DestFeatures.HasFeature(lnwire.MPPOptional) {
+				p.log.Debug("not splitting because destination doesn't declare MPP")
+
+				return nil, errNoPathFound
+			}
+
 			// No splitting if this is the last shard.
 			isLastShard := activeShards+1 >= p.payment.MaxParts
 			if isLastShard {

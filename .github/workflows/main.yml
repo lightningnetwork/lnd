@@ -28,10 +28,10 @@ env:
 
 jobs:
   ########################
-  # RPC compilation check
+  # RPC and mobile compilation check
   ########################
   rpc-check:
-    name: RPC compilation check
+    name: RPC and mobile compilation check
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
@@ -55,6 +55,12 @@ jobs:
 
       - name: run check
         run: make rpc-check
+        
+      - name: build mobile RPC bindings
+        run: make mobile-rpc
+
+      - name: build mobile specific code
+        run: go build --tags="mobile" ./mobile
 
   ########################
   # check commits
@@ -155,38 +161,6 @@ jobs:
 
       - name: build release for all architectures
         run: make release
-
-  ########################
-  # mobile compilation
-  ########################
-  mobile-compile:
-    name: mobile compilation
-    runs-on: ubuntu-latest
-    steps:
-      - name: git checkout
-        uses: actions/checkout@v2
-
-      - name: go cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/go
-          key: lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-
-            lnd-${{ runner.os }}-go-
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
-        with:
-          go-version: '~${{ env.GO_VERSION }}'
-
-      - name: build mobile RPC bindings
-        run: make mobile-rpc
-
-      - name: build mobile specific code
-        run: go build --tags="mobile" ./mobile
 
   ########################
   # sample configuration check

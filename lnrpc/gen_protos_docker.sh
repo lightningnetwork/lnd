@@ -19,5 +19,6 @@ docker run \
   --rm \
   --user "$UID:$(id -g)" \
   -e UID=$UID \
+  -e COMPILE_MOBILE \
   -v "$DIR/../:/build" \
   lnd-protobuf-builder

@@ -42,3 +42,9 @@ pushd lnrpc
 format
 generate
 popd
+
+if [[ "$COMPILE_MOBILE" == "1" ]]; then
+  pushd mobile
+  ./gen_bindings.sh $FALAFEL_VERSION
+  popd
+fi

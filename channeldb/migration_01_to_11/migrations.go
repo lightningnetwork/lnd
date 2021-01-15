@@ -8,7 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
-	"github.com/lightningnetwork/lnd/lnwire"
+	lnwire "github.com/lightningnetwork/lnd/channeldb/migration/lnwire21"
 )
 
 // MigrateNodeAndEdgeUpdateIndex is a migration function that will update the

@@ -8,7 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
-	"github.com/lightningnetwork/lnd/lnwire"
+	lnwire "github.com/lightningnetwork/lnd/channeldb/migration/lnwire21"
 )
 
 const (

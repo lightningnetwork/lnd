@@ -16,7 +16,6 @@ env:
   # go needs absolute directories, using the $HOME variable doesn't work here.
   GOCACHE: /home/runner/work/go/pkg/build
   GOPATH: /home/runner/work/go
-  DOWNLOAD_CACHE: /home/runner/work/download_cache
   BITCOIN_VERSION: 0.20.1
 
   # If you change this value, please change it in the following files as well:
@@ -53,18 +52,6 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: '~${{ env.GO_VERSION }}'
-
-      - name: download cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/download_cache
-          key: lnd-${{ runner.os }}-download-${{ hashFiles('**/install_travis_proto.sh') }}
-          restore-keys: |
-            lnd-${{ runner.os }}-download-${{ hashFiles('**/install_travis_proto.sh') }}
-            lnd-${{ runner.os }}-download-
-
-      - name: install protoc and protobuf libraries
-        run: ./scripts/install_travis_proto.sh
 
       - name: run check
         run: make rpc-check
@@ -195,18 +182,6 @@ jobs:
         with:
           go-version: '~${{ env.GO_VERSION }}'
 
-      - name: download cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/download_cache
-          key: lnd-${{ runner.os }}-download-${{ hashFiles('**/install_travis_proto.sh') }}
-          restore-keys: |
-            lnd-${{ runner.os }}-download-${{ hashFiles('**/install_travis_proto.sh') }}
-            lnd-${{ runner.os }}-download-
-
-      - name: install protoc and protobuf libraries
-        run: ./scripts/install_travis_proto.sh
-
       - name: build mobile RPC bindings
         run: make mobile-rpc
 
@@ -238,15 +213,6 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: '~${{ env.GO_VERSION }}'
-
-      - name: download cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/download_cache
-          key: lnd-${{ runner.os }}-download-${{ hashFiles('**/install_travis_proto.sh') }}
-          restore-keys: |
-            lnd-${{ runner.os }}-download-${{ hashFiles('**/install_travis_proto.sh') }}
-            lnd-${{ runner.os }}-download-
 
       - name: check all command line flags exist in sample-lnd.conf file
         run: make sample-conf-check

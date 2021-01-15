@@ -262,7 +262,7 @@ list:
 
 rpc:
 	@$(call print, "Compiling protos.")
-	cd ./lnrpc; ./gen_protos.sh
+	cd ./lnrpc; ./gen_protos_docker.sh
 
 rpc-format:
 	@$(call print, "Formatting protos.")

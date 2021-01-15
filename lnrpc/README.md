@@ -153,58 +153,21 @@ description):
 
 ## Generate protobuf definitions
 
-### Linux
+To compile the `lnrpc/**/*.proto` files and generate the protobuf definitions,
+you need to have [Docker](https://docs.docker.com/get-docker/) and `make`
+installed.
 
-For linux there is an easy install script that is also used for the Travis CI
-build. Just run the following command (requires `sudo` permissions and the tools
-`make`, `go`, `wget` and `unzip` to be installed) from the repository's root
-folder:
-
-```shell
-⛰  ./scripts/install_travis_proto.sh
-```
-
-### MacOS / Unix like systems
-
-1. Download [v.3.4.0](https://github.com/google/protobuf/releases/tag/v3.4.0) of
-`protoc` for your operating system and add it to your `PATH`.
-For example, if using macOS:
-```shell
-⛰  curl -LO https://github.com/google/protobuf/releases/download/v3.4.0/protoc-3.4.0-osx-x86_64.zip
-⛰  unzip protoc-3.4.0-osx-x86_64.zip -d protoc
-⛰  export PATH=$PWD/protoc/bin:$PATH
-```
-
-2. Install `golang/protobuf` at version `v1.3.2`.
-```shell
-⛰  git clone https://github.com/golang/protobuf $GOPATH/src/github.com/golang/protobuf
-⛰  cd $GOPATH/src/github.com/golang/protobuf
-⛰  git reset --hard v1.3.2
-⛰  make
-```
-
-3. Install 'genproto' at commit `20e1ac93f88cf06d2b1defb90b9e9e126c7dfff6`.
-```shell
-⛰  go get google.golang.org/genproto
-⛰  cd $GOPATH/src/google.golang.org/genproto
-⛰  git reset --hard 20e1ac93f88cf06d2b1defb90b9e9e126c7dfff6
-```
-
-4. Install `grpc-ecosystem/grpc-gateway` at version `v1.14.3`.
-```shell
-⛰  git clone https://github.com/grpc-ecosystem/grpc-gateway $GOPATH/src/github.com/grpc-ecosystem/grpc-gateway
-⛰  cd $GOPATH/src/github.com/grpc-ecosystem/grpc-gateway
-⛰  git reset --hard v1.14.3
-⛰  go install ./protoc-gen-grpc-gateway ./protoc-gen-swagger
-```
-
-5. Run [`gen_protos.sh`](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/gen_protos.sh)
-or `make rpc` to generate new protobuf definitions.
+Simply run `make rpc` to start the compilation process.
 
 ## Format .proto files
 
 We use `clang-format` to make sure the `.proto` files are formatted correctly.
-You can install the formatter on Ubuntu by running `apt install clang-format` or on Mac by running `brew install clang-format`.
+
+When running the `make rpc` command, the `.proto` files are also formatted. To
+format the files without also compiling them, you can install the `clang-format`
+formatter on Ubuntu by running `apt install clang-format` or on Mac by running
+`brew install clang-format`.
+The `make format` command should then produce the correct result.
 
 Consult [this page](http://releases.llvm.org/download.html) to find binaries
 for other operating systems or distributions.
@@ -213,7 +176,8 @@ for other operating systems or distributions.
 
 The following commands are available with `make`:
 
-* `rpc`: Compile `.proto` files (calls `lnrpc/gen_protos.sh`).
+* `rpc`: Compile and format all `.proto` files using Docker (calls
+  `lnrpc/gen_protos_docker.sh`).
 * `rpc-format`: Formats all `.proto` files according to our formatting rules.
   Requires `clang-format`, see previous chapter.
 * `rpc-check`: Runs both previous commands and makes sure the git work tree is

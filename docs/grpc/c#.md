@@ -21,22 +21,22 @@ Create a new `.net core` console application called `lndclient` at your root dir
 
 Create a folder `Grpc` in the root of your project and fetch the lnd proto files
 
-```bash
-mkdir Grpc
-curl -o Grpc/rpc.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/rpc.proto
+```shell
+⛰  mkdir Grpc
+⛰  curl -o Grpc/rpc.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/rpc.proto
 ```
 
 Install `Grpc.Tools`, `Google.Protobuf`, `Grpc.Core` using NuGet or manually with `dotnet add`:
 
-```bash
-dotnet add package Grpc.Tools
-dotnet add package Google.Protobuf
-dotnet add package Grpc.Core
+```shell
+⛰  dotnet add package Grpc.Tools
+⛰  dotnet add package Google.Protobuf
+⛰  dotnet add package Grpc.Core
 ```
 
 Add the `rpc.proto` file to the `.csproj` file in an ItemGroup. (In Visual Studio you can do this by unloading the project, editing the `.csproj` file and then reloading it)
 
-```
+```xml
 <ItemGroup>
    <Protobuf Include="Grpc\rpc.proto" GrpcServices="Client" />
 </ItemGroup>
@@ -48,8 +48,7 @@ You're done! Build the project and verify that it works.
 
 Use the code below to set up a channel and client to connect to your `lnd` node:
 
-```c#
-
+```cs
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -69,7 +68,6 @@ var cert = File.ReadAllText(<Tls_Cert_Location>);
 var sslCreds = new SslCredentials(cert);
 var channel = new Grpc.Core.Channel("localhost:10009", sslCreds);
 var client = new Lnrpc.Lightning.LightningClient(channel);
-
 ```
 
 ### Examples
@@ -78,7 +76,7 @@ Let's walk through some examples of C# `gRPC` clients. These examples assume tha
 
 #### Simple RPC
 
-```c#
+```cs
 // Retrieve and display the wallet balance
 // Use "WalletBalanceAsync" if in async context
 var response = client.WalletBalance(new WalletBalanceRequest());
@@ -87,7 +85,7 @@ Console.WriteLine(response);
 
 #### Response-streaming RPC
 
-```c#
+```cs
 var request = new InvoiceSubscription();
 using (var call = client.SubscribeInvoices(request))
 {
@@ -100,20 +98,20 @@ using (var call = client.SubscribeInvoices(request))
 ```
 
 Now, create an invoice for your node at `localhost:10009` and send a payment to it from another node.
-```bash
-$ lncli addinvoice --amt=100
+```shell
+⛰  lncli addinvoice --amt=100
 {
     "r_hash": <R_HASH>,
     "pay_req": <PAY_REQ>
 }
-$ lncli sendpayment --pay_req=<PAY_REQ>
+⛰  lncli sendpayment --pay_req=<PAY_REQ>
 ```
 
 Your console should now display the details of the recently satisfied invoice.
 
 #### Bidirectional-streaming RPC
 
-```c#
+```cs
 using (var call = client.SendPayment())
 {
     var responseReaderTask = Task.Run(async () =>
@@ -155,7 +153,7 @@ This example will send a payment of 100 satoshis every 2 seconds.
 
 To authenticate using macaroons you need to include the macaroon in the metadata of the request.
 
-```c#
+```cs
 // Lnd admin macaroon is at <LND_DIR>/data/chain/bitcoin/simnet/admin.macaroon on Windows
 // ~/.lnd/data/chain/bitcoin/simnet/admin.macaroon on Linux and ~/Library/Application Support/Lnd/data/chain/bitcoin/simnet/admin.macaroon on Mac
 byte[] macaroonBytes = File.ReadAllBytes("<LND_DIR>/data/chain/bitcoin/simnet/admin.macaroon");
@@ -164,13 +162,13 @@ var macaroon = BitConverter.ToString(macaroonBytes).Replace("-", ""); // hex for
 
 The simplest approach to use the macaroon is to include the metadata in each request as shown below.
 
-```c#
+```cs
 client.GetInfo(new GetInfoRequest(), new Metadata() { new Metadata.Entry("macaroon", macaroon) });
 ```
 
 However, this can get tiresome to do for each request, so to avoid explicitly including the macaroon we can update the credentials to include it automatically.
 
-```c#
+```cs
 // build ssl credentials using the cert the same as before
 var sslCreds = new SslCredentials(cert);
 

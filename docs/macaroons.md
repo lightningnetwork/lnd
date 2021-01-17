@@ -146,11 +146,17 @@ To avoid leaking the macaroon information, `lnd` supports the so called
 Examples:
 
 * Create a new wallet stateless (first run):
-  * `lncli create --stateless_init --save_to=/safe/location/admin.macaroon`
+  ```shell
+    ⛰  lncli create --stateless_init --save_to=/safe/location/admin.macaroon
+  ```
 * Unlock a wallet that has previously been initialized stateless:
-  * `lncli unlock --stateless_init`
+  ```shell
+    ⛰  lncli unlock --stateless_init
+  ```
 * Use the created macaroon:
-  * `lncli --macaroonpath=/safe/location/admin.macaroon getinfo`
+  ```shell
+    ⛰  lncli --macaroonpath=/safe/location/admin.macaroon getinfo
+  ```
 
 ## Using Macaroons with GRPC clients
 
@@ -158,14 +164,18 @@ When interacting with `lnd` using the GRPC interface, the macaroons are encoded
 as a hex string over the wire and can be passed to `lnd` by specifying the
 hex-encoded macaroon as GRPC metadata:
 
-    GET https://localhost:8080/v1/getinfo
-    Grpc-Metadata-macaroon: <macaroon>
+```text
+GET https://localhost:8080/v1/getinfo
+Grpc-Metadata-macaroon: <macaroon>
+```
 
 Where `<macaroon>` is the hex encoded binary data from the macaroon file itself.
 
 A very simple example using `curl` may look something like this:
 
-    curl --insecure --header "Grpc-Metadata-macaroon: $(xxd -ps -u -c 1000  $HOME/.lnd/data/chain/bitcoin/simnet/admin.macaroon)" https://localhost:8080/v1/getinfo
+```shell
+⛰  curl --insecure --header "Grpc-Metadata-macaroon: $(xxd -ps -u -c 1000  $HOME/.lnd/data/chain/bitcoin/simnet/admin.macaroon)" https://localhost:8080/v1/getinfo
+```
 
 Have a look at the [Java GRPC example](/docs/grpc/java.md) for programmatic usage details.
 

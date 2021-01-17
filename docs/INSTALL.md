@@ -67,10 +67,10 @@ To build a specific git tag of `lnd`, simply run the following steps (assuming
 `v0.x.y-beta` is the tagged version to build):
 
 ```shell
-git clone https://github.com/lightningnetwork/lnd
-cd lnd
-git checkout v0.x.y-beta
-make docker-release tag=v0.x.y-beta
+⛰  git clone https://github.com/lightningnetwork/lnd
+⛰  cd lnd
+⛰  git checkout v0.x.y-beta
+⛰  make docker-release tag=v0.x.y-beta
 ```
 
 This will create a directory called `lnd-v0.x.y-beta` that contains the release
@@ -150,9 +150,9 @@ version if there are database migrations present.
     `~/go`. You will also need to add `$GOPATH/bin` to your `PATH`. This ensures
     that your shell will be able to detect the binaries you install.
 
-    ```bash
-    export GOPATH=~/gocode
-    export PATH=$PATH:$GOPATH/bin
+    ```shell
+    ⛰  export GOPATH=~/gocode
+    ⛰  export PATH=$PATH:$GOPATH/bin
     ```
 
     We recommend placing the above in your .bashrc or in a setup script so that
@@ -169,10 +169,10 @@ version if there are database migrations present.
 
 With the preliminary steps completed, to install `lnd`, `lncli`, and all
 related dependencies run the following commands:
-```
-git clone https://github.com/lightningnetwork/lnd
-cd lnd
-make install
+```shell
+⛰  git clone https://github.com/lightningnetwork/lnd
+⛰  cd lnd
+⛰  make install
 ```
 
 The command above will install the current _master_ branch of `lnd`. If you
@@ -181,11 +181,11 @@ unstable), then [visit then release page to locate the latest
 release](https://github.com/lightningnetwork/lnd/releases). Assuming the name
 of the release is `v0.x.x`, then you can compile this release from source with
 a small modification to the above command: 
-```
-git clone https://github.com/lightningnetwork/lnd
-cd lnd
-git checkout v0.x.x
-make install
+```shell
+⛰  git clone https://github.com/lightningnetwork/lnd
+⛰  cd lnd
+⛰  git checkout v0.x.x
+⛰  make install
 ```
 
 
@@ -197,35 +197,35 @@ For Windows WSL users, make will need to be referenced directly via
 /usr/bin/make/, or alternatively by wrapping quotation marks around make,
 like so:
 
-```
-/usr/bin/make && /usr/bin/make install
+```shell
+⛰  /usr/bin/make && /usr/bin/make install
 
-"make" && "make" install
+⛰  "make" && "make" install
 ```
 
 On FreeBSD, use gmake instead of make.
 
 Alternatively, if one doesn't wish to use `make`, then the `go` commands can be
 used directly:
-```
-GO111MODULE=on go install -v ./...
+```shell
+⛰  GO111MODULE=on go install -v ./...
 ```
 
 **Updating**
 
 To update your version of `lnd` to the latest version run the following
 commands:
-```
-cd $GOPATH/src/github.com/lightningnetwork/lnd
-git pull
-make clean && make && make install
+```shell
+⛰  cd $GOPATH/src/github.com/lightningnetwork/lnd
+⛰  git pull
+⛰  make clean && make && make install
 ```
 
 On FreeBSD, use gmake instead of make.
 
 Alternatively, if one doesn't wish to use `make`, then the `go` commands can be
 used directly:
-```
+```shell
 cd $GOPATH/src/github.com/lightningnetwork/lnd
 git pull
 GO111MODULE=on go install -v ./...

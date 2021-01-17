@@ -37,7 +37,7 @@ First, you'll want to run `tor` locally before starting up `lnd`. Depending on
 how you installed Tor, you'll find the configuration file at
 `/usr/local/etc/tor/torrc`. Here's an example configuration file that we'll be
 using for the remainder of the tutorial:
-```
+```text
 SOCKSPort 9050
 Log notice stdout
 ControlPort 9051
@@ -45,7 +45,7 @@ CookieAuthentication 1
 ```
 
 With the configuration file created, you'll then want to start the Tor daemon:
-```
+```shell
 ⛰  tor
 Feb 05 17:02:06.501 [notice] Tor 0.3.1.8 (git-ad5027f7dc790624) running on Darwin with Libevent 2.1.8-stable, OpenSSL 1.0.2l, Zlib 1.2.8, Liblzma N/A, and Libzstd N/A.
 Feb 05 17:02:06.502 [notice] Tor can't help you if you use it wrong! Learn how to be safe at https://www.torproject.org/download/download#warning
@@ -55,7 +55,7 @@ Feb 05 17:02:06.506 [notice] Opening Control listener on 127.0.0.1:9051
 ```
 
 Once the `tor` daemon has started and it has finished bootstrapping, you'll see this in the logs:
-```
+```text
 Feb 05 17:02:06.000 [notice] Bootstrapped 0%: Starting
 Feb 05 17:02:07.000 [notice] Starting with guard context "default"
 Feb 05 17:02:07.000 [notice] Bootstrapped 80%: Connecting to the Tor network
@@ -68,7 +68,7 @@ Feb 05 17:02:11.000 [notice] Bootstrapped 100%: Done
 This indicates the daemon is fully bootstrapped and ready to proxy connections.
 At this point, we can now start `lnd` with the relevant arguments:
 
-```
+```shell
 ⛰  ./lnd -h
 
 <snip>
@@ -132,7 +132,7 @@ circuit.
 
 Activating stream isolation is very straightforward, we only require the
 specification of an additional argument:
-```
+```shell
 ⛰  ./lnd --tor.active --tor.streamisolation
 ```
 
@@ -170,7 +170,7 @@ To prevent unintentional leaking of identifying information, it is also necessar
 to add the flag `listen=localhost`.  
 
 For example, v3 onion services can be used with the following flags:
-```
+```shell
 ⛰  ./lnd --tor.active --tor.v3 --listen=localhost
 ```
 

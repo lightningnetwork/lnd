@@ -19,10 +19,12 @@ helper image.
 
 To build a release, run the following commands:
 
-1. `git clone https://github.com/lightningnetwork/lnd.git`
-2. `cd lnd`
-3. `git checkout <TAG> # <TAG> is the name of the next release/tag`
-4. `make docker-release tag=<TAG>`
+```shell
+⛰  git clone https://github.com/lightningnetwork/lnd.git
+⛰  cd lnd
+⛰  git checkout <TAG> # <TAG> is the name of the next release/tag
+⛰  make docker-release tag=<TAG>
+```
 
 Where `<TAG>` is the name of the next release of `lnd`.
 
@@ -33,10 +35,12 @@ release binaries. However, on Windows, the only way to build the release
 binaries at the moment is by using the Windows Subsystem Linux. One can build
 the release binaries following these steps:
 
-1. `git clone https://github.com/lightningnetwork/lnd.git`
-2. `cd lnd`
-3. `git checkout <TAG> # <TAG> is the name of the next release/tag`
-4. `make release tag=<TAG>`
+```shell
+⛰  git clone https://github.com/lightningnetwork/lnd.git
+⛰  cd lnd
+⛰  git checkout <TAG> # <TAG> is the name of the next release/tag
+⛰  make release tag=<TAG>
+```
 
 This will then create a directory of the form `lnd-<TAG>` containing archives
 of the release binaries for each supported operating system and architecture,

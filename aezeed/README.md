@@ -13,8 +13,8 @@ user addresses. Additionally, BIP39 use a very weak [KDF](https://en.wikipedia.o
 scrypt with modern parameters (n=32768, r=8, p=1). A set of benchmarks has
 been added, on my laptop I get about 100ms per attempt):
 
-```bash
-⛰ go test -run=XXX -bench=.
+```shell
+⛰  go test -run=XXX -bench=.
 
 goos: linux
 goarch: amd64

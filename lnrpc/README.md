@@ -147,8 +147,8 @@ description):
 
 ## Installation and Updating
 
-```bash
-$ go get -u github.com/lightningnetwork/lnd/lnrpc
+```shell
+⛰  go get -u github.com/lightningnetwork/lnd/lnrpc
 ```
 
 ## Generate protobuf definitions
@@ -160,40 +160,42 @@ build. Just run the following command (requires `sudo` permissions and the tools
 `make`, `go`, `wget` and `unzip` to be installed) from the repository's root
 folder:
 
-`./scripts/install_travis_proto.sh`
+```shell
+⛰  ./scripts/install_travis_proto.sh
+```
 
 ### MacOS / Unix like systems
 
 1. Download [v.3.4.0](https://github.com/google/protobuf/releases/tag/v3.4.0) of
 `protoc` for your operating system and add it to your `PATH`.
 For example, if using macOS:
-```bash
-$ curl -LO https://github.com/google/protobuf/releases/download/v3.4.0/protoc-3.4.0-osx-x86_64.zip
-$ unzip protoc-3.4.0-osx-x86_64.zip -d protoc
-$ export PATH=$PWD/protoc/bin:$PATH
+```shell
+⛰  curl -LO https://github.com/google/protobuf/releases/download/v3.4.0/protoc-3.4.0-osx-x86_64.zip
+⛰  unzip protoc-3.4.0-osx-x86_64.zip -d protoc
+⛰  export PATH=$PWD/protoc/bin:$PATH
 ```
 
 2. Install `golang/protobuf` at version `v1.3.2`.
-```bash
-$ git clone https://github.com/golang/protobuf $GOPATH/src/github.com/golang/protobuf
-$ cd $GOPATH/src/github.com/golang/protobuf
-$ git reset --hard v1.3.2
-$ make
+```shell
+⛰  git clone https://github.com/golang/protobuf $GOPATH/src/github.com/golang/protobuf
+⛰  cd $GOPATH/src/github.com/golang/protobuf
+⛰  git reset --hard v1.3.2
+⛰  make
 ```
 
 3. Install 'genproto' at commit `20e1ac93f88cf06d2b1defb90b9e9e126c7dfff6`.
-```bash
-$ go get google.golang.org/genproto
-$ cd $GOPATH/src/google.golang.org/genproto
-$ git reset --hard 20e1ac93f88cf06d2b1defb90b9e9e126c7dfff6
+```shell
+⛰  go get google.golang.org/genproto
+⛰  cd $GOPATH/src/google.golang.org/genproto
+⛰  git reset --hard 20e1ac93f88cf06d2b1defb90b9e9e126c7dfff6
 ```
 
 4. Install `grpc-ecosystem/grpc-gateway` at version `v1.14.3`.
-```bash
-$ git clone https://github.com/grpc-ecosystem/grpc-gateway $GOPATH/src/github.com/grpc-ecosystem/grpc-gateway
-$ cd $GOPATH/src/github.com/grpc-ecosystem/grpc-gateway
-$ git reset --hard v1.14.3
-$ go install ./protoc-gen-grpc-gateway ./protoc-gen-swagger
+```shell
+⛰  git clone https://github.com/grpc-ecosystem/grpc-gateway $GOPATH/src/github.com/grpc-ecosystem/grpc-gateway
+⛰  cd $GOPATH/src/github.com/grpc-ecosystem/grpc-gateway
+⛰  git reset --hard v1.14.3
+⛰  go install ./protoc-gen-grpc-gateway ./protoc-gen-swagger
 ```
 
 5. Run [`gen_protos.sh`](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/gen_protos.sh)

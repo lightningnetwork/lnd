@@ -12,6 +12,6 @@ channel graph state.
 
 ## Installation and Updating
 
-```bash
-$ go get -u github.com/lightningnetwork/lnd/routing
+```shell
+⛰  go get -u github.com/lightningnetwork/lnd/routing
 ```

@@ -21,7 +21,7 @@ spins up a `btcd` backend alongside `lnd`. Check out the documentation at
 [docker/README.md](../docker/README.md) to learn more about how to use that
 setup to create a small local Lightning Network.
 
-## Production
+## Production (manual build)
 
 To use Docker in a production environment, you can run `lnd` by creating a
 Docker container, adding the appropriate command-line options as parameters.
@@ -37,10 +37,36 @@ It is recommended that you checkout the latest released tag.
 You can continue by creating and running the container:
 
 ```
-$ docker run lnd [command-line options]
+$ docker run myrepository/lnd [command-line options]
 ```
 
-Note: there currently are no automated docker image builds available.
+## Production (official images)
+
+Starting with `lnd v0.12.0-beta`, there are official, automatically built docker
+images of `lnd` available in the
+[`lightninglabs/lnd` repository on Docker Hub](https://hub.docker.com/r/lightninglabs/lnd).
+
+You can just pull those images by specifying a release tag:
+
+```shell
+$ docker pull lightninglabs/lnd:v0.12.0-beta
+$ docker run lightninglabs/lnd [command-line options]
+```
+
+### Verifying docker images
+
+To verify the `lnd` and `lncli` binaries inside the docker images against the
+signed, [reproducible release binaries](release.md), there is a verification
+script in the image that can be called (before starting the container for
+example):
+
+```shell
+$ docker pull lightninglabs/lnd:v0.12.0-beta
+$ docker run --rm --entrypoint="" lightninglabs/lnd:v0.12.0-beta /verify-install.sh
+$ OK=$?
+$ if [ "$OK" -ne "0" ]; then echo "Verification failed!"; exit 1; done
+$ docker run lightninglabs/lnd [command-line options]
+```
 
 ## Volumes
 

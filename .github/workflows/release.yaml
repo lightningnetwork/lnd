@@ -70,42 +70,32 @@ jobs:
 
             ```
             curl https://keybase.io/bitconner/pgp_keys.asc | gpg --import
+            curl https://keybase.io/roasbeef/pgp_keys.asc | gpg --import
             ```
 
-            Once you have the required PGP keys, you can verify the release (assuming `manifest-${{ env.RELEASE_VERSION }}.txt` and `manifest-${{ env.RELEASE_VERSION }}.txt.sig` are in the current directory) with:
+            Once you have the required PGP keys, you can verify the release (assuming `manifest-roasbeef-${{ env.RELEASE_VERSION }}.txt.asc` is in the current directory) with:
 
             ```
-            gpg --verify manifest-${{ env.RELEASE_VERSION }}.txt.sig
+            gpg --verify manifest-roasbeef-${{ env.RELEASE_VERSION }}.txt.asc
             ```
 
             You should see the following if the verification was successful:
 
             ```
-            gpg: assuming signed data in 'manifest-${{ env.RELEASE_VERSION }}.txt'
-            gpg: Signature made Thu Oct  1 16:38:32 2020 PDT
-            gpg:                using RSA key 9C8D61868A7C492003B2744EE7D737B67FA592C7
-            gpg: Good signature from "Conner Fromknecht <conner@lightning.engineering>" [ultimate]
-            ```
-
-            That will verify the signature of the manifest file, which ensures integrity and authenticity of the archive you've downloaded locally containing the binaries. Next, depending on your operating system, you should then re-compute the `sha256` hash of the archive with `shasum -a 256 <filename>`, compare it with the corresponding one in the manifest file, and ensure they match *exactly*.
-
-
-            For this release roasbeef's signature is the secondary signature which can be verified with the following command: 
-            ```
-            gpg --verify roasbeef-manifest-${{ env.RELEASE_VERSION }}.txt.sig manifest-${{ env.RELEASE_VERSION }}.txt
             gpg: Signature made Wed Sep 30 17:35:20 2020 PDT
             gpg:                using RSA key 4AB7F8DA6FAEBB3B70B1F903BC13F65E2DC84465
             gpg: Good signature from "Olaoluwa Osuntokun <laolu32@gmail.com>" [ultimate]
             ```
 
+            That will verify the signature of the manifest file, which ensures integrity and authenticity of the archive you've downloaded locally containing the binaries. Next, depending on your operating system, you should then re-compute the `sha256` hash of the archive with `shasum -a 256 <filename>`, compare it with the corresponding one in the manifest file, and ensure they match *exactly*.
+
             ## Verifying the Release Timestamp 
 
-            From this new version onwards, in addition time-stamping the _git tag_ with [OpenTimeStamps](https://opentimestamps.org/), we'll also now timestamp the manifest file along with its signature. Two new files are now included along with the rest of our release artifacts: ` manifest-${{ env.RELEASE_VERSION }}.txt.sig.ots` and `manifest-${{ env.RELEASE_VERSION }}.txt.ots`.
+            From this new version onwards, in addition time-stamping the _git tag_ with [OpenTimeStamps](https://opentimestamps.org/), we'll also now timestamp the manifest file along with its signature. Two new files are now included along with the rest of our release artifacts: ` manifest-roasbeef-${{ env.RELEASE_VERSION }}.txt.asc.ots`.
 
             Assuming you have the opentimestamps client installed locally, the timestamps can be verified with the following commands: 
             ```
-            ots verify manifest-${{ env.RELEASE_VERSION }}.txt.ots
-            ots verify manifest-${{ env.RELEASE_VERSION }}.txt.sig.ots -f roasbeef-manifest-${{ env.RELEASE_VERSION }}.txt.sig
+            ots verify manifest-roasbeef-${{ env.RELEASE_VERSION }}.txt.asc.ots -f manifest-roasbeef-${{ env.RELEASE_VERSION }}.txt.asc
             ```
 
             Alternatively, [the open timestamps website](https://opentimestamps.org/) can be used to verify timestamps if one doesn't have a `bitcoind` instance accessible locally. 
@@ -127,6 +117,18 @@ jobs:
             gpg: Signature made Tue Sep 15 18:55:00 2020 PDT
             gpg:                using RSA key 4AB7F8DA6FAEBB3B70B1F903BC13F65E2DC84465
             gpg: Good signature from "Olaoluwa Osuntokun <laolu32@gmail.com>" [ultimate]
+            ```
+
+            ## Verifying the Docker Images
+
+            To verify the `lnd` and `lncli` binaries inside the docker images against the signed, reproducible release binaries, there is a verification script in the image that can be called (before starting the container for example):
+
+            ```shell
+            $ docker pull lightninglabs/lnd:${{ env.RELEASE_VERSION }}
+            $ docker run --rm --entrypoint="" lightninglabs/lnd:${{ env.RELEASE_VERSION }} /verify-install.sh
+            $ OK=$?
+            $ if [ "$OK" -ne "0" ]; then echo "Verification failed!"; exit 1; done
+            $ docker run lightninglabs/lnd [command-line options]
             ```
 
             # Building the Contained Release 

@@ -23,8 +23,7 @@ RUN apk add --no-cache --update alpine-sdk \
 &&  git clone https://github.com/lightningnetwork/lnd /go/src/github.com/lightningnetwork/lnd \
 &&  cd /go/src/github.com/lightningnetwork/lnd \
 &&  git checkout $checkout \
-&&  make \
-&&  make install tags="signrpc walletrpc chainrpc invoicesrpc"
+&&  make release-install
 
 # Start a new, final image.
 FROM alpine as final
@@ -32,15 +31,24 @@ FROM alpine as final
 # Define a root volume for data persistence.
 VOLUME /root/.lnd
 
-# Add bash, jq and ca-certs, for quality of life and SSL-related reasons.
+# Add utilities for quality of life and SSL-related reasons. We also require
+# curl and gpg for the signature verification script.
 RUN apk --no-cache add \
     bash \
     jq \
-    ca-certificates
+    ca-certificates \
+    gnupg \
+    curl
 
 # Copy the binaries from the builder image.
 COPY --from=builder /go/bin/lncli /bin/
 COPY --from=builder /go/bin/lnd /bin/
+COPY --from=builder /go/src/github.com/lightningnetwork/lnd/scripts/verify-install.sh /
+
+# Store the SHA256 hash of the binaries that were just produced for later
+# verification.
+RUN sha256sum /bin/lnd /bin/lncli > /shasums.txt \
+  && cat /shasums.txt
 
 # Expose lnd ports (p2p, rpc).
 EXPOSE 9735 10009

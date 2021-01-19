@@ -258,6 +258,43 @@ func (m *MissionControl) init() error {
 	return nil
 }
 
+// GetConfig returns the config that mission control is currently configured
+// with. All fields are copied by value, so we do not need to worry about
+// mutation.
+func (m *MissionControl) GetConfig() *MissionControlConfig {
+	m.Lock()
+	defer m.Unlock()
+
+	return &MissionControlConfig{
+		ProbabilityEstimatorCfg: m.estimator.ProbabilityEstimatorCfg,
+		MaxMcHistory:            m.store.maxRecords,
+		MinFailureRelaxInterval: m.state.minFailureRelaxInterval,
+	}
+}
+
+// SetConfig validates the config provided and updates mission control's config
+// if it is valid.
+func (m *MissionControl) SetConfig(cfg *MissionControlConfig) error {
+	if cfg == nil {
+		return errors.New("nil mission control config")
+	}
+
+	if err := cfg.validate(); err != nil {
+		return err
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	log.Infof("Updating mission control cfg: %v", cfg)
+
+	m.store.maxRecords = cfg.MaxMcHistory
+	m.state.minFailureRelaxInterval = cfg.MinFailureRelaxInterval
+	m.estimator.ProbabilityEstimatorCfg = cfg.ProbabilityEstimatorCfg
+
+	return nil
+}
+
 // ResetHistory resets the history of MissionControl returning it to a state as
 // if no payment attempts have been made.
 func (m *MissionControl) ResetHistory() error {

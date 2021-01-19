@@ -1143,11 +1143,14 @@ func (c commitType) String() string {
 func (c commitType) Args() []string {
 	switch c {
 	case commitTypeLegacy:
-		return []string{"--protocol.legacy.committweak"}
+		return []string{
+			"--protocol.legacy.committweak",
+			"--protocol.no-anchors",
+		}
 	case commitTypeTweakless:
-		return []string{}
+		return []string{"--protocol.no-anchors"}
 	case commitTypeAnchors:
-		return []string{"--protocol.anchors"}
+		return []string{}
 	}
 
 	return nil
@@ -9163,8 +9166,8 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(
 	// Since we'd like to test some multi-hop failure scenarios, we'll
 	// introduce another node into our test network: Carol.
 	carolArgs := []string{"--hodl.exit-settle"}
-	if anchors {
-		carolArgs = append(carolArgs, "--protocol.anchors")
+	if !anchors {
+		carolArgs = append(carolArgs, "--protocol.no-anchors")
 	}
 	carol, err := net.NewNode("Carol", carolArgs)
 	if err != nil {
@@ -9223,8 +9226,8 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(
 		"--nolisten",
 		"--wtclient.active",
 	}
-	if anchors {
-		daveArgs = append(daveArgs, "--protocol.anchors")
+	if !anchors {
+		daveArgs = append(daveArgs, "--protocol.no-anchors")
 	}
 	dave, err := net.NewNode("Dave", daveArgs)
 	if err != nil {

@@ -351,7 +351,7 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	//
 	// Note that atm we haven't obtained the chanPoint yet, so we use the
 	// type directly.
-	cType := commitTypeTweakless
+	cType := commitTypeAnchors
 	carolLocalBalance := chanAmt - pushAmt - cType.calcStaticFee(0)
 	checkChannelBalance(carol, 0, 0, carolLocalBalance, pushAmt)
 

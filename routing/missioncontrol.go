@@ -78,7 +78,8 @@ type MissionControl struct {
 	// external function to enable deterministic unit tests.
 	now func() time.Time
 
-	cfg *MissionControlConfig
+	// selfNode is our pubkey.
+	selfNode route.Vertex
 
 	store *missionControlStore
 
@@ -122,9 +123,6 @@ type MissionControlConfig struct {
 	// since the previously recorded failure before the failure amount may
 	// be raised.
 	MinFailureRelaxInterval time.Duration
-
-	// SelfNode is our own pubkey.
-	SelfNode route.Vertex
 }
 
 // TimedPairResult describes a timestamped pair result.
@@ -177,8 +175,8 @@ type paymentResult struct {
 }
 
 // NewMissionControl returns a new instance of missionControl.
-func NewMissionControl(db kvdb.Backend, cfg *MissionControlConfig) (
-	*MissionControl, error) {
+func NewMissionControl(db kvdb.Backend, self route.Vertex,
+	cfg *MissionControlConfig) (*MissionControl, error) {
 
 	log.Debugf("Instantiating mission control with config: "+
 		"PenaltyHalfLife=%v, AprioriHopProbability=%v, "+
@@ -200,7 +198,7 @@ func NewMissionControl(db kvdb.Backend, cfg *MissionControlConfig) (
 	mc := &MissionControl{
 		state:     newMissionControlState(cfg.MinFailureRelaxInterval),
 		now:       time.Now,
-		cfg:       cfg,
+		selfNode:  self,
 		store:     store,
 		estimator: estimator,
 	}
@@ -262,7 +260,7 @@ func (m *MissionControl) GetProbability(fromNode, toNode route.Vertex,
 	results, _ := m.state.getLastPairResult(fromNode)
 
 	// Use a distinct probability estimation function for local channels.
-	if fromNode == m.cfg.SelfNode {
+	if fromNode == m.selfNode {
 		return m.estimator.getLocalPairProbability(now, results, toNode)
 	}
 

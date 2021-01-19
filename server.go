@@ -726,13 +726,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	routingConfig := routerrpc.GetRoutingConfig(cfg.SubRPCServers.RouterRPC)
 
 	s.missionControl, err = routing.NewMissionControl(
-		remoteChanDB,
+		remoteChanDB, selfNode.PubKeyBytes,
 		&routing.MissionControlConfig{
 			AprioriHopProbability:   routingConfig.AprioriHopProbability,
 			PenaltyHalfLife:         routingConfig.PenaltyHalfLife,
 			MaxMcHistory:            routingConfig.MaxMcHistory,
 			AprioriWeight:           routingConfig.AprioriWeight,
-			SelfNode:                selfNode.PubKeyBytes,
 			MinFailureRelaxInterval: routing.DefaultMinFailureRelaxInterval,
 		},
 	)

@@ -29,7 +29,6 @@ import (
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/shachain"
-	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/stretchr/testify/require"
 )
 
@@ -307,29 +306,6 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		},
 	}
 
-	_, currentHeight, err := chainIO.GetBestBlock()
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	htlcSwitch, err := htlcswitch.New(htlcswitch.Config{
-		DB:             dbAlice,
-		SwitchPackager: channeldb.NewSwitchPackager(),
-		Notifier:       notifier,
-		FwdEventTicker: ticker.New(
-			htlcswitch.DefaultFwdEventInterval),
-		LogEventTicker: ticker.New(
-			htlcswitch.DefaultLogInterval),
-		AckEventTicker: ticker.New(
-			htlcswitch.DefaultAckInterval),
-	}, uint32(currentHeight))
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	if err = htlcSwitch.Start(); err != nil {
-		return nil, nil, nil, err
-	}
-
 	nodeSignerAlice := netann.NewNodeSigner(aliceKeySigner)
 
 	const chanActiveTimeout = time.Minute
@@ -342,7 +318,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		Graph:                    dbAlice.ChannelGraph(),
 		MessageSigner:            nodeSignerAlice,
 		OurPubKey:                aliceKeyPub,
-		IsChannelActive:          htlcSwitch.HasActiveLink,
+		IsChannelActive:          nil,
 		ApplyChannelUpdate:       func(*lnwire.ChannelUpdate) error { return nil },
 	})
 	if err != nil {
@@ -371,10 +347,10 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		PubKeyBytes: pubKey,
 		ErrorBuffer: errBuffer,
 		ChainIO:     chainIO,
-		Switch:      NewChannelSwitch(htlcSwitch),
+		Switch:      newMockMessageSwitch(),
 
 		ChanActiveTimeout: chanActiveTimeout,
-		InterceptSwitch:   htlcswitch.NewInterceptableSwitch(htlcSwitch),
+		InterceptSwitch:   htlcswitch.NewInterceptableSwitch(nil),
 
 		ChannelDB:      dbAlice,
 		FeeEstimator:   estimator,
@@ -393,6 +369,91 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	go alicePeer.channelManager()
 
 	return alicePeer, channelBob, cleanUpFunc, nil
+}
+
+type mockMessageLink struct {
+	cid     lnwire.ChannelID
+	cfg     htlcswitch.ChannelLinkConfig
+	channel *lnwallet.LightningChannel
+}
+
+// newMockMessageLink makes a mockMessageLink from a ChannelID.
+func newMockMessageLink(linkCfg htlcswitch.ChannelLinkConfig,
+	lnChan *lnwallet.LightningChannel,
+	cid lnwire.ChannelID) *mockMessageLink {
+
+	messageLink := &mockMessageLink{
+		cid:     cid,
+		cfg:     linkCfg,
+		channel: lnChan,
+	}
+
+	return messageLink
+}
+
+// ChanID returns the mockMessageLink's ChannelID.
+func (l *mockMessageLink) ChanID() lnwire.ChannelID {
+	return l.cid
+}
+
+// HandleChannelUpdate currently does nothing.
+func (l *mockMessageLink) HandleChannelUpdate(msg lnwire.Message) {}
+
+// start begins the message-processing part of the mockMessageLink.
+func (l *mockMessageLink) start() {
+	l.cfg.NotifyActiveLink(l.channel.State().FundingOutpoint)
+}
+
+type mockMessageSwitch struct {
+	linkIndex map[lnwire.ChannelID]*mockMessageLink
+}
+
+// newMockMessageSwitch creates a new *mockMessageSwitch.
+func newMockMessageSwitch() *mockMessageSwitch {
+	messageSwitch := &mockMessageSwitch{
+		linkIndex: make(map[lnwire.ChannelID]*mockMessageLink),
+	}
+
+	return messageSwitch
+}
+
+// BestHeight returns 0 since it is unused in testing.
+func (s *mockMessageSwitch) BestHeight() uint32 {
+	return 0
+}
+
+// CircuitModifier returns nil since it is unused in testing.
+func (s *mockMessageSwitch) CircuitModifier() htlcswitch.CircuitModifier {
+	return nil
+}
+
+// GetLink retrieves a *mockMessageLink from linkIndex given a ChannelID.
+func (s *mockMessageSwitch) GetLink(cid lnwire.ChannelID) (MessageLink,
+	error) {
+
+	messageLink := s.linkIndex[cid]
+	return messageLink, nil
+}
+
+// InitLink starts a *mockMessageLink and adds it to linkIndex.
+func (s *mockMessageSwitch) InitLink(linkCfg htlcswitch.ChannelLinkConfig,
+	lnChan *lnwallet.LightningChannel) error {
+
+	cid := lnwire.NewChanIDFromOutPoint(&lnChan.State().FundingOutpoint)
+	messageLink := newMockMessageLink(linkCfg, lnChan, cid)
+	messageLink.start()
+	s.linkIndex[cid] = messageLink
+	return nil
+}
+
+// RemoveLink stops and removes a *mockMessageLink given its ChannelID.
+func (s *mockMessageSwitch) RemoveLink(cid lnwire.ChannelID) {
+	messageLink := s.linkIndex[cid]
+	if messageLink == nil {
+		return
+	}
+
+	delete(s.linkIndex, cid)
 }
 
 type mockMessageConn struct {

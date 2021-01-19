@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync/atomic"
+	"time"
 
 	"github.com/btcsuite/btcutil"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
@@ -78,6 +79,13 @@ var (
 		"/routerrpc.Router/QueryMissionControl": {{
 			Entity: "offchain",
 			Action: "read",
+		}},
+		"/routerrpc.Router/GetMissionControlConfig": {{
+			Entity: "offchain",
+			Action: "read",
+		}}, "/routerrpc.Router/SetMissionControlConfig": {{
+			Entity: "offchain",
+			Action: "write",
 		}},
 		"/routerrpc.Router/QueryProbability": {{
 			Entity: "offchain",
@@ -389,6 +397,46 @@ func (s *Server) ResetMissionControl(ctx context.Context,
 	}
 
 	return &ResetMissionControlResponse{}, nil
+}
+
+// GetMissionControlConfig returns our current mission control config.
+func (s *Server) GetMissionControlConfig(ctx context.Context,
+	req *GetMissionControlConfigRequest) (*GetMissionControlConfigResponse,
+	error) {
+
+	cfg := s.cfg.RouterBackend.MissionControl.GetConfig()
+	return &GetMissionControlConfigResponse{
+		Config: &MissionControlConfig{
+			HalfLifeSeconds:             uint64(cfg.PenaltyHalfLife.Seconds()),
+			HopProbability:              float32(cfg.AprioriHopProbability),
+			Weight:                      float32(cfg.AprioriWeight),
+			MaximumPaymentResults:       uint32(cfg.MaxMcHistory),
+			MinimumFailureRelaxInterval: uint64(cfg.MinFailureRelaxInterval.Seconds()),
+		},
+	}, nil
+}
+
+// SetMissionControlConfig returns our current mission control config.
+func (s *Server) SetMissionControlConfig(ctx context.Context,
+	req *SetMissionControlConfigRequest) (*SetMissionControlConfigResponse,
+	error) {
+
+	cfg := &routing.MissionControlConfig{
+		ProbabilityEstimatorCfg: routing.ProbabilityEstimatorCfg{
+			PenaltyHalfLife: time.Duration(
+				req.Config.HalfLifeSeconds,
+			) * time.Second,
+			AprioriHopProbability: float64(req.Config.HopProbability),
+			AprioriWeight:         float64(req.Config.Weight),
+		},
+		MaxMcHistory: int(req.Config.MaximumPaymentResults),
+		MinFailureRelaxInterval: time.Duration(
+			req.Config.MinimumFailureRelaxInterval,
+		) * time.Second,
+	}
+
+	return &SetMissionControlConfigResponse{},
+		s.cfg.RouterBackend.MissionControl.SetConfig(cfg)
 }
 
 // QueryMissionControl exposes the internal mission control state to callers. It

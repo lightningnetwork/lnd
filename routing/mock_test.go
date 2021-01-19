@@ -104,6 +104,7 @@ func (m *mockPaymentSessionSource) NewPaymentSessionEmpty() PaymentSession {
 }
 
 type mockMissionControl struct {
+	MissionControl
 }
 
 var _ MissionController = (*mockMissionControl)(nil)

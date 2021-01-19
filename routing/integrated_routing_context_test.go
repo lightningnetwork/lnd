@@ -58,9 +58,11 @@ func newIntegratedRoutingContext(t *testing.T) *integratedRoutingContext {
 		finalExpiry: 40,
 
 		mcCfg: MissionControlConfig{
-			PenaltyHalfLife:       30 * time.Minute,
-			AprioriHopProbability: 0.6,
-			AprioriWeight:         0.5,
+			ProbabilityEstimatorCfg: ProbabilityEstimatorCfg{
+				PenaltyHalfLife:       30 * time.Minute,
+				AprioriHopProbability: 0.6,
+				AprioriWeight:         0.5,
+			},
 		},
 
 		pathFindingCfg: PathFindingConfig{

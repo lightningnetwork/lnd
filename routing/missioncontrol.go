@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -58,6 +59,17 @@ const (
 	DefaultMinFailureRelaxInterval = time.Minute
 )
 
+var (
+	// ErrInvalidMcHistory is returned if we get a negative mission control
+	// history count.
+	ErrInvalidMcHistory = errors.New("mission control history must be " +
+		">= 0")
+
+	// ErrInvalidFailureInterval is returned if we get an invalid failure
+	// interval.
+	ErrInvalidFailureInterval = errors.New("failure interval must be >= 0")
+)
+
 // NodeResults contains previous results from a node to its peers.
 type NodeResults map[route.Vertex]TimedPairResult
 
@@ -99,31 +111,34 @@ type MissionControl struct {
 // MissionControlConfig defines parameters that control mission control
 // behaviour.
 type MissionControlConfig struct {
-	// PenaltyHalfLife defines after how much time a penalized node or
-	// channel is back at 50% probability.
-	PenaltyHalfLife time.Duration
-
-	// AprioriHopProbability is the assumed success probability of a hop in
-	// a route when no other information is available.
-	AprioriHopProbability float64
+	// ProbabilityEstimatorConfig is the config we will use for probability
+	// calculations.
+	ProbabilityEstimatorCfg
 
 	// MaxMcHistory defines the maximum number of payment results that are
 	// held on disk.
 	MaxMcHistory int
 
-	// AprioriWeight is a value in the range [0, 1] that defines to what
-	// extent historical results should be extrapolated to untried
-	// connections. Setting it to one will completely ignore historical
-	// results and always assume the configured a priori probability for
-	// untried connections. A value of zero will ignore the a priori
-	// probability completely and only base the probability on historical
-	// results, unless there are none available.
-	AprioriWeight float64
-
 	// MinFailureRelaxInterval is the minimum time that must have passed
 	// since the previously recorded failure before the failure amount may
 	// be raised.
 	MinFailureRelaxInterval time.Duration
+}
+
+func (c *MissionControlConfig) validate() error {
+	if err := c.ProbabilityEstimatorCfg.validate(); err != nil {
+		return err
+	}
+
+	if c.MaxMcHistory < 0 {
+		return ErrInvalidMcHistory
+	}
+
+	if c.MinFailureRelaxInterval < 0 {
+		return ErrInvalidFailureInterval
+	}
+
+	return nil
 }
 
 // String returns a string representation of a mission control config.
@@ -190,16 +205,18 @@ func NewMissionControl(db kvdb.Backend, self route.Vertex,
 
 	log.Debugf("Instantiating mission control with config: %v", cfg)
 
+	if err := cfg.validate(); err != nil {
+		return nil, err
+	}
+
 	store, err := newMissionControlStore(db, cfg.MaxMcHistory)
 	if err != nil {
 		return nil, err
 	}
 
 	estimator := &probabilityEstimator{
-		aprioriHopProbability:  cfg.AprioriHopProbability,
-		aprioriWeight:          cfg.AprioriWeight,
-		penaltyHalfLife:        cfg.PenaltyHalfLife,
-		prevSuccessProbability: prevSuccessProbability,
+		ProbabilityEstimatorCfg: cfg.ProbabilityEstimatorCfg,
+		prevSuccessProbability:  prevSuccessProbability,
 	}
 
 	mc := &MissionControl{

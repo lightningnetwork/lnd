@@ -725,13 +725,17 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// servers, the mission control instance itself can be moved there too.
 	routingConfig := routerrpc.GetRoutingConfig(cfg.SubRPCServers.RouterRPC)
 
+	estimatorCfg := routing.ProbabilityEstimatorCfg{
+		AprioriHopProbability: routingConfig.AprioriHopProbability,
+		PenaltyHalfLife:       routingConfig.PenaltyHalfLife,
+		AprioriWeight:         routingConfig.AprioriWeight,
+	}
+
 	s.missionControl, err = routing.NewMissionControl(
 		remoteChanDB, selfNode.PubKeyBytes,
 		&routing.MissionControlConfig{
-			AprioriHopProbability:   routingConfig.AprioriHopProbability,
-			PenaltyHalfLife:         routingConfig.PenaltyHalfLife,
+			ProbabilityEstimatorCfg: estimatorCfg,
 			MaxMcHistory:            routingConfig.MaxMcHistory,
-			AprioriWeight:           routingConfig.AprioriWeight,
 			MinFailureRelaxInterval: routing.DefaultMinFailureRelaxInterval,
 		},
 	)

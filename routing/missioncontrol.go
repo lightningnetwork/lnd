@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -125,6 +126,15 @@ type MissionControlConfig struct {
 	MinFailureRelaxInterval time.Duration
 }
 
+// String returns a string representation of a mission control config.
+func (c *MissionControlConfig) String() string {
+	return fmt.Sprintf("Penalty Half Life: %v, Apriori Hop "+
+		"Probablity: %v, Maximum History: %v, Apriori Weight: %v, "+
+		"Minimum Failure Relax Interval: %v", c.PenaltyHalfLife,
+		c.AprioriHopProbability, c.MaxMcHistory, c.AprioriWeight,
+		c.MinFailureRelaxInterval)
+}
+
 // TimedPairResult describes a timestamped pair result.
 type TimedPairResult struct {
 	// FailTime is the time of the last failure.
@@ -178,10 +188,7 @@ type paymentResult struct {
 func NewMissionControl(db kvdb.Backend, self route.Vertex,
 	cfg *MissionControlConfig) (*MissionControl, error) {
 
-	log.Debugf("Instantiating mission control with config: "+
-		"PenaltyHalfLife=%v, AprioriHopProbability=%v, "+
-		"AprioriWeight=%v", cfg.PenaltyHalfLife,
-		cfg.AprioriHopProbability, cfg.AprioriWeight)
+	log.Debugf("Instantiating mission control with config: %v", cfg)
 
 	store, err := newMissionControlStore(db, cfg.MaxMcHistory)
 	if err != nil {

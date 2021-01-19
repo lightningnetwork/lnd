@@ -534,6 +534,15 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 				log.Debugf("Already pending input %v received",
 					outpoint)
 
+				// If the pending input had an exclusive group,
+				// we remove all inputs in that group and use
+				// the new one (or no group) instead.
+				if pendInput.params.ExclusiveGroup != nil {
+					s.removeExclusiveGroup(
+						*pendInput.params.ExclusiveGroup,
+					)
+				}
+
 				// Update input details and sweep parameters.
 				// The re-offered input details may contain a
 				// change to the unconfirmed parent tx info.
@@ -600,10 +609,10 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 			}
 
 			log.Debugf("Detected spend related to in flight inputs "+
-				"(is_ours=%v): %v",
+				"(is_ours=%v): %v", isOurTx,
 				newLogClosure(func() string {
 					return spew.Sdump(spend.SpendingTx)
-				}), isOurTx,
+				}),
 			)
 
 			// Signal sweep results for inputs in this confirmed

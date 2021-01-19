@@ -1056,7 +1056,25 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 		return nil, err
 	}
 
-	tx, err := r.server.cc.Wallet.SendOutputs(outputs, feeRate, minconf, label)
+	// We first do a dry run, to sanity check we won't spend our wallet
+	// balance below the reserved amount.
+	authoredTx, err := r.server.cc.Wallet.CreateSimpleTx(
+		outputs, feeRate, true,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = r.server.cc.Wallet.CheckReservedValueTx(authoredTx.Tx)
+	if err != nil {
+		return nil, err
+	}
+
+	// If that checks out, we're failry confident that creating sending to
+	// these outputs will keep the wallet balance above the reserve.
+	tx, err := r.server.cc.Wallet.SendOutputs(
+		outputs, feeRate, minconf, label,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1253,14 +1271,85 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		// With the sweeper instance created, we can now generate a
 		// transaction that will sweep ALL outputs from the wallet in a
 		// single transaction. This will be generated in a concurrent
-		// safe manner, so no need to worry about locking.
+		// safe manner, so no need to worry about locking. The tx will
+		// pay to the change address created above if we needed to
+		// reserve any value, the rest will go to targetAddr.
 		sweepTxPkg, err := sweep.CraftSweepAllTx(
 			feePerKw, lnwallet.DefaultDustLimit(),
-			uint32(bestHeight), targetAddr, wallet,
+			uint32(bestHeight), nil, targetAddr, wallet,
 			wallet.WalletController, wallet.WalletController,
 			r.server.cc.FeeEstimator, r.server.cc.Signer,
 		)
 		if err != nil {
+			return nil, err
+		}
+
+		// Before we publish the transaction we make sure it won't
+		// violate our reserved wallet value.
+		var reservedVal btcutil.Amount
+		err = wallet.WithCoinSelectLock(func() error {
+			var err error
+			reservedVal, err = wallet.CheckReservedValueTx(
+				sweepTxPkg.SweepTx,
+			)
+			return err
+		})
+
+		// If sending everything to this address would invalidate our
+		// reserved wallet balance, we create a new sweep tx, where
+		// we'll send the reserved value back to our wallet.
+		if err == lnwallet.ErrReservedValueInvalidated {
+			sweepTxPkg.CancelSweepAttempt()
+
+			rpcsLog.Debugf("Reserved value %v not satisfied after "+
+				"send_all, trying with change output",
+				reservedVal)
+
+			// We'll request a change address from the wallet,
+			// where we'll send this reserved value back to. This
+			// ensures this is an address the wallet knows about,
+			// allowing us to pass the reserved value check.
+			changeAddr, err := r.server.cc.Wallet.NewAddress(
+				lnwallet.WitnessPubKey, true,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			// Send the reserved value to this change address, the
+			// remaining funds will go to the targetAddr.
+			outputs := []sweep.DeliveryAddr{
+				{
+					Addr: changeAddr,
+					Amt:  reservedVal,
+				},
+			}
+
+			sweepTxPkg, err = sweep.CraftSweepAllTx(
+				feePerKw, lnwallet.DefaultDustLimit(),
+				uint32(bestHeight), outputs, targetAddr, wallet,
+				wallet.WalletController, wallet.WalletController,
+				r.server.cc.FeeEstimator, r.server.cc.Signer,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			// Sanity check the new tx by re-doing the check.
+			err = wallet.WithCoinSelectLock(func() error {
+				_, err := wallet.CheckReservedValueTx(
+					sweepTxPkg.SweepTx,
+				)
+				return err
+			})
+			if err != nil {
+				sweepTxPkg.CancelSweepAttempt()
+
+				return nil, err
+			}
+		} else if err != nil {
+			sweepTxPkg.CancelSweepAttempt()
+
 			return nil, err
 		}
 

@@ -437,6 +437,13 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	defer shutdownAndAssert(net, t, carol)
 
+	// Give carol an UTXO in order to do anchor channel fee bumping.
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
+	if err != nil {
+		t.Fatalf("unable to send coins to carol: %v", err)
+	}
+
 	// Next, we'll register for streaming notifications for changes to the
 	// backup file.
 	backupStream, err := carol.SubscribeChannelBackups(
@@ -477,7 +484,7 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// With Carol up, we'll now connect her to Alice, and open a channel
 	// between them.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	if err := net.ConnectNodes(ctxt, carol, net.Alice); err != nil {
 		t.Fatalf("unable to connect carol to alice: %v", err)
 	}
@@ -855,7 +862,7 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
 	if err != nil {
-		t.Fatalf("unable to send coins to dave: %v", err)
+		t.Fatalf("unable to send coins to carol: %v", err)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, dave)

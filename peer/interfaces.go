@@ -154,3 +154,15 @@ type Gossiper interface {
 	// the Gossiper.
 	ProcessRemoteAnnouncement(lnwire.Message, lnpeer.Peer) chan error
 }
+
+// Funding is an interface that abstracts the funding process.
+type Funding interface {
+	// ProcessFundingMsg processes a funding message represented by the
+	// lnwire.Message parameter along with the Peer object representing a
+	// connection to the counterparty.
+	ProcessFundingMsg(lnwire.Message, lnpeer.Peer)
+
+	// IsPendingChannel returns whether a particular 32-byte identifier
+	// represents a pending channel in the Funding implementation.
+	IsPendingChannel([32]byte, lnpeer.Peer) bool
+}

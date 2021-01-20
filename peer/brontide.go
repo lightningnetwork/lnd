@@ -23,7 +23,6 @@ import (
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/feature"
-	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/input"
@@ -321,8 +320,8 @@ type Config struct {
 	FetchLastChanUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate,
 		error)
 
-	// FundingManager is an implementation of the funding.Controller interface.
-	FundingManager funding.Controller
+	// FundingManager handles state relating to the funding process.
+	FundingManager Funding
 
 	// Hodl is used when creating ChannelLinks to specify HodlFlags as
 	// breakpoints in dev builds.

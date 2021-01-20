@@ -527,6 +527,19 @@ func (g *mockGossiper) ProcessRemoteAnnouncement(_ lnwire.Message,
 	return make(chan error)
 }
 
+type mockFunding struct{}
+
+// newMockFunding returns an instance of *mockFunding.
+func newMockFunding() *mockFunding { return &mockFunding{} }
+
+// ProcessFundingMsg currently does nothing.
+func (f *mockFunding) ProcessFundingMsg(_ lnwire.Message, _ lnpeer.Peer) {}
+
+// IsPendingChannel currently returns false.
+func (f *mockFunding) IsPendingChannel(_ [32]byte, _ lnpeer.Peer) bool {
+	return false
+}
+
 type mockMessageConn struct {
 	t *testing.T
 

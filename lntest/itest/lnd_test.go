@@ -9777,6 +9777,11 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to send coins to carol: %v", err)
 	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, dave)
+	if err != nil {
+		t.Fatalf("unable to send coins to dave: %v", err)
+	}
 
 	// timeTravel is a method that will make Carol open a channel to the
 	// passed node, settle a series of payments, then reset the node back
@@ -9964,7 +9969,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 	// on chain, and both of them properly carry out the DLP protocol.
 	assertDLPExecuted(
 		net, t, carol, carolStartingBalance, dave, daveStartingBalance,
-		false,
+		true,
 	)
 
 	// As a second part of this test, we will test the scenario where a
@@ -10032,15 +10037,17 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to restart Eve: %v", err)
 	}
 
-	// Dave should sweep his funds.
-	_, err = waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
+	// Dave should sweep his funds and the anchor.
+	_, err = waitForNTxsInMempool(
+		net.Miner.Client, 2, minerMempoolTimeout,
+	)
 	if err != nil {
-		t.Fatalf("unable to find Dave's sweep tx in mempool: %v", err)
+		t.Fatalf("unable to find Dave's sweep txs in mempool: %v", err)
 	}
 
 	// Mine a block to confirm the sweep, and make sure Dave got his
 	// balance back.
-	mineBlocks(t, net, 1, 1)
+	mineBlocks(t, net, 1, 2)
 	assertNodeNumChannels(t, dave, 0)
 
 	err = wait.NoError(func() error {

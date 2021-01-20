@@ -4,6 +4,7 @@ import (
 	"bytes"
 	crand "crypto/rand"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -18,6 +19,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -460,6 +462,32 @@ func (s *mockStatusMgr) RequestEnable(_ wire.OutPoint, _ bool) error {
 // RequestDisable returns nil.
 func (s *mockStatusMgr) RequestDisable(_ wire.OutPoint, _ bool) error {
 	return nil
+}
+
+type mockChainArb struct{}
+
+// newMockChainArb returns an instance of *mockChainArb.
+func newMockChainArb() *mockChainArb { return &mockChainArb{} }
+
+// SubscribeChannelEvents returns nil values.
+func (c *mockChainArb) SubscribeChannelEvents(_ wire.OutPoint) (
+	*contractcourt.ChainEventSubscription, error) {
+
+	return nil, nil
+}
+
+// UpdateContractSignals returns nil.
+func (c *mockChainArb) UpdateContractSignals(_ wire.OutPoint,
+	_ *contractcourt.ContractSignals) error {
+
+	return nil
+}
+
+// ForceCloseContract currently returns an error.
+func (c *mockChainArb) ForceCloseContract(_ wire.OutPoint) (*wire.MsgTx,
+	error) {
+
+	return nil, fmt.Errorf("could not force close channel")
 }
 
 type mockMessageConn struct {

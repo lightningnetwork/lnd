@@ -241,9 +241,9 @@ type Config struct {
 	// is used to query information about the set of known active channels.
 	ChannelGraph ChannelGraph
 
-	// ChainArb is used to subscribe to channel events, update contract signals,
-	// and force close channels.
-	ChainArb *contractcourt.ChainArbitrator
+	// ChainArb is used to subscribe to channel events, update contract
+	// signals, and force close channels.
+	ChainArb ChainArbitrator
 
 	// AuthGossiper is needed so that the Brontide impl can register with the
 	// gossiper and process remote channel announcements.

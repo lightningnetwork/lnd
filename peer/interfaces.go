@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -108,4 +109,21 @@ type StatusManager interface {
 
 	// RequestDisable attempts to disable a channel.
 	RequestDisable(wire.OutPoint, bool) error
+}
+
+// ChainArbitrator is an interface that abstracts the subsystem that manages
+// on-chain handling related to our channels.
+type ChainArbitrator interface {
+	// SubscribeChannelEvents subscribes to the set of on-chain events for
+	// a channel.
+	SubscribeChannelEvents(wire.OutPoint) (
+		*contractcourt.ChainEventSubscription, error)
+
+	// UpdateContractSignals updates the contract signals that updates to
+	// the channel will be sent over.
+	UpdateContractSignals(wire.OutPoint,
+		*contractcourt.ContractSignals) error
+
+	// ForceCloseContract attempts to force close the channel.
+	ForceCloseContract(wire.OutPoint) (*wire.MsgTx, error)
 }

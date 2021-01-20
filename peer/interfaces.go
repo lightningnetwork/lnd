@@ -4,10 +4,12 @@ import (
 	"net"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -126,4 +128,16 @@ type ChainArbitrator interface {
 
 	// ForceCloseContract attempts to force close the channel.
 	ForceCloseContract(wire.OutPoint) (*wire.MsgTx, error)
+}
+
+// Sphinx is an interface that abstracts the decryption of onion blobs.
+type Sphinx interface {
+	// DecodeHopIterators batch decodes HTLC onion blobs.
+	DecodeHopIterators([]byte, []hop.DecodeHopIteratorRequest) (
+		[]hop.DecodeHopIteratorResponse, error)
+
+	// ExtractErrorEncrypter creates an ErrorEncrypter instance using a
+	// derived shared secret.
+	ExtractErrorEncrypter(*btcec.PublicKey) (hop.ErrorEncrypter,
+		lnwire.FailCode)
 }

@@ -27,7 +27,6 @@ import (
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
-	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -278,9 +277,9 @@ type Config struct {
 	// the Brontide.
 	RoutingPolicy htlcswitch.ForwardingPolicy
 
-	// Sphinx is used when setting up ChannelLinks so they can decode sphinx
-	// onion blobs.
-	Sphinx *hop.OnionProcessor
+	// Sphinx is used when setting up ChannelLinks so they can decode
+	// sphinx onion blobs.
+	Sphinx Sphinx
 
 	// WitnessBeacon is used when setting up ChannelLinks so they can add any
 	// preimages that they learn.

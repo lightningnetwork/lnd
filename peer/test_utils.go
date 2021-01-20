@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest/channels"
@@ -488,6 +489,26 @@ func (c *mockChainArb) ForceCloseContract(_ wire.OutPoint) (*wire.MsgTx,
 	error) {
 
 	return nil, fmt.Errorf("could not force close channel")
+}
+
+type mockSphinx struct{}
+
+// newMockSphinx returns an instance of *mockSphinx.
+func newMockSphinx() *mockSphinx { return &mockSphinx{} }
+
+// DecodeHopIterators returns nil values.
+func (s *mockSphinx) DecodeHopIterators(_ []byte,
+	_ []hop.DecodeHopIteratorRequest) ([]hop.DecodeHopIteratorResponse,
+	error) {
+
+	return nil, nil
+}
+
+// ExtractErrorEncrypter returns nil values.
+func (s *mockSphinx) ExtractErrorEncrypter(_ *btcec.PublicKey) (
+	hop.ErrorEncrypter, lnwire.FailCode) {
+
+	return nil, 0
 }
 
 type mockMessageConn struct {

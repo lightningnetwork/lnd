@@ -4,6 +4,8 @@ import (
 	"net"
 	"time"
 
+	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -87,4 +89,23 @@ type MessageSwitch interface {
 	// RemoveLink removes a MessageLink from the MessageSwitch given a
 	// ChannelID.
 	RemoveLink(lnwire.ChannelID)
+}
+
+// ChannelGraph is an interface that abstracts the network graph.
+type ChannelGraph interface {
+	// FetchChannelEdgesByOutpoint queries for channel information given an
+	// outpoint.
+	FetchChannelEdgesByOutpoint(*wire.OutPoint) (
+		*channeldb.ChannelEdgeInfo, *channeldb.ChannelEdgePolicy,
+		*channeldb.ChannelEdgePolicy, error)
+}
+
+// StatusManager is an interface that abstracts the subsystem that deals with
+// enabling and disabling of a channel via ChannelUpdate's disabled bit.
+type StatusManager interface {
+	// RequestEnable attempts to enable a channel.
+	RequestEnable(wire.OutPoint, bool) error
+
+	// RequestDisable attempts to disable a channel.
+	RequestDisable(wire.OutPoint, bool) error
 }

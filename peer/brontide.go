@@ -237,9 +237,9 @@ type Config struct {
 	// ChannelDB is used to fetch opened channels, and closed channels.
 	ChannelDB *channeldb.DB
 
-	// ChannelGraph is a pointer to the channel graph which is used to
-	// query information about the set of known active channels.
-	ChannelGraph *channeldb.ChannelGraph
+	// ChannelGraph is an implementation of the ChannelGraph interface and
+	// is used to query information about the set of known active channels.
+	ChannelGraph ChannelGraph
 
 	// ChainArb is used to subscribe to channel events, update contract signals,
 	// and force close channels.
@@ -251,7 +251,7 @@ type Config struct {
 
 	// ChanStatusMgr is used to set or un-set the disabled bit in channel
 	// updates.
-	ChanStatusMgr *netann.ChanStatusManager
+	ChanStatusMgr StatusManager
 
 	// ChainIO is used to retrieve the best block.
 	ChainIO lnwallet.BlockChainIO

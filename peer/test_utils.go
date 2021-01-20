@@ -26,7 +26,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/stretchr/testify/require"
@@ -60,7 +59,6 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(
 		btcec.S256(), channels.AlicesPrivKey,
 	)
-	aliceKeySigner := &keychain.PrivKeyDigestSigner{PrivKey: aliceKeyPriv}
 	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(
 		btcec.S256(), channels.BobsPrivKey,
 	)
@@ -306,27 +304,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		},
 	}
 
-	nodeSignerAlice := netann.NewNodeSigner(aliceKeySigner)
-
 	const chanActiveTimeout = time.Minute
-
-	chanStatusMgr, err := netann.NewChanStatusManager(&netann.ChanStatusConfig{
-		ChanStatusSampleInterval: 30 * time.Second,
-		ChanEnableTimeout:        chanActiveTimeout,
-		ChanDisableTimeout:       2 * time.Minute,
-		DB:                       dbAlice,
-		Graph:                    dbAlice.ChannelGraph(),
-		MessageSigner:            nodeSignerAlice,
-		OurPubKey:                aliceKeyPub,
-		IsChannelActive:          nil,
-		ApplyChannelUpdate:       func(*lnwire.ChannelUpdate) error { return nil },
-	})
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	if err = chanStatusMgr.Start(); err != nil {
-		return nil, nil, nil, err
-	}
 
 	errBuffer, err := queue.NewCircularBuffer(ErrorBufferSize)
 	if err != nil {
@@ -356,7 +334,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		FeeEstimator:   estimator,
 		Wallet:         wallet,
 		ChainNotifier:  notifier,
-		ChanStatusMgr:  chanStatusMgr,
+		ChanStatusMgr:  newMockStatusMgr(),
 		DisconnectPeer: func(b *btcec.PublicKey) error { return nil },
 	}
 
@@ -454,6 +432,34 @@ func (s *mockMessageSwitch) RemoveLink(cid lnwire.ChannelID) {
 	}
 
 	delete(s.linkIndex, cid)
+}
+
+type mockChannelGraph struct{}
+
+// newMockChannelGraph returns an instance of *mockChannelGraph.
+func newMockChannelGraph() *mockChannelGraph { return &mockChannelGraph{} }
+
+// FetchChannelEdgesByOutpoint currently returns nil for all values.
+func (g *mockChannelGraph) FetchChannelEdgesByOutpoint(_ *wire.OutPoint) (
+	*channeldb.ChannelEdgeInfo, *channeldb.ChannelEdgePolicy,
+	*channeldb.ChannelEdgePolicy, error) {
+
+	return nil, nil, nil, nil
+}
+
+type mockStatusMgr struct{}
+
+// newMockStatusMgr returns an instance of *mockStatusMgr.
+func newMockStatusMgr() *mockStatusMgr { return &mockStatusMgr{} }
+
+// RequestEnable returns nil.
+func (s *mockStatusMgr) RequestEnable(_ wire.OutPoint, _ bool) error {
+	return nil
+}
+
+// RequestDisable returns nil.
+func (s *mockStatusMgr) RequestDisable(_ wire.OutPoint, _ bool) error {
+	return nil
 }
 
 type mockMessageConn struct {

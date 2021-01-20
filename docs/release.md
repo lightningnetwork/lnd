@@ -86,7 +86,7 @@ and `go` (matching the same version used in the release):
    and lncli) with `shasum -a 256 <filename>`. These should match __exactly__
    as the ones noted above.
 
-## Verifying docker images
+## Verifying Docker Images
 
 To verify the `lnd` and `lncli` binaries inside the
 [official provided docker images](https://hub.docker.com/r/lightninglabs/lnd)
@@ -101,3 +101,24 @@ $ OK=$?
 $ if [ "$OK" -ne "0" ]; then echo "Verification failed!"; exit 1; done
 $ docker run lightninglabs/lnd [command-line options]
 ```
+
+# Signing an Existing Manifest File
+
+If you're a developer of `lnd` and are interested in attaching your signature
+to the final release archive, the manifest MUST be signed in a manner that
+allows your signature to be verified by our verify script
+`scripts/verify-install.sh`. 
+
+Assuming you've done a local build for _all_ release targets, then you should
+have a file called `manifest-TAG.txt` where `TAG` is the actual release tag
+description being signed. The release script expects a particular file name for
+each included signature, so we'll need to modify the name of our output
+signature during signing.
+
+Assuming `USERNAME` is your current nick as a developer, then the following
+command will generate a proper signature:
+```
+gpg --detach-sig --output manifest-USERNAME-TAG-txt.asc --clear-sign manifest-TAG.txt
+```
+
+

@@ -24,10 +24,16 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// First, we'll create two new nodes that we'll use to open channels
 	// between for this test. Dave gets some coins that will be used to
-	// fund the PSBT, just to make sure that Carol has an empty wallet.
+	// fund the PSBT, just Carol will only get a small balance in order to
+	// do anchor fee bumping.
 	carol, err := net.NewNode("carol", nil)
 	require.NoError(t.t, err)
 	defer shutdownAndAssert(net, t, carol)
+
+	err = net.SendCoins(ctxb, chanSize/10, carol)
+	if err != nil {
+		t.Fatalf("unable to send coins to carol: %v", err)
+	}
 
 	dave, err := net.NewNode("dave", nil)
 	require.NoError(t.t, err)

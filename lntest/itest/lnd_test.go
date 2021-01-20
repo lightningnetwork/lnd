@@ -12954,6 +12954,12 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, dave)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, dave)
+	if err != nil {
+		t.Fatalf("unable to send coins to dave: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	if err := net.ConnectNodes(ctxt, dave, net.Bob); err != nil {
 		t.Fatalf("unable to connect dave to bob: %v", err)
 	}

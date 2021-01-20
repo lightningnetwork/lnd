@@ -399,6 +399,12 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
 	require.NoError(t.t, err)
 
+	// Dave need an UTXO to not reject the incoming channel because of
+	// anchor commitment fee bumping.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, dave)
+	require.NoError(t.t, err)
+
 	// Before we start the test, we'll ensure both sides are connected to
 	// the funding flow can properly be executed.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)

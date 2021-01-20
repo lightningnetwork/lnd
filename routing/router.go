@@ -897,6 +897,9 @@ func (r *ChannelRouter) pruneZombieChans() error {
 	}
 
 	log.Infof("Pruning %v zombie channels", len(chansToPrune))
+	if len(chansToPrune) == 0 {
+		return nil
+	}
 
 	// With the set of zombie-like channels obtained, we'll do another pass
 	// to delete them from the channel graph.

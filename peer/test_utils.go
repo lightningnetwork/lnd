@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntest/channels"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -509,6 +510,21 @@ func (s *mockSphinx) ExtractErrorEncrypter(_ *btcec.PublicKey) (
 	hop.ErrorEncrypter, lnwire.FailCode) {
 
 	return nil, 0
+}
+
+type mockGossiper struct{}
+
+// newMockGossiper returns an instance of *mockGossiper.
+func newMockGossiper() *mockGossiper { return &mockGossiper{} }
+
+// InitSyncState currently does nothing.
+func (g *mockGossiper) InitSyncState(_ lnpeer.Peer) {}
+
+// ProcessRemoteAnnouncement currently does nothing.
+func (g *mockGossiper) ProcessRemoteAnnouncement(_ lnwire.Message,
+	_ lnpeer.Peer) chan error {
+
+	return make(chan error)
 }
 
 type mockMessageConn struct {

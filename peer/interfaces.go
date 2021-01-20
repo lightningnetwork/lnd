@@ -10,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
+	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -140,4 +141,16 @@ type Sphinx interface {
 	// derived shared secret.
 	ExtractErrorEncrypter(*btcec.PublicKey) (hop.ErrorEncrypter,
 		lnwire.FailCode)
+}
+
+// Gossiper is an interface that abstracts the subsystem that handles the
+// gossiping protocol.
+type Gossiper interface {
+	// InitSyncState initializes a gossip syncer for a given peer that
+	// understands channel range queries.
+	InitSyncState(lnpeer.Peer)
+
+	// ProcessRemoteAnnouncement processes a remote message intended for
+	// the Gossiper.
+	ProcessRemoteAnnouncement(lnwire.Message, lnpeer.Peer) chan error
 }

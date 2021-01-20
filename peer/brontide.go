@@ -22,7 +22,6 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/contractcourt"
-	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -244,9 +243,9 @@ type Config struct {
 	// signals, and force close channels.
 	ChainArb ChainArbitrator
 
-	// AuthGossiper is needed so that the Brontide impl can register with the
-	// gossiper and process remote channel announcements.
-	AuthGossiper *discovery.AuthenticatedGossiper
+	// AuthGossiper is needed so that the Brontide impl can register with
+	// the gossiper and process remote channel announcements.
+	AuthGossiper Gossiper
 
 	// ChanStatusMgr is used to set or un-set the disabled bit in channel
 	// updates.

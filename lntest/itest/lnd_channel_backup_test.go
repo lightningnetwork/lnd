@@ -616,9 +616,16 @@ func testExportChannelBackup(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	defer shutdownAndAssert(net, t, carol)
 
+	// Send some coins to carol for anchor fee bumping.
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
+	if err != nil {
+		t.Fatalf("unable to send coins to carol: %v", err)
+	}
+
 	// With Carol up, we'll now connect her to Alice, and open a channel
 	// between them.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	if err := net.ConnectNodes(ctxt, carol, net.Alice); err != nil {
 		t.Fatalf("unable to connect carol to alice: %v", err)
 	}

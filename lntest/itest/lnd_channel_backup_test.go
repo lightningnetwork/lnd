@@ -842,6 +842,8 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	var nodeArgs []string
 	if testCase.anchorCommit {
 		nodeArgs = commitTypeAnchors.Args()
+	} else {
+		nodeArgs = commitTypeTweakless.Args()
 	}
 
 	// First, we'll create a brand new node we'll use within the test. If

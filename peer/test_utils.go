@@ -10,7 +10,6 @@ import (
 	"math/rand"
 	"net"
 	"os"
-	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -32,7 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/shachain"
-	"github.com/stretchr/testify/require"
+	"github.com/lightningnetwork/lnd/watchtower/wtmock"
 )
 
 const (
@@ -540,55 +539,34 @@ func (f *mockFunding) IsPendingChannel(_ [32]byte, _ lnpeer.Peer) bool {
 	return false
 }
 
-type mockMessageConn struct {
-	t *testing.T
+// pushMessage pushes an lnwire.Message to the MockPeer.
+func pushMessage(p *wtmock.MockPeer, msg lnwire.Message) error {
+	var b bytes.Buffer
+	if _, err := lnwire.WriteMessage(&b, msg, 0); err != nil {
+		return err
+	}
 
-	// MessageConn embeds our interface so that the mock does not need to
-	// implement every function. The mock will panic if an unspecified function
-	// is called.
-	MessageConn
-
-	// writtenMessages is a channel that our mock pushes written messages into.
-	writtenMessages chan []byte
-}
-
-func newMockConn(t *testing.T, expectedMessages int) *mockMessageConn {
-	return &mockMessageConn{
-		t:               t,
-		writtenMessages: make(chan []byte, expectedMessages),
+	select {
+	case p.IncomingMsgs <- b.Bytes():
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("failed pushing message: %v", msg)
 	}
 }
 
-// SetWriteDeadline mocks setting write deadline for our conn.
-func (m *mockMessageConn) SetWriteDeadline(time.Time) error {
-	return nil
-}
-
-// Flush mocks a message conn flush.
-func (m *mockMessageConn) Flush() (int, error) {
-	return 0, nil
-}
-
-// WriteMessage mocks sending of a message on our connection. It will push
-// the bytes sent into the mock's writtenMessages channel.
-func (m *mockMessageConn) WriteMessage(msg []byte) error {
+// getMessage retrieves a message from the MockPeer.
+func getMessage(p *wtmock.MockPeer) (lnwire.Message, error) {
 	select {
-	case m.writtenMessages <- msg:
-	case <-time.After(timeout):
-		m.t.Fatalf("timeout sending message: %v", msg)
-	}
+	case msgBytes := <-p.OutgoingMsgs:
+		r := bytes.NewReader(msgBytes)
+		msg, err := lnwire.ReadMessage(r, 0)
+		if err != nil {
+			return nil, err
+		}
 
-	return nil
-}
-
-// assertWrite asserts that our mock as had WriteMessage called with the byte
-// slice we expect.
-func (m *mockMessageConn) assertWrite(expected []byte) {
-	select {
-	case actual := <-m.writtenMessages:
-		require.Equal(m.t, expected, actual)
+		return msg, nil
 
 	case <-time.After(timeout):
-		m.t.Fatalf("timeout waiting for write: %v", expected)
+		return nil, fmt.Errorf("timeout waiting to retrieve message")
 	}
 }

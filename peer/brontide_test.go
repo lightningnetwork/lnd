@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/pool"
+	"github.com/lightningnetwork/lnd/watchtower/wtmock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -910,6 +911,7 @@ func TestStaticRemoteDowngrade(t *testing.T) {
 			expectedInit: &lnwire.Init{
 				GlobalFeatures: rawLegacy,
 				Features:       rawFeatureOptional,
+				ExtraData:      make([]byte, 0),
 			},
 		},
 		{
@@ -919,6 +921,7 @@ func TestStaticRemoteDowngrade(t *testing.T) {
 			expectedInit: &lnwire.Init{
 				GlobalFeatures: rawLegacy,
 				Features:       rawFeatureOptional,
+				ExtraData:      make([]byte, 0),
 			},
 		},
 		{
@@ -928,6 +931,7 @@ func TestStaticRemoteDowngrade(t *testing.T) {
 			expectedInit: &lnwire.Init{
 				GlobalFeatures: rawLegacy,
 				Features:       rawFeatureRequired,
+				ExtraData:      make([]byte, 0),
 			},
 		},
 
@@ -942,6 +946,7 @@ func TestStaticRemoteDowngrade(t *testing.T) {
 			expectedInit: &lnwire.Init{
 				GlobalFeatures: legacyCombinedOptional,
 				Features:       rawFeatureOptional,
+				ExtraData:      make([]byte, 0),
 			},
 		},
 	}
@@ -960,7 +965,7 @@ func TestStaticRemoteDowngrade(t *testing.T) {
 			)
 			require.NoError(t, writePool.Start())
 
-			mockConn := newMockConn(t, 1)
+			mockConn := wtmock.NewMockPeer(nil, nil, nil, 1)
 
 			p := Brontide{
 				cfg: Config{
@@ -971,14 +976,15 @@ func TestStaticRemoteDowngrade(t *testing.T) {
 				},
 			}
 
-			var b bytes.Buffer
-			_, err := lnwire.WriteMessage(&b, test.expectedInit, 0)
-			require.NoError(t, err)
-
 			// Send our init message, assert that we write our expected message
 			// and shutdown our write pool.
 			require.NoError(t, p.sendInitMsg(test.legacy))
-			mockConn.assertWrite(b.Bytes())
+
+			// Check that mockConn sent out the expected message.
+			msg, err := getMessage(mockConn)
+			require.NoError(t, err)
+			require.Equal(t, test.expectedInit, msg)
+
 			require.NoError(t, writePool.Stop())
 		})
 	}

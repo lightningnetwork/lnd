@@ -204,7 +204,7 @@ or `make rpc` to generate new protobuf definitions.
 ## Format .proto files
 
 We use `clang-format` to make sure the `.proto` files are formatted correctly.
-You can install the formatter on Ubuntu by running `apt install clang-format`.
+You can install the formatter on Ubuntu by running `apt install clang-format` or on Mac by running `brew install clang-format`.
 
 Consult [this page](http://releases.llvm.org/download.html) to find binaries
 for other operating systems or distributions.

@@ -12,8 +12,8 @@ There are two flavors of Dockerfiles available:
 To build a standalone development image from the local source directory, use the
 following command:
 
-```
-$ docker build --tag=myrepository/lnd-dev -f dev.Dockerfile .
+```shell
+⛰  docker build --tag=myrepository/lnd-dev -f dev.Dockerfile .
 ```
 
 There is also a `docker-compose` setup available for development or testing that
@@ -28,16 +28,16 @@ Docker container, adding the appropriate command-line options as parameters.
 
 You first need to build the `lnd` docker image:
 
-```
-$ docker build --tag=myrepository/lnd --build-arg checkout=v0.11.1-beta .
+```shell
+⛰  docker build --tag=myrepository/lnd --build-arg checkout=v0.11.1-beta .
 ```
 
 It is recommended that you checkout the latest released tag.
 
 You can continue by creating and running the container:
 
-```
-$ docker run myrepository/lnd [command-line options]
+```shell
+⛰  docker run myrepository/lnd [command-line options]
 ```
 
 ## Production (official images)
@@ -49,8 +49,8 @@ images of `lnd` available in the
 You can just pull those images by specifying a release tag:
 
 ```shell
-$ docker pull lightninglabs/lnd:v0.12.0-beta
-$ docker run lightninglabs/lnd [command-line options]
+⛰  docker pull lightninglabs/lnd:v0.12.0-beta
+⛰  docker run lightninglabs/lnd [command-line options]
 ```
 
 ### Verifying docker images
@@ -61,11 +61,11 @@ script in the image that can be called (before starting the container for
 example):
 
 ```shell
-$ docker pull lightninglabs/lnd:v0.12.0-beta
-$ docker run --rm --entrypoint="" lightninglabs/lnd:v0.12.0-beta /verify-install.sh
-$ OK=$?
-$ if [ "$OK" -ne "0" ]; then echo "Verification failed!"; exit 1; done
-$ docker run lightninglabs/lnd [command-line options]
+⛰  docker pull lightninglabs/lnd:v0.12.0-beta
+⛰  docker run --rm --entrypoint="" lightninglabs/lnd:v0.12.0-beta /verify-install.sh
+⛰  OK=$?
+⛰  if [ "$OK" -ne "0" ]; then echo "Verification failed!"; exit 1; done
+⛰  docker run lightninglabs/lnd [command-line options]
 ```
 
 ## Volumes
@@ -75,28 +75,28 @@ persist through container restarts.
 
 You can also optionally manually specify a local folder to be used as a volume:
 
-```
-$ docker create --name=mylndcontainer -v /media/lnd-docker/:/root/.lnd myrepository/lnd [command-line options]
+```shell
+⛰  docker create --name=mylndcontainer -v /media/lnd-docker/:/root/.lnd myrepository/lnd [command-line options]
 ```
 
 ## Example
 
 Here is an example testnet `lnd` that uses Neutrino:
 
-```
-$ docker run --name lnd-testnet myrepository/lnd --bitcoin.active --bitcoin.testnet --bitcoin.node=neutrino --neutrino.connect=faucet.lightning.community
+```shell
+⛰  docker run --name lnd-testnet myrepository/lnd --bitcoin.active --bitcoin.testnet --bitcoin.node=neutrino --neutrino.connect=faucet.lightning.community
 ```
 
 Create a wallet (and write down the seed):
 
-```
-$ docker exec -it lnd-testnet lncli create
+```shell
+⛰  docker exec -it lnd-testnet lncli create
 ```
 
 Confirm `lnd` has begun to synchronize:
 
-```
-$ docker logs lnd-testnet
+```shell
+⛰  docker logs lnd-testnet
 [snipped]
 2018-05-01 02:28:01.201 [INF] RPCS: RPC server listening on 127.0.0.1:10009
 2018-05-01 02:28:01.201 [INF] LTND: Waiting for chain backend to finish sync, start_height=2546
@@ -113,24 +113,24 @@ to expose RPC ports, use `btcd` or `bitcoind`, or add additional chains.
 To test the Docker production image locally, run the following from
 the project root:
 
-```
-$ docker build . -t myrepository/lnd:master
+```shell
+⛰  docker build . -t myrepository/lnd:master
 ```
 
 To choose a specific branch or tag instead, use the "checkout" build-arg.  For example, to build the latest commits in master:
 
-```
-$ docker build . --build-arg checkout=v0.8.0-beta -t myrepository/lnd:v0.8.0-beta
+```shell
+⛰  docker build . --build-arg checkout=v0.8.0-beta -t myrepository/lnd:v0.8.0-beta
 ```
 
 To build the image using the most current tag:
 
-```
-$ docker build . --build-arg checkout=$(git describe --tags `git rev-list --tags --max-count=1`) -t myrepository/lnd:latest-tag
+```shell
+⛰  docker build . --build-arg checkout=$(git describe --tags `git rev-list --tags --max-count=1`) -t myrepository/lnd:latest-tag
 ```
 
 Once the image has been built and tagged locally, start the container:
 
-```
-docker run --name=lnd-testnet -it myrepository/lnd:latest-tag --bitcoin.active --bitcoin.testnet --bitcoin.node=neutrino --neutrino.connect=faucet.lightning.community
+```shell
+⛰  docker run --name=lnd-testnet -it myrepository/lnd:latest-tag --bitcoin.active --bitcoin.testnet --bitcoin.node=neutrino --neutrino.connect=faucet.lightning.community
 ```

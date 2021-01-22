@@ -25,9 +25,8 @@ amounts to be in satoshis instead of fractions of a bitcoin.
 Let's start with a very simple example and assume we want to send half a coin
 to the address `bcrt1qjrdns4f5zwkv29ln86plqzs092yd5fg6nsz8re`:
 
-```shell script
-$ lncli wallet psbt fund --outputs='{"bcrt1qjrdns4f5zwkv29ln86plqzs092yd5fg6nsz8re":50000000}'
-
+```shell
+⛰  lncli wallet psbt fund --outputs='{"bcrt1qjrdns4f5zwkv29ln86plqzs092yd5fg6nsz8re":50000000}'
 {
         "psbt": "cHNidP8BAHECAAAAAeJQY2VLRtutKgQYFUajEKpjFfl0Uyrm6x23OumDpe/4AQAAAAD/////AkxREgEAAAAAFgAUv6pTgbKHN60CZ+RQn5yOuH6c2WiA8PoCAAAAABYAFJDbOFU0E6zFF/M+g/AKDyqI2iUaAAAAAAABAOsCAAAAAAEBbxqXgEf9DlzcqqNM610s5pL1X258ra6+KJ22etb7HAcBAAAAAAAAAAACACT0AAAAAAAiACC7U1W0iJGhQ6o7CexDh5k36V6v3256xpA9/xmB2BybTFZdDQQAAAAAFgAUKp2ThzhswyM2QHlyvmMB6tQB7V0CSDBFAiEA4Md8RIZYqFdUPsgDyomlzMJL9bJ6Ho23JGTihXtEelgCIAeNXRLyt88SOuuWFVn3IodCE4U5D6DojIHesRmikF28ASEDHYFzMEAxfmfq98eSSnZtUwb1w7mAtHG65y8qiRFNnIkAAAAAAQEfVl0NBAAAAAAWABQqnZOHOGzDIzZAeXK+YwHq1AHtXQEDBAEAAAAAAAA=",
         "change_output_index": 0,
@@ -51,8 +50,8 @@ If we inspect the PSBT that was created, we see that the locked input was indeed
 selected, the UTXO information was attached and a change output (at index 0) was
 created as well:
 
-```shell script
-$ bitcoin-cli decodepsbt cHNidP8BAHECAAAAAeJQY2VLRtutKgQYFUajEKpjFfl0Uyrm6x23OumDpe/4AQAAAAD/////AkxREgEAAAAAFgAUv6pTgbKHN60CZ+RQn5yOuH6c2WiA8PoCAAAAABYAFJDbOFU0E6zFF/M+g/AKDyqI2iUaAAAAAAABAOsCAAAAAAEBbxqXgEf9DlzcqqNM610s5pL1X258ra6+KJ22etb7HAcBAAAAAAAAAAACACT0AAAAAAAiACC7U1W0iJGhQ6o7CexDh5k36V6v3256xpA9/xmB2BybTFZdDQQAAAAAFgAUKp2ThzhswyM2QHlyvmMB6tQB7V0CSDBFAiEA4Md8RIZYqFdUPsgDyomlzMJL9bJ6Ho23JGTihXtEelgCIAeNXRLyt88SOuuWFVn3IodCE4U5D6DojIHesRmikF28ASEDHYFzMEAxfmfq98eSSnZtUwb1w7mAtHG65y8qiRFNnIkAAAAAAQEfVl0NBAAAAAAWABQqnZOHOGzDIzZAeXK+YwHq1AHtXQEDBAEAAAAAAAA=
+```shell
+⛰  bitcoin-cli decodepsbt cHNidP8BAHECAAAAAeJQY2VLRtutKgQYFUajEKpjFfl0Uyrm6x23OumDpe/4AQAAAAD/////AkxREgEAAAAAFgAUv6pTgbKHN60CZ+RQn5yOuH6c2WiA8PoCAAAAABYAFJDbOFU0E6zFF/M+g/AKDyqI2iUaAAAAAAABAOsCAAAAAAEBbxqXgEf9DlzcqqNM610s5pL1X258ra6+KJ22etb7HAcBAAAAAAAAAAACACT0AAAAAAAiACC7U1W0iJGhQ6o7CexDh5k36V6v3256xpA9/xmB2BybTFZdDQQAAAAAFgAUKp2ThzhswyM2QHlyvmMB6tQB7V0CSDBFAiEA4Md8RIZYqFdUPsgDyomlzMJL9bJ6Ho23JGTihXtEelgCIAeNXRLyt88SOuuWFVn3IodCE4U5D6DojIHesRmikF28ASEDHYFzMEAxfmfq98eSSnZtUwb1w7mAtHG65y8qiRFNnIkAAAAAAQEfVl0NBAAAAAAWABQqnZOHOGzDIzZAeXK+YwHq1AHtXQEDBAEAAAAAAAA=
 {
   "tx": {
     "txid": "33a316d62ddf74656967754d26ea83a3cb89e03ae44578d965156d4b71b1fce7",
@@ -132,9 +131,8 @@ manually.
 The first step is to look at all available UTXOs and choose. To do so, we use
 the `listunspent` command:
 
-```shell script
-$ lncli listunspent
-
+```shell
+⛰  lncli listunspent
 {
         "utxos": [
                 {
@@ -160,10 +158,9 @@ $ lncli listunspent
 
 Next, we choose these two inputs and create the PSBT:
 
-```shell script
-$ lncli wallet psbt fund --outputs='{"bcrt1qjrdns4f5zwkv29ln86plqzs092yd5fg6nsz8re":50000000}' \
+```shell
+⛰  lncli wallet psbt fund --outputs='{"bcrt1qjrdns4f5zwkv29ln86plqzs092yd5fg6nsz8re":50000000}' \
     --inputs='["3597b451ff56bc901eb806e8c644a004e934b4c208679756b4cddc455c768c48:1","f8efa583e93ab71debe62a5374f91563aa10a3461518042aaddb464b656350e2:1"]'
-
 {
         "psbt": "cHNidP8BAJoCAAAAAkiMdlxF3M20VpdnCMK0NOkEoETG6Aa4HpC8Vv9RtJc1AQAAAAAAAAAA4lBjZUtG260qBBgVRqMQqmMV+XRTKubrHbc66YOl7/gBAAAAAAAAAAACgPD6AgAAAAAWABSQ2zhVNBOsxRfzPoPwCg8qiNolGtIkCAcAAAAAFgAUuvRP5r7qAvj0egDxyX9/FH+vukgAAAAAAAEA3gIAAAAAAQEr9IZcho/gV/6fH8C8P+yhNRZP+l3YuxsyatdYcS0S6AEAAAAA/v///wLI/8+yAAAAABYAFDXoRFwgXNO5VVtVq2WpaENh6blAAOH1BQAAAAAWABTcAR0NeNdDHb96kMnH5EVUcr1YwwJHMEQCIDqugtYLp4ebJAZvOdieshLi1lLuPl2tHQG4jM4ybwEGAiBeMpCkbHBmzYvljxb1JBQyVAMuoco0xIfi+5OQdHuXaAEhAnH96NhTW09X0npE983YBsHUoMPI4U4xBtHenpZVTEqpVwAAAAEBHwDh9QUAAAAAFgAU3AEdDXjXQx2/epDJx+RFVHK9WMMBAwQBAAAAAAEA6wIAAAAAAQFvGpeAR/0OXNyqo0zrXSzmkvVfbnytrr4onbZ61vscBwEAAAAAAAAAAAIAJPQAAAAAACIAILtTVbSIkaFDqjsJ7EOHmTfpXq/fbnrGkD3/GYHYHJtMVl0NBAAAAAAWABQqnZOHOGzDIzZAeXK+YwHq1AHtXQJIMEUCIQDgx3xEhlioV1Q+yAPKiaXMwkv1snoejbckZOKFe0R6WAIgB41dEvK3zxI665YVWfcih0IThTkPoOiMgd6xGaKQXbwBIQMdgXMwQDF+Z+r3x5JKdm1TBvXDuYC0cbrnLyqJEU2ciQAAAAABAR9WXQ0EAAAAABYAFCqdk4c4bMMjNkB5cr5jAerUAe1dAQMEAQAAAAAAAA==",
         "change_output_index": 1,
@@ -185,9 +182,8 @@ $ lncli wallet psbt fund --outputs='{"bcrt1qjrdns4f5zwkv29ln86plqzs092yd5fg6nsz8
 Inspecting this PSBT, we notice that the two inputs were chosen and a large
 change change output was added at index 1:
 
-```shell script
-$ bitcoin-cli  decodepsbt cHNidP8BAJoCAAAAAkiMdlxF3M20VpdnCMK0NOkEoETG6Aa4HpC8Vv9RtJc1AQAAAAAAAAAA4lBjZUtG260qBBgVRqMQqmMV+XRTKubrHbc66YOl7/gBAAAAAAAAAAACgPD6AgAAAAAWABSQ2zhVNBOsxRfzPoPwCg8qiNolGtIkCAcAAAAAFgAUuvRP5r7qAvj0egDxyX9/FH+vukgAAAAAAAEA3gIAAAAAAQEr9IZcho/gV/6fH8C8P+yhNRZP+l3YuxsyatdYcS0S6AEAAAAA/v///wLI/8+yAAAAABYAFDXoRFwgXNO5VVtVq2WpaENh6blAAOH1BQAAAAAWABTcAR0NeNdDHb96kMnH5EVUcr1YwwJHMEQCIDqugtYLp4ebJAZvOdieshLi1lLuPl2tHQG4jM4ybwEGAiBeMpCkbHBmzYvljxb1JBQyVAMuoco0xIfi+5OQdHuXaAEhAnH96NhTW09X0npE983YBsHUoMPI4U4xBtHenpZVTEqpVwAAAAEBHwDh9QUAAAAAFgAU3AEdDXjXQx2/epDJx+RFVHK9WMMBAwQBAAAAAAEA6wIAAAAAAQFvGpeAR/0OXNyqo0zrXSzmkvVfbnytrr4onbZ61vscBwEAAAAAAAAAAAIAJPQAAAAAACIAILtTVbSIkaFDqjsJ7EOHmTfpXq/fbnrGkD3/GYHYHJtMVl0NBAAAAAAWABQqnZOHOGzDIzZAeXK+YwHq1AHtXQJIMEUCIQDgx3xEhlioV1Q+yAPKiaXMwkv1snoejbckZOKFe0R6WAIgB41dEvK3zxI665YVWfcih0IThTkPoOiMgd6xGaKQXbwBIQMdgXMwQDF+Z+r3x5JKdm1TBvXDuYC0cbrnLyqJEU2ciQAAAAABAR9WXQ0EAAAAABYAFCqdk4c4bMMjNkB5cr5jAerUAe1dAQMEAQAAAAAAAA==
-
+```shell
+⛰  bitcoin-cli  decodepsbt cHNidP8BAJoCAAAAAkiMdlxF3M20VpdnCMK0NOkEoETG6Aa4HpC8Vv9RtJc1AQAAAAAAAAAA4lBjZUtG260qBBgVRqMQqmMV+XRTKubrHbc66YOl7/gBAAAAAAAAAAACgPD6AgAAAAAWABSQ2zhVNBOsxRfzPoPwCg8qiNolGtIkCAcAAAAAFgAUuvRP5r7qAvj0egDxyX9/FH+vukgAAAAAAAEA3gIAAAAAAQEr9IZcho/gV/6fH8C8P+yhNRZP+l3YuxsyatdYcS0S6AEAAAAA/v///wLI/8+yAAAAABYAFDXoRFwgXNO5VVtVq2WpaENh6blAAOH1BQAAAAAWABTcAR0NeNdDHb96kMnH5EVUcr1YwwJHMEQCIDqugtYLp4ebJAZvOdieshLi1lLuPl2tHQG4jM4ybwEGAiBeMpCkbHBmzYvljxb1JBQyVAMuoco0xIfi+5OQdHuXaAEhAnH96NhTW09X0npE983YBsHUoMPI4U4xBtHenpZVTEqpVwAAAAEBHwDh9QUAAAAAFgAU3AEdDXjXQx2/epDJx+RFVHK9WMMBAwQBAAAAAAEA6wIAAAAAAQFvGpeAR/0OXNyqo0zrXSzmkvVfbnytrr4onbZ61vscBwEAAAAAAAAAAAIAJPQAAAAAACIAILtTVbSIkaFDqjsJ7EOHmTfpXq/fbnrGkD3/GYHYHJtMVl0NBAAAAAAWABQqnZOHOGzDIzZAeXK+YwHq1AHtXQJIMEUCIQDgx3xEhlioV1Q+yAPKiaXMwkv1snoejbckZOKFe0R6WAIgB41dEvK3zxI665YVWfcih0IThTkPoOiMgd6xGaKQXbwBIQMdgXMwQDF+Z+r3x5JKdm1TBvXDuYC0cbrnLyqJEU2ciQAAAAABAR9WXQ0EAAAAABYAFCqdk4c4bMMjNkB5cr5jAerUAe1dAQMEAQAAAAAAAA==
 {
 "tx": {
   "txid": "e62356b99c3097eaa1241ff8e39b996917e66b13e4c0ccba3698982d746c3b76",
@@ -263,9 +259,8 @@ $ bitcoin-cli  decodepsbt cHNidP8BAJoCAAAAAkiMdlxF3M20VpdnCMK0NOkEoETG6Aa4HpC8Vv
 Assuming we now want to sign the transaction that we created in the previous
 example, we simply pass it to the `finalize` sub command of the wallet:
 
-```shell script
-$ lncli wallet psbt finalize cHNidP8BAJoCAAAAAkiMdlxF3M20VpdnCMK0NOkEoETG6Aa4HpC8Vv9RtJc1AQAAAAAAAAAA4lBjZUtG260qBBgVRqMQqmMV+XRTKubrHbc66YOl7/gBAAAAAAAAAAACgPD6AgAAAAAWABSQ2zhVNBOsxRfzPoPwCg8qiNolGtIkCAcAAAAAFgAUuvRP5r7qAvj0egDxyX9/FH+vukgAAAAAAAEA3gIAAAAAAQEr9IZcho/gV/6fH8C8P+yhNRZP+l3YuxsyatdYcS0S6AEAAAAA/v///wLI/8+yAAAAABYAFDXoRFwgXNO5VVtVq2WpaENh6blAAOH1BQAAAAAWABTcAR0NeNdDHb96kMnH5EVUcr1YwwJHMEQCIDqugtYLp4ebJAZvOdieshLi1lLuPl2tHQG4jM4ybwEGAiBeMpCkbHBmzYvljxb1JBQyVAMuoco0xIfi+5OQdHuXaAEhAnH96NhTW09X0npE983YBsHUoMPI4U4xBtHenpZVTEqpVwAAAAEBHwDh9QUAAAAAFgAU3AEdDXjXQx2/epDJx+RFVHK9WMMBAwQBAAAAAAEA6wIAAAAAAQFvGpeAR/0OXNyqo0zrXSzmkvVfbnytrr4onbZ61vscBwEAAAAAAAAAAAIAJPQAAAAAACIAILtTVbSIkaFDqjsJ7EOHmTfpXq/fbnrGkD3/GYHYHJtMVl0NBAAAAAAWABQqnZOHOGzDIzZAeXK+YwHq1AHtXQJIMEUCIQDgx3xEhlioV1Q+yAPKiaXMwkv1snoejbckZOKFe0R6WAIgB41dEvK3zxI665YVWfcih0IThTkPoOiMgd6xGaKQXbwBIQMdgXMwQDF+Z+r3x5JKdm1TBvXDuYC0cbrnLyqJEU2ciQAAAAABAR9WXQ0EAAAAABYAFCqdk4c4bMMjNkB5cr5jAerUAe1dAQMEAQAAAAAAAA==
-
+```shell
+⛰  lncli wallet psbt finalize cHNidP8BAJoCAAAAAkiMdlxF3M20VpdnCMK0NOkEoETG6Aa4HpC8Vv9RtJc1AQAAAAAAAAAA4lBjZUtG260qBBgVRqMQqmMV+XRTKubrHbc66YOl7/gBAAAAAAAAAAACgPD6AgAAAAAWABSQ2zhVNBOsxRfzPoPwCg8qiNolGtIkCAcAAAAAFgAUuvRP5r7qAvj0egDxyX9/FH+vukgAAAAAAAEA3gIAAAAAAQEr9IZcho/gV/6fH8C8P+yhNRZP+l3YuxsyatdYcS0S6AEAAAAA/v///wLI/8+yAAAAABYAFDXoRFwgXNO5VVtVq2WpaENh6blAAOH1BQAAAAAWABTcAR0NeNdDHb96kMnH5EVUcr1YwwJHMEQCIDqugtYLp4ebJAZvOdieshLi1lLuPl2tHQG4jM4ybwEGAiBeMpCkbHBmzYvljxb1JBQyVAMuoco0xIfi+5OQdHuXaAEhAnH96NhTW09X0npE983YBsHUoMPI4U4xBtHenpZVTEqpVwAAAAEBHwDh9QUAAAAAFgAU3AEdDXjXQx2/epDJx+RFVHK9WMMBAwQBAAAAAAEA6wIAAAAAAQFvGpeAR/0OXNyqo0zrXSzmkvVfbnytrr4onbZ61vscBwEAAAAAAAAAAAIAJPQAAAAAACIAILtTVbSIkaFDqjsJ7EOHmTfpXq/fbnrGkD3/GYHYHJtMVl0NBAAAAAAWABQqnZOHOGzDIzZAeXK+YwHq1AHtXQJIMEUCIQDgx3xEhlioV1Q+yAPKiaXMwkv1snoejbckZOKFe0R6WAIgB41dEvK3zxI665YVWfcih0IThTkPoOiMgd6xGaKQXbwBIQMdgXMwQDF+Z+r3x5JKdm1TBvXDuYC0cbrnLyqJEU2ciQAAAAABAR9WXQ0EAAAAABYAFCqdk4c4bMMjNkB5cr5jAerUAe1dAQMEAQAAAAAAAA==
 {
       "psbt": "cHNidP8BAJoCAAAAAkiMdlxF3M20VpdnCMK0NOkEoETG6Aa4HpC8Vv9RtJc1AQAAAAAAAAAA4lBjZUtG260qBBgVRqMQqmMV+XRTKubrHbc66YOl7/gBAAAAAAAAAAACgPD6AgAAAAAWABSQ2zhVNBOsxRfzPoPwCg8qiNolGtIkCAcAAAAAFgAUuvRP5r7qAvj0egDxyX9/FH+vukgAAAAAAAEA3gIAAAAAAQEr9IZcho/gV/6fH8C8P+yhNRZP+l3YuxsyatdYcS0S6AEAAAAA/v///wLI/8+yAAAAABYAFDXoRFwgXNO5VVtVq2WpaENh6blAAOH1BQAAAAAWABTcAR0NeNdDHb96kMnH5EVUcr1YwwJHMEQCIDqugtYLp4ebJAZvOdieshLi1lLuPl2tHQG4jM4ybwEGAiBeMpCkbHBmzYvljxb1JBQyVAMuoco0xIfi+5OQdHuXaAEhAnH96NhTW09X0npE983YBsHUoMPI4U4xBtHenpZVTEqpVwAAAAEBHwDh9QUAAAAAFgAU3AEdDXjXQx2/epDJx+RFVHK9WMMBCGwCSDBFAiEAuiv52IX5wZlYJqqVGsQPfeQ/kneCNRD34v5yplNpuMYCIECHVUhjHPKSiWSsYEKD4JWGAyUwQHgDytA1whFOyLclASECg7PDfGE/uURta5/R42Vso6QKmVAgYMhjWlXENkE/x+QAAQDrAgAAAAABAW8al4BH/Q5c3KqjTOtdLOaS9V9ufK2uviidtnrW+xwHAQAAAAAAAAAAAgAk9AAAAAAAIgAgu1NVtIiRoUOqOwnsQ4eZN+ler99uesaQPf8Zgdgcm0xWXQ0EAAAAABYAFCqdk4c4bMMjNkB5cr5jAerUAe1dAkgwRQIhAODHfESGWKhXVD7IA8qJpczCS/Wyeh6NtyRk4oV7RHpYAiAHjV0S8rfPEjrrlhVZ9yKHQhOFOQ+g6IyB3rEZopBdvAEhAx2BczBAMX5n6vfHkkp2bVMG9cO5gLRxuucvKokRTZyJAAAAAAEBH1ZdDQQAAAAAFgAUKp2ThzhswyM2QHlyvmMB6tQB7V0BCGwCSDBFAiEAqK7FSrqWe2non0kl96yu2+gSXGPYPC7ZjzVZEMMWtpYCIGTzCDHZhJYGPrsnBWU8o0Eyd4nBa+6d037xGFcGUYJLASECORgkj75Xu8+DTh8bqYBIvNx1hSxV7VSJOwY6jam6LY8AAAA=",
       "final_tx": "02000000000102488c765c45dccdb456976708c2b434e904a044c6e806b81e90bc56ff51b49735010000000000000000e25063654b46dbad2a04181546a310aa6315f974532ae6eb1db73ae983a5eff80100000000000000000280f0fa020000000016001490db38553413acc517f33e83f00a0f2a88da251ad224080700000000160014baf44fe6beea02f8f47a00f1c97f7f147fafba4802483045022100ba2bf9d885f9c1995826aa951ac40f7de43f9277823510f7e2fe72a65369b8c6022040875548631cf2928964ac604283e09586032530407803cad035c2114ec8b72501210283b3c37c613fb9446d6b9fd1e3656ca3a40a99502060c8635a55c436413fc7e402483045022100a8aec54aba967b69e89f4925f7acaedbe8125c63d83c2ed98f355910c316b696022064f30831d98496063ebb2705653ca341327789c16bee9dd37ef118570651824b0121023918248fbe57bbcf834e1f1ba98048bcdc75852c55ed54893b063a8da9ba2d8f00000000"
@@ -318,9 +313,8 @@ The new `--psbt` flag in the `openchannel` command starts an interactive dialog
 between `lncli` and the user. Below the command you see an example output from
 a regtest setup. Of course all values will be different.
 
-```shell script
-$ lncli openchannel --node_key 03db1e56e5f76bc4018cf6f03d1bb98a7ae96e3f18535e929034f85e7f1ca2b8ac --local_amt 1234567 --psbt
-
+```shell
+⛰  lncli openchannel --node_key 03db1e56e5f76bc4018cf6f03d1bb98a7ae96e3f18535e929034f85e7f1ca2b8ac --local_amt 1234567 --psbt
 Starting PSBT funding flow with pending channel ID fc7853889a04d33b8115bd79ebc99c5eea80d894a0bead40fae5a06bcbdccd3d.
 PSBT funding initiated with peer 03db1e56e5f76bc4018cf6f03d1bb98a7ae96e3f18535e929034f85e7f1ca2b8ac.
 Please create a PSBT that sends 0.01234567 BTC (1234567 satoshi) to the funding address bcrt1qh33ghvgjj3ef625nl9jxz6nnrz2z9e65vsdey7w5msrklgr6rc0sv0s08q.
@@ -347,9 +341,8 @@ The output of the last command already gave us an example command to use with
 something like "bitcoind, give me a PSBT that sends the given amount to the
 given address, choose any input you see fit":
 
-```shell script
-$ bitcoin-cli walletcreatefundedpsbt [] '[{"bcrt1qh33ghvgjj3ef625nl9jxz6nnrz2z9e65vsdey7w5msrklgr6rc0sv0s08q":0.01234567}]'
-
+```shell
+⛰  bitcoin-cli walletcreatefundedpsbt [] '[{"bcrt1qh33ghvgjj3ef625nl9jxz6nnrz2z9e65vsdey7w5msrklgr6rc0sv0s08q":0.01234567}]'
 {
   "psbt": "cHNidP8BAH0CAAAAAbxLLf9+AYfqfF69QAQuETnL6cas7GDiWBZF+3xxc/Y/AAAAAAD+////AofWEgAAAAAAIgAgvGKLsRKUcp0qk/lkYWpzGJQi51RkG5J51NwHb6B6Hh+1If0jAQAAABYAFL+6THEGhybJnOkFGSRFbtCcPOG8AAAAAAABAR8wBBAkAQAAABYAFHemJ11XF7CU7WXBIJLD/qZF+6jrAAAA",
   "fee": 0.00003060,
@@ -365,9 +358,8 @@ in fees. Fee estimation/calculation can be changed with parameters of the
 If we want to know what exactly is in this PSBT, we can look at it with the
 `decodepsbt` command:
 
-```shell script
-$ bitcoin-cli decodepsbt cHNidP8BAH0CAAAAAbxLLf9+AYfqfF69QAQuETnL6cas7GDiWBZF+3xxc/Y/AAAAAAD+////AofWEgAAAAAAIgAgvGKLsRKUcp0qk/lkYWpzGJQi51RkG5J51NwHb6B6Hh+1If0jAQAAABYAFL+6THEGhybJnOkFGSRFbtCcPOG8AAAAAAABAR8wBBAkAQAAABYAFHemJ11XF7CU7WXBIJLD/qZF+6jrAAAA
-
+```shell
+⛰  bitcoin-cli decodepsbt cHNidP8BAH0CAAAAAbxLLf9+AYfqfF69QAQuETnL6cas7GDiWBZF+3xxc/Y/AAAAAAD+////AofWEgAAAAAAIgAgvGKLsRKUcp0qk/lkYWpzGJQi51RkG5J51NwHb6B6Hh+1If0jAQAAABYAFL+6THEGhybJnOkFGSRFbtCcPOG8AAAAAAABAR8wBBAkAQAAABYAFHemJ11XF7CU7WXBIJLD/qZF+6jrAAAA
 {
   "tx": {
     "txid": "374504e4246a93a45b4a2c2bc31d8adc8525aa101c7b9065db6dc01c4bdfce0a",
@@ -454,9 +446,8 @@ a secondary, hardened and firewalled `lnd` instance has the corresponding
 private keys. On the watching only mode, the following command can be used to
 create the funding PSBT:
 
-```shell script
-$ lncli wallet psbt fund --outputs='{"bcrt1qh33ghvgjj3ef625nl9jxz6nnrz2z9e65vsdey7w5msrklgr6rc0sv0s08q":1234567}'
-
+```shell
+⛰  lncli wallet psbt fund --outputs='{"bcrt1qh33ghvgjj3ef625nl9jxz6nnrz2z9e65vsdey7w5msrklgr6rc0sv0s08q":1234567}'
 {
         "psbt": "cHNidP8BAH0CAAAAAUiMdlxF3M20VpdnCMK0NOkEoETG6Aa4HpC8Vv9RtJc1AQAAAAD/////AofWEgAAAAAAIgAgvGKLsRKUcp0qk/lkYWpzGJQi51RkG5J51NwHb6B6Hh+X7OIFAAAAABYAFNigOB6EbCLRi+Evlv4r2yJx63NxAAAAAAABAN4CAAAAAAEBK/SGXIaP4Ff+nx/AvD/soTUWT/pd2LsbMmrXWHEtEugBAAAAAP7///8CyP/PsgAAAAAWABQ16ERcIFzTuVVbVatlqWhDYem5QADh9QUAAAAAFgAU3AEdDXjXQx2/epDJx+RFVHK9WMMCRzBEAiA6roLWC6eHmyQGbznYnrIS4tZS7j5drR0BuIzOMm8BBgIgXjKQpGxwZs2L5Y8W9SQUMlQDLqHKNMSH4vuTkHR7l2gBIQJx/ejYU1tPV9J6RPfN2AbB1KDDyOFOMQbR3p6WVUxKqVcAAAABAR8A4fUFAAAAABYAFNwBHQ1410Mdv3qQycfkRVRyvVjDAQMEAQAAAAAAAA==",
         "change_output_index": 1,
@@ -476,7 +467,7 @@ Now that we have a valid PSBT that has everything but the final
 signatures/witness data, we can paste it into the prompt in `lncli` that is
 still waiting for our input.
 
-```shell script
+```shell
 ...
 Base64 encoded PSBT: cHNidP8BAH0CAAAAAbxLLf9+AYfqfF69QAQuETnL6cas7GDiWBZF+3xxc/Y/AAAAAAD+////AofWEgAAAAAAIgAgvGKLsRKUcp0qk/lkYWpzGJQi51RkG5J51NwHb6B6Hh+1If0jAQAAABYAFL+6THEGhybJnOkFGSRFbtCcPOG8AAAAAAABAR8wBBAkAQAAABYAFHemJ11XF7CU7WXBIJLD/qZF+6jrAAAA
 
@@ -493,9 +484,8 @@ perhaps `bitcoind` would only know the public keys and couldn't sign for the
 transaction itself. Again, this is only an example and can't reflect all
 real-world use cases.
 
-```shell script
-$ bitcoin-cli walletprocesspsbt cHNidP8BAH0CAAAAAbxLLf9+AYfqfF69QAQuETnL6cas7GDiWBZF+3xxc/Y/AAAAAAD+////AofWEgAAAAAAIgAgvGKLsRKUcp0qk/lkYWpzGJQi51RkG5J51NwHb6B6Hh+1If0jAQAAABYAFL+6THEGhybJnOkFGSRFbtCcPOG8AAAAAAABAR8wBBAkAQAAABYAFHemJ11XF7CU7WXBIJLD/qZF+6jrAAAA
-
+```shell
+⛰  bitcoin-cli walletprocesspsbt cHNidP8BAH0CAAAAAbxLLf9+AYfqfF69QAQuETnL6cas7GDiWBZF+3xxc/Y/AAAAAAD+////AofWEgAAAAAAIgAgvGKLsRKUcp0qk/lkYWpzGJQi51RkG5J51NwHb6B6Hh+1If0jAQAAABYAFL+6THEGhybJnOkFGSRFbtCcPOG8AAAAAAABAR8wBBAkAQAAABYAFHemJ11XF7CU7WXBIJLD/qZF+6jrAAAA
 {
 "psbt": "cHNidP8BAH0CAAAAAbxLLf9+AYfqfF69QAQuETnL6cas7GDiWBZF+3xxc/Y/AAAAAAD+////AofWEgAAAAAAIgAgvGKLsRKUcp0qk/lkYWpzGJQi51RkG5J51NwHb6B6Hh+1If0jAQAAABYAFL+6THEGhybJnOkFGSRFbtCcPOG8AAAAAAABAR8wBBAkAQAAABYAFHemJ11XF7CU7WXBIJLD/qZF+6jrAQhrAkcwRAIgHKQbenZYvgADRd9TKGVO36NnaIgW3S12OUg8XGtSrE8CICmeaYoJ/U7Ecm+/GneY8i2hu2QCaQnuomJgzn+JAnrDASEDUBmCLcsybA5qXSRBBdZ0Uk/FQiay9NgOpv4D26yeJpAAAAA=",
 "complete": true
@@ -506,9 +496,8 @@ If you are using the two `lnd` node model as described in
 [2b](#2b-use-lnd-to-create-a-funding-transaction), you can achieve the same
 result with the following command:
 
-```shell script
-$ lncli wallet psbt finalize cHNidP8BAH0CAAAAAUiMdlxF3M20VpdnCMK0NOkEoETG6Aa4HpC8Vv9RtJc1AQAAAAD/////AofWEgAAAAAAIgAgvGKLsRKUcp0qk/lkYWpzGJQi51RkG5J51NwHb6B6Hh+X7OIFAAAAABYAFNigOB6EbCLRi+Evlv4r2yJx63NxAAAAAAABAN4CAAAAAAEBK/SGXIaP4Ff+nx/AvD/soTUWT/pd2LsbMmrXWHEtEugBAAAAAP7///8CyP/PsgAAAAAWABQ16ERcIFzTuVVbVatlqWhDYem5QADh9QUAAAAAFgAU3AEdDXjXQx2/epDJx+RFVHK9WMMCRzBEAiA6roLWC6eHmyQGbznYnrIS4tZS7j5drR0BuIzOMm8BBgIgXjKQpGxwZs2L5Y8W9SQUMlQDLqHKNMSH4vuTkHR7l2gBIQJx/ejYU1tPV9J6RPfN2AbB1KDDyOFOMQbR3p6WVUxKqVcAAAABAR8A4fUFAAAAABYAFNwBHQ1410Mdv3qQycfkRVRyvVjDAQMEAQAAAAAAAA==
-
+```shell
+⛰  lncli wallet psbt finalize cHNidP8BAH0CAAAAAUiMdlxF3M20VpdnCMK0NOkEoETG6Aa4HpC8Vv9RtJc1AQAAAAD/////AofWEgAAAAAAIgAgvGKLsRKUcp0qk/lkYWpzGJQi51RkG5J51NwHb6B6Hh+X7OIFAAAAABYAFNigOB6EbCLRi+Evlv4r2yJx63NxAAAAAAABAN4CAAAAAAEBK/SGXIaP4Ff+nx/AvD/soTUWT/pd2LsbMmrXWHEtEugBAAAAAP7///8CyP/PsgAAAAAWABQ16ERcIFzTuVVbVatlqWhDYem5QADh9QUAAAAAFgAU3AEdDXjXQx2/epDJx+RFVHK9WMMCRzBEAiA6roLWC6eHmyQGbznYnrIS4tZS7j5drR0BuIzOMm8BBgIgXjKQpGxwZs2L5Y8W9SQUMlQDLqHKNMSH4vuTkHR7l2gBIQJx/ejYU1tPV9J6RPfN2AbB1KDDyOFOMQbR3p6WVUxKqVcAAAABAR8A4fUFAAAAABYAFNwBHQ1410Mdv3qQycfkRVRyvVjDAQMEAQAAAAAAAA==
 {
         "psbt": "cHNidP8BAH0CAAAAAUiMdlxF3M20VpdnCMK0NOkEoETG6Aa4HpC8Vv9RtJc1AQAAAAD/////AofWEgAAAAAAIgAgvGKLsRKUcp0qk/lkYWpzGJQi51RkG5J51NwHb6B6Hh+X7OIFAAAAABYAFNigOB6EbCLRi+Evlv4r2yJx63NxAAAAAAABAN4CAAAAAAEBK/SGXIaP4Ff+nx/AvD/soTUWT/pd2LsbMmrXWHEtEugBAAAAAP7///8CyP/PsgAAAAAWABQ16ERcIFzTuVVbVatlqWhDYem5QADh9QUAAAAAFgAU3AEdDXjXQx2/epDJx+RFVHK9WMMCRzBEAiA6roLWC6eHmyQGbznYnrIS4tZS7j5drR0BuIzOMm8BBgIgXjKQpGxwZs2L5Y8W9SQUMlQDLqHKNMSH4vuTkHR7l2gBIQJx/ejYU1tPV9J6RPfN2AbB1KDDyOFOMQbR3p6WVUxKqVcAAAABAR8A4fUFAAAAABYAFNwBHQ1410Mdv3qQycfkRVRyvVjDAQhrAkcwRAIgU3Ow7cLkKrg8BJe0U0n9qFLPizqEzY0JtjVlpWOEk14CID/4AFNfgwNENN2LoOs0C6uHgt4sk8rNoZG+VMGzOC/HASECg7PDfGE/uURta5/R42Vso6QKmVAgYMhjWlXENkE/x+QAAAA=",
         "final_tx": "02000000000101488c765c45dccdb456976708c2b434e904a044c6e806b81e90bc56ff51b497350100000000ffffffff0287d6120000000000220020bc628bb11294729d2a93f964616a73189422e754641b9279d4dc076fa07a1e1f97ece20500000000160014d8a0381e846c22d18be12f96fe2bdb2271eb73710247304402205373b0edc2e42ab83c0497b45349fda852cf8b3a84cd8d09b63565a56384935e02203ff800535f83034434dd8ba0eb340bab8782de2c93cacda191be54c1b3382fc701210283b3c37c613fb9446d6b9fd1e3656ca3a40a99502060c8635a55c436413fc7e400000000"
@@ -526,7 +515,7 @@ LOST**!
 
 Let's give it to `lncli` to continue:
 
-```shell script
+```shell
 ...
 Base64 encoded PSBT: cHNidP8BAH0CAAAAAbxLLf9+AYfqfF69QAQuETnL6cas7GDiWBZF+3xxc/Y/AAAAAAD+////AofWEgAAAAAAIgAgvGKLsRKUcp0qk/lkYWpzGJQi51RkG5J51NwHb6B6Hh+1If0jAQAAABYAFL+6THEGhybJnOkFGSRFbtCcPOG8AAAAAAABAR8wBBAkAQAAABYAFHemJ11XF7CU7WXBIJLD/qZF+6jrAQhrAkcwRAIgHKQbenZYvgADRd9TKGVO36NnaIgW3S12OUg8XGtSrE8CICmeaYoJ/U7Ecm+/GneY8i2hu2QCaQnuomJgzn+JAnrDASEDUBmCLcsybA5qXSRBBdZ0Uk/FQiay9NgOpv4D26yeJpAAAAA=
 {
@@ -550,18 +539,18 @@ However, the `bitcoin-cli` examples from the command line can be combined into
 a single command. For example:
 
 Channel 1:
-```shell script
-$ bitcoin-cli walletcreatefundedpsbt [] '[{"tb1qywvazres587w9wyy8uw03q8j9ek6gc9crwx4jvhqcmew4xzsvqcq3jjdja":0.01000000}]'
+```shell
+⛰  bitcoin-cli walletcreatefundedpsbt [] '[{"tb1qywvazres587w9wyy8uw03q8j9ek6gc9crwx4jvhqcmew4xzsvqcq3jjdja":0.01000000}]'
 ```
 
 Channel 2:
-```shell script
-$ bitcoin-cli walletcreatefundedpsbt [] '[{"tb1q53626fcwwtcdc942zaf4laqnr3vg5gv4g0hakd2h7fw2pmz6428sk3ezcx":0.01000000}]'
+```shell
+⛰  bitcoin-cli walletcreatefundedpsbt [] '[{"tb1q53626fcwwtcdc942zaf4laqnr3vg5gv4g0hakd2h7fw2pmz6428sk3ezcx":0.01000000}]'
 ```
 
 Combined command to get batch PSBT:
-```shell script
-$ bitcoin-cli walletcreatefundedpsbt [] '[{"tb1q53626fcwwtcdc942zaf4laqnr3vg5gv4g0hakd2h7fw2pmz6428sk3ezcx":0.01000000},{"tb1qywvazres587w9wyy8uw03q8j9ek6gc9crwx4jvhqcmew4xzsvqcq3jjdja":0.01000000}]'
+```shell
+⛰  bitcoin-cli walletcreatefundedpsbt [] '[{"tb1q53626fcwwtcdc942zaf4laqnr3vg5gv4g0hakd2h7fw2pmz6428sk3ezcx":0.01000000},{"tb1qywvazres587w9wyy8uw03q8j9ek6gc9crwx4jvhqcmew4xzsvqcq3jjdja":0.01000000}]'
 ```
 
 ### Safety warning about batch transactions

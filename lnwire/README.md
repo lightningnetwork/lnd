@@ -13,6 +13,6 @@ protocol level.
 
 ## Installation and Updating
 
-```bash
-$ go get -u github.com/lightningnetwork/lnd/lnwire
+```shell
+⛰  go get -u github.com/lightningnetwork/lnd/lnwire
 ```

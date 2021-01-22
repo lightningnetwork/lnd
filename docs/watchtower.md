@@ -44,8 +44,8 @@ The minimal configuration needed to activate the tower is `watchtower.active=1`.
 Retrieving information about your tower’s configurations can be done using
 `lncli tower info`:
 
-```
-🏔 lncli tower info
+```shell
+⛰  lncli tower info
 {
         "pubkey": "03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63",
         "listeners": [
@@ -58,7 +58,9 @@ Retrieving information about your tower’s configurations can be done using
 The entire set of watchtower configuration options can be found using 
 `lnd -h`:
 
-```
+```shell
+⛰  lncli -h
+...
 watchtower:
       --watchtower.active                                     If the watchtower should be active or not
       --watchtower.towerdir=                                  Directory of the watchtower.db (default: $HOME/.lnd/data/watchtower)
@@ -66,6 +68,7 @@ watchtower:
       --watchtower.externalip=                                Add interfaces/ports where the watchtower can accept peer connections
       --watchtower.readtimeout=                               Duration the watchtower server will wait for messages to be received before hanging up on client connections
       --watchtower.writetimeout=                              Duration the watchtower server will wait for messages to be written before hanging up on client connections
+...
 ```
 
 ### Listening Interfaces
@@ -83,7 +86,8 @@ Additionally, users can specify their tower’s external IP address(es) using
 `watchtower.externalip=`, which will expose the full tower URIs
 (pubkey@host:port) over RPC or `lncli tower info`: 
 
-```
+```shell
+⛰  lncli tower info
         ...
         "uris": [
                 "03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63@1.2.3.4:9911"
@@ -93,8 +97,8 @@ Additionally, users can specify their tower’s external IP address(es) using
 The watchtower's URIs can be given to clients in order to connect and use the
 tower with the following command:
 
-```
-🏔 lncli wtclient add 03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63@1.2.3.4:9911
+```shell
+⛰  lncli wtclient add 03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63@1.2.3.4:9911
 ```
 
 If the watchtower's clients will need remote access, be sure to either:
@@ -107,13 +111,14 @@ If the watchtower's clients will need remote access, be sure to either:
 Watchtowers have tor hidden service support and can automatically generate a
 hidden service on startup with the following flags:
 
-```
-🏔 lnd --tor.active --tor.v3 --watchtower.active
+```shell
+⛰  lnd --tor.active --tor.v3 --watchtower.active
 ```
 
 The onion address is then shown in the "uris" field when queried with `lncli tower info`:
 
-```
+```shell
+⛰  lncli tower info
 ...
 "uris": [
         "03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63@bn2kxggzjysvsd5o3uqe4h7655u7v2ydhxzy7ea2fx26duaixlwuguad.onion:9911"
@@ -135,10 +140,7 @@ chains, so setting `watchtower.towerdir=/path/to/towerdir` will yield a
 watchtower database at `/path/to/towerdir/bitcoin/mainnet/watchtower.db`.
 
 On Linux, for example, the default watchtower database will be located at:
-
-```
-/$USER/.lnd/data/watchtower/bitcoin/mainnet/watchtower.db
-```
+`/home/$USER/.lnd/data/watchtower/bitcoin/mainnet/watchtower.db`
 
 ## Configuring a Watchtower Client
 
@@ -146,14 +148,14 @@ In order to set up a watchtower client, you’ll need two things:
 
 1. The watchtower client must be enabled with the `--wtclient.active` flag.
 
-```
-🏔 lnd --wtclient.active
+```shell
+⛰  lnd --wtclient.active
 ```
 
 2. The watchtower URI of an active watchtower.
 
-```
-🏔 lncli wtclient add 03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63@1.2.3.4:9911
+```shell
+⛰  lncli wtclient add 03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63@1.2.3.4:9911
 ```
 
 Multiple watchtowers can be configured through this method.
@@ -177,8 +179,8 @@ number of sessions currently negotiated with the watchtower added above and
 determine whether it is currently being used for backups through the
 `active_session_candidate` value.
 
-```
-🏔 lncli wtclient tower 03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63
+```shell
+⛰  lncli wtclient tower 03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63
 {
 	"pubkey": "03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63",
 	"addresses": [
@@ -193,8 +195,8 @@ determine whether it is currently being used for backups through the
 To obtain information about the watchtower's sessions, users can use the
 `--include_sessions` flag.
 
-```
-🏔 lncli wtclient tower --include_sessions 03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63
+```shell
+⛰  lncli wtclient tower --include_sessions 03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63
 {
         "pubkey": "03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63",
         "addresses": [
@@ -216,7 +218,8 @@ To obtain information about the watchtower's sessions, users can use the
 The entire set of watchtower client configuration options can be found with
 `lncli wtclient -h`:
 
-```
+```shell
+⛰  lncli wtclient -h
 NAME:
    lncli wtclient - Interact with the watchtower client.
 

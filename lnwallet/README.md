@@ -21,6 +21,6 @@ with the interface.
 
 ## Installation and Updating
 
-```bash
-$ go get -u github.com/lightningnetwork/lnd/lnwallet
+```shell
+⛰  go get -u github.com/lightningnetwork/lnd/lnwallet
 ```

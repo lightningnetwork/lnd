@@ -3,10 +3,10 @@ Makefile
 
 To build, verify, and install `lnd` from source, use the following
 commands:
-```
-make
-make check
-make install
+```shell
+⛰  make
+⛰  make check
+⛰  make install
 ```
 
 The command `make check` requires `bitcoind` (almost any version should do) to
@@ -144,7 +144,7 @@ until an error occurs. Useful for hunting flakes.
 
 Example:
 ```shell
-$ make flakehunter-parallel icase='(data_loss_protection|channel_backup)' backend=neutrino
+⛰  make flakehunter-parallel icase='(data_loss_protection|channel_backup)' backend=neutrino
 ```
 
 `lint`

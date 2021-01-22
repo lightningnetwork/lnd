@@ -2,7 +2,7 @@
 
 - [ ] If this is your first time contributing, we recommend you read the [Code
   Contribution Guidelines](https://github.com/lightningnetwork/lnd/blob/master/docs/code_contribution_guidelines.md)
-- [ ] All changes are Go version 1.12 compliant
+- [ ] All changes are Go version 1.14 compliant
 - [ ] The code being submitted is commented according to [Code Documentation and Commenting](https://github.com/lightningnetwork/lnd/blob/master/docs/code_contribution_guidelines.md#CodeDocumentation)
 - [ ] For new code: Code is accompanied by tests which exercise both
   the positive and negative (error paths) conditions (if applicable)

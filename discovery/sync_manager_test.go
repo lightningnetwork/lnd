@@ -3,6 +3,7 @@ package discovery
 import (
 	"fmt"
 	"reflect"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -226,6 +227,31 @@ func TestSyncManagerRotateActiveSyncerCandidate(t *testing.T) {
 	assertPassiveSyncerTransition(t, passiveSyncer, passiveSyncPeer)
 }
 
+// TestSyncManagerNoInitialHistoricalSync ensures no initial sync is attempted
+// when NumActiveSyncers is set to 0.
+func TestSyncManagerNoInitialHistoricalSync(t *testing.T) {
+	t.Parallel()
+
+	syncMgr := newTestSyncManager(0)
+	syncMgr.Start()
+	defer syncMgr.Stop()
+
+	// We should not expect any messages from the peer.
+	peer := randPeer(t, syncMgr.quit)
+	err := syncMgr.InitSyncState(peer)
+	require.NoError(t, err)
+	assertNoMsgSent(t, peer)
+
+	// Force the historical syncer to tick. This shouldn't happen normally
+	// since the ticker is never started. However, we will test that even if
+	// this were to occur that a historical sync does not progress.
+	syncMgr.cfg.HistoricalSyncTicker.(*ticker.Force).Force <- time.Time{}
+
+	assertNoMsgSent(t, peer)
+	s := assertSyncerExistence(t, syncMgr, peer)
+	assertSyncerStatus(t, s, chansSynced, PassiveSync)
+}
+
 // TestSyncManagerInitialHistoricalSync ensures that we only attempt a single
 // historical sync during the SyncManager's startup. If the peer corresponding
 // to the initial historical syncer disconnects, we should attempt to find a
@@ -233,7 +259,7 @@ func TestSyncManagerRotateActiveSyncerCandidate(t *testing.T) {
 func TestSyncManagerInitialHistoricalSync(t *testing.T) {
 	t.Parallel()
 
-	syncMgr := newTestSyncManager(0)
+	syncMgr := newTestSyncManager(1)
 
 	// The graph should not be considered as synced since the sync manager
 	// has yet to start.
@@ -278,13 +304,27 @@ func TestSyncManagerInitialHistoricalSync(t *testing.T) {
 	if !syncMgr.IsGraphSynced() {
 		t.Fatal("expected graph to be considered as synced")
 	}
+	// The historical syncer should be active after the sync completes.
+	assertActiveGossipTimestampRange(t, finalHistoricalPeer)
 
 	// Once the initial historical sync has succeeded, another one should
 	// not be attempted by disconnecting the peer who performed it.
 	extraPeer := randPeer(t, syncMgr.quit)
 	syncMgr.InitSyncState(extraPeer)
-	assertNoMsgSent(t, extraPeer)
+
+	// Pruning the first peer will cause the passive peer to send an active
+	// gossip timestamp msg, which we must consume asynchronously for the
+	// call to return.
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		assertActiveGossipTimestampRange(t, extraPeer)
+	}()
 	syncMgr.PruneSyncState(finalHistoricalPeer.PubKey())
+	wg.Wait()
+
+	// No further messages should be sent.
 	assertNoMsgSent(t, extraPeer)
 }
 
@@ -328,7 +368,7 @@ func TestSyncManagerHistoricalSyncOnReconnect(t *testing.T) {
 func TestSyncManagerForceHistoricalSync(t *testing.T) {
 	t.Parallel()
 
-	syncMgr := newTestSyncManager(0)
+	syncMgr := newTestSyncManager(1)
 	syncMgr.Start()
 	defer syncMgr.Stop()
 
@@ -364,7 +404,7 @@ func TestSyncManagerForceHistoricalSync(t *testing.T) {
 func TestSyncManagerGraphSyncedAfterHistoricalSyncReplacement(t *testing.T) {
 	t.Parallel()
 
-	syncMgr := newTestSyncManager(0)
+	syncMgr := newTestSyncManager(1)
 	syncMgr.Start()
 	defer syncMgr.Stop()
 

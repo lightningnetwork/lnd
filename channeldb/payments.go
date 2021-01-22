@@ -694,7 +694,7 @@ func (db *DB) DeletePayments(failedOnly bool) error {
 			deleteIndexes [][]byte
 		)
 		err := payments.ForEach(func(k, _ []byte) error {
-			bucket := payments.NestedReadWriteBucket(k)
+			bucket := payments.NestedReadBucket(k)
 			if bucket == nil {
 				// We only expect sub-buckets to be found in
 				// this top-level bucket.

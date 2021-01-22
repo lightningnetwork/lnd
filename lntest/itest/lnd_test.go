@@ -10398,7 +10398,7 @@ func testGraphTopologyNtfns(net *lntest.NetworkHarness, t *harnessTest, pinned b
 	var aliceArgs []string
 	if pinned {
 		aliceArgs = []string{
-			"--numgraphsyncpeers=1",
+			"--numgraphsyncpeers=0",
 			fmt.Sprintf("--gossip.pinned-syncers=%s", bobPubkey),
 		}
 	}

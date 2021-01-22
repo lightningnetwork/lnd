@@ -466,7 +466,7 @@ func TestPaymentControlDeleteNonInFligt(t *testing.T) {
 		if p.hasDuplicate {
 			appendDuplicatePayment(
 				t, pControl.db, info.PaymentHash,
-				uint64(duplicateSeqNr),
+				uint64(duplicateSeqNr), preimg,
 			)
 			duplicateSeqNr++
 		}

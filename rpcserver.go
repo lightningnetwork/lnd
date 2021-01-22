@@ -5713,11 +5713,12 @@ func (r *rpcServer) DeleteAllPayments(ctx context.Context,
 	req *lnrpc.DeleteAllPaymentsRequest) (
 	*lnrpc.DeleteAllPaymentsResponse, error) {
 
-	rpcsLog.Debugf("[DeleteAllPayments] failed_payments_only=%v",
-		req.FailedPaymentsOnly)
+	rpcsLog.Infof("[DeleteAllPayments] failed_payments_only=%v, "+
+		"failed_htlcs_only=%v", req.FailedPaymentsOnly,
+		req.FailedHtlcsOnly)
 
 	err := r.server.remoteChanDB.DeletePayments(
-		req.FailedPaymentsOnly,
+		req.FailedPaymentsOnly, req.FailedHtlcsOnly,
 	)
 	if err != nil {
 		return nil, err

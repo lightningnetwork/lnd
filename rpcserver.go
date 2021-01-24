@@ -6139,15 +6139,16 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 		feeMsat := event.AmtIn - event.AmtOut
 
 		resp.ForwardingEvents[i] = &lnrpc.ForwardingEvent{
-			Timestamp:  uint64(event.Timestamp.Unix()),
-			ChanIdIn:   event.IncomingChanID.ToUint64(),
-			ChanIdOut:  event.OutgoingChanID.ToUint64(),
-			AmtIn:      uint64(amtInMsat.ToSatoshis()),
-			AmtOut:     uint64(amtOutMsat.ToSatoshis()),
-			Fee:        uint64(feeMsat.ToSatoshis()),
-			FeeMsat:    uint64(feeMsat),
-			AmtInMsat:  uint64(amtInMsat),
-			AmtOutMsat: uint64(amtOutMsat),
+			Timestamp:   uint64(event.Timestamp.Unix()),
+			TimestampNs: uint64(event.Timestamp.UnixNano()),
+			ChanIdIn:    event.IncomingChanID.ToUint64(),
+			ChanIdOut:   event.OutgoingChanID.ToUint64(),
+			AmtIn:       uint64(amtInMsat.ToSatoshis()),
+			AmtOut:      uint64(amtOutMsat.ToSatoshis()),
+			Fee:         uint64(feeMsat.ToSatoshis()),
+			FeeMsat:     uint64(feeMsat),
+			AmtInMsat:   uint64(amtInMsat),
+			AmtOutMsat:  uint64(amtOutMsat),
 		}
 	}
 

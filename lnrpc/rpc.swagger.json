@@ -3557,7 +3557,7 @@
         "timestamp": {
           "type": "string",
           "format": "uint64",
-          "description": "Timestamp is the time (unix epoch offset) that this circuit was\ncompleted."
+          "description": "Timestamp is the time (unix epoch offset) that this circuit was\ncompleted. Deprecated by timestamp_ns."
         },
         "chan_id_in": {
           "type": "string",
@@ -3598,6 +3598,11 @@
           "type": "string",
           "format": "uint64",
           "description": "The total amount (in milli-satoshis) of the outgoing HTLC that created\nthe second half of the circuit."
+        },
+        "timestamp_ns": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The number of nanoseconds elapsed since January 1, 1970 UTC when this\ncircuit was completed."
         }
       }
     },

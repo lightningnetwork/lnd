@@ -3427,8 +3427,8 @@ message ForwardingHistoryRequest {
 }
 message ForwardingEvent {
     // Timestamp is the time (unix epoch offset) that this circuit was
-    // completed.
-    uint64 timestamp = 1;
+    // completed. Deprecated by timestamp_ns.
+    uint64 timestamp = 1 [deprecated = true];
 
     // The incoming channel ID that carried the HTLC that created the circuit.
     uint64 chan_id_in = 2 [jstype = JS_STRING];
@@ -3458,6 +3458,10 @@ message ForwardingEvent {
     // The total amount (in milli-satoshis) of the outgoing HTLC that created
     // the second half of the circuit.
     uint64 amt_out_msat = 10;
+
+    // The number of nanoseconds elapsed since January 1, 1970 UTC when this
+    // circuit was completed.
+    uint64 timestamp_ns = 11;
 
     // TODO(roasbeef): add settlement latency?
     //  * use FPE on the chan id?

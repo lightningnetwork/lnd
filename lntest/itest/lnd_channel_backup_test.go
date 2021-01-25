@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -351,6 +352,37 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 				// Now that we have Dave's backup file, we'll
 				// create a new nodeRestorer that will restore
 				// using the on-disk channels.backup.
+				return chanRestoreViaRPC(
+					net, password, mnemonic, multi,
+				)
+			},
+		},
+
+		// Restore by also creating a channel with the legacy revocation
+		// producer format to make sure old SCBs can still be recovered.
+		{
+			name:             "old revocation producer format",
+			initiator:        true,
+			legacyRevocation: true,
+			restoreMethod: func(oldNode *lntest.HarnessNode,
+				backupFilePath string,
+				mnemonic []string) (nodeRestorer, error) {
+
+				// For this restoration method, we'll grab the
+				// current multi-channel backup from the old
+				// node, and use it to restore a new node
+				// within the closure.
+				req := &lnrpc.ChanBackupExportRequest{}
+				chanBackup, err := oldNode.ExportAllChannelBackups(
+					ctxb, req,
+				)
+				require.NoError(t.t, err)
+
+				multi := chanBackup.MultiChanBackup.MultiChanBackup
+
+				// In our nodeRestorer function, we'll restore
+				// the node from seed, then manually recover the
+				// channel backup.
 				return chanRestoreViaRPC(
 					net, password, mnemonic, multi,
 				)
@@ -765,6 +797,10 @@ type chanRestoreTestCase struct {
 	// used for the channels created in the test.
 	anchorCommit bool
 
+	// legacyRevocation signals if a channel with the legacy revocation
+	// producer format should also be created before restoring.
+	legacyRevocation bool
+
 	// restoreMethod takes an old node, then returns a function
 	// closure that'll return the same node, but with its state
 	// restored via a custom method. We use this to abstract away
@@ -866,6 +902,13 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 		if err != nil {
 			t.Fatalf("channel backup not updated in time: %v", err)
 		}
+
+	// Also create channels with the legacy revocation producer format if
+	// requested.
+	case testCase.legacyRevocation:
+		createLegacyRevocationChannel(
+			net, t, chanAmt, pushAmt, from, to,
+		)
 
 	default:
 		ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
@@ -1066,6 +1109,117 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 		net, t, carol, carolStartingBalance, dave, daveStartingBalance,
 		testCase.anchorCommit,
 	)
+}
+
+// createLegacyRevocationChannel creates a single channel using the legacy
+// revocation producer format by using PSBT to signal a special pending channel
+// ID.
+func createLegacyRevocationChannel(net *lntest.NetworkHarness, t *harnessTest,
+	chanAmt, pushAmt btcutil.Amount, from, to *lntest.HarnessNode) {
+
+	ctxb := context.Background()
+
+	// We'll signal to the wallet that we also want to create a channel with
+	// the legacy revocation producer format that relies on deriving a
+	// private key from the key ring. This is only available during itests
+	// to make sure we don't hard depend on the DerivePrivKey method of the
+	// key ring. We can signal the wallet by setting a custom pending
+	// channel ID. To be able to do that, we need to set a funding shim
+	// which is easiest by using PSBT funding. The ID is the hex
+	// representation of the string "legacy-revocation".
+	itestLegacyFormatChanID := [32]byte{
+		0x6c, 0x65, 0x67, 0x61, 0x63, 0x79, 0x2d, 0x72, 0x65, 0x76,
+		0x6f, 0x63, 0x61, 0x74, 0x69, 0x6f, 0x6e,
+	}
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	openChannelReq := lntest.OpenChannelParams{
+		Amt:     chanAmt,
+		PushAmt: pushAmt,
+		FundingShim: &lnrpc.FundingShim{
+			Shim: &lnrpc.FundingShim_PsbtShim{
+				PsbtShim: &lnrpc.PsbtShim{
+					PendingChanId: itestLegacyFormatChanID[:],
+				},
+			},
+		},
+	}
+	chanUpdates, tempPsbt, err := openChannelPsbt(
+		ctxt, from, to, openChannelReq,
+	)
+	require.NoError(t.t, err)
+
+	// Fund the PSBT by using the source node's wallet.
+	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	fundReq := &walletrpc.FundPsbtRequest{
+		Template: &walletrpc.FundPsbtRequest_Psbt{
+			Psbt: tempPsbt,
+		},
+		Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
+			SatPerVbyte: 2,
+		},
+	}
+	fundResp, err := from.WalletKitClient.FundPsbt(ctxt, fundReq)
+	require.NoError(t.t, err)
+
+	// We have a PSBT that has no witness data yet, which is exactly what we
+	// need for the next step of verifying the PSBT with the funding intents.
+	_, err = from.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_PsbtVerify{
+			PsbtVerify: &lnrpc.FundingPsbtVerify{
+				PendingChanId: itestLegacyFormatChanID[:],
+				FundedPsbt:    fundResp.FundedPsbt,
+			},
+		},
+	})
+	require.NoError(t.t, err)
+
+	// Now we'll ask the source node's wallet to sign the PSBT so we can
+	// finish the funding flow.
+	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	finalizeReq := &walletrpc.FinalizePsbtRequest{
+		FundedPsbt: fundResp.FundedPsbt,
+	}
+	finalizeRes, err := from.WalletKitClient.FinalizePsbt(
+		ctxt, finalizeReq,
+	)
+	require.NoError(t.t, err)
+
+	// We've signed our PSBT now, let's pass it to the intent again.
+	_, err = from.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_PsbtFinalize{
+			PsbtFinalize: &lnrpc.FundingPsbtFinalize{
+				PendingChanId: itestLegacyFormatChanID[:],
+				SignedPsbt:    finalizeRes.SignedPsbt,
+			},
+		},
+	})
+	require.NoError(t.t, err)
+
+	// Consume the "channel pending" update. This waits until the funding
+	// transaction was fully compiled.
+	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	updateResp, err := receiveChanUpdate(ctxt, chanUpdates)
+	require.NoError(t.t, err)
+	upd, ok := updateResp.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
+	require.True(t.t, ok)
+	chanPoint := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: upd.ChanPending.Txid,
+		},
+		OutputIndex: upd.ChanPending.OutputIndex,
+	}
+
+	_ = mineBlocks(t, net, 6, 1)
+	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	err = from.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	require.NoError(t.t, err)
+	err = to.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	require.NoError(t.t, err)
 }
 
 // chanRestoreViaRPC is a helper test method that returns a nodeRestorer

@@ -3146,6 +3146,9 @@ message Payment {
 }
 
 message HTLCAttempt {
+    // The unique ID that is used for this attempt.
+    uint64 attempt_id = 7;
+
     enum HTLCStatus {
         IN_FLIGHT = 0;
         SUCCEEDED = 1;

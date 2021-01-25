@@ -527,18 +527,18 @@ const (
 	// markedOpen is the opening state of a channel if the funding
 	// transaction is confirmed on-chain, but fundingLocked is not yet
 	// successfully sent to the other peer.
-	markedOpen channelOpeningState = iota
+	markedOpen channelOpeningState = 0
 
 	// fundingLockedSent is the opening state of a channel if the
 	// fundingLocked message has successfully been sent to the other peer,
 	// but we still haven't announced the channel to the network.
-	fundingLockedSent
+	fundingLockedSent channelOpeningState = 1
 
-	// addedToRouterGraph is the opening state of a channel if the
-	// channel has been successfully added to the router graph
-	// immediately after the fundingLocked message has been sent, but
-	// we still haven't announced the channel to the network.
-	addedToRouterGraph
+	// chanUpdateSent is the opening state of a channel if the channel has
+	// been successfully added to the router graph and we have sent our
+	// ChannelUpdate to the channel peer, but we still haven't announced
+	// the channel to the network.
+	chanUpdateSent channelOpeningState = 2
 )
 
 var (
@@ -951,8 +951,6 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 		log.Debugf("Channel(%v) with ShortChanID %v: successfully "+
 			"sent FundingLocked", chanID, shortChanID)
 
-		return nil
-
 	// fundingLocked was sent to peer, but the channel was not added to the
 	// router graph and the channel announcement was not sent.
 	case fundingLockedSent:
@@ -967,7 +965,7 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 		// It will be moved to the last state (actually deleted from
 		// the database) after the channel is finally announced.
 		err = f.saveChannelOpeningState(
-			&channel.FundingOutpoint, addedToRouterGraph,
+			&channel.FundingOutpoint, chanUpdateSent,
 			shortChanID,
 		)
 		if err != nil {
@@ -1006,11 +1004,9 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 			}
 		}
 
-		return nil
-
-	// The channel was added to the Router's topology, but the channel
-	// announcement was not sent.
-	case addedToRouterGraph:
+	// The update was sent to the channe peer, but the channel has not yet
+	// been announced publicly to the network.
+	case chanUpdateSent:
 		err := f.annAfterSixConfs(channel, shortChanID)
 		if err != nil {
 			return fmt.Errorf("error sending channel "+
@@ -1031,10 +1027,11 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 		log.Debugf("Channel(%v) with ShortChanID %v: successfully "+
 			"announced", chanID, shortChanID)
 
-		return nil
+	default:
+		return fmt.Errorf("undefined channelState: %v", channelState)
 	}
 
-	return fmt.Errorf("undefined channelState: %v", channelState)
+	return nil
 }
 
 // advancePendingChannelState waits for a pending channel's funding tx to

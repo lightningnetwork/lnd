@@ -1361,8 +1361,10 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	type testCase struct {
-		carolCommitType commitType
-		daveCommitType  commitType
+		carolCommitType    commitType
+		daveCommitType     commitType
+		fundReceiver       bool
+		rejectHtlcReceiver bool
 	}
 
 	var tests []testCase
@@ -1371,10 +1373,27 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	// that both nodes can signal for this new channel type.
 	for _, carolCommitType := range allTypes {
 		for _, daveCommitType := range allTypes {
-			tests = append(tests, testCase{
-				carolCommitType: carolCommitType,
-				daveCommitType:  daveCommitType,
-			})
+			isAnchorFunding :=
+				carolCommitType == commitTypeAnchors &&
+					daveCommitType == commitTypeAnchors
+
+			if isAnchorFunding {
+				tests = append(tests, testCase{
+					carolCommitType: carolCommitType,
+					daveCommitType:  daveCommitType,
+					fundReceiver:    true,
+				})
+				tests = append(tests, testCase{
+					carolCommitType:    carolCommitType,
+					daveCommitType:     daveCommitType,
+					rejectHtlcReceiver: true,
+				})
+			} else {
+				tests = append(tests, testCase{
+					carolCommitType: carolCommitType,
+					daveCommitType:  daveCommitType,
+				})
+			}
 		}
 	}
 
@@ -1382,6 +1401,7 @@ test:
 	for _, test := range tests {
 		success := runBasicFundingFlow(
 			net, t, test.carolCommitType, test.daveCommitType,
+			test.fundReceiver, test.rejectHtlcReceiver,
 		)
 		if !success {
 			break test
@@ -1392,7 +1412,9 @@ test:
 func runBasicFundingFlow(
 	net *lntest.NetworkHarness,
 	t *harnessTest,
-	carolCommitType, daveCommitType commitType) bool {
+	carolCommitType, daveCommitType commitType,
+	fundReceiver bool,
+	rejectHtlcReceiver bool) bool {
 
 	t.t.Helper()
 
@@ -1412,8 +1434,18 @@ func runBasicFundingFlow(
 	require.NoError(t.t, err)
 
 	daveArgs := daveCommitType.Args()
+	if rejectHtlcReceiver {
+		daveArgs = append(daveArgs, "--rejecthtlc")
+	}
 	dave, err := net.NewNode("Dave", daveArgs)
 	require.NoError(t.t, err)
+
+	// Fund the receiver if the test requires us to do so.
+	if fundReceiver {
+		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+		err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, dave)
+		require.NoError(t.t, err)
+	}
 
 	// Before we start the test, we'll ensure both sides are connected to
 	// the funding flow can properly be executed.
@@ -1423,6 +1455,10 @@ func runBasicFundingFlow(
 
 	testName := fmt.Sprintf("carol_commit=%v,dave_commit=%v",
 		carolCommitType, daveCommitType)
+	if fundReceiver || rejectHtlcReceiver {
+		testName += fmt.Sprintf(",fund_rcvr=%v,reject_htlc_rcvr=%v",
+			fundReceiver, rejectHtlcReceiver)
+	}
 
 	ht := t
 	success := t.t.Run(testName, func(t *testing.T) {
@@ -9269,6 +9305,13 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(
 	err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, dave)
 	if err != nil {
 		t.Fatalf("unable to send coins to dave: %v", err)
+	}
+
+	// If we're funding an anchor channel, carol will also need an onchain
+	// reserve in order to accept the channel funding.
+	if anchors {
+		err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, carol)
+		require.NoError(t.t, err)
 	}
 
 	// In order to test Dave's response to an uncooperative channel

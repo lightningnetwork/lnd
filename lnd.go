@@ -526,6 +526,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		NeutrinoCS:                  neutrinoCS,
 		ActiveNetParams:             cfg.ActiveNetParams,
 		FeeURL:                      cfg.FeeURL,
+		IsRoutingNode:               !cfg.RejectHTLC,
 	}
 
 	activeChainControl, err := chainreg.NewChainControl(chainControlCfg)

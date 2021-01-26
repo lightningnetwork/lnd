@@ -182,6 +182,16 @@ func (m *ChanStatusManager) start() error {
 				"in the process of closing.", c.FundingOutpoint)
 			continue
 
+		// If we are in the process of opening a channel, the funding
+		// manager might not have added the ChannelUpdate to the graph
+		// yet. We'll ignore the channel for now.
+		case err == ErrUnableToExtractChanUpdate:
+			log.Warnf("Unable to find channel policies for %v, "+
+				"skipping. This is typical if the channel is "+
+				"in the process of being opened.",
+				c.FundingOutpoint)
+			continue
+
 		case err != nil:
 			return err
 		}

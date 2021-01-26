@@ -1374,32 +1374,24 @@ test:
 			// We do the same for Dave shortly below.
 			carolArgs := carolCommitType.Args()
 			carol, err := net.NewNode("Carol", carolArgs)
-			if err != nil {
-				t.Fatalf("unable to create new node: %v", err)
-			}
+			require.NoError(t.t, err)
 
 			// Each time, we'll send Carol a new set of coins in
 			// order to fund the channel.
 			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 			err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
-			if err != nil {
-				t.Fatalf("unable to send coins to carol: %v", err)
-			}
+			require.NoError(t.t, err)
 
 			daveArgs := daveCommitType.Args()
 			dave, err := net.NewNode("Dave", daveArgs)
-			if err != nil {
-				t.Fatalf("unable to create new node: %v", err)
-			}
+			require.NoError(t.t, err)
 
 			// Before we start the test, we'll ensure both sides
 			// are connected to the funding flow can properly be
 			// executed.
 			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 			err = net.EnsureConnected(ctxt, carol, dave)
-			if err != nil {
-				t.Fatalf("unable to connect peers: %v", err)
-			}
+			require.NoError(t.t, err)
 
 			testName := fmt.Sprintf("carol_commit=%v,dave_commit=%v",
 				carolCommitType, daveCommitType)
@@ -1411,20 +1403,12 @@ test:
 				carolChannel, daveChannel, closeChan, err := basicChannelFundingTest(
 					ht, net, carol, dave, nil,
 				)
-				if err != nil {
-					t.Fatalf("failed funding flow: %v", err)
-				}
+				require.NoError(t, err)
 
 				// Both nodes should report the same commitment
 				// type.
 				chansCommitType := carolChannel.CommitmentType
-				if daveChannel.CommitmentType != chansCommitType {
-					t.Fatalf("commit types don't match, "+
-						"carol got %v, dave got %v",
-						carolChannel.CommitmentType,
-						daveChannel.CommitmentType,
-					)
-				}
+				require.Equal(t, daveChannel.CommitmentType, chansCommitType)
 
 				// Now check that the commitment type reported
 				// by both nodes is what we expect. It will be

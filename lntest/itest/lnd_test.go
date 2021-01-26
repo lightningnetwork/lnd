@@ -1352,9 +1352,6 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 // conditions. Finally, the chain itself is checked to ensure the closing
 // transaction was mined.
 func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
-
-	ctxb := context.Background()
-
 	// Run through the test with combinations of all the different
 	// commitment types.
 	allTypes := []commitType{
@@ -1369,107 +1366,115 @@ test:
 	// new Carol+Dave for each test instance as well.
 	for _, carolCommitType := range allTypes {
 		for _, daveCommitType := range allTypes {
-			// Based on the current tweak variable for Carol, we'll
-			// preferentially signal the legacy commitment format.
-			// We do the same for Dave shortly below.
-			carolArgs := carolCommitType.Args()
-			carol, err := net.NewNode("Carol", carolArgs)
-			require.NoError(t.t, err)
-
-			// Each time, we'll send Carol a new set of coins in
-			// order to fund the channel.
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
-			require.NoError(t.t, err)
-
-			daveArgs := daveCommitType.Args()
-			dave, err := net.NewNode("Dave", daveArgs)
-			require.NoError(t.t, err)
-
-			// Before we start the test, we'll ensure both sides
-			// are connected to the funding flow can properly be
-			// executed.
-			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-			err = net.EnsureConnected(ctxt, carol, dave)
-			require.NoError(t.t, err)
-
-			testName := fmt.Sprintf("carol_commit=%v,dave_commit=%v",
-				carolCommitType, daveCommitType)
-
-			ht := t
-			carolCommitType := carolCommitType
-			daveCommitType := daveCommitType
-			success := t.t.Run(testName, func(t *testing.T) {
-				carolChannel, daveChannel, closeChan, err := basicChannelFundingTest(
-					ht, net, carol, dave, nil,
-				)
-				require.NoError(t, err)
-
-				// Both nodes should report the same commitment
-				// type.
-				chansCommitType := carolChannel.CommitmentType
-				require.Equal(t, daveChannel.CommitmentType, chansCommitType)
-
-				// Now check that the commitment type reported
-				// by both nodes is what we expect. It will be
-				// the minimum of the two nodes' preference, in
-				// the order Legacy, Tweakless, Anchors.
-				expType := carolCommitType
-
-				switch daveCommitType {
-
-				// Dave supports anchors, type will be what
-				// Carol supports.
-				case commitTypeAnchors:
-
-				// Dave only supports tweakless, channel will
-				// be downgraded to this type if Carol supports
-				// anchors.
-				case commitTypeTweakless:
-					if expType == commitTypeAnchors {
-						expType = commitTypeTweakless
-					}
-
-				// Dave only supoprts legacy type, channel will
-				// be downgraded to this type.
-				case commitTypeLegacy:
-					expType = commitTypeLegacy
-
-				default:
-					t.Fatalf("invalid commit type %v",
-						daveCommitType)
-				}
-
-				// Check that the signalled type matches what we
-				// expect.
-				switch {
-				case expType == commitTypeAnchors &&
-					chansCommitType == lnrpc.CommitmentType_ANCHORS:
-
-				case expType == commitTypeTweakless &&
-					chansCommitType == lnrpc.CommitmentType_STATIC_REMOTE_KEY:
-
-				case expType == commitTypeLegacy &&
-					chansCommitType == lnrpc.CommitmentType_LEGACY:
-
-				default:
-					t.Fatalf("expected nodes to signal "+
-						"commit type %v, instead got "+
-						"%v", expType, chansCommitType)
-				}
-
-				// As we've concluded this sub-test case we'll
-				// now close out the channel for both sides.
-				closeChan()
-			})
+			success := runBasicFundingFlow(
+				net, t, carolCommitType, daveCommitType,
+			)
 			if !success {
 				break test
 			}
-
-			shutdownAndAssert(net, t, carol)
-			shutdownAndAssert(net, t, dave)
 		}
 	}
+}
+
+func runBasicFundingFlow(
+	net *lntest.NetworkHarness,
+	t *harnessTest,
+	carolCommitType, daveCommitType commitType) bool {
+
+	t.t.Helper()
+
+	ctxb := context.Background()
+
+	// Based on the current tweak variable for Carol, we'll preferentially
+	// signal the legacy commitment format.  We do the same for Dave shortly
+	// below.
+	carolArgs := carolCommitType.Args()
+	carol, err := net.NewNode("Carol", carolArgs)
+	require.NoError(t.t, err)
+
+	// Each time, we'll send Carol a new set of coins in order to fund the
+	// channel.
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
+	require.NoError(t.t, err)
+
+	daveArgs := daveCommitType.Args()
+	dave, err := net.NewNode("Dave", daveArgs)
+	require.NoError(t.t, err)
+
+	// Before we start the test, we'll ensure both sides are connected to
+	// the funding flow can properly be executed.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = net.EnsureConnected(ctxt, carol, dave)
+	require.NoError(t.t, err)
+
+	testName := fmt.Sprintf("carol_commit=%v,dave_commit=%v",
+		carolCommitType, daveCommitType)
+
+	ht := t
+	success := t.t.Run(testName, func(t *testing.T) {
+		carolChannel, daveChannel, closeChan, err := basicChannelFundingTest(
+			ht, net, carol, dave, nil,
+		)
+		require.NoError(t, err)
+
+		// Both nodes should report the same commitment type.
+		chansCommitType := carolChannel.CommitmentType
+		require.Equal(t, daveChannel.CommitmentType, chansCommitType)
+
+		// Now check that the commitment type reported by both nodes is
+		// what we expect. It will be the minimum of the two nodes'
+		// preference, in the order Legacy, Tweakless, Anchors.
+		expType := carolCommitType
+
+		switch daveCommitType {
+
+		// Dave supports anchors, type will be what Carol supports.
+		case commitTypeAnchors:
+
+		// Dave only supports tweakless, channel will be downgraded to
+		// this type if Carol supports anchors.
+		case commitTypeTweakless:
+			if expType == commitTypeAnchors {
+				expType = commitTypeTweakless
+			}
+
+		// Dave only supoprts legacy type, channel will
+		// be downgraded to this type.
+		case commitTypeLegacy:
+			expType = commitTypeLegacy
+
+		default:
+			t.Fatalf("invalid commit type %v", daveCommitType)
+		}
+
+		// Check that the signalled type matches what we expect.
+		switch {
+		case expType == commitTypeAnchors &&
+			chansCommitType == lnrpc.CommitmentType_ANCHORS:
+
+		case expType == commitTypeTweakless &&
+			chansCommitType == lnrpc.CommitmentType_STATIC_REMOTE_KEY:
+
+		case expType == commitTypeLegacy &&
+			chansCommitType == lnrpc.CommitmentType_LEGACY:
+
+		default:
+			t.Fatalf("expected nodes to signal commit type %v, "+
+				"instead got %v", expType, chansCommitType)
+		}
+
+		// As we've concluded this sub-test case we'll now close out the
+		// channel for both sides.
+		closeChan()
+	})
+
+	if success {
+		shutdownAndAssert(net, t, carol)
+		shutdownAndAssert(net, t, dave)
+	}
+
+	return success
 }
 
 // testUnconfirmedChannelFunding tests that our unconfirmed change outputs can

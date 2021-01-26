@@ -1360,18 +1360,31 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		commitTypeAnchors,
 	}
 
-test:
+	type testCase struct {
+		carolCommitType commitType
+		daveCommitType  commitType
+	}
+
+	var tests []testCase
+
 	// We'll test all possible combinations of the feature bit presence
-	// that both nodes can signal for this new channel type. We'll make a
-	// new Carol+Dave for each test instance as well.
+	// that both nodes can signal for this new channel type.
 	for _, carolCommitType := range allTypes {
 		for _, daveCommitType := range allTypes {
-			success := runBasicFundingFlow(
-				net, t, carolCommitType, daveCommitType,
-			)
-			if !success {
-				break test
-			}
+			tests = append(tests, testCase{
+				carolCommitType: carolCommitType,
+				daveCommitType:  daveCommitType,
+			})
+		}
+	}
+
+test:
+	for _, test := range tests {
+		success := runBasicFundingFlow(
+			net, t, test.carolCommitType, test.daveCommitType,
+		)
+		if !success {
+			break test
 		}
 	}
 }

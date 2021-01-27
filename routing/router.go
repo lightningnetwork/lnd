@@ -14,6 +14,7 @@ import (
 	"github.com/go-errors/errors"
 
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/clock"
@@ -82,12 +83,12 @@ type ChannelGraphSource interface {
 	// AddNode is used to add information about a node to the router
 	// database. If the node with this pubkey is not present in an existing
 	// channel, it will be ignored.
-	AddNode(node *channeldb.LightningNode) error
+	AddNode(node *channeldb.LightningNode, op ...batch.SchedulerOption) error
 
 	// AddEdge is used to add edge/channel to the topology of the router,
 	// after all information about channel will be gathered this
 	// edge/channel might be used in construction of payment path.
-	AddEdge(edge *channeldb.ChannelEdgeInfo) error
+	AddEdge(edge *channeldb.ChannelEdgeInfo, op ...batch.SchedulerOption) error
 
 	// AddProof updates the channel edge info with proof which is needed to
 	// properly announce the edge to the rest of the network.
@@ -95,7 +96,7 @@ type ChannelGraphSource interface {
 
 	// UpdateEdge is used to update edge information, without this message
 	// edge considered as not fully constructed.
-	UpdateEdge(policy *channeldb.ChannelEdgePolicy) error
+	UpdateEdge(policy *channeldb.ChannelEdgePolicy, op ...batch.SchedulerOption) error
 
 	// IsStaleNode returns true if the graph source has a node announcement
 	// for the target node with a more recent timestamp. This method will
@@ -957,7 +958,7 @@ func (r *ChannelRouter) networkHandler() {
 				// this is either a new update from our PoV or
 				// an update to a prior vertex/edge we
 				// previously accepted.
-				err = r.processUpdate(update.msg)
+				err = r.processUpdate(update.msg, update.op...)
 				update.err <- err
 
 				// If this message had any dependencies, then
@@ -1176,7 +1177,9 @@ func (r *ChannelRouter) assertNodeAnnFreshness(node route.Vertex,
 // channel/edge update network update. If the update didn't affect the internal
 // state of the draft due to either being out of date, invalid, or redundant,
 // then error is returned.
-func (r *ChannelRouter) processUpdate(msg interface{}) error {
+func (r *ChannelRouter) processUpdate(msg interface{},
+	op ...batch.SchedulerOption) error {
+
 	switch msg := msg.(type) {
 	case *channeldb.LightningNode:
 		// Before we add the node to the database, we'll check to see
@@ -1187,7 +1190,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 			return err
 		}
 
-		if err := r.cfg.Graph.AddLightningNode(msg); err != nil {
+		if err := r.cfg.Graph.AddLightningNode(msg, op...); err != nil {
 			return errors.Errorf("unable to add node %v to the "+
 				"graph: %v", msg.PubKeyBytes, err)
 		}
@@ -1219,7 +1222,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		// short-circuit our path straight to adding the edge to our
 		// graph.
 		if r.cfg.AssumeChannelValid {
-			if err := r.cfg.Graph.AddChannelEdge(msg); err != nil {
+			if err := r.cfg.Graph.AddChannelEdge(msg, op...); err != nil {
 				return fmt.Errorf("unable to add edge: %v", err)
 			}
 			log.Tracef("New channel discovered! Link "+
@@ -1291,7 +1294,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		// after commitment fees are dynamic.
 		msg.Capacity = btcutil.Amount(chanUtxo.Value)
 		msg.ChannelPoint = *fundingPoint
-		if err := r.cfg.Graph.AddChannelEdge(msg); err != nil {
+		if err := r.cfg.Graph.AddChannelEdge(msg, op...); err != nil {
 			return errors.Errorf("unable to add edge: %v", err)
 		}
 
@@ -1390,7 +1393,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		// Now that we know this isn't a stale update, we'll apply the
 		// new edge policy to the proper directional edge within the
 		// channel graph.
-		if err = r.cfg.Graph.UpdateEdgePolicy(msg); err != nil {
+		if err = r.cfg.Graph.UpdateEdgePolicy(msg, op...); err != nil {
 			err := errors.Errorf("unable to add channel: %v", err)
 			log.Error(err)
 			return err
@@ -1444,6 +1447,7 @@ func (r *ChannelRouter) fetchFundingTx(
 // error channel.
 type routingMsg struct {
 	msg interface{}
+	op  []batch.SchedulerOption
 	err chan error
 }
 
@@ -2140,9 +2144,12 @@ func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate,
 // be ignored.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (r *ChannelRouter) AddNode(node *channeldb.LightningNode) error {
+func (r *ChannelRouter) AddNode(node *channeldb.LightningNode,
+	op ...batch.SchedulerOption) error {
+
 	rMsg := &routingMsg{
 		msg: node,
+		op:  op,
 		err: make(chan error, 1),
 	}
 
@@ -2164,9 +2171,12 @@ func (r *ChannelRouter) AddNode(node *channeldb.LightningNode) error {
 // in construction of payment path.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (r *ChannelRouter) AddEdge(edge *channeldb.ChannelEdgeInfo) error {
+func (r *ChannelRouter) AddEdge(edge *channeldb.ChannelEdgeInfo,
+	op ...batch.SchedulerOption) error {
+
 	rMsg := &routingMsg{
 		msg: edge,
+		op:  op,
 		err: make(chan error, 1),
 	}
 
@@ -2187,9 +2197,12 @@ func (r *ChannelRouter) AddEdge(edge *channeldb.ChannelEdgeInfo) error {
 // considered as not fully constructed.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (r *ChannelRouter) UpdateEdge(update *channeldb.ChannelEdgePolicy) error {
+func (r *ChannelRouter) UpdateEdge(update *channeldb.ChannelEdgePolicy,
+	op ...batch.SchedulerOption) error {
+
 	rMsg := &routingMsg{
 		msg: update,
+		op:  op,
 		err: make(chan error, 1),
 	}
 

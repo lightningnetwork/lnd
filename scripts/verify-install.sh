@@ -18,6 +18,7 @@ KEYS+=("9C8D61868A7C492003B2744EE7D737B67FA592C7 https://keybase.io/bitconner/pg
 KEYS+=("E4D85299674B2D31FAA1892E372CBD7633C61696 https://keybase.io/roasbeef/pgp_keys.asc")
 KEYS+=("729E9D9D92C75A5FBFEEE057B5DD717BEF7CA5B1 https://keybase.io/wpaulino/pgp_keys.asc")
 KEYS+=("7E81EF6B9989A9CC93884803118759E83439A9B1 https://keybase.io/eugene_/pgp_keys.asc")
+KEYS+=("7AB3D7F5911708842796513415BAADA29DA20D26 https://keybase.io/halseth/pgp_keys.asc")
 
 function check_command() {
   echo -n "Checking if $1 is installed... "

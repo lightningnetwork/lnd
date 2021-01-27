@@ -458,12 +458,20 @@ func (c *ChannelGraph) SetSourceNode(node *LightningNode) error {
 // channel update.
 //
 // TODO(roasbeef): also need sig of announcement
-func (c *ChannelGraph) AddLightningNode(node *LightningNode) error {
-	return c.nodeScheduler.Execute(&batch.Request{
+func (c *ChannelGraph) AddLightningNode(node *LightningNode,
+	op ...batch.SchedulerOption) error {
+
+	r := &batch.Request{
 		Update: func(tx kvdb.RwTx) error {
 			return addLightningNode(tx, node)
 		},
-	})
+	}
+
+	for _, f := range op {
+		f(r)
+	}
+
+	return c.nodeScheduler.Execute(r)
 }
 
 func addLightningNode(tx kvdb.RwTx, node *LightningNode) error {
@@ -588,9 +596,11 @@ func (c *ChannelGraph) deleteLightningNode(nodes kvdb.RwBucket,
 // involved in creation of the channel, and the set of features that the channel
 // supports. The chanPoint and chanID are used to uniquely identify the edge
 // globally within the database.
-func (c *ChannelGraph) AddChannelEdge(edge *ChannelEdgeInfo) error {
+func (c *ChannelGraph) AddChannelEdge(edge *ChannelEdgeInfo,
+	op ...batch.SchedulerOption) error {
+
 	var alreadyExists bool
-	return c.chanScheduler.Execute(&batch.Request{
+	r := &batch.Request{
 		Reset: func() {
 			alreadyExists = false
 		},
@@ -618,7 +628,13 @@ func (c *ChannelGraph) AddChannelEdge(edge *ChannelEdgeInfo) error {
 				return nil
 			}
 		},
-	})
+	}
+
+	for _, f := range op {
+		f(r)
+	}
+
+	return c.chanScheduler.Execute(r)
 }
 
 // addChannelEdge is the private form of AddChannelEdge that allows callers to
@@ -1994,12 +2010,15 @@ func delChannelEdge(edges, edgeIndex, chanIndex, zombieIndex,
 // updated, otherwise it's the second node's information. The node ordering is
 // determined by the lexicographical ordering of the identity public keys of the
 // nodes on either side of the channel.
-func (c *ChannelGraph) UpdateEdgePolicy(edge *ChannelEdgePolicy) error {
+func (c *ChannelGraph) UpdateEdgePolicy(edge *ChannelEdgePolicy,
+	op ...batch.SchedulerOption) error {
+
 	var (
 		isUpdate1    bool
 		edgeNotFound bool
 	)
-	return c.chanScheduler.Execute(&batch.Request{
+
+	r := &batch.Request{
 		Reset: func() {
 			isUpdate1 = false
 			edgeNotFound = false
@@ -2028,7 +2047,13 @@ func (c *ChannelGraph) UpdateEdgePolicy(edge *ChannelEdgePolicy) error {
 				return nil
 			}
 		},
-	})
+	}
+
+	for _, f := range op {
+		f(r)
+	}
+
+	return c.chanScheduler.Execute(r)
 }
 
 func (c *ChannelGraph) updateEdgeCache(e *ChannelEdgePolicy, isUpdate1 bool) {

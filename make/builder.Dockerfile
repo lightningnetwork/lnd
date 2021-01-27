@@ -4,7 +4,7 @@
 # /dev.Dockerfile
 # /.github/workflows/main.yml
 # /.github/workflows/release.yml
-FROM golang:1.15.6-buster
+FROM golang:1.15.7-buster
 
 MAINTAINER Olaoluwa Osuntokun <laolu@lightning.engineering>
 

@@ -108,13 +108,16 @@ NUM_CHECKS=0
 for signature in $SIGNATURES; do
   # First make sure the downloaded signature file is valid.
   echo "Verifying $signature"
-  if ! gpg --verify "$signature" 2>&1 | grep -q "Good signature"; then
+  if gpg --verify "$signature" 2>&1 | grep -q "Good signature"; then
+    echo "Signature for $signature checks out: "
+    gpg --verify "$signature" 2>&1 | grep "using"
+  elif gpg --verify "$signature" 2>&1 | grep -q "No public key"; then
+    echo "Unable to verify signature $signature, no key available, skipping"
+    continue
+  else
     echo "ERROR: Did not get valid signature for $signature!"
     exit 1
   fi
-
-  echo "Signature for $signature checks out: "
-  gpg --verify "$signature" 2>&1 | grep "using"
 
   echo ""
 

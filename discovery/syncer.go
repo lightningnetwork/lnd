@@ -42,6 +42,13 @@ const (
 	// They are started in a chansSynced state in order to accomplish their
 	// responsibilities above.
 	PassiveSync
+
+	// PinnedSync denotes an ActiveSync that doesn't count towards the
+	// default active syncer limits and is always active throughout the
+	// duration of the peer's connection. Each pinned syncer will begin by
+	// performing a historical sync to ensure we are well synchronized with
+	// their routing table.
+	PinnedSync
 )
 
 // String returns a human readable string describing the target SyncerType.
@@ -51,8 +58,21 @@ func (t SyncerType) String() string {
 		return "ActiveSync"
 	case PassiveSync:
 		return "PassiveSync"
+	case PinnedSync:
+		return "PinnedSync"
 	default:
 		return fmt.Sprintf("unknown sync type %d", t)
+	}
+}
+
+// IsActiveSync returns true if the SyncerType should set a GossipTimestampRange
+// allowing new gossip messages to be received from the peer.
+func (t SyncerType) IsActiveSync() bool {
+	switch t {
+	case ActiveSync, PinnedSync:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -560,7 +580,9 @@ func (g *GossipSyncer) channelGraphSyncer() {
 			// If we haven't yet sent out our update horizon, and
 			// we want to receive real-time channel updates, we'll
 			// do so now.
-			if g.localUpdateHorizon == nil && syncType == ActiveSync {
+			if g.localUpdateHorizon == nil &&
+				syncType.IsActiveSync() {
+
 				err := g.sendGossipTimestampRange(
 					time.Now(), math.MaxUint32,
 				)
@@ -1418,7 +1440,7 @@ func (g *GossipSyncer) handleSyncTransition(req *syncTransitionReq) error {
 	switch req.newSyncType {
 	// If an active sync has been requested, then we should resume receiving
 	// new graph updates from the remote peer.
-	case ActiveSync:
+	case ActiveSync, PinnedSync:
 		firstTimestamp = time.Now()
 		timestampRange = math.MaxUint32
 

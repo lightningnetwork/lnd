@@ -10330,21 +10330,71 @@ func subscribeGraphNotifications(t *harnessTest, ctxb context.Context,
 	}
 }
 
+func assertSyncType(t *harnessTest, node *lntest.HarnessNode,
+	peer string, syncType lnrpc.Peer_SyncType) {
+
+	t.t.Helper()
+
+	ctxb := context.Background()
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	resp, err := node.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
+	require.NoError(t.t, err)
+
+	for _, rpcPeer := range resp.Peers {
+		if rpcPeer.PubKey != peer {
+			continue
+		}
+
+		require.Equal(t.t, syncType, rpcPeer.SyncType)
+		return
+	}
+
+	t.t.Fatalf("unable to find peer: %s", peer)
+}
+
 func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) {
+	t.t.Run("pinned", func(t *testing.T) {
+		ht := newHarnessTest(t, net)
+		testGraphTopologyNtfns(net, ht, true)
+	})
+	t.t.Run("unpinned", func(t *testing.T) {
+		ht := newHarnessTest(t, net)
+		testGraphTopologyNtfns(net, ht, false)
+	})
+}
+
+func testGraphTopologyNtfns(net *lntest.NetworkHarness, t *harnessTest, pinned bool) {
 	ctxb := context.Background()
 
 	const chanAmt = funding.MaxBtcFundingAmount
 
-	alice, err := net.NewNode("alice", nil)
-	require.NoError(t.t, err)
-	defer shutdownAndAssert(net, t, alice)
-
+	// Spin up Bob first, since we will need to grab his pubkey when
+	// starting Alice to test pinned syncing.
 	bob, err := net.NewNode("bob", nil)
 	require.NoError(t.t, err)
 	defer shutdownAndAssert(net, t, bob)
 
-	// Connect Alice and Bob.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	bobInfo, err := bob.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
+	require.NoError(t.t, err)
+	bobPubkey := bobInfo.IdentityPubkey
+
+	// For unpinned syncing, start Alice as usual. Otherwise grab Bob's
+	// pubkey to include in his pinned syncer set.
+	var aliceArgs []string
+	if pinned {
+		aliceArgs = []string{
+			"--numgraphsyncpeers=1",
+			fmt.Sprintf("--gossip.pinned-syncers=%s", bobPubkey),
+		}
+	}
+
+	alice, err := net.NewNode("alice", aliceArgs)
+	require.NoError(t.t, err)
+	defer shutdownAndAssert(net, t, alice)
+
+	// Connect Alice and Bob.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = net.EnsureConnected(ctxt, alice, bob)
 	require.NoError(t.t, err)
 
@@ -10357,6 +10407,13 @@ func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, bob)
 	require.NoError(t.t, err)
+
+	// Assert that Bob has the correct sync type before proceeeding.
+	if pinned {
+		assertSyncType(t, alice, bobPubkey, lnrpc.Peer_PINNED_SYNC)
+	} else {
+		assertSyncType(t, alice, bobPubkey, lnrpc.Peer_ACTIVE_SYNC)
+	}
 
 	// Let Alice subscribe to graph notifications.
 	graphSub := subscribeGraphNotifications(

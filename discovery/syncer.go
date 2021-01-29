@@ -115,6 +115,12 @@ const (
 	// AuthenticatedGossiper, and decide if we should forward them to our
 	// target peer based on its update horizon.
 	chansSynced
+
+	// syncerIdle is a state in which the gossip syncer can handle external
+	// requests to transition or perform historical syncs. It is used as the
+	// initial state for pinned syncers, as well as a fallthrough case for
+	// chansSynced allowing fully synced peers to facilitate requests.
+	syncerIdle
 )
 
 // String returns a human readable string describing the target syncerState.
@@ -134,6 +140,9 @@ func (s syncerState) String() string {
 
 	case chansSynced:
 		return "chansSynced"
+
+	case syncerIdle:
+		return "syncerIdle"
 
 	default:
 		return "UNKNOWN STATE"
@@ -592,10 +601,16 @@ func (g *GossipSyncer) channelGraphSyncer() {
 						g.cfg.peerPub, err)
 				}
 			}
-
 			// With our horizon set, we'll simply reply to any new
 			// messages or process any state transitions and exit if
 			// needed.
+			fallthrough
+
+		// Pinned peers will begin in this state, since they will
+		// immediately receive a request to perform a historical sync.
+		// Otherwise, we fall through after ending in chansSynced to
+		// facilitate new requests.
+		case syncerIdle:
 			select {
 			case req := <-g.syncTransitionReqs:
 				req.errChan <- g.handleSyncTransition(req)

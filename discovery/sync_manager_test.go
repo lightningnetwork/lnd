@@ -90,6 +90,8 @@ func TestSyncManagerNumActiveSyncers(t *testing.T) {
 		require.NoError(t, err)
 
 		s := assertSyncerExistence(t, syncMgr, peer)
+		assertTransitionToChansSynced(t, s, peer)
+		assertActiveGossipTimestampRange(t, peer)
 		assertSyncerStatus(t, s, chansSynced, PinnedSync)
 	}
 

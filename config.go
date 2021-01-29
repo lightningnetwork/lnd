@@ -309,6 +309,8 @@ type Config struct {
 
 	Routing *lncfg.Routing `group:"routing" namespace:"routing"`
 
+	Gossip *lncfg.Gossip `group:"gossip" namespace:"gossip"`
+
 	Workers *lncfg.Workers `group:"workers" namespace:"workers"`
 
 	Caches *lncfg.Caches `group:"caches" namespace:"caches"`
@@ -477,6 +479,7 @@ func DefaultConfig() Config {
 				Backoff:  defaultTLSBackoff,
 			},
 		},
+		Gossip:                  &lncfg.Gossip{},
 		MaxOutgoingCltvExpiry:   htlcswitch.DefaultMaxOutgoingCltvExpiry,
 		MaxChannelFeeAllocation: htlcswitch.DefaultMaxLinkFeeAllocation,
 		MaxCommitFeeRateAnchors: lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte,
@@ -1287,6 +1290,10 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 		return nil, fmt.Errorf("default-remote-max-htlcs (%v) must be "+
 			"less than %v", cfg.DefaultRemoteMaxHtlcs,
 			maxRemoteHtlcs)
+	}
+
+	if err := cfg.Gossip.Parse(); err != nil {
+		return nil, err
 	}
 
 	// Validate the subconfigs for workers, caches, and the tower client.

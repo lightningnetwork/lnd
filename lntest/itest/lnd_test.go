@@ -10352,6 +10352,20 @@ func assertSyncType(t *harnessTest, node *lntest.HarnessNode,
 	t.t.Fatalf("unable to find peer: %s", peer)
 }
 
+func waitForGraphSync(t *harnessTest, node *lntest.HarnessNode) {
+	t.t.Helper()
+
+	err := wait.Predicate(func() bool {
+		ctxb := context.Background()
+		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+		resp, err := node.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
+		require.NoError(t.t, err)
+
+		return resp.SyncedToGraph
+	}, defaultTimeout)
+	require.NoError(t.t, err)
+}
+
 func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) {
 	t.t.Run("pinned", func(t *testing.T) {
 		ht := newHarnessTest(t, net)
@@ -10414,6 +10428,10 @@ func testGraphTopologyNtfns(net *lntest.NetworkHarness, t *harnessTest, pinned b
 	} else {
 		assertSyncType(t, alice, bobPubkey, lnrpc.Peer_ACTIVE_SYNC)
 	}
+
+	// Regardless of syncer type, ensure that both peers report having
+	// completed their initial sync before continuing to make a channel.
+	waitForGraphSync(t, alice)
 
 	// Let Alice subscribe to graph notifications.
 	graphSub := subscribeGraphNotifications(

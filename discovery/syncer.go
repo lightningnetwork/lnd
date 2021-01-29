@@ -280,6 +280,10 @@ type gossipSyncerCfg struct {
 	// bestHeight returns the latest height known of the chain.
 	bestHeight func() uint32
 
+	// markGraphSynced updates the SyncManager's perception of whether we
+	// have completed at least one historical sync.
+	markGraphSynced func()
+
 	// maxQueryChanRangeReplies is the maximum number of replies we'll allow
 	// for a single QueryChannelRange request.
 	maxQueryChanRangeReplies uint32
@@ -549,6 +553,11 @@ func (g *GossipSyncer) channelGraphSyncer() {
 			// If we're fully synchronized, then we can transition
 			// to our terminal state.
 			g.setSyncState(chansSynced)
+
+			// Ensure that the sync manager becomes aware that the
+			// historical sync completed so synced_to_graph is
+			// updated over rpc.
+			g.cfg.markGraphSynced()
 
 		// In this state, we've just sent off a new query for channels
 		// that we don't yet know of. We'll remain in this state until
@@ -862,6 +871,11 @@ func (g *GossipSyncer) processChanRangeReply(msg *lnwire.ReplyChannelRange) erro
 			g.cfg.peerPub[:])
 
 		g.setSyncState(chansSynced)
+
+		// Ensure that the sync manager becomes aware that the
+		// historical sync completed so synced_to_graph is updated over
+		// rpc.
+		g.cfg.markGraphSynced()
 		return nil
 	}
 

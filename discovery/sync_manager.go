@@ -381,7 +381,6 @@ func (m *SyncManager) syncerHandler() {
 		case <-initialHistoricalSyncSignal:
 			initialHistoricalSyncer = nil
 			initialHistoricalSyncSignal = nil
-			m.markGraphSynced()
 
 			log.Debug("Initial historical sync completed")
 
@@ -472,6 +471,7 @@ func (m *SyncManager) createGossipSyncer(peer lnpeer.Peer) *GossipSyncer {
 		maxUndelayedQueryReplies:  DefaultMaxUndelayedQueryReplies,
 		delayedQueryReplyInterval: DefaultDelayedQueryReplyInterval,
 		bestHeight:                m.cfg.BestHeight,
+		markGraphSynced:           m.markGraphSynced,
 		maxQueryChanRangeReplies:  maxQueryChanRangeReplies,
 	})
 

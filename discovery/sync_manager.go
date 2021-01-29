@@ -214,6 +214,11 @@ func (m *SyncManager) syncerHandler() {
 		initialHistoricalSyncSignal chan struct{}
 	)
 
+	setHistoricalSyncer := func(s *GossipSyncer) {
+		initialHistoricalSyncer = s
+		initialHistoricalSyncSignal = s.ResetSyncedSignal()
+	}
+
 	for {
 		select {
 		// A new peer has been connected, so we'll create its
@@ -297,8 +302,7 @@ func (m *SyncManager) syncerHandler() {
 			// keep track of the corresponding syncer to properly
 			// handle disconnects. We'll also use a signal to know
 			// when the historical sync completed.
-			initialHistoricalSyncer = s
-			initialHistoricalSyncSignal = s.ResetSyncedSignal()
+			setHistoricalSyncer(s)
 
 		// An existing peer has disconnected, so we'll tear down its
 		// corresponding GossipSyncer.
@@ -337,8 +341,7 @@ func (m *SyncManager) syncerHandler() {
 				"GossipSyncer(%v) with GossipSyncer(%x)",
 				staleSyncer.peer, s.cfg.peerPub)
 
-			initialHistoricalSyncer = s
-			initialHistoricalSyncSignal = s.ResetSyncedSignal()
+			setHistoricalSyncer(s)
 
 		// Our initial historical sync signal has completed, so we'll
 		// nil all of the relevant fields as they're no longer needed.
@@ -398,8 +401,7 @@ func (m *SyncManager) syncerHandler() {
 			// where our previous historical sync peer did not
 			// respond to our queries and we haven't ingested as
 			// much of the graph as we should.
-			initialHistoricalSyncer = s
-			initialHistoricalSyncSignal = s.ResetSyncedSignal()
+			setHistoricalSyncer(s)
 
 		case <-m.quit:
 			return

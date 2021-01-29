@@ -380,12 +380,16 @@ func (m *SyncManager) syncerHandler() {
 		// Our HistoricalSyncTicker has ticked, so we'll randomly select
 		// a peer and force a historical sync with them.
 		case <-m.cfg.HistoricalSyncTicker.Ticks():
+			// If we don't have a syncer available we have nothing
+			// to do.
 			s := m.forceHistoricalSync()
+			if s == nil {
+				continue
+			}
 
-			// If we don't have a syncer available or we've already
-			// performed our initial historical sync, then we have
-			// nothing left to do.
-			if s == nil || m.IsGraphSynced() {
+			// If we've already completed a historical sync, we'll
+			// skip setting the initial historical syncer.
+			if m.IsGraphSynced() {
 				continue
 			}
 

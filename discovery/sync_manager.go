@@ -316,7 +316,6 @@ func (m *SyncManager) syncerHandler() {
 			if !attemptHistoricalSync {
 				continue
 			}
-			m.markGraphSyncing()
 
 			log.Debugf("Attempting initial historical sync with "+
 				"GossipSyncer(%x)", s.cfg.peerPub)
@@ -749,12 +748,6 @@ func (m *SyncManager) gossipSyncers() map[route.Vertex]*GossipSyncer {
 // completed.
 func (m *SyncManager) markGraphSynced() {
 	atomic.StoreInt32(&m.initialHistoricalSyncCompleted, 1)
-}
-
-// markGraphSyncing allows us to report that the initial historical sync is
-// still undergoing.
-func (m *SyncManager) markGraphSyncing() {
-	atomic.StoreInt32(&m.initialHistoricalSyncCompleted, 0)
 }
 
 // IsGraphSynced determines whether we've completed our initial historical sync.

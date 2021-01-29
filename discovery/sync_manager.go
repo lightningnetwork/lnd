@@ -266,7 +266,9 @@ func (m *SyncManager) syncerHandler() {
 			// For pinned syncers, we will immediately transition
 			// the peer into an active (pinned) sync state.
 			case isPinnedSyncer:
+				attemptHistoricalSync = true
 				s.setSyncType(PinnedSync)
+				s.setSyncState(syncerIdle)
 				m.pinnedActiveSyncers[s.cfg.peerPub] = s
 
 			// Regardless of whether the initial historical sync
@@ -331,7 +333,9 @@ func (m *SyncManager) syncerHandler() {
 			// keep track of the corresponding syncer to properly
 			// handle disconnects. We'll also use a signal to know
 			// when the historical sync completed.
-			setInitialHistoricalSyncer(s)
+			if !isPinnedSyncer {
+				setInitialHistoricalSyncer(s)
+			}
 
 		// An existing peer has disconnected, so we'll tear down its
 		// corresponding GossipSyncer.

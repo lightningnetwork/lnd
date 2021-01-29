@@ -58,7 +58,9 @@ func TestSyncManagerNumActiveSyncers(t *testing.T) {
 	// should be active and passive to check them later on.
 	for i := 0; i < numActiveSyncers; i++ {
 		peer := randPeer(t, syncMgr.quit)
-		syncMgr.InitSyncState(peer)
+		err := syncMgr.InitSyncState(peer)
+		require.NoError(t, err)
+
 		s := assertSyncerExistence(t, syncMgr, peer)
 
 		// The first syncer registered always attempts a historical
@@ -72,7 +74,9 @@ func TestSyncManagerNumActiveSyncers(t *testing.T) {
 
 	for i := 0; i < numSyncers-numActiveSyncers; i++ {
 		peer := randPeer(t, syncMgr.quit)
-		syncMgr.InitSyncState(peer)
+		err := syncMgr.InitSyncState(peer)
+		require.NoError(t, err)
+
 		s := assertSyncerExistence(t, syncMgr, peer)
 		assertSyncerStatus(t, s, chansSynced, PassiveSync)
 	}

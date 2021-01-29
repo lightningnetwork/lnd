@@ -1487,6 +1487,11 @@ message Peer {
         Denotes that we are not receiving new graph updates from the peer.
         */
         PASSIVE_SYNC = 2;
+
+        /*
+        Denotes that this peer is pinned into an active sync.
+        */
+        PINNED_SYNC = 3;
     }
 
     // The type of sync we are currently performing with this peer.

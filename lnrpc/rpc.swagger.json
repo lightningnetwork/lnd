@@ -2269,10 +2269,11 @@
       "enum": [
         "UNKNOWN_SYNC",
         "ACTIVE_SYNC",
-        "PASSIVE_SYNC"
+        "PASSIVE_SYNC",
+        "PINNED_SYNC"
       ],
       "default": "UNKNOWN_SYNC",
-      "description": " - UNKNOWN_SYNC: Denotes that we cannot determine the peer's current sync type.\n - ACTIVE_SYNC: Denotes that we are actively receiving new graph updates from the peer.\n - PASSIVE_SYNC: Denotes that we are not receiving new graph updates from the peer."
+      "description": " - UNKNOWN_SYNC: Denotes that we cannot determine the peer's current sync type.\n - ACTIVE_SYNC: Denotes that we are actively receiving new graph updates from the peer.\n - PASSIVE_SYNC: Denotes that we are not receiving new graph updates from the peer.\n - PINNED_SYNC: Denotes that this peer is pinned into an active sync."
     },
     "PendingChannelsResponseClosedChannel": {
       "type": "object",

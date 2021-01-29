@@ -2744,6 +2744,8 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 				lnrpcSyncType = lnrpc.Peer_ACTIVE_SYNC
 			case discovery.PassiveSync:
 				lnrpcSyncType = lnrpc.Peer_PASSIVE_SYNC
+			case discovery.PinnedSync:
+				lnrpcSyncType = lnrpc.Peer_PINNED_SYNC
 			default:
 				return nil, fmt.Errorf("unhandled sync type %v",
 					syncType)

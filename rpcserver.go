@@ -492,7 +492,8 @@ type rpcServer struct {
 	// own independent service. This allows us to expose a set of
 	// micro-service like abstractions to the outside world for users to
 	// consume.
-	subServers []lnrpc.SubServer
+	subServers      []lnrpc.SubServer
+	subGrpcHandlers []lnrpc.GrpcHandler
 
 	// grpcServer is the main gRPC server that this RPC server, and all the
 	// sub-servers will use to register themselves and accept client
@@ -616,8 +617,9 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 	}
 
 	var (
-		subServers     []lnrpc.SubServer
-		subServerPerms []lnrpc.MacaroonPerms
+		subServers      []lnrpc.SubServer
+		subGrpcHandlers []lnrpc.GrpcHandler
+		subServerPerms  []lnrpc.MacaroonPerms
 	)
 
 	// Before we create any of the sub-servers, we need to ensure that all
@@ -639,8 +641,9 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 	// Now that the sub-servers have all their dependencies in place, we
 	// can create each sub-server!
 	registeredSubServers := lnrpc.RegisteredSubServers()
-	for _, subServer := range registeredSubServers {
-		subServerInstance, macPerms, err := subServer.New(subServerCgs)
+	for _, driver := range registeredSubServers {
+		handler := driver.NewGrpcHandler()
+		subServer, macPerms, err := handler.CreateSubServer(subServerCgs)
 		if err != nil {
 			return nil, err
 		}
@@ -648,7 +651,8 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 		// We'll collect the sub-server, and also the set of
 		// permissions it needs for macaroons so we can apply the
 		// interceptors below.
-		subServers = append(subServers, subServerInstance)
+		subServers = append(subServers, subServer)
+		subGrpcHandlers = append(subGrpcHandlers, handler)
 		subServerPerms = append(subServerPerms, macPerms)
 	}
 
@@ -767,6 +771,7 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 		listenerCleanUp: []func(){cleanup},
 		restProxyDest:   restProxyDest,
 		subServers:      subServers,
+		subGrpcHandlers: subGrpcHandlers,
 		restListen:      restListen,
 		grpcServer:      grpcServer,
 		server:          s,
@@ -782,12 +787,11 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 	// Now the main RPC server has been registered, we'll iterate through
 	// all the sub-RPC servers and register them to ensure that requests
 	// are properly routed towards them.
-	for _, subServer := range subServers {
+	for _, subServer := range subGrpcHandlers {
 		err := subServer.RegisterWithRootServer(grpcServer)
 		if err != nil {
 			return nil, fmt.Errorf("unable to register "+
-				"sub-server %v with root: %v",
-				subServer.Name(), err)
+				"sub-server with root: %v", err)
 		}
 	}
 
@@ -885,13 +889,13 @@ func (r *rpcServer) Start() error {
 	if err != nil {
 		return err
 	}
-	for _, subServer := range r.subServers {
+	for _, subServer := range r.subGrpcHandlers {
 		err := subServer.RegisterWithRestServer(
 			restCtx, restMux, r.restProxyDest, r.restDialOpts,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to register REST sub-server "+
-				"%v with root: %v", subServer.Name(), err)
+				"with root: %v", err)
 		}
 	}
 

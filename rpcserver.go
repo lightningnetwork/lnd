@@ -73,6 +73,8 @@ import (
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/tv42/zbase32"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
@@ -5308,7 +5310,10 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	// to this public key. If the node cannot be found, then an error will
 	// be returned.
 	node, err := graph.FetchLightningNode(nil, pubKey)
-	if err != nil {
+	switch {
+	case err == channeldb.ErrGraphNodeNotFound:
+		return nil, status.Error(codes.NotFound, err.Error())
+	case err != nil:
 		return nil, err
 	}
 

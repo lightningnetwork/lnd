@@ -313,7 +313,7 @@ DESCRIPTION:
 
   Allows a user to restore a Static Channel Backup (SCB) that was
   obtained either via the exportchanbackup command, or from lnd's
-  automatically manged channels.backup file. This command should be used
+  automatically managed channels.backup file. This command should be used
   if a user is attempting to restore a channel due to data loss on a
   running node restored with the same seed as the node that created the
   channel. If successful, this command will allows the user to recover

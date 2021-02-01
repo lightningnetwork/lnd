@@ -16,7 +16,6 @@ env:
   # go needs absolute directories, using the $HOME variable doesn't work here.
   GOCACHE: /home/runner/work/go/pkg/build
   GOPATH: /home/runner/work/go
-  DOWNLOAD_CACHE: /home/runner/work/download_cache
   BITCOIN_VERSION: 0.20.1
 
   # If you change this value, please change it in the following files as well:
@@ -29,10 +28,10 @@ env:
 
 jobs:
   ########################
-  # RPC compilation check
+  # RPC and mobile compilation check
   ########################
   rpc-check:
-    name: RPC compilation check
+    name: RPC and mobile compilation check
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
@@ -54,20 +53,14 @@ jobs:
         with:
           go-version: '~${{ env.GO_VERSION }}'
 
-      - name: download cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/download_cache
-          key: lnd-${{ runner.os }}-download-${{ hashFiles('**/install_travis_proto.sh') }}
-          restore-keys: |
-            lnd-${{ runner.os }}-download-${{ hashFiles('**/install_travis_proto.sh') }}
-            lnd-${{ runner.os }}-download-
-
-      - name: install protoc and protobuf libraries
-        run: ./scripts/install_travis_proto.sh
-
       - name: run check
         run: make rpc-check
+        
+      - name: build mobile RPC bindings
+        run: make mobile-rpc
+
+      - name: build mobile specific code
+        run: go build --tags="mobile" ./mobile
 
   ########################
   # check commits
@@ -170,50 +163,6 @@ jobs:
         run: make release
 
   ########################
-  # mobile compilation
-  ########################
-  mobile-compile:
-    name: mobile compilation
-    runs-on: ubuntu-latest
-    steps:
-      - name: git checkout
-        uses: actions/checkout@v2
-
-      - name: go cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/go
-          key: lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-
-            lnd-${{ runner.os }}-go-
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
-        with:
-          go-version: '~${{ env.GO_VERSION }}'
-
-      - name: download cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/download_cache
-          key: lnd-${{ runner.os }}-download-${{ hashFiles('**/install_travis_proto.sh') }}
-          restore-keys: |
-            lnd-${{ runner.os }}-download-${{ hashFiles('**/install_travis_proto.sh') }}
-            lnd-${{ runner.os }}-download-
-
-      - name: install protoc and protobuf libraries
-        run: ./scripts/install_travis_proto.sh
-
-      - name: build mobile RPC bindings
-        run: make mobile-rpc
-
-      - name: build mobile specific code
-        run: go build --tags="mobile" ./mobile
-
-  ########################
   # sample configuration check
   ########################
   sample-conf-check:
@@ -238,15 +187,6 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: '~${{ env.GO_VERSION }}'
-
-      - name: download cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/download_cache
-          key: lnd-${{ runner.os }}-download-${{ hashFiles('**/install_travis_proto.sh') }}
-          restore-keys: |
-            lnd-${{ runner.os }}-download-${{ hashFiles('**/install_travis_proto.sh') }}
-            lnd-${{ runner.os }}-download-
 
       - name: check all command line flags exist in sample-lnd.conf file
         run: make sample-conf-check

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"net"
 	"net/http"
 	"runtime"
 	"sort"
@@ -60,7 +59,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
-	"github.com/lightningnetwork/lnd/monitoring"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/record"
@@ -495,33 +493,6 @@ type rpcServer struct {
 	subServers      []lnrpc.SubServer
 	subGrpcHandlers []lnrpc.GrpcHandler
 
-	// grpcServer is the main gRPC server that this RPC server, and all the
-	// sub-servers will use to register themselves and accept client
-	// requests from.
-	grpcServer *grpc.Server
-
-	// listeners is a list of listeners to use when starting the grpc
-	// server. We make it configurable such that the grpc server can listen
-	// on custom interfaces.
-	listeners []*ListenerWithSignal
-
-	// listenerCleanUp are a set of closures functions that will allow this
-	// main RPC server to clean up all the listening socket created for the
-	// server.
-	listenerCleanUp []func()
-
-	// restDialOpts are a set of gRPC dial options that the REST server
-	// proxy will use to connect to the main gRPC server.
-	restDialOpts []grpc.DialOption
-
-	// restProxyDest is the address to forward REST requests to.
-	restProxyDest string
-
-	// restListen is a function closure that allows the REST server proxy to
-	// connect to the main gRPC server to proxy all incoming requests,
-	// applying the current TLS configuration, if any.
-	restListen func(net.Addr) (net.Listener, error)
-
 	// routerBackend contains the backend implementation of the router
 	// rpc sub server.
 	routerBackend *routerrpc.RouterBackend
@@ -555,27 +526,48 @@ type rpcServer struct {
 // LightningServer gRPC service.
 var _ lnrpc.LightningServer = (*rpcServer)(nil)
 
-// newRPCServer creates and returns a new instance of the rpcServer. The
-// rpcServer will handle creating all listening sockets needed by it, and any
-// of the sub-servers that it maintains. The set of serverOpts should be the
-// base level options passed to the grPC server. This typically includes things
-// like requiring TLS, etc.
-func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
-	subServerCgs *subRPCServerConfigs, serverOpts []grpc.ServerOption,
-	restDialOpts []grpc.DialOption, restProxyDest string,
-	atpl *autopilot.Manager, invoiceRegistry *invoices.InvoiceRegistry,
-	tower *watchtower.Standalone,
-	restListen func(net.Addr) (net.Listener, error),
-	getListeners rpcListeners, chanPredicate *chanacceptor.ChainedAcceptor,
-	interceptorChain *rpcperms.InterceptorChain,
-	extSubserverCfg *RPCSubserverConfig, extRestRegistrar RestRegistrar) (
-	*rpcServer, error) {
+// newRPCServer creates and returns a new instance of the rpcServer. Before
+// dependencies are added, this will be an non-functioning RPC server only to
+// be used to register the LightningService with the gRPC server.
+func newRPCServer(cfg *Config, interceptorChain *rpcperms.InterceptorChain,
+	extSubserverCfg *RPCSubserverConfig,
+	extRestRegistrar RestRegistrar) *rpcServer {
+
+	// We go trhough the list of registered sub-servers, and create a gRPC
+	// handler for each. These are used to register with the gRPC server
+	// before all dependencies are available.
+	registeredSubServers := lnrpc.RegisteredSubServers()
+
+	var subServerHandlers []lnrpc.GrpcHandler
+	for _, subServer := range registeredSubServers {
+		subServerHandlers = append(
+			subServerHandlers, subServer.NewGrpcHandler(),
+		)
+	}
+
+	return &rpcServer{
+		cfg:              cfg,
+		subGrpcHandlers:  subServerHandlers,
+		interceptorChain: interceptorChain,
+		extSubserverCfg:  extSubserverCfg,
+		extRestRegistrar: extRestRegistrar,
+		quit:             make(chan struct{}, 1),
+	}
+}
+
+// addDeps populates all dependencies needed by the RPC server, and any
+// of the sub-servers that it maintains. When this is done, the RPC server can
+// be started, and start accepting RPC calls.
+func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
+	subServerCgs *subRPCServerConfigs, atpl *autopilot.Manager,
+	invoiceRegistry *invoices.InvoiceRegistry, tower *watchtower.Standalone,
+	chanPredicate *chanacceptor.ChainedAcceptor) error {
 
 	// Set up router rpc backend.
 	channelGraph := s.localChanDB.ChannelGraph()
 	selfNode, err := channelGraph.SourceNode()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	graph := s.localChanDB.ChannelGraph()
 	routerBackend := &routerrpc.RouterBackend{
@@ -606,10 +598,10 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 		},
 		FindRoute:              s.chanRouter.FindRoute,
 		MissionControl:         s.missionControl,
-		ActiveNetParams:        cfg.ActiveNetParams.Params,
+		ActiveNetParams:        r.cfg.ActiveNetParams.Params,
 		Tower:                  s.controlTower,
-		MaxTotalTimelock:       cfg.MaxOutgoingCltvExpiry,
-		DefaultFinalCltvDelta:  uint16(cfg.Bitcoin.TimeLockDelta),
+		MaxTotalTimelock:       r.cfg.MaxOutgoingCltvExpiry,
+		DefaultFinalCltvDelta:  uint16(r.cfg.Bitcoin.TimeLockDelta),
 		SubscribeHtlcEvents:    s.htlcNotifier.SubscribeHtlcEvents,
 		InterceptableForwarder: s.interceptableSwitch,
 		SetChannelEnabled: func(outpoint wire.OutPoint) error {
@@ -626,9 +618,8 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 	}
 
 	var (
-		subServers      []lnrpc.SubServer
-		subGrpcHandlers []lnrpc.GrpcHandler
-		subServerPerms  []lnrpc.MacaroonPerms
+		subServers     []lnrpc.SubServer
+		subServerPerms []lnrpc.MacaroonPerms
 	)
 
 	// Before we create any of the sub-servers, we need to ensure that all
@@ -637,31 +628,30 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 	//
 	// TODO(roasbeef): extend sub-sever config to have both (local vs remote) DB
 	err = subServerCgs.PopulateDependencies(
-		cfg, s.cc, cfg.networkDir, macService, atpl, invoiceRegistry,
-		s.htlcSwitch, cfg.ActiveNetParams.Params, s.chanRouter,
+		r.cfg, s.cc, r.cfg.networkDir, macService, atpl, invoiceRegistry,
+		s.htlcSwitch, r.cfg.ActiveNetParams.Params, s.chanRouter,
 		routerBackend, s.nodeSigner, s.localChanDB, s.remoteChanDB,
 		s.sweeper, tower, s.towerClient, s.anchorTowerClient,
-		cfg.net.ResolveTCPAddr, genInvoiceFeatures, rpcsLog,
+		r.cfg.net.ResolveTCPAddr, genInvoiceFeatures, rpcsLog,
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	// Now that the sub-servers have all their dependencies in place, we
 	// can create each sub-server!
-	registeredSubServers := lnrpc.RegisteredSubServers()
-	for _, driver := range registeredSubServers {
-		handler := driver.NewGrpcHandler()
-		subServer, macPerms, err := handler.CreateSubServer(subServerCgs)
+	for _, subServerInstance := range r.subGrpcHandlers {
+		subServer, macPerms, err := subServerInstance.CreateSubServer(
+			subServerCgs,
+		)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		// We'll collect the sub-server, and also the set of
 		// permissions it needs for macaroons so we can apply the
 		// interceptors below.
 		subServers = append(subServers, subServer)
-		subGrpcHandlers = append(subGrpcHandlers, handler)
 		subServerPerms = append(subServerPerms, macPerms)
 	}
 
@@ -669,35 +659,29 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 	// with the main RPC server permissions so we can unite them under a
 	// single set of interceptors.
 	for m, ops := range MainRPCServerPermissions() {
-		err := interceptorChain.AddPermission(m, ops)
+		err := r.interceptorChain.AddPermission(m, ops)
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 
 	for _, subServerPerm := range subServerPerms {
 		for method, ops := range subServerPerm {
-			err := interceptorChain.AddPermission(method, ops)
+			err := r.interceptorChain.AddPermission(method, ops)
 			if err != nil {
-				return nil, err
+				return err
 			}
 		}
 	}
 
-	// Get the listeners and server options to use for this rpc server.
-	listeners, cleanup, err := getListeners()
-	if err != nil {
-		return nil, err
-	}
-
 	// External subserver possibly need to register their own permissions
 	// and macaroon validator.
-	if extSubserverCfg != nil {
-		macValidator := extSubserverCfg.MacaroonValidator
-		for method, ops := range extSubserverCfg.Permissions {
-			err := interceptorChain.AddPermission(method, ops)
+	if r.extSubserverCfg != nil {
+		macValidator := r.extSubserverCfg.MacaroonValidator
+		for method, ops := range r.extSubserverCfg.Permissions {
+			err := r.interceptorChain.AddPermission(method, ops)
 			if err != nil {
-				return nil, err
+				return err
 			}
 
 			// Give the external subservers the possibility
@@ -710,7 +694,7 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 					method, macValidator,
 				)
 				if err != nil {
-					return nil, fmt.Errorf("could "+
+					return fmt.Errorf("could "+
 						"not register "+
 						"external macaroon "+
 						"validator: %v", err)
@@ -719,43 +703,50 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 		}
 	}
 
-	// Finally, with all the pre-set up complete,  we can create the main
-	// gRPC server, and register the main lnrpc server along side.
-	grpcServer := grpc.NewServer(serverOpts...)
-	rootRPCServer := &rpcServer{
-		cfg:              cfg,
-		restDialOpts:     restDialOpts,
-		listeners:        listeners,
-		listenerCleanUp:  []func(){cleanup},
-		restProxyDest:    restProxyDest,
-		subServers:       subServers,
-		subGrpcHandlers:  subGrpcHandlers,
-		restListen:       restListen,
-		grpcServer:       grpcServer,
-		server:           s,
-		routerBackend:    routerBackend,
-		chanPredicate:    chanPredicate,
-		quit:             make(chan struct{}, 1),
-		macService:       macService,
-		selfNode:         selfNode.PubKeyBytes,
-		interceptorChain: interceptorChain,
-		extSubserverCfg:  extSubserverCfg,
-		extRestRegistrar: extRestRegistrar,
-	}
-	lnrpc.RegisterLightningServer(grpcServer, rootRPCServer)
+	// Finally, with all the set up complete, add the last dependencies to
+	// the rpc server.
+	r.server = s
+	r.subServers = subServers
+	r.routerBackend = routerBackend
+	r.chanPredicate = chanPredicate
+	r.macService = macService
+	r.selfNode = selfNode.PubKeyBytes
+	return nil
+}
+
+// RegisterWithGrpcServer registers the rpcServer and any subservers with the
+// root gRPC server.
+func (r *rpcServer) RegisterWithGrpcServer(grpcServer *grpc.Server) error {
+	// Register the main RPC server.
+	lnrpc.RegisterLightningServer(grpcServer, r)
 
 	// Now the main RPC server has been registered, we'll iterate through
 	// all the sub-RPC servers and register them to ensure that requests
 	// are properly routed towards them.
-	for _, subServer := range subGrpcHandlers {
+	for _, subServer := range r.subGrpcHandlers {
 		err := subServer.RegisterWithRootServer(grpcServer)
 		if err != nil {
-			return nil, fmt.Errorf("unable to register "+
+			return fmt.Errorf("unable to register "+
 				"sub-server with root: %v", err)
 		}
 	}
 
-	return rootRPCServer, nil
+	// Before actually listening on the gRPC listener, give external
+	// subservers the chance to register to our gRPC server. Those external
+	// subservers (think GrUB) are responsible for starting/stopping on
+	// their own, we just let them register their services to the same
+	// server instance so all of them can be exposed on the same
+	// port/listener.
+	if r.extSubserverCfg != nil && r.extSubserverCfg.Registrar != nil {
+		registerer := r.extSubserverCfg.Registrar
+		err := registerer.RegisterGrpcSubserver(grpcServer)
+		if err != nil {
+			rpcsLog.Errorf("error registering external gRPC "+
+				"subserver: %v", err)
+		}
+	}
+
+	return nil
 }
 
 // Start launches any helper goroutines required for the rpcServer to function.
@@ -777,76 +768,27 @@ func (r *rpcServer) Start() error {
 		}
 	}
 
-	// Before actually listening on the gRPC listener, give external
-	// subservers the chance to register to our gRPC server. Those external
-	// subservers (think GrUB) are responsible for starting/stopping on
-	// their own, we just let them register their services to the same
-	// server instance so all of them can be exposed on the same
-	// port/listener.
-	if r.extSubserverCfg != nil && r.extSubserverCfg.Registrar != nil {
-		registerer := r.extSubserverCfg.Registrar
-		err := registerer.RegisterGrpcSubserver(r.grpcServer)
-		if err != nil {
-			rpcsLog.Errorf("error registering external gRPC "+
-				"subserver: %v", err)
-		}
-	}
+	return nil
+}
 
-	// With all the sub-servers started, we'll spin up the listeners for
-	// the main RPC server itself.
-	for _, lis := range r.listeners {
-		go func(lis *ListenerWithSignal) {
-			rpcsLog.Infof("RPC server listening on %s", lis.Addr())
-
-			// Close the ready chan to indicate we are listening.
-			close(lis.Ready)
-			_ = r.grpcServer.Serve(lis)
-		}(lis)
-	}
-
-	// If Prometheus monitoring is enabled, start the Prometheus exporter.
-	if r.cfg.Prometheus.Enabled() {
-		err := monitoring.ExportPrometheusMetrics(
-			r.grpcServer, r.cfg.Prometheus,
-		)
-		if err != nil {
-			return err
-		}
-	}
-
-	// The default JSON marshaler of the REST proxy only sets OrigName to
-	// true, which instructs it to use the same field names as specified in
-	// the proto file and not switch to camel case. What we also want is
-	// that the marshaler prints all values, even if they are falsey.
-	customMarshalerOption := proxy.WithMarshalerOption(
-		proxy.MIMEWildcard, &proxy.JSONPb{
-			OrigName:     true,
-			EmitDefaults: true,
-		},
-	)
-
-	// Now start the REST proxy for our gRPC server above. We'll ensure
-	// we direct LND to connect to its loopback address rather than a
-	// wildcard to prevent certificate issues when accessing the proxy
-	// externally.
-	restMux := proxy.NewServeMux(customMarshalerOption)
-	restCtx, restCancel := context.WithCancel(context.Background())
-	r.listenerCleanUp = append(r.listenerCleanUp, restCancel)
-
-	// Wrap the default grpc-gateway handler with the WebSocket handler.
-	restHandler := lnrpc.NewWebSocketProxy(restMux, rpcsLog)
+// RegisterWithRestProxy registers the RPC server and any subservers with the
+// given REST proxy.
+func (r *rpcServer) RegisterWithRestProxy(restCtx context.Context,
+	restMux *proxy.ServeMux, restDialOpts []grpc.DialOption,
+	restProxyDest string) error {
 
 	// With our custom REST proxy mux created, register our main RPC and
 	// give all subservers a chance to register as well.
 	err := lnrpc.RegisterLightningHandlerFromEndpoint(
-		restCtx, restMux, r.restProxyDest, r.restDialOpts,
+		restCtx, restMux, restProxyDest, restDialOpts,
 	)
 	if err != nil {
 		return err
 	}
+
 	for _, subServer := range r.subGrpcHandlers {
 		err := subServer.RegisterWithRestServer(
-			restCtx, restMux, r.restProxyDest, r.restDialOpts,
+			restCtx, restMux, restProxyDest, restDialOpts,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to register REST sub-server "+
@@ -859,44 +801,13 @@ func (r *rpcServer) Start() error {
 	// with our mux instance.
 	if r.extRestRegistrar != nil {
 		err := r.extRestRegistrar.RegisterRestSubserver(
-			restCtx, restMux, r.restProxyDest,
-			r.restDialOpts,
+			restCtx, restMux, restProxyDest, restDialOpts,
 		)
 		if err != nil {
 			rpcsLog.Errorf("error registering "+
 				"external REST subserver: %v", err)
 		}
 	}
-
-	// Now spin up a network listener for each requested port and start a
-	// goroutine that serves REST with the created mux there.
-	for _, restEndpoint := range r.cfg.RESTListeners {
-		lis, err := r.restListen(restEndpoint)
-		if err != nil {
-			ltndLog.Errorf("gRPC proxy unable to listen on %s",
-				restEndpoint)
-			return err
-		}
-
-		r.listenerCleanUp = append(r.listenerCleanUp, func() {
-			_ = lis.Close()
-		})
-
-		go func() {
-			rpcsLog.Infof("gRPC proxy started at %s", lis.Addr())
-
-			// Create our proxy chain now. A request will pass
-			// through the following chain:
-			// req ---> CORS handler --> WS proxy --->
-			//   REST proxy --> gRPC endpoint
-			corsHandler := allowCORS(restHandler, r.cfg.RestCORS)
-			err := http.Serve(lis, corsHandler)
-			if err != nil && !lnrpc.IsClosedConnError(err) {
-				rpcsLog.Error(err)
-			}
-		}()
-	}
-
 	return nil
 }
 
@@ -922,12 +833,6 @@ func (r *rpcServer) Stop() error {
 				subServer.Name(), err)
 			continue
 		}
-	}
-
-	// Finally, we can clean up all the listening sockets to ensure that we
-	// give the file descriptors back to the OS.
-	for _, cleanUp := range r.listenerCleanUp {
-		cleanUp()
 	}
 
 	return nil

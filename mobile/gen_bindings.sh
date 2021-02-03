@@ -16,7 +16,7 @@ then
         version="v$($falafel -v)"
         if [ $version != $falafelVersion ]
         then
-                echo "falafel version $falafelVersion required"
+                echo "falafel version $falafelVersion required, had $version"
                 exit 1
         fi
         echo "Using plugin $falafel $version"

@@ -189,6 +189,7 @@ func newTestSyncer(hID lnwire.ShortChannelID,
 		bestHeight: func() uint32 {
 			return latestKnownHeight
 		},
+		markGraphSynced:          func() {},
 		maxQueryChanRangeReplies: maxQueryChanRangeReplies,
 	}
 	syncer := newGossipSyncer(cfg)

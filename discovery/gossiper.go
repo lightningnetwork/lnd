@@ -93,6 +93,10 @@ type chanPolicyUpdateRequest struct {
 	errChan       chan error
 }
 
+// PinnedSyncers is a set of node pubkeys for which we will maintain an active
+// syncer at all times.
+type PinnedSyncers map[route.Vertex]struct{}
+
 // Config defines the configuration for the service. ALL elements within the
 // configuration MUST be non-nil for the service to carry out its duties.
 type Config struct {
@@ -233,6 +237,11 @@ type Config struct {
 	// gossip updates to once per RebroadcastInterval for any keep-alive
 	// updates, and once per block for other types of updates.
 	GossipUpdateThrottle bool
+
+	// PinnedSyncers is a set of peers that will always transition to
+	// ActiveSync upon connection. These peers will never transition to
+	// PassiveSync.
+	PinnedSyncers PinnedSyncers
 }
 
 // AuthenticatedGossiper is a subsystem which is responsible for receiving
@@ -334,6 +343,7 @@ func New(cfg Config, selfKey *btcec.PublicKey) *AuthenticatedGossiper {
 		NumActiveSyncers:        cfg.NumActiveSyncers,
 		IgnoreHistoricalFilters: cfg.IgnoreHistoricalFilters,
 		BestHeight:              gossiper.latestHeight,
+		PinnedSyncers:           cfg.PinnedSyncers,
 	})
 
 	gossiper.reliableSender = newReliableSender(&reliableSenderCfg{

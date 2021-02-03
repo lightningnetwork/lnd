@@ -153,10 +153,6 @@ type ListenerWithSignal struct {
 // ListenerCfg is a wrapper around custom listeners that can be passed to lnd
 // when calling its main method.
 type ListenerCfg struct {
-	// WalletUnlocker can be set to the listener to use for the wallet
-	// unlocker. If nil a regular network listener will be created.
-	WalletUnlocker *ListenerWithSignal
-
 	// RPCListener can be set to the listener to use for the RPC server. If
 	// nil a regular network listener will be created.
 	RPCListener *ListenerWithSignal

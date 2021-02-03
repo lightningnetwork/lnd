@@ -278,7 +278,8 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 		ChainParams:        s.cfg.ChainParams,
 		NodeSigner:         s.cfg.NodeSigner,
 		DefaultCLTVExpiry:  s.cfg.DefaultCLTVExpiry,
-		ChanDB:             s.cfg.ChanDB,
+		ChanDB:             s.cfg.RemoteChanDB,
+		Graph:              s.cfg.LocalChanDB.ChannelGraph(),
 		GenInvoiceFeatures: s.cfg.GenInvoiceFeatures,
 	}
 

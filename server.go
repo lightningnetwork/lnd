@@ -820,6 +820,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		SubBatchDelay:           time.Second * 5,
 		IgnoreHistoricalFilters: cfg.IgnoreHistoricalGossipFilters,
 		GossipUpdateThrottle:    !cfg.ProtocolOptions.NoGossipThrottle(),
+		PinnedSyncers:           cfg.Gossip.PinnedSyncers,
 	},
 		s.identityECDH.PubKey(),
 	)

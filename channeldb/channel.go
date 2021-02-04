@@ -36,7 +36,7 @@ var (
 	// previously open, but now closed channels.
 	closedChannelBucket = []byte("closed-chan-bucket")
 
-	// openChanBucket stores all the currently open channels. This bucket
+	// openChannelBucket stores all the currently open channels. This bucket
 	// has a second, nested bucket which is keyed by a node's ID. Within
 	// that node ID bucket, all attributes required to track, update, and
 	// close a channel are stored.
@@ -128,6 +128,11 @@ var (
 	// active "frozen" channels. This key is present only in the leaf
 	// bucket for a given channel.
 	frozenChanKey = []byte("frozen-chans")
+
+	// lastWasRevokeKey is a key that stores true when the last update we sent
+	// was a revocation and false when it was a commitment signature. This is
+	// nil in the case of new channels with no updates exchanged.
+	lastWasRevokeKey = []byte("last-was-revoke")
 )
 
 var (
@@ -225,7 +230,7 @@ const (
 	// funded symmetrically or asymmetrically.
 	DualFunderBit ChannelType = 1 << 0
 
-	// SingleFunderTweakless is similar to the basic SingleFunder channel
+	// SingleFunderTweaklessBit is similar to the basic SingleFunder channel
 	// type, but it omits the tweak for one's key in the commitment
 	// transaction of the remote party.
 	SingleFunderTweaklessBit ChannelType = 1 << 1
@@ -709,6 +714,10 @@ type OpenChannel struct {
 	// this channel. If the value is lower than 500,000, then it's
 	// interpreted as a relative height, or an absolute height otherwise.
 	ThawHeight uint32
+
+	// LastWasRevoke is a boolean that determines if the last update we sent
+	// was a revocation (true) or a commitment signature (false).
+	LastWasRevoke bool
 
 	// TODO(roasbeef): eww
 	Db *DB
@@ -1526,6 +1535,17 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 				"updates: %v", err)
 		}
 
+		// Since we have just sent the counterparty a revocation, store true
+		// under lastWasRevokeKey.
+		var b2 bytes.Buffer
+		if err := WriteElements(&b2, true); err != nil {
+			return err
+		}
+
+		if err := chanBucket.Put(lastWasRevokeKey, b2.Bytes()); err != nil {
+			return err
+		}
+
 		// Persist the remote unsigned local updates that are not included
 		// in our new commitment.
 		updateBytes := chanBucket.Get(remoteUnsignedLocalUpdatesKey)
@@ -1548,13 +1568,13 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 			}
 		}
 
-		var b2 bytes.Buffer
-		err = serializeLogUpdates(&b2, validUpdates)
+		var b3 bytes.Buffer
+		err = serializeLogUpdates(&b3, validUpdates)
 		if err != nil {
 			return fmt.Errorf("unable to serialize log updates: %v", err)
 		}
 
-		err = chanBucket.Put(remoteUnsignedLocalUpdatesKey, b2.Bytes())
+		err = chanBucket.Put(remoteUnsignedLocalUpdatesKey, b3.Bytes())
 		if err != nil {
 			return fmt.Errorf("unable to restore chanbucket: %v", err)
 		}
@@ -2091,15 +2111,25 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 			return err
 		}
 
+		// We are sending a commitment signature so lastWasRevokeKey should
+		// store false.
+		var b bytes.Buffer
+		if err := WriteElements(&b, false); err != nil {
+			return err
+		}
+		if err := chanBucket.Put(lastWasRevokeKey, b.Bytes()); err != nil {
+			return err
+		}
+
 		// TODO(roasbeef): use seqno to derive key for later LCP
 
 		// With the bucket retrieved, we'll now serialize the commit
 		// diff itself, and write it to disk.
-		var b bytes.Buffer
-		if err := serializeCommitDiff(&b, diff); err != nil {
+		var b2 bytes.Buffer
+		if err := serializeCommitDiff(&b2, diff); err != nil {
 			return err
 		}
-		return chanBucket.Put(commitDiffKey, b.Bytes())
+		return chanBucket.Put(commitDiffKey, b2.Bytes())
 	}, func() {})
 }
 
@@ -3417,6 +3447,21 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 	}
 	if err := readChanConfig(r, &channel.RemoteChanCfg); err != nil {
 		return err
+	}
+
+	// Retrieve the boolean stored under lastWasRevokeKey.
+	lastWasRevokeBytes := chanBucket.Get(lastWasRevokeKey)
+	if lastWasRevokeBytes == nil {
+		// If nothing has been stored under this key, we store false in the
+		// OpenChannel struct.
+		channel.LastWasRevoke = false
+	} else {
+		// Otherwise, read the value into the LastWasRevoke field.
+		revokeReader := bytes.NewReader(lastWasRevokeBytes)
+		err := ReadElements(revokeReader, &channel.LastWasRevoke)
+		if err != nil {
+			return err
+		}
 	}
 
 	channel.Packager = NewChannelPackager(channel.ShortChannelID)

@@ -18,13 +18,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v1
+        uses: lightninglabs/gh-actions/setup-qemu-action@2021.01.25.00
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
+        uses: lightninglabs/gh-actions/setup-buildx-action@2021.01.25.00
 
       - name: Login to DockerHub
-        uses: docker/login-action@v1
+        uses: lightninglabs/gh-actions/login-action@2021.01.25.00
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_API_KEY }}
@@ -34,7 +34,7 @@ jobs:
 
       - name: Build and push
         id: docker_build
-        uses: docker/build-push-action@v2
+        uses: lightninglabs/gh-actions/build-push-action@2021.01.25.00
         with:
           push: true
           platforms: linux/amd64,linux/arm64

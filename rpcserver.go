@@ -619,9 +619,9 @@ func newRPCServer(cfg *Config, s *server, macService *macaroons.Service,
 	err = subServerCgs.PopulateDependencies(
 		cfg, s.cc, cfg.networkDir, macService, atpl, invoiceRegistry,
 		s.htlcSwitch, cfg.ActiveNetParams.Params, s.chanRouter,
-		routerBackend, s.nodeSigner, s.remoteChanDB, s.sweeper, tower,
-		s.towerClient, s.anchorTowerClient, cfg.net.ResolveTCPAddr,
-		genInvoiceFeatures, rpcsLog,
+		routerBackend, s.nodeSigner, s.localChanDB, s.remoteChanDB,
+		s.sweeper, tower, s.towerClient, s.anchorTowerClient,
+		cfg.net.ResolveTCPAddr, genInvoiceFeatures, rpcsLog,
 	)
 	if err != nil {
 		return nil, err
@@ -2744,6 +2744,8 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 				lnrpcSyncType = lnrpc.Peer_ACTIVE_SYNC
 			case discovery.PassiveSync:
 				lnrpcSyncType = lnrpc.Peer_PASSIVE_SYNC
+			case discovery.PinnedSync:
+				lnrpcSyncType = lnrpc.Peer_PINNED_SYNC
 			default:
 				return nil, fmt.Errorf("unhandled sync type %v",
 					syncType)

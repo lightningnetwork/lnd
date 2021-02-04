@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -18,8 +19,10 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -29,49 +32,290 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/pool"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/lightningnetwork/lnd/watchtower/wtmock"
+	"github.com/stretchr/testify/require"
 )
 
 const (
-	broadcastHeight = 100
-
 	// timeout is a timeout value to use for tests which need to wait for
 	// a return value on a channel.
 	timeout = time.Second * 5
 )
 
 var (
+	aliceAddr = &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 18555,
+	}
+
+	bobAddr = &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 18556,
+	}
+
 	// Just use some arbitrary bytes as delivery script.
 	dummyDeliveryScript = channels.AlicesPrivKey
+
+	errDummy = fmt.Errorf("dummy error")
 )
 
-// noUpdate is a function which can be used as a parameter in createTestPeer to
-// call the setup code with no custom values on the channels set up.
-var noUpdate = func(a, b *channeldb.OpenChannel) {}
+type testContext struct {
+	alicePriv *btcec.PrivateKey
+	alicePub  *btcec.PublicKey
+	aliceDb   *channeldb.DB
 
-// createTestPeer creates a channel between two nodes, and returns a peer for
-// one of the nodes, together with the channel seen from both nodes. It takes
-// an updateChan function which can be used to modify the default values on
-// the channel states for each peer.
-func createTestPeer(notifier chainntnfs.ChainNotifier,
-	publTx chan *wire.MsgTx, updateChan func(a, b *channeldb.OpenChannel)) (
-	*Brontide, *lnwallet.LightningChannel, func(), error) {
+	bobPriv *btcec.PrivateKey
+	bobPub  *btcec.PublicKey
+	bobDb   *channeldb.DB
 
-	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(
+	aliceSigner *mock.SingleSigner
+	alicePool   *lnwallet.SigPool
+
+	bobSigner *mock.SingleSigner
+	bobPool   *lnwallet.SigPool
+
+	publTx chan *wire.MsgTx
+
+	aliceConn *wtmock.MockPeer
+
+	notifier *mock.ChainNotifier
+
+	aliceCfg *Config
+
+	bobInit *lnwire.Init
+
+	cleanup func()
+}
+
+// createTestContext makes a test context.
+func createTestContext(t *testing.T) *testContext {
+	alicePriv, alicePub := btcec.PrivKeyFromBytes(
 		btcec.S256(), channels.AlicesPrivKey,
 	)
-	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(
+
+	alicePath, err := ioutil.TempDir("", "alicedb")
+	require.NoError(t, err)
+
+	aliceDb, err := channeldb.Open(alicePath)
+	require.NoError(t, err)
+
+	bobPriv, bobPub := btcec.PrivKeyFromBytes(
 		btcec.S256(), channels.BobsPrivKey,
 	)
 
+	bobPath, err := ioutil.TempDir("", "bobdb")
+	require.NoError(t, err)
+
+	bobDb, err := channeldb.Open(bobPath)
+	require.NoError(t, err)
+
+	aliceSigner := &mock.SingleSigner{Privkey: alicePriv}
+	alicePool := lnwallet.NewSigPool(1, aliceSigner)
+	require.NoError(t, alicePool.Start())
+
+	bobSigner := &mock.SingleSigner{Privkey: bobPriv}
+	bobPool := lnwallet.NewSigPool(1, bobSigner)
+	require.NoError(t, bobPool.Start())
+
+	cleanup := func() {
+		os.RemoveAll(alicePath)
+		os.RemoveAll(bobPath)
+		_ = alicePool.Stop()
+		_ = bobPool.Stop()
+	}
+
+	publTx := make(chan *wire.MsgTx)
+
+	aliceConn := wtmock.NewMockPeer(nil, nil, nil, 1)
+
+	notifier := &mock.ChainNotifier{
+		SpendChan: make(chan *chainntnfs.SpendDetail),
+		EpochChan: make(chan *chainntnfs.BlockEpoch),
+		ConfChan:  make(chan *chainntnfs.TxConfirmation),
+	}
+
+	aliceCfg, err := assembleConfig(
+		alicePriv, alicePub, bobPub, aliceDb, aliceSigner, alicePool,
+		publTx, aliceConn, notifier,
+	)
+	require.NoError(t, err)
+
+	bobGlobalVec := lnwire.NewRawFeatureVector()
+	bobFeatureVec := lnwire.NewRawFeatureVector(
+		lnwire.DataLossProtectRequired,
+	)
+	bobInit := lnwire.NewInitMessage(bobGlobalVec, bobFeatureVec)
+
+	return &testContext{
+		alicePriv: alicePriv,
+		alicePub:  alicePub,
+		aliceDb:   aliceDb,
+
+		bobPriv: bobPriv,
+		bobPub:  bobPub,
+		bobDb:   bobDb,
+
+		aliceSigner: aliceSigner,
+		alicePool:   alicePool,
+
+		bobSigner: bobSigner,
+		bobPool:   bobPool,
+
+		publTx: publTx,
+
+		aliceConn: aliceConn,
+
+		notifier: notifier,
+
+		aliceCfg: aliceCfg,
+
+		bobInit: bobInit,
+
+		cleanup: cleanup,
+	}
+}
+
+// assembleConfig assembles a peer Config.
+func assembleConfig(alicePriv *btcec.PrivateKey, alicePub,
+	bobPub *btcec.PublicKey, aliceDb *channeldb.DB,
+	aliceSigner input.Signer, alicePool *lnwallet.SigPool,
+	publTx chan *wire.MsgTx, conn MessageConn,
+	notifier chainntnfs.ChainNotifier) (*Config, error) {
+
+	var aliceSerPub [33]byte
+	copy(aliceSerPub[:], alicePub.SerializeCompressed())
+
+	var bobSerPub [33]byte
+	copy(bobSerPub[:], bobPub.SerializeCompressed())
+
+	bobNetAddr := &lnwire.NetAddress{
+		IdentityKey: bobPub,
+		Address:     bobAddr,
+		ChainNet:    wire.SimNet,
+	}
+
+	features := lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(lnwire.StaticRemoteKeyRequired),
+		lnwire.Features,
+	)
+	legacy := lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(), lnwire.Features,
+	)
+
+	errBuffer, err := queue.NewCircularBuffer(ErrorBufferSize)
+	if err != nil {
+		return nil, err
+	}
+
+	writeBufferPool := pool.NewWriteBuffer(
+		pool.DefaultWriteBufferGCInterval,
+		pool.DefaultWriteBufferExpiryInterval,
+	)
+	writePool := pool.NewWrite(
+		writeBufferPool, 1, timeout,
+	)
+	if err := writePool.Start(); err != nil {
+		return nil, err
+	}
+
+	readBufferPool := pool.NewReadBuffer(
+		pool.DefaultReadBufferGCInterval,
+		pool.DefaultReadBufferExpiryInterval,
+	)
+	readPool := pool.NewRead(
+		readBufferPool, 1, timeout,
+	)
+	if err := readPool.Start(); err != nil {
+		return nil, err
+	}
+
+	chainIO := &mock.ChainIO{}
+
+	estimator := chainfee.NewStaticEstimator(12500, 0)
+
+	wallet := &lnwallet.LightningWallet{
+		WalletController: &mock.WalletController{
+			RootKey:               alicePriv,
+			PublishedTransactions: publTx,
+		},
+	}
+
+	chanNotifier := channelnotifier.New(aliceDb)
+	if err := chanNotifier.Start(); err != nil {
+		return nil, err
+	}
+
+	disconnect := func(_ *btcec.PublicKey) error { return nil }
+
+	genAnn := func(_ bool, _ ...netann.NodeAnnModifier) (
+		lnwire.NodeAnnouncement, error) {
+		return lnwire.NodeAnnouncement{}, nil
+	}
+
+	prunePeer := func([33]byte) {}
+
+	fetchUpdate := func(_ lnwire.ShortChannelID) (*lnwire.ChannelUpdate,
+		error) {
+		return &lnwire.ChannelUpdate{}, nil
+	}
+
+	interceptSwitch := htlcswitch.NewInterceptableSwitch(nil)
+
+	cfg := &Config{
+		Conn:                          conn,
+		PubKeyBytes:                   bobSerPub,
+		Addr:                          bobNetAddr,
+		Features:                      features,
+		LegacyFeatures:                legacy,
+		ChanActiveTimeout:             time.Hour,
+		ErrorBuffer:                   errBuffer,
+		WritePool:                     writePool,
+		ReadPool:                      readPool,
+		Switch:                        newMockMessageSwitch(),
+		InterceptSwitch:               interceptSwitch,
+		ChannelDB:                     aliceDb,
+		ChannelGraph:                  newMockChannelGraph(),
+		ChainArb:                      newMockChainArb(),
+		AuthGossiper:                  newMockGossiper(),
+		ChanStatusMgr:                 newMockStatusMgr(),
+		ChainIO:                       chainIO,
+		FeeEstimator:                  estimator,
+		Signer:                        aliceSigner,
+		SigPool:                       alicePool,
+		Wallet:                        wallet,
+		ChainNotifier:                 notifier,
+		RoutingPolicy:                 htlcswitch.ForwardingPolicy{},
+		Sphinx:                        newMockSphinx(),
+		ChannelNotifier:               chanNotifier,
+		DisconnectPeer:                disconnect,
+		GenNodeAnnouncement:           genAnn,
+		PrunePersistentPeerConnection: prunePeer,
+		FetchLastChanUpdate:           fetchUpdate,
+		FundingManager:                newMockFunding(),
+		Hodl:                          &hodl.Config{},
+		ServerPubKey:                  aliceSerPub,
+		Quit:                          make(chan struct{}),
+	}
+
+	return cfg, nil
+}
+
+// createTestChannels makes two test channels for alice, bob.
+func createTestChannels(update func(a, b *channeldb.OpenChannel),
+	alicePriv, bobPriv *btcec.PrivateKey, alicePub,
+	bobPub *btcec.PublicKey, aliceDb, bobDb *channeldb.DB,
+	estimator chainfee.Estimator, bobSigner input.Signer,
+	bobSigPool *lnwallet.SigPool, tweak bool) (*channeldb.OpenChannel,
+	*lnwallet.LightningChannel, error) {
+
 	channelCapacity := btcutil.Amount(10 * 1e8)
 	channelBal := channelCapacity / 2
-	aliceDustLimit := btcutil.Amount(200)
-	bobDustLimit := btcutil.Amount(1300)
-	csvTimeoutAlice := uint32(5)
-	csvTimeoutBob := uint32(4)
+	dustLimit := btcutil.Amount(1300)
+	csvTimeout := uint32(5)
 
 	prevOut := &wire.OutPoint{
 		Hash:  channels.TestHdSeed,
@@ -81,112 +325,71 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 
 	aliceCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit:        aliceDustLimit,
+			DustLimit:        dustLimit,
 			MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
 			ChanReserve:      btcutil.Amount(rand.Int63()),
 			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
-			CsvDelay:         uint16(csvTimeoutAlice),
+			CsvDelay:         uint16(csvTimeout),
 		},
-		MultiSigKey: keychain.KeyDescriptor{
-			PubKey: aliceKeyPub,
-		},
-		RevocationBasePoint: keychain.KeyDescriptor{
-			PubKey: aliceKeyPub,
-		},
-		PaymentBasePoint: keychain.KeyDescriptor{
-			PubKey: aliceKeyPub,
-		},
-		DelayBasePoint: keychain.KeyDescriptor{
-			PubKey: aliceKeyPub,
-		},
-		HtlcBasePoint: keychain.KeyDescriptor{
-			PubKey: aliceKeyPub,
-		},
+		MultiSigKey:         keychain.KeyDescriptor{PubKey: alicePub},
+		RevocationBasePoint: keychain.KeyDescriptor{PubKey: alicePub},
+		PaymentBasePoint:    keychain.KeyDescriptor{PubKey: alicePub},
+		DelayBasePoint:      keychain.KeyDescriptor{PubKey: alicePub},
+		HtlcBasePoint:       keychain.KeyDescriptor{PubKey: alicePub},
 	}
 	bobCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit:        bobDustLimit,
+			DustLimit:        dustLimit,
 			MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
 			ChanReserve:      btcutil.Amount(rand.Int63()),
 			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
-			CsvDelay:         uint16(csvTimeoutBob),
+			CsvDelay:         uint16(csvTimeout),
 		},
-		MultiSigKey: keychain.KeyDescriptor{
-			PubKey: bobKeyPub,
-		},
-		RevocationBasePoint: keychain.KeyDescriptor{
-			PubKey: bobKeyPub,
-		},
-		PaymentBasePoint: keychain.KeyDescriptor{
-			PubKey: bobKeyPub,
-		},
-		DelayBasePoint: keychain.KeyDescriptor{
-			PubKey: bobKeyPub,
-		},
-		HtlcBasePoint: keychain.KeyDescriptor{
-			PubKey: bobKeyPub,
-		},
+		MultiSigKey:         keychain.KeyDescriptor{PubKey: bobPub},
+		RevocationBasePoint: keychain.KeyDescriptor{PubKey: bobPub},
+		PaymentBasePoint:    keychain.KeyDescriptor{PubKey: bobPub},
+		DelayBasePoint:      keychain.KeyDescriptor{PubKey: bobPub},
+		HtlcBasePoint:       keychain.KeyDescriptor{PubKey: bobPub},
 	}
 
-	bobRoot, err := chainhash.NewHash(bobKeyPriv.Serialize())
+	aliceRoot, err := chainhash.NewHash(alicePriv.Serialize())
 	if err != nil {
-		return nil, nil, nil, err
-	}
-	bobPreimageProducer := shachain.NewRevocationProducer(*bobRoot)
-	bobFirstRevoke, err := bobPreimageProducer.AtIndex(0)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	bobCommitPoint := input.ComputeCommitmentPoint(bobFirstRevoke[:])
-
-	aliceRoot, err := chainhash.NewHash(aliceKeyPriv.Serialize())
-	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	alicePreimageProducer := shachain.NewRevocationProducer(*aliceRoot)
 	aliceFirstRevoke, err := alicePreimageProducer.AtIndex(0)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
+	bobRoot, err := chainhash.NewHash(bobPriv.Serialize())
+	if err != nil {
+		return nil, nil, err
+	}
+	bobPreimageProducer := shachain.NewRevocationProducer(*bobRoot)
+	bobFirstRevoke, err := bobPreimageProducer.AtIndex(0)
+	if err != nil {
+		return nil, nil, err
+	}
+	bobCommitPoint := input.ComputeCommitmentPoint(bobFirstRevoke[:])
+
 	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(
 		channelBal, channelBal, &aliceCfg, &bobCfg, aliceCommitPoint,
-		bobCommitPoint, *fundingTxIn, channeldb.SingleFunderTweaklessBit,
+		bobCommitPoint, *fundingTxIn,
+		channeldb.SingleFunderTweaklessBit,
 	)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
-	alicePath, err := ioutil.TempDir("", "alicedb")
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	dbAlice, err := channeldb.Open(alicePath)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	bobPath, err := ioutil.TempDir("", "bobdb")
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	dbBob, err := channeldb.Open(bobPath)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	estimator := chainfee.NewStaticEstimator(12500, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
-	// TODO(roasbeef): need to factor in commit fee?
 	aliceCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
 		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal),
@@ -208,149 +411,80 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 
 	var chanIDBytes [8]byte
 	if _, err := io.ReadFull(crand.Reader, chanIDBytes[:]); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	shortChanID := lnwire.NewShortChanIDFromInt(
 		binary.BigEndian.Uint64(chanIDBytes[:]),
 	)
 
+	chanType := channeldb.SingleFunderTweaklessBit
+	if tweak {
+		chanType = channeldb.SingleFunderBit
+	}
+
+	alicePackager := channeldb.NewChannelPackager(shortChanID)
+	bobPackager := channeldb.NewChannelPackager(shortChanID)
+
 	aliceChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            aliceCfg,
 		RemoteChanCfg:           bobCfg,
-		IdentityPub:             aliceKeyPub,
+		IdentityPub:             bobPub,
 		FundingOutpoint:         *prevOut,
 		ShortChannelID:          shortChanID,
-		ChanType:                channeldb.SingleFunderTweaklessBit,
+		ChanType:                chanType,
 		IsInitiator:             true,
 		Capacity:                channelCapacity,
 		RemoteCurrentRevocation: bobCommitPoint,
 		RevocationProducer:      alicePreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         aliceCommit,
-		RemoteCommitment:        aliceCommit,
-		Db:                      dbAlice,
-		Packager:                channeldb.NewChannelPackager(shortChanID),
+		RemoteCommitment:        bobCommit,
+		Db:                      aliceDb,
+		Packager:                alicePackager,
 		FundingTxn:              channels.TestFundingTx,
 	}
 	bobChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            bobCfg,
 		RemoteChanCfg:           aliceCfg,
-		IdentityPub:             bobKeyPub,
+		IdentityPub:             alicePub,
 		FundingOutpoint:         *prevOut,
-		ChanType:                channeldb.SingleFunderTweaklessBit,
+		ChanType:                chanType,
 		IsInitiator:             false,
 		Capacity:                channelCapacity,
 		RemoteCurrentRevocation: aliceCommitPoint,
 		RevocationProducer:      bobPreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         bobCommit,
-		RemoteCommitment:        bobCommit,
-		Db:                      dbBob,
-		Packager:                channeldb.NewChannelPackager(shortChanID),
+		RemoteCommitment:        aliceCommit,
+		Db:                      bobDb,
+		Packager:                bobPackager,
 	}
 
-	// Set custom values on the channel states.
-	updateChan(aliceChannelState, bobChannelState)
-
-	aliceAddr := &net.TCPAddr{
-		IP:   net.ParseIP("127.0.0.1"),
-		Port: 18555,
-	}
+	update(aliceChannelState, bobChannelState)
 
 	if err := aliceChannelState.SyncPending(aliceAddr, 0); err != nil {
-		return nil, nil, nil, err
-	}
-
-	bobAddr := &net.TCPAddr{
-		IP:   net.ParseIP("127.0.0.1"),
-		Port: 18556,
+		return nil, nil, err
 	}
 
 	if err := bobChannelState.SyncPending(bobAddr, 0); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
-	cleanUpFunc := func() {
-		os.RemoveAll(bobPath)
-		os.RemoveAll(alicePath)
-	}
-
-	aliceSigner := &mock.SingleSigner{Privkey: aliceKeyPriv}
-	bobSigner := &mock.SingleSigner{Privkey: bobKeyPriv}
-
-	alicePool := lnwallet.NewSigPool(1, aliceSigner)
-	channelAlice, err := lnwallet.NewLightningChannel(
-		aliceSigner, aliceChannelState, alicePool,
+	bobChannel, err := lnwallet.NewLightningChannel(
+		bobSigner, bobChannelState, bobSigPool,
 	)
 	if err != nil {
-		return nil, nil, nil, err
-	}
-	_ = alicePool.Start()
-
-	bobPool := lnwallet.NewSigPool(1, bobSigner)
-	channelBob, err := lnwallet.NewLightningChannel(
-		bobSigner, bobChannelState, bobPool,
-	)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	_ = bobPool.Start()
-
-	chainIO := &mock.ChainIO{
-		BestHeight: broadcastHeight,
-	}
-	wallet := &lnwallet.LightningWallet{
-		WalletController: &mock.WalletController{
-			RootKey:               aliceKeyPriv,
-			PublishedTransactions: publTx,
-		},
+		return nil, nil, err
 	}
 
-	const chanActiveTimeout = time.Minute
-
-	errBuffer, err := queue.NewCircularBuffer(ErrorBufferSize)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	var pubKey [33]byte
-	copy(pubKey[:], aliceKeyPub.SerializeCompressed())
-
-	cfgAddr := &lnwire.NetAddress{
-		IdentityKey: aliceKeyPub,
-		Address:     aliceAddr,
-		ChainNet:    wire.SimNet,
-	}
-
-	cfg := &Config{
-		Addr:        cfgAddr,
-		PubKeyBytes: pubKey,
-		ErrorBuffer: errBuffer,
-		ChainIO:     chainIO,
-		Switch:      newMockMessageSwitch(),
-
-		ChanActiveTimeout: chanActiveTimeout,
-		InterceptSwitch:   htlcswitch.NewInterceptableSwitch(nil),
-
-		ChannelDB:      dbAlice,
-		FeeEstimator:   estimator,
-		Wallet:         wallet,
-		ChainNotifier:  notifier,
-		ChanStatusMgr:  newMockStatusMgr(),
-		DisconnectPeer: func(b *btcec.PublicKey) error { return nil },
-	}
-
-	alicePeer := NewBrontide(*cfg)
-
-	chanID := lnwire.NewChanIDFromOutPoint(channelAlice.ChannelPoint())
-	alicePeer.activeChannels[chanID] = channelAlice
-
-	alicePeer.wg.Add(1)
-	go alicePeer.channelManager()
-
-	return alicePeer, channelBob, cleanUpFunc, nil
+	return aliceChannelState, bobChannel, nil
 }
+
+// noUpdate is a function which can be used as a parameter in
+// createTestChannels to call the setup code with no custom values on the
+// channels set up.
+var noUpdate = func(a, b *channeldb.OpenChannel) {}
 
 type mockMessageLink struct {
 	cid     lnwire.ChannelID

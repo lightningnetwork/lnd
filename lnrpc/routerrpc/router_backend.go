@@ -648,6 +648,10 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 			payIntent.Amount = *payReq.MilliSat
 		}
 
+		if !payReq.Features.HasFeature(lnwire.MPPOptional) {
+			payIntent.MaxParts = 1
+		}
+
 		copy(payIntent.PaymentHash[:], payReq.PaymentHash[:])
 		destKey := payReq.Destination.SerializeCompressed()
 		copy(payIntent.Target[:], destKey)

@@ -1,10 +1,13 @@
 package routing
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcutil"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 // TestProbabilityExtrapolation tests that probabilities for tried channels are
@@ -297,4 +300,47 @@ loop:
 		t.Fatalf("expected %v successful htlcs, but got %v",
 			expected, successCount)
 	}
+}
+
+// TestPaymentAddrOnlyNoSplit tests that if the dest of a payment only has the
+// payment addr feature bit set, then we won't attempt to split payments.
+func TestPaymentAddrOnlyNoSplit(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create the routing context, then create a simple two
+	// path graph where the sender has two paths to the destination.
+	ctx := newIntegratedRoutingContext(t)
+
+	// We'll have a basic graph with 2 mil sats of capacity, with 1 mil
+	// sats available on either end.
+	const chanSize = 2_000_000
+	twoPathGraph(ctx.graph, chanSize, chanSize)
+
+	payAddrOnlyFeatures := []lnwire.FeatureBit{
+		lnwire.TLVOnionPayloadOptional,
+		lnwire.PaymentAddrOptional,
+	}
+
+	// We'll make a payment of 1.5 mil satoshis our single chan sizes,
+	// which should cause a split attempt _if_ we had MPP bits activated.
+	// However, we only have the payment addr on, so we shouldn't split at
+	// all.
+	//
+	// We'll set a non-zero value for max parts as well, which should be
+	// ignored.
+	const maxParts = 5
+	ctx.amt = lnwire.NewMSatFromSatoshis(1_500_000)
+
+	attempts, err := ctx.testPayment(maxParts, payAddrOnlyFeatures...)
+	require.NotNil(
+		t,
+		err,
+		fmt.Sprintf("expected path finding to fail instead made "+
+			"attempts: %v", spew.Sdump(attempts)),
+	)
+
+	// The payment should have failed since we need to split in order to
+	// route a payment to the destination, but they don't actually support
+	// MPP.
+	require.Equal(t, err.Error(), errNoPathFound.Error())
 }

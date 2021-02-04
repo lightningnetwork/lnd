@@ -122,7 +122,7 @@ signature during signing.
 Assuming `USERNAME` is your current nick as a developer, then the following
 command will generate a proper signature:
 ```
-gpg --detach-sig --output manifest-USERNAME-TAG-txt.asc --clear-sign manifest-TAG.txt
+gpg --detach-sig --output manifest-USERNAME-TAG.txt.asc --clear-sign manifest-TAG.txt
 ```
 
 

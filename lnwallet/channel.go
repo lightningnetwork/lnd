@@ -3892,16 +3892,38 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			return nil, nil, nil, err
 		}
 
+		var commitUpdates []lnwire.Message
+
 		// Next, we'll need to send over any updates we sent as part of
 		// this new proposed commitment state.
 		for _, logUpdate := range commitDiff.LogUpdates {
-			updates = append(updates, logUpdate.UpdateMsg)
+			commitUpdates = append(commitUpdates, logUpdate.UpdateMsg)
 		}
 
 		// With the batch of updates accumulated, we'll now re-send the
 		// original CommitSig message required to re-sync their remote
 		// commitment chain with our local version of their chain.
-		updates = append(updates, commitDiff.CommitSig)
+		commitUpdates = append(commitUpdates, commitDiff.CommitSig)
+
+		// NOTE: If a revocation is not owed, then updates is empty.
+		if lc.channelState.LastWasRevoke {
+			// If lastWasRevoke is set to true, a revocation was last and we
+			// need to reorder the updates so that the revocation stored in
+			// updates comes after the LogUpdates+CommitSig.
+			//
+			// ---logupdates--->
+			// ---commitsig---->
+			// ---revocation--->
+			updates = append(commitUpdates, updates...)
+		} else {
+			// Otherwise, the revocation should come before LogUpdates
+			// + CommitSig.
+			//
+			// ---revocation--->
+			// ---logupdates--->
+			// ---commitsig---->
+			updates = append(updates, commitUpdates...)
+		}
 
 		openedCircuits = commitDiff.OpenedCircuitKeys
 		closedCircuits = commitDiff.ClosedCircuitKeys

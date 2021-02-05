@@ -183,6 +183,9 @@ docker-release-helper: docker-go-base
 docker-btcd: docker-go-base
 	docker build -t lnd-btcd ./docker/btcd
 
+docker-ltcd: docker-go-base
+	docker build -t lnd-ltcd ./docker/ltcd
+
 # =======
 # TESTING
 # =======

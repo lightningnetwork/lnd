@@ -276,7 +276,7 @@ list:
 		grep -v Makefile | \
 		sort
 
-rpc:
+rpc: docker-go-base
 	@$(call print, "Compiling protos.")
 	cd ./lnrpc; ./gen_protos_docker.sh
 

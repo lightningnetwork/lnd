@@ -13,7 +13,7 @@ To build a standalone development image from the local source directory, use the
 following command:
 
 ```shell
-⛰  docker build --tag=myrepository/lnd-dev -f dev.Dockerfile .
+⛰  make docker-lnd-dev tag=myrpository/lnd-dev
 ```
 
 There is also a `docker-compose` setup available for development or testing that

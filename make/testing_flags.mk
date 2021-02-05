@@ -109,8 +109,10 @@ endif
 # Allows users to tag their docker builds, defaults to :latest if blank.
 ifneq ($(tag),)
 DOCKER_LND_TAG := -t $(tag)
+DOCKER_LND_DEV_TAG := -t $(tag)
 else
 DOCKER_LND_TAG := -t lnd
+DOCKER_LND_DEV_TAG := -t lnd-dev
 endif
 
 # Construct the integration test command with the added build flags.

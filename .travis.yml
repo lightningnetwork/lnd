@@ -16,7 +16,6 @@ git:
 
 go:
   # If you change this value, please change it in the following files as well:
-  # /dev.Dockerfile
   # /make/builder.Dockerfile
   # /docker/lnd-go-base/Dockerfile
   # /.github/workflows/main.yml

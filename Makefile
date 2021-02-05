@@ -175,6 +175,9 @@ docker-go-base:
 docker-lnd: docker-go-base
 	docker build $(DOCKER_LND_TAG) $(DOCKER_CHECKOUT) ./docker/lnd
 
+docker-lnd-dev: docker-go-base
+	docker build $(DOCKER_LND_DEV_TAG) -f dev.Dockerfile .
+
 # =======
 # TESTING
 # =======

@@ -171,6 +171,10 @@ scratch: build
 
 docker-go-base:
 	docker build -t lnd-go-base ./docker/lnd-go-base
+
+docker-lnd: docker-go-base
+	docker build $(DOCKER_LND_TAG) $(DOCKER_CHECKOUT) ./docker/lnd
+
 # =======
 # TESTING
 # =======

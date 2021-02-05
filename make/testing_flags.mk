@@ -100,5 +100,18 @@ ifeq ($(backend),)
 backend = btcd
 endif
 
+# Allows users to checkout a particular commit/tag when building the lnd docker
+# image. Blank defaults to master.
+ifneq ($(checkout),)
+DOCKER_CHECKOUT := --build-arg checkout=$(checkout)
+endif
+
+# Allows users to tag their docker builds, defaults to :latest if blank.
+ifneq ($(tag),)
+DOCKER_LND_TAG := -t $(tag)
+else
+DOCKER_LND_TAG := -t lnd
+endif
+
 # Construct the integration test command with the added build flags.
 ITEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) rpctest $(backend)

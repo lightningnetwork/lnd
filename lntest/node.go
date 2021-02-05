@@ -801,8 +801,9 @@ func (hn *HarnessNode) initLightningClient(conn *grpc.ClientConn) error {
 	hn.SignerClient = signrpc.NewSignerClient(conn)
 
 	// Set the harness node's pubkey to what the node claims in GetInfo.
-	err := hn.FetchNodeInfo()
-	if err != nil {
+	// Since the RPC might not be immediately active, we wrap the call in a
+	// wait.NoError.
+	if err := wait.NoError(hn.FetchNodeInfo, DefaultTimeout); err != nil {
 		return err
 	}
 
@@ -812,7 +813,7 @@ func (hn *HarnessNode) initLightningClient(conn *grpc.ClientConn) error {
 	// until then, we'll create a dummy subscription to ensure we can do so
 	// successfully before proceeding. We use a dummy subscription in order
 	// to not consume an update from the real one.
-	err = wait.NoError(func() error {
+	err := wait.NoError(func() error {
 		req := &lnrpc.GraphTopologySubscription{}
 		ctx, cancelFunc := context.WithCancel(context.Background())
 		topologyClient, err := hn.SubscribeChannelGraph(ctx, req)

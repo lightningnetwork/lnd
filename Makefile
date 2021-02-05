@@ -180,6 +180,9 @@ docker-lnd-dev: docker-go-base
 docker-release-helper: docker-go-base
 	docker build -t lnd-release-helper -f make/builder.Dockerfile make/
 
+docker-btcd: docker-go-base
+	docker build -t lnd-btcd ./docker/btcd
+
 # =======
 # TESTING
 # =======

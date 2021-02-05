@@ -121,6 +121,12 @@ func IsLoopback(addr string) bool {
 	return false
 }
 
+// isIPv6Host returns true if the host is IPV6 and false otherwise.
+func isIPv6Host(host string) bool {
+	// An IPv4 host without the port shouldn't have a colon.
+	return strings.Contains(host, ":")
+}
+
 // IsUnix returns true if an address describes an Unix socket address.
 func IsUnix(addr net.Addr) bool {
 	return strings.HasPrefix(addr.Network(), "unix")
@@ -217,9 +223,10 @@ func ParseAddressString(strAddress string, defaultPort string,
 		}
 
 		// Otherwise, we'll attempt the resolve the host. The Tor
-		// resolver is unable to resolve local addresses, so we'll use
-		// the system resolver instead.
-		if rawHost == "" || IsLoopback(rawHost) {
+		// resolver is unable to resolve local or IPv6 addresses, so
+		// we'll use the system resolver instead.
+		if rawHost == "" || IsLoopback(rawHost) ||
+			isIPv6Host(rawHost) {
 			return net.ResolveTCPAddr("tcp", addrWithPort)
 		}
 

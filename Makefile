@@ -165,7 +165,12 @@ docker-release:
 
 scratch: build
 
+# ======
+# DOCKER
+# ======
 
+docker-go-base:
+	docker build -t lnd-go-base ./docker/lnd-go-base
 # =======
 # TESTING
 # =======

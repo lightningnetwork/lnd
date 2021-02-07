@@ -24,6 +24,7 @@ import (
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightninglabs/neutrino"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 )
 
 var (
@@ -177,7 +178,7 @@ func NewMiner(t *testing.T, extraArgs []string, createChain bool,
 	trickle := fmt.Sprintf("--trickleinterval=%v", TrickleInterval)
 	extraArgs = append(extraArgs, trickle)
 
-	node, err := rpctest.New(NetParams, nil, extraArgs)
+	node, err := rpctest.New(NetParams, nil, extraArgs, "")
 	if err != nil {
 		t.Fatalf("unable to create backend node: %v", err)
 	}
@@ -268,7 +269,9 @@ func NewNeutrinoBackend(t *testing.T, minerAddr string) (*neutrino.ChainService,
 	}
 
 	dbName := filepath.Join(spvDir, "neutrino.db")
-	spvDatabase, err := walletdb.Create("bdb", dbName, true)
+	spvDatabase, err := walletdb.Create(
+		"bdb", dbName, true, kvdb.DefaultDBTimeout,
+	)
 	if err != nil {
 		os.RemoveAll(spvDir)
 		t.Fatalf("unable to create walletdb: %v", err)

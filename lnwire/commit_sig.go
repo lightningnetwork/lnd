@@ -5,7 +5,7 @@ import (
 )
 
 // CommitSig is sent by either side to stage any pending HTLC's in the
-// receiver's pending set into a new commitment state.  Implicitly, the new
+// receiver's pending set into a new commitment state. Implicitly, the new
 // commitment transaction constructed which has been signed by CommitSig
 // includes all HTLC's in the remote node's pending set. A CommitSig message
 // may be sent after a series of UpdateAddHTLC/UpdateFulfillHTLC messages in

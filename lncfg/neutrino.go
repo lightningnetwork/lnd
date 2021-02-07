@@ -10,7 +10,7 @@ type Neutrino struct {
 	MaxPeers           int           `long:"maxpeers" description:"Max number of inbound and outbound peers"`
 	BanDuration        time.Duration `long:"banduration" description:"How long to ban misbehaving peers.  Valid time units are {s, m, h}.  Minimum 1 second"`
 	BanThreshold       uint32        `long:"banthreshold" description:"Maximum allowed ban score before disconnecting and banning misbehaving peers."`
-	FeeURL             string        `long:"feeurl" description:"DEPRECATED: Optional URL for fee estimation. If a URL is not specified, static fees will be used for estimation."`
+	FeeURL             string        `long:"feeurl" description:"DEPRECATED: Use top level 'feeurl' option. Optional URL for fee estimation. If a URL is not specified, static fees will be used for estimation."`
 	AssertFilterHeader string        `long:"assertfilterheader" description:"Optional filter header in height:hash format to assert the state of neutrino's filter header chain on startup. If the assertion does not hold, then the filter header chain will be re-synced from the genesis block."`
 	UserAgentName      string        `long:"useragentname" description:"Used to help identify ourselves to other bitcoin peers"`
 	UserAgentVersion   string        `long:"useragentversion" description:"Used to help identify ourselves to other bitcoin peers"`

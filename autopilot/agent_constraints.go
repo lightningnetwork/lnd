@@ -8,12 +8,12 @@ import (
 // limits it will need to stay inside when opening channels.
 type AgentConstraints interface {
 	// ChannelBudget should, given the passed parameters, return whether
-	// more channels can be be opened while still staying within the set
+	// more channels can be opened while still staying within the set
 	// constraints. If the constraints allow us to open more channels, then
 	// the first return value will represent the amount of additional funds
 	// available towards creating channels. The second return value is the
 	// exact *number* of additional channels available.
-	ChannelBudget(chans []Channel, balance btcutil.Amount) (
+	ChannelBudget(chans []LocalChannel, balance btcutil.Amount) (
 		btcutil.Amount, uint32)
 
 	// MaxPendingOpens returns the maximum number of pending channel
@@ -39,15 +39,15 @@ type agentConstraints struct {
 	// create.
 	minChanSize btcutil.Amount
 
-	// maxChanSize the largest channel that the autopilot agent should
+	// maxChanSize is the largest channel that the autopilot agent should
 	// create.
 	maxChanSize btcutil.Amount
 
-	// chanLimit the maximum number of channels that should be created.
+	// chanLimit is the maximum number of channels that should be created.
 	chanLimit uint16
 
-	// allocation the percentage of total funds that should be committed to
-	// automatic channel establishment.
+	// allocation is the percentage of total funds that should be committed
+	// to automatic channel establishment.
 	allocation float64
 
 	// maxPendingOpens is the maximum number of pending channel
@@ -82,7 +82,7 @@ func NewConstraints(minChanSize, maxChanSize btcutil.Amount, chanLimit,
 // additional channels available.
 //
 // Note: part of the AgentConstraints interface.
-func (h *agentConstraints) ChannelBudget(channels []Channel,
+func (h *agentConstraints) ChannelBudget(channels []LocalChannel,
 	funds btcutil.Amount) (btcutil.Amount, uint32) {
 
 	// If we're already over our maximum allowed number of channels, then
@@ -100,7 +100,7 @@ func (h *agentConstraints) ChannelBudget(channels []Channel,
 	// present within the set of active channels.
 	var totalChanAllocation btcutil.Amount
 	for _, channel := range channels {
-		totalChanAllocation += channel.Capacity
+		totalChanAllocation += channel.Balance
 	}
 
 	// With this value known, we'll now compute the total amount of fund

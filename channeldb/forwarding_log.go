@@ -228,9 +228,7 @@ type ForwardingLogTimeSlice struct {
 //
 // TODO(roasbeef): rename?
 func (f *ForwardingLog) Query(q ForwardingEventQuery) (ForwardingLogTimeSlice, error) {
-	resp := ForwardingLogTimeSlice{
-		ForwardingEventQuery: q,
-	}
+	var resp ForwardingLogTimeSlice
 
 	// If the user provided an index offset, then we'll not know how many
 	// records we need to skip. We'll also keep track of the record offset
@@ -297,6 +295,10 @@ func (f *ForwardingLog) Query(q ForwardingEventQuery) (ForwardingLogTimeSlice, e
 		}
 
 		return nil
+	}, func() {
+		resp = ForwardingLogTimeSlice{
+			ForwardingEventQuery: q,
+		}
 	})
 	if err != nil && err != ErrNoForwardingEvents {
 		return ForwardingLogTimeSlice{}, err

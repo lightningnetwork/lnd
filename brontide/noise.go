@@ -252,7 +252,7 @@ func (s *symmetricState) EncryptAndHash(plaintext []byte) []byte {
 }
 
 // DecryptAndHash returns the authenticated decryption of the passed
-// ciphertext.  When encrypting the handshake digest (h) is used as the
+// ciphertext. When encrypting the handshake digest (h) is used as the
 // associated data to the AEAD cipher.
 func (s *symmetricState) DecryptAndHash(ciphertext []byte) ([]byte, error) {
 	plaintext, err := s.Decrypt(s.handshakeDigest[:], nil, ciphertext)
@@ -870,7 +870,7 @@ func (b *Machine) ReadHeader(r io.Reader) (uint32, error) {
 // ReadBody attempts to ready the next message body from the passed io.Reader.
 // The provided buffer MUST be the length indicated by the packet length
 // returned by the preceding call to ReadHeader. In the case of an
-// authentication eerror, a non-nil error is returned.
+// authentication error, a non-nil error is returned.
 func (b *Machine) ReadBody(r io.Reader, buf []byte) ([]byte, error) {
 	// Next, using the length read from the packet header, read the
 	// encrypted packet itself into the buffer allocated by the read

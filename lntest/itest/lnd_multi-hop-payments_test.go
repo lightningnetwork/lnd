@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -173,7 +174,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	const aliceFeeRatePPM = 100000
 	updateChannelPolicy(
 		t, net.Alice, chanPointAlice, aliceBaseFeeSat*1000,
-		aliceFeeRatePPM, lnd.DefaultBitcoinTimeLockDelta, maxHtlc,
+		aliceFeeRatePPM, chainreg.DefaultBitcoinTimeLockDelta, maxHtlc,
 		carol,
 	)
 
@@ -181,7 +182,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	const daveFeeRatePPM = 150000
 	updateChannelPolicy(
 		t, dave, chanPointDave, daveBaseFeeSat*1000, daveFeeRatePPM,
-		lnd.DefaultBitcoinTimeLockDelta, maxHtlc, carol,
+		chainreg.DefaultBitcoinTimeLockDelta, maxHtlc, carol,
 	)
 
 	// Before we start sending payments, subscribe to htlc events for each

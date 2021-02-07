@@ -128,6 +128,7 @@ func (f *interceptedForward) Packet() InterceptedPacket {
 		IncomingAmount: f.packet.incomingAmount,
 		IncomingExpiry: f.packet.incomingTimeout,
 		CustomRecords:  f.packet.customRecords,
+		OnionBlob:      f.htlc.OnionBlob,
 	}
 }
 

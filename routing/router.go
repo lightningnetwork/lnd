@@ -3,7 +3,6 @@ package routing
 import (
 	"bytes"
 	"fmt"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -171,6 +170,14 @@ type PaymentAttemptDispatcher interface {
 	GetPaymentResult(paymentID uint64, paymentHash lntypes.Hash,
 		deobfuscator htlcswitch.ErrorDecrypter) (
 		<-chan *htlcswitch.PaymentResult, error)
+
+	// CleanStore calls the underlying result store, telling it is safe to
+	// delete all entries except the ones in the keepPids map. This should
+	// be called preiodically to let the switch clean up payment results
+	// that we have handled.
+	// NOTE: New payment attempts MUST NOT be made after the keepPids map
+	// has been created and this method has returned.
+	CleanStore(keepPids map[uint64]struct{}) error
 }
 
 // PaymentSessionSource is an interface that defines a source for the router to
@@ -538,6 +545,30 @@ func (r *ChannelRouter) Start() error {
 		return err
 	}
 
+	// Before we restart existing payments and start accepting more
+	// payments to be made, we clean the network result store of the
+	// Switch. We do this here at startup to ensure no more payments can be
+	// made concurrently, so we know the toKeep map will be up-to-date
+	// until the cleaning has finished.
+	toKeep := make(map[uint64]struct{})
+	for _, p := range payments {
+		payment, err := r.cfg.Control.FetchPayment(
+			p.Info.PaymentHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		for _, a := range payment.HTLCs {
+			toKeep[a.AttemptID] = struct{}{}
+		}
+	}
+
+	log.Debugf("Cleaning network result store.")
+	if err := r.cfg.Payer.CleanStore(toKeep); err != nil {
+		return err
+	}
+
 	for _, payment := range payments {
 		log.Infof("Resuming payment with hash %v", payment.Info.PaymentHash)
 		r.wg.Add(1)
@@ -882,7 +913,7 @@ func (r *ChannelRouter) networkHandler() {
 
 	// We'll use this validation barrier to ensure that we process all jobs
 	// in the proper order during parallel validation.
-	validationBarrier := NewValidationBarrier(runtime.NumCPU()*4, r.quit)
+	validationBarrier := NewValidationBarrier(1000, r.quit)
 
 	for {
 
@@ -1974,8 +2005,8 @@ func (r *ChannelRouter) tryApplyChannelUpdate(rt *route.Route,
 // processSendError analyzes the error for the payment attempt received from the
 // switch and updates mission control and/or channel policies. Depending on the
 // error type, this error is either the final outcome of the payment or we need
-// to continue with an alternative route. This is indicated by the boolean
-// return value.
+// to continue with an alternative route. A final outcome is indicated by a
+// non-nil return value.
 func (r *ChannelRouter) processSendError(paymentID uint64, rt *route.Route,
 	sendErr error) *channeldb.FailureReason {
 
@@ -2400,7 +2431,7 @@ func (e ErrNoChannel) Error() string {
 // outgoing channel, use the outgoingChan parameter.
 func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	hops []route.Vertex, outgoingChan *uint64,
-	finalCltvDelta int32) (*route.Route, error) {
+	finalCltvDelta int32, payAddr *[32]byte) (*route.Route, error) {
 
 	log.Tracef("BuildRoute called: hopsCount=%v, amt=%v",
 		len(hops), amt)
@@ -2550,10 +2581,11 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	return newRoute(
 		source, pathEdges, uint32(height),
 		finalHopParams{
-			amt:       receiverAmt,
-			totalAmt:  receiverAmt,
-			cltvDelta: uint16(finalCltvDelta),
-			records:   nil,
+			amt:         receiverAmt,
+			totalAmt:    receiverAmt,
+			cltvDelta:   uint16(finalCltvDelta),
+			records:     nil,
+			paymentAddr: payAddr,
 		},
 	)
 }

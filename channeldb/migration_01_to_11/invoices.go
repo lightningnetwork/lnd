@@ -282,6 +282,8 @@ func (d *DB) FetchAllInvoices(pendingOnly bool) ([]Invoice, error) {
 
 			return nil
 		})
+	}, func() {
+		invoices = nil
 	})
 	if err != nil {
 		return nil, err

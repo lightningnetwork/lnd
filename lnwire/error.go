@@ -15,7 +15,7 @@ const (
 	ErrMaxPendingChannels FundingError = 1
 
 	// ErrSynchronizingChain is returned by a remote peer that receives a
-	// channel update or a funding request while their still syncing to the
+	// channel update or a funding request while it's still syncing to the
 	// latest state of the blockchain.
 	ErrSynchronizingChain FundingError = 2
 
@@ -39,7 +39,7 @@ func (e FundingError) String() string {
 	}
 }
 
-// Error returns the human redable version of the target FundingError.
+// Error returns the human readable version of the target FundingError.
 //
 // NOTE: Satisfies the Error interface.
 func (e FundingError) Error() string {
@@ -124,7 +124,7 @@ func (c *Error) MsgType() MessageType {
 // This is part of the lnwire.Message interface.
 func (c *Error) MaxPayloadLength(uint32) uint32 {
 	// 32 + 2 + 65501
-	return 65535
+	return MaxMessagePayload
 }
 
 // isASCII is a helper method that checks whether all bytes in `data` would be

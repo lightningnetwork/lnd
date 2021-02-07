@@ -61,6 +61,11 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 			name: "remote chain claim",
 			test: testMultiHopHtlcRemoteChainClaim,
 		},
+		{
+			// bob: outgoing and incoming, sweep all on chain
+			name: "local htlc aggregation",
+			test: testMultiHopHtlcAggregation,
+		},
 	}
 
 	commitTypes := []commitType{
@@ -272,7 +277,7 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 		ctxt, _ = context.WithTimeout(context.Background(), defaultTimeout)
 		err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
 		if err != nil {
-			t.Fatalf("unable to send coins to Alice: %v", err)
+			t.Fatalf("unable to send coins to Carol: %v", err)
 		}
 	}
 

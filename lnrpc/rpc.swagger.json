@@ -1179,7 +1179,13 @@
                 "PAYMENT_ADDR_REQ",
                 "PAYMENT_ADDR_OPT",
                 "MPP_REQ",
-                "MPP_OPT"
+                "MPP_OPT",
+                "WUMBO_CHANNELS_REQ",
+                "WUMBO_CHANNELS_OPT",
+                "ANCHORS_REQ",
+                "ANCHORS_OPT",
+                "ANCHORS_ZERO_FEE_HTLC_REQ",
+                "ANCHORS_ZERO_FEE_HTLC_OPT"
               ]
             },
             "collectionFormat": "multi"
@@ -2263,10 +2269,11 @@
       "enum": [
         "UNKNOWN_SYNC",
         "ACTIVE_SYNC",
-        "PASSIVE_SYNC"
+        "PASSIVE_SYNC",
+        "PINNED_SYNC"
       ],
       "default": "UNKNOWN_SYNC",
-      "description": " - UNKNOWN_SYNC: Denotes that we cannot determine the peer's current sync type.\n - ACTIVE_SYNC: Denotes that we are actively receiving new graph updates from the peer.\n - PASSIVE_SYNC: Denotes that we are not receiving new graph updates from the peer."
+      "description": " - UNKNOWN_SYNC: Denotes that we cannot determine the peer's current sync type.\n - ACTIVE_SYNC: Denotes that we are actively receiving new graph updates from the peer.\n - PASSIVE_SYNC: Denotes that we are not receiving new graph updates from the peer.\n - PINNED_SYNC: Denotes that this peer is pinned into an active sync."
     },
     "PendingChannelsResponseClosedChannel": {
       "type": "object",
@@ -2461,6 +2468,11 @@
           "type": "string",
           "format": "uint64",
           "description": "The \"add\" index of this invoice. Each newly created invoice will increment\nthis index making it monotonically increasing. Callers to the\nSubscribeInvoices call can use this to instantly get notified of all added\ninvoices with an add_index greater than this one."
+        },
+        "payment_addr": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment address of the generated invoice. This value should be used\nin all payments for this invoice as we require it for end to end\nsecurity."
         }
       }
     },
@@ -3417,7 +3429,13 @@
         "PAYMENT_ADDR_REQ",
         "PAYMENT_ADDR_OPT",
         "MPP_REQ",
-        "MPP_OPT"
+        "MPP_OPT",
+        "WUMBO_CHANNELS_REQ",
+        "WUMBO_CHANNELS_OPT",
+        "ANCHORS_REQ",
+        "ANCHORS_OPT",
+        "ANCHORS_ZERO_FEE_HTLC_REQ",
+        "ANCHORS_ZERO_FEE_HTLC_OPT"
       ],
       "default": "DATALOSS_PROTECT_REQ"
     },
@@ -3813,12 +3831,32 @@
         "expiration_height": {
           "type": "integer",
           "format": "int64"
+        },
+        "htlc_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Index identifying the htlc on the channel."
+        },
+        "forwarding_channel": {
+          "type": "string",
+          "format": "uint64",
+          "description": "If this HTLC is involved in a forwarding operation, this field indicates\nthe forwarding channel. For an outgoing htlc, it is the incoming channel.\nFor an incoming htlc, it is the outgoing channel. When the htlc\noriginates from this node or this node is the final destination,\nforwarding_channel will be zero. The forwarding channel will also be zero\nfor htlcs that need to be forwarded but don't have a forwarding decision\npersisted yet."
+        },
+        "forwarding_htlc_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Index identifying the htlc on the forwarding channel."
         }
       }
     },
     "lnrpcHTLCAttempt": {
       "type": "object",
       "properties": {
+        "attempt_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unique ID that is used for this attempt."
+        },
         "status": {
           "$ref": "#/definitions/HTLCAttemptHTLCStatus",
           "description": "The status of the HTLC."
@@ -4068,6 +4106,11 @@
           "type": "boolean",
           "format": "boolean",
           "description": "Indicates if this invoice was a spontaneous payment that arrived via keysend\n[EXPERIMENTAL]."
+        },
+        "payment_addr": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment address of this invoice. This value will be used in MPP\npayments, and also for newer invoies that always require the MPP paylaod\nfor added end-to-end security."
         }
       }
     },
@@ -4525,6 +4568,13 @@
         },
         "color": {
           "type": "string"
+        },
+        "features": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/lnrpcFeature"
+          },
+          "description": "Features that the node has advertised in the init message, node\nannouncements and invoices."
         }
       }
     },
@@ -4602,6 +4652,11 @@
           "type": "integer",
           "format": "int64",
           "description": "The maximum number of concurrent HTLCs we will allow the remote party to add\nto the commitment transaction."
+        },
+        "max_local_csv": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Max local csv is the maximum csv delay we will allow for our own commitment\ntransaction."
         }
       }
     },
@@ -5243,6 +5298,16 @@
         "label": {
           "type": "string",
           "description": "An optional label for the transaction, limited to 500 characters."
+        },
+        "min_confs": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The minimum number of confirmations each one of your outputs used for\nthe transaction must satisfy."
+        },
+        "spend_unconfirmed": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Whether unconfirmed outputs should be used as inputs for the transaction."
         }
       }
     },
@@ -5279,6 +5344,16 @@
         "label": {
           "type": "string",
           "description": "An optional label for the transaction, limited to 500 characters."
+        },
+        "min_confs": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The minimum number of confirmations each one of your outputs used for\nthe transaction must satisfy."
+        },
+        "spend_unconfirmed": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Whether unconfirmed outputs should be used as inputs for the transaction."
         }
       }
     },

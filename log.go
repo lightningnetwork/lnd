@@ -10,12 +10,15 @@ import (
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainreg"
+	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/chanfitness"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/healthcheck"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -79,7 +82,6 @@ var (
 	ltndLog = addLndPkgLogger("LTND")
 	rpcsLog = addLndPkgLogger("RPCS")
 	srvrLog = addLndPkgLogger("SRVR")
-	fndgLog = addLndPkgLogger("FNDG")
 	utxnLog = addLndPkgLogger("UTXN")
 	brarLog = addLndPkgLogger("BRAR")
 	atplLog = addLndPkgLogger("ATPL")
@@ -131,6 +133,9 @@ func SetupLoggers(root *build.RotatingLogWriter) {
 	AddSubLogger(root, chanfitness.Subsystem, chanfitness.UseLogger)
 	AddSubLogger(root, verrpc.Subsystem, verrpc.UseLogger)
 	AddSubLogger(root, healthcheck.Subsystem, healthcheck.UseLogger)
+	AddSubLogger(root, chainreg.Subsystem, chainreg.UseLogger)
+	AddSubLogger(root, chanacceptor.Subsystem, chanacceptor.UseLogger)
+	AddSubLogger(root, funding.Subsystem, funding.UseLogger)
 }
 
 // AddSubLogger is a helper method to conveniently create and register the

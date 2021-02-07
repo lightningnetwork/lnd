@@ -90,6 +90,9 @@ func updateInvoice(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 		}
 	}
 
+	// If no MPP payload was provided, then we expect this to be a keysend,
+	// or a payment to an invoice created before we started to require the
+	// MPP payload.
 	if ctx.mpp == nil {
 		return updateLegacy(ctx, inv)
 	}
@@ -206,6 +209,10 @@ func updateMpp(ctx *invoiceUpdateCtx,
 
 // updateLegacy is a callback for DB.UpdateInvoice that contains the invoice
 // settlement logic for legacy payments.
+//
+// NOTE: This function is only kept in place in order to be able to handle key
+// send payments and any invoices we created in the past that are valid and
+// still had the optional mpp bit set.
 func updateLegacy(ctx *invoiceUpdateCtx,
 	inv *channeldb.Invoice) (*channeldb.InvoiceUpdateDesc, HtlcResolution, error) {
 
@@ -223,8 +230,20 @@ func updateLegacy(ctx *invoiceUpdateCtx,
 		return nil, ctx.failRes(ResultAmountTooLow), nil
 	}
 
-	// TODO(joostjager): Check invoice mpp required feature
-	// bit when feature becomes mandatory.
+	// If the invoice had the required feature bit set at this point, then
+	// if we're in this method it means that the remote party didn't supply
+	// the expected payload. However if this is a keysend payment, then
+	// we'll permit it to pass.
+	_, isKeySend := ctx.customRecords[record.KeySendType]
+	invoiceFeatures := inv.Terms.Features
+	paymentAddrRequired := invoiceFeatures.RequiresFeature(
+		lnwire.PaymentAddrRequired,
+	)
+	if !isKeySend && paymentAddrRequired {
+		log.Warnf("Payment to pay_hash=%v doesn't include MPP "+
+			"payload, rejecting", ctx.hash)
+		return nil, ctx.failRes(ResultAddressMismatch), nil
+	}
 
 	// Don't allow settling the invoice with an old style
 	// htlc if we are already in the process of gathering an

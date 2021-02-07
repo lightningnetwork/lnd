@@ -10,16 +10,37 @@ utilize a work around needed until `go1.13.2`.
 
 ## Building a New Release
 
-### macOS/Linux/Windows (WSL)
+### MacOS
+
+The first requirement is to have [`docker`](https://www.docker.com/)
+installed locally and running. The second requirement is to have `make`
+installed. Everything else (including `golang`) is included in the release
+helper image.
+
+To build a release, run the following commands:
+
+```shell
+⛰  git clone https://github.com/lightningnetwork/lnd.git
+⛰  cd lnd
+⛰  git checkout <TAG> # <TAG> is the name of the next release/tag
+⛰  make docker-release tag=<TAG>
+```
+
+Where `<TAG>` is the name of the next release of `lnd`.
+
+### Linux/Windows (WSL)
 
 No prior set up is needed on Linux or macOS is required in order to build the
 release binaries. However, on Windows, the only way to build the release
 binaries at the moment is by using the Windows Subsystem Linux. One can build
 the release binaries following these steps:
 
-1. `git clone https://github.com/lightningnetwork/lnd.git`
-2. `cd lnd`
-3. `make release tag=<TAG> # <TAG> is the name of the next release/tag`
+```shell
+⛰  git clone https://github.com/lightningnetwork/lnd.git
+⛰  cd lnd
+⛰  git checkout <TAG> # <TAG> is the name of the next release/tag
+⛰  make release tag=<TAG>
+```
 
 This will then create a directory of the form `lnd-<TAG>` containing archives
 of the release binaries for each supported operating system and architecture,
@@ -68,3 +89,40 @@ and `go` (matching the same version used in the release):
    release script and recompute the `SHA256` hash of the release binaries (lnd
    and lncli) with `shasum -a 256 <filename>`. These should match __exactly__
    as the ones noted above.
+
+## Verifying Docker Images
+
+To verify the `lnd` and `lncli` binaries inside the
+[official provided docker images](https://hub.docker.com/r/lightninglabs/lnd)
+against the signed, reproducible release binaries, there is a verification
+script in the image that can be called (before starting the container for
+example):
+
+```shell
+$ docker pull lightninglabs/lnd:v0.12.0-beta
+$ docker run --rm --entrypoint="" lightninglabs/lnd:v0.12.0-beta /verify-install.sh
+$ OK=$?
+$ if [ "$OK" -ne "0" ]; then echo "Verification failed!"; exit 1; done
+$ docker run lightninglabs/lnd [command-line options]
+```
+
+# Signing an Existing Manifest File
+
+If you're a developer of `lnd` and are interested in attaching your signature
+to the final release archive, the manifest MUST be signed in a manner that
+allows your signature to be verified by our verify script
+`scripts/verify-install.sh`. 
+
+Assuming you've done a local build for _all_ release targets, then you should
+have a file called `manifest-TAG.txt` where `TAG` is the actual release tag
+description being signed. The release script expects a particular file name for
+each included signature, so we'll need to modify the name of our output
+signature during signing.
+
+Assuming `USERNAME` is your current nick as a developer, then the following
+command will generate a proper signature:
+```
+gpg --detach-sig --output manifest-USERNAME-TAG.txt.asc --clear-sign manifest-TAG.txt
+```
+
+

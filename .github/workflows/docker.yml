@@ -1,0 +1,45 @@
+name: Docker image build
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  DOCKER_REPO: lightninglabs
+  DOCKER_IMAGE: lnd
+
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up QEMU
+        uses: lightninglabs/gh-actions/setup-qemu-action@2021.01.25.00
+
+      - name: Set up Docker Buildx
+        uses: lightninglabs/gh-actions/setup-buildx-action@2021.01.25.00
+
+      - name: Login to DockerHub
+        uses: lightninglabs/gh-actions/login-action@2021.01.25.00
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_API_KEY }}
+
+      - name: Set env
+        run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+
+      - name: Build and push
+        id: docker_build
+        uses: lightninglabs/gh-actions/build-push-action@2021.01.25.00
+        with:
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: "${{ env.DOCKER_REPO }}/${{ env.DOCKER_IMAGE }}:${{ env.RELEASE_VERSION }}"
+          build-args: checkout=${{ env.RELEASE_VERSION }}
+
+      - name: Image digest
+        run: echo ${{ steps.docker_build.outputs.digest }}

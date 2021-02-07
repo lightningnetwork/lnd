@@ -42,7 +42,6 @@ func Intercept() error {
 	signalsToCatch := []os.Signal{
 		os.Interrupt,
 		os.Kill,
-		syscall.SIGABRT,
 		syscall.SIGTERM,
 		syscall.SIGQUIT,
 	}

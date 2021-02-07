@@ -120,6 +120,11 @@ func (p Policy) String() string {
 		p.SweepFeeRate)
 }
 
+// IsAnchorChannel returns true if the session policy requires anchor channels.
+func (p Policy) IsAnchorChannel() bool {
+	return p.TxPolicy.BlobType.IsAnchorChannel()
+}
+
 // Validate ensures that the policy satisfies some minimal correctness
 // constraints.
 func (p Policy) Validate() error {

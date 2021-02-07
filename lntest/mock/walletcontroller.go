@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/psbt"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 
@@ -78,7 +79,7 @@ func (w *WalletController) IsOurAddress(a btcutil.Address) bool {
 
 // SendOutputs currently returns dummy values.
 func (w *WalletController) SendOutputs(outputs []*wire.TxOut,
-	_ chainfee.SatPerKWeight, _ string) (*wire.MsgTx, error) {
+	_ chainfee.SatPerKWeight, _ int32, _ string) (*wire.MsgTx, error) {
 
 	return nil, nil
 }
@@ -138,6 +139,18 @@ func (w *WalletController) LeaseOutput(wtxmgr.LockID, wire.OutPoint) (time.Time,
 
 // ReleaseOutput currently does nothing.
 func (w *WalletController) ReleaseOutput(wtxmgr.LockID, wire.OutPoint) error {
+	return nil
+}
+
+// FundPsbt currently does nothing.
+func (w *WalletController) FundPsbt(_ *psbt.Packet,
+	_ chainfee.SatPerKWeight) (int32, error) {
+
+	return 0, nil
+}
+
+// FinalizePsbt currently does nothing.
+func (w *WalletController) FinalizePsbt(_ *psbt.Packet) error {
 	return nil
 }
 

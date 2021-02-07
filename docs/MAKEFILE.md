@@ -3,10 +3,10 @@ Makefile
 
 To build, verify, and install `lnd` from source, use the following
 commands:
-```
-make
-make check
-make install
+```shell
+⛰  make
+⛰  make check
+⛰  make install
 ```
 
 The command `make check` requires `bitcoind` (almost any version should do) to
@@ -120,6 +120,32 @@ integration test suite.
 Arguments:
 - `icase=<itestcase>` (the snake_case version of the testcase name field in the testCases slice (i.e. sweep_coins), not the test func name)
 - `timeout=<timeout>`
+
+`itest-parallel`
+------
+Does the same as `itest` but splits the total set of tests into
+`NUM_ITEST_TRANCHES` tranches (currently set to 6 by default, can be overwritten
+by setting `tranches=Y`) and runs them in parallel.
+
+Arguments:
+- `icase=<itestcase>`: The snake_case version of the testcase name field in the
+  testCases slice (i.e. `sweep_coins`, not the test func name) or any regular
+  expression describing a set of tests.
+- `timeout=<timeout>`
+- `tranches=<number_of_tranches>`: The number of parts/tranches to split the
+  total set of tests into.
+- `parallel=<number_of_threads>`: The number of threads to run in parallel. Must
+  be greater or equal to `tranches`, otherwise undefined behavior is expected.
+
+`flakehunter-parallel`
+------
+Runs the test specified by `icase` simultaneously `parallel` (default=6) times
+until an error occurs. Useful for hunting flakes.
+
+Example:
+```shell
+⛰  make flakehunter-parallel icase='(data_loss_protection|channel_backup)' backend=neutrino
+```
 
 `lint`
 ------

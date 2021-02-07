@@ -9,6 +9,8 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/autopilot"
+	"github.com/lightningnetwork/lnd/chainreg"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
@@ -76,7 +78,7 @@ type chanController struct {
 	minConfs      int32
 	confTarget    uint32
 	chanMinHtlcIn lnwire.MilliSatoshi
-	netParams     bitcoinNetParams
+	netParams     chainreg.BitcoinNetParams
 }
 
 // OpenChannel opens a channel to a target peer, with a capacity of the
@@ -87,7 +89,7 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 
 	// With the connection established, we'll now establish our connection
 	// to the target peer, waiting for the first update before we exit.
-	feePerKw, err := c.server.cc.feeEstimator.EstimateFeePerKW(
+	feePerKw, err := c.server.cc.FeeEstimator.EstimateFeePerKW(
 		c.confTarget,
 	)
 	if err != nil {
@@ -96,18 +98,18 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 
 	// Construct the open channel request and send it to the server to begin
 	// the funding workflow.
-	req := &openChanReq{
-		targetPubkey:     target,
-		chainHash:        *c.netParams.GenesisHash,
-		subtractFees:     true,
-		localFundingAmt:  amt,
-		pushAmt:          0,
-		minHtlcIn:        c.chanMinHtlcIn,
-		fundingFeePerKw:  feePerKw,
-		private:          c.private,
-		remoteCsvDelay:   0,
-		minConfs:         c.minConfs,
-		maxValueInFlight: 0,
+	req := &funding.InitFundingMsg{
+		TargetPubkey:     target,
+		ChainHash:        *c.netParams.GenesisHash,
+		SubtractFees:     true,
+		LocalFundingAmt:  amt,
+		PushAmt:          0,
+		MinHtlcIn:        c.chanMinHtlcIn,
+		FundingFeePerKw:  feePerKw,
+		Private:          c.private,
+		RemoteCsvDelay:   0,
+		MinConfs:         c.minConfs,
+		MaxValueInFlight: 0,
 	}
 
 	updateStream, errChan := c.server.OpenChannel(req)
@@ -124,14 +126,6 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 func (c *chanController) CloseChannel(chanPoint *wire.OutPoint) error {
 	return nil
 }
-func (c *chanController) SpliceIn(chanPoint *wire.OutPoint,
-	amt btcutil.Amount) (*autopilot.Channel, error) {
-	return nil, nil
-}
-func (c *chanController) SpliceOut(chanPoint *wire.OutPoint,
-	amt btcutil.Amount) (*autopilot.Channel, error) {
-	return nil, nil
-}
 
 // A compile time assertion to ensure chanController meets the
 // autopilot.ChannelController interface.
@@ -142,8 +136,8 @@ var _ autopilot.ChannelController = (*chanController)(nil)
 // interfaces needed to drive it won't be launched before the Manager's
 // StartAgent method is called.
 func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
-	chainCfg *lncfg.Chain, netParams bitcoinNetParams) (*autopilot.ManagerCfg,
-	error) {
+	chainCfg *lncfg.Chain, netParams chainreg.BitcoinNetParams) (
+	*autopilot.ManagerCfg, error) {
 
 	atplLog.Infof("Instantiating autopilot with active=%v, "+
 		"max_channels=%d, allocation=%f, min_chan_size=%d, "+
@@ -186,7 +180,7 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 			netParams:     netParams,
 		},
 		WalletBalance: func() (btcutil.Amount, error) {
-			return svr.cc.wallet.ConfirmedBalance(cfg.MinConfs)
+			return svr.cc.Wallet.ConfirmedBalance(cfg.MinConfs)
 		},
 		Graph:       autopilot.ChannelGraphFromDatabase(svr.localChanDB.ChannelGraph()),
 		Constraints: atplConstraints,
@@ -257,7 +251,7 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 	return &autopilot.ManagerCfg{
 		Self:     self,
 		PilotCfg: &pilotCfg,
-		ChannelState: func() ([]autopilot.Channel, error) {
+		ChannelState: func() ([]autopilot.LocalChannel, error) {
 			// We'll fetch the current state of open
 			// channels from the database to use as initial
 			// state for the auto-pilot agent.
@@ -265,20 +259,39 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 			if err != nil {
 				return nil, err
 			}
-			chanState := make([]autopilot.Channel,
+			chanState := make([]autopilot.LocalChannel,
 				len(activeChannels))
 			for i, channel := range activeChannels {
-				chanState[i] = autopilot.Channel{
-					ChanID:   channel.ShortChanID(),
-					Capacity: channel.Capacity,
+				localCommit := channel.LocalCommitment
+				balance := localCommit.LocalBalance.ToSatoshis()
+
+				chanState[i] = autopilot.LocalChannel{
+					ChanID:  channel.ShortChanID(),
+					Balance: balance,
 					Node: autopilot.NewNodeID(
-						channel.IdentityPub),
+						channel.IdentityPub,
+					),
 				}
 			}
 
 			return chanState, nil
 		},
-		SubscribeTransactions: svr.cc.wallet.SubscribeTransactions,
+		ChannelInfo: func(chanPoint wire.OutPoint) (
+			*autopilot.LocalChannel, error) {
+
+			channel, err := svr.remoteChanDB.FetchChannel(chanPoint)
+			if err != nil {
+				return nil, err
+			}
+
+			localCommit := channel.LocalCommitment
+			return &autopilot.LocalChannel{
+				ChanID:  channel.ShortChanID(),
+				Balance: localCommit.LocalBalance.ToSatoshis(),
+				Node:    autopilot.NewNodeID(channel.IdentityPub),
+			}, nil
+		},
+		SubscribeTransactions: svr.cc.Wallet.SubscribeTransactions,
 		SubscribeTopology:     svr.chanRouter.SubscribeTopology,
 	}, nil
 }

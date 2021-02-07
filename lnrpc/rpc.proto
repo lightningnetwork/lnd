@@ -791,6 +791,58 @@ message ChannelAcceptResponse {
 
     // The pending channel id to which this response applies.
     bytes pending_chan_id = 2;
+
+    /*
+    An optional error to send the initiating party to indicate why the channel
+    was rejected. This field *should not* contain sensitive information, it will
+    be sent to the initiating party. This field should only be set if accept is
+    false, the channel will be rejected if an error is set with accept=true
+    because the meaning of this response is ambiguous. Limited to 500
+    characters.
+    */
+    string error = 3;
+
+    /*
+    The upfront shutdown address to use if the initiating peer supports option
+    upfront shutdown script (see ListPeers for the features supported). Note
+    that the channel open will fail if this value is set for a peer that does
+    not support this feature bit.
+    */
+    string upfront_shutdown = 4;
+
+    /*
+    The csv delay (in blocks) that we require for the remote party.
+    */
+    uint32 csv_delay = 5;
+
+    /*
+    The reserve amount in satoshis that we require the remote peer to adhere to.
+    We require that the remote peer always have some reserve amount allocated to
+    them so that there is always a disincentive to broadcast old state (if they
+    hold 0 sats on their side of the channel, there is nothing to lose).
+    */
+    uint64 reserve_sat = 6;
+
+    /*
+    The maximum amount of funds in millisatoshis that we allow the remote peer
+    to have in outstanding htlcs.
+    */
+    uint64 in_flight_max_msat = 7;
+
+    /*
+    The maximum number of htlcs that the remote peer can offer us.
+    */
+    uint32 max_htlc_count = 8;
+
+    /*
+    The minimum value in millisatoshis for incoming htlcs on the channel.
+    */
+    uint64 min_htlc_in = 9;
+
+    /*
+    The number of confirmations we require before we consider the channel open.
+    */
+    uint32 min_accept_depth = 10;
 }
 
 message ChannelPoint {
@@ -863,6 +915,13 @@ message SendManyRequest {
 
     // An optional label for the transaction, limited to 500 characters.
     string label = 6;
+
+    // The minimum number of confirmations each one of your outputs used for
+    // the transaction must satisfy.
+    int32 min_confs = 7;
+
+    // Whether unconfirmed outputs should be used as inputs for the transaction.
+    bool spend_unconfirmed = 8;
 }
 message SendManyResponse {
     // The id of the transaction
@@ -893,6 +952,13 @@ message SendCoinsRequest {
 
     // An optional label for the transaction, limited to 500 characters.
     string label = 7;
+
+    // The minimum number of confirmations each one of your outputs used for
+    // the transaction must satisfy.
+    int32 min_confs = 8;
+
+    // Whether unconfirmed outputs should be used as inputs for the transaction.
+    bool spend_unconfirmed = 9;
 }
 message SendCoinsResponse {
     // The transaction ID of the transaction
@@ -992,6 +1058,21 @@ message HTLC {
     int64 amount = 2;
     bytes hash_lock = 3;
     uint32 expiration_height = 4;
+
+    // Index identifying the htlc on the channel.
+    uint64 htlc_index = 5;
+
+    // If this HTLC is involved in a forwarding operation, this field indicates
+    // the forwarding channel. For an outgoing htlc, it is the incoming channel.
+    // For an incoming htlc, it is the outgoing channel. When the htlc
+    // originates from this node or this node is the final destination,
+    // forwarding_channel will be zero. The forwarding channel will also be zero
+    // for htlcs that need to be forwarded but don't have a forwarding decision
+    // persisted yet.
+    uint64 forwarding_channel = 6;
+
+    // Index identifying the htlc on the forwarding channel.
+    uint64 forwarding_htlc_index = 7;
 }
 
 enum CommitmentType {
@@ -1406,6 +1487,11 @@ message Peer {
         Denotes that we are not receiving new graph updates from the peer.
         */
         PASSIVE_SYNC = 2;
+
+        /*
+        Denotes that this peer is pinned into an active sync.
+        */
+        PINNED_SYNC = 3;
     }
 
     // The type of sync we are currently performing with this peer.
@@ -1721,6 +1807,12 @@ message OpenChannelRequest {
     to the commitment transaction.
     */
     uint32 remote_max_htlcs = 16;
+
+    /*
+    Max local csv is the maximum csv delay we will allow for our own commitment
+    transaction.
+    */
+    uint32 max_local_csv = 17;
 }
 message OpenStatusUpdate {
     oneof update {
@@ -2607,9 +2699,15 @@ message GraphTopologyUpdate {
 message NodeUpdate {
     repeated string addresses = 1;
     string identity_key = 2;
-    bytes global_features = 3;
+    bytes global_features = 3 [deprecated = true];
     string alias = 4;
     string color = 5;
+
+    /*
+    Features that the node has advertised in the init message, node
+    announcements and invoices.
+    */
+    map<uint32, Feature> features = 6;
 }
 message ChannelEdgeUpdate {
     /*
@@ -2810,6 +2908,13 @@ message Invoice {
     [EXPERIMENTAL].
     */
     bool is_keysend = 25;
+
+    /*
+    The payment address of this invoice. This value will be used in MPP
+    payments, and also for newer invoies that always require the MPP paylaod
+    for added end-to-end security.
+    */
+    bytes payment_addr = 26;
 }
 
 enum InvoiceHTLCState {
@@ -2868,6 +2973,13 @@ message AddInvoiceResponse {
     invoices with an add_index greater than this one.
     */
     uint64 add_index = 16;
+
+    /*
+    The payment address of the generated invoice. This value should be used
+    in all payments for this invoice as we require it for end to end
+    security.
+    */
+    bytes payment_addr = 17;
 }
 message PaymentHash {
     /*
@@ -3039,6 +3151,9 @@ message Payment {
 }
 
 message HTLCAttempt {
+    // The unique ID that is used for this attempt.
+    uint64 attempt_id = 7;
+
     enum HTLCStatus {
         IN_FLIGHT = 0;
         SUCCEEDED = 1;
@@ -3174,6 +3289,12 @@ enum FeatureBit {
     PAYMENT_ADDR_OPT = 15;
     MPP_REQ = 16;
     MPP_OPT = 17;
+    WUMBO_CHANNELS_REQ = 18;
+    WUMBO_CHANNELS_OPT = 19;
+    ANCHORS_REQ = 20;
+    ANCHORS_OPT = 21;
+    ANCHORS_ZERO_FEE_HTLC_REQ = 22;
+    ANCHORS_ZERO_FEE_HTLC_OPT = 23;
 }
 
 message Feature {

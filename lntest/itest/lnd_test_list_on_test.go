@@ -2,7 +2,11 @@
 
 package itest
 
-var testsCases = []*testCase{
+var allTestCases = []*testCase{
+	{
+		name: "test multi-hop htlc",
+		test: testMultiHopHtlcClaims,
+	},
 	{
 		name: "sweep coins",
 		test: testSweepAllCoins,
@@ -145,10 +149,6 @@ var testsCases = []*testCase{
 		test: testBidirectionalAsyncPayments,
 	},
 	{
-		name: "test multi-hop htlc",
-		test: testMultiHopHtlcClaims,
-	},
-	{
 		name: "switch circuit persistence",
 		test: testSwitchCircuitPersistence,
 	},
@@ -231,6 +231,10 @@ var testsCases = []*testCase{
 		test: testCPFP,
 	},
 	{
+		name: "anchors reserved value",
+		test: testAnchorReservedValue,
+	},
+	{
 		name: "macaroon authentication",
 		test: testMacaroonAuthentication,
 	},
@@ -281,5 +285,9 @@ var testsCases = []*testCase{
 	{
 		name: "connection timeout",
 		test: testNetworkConnectionTimeout,
+	},
+	{
+		name: "stateless init",
+		test: testStatelessInit,
 	},
 }

@@ -103,9 +103,12 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 	}
 
 	// Now that we know the full path of the signer macaroon, we can check
-	// to see if we need to create it or not.
+	// to see if we need to create it or not. If stateless_init is set
+	// then we don't write the macaroons.
 	macFilePath := cfg.SignerMacPath
-	if cfg.MacService != nil && !lnrpc.FileExists(macFilePath) {
+	if cfg.MacService != nil && !cfg.MacService.StatelessInit &&
+		!lnrpc.FileExists(macFilePath) {
+
 		log.Infof("Making macaroons for Signer RPC Server at: %v",
 			macFilePath)
 
@@ -125,7 +128,7 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 		}
 		err = ioutil.WriteFile(macFilePath, signerMacBytes, 0644)
 		if err != nil {
-			os.Remove(macFilePath)
+			_ = os.Remove(macFilePath)
 			return nil, nil, err
 		}
 	}

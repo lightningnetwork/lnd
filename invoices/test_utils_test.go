@@ -100,6 +100,32 @@ var (
 		CreationDate: testInvoiceCreationDate,
 	}
 
+	testPayAddrReqInvoice = &channeldb.Invoice{
+		Terms: channeldb.ContractTerm{
+			PaymentPreimage: &testInvoicePreimage,
+			Value:           testInvoiceAmt,
+			Expiry:          time.Hour,
+			Features: lnwire.NewFeatureVector(
+				lnwire.NewRawFeatureVector(lnwire.PaymentAddrRequired),
+				lnwire.Features,
+			),
+		},
+		CreationDate: testInvoiceCreationDate,
+	}
+
+	testPayAddrOptionalInvoice = &channeldb.Invoice{
+		Terms: channeldb.ContractTerm{
+			PaymentPreimage: &testInvoicePreimage,
+			Value:           testInvoiceAmt,
+			Expiry:          time.Hour,
+			Features: lnwire.NewFeatureVector(
+				lnwire.NewRawFeatureVector(lnwire.PaymentAddrOptional),
+				lnwire.Features,
+			),
+		},
+		CreationDate: testInvoiceCreationDate,
+	}
+
 	testHodlInvoice = &channeldb.Invoice{
 		Terms: channeldb.ContractTerm{
 			Value:    testInvoiceAmt,

@@ -5,7 +5,7 @@ the time of writing this documentation, UPnP and NAT-PMP are supported. NAT
 traversal can be enabled through `lnd`'s `--nat` flag.
 
 ```shell
-$ lnd ... --nat
+⛰  lnd ... --nat
 ```
 
 On startup, `lnd` will try the different techniques until one is found that's

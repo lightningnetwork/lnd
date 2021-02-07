@@ -70,12 +70,11 @@ func (invoice *Invoice) Encode(signer MessageSigner) (string, error) {
 	}
 
 	toSign := append([]byte(hrp), taggedFieldsBytes...)
-	hash := chainhash.HashB(toSign)
 
 	// We use compact signature format, and also encoded the recovery ID
 	// such that a reader of the invoice can recover our pubkey from the
 	// signature.
-	sign, err := signer.SignCompact(hash)
+	sign, err := signer.SignCompact(toSign)
 	if err != nil {
 		return "", err
 	}
@@ -95,6 +94,7 @@ func (invoice *Invoice) Encode(signer MessageSigner) (string, error) {
 				"signature: %v", err)
 		}
 
+		hash := chainhash.HashB(toSign)
 		valid := signature.Verify(hash, invoice.Destination)
 		if !valid {
 			return "", fmt.Errorf("signature does not match " +

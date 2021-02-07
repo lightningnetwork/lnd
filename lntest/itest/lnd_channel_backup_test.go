@@ -520,7 +520,7 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 			}
 
 			return nil
-		}, time.Second*15)
+		}, defaultTimeout)
 		if err != nil {
 			t.Fatalf("backup state invalid: %v", err)
 		}
@@ -797,8 +797,8 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	// First, we'll create a brand new node we'll use within the test. If
 	// we have a custom backup file specified, then we'll also create that
 	// for use.
-	dave, mnemonic, err := net.NewNodeWithSeed(
-		"dave", nodeArgs, password,
+	dave, mnemonic, _, err := net.NewNodeWithSeed(
+		"dave", nodeArgs, password, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to create new node: %v", err)
@@ -895,7 +895,7 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	if testCase.channelsUpdated {
 		invoice := &lnrpc.Invoice{
 			Memo:  "testing",
-			Value: 10000,
+			Value: 100000,
 		}
 		invoiceResp, err := to.AddInvoice(ctxt, invoice)
 		if err != nil {
@@ -987,6 +987,33 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	)
 	require.NoError(t.t, err)
 
+	// We now need to make sure the server is fully started before we can
+	// actually close the channel. This is the first check in CloseChannel
+	// so we can try with a nil channel point until we get the correct error
+	// to find out if Dave is fully started.
+	err = wait.Predicate(func() bool {
+		const expectedErr = "must specify channel point"
+		ctxc, cancel := context.WithCancel(ctxt)
+		defer cancel()
+
+		resp, err := dave.CloseChannel(
+			ctxc, &lnrpc.CloseChannelRequest{},
+		)
+		if err != nil {
+			return false
+		}
+
+		defer func() { _ = resp.CloseSend() }()
+
+		_, err = resp.Recv()
+		if err != nil && strings.Contains(err.Error(), expectedErr) {
+			return true
+		}
+
+		return false
+	}, defaultTimeout)
+	require.NoError(t.t, err)
+
 	// We also want to make sure we cannot force close in this state. That
 	// would get the state machine in a weird state.
 	chanPointParts := strings.Split(
@@ -1011,6 +1038,10 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	require.Error(t.t, err)
 	require.Contains(t.t, err.Error(), "cannot close channel with state: ")
 	require.Contains(t.t, err.Error(), "ChanStatusRestored")
+
+	// Increase the fee estimate so that the following force close tx will
+	// be cpfp'ed in case of anchor commitments.
+	net.SetFeeEstimate(30000)
 
 	// Now that we have ensured that the channels restored by the backup are
 	// in the correct state even without the remote peer telling us so,

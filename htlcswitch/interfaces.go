@@ -183,7 +183,8 @@ type TowerClient interface {
 	// abide by the negotiated policy. If the channel we're trying to back
 	// up doesn't have a tweak for the remote party's output, then
 	// isTweakless should be true.
-	BackupState(*lnwire.ChannelID, *lnwallet.BreachRetribution, bool) error
+	BackupState(*lnwire.ChannelID, *lnwallet.BreachRetribution,
+		channeldb.ChannelType) error
 }
 
 // InterceptableHtlcForwarder is the interface to set the interceptor
@@ -231,6 +232,9 @@ type InterceptedPacket struct {
 	// CustomRecords are user-defined records in the custom type range that
 	// were included in the payload.
 	CustomRecords record.CustomSet
+
+	// OnionBlob is the onion packet for the next hop
+	OnionBlob [lnwire.OnionPacketSize]byte
 }
 
 // InterceptedForward is passed to the ForwardInterceptor for every forwarded

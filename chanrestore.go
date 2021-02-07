@@ -110,6 +110,11 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 		chanType = channeldb.AnchorOutputsBit
 		chanType |= channeldb.SingleFunderTweaklessBit
 
+	case chanbackup.AnchorsZeroFeeHtlcTxCommitVersion:
+		chanType = channeldb.ZeroHtlcTxFeeBit
+		chanType |= channeldb.AnchorOutputsBit
+		chanType |= channeldb.SingleFunderTweaklessBit
+
 	default:
 		return nil, fmt.Errorf("unknown Single version: %v", err)
 	}
@@ -192,24 +197,26 @@ func (c *chanDBRestorer) RestoreChansFromSingles(backups ...chanbackup.Single) e
 		channel := chanShell.Chan
 
 		switch {
-		// Fallback case 1: It is extremely unlikely at this point that
+		// Fallback case 1: This is an unconfirmed channel from an old
+		// backup file where we didn't have any workaround in place and
+		// the short channel ID is 0:0:0. Best we can do here is set the
+		// funding broadcast height to a reasonable value that we
+		// determined earlier.
+		case channel.ShortChanID().BlockHeight == 0:
+			channel.FundingBroadcastHeight = firstChanHeight
+
+		// Fallback case 2: It is extremely unlikely at this point that
 		// a channel we are trying to restore has a coinbase funding TX.
 		// Therefore we can be quite certain that if the TxIndex is
-		// zero, it was an unconfirmed channel where we used the
-		// BlockHeight to encode the funding TX broadcast height. To not
-		// end up with an invalid short channel ID that looks valid, we
-		// restore the "original" unconfirmed one here.
+		// zero but the block height wasn't, it was an unconfirmed
+		// channel where we used the BlockHeight to encode the funding
+		// TX broadcast height. To not end up with an invalid short
+		// channel ID that looks valid, we restore the "original"
+		// unconfirmed one here.
 		case channel.ShortChannelID.TxIndex == 0:
 			broadcastHeight := channel.ShortChannelID.BlockHeight
 			channel.FundingBroadcastHeight = broadcastHeight
 			channel.ShortChannelID.BlockHeight = 0
-
-		// Fallback case 2: This is an unconfirmed channel from an old
-		// backup file where we didn't have any workaround in place.
-		// Best we can do here is set the funding broadcast height to a
-		// reasonable value that we determined earlier.
-		case channel.ShortChanID().BlockHeight == 0:
-			channel.FundingBroadcastHeight = firstChanHeight
 		}
 	}
 

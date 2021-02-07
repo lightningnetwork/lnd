@@ -1,6 +1,6 @@
 // +build dev
 
-package chainntnfs_test
+package chainntnfstest
 
 import (
 	"bytes"
@@ -1067,7 +1067,9 @@ func testReorgConf(miner *rpctest.Harness,
 	notifier chainntnfs.TestChainNotifier, scriptDispatch bool, t *testing.T) {
 
 	// Set up a new miner that we can use to cause a reorg.
-	miner2, err := rpctest.New(chainntnfs.NetParams, nil, []string{"--txindex"})
+	miner2, err := rpctest.New(
+		chainntnfs.NetParams, nil, []string{"--txindex"}, "",
+	)
 	if err != nil {
 		t.Fatalf("unable to create mining node: %v", err)
 	}
@@ -1247,7 +1249,9 @@ func testReorgSpend(miner *rpctest.Harness,
 	}
 
 	// Set up a new miner that we can use to cause a reorg.
-	miner2, err := rpctest.New(chainntnfs.NetParams, nil, []string{"--txindex"})
+	miner2, err := rpctest.New(
+		chainntnfs.NetParams, nil, []string{"--txindex"}, "",
+	)
 	if err != nil {
 		t.Fatalf("unable to create mining node: %v", err)
 	}
@@ -1592,7 +1596,9 @@ func testCatchUpOnMissedBlocksWithReorg(miner1 *rpctest.Harness,
 	var wg sync.WaitGroup
 
 	// Set up a new miner that we can use to cause a reorg.
-	miner2, err := rpctest.New(chainntnfs.NetParams, nil, []string{"--txindex"})
+	miner2, err := rpctest.New(
+		chainntnfs.NetParams, nil, []string{"--txindex"}, "",
+	)
 	if err != nil {
 		t.Fatalf("unable to create mining node: %v", err)
 	}
@@ -1887,7 +1893,7 @@ var blockCatchupTests = []blockCatchupTestCase{
 // import should trigger an init() method within the package which registers
 // the interface. Second, an additional case in the switch within the main loop
 // below needs to be added which properly initializes the interface.
-func TestInterfaces(t *testing.T) {
+func TestInterfaces(t *testing.T, targetBackEnd string) {
 	// Initialize the harness around a btcd node which will serve as our
 	// dedicated miner to generate blocks, cause re-orgs, etc. We'll set up
 	// this node with a chain length of 125, so we have plenty of BTC to
@@ -1902,6 +1908,11 @@ func TestInterfaces(t *testing.T) {
 		2*len(txNtfnTests)+len(blockNtfnTests)+len(blockCatchupTests))
 
 	for _, notifierDriver := range chainntnfs.RegisteredNotifiers() {
+		notifierType := notifierDriver.NotifierType
+		if notifierType != targetBackEnd {
+			continue
+		}
+
 		// Initialize a height hint cache for each notifier.
 		tempDir, err := ioutil.TempDir("", "channeldb")
 		if err != nil {
@@ -1920,9 +1931,8 @@ func TestInterfaces(t *testing.T) {
 		}
 
 		var (
-			cleanUp      func()
-			newNotifier  func() (chainntnfs.TestChainNotifier, error)
-			notifierType = notifierDriver.NotifierType
+			cleanUp     func()
+			newNotifier func() (chainntnfs.TestChainNotifier, error)
 		)
 
 		switch notifierType {

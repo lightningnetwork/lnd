@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/psbt"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	base "github.com/btcsuite/btcwallet/wallet"
@@ -97,7 +98,7 @@ func New(cfg Config) (*BtcWallet, error) {
 		}
 		loader := base.NewLoader(
 			cfg.NetParams, netDir, cfg.NoFreelistSync,
-			cfg.RecoveryWindow,
+			cfg.DBTimeOut, cfg.RecoveryWindow,
 		)
 		walletExists, err := loader.WalletExists()
 		if err != nil {
@@ -297,7 +298,7 @@ func (b *BtcWallet) IsOurAddress(a btcutil.Address) bool {
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
-	feeRate chainfee.SatPerKWeight, label string) (*wire.MsgTx, error) {
+	feeRate chainfee.SatPerKWeight, minconf int32, label string) (*wire.MsgTx, error) {
 
 	// Convert our fee rate from sat/kw to sat/kb since it's required by
 	// SendOutputs.
@@ -308,8 +309,13 @@ func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
 		return nil, lnwallet.ErrNoOutputs
 	}
 
+	// Sanity check minconf.
+	if minconf < 0 {
+		return nil, lnwallet.ErrInvalidMinconf
+	}
+
 	return b.wallet.SendOutputs(
-		outputs, defaultAccount, 1, feeSatPerKB, label,
+		outputs, defaultAccount, minconf, feeSatPerKB, label,
 	)
 }
 
@@ -685,6 +691,51 @@ func (b *BtcWallet) ListTransactionDetails(startHeight,
 	return txDetails, nil
 }
 
+// FundPsbt creates a fully populated PSBT packet that contains enough
+// inputs to fund the outputs specified in the passed in packet with the
+// specified fee rate. If there is change left, a change output from the
+// internal wallet is added and the index of the change output is returned.
+// Otherwise no additional output is created and the index -1 is returned.
+//
+// NOTE: If the packet doesn't contain any inputs, coin selection is
+// performed automatically. If the packet does contain any inputs, it is
+// assumed that full coin selection happened externally and no
+// additional inputs are added. If the specified inputs aren't enough to
+// fund the outputs with the given fee rate, an error is returned.
+// No lock lease is acquired for any of the selected/validated inputs.
+// It is in the caller's responsibility to lock the inputs before
+// handing them out.
+//
+// This is a part of the WalletController interface.
+func (b *BtcWallet) FundPsbt(packet *psbt.Packet,
+	feeRate chainfee.SatPerKWeight) (int32, error) {
+
+	// The fee rate is passed in using units of sat/kw, so we'll convert
+	// this to sat/KB as the CreateSimpleTx method requires this unit.
+	feeSatPerKB := btcutil.Amount(feeRate.FeePerKVByte())
+
+	// Let the wallet handle coin selection and/or fee estimation based on
+	// the partial TX information in the packet.
+	return b.wallet.FundPsbt(packet, defaultAccount, feeSatPerKB)
+}
+
+// FinalizePsbt expects a partial transaction with all inputs and
+// outputs fully declared and tries to sign all inputs that belong to
+// the wallet. Lnd must be the last signer of the transaction. That
+// means, if there are any unsigned non-witness inputs or inputs without
+// UTXO information attached or inputs without witness data that do not
+// belong to lnd's wallet, this method will fail. If no error is
+// returned, the PSBT is ready to be extracted and the final TX within
+// to be broadcast.
+//
+// NOTE: This method does NOT publish the transaction after it's been
+// finalized successfully.
+//
+// This is a part of the WalletController interface.
+func (b *BtcWallet) FinalizePsbt(packet *psbt.Packet) error {
+	return b.wallet.FinalizePsbt(packet)
+}
+
 // txSubscriptionClient encapsulates the transaction notification client from
 // the base wallet. Notifications received from the client will be proxied over
 // two distinct channels.
@@ -730,6 +781,8 @@ func (t *txSubscriptionClient) Cancel() {
 // wallet's notification client to a higher-level TransactionSubscription
 // client.
 func (t *txSubscriptionClient) notificationProxier() {
+	defer t.wg.Done()
+
 out:
 	for {
 		select {
@@ -779,8 +832,6 @@ out:
 			break out
 		}
 	}
-
-	t.wg.Done()
 }
 
 // SubscribeTransactions returns a TransactionSubscription client which
@@ -824,9 +875,19 @@ func (b *BtcWallet) IsSynced() (bool, int64, error) {
 		return false, 0, err
 	}
 
+	// Make sure the backing chain has been considered synced first.
+	if !b.wallet.ChainSynced() {
+		bestHeader, err := b.cfg.ChainSource.GetBlockHeader(bestHash)
+		if err != nil {
+			return false, 0, err
+		}
+		bestTimestamp = bestHeader.Timestamp.Unix()
+		return false, bestTimestamp, nil
+	}
+
 	// If the wallet hasn't yet fully synced to the node's best chain tip,
 	// then we're not yet fully synced.
-	if syncState.Height < bestHeight || !b.wallet.ChainSynced() {
+	if syncState.Height < bestHeight {
 		return false, bestTimestamp, nil
 	}
 

@@ -128,6 +128,43 @@ service WalletKit {
     */
     rpc LabelTransaction (LabelTransactionRequest)
         returns (LabelTransactionResponse);
+
+    /*
+    FundPsbt creates a fully populated PSBT that contains enough inputs to fund
+    the outputs specified in the template. There are two ways of specifying a
+    template: Either by passing in a PSBT with at least one output declared or
+    by passing in a raw TxTemplate message.
+
+    If there are no inputs specified in the template, coin selection is
+    performed automatically. If the template does contain any inputs, it is
+    assumed that full coin selection happened externally and no additional
+    inputs are added. If the specified inputs aren't enough to fund the outputs
+    with the given fee rate, an error is returned.
+
+    After either selecting or verifying the inputs, all input UTXOs are locked
+    with an internal app ID.
+
+    NOTE: If this method returns without an error, it is the caller's
+    responsibility to either spend the locked UTXOs (by finalizing and then
+    publishing the transaction) or to unlock/release the locked UTXOs in case of
+    an error on the caller's side.
+    */
+    rpc FundPsbt (FundPsbtRequest) returns (FundPsbtResponse);
+
+    /*
+    FinalizePsbt expects a partial transaction with all inputs and outputs fully
+    declared and tries to sign all inputs that belong to the wallet. Lnd must be
+    the last signer of the transaction. That means, if there are any unsigned
+    non-witness inputs or inputs without UTXO information attached or inputs
+    without witness data that do not belong to lnd's wallet, this method will
+    fail. If no error is returned, the PSBT is ready to be extracted and the
+    final TX within to be broadcast.
+
+    NOTE: This method does NOT publish the transaction once finalized. It is the
+    caller's responsibility to either publish the transaction on success or
+    unlock/release any locked UTXOs in case of an error in this method.
+    */
+    rpc FinalizePsbt (FinalizePsbtRequest) returns (FinalizePsbtResponse);
 }
 
 message ListUnspentRequest {
@@ -233,6 +270,13 @@ message SendOutputsRequest {
 
     // An optional label for the transaction, limited to 500 characters.
     string label = 3;
+
+    // The minimum number of confirmations each one of your outputs used for
+    // the transaction must satisfy.
+    int32 min_confs = 4;
+
+    // Whether unconfirmed outputs should be used as inputs for the transaction.
+    bool spend_unconfirmed = 5;
 }
 message SendOutputsResponse {
     /*
@@ -420,7 +464,8 @@ message BumpFeeResponse {
 message ListSweepsRequest {
     /*
     Retrieve the full sweep transaction details. If false, only the sweep txids
-    will be returned.
+    will be returned. Note that some sweeps that LND publishes will have been
+    replaced-by-fee, so will not be included in this output.
     */
     bool verbose = 1;
 }
@@ -453,4 +498,104 @@ message LabelTransactionRequest {
 }
 
 message LabelTransactionResponse {
+}
+
+message FundPsbtRequest {
+    oneof template {
+        /*
+        Use an existing PSBT packet as the template for the funded PSBT.
+
+        The packet must contain at least one non-dust output. If one or more
+        inputs are specified, no coin selection is performed. In that case every
+        input must be an UTXO known to the wallet that has not been locked
+        before. The sum of all inputs must be sufficiently greater than the sum
+        of all outputs to pay a miner fee with the specified fee rate. A change
+        output is added to the PSBT if necessary.
+        */
+        bytes psbt = 1;
+
+        /*
+        Use the outputs and optional inputs from this raw template.
+        */
+        TxTemplate raw = 2;
+    }
+
+    oneof fees {
+        /*
+        The target number of blocks that the transaction should be confirmed in.
+        */
+        uint32 target_conf = 3;
+
+        /*
+        The fee rate, expressed in sat/vbyte, that should be used to spend the
+        input with.
+        */
+        uint32 sat_per_vbyte = 4;
+    }
+}
+message FundPsbtResponse {
+    /*
+    The funded but not yet signed PSBT packet.
+    */
+    bytes funded_psbt = 1;
+
+    /*
+    The index of the added change output or -1 if no change was left over.
+    */
+    int32 change_output_index = 2;
+
+    /*
+    The list of lock leases that were acquired for the inputs in the funded PSBT
+    packet.
+    */
+    repeated UtxoLease locked_utxos = 3;
+}
+
+message TxTemplate {
+    /*
+    An optional list of inputs to use. Every input must be an UTXO known to the
+    wallet that has not been locked before. The sum of all inputs must be
+    sufficiently greater than the sum of all outputs to pay a miner fee with the
+    fee rate specified in the parent message.
+
+    If no inputs are specified, coin selection will be performed instead and
+    inputs of sufficient value will be added to the resulting PSBT.
+    */
+    repeated lnrpc.OutPoint inputs = 1;
+
+    /*
+    A map of all addresses and the amounts to send to in the funded PSBT.
+    */
+    map<string, uint64> outputs = 2;
+}
+
+message UtxoLease {
+    /*
+    A 32 byte random ID that identifies the lease.
+    */
+    bytes id = 1;
+
+    // The identifying outpoint of the output being leased.
+    lnrpc.OutPoint outpoint = 2;
+
+    /*
+    The absolute expiration of the output lease represented as a unix timestamp.
+    */
+    uint64 expiration = 3;
+}
+
+message FinalizePsbtRequest {
+    /*
+    A PSBT that should be signed and finalized. The PSBT must contain all
+    required inputs, outputs, UTXO data and partial signatures of all other
+    signers.
+    */
+    bytes funded_psbt = 1;
+}
+message FinalizePsbtResponse {
+    // The fully signed and finalized transaction in PSBT format.
+    bytes signed_psbt = 1;
+
+    // The fully signed and finalized transaction in the raw wire format.
+    bytes raw_final_tx = 2;
 }

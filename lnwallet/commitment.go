@@ -17,6 +17,11 @@ import (
 // anchorSize is the constant anchor output size.
 const anchorSize = btcutil.Amount(330)
 
+// DefaultAnchorsCommitMaxFeeRateSatPerVByte is the default max fee rate in
+// sat/vbyte the initiator will use for anchor channels. This should be enough
+// to ensure propagation before anchoring down the commitment transaction.
+const DefaultAnchorsCommitMaxFeeRateSatPerVByte = 10
+
 // CommitmentKeyRing holds all derived keys needed to construct commitment and
 // HTLC transactions. The keys are derived differently depending whether the
 // commitment transaction is ours or the remote peer's. Private keys associated
@@ -235,6 +240,24 @@ func HtlcSigHashType(chanType channeldb.ChannelType) txscript.SigHashType {
 	return txscript.SigHashAll
 }
 
+// HtlcSignDetails converts the passed parameters to a SignDetails valid for
+// this channel type. For non-anchor channels this will return nil.
+func HtlcSignDetails(chanType channeldb.ChannelType, signDesc input.SignDescriptor,
+	sigHash txscript.SigHashType, peerSig input.Signature) *input.SignDetails {
+
+	// Non-anchor channels don't need sign details, as the HTLC second
+	// level cannot be altered.
+	if !chanType.HasAnchors() {
+		return nil
+	}
+
+	return &input.SignDetails{
+		SignDesc:    signDesc,
+		SigHashType: sigHash,
+		PeerSig:     peerSig,
+	}
+}
+
 // HtlcSecondLevelInputSequence dictates the sequence number we must use on the
 // input to a second level HTLC transaction.
 func HtlcSecondLevelInputSequence(chanType channeldb.ChannelType) uint32 {
@@ -260,6 +283,12 @@ func CommitWeight(chanType channeldb.ChannelType) int64 {
 func HtlcTimeoutFee(chanType channeldb.ChannelType,
 	feePerKw chainfee.SatPerKWeight) btcutil.Amount {
 
+	// For zero-fee HTLC channels, this will always be zero, regardless of
+	// feerate.
+	if chanType.ZeroHtlcTxFee() {
+		return 0
+	}
+
 	if chanType.HasAnchors() {
 		return feePerKw.FeeForWeight(input.HtlcTimeoutWeightConfirmed)
 	}
@@ -271,6 +300,12 @@ func HtlcTimeoutFee(chanType channeldb.ChannelType,
 // transaction based on the current fee rate.
 func HtlcSuccessFee(chanType channeldb.ChannelType,
 	feePerKw chainfee.SatPerKWeight) btcutil.Amount {
+
+	// For zero-fee HTLC channels, this will always be zero, regardless of
+	// feerate.
+	if chanType.ZeroHtlcTxFee() {
+		return 0
+	}
 
 	if chanType.HasAnchors() {
 		return feePerKw.FeeForWeight(input.HtlcSuccessWeightConfirmed)

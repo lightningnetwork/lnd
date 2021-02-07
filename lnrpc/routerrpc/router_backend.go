@@ -648,6 +648,10 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 			payIntent.Amount = *payReq.MilliSat
 		}
 
+		if !payReq.Features.HasFeature(lnwire.MPPOptional) {
+			payIntent.MaxParts = 1
+		}
+
 		copy(payIntent.PaymentHash[:], payReq.PaymentHash[:])
 		destKey := payReq.Destination.SerializeCompressed()
 		copy(payIntent.Target[:], destKey)
@@ -693,6 +697,15 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		features, err := UnmarshalFeatures(rpcPayReq.DestFeatures)
 		if err != nil {
 			return nil, err
+		}
+
+		// If the payment addresses is specified, then we'll also
+		// populate that now as well.
+		if len(rpcPayReq.PaymentAddr) != 0 {
+			var payAddr [32]byte
+			copy(payAddr[:], rpcPayReq.PaymentAddr)
+
+			payIntent.PaymentAddr = &payAddr
 		}
 
 		payIntent.DestFeatures = features
@@ -852,6 +865,7 @@ func (r *RouterBackend) MarshalHTLCAttempt(
 	}
 
 	rpcAttempt := &lnrpc.HTLCAttempt{
+		AttemptId:     htlc.AttemptID,
 		AttemptTimeNs: MarshalTimeNano(htlc.AttemptTime),
 		Route:         route,
 	}

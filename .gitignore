@@ -32,10 +32,12 @@ _testmain.go
 /lncli-itest
 
 # Integration test log files
-lntest/itest/output*.log
-lntest/itest/pprof*.log
+lntest/itest/*.log
 lntest/itest/.backendlogs
 lntest/itest/.minerlogs
+lntest/itest/lnd-itest
+lntest/itest/btcd-itest
+lntest/itest/.logs-*
 
 cmd/cmd
 *.key
@@ -46,6 +48,12 @@ cmd/lncli/lncli
 # Files from mobile build.
 mobile/build
 mobile/*_generated.go
+
+# Files created for fuzzing.
+fuzz/**/*-fuzz.zip
+fuzz/**/corpus
+fuzz/**/crashers
+fuzz/**/suppressions
 
 # vim
 *.swp

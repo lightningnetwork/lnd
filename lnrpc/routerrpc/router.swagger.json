@@ -511,13 +511,24 @@
         "PAYMENT_ADDR_REQ",
         "PAYMENT_ADDR_OPT",
         "MPP_REQ",
-        "MPP_OPT"
+        "MPP_OPT",
+        "WUMBO_CHANNELS_REQ",
+        "WUMBO_CHANNELS_OPT",
+        "ANCHORS_REQ",
+        "ANCHORS_OPT",
+        "ANCHORS_ZERO_FEE_HTLC_REQ",
+        "ANCHORS_ZERO_FEE_HTLC_OPT"
       ],
       "default": "DATALOSS_PROTECT_REQ"
     },
     "lnrpcHTLCAttempt": {
       "type": "object",
       "properties": {
+        "attempt_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unique ID that is used for this attempt."
+        },
         "status": {
           "$ref": "#/definitions/HTLCAttemptHTLCStatus",
           "description": "The status of the HTLC."
@@ -832,6 +843,11 @@
             "format": "byte"
           },
           "description": "A list of hops that defines the route. This does not include the source hop\npubkey."
+        },
+        "payment_addr": {
+          "type": "string",
+          "format": "byte",
+          "description": "An optional payment addr to be included within the last hop of the route."
         }
       }
     },
@@ -944,6 +960,11 @@
             "format": "byte"
           },
           "description": "Any custom records that were present in the payload."
+        },
+        "onion_blob": {
+          "type": "string",
+          "format": "byte",
+          "title": "The onion blob for the next hop"
         }
       }
     },
@@ -1238,6 +1259,11 @@
           "type": "integer",
           "format": "int32",
           "description": "The CLTV delta from the current height that should be used to set the\ntimelock for the final hop."
+        },
+        "payment_addr": {
+          "type": "string",
+          "format": "byte",
+          "description": "An optional payment addr to be included within the last hop of the route."
         },
         "payment_request": {
           "type": "string",

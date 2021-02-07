@@ -342,7 +342,7 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 		},
 	}
 	resolver := &htlcIncomingContestResolver{
-		htlcSuccessResolver: htlcSuccessResolver{
+		htlcSuccessResolver: &htlcSuccessResolver{
 			contractResolverKit: *newContractResolverKit(cfg),
 			htlcResolution:      lnwallet.IncomingHtlcResolution{},
 			htlc: channeldb.HTLC{

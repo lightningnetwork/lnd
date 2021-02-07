@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lightningnetwork/lnd"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -19,7 +19,7 @@ func testHtlcErrorPropagation(net *lntest.NetworkHarness, t *harnessTest) {
 	// In this test we wish to exercise the daemon's correct parsing,
 	// handling, and propagation of errors that occur while processing a
 	// multi-hop payment.
-	const chanAmt = lnd.MaxBtcFundingAmount
+	const chanAmt = funding.MaxBtcFundingAmount
 
 	// First establish a channel with a capacity of 0.5 BTC between Alice
 	// and Bob.
@@ -102,7 +102,7 @@ func testHtlcErrorPropagation(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to connect bob to carol: %v", err)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
-	const bobChanAmt = lnd.MaxBtcFundingAmount
+	const bobChanAmt = funding.MaxBtcFundingAmount
 	chanPointBob := openChannelAndAssert(
 		ctxt, t, net, net.Bob, carol,
 		lntest.OpenChannelParams{

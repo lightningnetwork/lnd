@@ -26,7 +26,7 @@ type RevokeAndAck struct {
 
 	// NextRevocationKey is the next commitment point which should be used
 	// for the next commitment transaction the remote peer creates for us.
-	// This, in conjunction without revocation base point will be used to
+	// This, in conjunction with revocation base point will be used to
 	// create the proper revocation key used within the commitment
 	// transaction.
 	NextRevocationKey *btcec.PublicKey

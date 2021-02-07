@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
@@ -85,6 +86,10 @@ type NegotiatorConfig struct {
 	// exponential backoff produces a timeout greater than this value, the
 	// backoff duration will be clamped to MaxBackoff.
 	MaxBackoff time.Duration
+
+	// Log specifies the desired log output, which should be prefixed by the
+	// client type, e.g. anchor or legacy.
+	Log btclog.Logger
 }
 
 // sessionNegotiator is concrete SessionNegotiator that is able to request new
@@ -97,6 +102,7 @@ type sessionNegotiator struct {
 	localInit *wtwire.Init
 
 	cfg *NegotiatorConfig
+	log btclog.Logger
 
 	dispatcher             chan struct{}
 	newSessions            chan *wtdb.ClientSession
@@ -112,13 +118,25 @@ var _ SessionNegotiator = (*sessionNegotiator)(nil)
 
 // newSessionNegotiator initializes a fresh sessionNegotiator instance.
 func newSessionNegotiator(cfg *NegotiatorConfig) *sessionNegotiator {
+	// Generate the set of features the negitator will present to the tower
+	// upon connection. For anchor channels, we'll conditionally signal that
+	// we require support for anchor channels depdening on the requested
+	// policy.
+	features := []lnwire.FeatureBit{
+		wtwire.AltruistSessionsRequired,
+	}
+	if cfg.Policy.IsAnchorChannel() {
+		features = append(features, wtwire.AnchorCommitRequired)
+	}
+
 	localInit := wtwire.NewInitMessage(
-		lnwire.NewRawFeatureVector(wtwire.AltruistSessionsRequired),
+		lnwire.NewRawFeatureVector(features...),
 		cfg.ChainHash,
 	)
 
 	return &sessionNegotiator{
 		cfg:                    cfg,
+		log:                    cfg.Log,
 		localInit:              localInit,
 		dispatcher:             make(chan struct{}, 1),
 		newSessions:            make(chan *wtdb.ClientSession),
@@ -130,7 +148,7 @@ func newSessionNegotiator(cfg *NegotiatorConfig) *sessionNegotiator {
 // Start safely starts up the sessionNegotiator.
 func (n *sessionNegotiator) Start() error {
 	n.started.Do(func() {
-		log.Debugf("Starting session negotiator")
+		n.log.Debugf("Starting session negotiator")
 
 		n.wg.Add(1)
 		go n.negotiationDispatcher()
@@ -142,7 +160,7 @@ func (n *sessionNegotiator) Start() error {
 // Stop safely shutsdown the sessionNegotiator.
 func (n *sessionNegotiator) Stop() error {
 	n.stopped.Do(func() {
-		log.Debugf("Stopping session negotiator")
+		n.log.Debugf("Stopping session negotiator")
 
 		close(n.quit)
 		n.wg.Wait()
@@ -180,7 +198,7 @@ func (n *sessionNegotiator) negotiationDispatcher() {
 			pendingNegotiations++
 
 			if pendingNegotiations > 1 {
-				log.Debugf("Already negotiating session, " +
+				n.log.Debugf("Already negotiating session, " +
 					"waiting for existing negotiation to " +
 					"complete")
 				continue
@@ -188,7 +206,7 @@ func (n *sessionNegotiator) negotiationDispatcher() {
 
 			// TODO(conner): consider reusing good towers
 
-			log.Debugf("Dispatching session negotiation")
+			n.log.Debugf("Dispatching session negotiation")
 
 			n.wg.Add(1)
 			go n.negotiate()
@@ -202,7 +220,7 @@ func (n *sessionNegotiator) negotiationDispatcher() {
 			}
 
 			if pendingNegotiations > 0 {
-				log.Debugf("Dispatching pending session " +
+				n.log.Debugf("Dispatching pending session " +
 					"negotiation")
 
 				n.wg.Add(1)
@@ -231,6 +249,19 @@ func (n *sessionNegotiator) negotiate() {
 	// backoff.
 	var backoff time.Duration
 
+	// Create a closure to update the backoff upon failure such that it
+	// stays within our min and max backoff parameters.
+	updateBackoff := func() {
+		if backoff == 0 {
+			backoff = n.cfg.MinBackoff
+		} else {
+			backoff *= 2
+			if backoff > n.cfg.MaxBackoff {
+				backoff = n.cfg.MaxBackoff
+			}
+		}
+	}
+
 retryWithBackoff:
 	// If we are retrying, wait out the delay before continuing.
 	if backoff > 0 {
@@ -251,18 +282,10 @@ retryWithBackoff:
 		// Pull the next candidate from our list of addresses.
 		tower, err := n.cfg.Candidates.Next()
 		if err != nil {
-			if backoff == 0 {
-				backoff = n.cfg.MinBackoff
-			} else {
-				// We've run out of addresses, double and clamp
-				// backoff.
-				backoff *= 2
-				if backoff > n.cfg.MaxBackoff {
-					backoff = n.cfg.MaxBackoff
-				}
-			}
+			// We've run out of addresses, update our backoff.
+			updateBackoff()
 
-			log.Debugf("Unable to get new tower candidate, "+
+			n.log.Debugf("Unable to get new tower candidate, "+
 				"retrying after %v -- reason: %v", backoff, err)
 
 			// Only reset the iterator once we've exhausted all
@@ -276,15 +299,17 @@ retryWithBackoff:
 		}
 
 		towerPub := tower.IdentityKey.SerializeCompressed()
-		log.Debugf("Attempting session negotiation with tower=%x",
+		n.log.Debugf("Attempting session negotiation with tower=%x",
 			towerPub)
 
 		// Before proceeding, we will reserve a session key index to use
 		// with this specific tower. If one is already reserved, the
 		// existing index will be returned.
-		keyIndex, err := n.cfg.DB.NextSessionKeyIndex(tower.ID)
+		keyIndex, err := n.cfg.DB.NextSessionKeyIndex(
+			tower.ID, n.cfg.Policy.BlobType,
+		)
 		if err != nil {
-			log.Debugf("Unable to reserve session key index "+
+			n.log.Debugf("Unable to reserve session key index "+
 				"for tower=%x: %v", towerPub, err)
 			continue
 		}
@@ -293,10 +318,14 @@ retryWithBackoff:
 		// get a new session, trying all addresses if necessary.
 		err = n.createSession(tower, keyIndex)
 		if err != nil {
-			log.Debugf("Session negotiation with tower=%x "+
+			// An unexpected error occurred, updpate our backoff.
+			updateBackoff()
+
+			n.log.Debugf("Session negotiation with tower=%x "+
 				"failed, trying again -- reason: %v",
 				tower.IdentityKey.SerializeCompressed(), err)
-			continue
+
+			goto retryWithBackoff
 		}
 
 		// Success.
@@ -338,7 +367,7 @@ func (n *sessionNegotiator) createSession(tower *wtdb.Tower,
 			fallthrough
 
 		case err != nil:
-			log.Debugf("Request for session negotiation with "+
+			n.log.Debugf("Request for session negotiation with "+
 				"tower=%s failed, trying again -- reason: "+
 				"%v", lnAddr, err)
 			continue
@@ -445,7 +474,7 @@ func (n *sessionNegotiator) tryAddress(sessionKey keychain.SingleKeyECDH,
 				err)
 		}
 
-		log.Debugf("New session negotiated with %s, policy: %s",
+		n.log.Debugf("New session negotiated with %s, policy: %s",
 			lnAddr, clientSession.Policy)
 
 		// We have a newly negotiated session, return it to the

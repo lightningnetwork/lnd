@@ -1,7 +1,10 @@
 # Table of Contents
 * [Installation](#installation)
-    * [Preliminaries](#preliminaries)
-    * [Installing lnd](#installing-lnd)
+  * [Installing a binary release](#installing-a-binary-release)
+  * [Building a tagged version with Docker](#building-a-tagged-version-with-docker)
+  * [Building a development version from source](#building-a-development-version-from-source)
+    * [Preliminaries](#preliminaries-for-installing-from-source)
+    * [Installing lnd](#installing-lnd-from-source)
 * [Available Backend Operating Modes](#available-backend-operating-modes)
   * [btcd Options](#btcd-options)
   * [Neutrino Options](#neutrino-options)
@@ -20,7 +23,70 @@
 
 # Installation
 
-### Preliminaries
+There are multiple ways to install `lnd`. For most users the easiest way is to
+[download and install an official release binary](#installing-a-binary-release).
+Those release binaries are always built with production in mind and have all
+RPC subservers enabled.
+
+More advanced users that want to build `lnd` from source also have multiple
+options. To build a tagged version, there is a docker build helper script that
+allows users to
+[build `lnd` from source without needing to install `golang`](#building-a-tagged-version-with-docker).
+That is also the preferred way to build and verify the reproducible builds that
+are released by the team. See
+[release.md for more information about reproducible builds](release.md).
+
+Finally, there is the option to build `lnd` fully manually. This requires more
+tooling to be set up first but allows to produce non-production (debug,
+development) builds.
+
+## Installing a binary release
+
+Downloading and installing an official release binary is recommended for use on
+mainnet.
+[Visit the release page on GitHub](https://github.com/lightningnetwork/lnd/releases)
+and select the latest version that does not have the "Pre-release" label set
+(unless you explicitly want to help test a Release Candidate, RC).
+
+Choose the package that best fits your operating system and system architecture.
+It is recommended to choose 64bit versions over 32bit ones, if your operating
+system supports both.
+
+Extract the package and place the two binaries (`lnd` and `lncli` or `lnd.exe`
+and `lncli.exe` on Windows) somewhere where the operating system can find them.
+
+## Building a tagged version with Docker
+
+To use the Docker build helper, you need to have the following software
+installed and set up on your machine:
+ - Docker
+ - `make`
+ - `bash`
+
+To build a specific git tag of `lnd`, simply run the following steps (assuming
+`v0.x.y-beta` is the tagged version to build):
+
+```shell
+⛰  git clone https://github.com/lightningnetwork/lnd
+⛰  cd lnd
+⛰  git checkout v0.x.y-beta
+⛰  make docker-release tag=v0.x.y-beta
+```
+
+This will create a directory called `lnd-v0.x.y-beta` that contains the release
+binaries for all operating system and architecture pairs. A single pair can also
+be selected by specifying the `sys=linux-amd64` flag for example. See
+[release.md for more information on reproducible builds](release.md).
+
+## Building a development version from source
+
+Building and installing `lnd` from source is only recommended for advanced users
+and/or developers. Running the latest commit from the `master` branch is not
+recommended for mainnet. The `master` branch can at times be unstable and
+running your node off of it can prevent it to go back to a previous, stable
+version if there are database migrations present.
+
+### Preliminaries for installing from source
   In order to work with [`lnd`](https://github.com/lightningnetwork/lnd), the
   following build dependencies are required:
 
@@ -84,9 +150,9 @@
     `~/go`. You will also need to add `$GOPATH/bin` to your `PATH`. This ensures
     that your shell will be able to detect the binaries you install.
 
-    ```bash
-    export GOPATH=~/gocode
-    export PATH=$PATH:$GOPATH/bin
+    ```shell
+    ⛰  export GOPATH=~/gocode
+    ⛰  export PATH=$PATH:$GOPATH/bin
     ```
 
     We recommend placing the above in your .bashrc or in a setup script so that
@@ -99,14 +165,14 @@
     `lnd` into your `$GOPATH` for development purposes. Instead, your `lnd`
     repo can now live anywhere!
 
-### Installing lnd
+### Installing lnd from source
 
 With the preliminary steps completed, to install `lnd`, `lncli`, and all
 related dependencies run the following commands:
-```
-git clone https://github.com/lightningnetwork/lnd
-cd lnd
-make install
+```shell
+⛰  git clone https://github.com/lightningnetwork/lnd
+⛰  cd lnd
+⛰  make install
 ```
 
 The command above will install the current _master_ branch of `lnd`. If you
@@ -115,11 +181,11 @@ unstable), then [visit then release page to locate the latest
 release](https://github.com/lightningnetwork/lnd/releases). Assuming the name
 of the release is `v0.x.x`, then you can compile this release from source with
 a small modification to the above command: 
-```
-git clone https://github.com/lightningnetwork/lnd
-cd lnd
-git checkout v0.x.x
-make install
+```shell
+⛰  git clone https://github.com/lightningnetwork/lnd
+⛰  cd lnd
+⛰  git checkout v0.x.x
+⛰  make install
 ```
 
 
@@ -131,35 +197,35 @@ For Windows WSL users, make will need to be referenced directly via
 /usr/bin/make/, or alternatively by wrapping quotation marks around make,
 like so:
 
-```
-/usr/bin/make && /usr/bin/make install
+```shell
+⛰  /usr/bin/make && /usr/bin/make install
 
-"make" && "make" install
+⛰  "make" && "make" install
 ```
 
 On FreeBSD, use gmake instead of make.
 
 Alternatively, if one doesn't wish to use `make`, then the `go` commands can be
 used directly:
-```
-GO111MODULE=on go install -v ./...
+```shell
+⛰  GO111MODULE=on go install -v ./...
 ```
 
 **Updating**
 
 To update your version of `lnd` to the latest version run the following
 commands:
-```
-cd $GOPATH/src/github.com/lightningnetwork/lnd
-git pull
-make clean && make && make install
+```shell
+⛰  cd $GOPATH/src/github.com/lightningnetwork/lnd
+⛰  git pull
+⛰  make clean && make && make install
 ```
 
 On FreeBSD, use gmake instead of make.
 
 Alternatively, if one doesn't wish to use `make`, then the `go` commands can be
 used directly:
-```
+```shell
 cd $GOPATH/src/github.com/lightningnetwork/lnd
 git pull
 GO111MODULE=on go install -v ./...
@@ -179,7 +245,7 @@ in the system's `$PATH` variable. Otherwise some of the tests will fail.
 
 In order to run, `lnd` requires, that the user specify a chain backend. At the
 time of writing of this document, there are three available chain backends:
-`btcd`, `neutrino`, `bitcoind`. All but neutrino (atm) can run on mainnet with
+`btcd`, `neutrino`, `bitcoind`. All including neutrino can run on mainnet with
 an out of the box `lnd` instance. We don't require `--txindex` when running
 with `bitcoind` or `btcd` but activating the `txindex` will generally make
 `lnd` run faster.

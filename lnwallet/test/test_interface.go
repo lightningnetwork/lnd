@@ -1,4 +1,4 @@
-package lnwallet_test
+package lnwallettest
 
 import (
 	"bytes"
@@ -91,6 +91,8 @@ var (
 
 	bobAddr, _   = net.ResolveTCPAddr("tcp", "10.0.0.2:9000")
 	aliceAddr, _ = net.ResolveTCPAddr("tcp", "10.0.0.3:9000")
+
+	defaultMaxLocalCsvDelay uint16 = 10000
 )
 
 // assertProperBalance asserts than the total value of the unspent outputs
@@ -171,18 +173,20 @@ func newPkScript(t *testing.T, w *lnwallet.LightningWallet,
 // parties to send on-chain funds to each other.
 func sendCoins(t *testing.T, miner *rpctest.Harness,
 	sender, receiver *lnwallet.LightningWallet, output *wire.TxOut,
-	feeRate chainfee.SatPerKWeight) *wire.MsgTx { //nolint:unparam
+	feeRate chainfee.SatPerKWeight, mineBlock bool, minConf int32) *wire.MsgTx { //nolint:unparam
 
 	t.Helper()
 
 	tx, err := sender.SendOutputs(
-		[]*wire.TxOut{output}, 2500, labels.External,
+		[]*wire.TxOut{output}, feeRate, minConf, labels.External,
 	)
 	if err != nil {
 		t.Fatalf("unable to send transaction: %v", err)
 	}
 
-	mineAndAssertTxInBlock(t, miner, tx.TxHash())
+	if mineBlock {
+		mineAndAssertTxInBlock(t, miner, tx.TxHash())
+	}
 
 	if err := waitForWalletSync(miner, sender); err != nil {
 		t.Fatalf("unable to sync alice: %v", err)
@@ -200,12 +204,6 @@ func assertTxInWallet(t *testing.T, w *lnwallet.LightningWallet,
 	txHash chainhash.Hash, confirmed bool) {
 
 	t.Helper()
-
-	// If the backend is Neutrino, then we can't determine unconfirmed
-	// transactions since it's not aware of the mempool.
-	if !confirmed && w.BackEnd() == "neutrino" {
-		return
-	}
 
 	// We'll fetch all of our transaction and go through each one until
 	// finding the expected transaction with its expected confirmation
@@ -451,7 +449,9 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 		CsvDelay:         csvDelay,
 	}
-	err = aliceChanReservation.CommitConstraints(channelConstraints)
+	err = aliceChanReservation.CommitConstraints(
+		channelConstraints, defaultMaxLocalCsvDelay,
+	)
 	if err != nil {
 		t.Fatalf("unable to verify constraints: %v", err)
 	}
@@ -485,7 +485,9 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("bob unable to init channel reservation: %v", err)
 	}
-	err = bobChanReservation.CommitConstraints(channelConstraints)
+	err = bobChanReservation.CommitConstraints(
+		channelConstraints, defaultMaxLocalCsvDelay,
+	)
 	if err != nil {
 		t.Fatalf("unable to verify constraints: %v", err)
 	}
@@ -897,7 +899,9 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 		CsvDelay:         csvDelay,
 	}
-	err = aliceChanReservation.CommitConstraints(channelConstraints)
+	err = aliceChanReservation.CommitConstraints(
+		channelConstraints, defaultMaxLocalCsvDelay,
+	)
 	if err != nil {
 		t.Fatalf("unable to verify constraints: %v", err)
 	}
@@ -938,7 +942,9 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("unable to create bob reservation: %v", err)
 	}
-	err = bobChanReservation.CommitConstraints(channelConstraints)
+	err = bobChanReservation.CommitConstraints(
+		channelConstraints, defaultMaxLocalCsvDelay,
+	)
 	if err != nil {
 		t.Fatalf("unable to verify constraints: %v", err)
 	}
@@ -1269,7 +1275,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	}
 	burnOutput := wire.NewTxOut(outputAmt, outputScript)
 	burnTX, err := alice.SendOutputs(
-		[]*wire.TxOut{burnOutput}, 2500, labels.External,
+		[]*wire.TxOut{burnOutput}, 2500, 1, labels.External,
 	)
 	if err != nil {
 		t.Fatalf("unable to create burn tx: %v", err)
@@ -1544,7 +1550,7 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 	}
 	burnOutput := wire.NewTxOut(outputAmt, outputScript)
 	tx, err := alice.SendOutputs(
-		[]*wire.TxOut{burnOutput}, 2500, labels.External,
+		[]*wire.TxOut{burnOutput}, 2500, 1, labels.External,
 	)
 	if err != nil {
 		t.Fatalf("unable to create burn tx: %v", err)
@@ -1737,7 +1743,7 @@ func newTx(t *testing.T, r *rpctest.Harness, pubKey *btcec.PublicKey,
 		PkScript: keyScript,
 	}
 	tx, err := alice.SendOutputs(
-		[]*wire.TxOut{newOutput}, 2500, labels.External,
+		[]*wire.TxOut{newOutput}, 2500, 1, labels.External,
 	)
 	if err != nil {
 		t.Fatalf("unable to create output: %v", err)
@@ -2028,7 +2034,7 @@ func testSignOutputUsingTweaks(r *rpctest.Harness,
 			PkScript: keyScript,
 		}
 		tx, err := alice.SendOutputs(
-			[]*wire.TxOut{newOutput}, 2500, labels.External,
+			[]*wire.TxOut{newOutput}, 2500, 1, labels.External,
 		)
 		if err != nil {
 			t.Fatalf("unable to create output: %v", err)
@@ -2152,7 +2158,7 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		PkScript: script,
 	}
 	tx, err := w.SendOutputs(
-		[]*wire.TxOut{output}, 2500, labels.External,
+		[]*wire.TxOut{output}, 2500, 1, labels.External,
 	)
 	if err != nil {
 		t.Fatalf("unable to send outputs: %v", err)
@@ -2181,7 +2187,7 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 
 	// Now we cause a reorganization as follows.
 	// Step 1: create a new miner and start it.
-	r2, err := rpctest.New(r.ActiveNet, nil, []string{"--txindex"})
+	r2, err := rpctest.New(r.ActiveNet, nil, []string{"--txindex"}, "")
 	if err != nil {
 		t.Fatalf("unable to create mining node: %v", err)
 	}
@@ -2311,7 +2317,7 @@ func testChangeOutputSpendConfirmation(r *rpctest.Harness,
 	}
 	bobPkScript := newPkScript(t, bob, lnwallet.WitnessPubKey)
 
-	// We'll use a transaction fee of 13020 satoshis, which will allow us to
+	// We'll use a transaction fee of 14380 satoshis, which will allow us to
 	// sweep all of Alice's balance in one transaction containing 1 input
 	// and 1 output.
 	//
@@ -2323,7 +2329,7 @@ func testChangeOutputSpendConfirmation(r *rpctest.Harness,
 		Value:    int64(aliceBalance - txFee),
 		PkScript: bobPkScript,
 	}
-	tx := sendCoins(t, r, alice, bob, output, txFeeRate)
+	tx := sendCoins(t, r, alice, bob, output, txFeeRate, true, 1)
 	txHash := tx.TxHash()
 	assertTxInWallet(t, alice, txHash, true)
 	assertTxInWallet(t, bob, txHash, true)
@@ -2345,7 +2351,7 @@ func testChangeOutputSpendConfirmation(r *rpctest.Harness,
 		Value:    btcutil.SatoshiPerBitcoin,
 		PkScript: alicePkScript,
 	}
-	tx = sendCoins(t, r, bob, alice, output, txFeeRate)
+	tx = sendCoins(t, r, bob, alice, output, txFeeRate, true, 1)
 	txHash = tx.TxHash()
 	assertTxInWallet(t, alice, txHash, true)
 	assertTxInWallet(t, bob, txHash, true)
@@ -2357,14 +2363,14 @@ func testChangeOutputSpendConfirmation(r *rpctest.Harness,
 		Value:    btcutil.SatoshiPerBitcent,
 		PkScript: bobPkScript,
 	}
-	tx = sendCoins(t, r, alice, bob, output, txFeeRate)
+	tx = sendCoins(t, r, alice, bob, output, txFeeRate, true, 1)
 	txHash = tx.TxHash()
 	assertTxInWallet(t, alice, txHash, true)
 	assertTxInWallet(t, bob, txHash, true)
 
 	// Then, we'll spend the change output and ensure we see its
 	// confirmation come in.
-	tx = sendCoins(t, r, alice, bob, output, txFeeRate)
+	tx = sendCoins(t, r, alice, bob, output, txFeeRate, true, 1)
 	txHash = tx.TxHash()
 	assertTxInWallet(t, alice, txHash, true)
 	assertTxInWallet(t, bob, txHash, true)
@@ -2374,6 +2380,101 @@ func testChangeOutputSpendConfirmation(r *rpctest.Harness,
 	if err := loadTestCredits(r, alice, 20, 4); err != nil {
 		t.Fatalf("unable to replenish alice's wallet: %v", err)
 	}
+}
+
+// testSpendUnconfirmed ensures that when can spend unconfirmed outputs.
+func testSpendUnconfirmed(miner *rpctest.Harness,
+	alice, bob *lnwallet.LightningWallet, t *testing.T) {
+
+	bobPkScript := newPkScript(t, bob, lnwallet.WitnessPubKey)
+	alicePkScript := newPkScript(t, alice, lnwallet.WitnessPubKey)
+	txFeeRate := chainfee.SatPerKWeight(2500)
+
+	// First we will empty out bob's wallet, sending the entire balance
+	// to alice.
+	bobBalance, err := bob.ConfirmedBalance(0)
+	if err != nil {
+		t.Fatalf("unable to retrieve bob's balance: %v", err)
+	}
+	txFee := btcutil.Amount(28760)
+	output := &wire.TxOut{
+		Value:    int64(bobBalance - txFee),
+		PkScript: alicePkScript,
+	}
+	tx := sendCoins(t, miner, bob, alice, output, txFeeRate, true, 1)
+	txHash := tx.TxHash()
+	assertTxInWallet(t, alice, txHash, true)
+	assertTxInWallet(t, bob, txHash, true)
+
+	// Verify that bob doesn't have enough balance to send coins.
+	output = &wire.TxOut{
+		Value:    btcutil.SatoshiPerBitcoin * 0.5,
+		PkScript: alicePkScript,
+	}
+	_, err = bob.SendOutputs(
+		[]*wire.TxOut{output}, txFeeRate, 0, labels.External,
+	)
+	if err == nil {
+		t.Fatalf("should have not been able to pay due to insufficient balance: %v", err)
+	}
+
+	// Next we will send a transaction to bob but leave it in an
+	// unconfirmed state.
+	output = &wire.TxOut{
+		Value:    btcutil.SatoshiPerBitcoin,
+		PkScript: bobPkScript,
+	}
+	tx = sendCoins(t, miner, alice, bob, output, txFeeRate, false, 1)
+	txHash = tx.TxHash()
+	assertTxInWallet(t, alice, txHash, false)
+	assertTxInWallet(t, bob, txHash, false)
+
+	// Now, try to spend some of the unconfirmed funds from bob's wallet.
+	output = &wire.TxOut{
+		Value:    btcutil.SatoshiPerBitcoin * 0.5,
+		PkScript: alicePkScript,
+	}
+
+	// First, verify that we don't have enough balance to send the coins
+	// using confirmed outputs only.
+	_, err = bob.SendOutputs(
+		[]*wire.TxOut{output}, txFeeRate, 1, labels.External,
+	)
+	if err == nil {
+		t.Fatalf("should have not been able to pay due to insufficient balance: %v", err)
+	}
+
+	// Now try the send again using unconfirmed outputs.
+	tx = sendCoins(t, miner, bob, alice, output, txFeeRate, false, 0)
+	txHash = tx.TxHash()
+	assertTxInWallet(t, alice, txHash, false)
+	assertTxInWallet(t, bob, txHash, false)
+
+	// Mine the unconfirmed transactions.
+	err = waitForMempoolTx(miner, &txHash)
+	if err != nil {
+		t.Fatalf("tx not relayed to miner: %v", err)
+	}
+	if _, err := miner.Node.Generate(1); err != nil {
+		t.Fatalf("unable to generate block: %v", err)
+	}
+	if err := waitForWalletSync(miner, alice); err != nil {
+		t.Fatalf("unable to sync alice: %v", err)
+	}
+	if err := waitForWalletSync(miner, bob); err != nil {
+		t.Fatalf("unable to sync bob: %v", err)
+	}
+
+	// Finally, send the remainder of bob's wallet balance back to him so
+	// that these money movements dont mess up later tests.
+	output = &wire.TxOut{
+		Value:    int64(bobBalance) - (btcutil.SatoshiPerBitcoin * 0.4),
+		PkScript: bobPkScript,
+	}
+	tx = sendCoins(t, miner, alice, bob, output, txFeeRate, true, 1)
+	txHash = tx.TxHash()
+	assertTxInWallet(t, alice, txHash, true)
+	assertTxInWallet(t, bob, txHash, true)
 }
 
 // testLastUnusedAddr tests that the LastUnusedAddress returns the address if
@@ -2418,7 +2519,7 @@ func testLastUnusedAddr(miner *rpctest.Harness,
 			Value:    1000000,
 			PkScript: addrScript,
 		}
-		sendCoins(t, miner, bob, alice, output, feeRate)
+		sendCoins(t, miner, bob, alice, output, feeRate, true, 1)
 
 		// If we make a new address, then it should be brand new, as
 		// the prior address has been used.
@@ -2534,7 +2635,7 @@ func testCreateSimpleTx(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		// _very_ similar to the one we just created being sent. The
 		// only difference is that the dry run tx is not signed, and
 		// that the change output position might be different.
-		tx, sendErr := w.SendOutputs(outputs, feeRate, labels.External)
+		tx, sendErr := w.SendOutputs(outputs, feeRate, 1, labels.External)
 		switch {
 		case test.valid && sendErr != nil:
 			t.Fatalf("got unexpected error when sending tx: %v",
@@ -2677,6 +2778,10 @@ var walletTests = []walletTestCase{
 		// on-chain funds.
 		name: "change output spend confirmation",
 		test: testChangeOutputSpendConfirmation,
+	},
+	{
+		name: "spend unconfirmed outputs",
+		test: testSpendUnconfirmed,
 	},
 	{
 		name: "insane fee reject",
@@ -2981,14 +3086,16 @@ func testSingleFunderExternalFundingTx(miner *rpctest.Harness,
 // below needs to be added which properly initializes the interface.
 //
 // TODO(roasbeef): purge bobNode in favor of dual lnwallet's
-func TestLightningWallet(t *testing.T) {
+func TestLightningWallet(t *testing.T, targetBackEnd string) {
 	t.Parallel()
 
 	// Initialize the harness around a btcd node which will serve as our
 	// dedicated miner to generate blocks, cause re-orgs, etc. We'll set
 	// up this node with a chain length of 125, so we have plenty of BTC
 	// to play around with.
-	miningNode, err := rpctest.New(netParams, nil, []string{"--txindex"})
+	miningNode, err := rpctest.New(
+		netParams, nil, []string{"--txindex"}, "",
+	)
 	if err != nil {
 		t.Fatalf("unable to create mining node: %v", err)
 	}
@@ -3033,6 +3140,10 @@ func TestLightningWallet(t *testing.T) {
 
 	for _, walletDriver := range lnwallet.RegisteredWallets() {
 		for _, backEnd := range walletDriver.BackEnds() {
+			if backEnd != targetBackEnd {
+				continue
+			}
+
 			if !runTests(t, walletDriver, backEnd, miningNode,
 				rpcConfig, chainNotifier) {
 				return
@@ -3105,6 +3216,7 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			// instance, and initialize a btcwallet driver for it.
 			aliceDB, err := walletdb.Create(
 				"bdb", tempTestDirAlice+"/neutrino.db", true,
+				kvdb.DefaultDBTimeout,
 			)
 			if err != nil {
 				t.Fatalf("unable to create DB: %v", err)
@@ -3133,6 +3245,7 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			// instance, and initialize a btcwallet driver for it.
 			bobDB, err := walletdb.Create(
 				"bdb", tempTestDirBob+"/neutrino.db", true,
+				kvdb.DefaultDBTimeout,
 			)
 			if err != nil {
 				t.Fatalf("unable to create DB: %v", err)
@@ -3309,6 +3422,10 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			if backEnd == "neutrino" &&
 				strings.Contains(walletTest.name, "dual funder") {
 				t.Skip("skipping dual funder tests for neutrino")
+			}
+			if backEnd == "neutrino" &&
+				strings.Contains(walletTest.name, "spend unconfirmed") {
+				t.Skip("skipping spend unconfirmed tests for neutrino")
 			}
 
 			walletTest.test(miningNode, alice, bob, t)

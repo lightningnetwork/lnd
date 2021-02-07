@@ -137,6 +137,9 @@ message SendPaymentRequest {
     */
     int32 final_cltv_delta = 4;
 
+    // An optional payment addr to be included within the last hop of the route.
+    bytes payment_addr = 20;
+
     /*
     A bare-bones invoice for a payment within the Lightning Network.  With the
     details of the invoice, the sender has all the data necessary to send a
@@ -394,6 +397,9 @@ message BuildRouteRequest {
     pubkey.
     */
     repeated bytes hop_pubkeys = 4;
+
+    // An optional payment addr to be included within the last hop of the route.
+    bytes payment_addr = 5;
 }
 
 message BuildRouteResponse {
@@ -631,6 +637,9 @@ message ForwardHtlcInterceptRequest {
 
     // Any custom records that were present in the payload.
     map<uint64, bytes> custom_records = 8;
+
+    // The onion blob for the next hop
+    bytes onion_blob = 9;
 }
 
 /**

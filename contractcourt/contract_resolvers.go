@@ -20,6 +20,10 @@ const (
 	// sweepConfTarget is the default number of blocks that we'll use as a
 	// confirmation target when sweeping.
 	sweepConfTarget = 6
+
+	// secondLevelConfTarget is the confirmation target we'll use when
+	// adding fees to our second-level HTLC transactions.
+	secondLevelConfTarget = 6
 )
 
 // ContractResolver is an interface which packages a state machine which is

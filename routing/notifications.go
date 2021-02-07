@@ -238,15 +238,14 @@ type NetworkNodeUpdate struct {
 	// updates.
 	IdentityKey *btcec.PublicKey
 
-	// GlobalFeatures is a set of opaque bytes that describe the set of
-	// features supported by the node.
-	GlobalFeatures []byte
-
 	// Alias is the alias or nick name of the node.
 	Alias string
 
 	// Color is the node's color in hex code format.
 	Color string
+
+	// Features holds the set of features the node supports.
+	Features *lnwire.FeatureVector
 }
 
 // ChannelEdgeUpdate is an update for a new channel within the ChannelGraph.
@@ -318,11 +317,13 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 		if err != nil {
 			return err
 		}
+
 		nodeUpdate := &NetworkNodeUpdate{
 			Addresses:   m.Addresses,
 			IdentityKey: pubKey,
 			Alias:       m.Alias,
 			Color:       EncodeHexColor(m.Color),
+			Features:    m.Features.Clone(),
 		}
 		nodeUpdate.IdentityKey.Curve = nil
 

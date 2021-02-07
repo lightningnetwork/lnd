@@ -35,6 +35,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/ticker"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -177,6 +178,272 @@ func createInterceptorFunc(prefix, receiver string, messages []expectedMessage,
 		}
 		return false, nil
 	}
+}
+
+// TestChannelLinkRevThenSig tests that if a link owes both a revocation and a
+// signature to the counterparty (in this order), that they are sent as rev and
+// then sig.
+//
+// Specifically, this tests the following scenario:
+//
+// A               B
+//   <----add-----
+//   -----add---->
+//   <----sig-----
+//   -----rev----x
+//   -----sig----x
+func TestChannelLinkRevThenSig(t *testing.T) {
+	t.Parallel()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	const chanReserve = btcutil.SatoshiPerBitcoin * 1
+	aliceLink, bobChannel, batchTicker, start, cleanUp, restore, err :=
+		newSingleLinkTestHarness(chanAmt, chanReserve)
+	require.NoError(t, err)
+	defer cleanUp()
+
+	err = start()
+	require.NoError(t, err)
+	defer aliceLink.Stop()
+
+	alice := newPersistentLinkHarness(
+		t, aliceLink, batchTicker, restore,
+	)
+
+	var (
+		coreLink  = aliceLink.(*channelLink)
+		aliceMsgs = coreLink.cfg.Peer.(*mockPeer).sentMsgs
+	)
+
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		aliceMsgs:  aliceMsgs,
+		bobChannel: bobChannel,
+	}
+
+	bobHtlc1 := generateHtlc(t, coreLink, 0)
+
+	// <-----add-----
+	// Send an htlc from Bob to Alice.
+	ctx.sendHtlcBobToAlice(bobHtlc1)
+
+	aliceHtlc1, _ := generateHtlcAndInvoice(t, 0)
+
+	// ------add---->
+	ctx.sendHtlcAliceToBob(0, aliceHtlc1)
+	ctx.receiveHtlcAliceToBob()
+
+	// <-----sig-----
+	ctx.sendCommitSigBobToAlice(1)
+
+	// ------rev----x
+	var msg lnwire.Message
+	select {
+	case msg = <-aliceMsgs:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("did not receive message")
+	}
+
+	_, ok := msg.(*lnwire.RevokeAndAck)
+	require.True(t, ok)
+
+	// ------sig----x
+	// Trigger a commitsig from Alice->Bob.
+	select {
+	case batchTicker <- time.Now():
+	case <-time.After(5 * time.Second):
+		t.Fatalf("could not force commit sig")
+	}
+
+	select {
+	case msg = <-aliceMsgs:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("did not receive message")
+	}
+
+	comSig, ok := msg.(*lnwire.CommitSig)
+	require.True(t, ok)
+
+	if len(comSig.HtlcSigs) != 2 {
+		t.Fatalf("expected 2 htlc sigs, got %d", len(comSig.HtlcSigs))
+	}
+
+	// Restart Alice so she sends and accepts ChannelReestablish.
+	cleanUp = alice.restart(false, true)
+	defer cleanUp()
+
+	ctx.aliceLink = alice.link
+	ctx.aliceMsgs = alice.msgs
+
+	// Restart Bob as well by calling NewLightningChannel.
+	bobSigner := bobChannel.Signer
+	bobPool := lnwallet.NewSigPool(runtime.NumCPU(), bobSigner)
+	bobChannel, err = lnwallet.NewLightningChannel(
+		bobSigner, bobChannel.State(), bobPool,
+	)
+	require.NoError(t, err)
+	err = bobPool.Start()
+	require.NoError(t, err)
+
+	ctx.bobChannel = bobChannel
+
+	// --reestablish->
+	select {
+	case msg = <-ctx.aliceMsgs:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("did not receive message")
+	}
+
+	_, ok = msg.(*lnwire.ChannelReestablish)
+	require.True(t, ok)
+
+	// <-reestablish--
+	bobReest, err := bobChannel.State().ChanSyncMsg()
+	require.NoError(t, err)
+	ctx.aliceLink.HandleChannelUpdate(bobReest)
+
+	// ------rev---->
+	ctx.receiveRevAndAckAliceToBob()
+
+	// ------add---->
+	ctx.receiveHtlcAliceToBob()
+
+	// ------sig---->
+	ctx.receiveCommitSigAliceToBob(2)
+}
+
+// TestChannelLinkSigThenRev tests that if a link owes both a signature and a
+// revocation to the counterparty (in this order), that they are sent as sig
+// and then rev.
+//
+// Specifically, this tests the following scenario:
+//
+// A               B
+//   <----add-----
+//   -----add---->
+//   -----sig----x
+//   <----sig-----
+//   -----rev----x
+func TestChannelLinkSigThenRev(t *testing.T) {
+	t.Parallel()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	const chanReserve = btcutil.SatoshiPerBitcoin * 1
+	aliceLink, bobChannel, batchTicker, start, cleanUp, restore, err :=
+		newSingleLinkTestHarness(chanAmt, chanReserve)
+	require.NoError(t, err)
+	defer cleanUp()
+
+	err = start()
+	require.NoError(t, err)
+	defer aliceLink.Stop()
+
+	alice := newPersistentLinkHarness(
+		t, aliceLink, batchTicker, restore,
+	)
+
+	var (
+		coreLink  = aliceLink.(*channelLink)
+		aliceMsgs = coreLink.cfg.Peer.(*mockPeer).sentMsgs
+	)
+
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		aliceMsgs:  aliceMsgs,
+		bobChannel: bobChannel,
+	}
+
+	bobHtlc1 := generateHtlc(t, coreLink, 0)
+
+	// <-----add-----
+	// Send an htlc from Bob to Alice.
+	ctx.sendHtlcBobToAlice(bobHtlc1)
+
+	aliceHtlc1, _ := generateHtlcAndInvoice(t, 0)
+
+	// ------add---->
+	ctx.sendHtlcAliceToBob(0, aliceHtlc1)
+	ctx.receiveHtlcAliceToBob()
+
+	// ------sig----x
+	// Trigger a commitsig from Alice->Bob.
+	select {
+	case batchTicker <- time.Now():
+	case <-time.After(5 * time.Second):
+		t.Fatalf("could not force commit sig")
+	}
+
+	var msg lnwire.Message
+	select {
+	case msg = <-aliceMsgs:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("did not receive message")
+	}
+
+	comSig, ok := msg.(*lnwire.CommitSig)
+	require.True(t, ok)
+
+	if len(comSig.HtlcSigs) != 1 {
+		t.Fatalf("expected 1 htlc sig, got %d", len(comSig.HtlcSigs))
+	}
+
+	// <-----sig-----
+	ctx.sendCommitSigBobToAlice(1)
+
+	// ------rev----x
+	select {
+	case msg = <-aliceMsgs:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("did not receive message")
+	}
+
+	_, ok = msg.(*lnwire.RevokeAndAck)
+	require.True(t, ok)
+
+	// Restart Alice so she sends and accepts ChannelReestablish.
+	cleanUp = alice.restart(false, true)
+	defer cleanUp()
+
+	ctx.aliceLink = alice.link
+	ctx.aliceMsgs = alice.msgs
+
+	// Restart Bob as well by calling NewLightningChannel.
+	bobSigner := bobChannel.Signer
+	bobPool := lnwallet.NewSigPool(runtime.NumCPU(), bobSigner)
+	bobChannel, err = lnwallet.NewLightningChannel(
+		bobSigner, bobChannel.State(), bobPool,
+	)
+	require.NoError(t, err)
+	err = bobPool.Start()
+	require.NoError(t, err)
+
+	ctx.bobChannel = bobChannel
+
+	// --reestablish->
+	select {
+	case msg = <-ctx.aliceMsgs:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("did not receive message")
+	}
+
+	_, ok = msg.(*lnwire.ChannelReestablish)
+	require.True(t, ok)
+
+	// <-reestablish--
+	bobReest, err := bobChannel.State().ChanSyncMsg()
+	require.NoError(t, err)
+	ctx.aliceLink.HandleChannelUpdate(bobReest)
+
+	// ------add---->
+	ctx.receiveHtlcAliceToBob()
+
+	// ------sig---->
+	ctx.receiveCommitSigAliceToBob(1)
+
+	// ------rev---->
+	ctx.receiveRevAndAckAliceToBob()
 }
 
 // TestChannelLinkSingleHopPayment in this test we checks the interaction
@@ -1139,7 +1406,7 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 		if !ok {
 			t.Fatalf("unexpected shutdown")
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatalf("no result arrive")
 	}
 
@@ -1148,27 +1415,25 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 	)
 
 	// Wait for Alice to receive the revocation.
-	time.Sleep(100 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		if n.aliceChannelLink.Bandwidth() != aliceBandwidthBefore {
+			return false
+		}
 
-	if n.aliceChannelLink.Bandwidth() != aliceBandwidthBefore {
-		t.Fatal("the bandwidth of alice channel link which handles " +
-			"alice->bob channel should be the same")
-	}
+		if n.firstBobChannelLink.Bandwidth() != firstBobBandwidthBefore {
+			return false
+		}
 
-	if n.firstBobChannelLink.Bandwidth() != firstBobBandwidthBefore {
-		t.Fatal("the bandwidth of bob channel link which handles " +
-			"alice->bob channel should be the same")
-	}
+		if n.secondBobChannelLink.Bandwidth() != secondBobBandwidthBefore {
+			return false
+		}
 
-	if n.secondBobChannelLink.Bandwidth() != secondBobBandwidthBefore {
-		t.Fatal("the bandwidth of bob channel link which handles " +
-			"bob->carol channel should be the same")
-	}
+		if n.carolChannelLink.Bandwidth() != carolBandwidthBefore {
+			return false
+		}
 
-	if n.carolChannelLink.Bandwidth() != carolBandwidthBefore {
-		t.Fatal("the bandwidth of carol channel link which handles " +
-			"bob->carol channel should be the same")
-	}
+		return true
+	}, 10*time.Second, 100*time.Millisecond)
 }
 
 // TestChannelLinkMultiHopUnknownNextHop construct the chain of hops
@@ -2464,7 +2729,7 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 
 	// Restart Alice's link, which simulates a disconnection with the remote
 	// peer.
-	cleanUp = alice.restart(false)
+	cleanUp = alice.restart(false, false)
 	defer cleanUp()
 
 	alice.assertNumPendingNumOpenCircuits(2, 2)
@@ -2493,7 +2758,7 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 	// that entire circuit map is reloaded from disk, and we can now test
 	// against the behavioral differences of committing circuits that
 	// conflict with duplicate circuits after a restart.
-	cleanUp = alice.restart(true)
+	cleanUp = alice.restart(true, false)
 	defer cleanUp()
 
 	alice.assertNumPendingNumOpenCircuits(2, 2)
@@ -2552,7 +2817,7 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 	// Restart Alice's link to simulate a disconnect. Since the switch
 	// remains up throughout, the two latter HTLCs will remain in the link's
 	// mailbox, and will reprocessed upon being reattached to the link.
-	cleanUp = alice.restart(false)
+	cleanUp = alice.restart(false, false)
 	defer cleanUp()
 
 	alice.assertNumPendingNumOpenCircuits(4, 2)
@@ -2593,7 +2858,7 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 	// As a final persistence check, we will restart the link and switch,
 	// wiping the latter two HTLCs from memory, and forcing their circuits
 	// to be reloaded from disk.
-	cleanUp = alice.restart(true)
+	cleanUp = alice.restart(true, false)
 	defer cleanUp()
 
 	alice.assertNumPendingNumOpenCircuits(4, 2)
@@ -2748,7 +3013,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	// Restart Alice's link, which simulates a disconnection with the remote
 	// peer. Alice's link and switch should trim the circuits that were
 	// opened but not committed.
-	cleanUp = alice.restart(false, hodl.Commit)
+	cleanUp = alice.restart(false, false, hodl.Commit)
 	defer cleanUp()
 
 	alice.assertNumPendingNumOpenCircuits(2, 0)
@@ -2782,7 +3047,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	// Alice again in hodl.Commit mode. Since none of the HTLCs were
 	// actually committed, the previously opened circuits should be trimmed
 	// by both the link and switch.
-	cleanUp = alice.restart(true, hodl.Commit)
+	cleanUp = alice.restart(true, false, hodl.Commit)
 	defer cleanUp()
 
 	alice.assertNumPendingNumOpenCircuits(2, 0)
@@ -2839,7 +3104,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	// Restart Alice's link, and place her back in hodl.Commit mode. On
 	// restart, all previously opened circuits should be trimmed by both the
 	// link and the switch.
-	cleanUp = alice.restart(false, hodl.Commit)
+	cleanUp = alice.restart(false, false, hodl.Commit)
 	defer cleanUp()
 
 	alice.assertNumPendingNumOpenCircuits(4, 0)
@@ -2878,7 +3143,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	// Finally, do one last restart of both the link and switch. This will
 	// flush the HTLCs from the mailbox. The circuits should now be trimmed
 	// for all of the HTLCs.
-	cleanUp = alice.restart(true, hodl.Commit)
+	cleanUp = alice.restart(true, false, hodl.Commit)
 	defer cleanUp()
 
 	alice.assertNumPendingNumOpenCircuits(4, 0)
@@ -3045,14 +3310,14 @@ func TestChannelLinkTrimCircuitsRemoteCommit(t *testing.T) {
 
 	// Restart Alice's link, which simulates a disconnection with the remote
 	// peer.
-	cleanUp = alice.restart(false)
+	cleanUp = alice.restart(false, false)
 	defer cleanUp()
 
 	alice.assertNumPendingNumOpenCircuits(2, 2)
 
 	// Restart the link + switch and check that the number of open circuits
 	// doesn't change.
-	cleanUp = alice.restart(true)
+	cleanUp = alice.restart(true, false)
 	defer cleanUp()
 
 	alice.assertNumPendingNumOpenCircuits(2, 2)
@@ -3779,32 +4044,29 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 			t.Fatalf("alice didn't query for the new network fee")
 		}
 
-		// Give the links some time to process the fee update.
-		time.Sleep(time.Second)
-
 		// Record the fee rates after the links have processed the fee
 		// update and ensure they are correct based on whether a fee
 		// update should have been triggered.
-		aliceAfter := channels.aliceToBob.CommitFeeRate()
-		bobAfter := channels.bobToAlice.CommitFeeRate()
+		require.Eventually(t, func() bool {
+			aliceAfter := channels.aliceToBob.CommitFeeRate()
+			bobAfter := channels.bobToAlice.CommitFeeRate()
 
-		switch {
-		case shouldUpdate && aliceAfter != newFeeRate:
-			t.Fatalf("alice's fee rate didn't change: expected %v, "+
-				"got %v", newFeeRate, aliceAfter)
+			switch {
+			case shouldUpdate && aliceAfter != newFeeRate:
+				return false
 
-		case shouldUpdate && bobAfter != newFeeRate:
-			t.Fatalf("bob's fee rate didn't change: expected %v, "+
-				"got %v", newFeeRate, bobAfter)
+			case shouldUpdate && bobAfter != newFeeRate:
+				return false
 
-		case !shouldUpdate && aliceAfter != aliceBefore:
-			t.Fatalf("alice's fee rate shouldn't have changed: "+
-				"expected %v, got %v", aliceAfter, aliceAfter)
+			case !shouldUpdate && aliceAfter != aliceBefore:
+				return false
 
-		case !shouldUpdate && bobAfter != bobBefore:
-			t.Fatalf("bob's fee rate shouldn't have changed: "+
-				"expected %v, got %v", bobBefore, bobAfter)
-		}
+			case !shouldUpdate && bobAfter != bobBefore:
+				return false
+			}
+
+			return true
+		}, 10*time.Second, time.Second)
 	}
 
 	// Triggering the link to update the fee of the channel with the same
@@ -4050,7 +4312,7 @@ func newPersistentLinkHarness(t *testing.T, link ChannelLink,
 //
 // Any number of hodl flags can be passed as additional arguments to this
 // method. If none are provided, the mask will be extracted as hodl.MaskNone.
-func (h *persistentLinkHarness) restart(restartSwitch bool,
+func (h *persistentLinkHarness) restart(restartSwitch, syncStates bool,
 	hodlFlags ...hodl.Flag) func() {
 
 	// First, remove the link from the switch.
@@ -4076,7 +4338,7 @@ func (h *persistentLinkHarness) restart(restartSwitch bool,
 	// the database owned by the link.
 	var cleanUp func()
 	h.link, h.batchTicker, cleanUp, err = h.restartLink(
-		h.channel, restartSwitch, hodlFlags,
+		h.channel, restartSwitch, syncStates, hodlFlags,
 	)
 	if err != nil {
 		h.t.Fatalf("unable to restart alicelink: %v", err)
@@ -4153,7 +4415,7 @@ func (h *persistentLinkHarness) trySignNextCommitment() {
 // to an htlcswitch. If none is provided by the caller, a new one will be
 // created using Alice's database.
 func (h *persistentLinkHarness) restartLink(
-	aliceChannel *lnwallet.LightningChannel, restartSwitch bool,
+	aliceChannel *lnwallet.LightningChannel, restartSwitch, syncStates bool,
 	hodlFlags []hodl.Flag) (
 	ChannelLink, chan time.Time, func(), error) {
 
@@ -4224,6 +4486,7 @@ func (h *persistentLinkHarness) restartLink(
 		NotifyActiveChannel:   func(wire.OutPoint) {},
 		NotifyInactiveChannel: func(wire.OutPoint) {},
 		HtlcNotifier:          aliceSwitch.cfg.HtlcNotifier,
+		SyncStates:            syncStates,
 	}
 
 	aliceLink := NewChannelLink(aliceCfg, aliceChannel)
@@ -5129,6 +5392,11 @@ func TestChannelLinkFail(t *testing.T) {
 		// force close the channel in response to the actions performed
 		// during the linkTest.
 		shouldForceClose bool
+
+		// permanentFailure indicates whether we expect the link to
+		// consider the failure permanent in response to the actions
+		// performed during the linkTest.
+		permanentFailure bool
 	}{
 		{
 			// Test that we don't force close if syncing states
@@ -5143,6 +5411,7 @@ func TestChannelLinkFail(t *testing.T) {
 			func(t *testing.T, c *channelLink, _ *lnwallet.LightningChannel) {
 				// Should fail at startup.
 			},
+			false,
 			false,
 		},
 		{
@@ -5160,6 +5429,7 @@ func TestChannelLinkFail(t *testing.T) {
 				// Should fail at startup.
 			},
 			false,
+			false,
 		},
 		{
 			// Test that we force close the channel if we receive
@@ -5176,6 +5446,7 @@ func TestChannelLinkFail(t *testing.T) {
 				c.HandleChannelUpdate(htlcSettle)
 			},
 			true,
+			false,
 		},
 		{
 			// Test that we force close the channel if we receive
@@ -5213,6 +5484,7 @@ func TestChannelLinkFail(t *testing.T) {
 				c.HandleChannelUpdate(commitSig)
 			},
 			true,
+			false,
 		},
 		{
 			// Test that we force close the channel if we receive
@@ -5252,6 +5524,21 @@ func TestChannelLinkFail(t *testing.T) {
 				c.HandleChannelUpdate(commitSig)
 			},
 			true,
+			false,
+		},
+		{
+			// Test that we consider the failure permanent if we
+			// receive a link error from the remote.
+			func(c *channelLink) {
+			},
+			func(t *testing.T, c *channelLink, remoteChannel *lnwallet.LightningChannel) {
+				err := &lnwire.Error{}
+				c.HandleChannelUpdate(err)
+			},
+			false,
+			// TODO(halseth) For compatibility with CL we currently
+			// don't treat Errors as permanent errors.
+			false,
 		},
 	}
 
@@ -5300,6 +5587,12 @@ func TestChannelLinkFail(t *testing.T) {
 			t.Fatalf("%d) Expected Alice to force close(%v), "+
 				"instead got(%v)", i, test.shouldForceClose,
 				linkErr.ForceClose)
+		}
+
+		if test.permanentFailure != linkErr.PermanentFailure {
+			t.Fatalf("%d) Expected Alice set permanent failure(%v), "+
+				"instead got(%v)", i, test.permanentFailure,
+				linkErr.PermanentFailure)
 		}
 
 		// Clean up before starting next test case.
@@ -5809,7 +6102,7 @@ func TestChannelLinkHoldInvoiceRestart(t *testing.T) {
 	coreLink.cfg.Switch.bestHeight++
 
 	// Restart link.
-	alice.restart(false)
+	alice.restart(false, false)
 	ctx.aliceLink = alice.link
 	ctx.aliceMsgs = alice.msgs
 

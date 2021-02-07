@@ -208,7 +208,7 @@ func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 	// TODO(halseth): smarter fee limit. Make configurable or dynamic wrt
 	// total funding size?
 	if fee > totalOut/5 {
-		return nil, 0, 0, fmt.Errorf("fee %v on total output"+
+		return nil, 0, 0, fmt.Errorf("fee %v on total output "+
 			"value %v", fee, totalOut)
 	}
 

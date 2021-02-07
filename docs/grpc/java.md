@@ -11,7 +11,7 @@ with lnd in Java. We'll be using Maven as our build tool.
 
 ### Setup and Installation
 #### Project Structure
-```
+```text
 .
 ├── pom.xml
 └── src
@@ -34,13 +34,13 @@ Note the ***proto*** folder, where all the proto files are kept.
  - [http.proto](https://github.com/grpc-ecosystem/grpc-gateway/blob/master/third_party/googleapis/google/api/http.proto)
 
 #### pom.xml
-```
+```xml
 <properties>
     <grpc.version>1.8.0</grpc.version>
 </properties>    
 ```
 The following dependencies are required.
-```
+```xml
 <dependencies>
     <dependency>
         <groupId>io.grpc</groupId>
@@ -70,7 +70,7 @@ The following dependencies are required.
 </dependencies>
 ```
 In the build section,  we'll need to configure the following things :
-```
+```xml
 <build>
     <extensions>
         <extension>
@@ -184,11 +184,11 @@ public class Main {
 ```
 #### Running the example
 Execute the following command in the directory where the **pom.xml** file is located.
-```
-mvn compile exec:java -Dexec.mainClass="Main" -Dexec.cleanupDaemonThreads=false
+```shell
+⛰  mvn compile exec:java -Dexec.mainClass="Main" -Dexec.cleanupDaemonThreads=false
 ```
 ##### Sample output
-```
+```text
 [INFO] Scanning for projects...
 [INFO] ------------------------------------------------------------------------
 [INFO] Detecting the operating system and CPU architecture

@@ -3,6 +3,7 @@ package wtdb
 import (
 	"bytes"
 	"errors"
+	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -66,8 +67,10 @@ type TowerDB struct {
 // migrations will be applied before returning. Any attempt to open a database
 // with a version number higher that the latest version will fail to prevent
 // accidental reversion.
-func OpenTowerDB(dbPath string) (*TowerDB, error) {
-	bdb, firstInit, err := createDBIfNotExist(dbPath, towerDBName)
+func OpenTowerDB(dbPath string, dbTimeout time.Duration) (*TowerDB, error) {
+	bdb, firstInit, err := createDBIfNotExist(
+		dbPath, towerDBName, dbTimeout,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +91,7 @@ func OpenTowerDB(dbPath string) (*TowerDB, error) {
 	// initialized. This allows us to assume their presence throughout all
 	// operations. If an known top-level bucket is expected to exist but is
 	// missing, this will trigger a ErrUninitializedDB error.
-	err = kvdb.Update(towerDB.db, initTowerDBBuckets)
+	err = kvdb.Update(towerDB.db, initTowerDBBuckets, func() {})
 	if err != nil {
 		bdb.Close()
 		return nil, err
@@ -133,6 +136,8 @@ func (t *TowerDB) Version() (uint32, error) {
 		var err error
 		version, err = getDBVersion(tx)
 		return err
+	}, func() {
+		version = 0
 	})
 	if err != nil {
 		return 0, err
@@ -159,6 +164,8 @@ func (t *TowerDB) GetSessionInfo(id *SessionID) (*SessionInfo, error) {
 		var err error
 		session, err = getSession(sessions, id[:])
 		return err
+	}, func() {
+		session = nil
 	})
 	if err != nil {
 		return nil, err
@@ -210,7 +217,7 @@ func (t *TowerDB) InsertSessionInfo(session *SessionInfo) error {
 		// be deleted without needing to iterate over the entire
 		// database.
 		return touchSessionHintBkt(updateIndex, &session.ID)
-	})
+	}, func() {})
 }
 
 // InsertStateUpdate stores an update sent by the client after validating that
@@ -292,6 +299,8 @@ func (t *TowerDB) InsertStateUpdate(update *SessionStateUpdate) (uint16, error) 
 		// hint under its session id. This will allow us to delete the
 		// entries efficiently if the session is ever removed.
 		return putHintForSession(updateIndex, &update.ID, update.Hint)
+	}, func() {
+		lastApplied = 0
 	})
 	if err != nil {
 		return 0, err
@@ -381,7 +390,7 @@ func (t *TowerDB) DeleteSession(target SessionID) error {
 		// Finally, remove this session from the update index, which
 		// also removes any of the indexed hints beneath it.
 		return removeSessionHintBkt(updateIndex, &target)
-	})
+	}, func() {})
 }
 
 // QueryMatches searches against all known state updates for any that match the
@@ -460,6 +469,8 @@ func (t *TowerDB) QueryMatches(breachHints []blob.BreachHint) ([]Match, error) {
 		}
 
 		return nil
+	}, func() {
+		matches = nil
 	})
 	if err != nil {
 		return nil, err
@@ -478,7 +489,7 @@ func (t *TowerDB) SetLookoutTip(epoch *chainntnfs.BlockEpoch) error {
 		}
 
 		return putLookoutEpoch(lookoutTip, epoch)
-	})
+	}, func() {})
 }
 
 // GetLookoutTip retrieves the current lookout tip block epoch from the tower
@@ -494,6 +505,8 @@ func (t *TowerDB) GetLookoutTip() (*chainntnfs.BlockEpoch, error) {
 		epoch = getLookoutEpoch(lookoutTip)
 
 		return nil
+	}, func() {
+		epoch = nil
 	})
 	if err != nil {
 		return nil, err

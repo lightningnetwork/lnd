@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"runtime"
 	"sync"
 	"time"
 
@@ -93,6 +92,10 @@ type chanPolicyUpdateRequest struct {
 	edgesToUpdate []EdgeWithInfo
 	errChan       chan error
 }
+
+// PinnedSyncers is a set of node pubkeys for which we will maintain an active
+// syncer at all times.
+type PinnedSyncers map[route.Vertex]struct{}
 
 // Config defines the configuration for the service. ALL elements within the
 // configuration MUST be non-nil for the service to carry out its duties.
@@ -229,6 +232,16 @@ type Config struct {
 	// This prevents ranges with old start times from causing us to dump the
 	// graph on connect.
 	IgnoreHistoricalFilters bool
+
+	// GossipUpdateThrottle if true, then the gossiper will throttle
+	// gossip updates to once per RebroadcastInterval for any keep-alive
+	// updates, and once per block for other types of updates.
+	GossipUpdateThrottle bool
+
+	// PinnedSyncers is a set of peers that will always transition to
+	// ActiveSync upon connection. These peers will never transition to
+	// PassiveSync.
+	PinnedSyncers PinnedSyncers
 }
 
 // AuthenticatedGossiper is a subsystem which is responsible for receiving
@@ -260,23 +273,6 @@ type AuthenticatedGossiper struct {
 	// blockEpochs encapsulates a stream of block epochs that are sent at
 	// every new block height.
 	blockEpochs *chainntnfs.BlockEpochEvent
-
-	// prematureAnnouncements maps a block height to a set of network
-	// messages which are "premature" from our PoV. A message is premature
-	// if it claims to be anchored in a block which is beyond the current
-	// main chain tip as we know it. Premature network messages will be
-	// processed once the chain tip as we know it extends to/past the
-	// premature height.
-	//
-	// TODO(roasbeef): limit premature networkMsgs to N
-	prematureAnnouncements map[uint32][]*networkMsg
-
-	// prematureChannelUpdates is a map of ChannelUpdates we have received
-	// that wasn't associated with any channel we know about.  We store
-	// them temporarily, such that we can reprocess them when a
-	// ChannelAnnouncement for the channel is received.
-	prematureChannelUpdates map[uint64][]*networkMsg
-	pChanUpdMtx             sync.Mutex
 
 	// networkMsgs is a channel that carries new network broadcasted
 	// message from outside the gossiper service to be processed by the
@@ -315,6 +311,13 @@ type AuthenticatedGossiper struct {
 	// network.
 	reliableSender *reliableSender
 
+	// heightForLastChanUpdate keeps track of the height at which we
+	// processed the latest channel update for a specific direction.
+	//
+	// NOTE: This map must be synchronized with the main
+	// AuthenticatedGossiper lock.
+	heightForLastChanUpdate map[uint64][2]uint32
+
 	sync.Mutex
 }
 
@@ -327,19 +330,21 @@ func New(cfg Config, selfKey *btcec.PublicKey) *AuthenticatedGossiper {
 		networkMsgs:             make(chan *networkMsg),
 		quit:                    make(chan struct{}),
 		chanPolicyUpdates:       make(chan *chanPolicyUpdateRequest),
-		prematureAnnouncements:  make(map[uint32][]*networkMsg),
-		prematureChannelUpdates: make(map[uint64][]*networkMsg),
 		channelMtx:              multimutex.NewMutex(),
 		recentRejects:           make(map[uint64]struct{}),
-		syncMgr: newSyncManager(&SyncManagerCfg{
-			ChainHash:               cfg.ChainHash,
-			ChanSeries:              cfg.ChanSeries,
-			RotateTicker:            cfg.RotateTicker,
-			HistoricalSyncTicker:    cfg.HistoricalSyncTicker,
-			NumActiveSyncers:        cfg.NumActiveSyncers,
-			IgnoreHistoricalFilters: cfg.IgnoreHistoricalFilters,
-		}),
+		heightForLastChanUpdate: make(map[uint64][2]uint32),
 	}
+
+	gossiper.syncMgr = newSyncManager(&SyncManagerCfg{
+		ChainHash:               cfg.ChainHash,
+		ChanSeries:              cfg.ChanSeries,
+		RotateTicker:            cfg.RotateTicker,
+		HistoricalSyncTicker:    cfg.HistoricalSyncTicker,
+		NumActiveSyncers:        cfg.NumActiveSyncers,
+		IgnoreHistoricalFilters: cfg.IgnoreHistoricalFilters,
+		BestHeight:              gossiper.latestHeight,
+		PinnedSyncers:           cfg.PinnedSyncers,
+	})
 
 	gossiper.reliableSender = newReliableSender(&reliableSenderCfg{
 		NotifyWhenOnline:  cfg.NotifyWhenOnline,
@@ -904,9 +909,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 
 	// We'll use this validation to ensure that we process jobs in their
 	// dependency order during parallel validation.
-	validationBarrier := routing.NewValidationBarrier(
-		runtime.NumCPU()*4, d.quit,
-	)
+	validationBarrier := routing.NewValidationBarrier(1000, d.quit)
 
 	for {
 		select {
@@ -1021,8 +1024,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 
 			}()
 
-		// A new block has arrived, so we can re-process the previously
-		// premature announcements.
+		// A new block has arrived, update our best height.
 		case newBlock, ok := <-d.blockEpochs.Epochs:
 			// If the channel has been closed, then this indicates
 			// the daemon is shutting down, so we exit ourselves.
@@ -1035,32 +1037,10 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			d.Lock()
 			blockHeight := uint32(newBlock.Height)
 			d.bestHeight = blockHeight
+			d.Unlock()
 
 			log.Debugf("New block: height=%d, hash=%s", blockHeight,
 				newBlock.Hash)
-
-			// Next we check if we have any premature announcements
-			// for this height, if so, then we process them once
-			// more as normal announcements.
-			premature := d.prematureAnnouncements[blockHeight]
-			if len(premature) == 0 {
-				d.Unlock()
-				continue
-			}
-			delete(d.prematureAnnouncements, blockHeight)
-			d.Unlock()
-
-			log.Infof("Re-processing %v premature announcements "+
-				"for height %v", len(premature), blockHeight)
-
-			for _, ann := range premature {
-				emittedAnnouncements := d.processNetworkAnnouncement(ann)
-				if emittedAnnouncements != nil {
-					announcements.AddMsgs(
-						emittedAnnouncements...,
-					)
-				}
-			}
 
 		// The trickle timer has ticked, which indicates we should
 		// flush to the network the pending batch of new announcements
@@ -1491,7 +1471,6 @@ func (d *AuthenticatedGossiper) addNode(msg *lnwire.NodeAnnouncement) error {
 func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 	nMsg *networkMsg) []networkMsg {
 
-	// isPremature *MUST* be called with the gossiper's lock held.
 	isPremature := func(chanID lnwire.ShortChannelID, delta uint32) bool {
 		// TODO(roasbeef) make height delta 6
 		//  * or configurable
@@ -1583,18 +1562,12 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// to be fully verified once we advance forward in the chain.
 		d.Lock()
 		if nMsg.isRemote && isPremature(msg.ShortChannelID, 0) {
-			blockHeight := msg.ShortChannelID.BlockHeight
 			log.Infof("Announcement for chan_id=(%v), is "+
 				"premature: advertises height %v, only "+
 				"height %v is known",
 				msg.ShortChannelID.ToUint64(),
 				msg.ShortChannelID.BlockHeight,
 				d.bestHeight)
-
-			d.prematureAnnouncements[blockHeight] = append(
-				d.prematureAnnouncements[blockHeight],
-				nMsg,
-			)
 			d.Unlock()
 			return nil
 		}
@@ -1684,9 +1657,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			// If the edge was rejected due to already being known,
 			// then it may be that case that this new message has a
 			// fresh channel proof, so we'll check.
-			if routing.IsError(err, routing.ErrOutdated,
-				routing.ErrIgnored) {
-
+			if routing.IsError(err, routing.ErrIgnored) {
 				// Attempt to process the rejected message to
 				// see if we get any new announcements.
 				anns, rErr := d.processRejectedEdge(msg, proof)
@@ -1718,55 +1689,6 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 
 			nMsg.err <- err
 			return nil
-		}
-
-		// If we earlier received any ChannelUpdates for this channel,
-		// we can now process them, as the channel is added to the
-		// graph.
-		shortChanID := msg.ShortChannelID.ToUint64()
-		var channelUpdates []*networkMsg
-
-		d.pChanUpdMtx.Lock()
-		channelUpdates = append(channelUpdates, d.prematureChannelUpdates[shortChanID]...)
-
-		// Now delete the premature ChannelUpdates, since we added them
-		// all to the queue of network messages.
-		delete(d.prematureChannelUpdates, shortChanID)
-		d.pChanUpdMtx.Unlock()
-
-		// Launch a new goroutine to handle each ChannelUpdate, this to
-		// ensure we don't block here, as we can handle only one
-		// announcement at a time.
-		for _, cu := range channelUpdates {
-			d.wg.Add(1)
-			go func(nMsg *networkMsg) {
-				defer d.wg.Done()
-
-				switch msg := nMsg.msg.(type) {
-
-				// Reprocess the message, making sure we return
-				// an error to the original caller in case the
-				// gossiper shuts down.
-				case *lnwire.ChannelUpdate:
-					log.Debugf("Reprocessing"+
-						" ChannelUpdate for "+
-						"shortChanID=%v",
-						msg.ShortChannelID.ToUint64())
-
-					select {
-					case d.networkMsgs <- nMsg:
-					case <-d.quit:
-						nMsg.err <- ErrGossiperShuttingDown
-					}
-
-				// We don't expect any other message type than
-				// ChannelUpdate to be in this map.
-				default:
-					log.Errorf("Unsupported message type "+
-						"found among ChannelUpdates: "+
-						"%T", msg)
-				}
-			}(cu)
 		}
 
 		// Channel announcement was successfully proceeded and know it
@@ -1807,8 +1729,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		shortChanID := msg.ShortChannelID.ToUint64()
 
 		// If the advertised inclusionary block is beyond our knowledge
-		// of the chain tip, then we'll put the announcement in limbo
-		// to be fully verified once we advance forward in the chain.
+		// of the chain tip, then we'll ignore it.
 		d.Lock()
 		if nMsg.isRemote && isPremature(msg.ShortChannelID, 0) {
 			log.Infof("Update announcement for "+
@@ -1816,12 +1737,9 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 				"height %v, only height %v is known",
 				shortChanID, blockHeight,
 				d.bestHeight)
-
-			d.prematureAnnouncements[blockHeight] = append(
-				d.prematureAnnouncements[blockHeight],
-				nMsg,
-			)
 			d.Unlock()
+
+			nMsg.err <- nil
 			return nil
 		}
 		d.Unlock()
@@ -1847,7 +1765,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// point and when we call UpdateEdge() later.
 		d.channelMtx.Lock(msg.ShortChannelID.ToUint64())
 		defer d.channelMtx.Unlock(msg.ShortChannelID.ToUint64())
-		chanInfo, _, _, err := d.cfg.Router.GetChannelByID(msg.ShortChannelID)
+		chanInfo, edge1, edge2, err := d.cfg.Router.GetChannelByID(msg.ShortChannelID)
 		switch err {
 		// No error, break.
 		case nil:
@@ -1892,43 +1810,19 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			log.Debugf("Removed edge with chan_id=%v from zombie "+
 				"index", msg.ShortChannelID)
 
-			// We'll fallthrough to ensure we stash the update until
-			// we receive its corresponding ChannelAnnouncement.
-			// This is needed to ensure the edge exists in the graph
-			// before applying the update.
-			fallthrough
+			nMsg.err <- nil
+			return nil
+
 		case channeldb.ErrGraphNotFound:
 			fallthrough
 		case channeldb.ErrGraphNoEdgesFound:
 			fallthrough
 		case channeldb.ErrEdgeNotFound:
-			// If the edge corresponding to this ChannelUpdate was
-			// not found in the graph, this might be a channel in
-			// the process of being opened, and we haven't processed
-			// our own ChannelAnnouncement yet, hence it is not
-			// found in the graph. This usually gets resolved after
-			// the channel proofs are exchanged and the channel is
-			// broadcasted to the rest of the network, but in case
-			// this is a private channel this won't ever happen.
-			// This can also happen in the case of a zombie channel
-			// with a fresh update for which we don't have a
-			// ChannelAnnouncement for since we reject them. Because
-			// of this, we temporarily add it to a map, and
-			// reprocess it after our own ChannelAnnouncement has
-			// been processed.
-			d.pChanUpdMtx.Lock()
-			d.prematureChannelUpdates[shortChanID] = append(
-				d.prematureChannelUpdates[shortChanID], nMsg,
-			)
-			d.pChanUpdMtx.Unlock()
-
 			log.Debugf("Got ChannelUpdate for edge not found in "+
-				"graph(shortChanID=%v), saving for "+
-				"reprocessing later", shortChanID)
+				"graph(shortChanID=%v)", shortChanID)
 
-			// NOTE: We don't return anything on the error channel
-			// for this message, as we expect that will be done when
-			// this ChannelUpdate is later reprocessed.
+			// TODO: Add to recentRejects like below? Return error?
+			nMsg.err <- nil
 			return nil
 
 		default:
@@ -1946,12 +1840,57 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// The least-significant bit in the flag on the channel update
 		// announcement tells us "which" side of the channels directed
 		// edge is being updated.
-		var pubKey *btcec.PublicKey
-		switch {
-		case msg.ChannelFlags&lnwire.ChanUpdateDirection == 0:
+		var (
+			pubKey       *btcec.PublicKey
+			edgeToUpdate *channeldb.ChannelEdgePolicy
+		)
+		direction := msg.ChannelFlags & lnwire.ChanUpdateDirection
+		switch direction {
+		case 0:
 			pubKey, _ = chanInfo.NodeKey1()
-		case msg.ChannelFlags&lnwire.ChanUpdateDirection == 1:
+			edgeToUpdate = edge1
+		case 1:
 			pubKey, _ = chanInfo.NodeKey2()
+			edgeToUpdate = edge2
+		}
+
+		// If we have a previous version of the edge being updated,
+		// we'll want to rate limit its updates to prevent spam
+		// throughout the network if we're currently throttling such
+		// updates.
+		if d.cfg.GossipUpdateThrottle && nMsg.isRemote && edgeToUpdate != nil {
+			// If it's a keep-alive update, we'll only propagate one
+			// if it's been a day since the previous. This follows
+			// our own heuristic of sending keep-alive updates after
+			// the same duration (see retransmitStaleAnns).
+			timeSinceLastUpdate := timestamp.Sub(edgeToUpdate.LastUpdate)
+			if IsKeepAliveUpdate(msg, edgeToUpdate) {
+				if timeSinceLastUpdate < d.cfg.RebroadcastInterval {
+					log.Debugf("Ignoring keep alive update "+
+						"not within %v period for "+
+						"channel %v",
+						d.cfg.RebroadcastInterval,
+						shortChanID)
+					nMsg.err <- nil
+					return nil
+				}
+			} else {
+				// If it's not, we'll only allow a single update
+				// for this channel per block.
+				d.Lock()
+				lastUpdateHeight := d.heightForLastChanUpdate[shortChanID]
+				if lastUpdateHeight[direction] == d.bestHeight {
+					log.Debugf("Ignoring update for "+
+						"channel %v due to previous "+
+						"update occurring within the "+
+						"same block %v", shortChanID,
+						d.bestHeight)
+					d.Unlock()
+					nMsg.err <- nil
+					return nil
+				}
+				d.Unlock()
+			}
 		}
 
 		// Validate the channel announcement with the expected public key and
@@ -1996,6 +1935,15 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			nMsg.err <- err
 			return nil
 		}
+
+		// With the edge successfully updated on disk, we'll note the
+		// current height so that we're able to rate limit any future
+		// updates for the same channel.
+		d.Lock()
+		lastUpdateHeight := d.heightForLastChanUpdate[shortChanID]
+		lastUpdateHeight[direction] = d.bestHeight
+		d.heightForLastChanUpdate[shortChanID] = lastUpdateHeight
+		d.Unlock()
 
 		// If this is a local ChannelUpdate without an AuthProof, it
 		// means it is an update to a channel that is not (yet)
@@ -2062,10 +2010,6 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// to other clients if this constraint was changed.
 		d.Lock()
 		if isPremature(msg.ShortChannelID, d.cfg.ProofMatureDelta) {
-			d.prematureAnnouncements[needBlockHeight] = append(
-				d.prematureAnnouncements[needBlockHeight],
-				nMsg,
-			)
 			log.Infof("Premature proof announcement, "+
 				"current block height lower than needed: %v <"+
 				" %v, add announcement to reprocessing batch",
@@ -2311,17 +2255,17 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			source: nMsg.source,
 			msg:    chanAnn,
 		})
-		if e1Ann != nil {
+		if src, err := chanInfo.NodeKey1(); err == nil && e1Ann != nil {
 			announcements = append(announcements, networkMsg{
 				peer:   nMsg.peer,
-				source: nMsg.source,
+				source: src,
 				msg:    e1Ann,
 			})
 		}
-		if e2Ann != nil {
+		if src, err := chanInfo.NodeKey2(); err == nil && e2Ann != nil {
 			announcements = append(announcements, networkMsg{
 				peer:   nMsg.peer,
-				source: nMsg.source,
+				source: src,
 				msg:    e2Ann,
 			})
 		}
@@ -2535,4 +2479,57 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 // SyncManager returns the gossiper's SyncManager instance.
 func (d *AuthenticatedGossiper) SyncManager() *SyncManager {
 	return d.syncMgr
+}
+
+// IsKeepAliveUpdate determines whether this channel update is considered a
+// keep-alive update based on the previous channel update processed for the same
+// direction.
+func IsKeepAliveUpdate(update *lnwire.ChannelUpdate,
+	prev *channeldb.ChannelEdgePolicy) bool {
+
+	// Both updates should be from the same direction.
+	if update.ChannelFlags&lnwire.ChanUpdateDirection !=
+		prev.ChannelFlags&lnwire.ChanUpdateDirection {
+		return false
+	}
+
+	// The timestamp should always increase for a keep-alive update.
+	timestamp := time.Unix(int64(update.Timestamp), 0)
+	if !timestamp.After(prev.LastUpdate) {
+		return false
+	}
+
+	// None of the remaining fields should change for a keep-alive update.
+	if update.ChannelFlags.IsDisabled() != prev.ChannelFlags.IsDisabled() {
+		return false
+	}
+	if lnwire.MilliSatoshi(update.BaseFee) != prev.FeeBaseMSat {
+		return false
+	}
+	if lnwire.MilliSatoshi(update.FeeRate) != prev.FeeProportionalMillionths {
+		return false
+	}
+	if update.TimeLockDelta != prev.TimeLockDelta {
+		return false
+	}
+	if update.HtlcMinimumMsat != prev.MinHTLC {
+		return false
+	}
+	if update.MessageFlags.HasMaxHtlc() && !prev.MessageFlags.HasMaxHtlc() {
+		return false
+	}
+	if update.HtlcMaximumMsat != prev.MaxHTLC {
+		return false
+	}
+	if !bytes.Equal(update.ExtraOpaqueData, prev.ExtraOpaqueData) {
+		return false
+	}
+	return true
+}
+
+// latestHeight returns the gossiper's latest height known of the chain.
+func (d *AuthenticatedGossiper) latestHeight() uint32 {
+	d.Lock()
+	defer d.Unlock()
+	return d.bestHeight
 }

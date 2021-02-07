@@ -74,7 +74,7 @@ func EnforceSafeAuthentication(addrs []net.Addr, macaroonsActive,
 			return fmt.Errorf("detected RPC server listening on "+
 				"publicly reachable interface %v with "+
 				"encryption disabled! Refusing to start "+
-				"with --notls specified", addr)
+				"with --no-rest-tls specified", addr)
 		}
 	}
 

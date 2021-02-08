@@ -241,17 +241,6 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		return err
 	}
 
-	localChanDB, remoteChanDB, cleanUp, err := initializeDatabases(ctx, cfg)
-	switch {
-	case err == channeldb.ErrDryRunMigrationOK:
-		ltndLog.Infof("%v, exiting", err)
-		return nil
-	case err != nil:
-		return fmt.Errorf("unable to open databases: %v", err)
-	}
-
-	defer cleanUp()
-
 	// Only process macaroons if --no-macaroons isn't set.
 	serverOpts, restDialOpts, restListen, cleanUp, err := getTLSConfig(cfg)
 	if err != nil {
@@ -326,6 +315,65 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 				})
 		}
 	}
+
+	// Start leader election if we're running on etcd. Continuation will be
+	// blocked until this instance is elected as the current leader or
+	// shutting down.
+	elected := false
+	if cfg.Cluster.EnableLeaderElection {
+		electionCtx, cancelElection := context.WithCancel(ctx)
+
+		go func() {
+			<-interceptor.ShutdownChannel()
+			cancelElection()
+		}()
+
+		ltndLog.Infof("Using %v leader elector",
+			cfg.Cluster.LeaderElector)
+
+		leaderElector, err := cfg.Cluster.MakeLeaderElector(
+			electionCtx, cfg.DB,
+		)
+		if err != nil {
+			return err
+		}
+
+		defer func() {
+			if !elected {
+				return
+			}
+
+			ltndLog.Infof("Attempting to resign from leader role "+
+				"(%v)", cfg.Cluster.ID)
+
+			if err := leaderElector.Resign(); err != nil {
+				ltndLog.Errorf("Leader elector failed to "+
+					"resign: %v", err)
+			}
+		}()
+
+		ltndLog.Infof("Starting leadership campaign (%v)",
+			cfg.Cluster.ID)
+
+		if err := leaderElector.Campaign(electionCtx); err != nil {
+			ltndLog.Errorf("Leadership campaign failed: %v", err)
+			return err
+		}
+
+		elected = true
+		ltndLog.Infof("Elected as leader (%v)", cfg.Cluster.ID)
+	}
+
+	localChanDB, remoteChanDB, cleanUp, err := initializeDatabases(ctx, cfg)
+	switch {
+	case err == channeldb.ErrDryRunMigrationOK:
+		ltndLog.Infof("%v, exiting", err)
+		return nil
+	case err != nil:
+		return fmt.Errorf("unable to open databases: %v", err)
+	}
+
+	defer cleanUp()
 
 	// We'll create the WalletUnlockerService and check whether the wallet
 	// already exists.

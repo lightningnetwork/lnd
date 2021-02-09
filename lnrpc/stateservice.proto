@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package lnrpc;
+
+option go_package = "github.com/lightningnetwork/lnd/lnrpc";
+
+/*
+ * Comments in this file will be directly parsed into the API
+ * Documentation as descriptions of the associated method, message, or field.
+ * These descriptions should go right above the definition of the object, and
+ * can be in either block or // comment format.
+ *
+ * An RPC method can be matched to an lncli command by placing a line in the
+ * beginning of the description in exactly the following format:
+ * lncli: `methodname`
+ *
+ * Failure to specify the exact name of the command will cause documentation
+ * generation to fail.
+ *
+ * More information on how exactly the gRPC documentation is generated from
+ * this proto file can be found here:
+ * https://github.com/lightninglabs/lightning-api
+ */
+
+// State service is a always running service that exposes the current state of
+// the wallet and RPC server.
+service State {
+    // SubscribeState subscribes to the state of the wallet. The current wallet
+    // state will always be delivered immediately.
+    rpc SubscribeState (SubscribeStateRequest)
+        returns (stream SubscribeStateResponse);
+}
+
+enum WalletState {
+    NON_EXISTING = 0;
+    LOCKED = 1;
+    UNLOCKED = 2;
+    RPC_ACTIVE = 3;
+}
+
+message SubscribeStateRequest {
+}
+
+message SubscribeStateResponse {
+    WalletState State = 1;
+}

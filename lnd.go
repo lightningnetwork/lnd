@@ -349,6 +349,17 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	interceptorChain := rpcperms.NewInterceptorChain(
 		rpcsLog, cfg.NoMacaroons, walletExists,
 	)
+	if err := interceptorChain.Start(); err != nil {
+		return err
+	}
+	defer func() {
+		err := interceptorChain.Stop()
+		if err != nil {
+			ltndLog.Warnf("error stopping RPC interceptor "+
+				"chain: %v", err)
+		}
+	}()
+
 	rpcServerOpts := interceptorChain.CreateServerOpts()
 	serverOpts = append(serverOpts, rpcServerOpts...)
 
@@ -357,6 +368,10 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 
 	// Register the WalletUnlockerService with the GRPC server.
 	lnrpc.RegisterWalletUnlockerServer(grpcServer, pwService)
+
+	// We'll also register the RPC interceptor chain as the StateServer, as
+	// it can be used to query for the current state of the wallet.
+	lnrpc.RegisterStateServer(grpcServer, interceptorChain)
 
 	// Initialize, and register our implementation of the gRPC interface
 	// exported by the rpcServer.
@@ -1239,8 +1254,15 @@ func startRestProxy(cfg *Config, rpcServer *rpcServer, restDialOpts []grpc.DialO
 	)
 	mux := proxy.NewServeMux(customMarshalerOption)
 
-	// Register both services with the REST proxy.
+	// Register our services with the REST proxy.
 	err := lnrpc.RegisterWalletUnlockerHandlerFromEndpoint(
+		ctx, mux, restProxyDest, restDialOpts,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	err = lnrpc.RegisterStateHandlerFromEndpoint(
 		ctx, mux, restProxyDest, restDialOpts,
 	)
 	if err != nil {

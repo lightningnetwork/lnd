@@ -17,7 +17,7 @@ func TestCopy(t *testing.T) {
 	f := NewEtcdTestFixture(t)
 	defer f.Cleanup()
 
-	db, err := newEtcdBackend(f.BackendConfig())
+	db, err := newEtcdBackend(context.TODO(), f.BackendConfig())
 	require.NoError(t, err)
 
 	err = db.Update(func(tx walletdb.ReadWriteTx) error {
@@ -53,10 +53,9 @@ func TestAbortContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	config := f.BackendConfig()
-	config.Ctx = ctx
 
 	// Pass abort context and abort right away.
-	db, err := newEtcdBackend(config)
+	db, err := newEtcdBackend(ctx, config)
 	require.NoError(t, err)
 	cancel()
 

@@ -3,7 +3,6 @@
 package etcd
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"net/url"
@@ -62,7 +61,7 @@ func getFreePort() int {
 // listening on random open ports. Returns the backend config and a cleanup
 // func that will stop the etcd instance.
 func NewEmbeddedEtcdInstance(path string, clientPort, peerPort uint16) (
-	*BackendConfig, func(), error) {
+	*Config, func(), error) {
 
 	cfg := embed.NewConfig()
 	cfg.Dir = path
@@ -98,10 +97,7 @@ func NewEmbeddedEtcdInstance(path string, clientPort, peerPort uint16) (
 			fmt.Errorf("etcd failed to start after: %v", readyTimeout)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-
-	connConfig := &BackendConfig{
-		Ctx:                ctx,
+	connConfig := &Config{
 		Host:               "http://" + peerURL,
 		User:               "user",
 		Pass:               "pass",
@@ -110,7 +106,6 @@ func NewEmbeddedEtcdInstance(path string, clientPort, peerPort uint16) (
 	}
 
 	return connConfig, func() {
-		cancel()
 		etcd.Close()
 	}, nil
 }

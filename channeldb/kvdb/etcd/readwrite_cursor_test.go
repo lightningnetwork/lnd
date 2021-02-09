@@ -3,6 +3,7 @@
 package etcd
 
 import (
+	"context"
 	"testing"
 
 	"github.com/btcsuite/btcwallet/walletdb"
@@ -15,7 +16,7 @@ func TestReadCursorEmptyInterval(t *testing.T) {
 	f := NewEtcdTestFixture(t)
 	defer f.Cleanup()
 
-	db, err := newEtcdBackend(f.BackendConfig())
+	db, err := newEtcdBackend(context.TODO(), f.BackendConfig())
 	require.NoError(t, err)
 
 	err = db.Update(func(tx walletdb.ReadWriteTx) error {
@@ -59,7 +60,7 @@ func TestReadCursorNonEmptyInterval(t *testing.T) {
 	f := NewEtcdTestFixture(t)
 	defer f.Cleanup()
 
-	db, err := newEtcdBackend(f.BackendConfig())
+	db, err := newEtcdBackend(context.TODO(), f.BackendConfig())
 	require.NoError(t, err)
 
 	testKeyValues := []KV{
@@ -136,7 +137,7 @@ func TestReadWriteCursor(t *testing.T) {
 	f := NewEtcdTestFixture(t)
 	defer f.Cleanup()
 
-	db, err := newEtcdBackend(f.BackendConfig())
+	db, err := newEtcdBackend(context.TODO(), f.BackendConfig())
 	require.NoError(t, err)
 
 	testKeyValues := []KV{
@@ -300,7 +301,7 @@ func TestReadWriteCursorWithBucketAndValue(t *testing.T) {
 	f := NewEtcdTestFixture(t)
 	defer f.Cleanup()
 
-	db, err := newEtcdBackend(f.BackendConfig())
+	db, err := newEtcdBackend(context.TODO(), f.BackendConfig())
 	require.NoError(t, err)
 
 	// Pre-store the first half of the interval.

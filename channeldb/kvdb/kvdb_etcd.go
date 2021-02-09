@@ -14,25 +14,10 @@ const TestBackend = EtcdBackendName
 
 // GetEtcdBackend returns an etcd backend configured according to the
 // passed etcdConfig.
-func GetEtcdBackend(ctx context.Context, etcdConfig *EtcdConfig) (
+func GetEtcdBackend(ctx context.Context, etcdConfig *etcd.Config) (
 	Backend, error) {
 
-	// Config translation is needed here in order to keep the
-	// etcd package fully independent from the rest of the source tree.
-	backendConfig := etcd.BackendConfig{
-		Ctx:                ctx,
-		Host:               etcdConfig.Host,
-		User:               etcdConfig.User,
-		Pass:               etcdConfig.Pass,
-		DisableTLS:         etcdConfig.DisableTLS,
-		CertFile:           etcdConfig.CertFile,
-		KeyFile:            etcdConfig.KeyFile,
-		InsecureSkipVerify: etcdConfig.InsecureSkipVerify,
-		Namespace:          etcdConfig.Namespace,
-		CollectCommitStats: etcdConfig.CollectStats,
-	}
-
-	return Open(EtcdBackendName, backendConfig)
+	return Open(EtcdBackendName, etcdConfig)
 }
 
 // GetEtcdTestBackend creates an embedded etcd backend for testing
@@ -49,7 +34,7 @@ func GetEtcdTestBackend(path string, clientPort, peerPort uint16) (
 		return nil, empty, err
 	}
 
-	backend, err := Open(EtcdBackendName, *config)
+	backend, err := Open(EtcdBackendName, context.Background(), config)
 	if err != nil {
 		cleanup()
 		return nil, empty, err

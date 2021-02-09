@@ -234,6 +234,13 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// Run configuration dependent DB pre-initialization. Note that this
+	// needs to be done early and once during the startup process, before
+	// any DB access.
+	if err := cfg.DB.Init(ctx, cfg.localDatabaseDir()); err != nil {
+		return err
+	}
+
 	localChanDB, remoteChanDB, cleanUp, err := initializeDatabases(ctx, cfg)
 	switch {
 	case err == channeldb.ErrDryRunMigrationOK:

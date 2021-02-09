@@ -3,8 +3,6 @@
 package kvdb
 
 import (
-	"context"
-
 	"github.com/lightningnetwork/lnd/channeldb/kvdb/etcd"
 )
 
@@ -12,33 +10,12 @@ import (
 // defined, allowing testing our database code with etcd backend.
 const TestBackend = EtcdBackendName
 
-// GetEtcdBackend returns an etcd backend configured according to the
-// passed etcdConfig.
-func GetEtcdBackend(ctx context.Context, etcdConfig *etcd.Config) (
-	Backend, error) {
-
-	return Open(EtcdBackendName, etcdConfig)
-}
-
 // GetEtcdTestBackend creates an embedded etcd backend for testing
 // storig the database at the passed path.
-func GetEtcdTestBackend(path string, clientPort, peerPort uint16) (
-	Backend, func(), error) {
+func StartEtcdTestBackend(path string, clientPort, peerPort uint16) (
+	*etcd.Config, func(), error) {
 
-	empty := func() {}
-
-	config, cleanup, err := etcd.NewEmbeddedEtcdInstance(
+	return etcd.NewEmbeddedEtcdInstance(
 		path, clientPort, peerPort,
 	)
-	if err != nil {
-		return nil, empty, err
-	}
-
-	backend, err := Open(EtcdBackendName, context.Background(), config)
-	if err != nil {
-		cleanup()
-		return nil, empty, err
-	}
-
-	return backend, cleanup, nil
 }

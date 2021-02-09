@@ -57,6 +57,27 @@ func (db *DB) Validate() error {
 	return nil
 }
 
+// Init should be called upon start to pre-initialize database access dependent
+// on configuration.
+func (db *DB) Init(ctx context.Context, dbPath string) error {
+	// Start embedded etcd server if requested.
+	if db.Backend == EtcdBackend && db.Etcd.Embedded {
+		cfg, _, err := kvdb.StartEtcdTestBackend(
+			dbPath, db.Etcd.EmbeddedClientPort,
+			db.Etcd.EmbeddedPeerPort,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Override the original config with the config for
+		// the embedded instance.
+		db.Etcd = cfg
+	}
+
+	return nil
+}
+
 // DatabaseBackends is a two-tuple that holds the set of active database
 // backends for the daemon. The two backends we expose are the local database
 // backend, and the remote backend. The LocalDB attribute will always be
@@ -83,14 +104,9 @@ func (db *DB) GetBackends(ctx context.Context, dbPath string) (
 	)
 
 	if db.Backend == EtcdBackend {
-		if db.Etcd.Embedded {
-			remoteDB, _, err = kvdb.GetEtcdTestBackend(
-				dbPath, db.Etcd.EmbeddedClientPort,
-				db.Etcd.EmbeddedPeerPort,
-			)
-		} else {
-			remoteDB, err = kvdb.GetEtcdBackend(ctx, db.Etcd)
-		}
+		remoteDB, err = kvdb.Open(
+			kvdb.EtcdBackendName, ctx, db.Etcd,
+		)
 		if err != nil {
 			return nil, err
 		}

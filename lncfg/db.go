@@ -73,8 +73,8 @@ type DatabaseBackends struct {
 // GetBackends returns a set of kvdb.Backends as set in the DB config.  The
 // local database will ALWAYS be non-nil, while the remote database will only
 // be populated if etcd is specified.
-func (db *DB) GetBackends(ctx context.Context, dbPath string,
-	networkName string) (*DatabaseBackends, error) {
+func (db *DB) GetBackends(ctx context.Context, dbPath string) (
+	*DatabaseBackends, error) {
 
 	var (
 		localDB, remoteDB kvdb.Backend
@@ -88,10 +88,7 @@ func (db *DB) GetBackends(ctx context.Context, dbPath string,
 				db.Etcd.EmbeddedPeerPort,
 			)
 		} else {
-			// Prefix will separate key/values in the db.
-			remoteDB, err = kvdb.GetEtcdBackend(
-				ctx, networkName, db.Etcd,
-			)
+			remoteDB, err = kvdb.GetEtcdBackend(ctx, db.Etcd)
 		}
 		if err != nil {
 			return nil, err

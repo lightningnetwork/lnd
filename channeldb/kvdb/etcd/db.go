@@ -23,6 +23,10 @@ const (
 
 	// etcdLongTimeout is a timeout for longer taking etcd operatons.
 	etcdLongTimeout = 30 * time.Second
+
+	// etcdDefaultRootBucketId is used as the root bucket key. Note that
+	// the actual key is not visible, since all bucket keys are hashed.
+	etcdDefaultRootBucketId = "@"
 )
 
 // callerStats holds commit stats for a specific caller. Currently it only
@@ -152,11 +156,6 @@ type BackendConfig struct {
 	// skip TLS verification.
 	InsecureSkipVerify bool
 
-	// Prefix the hash of the prefix will be used as the root
-	// bucket id. This enables key space separation similar to
-	// name spaces.
-	Prefix string
-
 	// Namespace is the etcd namespace that we'll use for all keys.
 	Namespace string
 
@@ -243,7 +242,7 @@ func (db *db) getSTMOptions() []STMOptionFunc {
 func (db *db) View(f func(tx walletdb.ReadTx) error, reset func()) error {
 	apply := func(stm STM) error {
 		reset()
-		return f(newReadWriteTx(stm, db.config.Prefix))
+		return f(newReadWriteTx(stm, etcdDefaultRootBucketId))
 	}
 
 	return RunSTM(db.cli, apply, db.txQueue, db.getSTMOptions()...)
@@ -259,7 +258,7 @@ func (db *db) View(f func(tx walletdb.ReadTx) error, reset func()) error {
 func (db *db) Update(f func(tx walletdb.ReadWriteTx) error, reset func()) error {
 	apply := func(stm STM) error {
 		reset()
-		return f(newReadWriteTx(stm, db.config.Prefix))
+		return f(newReadWriteTx(stm, etcdDefaultRootBucketId))
 	}
 
 	return RunSTM(db.cli, apply, db.txQueue, db.getSTMOptions()...)
@@ -278,7 +277,7 @@ func (db *db) PrintStats() string {
 func (db *db) BeginReadWriteTx() (walletdb.ReadWriteTx, error) {
 	return newReadWriteTx(
 		NewSTM(db.cli, db.txQueue, db.getSTMOptions()...),
-		db.config.Prefix,
+		etcdDefaultRootBucketId,
 	), nil
 }
 
@@ -286,7 +285,7 @@ func (db *db) BeginReadWriteTx() (walletdb.ReadWriteTx, error) {
 func (db *db) BeginReadTx() (walletdb.ReadTx, error) {
 	return newReadWriteTx(
 		NewSTM(db.cli, db.txQueue, db.getSTMOptions()...),
-		db.config.Prefix,
+		etcdDefaultRootBucketId,
 	), nil
 }
 

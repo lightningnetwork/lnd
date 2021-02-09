@@ -1455,9 +1455,7 @@ func initializeDatabases(ctx context.Context,
 
 	startOpenTime := time.Now()
 
-	databaseBackends, err := cfg.DB.GetBackends(
-		ctx, cfg.localDatabaseDir(), cfg.networkName(),
-	)
+	databaseBackends, err := cfg.DB.GetBackends(ctx, cfg.localDatabaseDir())
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("unable to obtain database "+
 			"backends: %v", err)

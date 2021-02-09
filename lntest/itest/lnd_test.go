@@ -13702,12 +13702,14 @@ func testHoldInvoicePersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to connect alice to carol: %v", err)
 	}
 
-	// Open a channel between Alice and Carol.
+	// Open a channel between Alice and Carol which is private so that we
+	// cover the addition of hop hints for hold invoices.
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPointAlice := openChannelAndAssert(
 		ctxt, t, net, net.Alice, carol,
 		lntest.OpenChannelParams{
-			Amt: chanAmt,
+			Amt:     chanAmt,
+			Private: true,
 		},
 	)
 
@@ -13748,10 +13750,14 @@ func testHoldInvoicePersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 	for _, preimage := range preimages {
 		payHash := preimage.Hash()
+
+		// Make our invoices private so that we get coverage for adding
+		// hop hints.
 		invoiceReq := &invoicesrpc.AddHoldInvoiceRequest{
-			Memo:  "testing",
-			Value: int64(payAmt),
-			Hash:  payHash[:],
+			Memo:    "testing",
+			Value:   int64(payAmt),
+			Hash:    payHash[:],
+			Private: true,
 		}
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 		resp, err := carol.AddHoldInvoice(ctxt, invoiceReq)

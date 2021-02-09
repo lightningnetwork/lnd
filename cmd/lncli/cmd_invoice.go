@@ -38,6 +38,10 @@ var addInvoiceCommand = cli.Command{
 			Name:  "amt",
 			Usage: "the amt of satoshis in this invoice",
 		},
+		cli.Int64Flag{
+			Name:  "amt_msat",
+			Usage: "the amt of millisatoshis in this invoice",
+		},
 		cli.StringFlag{
 			Name: "description_hash",
 			Usage: "SHA-256 hash of the description of the payment. " +
@@ -72,6 +76,7 @@ func addInvoice(ctx *cli.Context) error {
 		preimage []byte
 		descHash []byte
 		amt      int64
+		amtMsat  int64
 		err      error
 	)
 
@@ -80,10 +85,9 @@ func addInvoice(ctx *cli.Context) error {
 
 	args := ctx.Args()
 
-	switch {
-	case ctx.IsSet("amt"):
-		amt = ctx.Int64("amt")
-	case args.Present():
+	amt = ctx.Int64("amt")
+	amtMsat = ctx.Int64("amt_msat")
+	if !ctx.IsSet("amt") && !ctx.IsSet("amt_msat") && args.Present() {
 		amt, err = strconv.ParseInt(args.First(), 10, 64)
 		args = args.Tail()
 		if err != nil {
@@ -111,6 +115,7 @@ func addInvoice(ctx *cli.Context) error {
 		Memo:            ctx.String("memo"),
 		RPreimage:       preimage,
 		Value:           amt,
+		ValueMsat:       amtMsat,
 		DescriptionHash: descHash,
 		FallbackAddr:    ctx.String("fallback_addr"),
 		Expiry:          ctx.Int64("expiry"),

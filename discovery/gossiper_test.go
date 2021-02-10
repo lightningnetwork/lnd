@@ -3938,7 +3938,6 @@ func TestRateLimitChannelUpdates(t *testing.T) {
 	}
 	defer cleanup()
 	ctx.gossiper.cfg.RebroadcastInterval = time.Hour
-	ctx.gossiper.cfg.GossipUpdateThrottle = true
 
 	// The graph should start empty.
 	require.Empty(t, ctx.router.infos)

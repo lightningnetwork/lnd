@@ -22,6 +22,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -115,7 +116,9 @@ func newMockRouter(height uint32) *mockGraphSource {
 
 var _ routing.ChannelGraphSource = (*mockGraphSource)(nil)
 
-func (r *mockGraphSource) AddNode(node *channeldb.LightningNode) error {
+func (r *mockGraphSource) AddNode(node *channeldb.LightningNode,
+	_ ...batch.SchedulerOption) error {
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -123,7 +126,9 @@ func (r *mockGraphSource) AddNode(node *channeldb.LightningNode) error {
 	return nil
 }
 
-func (r *mockGraphSource) AddEdge(info *channeldb.ChannelEdgeInfo) error {
+func (r *mockGraphSource) AddEdge(info *channeldb.ChannelEdgeInfo,
+	_ ...batch.SchedulerOption) error {
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -135,7 +140,9 @@ func (r *mockGraphSource) AddEdge(info *channeldb.ChannelEdgeInfo) error {
 	return nil
 }
 
-func (r *mockGraphSource) UpdateEdge(edge *channeldb.ChannelEdgePolicy) error {
+func (r *mockGraphSource) UpdateEdge(edge *channeldb.ChannelEdgePolicy,
+	_ ...batch.SchedulerOption) error {
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

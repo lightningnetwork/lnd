@@ -123,8 +123,14 @@ func IsLoopback(addr string) bool {
 
 // isIPv6Host returns true if the host is IPV6 and false otherwise.
 func isIPv6Host(host string) bool {
-	// An IPv4 host without the port shouldn't have a colon.
-	return strings.Contains(host, ":")
+	v6Addr := net.ParseIP(host)
+	if v6Addr == nil {
+		return false
+	}
+
+	// The documentation states that if the IP address is an IPv6 address,
+	// then To4() will return nil.
+	return v6Addr.To4() == nil
 }
 
 // IsUnix returns true if an address describes an Unix socket address.

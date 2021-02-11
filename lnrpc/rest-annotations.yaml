@@ -208,6 +208,11 @@ http:
       body: "*"
     - selector: routerrpc.Router.QueryMissionControl
       get: "/v2/router/mc"
+    - selector: routerrpc.Router.GetMissionControlConfig
+      get: "/v2/router/mccfg"
+    - selector: routerroc.Router.SetMissionControlConfig
+      post: "/v2/router/mccfg"
+      body: "*"
     - selector: routerrpc.Router.QueryProbability
       get: "/v2/router/mc/probability/{from_node}/{to_node}/{amt_msat}"
     - selector: routerrpc.Router.BuildRoute

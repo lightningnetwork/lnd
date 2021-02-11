@@ -62,6 +62,19 @@ service Router {
         returns (QueryMissionControlResponse);
 
     /*
+    GetMissionControlConfig returns mission control's current config.
+    */
+    rpc GetMissionControlConfig (GetMissionControlConfigRequest)
+        returns (GetMissionControlConfigResponse);
+
+    /*
+    SetMissionControlConfig will set mission control's config, if the config
+    provided is valid.
+    */
+    rpc SetMissionControlConfig (SetMissionControlConfigRequest)
+        returns (SetMissionControlConfigResponse);
+
+    /*
     QueryProbability returns the current success probability estimate for a
     given node pair and amount.
     */
@@ -352,6 +365,67 @@ message PairData {
 
     // Highest amount that we could successfully forward in millisats.
     int64 success_amt_msat = 7;
+}
+
+message GetMissionControlConfigRequest {
+}
+
+message GetMissionControlConfigResponse {
+    /*
+    Mission control's currently active config.
+    */
+    MissionControlConfig config = 1;
+}
+
+message SetMissionControlConfigRequest {
+    /*
+    The config to set for mission control. Note that all values *must* be set,
+    because the full config will be applied.
+    */
+    MissionControlConfig config = 1;
+}
+
+message SetMissionControlConfigResponse {
+}
+
+message MissionControlConfig {
+    /*
+    The amount of time mission control will take to restore a penalized node
+    or channel back to 50% success probability, expressed as a unix timestamp
+    in seconds. Setting this value to a higher value will penalize failures for
+    longer, making mission control less likely to route through nodes and
+    channels that we have previously recorded failures for.
+    */
+    uint64 half_life_seconds = 1;
+
+    /*
+    The probability of success mission control should assign to hop in a route 
+    where it has no other information available. Higher values will make mission 
+    control more willing to try hops that we have no information about, lower 
+    values will discourage trying these hops.
+    */
+    float hop_probability = 2;
+
+    /*
+    The importance that mission control should place on historical results,
+    expressed as a value in [0;1]. Setting this value to 1 will ignore all
+    historical payments and just use the hop probability to assess the
+    probability of success for each hop. A zero value ignores hop probability
+    completely and relies entirely on historical results, unless none are
+    available.
+    */
+    float weight = 3;
+
+    /*
+    The maximum number of payment results that mission control will store.
+    */
+    uint32 maximum_payment_results = 4;
+
+    /*
+    The minimum time that must have passed since the previously recorded failure
+    before we raise the failure amount.
+    */
+    uint64 minimum_failure_relax_interval = 5;
 }
 
 message QueryProbabilityRequest {

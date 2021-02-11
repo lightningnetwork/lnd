@@ -78,12 +78,13 @@ func createMcTestContext(t *testing.T) *mcTestContext {
 // restartMc creates a new instances of mission control on the same database.
 func (ctx *mcTestContext) restartMc() {
 	mc, err := NewMissionControl(
-		ctx.db,
+		ctx.db, mcTestSelf,
 		&MissionControlConfig{
-			PenaltyHalfLife:       testPenaltyHalfLife,
-			AprioriHopProbability: testAprioriHopProbability,
-			AprioriWeight:         testAprioriWeight,
-			SelfNode:              mcTestSelf,
+			ProbabilityEstimatorCfg: ProbabilityEstimatorCfg{
+				PenaltyHalfLife:       testPenaltyHalfLife,
+				AprioriHopProbability: testAprioriHopProbability,
+				AprioriWeight:         testAprioriWeight,
+			},
 		},
 	)
 	if err != nil {

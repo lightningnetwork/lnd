@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"errors"
 	"math"
 	"time"
 
@@ -8,25 +9,61 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
-// probabilityEstimator returns node and pair probabilities based on historical
-// payment results.
-type probabilityEstimator struct {
-	// penaltyHalfLife defines after how much time a penalized node or
+var (
+	// ErrInvalidHalflife is returned when we get an invalid half life.
+	ErrInvalidHalflife = errors.New("penalty half life must be >= 0")
+
+	// ErrInvalidHopProbability is returned when we get an invalid hop
+	// probability.
+	ErrInvalidHopProbability = errors.New("hop probability must be in [0;1]")
+
+	// ErrInvalidAprioriWeight is returned when we get an apriori weight
+	// that is out of range.
+	ErrInvalidAprioriWeight = errors.New("apriori weight must be in [0;1]")
+)
+
+// ProbabilityEstimatorCfg contains configuration for our probability estimator.
+type ProbabilityEstimatorCfg struct {
+	// PenaltyHalfLife defines after how much time a penalized node or
 	// channel is back at 50% probability.
-	penaltyHalfLife time.Duration
+	PenaltyHalfLife time.Duration
 
-	// aprioriHopProbability is the assumed success probability of a hop in
+	// AprioriHopProbability is the assumed success probability of a hop in
 	// a route when no other information is available.
-	aprioriHopProbability float64
+	AprioriHopProbability float64
 
-	// aprioriWeight is a value in the range [0, 1] that defines to what
+	// AprioriWeight is a value in the range [0, 1] that defines to what
 	// extent historical results should be extrapolated to untried
 	// connections. Setting it to one will completely ignore historical
 	// results and always assume the configured a priori probability for
 	// untried connections. A value of zero will ignore the a priori
 	// probability completely and only base the probability on historical
 	// results, unless there are none available.
-	aprioriWeight float64
+	AprioriWeight float64
+}
+
+func (p ProbabilityEstimatorCfg) validate() error {
+	if p.PenaltyHalfLife < 0 {
+		return ErrInvalidHalflife
+	}
+
+	if p.AprioriHopProbability < 0 || p.AprioriHopProbability > 1 {
+		return ErrInvalidHopProbability
+	}
+
+	if p.AprioriWeight < 0 || p.AprioriWeight > 1 {
+		return ErrInvalidAprioriWeight
+	}
+
+	return nil
+}
+
+// probabilityEstimator returns node and pair probabilities based on historical
+// payment results.
+type probabilityEstimator struct {
+	// ProbabilityEstimatorCfg contains configuration options for our
+	// estimator.
+	ProbabilityEstimatorCfg
 
 	// prevSuccessProbability is the assumed probability for node pairs that
 	// successfully relayed the previous attempt.
@@ -41,14 +78,14 @@ func (p *probabilityEstimator) getNodeProbability(now time.Time,
 
 	// If the channel history is not to be taken into account, we can return
 	// early here with the configured a priori probability.
-	if p.aprioriWeight == 1 {
-		return p.aprioriHopProbability
+	if p.AprioriWeight == 1 {
+		return p.AprioriHopProbability
 	}
 
 	// If there is no channel history, our best estimate is still the a
 	// priori probability.
 	if len(results) == 0 {
-		return p.aprioriHopProbability
+		return p.AprioriHopProbability
 	}
 
 	// The value of the apriori weight is in the range [0, 1]. Convert it to
@@ -58,7 +95,7 @@ func (p *probabilityEstimator) getNodeProbability(now time.Time,
 	// the weighted average calculation below. When the apriori weight
 	// approaches 1, the apriori factor goes to infinity. It will heavily
 	// outweigh any observations that have been collected.
-	aprioriFactor := 1/(1-p.aprioriWeight) - 1
+	aprioriFactor := 1/(1-p.AprioriWeight) - 1
 
 	// Calculate a weighted average consisting of the apriori probability
 	// and historical observations. This is the part that incentivizes nodes
@@ -76,7 +113,7 @@ func (p *probabilityEstimator) getNodeProbability(now time.Time,
 	// effectively prunes all channels of the node forever. This is the most
 	// aggressive way in which we can penalize nodes and unlikely to yield
 	// good results in a real network.
-	probabilitiesTotal := p.aprioriHopProbability * aprioriFactor
+	probabilitiesTotal := p.AprioriHopProbability * aprioriFactor
 	totalWeight := aprioriFactor
 
 	for _, result := range results {
@@ -106,7 +143,7 @@ func (p *probabilityEstimator) getNodeProbability(now time.Time,
 // the result is fresh and asymptotically approaches zero over time. The rate at
 // which this happens is controlled by the penaltyHalfLife parameter.
 func (p *probabilityEstimator) getWeight(age time.Duration) float64 {
-	exp := -age.Hours() / p.penaltyHalfLife.Hours()
+	exp := -age.Hours() / p.PenaltyHalfLife.Hours()
 	return math.Pow(2, exp)
 }
 

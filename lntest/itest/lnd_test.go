@@ -12750,6 +12750,10 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 	}
 
+	// While we're here, we test updating mission control's config values
+	// and assert that they are correctly updated.
+	testMissionControlCfg(t.t, net.Alice)
+
 	// We clean up the test case by closing channels that were created for
 	// the duration of the tests.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
@@ -12758,6 +12762,51 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPointBob, false)
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
+}
+
+// testMissionControlCfg tests getting and setting of a node's mission control
+// config, resetting to the original values after testing so that no other
+// tests are affected.
+func testMissionControlCfg(t *testing.T, node *lntest.HarnessNode) {
+	ctxb := context.Background()
+	startCfg, err := node.RouterClient.GetMissionControlConfig(
+		ctxb, &routerrpc.GetMissionControlConfigRequest{},
+	)
+	require.NoError(t, err)
+
+	cfg := &routerrpc.MissionControlConfig{
+		HalfLifeSeconds:             8000,
+		HopProbability:              0.8,
+		Weight:                      0.3,
+		MaximumPaymentResults:       30,
+		MinimumFailureRelaxInterval: 60,
+	}
+
+	_, err = node.RouterClient.SetMissionControlConfig(
+		ctxb, &routerrpc.SetMissionControlConfigRequest{
+			Config: cfg,
+		},
+	)
+	require.NoError(t, err)
+
+	resp, err := node.RouterClient.GetMissionControlConfig(
+		ctxb, &routerrpc.GetMissionControlConfigRequest{},
+	)
+	require.NoError(t, err)
+
+	// Set the hidden fields on the cfg we set so that we can use require
+	// equal rather than comparing field by field.
+	cfg.XXX_sizecache = resp.XXX_sizecache
+	cfg.XXX_NoUnkeyedLiteral = resp.XXX_NoUnkeyedLiteral
+	cfg.XXX_unrecognized = resp.XXX_unrecognized
+	require.Equal(t, cfg, resp.Config)
+
+	_, err = node.RouterClient.SetMissionControlConfig(
+		ctxb, &routerrpc.SetMissionControlConfigRequest{
+			Config: startCfg.Config,
+		},
+	)
+	require.NoError(t, err)
 }
 
 // testRouteFeeCutoff tests that we are able to prevent querying routes and

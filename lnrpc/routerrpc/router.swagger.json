@@ -148,6 +148,29 @@
         ]
       }
     },
+    "/v2/router/mccfg": {
+      "get": {
+        "summary": "GetMissionControlConfig returns mission control's current config.",
+        "operationId": "GetMissionControlConfig",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/routerrpcGetMissionControlConfigResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "tags": [
+          "Router"
+        ]
+      }
+    },
     "/v2/router/route": {
       "post": {
         "summary": "BuildRoute builds a fully specified route based on a list of hop public\nkeys. It retrieves the relevant channel policies from the graph in order to\ncalculate the correct fees and time locks.",
@@ -968,6 +991,15 @@
         }
       }
     },
+    "routerrpcGetMissionControlConfigResponse": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "$ref": "#/definitions/routerrpcMissionControlConfig",
+          "description": "Mission control's currently active config."
+        }
+      }
+    },
     "routerrpcHtlcEvent": {
       "type": "object",
       "properties": {
@@ -1068,6 +1100,36 @@
         "failure_string": {
           "type": "string",
           "description": "A string representation of the link failure."
+        }
+      }
+    },
+    "routerrpcMissionControlConfig": {
+      "type": "object",
+      "properties": {
+        "half_life_seconds": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount of time mission control will take to restore a penalized node\nor channel back to 50% success probability, expressed as a unix timestamp\nin seconds. Setting this value to a higher value will penalize failures for\nlonger, making mission control less likely to route through nodes and\nchannels that we have previously recorded failures for."
+        },
+        "hop_probability": {
+          "type": "number",
+          "format": "float",
+          "description": "The probability of success mission control should assign to hop in a route \nwhere it has no other information available. Higher values will make mission \ncontrol more willing to try hops that we have no information about, lower \nvalues will discourage trying these hops."
+        },
+        "weight": {
+          "type": "number",
+          "format": "float",
+          "description": "The importance that mission control should place on historical results,\nexpressed as a value in [0;1]. Setting this value to 1 will ignore all\nhistorical payments and just use the hop probability to assess the\nprobability of success for each hop. A zero value ignores hop probability\ncompletely and relies entirely on historical results, unless none are\navailable."
+        },
+        "maximum_payment_results": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The maximum number of payment results that mission control will store."
+        },
+        "minimum_failure_relax_interval": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The minimum time that must have passed since the previously recorded failure\nbefore we raise the failure amount."
         }
       }
     },
@@ -1373,6 +1435,9 @@
           "description": "The failure message in case the payment failed."
         }
       }
+    },
+    "routerrpcSetMissionControlConfigResponse": {
+      "type": "object"
     },
     "routerrpcSettleEvent": {
       "type": "object"

@@ -95,6 +95,13 @@ type MissionControl interface {
 	// pair.
 	GetPairHistorySnapshot(fromNode,
 		toNode route.Vertex) routing.TimedPairResult
+
+	// GetConfig gets mission control's current config.
+	GetConfig() *routing.MissionControlConfig
+
+	// SetConfig sets mission control's config to the values provided, if
+	// they are valid.
+	SetConfig(cfg *routing.MissionControlConfig) error
 }
 
 // QueryRoutes attempts to query the daemons' Channel Router for a possible

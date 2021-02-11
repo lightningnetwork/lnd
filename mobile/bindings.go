@@ -105,7 +105,7 @@ func Start(extraArgs string, unlockerReady, rpcReady Callback) {
 
 		// We must set the TLS certificates in order to properly
 		// authenticate with the wallet unlocker service.
-		auth, err := lnd.WalletUnlockerAuthOptions(loadedConfig)
+		auth, err := lnd.AdminAuthOptions(loadedConfig, true)
 		if err != nil {
 			unlockerReady.OnError(err)
 			return
@@ -123,7 +123,7 @@ func Start(extraArgs string, unlockerReady, rpcReady Callback) {
 		// Now that the RPC server is ready, we can get the needed
 		// authentication options, and add them to the global dial
 		// options.
-		auth, err := lnd.AdminAuthOptions(loadedConfig)
+		auth, err := lnd.AdminAuthOptions(loadedConfig, false)
 		if err != nil {
 			rpcReady.OnError(err)
 			return

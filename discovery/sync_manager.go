@@ -279,7 +279,8 @@ func (m *SyncManager) syncerHandler() {
 			case len(m.activeSyncers) == 0 &&
 				len(m.inactiveSyncers) == 0:
 
-				attemptHistoricalSync = true
+				attemptHistoricalSync =
+					m.cfg.NumActiveSyncers > 0
 				fallthrough
 
 			// If we've exceeded our total number of active syncers,
@@ -353,6 +354,8 @@ func (m *SyncManager) syncerHandler() {
 			case initialHistoricalSyncer == nil:
 				fallthrough
 			case staleSyncer.peer != initialHistoricalSyncer.cfg.peerPub:
+				fallthrough
+			case m.cfg.NumActiveSyncers == 0:
 				continue
 			}
 
@@ -414,6 +417,16 @@ func (m *SyncManager) syncerHandler() {
 		// Our HistoricalSyncTicker has ticked, so we'll randomly select
 		// a peer and force a historical sync with them.
 		case <-m.cfg.HistoricalSyncTicker.Ticks():
+			// To be extra cautious, gate the forceHistoricalSync
+			// call such that it can only execute if we are
+			// configured to have a non-zero number of sync peers.
+			// This way even if the historical sync ticker manages
+			// to tick we can be sure that a historical sync won't
+			// accidentally begin.
+			if m.cfg.NumActiveSyncers == 0 {
+				continue
+			}
+
 			// If we don't have a syncer available we have nothing
 			// to do.
 			s := m.forceHistoricalSync()

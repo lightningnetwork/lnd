@@ -733,19 +733,21 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 				Timestamp: testTimestamp,
 			}, nil
 		},
-		Router:               router,
-		TrickleDelay:         trickleDelay,
-		RetransmitTicker:     ticker.NewForce(retransmitDelay),
-		RebroadcastInterval:  rebroadcastInterval,
-		ProofMatureDelta:     proofMatureDelta,
-		WaitingProofStore:    waitingProofStore,
-		MessageStore:         newMockMessageStore(),
-		RotateTicker:         ticker.NewForce(DefaultSyncerRotationInterval),
-		HistoricalSyncTicker: ticker.NewForce(DefaultHistoricalSyncInterval),
-		NumActiveSyncers:     3,
-		AnnSigner:            &mock.SingleSigner{Privkey: nodeKeyPriv1},
-		SubBatchDelay:        time.Second * 5,
-		MinimumBatchSize:     10,
+		Router:                router,
+		TrickleDelay:          trickleDelay,
+		RetransmitTicker:      ticker.NewForce(retransmitDelay),
+		RebroadcastInterval:   rebroadcastInterval,
+		ProofMatureDelta:      proofMatureDelta,
+		WaitingProofStore:     waitingProofStore,
+		MessageStore:          newMockMessageStore(),
+		RotateTicker:          ticker.NewForce(DefaultSyncerRotationInterval),
+		HistoricalSyncTicker:  ticker.NewForce(DefaultHistoricalSyncInterval),
+		NumActiveSyncers:      3,
+		AnnSigner:             &mock.SingleSigner{Privkey: nodeKeyPriv1},
+		SubBatchDelay:         time.Second * 5,
+		MinimumBatchSize:      10,
+		MaxChannelUpdateBurst: DefaultMaxChannelUpdateBurst,
+		ChannelUpdateInterval: DefaultChannelUpdateInterval,
 	}, nodeKeyPub1)
 
 	if err := gossiper.Start(); err != nil {
@@ -3938,7 +3940,8 @@ func TestRateLimitChannelUpdates(t *testing.T) {
 	}
 	defer cleanup()
 	ctx.gossiper.cfg.RebroadcastInterval = time.Hour
-	ctx.gossiper.cfg.GossipUpdateThrottle = true
+	ctx.gossiper.cfg.MaxChannelUpdateBurst = 5
+	ctx.gossiper.cfg.ChannelUpdateInterval = 5 * time.Second
 
 	// The graph should start empty.
 	require.Empty(t, ctx.router.infos)
@@ -4037,24 +4040,40 @@ func TestRateLimitChannelUpdates(t *testing.T) {
 
 	// Then, we'll move on to the non keep alive cases.
 	//
-	// Non keep alive updates are limited to one per block per direction.
-	// Since we've already processed updates for both sides, the new updates
-	// for both directions will not be broadcast until a new block arrives.
+	// For this test, non keep alive updates are rate limited to one per 5
+	// seconds with a max burst of 5 per direction. We'll process the max
+	// burst of one direction first. None of these should be rate limited.
 	updateSameDirection := keepAliveUpdate
+	for i := uint32(0); i < uint32(ctx.gossiper.cfg.MaxChannelUpdateBurst); i++ {
+		updateSameDirection.Timestamp++
+		updateSameDirection.BaseFee++
+		require.NoError(t, signUpdate(nodeKeyPriv1, &updateSameDirection))
+		assertRateLimit(&updateSameDirection, nodePeer1, false)
+	}
+
+	// Following with another update should be rate limited as the max burst
+	// has been reached and we haven't ticked at the next interval yet.
 	updateSameDirection.Timestamp++
 	updateSameDirection.BaseFee++
 	require.NoError(t, signUpdate(nodeKeyPriv1, &updateSameDirection))
 	assertRateLimit(&updateSameDirection, nodePeer1, true)
 
+	// An update for the other direction should not be rate limited.
 	updateDiffDirection := *batch.chanUpdAnn2
 	updateDiffDirection.Timestamp++
 	updateDiffDirection.BaseFee++
 	require.NoError(t, signUpdate(nodeKeyPriv2, &updateDiffDirection))
-	assertRateLimit(&updateDiffDirection, nodePeer2, true)
-
-	// Notify a new block and reprocess the updates. They should no longer
-	// be rate limited.
-	ctx.notifier.notifyBlock(chainhash.Hash{}, blockHeight+1)
-	assertRateLimit(&updateSameDirection, nodePeer1, false)
 	assertRateLimit(&updateDiffDirection, nodePeer2, false)
+
+	// Wait for the next interval to tick. Since we've only waited for one,
+	// only one more update is allowed.
+	<-time.After(ctx.gossiper.cfg.ChannelUpdateInterval)
+	for i := 0; i < ctx.gossiper.cfg.MaxChannelUpdateBurst; i++ {
+		updateSameDirection.Timestamp++
+		updateSameDirection.BaseFee++
+		require.NoError(t, signUpdate(nodeKeyPriv1, &updateSameDirection))
+
+		shouldRateLimit := i != 0
+		assertRateLimit(&updateSameDirection, nodePeer1, shouldRateLimit)
+	}
 }

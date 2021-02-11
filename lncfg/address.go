@@ -233,10 +233,27 @@ func ParseAddressString(strAddress string, defaultPort string,
 		// we'll use the system resolver instead.
 		if rawHost == "" || IsLoopback(rawHost) ||
 			isIPv6Host(rawHost) {
+
 			return net.ResolveTCPAddr("tcp", addrWithPort)
 		}
 
-		return tcpResolver("tcp", addrWithPort)
+		// If we've reached this point, then it's possible that this
+		// resolve returns an error if it isn't able to resolve the
+		// host. For eaxmple, local entries in /etc/hosts will fail to
+		// be resolved by Tor. In order to handle this case, we'll fall
+		// back to the normal system resolver if we fail with an
+		// identifiable error.
+		addr, err := tcpResolver("tcp", addrWithPort)
+		if err != nil {
+			torErrStr := "tor host is unreachable"
+			if strings.Contains(err.Error(), torErrStr) {
+				return net.ResolveTCPAddr("tcp", addrWithPort)
+			}
+
+			return nil, err
+		}
+
+		return addr, nil
 	}
 }
 

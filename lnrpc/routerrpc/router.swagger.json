@@ -1114,7 +1114,7 @@
         "hop_probability": {
           "type": "number",
           "format": "float",
-          "description": "The probability of success mission control should assign to hop in a route \nwhere it has no other information available. Higher values will make mission \ncontrol more willing to try hops that we have no information about, lower \nvalues will discourage trying these hops."
+          "description": "The probability of success mission control should assign to hop in a route\nwhere it has no other information available. Higher values will make mission\ncontrol more willing to try hops that we have no information about, lower\nvalues will discourage trying these hops."
         },
         "weight": {
           "type": "number",

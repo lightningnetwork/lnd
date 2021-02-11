@@ -22,6 +22,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -115,7 +116,9 @@ func newMockRouter(height uint32) *mockGraphSource {
 
 var _ routing.ChannelGraphSource = (*mockGraphSource)(nil)
 
-func (r *mockGraphSource) AddNode(node *channeldb.LightningNode) error {
+func (r *mockGraphSource) AddNode(node *channeldb.LightningNode,
+	_ ...batch.SchedulerOption) error {
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -123,7 +126,9 @@ func (r *mockGraphSource) AddNode(node *channeldb.LightningNode) error {
 	return nil
 }
 
-func (r *mockGraphSource) AddEdge(info *channeldb.ChannelEdgeInfo) error {
+func (r *mockGraphSource) AddEdge(info *channeldb.ChannelEdgeInfo,
+	_ ...batch.SchedulerOption) error {
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -135,7 +140,9 @@ func (r *mockGraphSource) AddEdge(info *channeldb.ChannelEdgeInfo) error {
 	return nil
 }
 
-func (r *mockGraphSource) UpdateEdge(edge *channeldb.ChannelEdgePolicy) error {
+func (r *mockGraphSource) UpdateEdge(edge *channeldb.ChannelEdgePolicy,
+	_ ...batch.SchedulerOption) error {
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -733,19 +740,21 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 				Timestamp: testTimestamp,
 			}, nil
 		},
-		Router:               router,
-		TrickleDelay:         trickleDelay,
-		RetransmitTicker:     ticker.NewForce(retransmitDelay),
-		RebroadcastInterval:  rebroadcastInterval,
-		ProofMatureDelta:     proofMatureDelta,
-		WaitingProofStore:    waitingProofStore,
-		MessageStore:         newMockMessageStore(),
-		RotateTicker:         ticker.NewForce(DefaultSyncerRotationInterval),
-		HistoricalSyncTicker: ticker.NewForce(DefaultHistoricalSyncInterval),
-		NumActiveSyncers:     3,
-		AnnSigner:            &mock.SingleSigner{Privkey: nodeKeyPriv1},
-		SubBatchDelay:        time.Second * 5,
-		MinimumBatchSize:     10,
+		Router:                router,
+		TrickleDelay:          trickleDelay,
+		RetransmitTicker:      ticker.NewForce(retransmitDelay),
+		RebroadcastInterval:   rebroadcastInterval,
+		ProofMatureDelta:      proofMatureDelta,
+		WaitingProofStore:     waitingProofStore,
+		MessageStore:          newMockMessageStore(),
+		RotateTicker:          ticker.NewForce(DefaultSyncerRotationInterval),
+		HistoricalSyncTicker:  ticker.NewForce(DefaultHistoricalSyncInterval),
+		NumActiveSyncers:      3,
+		AnnSigner:             &mock.SingleSigner{Privkey: nodeKeyPriv1},
+		SubBatchDelay:         time.Second * 5,
+		MinimumBatchSize:      10,
+		MaxChannelUpdateBurst: DefaultMaxChannelUpdateBurst,
+		ChannelUpdateInterval: DefaultChannelUpdateInterval,
 	}, nodeKeyPub1)
 
 	if err := gossiper.Start(); err != nil {
@@ -908,10 +917,8 @@ func TestPrematureAnnouncement(t *testing.T) {
 	}
 
 	select {
-	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(ca, nodePeer):
-		if err != nil {
-			t.Fatal(err)
-		}
+	case <-ctx.gossiper.ProcessRemoteAnnouncement(ca, nodePeer):
+		t.Fatal("announcement was proceeded")
 	case <-time.After(100 * time.Millisecond):
 	}
 
@@ -928,10 +935,8 @@ func TestPrematureAnnouncement(t *testing.T) {
 	}
 
 	select {
-	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(ua, nodePeer):
-		if err != nil {
-			t.Fatal(err)
-		}
+	case <-ctx.gossiper.ProcessRemoteAnnouncement(ua, nodePeer):
+		t.Fatal("announcement was proceeded")
 	case <-time.After(100 * time.Millisecond):
 	}
 
@@ -2377,13 +2382,27 @@ func TestProcessZombieEdgeNowLive(t *testing.T) {
 
 	// The channel update cannot be successfully processed and broadcast
 	// until the channel announcement is. Since the channel update indicates
-	// a fresh new update, the gossiper should mark the channel as live and
-	// allow it once it sees it again.
-	errChan := ctx.gossiper.ProcessRemoteAnnouncement(
+	// a fresh new update, the gossiper should stash it until it sees the
+	// corresponding channel announcement.
+	updateErrChan := ctx.gossiper.ProcessRemoteAnnouncement(
 		batch.chanUpdAnn2, remotePeer,
 	)
+
 	select {
-	case err := <-errChan:
+	case <-ctx.broadcastedMessage:
+		t.Fatal("expected to not broadcast live channel update " +
+			"without announcement")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	// We'll go ahead and process the channel announcement to ensure the
+	// channel update is processed thereafter.
+	processAnnouncement(batch.remoteChanAnn, false, false)
+
+	// After successfully processing the announcement, the channel update
+	// should have been processed and broadcast successfully as well.
+	select {
+	case err := <-updateErrChan:
 		if err != nil {
 			t.Fatalf("expected to process live channel update: %v",
 				err)
@@ -2393,16 +2412,225 @@ func TestProcessZombieEdgeNowLive(t *testing.T) {
 	}
 
 	select {
+	case msgWithSenders := <-ctx.broadcastedMessage:
+		assertMessage(t, batch.chanUpdAnn2, msgWithSenders.msg)
+	case <-time.After(2 * trickleDelay):
+		t.Fatal("expected to broadcast live channel update")
+	}
+}
+
+// TestReceiveRemoteChannelUpdateFirst tests that if we receive a ChannelUpdate
+// from the remote before we have processed our own ChannelAnnouncement, it will
+// be reprocessed later, after our ChannelAnnouncement.
+func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
+	t.Parallel()
+
+	ctx, cleanup, err := createTestCtx(uint32(proofMatureDelta))
+	if err != nil {
+		t.Fatalf("can't create context: %v", err)
+	}
+	defer cleanup()
+
+	batch, err := createAnnouncements(0)
+	if err != nil {
+		t.Fatalf("can't generate announcements: %v", err)
+	}
+
+	localKey, err := btcec.ParsePubKey(batch.nodeAnn1.NodeID[:], btcec.S256())
+	if err != nil {
+		t.Fatalf("unable to parse pubkey: %v", err)
+	}
+	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:], btcec.S256())
+	if err != nil {
+		t.Fatalf("unable to parse pubkey: %v", err)
+	}
+
+	// Set up a channel that we can use to inspect the messages sent
+	// directly from the gossiper.
+	sentMsgs := make(chan lnwire.Message, 10)
+	remotePeer := &mockPeer{remoteKey, sentMsgs, ctx.gossiper.quit}
+
+	// Override NotifyWhenOnline to return the remote peer which we expect
+	// meesages to be sent to.
+	ctx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(peer [33]byte,
+		peerChan chan<- lnpeer.Peer) {
+
+		peerChan <- remotePeer
+	}
+
+	// Recreate the case where the remote node is sending us its ChannelUpdate
+	// before we have been able to process our own ChannelAnnouncement and
+	// ChannelUpdate.
+	errRemoteAnn := ctx.gossiper.ProcessRemoteAnnouncement(
+		batch.chanUpdAnn2, remotePeer,
+	)
+	select {
 	case <-ctx.broadcastedMessage:
-		t.Fatal("expected to not broadcast live channel update " +
-			"without announcement")
+		t.Fatal("channel update announcement was broadcast")
 	case <-time.After(2 * trickleDelay):
 	}
 
-	// Re-process the channel announcement and update. Both should be
-	// applied to the graph and broadcast.
-	processAnnouncement(batch.remoteChanAnn, false, false)
-	processAnnouncement(batch.chanUpdAnn2, false, false)
+	err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.nodeAnn2, remotePeer)
+	if err != nil {
+		t.Fatalf("unable to process node ann: %v", err)
+	}
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("node announcement was broadcast")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	// Since the remote ChannelUpdate was added for an edge that
+	// we did not already know about, it should have been added
+	// to the map of premature ChannelUpdates. Check that nothing
+	// was added to the graph.
+	chanInfo, e1, e2, err := ctx.router.GetChannelByID(batch.chanUpdAnn1.ShortChannelID)
+	if err != channeldb.ErrEdgeNotFound {
+		t.Fatalf("Expected ErrEdgeNotFound, got: %v", err)
+	}
+	if chanInfo != nil {
+		t.Fatalf("chanInfo was not nil")
+	}
+	if e1 != nil {
+		t.Fatalf("e1 was not nil")
+	}
+	if e2 != nil {
+		t.Fatalf("e2 was not nil")
+	}
+
+	// Recreate lightning network topology. Initialize router with channel
+	// between two nodes.
+	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.localChanAnn, localKey)
+	if err != nil {
+		t.Fatalf("unable to process :%v", err)
+	}
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("channel announcement was broadcast")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanUpdAnn1, localKey)
+	if err != nil {
+		t.Fatalf("unable to process :%v", err)
+	}
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("channel update announcement was broadcast")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.nodeAnn1, localKey)
+	if err != nil {
+		t.Fatalf("unable to process :%v", err)
+	}
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("node announcement was broadcast")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	// The local ChannelUpdate should now be sent directly to the remote peer,
+	// such that the edge can be used for routing, regardless if this channel
+	// is announced or not (private channel).
+	select {
+	case msg := <-sentMsgs:
+		assertMessage(t, batch.chanUpdAnn1, msg)
+	case <-time.After(1 * time.Second):
+		t.Fatal("gossiper did not send channel update to peer")
+	}
+
+	// At this point the remote ChannelUpdate we received earlier should
+	// be reprocessed, as we now have the necessary edge entry in the graph.
+	select {
+	case err := <-errRemoteAnn:
+		if err != nil {
+			t.Fatalf("error re-processing remote update: %v", err)
+		}
+	case <-time.After(2 * trickleDelay):
+		t.Fatalf("remote update was not processed")
+	}
+
+	// Check that the ChannelEdgePolicy was added to the graph.
+	chanInfo, e1, e2, err = ctx.router.GetChannelByID(
+		batch.chanUpdAnn1.ShortChannelID,
+	)
+	if err != nil {
+		t.Fatalf("unable to get channel from router: %v", err)
+	}
+	if chanInfo == nil {
+		t.Fatalf("chanInfo was nil")
+	}
+	if e1 == nil {
+		t.Fatalf("e1 was nil")
+	}
+	if e2 == nil {
+		t.Fatalf("e2 was nil")
+	}
+
+	// Pretending that we receive local channel announcement from funding
+	// manager, thereby kick off the announcement exchange process.
+	err = <-ctx.gossiper.ProcessLocalAnnouncement(
+		batch.localProofAnn, localKey,
+	)
+	if err != nil {
+		t.Fatalf("unable to process :%v", err)
+	}
+
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("announcements were broadcast")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	number := 0
+	if err := ctx.gossiper.cfg.WaitingProofStore.ForAll(
+		func(*channeldb.WaitingProof) error {
+			number++
+			return nil
+		},
+		func() {
+			number = 0
+		},
+	); err != nil {
+		t.Fatalf("unable to retrieve objects from store: %v", err)
+	}
+
+	if number != 1 {
+		t.Fatal("wrong number of objects in storage")
+	}
+
+	err = <-ctx.gossiper.ProcessRemoteAnnouncement(
+		batch.remoteProofAnn, remotePeer,
+	)
+	if err != nil {
+		t.Fatalf("unable to process :%v", err)
+	}
+
+	for i := 0; i < 4; i++ {
+		select {
+		case <-ctx.broadcastedMessage:
+		case <-time.After(time.Second):
+			t.Fatal("announcement wasn't broadcast")
+		}
+	}
+
+	number = 0
+	if err := ctx.gossiper.cfg.WaitingProofStore.ForAll(
+		func(*channeldb.WaitingProof) error {
+			number++
+			return nil
+		},
+		func() {
+			number = 0
+		},
+	); err != nil && err != channeldb.ErrWaitingProofNotFound {
+		t.Fatalf("unable to retrieve objects from store: %v", err)
+	}
+
+	if number != 0 {
+		t.Fatal("waiting proof should be removed from storage")
+	}
 }
 
 // TestExtraDataChannelAnnouncementValidation tests that we're able to properly
@@ -3719,7 +3947,8 @@ func TestRateLimitChannelUpdates(t *testing.T) {
 	}
 	defer cleanup()
 	ctx.gossiper.cfg.RebroadcastInterval = time.Hour
-	ctx.gossiper.cfg.GossipUpdateThrottle = true
+	ctx.gossiper.cfg.MaxChannelUpdateBurst = 5
+	ctx.gossiper.cfg.ChannelUpdateInterval = 5 * time.Second
 
 	// The graph should start empty.
 	require.Empty(t, ctx.router.infos)
@@ -3818,24 +4047,40 @@ func TestRateLimitChannelUpdates(t *testing.T) {
 
 	// Then, we'll move on to the non keep alive cases.
 	//
-	// Non keep alive updates are limited to one per block per direction.
-	// Since we've already processed updates for both sides, the new updates
-	// for both directions will not be broadcast until a new block arrives.
+	// For this test, non keep alive updates are rate limited to one per 5
+	// seconds with a max burst of 5 per direction. We'll process the max
+	// burst of one direction first. None of these should be rate limited.
 	updateSameDirection := keepAliveUpdate
+	for i := uint32(0); i < uint32(ctx.gossiper.cfg.MaxChannelUpdateBurst); i++ {
+		updateSameDirection.Timestamp++
+		updateSameDirection.BaseFee++
+		require.NoError(t, signUpdate(nodeKeyPriv1, &updateSameDirection))
+		assertRateLimit(&updateSameDirection, nodePeer1, false)
+	}
+
+	// Following with another update should be rate limited as the max burst
+	// has been reached and we haven't ticked at the next interval yet.
 	updateSameDirection.Timestamp++
 	updateSameDirection.BaseFee++
 	require.NoError(t, signUpdate(nodeKeyPriv1, &updateSameDirection))
 	assertRateLimit(&updateSameDirection, nodePeer1, true)
 
+	// An update for the other direction should not be rate limited.
 	updateDiffDirection := *batch.chanUpdAnn2
 	updateDiffDirection.Timestamp++
 	updateDiffDirection.BaseFee++
 	require.NoError(t, signUpdate(nodeKeyPriv2, &updateDiffDirection))
-	assertRateLimit(&updateDiffDirection, nodePeer2, true)
-
-	// Notify a new block and reprocess the updates. They should no longer
-	// be rate limited.
-	ctx.notifier.notifyBlock(chainhash.Hash{}, blockHeight+1)
-	assertRateLimit(&updateSameDirection, nodePeer1, false)
 	assertRateLimit(&updateDiffDirection, nodePeer2, false)
+
+	// Wait for the next interval to tick. Since we've only waited for one,
+	// only one more update is allowed.
+	<-time.After(ctx.gossiper.cfg.ChannelUpdateInterval)
+	for i := 0; i < ctx.gossiper.cfg.MaxChannelUpdateBurst; i++ {
+		updateSameDirection.Timestamp++
+		updateSameDirection.BaseFee++
+		require.NoError(t, signUpdate(nodeKeyPriv1, &updateSameDirection))
+
+		shouldRateLimit := i != 0
+		assertRateLimit(&updateSameDirection, nodePeer1, shouldRateLimit)
+	}
 }

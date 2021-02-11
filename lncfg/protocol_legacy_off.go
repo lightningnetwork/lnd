@@ -20,8 +20,3 @@ func (l *LegacyProtocol) LegacyOnion() bool {
 func (l *LegacyProtocol) NoStaticRemoteKey() bool {
 	return false
 }
-
-// NoGossipThrottle returns true if gossip updates shouldn't be throttled.
-func (l *LegacyProtocol) NoGossipThrottle() bool {
-	return false
-}

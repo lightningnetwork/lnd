@@ -172,6 +172,22 @@ for signature in $SIGNATURES; do
   ((NUM_CHECKS=NUM_CHECKS+1))
 done
 
+# We want at least five signatures (out of seven public keys) that sign the
+# hashes of the binaries we have installed. If we arrive here without exiting,
+# it means no signature manifests were uploaded (yet) with the correct naming
+# pattern.
+MIN_REQUIRED_SIGNATURES=5
+if [[ $NUM_CHECKS -lt $MIN_REQUIRED_SIGNATURES ]]; then
+  echo "ERROR: Not enough valid signatures found!"
+  echo "  Valid signatures found: $NUM_CHECKS"
+  echo "  Valid signatures required: $MIN_REQUIRED_SIGNATURES"
+  echo
+  echo "  Make sure the release $LND_VERSION contains the required "
+  echo "  number of signatures on the manifest, or wait until more "
+  echo "  signatures have been added to the release."
+  exit 1
+fi
+
 # Then make sure that the hash of the installed binaries can be found in the
 # manifest that we now have verified the signatures for.
 if ! grep -q "^$LND_SUM" "$MANIFEST"; then
@@ -194,15 +210,6 @@ fi
 
 echo ""
 echo "Verified lnd and lncli hashes against $MANIFEST"
-
-# We want at least one signature that signs the hashes of the binaries we have
-# installed. If we arrive here without exiting, it means no signature manifests
-# were uploaded (yet) with the correct naming pattern.
-if [[ $NUM_CHECKS -lt 1 ]]; then
-  echo "ERROR: No valid signatures found!"
-  echo "Make sure the release $LND_VERSION contains any signatures for the manifest."
-  exit 1
-fi
 
 echo ""
 echo "SUCCESS! Verified lnd and lncli against $NUM_CHECKS developer signature(s)."

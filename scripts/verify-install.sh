@@ -28,26 +28,56 @@ function check_command() {
   fi
 }
 
-check_command curl
-check_command jq
-check_command gpg
-check_command lnd
-check_command lncli
-
+# By default we're picking up lnd and lncli from the system $PATH.
 LND_BIN=$(which lnd)
 LNCLI_BIN=$(which lncli)
 
-LND_VERSION=$(lnd --version | cut -d'=' -f2)
-LNCLI_VERSION=$(lncli --version | cut -d'=' -f2)
+# If exactly two parameters are specified, we expect the first one to be lnd and
+# the second one to be lncli.
+if [[ $# -eq 2 ]]; then
+  LND_BIN=$(realpath $1)
+  LNCLI_BIN=$(realpath $2)
+  
+  # Make sure both files actually exist.
+  if [[ ! -f $LND_BIN ]]; then
+    echo "ERROR: $LND_BIN not found!"
+    exit 1
+  fi
+  if [[ ! -f $LNCLI_BIN ]]; then
+    echo "ERROR: $LNCLI_BIN not found!"
+    exit 1
+  fi
+elif [[ $# -eq 0 ]]; then
+  # Make sure both binaries can be found and are executable.
+  check_command lnd
+  check_command lncli
+else
+  echo "ERROR: invalid number of parameters!"
+  echo "Usage: verify-install.sh [lnd-binary lncli-binary]"
+  exit 1
+fi
+
+check_command curl
+check_command jq
+check_command gpg
+
+LND_VERSION=$($LND_BIN --version | cut -d'=' -f2)
+LNCLI_VERSION=$($LNCLI_BIN --version | cut -d'=' -f2)
 LND_SUM=$(sha256sum $LND_BIN | cut -d' ' -f1)
 LNCLI_SUM=$(sha256sum $LNCLI_BIN | cut -d' ' -f1)
 
-echo "Detected lnd version $LND_VERSION with SHA256 sum $LND_SUM"
-echo "Detected lncli version $LNCLI_VERSION with SHA256 sum $LNCLI_SUM"
+echo "Detected lnd $LND_BIN version $LND_VERSION with SHA256 sum $LND_SUM"
+echo "Detected lncli $LNCLI_BIN version $LNCLI_VERSION with SHA256 sum $LNCLI_SUM"
 
-# Make sure lnd and lncli are installed with the same version.
+# Make sure lnd and lncli are installed with the same version and is an actual
+# version string.
 if [[ "$LNCLI_VERSION" != "$LND_VERSION" ]]; then
   echo "ERROR: Version $LNCLI_VERSION of lncli does not match $LND_VERSION of lnd!"
+  exit 1
+fi
+version_regex="^v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]"
+if [[ ! "$LND_VERSION" =~ $version_regex ]]; then
+  echo "ERROR: Invalid version of lnd detected: $LND_VERSION"
   exit 1
 fi
 

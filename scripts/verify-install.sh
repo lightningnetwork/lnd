@@ -81,6 +81,16 @@ if [[ ! "$LND_VERSION" =~ $version_regex ]]; then
   exit 1
 fi
 
+# Make sure the hash was actually calculated by looking at its length.
+if [[ ${#LND_SUM} -ne 64 ]]; then
+  echo "ERROR: Invalid hash for lnd: $LND_SUM!"
+  exit 1
+fi
+if [[ ${#LNCLI_SUM} -ne 64 ]]; then
+  echo "ERROR: Invalid hash for lncli: $LNCLI_SUM!"
+  exit 1
+fi
+
 # If we're inside the docker image, there should be a shasums.txt file in the
 # root directory. If that's the case, we first want to make sure we still have
 # the same hash as we did when building the image.

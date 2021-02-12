@@ -1203,6 +1203,72 @@ func TestBreachHandoffFail(t *testing.T) {
 	assertArbiterBreach(t, brar, chanPoint)
 }
 
+// TestBreachCreateJusticeTx tests that we create three different variants of
+// the justice tx.
+func TestBreachCreateJusticeTx(t *testing.T) {
+	brar, _, _, _, _, cleanUpChans, cleanUpArb := initBreachedState(t)
+	defer cleanUpChans()
+	defer cleanUpArb()
+
+	// In this test we just want to check that the correct inputs are added
+	// to the justice tx, not that we create a valid spend, so we just set
+	// some params making the script generation succeed.
+	aliceKeyPriv, _ := btcec.PrivKeyFromBytes(
+		btcec.S256(), channels.AlicesPrivKey,
+	)
+	alicePubKey := aliceKeyPriv.PubKey()
+
+	signDesc := &breachedOutputs[0].signDesc
+	signDesc.KeyDesc.PubKey = alicePubKey
+	signDesc.DoubleTweak = aliceKeyPriv
+
+	// We'll test all the different types of outputs we'll sweep with the
+	// justice tx.
+	outputTypes := []input.StandardWitnessType{
+		input.CommitmentNoDelay,
+		input.CommitSpendNoDelayTweakless,
+		input.CommitmentToRemoteConfirmed,
+		input.CommitmentRevoke,
+		input.HtlcAcceptedRevoke,
+		input.HtlcOfferedRevoke,
+		input.HtlcSecondLevelRevoke,
+	}
+
+	breachedOutputs := make([]breachedOutput, len(outputTypes))
+	for i, wt := range outputTypes {
+		// Create a fake breached output for each type, ensuring they
+		// have different outpoints for our logic to accept them.
+		op := breachedOutputs[0].outpoint
+		op.Index = uint32(i)
+		breachedOutputs[i] = makeBreachedOutput(
+			&op,
+			wt,
+			// Second level scripts doesn't matter in this test.
+			nil,
+			signDesc,
+			1,
+		)
+	}
+
+	// Create the justice transactions.
+	justiceTxs, err := brar.createJusticeTx(breachedOutputs)
+	require.NoError(t, err)
+	require.NotNil(t, justiceTxs)
+
+	// The spendAll tx should be spending all the outputs. This is the
+	// "regular" justice transaction type.
+	require.Len(t, justiceTxs.spendAll.TxIn, len(breachedOutputs))
+
+	// The spendCommitOuts tx should be spending the 4 typed of commit outs
+	// (note that in practice there will be at most two commit outputs per
+	// commmit, but we test all 4 types here).
+	require.Len(t, justiceTxs.spendCommitOuts.TxIn, 4)
+
+	// Finally check that the spendHTLCs tx are spending the two revoked
+	// HTLC types, and the second level type.
+	require.Len(t, justiceTxs.spendHTLCs.TxIn, 3)
+}
+
 type publAssertion func(*testing.T, map[wire.OutPoint]struct{},
 	chan *wire.MsgTx, chainhash.Hash) *wire.MsgTx
 

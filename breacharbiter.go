@@ -568,11 +568,12 @@ justiceTxBroadcast:
 	// With the breach transaction confirmed, we now create the
 	// justice tx which will claim ALL the funds within the
 	// channel.
-	finalTx, err := b.createJusticeTx(breachInfo)
+	justiceTxs, err := b.createJusticeTx(breachInfo.breachedOutputs)
 	if err != nil {
 		brarLog.Errorf("Unable to create justice tx: %v", err)
 		return
 	}
+	finalTx := justiceTxs.spendAll
 
 	brarLog.Debugf("Broadcasting justice tx: %v", newLogClosure(func() string {
 		return spew.Sdump(finalTx)
@@ -1073,12 +1074,87 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 	}
 }
 
-// createJusticeTx creates a transaction which exacts "justice" by sweeping ALL
+// justiceTxVariants is a struct that holds transactions which exacts "justice"
+// by sweeping ALL the funds within the channel which we are now entitled to
+// due to a breach of the channel's contract by the counterparty. There are
+// three variants of the justice transaction:
+//
+// 1. The "normal" justice tx that spends all breached outputs
+// 2. A tx that spends only the breached to_local output and to_remote output
+// (can be nil if none of these exist)
+// 3. A tx that spends all the breached HTLC outputs, and second-level HTLC
+// outputs (can be nil if no HTLC outputs exist).
+//
+// The reason we create these three variants, is that in certain cases (like
+// with the anchor output HTLC malleability), the channel counter party can pin
+// the HTLC outputs with low fee children, hindering our normal justice tx that
+// attempts to spend these outputs from propagating. In this case we want to
+// spend the to_local output separately, before the CSV lock expires.
+type justiceTxVariants struct {
+	spendAll        *wire.MsgTx
+	spendCommitOuts *wire.MsgTx
+	spendHTLCs      *wire.MsgTx
+}
+
+// createJusticeTx creates transactions which exacts "justice" by sweeping ALL
 // the funds within the channel which we are now entitled to due to a breach of
 // the channel's contract by the counterparty. This function returns a *fully*
 // signed transaction with the witness for each input fully in place.
 func (b *breachArbiter) createJusticeTx(
-	r *retributionInfo) (*wire.MsgTx, error) {
+	breachedOutputs []breachedOutput) (*justiceTxVariants, error) {
+
+	var (
+		allInputs    []input.Input
+		commitInputs []input.Input
+		htlcInputs   []input.Input
+	)
+
+	for i := range breachedOutputs {
+		// Grab locally scoped reference to breached output.
+		inp := &breachedOutputs[i]
+		allInputs = append(allInputs, inp)
+
+		// Check if the input is from an HTLC or a commitment output.
+		if inp.WitnessType() == input.HtlcAcceptedRevoke ||
+			inp.WitnessType() == input.HtlcOfferedRevoke ||
+			inp.WitnessType() == input.HtlcSecondLevelRevoke {
+
+			htlcInputs = append(htlcInputs, inp)
+		} else {
+			commitInputs = append(commitInputs, inp)
+		}
+	}
+
+	var (
+		txs = &justiceTxVariants{}
+		err error
+	)
+
+	// For each group of inputs, create a tx that spends them.
+	txs.spendAll, err = b.createSweepTx(allInputs)
+	if err != nil {
+		return nil, err
+	}
+
+	txs.spendCommitOuts, err = b.createSweepTx(commitInputs)
+	if err != nil {
+		return nil, err
+	}
+
+	txs.spendHTLCs, err = b.createSweepTx(htlcInputs)
+	if err != nil {
+		return nil, err
+	}
+
+	return txs, nil
+}
+
+// createSweepTx creates a tx that sweeps the passed inputs back to our wallet.
+func (b *breachArbiter) createSweepTx(inputs []input.Input) (*wire.MsgTx,
+	error) {
+	if len(inputs) == 0 {
+		return nil, nil
+	}
 
 	// We will assemble the breached outputs into a slice of spendable
 	// outputs, while simultaneously computing the estimated weight of the
@@ -1090,7 +1166,7 @@ func (b *breachArbiter) createJusticeTx(
 
 	// Allocate enough space to potentially hold each of the breached
 	// outputs in the retribution info.
-	spendableOutputs = make([]input.Input, 0, len(r.breachedOutputs))
+	spendableOutputs = make([]input.Input, 0, len(inputs))
 
 	// The justice transaction we construct will be a segwit transaction
 	// that pays to a p2wkh output. Components such as the version,
@@ -1099,15 +1175,15 @@ func (b *breachArbiter) createJusticeTx(
 
 	// Next, we iterate over the breached outputs contained in the
 	// retribution info.  For each, we switch over the witness type such
-	// that we contribute the appropriate weight for each input and witness,
-	// finally adding to our list of spendable outputs.
-	for i := range r.breachedOutputs {
+	// that we contribute the appropriate weight for each input and
+	// witness, finally adding to our list of spendable outputs.
+	for i := range inputs {
 		// Grab locally scoped reference to breached output.
-		inp := &r.breachedOutputs[i]
+		inp := inputs[i]
 
-		// First, determine the appropriate estimated witness weight for
-		// the give witness type of this breached output. If the witness
-		// weight cannot be estimated, we will omit it from the
+		// First, determine the appropriate estimated witness weight
+		// for the give witness type of this breached output. If the
+		// witness weight cannot be estimated, we will omit it from the
 		// transaction.
 		witnessWeight, _, err := inp.WitnessType().SizeUpperBound()
 		if err != nil {

@@ -89,6 +89,7 @@ type mppSendTestCase struct {
 	graph           func(g *mockGraph)
 	expectedFailure bool
 	maxParts        uint32
+	maxShardSize    btcutil.Amount
 }
 
 const (
@@ -208,6 +209,33 @@ var mppTestCases = []mppSendTestCase{
 		expectedFailure:  true,
 		maxParts:         10,
 	},
+
+	// Test that if maxShardSize is set, then all attempts are below the
+	// max shard size, yet still sum up to the total payment amount. A
+	// payment of 30k satoshis with a max shard size of 10k satoshis should
+	// produce 3 payments of 10k sats each.
+	{
+		name:             "max shard size clamping",
+		graph:            onePathGraph,
+		amt:              30_000,
+		expectedAttempts: 3,
+		expectedSuccesses: []expectedHtlcSuccess{
+			{
+				amt:   10_000,
+				chans: []uint64{chanSourceIm1, chanIm1Target},
+			},
+			{
+				amt:   10_000,
+				chans: []uint64{chanSourceIm1, chanIm1Target},
+			},
+			{
+				amt:   10_000,
+				chans: []uint64{chanSourceIm1, chanIm1Target},
+			},
+		},
+		maxParts:     1000,
+		maxShardSize: 10_000,
+	},
 }
 
 // TestMppSend tests that a payment can be completed using multiple shards.
@@ -228,6 +256,11 @@ func testMppSend(t *testing.T, testCase *mppSendTestCase) {
 	testCase.graph(g)
 
 	ctx.amt = lnwire.NewMSatFromSatoshis(testCase.amt)
+
+	if testCase.maxShardSize != 0 {
+		shardAmt := lnwire.NewMSatFromSatoshis(testCase.maxShardSize)
+		ctx.maxShardAmt = &shardAmt
+	}
 
 	attempts, err := ctx.testPayment(testCase.maxParts)
 	switch {

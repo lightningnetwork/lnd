@@ -28,6 +28,7 @@ type integratedRoutingContext struct {
 	target *mockNode
 
 	amt         lnwire.MilliSatoshi
+	maxShardAmt *lnwire.MilliSatoshi
 	finalExpiry int32
 
 	mcCfg          MissionControlConfig
@@ -149,6 +150,10 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32,
 		Amount:         c.amt,
 		CltvLimit:      math.MaxUint32,
 		MaxParts:       maxParts,
+	}
+
+	if c.maxShardAmt != nil {
+		payment.MaxShardAmt = c.maxShardAmt
 	}
 
 	session, err := newPaymentSession(

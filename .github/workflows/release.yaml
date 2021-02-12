@@ -42,7 +42,7 @@ jobs:
       - name: setup go ${{ env.GO_VERSION }}
         uses: actions/setup-go@v2
         with:
-          go-version: '~${{ env.GO_VERSION }}'
+          go-version: '${{ env.GO_VERSION }}'
 
       - name: Set env
         run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV

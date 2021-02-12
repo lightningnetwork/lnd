@@ -183,7 +183,7 @@ function build_release() {
 
     # Add the hashes for the individual binaries as well for easy verification
     # of a single installed binary.
-    sha256sum "${dir}/"* >> "manifest-$tag.txt" 
+    shasum -a 256 "${dir}/"* >> "manifest-$tag.txt" 
 
     if [[ $os == "windows" ]]; then
       reproducible_zip "${dir}"
@@ -193,7 +193,7 @@ function build_release() {
   done
 
   # Add the hash of the packages too, then sort by the second column (name).
-  sha256sum lnd-* vendor* >> "manifest-$tag.txt"
+  shasum -a 256 lnd-* vendor* >> "manifest-$tag.txt"
   LC_ALL=C sort -k2 -o "manifest-$tag.txt" "manifest-$tag.txt"
   cat "manifest-$tag.txt"
 }

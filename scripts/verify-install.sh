@@ -63,8 +63,8 @@ check_command gpg
 
 LND_VERSION=$($LND_BIN --version | cut -d'=' -f2)
 LNCLI_VERSION=$($LNCLI_BIN --version | cut -d'=' -f2)
-LND_SUM=$(sha256sum $LND_BIN | cut -d' ' -f1)
-LNCLI_SUM=$(sha256sum $LNCLI_BIN | cut -d' ' -f1)
+LND_SUM=$(shasum -a 256 $LND_BIN | cut -d' ' -f1)
+LNCLI_SUM=$(shasum -a 256 $LNCLI_BIN | cut -d' ' -f1)
 
 echo "Detected lnd $LND_BIN version $LND_VERSION with SHA256 sum $LND_SUM"
 echo "Detected lncli $LNCLI_BIN version $LNCLI_VERSION with SHA256 sum $LNCLI_SUM"

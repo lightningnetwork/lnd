@@ -253,6 +253,14 @@ message SendPaymentRequest {
     that show which htlcs are still in flight are suppressed.
     */
     bool no_inflight_updates = 18;
+
+    /*
+    The largest payment split that should be attempted when making a payment if
+    splitting is necessary. Setting this value will effectively cause lnd to
+    split more aggressively, vs only when it thinks it needs to. Note that this
+    value is in milli-satoshis.
+    */
+    uint64 max_shard_size_msat = 21;
 }
 
 message TrackPaymentRequest {

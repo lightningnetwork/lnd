@@ -633,6 +633,7 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 	cfg.Tor.PrivateKeyPath = CleanAndExpandPath(cfg.Tor.PrivateKeyPath)
 	cfg.Tor.WatchtowerKeyPath = CleanAndExpandPath(cfg.Tor.WatchtowerKeyPath)
 	cfg.Watchtower.TowerDir = CleanAndExpandPath(cfg.Watchtower.TowerDir)
+	cfg.BackupFilePath = CleanAndExpandPath(cfg.BackupFilePath)
 
 	// Create the lnd directory and all other sub directories if they don't
 	// already exist. This makes sure that directory trees are also created

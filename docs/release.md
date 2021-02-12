@@ -99,11 +99,11 @@ script in the image that can be called (before starting the container for
 example):
 
 ```shell
-$ docker pull lightninglabs/lnd:v0.12.0-beta
-$ docker run --rm --entrypoint="" lightninglabs/lnd:v0.12.0-beta /verify-install.sh
-$ OK=$?
-$ if [ "$OK" -ne "0" ]; then echo "Verification failed!"; exit 1; done
-$ docker run lightninglabs/lnd [command-line options]
+⛰  docker pull lightninglabs/lnd:v0.12.0-beta
+⛰  docker run --rm --entrypoint="" lightninglabs/lnd:v0.12.0-beta /verify-install.sh
+⛰  OK=$?
+⛰  if [ "$OK" -ne "0" ]; then echo "Verification failed!"; exit 1; done
+⛰  docker run lightninglabs/lnd [command-line options]
 ```
 
 # Signing an Existing Manifest File
@@ -121,8 +121,6 @@ signature during signing.
 
 Assuming `USERNAME` is your current nick as a developer, then the following
 command will generate a proper signature:
+```shell
+⛰  gpg --detach-sig --output manifest-USERNAME-TAG.sig manifest-TAG.txt
 ```
-gpg --detach-sig --output manifest-USERNAME-TAG.txt.asc --clear-sign manifest-TAG.txt
-```
-
-

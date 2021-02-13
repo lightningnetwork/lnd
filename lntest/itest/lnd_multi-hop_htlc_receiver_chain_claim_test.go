@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
@@ -122,7 +121,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 	)
 	require.NoError(t.t, err)
 
-	bobFundingTxid, err := lnd.GetChanPointFundingTxid(bobChanPoint)
+	bobFundingTxid, err := lnrpc.GetChanPointFundingTxid(bobChanPoint)
 	require.NoError(t.t, err)
 
 	carolFundingPoint := wire.OutPoint{

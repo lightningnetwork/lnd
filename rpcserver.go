@@ -1737,7 +1737,7 @@ func newFundingShimAssembler(chanPointShim *lnrpc.ChanPointShim, initiator bool,
 
 	// First, we'll map the RPC's channel point to one we can actually use.
 	index := chanPointShim.ChanPoint.OutputIndex
-	txid, err := GetChanPointFundingTxid(chanPointShim.ChanPoint)
+	txid, err := lnrpc.GetChanPointFundingTxid(chanPointShim.ChanPoint)
 	if err != nil {
 		return nil, err
 	}
@@ -2086,7 +2086,7 @@ out:
 			update, ok := fundingUpdate.Update.(*lnrpc.OpenStatusUpdate_ChanOpen)
 			if ok {
 				chanPoint := update.ChanOpen.ChannelPoint
-				txid, err := GetChanPointFundingTxid(chanPoint)
+				txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
 				if err != nil {
 					return err
 				}
@@ -2154,29 +2154,6 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	}
 }
 
-// GetChanPointFundingTxid returns the given channel point's funding txid in
-// raw bytes.
-func GetChanPointFundingTxid(chanPoint *lnrpc.ChannelPoint) (*chainhash.Hash, error) {
-	var txid []byte
-
-	// A channel point's funding txid can be get/set as a byte slice or a
-	// string. In the case it is a string, decode it.
-	switch chanPoint.GetFundingTxid().(type) {
-	case *lnrpc.ChannelPoint_FundingTxidBytes:
-		txid = chanPoint.GetFundingTxidBytes()
-	case *lnrpc.ChannelPoint_FundingTxidStr:
-		s := chanPoint.GetFundingTxidStr()
-		h, err := chainhash.NewHashFromStr(s)
-		if err != nil {
-			return nil, err
-		}
-
-		txid = h[:]
-	}
-
-	return chainhash.NewHash(txid)
-}
-
 // CloseChannel attempts to close an active channel identified by its channel
 // point. The actions of this method can additionally be augmented to attempt
 // a force close after a timeout period in the case of an inactive peer.
@@ -2201,7 +2178,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 	force := in.Force
 	index := in.ChannelPoint.OutputIndex
-	txid, err := GetChanPointFundingTxid(in.GetChannelPoint())
+	txid, err := lnrpc.GetChanPointFundingTxid(in.GetChannelPoint())
 	if err != nil {
 		rpcsLog.Errorf("[closechannel] unable to get funding txid: %v", err)
 		return err
@@ -2484,7 +2461,7 @@ func (r *rpcServer) AbandonChannel(_ context.Context,
 
 	// We'll parse out the arguments to we can obtain the chanPoint of the
 	// target channel.
-	txid, err := GetChanPointFundingTxid(in.GetChannelPoint())
+	txid, err := lnrpc.GetChanPointFundingTxid(in.GetChannelPoint())
 	if err != nil {
 		return nil, err
 	}
@@ -5997,7 +5974,7 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	// Otherwise, we're targeting an individual channel by its channel
 	// point.
 	case *lnrpc.PolicyUpdateRequest_ChanPoint:
-		txid, err := GetChanPointFundingTxid(scope.ChanPoint)
+		txid, err := lnrpc.GetChanPointFundingTxid(scope.ChanPoint)
 		if err != nil {
 			return nil, err
 		}
@@ -6172,7 +6149,7 @@ func (r *rpcServer) ExportChannelBackup(ctx context.Context,
 
 	// First, we'll convert the lnrpc channel point into a wire.OutPoint
 	// that we can manipulate.
-	txid, err := GetChanPointFundingTxid(in.ChanPoint)
+	txid, err := lnrpc.GetChanPointFundingTxid(in.ChanPoint)
 	if err != nil {
 		return nil, err
 	}

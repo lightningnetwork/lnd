@@ -6,7 +6,6 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -30,7 +29,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 	networkChans = append(networkChans, chanPointAlice)
 
-	aliceChanTXID, err := lnd.GetChanPointFundingTxid(chanPointAlice)
+	aliceChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointAlice)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -71,7 +70,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	)
 	networkChans = append(networkChans, chanPointDave)
-	daveChanTXID, err := lnd.GetChanPointFundingTxid(chanPointDave)
+	daveChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointDave)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -106,7 +105,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 	networkChans = append(networkChans, chanPointCarol)
 
-	carolChanTXID, err := lnd.GetChanPointFundingTxid(chanPointCarol)
+	carolChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointCarol)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -120,7 +119,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
 	for _, chanPoint := range networkChans {
 		for i, node := range nodes {
-			txid, err := lnd.GetChanPointFundingTxid(chanPoint)
+			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
 			if err != nil {
 				t.Fatalf("unable to get txid: %v", err)
 			}

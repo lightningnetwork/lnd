@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
@@ -132,7 +131,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 		net.Miner.Node, expectedTxes, minerMempoolTimeout,
 	)
 	require.NoError(t.t, err)
-	bobFundingTxid, err := lnd.GetChanPointFundingTxid(bobChanPoint)
+	bobFundingTxid, err := lnrpc.GetChanPointFundingTxid(bobChanPoint)
 	require.NoError(t.t, err)
 	carolFundingPoint := wire.OutPoint{
 		Hash:  *bobFundingTxid,

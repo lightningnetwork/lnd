@@ -121,6 +121,15 @@ service Router {
     */
     rpc HtlcInterceptor (stream ForwardHtlcInterceptResponse)
         returns (stream ForwardHtlcInterceptRequest);
+
+    /*
+    UpdateChanStatus attempts to manually set the state of a channel
+    (enabled, disabled, or auto). A manual "disable" request will cause the
+    channel to stay disabled until a subsequent manual request of either
+    "enable" or "auto".
+    */
+    rpc UpdateChanStatus (UpdateChanStatusRequest)
+        returns (UpdateChanStatusResponse);
 }
 
 message SendPaymentRequest {
@@ -749,4 +758,19 @@ enum ResolveHoldForwardAction {
     SETTLE = 0;
     FAIL = 1;
     RESUME = 2;
+}
+
+message UpdateChanStatusRequest {
+    lnrpc.ChannelPoint chan_point = 1;
+
+    ChanStatusAction action = 2;
+}
+
+enum ChanStatusAction {
+    ENABLE = 0;
+    DISABLE = 1;
+    AUTO = 2;
+}
+
+message UpdateChanStatusResponse {
 }

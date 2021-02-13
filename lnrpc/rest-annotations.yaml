@@ -226,6 +226,9 @@ http:
       # deprecated, no REST endpoint
     - selector: routerrpc.HtlcInterceptor
       # request streaming RPC, REST not supported
+    - selector: routerrpc.UpdateChanStatus
+      post: "/v2/router/updatechanstatus"
+      body: "*"
 
     # signrpc/signer.proto
     - selector: signrpc.Signer.SignOutputRaw

@@ -11,5 +11,6 @@ func routerCommands() []cli.Command {
 		buildRouteCommand,
 		getCfgCommand,
 		setCfgCommand,
+		updateChanStatusCommand,
 	}
 }

@@ -155,13 +155,16 @@ NUM_CHECKS=0
 for signature in $SIGNATURES; do
   echo "Verifying $signature"
   if gpg --verify "$signature" "$MANIFEST" 2>&1 | grep -q "Good signature"; then
-    echo "Signature for $signature checks out: "
+    echo "Signature for $signature appears valid: "
     gpg --verify "$signature" "$MANIFEST" 2>&1 | grep "using"
   elif gpg --verify "$signature" 2>&1 | grep -q "No public key"; then
     echo "Unable to verify signature $signature, no key available, skipping"
     continue
   else
-    echo "ERROR: Did not get valid signature for $signature!"
+    echo "ERROR: Did not get valid signature for $MANIFEST in $signature!"
+    echo "  The developer signature $signature disagrees on the expected"
+    echo "  release binaries in $MANIFEST. The release may have been faulty or"
+    echo "  was backdoored."
     exit 1
   fi
 
@@ -174,12 +177,18 @@ done
 if ! grep -q "^$LND_SUM" "$MANIFEST"; then
   echo "ERROR: Hash $LND_SUM for lnd not found in $MANIFEST: "
   cat "$MANIFEST"
+  echo "  The expected release binaries have been verified with the developer "
+  echo "  signatures. Your binary's hash does not match the expected release "
+  echo "  binary hashes. Make sure you're using an official binary."
   exit 1
 fi
 
 if ! grep -q "^$LNCLI_SUM" "$MANIFEST"; then
   echo "ERROR: Hash $LNCLI_SUM for lncli not found in $MANIFEST: "
   cat "$MANIFEST"
+  echo "  The expected release binaries have been verified with the developer "
+  echo "  signatures. Your binary's hash does not match the expected release "
+  echo "  binary hashes. Make sure you're using an official binary."
   exit 1
 fi
 
@@ -196,4 +205,4 @@ if [[ $NUM_CHECKS -lt 1 ]]; then
 fi
 
 echo ""
-echo "SUCCESS! Verified lnd and lncli against $NUM_CHECKS signature(s)."
+echo "SUCCESS! Verified lnd and lncli against $NUM_CHECKS developer signature(s)."

@@ -5,7 +5,8 @@ PROJECT=lnd
 
 RELEASE_URL=https://github.com/$REPO/$PROJECT/releases
 API_URL=https://api.github.com/repos/$REPO/$PROJECT/releases
-SIGNATURE_SELECTOR=". | select(.name | test(\"manifest-.*(\\\\.txt\\\\.asc)$\")) | .name"
+MANIFEST_SELECTOR=". | select(.name | test(\"manifest-v.*(\\\\.txt)$\")) | .name"
+SIGNATURE_SELECTOR=". | select(.name | test(\"manifest-.*(\\\\.sig)$\")) | .name"
 HEADER_JSON="Accept: application/json"
 HEADER_GH_JSON="Accept: application/vnd.github.v3+json"
 
@@ -63,8 +64,8 @@ check_command gpg
 
 LND_VERSION=$($LND_BIN --version | cut -d'=' -f2)
 LNCLI_VERSION=$($LNCLI_BIN --version | cut -d'=' -f2)
-LND_SUM=$(sha256sum $LND_BIN | cut -d' ' -f1)
-LNCLI_SUM=$(sha256sum $LNCLI_BIN | cut -d' ' -f1)
+LND_SUM=$(shasum -a 256 $LND_BIN | cut -d' ' -f1)
+LNCLI_SUM=$(shasum -a 256 $LNCLI_BIN | cut -d' ' -f1)
 
 echo "Detected lnd $LND_BIN version $LND_VERSION with SHA256 sum $LND_SUM"
 echo "Detected lncli $LNCLI_BIN version $LNCLI_VERSION with SHA256 sum $LNCLI_SUM"
@@ -78,6 +79,16 @@ fi
 version_regex="^v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]"
 if [[ ! "$LND_VERSION" =~ $version_regex ]]; then
   echo "ERROR: Invalid version of lnd detected: $LND_VERSION"
+  exit 1
+fi
+
+# Make sure the hash was actually calculated by looking at its length.
+if [[ ${#LND_SUM} -ne 64 ]]; then
+  echo "ERROR: Invalid hash for lnd: $LND_SUM!"
+  exit 1
+fi
+if [[ ${#LNCLI_SUM} -ne 64 ]]; then
+  echo "ERROR: Invalid hash for lncli: $LNCLI_SUM!"
   exit 1
 fi
 
@@ -119,13 +130,17 @@ TAG_NAME=$(echo $RELEASE_JSON | jq -r '.tag_name')
 RELEASE_ID=$(echo $RELEASE_JSON | jq -r '.id')
 echo "Release $TAG_NAME found with ID $RELEASE_ID"
 
-# Now download the asset list and filter by manifests and signatures.
+# Now download the asset list and filter by the manifest and the signatures.
 ASSETS=$(curl -L -s -H "$HEADER_GH_JSON" "$API_URL/$RELEASE_ID" | jq -c '.assets[]')
+MANIFEST=$(echo $ASSETS | jq -r "$MANIFEST_SELECTOR")
 SIGNATURES=$(echo $ASSETS | jq -r "$SIGNATURE_SELECTOR")
 
-# Download all "manifest-*.txt.asc" as those contain both the hashes that were
-# signed and the signature itself (=detached sig).
+# Download the main "manifest-*.txt" and all "manifest-*.sig" files containing
+# the detached signatures.
 TEMP_DIR=$(mktemp -d /tmp/lnd-sig-verification-XXXXXX)
+echo "Downloading $MANIFEST"
+curl -L -s -o "$TEMP_DIR/$MANIFEST" "$RELEASE_URL/download/$LND_VERSION/$MANIFEST"
+
 for signature in $SIGNATURES; do
   echo "Downloading $signature"
   curl -L -s -o "$TEMP_DIR/$signature" "$RELEASE_URL/download/$LND_VERSION/$signature"
@@ -134,49 +149,60 @@ done
 echo ""
 cd $TEMP_DIR || exit 1
 
+# Before we even look at the content of the manifest, we first want to make sure
+# the signatures actually sign that exact manifest.
 NUM_CHECKS=0
 for signature in $SIGNATURES; do
-  # First make sure the downloaded signature file is valid.
   echo "Verifying $signature"
-  if gpg --verify "$signature" 2>&1 | grep -q "Good signature"; then
-    echo "Signature for $signature checks out: "
-    gpg --verify "$signature" 2>&1 | grep "using"
+  if gpg --verify "$signature" "$MANIFEST" 2>&1 | grep -q "Good signature"; then
+    echo "Signature for $signature appears valid: "
+    gpg --verify "$signature" "$MANIFEST" 2>&1 | grep "using"
   elif gpg --verify "$signature" 2>&1 | grep -q "No public key"; then
     echo "Unable to verify signature $signature, no key available, skipping"
     continue
   else
-    echo "ERROR: Did not get valid signature for $signature!"
+    echo "ERROR: Did not get valid signature for $MANIFEST in $signature!"
+    echo "  The developer signature $signature disagrees on the expected"
+    echo "  release binaries in $MANIFEST. The release may have been faulty or"
+    echo "  was backdoored."
     exit 1
   fi
 
-  echo ""
-
-  # Then make sure that the hash of the installed binaries can be found in the
-  # signed list of hashes.
-  if ! grep -q "$LND_SUM" "$signature"; then
-    echo "ERROR: Hash $LND_SUM for lnd not found in $signature: "
-    cat "$signature"
-    exit 1
-  fi
-
-  if ! grep -q "$LNCLI_SUM" "$signature"; then
-    echo "ERROR: Hash $LNCLI_SUM for lncli not found in $signature: "
-    cat "$signature"
-    exit 1
-  fi
-
-  echo "Verified lnd and lncli hashes against $signature"
+  echo "Verified $signature against $MANIFEST"
   ((NUM_CHECKS=NUM_CHECKS+1))
 done
+
+# Then make sure that the hash of the installed binaries can be found in the
+# manifest that we now have verified the signatures for.
+if ! grep -q "^$LND_SUM" "$MANIFEST"; then
+  echo "ERROR: Hash $LND_SUM for lnd not found in $MANIFEST: "
+  cat "$MANIFEST"
+  echo "  The expected release binaries have been verified with the developer "
+  echo "  signatures. Your binary's hash does not match the expected release "
+  echo "  binary hashes. Make sure you're using an official binary."
+  exit 1
+fi
+
+if ! grep -q "^$LNCLI_SUM" "$MANIFEST"; then
+  echo "ERROR: Hash $LNCLI_SUM for lncli not found in $MANIFEST: "
+  cat "$MANIFEST"
+  echo "  The expected release binaries have been verified with the developer "
+  echo "  signatures. Your binary's hash does not match the expected release "
+  echo "  binary hashes. Make sure you're using an official binary."
+  exit 1
+fi
+
+echo ""
+echo "Verified lnd and lncli hashes against $MANIFEST"
 
 # We want at least one signature that signs the hashes of the binaries we have
 # installed. If we arrive here without exiting, it means no signature manifests
 # were uploaded (yet) with the correct naming pattern.
 if [[ $NUM_CHECKS -lt 1 ]]; then
   echo "ERROR: No valid signatures found!"
-  echo "Make sure the release $LND_VERSION contains any signed manifests."
+  echo "Make sure the release $LND_VERSION contains any signatures for the manifest."
   exit 1
 fi
 
 echo ""
-echo "SUCCESS! Verified lnd and lncli against $NUM_CHECKS signature(s)."
+echo "SUCCESS! Verified lnd and lncli against $NUM_CHECKS developer signature(s)."

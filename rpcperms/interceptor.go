@@ -193,10 +193,10 @@ func (r *InterceptorChain) CreateServerOpts() []grpc.ServerOption {
 	// We'll add the macaroon interceptors. If macaroons aren't disabled,
 	// then these interceptors will enforce macaroon authentication.
 	unaryInterceptors = append(
-		unaryInterceptors, r.macaroonUnaryServerInterceptor(),
+		unaryInterceptors, r.MacaroonUnaryServerInterceptor(),
 	)
 	strmInterceptors = append(
-		strmInterceptors, r.macaroonStreamServerInterceptor(),
+		strmInterceptors, r.MacaroonStreamServerInterceptor(),
 	)
 
 	// Get interceptors for Prometheus to gather gRPC performance metrics.
@@ -300,9 +300,9 @@ func (r *InterceptorChain) checkMacaroon(ctx context.Context,
 	return validator.ValidateMacaroon(ctx, uriPermissions, fullMethod)
 }
 
-// macaroonUnaryServerInterceptor is a GRPC interceptor that checks whether the
+// MacaroonUnaryServerInterceptor is a GRPC interceptor that checks whether the
 // request is authorized by the included macaroons.
-func (r *InterceptorChain) macaroonUnaryServerInterceptor() grpc.UnaryServerInterceptor {
+func (r *InterceptorChain) MacaroonUnaryServerInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{},
 		info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler) (interface{}, error) {
@@ -316,9 +316,9 @@ func (r *InterceptorChain) macaroonUnaryServerInterceptor() grpc.UnaryServerInte
 	}
 }
 
-// macaroonStreamServerInterceptor is a GRPC interceptor that checks whether
+// MacaroonStreamServerInterceptor is a GRPC interceptor that checks whether
 // the request is authorized by the included macaroons.
-func (r *InterceptorChain) macaroonStreamServerInterceptor() grpc.StreamServerInterceptor {
+func (r *InterceptorChain) MacaroonStreamServerInterceptor() grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream,
 		info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 

@@ -318,23 +318,21 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 		bo.outpoint)
 }
 
+// spend is used to wrap the index of the retributionInfo output that gets
+// spent together with the spend details.
+type spend struct {
+	index  int
+	detail *chainntnfs.SpendDetail
+}
+
 // waitForSpendEvent waits for any of the breached outputs to get spent, and
-// mutates the breachInfo to be able to sweep it. This method should be used
-// when we fail to publish the justice tx because of a double spend, indicating
-// that the counter party has taken one of the breached outputs to the second
-// level. The spendNtfns map is a cache used to store registered spend
-// subscriptions, in case we must call this method multiple times.
+// returns the spend details for those outputs. The spendNtfns map is a cache
+// used to store registered spend subscriptions, in case we must call this
+// method multiple times.
 func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
-	spendNtfns map[wire.OutPoint]*chainntnfs.SpendEvent) error {
+	spendNtfns map[wire.OutPoint]*chainntnfs.SpendEvent) ([]spend, error) {
 
 	inputs := breachInfo.breachedOutputs
-
-	// spend is used to wrap the index of the output that gets spent
-	// together with the spend details.
-	type spend struct {
-		index  int
-		detail *chainntnfs.SpendDetail
-	}
 
 	// We create a channel the first goroutine that gets a spend event can
 	// signal. We make it buffered in case multiple spend events come in at
@@ -378,7 +376,7 @@ func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 				// to avoid entering an infinite loop.
 				select {
 				case <-b.quit:
-					return errBrarShuttingDown
+					return nil, errBrarShuttingDown
 				default:
 					continue
 				}
@@ -438,62 +436,75 @@ func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 		// channel before ranging over its content.
 		close(allSpends)
 
-		doneOutputs := make(map[int]struct{})
+		// Gather all detected spends and return them.
+		var spends []spend
 		for s := range allSpends {
 			breachedOutput := &inputs[s.index]
 			delete(spendNtfns, breachedOutput.outpoint)
 
-			switch breachedOutput.witnessType {
-			case input.HtlcAcceptedRevoke:
-				fallthrough
-			case input.HtlcOfferedRevoke:
-				brarLog.Infof("Spend on second-level"+
-					"%s(%v) for ChannelPoint(%v) "+
-					"transitions to second-level output",
-					breachedOutput.witnessType,
-					breachedOutput.outpoint,
-					breachInfo.chanPoint)
+			spends = append(spends, s)
+		}
 
-				// In this case we'll morph our initial revoke
-				// spend to instead point to the second level
-				// output, and update the sign descriptor in the
-				// process.
-				convertToSecondLevelRevoke(
-					breachedOutput, breachInfo, s.detail,
-				)
+		return spends, nil
 
-				continue
-			}
+	case <-b.quit:
+		return nil, errBrarShuttingDown
+	}
+}
 
-			brarLog.Infof("Spend on %s(%v) for ChannelPoint(%v) "+
-				"transitions output to terminal state, "+
-				"removing input from justice transaction",
+// updateBreachInfo mutates the passed breachInfo by removing or converting any
+// outputs among the spends.
+func updateBreachInfo(breachInfo *retributionInfo, spends []spend) {
+	inputs := breachInfo.breachedOutputs
+	doneOutputs := make(map[int]struct{})
+
+	for _, s := range spends {
+		breachedOutput := &inputs[s.index]
+
+		switch breachedOutput.witnessType {
+		case input.HtlcAcceptedRevoke:
+			fallthrough
+		case input.HtlcOfferedRevoke:
+			brarLog.Infof("Spend on second-level "+
+				"%s(%v) for ChannelPoint(%v) "+
+				"transitions to second-level output",
 				breachedOutput.witnessType,
 				breachedOutput.outpoint, breachInfo.chanPoint)
 
-			doneOutputs[s.index] = struct{}{}
+			// In this case we'll morph our initial revoke
+			// spend to instead point to the second level
+			// output, and update the sign descriptor in the
+			// process.
+			convertToSecondLevelRevoke(
+				breachedOutput, breachInfo, s.detail,
+			)
+
+			continue
 		}
 
-		// Filter the inputs for which we can no longer proceed.
-		var nextIndex int
-		for i := range inputs {
-			if _, ok := doneOutputs[i]; ok {
-				continue
-			}
+		brarLog.Infof("Spend on %s(%v) for ChannelPoint(%v) "+
+			"transitions output to terminal state, "+
+			"removing input from justice transaction",
+			breachedOutput.witnessType,
+			breachedOutput.outpoint, breachInfo.chanPoint)
 
-			inputs[nextIndex] = inputs[i]
-			nextIndex++
-		}
-
-		// Update our remaining set of outputs before continuing with
-		// another attempt at publication.
-		breachInfo.breachedOutputs = inputs[:nextIndex]
-
-	case <-b.quit:
-		return errBrarShuttingDown
+		doneOutputs[s.index] = struct{}{}
 	}
 
-	return nil
+	// Filter the inputs for which we can no longer proceed.
+	var nextIndex int
+	for i := range inputs {
+		if _, ok := doneOutputs[i]; ok {
+			continue
+		}
+
+		inputs[nextIndex] = inputs[i]
+		nextIndex++
+	}
+
+	// Update our remaining set of outputs before continuing with
+	// another attempt at publication.
+	breachInfo.breachedOutputs = inputs[:nextIndex]
 }
 
 // exactRetribution is a goroutine which is executed once a contract breach has
@@ -587,7 +598,9 @@ justiceTxBroadcast:
 				"attempting to craft new justice tx.")
 			finalTx = nil
 
-			err := b.waitForSpendEvent(breachInfo, spendNtfns)
+			spends, err := b.waitForSpendEvent(
+				breachInfo, spendNtfns,
+			)
 			if err != nil {
 				if err != errBrarShuttingDown {
 					brarLog.Errorf("error waiting for "+
@@ -596,6 +609,7 @@ justiceTxBroadcast:
 				return
 			}
 
+			updateBreachInfo(breachInfo, spends)
 			if len(breachInfo.breachedOutputs) == 0 {
 				brarLog.Debugf("No more outputs to sweep for "+
 					"breach, marking ChannelPoint(%v) "+

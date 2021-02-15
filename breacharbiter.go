@@ -641,22 +641,7 @@ justiceTxBroadcast:
 
 		// Compute both the total value of funds being swept and the
 		// amount of funds that were revoked from the counter party.
-		var totalFunds, revokedFunds btcutil.Amount
-		for _, inp := range breachInfo.breachedOutputs {
-			totalFunds += inp.Amount()
-
-			// If the output being revoked is the remote commitment
-			// output or an offered HTLC output, it's amount
-			// contributes to the value of funds being revoked from
-			// the counter party.
-			switch inp.WitnessType() {
-			case input.CommitmentRevoke:
-				revokedFunds += inp.Amount()
-			case input.HtlcOfferedRevoke:
-				revokedFunds += inp.Amount()
-			default:
-			}
-		}
+		totalFunds, revokedFunds := countRevokedFunds(breachInfo, finalTx)
 
 		brarLog.Infof("Justice for ChannelPoint(%v) has "+
 			"been served, %v revoked funds (%v total) "+
@@ -674,11 +659,51 @@ justiceTxBroadcast:
 
 		// TODO(roasbeef): close other active channels with offending
 		// peer
-
 		return
+
 	case <-b.quit:
 		return
 	}
+}
+
+// countRevokedFunds counts the total and revoked funds swept by our justice
+// TX.
+func countRevokedFunds(breachInfo *retributionInfo,
+	spendTx *wire.MsgTx) (btcutil.Amount, btcutil.Amount) {
+
+	// Compute both the total value of funds being swept and the
+	// amount of funds that were revoked from the counter party.
+	var totalFunds, revokedFunds btcutil.Amount
+	for _, txIn := range spendTx.TxIn {
+		op := txIn.PreviousOutPoint
+
+		// Find the corresponding output in our retribution info.
+		for _, inp := range breachInfo.breachedOutputs {
+			// If the spent outpoint is not among the ouputs that
+			// were breached, we can ignore it.
+			if inp.outpoint != op {
+				continue
+			}
+
+			totalFunds += inp.Amount()
+
+			// If the output being revoked is the remote commitment
+			// output or an offered HTLC output, it's amount
+			// contributes to the value of funds being revoked from
+			// the counter party.
+			switch inp.WitnessType() {
+			case input.CommitmentRevoke:
+				revokedFunds += inp.Amount()
+			case input.HtlcOfferedRevoke:
+				revokedFunds += inp.Amount()
+			default:
+			}
+
+			break
+		}
+	}
+
+	return totalFunds, revokedFunds
 }
 
 // cleanupBreach marks the given channel point as fully resolved and removes the

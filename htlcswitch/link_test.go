@@ -1967,6 +1967,7 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 			return nil
 		},
 		Registry:            invoiceRegistry,
+		FeeEstimator:        newMockFeeEstimator(),
 		ChainEvents:         &contractcourt.ChainEventSubscription{},
 		BatchTicker:         bticker,
 		FwdPkgGCTicker:      ticker.NewForce(15 * time.Second),
@@ -4469,6 +4470,7 @@ func (h *persistentLinkHarness) restartLink(
 			return nil
 		},
 		Registry:            h.coreLink.cfg.Registry,
+		FeeEstimator:        newMockFeeEstimator(),
 		ChainEvents:         &contractcourt.ChainEventSubscription{},
 		BatchTicker:         bticker,
 		FwdPkgGCTicker:      ticker.New(5 * time.Second),

@@ -209,7 +209,4 @@ if ! grep -q "^$LNCLI_SUM" "$MANIFEST"; then
 fi
 
 echo ""
-echo "Verified lnd and lncli hashes against $MANIFEST"
-
-echo ""
-echo "SUCCESS! Verified lnd and lncli against $NUM_CHECKS developer signature(s)."
+echo "SUCCESS! Verified lnd and lncli against $MANIFEST signed by $NUM_CHECKS developers."

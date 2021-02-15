@@ -1798,6 +1798,190 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	assertBrarCleanup(t, brar, alice.ChanPoint, alice.State().Db)
 }
 
+// TestBreachDelayedJusticeConfirmation tests that the breach arbiter will
+// "split" the justice tx in case the first justice tx doesn't confirm within
+// a reasonable time.
+func TestBreachDelayedJusticeConfirmation(t *testing.T) {
+	brar, alice, _, bobClose, contractBreaches,
+		cleanUpChans, cleanUpArb := initBreachedState(t)
+	defer cleanUpChans()
+	defer cleanUpArb()
+
+	var (
+		height       = bobClose.ChanSnapshot.CommitHeight
+		blockHeight  = int32(10)
+		forceCloseTx = bobClose.CloseTx
+		chanPoint    = alice.ChanPoint
+		publTx       = make(chan *wire.MsgTx)
+	)
+
+	// Make PublishTransaction always return succeed.
+	brar.cfg.PublishTransaction = func(tx *wire.MsgTx, _ string) error {
+		publTx <- tx
+		return nil
+	}
+
+	// Notify the breach arbiter about the breach.
+	retribution, err := lnwallet.NewBreachRetribution(
+		alice.State(), height, uint32(blockHeight),
+	)
+	if err != nil {
+		t.Fatalf("unable to create breach retribution: %v", err)
+	}
+
+	processACK := make(chan error, 1)
+	breach := &ContractBreachEvent{
+		ChanPoint: *chanPoint,
+		ProcessACK: func(brarErr error) {
+			processACK <- brarErr
+		},
+		BreachRetribution: retribution,
+	}
+
+	select {
+	case contractBreaches <- breach:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("breach not delivered")
+	}
+
+	// We'll also wait to consume the ACK back from the breach arbiter.
+	select {
+	case err := <-processACK:
+		if err != nil {
+			t.Fatalf("handoff failed: %v", err)
+		}
+	case <-time.After(time.Second * 15):
+		t.Fatalf("breach arbiter didn't send ack back")
+	}
+
+	state := alice.State()
+	err = state.CloseChannel(&channeldb.ChannelCloseSummary{
+		ChanPoint:               state.FundingOutpoint,
+		ChainHash:               state.ChainHash,
+		RemotePub:               state.IdentityPub,
+		CloseType:               channeldb.BreachClose,
+		Capacity:                state.Capacity,
+		IsPending:               true,
+		ShortChanID:             state.ShortChanID(),
+		RemoteCurrentRevocation: state.RemoteCurrentRevocation,
+		RemoteNextRevocation:    state.RemoteNextRevocation,
+		LocalChanConfig:         state.LocalChanCfg,
+	})
+	if err != nil {
+		t.Fatalf("unable to close channel: %v", err)
+	}
+
+	// After exiting, the breach arbiter should have persisted the
+	// retribution information and the channel should be shown as pending
+	// force closed.
+	assertArbiterBreach(t, brar, chanPoint)
+
+	// Assert that the database sees the channel as pending close, otherwise
+	// the breach arbiter won't be able to fully close it.
+	assertPendingClosed(t, alice)
+
+	// Notify that the breaching transaction is confirmed, to trigger the
+	// retribution logic.
+	notifier := brar.cfg.Notifier.(*mock.SpendNotifier)
+
+	select {
+	case notifier.ConfChan <- &chainntnfs.TxConfirmation{}:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("conf not delivered")
+	}
+
+	// The breach arbiter should attempt to sweep all outputs on the
+	// breached commitment.
+	var justiceTx *wire.MsgTx
+	select {
+	case justiceTx = <-publTx:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("tx was not published")
+	}
+
+	require.Len(t, justiceTx.TxIn, 3)
+
+	// All outputs should initially spend from the force closed txn.
+	forceTxID := forceCloseTx.TxHash()
+	for _, txIn := range justiceTx.TxIn {
+		if txIn.PreviousOutPoint.Hash != forceTxID {
+			t.Fatalf("og justice tx not spending commitment")
+		}
+	}
+
+	// Now we'll pretend some blocks pass without the justice tx
+	// confirming.
+	for i := int32(0); i <= 3; i++ {
+		notifier.EpochChan <- &chainntnfs.BlockEpoch{
+			Height: blockHeight + i,
+		}
+
+		// On every epoch, check that no new tx is published.
+		select {
+		case <-publTx:
+			t.Fatalf("tx was published")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+
+	// Now mine another block without the justice tx confirming. This
+	// should lead to the breacharbiter publishing the split justice tx
+	// variants.
+	notifier.EpochChan <- &chainntnfs.BlockEpoch{
+		Height: blockHeight + 4,
+	}
+
+	var (
+		splits   []*wire.MsgTx
+		spending = make(map[wire.OutPoint]struct{})
+		maxIndex = uint32(len(forceCloseTx.TxOut)) - 1
+	)
+	for i := 0; i < 2; i++ {
+
+		var tx *wire.MsgTx
+		select {
+		case tx = <-publTx:
+			splits = append(splits, tx)
+
+		case <-time.After(5 * time.Second):
+			t.Fatalf("tx not published")
+		}
+
+		// Check that every input is from the breached tx and that
+		// there are no duplicates.
+		for _, in := range tx.TxIn {
+			op := in.PreviousOutPoint
+			_, ok := spending[op]
+			if ok {
+				t.Fatal("already spent")
+			}
+
+			if op.Hash != forceTxID || op.Index > maxIndex {
+				t.Fatalf("not spending breach")
+			}
+
+			spending[op] = struct{}{}
+		}
+	}
+
+	// All the inputs from the original justice transaction should have
+	// been spent by the 2 splits.
+	require.Len(t, spending, len(justiceTx.TxIn))
+	require.Len(t, splits, 2)
+
+	// Finally notify that they confirm, making the breach arbiter clean
+	// up.
+	for _, tx := range splits {
+		for _, in := range tx.TxIn {
+			op := &in.PreviousOutPoint
+			notifier.Spend(op, blockHeight+5, tx)
+		}
+	}
+
+	// Assert that the channel is fully resolved.
+	assertBrarCleanup(t, brar, alice.ChanPoint, alice.State().Db)
+}
+
 // findInputIndex returns the index of the input that spends from the given
 // outpoint. This method fails if the outpoint is not found.
 func findInputIndex(t *testing.T, op wire.OutPoint, tx *wire.MsgTx) int {

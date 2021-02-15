@@ -25,6 +25,21 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
+const (
+	// justiceTxConfTarget is the number of blocks we'll use as a
+	// confirmation target when creating the justice transaction. We'll
+	// choose an aggressive target, since we want to be sure it confirms
+	// quickly.
+	justiceTxConfTarget = 2
+
+	// blocksPassedSplitPublish is the number of blocks without
+	// confirmation of the justice tx we'll wait before starting to publish
+	// smaller variants of the justice tx. We do this to mitigate an attack
+	// the channel peer can do by pinning the HTLC outputs of the
+	// commitment with low-fee HTLC transactions.
+	blocksPassedSplitPublish = 4
+)
+
 var (
 	// retributionBucket stores retribution state on disk between detecting
 	// a contract breach, broadcasting a justice transaction that sweeps the
@@ -608,8 +623,20 @@ justiceTxBroadcast:
 		spendChan <- spends
 	}()
 
+	// We'll also register for block notifications, such that in case our
+	// justice tx doesn't confirm within a reasonable timeframe, we can
+	// start to more aggressively sweep the time sensitive outputs.
+	newBlockChan, err := b.cfg.Notifier.RegisterBlockEpochNtfn(nil)
+	if err != nil {
+		brarLog.Errorf("Unable to register for block notifications: %v",
+			err)
+		return
+	}
+	defer newBlockChan.Cancel()
+
 Loop:
 	for {
+
 		select {
 		case spends := <-spendChan:
 			// Print the funds swept by the txs.
@@ -653,6 +680,72 @@ Loop:
 
 			wg.Wait()
 			goto justiceTxBroadcast
+
+		// On every new block, we check whether we should republish the
+		// transactions.
+		case epoch, ok := <-newBlockChan.Epochs:
+			if !ok {
+				return
+			}
+
+			// If less than four blocks have passed since the
+			// breach confirmed, we'll continue waiting. It was
+			// published with a 2-block fee estimate, so it's not
+			// unexpected that four blocks without confirmation can
+			// pass.
+			splitHeight := breachInfo.breachHeight +
+				blocksPassedSplitPublish
+			if uint32(epoch.Height) < splitHeight {
+				continue Loop
+			}
+
+			brarLog.Warnf("Block height %v arrived without "+
+				"justice tx confirming (breached at "+
+				"height %v), splitting justice tx.",
+				epoch.Height, breachInfo.breachHeight)
+
+			// Otherwise we'll attempt to publish the two separate
+			// justice transactions that sweeps the commitment
+			// outputs and the HTLC outputs separately. This is to
+			// mitigate the case where our "spend all" justice TX
+			// doesn't propagate because the HTLC outputs have been
+			// pinned by low fee HTLC txs.
+			label := labels.MakeLabel(
+				labels.LabelTypeJusticeTransaction, nil,
+			)
+			if justiceTxs.spendCommitOuts != nil {
+				tx := justiceTxs.spendCommitOuts
+
+				brarLog.Debugf("Broadcasting justice tx "+
+					"spending commitment outs: %v",
+					newLogClosure(func() string {
+						return spew.Sdump(tx)
+					}))
+
+				err = b.cfg.PublishTransaction(tx, label)
+				if err != nil {
+					brarLog.Warnf("Unable to broadcast "+
+						"commit out spending justice "+
+						"tx: %v", err)
+				}
+			}
+
+			if justiceTxs.spendHTLCs != nil {
+				tx := justiceTxs.spendHTLCs
+
+				brarLog.Debugf("Broadcasting justice tx "+
+					"spending HTLC outs: %v",
+					newLogClosure(func() string {
+						return spew.Sdump(tx)
+					}))
+
+				err = b.cfg.PublishTransaction(tx, label)
+				if err != nil {
+					brarLog.Warnf("Unable to broadcast "+
+						"HTLC out spending justice "+
+						"tx: %v", err)
+				}
+			}
 
 		case err := <-errChan:
 			if err != errBrarShuttingDown {
@@ -1224,7 +1317,7 @@ func (b *breachArbiter) sweepSpendableOutputsTxn(txWeight int64,
 
 	// We'll actually attempt to target inclusion within the next two
 	// blocks as we'd like to sweep these funds back into our wallet ASAP.
-	feePerKw, err := b.cfg.Estimator.EstimateFeePerKW(2)
+	feePerKw, err := b.cfg.Estimator.EstimateFeePerKW(justiceTxConfTarget)
 	if err != nil {
 		return nil, err
 	}

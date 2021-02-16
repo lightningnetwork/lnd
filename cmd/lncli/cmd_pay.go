@@ -14,12 +14,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btcsuite/btcutil"
 	"github.com/jedib0t/go-pretty/table"
 	"github.com/jedib0t/go-pretty/text"
 	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/urfave/cli"
@@ -62,7 +64,7 @@ var (
 		Name: "max_parts",
 		Usage: "the maximum number of partial payments that may be " +
 			"used",
-		Value: 1,
+		Value: routerrpc.DefaultMaxParts,
 	}
 
 	jsonFlag = cli.BoolFlag{
@@ -70,6 +72,20 @@ var (
 		Usage: "if set, payment updates are printed as json " +
 			"messages. Set by default on Windows because table " +
 			"formatting is unsupported.",
+	}
+
+	maxShardSizeSatFlag = cli.UintFlag{
+		Name: "max_shard_size_sat",
+		Usage: "the largest payment split that should be attempted if " +
+			"payment splitting is required to attempt a payment, " +
+			"specified in satoshis",
+	}
+
+	maxShardSizeMsatFlag = cli.UintFlag{
+		Name: "max_shard_size_msat",
+		Usage: "the largest payment split that should be attempted if " +
+			"payment splitting is required to attempt a payment, " +
+			"specified in milli-satoshis",
 	}
 )
 
@@ -115,6 +131,7 @@ func paymentFlags() []cli.Flag {
 			Usage: "allow sending a circular payment to self",
 		},
 		dataFlag, inflightUpdatesFlag, maxPartsFlag, jsonFlag,
+		maxShardSizeSatFlag, maxShardSizeMsatFlag,
 	}
 }
 
@@ -353,6 +370,23 @@ func sendPaymentRequest(ctx *cli.Context,
 	req.AllowSelfPayment = ctx.Bool("allow_self_payment")
 
 	req.MaxParts = uint32(ctx.Uint(maxPartsFlag.Name))
+
+	switch {
+	// If the max shard size is specified, then it should either be in sat
+	// or msat, but not both.
+	case ctx.Uint64(maxShardSizeMsatFlag.Name) != 0 &&
+		ctx.Uint64(maxShardSizeSatFlag.Name) != 0:
+		return fmt.Errorf("only --max_split_size_msat or " +
+			"--max_split_size_sat should be set, but not both")
+
+	case ctx.Uint64(maxShardSizeMsatFlag.Name) != 0:
+		req.MaxShardSizeMsat = ctx.Uint64(maxShardSizeMsatFlag.Name)
+
+	case ctx.Uint64(maxShardSizeSatFlag.Name) != 0:
+		req.MaxShardSizeMsat = uint64(lnwire.NewMSatFromSatoshis(
+			btcutil.Amount(ctx.Uint64(maxShardSizeSatFlag.Name)),
+		))
+	}
 
 	// Parse custom data records.
 	data := ctx.String(dataFlag.Name)

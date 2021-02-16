@@ -799,6 +799,57 @@ var stateMachineTests = []stateMachineTest{
 			h.assertNoUpdates(h.safeDisableTimeout)
 		},
 	},
+	{
+		name:         "request manual enable",
+		startActive:  true,
+		startEnabled: false,
+		fn: func(h testHarness) {
+			// Request manual enables for all channels.
+			h.assertEnables(h.graph.chans(), nil, true)
+
+			// Expect to see them all enabled on the network.
+			h.assertUpdates(
+				h.graph.chans(), true, h.safeDisableTimeout,
+			)
+
+			// Subsequent request disables with manual = false should succeed.
+			h.assertDisables(
+				h.graph.chans(), nil, false,
+			)
+
+			// Expect to see them all disabled on the network again.
+			h.assertUpdates(
+				h.graph.chans(), false, h.safeDisableTimeout,
+			)
+		},
+	},
+	{
+		name:         "request manual disable",
+		startActive:  true,
+		startEnabled: true,
+		fn: func(h testHarness) {
+			// Request manual disables for all channels.
+			h.assertDisables(h.graph.chans(), nil, true)
+
+			// Expect to see them all disabled on the network.
+			h.assertUpdates(
+				h.graph.chans(), false, h.safeDisableTimeout,
+			)
+
+			// Request enables with manual = false should fail.
+			h.assertEnables(
+				h.graph.chans(), netann.ErrEnableManuallyDisabledChan, false,
+			)
+
+			// Request enables with manual = true should succeed.
+			h.assertEnables(h.graph.chans(), nil, true)
+
+			// Expect to see them all enabled on the network again.
+			h.assertUpdates(
+				h.graph.chans(), true, h.safeDisableTimeout,
+			)
+		},
+	},
 }
 
 // TestChanStatusManagerStateMachine tests the possible state transitions that

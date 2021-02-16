@@ -1405,6 +1405,11 @@
           "type": "boolean",
           "format": "boolean",
           "description": "If set, only the final payment update is streamed back. Intermediate updates\nthat show which htlcs are still in flight are suppressed."
+        },
+        "max_shard_size_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The largest payment split that should be attempted when making a payment if\nsplitting is necessary. Setting this value will effectively cause lnd to\nsplit more aggressively, vs only when it thinks it needs to. Note that this\nvalue is in milli-satoshis."
         }
       }
     },

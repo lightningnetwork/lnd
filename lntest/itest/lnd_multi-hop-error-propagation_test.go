@@ -204,6 +204,7 @@ out:
 		FinalCltvDelta: int32(carolPayReq.CltvExpiry),
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
+		MaxParts:       1,
 	}
 	sendAndAssertFailure(
 		t, net.Alice,
@@ -240,6 +241,7 @@ out:
 		FinalCltvDelta: int32(carolPayReq.CltvExpiry),
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
+		MaxParts:       1,
 	}
 	sendAndAssertFailure(
 		t, net.Alice,
@@ -300,6 +302,7 @@ out:
 				PaymentRequest: carolInvoice2.PaymentRequest,
 				TimeoutSeconds: 60,
 				FeeLimitMsat:   noFeeLimitMsat,
+				MaxParts:       1,
 			},
 		)
 
@@ -332,6 +335,7 @@ out:
 		PaymentRequest: carolInvoice3.PaymentRequest,
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
+		MaxParts:       1,
 	}
 	sendAndAssertFailure(
 		t, net.Alice,
@@ -381,6 +385,7 @@ out:
 			PaymentRequest: carolInvoice.PaymentRequest,
 			TimeoutSeconds: 60,
 			FeeLimitMsat:   noFeeLimitMsat,
+			MaxParts:       1,
 		},
 		lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE,
 	)

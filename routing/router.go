@@ -1684,6 +1684,14 @@ type LightningPayment struct {
 	// MaxParts is the maximum number of partial payments that may be used
 	// to complete the full amount.
 	MaxParts uint32
+
+	// MaxShardAmt is the largest shard that we'll attempt to split using.
+	// If this field is set, and we need to split, rather than attempting
+	// half of the original payment amount, we'll use this value if half
+	// the payment amount is greater than it.
+	//
+	// NOTE: This field is _optional_.
+	MaxShardAmt *lnwire.MilliSatoshi
 }
 
 // SendPayment attempts to send a payment as described within the passed

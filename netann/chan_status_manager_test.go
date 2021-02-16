@@ -427,6 +427,18 @@ func (h *testHarness) assertDisables(channels []*channeldb.OpenChannel, expErr e
 	}
 }
 
+// assertAutos requests auto state management for all of the passed channels, and
+// asserts that the errors returned from RequestAuto matches expErr.
+func (h *testHarness) assertAutos(channels []*channeldb.OpenChannel,
+	expErr error) {
+
+	h.t.Helper()
+
+	for _, channel := range channels {
+		h.assertAuto(channel.FundingOutpoint, expErr)
+	}
+}
+
 // assertEnable requests an enable for the given outpoint, and asserts that the
 // returned error matches expErr.
 func (h *testHarness) assertEnable(outpoint wire.OutPoint, expErr error,
@@ -450,6 +462,17 @@ func (h *testHarness) assertDisable(outpoint wire.OutPoint, expErr error,
 	err := h.mgr.RequestDisable(outpoint, manual)
 	if err != expErr {
 		h.t.Fatalf("expected disable error: %v, got %v", expErr, err)
+	}
+}
+
+// assertAuto requests auto state management for the given outpoint, and asserts
+// that the returned error matches expErr.
+func (h *testHarness) assertAuto(outpoint wire.OutPoint, expErr error) {
+	h.t.Helper()
+
+	err := h.mgr.RequestAuto(outpoint)
+	if err != expErr {
+		h.t.Fatalf("expected error: %v, got %v", expErr, err)
 	}
 }
 
@@ -843,6 +866,35 @@ var stateMachineTests = []stateMachineTest{
 
 			// Request enables with manual = true should succeed.
 			h.assertEnables(h.graph.chans(), nil, true)
+
+			// Expect to see them all enabled on the network again.
+			h.assertUpdates(
+				h.graph.chans(), true, h.safeDisableTimeout,
+			)
+		},
+	},
+	{
+		name:         "restore auto",
+		startActive:  true,
+		startEnabled: true,
+		fn: func(h testHarness) {
+			// Request manual disables for all channels.
+			h.assertDisables(h.graph.chans(), nil, true)
+
+			// Expect to see them all disabled on the network.
+			h.assertUpdates(
+				h.graph.chans(), false, h.safeDisableTimeout,
+			)
+
+			// Request enables with manual = false should fail.
+			h.assertEnables(
+				h.graph.chans(), netann.ErrEnableManuallyDisabledChan, false,
+			)
+
+			// Request enables with manual = false should succeed after
+			// restoring auto state management.
+			h.assertAutos(h.graph.chans(), nil)
+			h.assertEnables(h.graph.chans(), nil, false)
 
 			// Expect to see them all enabled on the network again.
 			h.assertUpdates(

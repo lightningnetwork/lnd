@@ -53,9 +53,18 @@ jobs:
         with:
           go-version: '${{ env.GO_VERSION }}'
 
+      # To avoid sharing the per-IP pull limit on Docker Hub for unauthenticated
+      # users with other jobs running on the same VM we log in to get our own,
+      # currently 200 pulls per 6 hours limit.
+      - name: Login to DockerHub
+        uses: lightninglabs/gh-actions/login-action@2021.01.25.00
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_API_KEY }}
+
       - name: run check
         run: make rpc-check
-        
+
       - name: build mobile RPC bindings
         run: make mobile-rpc
 
@@ -257,4 +266,4 @@ jobs:
         uses: actions/checkout@v2
 
       - name: ensure dependences at correct version
-        run:   if ! grep -q "${{ matrix.pinned_dep }}" go.mod; then echo dependency ${{ matrix.pinned_dep }} should not be altered ; exit 1 ; fi
+        run: if ! grep -q "${{ matrix.pinned_dep }}" go.mod; then echo dependency ${{ matrix.pinned_dep }} should not be altered ; exit 1 ; fi

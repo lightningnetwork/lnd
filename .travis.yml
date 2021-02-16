@@ -35,6 +35,10 @@ jobs:
     - stage: Sanity Check
       name: Lint and compile
       script:
+        # Step 0: Login to Docker Hub to avoid running into the anonymous user
+        # pull limits.
+        - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+
         # Step 1: Make sure no diff is produced when compiling with the correct
         # version.
         - make rpc-check

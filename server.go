@@ -965,7 +965,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 				return ErrServerShuttingDown
 			}
 		},
-		DisableChannel:                s.chanStatusMgr.RequestDisable,
+		DisableChannel: func(chanPoint wire.OutPoint) error {
+			return s.chanStatusMgr.RequestDisable(chanPoint, false)
+		},
 		Sweeper:                       s.sweeper,
 		Registry:                      s.invoices,
 		NotifyClosedChannel:           s.channelNotifier.NotifyClosedChannelEvent,

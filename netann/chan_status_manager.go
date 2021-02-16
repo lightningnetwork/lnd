@@ -223,16 +223,20 @@ func (m *ChanStatusManager) Stop() error {
 // channel's peer has lasted at least the ChanEnableTimeout. Failure to do so
 // may result in behavior that deviates from the expected behavior of the state
 // machine.
-func (m *ChanStatusManager) RequestEnable(outpoint wire.OutPoint) error {
-	return m.submitRequest(m.enableRequests, outpoint)
+func (m *ChanStatusManager) RequestEnable(outpoint wire.OutPoint,
+	manual bool) error {
+
+	return m.submitRequest(m.enableRequests, outpoint, manual)
 }
 
 // RequestDisable submits a request to immediately disable a channel identified
 // by the provided outpoint. If the channel is already disabled, no action will
 // be taken. Otherwise, a new announcement will be signed with the disabled bit
 // set and broadcast to the network.
-func (m *ChanStatusManager) RequestDisable(outpoint wire.OutPoint) error {
-	return m.submitRequest(m.disableRequests, outpoint)
+func (m *ChanStatusManager) RequestDisable(outpoint wire.OutPoint,
+	manual bool) error {
+
+	return m.submitRequest(m.disableRequests, outpoint, manual)
 }
 
 // statusRequest is passed to the statusManager to request a change in status
@@ -240,6 +244,7 @@ func (m *ChanStatusManager) RequestDisable(outpoint wire.OutPoint) error {
 // request through one of the enableRequests or disableRequests channels.
 type statusRequest struct {
 	outpoint wire.OutPoint
+	manual   bool
 	errChan  chan error
 }
 
@@ -248,10 +253,11 @@ type statusRequest struct {
 // reqChan passed in, which can be either of the enableRequests or
 // disableRequests channels.
 func (m *ChanStatusManager) submitRequest(reqChan chan statusRequest,
-	outpoint wire.OutPoint) error {
+	outpoint wire.OutPoint, manual bool) error {
 
 	req := statusRequest{
 		outpoint: outpoint,
+		manual:   manual,
 		errChan:  make(chan error, 1),
 	}
 
@@ -285,11 +291,11 @@ func (m *ChanStatusManager) statusManager() {
 
 		// Process any requests to mark channel as enabled.
 		case req := <-m.enableRequests:
-			req.errChan <- m.processEnableRequest(req.outpoint)
+			req.errChan <- m.processEnableRequest(req.outpoint, req.manual)
 
 		// Process any requests to mark channel as disabled.
 		case req := <-m.disableRequests:
-			req.errChan <- m.processDisableRequest(req.outpoint)
+			req.errChan <- m.processDisableRequest(req.outpoint, req.manual)
 
 		// Use long-polling to detect when channels become inactive.
 		case <-m.statusSampleTicker.C:
@@ -317,7 +323,9 @@ func (m *ChanStatusManager) statusManager() {
 // ErrEnableInactiveChan will be returned. An update will be broadcast only if
 // the channel is currently disabled, otherwise no update will be sent on the
 // network.
-func (m *ChanStatusManager) processEnableRequest(outpoint wire.OutPoint) error {
+func (m *ChanStatusManager) processEnableRequest(outpoint wire.OutPoint,
+	manual bool) error {
+
 	curState, err := m.getOrInitChanStatus(outpoint)
 	if err != nil {
 		return err
@@ -362,7 +370,9 @@ func (m *ChanStatusManager) processEnableRequest(outpoint wire.OutPoint) error {
 // ChanStatusDisabled. An update will only be sent if the channel has a status
 // other than ChanStatusEnabled, otherwise no update will be sent on the
 // network.
-func (m *ChanStatusManager) processDisableRequest(outpoint wire.OutPoint) error {
+func (m *ChanStatusManager) processDisableRequest(outpoint wire.OutPoint,
+	manual bool) error {
+
 	curState, err := m.getOrInitChanStatus(outpoint)
 	if err != nil {
 		return err

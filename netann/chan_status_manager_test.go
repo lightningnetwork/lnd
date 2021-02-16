@@ -428,7 +428,7 @@ func (h *testHarness) assertDisables(channels []*channeldb.OpenChannel, expErr e
 func (h *testHarness) assertEnable(outpoint wire.OutPoint, expErr error) {
 	h.t.Helper()
 
-	err := h.mgr.RequestEnable(outpoint)
+	err := h.mgr.RequestEnable(outpoint, false)
 	if err != expErr {
 		h.t.Fatalf("expected enable error: %v, got %v", expErr, err)
 	}
@@ -439,7 +439,7 @@ func (h *testHarness) assertEnable(outpoint wire.OutPoint, expErr error) {
 func (h *testHarness) assertDisable(outpoint wire.OutPoint, expErr error) {
 	h.t.Helper()
 
-	err := h.mgr.RequestDisable(outpoint)
+	err := h.mgr.RequestDisable(outpoint, false)
 	if err != expErr {
 		h.t.Fatalf("expected disable error: %v, got %v", expErr, err)
 	}

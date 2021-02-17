@@ -64,8 +64,19 @@ check_command gpg
 
 LND_VERSION=$($LND_BIN --version | cut -d'=' -f2)
 LNCLI_VERSION=$($LNCLI_BIN --version | cut -d'=' -f2)
-LND_SUM=$(shasum -a 256 $LND_BIN | cut -d' ' -f1)
-LNCLI_SUM=$(shasum -a 256 $LNCLI_BIN | cut -d' ' -f1)
+
+# Make this script compatible with both linux and *nix.
+SHA_CMD="sha256sum"
+if ! command -v "$SHA_CMD"; then
+  if command -v "shasum"; then
+    SHA_CMD="shasum -a 256"
+  else
+    echo "ERROR: no SHA256 sum binary installed!"
+    exit 1
+  fi
+fi
+LND_SUM=$($SHA_CMD $LND_BIN | cut -d' ' -f1)
+LNCLI_SUM=$($SHA_CMD $LNCLI_BIN | cut -d' ' -f1)
 
 echo "Detected lnd $LND_BIN version $LND_VERSION with SHA256 sum $LND_SUM"
 echo "Detected lncli $LNCLI_BIN version $LNCLI_VERSION with SHA256 sum $LNCLI_SUM"

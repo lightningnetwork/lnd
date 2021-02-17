@@ -24,15 +24,6 @@ import (
 	"github.com/lightningnetwork/lnd/zpay32"
 )
 
-const (
-	// DefaultMaxParts is the default number of splits we'll possibly use
-	// for MPP when the user is attempting to send a payment.
-	//
-	// TODO(roasbeef): make this value dynamic based on expected number of
-	// attempts for given amount
-	DefaultMaxParts = 16
-)
-
 // RouterBackend contains the backend implementation of the router rpc sub
 // server calls.
 type RouterBackend struct {
@@ -556,12 +547,11 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	}
 	payIntent.CltvLimit = cltvLimit
 
-	// Attempt to parse the max parts value set by the user, if this value
-	// isn't set, then we'll use the current default value for this
-	// setting.
+	// Take max htlcs from the request. Map zero to one for backwards
+	// compatibility.
 	maxParts := rpcPayReq.MaxParts
 	if maxParts == 0 {
-		maxParts = DefaultMaxParts
+		maxParts = 1
 	}
 	payIntent.MaxParts = maxParts
 

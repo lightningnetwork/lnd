@@ -64,7 +64,7 @@ var (
 		Name: "max_parts",
 		Usage: "the maximum number of partial payments that may be " +
 			"used",
-		Value: routerrpc.DefaultMaxParts,
+		Value: 1,
 	}
 
 	jsonFlag = cli.BoolFlag{

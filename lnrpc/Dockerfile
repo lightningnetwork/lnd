@@ -1,4 +1,4 @@
-FROM golang:1.15.7-buster
+FROM golang:1.16.3-buster
 
 RUN apt-get update && apt-get install -y \
   git \

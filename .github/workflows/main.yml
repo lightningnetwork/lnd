@@ -94,12 +94,13 @@ jobs:
         run: |
           git remote add upstream https://github.com/lightningnetwork/lnd
           git fetch upstream
+          git fetch --tags
           export GIT_COMMITTER_EMAIL="lnd-ci@example.com"
           export GIT_COMMITTER_NAME="LND CI"
-          git rebase upstream/master
+          git rebase v0.12.0-beta
 
       - name: check commits
-        run: scripts/check-each-commit.sh upstream/master
+        run: scripts/check-each-commit.sh v0.12.0-beta
 
   ########################
   # lint code

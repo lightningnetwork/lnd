@@ -204,6 +204,14 @@ type ChainArbitrator struct {
 	// active channels that it must still watch over.
 	chanSource *channeldb.DB
 
+	// bestBlockHeight is the best block height that we currently have
+	// knowledge of.
+	bestBlock int32
+
+	// bestBlockLock is a lock used for getting and setting the value of
+	// bestBlockHeight.
+	bestBlockLock sync.Mutex
+
 	quit chan struct{}
 
 	wg sync.WaitGroup
@@ -643,6 +651,13 @@ func (c *ChainArbitrator) Start() error {
 		return err
 	}
 
+	// Lookup our best height once so that we can start each arbitrator
+	// off with a height hint.
+	bestHeight, err := c.getBestBlock()
+	if err != nil {
+		return err
+	}
+
 	// Launch all the goroutines for each arbitrator so they can carry out
 	// their duties.
 	for _, arbitrator := range c.activeChannels {
@@ -653,7 +668,7 @@ func (c *ChainArbitrator) Start() error {
 				arbitrator.cfg.ChanPoint)
 		}
 
-		if err := arbitrator.Start(startState); err != nil {
+		if err := arbitrator.Start(startState, bestHeight); err != nil {
 			stopAndLog()
 			return err
 		}
@@ -676,6 +691,34 @@ func (c *ChainArbitrator) Start() error {
 	// TODO(roasbeef): eventually move all breach watching here
 
 	return nil
+}
+
+// getBestBlock gets the best block height that the arbitrator has knowledge of
+// querying our chain backend directly if this value is not yet set.
+func (c *ChainArbitrator) getBestBlock() (int32, error) {
+	c.bestBlockLock.Lock()
+	height := c.bestBlock
+	c.bestBlockLock.Unlock()
+
+	if height != 0 {
+		return height, nil
+	}
+
+	_, height, err := c.cfg.ChainIO.GetBestBlock()
+	if err != nil {
+		return 0, err
+	}
+
+	c.setBestBlock(height)
+	return height, nil
+}
+
+// setBestBlock updates the arbitrator's best block height.
+func (c *ChainArbitrator) setBestBlock(height int32) {
+	c.bestBlockLock.Lock()
+	defer c.bestBlockLock.Unlock()
+
+	c.bestBlock = height
 }
 
 // blockRecipient contains the information we need to dispatch a block to a
@@ -738,6 +781,9 @@ func (c *ChainArbitrator) dispatchBlocks(
 					"cancelled")
 				return
 			}
+
+			// Update our best block height.
+			c.setBestBlock(block.Height)
 
 			// Get the set of currently active channels block
 			// subscription channels and dispatch the block to
@@ -1103,7 +1149,12 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 	// arbitrators, then launch it.
 	c.activeChannels[chanPoint] = channelArb
 
-	if err := channelArb.Start(nil); err != nil {
+	height, err := c.getBestBlock()
+	if err != nil {
+		return err
+	}
+
+	if err := channelArb.Start(nil, height); err != nil {
 		return err
 	}
 

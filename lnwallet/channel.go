@@ -3490,6 +3490,16 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	return nil
 }
 
+// CanSignNextCommitment returns true if the channel is in a state where we can
+// sign a new commitment, i.e. we have the remote party's next revocation point
+// and we don't have any unacked commitments that we've signed for.
+func (lc *LightningChannel) CanSignNextCommitment() bool {
+	lc.Lock()
+	defer lc.Unlock()
+
+	return lc.canSignNextCommitment()
+}
+
 // canSignNextCommitment returns true if the channel is in a state where we can
 // sign a new commitment, i.e. we have the remote party's next revocation point
 // and we don't have any unacked commitments that we've signed for.

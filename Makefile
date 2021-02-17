@@ -192,6 +192,10 @@ unit: btcd
 	@$(call print, "Running unit tests.")
 	$(UNIT)
 
+unit-debug: btcd
+	@$(call print, "Running debug unit tests.")
+	$(UNIT_DEBUG)
+
 unit-cover: $(GOACC_BIN)
 	@$(call print, "Running unit coverage tests.")
 	$(GOACC_BIN) $(COVER_PKG) -- -tags="$(DEV_TAGS) $(LOG_TAGS)"
@@ -316,6 +320,7 @@ clean-mobile:
 	itest-only \
 	itest \
 	unit \
+	unit-debug \
 	unit-cover \
 	unit-race \
 	goveralls \

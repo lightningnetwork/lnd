@@ -408,24 +408,6 @@ func (frs *failingRetributionStore) IsBreached(chanPoint *wire.OutPoint) (bool, 
 	return frs.rs.IsBreached(chanPoint)
 }
 
-func (frs *failingRetributionStore) Finalize(chanPoint *wire.OutPoint,
-	finalTx *wire.MsgTx) error {
-
-	frs.mu.Lock()
-	defer frs.mu.Unlock()
-
-	return frs.rs.Finalize(chanPoint, finalTx)
-}
-
-func (frs *failingRetributionStore) GetFinalizedTxn(
-	chanPoint *wire.OutPoint) (*wire.MsgTx, error) {
-
-	frs.mu.Lock()
-	defer frs.mu.Unlock()
-
-	return frs.rs.GetFinalizedTxn(chanPoint)
-}
-
 func (frs *failingRetributionStore) Remove(key *wire.OutPoint) error {
 	frs.mu.Lock()
 	defer frs.mu.Unlock()

@@ -560,40 +560,18 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 	// SpendEvents between each attempt to not re-register uneccessarily.
 	spendNtfns := make(map[wire.OutPoint]*chainntnfs.SpendEvent)
 
-	finalTx, err := b.cfg.Store.GetFinalizedTxn(&breachInfo.chanPoint)
-	if err != nil {
-		brarLog.Errorf("Unable to get finalized txn for"+
-			"chanid=%v: %v", &breachInfo.chanPoint, err)
-		return
-	}
-
 	// Compute both the total value of funds being swept and the
 	// amount of funds that were revoked from the counter party.
 	var totalFunds, revokedFunds btcutil.Amount
 
-	// If this retribution has not been finalized before, we will first
-	// construct a sweep transaction and write it to disk. This will allow
-	// the breach arbiter to re-register for notifications for the justice
-	// txid.
 justiceTxBroadcast:
-	if finalTx == nil {
-		// With the breach transaction confirmed, we now create the
-		// justice tx which will claim ALL the funds within the
-		// channel.
-		finalTx, err = b.createJusticeTx(breachInfo)
-		if err != nil {
-			brarLog.Errorf("Unable to create justice tx: %v", err)
-			return
-		}
-
-		// Persist our finalized justice transaction before making an
-		// attempt to broadcast.
-		err := b.cfg.Store.Finalize(&breachInfo.chanPoint, finalTx)
-		if err != nil {
-			brarLog.Errorf("Unable to finalize justice tx for "+
-				"chanid=%v: %v", &breachInfo.chanPoint, err)
-			return
-		}
+	// With the breach transaction confirmed, we now create the
+	// justice tx which will claim ALL the funds within the
+	// channel.
+	finalTx, err := b.createJusticeTx(breachInfo)
+	if err != nil {
+		brarLog.Errorf("Unable to create justice tx: %v", err)
+		return
 	}
 
 	brarLog.Debugf("Broadcasting justice tx: %v", newLogClosure(func() string {
@@ -668,7 +646,6 @@ Loop:
 				break Loop
 			}
 
-			finalTx = nil
 			brarLog.Infof("Attempting another justice tx "+
 				"with %d inputs",
 				len(breachInfo.breachedOutputs))
@@ -1265,15 +1242,6 @@ type RetributionStore interface {
 	// is aware of any breaches for the provided channel point.
 	IsBreached(chanPoint *wire.OutPoint) (bool, error)
 
-	// Finalize persists the finalized justice transaction for a particular
-	// channel.
-	Finalize(chanPoint *wire.OutPoint, finalTx *wire.MsgTx) error
-
-	// GetFinalizedTxn loads the finalized justice transaction, if any, from
-	// the retribution store. The finalized transaction will be nil if
-	// Finalize has not yet been called for this channel point.
-	GetFinalizedTxn(chanPoint *wire.OutPoint) (*wire.MsgTx, error)
-
 	// Remove deletes the retributionInfo from disk, if any exists, under
 	// the given key. An error should be re raised if the removal fails.
 	Remove(key *wire.OutPoint) error
@@ -1322,68 +1290,6 @@ func (rs *retributionStore) Add(ret *retributionInfo) error {
 
 		return retBucket.Put(outBuf.Bytes(), retBuf.Bytes())
 	}, func() {})
-}
-
-// Finalize writes a signed justice transaction to the retribution store. This
-// is done before publishing the transaction, so that we can recover the txid on
-// startup and re-register for confirmation notifications.
-func (rs *retributionStore) Finalize(chanPoint *wire.OutPoint,
-	finalTx *wire.MsgTx) error {
-	return kvdb.Update(rs.db, func(tx kvdb.RwTx) error {
-		justiceBkt, err := tx.CreateTopLevelBucket(justiceTxnBucket)
-		if err != nil {
-			return err
-		}
-
-		var chanBuf bytes.Buffer
-		if err := writeOutpoint(&chanBuf, chanPoint); err != nil {
-			return err
-		}
-
-		var txBuf bytes.Buffer
-		if err := finalTx.Serialize(&txBuf); err != nil {
-			return err
-		}
-
-		return justiceBkt.Put(chanBuf.Bytes(), txBuf.Bytes())
-	}, func() {})
-}
-
-// GetFinalizedTxn loads the finalized justice transaction for the provided
-// channel point. The finalized transaction will be nil if Finalize has yet to
-// be called for this channel point.
-func (rs *retributionStore) GetFinalizedTxn(
-	chanPoint *wire.OutPoint) (*wire.MsgTx, error) {
-
-	var finalTxBytes []byte
-	if err := kvdb.View(rs.db, func(tx kvdb.RTx) error {
-		justiceBkt := tx.ReadBucket(justiceTxnBucket)
-		if justiceBkt == nil {
-			return nil
-		}
-
-		var chanBuf bytes.Buffer
-		if err := writeOutpoint(&chanBuf, chanPoint); err != nil {
-			return err
-		}
-
-		finalTxBytes = justiceBkt.Get(chanBuf.Bytes())
-
-		return nil
-	}, func() {
-		finalTxBytes = nil
-	}); err != nil {
-		return nil, err
-	}
-
-	if finalTxBytes == nil {
-		return nil, nil
-	}
-
-	finalTx := &wire.MsgTx{}
-	err := finalTx.Deserialize(bytes.NewReader(finalTxBytes))
-
-	return finalTx, err
 }
 
 // IsBreached queries the retribution store to discern if this channel was

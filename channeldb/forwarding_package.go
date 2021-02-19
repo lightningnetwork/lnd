@@ -487,7 +487,7 @@ func (*ChannelPackager) AddFwdPkg(tx kvdb.RwTx, fwdPkg *FwdPkg) error {
 // putLogUpdate writes an htlc to the provided `bkt`, using `index` as the key.
 func putLogUpdate(bkt kvdb.RwBucket, idx uint16, htlc *LogUpdate) error {
 	var b bytes.Buffer
-	if err := htlc.Encode(&b); err != nil {
+	if err := serializeLogUpdate(&b, htlc); err != nil {
 		return err
 	}
 
@@ -541,7 +541,7 @@ func loadChannelFwdPkgs(tx kvdb.RTx, source lnwire.ShortChannelID) ([]*FwdPkg, e
 	return fwdPkgs, nil
 }
 
-// loadFwPkg reads the packager's fwd pkg at a given height, and determines the
+// loadFwdPkg reads the packager's fwd pkg at a given height, and determines the
 // appropriate FwdState.
 func loadFwdPkg(fwdPkgBkt kvdb.RBucket, source lnwire.ShortChannelID,
 	height uint64) (*FwdPkg, error) {
@@ -652,12 +652,12 @@ func loadFwdPkg(fwdPkgBkt kvdb.RBucket, source lnwire.ShortChannelID,
 func loadHtlcs(bkt kvdb.RBucket) ([]LogUpdate, error) {
 	var htlcs []LogUpdate
 	if err := bkt.ForEach(func(_, v []byte) error {
-		var htlc LogUpdate
-		if err := htlc.Decode(bytes.NewReader(v)); err != nil {
+		htlc, err := deserializeLogUpdate(bytes.NewReader(v))
+		if err != nil {
 			return err
 		}
 
-		htlcs = append(htlcs, htlc)
+		htlcs = append(htlcs, *htlc)
 
 		return nil
 	}); err != nil {

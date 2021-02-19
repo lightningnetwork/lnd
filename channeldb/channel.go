@@ -1965,12 +1965,12 @@ func deserializeLogUpdates(r io.Reader) ([]LogUpdate, error) {
 	return logUpdates, nil
 }
 
-func serializeCommitDiff(w io.Writer, diff *CommitDiff) error {
+func serializeCommitDiff(w io.Writer, diff *CommitDiff) error { // nolint: dupl
 	if err := serializeChanCommit(w, &diff.Commitment); err != nil {
 		return err
 	}
 
-	if err := diff.CommitSig.Encode(w, 0); err != nil {
+	if err := WriteElements(w, diff.CommitSig); err != nil {
 		return err
 	}
 
@@ -2016,10 +2016,16 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 		return nil, err
 	}
 
-	d.CommitSig = &lnwire.CommitSig{}
-	if err := d.CommitSig.Decode(r, 0); err != nil {
+	var msg lnwire.Message
+	if err := ReadElements(r, &msg); err != nil {
 		return nil, err
 	}
+	commitSig, ok := msg.(*lnwire.CommitSig)
+	if !ok {
+		return nil, fmt.Errorf("expected lnwire.CommitSig, instead "+
+			"read: %T", msg)
+	}
+	d.CommitSig = commitSig
 
 	d.LogUpdates, err = deserializeLogUpdates(r)
 	if err != nil {

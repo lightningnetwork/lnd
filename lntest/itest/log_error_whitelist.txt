@@ -256,3 +256,4 @@
 <time> [ERR] RPCS: unable to open channel to NodeKey(<hex>): reserved wallet balance invalidated
 <time> [ERR] NANN: Unable to retrieve chan status for Channel(<chan_point>): unable to extract ChannelUpdate
 <time> [ERR] NTFN: Unable to rewind chain from height 1 to height -1: unable to find blockhash for disconnected height=<height>: -8: Block height out of range
+<time> [ERR] RPCS: WS: error writing message: websocket: close sent

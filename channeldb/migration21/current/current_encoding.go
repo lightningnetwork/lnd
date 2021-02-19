@@ -1,9 +1,10 @@
-package legacy
+package current
 
 import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
@@ -11,7 +12,95 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration21/common"
 )
 
-func deserializeHtlcs(r io.Reader) ([]common.HTLC, error) {
+func serializeChanCommit(w io.Writer, c *common.ChannelCommitment) error { // nolint: dupl
+	if err := WriteElements(w,
+		c.CommitHeight, c.LocalLogIndex, c.LocalHtlcIndex,
+		c.RemoteLogIndex, c.RemoteHtlcIndex, c.LocalBalance,
+		c.RemoteBalance, c.CommitFee, c.FeePerKw, c.CommitTx,
+		c.CommitSig,
+	); err != nil {
+		return err
+	}
+
+	return serializeHtlcs(w, c.Htlcs...)
+}
+
+func SerializeLogUpdates(w io.Writer, logUpdates []common.LogUpdate) error { // nolint: dupl
+	numUpdates := uint16(len(logUpdates))
+	if err := binary.Write(w, byteOrder, numUpdates); err != nil {
+		return err
+	}
+
+	for _, diff := range logUpdates {
+		err := WriteElements(w, diff.LogIndex, diff.UpdateMsg)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func serializeHtlcs(b io.Writer, htlcs ...common.HTLC) error { // nolint: dupl
+	numHtlcs := uint16(len(htlcs))
+	if err := WriteElement(b, numHtlcs); err != nil {
+		return err
+	}
+
+	for _, htlc := range htlcs {
+		if err := WriteElements(b,
+			htlc.Signature, htlc.RHash, htlc.Amt, htlc.RefundTimeout,
+			htlc.OutputIndex, htlc.Incoming, htlc.OnionBlob,
+			htlc.HtlcIndex, htlc.LogIndex,
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func SerializeCommitDiff(w io.Writer, diff *common.CommitDiff) error { // nolint: dupl
+	if err := serializeChanCommit(w, &diff.Commitment); err != nil {
+		return err
+	}
+
+	if err := WriteElements(w, diff.CommitSig); err != nil {
+		return err
+	}
+
+	if err := SerializeLogUpdates(w, diff.LogUpdates); err != nil {
+		return err
+	}
+
+	numOpenRefs := uint16(len(diff.OpenedCircuitKeys))
+	if err := binary.Write(w, byteOrder, numOpenRefs); err != nil {
+		return err
+	}
+
+	for _, openRef := range diff.OpenedCircuitKeys {
+		err := WriteElements(w, openRef.ChanID, openRef.HtlcID)
+		if err != nil {
+			return err
+		}
+	}
+
+	numClosedRefs := uint16(len(diff.ClosedCircuitKeys))
+	if err := binary.Write(w, byteOrder, numClosedRefs); err != nil {
+		return err
+	}
+
+	for _, closedRef := range diff.ClosedCircuitKeys {
+		err := WriteElements(w, closedRef.ChanID, closedRef.HtlcID)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func deserializeHtlcs(r io.Reader) ([]common.HTLC, error) { // nolint: dupl
 	var numHtlcs uint16
 	if err := ReadElement(r, &numHtlcs); err != nil {
 		return nil, err
@@ -37,26 +126,7 @@ func deserializeHtlcs(r io.Reader) ([]common.HTLC, error) {
 	return htlcs, nil
 }
 
-func DeserializeLogUpdates(r io.Reader) ([]common.LogUpdate, error) {
-	var numUpdates uint16
-	if err := binary.Read(r, byteOrder, &numUpdates); err != nil {
-		return nil, err
-	}
-
-	logUpdates := make([]common.LogUpdate, numUpdates)
-	for i := 0; i < int(numUpdates); i++ {
-		err := ReadElements(r,
-			&logUpdates[i].LogIndex, &logUpdates[i].UpdateMsg,
-		)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return logUpdates, nil
-}
-
-func deserializeChanCommit(r io.Reader) (common.ChannelCommitment, error) {
+func deserializeChanCommit(r io.Reader) (common.ChannelCommitment, error) { // nolint: dupl
 	var c common.ChannelCommitment
 
 	err := ReadElements(r,
@@ -76,7 +146,25 @@ func deserializeChanCommit(r io.Reader) (common.ChannelCommitment, error) {
 	return c, nil
 }
 
-func DeserializeCommitDiff(r io.Reader) (*common.CommitDiff, error) {
+func DeserializeLogUpdates(r io.Reader) ([]common.LogUpdate, error) { // nolint: dupl
+	var numUpdates uint16
+	if err := binary.Read(r, byteOrder, &numUpdates); err != nil {
+		return nil, err
+	}
+
+	logUpdates := make([]common.LogUpdate, numUpdates)
+	for i := 0; i < int(numUpdates); i++ {
+		err := ReadElements(r,
+			&logUpdates[i].LogIndex, &logUpdates[i].UpdateMsg,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return logUpdates, nil
+}
+
+func DeserializeCommitDiff(r io.Reader) (*common.CommitDiff, error) { // nolint: dupl
 	var (
 		d   common.CommitDiff
 		err error
@@ -87,10 +175,16 @@ func DeserializeCommitDiff(r io.Reader) (*common.CommitDiff, error) {
 		return nil, err
 	}
 
-	d.CommitSig = &lnwire.CommitSig{}
-	if err := d.CommitSig.Decode(r, 0); err != nil {
+	var msg lnwire.Message
+	if err := ReadElements(r, &msg); err != nil {
 		return nil, err
 	}
+	commitSig, ok := msg.(*lnwire.CommitSig)
+	if !ok {
+		return nil, fmt.Errorf("expected lnwire.CommitSig, instead "+
+			"read: %T", msg)
+	}
+	d.CommitSig = commitSig
 
 	d.LogUpdates, err = DeserializeLogUpdates(r)
 	if err != nil {
@@ -130,108 +224,15 @@ func DeserializeCommitDiff(r io.Reader) (*common.CommitDiff, error) {
 	return &d, nil
 }
 
-func serializeHtlcs(b io.Writer, htlcs ...common.HTLC) error {
-	numHtlcs := uint16(len(htlcs))
-	if err := WriteElement(b, numHtlcs); err != nil {
-		return err
-	}
-
-	for _, htlc := range htlcs {
-		if err := WriteElements(b,
-			htlc.Signature, htlc.RHash, htlc.Amt, htlc.RefundTimeout,
-			htlc.OutputIndex, htlc.Incoming, htlc.OnionBlob,
-			htlc.HtlcIndex, htlc.LogIndex,
-		); err != nil {
-			return err
-		}
-	}
-
-	return nil
+func SerializeNetworkResult(w io.Writer, n *common.NetworkResult) error { // nolint: dupl
+	return WriteElements(w, n.Msg, n.Unencrypted, n.IsResolution)
 }
 
-func serializeChanCommit(w io.Writer, c *common.ChannelCommitment) error {
-	if err := WriteElements(w,
-		c.CommitHeight, c.LocalLogIndex, c.LocalHtlcIndex,
-		c.RemoteLogIndex, c.RemoteHtlcIndex, c.LocalBalance,
-		c.RemoteBalance, c.CommitFee, c.FeePerKw, c.CommitTx,
-		c.CommitSig,
-	); err != nil {
-		return err
-	}
-
-	return serializeHtlcs(w, c.Htlcs...)
-}
-
-func SerializeLogUpdates(w io.Writer, logUpdates []common.LogUpdate) error {
-	numUpdates := uint16(len(logUpdates))
-	if err := binary.Write(w, byteOrder, numUpdates); err != nil {
-		return err
-	}
-
-	for _, diff := range logUpdates {
-		err := WriteElements(w, diff.LogIndex, diff.UpdateMsg)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func SerializeCommitDiff(w io.Writer, diff *common.CommitDiff) error { // nolint: dupl
-	if err := serializeChanCommit(w, &diff.Commitment); err != nil {
-		return err
-	}
-
-	if err := diff.CommitSig.Encode(w, 0); err != nil {
-		return err
-	}
-
-	if err := SerializeLogUpdates(w, diff.LogUpdates); err != nil {
-		return err
-	}
-
-	numOpenRefs := uint16(len(diff.OpenedCircuitKeys))
-	if err := binary.Write(w, byteOrder, numOpenRefs); err != nil {
-		return err
-	}
-
-	for _, openRef := range diff.OpenedCircuitKeys {
-		err := WriteElements(w, openRef.ChanID, openRef.HtlcID)
-		if err != nil {
-			return err
-		}
-	}
-
-	numClosedRefs := uint16(len(diff.ClosedCircuitKeys))
-	if err := binary.Write(w, byteOrder, numClosedRefs); err != nil {
-		return err
-	}
-
-	for _, closedRef := range diff.ClosedCircuitKeys {
-		err := WriteElements(w, closedRef.ChanID, closedRef.HtlcID)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func DeserializeNetworkResult(r io.Reader) (*common.NetworkResult, error) {
-	var (
-		err error
-	)
-
+func DeserializeNetworkResult(r io.Reader) (*common.NetworkResult, error) { // nolint: dupl
 	n := &common.NetworkResult{}
 
-	n.Msg, err = lnwire.ReadMessage(r, 0)
-	if err != nil {
-		return nil, err
-	}
-
 	if err := ReadElements(r,
-		&n.Unencrypted, &n.IsResolution,
+		&n.Msg, &n.Unencrypted, &n.IsResolution,
 	); err != nil {
 		return nil, err
 	}
@@ -239,15 +240,75 @@ func DeserializeNetworkResult(r io.Reader) (*common.NetworkResult, error) {
 	return n, nil
 }
 
-func SerializeNetworkResult(w io.Writer, n *common.NetworkResult) error {
-	if _, err := lnwire.WriteMessage(w, n.Msg, 0); err != nil {
+func writeChanConfig(b io.Writer, c *common.ChannelConfig) error { // nolint: dupl
+	return WriteElements(b,
+		c.DustLimit, c.MaxPendingAmount, c.ChanReserve, c.MinHTLC,
+		c.MaxAcceptedHtlcs, c.CsvDelay, c.MultiSigKey,
+		c.RevocationBasePoint, c.PaymentBasePoint, c.DelayBasePoint,
+		c.HtlcBasePoint,
+	)
+}
+
+func SerializeChannelCloseSummary(w io.Writer, cs *common.ChannelCloseSummary) error { // nolint: dupl
+	err := WriteElements(w,
+		cs.ChanPoint, cs.ShortChanID, cs.ChainHash, cs.ClosingTXID,
+		cs.CloseHeight, cs.RemotePub, cs.Capacity, cs.SettledBalance,
+		cs.TimeLockedBalance, cs.CloseType, cs.IsPending,
+	)
+	if err != nil {
 		return err
 	}
 
-	return WriteElements(w, n.Unencrypted, n.IsResolution)
+	// If this is a close channel summary created before the addition of
+	// the new fields, then we can exit here.
+	if cs.RemoteCurrentRevocation == nil {
+		return WriteElements(w, false)
+	}
+
+	// If fields are present, write boolean to indicate this, and continue.
+	if err := WriteElements(w, true); err != nil {
+		return err
+	}
+
+	if err := WriteElements(w, cs.RemoteCurrentRevocation); err != nil {
+		return err
+	}
+
+	if err := writeChanConfig(w, &cs.LocalChanConfig); err != nil {
+		return err
+	}
+
+	// The RemoteNextRevocation field is optional, as it's possible for a
+	// channel to be closed before we learn of the next unrevoked
+	// revocation point for the remote party. Write a boolen indicating
+	// whether this field is present or not.
+	if err := WriteElements(w, cs.RemoteNextRevocation != nil); err != nil {
+		return err
+	}
+
+	// Write the field, if present.
+	if cs.RemoteNextRevocation != nil {
+		if err = WriteElements(w, cs.RemoteNextRevocation); err != nil {
+			return err
+		}
+	}
+
+	// Write whether the channel sync message is present.
+	if err := WriteElements(w, cs.LastChanSyncMsg != nil); err != nil {
+		return err
+	}
+
+	// Write the channel sync message, if present.
+	if cs.LastChanSyncMsg != nil {
+		if err := WriteElements(w, cs.LastChanSyncMsg); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
-func readChanConfig(b io.Reader, c *common.ChannelConfig) error { // nolint: dupl
+func readChanConfig(b io.Reader, c *common.ChannelConfig) error {
 	return ReadElements(b,
 		&c.DustLimit, &c.MaxPendingAmount, &c.ChanReserve,
 		&c.MinHTLC, &c.MaxAcceptedHtlcs, &c.CsvDelay,
@@ -258,7 +319,6 @@ func readChanConfig(b io.Reader, c *common.ChannelConfig) error { // nolint: dup
 }
 
 func DeserializeCloseChannelSummary(r io.Reader) (*common.ChannelCloseSummary, error) { // nolint: dupl
-
 	c := &common.ChannelCloseSummary{}
 
 	err := ReadElements(r,
@@ -323,8 +383,8 @@ func DeserializeCloseChannelSummary(r io.Reader) (*common.ChannelCloseSummary, e
 	if hasChanSyncMsg {
 		// We must pass in reference to a lnwire.Message for the codec
 		// to support it.
-		msg, err := lnwire.ReadMessage(r, 0)
-		if err != nil {
+		var msg lnwire.Message
+		if err := ReadElements(r, &msg); err != nil {
 			return nil, err
 		}
 
@@ -337,75 +397,6 @@ func DeserializeCloseChannelSummary(r io.Reader) (*common.ChannelCloseSummary, e
 	}
 
 	return c, nil
-}
-
-func writeChanConfig(b io.Writer, c *common.ChannelConfig) error { // nolint: dupl
-	return WriteElements(b,
-		c.DustLimit, c.MaxPendingAmount, c.ChanReserve, c.MinHTLC,
-		c.MaxAcceptedHtlcs, c.CsvDelay, c.MultiSigKey,
-		c.RevocationBasePoint, c.PaymentBasePoint, c.DelayBasePoint,
-		c.HtlcBasePoint,
-	)
-}
-
-func SerializeChannelCloseSummary(w io.Writer, cs *common.ChannelCloseSummary) error {
-	err := WriteElements(w,
-		cs.ChanPoint, cs.ShortChanID, cs.ChainHash, cs.ClosingTXID,
-		cs.CloseHeight, cs.RemotePub, cs.Capacity, cs.SettledBalance,
-		cs.TimeLockedBalance, cs.CloseType, cs.IsPending,
-	)
-	if err != nil {
-		return err
-	}
-
-	// If this is a close channel summary created before the addition of
-	// the new fields, then we can exit here.
-	if cs.RemoteCurrentRevocation == nil {
-		return WriteElements(w, false)
-	}
-
-	// If fields are present, write boolean to indicate this, and continue.
-	if err := WriteElements(w, true); err != nil {
-		return err
-	}
-
-	if err := WriteElements(w, cs.RemoteCurrentRevocation); err != nil {
-		return err
-	}
-
-	if err := writeChanConfig(w, &cs.LocalChanConfig); err != nil {
-		return err
-	}
-
-	// The RemoteNextRevocation field is optional, as it's possible for a
-	// channel to be closed before we learn of the next unrevoked
-	// revocation point for the remote party. Write a boolen indicating
-	// whether this field is present or not.
-	if err := WriteElements(w, cs.RemoteNextRevocation != nil); err != nil {
-		return err
-	}
-
-	// Write the field, if present.
-	if cs.RemoteNextRevocation != nil {
-		if err = WriteElements(w, cs.RemoteNextRevocation); err != nil {
-			return err
-		}
-	}
-
-	// Write whether the channel sync message is present.
-	if err := WriteElements(w, cs.LastChanSyncMsg != nil); err != nil {
-		return err
-	}
-
-	// Write the channel sync message, if present.
-	if cs.LastChanSyncMsg != nil {
-		_, err = lnwire.WriteMessage(w, cs.LastChanSyncMsg, 0)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 // ErrCorruptedFwdPkg signals that the on-disk structure of the forwarding

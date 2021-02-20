@@ -3,8 +3,8 @@
 package main
 
 import (
-	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -29,6 +29,18 @@ var (
 			finalizePsbtCommand,
 		},
 	}
+
+	// accountsCommand is a wallet subcommand that is responsible for
+	// account management operations.
+	accountsCommand = cli.Command{
+		Name:  "accounts",
+		Usage: "Interact with wallet accounts.",
+		Subcommands: []cli.Command{
+			listAccountsCommand,
+			importAccountCommand,
+			importPubKeyCommand,
+		},
+	}
 )
 
 // walletCommands will return the set of commands to enable for walletrpc
@@ -49,8 +61,25 @@ func walletCommands() []cli.Command {
 				releaseOutputCommand,
 				listLeasesCommand,
 				psbtCommand,
+				accountsCommand,
 			},
 		},
+	}
+}
+
+func parseAddrType(addrTypeStr string) (walletrpc.AddressType, error) {
+	switch addrTypeStr {
+	case "":
+		return walletrpc.AddressType_UNKNOWN, nil
+	case "p2wkh":
+		return walletrpc.AddressType_WITNESS_PUBKEY_HASH, nil
+	case "np2wkh":
+		return walletrpc.AddressType_NESTED_WITNESS_PUBKEY_HASH, nil
+	case "np2wkh-p2wkh":
+		return walletrpc.AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH, nil
+	default:
+		return 0, errors.New("invalid address type, supported address " +
+			"types are: p2wkh, np2wkh, and np2wkh-p2wkh")
 	}
 }
 
@@ -826,17 +855,207 @@ var listLeasesCommand = cli.Command{
 }
 
 func listLeases(ctx *cli.Context) error {
-	req := &walletrpc.ListLeasesRequest{}
+	ctxc := getContext()
 
 	walletClient, cleanUp := getWalletClient(ctx)
 	defer cleanUp()
 
-	response, err := walletClient.ListLeases(context.Background(), req)
+	req := &walletrpc.ListLeasesRequest{}
+	response, err := walletClient.ListLeases(ctxc, req)
 	if err != nil {
 		return err
 	}
 
 	printJSON(marshallLocks(response.LockedUtxos))
+	return nil
+}
 
+var listAccountsCommand = cli.Command{
+	Name:  "list",
+	Usage: "Retrieve information of existing on-chain wallet accounts.",
+	Description: `
+	ListAccounts retrieves all accounts belonging to the wallet by default.
+	A name and key scope filter can be provided to filter through all of the
+	wallet accounts and return only those matching.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "name",
+			Usage: "(optional) only accounts matching this name " +
+				"are returned",
+		},
+		cli.StringFlag{
+			Name: "address_type",
+			Usage: "(optional) only accounts matching this " +
+				"address type are returned",
+		},
+	},
+	Action: actionDecorator(listAccounts),
+}
+
+func listAccounts(ctx *cli.Context) error {
+	ctxc := getContext()
+
+	// Display the command's help message if we do not have the expected
+	// number of arguments/flags.
+	if ctx.NArg() > 0 || ctx.NumFlags() > 2 {
+		return cli.ShowCommandHelp(ctx, "list")
+	}
+
+	addrType, err := parseAddrType(ctx.String("address_type"))
+	if err != nil {
+		return err
+	}
+
+	walletClient, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	req := &walletrpc.ListAccountsRequest{
+		Name:        ctx.String("name"),
+		AddressType: addrType,
+	}
+	resp, err := walletClient.ListAccounts(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+
+	return nil
+}
+
+var importAccountCommand = cli.Command{
+	Name: "import",
+	Usage: "Import an on-chain account into the wallet through its " +
+		"extended public key.",
+	ArgsUsage: "extended_public_key name",
+	Description: `
+	Imports an account backed by an account extended public key. The master
+	key fingerprint denotes the fingerprint of the root key corresponding to
+	the account public key (also known as the key with derivation path m/).
+	This may be required by some hardware wallets for proper identification
+	and signing.
+
+	The address type can usually be inferred from the key's version, but may
+	be required for certain keys to map them into the proper scope.
+
+	For BIP-0044 keys, an address type must be specified as we intend to not
+	support importing BIP-0044 keys into the wallet using the legacy
+	pay-to-pubkey-hash (P2PKH) scheme. A nested witness address type will
+	force the standard BIP-0049 derivation scheme, while a witness address
+	type will force the standard BIP-0084 derivation scheme.
+
+	For BIP-0049 keys, an address type must also be specified to make a
+	distinction between the standard BIP-0049 address schema (nested witness
+	pubkeys everywhere) and our own BIP-0049Plus address schema (nested
+	pubkeys externally, witness pubkeys internally).
+
+	NOTE: Events (deposits/spends) for keys derived from an account will
+	only be detected by lnd if they happen after the import. Rescans to
+	detect past events will be supported later on.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "address_type",
+			Usage: "(optional) specify the type of addresses the " +
+				"imported account should generate",
+		},
+		cli.StringFlag{
+			Name: "master_key_fingerprint",
+			Usage: "(optional) the fingerprint of the root key " +
+				"(derivation path m/) corresponding to the " +
+				"account public key",
+		},
+	},
+	Action: actionDecorator(importAccount),
+}
+
+func importAccount(ctx *cli.Context) error {
+	ctxc := getContext()
+
+	// Display the command's help message if we do not have the expected
+	// number of arguments/flags.
+	if ctx.NArg() != 2 || ctx.NumFlags() > 2 {
+		return cli.ShowCommandHelp(ctx, "import")
+	}
+
+	addrType, err := parseAddrType(ctx.String("address_type"))
+	if err != nil {
+		return err
+	}
+
+	var masterKeyFingerprint uint32
+	if ctx.IsSet("master_key_fingerprint") {
+		mkfp, err := hex.DecodeString(ctx.String("master_key_fingerprint"))
+		if err != nil {
+			return fmt.Errorf("invalid master key fingerprint: %v", err)
+		}
+		masterKeyFingerprint = binary.LittleEndian.Uint32(mkfp)
+	}
+
+	walletClient, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	req := &walletrpc.ImportAccountRequest{
+		Name:                 ctx.Args().Get(1),
+		ExtendedPublicKey:    ctx.Args().Get(0),
+		MasterKeyFingerprint: masterKeyFingerprint,
+		AddressType:          addrType,
+	}
+	resp, err := walletClient.ImportAccount(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var importPubKeyCommand = cli.Command{
+	Name:      "import-pubkey",
+	Usage:     "Import a public key as watch-only into the wallet.",
+	ArgsUsage: "public_key address_type",
+	Description: `
+	Imports a public key represented in hex as watch-only into the wallet.
+	The address type must be one of the following: np2wkh, p2wkh.
+
+	NOTE: Events (deposits/spends) for a key will only be detected by lnd if
+	they happen after the import. Rescans to detect past events will be
+	supported later on.
+	`,
+	Action: actionDecorator(importPubKey),
+}
+
+func importPubKey(ctx *cli.Context) error {
+	ctxc := getContext()
+
+	// Display the command's help message if we do not have the expected
+	// number of arguments/flags.
+	if ctx.NArg() != 2 || ctx.NumFlags() > 0 {
+		return cli.ShowCommandHelp(ctx, "import-pubkey")
+	}
+
+	pubKeyBytes, err := hex.DecodeString(ctx.Args().Get(0))
+	if err != nil {
+		return err
+	}
+	addrType, err := parseAddrType(ctx.Args().Get(1))
+	if err != nil {
+		return err
+	}
+
+	walletClient, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	req := &walletrpc.ImportPublicKeyRequest{
+		PublicKey:   pubKeyBytes,
+		AddressType: addrType,
+	}
+	resp, err := walletClient.ImportPublicKey(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
 	return nil
 }

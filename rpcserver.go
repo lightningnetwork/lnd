@@ -1023,7 +1023,7 @@ func (r *rpcServer) ListUnspent(ctx context.Context,
 	var utxos []*lnwallet.Utxo
 	err = r.server.cc.Wallet.WithCoinSelectLock(func() error {
 		utxos, err = r.server.cc.Wallet.ListUnspentWitness(
-			minConfs, maxConfs, "",
+			minConfs, maxConfs, in.Account,
 		)
 		return err
 	})
@@ -1373,6 +1373,12 @@ func (r *rpcServer) SendMany(ctx context.Context,
 func (r *rpcServer) NewAddress(ctx context.Context,
 	in *lnrpc.NewAddressRequest) (*lnrpc.NewAddressResponse, error) {
 
+	// Always use the default wallet account unless one was specified.
+	account := lnwallet.DefaultAccountName
+	if in.Account != "" {
+		account = in.Account
+	}
+
 	// Translate the gRPC proto address type to the wallet controller's
 	// available address types.
 	var (
@@ -1382,7 +1388,7 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 	switch in.Type {
 	case lnrpc.AddressType_WITNESS_PUBKEY_HASH:
 		addr, err = r.server.cc.Wallet.NewAddress(
-			lnwallet.WitnessPubKey, false, lnwallet.DefaultAccountName,
+			lnwallet.WitnessPubKey, false, account,
 		)
 		if err != nil {
 			return nil, err
@@ -1390,7 +1396,7 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 
 	case lnrpc.AddressType_NESTED_PUBKEY_HASH:
 		addr, err = r.server.cc.Wallet.NewAddress(
-			lnwallet.NestedWitnessPubKey, false, lnwallet.DefaultAccountName,
+			lnwallet.NestedWitnessPubKey, false, account,
 		)
 		if err != nil {
 			return nil, err
@@ -1398,7 +1404,7 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 
 	case lnrpc.AddressType_UNUSED_WITNESS_PUBKEY_HASH:
 		addr, err = r.server.cc.Wallet.LastUnusedAddress(
-			lnwallet.WitnessPubKey, lnwallet.DefaultAccountName,
+			lnwallet.WitnessPubKey, account,
 		)
 		if err != nil {
 			return nil, err
@@ -1406,14 +1412,15 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 
 	case lnrpc.AddressType_UNUSED_NESTED_PUBKEY_HASH:
 		addr, err = r.server.cc.Wallet.LastUnusedAddress(
-			lnwallet.NestedWitnessPubKey, lnwallet.DefaultAccountName,
+			lnwallet.NestedWitnessPubKey, account,
 		)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	rpcsLog.Debugf("[newaddress] type=%v addr=%v", in.Type, addr.String())
+	rpcsLog.Debugf("[newaddress] account=%v type=%v addr=%v", account,
+		in.Type, addr.String())
 	return &lnrpc.NewAddressResponse{Address: addr.String()}, nil
 }
 
@@ -4967,7 +4974,7 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 	}
 
 	transactions, err := r.server.cc.Wallet.ListTransactionDetails(
-		req.StartHeight, endHeight, "",
+		req.StartHeight, endHeight, req.Account,
 	)
 	if err != nil {
 		return nil, err

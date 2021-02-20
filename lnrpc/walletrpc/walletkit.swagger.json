@@ -732,7 +732,13 @@
       }
     },
     "walletrpcAddrRequest": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "account": {
+          "type": "string",
+          "description": "The name of the account to retrieve the next address of. If empty, the\ndefault wallet account is used."
+        }
+      }
     },
     "walletrpcAddrResponse": {
       "type": "object",
@@ -792,6 +798,10 @@
           "type": "string",
           "format": "byte",
           "description": "A PSBT that should be signed and finalized. The PSBT must contain all\nrequired inputs, outputs, UTXO data and partial signatures of all other\nsigners."
+        },
+        "account": {
+          "type": "string",
+          "description": "The name of the account to finalize the PSBT with. If empty, the default\nwallet account is used."
         }
       }
     },
@@ -831,6 +841,10 @@
           "type": "string",
           "format": "uint64",
           "description": "The fee rate, expressed in sat/vbyte, that should be used to spend the\ninput with."
+        },
+        "account": {
+          "type": "string",
+          "description": "The name of the account to fund the PSBT with. If empty, the default wallet\naccount is used."
         }
       }
     },

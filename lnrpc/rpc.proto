@@ -582,6 +582,9 @@ message GetTransactionsRequest {
     default to this option.
     */
     int32 end_height = 2;
+
+    // An optional filter to only include transactions relevant to an account.
+    string account = 3;
 }
 
 message TransactionDetails {
@@ -990,6 +993,9 @@ message ListUnspentRequest {
 
     // The maximum number of confirmations to be included.
     int32 max_confs = 2;
+
+    // An optional filter to only include outputs belonging to an account.
+    string account = 3;
 }
 message ListUnspentResponse {
     // A list of utxos
@@ -1010,8 +1016,14 @@ enum AddressType {
 }
 
 message NewAddressRequest {
-    // The address type
+    // The type of address to generate.
     AddressType type = 1;
+
+    /*
+    The name of the account to generate a new address for. If empty, the
+    default wallet account is used.
+    */
+    string account = 2;
 }
 message NewAddressResponse {
     // The newly generated wallet address

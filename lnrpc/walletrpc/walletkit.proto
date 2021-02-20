@@ -178,6 +178,9 @@ message ListUnspentRequest {
 
     // The maximum number of confirmations to be included.
     int32 max_confs = 2;
+
+    // An optional filter to only include outputs belonging to an account.
+    string account = 3;
 }
 
 message ListUnspentResponse {
@@ -234,7 +237,11 @@ message KeyReq {
 }
 
 message AddrRequest {
-    // No fields, as we always give out a p2wkh address.
+    /*
+    The name of the account to retrieve the next address of. If empty, the
+    default wallet account is used.
+    */
+    string account = 1;
 }
 message AddrResponse {
     /*
@@ -560,6 +567,12 @@ message FundPsbtRequest {
         */
         uint64 sat_per_vbyte = 4;
     }
+
+    /*
+    The name of the account to fund the PSBT with. If empty, the default wallet
+    account is used.
+    */
+    string account = 5;
 }
 message FundPsbtResponse {
     /*
@@ -619,6 +632,12 @@ message FinalizePsbtRequest {
     signers.
     */
     bytes funded_psbt = 1;
+
+    /*
+    The name of the account to finalize the PSBT with. If empty, the default
+    wallet account is used.
+    */
+    string account = 5;
 }
 message FinalizePsbtResponse {
     // The fully signed and finalized transaction in PSBT format.

@@ -322,7 +322,7 @@ func (w *WalletKit) ListUnspent(ctx context.Context,
 	var utxos []*lnwallet.Utxo
 	err = w.cfg.CoinSelectionLocker.WithCoinSelectLock(func() error {
 		utxos, err = w.cfg.Wallet.ListUnspentWitness(
-			minConfs, maxConfs, "",
+			minConfs, maxConfs, req.Account,
 		)
 		return err
 	})
@@ -489,8 +489,13 @@ func (w *WalletKit) DeriveKey(ctx context.Context,
 func (w *WalletKit) NextAddr(ctx context.Context,
 	req *AddrRequest) (*AddrResponse, error) {
 
+	account := lnwallet.DefaultAccountName
+	if req.Account != "" {
+		account = req.Account
+	}
+
 	addr, err := w.cfg.Wallet.NewAddress(
-		lnwallet.WitnessPubKey, false, lnwallet.DefaultAccountName,
+		lnwallet.WitnessPubKey, false, account,
 	)
 	if err != nil {
 		return nil, err
@@ -1055,12 +1060,19 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 	// UTXOs.
 	changeIndex := int32(-1)
 	err = w.cfg.CoinSelectionLocker.WithCoinSelectLock(func() error {
+		// We'll assume the PSBT will be funded by the default account
+		// unless otherwise specified.
+		account := lnwallet.DefaultAccountName
+		if req.Account != "" {
+			account = req.Account
+		}
+
 		// In case the user did specify inputs, we need to make sure
 		// they are known to us, still unspent and not yet locked.
 		if len(packet.UnsignedTx.TxIn) > 0 {
 			// Get a list of all unspent witness outputs.
 			utxos, err := w.cfg.Wallet.ListUnspentWitness(
-				defaultMinConf, defaultMaxConf, "",
+				defaultMinConf, defaultMaxConf, account,
 			)
 			if err != nil {
 				return err
@@ -1079,7 +1091,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		// lock any coins but might still change the wallet DB by
 		// generating a new change address.
 		changeIndex, err = w.cfg.Wallet.FundPsbt(
-			packet, feeSatPerKW, lnwallet.DefaultAccountName,
+			packet, feeSatPerKW, account,
 		)
 		if err != nil {
 			return fmt.Errorf("wallet couldn't fund PSBT: %v", err)
@@ -1155,6 +1167,13 @@ func marshallLeases(locks []*wtxmgr.LockedOutput) []*UtxoLease {
 func (w *WalletKit) FinalizePsbt(_ context.Context,
 	req *FinalizePsbtRequest) (*FinalizePsbtResponse, error) {
 
+	// We'll assume the PSBT was funded by the default account unless
+	// otherwise specified.
+	account := lnwallet.DefaultAccountName
+	if req.Account != "" {
+		account = req.Account
+	}
+
 	// Parse the funded PSBT. No additional checks are required at this
 	// level as the wallet will perform all of them.
 	packet, err := psbt.NewFromRawBytes(
@@ -1167,7 +1186,7 @@ func (w *WalletKit) FinalizePsbt(_ context.Context,
 	// Let the wallet do the heavy lifting. This will sign all inputs that
 	// we have the UTXO for. If some inputs can't be signed and don't have
 	// witness data attached, this will fail.
-	err = w.cfg.Wallet.FinalizePsbt(packet)
+	err = w.cfg.Wallet.FinalizePsbt(packet, account)
 	if err != nil {
 		return nil, fmt.Errorf("error finalizing PSBT: %v", err)
 	}

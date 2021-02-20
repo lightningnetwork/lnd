@@ -275,6 +275,9 @@ http:
     - selector: walletrpc.WalletKit.DeriveKey
       post: "/v2/wallet/key"
       body: "*"
+    - selector: walletrpc.WalletKit.ImportPublicKey
+      post: "/v2/wallet/key/import"
+      body: "*"
     - selector: walletrpc.WalletKit.NextAddr
       post: "/v2/wallet/address/next"
       body: "*"
@@ -301,6 +304,11 @@ http:
       body: "*"
     - selector: walletrpc.WalletKit.FinalizePsbt
       post: "/v2/wallet/psbt/finalize"
+      body: "*"
+    - selector: walletrpc.WalletKit.ListAccounts
+      get: "/v2/wallet/accounts"
+    - selector: walletrpc.WalletKit.ImportAccount
+      post: "/v2/wallet/accounts/import"
       body: "*"
 
     # watchtowerrpc/watchtower.proto

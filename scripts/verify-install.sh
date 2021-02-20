@@ -29,41 +29,21 @@ function check_command() {
   fi
 }
 
-# By default we're picking up lnd and lncli from the system $PATH.
-LND_BIN=$(which lnd)
-LNCLI_BIN=$(which lncli)
-
-# If exactly two parameters are specified, we expect the first one to be lnd and
-# the second one to be lncli.
-if [[ $# -eq 2 ]]; then
-  LND_BIN=$(realpath $1)
-  LNCLI_BIN=$(realpath $2)
-  
-  # Make sure both files actually exist.
-  if [[ ! -f $LND_BIN ]]; then
-    echo "ERROR: $LND_BIN not found!"
-    exit 1
-  fi
-  if [[ ! -f $LNCLI_BIN ]]; then
-    echo "ERROR: $LNCLI_BIN not found!"
-    exit 1
-  fi
-elif [[ $# -eq 0 ]]; then
-  # Make sure both binaries can be found and are executable.
-  check_command lnd
-  check_command lncli
+# If exactly three parameters are specified, we expect the first one to be lnd version and
+# the following parameters are assets to be verified.
+if [[ $# -ge 2 ]]; then
+  LND_VERSION="$1"
+  # discard this argument
+  shift
 else
   echo "ERROR: invalid number of parameters!"
-  echo "Usage: verify-install.sh [lnd-binary lncli-binary]"
+  echo "Usage: verify-install.sh lnd-version asset-to-verify [assets-to-verify]"
   exit 1
 fi
 
 check_command curl
 check_command jq
 check_command gpg
-
-LND_VERSION=$($LND_BIN --version | cut -d'=' -f2)
-LNCLI_VERSION=$($LNCLI_BIN --version | cut -d'=' -f2)
 
 # Make this script compatible with both linux and *nix.
 SHA_CMD="sha256sum"
@@ -75,62 +55,51 @@ if ! command -v "$SHA_CMD"; then
     exit 1
   fi
 fi
-LND_SUM=$($SHA_CMD $LND_BIN | cut -d' ' -f1)
-LNCLI_SUM=$($SHA_CMD $LNCLI_BIN | cut -d' ' -f1)
 
-echo "Detected lnd $LND_BIN version $LND_VERSION with SHA256 sum $LND_SUM"
-echo "Detected lncli $LNCLI_BIN version $LNCLI_VERSION with SHA256 sum $LNCLI_SUM"
-
-# Make sure lnd and lncli are installed with the same version and is an actual
-# version string.
-if [[ "$LNCLI_VERSION" != "$LND_VERSION" ]]; then
-  echo "ERROR: Version $LNCLI_VERSION of lncli does not match $LND_VERSION of lnd!"
-  exit 1
-fi
 version_regex="^v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]"
 if [[ ! "$LND_VERSION" =~ $version_regex ]]; then
-  echo "ERROR: Invalid version of lnd detected: $LND_VERSION"
+  echo "ERROR: Invalid version of lnd specified: $LND_VERSION"
   exit 1
 fi
 
-# Make sure the hash was actually calculated by looking at its length.
-if [[ ${#LND_SUM} -ne 64 ]]; then
-  echo "ERROR: Invalid hash for lnd: $LND_SUM!"
-  exit 1
-fi
-if [[ ${#LNCLI_SUM} -ne 64 ]]; then
-  echo "ERROR: Invalid hash for lncli: $LNCLI_SUM!"
-  exit 1
-fi
-
+# FIXME: how to fix this?
 # If we're inside the docker image, there should be a shasums.txt file in the
 # root directory. If that's the case, we first want to make sure we still have
 # the same hash as we did when building the image.
-if [[ -f /shasums.txt ]]; then
-  if ! grep -q "$LND_SUM" /shasums.txt; then
-    echo "ERROR: Hash $LND_SUM for lnd not found in /shasums.txt: "
-    cat /shasums.txt
-    exit 1
-  fi
-  if ! grep -q "$LNCLI_SUM" /shasums.txt; then
-    echo "ERROR: Hash $LNCLI_SUM for lnd not found in /shasums.txt: "
-    cat /shasums.txt
-    exit 1
-  fi
-fi
 
+# if [[ -f /shasums.txt ]]; then
+#   if ! grep -q "$LND_SUM" /shasums.txt; then
+#     echo "ERROR: Hash $LND_SUM for lnd not found in /shasums.txt: "
+#     cat /shasums.txt
+#     exit 1
+#   fi
+#   if ! grep -q "$LNCLI_SUM" /shasums.txt; then
+#     echo "ERROR: Hash $LNCLI_SUM for lnd not found in /shasums.txt: "
+#     cat /shasums.txt
+#     exit 1
+#   fi
+# fi
+
+TEMP_DIR=$(mktemp -d /tmp/lnd-sig-verification-XXXXXX)
+# The GPG keys will be imported here to not surprisingly pollute GPG keyring of the user
+mkdir -p "$TEMP_DIR/all_keys"
+# Make GPG shut up about permissions
+chmod 700 "$TEMP_DIR/all_keys"
 # Import all the signing keys.
 for key in "${KEYS[@]}"; do
   KEY_ID=$(echo $key | cut -d' ' -f1)
   IMPORT_URL=$(echo $key | cut -d' ' -f2)
+  mkdir -p "$TEMP_DIR/$KEY_ID"
+  # Make GPG shut up about permissions
+  chmod 700 "$TEMP_DIR/$KEY_ID"
   echo "Downloading and importing key $KEY_ID from $IMPORT_URL"
-  curl -L -s $IMPORT_URL | gpg --import
+  curl -L -s $IMPORT_URL | GNUPGHOME="$TEMP_DIR/all_keys" gpg --import
 
-  # Make sure we actually imported the correct key.
-  if ! gpg --list-key "$KEY_ID"; then
-    echo "ERROR: Imported key from $IMPORT_URL doesn't match ID $KEY_ID."
-  fi
+  # Make sure we have the correct key in target directory.
+  GNUPGHOME="$TEMP_DIR/all_keys" gpg --export "$KEY_ID" | GNUPGHOME="$TEMP_DIR/$KEY_ID" gpg --import
 done
+# Defensively remove all_keys
+rm -rf "$TEMP_DIR/all_keys"
 
 echo ""
 
@@ -148,7 +117,6 @@ SIGNATURES=$(echo $ASSETS | jq -r "$SIGNATURE_SELECTOR")
 
 # Download the main "manifest-*.txt" and all "manifest-*.sig" files containing
 # the detached signatures.
-TEMP_DIR=$(mktemp -d /tmp/lnd-sig-verification-XXXXXX)
 echo "Downloading $MANIFEST"
 curl -L -s -o "$TEMP_DIR/$MANIFEST" "$RELEASE_URL/download/$LND_VERSION/$MANIFEST"
 
@@ -158,29 +126,40 @@ for signature in $SIGNATURES; do
 done
 
 echo ""
-cd $TEMP_DIR || exit 1
 
 # Before we even look at the content of the manifest, we first want to make sure
 # the signatures actually sign that exact manifest.
 NUM_CHECKS=0
 for signature in $SIGNATURES; do
   echo "Verifying $signature"
-  if gpg --verify "$signature" "$MANIFEST" 2>&1 | grep -q "Good signature"; then
-    echo "Signature for $signature appears valid: "
-    gpg --verify "$signature" "$MANIFEST" 2>&1 | grep "using"
-  elif gpg --verify "$signature" 2>&1 | grep -q "No public key"; then
-    echo "Unable to verify signature $signature, no key available, skipping"
-    continue
-  else
-    echo "ERROR: Did not get valid signature for $MANIFEST in $signature!"
-    echo "  The developer signature $signature disagrees on the expected"
-    echo "  release binaries in $MANIFEST. The release may have been faulty or"
-    echo "  was backdoored."
-    exit 1
-  fi
+  VALID=0
+  for key in "${KEYS[@]}"; do
+    KEY_ID=$(echo $key | cut -d' ' -f1)
+    if GNUPGHOME="$TEMP_DIR/$KEY_ID" gpg --verify "$TEMP_DIR/$signature" "$TEMP_DIR/$MANIFEST" 2>&1 | grep -q "Good signature"; then
+      # We remove the key and signature to NOT count them more than once
+      # THIS IS CRUCIAL FOR VERIFICATION TO BE SECURE!!!
+      rm -rf "$TEMP_DIR/$KEY_ID" "$signature" || exit 1
 
-  echo "Verified $signature against $MANIFEST"
-  ((NUM_CHECKS=NUM_CHECKS+1))
+      echo "Verified $signature against $MANIFEST using $KEY_ID"
+      VALID=1
+      break
+    elif GNUPGHOME="$TEMP_DIR/$KEY_ID" gpg --verify "$TEMP_DIR/$signature" "$TEMP_DIR/$MANIFEST" 2>&1 | grep -q "No public key"; then
+      continue
+    else
+      echo "ERROR: Did not get valid signature for $MANIFEST in $signature!"
+      echo "  The developer signature $signature disagrees on the expected"
+      echo "  release binaries in $MANIFEST. The release may have been faulty or"
+      echo "  was backdoored."
+      echo "  The key used for verification: $KEY_ID"
+      exit 1
+    fi
+  done
+  if [ "$VALID" = "1" ];
+  then
+    ((NUM_CHECKS=NUM_CHECKS+1))
+  else
+    echo "Unable to verify signature $signature, no key available, skipping"
+  fi
 done
 
 # We want at least five signatures (out of seven public keys) that sign the
@@ -199,25 +178,32 @@ if [[ $NUM_CHECKS -lt $MIN_REQUIRED_SIGNATURES ]]; then
   exit 1
 fi
 
-# Then make sure that the hash of the installed binaries can be found in the
-# manifest that we now have verified the signatures for.
-if ! grep -q "^$LND_SUM" "$MANIFEST"; then
-  echo "ERROR: Hash $LND_SUM for lnd not found in $MANIFEST: "
-  cat "$MANIFEST"
-  echo "  The expected release binaries have been verified with the developer "
-  echo "  signatures. Your binary's hash does not match the expected release "
-  echo "  binary hashes. Make sure you're using an official binary."
-  exit 1
-fi
+VERSION_REGEX="`echo "-$LND_VERSION" | sed 's/\./\\./g'`"
 
-if ! grep -q "^$LNCLI_SUM" "$MANIFEST"; then
-  echo "ERROR: Hash $LNCLI_SUM for lncli not found in $MANIFEST: "
-  cat "$MANIFEST"
-  echo "  The expected release binaries have been verified with the developer "
-  echo "  signatures. Your binary's hash does not match the expected release "
-  echo "  binary hashes. Make sure you're using an official binary."
-  exit 1
-fi
+# note that we discarded the version argument
+for asset in "$@";
+do
+  # Then make sure that the hash of the installed binaries can be found in the
+  # manifest that we now have verified the signatures for.
+  SUM="`$SHA_CMD "$asset" | cut -d' ' -f1`" || exit 1
+  if [[ ${#SUM} -ne 64 ]]; then
+    echo "ERROR: invalid sha256sum for $asset"
+    exit 1
+  fi
+  if ! grep -q "^$SUM " "$TEMP_DIR/$MANIFEST"; then
+    echo "ERROR: Hash $SUM for $asset not found in $MANIFEST: "
+    cat "$MANIFEST"
+    echo "  The expected release binaries have been verified with the developer "
+    echo "  signatures. Your binary's hash does not match the expected release "
+    echo "  binary hashes. Make sure you're using an official binary."
+    exit 1
+  fi
+  if ! grep "^$SUM " "$TEMP_DIR/$MANIFEST" | grep -q -- "$VERSION_REGEX"; then
+    echo "ERROR: the version doesn't match"
+    echo "This may be an attempt at downgrade attack or a bug"
+    exit 1
+  fi
+done
 
 echo ""
 echo "SUCCESS! Verified lnd and lncli against $MANIFEST signed by $NUM_CHECKS developers."

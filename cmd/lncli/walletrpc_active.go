@@ -523,6 +523,11 @@ var fundPsbtCommand = cli.Command{
 			Usage: "a manual fee expressed in sat/vbyte that " +
 				"should be used when creating the transaction",
 		},
+		cli.StringFlag{
+			Name: "account",
+			Usage: "(optional) the name of the account to use to " +
+				"create/fund the PSBT",
+		},
 	},
 	Action: actionDecorator(fundPsbt),
 }
@@ -536,7 +541,9 @@ func fundPsbt(ctx *cli.Context) error {
 		return cli.ShowCommandHelp(ctx, "fund")
 	}
 
-	req := &walletrpc.FundPsbtRequest{}
+	req := &walletrpc.FundPsbtRequest{
+		Account: ctx.String("account"),
+	}
 
 	// Parse template flags.
 	switch {
@@ -691,6 +698,11 @@ var finalizePsbtCommand = cli.Command{
 			Name:  "funded_psbt",
 			Usage: "the base64 encoded PSBT to finalize",
 		},
+		cli.StringFlag{
+			Name: "account",
+			Usage: "(optional) the name of the account to " +
+				"finalize the PSBT with",
+		},
 	},
 	Action: actionDecorator(finalizePsbt),
 }
@@ -700,7 +712,7 @@ func finalizePsbt(ctx *cli.Context) error {
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() != 1 && ctx.NumFlags() != 1 {
+	if ctx.NArg() > 1 || ctx.NumFlags() > 2 {
 		return cli.ShowCommandHelp(ctx, "finalize")
 	}
 
@@ -723,6 +735,7 @@ func finalizePsbt(ctx *cli.Context) error {
 	}
 	req := &walletrpc.FinalizePsbtRequest{
 		FundedPsbt: psbtBytes,
+		Account:    ctx.String("account"),
 	}
 
 	walletClient, cleanUp := getWalletClient(ctx)

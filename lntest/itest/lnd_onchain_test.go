@@ -24,7 +24,7 @@ import (
 func testCPFP(net *lntest.NetworkHarness, t *harnessTest) {
 	// Skip this test for neutrino, as it's not aware of mempool
 	// transactions.
-	if net.BackendCfg.Name() == "neutrino" {
+	if net.BackendCfg.Name() == lntest.NeutrinoBackendName {
 		t.Skipf("skipping CPFP test for neutrino backend")
 	}
 

@@ -39,7 +39,7 @@ func (b NeutrinoBackendConfig) DisconnectMiner() error {
 
 // Name returns the name of the backend type.
 func (b NeutrinoBackendConfig) Name() string {
-	return "neutrino"
+	return NeutrinoBackendName
 }
 
 // NewBackend starts and returns a NeutrinoBackendConfig for the node.

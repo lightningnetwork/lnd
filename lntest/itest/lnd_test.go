@@ -2531,7 +2531,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	// Skip test for neutrino, as we cannot disconnect the miner at will.
 	// TODO(halseth): remove when either can disconnect at will, or restart
 	// node with connection to new miner.
-	if net.BackendCfg.Name() == "neutrino" {
+	if net.BackendCfg.Name() == lntest.NeutrinoBackendName {
 		t.Skipf("skipping reorg test for neutrino backend")
 	}
 

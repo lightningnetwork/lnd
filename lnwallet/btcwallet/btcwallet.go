@@ -9,11 +9,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/btcsuite/btcutil/psbt"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
@@ -336,6 +338,142 @@ func (b *BtcWallet) LastUnusedAddress(addrType lnwallet.AddressType,
 func (b *BtcWallet) IsOurAddress(a btcutil.Address) bool {
 	result, err := b.wallet.HaveAddress(a)
 	return result && (err == nil)
+}
+
+// ListAccounts retrieves all accounts belonging to the wallet by default. A
+// name and key scope filter can be provided to filter through all of the wallet
+// accounts and return only those matching.
+//
+// This is a part of the WalletController interface.
+func (b *BtcWallet) ListAccounts(name string,
+	keyScope *waddrmgr.KeyScope) ([]*waddrmgr.AccountProperties, error) {
+
+	var res []*waddrmgr.AccountProperties
+	switch {
+	// If both the name and key scope filters were provided, we'll return
+	// the existing account matching those.
+	case name != "" && keyScope != nil:
+		account, err := b.wallet.AccountPropertiesByName(*keyScope, name)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, account)
+
+	// Only the name filter was provided.
+	case name != "" && keyScope == nil:
+		// If the name corresponds to the default or imported accounts,
+		// we'll return them for both of our supported key scopes.
+		if name == lnwallet.DefaultAccountName ||
+			name == waddrmgr.ImportedAddrAccountName {
+
+			a1, err := b.wallet.AccountPropertiesByName(
+				waddrmgr.KeyScopeBIP0049Plus, name,
+			)
+			if err != nil {
+				return nil, err
+			}
+			res = append(res, a1)
+
+			a2, err := b.wallet.AccountPropertiesByName(
+				waddrmgr.KeyScopeBIP0084, name,
+			)
+			if err != nil {
+				return nil, err
+			}
+			res = append(res, a2)
+			break
+		}
+
+		// Otherwise, we'll retrieve the single account that's mapped by
+		// the given name.
+		scope, acctNum, err := b.wallet.LookupAccount(name)
+		if err != nil {
+			return nil, err
+		}
+		account, err := b.wallet.AccountProperties(scope, acctNum)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, account)
+
+	// Only the key scope filter was provided, so we'll return all accounts
+	// matching it.
+	case name == "" && keyScope != nil:
+		accounts, err := b.wallet.Accounts(*keyScope)
+		if err != nil {
+			return nil, err
+		}
+		for _, account := range accounts.Accounts {
+			account := account
+			res = append(res, &account.AccountProperties)
+		}
+
+	// Neither of the filters were provided, so return all accounts for our
+	// supported key scopes.
+	case name == "" && keyScope == nil:
+		accounts, err := b.wallet.Accounts(waddrmgr.KeyScopeBIP0049Plus)
+		if err != nil {
+			return nil, err
+		}
+		for _, account := range accounts.Accounts {
+			account := account
+			res = append(res, &account.AccountProperties)
+		}
+
+		accounts, err = b.wallet.Accounts(waddrmgr.KeyScopeBIP0084)
+		if err != nil {
+			return nil, err
+		}
+		for _, account := range accounts.Accounts {
+			account := account
+			res = append(res, &account.AccountProperties)
+		}
+	}
+
+	return res, nil
+}
+
+// ImportAccount imports an account backed by an account extended public key.
+// The master key fingerprint denotes the fingerprint of the root key
+// corresponding to the account public key (also known as the key with
+// derivation path m/). This may be required by some hardware wallets for proper
+// identification and signing.
+//
+// The address type can usually be inferred from the key's version, but may be
+// required for certain keys to map them into the proper scope.
+//
+// For BIP-0044 keys, an address type must be specified as we intend to not
+// support importing BIP-0044 keys into the wallet using the legacy
+// pay-to-pubkey-hash (P2PKH) scheme. A nested witness address type will force
+// the standard BIP-0049 derivation scheme, while a witness address type will
+// force the standard BIP-0084 derivation scheme.
+//
+// For BIP-0049 keys, an address type must also be specified to make a
+// distinction between the standard BIP-0049 address schema (nested witness
+// pubkeys everywhere) and our own BIP-0049Plus address schema (nested pubkeys
+// externally, witness pubkeys internally).
+//
+// This is a part of the WalletController interface.
+func (b *BtcWallet) ImportAccount(name string, accountPubKey *hdkeychain.ExtendedKey,
+	masterKeyFingerprint uint32, addrType *waddrmgr.AddressType) error {
+
+	_, err := b.wallet.ImportAccount(
+		name, accountPubKey, masterKeyFingerprint, addrType,
+	)
+	return err
+}
+
+// ImportPublicKey imports a single derived public key into the wallet. The
+// address type can usually be inferred from the key's version, but in the case
+// of legacy versions (xpub, tpub), an address type must be specified as we
+// intend to not support importing BIP-44 keys into the wallet using the legacy
+// pay-to-pubkey-hash (P2PKH) scheme.
+//
+// This is a part of the WalletController interface.
+func (b *BtcWallet) ImportPublicKey(pubKey *btcec.PublicKey,
+	addrType waddrmgr.AddressType) error {
+
+	return b.wallet.ImportPublicKey(pubKey, addrType)
 }
 
 // SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying out to

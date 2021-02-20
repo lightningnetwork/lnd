@@ -10,7 +10,9 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/btcsuite/btcutil/psbt"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/input"
@@ -191,6 +193,40 @@ type WalletController interface {
 
 	// IsOurAddress checks if the passed address belongs to this wallet
 	IsOurAddress(a btcutil.Address) bool
+
+	// ListAccounts retrieves all accounts belonging to the wallet by
+	// default. A name and key scope filter can be provided to filter
+	// through all of the wallet accounts and return only those matching.
+	ListAccounts(string, *waddrmgr.KeyScope) ([]*waddrmgr.AccountProperties, error)
+
+	// ImportAccount imports an account backed by an account extended public
+	// key. The master key fingerprint denotes the fingerprint of the root
+	// key corresponding to the account public key (also known as the key
+	// with derivation path m/). This may be required by some hardware
+	// wallets for proper identification and signing.
+	//
+	// The address type can usually be inferred from the key's version, but
+	// may be required for certain keys to map them into the proper scope.
+	//
+	// For BIP-0044 keys, an address type must be specified as we intend to
+	// not support importing BIP-0044 keys into the wallet using the legacy
+	// pay-to-pubkey-hash (P2PKH) scheme. A nested witness address type will
+	// force the standard BIP-0049 derivation scheme, while a witness
+	// address type will force the standard BIP-0084 derivation scheme.
+	//
+	// For BIP-0049 keys, an address type must also be specified to make a
+	// distinction between the standard BIP-0049 address schema (nested
+	// witness pubkeys everywhere) and our own BIP-0049Plus address schema
+	// (nested pubkeys externally, witness pubkeys internally).
+	ImportAccount(name string, accountPubKey *hdkeychain.ExtendedKey,
+		masterKeyFingerprint uint32, addrType *waddrmgr.AddressType) error
+
+	// ImportPublicKey imports a single derived public key into the wallet.
+	// The address type can usually be inferred from the key's version, but
+	// in the case of legacy versions (xpub, tpub), an address type must be
+	// specified as we intend to not support importing BIP-44 keys into the
+	// wallet using the legacy pay-to-pubkey-hash (P2PKH) scheme.
+	ImportPublicKey(pubKey *btcec.PublicKey, addrType waddrmgr.AddressType) error
 
 	// SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying
 	// out to the specified outputs. In the case the wallet has insufficient

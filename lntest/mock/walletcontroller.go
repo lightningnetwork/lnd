@@ -10,7 +10,9 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/btcsuite/btcutil/psbt"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 
@@ -76,6 +78,24 @@ func (w *WalletController) LastUnusedAddress(addrType lnwallet.AddressType,
 // IsOurAddress currently returns a dummy value.
 func (w *WalletController) IsOurAddress(a btcutil.Address) bool {
 	return false
+}
+
+// ListAccounts currently returns a dummy value.
+func (w *WalletController) ListAccounts(_ string,
+	_ *waddrmgr.KeyScope) ([]*waddrmgr.AccountProperties, error) {
+	return nil, nil
+}
+
+// ImportAccount currently returns a dummy value.
+func (w *WalletController) ImportAccount(string, *hdkeychain.ExtendedKey,
+	uint32, *waddrmgr.AddressType) error {
+	return nil
+}
+
+// ImportPublicKey currently returns a dummy value.
+func (w *WalletController) ImportPublicKey(*btcec.PublicKey,
+	waddrmgr.AddressType) error {
+	return nil
 }
 
 // SendOutputs currently returns dummy values.

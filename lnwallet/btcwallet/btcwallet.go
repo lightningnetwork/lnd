@@ -223,13 +223,19 @@ func (b *BtcWallet) Stop() error {
 // ConfirmedBalance returns the sum of all the wallet's unspent outputs that
 // have at least confs confirmations. If confs is set to zero, then all unspent
 // outputs, including those currently in the mempool will be included in the
-// final sum.
+// final sum. The account parameter serves as a filter to retrieve the balance
+// for a specific account. When empty, the confirmed balance of all wallet
+// accounts is returned.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) ConfirmedBalance(confs int32) (btcutil.Amount, error) {
+func (b *BtcWallet) ConfirmedBalance(confs int32,
+	accountFilter string) (btcutil.Amount, error) {
+
 	var balance btcutil.Amount
 
-	witnessOutputs, err := b.ListUnspentWitness(confs, math.MaxInt32)
+	witnessOutputs, err := b.ListUnspentWitness(
+		confs, math.MaxInt32, accountFilter,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -463,16 +469,25 @@ func (b *BtcWallet) ReleaseOutput(id wtxmgr.LockID, op wire.OutPoint) error {
 	return b.wallet.ReleaseOutput(id, op)
 }
 
-// ListUnspentWitness returns a slice of all the unspent outputs the wallet
-// controls which pay to witness programs either directly or indirectly.
+// ListUnspentWitness returns all unspent outputs which are version 0 witness
+// programs. The 'minconfirms' and 'maxconfirms' parameters indicate the minimum
+// and maximum number of confirmations an output needs in order to be returned
+// by this method. Passing -1 as 'minconfirms' indicates that even unconfirmed
+// outputs should be returned. Using MaxInt32 as 'maxconfirms' implies returning
+// all outputs with at least 'minconfirms'. The account parameter serves as a
+// filter to retrieve the unspent outputs for a specific account.  When empty,
+// the unspent outputs of all wallet accounts are returned.
 //
 // NOTE: This method requires the global coin selection lock to be held.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) ListUnspentWitness(minConfs, maxConfs int32) (
-	[]*lnwallet.Utxo, error) {
+func (b *BtcWallet) ListUnspentWitness(minConfs, maxConfs int32,
+	accountFilter string) ([]*lnwallet.Utxo, error) {
+
 	// First, grab all the unfiltered currently unspent outputs.
-	unspentOutputs, err := b.wallet.ListUnspent(minConfs, maxConfs, "")
+	unspentOutputs, err := b.wallet.ListUnspent(
+		minConfs, maxConfs, accountFilter,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -690,14 +705,18 @@ func unminedTransactionsToDetail(
 	return txDetail, nil
 }
 
-// ListTransactionDetails returns a list of all transactions which are
-// relevant to the wallet. It takes inclusive start and end height to allow
-// paginated queries. Unconfirmed transactions can be included in the query
-// by providing endHeight = UnconfirmedHeight (= -1).
+// ListTransactionDetails returns a list of all transactions which are relevant
+// to the wallet over [startHeight;endHeight]. If start height is greater than
+// end height, the transactions will be retrieved in reverse order. To include
+// unconfirmed transactions, endHeight should be set to the special value -1.
+// This will return transactions from the tip of the chain until the start
+// height (inclusive) and unconfirmed transactions. The account parameter serves
+// as a filter to retrieve the transactions relevant to a specific account. When
+// empty, transactions of all wallet accounts are returned.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) ListTransactionDetails(startHeight,
-	endHeight int32) ([]*lnwallet.TransactionDetail, error) {
+func (b *BtcWallet) ListTransactionDetails(startHeight, endHeight int32,
+	accountFilter string) ([]*lnwallet.TransactionDetail, error) {
 
 	// Grab the best block the wallet knows of, we'll use this to calculate
 	// # of confirmations shortly below.
@@ -707,7 +726,7 @@ func (b *BtcWallet) ListTransactionDetails(startHeight,
 	// We'll attempt to find all transactions from start to end height.
 	start := base.NewBlockIdentifierFromHeight(startHeight)
 	stop := base.NewBlockIdentifierFromHeight(endHeight)
-	txns, err := b.wallet.GetTransactions(start, stop, "", nil)
+	txns, err := b.wallet.GetTransactions(start, stop, accountFilter, nil)
 	if err != nil {
 		return nil, err
 	}

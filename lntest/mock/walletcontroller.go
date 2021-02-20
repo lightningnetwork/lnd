@@ -52,7 +52,8 @@ func (w *WalletController) FetchInputInfo(
 }
 
 // ConfirmedBalance currently returns dummy values.
-func (w *WalletController) ConfirmedBalance(confs int32) (btcutil.Amount, error) {
+func (w *WalletController) ConfirmedBalance(confs int32,
+	_ string) (btcutil.Amount, error) {
 	return 0, nil
 }
 
@@ -94,7 +95,7 @@ func (w *WalletController) CreateSimpleTx(outputs []*wire.TxOut,
 // ListUnspentWitness is called by the wallet when doing coin selection. We just
 // need one unspent for the funding transaction.
 func (w *WalletController) ListUnspentWitness(minconfirms,
-	maxconfirms int32) ([]*lnwallet.Utxo, error) {
+	maxconfirms int32, _ string) ([]*lnwallet.Utxo, error) {
 
 	// If the mock already has a list of utxos, return it.
 	if w.Utxos != nil {
@@ -119,7 +120,7 @@ func (w *WalletController) ListUnspentWitness(minconfirms,
 
 // ListTransactionDetails currently returns dummy values.
 func (w *WalletController) ListTransactionDetails(_,
-	_ int32) ([]*lnwallet.TransactionDetail, error) {
+	_ int32, _ string) ([]*lnwallet.TransactionDetail, error) {
 
 	return nil, nil
 }

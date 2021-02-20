@@ -1023,7 +1023,7 @@ func (r *rpcServer) ListUnspent(ctx context.Context,
 	var utxos []*lnwallet.Utxo
 	err = r.server.cc.Wallet.WithCoinSelectLock(func() error {
 		utxos, err = r.server.cc.Wallet.ListUnspentWitness(
-			minConfs, maxConfs,
+			minConfs, maxConfs, "",
 		)
 		return err
 	})
@@ -1191,7 +1191,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		sweepTxPkg, err := sweep.CraftSweepAllTx(
 			feePerKw, lnwallet.DefaultDustLimit(),
 			uint32(bestHeight), nil, targetAddr, wallet,
-			wallet.WalletController, wallet.WalletController,
+			wallet, wallet.WalletController,
 			r.server.cc.FeeEstimator, r.server.cc.Signer,
 		)
 		if err != nil {
@@ -1243,7 +1243,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			sweepTxPkg, err = sweep.CraftSweepAllTx(
 				feePerKw, lnwallet.DefaultDustLimit(),
 				uint32(bestHeight), outputs, targetAddr, wallet,
-				wallet.WalletController, wallet.WalletController,
+				wallet, wallet.WalletController,
 				r.server.cc.FeeEstimator, r.server.cc.Signer,
 			)
 			if err != nil {
@@ -2763,7 +2763,9 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 	in *lnrpc.WalletBalanceRequest) (*lnrpc.WalletBalanceResponse, error) {
 
 	// Get total balance, from txs that have >= 0 confirmations.
-	totalBal, err := r.server.cc.Wallet.ConfirmedBalance(0)
+	totalBal, err := r.server.cc.Wallet.ConfirmedBalance(
+		0, lnwallet.DefaultAccountName,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2771,7 +2773,9 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 	// Get confirmed balance, from txs that have >= 1 confirmations.
 	// TODO(halseth): get both unconfirmed and confirmed balance in one
 	// call, as this is racy.
-	confirmedBal, err := r.server.cc.Wallet.ConfirmedBalance(1)
+	confirmedBal, err := r.server.cc.Wallet.ConfirmedBalance(
+		1, lnwallet.DefaultAccountName,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -4963,7 +4967,7 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 	}
 
 	transactions, err := r.server.cc.Wallet.ListTransactionDetails(
-		req.StartHeight, endHeight,
+		req.StartHeight, endHeight, "",
 	)
 	if err != nil {
 		return nil, err

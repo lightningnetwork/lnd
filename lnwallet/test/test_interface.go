@@ -101,7 +101,7 @@ var (
 func assertProperBalance(t *testing.T, lw *lnwallet.LightningWallet,
 	numConfirms int32, amount float64) {
 
-	balance, err := lw.ConfirmedBalance(numConfirms)
+	balance, err := lw.ConfirmedBalance(numConfirms, lnwallet.DefaultAccountName)
 	if err != nil {
 		t.Fatalf("unable to query for balance: %v", err)
 	}
@@ -208,7 +208,7 @@ func assertTxInWallet(t *testing.T, w *lnwallet.LightningWallet,
 	// We'll fetch all of our transaction and go through each one until
 	// finding the expected transaction with its expected confirmation
 	// status.
-	txs, err := w.ListTransactionDetails(0, btcwallet.UnconfirmedHeight)
+	txs, err := w.ListTransactionDetails(0, btcwallet.UnconfirmedHeight, "")
 	if err != nil {
 		t.Fatalf("unable to retrieve transactions: %v", err)
 	}
@@ -248,7 +248,7 @@ func loadTestCredits(miner *rpctest.Harness, w *lnwallet.LightningWallet,
 	if err != nil {
 		return fmt.Errorf("unable to create amt: %v", err)
 	}
-	expectedBalance, err := w.ConfirmedBalance(1)
+	expectedBalance, err := w.ConfirmedBalance(1, lnwallet.DefaultAccountName)
 	if err != nil {
 		return err
 	}
@@ -294,7 +294,7 @@ func loadTestCredits(miner *rpctest.Harness, w *lnwallet.LightningWallet,
 	timeout := time.After(30 * time.Second)
 
 	for range ticker.C {
-		balance, err := w.ConfirmedBalance(1)
+		balance, err := w.ConfirmedBalance(1, lnwallet.DefaultAccountName)
 		if err != nil {
 			return err
 		}
@@ -1191,7 +1191,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 		t.Fatalf("Couldn't sync Alice's wallet: %v", err)
 	}
 	txDetails, err := alice.ListTransactionDetails(
-		startHeight, chainTip,
+		startHeight, chainTip, "",
 	)
 	if err != nil {
 		t.Fatalf("unable to fetch tx details: %v", err)
@@ -1305,7 +1305,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	// with a confirmation height of 0, indicating that it has not been
 	// mined yet.
 	txDetails, err = alice.ListTransactionDetails(
-		chainTip, btcwallet.UnconfirmedHeight,
+		chainTip, btcwallet.UnconfirmedHeight, "",
 	)
 	if err != nil {
 		t.Fatalf("unable to fetch tx details: %v", err)
@@ -1361,9 +1361,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("Couldn't sync Alice's wallet: %v", err)
 	}
-	txDetails, err = alice.ListTransactionDetails(
-		chainTip, chainTip,
-	)
+	txDetails, err = alice.ListTransactionDetails(chainTip, chainTip, "")
 	if err != nil {
 		t.Fatalf("unable to fetch tx details: %v", err)
 	}
@@ -1410,9 +1408,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 
 	// Query for transactions only in the latest block. We do not expect
 	// any transactions to be returned.
-	txDetails, err = alice.ListTransactionDetails(
-		chainTip, chainTip,
-	)
+	txDetails, err = alice.ListTransactionDetails(chainTip, chainTip, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2189,7 +2185,7 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 	}
 
 	// Get the original balance.
-	origBalance, err := w.ConfirmedBalance(1)
+	origBalance, err := w.ConfirmedBalance(1, lnwallet.DefaultAccountName)
 	if err != nil {
 		t.Fatalf("unable to query for balance: %v", err)
 	}
@@ -2205,7 +2201,7 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		t.Fatalf("unable to set up mining node: %v", err)
 	}
 	defer r2.TearDown()
-	newBalance, err := w.ConfirmedBalance(1)
+	newBalance, err := w.ConfirmedBalance(1, lnwallet.DefaultAccountName)
 	if err != nil {
 		t.Fatalf("unable to query for balance: %v", err)
 	}
@@ -2297,7 +2293,7 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 	}
 
 	// Now we check that the wallet balance stays the same.
-	newBalance, err = w.ConfirmedBalance(1)
+	newBalance, err = w.ConfirmedBalance(1, lnwallet.DefaultAccountName)
 	if err != nil {
 		t.Fatalf("unable to query for balance: %v", err)
 	}
@@ -2320,7 +2316,7 @@ func testChangeOutputSpendConfirmation(r *rpctest.Harness,
 	// Assuming a balance of 80 BTC and a transaction fee of 2500 sat/kw,
 	// we'll craft the following transaction so that Alice doesn't have any
 	// UTXOs left.
-	aliceBalance, err := alice.ConfirmedBalance(0)
+	aliceBalance, err := alice.ConfirmedBalance(0, lnwallet.DefaultAccountName)
 	if err != nil {
 		t.Fatalf("unable to retrieve alice's balance: %v", err)
 	}
@@ -2345,7 +2341,7 @@ func testChangeOutputSpendConfirmation(r *rpctest.Harness,
 
 	// With the transaction sent and confirmed, Alice's balance should now
 	// be 0.
-	aliceBalance, err = alice.ConfirmedBalance(0)
+	aliceBalance, err = alice.ConfirmedBalance(0, lnwallet.DefaultAccountName)
 	if err != nil {
 		t.Fatalf("unable to retrieve alice's balance: %v", err)
 	}
@@ -2401,7 +2397,7 @@ func testSpendUnconfirmed(miner *rpctest.Harness,
 
 	// First we will empty out bob's wallet, sending the entire balance
 	// to alice.
-	bobBalance, err := bob.ConfirmedBalance(0)
+	bobBalance, err := bob.ConfirmedBalance(0, lnwallet.DefaultAccountName)
 	if err != nil {
 		t.Fatalf("unable to retrieve bob's balance: %v", err)
 	}

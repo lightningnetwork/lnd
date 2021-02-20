@@ -159,12 +159,14 @@ type WalletController interface {
 	// ConfirmedBalance returns the sum of all the wallet's unspent outputs
 	// that have at least confs confirmations. If confs is set to zero,
 	// then all unspent outputs, including those currently in the mempool
-	// will be included in the final sum.
+	// will be included in the final sum. The account parameter serves as a
+	// filter to retrieve the balance for a specific account. When empty,
+	// the confirmed balance of all wallet accounts is returned.
 	//
 	// NOTE: Only witness outputs should be included in the computation of
 	// the total spendable balance of the wallet. We require this as only
 	// witness inputs can be used for funding channels.
-	ConfirmedBalance(confs int32) (btcutil.Amount, error)
+	ConfirmedBalance(confs int32, accountFilter string) (btcutil.Amount, error)
 
 	// NewAddress returns the next external or internal address for the
 	// wallet dictated by the value of the `change` parameter. If change is
@@ -221,10 +223,13 @@ type WalletController interface {
 	// needs in order to be returned by this method. Passing -1 as
 	// 'minconfirms' indicates that even unconfirmed outputs should be
 	// returned. Using MaxInt32 as 'maxconfirms' implies returning all
-	// outputs with at least 'minconfirms'.
+	// outputs with at least 'minconfirms'. The account parameter serves as
+	// a filter to retrieve the unspent outputs for a specific account.
+	// When empty, the unspent outputs of all wallet accounts are returned.
 	//
 	// NOTE: This method requires the global coin selection lock to be held.
-	ListUnspentWitness(minconfirms, maxconfirms int32) ([]*Utxo, error)
+	ListUnspentWitness(minconfirms, maxconfirms int32,
+		accountFilter string) ([]*Utxo, error)
 
 	// ListTransactionDetails returns a list of all transactions which are
 	// relevant to the wallet over [startHeight;endHeight]. If start height
@@ -232,9 +237,11 @@ type WalletController interface {
 	// reverse order. To include unconfirmed transactions, endHeight should
 	// be set to the special value -1. This will return transactions from
 	// the tip of the chain until the start height (inclusive) and
-	// unconfirmed transactions.
-	ListTransactionDetails(startHeight,
-		endHeight int32) ([]*TransactionDetail, error)
+	// unconfirmed transactions. The account parameter serves as a filter to
+	// retrieve the transactions relevant to a specific account. When
+	// empty, transactions of all wallet accounts are returned.
+	ListTransactionDetails(startHeight, endHeight int32,
+		accountFilter string) ([]*TransactionDetail, error)
 
 	// LockOutpoint marks an outpoint as locked meaning it will no longer
 	// be deemed as eligible for coin selection. Locking outputs are

@@ -321,7 +321,9 @@ func (w *WalletKit) ListUnspent(ctx context.Context,
 	// be shown available to us.
 	var utxos []*lnwallet.Utxo
 	err = w.cfg.CoinSelectionLocker.WithCoinSelectLock(func() error {
-		utxos, err = w.cfg.Wallet.ListUnspentWitness(minConfs, maxConfs)
+		utxos, err = w.cfg.Wallet.ListUnspentWitness(
+			minConfs, maxConfs, "",
+		)
 		return err
 	})
 	if err != nil {
@@ -854,9 +856,10 @@ func (w *WalletKit) ListSweeps(ctx context.Context,
 	// Some of our sweeps could have been replaced by fee, or dropped out
 	// of the mempool. Here, we lookup our wallet transactions so that we
 	// can match our list of sweeps against the list of transactions that
-	// the wallet is still tracking.
+	// the wallet is still tracking. Sweeps are currently always swept to
+	// the default wallet account.
 	transactions, err := w.cfg.Wallet.ListTransactionDetails(
-		0, btcwallet.UnconfirmedHeight,
+		0, btcwallet.UnconfirmedHeight, lnwallet.DefaultAccountName,
 	)
 	if err != nil {
 		return nil, err
@@ -1057,7 +1060,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		if len(packet.UnsignedTx.TxIn) > 0 {
 			// Get a list of all unspent witness outputs.
 			utxos, err := w.cfg.Wallet.ListUnspentWitness(
-				defaultMinConf, defaultMaxConf,
+				defaultMinConf, defaultMaxConf, "",
 			)
 			if err != nil {
 				return err

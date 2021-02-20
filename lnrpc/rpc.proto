@@ -2254,8 +2254,17 @@ message ChannelEventUpdate {
     UpdateType type = 5;
 }
 
+message WalletAccountBalance {
+    // The confirmed balance of the account (with >= 1 confirmations).
+    int64 confirmed_balance = 1;
+
+    // The unconfirmed balance of the account (with 0 confirmations).
+    int64 unconfirmed_balance = 2;
+}
+
 message WalletBalanceRequest {
 }
+
 message WalletBalanceResponse {
     // The balance of the wallet
     int64 total_balance = 1;
@@ -2265,6 +2274,9 @@ message WalletBalanceResponse {
 
     // The unconfirmed balance of a wallet(with 0 confirmations)
     int64 unconfirmed_balance = 3;
+
+    // A mapping of each wallet account's name to its balance.
+    map<string, WalletAccountBalance> account_balance = 4;
 }
 
 message Amount {

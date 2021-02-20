@@ -722,7 +722,9 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 			SubtractFees: req.SubtractFees,
 			FeeRate:      req.FundingFeePerKw,
 			ChangeAddr: func() (btcutil.Address, error) {
-				return l.NewAddress(WitnessPubKey, true)
+				return l.NewAddress(
+					WitnessPubKey, true, DefaultAccountName,
+				)
 			},
 		}
 		fundingIntent, err = req.ChanFunder.ProvisionChannel(

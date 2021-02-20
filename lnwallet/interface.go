@@ -17,6 +17,12 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
+const (
+	// DefaultAccountName is the name for the default account used to manage
+	// on-chain funds within the wallet.
+	DefaultAccountName = "default"
+)
+
 // AddressType is an enum-like type which denotes the possible address types
 // WalletController supports.
 type AddressType uint8
@@ -165,8 +171,10 @@ type WalletController interface {
 	// true, then an internal address should be used, otherwise an external
 	// address should be returned. The type of address returned is dictated
 	// by the wallet's capabilities, and may be of type: p2sh, p2wkh,
-	// p2wsh, etc.
-	NewAddress(addrType AddressType, change bool) (btcutil.Address, error)
+	// p2wsh, etc. The account parameter must be non-empty as it determines
+	// which account the address should be generated from.
+	NewAddress(addrType AddressType, change bool,
+		account string) (btcutil.Address, error)
 
 	// LastUnusedAddress returns the last *unused* address known by the
 	// wallet. An address is unused if it hasn't received any payments.
@@ -174,7 +182,10 @@ type WalletController interface {
 	// "freshest" address without having to worry about "address inflation"
 	// caused by continual refreshing. Similar to NewAddress it can derive
 	// a specified address type. By default, this is a non-change address.
-	LastUnusedAddress(addrType AddressType) (btcutil.Address, error)
+	// The account parameter must be non-empty as it determines which
+	// account the address should be generated from.
+	LastUnusedAddress(addrType AddressType,
+		account string) (btcutil.Address, error)
 
 	// IsOurAddress checks if the passed address belongs to this wallet
 	IsOurAddress(a btcutil.Address) bool
@@ -286,28 +297,29 @@ type WalletController interface {
 	// is returned.
 	//
 	// NOTE: If the packet doesn't contain any inputs, coin selection is
-	// performed automatically. If the packet does contain any inputs, it is
-	// assumed that full coin selection happened externally and no
-	// additional inputs are added. If the specified inputs aren't enough to
-	// fund the outputs with the given fee rate, an error is returned.
-	// No lock lease is acquired for any of the selected/validated inputs.
-	// It is in the caller's responsibility to lock the inputs before
-	// handing them out.
-	FundPsbt(packet *psbt.Packet, feeRate chainfee.SatPerKWeight) (int32,
-		error)
+	// performed automatically. The account parameter must be non-empty as
+	// it determines which set of coins are eligible for coin selection. If
+	// the packet does contain any inputs, it is assumed that full coin
+	// selection happened externally and no additional inputs are added. If
+	// the specified inputs aren't enough to fund the outputs with the given
+	// fee rate, an error is returned. No lock lease is acquired for any of
+	// the selected/validated inputs. It is in the caller's responsibility
+	// to lock the inputs before handing them out.
+	FundPsbt(packet *psbt.Packet, feeRate chainfee.SatPerKWeight,
+		account string) (int32, error)
 
 	// FinalizePsbt expects a partial transaction with all inputs and
 	// outputs fully declared and tries to sign all inputs that belong to
-	// the wallet. Lnd must be the last signer of the transaction. That
-	// means, if there are any unsigned non-witness inputs or inputs without
-	// UTXO information attached or inputs without witness data that do not
-	// belong to lnd's wallet, this method will fail. If no error is
-	// returned, the PSBT is ready to be extracted and the final TX within
-	// to be broadcast.
+	// the specified account. Lnd must be the last signer of the
+	// transaction. That means, if there are any unsigned non-witness inputs
+	// or inputs without UTXO information attached or inputs without witness
+	// data that do not belong to lnd's wallet, this method will fail. If no
+	// error is returned, the PSBT is ready to be extracted and the final TX
+	// within to be broadcast.
 	//
 	// NOTE: This method does NOT publish the transaction after it's been
 	// finalized successfully.
-	FinalizePsbt(packet *psbt.Packet) error
+	FinalizePsbt(packet *psbt.Packet, account string) error
 
 	// SubscribeTransactions returns a TransactionSubscription client which
 	// is capable of receiving async notifications as new transactions

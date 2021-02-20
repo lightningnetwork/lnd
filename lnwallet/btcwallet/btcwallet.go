@@ -3,6 +3,7 @@ package btcwallet
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"sync"
@@ -27,7 +28,8 @@ import (
 )
 
 const (
-	defaultAccount = uint32(waddrmgr.DefaultAccountNum)
+	defaultAccount  = uint32(waddrmgr.DefaultAccountNum)
+	importedAccount = uint32(waddrmgr.ImportedAddrAccount)
 
 	// UnconfirmedHeight is the special case end height that is used to
 	// obtain unconfirmed transactions from ListTransactionDetails.
@@ -46,6 +48,11 @@ var (
 		ExternalAddrType: waddrmgr.WitnessPubKey,
 		InternalAddrType: waddrmgr.WitnessPubKey,
 	}
+
+	// errNoImportedAddrGen is an error returned when a new address is
+	// requested for the default imported account within the wallet.
+	errNoImportedAddrGen = errors.New("addresses cannot be generated for " +
+		"the default imported account")
 )
 
 // BtcWallet is an implementation of the lnwallet.WalletController interface
@@ -237,26 +244,44 @@ func (b *BtcWallet) ConfirmedBalance(confs int32) (btcutil.Amount, error) {
 // NewAddress returns the next external or internal address for the wallet
 // dictated by the value of the `change` parameter. If change is true, then an
 // internal address will be returned, otherwise an external address should be
-// returned.
+// returned. The account parameter must be non-empty as it determines which
+// account the address should be generated from.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) NewAddress(t lnwallet.AddressType, change bool) (btcutil.Address, error) {
-	var keyScope waddrmgr.KeyScope
+func (b *BtcWallet) NewAddress(t lnwallet.AddressType, change bool,
+	accountName string) (btcutil.Address, error) {
 
-	switch t {
-	case lnwallet.WitnessPubKey:
-		keyScope = waddrmgr.KeyScopeBIP0084
-	case lnwallet.NestedWitnessPubKey:
-		keyScope = waddrmgr.KeyScopeBIP0049Plus
+	var (
+		keyScope waddrmgr.KeyScope
+		account  uint32
+	)
+	switch accountName {
+	case waddrmgr.ImportedAddrAccountName:
+		return nil, errNoImportedAddrGen
+
+	case lnwallet.DefaultAccountName:
+		switch t {
+		case lnwallet.WitnessPubKey:
+			keyScope = waddrmgr.KeyScopeBIP0084
+		case lnwallet.NestedWitnessPubKey:
+			keyScope = waddrmgr.KeyScopeBIP0049Plus
+		default:
+			return nil, fmt.Errorf("unknown address type")
+		}
+		account = defaultAccount
+
 	default:
-		return nil, fmt.Errorf("unknown address type")
+		var err error
+		keyScope, account, err = b.wallet.LookupAccount(accountName)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if change {
-		return b.wallet.NewChangeAddress(defaultAccount, keyScope)
+		return b.wallet.NewChangeAddress(account, keyScope)
 	}
-
-	return b.wallet.NewAddress(defaultAccount, keyScope)
+	return b.wallet.NewAddress(account, keyScope)
 }
 
 // LastUnusedAddress returns the last *unused* address known by the wallet. An
@@ -264,22 +289,39 @@ func (b *BtcWallet) NewAddress(t lnwallet.AddressType, change bool) (btcutil.Add
 // UIs in order to continually show the "freshest" address without having to
 // worry about "address inflation" caused by continual refreshing. Similar to
 // NewAddress it can derive a specified address type, and also optionally a
-// change address.
-func (b *BtcWallet) LastUnusedAddress(addrType lnwallet.AddressType) (
-	btcutil.Address, error) {
+// change address. The account parameter must be non-empty as it determines
+// which account the address should be generated from.
+func (b *BtcWallet) LastUnusedAddress(addrType lnwallet.AddressType,
+	accountName string) (btcutil.Address, error) {
 
-	var keyScope waddrmgr.KeyScope
+	var (
+		keyScope waddrmgr.KeyScope
+		account  uint32
+	)
+	switch accountName {
+	case waddrmgr.ImportedAddrAccountName:
+		return nil, errNoImportedAddrGen
 
-	switch addrType {
-	case lnwallet.WitnessPubKey:
-		keyScope = waddrmgr.KeyScopeBIP0084
-	case lnwallet.NestedWitnessPubKey:
-		keyScope = waddrmgr.KeyScopeBIP0049Plus
+	case lnwallet.DefaultAccountName:
+		switch addrType {
+		case lnwallet.WitnessPubKey:
+			keyScope = waddrmgr.KeyScopeBIP0084
+		case lnwallet.NestedWitnessPubKey:
+			keyScope = waddrmgr.KeyScopeBIP0049Plus
+		default:
+			return nil, fmt.Errorf("unknown address type")
+		}
+		account = defaultAccount
+
 	default:
-		return nil, fmt.Errorf("unknown address type")
+		var err error
+		keyScope, account, err = b.wallet.LookupAccount(accountName)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return b.wallet.CurrentAddress(defaultAccount, keyScope)
+	return b.wallet.CurrentAddress(account, keyScope)
 }
 
 // IsOurAddress checks if the passed address belongs to this wallet
@@ -698,49 +740,99 @@ func (b *BtcWallet) ListTransactionDetails(startHeight,
 	return txDetails, nil
 }
 
-// FundPsbt creates a fully populated PSBT packet that contains enough
-// inputs to fund the outputs specified in the passed in packet with the
-// specified fee rate. If there is change left, a change output from the
-// internal wallet is added and the index of the change output is returned.
-// Otherwise no additional output is created and the index -1 is returned.
+// FundPsbt creates a fully populated PSBT packet that contains enough inputs to
+// fund the outputs specified in the passed in packet with the specified fee
+// rate. If there is change left, a change output from the internal wallet is
+// added and the index of the change output is returned. Otherwise no additional
+// output is created and the index -1 is returned.
 //
-// NOTE: If the packet doesn't contain any inputs, coin selection is
-// performed automatically. If the packet does contain any inputs, it is
-// assumed that full coin selection happened externally and no
-// additional inputs are added. If the specified inputs aren't enough to
-// fund the outputs with the given fee rate, an error is returned.
-// No lock lease is acquired for any of the selected/validated inputs.
-// It is in the caller's responsibility to lock the inputs before
-// handing them out.
+// NOTE: If the packet doesn't contain any inputs, coin selection is performed
+// automatically. The account parameter must be non-empty as it determines which
+// set of coins are eligible for coin selection. If the packet does contain any
+// inputs, it is assumed that full coin selection happened externally and no
+// additional inputs are added. If the specified inputs aren't enough to fund
+// the outputs with the given fee rate, an error is returned. No lock lease is
+// acquired for any of the selected/validated inputs. It is in the caller's
+// responsibility to lock the inputs before handing them out.
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) FundPsbt(packet *psbt.Packet,
-	feeRate chainfee.SatPerKWeight) (int32, error) {
+	feeRate chainfee.SatPerKWeight, accountName string) (int32, error) {
 
 	// The fee rate is passed in using units of sat/kw, so we'll convert
 	// this to sat/KB as the CreateSimpleTx method requires this unit.
 	feeSatPerKB := btcutil.Amount(feeRate.FeePerKVByte())
 
+	var (
+		keyScope   *waddrmgr.KeyScope
+		accountNum uint32
+	)
+	switch accountName {
+	// If the default/imported account name was specified, we'll provide a
+	// nil key scope to FundPsbt, allowing it to select inputs from both key
+	// scopes (NP2WKH, P2WKH).
+	case lnwallet.DefaultAccountName:
+		accountNum = defaultAccount
+
+	case waddrmgr.ImportedAddrAccountName:
+		accountNum = importedAccount
+
+	// Otherwise, map the account name to its key scope and internal account
+	// number to only select inputs from said account.
+	default:
+		scope, account, err := b.wallet.LookupAccount(accountName)
+		if err != nil {
+			return 0, err
+		}
+		keyScope = &scope
+		accountNum = account
+	}
+
 	// Let the wallet handle coin selection and/or fee estimation based on
 	// the partial TX information in the packet.
-	return b.wallet.FundPsbt(packet, nil, defaultAccount, feeSatPerKB)
+	return b.wallet.FundPsbt(packet, keyScope, accountNum, feeSatPerKB)
 }
 
-// FinalizePsbt expects a partial transaction with all inputs and
-// outputs fully declared and tries to sign all inputs that belong to
-// the wallet. Lnd must be the last signer of the transaction. That
-// means, if there are any unsigned non-witness inputs or inputs without
-// UTXO information attached or inputs without witness data that do not
-// belong to lnd's wallet, this method will fail. If no error is
-// returned, the PSBT is ready to be extracted and the final TX within
-// to be broadcast.
+// FinalizePsbt expects a partial transaction with all inputs and outputs fully
+// declared and tries to sign all inputs that belong to the specified account.
+// Lnd must be the last signer of the transaction. That means, if there are any
+// unsigned non-witness inputs or inputs without UTXO information attached or
+// inputs without witness data that do not belong to lnd's wallet, this method
+// will fail. If no error is returned, the PSBT is ready to be extracted and the
+// final TX within to be broadcast.
 //
 // NOTE: This method does NOT publish the transaction after it's been
 // finalized successfully.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) FinalizePsbt(packet *psbt.Packet) error {
-	return b.wallet.FinalizePsbt(nil, defaultAccount, packet)
+func (b *BtcWallet) FinalizePsbt(packet *psbt.Packet, accountName string) error {
+	var (
+		keyScope   *waddrmgr.KeyScope
+		accountNum uint32
+	)
+	switch accountName {
+	// If the default/imported account name was specified, we'll provide a
+	// nil key scope to FundPsbt, allowing it to sign inputs from both key
+	// scopes (NP2WKH, P2WKH).
+	case lnwallet.DefaultAccountName:
+		accountNum = defaultAccount
+
+	case waddrmgr.ImportedAddrAccountName:
+		accountNum = importedAccount
+
+	// Otherwise, map the account name to its key scope and internal account
+	// number to determine if the inputs belonging to this account should be
+	// signed.
+	default:
+		scope, account, err := b.wallet.LookupAccount(accountName)
+		if err != nil {
+			return err
+		}
+		keyScope = &scope
+		accountNum = account
+	}
+
+	return b.wallet.FinalizePsbt(keyScope, accountNum, packet)
 }
 
 // txSubscriptionClient encapsulates the transaction notification client from

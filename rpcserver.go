@@ -1225,6 +1225,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			// allowing us to pass the reserved value check.
 			changeAddr, err := r.server.cc.Wallet.NewAddress(
 				lnwallet.WitnessPubKey, true,
+				lnwallet.DefaultAccountName,
 			)
 			if err != nil {
 				return nil, err
@@ -1381,7 +1382,7 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 	switch in.Type {
 	case lnrpc.AddressType_WITNESS_PUBKEY_HASH:
 		addr, err = r.server.cc.Wallet.NewAddress(
-			lnwallet.WitnessPubKey, false,
+			lnwallet.WitnessPubKey, false, lnwallet.DefaultAccountName,
 		)
 		if err != nil {
 			return nil, err
@@ -1389,7 +1390,7 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 
 	case lnrpc.AddressType_NESTED_PUBKEY_HASH:
 		addr, err = r.server.cc.Wallet.NewAddress(
-			lnwallet.NestedWitnessPubKey, false,
+			lnwallet.NestedWitnessPubKey, false, lnwallet.DefaultAccountName,
 		)
 		if err != nil {
 			return nil, err
@@ -1397,7 +1398,7 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 
 	case lnrpc.AddressType_UNUSED_WITNESS_PUBKEY_HASH:
 		addr, err = r.server.cc.Wallet.LastUnusedAddress(
-			lnwallet.WitnessPubKey,
+			lnwallet.WitnessPubKey, lnwallet.DefaultAccountName,
 		)
 		if err != nil {
 			return nil, err
@@ -1405,7 +1406,7 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 
 	case lnrpc.AddressType_UNUSED_NESTED_PUBKEY_HASH:
 		addr, err = r.server.cc.Wallet.LastUnusedAddress(
-			lnwallet.NestedWitnessPubKey,
+			lnwallet.NestedWitnessPubKey, lnwallet.DefaultAccountName,
 		)
 		if err != nil {
 			return nil, err

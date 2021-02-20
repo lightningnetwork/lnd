@@ -2043,7 +2043,7 @@ func (p *Brontide) ChannelSnapshots() []*channeldb.ChannelSnapshot {
 // the case of a cooperative channel close negotiation.
 func (p *Brontide) genDeliveryScript() ([]byte, error) {
 	deliveryAddr, err := p.cfg.Wallet.NewAddress(
-		lnwallet.WitnessPubKey, false,
+		lnwallet.WitnessPubKey, false, lnwallet.DefaultAccountName,
 	)
 	if err != nil {
 		return nil, err
@@ -2333,10 +2333,14 @@ func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
 				"channel w/ active htlcs")
 		}
 
-		// We'll create a valid closing state machine in order to respond to the
-		// initiated cooperative channel closure. First, we set the delivery
-		// script that our funds will be paid out to. If an upfront shutdown script
-		// was set, we will use it. Otherwise, we get a fresh delivery script.
+		// We'll create a valid closing state machine in order to
+		// respond to the initiated cooperative channel closure. First,
+		// we set the delivery script that our funds will be paid out
+		// to. If an upfront shutdown script was set, we will use it.
+		// Otherwise, we get a fresh delivery script.
+		//
+		// TODO: Expose option to allow upfront shutdown script from
+		// watch-only accounts.
 		deliveryScript := channel.LocalUpfrontShutdownScript()
 		if len(deliveryScript) == 0 {
 			var err error

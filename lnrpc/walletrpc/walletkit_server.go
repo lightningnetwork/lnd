@@ -487,7 +487,9 @@ func (w *WalletKit) DeriveKey(ctx context.Context,
 func (w *WalletKit) NextAddr(ctx context.Context,
 	req *AddrRequest) (*AddrResponse, error) {
 
-	addr, err := w.cfg.Wallet.NewAddress(lnwallet.WitnessPubKey, false)
+	addr, err := w.cfg.Wallet.NewAddress(
+		lnwallet.WitnessPubKey, false, lnwallet.DefaultAccountName,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1073,7 +1075,9 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		// We can now ask the wallet to fund the TX. This will not yet
 		// lock any coins but might still change the wallet DB by
 		// generating a new change address.
-		changeIndex, err = w.cfg.Wallet.FundPsbt(packet, feeSatPerKW)
+		changeIndex, err = w.cfg.Wallet.FundPsbt(
+			packet, feeSatPerKW, lnwallet.DefaultAccountName,
+		)
 		if err != nil {
 			return fmt.Errorf("wallet couldn't fund PSBT: %v", err)
 		}

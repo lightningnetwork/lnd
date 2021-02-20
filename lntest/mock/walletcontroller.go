@@ -58,7 +58,7 @@ func (w *WalletController) ConfirmedBalance(confs int32) (btcutil.Amount, error)
 
 // NewAddress is called to get new addresses for delivery, change etc.
 func (w *WalletController) NewAddress(addrType lnwallet.AddressType,
-	change bool) (btcutil.Address, error) {
+	change bool, _ string) (btcutil.Address, error) {
 
 	addr, _ := btcutil.NewAddressPubKey(
 		w.RootKey.PubKey().SerializeCompressed(), &chaincfg.MainNetParams,
@@ -67,8 +67,8 @@ func (w *WalletController) NewAddress(addrType lnwallet.AddressType,
 }
 
 // LastUnusedAddress currently returns dummy values.
-func (w *WalletController) LastUnusedAddress(addrType lnwallet.AddressType) (
-	btcutil.Address, error) {
+func (w *WalletController) LastUnusedAddress(addrType lnwallet.AddressType,
+	_ string) (btcutil.Address, error) {
 	return nil, nil
 }
 
@@ -148,13 +148,13 @@ func (w *WalletController) ListLeasedOutputs() ([]*wtxmgr.LockedOutput, error) {
 
 // FundPsbt currently does nothing.
 func (w *WalletController) FundPsbt(_ *psbt.Packet,
-	_ chainfee.SatPerKWeight) (int32, error) {
+	_ chainfee.SatPerKWeight, _ string) (int32, error) {
 
 	return 0, nil
 }
 
 // FinalizePsbt currently does nothing.
-func (w *WalletController) FinalizePsbt(_ *psbt.Packet) error {
+func (w *WalletController) FinalizePsbt(_ *psbt.Packet, _ string) error {
 	return nil
 }
 

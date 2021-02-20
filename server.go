@@ -3809,7 +3809,9 @@ func newSweepPkScriptGen(
 	wallet lnwallet.WalletController) func() ([]byte, error) {
 
 	return func() ([]byte, error) {
-		sweepAddr, err := wallet.NewAddress(lnwallet.WitnessPubKey, false)
+		sweepAddr, err := wallet.NewAddress(
+			lnwallet.WitnessPubKey, false, lnwallet.DefaultAccountName,
+		)
 		if err != nil {
 			return nil, err
 		}

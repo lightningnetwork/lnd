@@ -237,11 +237,11 @@ func WriteMessage(w io.Writer, msg Message, pver uint32) (int, error) {
 	payload := bw.Bytes()
 	lenp := len(payload)
 
-	// Enforce maximum overall message payload.
-	if lenp > MaxMessagePayload {
+	// Enforce maximum overall message payload without the message type.
+	if lenp > MaxMessagePayload-2 {
 		return totalBytes, fmt.Errorf("message payload is too large - "+
 			"encoded %d bytes, but maximum message payload is %d bytes",
-			lenp, MaxMessagePayload)
+			lenp, MaxMessagePayload-2)
 	}
 
 	// Enforce maximum message payload on the message type.

@@ -83,7 +83,7 @@ func (c *CommitSig) MsgType() MessageType {
 // This is part of the lnwire.Message interface.
 func (c *CommitSig) MaxPayloadLength(uint32) uint32 {
 	// 32 + 64 + 2 + max_allowed_htlcs
-	return MaxMessagePayload
+	return 65533
 }
 
 // TargetChanID returns the channel id of the link for which this message is

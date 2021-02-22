@@ -425,5 +425,5 @@ func (q *QueryShortChanIDs) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (q *QueryShortChanIDs) MaxPayloadLength(uint32) uint32 {
-	return MaxMessagePayload
+	return 65533
 }

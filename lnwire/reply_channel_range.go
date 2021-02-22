@@ -86,5 +86,5 @@ func (c *ReplyChannelRange) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (c *ReplyChannelRange) MaxPayloadLength(uint32) uint32 {
-	return MaxMessagePayload
+	return 65533
 }

@@ -59,5 +59,5 @@ func (p *Pong) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (p *Pong) MaxPayloadLength(uint32) uint32 {
-	return 65532
+	return 65533
 }

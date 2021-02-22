@@ -589,11 +589,11 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	for _, txOut := range commitTx.TxOut {
 		totalOut += btcutil.Amount(txOut.Value)
 	}
-	if totalOut > cb.chanState.Capacity {
+	if totalOut+commitFee > cb.chanState.Capacity {
 		return nil, fmt.Errorf("height=%v, for ChannelPoint(%v) "+
 			"attempts to consume %v while channel capacity is %v",
 			height, cb.chanState.FundingOutpoint,
-			totalOut, cb.chanState.Capacity)
+			totalOut+commitFee, cb.chanState.Capacity)
 	}
 
 	return &unsignedCommitmentTx{

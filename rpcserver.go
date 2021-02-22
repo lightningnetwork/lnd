@@ -5710,11 +5710,17 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 
 // DeleteAllPayments deletes all outgoing payments from DB.
 func (r *rpcServer) DeleteAllPayments(ctx context.Context,
-	_ *lnrpc.DeleteAllPaymentsRequest) (*lnrpc.DeleteAllPaymentsResponse, error) {
+	req *lnrpc.DeleteAllPaymentsRequest) (
+	*lnrpc.DeleteAllPaymentsResponse, error) {
 
-	rpcsLog.Debugf("[DeleteAllPayments]")
+	rpcsLog.Infof("[DeleteAllPayments] failed_payments_only=%v, "+
+		"failed_htlcs_only=%v", req.FailedPaymentsOnly,
+		req.FailedHtlcsOnly)
 
-	if err := r.server.remoteChanDB.DeletePayments(); err != nil {
+	err := r.server.remoteChanDB.DeletePayments(
+		req.FailedPaymentsOnly, req.FailedHtlcsOnly,
+	)
+	if err != nil {
 		return nil, err
 	}
 

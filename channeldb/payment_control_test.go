@@ -388,6 +388,8 @@ func TestPaymentControlDeleteNonInFligt(t *testing.T) {
 		},
 	}
 
+	var numSuccess, numInflight int
+
 	for _, p := range payments {
 		info, attempt, preimg, err := genInfo()
 		if err != nil {
@@ -454,11 +456,15 @@ func TestPaymentControlDeleteNonInFligt(t *testing.T) {
 			assertPaymentInfo(
 				t, pControl, info.PaymentHash, info, nil, htlc,
 			)
+
+			numSuccess++
 		} else {
 			assertPaymentStatus(t, pControl, info.PaymentHash, StatusInFlight)
 			assertPaymentInfo(
 				t, pControl, info.PaymentHash, info, nil, htlc,
 			)
+
+			numInflight++
 		}
 
 		// If the payment is intended to have a duplicate payment, we
@@ -466,30 +472,69 @@ func TestPaymentControlDeleteNonInFligt(t *testing.T) {
 		if p.hasDuplicate {
 			appendDuplicatePayment(
 				t, pControl.db, info.PaymentHash,
-				uint64(duplicateSeqNr),
+				uint64(duplicateSeqNr), preimg,
 			)
 			duplicateSeqNr++
+			numSuccess++
 		}
 	}
 
-	// Delete payments.
-	if err := db.DeletePayments(); err != nil {
+	// Delete all failed payments.
+	if err := db.DeletePayments(true, false); err != nil {
 		t.Fatal(err)
 	}
 
-	// This should leave the in-flight payment.
+	// This should leave the succeeded and in-flight payments.
 	dbPayments, err := db.FetchPayments()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(dbPayments) != 1 {
-		t.Fatalf("expected one payment, got %d", len(dbPayments))
+	if len(dbPayments) != numSuccess+numInflight {
+		t.Fatalf("expected %d payments, got %d",
+			numSuccess+numInflight, len(dbPayments))
 	}
 
-	status := dbPayments[0].Status
-	if status != StatusInFlight {
-		t.Fatalf("expected in-fligth status, got %v", status)
+	var s, i int
+	for _, p := range dbPayments {
+		fmt.Println("fetch payment has status", p.Status)
+		switch p.Status {
+		case StatusSucceeded:
+			s++
+		case StatusInFlight:
+			i++
+		}
+	}
+
+	if s != numSuccess {
+		t.Fatalf("expected %d succeeded payments , got %d",
+			numSuccess, s)
+	}
+	if i != numInflight {
+		t.Fatalf("expected %d in-flight payments, got %d",
+			numInflight, i)
+	}
+
+	// Now delete all payments except in-flight.
+	if err := db.DeletePayments(false, false); err != nil {
+		t.Fatal(err)
+	}
+
+	// This should leave the in-flight payment.
+	dbPayments, err = db.FetchPayments()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(dbPayments) != numInflight {
+		t.Fatalf("expected %d payments, got %d", numInflight,
+			len(dbPayments))
+	}
+
+	for _, p := range dbPayments {
+		if p.Status != StatusInFlight {
+			t.Fatalf("expected in-fligth status, got %v", p.Status)
+		}
 	}
 
 	// Finally, check that we only have a single index left in the payment
@@ -506,6 +551,223 @@ func TestPaymentControlDeleteNonInFligt(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, 1, indexCount)
+}
+
+// TestPaymentControlDeletePayments tests that DeletePayments correcly deletes
+// information about completed payments from the database.
+func TestPaymentControlDeletePayments(t *testing.T) {
+	t.Parallel()
+
+	db, cleanup, err := MakeTestDB()
+	defer cleanup()
+
+	if err != nil {
+		t.Fatalf("unable to init db: %v", err)
+	}
+
+	pControl := NewPaymentControl(db)
+
+	// Register three payments:
+	// 1. A payment with two failed attempts.
+	// 2. A Payment with one failed and one settled attempt.
+	// 3. A payment with one failed and one in-flight attempt.
+	attemptID := uint64(0)
+	for i := 0; i < 3; i++ {
+		info, attempt, preimg, err := genInfo()
+		if err != nil {
+			t.Fatalf("unable to generate htlc message: %v", err)
+		}
+
+		attempt.AttemptID = attemptID
+		attemptID++
+
+		// Init the payment.
+		err = pControl.InitPayment(info.PaymentHash, info)
+		if err != nil {
+			t.Fatalf("unable to send htlc message: %v", err)
+		}
+
+		// Register and fail the first attempt for all three payments.
+		_, err = pControl.RegisterAttempt(info.PaymentHash, attempt)
+		if err != nil {
+			t.Fatalf("unable to send htlc message: %v", err)
+		}
+
+		htlcFailure := HTLCFailUnreadable
+		_, err = pControl.FailAttempt(
+			info.PaymentHash, attempt.AttemptID,
+			&HTLCFailInfo{
+				Reason: htlcFailure,
+			},
+		)
+		if err != nil {
+			t.Fatalf("unable to fail htlc: %v", err)
+		}
+
+		// Depending on the test case, fail or succeed the next
+		// attempt.
+		attempt.AttemptID = attemptID
+		attemptID++
+
+		_, err = pControl.RegisterAttempt(info.PaymentHash, attempt)
+		if err != nil {
+			t.Fatalf("unable to send htlc message: %v", err)
+		}
+
+		switch i {
+
+		// Fail the attempt and the payment overall.
+		case 0:
+			htlcFailure := HTLCFailUnreadable
+			_, err = pControl.FailAttempt(
+				info.PaymentHash, attempt.AttemptID,
+				&HTLCFailInfo{
+					Reason: htlcFailure,
+				},
+			)
+			if err != nil {
+				t.Fatalf("unable to fail htlc: %v", err)
+			}
+
+			failReason := FailureReasonNoRoute
+			_, err = pControl.Fail(info.PaymentHash, failReason)
+			if err != nil {
+				t.Fatalf("unable to fail payment hash: %v", err)
+			}
+
+		// Settle the attempt
+		case 1:
+			_, err := pControl.SettleAttempt(
+				info.PaymentHash, attempt.AttemptID,
+				&HTLCSettleInfo{
+					Preimage: preimg,
+				},
+			)
+			if err != nil {
+				t.Fatalf("error shouldn't have been received, got: %v", err)
+			}
+
+		// We leave the attmpet in-flight by doing nothing.
+		case 2:
+		}
+	}
+
+	type fetchedPayment struct {
+		status PaymentStatus
+		htlcs  int
+	}
+
+	assertPayments := func(expPayments []fetchedPayment) {
+		t.Helper()
+
+		dbPayments, err := db.FetchPayments()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(dbPayments) != len(expPayments) {
+			t.Fatalf("expected %d payments, got %d",
+				len(expPayments), len(dbPayments))
+		}
+
+		for i := range dbPayments {
+			if dbPayments[i].Status != expPayments[i].status {
+				t.Fatalf("unexpected payment status")
+			}
+
+			if len(dbPayments[i].HTLCs) != expPayments[i].htlcs {
+				t.Fatalf("unexpected number of htlcs")
+			}
+
+		}
+	}
+
+	// Check that all payments are there as we added them.
+	assertPayments([]fetchedPayment{
+		{
+			status: StatusFailed,
+			htlcs:  2,
+		},
+		{
+			status: StatusSucceeded,
+			htlcs:  2,
+		},
+		{
+			status: StatusInFlight,
+			htlcs:  2,
+		},
+	})
+
+	// Delete HTLC attempts for failed payments only.
+	if err := db.DeletePayments(true, true); err != nil {
+		t.Fatal(err)
+	}
+
+	// The failed payment is the only altered one.
+	assertPayments([]fetchedPayment{
+		{
+			status: StatusFailed,
+			htlcs:  0,
+		},
+		{
+			status: StatusSucceeded,
+			htlcs:  2,
+		},
+		{
+			status: StatusInFlight,
+			htlcs:  2,
+		},
+	})
+
+	// Delete failed attempts for all payments.
+	if err := db.DeletePayments(false, true); err != nil {
+		t.Fatal(err)
+	}
+
+	// The failed attempts should be deleted, except for the in-flight
+	// payment, that shouldn't be altered until it has completed.
+	assertPayments([]fetchedPayment{
+		{
+			status: StatusFailed,
+			htlcs:  0,
+		},
+		{
+			status: StatusSucceeded,
+			htlcs:  1,
+		},
+		{
+			status: StatusInFlight,
+			htlcs:  2,
+		},
+	})
+
+	// Now delete all failed payments.
+	if err := db.DeletePayments(true, false); err != nil {
+		t.Fatal(err)
+	}
+
+	assertPayments([]fetchedPayment{
+		{
+			status: StatusSucceeded,
+			htlcs:  1,
+		},
+		{
+			status: StatusInFlight,
+			htlcs:  2,
+		},
+	})
+
+	// Finally delete all completed payments.
+	if err := db.DeletePayments(false, false); err != nil {
+		t.Fatal(err)
+	}
+
+	assertPayments([]fetchedPayment{
+		{
+			status: StatusInFlight,
+			htlcs:  2,
+		},
+	})
 }
 
 // TestPaymentControlMultiShard checks the ability of payment control to

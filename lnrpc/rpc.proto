@@ -3229,6 +3229,13 @@ message ListPaymentsResponse {
 }
 
 message DeleteAllPaymentsRequest {
+    // Only delete failed payments.
+    bool failed_payments_only = 1;
+
+    /*
+    Only delete failed HTLCs from payments, not the payment itself.
+    */
+    bool failed_htlcs_only = 2;
 }
 
 message DeleteAllPaymentsResponse {

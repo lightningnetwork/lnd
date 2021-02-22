@@ -676,8 +676,11 @@ func fetchPaymentWithSequenceNumber(tx kvdb.RTx, paymentHash lntypes.Hash,
 	return duplicatePayment, nil
 }
 
-// DeletePayments deletes all completed and failed payments from the DB.
-func (db *DB) DeletePayments() error {
+// DeletePayments deletes all completed and failed payments from the DB. If
+// failedOnly is set, only failed payments will be considered for deletion. If
+// failedHtlsOnly is set, the payment itself won't be deleted, only failed HTLC
+// attempts.
+func (db *DB) DeletePayments(failedOnly, failedHtlcsOnly bool) error {
 	return kvdb.Update(db, func(tx kvdb.RwTx) error {
 		payments := tx.ReadWriteBucket(paymentsRootBucket)
 		if payments == nil {
@@ -692,9 +695,13 @@ func (db *DB) DeletePayments() error {
 			// deleteIndexes is the set of indexes pointing to these
 			// payments that need to be deleted.
 			deleteIndexes [][]byte
+
+			// deleteHtlcs maps a payment hash to the HTLC IDs we
+			// want to delete for that payment.
+			deleteHtlcs = make(map[lntypes.Hash][][]byte)
 		)
 		err := payments.ForEach(func(k, _ []byte) error {
-			bucket := payments.NestedReadWriteBucket(k)
+			bucket := payments.NestedReadBucket(k)
 			if bucket == nil {
 				// We only expect sub-buckets to be found in
 				// this top-level bucket.
@@ -715,6 +722,55 @@ func (db *DB) DeletePayments() error {
 				return nil
 			}
 
+			// If we requested to only delete failed payments, we
+			// can return if this one is not.
+			if failedOnly && paymentStatus != StatusFailed {
+				return nil
+			}
+
+			// If we are only deleting failed HTLCs, fetch them.
+			if failedHtlcsOnly {
+				htlcsBucket := bucket.NestedReadBucket(
+					paymentHtlcsBucket,
+				)
+
+				var htlcs []HTLCAttempt
+				if htlcsBucket != nil {
+					htlcs, err = fetchHtlcAttempts(
+						htlcsBucket,
+					)
+					if err != nil {
+						return err
+					}
+				}
+
+				// Now iterate though them and save the bucket
+				// keys for the failed HTLCs.
+				var toDelete [][]byte
+				for _, h := range htlcs {
+					if h.Failure == nil {
+						continue
+					}
+
+					htlcIDBytes := make([]byte, 8)
+					binary.BigEndian.PutUint64(
+						htlcIDBytes, h.AttemptID,
+					)
+
+					toDelete = append(toDelete, htlcIDBytes)
+				}
+
+				hash, err := lntypes.MakeHash(k)
+				if err != nil {
+					return err
+				}
+
+				deleteHtlcs[hash] = toDelete
+
+				// We return, we are only deleting attempts.
+				return nil
+			}
+
 			// Add the bucket to the set of buckets we can delete.
 			deleteBuckets = append(deleteBuckets, k)
 
@@ -726,11 +782,25 @@ func (db *DB) DeletePayments() error {
 			}
 
 			deleteIndexes = append(deleteIndexes, seqNrs...)
-
 			return nil
 		})
 		if err != nil {
 			return err
+		}
+
+		// Delete the failed HTLC attempts we found.
+		for hash, htlcIDs := range deleteHtlcs {
+			bucket := payments.NestedReadWriteBucket(hash[:])
+			htlcsBucket := bucket.NestedReadWriteBucket(
+				paymentHtlcsBucket,
+			)
+
+			for _, aid := range htlcIDs {
+				err := htlcsBucket.DeleteNestedBucket(aid)
+				if err != nil {
+					return err
+				}
+			}
 		}
 
 		for _, k := range deleteBuckets {

@@ -1630,6 +1630,24 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "failed_payments_only",
+            "description": "Only delete failed payments.",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
+          },
+          {
+            "name": "failed_htlcs_only",
+            "description": "Only delete failed HTLCs from payments, not the payment itself.",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
+          }
+        ],
         "tags": [
           "Lightning"
         ]

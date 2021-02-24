@@ -1,6 +1,7 @@
 package lnwire
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -92,6 +93,17 @@ type AcceptChannel struct {
 	// and has a length prefix, so a zero will be written if it is not set
 	// and its length followed by the script will be written if it is set.
 	UpfrontShutdownScript DeliveryAddress
+
+	// ExtraData is the set of data that was appended to this message to
+	// fill out the full maximum transport message size. These fields can
+	// be used to specify optional data such as custom TLV fields.
+	//
+	// NOTE: Since the upfront shutdown script MUST be present (though can
+	// be zero-length) if any TLV data is available, the script will be
+	// extracted and removed from this blob when decoding. ExtraData will
+	// contain all TLV records _except_ the DeliveryAddress record in that
+	// case.
+	ExtraData ExtraOpaqueData
 }
 
 // A compile time check to ensure AcceptChannel implements the lnwire.Message
@@ -104,6 +116,15 @@ var _ Message = (*AcceptChannel)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (a *AcceptChannel) Encode(w io.Writer, pver uint32) error {
+	// Since the upfront script is encoded as a TLV record, concatenate it
+	// with the ExtraData, and write them as one.
+	tlvRecords, err := packShutdownScript(
+		a.UpfrontShutdownScript, a.ExtraData,
+	)
+	if err != nil {
+		return err
+	}
+
 	return WriteElements(w,
 		a.PendingChannelID[:],
 		a.DustLimit,
@@ -119,7 +140,7 @@ func (a *AcceptChannel) Encode(w io.Writer, pver uint32) error {
 		a.DelayedPaymentPoint,
 		a.HtlcPoint,
 		a.FirstCommitmentPoint,
-		a.UpfrontShutdownScript,
+		tlvRecords,
 	)
 }
 
@@ -150,13 +171,80 @@ func (a *AcceptChannel) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	// Check for the optional upfront shutdown script field. If it is not there,
-	// silence the EOF error.
-	err = ReadElement(r, &a.UpfrontShutdownScript)
-	if err != nil && err != io.EOF {
+	// For backwards compatibility, the optional extra data blob for
+	// AcceptChannel must contain an entry for the upfront shutdown script.
+	// We'll read it out and attempt to parse it.
+	var tlvRecords ExtraOpaqueData
+	if err := ReadElements(r, &tlvRecords); err != nil {
 		return err
 	}
+
+	a.UpfrontShutdownScript, a.ExtraData, err = parseShutdownScript(
+		tlvRecords,
+	)
+	if err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// packShutdownScript takes an upfront shutdown script and an opaque data blob
+// and concatenates them.
+func packShutdownScript(addr DeliveryAddress, extraData ExtraOpaqueData) (
+	ExtraOpaqueData, error) {
+
+	// We'll always write the upfront shutdown script record, regardless of
+	// the script being empty.
+	var tlvRecords ExtraOpaqueData
+
+	// Pack it into a data blob as a TLV record.
+	err := tlvRecords.PackRecords(addr.NewRecord())
+	if err != nil {
+		return nil, fmt.Errorf("unable to pack upfront shutdown "+
+			"script as TLV record: %v", err)
+	}
+
+	// Concatenate the remaining blob with the shutdown script record.
+	tlvRecords = append(tlvRecords, extraData...)
+	return tlvRecords, nil
+}
+
+// parseShutdownScript reads and extract the upfront shutdown script from the
+// passe data blob. It returns the script, if any, and the remainder of the
+// data blob.
+//
+// This can be used to parse extra data for the OpenChannel and AcceptChannel
+// messages, where the shutdown script is mandatory if extra TLV data is
+// present.
+func parseShutdownScript(tlvRecords ExtraOpaqueData) (DeliveryAddress,
+	ExtraOpaqueData, error) {
+
+	// If no TLV data is present there can't be any script available.
+	if len(tlvRecords) == 0 {
+		return nil, tlvRecords, nil
+	}
+
+	// Otherwise the shutdown script MUST be present.
+	var addr DeliveryAddress
+	tlvs, err := tlvRecords.ExtractRecords(addr.NewRecord())
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Not among TLV records, this means the data was invalid.
+	if _, ok := tlvs[DeliveryAddrType]; !ok {
+		return nil, nil, fmt.Errorf("no shutdown script in non-empty " +
+			"data blob")
+	}
+
+	// Now that we have retrieved the address (which can be zero-length),
+	// we'll remove the bytes encoding it from the TLV data before
+	// returning it.
+	addrLen := len(addr)
+	tlvRecords = tlvRecords[addrLen+2:]
+
+	return addr, tlvRecords, nil
 }
 
 // MsgType returns the MessageType code which uniquely identifies this message
@@ -172,11 +260,5 @@ func (a *AcceptChannel) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (a *AcceptChannel) MaxPayloadLength(uint32) uint32 {
-	// 32 + (8 * 4) + (4 * 1) + (2 * 2) + (33 * 6)
-	var length uint32 = 270 // base length
-
-	// Upfront shutdown script max length.
-	length += 2 + deliveryAddressMaxSize
-
-	return length
+	return MaxMsgBody
 }

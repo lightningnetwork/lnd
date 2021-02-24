@@ -22,20 +22,6 @@ type Shutdown struct {
 	ExtraData ExtraOpaqueData
 }
 
-// DeliveryAddress is used to communicate the address to which funds from a
-// closed channel should be sent. The address can be a p2wsh, p2pkh, p2sh or
-// p2wpkh.
-type DeliveryAddress []byte
-
-// deliveryAddressMaxSize is the maximum expected size in bytes of a
-// DeliveryAddress based on the types of scripts we know.
-// Following are the known scripts and their sizes in bytes.
-// - pay to witness script hash: 34
-// - pay to pubkey hash: 25
-// - pay to script hash: 22
-// - pay to witness pubkey hash: 22.
-const deliveryAddressMaxSize = 34
-
 // NewShutdown creates a new Shutdown message.
 func NewShutdown(cid ChannelID, addr DeliveryAddress) *Shutdown {
 	return &Shutdown{

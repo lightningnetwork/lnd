@@ -128,6 +128,17 @@ type OpenChannel struct {
 	// and has a length prefix, so a zero will be written if it is not set
 	// and its length followed by the script will be written if it is set.
 	UpfrontShutdownScript DeliveryAddress
+
+	// ExtraData is the set of data that was appended to this message to
+	// fill out the full maximum transport message size. These fields can
+	// be used to specify optional data such as custom TLV fields.
+	//
+	// NOTE: Since the upfront shutdown script MUST be present (though can
+	// be zero-length) if any TLV data is available, the script will be
+	// extracted and removed from this blob when decoding. ExtraData will
+	// contain all TLV records _except_ the DeliveryAddress record in that
+	// case.
+	ExtraData ExtraOpaqueData
 }
 
 // A compile time check to ensure OpenChannel implements the lnwire.Message
@@ -140,6 +151,15 @@ var _ Message = (*OpenChannel)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (o *OpenChannel) Encode(w io.Writer, pver uint32) error {
+	// Since the upfront script is encoded as a TLV record, concatenate it
+	// with the ExtraData, and write them as one.
+	tlvRecords, err := packShutdownScript(
+		o.UpfrontShutdownScript, o.ExtraData,
+	)
+	if err != nil {
+		return err
+	}
+
 	return WriteElements(w,
 		o.ChainHash[:],
 		o.PendingChannelID[:],
@@ -159,7 +179,7 @@ func (o *OpenChannel) Encode(w io.Writer, pver uint32) error {
 		o.HtlcPoint,
 		o.FirstCommitmentPoint,
 		o.ChannelFlags,
-		o.UpfrontShutdownScript,
+		tlvRecords,
 	)
 }
 
@@ -169,7 +189,8 @@ func (o *OpenChannel) Encode(w io.Writer, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
-	if err := ReadElements(r,
+	// Read all the mandatory fields in the open message.
+	err := ReadElements(r,
 		o.ChainHash[:],
 		o.PendingChannelID[:],
 		&o.FundingAmount,
@@ -188,14 +209,23 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 		&o.HtlcPoint,
 		&o.FirstCommitmentPoint,
 		&o.ChannelFlags,
-	); err != nil {
+	)
+	if err != nil {
 		return err
 	}
 
-	// Check for the optional upfront shutdown script field. If it is not there,
-	// silence the EOF error.
-	err := ReadElement(r, &o.UpfrontShutdownScript)
-	if err != nil && err != io.EOF {
+	// For backwards compatibility, the optional extra data blob for
+	// OpenChannel must contain an entry for the upfront shutdown script.
+	// We'll read it out and attempt to parse it.
+	var tlvRecords ExtraOpaqueData
+	if err := ReadElements(r, &tlvRecords); err != nil {
+		return err
+	}
+
+	o.UpfrontShutdownScript, o.ExtraData, err = parseShutdownScript(
+		tlvRecords,
+	)
+	if err != nil {
 		return err
 	}
 
@@ -215,11 +245,5 @@ func (o *OpenChannel) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (o *OpenChannel) MaxPayloadLength(uint32) uint32 {
-	// (32 * 2) + (8 * 6) + (4 * 1) + (2 * 2) + (33 * 6) + 1
-	var length uint32 = 319 // base length
-
-	// Upfront shutdown script max length.
-	length += 2 + deliveryAddressMaxSize
-
-	return length
+	return MaxMsgBody
 }

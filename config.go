@@ -253,6 +253,8 @@ type Config struct {
 
 	Tor *lncfg.Tor `group:"Tor" namespace:"tor"`
 
+	Onlynet *lncfg.Onlynet `group:"Onlynet" namespace:"onlynet"`
+
 	SubRPCServers *subRPCServerConfigs `group:"subrpc"`
 
 	Hodl *hodl.Config `group:"hodl" namespace:"hodl"`
@@ -442,7 +444,8 @@ func DefaultConfig() Config {
 			DNS:     defaultTorDNS,
 			Control: defaultTorControl,
 		},
-		net: &tor.ClearNet{},
+		Onlynet: &lncfg.Onlynet{},
+		net:     &tor.ClearNet{},
 		Workers: &lncfg.Workers{
 			Read:  lncfg.DefaultReadWorkers,
 			Write: lncfg.DefaultWriteWorkers,
@@ -835,6 +838,22 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 			SOCKS:           cfg.Tor.SOCKS,
 			DNS:             cfg.Tor.DNS,
 			StreamIsolation: cfg.Tor.StreamIsolation,
+		}
+	}
+
+	if cfg.Onlynet.Active {
+		// If Onlynet is active, one of Clear or Onion must be true.
+		if cfg.Onlynet.Clear && cfg.Onlynet.Onion {
+			return nil, errors.New("multiple onlynet networks set")
+		}
+
+		if !cfg.Onlynet.Clear && !cfg.Onlynet.Onion {
+			return nil, errors.New("no onlynet networks set")
+		}
+
+		// If Onlynet is set to Onion, Tor must be active.
+		if cfg.Onlynet.Onion && !cfg.Tor.Active {
+			return nil, errors.New("onlynet onion needs tor active")
 		}
 	}
 

@@ -125,6 +125,12 @@ var (
 	//
 	// TODO(roasbeef): add command line param to modify
 	MaxFundingAmount = funding.MaxBtcFundingAmount
+
+	// errOnlynetEnabled is an error returned by the server when there
+	// are Onlynet restrictions that prevents the server from connecting
+	// to the specified address.
+	errOnlynetEnabled = errors.New("unable to connect to address with " +
+		"onlynet enabled")
 )
 
 // errPeerAlreadyConnected is an error returned by the server when we're
@@ -2116,6 +2122,23 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 			// Finally, we'll launch a new goroutine for each
 			// prospective peer candidates.
 			for _, addr := range peerAddrs {
+				// Check if this address is restricted by Onlynet.
+				if s.cfg.Onlynet.Active {
+					switch addr.Address.(type) {
+					case *net.TCPAddr:
+						// Continue if onionnet only.
+						if s.cfg.Onlynet.Onion {
+							continue
+						}
+
+					case *tor.OnionAddr:
+						// Continue if clearnet only.
+						if s.cfg.Onlynet.Clear {
+							continue
+						}
+					}
+				}
+
 				epochAttempts++
 
 				go func(a *lnwire.NetAddress) {
@@ -2222,6 +2245,23 @@ func (s *server) initialPeerBootstrap(ignore map[autopilot.NodeID]struct{},
 		// different peer addresses retrieved by our bootstrappers.
 		var wg sync.WaitGroup
 		for _, bootstrapAddr := range bootstrapAddrs {
+			// Check if this address is restricted by Onlynet.
+			if s.cfg.Onlynet.Active {
+				switch bootstrapAddr.Address.(type) {
+				case *net.TCPAddr:
+					// Continue if onionnet only.
+					if s.cfg.Onlynet.Onion {
+						continue
+					}
+
+				case *tor.OnionAddr:
+					// Continue if clearnet only.
+					if s.cfg.Onlynet.Clear {
+						continue
+					}
+				}
+			}
+
 			wg.Add(1)
 			go func(addr *lnwire.NetAddress) {
 				defer wg.Done()
@@ -2500,7 +2540,29 @@ func (s *server) establishPersistentConnections() error {
 			s.persistentPeersBackoff[pubStr] = s.cfg.MinBackoff
 		}
 
+		var attemptedConnection bool
+
 		for _, address := range nodeAddr.addresses {
+			// If onlynet is active, check whether this address can
+			// be connected to.
+			if s.cfg.Onlynet.Active {
+				switch address.(type) {
+				case *net.TCPAddr:
+					// Don't connect to clearnet.
+					if s.cfg.Onlynet.Onion {
+						continue
+					}
+
+				case *tor.OnionAddr:
+					// Don't connect to onionnet.
+					if s.cfg.Onlynet.Clear {
+						continue
+					}
+				}
+			}
+
+			attemptedConnection = true
+
 			// Create a wrapper address which couples the IP and
 			// the pubkey so the brontide authenticated connection
 			// can be established.
@@ -2538,7 +2600,9 @@ func (s *server) establishPersistentConnections() error {
 			}
 		}
 
-		numOutboundConns++
+		if attemptedConnection {
+			numOutboundConns++
+		}
 	}
 
 	return nil
@@ -3385,6 +3449,23 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 					"address for node %x: %v", p.PubKey(),
 					err)
 			}
+
+			// If the fetchNodeAdvertisedAddr call failed, we'll
+			// need to check that we adhere to Onlynet restrictions.
+			if s.cfg.Onlynet.Active {
+				addr := p.NetAddress().Address
+				switch addr.(type) {
+				case *net.TCPAddr:
+					if s.cfg.Onlynet.Onion {
+						return
+					}
+
+				case *tor.OnionAddr:
+					if s.cfg.Onlynet.Clear {
+						return
+					}
+				}
+			}
 		}
 
 		// Otherwise, we'll launch a new connection request in order to
@@ -3501,6 +3582,21 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
 	if err == nil {
 		s.mu.Unlock()
 		return &errPeerAlreadyConnected{peer: peer}
+	}
+
+	// Check if we are restricted from connecting to the passed address.
+	if s.cfg.Onlynet.Active {
+		switch addr.Address.(type) {
+		case *net.TCPAddr:
+			if s.cfg.Onlynet.Onion {
+				return errOnlynetEnabled
+			}
+
+		case *tor.OnionAddr:
+			if s.cfg.Onlynet.Clear {
+				return errOnlynetEnabled
+			}
+		}
 	}
 
 	// Peer was not found, continue to pursue connection with peer.
@@ -3759,6 +3855,34 @@ func (s *server) fetchNodeAdvertisedAddr(pub *btcec.PublicKey) (net.Addr, error)
 	}
 
 	if len(node.Addresses) == 0 {
+		return nil, errNoAdvertisedAddr
+	}
+
+	// If Onlynet is enabled, find a connectable address.
+	if s.cfg.Onlynet.Active {
+		for _, addr := range node.Addresses {
+			switch addr.(type) {
+			case *net.TCPAddr:
+				// Don't connect to clearnet.
+				if s.cfg.Onlynet.Onion {
+					continue
+				}
+
+				// Otherwise, we can connect to clearnet.
+				return addr, nil
+
+			case *tor.OnionAddr:
+				// Don't connect to onionnet.
+				if s.cfg.Onlynet.Clear {
+					continue
+				}
+
+				// Otherwise, we can connect to onionnet.
+				return addr, nil
+			}
+		}
+
+		// If we reach this point, there are no addresses to connect to.
 		return nil, errNoAdvertisedAddr
 	}
 

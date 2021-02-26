@@ -560,6 +560,18 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 			"is proxying over Tor as well", cfg.Tor.StreamIsolation)
 	}
 
+	if cfg.Onlynet.Active {
+		var network string
+
+		if cfg.Onlynet.Clear {
+			network = "clearnet"
+		} else if cfg.Onlynet.Onion {
+			network = "onionnet"
+		}
+
+		srvrLog.Infof("Onlynet enabled - only connecting to %v addresses", network)
+	}
+
 	// If the watchtower client should be active, open the client database.
 	// This is done here so that Close always executes when lndMain returns.
 	var towerClientDB *wtdb.ClientDB

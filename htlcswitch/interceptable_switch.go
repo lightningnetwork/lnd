@@ -139,7 +139,7 @@ func (f *interceptedForward) Resume() error {
 
 // Fail forward a failed packet to the switch.
 func (f *interceptedForward) Fail() error {
-	reason, err := f.packet.obfuscator.EncryptFirstHop(lnwire.NewTemporaryChannelFailure(nil))
+	reason, err := f.packet.obfuscator.EncryptFirstHop(&lnwire.FailUnknownNextPeer{})
 	if err != nil {
 		return fmt.Errorf("failed to encrypt failure reason %v", err)
 	}

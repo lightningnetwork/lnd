@@ -239,7 +239,7 @@ type Config struct {
 
 	CPUProfile string `long:"cpuprofile" description:"Write CPU profile to the specified file"`
 
-	Profile string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65535"`
+	Profile string `long:"profile" description:"Enable HTTP profiling on either a port or host:port"`
 
 	UnsafeDisconnect   bool   `long:"unsafe-disconnect" description:"DEPRECATED: Allows the rpcserver to intentionally disconnect from peers with open channels. THIS FLAG WILL BE REMOVED IN 0.10.0"`
 	UnsafeReplay       bool   `long:"unsafe-replay" description:"Causes a link to replay the adds on its commitment txn after starting up, this enables testing of the sphinx replay logic."`
@@ -1086,15 +1086,34 @@ func ValidateConfig(cfg Config, usageMessage string,
 		cfg.Autopilot.MaxChannelSize = int64(MaxFundingAmount)
 	}
 
-	// Validate profile port number.
+	// Validate profile port or host:port.
 	if cfg.Profile != "" {
-		profilePort, err := strconv.Atoi(cfg.Profile)
-		if err != nil || profilePort < 1024 || profilePort > 65535 {
-			str := "%s: The profile port must be between 1024 and 65535"
-			err := fmt.Errorf(str, funcName)
-			_, _ = fmt.Fprintln(os.Stderr, err)
-			_, _ = fmt.Fprintln(os.Stderr, usageMessage)
-			return nil, err
+		str := "%s: The profile port must be between 1024 and 65535"
+
+		// Try to parse Profile as a host:port.
+		_, hostPort, err := net.SplitHostPort(cfg.Profile)
+		if err == nil {
+			// Determine if the port is valid.
+			profilePort, err := strconv.Atoi(hostPort)
+			if err != nil || profilePort < 1024 || profilePort > 65535 {
+				err = fmt.Errorf(str, funcName)
+				_, _ = fmt.Fprintln(os.Stderr, err)
+				_, _ = fmt.Fprintln(os.Stderr, usageMessage)
+				return nil, err
+			}
+		} else {
+			// Try to parse Profile as a port.
+			profilePort, err := strconv.Atoi(cfg.Profile)
+			if err != nil || profilePort < 1024 || profilePort > 65535 {
+				err = fmt.Errorf(str, funcName)
+				_, _ = fmt.Fprintln(os.Stderr, err)
+				_, _ = fmt.Fprintln(os.Stderr, usageMessage)
+				return nil, err
+			}
+
+			// Since the user just set a port, we will serve debugging
+			// information over localhost.
+			cfg.Profile = net.JoinHostPort("127.0.0.1", cfg.Profile)
 		}
 	}
 

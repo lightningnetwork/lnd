@@ -1816,23 +1816,24 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices,
 		// Check whether this htlc needs to be canceled. If it does,
 		// update the htlc state to Canceled.
 		_, cancel := cancelHtlcs[key]
-		if cancel {
-			// Consistency check to verify that there is no overlap
-			// between the add and cancel sets.
-			if _, added := update.AddHtlcs[key]; added {
-				return nil, fmt.Errorf("added htlc %v canceled",
-					key)
-			}
-
-			err := cancelSingleHtlc(now, htlc, newState)
-			if err != nil {
-				return nil, err
-			}
-
-			// Delete processed cancel action, so that we can check
-			// later that there are no actions left.
-			delete(cancelHtlcs, key)
+		if !cancel {
+			continue
 		}
+
+		// Consistency check to verify that there is no overlap between
+		// the add and cancel sets.
+		if _, added := update.AddHtlcs[key]; added {
+			return nil, fmt.Errorf("added htlc %v canceled", key)
+		}
+
+		err := cancelSingleHtlc(now, htlc, newState)
+		if err != nil {
+			return nil, err
+		}
+
+		// Delete processed cancel action, so that we can check later
+		// that there are no actions left.
+		delete(cancelHtlcs, key)
 	}
 
 	// Verify that we didn't get an action for htlcs that are not present on

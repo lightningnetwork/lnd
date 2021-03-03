@@ -53,6 +53,14 @@ var (
 	// maps: payAddr => invoiceKey
 	payAddrIndexBucket = []byte("pay-addr-index")
 
+	// setIDIndexBucket is the name of the top-level bucket that maps set
+	// ids to their invoice number. This can be used to efficiently query or
+	// update AMP invoice. Note that legacy or MPP invoices will not be
+	// included in this index, since their HTLCs do not have a set id.
+	//
+	// maps: setID => invoiceKey
+	setIDIndexBucket = []byte("set-id-index")
+
 	// numInvoicesKey is the name of key which houses the auto-incrementing
 	// invoice ID which is essentially used as a primary key. With each
 	// invoice inserted, the primary key is incremented by one. This key is
@@ -111,6 +119,17 @@ var (
 	// that already has HTLCs.
 	ErrInvoiceHasHtlcs = errors.New("cannot add invoice with htlcs")
 )
+
+// ErrDuplicateSetID is an error returned when attempting to adding an AMP HTLC
+// to an invoice, but another invoice is already indexed by the same set id.
+type ErrDuplicateSetID struct {
+	setID [32]byte
+}
+
+// Error returns a human-readable description of ErrDuplicateSetID.
+func (e ErrDuplicateSetID) Error() string {
+	return fmt.Sprintf("invoice with set_id=%x already exists", e.setID)
+}
 
 const (
 	// MaxMemoSize is maximum size of the memo field within invoices stored
@@ -183,6 +202,14 @@ type InvoiceRef struct {
 	// known it will be used as the primary identifier, falling back to
 	// payHash if no value is known.
 	payAddr *[32]byte
+
+	// setID is the optional set id for an AMP payment. This can be used to
+	// lookup or update the invoice knowing only this value. Queries by set
+	// id are only used to facilitate user-facing requests, e.g. lookup,
+	// settle or cancel an AMP invoice. The regular update flow from the
+	// invoice registry will always query for the invoice by
+	// payHash+payAddr.
+	setID *[32]byte
 }
 
 // InvoiceRefByHash creates an InvoiceRef that queries for an invoice only by
@@ -205,6 +232,15 @@ func InvoiceRefByHashAndAddr(payHash lntypes.Hash,
 	}
 }
 
+// InvoiceRefBySetID creates an InvoiceRef that queries the set id index for an
+// invoice with the provided setID. If the invoice is not found, the query will
+// not fallback to payHash or payAddr.
+func InvoiceRefBySetID(setID [32]byte) InvoiceRef {
+	return InvoiceRef{
+		setID: &setID,
+	}
+}
+
 // PayHash returns the target invoice's payment hash.
 func (r InvoiceRef) PayHash() lntypes.Hash {
 	return r.payHash
@@ -217,6 +253,17 @@ func (r InvoiceRef) PayAddr() *[32]byte {
 	if r.payAddr != nil {
 		addr := *r.payAddr
 		return &addr
+	}
+	return nil
+}
+
+// SetID returns the optional set id of the target invoice.
+//
+// NOTE: This value may be nil.
+func (r InvoiceRef) SetID() *[32]byte {
+	if r.setID != nil {
+		id := *r.setID
+		return &id
 	}
 	return nil
 }
@@ -564,6 +611,11 @@ type InvoiceStateUpdateDesc struct {
 
 	// Preimage must be set to the preimage when NewState is settled.
 	Preimage *lntypes.Preimage
+
+	// SetID identifies a specific set of HTLCs destined for the same
+	// invoice as part of a larger AMP payment. This value will be nil for
+	// legacy or MPP payments.
+	SetID *[32]byte
 }
 
 // InvoiceUpdateCallback is a callback used in the db transaction to update the
@@ -772,11 +824,12 @@ func (d *DB) LookupInvoice(ref InvoiceRef) (Invoice, error) {
 			return ErrNoInvoicesCreated
 		}
 		payAddrIndex := tx.ReadBucket(payAddrIndexBucket)
+		setIDIndex := tx.ReadBucket(setIDIndexBucket)
 
-		// Retrieve the invoice number for this invoice using the
-		// provided invoice reference.
+		// Retrieve the invoice number for this invoice using
+		// the provided invoice reference.
 		invoiceNum, err := fetchInvoiceNumByRef(
-			invoiceIndex, payAddrIndex, ref,
+			invoiceIndex, payAddrIndex, setIDIndex, ref,
 		)
 		if err != nil {
 			return err
@@ -803,8 +856,21 @@ func (d *DB) LookupInvoice(ref InvoiceRef) (Invoice, error) {
 // reference. The payment address will be treated as the primary key, falling
 // back to the payment hash if nothing is found for the payment address. An
 // error is returned if the invoice is not found.
-func fetchInvoiceNumByRef(invoiceIndex, payAddrIndex kvdb.RBucket,
+func fetchInvoiceNumByRef(invoiceIndex, payAddrIndex, setIDIndex kvdb.RBucket,
 	ref InvoiceRef) ([]byte, error) {
+
+	// If the set id is present, we only consult the set id index for this
+	// invoice. This type of query is only used to facilitate user-facing
+	// requests to lookup, settle or cancel an AMP invoice.
+	setID := ref.SetID()
+	if setID != nil {
+		invoiceNumBySetID := setIDIndex.Get(setID[:])
+		if invoiceNumBySetID == nil {
+			return nil, ErrInvoiceNotFound
+		}
+
+		return invoiceNumBySetID, nil
+	}
 
 	payHash := ref.PayHash()
 	payAddr := ref.PayAddr()
@@ -1053,20 +1119,21 @@ func (d *DB) UpdateInvoice(ref InvoiceRef,
 			return err
 		}
 		payAddrIndex := tx.ReadBucket(payAddrIndexBucket)
+		setIDIndex := tx.ReadWriteBucket(setIDIndexBucket)
 
 		// Retrieve the invoice number for this invoice using the
 		// provided invoice reference.
 		invoiceNum, err := fetchInvoiceNumByRef(
-			invoiceIndex, payAddrIndex, ref,
+			invoiceIndex, payAddrIndex, setIDIndex, ref,
 		)
 		if err != nil {
 			return err
-
 		}
+
 		payHash := ref.PayHash()
 		updatedInvoice, err = d.updateInvoice(
-			payHash, invoices, settleIndex, invoiceNum,
-			callback,
+			payHash, invoices, settleIndex, setIDIndex,
+			invoiceNum, callback,
 		)
 
 		return err
@@ -1662,8 +1729,9 @@ func copyInvoice(src *Invoice) *Invoice {
 
 // updateInvoice fetches the invoice, obtains the update descriptor from the
 // callback and applies the updates in a single db transaction.
-func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex kvdb.RwBucket,
-	invoiceNum []byte, callback InvoiceUpdateCallback) (*Invoice, error) {
+func (d *DB) updateInvoice(hash lntypes.Hash, invoices,
+	settleIndex, setIDIndex kvdb.RwBucket, invoiceNum []byte,
+	callback InvoiceUpdateCallback) (*Invoice, error) {
 
 	invoice, err := fetchInvoice(invoiceNum, invoices)
 	if err != nil {
@@ -1715,6 +1783,22 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex kvdb.RwBucke
 		// consistent way.
 		if htlcUpdate.CustomRecords == nil {
 			return nil, errors.New("nil custom records map")
+		}
+
+		// If a newly added HTLC has an associated set id, use it to
+		// index this invoice in the set id index. An error is returned
+		// if we find the index already points to a different invoice.
+		if htlcUpdate.AMP != nil {
+			setID := htlcUpdate.AMP.Record.SetID()
+			setIDInvNum := setIDIndex.Get(setID[:])
+			if setIDInvNum == nil {
+				err = setIDIndex.Put(setID[:], invoiceNum)
+				if err != nil {
+					return nil, err
+				}
+			} else if !bytes.Equal(setIDInvNum, invoiceNum) {
+				return nil, ErrDuplicateSetID{setID: setID}
+			}
 		}
 
 		htlc := &InvoiceHTLC{

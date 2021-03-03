@@ -1423,6 +1423,13 @@ func TestSetIDIndex(t *testing.T) {
 
 	// Now settle the first htlc set, asserting that the two htlcs with set
 	// id 2 get canceled as a result.
+	_, err = db.UpdateInvoice(
+		ref, getUpdateInvoiceAMPSettle(&[32]byte{}),
+	)
+	require.Equal(t, ErrEmptyHTLCSet, err)
+
+	// Now settle the first htlc set, asserting that the two htlcs with set
+	// id 2 get canceled as a result.
 	dbInvoice, err = db.UpdateInvoice(ref, getUpdateInvoiceAMPSettle(setID))
 	require.Nil(t, err)
 

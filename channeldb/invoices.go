@@ -118,6 +118,10 @@ var (
 	// ErrInvoiceHasHtlcs is returned when attempting to insert an invoice
 	// that already has HTLCs.
 	ErrInvoiceHasHtlcs = errors.New("cannot add invoice with htlcs")
+
+	// ErrEmptyHTLCSet is returned when attempting to accept or settle and
+	// HTLC set that has no HTLCs.
+	ErrEmptyHTLCSet = errors.New("cannot settle/accept empty HTLC set")
 )
 
 // ErrDuplicateSetID is an error returned when attempting to adding an AMP HTLC
@@ -1753,30 +1757,16 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices,
 		return &invoice, nil
 	}
 
-	var setID *[32]byte
+	var (
+		newState = invoice.State
+		setID    *[32]byte
+	)
 	if update.State != nil {
 		setID = update.State.SetID
+		newState = update.State.NewState
 	}
 
 	now := d.clock.Now()
-
-	// Update invoice state if the update descriptor indicates an invoice
-	// state change.
-	if update.State != nil {
-		err := updateInvoiceState(&invoice, hash, *update.State)
-		if err != nil {
-			return nil, err
-		}
-
-		if update.State.NewState == ContractSettled {
-			err := setSettleMetaFields(
-				settleIndex, invoiceNum, &invoice, now,
-			)
-			if err != nil {
-				return nil, err
-			}
-		}
-	}
 
 	// Process add actions from update descriptor.
 	for key, htlcUpdate := range update.AddHtlcs {
@@ -1820,11 +1810,8 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices,
 		invoice.Htlcs[key] = htlc
 	}
 
-	// Align htlc states with invoice state and recalculate amount paid.
-	var (
-		amtPaid     lnwire.MilliSatoshi
-		cancelHtlcs = update.CancelHtlcs
-	)
+	// Process cancel actions from update descriptor.
+	cancelHtlcs := update.CancelHtlcs
 	for key, htlc := range invoice.Htlcs {
 		// Check whether this htlc needs to be canceled. If it does,
 		// update the htlc state to Canceled.
@@ -1837,7 +1824,7 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices,
 					key)
 			}
 
-			err := cancelSingleHtlc(now, htlc, invoice.State)
+			err := cancelSingleHtlc(now, htlc, newState)
 			if err != nil {
 				return nil, err
 			}
@@ -1845,10 +1832,41 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices,
 			// Delete processed cancel action, so that we can check
 			// later that there are no actions left.
 			delete(cancelHtlcs, key)
+		}
+	}
 
-			continue
+	// Verify that we didn't get an action for htlcs that are not present on
+	// the invoice.
+	if len(cancelHtlcs) > 0 {
+		return nil, errors.New("cancel action on non-existent htlc(s)")
+	}
+
+	// At this point, the set of accepted HTLCs should be fully
+	// populated with added HTLCs or removed of canceled ones. Update
+	// invoice state if the update descriptor indicates an invoice state
+	// change, which depends on having an accurate view of the accepted
+	// HTLCs.
+	if update.State != nil {
+		err := updateInvoiceState(&invoice, hash, *update.State)
+		if err != nil {
+			return nil, err
 		}
 
+		if update.State.NewState == ContractSettled {
+			err := setSettleMetaFields(
+				settleIndex, invoiceNum, &invoice, now,
+			)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// With any invoice level state transitions recorded, we'll now finalize
+	// the process by updating the state transitions for individual HTLCs
+	// and recalculate the total amount paid to the invoice.
+	var amtPaid lnwire.MilliSatoshi
+	for _, htlc := range invoice.Htlcs {
 		// The invoice state may have changed and this could have
 		// implications for the states of the individual htlcs. Align
 		// the htlc state with the current invoice state.
@@ -1867,12 +1885,6 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices,
 		}
 	}
 	invoice.AmtPaid = amtPaid
-
-	// Verify that we didn't get an action for htlcs that are not present on
-	// the invoice.
-	if len(cancelHtlcs) > 0 {
-		return nil, errors.New("cancel action on non-existent htlc(s)")
-	}
 
 	// Reserialize and update invoice.
 	var buf bytes.Buffer
@@ -1916,6 +1928,12 @@ func updateInvoiceState(invoice *Invoice, hash lntypes.Hash,
 		if update.NewState == ContractCanceled {
 			invoice.State = update.NewState
 			return nil
+		}
+
+		// Sanity check that the user isn't trying to settle or accept a
+		// non-existent HTLC set.
+		if len(invoice.HTLCSet(update.SetID)) == 0 {
+			return ErrEmptyHTLCSet
 		}
 
 		// For AMP invoices, there are no invoice-level preimage checks.

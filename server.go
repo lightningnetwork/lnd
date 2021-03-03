@@ -823,6 +823,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		SubBatchDelay:           time.Second * 5,
 		IgnoreHistoricalFilters: cfg.IgnoreHistoricalGossipFilters,
 		PinnedSyncers:           cfg.Gossip.PinnedSyncers,
+		MaxChannelUpdateBurst:   cfg.Gossip.MaxChannelUpdateBurst,
+		ChannelUpdateInterval:   cfg.Gossip.ChannelUpdateInterval,
 	},
 		nodeKeyECDH.PubKey(),
 	)

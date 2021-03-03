@@ -11,6 +11,10 @@ type Payload interface {
 	// the onion payload.
 	MultiPath() *record.MPP
 
+	// AMPRecord returns the record corresponding to the option_amp record
+	// parsed from the onion payload.
+	AMPRecord() *record.AMP
+
 	// CustomRecords returns the custom tlv type records that were parsed
 	// from the payload.
 	CustomRecords() record.CustomSet

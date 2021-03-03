@@ -143,14 +143,7 @@ func updateMpp(ctx *invoiceUpdateCtx,
 
 	// Check whether total amt matches other htlcs in the set.
 	var newSetTotal lnwire.MilliSatoshi
-	for _, htlc := range inv.Htlcs {
-		// Only consider accepted mpp htlcs. It is possible that there
-		// are htlcs registered in the invoice database that previously
-		// timed out and are in the canceled state now.
-		if htlc.State != channeldb.HtlcStateAccepted {
-			continue
-		}
-
+	for _, htlc := range inv.HTLCSet(nil) {
 		if ctx.mpp.TotalMsat() != htlc.MppTotalAmt {
 			return nil, ctx.failRes(ResultHtlcSetTotalMismatch), nil
 		}
@@ -250,10 +243,8 @@ func updateLegacy(ctx *invoiceUpdateCtx,
 	// Don't allow settling the invoice with an old style
 	// htlc if we are already in the process of gathering an
 	// mpp set.
-	for _, htlc := range inv.Htlcs {
-		if htlc.State == channeldb.HtlcStateAccepted &&
-			htlc.MppTotalAmt > 0 {
-
+	for _, htlc := range inv.HTLCSet(nil) {
+		if htlc.MppTotalAmt > 0 {
 			return nil, ctx.failRes(ResultMppInProgress), nil
 		}
 	}

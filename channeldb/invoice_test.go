@@ -1216,6 +1216,94 @@ func TestInvoiceRef(t *testing.T) {
 	require.Equal(t, &payAddr, refByHashAndAddr.PayAddr())
 }
 
+// TestHTLCSet asserts that HTLCSet returns the proper set of accepted HTLCs
+// that can be considered for settlement. It asserts that MPP and AMP HTLCs do
+// not comingle, and also that HTLCs with disjoint set ids appear in different
+// sets.
+func TestHTLCSet(t *testing.T) {
+	inv := &Invoice{
+		Htlcs: make(map[CircuitKey]*InvoiceHTLC),
+	}
+
+	// Construct two distinct set id's, in this test we'll also track the
+	// nil set id as a third group.
+	setID1 := &[32]byte{1}
+	setID2 := &[32]byte{2}
+
+	// Create the expected htlc sets for each group, these will be updated
+	// as the invoice is modified.
+	expSetNil := make(map[CircuitKey]*InvoiceHTLC)
+	expSet1 := make(map[CircuitKey]*InvoiceHTLC)
+	expSet2 := make(map[CircuitKey]*InvoiceHTLC)
+
+	checkHTLCSets := func() {
+		require.Equal(t, expSetNil, inv.HTLCSet(nil))
+		require.Equal(t, expSet1, inv.HTLCSet(setID1))
+		require.Equal(t, expSet2, inv.HTLCSet(setID2))
+	}
+
+	// All HTLC sets should be empty initially.
+	checkHTLCSets()
+
+	// Add the following sequence of HTLCs to the invoice, sanity checking
+	// all three HTLC sets after each transition. This sequence asserts:
+	//   - both nil and non-nil set ids can have multiple htlcs.
+	//   - there may be distinct htlc sets with non-nil set ids.
+	//   - only accepted htlcs are returned as part of the set.
+	htlcs := []struct {
+		setID *[32]byte
+		state HtlcState
+	}{
+		{nil, HtlcStateAccepted},
+		{nil, HtlcStateAccepted},
+		{setID1, HtlcStateAccepted},
+		{setID1, HtlcStateAccepted},
+		{setID2, HtlcStateAccepted},
+		{setID2, HtlcStateAccepted},
+		{nil, HtlcStateCanceled},
+		{setID1, HtlcStateCanceled},
+		{setID2, HtlcStateCanceled},
+		{nil, HtlcStateSettled},
+		{setID1, HtlcStateSettled},
+		{setID2, HtlcStateSettled},
+	}
+
+	for i, h := range htlcs {
+		var ampData *InvoiceHtlcAMPData
+		if h.setID != nil {
+			ampData = &InvoiceHtlcAMPData{
+				Record: *record.NewAMP([32]byte{0}, *h.setID, 0),
+			}
+
+		}
+
+		// Add the HTLC to the invoice's set of HTLCs.
+		key := CircuitKey{HtlcID: uint64(i)}
+		htlc := &InvoiceHTLC{
+			AMP:   ampData,
+			State: h.state,
+		}
+		inv.Htlcs[key] = htlc
+
+		// Update our expected htlc set if the htlc is accepted,
+		// otherwise it shouldn't be reflected.
+		if h.state == HtlcStateAccepted {
+			switch h.setID {
+			case nil:
+				expSetNil[key] = htlc
+			case setID1:
+				expSet1[key] = htlc
+			case setID2:
+				expSet2[key] = htlc
+			default:
+				t.Fatalf("unexpected set id")
+			}
+		}
+
+		checkHTLCSets()
+	}
+}
+
 // TestDeleteInvoices tests that deleting a list of invoices will succeed
 // if all delete references are valid, or will fail otherwise.
 func TestDeleteInvoices(t *testing.T) {

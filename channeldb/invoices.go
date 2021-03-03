@@ -362,6 +362,30 @@ type Invoice struct {
 	HodlInvoice bool
 }
 
+// HTLCSet returns the set of accepted HTLCs belonging to an invoice. Passing a
+// nil setID will return all accepted HTLCs in the case of legacy or MPP, and no
+// HTLCs in the case of AMP.  Otherwise, the returned set will be filtered by
+// the populated setID which is used to retrieve AMP HTLC sets.
+func (i *Invoice) HTLCSet(setID *[32]byte) map[CircuitKey]*InvoiceHTLC {
+	htlcSet := make(map[CircuitKey]*InvoiceHTLC)
+	for key, htlc := range i.Htlcs {
+		// Only consider accepted mpp htlcs. It is possible that there
+		// are htlcs registered in the invoice database that previously
+		// timed out and are in the canceled state now.
+		if htlc.State != HtlcStateAccepted {
+			continue
+		}
+
+		if !htlc.IsInHTLCSet(setID) {
+			continue
+		}
+
+		htlcSet[key] = htlc
+	}
+
+	return htlcSet
+}
+
 // HtlcState defines the states an htlc paying to an invoice can be in.
 type HtlcState uint8
 
@@ -418,6 +442,26 @@ type InvoiceHTLC struct {
 	//
 	// NOTE: This value will only be set for AMP HTLCs.
 	AMP *InvoiceHtlcAMPData
+}
+
+// IsInHTLCSet returns true if this HTLC is part an HTLC set. If nil is passed,
+// this method returns true if this is an MPP HTLC. Otherwise, it only returns
+// true if the AMP HTLC's set id matches the populated setID.
+func (h *InvoiceHTLC) IsInHTLCSet(setID *[32]byte) bool {
+	wantAMPSet := setID != nil
+	isAMPHtlc := h.AMP != nil
+
+	// Non-AMP HTLCs cannot be part of AMP HTLC sets, and vice versa.
+	if wantAMPSet != isAMPHtlc {
+		return false
+	}
+
+	// Skip AMP HTLCs that have differing set ids.
+	if isAMPHtlc && *setID != h.AMP.Record.SetID() {
+		return false
+	}
+
+	return true
 }
 
 // InvoiceHtlcAMPData is a struct hodling the additional metadata stored for

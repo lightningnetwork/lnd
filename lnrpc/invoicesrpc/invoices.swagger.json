@@ -256,6 +256,37 @@
     "invoicesrpcSettleInvoiceResp": {
       "type": "object"
     },
+    "lnrpcAMP": {
+      "type": "object",
+      "properties": {
+        "root_share": {
+          "type": "string",
+          "format": "byte",
+          "description": "An n-of-n secret share of the root seed from which child payment hashes\nand preimages are derived."
+        },
+        "set_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "An identifier for the HTLC set that this HTLC belongs to."
+        },
+        "child_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "A nonce used to randomize the child preimage and child hash from a given\nroot_share."
+        },
+        "hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment hash of the AMP HTLC."
+        },
+        "preimage": {
+          "type": "string",
+          "format": "byte",
+          "description": "The preimage used to settle this AMP htlc. This field will only be\npopulated if the invoice is in InvoiceState_ACCEPTED or\nInvoiceState_SETTLED."
+        }
+      },
+      "description": "Details specific to AMP HTLCs."
+    },
     "lnrpcFeature": {
       "type": "object",
       "properties": {
@@ -489,6 +520,10 @@
           "type": "string",
           "format": "uint64",
           "description": "The total amount of the mpp payment in msat."
+        },
+        "amp": {
+          "$ref": "#/definitions/lnrpcAMP",
+          "description": "Details relevant to AMP HTLCs, only populated if this is an AMP HTLC."
         }
       },
       "title": "Details of an HTLC that paid to an invoice"

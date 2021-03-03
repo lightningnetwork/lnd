@@ -1304,8 +1304,8 @@ func serializeHtlcs(w io.Writer, htlcs map[CircuitKey]*InvoiceHTLC) error {
 		chanID := key.ChanID.ToUint64()
 		amt := uint64(htlc.Amt)
 		mppTotalAmt := uint64(htlc.MppTotalAmt)
-		acceptTime := uint64(htlc.AcceptTime.UnixNano())
-		resolveTime := uint64(htlc.ResolveTime.UnixNano())
+		acceptTime := putNanoTime(htlc.AcceptTime)
+		resolveTime := putNanoTime(htlc.ResolveTime)
 		state := uint8(htlc.State)
 
 		var records []tlv.Record
@@ -1377,6 +1377,25 @@ func serializeHtlcs(w io.Writer, htlcs map[CircuitKey]*InvoiceHTLC) error {
 	}
 
 	return nil
+}
+
+// putNanoTime returns the unix nano time for the passed timestamp. A zero-value
+// timestamp will be mapped to 0, since calling UnixNano in that case is
+// undefined.
+func putNanoTime(t time.Time) uint64 {
+	if t.IsZero() {
+		return 0
+	}
+	return uint64(t.UnixNano())
+}
+
+// getNanoTime returns a timestamp for the given number of nano seconds. If zero
+// is provided, an zero-value time stamp is returned.
+func getNanoTime(ns uint64) time.Time {
+	if ns == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, int64(ns))
 }
 
 func fetchInvoice(invoiceNum []byte, invoices kvdb.RBucket) (Invoice, error) {
@@ -1564,8 +1583,8 @@ func deserializeHtlcs(r io.Reader) (map[CircuitKey]*InvoiceHTLC, error) {
 		}
 
 		key.ChanID = lnwire.NewShortChanIDFromInt(chanID)
-		htlc.AcceptTime = time.Unix(0, int64(acceptTime))
-		htlc.ResolveTime = time.Unix(0, int64(resolveTime))
+		htlc.AcceptTime = getNanoTime(acceptTime)
+		htlc.ResolveTime = getNanoTime(resolveTime)
 		htlc.State = HtlcState(state)
 		htlc.Amt = lnwire.MilliSatoshi(amt)
 		htlc.MppTotalAmt = lnwire.MilliSatoshi(mppTotalAmt)

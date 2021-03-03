@@ -106,6 +106,10 @@ var (
 	// ErrInvoicePreimageMismatch is returned when the preimage doesn't
 	// match the invoice hash.
 	ErrInvoicePreimageMismatch = errors.New("preimage does not match")
+
+	// ErrInvoiceHasHtlcs is returned when attempting to insert an invoice
+	// that already has HTLCs.
+	ErrInvoiceHasHtlcs = errors.New("cannot add invoice with htlcs")
 )
 
 const (
@@ -588,6 +592,11 @@ func validateInvoice(i *Invoice, paymentHash lntypes.Hash) error {
 	if i.Terms.PaymentPreimage == nil && !i.HodlInvoice {
 		return errors.New("non-hodl invoices must have a preimage")
 	}
+
+	if len(i.Htlcs) > 0 {
+		return ErrInvoiceHasHtlcs
+	}
+
 	return nil
 }
 

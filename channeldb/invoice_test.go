@@ -1304,6 +1304,24 @@ func TestHTLCSet(t *testing.T) {
 	}
 }
 
+// TestAddInvoiceWithHTLCs asserts that you can't insert an invoice that already
+// has HTLCs.
+func TestAddInvoiceWithHTLCs(t *testing.T) {
+	db, cleanUp, err := MakeTestDB()
+	defer cleanUp()
+	require.Nil(t, err)
+
+	testInvoice, err := randInvoice(1000)
+	require.Nil(t, err)
+
+	key := CircuitKey{HtlcID: 1}
+	testInvoice.Htlcs[key] = &InvoiceHTLC{}
+
+	payHash := testInvoice.Terms.PaymentPreimage.Hash()
+	_, err = db.AddInvoice(testInvoice, payHash)
+	require.Equal(t, ErrInvoiceHasHtlcs, err)
+}
+
 // TestDeleteInvoices tests that deleting a list of invoices will succeed
 // if all delete references are valid, or will fail otherwise.
 func TestDeleteInvoices(t *testing.T) {

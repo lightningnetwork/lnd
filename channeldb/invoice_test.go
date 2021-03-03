@@ -1421,6 +1421,23 @@ func TestSetIDIndex(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, invoice, &dbInvoiceBySetID)
 
+	// Now settle the first htlc set, asserting that the two htlcs with set
+	// id 2 get canceled as a result.
+	dbInvoice, err = db.UpdateInvoice(ref, getUpdateInvoiceAMPSettle(setID))
+	require.Nil(t, err)
+
+	invoice.State = ContractSettled
+	invoice.SettleDate = dbInvoice.SettleDate
+	invoice.SettleIndex = 1
+	invoice.AmtPaid = amt
+	invoice.Htlcs[CircuitKey{HtlcID: 0}].ResolveTime = time.Unix(1, 0)
+	invoice.Htlcs[CircuitKey{HtlcID: 0}].State = HtlcStateSettled
+	invoice.Htlcs[CircuitKey{HtlcID: 1}].ResolveTime = time.Unix(1, 0)
+	invoice.Htlcs[CircuitKey{HtlcID: 1}].State = HtlcStateCanceled
+	invoice.Htlcs[CircuitKey{HtlcID: 2}].ResolveTime = time.Unix(1, 0)
+	invoice.Htlcs[CircuitKey{HtlcID: 2}].State = HtlcStateCanceled
+	require.Equal(t, invoice, dbInvoice)
+
 	// Lastly, querying for an unknown set id should fail.
 	refUnknownSetID := InvoiceRefBySetID([32]byte{})
 	_, err = db.LookupInvoice(refUnknownSetID)
@@ -1477,6 +1494,24 @@ func updateAcceptAMPHtlc(id uint64, amt lnwire.MilliSatoshi,
 					CustomRecords: noRecords,
 					AMP:           ampData,
 				},
+			},
+		}
+
+		return update, nil
+	}
+}
+
+func getUpdateInvoiceAMPSettle(setID *[32]byte) InvoiceUpdateCallback {
+	return func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
+		if invoice.State == ContractSettled {
+			return nil, ErrInvoiceAlreadySettled
+		}
+
+		update := &InvoiceUpdateDesc{
+			State: &InvoiceStateUpdateDesc{
+				Preimage: nil,
+				NewState: ContractSettled,
+				SetID:    setID,
 			},
 		}
 

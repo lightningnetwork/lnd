@@ -607,7 +607,8 @@ func TestChannelStateTransition(t *testing.T) {
 		{
 			LogIndex: 2,
 			UpdateMsg: &lnwire.UpdateAddHTLC{
-				ChanID: lnwire.ChannelID{1, 2, 3},
+				ChanID:    lnwire.ChannelID{1, 2, 3},
+				ExtraData: make([]byte, 0),
 			},
 		},
 	}
@@ -628,7 +629,9 @@ func TestChannelStateTransition(t *testing.T) {
 	if !reflect.DeepEqual(
 		dbUnsignedAckedUpdates[0], unsignedAckedUpdates[0],
 	) {
-		t.Fatalf("unexpected update")
+		t.Fatalf("unexpected update: expected %v, got %v",
+			spew.Sdump(unsignedAckedUpdates[0]),
+			spew.Sdump(dbUnsignedAckedUpdates))
 	}
 
 	// The balances, new update, the HTLCs and the changes to the fake
@@ -670,22 +673,25 @@ func TestChannelStateTransition(t *testing.T) {
 				wireSig,
 				wireSig,
 			},
+			ExtraData: make([]byte, 0),
 		},
 		LogUpdates: []LogUpdate{
 			{
 				LogIndex: 1,
 				UpdateMsg: &lnwire.UpdateAddHTLC{
-					ID:     1,
-					Amount: lnwire.NewMSatFromSatoshis(100),
-					Expiry: 25,
+					ID:        1,
+					Amount:    lnwire.NewMSatFromSatoshis(100),
+					Expiry:    25,
+					ExtraData: make([]byte, 0),
 				},
 			},
 			{
 				LogIndex: 2,
 				UpdateMsg: &lnwire.UpdateAddHTLC{
-					ID:     2,
-					Amount: lnwire.NewMSatFromSatoshis(200),
-					Expiry: 50,
+					ID:        2,
+					Amount:    lnwire.NewMSatFromSatoshis(200),
+					Expiry:    50,
+					ExtraData: make([]byte, 0),
 				},
 			},
 		},

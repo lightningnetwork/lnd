@@ -1791,14 +1791,19 @@ type LogUpdate struct {
 	UpdateMsg lnwire.Message
 }
 
-// Encode writes a log update to the provided io.Writer.
-func (l *LogUpdate) Encode(w io.Writer) error {
+// serializeLogUpdate writes a log update to the provided io.Writer.
+func serializeLogUpdate(w io.Writer, l *LogUpdate) error {
 	return WriteElements(w, l.LogIndex, l.UpdateMsg)
 }
 
-// Decode reads a log update from the provided io.Reader.
-func (l *LogUpdate) Decode(r io.Reader) error {
-	return ReadElements(r, &l.LogIndex, &l.UpdateMsg)
+// deserializeLogUpdate reads a log update from the provided io.Reader.
+func deserializeLogUpdate(r io.Reader) (*LogUpdate, error) {
+	l := &LogUpdate{}
+	if err := ReadElements(r, &l.LogIndex, &l.UpdateMsg); err != nil {
+		return nil, err
+	}
+
+	return l, nil
 }
 
 // CircuitKey is used by a channel to uniquely identify the HTLCs it receives
@@ -1960,12 +1965,12 @@ func deserializeLogUpdates(r io.Reader) ([]LogUpdate, error) {
 	return logUpdates, nil
 }
 
-func serializeCommitDiff(w io.Writer, diff *CommitDiff) error {
+func serializeCommitDiff(w io.Writer, diff *CommitDiff) error { // nolint: dupl
 	if err := serializeChanCommit(w, &diff.Commitment); err != nil {
 		return err
 	}
 
-	if err := diff.CommitSig.Encode(w, 0); err != nil {
+	if err := WriteElements(w, diff.CommitSig); err != nil {
 		return err
 	}
 
@@ -2011,10 +2016,16 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 		return nil, err
 	}
 
-	d.CommitSig = &lnwire.CommitSig{}
-	if err := d.CommitSig.Decode(r, 0); err != nil {
+	var msg lnwire.Message
+	if err := ReadElements(r, &msg); err != nil {
 		return nil, err
 	}
+	commitSig, ok := msg.(*lnwire.CommitSig)
+	if !ok {
+		return nil, fmt.Errorf("expected lnwire.CommitSig, instead "+
+			"read: %T", msg)
+	}
+	d.CommitSig = commitSig
 
 	d.LogUpdates, err = deserializeLogUpdates(r)
 	if err != nil {

@@ -19,6 +19,11 @@ type FundingLocked struct {
 	// NextPerCommitmentPoint is the secret that can be used to revoke the
 	// next commitment transaction for the channel.
 	NextPerCommitmentPoint *btcec.PublicKey
+
+	// ExtraData is the set of data that was appended to this message to
+	// fill out the full maximum transport message size. These fields can
+	// be used to specify optional data such as custom TLV fields.
+	ExtraData ExtraOpaqueData
 }
 
 // NewFundingLocked creates a new FundingLocked message, populating it with the
@@ -27,6 +32,7 @@ func NewFundingLocked(cid ChannelID, npcp *btcec.PublicKey) *FundingLocked {
 	return &FundingLocked{
 		ChanID:                 cid,
 		NextPerCommitmentPoint: npcp,
+		ExtraData:              make([]byte, 0),
 	}
 }
 
@@ -42,7 +48,9 @@ var _ Message = (*FundingLocked)(nil)
 func (c *FundingLocked) Decode(r io.Reader, pver uint32) error {
 	return ReadElements(r,
 		&c.ChanID,
-		&c.NextPerCommitmentPoint)
+		&c.NextPerCommitmentPoint,
+		&c.ExtraData,
+	)
 }
 
 // Encode serializes the target FundingLocked message into the passed io.Writer
@@ -53,7 +61,9 @@ func (c *FundingLocked) Decode(r io.Reader, pver uint32) error {
 func (c *FundingLocked) Encode(w io.Writer, pver uint32) error {
 	return WriteElements(w,
 		c.ChanID,
-		c.NextPerCommitmentPoint)
+		c.NextPerCommitmentPoint,
+		c.ExtraData,
+	)
 }
 
 // MsgType returns the uint32 code which uniquely identifies this message as a
@@ -70,14 +80,5 @@ func (c *FundingLocked) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (c *FundingLocked) MaxPayloadLength(uint32) uint32 {
-	var length uint32
-
-	// ChanID - 32 bytes
-	length += 32
-
-	// NextPerCommitmentPoint - 33 bytes
-	length += 33
-
-	// 65 bytes
-	return length
+	return MaxMsgBody
 }

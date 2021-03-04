@@ -8,6 +8,7 @@ run:
 
   skip-dirs:
     - channeldb/migration_01_to_11
+    - channeldb/migration/lnwire21
 
   build-tags:
     - autopilotrpc

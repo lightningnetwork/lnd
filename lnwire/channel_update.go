@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"io/ioutil"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
@@ -115,13 +114,10 @@ type ChannelUpdate struct {
 	// HtlcMaximumMsat is the maximum HTLC value which will be accepted.
 	HtlcMaximumMsat MilliSatoshi
 
-	// ExtraOpaqueData is the set of data that was appended to this
-	// message, some of which we may not actually know how to iterate or
-	// parse. By holding onto this data, we ensure that we're able to
-	// properly validate the set of signatures that cover these new fields,
-	// and ensure we're able to make upgrades to the network in a forwards
-	// compatible manner.
-	ExtraOpaqueData []byte
+	// ExtraData is the set of data that was appended to this message to
+	// fill out the full maximum transport message size. These fields can
+	// be used to specify optional data such as custom TLV fields.
+	ExtraOpaqueData ExtraOpaqueData
 }
 
 // A compile time check to ensure ChannelUpdate implements the lnwire.Message
@@ -156,19 +152,7 @@ func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
 		}
 	}
 
-	// Now that we've read out all the fields that we explicitly know of,
-	// we'll collect the remainder into the ExtraOpaqueData field. If there
-	// aren't any bytes, then we'll snip off the slice to avoid carrying
-	// around excess capacity.
-	a.ExtraOpaqueData, err = ioutil.ReadAll(r)
-	if err != nil {
-		return err
-	}
-	if len(a.ExtraOpaqueData) == 0 {
-		a.ExtraOpaqueData = nil
-	}
-
-	return nil
+	return a.ExtraOpaqueData.Decode(r)
 }
 
 // Encode serializes the target ChannelUpdate into the passed io.Writer
@@ -201,7 +185,7 @@ func (a *ChannelUpdate) Encode(w io.Writer, pver uint32) error {
 	}
 
 	// Finally, append any extra opaque data.
-	return WriteElements(w, a.ExtraOpaqueData)
+	return a.ExtraOpaqueData.Encode(w)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the
@@ -217,7 +201,7 @@ func (a *ChannelUpdate) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (a *ChannelUpdate) MaxPayloadLength(pver uint32) uint32 {
-	return 65533
+	return MaxMsgBody
 }
 
 // DataToSign is used to retrieve part of the announcement message which should
@@ -250,7 +234,7 @@ func (a *ChannelUpdate) DataToSign() ([]byte, error) {
 	}
 
 	// Finally, append any extra opaque data.
-	if err := WriteElements(&w, a.ExtraOpaqueData); err != nil {
+	if err := a.ExtraOpaqueData.Encode(&w); err != nil {
 		return nil, err
 	}
 

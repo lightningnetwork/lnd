@@ -106,14 +106,13 @@ type Config struct {
 	// optional.
 	FeeURL string
 
-	// DBTimeOut specifies the timeout value to use when opening the wallet
-	// database.
-	DBTimeOut time.Duration
-
 	// Dialer is a function closure that will be used to establish outbound
 	// TCP connections to Bitcoin peers in the event of a pruned block being
 	// requested.
 	Dialer chain.Dialer
+
+	// LoaderOptions holds functional wallet db loader options.
+	LoaderOptions []btcwallet.LoaderOption
 }
 
 const (
@@ -283,11 +282,10 @@ func NewChainControl(cfg *Config, blockCache *blockcache.BlockCache) (
 		PublicPass:     cfg.PublicWalletPw,
 		Birthday:       cfg.Birthday,
 		RecoveryWindow: cfg.RecoveryWindow,
-		DataDir:        homeChainConfig.ChainDir,
 		NetParams:      cfg.ActiveNetParams.Params,
 		CoinType:       cfg.ActiveNetParams.CoinType,
 		Wallet:         cfg.Wallet,
-		DBTimeOut:      cfg.DBTimeOut,
+		LoaderOptions:  cfg.LoaderOptions,
 	}
 
 	var err error

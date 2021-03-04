@@ -137,12 +137,16 @@ type UnlockerService struct {
 	// resetWalletTransactions indicates that the wallet state should be
 	// reset on unlock to force a full chain rescan.
 	resetWalletTransactions bool
+
+	// LoaderOpts holds the functional options for the wallet loader.
+	loaderOpts []btcwallet.LoaderOption
 }
 
 // New creates and returns a new UnlockerService.
 func New(chainDir string, params *chaincfg.Params, noFreelistSync bool,
 	macaroonFiles []string, dbTimeout time.Duration,
-	resetWalletTransactions bool) *UnlockerService {
+	resetWalletTransactions bool,
+	loaderOpts []btcwallet.LoaderOption) *UnlockerService {
 
 	return &UnlockerService{
 		InitMsgs:   make(chan *WalletInitMsg, 1),
@@ -157,17 +161,16 @@ func New(chainDir string, params *chaincfg.Params, noFreelistSync bool,
 		dbTimeout:               dbTimeout,
 		noFreelistSync:          noFreelistSync,
 		resetWalletTransactions: resetWalletTransactions,
+		loaderOpts:              loaderOpts,
 	}
 }
 
 func (u *UnlockerService) newLoader(recoveryWindow uint32) (*wallet.Loader,
 	error) {
 
-	netDir := btcwallet.NetworkDir(u.chainDir, u.netParams)
-	return wallet.NewLoader(
-		u.netParams, netDir, u.noFreelistSync, u.dbTimeout,
-		recoveryWindow,
-	), nil
+	return btcwallet.NewWalletLoader(
+		u.netParams, recoveryWindow, u.loaderOpts...,
+	)
 }
 
 // WalletExists returns whether a wallet exists on the file path the

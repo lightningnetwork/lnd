@@ -375,9 +375,38 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 
 	defer cleanUp()
 
+	var loaderOpt btcwallet.LoaderOption
+	if cfg.Cluster.EnableLeaderElection {
+		// The wallet loader will attempt to use/create the wallet in
+		// the replicated remote DB if we're running in a clustered
+		// environment. This will ensure that all members of the cluster
+		// have access to the same wallet state.
+		loaderOpt = btcwallet.LoaderWithExternalWalletDB(
+			remoteChanDB.Backend,
+		)
+	} else {
+		// When "running locally", LND will use the bbolt wallet.db to
+		// store the wallet located in the chain data dir, parametrized
+		// by the active network.
+		chainConfig := cfg.Bitcoin
+		if cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
+			chainConfig = cfg.Litecoin
+		}
+
+		dbDirPath := btcwallet.NetworkDir(
+			chainConfig.ChainDir, cfg.ActiveNetParams.Params,
+		)
+		loaderOpt = btcwallet.LoaderWithLocalWalletDB(
+			dbDirPath, !cfg.SyncFreelist, cfg.DB.Bolt.DBTimeout,
+		)
+	}
+
 	// We'll create the WalletUnlockerService and check whether the wallet
 	// already exists.
-	pwService := createWalletUnlockerService(cfg)
+	pwService := createWalletUnlockerService(cfg,
+		[]btcwallet.LoaderOption{loaderOpt},
+	)
+
 	walletExists, err := pwService.WalletExists()
 	if err != nil {
 		return err
@@ -448,7 +477,10 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 	// started with the --noseedbackup flag, we use the default password
 	// for wallet encryption.
 	if !cfg.NoSeedBackup {
-		params, err := waitForWalletPassword(cfg, pwService, interceptor.ShutdownChannel())
+		params, err := waitForWalletPassword(
+			cfg, pwService, []btcwallet.LoaderOption{loaderOpt},
+			interceptor.ShutdownChannel(),
+		)
 		if err != nil {
 			err := fmt.Errorf("unable to set up wallet password "+
 				"listeners: %v", err)
@@ -598,7 +630,6 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		Birthday:                    walletInitParams.Birthday,
 		RecoveryWindow:              walletInitParams.RecoveryWindow,
 		Wallet:                      walletInitParams.Wallet,
-		DBTimeOut:                   cfg.DB.Bolt.DBTimeout,
 		NeutrinoCS:                  neutrinoCS,
 		ActiveNetParams:             cfg.ActiveNetParams,
 		FeeURL:                      cfg.FeeURL,
@@ -606,6 +637,9 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 			return cfg.net.Dial("tcp", addr, cfg.ConnectionTimeout)
 		},
 		BlockCacheSize: cfg.BlockCacheSize,
+		LoaderOptions: []btcwallet.LoaderOption{
+			loaderOpt,
+		},
 	}
 
 	activeChainControl, cleanup, err := chainreg.NewChainControl(
@@ -1200,7 +1234,9 @@ type WalletUnlockParams struct {
 
 // createWalletUnlockerService creates a WalletUnlockerService from the passed
 // config.
-func createWalletUnlockerService(cfg *Config) *walletunlocker.UnlockerService {
+func createWalletUnlockerService(cfg *Config,
+	loaderOpts []btcwallet.LoaderOption) *walletunlocker.UnlockerService {
+
 	chainConfig := cfg.Bitcoin
 	if cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
 		chainConfig = cfg.Litecoin
@@ -1212,10 +1248,11 @@ func createWalletUnlockerService(cfg *Config) *walletunlocker.UnlockerService {
 	macaroonFiles := []string{
 		cfg.AdminMacPath, cfg.ReadMacPath, cfg.InvoiceMacPath,
 	}
+
 	return walletunlocker.New(
 		chainConfig.ChainDir, cfg.ActiveNetParams.Params,
 		!cfg.SyncFreelist, macaroonFiles, cfg.DB.Bolt.DBTimeout,
-		cfg.ResetWalletTransactions,
+		cfg.ResetWalletTransactions, loaderOpts,
 	)
 }
 
@@ -1382,12 +1419,8 @@ func startRestProxy(cfg *Config, rpcServer *rpcServer, restDialOpts []grpc.DialO
 // this RPC server.
 func waitForWalletPassword(cfg *Config,
 	pwService *walletunlocker.UnlockerService,
-	shutdownChan <-chan struct{}) (*WalletUnlockParams, error) {
-
-	chainConfig := cfg.Bitcoin
-	if cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
-		chainConfig = cfg.Litecoin
-	}
+	loaderOpts []btcwallet.LoaderOption, shutdownChan <-chan struct{}) (
+	*WalletUnlockParams, error) {
 
 	// Wait for user to provide the password.
 	ltndLog.Infof("Waiting for wallet encryption password. Use `lncli " +
@@ -1419,13 +1452,13 @@ func waitForWalletPassword(cfg *Config,
 				keychain.KeyDerivationVersion)
 		}
 
-		netDir := btcwallet.NetworkDir(
-			chainConfig.ChainDir, cfg.ActiveNetParams.Params,
+		loader, err := btcwallet.NewWalletLoader(
+			cfg.ActiveNetParams.Params, recoveryWindow,
+			loaderOpts...,
 		)
-		loader := wallet.NewLoader(
-			cfg.ActiveNetParams.Params, netDir, !cfg.SyncFreelist,
-			cfg.DB.Bolt.DBTimeout, recoveryWindow,
-		)
+		if err != nil {
+			return nil, err
+		}
 
 		// With the seed, we can now use the wallet loader to create
 		// the wallet, then pass it back to avoid unlocking it again.

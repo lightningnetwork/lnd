@@ -48,6 +48,13 @@ var (
 	)
 )
 
+func testLoaderOpts(testDir string) []btcwallet.LoaderOption {
+	dbDir := btcwallet.NetworkDir(testDir, testNetParams)
+	return []btcwallet.LoaderOption{
+		btcwallet.LoaderWithLocalWalletDB(dbDir, true, time.Minute),
+	}
+}
+
 func createTestWallet(t *testing.T, dir string, netParams *chaincfg.Params) {
 	createTestWalletWithPw(t, testPassword, testPassword, dir, netParams)
 }
@@ -148,7 +155,7 @@ func TestGenSeed(t *testing.T) {
 
 	service := walletunlocker.New(
 		testDir, testNetParams, true, nil, kvdb.DefaultDBTimeout,
-		false,
+		false, testLoaderOpts(testDir),
 	)
 
 	// Now that the service has been created, we'll ask it to generate a
@@ -186,7 +193,7 @@ func TestGenSeedGenerateEntropy(t *testing.T) {
 	}()
 	service := walletunlocker.New(
 		testDir, testNetParams, true, nil, kvdb.DefaultDBTimeout,
-		false,
+		false, testLoaderOpts(testDir),
 	)
 
 	// Now that the service has been created, we'll ask it to generate a
@@ -223,7 +230,7 @@ func TestGenSeedInvalidEntropy(t *testing.T) {
 	}()
 	service := walletunlocker.New(
 		testDir, testNetParams, true, nil, kvdb.DefaultDBTimeout,
-		false,
+		false, testLoaderOpts(testDir),
 	)
 
 	// Now that the service has been created, we'll ask it to generate a
@@ -257,7 +264,7 @@ func TestInitWallet(t *testing.T) {
 	// Create new UnlockerService.
 	service := walletunlocker.New(
 		testDir, testNetParams, true, nil, kvdb.DefaultDBTimeout,
-		false,
+		false, testLoaderOpts(testDir),
 	)
 
 	// Once we have the unlocker service created, we'll now instantiate a
@@ -346,7 +353,7 @@ func TestCreateWalletInvalidEntropy(t *testing.T) {
 	// Create new UnlockerService.
 	service := walletunlocker.New(
 		testDir, testNetParams, true, nil, kvdb.DefaultDBTimeout,
-		false,
+		false, testLoaderOpts(testDir),
 	)
 
 	// We'll attempt to init the wallet with an invalid cipher seed and
@@ -379,7 +386,7 @@ func TestUnlockWallet(t *testing.T) {
 	// unlock.
 	service := walletunlocker.New(
 		testDir, testNetParams, true, nil, kvdb.DefaultDBTimeout,
-		true,
+		true, testLoaderOpts(testDir),
 	)
 
 	ctx := context.Background()
@@ -471,7 +478,7 @@ func TestChangeWalletPasswordNewRootkey(t *testing.T) {
 	// Create a new UnlockerService with our temp files.
 	service := walletunlocker.New(
 		testDir, testNetParams, true, tempFiles, kvdb.DefaultDBTimeout,
-		false,
+		false, testLoaderOpts(testDir),
 	)
 
 	ctx := context.Background()
@@ -583,7 +590,7 @@ func TestChangeWalletPasswordStateless(t *testing.T) {
 	service := walletunlocker.New(
 		testDir, testNetParams, true, []string{
 			tempMacFile, nonExistingFile,
-		}, kvdb.DefaultDBTimeout, false,
+		}, kvdb.DefaultDBTimeout, false, testLoaderOpts(testDir),
 	)
 
 	// Create a wallet we can try to unlock. We use the default password

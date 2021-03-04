@@ -240,6 +240,11 @@ type InitFundingMsg struct {
 	// protocol.
 	PendingChanID [32]byte
 
+	// ChannelType allows the caller to use an explicit channel type for the
+	// funding negotiation. This type will only be observed if BOTH sides
+	// support explicit channel type negotiation.
+	ChannelType *lnwire.ChannelType
+
 	// Updates is a channel which updates to the opening status of the channel
 	// are sent on.
 	Updates chan *lnrpc.OpenStatusUpdate

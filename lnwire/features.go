@@ -139,6 +139,26 @@ const (
 	// sender-generated preimages according to BOLT XX.
 	AMPOptional FeatureBit = 31
 
+	// ExplicitChannelTypeRequired is a required bit that denotes that a
+	// connection established with this node is to use explicit channel
+	// commitment types for negotiation instead of the existing implicit
+	// negotiation methods. With this bit, there is no longer a "default"
+	// implicit channel commitment type, allowing a connection to
+	// open/maintain types of several channels over its lifetime.
+	//
+	// TODO: Decide on actual feature bit value.
+	ExplicitChannelTypeRequired = 2020
+
+	// ExplicitChannelTypeOptional is an optional bit that denotes that a
+	// connection established with this node is to use explicit channel
+	// commitment types for negotiation instead of the existing implicit
+	// negotiation methods. With this bit, there is no longer a "default"
+	// implicit channel commitment type, allowing a connection to
+	// open/maintain types of several channels over its lifetime.
+	//
+	// TODO: Decide on actual feature bit value.
+	ExplicitChannelTypeOptional = 2021
+
 	// maxAllowedSize is a maximum allowed size of feature vector.
 	//
 	// NOTE: Within the protocol, the maximum allowed message size is 65535
@@ -184,6 +204,8 @@ var Features = map[FeatureBit]string{
 	WumboChannelsOptional:         "wumbo-channels",
 	AMPRequired:                   "amp",
 	AMPOptional:                   "amp",
+	ExplicitChannelTypeOptional:   "explicit-commitment-type",
+	ExplicitChannelTypeRequired:   "explicit-commitment-type",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A

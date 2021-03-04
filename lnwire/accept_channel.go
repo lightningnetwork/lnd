@@ -208,66 +208,8 @@ func (a *AcceptChannel) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	return nil
-}
-
-// packShutdownScript takes an upfront shutdown script and an opaque data blob
-// and concatenates them.
-func packShutdownScript(addr DeliveryAddress, extraData ExtraOpaqueData) (
-	ExtraOpaqueData, error) {
-
-	// We'll always write the upfront shutdown script record, regardless of
-	// the script being empty.
-	var tlvRecords ExtraOpaqueData
-
-	// Pack it into a data blob as a TLV record.
-	err := tlvRecords.PackRecords(addr.NewRecord())
-	if err != nil {
-		return nil, fmt.Errorf("unable to pack upfront shutdown "+
-			"script as TLV record: %v", err)
-	}
-
-	// Concatenate the remaining blob with the shutdown script record.
-	tlvRecords = append(tlvRecords, extraData...)
-	return tlvRecords, nil
-}
-
-// parseShutdownScript reads and extract the upfront shutdown script from the
-// passe data blob. It returns the script, if any, and the remainder of the
-// data blob.
-//
-// This can be used to parse extra data for the OpenChannel and AcceptChannel
-// messages, where the shutdown script is mandatory if extra TLV data is
-// present.
-func parseShutdownScript(tlvRecords ExtraOpaqueData) (DeliveryAddress,
-	ExtraOpaqueData, error) {
-
-	// If no TLV data is present there can't be any script available.
-	if len(tlvRecords) == 0 {
-		return nil, tlvRecords, nil
-	}
-
-	// Otherwise the shutdown script MUST be present.
-	var addr DeliveryAddress
-	tlvs, err := tlvRecords.ExtractRecords(addr.NewRecord())
-	if err != nil {
-		return nil, nil, err
-	}
 	a.ExtraData = tlvRecords
 
-	// Not among TLV records, this means the data was invalid.
-	if _, ok := tlvs[DeliveryAddrType]; !ok {
-		return nil, nil, fmt.Errorf("no shutdown script in non-empty " +
-			"data blob")
-	}
-
-	// Now that we have retrieved the address (which can be zero-length),
-	// we'll remove the bytes encoding it from the TLV data before
-	// returning it.
-	addrLen := len(addr)
-	tlvRecords = tlvRecords[addrLen+2:]
-
-	return addr, tlvRecords, nil
 	return nil
 }
 

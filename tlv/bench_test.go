@@ -50,7 +50,8 @@ func DBlobType(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 // ESatPerKW is an encoder for lnwallet.SatPerKWeight.
 func ESatPerKW(w io.Writer, val interface{}, buf *[8]byte) error {
 	if v, ok := val.(*chainfee.SatPerKWeight); ok {
-		return tlv.EUint64(w, uint64(*v), buf)
+		v64 := uint64(*v)
+		return tlv.EUint64(w, &v64, buf)
 	}
 	return tlv.NewTypeForEncodingErr(val, "chainfee.SatPerKWeight")
 }

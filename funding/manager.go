@@ -1137,8 +1137,45 @@ func (f *Manager) ProcessFundingMsg(msg lnwire.Message, peer lnpeer.Peer) {
 
 // commitmentType returns the commitment type to use for the channel, based on
 // the features the two peers have available.
+//
+// TODO(roasbeef): afterwards no need to flip any required chan bits, simply
+// remove the optional type if you don't want to use it any longer, allows
+// deprecation of obsolete channel types
 func commitmentType(localFeatures,
-	remoteFeatures *lnwire.FeatureVector) lnwallet.CommitmentType {
+	remoteFeatures *lnwire.FeatureVector,
+	explicitChanType lnwire.ChannelType) (lnwallet.CommitmentType, error) {
+
+	// First, we'll check if we're using explicit channel type negotiation.
+	explicitNegotiation := localFeatures.HasFeature(
+		lnwire.ExplicitChanTypeOptional,
+	) && remoteFeatures.HasFeature(
+		lnwire.ExplicitChanTypeOptional,
+	)
+
+	// If we are using explicit negotiation, then we'll simply attempt to
+	// map the wire level channel type to our internal commitment type.
+	// Along the way we'll also do proper validation to ensure they aren't
+	// proposing a channel type we don't support.
+	if explicitNegotiation {
+
+		switch explicitChanType {
+		case lnwire.ChanTypeBase:
+			return lnwallet.CommitmentTypeLegacy, nil
+
+		case lnwire.ChanTypeTweakless:
+			return lnwallet.CommitmentTypeTweakless, nil
+
+		case lnwire.ChanTypeZeroFeeAnchors:
+			return lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx, nil
+		default:
+			// TODO(roasbeef): add rejection if they send a feature
+			// type that we don't have a bit to, allows things to
+			// be properly deprecated
+
+			return 0, fmt.Errorf("unsupported channel type: %v",
+				explicitChanType)
+		}
+	}
 
 	// If both peers are signalling support for anchor commitments with
 	// zero-fee HTLC transactions, we'll use this type.
@@ -1149,7 +1186,7 @@ func commitmentType(localFeatures,
 		lnwire.AnchorsZeroFeeHtlcTxOptional,
 	)
 	if localZeroFee && remoteZeroFee {
-		return lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx
+		return lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx, nil
 	}
 
 	// Since we don't want to support the "legacy" anchor type, we will
@@ -1165,11 +1202,11 @@ func commitmentType(localFeatures,
 	// If both nodes are signaling the proper feature bit for tweakless
 	// copmmitments, we'll use that.
 	if localTweakless && remoteTweakless {
-		return lnwallet.CommitmentTypeTweakless
+		return lnwallet.CommitmentTypeTweakless, nil
 	}
 
 	// Otherwise we'll fall back to the legacy type.
-	return lnwallet.CommitmentTypeLegacy
+	return lnwallet.CommitmentTypeLegacy, nil
 }
 
 // handleFundingOpen creates an initial 'ChannelReservation' within the wallet,
@@ -1186,6 +1223,12 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	// violated.
 	peerPubKey := peer.IdentityKey()
 	peerIDKey := newSerializedKey(peerPubKey)
+
+	// TODO(roasbeef): reject if not amongst supported chan types
+	//  * abstract away into ChanVersionNegotiator type interface?
+	//  * new instance created at start, takes feature bits and set of
+	//  allowed channel types
+	// * remove chan type setting from reservation?
 
 	amt := msg.FundingAmount
 
@@ -1312,10 +1355,19 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	//
 	// Before we init the channel, we'll also check to see what commitment
 	// format we can use with this peer. This is dependent on *both* us and
-	// the remote peer are signaling the proper feature bit.
-	commitType := commitmentType(
-		peer.LocalFeatures(), peer.RemoteFeatures(),
+	// the remote peer are signaling the proper feature bit if we're using
+	// implicit negotiation, and simply the channel type sent over if we're
+	// using explicit negotiation.
+	commitType, err := commitmentType(
+		peer.LocalFeatures(), peer.RemoteFeatures(), msg.ChanType,
 	)
+	if err != nil {
+		// TODO(roasbeef): should be using soft errors
+		log.Errorf("channel type negotitation failed: %v", err)
+		f.failFundingFlow(peer, msg.PendingChannelID, err)
+		return
+	}
+
 	chainHash := chainhash.Hash(msg.ChainHash)
 	req := &lnwallet.InitFundingReserveMsg{
 		ChainHash:        &chainHash,
@@ -1538,6 +1590,9 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 			peerKey, pendingChanID)
 		return
 	}
+
+	// TODO(roasbeef): store reservation in chan type, send error if not
+	// expected
 
 	// Update the timestamp once the fundingAcceptMsg has been handled.
 	defer resCtx.updateTimestamp()
@@ -3177,9 +3232,18 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	// Before we init the channel, we'll also check to see what commitment
 	// format we can use with this peer. This is dependent on *both* us and
 	// the remote peer are signaling the proper feature bit.
-	commitType := commitmentType(
+	//
+	// TODO(roasbeef): pass in arg to make commit type optional via pointer
+	// variable?
+	commitType, err := commitmentType(
 		msg.Peer.LocalFeatures(), msg.Peer.RemoteFeatures(),
+		msg.ChanType,
 	)
+	if err != nil {
+		log.Errorf("channel type negotitation failed: %v", err)
+		msg.Err <- err
+		return
+	}
 
 	// First, we'll query the fee estimator for a fee that should get the
 	// commitment transaction confirmed by the next few blocks (conf target

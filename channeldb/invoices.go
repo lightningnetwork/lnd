@@ -53,6 +53,14 @@ var (
 	// maps: payAddr => invoiceKey
 	payAddrIndexBucket = []byte("pay-addr-index")
 
+	// setIDIndexBucket is the name of the top-level bucket that maps set
+	// ids to their invoice number. This can be used to efficiently query or
+	// update AMP invoice. Note that legacy or MPP invoices will not be
+	// included in this index, since their HTLCs do not have a set id.
+	//
+	// maps: setID => invoiceKey
+	setIDIndexBucket = []byte("set-id-index")
+
 	// numInvoicesKey is the name of key which houses the auto-incrementing
 	// invoice ID which is essentially used as a primary key. With each
 	// invoice inserted, the primary key is incremented by one. This key is
@@ -106,7 +114,26 @@ var (
 	// ErrInvoicePreimageMismatch is returned when the preimage doesn't
 	// match the invoice hash.
 	ErrInvoicePreimageMismatch = errors.New("preimage does not match")
+
+	// ErrInvoiceHasHtlcs is returned when attempting to insert an invoice
+	// that already has HTLCs.
+	ErrInvoiceHasHtlcs = errors.New("cannot add invoice with htlcs")
+
+	// ErrEmptyHTLCSet is returned when attempting to accept or settle and
+	// HTLC set that has no HTLCs.
+	ErrEmptyHTLCSet = errors.New("cannot settle/accept empty HTLC set")
 )
+
+// ErrDuplicateSetID is an error returned when attempting to adding an AMP HTLC
+// to an invoice, but another invoice is already indexed by the same set id.
+type ErrDuplicateSetID struct {
+	setID [32]byte
+}
+
+// Error returns a human-readable description of ErrDuplicateSetID.
+func (e ErrDuplicateSetID) Error() string {
+	return fmt.Sprintf("invoice with set_id=%x already exists", e.setID)
+}
 
 const (
 	// MaxMemoSize is maximum size of the memo field within invoices stored
@@ -135,6 +162,9 @@ const (
 	expiryHeightType tlv.Type = 13
 	htlcStateType    tlv.Type = 15
 	mppTotalAmtType  tlv.Type = 17
+	htlcAMPType      tlv.Type = 19
+	htlcHashType     tlv.Type = 21
+	htlcPreimageType tlv.Type = 23
 
 	// A set of tlv type definitions used to serialize invoice bodiees.
 	//
@@ -176,6 +206,14 @@ type InvoiceRef struct {
 	// known it will be used as the primary identifier, falling back to
 	// payHash if no value is known.
 	payAddr *[32]byte
+
+	// setID is the optional set id for an AMP payment. This can be used to
+	// lookup or update the invoice knowing only this value. Queries by set
+	// id are only used to facilitate user-facing requests, e.g. lookup,
+	// settle or cancel an AMP invoice. The regular update flow from the
+	// invoice registry will always query for the invoice by
+	// payHash+payAddr.
+	setID *[32]byte
 }
 
 // InvoiceRefByHash creates an InvoiceRef that queries for an invoice only by
@@ -198,6 +236,15 @@ func InvoiceRefByHashAndAddr(payHash lntypes.Hash,
 	}
 }
 
+// InvoiceRefBySetID creates an InvoiceRef that queries the set id index for an
+// invoice with the provided setID. If the invoice is not found, the query will
+// not fallback to payHash or payAddr.
+func InvoiceRefBySetID(setID [32]byte) InvoiceRef {
+	return InvoiceRef{
+		setID: &setID,
+	}
+}
+
 // PayHash returns the target invoice's payment hash.
 func (r InvoiceRef) PayHash() lntypes.Hash {
 	return r.payHash
@@ -210,6 +257,17 @@ func (r InvoiceRef) PayAddr() *[32]byte {
 	if r.payAddr != nil {
 		addr := *r.payAddr
 		return &addr
+	}
+	return nil
+}
+
+// SetID returns the optional set id of the target invoice.
+//
+// NOTE: This value may be nil.
+func (r InvoiceRef) SetID() *[32]byte {
+	if r.setID != nil {
+		id := *r.setID
+		return &id
 	}
 	return nil
 }
@@ -359,6 +417,30 @@ type Invoice struct {
 	HodlInvoice bool
 }
 
+// HTLCSet returns the set of accepted HTLCs belonging to an invoice. Passing a
+// nil setID will return all accepted HTLCs in the case of legacy or MPP, and no
+// HTLCs in the case of AMP.  Otherwise, the returned set will be filtered by
+// the populated setID which is used to retrieve AMP HTLC sets.
+func (i *Invoice) HTLCSet(setID *[32]byte) map[CircuitKey]*InvoiceHTLC {
+	htlcSet := make(map[CircuitKey]*InvoiceHTLC)
+	for key, htlc := range i.Htlcs {
+		// Only consider accepted mpp htlcs. It is possible that there
+		// are htlcs registered in the invoice database that previously
+		// timed out and are in the canceled state now.
+		if htlc.State != HtlcStateAccepted {
+			continue
+		}
+
+		if !htlc.IsInHTLCSet(setID) {
+			continue
+		}
+
+		htlcSet[key] = htlc
+	}
+
+	return htlcSet
+}
+
 // HtlcState defines the states an htlc paying to an invoice can be in.
 type HtlcState uint8
 
@@ -407,6 +489,80 @@ type InvoiceHTLC struct {
 	// CustomRecords contains the custom key/value pairs that accompanied
 	// the htlc.
 	CustomRecords record.CustomSet
+
+	// AMP encapsulates additional data relevant to AMP HTLCs. This includes
+	// the AMP onion record, in addition to the HTLC's payment hash and
+	// preimage since these are unique to each AMP HTLC, and not the invoice
+	// as a whole.
+	//
+	// NOTE: This value will only be set for AMP HTLCs.
+	AMP *InvoiceHtlcAMPData
+}
+
+// IsInHTLCSet returns true if this HTLC is part an HTLC set. If nil is passed,
+// this method returns true if this is an MPP HTLC. Otherwise, it only returns
+// true if the AMP HTLC's set id matches the populated setID.
+func (h *InvoiceHTLC) IsInHTLCSet(setID *[32]byte) bool {
+	wantAMPSet := setID != nil
+	isAMPHtlc := h.AMP != nil
+
+	// Non-AMP HTLCs cannot be part of AMP HTLC sets, and vice versa.
+	if wantAMPSet != isAMPHtlc {
+		return false
+	}
+
+	// Skip AMP HTLCs that have differing set ids.
+	if isAMPHtlc && *setID != h.AMP.Record.SetID() {
+		return false
+	}
+
+	return true
+}
+
+// InvoiceHtlcAMPData is a struct hodling the additional metadata stored for
+// each received AMP HTLC. This includes the AMP onion record, in addition to
+// the HTLC's payment hash and preimage.
+type InvoiceHtlcAMPData struct {
+	// AMP is a copy of the AMP record presented in the onion payload
+	// containing the information necessary to correlate and settle a
+	// spontaneous HTLC set. Newly accepted legacy keysend payments will
+	// also have this field set as we automatically promote them into an AMP
+	// payment for internal processing.
+	Record record.AMP
+
+	// Hash is an HTLC-level payment hash that is stored only for AMP
+	// payments. This is done because an AMP HTLC will carry a different
+	// payment hash from the invoice it might be satisfying, so we track the
+	// payment hashes individually to able to compute whether or not the
+	// reconstructed preimage correctly matches the HTLC's hash.
+	Hash lntypes.Hash
+
+	// Preimage is an HTLC-level preimage that satisfies the AMP HTLC's
+	// Hash. The preimage will be be derived either from secret share
+	// reconstruction of the shares in the AMP payload.
+	//
+	// NOTE: Preimage will only be present once the HTLC is in
+	// HltcStateSetteled.
+	Preimage *lntypes.Preimage
+}
+
+// Copy returns a deep copy of the InvoiceHtlcAMPData.
+func (d *InvoiceHtlcAMPData) Copy() *InvoiceHtlcAMPData {
+	if d == nil {
+		return nil
+	}
+
+	var preimage *lntypes.Preimage
+	if d.Preimage != nil {
+		pimg := *d.Preimage
+		preimage = &pimg
+	}
+
+	return &InvoiceHtlcAMPData{
+		Record:   d.Record,
+		Hash:     d.Hash,
+		Preimage: preimage,
+	}
 }
 
 // HtlcAcceptDesc describes the details of a newly accepted htlc.
@@ -427,6 +583,14 @@ type HtlcAcceptDesc struct {
 	// CustomRecords contains the custom key/value pairs that accompanied
 	// the htlc.
 	CustomRecords record.CustomSet
+
+	// AMP encapsulates additional data relevant to AMP HTLCs. This includes
+	// the AMP onion record, in addition to the HTLC's payment hash and
+	// preimage since these are unique to each AMP HTLC, and not the invoice
+	// as a whole.
+	//
+	// NOTE: This value will only be set for AMP HTLCs.
+	AMP *InvoiceHtlcAMPData
 }
 
 // InvoiceUpdateDesc describes the changes that should be applied to the
@@ -451,6 +615,11 @@ type InvoiceStateUpdateDesc struct {
 
 	// Preimage must be set to the preimage when NewState is settled.
 	Preimage *lntypes.Preimage
+
+	// SetID identifies a specific set of HTLCs destined for the same
+	// invoice as part of a larger AMP payment. This value will be nil for
+	// legacy or MPP payments.
+	SetID *[32]byte
 }
 
 // InvoiceUpdateCallback is a callback used in the db transaction to update the
@@ -479,6 +648,11 @@ func validateInvoice(i *Invoice, paymentHash lntypes.Hash) error {
 	if i.Terms.PaymentPreimage == nil && !i.HodlInvoice {
 		return errors.New("non-hodl invoices must have a preimage")
 	}
+
+	if len(i.Htlcs) > 0 {
+		return ErrInvoiceHasHtlcs
+	}
+
 	return nil
 }
 
@@ -654,11 +828,12 @@ func (d *DB) LookupInvoice(ref InvoiceRef) (Invoice, error) {
 			return ErrNoInvoicesCreated
 		}
 		payAddrIndex := tx.ReadBucket(payAddrIndexBucket)
+		setIDIndex := tx.ReadBucket(setIDIndexBucket)
 
-		// Retrieve the invoice number for this invoice using the
-		// provided invoice reference.
+		// Retrieve the invoice number for this invoice using
+		// the provided invoice reference.
 		invoiceNum, err := fetchInvoiceNumByRef(
-			invoiceIndex, payAddrIndex, ref,
+			invoiceIndex, payAddrIndex, setIDIndex, ref,
 		)
 		if err != nil {
 			return err
@@ -685,8 +860,21 @@ func (d *DB) LookupInvoice(ref InvoiceRef) (Invoice, error) {
 // reference. The payment address will be treated as the primary key, falling
 // back to the payment hash if nothing is found for the payment address. An
 // error is returned if the invoice is not found.
-func fetchInvoiceNumByRef(invoiceIndex, payAddrIndex kvdb.RBucket,
+func fetchInvoiceNumByRef(invoiceIndex, payAddrIndex, setIDIndex kvdb.RBucket,
 	ref InvoiceRef) ([]byte, error) {
+
+	// If the set id is present, we only consult the set id index for this
+	// invoice. This type of query is only used to facilitate user-facing
+	// requests to lookup, settle or cancel an AMP invoice.
+	setID := ref.SetID()
+	if setID != nil {
+		invoiceNumBySetID := setIDIndex.Get(setID[:])
+		if invoiceNumBySetID == nil {
+			return nil, ErrInvoiceNotFound
+		}
+
+		return invoiceNumBySetID, nil
+	}
 
 	payHash := ref.PayHash()
 	payAddr := ref.PayAddr()
@@ -935,20 +1123,21 @@ func (d *DB) UpdateInvoice(ref InvoiceRef,
 			return err
 		}
 		payAddrIndex := tx.ReadBucket(payAddrIndexBucket)
+		setIDIndex := tx.ReadWriteBucket(setIDIndexBucket)
 
 		// Retrieve the invoice number for this invoice using the
 		// provided invoice reference.
 		invoiceNum, err := fetchInvoiceNumByRef(
-			invoiceIndex, payAddrIndex, ref,
+			invoiceIndex, payAddrIndex, setIDIndex, ref,
 		)
 		if err != nil {
 			return err
-
 		}
+
 		payHash := ref.PayHash()
 		updatedInvoice, err = d.updateInvoice(
-			payHash, invoices, settleIndex, invoiceNum,
-			callback,
+			payHash, invoices, settleIndex, setIDIndex,
+			invoiceNum, callback,
 		)
 
 		return err
@@ -1186,8 +1375,8 @@ func serializeHtlcs(w io.Writer, htlcs map[CircuitKey]*InvoiceHTLC) error {
 		chanID := key.ChanID.ToUint64()
 		amt := uint64(htlc.Amt)
 		mppTotalAmt := uint64(htlc.MppTotalAmt)
-		acceptTime := uint64(htlc.AcceptTime.UnixNano())
-		resolveTime := uint64(htlc.ResolveTime.UnixNano())
+		acceptTime := putNanoTime(htlc.AcceptTime)
+		resolveTime := putNanoTime(htlc.ResolveTime)
 		state := uint8(htlc.State)
 
 		var records []tlv.Record
@@ -1204,6 +1393,29 @@ func serializeHtlcs(w io.Writer, htlcs map[CircuitKey]*InvoiceHTLC) error {
 			tlv.MakePrimitiveRecord(htlcStateType, &state),
 			tlv.MakePrimitiveRecord(mppTotalAmtType, &mppTotalAmt),
 		)
+
+		if htlc.AMP != nil {
+			setIDRecord := tlv.MakeDynamicRecord(
+				htlcAMPType, &htlc.AMP.Record,
+				htlc.AMP.Record.PayloadSize,
+				record.AMPEncoder, record.AMPDecoder,
+			)
+			records = append(records, setIDRecord)
+
+			hash32 := [32]byte(htlc.AMP.Hash)
+			hashRecord := tlv.MakePrimitiveRecord(
+				htlcHashType, &hash32,
+			)
+			records = append(records, hashRecord)
+
+			if htlc.AMP.Preimage != nil {
+				preimage32 := [32]byte(*htlc.AMP.Preimage)
+				preimageRecord := tlv.MakePrimitiveRecord(
+					htlcPreimageType, &preimage32,
+				)
+				records = append(records, preimageRecord)
+			}
+		}
 
 		// Convert the custom records to tlv.Record types that are ready
 		// for serialization.
@@ -1236,6 +1448,25 @@ func serializeHtlcs(w io.Writer, htlcs map[CircuitKey]*InvoiceHTLC) error {
 	}
 
 	return nil
+}
+
+// putNanoTime returns the unix nano time for the passed timestamp. A zero-value
+// timestamp will be mapped to 0, since calling UnixNano in that case is
+// undefined.
+func putNanoTime(t time.Time) uint64 {
+	if t.IsZero() {
+		return 0
+	}
+	return uint64(t.UnixNano())
+}
+
+// getNanoTime returns a timestamp for the given number of nano seconds. If zero
+// is provided, an zero-value time stamp is returned.
+func getNanoTime(ns uint64) time.Time {
+	if ns == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, int64(ns))
 }
 
 func fetchInvoice(invoiceNum []byte, invoices kvdb.RBucket) (Invoice, error) {
@@ -1374,6 +1605,9 @@ func deserializeHtlcs(r io.Reader) (map[CircuitKey]*InvoiceHTLC, error) {
 			state                   uint8
 			acceptTime, resolveTime uint64
 			amt, mppTotalAmt        uint64
+			amp                     = &record.AMP{}
+			hash32                  = &[32]byte{}
+			preimage32              = &[32]byte{}
 		)
 		tlvStream, err := tlv.NewStream(
 			tlv.MakePrimitiveRecord(chanIDType, &chanID),
@@ -1387,6 +1621,12 @@ func deserializeHtlcs(r io.Reader) (map[CircuitKey]*InvoiceHTLC, error) {
 			tlv.MakePrimitiveRecord(expiryHeightType, &htlc.Expiry),
 			tlv.MakePrimitiveRecord(htlcStateType, &state),
 			tlv.MakePrimitiveRecord(mppTotalAmtType, &mppTotalAmt),
+			tlv.MakeDynamicRecord(
+				htlcAMPType, amp, amp.PayloadSize,
+				record.AMPEncoder, record.AMPDecoder,
+			),
+			tlv.MakePrimitiveRecord(htlcHashType, hash32),
+			tlv.MakePrimitiveRecord(htlcPreimageType, preimage32),
 		)
 		if err != nil {
 			return nil, err
@@ -1397,12 +1637,35 @@ func deserializeHtlcs(r io.Reader) (map[CircuitKey]*InvoiceHTLC, error) {
 			return nil, err
 		}
 
+		if _, ok := parsedTypes[htlcAMPType]; !ok {
+			amp = nil
+		}
+
+		var preimage *lntypes.Preimage
+		if _, ok := parsedTypes[htlcPreimageType]; ok {
+			pimg := lntypes.Preimage(*preimage32)
+			preimage = &pimg
+		}
+
+		var hash *lntypes.Hash
+		if _, ok := parsedTypes[htlcHashType]; ok {
+			h := lntypes.Hash(*hash32)
+			hash = &h
+		}
+
 		key.ChanID = lnwire.NewShortChanIDFromInt(chanID)
-		htlc.AcceptTime = time.Unix(0, int64(acceptTime))
-		htlc.ResolveTime = time.Unix(0, int64(resolveTime))
+		htlc.AcceptTime = getNanoTime(acceptTime)
+		htlc.ResolveTime = getNanoTime(resolveTime)
 		htlc.State = HtlcState(state)
 		htlc.Amt = lnwire.MilliSatoshi(amt)
 		htlc.MppTotalAmt = lnwire.MilliSatoshi(mppTotalAmt)
+		if amp != nil && hash != nil {
+			htlc.AMP = &InvoiceHtlcAMPData{
+				Record:   *amp,
+				Hash:     *hash,
+				Preimage: preimage,
+			}
+		}
 
 		// Reconstruct the custom records fields from the parsed types
 		// map return from the tlv parser.
@@ -1430,6 +1693,8 @@ func copyInvoiceHTLC(src *InvoiceHTLC) *InvoiceHTLC {
 	for k, v := range src.CustomRecords {
 		result.CustomRecords[k] = v
 	}
+
+	result.AMP = src.AMP.Copy()
 
 	return &result
 }
@@ -1468,8 +1733,9 @@ func copyInvoice(src *Invoice) *Invoice {
 
 // updateInvoice fetches the invoice, obtains the update descriptor from the
 // callback and applies the updates in a single db transaction.
-func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex kvdb.RwBucket,
-	invoiceNum []byte, callback InvoiceUpdateCallback) (*Invoice, error) {
+func (d *DB) updateInvoice(hash lntypes.Hash, invoices,
+	settleIndex, setIDIndex kvdb.RwBucket, invoiceNum []byte,
+	callback InvoiceUpdateCallback) (*Invoice, error) {
 
 	invoice, err := fetchInvoice(invoiceNum, invoices)
 	if err != nil {
@@ -1491,10 +1757,96 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex kvdb.RwBucke
 		return &invoice, nil
 	}
 
+	var (
+		newState = invoice.State
+		setID    *[32]byte
+	)
+	if update.State != nil {
+		setID = update.State.SetID
+		newState = update.State.NewState
+	}
+
 	now := d.clock.Now()
 
-	// Update invoice state if the update descriptor indicates an invoice
-	// state change.
+	// Process add actions from update descriptor.
+	for key, htlcUpdate := range update.AddHtlcs {
+		if _, exists := invoice.Htlcs[key]; exists {
+			return nil, fmt.Errorf("duplicate add of htlc %v", key)
+		}
+
+		// Force caller to supply htlc without custom records in a
+		// consistent way.
+		if htlcUpdate.CustomRecords == nil {
+			return nil, errors.New("nil custom records map")
+		}
+
+		// If a newly added HTLC has an associated set id, use it to
+		// index this invoice in the set id index. An error is returned
+		// if we find the index already points to a different invoice.
+		if htlcUpdate.AMP != nil {
+			setID := htlcUpdate.AMP.Record.SetID()
+			setIDInvNum := setIDIndex.Get(setID[:])
+			if setIDInvNum == nil {
+				err = setIDIndex.Put(setID[:], invoiceNum)
+				if err != nil {
+					return nil, err
+				}
+			} else if !bytes.Equal(setIDInvNum, invoiceNum) {
+				return nil, ErrDuplicateSetID{setID: setID}
+			}
+		}
+
+		htlc := &InvoiceHTLC{
+			Amt:           htlcUpdate.Amt,
+			MppTotalAmt:   htlcUpdate.MppTotalAmt,
+			Expiry:        htlcUpdate.Expiry,
+			AcceptHeight:  uint32(htlcUpdate.AcceptHeight),
+			AcceptTime:    now,
+			State:         HtlcStateAccepted,
+			CustomRecords: htlcUpdate.CustomRecords,
+			AMP:           htlcUpdate.AMP.Copy(),
+		}
+
+		invoice.Htlcs[key] = htlc
+	}
+
+	// Process cancel actions from update descriptor.
+	cancelHtlcs := update.CancelHtlcs
+	for key, htlc := range invoice.Htlcs {
+		// Check whether this htlc needs to be canceled. If it does,
+		// update the htlc state to Canceled.
+		_, cancel := cancelHtlcs[key]
+		if !cancel {
+			continue
+		}
+
+		// Consistency check to verify that there is no overlap between
+		// the add and cancel sets.
+		if _, added := update.AddHtlcs[key]; added {
+			return nil, fmt.Errorf("added htlc %v canceled", key)
+		}
+
+		err := cancelSingleHtlc(now, htlc, newState)
+		if err != nil {
+			return nil, err
+		}
+
+		// Delete processed cancel action, so that we can check later
+		// that there are no actions left.
+		delete(cancelHtlcs, key)
+	}
+
+	// Verify that we didn't get an action for htlcs that are not present on
+	// the invoice.
+	if len(cancelHtlcs) > 0 {
+		return nil, errors.New("cancel action on non-existent htlc(s)")
+	}
+
+	// At this point, the set of accepted HTLCs should be fully
+	// populated with added HTLCs or removed of canceled ones. Update
+	// invoice state if the update descriptor indicates an invoice state
+	// change, which depends on having an accurate view of the accepted
+	// HTLCs.
 	if update.State != nil {
 		err := updateInvoiceState(&invoice, hash, *update.State)
 		if err != nil {
@@ -1511,64 +1863,15 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex kvdb.RwBucke
 		}
 	}
 
-	// Process add actions from update descriptor.
-	for key, htlcUpdate := range update.AddHtlcs {
-		if _, exists := invoice.Htlcs[key]; exists {
-			return nil, fmt.Errorf("duplicate add of htlc %v", key)
-		}
-
-		// Force caller to supply htlc without custom records in a
-		// consistent way.
-		if htlcUpdate.CustomRecords == nil {
-			return nil, errors.New("nil custom records map")
-		}
-
-		htlc := &InvoiceHTLC{
-			Amt:           htlcUpdate.Amt,
-			MppTotalAmt:   htlcUpdate.MppTotalAmt,
-			Expiry:        htlcUpdate.Expiry,
-			AcceptHeight:  uint32(htlcUpdate.AcceptHeight),
-			AcceptTime:    now,
-			State:         HtlcStateAccepted,
-			CustomRecords: htlcUpdate.CustomRecords,
-		}
-
-		invoice.Htlcs[key] = htlc
-	}
-
-	// Align htlc states with invoice state and recalculate amount paid.
-	var (
-		amtPaid     lnwire.MilliSatoshi
-		cancelHtlcs = update.CancelHtlcs
-	)
-	for key, htlc := range invoice.Htlcs {
-		// Check whether this htlc needs to be canceled. If it does,
-		// update the htlc state to Canceled.
-		_, cancel := cancelHtlcs[key]
-		if cancel {
-			// Consistency check to verify that there is no overlap
-			// between the add and cancel sets.
-			if _, added := update.AddHtlcs[key]; added {
-				return nil, fmt.Errorf("added htlc %v canceled",
-					key)
-			}
-
-			err := cancelSingleHtlc(now, htlc, invoice.State)
-			if err != nil {
-				return nil, err
-			}
-
-			// Delete processed cancel action, so that we can check
-			// later that there are no actions left.
-			delete(cancelHtlcs, key)
-
-			continue
-		}
-
+	// With any invoice level state transitions recorded, we'll now finalize
+	// the process by updating the state transitions for individual HTLCs
+	// and recalculate the total amount paid to the invoice.
+	var amtPaid lnwire.MilliSatoshi
+	for _, htlc := range invoice.Htlcs {
 		// The invoice state may have changed and this could have
 		// implications for the states of the individual htlcs. Align
 		// the htlc state with the current invoice state.
-		err := updateHtlc(now, htlc, invoice.State)
+		err := updateHtlc(now, htlc, invoice.State, setID)
 		if err != nil {
 			return nil, err
 		}
@@ -1583,12 +1886,6 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex kvdb.RwBucke
 		}
 	}
 	invoice.AmtPaid = amtPaid
-
-	// Verify that we didn't get an action for htlcs that are not present on
-	// the invoice.
-	if len(cancelHtlcs) > 0 {
-		return nil, errors.New("cancel action on non-existent htlc(s)")
-	}
 
 	// Reserialize and update invoice.
 	var buf bytes.Buffer
@@ -1629,19 +1926,53 @@ func updateInvoiceState(invoice *Invoice, hash lntypes.Hash,
 	// or canceled. The only restriction is on transitioning to settled
 	// where we ensure the preimage is valid.
 	case ContractOpen:
-		if update.NewState == ContractSettled {
-			// Validate preimage.
-			switch {
-			case update.Preimage != nil:
-				if update.Preimage.Hash() != hash {
-					return ErrInvoicePreimageMismatch
-				}
-				invoice.Terms.PaymentPreimage = update.Preimage
-
-			case invoice.Terms.PaymentPreimage == nil:
-				return errors.New("unknown preimage")
-			}
+		if update.NewState == ContractCanceled {
+			invoice.State = update.NewState
+			return nil
 		}
+
+		// Sanity check that the user isn't trying to settle or accept a
+		// non-existent HTLC set.
+		if len(invoice.HTLCSet(update.SetID)) == 0 {
+			return ErrEmptyHTLCSet
+		}
+
+		// For AMP invoices, there are no invoice-level preimage checks.
+		// However, we still sanity check that we aren't trying to
+		// settle an AMP invoice with a preimage.
+		if update.SetID != nil {
+			if update.Preimage != nil {
+				return errors.New("AMP set cannot have preimage")
+			}
+			invoice.State = update.NewState
+			return nil
+		}
+
+		switch {
+
+		// Validate the supplied preimage for non-AMP invoices.
+		case update.Preimage != nil:
+			if update.Preimage.Hash() != hash {
+				return ErrInvoicePreimageMismatch
+			}
+			invoice.Terms.PaymentPreimage = update.Preimage
+
+		// Permit non-AMP invoices to be accepted without knowing the
+		// preimage. When trying to settle we'll have to pass through
+		// the above check in order to not hit the one below.
+		case update.NewState == ContractAccepted:
+
+		// Fail if we still don't have a preimage when transitioning to
+		// settle the non-AMP invoice.
+		case update.NewState == ContractSettled &&
+			invoice.Terms.PaymentPreimage == nil:
+
+			return errors.New("unknown preimage")
+		}
+
+		invoice.State = update.NewState
+
+		return nil
 
 	// Once settled, we are in a terminal state.
 	case ContractSettled:
@@ -1654,10 +1985,6 @@ func updateInvoiceState(invoice *Invoice, hash lntypes.Hash,
 	default:
 		return errors.New("unknown state transition")
 	}
-
-	invoice.State = update.NewState
-
-	return nil
 }
 
 // cancelSingleHtlc validates cancelation of a single htlc and update its state.
@@ -1684,39 +2011,81 @@ func cancelSingleHtlc(resolveTime time.Time, htlc *InvoiceHTLC,
 
 // updateHtlc aligns the state of an htlc with the given invoice state.
 func updateHtlc(resolveTime time.Time, htlc *InvoiceHTLC,
-	invState ContractState) error {
+	invState ContractState, setID *[32]byte) error {
+
+	trySettle := func(persist bool) error {
+		if htlc.State != HtlcStateAccepted {
+			return nil
+		}
+
+		// Settle the HTLC if it matches the settled set id. Since we
+		// only allow settling of one HTLC set (for now) we cancel any
+		// that do not match the set id.
+		var htlcState HtlcState
+		if htlc.IsInHTLCSet(setID) {
+			// Non-AMP HTLCs can be settled immediately since we
+			// already know the preimage is valid due to checks at
+			// the invoice level. For AMP HTLCs, verify that the
+			// per-HTLC preimage-hash pair is valid.
+			if setID != nil && !htlc.AMP.Preimage.Matches(htlc.AMP.Hash) {
+				return fmt.Errorf("AMP preimage mismatch, "+
+					"preimage=%v hash=%v", *htlc.AMP.Preimage,
+					htlc.AMP.Hash)
+			}
+
+			htlcState = HtlcStateSettled
+		} else {
+			htlcState = HtlcStateCanceled
+		}
+
+		// Only persist the changes if the invoice is moving to the
+		// settled state.
+		if persist {
+			htlc.State = htlcState
+			htlc.ResolveTime = resolveTime
+		}
+
+		return nil
+	}
+
+	if invState == ContractSettled {
+		// Check that we can settle the HTLCs. For legacy and MPP HTLCs
+		// this will be a NOP, but for AMP HTLCs this asserts that we
+		// have a valid hash/preimage pair. Passing true permits the
+		// method to update the HTLC to HtlcStateSettled.
+		return trySettle(true)
+	}
+
+	// We should never find a settled HTLC on an invoice that isn't in
+	// ContractSettled.
+	if htlc.State == HtlcStateSettled {
+		return fmt.Errorf("cannot have a settled htlc with "+
+			"invoice in state %v", invState)
+	}
 
 	switch invState {
 
-	case ContractSettled:
-		if htlc.State == HtlcStateAccepted {
-			htlc.State = HtlcStateSettled
-			htlc.ResolveTime = resolveTime
-		}
-
 	case ContractCanceled:
-		switch htlc.State {
-
-		case HtlcStateAccepted:
+		if htlc.State == HtlcStateAccepted {
 			htlc.State = HtlcStateCanceled
 			htlc.ResolveTime = resolveTime
-
-		case HtlcStateSettled:
-			return fmt.Errorf("cannot have a settled htlc with " +
-				"invoice in state canceled")
 		}
+		return nil
 
-	case ContractOpen, ContractAccepted:
-		if htlc.State == HtlcStateSettled {
-			return fmt.Errorf("cannot have a settled htlc with "+
-				"invoice in state %v", invState)
-		}
+	case ContractAccepted:
+		// Check that we can settle the HTLCs. For legacy and MPP HTLCs
+		// this will be a NOP, but for AMP HTLCs this asserts that we
+		// have a valid hash/preimage pair. Passing false prevents the
+		// method from putting the HTLC in HtlcStateSettled, leaving it
+		// in HtlcStateAccepted.
+		return trySettle(false)
+
+	case ContractOpen:
+		return nil
 
 	default:
 		return errors.New("unknown state transition")
 	}
-
-	return nil
 }
 
 // setSettleMetaFields updates the metadata associated with settlement of an

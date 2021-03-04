@@ -20,6 +20,7 @@ type invoiceUpdateCtx struct {
 	finalCltvRejectDelta int32
 	customRecords        record.CustomSet
 	mpp                  *record.MPP
+	amp                  *record.AMP
 }
 
 // invoiceRef returns an identifier that can be used to lookup or update the
@@ -32,10 +33,22 @@ func (i *invoiceUpdateCtx) invoiceRef() channeldb.InvoiceRef {
 	return channeldb.InvoiceRefByHash(i.hash)
 }
 
+// setID returns an identifier that identifies other possible HTLCs that this
+// particular one is related to. If nil is returned this means the HTLC is an
+// MPP or legacy payment, otherwise the HTLC belongs AMP payment.
+func (i invoiceUpdateCtx) setID() *[32]byte {
+	if i.amp != nil {
+		setID := i.amp.SetID()
+		return &setID
+	}
+	return nil
+}
+
 // log logs a message specific to this update context.
 func (i *invoiceUpdateCtx) log(s string) {
-	log.Debugf("Invoice%v: %v, amt=%v, expiry=%v, circuit=%v, mpp=%v",
-		i.invoiceRef, s, i.amtPaid, i.expiry, i.circuitKey, i.mpp)
+	log.Debugf("Invoice%v: %v, amt=%v, expiry=%v, circuit=%v, mpp=%v, "+
+		"amp=%v", i.hash[:], s, i.amtPaid, i.expiry, i.circuitKey,
+		i.mpp, i.amp)
 }
 
 // failRes is a helper function which creates a failure resolution with
@@ -106,6 +119,8 @@ func updateMpp(ctx *invoiceUpdateCtx,
 	inv *channeldb.Invoice) (*channeldb.InvoiceUpdateDesc,
 	HtlcResolution, error) {
 
+	setID := ctx.setID()
+
 	// Start building the accept descriptor.
 	acceptDesc := &channeldb.HtlcAcceptDesc{
 		Amt:           ctx.amtPaid,
@@ -141,14 +156,7 @@ func updateMpp(ctx *invoiceUpdateCtx,
 
 	// Check whether total amt matches other htlcs in the set.
 	var newSetTotal lnwire.MilliSatoshi
-	for _, htlc := range inv.Htlcs {
-		// Only consider accepted mpp htlcs. It is possible that there
-		// are htlcs registered in the invoice database that previously
-		// timed out and are in the canceled state now.
-		if htlc.State != channeldb.HtlcStateAccepted {
-			continue
-		}
-
+	for _, htlc := range inv.HTLCSet(setID) {
 		if ctx.mpp.TotalMsat() != htlc.MppTotalAmt {
 			return nil, ctx.failRes(ResultHtlcSetTotalMismatch), nil
 		}
@@ -193,6 +201,7 @@ func updateMpp(ctx *invoiceUpdateCtx,
 	if inv.HodlInvoice {
 		update.State = &channeldb.InvoiceStateUpdateDesc{
 			NewState: channeldb.ContractAccepted,
+			SetID:    setID,
 		}
 		return &update, ctx.acceptRes(resultAccepted), nil
 	}
@@ -200,6 +209,7 @@ func updateMpp(ctx *invoiceUpdateCtx,
 	update.State = &channeldb.InvoiceStateUpdateDesc{
 		NewState: channeldb.ContractSettled,
 		Preimage: inv.Terms.PaymentPreimage,
+		SetID:    setID,
 	}
 
 	return &update, ctx.settleRes(
@@ -248,10 +258,8 @@ func updateLegacy(ctx *invoiceUpdateCtx,
 	// Don't allow settling the invoice with an old style
 	// htlc if we are already in the process of gathering an
 	// mpp set.
-	for _, htlc := range inv.Htlcs {
-		if htlc.State == channeldb.HtlcStateAccepted &&
-			htlc.MppTotalAmt > 0 {
-
+	for _, htlc := range inv.HTLCSet(nil) {
+		if htlc.MppTotalAmt > 0 {
 			return nil, ctx.failRes(ResultMppInProgress), nil
 		}
 	}

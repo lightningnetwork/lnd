@@ -2954,6 +2954,31 @@ message InvoiceHTLC {
 
     // The total amount of the mpp payment in msat.
     uint64 mpp_total_amt_msat = 10;
+
+    // Details relevant to AMP HTLCs, only populated if this is an AMP HTLC.
+    AMP amp = 11;
+}
+
+// Details specific to AMP HTLCs.
+message AMP {
+    // An n-of-n secret share of the root seed from which child payment hashes
+    // and preimages are derived.
+    bytes root_share = 1;
+
+    // An identifier for the HTLC set that this HTLC belongs to.
+    bytes set_id = 2;
+
+    // A nonce used to randomize the child preimage and child hash from a given
+    // root_share.
+    uint32 child_index = 3;
+
+    // The payment hash of the AMP HTLC.
+    bytes hash = 4;
+
+    // The preimage used to settle this AMP htlc. This field will only be
+    // populated if the invoice is in InvoiceState_ACCEPTED or
+    // InvoiceState_SETTLED.
+    bytes preimage = 5;
 }
 
 message AddInvoiceResponse {

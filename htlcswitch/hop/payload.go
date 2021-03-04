@@ -86,6 +86,10 @@ type Payload struct {
 	// a TLV onion payload.
 	MPP *record.MPP
 
+	// AMP holds the info provided in an option_amp record when parsed from
+	// a TLV onion payload.
+	AMP *record.AMP
+
 	// customRecords are user-defined records in the custom type range that
 	// were included in the payload.
 	customRecords record.CustomSet
@@ -248,6 +252,12 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 // onion payload.
 func (h *Payload) MultiPath() *record.MPP {
 	return h.MPP
+}
+
+// AMPRecord returns the record corresponding with option_amp parsed from the
+// onion payload.
+func (h *Payload) AMPRecord() *record.AMP {
+	return h.AMP
 }
 
 // CustomRecords returns the custom tlv type records that were parsed from the

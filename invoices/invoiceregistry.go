@@ -707,8 +707,12 @@ func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx) error {
 
 	// Cancel htlc is preimage is invalid.
 	preimage, err := lntypes.MakePreimage(preimageSlice)
-	if err != nil || preimage.Hash() != ctx.hash {
-		return errors.New("invalid keysend preimage")
+	if err != nil {
+		return err
+	}
+	if preimage.Hash() != ctx.hash {
+		return fmt.Errorf("invalid keysend preimage %v for hash %v",
+			preimage, ctx.hash)
 	}
 
 	// Only allow keysend for non-mpp payments.
@@ -802,6 +806,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		finalCltvRejectDelta: i.cfg.FinalCltvRejectDelta,
 		customRecords:        payload.CustomRecords(),
 		mpp:                  payload.MultiPath(),
+		amp:                  payload.AMPRecord(),
 	}
 
 	// Process keysend if present. Do this outside of the lock, because

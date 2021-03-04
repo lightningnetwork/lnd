@@ -116,6 +116,25 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 			MppTotalAmtMsat: uint64(htlc.MppTotalAmt),
 		}
 
+		// Populate any fields relevant to AMP payments.
+		if htlc.AMP != nil {
+			rootShare := htlc.AMP.Record.RootShare()
+			setID := htlc.AMP.Record.SetID()
+
+			var preimage []byte
+			if htlc.AMP.Preimage != nil {
+				preimage = htlc.AMP.Preimage[:]
+			}
+
+			rpcHtlc.Amp = &lnrpc.AMP{
+				RootShare:  rootShare[:],
+				SetId:      setID[:],
+				ChildIndex: uint32(htlc.AMP.Record.ChildIndex()),
+				Hash:       htlc.AMP.Hash[:],
+				Preimage:   preimage,
+			}
+		}
+
 		// Only report resolved times if htlc is resolved.
 		if htlc.State != channeldb.HtlcStateAccepted {
 			rpcHtlc.ResolveTime = htlc.ResolveTime.Unix()

@@ -10,7 +10,6 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,7 +19,7 @@ func TestSettleInvoice(t *testing.T) {
 	defer ctx.cleanup()
 
 	allSubscriptions, err := ctx.registry.SubscribeNotifications(0, 0)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 	defer allSubscriptions.Cancel()
 
 	// Subscribe to the not yet existing invoice.
@@ -229,7 +228,7 @@ func testCancelInvoice(t *testing.T, gc bool) {
 	ctx.registry.cfg.GcCanceledInvoicesOnTheFly = gc
 
 	allSubscriptions, err := ctx.registry.SubscribeNotifications(0, 0)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 	defer allSubscriptions.Cancel()
 
 	// Try to cancel the not yet existing invoice. This should fail.
@@ -395,7 +394,7 @@ func TestSettleHoldInvoice(t *testing.T) {
 	defer registry.Stop()
 
 	allSubscriptions, err := registry.SubscribeNotifications(0, 0)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 	defer allSubscriptions.Cancel()
 
 	// Subscribe to the not yet existing invoice.
@@ -695,7 +694,7 @@ func testKeySend(t *testing.T, keySendEnabled bool) {
 	ctx.registry.cfg.AcceptKeySend = keySendEnabled
 
 	allSubscriptions, err := ctx.registry.SubscribeNotifications(0, 0)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 	defer allSubscriptions.Cancel()
 
 	hodlChan := make(chan interface{}, 1)
@@ -767,17 +766,17 @@ func testKeySend(t *testing.T, keySendEnabled bool) {
 	checkResolution := func(res HtlcResolution, pimg lntypes.Preimage) {
 		// Otherwise we expect no error and a settle res for the htlc.
 		settleResolution, ok := res.(*HtlcSettleResolution)
-		assert.True(t, ok)
-		assert.Equal(t, settleResolution.Preimage, pimg)
+		require.True(t, ok)
+		require.Equal(t, settleResolution.Preimage, pimg)
 	}
 	checkSubscription := func() {
 		// We expect a new invoice notification to be sent out.
 		newInvoice := <-allSubscriptions.NewInvoices
-		assert.Equal(t, newInvoice.State, channeldb.ContractOpen)
+		require.Equal(t, newInvoice.State, channeldb.ContractOpen)
 
 		// We expect a settled notification to be sent out.
 		settledInvoice := <-allSubscriptions.SettledInvoices
-		assert.Equal(t, settledInvoice.State, channeldb.ContractSettled)
+		require.Equal(t, settledInvoice.State, channeldb.ContractSettled)
 	}
 
 	checkResolution(resolution, preimage)
@@ -789,7 +788,7 @@ func testKeySend(t *testing.T, keySendEnabled bool) {
 		hash, amt, expiry,
 		testCurrentHeight, getCircuitKey(10), hodlChan, keySendPayload,
 	)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 	checkResolution(resolution, preimage)
 
 	select {
@@ -813,7 +812,7 @@ func testKeySend(t *testing.T, keySendEnabled bool) {
 		hash2, amt, expiry,
 		testCurrentHeight, getCircuitKey(20), hodlChan, keySendPayload2,
 	)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 
 	checkResolution(resolution, preimage2)
 	checkSubscription()
@@ -842,7 +841,7 @@ func testHoldKeysend(t *testing.T, timeoutKeysend bool) {
 	ctx.registry.cfg.KeysendHoldTime = holdDuration
 
 	allSubscriptions, err := ctx.registry.SubscribeNotifications(0, 0)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 	defer allSubscriptions.Cancel()
 
 	hodlChan := make(chan interface{}, 1)
@@ -915,7 +914,7 @@ func testHoldKeysend(t *testing.T, timeoutKeysend bool) {
 
 	// We expect a settled notification to be sent out.
 	settledInvoice := <-allSubscriptions.SettledInvoices
-	assert.Equal(t, settledInvoice.State, channeldb.ContractSettled)
+	require.Equal(t, settledInvoice.State, channeldb.ContractSettled)
 }
 
 // TestMppPayment tests settling of an invoice with multiple partial payments.
@@ -1201,7 +1200,7 @@ func TestSettleInvoicePaymentAddrRequired(t *testing.T) {
 	defer ctx.cleanup()
 
 	allSubscriptions, err := ctx.registry.SubscribeNotifications(0, 0)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 	defer allSubscriptions.Cancel()
 
 	// Subscribe to the not yet existing invoice.
@@ -1277,7 +1276,7 @@ func TestSettleInvoicePaymentAddrRequiredOptionalGrace(t *testing.T) {
 	defer ctx.cleanup()
 
 	allSubscriptions, err := ctx.registry.SubscribeNotifications(0, 0)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 	defer allSubscriptions.Cancel()
 
 	// Subscribe to the not yet existing invoice.

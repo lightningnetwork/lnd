@@ -23,11 +23,16 @@ import (
 
 type mockPayload struct {
 	mpp           *record.MPP
+	amp           *record.AMP
 	customRecords record.CustomSet
 }
 
 func (p *mockPayload) MultiPath() *record.MPP {
 	return p.mpp
+}
+
+func (p *mockPayload) AMPRecord() *record.AMP {
+	return p.amp
 }
 
 func (p *mockPayload) CustomRecords() record.CustomSet {

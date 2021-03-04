@@ -112,14 +112,6 @@ func (c *ReplyChannelRange) MsgType() MessageType {
 	return MsgReplyChannelRange
 }
 
-// MaxPayloadLength returns the maximum allowed payload size for a
-// ReplyChannelRange complete message observing the specified protocol version.
-//
-// This is part of the lnwire.Message interface.
-func (c *ReplyChannelRange) MaxPayloadLength(uint32) uint32 {
-	return MaxMsgBody
-}
-
 // LastBlockHeight returns the last block height covered by the range of a
 // QueryChannelRange message.
 func (c *ReplyChannelRange) LastBlockHeight() uint32 {

@@ -57,11 +57,3 @@ func (s *Shutdown) Encode(w io.Writer, pver uint32) error {
 func (s *Shutdown) MsgType() MessageType {
 	return MsgShutdown
 }
-
-// MaxPayloadLength returns the maximum allowed payload size for this message
-// observing the specified protocol version.
-//
-// This is part of the lnwire.Message interface.
-func (s *Shutdown) MaxPayloadLength(pver uint32) uint32 {
-	return MaxMsgBody
-}

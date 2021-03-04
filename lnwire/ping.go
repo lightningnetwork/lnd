@@ -57,11 +57,3 @@ func (p *Ping) Encode(w io.Writer, pver uint32) error {
 func (p *Ping) MsgType() MessageType {
 	return MsgPing
 }
-
-// MaxPayloadLength returns the maximum allowed payload size for a Ping
-// complete message observing the specified protocol version.
-//
-// This is part of the lnwire.Message interface.
-func (p Ping) MaxPayloadLength(uint32) uint32 {
-	return 65532
-}

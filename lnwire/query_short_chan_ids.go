@@ -432,11 +432,3 @@ func encodeShortChanIDs(w io.Writer, encodingType ShortChanIDEncoding,
 func (q *QueryShortChanIDs) MsgType() MessageType {
 	return MsgQueryShortChanIDs
 }
-
-// MaxPayloadLength returns the maximum allowed payload size for a
-// QueryShortChanIDs complete message observing the specified protocol version.
-//
-// This is part of the lnwire.Message interface.
-func (q *QueryShortChanIDs) MaxPayloadLength(uint32) uint32 {
-	return MaxMsgBody
-}

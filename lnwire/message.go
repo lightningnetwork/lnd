@@ -151,7 +151,6 @@ type Serializable interface {
 type Message interface {
 	Serializable
 	MsgType() MessageType
-	MaxPayloadLength(uint32) uint32
 }
 
 // makeEmptyMessage creates a new empty message of the proper concrete type
@@ -237,19 +236,12 @@ func WriteMessage(w io.Writer, msg Message, pver uint32) (int, error) {
 	payload := bw.Bytes()
 	lenp := len(payload)
 
-	// Enforce maximum overall message payload.
-	if lenp > MaxMessagePayload {
+	// Enforce maximum message payload, which means the body cannot be
+	// greater than MaxMsgBody.
+	if lenp > MaxMsgBody {
 		return totalBytes, fmt.Errorf("message payload is too large - "+
-			"encoded %d bytes, but maximum message payload is %d bytes",
-			lenp, MaxMessagePayload)
-	}
-
-	// Enforce maximum message payload on the message type.
-	mpl := msg.MaxPayloadLength(pver)
-	if uint32(lenp) > mpl {
-		return totalBytes, fmt.Errorf("message payload is too large - "+
-			"encoded %d bytes, but maximum message payload of "+
-			"type %v is %d bytes", lenp, msg.MsgType(), mpl)
+			"encoded %d bytes, but maximum message body is %d bytes",
+			lenp, MaxMsgBody)
 	}
 
 	// With the initial sanity checks complete, we'll now write out the

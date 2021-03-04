@@ -69,12 +69,3 @@ func (c *ReplyShortChanIDsEnd) Encode(w io.Writer, pver uint32) error {
 func (c *ReplyShortChanIDsEnd) MsgType() MessageType {
 	return MsgReplyShortChanIDsEnd
 }
-
-// MaxPayloadLength returns the maximum allowed payload size for a
-// ReplyShortChanIDsEnd complete message observing the specified protocol
-// version.
-//
-// This is part of the lnwire.Message interface.
-func (c *ReplyShortChanIDsEnd) MaxPayloadLength(uint32) uint32 {
-	return MaxMsgBody
-}

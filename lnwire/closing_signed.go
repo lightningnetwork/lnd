@@ -76,11 +76,3 @@ func (c *ClosingSigned) Encode(w io.Writer, pver uint32) error {
 func (c *ClosingSigned) MsgType() MessageType {
 	return MsgClosingSigned
 }
-
-// MaxPayloadLength returns the maximum allowed payload size for a
-// ClosingSigned complete message observing the specified protocol version.
-//
-// This is part of the lnwire.Message interface.
-func (c *ClosingSigned) MaxPayloadLength(uint32) uint32 {
-	return MaxMsgBody
-}

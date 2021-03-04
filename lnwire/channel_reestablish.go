@@ -159,11 +159,3 @@ func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
 func (a *ChannelReestablish) MsgType() MessageType {
 	return MsgChannelReestablish
 }
-
-// MaxPayloadLength returns the maximum allowed payload size for this message
-// observing the specified protocol version.
-//
-// This is part of the lnwire.Message interface.
-func (a *ChannelReestablish) MaxPayloadLength(pver uint32) uint32 {
-	return MaxMsgBody
-}

@@ -118,14 +118,6 @@ func (c *Error) MsgType() MessageType {
 	return MsgError
 }
 
-// MaxPayloadLength returns the maximum allowed payload size for an Error
-// complete message observing the specified protocol version.
-//
-// This is part of the lnwire.Message interface.
-func (c *Error) MaxPayloadLength(uint32) uint32 {
-	return MaxMsgBody
-}
-
 // isASCII is a helper method that checks whether all bytes in `data` would be
 // printable ASCII characters if interpreted as a string.
 func isASCII(data []byte) bool {

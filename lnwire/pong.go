@@ -53,11 +53,3 @@ func (p *Pong) Encode(w io.Writer, pver uint32) error {
 func (p *Pong) MsgType() MessageType {
 	return MsgPong
 }
-
-// MaxPayloadLength returns the maximum allowed payload size for a Pong
-// complete message observing the specified protocol version.
-//
-// This is part of the lnwire.Message interface.
-func (p *Pong) MaxPayloadLength(uint32) uint32 {
-	return 65532
-}

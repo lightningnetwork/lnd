@@ -71,11 +71,3 @@ func (msg *Init) Encode(w io.Writer, pver uint32) error {
 func (msg *Init) MsgType() MessageType {
 	return MsgInit
 }
-
-// MaxPayloadLength returns the maximum allowed payload size for an Init
-// complete message observing the specified protocol version.
-//
-// This is part of the lnwire.Message interface.
-func (msg *Init) MaxPayloadLength(uint32) uint32 {
-	return MaxMsgBody
-}

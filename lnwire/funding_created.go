@@ -66,11 +66,3 @@ func (f *FundingCreated) Decode(r io.Reader, pver uint32) error {
 func (f *FundingCreated) MsgType() MessageType {
 	return MsgFundingCreated
 }
-
-// MaxPayloadLength returns the maximum allowed payload length for a
-// FundingCreated message.
-//
-// This is part of the lnwire.Message interface.
-func (f *FundingCreated) MaxPayloadLength(uint32) uint32 {
-	return MaxMsgBody
-}

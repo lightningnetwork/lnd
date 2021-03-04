@@ -81,11 +81,3 @@ func (a *AnnounceSignatures) Encode(w io.Writer, pver uint32) error {
 func (a *AnnounceSignatures) MsgType() MessageType {
 	return MsgAnnounceSignatures
 }
-
-// MaxPayloadLength returns the maximum allowed payload size for this message
-// observing the specified protocol version.
-//
-// This is part of the lnwire.Message interface.
-func (a *AnnounceSignatures) MaxPayloadLength(pver uint32) uint32 {
-	return MaxMsgBody
-}

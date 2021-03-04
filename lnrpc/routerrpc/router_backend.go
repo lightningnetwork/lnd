@@ -1098,6 +1098,9 @@ func marshallWireError(msg lnwire.FailureMessage,
 	case *lnwire.FailMPPTimeout:
 		response.Code = lnrpc.Failure_MPP_TIMEOUT
 
+	case *lnwire.InvalidOnionPayload:
+		response.Code = lnrpc.Failure_INVALID_ONION_PAYLOAD
+
 	case nil:
 		response.Code = lnrpc.Failure_UNKNOWN_FAILURE
 

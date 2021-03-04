@@ -4675,6 +4675,10 @@
           "type": "integer",
           "format": "int64",
           "description": "Max local csv is the maximum csv delay we will allow for our own commitment\ntransaction."
+        },
+        "chan_type": {
+          "$ref": "#/definitions/lnrpcCommitmentType",
+          "description": "The explicit commitment type to use. Note this field will only be used if\nthe remote peer supports explicit channel negotiation."
         }
       }
     },

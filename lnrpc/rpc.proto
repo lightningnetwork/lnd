@@ -1813,6 +1813,12 @@ message OpenChannelRequest {
     transaction.
     */
     uint32 max_local_csv = 17;
+
+    /*
+    The explicit commitment type to use. Note this field will only be used if
+    the remote peer supports explicit channel negotiation.
+    */
+    CommitmentType chan_type = 18;
 }
 message OpenStatusUpdate {
     oneof update {

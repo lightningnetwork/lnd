@@ -215,6 +215,8 @@ const (
 // fee negotiation, channel closing, the format of HTLCs, etc. Structure-wise,
 // a ChannelType is a bit field, with each bit denoting a modification from the
 // base channel type of single funder.
+//
+// TODO(roasbeef): do trick to roll this into a varint?
 type ChannelType uint8
 
 const (

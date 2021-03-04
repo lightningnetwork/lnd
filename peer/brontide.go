@@ -2777,6 +2777,8 @@ func (p *Brontide) sendInitMsg(legacyChan bool) error {
 	features := p.cfg.Features.Clone()
 	legacyFeatures := p.cfg.LegacyFeatures.Clone()
 
+	// TODO(roasbeef): no need to down grade any longer
+
 	// If we have a legacy channel open with a peer, we downgrade static
 	// remote required to optional in case the peer does not understand the
 	// required feature bit. If we do not do this, the peer will reject our

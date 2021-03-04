@@ -129,6 +129,18 @@ const (
 	// transactions, which also imply anchor commitments.
 	AnchorsZeroFeeHtlcTxOptional FeatureBit = 23
 
+	// ExplicitChanTypeOptional is a bit that denotes that a connection
+	// established with this node is to use explicit channel types for
+	// negotiation instead of the existing implicit negotiation methods.
+	// With this bit, there is no longer a "default" implicit channel type,
+	// allowing a connection to open/maintain types of several channels
+	// over its lifetime.
+	ExplicitChanTypeOptional = 2020
+
+	// ExplicitChanTypeRequired is the required variant of the
+	// ExplicitChanTypeOptional bit.
+	ExplicitChanTypeRequired = 2021
+
 	// maxAllowedSize is a maximum allowed size of feature vector.
 	//
 	// NOTE: Within the protocol, the maximum allowed message size is 65535
@@ -172,6 +184,8 @@ var Features = map[FeatureBit]string{
 	AnchorsZeroFeeHtlcTxOptional:  "anchors-zero-fee-htlc-tx",
 	WumboChannelsRequired:         "wumbo-channels",
 	WumboChannelsOptional:         "wumbo-channels",
+	ExplicitChanTypeOptional:      "explicit-chan-type",
+	ExplicitChanTypeRequired:      "explicit-chan-type",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A

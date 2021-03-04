@@ -1997,6 +1997,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 		MaxValueInFlight: maxValue,
 		MaxHtlcs:         maxHtlcs,
 		MaxLocalCsv:      uint16(in.MaxLocalCsv),
+		ChanType:         lnwire.ChannelType(in.ChanType),
 	}, nil
 }
 
@@ -2013,6 +2014,10 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	if err != nil {
 		return err
 	}
+
+	// TODO(roasbeef): extend funding shim w/ expected chan type and
+	// propagate validation logic?
+	//  * set chan type field below
 
 	// If the user has provided a shim, then we'll now augment the based
 	// open channel request with this additional logic.

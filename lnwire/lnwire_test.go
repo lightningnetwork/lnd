@@ -321,6 +321,7 @@ func TestLightningWireProtocol(t *testing.T) {
 				CsvDelay:         uint16(r.Int31()),
 				MaxAcceptedHTLCs: uint16(r.Int31()),
 				ChannelFlags:     FundingFlag(uint8(r.Int31())),
+				ChanType:         ChannelType(uint16(r.Int31())),
 			}
 
 			if _, err := r.Read(req.ChainHash[:]); err != nil {
@@ -376,15 +377,6 @@ func TestLightningWireProtocol(t *testing.T) {
 				req.UpfrontShutdownScript = []byte{}
 			}
 
-			// 1/2 chance how having more TLV data after the
-			// shutdown script.
-			if r.Intn(2) == 0 {
-				// TLV type 1 of length 2.
-				req.ExtraData = []byte{1, 2, 0xff, 0xff}
-			} else {
-				req.ExtraData = []byte{}
-			}
-
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgAcceptChannel: func(v []reflect.Value, r *rand.Rand) {
@@ -396,6 +388,7 @@ func TestLightningWireProtocol(t *testing.T) {
 				HtlcMinimum:      MilliSatoshi(r.Int31()),
 				CsvDelay:         uint16(r.Int31()),
 				MaxAcceptedHTLCs: uint16(r.Int31()),
+				ChanType:         ChannelType(uint16(r.Int31())),
 			}
 
 			if _, err := r.Read(req.PendingChannelID[:]); err != nil {
@@ -444,14 +437,6 @@ func TestLightningWireProtocol(t *testing.T) {
 				}
 			} else {
 				req.UpfrontShutdownScript = []byte{}
-			}
-			// 1/2 chance how having more TLV data after the
-			// shutdown script.
-			if r.Intn(2) == 0 {
-				// TLV type 1 of length 2.
-				req.ExtraData = []byte{1, 2, 0xff, 0xff}
-			} else {
-				req.ExtraData = []byte{}
 			}
 
 			v[0] = reflect.ValueOf(req)

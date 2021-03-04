@@ -1,7 +1,6 @@
 package lnwire
 
 import (
-	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -94,6 +93,9 @@ type AcceptChannel struct {
 	// and its length followed by the script will be written if it is set.
 	UpfrontShutdownScript DeliveryAddress
 
+	// ChanType is the explicit channel type the initiator wishes to open
+	ChanType ChannelType
+
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -116,13 +118,29 @@ var _ Message = (*AcceptChannel)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (a *AcceptChannel) Encode(w io.Writer, pver uint32) error {
-	// Since the upfront script is encoded as a TLV record, concatenate it
-	// with the ExtraData, and write them as one.
-	tlvRecords, err := packShutdownScript(
-		a.UpfrontShutdownScript, a.ExtraData,
-	)
-	if err != nil {
-		return err
+	var tlvRecords ExtraOpaqueData
+
+	// If the set of extra data is already populated, then we'll write that
+	// out as is, since we may have read this from disk and want to ensure
+	// we write out the exact same bytes.
+	switch {
+	case len(a.ExtraData) != 0:
+		tlvRecords = a.ExtraData
+
+	// Otherwise, we're encoding this message a new, so we don't need to
+	// keep track of any existing opauqe bytes.
+	default:
+		// Pack in the series of TLV records into this message. The
+		// order we pass them in doesn't matter, as the method will
+		// ensure that things are all properly sorted.
+		err := tlvRecords.PackRecords(
+			&a.UpfrontShutdownScript, &a.ChanType,
+		)
+		if err != nil {
+			return err
+		}
+
+		a.ExtraData = tlvRecords
 	}
 
 	return WriteElements(w,
@@ -179,8 +197,12 @@ func (a *AcceptChannel) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	a.UpfrontShutdownScript, a.ExtraData, err = parseShutdownScript(
-		tlvRecords,
+	// Next we'll parse out the set of known records, keeping the raw tlv
+	// bytes untouched to ensure we don't drop any bytes erroneously.
+	//
+	// TODO(roasbeef): check for unknown required types?
+	_, err = tlvRecords.ExtractRecords(
+		&a.UpfrontShutdownScript, &a.ChanType,
 	)
 	if err != nil {
 		return err
@@ -231,6 +253,7 @@ func parseShutdownScript(tlvRecords ExtraOpaqueData) (DeliveryAddress,
 	if err != nil {
 		return nil, nil, err
 	}
+	a.ExtraData = tlvRecords
 
 	// Not among TLV records, this means the data was invalid.
 	if _, ok := tlvs[DeliveryAddrType]; !ok {
@@ -245,6 +268,7 @@ func parseShutdownScript(tlvRecords ExtraOpaqueData) (DeliveryAddress,
 	tlvRecords = tlvRecords[addrLen+2:]
 
 	return addr, tlvRecords, nil
+	return nil
 }
 
 // MsgType returns the MessageType code which uniquely identifies this message

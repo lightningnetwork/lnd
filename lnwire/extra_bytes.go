@@ -50,7 +50,17 @@ func (e *ExtraOpaqueData) Decode(r io.Reader) error {
 // PackRecords attempts to encode the set of tlv records into the target
 // ExtraOpaqueData instance. The records will be encoded as a raw TLV stream
 // and stored within the backing slice pointer.
-func (e *ExtraOpaqueData) PackRecords(records ...tlv.Record) error {
+func (e *ExtraOpaqueData) PackRecords(recordProducers ...tlv.RecordProducer) error {
+	// First, assemble all the records passed in in series.
+	records := make([]tlv.Record, 0, len(recordProducers))
+	for _, producer := range recordProducers {
+		records = append(records, producer.Record())
+	}
+
+	// Ensure that the set of records are sorted before we encode them into
+	// the stream, to ensure they're canonical.
+	tlv.SortRecords(records)
+
 	tlvStream, err := tlv.NewStream(records...)
 	if err != nil {
 		return err
@@ -70,8 +80,14 @@ func (e *ExtraOpaqueData) PackRecords(records ...tlv.Record) error {
 // it were a tlv stream. The set of raw parsed types is returned, and any
 // passed records (if found in the stream) will be parsed into the proper
 // tlv.Record.
-func (e *ExtraOpaqueData) ExtractRecords(records ...tlv.Record) (
+func (e *ExtraOpaqueData) ExtractRecords(recordProducers ...tlv.RecordProducer) (
 	tlv.TypeMap, error) {
+
+	// First, assemble all the records passed in in series.
+	records := make([]tlv.Record, 0, len(recordProducers))
+	for _, producer := range recordProducers {
+		records = append(records, producer.Record())
+	}
 
 	extraBytesReader := bytes.NewReader(*e)
 

@@ -129,6 +129,9 @@ type OpenChannel struct {
 	// and its length followed by the script will be written if it is set.
 	UpfrontShutdownScript DeliveryAddress
 
+	// ChanType is the explicit channel type the initiator wishes to open
+	ChanType ChannelType
+
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -151,13 +154,29 @@ var _ Message = (*OpenChannel)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (o *OpenChannel) Encode(w io.Writer, pver uint32) error {
-	// Since the upfront script is encoded as a TLV record, concatenate it
-	// with the ExtraData, and write them as one.
-	tlvRecords, err := packShutdownScript(
-		o.UpfrontShutdownScript, o.ExtraData,
-	)
-	if err != nil {
-		return err
+	var tlvRecords ExtraOpaqueData
+
+	// If the set of extra data is already populated, then we'll write that
+	// out as is, since we may have read this from disk and want to ensure
+	// we write out the exact same bytes.
+	switch {
+	case len(o.ExtraData) != 0:
+		tlvRecords = o.ExtraData
+
+	// Otherwise, we're encoding this message a new, so we don't need to
+	// keep track of any existing opauqe bytes.
+	default:
+		// Pack in the series of TLV records into this message. The
+		// order we pass them in doesn't matter, as the method will
+		// ensure that things are all properly sorted.
+		err := tlvRecords.PackRecords(
+			&o.UpfrontShutdownScript, &o.ChanType,
+		)
+		if err != nil {
+			return err
+		}
+
+		o.ExtraData = tlvRecords
 	}
 
 	return WriteElements(w,
@@ -222,12 +241,16 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	o.UpfrontShutdownScript, o.ExtraData, err = parseShutdownScript(
-		tlvRecords,
+	// Next we'll parse out the set of known records, keeping the raw tlv
+	// bytes untouched to ensure we don't drop any bytes erroneously.
+	_, err = tlvRecords.ExtractRecords(
+		&o.UpfrontShutdownScript, &o.ChanType,
 	)
 	if err != nil {
 		return err
 	}
+
+	o.ExtraData = tlvRecords
 
 	return nil
 }

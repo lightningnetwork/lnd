@@ -93,10 +93,10 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string) (
 			fmt.Errorf("unable to create temp directory: %v", err)
 	}
 
-	zmqBlockAddr := fmt.Sprintf("tcp://127.0.0.1:%d", nextAvailablePort())
-	zmqTxAddr := fmt.Sprintf("tcp://127.0.0.1:%d", nextAvailablePort())
-	rpcPort := nextAvailablePort()
-	p2pPort := nextAvailablePort()
+	zmqBlockAddr := fmt.Sprintf("tcp://127.0.0.1:%d", NextAvailablePort())
+	zmqTxAddr := fmt.Sprintf("tcp://127.0.0.1:%d", NextAvailablePort())
+	rpcPort := NextAvailablePort()
+	p2pPort := NextAvailablePort()
 
 	cmdArgs := []string{
 		"-datadir=" + tempBitcoindDir,

@@ -3636,6 +3636,7 @@ message Failure {
         PERMANENT_CHANNEL_FAILURE = 21;
         EXPIRY_TOO_FAR = 22;
         MPP_TIMEOUT = 23;
+        INVALID_ONION_PAYLOAD = 24;
 
         /*
         An internal error occurred.

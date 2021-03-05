@@ -83,7 +83,8 @@ var (
 		"/routerrpc.Router/GetMissionControlConfig": {{
 			Entity: "offchain",
 			Action: "read",
-		}}, "/routerrpc.Router/SetMissionControlConfig": {{
+		}},
+		"/routerrpc.Router/SetMissionControlConfig": {{
 			Entity: "offchain",
 			Action: "write",
 		}},

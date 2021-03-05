@@ -399,10 +399,10 @@ message SetMissionControlConfigResponse {
 message MissionControlConfig {
     /*
     The amount of time mission control will take to restore a penalized node
-    or channel back to 50% success probability, expressed as a unix timestamp
-    in seconds. Setting this value to a higher value will penalize failures for
-    longer, making mission control less likely to route through nodes and
-    channels that we have previously recorded failures for.
+    or channel back to 50% success probability, expressed in seconds. Setting
+    this value to a higher value will penalize failures for longer, making
+    mission control less likely to route through nodes and channels that we
+    have previously recorded failures for.
     */
     uint64 half_life_seconds = 1;
 

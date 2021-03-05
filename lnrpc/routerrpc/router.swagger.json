@@ -1109,7 +1109,7 @@
         "half_life_seconds": {
           "type": "string",
           "format": "uint64",
-          "description": "The amount of time mission control will take to restore a penalized node\nor channel back to 50% success probability, expressed as a unix timestamp\nin seconds. Setting this value to a higher value will penalize failures for\nlonger, making mission control less likely to route through nodes and\nchannels that we have previously recorded failures for."
+          "description": "The amount of time mission control will take to restore a penalized node\nor channel back to 50% success probability, expressed in seconds. Setting\nthis value to a higher value will penalize failures for longer, making\nmission control less likely to route through nodes and channels that we\nhave previously recorded failures for."
         },
         "hop_probability": {
           "type": "number",

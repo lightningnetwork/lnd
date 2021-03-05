@@ -1190,10 +1190,10 @@ var xxx_messageInfo_SetMissionControlConfigResponse proto.InternalMessageInfo
 type MissionControlConfig struct {
 	//
 	//The amount of time mission control will take to restore a penalized node
-	//or channel back to 50% success probability, expressed as a unix timestamp
-	//in seconds. Setting this value to a higher value will penalize failures for
-	//longer, making mission control less likely to route through nodes and
-	//channels that we have previously recorded failures for.
+	//or channel back to 50% success probability, expressed in seconds. Setting
+	//this value to a higher value will penalize failures for longer, making
+	//mission control less likely to route through nodes and channels that we
+	//have previously recorded failures for.
 	HalfLifeSeconds uint64 `protobuf:"varint,1,opt,name=half_life_seconds,json=halfLifeSeconds,proto3" json:"half_life_seconds,omitempty"`
 	//
 	//The probability of success mission control should assign to hop in a route

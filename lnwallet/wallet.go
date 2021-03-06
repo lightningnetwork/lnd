@@ -1071,26 +1071,13 @@ func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
 		return err
 	}
 
-	// With the above keys created, we'll also need to initialization our
-	// initial revocation tree state.
-	nextRevocationKeyDesc, err := keyRing.DeriveNextKey(
-		keychain.KeyFamilyRevocationRoot,
-	)
-	if err != nil {
-		return err
-	}
-	revocationRoot, err := l.DerivePrivKey(nextRevocationKeyDesc)
+	// With the above keys created, we'll also need to initialize our
+	// revocation tree state, and from that generate the per-commitment point.
+	producer, err := l.nextRevocationProducer(reservation, keyRing)
 	if err != nil {
 		return err
 	}
 
-	// Once we have the root, we can then generate our shachain producer
-	// and from that generate the per-commitment point.
-	revRoot, err := chainhash.NewHash(revocationRoot.Serialize())
-	if err != nil {
-		return err
-	}
-	producer := shachain.NewRevocationProducer(*revRoot)
 	firstPreimage, err := producer.AtIndex(0)
 	if err != nil {
 		return err
@@ -1727,6 +1714,8 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	res.partialState.RemoteShutdownScript =
 		res.theirContribution.UpfrontShutdown
 
+	res.partialState.RevocationKeyLocator = res.nextRevocationKeyLoc
+
 	// Add the complete funding transaction to the DB, in its open bucket
 	// which will be used for the lifetime of this channel.
 	nodeAddr := res.nodeAddr
@@ -1891,6 +1880,9 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	// which will be used for the lifetime of this channel.
 	chanState.LocalChanCfg = pendingReservation.ourContribution.toChanConfig()
 	chanState.RemoteChanCfg = pendingReservation.theirContribution.toChanConfig()
+
+	chanState.RevocationKeyLocator = pendingReservation.nextRevocationKeyLoc
+
 	err = chanState.SyncPending(pendingReservation.nodeAddr, uint32(bestHeight))
 	if err != nil {
 		req.err <- err

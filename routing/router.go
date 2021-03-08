@@ -9,11 +9,14 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 
+	"github.com/lightninglabs/neutrino/cache"
+	"github.com/lightninglabs/neutrino/cache/lru"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -68,6 +71,10 @@ const (
 	// bitcoin (160 for litecoin), though we now clamp the lower end of this
 	// range for user-chosen deltas to 18 blocks to be conservative.
 	MinCLTVDelta = 18
+
+	// defaultBlockCacheSize is the maximum number of blocks that the the
+	// LFU block cache can hold.
+	defaultBlockCacheSize = 5
 )
 
 var (
@@ -410,6 +417,11 @@ type ChannelRouter struct {
 	// announcements over a window of defaultStatInterval.
 	stats *routerStats
 
+	// blockCache is a LRU block cache used to avoid fetching the same
+	// block multiple times when verifying channel announcements of the
+	// same block.
+	blockCache *lru.Cache
+
 	sync.RWMutex
 
 	quit chan struct{}
@@ -441,6 +453,7 @@ func New(cfg Config) (*ChannelRouter, error) {
 		selfNode:          selfNode,
 		statTicker:        ticker.New(defaultStatInterval),
 		stats:             new(routerStats),
+		blockCache:        lru.NewCache(defaultBlockCacheSize),
 		quit:              make(chan struct{}),
 	}
 
@@ -1447,7 +1460,11 @@ func (r *ChannelRouter) fetchFundingTx(
 	if err != nil {
 		return nil, err
 	}
-	fundingBlock, err := r.cfg.Chain.GetBlock(blockHash)
+
+	// Fetch the block corresponding to blockHash from the block cache.
+	// If the block is not already in the cache then a call will be made
+	// to fetch the block from the chain backend.
+	fundingBlock, err := r.getBlock(*blockHash)
 	if err != nil {
 		return nil, err
 	}
@@ -1463,6 +1480,55 @@ func (r *ChannelRouter) fetchFundingTx(
 	}
 
 	return fundingBlock.Transactions[chanID.TxIndex], nil
+}
+
+// cacheableBlock is a wrapper around the wire.MsgBlock type which provides a
+// Size method used by the cache to target certain memory usage in terms of
+// number of blocks.
+type cacheableBlock struct {
+	*wire.MsgBlock
+}
+
+// Size returns the number of block that a cacheableBlock object represents.
+// It is used to satisfy the cache. Value interface and allows the lfu cache
+// capacity to be specified in terms of number of blocks.
+func (c *cacheableBlock) Size() (uint64, error) {
+	return 1, nil
+}
+
+// getBlock first checks ChannelRouter's blockCache for a given block and
+// returns it if it is found. Otherwise a call is made to the chain backend to
+// fetch the given block. It is then added to the lfu blockCache.
+func (r *ChannelRouter) getBlock(hash chainhash.Hash) (*wire.MsgBlock, error) {
+	var block *wire.MsgBlock
+
+	// Check if the block corresponding to the given hash is already
+	// stored in the blockCache and return it if it is.
+	cacheBlock, err := r.blockCache.Get(hash)
+	if err != nil && err != cache.ErrElementNotFound {
+		return nil, err
+	}
+	if cacheBlock != nil {
+		return cacheBlock.(*cacheableBlock).MsgBlock, nil
+	}
+
+	// Fetch the block from the chain backends.
+	block, err = r.cfg.Chain.GetBlock(&hash)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add the new block to blockCache. If the cache is at its maximum
+	// capacity then the LFU item will be evicted in favour of this new
+	// block.
+	_, err = r.blockCache.Put(
+		hash, &cacheableBlock{block},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return block, nil
 }
 
 // routingMsg couples a routing related routing topology update to the

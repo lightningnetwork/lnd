@@ -2,6 +2,7 @@ package routing
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"image/color"
 	"math"
@@ -17,6 +18,8 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/stretchr/testify/require"
 
+	"github.com/lightninglabs/neutrino/cache"
+	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -3102,4 +3105,82 @@ func TestBuildRoute(t *testing.T) {
 	if errNoChannel.fromNode != ctx.aliases["a"] {
 		t.Fatalf("unexpected no channel error node")
 	}
+}
+
+// TestGetBlock tests that the block cache works correctly as a LFU block
+// cache for the given max capacity.
+func TestGetBlock(t *testing.T) {
+	// A new cache is set up with a capacity of 2 blocks
+	bc := lru.NewCache(2)
+	mc := newMockChain(1)
+
+	cr := &ChannelRouter{
+		cfg:        &Config{Chain: mc},
+		blockCache: bc,
+	}
+
+	block1 := &wire.MsgBlock{Header: wire.BlockHeader{Nonce: 1}}
+	block2 := &wire.MsgBlock{Header: wire.BlockHeader{Nonce: 2}}
+	block3 := &wire.MsgBlock{Header: wire.BlockHeader{Nonce: 3}}
+
+	mc.addBlock(&wire.MsgBlock{}, 1, 1)
+	mc.addBlock(&wire.MsgBlock{}, 2, 2)
+	mc.addBlock(&wire.MsgBlock{}, 3, 3)
+
+	// We expect the initial cache to be empty
+	require.Equal(t, 0, bc.Len())
+
+	// After calling getBlock for block1, it is expected that the cache
+	// will have a size of 1 and will contain block1. One chain backends
+	// call is expected to fetch the block.
+	_, err := cr.getBlock(block1.BlockHash())
+	require.NoError(t, err)
+	require.Equal(t, 1, bc.Len())
+	require.Equal(t, 1, mc.chainCallCount)
+	mc.resetChainCallCount()
+
+	_, err = bc.Get(block1.BlockHash())
+	require.NoError(t, err)
+
+	// After calling getBlock for block2, it is expected that the cache
+	// will have a size of 2 and will contain both block1 and block2.
+	// One chain backends call is expected to fetch the block.
+	_, err = cr.getBlock(block2.BlockHash())
+	require.NoError(t, err)
+	require.Equal(t, 2, bc.Len())
+	require.Equal(t, 1, mc.chainCallCount)
+	mc.resetChainCallCount()
+
+	_, err = bc.Get(block1.BlockHash())
+	require.NoError(t, err)
+
+	_, err = bc.Get(block2.BlockHash())
+	require.NoError(t, err)
+
+	// getBlock is called again for block1 to make block2 the LFU block.
+	_, err = cr.getBlock(block1.BlockHash())
+	require.NoError(t, err)
+	require.Equal(t, 2, bc.Len())
+	require.Equal(t, 0, mc.chainCallCount)
+	mc.resetChainCallCount()
+
+	// Since the cache is now at its max capacity, it is expected that when
+	// getBlock is called for a new block then the LFU block will be
+	// evicted. It is expected that block2 will be evicted. After calling
+	// getblock for block3, it is expected that the cache will have a
+	// length of 2 and will contain block 1 and 3.
+	_, err = cr.getBlock(block3.BlockHash())
+	require.NoError(t, err)
+	require.Equal(t, 2, bc.Len())
+	require.Equal(t, 1, mc.chainCallCount)
+	mc.resetChainCallCount()
+
+	_, err = bc.Get(block1.BlockHash())
+	require.NoError(t, err)
+
+	_, err = bc.Get(block2.BlockHash())
+	require.True(t, errors.Is(err, cache.ErrElementNotFound))
+
+	_, err = bc.Get(block3.BlockHash())
+	require.NoError(t, err)
 }

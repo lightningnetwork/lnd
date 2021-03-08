@@ -232,6 +232,15 @@
 <time> [ERR] RPCS: [/signrpc.Signer/DeriveSharedKey]: use either key_desc or key_loc
 <time> [ERR] RPCS: [/signrpc.Signer/DeriveSharedKey]: use either raw_key_bytes or key_index
 <time> [ERR] RPCS: [/signrpc.Signer/DeriveSharedKey]: when setting key_desc the field key_desc.key_loc must also be set
+<time> [ERR] RPCS: [/lnrpc.Lightning/BakeMacaroon]: permission denied
+<time> [ERR] RPCS: [/lnrpc.Lightning/GetInfo]: cannot retrieve macaroon: cannot get macaroon: root key with id  doesn't exist
+<time> [ERR] RPCS: [/lnrpc.Lightning/GetInfo]: caveat "ipaddr 1.1.1.1" not satisfied: macaroon locked to different IP address
+<time> [ERR] RPCS: [/lnrpc.Lightning/GetInfo]: caveat "time-before <time>" not satisfied: macaroon has expired
+<time> [ERR] RPCS: [/lnrpc.Lightning/GetInfo]: expected 1 macaroon, got 0
+<time> [ERR] RPCS: [/lnrpc.Lightning/GetInfo]: permission denied
+<time> [ERR] RPCS: [/lnrpc.Lightning/GetInfo]: the RPC server is in the process of starting up, but not yet ready to accept calls
+<time> [ERR] RPCS: [/lnrpc.Lightning/ListMacaroonIDs]: cannot retrieve macaroon: cannot get macaroon: root key with id 1 doesn't exist
+<time> [ERR] RPCS: [/lnrpc.Lightning/NewAddress]: permission denied
 <time> [ERR] RPCS: unable to open channel to NodeKey(<hex>): received funding error from <hex>: chan_id=<hex>, err=channel too large
 <time> [ERR] RPCS: unable to open channel to NodeKey(<hex>): received funding error from <hex>: chan_id=<hex>, err=chan size of 0.16777216 BTC exceeds maximum chan size of 0.16777215 BTC
 <time> [ERR] RPCS: unable to open channel to NodeKey(<hex>): received funding error from <hex>: chan_id=<hex>, err=chan size of 10.00000001 BTC exceeds maximum chan size of 0.16777215 BTC

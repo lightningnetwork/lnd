@@ -3,6 +3,7 @@ s/short_chan_id=[[:digit:]]+/short_chan_id=<cid>/g
 s/[0-9a-f]{16,}/<hex>/g
 s/[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+\:[[:digit:]]+/<ip>/g
 s/[[:digit:]]{4}-[[:digit:]]{2}-[[:digit:]]{2} [[:digit:]]{2}:[[:digit:]]{2}:[[:digit:]]{2}\.[[:digit:]]{3}/<time>/g
+s/[[:digit:]]{4}-[[:digit:]]{2}-[[:digit:]]{2}T[[:digit:]]{2}:[[:digit:]]{2}:[[:digit:]]{2}\.[[:digit:]]{1,18}Z/<time>/g
 s/[[:digit:]]+\:[[:digit:]]+\:[[:digit:]]+/<chan>/g
 s/[[:digit:]]+ mSAT/<amt>/g
 s/HTLC ID = [[:digit:]]+/HTLC ID = <id>/g

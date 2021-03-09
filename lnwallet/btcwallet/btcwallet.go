@@ -315,7 +315,7 @@ func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
 	}
 
 	return b.wallet.SendOutputs(
-		outputs, defaultAccount, minconf, feeSatPerKB, label,
+		outputs, nil, defaultAccount, minconf, feeSatPerKB, label,
 	)
 }
 
@@ -357,7 +357,9 @@ func (b *BtcWallet) CreateSimpleTx(outputs []*wire.TxOut,
 		}
 	}
 
-	return b.wallet.CreateSimpleTx(defaultAccount, outputs, 1, feeSatPerKB, dryRun)
+	return b.wallet.CreateSimpleTx(
+		nil, defaultAccount, outputs, 1, feeSatPerKB, dryRun,
+	)
 }
 
 // LockOutpoint marks an outpoint as locked meaning it will no longer be deemed
@@ -428,7 +430,7 @@ func (b *BtcWallet) ReleaseOutput(id wtxmgr.LockID, op wire.OutPoint) error {
 func (b *BtcWallet) ListUnspentWitness(minConfs, maxConfs int32) (
 	[]*lnwallet.Utxo, error) {
 	// First, grab all the unfiltered currently unspent outputs.
-	unspentOutputs, err := b.wallet.ListUnspent(minConfs, maxConfs, nil)
+	unspentOutputs, err := b.wallet.ListUnspent(minConfs, maxConfs, "")
 	if err != nil {
 		return nil, err
 	}
@@ -663,7 +665,7 @@ func (b *BtcWallet) ListTransactionDetails(startHeight,
 	// We'll attempt to find all transactions from start to end height.
 	start := base.NewBlockIdentifierFromHeight(startHeight)
 	stop := base.NewBlockIdentifierFromHeight(endHeight)
-	txns, err := b.wallet.GetTransactions(start, stop, nil)
+	txns, err := b.wallet.GetTransactions(start, stop, "", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -721,7 +723,7 @@ func (b *BtcWallet) FundPsbt(packet *psbt.Packet,
 
 	// Let the wallet handle coin selection and/or fee estimation based on
 	// the partial TX information in the packet.
-	return b.wallet.FundPsbt(packet, defaultAccount, feeSatPerKB)
+	return b.wallet.FundPsbt(packet, nil, defaultAccount, feeSatPerKB)
 }
 
 // FinalizePsbt expects a partial transaction with all inputs and
@@ -738,7 +740,7 @@ func (b *BtcWallet) FundPsbt(packet *psbt.Packet,
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) FinalizePsbt(packet *psbt.Packet) error {
-	return b.wallet.FinalizePsbt(packet)
+	return b.wallet.FinalizePsbt(nil, defaultAccount, packet)
 }
 
 // txSubscriptionClient encapsulates the transaction notification client from

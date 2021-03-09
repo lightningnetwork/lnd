@@ -82,7 +82,7 @@ func WaitForMempoolTx(miner *rpctest.Harness, txid *chainhash.Hash) error {
 	trickle := time.After(2 * TrickleInterval)
 	for {
 		// Check for the harness' knowledge of the txid.
-		tx, err := miner.Node.GetRawTransaction(txid)
+		tx, err := miner.Client.GetRawTransaction(txid)
 		if err != nil {
 			jsonErr, ok := err.(*btcjson.RPCError)
 			if ok && jsonErr.Code == btcjson.ErrRPCNoTxInfo {
@@ -138,7 +138,7 @@ func CreateSpendableOutput(t *testing.T,
 	if err := WaitForMempoolTx(miner, txid); err != nil {
 		t.Fatalf("tx not relayed to miner: %v", err)
 	}
-	if _, err := miner.Node.Generate(1); err != nil {
+	if _, err := miner.Client.Generate(1); err != nil {
 		t.Fatalf("unable to generate single block: %v", err)
 	}
 

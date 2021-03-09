@@ -206,7 +206,7 @@ func mineBlocks(t *harnessTest, net *lntest.NetworkHarness,
 	var err error
 	if numTxs > 0 {
 		txids, err = waitForNTxsInMempool(
-			net.Miner.Node, numTxs, minerMempoolTimeout,
+			net.Miner.Client, numTxs, minerMempoolTimeout,
 		)
 		if err != nil {
 			t.Fatalf("unable to find txns in mempool: %v", err)
@@ -215,13 +215,13 @@ func mineBlocks(t *harnessTest, net *lntest.NetworkHarness,
 
 	blocks := make([]*wire.MsgBlock, num)
 
-	blockHashes, err := net.Miner.Node.Generate(num)
+	blockHashes, err := net.Miner.Client.Generate(num)
 	if err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
 
 	for i, blockHash := range blockHashes {
-		block, err := net.Miner.Node.GetBlock(blockHash)
+		block, err := net.Miner.Client.GetBlock(blockHash)
 		if err != nil {
 			t.Fatalf("unable to get block: %v", err)
 		}

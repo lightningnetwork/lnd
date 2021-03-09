@@ -21,7 +21,7 @@ import (
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*lnwallet.Utxo, error) {
-	_, txOut, confirmations, err := b.wallet.FetchInputInfo(prevOut)
+	_, txOut, _, confirmations, err := b.wallet.FetchInputInfo(prevOut)
 	if err != nil {
 		return nil, err
 	}
@@ -51,9 +51,10 @@ func deriveFromKeyLoc(scopedMgr *waddrmgr.ScopedKeyManager,
 	keyLoc keychain.KeyLocator) (*btcec.PrivateKey, error) {
 
 	path := waddrmgr.DerivationPath{
-		Account: uint32(keyLoc.Family),
-		Branch:  0,
-		Index:   uint32(keyLoc.Index),
+		InternalAccount: uint32(keyLoc.Family),
+		Account:         uint32(keyLoc.Family),
+		Branch:          0,
+		Index:           keyLoc.Index,
 	}
 	addr, err := scopedMgr.DeriveFromKeyPath(addrmgrNs, path)
 	if err != nil {

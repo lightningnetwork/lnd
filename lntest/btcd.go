@@ -56,12 +56,12 @@ func (b BtcdBackendConfig) GenArgs() []string {
 
 // ConnectMiner is called to establish a connection to the test miner.
 func (b BtcdBackendConfig) ConnectMiner() error {
-	return b.harness.Node.Node(btcjson.NConnect, b.minerAddr, &temp)
+	return b.harness.Client.Node(btcjson.NConnect, b.minerAddr, &temp)
 }
 
 // DisconnectMiner is called to disconnect the miner.
 func (b BtcdBackendConfig) DisconnectMiner() error {
-	return b.harness.Node.Node(btcjson.NDisconnect, b.minerAddr, &temp)
+	return b.harness.Client.Node(btcjson.NDisconnect, b.minerAddr, &temp)
 }
 
 // Name returns the name of the backend type.

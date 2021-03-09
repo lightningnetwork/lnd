@@ -93,7 +93,7 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	}
 
 	_, err = waitForNTxsInMempool(
-		net.Miner.Node, expectedTxes, minerMempoolTimeout,
+		net.Miner.Client, expectedTxes, minerMempoolTimeout,
 	)
 	require.NoError(t.t, err)
 
@@ -101,7 +101,7 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// point, Bob should hand off the output to his internal utxo nursery,
 	// which will broadcast a sweep transaction.
 	numBlocks := padCLTV(finalCltvDelta - 1)
-	_, err = net.Miner.Node.Generate(numBlocks)
+	_, err = net.Miner.Client.Generate(numBlocks)
 	require.NoError(t.t, err)
 
 	// If we check Bob's pending channel report, it should show that he has
@@ -126,12 +126,12 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	require.NoError(t.t, err)
 
 	// We need to generate an additional block to trigger the sweep.
-	_, err = net.Miner.Node.Generate(1)
+	_, err = net.Miner.Client.Generate(1)
 	require.NoError(t.t, err)
 
 	// Bob's sweeping transaction should now be found in the mempool at
 	// this point.
-	sweepTx, err := waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	sweepTx, err := waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
 	if err != nil {
 		// If Bob's transaction isn't yet in the mempool, then due to
 		// internal message passing and the low period between blocks
@@ -141,9 +141,9 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 		// we'll fail.
 		// TODO(halseth): can we use waitForChannelPendingForceClose to
 		// avoid this hack?
-		_, err = net.Miner.Node.Generate(1)
+		_, err = net.Miner.Client.Generate(1)
 		require.NoError(t.t, err)
-		sweepTx, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+		sweepTx, err = waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
 		require.NoError(t.t, err)
 	}
 

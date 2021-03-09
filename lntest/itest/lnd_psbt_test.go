@@ -173,7 +173,7 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// No transaction should have been published yet.
-	mempool, err := net.Miner.Node.GetRawMempool()
+	mempool, err := net.Miner.Client.GetRawMempool()
 	require.NoError(t.t, err)
 	require.Equal(t.t, 0, len(mempool))
 

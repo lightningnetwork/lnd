@@ -98,7 +98,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest,
 	numBlocks := padCLTV(
 		uint32(finalCltvDelta - lncfg.DefaultOutgoingBroadcastDelta),
 	)
-	_, err = net.Miner.Node.Generate(numBlocks)
+	_, err = net.Miner.Client.Generate(numBlocks)
 	require.NoError(t.t, err)
 
 	// Bob's force close transaction should now be found in the mempool. If
@@ -111,11 +111,11 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest,
 	bobFundingTxid, err := lnrpc.GetChanPointFundingTxid(bobChanPoint)
 	require.NoError(t.t, err)
 	_, err = waitForNTxsInMempool(
-		net.Miner.Node, expectedTxes, minerMempoolTimeout,
+		net.Miner.Client, expectedTxes, minerMempoolTimeout,
 	)
 	require.NoError(t.t, err)
 	closeTx := getSpendingTxInMempool(
-		t, net.Miner.Node, minerMempoolTimeout, wire.OutPoint{
+		t, net.Miner.Client, minerMempoolTimeout, wire.OutPoint{
 			Hash:  *bobFundingTxid,
 			Index: bobChanPoint.OutputIndex,
 		},
@@ -138,7 +138,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest,
 	// timeout transaction to be broadcast due to the expiry being reached.
 	// If there are anchors, we also expect Carol's anchor sweep now.
 	txes, err := getNTxsFromMempool(
-		net.Miner.Node, expectedTxes, minerMempoolTimeout,
+		net.Miner.Client, expectedTxes, minerMempoolTimeout,
 	)
 	require.NoError(t.t, err)
 
@@ -166,7 +166,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest,
 	mineBlocks(t, net, defaultCSV-1, expectedTxes)
 
 	// Check that the sweep spends from the mined commitment.
-	txes, err = getNTxsFromMempool(net.Miner.Node, 1, minerMempoolTimeout)
+	txes, err = getNTxsFromMempool(net.Miner.Client, 1, minerMempoolTimeout)
 	require.NoError(t.t, err)
 	assertAllTxesSpendFrom(t, txes, closeTxid)
 
@@ -193,7 +193,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest,
 	// layer sweep due to the CSV on the HTLC timeout output.
 	mineBlocks(t, net, 1, 0)
 	assertSpendingTxInMempool(
-		t, net.Miner.Node, minerMempoolTimeout, wire.OutPoint{
+		t, net.Miner.Client, minerMempoolTimeout, wire.OutPoint{
 			Hash:  *htlcTimeout,
 			Index: 0,
 		},
@@ -218,7 +218,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest,
 
 	// Next, we'll mine a final block that should confirm the second-layer
 	// sweeping transaction.
-	_, err = net.Miner.Node.Generate(1)
+	_, err = net.Miner.Client.Generate(1)
 	require.NoError(t.t, err)
 
 	// Once this transaction has been confirmed, Bob should detect that he

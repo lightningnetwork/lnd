@@ -211,7 +211,7 @@ func (n *NetworkHarness) SetUp(testCase string, lndArgs []string) error {
 
 	// We generate several blocks in order to give the outputs created
 	// above a good number of confirmations.
-	if _, err := n.Miner.Node.Generate(10); err != nil {
+	if _, err := n.Miner.Client.Generate(10); err != nil {
 		return err
 	}
 
@@ -803,7 +803,7 @@ func (n *NetworkHarness) WaitForTxInMempool(ctx context.Context,
 
 		case <-ticker.C:
 			var err error
-			mempool, err = n.Miner.Node.GetRawMempool()
+			mempool, err = n.Miner.Client.GetRawMempool()
 			if err != nil {
 				return err
 			}
@@ -1383,7 +1383,7 @@ func (n *NetworkHarness) sendCoins(ctx context.Context, amt btcutil.Amount,
 	// Otherwise, we'll generate 6 new blocks to ensure the output gains a
 	// sufficient number of confirmations and wait for the balance to
 	// reflect what's expected.
-	if _, err := n.Miner.Node.Generate(6); err != nil {
+	if _, err := n.Miner.Client.Generate(6); err != nil {
 		return err
 	}
 

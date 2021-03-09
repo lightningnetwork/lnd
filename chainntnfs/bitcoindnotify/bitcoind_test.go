@@ -77,7 +77,7 @@ func syncNotifierWithMiner(t *testing.T, notifier *BitcoindNotifier,
 
 	t.Helper()
 
-	_, minerHeight, err := miner.Node.GetBestBlock()
+	_, minerHeight, err := miner.Client.GetBestBlock()
 	if err != nil {
 		t.Fatalf("unable to retrieve miner's current height: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 			"mempool, but did not: %v", txStatus)
 	}
 
-	if _, err := miner.Node.Generate(1); err != nil {
+	if _, err := miner.Client.Generate(1); err != nil {
 		t.Fatalf("unable to generate block: %v", err)
 	}
 
@@ -247,14 +247,14 @@ func TestHistoricalConfDetailsNoTxIndex(t *testing.T) {
 	// ensured above.
 	outpoint, output, privKey := chainntnfs.CreateSpendableOutput(t, miner)
 	spendTx := chainntnfs.CreateSpendTx(t, outpoint, output, privKey)
-	spendTxHash, err := miner.Node.SendRawTransaction(spendTx, true)
+	spendTxHash, err := miner.Client.SendRawTransaction(spendTx, true)
 	if err != nil {
 		t.Fatalf("unable to broadcast tx: %v", err)
 	}
 	if err := chainntnfs.WaitForMempoolTx(miner, spendTxHash); err != nil {
 		t.Fatalf("tx not relayed to miner: %v", err)
 	}
-	if _, err := miner.Node.Generate(1); err != nil {
+	if _, err := miner.Client.Generate(1); err != nil {
 		t.Fatalf("unable to generate block: %v", err)
 	}
 

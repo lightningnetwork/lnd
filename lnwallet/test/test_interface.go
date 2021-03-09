@@ -130,13 +130,13 @@ func mineAndAssertTxInBlock(t *testing.T, miner *rpctest.Harness,
 	}
 
 	// We'll mined a block to confirm it.
-	blockHashes, err := miner.Node.Generate(1)
+	blockHashes, err := miner.Client.Generate(1)
 	if err != nil {
 		t.Fatalf("unable to generate new block: %v", err)
 	}
 
 	// Finally, we'll check it was actually mined in this block.
-	block, err := miner.Node.GetBlock(blockHashes[0])
+	block, err := miner.Client.GetBlock(blockHashes[0])
 	if err != nil {
 		t.Fatalf("unable to get block %v: %v", blockHashes[0], err)
 	}
@@ -282,7 +282,7 @@ func loadTestCredits(miner *rpctest.Harness, w *lnwallet.LightningWallet,
 	// Generate 10 blocks with the mining node, this should mine all
 	// numOutputs transactions created above. We generate 10 blocks here
 	// in order to give all the outputs a "sufficient" number of confirmations.
-	if _, err := miner.Node.Generate(10); err != nil {
+	if _, err := miner.Client.Generate(10); err != nil {
 		return err
 	}
 
@@ -380,7 +380,7 @@ func testGetRecoveryInfo(miner *rpctest.Harness,
 
 	// Generate 5 blocks and check the recovery process again.
 	const numBlocksMined = 5
-	_, err = miner.Node.Generate(numBlocksMined)
+	_, err = miner.Client.Generate(numBlocksMined)
 	require.NoError(t, err, "unable to mine blocks")
 
 	// Check the recovery process. Once synced, the progress should be 1.
@@ -591,11 +591,11 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("tx not relayed to miner: %v", err)
 	}
-	blockHashes, err := miner.Node.Generate(1)
+	blockHashes, err := miner.Client.Generate(1)
 	if err != nil {
 		t.Fatalf("unable to generate block: %v", err)
 	}
-	block, err := miner.Node.GetBlock(blockHashes[0])
+	block, err := miner.Client.GetBlock(blockHashes[0])
 	if err != nil {
 		t.Fatalf("unable to find block: %v", err)
 	}
@@ -1091,11 +1091,11 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("tx not relayed to miner: %v", err)
 	}
-	blockHashes, err := miner.Node.Generate(1)
+	blockHashes, err := miner.Client.Generate(1)
 	if err != nil {
 		t.Fatalf("unable to generate block: %v", err)
 	}
-	block, err := miner.Node.GetBlock(blockHashes[0])
+	block, err := miner.Client.GetBlock(blockHashes[0])
 	if err != nil {
 		t.Fatalf("unable to find block: %v", err)
 	}
@@ -1159,14 +1159,14 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	}
 
 	// Get the miner's current best block height before we mine blocks.
-	_, startHeight, err := miner.Node.GetBestBlock()
+	_, startHeight, err := miner.Client.GetBestBlock()
 	if err != nil {
 		t.Fatalf("cannot get best block: %v", err)
 	}
 
 	// Generate 10 blocks to mine all the transactions created above.
 	const numBlocksMined = 10
-	blocks, err := miner.Node.Generate(numBlocksMined)
+	blocks, err := miner.Client.Generate(numBlocksMined)
 	if err != nil {
 		t.Fatalf("unable to mine blocks: %v", err)
 	}
@@ -1339,7 +1339,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 
 	// Generate one block for our transaction to confirm in.
 	var numBlocks int32 = 1
-	burnBlock, err := miner.Node.Generate(uint32(numBlocks))
+	burnBlock, err := miner.Client.Generate(uint32(numBlocks))
 	if err != nil {
 		t.Fatalf("unable to mine block: %v", err)
 	}
@@ -1392,7 +1392,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 
 	// Generate a block which has no wallet transactions in it.
 	chainTip += numBlocks
-	_, err = miner.Node.Generate(uint32(numBlocks))
+	_, err = miner.Client.Generate(uint32(numBlocks))
 	if err != nil {
 		t.Fatalf("unable to mine block: %v", err)
 	}
@@ -1524,7 +1524,7 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 
 	// Next mine a single block, all the transactions generated above
 	// should be included.
-	if _, err := miner.Node.Generate(1); err != nil {
+	if _, err := miner.Client.Generate(1); err != nil {
 		t.Fatalf("unable to generate block: %v", err)
 	}
 
@@ -1607,12 +1607,12 @@ func mineAndAssert(r *rpctest.Harness, tx *wire.MsgTx) error {
 		return fmt.Errorf("tx not relayed to miner: %v", err)
 	}
 
-	blockHashes, err := r.Node.Generate(1)
+	blockHashes, err := r.Client.Generate(1)
 	if err != nil {
 		return fmt.Errorf("unable to generate block: %v", err)
 	}
 
-	block, err := r.Node.GetBlock(blockHashes[0])
+	block, err := r.Client.GetBlock(blockHashes[0])
 	if err != nil {
 		return fmt.Errorf("unable to find block: %v", err)
 	}
@@ -1803,7 +1803,7 @@ func testPublishTransaction(r *rpctest.Harness,
 	}
 
 	// Mine the transaction.
-	if _, err := r.Node.Generate(1); err != nil {
+	if _, err := r.Client.Generate(1); err != nil {
 		t.Fatalf("unable to generate block: %v", err)
 	}
 
@@ -2126,7 +2126,7 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 	// reorganization that doesn't invalidate any existing transactions or
 	// create any new non-coinbase transactions. We'll then check if it's
 	// the same after the empty reorg.
-	_, err := r.Node.Generate(5)
+	_, err := r.Client.Generate(5)
 	if err != nil {
 		t.Fatalf("unable to generate blocks on passed node: %v", err)
 	}
@@ -2168,7 +2168,7 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 	if err != nil {
 		t.Fatalf("tx not relayed to miner: %v", err)
 	}
-	_, err = r.Node.Generate(50)
+	_, err = r.Client.Generate(50)
 	if err != nil {
 		t.Fatalf("unable to generate blocks on passed node: %v", err)
 	}
@@ -2207,7 +2207,7 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 
 	// Step 2: connect the miner to the passed miner and wait for
 	// synchronization.
-	err = r2.Node.AddNode(r.P2PAddress(), rpcclient.ANAdd)
+	err = r2.Client.AddNode(r.P2PAddress(), rpcclient.ANAdd)
 	if err != nil {
 		t.Fatalf("unable to connect mining nodes together: %v", err)
 	}
@@ -2232,12 +2232,12 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 				t.Fatalf("timeout waiting for miner disconnect")
 			default:
 			}
-			err = r2.Node.AddNode(r.P2PAddress(), rpcclient.ANRemove)
+			err = r2.Client.AddNode(r.P2PAddress(), rpcclient.ANRemove)
 			if err != nil {
 				t.Fatalf("unable to disconnect mining nodes: %v",
 					err)
 			}
-			peers, err = r2.Node.GetPeerInfo()
+			peers, err = r2.Client.GetPeerInfo()
 			if err != nil {
 				t.Fatalf("unable to get peer info: %v", err)
 			}
@@ -2249,19 +2249,19 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 				}
 			}
 		}
-		_, err = r.Node.Generate(2)
+		_, err = r.Client.Generate(2)
 		if err != nil {
 			t.Fatalf("unable to generate blocks on passed node: %v",
 				err)
 		}
-		_, err = r2.Node.Generate(3)
+		_, err = r2.Client.Generate(3)
 		if err != nil {
 			t.Fatalf("unable to generate blocks on created node: %v",
 				err)
 		}
 
 		// Step 5: Reconnect the miners and wait for them to synchronize.
-		err = r2.Node.AddNode(r.P2PAddress(), rpcclient.ANAdd)
+		err = r2.Client.AddNode(r.P2PAddress(), rpcclient.ANAdd)
 		if err != nil {
 			switch err := err.(type) {
 			case *btcjson.RPCError:
@@ -2455,7 +2455,7 @@ func testSpendUnconfirmed(miner *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("tx not relayed to miner: %v", err)
 	}
-	if _, err := miner.Node.Generate(1); err != nil {
+	if _, err := miner.Client.Generate(1); err != nil {
 		t.Fatalf("unable to generate block: %v", err)
 	}
 	if err := waitForWalletSync(miner, alice); err != nil {
@@ -2483,7 +2483,7 @@ func testSpendUnconfirmed(miner *rpctest.Harness,
 func testLastUnusedAddr(miner *rpctest.Harness,
 	alice, bob *lnwallet.LightningWallet, t *testing.T) {
 
-	if _, err := miner.Node.Generate(1); err != nil {
+	if _, err := miner.Client.Generate(1); err != nil {
 		t.Fatalf("unable to generate block: %v", err)
 	}
 
@@ -2895,7 +2895,7 @@ func waitForMempoolTx(r *rpctest.Harness, txid *chainhash.Hash) error {
 		time.Sleep(100 * time.Millisecond)
 
 		// Check for the harness' knowledge of the txid
-		tx, err = r.Node.GetRawTransaction(txid)
+		tx, err = r.Client.GetRawTransaction(txid)
 		if err != nil {
 			switch e := err.(type) {
 			case *btcjson.RPCError:
@@ -2931,7 +2931,7 @@ func waitForWalletSync(r *rpctest.Harness, w *lnwallet.LightningWallet) error {
 
 		// Check whether the chain source of the wallet is caught up to
 		// the harness it's supposed to be catching up to.
-		bestHash, bestHeight, err = r.Node.GetBestBlock()
+		bestHash, bestHeight, err = r.Client.GetBestBlock()
 		if err != nil {
 			return err
 		}
@@ -3107,7 +3107,7 @@ func TestLightningWallet(t *testing.T, targetBackEnd string) {
 	// Next mine enough blocks in order for segwit and the CSV package
 	// soft-fork to activate on RegNet.
 	numBlocks := netParams.MinerConfirmationWindow * 2
-	if _, err := miningNode.Node.Generate(numBlocks); err != nil {
+	if _, err := miningNode.Client.Generate(numBlocks); err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
 

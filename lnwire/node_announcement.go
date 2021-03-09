@@ -145,14 +145,6 @@ func (a *NodeAnnouncement) MsgType() MessageType {
 	return MsgNodeAnnouncement
 }
 
-// MaxPayloadLength returns the maximum allowed payload size for this message
-// observing the specified protocol version.
-//
-// This is part of the lnwire.Message interface.
-func (a *NodeAnnouncement) MaxPayloadLength(pver uint32) uint32 {
-	return MaxMsgBody
-}
-
 // DataToSign returns the part of the message that should be signed.
 func (a *NodeAnnouncement) DataToSign() ([]byte, error) {
 

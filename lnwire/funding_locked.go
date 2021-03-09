@@ -73,12 +73,3 @@ func (c *FundingLocked) Encode(w io.Writer, pver uint32) error {
 func (c *FundingLocked) MsgType() MessageType {
 	return MsgFundingLocked
 }
-
-// MaxPayloadLength returns the maximum allowed payload length for a
-// FundingLocked message. This is calculated by summing the max length of all
-// the fields within a FundingLocked message.
-//
-// This is part of the lnwire.Message interface.
-func (c *FundingLocked) MaxPayloadLength(uint32) uint32 {
-	return MaxMsgBody
-}

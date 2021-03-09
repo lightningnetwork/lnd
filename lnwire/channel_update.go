@@ -196,14 +196,6 @@ func (a *ChannelUpdate) MsgType() MessageType {
 	return MsgChannelUpdate
 }
 
-// MaxPayloadLength returns the maximum allowed payload size for this message
-// observing the specified protocol version.
-//
-// This is part of the lnwire.Message interface.
-func (a *ChannelUpdate) MaxPayloadLength(pver uint32) uint32 {
-	return MaxMsgBody
-}
-
 // DataToSign is used to retrieve part of the announcement message which should
 // be signed.
 func (a *ChannelUpdate) DataToSign() ([]byte, error) {

@@ -239,11 +239,3 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 func (o *OpenChannel) MsgType() MessageType {
 	return MsgOpenChannel
 }
-
-// MaxPayloadLength returns the maximum allowed payload length for a
-// OpenChannel message.
-//
-// This is part of the lnwire.Message interface.
-func (o *OpenChannel) MaxPayloadLength(uint32) uint32 {
-	return MaxMsgBody
-}

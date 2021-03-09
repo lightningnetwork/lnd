@@ -75,14 +75,6 @@ func (q *QueryChannelRange) MsgType() MessageType {
 	return MsgQueryChannelRange
 }
 
-// MaxPayloadLength returns the maximum allowed payload size for a
-// QueryChannelRange complete message observing the specified protocol version.
-//
-// This is part of the lnwire.Message interface.
-func (q *QueryChannelRange) MaxPayloadLength(uint32) uint32 {
-	return MaxMsgBody
-}
-
 // LastBlockHeight returns the last block height covered by the range of a
 // QueryChannelRange message.
 func (q *QueryChannelRange) LastBlockHeight() uint32 {

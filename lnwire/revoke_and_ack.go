@@ -82,14 +82,6 @@ func (c *RevokeAndAck) MsgType() MessageType {
 	return MsgRevokeAndAck
 }
 
-// MaxPayloadLength returns the maximum allowed payload size for a RevokeAndAck
-// complete message observing the specified protocol version.
-//
-// This is part of the lnwire.Message interface.
-func (c *RevokeAndAck) MaxPayloadLength(uint32) uint32 {
-	return MaxMsgBody
-}
-
 // TargetChanID returns the channel id of the link for which this message is
 // intended.
 //

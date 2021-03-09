@@ -77,14 +77,6 @@ func (c *UpdateFulfillHTLC) MsgType() MessageType {
 	return MsgUpdateFulfillHTLC
 }
 
-// MaxPayloadLength returns the maximum allowed payload size for an UpdateFulfillHTLC
-// complete message observing the specified protocol version.
-//
-// This is part of the lnwire.Message interface.
-func (c *UpdateFulfillHTLC) MaxPayloadLength(uint32) uint32 {
-	return MaxMsgBody
-}
-
 // TargetChanID returns the channel id of the link for which this message is
 // intended.
 //

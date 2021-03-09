@@ -250,9 +250,6 @@ func TestEmptyMessageUnknownType(t *testing.T) {
 // TestLightningWireProtocol uses the testing/quick package to create a series
 // of fuzz tests to attempt to break a primary scenario which is implemented as
 // property based testing scenario.
-//
-// Debug help: when the message payload can reach a size larger than the return
-// value of MaxPayloadLength, the test can panic without a helpful message.
 func TestLightningWireProtocol(t *testing.T) {
 	t.Parallel()
 
@@ -274,9 +271,9 @@ func TestLightningWireProtocol(t *testing.T) {
 		// the 2 bytes for the message type) is _below_ the specified
 		// max payload size for this message.
 		payloadLen := uint32(b.Len()) - 2
-		if payloadLen > msg.MaxPayloadLength(0) {
+		if payloadLen > MaxMsgBody {
 			t.Fatalf("msg payload constraint violated: %v > %v",
-				payloadLen, msg.MaxPayloadLength(0))
+				payloadLen, MaxMsgBody)
 			return false
 		}
 

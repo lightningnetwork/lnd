@@ -254,11 +254,3 @@ func parseShutdownScript(tlvRecords ExtraOpaqueData) (DeliveryAddress,
 func (a *AcceptChannel) MsgType() MessageType {
 	return MsgAcceptChannel
 }
-
-// MaxPayloadLength returns the maximum allowed payload length for a
-// AcceptChannel message.
-//
-// This is part of the lnwire.Message interface.
-func (a *AcceptChannel) MaxPayloadLength(uint32) uint32 {
-	return MaxMsgBody
-}

@@ -73,12 +73,3 @@ func (g *GossipTimestampRange) Encode(w io.Writer, pver uint32) error {
 func (g *GossipTimestampRange) MsgType() MessageType {
 	return MsgGossipTimestampRange
 }
-
-// MaxPayloadLength returns the maximum allowed payload size for a
-// GossipTimestampRange complete message observing the specified protocol
-// version.
-//
-// This is part of the lnwire.Message interface.
-func (g *GossipTimestampRange) MaxPayloadLength(uint32) uint32 {
-	return MaxMsgBody
-}

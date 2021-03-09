@@ -3323,11 +3323,19 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
 			var chainConn *chain.BitcoindConn
 			err = wait.NoError(func() error {
-				chainConn, err = chain.NewBitcoindConn(
-					netParams, host, "weks", "weks",
-					zmqBlockHost, zmqTxHost,
-					100*time.Millisecond,
-				)
+				chainConn, err = chain.NewBitcoindConn(&chain.BitcoindConfig{
+					ChainParams:     netParams,
+					Host:            host,
+					User:            "weks",
+					Pass:            "weks",
+					ZMQBlockHost:    zmqBlockHost,
+					ZMQTxHost:       zmqTxHost,
+					ZMQReadDeadline: 5 * time.Second,
+					// Fields only required for pruned nodes, not
+					// needed for these tests.
+					Dialer:             nil,
+					PrunedModeMaxPeers: 0,
+				})
 				if err != nil {
 					return err
 				}

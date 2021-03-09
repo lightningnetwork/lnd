@@ -816,11 +816,19 @@ var interfaceImpls = []struct {
 			time.Sleep(time.Second)
 
 			host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
-			chainConn, err := chain.NewBitcoindConn(
-				&chaincfg.RegressionNetParams, host, "weks",
-				"weks", zmqBlockHost, zmqTxHost,
-				100*time.Millisecond,
-			)
+			chainConn, err := chain.NewBitcoindConn(&chain.BitcoindConfig{
+				ChainParams:     &chaincfg.RegressionNetParams,
+				Host:            host,
+				User:            "weks",
+				Pass:            "weks",
+				ZMQBlockHost:    zmqBlockHost,
+				ZMQTxHost:       zmqTxHost,
+				ZMQReadDeadline: 5 * time.Second,
+				// Fields only required for pruned nodes, not
+				// needed for these tests.
+				Dialer:             nil,
+				PrunedModeMaxPeers: 0,
+			})
 			if err != nil {
 				return cleanUp2, nil, fmt.Errorf("unable to "+
 					"establish connection to bitcoind: %v",

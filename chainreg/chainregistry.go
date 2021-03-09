@@ -105,6 +105,11 @@ type Config struct {
 	// DBTimeOut specifies the timeout value to use when opening the wallet
 	// database.
 	DBTimeOut time.Duration
+
+	// Dialer is a function closure that will be used to establish outbound
+	// TCP connections to Bitcoin peers in the event of a pruned block being
+	// requested.
+	Dialer chain.Dialer
 }
 
 const (
@@ -383,12 +388,16 @@ func NewChainControl(cfg *Config) (*ChainControl, error) {
 
 		// Establish the connection to bitcoind and create the clients
 		// required for our relevant subsystems.
-		bitcoindConn, err := chain.NewBitcoindConn(
-			cfg.ActiveNetParams.Params, bitcoindHost,
-			bitcoindMode.RPCUser, bitcoindMode.RPCPass,
-			bitcoindMode.ZMQPubRawBlock, bitcoindMode.ZMQPubRawTx,
-			5*time.Second,
-		)
+		bitcoindConn, err := chain.NewBitcoindConn(&chain.BitcoindConfig{
+			ChainParams:        cfg.ActiveNetParams.Params,
+			Host:               bitcoindHost,
+			User:               bitcoindMode.RPCUser,
+			Pass:               bitcoindMode.RPCPass,
+			ZMQBlockHost:       bitcoindMode.ZMQPubRawBlock,
+			ZMQTxHost:          bitcoindMode.ZMQPubRawTx,
+			ZMQReadDeadline:    5 * time.Second,
+			Dialer:             cfg.Dialer,
+		})
 		if err != nil {
 			return nil, err
 		}

@@ -50,13 +50,15 @@ func Start(extraArgs string, unlockerReady, rpcReady Callback) {
 	loadedConfig, err := lnd.LoadConfig()
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		rpcReady.OnError(err)
+		return
 	}
 
 	// Hook interceptor for os signals.
 	if err := signal.Intercept(); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		rpcReady.OnError(err)
+		return
 	}
 
 	// Set up channels that will be notified when the RPC servers are ready
@@ -90,7 +92,8 @@ func Start(extraArgs string, unlockerReady, rpcReady Callback) {
 			} else {
 				fmt.Fprintln(os.Stderr, err)
 			}
-			os.Exit(1)
+			rpcReady.OnError(err)
+			return
 		}
 	}()
 

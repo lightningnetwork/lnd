@@ -120,7 +120,7 @@ func getTestCaseSplitTranche() ([]*testCase, uint, uint) {
 }
 
 func rpcPointToWirePoint(t *harnessTest, chanPoint *lnrpc.ChannelPoint) wire.OutPoint {
-	txid, err := lnd.GetChanPointFundingTxid(chanPoint)
+	txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -179,7 +179,7 @@ func openChannelAndAssert(ctx context.Context, t *harnessTest,
 	if err != nil {
 		t.Fatalf("error while waiting for channel open: %v", err)
 	}
-	fundingTxID, err := lnd.GetChanPointFundingTxid(fundingChanPoint)
+	fundingTxID, err := lnrpc.GetChanPointFundingTxid(fundingChanPoint)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -291,7 +291,7 @@ func assertChannelClosed(ctx context.Context, t *harnessTest,
 	fundingChanPoint *lnrpc.ChannelPoint, anchors bool,
 	closeUpdates lnrpc.Lightning_CloseChannelClient) *chainhash.Hash {
 
-	txid, err := lnd.GetChanPointFundingTxid(fundingChanPoint)
+	txid, err := lnrpc.GetChanPointFundingTxid(fundingChanPoint)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -387,7 +387,7 @@ func assertChannelClosed(ctx context.Context, t *harnessTest,
 func waitForChannelPendingForceClose(ctx context.Context,
 	node *lntest.HarnessNode, fundingChanPoint *lnrpc.ChannelPoint) error {
 
-	txid, err := lnd.GetChanPointFundingTxid(fundingChanPoint)
+	txid, err := lnrpc.GetChanPointFundingTxid(fundingChanPoint)
 	if err != nil {
 		return err
 	}
@@ -1722,7 +1722,7 @@ func testPaymentFollowingChannelOpen(net *lntest.NetworkHarness, t *harnessTest)
 
 // txStr returns the string representation of the channel's funding transaction.
 func txStr(chanPoint *lnrpc.ChannelPoint) string {
-	fundingTxID, err := lnd.GetChanPointFundingTxid(chanPoint)
+	fundingTxID, err := lnrpc.GetChanPointFundingTxid(chanPoint)
 	if err != nil {
 		return ""
 	}
@@ -3692,7 +3692,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 
 	// Compute the outpoint of the channel, which we will use repeatedly to
 	// locate the pending channel information in the rpc responses.
-	txid, err := lnd.GetChanPointFundingTxid(chanPoint)
+	txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -5171,6 +5171,308 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 
 }
 
+// testUpdateChanStatus checks that calls to the UpdateChanStatus RPC update
+// the channel graph as expected, and that channel state is properly updated
+// in the presence of interleaved node disconnects / reconnects.
+func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
+	ctxb := context.Background()
+
+	// Create two fresh nodes and open a channel between them.
+	alice, err := net.NewNode("Alice", []string{
+		"--minbackoff=10s",
+		"--chan-enable-timeout=1.5s",
+		"--chan-disable-timeout=3s",
+		"--chan-status-sample-interval=.5s",
+	})
+	if err != nil {
+		t.Fatalf("unable to create new node: %v", err)
+	}
+	defer shutdownAndAssert(net, t, alice)
+
+	bob, err := net.NewNode("Bob", []string{
+		"--minbackoff=10s",
+		"--chan-enable-timeout=1.5s",
+		"--chan-disable-timeout=3s",
+		"--chan-status-sample-interval=.5s",
+	})
+	if err != nil {
+		t.Fatalf("unable to create new node: %v", err)
+	}
+	defer shutdownAndAssert(net, t, bob)
+
+	// Connect Alice to Bob.
+	if err := net.ConnectNodes(ctxb, alice, bob); err != nil {
+		t.Fatalf("unable to connect alice to bob: %v", err)
+	}
+
+	// Give Alice some coins so she can fund a channel.
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, alice)
+	if err != nil {
+		t.Fatalf("unable to send coins to alice: %v", err)
+	}
+
+	// Open a channel with 100k satoshis between Alice and Bob with Alice
+	// being the sole funder of the channel.
+	chanAmt := btcutil.Amount(100000)
+	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
+	chanPoint := openChannelAndAssert(
+		ctxt, t, net, alice, bob,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
+	)
+
+	// Wait for Alice and Bob to receive the channel edge from the
+	// funding manager.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("alice didn't see the alice->bob channel before "+
+			"timeout: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("bob didn't see the bob->alice channel before "+
+			"timeout: %v", err)
+	}
+
+	// Launch a node for Carol which will connect to Alice and Bob in
+	// order to receive graph updates. This will ensure that the
+	// channel updates are propagated throughout the network.
+	carol, err := net.NewNode("Carol", nil)
+	if err != nil {
+		t.Fatalf("unable to create Carol's node: %v", err)
+	}
+	defer shutdownAndAssert(net, t, carol)
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	if err := net.ConnectNodes(ctxt, alice, carol); err != nil {
+		t.Fatalf("unable to connect alice to carol: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	if err := net.ConnectNodes(ctxt, bob, carol); err != nil {
+		t.Fatalf("unable to connect bob to carol: %v", err)
+	}
+
+	carolSub := subscribeGraphNotifications(t, ctxb, carol)
+	defer close(carolSub.quit)
+
+	// sendReq sends an UpdateChanStatus request to the given node.
+	sendReq := func(node *lntest.HarnessNode, chanPoint *lnrpc.ChannelPoint,
+		action routerrpc.ChanStatusAction) {
+
+		req := &routerrpc.UpdateChanStatusRequest{
+			ChanPoint: chanPoint,
+			Action:    action,
+		}
+		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		_, err = node.RouterClient.UpdateChanStatus(ctxt, req)
+		if err != nil {
+			t.Fatalf("unable to call UpdateChanStatus for %s's node: %v",
+				node.Name(), err)
+		}
+	}
+
+	// assertEdgeDisabled ensures that a given node has the correct
+	// Disabled state for a channel.
+	assertEdgeDisabled := func(node *lntest.HarnessNode,
+		chanPoint *lnrpc.ChannelPoint, disabled bool) {
+
+		var predErr error
+		err = wait.Predicate(func() bool {
+			req := &lnrpc.ChannelGraphRequest{
+				IncludeUnannounced: true,
+			}
+			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+			chanGraph, err := node.DescribeGraph(ctxt, req)
+			if err != nil {
+				predErr = fmt.Errorf("unable to query node %v's graph: %v", node, err)
+				return false
+			}
+			numEdges := len(chanGraph.Edges)
+			if numEdges != 1 {
+				predErr = fmt.Errorf("expected to find 1 edge in the graph, found %d", numEdges)
+				return false
+			}
+			edge := chanGraph.Edges[0]
+			if edge.ChanPoint != chanPoint.GetFundingTxidStr() {
+				predErr = fmt.Errorf("expected chan_point %v, got %v",
+					chanPoint.GetFundingTxidStr(), edge.ChanPoint)
+			}
+			var policy *lnrpc.RoutingPolicy
+			if node.PubKeyStr == edge.Node1Pub {
+				policy = edge.Node1Policy
+			} else {
+				policy = edge.Node2Policy
+			}
+			if disabled != policy.Disabled {
+				predErr = fmt.Errorf("expected policy.Disabled to be %v, "+
+					"but policy was %v", disabled, policy)
+				return false
+			}
+			return true
+		}, defaultTimeout)
+		if err != nil {
+			t.Fatalf("%v", predErr)
+		}
+	}
+
+	// When updating the state of the channel between Alice and Bob, we
+	// should expect to see channel updates with the default routing
+	// policy. The value of "Disabled" will depend on the specific
+	// scenario being tested.
+	expectedPolicy := &lnrpc.RoutingPolicy{
+		FeeBaseMsat:      int64(chainreg.DefaultBitcoinBaseFeeMSat),
+		FeeRateMilliMsat: int64(chainreg.DefaultBitcoinFeeRate),
+		TimeLockDelta:    chainreg.DefaultBitcoinTimeLockDelta,
+		MinHtlc:          1000, // default value
+		MaxHtlcMsat:      calculateMaxHtlc(chanAmt),
+	}
+
+	// Initially, the channel between Alice and Bob should not be
+	// disabled.
+	assertEdgeDisabled(alice, chanPoint, false)
+
+	// Manually disable the channel and ensure that a "Disabled = true"
+	// update is propagated.
+	sendReq(alice, chanPoint, routerrpc.ChanStatusAction_DISABLE)
+	expectedPolicy.Disabled = true
+	waitForChannelUpdate(
+		t, carolSub,
+		[]expectedChanUpdate{
+			{alice.PubKeyStr, expectedPolicy, chanPoint},
+		},
+	)
+
+	// Re-enable the channel and ensure that a "Disabled = false" update
+	// is propagated.
+	sendReq(alice, chanPoint, routerrpc.ChanStatusAction_ENABLE)
+	expectedPolicy.Disabled = false
+	waitForChannelUpdate(
+		t, carolSub,
+		[]expectedChanUpdate{
+			{alice.PubKeyStr, expectedPolicy, chanPoint},
+		},
+	)
+
+	// Manually enabling a channel should NOT prevent subsequent
+	// disconnections from automatically disabling the channel again
+	// (we don't want to clutter the network with channels that are
+	// falsely advertised as enabled when they don't work).
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	if err := net.DisconnectNodes(ctxt, alice, bob); err != nil {
+		t.Fatalf("unable to disconnect Alice from Bob: %v", err)
+	}
+	expectedPolicy.Disabled = true
+	waitForChannelUpdate(
+		t, carolSub,
+		[]expectedChanUpdate{
+			{alice.PubKeyStr, expectedPolicy, chanPoint},
+			{bob.PubKeyStr, expectedPolicy, chanPoint},
+		},
+	)
+
+	// Reconnecting the nodes should propagate a "Disabled = false" update.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	if err := net.EnsureConnected(ctxt, alice, bob); err != nil {
+		t.Fatalf("unable to reconnect Alice to Bob: %v", err)
+	}
+	expectedPolicy.Disabled = false
+	waitForChannelUpdate(
+		t, carolSub,
+		[]expectedChanUpdate{
+			{alice.PubKeyStr, expectedPolicy, chanPoint},
+			{bob.PubKeyStr, expectedPolicy, chanPoint},
+		},
+	)
+
+	// Manually disabling the channel should prevent a subsequent
+	// disconnect / reconnect from re-enabling the channel on
+	// Alice's end. Note the asymmetry between manual enable and
+	// manual disable!
+	sendReq(alice, chanPoint, routerrpc.ChanStatusAction_DISABLE)
+
+	// Alice sends out the "Disabled = true" update in response to
+	// the ChanStatusAction_DISABLE request.
+	expectedPolicy.Disabled = true
+	waitForChannelUpdate(
+		t, carolSub,
+		[]expectedChanUpdate{
+			{alice.PubKeyStr, expectedPolicy, chanPoint},
+		},
+	)
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	if err := net.DisconnectNodes(ctxt, alice, bob); err != nil {
+		t.Fatalf("unable to disconnect Alice from Bob: %v", err)
+	}
+
+	// Bob sends a "Disabled = true" update upon detecting the
+	// disconnect.
+	expectedPolicy.Disabled = true
+	waitForChannelUpdate(
+		t, carolSub,
+		[]expectedChanUpdate{
+			{bob.PubKeyStr, expectedPolicy, chanPoint},
+		},
+	)
+
+	// Bob sends a "Disabled = false" update upon detecting the
+	// reconnect.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	if err := net.EnsureConnected(ctxt, alice, bob); err != nil {
+		t.Fatalf("unable to reconnect Alice to Bob: %v", err)
+	}
+	expectedPolicy.Disabled = false
+	waitForChannelUpdate(
+		t, carolSub,
+		[]expectedChanUpdate{
+			{bob.PubKeyStr, expectedPolicy, chanPoint},
+		},
+	)
+
+	// However, since we manually disabled the channel on Alice's end,
+	// the policy on Alice's end should still be "Disabled = true". Again,
+	// note the asymmetry between manual enable and manual disable!
+	assertEdgeDisabled(alice, chanPoint, true)
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	if err := net.DisconnectNodes(ctxt, alice, bob); err != nil {
+		t.Fatalf("unable to disconnect Alice from Bob: %v", err)
+	}
+
+	// Bob sends a "Disabled = true" update upon detecting the
+	// disconnect.
+	expectedPolicy.Disabled = true
+	waitForChannelUpdate(
+		t, carolSub,
+		[]expectedChanUpdate{
+			{bob.PubKeyStr, expectedPolicy, chanPoint},
+		},
+	)
+
+	// After restoring automatic channel state management on Alice's end,
+	// BOTH Alice and Bob should set the channel state back to "enabled"
+	// on reconnect.
+	sendReq(alice, chanPoint, routerrpc.ChanStatusAction_AUTO)
+	if err := net.EnsureConnected(ctxt, alice, bob); err != nil {
+		t.Fatalf("unable to reconnect Alice to Bob: %v", err)
+	}
+	expectedPolicy.Disabled = false
+	waitForChannelUpdate(
+		t, carolSub,
+		[]expectedChanUpdate{
+			{alice.PubKeyStr, expectedPolicy, chanPoint},
+			{bob.PubKeyStr, expectedPolicy, chanPoint},
+		},
+	)
+	assertEdgeDisabled(alice, chanPoint, false)
+}
+
 func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
@@ -5534,7 +5836,7 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 	)
 	networkChans = append(networkChans, chanPointCarol)
 
-	carolChanTXID, err := lnd.GetChanPointFundingTxid(chanPointCarol)
+	carolChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointCarol)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -5547,7 +5849,7 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 	nodes := []*lntest.HarnessNode{carol, dave}
 	for _, chanPoint := range networkChans {
 		for _, node := range nodes {
-			txid, err := lnd.GetChanPointFundingTxid(chanPoint)
+			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
 			if err != nil {
 				t.Fatalf("unable to get txid: %v", err)
 			}
@@ -5870,7 +6172,7 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 	networkChans = append(networkChans, chanPointAlice)
 
-	aliceChanTXID, err := lnd.GetChanPointFundingTxid(chanPointAlice)
+	aliceChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointAlice)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -5905,7 +6207,7 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	)
 	networkChans = append(networkChans, chanPointBob)
-	bobChanTXID, err := lnd.GetChanPointFundingTxid(chanPointBob)
+	bobChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointBob)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -5919,7 +6221,7 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 	nodeNames := []string{"Alice", "Bob", "Carol"}
 	for _, chanPoint := range networkChans {
 		for i, node := range nodes {
-			txid, err := lnd.GetChanPointFundingTxid(chanPoint)
+			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
 			if err != nil {
 				t.Fatalf("unable to get txid: %v", err)
 			}
@@ -6302,7 +6604,7 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 	networkChans = append(networkChans, chanPointAlice)
 
-	aliceChanTXID, err := lnd.GetChanPointFundingTxid(chanPointAlice)
+	aliceChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointAlice)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -6335,7 +6637,7 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	)
 	networkChans = append(networkChans, chanPointDave)
-	daveChanTXID, err := lnd.GetChanPointFundingTxid(chanPointDave)
+	daveChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointDave)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -6370,7 +6672,7 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 	networkChans = append(networkChans, chanPointCarol)
 
-	carolChanTXID, err := lnd.GetChanPointFundingTxid(chanPointCarol)
+	carolChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointCarol)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -6385,7 +6687,7 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
 	for _, chanPoint := range networkChans {
 		for i, node := range nodes {
-			txid, err := lnd.GetChanPointFundingTxid(chanPoint)
+			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
 			if err != nil {
 				t.Fatalf("unable to get txid: %v", err)
 			}
@@ -6430,7 +6732,7 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("error while waiting for channel open: %v", err)
 	}
-	fundingTxID, err := lnd.GetChanPointFundingTxid(chanPointPrivate)
+	fundingTxID, err := lnrpc.GetChanPointFundingTxid(chanPointPrivate)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -6876,7 +7178,7 @@ func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest)
 	}
 
 	// Retrieve Alice's funding outpoint.
-	aliceChanTXID, err := lnd.GetChanPointFundingTxid(chanPointAlice)
+	aliceChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointAlice)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -6925,7 +7227,7 @@ func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest)
 	}
 
 	// Retrieve Bob's funding outpoint.
-	bobChanTXID, err := lnd.GetChanPointFundingTxid(chanPointBob)
+	bobChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointBob)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -6980,7 +7282,7 @@ func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest)
 	}
 
 	// Retrieve Carol's funding point.
-	carolChanTXID, err := lnd.GetChanPointFundingTxid(chanPointCarol)
+	carolChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointCarol)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -7651,7 +7953,7 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 			t.Fatalf("error while waiting for channel open: %v", err)
 		}
 
-		fundingTxID, err := lnd.GetChanPointFundingTxid(fundingChanPoint)
+		fundingTxID, err := lnrpc.GetChanPointFundingTxid(fundingChanPoint)
 		if err != nil {
 			t.Fatalf("unable to get txid: %v", err)
 		}
@@ -10529,11 +10831,11 @@ out:
 					"expected %v, got %v", blockHeight+1,
 					closedChan.ClosedHeight)
 			}
-			chanPointTxid, err := lnd.GetChanPointFundingTxid(chanPoint)
+			chanPointTxid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
 			if err != nil {
 				t.Fatalf("unable to get txid: %v", err)
 			}
-			closedChanTxid, err := lnd.GetChanPointFundingTxid(
+			closedChanTxid, err := lnrpc.GetChanPointFundingTxid(
 				closedChan.ChanPoint,
 			)
 			if err != nil {
@@ -11339,7 +11641,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 	networkChans = append(networkChans, chanPointAlice)
 
-	aliceChanTXID, err := lnd.GetChanPointFundingTxid(chanPointAlice)
+	aliceChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointAlice)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -11379,7 +11681,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	)
 	networkChans = append(networkChans, chanPointDave)
-	daveChanTXID, err := lnd.GetChanPointFundingTxid(chanPointDave)
+	daveChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointDave)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -11416,7 +11718,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 	networkChans = append(networkChans, chanPointCarol)
 
-	carolChanTXID, err := lnd.GetChanPointFundingTxid(chanPointCarol)
+	carolChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointCarol)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -11430,7 +11732,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
 	for _, chanPoint := range networkChans {
 		for i, node := range nodes {
-			txid, err := lnd.GetChanPointFundingTxid(chanPoint)
+			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
 			if err != nil {
 				t.Fatalf("unable to get txid: %v", err)
 			}
@@ -11659,7 +11961,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 	networkChans = append(networkChans, chanPointAlice)
 
-	aliceChanTXID, err := lnd.GetChanPointFundingTxid(chanPointAlice)
+	aliceChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointAlice)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -11699,7 +12001,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	)
 	networkChans = append(networkChans, chanPointDave)
-	daveChanTXID, err := lnd.GetChanPointFundingTxid(chanPointDave)
+	daveChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointDave)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -11736,7 +12038,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 	networkChans = append(networkChans, chanPointCarol)
 
-	carolChanTXID, err := lnd.GetChanPointFundingTxid(chanPointCarol)
+	carolChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointCarol)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -11750,7 +12052,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
 	for _, chanPoint := range networkChans {
 		for i, node := range nodes {
-			txid, err := lnd.GetChanPointFundingTxid(chanPoint)
+			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
 			if err != nil {
 				t.Fatalf("unable to get txid: %v", err)
 			}
@@ -11980,7 +12282,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	)
 	networkChans = append(networkChans, chanPointAlice)
 
-	aliceChanTXID, err := lnd.GetChanPointFundingTxid(chanPointAlice)
+	aliceChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointAlice)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -12021,7 +12323,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	)
 
 	networkChans = append(networkChans, chanPointDave)
-	daveChanTXID, err := lnd.GetChanPointFundingTxid(chanPointDave)
+	daveChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointDave)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -12058,7 +12360,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	)
 	networkChans = append(networkChans, chanPointCarol)
 
-	carolChanTXID, err := lnd.GetChanPointFundingTxid(chanPointCarol)
+	carolChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointCarol)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -12072,7 +12374,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
 	for _, chanPoint := range networkChans {
 		for i, node := range nodes {
-			txid, err := lnd.GetChanPointFundingTxid(chanPoint)
+			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
 			if err != nil {
 				t.Fatalf("unable to get txid: %v", err)
 			}
@@ -12313,7 +12615,7 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	)
 	networkChans = append(networkChans, chanPointAlice)
 
-	aliceChanTXID, err := lnd.GetChanPointFundingTxid(chanPointAlice)
+	aliceChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointAlice)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -12353,7 +12655,7 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 		},
 	)
 	networkChans = append(networkChans, chanPointDave)
-	daveChanTXID, err := lnd.GetChanPointFundingTxid(chanPointDave)
+	daveChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointDave)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -12388,7 +12690,7 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	)
 	networkChans = append(networkChans, chanPointCarol)
 
-	carolChanTXID, err := lnd.GetChanPointFundingTxid(chanPointCarol)
+	carolChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointCarol)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
@@ -12402,7 +12704,7 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
 	for _, chanPoint := range networkChans {
 		for i, node := range nodes {
-			txid, err := lnd.GetChanPointFundingTxid(chanPoint)
+			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
 			if err != nil {
 				t.Fatalf("unable to get txid: %v", err)
 			}
@@ -12643,7 +12945,7 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
 	for _, chanPoint := range networkChans {
 		for i, node := range nodes {
-			txid, err := lnd.GetChanPointFundingTxid(chanPoint)
+			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
 			if err != nil {
 				t.Fatalf("unable to get txid: %v", err)
 			}
@@ -12904,7 +13206,7 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	for _, chanPoint := range networkChans {
 		for i, node := range nodes {
-			txid, err := lnd.GetChanPointFundingTxid(chanPoint)
+			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
 			if err != nil {
 				t.Fatalf("unable to get txid: %v", err)
 			}
@@ -13345,7 +13647,7 @@ func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	chanPoint := openChannelAndAssert(
 		ctxt, t, net, net.Alice, net.Bob, channelParam,
 	)
-	txid, err := lnd.GetChanPointFundingTxid(chanPoint)
+	txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}

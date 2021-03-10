@@ -408,6 +408,25 @@
       ],
       "default": "IN_FLIGHT"
     },
+    "lnrpcChannelPoint": {
+      "type": "object",
+      "properties": {
+        "funding_txid_bytes": {
+          "type": "string",
+          "format": "byte",
+          "description": "Txid of the funding transaction. When using REST, this field must be\nencoded as base64."
+        },
+        "funding_txid_str": {
+          "type": "string",
+          "description": "Hex-encoded string representing the byte-reversed hash of the funding\ntransaction."
+        },
+        "output_index": {
+          "type": "integer",
+          "format": "int64",
+          "title": "The index of the output of the funding transaction"
+        }
+      }
+    },
     "lnrpcChannelUpdate": {
       "type": "object",
       "properties": {
@@ -883,6 +902,15 @@
           "description": "Fully specified route that can be used to execute the payment."
         }
       }
+    },
+    "routerrpcChanStatusAction": {
+      "type": "string",
+      "enum": [
+        "ENABLE",
+        "DISABLE",
+        "AUTO"
+      ],
+      "default": "ENABLE"
     },
     "routerrpcCircuitKey": {
       "type": "object",
@@ -1446,6 +1474,9 @@
       "type": "object"
     },
     "routerrpcSettleEvent": {
+      "type": "object"
+    },
+    "routerrpcUpdateChanStatusResponse": {
       "type": "object"
     },
     "runtimeError": {

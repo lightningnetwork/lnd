@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
-
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -83,6 +83,16 @@ type RouterBackend struct {
 	// InterceptableForwarder exposes the ability to intercept forward events
 	// by letting the router register a ForwardInterceptor.
 	InterceptableForwarder htlcswitch.InterceptableHtlcForwarder
+
+	// SetChannelEnabled exposes the ability to manually enable a channel.
+	SetChannelEnabled func(wire.OutPoint) error
+
+	// SetChannelDisabled exposes the ability to manually disable a channel
+	SetChannelDisabled func(wire.OutPoint) error
+
+	// SetChannelAuto exposes the ability to restore automatic channel state
+	// management after manually setting channel status.
+	SetChannelAuto func(wire.OutPoint) error
 }
 
 // MissionControl defines the mission control dependencies of routerrpc.

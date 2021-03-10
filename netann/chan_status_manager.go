@@ -29,6 +29,12 @@ var (
 	// the time of the request.
 	ErrEnableInactiveChan = errors.New("unable to enable channel which " +
 		"is not currently active")
+
+	// ErrEnableManuallyDisabledChan signals that an automatic / background
+	// request to enable a channel could not be completed because the channel
+	// was manually disabled.
+	ErrEnableManuallyDisabledChan = errors.New("unable to enable channel " +
+		"which was manually disabled")
 )
 
 // ChanStatusConfig holds parameters and resources required by the
@@ -105,6 +111,10 @@ type ChanStatusManager struct {
 	// primary event loop.
 	disableRequests chan statusRequest
 
+	// autoRequests pipes external requests to restore automatic channel
+	// state management into the primary event loop.
+	autoRequests chan statusRequest
+
 	// statusSampleTicker fires at the interval prescribed by
 	// ChanStatusSampleInterval to check if channels in chanStates have
 	// become inactive.
@@ -148,6 +158,7 @@ func NewChanStatusManager(cfg *ChanStatusConfig) (*ChanStatusManager, error) {
 		statusSampleTicker: time.NewTicker(cfg.ChanStatusSampleInterval),
 		enableRequests:     make(chan statusRequest),
 		disableRequests:    make(chan statusRequest),
+		autoRequests:       make(chan statusRequest),
 		quit:               make(chan struct{}),
 	}, nil
 }
@@ -219,20 +230,49 @@ func (m *ChanStatusManager) Stop() error {
 // channel is found to be disabled, a new announcement will be signed with the
 // disabled bit cleared and broadcast to the network.
 //
+// If the channel was manually disabled and RequestEnable is called with
+// manual = false, then the request will be ignored.
+//
 // NOTE: RequestEnable should only be called after a stable connection with the
 // channel's peer has lasted at least the ChanEnableTimeout. Failure to do so
 // may result in behavior that deviates from the expected behavior of the state
 // machine.
-func (m *ChanStatusManager) RequestEnable(outpoint wire.OutPoint) error {
-	return m.submitRequest(m.enableRequests, outpoint)
+func (m *ChanStatusManager) RequestEnable(outpoint wire.OutPoint,
+	manual bool) error {
+
+	return m.submitRequest(m.enableRequests, outpoint, manual)
 }
 
 // RequestDisable submits a request to immediately disable a channel identified
 // by the provided outpoint. If the channel is already disabled, no action will
 // be taken. Otherwise, a new announcement will be signed with the disabled bit
 // set and broadcast to the network.
-func (m *ChanStatusManager) RequestDisable(outpoint wire.OutPoint) error {
-	return m.submitRequest(m.disableRequests, outpoint)
+//
+// The channel state will be changed to either ChanStatusDisabled or
+// ChanStatusManuallyDisabled, depending on the passed-in value of manual. In
+// particular, note the following state transitions:
+//
+//     current state    | manual | new state
+//     ---------------------------------------------------
+//     Disabled         | false  | Disabled
+//     ManuallyDisabled | false  | ManuallyDisabled (*)
+//     Disabled         | true   | ManuallyDisabled
+//     ManuallyDisabled | true   | ManuallyDisabled
+//
+// (*) If a channel was manually disabled, subsequent automatic / background
+//     requests to disable the channel do not change the fact that the channel
+//     was manually disabled.
+func (m *ChanStatusManager) RequestDisable(outpoint wire.OutPoint,
+	manual bool) error {
+
+	return m.submitRequest(m.disableRequests, outpoint, manual)
+}
+
+// RequestAuto submits a request to restore automatic channel state management.
+// If the channel is in the state ChanStatusManuallyDisabled, it will be moved
+// back to the state ChanStatusDisabled. Otherwise, no action will be taken.
+func (m *ChanStatusManager) RequestAuto(outpoint wire.OutPoint) error {
+	return m.submitRequest(m.autoRequests, outpoint, true)
 }
 
 // statusRequest is passed to the statusManager to request a change in status
@@ -240,6 +280,7 @@ func (m *ChanStatusManager) RequestDisable(outpoint wire.OutPoint) error {
 // request through one of the enableRequests or disableRequests channels.
 type statusRequest struct {
 	outpoint wire.OutPoint
+	manual   bool
 	errChan  chan error
 }
 
@@ -248,10 +289,11 @@ type statusRequest struct {
 // reqChan passed in, which can be either of the enableRequests or
 // disableRequests channels.
 func (m *ChanStatusManager) submitRequest(reqChan chan statusRequest,
-	outpoint wire.OutPoint) error {
+	outpoint wire.OutPoint, manual bool) error {
 
 	req := statusRequest{
 		outpoint: outpoint,
+		manual:   manual,
 		errChan:  make(chan error, 1),
 	}
 
@@ -285,11 +327,15 @@ func (m *ChanStatusManager) statusManager() {
 
 		// Process any requests to mark channel as enabled.
 		case req := <-m.enableRequests:
-			req.errChan <- m.processEnableRequest(req.outpoint)
+			req.errChan <- m.processEnableRequest(req.outpoint, req.manual)
 
 		// Process any requests to mark channel as disabled.
 		case req := <-m.disableRequests:
-			req.errChan <- m.processDisableRequest(req.outpoint)
+			req.errChan <- m.processDisableRequest(req.outpoint, req.manual)
+
+		// Process any requests to restore automatic channel state management.
+		case req := <-m.autoRequests:
+			req.errChan <- m.processAutoRequest(req.outpoint)
 
 		// Use long-polling to detect when channels become inactive.
 		case <-m.statusSampleTicker.C:
@@ -311,13 +357,21 @@ func (m *ChanStatusManager) statusManager() {
 	}
 }
 
-// processEnableRequest attempts to enable the given outpoint. If the method
-// returns nil, the status of the channel in chanStates will be
-// ChanStatusEnabled. If the channel is not active at the time of the request,
-// ErrEnableInactiveChan will be returned. An update will be broadcast only if
-// the channel is currently disabled, otherwise no update will be sent on the
-// network.
-func (m *ChanStatusManager) processEnableRequest(outpoint wire.OutPoint) error {
+// processEnableRequest attempts to enable the given outpoint.
+//
+// * If the channel is not active at the time of the request,
+//   ErrEnableInactiveChan will be returned.
+// * If the channel was in the ManuallyDisabled state and manual = false,
+//   the request will be ignored and ErrEnableManuallyDisabledChan will be
+//   returned.
+// * Otherwise, the status of the channel in chanStates will be
+//   ChanStatusEnabled and the method will return nil.
+//
+// An update will be broadcast only if the channel is currently disabled,
+// otherwise no update will be sent on the network.
+func (m *ChanStatusManager) processEnableRequest(outpoint wire.OutPoint,
+	manual bool) error {
+
 	curState, err := m.getOrInitChanStatus(outpoint)
 	if err != nil {
 		return err
@@ -343,6 +397,12 @@ func (m *ChanStatusManager) processEnableRequest(outpoint wire.OutPoint) error {
 			"disable", outpoint)
 
 	// We'll sign a new update if the channel is still disabled.
+	case ChanStatusManuallyDisabled:
+		if !manual {
+			return ErrEnableManuallyDisabledChan
+		}
+		fallthrough
+
 	case ChanStatusDisabled:
 		log.Infof("Announcing channel(%v) enabled", outpoint)
 
@@ -358,25 +418,22 @@ func (m *ChanStatusManager) processEnableRequest(outpoint wire.OutPoint) error {
 }
 
 // processDisableRequest attempts to disable the given outpoint. If the method
-// returns nil, the status of the channel in chanStates will be
-// ChanStatusDisabled. An update will only be sent if the channel has a status
-// other than ChanStatusEnabled, otherwise no update will be sent on the
-// network.
-func (m *ChanStatusManager) processDisableRequest(outpoint wire.OutPoint) error {
+// returns nil, the status of the channel in chanStates will be either
+// ChanStatusDisabled or ChanStatusManuallyDisabled, depending on the
+// passed-in value of manual.
+//
+// An update will only be sent if the channel has a status other than
+// ChanStatusEnabled, otherwise no update will be sent on the network.
+func (m *ChanStatusManager) processDisableRequest(outpoint wire.OutPoint,
+	manual bool) error {
+
 	curState, err := m.getOrInitChanStatus(outpoint)
 	if err != nil {
 		return err
 	}
 
-	switch curState.Status {
-
-	// Channel is already disabled, nothing to do.
-	case ChanStatusDisabled:
-		return nil
-
-	// We'll sign a new update disabling the channel if the current status
-	// is enabled or pending-inactive.
-	case ChanStatusEnabled, ChanStatusPendingDisabled:
+	status := curState.Status
+	if status == ChanStatusEnabled || status == ChanStatusPendingDisabled {
 		log.Infof("Announcing channel(%v) disabled [requested]",
 			outpoint)
 
@@ -386,14 +443,41 @@ func (m *ChanStatusManager) processDisableRequest(outpoint wire.OutPoint) error 
 		}
 	}
 
-	// If the disable was requested via the manager's public interface, we
-	// will remove the output from our map of channel states. Typically this
-	// signals that the channel is being closed, so this frees up the space
-	// in the map. If for some reason the channel isn't closed, the state
-	// will be repopulated on subsequent calls to RequestEnable or
-	// RequestDisable via a db lookup, or on startup.
-	delete(m.chanStates, outpoint)
+	// Typically, a request to disable a channel via the manager's public
+	// interface signals that the channel is being closed.
+	//
+	// If we don't need to keep track of a manual request to disable the
+	// channel, then we can remove the outpoint to free up space in the map
+	// of channel states. If for some reason the channel isn't closed, the
+	// state will be repopulated on subsequent calls to the manager's public
+	// interface via a db lookup, or on startup.
+	if manual {
+		m.chanStates.markManuallyDisabled(outpoint)
+	} else if status != ChanStatusManuallyDisabled {
+		delete(m.chanStates, outpoint)
+	}
 
+	return nil
+}
+
+// processAutoRequest attempts to restore automatic channel state management
+// for the given outpoint. If the method returns nil, the state of the channel
+// will no longer be ChanStatusManuallyDisabled (currently the only state in
+// which automatic / background requests are ignored).
+//
+// No update will be sent on the network.
+func (m *ChanStatusManager) processAutoRequest(outpoint wire.OutPoint) error {
+	curState, err := m.getOrInitChanStatus(outpoint)
+	if err != nil {
+		return err
+	}
+
+	if curState.Status == ChanStatusManuallyDisabled {
+		log.Debugf("Restoring automatic control for manually disabled "+
+			"channel(%v)", outpoint)
+
+		m.chanStates.markDisabled(outpoint)
+	}
 	return nil
 }
 

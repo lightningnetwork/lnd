@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sort"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
@@ -87,4 +88,27 @@ func ExtractMinConfs(minConfs int32, spendUnconfirmed bool) (int32, error) {
 	default:
 		return minConfs, nil
 	}
+}
+
+// GetChanPointFundingTxid returns the given channel point's funding txid in
+// raw bytes.
+func GetChanPointFundingTxid(chanPoint *ChannelPoint) (*chainhash.Hash, error) {
+	var txid []byte
+
+	// A channel point's funding txid can be get/set as a byte slice or a
+	// string. In the case it is a string, decode it.
+	switch chanPoint.GetFundingTxid().(type) {
+	case *ChannelPoint_FundingTxidBytes:
+		txid = chanPoint.GetFundingTxidBytes()
+	case *ChannelPoint_FundingTxidStr:
+		s := chanPoint.GetFundingTxidStr()
+		h, err := chainhash.NewHashFromStr(s)
+		if err != nil {
+			return nil, err
+		}
+
+		txid = h[:]
+	}
+
+	return chainhash.NewHash(txid)
 }

@@ -76,6 +76,7 @@
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: router shutting down
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: unable add proof to the channel chanID=<hex>: edge marked as zombie
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: unable add proof to the channel chanID=<hex>: edge not found
+<time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: unable to register for confirmation of ChannelPoint(<chan_point>): chain notifier shutting down
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): failed adding to router graph: error sending channel announcement: gossiper is shutting down
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): failed adding to router graph: error sending channel announcement: router shutting down
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): failed adding to router graph: funding manager shutting down

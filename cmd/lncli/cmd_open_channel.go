@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/ioutil"
+	"os"
 	"strconv"
 	"strings"
 
@@ -39,14 +41,23 @@ DO NOT PUBLISH the finished transaction by yourself or with another tool.
 lnd MUST publish it in the proper funding flow order OR THE FUNDS CAN BE LOST!
 
 Paste the funded PSBT here to continue the funding flow.
-Base64 encoded PSBT: `
+If your PSBT is very long (specifically, more than 4096 characters), please save
+it to a file and paste the full file path here instead as some terminals will
+truncate the pasted text if it's too long.
+Base64 encoded PSBT (or path to text file): `
 
 	userMsgSign = `
 PSBT verified by lnd, please continue the funding flow by signing the PSBT by
 all required parties/devices. Once the transaction is fully signed, paste it
 again here either in base64 PSBT or hex encoded raw wire TX format.
 
-Signed base64 encoded PSBT or hex encoded raw wire TX: `
+Signed base64 encoded PSBT or hex encoded raw wire TX (or path to text file): `
+
+	// psbtMaxFileSize is the maximum file size we allow a PSBT file to be
+	// in case we want to read a PSBT from a file. This is mainly to protect
+	// the user from choosing a large file by accident and running into out
+	// of memory issues or other weird errors.
+	psbtMaxFileSize = 1024 * 1024
 )
 
 // TODO(roasbeef): change default number of confirmations
@@ -506,13 +517,13 @@ func openChannelPsbt(ctx *cli.Context, client lnrpc.LightningClient,
 			// Read the user's response and send it to the server to
 			// verify everything's correct before anything is
 			// signed.
-			psbtBase64, err := readLine(quit)
+			psbtBase64, err := readTerminalOrFile(quit)
 			if err == io.EOF {
 				return nil
 			}
 			if err != nil {
-				return fmt.Errorf("reading from console "+
-					"failed: %v", err)
+				return fmt.Errorf("reading from terminal or "+
+					"file failed: %v", err)
 			}
 			fundedPsbt, err := base64.StdEncoding.DecodeString(
 				strings.TrimSpace(psbtBase64),
@@ -540,13 +551,13 @@ func openChannelPsbt(ctx *cli.Context, client lnrpc.LightningClient,
 			fmt.Print(userMsgSign)
 
 			// Read the signed PSBT and send it to lnd.
-			finalTxStr, err := readLine(quit)
+			finalTxStr, err := readTerminalOrFile(quit)
 			if err == io.EOF {
 				return nil
 			}
 			if err != nil {
-				return fmt.Errorf("reading from console "+
-					"failed: %v", err)
+				return fmt.Errorf("reading from terminal or "+
+					"file failed: %v", err)
 			}
 			finalizeMsg, err := finalizeMsgFromString(
 				finalTxStr, pendingChanID[:],
@@ -633,6 +644,60 @@ func printChanPending(update *lnrpc.OpenStatusUpdate_ChanPending) error {
 		FundingTxid: txid.String(),
 	})
 	return nil
+}
+
+// readTerminalOrFile reads a single line from the terminal. If the line read is
+// short enough to be a file and a file with that exact name exists, the content
+// of that file is read and returned as a string. If the content is longer or no
+// file exists, the string read from the terminal is returned directly. This
+// function can be used to circumvent the N_TTY_BUF_SIZE kernel parameter that
+// prevents pasting more than 4096 characters (on most systems) into a terminal.
+func readTerminalOrFile(quit chan struct{}) (string, error) {
+	maybeFile, err := readLine(quit)
+	if err != nil {
+		return "", err
+	}
+
+	// Absolute file paths normally can't be longer than 255 characters so
+	// we don't even check if it's a file in that case.
+	if len(maybeFile) > 255 {
+		return maybeFile, nil
+	}
+
+	// It might be a file since the length is small enough. Calling os.Stat
+	// should be safe with any arbitrary input as it will only query info
+	// about the file, not open or execute it directly.
+	stat, err := os.Stat(maybeFile)
+
+	// The file doesn't exist, we must assume this wasn't a file path after
+	// all.
+	if err != nil && os.IsNotExist(err) {
+		return maybeFile, nil
+	}
+
+	// Some other error, perhaps access denied or something similar, let's
+	// surface that to the user.
+	if err != nil {
+		return "", err
+	}
+
+	// Make sure we don't read a huge file by accident which might lead to
+	// undesired side effects. Even very large PSBTs should still only be a
+	// few hundred kilobytes so it makes sense to put a cap here.
+	if stat.Size() > psbtMaxFileSize {
+		return "", fmt.Errorf("error reading file %s: size of %d "+
+			"bytes exceeds max PSBT file size of %d", maybeFile,
+			stat.Size(), psbtMaxFileSize)
+	}
+
+	// If it's a path to an existing file and it's small enough, let's try
+	// to read its content now.
+	content, err := ioutil.ReadFile(maybeFile)
+	if err != nil {
+		return "", err
+	}
+
+	return string(content), nil
 }
 
 // readLine reads a line from standard in but does not block in case of a

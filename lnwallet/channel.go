@@ -3022,7 +3022,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 			Hash:  txHash,
 			Index: uint32(htlc.remoteOutputIndex),
 		}
-		sigJob.Tx, err = createHtlcTimeoutTx(
+		sigJob.Tx, err = CreateHtlcTimeoutTx(
 			chanType, op, outputAmt, htlc.Timeout,
 			uint32(remoteChanCfg.CsvDelay),
 			keyRing.RevocationKey, keyRing.ToLocalKey,
@@ -3075,7 +3075,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 			Hash:  txHash,
 			Index: uint32(htlc.remoteOutputIndex),
 		}
-		sigJob.Tx, err = createHtlcSuccessTx(
+		sigJob.Tx, err = CreateHtlcSuccessTx(
 			chanType, op, outputAmt, uint32(remoteChanCfg.CsvDelay),
 			keyRing.RevocationKey, keyRing.ToLocalKey,
 		)
@@ -4119,7 +4119,7 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 				htlcFee := HtlcSuccessFee(chanType, feePerKw)
 				outputAmt := htlc.Amount.ToSatoshis() - htlcFee
 
-				successTx, err := createHtlcSuccessTx(
+				successTx, err := CreateHtlcSuccessTx(
 					chanType, op, outputAmt,
 					uint32(localChanCfg.CsvDelay),
 					keyRing.RevocationKey, keyRing.ToLocalKey,
@@ -4173,7 +4173,7 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 				htlcFee := HtlcTimeoutFee(chanType, feePerKw)
 				outputAmt := htlc.Amount.ToSatoshis() - htlcFee
 
-				timeoutTx, err := createHtlcTimeoutTx(
+				timeoutTx, err := CreateHtlcTimeoutTx(
 					chanType, op, outputAmt, htlc.Timeout,
 					uint32(localChanCfg.CsvDelay),
 					keyRing.RevocationKey, keyRing.ToLocalKey,
@@ -5689,7 +5689,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 
 	// With the fee calculated, re-construct the second level timeout
 	// transaction.
-	timeoutTx, err := createHtlcTimeoutTx(
+	timeoutTx, err := CreateHtlcTimeoutTx(
 		chanType, op, secondLevelOutputAmt, htlc.RefundTimeout,
 		csvDelay, keyRing.RevocationKey, keyRing.ToLocalKey,
 	)
@@ -5827,7 +5827,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 	// taking into account the fee rate used.
 	htlcFee := HtlcSuccessFee(chanType, feePerKw)
 	secondLevelOutputAmt := htlc.Amt.ToSatoshis() - htlcFee
-	successTx, err := createHtlcSuccessTx(
+	successTx, err := CreateHtlcSuccessTx(
 		chanType, op, secondLevelOutputAmt, csvDelay,
 		keyRing.RevocationKey, keyRing.ToLocalKey,
 	)

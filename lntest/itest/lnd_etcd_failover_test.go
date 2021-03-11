@@ -5,6 +5,7 @@ package itest
 import (
 	"context"
 	"io/ioutil"
+	"testing"
 	"time"
 
 	"github.com/btcsuite/btcutil"
@@ -29,7 +30,41 @@ func assertLeader(ht *harnessTest, observer cluster.LeaderElector,
 	}
 }
 
+// testEtcdFailover tests that in a cluster setup where two LND nodes form a
+// single cluster (sharing the same identity) one can hand over the leader role
+// to the other (failing over after graceful shutdown or forceful abort).
 func testEtcdFailover(net *lntest.NetworkHarness, ht *harnessTest) {
+	testCases := []struct {
+		name string
+		kill bool
+	}{{
+		name: "failover after shutdown",
+		kill: false,
+	}, {
+		name: "failover after abort",
+		kill: true,
+	}}
+
+	for _, test := range testCases {
+		test := test
+
+		ht.t.Run(test.name, func(t1 *testing.T) {
+			ht1 := newHarnessTest(t1, ht.lndHarness)
+			ht1.RunTestCase(&testCase{
+				name: test.name,
+				test: func(_ *lntest.NetworkHarness,
+					tt *harnessTest) {
+
+					testEtcdFailoverCase(net, tt, test.kill)
+				},
+			})
+		})
+	}
+}
+
+func testEtcdFailoverCase(net *lntest.NetworkHarness, ht *harnessTest,
+	kill bool) {
+
 	ctxb := context.Background()
 
 	tmpDir, err := ioutil.TempDir("", "etcd")
@@ -104,9 +139,22 @@ func testEtcdFailover(net *lntest.NetworkHarness, ht *harnessTest) {
 		FeeLimitSat:    noFeeLimitMsat,
 	})
 
-	// Shut down Carol-1 and wait for Carol-2 to become the leader.
-	shutdownAndAssert(net, ht, carol1)
-	err = carol2.WaitUntilLeader(30 * time.Second)
+	// Shut down or kill Carol-1 and wait for Carol-2 to become the leader.
+	var failoverTimeout time.Duration
+	if kill {
+		err = net.KillNode(carol1)
+		if err != nil {
+			ht.Fatalf("Can't kill Carol-1: %v", err)
+		}
+
+		failoverTimeout = 2 * time.Minute
+
+	} else {
+		shutdownAndAssert(net, ht, carol1)
+		failoverTimeout = 30 * time.Second
+	}
+
+	err = carol2.WaitUntilLeader(failoverTimeout)
 	if err != nil {
 		ht.Fatalf("Waiting for Carol-2 to become the leader failed: %v",
 			err)

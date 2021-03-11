@@ -1147,6 +1147,11 @@ func (hn *HarnessNode) shutdown() error {
 	return nil
 }
 
+// kill kills the lnd process
+func (hn *HarnessNode) kill() error {
+	return hn.cmd.Process.Kill()
+}
+
 // closeChanWatchRequest is a request to the lightningNetworkWatcher to be
 // notified once it's detected within the test Lightning Network, that a
 // channel has either been added or closed.

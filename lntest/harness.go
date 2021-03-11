@@ -788,6 +788,11 @@ func (n *NetworkHarness) ShutdownNode(node *HarnessNode) error {
 	return nil
 }
 
+// KillNode kills the node (but won't wait for the node process to stop).
+func (n *NetworkHarness) KillNode(node *HarnessNode) error {
+	return node.kill()
+}
+
 // StopNode stops the target node, but doesn't yet clean up its directories.
 // This can be used to temporarily bring a node down during a test, to be later
 // started up again.

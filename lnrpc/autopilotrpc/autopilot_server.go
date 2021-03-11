@@ -51,6 +51,13 @@ var (
 	}
 )
 
+// ServerShell is a shell struct holding a reference to the actual sub-server.
+// It is used to register the gRPC sub-server with the root server before we
+// have the necessary dependencies to populate the actual sub-server.
+type ServerShell struct {
+	AutopilotServer
+}
+
 // Server is a sub-server of the main RPC server: the autopilot RPC. This sub
 // RPC server allows external callers to access the status of the autopilot
 // currently active within lnd, as well as configuring it at runtime.
@@ -118,11 +125,11 @@ func (s *Server) Name() string {
 // is called, each sub-server won't be able to have
 // requests routed towards it.
 //
-// NOTE: This is part of the lnrpc.SubServer interface.
-func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
+// NOTE: This is part of the lnrpc.GrpcHandler interface.
+func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// We make sure that we register it with the main gRPC server to ensure
 	// all our methods are routed properly.
-	RegisterAutopilotServer(grpcServer, s)
+	RegisterAutopilotServer(grpcServer, r)
 
 	log.Debugf("Autopilot RPC server successfully register with root " +
 		"gRPC server")
@@ -134,8 +141,8 @@ func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
 // RPC server to register itself with the main REST mux server. Until this is
 // called, each sub-server won't be able to have requests routed towards it.
 //
-// NOTE: This is part of the lnrpc.SubServer interface.
-func (s *Server) RegisterWithRestServer(ctx context.Context,
+// NOTE: This is part of the lnrpc.GrpcHandler interface.
+func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 	mux *runtime.ServeMux, dest string, opts []grpc.DialOption) error {
 
 	// We make sure that we register it with the main REST server to ensure
@@ -150,6 +157,25 @@ func (s *Server) RegisterWithRestServer(ctx context.Context,
 	log.Debugf("Autopilot REST server successfully registered with " +
 		"root REST server")
 	return nil
+}
+
+// CreateSubServer populates the subserver's dependencies using the passed
+// SubServerConfigDispatcher. This method should fully initialize the
+// sub-server instance, making it ready for action. It returns the macaroon
+// permissions that the sub-server wishes to pass on to the root server for all
+// methods routed towards it.
+//
+// NOTE: This is part of the lnrpc.GrpcHandler interface.
+func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
+	lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
+
+	subServer, macPermissions, err := createNewSubServer(configRegistry)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	r.AutopilotServer = subServer
+	return subServer, macPermissions, nil
 }
 
 // Status returns the current status of the autopilot agent.

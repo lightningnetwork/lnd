@@ -32,7 +32,14 @@ type SubServer interface {
 	// Name returns a unique string representation of the sub-server. This
 	// can be used to identify the sub-server and also de-duplicate them.
 	Name() string
+}
 
+// GrpcHandler is the interface that should be registered with the root gRPC
+// server, and is the interface that implements the subserver's defined RPC.
+// Before the actual sub server has been created, this will be an empty shell
+// allowing us to start the gRPC server before we have all the dependencies
+// needed to create the subserver itself.
+type GrpcHandler interface {
 	// RegisterWithRootServer will be called by the root gRPC server to
 	// direct a sub RPC server to register itself with the main gRPC root
 	// server. Until this is called, each sub-server won't be able to have
@@ -45,6 +52,14 @@ type SubServer interface {
 	// routed towards it.
 	RegisterWithRestServer(context.Context, *runtime.ServeMux, string,
 		[]grpc.DialOption) error
+
+	// CreateSubServer populates the subserver's dependencies using the
+	// passed SubServerConfigDispatcher. This method should fully
+	// initialize the sub-server instance, making it ready for action. It
+	// returns the macaroon permissions that the sub-server wishes to pass
+	// on to the root server for all methods routed towards it.
+	CreateSubServer(subCfgs SubServerConfigDispatcher) (SubServer,
+		MacaroonPerms, error)
 }
 
 // SubServerConfigDispatcher is an interface that all sub-servers will use to
@@ -60,22 +75,18 @@ type SubServerConfigDispatcher interface {
 }
 
 // SubServerDriver is a template struct that allows the root server to create a
-// sub-server with minimal knowledge. The root server only need a fully
-// populated SubServerConfigDispatcher and with the aide of the
-// RegisterSubServers method, it's able to create and initialize all
-// sub-servers.
+// sub-server gRPC handler with minimal knowledge.
 type SubServerDriver struct {
 	// SubServerName is the full name of a sub-sever.
 	//
 	// NOTE: This MUST be unique.
 	SubServerName string
 
-	// New creates, and fully initializes a new sub-server instance with
-	// the aide of the SubServerConfigDispatcher. This closure should
-	// return the SubServer, ready for action, along with the set of
-	// macaroon permissions that the sub-server wishes to pass on to the
-	// root server for all methods routed towards it.
-	New func(subCfgs SubServerConfigDispatcher) (SubServer, MacaroonPerms, error)
+	// NewGrpcHandler creates a a new sub-server gRPC interface that can be
+	// registered with the root gRPC server. It is not expected that the
+	// SubServer is ready for operation before its CreateSubServer and
+	// Start methods have been called.
+	NewGrpcHandler func() GrpcHandler
 }
 
 var (

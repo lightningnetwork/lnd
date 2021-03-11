@@ -300,8 +300,12 @@ func (n *NetworkHarness) NewNodeWithSeed(name string, extraArgs []string,
 
 	ctxt, cancel := context.WithTimeout(ctxb, DefaultTimeout)
 	defer cancel()
-	genSeedResp, err := node.GenSeed(ctxt, genSeedReq)
-	if err != nil {
+
+	var genSeedResp *lnrpc.GenSeedResponse
+	if err := wait.NoError(func() error {
+		genSeedResp, err = node.GenSeed(ctxt, genSeedReq)
+		return err
+	}, DefaultTimeout); err != nil {
 		return nil, nil, nil, err
 	}
 

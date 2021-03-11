@@ -43,6 +43,12 @@ const (
 	// if a channel should be pruned or not.
 	DefaultChannelPruneExpiry = time.Duration(time.Hour * 24 * 14)
 
+	// DefaultFirstTimePruneDelay is the time we'll wait after startup
+	// before attempting to prune the graph for zombie channels. We don't
+	// do it immediately after startup to allow lnd to start up without
+	// getting blocked by this job.
+	DefaultFirstTimePruneDelay = 30 * time.Second
+
 	// defaultStatInterval governs how often the router will log non-empty
 	// stats related to processing new channels, updates, or node
 	// announcements.
@@ -306,6 +312,12 @@ type Config struct {
 	// should examine the channel graph to garbage collect zombie channels.
 	GraphPruneInterval time.Duration
 
+	// FirstTimePruneDelay is the time we'll wait after startup before
+	// attempting to prune the graph for zombie channels. We don't do it
+	// immediately after startup to allow lnd to start up without getting
+	// blocked by this job.
+	FirstTimePruneDelay time.Duration
+
 	// QueryBandwidth is a method that allows the router to query the lower
 	// link layer to determine the up to date available bandwidth at a
 	// prospective link to be traversed. If the  link isn't available, then
@@ -485,11 +497,21 @@ func (r *ChannelRouter) Start() error {
 
 	// If AssumeChannelValid is present, then we won't rely on pruning
 	// channels from the graph based on their spentness, but whether they
-	// are considered zombies or not.
+	// are considered zombies or not. We will start zombie pruning after a
+	// small delay, to avoid slowing down startup of lnd.
 	if r.cfg.AssumeChannelValid {
-		if err := r.pruneZombieChans(); err != nil {
-			return err
-		}
+		time.AfterFunc(r.cfg.FirstTimePruneDelay, func() {
+			select {
+			case <-r.quit:
+				return
+			default:
+			}
+
+			log.Info("Initial zombie prune starting")
+			if err := r.pruneZombieChans(); err != nil {
+				log.Errorf("Unable to prune zombies: %v", err)
+			}
+		})
 	} else {
 		// Otherwise, we'll use our filtered chain view to prune
 		// channels as soon as they are detected as spent on-chain.

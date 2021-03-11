@@ -409,11 +409,12 @@ message PendingSweep {
     uint32 amount_sat = 3;
 
     /*
+    Deprecated, use sat_per_vbyte.
     The fee rate we'll use to sweep the output, expressed in sat/vbyte. The fee
     rate is only determined once a sweeping transaction for the output is
     created, so it's possible for this to be 0 before this.
     */
-    uint32 sat_per_byte = 4;
+    uint32 sat_per_byte = 4 [deprecated = true];
 
     // The number of broadcast attempts we've made to sweep the output.
     uint32 broadcast_attempts = 5;
@@ -427,8 +428,19 @@ message PendingSweep {
     // The requested confirmation target for this output.
     uint32 requested_conf_target = 8;
 
+    // Deprecated, use requested_sat_per_vbyte.
     // The requested fee rate, expressed in sat/vbyte, for this output.
-    uint32 requested_sat_per_byte = 9;
+    uint32 requested_sat_per_byte = 9 [deprecated = true];
+
+    /*
+    The fee rate we'll use to sweep the output, expressed in sat/vbyte. The fee
+    rate is only determined once a sweeping transaction for the output is
+    created, so it's possible for this to be 0 before this.
+    */
+    uint64 sat_per_vbyte = 10;
+
+    // The requested fee rate, expressed in sat/vbyte, for this output.
+    uint64 requested_sat_per_vbyte = 11;
 
     /*
     Whether this input must be force-swept. This means that it is swept even
@@ -455,16 +467,23 @@ message BumpFeeRequest {
     uint32 target_conf = 2;
 
     /*
+    Deprecated, use sat_per_vbyte.
     The fee rate, expressed in sat/vbyte, that should be used to spend the input
     with.
     */
-    uint32 sat_per_byte = 3;
+    uint32 sat_per_byte = 3 [deprecated = true];
 
     /*
     Whether this input must be force-swept. This means that it is swept even
     if it has a negative yield.
     */
     bool force = 4;
+
+    /*
+    The fee rate, expressed in sat/vbyte, that should be used to spend the input
+    with.
+    */
+    uint64 sat_per_vbyte = 5;
 }
 
 message BumpFeeResponse {
@@ -539,7 +558,7 @@ message FundPsbtRequest {
         The fee rate, expressed in sat/vbyte, that should be used to spend the
         input with.
         */
-        uint32 sat_per_vbyte = 4;
+        uint64 sat_per_vbyte = 4;
     }
 }
 message FundPsbtResponse {

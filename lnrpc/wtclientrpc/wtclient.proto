@@ -87,10 +87,17 @@ message TowerSession {
     uint32 max_backups = 3;
 
     /*
+    Deprecated, use sweep_sat_per_vbyte.
     The fee rate, in satoshis per vbyte, that will be used by the watchtower for
     the justice transaction in the event of a channel breach.
     */
-    uint32 sweep_sat_per_byte = 4;
+    uint32 sweep_sat_per_byte = 4 [deprecated = true];
+
+    /*
+    The fee rate, in satoshis per vbyte, that will be used by the watchtower for
+    the justice transaction in the event of a channel breach.
+    */
+    uint32 sweep_sat_per_vbyte = 5;
 }
 
 message Tower {
@@ -172,8 +179,15 @@ message PolicyResponse {
     uint32 max_updates = 1;
 
     /*
+    Deprecated, use sweep_sat_per_vbyte.
     The fee rate, in satoshis per vbyte, that will be used by watchtowers for
     justice transactions in response to channel breaches.
     */
-    uint32 sweep_sat_per_byte = 2;
+    uint32 sweep_sat_per_byte = 2 [deprecated = true];
+
+    /*
+    The fee rate, in satoshis per vbyte, that will be used by watchtowers for
+    justice transactions in response to channel breaches.
+    */
+    uint32 sweep_sat_per_vbyte = 3;
 }

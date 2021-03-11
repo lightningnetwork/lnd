@@ -97,8 +97,10 @@ func testCPFP(net *lntest.NetworkHarness, t *harnessTest) {
 	// We'll attempt to bump the fee of this transaction by performing a
 	// CPFP from Alice's point of view.
 	bumpFeeReq := &walletrpc.BumpFeeRequest{
-		Outpoint:   op,
-		SatPerByte: uint32(sweep.DefaultMaxFeeRate.FeePerKVByte() / 2000),
+		Outpoint: op,
+		SatPerVbyte: uint64(
+			sweep.DefaultMaxFeeRate.FeePerKVByte() / 2000,
+		),
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	_, err = net.Bob.WalletKitClient.BumpFee(ctxt, bumpFeeReq)
@@ -136,9 +138,9 @@ func testCPFP(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("expected output index %v, got %v", op.OutputIndex,
 			pendingSweep.Outpoint.OutputIndex)
 	}
-	if pendingSweep.SatPerByte != bumpFeeReq.SatPerByte {
-		t.Fatalf("expected sweep sat per byte %v, got %v",
-			bumpFeeReq.SatPerByte, pendingSweep.SatPerByte)
+	if pendingSweep.SatPerVbyte != bumpFeeReq.SatPerVbyte {
+		t.Fatalf("expected sweep sat per vbyte %v, got %v",
+			bumpFeeReq.SatPerVbyte, pendingSweep.SatPerVbyte)
 	}
 
 	// Mine a block to clean up the unconfirmed transactions.

@@ -668,23 +668,23 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 			OutputIndex: pendingInput.OutPoint.Index,
 		}
 		amountSat := uint32(pendingInput.Amount)
-		satPerByte := uint32(pendingInput.LastFeeRate.FeePerKVByte() / 1000)
+		satPerVbyte := uint64(pendingInput.LastFeeRate.FeePerKVByte() / 1000)
 		broadcastAttempts := uint32(pendingInput.BroadcastAttempts)
 		nextBroadcastHeight := uint32(pendingInput.NextBroadcastHeight)
 
 		requestedFee := pendingInput.Params.Fee
-		requestedFeeRate := uint32(requestedFee.FeeRate.FeePerKVByte() / 1000)
+		requestedFeeRate := uint64(requestedFee.FeeRate.FeePerKVByte() / 1000)
 
 		rpcPendingSweeps = append(rpcPendingSweeps, &PendingSweep{
-			Outpoint:            op,
-			WitnessType:         witnessType,
-			AmountSat:           amountSat,
-			SatPerByte:          satPerByte,
-			BroadcastAttempts:   broadcastAttempts,
-			NextBroadcastHeight: nextBroadcastHeight,
-			RequestedSatPerByte: requestedFeeRate,
-			RequestedConfTarget: requestedFee.ConfTarget,
-			Force:               pendingInput.Params.Force,
+			Outpoint:             op,
+			WitnessType:          witnessType,
+			AmountSat:            amountSat,
+			SatPerVbyte:          satPerVbyte,
+			BroadcastAttempts:    broadcastAttempts,
+			NextBroadcastHeight:  nextBroadcastHeight,
+			RequestedSatPerVbyte: requestedFeeRate,
+			RequestedConfTarget:  requestedFee.ConfTarget,
+			Force:                pendingInput.Params.Force,
 		})
 	}
 
@@ -742,8 +742,19 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 		return nil, err
 	}
 
+	// We only allow using either the deprecated field or the new field.
+	if in.SatPerByte != 0 && in.SatPerVbyte != 0 {
+		return nil, fmt.Errorf("either SatPerByte or " +
+			"SatPerVbyte should be set, but not both")
+	}
+
 	// Construct the request's fee preference.
-	satPerKw := chainfee.SatPerKVByte(in.SatPerByte * 1000).FeePerKWeight()
+	satPerKw := chainfee.SatPerKVByte(in.SatPerVbyte * 1000).FeePerKWeight()
+	if in.SatPerByte != 0 {
+		satPerKw = chainfee.SatPerKVByte(
+			in.SatPerByte * 1000,
+		).FeePerKWeight()
+	}
 	feePreference := sweep.FeePreference{
 		ConfTarget: uint32(in.TargetConf),
 		FeeRate:    satPerKw,

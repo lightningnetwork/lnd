@@ -142,6 +142,10 @@ func (w *WalletController) ReleaseOutput(wtxmgr.LockID, wire.OutPoint) error {
 	return nil
 }
 
+func (w *WalletController) ListLeasedOutputs() ([]*wtxmgr.LockedOutput, error) {
+	return nil, nil
+}
+
 // FundPsbt currently does nothing.
 func (w *WalletController) FundPsbt(_ *psbt.Packet,
 	_ chainfee.SatPerKWeight) (int32, error) {

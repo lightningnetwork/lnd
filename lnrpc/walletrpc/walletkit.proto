@@ -33,6 +33,11 @@ service WalletKit {
     rpc ReleaseOutput (ReleaseOutputRequest) returns (ReleaseOutputResponse);
 
     /*
+    ListLeases lists all currently locked utxos.
+    */
+    rpc ListLeases (ListLeasesRequest) returns (ListLeasesResponse);
+
+    /*
     DeriveNextKey attempts to derive the *next* key within the key family
     (account in BIP43) specified. This method should return the next external
     child within this branch.
@@ -602,4 +607,12 @@ message FinalizePsbtResponse {
 
     // The fully signed and finalized transaction in the raw wire format.
     bytes raw_final_tx = 2;
+}
+
+message ListLeasesRequest {
+}
+
+message ListLeasesResponse {
+    // The list of currently leased utxos.
+    repeated UtxoLease locked_utxos = 1;
 }

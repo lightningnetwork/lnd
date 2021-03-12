@@ -112,6 +112,10 @@ var (
 			Entity: "onchain",
 			Action: "write",
 		}},
+		"/walletrpc.WalletKit/ListLeases": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
 		"/walletrpc.WalletKit/ListUnspent": {{
 			Entity: "onchain",
 			Action: "read",
@@ -419,6 +423,20 @@ func (w *WalletKit) ReleaseOutput(ctx context.Context,
 	}
 
 	return &ReleaseOutputResponse{}, nil
+}
+
+// ListLeases returns a list of all currently locked utxos.
+func (w *WalletKit) ListLeases(ctx context.Context,
+	req *ListLeasesRequest) (*ListLeasesResponse, error) {
+
+	leases, err := w.cfg.Wallet.ListLeasedOutputs()
+	if err != nil {
+		return nil, err
+	}
+
+	return &ListLeasesResponse{
+		LockedUtxos: marshallLeases(leases),
+	}, nil
 }
 
 // DeriveNextKey attempts to derive the *next* key within the key family

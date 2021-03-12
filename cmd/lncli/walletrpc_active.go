@@ -47,6 +47,7 @@ func walletCommands() []cli.Command {
 				listSweepsCommand,
 				labelTxCommand,
 				releaseOutputCommand,
+				listLeasesCommand,
 				psbtCommand,
 			},
 		},
@@ -599,14 +600,7 @@ func fundPsbt(ctx *cli.Context) error {
 		return err
 	}
 
-	jsonLocks := make([]*utxoLease, len(response.LockedUtxos))
-	for idx, lock := range response.LockedUtxos {
-		jsonLocks[idx] = &utxoLease{
-			ID:         hex.EncodeToString(lock.Id),
-			OutPoint:   NewOutPointFromProto(lock.Outpoint),
-			Expiration: lock.Expiration,
-		}
-	}
+	jsonLocks := marshallLocks(response.LockedUtxos)
 
 	printJSON(&fundPsbtResponse{
 		Psbt: base64.StdEncoding.EncodeToString(
@@ -617,6 +611,21 @@ func fundPsbt(ctx *cli.Context) error {
 	})
 
 	return nil
+}
+
+// marshallLocks converts the rpc lease information to a more json-friendly
+// format.
+func marshallLocks(lockedUtxos []*walletrpc.UtxoLease) []*utxoLease {
+	jsonLocks := make([]*utxoLease, len(lockedUtxos))
+	for idx, lock := range lockedUtxos {
+		jsonLocks[idx] = &utxoLease{
+			ID:         hex.EncodeToString(lock.Id),
+			OutPoint:   NewOutPointFromProto(lock.Outpoint),
+			Expiration: lock.Expiration,
+		}
+	}
+
+	return jsonLocks
 }
 
 // finalizePsbtResponse is a struct that contains JSON annotations for nice
@@ -754,6 +763,28 @@ func releaseOutput(ctx *cli.Context) error {
 	}
 
 	printRespJSON(response)
+
+	return nil
+}
+
+var listLeasesCommand = cli.Command{
+	Name:   "listleases",
+	Usage:  "Return a list of currently held leases.",
+	Action: actionDecorator(listLeases),
+}
+
+func listLeases(ctx *cli.Context) error {
+	req := &walletrpc.ListLeasesRequest{}
+
+	walletClient, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	response, err := walletClient.ListLeases(context.Background(), req)
+	if err != nil {
+		return err
+	}
+
+	printJSON(marshallLocks(response.LockedUtxos))
 
 	return nil
 }

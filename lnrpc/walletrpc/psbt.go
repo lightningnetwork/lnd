@@ -18,6 +18,11 @@ const (
 	defaultMaxConf = math.MaxInt32
 )
 
+var (
+	// DefaultLockDuration is the default duration used to lock outputs.
+	DefaultLockDuration = 10 * time.Minute
+)
+
 // utxoLock is a type that contains an outpoint of an UTXO and its lock lease
 // information.
 type utxoLock struct {
@@ -60,7 +65,9 @@ func lockInputs(w lnwallet.WalletController, packet *psbt.Packet) ([]*utxoLock,
 			outpoint: rawInput.PreviousOutPoint,
 		}
 
-		expiration, err := w.LeaseOutput(lock.lockID, lock.outpoint)
+		expiration, err := w.LeaseOutput(
+			lock.lockID, lock.outpoint, DefaultLockDuration,
+		)
 		if err != nil {
 			// If we run into a problem with locking one output, we
 			// should try to unlock those that we successfully

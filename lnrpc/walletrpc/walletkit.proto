@@ -189,6 +189,10 @@ message LeaseOutputRequest {
 
     // The identifying outpoint of the output being leased.
     lnrpc.OutPoint outpoint = 2;
+
+    // The time in seconds before the lock expires. If set to zero, the default
+    // lock duration is used.
+    uint64 expiration_seconds = 3;
 }
 
 message LeaseOutputResponse {

@@ -368,12 +368,18 @@ func (w *WalletKit) LeaseOutput(ctx context.Context,
 		return nil, err
 	}
 
+	// Use the specified lock duration or fall back to the default.
+	duration := DefaultLockDuration
+	if req.ExpirationSeconds != 0 {
+		duration = time.Duration(req.ExpirationSeconds) * time.Second
+	}
+
 	// Acquire the global coin selection lock to ensure there aren't any
 	// other concurrent processes attempting to lease the same UTXO.
 	var expiration time.Time
 	err = w.cfg.CoinSelectionLocker.WithCoinSelectLock(func() error {
 		expiration, err = w.cfg.Wallet.LeaseOutput(
-			lockID, *op, DefaultLockDuration,
+			lockID, *op, duration,
 		)
 		return err
 	})

@@ -876,6 +876,11 @@
         "outpoint": {
           "$ref": "#/definitions/lnrpcOutPoint",
           "description": "The identifying outpoint of the output being leased."
+        },
+        "expiration_seconds": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The time in seconds before the lock expires. If set to zero, the default\nlock duration is used."
         }
       }
     },

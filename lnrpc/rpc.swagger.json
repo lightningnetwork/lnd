@@ -5503,6 +5503,11 @@
             "$ref": "#/definitions/lnrpcFeatureBit"
           },
           "description": "Features assumed to be supported by the final node. All transitive feature\ndependencies must also be set properly. For a given feature bit pair, either\noptional or remote may be set, but not both. If this field is nil or empty,\nthe router will try to load destination features from the graph as a\nfallback."
+        },
+        "payment_addr": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment address of the generated invoice."
         }
       }
     },

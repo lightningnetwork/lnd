@@ -19,10 +19,6 @@ with lnd in Java. We'll be using Maven as our build tool.
        ├── java
        │   └── Main.java
        ├── proto
-          ├── google
-          │   └── api
-          │       ├── annotations.proto
-          │       └── http.proto
           └── lnrpc
               └── rpc.proto
 
@@ -30,8 +26,6 @@ with lnd in Java. We'll be using Maven as our build tool.
 Note the ***proto*** folder, where all the proto files are kept.
 
  - [rpc.proto](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/rpc.proto)
- - [annotations.proto](https://github.com/googleapis/googleapis/blob/master/google/api/annotations.proto)
- - [http.proto](https://github.com/googleapis/googleapis/blob/master/google/api/http.proto)
 
 #### pom.xml
 ```xml
@@ -125,33 +119,31 @@ import java.nio.file.Paths;
 import java.util.concurrent.Executor;
 
 public class Main {
-    static class MacaroonCallCredential extends CallCredentials {
-        private final String macaroon;
+  static class MacaroonCallCredential extends CallCredentials {
+      private final String macaroon;
 
-        MacaroonCallCredential(String macaroon) {
-            this.macaroon = macaroon;
-        }
+      MacaroonCallCredential(String macaroon) {
+          this.macaroon = macaroon;
+      }
 
-        @Override
-        public void applyRequestMetadata(RequestInfo requestInfo, Executor executor, MetadataApplier metadataApplier) {
-            executor.execute(() -> {
-                try {
-                    Metadata headers = new Metadata();
-                    Metadata.Key<String> macaroonKey = Metadata.Key.of("macaroon", Metadata.ASCII_STRING_MARSHALLER);
-                    headers.put(macaroonKey, macaroon);
-                    metadataApplier.apply(headers);
-                } catch (Throwable e) {
-                    metadataApplier.fail(Status.UNAUTHENTICATED.withCause(e));
-                }
-            });
-        }
+      @Override
+      public void applyRequestMetadata(RequestInfo requestInfo, Executor executor, MetadataApplier metadataApplier) {
+          executor.execute(() -> {
+              try {
+                  Metadata headers = new Metadata();
+                  Metadata.Key<String> macaroonKey = Metadata.Key.of("macaroon", Metadata.ASCII_STRING_MARSHALLER);
+                  headers.put(macaroonKey, macaroon);
+                  metadataApplier.apply(headers);
+              } catch (Throwable e) {
+                  metadataApplier.fail(Status.UNAUTHENTICATED.withCause(e));
+              }
+          });
+      }
 
-        @Override
-        public void thisUsesUnstableApi() {
-        }
-
-
-    }
+      @Override
+      public void thisUsesUnstableApi() {
+      }
+  }
 
   private static final String CERT_PATH = "/Users/user/Library/Application Support/Lnd/tls.cert";
   private static final String MACAROON_PATH = "/Users/user/Library/Application Support/Lnd/data/chain/bitcoin/simnet/admin.macaroon";

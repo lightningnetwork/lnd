@@ -298,6 +298,11 @@ type Config struct {
 	// initiator for anchor channel commitments.
 	MaxAnchorsCommitFeeRate chainfee.SatPerKWeight
 
+	// CoopCloseTargetConfs is the confirmation target that will be used
+	// to estimate the fee rate to use during a cooperative channel
+	// closure initiated by the remote peer.
+	CoopCloseTargetConfs uint32
+
 	// ServerPubKey is the serialized, compressed public key of our lnd node.
 	// It is used to determine which policy (channel edge) to pass to the
 	// ChannelLink.
@@ -2343,9 +2348,10 @@ func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
 		}
 
 		// In order to begin fee negotiations, we'll first compute our
-		// target ideal fee-per-kw. We'll set this to a lax value, as
-		// we weren't the ones that initiated the channel closure.
-		feePerKw, err := p.cfg.FeeEstimator.EstimateFeePerKW(6)
+		// target ideal fee-per-kw.
+		feePerKw, err := p.cfg.FeeEstimator.EstimateFeePerKW(
+			p.cfg.CoopCloseTargetConfs,
+		)
 		if err != nil {
 			peerLog.Errorf("unable to query fee estimator: %v", err)
 

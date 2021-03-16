@@ -297,9 +297,11 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	}
 
 	var (
-		walletInitParams WalletUnlockParams
-		privateWalletPw  = lnwallet.DefaultPrivatePassphrase
-		publicWalletPw   = lnwallet.DefaultPublicPassphrase
+		walletInitParams = WalletUnlockParams{
+			MacResponseChan: make(chan []byte),
+		}
+		privateWalletPw = lnwallet.DefaultPrivatePassphrase
+		publicWalletPw  = lnwallet.DefaultPublicPassphrase
 	)
 
 	// If the user didn't request a seed, then we'll manually assume a
@@ -415,10 +417,6 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		}
 	}
 
-	// Now that the wallet password has been provided, transition the RPC
-	// state into Unlocked.
-	interceptorChain.SetWalletUnlocked()
-
 	var macaroonService *macaroons.Service
 	if !cfg.NoMacaroons {
 		// Create the macaroon authentication/authorization service.
@@ -510,6 +508,16 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		// RPC invocation.
 		interceptorChain.AddMacaroonService(macaroonService)
 	}
+
+	// Now that the wallet password has been provided, transition the RPC
+	// state into Unlocked.
+	interceptorChain.SetWalletUnlocked()
+
+	// Since calls to the WalletUnlocker service wait for a response on the
+	// macaroon channel, we close it here to make sure they return in case
+	// we did not return the admin macaroon above. This will be the case if
+	// --no-macaroons is used.
+	close(walletInitParams.MacResponseChan)
 
 	// With the information parsed from the configuration, create valid
 	// instances of the pertinent interfaces required to operate the

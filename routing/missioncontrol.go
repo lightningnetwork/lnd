@@ -371,9 +371,6 @@ func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 	failureSourceIdx *int, failure lnwire.FailureMessage) (
 	*channeldb.FailureReason, error) {
 
-	m.Lock()
-	defer m.Unlock()
-
 	timestamp := m.now()
 
 	result := &paymentResult{
@@ -393,9 +390,6 @@ func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 // for future probability estimates.
 func (m *MissionControl) ReportPaymentSuccess(paymentID uint64,
 	rt *route.Route) error {
-
-	m.Lock()
-	defer m.Unlock()
 
 	timestamp := m.now()
 
@@ -420,6 +414,9 @@ func (m *MissionControl) processPaymentResult(result *paymentResult) (
 	if err := m.store.AddResult(result); err != nil {
 		return nil, err
 	}
+
+	m.Lock()
+	defer m.Unlock()
 
 	// Apply result to update mission control state.
 	reason := m.applyPaymentResult(result)

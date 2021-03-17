@@ -41,6 +41,11 @@ const (
 )
 
 func getContext() context.Context {
+	if err := signal.Intercept(); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
 	ctxc, cancel := context.WithCancel(context.Background())
 	go func() {
 		<-signal.ShutdownChannel()

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -51,6 +50,7 @@ var updateChanStatusCommand = cli.Command{
 }
 
 func updateChanStatus(ctx *cli.Context) error {
+	ctxc := getContext()
 	conn := getClientConn(ctx, false)
 	defer conn.Close()
 
@@ -82,8 +82,7 @@ func updateChanStatus(ctx *cli.Context) error {
 	}
 
 	client := routerrpc.NewRouterClient(conn)
-	ctxb := context.Background()
-	resp, err := client.UpdateChanStatus(ctxb, req)
+	resp, err := client.UpdateChanStatus(ctxc, req)
 	if err != nil {
 		return err
 	}

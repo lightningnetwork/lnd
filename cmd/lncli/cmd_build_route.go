@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -43,6 +42,7 @@ var buildRouteCommand = cli.Command{
 }
 
 func buildRoute(ctx *cli.Context) error {
+	ctxc := getContext()
 	conn := getClientConn(ctx, false)
 	defer conn.Close()
 
@@ -80,8 +80,7 @@ func buildRoute(ctx *cli.Context) error {
 		OutgoingChanId: ctx.Uint64("outgoing_chan_id"),
 	}
 
-	rpcCtx := context.Background()
-	route, err := client.BuildRoute(rpcCtx, req)
+	route, err := client.BuildRoute(ctxc, req)
 	if err != nil {
 		return err
 	}

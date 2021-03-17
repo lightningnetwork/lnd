@@ -1,8 +1,6 @@
 package main
 
 import (
-	"context"
-
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/urfave/cli"
 )
@@ -45,14 +43,14 @@ var setCfgCommand = cli.Command{
 }
 
 func setCfg(ctx *cli.Context) error {
+	ctxc := getContext()
 	conn := getClientConn(ctx, false)
 	defer conn.Close()
 
 	client := routerrpc.NewRouterClient(conn)
 
-	ctxb := context.Background()
 	resp, err := client.GetMissionControlConfig(
-		ctxb, &routerrpc.GetMissionControlConfigRequest{},
+		ctxc, &routerrpc.GetMissionControlConfigRequest{},
 	)
 	if err != nil {
 		return err
@@ -94,7 +92,7 @@ func setCfg(ctx *cli.Context) error {
 	}
 
 	_, err = client.SetMissionControlConfig(
-		ctxb, &routerrpc.SetMissionControlConfigRequest{
+		ctxc, &routerrpc.SetMissionControlConfigRequest{
 			Config: resp.Config,
 		},
 	)

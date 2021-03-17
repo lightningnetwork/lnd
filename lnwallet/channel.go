@@ -97,6 +97,13 @@ var (
 	// both parties can retrieve their funds.
 	ErrCommitSyncRemoteDataLoss = fmt.Errorf("possible remote commitment " +
 		"state data loss")
+
+	// errCancelledAdd is returned when we have cancelled an htlc with
+	// a settle/fail, and the add no longer exists when we go to look it up.
+	// This is encountered when upgrading from earlier versions of LND where
+	// we would erroneously store the unsignedAckedUpdates longer than we
+	// had to.
+	errCancelledAdd = fmt.Errorf("cancelled add - lookup failed")
 )
 
 // ErrCommitSyncLocalDataLoss is returned in the case that we receive a valid
@@ -1647,6 +1654,9 @@ func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *channeldb.LogUpd
 	// PaymentDescriptor that ReceiveHTLCSettle would produce.
 	case *lnwire.UpdateFulfillHTLC:
 		ogHTLC := localUpdateLog.lookupHtlc(wireMsg.ID)
+		if ogHTLC == nil {
+			return nil, errCancelledAdd
+		}
 
 		return &PaymentDescriptor{
 			Amount:                  ogHTLC.Amount,
@@ -1663,6 +1673,9 @@ func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *channeldb.LogUpd
 	// the original HTLC we're failing.
 	case *lnwire.UpdateFailHTLC:
 		ogHTLC := localUpdateLog.lookupHtlc(wireMsg.ID)
+		if ogHTLC == nil {
+			return nil, errCancelledAdd
+		}
 
 		return &PaymentDescriptor{
 			Amount:                  ogHTLC.Amount,
@@ -1678,6 +1691,9 @@ func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *channeldb.LogUpd
 	// way as regular HTLC fails.
 	case *lnwire.UpdateFailMalformedHTLC:
 		ogHTLC := localUpdateLog.lookupHtlc(wireMsg.ID)
+		if ogHTLC == nil {
+			return nil, errCancelledAdd
+		}
 
 		return &PaymentDescriptor{
 			Amount:                  ogHTLC.Amount,
@@ -1856,6 +1872,9 @@ func (lc *LightningChannel) restoreStateLogs(
 	incomingRemoteAddHeights := make(map[uint64]uint64)
 	outgoingLocalAddHeights := make(map[uint64]uint64)
 
+	// This map denotes the updates we should add back to the updateLog.
+	pendingRemoteOutgoingIndices := make(map[uint64]struct{})
+
 	// We start by setting the height of the incoming HTLCs on the pending
 	// remote commitment. We set these heights first since if there are
 	// duplicates, these will be overwritten by the lower height of the
@@ -1864,6 +1883,12 @@ func (lc *LightningChannel) restoreStateLogs(
 		for _, r := range pendingRemoteCommit.incomingHTLCs {
 			incomingRemoteAddHeights[r.HtlcIndex] =
 				pendingRemoteCommit.height
+		}
+
+		// Track the outgoingHTLCs that exist on the pending remote by
+		// populating the map with each HTLC's LogIndex.
+		for _, r := range pendingRemoteCommit.outgoingHTLCs {
+			pendingRemoteOutgoingIndices[r.LogIndex] = struct{}{}
 		}
 	}
 
@@ -1958,6 +1983,19 @@ func (lc *LightningChannel) restoreStateLogs(
 	for i := range remoteCommitment.outgoingHTLCs {
 		htlc := remoteCommitment.outgoingHTLCs[i]
 
+		// If the pending remote commit exists, do not add outgoing HTLCs that
+		// exist on the remote commit, but not the pending remote. We use the
+		// htlc's LogIndex to query the map for existence.
+		//
+		// NOTE: The nil-check is necessary as otherwise HTLC's won't be found
+		// in the map, and we won't add them to the update logs. This would
+		// lead to channel force closure.
+		if pendingRemoteCommit != nil {
+			if _, ok := pendingRemoteOutgoingIndices[htlc.LogIndex]; !ok {
+				continue
+			}
+		}
+
 		// As for the incoming HTLCs, we'll use the current remote
 		// commit height as remote add height, and consult the map
 		// created above for the local add height.
@@ -2012,7 +2050,14 @@ func (lc *LightningChannel) restorePendingRemoteUpdates(
 		payDesc, err := lc.remoteLogUpdateToPayDesc(
 			&logUpdate, lc.localUpdateLog, localCommitmentHeight,
 		)
-		if err != nil {
+		if err == errCancelledAdd {
+			// Continuing because we couldn't find the add in the
+			// update logs. We log a warning as this is not an
+			// expected error under normal operating conditions.
+			lc.log.Warnf("Skipped restoring log update due to " +
+				"missing add.")
+			continue
+		} else if err != nil {
 			return err
 		}
 

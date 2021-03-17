@@ -2111,6 +2111,13 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 			return ErrChanBorked
 		}
 
+		// Delete the contents of unsignedAckedUpdatesKey. We do this
+		// because we are signing for all updates we have. It is therefore
+		// safe to delete the owed updates here.
+		if err := chanBucket.Delete(unsignedAckedUpdatesKey); err != nil {
+			return err
+		}
+
 		// Any outgoing settles and fails necessarily have a
 		// corresponding adds in this channel's forwarding packages.
 		// Mark all of these as being fully processed in our forwarding
@@ -2392,53 +2399,15 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 			return err
 		}
 
-		// Persist the unsigned acked updates that are not included
-		// in their new commitment.
-		updateBytes := chanBucket.Get(unsignedAckedUpdatesKey)
-		if updateBytes == nil {
-			// If there are no updates to sign, we don't need to
-			// filter out any updates.
-			newRemoteCommit = &newCommit.Commitment
-			return nil
-		}
-
-		r := bytes.NewReader(updateBytes)
-		unsignedUpdates, err := deserializeLogUpdates(r)
-		if err != nil {
-			return err
-		}
-
-		var validUpdates []LogUpdate
-		for _, upd := range unsignedUpdates {
-			lIdx := upd.LogIndex
-
-			// Filter for updates that are not on the remote
-			// commitment.
-			if lIdx >= newCommit.Commitment.RemoteLogIndex {
-				validUpdates = append(validUpdates, upd)
-			}
-		}
-
-		var b bytes.Buffer
-		err = serializeLogUpdates(&b, validUpdates)
-		if err != nil {
-			return fmt.Errorf("unable to serialize log updates: %v", err)
-		}
-
-		err = chanBucket.Put(unsignedAckedUpdatesKey, b.Bytes())
-		if err != nil {
-			return fmt.Errorf("unable to store under unsignedAckedUpdatesKey: %v", err)
-		}
-
 		// Persist the local updates the peer hasn't yet signed so they
 		// can be restored after restart.
-		var b2 bytes.Buffer
-		err = serializeLogUpdates(&b2, updates)
+		var b bytes.Buffer
+		err = serializeLogUpdates(&b, updates)
 		if err != nil {
 			return err
 		}
 
-		err = chanBucket.Put(remoteUnsignedLocalUpdatesKey, b2.Bytes())
+		err = chanBucket.Put(remoteUnsignedLocalUpdatesKey, b.Bytes())
 		if err != nil {
 			return fmt.Errorf("unable to restore remote unsigned "+
 				"local updates: %v", err)

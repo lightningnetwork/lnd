@@ -2181,7 +2181,8 @@ func (d *DB) DeleteInvoice(invoicesToDelete []InvoiceDeleteRef) error {
 				// payment address index.
 				key := payAddrIndex.Get(ref.PayAddr[:])
 				if !bytes.Equal(key, invoiceKey) {
-					return fmt.Errorf("unknown invoice")
+					return fmt.Errorf("unknown invoice " +
+						"in pay addr index")
 				}
 
 				// Delete from the payment address index.
@@ -2199,7 +2200,8 @@ func (d *DB) DeleteInvoice(invoicesToDelete []InvoiceDeleteRef) error {
 			// invoice key.
 			key := invoiceAddIndex.Get(addIndexKey[:])
 			if !bytes.Equal(key, invoiceKey) {
-				return fmt.Errorf("unknown invoice")
+				return fmt.Errorf("unknown invoice in " +
+					"add index")
 			}
 
 			// Remove from the add index.
@@ -2221,7 +2223,8 @@ func (d *DB) DeleteInvoice(invoicesToDelete []InvoiceDeleteRef) error {
 				// settle index
 				key := settleIndex.Get(settleIndexKey[:])
 				if !bytes.Equal(key, invoiceKey) {
-					return fmt.Errorf("unknown invoice")
+					return fmt.Errorf("unknown invoice " +
+						"in settle index")
 				}
 
 				err = settleIndex.Delete(settleIndexKey[:])

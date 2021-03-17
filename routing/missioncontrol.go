@@ -238,9 +238,6 @@ func NewMissionControl(db kvdb.Backend, self route.Vertex,
 func (m *MissionControl) init() error {
 	log.Debugf("Mission control state reconstruction started")
 
-	m.Lock()
-	defer m.Unlock()
-
 	start := time.Now()
 
 	results, err := m.store.fetchAll()

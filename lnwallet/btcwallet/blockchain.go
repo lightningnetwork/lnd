@@ -131,7 +131,7 @@ func (b *BtcWallet) GetUtxo(op *wire.OutPoint, pkScript []byte,
 //
 // This method is a part of the lnwallet.BlockChainIO interface.
 func (b *BtcWallet) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) {
-	return b.chain.GetBlock(blockHash)
+	return b.blockCache.GetBlock(blockHash, b.chain.GetBlock)
 }
 
 // GetBlockHash returns the hash of the block in the best blockchain at the

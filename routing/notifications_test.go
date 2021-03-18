@@ -47,6 +47,8 @@ var (
 
 	priv2, _    = btcec.NewPrivateKey(btcec.S256())
 	bitcoinKey2 = priv2.PubKey()
+
+	timeout = time.Second * 5
 )
 
 func createTestNode() (*channeldb.LightningNode, error) {
@@ -122,8 +124,9 @@ func createChannelEdge(ctx *testCtx, bitcoinKey1, bitcoinKey2 []byte,
 }
 
 type mockChain struct {
-	blocks     map[chainhash.Hash]*wire.MsgBlock
-	blockIndex map[uint32]chainhash.Hash
+	blocks           map[chainhash.Hash]*wire.MsgBlock
+	blockIndex       map[uint32]chainhash.Hash
+	blockHeightIndex map[chainhash.Hash]uint32
 
 	utxos map[wire.OutPoint]wire.TxOut
 
@@ -138,10 +141,11 @@ var _ lnwallet.BlockChainIO = (*mockChain)(nil)
 
 func newMockChain(currentHeight uint32) *mockChain {
 	return &mockChain{
-		bestHeight: int32(currentHeight),
-		blocks:     make(map[chainhash.Hash]*wire.MsgBlock),
-		utxos:      make(map[wire.OutPoint]wire.TxOut),
-		blockIndex: make(map[uint32]chainhash.Hash),
+		bestHeight:       int32(currentHeight),
+		blocks:           make(map[chainhash.Hash]*wire.MsgBlock),
+		utxos:            make(map[wire.OutPoint]wire.TxOut),
+		blockIndex:       make(map[uint32]chainhash.Hash),
+		blockHeightIndex: make(map[chainhash.Hash]uint32),
 	}
 }
 
@@ -209,8 +213,10 @@ func (m *mockChain) addBlock(block *wire.MsgBlock, height uint32, nonce uint32) 
 	hash := block.Header.BlockHash()
 	m.blocks[hash] = block
 	m.blockIndex[height] = hash
+	m.blockHeightIndex[hash] = height
 	m.Unlock()
 }
+
 func (m *mockChain) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) {
 	m.RLock()
 	defer m.RUnlock()
@@ -226,8 +232,10 @@ func (m *mockChain) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) 
 type mockChainView struct {
 	sync.RWMutex
 
-	newBlocks   chan *chainview.FilteredBlock
-	staleBlocks chan *chainview.FilteredBlock
+	newBlocks           chan *chainview.FilteredBlock
+	staleBlocks         chan *chainview.FilteredBlock
+	notifyBlockAck      chan struct{}
+	notifyStaleBlockAck chan struct{}
 
 	chain lnwallet.BlockChainIO
 
@@ -269,7 +277,7 @@ func (m *mockChainView) UpdateFilter(ops []channeldb.EdgePoint, updateHeight uin
 }
 
 func (m *mockChainView) notifyBlock(hash chainhash.Hash, height uint32,
-	txns []*wire.MsgTx) {
+	txns []*wire.MsgTx, t *testing.T) {
 
 	m.RLock()
 	defer m.RUnlock()
@@ -283,10 +291,23 @@ func (m *mockChainView) notifyBlock(hash chainhash.Hash, height uint32,
 	case <-m.quit:
 		return
 	}
+
+	// Do not ack the block if our notify channel is nil.
+	if m.notifyBlockAck == nil {
+		return
+	}
+
+	select {
+	case m.notifyBlockAck <- struct{}{}:
+	case <-time.After(timeout):
+		t.Fatal("expected block to be delivered")
+	case <-m.quit:
+		return
+	}
 }
 
 func (m *mockChainView) notifyStaleBlock(hash chainhash.Hash, height uint32,
-	txns []*wire.MsgTx) {
+	txns []*wire.MsgTx, t *testing.T) {
 
 	m.RLock()
 	defer m.RUnlock()
@@ -297,6 +318,19 @@ func (m *mockChainView) notifyStaleBlock(hash chainhash.Hash, height uint32,
 		Height:       height,
 		Transactions: txns,
 	}:
+	case <-m.quit:
+		return
+	}
+
+	// Do not ack the block if our notify channel is nil.
+	if m.notifyStaleBlockAck == nil {
+		return
+	}
+
+	select {
+	case m.notifyStaleBlockAck <- struct{}{}:
+	case <-time.After(timeout):
+		t.Fatal("expected stale block to be delivered")
 	case <-m.quit:
 		return
 	}
@@ -317,7 +351,14 @@ func (m *mockChainView) FilterBlock(blockHash *chainhash.Hash) (*chainview.Filte
 		return nil, err
 	}
 
-	filteredBlock := &chainview.FilteredBlock{}
+	chain := m.chain.(*mockChain)
+
+	chain.Lock()
+	filteredBlock := &chainview.FilteredBlock{
+		Hash:   *blockHash,
+		Height: chain.blockHeightIndex[*blockHash],
+	}
+	chain.Unlock()
 	for _, tx := range block.Transactions {
 		for _, txIn := range tx.TxIn {
 			prevOp := txIn.PreviousOutPoint
@@ -895,7 +936,7 @@ func TestChannelCloseNotification(t *testing.T) {
 	}
 	ctx.chain.addBlock(newBlock, blockHeight, blockHeight)
 	ctx.chainView.notifyBlock(newBlock.Header.BlockHash(), blockHeight,
-		newBlock.Transactions)
+		newBlock.Transactions, t)
 
 	// The notification registered above should be sent, if not we'll time
 	// out and mark the test as failed.

@@ -408,7 +408,9 @@ func NewChainControl(cfg *Config) (*ChainControl, error) {
 		cc.ChainNotifier = bitcoindnotify.New(
 			bitcoindConn, cfg.ActiveNetParams.Params, hintCache, hintCache,
 		)
-		cc.ChainView = chainview.NewBitcoindFilteredChainView(bitcoindConn)
+		cc.ChainView = chainview.NewBitcoindFilteredChainView(
+			bitcoindConn, blockCache,
+		)
 		walletConfig.ChainSource = bitcoindConn.NewBitcoindClient()
 
 		// If we're not in regtest mode, then we'll attempt to use a

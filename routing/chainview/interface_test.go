@@ -24,6 +24,7 @@ import (
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/walletdb"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Required to register the boltdb walletdb implementation.
+	"github.com/lightningnetwork/lnd/blockcache"
 
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -833,7 +834,11 @@ var interfaceImpls = []struct {
 				cleanUp2()
 			}
 
-			chainView := NewBitcoindFilteredChainView(chainConn)
+			blockCache := blockcache.NewBlockCache(10000)
+
+			chainView := NewBitcoindFilteredChainView(
+				chainConn, blockCache,
+			)
 
 			return cleanUp3, chainView, nil
 		},

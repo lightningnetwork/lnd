@@ -57,6 +57,16 @@ func getWalletUnlockerClient(ctx *cli.Context) (lnrpc.WalletUnlockerClient, func
 	return lnrpc.NewWalletUnlockerClient(conn), cleanUp
 }
 
+func getStateServiceClient(ctx *cli.Context) (lnrpc.StateClient, func()) {
+	conn := getClientConn(ctx, true)
+
+	cleanUp := func() {
+		conn.Close()
+	}
+
+	return lnrpc.NewStateClient(conn), cleanUp
+}
+
 func getClient(ctx *cli.Context) (lnrpc.LightningClient, func()) {
 	conn := getClientConn(ctx, false)
 
@@ -351,6 +361,7 @@ func main() {
 		trackPaymentCommand,
 		versionCommand,
 		profileSubCommand,
+		getStateCommand,
 	}
 
 	// Add any extra commands determined by build flags.

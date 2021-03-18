@@ -1,0 +1,125 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "stateservice.proto",
+    "version": "version not set"
+  },
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/state/subscribe": {
+      "get": {
+        "summary": "SubscribeState subscribes to the state of the wallet. The current wallet\nstate will always be delivered immediately.",
+        "operationId": "SubscribeState",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/lnrpcSubscribeStateResponse"
+                },
+                "error": {
+                  "$ref": "#/definitions/runtimeStreamError"
+                }
+              },
+              "title": "Stream result of lnrpcSubscribeStateResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "tags": [
+          "State"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "lnrpcSubscribeStateResponse": {
+      "type": "object",
+      "properties": {
+        "State": {
+          "$ref": "#/definitions/lnrpcWalletState"
+        }
+      }
+    },
+    "lnrpcWalletState": {
+      "type": "string",
+      "enum": [
+        "NON_EXISTING",
+        "LOCKED",
+        "UNLOCKED",
+        "RPC_ACTIVE"
+      ],
+      "default": "NON_EXISTING"
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "runtimeError": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "runtimeStreamError": {
+      "type": "object",
+      "properties": {
+        "grpc_code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "http_code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "http_status": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    }
+  }
+}

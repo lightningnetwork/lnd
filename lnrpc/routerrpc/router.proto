@@ -62,6 +62,15 @@ service Router {
         returns (QueryMissionControlResponse);
 
     /*
+    XImportMissionControl is an experimental API that imports the state provided
+    to the internal mission control's state, using all results which are more
+    recent than our existing values. These values will only be imported
+    in-memory, and will not be persisted across restarts.
+    */
+    rpc XImportMissionControl (XImportMissionControlRequest)
+        returns (XImportMissionControlResponse);
+
+    /*
     GetMissionControlConfig returns mission control's current config.
     */
     rpc GetMissionControlConfig (GetMissionControlConfigRequest)
@@ -341,6 +350,14 @@ message QueryMissionControlResponse {
 
     // Node pair-level mission control state.
     repeated PairHistory pairs = 2;
+}
+
+message XImportMissionControlRequest {
+    // Node pair-level mission control state to be imported.
+    repeated PairHistory pairs = 1;
+}
+
+message XImportMissionControlResponse {
 }
 
 // PairHistory contains the mission control state for a particular node pair.

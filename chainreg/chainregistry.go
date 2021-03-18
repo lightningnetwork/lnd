@@ -73,6 +73,9 @@ type Config struct {
 	// RemoteChanDB is a pointer to the remote backing channel database.
 	RemoteChanDB *channeldb.DB
 
+	// BlockCacheSize is the size (in bytes) of blocks kept in memory.
+	BlockCacheSize uint64
+
 	// PrivateWalletPw is the private wallet password to the underlying
 	// btcwallet instance.
 	PrivateWalletPw []byte

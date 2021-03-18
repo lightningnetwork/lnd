@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/chain"
+	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/queue"
 )
@@ -50,6 +51,9 @@ type BitcoindNotifier struct {
 
 	bestBlock chainntnfs.BlockEpoch
 
+	// blockCache is a LRU block cache.
+	blockCache *blockcache.BlockCache
+
 	// spendHintCache is a cache used to query and update the latest height
 	// hints for an outpoint. Each height hint represents the earliest
 	// height at which the outpoint could have been spent within the chain.
@@ -73,7 +77,8 @@ var _ chainntnfs.ChainNotifier = (*BitcoindNotifier)(nil)
 // willing to accept RPC requests and new zmq clients.
 func New(chainConn *chain.BitcoindConn, chainParams *chaincfg.Params,
 	spendHintCache chainntnfs.SpendHintCache,
-	confirmHintCache chainntnfs.ConfirmHintCache) *BitcoindNotifier {
+	confirmHintCache chainntnfs.ConfirmHintCache,
+	blockCache *blockcache.BlockCache) *BitcoindNotifier {
 
 	notifier := &BitcoindNotifier{
 		chainParams: chainParams,
@@ -85,6 +90,8 @@ func New(chainConn *chain.BitcoindConn, chainParams *chaincfg.Params,
 
 		spendHintCache:   spendHintCache,
 		confirmHintCache: confirmHintCache,
+
+		blockCache: blockCache,
 
 		quit: make(chan struct{}),
 	}
@@ -522,7 +529,7 @@ func (b *BitcoindNotifier) confDetailsManually(confRequest chainntnfs.ConfReques
 					"with height %d", height)
 		}
 
-		block, err := b.chainConn.GetBlock(blockHash)
+		block, err := b.GetBlock(blockHash)
 		if err != nil {
 			return nil, chainntnfs.TxNotFoundManually,
 				fmt.Errorf("unable to get block with hash "+
@@ -558,7 +565,7 @@ func (b *BitcoindNotifier) handleBlockConnected(block chainntnfs.BlockEpoch) err
 	// First, we'll fetch the raw block as we'll need to gather all the
 	// transactions to determine whether any are relevant to our registered
 	// clients.
-	rawBlock, err := b.chainConn.GetBlock(block.Hash)
+	rawBlock, err := b.GetBlock(block.Hash)
 	if err != nil {
 		return fmt.Errorf("unable to get block: %v", err)
 	}
@@ -777,7 +784,7 @@ func (b *BitcoindNotifier) historicalSpendDetails(
 			return nil, fmt.Errorf("unable to retrieve hash for "+
 				"block with height %d: %v", height, err)
 		}
-		block, err := b.chainConn.GetBlock(blockHash)
+		block, err := b.GetBlock(blockHash)
 		if err != nil {
 			return nil, fmt.Errorf("unable to retrieve block "+
 				"with hash %v: %v", blockHash, err)
@@ -954,4 +961,12 @@ func (b *BitcoindNotifier) RegisterBlockEpochNtfn(
 			},
 		}, nil
 	}
+}
+
+// GetBlock is used to retrieve the block with the given hash. This function
+// wraps the blockCache's GetBlock function.
+func (b *BitcoindNotifier) GetBlock(hash *chainhash.Hash) (*wire.MsgBlock,
+	error) {
+
+	return b.blockCache.GetBlock(hash, b.chainConn.GetBlock)
 }

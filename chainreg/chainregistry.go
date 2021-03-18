@@ -416,7 +416,8 @@ func NewChainControl(cfg *Config) (*ChainControl, func(), error) {
 		}
 
 		cc.ChainNotifier = bitcoindnotify.New(
-			bitcoindConn, cfg.ActiveNetParams.Params, hintCache, hintCache,
+			bitcoindConn, cfg.ActiveNetParams.Params, hintCache,
+			hintCache, blockCache,
 		)
 		cc.ChainView = chainview.NewBitcoindFilteredChainView(
 			bitcoindConn, blockCache,

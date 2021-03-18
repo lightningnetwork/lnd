@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcwallet/chain"
+	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 )
@@ -55,13 +56,14 @@ func initHintCache(t *testing.T) *chainntnfs.HeightHintCache {
 // bitcoind driver.
 func setUpNotifier(t *testing.T, bitcoindConn *chain.BitcoindConn,
 	spendHintCache chainntnfs.SpendHintCache,
-	confirmHintCache chainntnfs.ConfirmHintCache) *BitcoindNotifier {
+	confirmHintCache chainntnfs.ConfirmHintCache,
+	blockCache *blockcache.BlockCache) *BitcoindNotifier {
 
 	t.Helper()
 
 	notifier := New(
 		bitcoindConn, chainntnfs.NetParams, spendHintCache,
-		confirmHintCache,
+		confirmHintCache, blockCache,
 	)
 	if err := notifier.Start(); err != nil {
 		t.Fatalf("unable to start notifier: %v", err)
@@ -116,8 +118,11 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 	defer cleanUp()
 
 	hintCache := initHintCache(t)
+	blockCache := blockcache.NewBlockCache(10000)
 
-	notifier := setUpNotifier(t, bitcoindConn, hintCache, hintCache)
+	notifier := setUpNotifier(
+		t, bitcoindConn, hintCache, hintCache, blockCache,
+	)
 	defer notifier.Stop()
 
 	syncNotifierWithMiner(t, notifier, miner)
@@ -209,8 +214,11 @@ func TestHistoricalConfDetailsNoTxIndex(t *testing.T) {
 	defer cleanUp()
 
 	hintCache := initHintCache(t)
+	blockCache := blockcache.NewBlockCache(10000)
 
-	notifier := setUpNotifier(t, bitcoindConn, hintCache, hintCache)
+	notifier := setUpNotifier(
+		t, bitcoindConn, hintCache, hintCache, blockCache,
+	)
 	defer notifier.Stop()
 
 	// Since the node has its txindex disabled, we fall back to scanning the

@@ -555,7 +555,9 @@ func NewChainControl(cfg *Config) (*ChainControl, func(), error) {
 
 		// Finally, we'll create an instance of the default chain view to be
 		// used within the routing layer.
-		cc.ChainView, err = chainview.NewBtcdFilteredChainView(*rpcConfig)
+		cc.ChainView, err = chainview.NewBtcdFilteredChainView(
+			*rpcConfig, blockCache,
+		)
 		if err != nil {
 			log.Errorf("unable to create chain view: %v", err)
 			return nil, nil, err

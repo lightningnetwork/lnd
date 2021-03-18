@@ -906,7 +906,10 @@ var interfaceImpls = []struct {
 	{
 		name: "btcd_websockets",
 		chainViewInit: func(config rpcclient.ConnConfig, _ string) (func(), FilteredChainView, error) {
-			chainView, err := NewBtcdFilteredChainView(config)
+			blockCache := blockcache.NewBlockCache(10000)
+			chainView, err := NewBtcdFilteredChainView(
+				config, blockCache,
+			)
 			if err != nil {
 				return nil, nil, err
 			}

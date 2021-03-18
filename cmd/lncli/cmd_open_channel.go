@@ -436,10 +436,6 @@ func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 		return fmt.Errorf("opening stream to server failed: %v", err)
 	}
 
-	if err := signal.Intercept(); err != nil {
-		return err
-	}
-
 	// We also need to spawn a goroutine that reads from the server. This
 	// will copy the messages to the channel as long as they come in or add
 	// exactly one error to the error stream and then bail out.

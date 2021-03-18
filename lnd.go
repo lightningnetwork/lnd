@@ -546,6 +546,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		Dialer: func(addr string) (net.Conn, error) {
 			return cfg.net.Dial("tcp", addr, cfg.ConnectionTimeout)
 		},
+		BlockCacheSize: cfg.BlockCacheSize,
 	}
 
 	activeChainControl, cleanup, err := chainreg.NewChainControl(chainControlCfg)

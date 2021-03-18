@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightninglabs/neutrino"
+	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainntnfs/bitcoindnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
@@ -305,6 +306,9 @@ func NewChainControl(cfg *Config) (*ChainControl, func(), error) {
 		return nil, nil, fmt.Errorf("unable to initialize height hint "+
 			"cache: %v", err)
 	}
+
+	// Initialize a new block cache.
+	blockCache := blockcache.NewBlockCache(cfg.BlockCacheSize)
 
 	// If spv mode is active, then we'll be using a distinct set of
 	// chainControl interfaces that interface directly with the p2p network
@@ -641,7 +645,7 @@ func NewChainControl(cfg *Config) (*ChainControl, func(), error) {
 		return nil, nil, err
 	}
 
-	wc, err := btcwallet.New(*walletConfig)
+	wc, err := btcwallet.New(*walletConfig, blockCache)
 	if err != nil {
 		fmt.Printf("unable to create wallet controller: %v\n", err)
 		return nil, ccCleanup, err

@@ -548,7 +548,8 @@ func NewChainControl(cfg *Config) (*ChainControl, func(), error) {
 			DisableAutoReconnect: false,
 		}
 		cc.ChainNotifier, err = btcdnotify.New(
-			rpcConfig, cfg.ActiveNetParams.Params, hintCache, hintCache,
+			rpcConfig, cfg.ActiveNetParams.Params, hintCache,
+			hintCache, blockCache,
 		)
 		if err != nil {
 			return nil, nil, err

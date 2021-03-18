@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/integration/rpctest"
+	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 )
@@ -53,9 +54,12 @@ func initHintCache(t *testing.T) *chainntnfs.HeightHintCache {
 // driver.
 func setUpNotifier(t *testing.T, h *rpctest.Harness) *BtcdNotifier {
 	hintCache := initHintCache(t)
+	blockCache := blockcache.NewBlockCache(10000)
 
 	rpcCfg := h.RPCConfig()
-	notifier, err := New(&rpcCfg, chainntnfs.NetParams, hintCache, hintCache)
+	notifier, err := New(
+		&rpcCfg, chainntnfs.NetParams, hintCache, hintCache, blockCache,
+	)
 	if err != nil {
 		t.Fatalf("unable to create notifier: %v", err)
 	}

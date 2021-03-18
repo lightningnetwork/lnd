@@ -18,7 +18,6 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
-	"github.com/lightningnetwork/lnd/signal"
 	"github.com/urfave/cli"
 )
 
@@ -467,7 +466,7 @@ func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 	// the server.
 	go func() {
 		select {
-		case <-signal.ShutdownChannel():
+		case <-rpcCtx.Done():
 			fmt.Printf("\nInterrupt signal received.\n")
 			close(quit)
 

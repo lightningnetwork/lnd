@@ -14,29 +14,40 @@ import (
 )
 
 var (
-	// interruptChannel is used to receive SIGINT (Ctrl+C) signals.
-	interruptChannel = make(chan os.Signal, 1)
-
-	// shutdownRequestChannel is used to request the daemon to shutdown
-	// gracefully, similar to when receiving SIGINT.
-	shutdownRequestChannel = make(chan struct{})
-
 	// started indicates whether we have started our main interrupt handler.
 	// This field should be used atomically.
 	started int32
-
-	// quit is closed when instructing the main interrupt handler to exit.
-	quit = make(chan struct{})
-
-	// shutdownChannel is closed once the main interrupt handler exits.
-	shutdownChannel = make(chan struct{})
 )
 
-// Intercept starts the interception of interrupt signals. Note that this
-// function can only be called once.
-func Intercept() error {
+// Interceptor contains channels and methods regarding application shutdown
+// and interrupt signals
+type Interceptor struct {
+	// interruptChannel is used to receive SIGINT (Ctrl+C) signals.
+	interruptChannel chan os.Signal
+
+	// shutdownChannel is closed once the main interrupt handler exits.
+	shutdownChannel chan struct{}
+
+	// shutdownRequestChannel is used to request the daemon to shutdown
+	// gracefully, similar to when receiving SIGINT.
+	shutdownRequestChannel chan struct{}
+
+	// quit is closed when instructing the main interrupt handler to exit.
+	quit chan struct{}
+}
+
+// Intercept starts the interception of interrupt signals and returns an `Interceptor` instance.
+// Note that any previous active interceptor must be stopped before a new one can be created
+func Intercept() (Interceptor, error) {
 	if !atomic.CompareAndSwapInt32(&started, 0, 1) {
-		return errors.New("intercept already started")
+		return Interceptor{}, errors.New("intercept already started")
+	}
+
+	channels := Interceptor{
+		interruptChannel:       make(chan os.Signal, 1),
+		shutdownChannel:        make(chan struct{}),
+		shutdownRequestChannel: make(chan struct{}),
+		quit:                   make(chan struct{}),
 	}
 
 	signalsToCatch := []os.Signal{
@@ -45,10 +56,10 @@ func Intercept() error {
 		syscall.SIGTERM,
 		syscall.SIGQUIT,
 	}
-	signal.Notify(interruptChannel, signalsToCatch...)
-	go mainInterruptHandler()
+	signal.Notify(channels.interruptChannel, signalsToCatch...)
+	go channels.mainInterruptHandler()
 
-	return nil
+	return channels, nil
 }
 
 // mainInterruptHandler listens for SIGINT (Ctrl+C) signals on the
@@ -56,7 +67,8 @@ func Intercept() error {
 // invokes the registered interruptCallbacks accordingly. It also listens for
 // callback registration.
 // It must be run as a goroutine.
-func mainInterruptHandler() {
+func (c *Interceptor) mainInterruptHandler() {
+	defer atomic.StoreInt32(&started, 0)
 	// isShutdown is a flag which is used to indicate whether or not
 	// the shutdown signal has already been received and hence any future
 	// attempts to add a new interrupt handler should invoke them
@@ -76,22 +88,23 @@ func mainInterruptHandler() {
 
 		// Signal the main interrupt handler to exit, and stop accept
 		// post-facto requests.
-		close(quit)
+		close(c.quit)
 	}
 
 	for {
 		select {
-		case signal := <-interruptChannel:
+		case signal := <-c.interruptChannel:
 			log.Infof("Received %v", signal)
 			shutdown()
 
-		case <-shutdownRequestChannel:
+		case <-c.shutdownRequestChannel:
 			log.Infof("Received shutdown request.")
 			shutdown()
 
-		case <-quit:
+		case <-c.quit:
 			log.Infof("Gracefully shutting down.")
-			close(shutdownChannel)
+			close(c.shutdownChannel)
+			signal.Stop(c.interruptChannel)
 			return
 		}
 	}
@@ -99,7 +112,7 @@ func mainInterruptHandler() {
 
 // Listening returns true if the main interrupt handler has been started, and
 // has not been killed.
-func Listening() bool {
+func (c *Interceptor) Listening() bool {
 	// If our started field is not set, we are not yet listening for
 	// interrupts.
 	if atomic.LoadInt32(&started) != 1 {
@@ -108,13 +121,13 @@ func Listening() bool {
 
 	// If we have started our main goroutine, we check whether we have
 	// stopped it yet.
-	return Alive()
+	return c.Alive()
 }
 
 // Alive returns true if the main interrupt handler has not been killed.
-func Alive() bool {
+func (c *Interceptor) Alive() bool {
 	select {
-	case <-quit:
+	case <-c.quit:
 		return false
 	default:
 		return true
@@ -122,15 +135,15 @@ func Alive() bool {
 }
 
 // RequestShutdown initiates a graceful shutdown from the application.
-func RequestShutdown() {
+func (c *Interceptor) RequestShutdown() {
 	select {
-	case shutdownRequestChannel <- struct{}{}:
-	case <-quit:
+	case c.shutdownRequestChannel <- struct{}{}:
+	case <-c.quit:
 	}
 }
 
 // ShutdownChannel returns the channel that will be closed once the main
 // interrupt handler has exited.
-func ShutdownChannel() <-chan struct{} {
-	return shutdownChannel
+func (c *Interceptor) ShutdownChannel() <-chan struct{} {
+	return c.shutdownChannel
 }

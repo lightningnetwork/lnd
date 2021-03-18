@@ -1955,7 +1955,7 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
 				return btcdnotify.New(
 					&rpcConfig, chainntnfs.NetParams,
-					hintCache, hintCache,
+					hintCache, hintCache, blockCache,
 				)
 			}
 

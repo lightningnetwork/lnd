@@ -652,6 +652,10 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error) error {
 		return err
 	}
 
+	if err := hn.waitUntilStarted(conn, DefaultTimeout); err != nil {
+		return err
+	}
+
 	// If the node was created with a seed, we will need to perform an
 	// additional step to unlock the wallet. The connection returned will
 	// only use the TLS certs, and can only perform operations necessary to
@@ -662,6 +666,49 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error) error {
 	}
 
 	return hn.initLightningClient(conn)
+}
+
+// waitUntilStarted waits until the wallet state flips from "WAITING_TO_START".
+func (hn *HarnessNode) waitUntilStarted(conn grpc.ClientConnInterface,
+	timeout time.Duration) error {
+
+	stateClient := lnrpc.NewStateClient(conn)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stateStream, err := stateClient.SubscribeState(
+		ctx, &lnrpc.SubscribeStateRequest{},
+	)
+	if err != nil {
+		return err
+	}
+
+	errChan := make(chan error, 1)
+	started := make(chan struct{})
+	go func() {
+		for {
+			resp, err := stateStream.Recv()
+			if err != nil {
+				errChan <- err
+			}
+
+			if resp.State != lnrpc.WalletState_WAITING_TO_START {
+				close(started)
+				return
+			}
+		}
+	}()
+
+	select {
+
+	case <-started:
+	case err = <-errChan:
+
+	case <-time.After(timeout):
+		return fmt.Errorf("WaitUntilLeader timed out")
+	}
+
+	return err
 }
 
 // initClientWhenReady waits until the main gRPC server is detected as active,

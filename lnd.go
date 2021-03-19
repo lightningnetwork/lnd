@@ -316,6 +316,68 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		}
 	}
 
+	// Create a new RPC interceptor that we'll add to the GRPC server. This
+	// will be used to log the API calls invoked on the GRPC server.
+	interceptorChain := rpcperms.NewInterceptorChain(
+		rpcsLog, cfg.NoMacaroons,
+	)
+	if err := interceptorChain.Start(); err != nil {
+		return err
+	}
+	defer func() {
+		err := interceptorChain.Stop()
+		if err != nil {
+			ltndLog.Warnf("error stopping RPC interceptor "+
+				"chain: %v", err)
+		}
+	}()
+
+	rpcServerOpts := interceptorChain.CreateServerOpts()
+	serverOpts = append(serverOpts, rpcServerOpts...)
+
+	grpcServer := grpc.NewServer(serverOpts...)
+	defer grpcServer.Stop()
+
+	// We'll also register the RPC interceptor chain as the StateServer, as
+	// it can be used to query for the current state of the wallet.
+	lnrpc.RegisterStateServer(grpcServer, interceptorChain)
+
+	// Register the WalletUnlockerService with the GRPC server.
+	pwService := createWalletUnlockerService(cfg)
+	lnrpc.RegisterWalletUnlockerServer(grpcServer, pwService)
+
+	// Initialize, and register our implementation of the gRPC interface
+	// exported by the rpcServer.
+	rpcServer := newRPCServer(
+		cfg, interceptorChain, lisCfg.ExternalRPCSubserverCfg,
+		lisCfg.ExternalRestRegistrar,
+		interceptor,
+	)
+
+	err = rpcServer.RegisterWithGrpcServer(grpcServer)
+	if err != nil {
+		return err
+	}
+
+	// Now that both the WalletUnlocker and LightningService have been
+	// registered with the GRPC server, we can start listening.
+	err = startGrpcListen(cfg, grpcServer, grpcListeners)
+	if err != nil {
+		return err
+	}
+
+	// Now start the REST proxy for our gRPC server above. We'll ensure
+	// we direct LND to connect to its loopback address rather than a
+	// wildcard to prevent certificate issues when accessing the proxy
+	// externally.
+	stopProxy, err := startRestProxy(
+		cfg, rpcServer, restDialOpts, restListen,
+	)
+	if err != nil {
+		return err
+	}
+	defer stopProxy()
+
 	// Start leader election if we're running on etcd. Continuation will be
 	// blocked until this instance is elected as the current leader or
 	// shutting down.
@@ -401,77 +463,17 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		)
 	}
 
-	// We'll create the WalletUnlockerService and check whether the wallet
-	// already exists.
-	pwService := createWalletUnlockerService(cfg,
-		[]btcwallet.LoaderOption{loaderOpt},
-	)
-
+	pwService.SetLoaderOpts([]btcwallet.LoaderOption{loaderOpt})
 	walletExists, err := pwService.WalletExists()
 	if err != nil {
 		return err
 	}
 
-	// Create a new RPC interceptor that we'll add to the GRPC server. This
-	// will be used to log the API calls invoked on the GRPC server.
-	interceptorChain := rpcperms.NewInterceptorChain(
-		rpcsLog, cfg.NoMacaroons, walletExists,
-	)
-	if err := interceptorChain.Start(); err != nil {
-		return err
+	if !walletExists {
+		interceptorChain.SetWalletNotCreated()
+	} else {
+		interceptorChain.SetWalletLocked()
 	}
-	defer func() {
-		err := interceptorChain.Stop()
-		if err != nil {
-			ltndLog.Warnf("error stopping RPC interceptor "+
-				"chain: %v", err)
-		}
-	}()
-
-	rpcServerOpts := interceptorChain.CreateServerOpts()
-	serverOpts = append(serverOpts, rpcServerOpts...)
-
-	grpcServer := grpc.NewServer(serverOpts...)
-	defer grpcServer.Stop()
-
-	// Register the WalletUnlockerService with the GRPC server.
-	lnrpc.RegisterWalletUnlockerServer(grpcServer, pwService)
-
-	// We'll also register the RPC interceptor chain as the StateServer, as
-	// it can be used to query for the current state of the wallet.
-	lnrpc.RegisterStateServer(grpcServer, interceptorChain)
-
-	// Initialize, and register our implementation of the gRPC interface
-	// exported by the rpcServer.
-	rpcServer := newRPCServer(
-		cfg, interceptorChain, lisCfg.ExternalRPCSubserverCfg,
-		lisCfg.ExternalRestRegistrar,
-		interceptor,
-	)
-
-	err = rpcServer.RegisterWithGrpcServer(grpcServer)
-	if err != nil {
-		return err
-	}
-
-	// Now that both the WalletUnlocker and LightningService have been
-	// registered with the GRPC server, we can start listening.
-	err = startGrpcListen(cfg, grpcServer, grpcListeners)
-	if err != nil {
-		return err
-	}
-
-	// Now start the REST proxy for our gRPC server above. We'll ensure
-	// we direct LND to connect to its loopback address rather than a
-	// wildcard to prevent certificate issues when accessing the proxy
-	// externally.
-	stopProxy, err := startRestProxy(
-		cfg, rpcServer, restDialOpts, restListen,
-	)
-	if err != nil {
-		return err
-	}
-	defer stopProxy()
 
 	// We wait until the user provides a password over RPC. In case lnd is
 	// started with the --noseedbackup flag, we use the default password
@@ -1234,9 +1236,7 @@ type WalletUnlockParams struct {
 
 // createWalletUnlockerService creates a WalletUnlockerService from the passed
 // config.
-func createWalletUnlockerService(cfg *Config,
-	loaderOpts []btcwallet.LoaderOption) *walletunlocker.UnlockerService {
-
+func createWalletUnlockerService(cfg *Config) *walletunlocker.UnlockerService {
 	chainConfig := cfg.Bitcoin
 	if cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
 		chainConfig = cfg.Litecoin
@@ -1252,7 +1252,7 @@ func createWalletUnlockerService(cfg *Config,
 	return walletunlocker.New(
 		chainConfig.ChainDir, cfg.ActiveNetParams.Params,
 		!cfg.SyncFreelist, macaroonFiles, cfg.DB.Bolt.DBTimeout,
-		cfg.ResetWalletTransactions, loaderOpts,
+		cfg.ResetWalletTransactions, nil,
 	)
 }
 

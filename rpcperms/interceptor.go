@@ -21,10 +21,16 @@ import (
 type rpcState uint8
 
 const (
+	// waitingToStart indicates that we're at the beginning of the startup
+	// process. In a cluster evironment this may mean that we're waiting to
+	// become the leader in which case RPC calls will be disabled until
+	// this instance has been elected as leader.
+	waitingToStart rpcState = iota
+
 	// walletNotCreated is the starting state if the RPC server is active,
 	// but the wallet is not yet created. In this state we'll only allow
 	// calls to the WalletUnlockerService.
-	walletNotCreated rpcState = iota
+	walletNotCreated
 
 	// walletLocked indicates the RPC server is active, but the wallet is
 	// locked. In this state we'll only allow calls to the
@@ -40,6 +46,11 @@ const (
 )
 
 var (
+	// ErrWaitingToStart is returned if LND is still wating to start,
+	// possibly blocked until elected as the leader.
+	ErrWaitingToStart = fmt.Errorf("waiting to start, RPC services not " +
+		"available")
+
 	// ErrNoWallet is returned if the wallet does not exist.
 	ErrNoWallet = fmt.Errorf("wallet not created, create one to enable " +
 		"full RPC access")
@@ -110,16 +121,9 @@ type InterceptorChain struct {
 var _ lnrpc.StateServer = (*InterceptorChain)(nil)
 
 // NewInterceptorChain creates a new InterceptorChain.
-func NewInterceptorChain(log btclog.Logger, noMacaroons,
-	walletExists bool) *InterceptorChain {
-
-	startState := walletNotCreated
-	if walletExists {
-		startState = walletLocked
-	}
-
+func NewInterceptorChain(log btclog.Logger, noMacaroons bool) *InterceptorChain {
 	return &InterceptorChain{
-		state:         startState,
+		state:         waitingToStart,
 		ntfnServer:    subscribe.NewServer(),
 		noMacaroons:   noMacaroons,
 		permissionMap: make(map[string][]bakery.Op),
@@ -148,6 +152,26 @@ func (r *InterceptorChain) Stop() error {
 	})
 
 	return err
+}
+
+// SetWalletNotCreated moves the RPC state from either waitingToStart to
+// walletNotCreated.
+func (r *InterceptorChain) SetWalletNotCreated() {
+	r.Lock()
+	defer r.Unlock()
+
+	r.state = walletNotCreated
+	_ = r.ntfnServer.SendUpdate(r.state)
+}
+
+// SetWalletLocked moves the RPC state from either walletNotCreated to
+// walletLocked.
+func (r *InterceptorChain) SetWalletLocked() {
+	r.Lock()
+	defer r.Unlock()
+
+	r.state = walletLocked
+	_ = r.ntfnServer.SendUpdate(r.state)
 }
 
 // SetWalletUnlocked moves the RPC state from either walletNotCreated or
@@ -179,6 +203,8 @@ func (r *InterceptorChain) SubscribeState(req *lnrpc.SubscribeStateRequest,
 	sendStateUpdate := func(state rpcState) error {
 		resp := &lnrpc.SubscribeStateResponse{}
 		switch state {
+		case waitingToStart:
+			resp.State = lnrpc.WalletState_WAITING_TO_START
 		case walletNotCreated:
 			resp.State = lnrpc.WalletState_NON_EXISTING
 		case walletLocked:
@@ -189,8 +215,7 @@ func (r *InterceptorChain) SubscribeState(req *lnrpc.SubscribeStateRequest,
 			resp.State = lnrpc.WalletState_RPC_ACTIVE
 
 		default:
-			return fmt.Errorf("unknown wallet "+
-				"state %v", state)
+			return fmt.Errorf("unknown wallet state %v", state)
 		}
 
 		return stream.Send(resp)
@@ -458,6 +483,11 @@ func (r *InterceptorChain) checkRPCState(srv interface{}) error {
 	r.RUnlock()
 
 	switch state {
+
+	// Do not accept any RPC calls (unless to the state service) until LND
+	// has not started.
+	case waitingToStart:
+		return ErrWaitingToStart
 
 	// If the wallet does not exists, only calls to the WalletUnlocker are
 	// accepted.

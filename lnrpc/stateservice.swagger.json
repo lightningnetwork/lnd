@@ -59,7 +59,8 @@
         "NON_EXISTING",
         "LOCKED",
         "UNLOCKED",
-        "RPC_ACTIVE"
+        "RPC_ACTIVE",
+        "WAITING_TO_START"
       ],
       "default": "NON_EXISTING"
     },

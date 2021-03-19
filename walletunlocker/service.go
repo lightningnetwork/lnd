@@ -165,6 +165,12 @@ func New(chainDir string, params *chaincfg.Params, noFreelistSync bool,
 	}
 }
 
+// SetLoaderOpts can be used to inject wallet loader options after the unlocker
+// service has been hooked to the main RPC server.
+func (u *UnlockerService) SetLoaderOpts(loaderOpts []btcwallet.LoaderOption) {
+	u.loaderOpts = loaderOpts
+}
+
 func (u *UnlockerService) newLoader(recoveryWindow uint32) (*wallet.Loader,
 	error) {
 

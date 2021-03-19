@@ -113,28 +113,13 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	// We'll first check if this HTLC has been timed out, if so, we can
 	// return now and mark ourselves as resolved. If we're past the point of
 	// expiry of the HTLC, then at this point the sender can sweep it, so
-	// we'll end our lifetime. Here we deliberately forego the chance that
-	// the sender doesn't sweep and we already have or will learn the
-	// preimage. Otherwise the resolver could potentially stay active
-	// indefinitely and the channel will never close properly.
+	// we'll end our lifetime.
 	if uint32(currentHeight) >= h.htlcExpiry {
 		// TODO(roasbeef): should also somehow check if outgoing is
 		// resolved or not
 		//  * may need to hook into the circuit map
 		//  * can't timeout before the outgoing has been
-
-		log.Infof("%T(%v): HTLC has timed out (expiry=%v, height=%v), "+
-			"abandoning", h, h.htlcResolution.ClaimOutpoint,
-			h.htlcExpiry, currentHeight)
-		h.resolved = true
-
-		// Finally, get our report and checkpoint our resolver with a
-		// timeout outcome report.
-		report := h.report().resolverReport(
-			nil, channeldb.ResolverTypeIncomingHtlc,
-			channeldb.ResolverOutcomeTimeout,
-		)
-		return nil, h.Checkpoint(h, report)
+		return nil, h.handleTimeout(uint32(currentHeight))
 	}
 
 	// applyPreimage is a helper function that will populate our internal
@@ -331,24 +316,33 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			// resolved and exit.
 			newHeight := uint32(newBlock.Height)
 			if newHeight >= h.htlcExpiry {
-				log.Infof("%T(%v): HTLC has timed out "+
-					"(expiry=%v, height=%v), abandoning", h,
-					h.htlcResolution.ClaimOutpoint,
-					h.htlcExpiry, currentHeight)
-				h.resolved = true
-
-				report := h.report().resolverReport(
-					nil,
-					channeldb.ResolverTypeIncomingHtlc,
-					channeldb.ResolverOutcomeTimeout,
-				)
-				return nil, h.Checkpoint(h, report)
+				return nil, h.handleTimeout(newHeight)
 			}
 
 		case <-h.quit:
 			return nil, errResolverShuttingDown
 		}
 	}
+}
+
+// handleTimeout manages the case where our htlc has timed out before we
+// learned the preimage. Here we deliberately forego the chance that the sender
+// doesn't sweep and we already have or will learn the preimage. Otherwise the
+// resolver could potentially stay active indefinitely and the channel will
+// never close properly.
+func (h *htlcIncomingContestResolver) handleTimeout(height uint32) error {
+	log.Infof("%T(%v): HTLC has timed out (expiry=%v, height=%v), "+
+		"abandoning", h, h.htlcResolution.ClaimOutpoint,
+		h.htlcExpiry, height)
+
+	h.resolved = true
+
+	report := h.report().resolverReport(
+		nil, channeldb.ResolverTypeIncomingHtlc,
+		channeldb.ResolverOutcomeTimeout,
+	)
+
+	return h.Checkpoint(h, report)
 }
 
 // report returns a report on the resolution state of the contract.

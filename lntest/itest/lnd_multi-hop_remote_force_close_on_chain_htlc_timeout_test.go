@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -176,6 +177,26 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = waitForNumChannelPendingForceClose(ctxt, bob, 0, nil)
 	require.NoError(t.t, err)
+
+	// Assert that carol can incorrectly still settle the invoice, even
+	// though it has timed out on chain.
+	_, err = carol.SettleInvoice(ctxb, &invoicesrpc.SettleInvoiceMsg{
+		Preimage: preimage[:],
+	})
+	require.NoError(t.t, err, "expected erroneous invoice settle")
+
+	// Assert that the htlcs for our invoice are erroneously still in the
+	// accepted state and our invoice is settled.
+	inv, err := carol.LookupInvoice(ctxt, &lnrpc.PaymentHash{
+		RHash: payHash[:],
+	})
+	require.NoError(t.t, err)
+
+	require.True(t.t, inv.Settled, "expected erroneously settled invoice")
+	for _, htlc := range inv.Htlcs {
+		require.Equal(t.t, lnrpc.InvoiceHTLCState_SETTLED, htlc.State,
+			"expected htlcs to be erroneously settled")
+	}
 
 	// We'll close out the test by closing the channel from Alice to Bob,
 	// and then shutting down the new node we created as its no longer

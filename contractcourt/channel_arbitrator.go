@@ -149,6 +149,10 @@ type ChannelArbitratorConfig struct {
 	// TODO(roasbeef): need RPC's to combine for pendingchannels RPC
 	MarkChannelResolved func() error
 
+	// CancelInvoice can be used to update the invoice registry to cancel
+	// invoices which are not settled.
+	CancelInvoice func(lntypes.Hash) error
+
 	// PutResolverReport records a resolver report for the channel. If the
 	// transaction provided is nil, the function should write the report
 	// in a new transaction.

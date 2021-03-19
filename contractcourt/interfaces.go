@@ -20,6 +20,9 @@ type Registry interface {
 	// byte payment hash.
 	LookupInvoice(lntypes.Hash) (channeldb.Invoice, error)
 
+	// CancelInvoice attempts to cancel an invoice with the hash provided.
+	CancelInvoice(lntypes.Hash) error
+
 	// NotifyExitHopHtlc attempts to mark an invoice as settled. If the
 	// invoice is a debug invoice, then this method is a noop as debug
 	// invoices are never fully settled. The return value describes how the

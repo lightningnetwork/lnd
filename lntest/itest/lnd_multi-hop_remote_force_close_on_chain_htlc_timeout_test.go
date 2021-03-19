@@ -183,7 +183,7 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	_, err = carol.SettleInvoice(ctxb, &invoicesrpc.SettleInvoiceMsg{
 		Preimage: preimage[:],
 	})
-	require.NoError(t.t, err, "expected erroneous invoice settle")
+	require.Error(t.t, err, "expected settle to fail")
 
 	// Assert that the htlcs for our invoice are erroneously still in the
 	// accepted state and our invoice is settled.
@@ -192,10 +192,10 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	})
 	require.NoError(t.t, err)
 
-	require.True(t.t, inv.Settled, "expected erroneously settled invoice")
+	require.False(t.t, inv.Settled, "unexpected settle state")
 	for _, htlc := range inv.Htlcs {
-		require.Equal(t.t, lnrpc.InvoiceHTLCState_SETTLED, htlc.State,
-			"expected htlcs to be erroneously settled")
+		require.Equal(t.t, lnrpc.InvoiceHTLCState_CANCELED, htlc.State,
+			"expected canceled htlcs")
 	}
 
 	// We'll close out the test by closing the channel from Alice to Bob,

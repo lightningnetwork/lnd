@@ -110,6 +110,9 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		return nil, errResolverShuttingDown
 	}
 
+	// If there is no next hop set, then this htlc terminated at our node.
+	isInvoice := payload.FwdInfo.NextHop == hop.Exit
+
 	// We'll first check if this HTLC has been timed out, if so, we can
 	// return now and mark ourselves as resolved. If we're past the point of
 	// expiry of the HTLC, then at this point the sender can sweep it, so
@@ -119,7 +122,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		// resolved or not
 		//  * may need to hook into the circuit map
 		//  * can't timeout before the outgoing has been
-		return nil, h.handleTimeout(uint32(currentHeight))
+		return nil, h.handleTimeout(uint32(currentHeight), isInvoice)
 	}
 
 	// applyPreimage is a helper function that will populate our internal
@@ -206,7 +209,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		hodlChan       chan interface{}
 		witnessUpdates <-chan lntypes.Preimage
 	)
-	if payload.FwdInfo.NextHop == hop.Exit {
+	if isInvoice {
 		// Create a buffered hodl chan to prevent deadlock.
 		hodlChan = make(chan interface{}, 1)
 
@@ -316,7 +319,9 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			// resolved and exit.
 			newHeight := uint32(newBlock.Height)
 			if newHeight >= h.htlcExpiry {
-				return nil, h.handleTimeout(newHeight)
+				return nil, h.handleTimeout(
+					newHeight, isInvoice,
+				)
 			}
 
 		case <-h.quit:
@@ -330,9 +335,27 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 // doesn't sweep and we already have or will learn the preimage. Otherwise the
 // resolver could potentially stay active indefinitely and the channel will
 // never close properly.
-func (h *htlcIncomingContestResolver) handleTimeout(height uint32) error {
-	log.Infof("%T(%v): HTLC has timed out (expiry=%v, height=%v), "+
-		"abandoning", h, h.htlcResolution.ClaimOutpoint,
+func (h *htlcIncomingContestResolver) handleTimeout(height uint32,
+	isInvoice bool) error {
+
+	htlcType := "forwarded"
+
+	// If this HTLC is associated with an invoice, we cancel it so that
+	// its state will match the action we've taken on chain. We only do so
+	// if we know that this htlc is related to an invoice, so that htlcs
+	// forwarded with the same hash as one of our invoices cannot have any
+	// affect on our state.
+	if isInvoice {
+		htlcType = "invoice"
+
+		err := h.CancelInvoice(h.htlc.RHash)
+		if err != nil {
+			return err
+		}
+	}
+
+	log.Infof("%T(%v): %v HTLC has timed out (expiry=%v, height=%v), "+
+		"abandoning", h, h.htlcResolution.ClaimOutpoint, htlcType,
 		h.htlcExpiry, height)
 
 	h.resolved = true

@@ -204,6 +204,9 @@ func TestHtlcIncomingResolverExitTimeoutHodl(t *testing.T) {
 	ctx.resolve()
 	ctx.notifyEpoch(testHtlcExpiry)
 
+	// We expect the invoice to be canceled on timeout.
+	ctx.registry.assertCancelInvoice(t, testResHash)
+
 	// Assert that we have a failure resolution because our invoice was
 	// cancelled.
 	assertResolverReport(t, reportChan, &channeldb.ResolverReport{
@@ -312,6 +315,7 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 	witnessBeacon := newMockWitnessBeacon()
 	registry := &mockRegistry{
 		notifyChan: make(chan notifyExitHopData, 1),
+		cancelChan: make(chan lntypes.Hash, 1),
 	}
 
 	onionProcessor := &mockOnionProcessor{isExit: isExit}
@@ -325,6 +329,7 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 			Registry:       registry,
 			OnionProcessor: onionProcessor,
 		},
+		CancelInvoice: registry.CancelInvoice,
 		PutResolverReport: func(_ kvdb.RwTx,
 			_ *channeldb.ResolverReport) error {
 

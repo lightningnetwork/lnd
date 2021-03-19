@@ -339,6 +339,7 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 		IsPendingClose:        false,
 		ChainArbitratorConfig: c.cfg,
 		ChainEvents:           chanEvents,
+		CancelInvoice:         c.cfg.Registry.CancelInvoice,
 		PutResolverReport: func(tx kvdb.RwTx,
 			report *channeldb.ResolverReport) error {
 
@@ -544,6 +545,7 @@ func (c *ChainArbitrator) Start() error {
 			IsPendingClose:        true,
 			ClosingHeight:         closeChanInfo.CloseHeight,
 			CloseType:             closeChanInfo.CloseType,
+			CancelInvoice:         c.cfg.Registry.CancelInvoice,
 			PutResolverReport: func(tx kvdb.RwTx,
 				report *channeldb.ResolverReport) error {
 

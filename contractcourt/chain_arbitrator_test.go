@@ -88,6 +88,7 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 			EpochChan: make(chan *chainntnfs.BlockEpoch),
 			ConfChan:  make(chan *chainntnfs.TxConfirmation),
 		},
+		Registry: &mockRegistry{},
 		PublishTx: func(tx *wire.MsgTx, _ string) error {
 			published[tx.TxHash()]++
 			return nil
@@ -178,7 +179,8 @@ func TestResolveContract(t *testing.T) {
 	// chain arbitrator that should pick up these new channels and launch
 	// resolver for them.
 	chainArbCfg := ChainArbitratorConfig{
-		ChainIO: &mock.ChainIO{},
+		Registry: &mockRegistry{},
+		ChainIO:  &mock.ChainIO{},
 		Notifier: &mock.ChainNotifier{
 			SpendChan: make(chan *chainntnfs.SpendDetail),
 			EpochChan: make(chan *chainntnfs.BlockEpoch),

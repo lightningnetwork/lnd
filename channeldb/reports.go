@@ -121,7 +121,7 @@ type ResolverReport struct {
 
 // PutResolverReport creates and commits a transaction that is used to write a
 // resolver report to disk.
-func (d *DB) PutResolverReport(tx kvdb.RwTx, chainHash chainhash.Hash,
+func (db *DB) PutResolverReport(tx kvdb.RwTx, chainHash chainhash.Hash,
 	channelOutpoint *wire.OutPoint, report *ResolverReport) error {
 
 	putReportFunc := func(tx kvdb.RwTx) error {
@@ -130,7 +130,7 @@ func (d *DB) PutResolverReport(tx kvdb.RwTx, chainHash chainhash.Hash,
 
 	// If the transaction is nil, we'll create a new one.
 	if tx == nil {
-		return kvdb.Update(d, putReportFunc, func() {})
+		return kvdb.Update(db, putReportFunc, func() {})
 	}
 
 	// Otherwise, we can write the report to disk using the existing
@@ -209,12 +209,12 @@ func serializeReport(w io.Writer, report *ResolverReport) error {
 }
 
 // FetchChannelReports fetches the set of reports for a channel.
-func (d DB) FetchChannelReports(chainHash chainhash.Hash,
+func (db DB) FetchChannelReports(chainHash chainhash.Hash,
 	outPoint *wire.OutPoint) ([]*ResolverReport, error) {
 
 	var reports []*ResolverReport
 
-	if err := kvdb.View(d, func(tx kvdb.RTx) error {
+	if err := kvdb.View(db, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchReportReadBucket(
 			tx, chainHash, outPoint,
 		)

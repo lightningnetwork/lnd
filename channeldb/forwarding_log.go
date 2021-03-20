@@ -41,9 +41,9 @@ const (
 
 // ForwardingLog returns an instance of the ForwardingLog object backed by the
 // target database instance.
-func (d *DB) ForwardingLog() *ForwardingLog {
+func (db *DB) ForwardingLog() *ForwardingLog {
 	return &ForwardingLog{
-		db: d,
+		db: db,
 	}
 }
 

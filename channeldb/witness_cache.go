@@ -64,9 +64,9 @@ type WitnessCache struct {
 }
 
 // NewWitnessCache returns a new instance of the witness cache.
-func (d *DB) NewWitnessCache() *WitnessCache {
+func (db *DB) NewWitnessCache() *WitnessCache {
 	return &WitnessCache{
-		db: d,
+		db: db,
 	}
 }
 

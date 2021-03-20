@@ -666,7 +666,7 @@ func (i *Invoice) IsPending() bool {
 // insertion will be aborted and rejected due to the strict policy banning any
 // duplicate payment hashes. A side effect of this function is that it sets
 // AddIndex on newInvoice.
-func (d *DB) AddInvoice(newInvoice *Invoice, paymentHash lntypes.Hash) (
+func (db *DB) AddInvoice(newInvoice *Invoice, paymentHash lntypes.Hash) (
 	uint64, error) {
 
 	if err := validateInvoice(newInvoice, paymentHash); err != nil {
@@ -674,7 +674,7 @@ func (d *DB) AddInvoice(newInvoice *Invoice, paymentHash lntypes.Hash) (
 	}
 
 	var invoiceAddIndex uint64
-	err := kvdb.Update(d, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		invoices, err := tx.CreateTopLevelBucket(invoiceBucket)
 		if err != nil {
 			return err
@@ -754,7 +754,7 @@ func (d *DB) AddInvoice(newInvoice *Invoice, paymentHash lntypes.Hash) (
 //
 // NOTE: The index starts from 1, as a result. We enforce that specifying a
 // value below the starting index value is a noop.
-func (d *DB) InvoicesAddedSince(sinceAddIndex uint64) ([]Invoice, error) {
+func (db *DB) InvoicesAddedSince(sinceAddIndex uint64) ([]Invoice, error) {
 	var newInvoices []Invoice
 
 	// If an index of zero was specified, then in order to maintain
@@ -766,7 +766,7 @@ func (d *DB) InvoicesAddedSince(sinceAddIndex uint64) ([]Invoice, error) {
 	var startIndex [8]byte
 	byteOrder.PutUint64(startIndex[:], sinceAddIndex)
 
-	err := kvdb.View(d, func(tx kvdb.RTx) error {
+	err := kvdb.View(db, func(tx kvdb.RTx) error {
 		invoices := tx.ReadBucket(invoiceBucket)
 		if invoices == nil {
 			return nil
@@ -816,9 +816,9 @@ func (d *DB) InvoicesAddedSince(sinceAddIndex uint64) ([]Invoice, error) {
 // full invoice is returned. Before setting the incoming HTLC, the values
 // SHOULD be checked to ensure the payer meets the agreed upon contractual
 // terms of the payment.
-func (d *DB) LookupInvoice(ref InvoiceRef) (Invoice, error) {
+func (db *DB) LookupInvoice(ref InvoiceRef) (Invoice, error) {
 	var invoice Invoice
-	err := kvdb.View(d, func(tx kvdb.RTx) error {
+	err := kvdb.View(db, func(tx kvdb.RTx) error {
 		invoices := tx.ReadBucket(invoiceBucket)
 		if invoices == nil {
 			return ErrNoInvoicesCreated
@@ -919,10 +919,10 @@ func fetchInvoiceNumByRef(invoiceIndex, payAddrIndex, setIDIndex kvdb.RBucket,
 // for each invoice with its respective payment hash. Additionally a reset()
 // closure is passed which is used to reset/initialize partial results and also
 // to signal if the kvdb.View transaction has been retried.
-func (d *DB) ScanInvoices(
+func (db *DB) ScanInvoices(
 	scanFunc func(lntypes.Hash, *Invoice) error, reset func()) error {
 
-	return kvdb.View(d, func(tx kvdb.RTx) error {
+	return kvdb.View(db, func(tx kvdb.RTx) error {
 		invoices := tx.ReadBucket(invoiceBucket)
 		if invoices == nil {
 			return ErrNoInvoicesCreated
@@ -1009,10 +1009,10 @@ type InvoiceSlice struct {
 
 // QueryInvoices allows a caller to query the invoice database for invoices
 // within the specified add index range.
-func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
+func (db *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
 	var resp InvoiceSlice
 
-	err := kvdb.View(d, func(tx kvdb.RTx) error {
+	err := kvdb.View(db, func(tx kvdb.RTx) error {
 		// If the bucket wasn't found, then there aren't any invoices
 		// within the database yet, so we can simply exit.
 		invoices := tx.ReadBucket(invoiceBucket)
@@ -1101,11 +1101,11 @@ func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
 // The update is performed inside the same database transaction that fetches the
 // invoice and is therefore atomic. The fields to update are controlled by the
 // supplied callback.
-func (d *DB) UpdateInvoice(ref InvoiceRef,
+func (db *DB) UpdateInvoice(ref InvoiceRef,
 	callback InvoiceUpdateCallback) (*Invoice, error) {
 
 	var updatedInvoice *Invoice
-	err := kvdb.Update(d, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		invoices, err := tx.CreateTopLevelBucket(invoiceBucket)
 		if err != nil {
 			return err
@@ -1135,7 +1135,7 @@ func (d *DB) UpdateInvoice(ref InvoiceRef,
 		}
 
 		payHash := ref.PayHash()
-		updatedInvoice, err = d.updateInvoice(
+		updatedInvoice, err = db.updateInvoice(
 			payHash, invoices, settleIndex, setIDIndex,
 			invoiceNum, callback,
 		)
@@ -1155,7 +1155,7 @@ func (d *DB) UpdateInvoice(ref InvoiceRef,
 //
 // NOTE: The index starts from 1, as a result. We enforce that specifying a
 // value below the starting index value is a noop.
-func (d *DB) InvoicesSettledSince(sinceSettleIndex uint64) ([]Invoice, error) {
+func (db *DB) InvoicesSettledSince(sinceSettleIndex uint64) ([]Invoice, error) {
 	var settledInvoices []Invoice
 
 	// If an index of zero was specified, then in order to maintain
@@ -1167,7 +1167,7 @@ func (d *DB) InvoicesSettledSince(sinceSettleIndex uint64) ([]Invoice, error) {
 	var startIndex [8]byte
 	byteOrder.PutUint64(startIndex[:], sinceSettleIndex)
 
-	err := kvdb.View(d, func(tx kvdb.RTx) error {
+	err := kvdb.View(db, func(tx kvdb.RTx) error {
 		invoices := tx.ReadBucket(invoiceBucket)
 		if invoices == nil {
 			return nil
@@ -1733,7 +1733,7 @@ func copyInvoice(src *Invoice) *Invoice {
 
 // updateInvoice fetches the invoice, obtains the update descriptor from the
 // callback and applies the updates in a single db transaction.
-func (d *DB) updateInvoice(hash lntypes.Hash, invoices,
+func (db *DB) updateInvoice(hash lntypes.Hash, invoices,
 	settleIndex, setIDIndex kvdb.RwBucket, invoiceNum []byte,
 	callback InvoiceUpdateCallback) (*Invoice, error) {
 
@@ -1766,7 +1766,7 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices,
 		newState = update.State.NewState
 	}
 
-	now := d.clock.Now()
+	now := db.clock.Now()
 
 	// Process add actions from update descriptor.
 	for key, htlcUpdate := range update.AddHtlcs {
@@ -2134,8 +2134,8 @@ type InvoiceDeleteRef struct {
 // DeleteInvoice attempts to delete the passed invoices from the database in
 // one transaction. The passed delete references hold all keys required to
 // delete the invoices without also needing to deserialze them.
-func (d *DB) DeleteInvoice(invoicesToDelete []InvoiceDeleteRef) error {
-	err := kvdb.Update(d, func(tx kvdb.RwTx) error {
+func (db *DB) DeleteInvoice(invoicesToDelete []InvoiceDeleteRef) error {
+	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		invoices := tx.ReadWriteBucket(invoiceBucket)
 		if invoices == nil {
 			return ErrNoInvoicesCreated

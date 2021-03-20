@@ -22,10 +22,10 @@ type Meta struct {
 
 // FetchMeta fetches the meta data from boltdb and returns filled meta
 // structure.
-func (d *DB) FetchMeta(tx kvdb.RTx) (*Meta, error) {
+func (db *DB) FetchMeta(tx kvdb.RTx) (*Meta, error) {
 	var meta *Meta
 
-	err := kvdb.View(d, func(tx kvdb.RTx) error {
+	err := kvdb.View(db, func(tx kvdb.RTx) error {
 		return fetchMeta(meta, tx)
 	}, func() {
 		meta = &Meta{}
@@ -57,8 +57,8 @@ func fetchMeta(meta *Meta, tx kvdb.RTx) error {
 }
 
 // PutMeta writes the passed instance of the database met-data struct to disk.
-func (d *DB) PutMeta(meta *Meta) error {
-	return kvdb.Update(d, func(tx kvdb.RwTx) error {
+func (db *DB) PutMeta(meta *Meta) error {
+	return kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return putMeta(meta, tx)
 	}, func() {})
 }

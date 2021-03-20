@@ -2168,13 +2168,6 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 				"is offline (try force closing it instead): %v", err)
 		}
 
-		// If conf-target is not set then use the conf-target used for
-		// co-op closes that are initiated by the remote peer.
-		targetConf := uint32(in.TargetConf)
-		if targetConf == 0 {
-			targetConf = r.cfg.CoopCloseTargetConfs
-		}
-
 		// Based on the passed fee related parameters, we'll determine
 		// an appropriate fee rate for the cooperative closure
 		// transaction.
@@ -2183,7 +2176,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		).FeePerKWeight()
 		feeRate, err := sweep.DetermineFeePerKw(
 			r.server.cc.FeeEstimator, sweep.FeePreference{
-				ConfTarget: targetConf,
+				ConfTarget: uint32(in.TargetConf),
 				FeeRate:    satPerKw,
 			},
 		)

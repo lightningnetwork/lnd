@@ -967,7 +967,8 @@ func (r *ChannelRouter) networkHandler() {
 					update.msg,
 				)
 				if err != nil {
-					if err != ErrVBarrierShuttingDown {
+					if err != ErrVBarrierShuttingDown &&
+						err != ErrParentValidationFailed {
 						log.Warnf("unexpected error "+
 							"during validation "+
 							"barrier shutdown: %v",
@@ -985,7 +986,11 @@ func (r *ChannelRouter) networkHandler() {
 
 				// If this message had any dependencies, then
 				// we can now signal them to continue.
-				validationBarrier.SignalDependants(update.msg)
+				allowDependents := err == nil ||
+					IsError(err, ErrIgnored, ErrOutdated)
+				validationBarrier.SignalDependants(
+					update.msg, allowDependents,
+				)
 				if err != nil {
 					return
 				}

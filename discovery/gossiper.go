@@ -990,7 +990,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// Channel announcement signatures are amongst the only
 			// messages that we'll process serially.
 			case *lnwire.AnnounceSignatures:
-				emittedAnnouncements := d.processNetworkAnnouncement(
+				emittedAnnouncements, _ := d.processNetworkAnnouncement(
 					announcement,
 				)
 				if emittedAnnouncements != nil {
@@ -1040,14 +1040,14 @@ func (d *AuthenticatedGossiper) networkHandler() {
 				// determine if this is either a new
 				// announcement from our PoV or an edges to a
 				// prior vertex/edge we previously proceeded.
-				emittedAnnouncements := d.processNetworkAnnouncement(
+				emittedAnnouncements, allowDependents := d.processNetworkAnnouncement(
 					announcement,
 				)
 
 				// If this message had any dependencies, then
 				// we can now signal them to continue.
 				validationBarrier.SignalDependants(
-					announcement.msg,
+					announcement.msg, allowDependents,
 				)
 
 				// If the announcement was accepted, then add
@@ -1514,9 +1514,11 @@ func (d *AuthenticatedGossiper) addNode(msg *lnwire.NodeAnnouncement,
 // channel or node announcement or announcements proofs. If the announcement
 // didn't affect the internal state due to either being out of date, invalid,
 // or redundant, then nil is returned. Otherwise, the set of announcements will
-// be returned which should be broadcasted to the rest of the network.
+// be returned which should be broadcasted to the rest of the network. The
+// boolean returned indicates whether any dependents of the announcement should
+// attempt to be processed as well.
 func (d *AuthenticatedGossiper) processNetworkAnnouncement(
-	nMsg *networkMsg) []networkMsg {
+	nMsg *networkMsg) ([]networkMsg, bool) {
 
 	isPremature := func(chanID lnwire.ShortChannelID, delta uint32) bool {
 		// TODO(roasbeef) make height delta 6
@@ -1546,7 +1548,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// signatures if not required.
 		if d.cfg.Router.IsStaleNode(msg.NodeID, timestamp) {
 			nMsg.err <- nil
-			return nil
+			return nil, true
 		}
 
 		if err := d.addNode(msg, schedulerOp...); err != nil {
@@ -1559,7 +1561,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			}
 
 			nMsg.err <- err
-			return nil
+			return nil, false
 		}
 
 		// In order to ensure we don't leak unadvertised nodes, we'll
@@ -1570,7 +1572,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			log.Errorf("Unable to determine if node %x is "+
 				"advertised: %v", msg.NodeID, err)
 			nMsg.err <- err
-			return nil
+			return nil, false
 		}
 
 		// If it does, we'll add their announcement to our batch so that
@@ -1588,7 +1590,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 
 		nMsg.err <- nil
 		// TODO(roasbeef): get rid of the above
-		return announcements
+		return announcements, true
 
 	// A new channel announcement has arrived, this indicates the
 	// *creation* of a new channel within the network. This only advertises
@@ -1608,7 +1610,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			d.rejectMtx.Unlock()
 
 			nMsg.err <- err
-			return nil
+			return nil, false
 		}
 
 		// If the advertised inclusionary block is beyond our knowledge
@@ -1623,7 +1625,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 				d.bestHeight)
 			d.Unlock()
 			nMsg.err <- nil
-			return nil
+			return nil, false
 		}
 		d.Unlock()
 
@@ -1632,7 +1634,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// below.
 		if d.cfg.Router.IsKnownEdge(msg.ShortChannelID) {
 			nMsg.err <- nil
-			return nil
+			return nil, true
 		}
 
 		// If this is a remote channel announcement, then we'll validate
@@ -1649,7 +1651,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 
 				log.Error(err)
 				nMsg.err <- err
-				return nil
+				return nil, false
 			}
 
 			// If the proof checks out, then we'll save the proof
@@ -1669,7 +1671,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		if err := msg.Features.Encode(&featureBuf); err != nil {
 			log.Errorf("unable to encode features: %v", err)
 			nMsg.err <- err
-			return nil
+			return nil, false
 		}
 
 		edge := &channeldb.ChannelEdgeInfo{
@@ -1720,7 +1722,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 					d.recentRejects[msg.ShortChannelID.ToUint64()] = struct{}{}
 					d.rejectMtx.Unlock()
 					nMsg.err <- rErr
-					return nil
+					return nil, false
 				}
 
 				// If while processing this rejected edge, we
@@ -1729,7 +1731,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 				// directly.
 				if len(anns) != 0 {
 					nMsg.err <- nil
-					return anns
+					return anns, true
 				}
 
 				// Otherwise, this is just a regular rejected
@@ -1742,7 +1744,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			}
 
 			nMsg.err <- err
-			return nil
+			return nil, false
 		}
 
 		// If we earlier received any ChannelUpdates for this channel,
@@ -1806,7 +1808,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		}
 
 		nMsg.err <- nil
-		return announcements
+		return announcements, true
 
 	// A new authenticated channel edge update has arrived. This indicates
 	// that the directional information for an already known channel has
@@ -1825,7 +1827,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			d.rejectMtx.Unlock()
 
 			nMsg.err <- err
-			return nil
+			return nil, false
 		}
 
 		blockHeight := msg.ShortChannelID.BlockHeight
@@ -1842,7 +1844,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 				shortChanID, blockHeight,
 				d.bestHeight)
 			d.Unlock()
-			return nil
+			nMsg.err <- nil
+			return nil, false
 		}
 		d.Unlock()
 
@@ -1854,7 +1857,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			msg.ShortChannelID, timestamp, msg.ChannelFlags,
 		) {
 			nMsg.err <- nil
-			return nil
+			return nil, true
 		}
 
 		// Get the node pub key as far as we don't have it in channel
@@ -1893,7 +1896,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 					"update signature: %v", err)
 				log.Error(err)
 				nMsg.err <- err
-				return nil
+				return nil, false
 			}
 
 			// With the signature valid, we'll proceed to mark the
@@ -1906,7 +1909,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 					msg.ShortChannelID, err)
 				log.Error(err)
 				nMsg.err <- err
-				return nil
+				return nil, false
 			}
 
 			log.Debugf("Removed edge with chan_id=%v from zombie "+
@@ -1949,7 +1952,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			// NOTE: We don't return anything on the error channel
 			// for this message, as we expect that will be done when
 			// this ChannelUpdate is later reprocessed.
-			return nil
+			return nil, false
 
 		default:
 			err := fmt.Errorf("unable to validate channel update "+
@@ -1960,7 +1963,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			d.rejectMtx.Lock()
 			d.recentRejects[msg.ShortChannelID.ToUint64()] = struct{}{}
 			d.rejectMtx.Unlock()
-			return nil
+			return nil, false
 		}
 
 		// The least-significant bit in the flag on the channel update
@@ -1997,7 +2000,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 						d.cfg.RebroadcastInterval,
 						shortChanID)
 					nMsg.err <- nil
-					return nil
+					return nil, false
 				}
 			} else {
 				// If it's not, we'll allow an update per minute
@@ -2024,7 +2027,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 						shortChanID,
 						pubKey.SerializeCompressed())
 					nMsg.err <- nil
-					return nil
+					return nil, false
 				}
 			}
 		}
@@ -2040,7 +2043,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 
 			log.Error(rErr)
 			nMsg.err <- rErr
-			return nil
+			return nil, false
 		}
 
 		update := &channeldb.ChannelEdgePolicy{
@@ -2069,7 +2072,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			}
 
 			nMsg.err <- err
-			return nil
+			return nil, false
 		}
 
 		// If this is a local ChannelUpdate without an AuthProof, it
@@ -2094,7 +2097,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 					msg.MsgType(), msg.ShortChannelID,
 					remotePubKey, err)
 				nMsg.err <- err
-				return nil
+				return nil, false
 			}
 		}
 
@@ -2111,7 +2114,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		}
 
 		nMsg.err <- nil
-		return announcements
+		return announcements, true
 
 	// A new signature announcement has been received. This indicates
 	// willingness of nodes involved in the funding of a channel to
@@ -2140,7 +2143,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 				d.bestHeight, needBlockHeight)
 			d.Unlock()
 			nMsg.err <- nil
-			return nil
+			return nil, false
 		}
 		d.Unlock()
 
@@ -2166,14 +2169,14 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 					shortChanID, err)
 				log.Error(err)
 				nMsg.err <- err
-				return nil
+				return nil, false
 			}
 
 			log.Infof("Orphan %v proof announcement with "+
 				"short_chan_id=%v, adding "+
 				"to waiting batch", prefix, shortChanID)
 			nMsg.err <- nil
-			return nil
+			return nil, false
 		}
 
 		nodeID := nMsg.source.SerializeCompressed()
@@ -2188,7 +2191,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 				"short_chan_id=%v", shortChanID)
 			log.Error(err)
 			nMsg.err <- err
-			return nil
+			return nil, false
 		}
 
 		// If proof was sent by a local sub-system, then we'll
@@ -2212,7 +2215,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 					msg.MsgType(), msg.ShortChannelID,
 					remotePubKey, err)
 				nMsg.err <- err
-				return nil
+				return nil, false
 			}
 		}
 
@@ -2265,7 +2268,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			log.Debugf("Already have proof for channel "+
 				"with chanID=%v", msg.ChannelID)
 			nMsg.err <- nil
-			return nil
+			return nil, true
 		}
 
 		// Check that we received the opposite proof. If so, then we're
@@ -2283,7 +2286,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 				shortChanID, err)
 			log.Error(err)
 			nMsg.err <- err
-			return nil
+			return nil, false
 		}
 
 		if err == channeldb.ErrWaitingProofNotFound {
@@ -2294,7 +2297,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 					shortChanID, err)
 				log.Error(err)
 				nMsg.err <- err
-				return nil
+				return nil, false
 			}
 
 			log.Infof("1/2 of channel ann proof received for "+
@@ -2302,7 +2305,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 				shortChanID)
 
 			nMsg.err <- nil
-			return nil
+			return nil, false
 		}
 
 		// We now have both halves of the channel announcement proof,
@@ -2326,7 +2329,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		if err != nil {
 			log.Error(err)
 			nMsg.err <- err
-			return nil
+			return nil, false
 		}
 
 		// With all the necessary components assembled validate the
@@ -2338,7 +2341,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 
 			log.Error(err)
 			nMsg.err <- err
-			return nil
+			return nil, false
 		}
 
 		// If the channel was returned by the router it means that
@@ -2354,7 +2357,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 				"channel chanID=%v: %v", msg.ChannelID, err)
 			log.Error(err)
 			nMsg.err <- err
-			return nil
+			return nil, false
 		}
 
 		err = d.cfg.WaitingProofStore.Remove(proof.OppositeKey())
@@ -2364,7 +2367,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 				msg.ChannelID, err)
 			log.Error(err)
 			nMsg.err <- err
-			return nil
+			return nil, false
 		}
 
 		// Proof was successfully created and now can announce the
@@ -2431,11 +2434,12 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		}
 
 		nMsg.err <- nil
-		return announcements
+		return announcements, true
 
 	default:
-		nMsg.err <- errors.New("wrong type of the announcement")
-		return nil
+		err := errors.New("wrong type of the announcement")
+		nMsg.err <- err
+		return nil, false
 	}
 }
 

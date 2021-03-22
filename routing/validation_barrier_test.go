@@ -12,6 +12,8 @@ import (
 // TestValidationBarrierSemaphore checks basic properties of the validation
 // barrier's semaphore wrt. enqueuing/dequeuing.
 func TestValidationBarrierSemaphore(t *testing.T) {
+	t.Parallel()
+
 	const (
 		numTasks        = 8
 		numPendingTasks = 8
@@ -59,6 +61,8 @@ func TestValidationBarrierSemaphore(t *testing.T) {
 // TestValidationBarrierQuit checks that pending validation tasks will return an
 // error from WaitForDependants if the barrier's quit signal is canceled.
 func TestValidationBarrierQuit(t *testing.T) {
+	t.Parallel()
+
 	const (
 		numTasks = 8
 		timeout  = 50 * time.Millisecond
@@ -113,9 +117,14 @@ func TestValidationBarrierQuit(t *testing.T) {
 	// with the correct error.
 	for i := 0; i < numTasks; i++ {
 		switch {
-		// First half, signal completion and task semaphore
+		// Signal completion for the first half of tasks, but only allow
+		// dependents to be processed as well for the second quarter.
+		case i < numTasks/4:
+			barrier.SignalDependants(anns[i], false)
+			barrier.CompleteJob()
+
 		case i < numTasks/2:
-			barrier.SignalDependants(anns[i])
+			barrier.SignalDependants(anns[i], true)
 			barrier.CompleteJob()
 
 		// At midpoint, quit the validation barrier.
@@ -132,7 +141,10 @@ func TestValidationBarrierQuit(t *testing.T) {
 
 		switch {
 		// First half should return without failure.
-		case i < numTasks/2 && err != nil:
+		case i < numTasks/4 && err != routing.ErrParentValidationFailed:
+			t.Fatalf("unexpected failure while waiting: %v", err)
+
+		case i >= numTasks/4 && i < numTasks/2 && err != nil:
 			t.Fatalf("unexpected failure while waiting: %v", err)
 
 		// Last half should return the shutdown error.

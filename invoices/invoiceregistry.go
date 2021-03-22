@@ -781,6 +781,67 @@ func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx) error {
 	return nil
 }
 
+// processAMP just-in-time inserts an invoice if this htlc is a keysend
+// htlc.
+func (i *InvoiceRegistry) processAMP(ctx invoiceUpdateCtx) error {
+	// AMP payments MUST also include an MPP record.
+	if ctx.mpp == nil {
+		return errors.New("no MPP record for AMP")
+	}
+
+	// Create an invoice for the total amount expected, provided in the MPP
+	// record.
+	amt := ctx.mpp.TotalMsat()
+
+	// Set the TLV and MPP optional features on the invoice. We'll also make
+	// the AMP features required so that it can't be paid by legacy or MPP
+	// htlcs.
+	rawFeatures := lnwire.NewRawFeatureVector(
+		lnwire.TLVOnionPayloadOptional,
+		lnwire.PaymentAddrOptional,
+		lnwire.AMPRequired,
+	)
+	features := lnwire.NewFeatureVector(rawFeatures, lnwire.Features)
+
+	// Use the minimum block delta that we require for settling htlcs.
+	finalCltvDelta := i.cfg.FinalCltvRejectDelta
+
+	// Pre-check expiry here to prevent inserting an invoice that will not
+	// be settled.
+	if ctx.expiry < uint32(ctx.currentHeight+finalCltvDelta) {
+		return errors.New("final expiry too soon")
+	}
+
+	// We'll use the sender-generated payment address provided in the HTLC
+	// to create our AMP invoice.
+	payAddr := ctx.mpp.PaymentAddr()
+
+	// Create placeholder invoice.
+	invoice := &channeldb.Invoice{
+		CreationDate: i.cfg.Clock.Now(),
+		Terms: channeldb.ContractTerm{
+			FinalCltvDelta:  finalCltvDelta,
+			Value:           amt,
+			PaymentPreimage: nil,
+			PaymentAddr:     payAddr,
+			Features:        features,
+		},
+	}
+
+	// Insert invoice into database. Ignore duplicates payment hashes and
+	// payment addrs, this may be a replay or a different HTLC for the AMP
+	// invoice.
+	_, err := i.AddInvoice(invoice, ctx.hash)
+	switch {
+	case err == channeldb.ErrDuplicateInvoice:
+		return nil
+	case err == channeldb.ErrDuplicatePayAddr:
+		return nil
+	default:
+		return err
+	}
+}
+
 // NotifyExitHopHtlc attempts to mark an invoice as settled. The return value
 // describes how the htlc should be resolved.
 //
@@ -819,13 +880,24 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	// AddInvoice obtains its own lock. This is no problem, because the
 	// operation is idempotent.
 	if i.cfg.AcceptKeySend {
-		err := i.processKeySend(ctx)
-		if err != nil {
-			ctx.log(fmt.Sprintf("keysend error: %v", err))
+		if ctx.amp != nil {
+			err := i.processAMP(ctx)
+			if err != nil {
+				ctx.log(fmt.Sprintf("amp error: %v", err))
 
-			return NewFailResolution(
-				circuitKey, currentHeight, ResultKeySendError,
-			), nil
+				return NewFailResolution(
+					circuitKey, currentHeight, ResultAmpError,
+				), nil
+			}
+		} else {
+			err := i.processKeySend(ctx)
+			if err != nil {
+				ctx.log(fmt.Sprintf("keysend error: %v", err))
+
+				return NewFailResolution(
+					circuitKey, currentHeight, ResultKeySendError,
+				), nil
+			}
 		}
 	}
 

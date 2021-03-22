@@ -105,6 +105,9 @@ const (
 	// ResultMppInProgress is returned when we are busy receiving a mpp
 	// payment.
 	ResultMppInProgress
+
+	// ResultAmpError is returned when we receive invalid AMP parameters.
+	ResultAmpError
 )
 
 // String returns a string representation of the result.
@@ -161,6 +164,9 @@ func (f FailResolutionResult) FailureString() string {
 
 	case ResultMppInProgress:
 		return "mpp reception in progress"
+
+	case ResultAmpError:
+		return "invalid amp parameters"
 
 	default:
 		return "unknown failure resolution result"

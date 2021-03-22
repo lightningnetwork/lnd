@@ -46,6 +46,16 @@ func (p *mockPayload) CustomRecords() record.CustomSet {
 	return p.customRecords
 }
 
+const (
+	testHtlcExpiry = uint32(5)
+
+	testInvoiceCltvDelta = uint32(4)
+
+	testFinalCltvRejectDelta = int32(4)
+
+	testCurrentHeight = int32(1)
+)
+
 var (
 	testTimeout = 5 * time.Second
 
@@ -54,14 +64,6 @@ var (
 	testInvoicePreimage = lntypes.Preimage{1}
 
 	testInvoicePaymentHash = testInvoicePreimage.Hash()
-
-	testHtlcExpiry = uint32(5)
-
-	testInvoiceCltvDelta = uint32(4)
-
-	testFinalCltvRejectDelta = int32(4)
-
-	testCurrentHeight = int32(1)
 
 	testPrivKeyBytes, _ = hex.DecodeString(
 		"e126f68f7eafcc8b74f54d269fe206be715000f94dac067d1c04a8ca3b2db734")

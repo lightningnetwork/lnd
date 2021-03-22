@@ -1273,3 +1273,36 @@ func TestSettleInvoicePaymentAddrRequiredOptionalGrace(t *testing.T) {
 		t.Fatal("no update received")
 	}
 }
+
+// TestAMPWithoutMPPPayload asserts that we correctly reject an AMP HTLC that
+// does not include an MPP record.
+func TestAMPWithoutMPPPayload(t *testing.T) {
+	defer timeout()()
+
+	ctx := newTestContext(t)
+	defer ctx.cleanup()
+
+	ctx.registry.cfg.AcceptKeySend = true
+
+	const (
+		shardAmt = lnwire.MilliSatoshi(10)
+		expiry   = uint32(testCurrentHeight + 20)
+	)
+
+	// Create payload with missing MPP field.
+	payload := &mockPayload{
+		amp: record.NewAMP([32]byte{}, [32]byte{}, 0),
+	}
+
+	hodlChan := make(chan interface{}, 1)
+	resolution, err := ctx.registry.NotifyExitHopHtlc(
+		lntypes.Hash{}, shardAmt, expiry,
+		testCurrentHeight, getCircuitKey(uint64(10)), hodlChan,
+		payload,
+	)
+	require.NoError(t, err)
+
+	// We should receive the ResultAmpError failure.
+	require.NotNil(t, resolution)
+	checkFailResolution(t, resolution, ResultAmpError)
+}

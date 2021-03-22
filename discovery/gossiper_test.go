@@ -897,9 +897,8 @@ func TestProcessAnnouncement(t *testing.T) {
 	}
 }
 
-// TestPrematureAnnouncement checks that premature announcements are
-// not propagated to the router subsystem until block with according
-// block height received.
+// TestPrematureAnnouncement checks that premature announcements are not
+// propagated to the router subsystem.
 func TestPrematureAnnouncement(t *testing.T) {
 	t.Parallel()
 
@@ -920,8 +919,8 @@ func TestPrematureAnnouncement(t *testing.T) {
 
 	// Pretending that we receive the valid channel announcement from
 	// remote side, but block height of this announcement is greater than
-	// highest know to us, for that reason it should be added to the
-	// repeat/premature batch.
+	// highest know to us, for that reason it should be ignored and not
+	// added to the router.
 	ca, err := createRemoteChannelAnnouncement(1)
 	if err != nil {
 		t.Fatalf("can't create channel announcement: %v", err)
@@ -929,30 +928,12 @@ func TestPrematureAnnouncement(t *testing.T) {
 
 	select {
 	case <-ctx.gossiper.ProcessRemoteAnnouncement(ca, nodePeer):
-		t.Fatal("announcement was proceeded")
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(time.Second):
+		t.Fatal("announcement was not processed")
 	}
 
 	if len(ctx.router.infos) != 0 {
 		t.Fatal("edge was added to router")
-	}
-
-	// Pretending that we receive the valid channel update announcement from
-	// remote side, but block height of this announcement is greater than
-	// highest known to us, so it should be rejected.
-	ua, err := createUpdateAnnouncement(1, 0, remoteKeyPriv1, timestamp)
-	if err != nil {
-		t.Fatalf("can't create update announcement: %v", err)
-	}
-
-	select {
-	case <-ctx.gossiper.ProcessRemoteAnnouncement(ua, nodePeer):
-		t.Fatal("announcement was proceeded")
-	case <-time.After(100 * time.Millisecond):
-	}
-
-	if len(ctx.router.edges) != 0 {
-		t.Fatal("edge update was added to router")
 	}
 }
 

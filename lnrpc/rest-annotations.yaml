@@ -216,7 +216,7 @@ http:
     - selector: routerrpc.Router.QueryProbability
       get: "/v2/router/mc/probability/{from_node}/{to_node}/{amt_msat}"
     - selector: routerrpc.Router.XImportMissionControl
-      post: "/v2/router/ximporthistory"
+      post: "/v2/router/x/importhistory"
       body: "*"
     - selector: routerrpc.Router.BuildRoute
       post: "/v2/router/route"

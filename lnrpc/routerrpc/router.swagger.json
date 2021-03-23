@@ -362,7 +362,7 @@
         ]
       }
     },
-    "/v2/router/ximporthistory": {
+    "/v2/router/x/importhistory": {
       "post": {
         "summary": "XImportMissionControl is an experimental API that imports the state provided\nto the internal mission control's state, using all results which are more\nrecent than our existing values. These values will only be imported\nin-memory, and will not be persisted across restarts.",
         "operationId": "XImportMissionControl",

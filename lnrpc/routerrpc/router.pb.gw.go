@@ -886,7 +886,7 @@ var (
 
 	pattern_Router_QueryMissionControl_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v2", "router", "mc"}, "", runtime.AssumeColonVerbOpt(true)))
 
-	pattern_Router_XImportMissionControl_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v2", "router", "ximporthistory"}, "", runtime.AssumeColonVerbOpt(true)))
+	pattern_Router_XImportMissionControl_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v2", "router", "x", "importhistory"}, "", runtime.AssumeColonVerbOpt(true)))
 
 	pattern_Router_GetMissionControlConfig_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v2", "router", "mccfg"}, "", runtime.AssumeColonVerbOpt(true)))
 

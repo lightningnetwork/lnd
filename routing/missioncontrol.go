@@ -342,6 +342,27 @@ func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
 	return m.state.getSnapshot()
 }
 
+// ImportHistory imports the set of mission control results provided to our
+// in-memory state. These results are not persisted, so will not survive
+// restarts.
+func (m *MissionControl) ImportHistory(history *MissionControlSnapshot) error {
+	if history == nil {
+		return errors.New("cannot import nil history")
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	log.Infof("Importing history snapshot with %v pairs to mission control",
+		len(history.Pairs))
+
+	imported := m.state.importSnapshot(history)
+
+	log.Infof("Imported %v results to mission control", imported)
+
+	return nil
+}
+
 // GetPairHistorySnapshot returns the stored history for a given node pair.
 func (m *MissionControl) GetPairHistorySnapshot(
 	fromNode, toNode route.Vertex) TimedPairResult {

@@ -81,6 +81,10 @@ var (
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/routerrpc.Router/XImportMissionControl": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
 		"/routerrpc.Router/GetMissionControlConfig": {{
 			Entity: "offchain",
 			Action: "read",
@@ -517,6 +521,159 @@ func toRPCPairData(data *routing.TimedPairResult) *PairData {
 	}
 
 	return &rpcData
+}
+
+// XImportMissionControl imports the state provided to our internal mission
+// control. Only entries that are fresher than our existing state will be used.
+func (s *Server) XImportMissionControl(ctx context.Context,
+	req *XImportMissionControlRequest) (*XImportMissionControlResponse,
+	error) {
+
+	if len(req.Pairs) == 0 {
+		return nil, errors.New("at least one pair required for import")
+	}
+
+	snapshot := &routing.MissionControlSnapshot{
+		Pairs: make(
+			[]routing.MissionControlPairSnapshot, len(req.Pairs),
+		),
+	}
+
+	for i, pairResult := range req.Pairs {
+		pairSnapshot, err := toPairSnapshot(pairResult)
+		if err != nil {
+			return nil, err
+		}
+
+		snapshot.Pairs[i] = *pairSnapshot
+	}
+
+	err := s.cfg.RouterBackend.MissionControl.ImportHistory(snapshot)
+	if err != nil {
+		return nil, err
+	}
+
+	return &XImportMissionControlResponse{}, nil
+}
+
+func toPairSnapshot(pairResult *PairHistory) (*routing.MissionControlPairSnapshot,
+	error) {
+
+	from, err := route.NewVertexFromBytes(pairResult.NodeFrom)
+	if err != nil {
+		return nil, err
+	}
+
+	to, err := route.NewVertexFromBytes(pairResult.NodeTo)
+	if err != nil {
+		return nil, err
+	}
+
+	pairPrefix := fmt.Sprintf("pair: %v -> %v:", from, to)
+
+	if from == to {
+		return nil, fmt.Errorf("%v source and destination node must "+
+			"differ", pairPrefix)
+	}
+
+	failAmt, failTime, err := getPair(
+		lnwire.MilliSatoshi(pairResult.History.FailAmtMsat),
+		btcutil.Amount(pairResult.History.FailAmtSat),
+		pairResult.History.FailTime,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("%v invalid failure: %v", pairPrefix,
+			err)
+	}
+
+	successAmt, successTime, err := getPair(
+		lnwire.MilliSatoshi(pairResult.History.SuccessAmtMsat),
+		btcutil.Amount(pairResult.History.SuccessAmtSat),
+		pairResult.History.SuccessTime,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("%v invalid success: %v", pairPrefix,
+			err)
+	}
+
+	if successAmt == 0 && failAmt == 0 {
+		return nil, fmt.Errorf("%v: either success or failure result "+
+			"required", pairPrefix)
+	}
+
+	pair := routing.NewDirectedNodePair(from, to)
+
+	result := &routing.TimedPairResult{
+		FailAmt:     failAmt,
+		FailTime:    failTime,
+		SuccessAmt:  successAmt,
+		SuccessTime: successTime,
+	}
+
+	return &routing.MissionControlPairSnapshot{
+		Pair:            pair,
+		TimedPairResult: *result,
+	}, nil
+}
+
+// getPair validates the values provided for a mission control result and
+// returns the msat amount and timestamp for it.
+func getPair(amtMsat lnwire.MilliSatoshi, amtSat btcutil.Amount,
+	timestamp int64) (lnwire.MilliSatoshi, time.Time, error) {
+
+	amt, err := getMsatPairValue(amtMsat, amtSat)
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+
+	var (
+		timeSet   = timestamp != 0
+		amountSet = amt != 0
+	)
+
+	switch {
+	case timeSet && amountSet:
+		return amt, time.Unix(timestamp, 0), nil
+
+	case timeSet && !amountSet:
+		return 0, time.Time{}, errors.New("non-zero timestamp " +
+			"requires non-zero amount")
+
+	case !timeSet && amountSet:
+		return 0, time.Time{}, errors.New("non-zero amount requires " +
+			"non-zero timestamp")
+
+	default:
+		return 0, time.Time{}, nil
+	}
+}
+
+// getMsatPairValue checks the msat and sat values set for a pair and ensures
+// that the values provided are either the same, or only a single value is set.
+func getMsatPairValue(msatValue lnwire.MilliSatoshi,
+	satValue btcutil.Amount) (lnwire.MilliSatoshi, error) {
+
+	// If our msat value converted to sats equals our sat value, we just
+	// return the msat value, since the values are the same.
+	if msatValue.ToSatoshis() == satValue {
+		return msatValue, nil
+	}
+
+	// If we have no msatValue, we can just return our sate value even if
+	// it is zero, because it's impossible that we have mismatched values.
+	if msatValue == 0 {
+		return lnwire.MilliSatoshi(satValue * 1000), nil
+	}
+
+	// Likewise, we can just use msat value if we have no sat value set.
+	if satValue == 0 {
+		return msatValue, nil
+	}
+
+	// If our values are non-zero but not equal, we have invalid amounts
+	// set, so we fail.
+	return 0, fmt.Errorf("msat: %v and sat: %v values not equal", msatValue,
+		satValue)
 }
 
 // QueryProbability returns the current success probability estimate for a

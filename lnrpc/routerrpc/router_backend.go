@@ -110,6 +110,11 @@ type MissionControl interface {
 	// state and actual probability estimates.
 	GetHistorySnapshot() *routing.MissionControlSnapshot
 
+	// ImportHistory imports the mission control snapshot to our internal
+	// state. This import will only be applied in-memory, and will not be
+	// persisted across restarts.
+	ImportHistory(*routing.MissionControlSnapshot) error
+
 	// GetPairHistorySnapshot returns the stored history for a given node
 	// pair.
 	GetPairHistorySnapshot(fromNode,

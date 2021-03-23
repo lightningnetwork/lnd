@@ -13116,8 +13116,12 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// While we're here, we test updating mission control's config values
-	// and assert that they are correctly updated.
+	// and assert that they are correctly updated and check that our mission
+	// control import function updates appropriately.
 	testMissionControlCfg(t.t, net.Alice)
+	testMissionControlImport(
+		t.t, net.Alice, net.Bob.PubKey[:], carol.PubKey[:],
+	)
 
 	// We clean up the test case by closing channels that were created for
 	// the duration of the tests.
@@ -13172,6 +13176,68 @@ func testMissionControlCfg(t *testing.T, node *lntest.HarnessNode) {
 		},
 	)
 	require.NoError(t, err)
+}
+
+// testMissionControlImport tests import of mission control results from an
+// external source.
+func testMissionControlImport(t *testing.T, node *lntest.HarnessNode,
+	fromNode, toNode []byte) {
+
+	ctxb := context.Background()
+
+	// Reset mission control so that our query will return the default
+	// probability for our first request.
+	_, err := node.RouterClient.ResetMissionControl(
+		ctxb, &routerrpc.ResetMissionControlRequest{},
+	)
+	require.NoError(t, err, "could not reset mission control")
+
+	// Get our baseline probability for a 10 msat hop between our target
+	// nodes.
+	var amount int64 = 10
+	probReq := &routerrpc.QueryProbabilityRequest{
+		FromNode: fromNode,
+		ToNode:   toNode,
+		AmtMsat:  amount,
+	}
+
+	importHistory := &routerrpc.PairData{
+		FailTime:    time.Now().Unix(),
+		FailAmtMsat: amount,
+	}
+
+	// Assert that our history is not already equal to the value we want to
+	// set. This should not happen because we have just cleared our state.
+	resp1, err := node.RouterClient.QueryProbability(ctxb, probReq)
+	require.NoError(t, err, "query probability failed")
+	require.Zero(t, resp1.History.FailTime)
+	require.Zero(t, resp1.History.FailAmtMsat)
+
+	// Now, we import a single entry which tracks a failure of the amount
+	// we want to query between our nodes.
+	req := &routerrpc.XImportMissionControlRequest{
+		Pairs: []*routerrpc.PairHistory{
+			{
+				NodeFrom: fromNode,
+				NodeTo:   toNode,
+				History:  importHistory,
+			},
+		},
+	}
+
+	_, err = node.RouterClient.XImportMissionControl(ctxb, req)
+	require.NoError(t, err, "could not import config")
+
+	resp2, err := node.RouterClient.QueryProbability(ctxb, probReq)
+	require.NoError(t, err, "query probability failed")
+	require.Equal(t, importHistory.FailTime, resp2.History.FailTime)
+	require.Equal(t, importHistory.FailAmtMsat, resp2.History.FailAmtMsat)
+
+	// Finally, check that we will fail if inconsistent sat/msat values are
+	// set.
+	importHistory.FailAmtSat = amount * 2
+	_, err = node.RouterClient.XImportMissionControl(ctxb, req)
+	require.Error(t, err, "mismatched import amounts succeeded")
 }
 
 // testRouteFeeCutoff tests that we are able to prevent querying routes and

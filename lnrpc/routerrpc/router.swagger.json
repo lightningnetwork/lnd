@@ -361,6 +361,39 @@
           "Router"
         ]
       }
+    },
+    "/v2/router/ximporthistory": {
+      "post": {
+        "summary": "XImportMissionControl is an experimental API that imports the state provided\nto the internal mission control's state, using all results which are more\nrecent than our existing values. These values will only be imported\nin-memory, and will not be persisted across restarts.",
+        "operationId": "XImportMissionControl",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/routerrpcXImportMissionControlResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/routerrpcXImportMissionControlRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Router"
+        ]
+      }
     }
   },
   "definitions": {
@@ -1477,6 +1510,21 @@
       "type": "object"
     },
     "routerrpcUpdateChanStatusResponse": {
+      "type": "object"
+    },
+    "routerrpcXImportMissionControlRequest": {
+      "type": "object",
+      "properties": {
+        "pairs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/routerrpcPairHistory"
+          },
+          "description": "Node pair-level mission control state to be imported."
+        }
+      }
+    },
+    "routerrpcXImportMissionControlResponse": {
       "type": "object"
     },
     "runtimeError": {

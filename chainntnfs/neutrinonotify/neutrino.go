@@ -778,6 +778,18 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 			neutrino.EndBlock(&headerfs.BlockStamp{
 				Height: int32(ntfn.HistoricalDispatch.EndHeight),
 			}),
+			neutrino.ProgressHandler(func(processedHeight uint32) {
+				// We persist the rescan progress to achieve incremental
+				// behavior across restarts, otherwise long rescans may
+				// start from the beginning with every restart.
+				err := n.spendHintCache.CommitSpendHint(
+					processedHeight,
+					ntfn.HistoricalDispatch.SpendRequest)
+				if err != nil {
+					chainntnfs.Log.Errorf("Failed to update rescan "+
+						"progress: %v", err)
+				}
+			}),
 			neutrino.QuitChan(n.quit),
 		)
 		if err != nil && !strings.Contains(err.Error(), "not found") {

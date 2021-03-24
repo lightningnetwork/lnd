@@ -278,36 +278,9 @@ func ParseAddressString(strAddress string, defaultPort string,
 func ParseLNAddressString(strAddress string, defaultPort string,
 	tcpResolver TCPResolver) (*lnwire.NetAddress, error) {
 
-	// Split the address string around the @ sign.
-	parts := strings.Split(strAddress, "@")
-
-	// The string is malformed if there are not exactly two parts.
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid lightning address %s: "+
-			"must be of the form <pubkey-hex>@<addr>", strAddress)
-	}
-
-	// Now, take the first portion as the hex pubkey, and the latter as the
-	// address string.
-	parsedPubKey, parsedAddr := parts[0], parts[1]
-
-	// Decode the hex pubkey to get the raw compressed pubkey bytes.
-	pubKeyBytes, err := hex.DecodeString(parsedPubKey)
+	pubKey, parsedAddr, err := ParseLNAddressPubkey(strAddress)
 	if err != nil {
-		return nil, fmt.Errorf("invalid lightning address pubkey: %v", err)
-	}
-
-	// The compressed pubkey should have a length of exactly 33 bytes.
-	if len(pubKeyBytes) != 33 {
-		return nil, fmt.Errorf("invalid lightning address pubkey: "+
-			"length must be 33 bytes, found %d", len(pubKeyBytes))
-	}
-
-	// Parse the pubkey bytes to verify that it corresponds to valid public
-	// key on the secp256k1 curve.
-	pubKey, err := btcec.ParsePubKey(pubKeyBytes)
-	if err != nil {
-		return nil, fmt.Errorf("invalid lightning address pubkey: %v", err)
+		return nil, err
 	}
 
 	// Finally, parse the address string using our generic address parser.
@@ -320,6 +293,45 @@ func ParseLNAddressString(strAddress string, defaultPort string,
 		IdentityKey: pubKey,
 		Address:     addr,
 	}, nil
+}
+
+// ParseLNAddressPubkey converts a string of the form <pubkey>@<addr> into two
+// pieces: the pubkey bytes and an addr string. It validates that the pubkey
+// is of a valid form.
+func ParseLNAddressPubkey(strAddress string) (*btcec.PublicKey, string, error) {
+	// Split the address string around the @ sign.
+	parts := strings.Split(strAddress, "@")
+
+	// The string is malformed if there are not exactly two parts.
+	if len(parts) != 2 {
+		return nil, "", fmt.Errorf("invalid lightning address %s: "+
+			"must be of the form <pubkey-hex>@<addr>", strAddress)
+	}
+
+	// Now, take the first portion as the hex pubkey, and the latter as the
+	// address string.
+	parsedPubKey, parsedAddr := parts[0], parts[1]
+
+	// Decode the hex pubkey to get the raw compressed pubkey bytes.
+	pubKeyBytes, err := hex.DecodeString(parsedPubKey)
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid lightning address pubkey: %v", err)
+	}
+
+	// The compressed pubkey should have a length of exactly 33 bytes.
+	if len(pubKeyBytes) != 33 {
+		return nil, "", fmt.Errorf("invalid lightning address pubkey: "+
+			"length must be 33 bytes, found %d", len(pubKeyBytes))
+	}
+
+	// Parse the pubkey bytes to verify that it corresponds to valid public
+	// key on the secp256k1 curve.
+	pubKey, err := btcec.ParsePubKey(pubKeyBytes)
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid lightning address pubkey: %v", err)
+	}
+
+	return pubKey, parsedAddr, nil
 }
 
 // verifyPort makes sure that an address string has both a host and a port. If

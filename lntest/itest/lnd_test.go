@@ -1253,6 +1253,7 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := btcutil.Amount(100000)
+	satPerVbyte := btcutil.Amount(1)
 
 	// Record nodes' channel balance before testing.
 	aliceChannelBalance := getChannelBalance(t, alice)
@@ -1293,6 +1294,7 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 			Amt:         chanAmt,
 			PushAmt:     pushAmt,
 			FundingShim: fundingShim,
+			SatPerVByte: satPerVbyte,
 		},
 	)
 

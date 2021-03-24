@@ -845,6 +845,10 @@ type OpenChannelParams struct {
 	// FundingShim is an optional funding shim that the caller can specify
 	// in order to modify the channel funding workflow.
 	FundingShim *lnrpc.FundingShim
+
+	// SatPerVByte is the amount of satoshis to spend in chain fees per virtual
+	// byte of the transaction.
+	SatPerVByte btcutil.Amount
 }
 
 // OpenChannel attempts to open a channel between srcNode and destNode with the
@@ -882,6 +886,7 @@ func (n *NetworkHarness) OpenChannel(ctx context.Context,
 		MinHtlcMsat:        int64(p.MinHtlc),
 		RemoteMaxHtlcs:     uint32(p.RemoteMaxHtlcs),
 		FundingShim:        p.FundingShim,
+		SatPerByte:         int64(p.SatPerVByte),
 	}
 
 	respStream, err := srcNode.OpenChannel(ctx, openReq)

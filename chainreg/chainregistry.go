@@ -235,7 +235,8 @@ type ChainControl struct {
 // full-node, another backed by a running bitcoind full-node, and the other
 // backed by a running neutrino light client instance. When running with a
 // neutrino light client instance, `neutrinoCS` must be non-nil.
-func NewChainControl(cfg *Config) (*ChainControl, func(), error) {
+func NewChainControl(cfg *Config, blockCache *blockcache.BlockCache) (
+	*ChainControl, func(), error) {
 
 	// Set the RPC config from the "home" chain. Multi-chain isn't yet
 	// active, so we'll restrict usage to a particular chain for now.
@@ -306,9 +307,6 @@ func NewChainControl(cfg *Config) (*ChainControl, func(), error) {
 		return nil, nil, fmt.Errorf("unable to initialize height hint "+
 			"cache: %v", err)
 	}
-
-	// Initialize a new block cache.
-	blockCache := blockcache.NewBlockCache(cfg.BlockCacheSize)
 
 	// If spv mode is active, then we'll be using a distinct set of
 	// chainControl interfaces that interface directly with the p2p network

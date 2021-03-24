@@ -3,10 +3,12 @@ package itest
 import (
 	"context"
 	"fmt"
+	network "net"
 	"strings"
 	"time"
 
 	"github.com/lightningnetwork/lnd"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/stretchr/testify/require"
@@ -277,4 +279,47 @@ func connect(ctxt context.Context, node *lntest.HarnessNode,
 		}
 	}
 	return nil
+}
+
+// testAddPeerConfig tests that the "--addpeer" config flag successfully adds
+// a new peer.
+func testAddPeerConfig(net *lntest.NetworkHarness, t *harnessTest) {
+	ctxb := context.Background()
+
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	alice := net.Alice
+	info, err := alice.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
+	require.NoError(t.t, err)
+
+	alicePeerAddress := info.Uris[0]
+
+	// Create a new node (Carol) with Alice as a peer.
+	args := []string{
+		fmt.Sprintf("--addpeer=%v", alicePeerAddress),
+	}
+	carol := net.NewNode(t.t, "Carol", args)
+	defer shutdownAndAssert(net, t, carol)
+
+	assertConnected(t, alice, carol)
+
+	// If we list Carol's peers, Alice should already be
+	// listed as one, since we specified her using the
+	// addpeer flag.
+	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	listPeersRequest := &lnrpc.ListPeersRequest{}
+	listPeersResp, err := carol.ListPeers(ctxt, listPeersRequest)
+	require.NoError(t.t, err)
+
+	parsedPeerAddr, err := lncfg.ParseLNAddressString(
+		alicePeerAddress, "9735", network.ResolveTCPAddr,
+	)
+	require.NoError(t.t, err)
+
+	parsedKeyStr := fmt.Sprintf(
+		"%x", parsedPeerAddr.IdentityKey.SerializeCompressed(),
+	)
+
+	require.Equal(t.t, parsedKeyStr, listPeersResp.Peers[0].PubKey)
 }

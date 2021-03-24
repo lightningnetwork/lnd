@@ -395,4 +395,8 @@ var allTestCases = []*testCase{
 		name: "taproot",
 		test: testTaproot,
 	},
+	{
+		name: "addpeer config",
+		test: testAddPeerConfig,
+	},
 }

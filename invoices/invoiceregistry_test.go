@@ -75,19 +75,11 @@ func TestSettleInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	failResolution, ok := resolution.(*HtlcFailResolution)
-	if !ok {
-		t.Fatalf("expected fail resolution, got: %T",
-			resolution)
-	}
-	if failResolution.AcceptHeight != testCurrentHeight {
-		t.Fatalf("expected acceptHeight %v, but got %v",
-			testCurrentHeight, failResolution.AcceptHeight)
-	}
-	if failResolution.Outcome != ResultExpiryTooSoon {
-		t.Fatalf("expected expiry too soon, got: %v",
-			failResolution.Outcome)
-	}
+	require.NotNil(t, resolution)
+	failResolution := checkFailResolution(
+		t, resolution, ResultExpiryTooSoon,
+	)
+	require.Equal(t, testCurrentHeight, failResolution.AcceptHeight)
 
 	// Settle invoice with a slightly higher amount.
 	amtPaid := lnwire.MilliSatoshi(100500)
@@ -99,15 +91,11 @@ func TestSettleInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	settleResolution, ok := resolution.(*HtlcSettleResolution)
-	if !ok {
-		t.Fatalf("expected settle resolution, got: %T",
-			resolution)
-	}
-	if settleResolution.Outcome != ResultSettled {
-		t.Fatalf("expected settled, got: %v",
-			settleResolution.Outcome)
-	}
+	require.NotNil(t, resolution)
+	settleResolution := checkSettleResolution(
+		t, resolution, testInvoicePreimage,
+	)
+	require.Equal(t, ResultSettled, settleResolution.Outcome)
 
 	// We expect the settled state to be sent to the single invoice
 	// subscriber.
@@ -144,15 +132,11 @@ func TestSettleInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected NotifyExitHopHtlc error: %v", err)
 	}
-	settleResolution, ok = resolution.(*HtlcSettleResolution)
-	if !ok {
-		t.Fatalf("expected settle resolution, got: %T",
-			resolution)
-	}
-	if settleResolution.Outcome != ResultReplayToSettled {
-		t.Fatalf("expected replay settled, got: %v",
-			settleResolution.Outcome)
-	}
+	require.NotNil(t, resolution)
+	settleResolution = checkSettleResolution(
+		t, resolution, testInvoicePreimage,
+	)
+	require.Equal(t, ResultReplayToSettled, settleResolution.Outcome)
 
 	// Try to settle again with a new higher-valued htlc. This payment
 	// should also be accepted, to prevent any change in behaviour for a
@@ -164,15 +148,11 @@ func TestSettleInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected NotifyExitHopHtlc error: %v", err)
 	}
-	settleResolution, ok = resolution.(*HtlcSettleResolution)
-	if !ok {
-		t.Fatalf("expected settle resolution, got: %T",
-			resolution)
-	}
-	if settleResolution.Outcome != ResultDuplicateToSettled {
-		t.Fatalf("expected duplicate settled, got: %v",
-			settleResolution.Outcome)
-	}
+	require.NotNil(t, resolution)
+	settleResolution = checkSettleResolution(
+		t, resolution, testInvoicePreimage,
+	)
+	require.Equal(t, ResultDuplicateToSettled, settleResolution.Outcome)
 
 	// Try to settle again with a lower amount. This should fail just as it
 	// would have failed if it were the first payment.
@@ -183,15 +163,8 @@ func TestSettleInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected NotifyExitHopHtlc error: %v", err)
 	}
-	failResolution, ok = resolution.(*HtlcFailResolution)
-	if !ok {
-		t.Fatalf("expected fail resolution, got: %T",
-			resolution)
-	}
-	if failResolution.Outcome != ResultAmountTooLow {
-		t.Fatalf("expected amount too low, got: %v",
-			failResolution.Outcome)
-	}
+	require.NotNil(t, resolution)
+	checkFailResolution(t, resolution, ResultAmountTooLow)
 
 	// Check that settled amount is equal to the sum of values of the htlcs
 	// 0 and 1.
@@ -329,27 +302,23 @@ func testCancelInvoice(t *testing.T, gc bool) {
 	if err != nil {
 		t.Fatal("expected settlement of a canceled invoice to succeed")
 	}
-	failResolution, ok := resolution.(*HtlcFailResolution)
-	if !ok {
-		t.Fatalf("expected fail resolution, got: %T",
-			resolution)
-	}
-	if failResolution.AcceptHeight != testCurrentHeight {
-		t.Fatalf("expected acceptHeight %v, but got %v",
-			testCurrentHeight, failResolution.AcceptHeight)
-	}
+	require.NotNil(t, resolution)
 
 	// If the invoice has been deleted (or not present) then we expect the
 	// outcome to be ResultInvoiceNotFound instead of when the invoice is
 	// in our database in which case we expect ResultInvoiceAlreadyCanceled.
+	var failResolution *HtlcFailResolution
 	if gc {
-		require.Equal(t, failResolution.Outcome, ResultInvoiceNotFound)
+		failResolution = checkFailResolution(
+			t, resolution, ResultInvoiceNotFound,
+		)
 	} else {
-		require.Equal(t,
-			failResolution.Outcome,
-			ResultInvoiceAlreadyCanceled,
+		failResolution = checkFailResolution(
+			t, resolution, ResultInvoiceAlreadyCanceled,
 		)
 	}
+
+	require.Equal(t, testCurrentHeight, failResolution.AcceptHeight)
 }
 
 // TestCancelInvoice tests cancelation of an invoice and related notifications.
@@ -474,15 +443,8 @@ func TestSettleHoldInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected settle to succeed but got %v", err)
 	}
-	failResolution, ok := resolution.(*HtlcFailResolution)
-	if !ok {
-		t.Fatalf("expected fail resolution, got: %T",
-			resolution)
-	}
-	if failResolution.Outcome != ResultExpiryTooSoon {
-		t.Fatalf("expected expiry too soon, got: %v",
-			failResolution.Outcome)
-	}
+	require.NotNil(t, resolution)
+	checkFailResolution(t, resolution, ResultExpiryTooSoon)
 
 	// We expect the accepted state to be sent to the single invoice
 	// subscriber. For all invoice subscribers, we don't expect an update.
@@ -503,22 +465,12 @@ func TestSettleHoldInvoice(t *testing.T) {
 	}
 
 	htlcResolution := (<-hodlChan).(HtlcResolution)
-	settleResolution, ok := htlcResolution.(*HtlcSettleResolution)
-	if !ok {
-		t.Fatalf("expected settle resolution, got: %T",
-			htlcResolution)
-	}
-	if settleResolution.Preimage != testInvoicePreimage {
-		t.Fatal("unexpected preimage in hodl resolution")
-	}
-	if settleResolution.AcceptHeight != testCurrentHeight {
-		t.Fatalf("expected acceptHeight %v, but got %v",
-			testCurrentHeight, settleResolution.AcceptHeight)
-	}
-	if settleResolution.Outcome != ResultSettled {
-		t.Fatalf("expected result settled, got: %v",
-			settleResolution.Outcome)
-	}
+	require.NotNil(t, htlcResolution)
+	settleResolution := checkSettleResolution(
+		t, htlcResolution, testInvoicePreimage,
+	)
+	require.Equal(t, testCurrentHeight, settleResolution.AcceptHeight)
+	require.Equal(t, ResultSettled, settleResolution.Outcome)
 
 	// We expect a settled notification to be sent out for both all and
 	// single invoice subscribers.
@@ -604,11 +556,8 @@ func TestCancelHoldInvoice(t *testing.T) {
 	}
 
 	htlcResolution := (<-hodlChan).(HtlcResolution)
-	_, ok := htlcResolution.(*HtlcFailResolution)
-	if !ok {
-		t.Fatalf("expected fail resolution, got: %T",
-			htlcResolution)
-	}
+	require.NotNil(t, htlcResolution)
+	checkFailResolution(t, htlcResolution, ResultCanceled)
 
 	// Offering the same htlc again at a higher height should still result
 	// in a rejection. The accept height is expected to be the original
@@ -620,19 +569,11 @@ func TestCancelHoldInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected settle to succeed but got %v", err)
 	}
-	failResolution, ok := resolution.(*HtlcFailResolution)
-	if !ok {
-		t.Fatalf("expected fail resolution, got: %T",
-			resolution)
-	}
-	if failResolution.AcceptHeight != testCurrentHeight {
-		t.Fatalf("expected acceptHeight %v, but got %v",
-			testCurrentHeight, failResolution.AcceptHeight)
-	}
-	if failResolution.Outcome != ResultReplayToCanceled {
-		t.Fatalf("expected replay to canceled, got %v",
-			failResolution.Outcome)
-	}
+	require.NotNil(t, resolution)
+	failResolution := checkFailResolution(
+		t, resolution, ResultReplayToCanceled,
+	)
+	require.Equal(t, testCurrentHeight, failResolution.AcceptHeight)
 }
 
 // TestUnknownInvoice tests that invoice registry returns an error when the
@@ -655,15 +596,8 @@ func TestUnknownInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatal("unexpected error")
 	}
-	failResolution, ok := resolution.(*HtlcFailResolution)
-	if !ok {
-		t.Fatalf("expected fail resolution, got: %T",
-			resolution)
-	}
-	if failResolution.Outcome != ResultInvoiceNotFound {
-		t.Fatalf("expected ResultInvoiceNotFound, got: %v",
-			failResolution.Outcome)
-	}
+	require.NotNil(t, resolution)
+	checkFailResolution(t, resolution, ResultInvoiceNotFound)
 }
 
 // TestKeySend tests receiving a spontaneous payment with and without keysend
@@ -715,18 +649,12 @@ func testKeySend(t *testing.T, keySendEnabled bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	failResolution, ok := resolution.(*HtlcFailResolution)
-	if !ok {
-		t.Fatalf("expected fail resolution, got: %T",
-			resolution)
-	}
+	require.NotNil(t, resolution)
 
-	switch {
-	case !keySendEnabled && failResolution.Outcome != ResultInvoiceNotFound:
-		t.Fatal("expected invoice not found outcome")
-
-	case keySendEnabled && failResolution.Outcome != ResultKeySendError:
-		t.Fatal("expected keysend error")
+	if !keySendEnabled {
+		checkFailResolution(t, resolution, ResultInvoiceNotFound)
+	} else {
+		checkFailResolution(t, resolution, ResultKeySendError)
 	}
 
 	// Try to settle invoice with a valid keysend htlc.
@@ -746,23 +674,10 @@ func testKeySend(t *testing.T, keySendEnabled bool) {
 
 	// Expect a cancel resolution if keysend is disabled.
 	if !keySendEnabled {
-		failResolution, ok = resolution.(*HtlcFailResolution)
-		if !ok {
-			t.Fatalf("expected fail resolution, got: %T",
-				resolution)
-		}
-		if failResolution.Outcome != ResultInvoiceNotFound {
-			t.Fatal("expected keysend payment not to be accepted")
-		}
+		checkFailResolution(t, resolution, ResultInvoiceNotFound)
 		return
 	}
 
-	checkResolution := func(res HtlcResolution, pimg lntypes.Preimage) {
-		// Otherwise we expect no error and a settle res for the htlc.
-		settleResolution, ok := res.(*HtlcSettleResolution)
-		require.True(t, ok)
-		require.Equal(t, settleResolution.Preimage, pimg)
-	}
 	checkSubscription := func() {
 		// We expect a new invoice notification to be sent out.
 		newInvoice := <-allSubscriptions.NewInvoices
@@ -773,7 +688,7 @@ func testKeySend(t *testing.T, keySendEnabled bool) {
 		require.Equal(t, settledInvoice.State, channeldb.ContractSettled)
 	}
 
-	checkResolution(resolution, preimage)
+	checkSettleResolution(t, resolution, preimage)
 	checkSubscription()
 
 	// Replay the same keysend payment. We expect an identical resolution,
@@ -783,7 +698,7 @@ func testKeySend(t *testing.T, keySendEnabled bool) {
 		testCurrentHeight, getCircuitKey(10), hodlChan, keySendPayload,
 	)
 	require.Nil(t, err)
-	checkResolution(resolution, preimage)
+	checkSettleResolution(t, resolution, preimage)
 
 	select {
 	case <-allSubscriptions.NewInvoices:
@@ -808,7 +723,7 @@ func testKeySend(t *testing.T, keySendEnabled bool) {
 	)
 	require.Nil(t, err)
 
-	checkResolution(resolution, preimage2)
+	checkSettleResolution(t, resolution, preimage2)
 	checkSubscription()
 }
 

@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/zpay32"
+	"github.com/stretchr/testify/require"
 )
 
 type mockPayload struct {
@@ -330,4 +331,33 @@ func generateInvoiceExpiryTestData(
 	}
 
 	return testData
+}
+
+// checkSettleResolution asserts the resolution is a settle with the correct
+// preimage. If successful, the HtlcSettleResolution is returned in case further
+// checks are desired.
+func checkSettleResolution(t *testing.T, res HtlcResolution,
+	expPreimage lntypes.Preimage) *HtlcSettleResolution {
+
+	t.Helper()
+
+	settleResolution, ok := res.(*HtlcSettleResolution)
+	require.True(t, ok)
+	require.Equal(t, expPreimage, settleResolution.Preimage)
+
+	return settleResolution
+}
+
+// checkFailResolution asserts the resolution is a fail with the correct reason.
+// If successful, the HtlcFailResolutionis returned in case further checks are
+// desired.
+func checkFailResolution(t *testing.T, res HtlcResolution,
+	expOutcome FailResolutionResult) *HtlcFailResolution {
+
+	t.Helper()
+	failResolution, ok := res.(*HtlcFailResolution)
+	require.True(t, ok)
+	require.Equal(t, expOutcome, failResolution.Outcome)
+
+	return failResolution
 }

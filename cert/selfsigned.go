@@ -16,13 +16,6 @@ import (
 	"time"
 )
 
-const (
-	// DefaultAutogenValidity is the default validity of a self-signed
-	// certificate. The value corresponds to 14 months
-	// (14 months * 30 days * 24 hours).
-	DefaultAutogenValidity = 14 * 30 * 24 * time.Hour
-)
-
 var (
 	// End of ASN.1 time.
 	endOfTime = time.Date(2049, 12, 31, 23, 59, 59, 0, time.UTC)

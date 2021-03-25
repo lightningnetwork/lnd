@@ -535,6 +535,21 @@ type InvoiceHTLC struct {
 	AMP *InvoiceHtlcAMPData
 }
 
+// Copy makes a deep copy of the target InvoiceHTLC.
+func (h *InvoiceHTLC) Copy() *InvoiceHTLC {
+	result := *h
+
+	// Make a copy of the CustomSet map.
+	result.CustomRecords = make(record.CustomSet)
+	for k, v := range h.CustomRecords {
+		result.CustomRecords[k] = v
+	}
+
+	result.AMP = h.AMP.Copy()
+
+	return &result
+}
+
 // IsInHTLCSet returns true if this HTLC is part an HTLC set. If nil is passed,
 // this method returns true if this is an MPP HTLC. Otherwise, it only returns
 // true if the AMP HTLC's set id matches the populated setID.
@@ -1742,21 +1757,6 @@ func copySlice(src []byte) []byte {
 	return dest
 }
 
-// copyInvoiceHTLC makes a deep copy of the supplied invoice HTLC.
-func copyInvoiceHTLC(src *InvoiceHTLC) *InvoiceHTLC {
-	result := *src
-
-	// Make a copy of the CustomSet map.
-	result.CustomRecords = make(record.CustomSet)
-	for k, v := range src.CustomRecords {
-		result.CustomRecords[k] = v
-	}
-
-	result.AMP = src.AMP.Copy()
-
-	return &result
-}
-
 // copyInvoice makes a deep copy of the supplied invoice.
 func copyInvoice(src *Invoice) *Invoice {
 	dest := Invoice{
@@ -1783,7 +1783,7 @@ func copyInvoice(src *Invoice) *Invoice {
 	}
 
 	for k, v := range src.Htlcs {
-		dest.Htlcs[k] = copyInvoiceHTLC(v)
+		dest.Htlcs[k] = v.Copy()
 	}
 
 	return &dest

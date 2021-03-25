@@ -267,6 +267,10 @@ var allTestCases = []*testCase{
 		test: testSendToRouteMultiPath,
 	},
 	{
+		name: "sendtoroute amp",
+		test: testSendToRouteAMP,
+	},
+	{
 		name: "send multi path payment",
 		test: testSendMultiPathPayment,
 	},

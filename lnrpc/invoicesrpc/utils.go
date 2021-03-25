@@ -2,7 +2,6 @@ package invoicesrpc
 
 import (
 	"encoding/hex"
-	"errors"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -24,7 +23,7 @@ func decodePayReq(invoice *channeldb.Invoice,
 	if paymentRequest == "" {
 		preimage := invoice.Terms.PaymentPreimage
 		if preimage == nil {
-			return nil, errors.New("cannot reconstruct pay req")
+			return &zpay32.Invoice{}, nil
 		}
 		hash := [32]byte(preimage.Hash())
 		return &zpay32.Invoice{
@@ -49,6 +48,11 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 	decoded, err := decodePayReq(invoice, activeNetParams)
 	if err != nil {
 		return nil, err
+	}
+
+	var rHash []byte
+	if decoded.PaymentHash != nil {
+		rHash = decoded.PaymentHash[:]
 	}
 
 	var descHash []byte
@@ -144,8 +148,8 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 	}
 
 	rpcInvoice := &lnrpc.Invoice{
-		Memo:            string(invoice.Memo[:]),
-		RHash:           decoded.PaymentHash[:],
+		Memo:            string(invoice.Memo),
+		RHash:           rHash,
 		Value:           int64(satAmt),
 		ValueMsat:       int64(invoice.Terms.Value),
 		CreationDate:    invoice.CreationDate.Unix(),

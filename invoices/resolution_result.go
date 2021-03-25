@@ -108,6 +108,10 @@ const (
 
 	// ResultAmpError is returned when we receive invalid AMP parameters.
 	ResultAmpError
+
+	// ResultAmpReconstruction is returned when the derived child
+	// hash/preimage pairs were invalid for at least one HTLC in the set.
+	ResultAmpReconstruction
 )
 
 // String returns a string representation of the result.
@@ -167,6 +171,9 @@ func (f FailResolutionResult) FailureString() string {
 
 	case ResultAmpError:
 		return "invalid amp parameters"
+
+	case ResultAmpReconstruction:
+		return "amp reconstruction failed"
 
 	default:
 		return "unknown failure resolution result"

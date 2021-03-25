@@ -1019,13 +1019,18 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 				continue
 			}
 
+			preimage := res.Preimage
+			if htlc.AMP != nil && htlc.AMP.Preimage != nil {
+				preimage = *htlc.AMP.Preimage
+			}
+
 			// Notify subscribers that the htlcs should be settled
 			// with our peer. Note that the outcome of the
 			// resolution is set based on the outcome of the single
 			// htlc that we just settled, so may not be accurate
 			// for all htlcs.
 			htlcSettleResolution := NewSettleResolution(
-				res.Preimage, key,
+				preimage, key,
 				int32(htlc.AcceptHeight), res.Outcome,
 			)
 

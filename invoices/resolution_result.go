@@ -180,6 +180,23 @@ func (f FailResolutionResult) FailureString() string {
 	}
 }
 
+// IsSetFailure returns true if this failure should result in the entire HTLC
+// set being failed with the same result.
+func (f FailResolutionResult) IsSetFailure() bool {
+	switch f {
+	case
+		ResultAmpReconstruction,
+		ResultHtlcSetTotalTooLow,
+		ResultHtlcSetTotalMismatch,
+		ResultHtlcSetOverpayment:
+
+		return true
+
+	default:
+		return false
+	}
+}
+
 // SettleResolutionResult provides metadata which about a htlc that was failed
 // by the registry. It can be used to take custom actions on resolution of the
 // htlc.

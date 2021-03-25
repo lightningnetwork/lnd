@@ -1,10 +1,12 @@
 package invoices
 
 import (
+	"crypto/rand"
 	"math"
 	"testing"
 	"time"
 
+	"github.com/lightningnetwork/lnd/amp"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -1305,4 +1307,222 @@ func TestAMPWithoutMPPPayload(t *testing.T) {
 	// We should receive the ResultAmpError failure.
 	require.NotNil(t, resolution)
 	checkFailResolution(t, resolution, ResultAmpError)
+}
+
+// TestSpontaneousAmpPayment tests receiving a spontaneous AMP payment with both
+// valid and invalid reconstructions.
+func TestSpontaneousAmpPayment(t *testing.T) {
+	tests := []struct {
+		name               string
+		keySendEnabled     bool
+		failReconstruction bool
+		numShards          int
+	}{
+		{
+			name:               "enabled valid one shard",
+			keySendEnabled:     true,
+			failReconstruction: false,
+			numShards:          1,
+		},
+		{
+			name:               "enabled valid multiple shards",
+			keySendEnabled:     true,
+			failReconstruction: false,
+			numShards:          3,
+		},
+		{
+			name:               "enabled invalid one shard",
+			keySendEnabled:     true,
+			failReconstruction: true,
+			numShards:          1,
+		},
+		{
+			name:               "enabled invalid multiple shards",
+			keySendEnabled:     true,
+			failReconstruction: true,
+			numShards:          3,
+		},
+		{
+			name:               "disabled valid multiple shards",
+			keySendEnabled:     false,
+			failReconstruction: false,
+			numShards:          3,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			testSpontaneousAmpPayment(
+				t, test.keySendEnabled, test.failReconstruction,
+				test.numShards,
+			)
+		})
+	}
+}
+
+// testSpontaneousAmpPayment runs a specific spontaneous AMP test case.
+func testSpontaneousAmpPayment(
+	t *testing.T, keySendEnabled, failReconstruction bool, numShards int) {
+
+	defer timeout()()
+
+	ctx := newTestContext(t)
+	defer ctx.cleanup()
+
+	ctx.registry.cfg.AcceptKeySend = keySendEnabled
+
+	allSubscriptions, err := ctx.registry.SubscribeNotifications(0, 0)
+	require.Nil(t, err)
+	defer allSubscriptions.Cancel()
+
+	const (
+		totalAmt = lnwire.MilliSatoshi(360)
+		expiry   = uint32(testCurrentHeight + 20)
+	)
+
+	var (
+		shardAmt = totalAmt / lnwire.MilliSatoshi(numShards)
+		payAddr  [32]byte
+		setID    [32]byte
+	)
+	_, err = rand.Read(payAddr[:])
+	require.NoError(t, err)
+	_, err = rand.Read(setID[:])
+	require.NoError(t, err)
+
+	var sharer amp.Sharer
+	sharer, err = amp.NewSeedSharer()
+	require.NoError(t, err)
+
+	// Asserts that a new invoice is published on the NewInvoices channel.
+	checkOpenSubscription := func() {
+		t.Helper()
+		newInvoice := <-allSubscriptions.NewInvoices
+		require.Equal(t, newInvoice.State, channeldb.ContractOpen)
+	}
+
+	// Asserts that a settled invoice is published on the SettledInvoices
+	// channel.
+	checkSettleSubscription := func() {
+		t.Helper()
+		settledInvoice := <-allSubscriptions.SettledInvoices
+		require.Equal(t, settledInvoice.State, channeldb.ContractSettled)
+	}
+
+	// Asserts that no invoice is published on the SettledInvoices channel
+	// w/in two seconds.
+	checkNoSettleSubscription := func() {
+		t.Helper()
+		select {
+		case <-allSubscriptions.SettledInvoices:
+			t.Fatal("no settle ntfn expected")
+		case <-time.After(2 * time.Second):
+		}
+	}
+
+	// Record the hodl channels of all HTLCs but the last one, which
+	// received its resolution directly from NotifyExistHopHtlc.
+	hodlChans := make(map[lntypes.Preimage]chan interface{})
+	for i := 0; i < numShards; i++ {
+		isFinalShard := i == numShards-1
+
+		hodlChan := make(chan interface{}, 1)
+
+		var child *amp.Child
+		if !isFinalShard {
+			var left amp.Sharer
+			left, sharer, err = sharer.Split()
+			require.NoError(t, err)
+
+			child = left.Child(uint32(i))
+
+			// Only store the first numShards-1 hodlChans.
+			hodlChans[child.Preimage] = hodlChan
+		} else {
+			child = sharer.Child(uint32(i))
+		}
+
+		// Send a blank share when the set should fail reconstruction,
+		// otherwise send the derived share.
+		var share [32]byte
+		if !failReconstruction {
+			share = child.Share
+		}
+
+		payload := &mockPayload{
+			mpp: record.NewMPP(totalAmt, payAddr),
+			amp: record.NewAMP(share, setID, uint32(i)),
+		}
+
+		resolution, err := ctx.registry.NotifyExitHopHtlc(
+			child.Hash, shardAmt, expiry,
+			testCurrentHeight, getCircuitKey(uint64(i)), hodlChan,
+			payload,
+		)
+		require.NoError(t, err)
+
+		// When keysend is disabled all HTLC should fail with invoice
+		// not found, since one is not inserted before executing
+		// UpdateInvoice.
+		if !keySendEnabled {
+			require.NotNil(t, resolution)
+			checkFailResolution(t, resolution, ResultInvoiceNotFound)
+			continue
+		}
+
+		// Check that resolutions are properly formed.
+		if !isFinalShard {
+			// Non-final shares should always return a nil
+			// resolution, theirs will be delivered via the
+			// hodlChan.
+			require.Nil(t, resolution)
+		} else {
+			// The final share should receive a non-nil resolution.
+			// Also assert that it is the proper type based on the
+			// test case.
+			require.NotNil(t, resolution)
+			if failReconstruction {
+				checkFailResolution(t, resolution, ResultAmpReconstruction)
+			} else {
+				checkSettleResolution(t, resolution, child.Preimage)
+			}
+		}
+
+		// Assert the behavior of the Open and Settle notifications.
+		// There should always be an open (keysend is enabled) followed
+		// by settle for valid AMP payments.
+		//
+		// NOTE: The cases are split in separate if conditions, rather
+		// than else-if, to properly handle the case when there is only
+		// one shard.
+		if i == 0 {
+			checkOpenSubscription()
+		}
+		if isFinalShard {
+			if failReconstruction {
+				checkNoSettleSubscription()
+			} else {
+				checkSettleSubscription()
+			}
+		}
+	}
+
+	// No need to check the hodl chans when keysend is not enabled.
+	if !keySendEnabled {
+		return
+	}
+
+	// For the non-final hodl chans, assert that they receive the expected
+	// failure or preimage.
+	for preimage, hodlChan := range hodlChans {
+		resolution, ok := (<-hodlChan).(HtlcResolution)
+		require.True(t, ok)
+		require.NotNil(t, resolution)
+		if failReconstruction {
+			checkFailResolution(t, resolution, ResultAmpReconstruction)
+		} else {
+			checkSettleResolution(t, resolution, preimage)
+		}
+	}
 }

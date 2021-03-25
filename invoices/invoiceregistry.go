@@ -1004,6 +1004,31 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 			"outcome: %v, at accept height: %v",
 			res.Outcome, res.AcceptHeight))
 
+		// Some failures apply to the entire HTLC set. Break here if
+		// this isn't one of them.
+		if !res.Outcome.IsSetFailure() {
+			break
+		}
+
+		// Also cancel any HTLCs in the HTLC set that are also in the
+		// canceled state with the same failure result.
+		setID := ctx.setID()
+		for key, htlc := range invoice.Htlcs {
+			if htlc.State != channeldb.HtlcStateCanceled {
+				continue
+			}
+
+			if !htlc.IsInHTLCSet(setID) {
+				continue
+			}
+
+			htlcFailResolution := NewFailResolution(
+				key, int32(htlc.AcceptHeight), res.Outcome,
+			)
+
+			i.notifyHodlSubscribers(htlcFailResolution)
+		}
+
 	// If the htlc was settled, we will settle any previously accepted
 	// htlcs and notify our peer to settle them.
 	case *HtlcSettleResolution:

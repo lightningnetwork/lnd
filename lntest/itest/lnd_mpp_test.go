@@ -74,36 +74,6 @@ func testSendToRouteMultiPath(net *lntest.NetworkHarness, t *harnessTest) {
 
 	payAddr := decodeResp.PaymentAddr
 
-	// Helper function for Alice to build a route from pubkeys.
-	buildRoute := func(amt btcutil.Amount, hops []*lntest.HarnessNode) (
-		*lnrpc.Route, error) {
-
-		rpcHops := make([][]byte, 0, len(hops))
-		for _, hop := range hops {
-			k := hop.PubKeyStr
-			pubkey, err := route.NewVertexFromStr(k)
-			if err != nil {
-				return nil, fmt.Errorf("error parsing %v: %v",
-					k, err)
-			}
-			rpcHops = append(rpcHops, pubkey[:])
-		}
-
-		req := &routerrpc.BuildRouteRequest{
-			AmtMsat:        int64(amt * 1000),
-			FinalCltvDelta: chainreg.DefaultBitcoinTimeLockDelta,
-			HopPubkeys:     rpcHops,
-		}
-
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		routeResp, err := net.Alice.RouterClient.BuildRoute(ctxt, req)
-		if err != nil {
-			return nil, err
-		}
-
-		return routeResp.Route, nil
-	}
-
 	// We'll send shards along three routes from Alice.
 	sendRoutes := [][]*lntest.HarnessNode{
 		{ctx.carol, ctx.bob},
@@ -114,7 +84,7 @@ func testSendToRouteMultiPath(net *lntest.NetworkHarness, t *harnessTest) {
 	responses := make(chan *lnrpc.HTLCAttempt, len(sendRoutes))
 	for _, hops := range sendRoutes {
 		// Build a route for the specified hops.
-		r, err := buildRoute(shardAmt, hops)
+		r, err := ctx.buildRoute(ctxb, shardAmt, net.Alice, hops)
 		if err != nil {
 			t.Fatalf("unable to build route: %v", err)
 		}
@@ -393,4 +363,35 @@ func (c *mppTestContext) waitForChannels() {
 			}
 		}
 	}
+}
+
+// Helper function for Alice to build a route from pubkeys.
+func (c *mppTestContext) buildRoute(ctxb context.Context, amt btcutil.Amount,
+	sender *lntest.HarnessNode, hops []*lntest.HarnessNode) (*lnrpc.Route,
+	error) {
+
+	rpcHops := make([][]byte, 0, len(hops))
+	for _, hop := range hops {
+		k := hop.PubKeyStr
+		pubkey, err := route.NewVertexFromStr(k)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing %v: %v",
+				k, err)
+		}
+		rpcHops = append(rpcHops, pubkey[:])
+	}
+
+	req := &routerrpc.BuildRouteRequest{
+		AmtMsat:        int64(amt * 1000),
+		FinalCltvDelta: chainreg.DefaultBitcoinTimeLockDelta,
+		HopPubkeys:     rpcHops,
+	}
+
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	routeResp, err := sender.RouterClient.BuildRoute(ctxt, req)
+	if err != nil {
+		return nil, err
+	}
+
+	return routeResp.Route, nil
 }

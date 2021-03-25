@@ -4221,6 +4221,12 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 		return payIntent, err
 	}
 
+	// Payment address may not be needed by legacy invoices.
+	if len(rpcPayReq.PaymentAddr) != 0 && len(rpcPayReq.PaymentAddr) != 32 {
+		return payIntent, errors.New("invalid payment address length")
+	}
+	copy(payIntent.paymentAddr[:], rpcPayReq.PaymentAddr)
+
 	// Otherwise, If the payment request field was not specified
 	// (and a custom route wasn't specified), construct the payment
 	// from the other fields.

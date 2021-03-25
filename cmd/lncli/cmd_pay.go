@@ -147,14 +147,17 @@ var sendPaymentCommand = cli.Command{
 	If payment isn't manually specified, then only a payment request needs
 	to be passed using the --pay_req argument.
 
-	If the payment *is* manually specified, then all four alternative
-	arguments need to be specified in order to complete the payment:
-	    * --dest=N
-	    * --amt=A
-	    * --final_cltv_delta=T
-	    * --payment_hash=H
+	If the payment *is* manually specified, then the following arguments
+	need to be specified in order to complete the payment:
+
+	For invoice with keysend,
+	    --dest=N --amt=A --final_cltv_delta=T --keysend
+	For invoice without payment address:
+	    --dest=N --amt=A --payment_hash=H --final_cltv_delta=T
+	For invoice with payment address:
+	    --dest=N --amt=A --payment_hash=H --final_cltv_delta=T --pay_addr=H
 	`,
-	ArgsUsage: "dest amt payment_hash final_cltv_delta | --pay_req=[payment request]",
+	ArgsUsage: "dest amt payment_hash final_cltv_delta pay_addr | --pay_req=[payment request]",
 	Flags: append(paymentFlags(),
 		cli.StringFlag{
 			Name: "dest, d",
@@ -172,6 +175,10 @@ var sendPaymentCommand = cli.Command{
 		cli.Int64Flag{
 			Name:  "final_cltv_delta",
 			Usage: "the number of blocks the last hop has to reveal the preimage",
+		},
+		cli.StringFlag{
+			Name:  "pay_addr",
+			Usage: "the payment address of the generated invoice",
 		},
 		cli.BoolFlag{
 			Name:  "keysend",
@@ -330,8 +337,27 @@ func sendPayment(ctx *cli.Context) error {
 		if err != nil {
 			return err
 		}
+		args = args.Tail()
 		req.FinalCltvDelta = int32(delta)
 	}
+
+	var payAddr []byte
+	switch {
+	case ctx.IsSet("pay_addr"):
+		payAddr, err = hex.DecodeString(ctx.String("pay_addr"))
+	case args.Present():
+		payAddr, err = hex.DecodeString(args.First())
+	}
+
+	if err != nil {
+		return err
+	}
+	// payAddr may be not required if it's a legacy invoice.
+	if len(payAddr) != 0 && len(payAddr) != 32 {
+		return fmt.Errorf("payment addr must be exactly 32 "+
+			"bytes, is instead %v", len(payAddr))
+	}
+	req.PaymentAddr = payAddr
 
 	return sendPaymentRequest(ctx, req)
 }

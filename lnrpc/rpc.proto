@@ -708,6 +708,11 @@ message SendRequest {
     fallback.
     */
     repeated FeatureBit dest_features = 15;
+
+    /*
+    The payment address of the generated invoice.
+    */
+    bytes payment_addr = 16;
 }
 
 message SendResponse {

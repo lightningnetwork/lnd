@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -672,6 +673,11 @@ func validateInvoice(i *Invoice, paymentHash lntypes.Hash) error {
 	}
 	if i.Terms.Features == nil {
 		return errors.New("invoice must have a feature vector")
+	}
+
+	err := feature.ValidateDeps(i.Terms.Features)
+	if err != nil {
+		return err
 	}
 
 	if i.Terms.PaymentPreimage == nil && !i.HodlInvoice {

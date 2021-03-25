@@ -111,7 +111,10 @@ var (
 			Value:           testInvoiceAmt,
 			Expiry:          time.Hour,
 			Features: lnwire.NewFeatureVector(
-				lnwire.NewRawFeatureVector(lnwire.PaymentAddrRequired),
+				lnwire.NewRawFeatureVector(
+					lnwire.TLVOnionPayloadOptional,
+					lnwire.PaymentAddrRequired,
+				),
 				lnwire.Features,
 			),
 		},
@@ -124,7 +127,10 @@ var (
 			Value:           testInvoiceAmt,
 			Expiry:          time.Hour,
 			Features: lnwire.NewFeatureVector(
-				lnwire.NewRawFeatureVector(lnwire.PaymentAddrOptional),
+				lnwire.NewRawFeatureVector(
+					lnwire.TLVOnionPayloadOptional,
+					lnwire.PaymentAddrOptional,
+				),
 				lnwire.Features,
 			),
 		},

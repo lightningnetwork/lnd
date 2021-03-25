@@ -119,6 +119,7 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 		amt  uint64
 		cltv uint32
 		mpp  = &record.MPP{}
+		amp  = &record.AMP{}
 	)
 
 	tlvStream, err := tlv.NewStream(
@@ -126,6 +127,7 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 		record.NewLockTimeRecord(&cltv),
 		record.NewNextHopIDRecord(&cid),
 		mpp.Record(),
+		amp.Record(),
 	)
 	if err != nil {
 		return nil, err
@@ -160,6 +162,12 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 		mpp = nil
 	}
 
+	// If no AMP field was parsed, set the MPP field on the resulting
+	// payload to nil.
+	if _, ok := parsedTypes[record.AMPOnionType]; !ok {
+		amp = nil
+	}
+
 	// Filter out the custom records.
 	customRecords := NewCustomRecords(parsedTypes)
 
@@ -171,6 +179,7 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 			OutgoingCTLV:    cltv,
 		},
 		MPP:           mpp,
+		AMP:           amp,
 		customRecords: customRecords,
 	}, nil
 }
@@ -207,6 +216,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 	_, hasLockTime := parsedTypes[record.LockTimeOnionType]
 	_, hasNextHop := parsedTypes[record.NextHopOnionType]
 	_, hasMPP := parsedTypes[record.MPPOnionType]
+	_, hasAMP := parsedTypes[record.AMPOnionType]
 
 	switch {
 
@@ -240,6 +250,14 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 	case !isFinalHop && hasMPP:
 		return ErrInvalidPayload{
 			Type:      record.MPPOnionType,
+			Violation: IncludedViolation,
+			FinalHop:  isFinalHop,
+		}
+
+	// Intermediate nodes should never receive AMP fields.
+	case !isFinalHop && hasAMP:
+		return ErrInvalidPayload{
+			Type:      record.AMPOnionType,
 			Violation: IncludedViolation,
 			FinalHop:  isFinalHop,
 		}

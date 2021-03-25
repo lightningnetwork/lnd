@@ -1374,7 +1374,7 @@ func TestSetIDIndex(t *testing.T) {
 	invoice.AmtPaid = amt
 	invoice.SettleDate = dbInvoice.SettleDate
 	invoice.Htlcs = map[CircuitKey]*InvoiceHTLC{
-		{HtlcID: 0}: makeAMPInvoiceHTLC(amt, *setID, preimage),
+		{HtlcID: 0}: makeAMPInvoiceHTLC(amt, *setID, payHash, &preimage),
 	}
 
 	// We should get back the exact same invoice that we just inserted.
@@ -1414,9 +1414,9 @@ func TestSetIDIndex(t *testing.T) {
 	invoice.AmtPaid += 2 * amt
 	invoice.SettleDate = dbInvoice.SettleDate
 	invoice.Htlcs = map[CircuitKey]*InvoiceHTLC{
-		{HtlcID: 0}: makeAMPInvoiceHTLC(amt, *setID, preimage),
-		{HtlcID: 1}: makeAMPInvoiceHTLC(amt, *setID2, preimage),
-		{HtlcID: 2}: makeAMPInvoiceHTLC(amt, *setID2, preimage),
+		{HtlcID: 0}: makeAMPInvoiceHTLC(amt, *setID, payHash, &preimage),
+		{HtlcID: 1}: makeAMPInvoiceHTLC(amt, *setID2, payHash, nil),
+		{HtlcID: 2}: makeAMPInvoiceHTLC(amt, *setID2, payHash, nil),
 	}
 
 	// We should get back the exact same invoice that we just inserted.
@@ -1460,7 +1460,7 @@ func TestSetIDIndex(t *testing.T) {
 }
 
 func makeAMPInvoiceHTLC(amt lnwire.MilliSatoshi, setID [32]byte,
-	preimage lntypes.Preimage) *InvoiceHTLC {
+	hash lntypes.Hash, preimage *lntypes.Preimage) *InvoiceHTLC {
 
 	return &InvoiceHTLC{
 		Amt:           amt,
@@ -1470,8 +1470,8 @@ func makeAMPInvoiceHTLC(amt lnwire.MilliSatoshi, setID [32]byte,
 		CustomRecords: make(record.CustomSet),
 		AMP: &InvoiceHtlcAMPData{
 			Record:   *record.NewAMP([32]byte{}, setID, 0),
-			Hash:     preimage.Hash(),
-			Preimage: &preimage,
+			Hash:     hash,
+			Preimage: preimage,
 		},
 	}
 }
@@ -1488,18 +1488,23 @@ func updateAcceptAMPHtlc(id uint64, amt lnwire.MilliSatoshi,
 
 		noRecords := make(record.CustomSet)
 
-		var state *InvoiceStateUpdateDesc
+		var (
+			state    *InvoiceStateUpdateDesc
+			preimage *lntypes.Preimage
+		)
 		if accept {
 			state = &InvoiceStateUpdateDesc{
 				NewState: ContractAccepted,
 				SetID:    setID,
 			}
+			pre := *invoice.Terms.PaymentPreimage
+			preimage = &pre
 		}
 
 		ampData := &InvoiceHtlcAMPData{
 			Record:   *record.NewAMP([32]byte{}, *setID, 0),
 			Hash:     invoice.Terms.PaymentPreimage.Hash(),
-			Preimage: invoice.Terms.PaymentPreimage,
+			Preimage: preimage,
 		}
 		update := &InvoiceUpdateDesc{
 			State: state,

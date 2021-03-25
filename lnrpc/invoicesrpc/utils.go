@@ -129,7 +129,7 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 			rpcHtlc.Amp = &lnrpc.AMP{
 				RootShare:  rootShare[:],
 				SetId:      setID[:],
-				ChildIndex: uint32(htlc.AMP.Record.ChildIndex()),
+				ChildIndex: htlc.AMP.Record.ChildIndex(),
 				Hash:       htlc.AMP.Hash[:],
 				Preimage:   preimage,
 			}

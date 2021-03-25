@@ -455,6 +455,11 @@ func UnmarshallHopWithPubkey(rpcHop *lnrpc.Hop, pubkey route.Vertex) (*route.Hop
 		return nil, err
 	}
 
+	amp, err := UnmarshalAMP(rpcHop.AmpRecord)
+	if err != nil {
+		return nil, err
+	}
+
 	return &route.Hop{
 		OutgoingTimeLock: rpcHop.Expiry,
 		AmtToForward:     lnwire.MilliSatoshi(rpcHop.AmtToForwardMsat),
@@ -463,6 +468,7 @@ func UnmarshallHopWithPubkey(rpcHop *lnrpc.Hop, pubkey route.Vertex) (*route.Hop
 		CustomRecords:    customRecords,
 		LegacyPayload:    !rpcHop.TlvPayload,
 		MPP:              mpp,
+		AMP:              amp,
 	}, nil
 }
 
@@ -893,6 +899,32 @@ func UnmarshalMPP(reqMPP *lnrpc.MPPRecord) (*record.MPP, error) {
 	total := lnwire.MilliSatoshi(reqTotal)
 
 	return record.NewMPP(total, addr), nil
+}
+
+func UnmarshalAMP(reqAMP *lnrpc.AMPRecord) (*record.AMP, error) {
+	if reqAMP == nil {
+		return nil, nil
+	}
+
+	reqRootShare := reqAMP.RootShare
+	reqSetID := reqAMP.SetId
+
+	switch {
+	case len(reqRootShare) != 32:
+		return nil, errors.New("AMP root_share must be 32 bytes")
+
+	case len(reqSetID) != 32:
+		return nil, errors.New("AMP set_id must be 32 bytes")
+	}
+
+	var (
+		rootShare [32]byte
+		setID     [32]byte
+	)
+	copy(rootShare[:], reqRootShare)
+	copy(setID[:], reqSetID)
+
+	return record.NewAMP(rootShare, setID, reqAMP.ChildIndex), nil
 }
 
 // MarshalHTLCAttempt constructs an RPC HTLCAttempt from the db representation.

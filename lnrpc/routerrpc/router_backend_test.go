@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
@@ -239,18 +240,18 @@ func (m *mockMissionControl) GetPairHistorySnapshot(fromNode,
 	return routing.TimedPairResult{}
 }
 
-type mppOutcome byte
+type recordParseOutcome byte
 
 const (
-	valid mppOutcome = iota
+	valid recordParseOutcome = iota
 	invalid
-	nompp
+	norecord
 )
 
 type unmarshalMPPTest struct {
 	name    string
 	mpp     *lnrpc.MPPRecord
-	outcome mppOutcome
+	outcome recordParseOutcome
 }
 
 // TestUnmarshalMPP checks both positive and negative cases of UnmarshalMPP to
@@ -262,7 +263,7 @@ func TestUnmarshalMPP(t *testing.T) {
 		{
 			name:    "nil record",
 			mpp:     nil,
-			outcome: nompp,
+			outcome: norecord,
 		},
 		{
 			name: "invalid total or addr",
@@ -346,13 +347,105 @@ func testUnmarshalMPP(t *testing.T, test unmarshalMPPTest) {
 
 	// Arguments that produce no MPP field should return no error and no MPP
 	// record.
-	case nompp:
+	case norecord:
 		if err != nil {
 			t.Fatalf("failure for args resulting for no-mpp")
 		}
 		if mpp != nil {
 			t.Fatalf("mpp payload should be nil for no-mpp")
 		}
+
+	default:
+		t.Fatalf("test case has non-standard outcome")
+	}
+}
+
+type unmarshalAMPTest struct {
+	name    string
+	amp     *lnrpc.AMPRecord
+	outcome recordParseOutcome
+}
+
+// TestUnmarshalAMP asserts the behavior of decoding an RPC AMPRecord.
+func TestUnmarshalAMP(t *testing.T) {
+	rootShare := bytes.Repeat([]byte{0x01}, 32)
+	setID := bytes.Repeat([]byte{0x02}, 32)
+
+	// All child indexes are valid.
+	childIndex := uint32(3)
+
+	tests := []unmarshalAMPTest{
+		{
+			name:    "nil record",
+			amp:     nil,
+			outcome: norecord,
+		},
+		{
+			name: "invalid root share invalid set id",
+			amp: &lnrpc.AMPRecord{
+				RootShare:  []byte{0x01},
+				SetId:      []byte{0x02},
+				ChildIndex: childIndex,
+			},
+			outcome: invalid,
+		},
+		{
+			name: "valid root share invalid set id",
+			amp: &lnrpc.AMPRecord{
+				RootShare:  rootShare,
+				SetId:      []byte{0x02},
+				ChildIndex: childIndex,
+			},
+			outcome: invalid,
+		},
+		{
+			name: "invalid root share valid set id",
+			amp: &lnrpc.AMPRecord{
+				RootShare:  []byte{0x01},
+				SetId:      setID,
+				ChildIndex: childIndex,
+			},
+			outcome: invalid,
+		},
+		{
+			name: "valid root share valid set id",
+			amp: &lnrpc.AMPRecord{
+				RootShare:  rootShare,
+				SetId:      setID,
+				ChildIndex: childIndex,
+			},
+			outcome: valid,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			testUnmarshalAMP(t, test)
+		})
+	}
+}
+
+func testUnmarshalAMP(t *testing.T, test unmarshalAMPTest) {
+	amp, err := UnmarshalAMP(test.amp)
+	switch test.outcome {
+	case valid:
+		require.NoError(t, err)
+		require.NotNil(t, amp)
+
+		rootShare := amp.RootShare()
+		setID := amp.SetID()
+		require.Equal(t, test.amp.RootShare, rootShare[:])
+		require.Equal(t, test.amp.SetId, setID[:])
+		require.Equal(t, test.amp.ChildIndex, amp.ChildIndex())
+
+	case invalid:
+		require.Error(t, err)
+		require.Nil(t, amp)
+
+	case norecord:
+		require.NoError(t, err)
+		require.Nil(t, amp)
 
 	default:
 		t.Fatalf("test case has non-standard outcome")

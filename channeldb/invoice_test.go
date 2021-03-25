@@ -17,7 +17,15 @@ import (
 
 var (
 	emptyFeatures = lnwire.NewFeatureVector(nil, lnwire.Features)
-	testNow       = time.Unix(1, 0)
+	ampFeatures   = lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(
+			lnwire.TLVOnionPayloadOptional,
+			lnwire.PaymentAddrOptional,
+			lnwire.AMPRequired,
+		),
+		lnwire.Features,
+	)
+	testNow = time.Unix(1, 0)
 )
 
 func randInvoice(value lnwire.MilliSatoshi) (*Invoice, error) {
@@ -1569,6 +1577,95 @@ func TestUnexpectedInvoicePreimage(t *testing.T) {
 
 	//Assert that we get ErrUnexpectedInvoicePreimage.
 	require.Error(t, ErrUnexpectedInvoicePreimage, err)
+}
+
+type updateHTLCPreimageTestCase struct {
+	name               string
+	settleSamePreimage bool
+	expError           error
+}
+
+// TestUpdateHTLCPreimages asserts various properties of setting HTLC-level
+// preimages on invoice state transitions.
+func TestUpdateHTLCPreimages(t *testing.T) {
+	t.Parallel()
+
+	tests := []updateHTLCPreimageTestCase{
+		{
+			name:               "same preimage on settle",
+			settleSamePreimage: true,
+			expError:           nil,
+		},
+		{
+			name:               "diff preimage on settle",
+			settleSamePreimage: false,
+			expError:           ErrHTLCPreimageAlreadyExists,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			testUpdateHTLCPreimages(t, test)
+		})
+	}
+}
+
+func testUpdateHTLCPreimages(t *testing.T, test updateHTLCPreimageTestCase) {
+	db, cleanup, err := MakeTestDB()
+	defer cleanup()
+	require.NoError(t, err, "unable to make test db")
+
+	// We'll start out by creating an invoice and writing it to the DB.
+	amt := lnwire.NewMSatFromSatoshis(1000)
+	invoice, err := randInvoice(amt)
+	require.Nil(t, err)
+
+	preimage := *invoice.Terms.PaymentPreimage
+	payHash := preimage.Hash()
+
+	// Set AMP-specific features so that we can settle with HTLC-level
+	// preimages.
+	invoice.Terms.Features = ampFeatures
+
+	_, err = db.AddInvoice(invoice, payHash)
+	require.Nil(t, err)
+
+	setID := &[32]byte{1}
+
+	// Update the invoice with an accepted HTLC that also accepts the
+	// invoice.
+	ref := InvoiceRefByAddr(invoice.Terms.PaymentAddr)
+	dbInvoice, err := db.UpdateInvoice(ref, updateAcceptAMPHtlc(0, amt, setID, true))
+	require.Nil(t, err)
+
+	htlcPreimages := make(map[CircuitKey]lntypes.Preimage)
+	for key := range dbInvoice.Htlcs {
+		// Set the either the same preimage used to accept above, or a
+		// blank preimage depending on the test case.
+		var pre lntypes.Preimage
+		if test.settleSamePreimage {
+			pre = preimage
+		}
+		htlcPreimages[key] = pre
+	}
+
+	updateInvoice := func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
+		update := &InvoiceUpdateDesc{
+			State: &InvoiceStateUpdateDesc{
+				Preimage:      nil,
+				NewState:      ContractSettled,
+				HTLCPreimages: htlcPreimages,
+				SetID:         setID,
+			},
+		}
+
+		return update, nil
+	}
+
+	// Now settle the HTLC set and assert the resulting error.
+	_, err = db.UpdateInvoice(ref, updateInvoice)
+	require.Equal(t, test.expError, err)
 }
 
 // TestDeleteInvoices tests that deleting a list of invoices will succeed

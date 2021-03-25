@@ -131,6 +131,12 @@ var (
 	ErrUnexpectedInvoicePreimage = errors.New(
 		"unexpected invoice preimage provided on settle",
 	)
+
+	// ErrHTLCPreimageAlreadyExists is returned when trying to set an
+	// htlc-level preimage but one is already known.
+	ErrHTLCPreimageAlreadyExists = errors.New(
+		"htlc-level preimage already exists",
+	)
 )
 
 // ErrDuplicateSetID is an error returned when attempting to adding an AMP HTLC
@@ -645,6 +651,11 @@ type InvoiceStateUpdateDesc struct {
 
 	// Preimage must be set to the preimage when NewState is settled.
 	Preimage *lntypes.Preimage
+
+	// HTLCPreimages set the HTLC-level preimages stored for AMP HTLCs.
+	// These are only learned when settling the invoice as a whole. Must be
+	// set when settling an invoice with non-nil SetID.
+	HTLCPreimages map[CircuitKey]lntypes.Preimage
 
 	// SetID identifies a specific set of HTLCs destined for the same
 	// invoice as part of a larger AMP payment. This value will be nil for
@@ -1914,7 +1925,25 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, invoices,
 	// the process by updating the state transitions for individual HTLCs
 	// and recalculate the total amount paid to the invoice.
 	var amtPaid lnwire.MilliSatoshi
-	for _, htlc := range invoice.Htlcs {
+	for key, htlc := range invoice.Htlcs {
+		// Set the HTLC preimage for any AMP HTLCs.
+		if setID != nil {
+			preimage, ok := update.State.HTLCPreimages[key]
+			switch {
+
+			// If we don't already have a preiamge for this HTLC, we
+			// can set it now.
+			case ok && htlc.AMP.Preimage == nil:
+				htlc.AMP.Preimage = &preimage
+
+			// Otherwise, prevent over-writing an existing preimage.
+			// Ignore the case where the preimage is identical.
+			case ok && *htlc.AMP.Preimage != preimage:
+				return nil, ErrHTLCPreimageAlreadyExists
+
+			}
+		}
+
 		// The invoice state may have changed and this could have
 		// implications for the states of the individual htlcs. Align
 		// the htlc state with the current invoice state.

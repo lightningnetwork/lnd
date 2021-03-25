@@ -1225,6 +1225,13 @@ func TestInvoiceRef(t *testing.T) {
 	require.Equal(t, lntypes.Hash{}, refBySetID.PayHash())
 	require.Equal(t, (*[32]byte)(nil), refBySetID.PayAddr())
 	require.Equal(t, &setID, refBySetID.SetID())
+
+	// An InvoiceRef by pay addr should only return a pay addr, but nil for
+	// pay hash and set id.
+	refByAddr := InvoiceRefByAddr(payAddr)
+	require.Equal(t, (*lntypes.Hash)(nil), refByAddr.PayHash())
+	require.Equal(t, &payAddr, refByAddr.PayAddr())
+	require.Equal(t, (*[32]byte)(nil), refByAddr.SetID())
 }
 
 // TestHTLCSet asserts that HTLCSet returns the proper set of accepted HTLCs

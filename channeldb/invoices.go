@@ -236,6 +236,14 @@ func InvoiceRefByHashAndAddr(payHash lntypes.Hash,
 	}
 }
 
+// InvoiceRefByAddr creates an InvoiceRef that queries the payment addr index
+// for an invoice with the provided payment address.
+func InvoiceRefByAddr(addr [32]byte) InvoiceRef {
+	return InvoiceRef{
+		payAddr: &addr,
+	}
+}
+
 // InvoiceRefBySetID creates an InvoiceRef that queries the set id index for an
 // invoice with the provided setID. If the invoice is not found, the query will
 // not fallback to payHash or payAddr.
@@ -901,6 +909,10 @@ func fetchInvoiceNumByRef(invoiceIndex, payAddrIndex, setIDIndex kvdb.RBucket,
 			return nil, ErrInvRefEquivocation
 		}
 
+		return invoiceNumByAddr, nil
+
+	// Return invoices by payment addr only.
+	case invoiceNumByAddr != nil:
 		return invoiceNumByAddr, nil
 
 	// If we were only able to reference the invoice by hash, return the

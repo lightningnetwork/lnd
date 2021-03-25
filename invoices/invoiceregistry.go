@@ -377,7 +377,8 @@ func (i *InvoiceRegistry) invoiceEventLoop() {
 func (i *InvoiceRegistry) dispatchToSingleClients(event *invoiceEvent) {
 	// Dispatch to single invoice subscribers.
 	for _, client := range i.singleNotificationClients {
-		if client.invoiceRef.PayHash() != event.hash {
+		payHash := client.invoiceRef.PayHash()
+		if payHash == nil || *payHash != event.hash {
 			continue
 		}
 
@@ -524,8 +525,13 @@ func (i *InvoiceRegistry) deliverSingleBacklogEvents(
 		return err
 	}
 
+	payHash := client.invoiceRef.PayHash()
+	if payHash == nil {
+		return nil
+	}
+
 	err = client.notify(&invoiceEvent{
-		hash:    client.invoiceRef.PayHash(),
+		hash:    *payHash,
 		invoice: &invoice,
 	})
 	if err != nil {

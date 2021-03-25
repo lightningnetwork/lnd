@@ -1208,21 +1208,21 @@ func TestInvoiceRef(t *testing.T) {
 	// An InvoiceRef by hash should return the provided hash and a nil
 	// payment addr.
 	refByHash := InvoiceRefByHash(payHash)
-	require.Equal(t, payHash, refByHash.PayHash())
+	require.Equal(t, &payHash, refByHash.PayHash())
 	require.Equal(t, (*[32]byte)(nil), refByHash.PayAddr())
 	require.Equal(t, (*[32]byte)(nil), refByHash.SetID())
 
 	// An InvoiceRef by hash and addr should return the payment hash and
 	// payment addr passed to the constructor.
 	refByHashAndAddr := InvoiceRefByHashAndAddr(payHash, payAddr)
-	require.Equal(t, payHash, refByHashAndAddr.PayHash())
+	require.Equal(t, &payHash, refByHashAndAddr.PayHash())
 	require.Equal(t, &payAddr, refByHashAndAddr.PayAddr())
 	require.Equal(t, (*[32]byte)(nil), refByHashAndAddr.SetID())
 
 	// An InvoiceRef by set id should return an empty pay hash, a nil pay
 	// addr, and a reference to the given set id.
 	refBySetID := InvoiceRefBySetID(setID)
-	require.Equal(t, lntypes.Hash{}, refBySetID.PayHash())
+	require.Equal(t, (*lntypes.Hash)(nil), refBySetID.PayHash())
 	require.Equal(t, (*[32]byte)(nil), refBySetID.PayAddr())
 	require.Equal(t, &setID, refBySetID.SetID())
 
@@ -1531,6 +1531,38 @@ func getUpdateInvoiceAMPSettle(setID *[32]byte) InvoiceUpdateCallback {
 
 		return update, nil
 	}
+}
+
+// TestUnexpectedInvoicePreimage asserts that legacy or MPP invoices cannot be
+// settled when referenced by payment address only. Since regular or MPP
+// payments do not store the payment hash explicitly (it is stored in the
+// index), this enforces that they can only be updated using a InvoiceRefByHash
+// or InvoiceRefByHashOrAddr.
+func TestUnexpectedInvoicePreimage(t *testing.T) {
+	t.Parallel()
+
+	db, cleanup, err := MakeTestDB()
+	defer cleanup()
+	require.NoError(t, err, "unable to make test db")
+
+	invoice, err := randInvoice(lnwire.MilliSatoshi(100))
+	require.NoError(t, err)
+
+	// Add a random invoice indexed by payment hash and payment addr.
+	paymentHash := invoice.Terms.PaymentPreimage.Hash()
+	_, err = db.AddInvoice(invoice, paymentHash)
+	require.NoError(t, err)
+
+	// Attempt to update the invoice by pay addr only. This will fail since,
+	// in order to settle an MPP invoice, the InvoiceRef must present a
+	// payment hash against which to validate the preimage.
+	_, err = db.UpdateInvoice(
+		InvoiceRefByAddr(invoice.Terms.PaymentAddr),
+		getUpdateInvoice(invoice.Terms.Value),
+	)
+
+	//Assert that we get ErrUnexpectedInvoicePreimage.
+	require.Error(t, ErrUnexpectedInvoicePreimage, err)
 }
 
 // TestDeleteInvoices tests that deleting a list of invoices will succeed

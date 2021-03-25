@@ -122,6 +122,13 @@ var (
 	// ErrEmptyHTLCSet is returned when attempting to accept or settle and
 	// HTLC set that has no HTLCs.
 	ErrEmptyHTLCSet = errors.New("cannot settle/accept empty HTLC set")
+
+	// ErrUnexpectedInvoicePreimage is returned when an invoice-level
+	// preimage is provided when trying to settle an invoice that shouldn't
+	// have one, e.g. an AMP invoice.
+	ErrUnexpectedInvoicePreimage = errors.New(
+		"unexpected invoice preimage provided on settle",
+	)
 )
 
 // ErrDuplicateSetID is an error returned when attempting to adding an AMP HTLC
@@ -198,7 +205,7 @@ type InvoiceRef struct {
 	// payHash is the payment hash of the target invoice. All invoices are
 	// currently indexed by payment hash. This value will be used as a
 	// fallback when no payment address is known.
-	payHash lntypes.Hash
+	payHash *lntypes.Hash
 
 	// payAddr is the payment addr of the target invoice. Newer invoices
 	// (0.11 and up) are indexed by payment address in addition to payment
@@ -220,7 +227,7 @@ type InvoiceRef struct {
 // its payment hash.
 func InvoiceRefByHash(payHash lntypes.Hash) InvoiceRef {
 	return InvoiceRef{
-		payHash: payHash,
+		payHash: &payHash,
 	}
 }
 
@@ -231,7 +238,7 @@ func InvoiceRefByHashAndAddr(payHash lntypes.Hash,
 	payAddr [32]byte) InvoiceRef {
 
 	return InvoiceRef{
-		payHash: payHash,
+		payHash: &payHash,
 		payAddr: &payAddr,
 	}
 }
@@ -253,9 +260,15 @@ func InvoiceRefBySetID(setID [32]byte) InvoiceRef {
 	}
 }
 
-// PayHash returns the target invoice's payment hash.
-func (r InvoiceRef) PayHash() lntypes.Hash {
-	return r.payHash
+// PayHash returns the optional payment hash of the target invoice.
+//
+// NOTE: This value may be nil.
+func (r InvoiceRef) PayHash() *lntypes.Hash {
+	if r.payHash != nil {
+		hash := *r.payHash
+		return &hash
+	}
+	return nil
 }
 
 // PayAddr returns the optional payment address of the target invoice.
@@ -887,19 +900,27 @@ func fetchInvoiceNumByRef(invoiceIndex, payAddrIndex, setIDIndex kvdb.RBucket,
 	payHash := ref.PayHash()
 	payAddr := ref.PayAddr()
 
-	var (
-		invoiceNumByHash = invoiceIndex.Get(payHash[:])
-		invoiceNumByAddr []byte
-	)
-	if payAddr != nil {
-		// Only allow lookups for payment address if it is not a blank
-		// payment address, which is a special-cased value for legacy
-		// keysend invoices.
-		if *payAddr != BlankPayAddr {
-			invoiceNumByAddr = payAddrIndex.Get(payAddr[:])
+	getInvoiceNumByHash := func() []byte {
+		if payHash != nil {
+			return invoiceIndex.Get(payHash[:])
 		}
+		return nil
 	}
 
+	getInvoiceNumByAddr := func() []byte {
+		if payAddr != nil {
+			// Only allow lookups for payment address if it is not a
+			// blank payment address, which is a special-cased value
+			// for legacy keysend invoices.
+			if *payAddr != BlankPayAddr {
+				return payAddrIndex.Get(payAddr[:])
+			}
+		}
+		return nil
+	}
+
+	invoiceNumByHash := getInvoiceNumByHash()
+	invoiceNumByAddr := getInvoiceNumByAddr()
 	switch {
 
 	// If payment address and payment hash both reference an existing
@@ -1745,7 +1766,7 @@ func copyInvoice(src *Invoice) *Invoice {
 
 // updateInvoice fetches the invoice, obtains the update descriptor from the
 // callback and applies the updates in a single db transaction.
-func (d *DB) updateInvoice(hash lntypes.Hash, invoices,
+func (d *DB) updateInvoice(hash *lntypes.Hash, invoices,
 	settleIndex, setIDIndex kvdb.RwBucket, invoiceNum []byte,
 	callback InvoiceUpdateCallback) (*Invoice, error) {
 
@@ -1913,7 +1934,7 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices,
 }
 
 // updateInvoiceState validates and processes an invoice state update.
-func updateInvoiceState(invoice *Invoice, hash lntypes.Hash,
+func updateInvoiceState(invoice *Invoice, hash *lntypes.Hash,
 	update InvoiceStateUpdateDesc) error {
 
 	// Returning to open is never allowed from any state.
@@ -1962,9 +1983,14 @@ func updateInvoiceState(invoice *Invoice, hash lntypes.Hash,
 
 		switch {
 
+		// If an invoice-level preimage was supplied, but the InvoiceRef
+		// doesn't specify a hash (e.g. AMP invoices) we fail.
+		case update.Preimage != nil && hash == nil:
+			return ErrUnexpectedInvoicePreimage
+
 		// Validate the supplied preimage for non-AMP invoices.
 		case update.Preimage != nil:
-			if update.Preimage.Hash() != hash {
+			if update.Preimage.Hash() != *hash {
 				return ErrInvoicePreimageMismatch
 			}
 			invoice.Terms.PaymentPreimage = update.Preimage

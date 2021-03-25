@@ -29,9 +29,7 @@ func TestSettleInvoice(t *testing.T) {
 	}
 	defer subscription.Cancel()
 
-	if subscription.invoiceRef.PayHash() != testInvoicePaymentHash {
-		t.Fatalf("expected subscription for provided hash")
-	}
+	require.Equal(t, subscription.invoiceRef.PayHash(), &testInvoicePaymentHash)
 
 	// Add the invoice.
 	addIdx, err := ctx.registry.AddInvoice(testInvoice, testInvoicePaymentHash)
@@ -244,9 +242,7 @@ func testCancelInvoice(t *testing.T, gc bool) {
 	}
 	defer subscription.Cancel()
 
-	if subscription.invoiceRef.PayHash() != testInvoicePaymentHash {
-		t.Fatalf("expected subscription for provided hash")
-	}
+	require.Equal(t, subscription.invoiceRef.PayHash(), &testInvoicePaymentHash)
 
 	// Add the invoice.
 	amt := lnwire.MilliSatoshi(100000)
@@ -404,9 +400,7 @@ func TestSettleHoldInvoice(t *testing.T) {
 	}
 	defer subscription.Cancel()
 
-	if subscription.invoiceRef.PayHash() != testInvoicePaymentHash {
-		t.Fatalf("expected subscription for provided hash")
-	}
+	require.Equal(t, subscription.invoiceRef.PayHash(), &testInvoicePaymentHash)
 
 	// Add the invoice.
 	_, err = registry.AddInvoice(testHodlInvoice, testInvoicePaymentHash)
@@ -1211,7 +1205,7 @@ func TestSettleInvoicePaymentAddrRequired(t *testing.T) {
 	defer subscription.Cancel()
 
 	require.Equal(
-		t, subscription.invoiceRef.PayHash(), testInvoicePaymentHash,
+		t, subscription.invoiceRef.PayHash(), &testInvoicePaymentHash,
 	)
 
 	// Add the invoice, which requires the MPP payload to always be
@@ -1287,7 +1281,7 @@ func TestSettleInvoicePaymentAddrRequiredOptionalGrace(t *testing.T) {
 	defer subscription.Cancel()
 
 	require.Equal(
-		t, subscription.invoiceRef.PayHash(), testInvoicePaymentHash,
+		t, subscription.invoiceRef.PayHash(), &testInvoicePaymentHash,
 	)
 
 	// Add the invoice, which requires the MPP payload to always be

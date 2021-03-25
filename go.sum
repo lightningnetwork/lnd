@@ -35,8 +35,6 @@ github.com/btcsuite/btcutil v1.0.2 h1:9iZ1Terx9fMIOtq1VrwdqfsATL9MC2l8ZrUY6YZ2ut
 github.com/btcsuite/btcutil v1.0.2/go.mod h1:j9HUFwoQRsZL3V4n+qG+CUnEGHOarIxfC3Le2Yhbcts=
 github.com/btcsuite/btcutil/psbt v1.0.3-0.20200826194809-5f93e33af2b0 h1:3Zumkyl6PWyHuVJ04me0xeD9CnPOhNgeGpapFbzy7O4=
 github.com/btcsuite/btcutil/psbt v1.0.3-0.20200826194809-5f93e33af2b0/go.mod h1:LVveMu4VaNSkIRTZu2+ut0HDBRuYjqGocxDMNS1KuGQ=
-github.com/btcsuite/btcwallet v0.11.1-0.20201207233335-415f37ff11a1 h1:3gvLezYoUkr9MvxocB/vyPNzL+gSqsNT4Q6XTPK+R04=
-github.com/btcsuite/btcwallet v0.11.1-0.20201207233335-415f37ff11a1/go.mod h1:P1U4LKSB/bhFQdOM7ab1XqNoBGFyFAe7eKObEBD9mIo=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.0.0 h1:KGHMW5sd7yDdDMkCZ/JpP0KltolFsQcB973brBnfj4c=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.0.0/go.mod h1:VufDts7bd/zs3GV13f/lXc/0lXrPnvxD/NvmpG/FEKU=
 github.com/btcsuite/btcwallet/wallet/txrules v1.0.0 h1:2VsfS0sBedcM5KmDzRMT3+b6xobqWveZGvjb+jFez5w=
@@ -63,6 +61,8 @@ github.com/btcsuite/websocket v0.0.0-20150119174127-31079b680792 h1:R8vQdOQdZ9Y3
 github.com/btcsuite/websocket v0.0.0-20150119174127-31079b680792/go.mod h1:ghJtEyQwv5/p4Mg4C0fgbePVuGr935/5ddU9Z3TmDRY=
 github.com/btcsuite/winsvc v1.0.0/go.mod h1:jsenWakMcC0zFBFurPLEAyrnc/teJEM1O46fmI40EZs=
 github.com/cespare/xxhash v1.1.0/go.mod h1:XrSqR1VqqWfGrhpAt58auRo0WTKS1nRRg3ghfAqPWnc=
+github.com/cfromknecht/btcwallet v0.0.0-20201208215526-faf925f7c318 h1:a8Br6bWUOK4xEYLmKR/ee7dLC/DqXz5NfXbC32gu46s=
+github.com/cfromknecht/btcwallet v0.0.0-20201208215526-faf925f7c318/go.mod h1:P1U4LKSB/bhFQdOM7ab1XqNoBGFyFAe7eKObEBD9mIo=
 github.com/client9/misspell v0.3.4/go.mod h1:qj6jICC3Q7zFZvVWo7KLAzC3yx5G7kyvSDkc90ppPyw=
 github.com/coreos/bbolt v1.3.3 h1:n6AiVyVRKQFNb6mJlwESEvvLoDyiTzXX7ORAUlkeBdY=
 github.com/coreos/bbolt v1.3.3/go.mod h1:iRUV2dpdMOn7Bo10OQBFzIJO9kkE559Wcmn+qkEiiKk=

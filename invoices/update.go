@@ -47,7 +47,7 @@ func (i invoiceUpdateCtx) setID() *[32]byte {
 // log logs a message specific to this update context.
 func (i *invoiceUpdateCtx) log(s string) {
 	log.Debugf("Invoice%v: %v, amt=%v, expiry=%v, circuit=%v, mpp=%v, "+
-		"amp=%v", i.hash[:], s, i.amtPaid, i.expiry, i.circuitKey,
+		"amp=%v", i.invoiceRef(), s, i.amtPaid, i.expiry, i.circuitKey,
 		i.mpp, i.amp)
 }
 

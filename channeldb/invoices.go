@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
@@ -295,10 +296,17 @@ func (r InvoiceRef) SetID() *[32]byte {
 
 // String returns a human-readable representation of an InvoiceRef.
 func (r InvoiceRef) String() string {
-	if r.payAddr != nil {
-		return fmt.Sprintf("(pay_hash=%v, pay_addr=%x)", r.payHash, *r.payAddr)
+	var ids []string
+	if r.payHash != nil {
+		ids = append(ids, fmt.Sprintf("pay_hash=%v", *r.payHash))
 	}
-	return fmt.Sprintf("(pay_hash=%v)", r.payHash)
+	if r.payAddr != nil {
+		ids = append(ids, fmt.Sprintf("pay_addr=%x", *r.payAddr))
+	}
+	if r.setID != nil {
+		ids = append(ids, fmt.Sprintf("set_id=%x", *r.setID))
+	}
+	return fmt.Sprintf("(%s)", strings.Join(ids, ", "))
 }
 
 // ContractState describes the state the invoice is in.

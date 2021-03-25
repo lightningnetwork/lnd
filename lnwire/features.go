@@ -129,6 +129,16 @@ const (
 	// transactions, which also imply anchor commitments.
 	AnchorsZeroFeeHtlcTxOptional FeatureBit = 23
 
+	// AMPRequired is a required feature bit that signals that the receiver
+	// of a payment supports accepts spontaneous payments, i.e.
+	// sender-generated preimages according to BOLT XX.
+	AMPRequired FeatureBit = 30
+
+	// AMPOptional is an optional feature bit that signals that the receiver
+	// of a payment supports accepts spontaneous payments, i.e.
+	// sender-generated preimages according to BOLT XX.
+	AMPOptional FeatureBit = 31
+
 	// maxAllowedSize is a maximum allowed size of feature vector.
 	//
 	// NOTE: Within the protocol, the maximum allowed message size is 65535
@@ -172,6 +182,8 @@ var Features = map[FeatureBit]string{
 	AnchorsZeroFeeHtlcTxOptional:  "anchors-zero-fee-htlc-tx",
 	WumboChannelsRequired:         "wumbo-channels",
 	WumboChannelsOptional:         "wumbo-channels",
+	AMPRequired:                   "amp",
+	AMPOptional:                   "amp",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A

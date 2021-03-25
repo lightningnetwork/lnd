@@ -117,6 +117,19 @@ var (
 	// match the invoice hash.
 	ErrInvoicePreimageMismatch = errors.New("preimage does not match")
 
+	// ErrHTLCPreimageMissing is returned when trying to accept/settle an
+	// AMP HTLC but the HTLC-level preimage has not been set.
+	ErrHTLCPreimageMissing = errors.New("AMP htlc missing preimage")
+
+	// ErrHTLCPreimageMismatch is returned when trying to accept/settle an
+	// AMP HTLC but the HTLC-level preimage does not satisfying the
+	// HTLC-level payment hash.
+	ErrHTLCPreimageMismatch = errors.New("htlc preimage mismatch")
+
+	// ErrHTLCAlreadySettled is returned when trying to settle an invoice
+	// but HTLC already exists in the settled state.
+	ErrHTLCAlreadySettled = errors.New("htlc already settled")
+
 	// ErrInvoiceHasHtlcs is returned when attempting to insert an invoice
 	// that already has HTLCs.
 	ErrInvoiceHasHtlcs = errors.New("cannot add invoice with htlcs")
@@ -2108,10 +2121,25 @@ func updateHtlc(resolveTime time.Time, htlc *InvoiceHTLC,
 			// already know the preimage is valid due to checks at
 			// the invoice level. For AMP HTLCs, verify that the
 			// per-HTLC preimage-hash pair is valid.
-			if setID != nil && !htlc.AMP.Preimage.Matches(htlc.AMP.Hash) {
-				return fmt.Errorf("AMP preimage mismatch, "+
-					"preimage=%v hash=%v", *htlc.AMP.Preimage,
-					htlc.AMP.Hash)
+			switch {
+
+			// Non-AMP HTLCs can be settle immediately since we
+			// already know the preimage is valid due to checks at
+			// the invoice level.
+			case setID == nil:
+
+			// At this popint, the setID is non-nil, meaning this is
+			// an AMP HTLC. We know that htlc.AMP cannot be nil,
+			// otherwise IsInHTLCSet would have returned false.
+			//
+			// Fail if an accepted AMP HTLC has no preimage.
+			case htlc.AMP.Preimage == nil:
+				return ErrHTLCPreimageMissing
+
+			// Fail if the accepted AMP HTLC has an invalid
+			// preimage.
+			case !htlc.AMP.Preimage.Matches(htlc.AMP.Hash):
+				return ErrHTLCPreimageMismatch
 			}
 
 			htlcState = HtlcStateSettled
@@ -2140,8 +2168,7 @@ func updateHtlc(resolveTime time.Time, htlc *InvoiceHTLC,
 	// We should never find a settled HTLC on an invoice that isn't in
 	// ContractSettled.
 	if htlc.State == HtlcStateSettled {
-		return fmt.Errorf("cannot have a settled htlc with "+
-			"invoice in state %v", invState)
+		return ErrHTLCAlreadySettled
 	}
 
 	switch invState {

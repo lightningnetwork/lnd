@@ -9,7 +9,7 @@ import (
 
 // AMPOnionType is the type used in the onion to reference the AMP fields:
 // root_share, set_id, and child_index.
-const AMPOnionType tlv.Type = 10
+const AMPOnionType tlv.Type = 14
 
 // AMP is a record that encodes the fields necessary for atomic multi-path
 // payments.

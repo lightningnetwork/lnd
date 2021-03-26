@@ -131,8 +131,8 @@ func (w *WalletController) LockOutpoint(o wire.OutPoint) {}
 func (w *WalletController) UnlockOutpoint(o wire.OutPoint) {}
 
 // LeaseOutput returns the current time and a nil error.
-func (w *WalletController) LeaseOutput(wtxmgr.LockID, wire.OutPoint) (time.Time,
-	error) {
+func (w *WalletController) LeaseOutput(wtxmgr.LockID, wire.OutPoint,
+	time.Duration) (time.Time, error) {
 
 	return time.Now(), nil
 }
@@ -140,6 +140,10 @@ func (w *WalletController) LeaseOutput(wtxmgr.LockID, wire.OutPoint) (time.Time,
 // ReleaseOutput currently does nothing.
 func (w *WalletController) ReleaseOutput(wtxmgr.LockID, wire.OutPoint) error {
 	return nil
+}
+
+func (w *WalletController) ListLeasedOutputs() ([]*wtxmgr.LockedOutput, error) {
+	return nil, nil
 }
 
 // FundPsbt currently does nothing.

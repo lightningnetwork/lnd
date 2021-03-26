@@ -457,6 +457,29 @@
         ]
       }
     },
+    "/v2/wallet/utxos/leases": {
+      "post": {
+        "summary": "ListLeases lists all currently locked utxos.",
+        "operationId": "ListLeases",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/walletrpcListLeasesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "tags": [
+          "WalletKit"
+        ]
+      }
+    },
     "/v2/wallet/utxos/release": {
       "post": {
         "summary": "ReleaseOutput unlocks an output, allowing it to be available for coin\nselection if it remains unspent. The ID should match the one used to\noriginally lock the output.",
@@ -876,6 +899,11 @@
         "outpoint": {
           "$ref": "#/definitions/lnrpcOutPoint",
           "description": "The identifying outpoint of the output being leased."
+        },
+        "expiration_seconds": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The time in seconds before the lock expires. If set to zero, the default\nlock duration is used."
         }
       }
     },
@@ -886,6 +914,18 @@
           "type": "string",
           "format": "uint64",
           "description": "The absolute expiration of the output lease represented as a unix timestamp."
+        }
+      }
+    },
+    "walletrpcListLeasesResponse": {
+      "type": "object",
+      "properties": {
+        "locked_utxos": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/walletrpcUtxoLease"
+          },
+          "description": "The list of currently leased utxos."
         }
       }
     },

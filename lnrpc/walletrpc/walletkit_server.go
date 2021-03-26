@@ -112,6 +112,10 @@ var (
 			Entity: "onchain",
 			Action: "write",
 		}},
+		"/walletrpc.WalletKit/ListLeases": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
 		"/walletrpc.WalletKit/ListUnspent": {{
 			Entity: "onchain",
 			Action: "read",
@@ -368,11 +372,19 @@ func (w *WalletKit) LeaseOutput(ctx context.Context,
 		return nil, err
 	}
 
+	// Use the specified lock duration or fall back to the default.
+	duration := DefaultLockDuration
+	if req.ExpirationSeconds != 0 {
+		duration = time.Duration(req.ExpirationSeconds) * time.Second
+	}
+
 	// Acquire the global coin selection lock to ensure there aren't any
 	// other concurrent processes attempting to lease the same UTXO.
 	var expiration time.Time
 	err = w.cfg.CoinSelectionLocker.WithCoinSelectLock(func() error {
-		expiration, err = w.cfg.Wallet.LeaseOutput(lockID, *op)
+		expiration, err = w.cfg.Wallet.LeaseOutput(
+			lockID, *op, duration,
+		)
 		return err
 	})
 	if err != nil {
@@ -411,6 +423,20 @@ func (w *WalletKit) ReleaseOutput(ctx context.Context,
 	}
 
 	return &ReleaseOutputResponse{}, nil
+}
+
+// ListLeases returns a list of all currently locked utxos.
+func (w *WalletKit) ListLeases(ctx context.Context,
+	req *ListLeasesRequest) (*ListLeasesResponse, error) {
+
+	leases, err := w.cfg.Wallet.ListLeasedOutputs()
+	if err != nil {
+		return nil, err
+	}
+
+	return &ListLeasesResponse{
+		LockedUtxos: marshallLeases(leases),
+	}, nil
 }
 
 // DeriveNextKey attempts to derive the *next* key within the key family
@@ -909,7 +935,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		err         error
 		packet      *psbt.Packet
 		feeSatPerKW chainfee.SatPerKWeight
-		locks       []*utxoLock
+		locks       []*wtxmgr.LockedOutput
 		rawPsbt     bytes.Buffer
 	)
 
@@ -1070,24 +1096,31 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 	}
 
 	// Convert the lock leases to the RPC format.
-	rpcLocks := make([]*UtxoLease, len(locks))
-	for idx, lock := range locks {
-		rpcLocks[idx] = &UtxoLease{
-			Id: lock.lockID[:],
-			Outpoint: &lnrpc.OutPoint{
-				TxidBytes:   lock.outpoint.Hash[:],
-				TxidStr:     lock.outpoint.Hash.String(),
-				OutputIndex: lock.outpoint.Index,
-			},
-			Expiration: uint64(lock.expiration.Unix()),
-		}
-	}
+	rpcLocks := marshallLeases(locks)
 
 	return &FundPsbtResponse{
 		FundedPsbt:        rawPsbt.Bytes(),
 		ChangeOutputIndex: changeIndex,
 		LockedUtxos:       rpcLocks,
 	}, nil
+}
+
+// marshallLeases converts the lock leases to the RPC format.
+func marshallLeases(locks []*wtxmgr.LockedOutput) []*UtxoLease {
+	rpcLocks := make([]*UtxoLease, len(locks))
+	for idx, lock := range locks {
+		rpcLocks[idx] = &UtxoLease{
+			Id: lock.LockID[:],
+			Outpoint: &lnrpc.OutPoint{
+				TxidBytes:   lock.Outpoint.Hash[:],
+				TxidStr:     lock.Outpoint.Hash.String(),
+				OutputIndex: lock.Outpoint.Index,
+			},
+			Expiration: uint64(lock.Expiration.Unix()),
+		}
+	}
+
+	return rpcLocks
 }
 
 // FinalizePsbt expects a partial transaction with all inputs and outputs fully

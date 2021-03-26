@@ -393,8 +393,8 @@ func (b *BtcWallet) UnlockOutpoint(o wire.OutPoint) {
 // wtxmgr.ErrOutputAlreadyLocked is returned.
 //
 // NOTE: This method requires the global coin selection lock to be held.
-func (b *BtcWallet) LeaseOutput(id wtxmgr.LockID, op wire.OutPoint) (time.Time,
-	error) {
+func (b *BtcWallet) LeaseOutput(id wtxmgr.LockID, op wire.OutPoint,
+	duration time.Duration) (time.Time, error) {
 
 	// Make sure we don't attempt to double lock an output that's been
 	// locked by the in-memory implementation.
@@ -402,7 +402,12 @@ func (b *BtcWallet) LeaseOutput(id wtxmgr.LockID, op wire.OutPoint) (time.Time,
 		return time.Time{}, wtxmgr.ErrOutputAlreadyLocked
 	}
 
-	return b.wallet.LeaseOutput(id, op)
+	return b.wallet.LeaseOutput(id, op, duration)
+}
+
+// ListLeasedOutputs returns a list of all currently locked outputs.
+func (b *BtcWallet) ListLeasedOutputs() ([]*wtxmgr.LockedOutput, error) {
+	return b.wallet.ListLeasedOutputs()
 }
 
 // ReleaseOutput unlocks an output, allowing it to be available for coin

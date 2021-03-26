@@ -18,13 +18,10 @@ const (
 	defaultMaxConf = math.MaxInt32
 )
 
-// utxoLock is a type that contains an outpoint of an UTXO and its lock lease
-// information.
-type utxoLock struct {
-	lockID     wtxmgr.LockID
-	outpoint   wire.OutPoint
-	expiration time.Time
-}
+var (
+	// DefaultLockDuration is the default duration used to lock outputs.
+	DefaultLockDuration = 10 * time.Minute
+)
 
 // verifyInputsUnspent checks that all inputs are contained in the list of
 // known, non-locked UTXOs given.
@@ -50,24 +47,26 @@ func verifyInputsUnspent(inputs []*wire.TxIn, utxos []*lnwallet.Utxo) error {
 
 // lockInputs requests a lock lease for all inputs specified in a PSBT packet
 // by using the internal, static lock ID of lnd's wallet.
-func lockInputs(w lnwallet.WalletController, packet *psbt.Packet) ([]*utxoLock,
-	error) {
+func lockInputs(w lnwallet.WalletController, packet *psbt.Packet) (
+	[]*wtxmgr.LockedOutput, error) {
 
-	locks := make([]*utxoLock, len(packet.UnsignedTx.TxIn))
+	locks := make([]*wtxmgr.LockedOutput, len(packet.UnsignedTx.TxIn))
 	for idx, rawInput := range packet.UnsignedTx.TxIn {
-		lock := &utxoLock{
-			lockID:   LndInternalLockID,
-			outpoint: rawInput.PreviousOutPoint,
+		lock := &wtxmgr.LockedOutput{
+			LockID:   LndInternalLockID,
+			Outpoint: rawInput.PreviousOutPoint,
 		}
 
-		expiration, err := w.LeaseOutput(lock.lockID, lock.outpoint)
+		expiration, err := w.LeaseOutput(
+			lock.LockID, lock.Outpoint, DefaultLockDuration,
+		)
 		if err != nil {
 			// If we run into a problem with locking one output, we
 			// should try to unlock those that we successfully
 			// locked so far. If that fails as well, there's not
 			// much we can do.
 			for i := 0; i < idx; i++ {
-				op := locks[i].outpoint
+				op := locks[i].Outpoint
 				if err := w.ReleaseOutput(
 					LndInternalLockID, op,
 				); err != nil {
@@ -81,7 +80,7 @@ func lockInputs(w lnwallet.WalletController, packet *psbt.Packet) ([]*utxoLock,
 				"UTXO: %v", err)
 		}
 
-		lock.expiration = expiration
+		lock.Expiration = expiration
 		locks[idx] = lock
 	}
 

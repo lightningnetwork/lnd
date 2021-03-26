@@ -397,6 +397,7 @@ func NewChainControl(cfg *Config) (*ChainControl, error) {
 			ZMQTxHost:          bitcoindMode.ZMQPubRawTx,
 			ZMQReadDeadline:    5 * time.Second,
 			Dialer:             cfg.Dialer,
+			PrunedModeMaxPeers: bitcoindMode.PrunedNodeMaxPeers,
 		})
 		if err != nil {
 			return nil, err

@@ -35,10 +35,6 @@ type forwardInterceptor struct {
 	// stream is the bidirectional RPC stream
 	stream Router_HtlcInterceptorServer
 
-	// quit is a channel that is closed when this forwardInterceptor is shutting
-	// down.
-	quit chan struct{}
-
 	// intercepted is where we stream all intercepted packets coming from
 	// the switch.
 	intercepted chan htlcswitch.InterceptedForward
@@ -47,13 +43,11 @@ type forwardInterceptor struct {
 }
 
 // newForwardInterceptor creates a new forwardInterceptor.
-func newForwardInterceptor(server *Server, stream Router_HtlcInterceptorServer) *forwardInterceptor {
+func newForwardInterceptor(server *Server) *forwardInterceptor {
 	return &forwardInterceptor{
 		server: server,
-		stream: stream,
 		holdForwards: make(
 			map[channeldb.CircuitKey]htlcswitch.InterceptedForward),
-		quit:        make(chan struct{}),
 		intercepted: make(chan htlcswitch.InterceptedForward),
 	}
 }
@@ -64,14 +58,18 @@ func newForwardInterceptor(server *Server, stream Router_HtlcInterceptorServer) 
 // to read from the client stream.
 // To coordinate all this and make sure it is safe for concurrent access all
 // packets are sent to the main where they are handled.
-func (r *forwardInterceptor) run() error {
+func (r *forwardInterceptor) attachStream(stream Router_HtlcInterceptorServer) error {
 	// make sure we disconnect and resolves all remaining packets if any.
 	defer r.onDisconnect()
 
-	// Register our interceptor so we receive all forwarded packets.
-	interceptableForwarder := r.server.cfg.RouterBackend.InterceptableForwarder
-	interceptableForwarder.SetInterceptor(r.onIntercept)
-	defer interceptableForwarder.SetInterceptor(nil)
+	r.stream = stream
+
+	if !r.server.cfg.AlwaysIntercept {
+		// Register our interceptor so we receive all forwarded packets.
+		interceptableForwarder := r.server.cfg.RouterBackend.InterceptableForwarder
+		interceptableForwarder.SetInterceptor(r.onIntercept)
+		defer interceptableForwarder.SetInterceptor(nil)
+	}
 
 	// start a go routine that reads client resolutions.
 	errChan := make(chan error)
@@ -110,11 +108,14 @@ func (r *forwardInterceptor) run() error {
 // main loop to handle the packet. We only return true if we were able
 // to deliver the packet to the main loop.
 func (r *forwardInterceptor) onIntercept(p htlcswitch.InterceptedForward) bool {
+
+	if r.stream == nil && !r.server.cfg.AlwaysIntercept {
+		return false
+	}
+
 	select {
 	case r.intercepted <- p:
 		return true
-	case <-r.quit:
-		return false
 	case <-r.server.quit:
 		return false
 	}
@@ -135,8 +136,6 @@ func (r *forwardInterceptor) readClientResponses(
 		// the responses chan.
 		select {
 		case resolutionChan <- resp:
-		case <-r.quit:
-			return
 		case <-r.server.quit:
 			return
 		}
@@ -213,15 +212,26 @@ func (r *forwardInterceptor) resolveFromClient(
 // the store. Before they are removed it ensure to resume as the default
 // behavior.
 func (r *forwardInterceptor) onDisconnect() {
-	// Then close the channel so all go routine will exit.
-	close(r.quit)
 
-	log.Infof("RPC interceptor disconnected, resolving held packets")
-	for key, forward := range r.holdForwards {
-		if err := forward.Resume(); err != nil {
-			log.Errorf("failed to resume hold forward %v", err)
+	if !r.server.cfg.AlwaysIntercept {
+		log.Infof("RPC interceptor disconnected, resolving held packets")
+		for key, forward := range r.holdForwards {
+			if err := forward.Resume(); err != nil {
+				log.Errorf("failed to resume hold forward %v", err)
+			}
+			delete(r.holdForwards, key)
 		}
-		delete(r.holdForwards, key)
 	}
+
 	r.wg.Wait()
+	r.stream = nil
+}
+
+func (r *forwardInterceptor) start() {
+	if r.server.cfg.AlwaysIntercept {
+		log.Infof("Registering RPC interceptor early due to AlwaysIntercept")
+		// Register our interceptor so we receive all forwarded packets.
+		interceptableForwarder := r.server.cfg.RouterBackend.InterceptableForwarder
+		interceptableForwarder.SetInterceptor(r.onIntercept)
+	}
 }

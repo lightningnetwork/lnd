@@ -61,6 +61,11 @@ const (
 	// have passed since the previously recorded failure before the failure
 	// amount may be raised.
 	DefaultMinFailureRelaxInterval = time.Minute
+
+	// DefaultAlwaysIntercept controls whether the HTLC are held before an
+	// interceptor is registered. If set, HTLC are not resumed automatically
+	// when the interceptor disconnects.
+	DefaultAlwaysIntercept = false
 )
 
 var (

@@ -895,7 +895,11 @@ var interfaceImpls = []struct {
 				os.RemoveAll(spvDir)
 			}
 
-			chainView, err := NewCfFilteredChainView(spvNode)
+			blockCache := blockcache.NewBlockCache(10000)
+
+			chainView, err := NewCfFilteredChainView(
+				spvNode, blockCache,
+			)
 			if err != nil {
 				return nil, nil, err
 			}

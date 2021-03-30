@@ -317,7 +317,7 @@ func NewChainControl(cfg *Config, blockCache *blockcache.BlockCache) (
 		// along with the wallet's ChainSource, which are all backed by
 		// the neutrino light client.
 		cc.ChainNotifier = neutrinonotify.New(
-			cfg.NeutrinoCS, hintCache, hintCache,
+			cfg.NeutrinoCS, hintCache, hintCache, blockCache,
 		)
 		cc.ChainView, err = chainview.NewCfFilteredChainView(
 			cfg.NeutrinoCS, blockCache,

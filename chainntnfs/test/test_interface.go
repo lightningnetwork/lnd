@@ -1967,6 +1967,7 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
 				return neutrinonotify.New(
 					spvNode, hintCache, hintCache,
+					blockCache,
 				), nil
 			}
 		}

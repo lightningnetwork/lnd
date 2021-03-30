@@ -926,7 +926,20 @@ func serializeHTLCAttemptInfo(w io.Writer, a *HTLCAttemptInfo) error {
 		return err
 	}
 
-	return serializeTime(w, a.AttemptTime)
+	if err := serializeTime(w, a.AttemptTime); err != nil {
+		return err
+	}
+
+	// If the hash is nil we can just return.
+	if a.Hash == nil {
+		return nil
+	}
+
+	if _, err := w.Write(a.Hash[:]); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func deserializeHTLCAttemptInfo(r io.Reader) (*HTLCAttemptInfo, error) {
@@ -935,6 +948,7 @@ func deserializeHTLCAttemptInfo(r io.Reader) (*HTLCAttemptInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	a.Route, err = DeserializeRoute(r)
 	if err != nil {
 		return nil, err
@@ -944,6 +958,24 @@ func deserializeHTLCAttemptInfo(r io.Reader) (*HTLCAttemptInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	hash := lntypes.Hash{}
+	_, err = io.ReadFull(r, hash[:])
+
+	switch {
+
+	// Older payment attempts wouldn't have the hash set, in which case we
+	// can just return.
+	case err == io.EOF, err == io.ErrUnexpectedEOF:
+		return a, nil
+
+	case err != nil:
+		return nil, err
+
+	default:
+	}
+
+	a.Hash = &hash
 
 	return a, nil
 }

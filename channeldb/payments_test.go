@@ -57,8 +57,10 @@ func makeFakeInfo() (*PaymentCreationInfo, *HTLCAttemptInfo) {
 	var preimg lntypes.Preimage
 	copy(preimg[:], rev[:])
 
+	hash := preimg.Hash()
+
 	c := &PaymentCreationInfo{
-		PaymentHash: preimg.Hash(),
+		PaymentHash: hash,
 		Value:       1000,
 		// Use single second precision to avoid false positive test
 		// failures due to the monotonic time component.
@@ -71,6 +73,7 @@ func makeFakeInfo() (*PaymentCreationInfo, *HTLCAttemptInfo) {
 		SessionKey:  priv,
 		Route:       testRoute,
 		AttemptTime: time.Unix(100, 0),
+		Hash:        &hash,
 	}
 	return c, a
 }

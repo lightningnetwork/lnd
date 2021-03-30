@@ -29,6 +29,13 @@ type HTLCAttemptInfo struct {
 
 	// AttemptTime is the time at which this HTLC was attempted.
 	AttemptTime time.Time
+
+	// Hash is the hash used for this single HTLC attempt. For AMP payments
+	// this will differ across attempts, for non-AMP payments each attempt
+	// will use the same hash. This can be nil for older payment attempts,
+	// in which the payment's PaymentHash in the PaymentCreationInfo should
+	// be used.
+	Hash *lntypes.Hash
 }
 
 // HTLCAttempt contains information about a specific HTLC attempt for a given

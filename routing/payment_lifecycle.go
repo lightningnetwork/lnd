@@ -684,6 +684,7 @@ func (p *shardHandler) createNewPaymentAttempt(rt *route.Route, lastShard bool) 
 		AttemptTime: p.router.cfg.Clock.Now(),
 		SessionKey:  sessionKey,
 		Route:       *rt,
+		Hash:        &hash,
 	}
 
 	return firstHop, htlcAdd, attempt, nil

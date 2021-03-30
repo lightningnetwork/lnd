@@ -3,15 +3,21 @@
 package lndmobile
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
+	"sync/atomic"
 
 	flags "github.com/jessevdk/go-flags"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/signal"
 	"google.golang.org/grpc"
 )
+
+// lndStarted will be used atomically to ensure only a singel lnd instance is
+// attempted to be started at once.
+var lndStarted int32
 
 // Start starts lnd in a new goroutine.
 //
@@ -77,9 +83,19 @@ func Start(extraArgs string, rpcReady Callback) {
 		},
 	}
 
+	// We only support a single lnd instance at a time (singleton) for now,
+	// so we make sure to return immediately if it has already been
+	// started.
+	if !atomic.CompareAndSwapInt32(&lndStarted, 0, 1) {
+		err := errors.New("lnd already started")
+		rpcReady.OnError(err)
+		return
+	}
+
 	// Call the "real" main in a nested manner so the defers will properly
 	// be executed in the case of a graceful shutdown.
 	go func() {
+		defer atomic.StoreInt32(&lndStarted, 0)
 		defer close(quit)
 
 		if err := lnd.Main(

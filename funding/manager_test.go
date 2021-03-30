@@ -635,6 +635,8 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	updateChan chan *lnrpc.OpenStatusUpdate, announceChan bool) (
 	*wire.OutPoint, *wire.MsgTx) {
 
+	t.Helper()
+
 	publ := fundChannel(
 		t, alice, bob, localFundingAmt, pushAmt, false, numConfs,
 		updateChan, announceChan,
@@ -651,6 +653,28 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	pushAmt btcutil.Amount, subtractFees bool, numConfs uint32,
 	updateChan chan *lnrpc.OpenStatusUpdate, announceChan bool) *wire.MsgTx {
+
+	t.Helper()
+
+	acceptChannelResponse := initChannel(
+		t, alice, bob, localFundingAmt, pushAmt,
+		subtractFees, updateChan, announceChan,
+	)
+
+	signChannel(t, alice, bob, acceptChannelResponse)
+
+	return finishOpenChannel(t, alice, bob, updateChan)
+
+}
+
+// initChannel takes the funding process to the point where an
+// acceptChannelResponse is returned from Bob.
+func initChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
+	pushAmt btcutil.Amount, subtractFees bool,
+	updateChan chan *lnrpc.OpenStatusUpdate,
+	announceChan bool) lnwire.Message {
+
+	t.Helper()
 
 	// Create a funding request and start the workflow.
 	errChan := make(chan error, 1)
@@ -704,6 +728,17 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	assertNumPendingReservations(t, alice, bobPubKey, 1)
 	assertNumPendingReservations(t, bob, alicePubKey, 1)
 
+	return acceptChannelResponse
+}
+
+// signChannel starts when Bob has returned an acceptChannelResponse, takes
+// the funding process to the point where the funding transaction is signed by
+// both parties.
+func signChannel(t *testing.T, alice, bob *testNode,
+	acceptChannelResponse lnwire.Message) {
+
+	t.Helper()
+
 	// Forward the response to Alice.
 	alice.fundingMgr.ProcessFundingMsg(acceptChannelResponse, bob)
 
@@ -722,6 +757,15 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 
 	// Forward the signature to Alice.
 	alice.fundingMgr.ProcessFundingMsg(fundingSigned, bob)
+}
+
+// finishOpenChannel starts when both parties have signed the funding
+// transction and takes the funding process to the point where the funding
+// transaction is confirmed on-chain. Returns the funding tx.
+func finishOpenChannel(t *testing.T, alice, bob *testNode,
+	updateChan chan *lnrpc.OpenStatusUpdate) *wire.MsgTx {
+
+	t.Helper()
 
 	// After Alice processes the singleFundingSignComplete message, she will
 	// broadcast the funding transaction to the network. We expect to get a
@@ -733,7 +777,7 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 		t.Fatalf("alice did not send OpenStatusUpdate_ChanPending")
 	}
 
-	_, ok = pendingUpdate.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
+	_, ok := pendingUpdate.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
 	if !ok {
 		t.Fatal("OpenStatusUpdate was not OpenStatusUpdate_ChanPending")
 	}

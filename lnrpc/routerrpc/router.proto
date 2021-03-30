@@ -279,6 +279,11 @@ message SendPaymentRequest {
     value is in milli-satoshis.
     */
     uint64 max_shard_size_msat = 21;
+
+    /*
+    If set, an AMP-payment will be attempted.
+    */
+    bool amp = 22;
 }
 
 message TrackPaymentRequest {

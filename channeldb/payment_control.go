@@ -676,16 +676,9 @@ func ensureInFlight(payment *MPPayment) error {
 	}
 }
 
-// InFlightPayment is a wrapper around the info for a payment that has status
-// InFlight.
-type InFlightPayment struct {
-	// Info is the PaymentCreationInfo of the in-flight payment.
-	Info *PaymentCreationInfo
-}
-
 // FetchInFlightPayments returns all payments with status InFlight.
-func (p *PaymentControl) FetchInFlightPayments() ([]*InFlightPayment, error) {
-	var inFlights []*InFlightPayment
+func (p *PaymentControl) FetchInFlightPayments() ([]*MPPayment, error) {
+	var inFlights []*MPPayment
 	err := kvdb.View(p.db, func(tx kvdb.RTx) error {
 		payments := tx.ReadBucket(paymentsRootBucket)
 		if payments == nil {
@@ -708,15 +701,12 @@ func (p *PaymentControl) FetchInFlightPayments() ([]*InFlightPayment, error) {
 				return nil
 			}
 
-			inFlight := &InFlightPayment{}
-
-			// Get the CreationInfo.
-			inFlight.Info, err = fetchCreationInfo(bucket)
+			p, err := fetchPayment(bucket)
 			if err != nil {
 				return err
 			}
 
-			inFlights = append(inFlights, inFlight)
+			inFlights = append(inFlights, p)
 			return nil
 		})
 	}, func() {

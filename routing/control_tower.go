@@ -50,7 +50,7 @@ type ControlTower interface {
 	Fail(lntypes.Hash, channeldb.FailureReason) error
 
 	// FetchInFlightPayments returns all payments with status InFlight.
-	FetchInFlightPayments() ([]*channeldb.InFlightPayment, error)
+	FetchInFlightPayments() ([]*channeldb.MPPayment, error)
 
 	// SubscribePayment subscribes to updates for the payment with the given
 	// hash. A first update with the current state of the payment is always
@@ -213,7 +213,7 @@ func (p *controlTower) Fail(paymentHash lntypes.Hash,
 }
 
 // FetchInFlightPayments returns all payments with status InFlight.
-func (p *controlTower) FetchInFlightPayments() ([]*channeldb.InFlightPayment, error) {
+func (p *controlTower) FetchInFlightPayments() ([]*channeldb.MPPayment, error) {
 	return p.db.FetchInFlightPayments()
 }
 

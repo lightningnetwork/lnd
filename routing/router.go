@@ -583,14 +583,7 @@ func (r *ChannelRouter) Start() error {
 	// until the cleaning has finished.
 	toKeep := make(map[uint64]struct{})
 	for _, p := range payments {
-		payment, err := r.cfg.Control.FetchPayment(
-			p.Info.PaymentHash,
-		)
-		if err != nil {
-			return err
-		}
-
-		for _, a := range payment.HTLCs {
+		for _, a := range p.HTLCs {
 			toKeep[a.AttemptID] = struct{}{}
 		}
 	}
@@ -603,7 +596,7 @@ func (r *ChannelRouter) Start() error {
 	for _, payment := range payments {
 		log.Infof("Resuming payment with hash %v", payment.Info.PaymentHash)
 		r.wg.Add(1)
-		go func(payment *channeldb.InFlightPayment) {
+		go func(payment *channeldb.MPPayment) {
 			defer r.wg.Done()
 
 			// We create a dummy, empty payment session such that

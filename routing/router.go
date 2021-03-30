@@ -609,7 +609,14 @@ func (r *ChannelRouter) Start() error {
 			for _, a := range payment.HTLCs {
 				a := a
 
+				// We check whether the individual attempts
+				// have their HTLC hash set, if not we'll fall
+				// back to the overall payment hash.
 				hash := payment.Info.PaymentHash
+				if a.Hash != nil {
+					hash = *a.Hash
+				}
+
 				htlcs[a.AttemptID] = hash
 			}
 

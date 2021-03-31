@@ -216,8 +216,9 @@ func (ps PaymentStatus) String() string {
 // PaymentCreationInfo is the information necessary to have ready when
 // initiating a payment, moving it into state InFlight.
 type PaymentCreationInfo struct {
-	// PaymentHash is the hash this payment is paying to.
-	PaymentHash lntypes.Hash
+	// PaymentIdentifier is the hash this payment is paying to in case of
+	// non-AMP payments, and the SetID for AMP payments.
+	PaymentIdentifier lntypes.Hash
 
 	// Value is the amount we are paying.
 	Value lnwire.MilliSatoshi
@@ -856,7 +857,7 @@ func fetchSequenceNumbers(paymentBucket kvdb.RBucket) ([][]byte, error) {
 func serializePaymentCreationInfo(w io.Writer, c *PaymentCreationInfo) error {
 	var scratch [8]byte
 
-	if _, err := w.Write(c.PaymentHash[:]); err != nil {
+	if _, err := w.Write(c.PaymentIdentifier[:]); err != nil {
 		return err
 	}
 
@@ -886,7 +887,7 @@ func deserializePaymentCreationInfo(r io.Reader) (*PaymentCreationInfo, error) {
 
 	c := &PaymentCreationInfo{}
 
-	if _, err := io.ReadFull(r, c.PaymentHash[:]); err != nil {
+	if _, err := io.ReadFull(r, c.PaymentIdentifier[:]); err != nil {
 		return nil, err
 	}
 

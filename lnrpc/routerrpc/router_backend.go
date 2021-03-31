@@ -698,7 +698,11 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 			payIntent.MaxParts = 1
 		}
 
-		copy(payIntent.PaymentHash[:], payReq.PaymentHash[:])
+		err = payIntent.SetPaymentHash(*payReq.PaymentHash)
+		if err != nil {
+			return nil, err
+		}
+
 		destKey := payReq.Destination.SerializeCompressed()
 		copy(payIntent.Target[:], destKey)
 
@@ -737,7 +741,15 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		payIntent.Amount = reqAmt
 
 		// Payment hash.
-		copy(payIntent.PaymentHash[:], rpcPayReq.PaymentHash)
+		paymentHash, err := lntypes.MakeHash(rpcPayReq.PaymentHash)
+		if err != nil {
+			return nil, err
+		}
+
+		err = payIntent.SetPaymentHash(paymentHash)
+		if err != nil {
+			return nil, err
+		}
 
 		// Parse destination feature bits.
 		features, err := UnmarshalFeatures(rpcPayReq.DestFeatures)
@@ -1217,7 +1229,7 @@ func (r *RouterBackend) MarshallPayment(payment *channeldb.MPPayment) (
 		htlcs = append(htlcs, htlc)
 	}
 
-	paymentHash := payment.Info.PaymentHash
+	paymentID := payment.Info.PaymentIdentifier
 	creationTimeNS := MarshalTimeNano(payment.Info.CreationTime)
 
 	failureReason, err := marshallPaymentFailureReason(
@@ -1228,7 +1240,8 @@ func (r *RouterBackend) MarshallPayment(payment *channeldb.MPPayment) (
 	}
 
 	return &lnrpc.Payment{
-		PaymentHash:     hex.EncodeToString(paymentHash[:]),
+		// TODO: set this to setID for AMP-payments?
+		PaymentHash:     hex.EncodeToString(paymentID[:]),
 		Value:           satValue,
 		ValueMsat:       msatValue,
 		ValueSat:        satValue,

@@ -815,7 +815,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 		Target:      testGraph.aliasMap["c"],
 		Amount:      paymentAmt,
 		FeeLimit:    noFeeLimit,
-		PaymentHash: payHash,
+		paymentHash: &payHash,
 	}
 
 	// Setup our payment session source to block on release of

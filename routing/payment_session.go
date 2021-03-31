@@ -171,7 +171,7 @@ func newPaymentSession(p *LightningPayment,
 		return nil, err
 	}
 
-	logPrefix := fmt.Sprintf("PaymentSession(%x):", p.PaymentHash)
+	logPrefix := fmt.Sprintf("PaymentSession(%x):", p.Identifier())
 
 	return &paymentSession{
 		additionalEdges:   edges,

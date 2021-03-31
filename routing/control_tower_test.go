@@ -79,26 +79,26 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = pControl.InitPayment(info.PaymentHash, info)
+	err = pControl.InitPayment(info.PaymentIdentifier, info)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Subscription should succeed and immediately report the InFlight
 	// status.
-	subscriber1, err := pControl.SubscribePayment(info.PaymentHash)
+	subscriber1, err := pControl.SubscribePayment(info.PaymentIdentifier)
 	if err != nil {
 		t.Fatalf("expected subscribe to succeed, but got: %v", err)
 	}
 
 	// Register an attempt.
-	err = pControl.RegisterAttempt(info.PaymentHash, attempt)
+	err = pControl.RegisterAttempt(info.PaymentIdentifier, attempt)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Register a second subscriber after the first attempt has started.
-	subscriber2, err := pControl.SubscribePayment(info.PaymentHash)
+	subscriber2, err := pControl.SubscribePayment(info.PaymentIdentifier)
 	if err != nil {
 		t.Fatalf("expected subscribe to succeed, but got: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 		Preimage: preimg,
 	}
 	htlcAttempt, err := pControl.SettleAttempt(
-		info.PaymentHash, attempt.AttemptID, &settleInfo,
+		info.PaymentIdentifier, attempt.AttemptID, &settleInfo,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 	}
 
 	// Register a third subscriber after the payment succeeded.
-	subscriber3, err := pControl.SubscribePayment(info.PaymentHash)
+	subscriber3, err := pControl.SubscribePayment(info.PaymentIdentifier)
 	if err != nil {
 		t.Fatalf("expected subscribe to succeed, but got: %v", err)
 	}
@@ -196,13 +196,13 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt bool) {
 		t.Fatal(err)
 	}
 
-	err = pControl.InitPayment(info.PaymentHash, info)
+	err = pControl.InitPayment(info.PaymentIdentifier, info)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Subscription should succeed.
-	subscriber1, err := pControl.SubscribePayment(info.PaymentHash)
+	subscriber1, err := pControl.SubscribePayment(info.PaymentIdentifier)
 	if err != nil {
 		t.Fatalf("expected subscribe to succeed, but got: %v", err)
 	}
@@ -212,7 +212,7 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt bool) {
 	// making any attempts at all.
 	if registerAttempt {
 		// Register an attempt.
-		err = pControl.RegisterAttempt(info.PaymentHash, attempt)
+		err = pControl.RegisterAttempt(info.PaymentIdentifier, attempt)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -222,7 +222,7 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt bool) {
 			Reason: channeldb.HTLCFailInternal,
 		}
 		htlcAttempt, err := pControl.FailAttempt(
-			info.PaymentHash, attempt.AttemptID, &failInfo,
+			info.PaymentIdentifier, attempt.AttemptID, &failInfo,
 		)
 		if err != nil {
 			t.Fatalf("unable to fail htlc: %v", err)
@@ -233,12 +233,12 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt bool) {
 	}
 
 	// Mark the payment as failed.
-	if err := pControl.Fail(info.PaymentHash, channeldb.FailureReasonTimeout); err != nil {
+	if err := pControl.Fail(info.PaymentIdentifier, channeldb.FailureReasonTimeout); err != nil {
 		t.Fatal(err)
 	}
 
 	// Register a second subscriber after the payment failed.
-	subscriber2, err := pControl.SubscribePayment(info.PaymentHash)
+	subscriber2, err := pControl.SubscribePayment(info.PaymentIdentifier)
 	if err != nil {
 		t.Fatalf("expected subscribe to succeed, but got: %v", err)
 	}
@@ -326,10 +326,10 @@ func genInfo() (*channeldb.PaymentCreationInfo, *channeldb.HTLCAttemptInfo,
 
 	rhash := sha256.Sum256(preimage[:])
 	return &channeldb.PaymentCreationInfo{
-			PaymentHash:    rhash,
-			Value:          testRoute.ReceiverAmt(),
-			CreationTime:   time.Unix(time.Now().Unix(), 0),
-			PaymentRequest: []byte("hola"),
+			PaymentIdentifier: rhash,
+			Value:             testRoute.ReceiverAmt(),
+			CreationTime:      time.Unix(time.Now().Unix(), 0),
+			PaymentRequest:    []byte("hola"),
 		},
 		&channeldb.HTLCAttemptInfo{
 			AttemptID:  1,

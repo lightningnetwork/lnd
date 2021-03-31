@@ -173,8 +173,10 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 
 		// Once we have obtained a sequence number, we add an entry
 		// to our index bucket which will map the sequence number to
-		// our payment hash.
-		err = createPaymentIndexEntry(tx, sequenceNum, info.PaymentHash)
+		// our payment identifier.
+		err = createPaymentIndexEntry(
+			tx, sequenceNum, info.PaymentIdentifier,
+		)
 		if err != nil {
 			return err
 		}
@@ -220,12 +222,12 @@ const paymentIndexTypeHash paymentIndexType = 0
 
 // createPaymentIndexEntry creates a payment hash typed index for a payment. The
 // index produced contains a payment index type (which can be used in future to
-// signal different payment index types) and the payment hash.
+// signal different payment index types) and the payment identifier.
 func createPaymentIndexEntry(tx kvdb.RwTx, sequenceNumber []byte,
-	hash lntypes.Hash) error {
+	id lntypes.Hash) error {
 
 	var b bytes.Buffer
-	if err := WriteElements(&b, paymentIndexTypeHash, hash[:]); err != nil {
+	if err := WriteElements(&b, paymentIndexTypeHash, id[:]); err != nil {
 		return err
 	}
 

@@ -672,7 +672,7 @@
           },
           {
             "name": "sat_per_byte",
-            "description": "A manual fee rate set in sat/byte that should be used when crafting the\nclosure transaction.",
+            "description": "Deprecated, use sat_per_vbyte.\nA manual fee rate set in sat/vbyte that should be used when crafting the\nclosure transaction.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -684,6 +684,14 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "sat_per_vbyte",
+            "description": "A manual fee rate set in sat/vbyte that should be used when crafting the\nclosure transaction.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
           }
         ],
         "tags": [
@@ -1954,7 +1962,7 @@
         ]
       },
       "post": {
-        "summary": "lncli: `sendcoins`\nSendCoins executes a request to send coins to a particular address. Unlike\nSendMany, this RPC call only allows creating a single output at a time. If\nneither target_conf, or sat_per_byte are set, then the internal wallet will\nconsult its fee model to determine a fee for the default confirmation\ntarget.",
+        "summary": "lncli: `sendcoins`\nSendCoins executes a request to send coins to a particular address. Unlike\nSendMany, this RPC call only allows creating a single output at a time. If\nneither target_conf, or sat_per_vbyte are set, then the internal wallet will\nconsult its fee model to determine a fee for the default confirmation\ntarget.",
         "operationId": "SendCoins",
         "responses": {
           "200": {
@@ -2021,7 +2029,7 @@
     },
     "/v1/transactions/many": {
       "post": {
-        "summary": "lncli: `sendmany`\nSendMany handles a request for a transaction that creates multiple specified\noutputs in parallel. If neither target_conf, or sat_per_byte are set, then\nthe internal wallet will consult its fee model to determine a fee for the\ndefault confirmation target.",
+        "summary": "lncli: `sendmany`\nSendMany handles a request for a transaction that creates multiple specified\noutputs in parallel. If neither target_conf, or sat_per_vbyte are set, then\nthe internal wallet will consult its fee model to determine a fee for the\ndefault confirmation target.",
         "operationId": "SendMany",
         "responses": {
           "200": {
@@ -3397,7 +3405,12 @@
         "feerate_sat_per_byte": {
           "type": "string",
           "format": "int64",
-          "description": "The fee rate in satoshi/byte."
+          "description": "Deprecated, use sat_per_vbyte.\nThe fee rate in satoshi/vbyte."
+        },
+        "sat_per_vbyte": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The fee rate in satoshi/vbyte."
         }
       }
     },
@@ -4640,6 +4653,11 @@
     "lnrpcOpenChannelRequest": {
       "type": "object",
       "properties": {
+        "sat_per_vbyte": {
+          "type": "string",
+          "format": "uint64",
+          "description": "A manual fee rate set in sat/vbyte that should be used when crafting the\nfunding transaction."
+        },
         "node_pubkey": {
           "type": "string",
           "format": "byte",
@@ -4667,7 +4685,7 @@
         "sat_per_byte": {
           "type": "string",
           "format": "int64",
-          "description": "A manual fee rate set in sat/byte that should be used when crafting the\nfunding transaction."
+          "description": "Deprecated, use sat_per_vbyte.\nA manual fee rate set in sat/vbyte that should be used when crafting the\nfunding transaction."
         },
         "private": {
           "type": "boolean",
@@ -5344,10 +5362,15 @@
           "format": "int32",
           "description": "The target number of blocks that this transaction should be confirmed\nby."
         },
+        "sat_per_vbyte": {
+          "type": "string",
+          "format": "uint64",
+          "description": "A manual fee rate set in sat/vbyte that should be used when crafting the\ntransaction."
+        },
         "sat_per_byte": {
           "type": "string",
           "format": "int64",
-          "description": "A manual fee rate set in sat/byte that should be used when crafting the\ntransaction."
+          "description": "Deprecated, use sat_per_vbyte.\nA manual fee rate set in sat/vbyte that should be used when crafting the\ntransaction."
         },
         "send_all": {
           "type": "boolean",
@@ -5395,10 +5418,15 @@
           "format": "int32",
           "description": "The target number of blocks that this transaction should be confirmed\nby."
         },
+        "sat_per_vbyte": {
+          "type": "string",
+          "format": "uint64",
+          "description": "A manual fee rate set in sat/vbyte that should be used when crafting the\ntransaction."
+        },
         "sat_per_byte": {
           "type": "string",
           "format": "int64",
-          "description": "A manual fee rate set in sat/byte that should be used when crafting the\ntransaction."
+          "description": "Deprecated, use sat_per_vbyte.\nA manual fee rate set in sat/vbyte that should be used when crafting the\ntransaction."
         },
         "label": {
           "type": "string",

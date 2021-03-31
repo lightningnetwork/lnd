@@ -209,7 +209,7 @@ To obtain information about the watchtower's sessions, users can use the
                         "num_backups": 0,
                         "num_pending_backups": 0,
                         "max_backups": 1024,
-                        "sweep_sat_per_byte": 10
+                        "sweep_sat_per_vbyte": 10
                 }
         ]
 }

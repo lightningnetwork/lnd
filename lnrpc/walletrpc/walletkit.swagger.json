@@ -758,12 +758,17 @@
         "sat_per_byte": {
           "type": "integer",
           "format": "int64",
-          "description": "The fee rate, expressed in sat/byte, that should be used to spend the input\nwith."
+          "description": "Deprecated, use sat_per_vbyte.\nThe fee rate, expressed in sat/vbyte, that should be used to spend the input\nwith."
         },
         "force": {
           "type": "boolean",
           "format": "boolean",
           "description": "Whether this input must be force-swept. This means that it is swept even\nif it has a negative yield."
+        },
+        "sat_per_vbyte": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The fee rate, expressed in sat/vbyte, that should be used to spend the input\nwith."
         }
       }
     },
@@ -823,8 +828,8 @@
           "description": "The target number of blocks that the transaction should be confirmed in."
         },
         "sat_per_vbyte": {
-          "type": "integer",
-          "format": "int64",
+          "type": "string",
+          "format": "uint64",
           "description": "The fee rate, expressed in sat/vbyte, that should be used to spend the\ninput with."
         }
       }
@@ -971,7 +976,7 @@
         "sat_per_byte": {
           "type": "integer",
           "format": "int64",
-          "description": "The fee rate we'll use to sweep the output. The fee rate is only determined\nonce a sweeping transaction for the output is created, so it's possible for\nthis to be 0 before this."
+          "description": "Deprecated, use sat_per_vbyte.\nThe fee rate we'll use to sweep the output, expressed in sat/vbyte. The fee\nrate is only determined once a sweeping transaction for the output is\ncreated, so it's possible for this to be 0 before this."
         },
         "broadcast_attempts": {
           "type": "integer",
@@ -991,7 +996,17 @@
         "requested_sat_per_byte": {
           "type": "integer",
           "format": "int64",
-          "description": "The requested fee rate, expressed in sat/byte, for this output."
+          "description": "Deprecated, use requested_sat_per_vbyte.\nThe requested fee rate, expressed in sat/vbyte, for this output."
+        },
+        "sat_per_vbyte": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The fee rate we'll use to sweep the output, expressed in sat/vbyte. The fee\nrate is only determined once a sweeping transaction for the output is\ncreated, so it's possible for this to be 0 before this."
+        },
+        "requested_sat_per_vbyte": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The requested fee rate, expressed in sat/vbyte, for this output."
         },
         "force": {
           "type": "boolean",

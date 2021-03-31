@@ -291,6 +291,11 @@
         "sweep_sat_per_byte": {
           "type": "integer",
           "format": "int64",
+          "description": "Deprecated, use sweep_sat_per_vbyte.\nThe fee rate, in satoshis per vbyte, that will be used by watchtowers for\njustice transactions in response to channel breaches."
+        },
+        "sweep_sat_per_vbyte": {
+          "type": "integer",
+          "format": "int64",
           "description": "The fee rate, in satoshis per vbyte, that will be used by watchtowers for\njustice transactions in response to channel breaches."
         }
       }
@@ -390,6 +395,11 @@
           "description": "The maximum number of backups allowed by the watchtower session."
         },
         "sweep_sat_per_byte": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Deprecated, use sweep_sat_per_vbyte.\nThe fee rate, in satoshis per vbyte, that will be used by the watchtower for\nthe justice transaction in the event of a channel breach."
+        },
+        "sweep_sat_per_vbyte": {
           "type": "integer",
           "format": "int64",
           "description": "The fee rate, in satoshis per vbyte, that will be used by the watchtower for\nthe justice transaction in the event of a channel breach."

@@ -1245,12 +1245,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		policy := wtpolicy.DefaultPolicy()
 
 		if cfg.WtClient.SweepFeeRate != 0 {
-			// We expose the sweep fee rate in sat/byte, but the
+			// We expose the sweep fee rate in sat/vbyte, but the
 			// tower protocol operations on sat/kw.
-			sweepRateSatPerByte := chainfee.SatPerKVByte(
+			sweepRateSatPerVByte := chainfee.SatPerKVByte(
 				1000 * cfg.WtClient.SweepFeeRate,
 			)
-			policy.SweepFeeRate = sweepRateSatPerByte.FeePerKWeight()
+			policy.SweepFeeRate = sweepRateSatPerVByte.FeePerKWeight()
 		}
 
 		if err := policy.Validate(); err != nil {

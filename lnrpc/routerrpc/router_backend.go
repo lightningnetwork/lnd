@@ -2,6 +2,7 @@ package routerrpc
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -741,17 +742,6 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 
 		payIntent.Amount = reqAmt
 
-		// Payment hash.
-		paymentHash, err := lntypes.MakeHash(rpcPayReq.PaymentHash)
-		if err != nil {
-			return nil, err
-		}
-
-		err = payIntent.SetPaymentHash(paymentHash)
-		if err != nil {
-			return nil, err
-		}
-
 		// Parse destination feature bits.
 		features, err := UnmarshalFeatures(rpcPayReq.DestFeatures)
 		if err != nil {
@@ -766,13 +756,82 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 			}
 		}
 
-		// If the payment addresses is specified, then we'll also
-		// populate that now as well.
-		if len(rpcPayReq.PaymentAddr) != 0 {
-			var payAddr [32]byte
-			copy(payAddr[:], rpcPayReq.PaymentAddr)
+		// If this is an AMP payment, we must generate the initial
+		// randomness.
+		if rpcPayReq.Amp {
+			// If no destination features were specified, we set
+			// those necessary for AMP payments.
+			if features == nil {
+				ampFeatures := []lnrpc.FeatureBit{
+					lnrpc.FeatureBit_TLV_ONION_OPT,
+					lnrpc.FeatureBit_PAYMENT_ADDR_OPT,
+					lnrpc.FeatureBit_MPP_OPT,
+					lnrpc.FeatureBit_AMP_OPT,
+				}
 
+				features, err = UnmarshalFeatures(ampFeatures)
+				if err != nil {
+					return nil, err
+				}
+			}
+
+			// First make sure the destination supports AMP.
+			if !features.HasFeature(lnwire.AMPOptional) {
+				return nil, fmt.Errorf("destination doesn't " +
+					"support AMP payments")
+			}
+
+			// If no payment address is set, generate a random one.
+			var payAddr [32]byte
+			if len(rpcPayReq.PaymentAddr) == 0 {
+				_, err = rand.Read(payAddr[:])
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				copy(payAddr[:], rpcPayReq.PaymentAddr)
+			}
 			payIntent.PaymentAddr = &payAddr
+
+			// Generate random SetID and root share.
+			var setID [32]byte
+			_, err = rand.Read(setID[:])
+			if err != nil {
+				return nil, err
+			}
+
+			var rootShare [32]byte
+			_, err = rand.Read(rootShare[:])
+			if err != nil {
+				return nil, err
+			}
+			err := payIntent.SetAMP(&routing.AMPOptions{
+				SetID:     setID,
+				RootShare: rootShare,
+			})
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			// Payment hash.
+			paymentHash, err := lntypes.MakeHash(rpcPayReq.PaymentHash)
+			if err != nil {
+				return nil, err
+			}
+
+			err = payIntent.SetPaymentHash(paymentHash)
+			if err != nil {
+				return nil, err
+			}
+
+			// If the payment addresses is specified, then we'll
+			// also populate that now as well.
+			if len(rpcPayReq.PaymentAddr) != 0 {
+				var payAddr [32]byte
+				copy(payAddr[:], rpcPayReq.PaymentAddr)
+
+				payIntent.PaymentAddr = &payAddr
+			}
 		}
 
 		payIntent.DestFeatures = features

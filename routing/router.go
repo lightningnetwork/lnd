@@ -1806,7 +1806,22 @@ type AMPOptions struct {
 // SetPaymentHash sets the given hash as the payment's overall hash. This
 // should only be used for non-AMP payments.
 func (l *LightningPayment) SetPaymentHash(hash lntypes.Hash) error {
+	if l.amp != nil {
+		return fmt.Errorf("cannot set payment hash for AMP payment")
+	}
+
 	l.paymentHash = &hash
+	return nil
+}
+
+// SetAMP sets the given AMP options for the payment.
+func (l *LightningPayment) SetAMP(amp *AMPOptions) error {
+	if l.paymentHash != nil {
+		return fmt.Errorf("cannot set amp options for payment " +
+			"with payment hash")
+	}
+
+	l.amp = amp
 	return nil
 }
 
@@ -1814,6 +1829,10 @@ func (l *LightningPayment) SetPaymentHash(hash lntypes.Hash) error {
 // payment. For non-AMP payments this will be the payment hash, for AMP
 // payments this will be the used SetID.
 func (l *LightningPayment) Identifier() [32]byte {
+	if l.amp != nil {
+		return l.amp.SetID
+	}
+
 	return *l.paymentHash
 }
 

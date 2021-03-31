@@ -610,7 +610,9 @@
         "ANCHORS_REQ",
         "ANCHORS_OPT",
         "ANCHORS_ZERO_FEE_HTLC_REQ",
-        "ANCHORS_ZERO_FEE_HTLC_OPT"
+        "ANCHORS_ZERO_FEE_HTLC_OPT",
+        "AMP_REQ",
+        "AMP_OPT"
       ],
       "default": "DATALOSS_PROTECT_REQ"
     },

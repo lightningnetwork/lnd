@@ -3415,6 +3415,8 @@ enum FeatureBit {
     ANCHORS_OPT = 21;
     ANCHORS_ZERO_FEE_HTLC_REQ = 22;
     ANCHORS_ZERO_FEE_HTLC_OPT = 23;
+    AMP_REQ = 30;
+    AMP_OPT = 31;
 }
 
 message Feature {

@@ -368,7 +368,7 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 
 	// Next, attempt to delete the edge from the database, again this
 	// should proceed without any issues.
-	if err := graph.DeleteChannelEdges(chanID); err != nil {
+	if err := graph.DeleteChannelEdges(false, chanID); err != nil {
 		t.Fatalf("unable to delete edge: %v", err)
 	}
 
@@ -387,7 +387,7 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 
 	// Finally, attempt to delete a (now) non-existent edge within the
 	// database, this should result in an error.
-	err = graph.DeleteChannelEdges(chanID)
+	err = graph.DeleteChannelEdges(false, chanID)
 	if err != ErrEdgeNotFound {
 		t.Fatalf("deleting a non-existent edge should fail!")
 	}
@@ -1756,7 +1756,7 @@ func TestFilterKnownChanIDs(t *testing.T) {
 		if err := graph.AddChannelEdge(&channel); err != nil {
 			t.Fatalf("unable to create channel edge: %v", err)
 		}
-		err := graph.DeleteChannelEdges(channel.ChannelID)
+		err := graph.DeleteChannelEdges(false, channel.ChannelID)
 		if err != nil {
 			t.Fatalf("unable to mark edge zombie: %v", err)
 		}
@@ -2038,7 +2038,7 @@ func TestFetchChanInfos(t *testing.T) {
 	if err := graph.AddChannelEdge(&zombieChan); err != nil {
 		t.Fatalf("unable to create channel edge: %v", err)
 	}
-	err = graph.DeleteChannelEdges(zombieChan.ChannelID)
+	err = graph.DeleteChannelEdges(false, zombieChan.ChannelID)
 	if err != nil {
 		t.Fatalf("unable to delete and mark edge zombie: %v", err)
 	}
@@ -2654,7 +2654,7 @@ func TestNodeIsPublic(t *testing.T) {
 	// graph. This will make Alice be seen as a private node as it no longer
 	// has any advertised edges.
 	for _, graph := range graphs {
-		err := graph.DeleteChannelEdges(aliceBobEdge.ChannelID)
+		err := graph.DeleteChannelEdges(false, aliceBobEdge.ChannelID)
 		if err != nil {
 			t.Fatalf("unable to remove edge: %v", err)
 		}
@@ -2671,7 +2671,7 @@ func TestNodeIsPublic(t *testing.T) {
 	// completely remove the edge as it is not possible for her to know of
 	// it without it being advertised.
 	for i, graph := range graphs {
-		err := graph.DeleteChannelEdges(bobCarolEdge.ChannelID)
+		err := graph.DeleteChannelEdges(false, bobCarolEdge.ChannelID)
 		if err != nil {
 			t.Fatalf("unable to remove edge: %v", err)
 		}
@@ -2779,7 +2779,7 @@ func TestDisabledChannelIDs(t *testing.T) {
 	}
 
 	// Delete the channel edge and ensure it is removed from the disabled list.
-	if err = graph.DeleteChannelEdges(edgeInfo.ChannelID); err != nil {
+	if err = graph.DeleteChannelEdges(false, edgeInfo.ChannelID); err != nil {
 		t.Fatalf("unable to delete channel edge: %v", err)
 	}
 	disabledChanIds, err = graph.DisabledChannelIDs()
@@ -3017,7 +3017,7 @@ func TestGraphZombieIndex(t *testing.T) {
 
 	// If we delete the edge and mark it as a zombie, then we should expect
 	// to see it within the index.
-	err = graph.DeleteChannelEdges(edge.ChannelID)
+	err = graph.DeleteChannelEdges(false, edge.ChannelID)
 	if err != nil {
 		t.Fatalf("unable to mark edge as zombie: %v", err)
 	}

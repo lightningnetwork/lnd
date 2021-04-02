@@ -2344,7 +2344,7 @@ func abandonChanFromGraph(chanGraph *channeldb.ChannelGraph,
 
 	// If the channel ID is still in the graph, then that means the channel
 	// is still open, so we'll now move to purge it from the graph.
-	return chanGraph.DeleteChannelEdges(chanID)
+	return chanGraph.DeleteChannelEdges(false, chanID)
 }
 
 // AbandonChannel removes all channel state from the database except for a

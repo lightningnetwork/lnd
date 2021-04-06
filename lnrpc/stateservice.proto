@@ -42,5 +42,5 @@ message SubscribeStateRequest {
 }
 
 message SubscribeStateResponse {
-    WalletState State = 1;
+    WalletState state = 1;
 }

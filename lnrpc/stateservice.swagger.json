@@ -48,7 +48,7 @@
     "lnrpcSubscribeStateResponse": {
       "type": "object",
       "properties": {
-        "State": {
+        "state": {
           "$ref": "#/definitions/lnrpcWalletState"
         }
       }

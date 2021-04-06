@@ -442,8 +442,9 @@ func addHopHint(hopHints *[]func(*zpay32.Invoice),
 	channel *channeldb.OpenChannel, chanPolicy *channeldb.ChannelEdgePolicy) {
 
 	hopHint := zpay32.HopHint{
-		NodeID:      channel.IdentityPub,
-		ChannelID:   channel.ShortChanID().ToUint64(),
+		NodeID: channel.IdentityPub,
+		// Zeroed out for privacy reasons.
+		// ChannelID:   channel.ShortChanID().ToUint64(),
 		FeeBaseMSat: uint32(chanPolicy.FeeBaseMSat),
 		FeeProportionalMillionths: uint32(
 			chanPolicy.FeeProportionalMillionths,

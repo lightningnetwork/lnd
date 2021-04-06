@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/lightningnetwork/lnd/routing/route"
+
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -93,6 +95,8 @@ type Payload struct {
 	// customRecords are user-defined records in the custom type range that
 	// were included in the payload.
 	customRecords record.CustomSet
+
+	NextHopPubKey *route.Vertex
 }
 
 // NewLegacyPayload builds a Payload from the amount, cltv, and next hop
@@ -115,10 +119,11 @@ func NewLegacyPayload(f *sphinx.HopData) *Payload {
 // should correspond to the bytes encapsulated in a TLV onion payload.
 func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 	var (
-		cid  uint64
-		amt  uint64
-		cltv uint32
-		mpp  = &record.MPP{}
+		cid           uint64
+		amt           uint64
+		cltv          uint32
+		mpp           = &record.MPP{}
+		nextHopPubKey [33]byte
 	)
 
 	tlvStream, err := tlv.NewStream(
@@ -126,6 +131,7 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 		record.NewLockTimeRecord(&cltv),
 		record.NewNextHopIDRecord(&cid),
 		mpp.Record(),
+		record.NewNextHopPubKeyRecord(&nextHopPubKey),
 	)
 	if err != nil {
 		return nil, err
@@ -163,6 +169,12 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 	// Filter out the custom records.
 	customRecords := NewCustomRecords(parsedTypes)
 
+	var pubkey *route.Vertex
+	if _, ok := parsedTypes[record.NextHopPubKeyType]; ok {
+		t := route.Vertex(nextHopPubKey)
+		pubkey = &t
+	}
+
 	return &Payload{
 		FwdInfo: ForwardingInfo{
 			Network:         BitcoinNetwork,
@@ -172,6 +184,7 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 		},
 		MPP:           mpp,
 		customRecords: customRecords,
+		NextHopPubKey: pubkey,
 	}, nil
 }
 

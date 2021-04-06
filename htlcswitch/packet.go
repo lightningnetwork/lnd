@@ -5,6 +5,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 // htlcPacket is a wrapper around htlc lnwire update, which adds additional
@@ -96,6 +97,8 @@ type htlcPacket struct {
 	// customRecords are user-defined records in the custom type range that
 	// were included in the payload.
 	customRecords record.CustomSet
+
+	nextHopPubKey *route.Vertex
 }
 
 // inKey returns the circuit key used to identify the incoming htlc.

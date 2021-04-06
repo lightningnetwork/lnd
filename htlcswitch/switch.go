@@ -996,23 +996,32 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		}
 
 		s.indexMtx.RLock()
-		targetLink, err := s.getLinkByShortID(packet.outgoingChanID)
-		if err != nil {
-			s.indexMtx.RUnlock()
 
-			log.Debugf("unable to find link with "+
-				"destination %v", packet.outgoingChanID)
+		var targetPeerKey [33]byte
+		if packet.nextHopPubKey == nil {
+			targetLink, err := s.getLinkByShortID(packet.outgoingChanID)
+			if err != nil {
+				s.indexMtx.RUnlock()
 
-			// If packet was forwarded from another channel link
-			// than we should notify this link that some error
-			// occurred.
-			linkError := NewLinkError(
-				&lnwire.FailUnknownNextPeer{},
-			)
+				log.Debugf("unable to find link with "+
+					"destination %v", packet.outgoingChanID)
 
-			return s.failAddPacket(packet, linkError)
+				// If packet was forwarded from another channel link
+				// than we should notify this link that some error
+				// occurred.
+				linkError := NewLinkError(
+					&lnwire.FailUnknownNextPeer{},
+				)
+
+				return s.failAddPacket(packet, linkError)
+			}
+			targetPeerKey = targetLink.Peer().PubKey()
+		} else {
+			targetPeerKey = *packet.nextHopPubKey
+
+			log.Debugf("Using pubkey routing to %x", targetPeerKey)
 		}
-		targetPeerKey := targetLink.Peer().PubKey()
+
 		interfaceLinks, _ := s.getLinks(targetPeerKey)
 		s.indexMtx.RUnlock()
 

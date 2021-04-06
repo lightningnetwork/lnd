@@ -2697,8 +2697,9 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 		fwdInfo := pld.ForwardingInfo()
 
-		switch fwdInfo.NextHop {
-		case hop.Exit:
+		isExit := fwdInfo.NextHop == hop.Exit && pld.NextHopPubKey == nil
+		switch isExit {
+		case true:
 			err := l.processExitHop(
 				pd, obfuscator, fwdInfo, heightNow, pld,
 			)
@@ -2763,6 +2764,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					incomingTimeout: pd.Timeout,
 					outgoingTimeout: fwdInfo.OutgoingCTLV,
 					customRecords:   pld.CustomRecords(),
+					nextHopPubKey:   pld.NextHopPubKey,
 				}
 				switchPackets = append(
 					switchPackets, updatePacket,
@@ -2827,6 +2829,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					incomingTimeout: pd.Timeout,
 					outgoingTimeout: fwdInfo.OutgoingCTLV,
 					customRecords:   pld.CustomRecords(),
+					nextHopPubKey:   pld.NextHopPubKey,
 				}
 
 				fwdPkg.FwdFilter.Set(idx)

@@ -54,31 +54,15 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 )
 
-// WalletUnlockerAuthOptions returns a list of DialOptions that can be used to
-// authenticate with the wallet unlocker service.
-//
-// NOTE: This should only be called after the WalletUnlocker listener has
-// signaled it is ready.
-func WalletUnlockerAuthOptions(cfg *Config) ([]grpc.DialOption, error) {
-	creds, err := credentials.NewClientTLSFromFile(cfg.TLSCertPath, "")
-	if err != nil {
-		return nil, fmt.Errorf("unable to read TLS cert: %v", err)
-	}
-
-	// Create a dial options array with the TLS credentials.
-	opts := []grpc.DialOption{
-		grpc.WithTransportCredentials(creds),
-	}
-
-	return opts, nil
-}
-
 // AdminAuthOptions returns a list of DialOptions that can be used to
 // authenticate with the RPC server with admin capabilities.
+// skipMacaroons=true should be set if we don't want to include macaroons with
+// the auth options. This is needed for instance for the WalletUnlocker
+// service, which must be usable also before macaroons are created.
 //
 // NOTE: This should only be called after the RPCListener has signaled it is
 // ready.
-func AdminAuthOptions(cfg *Config) ([]grpc.DialOption, error) {
+func AdminAuthOptions(cfg *Config, skipMacaroons bool) ([]grpc.DialOption, error) {
 	creds, err := credentials.NewClientTLSFromFile(cfg.TLSCertPath, "")
 	if err != nil {
 		return nil, fmt.Errorf("unable to read TLS cert: %v", err)
@@ -90,7 +74,7 @@ func AdminAuthOptions(cfg *Config) ([]grpc.DialOption, error) {
 	}
 
 	// Get the admin macaroon if macaroons are active.
-	if !cfg.NoMacaroons {
+	if !skipMacaroons && !cfg.NoMacaroons {
 		// Load the adming macaroon file.
 		macBytes, err := ioutil.ReadFile(cfg.AdminMacPath)
 		if err != nil {
@@ -169,10 +153,6 @@ type ListenerWithSignal struct {
 // ListenerCfg is a wrapper around custom listeners that can be passed to lnd
 // when calling its main method.
 type ListenerCfg struct {
-	// WalletUnlocker can be set to the listener to use for the wallet
-	// unlocker. If nil a regular network listener will be created.
-	WalletUnlocker *ListenerWithSignal
-
 	// RPCListener can be set to the listener to use for the RPC server. If
 	// nil a regular network listener will be created.
 	RPCListener *ListenerWithSignal

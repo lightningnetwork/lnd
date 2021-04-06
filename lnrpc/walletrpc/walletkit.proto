@@ -56,6 +56,50 @@ service WalletKit {
     rpc NextAddr (AddrRequest) returns (AddrResponse);
 
     /*
+    ListAccounts retrieves all accounts belonging to the wallet by default. A
+    name and key scope filter can be provided to filter through all of the
+    wallet accounts and return only those matching.
+    */
+    rpc ListAccounts (ListAccountsRequest) returns (ListAccountsResponse);
+
+    /*
+    ImportAccount imports an account backed by an account extended public key.
+    The master key fingerprint denotes the fingerprint of the root key
+    corresponding to the account public key (also known as the key with
+    derivation path m/). This may be required by some hardware wallets for
+    proper identification and signing.
+
+    The address type can usually be inferred from the key's version, but may be
+    required for certain keys to map them into the proper scope.
+
+    For BIP-0044 keys, an address type must be specified as we intend to not
+    support importing BIP-0044 keys into the wallet using the legacy
+    pay-to-pubkey-hash (P2PKH) scheme. A nested witness address type will force
+    the standard BIP-0049 derivation scheme, while a witness address type will
+    force the standard BIP-0084 derivation scheme.
+
+    For BIP-0049 keys, an address type must also be specified to make a
+    distinction between the standard BIP-0049 address schema (nested witness
+    pubkeys everywhere) and our own BIP-0049Plus address schema (nested pubkeys
+    externally, witness pubkeys internally).
+
+    NOTE: Events (deposits/spends) for keys derived from an account will only be
+    detected by lnd if they happen after the import. Rescans to detect past
+    events will be supported later on.
+    */
+    rpc ImportAccount (ImportAccountRequest) returns (ImportAccountResponse);
+
+    /*
+    ImportPublicKey imports a public key as watch-only into the wallet.
+
+    NOTE: Events (deposits/spends) for a key will only be detected by lnd if
+    they happen after the import. Rescans to detect past events will be
+    supported later on.
+    */
+    rpc ImportPublicKey (ImportPublicKeyRequest)
+        returns (ImportPublicKeyResponse);
+
+    /*
     PublishTransaction attempts to publish the passed transaction to the
     network. Once this returns without an error, the wallet will continually
     attempt to re-broadcast the transaction on start up, until it enters the
@@ -178,6 +222,9 @@ message ListUnspentRequest {
 
     // The maximum number of confirmations to be included.
     int32 max_confs = 2;
+
+    // An optional filter to only include outputs belonging to an account.
+    string account = 3;
 }
 
 message ListUnspentResponse {
@@ -234,13 +281,124 @@ message KeyReq {
 }
 
 message AddrRequest {
-    // No fields, as we always give out a p2wkh address.
+    /*
+    The name of the account to retrieve the next address of. If empty, the
+    default wallet account is used.
+    */
+    string account = 1;
 }
 message AddrResponse {
     /*
     The address encoded using a bech32 format.
     */
     string addr = 1;
+}
+
+enum AddressType {
+    UNKNOWN = 0;
+    WITNESS_PUBKEY_HASH = 1;
+    NESTED_WITNESS_PUBKEY_HASH = 2;
+    HYBRID_NESTED_WITNESS_PUBKEY_HASH = 3;
+}
+message Account {
+    // The name used to identify the account.
+    string name = 1;
+
+    /*
+    The type of addresses the account supports.
+    AddressType                       | External Branch | Internal Branch
+    ---------------------------------------------------------------------
+    WITNESS_PUBKEY_HASH               | P2WPKH          | P2WPKH
+    NESTED_WITNESS_PUBKEY_HASH        | NP2WPKH         | NP2WPKH
+    HYBRID_NESTED_WITNESS_PUBKEY_HASH | NP2WPKH         | P2WPKH
+    */
+    AddressType address_type = 2;
+
+    /*
+    The public key backing the account that all keys are derived from
+    represented as an extended key. This will always be empty for the default
+    imported account in which single public keys are imported into.
+    */
+    string extended_public_key = 3;
+
+    /*
+    The fingerprint of the root key from which the account public key was
+    derived from. This will always be zero for the default imported account in
+    which single public keys are imported into.
+    */
+    uint32 master_key_fingerprint = 4;
+
+    /*
+    The derivation path corresponding to the account public key. This will
+    always be empty for the default imported account in which single public keys
+    are imported into.
+    */
+    string derivation_path = 5;
+
+    /*
+    The number of keys derived from the external branch of the account public
+    key. This will always be zero for the default imported account in which
+    single public keys are imported into.
+    */
+    uint32 external_key_count = 6;
+
+    /*
+    The number of keys derived from the internal branch of the account public
+    key. This will always be zero for the default imported account in which
+    single public keys are imported into.
+    */
+    uint32 internal_key_count = 7;
+
+    // Whether the wallet stores private keys for the account.
+    bool watch_only = 8;
+}
+message ListAccountsRequest {
+    // An optional filter to only return accounts matching this name.
+    string name = 1;
+
+    // An optional filter to only return accounts matching this address type.
+    AddressType address_type = 2;
+}
+message ListAccountsResponse {
+    repeated Account accounts = 1;
+}
+
+message ImportAccountRequest {
+    // A name to identify the account with.
+    string name = 1;
+
+    /*
+    A public key that corresponds to a wallet account represented as an extended
+    key. It must conform to a derivation path of the form
+    m/purpose'/coin_type'/account'.
+    */
+    string extended_public_key = 2;
+
+    /*
+    The fingerprint of the root key (also known as the key with derivation path
+    m/) from which the account public key was derived from. This may be required
+    by some hardware wallets for proper identification and signing.
+    */
+    uint32 master_key_fingerprint = 3;
+
+    /*
+    An address type is only required when the extended account public key has a
+    legacy version (xpub, tpub, etc.), such that the wallet cannot detect what
+    address scheme it belongs to.
+    */
+    AddressType address_type = 4;
+}
+message ImportAccountResponse {
+}
+
+message ImportPublicKeyRequest {
+    // A compressed public key represented as raw bytes.
+    bytes public_key = 1;
+
+    // The type of address that will be generated from the public key.
+    AddressType address_type = 2;
+}
+message ImportPublicKeyResponse {
 }
 
 message Transaction {
@@ -560,6 +718,12 @@ message FundPsbtRequest {
         */
         uint64 sat_per_vbyte = 4;
     }
+
+    /*
+    The name of the account to fund the PSBT with. If empty, the default wallet
+    account is used.
+    */
+    string account = 5;
 }
 message FundPsbtResponse {
     /*
@@ -619,6 +783,12 @@ message FinalizePsbtRequest {
     signers.
     */
     bytes funded_psbt = 1;
+
+    /*
+    The name of the account to finalize the PSBT with. If empty, the default
+    wallet account is used.
+    */
+    string account = 5;
 }
 message FinalizePsbtResponse {
     // The fully signed and finalized transaction in PSBT format.

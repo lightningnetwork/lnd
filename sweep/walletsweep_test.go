@@ -119,7 +119,7 @@ func newMockUtxoSource(utxos []*lnwallet.Utxo) *mockUtxoSource {
 	}
 }
 
-func (m *mockUtxoSource) ListUnspentWitness(minConfs int32,
+func (m *mockUtxoSource) ListUnspentWitnessFromDefaultAccount(minConfs int32,
 	maxConfs int32) ([]*lnwallet.Utxo, error) {
 
 	return m.outputs, nil

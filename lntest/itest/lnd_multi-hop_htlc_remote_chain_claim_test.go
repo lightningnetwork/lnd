@@ -101,7 +101,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// type is of that type).
 	if c == commitTypeAnchors {
 		_, err = waitForNTxsInMempool(
-			net.Miner.Node, 1, minerMempoolTimeout,
+			net.Miner.Client, 1, minerMempoolTimeout,
 		)
 		if err != nil {
 			t.Fatalf("unable to find bob's anchor commit sweep: %v",
@@ -114,12 +114,12 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// containing the commitment tx and the commit sweep tx will be
 	// broadcast immediately before it can be included in a block, so mine
 	// one less than defaultCSV in order to perform mempool assertions.
-	_, err = net.Miner.Node.Generate(defaultCSV - 1)
+	_, err = net.Miner.Client.Generate(defaultCSV - 1)
 	require.NoError(t.t, err)
 
 	// Alice should now sweep her funds.
 	_, err = waitForNTxsInMempool(
-		net.Miner.Node, 1, minerMempoolTimeout,
+		net.Miner.Client, 1, minerMempoolTimeout,
 	)
 	require.NoError(t.t, err)
 
@@ -145,7 +145,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 		invoiceReq.CltvExpiry-lncfg.DefaultIncomingBroadcastDelta,
 	) - defaultCSV)
 
-	_, err = net.Miner.Node.Generate(numBlocks)
+	_, err = net.Miner.Client.Generate(numBlocks)
 	require.NoError(t.t, err)
 
 	expectedTxes := 1
@@ -156,7 +156,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// Carol's commitment transaction should now be in the mempool. If
 	// there are anchors, Carol also sweeps her anchor.
 	_, err = waitForNTxsInMempool(
-		net.Miner.Node, expectedTxes, minerMempoolTimeout,
+		net.Miner.Client, expectedTxes, minerMempoolTimeout,
 	)
 	require.NoError(t.t, err)
 	bobFundingTxid, err := lnrpc.GetChanPointFundingTxid(bobChanPoint)
@@ -169,7 +169,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// The closing transaction should be spending from the funding
 	// transaction.
 	closingTx := getSpendingTxInMempool(
-		t, net.Miner.Node, minerMempoolTimeout, carolFundingPoint,
+		t, net.Miner.Client, minerMempoolTimeout, carolFundingPoint,
 	)
 	closingTxid := closingTx.TxHash()
 
@@ -193,7 +193,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 		expectedTxes = 3
 	}
 	txes, err := getNTxsFromMempool(
-		net.Miner.Node, expectedTxes, minerMempoolTimeout,
+		net.Miner.Client, expectedTxes, minerMempoolTimeout,
 	)
 	require.NoError(t.t, err)
 
@@ -211,12 +211,12 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// will extract the preimage and broadcast a sweep tx to directly claim
 	// the HTLC in his (already closed) channel with Alice.
 	bobHtlcSweep, err := waitForTxInMempool(
-		net.Miner.Node, minerMempoolTimeout,
+		net.Miner.Client, minerMempoolTimeout,
 	)
 	require.NoError(t.t, err)
 
 	// It should spend from the commitment in the channel with Alice.
-	tx, err := net.Miner.Node.GetRawTransaction(bobHtlcSweep)
+	tx, err := net.Miner.Client.GetRawTransaction(bobHtlcSweep)
 	require.NoError(t.t, err)
 	require.Equal(
 		t.t, *aliceForceClose, tx.MsgTx().TxIn[0].PreviousOutPoint.Hash,
@@ -238,11 +238,11 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 
 	// If we then mine 3 additional blocks, Carol's second level tx will
 	// mature, and she should pull the funds.
-	_, err = net.Miner.Node.Generate(carolSecondLevelCSV)
+	_, err = net.Miner.Client.Generate(carolSecondLevelCSV)
 	require.NoError(t.t, err)
 
 	carolSweep, err := waitForTxInMempool(
-		net.Miner.Node, minerMempoolTimeout,
+		net.Miner.Client, minerMempoolTimeout,
 	)
 	require.NoError(t.t, err)
 

@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lncfg"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
 )
@@ -180,7 +181,9 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 			netParams:     netParams,
 		},
 		WalletBalance: func() (btcutil.Amount, error) {
-			return svr.cc.Wallet.ConfirmedBalance(cfg.MinConfs)
+			return svr.cc.Wallet.ConfirmedBalance(
+				cfg.MinConfs, lnwallet.DefaultAccountName,
+			)
 		},
 		Graph:       autopilot.ChannelGraphFromDatabase(svr.localChanDB.ChannelGraph()),
 		Constraints: atplConstraints,

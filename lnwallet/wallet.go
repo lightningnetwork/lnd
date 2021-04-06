@@ -396,14 +396,33 @@ func (l *LightningWallet) Shutdown() error {
 	return nil
 }
 
-// ConfirmedBalance returns the current confirmed balance of the wallet. This
-// methods wraps the interal WalletController method so we're able to properly
-// hold the coin select mutex while we compute the balance.
-func (l *LightningWallet) ConfirmedBalance(confs int32) (btcutil.Amount, error) {
+// ConfirmedBalance returns the current confirmed balance of a wallet account.
+// This methods wraps the internal WalletController method so we're able to
+// properly hold the coin select mutex while we compute the balance.
+func (l *LightningWallet) ConfirmedBalance(confs int32,
+	account string) (btcutil.Amount, error) {
+
 	l.coinSelectMtx.Lock()
 	defer l.coinSelectMtx.Unlock()
 
-	return l.WalletController.ConfirmedBalance(confs)
+	return l.WalletController.ConfirmedBalance(confs, account)
+}
+
+// ListUnspentWitnessFromDefaultAccount returns all unspent outputs from the
+// default wallet account which are version 0 witness programs. The 'minConfs'
+// and 'maxConfs' parameters indicate the minimum and maximum number of
+// confirmations an output needs in order to be returned by this method. Passing
+// -1 as 'minConfs' indicates that even unconfirmed outputs should be returned.
+// Using MaxInt32 as 'maxConfs' implies returning all outputs with at least
+// 'minConfs'.
+//
+// NOTE: This method requires the global coin selection lock to be held.
+func (l *LightningWallet) ListUnspentWitnessFromDefaultAccount(
+	minConfs, maxConfs int32) ([]*Utxo, error) {
+
+	return l.WalletController.ListUnspentWitness(
+		minConfs, maxConfs, DefaultAccountName,
+	)
 }
 
 // LockedOutpoints returns a list of all currently locked outpoint.
@@ -722,7 +741,9 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 			SubtractFees: req.SubtractFees,
 			FeeRate:      req.FundingFeePerKw,
 			ChangeAddr: func() (btcutil.Address, error) {
-				return l.NewAddress(WitnessPubKey, true)
+				return l.NewAddress(
+					WitnessPubKey, true, DefaultAccountName,
+				)
 			},
 		}
 		fundingIntent, err = req.ChanFunder.ProvisionChannel(
@@ -920,8 +941,12 @@ func (l *LightningWallet) currentNumAnchorChans() (int, error) {
 func (l *LightningWallet) CheckReservedValue(in []wire.OutPoint,
 	out []*wire.TxOut, numAnchorChans int) (btcutil.Amount, error) {
 
-	// Get all unspent coins in the wallet.
-	witnessOutputs, err := l.ListUnspentWitness(0, math.MaxInt32)
+	// Get all unspent coins in the wallet. We only care about those part of
+	// the wallet's default account as we know we can readily sign for those
+	// at any time.
+	witnessOutputs, err := l.ListUnspentWitnessFromDefaultAccount(
+		0, math.MaxInt32,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -2020,7 +2045,9 @@ func NewCoinSource(w *LightningWallet) *CoinSource {
 func (c *CoinSource) ListCoins(minConfs int32,
 	maxConfs int32) ([]chanfunding.Coin, error) {
 
-	utxos, err := c.wallet.ListUnspentWitness(minConfs, maxConfs)
+	utxos, err := c.wallet.ListUnspentWitnessFromDefaultAccount(
+		minConfs, maxConfs,
+	)
 	if err != nil {
 		return nil, err
 	}

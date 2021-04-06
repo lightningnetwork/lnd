@@ -582,6 +582,9 @@ message GetTransactionsRequest {
     default to this option.
     */
     int32 end_height = 2;
+
+    // An optional filter to only include transactions relevant to an account.
+    string account = 3;
 }
 
 message TransactionDetails {
@@ -990,6 +993,9 @@ message ListUnspentRequest {
 
     // The maximum number of confirmations to be included.
     int32 max_confs = 2;
+
+    // An optional filter to only include outputs belonging to an account.
+    string account = 3;
 }
 message ListUnspentResponse {
     // A list of utxos
@@ -1010,8 +1016,14 @@ enum AddressType {
 }
 
 message NewAddressRequest {
-    // The address type
+    // The type of address to generate.
     AddressType type = 1;
+
+    /*
+    The name of the account to generate a new address for. If empty, the
+    default wallet account is used.
+    */
+    string account = 2;
 }
 message NewAddressResponse {
     // The newly generated wallet address
@@ -2242,8 +2254,17 @@ message ChannelEventUpdate {
     UpdateType type = 5;
 }
 
+message WalletAccountBalance {
+    // The confirmed balance of the account (with >= 1 confirmations).
+    int64 confirmed_balance = 1;
+
+    // The unconfirmed balance of the account (with 0 confirmations).
+    int64 unconfirmed_balance = 2;
+}
+
 message WalletBalanceRequest {
 }
+
 message WalletBalanceResponse {
     // The balance of the wallet
     int64 total_balance = 1;
@@ -2253,6 +2274,9 @@ message WalletBalanceResponse {
 
     // The unconfirmed balance of a wallet(with 0 confirmations)
     int64 unconfirmed_balance = 3;
+
+    // A mapping of each wallet account's name to its balance.
+    map<string, WalletAccountBalance> account_balance = 4;
 }
 
 message Amount {

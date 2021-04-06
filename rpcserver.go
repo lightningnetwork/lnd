@@ -25,6 +25,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/psbt"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
@@ -1023,7 +1024,7 @@ func (r *rpcServer) ListUnspent(ctx context.Context,
 	var utxos []*lnwallet.Utxo
 	err = r.server.cc.Wallet.WithCoinSelectLock(func() error {
 		utxos, err = r.server.cc.Wallet.ListUnspentWitness(
-			minConfs, maxConfs,
+			minConfs, maxConfs, in.Account,
 		)
 		return err
 	})
@@ -1191,7 +1192,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		sweepTxPkg, err := sweep.CraftSweepAllTx(
 			feePerKw, lnwallet.DefaultDustLimit(),
 			uint32(bestHeight), nil, targetAddr, wallet,
-			wallet.WalletController, wallet.WalletController,
+			wallet, wallet.WalletController,
 			r.server.cc.FeeEstimator, r.server.cc.Signer,
 		)
 		if err != nil {
@@ -1225,6 +1226,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			// allowing us to pass the reserved value check.
 			changeAddr, err := r.server.cc.Wallet.NewAddress(
 				lnwallet.WitnessPubKey, true,
+				lnwallet.DefaultAccountName,
 			)
 			if err != nil {
 				return nil, err
@@ -1242,7 +1244,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			sweepTxPkg, err = sweep.CraftSweepAllTx(
 				feePerKw, lnwallet.DefaultDustLimit(),
 				uint32(bestHeight), outputs, targetAddr, wallet,
-				wallet.WalletController, wallet.WalletController,
+				wallet, wallet.WalletController,
 				r.server.cc.FeeEstimator, r.server.cc.Signer,
 			)
 			if err != nil {
@@ -1372,6 +1374,12 @@ func (r *rpcServer) SendMany(ctx context.Context,
 func (r *rpcServer) NewAddress(ctx context.Context,
 	in *lnrpc.NewAddressRequest) (*lnrpc.NewAddressResponse, error) {
 
+	// Always use the default wallet account unless one was specified.
+	account := lnwallet.DefaultAccountName
+	if in.Account != "" {
+		account = in.Account
+	}
+
 	// Translate the gRPC proto address type to the wallet controller's
 	// available address types.
 	var (
@@ -1381,7 +1389,7 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 	switch in.Type {
 	case lnrpc.AddressType_WITNESS_PUBKEY_HASH:
 		addr, err = r.server.cc.Wallet.NewAddress(
-			lnwallet.WitnessPubKey, false,
+			lnwallet.WitnessPubKey, false, account,
 		)
 		if err != nil {
 			return nil, err
@@ -1389,7 +1397,7 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 
 	case lnrpc.AddressType_NESTED_PUBKEY_HASH:
 		addr, err = r.server.cc.Wallet.NewAddress(
-			lnwallet.NestedWitnessPubKey, false,
+			lnwallet.NestedWitnessPubKey, false, account,
 		)
 		if err != nil {
 			return nil, err
@@ -1397,7 +1405,7 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 
 	case lnrpc.AddressType_UNUSED_WITNESS_PUBKEY_HASH:
 		addr, err = r.server.cc.Wallet.LastUnusedAddress(
-			lnwallet.WitnessPubKey,
+			lnwallet.WitnessPubKey, account,
 		)
 		if err != nil {
 			return nil, err
@@ -1405,14 +1413,15 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 
 	case lnrpc.AddressType_UNUSED_NESTED_PUBKEY_HASH:
 		addr, err = r.server.cc.Wallet.LastUnusedAddress(
-			lnwallet.NestedWitnessPubKey,
+			lnwallet.NestedWitnessPubKey, account,
 		)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	rpcsLog.Debugf("[newaddress] type=%v addr=%v", in.Type, addr.String())
+	rpcsLog.Debugf("[newaddress] account=%v type=%v addr=%v", account,
+		in.Type, addr.String())
 	return &lnrpc.NewAddressResponse{Address: addr.String()}, nil
 }
 
@@ -2761,30 +2770,80 @@ func (r *rpcServer) SubscribePeerEvents(req *lnrpc.PeerEventSubscription,
 func (r *rpcServer) WalletBalance(ctx context.Context,
 	in *lnrpc.WalletBalanceRequest) (*lnrpc.WalletBalanceResponse, error) {
 
-	// Get total balance, from txs that have >= 0 confirmations.
-	totalBal, err := r.server.cc.Wallet.ConfirmedBalance(0)
+	// Retrieve all existing wallet accounts. We'll compute the confirmed
+	// and unconfirmed balance for each and tally them up.
+	accounts, err := r.server.cc.Wallet.ListAccounts("", nil)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get confirmed balance, from txs that have >= 1 confirmations.
-	// TODO(halseth): get both unconfirmed and confirmed balance in one
-	// call, as this is racy.
-	confirmedBal, err := r.server.cc.Wallet.ConfirmedBalance(1)
-	if err != nil {
-		return nil, err
-	}
+	var totalBalance, confirmedBalance, unconfirmedBalance btcutil.Amount
+	rpcAccountBalances := make(
+		map[string]*lnrpc.WalletAccountBalance, len(accounts),
+	)
+	for _, account := range accounts {
+		// There are two default accounts, one for NP2WKH outputs and
+		// another for P2WKH outputs. The balance will be computed for
+		// both given one call to ConfirmedBalance with the default
+		// wallet and imported account, so we'll skip the second
+		// instance to avoid inflating the balance.
+		switch account.AccountName {
+		case waddrmgr.ImportedAddrAccountName:
+			// Omit the imported account from the response unless we
+			// actually have any keys imported.
+			if account.ImportedKeyCount == 0 {
+				continue
+			}
 
-	// Get unconfirmed balance, from txs with 0 confirmations.
-	unconfirmedBal := totalBal - confirmedBal
+			fallthrough
+
+		case lnwallet.DefaultAccountName:
+			if _, ok := rpcAccountBalances[account.AccountName]; ok {
+				continue
+			}
+
+		default:
+		}
+
+		// Get total balance, from txs that have >= 0 confirmations.
+		totalBal, err := r.server.cc.Wallet.ConfirmedBalance(
+			0, account.AccountName,
+		)
+		if err != nil {
+			return nil, err
+		}
+		totalBalance += totalBal
+
+		// Get confirmed balance, from txs that have >= 1 confirmations.
+		// TODO(halseth): get both unconfirmed and confirmed balance in
+		// one call, as this is racy.
+		confirmedBal, err := r.server.cc.Wallet.ConfirmedBalance(
+			1, account.AccountName,
+		)
+		if err != nil {
+			return nil, err
+		}
+		confirmedBalance += confirmedBal
+
+		// Get unconfirmed balance, from txs with 0 confirmations.
+		unconfirmedBal := totalBal - confirmedBal
+		unconfirmedBalance += unconfirmedBal
+
+		rpcAccountBalances[account.AccountName] = &lnrpc.WalletAccountBalance{
+			ConfirmedBalance:   int64(confirmedBal),
+			UnconfirmedBalance: int64(unconfirmedBal),
+		}
+	}
 
 	rpcsLog.Debugf("[walletbalance] Total balance=%v (confirmed=%v, "+
-		"unconfirmed=%v)", totalBal, confirmedBal, unconfirmedBal)
+		"unconfirmed=%v)", totalBalance, confirmedBalance,
+		unconfirmedBalance)
 
 	return &lnrpc.WalletBalanceResponse{
-		TotalBalance:       int64(totalBal),
-		ConfirmedBalance:   int64(confirmedBal),
-		UnconfirmedBalance: int64(unconfirmedBal),
+		TotalBalance:       int64(totalBalance),
+		ConfirmedBalance:   int64(confirmedBalance),
+		UnconfirmedBalance: int64(unconfirmedBalance),
+		AccountBalance:     rpcAccountBalances,
 	}, nil
 }
 
@@ -4962,7 +5021,7 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 	}
 
 	transactions, err := r.server.cc.Wallet.ListTransactionDetails(
-		req.StartHeight, endHeight,
+		req.StartHeight, endHeight, req.Account,
 	)
 	if err != nil {
 		return nil, err

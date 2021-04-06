@@ -57,6 +57,9 @@ const (
 	// listenerFormat is the format string that is used to generate local
 	// listener addresses.
 	listenerFormat = "127.0.0.1:%d"
+
+	// NeutrinoBackendName is the name of the neutrino backend.
+	NeutrinoBackendName = "neutrino"
 )
 
 var (

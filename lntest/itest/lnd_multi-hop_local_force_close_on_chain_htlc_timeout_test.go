@@ -96,7 +96,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// transaction of Bob's funding output. If there are anchors, mine
 	// Carol's anchor sweep too.
 	if c == commitTypeAnchors {
-		_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+		_, err = waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
 		require.NoError(t.t, err)
 	}
 
@@ -104,16 +104,16 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// expires and the commitment was already mined inside
 	// closeChannelAndAssertType(), so mine one block less than defaultCSV
 	// in order to perform mempool assertions.
-	_, err = net.Miner.Node.Generate(defaultCSV - 1)
+	_, err = net.Miner.Client.Generate(defaultCSV - 1)
 	require.NoError(t.t, err)
 
-	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	_, err = waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
 	require.NoError(t.t, err)
 
 	// We'll now mine enough blocks for the HTLC to expire. After this, Bob
 	// should hand off the now expired HTLC output to the utxo nursery.
 	numBlocks := padCLTV(uint32(finalCltvDelta - defaultCSV))
-	_, err = net.Miner.Node.Generate(numBlocks)
+	_, err = net.Miner.Client.Generate(numBlocks)
 	require.NoError(t.t, err)
 
 	// Bob's pending channel report should show that he has a single HTLC
@@ -138,7 +138,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// We should also now find a transaction in the mempool, as Bob should
 	// have broadcast his second layer timeout transaction.
-	timeoutTx, err := waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	timeoutTx, err := waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
 	require.NoError(t.t, err)
 
 	// Next, we'll mine an additional block. This should serve to confirm
@@ -177,10 +177,10 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// We'll now mine 4 additional blocks. This should be enough for Bob's
 	// CSV timelock to expire and the sweeping transaction of the HTLC to be
 	// broadcast.
-	_, err = net.Miner.Node.Generate(defaultCSV)
+	_, err = net.Miner.Client.Generate(defaultCSV)
 	require.NoError(t.t, err)
 
-	sweepTx, err := waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	sweepTx, err := waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
 	require.NoError(t.t, err)
 
 	// We'll then mine a final block which should confirm this second layer

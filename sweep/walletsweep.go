@@ -99,9 +99,10 @@ func DetermineFeePerKw(feeEstimator chainfee.Estimator,
 // UtxoSource is an interface that allows a caller to access a source of UTXOs
 // to use when crafting sweep transactions.
 type UtxoSource interface {
-	// ListUnspentWitness returns all UTXOs from the source that have
-	// between minConfs and maxConfs number of confirmations.
-	ListUnspentWitness(minConfs, maxConfs int32) ([]*lnwallet.Utxo, error)
+	// ListUnspentWitness returns all UTXOs from the default wallet account
+	// that have between minConfs and maxConfs number of confirmations.
+	ListUnspentWitnessFromDefaultAccount(minConfs, maxConfs int32) (
+		[]*lnwallet.Utxo, error)
 }
 
 // CoinSelectionLocker is an interface that allows the caller to perform an
@@ -192,7 +193,7 @@ func CraftSweepAllTx(feeRate chainfee.SatPerKWeight, dustLimit btcutil.Amount,
 		// Now that we can be sure that no other coin selection
 		// operations are going on, we can grab a clean snapshot of the
 		// current UTXO state of the wallet.
-		utxos, err := utxoSource.ListUnspentWitness(
+		utxos, err := utxoSource.ListUnspentWitnessFromDefaultAccount(
 			1, math.MaxInt32,
 		)
 		if err != nil {

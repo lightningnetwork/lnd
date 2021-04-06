@@ -11,6 +11,86 @@
     "application/json"
   ],
   "paths": {
+    "/v2/wallet/accounts": {
+      "get": {
+        "summary": "ListAccounts retrieves all accounts belonging to the wallet by default. A\nname and key scope filter can be provided to filter through all of the\nwallet accounts and return only those matching.",
+        "operationId": "ListAccounts",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/walletrpcListAccountsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "name",
+            "description": "An optional filter to only return accounts matching this name.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "address_type",
+            "description": "An optional filter to only return accounts matching this address type.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "UNKNOWN",
+              "WITNESS_PUBKEY_HASH",
+              "NESTED_WITNESS_PUBKEY_HASH",
+              "HYBRID_NESTED_WITNESS_PUBKEY_HASH"
+            ],
+            "default": "UNKNOWN"
+          }
+        ],
+        "tags": [
+          "WalletKit"
+        ]
+      }
+    },
+    "/v2/wallet/accounts/import": {
+      "post": {
+        "summary": "ImportAccount imports an account backed by an account extended public key.\nThe master key fingerprint denotes the fingerprint of the root key\ncorresponding to the account public key (also known as the key with\nderivation path m/). This may be required by some hardware wallets for\nproper identification and signing.",
+        "description": "The address type can usually be inferred from the key's version, but may be\nrequired for certain keys to map them into the proper scope.\n\nFor BIP-0044 keys, an address type must be specified as we intend to not\nsupport importing BIP-0044 keys into the wallet using the legacy\npay-to-pubkey-hash (P2PKH) scheme. A nested witness address type will force\nthe standard BIP-0049 derivation scheme, while a witness address type will\nforce the standard BIP-0084 derivation scheme.\n\nFor BIP-0049 keys, an address type must also be specified to make a\ndistinction between the standard BIP-0049 address schema (nested witness\npubkeys everywhere) and our own BIP-0049Plus address schema (nested pubkeys\nexternally, witness pubkeys internally).\n\nNOTE: Events (deposits/spends) for keys derived from an account will only be\ndetected by lnd if they happen after the import. Rescans to detect past\nevents will be supported later on.",
+        "operationId": "ImportAccount",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/walletrpcImportAccountResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/walletrpcImportAccountRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WalletKit"
+        ]
+      }
+    },
     "/v2/wallet/address/next": {
       "post": {
         "summary": "NextAddr returns the next unused address within the wallet.",
@@ -136,6 +216,40 @@
             "required": true,
             "schema": {
               "$ref": "#/definitions/signrpcKeyLocator"
+            }
+          }
+        ],
+        "tags": [
+          "WalletKit"
+        ]
+      }
+    },
+    "/v2/wallet/key/import": {
+      "post": {
+        "summary": "ImportPublicKey imports a public key as watch-only into the wallet.",
+        "description": "NOTE: Events (deposits/spends) for a key will only be detected by lnd if\nthey happen after the import. Rescans to detect past events will be\nsupported later on.",
+        "operationId": "ImportPublicKey",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/walletrpcImportPublicKeyResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/walletrpcImportPublicKeyRequest"
             }
           }
         ],
@@ -731,8 +845,55 @@
         }
       }
     },
+    "walletrpcAccount": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name used to identify the account."
+        },
+        "address_type": {
+          "$ref": "#/definitions/walletrpcAddressType",
+          "title": "The type of addresses the account supports.\nAddressType                       | External Branch | Internal Branch\n---------------------------------------------------------------------\nWITNESS_PUBKEY_HASH               | P2WPKH          | P2WPKH\nNESTED_WITNESS_PUBKEY_HASH        | NP2WPKH         | NP2WPKH\nHYBRID_NESTED_WITNESS_PUBKEY_HASH | NP2WPKH         | P2WPKH"
+        },
+        "extended_public_key": {
+          "type": "string",
+          "description": "The public key backing the account that all keys are derived from\nrepresented as an extended key. This will always be empty for the default\nimported account in which single public keys are imported into."
+        },
+        "master_key_fingerprint": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The fingerprint of the root key from which the account public key was\nderived from. This will always be zero for the default imported account in\nwhich single public keys are imported into."
+        },
+        "derivation_path": {
+          "type": "string",
+          "description": "The derivation path corresponding to the account public key. This will\nalways be empty for the default imported account in which single public keys\nare imported into."
+        },
+        "external_key_count": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of keys derived from the external branch of the account public\nkey. This will always be zero for the default imported account in which\nsingle public keys are imported into."
+        },
+        "internal_key_count": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of keys derived from the internal branch of the account public\nkey. This will always be zero for the default imported account in which\nsingle public keys are imported into."
+        },
+        "watch_only": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Whether the wallet stores private keys for the account."
+        }
+      }
+    },
     "walletrpcAddrRequest": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "account": {
+          "type": "string",
+          "description": "The name of the account to retrieve the next address of. If empty, the\ndefault wallet account is used."
+        }
+      }
     },
     "walletrpcAddrResponse": {
       "type": "object",
@@ -742,6 +903,16 @@
           "description": "The address encoded using a bech32 format."
         }
       }
+    },
+    "walletrpcAddressType": {
+      "type": "string",
+      "enum": [
+        "UNKNOWN",
+        "WITNESS_PUBKEY_HASH",
+        "NESTED_WITNESS_PUBKEY_HASH",
+        "HYBRID_NESTED_WITNESS_PUBKEY_HASH"
+      ],
+      "default": "UNKNOWN"
     },
     "walletrpcBumpFeeRequest": {
       "type": "object",
@@ -792,6 +963,10 @@
           "type": "string",
           "format": "byte",
           "description": "A PSBT that should be signed and finalized. The PSBT must contain all\nrequired inputs, outputs, UTXO data and partial signatures of all other\nsigners."
+        },
+        "account": {
+          "type": "string",
+          "description": "The name of the account to finalize the PSBT with. If empty, the default\nwallet account is used."
         }
       }
     },
@@ -831,6 +1006,10 @@
           "type": "string",
           "format": "uint64",
           "description": "The fee rate, expressed in sat/vbyte, that should be used to spend the\ninput with."
+        },
+        "account": {
+          "type": "string",
+          "description": "The name of the account to fund the PSBT with. If empty, the default wallet\naccount is used."
         }
       }
     },
@@ -855,6 +1034,48 @@
           "description": "The list of lock leases that were acquired for the inputs in the funded PSBT\npacket."
         }
       }
+    },
+    "walletrpcImportAccountRequest": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "A name to identify the account with."
+        },
+        "extended_public_key": {
+          "type": "string",
+          "description": "A public key that corresponds to a wallet account represented as an extended\nkey. It must conform to a derivation path of the form\nm/purpose'/coin_type'/account'."
+        },
+        "master_key_fingerprint": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The fingerprint of the root key (also known as the key with derivation path\nm/) from which the account public key was derived from. This may be required\nby some hardware wallets for proper identification and signing."
+        },
+        "address_type": {
+          "$ref": "#/definitions/walletrpcAddressType",
+          "description": "An address type is only required when the extended account public key has a\nlegacy version (xpub, tpub, etc.), such that the wallet cannot detect what\naddress scheme it belongs to."
+        }
+      }
+    },
+    "walletrpcImportAccountResponse": {
+      "type": "object"
+    },
+    "walletrpcImportPublicKeyRequest": {
+      "type": "object",
+      "properties": {
+        "public_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "A compressed public key represented as raw bytes."
+        },
+        "address_type": {
+          "$ref": "#/definitions/walletrpcAddressType",
+          "description": "The type of address that will be generated from the public key."
+        }
+      }
+    },
+    "walletrpcImportPublicKeyResponse": {
+      "type": "object"
     },
     "walletrpcKeyReq": {
       "type": "object",
@@ -919,6 +1140,17 @@
           "type": "string",
           "format": "uint64",
           "description": "The absolute expiration of the output lease represented as a unix timestamp."
+        }
+      }
+    },
+    "walletrpcListAccountsResponse": {
+      "type": "object",
+      "properties": {
+        "accounts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/walletrpcAccount"
+          }
         }
       }
     },

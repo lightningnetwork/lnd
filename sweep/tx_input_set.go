@@ -333,7 +333,9 @@ func (t *txInputSet) tryAddWalletInputsIfNeeded() error {
 
 	// Retrieve wallet utxos. Only consider confirmed utxos to prevent
 	// problems around RBF rules for unconfirmed inputs.
-	utxos, err := t.wallet.ListUnspentWitness(1, math.MaxInt32)
+	utxos, err := t.wallet.ListUnspentWitnessFromDefaultAccount(
+		1, math.MaxInt32,
+	)
 	if err != nil {
 		return err
 	}

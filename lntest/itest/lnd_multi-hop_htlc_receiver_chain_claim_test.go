@@ -106,7 +106,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 	numBlocks := padCLTV(uint32(
 		invoiceReq.CltvExpiry - lncfg.DefaultIncomingBroadcastDelta,
 	))
-	_, err = net.Miner.Node.Generate(numBlocks)
+	_, err = net.Miner.Client.Generate(numBlocks)
 	require.NoError(t.t, err)
 
 	// At this point, Carol should broadcast her active commitment
@@ -117,7 +117,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 		expectedTxes = 2
 	}
 	_, err = getNTxsFromMempool(
-		net.Miner.Node, expectedTxes, minerMempoolTimeout,
+		net.Miner.Client, expectedTxes, minerMempoolTimeout,
 	)
 	require.NoError(t.t, err)
 
@@ -132,7 +132,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 	// The commitment transaction should be spending from the funding
 	// transaction.
 	closingTx := getSpendingTxInMempool(
-		t, net.Miner.Node, minerMempoolTimeout, carolFundingPoint,
+		t, net.Miner.Client, minerMempoolTimeout, carolFundingPoint,
 	)
 	closingTxid := closingTx.TxHash()
 
@@ -154,7 +154,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 		expectedTxes = 3
 	}
 	txes, err := getNTxsFromMempool(
-		net.Miner.Node, expectedTxes, minerMempoolTimeout,
+		net.Miner.Client, expectedTxes, minerMempoolTimeout,
 	)
 	require.NoError(t.t, err)
 
@@ -163,7 +163,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 
 	// We'll now mine an additional block which should confirm both the
 	// second layer transactions.
-	_, err = net.Miner.Node.Generate(1)
+	_, err = net.Miner.Client.Generate(1)
 	require.NoError(t.t, err)
 
 	time.Sleep(time.Second * 4)
@@ -197,17 +197,17 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 
 	// If we mine 4 additional blocks, then both outputs should now be
 	// mature.
-	_, err = net.Miner.Node.Generate(defaultCSV)
+	_, err = net.Miner.Client.Generate(defaultCSV)
 	require.NoError(t.t, err)
 
 	// We should have a new transaction in the mempool.
-	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	_, err = waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
 	require.NoError(t.t, err)
 
 	// Finally, if we mine an additional block to confirm these two sweep
 	// transactions, Carol should not show a pending channel in her report
 	// afterwards.
-	_, err = net.Miner.Node.Generate(1)
+	_, err = net.Miner.Client.Generate(1)
 	require.NoError(t.t, err)
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = waitForNumChannelPendingForceClose(ctxt, carol, 0, nil)

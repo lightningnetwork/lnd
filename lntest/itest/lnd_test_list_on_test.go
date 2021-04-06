@@ -294,4 +294,12 @@ var allTestCases = []*testCase{
 		name: "stateless init",
 		test: testStatelessInit,
 	},
+	{
+		name: "wallet import account",
+		test: testWalletImportAccount,
+	},
+	{
+		name: "wallet import pubkey",
+		test: testWalletImportPubKey,
+	},
 }

@@ -676,6 +676,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 			NewAddress: func() (btcutil.Address, error) {
 				return activeChainControl.Wallet.NewAddress(
 					lnwallet.WitnessPubKey, false,
+					lnwallet.DefaultAccountName,
 				)
 			},
 			NodeKeyECDH: keychain.NewPubKeyECDH(

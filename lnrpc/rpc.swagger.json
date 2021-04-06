@@ -1547,7 +1547,7 @@
         "parameters": [
           {
             "name": "type",
-            "description": "The address type.",
+            "description": "The type of address to generate.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -1558,6 +1558,13 @@
               "UNUSED_NESTED_PUBKEY_HASH"
             ],
             "default": "WITNESS_PUBKEY_HASH"
+          },
+          {
+            "name": "account",
+            "description": "The name of the account to generate a new address for. If empty, the\ndefault wallet account is used.",
+            "in": "query",
+            "required": false,
+            "type": "string"
           }
         ],
         "tags": [
@@ -1955,6 +1962,13 @@
             "required": false,
             "type": "integer",
             "format": "int32"
+          },
+          {
+            "name": "account",
+            "description": "An optional filter to only include transactions relevant to an account.",
+            "in": "query",
+            "required": false,
+            "type": "string"
           }
         ],
         "tags": [
@@ -2103,6 +2117,13 @@
             "required": false,
             "type": "integer",
             "format": "int32"
+          },
+          {
+            "name": "account",
+            "description": "An optional filter to only include transactions relevant to an account.",
+            "in": "query",
+            "required": false,
+            "type": "string"
           }
         ],
         "tags": [
@@ -2145,6 +2166,13 @@
             "required": false,
             "type": "integer",
             "format": "int32"
+          },
+          {
+            "name": "account",
+            "description": "An optional filter to only include outputs belonging to an account.",
+            "in": "query",
+            "required": false,
+            "type": "string"
           }
         ],
         "tags": [
@@ -5742,6 +5770,21 @@
         }
       }
     },
+    "lnrpcWalletAccountBalance": {
+      "type": "object",
+      "properties": {
+        "confirmed_balance": {
+          "type": "string",
+          "format": "int64",
+          "description": "The confirmed balance of the account (with \u003e= 1 confirmations)."
+        },
+        "unconfirmed_balance": {
+          "type": "string",
+          "format": "int64",
+          "description": "The unconfirmed balance of the account (with 0 confirmations)."
+        }
+      }
+    },
     "lnrpcWalletBalanceResponse": {
       "type": "object",
       "properties": {
@@ -5759,6 +5802,13 @@
           "type": "string",
           "format": "int64",
           "title": "The unconfirmed balance of a wallet(with 0 confirmations)"
+        },
+        "account_balance": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/lnrpcWalletAccountBalance"
+          },
+          "description": "A mapping of each wallet account's name to its balance."
         }
       }
     },

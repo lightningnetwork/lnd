@@ -10,11 +10,19 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/btcsuite/btcutil/psbt"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+)
+
+const (
+	// DefaultAccountName is the name for the default account used to manage
+	// on-chain funds within the wallet.
+	DefaultAccountName = "default"
 )
 
 // AddressType is an enum-like type which denotes the possible address types
@@ -153,20 +161,24 @@ type WalletController interface {
 	// ConfirmedBalance returns the sum of all the wallet's unspent outputs
 	// that have at least confs confirmations. If confs is set to zero,
 	// then all unspent outputs, including those currently in the mempool
-	// will be included in the final sum.
+	// will be included in the final sum. The account parameter serves as a
+	// filter to retrieve the balance for a specific account. When empty,
+	// the confirmed balance of all wallet accounts is returned.
 	//
 	// NOTE: Only witness outputs should be included in the computation of
 	// the total spendable balance of the wallet. We require this as only
 	// witness inputs can be used for funding channels.
-	ConfirmedBalance(confs int32) (btcutil.Amount, error)
+	ConfirmedBalance(confs int32, accountFilter string) (btcutil.Amount, error)
 
 	// NewAddress returns the next external or internal address for the
 	// wallet dictated by the value of the `change` parameter. If change is
 	// true, then an internal address should be used, otherwise an external
 	// address should be returned. The type of address returned is dictated
 	// by the wallet's capabilities, and may be of type: p2sh, p2wkh,
-	// p2wsh, etc.
-	NewAddress(addrType AddressType, change bool) (btcutil.Address, error)
+	// p2wsh, etc. The account parameter must be non-empty as it determines
+	// which account the address should be generated from.
+	NewAddress(addrType AddressType, change bool,
+		account string) (btcutil.Address, error)
 
 	// LastUnusedAddress returns the last *unused* address known by the
 	// wallet. An address is unused if it hasn't received any payments.
@@ -174,10 +186,47 @@ type WalletController interface {
 	// "freshest" address without having to worry about "address inflation"
 	// caused by continual refreshing. Similar to NewAddress it can derive
 	// a specified address type. By default, this is a non-change address.
-	LastUnusedAddress(addrType AddressType) (btcutil.Address, error)
+	// The account parameter must be non-empty as it determines which
+	// account the address should be generated from.
+	LastUnusedAddress(addrType AddressType,
+		account string) (btcutil.Address, error)
 
 	// IsOurAddress checks if the passed address belongs to this wallet
 	IsOurAddress(a btcutil.Address) bool
+
+	// ListAccounts retrieves all accounts belonging to the wallet by
+	// default. A name and key scope filter can be provided to filter
+	// through all of the wallet accounts and return only those matching.
+	ListAccounts(string, *waddrmgr.KeyScope) ([]*waddrmgr.AccountProperties, error)
+
+	// ImportAccount imports an account backed by an account extended public
+	// key. The master key fingerprint denotes the fingerprint of the root
+	// key corresponding to the account public key (also known as the key
+	// with derivation path m/). This may be required by some hardware
+	// wallets for proper identification and signing.
+	//
+	// The address type can usually be inferred from the key's version, but
+	// may be required for certain keys to map them into the proper scope.
+	//
+	// For BIP-0044 keys, an address type must be specified as we intend to
+	// not support importing BIP-0044 keys into the wallet using the legacy
+	// pay-to-pubkey-hash (P2PKH) scheme. A nested witness address type will
+	// force the standard BIP-0049 derivation scheme, while a witness
+	// address type will force the standard BIP-0084 derivation scheme.
+	//
+	// For BIP-0049 keys, an address type must also be specified to make a
+	// distinction between the standard BIP-0049 address schema (nested
+	// witness pubkeys everywhere) and our own BIP-0049Plus address schema
+	// (nested pubkeys externally, witness pubkeys internally).
+	ImportAccount(name string, accountPubKey *hdkeychain.ExtendedKey,
+		masterKeyFingerprint uint32, addrType *waddrmgr.AddressType) error
+
+	// ImportPublicKey imports a single derived public key into the wallet.
+	// The address type can usually be inferred from the key's version, but
+	// in the case of legacy versions (xpub, tpub), an address type must be
+	// specified as we intend to not support importing BIP-44 keys into the
+	// wallet using the legacy pay-to-pubkey-hash (P2PKH) scheme.
+	ImportPublicKey(pubKey *btcec.PublicKey, addrType waddrmgr.AddressType) error
 
 	// SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying
 	// out to the specified outputs. In the case the wallet has insufficient
@@ -210,10 +259,13 @@ type WalletController interface {
 	// needs in order to be returned by this method. Passing -1 as
 	// 'minconfirms' indicates that even unconfirmed outputs should be
 	// returned. Using MaxInt32 as 'maxconfirms' implies returning all
-	// outputs with at least 'minconfirms'.
+	// outputs with at least 'minconfirms'. The account parameter serves as
+	// a filter to retrieve the unspent outputs for a specific account.
+	// When empty, the unspent outputs of all wallet accounts are returned.
 	//
 	// NOTE: This method requires the global coin selection lock to be held.
-	ListUnspentWitness(minconfirms, maxconfirms int32) ([]*Utxo, error)
+	ListUnspentWitness(minconfirms, maxconfirms int32,
+		accountFilter string) ([]*Utxo, error)
 
 	// ListTransactionDetails returns a list of all transactions which are
 	// relevant to the wallet over [startHeight;endHeight]. If start height
@@ -221,9 +273,11 @@ type WalletController interface {
 	// reverse order. To include unconfirmed transactions, endHeight should
 	// be set to the special value -1. This will return transactions from
 	// the tip of the chain until the start height (inclusive) and
-	// unconfirmed transactions.
-	ListTransactionDetails(startHeight,
-		endHeight int32) ([]*TransactionDetail, error)
+	// unconfirmed transactions. The account parameter serves as a filter to
+	// retrieve the transactions relevant to a specific account. When
+	// empty, transactions of all wallet accounts are returned.
+	ListTransactionDetails(startHeight, endHeight int32,
+		accountFilter string) ([]*TransactionDetail, error)
 
 	// LockOutpoint marks an outpoint as locked meaning it will no longer
 	// be deemed as eligible for coin selection. Locking outputs are
@@ -286,28 +340,29 @@ type WalletController interface {
 	// is returned.
 	//
 	// NOTE: If the packet doesn't contain any inputs, coin selection is
-	// performed automatically. If the packet does contain any inputs, it is
-	// assumed that full coin selection happened externally and no
-	// additional inputs are added. If the specified inputs aren't enough to
-	// fund the outputs with the given fee rate, an error is returned.
-	// No lock lease is acquired for any of the selected/validated inputs.
-	// It is in the caller's responsibility to lock the inputs before
-	// handing them out.
-	FundPsbt(packet *psbt.Packet, feeRate chainfee.SatPerKWeight) (int32,
-		error)
+	// performed automatically. The account parameter must be non-empty as
+	// it determines which set of coins are eligible for coin selection. If
+	// the packet does contain any inputs, it is assumed that full coin
+	// selection happened externally and no additional inputs are added. If
+	// the specified inputs aren't enough to fund the outputs with the given
+	// fee rate, an error is returned. No lock lease is acquired for any of
+	// the selected/validated inputs. It is in the caller's responsibility
+	// to lock the inputs before handing them out.
+	FundPsbt(packet *psbt.Packet, feeRate chainfee.SatPerKWeight,
+		account string) (int32, error)
 
 	// FinalizePsbt expects a partial transaction with all inputs and
 	// outputs fully declared and tries to sign all inputs that belong to
-	// the wallet. Lnd must be the last signer of the transaction. That
-	// means, if there are any unsigned non-witness inputs or inputs without
-	// UTXO information attached or inputs without witness data that do not
-	// belong to lnd's wallet, this method will fail. If no error is
-	// returned, the PSBT is ready to be extracted and the final TX within
-	// to be broadcast.
+	// the specified account. Lnd must be the last signer of the
+	// transaction. That means, if there are any unsigned non-witness inputs
+	// or inputs without UTXO information attached or inputs without witness
+	// data that do not belong to lnd's wallet, this method will fail. If no
+	// error is returned, the PSBT is ready to be extracted and the final TX
+	// within to be broadcast.
 	//
 	// NOTE: This method does NOT publish the transaction after it's been
 	// finalized successfully.
-	FinalizePsbt(packet *psbt.Packet) error
+	FinalizePsbt(packet *psbt.Packet, account string) error
 
 	// SubscribeTransactions returns a TransactionSubscription client which
 	// is capable of receiving async notifications as new transactions

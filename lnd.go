@@ -227,11 +227,11 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 	// Enable http profiling server if requested.
 	if cfg.Profile != "" {
 		go func() {
-			listenAddr := net.JoinHostPort("", cfg.Profile)
 			profileRedirect := http.RedirectHandler("/debug/pprof",
 				http.StatusSeeOther)
 			http.Handle("/", profileRedirect)
-			fmt.Println(http.ListenAndServe(listenAddr, nil))
+			ltndLog.Infof("Pprof listening on %v", cfg.Profile)
+			fmt.Println(http.ListenAndServe(cfg.Profile, nil))
 		}()
 	}
 

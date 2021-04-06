@@ -282,8 +282,8 @@ sample-conf-check:
 	for flag in $$(GO_FLAGS_COMPLETION=1 go run -tags="$(RELEASE_TAGS)" $(PKG)/cmd/lnd -- | grep -v help | cut -c3-); do if ! grep -q $$flag sample-lnd.conf; then echo "Command line flag --$$flag not added to sample-lnd.conf"; exit 1; fi; done
 
 mobile-rpc:
-	@$(call print, "Creating mobile RPC from protos.")
-	cd ./lnrpc; COMPILE_MOBILE=1 ./gen_protos_docker.sh
+	@$(call print, "Creating mobile RPC from protos (prefix=$(prefix)).")
+	cd ./lnrpc; COMPILE_MOBILE=1 SUBSERVER_PREFIX=$(prefix) ./gen_protos_docker.sh
 
 vendor:
 	@$(call print, "Re-creating vendor directory.")

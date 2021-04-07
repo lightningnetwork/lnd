@@ -165,17 +165,21 @@ type PaymentAttemptDispatcher interface {
 	// denoted by its public key. A non-nil error is to be returned if the
 	// payment was unsuccessful.
 	SendHTLC(firstHop lnwire.ShortChannelID,
-		paymentID uint64,
+		attemptID uint64,
 		htlcAdd *lnwire.UpdateAddHTLC) error
 
 	// GetPaymentResult returns the the result of the payment attempt with
-	// the given paymentID. The method returns a channel where the payment
-	// result will be sent when available, or an error is encountered
-	// during forwarding. When a result is received on the channel, the
-	// HTLC is guaranteed to no longer be in flight. The switch shutting
-	// down is signaled by closing the channel. If the paymentID is
-	// unknown, ErrPaymentIDNotFound will be returned.
-	GetPaymentResult(paymentID uint64, paymentHash lntypes.Hash,
+	// the given attemptID. The paymentHash should be set to the payment's
+	// overall hash, or in case of AMP payments the payment's unique
+	// identifier.
+	//
+	// The method returns a channel where the payment result will be sent
+	// when available, or an error is encountered during forwarding. When a
+	// result is received on the channel, the HTLC is guaranteed to no
+	// longer be in flight.  The switch shutting down is signaled by
+	// closing the channel. If the attemptID is unknown,
+	// ErrPaymentIDNotFound will be returned.
+	GetPaymentResult(attemptID uint64, paymentHash lntypes.Hash,
 		deobfuscator htlcswitch.ErrorDecrypter) (
 		<-chan *htlcswitch.PaymentResult, error)
 
@@ -211,13 +215,13 @@ type MissionController interface {
 	// input for future probability estimates. It returns a bool indicating
 	// whether this error is a final error and no further payment attempts
 	// need to be made.
-	ReportPaymentFail(paymentID uint64, rt *route.Route,
+	ReportPaymentFail(attemptID uint64, rt *route.Route,
 		failureSourceIdx *int, failure lnwire.FailureMessage) (
 		*channeldb.FailureReason, error)
 
 	// ReportPaymentSuccess reports a successful payment to mission control as input
 	// for future probability estimates.
-	ReportPaymentSuccess(paymentID uint64, rt *route.Route) error
+	ReportPaymentSuccess(attemptID uint64, rt *route.Route) error
 
 	// GetProbability is expected to return the success probability of a
 	// payment from fromNode along edge.
@@ -2081,7 +2085,7 @@ func (r *ChannelRouter) tryApplyChannelUpdate(rt *route.Route,
 // error type, this error is either the final outcome of the payment or we need
 // to continue with an alternative route. A final outcome is indicated by a
 // non-nil return value.
-func (r *ChannelRouter) processSendError(paymentID uint64, rt *route.Route,
+func (r *ChannelRouter) processSendError(attemptID uint64, rt *route.Route,
 	sendErr error) *channeldb.FailureReason {
 
 	internalErrorReason := channeldb.FailureReasonError
@@ -2091,7 +2095,7 @@ func (r *ChannelRouter) processSendError(paymentID uint64, rt *route.Route,
 
 		// Report outcome to mission control.
 		reason, err := r.cfg.MissionControl.ReportPaymentFail(
-			paymentID, rt, srcIdx, msg,
+			attemptID, rt, srcIdx, msg,
 		)
 		if err != nil {
 			log.Errorf("Error reporting payment result to mc: %v",

@@ -377,7 +377,8 @@ func (i *InvoiceRegistry) invoiceEventLoop() {
 func (i *InvoiceRegistry) dispatchToSingleClients(event *invoiceEvent) {
 	// Dispatch to single invoice subscribers.
 	for _, client := range i.singleNotificationClients {
-		if client.invoiceRef.PayHash() != event.hash {
+		payHash := client.invoiceRef.PayHash()
+		if payHash == nil || *payHash != event.hash {
 			continue
 		}
 
@@ -524,8 +525,13 @@ func (i *InvoiceRegistry) deliverSingleBacklogEvents(
 		return err
 	}
 
+	payHash := client.invoiceRef.PayHash()
+	if payHash == nil {
+		return nil
+	}
+
 	err = client.notify(&invoiceEvent{
-		hash:    client.invoiceRef.PayHash(),
+		hash:    *payHash,
 		invoice: &invoice,
 	})
 	if err != nil {
@@ -775,6 +781,67 @@ func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx) error {
 	return nil
 }
 
+// processAMP just-in-time inserts an invoice if this htlc is a keysend
+// htlc.
+func (i *InvoiceRegistry) processAMP(ctx invoiceUpdateCtx) error {
+	// AMP payments MUST also include an MPP record.
+	if ctx.mpp == nil {
+		return errors.New("no MPP record for AMP")
+	}
+
+	// Create an invoice for the total amount expected, provided in the MPP
+	// record.
+	amt := ctx.mpp.TotalMsat()
+
+	// Set the TLV and MPP optional features on the invoice. We'll also make
+	// the AMP features required so that it can't be paid by legacy or MPP
+	// htlcs.
+	rawFeatures := lnwire.NewRawFeatureVector(
+		lnwire.TLVOnionPayloadOptional,
+		lnwire.PaymentAddrOptional,
+		lnwire.AMPRequired,
+	)
+	features := lnwire.NewFeatureVector(rawFeatures, lnwire.Features)
+
+	// Use the minimum block delta that we require for settling htlcs.
+	finalCltvDelta := i.cfg.FinalCltvRejectDelta
+
+	// Pre-check expiry here to prevent inserting an invoice that will not
+	// be settled.
+	if ctx.expiry < uint32(ctx.currentHeight+finalCltvDelta) {
+		return errors.New("final expiry too soon")
+	}
+
+	// We'll use the sender-generated payment address provided in the HTLC
+	// to create our AMP invoice.
+	payAddr := ctx.mpp.PaymentAddr()
+
+	// Create placeholder invoice.
+	invoice := &channeldb.Invoice{
+		CreationDate: i.cfg.Clock.Now(),
+		Terms: channeldb.ContractTerm{
+			FinalCltvDelta:  finalCltvDelta,
+			Value:           amt,
+			PaymentPreimage: nil,
+			PaymentAddr:     payAddr,
+			Features:        features,
+		},
+	}
+
+	// Insert invoice into database. Ignore duplicates payment hashes and
+	// payment addrs, this may be a replay or a different HTLC for the AMP
+	// invoice.
+	_, err := i.AddInvoice(invoice, ctx.hash)
+	switch {
+	case err == channeldb.ErrDuplicateInvoice:
+		return nil
+	case err == channeldb.ErrDuplicatePayAddr:
+		return nil
+	default:
+		return err
+	}
+}
+
 // NotifyExitHopHtlc attempts to mark an invoice as settled. The return value
 // describes how the htlc should be resolved.
 //
@@ -813,13 +880,24 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	// AddInvoice obtains its own lock. This is no problem, because the
 	// operation is idempotent.
 	if i.cfg.AcceptKeySend {
-		err := i.processKeySend(ctx)
-		if err != nil {
-			ctx.log(fmt.Sprintf("keysend error: %v", err))
+		if ctx.amp != nil {
+			err := i.processAMP(ctx)
+			if err != nil {
+				ctx.log(fmt.Sprintf("amp error: %v", err))
 
-			return NewFailResolution(
-				circuitKey, currentHeight, ResultKeySendError,
-			), nil
+				return NewFailResolution(
+					circuitKey, currentHeight, ResultAmpError,
+				), nil
+			}
+		} else {
+			err := i.processKeySend(ctx)
+			if err != nil {
+				ctx.log(fmt.Sprintf("keysend error: %v", err))
+
+				return NewFailResolution(
+					circuitKey, currentHeight, ResultKeySendError,
+				), nil
+			}
 		}
 	}
 
@@ -926,6 +1004,31 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 			"outcome: %v, at accept height: %v",
 			res.Outcome, res.AcceptHeight))
 
+		// Some failures apply to the entire HTLC set. Break here if
+		// this isn't one of them.
+		if !res.Outcome.IsSetFailure() {
+			break
+		}
+
+		// Also cancel any HTLCs in the HTLC set that are also in the
+		// canceled state with the same failure result.
+		setID := ctx.setID()
+		for key, htlc := range invoice.Htlcs {
+			if htlc.State != channeldb.HtlcStateCanceled {
+				continue
+			}
+
+			if !htlc.IsInHTLCSet(setID) {
+				continue
+			}
+
+			htlcFailResolution := NewFailResolution(
+				key, int32(htlc.AcceptHeight), res.Outcome,
+			)
+
+			i.notifyHodlSubscribers(htlcFailResolution)
+		}
+
 	// If the htlc was settled, we will settle any previously accepted
 	// htlcs and notify our peer to settle them.
 	case *HtlcSettleResolution:
@@ -941,13 +1044,18 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 				continue
 			}
 
+			preimage := res.Preimage
+			if htlc.AMP != nil && htlc.AMP.Preimage != nil {
+				preimage = *htlc.AMP.Preimage
+			}
+
 			// Notify subscribers that the htlcs should be settled
 			// with our peer. Note that the outcome of the
 			// resolution is set based on the outcome of the single
 			// htlc that we just settled, so may not be accurate
 			// for all htlcs.
 			htlcSettleResolution := NewSettleResolution(
-				res.Preimage, key,
+				preimage, key,
 				int32(htlc.AcceptHeight), res.Outcome,
 			)
 

@@ -1,10 +1,12 @@
 package invoices
 
 import (
+	"crypto/rand"
 	"math"
 	"testing"
 	"time"
 
+	"github.com/lightningnetwork/lnd/amp"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -29,9 +31,7 @@ func TestSettleInvoice(t *testing.T) {
 	}
 	defer subscription.Cancel()
 
-	if subscription.invoiceRef.PayHash() != testInvoicePaymentHash {
-		t.Fatalf("expected subscription for provided hash")
-	}
+	require.Equal(t, subscription.invoiceRef.PayHash(), &testInvoicePaymentHash)
 
 	// Add the invoice.
 	addIdx, err := ctx.registry.AddInvoice(testInvoice, testInvoicePaymentHash)
@@ -77,19 +77,11 @@ func TestSettleInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	failResolution, ok := resolution.(*HtlcFailResolution)
-	if !ok {
-		t.Fatalf("expected fail resolution, got: %T",
-			resolution)
-	}
-	if failResolution.AcceptHeight != testCurrentHeight {
-		t.Fatalf("expected acceptHeight %v, but got %v",
-			testCurrentHeight, failResolution.AcceptHeight)
-	}
-	if failResolution.Outcome != ResultExpiryTooSoon {
-		t.Fatalf("expected expiry too soon, got: %v",
-			failResolution.Outcome)
-	}
+	require.NotNil(t, resolution)
+	failResolution := checkFailResolution(
+		t, resolution, ResultExpiryTooSoon,
+	)
+	require.Equal(t, testCurrentHeight, failResolution.AcceptHeight)
 
 	// Settle invoice with a slightly higher amount.
 	amtPaid := lnwire.MilliSatoshi(100500)
@@ -101,15 +93,11 @@ func TestSettleInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	settleResolution, ok := resolution.(*HtlcSettleResolution)
-	if !ok {
-		t.Fatalf("expected settle resolution, got: %T",
-			resolution)
-	}
-	if settleResolution.Outcome != ResultSettled {
-		t.Fatalf("expected settled, got: %v",
-			settleResolution.Outcome)
-	}
+	require.NotNil(t, resolution)
+	settleResolution := checkSettleResolution(
+		t, resolution, testInvoicePreimage,
+	)
+	require.Equal(t, ResultSettled, settleResolution.Outcome)
 
 	// We expect the settled state to be sent to the single invoice
 	// subscriber.
@@ -146,15 +134,11 @@ func TestSettleInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected NotifyExitHopHtlc error: %v", err)
 	}
-	settleResolution, ok = resolution.(*HtlcSettleResolution)
-	if !ok {
-		t.Fatalf("expected settle resolution, got: %T",
-			resolution)
-	}
-	if settleResolution.Outcome != ResultReplayToSettled {
-		t.Fatalf("expected replay settled, got: %v",
-			settleResolution.Outcome)
-	}
+	require.NotNil(t, resolution)
+	settleResolution = checkSettleResolution(
+		t, resolution, testInvoicePreimage,
+	)
+	require.Equal(t, ResultReplayToSettled, settleResolution.Outcome)
 
 	// Try to settle again with a new higher-valued htlc. This payment
 	// should also be accepted, to prevent any change in behaviour for a
@@ -166,15 +150,11 @@ func TestSettleInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected NotifyExitHopHtlc error: %v", err)
 	}
-	settleResolution, ok = resolution.(*HtlcSettleResolution)
-	if !ok {
-		t.Fatalf("expected settle resolution, got: %T",
-			resolution)
-	}
-	if settleResolution.Outcome != ResultDuplicateToSettled {
-		t.Fatalf("expected duplicate settled, got: %v",
-			settleResolution.Outcome)
-	}
+	require.NotNil(t, resolution)
+	settleResolution = checkSettleResolution(
+		t, resolution, testInvoicePreimage,
+	)
+	require.Equal(t, ResultDuplicateToSettled, settleResolution.Outcome)
 
 	// Try to settle again with a lower amount. This should fail just as it
 	// would have failed if it were the first payment.
@@ -185,15 +165,8 @@ func TestSettleInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected NotifyExitHopHtlc error: %v", err)
 	}
-	failResolution, ok = resolution.(*HtlcFailResolution)
-	if !ok {
-		t.Fatalf("expected fail resolution, got: %T",
-			resolution)
-	}
-	if failResolution.Outcome != ResultAmountTooLow {
-		t.Fatalf("expected amount too low, got: %v",
-			failResolution.Outcome)
-	}
+	require.NotNil(t, resolution)
+	checkFailResolution(t, resolution, ResultAmountTooLow)
 
 	// Check that settled amount is equal to the sum of values of the htlcs
 	// 0 and 1.
@@ -244,9 +217,7 @@ func testCancelInvoice(t *testing.T, gc bool) {
 	}
 	defer subscription.Cancel()
 
-	if subscription.invoiceRef.PayHash() != testInvoicePaymentHash {
-		t.Fatalf("expected subscription for provided hash")
-	}
+	require.Equal(t, subscription.invoiceRef.PayHash(), &testInvoicePaymentHash)
 
 	// Add the invoice.
 	amt := lnwire.MilliSatoshi(100000)
@@ -333,27 +304,23 @@ func testCancelInvoice(t *testing.T, gc bool) {
 	if err != nil {
 		t.Fatal("expected settlement of a canceled invoice to succeed")
 	}
-	failResolution, ok := resolution.(*HtlcFailResolution)
-	if !ok {
-		t.Fatalf("expected fail resolution, got: %T",
-			resolution)
-	}
-	if failResolution.AcceptHeight != testCurrentHeight {
-		t.Fatalf("expected acceptHeight %v, but got %v",
-			testCurrentHeight, failResolution.AcceptHeight)
-	}
+	require.NotNil(t, resolution)
 
 	// If the invoice has been deleted (or not present) then we expect the
 	// outcome to be ResultInvoiceNotFound instead of when the invoice is
 	// in our database in which case we expect ResultInvoiceAlreadyCanceled.
+	var failResolution *HtlcFailResolution
 	if gc {
-		require.Equal(t, failResolution.Outcome, ResultInvoiceNotFound)
+		failResolution = checkFailResolution(
+			t, resolution, ResultInvoiceNotFound,
+		)
 	} else {
-		require.Equal(t,
-			failResolution.Outcome,
-			ResultInvoiceAlreadyCanceled,
+		failResolution = checkFailResolution(
+			t, resolution, ResultInvoiceAlreadyCanceled,
 		)
 	}
+
+	require.Equal(t, testCurrentHeight, failResolution.AcceptHeight)
 }
 
 // TestCancelInvoice tests cancelation of an invoice and related notifications.
@@ -404,9 +371,7 @@ func TestSettleHoldInvoice(t *testing.T) {
 	}
 	defer subscription.Cancel()
 
-	if subscription.invoiceRef.PayHash() != testInvoicePaymentHash {
-		t.Fatalf("expected subscription for provided hash")
-	}
+	require.Equal(t, subscription.invoiceRef.PayHash(), &testInvoicePaymentHash)
 
 	// Add the invoice.
 	_, err = registry.AddInvoice(testHodlInvoice, testInvoicePaymentHash)
@@ -480,15 +445,8 @@ func TestSettleHoldInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected settle to succeed but got %v", err)
 	}
-	failResolution, ok := resolution.(*HtlcFailResolution)
-	if !ok {
-		t.Fatalf("expected fail resolution, got: %T",
-			resolution)
-	}
-	if failResolution.Outcome != ResultExpiryTooSoon {
-		t.Fatalf("expected expiry too soon, got: %v",
-			failResolution.Outcome)
-	}
+	require.NotNil(t, resolution)
+	checkFailResolution(t, resolution, ResultExpiryTooSoon)
 
 	// We expect the accepted state to be sent to the single invoice
 	// subscriber. For all invoice subscribers, we don't expect an update.
@@ -509,22 +467,12 @@ func TestSettleHoldInvoice(t *testing.T) {
 	}
 
 	htlcResolution := (<-hodlChan).(HtlcResolution)
-	settleResolution, ok := htlcResolution.(*HtlcSettleResolution)
-	if !ok {
-		t.Fatalf("expected settle resolution, got: %T",
-			htlcResolution)
-	}
-	if settleResolution.Preimage != testInvoicePreimage {
-		t.Fatal("unexpected preimage in hodl resolution")
-	}
-	if settleResolution.AcceptHeight != testCurrentHeight {
-		t.Fatalf("expected acceptHeight %v, but got %v",
-			testCurrentHeight, settleResolution.AcceptHeight)
-	}
-	if settleResolution.Outcome != ResultSettled {
-		t.Fatalf("expected result settled, got: %v",
-			settleResolution.Outcome)
-	}
+	require.NotNil(t, htlcResolution)
+	settleResolution := checkSettleResolution(
+		t, htlcResolution, testInvoicePreimage,
+	)
+	require.Equal(t, testCurrentHeight, settleResolution.AcceptHeight)
+	require.Equal(t, ResultSettled, settleResolution.Outcome)
 
 	// We expect a settled notification to be sent out for both all and
 	// single invoice subscribers.
@@ -610,11 +558,8 @@ func TestCancelHoldInvoice(t *testing.T) {
 	}
 
 	htlcResolution := (<-hodlChan).(HtlcResolution)
-	_, ok := htlcResolution.(*HtlcFailResolution)
-	if !ok {
-		t.Fatalf("expected fail resolution, got: %T",
-			htlcResolution)
-	}
+	require.NotNil(t, htlcResolution)
+	checkFailResolution(t, htlcResolution, ResultCanceled)
 
 	// Offering the same htlc again at a higher height should still result
 	// in a rejection. The accept height is expected to be the original
@@ -626,19 +571,11 @@ func TestCancelHoldInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected settle to succeed but got %v", err)
 	}
-	failResolution, ok := resolution.(*HtlcFailResolution)
-	if !ok {
-		t.Fatalf("expected fail resolution, got: %T",
-			resolution)
-	}
-	if failResolution.AcceptHeight != testCurrentHeight {
-		t.Fatalf("expected acceptHeight %v, but got %v",
-			testCurrentHeight, failResolution.AcceptHeight)
-	}
-	if failResolution.Outcome != ResultReplayToCanceled {
-		t.Fatalf("expected replay to canceled, got %v",
-			failResolution.Outcome)
-	}
+	require.NotNil(t, resolution)
+	failResolution := checkFailResolution(
+		t, resolution, ResultReplayToCanceled,
+	)
+	require.Equal(t, testCurrentHeight, failResolution.AcceptHeight)
 }
 
 // TestUnknownInvoice tests that invoice registry returns an error when the
@@ -661,15 +598,8 @@ func TestUnknownInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatal("unexpected error")
 	}
-	failResolution, ok := resolution.(*HtlcFailResolution)
-	if !ok {
-		t.Fatalf("expected fail resolution, got: %T",
-			resolution)
-	}
-	if failResolution.Outcome != ResultInvoiceNotFound {
-		t.Fatalf("expected ResultInvoiceNotFound, got: %v",
-			failResolution.Outcome)
-	}
+	require.NotNil(t, resolution)
+	checkFailResolution(t, resolution, ResultInvoiceNotFound)
 }
 
 // TestKeySend tests receiving a spontaneous payment with and without keysend
@@ -721,18 +651,12 @@ func testKeySend(t *testing.T, keySendEnabled bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	failResolution, ok := resolution.(*HtlcFailResolution)
-	if !ok {
-		t.Fatalf("expected fail resolution, got: %T",
-			resolution)
-	}
+	require.NotNil(t, resolution)
 
-	switch {
-	case !keySendEnabled && failResolution.Outcome != ResultInvoiceNotFound:
-		t.Fatal("expected invoice not found outcome")
-
-	case keySendEnabled && failResolution.Outcome != ResultKeySendError:
-		t.Fatal("expected keysend error")
+	if !keySendEnabled {
+		checkFailResolution(t, resolution, ResultInvoiceNotFound)
+	} else {
+		checkFailResolution(t, resolution, ResultKeySendError)
 	}
 
 	// Try to settle invoice with a valid keysend htlc.
@@ -752,23 +676,10 @@ func testKeySend(t *testing.T, keySendEnabled bool) {
 
 	// Expect a cancel resolution if keysend is disabled.
 	if !keySendEnabled {
-		failResolution, ok = resolution.(*HtlcFailResolution)
-		if !ok {
-			t.Fatalf("expected fail resolution, got: %T",
-				resolution)
-		}
-		if failResolution.Outcome != ResultInvoiceNotFound {
-			t.Fatal("expected keysend payment not to be accepted")
-		}
+		checkFailResolution(t, resolution, ResultInvoiceNotFound)
 		return
 	}
 
-	checkResolution := func(res HtlcResolution, pimg lntypes.Preimage) {
-		// Otherwise we expect no error and a settle res for the htlc.
-		settleResolution, ok := res.(*HtlcSettleResolution)
-		require.True(t, ok)
-		require.Equal(t, settleResolution.Preimage, pimg)
-	}
 	checkSubscription := func() {
 		// We expect a new invoice notification to be sent out.
 		newInvoice := <-allSubscriptions.NewInvoices
@@ -779,7 +690,7 @@ func testKeySend(t *testing.T, keySendEnabled bool) {
 		require.Equal(t, settledInvoice.State, channeldb.ContractSettled)
 	}
 
-	checkResolution(resolution, preimage)
+	checkSettleResolution(t, resolution, preimage)
 	checkSubscription()
 
 	// Replay the same keysend payment. We expect an identical resolution,
@@ -789,7 +700,7 @@ func testKeySend(t *testing.T, keySendEnabled bool) {
 		testCurrentHeight, getCircuitKey(10), hodlChan, keySendPayload,
 	)
 	require.Nil(t, err)
-	checkResolution(resolution, preimage)
+	checkSettleResolution(t, resolution, preimage)
 
 	select {
 	case <-allSubscriptions.NewInvoices:
@@ -814,7 +725,7 @@ func testKeySend(t *testing.T, keySendEnabled bool) {
 	)
 	require.Nil(t, err)
 
-	checkResolution(resolution, preimage2)
+	checkSettleResolution(t, resolution, preimage2)
 	checkSubscription()
 }
 
@@ -1211,7 +1122,7 @@ func TestSettleInvoicePaymentAddrRequired(t *testing.T) {
 	defer subscription.Cancel()
 
 	require.Equal(
-		t, subscription.invoiceRef.PayHash(), testInvoicePaymentHash,
+		t, subscription.invoiceRef.PayHash(), &testInvoicePaymentHash,
 	)
 
 	// Add the invoice, which requires the MPP payload to always be
@@ -1287,7 +1198,7 @@ func TestSettleInvoicePaymentAddrRequiredOptionalGrace(t *testing.T) {
 	defer subscription.Cancel()
 
 	require.Equal(
-		t, subscription.invoiceRef.PayHash(), testInvoicePaymentHash,
+		t, subscription.invoiceRef.PayHash(), &testInvoicePaymentHash,
 	)
 
 	// Add the invoice, which requires the MPP payload to always be
@@ -1362,5 +1273,256 @@ func TestSettleInvoicePaymentAddrRequiredOptionalGrace(t *testing.T) {
 		}
 	case <-time.After(testTimeout):
 		t.Fatal("no update received")
+	}
+}
+
+// TestAMPWithoutMPPPayload asserts that we correctly reject an AMP HTLC that
+// does not include an MPP record.
+func TestAMPWithoutMPPPayload(t *testing.T) {
+	defer timeout()()
+
+	ctx := newTestContext(t)
+	defer ctx.cleanup()
+
+	ctx.registry.cfg.AcceptKeySend = true
+
+	const (
+		shardAmt = lnwire.MilliSatoshi(10)
+		expiry   = uint32(testCurrentHeight + 20)
+	)
+
+	// Create payload with missing MPP field.
+	payload := &mockPayload{
+		amp: record.NewAMP([32]byte{}, [32]byte{}, 0),
+	}
+
+	hodlChan := make(chan interface{}, 1)
+	resolution, err := ctx.registry.NotifyExitHopHtlc(
+		lntypes.Hash{}, shardAmt, expiry,
+		testCurrentHeight, getCircuitKey(uint64(10)), hodlChan,
+		payload,
+	)
+	require.NoError(t, err)
+
+	// We should receive the ResultAmpError failure.
+	require.NotNil(t, resolution)
+	checkFailResolution(t, resolution, ResultAmpError)
+}
+
+// TestSpontaneousAmpPayment tests receiving a spontaneous AMP payment with both
+// valid and invalid reconstructions.
+func TestSpontaneousAmpPayment(t *testing.T) {
+	tests := []struct {
+		name               string
+		keySendEnabled     bool
+		failReconstruction bool
+		numShards          int
+	}{
+		{
+			name:               "enabled valid one shard",
+			keySendEnabled:     true,
+			failReconstruction: false,
+			numShards:          1,
+		},
+		{
+			name:               "enabled valid multiple shards",
+			keySendEnabled:     true,
+			failReconstruction: false,
+			numShards:          3,
+		},
+		{
+			name:               "enabled invalid one shard",
+			keySendEnabled:     true,
+			failReconstruction: true,
+			numShards:          1,
+		},
+		{
+			name:               "enabled invalid multiple shards",
+			keySendEnabled:     true,
+			failReconstruction: true,
+			numShards:          3,
+		},
+		{
+			name:               "disabled valid multiple shards",
+			keySendEnabled:     false,
+			failReconstruction: false,
+			numShards:          3,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			testSpontaneousAmpPayment(
+				t, test.keySendEnabled, test.failReconstruction,
+				test.numShards,
+			)
+		})
+	}
+}
+
+// testSpontaneousAmpPayment runs a specific spontaneous AMP test case.
+func testSpontaneousAmpPayment(
+	t *testing.T, keySendEnabled, failReconstruction bool, numShards int) {
+
+	defer timeout()()
+
+	ctx := newTestContext(t)
+	defer ctx.cleanup()
+
+	ctx.registry.cfg.AcceptKeySend = keySendEnabled
+
+	allSubscriptions, err := ctx.registry.SubscribeNotifications(0, 0)
+	require.Nil(t, err)
+	defer allSubscriptions.Cancel()
+
+	const (
+		totalAmt = lnwire.MilliSatoshi(360)
+		expiry   = uint32(testCurrentHeight + 20)
+	)
+
+	var (
+		shardAmt = totalAmt / lnwire.MilliSatoshi(numShards)
+		payAddr  [32]byte
+		setID    [32]byte
+	)
+	_, err = rand.Read(payAddr[:])
+	require.NoError(t, err)
+	_, err = rand.Read(setID[:])
+	require.NoError(t, err)
+
+	var sharer amp.Sharer
+	sharer, err = amp.NewSeedSharer()
+	require.NoError(t, err)
+
+	// Asserts that a new invoice is published on the NewInvoices channel.
+	checkOpenSubscription := func() {
+		t.Helper()
+		newInvoice := <-allSubscriptions.NewInvoices
+		require.Equal(t, newInvoice.State, channeldb.ContractOpen)
+	}
+
+	// Asserts that a settled invoice is published on the SettledInvoices
+	// channel.
+	checkSettleSubscription := func() {
+		t.Helper()
+		settledInvoice := <-allSubscriptions.SettledInvoices
+		require.Equal(t, settledInvoice.State, channeldb.ContractSettled)
+	}
+
+	// Asserts that no invoice is published on the SettledInvoices channel
+	// w/in two seconds.
+	checkNoSettleSubscription := func() {
+		t.Helper()
+		select {
+		case <-allSubscriptions.SettledInvoices:
+			t.Fatal("no settle ntfn expected")
+		case <-time.After(2 * time.Second):
+		}
+	}
+
+	// Record the hodl channels of all HTLCs but the last one, which
+	// received its resolution directly from NotifyExistHopHtlc.
+	hodlChans := make(map[lntypes.Preimage]chan interface{})
+	for i := 0; i < numShards; i++ {
+		isFinalShard := i == numShards-1
+
+		hodlChan := make(chan interface{}, 1)
+
+		var child *amp.Child
+		if !isFinalShard {
+			var left amp.Sharer
+			left, sharer, err = sharer.Split()
+			require.NoError(t, err)
+
+			child = left.Child(uint32(i))
+
+			// Only store the first numShards-1 hodlChans.
+			hodlChans[child.Preimage] = hodlChan
+		} else {
+			child = sharer.Child(uint32(i))
+		}
+
+		// Send a blank share when the set should fail reconstruction,
+		// otherwise send the derived share.
+		var share [32]byte
+		if !failReconstruction {
+			share = child.Share
+		}
+
+		payload := &mockPayload{
+			mpp: record.NewMPP(totalAmt, payAddr),
+			amp: record.NewAMP(share, setID, uint32(i)),
+		}
+
+		resolution, err := ctx.registry.NotifyExitHopHtlc(
+			child.Hash, shardAmt, expiry,
+			testCurrentHeight, getCircuitKey(uint64(i)), hodlChan,
+			payload,
+		)
+		require.NoError(t, err)
+
+		// When keysend is disabled all HTLC should fail with invoice
+		// not found, since one is not inserted before executing
+		// UpdateInvoice.
+		if !keySendEnabled {
+			require.NotNil(t, resolution)
+			checkFailResolution(t, resolution, ResultInvoiceNotFound)
+			continue
+		}
+
+		// Check that resolutions are properly formed.
+		if !isFinalShard {
+			// Non-final shares should always return a nil
+			// resolution, theirs will be delivered via the
+			// hodlChan.
+			require.Nil(t, resolution)
+		} else {
+			// The final share should receive a non-nil resolution.
+			// Also assert that it is the proper type based on the
+			// test case.
+			require.NotNil(t, resolution)
+			if failReconstruction {
+				checkFailResolution(t, resolution, ResultAmpReconstruction)
+			} else {
+				checkSettleResolution(t, resolution, child.Preimage)
+			}
+		}
+
+		// Assert the behavior of the Open and Settle notifications.
+		// There should always be an open (keysend is enabled) followed
+		// by settle for valid AMP payments.
+		//
+		// NOTE: The cases are split in separate if conditions, rather
+		// than else-if, to properly handle the case when there is only
+		// one shard.
+		if i == 0 {
+			checkOpenSubscription()
+		}
+		if isFinalShard {
+			if failReconstruction {
+				checkNoSettleSubscription()
+			} else {
+				checkSettleSubscription()
+			}
+		}
+	}
+
+	// No need to check the hodl chans when keysend is not enabled.
+	if !keySendEnabled {
+		return
+	}
+
+	// For the non-final hodl chans, assert that they receive the expected
+	// failure or preimage.
+	for preimage, hodlChan := range hodlChans {
+		resolution, ok := (<-hodlChan).(HtlcResolution)
+		require.True(t, ok)
+		require.NotNil(t, resolution)
+		if failReconstruction {
+			checkFailResolution(t, resolution, ResultAmpReconstruction)
+		} else {
+			checkSettleResolution(t, resolution, preimage)
+		}
 	}
 }

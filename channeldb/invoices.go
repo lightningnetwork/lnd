@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -115,6 +117,19 @@ var (
 	// match the invoice hash.
 	ErrInvoicePreimageMismatch = errors.New("preimage does not match")
 
+	// ErrHTLCPreimageMissing is returned when trying to accept/settle an
+	// AMP HTLC but the HTLC-level preimage has not been set.
+	ErrHTLCPreimageMissing = errors.New("AMP htlc missing preimage")
+
+	// ErrHTLCPreimageMismatch is returned when trying to accept/settle an
+	// AMP HTLC but the HTLC-level preimage does not satisfying the
+	// HTLC-level payment hash.
+	ErrHTLCPreimageMismatch = errors.New("htlc preimage mismatch")
+
+	// ErrHTLCAlreadySettled is returned when trying to settle an invoice
+	// but HTLC already exists in the settled state.
+	ErrHTLCAlreadySettled = errors.New("htlc already settled")
+
 	// ErrInvoiceHasHtlcs is returned when attempting to insert an invoice
 	// that already has HTLCs.
 	ErrInvoiceHasHtlcs = errors.New("cannot add invoice with htlcs")
@@ -122,6 +137,19 @@ var (
 	// ErrEmptyHTLCSet is returned when attempting to accept or settle and
 	// HTLC set that has no HTLCs.
 	ErrEmptyHTLCSet = errors.New("cannot settle/accept empty HTLC set")
+
+	// ErrUnexpectedInvoicePreimage is returned when an invoice-level
+	// preimage is provided when trying to settle an invoice that shouldn't
+	// have one, e.g. an AMP invoice.
+	ErrUnexpectedInvoicePreimage = errors.New(
+		"unexpected invoice preimage provided on settle",
+	)
+
+	// ErrHTLCPreimageAlreadyExists is returned when trying to set an
+	// htlc-level preimage but one is already known.
+	ErrHTLCPreimageAlreadyExists = errors.New(
+		"htlc-level preimage already exists",
+	)
 )
 
 // ErrDuplicateSetID is an error returned when attempting to adding an AMP HTLC
@@ -198,7 +226,7 @@ type InvoiceRef struct {
 	// payHash is the payment hash of the target invoice. All invoices are
 	// currently indexed by payment hash. This value will be used as a
 	// fallback when no payment address is known.
-	payHash lntypes.Hash
+	payHash *lntypes.Hash
 
 	// payAddr is the payment addr of the target invoice. Newer invoices
 	// (0.11 and up) are indexed by payment address in addition to payment
@@ -220,7 +248,7 @@ type InvoiceRef struct {
 // its payment hash.
 func InvoiceRefByHash(payHash lntypes.Hash) InvoiceRef {
 	return InvoiceRef{
-		payHash: payHash,
+		payHash: &payHash,
 	}
 }
 
@@ -231,8 +259,16 @@ func InvoiceRefByHashAndAddr(payHash lntypes.Hash,
 	payAddr [32]byte) InvoiceRef {
 
 	return InvoiceRef{
-		payHash: payHash,
+		payHash: &payHash,
 		payAddr: &payAddr,
+	}
+}
+
+// InvoiceRefByAddr creates an InvoiceRef that queries the payment addr index
+// for an invoice with the provided payment address.
+func InvoiceRefByAddr(addr [32]byte) InvoiceRef {
+	return InvoiceRef{
+		payAddr: &addr,
 	}
 }
 
@@ -245,9 +281,15 @@ func InvoiceRefBySetID(setID [32]byte) InvoiceRef {
 	}
 }
 
-// PayHash returns the target invoice's payment hash.
-func (r InvoiceRef) PayHash() lntypes.Hash {
-	return r.payHash
+// PayHash returns the optional payment hash of the target invoice.
+//
+// NOTE: This value may be nil.
+func (r InvoiceRef) PayHash() *lntypes.Hash {
+	if r.payHash != nil {
+		hash := *r.payHash
+		return &hash
+	}
+	return nil
 }
 
 // PayAddr returns the optional payment address of the target invoice.
@@ -274,10 +316,17 @@ func (r InvoiceRef) SetID() *[32]byte {
 
 // String returns a human-readable representation of an InvoiceRef.
 func (r InvoiceRef) String() string {
-	if r.payAddr != nil {
-		return fmt.Sprintf("(pay_hash=%v, pay_addr=%x)", r.payHash, *r.payAddr)
+	var ids []string
+	if r.payHash != nil {
+		ids = append(ids, fmt.Sprintf("pay_hash=%v", *r.payHash))
 	}
-	return fmt.Sprintf("(pay_hash=%v)", r.payHash)
+	if r.payAddr != nil {
+		ids = append(ids, fmt.Sprintf("pay_addr=%x", *r.payAddr))
+	}
+	if r.setID != nil {
+		ids = append(ids, fmt.Sprintf("set_id=%x", *r.setID))
+	}
+	return fmt.Sprintf("(%s)", strings.Join(ids, ", "))
 }
 
 // ContractState describes the state the invoice is in.
@@ -499,6 +548,21 @@ type InvoiceHTLC struct {
 	AMP *InvoiceHtlcAMPData
 }
 
+// Copy makes a deep copy of the target InvoiceHTLC.
+func (h *InvoiceHTLC) Copy() *InvoiceHTLC {
+	result := *h
+
+	// Make a copy of the CustomSet map.
+	result.CustomRecords = make(record.CustomSet)
+	for k, v := range h.CustomRecords {
+		result.CustomRecords[k] = v
+	}
+
+	result.AMP = h.AMP.Copy()
+
+	return &result
+}
+
 // IsInHTLCSet returns true if this HTLC is part an HTLC set. If nil is passed,
 // this method returns true if this is an MPP HTLC. Otherwise, it only returns
 // true if the AMP HTLC's set id matches the populated setID.
@@ -616,6 +680,11 @@ type InvoiceStateUpdateDesc struct {
 	// Preimage must be set to the preimage when NewState is settled.
 	Preimage *lntypes.Preimage
 
+	// HTLCPreimages set the HTLC-level preimages stored for AMP HTLCs.
+	// These are only learned when settling the invoice as a whole. Must be
+	// set when settling an invoice with non-nil SetID.
+	HTLCPreimages map[CircuitKey]lntypes.Preimage
+
 	// SetID identifies a specific set of HTLCs destined for the same
 	// invoice as part of a larger AMP payment. This value will be nil for
 	// legacy or MPP payments.
@@ -645,7 +714,17 @@ func validateInvoice(i *Invoice, paymentHash lntypes.Hash) error {
 		return errors.New("invoice must have a feature vector")
 	}
 
-	if i.Terms.PaymentPreimage == nil && !i.HodlInvoice {
+	err := feature.ValidateDeps(i.Terms.Features)
+	if err != nil {
+		return err
+	}
+
+	// AMP invoices and hodl invoices are allowed to have no preimage
+	// specified.
+	isAMP := i.Terms.Features.HasFeature(
+		lnwire.AMPOptional,
+	)
+	if i.Terms.PaymentPreimage == nil && !(i.HodlInvoice || isAMP) {
 		return errors.New("non-hodl invoices must have a preimage")
 	}
 
@@ -879,19 +958,27 @@ func fetchInvoiceNumByRef(invoiceIndex, payAddrIndex, setIDIndex kvdb.RBucket,
 	payHash := ref.PayHash()
 	payAddr := ref.PayAddr()
 
-	var (
-		invoiceNumByHash = invoiceIndex.Get(payHash[:])
-		invoiceNumByAddr []byte
-	)
-	if payAddr != nil {
-		// Only allow lookups for payment address if it is not a blank
-		// payment address, which is a special-cased value for legacy
-		// keysend invoices.
-		if *payAddr != BlankPayAddr {
-			invoiceNumByAddr = payAddrIndex.Get(payAddr[:])
+	getInvoiceNumByHash := func() []byte {
+		if payHash != nil {
+			return invoiceIndex.Get(payHash[:])
 		}
+		return nil
 	}
 
+	getInvoiceNumByAddr := func() []byte {
+		if payAddr != nil {
+			// Only allow lookups for payment address if it is not a
+			// blank payment address, which is a special-cased value
+			// for legacy keysend invoices.
+			if *payAddr != BlankPayAddr {
+				return payAddrIndex.Get(payAddr[:])
+			}
+		}
+		return nil
+	}
+
+	invoiceNumByHash := getInvoiceNumByHash()
+	invoiceNumByAddr := getInvoiceNumByAddr()
 	switch {
 
 	// If payment address and payment hash both reference an existing
@@ -901,6 +988,10 @@ func fetchInvoiceNumByRef(invoiceIndex, payAddrIndex, setIDIndex kvdb.RBucket,
 			return nil, ErrInvRefEquivocation
 		}
 
+		return invoiceNumByAddr, nil
+
+	// Return invoices by payment addr only.
+	case invoiceNumByAddr != nil:
 		return invoiceNumByAddr, nil
 
 	// If we were only able to reference the invoice by hash, return the
@@ -1684,21 +1775,6 @@ func copySlice(src []byte) []byte {
 	return dest
 }
 
-// copyInvoiceHTLC makes a deep copy of the supplied invoice HTLC.
-func copyInvoiceHTLC(src *InvoiceHTLC) *InvoiceHTLC {
-	result := *src
-
-	// Make a copy of the CustomSet map.
-	result.CustomRecords = make(record.CustomSet)
-	for k, v := range src.CustomRecords {
-		result.CustomRecords[k] = v
-	}
-
-	result.AMP = src.AMP.Copy()
-
-	return &result
-}
-
 // copyInvoice makes a deep copy of the supplied invoice.
 func copyInvoice(src *Invoice) *Invoice {
 	dest := Invoice{
@@ -1725,7 +1801,7 @@ func copyInvoice(src *Invoice) *Invoice {
 	}
 
 	for k, v := range src.Htlcs {
-		dest.Htlcs[k] = copyInvoiceHTLC(v)
+		dest.Htlcs[k] = v.Copy()
 	}
 
 	return &dest
@@ -1733,7 +1809,7 @@ func copyInvoice(src *Invoice) *Invoice {
 
 // updateInvoice fetches the invoice, obtains the update descriptor from the
 // callback and applies the updates in a single db transaction.
-func (d *DB) updateInvoice(hash lntypes.Hash, invoices,
+func (d *DB) updateInvoice(hash *lntypes.Hash, invoices,
 	settleIndex, setIDIndex kvdb.RwBucket, invoiceNum []byte,
 	callback InvoiceUpdateCallback) (*Invoice, error) {
 
@@ -1867,7 +1943,25 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices,
 	// the process by updating the state transitions for individual HTLCs
 	// and recalculate the total amount paid to the invoice.
 	var amtPaid lnwire.MilliSatoshi
-	for _, htlc := range invoice.Htlcs {
+	for key, htlc := range invoice.Htlcs {
+		// Set the HTLC preimage for any AMP HTLCs.
+		if setID != nil {
+			preimage, ok := update.State.HTLCPreimages[key]
+			switch {
+
+			// If we don't already have a preiamge for this HTLC, we
+			// can set it now.
+			case ok && htlc.AMP.Preimage == nil:
+				htlc.AMP.Preimage = &preimage
+
+			// Otherwise, prevent over-writing an existing preimage.
+			// Ignore the case where the preimage is identical.
+			case ok && *htlc.AMP.Preimage != preimage:
+				return nil, ErrHTLCPreimageAlreadyExists
+
+			}
+		}
+
 		// The invoice state may have changed and this could have
 		// implications for the states of the individual htlcs. Align
 		// the htlc state with the current invoice state.
@@ -1901,7 +1995,7 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices,
 }
 
 // updateInvoiceState validates and processes an invoice state update.
-func updateInvoiceState(invoice *Invoice, hash lntypes.Hash,
+func updateInvoiceState(invoice *Invoice, hash *lntypes.Hash,
 	update InvoiceStateUpdateDesc) error {
 
 	// Returning to open is never allowed from any state.
@@ -1950,9 +2044,14 @@ func updateInvoiceState(invoice *Invoice, hash lntypes.Hash,
 
 		switch {
 
+		// If an invoice-level preimage was supplied, but the InvoiceRef
+		// doesn't specify a hash (e.g. AMP invoices) we fail.
+		case update.Preimage != nil && hash == nil:
+			return ErrUnexpectedInvoicePreimage
+
 		// Validate the supplied preimage for non-AMP invoices.
 		case update.Preimage != nil:
-			if update.Preimage.Hash() != hash {
+			if update.Preimage.Hash() != *hash {
 				return ErrInvoicePreimageMismatch
 			}
 			invoice.Terms.PaymentPreimage = update.Preimage
@@ -2027,10 +2126,25 @@ func updateHtlc(resolveTime time.Time, htlc *InvoiceHTLC,
 			// already know the preimage is valid due to checks at
 			// the invoice level. For AMP HTLCs, verify that the
 			// per-HTLC preimage-hash pair is valid.
-			if setID != nil && !htlc.AMP.Preimage.Matches(htlc.AMP.Hash) {
-				return fmt.Errorf("AMP preimage mismatch, "+
-					"preimage=%v hash=%v", *htlc.AMP.Preimage,
-					htlc.AMP.Hash)
+			switch {
+
+			// Non-AMP HTLCs can be settle immediately since we
+			// already know the preimage is valid due to checks at
+			// the invoice level.
+			case setID == nil:
+
+			// At this popint, the setID is non-nil, meaning this is
+			// an AMP HTLC. We know that htlc.AMP cannot be nil,
+			// otherwise IsInHTLCSet would have returned false.
+			//
+			// Fail if an accepted AMP HTLC has no preimage.
+			case htlc.AMP.Preimage == nil:
+				return ErrHTLCPreimageMissing
+
+			// Fail if the accepted AMP HTLC has an invalid
+			// preimage.
+			case !htlc.AMP.Preimage.Matches(htlc.AMP.Hash):
+				return ErrHTLCPreimageMismatch
 			}
 
 			htlcState = HtlcStateSettled
@@ -2059,8 +2173,7 @@ func updateHtlc(resolveTime time.Time, htlc *InvoiceHTLC,
 	// We should never find a settled HTLC on an invoice that isn't in
 	// ContractSettled.
 	if htlc.State == HtlcStateSettled {
-		return fmt.Errorf("cannot have a settled htlc with "+
-			"invoice in state %v", invState)
+		return ErrHTLCAlreadySettled
 	}
 
 	switch invState {

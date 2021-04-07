@@ -9,19 +9,19 @@ import (
 
 // AMPOnionType is the type used in the onion to reference the AMP fields:
 // root_share, set_id, and child_index.
-const AMPOnionType tlv.Type = 10
+const AMPOnionType tlv.Type = 14
 
 // AMP is a record that encodes the fields necessary for atomic multi-path
 // payments.
 type AMP struct {
 	rootShare  [32]byte
 	setID      [32]byte
-	childIndex uint16
+	childIndex uint32
 }
 
 // NewAMP generate a new AMP record with the given root_share, set_id, and
 // child_index.
-func NewAMP(rootShare, setID [32]byte, childIndex uint16) *AMP {
+func NewAMP(rootShare, setID [32]byte, childIndex uint32) *AMP {
 	return &AMP{
 		rootShare:  rootShare,
 		setID:      setID,
@@ -40,7 +40,7 @@ func (a *AMP) SetID() [32]byte {
 }
 
 // ChildIndex returns the child index contained in the AMP record.
-func (a *AMP) ChildIndex() uint16 {
+func (a *AMP) ChildIndex() uint32 {
 	return a.childIndex
 }
 
@@ -55,7 +55,7 @@ func AMPEncoder(w io.Writer, val interface{}, buf *[8]byte) error {
 			return err
 		}
 
-		return tlv.ETUint16T(w, v.childIndex, buf)
+		return tlv.ETUint32T(w, v.childIndex, buf)
 	}
 	return tlv.NewTypeForEncodingErr(val, "AMP")
 }
@@ -69,7 +69,7 @@ const (
 	// maxAMPLength is the maximum legnth of a serialized AMP TLV record,
 	// which occurs when the truncated endoing of a child_index takes 2
 	// bytes.
-	maxAMPLength = 66
+	maxAMPLength = 68
 )
 
 // AMPDecoder reads the AMP record from the provided io.Reader.
@@ -83,7 +83,7 @@ func AMPDecoder(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 			return err
 		}
 
-		return tlv.DTUint16(r, &v.childIndex, buf, l-64)
+		return tlv.DTUint32(r, &v.childIndex, buf, l-minAMPLength)
 	}
 	return tlv.NewTypeForDecodingErr(val, "AMP", l, maxAMPLength)
 }
@@ -97,7 +97,7 @@ func (a *AMP) Record() tlv.Record {
 
 // PayloadSize returns the size this record takes up in encoded form.
 func (a *AMP) PayloadSize() uint64 {
-	return 32 + 32 + tlv.SizeTUint16(a.childIndex)
+	return 32 + 32 + tlv.SizeTUint32(a.childIndex)
 }
 
 // String returns a human-readble description of the amp payload fields.

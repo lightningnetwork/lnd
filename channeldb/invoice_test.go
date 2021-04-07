@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -16,7 +17,15 @@ import (
 
 var (
 	emptyFeatures = lnwire.NewFeatureVector(nil, lnwire.Features)
-	testNow       = time.Unix(1, 0)
+	ampFeatures   = lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(
+			lnwire.TLVOnionPayloadOptional,
+			lnwire.PaymentAddrOptional,
+			lnwire.AMPRequired,
+		),
+		lnwire.Features,
+	)
+	testNow = time.Unix(1, 0)
 )
 
 func randInvoice(value lnwire.MilliSatoshi) (*Invoice, error) {
@@ -1208,23 +1217,30 @@ func TestInvoiceRef(t *testing.T) {
 	// An InvoiceRef by hash should return the provided hash and a nil
 	// payment addr.
 	refByHash := InvoiceRefByHash(payHash)
-	require.Equal(t, payHash, refByHash.PayHash())
+	require.Equal(t, &payHash, refByHash.PayHash())
 	require.Equal(t, (*[32]byte)(nil), refByHash.PayAddr())
 	require.Equal(t, (*[32]byte)(nil), refByHash.SetID())
 
 	// An InvoiceRef by hash and addr should return the payment hash and
 	// payment addr passed to the constructor.
 	refByHashAndAddr := InvoiceRefByHashAndAddr(payHash, payAddr)
-	require.Equal(t, payHash, refByHashAndAddr.PayHash())
+	require.Equal(t, &payHash, refByHashAndAddr.PayHash())
 	require.Equal(t, &payAddr, refByHashAndAddr.PayAddr())
 	require.Equal(t, (*[32]byte)(nil), refByHashAndAddr.SetID())
 
 	// An InvoiceRef by set id should return an empty pay hash, a nil pay
 	// addr, and a reference to the given set id.
 	refBySetID := InvoiceRefBySetID(setID)
-	require.Equal(t, lntypes.Hash{}, refBySetID.PayHash())
+	require.Equal(t, (*lntypes.Hash)(nil), refBySetID.PayHash())
 	require.Equal(t, (*[32]byte)(nil), refBySetID.PayAddr())
 	require.Equal(t, &setID, refBySetID.SetID())
+
+	// An InvoiceRef by pay addr should only return a pay addr, but nil for
+	// pay hash and set id.
+	refByAddr := InvoiceRefByAddr(payAddr)
+	require.Equal(t, (*lntypes.Hash)(nil), refByAddr.PayHash())
+	require.Equal(t, &payAddr, refByAddr.PayAddr())
+	require.Equal(t, (*[32]byte)(nil), refByAddr.SetID())
 }
 
 // TestHTLCSet asserts that HTLCSet returns the proper set of accepted HTLCs
@@ -1366,7 +1382,7 @@ func TestSetIDIndex(t *testing.T) {
 	invoice.AmtPaid = amt
 	invoice.SettleDate = dbInvoice.SettleDate
 	invoice.Htlcs = map[CircuitKey]*InvoiceHTLC{
-		{HtlcID: 0}: makeAMPInvoiceHTLC(amt, *setID, preimage),
+		{HtlcID: 0}: makeAMPInvoiceHTLC(amt, *setID, payHash, &preimage),
 	}
 
 	// We should get back the exact same invoice that we just inserted.
@@ -1406,9 +1422,9 @@ func TestSetIDIndex(t *testing.T) {
 	invoice.AmtPaid += 2 * amt
 	invoice.SettleDate = dbInvoice.SettleDate
 	invoice.Htlcs = map[CircuitKey]*InvoiceHTLC{
-		{HtlcID: 0}: makeAMPInvoiceHTLC(amt, *setID, preimage),
-		{HtlcID: 1}: makeAMPInvoiceHTLC(amt, *setID2, preimage),
-		{HtlcID: 2}: makeAMPInvoiceHTLC(amt, *setID2, preimage),
+		{HtlcID: 0}: makeAMPInvoiceHTLC(amt, *setID, payHash, &preimage),
+		{HtlcID: 1}: makeAMPInvoiceHTLC(amt, *setID2, payHash, nil),
+		{HtlcID: 2}: makeAMPInvoiceHTLC(amt, *setID2, payHash, nil),
 	}
 
 	// We should get back the exact same invoice that we just inserted.
@@ -1452,7 +1468,7 @@ func TestSetIDIndex(t *testing.T) {
 }
 
 func makeAMPInvoiceHTLC(amt lnwire.MilliSatoshi, setID [32]byte,
-	preimage lntypes.Preimage) *InvoiceHTLC {
+	hash lntypes.Hash, preimage *lntypes.Preimage) *InvoiceHTLC {
 
 	return &InvoiceHTLC{
 		Amt:           amt,
@@ -1462,8 +1478,8 @@ func makeAMPInvoiceHTLC(amt lnwire.MilliSatoshi, setID [32]byte,
 		CustomRecords: make(record.CustomSet),
 		AMP: &InvoiceHtlcAMPData{
 			Record:   *record.NewAMP([32]byte{}, setID, 0),
-			Hash:     preimage.Hash(),
-			Preimage: &preimage,
+			Hash:     hash,
+			Preimage: preimage,
 		},
 	}
 }
@@ -1480,18 +1496,23 @@ func updateAcceptAMPHtlc(id uint64, amt lnwire.MilliSatoshi,
 
 		noRecords := make(record.CustomSet)
 
-		var state *InvoiceStateUpdateDesc
+		var (
+			state    *InvoiceStateUpdateDesc
+			preimage *lntypes.Preimage
+		)
 		if accept {
 			state = &InvoiceStateUpdateDesc{
 				NewState: ContractAccepted,
 				SetID:    setID,
 			}
+			pre := *invoice.Terms.PaymentPreimage
+			preimage = &pre
 		}
 
 		ampData := &InvoiceHtlcAMPData{
 			Record:   *record.NewAMP([32]byte{}, *setID, 0),
 			Hash:     invoice.Terms.PaymentPreimage.Hash(),
-			Preimage: invoice.Terms.PaymentPreimage,
+			Preimage: preimage,
 		}
 		update := &InvoiceUpdateDesc{
 			State: state,
@@ -1524,6 +1545,792 @@ func getUpdateInvoiceAMPSettle(setID *[32]byte) InvoiceUpdateCallback {
 
 		return update, nil
 	}
+}
+
+// TestUnexpectedInvoicePreimage asserts that legacy or MPP invoices cannot be
+// settled when referenced by payment address only. Since regular or MPP
+// payments do not store the payment hash explicitly (it is stored in the
+// index), this enforces that they can only be updated using a InvoiceRefByHash
+// or InvoiceRefByHashOrAddr.
+func TestUnexpectedInvoicePreimage(t *testing.T) {
+	t.Parallel()
+
+	db, cleanup, err := MakeTestDB()
+	defer cleanup()
+	require.NoError(t, err, "unable to make test db")
+
+	invoice, err := randInvoice(lnwire.MilliSatoshi(100))
+	require.NoError(t, err)
+
+	// Add a random invoice indexed by payment hash and payment addr.
+	paymentHash := invoice.Terms.PaymentPreimage.Hash()
+	_, err = db.AddInvoice(invoice, paymentHash)
+	require.NoError(t, err)
+
+	// Attempt to update the invoice by pay addr only. This will fail since,
+	// in order to settle an MPP invoice, the InvoiceRef must present a
+	// payment hash against which to validate the preimage.
+	_, err = db.UpdateInvoice(
+		InvoiceRefByAddr(invoice.Terms.PaymentAddr),
+		getUpdateInvoice(invoice.Terms.Value),
+	)
+
+	//Assert that we get ErrUnexpectedInvoicePreimage.
+	require.Error(t, ErrUnexpectedInvoicePreimage, err)
+}
+
+type updateHTLCPreimageTestCase struct {
+	name               string
+	settleSamePreimage bool
+	expError           error
+}
+
+// TestUpdateHTLCPreimages asserts various properties of setting HTLC-level
+// preimages on invoice state transitions.
+func TestUpdateHTLCPreimages(t *testing.T) {
+	t.Parallel()
+
+	tests := []updateHTLCPreimageTestCase{
+		{
+			name:               "same preimage on settle",
+			settleSamePreimage: true,
+			expError:           nil,
+		},
+		{
+			name:               "diff preimage on settle",
+			settleSamePreimage: false,
+			expError:           ErrHTLCPreimageAlreadyExists,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			testUpdateHTLCPreimages(t, test)
+		})
+	}
+}
+
+func testUpdateHTLCPreimages(t *testing.T, test updateHTLCPreimageTestCase) {
+	db, cleanup, err := MakeTestDB()
+	defer cleanup()
+	require.NoError(t, err, "unable to make test db")
+
+	// We'll start out by creating an invoice and writing it to the DB.
+	amt := lnwire.NewMSatFromSatoshis(1000)
+	invoice, err := randInvoice(amt)
+	require.Nil(t, err)
+
+	preimage := *invoice.Terms.PaymentPreimage
+	payHash := preimage.Hash()
+
+	// Set AMP-specific features so that we can settle with HTLC-level
+	// preimages.
+	invoice.Terms.Features = ampFeatures
+
+	_, err = db.AddInvoice(invoice, payHash)
+	require.Nil(t, err)
+
+	setID := &[32]byte{1}
+
+	// Update the invoice with an accepted HTLC that also accepts the
+	// invoice.
+	ref := InvoiceRefByAddr(invoice.Terms.PaymentAddr)
+	dbInvoice, err := db.UpdateInvoice(ref, updateAcceptAMPHtlc(0, amt, setID, true))
+	require.Nil(t, err)
+
+	htlcPreimages := make(map[CircuitKey]lntypes.Preimage)
+	for key := range dbInvoice.Htlcs {
+		// Set the either the same preimage used to accept above, or a
+		// blank preimage depending on the test case.
+		var pre lntypes.Preimage
+		if test.settleSamePreimage {
+			pre = preimage
+		}
+		htlcPreimages[key] = pre
+	}
+
+	updateInvoice := func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
+		update := &InvoiceUpdateDesc{
+			State: &InvoiceStateUpdateDesc{
+				Preimage:      nil,
+				NewState:      ContractSettled,
+				HTLCPreimages: htlcPreimages,
+				SetID:         setID,
+			},
+		}
+
+		return update, nil
+	}
+
+	// Now settle the HTLC set and assert the resulting error.
+	_, err = db.UpdateInvoice(ref, updateInvoice)
+	require.Equal(t, test.expError, err)
+}
+
+type updateHTLCTest struct {
+	name     string
+	input    InvoiceHTLC
+	invState ContractState
+	setID    *[32]byte
+	output   InvoiceHTLC
+	expErr   error
+}
+
+// TestUpdateHTLC asserts the behavior of the updateHTLC method in various
+// scenarios for MPP and AMP.
+func TestUpdateHTLC(t *testing.T) {
+	t.Parallel()
+
+	setID := [32]byte{0x01}
+	ampRecord := record.NewAMP([32]byte{0x02}, setID, 3)
+	preimage := lntypes.Preimage{0x04}
+	hash := preimage.Hash()
+
+	diffSetID := [32]byte{0x05}
+	fakePreimage := lntypes.Preimage{0x06}
+	testAlreadyNow := time.Now()
+
+	tests := []updateHTLCTest{
+		{
+			name: "MPP accept",
+			input: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   time.Time{},
+				Expiry:        40,
+				State:         HtlcStateAccepted,
+				CustomRecords: make(record.CustomSet),
+				AMP:           nil,
+			},
+			invState: ContractAccepted,
+			setID:    nil,
+			output: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   time.Time{},
+				Expiry:        40,
+				State:         HtlcStateAccepted,
+				CustomRecords: make(record.CustomSet),
+				AMP:           nil,
+			},
+			expErr: nil,
+		},
+		{
+			name: "MPP settle",
+			input: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   time.Time{},
+				Expiry:        40,
+				State:         HtlcStateAccepted,
+				CustomRecords: make(record.CustomSet),
+				AMP:           nil,
+			},
+			invState: ContractSettled,
+			setID:    nil,
+			output: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   testNow,
+				Expiry:        40,
+				State:         HtlcStateSettled,
+				CustomRecords: make(record.CustomSet),
+				AMP:           nil,
+			},
+			expErr: nil,
+		},
+		{
+			name: "MPP cancel",
+			input: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   time.Time{},
+				Expiry:        40,
+				State:         HtlcStateAccepted,
+				CustomRecords: make(record.CustomSet),
+				AMP:           nil,
+			},
+			invState: ContractCanceled,
+			setID:    nil,
+			output: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   testNow,
+				Expiry:        40,
+				State:         HtlcStateCanceled,
+				CustomRecords: make(record.CustomSet),
+				AMP:           nil,
+			},
+			expErr: nil,
+		},
+		{
+			name: "AMP accept missing preimage",
+			input: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   time.Time{},
+				Expiry:        40,
+				State:         HtlcStateAccepted,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: nil,
+				},
+			},
+			invState: ContractAccepted,
+			setID:    &setID,
+			output: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   time.Time{},
+				Expiry:        40,
+				State:         HtlcStateAccepted,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: nil,
+				},
+			},
+			expErr: ErrHTLCPreimageMissing,
+		},
+		{
+			name: "AMP accept invalid preimage",
+			input: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   time.Time{},
+				Expiry:        40,
+				State:         HtlcStateAccepted,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &fakePreimage,
+				},
+			},
+			invState: ContractAccepted,
+			setID:    &setID,
+			output: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   time.Time{},
+				Expiry:        40,
+				State:         HtlcStateAccepted,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &fakePreimage,
+				},
+			},
+			expErr: ErrHTLCPreimageMismatch,
+		},
+		{
+			name: "AMP accept valid preimage",
+			input: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   time.Time{},
+				Expiry:        40,
+				State:         HtlcStateAccepted,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &preimage,
+				},
+			},
+			invState: ContractAccepted,
+			setID:    &setID,
+			output: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   time.Time{},
+				Expiry:        40,
+				State:         HtlcStateAccepted,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &preimage,
+				},
+			},
+			expErr: nil,
+		},
+		{
+			name: "AMP accept valid preimage different htlc set",
+			input: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   time.Time{},
+				Expiry:        40,
+				State:         HtlcStateAccepted,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &preimage,
+				},
+			},
+			invState: ContractAccepted,
+			setID:    &diffSetID,
+			output: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   time.Time{},
+				Expiry:        40,
+				State:         HtlcStateAccepted,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &preimage,
+				},
+			},
+			expErr: nil,
+		},
+		{
+			name: "AMP settle missing preimage",
+			input: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   time.Time{},
+				Expiry:        40,
+				State:         HtlcStateAccepted,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: nil,
+				},
+			},
+			invState: ContractSettled,
+			setID:    &setID,
+			output: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   time.Time{},
+				Expiry:        40,
+				State:         HtlcStateAccepted,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: nil,
+				},
+			},
+			expErr: ErrHTLCPreimageMissing,
+		},
+		{
+			name: "AMP settle invalid preimage",
+			input: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   time.Time{},
+				Expiry:        40,
+				State:         HtlcStateAccepted,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &fakePreimage,
+				},
+			},
+			invState: ContractSettled,
+			setID:    &setID,
+			output: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   time.Time{},
+				Expiry:        40,
+				State:         HtlcStateAccepted,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &fakePreimage,
+				},
+			},
+			expErr: ErrHTLCPreimageMismatch,
+		},
+		{
+			name: "AMP settle valid preimage",
+			input: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   time.Time{},
+				Expiry:        40,
+				State:         HtlcStateAccepted,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &preimage,
+				},
+			},
+			invState: ContractSettled,
+			setID:    &setID,
+			output: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   testNow,
+				Expiry:        40,
+				State:         HtlcStateSettled,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &preimage,
+				},
+			},
+			expErr: nil,
+		},
+		{
+			name: "AMP settle valid preimage different htlc set",
+			input: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   time.Time{},
+				Expiry:        40,
+				State:         HtlcStateAccepted,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &preimage,
+				},
+			},
+			invState: ContractSettled,
+			setID:    &diffSetID,
+			output: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   testNow,
+				Expiry:        40,
+				State:         HtlcStateCanceled,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &preimage,
+				},
+			},
+			expErr: nil,
+		},
+		{
+			name: "accept invoice htlc already settled",
+			input: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   testAlreadyNow,
+				Expiry:        40,
+				State:         HtlcStateSettled,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &preimage,
+				},
+			},
+			invState: ContractAccepted,
+			setID:    &setID,
+			output: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   testAlreadyNow,
+				Expiry:        40,
+				State:         HtlcStateSettled,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &preimage,
+				},
+			},
+			expErr: ErrHTLCAlreadySettled,
+		},
+		{
+			name: "cancel invoice htlc already settled",
+			input: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   testAlreadyNow,
+				Expiry:        40,
+				State:         HtlcStateSettled,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &preimage,
+				},
+			},
+			invState: ContractCanceled,
+			setID:    &setID,
+			output: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   testAlreadyNow,
+				Expiry:        40,
+				State:         HtlcStateSettled,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &preimage,
+				},
+			},
+			expErr: ErrHTLCAlreadySettled,
+		},
+		{
+			name: "settle invoice htlc already settled",
+			input: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   testAlreadyNow,
+				Expiry:        40,
+				State:         HtlcStateSettled,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &preimage,
+				},
+			},
+			invState: ContractSettled,
+			setID:    &setID,
+			output: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   testAlreadyNow,
+				Expiry:        40,
+				State:         HtlcStateSettled,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &preimage,
+				},
+			},
+			expErr: nil,
+		},
+		{
+			name: "cancel invoice",
+			input: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   time.Time{},
+				Expiry:        40,
+				State:         HtlcStateAccepted,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &preimage,
+				},
+			},
+			invState: ContractCanceled,
+			setID:    &setID,
+			output: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   testNow,
+				Expiry:        40,
+				State:         HtlcStateCanceled,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &preimage,
+				},
+			},
+			expErr: nil,
+		},
+		{
+			name: "accept invoice htlc already canceled",
+			input: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   testAlreadyNow,
+				Expiry:        40,
+				State:         HtlcStateCanceled,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &preimage,
+				},
+			},
+			invState: ContractAccepted,
+			setID:    &setID,
+			output: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   testAlreadyNow,
+				Expiry:        40,
+				State:         HtlcStateCanceled,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &preimage,
+				},
+			},
+			expErr: nil,
+		},
+		{
+			name: "cancel invoice htlc already canceled",
+			input: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   testAlreadyNow,
+				Expiry:        40,
+				State:         HtlcStateCanceled,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &preimage,
+				},
+			},
+			invState: ContractCanceled,
+			setID:    &setID,
+			output: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   testAlreadyNow,
+				Expiry:        40,
+				State:         HtlcStateCanceled,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &preimage,
+				},
+			},
+			expErr: nil,
+		},
+		{
+			name: "settle invoice htlc already canceled",
+			input: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   testAlreadyNow,
+				Expiry:        40,
+				State:         HtlcStateCanceled,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &preimage,
+				},
+			},
+			invState: ContractSettled,
+			setID:    &setID,
+			output: InvoiceHTLC{
+				Amt:           5000,
+				MppTotalAmt:   5000,
+				AcceptHeight:  100,
+				AcceptTime:    testNow,
+				ResolveTime:   testAlreadyNow,
+				Expiry:        40,
+				State:         HtlcStateCanceled,
+				CustomRecords: make(record.CustomSet),
+				AMP: &InvoiceHtlcAMPData{
+					Record:   *ampRecord,
+					Hash:     hash,
+					Preimage: &preimage,
+				},
+			},
+			expErr: nil,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			testUpdateHTLC(t, test)
+		})
+	}
+}
+
+func testUpdateHTLC(t *testing.T, test updateHTLCTest) {
+	htlc := test.input.Copy()
+	err := updateHtlc(testNow, htlc, test.invState, test.setID)
+	require.Equal(t, test.expErr, err)
+	require.Equal(t, test.output, *htlc)
 }
 
 // TestDeleteInvoices tests that deleting a list of invoices will succeed
@@ -1618,4 +2425,31 @@ func TestDeleteInvoices(t *testing.T) {
 	require.NoError(t, db.DeleteInvoice(invoicesToDelete))
 	assertInvoiceCount(0)
 
+}
+
+// TestAddInvoiceInvalidFeatureDeps asserts that inserting an invoice with
+// invalid transitive feature dependencies fails with the appropriate error.
+func TestAddInvoiceInvalidFeatureDeps(t *testing.T) {
+	t.Parallel()
+
+	db, cleanup, err := MakeTestDB()
+	require.NoError(t, err, "unable to make test db")
+	defer cleanup()
+
+	invoice, err := randInvoice(500)
+	require.NoError(t, err)
+
+	invoice.Terms.Features = lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(
+			lnwire.TLVOnionPayloadOptional,
+			lnwire.MPPOptional,
+		),
+		lnwire.Features,
+	)
+
+	hash := invoice.Terms.PaymentPreimage.Hash()
+	_, err = db.AddInvoice(invoice, hash)
+	require.Error(t, err, feature.NewErrMissingFeatureDep(
+		lnwire.PaymentAddrOptional,
+	))
 }

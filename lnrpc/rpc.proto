@@ -2493,11 +2493,21 @@ message Hop {
 
     /*
     An optional TLV record that signals the use of an MPP payment. If present,
-    the receiver will enforce that that the same mpp_record is included in the
-    final hop payload of all non-zero payments in the HTLC set. If empty, a
-    regular single-shot payment is or was attempted.
+    the receiver will enforce that the same mpp_record is included in the final
+    hop payload of all non-zero payments in the HTLC set. If empty, a regular
+    single-shot payment is or was attempted.
     */
     MPPRecord mpp_record = 10;
+
+    /*
+    An optional TLV record that signals the use of an AMP payment. If present,
+    the receiver will treat all received payments including the same
+    (payment_addr, set_id) pair  as being part of one logical payment. The
+    payment will be settled by XORing the root_share's together and deriving the
+    child hashes and preimages according to BOLT XX. Must be used in conjunction
+    with mpp_record.
+    */
+    AMPRecord amp_record = 12;
 
     /*
     An optional set of key-value TLV records. This is useful within the context
@@ -2523,6 +2533,14 @@ message MPPRecord {
     total_amt_msat must be used on all subpayments.
     */
     int64 total_amt_msat = 10;
+}
+
+message AMPRecord {
+    bytes root_share = 1;
+
+    bytes set_id = 2;
+
+    uint32 child_index = 3;
 }
 
 /*

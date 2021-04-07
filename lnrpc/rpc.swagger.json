@@ -2536,6 +2536,23 @@
       },
       "description": "Details specific to AMP HTLCs."
     },
+    "lnrpcAMPRecord": {
+      "type": "object",
+      "properties": {
+        "root_share": {
+          "type": "string",
+          "format": "byte"
+        },
+        "set_id": {
+          "type": "string",
+          "format": "byte"
+        },
+        "child_index": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
     "lnrpcAbandonChannelResponse": {
       "type": "object"
     },
@@ -4025,7 +4042,11 @@
         },
         "mpp_record": {
           "$ref": "#/definitions/lnrpcMPPRecord",
-          "description": "An optional TLV record that signals the use of an MPP payment. If present,\nthe receiver will enforce that that the same mpp_record is included in the\nfinal hop payload of all non-zero payments in the HTLC set. If empty, a\nregular single-shot payment is or was attempted."
+          "description": "An optional TLV record that signals the use of an MPP payment. If present,\nthe receiver will enforce that the same mpp_record is included in the final\nhop payload of all non-zero payments in the HTLC set. If empty, a regular\nsingle-shot payment is or was attempted."
+        },
+        "amp_record": {
+          "$ref": "#/definitions/lnrpcAMPRecord",
+          "description": "An optional TLV record that signals the use of an AMP payment. If present,\nthe receiver will treat all received payments including the same\n(payment_addr, set_id) pair  as being part of one logical payment. The\npayment will be settled by XORing the root_share's together and deriving the\nchild hashes and preimages according to BOLT XX. Must be used in conjunction\nwith mpp_record."
         },
         "custom_records": {
           "type": "object",

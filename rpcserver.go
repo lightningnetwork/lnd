@@ -3096,7 +3096,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 				return nil, err
 			}
 
-			resp.TotalLimboBalance += int64(forceClose.LimboBalance)
+			resp.TotalLimboBalance += forceClose.LimboBalance
 
 			resp.PendingForceClosingChannels = append(
 				resp.PendingForceClosingChannels,
@@ -4310,6 +4310,10 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 	// Payment address may not be needed by legacy invoices.
 	if len(rpcPayReq.PaymentAddr) != 0 && len(rpcPayReq.PaymentAddr) != 32 {
 		return payIntent, errors.New("invalid payment address length")
+	}
+
+	if payIntent.paymentAddr == nil {
+		payIntent.paymentAddr = &[32]byte{}
 	}
 	copy(payIntent.paymentAddr[:], rpcPayReq.PaymentAddr)
 

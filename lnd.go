@@ -545,7 +545,10 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		FeeURL:                      cfg.FeeURL,
 	}
 
-	activeChainControl, err := chainreg.NewChainControl(chainControlCfg)
+	activeChainControl, cleanup, err := chainreg.NewChainControl(chainControlCfg)
+	if cleanup != nil {
+		defer cleanup()
+	}
 	if err != nil {
 		err := fmt.Errorf("unable to create chain control: %v", err)
 		ltndLog.Error(err)

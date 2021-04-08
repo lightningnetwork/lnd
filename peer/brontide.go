@@ -308,6 +308,12 @@ type Config struct {
 	// ChannelLink.
 	ServerPubKey [33]byte
 
+	// ChannelCommitInterval is the maximum time that is allowed to pass between
+	// receiving a channel state update and signing the next commitment.
+	// Setting this to a longer duration allows for more efficient channel
+	// operations at the cost of latency.
+	ChannelCommitInterval time.Duration
+
 	// Quit is the server's quit channel. If this is closed, we halt operation.
 	Quit chan struct{}
 }
@@ -813,7 +819,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		UpdateContractSignals:   updateContractSignals,
 		OnChannelFailure:        onChannelFailure,
 		SyncStates:              syncStates,
-		BatchTicker:             ticker.New(50 * time.Millisecond),
+		BatchTicker:             ticker.New(p.cfg.ChannelCommitInterval),
 		FwdPkgGCTicker:          ticker.New(time.Hour),
 		PendingCommitTicker:     ticker.New(time.Minute),
 		BatchSize:               10,

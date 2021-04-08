@@ -1970,6 +1970,13 @@ func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash, rt *route.Route) (
 	// hash as used for this HTLC.
 	paymentIdentifier := htlcHash
 
+	// For AMP-payments, we'll use the setID as the unique ID for the
+	// overall payment.
+	amp := finalHop.AMP
+	if amp != nil {
+		paymentIdentifier = amp.SetID()
+	}
+
 	// Record this payment hash with the ControlTower, ensuring it is not
 	// already in-flight.
 	info := &channeldb.PaymentCreationInfo{

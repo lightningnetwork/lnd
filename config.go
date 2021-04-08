@@ -183,6 +183,8 @@ var (
 	defaultBitcoindEstimateMode = "CONSERVATIVE"
 	bitcoindEstimateModes       = [2]string{"ECONOMICAL", defaultBitcoindEstimateMode}
 
+	defaultPrunedNodeMaxPeers = 4
+
 	defaultSphinxDbName = "sphinxreplay.db"
 )
 
@@ -392,9 +394,10 @@ func DefaultConfig() Config {
 			RPCCert: defaultBtcdRPCCertFile,
 		},
 		BitcoindMode: &lncfg.Bitcoind{
-			Dir:          defaultBitcoindDir,
-			RPCHost:      defaultRPCHost,
-			EstimateMode: defaultBitcoindEstimateMode,
+			Dir:                defaultBitcoindDir,
+			RPCHost:            defaultRPCHost,
+			EstimateMode:       defaultBitcoindEstimateMode,
+			PrunedNodeMaxPeers: defaultPrunedNodeMaxPeers,
 		},
 		Litecoin: &lncfg.Chain{
 			MinHTLCIn:     chainreg.DefaultLitecoinMinHTLCInMSat,
@@ -411,9 +414,10 @@ func DefaultConfig() Config {
 			RPCCert: defaultLtcdRPCCertFile,
 		},
 		LitecoindMode: &lncfg.Bitcoind{
-			Dir:          defaultLitecoindDir,
-			RPCHost:      defaultRPCHost,
-			EstimateMode: defaultBitcoindEstimateMode,
+			Dir:                defaultLitecoindDir,
+			RPCHost:            defaultRPCHost,
+			EstimateMode:       defaultBitcoindEstimateMode,
+			PrunedNodeMaxPeers: defaultPrunedNodeMaxPeers,
 		},
 		NeutrinoMode: &lncfg.Neutrino{
 			UserAgentName:    neutrino.UserAgentName,

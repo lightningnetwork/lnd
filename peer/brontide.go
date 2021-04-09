@@ -314,6 +314,10 @@ type Config struct {
 	// operations at the cost of latency.
 	ChannelCommitInterval time.Duration
 
+	// ChannelCommitBatchSize is the maximum number of channel state updates
+	// that is accumulated before signing a new commitment.
+	ChannelCommitBatchSize uint32
+
 	// Quit is the server's quit channel. If this is closed, we halt operation.
 	Quit chan struct{}
 }
@@ -822,7 +826,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		BatchTicker:             ticker.New(p.cfg.ChannelCommitInterval),
 		FwdPkgGCTicker:          ticker.New(time.Hour),
 		PendingCommitTicker:     ticker.New(time.Minute),
-		BatchSize:               10,
+		BatchSize:               p.cfg.ChannelCommitBatchSize,
 		UnsafeReplay:            p.cfg.UnsafeReplay,
 		MinFeeUpdateTimeout:     htlcswitch.DefaultMinLinkFeeUpdateTimeout,
 		MaxFeeUpdateTimeout:     htlcswitch.DefaultMaxLinkFeeUpdateTimeout,

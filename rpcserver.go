@@ -5546,16 +5546,26 @@ func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopol
 
 	nodeUpdates := make([]*lnrpc.NodeUpdate, len(topChange.NodeUpdates))
 	for i, nodeUpdate := range topChange.NodeUpdates {
+		nodeAddrs := make([]*lnrpc.NodeAddress, 0, len(nodeUpdate.Addresses))
+		for _, addr := range nodeUpdate.Addresses {
+			nodeAddr := &lnrpc.NodeAddress{
+				Network: addr.Network(),
+				Addr:    addr.String(),
+			}
+			nodeAddrs = append(nodeAddrs, nodeAddr)
+		}
+
 		addrs := make([]string, len(nodeUpdate.Addresses))
 		for i, addr := range nodeUpdate.Addresses {
 			addrs[i] = addr.String()
 		}
 
 		nodeUpdates[i] = &lnrpc.NodeUpdate{
-			Addresses:   addrs,
-			IdentityKey: encodeKey(nodeUpdate.IdentityKey),
-			Alias:       nodeUpdate.Alias,
-			Color:       nodeUpdate.Color,
+			Addresses:     addrs,
+			NodeAddresses: nodeAddrs,
+			IdentityKey:   encodeKey(nodeUpdate.IdentityKey),
+			Alias:         nodeUpdate.Alias,
+			Color:         nodeUpdate.Color,
 			Features: invoicesrpc.CreateRPCFeatures(
 				nodeUpdate.Features,
 			),

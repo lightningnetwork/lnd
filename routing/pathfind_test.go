@@ -204,6 +204,7 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 
 	aliasMap := make(map[string]route.Vertex)
 	privKeyMap := make(map[string]*btcec.PrivateKey)
+	channelIDs := make(map[route.Vertex]map[route.Vertex]uint64)
 	var source *channeldb.LightningNode
 
 	// First we insert all the nodes within the graph as vertexes.
@@ -356,6 +357,27 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 		if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
 			return nil, err
 		}
+
+		// We also store the channel IDs info for each of the node.
+		node1Vertex, err := route.NewVertexFromBytes(node1Bytes)
+		if err != nil {
+			return nil, err
+		}
+
+		node2Vertex, err := route.NewVertexFromBytes(node2Bytes)
+		if err != nil {
+			return nil, err
+		}
+
+		if _, ok := channelIDs[node1Vertex]; !ok {
+			channelIDs[node1Vertex] = map[route.Vertex]uint64{}
+		}
+		channelIDs[node1Vertex][node2Vertex] = edge.ChannelID
+
+		if _, ok := channelIDs[node2Vertex]; !ok {
+			channelIDs[node2Vertex] = map[route.Vertex]uint64{}
+		}
+		channelIDs[node2Vertex][node1Vertex] = edge.ChannelID
 	}
 
 	return &testGraphInstance{
@@ -363,6 +385,7 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 		cleanUp:    cleanUp,
 		aliasMap:   aliasMap,
 		privKeyMap: privKeyMap,
+		channelIDs: channelIDs,
 	}, nil
 }
 
@@ -435,6 +458,9 @@ type testGraphInstance struct {
 	// privKeyMap maps a node alias to its private key. This is used to be
 	// able to mock a remote node's signing behaviour.
 	privKeyMap map[string]*btcec.PrivateKey
+
+	// channelIDs stores the channel ID for each node.
+	channelIDs map[route.Vertex]map[route.Vertex]uint64
 }
 
 // createTestGraphFromChannels returns a fully populated ChannelGraph based on a set of

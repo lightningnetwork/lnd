@@ -1,6 +1,7 @@
 package chanfunding
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -299,11 +300,18 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 			}
 		}
 
+		// Sanity check: The addition of the outputs should not lead to the
+		// creation of dust.
+		if changeAmt != 0 && changeAmt <= w.cfg.DustLimit {
+			return fmt.Errorf("change amount(%v) after coin "+
+				"select is below dust limit(%v)", changeAmt,
+				w.cfg.DustLimit)
+		}
+
 		// Record any change output(s) generated as a result of the
-		// coin selection, but only if the addition of the output won't
-		// lead to the creation of dust.
+		// coin selection.
 		var changeOutput *wire.TxOut
-		if changeAmt != 0 && changeAmt > w.cfg.DustLimit {
+		if changeAmt != 0 {
 			changeAddr, err := r.ChangeAddr()
 			if err != nil {
 				return err

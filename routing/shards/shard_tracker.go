@@ -2,6 +2,7 @@ package shards
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/record"
@@ -74,6 +75,7 @@ func (s *Shard) AMP() *record.AMP {
 type SimpleShardTracker struct {
 	hash   lntypes.Hash
 	shards map[uint64]lntypes.Hash
+	sync.Mutex
 }
 
 // A compile time check to ensure SimpleShardTracker implements the
@@ -100,7 +102,9 @@ func NewSimpleShardTracker(paymentHash lntypes.Hash,
 // if it ends up not being used by the overall payment, i.e. if the attempt
 // fails.
 func (m *SimpleShardTracker) NewShard(id uint64, _ bool) (PaymentShard, error) {
+	m.Lock()
 	m.shards[id] = m.hash
+	m.Unlock()
 
 	return &Shard{
 		hash: m.hash,
@@ -109,14 +113,19 @@ func (m *SimpleShardTracker) NewShard(id uint64, _ bool) (PaymentShard, error) {
 
 // CancelShard cancel's the shard corresponding to the given attempt ID.
 func (m *SimpleShardTracker) CancelShard(id uint64) error {
+	m.Lock()
 	delete(m.shards, id)
+	m.Unlock()
+
 	return nil
 }
 
 // GetHash retrieves the hash used by the shard of the given attempt ID. This
 // will return an error if the attempt ID is unknown.
 func (m *SimpleShardTracker) GetHash(id uint64) (lntypes.Hash, error) {
+	m.Lock()
 	hash, ok := m.shards[id]
+	m.Unlock()
 	if !ok {
 		return lntypes.Hash{}, fmt.Errorf("hash for attempt id %v "+
 			"not found", id)

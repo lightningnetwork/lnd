@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/routing/shards"
 )
 
 // errShardHandlerExiting is returned from the shardHandler when it exits.
@@ -25,6 +26,7 @@ type paymentLifecycle struct {
 	feeLimit      lnwire.MilliSatoshi
 	paymentHash   lntypes.Hash
 	paySession    PaymentSession
+	shardTracker  shards.ShardTracker
 	timeoutChan   <-chan time.Time
 	currentHeight int32
 }
@@ -83,10 +85,11 @@ func (p *paymentLifecycle) paymentState(payment *channeldb.MPPayment) (
 // resumePayment resumes the paymentLifecycle from the current state.
 func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 	shardHandler := &shardHandler{
-		router:      p.router,
-		paymentHash: p.paymentHash,
-		shardErrors: make(chan error),
-		quit:        make(chan struct{}),
+		router:       p.router,
+		paymentHash:  p.paymentHash,
+		shardTracker: p.shardTracker,
+		shardErrors:  make(chan error),
+		quit:         make(chan struct{}),
 	}
 
 	// When the payment lifecycle loop exits, we make sure to signal any
@@ -246,8 +249,12 @@ lifecycle:
 			continue lifecycle
 		}
 
+		// If this route will consume the last remeining amount to send
+		// to the receiver, this will be our last shard (for now).
+		lastShard := rt.ReceiverAmt() == state.remainingAmt
+
 		// We found a route to try, launch a new shard.
-		attempt, outcome, err := shardHandler.launchShard(rt)
+		attempt, outcome, err := shardHandler.launchShard(rt, lastShard)
 		switch {
 		// We may get a terminal error if we've processed a shard with
 		// a terminal state (settled or permanent failure), while we
@@ -294,8 +301,9 @@ lifecycle:
 // shardHandler holds what is necessary to send and collect the result of
 // shards.
 type shardHandler struct {
-	paymentHash lntypes.Hash
-	router      *ChannelRouter
+	paymentHash  lntypes.Hash
+	router       *ChannelRouter
+	shardTracker shards.ShardTracker
 
 	// shardErrors is a channel where errors collected by calling
 	// collectResultAsync will be delivered. These results are meant to be
@@ -366,19 +374,20 @@ type launchOutcome struct {
 }
 
 // launchShard creates and sends an HTLC attempt along the given route,
-// registering it with the control tower before sending it. It returns the
-// HTLCAttemptInfo that was created for the shard, along with a launchOutcome.
-// The launchOutcome is used to indicate whether the attempt was successfully
-// sent. If the launchOutcome wraps a non-nil error, it means that the attempt
-// was not sent onto the network, so no result will be available in the future
-// for it.
-func (p *shardHandler) launchShard(rt *route.Route) (*channeldb.HTLCAttemptInfo,
-	*launchOutcome, error) {
+// registering it with the control tower before sending it. The lastShard
+// argument should be true if this shard will consume the remainder of the
+// amount to send. It returns the HTLCAttemptInfo that was created for the
+// shard, along with a launchOutcome.  The launchOutcome is used to indicate
+// whether the attempt was successfully sent. If the launchOutcome wraps a
+// non-nil error, it means that the attempt was not sent onto the network, so
+// no result will be available in the future for it.
+func (p *shardHandler) launchShard(rt *route.Route,
+	lastShard bool) (*channeldb.HTLCAttemptInfo, *launchOutcome, error) {
 
 	// Using the route received from the payment session, create a new
 	// shard to send.
 	firstHop, htlcAdd, attempt, err := p.createNewPaymentAttempt(
-		rt,
+		rt, lastShard,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -480,10 +489,17 @@ func (p *shardHandler) collectResultAsync(attempt *channeldb.HTLCAttemptInfo) {
 func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 	*shardResult, error) {
 
+	// We'll retrieve the hash specific to this shard from the
+	// shardTracker, since it will be needed to regenerate the circuit
+	// below.
+	hash, err := p.shardTracker.GetHash(attempt.AttemptID)
+	if err != nil {
+		return nil, err
+	}
+
 	// Regenerate the circuit for this attempt.
 	_, circuit, err := generateSphinxPacket(
-		&attempt.Route, p.paymentHash[:],
-		attempt.SessionKey,
+		&attempt.Route, hash[:], attempt.SessionKey,
 	)
 	if err != nil {
 		return nil, err
@@ -597,7 +613,7 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 }
 
 // createNewPaymentAttempt creates a new payment attempt from the given route.
-func (p *shardHandler) createNewPaymentAttempt(rt *route.Route) (
+func (p *shardHandler) createNewPaymentAttempt(rt *route.Route, lastShard bool) (
 	lnwire.ShortChannelID, *lnwire.UpdateAddHTLC,
 	*channeldb.HTLCAttemptInfo, error) {
 
@@ -607,12 +623,39 @@ func (p *shardHandler) createNewPaymentAttempt(rt *route.Route) (
 		return lnwire.ShortChannelID{}, nil, nil, err
 	}
 
+	// We generate a new, unique payment ID that we will use for
+	// this HTLC.
+	attemptID, err := p.router.cfg.NextPaymentID()
+	if err != nil {
+		return lnwire.ShortChannelID{}, nil, nil, err
+	}
+
+	// Requesst a new shard from the ShardTracker. If this is an AMP
+	// payment, and this is the last shard, the outstanding shards together
+	// with ths one will be enough for the receiver to derive all HTLC
+	// preimages. If this a non-AMP payment, the ShardTracker will return a
+	// simple shard with the payment's static payment hash.
+	shard, err := p.shardTracker.NewShard(attemptID, lastShard)
+	if err != nil {
+		return lnwire.ShortChannelID{}, nil, nil, err
+	}
+
+	// It this shard carries MPP or AMP options, add them to the last hop
+	// on the route.
+	hop := rt.Hops[len(rt.Hops)-1]
+	if shard.MPP() != nil {
+		hop.MPP = shard.MPP()
+	}
+
+	if shard.AMP() != nil {
+		hop.AMP = shard.AMP()
+	}
+
 	// Generate the raw encoded sphinx packet to be included along
 	// with the htlcAdd message that we send directly to the
 	// switch.
-	onionBlob, _, err := generateSphinxPacket(
-		rt, p.paymentHash[:], sessionKey,
-	)
+	hash := shard.Hash()
+	onionBlob, _, err := generateSphinxPacket(rt, hash[:], sessionKey)
 	if err != nil {
 		return lnwire.ShortChannelID{}, nil, nil, err
 	}
@@ -623,7 +666,7 @@ func (p *shardHandler) createNewPaymentAttempt(rt *route.Route) (
 	htlcAdd := &lnwire.UpdateAddHTLC{
 		Amount:      rt.TotalAmount,
 		Expiry:      rt.TotalTimeLock,
-		PaymentHash: p.paymentHash,
+		PaymentHash: hash,
 	}
 	copy(htlcAdd.OnionBlob[:], onionBlob)
 
@@ -633,13 +676,6 @@ func (p *shardHandler) createNewPaymentAttempt(rt *route.Route) (
 	firstHop := lnwire.NewShortChanIDFromInt(
 		rt.Hops[0].ChannelID,
 	)
-
-	// We generate a new, unique payment ID that we will use for
-	// this HTLC.
-	attemptID, err := p.router.cfg.NextPaymentID()
-	if err != nil {
-		return lnwire.ShortChannelID{}, nil, nil, err
-	}
 
 	// We now have all the information needed to populate
 	// the current attempt information.
@@ -721,6 +757,13 @@ func (p *shardHandler) failAttempt(attempt *channeldb.HTLCAttemptInfo,
 		sendError,
 		p.router.cfg.Clock.Now(),
 	)
+
+	// Now that we are failing this payment attempt, cancel the shard with
+	// the ShardTracker such that it can derive the correct hash for the
+	// next attempt.
+	if err := p.shardTracker.CancelShard(attempt.AttemptID); err != nil {
+		return nil, err
+	}
 
 	return p.router.cfg.Control.FailAttempt(
 		p.paymentHash, attempt.AttemptID,

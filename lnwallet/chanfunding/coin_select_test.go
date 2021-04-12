@@ -9,11 +9,20 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/stretchr/testify/require"
 )
 
 var (
 	p2wkhScript, _ = hex.DecodeString(
 		"001411034bdcb6ccb7744fdfdeea958a6fb0b415a032",
+	)
+
+	np2wkhScript, _ = hex.DecodeString(
+		"a914f7bd5b8077b9549653dacf96f824af9d931663e687",
+	)
+
+	p2khScript, _ = hex.DecodeString(
+		"76a91411034bdcb6ccb7744fdfdeea958a6fb0b415a03288ac",
 	)
 )
 
@@ -40,6 +49,88 @@ func fundingFee(feeRate chainfee.SatPerKWeight, numInput int, // nolint:unparam
 
 	totalWeight := int64(weightEstimate.Weight())
 	return feeRate.FeeForWeight(totalWeight)
+}
+
+// TestCalculateFees tests that the helper function to calculate the fees
+// both with and without applying a change output is done correctly for
+// (N)P2WKH inputs, and should raise an error otherwise.
+func TestCalculateFees(t *testing.T) {
+	t.Parallel()
+
+	const feeRate = chainfee.SatPerKWeight(1000)
+
+	type testCase struct {
+		name  string
+		utxos []Coin
+
+		expectedFeeNoChange   btcutil.Amount
+		expectedFeeWithChange btcutil.Amount
+		expectedErr           error
+	}
+
+	testCases := []testCase{
+		{
+			name: "one P2WKH input",
+			utxos: []Coin{
+				{
+					TxOut: wire.TxOut{
+						PkScript: p2wkhScript,
+						Value:    1,
+					},
+				},
+			},
+
+			expectedFeeNoChange:   487,
+			expectedFeeWithChange: 611,
+			expectedErr:           nil,
+		},
+
+		{
+			name: "one NP2WKH input",
+			utxos: []Coin{
+				{
+					TxOut: wire.TxOut{
+						PkScript: np2wkhScript,
+						Value:    1,
+					},
+				},
+			},
+
+			expectedFeeNoChange:   579,
+			expectedFeeWithChange: 703,
+			expectedErr:           nil,
+		},
+
+		{
+			name: "not supported P2KH input",
+			utxos: []Coin{
+				{
+					TxOut: wire.TxOut{
+						PkScript: p2khScript,
+						Value:    1,
+					},
+				},
+			},
+
+			expectedErr: &errUnsupportedInput{p2khScript},
+		},
+	}
+
+	for _, test := range testCases {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			feeNoChange, feeWithChange, err := calculateFees(
+				test.utxos, feeRate,
+			)
+			require.Equal(t, test.expectedErr, err)
+
+			// Note: The error-case will have zero values returned
+			// for fees and therefore anyway pass the following
+			// requirements.
+			require.Equal(t, test.expectedFeeNoChange, feeNoChange)
+			require.Equal(t, test.expectedFeeWithChange, feeWithChange)
+		})
+	}
 }
 
 // TestCoinSelect tests that we pick coins adding up to the expected amount

@@ -289,9 +289,10 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 		// Otherwise do a normal coin selection where we target a given
 		// funding amount.
 		default:
+			dustLimit := w.cfg.DustLimit
 			localContributionAmt = r.LocalAmt
 			selectedCoins, changeAmt, err = CoinSelect(
-				r.FeeRate, r.LocalAmt, coins,
+				r.FeeRate, r.LocalAmt, dustLimit, coins,
 			)
 			if err != nil {
 				return err

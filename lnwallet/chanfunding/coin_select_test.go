@@ -143,7 +143,7 @@ func TestCoinSelect(t *testing.T) {
 	t.Parallel()
 
 	const feeRate = chainfee.SatPerKWeight(100)
-	const dust = btcutil.Amount(100)
+	const dustLimit = btcutil.Amount(1000)
 
 	type testCase struct {
 		name        string
@@ -197,7 +197,7 @@ func TestCoinSelect(t *testing.T) {
 		{
 			// We have a 1 BTC input, and want to create an output
 			// as big as possible, such that the remaining change
-			// will be dust.
+			// would be dust but instead goes to fees.
 			name: "dust change",
 			coins: []Coin{
 				{
@@ -208,41 +208,53 @@ func TestCoinSelect(t *testing.T) {
 				},
 			},
 			// We tune the output value by subtracting the expected
-			// fee and a small dust amount.
-			outputValue: 1*btcutil.SatoshiPerBitcoin - fundingFee(feeRate, 1, true) - dust,
+			// fee and the dustlimit.
+			outputValue: 1*btcutil.SatoshiPerBitcoin - fundingFee(feeRate, 1, false) - dustLimit,
 
 			expectedInput: []btcutil.Amount{
 				1 * btcutil.SatoshiPerBitcoin,
 			},
 
-			// Change will the dust.
-			expectedChange: dust,
+			// Change must be zero.
+			expectedChange: 0,
 		},
 		{
-			// We have a 1 BTC input, and want to create an output
-			// as big as possible, such that there is nothing left
-			// for change.
-			name: "no change",
+			// We got just enough funds to create a change output above the
+			// dust limit.
+			name: "change right above dustlimit",
 			coins: []Coin{
 				{
 					TxOut: wire.TxOut{
 						PkScript: p2wkhScript,
-						Value:    1 * btcutil.SatoshiPerBitcoin,
+						Value:    int64(fundingFee(feeRate, 1, true) + 2*(dustLimit+1)),
 					},
 				},
 			},
-			// We tune the output value to be the maximum amount
-			// possible, leaving just enough for fees.
-			outputValue: 1*btcutil.SatoshiPerBitcoin - fundingFee(feeRate, 1, true),
+			// We tune the output value to be just above the dust limit.
+			outputValue: dustLimit + 1,
 
 			expectedInput: []btcutil.Amount{
-				1 * btcutil.SatoshiPerBitcoin,
+				fundingFee(feeRate, 1, true) + 2*(dustLimit+1),
 			},
-			// We have just enough left to pay the fee, so there is
-			// nothing left for change.
-			// TODO(halseth): currently coinselect estimates fees
-			// assuming a change output.
-			expectedChange: 0,
+
+			// After paying for the fee the change output should be just above
+			// the dust limit.
+			expectedChange: dustLimit + 1,
+		},
+		{
+			// If more than 20% of funds goes to fees, it should fail.
+			name: "high fee",
+			coins: []Coin{
+				{
+					TxOut: wire.TxOut{
+						PkScript: p2wkhScript,
+						Value:    int64(5 * fundingFee(feeRate, 1, false)),
+					},
+				},
+			},
+			outputValue: 4 * fundingFee(feeRate, 1, false),
+
+			expectErr: true,
 		},
 	}
 
@@ -252,7 +264,7 @@ func TestCoinSelect(t *testing.T) {
 			t.Parallel()
 
 			selected, changeAmt, err := CoinSelect(
-				feeRate, test.outputValue, test.coins,
+				feeRate, test.outputValue, dustLimit, test.coins,
 			)
 			if !test.expectErr && err != nil {
 				t.Fatalf(err.Error())

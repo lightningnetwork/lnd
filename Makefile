@@ -35,7 +35,7 @@ BTCD_COMMIT := $(shell cat go.mod | \
 		awk -F "/" '{ print $$1 }')
 
 LINT_COMMIT := v1.18.0
-GOACC_COMMIT := ddc355013f90fea78d83d3a6c71f1d37ac07ecd5
+GOACC_COMMIT :=80342ae2e0fcf265e99e76bcc4efd022c7c3811b 
 GOFUZZ_COMMIT := 21309f307f61
 
 DEPGET := cd /tmp && GO111MODULE=on go get -v

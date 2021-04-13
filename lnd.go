@@ -1553,6 +1553,17 @@ func initializeDatabases(ctx context.Context,
 func initNeutrinoBackend(cfg *Config, chainDir string) (*neutrino.ChainService,
 	func(), error) {
 
+	// Both channel validation flags are false by default but their meaning
+	// is the inverse of each other. Therefore both cannot be true. For
+	// every other case, the neutrino.validatechannels overwrites the
+	// routing.assumechanvalid value.
+	if cfg.NeutrinoMode.ValidateChannels && cfg.Routing.AssumeChannelValid {
+		return nil, nil, fmt.Errorf("can't set both " +
+			"neutrino.validatechannels and routing." +
+			"assumechanvalid to true at the same time")
+	}
+	cfg.Routing.AssumeChannelValid = !cfg.NeutrinoMode.ValidateChannels
+
 	// First we'll open the database file for neutrino, creating the
 	// database if needed. We append the normalized network name here to
 	// match the behavior of btcwallet.

@@ -365,6 +365,36 @@ func TestAddDuplicateKeysendPayAddr(t *testing.T) {
 	require.Equal(t, invoice2, &dbInv2)
 }
 
+// TestFailInvoiceLookupMPPPayAddrOnly asserts that looking up a MPP invoice
+// that matches _only_ by payment address fails with ErrInvoiceNotFound. This
+// ensures that the HTLC's payment hash always matches the payment hash in the
+// returned invoice.
+func TestFailInvoiceLookupMPPPayAddrOnly(t *testing.T) {
+	db, cleanUp, err := MakeTestDB()
+	defer cleanUp()
+	require.NoError(t, err)
+
+	// Create and insert a random invoice.
+	invoice, err := randInvoice(1000)
+	require.NoError(t, err)
+
+	payHash := invoice.Terms.PaymentPreimage.Hash()
+	payAddr := invoice.Terms.PaymentAddr
+	_, err = db.AddInvoice(invoice, payHash)
+	require.NoError(t, err)
+
+	// Modify the queried payment hash to be invalid.
+	payHash[0] ^= 0x01
+
+	// Lookup the invoice by (invalid) payment hash and payment address. The
+	// lookup should fail since we require the payment hash to match for
+	// legacy/MPP invoices, as this guarantees that the preimage is valid
+	// for the given HTLC.
+	ref := InvoiceRefByHashAndAddr(payHash, payAddr)
+	_, err = db.LookupInvoice(ref)
+	require.Equal(t, ErrInvoiceNotFound, err)
+}
+
 // TestInvRefEquivocation asserts that retrieving or updating an invoice using
 // an equivocating InvoiceRef results in ErrInvRefEquivocation.
 func TestInvRefEquivocation(t *testing.T) {

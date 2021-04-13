@@ -4675,20 +4675,28 @@
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Deprecated, use node_addresses."
         },
         "identity_key": {
           "type": "string"
         },
         "global_features": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "Deprecated, use features."
         },
         "alias": {
           "type": "string"
         },
         "color": {
           "type": "string"
+        },
+        "node_addresses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcNodeAddress"
+          }
         },
         "features": {
           "type": "object",

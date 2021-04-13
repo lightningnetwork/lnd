@@ -2768,11 +2768,21 @@ message GraphTopologyUpdate {
     repeated ClosedChannelUpdate closed_chans = 3;
 }
 message NodeUpdate {
-    repeated string addresses = 1;
+    /*
+    Deprecated, use node_addresses.
+    */
+    repeated string addresses = 1 [deprecated = true];
+
     string identity_key = 2;
+
+    /*
+    Deprecated, use features.
+    */
     bytes global_features = 3 [deprecated = true];
+
     string alias = 4;
     string color = 5;
+    repeated NodeAddress node_addresses = 7;
 
     /*
     Features that the node has advertised in the init message, node

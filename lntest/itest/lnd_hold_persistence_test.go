@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/stretchr/testify/require"
 )
 
 // testHoldInvoicePersistence tests that a sender to a hold-invoice, can be
@@ -302,22 +303,33 @@ func testHoldInvoicePersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Settle invoices half the invoices, cancel the rest.
 	for i, preimage := range preimages {
+		var expectedState lnrpc.Invoice_InvoiceState
+
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 		if i%2 == 0 {
 			settle := &invoicesrpc.SettleInvoiceMsg{
 				Preimage: preimage[:],
 			}
 			_, err = carol.SettleInvoice(ctxt, settle)
+
+			expectedState = lnrpc.Invoice_SETTLED
 		} else {
 			hash := preimage.Hash()
 			settle := &invoicesrpc.CancelInvoiceMsg{
 				PaymentHash: hash[:],
 			}
 			_, err = carol.CancelInvoice(ctxt, settle)
+
+			expectedState = lnrpc.Invoice_CANCELED
 		}
 		if err != nil {
 			t.Fatalf("unable to cancel/settle invoice: %v", err)
 		}
+
+		stream := invoiceStreams[i]
+		invoice, err := stream.Recv()
+		require.NoError(t.t, err)
+		require.Equal(t.t, expectedState, invoice.State)
 	}
 
 	// Make sure we get the expected status update.

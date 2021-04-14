@@ -362,6 +362,11 @@ func (c ContractState) String() string {
 	return "Unknown"
 }
 
+// IsFinal returns a boolean indicating whether an invoice state is final
+func (c ContractState) IsFinal() bool {
+	return c == ContractSettled || c == ContractCanceled
+}
+
 // ContractTerm is a companion struct to the Invoice struct. This struct houses
 // the necessary conditions required before the invoice can be considered fully
 // settled by the payee.

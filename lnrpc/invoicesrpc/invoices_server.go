@@ -247,6 +247,12 @@ func (s *Server) SubscribeSingleInvoice(req *SubscribeSingleInvoiceRequest,
 				return err
 			}
 
+			// If we have reached a terminal state, close the
+			// stream with no error.
+			if newInvoice.State.IsFinal() {
+				return nil
+			}
+
 		case <-s.quit:
 			return nil
 		}

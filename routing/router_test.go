@@ -598,8 +598,14 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 // a fee related error from a private channel that we're attempting to route
 // through, then we'll update the fees in the route hints and successfully
 // route through the private channel in the second attempt.
+//
+// The test will send a payment from roasbeef to elst, available paths are,
+// path1: roasbeef -> songoku -> sophon -> elst, total fee: 210k
+// path2: roasbeef -> phamnuwen -> sophon -> elst, total fee: 220k
+// path3: roasbeef -> songoku ->(private channel) elst
+// We will setup the path3 to have the lowest fee so it's always the preferred
+// path.
 func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
-	t.Skip() // TODO: add it back when FeeInsufficient is fixed.
 	t.Parallel()
 
 	const startingBlockHeight = 101
@@ -613,58 +619,55 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 		ctx.getChannelIDFromAlias(t, "roasbeef", "songoku"),
 	)
 
-	// Craft a LightningPayment struct that'll send a payment from roasbeef
-	// to elst, through a private channel between son goku and elst for
-	// 1000 satoshis. This route has lower fees compared with the route
-	// through pham nuwen, as well as compared with the route through son
-	// goku -> sophon. This also holds when the private channel fee is
-	// updated to a higher value.
-	var payHash lntypes.Hash
-	amt := lnwire.NewMSatFromSatoshis(1000)
-	privateChannelID := uint64(55555)
-	feeBaseMSat := uint32(15)
-	feeProportionalMillionths := uint32(10)
-	expiryDelta := uint16(32)
-	sgNode := ctx.aliases["songoku"]
+	var (
+		payHash          lntypes.Hash
+		preImage         [32]byte
+		amt              = lnwire.NewMSatFromSatoshis(1000)
+		privateChannelID = uint64(55555)
+		feeBaseMSat      = uint32(15)
+		expiryDelta      = uint16(32)
+		sgNode           = ctx.aliases["songoku"]
+	)
+
 	sgNodeID, err := btcec.ParsePubKey(sgNode[:], btcec.S256())
 	require.NoError(t, err)
-	hopHint := zpay32.HopHint{
-		NodeID:                    sgNodeID,
-		ChannelID:                 privateChannelID,
-		FeeBaseMSat:               feeBaseMSat,
-		FeeProportionalMillionths: feeProportionalMillionths,
-		CLTVExpiryDelta:           expiryDelta,
-	}
-	routeHints := [][]zpay32.HopHint{{hopHint}}
+
+	// Craft a LightningPayment struct that'll send a payment from roasbeef
+	// to elst, through a private channel between songoku and elst for
+	// 1000 satoshis. This route has lowest fees compared with the rest.
+	// This also holds when the private channel fee is updated to a higher
+	// value.
 	payment := LightningPayment{
 		Target:      ctx.aliases["elst"],
 		Amount:      amt,
 		FeeLimit:    noFeeLimit,
 		paymentHash: &payHash,
-		RouteHints:  routeHints,
+		RouteHints: [][]zpay32.HopHint{{
+			// Add a private channel between songoku and elst.
+			zpay32.HopHint{
+				NodeID:          sgNodeID,
+				ChannelID:       privateChannelID,
+				FeeBaseMSat:     feeBaseMSat,
+				CLTVExpiryDelta: expiryDelta,
+			},
+		}},
 	}
-
-	var preImage [32]byte
-	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
 
 	// Prepare an error update for the private channel, with twice the
 	// original fee.
 	updatedFeeBaseMSat := feeBaseMSat * 2
-	updatedFeeProportionalMillionths := feeProportionalMillionths
 	errChanUpdate := lnwire.ChannelUpdate{
 		ShortChannelID: lnwire.NewShortChanIDFromInt(privateChannelID),
 		Timestamp:      uint32(testTime.Add(time.Minute).Unix()),
 		BaseFee:        updatedFeeBaseMSat,
-		FeeRate:        updatedFeeProportionalMillionths,
 		TimeLockDelta:  expiryDelta,
 	}
-
 	signErrChanUpdate(t, ctx.privKeys["songoku"], &errChanUpdate)
 
-	// We'll now modify the SendToSwitch method to return an error for the
-	// outgoing channel to Son goku. This will be a fee related error, so
-	// it should only cause the edge to be pruned after the second attempt.
+	// We'll now modify the SendHTLC method to return an error for the
+	// outgoing channel to songoku.
 	errorReturned := false
+	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
 	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcher).setPaymentResult(
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
 
@@ -694,8 +697,8 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 	)
 
 	// The route selected should have two hops. Make sure that,
-	//   path: son goku -> sophon -> elst
-	//   path: pham nuwen -> sophon -> elst
+	//   path: roasbeef -> son goku -> sophon -> elst
+	//   path: roasbeef -> pham nuwen -> sophon -> elst
 	// are not selected instead.
 	require.Equal(t, 2, len(route.Hops), "incorrect route length")
 
@@ -717,9 +720,9 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 	)
 
 	// The route should have the updated fee.
-	expectedFee := updatedFeeBaseMSat +
-		(updatedFeeProportionalMillionths*uint32(amt))/1000000
-	require.Equal(t, lnwire.MilliSatoshi(expectedFee), route.HopFee(0),
+	require.Equal(t,
+		lnwire.MilliSatoshi(updatedFeeBaseMSat).String(),
+		route.HopFee(0).String(),
 		"fee to forward to the private channel not matched",
 	)
 }

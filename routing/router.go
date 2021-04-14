@@ -2163,15 +2163,13 @@ func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash, rt *route.Route) (
 	// mark the payment failed with the control tower immediately. Process
 	// the error to check if it maps into a terminal error code, if not use
 	// a generic NO_ROUTE error.
-	reason := r.processSendError(
-		attempt.AttemptID, &attempt.Route, shardError,
-	)
-	if reason == nil {
-		r := channeldb.FailureReasonNoRoute
-		reason = &r
+	if err := sh.handleSendError(attempt, shardError); err != nil {
+		return nil, err
 	}
 
-	err = r.cfg.Control.Fail(paymentIdentifier, *reason)
+	err = r.cfg.Control.Fail(
+		paymentIdentifier, channeldb.FailureReasonNoRoute,
+	)
 	if err != nil {
 		return nil, err
 	}

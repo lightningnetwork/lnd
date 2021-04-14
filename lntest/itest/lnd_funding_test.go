@@ -137,6 +137,12 @@ test:
 				"carol_commit=%v,dave_commit=%v", cc, dc,
 			)
 
+			logLine := fmt.Sprintf(
+				"---- basic channel funding subtest %s ----\n",
+				testName,
+			)
+			AddToNodeLog(t.t, net.Alice, logLine)
+
 			success := t.t.Run(testName, func(t *testing.T) {
 				testFunding(cc, dc)
 			})

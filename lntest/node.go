@@ -1304,50 +1304,31 @@ func (hn *HarnessNode) WaitForNetworkChannelClose(ctx context.Context,
 	}
 }
 
-// WaitForBlockchainSync will block until the target nodes has fully
-// synchronized with the blockchain. If the passed context object has a set
-// timeout, then the goroutine will continually poll until the timeout has
-// elapsed. In the case that the chain isn't synced before the timeout is up,
-// then this function will return an error.
+// WaitForBlockchainSync waits for the target node to be fully synchronized with
+// the blockchain. If the passed context object has a set timeout, it will
+// continually poll until the timeout has elapsed. In the case that the chain
+// isn't synced before the timeout is up, this function will return an error.
 func (hn *HarnessNode) WaitForBlockchainSync(ctx context.Context) error {
-	errChan := make(chan error, 1)
-	retryDelay := time.Millisecond * 100
+	ticker := time.NewTicker(time.Millisecond * 100)
+	defer ticker.Stop()
 
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-			case <-hn.quit:
-				return
-			default:
-			}
-
-			getInfoReq := &lnrpc.GetInfoRequest{}
-			getInfoResp, err := hn.GetInfo(ctx, getInfoReq)
-			if err != nil {
-				errChan <- err
-				return
-			}
-			if getInfoResp.SyncedToChain {
-				errChan <- nil
-				return
-			}
-
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(retryDelay):
-			}
+	for {
+		resp, err := hn.GetInfo(ctx, &lnrpc.GetInfoRequest{})
+		if err != nil {
+			return err
 		}
-	}()
+		if resp.SyncedToChain {
+			return nil
+		}
 
-	select {
-	case <-hn.quit:
-		return nil
-	case err := <-errChan:
-		return err
-	case <-ctx.Done():
-		return fmt.Errorf("timeout while waiting for blockchain sync")
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout while waiting for " +
+				"blockchain sync")
+		case <-hn.quit:
+			return nil
+		case <-ticker.C:
+		}
 	}
 }
 

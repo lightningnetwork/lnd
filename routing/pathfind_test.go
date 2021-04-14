@@ -2111,10 +2111,9 @@ func TestPathFindSpecExample(t *testing.T) {
 	// we'll pass that in to ensure that the router uses 100 as the current
 	// height.
 	const startingHeight = 100
-	ctx, cleanUp, err := createTestCtxFromFile(startingHeight, specExampleFilePath)
-	if err != nil {
-		t.Fatalf("unable to create router: %v", err)
-	}
+	ctx, cleanUp := createTestCtxFromFile(
+		t, startingHeight, specExampleFilePath,
+	)
 	defer cleanUp()
 
 	// We'll first exercise the scenario of a direct payment from Bob to

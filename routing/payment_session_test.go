@@ -2,10 +2,13 @@ package routing
 
 import (
 	"testing"
+	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/stretchr/testify/require"
 )
 
@@ -68,6 +71,109 @@ func TestValidateCLTVLimit(t *testing.T) {
 			break
 		}
 	}
+}
+
+// TestUpdateAdditionalEdge checks that we can update the additional edges as
+// expected.
+func TestUpdateAdditionalEdge(t *testing.T) {
+
+	var (
+		testChannelID  = uint64(12345)
+		oldFeeBaseMSat = uint32(1000)
+		newFeeBaseMSat = uint32(1100)
+		oldExpiryDelta = uint16(100)
+		newExpiryDelta = uint16(120)
+
+		payHash lntypes.Hash
+	)
+
+	// Create a minimal test node using the private key priv1.
+	pub := priv1.PubKey().SerializeCompressed()
+	testNode := &channeldb.LightningNode{}
+	copy(testNode.PubKeyBytes[:], pub)
+
+	nodeID, err := testNode.PubKey()
+	require.NoError(t, err, "failed to get node id")
+
+	// Create a payment with a route hint.
+	payment := &LightningPayment{
+		Target: testNode.PubKeyBytes,
+		Amount: 1000,
+		RouteHints: [][]zpay32.HopHint{{
+			zpay32.HopHint{
+				// The nodeID is actually the target itself. It
+				// doesn't matter as we are not doing routing
+				// in this test.
+				NodeID:          nodeID,
+				ChannelID:       testChannelID,
+				FeeBaseMSat:     oldFeeBaseMSat,
+				CLTVExpiryDelta: oldExpiryDelta,
+			},
+		}},
+		paymentHash: &payHash,
+	}
+
+	// Create the paymentsession.
+	session, err := newPaymentSession(
+		payment,
+		func() (map[uint64]lnwire.MilliSatoshi,
+			error) {
+
+			return nil, nil
+		},
+		func() (routingGraph, func(), error) {
+			return &sessionGraph{}, func() {}, nil
+		},
+		&MissionControl{},
+		PathFindingConfig{},
+	)
+	require.NoError(t, err, "failed to create payment session")
+
+	// We should have 1 additional edge.
+	require.Equal(t, 1, len(session.additionalEdges))
+
+	// The edge should use nodeID as key, and its value should have 1 edge
+	// policy.
+	vertex := route.NewVertex(nodeID)
+	policies, ok := session.additionalEdges[vertex]
+	require.True(t, ok, "cannot find policy")
+	require.Equal(t, 1, len(policies), "should have 1 edge policy")
+
+	// Check that the policy has been created as expected.
+	policy := policies[0]
+	require.Equal(t, testChannelID, policy.ChannelID, "channel ID mismatch")
+	require.Equal(t,
+		oldExpiryDelta, policy.TimeLockDelta, "timelock delta mismatch",
+	)
+	require.Equal(t,
+		lnwire.MilliSatoshi(oldFeeBaseMSat),
+		policy.FeeBaseMSat, "fee base msat mismatch",
+	)
+
+	// Create the channel update message and sign.
+	msg := &lnwire.ChannelUpdate{
+		ShortChannelID: lnwire.NewShortChanIDFromInt(testChannelID),
+		Timestamp:      uint32(time.Now().Unix()),
+		BaseFee:        newFeeBaseMSat,
+		TimeLockDelta:  newExpiryDelta,
+	}
+	signErrChanUpdate(t, priv1, msg)
+
+	// Apply the update.
+	require.True(t,
+		session.UpdateAdditionalEdge(msg, nodeID, policy),
+		"failed to update additional edge",
+	)
+
+	// Check that the policy has been updated as expected.
+	require.Equal(t, testChannelID, policy.ChannelID, "channel ID mismatch")
+	require.Equal(t,
+		newExpiryDelta, policy.TimeLockDelta, "timelock delta mismatch",
+	)
+	require.Equal(t,
+		lnwire.MilliSatoshi(newFeeBaseMSat),
+		policy.FeeBaseMSat, "fee base msat mismatch",
+	)
 }
 
 func TestRequestRoute(t *testing.T) {

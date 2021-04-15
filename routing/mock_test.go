@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -165,6 +166,18 @@ func (m *mockPaymentSession) RequestRoute(_, _ lnwire.MilliSatoshi,
 	m.routes = m.routes[1:]
 
 	return r, nil
+}
+
+func (m *mockPaymentSession) UpdateAdditionalEdge(_ *lnwire.ChannelUpdate,
+	_ *btcec.PublicKey, _ *channeldb.ChannelEdgePolicy) bool {
+
+	return false
+}
+
+func (m *mockPaymentSession) GetAdditionalEdgePolicy(_ *btcec.PublicKey,
+	_ uint64) *channeldb.ChannelEdgePolicy {
+
+	return nil
 }
 
 type mockPayer struct {

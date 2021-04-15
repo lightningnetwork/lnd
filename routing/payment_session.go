@@ -138,6 +138,19 @@ type PaymentSession interface {
 	// during path finding.
 	RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		activeShards, height uint32) (*route.Route, error)
+
+	// UpdateAdditionalEdge takes an additional channel edge policy
+	// (private channels) and applies the update from the message. Returns
+	// a boolean to indicate whether the update has been applied without
+	// error.
+	UpdateAdditionalEdge(msg *lnwire.ChannelUpdate, pubKey *btcec.PublicKey,
+		policy *channeldb.ChannelEdgePolicy) bool
+
+	// GetAdditionalEdgePolicy uses the public key and channel ID to query
+	// the ephemeral channel edge policy for additional edges. Returns a nil
+	// if nothing found.
+	GetAdditionalEdgePolicy(pubKey *btcec.PublicKey,
+		channelID uint64) *channeldb.ChannelEdgePolicy
 }
 
 // paymentSession is used during an HTLC routings session to prune the local

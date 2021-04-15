@@ -91,6 +91,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 		shardTracker: p.shardTracker,
 		shardErrors:  make(chan error),
 		quit:         make(chan struct{}),
+		paySession:   p.paySession,
 	}
 
 	// When the payment lifecycle loop exits, we make sure to signal any
@@ -305,6 +306,7 @@ type shardHandler struct {
 	identifier   lntypes.Hash
 	router       *ChannelRouter
 	shardTracker shards.ShardTracker
+	paySession   PaymentSession
 
 	// shardErrors is a channel where errors collected by calling
 	// collectResultAsync will be delivered. These results are meant to be
@@ -855,12 +857,42 @@ func (p *shardHandler) handleFailureMessage(rt *route.Route,
 		return err
 	}
 
-	// Apply channel update.
+	var (
+		isAdditionalEdge bool
+		policy           *channeldb.ChannelEdgePolicy
+	)
+
+	// Before we apply the channel update, we need to decide whether the
+	// update is for additional (ephemeral) edge or normal edge stored in
+	// db.
+	//
+	// Note: the p.paySession might be nil here if it's called inside
+	// SendToRoute where there's no payment lifecycle.
+	if p.paySession != nil {
+		policy = p.paySession.GetAdditionalEdgePolicy(
+			errSource, update.ShortChannelID.ToUint64(),
+		)
+		if policy != nil {
+			isAdditionalEdge = true
+		}
+	}
+
+	// Apply channel update to additional edge policy.
+	if isAdditionalEdge {
+		if !p.paySession.UpdateAdditionalEdge(
+			update, errSource, policy) {
+
+			log.Debugf("Invalid channel update received: node=%v",
+				errVertex)
+		}
+		return nil
+	}
+
+	// Apply channel update to the channel edge policy in our db.
 	if !p.router.applyChannelUpdate(update, errSource) {
 		log.Debugf("Invalid channel update received: node=%v",
 			errVertex)
 	}
-
 	return nil
 }
 

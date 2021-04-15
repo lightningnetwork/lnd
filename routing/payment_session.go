@@ -3,7 +3,9 @@ package routing
 import (
 	"fmt"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btclog"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -381,4 +383,54 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 
 		return route, err
 	}
+}
+
+// UpdateAdditionalEdge updates the channel edge policy for a private edge. It
+// validates the message signature and checks it's up to date, then applies the
+// updates to the supplied policy. It returns a boolean to indicate whether
+// there's an error when applying the updates.
+func (p *paymentSession) UpdateAdditionalEdge(msg *lnwire.ChannelUpdate,
+	pubKey *btcec.PublicKey, policy *channeldb.ChannelEdgePolicy) bool {
+
+	// Validate the message signature.
+	if err := VerifyChannelUpdateSignature(msg, pubKey); err != nil {
+		log.Errorf(
+			"Unable to validate channel update signature: %v", err,
+		)
+		return false
+	}
+
+	// Update channel policy for the additional edge.
+	policy.TimeLockDelta = msg.TimeLockDelta
+	policy.FeeBaseMSat = lnwire.MilliSatoshi(msg.BaseFee)
+	policy.FeeProportionalMillionths = lnwire.MilliSatoshi(msg.FeeRate)
+
+	log.Debugf("New private channel update applied: %v",
+		newLogClosure(func() string { return spew.Sdump(msg) }))
+
+	return true
+}
+
+// GetAdditionalEdgePolicy uses the public key and channel ID to query the
+// ephemeral channel edge policy for additional edges. Returns a nil if nothing
+// found.
+func (p *paymentSession) GetAdditionalEdgePolicy(pubKey *btcec.PublicKey,
+	channelID uint64) *channeldb.ChannelEdgePolicy {
+
+	target := route.NewVertex(pubKey)
+
+	edges, ok := p.additionalEdges[target]
+	if !ok {
+		return nil
+	}
+
+	for _, edge := range edges {
+		if edge.ChannelID != channelID {
+			continue
+		}
+
+		return edge
+	}
+
+	return nil
 }

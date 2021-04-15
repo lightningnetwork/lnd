@@ -31,6 +31,11 @@ var lndStarted int32
 // current app directory in order to ensure lnd has the permissions needed to
 // write to it.
 func Start(extraArgs string, rpcReady Callback) {
+	// (Re-)initialize the in-mem gRPC listeners we're going to give to lnd.
+	// This is required each time lnd is started, because when lnd shuts
+	// down, the in-mem listeners are closed.
+	RecreateListeners()
+
 	// Split the argument string on "--" to get separated command line
 	// arguments.
 	var splitArgs []string

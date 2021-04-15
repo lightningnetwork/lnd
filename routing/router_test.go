@@ -727,6 +727,134 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 	)
 }
 
+// TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit tests that upon receiving a
+// ChannelUpdate in a fee related error from the private channel, we won't
+// choose the route in our second attempt if the updated fee exceeds our fee
+// limit specified in the payment.
+//
+// The test will send a payment from roasbeef to elst, available paths are,
+// path1: roasbeef -> songoku -> sophon -> elst, total fee: 210k
+// path2: roasbeef -> phamnuwen -> sophon -> elst, total fee: 220k
+// path3: roasbeef -> songoku ->(private channel) elst
+// We will setup the path3 to have the lowest fee and then update it with a fee
+// exceeds our fee limit, thus this route won't be chosen.
+func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx, cleanUp := createTestCtxFromFile(
+		t, startingBlockHeight, basicGraphFilePath,
+	)
+	defer cleanUp()
+
+	// Get the channel ID.
+	roasbeefSongoku := lnwire.NewShortChanIDFromInt(
+		ctx.getChannelIDFromAlias(t, "roasbeef", "songoku"),
+	)
+
+	var (
+		payHash          lntypes.Hash
+		preImage         [32]byte
+		amt              = lnwire.NewMSatFromSatoshis(1000)
+		privateChannelID = uint64(55555)
+		feeBaseMSat      = uint32(15)
+		expiryDelta      = uint16(32)
+		sgNode           = ctx.aliases["songoku"]
+		feeLimit         = lnwire.MilliSatoshi(500000)
+	)
+
+	sgNodeID, err := btcec.ParsePubKey(sgNode[:], btcec.S256())
+	require.NoError(t, err)
+
+	// Craft a LightningPayment struct that'll send a payment from roasbeef
+	// to elst, through a private channel between songoku and elst for
+	// 1000 satoshis. This route has lowest fees compared with the rest.
+	payment := LightningPayment{
+		Target:      ctx.aliases["elst"],
+		Amount:      amt,
+		FeeLimit:    feeLimit,
+		paymentHash: &payHash,
+		RouteHints: [][]zpay32.HopHint{{
+			// Add a private channel between songoku and elst.
+			zpay32.HopHint{
+				NodeID:          sgNodeID,
+				ChannelID:       privateChannelID,
+				FeeBaseMSat:     feeBaseMSat,
+				CLTVExpiryDelta: expiryDelta,
+			},
+		}},
+	}
+
+	// Prepare an error update for the private channel. The updated fee
+	// will exceeds the feeLimit.
+	updatedFeeBaseMSat := feeBaseMSat + uint32(feeLimit)
+	errChanUpdate := lnwire.ChannelUpdate{
+		ShortChannelID: lnwire.NewShortChanIDFromInt(privateChannelID),
+		Timestamp:      uint32(testTime.Add(time.Minute).Unix()),
+		BaseFee:        updatedFeeBaseMSat,
+		TimeLockDelta:  expiryDelta,
+	}
+	signErrChanUpdate(t, ctx.privKeys["songoku"], &errChanUpdate)
+
+	// We'll now modify the SendHTLC method to return an error for the
+	// outgoing channel to songoku.
+	errorReturned := false
+	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
+	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcher).setPaymentResult(
+		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
+
+			if firstHop != roasbeefSongoku || errorReturned {
+				return preImage, nil
+			}
+
+			errorReturned = true
+			return [32]byte{}, htlcswitch.NewForwardingError(
+				// Within our error, we'll add a
+				// channel update which is meant to
+				// reflect the new fee schedule for the
+				// node/channel.
+				&lnwire.FailFeeInsufficient{
+					Update: errChanUpdate,
+				}, 1,
+			)
+		})
+
+	// Send off the payment request to the router, route through son
+	// goku and then across the private channel to elst.
+	paymentPreImage, route, err := ctx.router.SendPayment(&payment)
+	require.NoError(t, err, "unable to send payment")
+
+	require.True(t, errorReturned,
+		"failed to simulate error in the first payment attempt",
+	)
+
+	// The route selected should have three hops. Make sure that,
+	//   path1: roasbeef -> son goku -> sophon -> elst
+	//   path2: roasbeef -> pham nuwen -> sophon -> elst
+	//   path3: roasbeef -> sophon -> (private channel) else
+	// path1 is selected.
+	require.Equal(t, 3, len(route.Hops), "incorrect route length")
+
+	// The preimage should match up with the one created above.
+	require.Equal(t,
+		paymentPreImage[:], preImage[:], "incorrect preimage used",
+	)
+
+	// The route should have son goku as the first hop.
+	require.Equal(t, route.Hops[0].PubKeyBytes, ctx.aliases["songoku"],
+		"route should go through son goku as the first hop",
+	)
+
+	// The route should have sophon as the first hop.
+	require.Equal(t, route.Hops[1].PubKeyBytes, ctx.aliases["sophon"],
+		"route should go through sophon as the second hop",
+	)
+	// The route should pass via the public channel.
+	require.Equal(t, route.FinalHop().PubKeyBytes, ctx.aliases["elst"],
+		"route should go through elst as the final hop",
+	)
+}
+
 // TestSendPaymentErrorNonFinalTimeLockErrors tests that if we receive either
 // an ExpiryTooSoon or a IncorrectCltvExpiry error from a node, then we prune
 // that node from the available graph witin a mission control session. This

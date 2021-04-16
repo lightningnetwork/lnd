@@ -401,29 +401,27 @@ func (u *UnlockerService) InitWallet(ctx context.Context,
 	}
 }
 
-// UnlockWallet sends the password provided by the incoming UnlockWalletRequest
-// over the UnlockMsgs channel in case it successfully decrypts an existing
-// wallet found in the chain's wallet database directory.
-func (u *UnlockerService) UnlockWallet(ctx context.Context,
-	in *lnrpc.UnlockWalletRequest) (*lnrpc.UnlockWalletResponse, error) {
-
-	password := in.WalletPassword
-	recoveryWindow := uint32(in.RecoveryWindow)
+// LoadAndUnlock creates a loader for the wallet and tries to unlock the wallet
+// with the given password and recovery window. If the drop wallet transactions
+// flag is set, the history state drop is performed before unlocking the wallet
+// yet again.
+func (u *UnlockerService) LoadAndUnlock(password []byte,
+	recoveryWindow uint32) (*wallet.Wallet, func() error, error) {
 
 	loader, err := u.newLoader(recoveryWindow)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Check if wallet already exists.
 	walletExists, err := loader.WalletExists()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if !walletExists {
 		// Cannot unlock a wallet that does not exist!
-		return nil, fmt.Errorf("wallet not found")
+		return nil, nil, fmt.Errorf("wallet not found")
 	}
 
 	// Try opening the existing wallet with the provided password.
@@ -431,7 +429,7 @@ func (u *UnlockerService) UnlockWallet(ctx context.Context,
 	if err != nil {
 		// Could not open wallet, most likely this means that provided
 		// password was incorrect.
-		return nil, err
+		return nil, nil, err
 	}
 
 	// The user requested to drop their whole wallet transaction state to
@@ -447,7 +445,7 @@ func (u *UnlockerService) UnlockWallet(ctx context.Context,
 		// wallet. If unloading fails, that error is probably more
 		// important to be returned to the user anyway.
 		if err := loader.UnloadWallet(); err != nil {
-			return nil, fmt.Errorf("could not unload "+
+			return nil, nil, fmt.Errorf("could not unload "+
 				"wallet (tx history drop err: %v): %v", dropErr,
 				err)
 		}
@@ -455,14 +453,33 @@ func (u *UnlockerService) UnlockWallet(ctx context.Context,
 		// If dropping failed but unloading didn't, we'll still abort
 		// and inform the user.
 		if dropErr != nil {
-			return nil, dropErr
+			return nil, nil, dropErr
 		}
 
 		// All looks good, let's now open the wallet again.
 		unlockedWallet, err = loader.OpenExistingWallet(password, false)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
+	}
+
+	return unlockedWallet, loader.UnloadWallet, nil
+}
+
+// UnlockWallet sends the password provided by the incoming UnlockWalletRequest
+// over the UnlockMsgs channel in case it successfully decrypts an existing
+// wallet found in the chain's wallet database directory.
+func (u *UnlockerService) UnlockWallet(ctx context.Context,
+	in *lnrpc.UnlockWalletRequest) (*lnrpc.UnlockWalletResponse, error) {
+
+	password := in.WalletPassword
+	recoveryWindow := uint32(in.RecoveryWindow)
+
+	unlockedWallet, unloadFn, err := u.LoadAndUnlock(
+		password, recoveryWindow,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	// We successfully opened the wallet and pass the instance back to
@@ -471,7 +488,7 @@ func (u *UnlockerService) UnlockWallet(ctx context.Context,
 		Passphrase:     password,
 		RecoveryWindow: recoveryWindow,
 		Wallet:         unlockedWallet,
-		UnloadWallet:   loader.UnloadWallet,
+		UnloadWallet:   unloadFn,
 		StatelessInit:  in.StatelessInit,
 	}
 

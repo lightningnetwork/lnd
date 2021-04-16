@@ -25,6 +25,18 @@ func (e *ErrInsufficientFunds) Error() string {
 		e.amountAvailable, e.amountSelected)
 }
 
+// errUnsupportedInput is a type matching the error interface, which is returned
+// when trying to calculate the fee of a transaction that references an
+// unsupported script in the outpoint of a transaction input.
+type errUnsupportedInput struct {
+	PkScript []byte
+}
+
+// Error returns a human readable string describing the error.
+func (e *errUnsupportedInput) Error() string {
+	return fmt.Sprintf("unsupported address type: %x", e.PkScript)
+}
+
 // Coin represents a spendable UTXO which is available for channel funding.
 // This UTXO need not reside in our internal wallet as an example, and instead
 // may be derived from an existing watch-only wallet. It wraps both the output
@@ -52,11 +64,65 @@ func selectInputs(amt btcutil.Amount, coins []Coin) (btcutil.Amount, []Coin, err
 	return 0, nil, &ErrInsufficientFunds{amt, satSelected}
 }
 
+// calculateFees returns for the specified utxos and fee rate two fee
+// estimates, one calculated using a change output and one without. The weight
+// added to the estimator from a change output is for a P2WKH output.
+func calculateFees(utxos []Coin, feeRate chainfee.SatPerKWeight) (btcutil.Amount,
+	btcutil.Amount, error) {
+
+	var weightEstimate input.TxWeightEstimator
+	for _, utxo := range utxos {
+		switch {
+
+		case txscript.IsPayToWitnessPubKeyHash(utxo.PkScript):
+			weightEstimate.AddP2WKHInput()
+
+		case txscript.IsPayToScriptHash(utxo.PkScript):
+			weightEstimate.AddNestedP2WKHInput()
+
+		default:
+			return 0, 0, &errUnsupportedInput{utxo.PkScript}
+		}
+	}
+
+	// Channel funding multisig output is P2WSH.
+	weightEstimate.AddP2WSHOutput()
+
+	// Estimate the fee required for a transaction without a change
+	// output.
+	totalWeight := int64(weightEstimate.Weight())
+	requiredFeeNoChange := feeRate.FeeForWeight(totalWeight)
+
+	// Estimate the fee required for a transaction with a change output.
+	// Assume that change output is a P2WKH output.
+	weightEstimate.AddP2WKHOutput()
+
+	// Now that we have added the change output, redo the fee
+	// estimate.
+	totalWeight = int64(weightEstimate.Weight())
+	requiredFeeWithChange := feeRate.FeeForWeight(totalWeight)
+
+	return requiredFeeNoChange, requiredFeeWithChange, nil
+}
+
+// sanityCheckFee checks if the specified fee amounts to over 20% of the total
+// output amount and raises an error.
+func sanityCheckFee(totalOut, fee btcutil.Amount) error {
+	// Fail if more than 20% goes to fees.
+	// TODO(halseth): smarter fee limit. Make configurable or dynamic wrt
+	// total funding size?
+	if fee > totalOut/5 {
+		return fmt.Errorf("fee %v on total output value %v", fee,
+			totalOut)
+	}
+	return nil
+}
+
 // CoinSelect attempts to select a sufficient amount of coins, including a
 // change output to fund amt satoshis, adhering to the specified fee rate. The
 // specified fee rate should be expressed in sat/kw for coin selection to
 // function properly.
-func CoinSelect(feeRate chainfee.SatPerKWeight, amt btcutil.Amount,
+func CoinSelect(feeRate chainfee.SatPerKWeight, amt, dustLimit btcutil.Amount,
 	coins []Coin) ([]Coin, btcutil.Amount, error) {
 
 	amtNeeded := amt
@@ -68,53 +134,57 @@ func CoinSelect(feeRate chainfee.SatPerKWeight, amt btcutil.Amount,
 			return nil, 0, err
 		}
 
-		var weightEstimate input.TxWeightEstimator
-
-		for _, utxo := range selectedUtxos {
-			switch {
-
-			case txscript.IsPayToWitnessPubKeyHash(utxo.PkScript):
-				weightEstimate.AddP2WKHInput()
-
-			case txscript.IsPayToScriptHash(utxo.PkScript):
-				weightEstimate.AddNestedP2WKHInput()
-
-			default:
-				return nil, 0, fmt.Errorf("unsupported address type: %x",
-					utxo.PkScript)
-			}
+		// Obtain fee estimates both with and without using a change
+		// output.
+		requiredFeeNoChange, requiredFeeWithChange, err := calculateFees(
+			selectedUtxos, feeRate,
+		)
+		if err != nil {
+			return nil, 0, err
 		}
-
-		// Channel funding multisig output is P2WSH.
-		weightEstimate.AddP2WSHOutput()
-
-		// Assume that change output is a P2WKH output.
-		//
-		// TODO: Handle wallets that generate non-witness change
-		// addresses.
-		// TODO(halseth): make coinSelect not estimate change output
-		// for dust change.
-		weightEstimate.AddP2WKHOutput()
 
 		// The difference between the selected amount and the amount
 		// requested will be used to pay fees, and generate a change
 		// output with the remaining.
 		overShootAmt := totalSat - amt
 
-		// Based on the estimated size and fee rate, if the excess
-		// amount isn't enough to pay fees, then increase the requested
-		// coin amount by the estimate required fee, performing another
-		// round of coin selection.
-		totalWeight := int64(weightEstimate.Weight())
-		requiredFee := feeRate.FeeForWeight(totalWeight)
-		if overShootAmt < requiredFee {
-			amtNeeded = amt + requiredFee
+		var changeAmt btcutil.Amount
+
+		switch {
+
+		// If the excess amount isn't enough to pay for fees based on
+		// fee rate and estimated size without using a change output,
+		// then increase the requested coin amount by the estimate
+		// required fee without using change, performing another round
+		// of coin selection.
+		case overShootAmt < requiredFeeNoChange:
+			amtNeeded = amt + requiredFeeNoChange
 			continue
+
+		// If sufficient funds were selected to cover the fee required
+		// to include a change output, the remainder will be our change
+		// amount.
+		case overShootAmt > requiredFeeWithChange:
+			changeAmt = overShootAmt - requiredFeeWithChange
+
+		// Otherwise we have selected enough to pay for a tx without a
+		// change output.
+		default:
+			changeAmt = 0
+
 		}
 
-		// If the fee is sufficient, then calculate the size of the
-		// change output.
-		changeAmt := overShootAmt - requiredFee
+		if changeAmt < dustLimit {
+			changeAmt = 0
+		}
+
+		// Sanity check the resulting output values to make sure we
+		// don't burn a great part to fees.
+		totalOut := amt + changeAmt
+		err = sanityCheckFee(totalOut, totalSat-totalOut)
+		if err != nil {
+			return nil, 0, err
+		}
 
 		return selectedUtxos, changeAmt, nil
 	}
@@ -134,37 +204,17 @@ func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 		return nil, 0, 0, err
 	}
 
-	var weightEstimate input.TxWeightEstimator
-	for _, utxo := range selectedUtxos {
-		switch {
-
-		case txscript.IsPayToWitnessPubKeyHash(utxo.PkScript):
-			weightEstimate.AddP2WKHInput()
-
-		case txscript.IsPayToScriptHash(utxo.PkScript):
-			weightEstimate.AddNestedP2WKHInput()
-
-		default:
-			return nil, 0, 0, fmt.Errorf("unsupported address "+
-				"type: %x", utxo.PkScript)
-		}
-	}
-
-	// Channel funding multisig output is P2WSH.
-	weightEstimate.AddP2WSHOutput()
-
-	// At this point we've got two possibilities, either create a
-	// change output, or not. We'll first try without creating a
-	// change output.
-	//
-	// Estimate the fee required for a transaction without a change
+	// Obtain fee estimates both with and without using a change
 	// output.
-	totalWeight := int64(weightEstimate.Weight())
-	requiredFee := feeRate.FeeForWeight(totalWeight)
+	requiredFeeNoChange, requiredFeeWithChange, err := calculateFees(
+		selectedUtxos, feeRate)
+	if err != nil {
+		return nil, 0, 0, err
+	}
 
 	// For a transaction without a change output, we'll let everything go
 	// to our multi-sig output after subtracting fees.
-	outputAmt := totalSat - requiredFee
+	outputAmt := totalSat - requiredFeeNoChange
 	changeAmt := btcutil.Amount(0)
 
 	// If the the output is too small after subtracting the fee, the coin
@@ -172,24 +222,13 @@ func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 	if outputAmt <= dustLimit {
 		return nil, 0, 0, fmt.Errorf("output amount(%v) after "+
 			"subtracting fees(%v) below dust limit(%v)", outputAmt,
-			requiredFee, dustLimit)
+			requiredFeeNoChange, dustLimit)
 	}
-
-	// We were able to create a transaction with no change from the
-	// selected inputs. We'll remember the resulting values for
-	// now, while we try to add a change output. Assume that change output
-	// is a P2WKH output.
-	weightEstimate.AddP2WKHOutput()
-
-	// Now that we have added the change output, redo the fee
-	// estimate.
-	totalWeight = int64(weightEstimate.Weight())
-	requiredFee = feeRate.FeeForWeight(totalWeight)
 
 	// For a transaction with a change output, everything we don't spend
 	// will go to change.
+	newOutput := amt - requiredFeeWithChange
 	newChange := totalSat - amt
-	newOutput := amt - requiredFee
 
 	// If adding a change output leads to both outputs being above
 	// the dust limit, we'll add the change output. Otherwise we'll
@@ -202,14 +241,9 @@ func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 	// Sanity check the resulting output values to make sure we
 	// don't burn a great part to fees.
 	totalOut := outputAmt + changeAmt
-	fee := totalSat - totalOut
-
-	// Fail if more than 20% goes to fees.
-	// TODO(halseth): smarter fee limit. Make configurable or dynamic wrt
-	// total funding size?
-	if fee > totalOut/5 {
-		return nil, 0, 0, fmt.Errorf("fee %v on total output "+
-			"value %v", fee, totalOut)
+	err = sanityCheckFee(totalOut, totalSat-totalOut)
+	if err != nil {
+		return nil, 0, 0, err
 	}
 
 	return selectedUtxos, outputAmt, changeAmt, nil

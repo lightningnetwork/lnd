@@ -1930,7 +1930,7 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Wait for Alice to receive the channel update from Carol.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	aliceSub := subscribeGraphNotifications(t, ctxt, net.Alice)
+	aliceSub := subscribeGraphNotifications(ctxt, t, net.Alice)
 	defer close(aliceSub.quit)
 
 	waitForChannelUpdate(

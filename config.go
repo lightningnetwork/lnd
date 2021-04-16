@@ -292,7 +292,8 @@ type Config struct {
 
 	NoNetBootstrap bool `long:"nobootstrap" description:"If true, then automatic network bootstrapping will not be attempted."`
 
-	NoSeedBackup bool `long:"noseedbackup" description:"If true, NO SEED WILL BE EXPOSED -- EVER, AND THE WALLET WILL BE ENCRYPTED USING THE DEFAULT PASSPHRASE. THIS FLAG IS ONLY FOR TESTING AND SHOULD NEVER BE USED ON MAINNET."`
+	NoSeedBackup             bool   `long:"noseedbackup" description:"If true, NO SEED WILL BE EXPOSED -- EVER, AND THE WALLET WILL BE ENCRYPTED USING THE DEFAULT PASSPHRASE. THIS FLAG IS ONLY FOR TESTING AND SHOULD NEVER BE USED ON MAINNET."`
+	WalletUnlockPasswordFile string `long:"wallet-unlock-password-file" description:"The full path to a file (or pipe/device) that contains the password for unlocking the wallet; if set, no unlocking through RPC is possible and lnd will exit if no wallet exists or the password is incorrect"`
 
 	ResetWalletTransactions bool `long:"reset-wallet-transactions" description:"Removes all transaction history from the on-chain wallet on startup, forcing a full chain rescan starting at the wallet's birthday. Implements the same functionality as btcwallet's dropwtxmgr command. Should be set to false after successful execution to avoid rescanning on every restart of lnd."`
 
@@ -687,6 +688,9 @@ func ValidateConfig(cfg Config, usageMessage string,
 	cfg.Tor.WatchtowerKeyPath = CleanAndExpandPath(cfg.Tor.WatchtowerKeyPath)
 	cfg.Watchtower.TowerDir = CleanAndExpandPath(cfg.Watchtower.TowerDir)
 	cfg.BackupFilePath = CleanAndExpandPath(cfg.BackupFilePath)
+	cfg.WalletUnlockPasswordFile = CleanAndExpandPath(
+		cfg.WalletUnlockPasswordFile,
+	)
 
 	// Create the lnd directory and all other sub directories if they don't
 	// already exist. This makes sure that directory trees are also created
@@ -1276,6 +1280,20 @@ func ValidateConfig(cfg Config, usageMessage string,
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	switch {
+	// The no seed backup and auto unlock are mutually exclusive.
+	case cfg.NoSeedBackup && cfg.WalletUnlockPasswordFile != "":
+		return nil, fmt.Errorf("cannot set noseedbackup and " +
+			"wallet-unlock-password-file at the same time")
+
+	// If a password file was specified, we need it to exist.
+	case cfg.WalletUnlockPasswordFile != "" &&
+		!lnrpc.FileExists(cfg.WalletUnlockPasswordFile):
+
+		return nil, fmt.Errorf("wallet unlock password file %s does "+
+			"not exist", cfg.WalletUnlockPasswordFile)
 	}
 
 	// For each of the RPC listeners (REST+gRPC), we'll ensure that users

@@ -1222,7 +1222,7 @@ func TestBreachHandoffFail(t *testing.T) {
 }
 
 type publAssertion func(*testing.T, map[wire.OutPoint]struct{},
-	chan *wire.MsgTx, chainhash.Hash)
+	chan *wire.MsgTx, chainhash.Hash) *wire.MsgTx
 
 type breachTest struct {
 	name string
@@ -1361,7 +1361,7 @@ var breachTests = []breachTest{
 		spend2ndLevel: true,
 		whenNonZeroInputs: func(t *testing.T,
 			inputs map[wire.OutPoint]struct{},
-			publTx chan *wire.MsgTx, _ chainhash.Hash) {
+			publTx chan *wire.MsgTx, _ chainhash.Hash) *wire.MsgTx {
 
 			var tx *wire.MsgTx
 			select {
@@ -1384,10 +1384,11 @@ var breachTests = []breachTest{
 				findInputIndex(t, in, tx)
 			}
 
+			return tx
 		},
 		whenZeroInputs: func(t *testing.T,
 			inputs map[wire.OutPoint]struct{},
-			publTx chan *wire.MsgTx, _ chainhash.Hash) {
+			publTx chan *wire.MsgTx, _ chainhash.Hash) *wire.MsgTx {
 
 			// Sanity check to ensure the brar doesn't try to
 			// broadcast another sweep, since all outputs have been
@@ -1397,6 +1398,8 @@ var breachTests = []breachTest{
 				t.Fatalf("tx published unexpectedly")
 			case <-time.After(50 * time.Millisecond):
 			}
+
+			return nil
 		},
 	},
 	{
@@ -1405,7 +1408,7 @@ var breachTests = []breachTest{
 		sendFinalConf: true,
 		whenNonZeroInputs: func(t *testing.T,
 			inputs map[wire.OutPoint]struct{},
-			publTx chan *wire.MsgTx, _ chainhash.Hash) {
+			publTx chan *wire.MsgTx, _ chainhash.Hash) *wire.MsgTx {
 
 			var tx *wire.MsgTx
 			select {
@@ -1428,11 +1431,12 @@ var breachTests = []breachTest{
 				findInputIndex(t, in, tx)
 			}
 
+			return tx
 		},
 		whenZeroInputs: func(t *testing.T,
 			inputs map[wire.OutPoint]struct{},
 			publTx chan *wire.MsgTx,
-			htlc2ndLevlTxHash chainhash.Hash) {
+			htlc2ndLevlTxHash chainhash.Hash) *wire.MsgTx {
 
 			// Now a transaction attempting to spend from the second
 			// level tx should be published instead. Let this
@@ -1465,6 +1469,8 @@ var breachTests = []breachTest{
 				t.Fatalf("tx not attempting to spend second "+
 					"level tx, %v", tx.TxIn[0])
 			}
+
+			return tx
 		},
 	},
 	{ // nolint: dupl
@@ -1474,7 +1480,7 @@ var breachTests = []breachTest{
 		sweepHtlc: true,
 		whenNonZeroInputs: func(t *testing.T,
 			inputs map[wire.OutPoint]struct{},
-			publTx chan *wire.MsgTx, _ chainhash.Hash) {
+			publTx chan *wire.MsgTx, _ chainhash.Hash) *wire.MsgTx {
 
 			var tx *wire.MsgTx
 			select {
@@ -1496,10 +1502,12 @@ var breachTests = []breachTest{
 			for in := range inputs {
 				findInputIndex(t, in, tx)
 			}
+
+			return tx
 		},
 		whenZeroInputs: func(t *testing.T,
 			inputs map[wire.OutPoint]struct{},
-			publTx chan *wire.MsgTx, _ chainhash.Hash) {
+			publTx chan *wire.MsgTx, _ chainhash.Hash) *wire.MsgTx {
 
 			// Sanity check to ensure the brar doesn't try to
 			// broadcast another sweep, since all outputs have been
@@ -1509,6 +1517,8 @@ var breachTests = []breachTest{
 				t.Fatalf("tx published unexpectedly")
 			case <-time.After(50 * time.Millisecond):
 			}
+
+			return nil
 		},
 	},
 }
@@ -1567,7 +1577,11 @@ func testBreachSpends(t *testing.T, test breachTest) {
 		},
 		BreachRetribution: retribution,
 	}
-	contractBreaches <- breach
+	select {
+	case contractBreaches <- breach:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("breach not delivered")
+	}
 
 	// We'll also wait to consume the ACK back from the breach arbiter.
 	select {
@@ -1608,7 +1622,12 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	// Notify that the breaching transaction is confirmed, to trigger the
 	// retribution logic.
 	notifier := brar.cfg.Notifier.(*mock.SpendNotifier)
-	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
+
+	select {
+	case notifier.ConfChan <- &chainntnfs.TxConfirmation{}:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("conf not delivered")
+	}
 
 	// The breach arbiter should attempt to sweep all outputs on the
 	// breached commitment. We'll pretend that the HTLC output has been
@@ -1666,6 +1685,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 
 	// Until no more inputs to spend remain, deliver the spend events and
 	// process the assertions prescribed by the test case.
+	var justiceTx *wire.MsgTx
 	for len(spentBy) > 0 {
 		var (
 			op      wire.OutPoint
@@ -1705,20 +1725,25 @@ func testBreachSpends(t *testing.T, test breachTest) {
 		}
 
 		if len(spentBy) > 0 {
-			test.whenNonZeroInputs(t, inputsToSweep, publTx, htlc2ndLevlTx.TxHash())
+			justiceTx = test.whenNonZeroInputs(t, inputsToSweep, publTx, htlc2ndLevlTx.TxHash())
 		} else {
 			// Reset the publishing error so that any publication,
 			// made by the breach arbiter, if any, will succeed.
 			publMtx.Lock()
 			publErr = nil
 			publMtx.Unlock()
-			test.whenZeroInputs(t, inputsToSweep, publTx, htlc2ndLevlTx.TxHash())
+			justiceTx = test.whenZeroInputs(t, inputsToSweep, publTx, htlc2ndLevlTx.TxHash())
 		}
 	}
 
-	// Deliver confirmation of sweep if the test expects it.
+	// Deliver confirmation of sweep if the test expects it. Since we are
+	// looking for the final justice tx to confirme, we deliver a spend of
+	// all its inputs.
 	if test.sendFinalConf {
-		notifier.ConfChan <- &chainntnfs.TxConfirmation{}
+		for _, txin := range justiceTx.TxIn {
+			op := txin.PreviousOutPoint
+			notifier.Spend(&op, 3, justiceTx)
+		}
 	}
 
 	// Assert that the channel is fully resolved.

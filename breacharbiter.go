@@ -538,16 +538,13 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 	defer b.wg.Done()
 
 	// TODO(roasbeef): state needs to be checkpointed here
-	var breachConfHeight uint32
 	select {
-	case breachConf, ok := <-confChan.Confirmed:
+	case _, ok := <-confChan.Confirmed:
 		// If the second value is !ok, then the channel has been closed
 		// signifying a daemon shutdown, so we exit.
 		if !ok {
 			return
 		}
-
-		breachConfHeight = breachConf.BlockHeight
 
 		// Otherwise, if this is a real confirmation notification, then
 		// we fall through to complete our duty.
@@ -569,6 +566,10 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 			"chanid=%v: %v", &breachInfo.chanPoint, err)
 		return
 	}
+
+	// Compute both the total value of funds being swept and the
+	// amount of funds that were revoked from the counter party.
+	var totalFunds, revokedFunds btcutil.Amount
 
 	// If this retribution has not been finalized before, we will first
 	// construct a sweep transaction and write it to disk. This will allow
@@ -605,30 +606,49 @@ justiceTxBroadcast:
 	err = b.cfg.PublishTransaction(finalTx, label)
 	if err != nil {
 		brarLog.Errorf("Unable to broadcast justice tx: %v", err)
+	}
 
-		if err == lnwallet.ErrDoubleSpend {
-			// Broadcasting the transaction failed because of a
-			// conflict either in the mempool or in chain. We'll
-			// now create spend subscriptions for all HTLC outputs
-			// on the commitment transaction that could possibly
-			// have been spent, and wait for any of them to
-			// trigger.
-			brarLog.Infof("Waiting for a spend event before " +
-				"attempting to craft new justice tx.")
-			finalTx = nil
+	// Regardless of publication succeeded or not, we now wait for any of
+	// the inputs to be spent. If any input got spent by the remote, we
+	// must recreate our justice transaction.
+	var (
+		spendChan = make(chan []spend, 1)
+		errChan   = make(chan error, 1)
+		wg        sync.WaitGroup
+	)
 
-			spends, err := b.waitForSpendEvent(
-				breachInfo, spendNtfns,
-			)
-			if err != nil {
-				if err != errBrarShuttingDown {
-					brarLog.Errorf("error waiting for "+
-						"spend event: %v", err)
-				}
-				return
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		spends, err := b.waitForSpendEvent(breachInfo, spendNtfns)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		spendChan <- spends
+	}()
+
+Loop:
+	for {
+		select {
+		case spends := <-spendChan:
+			// Print the funds swept by the txs.
+			for _, s := range spends {
+				tx := s.detail.SpendingTx
+				t, r := countRevokedFunds(breachInfo, tx)
+				totalFunds += t
+				revokedFunds += r
 			}
 
+			brarLog.Infof("Justice for ChannelPoint(%v) has "+
+				"been served, %v revoked funds (%v total) "+
+				"have been claimed", breachInfo.chanPoint,
+				revokedFunds, totalFunds)
+
+			// Update the breach info with the new spends.
 			updateBreachInfo(breachInfo, spends)
+
 			if len(breachInfo.breachedOutputs) == 0 {
 				brarLog.Debugf("No more outputs to sweep for "+
 					"breach, marking ChannelPoint(%v) "+
@@ -640,63 +660,36 @@ justiceTxBroadcast:
 						"breached ChannelPoint(%v): %v",
 						breachInfo.chanPoint, err)
 				}
-				return
+
+				// TODO(roasbeef): add peer to blacklist?
+
+				// TODO(roasbeef): close other active channels with offending
+				// peer
+				break Loop
 			}
 
+			finalTx = nil
 			brarLog.Infof("Attempting another justice tx "+
 				"with %d inputs",
 				len(breachInfo.breachedOutputs))
 
+			wg.Wait()
 			goto justiceTxBroadcast
+
+		case err := <-errChan:
+			if err != errBrarShuttingDown {
+				brarLog.Errorf("error waiting for "+
+					"spend event: %v", err)
+			}
+			break Loop
+
+		case <-b.quit:
+			break Loop
 		}
 	}
 
-	// As a conclusionary step, we register for a notification to be
-	// dispatched once the justice tx is confirmed. After confirmation we
-	// notify the caller that initiated the retribution workflow that the
-	// deed has been done.
-	justiceTXID := finalTx.TxHash()
-	justiceScript := finalTx.TxOut[0].PkScript
-	confChan, err = b.cfg.Notifier.RegisterConfirmationsNtfn(
-		&justiceTXID, justiceScript, 1, breachConfHeight,
-	)
-	if err != nil {
-		brarLog.Errorf("Unable to register for conf for txid(%v): %v",
-			justiceTXID, err)
-		return
-	}
-
-	select {
-	case _, ok := <-confChan.Confirmed:
-		if !ok {
-			return
-		}
-
-		// Compute both the total value of funds being swept and the
-		// amount of funds that were revoked from the counter party.
-		totalFunds, revokedFunds := countRevokedFunds(breachInfo, finalTx)
-
-		brarLog.Infof("Justice for ChannelPoint(%v) has "+
-			"been served, %v revoked funds (%v total) "+
-			"have been claimed", breachInfo.chanPoint,
-			revokedFunds, totalFunds)
-
-		err = b.cleanupBreach(&breachInfo.chanPoint)
-		if err != nil {
-			brarLog.Errorf("Failed to cleanup breached "+
-				"ChannelPoint(%v): %v", breachInfo.chanPoint,
-				err)
-		}
-
-		// TODO(roasbeef): add peer to blacklist?
-
-		// TODO(roasbeef): close other active channels with offending
-		// peer
-		return
-
-	case <-b.quit:
-		return
-	}
+	// Wait for our go routine to exit.
+	wg.Wait()
 }
 
 // countRevokedFunds counts the total and revoked funds swept by our justice

@@ -1309,8 +1309,9 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		fundingTx, err := r.fetchFundingTx(&channelID)
 		if err != nil {
-			return errors.Errorf("unable to fetch funding tx for "+
-				"chan_id=%v: %v", msg.ChannelID, err)
+			return newErrf(ErrNoFundingTransaction, "unable to "+
+				"fetch funding tx for chan_id=%v: %v",
+				msg.ChannelID, err)
 		}
 
 		// Recreate witness output to be sure that declared in channel

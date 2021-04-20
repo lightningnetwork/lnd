@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chanvalidate"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
@@ -1309,6 +1311,37 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		fundingTx, err := r.fetchFundingTx(&channelID)
 		if err != nil {
+			// In order to ensure we don't errnosuly mark a channel as
+			// a zmobie due to an RPC failure, we'll attempt to string
+			// match for the relevant errors.
+			//
+			// * btcd:
+			//    * https://github.com/btcsuite/btcd/blob/master/rpcserver.go#L1316
+			//    * https://github.com/btcsuite/btcd/blob/master/rpcserver.go#L1086
+			// * bitcoind:
+			//    * https://github.com/bitcoin/bitcoin/blob/7fcf53f7b4524572d1d0c9a5fdc388e87eb02416/src/rpc/blockchain.cpp#L770
+			//     * https://github.com/bitcoin/bitcoin/blob/7fcf53f7b4524572d1d0c9a5fdc388e87eb02416/src/rpc/blockchain.cpp#L954
+			switch {
+			case strings.Contains(err.Error(), "not found"):
+				fallthrough
+
+			case strings.Contains(err.Error(), "out of range"):
+				// If the funding transaction isn't found at all, then
+				// we'll mark the edge itself as a zombie so we don't
+				// continue to request it. We use the "zero key" for
+				// both node pubkeys so this edge can't be resurrected.
+				var zeroKey [33]byte
+				zErr := r.cfg.Graph.MarkEdgeZombie(
+					msg.ChannelID, zeroKey, zeroKey,
+				)
+				if zErr != nil {
+					return fmt.Errorf("unable to mark spent "+
+						"chan(id=%v) as a zombie: %w", msg.ChannelID,
+						zErr)
+				}
+			default:
+			}
+
 			return newErrf(ErrNoFundingTransaction, "unable to "+
 				"fetch funding tx for chan_id=%v: %v",
 				msg.ChannelID, err)
@@ -1355,6 +1388,22 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 			r.quit,
 		)
 		if err != nil {
+			// If we fail validation of the UTXO here, then we'll
+			// mark the channel as a zombie as otherwise, we may
+			// continue to continue to request it. We use the "zero
+			// key" for both node pubkeys so this edge can't be
+			// resurrected.
+			if errors.Is(err, btcwallet.ErrOutputSpent) {
+				var zeroKey [33]byte
+				zErr := r.cfg.Graph.MarkEdgeZombie(
+					msg.ChannelID, zeroKey, zeroKey,
+				)
+				if zErr != nil {
+					return fmt.Errorf("unable to mark spent "+
+						"chan(id=%v) as a zombie: %w", msg.ChannelID,
+						zErr)
+				}
+			}
 
 			return newErrf(ErrChannelSpent, "unable to fetch utxo "+
 				"for chan_id=%v, chan_point=%v: %v",

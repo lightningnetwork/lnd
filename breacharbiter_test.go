@@ -1220,7 +1220,7 @@ func TestBreachHandoffFail(t *testing.T) {
 	assertArbiterBreach(t, brar, chanPoint)
 }
 
-type publAssertion func(*testing.T, map[wire.OutPoint]*wire.MsgTx,
+type publAssertion func(*testing.T, map[wire.OutPoint]struct{},
 	chan *wire.MsgTx)
 
 type breachTest struct {
@@ -1271,7 +1271,7 @@ var breachTests = []breachTest{
 		name:          "all spends",
 		spend2ndLevel: true,
 		whenNonZeroInputs: func(t *testing.T,
-			inputs map[wire.OutPoint]*wire.MsgTx,
+			inputs map[wire.OutPoint]struct{},
 			publTx chan *wire.MsgTx) {
 
 			var tx *wire.MsgTx
@@ -1281,7 +1281,7 @@ var breachTests = []breachTest{
 				t.Fatalf("tx was not published")
 			}
 
-			// The justice transaction should have thee same number
+			// The justice transaction should have the same number
 			// of inputs as we are tracking in the test.
 			if len(tx.TxIn) != len(inputs) {
 				t.Fatalf("expected justice txn to have %d "+
@@ -1297,7 +1297,7 @@ var breachTests = []breachTest{
 
 		},
 		whenZeroInputs: func(t *testing.T,
-			inputs map[wire.OutPoint]*wire.MsgTx,
+			inputs map[wire.OutPoint]struct{},
 			publTx chan *wire.MsgTx) {
 
 			// Sanity check to ensure the brar doesn't try to
@@ -1315,17 +1315,33 @@ var breachTests = []breachTest{
 		spend2ndLevel: false,
 		sendFinalConf: true,
 		whenNonZeroInputs: func(t *testing.T,
-			inputs map[wire.OutPoint]*wire.MsgTx,
+			inputs map[wire.OutPoint]struct{},
 			publTx chan *wire.MsgTx) {
 
+			var tx *wire.MsgTx
 			select {
-			case <-publTx:
+			case tx = <-publTx:
 			case <-time.After(5 * time.Second):
 				t.Fatalf("tx was not published")
 			}
+
+			// The justice transaction should have the same number
+			// of inputs as we are tracking in the test.
+			if len(tx.TxIn) != len(inputs) {
+				t.Fatalf("expected justice txn to have %d "+
+					"inputs, found %d", len(inputs),
+					len(tx.TxIn))
+			}
+
+			// Ensure that each input exists on the justice
+			// transaction.
+			for in := range inputs {
+				findInputIndex(t, in, tx)
+			}
+
 		},
 		whenZeroInputs: func(t *testing.T,
-			inputs map[wire.OutPoint]*wire.MsgTx,
+			inputs map[wire.OutPoint]struct{},
 			publTx chan *wire.MsgTx) {
 
 			// Now a transaction attempting to spend from the second
@@ -1486,49 +1502,69 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	// we want it to be spent by. As the test progresses, this map will be
 	// updated to contain only the set of commitment or second level
 	// outpoints that remain to be spent.
-	inputs := map[wire.OutPoint]*wire.MsgTx{
+	spentBy := map[wire.OutPoint]*wire.MsgTx{
 		htlcOutpoint:   htlc2ndLevlTx,
 		localOutpoint:  commitSpendTx,
 		remoteOutpoint: commitSpendTx,
 	}
 
+	// We also keep a map of those remaining outputs we expect the
+	// breacharbiter to try and sweep.
+	inputsToSweep := map[wire.OutPoint]struct{}{
+		htlcOutpoint:   {},
+		localOutpoint:  {},
+		remoteOutpoint: {},
+	}
+
 	// Until no more inputs to spend remain, deliver the spend events and
 	// process the assertions prescribed by the test case.
-	for len(inputs) > 0 {
+	for len(spentBy) > 0 {
 		var (
 			op      wire.OutPoint
 			spendTx *wire.MsgTx
 		)
 
 		// Pick an outpoint at random from the set of inputs.
-		for op, spendTx = range inputs {
-			delete(inputs, op)
+		for op, spendTx = range spentBy {
+			delete(spentBy, op)
 			break
 		}
 
 		// Deliver the spend notification for the chosen transaction.
 		notifier.Spend(&op, 2, spendTx)
 
-		// When the second layer transfer is detected, add back the
-		// outpoint of the second layer tx so that we can spend it
-		// again. Only do so if the test requests this behavior.
+		// Since the remote just swept this input, we expect our next
+		// justice transaction to not include them.
+		delete(inputsToSweep, op)
+
+		// If this is the second-level spend, we must add the new
+		// outpoint to our expected sweeps.
 		spendTxID := spendTx.TxHash()
-		if test.spend2ndLevel && spendTxID == htlc2ndLevlTx.TxHash() {
-			// Create the second level outpoint that will be spent,
-			// the index is always zero for these 1-in-1-out txns.
+		if spendTxID == htlc2ndLevlTx.TxHash() {
+			// Create the second level outpoint that will
+			// be spent, the index is always zero for these
+			// 1-in-1-out txns.
 			spendOp := wire.OutPoint{Hash: spendTxID}
-			inputs[spendOp] = htlcSpendTx
+			inputsToSweep[spendOp] = struct{}{}
+
+			// When the second layer transfer is detected, add back
+			// the outpoint of the second layer tx so that we can
+			// spend it again. Only do so if the test requests this
+			// behavior.
+			if test.spend2ndLevel {
+				spentBy[spendOp] = htlcSpendTx
+			}
 		}
 
-		if len(inputs) > 0 {
-			test.whenNonZeroInputs(t, inputs, publTx)
+		if len(spentBy) > 0 {
+			test.whenNonZeroInputs(t, inputsToSweep, publTx)
 		} else {
 			// Reset the publishing error so that any publication,
 			// made by the breach arbiter, if any, will succeed.
 			publMtx.Lock()
 			publErr = nil
 			publMtx.Unlock()
-			test.whenZeroInputs(t, inputs, publTx)
+			test.whenZeroInputs(t, inputsToSweep, publTx)
 		}
 	}
 

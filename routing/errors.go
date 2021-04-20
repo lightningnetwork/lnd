@@ -15,6 +15,11 @@ const (
 	// this update can't bring us something new, or because a node
 	// announcement was given for node not found in any channel.
 	ErrIgnored
+
+	// ErrChannelSpent is returned when we go to validate a channel, but
+	// the purported funding output has actually already been spent on
+	// chain.
+	ErrChannelSpent
 )
 
 // routerError is a structure that represent the error inside the routing package,

@@ -3045,6 +3045,20 @@ func TestGraphZombieIndex(t *testing.T) {
 		t.Fatal("expected edge to not be marked as zombie")
 	}
 	assertNumZombies(t, graph, 0)
+
+	// If we mark the edge as a zombie manually, then it should show up as
+	// being a zombie once again.
+	err = graph.MarkEdgeZombie(
+		edge.ChannelID, node1.PubKeyBytes, node2.PubKeyBytes,
+	)
+	if err != nil {
+		t.Fatalf("unable to mark edge as zombie: %v", err)
+	}
+	isZombie, _, _ = graph.IsZombieEdge(edge.ChannelID)
+	if !isZombie {
+		t.Fatal("expected edge to be marked as zombie")
+	}
+	assertNumZombies(t, graph, 1)
 }
 
 // compareNodes is used to compare two LightningNodes while excluding the

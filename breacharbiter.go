@@ -460,11 +460,30 @@ func updateBreachInfo(breachInfo *retributionInfo, spends []spend) {
 
 	for _, s := range spends {
 		breachedOutput := &inputs[s.index]
+		txIn := s.detail.SpendingTx.TxIn[s.detail.SpenderInputIndex]
 
 		switch breachedOutput.witnessType {
 		case input.HtlcAcceptedRevoke:
 			fallthrough
 		case input.HtlcOfferedRevoke:
+			// If the HTLC output was spent using the revocation
+			// key, it is our own spend, and we can forget the
+			// output. Otherwise it has been taken to the second
+			// level.
+			signDesc := &breachedOutput.signDesc
+			ok, err := input.IsHtlcSpendRevoke(txIn, signDesc)
+			if err != nil {
+				brarLog.Errorf("Unable to determine if "+
+					"revoke spend: %v", err)
+				break
+			}
+
+			if ok {
+				brarLog.Debugf("HTLC spend was our own " +
+					"revocation spend")
+				break
+			}
+
 			brarLog.Infof("Spend on second-level "+
 				"%s(%v) for ChannelPoint(%v) "+
 				"transitions to second-level output",

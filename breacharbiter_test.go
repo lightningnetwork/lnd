@@ -36,6 +36,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -1231,6 +1232,10 @@ type breachTest struct {
 	// htlc is in effect "readded" to the set of inputs.
 	spend2ndLevel bool
 
+	// sweepHtlc tests that the HTLC output is swept using the revocation
+	// path in a separate tx.
+	sweepHtlc bool
+
 	// sendFinalConf informs the test to send a confirmation for the justice
 	// transaction before asserting the arbiter is cleaned up.
 	sendFinalConf bool
@@ -1248,10 +1253,11 @@ type spendTxs struct {
 	commitSpendTx    *wire.MsgTx
 	htlc2ndLevlTx    *wire.MsgTx
 	htlc2ndLevlSpend *wire.MsgTx
+	htlcSweep        *wire.MsgTx
 }
 
-func getSpendTransactions(_ input.Signer, _ *wire.OutPoint,
-	retribution *lnwallet.BreachRetribution) *spendTxs {
+func getSpendTransactions(signer input.Signer, chanPoint *wire.OutPoint,
+	retribution *lnwallet.BreachRetribution) (*spendTxs, error) {
 
 	localOutpoint := retribution.LocalOutpoint
 	remoteOutpoint := retribution.RemoteOutpoint
@@ -1303,11 +1309,50 @@ func getSpendTransactions(_ input.Signer, _ *wire.OutPoint,
 		},
 	}
 
+	// htlcSweep is used to spend the HTLC output directly using the
+	// revocation key.
+	htlcSweep := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{
+				PreviousOutPoint: htlcOutpoint,
+			},
+		},
+		TxOut: []*wire.TxOut{
+			{Value: 21000},
+		},
+	}
+
+	// In order for  the breacharbiter to detect that it is being spent
+	// using the revocation key, it will inspect the witness. Therefore
+	// sign and add the witness to the HTLC sweep.
+	retInfo := newRetributionInfo(chanPoint, retribution)
+
+	hashCache := txscript.NewTxSigHashes(htlcSweep)
+	for i := range retInfo.breachedOutputs {
+		inp := &retInfo.breachedOutputs[i]
+
+		// Find the HTLC output. so we can add the witness.
+		switch inp.witnessType {
+		case input.HtlcAcceptedRevoke:
+			fallthrough
+		case input.HtlcOfferedRevoke:
+			inputScript, err := inp.CraftInputScript(
+				signer, htlcSweep, hashCache, 0,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			htlcSweep.TxIn[0].Witness = inputScript.Witness
+		}
+	}
+
 	return &spendTxs{
 		commitSpendTx:    commitSpendTx,
 		htlc2ndLevlTx:    htlc2ndLevlTx,
 		htlc2ndLevlSpend: htlcSpendTx,
-	}
+		htlcSweep:        htlcSweep,
+	}, nil
 }
 
 var breachTests = []breachTest{
@@ -1419,6 +1464,50 @@ var breachTests = []breachTest{
 			if onlyInput != htlc2ndLevlTxHash {
 				t.Fatalf("tx not attempting to spend second "+
 					"level tx, %v", tx.TxIn[0])
+			}
+		},
+	},
+	{ // nolint: dupl
+		// Test that if the HTLC output is swept via the revoke path
+		// (by us) in a separate tx, it will be handled correctly.
+		name:      "sweep htlc",
+		sweepHtlc: true,
+		whenNonZeroInputs: func(t *testing.T,
+			inputs map[wire.OutPoint]struct{},
+			publTx chan *wire.MsgTx, _ chainhash.Hash) {
+
+			var tx *wire.MsgTx
+			select {
+			case tx = <-publTx:
+			case <-time.After(5 * time.Second):
+				t.Fatalf("tx was not published")
+			}
+
+			// The justice transaction should have the same number
+			// of inputs as we are tracking in the test.
+			if len(tx.TxIn) != len(inputs) {
+				t.Fatalf("expected justice txn to have %d "+
+					"inputs, found %d", len(inputs),
+					len(tx.TxIn))
+			}
+
+			// Ensure that each input exists on the justice
+			// transaction.
+			for in := range inputs {
+				findInputIndex(t, in, tx)
+			}
+		},
+		whenZeroInputs: func(t *testing.T,
+			inputs map[wire.OutPoint]struct{},
+			publTx chan *wire.MsgTx, _ chainhash.Hash) {
+
+			// Sanity check to ensure the brar doesn't try to
+			// broadcast another sweep, since all outputs have been
+			// spent externally.
+			select {
+			case <-publTx:
+				t.Fatalf("tx published unexpectedly")
+			case <-time.After(50 * time.Millisecond):
 			}
 		},
 	},
@@ -1543,9 +1632,10 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	remoteOutpoint := retribution.RemoteOutpoint
 	htlcOutpoint := retribution.HtlcRetributions[0].OutPoint
 
-	spendTxs := getSpendTransactions(
+	spendTxs, err := getSpendTransactions(
 		brar.cfg.Signer, chanPoint, retribution,
 	)
+	require.NoError(t, err)
 
 	// Construct a map from outpoint on the force close to the transaction
 	// we want it to be spent by. As the test progresses, this map will be
@@ -1567,6 +1657,13 @@ func testBreachSpends(t *testing.T, test breachTest) {
 
 	htlc2ndLevlTx := spendTxs.htlc2ndLevlTx
 	htlcSpendTx := spendTxs.htlc2ndLevlSpend
+
+	// If the test is checking sweep of the HTLC directly without the
+	// second level, insert the sweep tx instead.
+	if test.sweepHtlc {
+		spentBy[htlcOutpoint] = spendTxs.htlcSweep
+	}
+
 	// Until no more inputs to spend remain, deliver the spend events and
 	// process the assertions prescribed by the test case.
 	for len(spentBy) > 0 {

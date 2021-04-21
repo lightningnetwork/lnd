@@ -21,7 +21,7 @@ go:
   # /make/builder.Dockerfile
   # /.github/workflows/main.yml
   # /.github/workflows/release.yml
-  - "1.15.7"
+  - 1.16.3
 
 env:
   global:

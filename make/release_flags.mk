@@ -12,6 +12,7 @@ DOCKER_RELEASE_HELPER = docker run \
   lnd-release-helper
 
 BUILD_SYSTEM = darwin-amd64 \
+darwin-arm64 \
 dragonfly-amd64 \
 freebsd-386 \
 freebsd-amd64 \

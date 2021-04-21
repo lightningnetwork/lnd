@@ -46,17 +46,19 @@ var (
 
 // ContractBreachEvent is an event the breachArbiter will receive in case a
 // contract breach is observed on-chain. It contains the necessary information
-// to handle the breach, and a ProcessACK channel we will use to ACK the event
+// to handle the breach, and a ProcessACK closure we will use to ACK the event
 // when we have safely stored all the necessary information.
 type ContractBreachEvent struct {
 	// ChanPoint is the channel point of the breached channel.
 	ChanPoint wire.OutPoint
 
-	// ProcessACK is an error channel where a nil error should be sent
-	// iff the breach retribution info is safely stored in the retribution
+	// ProcessACK is an closure that should be called with a nil error iff
+	// the breach retribution info is safely stored in the retribution
 	// store. In case storing the information to the store fails, a non-nil
-	// error should be sent.
-	ProcessACK chan error
+	// error should be used. When this closure returns, it means that the
+	// contract court has marked the channel pending close in the DB, and
+	// it is safe for the BreachArbiter to carry on its duty.
+	ProcessACK func(error)
 
 	// BreachRetribution is the information needed to act on this contract
 	// breach.
@@ -745,10 +747,8 @@ func (b *breachArbiter) handleBreachHandoff(breachEvent *ContractBreachEvent) {
 		b.Unlock()
 		brarLog.Errorf("Unable to check breach info in DB: %v", err)
 
-		select {
-		case breachEvent.ProcessACK <- err:
-		case <-b.quit:
-		}
+		// Notify about the failed lookup and return.
+		breachEvent.ProcessACK(err)
 		return
 	}
 
@@ -757,11 +757,7 @@ func (b *breachArbiter) handleBreachHandoff(breachEvent *ContractBreachEvent) {
 	// case we can safely ACK the handoff, and return.
 	if breached {
 		b.Unlock()
-
-		select {
-		case breachEvent.ProcessACK <- nil:
-		case <-b.quit:
-		}
+		breachEvent.ProcessACK(nil)
 		return
 	}
 
@@ -782,14 +778,10 @@ func (b *breachArbiter) handleBreachHandoff(breachEvent *ContractBreachEvent) {
 	// acknowledgment back to the close observer with the error. If
 	// the ack is successful, the close observer will mark the
 	// channel as pending-closed in the channeldb.
-	select {
-	case breachEvent.ProcessACK <- err:
-		// Bail if we failed to persist retribution info.
-		if err != nil {
-			return
-		}
+	breachEvent.ProcessACK(err)
 
-	case <-b.quit:
+	// Bail if we failed to persist retribution info.
+	if err != nil {
 		return
 	}
 

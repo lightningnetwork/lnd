@@ -950,9 +950,22 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		IsOurAddress: cc.Wallet.IsOurAddress,
 		ContractBreach: func(chanPoint wire.OutPoint,
 			breachRet *lnwallet.BreachRetribution) error {
+
+			// processACK will handle the breachArbiter ACKing the
+			// event.
+			finalErr := make(chan error, 1)
+			processACK := func(brarErr error) {
+				if brarErr != nil {
+					finalErr <- brarErr
+					return
+				}
+
+				finalErr <- nil
+			}
+
 			event := &ContractBreachEvent{
 				ChanPoint:         chanPoint,
-				ProcessACK:        make(chan error, 1),
+				ProcessACK:        processACK,
 				BreachRetribution: breachRet,
 			}
 
@@ -965,7 +978,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 			// Wait for the breachArbiter to ACK the event.
 			select {
-			case err := <-event.ProcessACK:
+			case err := <-finalErr:
 				return err
 			case <-s.quit:
 				return ErrServerShuttingDown

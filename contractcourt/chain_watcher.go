@@ -150,10 +150,13 @@ type chainWatcherConfig struct {
 	signer input.Signer
 
 	// contractBreach is a method that will be called by the watcher if it
-	// detects that a contract breach transaction has been confirmed. Only
-	// when this method returns with a non-nil error it will be safe to mark
-	// the channel as pending close in the database.
-	contractBreach func(*lnwallet.BreachRetribution) error
+	// detects that a contract breach transaction has been confirmed. A
+	// callback should be passed that when called will mark the channel
+	// pending close in the database. It will only return a non-nil error
+	// when the breachArbiter has preserved the necessary breach info for
+	// this channel point, and the callback has succeeded, meaning it is
+	// safe to stop watching the channel.
+	contractBreach func(*lnwallet.BreachRetribution, func() error) error
 
 	// isOurAddr is a function that returns true if the passed address is
 	// known to us.
@@ -1121,19 +1124,6 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 			return spew.Sdump(retribution)
 		}))
 
-	// Hand the retribution info over to the breach arbiter.
-	if err := c.cfg.contractBreach(retribution); err != nil {
-		log.Errorf("unable to hand breached contract off to "+
-			"breachArbiter: %v", err)
-		return err
-	}
-
-	// At this point, we've successfully received an ack for the breach
-	// close. We now construct and persist  the close summary, marking the
-	// channel as pending force closed.
-	//
-	// TODO(roasbeef): instead mark we got all the monies?
-	// TODO(halseth): move responsibility to breach arbiter?
 	settledBalance := remoteCommit.LocalBalance.ToSatoshis()
 	closeSummary := channeldb.ChannelCloseSummary{
 		ChanPoint:               c.cfg.chanState.FundingOutpoint,
@@ -1160,14 +1150,31 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 		closeSummary.LastChanSyncMsg = chanSync
 	}
 
-	if err := c.cfg.chanState.CloseChannel(
-		&closeSummary, channeldb.ChanStatusRemoteCloseInitiator,
-	); err != nil {
-		return err
+	// We create a function closure that will mark the channel as pending
+	// close in the database. We pass it to the contracBreach method such
+	// that it can ensure safe handoff of the breach before we close the
+	// channel.
+	markClosed := func() error {
+		// At this point, we've successfully received an ack for the
+		// breach close, and we can mark the channel as pending force
+		// closed.
+		if err := c.cfg.chanState.CloseChannel(
+			&closeSummary, channeldb.ChanStatusRemoteCloseInitiator,
+		); err != nil {
+			return err
+		}
+
+		log.Infof("Breached channel=%v marked pending-closed",
+			c.cfg.chanState.FundingOutpoint)
+		return nil
 	}
 
-	log.Infof("Breached channel=%v marked pending-closed",
-		c.cfg.chanState.FundingOutpoint)
+	// Hand the retribution info over to the breach arbiter.
+	if err := c.cfg.contractBreach(retribution, markClosed); err != nil {
+		log.Errorf("unable to hand breached contract off to "+
+			"breachArbiter: %v", err)
+		return err
+	}
 
 	// With the event processed and channel closed, we'll now notify all
 	// subscribers of the event.

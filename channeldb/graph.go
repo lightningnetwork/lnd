@@ -188,6 +188,7 @@ type ChannelGraph struct {
 // returned instance has its own unique reject cache and channel cache.
 func newChannelGraph(db *DB, rejectCacheSize, chanCacheSize int,
 	batchCommitInterval time.Duration) *ChannelGraph {
+
 	g := &ChannelGraph{
 		db:          db,
 		rejectCache: newRejectCache(rejectCacheSize),
@@ -199,6 +200,7 @@ func newChannelGraph(db *DB, rejectCacheSize, chanCacheSize int,
 	g.nodeScheduler = batch.NewTimeScheduler(
 		db.Backend, nil, batchCommitInterval,
 	)
+
 	return g
 }
 
@@ -953,7 +955,7 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 			// was successfully pruned.
 			err = delChannelEdge(
 				edges, edgeIndex, chanIndex, zombieIndex, nodes,
-				chanID, false,
+				chanID, false, false,
 			)
 			if err != nil && err != ErrEdgeNotFound {
 				return err
@@ -1202,7 +1204,7 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) ([]*ChannelEdgeInf
 		for _, k := range keys {
 			err = delChannelEdge(
 				edges, edgeIndex, chanIndex, zombieIndex, nodes,
-				k, false,
+				k, false, false,
 			)
 			if err != nil && err != ErrEdgeNotFound {
 				return err
@@ -1301,11 +1303,14 @@ func (c *ChannelGraph) PruneTip() (*chainhash.Hash, uint32, error) {
 	return &tipHash, tipHeight, nil
 }
 
-// DeleteChannelEdges removes edges with the given channel IDs from the database
-// and marks them as zombies. This ensures that we're unable to re-add it to our
-// database once again. If an edge does not exist within the database, then
-// ErrEdgeNotFound will be returned.
-func (c *ChannelGraph) DeleteChannelEdges(chanIDs ...uint64) error {
+// DeleteChannelEdges removes edges with the given channel IDs from the
+// database and marks them as zombies. This ensures that we're unable to re-add
+// it to our database once again. If an edge does not exist within the
+// database, then ErrEdgeNotFound will be returned. If strictZombiePruning is
+// true, then when we mark these edges as zombies, we'll set up the keys such
+// that we require the node that failed to send the fresh update to be the one
+// that resurrects the channel from its zombie state.
+func (c *ChannelGraph) DeleteChannelEdges(strictZombiePruning bool, chanIDs ...uint64) error {
 	// TODO(roasbeef): possibly delete from node bucket if node has no more
 	// channels
 	// TODO(roasbeef): don't delete both edges?
@@ -1340,7 +1345,7 @@ func (c *ChannelGraph) DeleteChannelEdges(chanIDs ...uint64) error {
 			byteOrder.PutUint64(rawChanID[:], chanID)
 			err := delChannelEdge(
 				edges, edgeIndex, chanIndex, zombieIndex, nodes,
-				rawChanID[:], true,
+				rawChanID[:], true, strictZombiePruning,
 			)
 			if err != nil {
 				return err
@@ -1929,7 +1934,7 @@ func delEdgeUpdateIndexEntry(edgesBucket kvdb.RwBucket, chanID uint64,
 }
 
 func delChannelEdge(edges, edgeIndex, chanIndex, zombieIndex,
-	nodes kvdb.RwBucket, chanID []byte, isZombie bool) error {
+	nodes kvdb.RwBucket, chanID []byte, isZombie, strictZombie bool) error {
 
 	edgeInfo, err := fetchChanEdgeInfo(edgeIndex, chanID)
 	if err != nil {
@@ -1997,10 +2002,55 @@ func delChannelEdge(edges, edgeIndex, chanIndex, zombieIndex,
 		return nil
 	}
 
+	nodeKey1, nodeKey2 := edgeInfo.NodeKey1Bytes, edgeInfo.NodeKey2Bytes
+	if strictZombie {
+		nodeKey1, nodeKey2 = makeZombiePubkeys(&edgeInfo, edge1, edge2)
+	}
+
 	return markEdgeZombie(
-		zombieIndex, byteOrder.Uint64(chanID), edgeInfo.NodeKey1Bytes,
-		edgeInfo.NodeKey2Bytes,
+		zombieIndex, byteOrder.Uint64(chanID), nodeKey1, nodeKey2,
 	)
+}
+
+// makeZombiePubkeys derives the node pubkeys to store in the zombie index for a
+// particular pair of channel policies. The return values are one of:
+//  1. (pubkey1, pubkey2)
+//  2. (pubkey1, blank)
+//  3. (blank, pubkey2)
+//
+// A blank pubkey means that corresponding node will be unable to resurrect a
+// channel on its own. For example, node1 may continue to publish recent
+// updates, but node2 has fallen way behind. After marking an edge as a zombie,
+// we don't want another fresh update from node1 to resurrect, as the edge can
+// only become live once node2 finally sends something recent.
+//
+// In the case where we have neither update, we allow either party to resurrect
+// the channel. If the channel were to be marked zombie again, it would be
+// marked with the correct lagging channel since we received an update from only
+// one side.
+func makeZombiePubkeys(info *ChannelEdgeInfo,
+	e1, e2 *ChannelEdgePolicy) ([33]byte, [33]byte) {
+
+	switch {
+
+	// If we don't have either edge policy, we'll return both pubkeys so
+	// that the channel can be resurrected by either party.
+	case e1 == nil && e2 == nil:
+		return info.NodeKey1Bytes, info.NodeKey2Bytes
+
+	// If we're missing edge1, or if both edges are present but edge1 is
+	// older, we'll return edge1's pubkey and a blank pubkey for edge2. This
+	// means that only an update from edge1 will be able to resurrect the
+	// channel.
+	case e1 == nil || (e2 != nil && e1.LastUpdate.Before(e2.LastUpdate)):
+		return info.NodeKey1Bytes, [33]byte{}
+
+	// Otherwise, we're missing edge2 or edge2 is the older side, so we
+	// return a blank pubkey for edge1. In this case, only an update from
+	// edge2 can resurect the channel.
+	default:
+		return [33]byte{}, info.NodeKey2Bytes
+	}
 }
 
 // UpdateEdgePolicy updates the edge routing policy for a single directed edge

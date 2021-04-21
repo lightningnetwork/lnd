@@ -69,16 +69,17 @@ func (c *testCtx) RestartRouter() error {
 	return nil
 }
 
-func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGraphInstance) (
-	*testCtx, func(), error) {
+func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGraphInstance,
+	strictPruning bool) (*testCtx, func(), error) {
 
 	return createTestCtxFromGraphInstanceAssumeValid(
-		startingHeight, graphInstance, false,
+		startingHeight, graphInstance, false, strictPruning,
 	)
 }
 
 func createTestCtxFromGraphInstanceAssumeValid(startingHeight uint32,
-	graphInstance *testGraphInstance, assumeValid bool) (*testCtx, func(), error) {
+	graphInstance *testGraphInstance, assumeValid bool,
+	strictPruning bool) (*testCtx, func(), error) {
 
 	// We'll initialize an instance of the channel router with mock
 	// versions of the chain and channel notifier. As we don't need to test
@@ -134,9 +135,10 @@ func createTestCtxFromGraphInstanceAssumeValid(startingHeight uint32,
 			next := atomic.AddUint64(&uniquePaymentID, 1)
 			return next, nil
 		},
-		PathFindingConfig:  pathFindingConfig,
-		Clock:              clock.NewTestClock(time.Unix(1, 0)),
-		AssumeChannelValid: assumeValid,
+		PathFindingConfig:   pathFindingConfig,
+		Clock:               clock.NewTestClock(time.Unix(1, 0)),
+		AssumeChannelValid:  assumeValid,
+		StrictZombiePruning: strictPruning,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create router %v", err)
@@ -187,7 +189,7 @@ func createTestCtxSingleNode(startingHeight uint32) (*testCtx, func(), error) {
 		cleanUp: cleanup,
 	}
 
-	return createTestCtxFromGraphInstance(startingHeight, graphInstance)
+	return createTestCtxFromGraphInstance(startingHeight, graphInstance, false)
 }
 
 func createTestCtxFromFile(startingHeight uint32, testGraph string) (*testCtx, func(), error) {
@@ -198,7 +200,7 @@ func createTestCtxFromFile(startingHeight uint32, testGraph string) (*testCtx, f
 		return nil, nil, fmt.Errorf("unable to create test graph: %v", err)
 	}
 
-	return createTestCtxFromGraphInstance(startingHeight, graphInstance)
+	return createTestCtxFromGraphInstance(startingHeight, graphInstance, false)
 }
 
 // TestFindRoutesWithFeeLimit asserts that routes found by the FindRoutes method
@@ -365,9 +367,9 @@ func TestChannelUpdateValidation(t *testing.T) {
 
 	const startingBlockHeight = 101
 
-	ctx, cleanUp, err := createTestCtxFromGraphInstance(startingBlockHeight,
-		testGraph)
-
+	ctx, cleanUp, err := createTestCtxFromGraphInstance(
+		startingBlockHeight, testGraph, true,
+	)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -1028,7 +1030,7 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 	defer testGraph.cleanUp()
 
 	ctx, cleanUp, err := createTestCtxFromGraphInstance(
-		startingBlockHeight, testGraph,
+		startingBlockHeight, testGraph, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -1946,8 +1948,8 @@ func TestPruneChannelGraphStaleEdges(t *testing.T) {
 	freshTimestamp := time.Now()
 	staleTimestamp := time.Unix(0, 0)
 
-	// We'll create the following test graph so that only the last channel
-	// is pruned.
+	// We'll create the following test graph so that two of the channels
+	// are pruned.
 	testChannels := []*testChannel{
 		// No edges.
 		{
@@ -1960,7 +1962,7 @@ func TestPruneChannelGraphStaleEdges(t *testing.T) {
 		// Only one edge with a stale timestamp.
 		{
 			Node1: &testChannelEnd{
-				Alias: "a",
+				Alias: "d",
 				testChannelPolicy: &testChannelPolicy{
 					LastUpdate: staleTimestamp,
 				},
@@ -1968,6 +1970,20 @@ func TestPruneChannelGraphStaleEdges(t *testing.T) {
 			Node2:     &testChannelEnd{Alias: "b"},
 			Capacity:  100000,
 			ChannelID: 2,
+		},
+
+		// Only one edge with a stale timestamp, but it's the source
+		// node so it won't get pruned.
+		{
+			Node1: &testChannelEnd{
+				Alias: "a",
+				testChannelPolicy: &testChannelPolicy{
+					LastUpdate: staleTimestamp,
+				},
+			},
+			Node2:     &testChannelEnd{Alias: "b"},
+			Capacity:  100000,
+			ChannelID: 3,
 		},
 
 		// Only one edge with a fresh timestamp.
@@ -1980,10 +1996,11 @@ func TestPruneChannelGraphStaleEdges(t *testing.T) {
 			},
 			Node2:     &testChannelEnd{Alias: "b"},
 			Capacity:  100000,
-			ChannelID: 3,
+			ChannelID: 4,
 		},
 
-		// One edge fresh, one edge stale.
+		// One edge fresh, one edge stale. This will be pruned with
+		// strict pruning activated.
 		{
 			Node1: &testChannelEnd{
 				Alias: "c",
@@ -1998,47 +2015,57 @@ func TestPruneChannelGraphStaleEdges(t *testing.T) {
 				},
 			},
 			Capacity:  100000,
-			ChannelID: 4,
+			ChannelID: 5,
 		},
 
 		// Both edges fresh.
 		symmetricTestChannel("g", "h", 100000, &testChannelPolicy{
 			LastUpdate: freshTimestamp,
-		}, 5),
+		}, 6),
 
-		// Both edges stale, only one pruned.
+		// Both edges stale, only one pruned. This should be pruned for
+		// both normal and strict pruning.
 		symmetricTestChannel("e", "f", 100000, &testChannelPolicy{
 			LastUpdate: staleTimestamp,
-		}, 6),
+		}, 7),
 	}
 
-	// We'll create our test graph and router backed with these test
-	// channels we've created.
-	testGraph, err := createTestGraphFromChannels(testChannels, "a")
-	if err != nil {
-		t.Fatalf("unable to create test graph: %v", err)
+	for _, strictPruning := range []bool{true, false} {
+		// We'll create our test graph and router backed with these test
+		// channels we've created.
+		testGraph, err := createTestGraphFromChannels(testChannels, "a")
+		if err != nil {
+			t.Fatalf("unable to create test graph: %v", err)
+		}
+		defer testGraph.cleanUp()
+
+		const startingHeight = 100
+		ctx, cleanUp, err := createTestCtxFromGraphInstance(
+			startingHeight, testGraph, strictPruning,
+		)
+		if err != nil {
+			t.Fatalf("unable to create test context: %v", err)
+		}
+		defer cleanUp()
+
+		// All of the channels should exist before pruning them.
+		assertChannelsPruned(t, ctx.graph, testChannels)
+
+		// Proceed to prune the channels - only the last one should be pruned.
+		if err := ctx.router.pruneZombieChans(); err != nil {
+			t.Fatalf("unable to prune zombie channels: %v", err)
+		}
+
+		// We expect channels that have either both edges stale, or one edge
+		// stale with both known.
+		var prunedChannels []uint64
+		if strictPruning {
+			prunedChannels = []uint64{2, 5, 7}
+		} else {
+			prunedChannels = []uint64{2, 7}
+		}
+		assertChannelsPruned(t, ctx.graph, testChannels, prunedChannels...)
 	}
-	defer testGraph.cleanUp()
-
-	const startingHeight = 100
-	ctx, cleanUp, err := createTestCtxFromGraphInstance(
-		startingHeight, testGraph,
-	)
-	if err != nil {
-		t.Fatalf("unable to create test context: %v", err)
-	}
-	defer cleanUp()
-
-	// All of the channels should exist before pruning them.
-	assertChannelsPruned(t, ctx.graph, testChannels)
-
-	// Proceed to prune the channels - only the last one should be pruned.
-	if err := ctx.router.pruneZombieChans(); err != nil {
-		t.Fatalf("unable to prune zombie channels: %v", err)
-	}
-
-	prunedChannel := testChannels[len(testChannels)-1].ChannelID
-	assertChannelsPruned(t, ctx.graph, testChannels, prunedChannel)
 }
 
 // TestPruneChannelGraphDoubleDisabled test that we can properly prune channels
@@ -2147,7 +2174,7 @@ func testPruneChannelGraphDoubleDisabled(t *testing.T, assumeValid bool) {
 
 	const startingHeight = 100
 	ctx, cleanUp, err := createTestCtxFromGraphInstanceAssumeValid(
-		startingHeight, testGraph, assumeValid,
+		startingHeight, testGraph, assumeValid, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to create test context: %v", err)
@@ -2529,9 +2556,9 @@ func TestUnknownErrorSource(t *testing.T) {
 
 	const startingBlockHeight = 101
 
-	ctx, cleanUp, err := createTestCtxFromGraphInstance(startingBlockHeight,
-		testGraph)
-
+	ctx, cleanUp, err := createTestCtxFromGraphInstance(
+		startingBlockHeight, testGraph, false,
+	)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -2668,7 +2695,7 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	const startingBlockHeight = 101
 
 	ctx, cleanUp, err := createTestCtxFromGraphInstance(
-		startingBlockHeight, testGraph,
+		startingBlockHeight, testGraph, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -2904,7 +2931,7 @@ func TestSendToRouteMaxHops(t *testing.T) {
 	const startingBlockHeight = 101
 
 	ctx, cleanUp, err := createTestCtxFromGraphInstance(
-		startingBlockHeight, testGraph,
+		startingBlockHeight, testGraph, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -3018,7 +3045,7 @@ func TestBuildRoute(t *testing.T) {
 	const startingBlockHeight = 101
 
 	ctx, cleanUp, err := createTestCtxFromGraphInstance(
-		startingBlockHeight, testGraph,
+		startingBlockHeight, testGraph, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)

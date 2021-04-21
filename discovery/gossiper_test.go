@@ -397,7 +397,9 @@ func (r *mockGraphSource) MarkEdgeZombie(chanID lnwire.ShortChannelID, pubKey1,
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	r.zombies[chanID.ToUint64()] = [][33]byte{pubKey1, pubKey2}
+
 	return nil
 }
 
@@ -2317,13 +2319,32 @@ func TestProcessZombieEdgeNowLive(t *testing.T) {
 		t.Fatalf("unable to sign update with new timestamp: %v", err)
 	}
 
-	// We'll also add the edge to our zombie index.
+	// We'll also add the edge to our zombie index, provide a blank pubkey
+	// for the first node as we're simulating the sitaution where the first
+	// ndoe is updating but the second node isn't. In this case we only
+	// want to allow a new update from the second node to allow the entire
+	// edge to be resurrected.
 	chanID := batch.chanAnn.ShortChannelID
 	err = ctx.router.MarkEdgeZombie(
-		chanID, batch.chanAnn.NodeID1, batch.chanAnn.NodeID2,
+		chanID, [33]byte{}, batch.chanAnn.NodeID2,
 	)
 	if err != nil {
 		t.Fatalf("unable mark channel %v as zombie: %v", chanID, err)
+	}
+
+	// If we send a new update but for the other direction of the channel,
+	// then it should still be rejected as we want a fresh update from the
+	// one that was considered stale.
+	batch.chanUpdAnn1.Timestamp = uint32(time.Now().Unix())
+	if err := signUpdate(remoteKeyPriv1, batch.chanUpdAnn1); err != nil {
+		t.Fatalf("unable to sign update with new timestamp: %v", err)
+	}
+	processAnnouncement(batch.chanUpdAnn1, true, true)
+
+	// At this point, the channel should still be consiered a zombie.
+	_, _, _, err = ctx.router.GetChannelByID(chanID)
+	if err != channeldb.ErrZombieEdge {
+		t.Fatalf("channel should still be a zombie")
 	}
 
 	// Attempting to process the current channel update should fail due to

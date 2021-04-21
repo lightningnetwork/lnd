@@ -342,6 +342,13 @@ type Config struct {
 
 	// Clock is mockable time provider.
 	Clock clock.Clock
+
+	// StrictZombiePruning determines if we attempt to prune zombie
+	// channels according to a stricter criteria. If true, then we'll prune
+	// a channel if only *one* of the edges is considered a zombie.
+	// Otherwise, we'll only prune the channel when both edges have a very
+	// dated last update.
+	StrictZombiePruning bool
 }
 
 // EdgeLocator is a struct used to identify a specific edge.
@@ -824,30 +831,39 @@ func (r *ChannelRouter) pruneZombieChans() error {
 			return nil
 		}
 
-		// If *both* edges haven't been updated for a period of
+		// If either edge hasn't been updated for a period of
 		// chanExpiry, then we'll mark the channel itself as eligible
 		// for graph pruning.
-		var e1Zombie, e2Zombie bool
-		if e1 != nil {
-			e1Zombie = time.Since(e1.LastUpdate) >= chanExpiry
-			if e1Zombie {
-				log.Tracef("Edge #1 of ChannelID(%v) last "+
-					"update: %v", info.ChannelID,
-					e1.LastUpdate)
-			}
+		e1Zombie := e1 == nil || time.Since(e1.LastUpdate) >= chanExpiry
+		e2Zombie := e2 == nil || time.Since(e2.LastUpdate) >= chanExpiry
+
+		if e1Zombie {
+			log.Tracef("Node1 pubkey=%x of chan_id=%v is zombie",
+				info.NodeKey1Bytes, info.ChannelID)
 		}
-		if e2 != nil {
-			e2Zombie = time.Since(e2.LastUpdate) >= chanExpiry
-			if e2Zombie {
-				log.Tracef("Edge #2 of ChannelID(%v) last "+
-					"update: %v", info.ChannelID,
-					e2.LastUpdate)
-			}
+		if e2Zombie {
+			log.Tracef("Node2 pubkey=%x of chan_id=%v is zombie",
+				info.NodeKey2Bytes, info.ChannelID)
 		}
 
-		// If the channel is not considered zombie, we can move on to
-		// the next.
-		if !e1Zombie || !e2Zombie {
+		// If we're using strict zombie pruning, then a channel is only
+		// considered live if both edges have a recent update we know
+		// of.
+		var channelIsLive bool
+		switch {
+		case r.cfg.StrictZombiePruning:
+			channelIsLive = !e1Zombie && !e2Zombie
+
+		// Otherwise, if we're using the less strict variant, then a
+		// channel is considered live if either of the edges have a
+		// recent update.
+		default:
+			channelIsLive = !e1Zombie || !e2Zombie
+		}
+
+		// Return early if the channel is still considered to be live
+		// with the current set of configuration parameters.
+		if channelIsLive {
 			return nil
 		}
 
@@ -908,7 +924,8 @@ func (r *ChannelRouter) pruneZombieChans() error {
 		toPrune = append(toPrune, chanID)
 		log.Tracef("Pruning zombie channel with ChannelID(%v)", chanID)
 	}
-	if err := r.cfg.Graph.DeleteChannelEdges(toPrune...); err != nil {
+	err = r.cfg.Graph.DeleteChannelEdges(r.cfg.StrictZombiePruning, toPrune...)
+	if err != nil {
 		return fmt.Errorf("unable to delete zombie channels: %v", err)
 	}
 

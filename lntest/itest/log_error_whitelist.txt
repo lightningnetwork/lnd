@@ -268,3 +268,4 @@
 <time> [ERR] NTFN: Unable to rewind chain from height 1 to height -1: unable to find blockhash for disconnected height=<height>: -8: Block height out of range
 <time> [ERR] RPCS: WS: error writing message: websocket: close sent
 <time> [ERR] RPCS: [/routerrpc.Router/XImportMissionControl]: pair: <hex> -> <hex>: invalid failure: msat: <amt> and sat: 0.0000002 BTC values not equal
+<time> [ERR] BTCN: utxo scan failed: neutrino shutting down

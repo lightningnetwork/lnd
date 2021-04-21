@@ -3260,7 +3260,7 @@ func (lc *LightningChannel) getUnsignedAckedUpdates() []channeldb.LogUpdate {
 	chanID := lnwire.NewChanIDFromOutPoint(&lc.channelState.FundingOutpoint)
 
 	// Fetch the last remote update that we have signed for.
-	lastRemoteCommitted := lc.remoteCommitChain.tip().theirMessageIndex
+	lastRemoteCommitted := lc.remoteCommitChain.tail().theirMessageIndex
 
 	// Fetch the last remote update that we have acked.
 	lastLocalCommitted := lc.localCommitChain.tail().theirMessageIndex

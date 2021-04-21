@@ -2396,8 +2396,9 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 		// in their new commitment.
 		updateBytes := chanBucket.Get(unsignedAckedUpdatesKey)
 		if updateBytes == nil {
-			// If there are no updates to sign, we don't need to
-			// filter out any updates.
+			// This shouldn't normally happen as we always store
+			// the number of updates, but could still be
+			// encountered by nodes that are upgrading.
 			newRemoteCommit = &newCommit.Commitment
 			return nil
 		}

@@ -1877,6 +1877,22 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 
 	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
 	remoteInitialBalance := btcutil.Amount(in.PushSat)
+
+	// If the FundMax flag is set, ensure that the
+	// acceptable minimum local amount adheres to the
+	// amount to be pushed to the remote, and to current
+	// rules.
+	if in.FundMax {
+		// Use as minimum local amount the larger of
+		// the amount to be pushed to the remote or
+		// the allowed minimum funding size.
+		if remoteInitialBalance >= funding.MinChanFundingSize {
+			localFundingAmt = remoteInitialBalance + 1
+		} else {
+			localFundingAmt = funding.MinChanFundingSize
+		}
+	}
+
 	minHtlcIn := lnwire.MilliSatoshi(in.MinHtlcMsat)
 	remoteCsvDelay := uint16(in.RemoteCsvDelay)
 	maxValue := lnwire.MilliSatoshi(in.RemoteMaxValueInFlightMsat)
@@ -2042,6 +2058,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 		MaxHtlcs:         maxHtlcs,
 		MaxLocalCsv:      uint16(in.MaxLocalCsv),
 		ChannelType:      channelType,
+		FundMax:          in.FundMax,
 	}, nil
 }
 

@@ -24,6 +24,10 @@ const (
 	// ErrNoFundingTransaction is returned when we are unable to find the
 	// funding transaction described by the short channel ID on chain.
 	ErrNoFundingTransaction
+
+	// ErrInvalidFundingOutput is returned if the channle funding output
+	// fails validation.
+	ErrInvalidFundingOutput
 )
 
 // routerError is a structure that represent the error inside the routing package,

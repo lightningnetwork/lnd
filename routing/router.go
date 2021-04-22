@@ -1244,6 +1244,22 @@ func (r *ChannelRouter) assertNodeAnnFreshness(node route.Vertex,
 	return nil
 }
 
+// addZombieEdge adds a channel that failed complete validation into the zombie
+// index so we can avoid having to re-validate it in the future.
+func (r *ChannelRouter) addZombieEdge(chanID uint64) error {
+	// If the edge fails validation we'll mark the edge itself as a zombie
+	// so we don't continue to request it. We use the "zero key" for both
+	// node pubkeys so this edge can't be resurrected.
+	var zeroKey [33]byte
+	err := r.cfg.Graph.MarkEdgeZombie(chanID, zeroKey, zeroKey)
+	if err != nil {
+		return fmt.Errorf("unable to mark spent chan(id=%v) as a "+
+			"zombie: %w", chanID, err)
+	}
+
+	return nil
+}
+
 // processUpdate processes a new relate authenticated channel/edge, node or
 // channel/edge update network update. If the update didn't affect the internal
 // state of the draft due to either being out of date, invalid, or redundant,
@@ -1311,9 +1327,9 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		fundingTx, err := r.fetchFundingTx(&channelID)
 		if err != nil {
-			// In order to ensure we don't errnosuly mark a channel as
-			// a zmobie due to an RPC failure, we'll attempt to string
-			// match for the relevant errors.
+			// In order to ensure we don't erroneously mark a
+			// channel as a zombie due to an RPC failure, we'll
+			// attempt to string match for the relevant errors.
 			//
 			// * btcd:
 			//    * https://github.com/btcsuite/btcd/blob/master/rpcserver.go#L1316
@@ -1326,25 +1342,21 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 				fallthrough
 
 			case strings.Contains(err.Error(), "out of range"):
-				// If the funding transaction isn't found at all, then
-				// we'll mark the edge itself as a zombie so we don't
-				// continue to request it. We use the "zero key" for
-				// both node pubkeys so this edge can't be resurrected.
-				var zeroKey [33]byte
-				zErr := r.cfg.Graph.MarkEdgeZombie(
-					msg.ChannelID, zeroKey, zeroKey,
-				)
+				// If the funding transaction isn't found at
+				// all, then we'll mark the edge itself as a
+				// zombie so we don't continue to request it.
+				// We use the "zero key" for both node pubkeys
+				// so this edge can't be resurrected.
+				zErr := r.addZombieEdge(msg.ChannelID)
 				if zErr != nil {
-					return fmt.Errorf("unable to mark spent "+
-						"chan(id=%v) as a zombie: %w", msg.ChannelID,
-						zErr)
+					return zErr
 				}
+
 			default:
 			}
 
 			return newErrf(ErrNoFundingTransaction, "unable to "+
-				"fetch funding tx for chan_id=%v: %v",
-				msg.ChannelID, err)
+				"locate funding tx: %v", err)
 		}
 
 		// Recreate witness output to be sure that declared in channel
@@ -1373,7 +1385,14 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 			FundingTx:        fundingTx,
 		})
 		if err != nil {
-			return err
+			// Mark the edge as a zombie so we won't try to
+			// re-validate it on start up.
+			if err := r.addZombieEdge(msg.ChannelID); err != nil {
+				return err
+			}
+
+			return newErrf(ErrInvalidFundingOutput, "output "+
+				"failed validation: %w", err)
 		}
 
 		// Now that we have the funding outpoint of the channel, ensure
@@ -1388,20 +1407,10 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 			r.quit,
 		)
 		if err != nil {
-			// If we fail validation of the UTXO here, then we'll
-			// mark the channel as a zombie as otherwise, we may
-			// continue to continue to request it. We use the "zero
-			// key" for both node pubkeys so this edge can't be
-			// resurrected.
 			if errors.Is(err, btcwallet.ErrOutputSpent) {
-				var zeroKey [33]byte
-				zErr := r.cfg.Graph.MarkEdgeZombie(
-					msg.ChannelID, zeroKey, zeroKey,
-				)
+				zErr := r.addZombieEdge(msg.ChannelID)
 				if zErr != nil {
-					return fmt.Errorf("unable to mark spent "+
-						"chan(id=%v) as a zombie: %w", msg.ChannelID,
-						zErr)
+					return zErr
 				}
 			}
 
@@ -1555,9 +1564,9 @@ func (r *ChannelRouter) fetchFundingTx(
 	// block.
 	numTxns := uint32(len(fundingBlock.Transactions))
 	if chanID.TxIndex > numTxns-1 {
-		return nil, fmt.Errorf("tx_index=#%v is out of range "+
-			"(max_index=%v), network_chan_id=%v", chanID.TxIndex,
-			numTxns-1, chanID)
+		return nil, fmt.Errorf("tx_index=#%v "+
+			"is out of range (max_index=%v), network_chan_id=%v",
+			chanID.TxIndex, numTxns-1, chanID)
 	}
 
 	return fundingBlock.Transactions[chanID.TxIndex], nil

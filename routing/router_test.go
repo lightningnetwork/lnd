@@ -3149,6 +3149,10 @@ const (
 	// edgeCreationNoUTXO is used to skip adding the UTXO of a channel to
 	// the UTXO set.
 	edgeCreationNoUTXO
+
+	// edgeCreationBadScript is used to create the edge, but use the wrong
+	// scrip which should cause it to fail output validation.
+	edgeCreationBadScript
 )
 
 // newChannelEdgeInfo is a helper function used to create a new channel edge,
@@ -3194,6 +3198,10 @@ func newChannelEdgeInfo(ctx *testCtx, fundingHeight uint32,
 		ctx.chain.delUtxo(wire.OutPoint{
 			Hash: fundingTx.TxHash(),
 		})
+	}
+
+	if ecm == edgeCreationBadScript {
+		fundingTx.TxOut[0].PkScript[0] ^= 1
 	}
 
 	return edge, nil
@@ -3247,4 +3255,10 @@ func TestChannelOnChainRejectionZombie(t *testing.T) {
 	// Instead now, we'll remove it from the set of UTXOs which should
 	// cause the spentness validation to fail.
 	assertChanChainRejection(t, ctx, edge, ErrChannelSpent)
+
+	// If we cause the funding transaction the chain to fail validation, we
+	// should see similar behavior.
+	edge, err = newChannelEdgeInfo(ctx, 3, edgeCreationBadScript)
+	require.Nil(t, err)
+	assertChanChainRejection(t, ctx, edge, ErrInvalidFundingOutput)
 }

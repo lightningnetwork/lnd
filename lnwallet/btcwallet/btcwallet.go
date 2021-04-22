@@ -484,7 +484,7 @@ func (b *BtcWallet) ImportPublicKey(pubKey *btcec.PublicKey,
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
-	feeRate chainfee.SatPerKWeight, minconf int32, label string) (*wire.MsgTx, error) {
+	feeRate chainfee.SatPerKWeight, minConfs int32, label string) (*wire.MsgTx, error) {
 
 	// Convert our fee rate from sat/kw to sat/kb since it's required by
 	// SendOutputs.
@@ -495,13 +495,13 @@ func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
 		return nil, lnwallet.ErrNoOutputs
 	}
 
-	// Sanity check minconf.
-	if minconf < 0 {
+	// Sanity check minConfs.
+	if minConfs < 0 {
 		return nil, lnwallet.ErrInvalidMinconf
 	}
 
 	return b.wallet.SendOutputs(
-		outputs, nil, defaultAccount, minconf, feeSatPerKB, label,
+		outputs, nil, defaultAccount, minConfs, feeSatPerKB, label,
 	)
 }
 
@@ -608,11 +608,11 @@ func (b *BtcWallet) ReleaseOutput(id wtxmgr.LockID, op wire.OutPoint) error {
 }
 
 // ListUnspentWitness returns all unspent outputs which are version 0 witness
-// programs. The 'minconfirms' and 'maxconfirms' parameters indicate the minimum
+// programs. The 'minConfs' and 'maxConfs' parameters indicate the minimum
 // and maximum number of confirmations an output needs in order to be returned
-// by this method. Passing -1 as 'minconfirms' indicates that even unconfirmed
-// outputs should be returned. Using MaxInt32 as 'maxconfirms' implies returning
-// all outputs with at least 'minconfirms'. The account parameter serves as a
+// by this method. Passing -1 as 'minConfs' indicates that even unconfirmed
+// outputs should be returned. Using MaxInt32 as 'maxConfs' implies returning
+// all outputs with at least 'minConfs'. The account parameter serves as a
 // filter to retrieve the unspent outputs for a specific account.  When empty,
 // the unspent outputs of all wallet accounts are returned.
 //

@@ -112,7 +112,7 @@ type mockWallet struct {
 	Wallet
 }
 
-func (m *mockWallet) ListUnspentWitnessFromDefaultAccount(minconfirms, maxconfirms int32) (
+func (m *mockWallet) ListUnspentWitnessFromDefaultAccount(minConfs, maxConfs int32) (
 	[]*lnwallet.Utxo, error) {
 
 	return []*lnwallet.Utxo{

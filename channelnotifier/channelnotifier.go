@@ -86,10 +86,12 @@ func (c *ChannelNotifier) Start() error {
 }
 
 // Stop signals the notifier for a graceful shutdown.
-func (c *ChannelNotifier) Stop() {
+func (c *ChannelNotifier) Stop() error {
+	var err error
 	c.stopped.Do(func() {
-		c.ntfnServer.Stop()
+		err = c.ntfnServer.Stop()
 	})
+	return err
 }
 
 // SubscribeChannelEvents returns a subscribe.Client that will receive updates

@@ -465,8 +465,9 @@ func (d *AuthenticatedGossiper) start() error {
 }
 
 // Stop signals any active goroutines for a graceful closure.
-func (d *AuthenticatedGossiper) Stop() {
+func (d *AuthenticatedGossiper) Stop() error {
 	d.stopped.Do(d.stop)
+	return nil
 }
 
 func (d *AuthenticatedGossiper) stop() {

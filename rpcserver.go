@@ -2756,6 +2756,10 @@ func (r *rpcServer) SubscribePeerEvents(req *lnrpc.PeerEventSubscription,
 			if err := eventStream.Send(event); err != nil {
 				return err
 			}
+
+		case <-eventStream.Context().Done():
+			return eventStream.Context().Err()
+
 		case <-r.quit:
 			return nil
 		}
@@ -4029,6 +4033,10 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 			if err := updateStream.Send(update); err != nil {
 				return err
 			}
+
+		case <-updateStream.Context().Done():
+			return updateStream.Context().Err()
+
 		case <-r.quit:
 			return nil
 		}
@@ -4946,6 +4954,9 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 				return err
 			}
 
+		case <-updateStream.Context().Done():
+			return updateStream.Context().Err()
+
 		case <-r.quit:
 			return nil
 		}
@@ -5002,6 +5013,9 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 			if err := updateStream.Send(detail); err != nil {
 				return err
 			}
+
+		case <-updateStream.Context().Done():
+			return updateStream.Context().Err()
 
 		case <-r.quit:
 			return nil
@@ -5523,6 +5537,11 @@ func (r *rpcServer) SubscribeChannelGraph(req *lnrpc.GraphTopologySubscription,
 			if err := updateStream.Send(graphUpdate); err != nil {
 				return err
 			}
+
+		// The context was cancelled so we report a cancellation error
+		// and exit immediately.
+		case <-updateStream.Context().Done():
+			return updateStream.Context().Err()
 
 		// The server is quitting, so we'll exit immediately. Returning
 		// nil will close the clients read end of the stream.
@@ -6445,6 +6464,9 @@ func (r *rpcServer) SubscribeChannelBackups(req *lnrpc.ChannelBackupSubscription
 			if err != nil {
 				return err
 			}
+
+		case <-updateStream.Context().Done():
+			return updateStream.Context().Err()
 
 		case <-r.quit:
 			return nil

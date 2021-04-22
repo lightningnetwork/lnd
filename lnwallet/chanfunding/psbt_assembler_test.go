@@ -340,8 +340,8 @@ func TestPsbtVerify(t *testing.T) {
 			},
 		},
 		{
-			name:        "input correct",
-			expectedErr: "",
+			name:        "missing witness-utxo field",
+			expectedErr: "not all inputs are segwit spends",
 			doVerify: func(amt int64, p *psbt.Packet,
 				i *PsbtIntent) error {
 
@@ -366,6 +366,33 @@ func TestPsbtVerify(t *testing.T) {
 								txOut,
 							},
 						},
+					}}
+				return i.Verify(p)
+			},
+		},
+		{
+			name:        "input correct",
+			expectedErr: "",
+			doVerify: func(amt int64, p *psbt.Packet,
+				i *PsbtIntent) error {
+
+				txOut := &wire.TxOut{
+					Value: int64(chanCapacity/2) + 1,
+				}
+				p.UnsignedTx.TxIn = []*wire.TxIn{
+					{},
+					{
+						PreviousOutPoint: wire.OutPoint{
+							Index: 0,
+						},
+					},
+				}
+				p.Inputs = []psbt.PInput{
+					{
+						WitnessUtxo: txOut,
+					},
+					{
+						WitnessUtxo: txOut,
 					}}
 				return i.Verify(p)
 			},
@@ -401,9 +428,11 @@ func TestPsbtVerify(t *testing.T) {
 			}
 
 			err = tc.doVerify(amt, pendingPsbt, psbtIntent)
-			if err != nil && tc.expectedErr != "" &&
-				err.Error() != tc.expectedErr {
-
+			if err != nil && tc.expectedErr == "" {
+				t.Fatalf("unexpected error, got '%v' wanted "+
+					"'%v'", err, tc.expectedErr)
+			}
+			if err != nil && err.Error() != tc.expectedErr {
 				t.Fatalf("unexpected error, got '%v' wanted "+
 					"'%v'", err, tc.expectedErr)
 			}

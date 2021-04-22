@@ -336,7 +336,7 @@ func (c *WatchtowerClient) Stats(ctx context.Context,
 
 		stats.NumTasksAccepted += stat.NumTasksAccepted
 		stats.NumTasksIneligible += stat.NumTasksIneligible
-		stats.NumTasksReceived += stat.NumTasksReceived
+		stats.NumTasksPending += stat.NumTasksPending
 		stats.NumSessionsAcquired += stat.NumSessionsAcquired
 		stats.NumSessionsExhausted += stat.NumSessionsExhausted
 	}
@@ -344,7 +344,7 @@ func (c *WatchtowerClient) Stats(ctx context.Context,
 	return &StatsResponse{
 		NumBackups:           uint32(stats.NumTasksAccepted),
 		NumFailedBackups:     uint32(stats.NumTasksIneligible),
-		NumPendingBackups:    uint32(stats.NumTasksReceived),
+		NumPendingBackups:    uint32(stats.NumTasksPending),
 		NumSessionsAcquired:  uint32(stats.NumSessionsAcquired),
 		NumSessionsExhausted: uint32(stats.NumSessionsExhausted),
 	}, nil

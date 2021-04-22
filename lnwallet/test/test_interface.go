@@ -2547,6 +2547,8 @@ func testLastUnusedAddr(miner *rpctest.Harness,
 // testCreateSimpleTx checks that a call to CreateSimpleTx will return a
 // transaction that is equal to the one that is being created by SendOutputs in
 // a subsequent call.
+// All test cases are doubled-up: one for testing unconfirmed inputs,
+// one for testing only confirmed inputs.
 func testCreateSimpleTx(r *rpctest.Harness, w *lnwallet.LightningWallet,
 	_ *lnwallet.LightningWallet, t *testing.T) {
 
@@ -2558,51 +2560,108 @@ func testCreateSimpleTx(r *rpctest.Harness, w *lnwallet.LightningWallet,
 
 	// The test cases we will run through for all backends.
 	testCases := []struct {
-		outVals []int64
-		feeRate chainfee.SatPerKWeight
-		valid   bool
+		outVals     []int64
+		feeRate     chainfee.SatPerKWeight
+		valid       bool
+		unconfirmed bool
 	}{
 		{
-			outVals: []int64{},
-			feeRate: 2500,
-			valid:   false, // No outputs.
+			outVals:     []int64{},
+			feeRate:     2500,
+			valid:       false, // No outputs.
+			unconfirmed: false,
+		},
+		{
+			outVals:     []int64{},
+			feeRate:     2500,
+			valid:       false, // No outputs.
+			unconfirmed: true,
 		},
 
 		{
-			outVals: []int64{200},
-			feeRate: 2500,
-			valid:   false, // Dust output.
+			outVals:     []int64{200},
+			feeRate:     2500,
+			valid:       false, // Dust output.
+			unconfirmed: false,
+		},
+		{
+			outVals:     []int64{200},
+			feeRate:     2500,
+			valid:       false, // Dust output.
+			unconfirmed: true,
 		},
 
 		{
-			outVals: []int64{1e8},
-			feeRate: 2500,
-			valid:   true,
+			outVals:     []int64{1e8},
+			feeRate:     2500,
+			valid:       true,
+			unconfirmed: false,
 		},
 		{
-			outVals: []int64{1e8, 2e8, 1e8, 2e7, 3e5},
-			feeRate: 2500,
-			valid:   true,
+			outVals:     []int64{1e8},
+			feeRate:     2500,
+			valid:       true,
+			unconfirmed: true,
+		},
+
+		{
+			outVals:     []int64{1e8, 2e8, 1e8, 2e7, 3e5},
+			feeRate:     2500,
+			valid:       true,
+			unconfirmed: false,
 		},
 		{
-			outVals: []int64{1e8, 2e8, 1e8, 2e7, 3e5},
-			feeRate: 12500,
-			valid:   true,
+			outVals:     []int64{1e8, 2e8, 1e8, 2e7, 3e5},
+			feeRate:     2500,
+			valid:       true,
+			unconfirmed: true,
+		},
+
+		{
+			outVals:     []int64{1e8, 2e8, 1e8, 2e7, 3e5},
+			feeRate:     12500,
+			valid:       true,
+			unconfirmed: false,
 		},
 		{
-			outVals: []int64{1e8, 2e8, 1e8, 2e7, 3e5},
-			feeRate: 50000,
-			valid:   true,
+			outVals:     []int64{1e8, 2e8, 1e8, 2e7, 3e5},
+			feeRate:     12500,
+			valid:       true,
+			unconfirmed: true,
+		},
+
+		{
+			outVals:     []int64{1e8, 2e8, 1e8, 2e7, 3e5},
+			feeRate:     50000,
+			valid:       true,
+			unconfirmed: false,
+		},
+		{
+			outVals:     []int64{1e8, 2e8, 1e8, 2e7, 3e5},
+			feeRate:     50000,
+			valid:       true,
+			unconfirmed: true,
+		},
+
+		{
+			outVals: []int64{1e8, 2e8, 1e8, 2e7, 3e5, 1e8, 2e8,
+				1e8, 2e7, 3e5},
+			feeRate:     44250,
+			valid:       true,
+			unconfirmed: false,
 		},
 		{
 			outVals: []int64{1e8, 2e8, 1e8, 2e7, 3e5, 1e8, 2e8,
 				1e8, 2e7, 3e5},
-			feeRate: 44250,
-			valid:   true,
+			feeRate:     44250,
+			valid:       true,
+			unconfirmed: true,
 		},
 	}
 
 	for i, test := range testCases {
+		var minConfs int32 = 1
+
 		feeRate := test.feeRate
 
 		// Grab some fresh addresses from the miner that we will send
@@ -2629,7 +2688,7 @@ func testCreateSimpleTx(r *rpctest.Harness, w *lnwallet.LightningWallet,
 
 		// Now try creating a tx spending to these outputs.
 		createTx, createErr := w.CreateSimpleTx(
-			outputs, feeRate, true,
+			outputs, feeRate, minConfs, true,
 		)
 		switch {
 		case test.valid && createErr != nil:
@@ -2646,7 +2705,7 @@ func testCreateSimpleTx(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		// _very_ similar to the one we just created being sent. The
 		// only difference is that the dry run tx is not signed, and
 		// that the change output position might be different.
-		tx, sendErr := w.SendOutputs(outputs, feeRate, 1, labels.External)
+		tx, sendErr := w.SendOutputs(outputs, feeRate, minConfs, labels.External)
 		switch {
 		case test.valid && sendErr != nil:
 			t.Fatalf("got unexpected error when sending tx: %v",

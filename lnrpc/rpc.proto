@@ -899,6 +899,13 @@ message EstimateFeeRequest {
     // The target number of blocks that this transaction should be confirmed
     // by.
     int32 target_conf = 2;
+
+    // The minimum number of confirmations each one of your outputs used for
+    // the transaction must satisfy.
+    int32 min_confs = 3;
+
+    // Whether unconfirmed outputs should be used as inputs for the transaction.
+    bool spend_unconfirmed = 4;
 }
 
 message EstimateFeeResponse {

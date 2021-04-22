@@ -2034,6 +2034,22 @@
             "required": false,
             "type": "integer",
             "format": "int32"
+          },
+          {
+            "name": "min_confs",
+            "description": "The minimum number of confirmations each one of your outputs used for\nthe transaction must satisfy.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "spend_unconfirmed",
+            "description": "Whether unconfirmed outputs should be used as inputs for the transaction.",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
           }
         ],
         "tags": [

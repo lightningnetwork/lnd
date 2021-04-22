@@ -266,6 +266,15 @@ type InitFundingMsg struct {
 	// peer.
 	MaxLocalCsv uint16
 
+	// FundUpToMaxAmt is the maximum amount to try to commit to. If set, the
+	// MinFundAmt field denotes the acceptable minimum amount to commit to,
+	// while trying to commit as many coins as possible up to this value.
+	FundUpToMaxAmt btcutil.Amount
+
+	// MinFundAmt must be set iff FundUpToMaxAmt is set. It denotes the
+	// minimum amount to commit to.
+	MinFundAmt btcutil.Amount
+
 	// ChanFunder is an optional channel funder that allows the caller to
 	// control exactly how the channel funding is carried out. If not
 	// specified, then the default chanfunding.WalletAssembler will be

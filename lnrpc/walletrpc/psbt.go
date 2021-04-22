@@ -14,7 +14,6 @@ import (
 )
 
 const (
-	defaultMinConf = 1
 	defaultMaxConf = math.MaxInt32
 )
 

@@ -1069,6 +1069,15 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 			"specify either target_conf or set_per_vbyte")
 	}
 
+	// Then, we'll extract the minimum number of confirmations that each
+	// output we use to fund the transaction should satisfy.
+	minConfs, err := lnrpc.ExtractMinConfs(
+		req.GetMinConfs(), req.GetSpendUnconfirmed(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	// The RPC parsing part is now over. Several of the following operations
 	// require us to hold the global coin selection lock so we do the rest
 	// of the tasks while holding the lock. The result is a list of locked
@@ -1087,7 +1096,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		if len(packet.UnsignedTx.TxIn) > 0 {
 			// Get a list of all unspent witness outputs.
 			utxos, err := w.cfg.Wallet.ListUnspentWitness(
-				defaultMinConf, defaultMaxConf, account,
+				minConfs, defaultMaxConf, account,
 			)
 			if err != nil {
 				return err

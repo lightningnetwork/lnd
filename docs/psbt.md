@@ -8,6 +8,10 @@ See [BIP174](https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki) for
 a full description of the PSBT format and the different _roles_ that a
 participant in a PSBT can have.
 
+To avoid possible malleability, all inputs to a funding transaction must be segwit
+spends, meaning that P2PKH and normal P2SH cannot be used. An error will be
+returned if any inputs are not segwit spends.
+
 ## Creating/funding a PSBT
 
 The first step for every transaction that is constructed using a PSBT flow is to

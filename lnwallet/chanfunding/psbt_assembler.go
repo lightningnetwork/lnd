@@ -249,6 +249,15 @@ func (i *PsbtIntent) Verify(packet *psbt.Packet) error {
 			"output amount sum")
 	}
 
+	// SumUtxoInputValues checks that packet.Inputs is non-empty. Here we
+	// check that each Input has a WitnessUtxo field, to avoid possible
+	// malleability.
+	for _, in := range packet.Inputs {
+		if in.WitnessUtxo == nil {
+			return fmt.Errorf("not all inputs are segwit spends")
+		}
+	}
+
 	i.PendingPsbt = packet
 	i.State = PsbtVerified
 	return nil

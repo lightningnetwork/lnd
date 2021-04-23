@@ -11,7 +11,6 @@ import (
 	"net"
 	"os"
 	"os/user"
-	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -1642,7 +1641,7 @@ func extractBitcoindRPCParams(networkName string,
 
 	// Next, we'll try to find an auth cookie. We need to detect the chain
 	// by seeing if one is specified in the configuration file.
-	dataDir := path.Dir(bitcoindConfigPath)
+	dataDir := filepath.Dir(bitcoindConfigPath)
 	dataDirRE, err := regexp.Compile(`(?m)^\s*datadir\s*=\s*([^\s]+)`)
 	if err != nil {
 		return "", "", "", "", err
@@ -1652,17 +1651,17 @@ func extractBitcoindRPCParams(networkName string,
 		dataDir = string(dataDirSubmatches[1])
 	}
 
-	chainDir := "/"
+	chainDir := ""
 	switch networkName {
-	case "testnet3":
-		chainDir = "/testnet3/"
-	case "testnet4":
-		chainDir = "/testnet4/"
-	case "regtest":
-		chainDir = "/regtest/"
+	case "mainnet":
+		chainDir = ""
+	case "regtest", "testnet3":
+		chainDir = networkName
+	default:
+		return "", "", "", "", fmt.Errorf("unexpected networkname %v", networkName)
 	}
 
-	cookie, err := ioutil.ReadFile(dataDir + chainDir + ".cookie")
+	cookie, err := ioutil.ReadFile(filepath.Join(dataDir, chainDir, ".cookie"))
 	if err == nil {
 		splitCookie := strings.Split(string(cookie), ":")
 		if len(splitCookie) == 2 {

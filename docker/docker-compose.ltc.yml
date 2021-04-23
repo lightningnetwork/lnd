@@ -29,7 +29,7 @@ services:
         - RPCUSER
         - RPCPASS
         - NETWORK
-        - CHAIN
+        - CHAIN=litecoin
         - DEBUG
       volumes:
         - shared:/rpc

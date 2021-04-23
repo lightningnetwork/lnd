@@ -190,6 +190,9 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 		t.Fatalf("unable to create route: %v", err)
 	}
 
+	halfShard, err := createTestRoute(paymentAmt/2, testGraph.aliasMap)
+	require.NoError(t, err, "unable to create half route")
+
 	shard, err := createTestRoute(paymentAmt/4, testGraph.aliasMap)
 	if err != nil {
 		t.Fatalf("unable to create route: %v", err)
@@ -501,10 +504,8 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			},
 		},
 		{
-			// An MP payment scenario where 3 of the shards fail.
-			// However the last shard settle, which means we get
-			// the preimage and should consider the overall payment
-			// a success.
+			// An MP payment scenario where one of the shards fails,
+			// but we still receive a single success shard.
 			name: "MP one shard success",
 
 			steps: []string{
@@ -518,30 +519,18 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
-				// shard 2
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// shard 3
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// 3 shards fail, and should be failed by the
+				// shard 0 fails, and should be failed by the
 				// router.
 				getPaymentResultTempFailure,
-				getPaymentResultTempFailure,
-				getPaymentResultTempFailure,
-				routerFailAttempt,
-				routerFailAttempt,
 				routerFailAttempt,
 
-				// The fourth shard succeed against all odds,
+				// The second shard succeed against all odds,
 				// making the overall payment succeed.
 				getPaymentResultSuccess,
 				routerSettleAttempt,
 				paymentSuccess,
 			},
-			routes: []*route.Route{shard, shard, shard, shard},
+			routes: []*route.Route{halfShard, halfShard},
 		},
 		{
 			// An MP payment scenario a shard fail with a terminal

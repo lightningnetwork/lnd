@@ -2,7 +2,6 @@ package routing
 
 import (
 	"crypto/rand"
-	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 )
 
 const stepTimeout = 5 * time.Second
@@ -47,6 +47,110 @@ func createTestRoute(amt lnwire.MilliSatoshi,
 		amt+2*hopFee, 100, aliasMap["a"], hops,
 	)
 }
+
+// paymentLifecycleTestCase contains the steps that we expect for a payment
+// lifecycle test, and the routes that pathfinding should deliver.
+type paymentLifecycleTestCase struct {
+	name string
+
+	// steps is a list of steps to perform during the testcase.
+	steps []string
+
+	// routes is the sequence of routes we will provide to the
+	// router when it requests a new route.
+	routes []*route.Route
+
+	// paymentErr is the error we expect our payment to fail with. This
+	// should be nil for tests with paymentSuccess steps and non-nil for
+	// payments with paymentError steps.
+	paymentErr error
+}
+
+const (
+	// routerInitPayment is a test step where we expect the router
+	// to call the InitPayment method on the control tower.
+	routerInitPayment = "Router:init-payment"
+
+	// routerRegisterAttempt is a test step where we expect the
+	// router to call the RegisterAttempt method on the control
+	// tower.
+	routerRegisterAttempt = "Router:register-attempt"
+
+	// routerSettleAttempt is a test step where we expect the
+	// router to call the SettleAttempt method on the control
+	// tower.
+	routerSettleAttempt = "Router:settle-attempt"
+
+	// routerFailAttempt is a test step where we expect the router
+	// to call the FailAttempt method on the control tower.
+	routerFailAttempt = "Router:fail-attempt"
+
+	// routerFailPayment is a test step where we expect the router
+	// to call the Fail method on the control tower.
+	routerFailPayment = "Router:fail-payment"
+
+	// routeRelease is a test step where we unblock pathfinding and
+	// allow it to respond to our test with a route.
+	routeRelease = "PaymentSession:release"
+
+	// sendToSwitchSuccess is a step where we expect the router to
+	// call send the payment attempt to the switch, and we will
+	// respond with a non-error, indicating that the payment
+	// attempt was successfully forwarded.
+	sendToSwitchSuccess = "SendToSwitch:success"
+
+	// sendToSwitchResultFailure is a step where we expect the
+	// router to send the payment attempt to the switch, and we
+	// will respond with a forwarding error. This can happen when
+	// forwarding fail on our local links.
+	sendToSwitchResultFailure = "SendToSwitch:failure"
+
+	// getPaymentResultSuccess is a test step where we expect the
+	// router to call the GetPaymentResult method, and we will
+	// respond with a successful payment result.
+	getPaymentResultSuccess = "GetPaymentResult:success"
+
+	// getPaymentResultTempFailure is a test step where we expect the
+	// router to call the GetPaymentResult method, and we will
+	// respond with a forwarding error, expecting the router to retry.
+	getPaymentResultTempFailure = "GetPaymentResult:temp-failure"
+
+	// getPaymentResultTerminalFailure is a test step where we
+	// expect the router to call the GetPaymentResult method, and
+	// we will respond with a terminal error, expecting the router
+	// to stop making payment attempts.
+	getPaymentResultTerminalFailure = "GetPaymentResult:terminal-failure"
+
+	// resendPayment is a test step where we manually try to resend
+	// the same payment, making sure the router responds with an
+	// error indicating that it is already in flight.
+	resendPayment = "ResendPayment"
+
+	// startRouter is a step where we manually start the router,
+	// used to test that it automatically will resume payments at
+	// startup.
+	startRouter = "StartRouter"
+
+	// stopRouter is a test step where we manually make the router
+	// shut down.
+	stopRouter = "StopRouter"
+
+	// paymentSuccess is a step where assert that we receive a
+	// successful result for the original payment made.
+	paymentSuccess = "PaymentSuccess"
+
+	// paymentError is a step where assert that we receive an error
+	// for the original payment made.
+	paymentError = "PaymentError"
+
+	// resentPaymentSuccess is a step where assert that we receive
+	// a successful result for a payment that was resent.
+	resentPaymentSuccess = "ResentPaymentSuccess"
+
+	// resentPaymentError is a step where assert that we receive an
+	// error for a payment that was resent.
+	resentPaymentError = "ResentPaymentError"
+)
 
 // TestRouterPaymentStateMachine tests that the router interacts as expected
 // with the ControlTower during a payment lifecycle, such that it payment
@@ -90,109 +194,22 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 		t.Fatalf("unable to create route: %v", err)
 	}
 
+	halfShard, err := createTestRoute(paymentAmt/2, testGraph.aliasMap)
+	require.NoError(t, err, "unable to create half route")
+
 	shard, err := createTestRoute(paymentAmt/4, testGraph.aliasMap)
 	if err != nil {
 		t.Fatalf("unable to create route: %v", err)
 	}
 
-	// A payment state machine test case consists of several ordered steps,
-	// that we use for driving the scenario.
-	type testCase struct {
-		// steps is a list of steps to perform during the testcase.
-		steps []string
-
-		// routes is the sequence of routes we will provide to the
-		// router when it requests a new route.
-		routes []*route.Route
-	}
-
-	const (
-		// routerInitPayment is a test step where we expect the router
-		// to call the InitPayment method on the control tower.
-		routerInitPayment = "Router:init-payment"
-
-		// routerRegisterAttempt is a test step where we expect the
-		// router to call the RegisterAttempt method on the control
-		// tower.
-		routerRegisterAttempt = "Router:register-attempt"
-
-		// routerSettleAttempt is a test step where we expect the
-		// router to call the SettleAttempt method on the control
-		// tower.
-		routerSettleAttempt = "Router:settle-attempt"
-
-		// routerFailAttempt is a test step where we expect the router
-		// to call the FailAttempt method on the control tower.
-		routerFailAttempt = "Router:fail-attempt"
-
-		// routerFailPayment is a test step where we expect the router
-		// to call the Fail method on the control tower.
-		routerFailPayment = "Router:fail-payment"
-
-		// sendToSwitchSuccess is a step where we expect the router to
-		// call send the payment attempt to the switch, and we will
-		// respond with a non-error, indicating that the payment
-		// attempt was successfully forwarded.
-		sendToSwitchSuccess = "SendToSwitch:success"
-
-		// sendToSwitchResultFailure is a step where we expect the
-		// router to send the payment attempt to the switch, and we
-		// will respond with a forwarding error. This can happen when
-		// forwarding fail on our local links.
-		sendToSwitchResultFailure = "SendToSwitch:failure"
-
-		// getPaymentResultSuccess is a test step where we expect the
-		// router to call the GetPaymentResult method, and we will
-		// respond with a successful payment result.
-		getPaymentResultSuccess = "GetPaymentResult:success"
-
-		// getPaymentResultTempFailure is a test step where we expect the
-		// router to call the GetPaymentResult method, and we will
-		// respond with a forwarding error, expecting the router to retry.
-		getPaymentResultTempFailure = "GetPaymentResult:temp-failure"
-
-		// getPaymentResultTerminalFailure is a test step where we
-		// expect the router to call the GetPaymentResult method, and
-		// we will respond with a terminal error, expecting the router
-		// to stop making payment attempts.
-		getPaymentResultTerminalFailure = "GetPaymentResult:terminal-failure"
-
-		// resendPayment is a test step where we manually try to resend
-		// the same payment, making sure the router responds with an
-		// error indicating that it is already in flight.
-		resendPayment = "ResendPayment"
-
-		// startRouter is a step where we manually start the router,
-		// used to test that it automatically will resume payments at
-		// startup.
-		startRouter = "StartRouter"
-
-		// stopRouter is a test step where we manually make the router
-		// shut down.
-		stopRouter = "StopRouter"
-
-		// paymentSuccess is a step where assert that we receive a
-		// successful result for the original payment made.
-		paymentSuccess = "PaymentSuccess"
-
-		// paymentError is a step where assert that we receive an error
-		// for the original payment made.
-		paymentError = "PaymentError"
-
-		// resentPaymentSuccess is a step where assert that we receive
-		// a successful result for a payment that was resent.
-		resentPaymentSuccess = "ResentPaymentSuccess"
-
-		// resentPaymentError is a step where assert that we receive an
-		// error for a payment that was resent.
-		resentPaymentError = "ResentPaymentError"
-	)
-
-	tests := []testCase{
+	tests := []paymentLifecycleTestCase{
 		{
 			// Tests a normal payment flow that succeeds.
+			name: "single shot success",
+
 			steps: []string{
 				routerInitPayment,
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 				getPaymentResultSuccess,
@@ -204,8 +221,11 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 		{
 			// A payment flow with a failure on the first attempt,
 			// but that succeeds on the second attempt.
+			name: "single shot retry",
+
 			steps: []string{
 				routerInitPayment,
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
@@ -214,6 +234,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				routerFailAttempt,
 
 				// The router should retry.
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
@@ -228,8 +249,11 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			// A payment flow with a forwarding failure first time
 			// sending to the switch, but that succeeds on the
 			// second attempt.
+			name: "single shot switch failure",
+
 			steps: []string{
 				routerInitPayment,
+				routeRelease,
 				routerRegisterAttempt,
 
 				// Make the first sent attempt fail.
@@ -237,6 +261,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				routerFailAttempt,
 
 				// The router should retry.
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
@@ -251,8 +276,11 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			// A payment that fails on the first attempt, and has
 			// only one route available to try. It will therefore
 			// fail permanently.
+			name: "single shot route fails",
+
 			steps: []string{
 				routerInitPayment,
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
@@ -260,30 +288,40 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				getPaymentResultTempFailure,
 				routerFailAttempt,
 
+				routeRelease,
+
 				// Since there are no more routes to try, the
 				// payment should fail.
 				routerFailPayment,
 				paymentError,
 			},
-			routes: []*route.Route{rt},
+			routes:     []*route.Route{rt},
+			paymentErr: channeldb.FailureReasonNoRoute,
 		},
 		{
 			// We expect the payment to fail immediately if we have
 			// no routes to try.
+			name: "single shot no route",
+
 			steps: []string{
 				routerInitPayment,
+				routeRelease,
 				routerFailPayment,
 				paymentError,
 			},
-			routes: []*route.Route{},
+			routes:     []*route.Route{},
+			paymentErr: channeldb.FailureReasonNoRoute,
 		},
 		{
 			// A normal payment flow, where we attempt to resend
 			// the same payment after each step. This ensures that
 			// the router don't attempt to resend a payment already
 			// in flight.
+			name: "single shot resend",
+
 			steps: []string{
 				routerInitPayment,
+				routeRelease,
 				routerRegisterAttempt,
 
 				// Manually resend the payment, the router
@@ -322,8 +360,11 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 		{
 			// Tests that the router is able to handle the
 			// receieved payment result after a restart.
+			name: "single shot restart",
+
 			steps: []string{
 				routerInitPayment,
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
@@ -339,13 +380,17 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				getPaymentResultSuccess,
 				routerSettleAttempt,
 			},
-			routes: []*route.Route{rt},
+			routes:     []*route.Route{rt},
+			paymentErr: ErrRouterShuttingDown,
 		},
 		{
 			// Tests that we are allowed to resend a payment after
 			// it has permanently failed.
+			name: "single shot resend fail",
+
 			steps: []string{
 				routerInitPayment,
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
@@ -361,6 +406,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 
 				// Since we have no more routes to try, the
 				// original payment should fail.
+				routeRelease,
 				routerFailPayment,
 				paymentError,
 
@@ -368,13 +414,15 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				// allowed, since the payment has failed.
 				resendPayment,
 				routerInitPayment,
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 				getPaymentResultSuccess,
 				routerSettleAttempt,
 				resentPaymentSuccess,
 			},
-			routes: []*route.Route{rt},
+			routes:     []*route.Route{rt},
+			paymentErr: channeldb.FailureReasonNoRoute,
 		},
 
 		// =====================================
@@ -382,22 +430,28 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 		// =====================================
 		{
 			// Tests a simple successful MP payment of 4 shards.
+			name: "MP success",
+
 			steps: []string{
 				routerInitPayment,
 
 				// shard 0
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
 				// shard 1
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
 				// shard 2
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
 				// shard 3
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
@@ -422,22 +476,28 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 		{
 			// An MP payment scenario where we need several extra
 			// attempts before the payment finally settle.
+			name: "MP failed shards",
+
 			steps: []string{
 				routerInitPayment,
 
 				// shard 0
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
 				// shard 1
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
 				// shard 2
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
 				// shard 3
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
@@ -447,8 +507,10 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				routerFailAttempt,
 				routerFailAttempt,
 
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
@@ -470,65 +532,65 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			},
 		},
 		{
-			// An MP payment scenario where 3 of the shards fail.
-			// However the last shard settle, which means we get
-			// the preimage and should consider the overall payment
-			// a success.
+			// An MP payment scenario where one of the shards fails,
+			// but we still receive a single success shard.
+			name: "MP one shard success",
+
 			steps: []string{
 				routerInitPayment,
 
 				// shard 0
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
 				// shard 1
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
-				// shard 2
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// shard 3
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// 3 shards fail, and should be failed by the
+				// shard 0 fails, and should be failed by the
 				// router.
 				getPaymentResultTempFailure,
-				getPaymentResultTempFailure,
-				getPaymentResultTempFailure,
-				routerFailAttempt,
-				routerFailAttempt,
 				routerFailAttempt,
 
-				// The fourth shard succeed against all odds,
+				// We will try one more shard because we haven't
+				// sent the full payment amount.
+				routeRelease,
+
+				// The second shard succeed against all odds,
 				// making the overall payment succeed.
 				getPaymentResultSuccess,
 				routerSettleAttempt,
 				paymentSuccess,
 			},
-			routes: []*route.Route{shard, shard, shard, shard},
+			routes: []*route.Route{halfShard, halfShard},
 		},
 		{
 			// An MP payment scenario a shard fail with a terminal
 			// error, causing the router to stop attempting.
+			name: "MP terminal",
+
 			steps: []string{
 				routerInitPayment,
 
 				// shard 0
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
 				// shard 1
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
 				// shard 2
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
 				// shard 3
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
@@ -551,26 +613,122 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			routes: []*route.Route{
 				shard, shard, shard, shard, shard, shard,
 			},
+			paymentErr: channeldb.FailureReasonPaymentDetails,
+		},
+		{
+			// A MP payment scenario when our path finding returns
+			// after we've just received a terminal failure, and
+			// attempts to dispatch a new shard. Testing that we
+			// correctly abandon the shard and conclude the payment.
+			name: "MP path found after failure",
+
+			steps: []string{
+				routerInitPayment,
+
+				// shard 0
+				routeRelease,
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// The first shard fail with a terminal error.
+				getPaymentResultTerminalFailure,
+				routerFailAttempt,
+				routerFailPayment,
+
+				// shard 1 fails because we've had a terminal
+				// failure.
+				routeRelease,
+				routerRegisterAttempt,
+
+				// Payment fails.
+				paymentError,
+			},
+			routes: []*route.Route{
+				shard, shard,
+			},
+			paymentErr: channeldb.FailureReasonPaymentDetails,
+		},
+		{
+			// A MP payment scenario when our path finding returns
+			// after we've just received a terminal failure, and
+			// we have another shard still in flight.
+			name: "MP shard in flight after terminal",
+
+			steps: []string{
+				routerInitPayment,
+
+				// shard 0
+				routeRelease,
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// shard 1
+				routeRelease,
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// shard 2
+				routeRelease,
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// We find a path for another shard.
+				routeRelease,
+
+				// shard 0 fails with a terminal error.
+				getPaymentResultTerminalFailure,
+				routerFailAttempt,
+				routerFailPayment,
+
+				// We try to register our final shard after
+				// processing a terminal failure.
+				routerRegisterAttempt,
+
+				// Our in-flight shards fail.
+				getPaymentResultTempFailure,
+				getPaymentResultTempFailure,
+				routerFailAttempt,
+				routerFailAttempt,
+
+				// Payment fails.
+				paymentError,
+			},
+			routes: []*route.Route{
+				shard, shard, shard, shard,
+			},
+			paymentErr: channeldb.FailureReasonPaymentDetails,
 		},
 	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			testPaymentLifecycle(
+				t, test, paymentAmt, startingBlockHeight,
+				testGraph,
+			)
+		})
+	}
+}
+
+func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
+	paymentAmt lnwire.MilliSatoshi, startingBlockHeight uint32,
+	testGraph *testGraphInstance) {
 
 	// Create a mock control tower with channels set up, that we use to
 	// synchronize and listen for events.
 	control := makeMockControlTower()
-	control.init = make(chan initArgs, 20)
-	control.registerAttempt = make(chan registerAttemptArgs, 20)
-	control.settleAttempt = make(chan settleAttemptArgs, 20)
-	control.failAttempt = make(chan failAttemptArgs, 20)
-	control.failPayment = make(chan failPaymentArgs, 20)
-	control.fetchInFlight = make(chan struct{}, 20)
-
-	quit := make(chan struct{})
-	defer close(quit)
+	control.init = make(chan initArgs)
+	control.registerAttempt = make(chan registerAttemptArgs)
+	control.settleAttempt = make(chan settleAttemptArgs)
+	control.failAttempt = make(chan failAttemptArgs)
+	control.failPayment = make(chan failPaymentArgs)
+	control.fetchInFlight = make(chan struct{})
 
 	// setupRouter is a helper method that creates and starts the router in
 	// the desired configuration for this test.
 	setupRouter := func() (*ChannelRouter, chan error,
-		chan *htlcswitch.PaymentResult, chan error) {
+		chan *htlcswitch.PaymentResult) {
 
 		chain := newMockChain(startingBlockHeight)
 		chainView := newMockChainView(chain)
@@ -578,13 +736,11 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 		// We set uo the use the following channels and a mock Payer to
 		// synchonize with the interaction to the Switch.
 		sendResult := make(chan error)
-		paymentResultErr := make(chan error)
 		paymentResult := make(chan *htlcswitch.PaymentResult)
 
 		payer := &mockPayer{
-			sendResult:       sendResult,
-			paymentResult:    paymentResult,
-			paymentResultErr: paymentResultErr,
+			sendResult:    sendResult,
+			paymentResult: paymentResult,
 		}
 
 		router, err := New(Config{
@@ -637,262 +793,278 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			t.Fatalf("did not fetch in flight payments at startup")
 		}
 
-		return router, sendResult, paymentResult, paymentResultErr
+		return router, sendResult, paymentResult
 	}
 
-	router, sendResult, getPaymentResult, getPaymentResultErr := setupRouter()
+	router, sendResult, getPaymentResult := setupRouter()
 	defer func() {
 		if err := router.Stop(); err != nil {
 			t.Fatal(err)
 		}
 	}()
 
-	for _, test := range tests {
-		// Craft a LightningPayment struct.
-		var preImage lntypes.Preimage
-		if _, err := rand.Read(preImage[:]); err != nil {
-			t.Fatalf("unable to generate preimage")
-		}
+	// Craft a LightningPayment struct.
+	var preImage lntypes.Preimage
+	if _, err := rand.Read(preImage[:]); err != nil {
+		t.Fatalf("unable to generate preimage")
+	}
 
-		payHash := preImage.Hash()
+	payHash := preImage.Hash()
 
-		payment := LightningPayment{
-			Target:      testGraph.aliasMap["c"],
-			Amount:      paymentAmt,
-			FeeLimit:    noFeeLimit,
-			PaymentHash: payHash,
-		}
+	payment := LightningPayment{
+		Target:      testGraph.aliasMap["c"],
+		Amount:      paymentAmt,
+		FeeLimit:    noFeeLimit,
+		PaymentHash: payHash,
+	}
 
-		router.cfg.SessionSource = &mockPaymentSessionSource{
-			routes: test.routes,
-		}
+	// Setup our payment session source to block on release of
+	// routes.
+	routeChan := make(chan struct{})
+	router.cfg.SessionSource = &mockPaymentSessionSource{
+		routes:       test.routes,
+		routeRelease: routeChan,
+	}
 
-		router.cfg.MissionControl = &mockMissionControl{}
+	router.cfg.MissionControl = &mockMissionControl{}
 
-		// Send the payment. Since this is new payment hash, the
-		// information should be registered with the ControlTower.
-		paymentResult := make(chan error)
-		go func() {
-			_, _, err := router.SendPayment(&payment)
-			paymentResult <- err
-		}()
+	// Send the payment. Since this is new payment hash, the
+	// information should be registered with the ControlTower.
+	paymentResult := make(chan error)
+	done := make(chan struct{})
+	go func() {
+		_, _, err := router.SendPayment(&payment)
+		paymentResult <- err
+		close(done)
+	}()
 
-		var resendResult chan error
-		for _, step := range test.steps {
-			switch step {
+	var resendResult chan error
+	for _, step := range test.steps {
+		switch step {
 
-			case routerInitPayment:
-				var args initArgs
-				select {
-				case args = <-control.init:
-				case <-time.After(stepTimeout):
-					t.Fatalf("no init payment with control")
-				}
-
-				if args.c == nil {
-					t.Fatalf("expected non-nil CreationInfo")
-				}
-
-			// In this step we expect the router to make a call to
-			// register a new attempt with the ControlTower.
-			case routerRegisterAttempt:
-				var args registerAttemptArgs
-				select {
-				case args = <-control.registerAttempt:
-				case <-time.After(stepTimeout):
-					t.Fatalf("attempt not registered " +
-						"with control")
-				}
-
-				if args.a == nil {
-					t.Fatalf("expected non-nil AttemptInfo")
-				}
-
-			// In this step we expect the router to call the
-			// ControlTower's SettleAttempt method with the preimage.
-			case routerSettleAttempt:
-				select {
-				case <-control.settleAttempt:
-				case <-time.After(stepTimeout):
-					t.Fatalf("attempt settle not " +
-						"registered with control")
-				}
-
-			// In this step we expect the router to call the
-			// ControlTower's FailAttempt method with a HTLC fail
-			// info.
-			case routerFailAttempt:
-				select {
-				case <-control.failAttempt:
-				case <-time.After(stepTimeout):
-					t.Fatalf("attempt fail not " +
-						"registered with control")
-				}
-
-			// In this step we expect the router to call the
-			// ControlTower's Fail method, to indicate that the
-			// payment failed.
-			case routerFailPayment:
-				select {
-				case <-control.failPayment:
-				case <-time.After(stepTimeout):
-					t.Fatalf("payment fail not " +
-						"registered with control")
-				}
-
-			// In this step we expect the SendToSwitch method to be
-			// called, and we respond with a nil-error.
-			case sendToSwitchSuccess:
-				select {
-				case sendResult <- nil:
-				case <-time.After(stepTimeout):
-					t.Fatalf("unable to send result")
-				}
-
-			// In this step we expect the SendToSwitch method to be
-			// called, and we respond with a forwarding error
-			case sendToSwitchResultFailure:
-				select {
-				case sendResult <- htlcswitch.NewForwardingError(
-					&lnwire.FailTemporaryChannelFailure{},
-					1,
-				):
-				case <-time.After(stepTimeout):
-					t.Fatalf("unable to send result")
-				}
-
-			// In this step we expect the GetPaymentResult method
-			// to be called, and we respond with the preimage to
-			// complete the payment.
-			case getPaymentResultSuccess:
-				select {
-				case getPaymentResult <- &htlcswitch.PaymentResult{
-					Preimage: preImage,
-				}:
-				case <-time.After(stepTimeout):
-					t.Fatalf("unable to send result")
-				}
-
-			// In this state we expect the GetPaymentResult method
-			// to be called, and we respond with a forwarding
-			// error, indicating that the router should retry.
-			case getPaymentResultTempFailure:
-				failure := htlcswitch.NewForwardingError(
-					&lnwire.FailTemporaryChannelFailure{},
-					1,
-				)
-
-				select {
-				case getPaymentResult <- &htlcswitch.PaymentResult{
-					Error: failure,
-				}:
-				case <-time.After(stepTimeout):
-					t.Fatalf("unable to get result")
-				}
-
-			// In this state we expect the router to call the
-			// GetPaymentResult method, and we will respond with a
-			// terminal error, indiating the router should stop
-			// making payment attempts.
-			case getPaymentResultTerminalFailure:
-				failure := htlcswitch.NewForwardingError(
-					&lnwire.FailIncorrectDetails{},
-					1,
-				)
-
-				select {
-				case getPaymentResult <- &htlcswitch.PaymentResult{
-					Error: failure,
-				}:
-				case <-time.After(stepTimeout):
-					t.Fatalf("unable to get result")
-				}
-
-			// In this step we manually try to resend the same
-			// payment, making sure the router responds with an
-			// error indicating that it is already in flight.
-			case resendPayment:
-				resendResult = make(chan error)
-				go func() {
-					_, _, err := router.SendPayment(&payment)
-					resendResult <- err
-				}()
-
-			// In this step we manually stop the router.
-			case stopRouter:
-				select {
-				case getPaymentResultErr <- fmt.Errorf(
-					"shutting down"):
-				case <-time.After(stepTimeout):
-					t.Fatalf("unable to send payment " +
-						"result error")
-				}
-
-				if err := router.Stop(); err != nil {
-					t.Fatalf("unable to restart: %v", err)
-				}
-
-			// In this step we manually start the router.
-			case startRouter:
-				router, sendResult, getPaymentResult,
-					getPaymentResultErr = setupRouter()
-
-			// In this state we expect to receive an error for the
-			// original payment made.
-			case paymentError:
-				select {
-				case err := <-paymentResult:
-					if err == nil {
-						t.Fatalf("expected error")
-					}
-
-				case <-time.After(stepTimeout):
-					t.Fatalf("got no payment result")
-				}
-
-			// In this state we expect the original payment to
-			// succeed.
-			case paymentSuccess:
-				select {
-				case err := <-paymentResult:
-					if err != nil {
-						t.Fatalf("did not expect "+
-							"error %v", err)
-					}
-
-				case <-time.After(stepTimeout):
-					t.Fatalf("got no payment result")
-				}
-
-			// In this state we expect to receive an error for the
-			// resent payment made.
-			case resentPaymentError:
-				select {
-				case err := <-resendResult:
-					if err == nil {
-						t.Fatalf("expected error")
-					}
-
-				case <-time.After(stepTimeout):
-					t.Fatalf("got no payment result")
-				}
-
-			// In this state we expect the resent payment to
-			// succeed.
-			case resentPaymentSuccess:
-				select {
-				case err := <-resendResult:
-					if err != nil {
-						t.Fatalf("did not expect error %v", err)
-					}
-
-				case <-time.After(stepTimeout):
-					t.Fatalf("got no payment result")
-				}
-
-			default:
-				t.Fatalf("unknown step %v", step)
+		case routerInitPayment:
+			var args initArgs
+			select {
+			case args = <-control.init:
+			case <-time.After(stepTimeout):
+				t.Fatalf("no init payment with control")
 			}
+
+			if args.c == nil {
+				t.Fatalf("expected non-nil CreationInfo")
+			}
+
+		case routeRelease:
+			select {
+			case <-routeChan:
+
+			case <-time.After(stepTimeout):
+				t.Fatalf("no route requested")
+			}
+
+		// In this step we expect the router to make a call to
+		// register a new attempt with the ControlTower.
+		case routerRegisterAttempt:
+			var args registerAttemptArgs
+			select {
+			case args = <-control.registerAttempt:
+			case <-time.After(stepTimeout):
+				t.Fatalf("attempt not registered " +
+					"with control")
+			}
+
+			if args.a == nil {
+				t.Fatalf("expected non-nil AttemptInfo")
+			}
+
+		// In this step we expect the router to call the
+		// ControlTower's SettleAttempt method with the preimage.
+		case routerSettleAttempt:
+			select {
+			case <-control.settleAttempt:
+			case <-time.After(stepTimeout):
+				t.Fatalf("attempt settle not " +
+					"registered with control")
+			}
+
+		// In this step we expect the router to call the
+		// ControlTower's FailAttempt method with a HTLC fail
+		// info.
+		case routerFailAttempt:
+			select {
+			case <-control.failAttempt:
+			case <-time.After(stepTimeout):
+				t.Fatalf("attempt fail not " +
+					"registered with control")
+			}
+
+		// In this step we expect the router to call the
+		// ControlTower's Fail method, to indicate that the
+		// payment failed.
+		case routerFailPayment:
+			select {
+			case <-control.failPayment:
+			case <-time.After(stepTimeout):
+				t.Fatalf("payment fail not " +
+					"registered with control")
+			}
+
+		// In this step we expect the SendToSwitch method to be
+		// called, and we respond with a nil-error.
+		case sendToSwitchSuccess:
+			select {
+			case sendResult <- nil:
+			case <-time.After(stepTimeout):
+				t.Fatalf("unable to send result")
+			}
+
+		// In this step we expect the SendToSwitch method to be
+		// called, and we respond with a forwarding error
+		case sendToSwitchResultFailure:
+			select {
+			case sendResult <- htlcswitch.NewForwardingError(
+				&lnwire.FailTemporaryChannelFailure{},
+				1,
+			):
+			case <-time.After(stepTimeout):
+				t.Fatalf("unable to send result")
+			}
+
+		// In this step we expect the GetPaymentResult method
+		// to be called, and we respond with the preimage to
+		// complete the payment.
+		case getPaymentResultSuccess:
+			select {
+			case getPaymentResult <- &htlcswitch.PaymentResult{
+				Preimage: preImage,
+			}:
+			case <-time.After(stepTimeout):
+				t.Fatalf("unable to send result")
+			}
+
+		// In this state we expect the GetPaymentResult method
+		// to be called, and we respond with a forwarding
+		// error, indicating that the router should retry.
+		case getPaymentResultTempFailure:
+			failure := htlcswitch.NewForwardingError(
+				&lnwire.FailTemporaryChannelFailure{},
+				1,
+			)
+
+			select {
+			case getPaymentResult <- &htlcswitch.PaymentResult{
+				Error: failure,
+			}:
+			case <-time.After(stepTimeout):
+				t.Fatalf("unable to get result")
+			}
+
+		// In this state we expect the router to call the
+		// GetPaymentResult method, and we will respond with a
+		// terminal error, indiating the router should stop
+		// making payment attempts.
+		case getPaymentResultTerminalFailure:
+			failure := htlcswitch.NewForwardingError(
+				&lnwire.FailIncorrectDetails{},
+				1,
+			)
+
+			select {
+			case getPaymentResult <- &htlcswitch.PaymentResult{
+				Error: failure,
+			}:
+			case <-time.After(stepTimeout):
+				t.Fatalf("unable to get result")
+			}
+
+		// In this step we manually try to resend the same
+		// payment, making sure the router responds with an
+		// error indicating that it is already in flight.
+		case resendPayment:
+			resendResult = make(chan error)
+			go func() {
+				_, _, err := router.SendPayment(&payment)
+				resendResult <- err
+			}()
+
+		// In this step we manually stop the router.
+		case stopRouter:
+			// On shutdown, the switch closes our result channel.
+			// Mimic this behavior in our mock.
+			close(getPaymentResult)
+
+			if err := router.Stop(); err != nil {
+				t.Fatalf("unable to restart: %v", err)
+			}
+
+		// In this step we manually start the router.
+		case startRouter:
+			router, sendResult, getPaymentResult = setupRouter()
+
+		// In this state we expect to receive an error for the
+		// original payment made.
+		case paymentError:
+			require.Error(t, test.paymentErr,
+				"paymentError not set")
+
+			select {
+			case err := <-paymentResult:
+				require.Equal(t, test.paymentErr, err)
+
+			case <-time.After(stepTimeout):
+				t.Fatalf("got no payment result")
+			}
+
+		// In this state we expect the original payment to
+		// succeed.
+		case paymentSuccess:
+			require.Nil(t, test.paymentErr)
+
+			select {
+			case err := <-paymentResult:
+				if err != nil {
+					t.Fatalf("did not expect "+
+						"error %v", err)
+				}
+
+			case <-time.After(stepTimeout):
+				t.Fatalf("got no payment result")
+			}
+
+		// In this state we expect to receive an error for the
+		// resent payment made.
+		case resentPaymentError:
+			select {
+			case err := <-resendResult:
+				if err == nil {
+					t.Fatalf("expected error")
+				}
+
+			case <-time.After(stepTimeout):
+				t.Fatalf("got no payment result")
+			}
+
+		// In this state we expect the resent payment to
+		// succeed.
+		case resentPaymentSuccess:
+			select {
+			case err := <-resendResult:
+				if err != nil {
+					t.Fatalf("did not expect error %v", err)
+				}
+
+			case <-time.After(stepTimeout):
+				t.Fatalf("got no payment result")
+			}
+
+		default:
+			t.Fatalf("unknown step %v", step)
 		}
+	}
+
+	select {
+	case <-done:
+	case <-time.After(testTimeout):
+		t.Fatalf("SendPayment didn't exit")
 	}
 }

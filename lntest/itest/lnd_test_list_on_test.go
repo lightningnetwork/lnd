@@ -231,6 +231,10 @@ var allTestCases = []*testCase{
 		test: testHoldInvoicePersistence,
 	},
 	{
+		name: "hold invoice force close",
+		test: testHoldInvoiceForceClose,
+	},
+	{
 		name: "cpfp",
 		test: testCPFP,
 	},

@@ -116,9 +116,25 @@ func (ew *InvoiceExpiryWatcher) Stop() {
 func makeInvoiceExpiry(paymentHash lntypes.Hash,
 	invoice *channeldb.Invoice) invoiceExpiry {
 
-	if invoice.State != channeldb.ContractOpen {
+	switch invoice.State {
+	// If we have an open invoice with no htlcs, we want to expire the
+	// invoice based on timestamp
+	case channeldb.ContractOpen:
+		return makeTimestampExpiry(paymentHash, invoice)
+
+	default:
 		log.Debugf("Invoice not added to expiry watcher: %v",
 			paymentHash)
+
+		return nil
+	}
+}
+
+// makeTimestampExpiry creates a timestamp-based expiry entry.
+func makeTimestampExpiry(paymentHash lntypes.Hash,
+	invoice *channeldb.Invoice) *invoiceExpiryTs {
+
+	if invoice.State != channeldb.ContractOpen {
 		return nil
 	}
 
@@ -150,9 +166,10 @@ func (ew *InvoiceExpiryWatcher) AddInvoices(invoices ...invoiceExpiry) {
 	}
 }
 
-// nextExpiry returns a Time chan to wait on until the next invoice expires.
-// If there are no active invoices, then it'll simply wait indefinitely.
-func (ew *InvoiceExpiryWatcher) nextExpiry() <-chan time.Time {
+// nextTimestampExpiry returns a Time chan to wait on until the next invoice
+// expires. If there are no active invoices, then it'll simply wait
+// indefinitely.
+func (ew *InvoiceExpiryWatcher) nextTimestampExpiry() <-chan time.Time {
 	if !ew.timestampExpiryQueue.Empty() {
 		top := ew.timestampExpiryQueue.Top().(*invoiceExpiryTs)
 		return ew.clock.TickAfter(top.Expiry.Sub(ew.clock.Now()))
@@ -217,21 +234,21 @@ func (ew *InvoiceExpiryWatcher) mainLoop() {
 
 		select {
 
-		case invoicesWithExpiry := <-ew.newInvoices:
+		case newInvoices := <-ew.newInvoices:
 			// Take newly forwarded invoices with higher priority
 			// in order to not block the newInvoices channel.
-			ew.pushInvoices(invoicesWithExpiry)
+			ew.pushInvoices(newInvoices)
 			continue
 
 		default:
 			select {
 
-			case <-ew.nextExpiry():
+			case <-ew.nextTimestampExpiry():
 				// Wait until the next invoice expires.
 				continue
 
-			case invoicesWithExpiry := <-ew.newInvoices:
-				ew.pushInvoices(invoicesWithExpiry)
+			case newInvoices := <-ew.newInvoices:
+				ew.pushInvoices(newInvoices)
 
 			case <-ew.quit:
 				return

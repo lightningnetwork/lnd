@@ -333,6 +333,10 @@ func (m *mockControlTower) RegisterAttempt(phash lntypes.Hash,
 		return channeldb.ErrPaymentAlreadyFailed
 	}
 
+	if settled || failed {
+		return channeldb.ErrPaymentTerminal
+	}
+
 	// Add attempt to payment.
 	p.attempts = append(p.attempts, channeldb.HTLCAttempt{
 		HTLCAttemptInfo: *a,

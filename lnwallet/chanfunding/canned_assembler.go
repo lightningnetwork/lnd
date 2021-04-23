@@ -195,11 +195,19 @@ func NewCannedAssembler(thawHeight uint32, chanPoint wire.OutPoint,
 //
 // NOTE: This method satisfies the chanfunding.Assembler interface.
 func (c *CannedAssembler) ProvisionChannel(req *Request) (Intent, error) {
-	// We'll exit out if this field is set as the funding transaction has
-	// already been assembled, so we don't influence coin selection..
+	// We'll exit out if SubtractFees is set as the funding transaction has
+	// already been assembled, so we don't influence coin selection.
 	if req.SubtractFees {
 		return nil, fmt.Errorf("SubtractFees ignored, funding " +
 			"transaction is frozen")
+	}
+
+	// We'll exit out if FundUpToMaxAmt or MinFundAmt is set as the funding
+	// transaction has already been assembled, so we don't influence coin
+	// selection.
+	if req.FundUpToMaxAmt != 0 || req.MinFundAmt != 0 {
+		return nil, fmt.Errorf("FundUpToMaxAmt and MinFundAmt " +
+			"ignored, funding transaction is frozen")
 	}
 
 	intent := &ShimIntent{

@@ -302,20 +302,38 @@ func (m *mockControlTower) RegisterAttempt(phash lntypes.Hash,
 	m.Lock()
 	defer m.Unlock()
 
-	// Cannot register attempts for successful or failed payments.
-	if _, ok := m.successful[phash]; ok {
-		return channeldb.ErrPaymentAlreadySucceeded
-	}
-
-	if _, ok := m.failed[phash]; ok {
-		return channeldb.ErrPaymentAlreadyFailed
-	}
-
+	// Lookup payment.
 	p, ok := m.payments[phash]
 	if !ok {
 		return channeldb.ErrPaymentNotInitiated
 	}
 
+	var inFlight bool
+	for _, a := range p.attempts {
+		if a.Settle != nil {
+			continue
+		}
+
+		if a.Failure != nil {
+			continue
+		}
+
+		inFlight = true
+	}
+
+	// Cannot register attempts for successful or failed payments.
+	_, settled := m.successful[phash]
+	_, failed := m.failed[phash]
+
+	if settled && !inFlight {
+		return channeldb.ErrPaymentAlreadySucceeded
+	}
+
+	if failed && !inFlight {
+		return channeldb.ErrPaymentAlreadyFailed
+	}
+
+	// Add attempt to payment.
 	p.attempts = append(p.attempts, channeldb.HTLCAttempt{
 		HTLCAttemptInfo: *a,
 	})

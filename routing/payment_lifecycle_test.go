@@ -615,6 +615,41 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			},
 			paymentErr: channeldb.FailureReasonPaymentDetails,
 		},
+		{
+			// A MP payment scenario when our path finding returns
+			// after we've just received a terminal failure, and
+			// demonstrates a bug where the payment will return with
+			// and "unexpected" ErrPaymentAlreadyFailed rather than
+			// failing with a permanent error. This results in the
+			// payment getting stuck.
+			name: "MP path found after failure",
+
+			steps: []string{
+				routerInitPayment,
+
+				// shard 0
+				routeRelease,
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// The first shard fail with a terminal error.
+				getPaymentResultTerminalFailure,
+				routerFailAttempt,
+				routerFailPayment,
+
+				// shard 1 fails because we've had a terminal
+				// failure.
+				routeRelease,
+				routerRegisterAttempt,
+
+				// Payment fails.
+				paymentError,
+			},
+			routes: []*route.Route{
+				shard, shard,
+			},
+			paymentErr: channeldb.ErrPaymentAlreadyFailed,
+		},
 	}
 
 	for _, test := range tests {

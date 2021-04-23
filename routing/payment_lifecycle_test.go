@@ -564,9 +564,6 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 	control.failPayment = make(chan failPaymentArgs, 20)
 	control.fetchInFlight = make(chan struct{}, 20)
 
-	quit := make(chan struct{})
-	defer close(quit)
-
 	// setupRouter is a helper method that creates and starts the router in
 	// the desired configuration for this test.
 	setupRouter := func() (*ChannelRouter, chan error,
@@ -672,9 +669,11 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 		// Send the payment. Since this is new payment hash, the
 		// information should be registered with the ControlTower.
 		paymentResult := make(chan error)
+		done := make(chan struct{})
 		go func() {
 			_, _, err := router.SendPayment(&payment)
 			paymentResult <- err
+			close(done)
 		}()
 
 		var resendResult chan error
@@ -893,6 +892,12 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			default:
 				t.Fatalf("unknown step %v", step)
 			}
+		}
+
+		select {
+		case <-done:
+		case <-time.After(testTimeout):
+			t.Fatalf("SendPayment didn't exit")
 		}
 	}
 }

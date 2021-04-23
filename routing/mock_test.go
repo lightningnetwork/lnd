@@ -248,12 +248,12 @@ func makeMockControlTower() *mockControlTower {
 func (m *mockControlTower) InitPayment(phash lntypes.Hash,
 	c *channeldb.PaymentCreationInfo) error {
 
-	m.Lock()
-	defer m.Unlock()
-
 	if m.init != nil {
 		m.init <- initArgs{c}
 	}
+
+	m.Lock()
+	defer m.Unlock()
 
 	// Don't allow re-init a successful payment.
 	if _, ok := m.successful[phash]; ok {
@@ -279,12 +279,12 @@ func (m *mockControlTower) InitPayment(phash lntypes.Hash,
 func (m *mockControlTower) RegisterAttempt(phash lntypes.Hash,
 	a *channeldb.HTLCAttemptInfo) error {
 
-	m.Lock()
-	defer m.Unlock()
-
 	if m.registerAttempt != nil {
 		m.registerAttempt <- registerAttemptArgs{a}
 	}
+
+	m.Lock()
+	defer m.Unlock()
 
 	// Cannot register attempts for successful or failed payments.
 	if _, ok := m.successful[phash]; ok {
@@ -312,12 +312,12 @@ func (m *mockControlTower) SettleAttempt(phash lntypes.Hash,
 	pid uint64, settleInfo *channeldb.HTLCSettleInfo) (
 	*channeldb.HTLCAttempt, error) {
 
-	m.Lock()
-	defer m.Unlock()
-
 	if m.settleAttempt != nil {
 		m.settleAttempt <- settleAttemptArgs{settleInfo.Preimage}
 	}
+
+	m.Lock()
+	defer m.Unlock()
 
 	// Only allow setting attempts if the payment is known.
 	p, ok := m.payments[phash]
@@ -353,12 +353,12 @@ func (m *mockControlTower) SettleAttempt(phash lntypes.Hash,
 func (m *mockControlTower) FailAttempt(phash lntypes.Hash, pid uint64,
 	failInfo *channeldb.HTLCFailInfo) (*channeldb.HTLCAttempt, error) {
 
-	m.Lock()
-	defer m.Unlock()
-
 	if m.failAttempt != nil {
 		m.failAttempt <- failAttemptArgs{failInfo}
 	}
+
+	m.Lock()
+	defer m.Unlock()
 
 	// Only allow failing attempts if the payment is known.
 	p, ok := m.payments[phash]
@@ -437,12 +437,12 @@ func (m *mockControlTower) FetchPayment(phash lntypes.Hash) (
 func (m *mockControlTower) FetchInFlightPayments() (
 	[]*channeldb.InFlightPayment, error) {
 
-	m.Lock()
-	defer m.Unlock()
-
 	if m.fetchInFlight != nil {
 		m.fetchInFlight <- struct{}{}
 	}
+
+	m.Lock()
+	defer m.Unlock()
 
 	// In flight are all payments not successful or failed.
 	var fl []*channeldb.InFlightPayment

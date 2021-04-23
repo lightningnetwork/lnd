@@ -115,6 +115,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 
 	// We'll continue until either our payment succeeds, or we encounter a
 	// critical error during path finding.
+lifecycle:
 	for {
 		// Start by quickly checking if there are any outcomes already
 		// available to handle before we reevaluate our state.
@@ -171,7 +172,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 			if err := shardHandler.waitForShard(); err != nil {
 				return [32]byte{}, nil, err
 			}
-			continue
+			continue lifecycle
 		}
 
 		// Before we attempt any new shard, we'll check to see if
@@ -195,7 +196,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 				return [32]byte{}, nil, saveErr
 			}
 
-			continue
+			continue lifecycle
 
 		case <-p.router.quit:
 			return [32]byte{}, nil, ErrRouterShuttingDown
@@ -234,7 +235,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 					return [32]byte{}, nil, saveErr
 				}
 
-				continue
+				continue lifecycle
 			}
 
 			// We still have active shards, we'll wait for an
@@ -242,7 +243,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 			if err := shardHandler.waitForShard(); err != nil {
 				return [32]byte{}, nil, err
 			}
-			continue
+			continue lifecycle
 		}
 
 		// We found a route to try, launch a new shard.
@@ -256,7 +257,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 			log.Infof("Payment: %v in terminal state, abandoning "+
 				"shard", p.paymentHash)
 
-			continue
+			continue lifecycle
 
 		case err != nil:
 			return [32]byte{}, nil, err
@@ -281,7 +282,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 
 			// Error was handled successfully, continue to make a
 			// new attempt.
-			continue
+			continue lifecycle
 		}
 
 		// Now that the shard was successfully sent, launch a go

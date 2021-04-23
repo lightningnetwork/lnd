@@ -89,6 +89,10 @@ const (
 	// to call the Fail method on the control tower.
 	routerFailPayment = "Router:fail-payment"
 
+	// routeRelease is a test step where we unblock pathfinding and
+	// allow it to respond to our test with a route.
+	routeRelease = "PaymentSession:release"
+
 	// sendToSwitchSuccess is a step where we expect the router to
 	// call send the payment attempt to the switch, and we will
 	// respond with a non-error, indicating that the payment
@@ -205,6 +209,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 
 			steps: []string{
 				routerInitPayment,
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 				getPaymentResultSuccess,
@@ -220,6 +225,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 
 			steps: []string{
 				routerInitPayment,
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
@@ -228,6 +234,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				routerFailAttempt,
 
 				// The router should retry.
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
@@ -246,6 +253,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 
 			steps: []string{
 				routerInitPayment,
+				routeRelease,
 				routerRegisterAttempt,
 
 				// Make the first sent attempt fail.
@@ -253,6 +261,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				routerFailAttempt,
 
 				// The router should retry.
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
@@ -271,12 +280,15 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 
 			steps: []string{
 				routerInitPayment,
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
 				// Make the first sent attempt fail.
 				getPaymentResultTempFailure,
 				routerFailAttempt,
+
+				routeRelease,
 
 				// Since there are no more routes to try, the
 				// payment should fail.
@@ -293,6 +305,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 
 			steps: []string{
 				routerInitPayment,
+				routeRelease,
 				routerFailPayment,
 				paymentError,
 			},
@@ -308,6 +321,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 
 			steps: []string{
 				routerInitPayment,
+				routeRelease,
 				routerRegisterAttempt,
 
 				// Manually resend the payment, the router
@@ -350,6 +364,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 
 			steps: []string{
 				routerInitPayment,
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
@@ -375,6 +390,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 
 			steps: []string{
 				routerInitPayment,
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
@@ -390,6 +406,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 
 				// Since we have no more routes to try, the
 				// original payment should fail.
+				routeRelease,
 				routerFailPayment,
 				paymentError,
 
@@ -397,6 +414,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				// allowed, since the payment has failed.
 				resendPayment,
 				routerInitPayment,
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 				getPaymentResultSuccess,
@@ -418,18 +436,22 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				routerInitPayment,
 
 				// shard 0
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
 				// shard 1
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
 				// shard 2
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
 				// shard 3
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
@@ -460,18 +482,22 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				routerInitPayment,
 
 				// shard 0
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
 				// shard 1
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
 				// shard 2
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
 				// shard 3
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
@@ -481,8 +507,10 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				routerFailAttempt,
 				routerFailAttempt,
 
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
@@ -512,10 +540,12 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				routerInitPayment,
 
 				// shard 0
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
 				// shard 1
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
@@ -523,6 +553,10 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				// router.
 				getPaymentResultTempFailure,
 				routerFailAttempt,
+
+				// We will try one more shard because we haven't
+				// sent the full payment amount.
+				routeRelease,
 
 				// The second shard succeed against all odds,
 				// making the overall payment succeed.
@@ -541,18 +575,22 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				routerInitPayment,
 
 				// shard 0
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
 				// shard 1
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
 				// shard 2
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
 				// shard 3
+				routeRelease,
 				routerRegisterAttempt,
 				sendToSwitchSuccess,
 
@@ -697,8 +735,12 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 		PaymentHash: payHash,
 	}
 
+	// Setup our payment session source to block on release of
+	// routes.
+	routeChan := make(chan struct{})
 	router.cfg.SessionSource = &mockPaymentSessionSource{
-		routes: test.routes,
+		routes:       test.routes,
+		routeRelease: routeChan,
 	}
 
 	router.cfg.MissionControl = &mockMissionControl{}
@@ -727,6 +769,14 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 
 			if args.c == nil {
 				t.Fatalf("expected non-nil CreationInfo")
+			}
+
+		case routeRelease:
+			select {
+			case <-routeChan:
+
+			case <-time.After(stepTimeout):
+				t.Fatalf("no route requested")
 			}
 
 		// In this step we expect the router to make a call to

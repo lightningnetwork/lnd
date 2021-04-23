@@ -83,7 +83,8 @@ func (m *mockPaymentAttemptDispatcher) setPaymentResult(
 }
 
 type mockPaymentSessionSource struct {
-	routes []*route.Route
+	routes       []*route.Route
+	routeRelease chan struct{}
 }
 
 var _ PaymentSessionSource = (*mockPaymentSessionSource)(nil)
@@ -91,7 +92,10 @@ var _ PaymentSessionSource = (*mockPaymentSessionSource)(nil)
 func (m *mockPaymentSessionSource) NewPaymentSession(
 	_ *LightningPayment) (PaymentSession, error) {
 
-	return &mockPaymentSession{m.routes}, nil
+	return &mockPaymentSession{
+		routes:  m.routes,
+		release: m.routeRelease,
+	}, nil
 }
 
 func (m *mockPaymentSessionSource) NewPaymentSessionForRoute(
@@ -137,12 +141,21 @@ func (m *mockMissionControl) GetProbability(fromNode, toNode route.Vertex,
 
 type mockPaymentSession struct {
 	routes []*route.Route
+
+	// release is a channel that optionally blocks requesting a route
+	// from our mock payment channel. If this value is nil, we will just
+	// release the route automatically.
+	release chan struct{}
 }
 
 var _ PaymentSession = (*mockPaymentSession)(nil)
 
 func (m *mockPaymentSession) RequestRoute(_, _ lnwire.MilliSatoshi,
 	_, height uint32) (*route.Route, error) {
+
+	if m.release != nil {
+		m.release <- struct{}{}
+	}
 
 	if len(m.routes) == 0 {
 		return nil, errNoPathFound

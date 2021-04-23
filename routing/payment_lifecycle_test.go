@@ -598,12 +598,12 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 	// Create a mock control tower with channels set up, that we use to
 	// synchronize and listen for events.
 	control := makeMockControlTower()
-	control.init = make(chan initArgs, 20)
-	control.registerAttempt = make(chan registerAttemptArgs, 20)
-	control.settleAttempt = make(chan settleAttemptArgs, 20)
-	control.failAttempt = make(chan failAttemptArgs, 20)
-	control.failPayment = make(chan failPaymentArgs, 20)
-	control.fetchInFlight = make(chan struct{}, 20)
+	control.init = make(chan initArgs)
+	control.registerAttempt = make(chan registerAttemptArgs)
+	control.settleAttempt = make(chan settleAttemptArgs)
+	control.failAttempt = make(chan failAttemptArgs)
+	control.failPayment = make(chan failPaymentArgs)
+	control.fetchInFlight = make(chan struct{})
 
 	// setupRouter is a helper method that creates and starts the router in
 	// the desired configuration for this test.

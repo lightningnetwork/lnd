@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 )
 
 const stepTimeout = 5 * time.Second
@@ -58,6 +59,11 @@ type paymentLifecycleTestCase struct {
 	// routes is the sequence of routes we will provide to the
 	// router when it requests a new route.
 	routes []*route.Route
+
+	// paymentErr is the error we expect our payment to fail with. This
+	// should be nil for tests with paymentSuccess steps and non-nil for
+	// payments with paymentError steps.
+	paymentErr error
 }
 
 const (
@@ -274,7 +280,8 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				routerFailPayment,
 				paymentError,
 			},
-			routes: []*route.Route{rt},
+			routes:     []*route.Route{rt},
+			paymentErr: channeldb.FailureReasonNoRoute,
 		},
 		{
 			// We expect the payment to fail immediately if we have
@@ -286,7 +293,8 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				routerFailPayment,
 				paymentError,
 			},
-			routes: []*route.Route{},
+			routes:     []*route.Route{},
+			paymentErr: channeldb.FailureReasonNoRoute,
 		},
 		{
 			// A normal payment flow, where we attempt to resend
@@ -354,7 +362,8 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				getPaymentResultSuccess,
 				routerSettleAttempt,
 			},
-			routes: []*route.Route{rt},
+			routes:     []*route.Route{rt},
+			paymentErr: ErrRouterShuttingDown,
 		},
 		{
 			// Tests that we are allowed to resend a payment after
@@ -391,7 +400,8 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				routerSettleAttempt,
 				resentPaymentSuccess,
 			},
-			routes: []*route.Route{rt},
+			routes:     []*route.Route{rt},
+			paymentErr: channeldb.FailureReasonNoRoute,
 		},
 
 		// =====================================
@@ -576,6 +586,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			routes: []*route.Route{
 				shard, shard, shard, shard, shard, shard,
 			},
+			paymentErr: channeldb.FailureReasonPaymentDetails,
 		},
 	}
 
@@ -871,11 +882,12 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 		// In this state we expect to receive an error for the
 		// original payment made.
 		case paymentError:
+			require.Error(t, test.paymentErr,
+				"paymentError not set")
+
 			select {
 			case err := <-paymentResult:
-				if err == nil {
-					t.Fatalf("expected error")
-				}
+				require.Equal(t, test.paymentErr, err)
 
 			case <-time.After(stepTimeout):
 				t.Fatalf("got no payment result")
@@ -884,6 +896,8 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 		// In this state we expect the original payment to
 		// succeed.
 		case paymentSuccess:
+			require.Nil(t, test.paymentErr)
+
 			select {
 			case err := <-paymentResult:
 				if err != nil {

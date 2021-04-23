@@ -290,16 +290,17 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 			return err
 		}
 
-		// Ensure the payment is in-flight.
-		if err := ensureInFlight(p); err != nil {
-			return err
-		}
-
 		// We cannot register a new attempt if the payment already has
-		// reached a terminal condition:
+		// reached a terminal condition. We check this before
+		// ensureInFlight because it is a more general check.
 		settle, fail := p.TerminalInfo()
 		if settle != nil || fail != nil {
 			return ErrPaymentTerminal
+		}
+
+		// Ensure the payment is in-flight.
+		if err := ensureInFlight(p); err != nil {
+			return err
 		}
 
 		// Make sure any existing shards match the new one with regards

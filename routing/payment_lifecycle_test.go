@@ -619,7 +619,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			// A MP payment scenario when our path finding returns
 			// after we've just received a terminal failure, and
 			// demonstrates a bug where the payment will return with
-			// and "unexpected" ErrPaymentAlreadyFailed rather than
+			// and "unexpected" ErrPaymentTerminal rather than
 			// failing with a permanent error. This results in the
 			// payment getting stuck.
 			name: "MP path found after failure",
@@ -648,7 +648,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			routes: []*route.Route{
 				shard, shard,
 			},
-			paymentErr: channeldb.ErrPaymentAlreadyFailed,
+			paymentErr: channeldb.ErrPaymentTerminal,
 		},
 		{
 			// A MP payment scenario when our path finding returns

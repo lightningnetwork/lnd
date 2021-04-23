@@ -1013,19 +1013,15 @@ func TestPaymentControlMultiShard(t *testing.T) {
 		// up in the Succeeded state. If both failed the payment should
 		// also be Failed at this poinnt.
 		finalStatus := StatusFailed
-		expRegErr := ErrPaymentAlreadyFailed
 		if test.settleFirst || test.settleLast {
 			finalStatus = StatusSucceeded
-			expRegErr = ErrPaymentAlreadySucceeded
 		}
 
 		assertPaymentStatus(t, pControl, info.PaymentHash, finalStatus)
 
 		// Finally assert we cannot register more attempts.
 		_, err = pControl.RegisterAttempt(info.PaymentHash, &b)
-		if err != expRegErr {
-			t.Fatalf("expected error %v, got: %v", expRegErr, err)
-		}
+		require.Equal(t, ErrPaymentTerminal, err)
 	}
 
 	for _, test := range tests {

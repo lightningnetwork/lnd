@@ -468,11 +468,15 @@ func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 }
 
 // updateBreachInfo mutates the passed breachInfo by removing or converting any
-// outputs among the spends.
-func updateBreachInfo(breachInfo *retributionInfo, spends []spend) {
+// outputs among the spends. It also counts the total and revoked funds swept
+// by our justice spends.
+func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
+	btcutil.Amount, btcutil.Amount) {
+
 	inputs := breachInfo.breachedOutputs
 	doneOutputs := make(map[int]struct{})
 
+	var totalFunds, revokedFunds btcutil.Amount
 	for _, s := range spends {
 		breachedOutput := &inputs[s.index]
 		txIn := s.detail.SpendingTx.TxIn[s.detail.SpenderInputIndex]
@@ -516,6 +520,22 @@ func updateBreachInfo(breachInfo *retributionInfo, spends []spend) {
 			continue
 		}
 
+		// Now that we have determined the spend is done by us, we
+		// count the total and revoked funds swept depending on the
+		// input type.
+		switch breachedOutput.witnessType {
+
+		// If the output being revoked is the remote commitment
+		// output or an offered HTLC output, it's amount
+		// contributes to the value of funds being revoked from
+		// the counter party.
+		case input.CommitmentRevoke, input.HtlcSecondLevelRevoke,
+			input.HtlcOfferedRevoke:
+
+			revokedFunds += breachedOutput.Amount()
+		}
+
+		totalFunds += breachedOutput.Amount()
 		brarLog.Infof("Spend on %s(%v) for ChannelPoint(%v) "+
 			"transitions output to terminal state, "+
 			"removing input from justice transaction",
@@ -539,6 +559,7 @@ func updateBreachInfo(breachInfo *retributionInfo, spends []spend) {
 	// Update our remaining set of outputs before continuing with
 	// another attempt at publication.
 	breachInfo.breachedOutputs = inputs[:nextIndex]
+	return totalFunds, revokedFunds
 }
 
 // exactRetribution is a goroutine which is executed once a contract breach has
@@ -639,26 +660,24 @@ Loop:
 
 		select {
 		case spends := <-spendChan:
-			// Print the funds swept by the txs.
-			for _, s := range spends {
-				tx := s.detail.SpendingTx
-				t, r := countRevokedFunds(breachInfo, tx)
-				totalFunds += t
-				revokedFunds += r
-			}
+			// Update the breach info with the new spends.
+			t, r := updateBreachInfo(breachInfo, spends)
+			totalFunds += t
+			revokedFunds += r
 
-			brarLog.Infof("Justice for ChannelPoint(%v) has "+
-				"been served, %v revoked funds (%v total) "+
-				"have been claimed", breachInfo.chanPoint,
+			brarLog.Infof("%v spends from breach tx for "+
+				"ChannelPoint(%v) has been detected, %v "+
+				"revoked funds (%v total) have been claimed",
+				len(spends), breachInfo.chanPoint,
 				revokedFunds, totalFunds)
 
-			// Update the breach info with the new spends.
-			updateBreachInfo(breachInfo, spends)
-
 			if len(breachInfo.breachedOutputs) == 0 {
-				brarLog.Debugf("No more outputs to sweep for "+
-					"breach, marking ChannelPoint(%v) "+
-					"fully resolved", breachInfo.chanPoint)
+				brarLog.Infof("Justice for ChannelPoint(%v) "+
+					"has been served, %v revoked funds "+
+					"(%v total) have been claimed. No "+
+					"more outputs to sweep, marking fully "+
+					"resolved", breachInfo.chanPoint,
+					revokedFunds, totalFunds)
 
 				err = b.cleanupBreach(&breachInfo.chanPoint)
 				if err != nil {
@@ -669,8 +688,8 @@ Loop:
 
 				// TODO(roasbeef): add peer to blacklist?
 
-				// TODO(roasbeef): close other active channels with offending
-				// peer
+				// TODO(roasbeef): close other active channels
+				// with offending peer
 				break Loop
 			}
 
@@ -761,46 +780,6 @@ Loop:
 
 	// Wait for our go routine to exit.
 	wg.Wait()
-}
-
-// countRevokedFunds counts the total and revoked funds swept by our justice
-// TX.
-func countRevokedFunds(breachInfo *retributionInfo,
-	spendTx *wire.MsgTx) (btcutil.Amount, btcutil.Amount) {
-
-	// Compute both the total value of funds being swept and the
-	// amount of funds that were revoked from the counter party.
-	var totalFunds, revokedFunds btcutil.Amount
-	for _, txIn := range spendTx.TxIn {
-		op := txIn.PreviousOutPoint
-
-		// Find the corresponding output in our retribution info.
-		for _, inp := range breachInfo.breachedOutputs {
-			// If the spent outpoint is not among the ouputs that
-			// were breached, we can ignore it.
-			if inp.outpoint != op {
-				continue
-			}
-
-			totalFunds += inp.Amount()
-
-			// If the output being revoked is the remote commitment
-			// output or an offered HTLC output, it's amount
-			// contributes to the value of funds being revoked from
-			// the counter party.
-			switch inp.WitnessType() {
-			case input.CommitmentRevoke:
-				revokedFunds += inp.Amount()
-			case input.HtlcOfferedRevoke:
-				revokedFunds += inp.Amount()
-			default:
-			}
-
-			break
-		}
-	}
-
-	return totalFunds, revokedFunds
 }
 
 // cleanupBreach marks the given channel point as fully resolved and removes the

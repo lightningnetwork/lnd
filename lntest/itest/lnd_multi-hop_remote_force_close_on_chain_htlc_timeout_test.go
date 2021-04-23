@@ -5,9 +5,11 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/stretchr/testify/require"
 )
 
@@ -43,14 +45,21 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	defer cancel()
 
 	// We'll now send a single HTLC across our multi-hop network.
-	carolPubKey := carol.PubKey[:]
-	payHash := makeFakePayHash(t)
-	_, err := alice.RouterClient.SendPaymentV2(
+	preimage := lntypes.Preimage{1, 2, 3}
+	payHash := preimage.Hash()
+	invoiceReq := &invoicesrpc.AddHoldInvoiceRequest{
+		Value:      int64(htlcAmt),
+		CltvExpiry: 40,
+		Hash:       payHash[:],
+	}
+
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	carolInvoice, err := carol.AddHoldInvoice(ctxt, invoiceReq)
+	require.NoError(t.t, err)
+
+	_, err = alice.RouterClient.SendPaymentV2(
 		ctx, &routerrpc.SendPaymentRequest{
-			Dest:           carolPubKey,
-			Amt:            int64(htlcAmt),
-			PaymentHash:    payHash,
-			FinalCltvDelta: finalCltvDelta,
+			PaymentRequest: carolInvoice.PaymentRequest,
 			TimeoutSeconds: 60,
 			FeeLimitMsat:   noFeeLimitMsat,
 		},
@@ -61,7 +70,7 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// show that the HTLC has been locked in.
 	nodes := []*lntest.HarnessNode{alice, bob, carol}
 	err = wait.NoError(func() error {
-		return assertActiveHtlcs(nodes, payHash)
+		return assertActiveHtlcs(nodes, payHash[:])
 	}, defaultTimeout)
 	require.NoError(t.t, err)
 
@@ -73,7 +82,7 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// transaction. This will let us exercise that Bob is able to sweep the
 	// expired HTLC on Carol's version of the commitment transaction. If
 	// Carol has an anchor, it will be swept too.
-	ctxt, _ := context.WithTimeout(ctxb, channelCloseTimeout)
+	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssertType(
 		ctxt, t, net, carol, bobChanPoint, c == commitTypeAnchors,
 		true,

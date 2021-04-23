@@ -169,6 +169,12 @@ func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
 	// be cpfp'ed.
 	net.SetFeeEstimate(30000)
 
+	// We want Carol's htlcs to expire off-chain to demonstrate bob's force
+	// close. However, Carol will cancel her invoices to prevent force
+	// closes, so we shut her down for now.
+	restartCarol, err := net.SuspendNode(carol)
+	require.NoError(t.t, err)
+
 	// We'll now mine enough blocks to trigger Bob's broadcast of his
 	// commitment transaction due to the fact that the Carol's HTLCs are
 	// about to timeout. With the default outgoing broadcast delta of zero,
@@ -224,6 +230,9 @@ func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
 			successOuts[op] = struct{}{}
 		}
 	}
+
+	// Once bob has force closed, we can restart carol.
+	require.NoError(t.t, restartCarol())
 
 	// Mine a block to confirm the closing transaction.
 	mineBlocks(t, net, 1, expectedTxes)

@@ -44,9 +44,9 @@ type InvoiceExpiryWatcher struct {
 	// cancelInvoice is a template method that cancels an expired invoice.
 	cancelInvoice func(lntypes.Hash, bool) error
 
-	// expiryQueue holds invoiceExpiry items and is used to find the next
-	// invoice to expire.
-	expiryQueue queue.PriorityQueue
+	// timestampExpiryQueue holds invoiceExpiry items and is used to find
+	// the next invoice to expire.
+	timestampExpiryQueue queue.PriorityQueue
 
 	// newInvoices channel is used to wake up the main loop when a new
 	// invoices is added.
@@ -146,8 +146,8 @@ func (ew *InvoiceExpiryWatcher) AddInvoices(invoices ...*invoiceExpiryTs) {
 // nextExpiry returns a Time chan to wait on until the next invoice expires.
 // If there are no active invoices, then it'll simply wait indefinitely.
 func (ew *InvoiceExpiryWatcher) nextExpiry() <-chan time.Time {
-	if !ew.expiryQueue.Empty() {
-		top := ew.expiryQueue.Top().(*invoiceExpiryTs)
+	if !ew.timestampExpiryQueue.Empty() {
+		top := ew.timestampExpiryQueue.Top().(*invoiceExpiryTs)
 		return ew.clock.TickAfter(top.Expiry.Sub(ew.clock.Now()))
 	}
 
@@ -157,8 +157,8 @@ func (ew *InvoiceExpiryWatcher) nextExpiry() <-chan time.Time {
 // cancelNextExpiredInvoice will cancel the next expired invoice and removes
 // it from the expiry queue.
 func (ew *InvoiceExpiryWatcher) cancelNextExpiredInvoice() {
-	if !ew.expiryQueue.Empty() {
-		top := ew.expiryQueue.Top().(*invoiceExpiryTs)
+	if !ew.timestampExpiryQueue.Empty() {
+		top := ew.timestampExpiryQueue.Top().(*invoiceExpiryTs)
 		if !top.Expiry.Before(ew.clock.Now()) {
 			return
 		}
@@ -177,7 +177,7 @@ func (ew *InvoiceExpiryWatcher) cancelNextExpiredInvoice() {
 				top.PaymentHash)
 		}
 
-		ew.expiryQueue.Pop()
+		ew.timestampExpiryQueue.Pop()
 	}
 }
 
@@ -194,7 +194,9 @@ func (ew *InvoiceExpiryWatcher) mainLoop() {
 			for _, invoiceWithExpiry := range invoicesWithExpiry {
 				// Avoid pushing nil object to the heap.
 				if invoiceWithExpiry != nil {
-					ew.expiryQueue.Push(invoiceWithExpiry)
+					ew.timestampExpiryQueue.Push(
+						invoiceWithExpiry,
+					)
 				}
 			}
 		}

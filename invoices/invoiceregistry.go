@@ -160,7 +160,7 @@ func NewRegistry(cdb *channeldb.DB, expiryWatcher *InvoiceExpiryWatcher,
 // invoices.
 func (i *InvoiceRegistry) scanInvoicesOnStart() error {
 	var (
-		pending   []*invoiceExpiryTs
+		pending   []invoiceExpiry
 		removable []channeldb.InvoiceDeleteRef
 	)
 

@@ -193,15 +193,24 @@ func (ew *InvoiceExpiryWatcher) cancelNextExpiredInvoice() {
 		// field would never be used. Enabling cancellation for accepted
 		// keysend invoices creates a safety mechanism that can prevents
 		// channel force-closes.
-		err := ew.cancelInvoice(top.PaymentHash, top.Keysend)
-		if err != nil && err != channeldb.ErrInvoiceAlreadySettled &&
-			err != channeldb.ErrInvoiceAlreadyCanceled {
-
-			log.Errorf("Unable to cancel invoice: %v",
-				top.PaymentHash)
-		}
-
+		ew.expireInvoice(top.PaymentHash, top.Keysend)
 		ew.timestampExpiryQueue.Pop()
+	}
+}
+
+// expireInvoice attempts to expire an invoice and logs an error if we get an
+// unexpected error.
+func (ew *InvoiceExpiryWatcher) expireInvoice(hash lntypes.Hash, force bool) {
+	err := ew.cancelInvoice(hash, force)
+	switch err {
+	case nil:
+
+	case channeldb.ErrInvoiceAlreadyCanceled:
+
+	case channeldb.ErrInvoiceAlreadySettled:
+
+	default:
+		log.Errorf("Unable to cancel invoice: %v: %v", hash, err)
 	}
 }
 

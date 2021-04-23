@@ -2,7 +2,6 @@ package routing
 
 import (
 	"crypto/rand"
-	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -608,7 +607,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 	// setupRouter is a helper method that creates and starts the router in
 	// the desired configuration for this test.
 	setupRouter := func() (*ChannelRouter, chan error,
-		chan *htlcswitch.PaymentResult, chan error) {
+		chan *htlcswitch.PaymentResult) {
 
 		chain := newMockChain(startingBlockHeight)
 		chainView := newMockChainView(chain)
@@ -616,13 +615,11 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 		// We set uo the use the following channels and a mock Payer to
 		// synchonize with the interaction to the Switch.
 		sendResult := make(chan error)
-		paymentResultErr := make(chan error)
 		paymentResult := make(chan *htlcswitch.PaymentResult)
 
 		payer := &mockPayer{
-			sendResult:       sendResult,
-			paymentResult:    paymentResult,
-			paymentResultErr: paymentResultErr,
+			sendResult:    sendResult,
+			paymentResult: paymentResult,
 		}
 
 		router, err := New(Config{
@@ -675,10 +672,10 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 			t.Fatalf("did not fetch in flight payments at startup")
 		}
 
-		return router, sendResult, paymentResult, paymentResultErr
+		return router, sendResult, paymentResult
 	}
 
-	router, sendResult, getPaymentResult, getPaymentResultErr := setupRouter()
+	router, sendResult, getPaymentResult := setupRouter()
 	defer func() {
 		if err := router.Stop(); err != nil {
 			t.Fatal(err)
@@ -859,13 +856,9 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 
 		// In this step we manually stop the router.
 		case stopRouter:
-			select {
-			case getPaymentResultErr <- fmt.Errorf(
-				"shutting down"):
-			case <-time.After(stepTimeout):
-				t.Fatalf("unable to send payment " +
-					"result error")
-			}
+			// On shutdown, the switch closes our result channel.
+			// Mimic this behavior in our mock.
+			close(getPaymentResult)
 
 			if err := router.Stop(); err != nil {
 				t.Fatalf("unable to restart: %v", err)
@@ -873,8 +866,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 
 		// In this step we manually start the router.
 		case startRouter:
-			router, sendResult, getPaymentResult,
-				getPaymentResultErr = setupRouter()
+			router, sendResult, getPaymentResult = setupRouter()
 
 		// In this state we expect to receive an error for the
 		// original payment made.

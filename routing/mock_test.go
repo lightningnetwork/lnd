@@ -155,10 +155,9 @@ func (m *mockPaymentSession) RequestRoute(_, _ lnwire.MilliSatoshi,
 }
 
 type mockPayer struct {
-	sendResult       chan error
-	paymentResultErr chan error
-	paymentResult    chan *htlcswitch.PaymentResult
-	quit             chan struct{}
+	sendResult    chan error
+	paymentResult chan *htlcswitch.PaymentResult
+	quit          chan struct{}
 }
 
 var _ PaymentAttemptDispatcher = (*mockPayer)(nil)
@@ -180,12 +179,16 @@ func (m *mockPayer) GetPaymentResult(paymentID uint64, _ lntypes.Hash,
 	_ htlcswitch.ErrorDecrypter) (<-chan *htlcswitch.PaymentResult, error) {
 
 	select {
-	case res := <-m.paymentResult:
+	case res, ok := <-m.paymentResult:
 		resChan := make(chan *htlcswitch.PaymentResult, 1)
-		resChan <- res
+		if !ok {
+			close(resChan)
+		} else {
+			resChan <- res
+		}
+
 		return resChan, nil
-	case err := <-m.paymentResultErr:
-		return nil, err
+
 	case <-m.quit:
 		return nil, fmt.Errorf("test quitting")
 	}

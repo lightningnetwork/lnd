@@ -724,6 +724,13 @@ message FundPsbtRequest {
     account is used.
     */
     string account = 5;
+
+    // The minimum number of confirmations each one of your outputs used for
+    // the transaction must satisfy.
+    int32 min_confs = 6;
+
+    // Whether unconfirmed outputs should be used as inputs for the transaction.
+    bool spend_unconfirmed = 7;
 }
 message FundPsbtResponse {
     /*

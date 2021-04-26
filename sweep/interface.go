@@ -13,10 +13,10 @@ type Wallet interface {
 
 	// ListUnspentWitnessFromDefaultAccount returns all unspent outputs
 	// which are version 0 witness programs from the default wallet account.
-	// The 'minconfirms' and 'maxconfirms' parameters indicate the minimum
+	// The 'minConfs' and 'maxConfs' parameters indicate the minimum
 	// and maximum number of confirmations an output needs in order to be
 	// returned by this method.
-	ListUnspentWitnessFromDefaultAccount(minconfirms, maxconfirms int32) (
+	ListUnspentWitnessFromDefaultAccount(minConfs, maxConfs int32) (
 		[]*lnwallet.Utxo, error)
 
 	// WithCoinSelectLock will execute the passed function closure in a

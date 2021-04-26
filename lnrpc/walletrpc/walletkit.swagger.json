@@ -1010,6 +1010,16 @@
         "account": {
           "type": "string",
           "description": "The name of the account to fund the PSBT with. If empty, the default wallet\naccount is used."
+        },
+        "min_confs": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The minimum number of confirmations each one of your outputs used for\nthe transaction must satisfy."
+        },
+        "spend_unconfirmed": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Whether unconfirmed outputs should be used as inputs for the transaction."
         }
       }
     },

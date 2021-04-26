@@ -107,15 +107,15 @@ func (w *WalletController) SendOutputs(outputs []*wire.TxOut,
 
 // CreateSimpleTx currently returns dummy values.
 func (w *WalletController) CreateSimpleTx(outputs []*wire.TxOut,
-	_ chainfee.SatPerKWeight, _ bool) (*txauthor.AuthoredTx, error) {
+	_ chainfee.SatPerKWeight, _ int32, _ bool) (*txauthor.AuthoredTx, error) {
 
 	return nil, nil
 }
 
 // ListUnspentWitness is called by the wallet when doing coin selection. We just
 // need one unspent for the funding transaction.
-func (w *WalletController) ListUnspentWitness(minconfirms,
-	maxconfirms int32, _ string) ([]*lnwallet.Utxo, error) {
+func (w *WalletController) ListUnspentWitness(minConfs,
+	maxConfs int32, _ string) ([]*lnwallet.Utxo, error) {
 
 	// If the mock already has a list of utxos, return it.
 	if w.Utxos != nil {

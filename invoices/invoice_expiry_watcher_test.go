@@ -157,7 +157,7 @@ func TestInvoiceExpiryWhenAddingMultipleInvoices(t *testing.T) {
 	t.Parallel()
 
 	test := newInvoiceExpiryWatcherTest(t, testTime, 5, 5)
-	var invoices []*invoiceExpiry
+	var invoices []invoiceExpiry
 
 	for hash, invoice := range test.testData.expiredInvoices {
 		invoices = append(invoices, makeInvoiceExpiry(hash, invoice))

@@ -440,8 +440,9 @@ func waitForNumChannelPendingForceClose(ctx context.Context,
 
 		forceCloseChans := resp.PendingForceClosingChannels
 		if len(forceCloseChans) != expectedNum {
-			return fmt.Errorf("bob should have %d pending "+
-				"force close channels but has %d", expectedNum,
+			return fmt.Errorf("%v should have %d pending "+
+				"force close channels but has %d",
+				node.Cfg.Name, expectedNum,
 				len(forceCloseChans))
 		}
 

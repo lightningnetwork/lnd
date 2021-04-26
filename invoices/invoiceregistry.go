@@ -160,7 +160,7 @@ func NewRegistry(cdb *channeldb.DB, expiryWatcher *InvoiceExpiryWatcher,
 // invoices.
 func (i *InvoiceRegistry) scanInvoicesOnStart() error {
 	var (
-		pending   []*invoiceExpiry
+		pending   []invoiceExpiry
 		removable []channeldb.InvoiceDeleteRef
 	)
 
@@ -1176,6 +1176,20 @@ func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 	return i.cancelInvoiceImpl(payHash, true)
 }
 
+// shouldCancel examines the state of an invoice and whether we want to
+// cancel already accepted invoices, taking our force cancel boolean into
+// account. This is pulled out into its own function so that tests that mock
+// cancelInvoiceImpl can reuse this logic.
+func shouldCancel(state channeldb.ContractState, cancelAccepted bool) bool {
+	if state != channeldb.ContractAccepted {
+		return true
+	}
+
+	// If the invoice is accepted, we should only cancel if we want to
+	// force cancelation of accepted invoices.
+	return cancelAccepted
+}
+
 // cancelInvoice attempts to cancel the invoice corresponding to the passed
 // payment hash. Accepted invoices will only be canceled if explicitly
 // requested to do so. It notifies subscribing links and resolvers that
@@ -1192,9 +1206,7 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
 	updateInvoice := func(invoice *channeldb.Invoice) (
 		*channeldb.InvoiceUpdateDesc, error) {
 
-		// Only cancel the invoice in ContractAccepted state if explicitly
-		// requested to do so.
-		if invoice.State == channeldb.ContractAccepted && !cancelAccepted {
+		if !shouldCancel(invoice.State, cancelAccepted) {
 			return nil, nil
 		}
 

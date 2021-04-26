@@ -36,6 +36,7 @@ import (
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -43,6 +44,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -8165,6 +8167,493 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(ctxt, t, net, net.Alice, persistentChanPoint, false)
 }
 
+// testBreachPinnedSecondLevel test that if there are second-level HTLC
+// transactions in the mempool hindering propagation of the justice tx, the
+// node will "split" the justice tx and sweep the time-sensitive commitment
+// outputs separately.
+func testBreachPinnedSecondLevel(net *lntest.NetworkHarness, t *harnessTest) {
+	ctxb := context.Background()
+
+	const (
+		chanAmt     = funding.MaxBtcFundingAmount
+		paymentAmt  = 10000
+		numInvoices = 6
+
+		// We override the default remote CSV delay in order to be able
+		// to mine empty blocks without the breacher being able to take
+		// the output.
+		remoteDelayArg = "--bitcoin.defaultremotedelay=144"
+	)
+
+	// We set a high fee estimate to begin with, to ensure the second level
+	// transactions are created using a larger fee than the justice tx they
+	// will pin.
+	net.SetFeeEstimate(30_000)
+
+	// Bob will be the breaching node.
+	bob, err := net.NewNode(
+		"Bob", []string{remoteDelayArg},
+	)
+	if err != nil {
+		t.Fatalf("unable to create new Bob node: %v", err)
+	}
+	defer shutdownAndAssert(net, t, bob)
+
+	// Carol will be the breached party. We set --nolisten to ensure Bob
+	// won't be able to connect to her and trigger the channel data
+	// protection logic automatically. We also can't have Carol
+	// automatically re-connect too early, otherwise DLP would be initiated
+	// instead of the breach we want to provoke.
+	carol, err := net.NewNode(
+		"Carol", []string{"--nolisten", "--minbackoff=1h", remoteDelayArg},
+	)
+	if err != nil {
+		t.Fatalf("unable to create new carol node: %v", err)
+	}
+	defer shutdownAndAssert(net, t, carol)
+
+	// We must let Bob communicate with Carol before they are able to open
+	// channel, so we connect Bob and Carol,
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	if err := net.ConnectNodes(ctxt, carol, bob); err != nil {
+		t.Fatalf("unable to connect bob to carol: %v", err)
+	}
+
+	// Before we make a channel, we'll load up Carol with some coins sent
+	// directly from the miner.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
+	if err != nil {
+		t.Fatalf("unable to send coins to carol: %v", err)
+	}
+
+	// In order to test Carol's response to an uncooperative channel
+	// closure by Bob, we'll first open up a channel between them with a
+	// 0.5 BTC value. We'll push half the amount, since we will send
+	// payments in both directions.
+	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
+	chanPoint := openChannelAndAssert(
+		ctxt, t, net, carol, bob,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: chanAmt / 2,
+		},
+	)
+
+	const invoiceAmt = 100000
+
+	// Now create hold invoices for both nodes, and let each node pay the
+	// other's.
+	preimageCarol := lntypes.Preimage{1, 2, 3}
+	payHashCarol := preimageCarol.Hash()
+
+	// We'll use a smaller CLTV expiry for Carol's invoice, as we want Bob
+	// to go to chain when it times out.
+	invoiceReqCarol := &invoicesrpc.AddHoldInvoiceRequest{
+		Value:      invoiceAmt,
+		CltvExpiry: 18,
+		Hash:       payHashCarol[:],
+	}
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+
+	carolInvoice, err := carol.AddHoldInvoice(ctxt, invoiceReqCarol)
+	require.NoError(t.t, err)
+
+	preimageBob := lntypes.Preimage{3, 2, 1}
+	payHashBob := preimageBob.Hash()
+	invoiceReqBob := &invoicesrpc.AddHoldInvoiceRequest{
+		Value:      invoiceAmt,
+		CltvExpiry: 40,
+		Hash:       payHashBob[:],
+	}
+	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+
+	bobInvoice, err := bob.AddHoldInvoice(ctxt, invoiceReqBob)
+	require.NoError(t.t, err)
+
+	// We'll also create a few regular invoices we'll pay just to advance
+	// the channel state.
+	bobPayReqs, _, _, err := createPayReqs(
+		bob, paymentAmt, numInvoices,
+	)
+	if err != nil {
+		t.Fatalf("unable to create pay reqs: %v", err)
+	}
+
+	// Wait for Carol to receive the channel edge from the funding manager.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("carol didn't see the carol->bob channel before "+
+			"timeout: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(ctxb)
+	defer cancel()
+
+	// Pay to the two hold invoices.
+	_, err = bob.RouterClient.SendPaymentV2(
+		ctx, &routerrpc.SendPaymentRequest{
+			PaymentRequest: carolInvoice.PaymentRequest,
+			TimeoutSeconds: 60,
+			FeeLimitMsat:   noFeeLimitMsat,
+		},
+	)
+	require.NoError(t.t, err)
+
+	ctx, cancel = context.WithCancel(ctxb)
+	defer cancel()
+
+	_, err = carol.RouterClient.SendPaymentV2(
+		ctx, &routerrpc.SendPaymentRequest{
+			PaymentRequest: bobInvoice.PaymentRequest,
+			TimeoutSeconds: 60,
+			FeeLimitMsat:   noFeeLimitMsat,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Wait for the HTLCs for the payments are locked in for both nodes.
+	nodes := []*lntest.HarnessNode{bob, carol}
+	err = wait.NoError(func() error {
+		return assertActiveHtlcs(nodes, payHashCarol[:], payHashBob[:])
+	}, defaultTimeout)
+	require.NoError(t.t, err)
+
+	// Wait for carol to mark invoice as accepted. There is a small gap to
+	// bridge between adding the htlc to the channel and executing the exit
+	// hop logic.
+	waitForInvoiceAccepted(t, bob, payHashBob)
+	waitForInvoiceAccepted(t, carol, payHashCarol)
+
+	// Get Bob's current balance, such that we can easily check when he's
+	// been paid below.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	bChan, err := getChanInfo(ctxt, bob)
+	if err != nil {
+		t.Fatalf("unable to get bob's channel info: %v", err)
+	}
+	bobStartingBal := bChan.LocalBalance
+
+	// Send payments from Carol to Bob using half of Bob's payment hashes
+	// generated above, to advance the channel states.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = completePaymentRequests(
+		ctxt, carol, carol.RouterClient, bobPayReqs[:numInvoices/2],
+		true,
+	)
+	if err != nil {
+		t.Fatalf("unable to send payments: %v", err)
+	}
+
+	// Next query for Bob's channel state, as we sent 3 payments of 10k
+	// satoshis each, Bob should now see his balance increase by 30k
+	// satoshis.
+	var bobChan *lnrpc.Channel
+	var predErr error
+	err = wait.Predicate(func() bool {
+		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		bChan, err := getChanInfo(ctxt, bob)
+		if err != nil {
+			t.Fatalf("unable to get bob's channel info: %v", err)
+		}
+		expBal := bobStartingBal + 30_000
+		if bChan.LocalBalance != expBal {
+			predErr = fmt.Errorf("bob's balance is incorrect, "+
+				"got %v, expected %v", bChan.LocalBalance,
+				expBal)
+			return false
+		}
+
+		bobChan = bChan
+		return true
+	}, defaultTimeout)
+	if err != nil {
+		t.Fatalf("%v", predErr)
+	}
+
+	// Grab Bob's current commitment height (update number), we'll later
+	// revert him to this state after additional updates to force him to
+	// broadcast this soon to be revoked state.
+	bobStateNumPreCopy := bobChan.NumUpdates
+
+	// Create a temporary file to house Bob's database state at this
+	// particular point in history.
+	bobTempDbPath, err := ioutil.TempDir("", "bob-past-state")
+	if err != nil {
+		t.Fatalf("unable to create temp db folder: %v", err)
+	}
+	defer os.Remove(bobTempDbPath)
+
+	// With the temporary file created, copy Bob's current state into the
+	// temporary file we created above. Later after more updates, we'll
+	// restore this state.
+	if err := lntest.CopyAll(bobTempDbPath, bob.DBDir()); err != nil {
+		t.Fatalf("unable to copy database files: %v", err)
+	}
+
+	// Finally, send payments from Carol to Bob, consuming Bob's remaining
+	// payment hashes.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = completePaymentRequests(
+		ctxt, carol, carol.RouterClient, bobPayReqs[numInvoices/2:],
+		true,
+	)
+	if err != nil {
+		t.Fatalf("unable to send payments: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	bobChan, err = getChanInfo(ctxt, bob)
+	if err != nil {
+		t.Fatalf("unable to get bob chan info: %v", err)
+	}
+
+	// Now we shutdown Bob, copying over the his temporary database state
+	// which has the *prior* channel state over his current most up to date
+	// state. With this, we essentially force Bob to travel back in time
+	// within the channel's history.
+	if err = net.RestartNode(bob, func() error {
+		return lntest.CopyAll(bob.DBDir(), bobTempDbPath)
+	}); err != nil {
+		t.Fatalf("unable to restart node: %v", err)
+	}
+
+	// Now query for Bob's channel state, it should show that he's at a
+	// state number in the past, not the *latest* state.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	bobChan, err = getChanInfo(ctxt, bob)
+	if err != nil {
+		t.Fatalf("unable to get bob chan info: %v", err)
+	}
+	if bobChan.NumUpdates != bobStateNumPreCopy {
+		t.Fatalf("db copy failed: %v", bobChan.NumUpdates)
+	}
+
+	// Now force Bob to execute a *force* channel closure by unilaterally
+	// broadcasting his current channel state. This is actually the
+	// commitment transaction of a prior *revoked* state, so he'll soon
+	// feel the wrath of Carol's retribution.
+	var closeUpdates lnrpc.Lightning_CloseChannelClient
+	force := true
+	err = wait.Predicate(func() bool {
+		ctxt, _ := context.WithTimeout(ctxb, channelCloseTimeout)
+		closeUpdates, _, err = net.CloseChannel(ctxt, bob, chanPoint, force)
+		if err != nil {
+			predErr = err
+			return false
+		}
+
+		return true
+	}, defaultTimeout)
+	if err != nil {
+		t.Fatalf("unable to close channel: %v", predErr)
+	}
+
+	// Wait for Bob's breach transaction to show up in the mempool to ensure
+	// that Carol's node has started waiting for confirmations.
+	_, err = waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
+	if err != nil {
+		t.Fatalf("unable to find Bob's breach tx in mempool: %v", err)
+	}
+
+	// Here, Carol sees Bob's breach transaction in the mempool, but is
+	// waiting for it to confirm before continuing her retribution. We
+	// suspend Carol to ensure Bob is able to broadcast his second-level
+	// transactions before Carol reacts to the breach.
+	restartCarol, err := net.SuspendNode(carol)
+	if err != nil {
+		t.Fatalf("unable to suspend Carol: %v", err)
+	}
+
+	// Generate a single block, wait for the final close status update,
+	// then ensure that the closing transaction was included in the block.
+	block := mineBlocks(t, net, 1, 1)[0]
+
+	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
+	breachTXID, err := net.WaitForChannelClose(ctxt, closeUpdates)
+	if err != nil {
+		t.Fatalf("error while waiting for channel close: %v", err)
+	}
+	assertTxInBlock(t, block, breachTXID)
+
+	// Mine enough blocks for the HTLC Bob sent out to expire. This will
+	// trigger Bob to attempt to sweep it using the timeout tx.
+	mineBlocks(t, net, 20, 0)
+
+	_, err = waitForNTxsInMempool(
+		net.Miner.Client, 1, minerMempoolTimeout,
+	)
+	if err != nil {
+		t.Fatalf("unable to find Bob's timeout tx in the mempool: %v",
+			err)
+	}
+
+	// We let Bob settle the invoice for the HTLC that is the breached
+	// commitment. This should lead to Bob broadcasting the the
+	// second-level success tx, since he now learns the preimage.
+	ctx, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	_, err = bob.SettleInvoice(ctx, &invoicesrpc.SettleInvoiceMsg{
+		Preimage: preimageBob[:],
+	})
+	require.NoError(t.t, err)
+
+	// Both the timeout tx and the success tx is now in the mempool,
+	// essentially "pinning" the HTLC outputs.
+	secondLevelHTLCs, err := waitForNTxsInMempool(
+		net.Miner.Client, 2, minerMempoolTimeout,
+	)
+	if err != nil {
+		t.Fatalf("unable to find Bob's second-level transactions in "+
+			"the mempool: %v", err)
+	}
+
+	// Query for the mempool transaction found above. Then assert that all
+	// the inputs of this transaction are spending outputs generated by
+	// Bob's breach transaction above.
+	for _, secondLevelTxid := range secondLevelHTLCs {
+		tx, err := net.Miner.Client.GetRawTransaction(secondLevelTxid)
+		if err != nil {
+			t.Fatalf("unable to query for justice tx: %v", err)
+		}
+		for _, txIn := range tx.MsgTx().TxIn {
+			if !bytes.Equal(txIn.PreviousOutPoint.Hash[:], breachTXID[:]) {
+				t.Fatalf("second-leve tx not spending "+
+					"commitment utxo instead is: %v",
+					txIn.PreviousOutPoint)
+			}
+		}
+	}
+
+	// We now decrease the fee estimate. This means that when Carol
+	// asssembles here justice tx below, it will have a fee rate lower than
+	// the second-level transactions Bob broadcasted.
+	net.SetFeeEstimate(10_000)
+	time.Sleep(100 * time.Millisecond)
+
+	// Restart carol, she will see the breach tx having been mined, and try
+	// to broadcast her justice tx.
+	err = restartCarol()
+	require.NoError(t.t, err)
+
+	// Again, only the two second-level transactions should be in the
+	// mempool, since Carol's justice tx has a too low feerate to make it
+	// into the mempool.
+	_, err = waitForNTxsInMempool(
+		net.Miner.Client, 2, minerMempoolTimeout,
+	)
+	if err != nil {
+		t.Fatalf("unable to find second-level transactions in the "+
+			"mempool: %v", err)
+	}
+
+	// Mine 4 _empty_ blocks. This means that the second-level transactions
+	// stay in the mempool, blocking Carol's justice tx from making it in.
+	for i := 0; i < 4; i++ {
+		block, err := net.Miner.GenerateAndSubmitBlock(nil, -1, time.Time{})
+		require.NoError(t.t, err)
+
+		require.Len(t.t, block.Transactions(), 1)
+	}
+
+	// Now that 4 block pass, Carol should "split" her justice tx and try
+	// to spend commitment outputs and HTLCs separately. This means that
+	// the commitment output spending justice tx will make it into the
+	// mempool, and we should now find 3 txs.
+	allTxids, err := waitForNTxsInMempool(
+		net.Miner.Client, 3, minerMempoolTimeout,
+	)
+	if err != nil {
+		t.Fatalf("unable to find transactions in mempool: %v", err)
+	}
+
+	// We filter out the txids of the second-level transactions, such that
+	// we can selectively mine Carol's tx.
+	txids := make(map[chainhash.Hash]struct{})
+	for _, txid := range allTxids {
+		txids[*txid] = struct{}{}
+	}
+
+	for _, txid := range secondLevelHTLCs {
+		_, ok := txids[*txid]
+		require.True(t.t, ok)
+
+		delete(txids, *txid)
+	}
+	require.Len(t.t, txids, 1)
+
+	// Now that there is only one tx left, that will be the justice tx, and
+	// we mine it.
+	var justiceTxid chainhash.Hash
+	for k := range txids {
+		justiceTxid = k
+	}
+
+	justiceTx, err := net.Miner.Client.GetRawTransaction(&justiceTxid)
+	if err != nil {
+		t.Fatalf("unable to query for justice tx: %v", err)
+	}
+
+	justiceBlock, err := net.Miner.GenerateAndSubmitBlock(
+		[]*btcutil.Tx{justiceTx}, -1, time.Time{},
+	)
+	require.NoError(t.t, err)
+
+	// The block should have exactly *two* transactions, one of which is
+	// the justice transaction (the other is the coinbase).
+	require.Len(t.t, justiceBlock.Transactions(), 2)
+
+	// Now mine a block that includes the two second level transactions.
+	block = mineBlocks(t, net, 1, 2)[0]
+
+	// The block should have exactly three transactions.
+	if len(block.Transactions) != 3 {
+		t.Fatalf("transactions not mined")
+	}
+
+	// Carol can finally sweep the HTLC outputs no2 that the second-level
+	// transactions are mined, since Bob cannot pin the CSV locked outputs.
+	htlcSweepTxid, err := waitForTxInMempool(
+		net.Miner.Client, minerMempoolTimeout,
+	)
+	if err != nil {
+		t.Fatalf("unable to find sweep transaction in mempool: %v", err)
+	}
+
+	htlcSweep, err := net.Miner.Client.GetRawTransaction(htlcSweepTxid)
+	if err != nil {
+		t.Fatalf("unable to query for sweep tx: %v", err)
+	}
+
+	// Assert that it spends the two second-level transactions.
+	require.Len(t.t, htlcSweep.MsgTx().TxIn, 2)
+
+	expSpends := make(map[wire.OutPoint]struct{})
+	for _, secondLevelTxid := range secondLevelHTLCs {
+		expSpends[wire.OutPoint{
+			Hash:  *secondLevelTxid,
+			Index: 0,
+		}] = struct{}{}
+	}
+
+	for _, txin := range htlcSweep.MsgTx().TxIn {
+		op := txin.PreviousOutPoint
+		_, ok := expSpends[op]
+		require.True(t.t, ok)
+
+		delete(expSpends, op)
+	}
+
+	require.Len(t.t, expSpends, 0)
+
+	// Mine the sweep.
+	mineBlocks(t, net, 1, 1)
+	assertNodeNumChannels(t, carol, 0)
+}
+
 // testRevokedCloseRetribution tests that Carol is able carry out
 // retribution in the event that she fails immediately after detecting Bob's
 // breach txn in the mempool.
@@ -8553,12 +9042,6 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 		t.Fatalf("unable to send payments: %v", err)
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	carolChan, err = getChanInfo(ctxt, carol)
-	if err != nil {
-		t.Fatalf("unable to get carol chan info: %v", err)
-	}
-
 	// Now we shutdown Carol, copying over the his temporary database state
 	// which has the *prior* channel state over his current most up to date
 	// state. With this, we essentially force Carol to travel back in time
@@ -8586,13 +9069,13 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	// feel the wrath of Dave's retribution.
 	var (
 		closeUpdates lnrpc.Lightning_CloseChannelClient
-		closeTxId    *chainhash.Hash
+		closeTxID    *chainhash.Hash
 		closeErr     error
-		force        bool = true
+		force        = true
 	)
 	err = wait.Predicate(func() bool {
 		ctxt, _ := context.WithTimeout(ctxb, channelCloseTimeout)
-		closeUpdates, closeTxId, closeErr = net.CloseChannel(
+		closeUpdates, closeTxID, closeErr = net.CloseChannel(
 			ctxt, carol, chanPoint, force,
 		)
 		return closeErr == nil
@@ -8608,9 +9091,9 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 		t.Fatalf("unable to find Carol's force close tx in mempool: %v",
 			err)
 	}
-	if *txid != *closeTxId {
+	if *txid != *closeTxID {
 		t.Fatalf("expected closeTx(%v) in mempool, instead found %v",
-			closeTxId, txid)
+			closeTxID, txid)
 	}
 
 	// Finally, generate a single block, wait for the final close status

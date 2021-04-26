@@ -175,6 +175,11 @@ var allTestCases = []*testCase{
 		test: testRevokedCloseRetribution,
 	},
 	{
+		name: "second level pinned breach",
+		test: testBreachPinnedSecondLevel,
+	},
+
+	{
 		name: "failing link",
 		test: testFailingChannel,
 	},

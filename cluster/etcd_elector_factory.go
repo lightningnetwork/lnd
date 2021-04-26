@@ -6,7 +6,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/lightningnetwork/lnd/channeldb/kvdb/etcd"
+	"github.com/lightningnetwork/lnd/kvdb/etcd"
 )
 
 // makeEtcdElector will construct a new etcdLeaderElector. It expects a cancel

@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+	"github.com/lightningnetwork/lnd/kvdb"
 )
 
 // MakeDB creates a new instance of the ChannelDB for testing purposes. A

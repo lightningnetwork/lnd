@@ -128,6 +128,15 @@ func testForwardInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 				require.Equal(t.t, lnrpc.HTLCAttempt_FAILED,
 					attempt.Status, "expected payment to fail")
 
+				// Assert that we get a temporary channel
+				// failure which has a channel update.
+				require.NotNil(t.t, attempt.Failure)
+				require.NotNil(t.t, attempt.Failure.ChannelUpdate)
+
+				require.Equal(t.t,
+					lnrpc.Failure_TEMPORARY_CHANNEL_FAILURE,
+					attempt.Failure.Code)
+
 			// For settle and resume we make sure the payment is successful.
 			case routerrpc.ResolveHoldForwardAction_SETTLE:
 				fallthrough

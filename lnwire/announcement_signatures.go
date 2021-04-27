@@ -2,10 +2,9 @@ package lnwire
 
 import (
 	"io"
-	"io/ioutil"
 )
 
-// AnnounceSignatures this is a direct message between two endpoints of a
+// AnnounceSignatures is a direct message between two endpoints of a
 // channel and serves as an opt-in mechanism to allow the announcement of
 // the channel to the rest of the network. It contains the necessary
 // signatures by the sender to construct the channel announcement message.
@@ -40,7 +39,7 @@ type AnnounceSignatures struct {
 	// properly validate the set of signatures that cover these new fields,
 	// and ensure we're able to make upgrades to the network in a forwards
 	// compatible manner.
-	ExtraOpaqueData []byte
+	ExtraOpaqueData ExtraOpaqueData
 }
 
 // A compile time check to ensure AnnounceSignatures implements the
@@ -52,29 +51,13 @@ var _ Message = (*AnnounceSignatures)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (a *AnnounceSignatures) Decode(r io.Reader, pver uint32) error {
-	err := ReadElements(r,
+	return ReadElements(r,
 		&a.ChannelID,
 		&a.ShortChannelID,
 		&a.NodeSignature,
 		&a.BitcoinSignature,
+		&a.ExtraOpaqueData,
 	)
-	if err != nil {
-		return err
-	}
-
-	// Now that we've read out all the fields that we explicitly know of,
-	// we'll collect the remainder into the ExtraOpaqueData field. If there
-	// aren't any bytes, then we'll snip off the slice to avoid carrying
-	// around excess capacity.
-	a.ExtraOpaqueData, err = ioutil.ReadAll(r)
-	if err != nil {
-		return err
-	}
-	if len(a.ExtraOpaqueData) == 0 {
-		a.ExtraOpaqueData = nil
-	}
-
-	return nil
 }
 
 // Encode serializes the target AnnounceSignatures into the passed io.Writer
@@ -97,12 +80,4 @@ func (a *AnnounceSignatures) Encode(w io.Writer, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (a *AnnounceSignatures) MsgType() MessageType {
 	return MsgAnnounceSignatures
-}
-
-// MaxPayloadLength returns the maximum allowed payload size for this message
-// observing the specified protocol version.
-//
-// This is part of the lnwire.Message interface.
-func (a *AnnounceSignatures) MaxPayloadLength(pver uint32) uint32 {
-	return 65533
 }

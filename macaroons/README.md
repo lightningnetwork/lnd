@@ -98,13 +98,17 @@ default macaroons (`admin`, `invoice` and `readonly`) are not sufficient.
 For example, a macaroon that is only allowed to manage peers with a default root
 key `0` would be created with the following command:
 
-`lncli bakemacaroon peers:read peers:write`
+```shell
+⛰  lncli bakemacaroon peers:read peers:write
+```
 
 For even more fine-grained permission control, it is also possible to specify
 single RPC method URIs that are allowed to be accessed by a macaroon. This can
 be achieved by passing `uri:<methodURI>` pairs to `bakemacaroon`, for example:
 
-`lncli bakemacaroon uri:/lnrpc.Lightning/GetInfo uri:/verrpc.Versioner/GetVersion`
+```shell
+⛰  lncli bakemacaroon uri:/lnrpc.Lightning/GetInfo uri:/verrpc.Versioner/GetVersion
+```
 
 The macaroon created by this call would only be allowed to call the `GetInfo` and
 `GetVersion` methods instead of all methods that have similar permissions (like
@@ -132,11 +136,15 @@ To manage the root keys used by macaroons, there are `listmacaroonids` and
 `deletemacaroonid` available through gPRC and command line.
 Users can view a list of all macaroon root key IDs that are in use using:
 
-`lncli listmacaroonids`
+```shell
+⛰  lncli listmacaroonids
+```
 
 And remove a specific macaroon root key ID using command:
 
-`lncli deletemacaroonid root_key_id`
+```shell
+⛰  lncli deletemacaroonid root_key_id
+```
 
 Be careful with the `deletemacaroonid` command as when a root key is deleted,
 **all the macaroons created from it are invalidated**.

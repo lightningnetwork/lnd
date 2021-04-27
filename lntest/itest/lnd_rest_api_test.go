@@ -190,7 +190,7 @@ func testRestAPI(net *lntest.NetworkHarness, ht *harnessTest) {
 		run: func(t *testing.T, a, b *lntest.HarnessNode) {
 			// Find out the current best block so we can subscribe
 			// to the next one.
-			hash, height, err := net.Miner.Node.GetBestBlock()
+			hash, height, err := net.Miner.Client.GetBestBlock()
 			require.Nil(t, err, "get best block")
 
 			// Create a new subscription to get block epoch events.
@@ -257,7 +257,7 @@ func testRestAPI(net *lntest.NetworkHarness, ht *harnessTest) {
 			}()
 
 			// Mine a block and make sure we get a message for it.
-			blockHashes, err := net.Miner.Node.Generate(1)
+			blockHashes, err := net.Miner.Client.Generate(1)
 			require.Nil(t, err, "generate blocks")
 			assert.Equal(t, 1, len(blockHashes), "num blocks")
 			select {
@@ -279,7 +279,7 @@ func testRestAPI(net *lntest.NetworkHarness, ht *harnessTest) {
 		run: func(t *testing.T, a, b *lntest.HarnessNode) {
 			// Find out the current best block so we can subscribe
 			// to the next one.
-			hash, height, err := net.Miner.Node.GetBestBlock()
+			hash, height, err := net.Miner.Client.GetBestBlock()
 			require.Nil(t, err, "get best block")
 
 			// Create a new subscription to get block epoch events.
@@ -366,7 +366,7 @@ func testRestAPI(net *lntest.NetworkHarness, ht *harnessTest) {
 			}()
 
 			// Mine a block and make sure we get a message for it.
-			blockHashes, err := net.Miner.Node.Generate(1)
+			blockHashes, err := net.Miner.Client.Generate(1)
 			require.Nil(t, err, "generate blocks")
 			assert.Equal(t, 1, len(blockHashes), "num blocks")
 			select {

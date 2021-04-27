@@ -12,13 +12,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/integration/rpctest"
+	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
@@ -41,7 +42,7 @@ const (
 	// defaultNodePort is the start of the range for listening ports of
 	// harness nodes. Ports are monotonically increasing starting from this
 	// number and are determined by the results of nextAvailablePort().
-	defaultNodePort = 19555
+	defaultNodePort = 5555
 
 	// logPubKeyBytes is the number of bytes of the node's PubKey that will
 	// be appended to the log file name. The whole PubKey is too long and
@@ -52,6 +53,13 @@ const (
 	// trickleDelay is the amount of time in milliseconds between each
 	// release of announcements by AuthenticatedGossiper to the network.
 	trickleDelay = 50
+
+	// listenerFormat is the format string that is used to generate local
+	// listener addresses.
+	listenerFormat = "127.0.0.1:%d"
+
+	// NeutrinoBackendName is the name of the neutrino backend.
+	NeutrinoBackendName = "neutrino"
 )
 
 var (
@@ -68,10 +76,19 @@ var (
 	logOutput = flag.Bool("logoutput", false,
 		"log output from node n to file output-n.log")
 
+	// logSubDir is the default directory where the logs are written to if
+	// logOutput is true.
+	logSubDir = flag.String("logdir", ".", "default dir to write logs to")
+
 	// goroutineDump is a flag that can be set to dump the active
 	// goroutines of test nodes on failure.
 	goroutineDump = flag.Bool("goroutinedump", false,
 		"write goroutine dump from node n to file pprof-n.log")
+
+	// btcdExecutable is the full path to the btcd binary.
+	btcdExecutable = flag.String(
+		"btcdexec", "", "full path to btcd binary",
+	)
 )
 
 // nextAvailablePort returns the first port that is available for listening by
@@ -87,7 +104,7 @@ func nextAvailablePort() int {
 		// the harness node, in practice in CI servers this seems much
 		// less likely than simply some other process already being
 		// bound at the start of the tests.
-		addr := fmt.Sprintf("127.0.0.1:%d", port)
+		addr := fmt.Sprintf(listenerFormat, port)
 		l, err := net.Listen("tcp4", addr)
 		if err == nil {
 			err := l.Close()
@@ -100,6 +117,39 @@ func nextAvailablePort() int {
 
 	// No ports available? Must be a mistake.
 	panic("no ports available for listening")
+}
+
+// ApplyPortOffset adds the given offset to the lastPort variable, making it
+// possible to run the tests in parallel without colliding on the same ports.
+func ApplyPortOffset(offset uint32) {
+	_ = atomic.AddUint32(&lastPort, offset)
+}
+
+// GetLogDir returns the passed --logdir flag or the default value if it wasn't
+// set.
+func GetLogDir() string {
+	if logSubDir != nil && *logSubDir != "" {
+		return *logSubDir
+	}
+	return "."
+}
+
+// GetBtcdBinary returns the full path to the binary of the custom built btcd
+// executable or an empty string if none is set.
+func GetBtcdBinary() string {
+	if btcdExecutable != nil {
+		return *btcdExecutable
+	}
+
+	return ""
+}
+
+// GenerateBtcdListenerAddresses is a function that returns two listener
+// addresses with unique ports and should be used to overwrite rpctest's default
+// generator which is prone to use colliding ports.
+func GenerateBtcdListenerAddresses() (string, string) {
+	return fmt.Sprintf(listenerFormat, nextAvailablePort()),
+		fmt.Sprintf(listenerFormat, nextAvailablePort())
 }
 
 // generateListeningPorts returns four ints representing ports to listen on
@@ -132,7 +182,12 @@ type BackendConfig interface {
 }
 
 type NodeConfig struct {
-	Name       string
+	Name string
+
+	// LogFilenamePrefix is is used to prefix node log files. Can be used
+	// to store the current test case for simpler postmortem debugging.
+	LogFilenamePrefix string
+
 	BackendCfg BackendConfig
 	NetParams  *chaincfg.Params
 	BaseDir    string
@@ -157,23 +212,29 @@ type NodeConfig struct {
 	AcceptKeySend bool
 
 	FeeURL string
+
+	Etcd bool
 }
 
 func (cfg NodeConfig) P2PAddr() string {
-	return net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.P2PPort))
+	return fmt.Sprintf(listenerFormat, cfg.P2PPort)
 }
 
 func (cfg NodeConfig) RPCAddr() string {
-	return net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.RPCPort))
+	return fmt.Sprintf(listenerFormat, cfg.RPCPort)
 }
 
 func (cfg NodeConfig) RESTAddr() string {
-	return net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.RESTPort))
+	return fmt.Sprintf(listenerFormat, cfg.RESTPort)
+}
+
+// DBDir returns the holding directory path of the graph database.
+func (cfg NodeConfig) DBDir() string {
+	return filepath.Join(cfg.DataDir, "graph", cfg.NetParams.Name)
 }
 
 func (cfg NodeConfig) DBPath() string {
-	return filepath.Join(cfg.DataDir, "graph",
-		fmt.Sprintf("%v/channel.db", cfg.NetParams.Name))
+	return filepath.Join(cfg.DBDir(), "channel.db")
 }
 
 func (cfg NodeConfig) ChanBackupPath() string {
@@ -206,6 +267,7 @@ func (cfg NodeConfig) genArgs() []string {
 	args = append(args, "--nobootstrap")
 	args = append(args, "--debuglevel=debug")
 	args = append(args, "--bitcoin.defaultchanconfs=1")
+	args = append(args, fmt.Sprintf("--db.batch-commit-interval=%v", 10*time.Millisecond))
 	args = append(args, fmt.Sprintf("--bitcoin.defaultremotedelay=%v", DefaultCSV))
 	args = append(args, fmt.Sprintf("--rpclisten=%v", cfg.RPCAddr()))
 	args = append(args, fmt.Sprintf("--restlisten=%v", cfg.RESTAddr()))
@@ -233,6 +295,24 @@ func (cfg NodeConfig) genArgs() []string {
 
 	if cfg.AcceptKeySend {
 		args = append(args, "--accept-keysend")
+	}
+
+	if cfg.Etcd {
+		args = append(args, "--db.backend=etcd")
+		args = append(args, "--db.etcd.embedded")
+		args = append(
+			args, fmt.Sprintf(
+				"--db.etcd.embedded_client_port=%v",
+				nextAvailablePort(),
+			),
+		)
+		args = append(
+			args, fmt.Sprintf(
+				"--db.etcd.embedded_peer_port=%v",
+				nextAvailablePort(),
+			),
+		)
+		args = append(args, "--db.etcd.embedded")
 	}
 
 	if cfg.FeeURL != "" {
@@ -351,9 +431,65 @@ func newNode(cfg NodeConfig) (*HarnessNode, error) {
 	}, nil
 }
 
+// NewMiner creates a new miner using btcd backend. The logDir specifies the
+// miner node's log dir. When tests finished, during clean up, its logs are
+// copied to a file specified as logFilename.
+func NewMiner(logDir, logFilename string, netParams *chaincfg.Params,
+	handler *rpcclient.NotificationHandlers,
+	btcdBinary string) (*rpctest.Harness, func() error, error) {
+
+	args := []string{
+		"--rejectnonstd",
+		"--txindex",
+		"--nowinservice",
+		"--nobanning",
+		"--debuglevel=debug",
+		"--logdir=" + logDir,
+		"--trickleinterval=100ms",
+	}
+
+	miner, err := rpctest.New(netParams, handler, args, btcdBinary)
+	if err != nil {
+		return nil, nil, fmt.Errorf(
+			"unable to create mining node: %v", err,
+		)
+	}
+
+	cleanUp := func() error {
+		if err := miner.TearDown(); err != nil {
+			return fmt.Errorf(
+				"failed to tear down miner, got error: %s", err,
+			)
+		}
+
+		// After shutting down the miner, we'll make a copy of the log
+		// file before deleting the temporary log dir.
+		logFile := fmt.Sprintf("%s/%s/btcd.log", logDir, netParams.Name)
+		copyPath := fmt.Sprintf("%s/../%s", logDir, logFilename)
+		err := CopyFile(filepath.Clean(copyPath), logFile)
+		if err != nil {
+			return fmt.Errorf("unable to copy file: %v", err)
+		}
+
+		if err = os.RemoveAll(logDir); err != nil {
+			return fmt.Errorf(
+				"cannot remove dir %s: %v", logDir, err,
+			)
+		}
+		return nil
+	}
+
+	return miner, cleanUp, nil
+}
+
 // DBPath returns the filepath to the channeldb database file for this node.
 func (hn *HarnessNode) DBPath() string {
 	return hn.Cfg.DBPath()
+}
+
+// DBDir returns the path for the directory holding channeldb file(s).
+func (hn *HarnessNode) DBDir() string {
+	return hn.Cfg.DBDir()
 }
 
 // Name returns the name of this node set during initialization.
@@ -420,24 +556,34 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error) error {
 	// If the logoutput flag is passed, redirect output from the nodes to
 	// log files.
 	if *logOutput {
-		fileName := fmt.Sprintf("output-%d-%s-%s.log", hn.NodeID,
-			hn.Cfg.Name, hex.EncodeToString(hn.PubKey[:logPubKeyBytes]))
+		dir := GetLogDir()
+		fileName := fmt.Sprintf("%s/%d-%s-%s-%s.log", dir, hn.NodeID,
+			hn.Cfg.LogFilenamePrefix, hn.Cfg.Name,
+			hex.EncodeToString(hn.PubKey[:logPubKeyBytes]))
 
-		// If the node's PubKey is not yet initialized, create a temporary
-		// file name. Later, after the PubKey has been initialized, the
-		// file can be moved to its final name with the PubKey included.
+		// If the node's PubKey is not yet initialized, create a
+		// temporary file name. Later, after the PubKey has been
+		// initialized, the file can be moved to its final name with
+		// the PubKey included.
 		if bytes.Equal(hn.PubKey[:4], []byte{0, 0, 0, 0}) {
-			fileName = fmt.Sprintf("output-%d-%s-tmp__.log", hn.NodeID,
+			fileName = fmt.Sprintf("%s/%d-%s-%s-tmp__.log", dir,
+				hn.NodeID, hn.Cfg.LogFilenamePrefix,
 				hn.Cfg.Name)
 
-			// Once the node has done its work, the log file can be renamed.
+			// Once the node has done its work, the log file can be
+			// renamed.
 			finalizeLogfile = func() {
 				if hn.logFile != nil {
 					hn.logFile.Close()
 
-					newFileName := fmt.Sprintf("output-%d-%s-%s.log",
-						hn.NodeID, hn.Cfg.Name,
-						hex.EncodeToString(hn.PubKey[:logPubKeyBytes]))
+					pubKeyHex := hex.EncodeToString(
+						hn.PubKey[:logPubKeyBytes],
+					)
+					newFileName := fmt.Sprintf("%s/"+
+						"%d-%s-%s-%s.log",
+						dir, hn.NodeID,
+						hn.Cfg.LogFilenamePrefix,
+						hn.Cfg.Name, pubKeyHex)
 					err := os.Rename(fileName, newFileName)
 					if err != nil {
 						fmt.Printf("could not rename "+
@@ -529,7 +675,7 @@ func (hn *HarnessNode) initClientWhenReady() error {
 	if err := wait.NoError(func() error {
 		conn, connErr = hn.ConnectRPC(true)
 		return connErr
-	}, 5*time.Second); err != nil {
+	}, DefaultTimeout); err != nil {
 		return err
 	}
 
@@ -537,22 +683,88 @@ func (hn *HarnessNode) initClientWhenReady() error {
 }
 
 // Init initializes a harness node by passing the init request via rpc. After
-// the request is submitted, this method will block until an
-// macaroon-authenticated rpc connection can be established to the harness node.
+// the request is submitted, this method will block until a
+// macaroon-authenticated RPC connection can be established to the harness node.
 // Once established, the new connection is used to initialize the
 // LightningClient and subscribes the HarnessNode to topology changes.
 func (hn *HarnessNode) Init(ctx context.Context,
-	initReq *lnrpc.InitWalletRequest) error {
+	initReq *lnrpc.InitWalletRequest) (*lnrpc.InitWalletResponse, error) {
 
-	ctxt, _ := context.WithTimeout(ctx, DefaultTimeout)
-	_, err := hn.InitWallet(ctxt, initReq)
+	ctxt, cancel := context.WithTimeout(ctx, DefaultTimeout)
+	defer cancel()
+	response, err := hn.InitWallet(ctxt, initReq)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Wait for the wallet to finish unlocking, such that we can connect to
 	// it via a macaroon-authenticated rpc connection.
-	return hn.initClientWhenReady()
+	var conn *grpc.ClientConn
+	if err = wait.Predicate(func() bool {
+		// If the node has been initialized stateless, we need to pass
+		// the macaroon to the client.
+		if initReq.StatelessInit {
+			adminMac := &macaroon.Macaroon{}
+			err := adminMac.UnmarshalBinary(response.AdminMacaroon)
+			if err != nil {
+				return false
+			}
+			conn, err = hn.ConnectRPCWithMacaroon(adminMac)
+			return err == nil
+		}
+
+		// Normal initialization, we expect a macaroon to be in the
+		// file system.
+		conn, err = hn.ConnectRPC(true)
+		return err == nil
+	}, DefaultTimeout); err != nil {
+		return nil, err
+	}
+
+	return response, hn.initLightningClient(conn)
+}
+
+// InitChangePassword initializes a harness node by passing the change password
+// request via RPC. After the request is submitted, this method will block until
+// a macaroon-authenticated RPC connection can be established to the harness
+// node. Once established, the new connection is used to initialize the
+// LightningClient and subscribes the HarnessNode to topology changes.
+func (hn *HarnessNode) InitChangePassword(ctx context.Context,
+	chngPwReq *lnrpc.ChangePasswordRequest) (*lnrpc.ChangePasswordResponse,
+	error) {
+
+	ctxt, cancel := context.WithTimeout(ctx, DefaultTimeout)
+	defer cancel()
+	response, err := hn.ChangePassword(ctxt, chngPwReq)
+	if err != nil {
+		return nil, err
+	}
+
+	// Wait for the wallet to finish unlocking, such that we can connect to
+	// it via a macaroon-authenticated rpc connection.
+	var conn *grpc.ClientConn
+	if err = wait.Predicate(func() bool {
+		// If the node has been initialized stateless, we need to pass
+		// the macaroon to the client.
+		if chngPwReq.StatelessInit {
+			adminMac := &macaroon.Macaroon{}
+			err := adminMac.UnmarshalBinary(response.AdminMacaroon)
+			if err != nil {
+				return false
+			}
+			conn, err = hn.ConnectRPCWithMacaroon(adminMac)
+			return err == nil
+		}
+
+		// Normal initialization, we expect a macaroon to be in the
+		// file system.
+		conn, err = hn.ConnectRPC(true)
+		return err == nil
+	}, DefaultTimeout); err != nil {
+		return nil, err
+	}
+
+	return response, hn.initLightningClient(conn)
 }
 
 // Unlock attempts to unlock the wallet of the target HarnessNode. This method
@@ -592,8 +804,9 @@ func (hn *HarnessNode) initLightningClient(conn *grpc.ClientConn) error {
 	hn.SignerClient = signrpc.NewSignerClient(conn)
 
 	// Set the harness node's pubkey to what the node claims in GetInfo.
-	err := hn.FetchNodeInfo()
-	if err != nil {
+	// Since the RPC might not be immediately active, we wrap the call in a
+	// wait.NoError.
+	if err := wait.NoError(hn.FetchNodeInfo, DefaultTimeout); err != nil {
 		return err
 	}
 
@@ -603,7 +816,7 @@ func (hn *HarnessNode) initLightningClient(conn *grpc.ClientConn) error {
 	// until then, we'll create a dummy subscription to ensure we can do so
 	// successfully before proceeding. We use a dummy subscription in order
 	// to not consume an update from the real one.
-	err = wait.NoError(func() error {
+	err := wait.NoError(func() error {
 		req := &lnrpc.GraphTopologySubscription{}
 		ctx, cancelFunc := context.WithCancel(context.Background())
 		topologyClient, err := hn.SubscribeChannelGraph(ctx, req)
@@ -808,7 +1021,7 @@ func (hn *HarnessNode) stop() error {
 	// Wait for lnd process and other goroutines to exit.
 	select {
 	case <-hn.processExit:
-	case <-time.After(60 * time.Second):
+	case <-time.After(DefaultTimeout * 2):
 		return fmt.Errorf("process did not exit")
 	}
 
@@ -1091,50 +1304,31 @@ func (hn *HarnessNode) WaitForNetworkChannelClose(ctx context.Context,
 	}
 }
 
-// WaitForBlockchainSync will block until the target nodes has fully
-// synchronized with the blockchain. If the passed context object has a set
-// timeout, then the goroutine will continually poll until the timeout has
-// elapsed. In the case that the chain isn't synced before the timeout is up,
-// then this function will return an error.
+// WaitForBlockchainSync waits for the target node to be fully synchronized with
+// the blockchain. If the passed context object has a set timeout, it will
+// continually poll until the timeout has elapsed. In the case that the chain
+// isn't synced before the timeout is up, this function will return an error.
 func (hn *HarnessNode) WaitForBlockchainSync(ctx context.Context) error {
-	errChan := make(chan error, 1)
-	retryDelay := time.Millisecond * 100
+	ticker := time.NewTicker(time.Millisecond * 100)
+	defer ticker.Stop()
 
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-			case <-hn.quit:
-				return
-			default:
-			}
-
-			getInfoReq := &lnrpc.GetInfoRequest{}
-			getInfoResp, err := hn.GetInfo(ctx, getInfoReq)
-			if err != nil {
-				errChan <- err
-				return
-			}
-			if getInfoResp.SyncedToChain {
-				errChan <- nil
-				return
-			}
-
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(retryDelay):
-			}
+	for {
+		resp, err := hn.GetInfo(ctx, &lnrpc.GetInfoRequest{})
+		if err != nil {
+			return err
 		}
-	}()
+		if resp.SyncedToChain {
+			return nil
+		}
 
-	select {
-	case <-hn.quit:
-		return nil
-	case err := <-errChan:
-		return err
-	case <-ctx.Done():
-		return fmt.Errorf("timeout while waiting for blockchain sync")
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout while waiting for " +
+				"blockchain sync")
+		case <-hn.quit:
+			return nil
+		case <-ticker.C:
+		}
 	}
 }
 
@@ -1160,7 +1354,7 @@ func (hn *HarnessNode) WaitForBalance(expectedBalance btcutil.Amount, confirmed 
 		return btcutil.Amount(balance.UnconfirmedBalance) == expectedBalance
 	}
 
-	err := wait.Predicate(doesBalanceMatch, 30*time.Second)
+	err := wait.Predicate(doesBalanceMatch, DefaultTimeout)
 	if err != nil {
 		return fmt.Errorf("balances not synced after deadline: "+
 			"expected %v, only have %v", expectedBalance, lastBalance)

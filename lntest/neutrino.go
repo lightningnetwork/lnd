@@ -24,6 +24,9 @@ func (b NeutrinoBackendConfig) GenArgs() []string {
 	var args []string
 	args = append(args, "--bitcoin.node=neutrino")
 	args = append(args, "--neutrino.connect="+b.minerAddr)
+	// We enable validating channels so that we can obtain the outpoint for
+	// channels within the graph and make certain assertions based on them.
+	args = append(args, "--neutrino.validatechannels")
 	return args
 }
 
@@ -39,7 +42,7 @@ func (b NeutrinoBackendConfig) DisconnectMiner() error {
 
 // Name returns the name of the backend type.
 func (b NeutrinoBackendConfig) Name() string {
-	return "neutrino"
+	return NeutrinoBackendName
 }
 
 // NewBackend starts and returns a NeutrinoBackendConfig for the node.

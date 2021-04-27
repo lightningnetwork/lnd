@@ -9,8 +9,8 @@ import (
 	bitcoinCfg "github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+	lnwire "github.com/lightningnetwork/lnd/channeldb/migration/lnwire21"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11/zpay32"
-	"github.com/lightningnetwork/lnd/lnwire"
 	litecoinCfg "github.com/ltcsuite/ltcd/chaincfg"
 )
 

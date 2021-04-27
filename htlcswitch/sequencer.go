@@ -100,6 +100,8 @@ func (s *persistentSequencer) NextID() (uint64, error) {
 		nextIDBkt.SetSequence(nextHorizonID)
 
 		return nil
+	}, func() {
+		nextHorizonID = 0
 	}); err != nil {
 		return 0, err
 	}
@@ -124,5 +126,5 @@ func (s *persistentSequencer) initDB() error {
 	return kvdb.Update(s.db, func(tx kvdb.RwTx) error {
 		_, err := tx.CreateTopLevelBucket(nextPaymentIDKey)
 		return err
-	})
+	}, func() {})
 }

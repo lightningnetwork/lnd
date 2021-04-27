@@ -177,7 +177,7 @@ func newOutgoingResolverTestContext(t *testing.T) *outgoingResolverTestContext {
 	}
 
 	resolver := &htlcOutgoingContestResolver{
-		htlcTimeoutResolver: htlcTimeoutResolver{
+		htlcTimeoutResolver: &htlcTimeoutResolver{
 			contractResolverKit: *newContractResolverKit(cfg),
 			htlcResolution:      outgoingRes,
 			htlc: channeldb.HTLC{

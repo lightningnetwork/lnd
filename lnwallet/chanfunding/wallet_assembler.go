@@ -1,6 +1,7 @@
 package chanfunding
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -152,6 +153,28 @@ func (f *FullIntent) CompileFundingTx(extraInputs []*wire.TxIn,
 	return fundingTx, nil
 }
 
+// Inputs returns all inputs to the final funding transaction that we
+// know about. Since this funding transaction is created all from our wallet,
+// it will be all inputs.
+func (f *FullIntent) Inputs() []wire.OutPoint {
+	var ins []wire.OutPoint
+	for _, coin := range f.InputCoins {
+		ins = append(ins, coin.OutPoint)
+	}
+
+	return ins
+}
+
+// Outputs returns all outputs of the final funding transaction that we
+// know about. This will be the funding output and the change outputs going
+// back to our wallet.
+func (f *FullIntent) Outputs() []*wire.TxOut {
+	outs := f.ShimIntent.Outputs()
+	outs = append(outs, f.ChangeOutputs...)
+
+	return outs
+}
+
 // Cancel allows the caller to cancel a funding Intent at any time.  This will
 // return any resources such as coins back to the eligible pool to be used in
 // order channel fundings.
@@ -267,20 +290,28 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 		// Otherwise do a normal coin selection where we target a given
 		// funding amount.
 		default:
+			dustLimit := w.cfg.DustLimit
 			localContributionAmt = r.LocalAmt
 			selectedCoins, changeAmt, err = CoinSelect(
-				r.FeeRate, r.LocalAmt, coins,
+				r.FeeRate, r.LocalAmt, dustLimit, coins,
 			)
 			if err != nil {
 				return err
 			}
 		}
 
+		// Sanity check: The addition of the outputs should not lead to the
+		// creation of dust.
+		if changeAmt != 0 && changeAmt <= w.cfg.DustLimit {
+			return fmt.Errorf("change amount(%v) after coin "+
+				"select is below dust limit(%v)", changeAmt,
+				w.cfg.DustLimit)
+		}
+
 		// Record any change output(s) generated as a result of the
-		// coin selection, but only if the addition of the output won't
-		// lead to the creation of dust.
+		// coin selection.
 		var changeOutput *wire.TxOut
-		if changeAmt != 0 && changeAmt > w.cfg.DustLimit {
+		if changeAmt != 0 {
 			changeAddr, err := r.ChangeAddr()
 			if err != nil {
 				return err

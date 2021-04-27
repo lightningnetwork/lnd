@@ -48,20 +48,7 @@ type chanDBRestorer struct {
 func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 	*channeldb.ChannelShell, error) {
 
-	// First, we'll also need to obtain the private key for the shachain
-	// root from the encoded public key.
-	//
-	// TODO(roasbeef): now adds req for hardware signers to impl
-	// shachain...
-	privKey, err := c.secretKeys.DerivePrivKey(backup.ShaChainRootDesc)
-	if err != nil {
-		return nil, fmt.Errorf("unable to derive shachain root key: %v", err)
-	}
-	revRoot, err := chainhash.NewHash(privKey.Serialize())
-	if err != nil {
-		return nil, err
-	}
-	shaChainProducer := shachain.NewRevocationProducer(*revRoot)
+	var err error
 
 	// Each of the keys in our local channel config only have their
 	// locators populate, so we'll re-derive the raw key now as we'll need
@@ -97,6 +84,53 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 		return nil, fmt.Errorf("unable to derive htlc key: %v", err)
 	}
 
+	// The shachain root that seeds RevocationProducer for this channel.
+	// It currently has two possible formats.
+	var revRoot *chainhash.Hash
+
+	// If the PubKey field is non-nil, then this shachain root is using the
+	// legacy non-ECDH scheme.
+	if backup.ShaChainRootDesc.PubKey != nil {
+		ltndLog.Debugf("Using legacy revocation producer format for "+
+			"channel point %v", backup.FundingOutpoint)
+
+		// Obtain the private key for the shachain root from the
+		// encoded public key.
+		privKey, err := c.secretKeys.DerivePrivKey(
+			backup.ShaChainRootDesc,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("could not derive private key "+
+				"for legacy channel revocation root format: "+
+				"%v", err)
+		}
+
+		revRoot, err = chainhash.NewHash(privKey.Serialize())
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		ltndLog.Debugf("Using new ECDH revocation producer format "+
+			"for channel point %v", backup.FundingOutpoint)
+
+		// This is the scheme in which the shachain root is derived via
+		// an ECDH operation on the private key of ShaChainRootDesc and
+		// our public multisig key.
+		ecdh, err := c.secretKeys.ECDH(
+			backup.ShaChainRootDesc,
+			backup.LocalChanCfg.MultiSigKey.PubKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to derive shachain "+
+				"root: %v", err)
+		}
+
+		ch := chainhash.Hash(ecdh)
+		revRoot = &ch
+	}
+
+	shaChainProducer := shachain.NewRevocationProducer(*revRoot)
+
 	var chanType channeldb.ChannelType
 	switch backup.Version {
 
@@ -110,12 +144,17 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 		chanType = channeldb.AnchorOutputsBit
 		chanType |= channeldb.SingleFunderTweaklessBit
 
+	case chanbackup.AnchorsZeroFeeHtlcTxCommitVersion:
+		chanType = channeldb.ZeroHtlcTxFeeBit
+		chanType |= channeldb.AnchorOutputsBit
+		chanType |= channeldb.SingleFunderTweaklessBit
+
 	default:
 		return nil, fmt.Errorf("unknown Single version: %v", err)
 	}
 
-	ltndLog.Infof("SCB Recovery: created channel shell for ChannelPoint(%v), "+
-		"chan_type=%v", backup.FundingOutpoint, chanType)
+	ltndLog.Infof("SCB Recovery: created channel shell for ChannelPoint"+
+		"(%v), chan_type=%v", backup.FundingOutpoint, chanType)
 
 	chanShell := channeldb.ChannelShell{
 		NodeAddrs: backup.Addresses,
@@ -192,24 +231,26 @@ func (c *chanDBRestorer) RestoreChansFromSingles(backups ...chanbackup.Single) e
 		channel := chanShell.Chan
 
 		switch {
-		// Fallback case 1: It is extremely unlikely at this point that
+		// Fallback case 1: This is an unconfirmed channel from an old
+		// backup file where we didn't have any workaround in place and
+		// the short channel ID is 0:0:0. Best we can do here is set the
+		// funding broadcast height to a reasonable value that we
+		// determined earlier.
+		case channel.ShortChanID().BlockHeight == 0:
+			channel.FundingBroadcastHeight = firstChanHeight
+
+		// Fallback case 2: It is extremely unlikely at this point that
 		// a channel we are trying to restore has a coinbase funding TX.
 		// Therefore we can be quite certain that if the TxIndex is
-		// zero, it was an unconfirmed channel where we used the
-		// BlockHeight to encode the funding TX broadcast height. To not
-		// end up with an invalid short channel ID that looks valid, we
-		// restore the "original" unconfirmed one here.
+		// zero but the block height wasn't, it was an unconfirmed
+		// channel where we used the BlockHeight to encode the funding
+		// TX broadcast height. To not end up with an invalid short
+		// channel ID that looks valid, we restore the "original"
+		// unconfirmed one here.
 		case channel.ShortChannelID.TxIndex == 0:
 			broadcastHeight := channel.ShortChannelID.BlockHeight
 			channel.FundingBroadcastHeight = broadcastHeight
 			channel.ShortChannelID.BlockHeight = 0
-
-		// Fallback case 2: This is an unconfirmed channel from an old
-		// backup file where we didn't have any workaround in place.
-		// Best we can do here is set the funding broadcast height to a
-		// reasonable value that we determined earlier.
-		case channel.ShortChanID().BlockHeight == 0:
-			channel.FundingBroadcastHeight = firstChanHeight
 		}
 	}
 

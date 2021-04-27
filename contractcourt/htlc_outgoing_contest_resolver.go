@@ -17,7 +17,7 @@ import (
 type htlcOutgoingContestResolver struct {
 	// htlcTimeoutResolver is the inner solver that this resolver may turn
 	// into. This only happens if the HTLC expires on-chain.
-	htlcTimeoutResolver
+	*htlcTimeoutResolver
 }
 
 // newOutgoingContestResolver instantiates a new outgoing contested htlc
@@ -31,7 +31,7 @@ func newOutgoingContestResolver(res lnwallet.OutgoingHtlcResolution,
 	)
 
 	return &htlcOutgoingContestResolver{
-		htlcTimeoutResolver: *timeout,
+		htlcTimeoutResolver: timeout,
 	}
 }
 
@@ -131,7 +131,7 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 					"into timeout resolver", h,
 					h.htlcResolution.ClaimOutpoint,
 					newHeight, h.htlcResolution.Expiry)
-				return &h.htlcTimeoutResolver, nil
+				return h.htlcTimeoutResolver, nil
 			}
 
 		// The output has been spent! This means the preimage has been
@@ -209,7 +209,7 @@ func newOutgoingContestResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 	if err != nil {
 		return nil, err
 	}
-	h.htlcTimeoutResolver = *timeoutResolver
+	h.htlcTimeoutResolver = timeoutResolver
 	return h, nil
 }
 

@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/stretchr/testify/require"
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
@@ -68,8 +69,17 @@ func (c *testCtx) RestartRouter() error {
 	return nil
 }
 
-func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGraphInstance) (
-	*testCtx, func(), error) {
+func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGraphInstance,
+	strictPruning bool) (*testCtx, func(), error) {
+
+	return createTestCtxFromGraphInstanceAssumeValid(
+		startingHeight, graphInstance, false, strictPruning,
+	)
+}
+
+func createTestCtxFromGraphInstanceAssumeValid(startingHeight uint32,
+	graphInstance *testGraphInstance, assumeValid bool,
+	strictPruning bool) (*testCtx, func(), error) {
 
 	// We'll initialize an instance of the channel router with mock
 	// versions of the chain and channel notifier. As we don't need to test
@@ -84,13 +94,15 @@ func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGr
 	}
 
 	mcConfig := &MissionControlConfig{
-		PenaltyHalfLife:       time.Hour,
-		AprioriHopProbability: 0.9,
-		AprioriWeight:         0.5,
+		ProbabilityEstimatorCfg: ProbabilityEstimatorCfg{
+			PenaltyHalfLife:       time.Hour,
+			AprioriHopProbability: 0.9,
+			AprioriWeight:         0.5,
+		},
 	}
 
 	mc, err := NewMissionControl(
-		graphInstance.graph.Database(),
+		graphInstance.graph.Database(), route.Vertex{},
 		mcConfig,
 	)
 	if err != nil {
@@ -123,8 +135,10 @@ func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGr
 			next := atomic.AddUint64(&uniquePaymentID, 1)
 			return next, nil
 		},
-		PathFindingConfig: pathFindingConfig,
-		Clock:             clock.NewTestClock(time.Unix(1, 0)),
+		PathFindingConfig:   pathFindingConfig,
+		Clock:               clock.NewTestClock(time.Unix(1, 0)),
+		AssumeChannelValid:  assumeValid,
+		StrictZombiePruning: strictPruning,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create router %v", err)
@@ -175,7 +189,7 @@ func createTestCtxSingleNode(startingHeight uint32) (*testCtx, func(), error) {
 		cleanUp: cleanup,
 	}
 
-	return createTestCtxFromGraphInstance(startingHeight, graphInstance)
+	return createTestCtxFromGraphInstance(startingHeight, graphInstance, false)
 }
 
 func createTestCtxFromFile(startingHeight uint32, testGraph string) (*testCtx, func(), error) {
@@ -186,7 +200,7 @@ func createTestCtxFromFile(startingHeight uint32, testGraph string) (*testCtx, f
 		return nil, nil, fmt.Errorf("unable to create test graph: %v", err)
 	}
 
-	return createTestCtxFromGraphInstance(startingHeight, graphInstance)
+	return createTestCtxFromGraphInstance(startingHeight, graphInstance, false)
 }
 
 // TestFindRoutesWithFeeLimit asserts that routes found by the FindRoutes method
@@ -353,9 +367,9 @@ func TestChannelUpdateValidation(t *testing.T) {
 
 	const startingBlockHeight = 101
 
-	ctx, cleanUp, err := createTestCtxFromGraphInstance(startingBlockHeight,
-		testGraph)
-
+	ctx, cleanUp, err := createTestCtxFromGraphInstance(
+		startingBlockHeight, testGraph, true,
+	)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -1016,7 +1030,7 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 	defer testGraph.cleanUp()
 
 	ctx, cleanUp, err := createTestCtxFromGraphInstance(
-		startingBlockHeight, testGraph,
+		startingBlockHeight, testGraph, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -1529,6 +1543,9 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 		Control:            makeMockControlTower(),
 		ChannelPruneExpiry: time.Hour * 24,
 		GraphPruneInterval: time.Hour * 2,
+
+		// We'll set the delay to zero to prune immediately.
+		FirstTimePruneDelay: 0,
 	})
 	if err != nil {
 		t.Fatalf("unable to create router %v", err)
@@ -1931,8 +1948,8 @@ func TestPruneChannelGraphStaleEdges(t *testing.T) {
 	freshTimestamp := time.Now()
 	staleTimestamp := time.Unix(0, 0)
 
-	// We'll create the following test graph so that only the last channel
-	// is pruned.
+	// We'll create the following test graph so that two of the channels
+	// are pruned.
 	testChannels := []*testChannel{
 		// No edges.
 		{
@@ -1945,7 +1962,7 @@ func TestPruneChannelGraphStaleEdges(t *testing.T) {
 		// Only one edge with a stale timestamp.
 		{
 			Node1: &testChannelEnd{
-				Alias: "a",
+				Alias: "d",
 				testChannelPolicy: &testChannelPolicy{
 					LastUpdate: staleTimestamp,
 				},
@@ -1953,6 +1970,20 @@ func TestPruneChannelGraphStaleEdges(t *testing.T) {
 			Node2:     &testChannelEnd{Alias: "b"},
 			Capacity:  100000,
 			ChannelID: 2,
+		},
+
+		// Only one edge with a stale timestamp, but it's the source
+		// node so it won't get pruned.
+		{
+			Node1: &testChannelEnd{
+				Alias: "a",
+				testChannelPolicy: &testChannelPolicy{
+					LastUpdate: staleTimestamp,
+				},
+			},
+			Node2:     &testChannelEnd{Alias: "b"},
+			Capacity:  100000,
+			ChannelID: 3,
 		},
 
 		// Only one edge with a fresh timestamp.
@@ -1965,10 +1996,11 @@ func TestPruneChannelGraphStaleEdges(t *testing.T) {
 			},
 			Node2:     &testChannelEnd{Alias: "b"},
 			Capacity:  100000,
-			ChannelID: 3,
+			ChannelID: 4,
 		},
 
-		// One edge fresh, one edge stale.
+		// One edge fresh, one edge stale. This will be pruned with
+		// strict pruning activated.
 		{
 			Node1: &testChannelEnd{
 				Alias: "c",
@@ -1983,47 +2015,57 @@ func TestPruneChannelGraphStaleEdges(t *testing.T) {
 				},
 			},
 			Capacity:  100000,
-			ChannelID: 4,
+			ChannelID: 5,
 		},
 
 		// Both edges fresh.
 		symmetricTestChannel("g", "h", 100000, &testChannelPolicy{
 			LastUpdate: freshTimestamp,
-		}, 5),
+		}, 6),
 
-		// Both edges stale, only one pruned.
+		// Both edges stale, only one pruned. This should be pruned for
+		// both normal and strict pruning.
 		symmetricTestChannel("e", "f", 100000, &testChannelPolicy{
 			LastUpdate: staleTimestamp,
-		}, 6),
+		}, 7),
 	}
 
-	// We'll create our test graph and router backed with these test
-	// channels we've created.
-	testGraph, err := createTestGraphFromChannels(testChannels, "a")
-	if err != nil {
-		t.Fatalf("unable to create test graph: %v", err)
+	for _, strictPruning := range []bool{true, false} {
+		// We'll create our test graph and router backed with these test
+		// channels we've created.
+		testGraph, err := createTestGraphFromChannels(testChannels, "a")
+		if err != nil {
+			t.Fatalf("unable to create test graph: %v", err)
+		}
+		defer testGraph.cleanUp()
+
+		const startingHeight = 100
+		ctx, cleanUp, err := createTestCtxFromGraphInstance(
+			startingHeight, testGraph, strictPruning,
+		)
+		if err != nil {
+			t.Fatalf("unable to create test context: %v", err)
+		}
+		defer cleanUp()
+
+		// All of the channels should exist before pruning them.
+		assertChannelsPruned(t, ctx.graph, testChannels)
+
+		// Proceed to prune the channels - only the last one should be pruned.
+		if err := ctx.router.pruneZombieChans(); err != nil {
+			t.Fatalf("unable to prune zombie channels: %v", err)
+		}
+
+		// We expect channels that have either both edges stale, or one edge
+		// stale with both known.
+		var prunedChannels []uint64
+		if strictPruning {
+			prunedChannels = []uint64{2, 5, 7}
+		} else {
+			prunedChannels = []uint64{2, 7}
+		}
+		assertChannelsPruned(t, ctx.graph, testChannels, prunedChannels...)
 	}
-	defer testGraph.cleanUp()
-
-	const startingHeight = 100
-	ctx, cleanUp, err := createTestCtxFromGraphInstance(
-		startingHeight, testGraph,
-	)
-	if err != nil {
-		t.Fatalf("unable to create test context: %v", err)
-	}
-	defer cleanUp()
-
-	// All of the channels should exist before pruning them.
-	assertChannelsPruned(t, ctx.graph, testChannels)
-
-	// Proceed to prune the channels - only the last one should be pruned.
-	if err := ctx.router.pruneZombieChans(); err != nil {
-		t.Fatalf("unable to prune zombie channels: %v", err)
-	}
-
-	prunedChannel := testChannels[len(testChannels)-1].ChannelID
-	assertChannelsPruned(t, ctx.graph, testChannels, prunedChannel)
 }
 
 // TestPruneChannelGraphDoubleDisabled test that we can properly prune channels
@@ -2031,6 +2073,15 @@ func TestPruneChannelGraphStaleEdges(t *testing.T) {
 func TestPruneChannelGraphDoubleDisabled(t *testing.T) {
 	t.Parallel()
 
+	t.Run("no_assumechannelvalid", func(t *testing.T) {
+		testPruneChannelGraphDoubleDisabled(t, false)
+	})
+	t.Run("assumechannelvalid", func(t *testing.T) {
+		testPruneChannelGraphDoubleDisabled(t, true)
+	})
+}
+
+func testPruneChannelGraphDoubleDisabled(t *testing.T, assumeValid bool) {
 	// We'll create the following test graph so that only the last channel
 	// is pruned. We'll use a fresh timestamp to ensure they're not pruned
 	// according to that heuristic.
@@ -2122,34 +2173,40 @@ func TestPruneChannelGraphDoubleDisabled(t *testing.T) {
 	defer testGraph.cleanUp()
 
 	const startingHeight = 100
-	ctx, cleanUp, err := createTestCtxFromGraphInstance(
-		startingHeight, testGraph,
+	ctx, cleanUp, err := createTestCtxFromGraphInstanceAssumeValid(
+		startingHeight, testGraph, assumeValid, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to create test context: %v", err)
 	}
 	defer cleanUp()
 
-	// All the channels should exist within the graph before pruning them.
-	assertChannelsPruned(t, ctx.graph, testChannels)
+	// All the channels should exist within the graph before pruning them
+	// when not using AssumeChannelValid, otherwise we should have pruned
+	// the last channel on startup.
+	if !assumeValid {
+		assertChannelsPruned(t, ctx.graph, testChannels)
+	} else {
+		// Sleep to allow the pruning to finish.
+		time.Sleep(200 * time.Millisecond)
 
-	// If we attempt to prune them without AssumeChannelValid being set,
-	// none should be pruned.
+		prunedChannel := testChannels[len(testChannels)-1].ChannelID
+		assertChannelsPruned(t, ctx.graph, testChannels, prunedChannel)
+	}
+
 	if err := ctx.router.pruneZombieChans(); err != nil {
 		t.Fatalf("unable to prune zombie channels: %v", err)
 	}
 
-	assertChannelsPruned(t, ctx.graph, testChannels)
-
-	// Now that AssumeChannelValid is set, we'll prune the graph again and
-	// the last channel should be the only one pruned.
-	ctx.router.cfg.AssumeChannelValid = true
-	if err := ctx.router.pruneZombieChans(); err != nil {
-		t.Fatalf("unable to prune zombie channels: %v", err)
+	// If we attempted to prune them without AssumeChannelValid being set,
+	// none should be pruned. Otherwise the last channel should still be
+	// pruned.
+	if !assumeValid {
+		assertChannelsPruned(t, ctx.graph, testChannels)
+	} else {
+		prunedChannel := testChannels[len(testChannels)-1].ChannelID
+		assertChannelsPruned(t, ctx.graph, testChannels, prunedChannel)
 	}
-
-	prunedChannel := testChannels[len(testChannels)-1].ChannelID
-	assertChannelsPruned(t, ctx.graph, testChannels, prunedChannel)
 }
 
 // TestFindPathFeeWeighting tests that the findPath method will properly prefer
@@ -2499,9 +2556,9 @@ func TestUnknownErrorSource(t *testing.T) {
 
 	const startingBlockHeight = 101
 
-	ctx, cleanUp, err := createTestCtxFromGraphInstance(startingBlockHeight,
-		testGraph)
-
+	ctx, cleanUp, err := createTestCtxFromGraphInstance(
+		startingBlockHeight, testGraph, false,
+	)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -2638,7 +2695,7 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	const startingBlockHeight = 101
 
 	ctx, cleanUp, err := createTestCtxFromGraphInstance(
-		startingBlockHeight, testGraph,
+		startingBlockHeight, testGraph, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -2874,7 +2931,7 @@ func TestSendToRouteMaxHops(t *testing.T) {
 	const startingBlockHeight = 101
 
 	ctx, cleanUp, err := createTestCtxFromGraphInstance(
-		startingBlockHeight, testGraph,
+		startingBlockHeight, testGraph, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -2921,6 +2978,10 @@ func TestSendToRouteMaxHops(t *testing.T) {
 func TestBuildRoute(t *testing.T) {
 	// Setup a three node network.
 	chanCapSat := btcutil.Amount(100000)
+	paymentAddrFeatures := lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(lnwire.PaymentAddrOptional),
+		lnwire.Features,
+	)
 	testChannels := []*testChannel{
 		// Create two local channels from a. The bandwidth is estimated
 		// in this test as the channel capacity. For building routes, we
@@ -2945,29 +3006,33 @@ func TestBuildRoute(t *testing.T) {
 		// nodes are recommended to keep their channel policies towards
 		// the same peer identical.
 		symmetricTestChannel("b", "c", chanCapSat, &testChannelPolicy{
-			Expiry:  144,
-			FeeRate: 50000,
-			MinHTLC: lnwire.NewMSatFromSatoshis(20),
-			MaxHTLC: lnwire.NewMSatFromSatoshis(120),
+			Expiry:   144,
+			FeeRate:  50000,
+			MinHTLC:  lnwire.NewMSatFromSatoshis(20),
+			MaxHTLC:  lnwire.NewMSatFromSatoshis(120),
+			Features: paymentAddrFeatures,
 		}, 2),
 		symmetricTestChannel("b", "c", chanCapSat, &testChannelPolicy{
-			Expiry:  144,
-			FeeRate: 60000,
-			MinHTLC: lnwire.NewMSatFromSatoshis(20),
-			MaxHTLC: lnwire.NewMSatFromSatoshis(120),
+			Expiry:   144,
+			FeeRate:  60000,
+			MinHTLC:  lnwire.NewMSatFromSatoshis(20),
+			MaxHTLC:  lnwire.NewMSatFromSatoshis(120),
+			Features: paymentAddrFeatures,
 		}, 7),
 
 		symmetricTestChannel("a", "e", chanCapSat, &testChannelPolicy{
-			Expiry:  144,
-			FeeRate: 80000,
-			MinHTLC: lnwire.NewMSatFromSatoshis(5),
-			MaxHTLC: lnwire.NewMSatFromSatoshis(10),
+			Expiry:   144,
+			FeeRate:  80000,
+			MinHTLC:  lnwire.NewMSatFromSatoshis(5),
+			MaxHTLC:  lnwire.NewMSatFromSatoshis(10),
+			Features: paymentAddrFeatures,
 		}, 5),
 		symmetricTestChannel("e", "c", chanCapSat, &testChannelPolicy{
-			Expiry:  144,
-			FeeRate: 100000,
-			MinHTLC: lnwire.NewMSatFromSatoshis(20),
-			MaxHTLC: lnwire.NewMSatFromSatoshis(chanCapSat),
+			Expiry:   144,
+			FeeRate:  100000,
+			MinHTLC:  lnwire.NewMSatFromSatoshis(20),
+			MaxHTLC:  lnwire.NewMSatFromSatoshis(chanCapSat),
+			Features: paymentAddrFeatures,
 		}, 4),
 	}
 
@@ -2980,14 +3045,16 @@ func TestBuildRoute(t *testing.T) {
 	const startingBlockHeight = 101
 
 	ctx, cleanUp, err := createTestCtxFromGraphInstance(
-		startingBlockHeight, testGraph,
+		startingBlockHeight, testGraph, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
 	defer cleanUp()
 
-	checkHops := func(rt *route.Route, expected []uint64) {
+	checkHops := func(rt *route.Route, expected []uint64,
+		payAddr [32]byte) {
+
 		t.Helper()
 
 		if len(rt.Hops) != len(expected) {
@@ -3000,7 +3067,15 @@ func TestBuildRoute(t *testing.T) {
 					expected[i], i, hop.ChannelID)
 			}
 		}
+
+		lastHop := rt.Hops[len(rt.Hops)-1]
+		require.NotNil(t, lastHop.MPP)
+		require.Equal(t, lastHop.MPP.PaymentAddr(), payAddr)
 	}
+
+	var payAddr [32]byte
+	_, err = rand.Read(payAddr[:])
+	require.NoError(t, err)
 
 	// Create hop list from the route node pubkeys.
 	hops := []route.Vertex{
@@ -3010,7 +3085,7 @@ func TestBuildRoute(t *testing.T) {
 
 	// Build the route for the given amount.
 	rt, err := ctx.router.BuildRoute(
-		&amt, hops, nil, 40,
+		&amt, hops, nil, 40, &payAddr,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -3019,14 +3094,14 @@ func TestBuildRoute(t *testing.T) {
 	// Check that we get the expected route back. The total amount should be
 	// the amount to deliver to hop c (100 sats) plus the max fee for the
 	// connection b->c (6 sats).
-	checkHops(rt, []uint64{1, 7})
+	checkHops(rt, []uint64{1, 7}, payAddr)
 	if rt.TotalAmount != 106000 {
 		t.Fatalf("unexpected total amount %v", rt.TotalAmount)
 	}
 
 	// Build the route for the minimum amount.
 	rt, err = ctx.router.BuildRoute(
-		nil, hops, nil, 40,
+		nil, hops, nil, 40, &payAddr,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -3036,7 +3111,7 @@ func TestBuildRoute(t *testing.T) {
 	// send from b to c is 20 sats. Hop b charges 1200 msat for the
 	// forwarding. The channel between hop a and b can carry amounts in the
 	// range [5, 100], so 21200 msats is the minimum amount for this route.
-	checkHops(rt, []uint64{1, 7})
+	checkHops(rt, []uint64{1, 7}, payAddr)
 	if rt.TotalAmount != 21200 {
 		t.Fatalf("unexpected total amount %v", rt.TotalAmount)
 	}
@@ -3047,7 +3122,7 @@ func TestBuildRoute(t *testing.T) {
 		ctx.aliases["e"], ctx.aliases["c"],
 	}
 	_, err = ctx.router.BuildRoute(
-		nil, hops, nil, 40,
+		nil, hops, nil, 40, nil,
 	)
 	errNoChannel, ok := err.(ErrNoChannel)
 	if !ok {

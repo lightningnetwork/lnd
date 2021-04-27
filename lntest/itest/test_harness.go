@@ -3,8 +3,12 @@ package itest
 import (
 	"bytes"
 	"context"
+	"flag"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -20,6 +24,11 @@ import (
 
 var (
 	harnessNetParams = &chaincfg.RegressionNetParams
+
+	// lndExecutable is the full path to the lnd binary.
+	lndExecutable = flag.String(
+		"lndexec", itestLndBinary, "full path to lnd binary",
+	)
 )
 
 const (
@@ -111,6 +120,31 @@ func (h *harnessTest) Log(args ...interface{}) {
 	h.t.Log(args...)
 }
 
+func (h *harnessTest) getLndBinary() string {
+	binary := itestLndBinary
+	lndExec := ""
+	if lndExecutable != nil && *lndExecutable != "" {
+		lndExec = *lndExecutable
+	}
+	if lndExec == "" && runtime.GOOS == "windows" {
+		// Windows (even in a bash like environment like git bash as on
+		// Travis) doesn't seem to like relative paths to exe files...
+		currentDir, err := os.Getwd()
+		if err != nil {
+			h.Fatalf("unable to get working directory: %v", err)
+		}
+		targetPath := filepath.Join(currentDir, "../../lnd-itest.exe")
+		binary, err = filepath.Abs(targetPath)
+		if err != nil {
+			h.Fatalf("unable to get absolute path: %v", err)
+		}
+	} else if lndExec != "" {
+		binary = lndExec
+	}
+
+	return binary
+}
+
 type testCase struct {
 	name string
 	test func(net *lntest.NetworkHarness, t *harnessTest)
@@ -172,7 +206,7 @@ func mineBlocks(t *harnessTest, net *lntest.NetworkHarness,
 	var err error
 	if numTxs > 0 {
 		txids, err = waitForNTxsInMempool(
-			net.Miner.Node, numTxs, minerMempoolTimeout,
+			net.Miner.Client, numTxs, minerMempoolTimeout,
 		)
 		if err != nil {
 			t.Fatalf("unable to find txns in mempool: %v", err)
@@ -181,13 +215,13 @@ func mineBlocks(t *harnessTest, net *lntest.NetworkHarness,
 
 	blocks := make([]*wire.MsgBlock, num)
 
-	blockHashes, err := net.Miner.Node.Generate(num)
+	blockHashes, err := net.Miner.Client.Generate(num)
 	if err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
 
 	for i, blockHash := range blockHashes {
-		block, err := net.Miner.Node.GetBlock(blockHash)
+		block, err := net.Miner.Client.GetBlock(blockHash)
 		if err != nil {
 			t.Fatalf("unable to get block: %v", err)
 		}

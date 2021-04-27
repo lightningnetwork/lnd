@@ -58,6 +58,9 @@ var deps = depDesc{
 	lnwire.AnchorsOptional: {
 		lnwire.StaticRemoteKeyOptional: {},
 	},
+	lnwire.AMPOptional: {
+		lnwire.PaymentAddrOptional: {},
+	},
 }
 
 // ValidateDeps asserts that a feature vector sets all features and their

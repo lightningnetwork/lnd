@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
@@ -46,6 +47,9 @@ type AddInvoiceConfig struct {
 	// ChanDB is a global boltdb instance which is needed to access the
 	// channel graph.
 	ChanDB *channeldb.DB
+
+	// Graph holds a reference to the ChannelGraph database.
+	Graph *channeldb.ChannelGraph
 
 	// GenInvoiceFeatures returns a feature containing feature bits that
 	// should be advertised on freshly generated invoices.
@@ -94,6 +98,10 @@ type AddInvoiceData struct {
 	// HodlInvoice signals that this invoice shouldn't be settled
 	// immediately upon receiving the payment.
 	HodlInvoice bool
+
+	// RouteHints are optional route hints that can each be individually used
+	// to assist in reaching the invoice's destination.
+	RouteHints [][]zpay32.HopHint
 }
 
 // AddInvoice attempts to add a new invoice to the invoice database. Any
@@ -246,6 +254,27 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		options = append(options, zpay32.CLTVExpiry(uint64(defaultDelta)))
 	}
 
+	// We make sure that the given invoice routing hints number is within the
+	// valid range
+	if len(invoice.RouteHints) > 20 {
+		return nil, nil, fmt.Errorf("number of routing hints must not exceed " +
+			"maximum of 20")
+	}
+
+	// We continue by populating the requested routing hints indexing their
+	// corresponding channels so we won't duplicate them.
+	forcedHints := make(map[uint64]struct{})
+	for _, h := range invoice.RouteHints {
+		if len(h) == 0 {
+			return nil, nil, fmt.Errorf("number of hop hint within a route must " +
+				"be positive")
+		}
+		options = append(options, zpay32.RouteHint(h))
+
+		// Only this first hop is our direct channel.
+		forcedHints[h[0].ChannelID] = struct{}{}
+	}
+
 	// If we were requested to include routing hints in the invoice, then
 	// we'll fetch all of our available private channels and create routing
 	// hints for them.
@@ -256,11 +285,21 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		}
 
 		if len(openChannels) > 0 {
+			// We filter the channels by excluding the ones that were specified by
+			// the caller and were already added.
+			var filteredChannels []*channeldb.OpenChannel
+			for _, c := range openChannels {
+				if _, ok := forcedHints[c.ShortChanID().ToUint64()]; ok {
+					continue
+				}
+				filteredChannels = append(filteredChannels, c)
+			}
+
 			// We'll restrict the number of individual route hints
 			// to 20 to avoid creating overly large invoices.
-			const numMaxHophints = 20
+			numMaxHophints := 20 - len(forcedHints)
 			hopHints := selectHopHints(
-				amtMSat, cfg, openChannels, numMaxHophints,
+				amtMSat, cfg, filteredChannels, numMaxHophints,
 			)
 
 			options = append(options, hopHints...)
@@ -291,7 +330,10 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 	payReqString, err := payReq.Encode(
 		zpay32.MessageSigner{
-			SignCompact: cfg.NodeSigner.SignDigestCompact,
+			SignCompact: func(msg []byte) ([]byte, error) {
+				hash := chainhash.HashB(msg)
+				return cfg.NodeSigner.SignDigestCompact(hash)
+			},
 		},
 	)
 	if err != nil {
@@ -330,9 +372,8 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 // chanCanBeHopHint returns true if the target channel is eligible to be a hop
 // hint.
-func chanCanBeHopHint(channel *channeldb.OpenChannel,
-	graph *channeldb.ChannelGraph,
-	cfg *AddInvoiceConfig) (*channeldb.ChannelEdgePolicy, bool) {
+func chanCanBeHopHint(channel *channeldb.OpenChannel, cfg *AddInvoiceConfig) (
+	*channeldb.ChannelEdgePolicy, bool) {
 
 	// Since we're only interested in our private channels, we'll skip
 	// public ones.
@@ -359,7 +400,7 @@ func chanCanBeHopHint(channel *channeldb.OpenChannel,
 	// channels.
 	var remotePub [33]byte
 	copy(remotePub[:], channel.IdentityPub.SerializeCompressed())
-	isRemoteNodePublic, err := graph.IsPublicNode(remotePub)
+	isRemoteNodePublic, err := cfg.Graph.IsPublicNode(remotePub)
 	if err != nil {
 		log.Errorf("Unable to determine if node %x "+
 			"is advertised: %v", remotePub, err)
@@ -375,7 +416,7 @@ func chanCanBeHopHint(channel *channeldb.OpenChannel,
 
 	// Fetch the policies for each end of the channel.
 	chanID := channel.ShortChanID().ToUint64()
-	info, p1, p2, err := graph.FetchChannelEdgesByID(chanID)
+	info, p1, p2, err := cfg.Graph.FetchChannelEdgesByID(chanID)
 	if err != nil {
 		log.Errorf("Unable to fetch the routing "+
 			"policies for the edges of the channel "+
@@ -423,8 +464,6 @@ func selectHopHints(amtMSat lnwire.MilliSatoshi, cfg *AddInvoiceConfig,
 	openChannels []*channeldb.OpenChannel,
 	numMaxHophints int) []func(*zpay32.Invoice) {
 
-	graph := cfg.ChanDB.ChannelGraph()
-
 	// We'll add our hop hints in two passes, first we'll add all channels
 	// that are eligible to be hop hints, and also have a local balance
 	// above the payment amount.
@@ -433,9 +472,7 @@ func selectHopHints(amtMSat lnwire.MilliSatoshi, cfg *AddInvoiceConfig,
 	hopHints := make([]func(*zpay32.Invoice), 0, numMaxHophints)
 	for _, channel := range openChannels {
 		// If this channel can't be a hop hint, then skip it.
-		edgePolicy, canBeHopHint := chanCanBeHopHint(
-			channel, graph, cfg,
-		)
+		edgePolicy, canBeHopHint := chanCanBeHopHint(channel, cfg)
 		if edgePolicy == nil || !canBeHopHint {
 			continue
 		}
@@ -485,9 +522,7 @@ func selectHopHints(amtMSat lnwire.MilliSatoshi, cfg *AddInvoiceConfig,
 		// If the channel can't be a hop hint, then we'll skip it.
 		// Otherwise, we'll use the policy information to populate the
 		// hop hint.
-		remotePolicy, canBeHopHint := chanCanBeHopHint(
-			channel, graph, cfg,
-		)
+		remotePolicy, canBeHopHint := chanCanBeHopHint(channel, cfg)
 		if !canBeHopHint || remotePolicy == nil {
 			continue
 		}

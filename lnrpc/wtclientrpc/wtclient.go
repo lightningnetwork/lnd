@@ -14,6 +14,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower"
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
+	"github.com/lightningnetwork/lnd/watchtower/wtdb"
+	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -61,6 +63,13 @@ var (
 	// because the watchtower client is not active.
 	ErrWtclientNotActive = errors.New("watchtower client not active")
 )
+
+// ServerShell is a shell struct holding a reference to the actual sub-server.
+// It is used to register the gRPC sub-server with the root server before we
+// have the necessary dependencies to populate the actual sub-server.
+type ServerShell struct {
+	WatchtowerClientServer
+}
 
 // WatchtowerClient is the RPC server we'll use to interact with the backing
 // active watchtower client.
@@ -110,14 +119,11 @@ func (c *WatchtowerClient) Name() string {
 // RPC server to register itself with the main gRPC root server. Until this is
 // called, each sub-server won't be able to have requests routed towards it.
 //
-// NOTE: This is part of the lnrpc.SubServer interface.
-func (c *WatchtowerClient) RegisterWithRootServer(grpcServer *grpc.Server) error {
+// NOTE: This is part of the lnrpc.GrpcHandler interface.
+func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// We make sure that we register it with the main gRPC server to ensure
 	// all our methods are routed properly.
-	RegisterWatchtowerClientServer(grpcServer, c)
-
-	c.cfg.Log.Debugf("WatchtowerClient RPC server successfully registered " +
-		"with  root gRPC server")
+	RegisterWatchtowerClientServer(grpcServer, r)
 
 	return nil
 }
@@ -126,8 +132,8 @@ func (c *WatchtowerClient) RegisterWithRootServer(grpcServer *grpc.Server) error
 // RPC server to register itself with the main REST mux server. Until this is
 // called, each sub-server won't be able to have requests routed towards it.
 //
-// NOTE: This is part of the lnrpc.SubServer interface.
-func (c *WatchtowerClient) RegisterWithRestServer(ctx context.Context,
+// NOTE: This is part of the lnrpc.GrpcHandler interface.
+func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 	mux *runtime.ServeMux, dest string, opts []grpc.DialOption) error {
 
 	// We make sure that we register it with the main REST server to ensure
@@ -138,6 +144,25 @@ func (c *WatchtowerClient) RegisterWithRestServer(ctx context.Context,
 	}
 
 	return nil
+}
+
+// CreateSubServer populates the subserver's dependencies using the passed
+// SubServerConfigDispatcher. This method should fully initialize the
+// sub-server instance, making it ready for action. It returns the macaroon
+// permissions that the sub-server wishes to pass on to the root server for all
+// methods routed towards it.
+//
+// NOTE: This is part of the lnrpc.GrpcHandler interface.
+func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
+	lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
+
+	subServer, macPermissions, err := createNewSubServer(configRegistry)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	r.WatchtowerClientServer = subServer
+	return subServer, macPermissions, nil
 }
 
 // isActive returns nil if the watchtower client is initialized so that we can
@@ -176,7 +201,12 @@ func (c *WatchtowerClient) AddTower(ctx context.Context,
 		IdentityKey: pubKey,
 		Address:     addr,
 	}
+
+	// TODO(conner): make atomic via multiplexed client
 	if err := c.cfg.Client.AddTower(towerAddr); err != nil {
+		return nil, err
+	}
+	if err := c.cfg.AnchorClient.AddTower(towerAddr); err != nil {
 		return nil, err
 	}
 
@@ -211,7 +241,13 @@ func (c *WatchtowerClient) RemoveTower(ctx context.Context,
 		}
 	}
 
-	if err := c.cfg.Client.RemoveTower(pubKey, addr); err != nil {
+	// TODO(conner): make atomic via multiplexed client
+	err = c.cfg.Client.RemoveTower(pubKey, addr)
+	if err != nil {
+		return nil, err
+	}
+	err = c.cfg.AnchorClient.RemoveTower(pubKey, addr)
+	if err != nil {
 		return nil, err
 	}
 
@@ -226,9 +262,23 @@ func (c *WatchtowerClient) ListTowers(ctx context.Context,
 		return nil, err
 	}
 
-	towers, err := c.cfg.Client.RegisteredTowers()
+	anchorTowers, err := c.cfg.AnchorClient.RegisteredTowers()
 	if err != nil {
 		return nil, err
+	}
+
+	legacyTowers, err := c.cfg.Client.RegisteredTowers()
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter duplicates.
+	towers := make(map[wtdb.TowerID]*wtclient.RegisteredTower)
+	for _, tower := range anchorTowers {
+		towers[tower.Tower.ID] = tower
+	}
+	for _, tower := range legacyTowers {
+		towers[tower.Tower.ID] = tower
 	}
 
 	rpcTowers := make([]*Tower, 0, len(towers))
@@ -253,7 +303,11 @@ func (c *WatchtowerClient) GetTowerInfo(ctx context.Context,
 		return nil, err
 	}
 
-	tower, err := c.cfg.Client.LookupTower(pubKey)
+	var tower *wtclient.RegisteredTower
+	tower, err = c.cfg.Client.LookupTower(pubKey)
+	if err == wtdb.ErrTowerNotFound {
+		tower, err = c.cfg.AnchorClient.LookupTower(pubKey)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -269,11 +323,28 @@ func (c *WatchtowerClient) Stats(ctx context.Context,
 		return nil, err
 	}
 
-	stats := c.cfg.Client.Stats()
+	clientStats := []wtclient.ClientStats{
+		c.cfg.Client.Stats(),
+		c.cfg.AnchorClient.Stats(),
+	}
+
+	var stats wtclient.ClientStats
+	for i := range clientStats {
+		// Grab a reference to the slice index rather than copying bc
+		// ClientStats contains a lock which cannot be copied by value.
+		stat := &clientStats[i]
+
+		stats.NumTasksAccepted += stat.NumTasksAccepted
+		stats.NumTasksIneligible += stat.NumTasksIneligible
+		stats.NumTasksPending += stat.NumTasksPending
+		stats.NumSessionsAcquired += stat.NumSessionsAcquired
+		stats.NumSessionsExhausted += stat.NumSessionsExhausted
+	}
+
 	return &StatsResponse{
 		NumBackups:           uint32(stats.NumTasksAccepted),
 		NumFailedBackups:     uint32(stats.NumTasksIneligible),
-		NumPendingBackups:    uint32(stats.NumTasksReceived),
+		NumPendingBackups:    uint32(stats.NumTasksPending),
 		NumSessionsAcquired:  uint32(stats.NumSessionsAcquired),
 		NumSessionsExhausted: uint32(stats.NumSessionsExhausted),
 	}, nil
@@ -287,10 +358,27 @@ func (c *WatchtowerClient) Policy(ctx context.Context,
 		return nil, err
 	}
 
-	policy := c.cfg.Client.Policy()
+	var policy wtpolicy.Policy
+	switch req.PolicyType {
+	case PolicyType_LEGACY:
+		policy = c.cfg.Client.Policy()
+	case PolicyType_ANCHOR:
+		policy = c.cfg.AnchorClient.Policy()
+	default:
+		return nil, fmt.Errorf("unknown policy type: %v",
+			req.PolicyType)
+	}
+
 	return &PolicyResponse{
-		MaxUpdates:      uint32(policy.MaxUpdates),
-		SweepSatPerByte: uint32(policy.SweepFeeRate.FeePerKVByte() / 1000),
+		MaxUpdates: uint32(policy.MaxUpdates),
+		SweepSatPerVbyte: uint32(
+			policy.SweepFeeRate.FeePerKVByte() / 1000,
+		),
+
+		// Deprecated field.
+		SweepSatPerByte: uint32(
+			policy.SweepFeeRate.FeePerKVByte() / 1000,
+		),
 	}, nil
 }
 
@@ -306,12 +394,15 @@ func marshallTower(tower *wtclient.RegisteredTower, includeSessions bool) *Tower
 	if includeSessions {
 		rpcSessions = make([]*TowerSession, 0, len(tower.Sessions))
 		for _, session := range tower.Sessions {
-			satPerByte := session.Policy.SweepFeeRate.FeePerKVByte() / 1000
+			satPerVByte := session.Policy.SweepFeeRate.FeePerKVByte() / 1000
 			rpcSessions = append(rpcSessions, &TowerSession{
 				NumBackups:        uint32(len(session.AckedUpdates)),
 				NumPendingBackups: uint32(len(session.CommittedUpdates)),
 				MaxBackups:        uint32(session.Policy.MaxUpdates),
-				SweepSatPerByte:   uint32(satPerByte),
+				SweepSatPerVbyte:  uint32(satPerVByte),
+
+				// Deprecated field.
+				SweepSatPerByte: uint32(satPerVByte),
 			})
 		}
 	}

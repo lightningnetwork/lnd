@@ -12,7 +12,9 @@ import (
 // sub server given the main config dispatcher method. If we're unable to find
 // the config that is meant for us in the config dispatcher, then we'll exit
 // with an error.
-func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
+func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
+	*WalletKit, lnrpc.MacaroonPerms, error) {
+
 	// We'll attempt to look up the config that we expect, according to our
 	// subServerName name. If we can't find this, then we'll exit with an
 	// error, as we're unable to properly initialize ourselves without this
@@ -67,8 +69,8 @@ func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (lnrpc.S
 func init() {
 	subServer := &lnrpc.SubServerDriver{
 		SubServerName: subServerName,
-		New: func(c lnrpc.SubServerConfigDispatcher) (lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
-			return createNewSubServer(c)
+		NewGrpcHandler: func() lnrpc.GrpcHandler {
+			return &ServerShell{}
 		},
 	}
 

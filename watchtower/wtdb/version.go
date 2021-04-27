@@ -107,7 +107,7 @@ func initOrSyncVersions(db versionedDB, init bool, versions []version) error {
 	if init {
 		return kvdb.Update(db.bdb(), func(tx kvdb.RwTx) error {
 			return initDBVersion(tx, getLatestDBVersion(versions))
-		})
+		}, func() {})
 	}
 
 	// Otherwise, ensure that any migrations are applied to ensure the data
@@ -159,5 +159,5 @@ func syncVersions(db versionedDB, versions []version) error {
 		}
 
 		return putDBVersion(tx, latestVersion)
-	})
+	}, func() {})
 }

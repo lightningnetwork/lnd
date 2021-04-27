@@ -422,10 +422,10 @@ func TestPrefAttachmentSelectSkipNodes(t *testing.T) {
 
 			// We'll simulate a channel update by adding the nodes
 			// to our set of channels.
-			var chans []Channel
+			var chans []LocalChannel
 			for _, candidate := range scores {
 				chans = append(chans,
-					Channel{
+					LocalChannel{
 						Node: candidate.NodeID,
 					},
 				)

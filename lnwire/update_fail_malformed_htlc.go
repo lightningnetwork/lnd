@@ -24,6 +24,11 @@ type UpdateFailMalformedHTLC struct {
 
 	// FailureCode the exact reason why onion blob haven't been parsed.
 	FailureCode FailCode
+
+	// ExtraData is the set of data that was appended to this message to
+	// fill out the full maximum transport message size. These fields can
+	// be used to specify optional data such as custom TLV fields.
+	ExtraData ExtraOpaqueData
 }
 
 // A compile time check to ensure UpdateFailMalformedHTLC implements the
@@ -40,6 +45,7 @@ func (c *UpdateFailMalformedHTLC) Decode(r io.Reader, pver uint32) error {
 		&c.ID,
 		c.ShaOnionBlob[:],
 		&c.FailureCode,
+		&c.ExtraData,
 	)
 }
 
@@ -53,6 +59,7 @@ func (c *UpdateFailMalformedHTLC) Encode(w io.Writer, pver uint32) error {
 		c.ID,
 		c.ShaOnionBlob[:],
 		c.FailureCode,
+		c.ExtraData,
 	)
 }
 
@@ -62,16 +69,6 @@ func (c *UpdateFailMalformedHTLC) Encode(w io.Writer, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *UpdateFailMalformedHTLC) MsgType() MessageType {
 	return MsgUpdateFailMalformedHTLC
-}
-
-// MaxPayloadLength returns the maximum allowed payload size for a
-// UpdateFailMalformedHTLC complete message observing the specified protocol
-// version.
-//
-// This is part of the lnwire.Message interface.
-func (c *UpdateFailMalformedHTLC) MaxPayloadLength(uint32) uint32 {
-	// 32 +  8 + 32 + 2
-	return 74
 }
 
 // TargetChanID returns the channel id of the link for which this message is

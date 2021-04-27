@@ -144,7 +144,14 @@ func newRoute(sourceVertex route.Vertex,
 		// vector for support for a given feature. We assume at this
 		// point that the feature vectors transitive dependencies have
 		// been validated.
-		supports := edge.Node.Features.HasFeature
+		supports := func(feature lnwire.FeatureBit) bool {
+			// If this edge comes from router hints, the features
+			// could be nil.
+			if edge.Node.Features == nil {
+				return false
+			}
+			return edge.Node.Features.HasFeature(feature)
+		}
 
 		// We start by assuming the node doesn't support TLV. We'll now
 		// inspect the node's feature vector to see if we can promote

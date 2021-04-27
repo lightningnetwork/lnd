@@ -2867,19 +2867,31 @@ func testHtcNotifier(t *testing.T, testOpts []serverOption, iterations int,
 	if err := aliceNotifier.Start(); err != nil {
 		t.Fatalf("could not start alice notifier")
 	}
-	defer aliceNotifier.Stop()
+	defer func() {
+		if err := aliceNotifier.Stop(); err != nil {
+			t.Fatalf("failed to stop alice notifier: %v", err)
+		}
+	}()
 
 	bobNotifier := NewHtlcNotifier(mockTime)
 	if err := bobNotifier.Start(); err != nil {
 		t.Fatalf("could not start bob notifier")
 	}
-	defer bobNotifier.Stop()
+	defer func() {
+		if err := bobNotifier.Stop(); err != nil {
+			t.Fatalf("failed to stop bob notifier: %v", err)
+		}
+	}()
 
 	carolNotifier := NewHtlcNotifier(mockTime)
 	if err := carolNotifier.Start(); err != nil {
 		t.Fatalf("could not start carol notifier")
 	}
-	defer carolNotifier.Stop()
+	defer func() {
+		if err := carolNotifier.Stop(); err != nil {
+			t.Fatalf("failed to stop carol notifier: %v", err)
+		}
+	}()
 
 	// Create a notifier server option which will set our htlc notifiers
 	// for the three hop network.

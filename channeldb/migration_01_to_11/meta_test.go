@@ -51,7 +51,7 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 	// Apply migration.
 	err = kvdb.Update(cdb, func(tx kvdb.RwTx) error {
 		return migrationFunc(tx)
-	})
+	}, func() {})
 	if err != nil {
 		log.Error(err)
 	}

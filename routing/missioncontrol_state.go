@@ -209,3 +209,53 @@ func (m *missionControlState) getSnapshot() *MissionControlSnapshot {
 
 	return &snapshot
 }
+
+// importSnapshot takes an existing snapshot and merges it with our current
+// state if the result provided are fresher than our current results. It returns
+// the number of pairs that were used.
+func (m *missionControlState) importSnapshot(snapshot *MissionControlSnapshot) int {
+	var imported int
+
+	for _, pair := range snapshot.Pairs {
+		fromNode := pair.Pair.From
+		toNode := pair.Pair.To
+
+		results, found := m.getLastPairResult(fromNode)
+		if !found {
+			results = make(map[route.Vertex]TimedPairResult)
+		}
+
+		lastResult := results[toNode]
+
+		failResult := failPairResult(pair.FailAmt)
+		imported += m.importResult(
+			lastResult.FailTime, pair.FailTime, failResult,
+			fromNode, toNode,
+		)
+
+		successResult := successPairResult(pair.SuccessAmt)
+		imported += m.importResult(
+			lastResult.SuccessTime, pair.SuccessTime, successResult,
+			fromNode, toNode,
+		)
+	}
+
+	return imported
+}
+
+func (m *missionControlState) importResult(currentTs, importedTs time.Time,
+	importedResult pairResult, fromNode, toNode route.Vertex) int {
+
+	if currentTs.After(importedTs) {
+		log.Debugf("Not setting pair result for %v->%v (%v) "+
+			"success=%v, timestamp %v older than last result %v",
+			fromNode, toNode, importedResult.amt,
+			importedResult.success, importedTs, currentTs)
+
+		return 0
+	}
+
+	m.setLastPairResult(fromNode, toNode, importedTs, &importedResult)
+
+	return 1
+}

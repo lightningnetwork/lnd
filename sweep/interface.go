@@ -11,12 +11,13 @@ type Wallet interface {
 	// broadcasts the passed transaction to the Bitcoin network.
 	PublishTransaction(tx *wire.MsgTx, label string) error
 
-	// ListUnspentWitness returns all unspent outputs which are version 0
-	// witness programs. The 'minconfirms' and 'maxconfirms' parameters
-	// indicate the minimum and maximum number of confirmations an output
-	// needs in order to be returned by this method.
-	ListUnspentWitness(minconfirms, maxconfirms int32) ([]*lnwallet.Utxo,
-		error)
+	// ListUnspentWitnessFromDefaultAccount returns all unspent outputs
+	// which are version 0 witness programs from the default wallet account.
+	// The 'minConfs' and 'maxConfs' parameters indicate the minimum
+	// and maximum number of confirmations an output needs in order to be
+	// returned by this method.
+	ListUnspentWitnessFromDefaultAccount(minConfs, maxConfs int32) (
+		[]*lnwallet.Utxo, error)
 
 	// WithCoinSelectLock will execute the passed function closure in a
 	// synchronized manner preventing any coin selection operations from

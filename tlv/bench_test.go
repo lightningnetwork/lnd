@@ -10,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtwire"
+	"github.com/stretchr/testify/require"
 )
 
 // CreateSessionTLV mirrors the wtwire.CreateSession message, but uses TLV for
@@ -49,7 +50,8 @@ func DBlobType(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 // ESatPerKW is an encoder for lnwallet.SatPerKWeight.
 func ESatPerKW(w io.Writer, val interface{}, buf *[8]byte) error {
 	if v, ok := val.(*chainfee.SatPerKWeight); ok {
-		return tlv.EUint64(w, uint64(*v), buf)
+		v64 := uint64(*v)
+		return tlv.EUint64(w, &v64, buf)
 	}
 	return tlv.NewTypeForEncodingErr(val, "chainfee.SatPerKWeight")
 }
@@ -104,7 +106,7 @@ func BenchmarkEncodeCreateSession(t *testing.B) {
 	for i := 0; i < t.N; i++ {
 		err = m.Encode(ioutil.Discard, 0)
 	}
-	_ = err
+	require.NoError(t, err)
 }
 
 // BenchmarkEncodeCreateSessionTLV benchmarks encoding of the TLV CreateSession.
@@ -118,7 +120,7 @@ func BenchmarkEncodeCreateSessionTLV(t *testing.B) {
 	for i := 0; i < t.N; i++ {
 		err = m.Encode(ioutil.Discard)
 	}
-	_ = err
+	require.NoError(t, err)
 }
 
 // BenchmarkDecodeCreateSession benchmarks encoding of the non-TLV
@@ -127,18 +129,19 @@ func BenchmarkDecodeCreateSession(t *testing.B) {
 	m := &wtwire.CreateSession{}
 
 	var b bytes.Buffer
-	m.Encode(&b, 0)
+	err := m.Encode(&b, 0)
+	require.NoError(t, err)
+
 	r := bytes.NewReader(b.Bytes())
 
 	t.ReportAllocs()
 	t.ResetTimer()
 
-	var err error
 	for i := 0; i < t.N; i++ {
 		r.Seek(0, 0)
 		err = m.Decode(r, 0)
 	}
-	_ = err
+	require.NoError(t, err)
 }
 
 // BenchmarkDecodeCreateSessionTLV benchmarks decoding of the TLV CreateSession.
@@ -146,8 +149,9 @@ func BenchmarkDecodeCreateSessionTLV(t *testing.B) {
 	m := NewCreateSessionTLV()
 
 	var b bytes.Buffer
-	var err error
-	m.Encode(&b)
+	err := m.Encode(&b)
+	require.NoError(t, err)
+
 	r := bytes.NewReader(b.Bytes())
 
 	t.ReportAllocs()
@@ -157,5 +161,5 @@ func BenchmarkDecodeCreateSessionTLV(t *testing.B) {
 		r.Seek(0, 0)
 		err = m.Decode(r)
 	}
-	_ = err
+	require.NoError(t, err)
 }

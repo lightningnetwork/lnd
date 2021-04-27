@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -51,6 +50,8 @@ var addTowerCommand = cli.Command{
 }
 
 func addTower(ctx *cli.Context) error {
+	ctxc := getContext()
+
 	// Display the command's help message if the number of arguments/flags
 	// is not what we expect.
 	if ctx.NArg() != 1 || ctx.NumFlags() > 0 {
@@ -74,7 +75,7 @@ func addTower(ctx *cli.Context) error {
 		Pubkey:  pubKey,
 		Address: address,
 	}
-	resp, err := client.AddTower(context.Background(), req)
+	resp, err := client.AddTower(ctxc, req)
 	if err != nil {
 		return err
 	}
@@ -96,6 +97,8 @@ var removeTowerCommand = cli.Command{
 }
 
 func removeTower(ctx *cli.Context) error {
+	ctxc := getContext()
+
 	// Display the command's help message if the number of arguments/flags
 	// is not what we expect.
 	if ctx.NArg() != 1 || ctx.NumFlags() > 0 {
@@ -130,7 +133,7 @@ func removeTower(ctx *cli.Context) error {
 		Pubkey:  pubKey,
 		Address: address,
 	}
-	resp, err := client.RemoveTower(context.Background(), req)
+	resp, err := client.RemoveTower(ctxc, req)
 	if err != nil {
 		return err
 	}
@@ -153,6 +156,8 @@ var listTowersCommand = cli.Command{
 }
 
 func listTowers(ctx *cli.Context) error {
+	ctxc := getContext()
+
 	// Display the command's help message if the number of arguments/flags
 	// is not what we expect.
 	if ctx.NArg() > 0 || ctx.NumFlags() > 1 {
@@ -165,7 +170,7 @@ func listTowers(ctx *cli.Context) error {
 	req := &wtclientrpc.ListTowersRequest{
 		IncludeSessions: ctx.Bool("include_sessions"),
 	}
-	resp, err := client.ListTowers(context.Background(), req)
+	resp, err := client.ListTowers(ctxc, req)
 	if err != nil {
 		return err
 	}
@@ -190,6 +195,8 @@ var getTowerCommand = cli.Command{
 }
 
 func getTower(ctx *cli.Context) error {
+	ctxc := getContext()
+
 	// Display the command's help message if the number of arguments/flags
 	// is not what we expect.
 	if ctx.NArg() != 1 || ctx.NumFlags() > 1 {
@@ -211,7 +218,7 @@ func getTower(ctx *cli.Context) error {
 		Pubkey:          pubKey,
 		IncludeSessions: ctx.Bool("include_sessions"),
 	}
-	resp, err := client.GetTowerInfo(context.Background(), req)
+	resp, err := client.GetTowerInfo(ctxc, req)
 	if err != nil {
 		return err
 	}
@@ -227,6 +234,8 @@ var statsCommand = cli.Command{
 }
 
 func stats(ctx *cli.Context) error {
+	ctxc := getContext()
+
 	// Display the command's help message if the number of arguments/flags
 	// is not what we expect.
 	if ctx.NArg() > 0 || ctx.NumFlags() > 0 {
@@ -237,7 +246,7 @@ func stats(ctx *cli.Context) error {
 	defer cleanUp()
 
 	req := &wtclientrpc.StatsRequest{}
-	resp, err := client.Stats(context.Background(), req)
+	resp, err := client.Stats(ctxc, req)
 	if err != nil {
 		return err
 	}
@@ -250,20 +259,47 @@ var policyCommand = cli.Command{
 	Name:   "policy",
 	Usage:  "Display the active watchtower client policy configuration.",
 	Action: actionDecorator(policy),
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name: "legacy",
+			Usage: "Retrieve the legacy tower client's current " +
+				"policy. (default)",
+		},
+		cli.BoolFlag{
+			Name:  "anchor",
+			Usage: "Retrieve the anchor tower client's current policy.",
+		},
+	},
 }
 
 func policy(ctx *cli.Context) error {
+	ctxc := getContext()
+
 	// Display the command's help message if the number of arguments/flags
 	// is not what we expect.
-	if ctx.NArg() > 0 || ctx.NumFlags() > 0 {
+	if ctx.NArg() > 0 || ctx.NumFlags() > 1 {
 		return cli.ShowCommandHelp(ctx, "policy")
+	}
+
+	var policyType wtclientrpc.PolicyType
+	switch {
+	case ctx.Bool("anchor"):
+		policyType = wtclientrpc.PolicyType_ANCHOR
+	case ctx.Bool("legacy"):
+		policyType = wtclientrpc.PolicyType_LEGACY
+
+	// For backwards compatibility with original rpc behavior.
+	default:
+		policyType = wtclientrpc.PolicyType_LEGACY
 	}
 
 	client, cleanUp := getWtclient(ctx)
 	defer cleanUp()
 
-	req := &wtclientrpc.PolicyRequest{}
-	resp, err := client.Policy(context.Background(), req)
+	req := &wtclientrpc.PolicyRequest{
+		PolicyType: policyType,
+	}
+	resp, err := client.Policy(ctxc, req)
 	if err != nil {
 		return err
 	}

@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"hash/crc32"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/Yawning/aez"
@@ -115,7 +114,7 @@ var (
 	// computing our checksum.
 	crcTable = crc32.MakeTable(crc32.Castagnoli)
 
-	// defaultPassphras is the default passphrase that will be used for
+	// defaultPassphrase is the default passphrase that will be used for
 	// encryption in the case that the user chooses not to specify their
 	// own passphrase.
 	defaultPassphrase = []byte("aezeed")
@@ -263,7 +262,7 @@ func encodeAD(version uint8, salt [saltSize]byte) [adSize]byte {
 }
 
 // extractAD extracts an associated data from a fully encoded and enciphered
-// cipher seed.  This is to be used when attempting to decrypt an enciphered
+// cipher seed. This is to be used when attempting to decrypt an enciphered
 // cipher seed.
 func extractAD(encipheredSeed [EncipheredCipherSeedSize]byte) [adSize]byte {
 	var ad [adSize]byte
@@ -506,8 +505,13 @@ func (m *Mnemonic) Decipher(pass []byte) ([DecipheredCipherSeedSize]byte, error)
 	// Before we attempt to map the mnemonic back to the original
 	// ciphertext, we'll ensure that all the word are actually a part of
 	// the current default word list.
+	wordDict := make(map[string]struct{}, len(defaultWordList))
+	for _, word := range defaultWordList {
+		wordDict[word] = struct{}{}
+	}
+
 	for i, word := range m {
-		if !strings.Contains(englishWordList, word) {
+		if _, ok := wordDict[word]; !ok {
 			emptySeed := [DecipheredCipherSeedSize]byte{}
 			return emptySeed, ErrUnknownMnenomicWord{
 				Word:  word,

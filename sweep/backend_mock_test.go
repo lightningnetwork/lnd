@@ -27,6 +27,7 @@ type mockBackend struct {
 	publishChan chan wire.MsgTx
 
 	walletUtxos []*lnwallet.Utxo
+	utxoCnt     int
 }
 
 func newMockBackend(t *testing.T, notifier *MockNotifier) *mockBackend {
@@ -86,8 +87,18 @@ func (b *mockBackend) PublishTransaction(tx *wire.MsgTx, _ string) error {
 	return err
 }
 
-func (b *mockBackend) ListUnspentWitness(minconfirms, maxconfirms int32) (
+func (b *mockBackend) ListUnspentWitnessFromDefaultAccount(minConfs, maxConfs int32) (
 	[]*lnwallet.Utxo, error) {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+
+	// Each time we list output, we increment the utxo counter, to
+	// ensure we don't return the same outpoint every time.
+	b.utxoCnt++
+
+	for i := range b.walletUtxos {
+		b.walletUtxos[i].OutPoint.Hash[0] = byte(b.utxoCnt)
+	}
 
 	return b.walletUtxos, nil
 }

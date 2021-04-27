@@ -4,7 +4,7 @@ import (
 	"bytes"
 
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
-	"github.com/lightningnetwork/lnd/lnwire"
+	lnwire "github.com/lightningnetwork/lnd/channeldb/migration/lnwire21"
 )
 
 var emptyFeatures = lnwire.NewFeatureVector(nil, nil)

@@ -5,6 +5,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
+	"github.com/stretchr/testify/require"
 )
 
 var validationTests = []struct {
@@ -90,4 +91,22 @@ func TestPolicyValidate(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPolicyIsAnchorChannel asserts that the IsAnchorChannel helper properly
+// reflects the anchor bit of the policy's blob type.
+func TestPolicyIsAnchorChannel(t *testing.T) {
+	policyNoAnchor := wtpolicy.Policy{
+		TxPolicy: wtpolicy.TxPolicy{
+			BlobType: blob.TypeAltruistCommit,
+		},
+	}
+	require.Equal(t, false, policyNoAnchor.IsAnchorChannel())
+
+	policyAnchor := wtpolicy.Policy{
+		TxPolicy: wtpolicy.TxPolicy{
+			BlobType: blob.TypeAltruistAnchorCommit,
+		},
+	}
+	require.Equal(t, true, policyAnchor.IsAnchorChannel())
 }

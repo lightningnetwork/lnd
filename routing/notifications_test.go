@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"bytes"
 	"fmt"
 	"image/color"
 	"net"
@@ -21,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/chainview"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -572,6 +574,9 @@ func TestNodeUpdateNotification(t *testing.T) {
 		t.Fatalf("unable to create test node: %v", err)
 	}
 
+	testFeaturesBuf := new(bytes.Buffer)
+	require.NoError(t, testFeatures.Encode(testFeaturesBuf))
+
 	edge := &channeldb.ChannelEdgeInfo{
 		ChannelID:     chanID.ToUint64(),
 		NodeKey1Bytes: node1.PubKeyBytes,
@@ -623,6 +628,14 @@ func TestNodeUpdateNotification(t *testing.T) {
 				"got %x", nodeKey.SerializeCompressed(),
 				nodeUpdate.IdentityKey.SerializeCompressed())
 		}
+
+		featuresBuf := new(bytes.Buffer)
+		require.NoError(t, nodeUpdate.Features.Encode(featuresBuf))
+
+		require.Equal(
+			t, testFeaturesBuf.Bytes(), featuresBuf.Bytes(),
+		)
+
 		if nodeUpdate.Alias != ann.Alias {
 			t.Fatalf("node alias doesn't match: expected %v, got %v",
 				ann.Alias, nodeUpdate.Alias)

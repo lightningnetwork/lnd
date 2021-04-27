@@ -80,12 +80,28 @@ const (
 	// result, we can only spend this after a CSV delay.
 	HtlcOfferedTimeoutSecondLevel StandardWitnessType = 5
 
+	// HtlcOfferedTimeoutSecondLevelInputConfirmed is a witness that allows
+	// us to sweep an HTLC output that we extended to a party, but was
+	// never fulfilled. This _is_ the HTLC output directly on our
+	// commitment transaction, and the input to the second-level HTLC
+	// tiemout transaction. It can only be spent after CLTV expiry, and
+	// commitment confirmation.
+	HtlcOfferedTimeoutSecondLevelInputConfirmed StandardWitnessType = 15
+
 	// HtlcAcceptedSuccessSecondLevel is a witness that allows us to sweep
 	// an HTLC output that was offered to us, and for which we have a
 	// payment preimage. This HTLC output isn't directly on our commitment
 	// transaction, but is the result of confirmed second-level HTLC
 	// transaction. As a result, we can only spend this after a CSV delay.
 	HtlcAcceptedSuccessSecondLevel StandardWitnessType = 6
+
+	// HtlcAcceptedSuccessSecondLevelInputConfirmed is a witness that
+	// allows us to sweep an HTLC output that was offered to us, and for
+	// which we have a payment preimage. This _is_ the HTLC output directly
+	// on our commitment transaction, and the input to the second-level
+	// HTLC success transaction.  It can only be spent after the commitment
+	// has confirmed.
+	HtlcAcceptedSuccessSecondLevelInputConfirmed StandardWitnessType = 16
 
 	// HtlcOfferedRemoteTimeout is a witness that allows us to sweep an
 	// HTLC that we offered to the remote party which lies in the
@@ -163,8 +179,14 @@ func (wt StandardWitnessType) String() string {
 	case HtlcOfferedTimeoutSecondLevel:
 		return "HtlcOfferedTimeoutSecondLevel"
 
+	case HtlcOfferedTimeoutSecondLevelInputConfirmed:
+		return "HtlcOfferedTimeoutSecondLevelInputConfirmed"
+
 	case HtlcAcceptedSuccessSecondLevel:
 		return "HtlcAcceptedSuccessSecondLevel"
+
+	case HtlcAcceptedSuccessSecondLevelInputConfirmed:
+		return "HtlcAcceptedSuccessSecondLevelInputConfirmed"
 
 	case HtlcOfferedRemoteTimeout:
 		return "HtlcOfferedRemoteTimeout"
@@ -375,11 +397,19 @@ func (wt StandardWitnessType) SizeUpperBound() (int, bool, error) {
 	case HtlcOfferedTimeoutSecondLevel:
 		return ToLocalTimeoutWitnessSize, false, nil
 
+	// Input to the outgoing HTLC second layer timeout transaction.
+	case HtlcOfferedTimeoutSecondLevelInputConfirmed:
+		return OfferedHtlcTimeoutWitnessSizeConfirmed, false, nil
+
 	// Incoming second layer HTLC's that have confirmed within the
 	// chain, and the output they produced is now mature enough to
 	// sweep.
 	case HtlcAcceptedSuccessSecondLevel:
 		return ToLocalTimeoutWitnessSize, false, nil
+
+	// Input to the incoming second-layer HTLC success transaction.
+	case HtlcAcceptedSuccessSecondLevelInputConfirmed:
+		return AcceptedHtlcSuccessWitnessSizeConfirmed, false, nil
 
 	// An HTLC on the commitment transaction of the remote party,
 	// that has had its absolute timelock expire.

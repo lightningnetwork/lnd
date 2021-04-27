@@ -24,12 +24,12 @@ services:
       container_name: lnd_ltc
       build:
         context: ../
-        dockerfile: docker/lnd/Dockerfile
+        dockerfile: dev.Dockerfile
       environment:
         - RPCUSER
         - RPCPASS
         - NETWORK
-        - CHAIN
+        - CHAIN=litecoin
         - DEBUG
       volumes:
         - shared:/rpc

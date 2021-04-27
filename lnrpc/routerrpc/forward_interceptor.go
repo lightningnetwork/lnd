@@ -164,6 +164,7 @@ func (r *forwardInterceptor) holdAndForwardToClient(
 		IncomingAmountMsat:      uint64(htlc.IncomingAmount),
 		IncomingExpiry:          htlc.IncomingExpiry,
 		CustomRecords:           htlc.CustomRecords,
+		OnionBlob:               htlc.OnionBlob[:],
 	}
 
 	return r.stream.Send(interceptionRequest)

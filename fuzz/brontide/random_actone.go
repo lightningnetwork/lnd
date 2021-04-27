@@ -11,7 +11,7 @@ import (
 func Fuzz_random_actone(data []byte) int {
 	// Check if data is large enough.
 	if len(data) < brontide.ActOneSize {
-		return -1
+		return 1
 	}
 
 	// This will return brontide machines with random keys.

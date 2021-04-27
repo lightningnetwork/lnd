@@ -21,7 +21,7 @@ var (
 	testAddr       = [32]byte{0x01, 0x02}
 	testShare      = [32]byte{0x03, 0x04}
 	testSetID      = [32]byte{0x05, 0x06}
-	testChildIndex = uint16(17)
+	testChildIndex = uint32(17)
 )
 
 var recordEncDecTests = []recordEncDecTest{

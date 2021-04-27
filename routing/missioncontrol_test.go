@@ -63,7 +63,9 @@ func createMcTestContext(t *testing.T) *mcTestContext {
 
 	ctx.dbPath = file.Name()
 
-	ctx.db, err = kvdb.Open(kvdb.BoltBackendName, ctx.dbPath, true)
+	ctx.db, err = kvdb.Open(
+		kvdb.BoltBackendName, ctx.dbPath, true, kvdb.DefaultDBTimeout,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,12 +78,13 @@ func createMcTestContext(t *testing.T) *mcTestContext {
 // restartMc creates a new instances of mission control on the same database.
 func (ctx *mcTestContext) restartMc() {
 	mc, err := NewMissionControl(
-		ctx.db,
+		ctx.db, mcTestSelf,
 		&MissionControlConfig{
-			PenaltyHalfLife:       testPenaltyHalfLife,
-			AprioriHopProbability: testAprioriHopProbability,
-			AprioriWeight:         testAprioriWeight,
-			SelfNode:              mcTestSelf,
+			ProbabilityEstimatorCfg: ProbabilityEstimatorCfg{
+				PenaltyHalfLife:       testPenaltyHalfLife,
+				AprioriHopProbability: testAprioriHopProbability,
+				AprioriWeight:         testAprioriWeight,
+			},
 		},
 	)
 	if err != nil {

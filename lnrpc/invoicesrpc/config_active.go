@@ -44,9 +44,13 @@ type Config struct {
 	// specified.
 	DefaultCLTVExpiry uint32
 
-	// ChanDB is a global boltdb instance which is needed to access the
+	// LocalChanDB is a global boltdb instance which is needed to access the
 	// channel graph.
-	ChanDB *channeldb.DB
+	LocalChanDB *channeldb.DB
+
+	// RemoteChanDB is a replicatd db instance which is the same as the
+	// localdb when running without remote db.
+	RemoteChanDB *channeldb.DB
 
 	// GenInvoiceFeatures returns a feature containing feature bits that
 	// should be advertised on freshly generated invoices.

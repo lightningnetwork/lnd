@@ -1,29 +1,27 @@
-### Table of Contents
-1. [Overview](#Overview)<br />
-2. [Minimum Recommended Skillset](#MinSkillset)<br />
-3. [Required Reading](#ReqReading)<br />
-4. [Development Practices](#DevelopmentPractices)<br />
-4.1. [Share Early, Share Often](#ShareEarly)<br />
-4.2. [Testing](#Testing)<br />
-4.3. [Code Documentation and Commenting](#CodeDocumentation)<br />
-4.4. [Model Git Commit Messages](#ModelGitCommitMessages)<br />
-4.5. [Ideal Git Commit Structure](#IdealGitCommitStructure)<br />
-4.6. [Code Spacing](#CodeSpacing)<br />
-4.7. [Protobuf Compilation](#Protobuf)<br />
-4.8. [Additional Style Constraints On Top of gofmt](ExtraGoFmtStyle)<br />
-4.9. [Pointing to Remote Dependant Branches in Go Modules](ModulesReplace)<br />
-4.10. [Use of Log Levels](#LogLevels)<br />
-5. [Code Approval Process](#CodeApproval)<br />
-5.1. [Code Review](#CodeReview)<br />
-5.2. [Rework Code (if needed)](#CodeRework)<br />
-5.3. [Acceptance](#CodeAcceptance)<br />
-6. [Contribution Standards](#Standards)<br />
-6.1. [Contribution Checklist](#Checklist)<br />
-6.2. [Licensing of Contributions](#Licensing)<br />
+# Table of Contents
+1. [Overview](#overview)
+2. [Minimum Recommended Skillset](#minimum-recommended-skillset)
+3. [Required Reading](#required-reading)
+4. [Development Practices](#development-practices)
+   1. [Share Early, Share Often](#share-early-share-often)
+   1. [Testing](#testing)
+   1. [Code Documentation and Commenting](#code-documentation-and-commenting)
+   1. [Model Git Commit Messages](#model-git-commit-messages)
+   1. [Ideal Git Commit Structure](#ideal-git-commit-structure)
+   1. [Code Spacing](#code-spacing)
+   1. [Protobuf Compilation](#protobuf-compilation)
+   1. [Additional Style Constraints On Top of gofmt](#additional-style-constraints-on-top-of-gofmt)
+   1. [Pointing to Remote Dependant Branches in Go Modules](#pointing-to-remote-dependant-branches-in-go-modules)
+   1. [Use of Log Levels](#use-of-log-levels)
+5. [Code Approval Process](#code-approval-process)
+   1. [Code Review](#code-review)
+   1. [Rework Code (if needed)](#rework-code-if-needed)
+   1. [Acceptance](#acceptance)
+6. [Contribution Standards](#contribution-standards)
+   1. [Contribution Checklist](#contribution-checklist)
+   1. [Licensing of Contributions](#licensing-of-contributions)
 
-<a name="Overview" />
-
-### 1. Overview
+# Overview
 
 Developing cryptocurrencies is an exciting endeavor that touches a wide variety
 of areas such as wire protocols, peer-to-peer networking, databases,
@@ -49,9 +47,7 @@ development process (heavily inspired by
 We highly encourage code contributions, however it is imperative that you adhere
 to the guidelines established on this page.
 
-<a name="MinSkillset" />
-
-### 2. Minimum Recommended Skillset
+# Minimum Recommended Skillset
 
 The following list is a set of core competencies that we recommend you possess
 before you really start attempting to contribute code to the project.  These are
@@ -63,7 +59,7 @@ of low hanging fruit which can be tackled without having full competency in the
 areas mentioned below. 
 
 - A reasonable understanding of bitcoin at a high level (see the
-  [Required Reading](#ReqReading) section for the original white paper)
+  [Required Reading](#required-reading) section for the original white paper)
 - A reasonable understanding of the Lightning Network at a high level
 - Experience in some type of C-like language
 - An understanding of data structures and their performance implications
@@ -78,9 +74,7 @@ if you wish to contribute to the cryptography code, you should have a good
 understanding of the various aspects involved with cryptography such as the
 security and performance implications.
 
-<a name="ReqReading" />
-
-### 3. Required Reading
+# Required Reading
 
 - [Effective Go](http://golang.org/doc/effective_go.html) - The entire `lnd` 
   project follows the guidelines in this document.  For your code to be accepted,
@@ -103,17 +97,13 @@ Once the specification is finalized, it will be the most up-to-date
 comprehensive document explaining the Lightning Network. As a result, it will
 be recommended for newcomers to read first in order to get up to speed. 
 
-<a name="DevelopmentPractices" />
-
-### 4. Development Practices
+# Development Practices
 
 Developers are expected to work in their own trees and submit pull requests when
 they feel their feature or bug fix is ready for integration into the  master
 branch.
 
-<a name="ShareEarly" />
-
-#### 4.1. Share Early, Share Often
+## Share Early, Share Often
 
 We firmly believe in the share early, share often approach.  The basic premise
 of the approach is to announce your plans **before** you start work, and once
@@ -132,9 +122,7 @@ This approach has several benefits:
 - The quicker your changes are merged to master, the less time you will need to
   spend rebasing and otherwise trying to keep up with the main code base
 
-<a name="Testing" />
-
-#### 4.2. Testing
+## Testing
 
 One of the major design goals of all of `lnd`'s packages and the daemon itself is
 to aim for a high degree of test coverage.  This is financial software so bugs
@@ -168,15 +156,13 @@ A quick summary of test practices follows:
   contained within `lnd`. For example integration tests, see
   [`lnd_test.go`](https://github.com/lightningnetwork/lnd/blob/master/lnd_test.go#L181). 
 - The itest log files are automatically scanned for `[ERR]` lines. There
-  shouldn't be any of those in the logs, see [Use of Log Levels](#LogLevels).
+  shouldn't be any of those in the logs, see [Use of Log Levels](#use-of-log-levels).
 
 Throughout the process of contributing to `lnd`, you'll likely also be
 extensively using the commands within our `Makefile`. As a result, we recommend
 [perusing the make file documentation](https://github.com/lightningnetwork/lnd/blob/master/docs/MAKEFILE.md).
 
-<a name="CodeDocumentation" />
-
-#### 4.3. Code Documentation and Commenting
+## Code Documentation and Commenting
 
 - At a minimum every function must be commented with its intended purpose and
   any assumptions that it makes
@@ -226,7 +212,7 @@ func DeriveRevocationPubkey(commitPubKey *btcec.PublicKey,
   obvious<br /><br />
 
 **WRONG**
-```Go
+```go
 // return err if amt is less than 546
 if amt < 546 {
 	return err
@@ -244,9 +230,7 @@ if amt < 546 {
 but it was left as a magic number to show how much of a difference a good
 comment can make.
 
-<a name="ModelGitCommitMessages" />
-
-#### 4.4. Model Git Commit Messages
+## Model Git Commit Messages
 
 This project prefers to keep a clean commit history with well-formed commit
 messages.  This section illustrates a model commit message and provides a bit
@@ -256,7 +240,7 @@ being provided here.
 
 Here’s a model Git commit message:
 
-```
+```text
 Short (50 chars or less) summary of changes
 
 More detailed explanatory text, if necessary.  Wrap it to about 72
@@ -300,9 +284,7 @@ either a '+' or a ','. This prefix seems minor but can be extremely helpful in
 determining the scope of a commit at a glance, or when bug hunting to find a
 commit which introduced a bug or regression. 
 
-<a name="IdealGitCommitStructure" />
-
-#### 4.5. Ideal Git Commit Structure
+## Ideal Git Commit Structure
 
 Within the project we prefer small, contained commits for a pull request over a
 single giant commit that touches several files/packages. Ideal commits build on
@@ -335,9 +317,7 @@ Examples of common patterns w.r.t commit structures within the project:
     induvidual commits that begin to intergrate the functionality within the
     codebase.
 
-<a name="CodeSpacing" />
-
-#### 4.6. Code Spacing 
+## Code Spacing 
 
 Blocks of code within `lnd` should be segmented into logical stanzas of
 operation. Such spacing makes the code easier to follow at a skim, and reduces
@@ -444,9 +424,7 @@ the comment body.
    }
 ```
 
-<a name="Protobuf" />
-
-#### 4.7. Protobuf Compilation
+## Protobuf Compilation
 
 The `lnd` project uses `protobuf`, and its extension [`gRPC`](www.grpc.io) in
 several areas and as the primary RPC interface. In order to ensure uniformity
@@ -464,9 +442,7 @@ otherwise the CI pipeline on Travis will fail:
 For detailed instructions on how to compile modifications to `lnd`'s `protobuf`
 definitions, check out the [lnrpc README](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/README.md).
 
-<a name="ExtraGoFmtStyle" />
-
-#### 4.8. Additional Style Constraints On Top of `gofmt`
+## Additional Style Constraints On Top of `gofmt`
 
 Before a PR is submitted, the proposer should ensure that the file passes the
 set of linting scripts run by `make lint`. These include `gofmt`. In addition
@@ -496,9 +472,7 @@ Note that the above guidelines don't apply to log messages. For log messages,
 committers should attempt to minimize the of number lines utilized, while still
 adhering to the 80-character column limit.
 
-<a name="ModulesReplace" />
-
-#### 4.9 Pointing to Remote Dependant Branches in Go Modules
+## Pointing to Remote Dependant Branches in Go Modules
 
 It's common that a developer may need to make a change in a dependent project
 of `lnd` such as `btcd`, `neutrino`, `btcwallet`, etc. In order to test changes
@@ -506,18 +480,16 @@ with out testing infrastructure, or simply make a PR into `lnd` that will build
 without any further work, the `go.mod` and `go.sum` files will need to be
 updated. Luckily, the `go mod` command has a handy tool to do this
 automatically so developers don't need to manually edit the `go.mod` file:
-```
- go mod edit -replace=IMPORT-PATH-IN-LND@LND-VERSION=DEV-FORK-IMPORT-PATH@DEV-FORK-VERSION
+```shell
+⛰  go mod edit -replace=IMPORT-PATH-IN-LND@LND-VERSION=DEV-FORK-IMPORT-PATH@DEV-FORK-VERSION
 ```
 
 Here's an example replacing the `lightning-onion` version checked into `lnd` with a version in roasbeef's fork:
-```
- go mod edit -replace=github.com/lightningnetwork/lightning-onion@v0.0.0-20180605012408-ac4d9da8f1d6=github.com/roasbeef/lightning-onion@2e5ae87696046298365ab43bcd1cf3a7a1d69695
+```shell
+⛰  go mod edit -replace=github.com/lightningnetwork/lightning-onion@v0.0.0-20180605012408-ac4d9da8f1d6=github.com/roasbeef/lightning-onion@2e5ae87696046298365ab43bcd1cf3a7a1d69695
 ```
 
-<a name="LogLevels" />
-
-#### 4.10 Use of Log Levels
+## Use of Log Levels
 
 There are six log levels available: `trace`, `debug`, `info`, `warn`, `error` and `critical`.
 
@@ -525,22 +497,18 @@ Only use `error` for internal errors that are never expected to happen during
 normal operation. No event triggered by external sources (rpc, chain backend,
 etc) should lead to an `error` log.
 
-<a name="CodeApproval" />
-
-### 5. Code Approval Process
+# Code Approval Process
 
 This section describes the code approval process that is used for code
 contributions.  This is how to get your changes into `lnd`.
 
-<a name="CodeReview" />
-
-#### 5.1. Code Review
+## Code Review
 
 All code which is submitted will need to be reviewed before inclusion into the
 master branch.  This process is performed by the project maintainers and usually
 other committers who are interested in the area you are working in as well.
 
-##### Code Review Timeframe
+### Code Review Timeframe
 
 The timeframe for a code review will vary greatly depending on factors such as
 the number of other pull requests which need to be reviewed, the size and
@@ -553,14 +521,15 @@ manageable, commits.
 
 Keeping the above in mind, most small changes will be reviewed within a few
 days, while large or far reaching changes may take weeks.  This is a good reason
-to stick with the [Share Early, Share Often](#ShareEarly) development practice
-outlined above.
+to stick with the [Share Early, Share Often](#share-early-share-often)
+development practice outlined above.
 
-##### What is the review looking for?
+### What is the review looking for?
 
-The review is mainly ensuring the code follows the [Development Practices](#DevelopmentPractices)
-and [Code Contribution Standards](#Standards).  However, there are a few other
-checks which are generally performed as follows:
+The review is mainly ensuring the code follows the
+[Development Practices](#development-practices) and
+[Code Contribution Standards](#contribution-standards). However, there are a few
+other checks which are generally performed as follows:
 
 - The code is stable and has no stability or security concerns
 - The code is properly using existing APIs and generally fits well into the
@@ -568,9 +537,7 @@ checks which are generally performed as follows:
 - The change is not something which is deemed inappropriate by community
   consensus
 
-<a name="CodeRework" />
-
-#### 5.2. Rework Code (if needed)
+## Rework Code (if needed)
 
 After the code review, the change will be accepted immediately if no issues are
 found.  If there are any concerns or questions, you will be provided with
@@ -588,9 +555,7 @@ can set it to auto squash the fix up commits on rebase.
 
 This process will continue until the code is finally accepted.
 
-<a name="CodeAcceptance" />
-
-#### 5.3. Acceptance
+## Acceptance
 
 Once your code is accepted, it will be integrated with the master branch. After
 2+ (sometimes 1) LGTM's (approvals) are given on a PR, it's eligible to land in
@@ -603,16 +568,13 @@ these signatures intact, we prefer using merge commits. PR proposers can use
 
 Rejoice as you will now be listed as a [contributor](https://github.com/lightningnetwork/lnd/graphs/contributors)!
 
-<a name="Standards" />
+# Contribution Standards
 
-### 6. Contribution Standards
-
-<a name="Checklist" />
-
-#### 6.1. Contribution Checklist
+## Contribution Checklist
 
 - [&nbsp;&nbsp;] All changes are Go version 1.12 compliant
-- [&nbsp;&nbsp;] The code being submitted is commented according to [Code Documentation and Commenting](#CodeDocumentation)
+- [&nbsp;&nbsp;] The code being submitted is commented according to
+  [Code Documentation and Commenting](#code-documentation-and-commenting)
 - [&nbsp;&nbsp;] For new code: Code is accompanied by tests which exercise both
   the positive and negative (error paths) conditions (if applicable)
 - [&nbsp;&nbsp;] For bug fixes: Code is accompanied by new tests which trigger
@@ -630,18 +592,17 @@ Rejoice as you will now be listed as a [contributor](https://github.com/lightnin
 - [&nbsp;&nbsp;] All commits build properly and pass tests. Only in exceptional
   cases it can be justifiable to violate this condition. In that case, the
   reason should be stated in the commit message.
-- [&nbsp;&nbsp;] Commits have a logical structure according to [Ideal Git Commit Structure](#IdealGitCommitStructure).
+- [&nbsp;&nbsp;] Commits have a logical structure according to
+  [Ideal Git Commit Structure](#ideal-git-commit-structure).
 
-<a name="Licensing" />
-
-#### 6.2. Licensing of Contributions
+## Licensing of Contributions
 ****
 All contributions must be licensed with the
 [MIT license](https://github.com/lightningnetwork/lnd/blob/master/LICENSE).  This is
 the same license as all of the code found within lnd.
 
 
-## Acknowledgements
+# Acknowledgements
 This document was heavily inspired by a [similar document outlining the code
 contribution](https://github.com/btcsuite/btcd/blob/master/docs/code_contribution_guidelines.md)
 guidelines for btcd. 

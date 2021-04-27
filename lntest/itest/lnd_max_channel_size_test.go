@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/btcsuite/btcutil"
-	"github.com/lightningnetwork/lnd"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lntest"
 )
 
@@ -49,7 +49,7 @@ func testMaxChannelSize(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to connect peers: %v", err)
 	}
 
-	chanAmt := lnd.MaxBtcFundingAmountWumbo + 1
+	chanAmt := funding.MaxBtcFundingAmountWumbo + 1
 	_, err = net.OpenChannel(
 		ctxb, wumboNode, wumboNode2, lntest.OpenChannelParams{
 			Amt: chanAmt,
@@ -97,7 +97,7 @@ func testMaxChannelSize(net *lntest.NetworkHarness, t *harnessTest) {
 	// to accept our wumbo channel funding.
 	wumboNode3, err := net.NewNode(
 		"wumbo3", []string{"--protocol.wumbo-channels",
-			fmt.Sprintf("--maxchansize=%v", int64(lnd.MaxBtcFundingAmountWumbo+1))},
+			fmt.Sprintf("--maxchansize=%v", int64(funding.MaxBtcFundingAmountWumbo+1))},
 	)
 	if err != nil {
 		t.Fatalf("unable to create new node: %v", err)

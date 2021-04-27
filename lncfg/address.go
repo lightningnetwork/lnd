@@ -48,11 +48,13 @@ func NormalizeAddresses(addrs []string, defaultPort string,
 }
 
 // EnforceSafeAuthentication enforces "safe" authentication taking into account
-// the interfaces that the RPC servers are listening on, and if macaroons are
-// activated or not. To protect users from using dangerous config combinations,
-// we'll prevent disabling authentication if the server is listening on a public
-// interface.
-func EnforceSafeAuthentication(addrs []net.Addr, macaroonsActive bool) error {
+// the interfaces that the RPC servers are listening on, and if macaroons and
+// TLS is activated or not. To protect users from using dangerous config
+// combinations, we'll prevent disabling authentication if the server is
+// listening on a public interface.
+func EnforceSafeAuthentication(addrs []net.Addr, macaroonsActive,
+	tlsActive bool) error {
+
 	// We'll now examine all addresses that this RPC server is listening
 	// on. If it's a localhost address or a private address, we'll skip it,
 	// otherwise, we'll return an error if macaroons are inactive.
@@ -62,10 +64,17 @@ func EnforceSafeAuthentication(addrs []net.Addr, macaroonsActive bool) error {
 		}
 
 		if !macaroonsActive {
-			return fmt.Errorf("Detected RPC server listening on "+
+			return fmt.Errorf("detected RPC server listening on "+
 				"publicly reachable interface %v with "+
 				"authentication disabled! Refusing to start "+
-				"with --no-macaroons specified.", addr)
+				"with --no-macaroons specified", addr)
+		}
+
+		if !tlsActive {
+			return fmt.Errorf("detected RPC server listening on "+
+				"publicly reachable interface %v with "+
+				"encryption disabled! Refusing to start "+
+				"with --no-rest-tls specified", addr)
 		}
 	}
 
@@ -110,6 +119,18 @@ func IsLoopback(addr string) bool {
 	}
 
 	return false
+}
+
+// isIPv6Host returns true if the host is IPV6 and false otherwise.
+func isIPv6Host(host string) bool {
+	v6Addr := net.ParseIP(host)
+	if v6Addr == nil {
+		return false
+	}
+
+	// The documentation states that if the IP address is an IPv6 address,
+	// then To4() will return nil.
+	return v6Addr.To4() == nil
 }
 
 // IsUnix returns true if an address describes an Unix socket address.
@@ -208,13 +229,31 @@ func ParseAddressString(strAddress string, defaultPort string,
 		}
 
 		// Otherwise, we'll attempt the resolve the host. The Tor
-		// resolver is unable to resolve local addresses, so we'll use
-		// the system resolver instead.
-		if rawHost == "" || IsLoopback(rawHost) {
+		// resolver is unable to resolve local or IPv6 addresses, so
+		// we'll use the system resolver instead.
+		if rawHost == "" || IsLoopback(rawHost) ||
+			isIPv6Host(rawHost) {
+
 			return net.ResolveTCPAddr("tcp", addrWithPort)
 		}
 
-		return tcpResolver("tcp", addrWithPort)
+		// If we've reached this point, then it's possible that this
+		// resolve returns an error if it isn't able to resolve the
+		// host. For eaxmple, local entries in /etc/hosts will fail to
+		// be resolved by Tor. In order to handle this case, we'll fall
+		// back to the normal system resolver if we fail with an
+		// identifiable error.
+		addr, err := tcpResolver("tcp", addrWithPort)
+		if err != nil {
+			torErrStr := "tor host is unreachable"
+			if strings.Contains(err.Error(), torErrStr) {
+				return net.ResolveTCPAddr("tcp", addrWithPort)
+			}
+
+			return nil, err
+		}
+
+		return addr, nil
 	}
 }
 

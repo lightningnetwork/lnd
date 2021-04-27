@@ -3,15 +3,29 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"context"
+	"encoding/hex"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
 
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/urfave/cli"
+)
+
+var (
+	statelessInitFlag = cli.BoolFlag{
+		Name: "stateless_init",
+		Usage: "do not create any macaroon files in the file " +
+			"system of the daemon",
+	}
+	saveToFlag = cli.StringFlag{
+		Name:  "save_to",
+		Usage: "save returned admin macaroon to this file",
+	}
 )
 
 var createCommand = cli.Command{
@@ -37,6 +51,14 @@ var createCommand = cli.Command{
 	to potentially recover all on-chain funds, and most off-chain funds as
 	well.
 
+	If the --stateless_init flag is set, no macaroon files are created by
+	the daemon. Instead, the binary serialized admin macaroon is returned
+	in the answer. This answer MUST be stored somewhere, otherwise all
+	access to the RPC server will be lost and the wallet must be recreated
+	to re-gain access.
+	If the --save_to parameter is set, the macaroon is saved to this file,
+	otherwise it is printed to standard out.
+
 	Finally, it's also possible to use this command and a set of static
 	channel backups to trigger a recover attempt for the provided Static
 	Channel Backups. Only one of the three parameters will be accepted. See
@@ -58,6 +80,8 @@ var createCommand = cli.Command{
 			Name:  "multi_file",
 			Usage: "the path to a multi-channel back up file",
 		},
+		statelessInitFlag,
+		saveToFlag,
 	},
 	Action: actionDecorator(create),
 }
@@ -90,7 +114,7 @@ func monowidthColumns(words []string, ncols int) []string {
 }
 
 func create(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxc := getContext()
 	client, cleanUp := getWalletUnlockerClient(ctx)
 	defer cleanUp()
 
@@ -171,7 +195,15 @@ func create(ctx *cli.Context) error {
 				}
 			}
 		}
+	}
 
+	// Should the daemon be initialized stateless? Then we expect an answer
+	// with the admin macaroon later. Because the --save_to is related to
+	// stateless init, it doesn't make sense to be set on its own.
+	statelessInit := ctx.Bool(statelessInitFlag.Name)
+	if !statelessInit && ctx.IsSet(saveToFlag.Name) {
+		return fmt.Errorf("cannot set save_to parameter without " +
+			"stateless_init")
 	}
 
 	walletPassword, err := capturePassword(
@@ -310,7 +342,7 @@ mnemonicCheck:
 		genSeedReq := &lnrpc.GenSeedRequest{
 			AezeedPassphrase: aezeedPass,
 		}
-		seedResp, err := client.GenSeed(ctxb, genSeedReq)
+		seedResp, err := client.GenSeed(ctxc, genSeedReq)
 		if err != nil {
 			return fmt.Errorf("unable to generate seed: %v", err)
 		}
@@ -349,12 +381,18 @@ mnemonicCheck:
 		AezeedPassphrase:   aezeedPass,
 		RecoveryWindow:     recoveryWindow,
 		ChannelBackups:     chanBackups,
+		StatelessInit:      statelessInit,
 	}
-	if _, err := client.InitWallet(ctxb, req); err != nil {
+	response, err := client.InitWallet(ctxc, req)
+	if err != nil {
 		return err
 	}
 
 	fmt.Println("\nlnd successfully initialized!")
+
+	if statelessInit {
+		return storeOrPrintAdminMac(ctx, response.AdminMacaroon)
+	}
 
 	return nil
 }
@@ -410,6 +448,12 @@ var unlockCommand = cli.Command{
 	start up. This command MUST be run after booting up lnd before it's
 	able to carry out its duties. An exception is if a user is running with
 	--noseedbackup, then a default passphrase will be used.
+
+	If the --stateless_init flag is set, no macaroon files are created by
+	the daemon. This should be set for every unlock if the daemon was
+	initially initialized stateless. Otherwise the daemon will create
+	unencrypted macaroon files which could leak information to the system
+	that the daemon runs on.
 	`,
 	Flags: []cli.Flag{
 		cli.IntFlag{
@@ -430,12 +474,13 @@ var unlockCommand = cli.Command{
 				"combination with some sort of password " +
 				"manager or secrets vault.",
 		},
+		statelessInitFlag,
 	},
 	Action: actionDecorator(unlock),
 }
 
 func unlock(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxc := getContext()
 	client, cleanUp := getWalletUnlockerClient(ctx)
 	defer cleanUp()
 
@@ -485,8 +530,9 @@ func unlock(ctx *cli.Context) error {
 	req := &lnrpc.UnlockWalletRequest{
 		WalletPassword: pw,
 		RecoveryWindow: recoveryWindow,
+		StatelessInit:  ctx.Bool(statelessInitFlag.Name),
 	}
-	_, err = client.UnlockWallet(ctxb, req)
+	_, err = client.UnlockWallet(ctxc, req)
 	if err != nil {
 		return err
 	}
@@ -511,12 +557,40 @@ var changePasswordCommand = cli.Command{
 	--noseedbackup), one must restart their daemon without
 	--noseedbackup and use this command. The "current password" field
 	should be left empty.
+
+	If the daemon was originally initialized stateless, then the
+	--stateless_init flag needs to be set for the change password request
+	as well! Otherwise the daemon will generate unencrypted macaroon files
+	in its file system again and possibly leak sensitive information.
+	Changing the password will by default not change the macaroon root key
+	(just re-encrypt the macaroon database with the new password). So all
+	macaroons will still be valid.
+	If one wants to make sure that all previously created macaroons are
+	invalidated, a new macaroon root key can be generated by using the
+	--new_mac_root_key flag.
+
+	After a successful password change with the --stateless_init flag set,
+	the current or new admin macaroon is returned binary serialized in the
+	answer. This answer MUST then be stored somewhere, otherwise
+	all access to the RPC server will be lost and the wallet must be re-
+	created to re-gain access. If the --save_to parameter is set, the
+	macaroon is saved to this file, otherwise it is printed to standard out.
 	`,
+	Flags: []cli.Flag{
+		statelessInitFlag,
+		saveToFlag,
+		cli.BoolFlag{
+			Name: "new_mac_root_key",
+			Usage: "rotate the macaroon root key resulting in " +
+				"all previously created macaroons to be " +
+				"invalidated",
+		},
+	},
 	Action: actionDecorator(changePassword),
 }
 
 func changePassword(ctx *cli.Context) error {
-	ctxb := context.Background()
+	ctxc := getContext()
 	client, cleanUp := getWalletUnlockerClient(ctx)
 	defer cleanUp()
 
@@ -539,15 +613,53 @@ func changePassword(ctx *cli.Context) error {
 		return fmt.Errorf("passwords don't match")
 	}
 
-	req := &lnrpc.ChangePasswordRequest{
-		CurrentPassword: currentPw,
-		NewPassword:     newPw,
+	// Should the daemon be initialized stateless? Then we expect an answer
+	// with the admin macaroon later. Because the --save_to is related to
+	// stateless init, it doesn't make sense to be set on its own.
+	statelessInit := ctx.Bool(statelessInitFlag.Name)
+	if !statelessInit && ctx.IsSet(saveToFlag.Name) {
+		return fmt.Errorf("cannot set save_to parameter without " +
+			"stateless_init")
 	}
 
-	_, err = client.ChangePassword(ctxb, req)
+	req := &lnrpc.ChangePasswordRequest{
+		CurrentPassword:    currentPw,
+		NewPassword:        newPw,
+		StatelessInit:      statelessInit,
+		NewMacaroonRootKey: ctx.Bool("new_mac_root_key"),
+	}
+
+	response, err := client.ChangePassword(ctxc, req)
 	if err != nil {
 		return err
 	}
 
+	if statelessInit {
+		return storeOrPrintAdminMac(ctx, response.AdminMacaroon)
+	}
+
+	return nil
+}
+
+// storeOrPrintAdminMac either stores the admin macaroon to a file specified or
+// prints it to standard out, depending on the user flags set.
+func storeOrPrintAdminMac(ctx *cli.Context, adminMac []byte) error {
+	// The user specified the optional --save_to parameter. We'll save the
+	// macaroon to that file.
+	if ctx.IsSet("save_to") {
+		macSavePath := lncfg.CleanAndExpandPath(ctx.String("save_to"))
+		err := ioutil.WriteFile(macSavePath, adminMac, 0644)
+		if err != nil {
+			_ = os.Remove(macSavePath)
+			return err
+		}
+		fmt.Printf("Admin macaroon saved to %s\n", macSavePath)
+		return nil
+	}
+
+	// Otherwise we just print it. The user MUST store this macaroon
+	// somewhere so we either save it to a provided file path or just print
+	// it to standard output.
+	fmt.Printf("Admin macaroon: %s\n", hex.EncodeToString(adminMac))
 	return nil
 }

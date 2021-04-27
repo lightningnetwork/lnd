@@ -208,8 +208,16 @@ http:
       body: "*"
     - selector: routerrpc.Router.QueryMissionControl
       get: "/v2/router/mc"
+    - selector: routerrpc.Router.GetMissionControlConfig
+      get: "/v2/router/mccfg"
+    - selector: routerroc.Router.SetMissionControlConfig
+      post: "/v2/router/mccfg"
+      body: "*"
     - selector: routerrpc.Router.QueryProbability
       get: "/v2/router/mc/probability/{from_node}/{to_node}/{amt_msat}"
+    - selector: routerrpc.Router.XImportMissionControl
+      post: "/v2/router/x/importhistory"
+      body: "*"
     - selector: routerrpc.Router.BuildRoute
       post: "/v2/router/route"
       body: "*"
@@ -221,6 +229,9 @@ http:
       # deprecated, no REST endpoint
     - selector: routerrpc.HtlcInterceptor
       # request streaming RPC, REST not supported
+    - selector: routerrpc.UpdateChanStatus
+      post: "/v2/router/updatechanstatus"
+      body: "*"
 
     # signrpc/signer.proto
     - selector: signrpc.Signer.SignOutputRaw
@@ -239,6 +250,10 @@ http:
       post: "/v2/signer/sharedkey"
       body: "*"
 
+    # stateservice.proto
+    - selector: lnrpc.State.SubscribeState
+      get: "/v1/state/subscribe"
+
     # verrpc/verrpc.proto
     - selector: verrpc.Versioner.GetVersion
       get: "/v2/versioner/version"
@@ -252,11 +267,16 @@ http:
     - selector: walletrpc.WalletKit.ReleaseOutput
       post: "/v2/wallet/utxos/release"
       body: "*"
+    - selector: walletrpc.WalletKit.ListLeases
+      post: "/v2/wallet/utxos/leases"
     - selector: walletrpc.WalletKit.DeriveNextKey
       post: "/v2/wallet/key/next"
       body: "*"
     - selector: walletrpc.WalletKit.DeriveKey
       post: "/v2/wallet/key"
+      body: "*"
+    - selector: walletrpc.WalletKit.ImportPublicKey
+      post: "/v2/wallet/key/import"
       body: "*"
     - selector: walletrpc.WalletKit.NextAddr
       post: "/v2/wallet/address/next"
@@ -278,6 +298,17 @@ http:
       get: "/v2/wallet/sweeps"
     - selector: walletrpc.WalletKit.LabelTransaction
       post: "/v2/wallet/tx/label"
+      body: "*"
+    - selector: walletrpc.WalletKit.FundPsbt
+      post: "/v2/wallet/psbt/fund"
+      body: "*"
+    - selector: walletrpc.WalletKit.FinalizePsbt
+      post: "/v2/wallet/psbt/finalize"
+      body: "*"
+    - selector: walletrpc.WalletKit.ListAccounts
+      get: "/v2/wallet/accounts"
+    - selector: walletrpc.WalletKit.ImportAccount
+      post: "/v2/wallet/accounts/import"
       body: "*"
 
     # watchtowerrpc/watchtower.proto

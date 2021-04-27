@@ -16,16 +16,22 @@ env:
   # go needs absolute directories, using the $HOME variable doesn't work here.
   GOCACHE: /home/runner/work/go/pkg/build
   GOPATH: /home/runner/work/go
-  DOWNLOAD_CACHE: /home/runner/work/download_cache
-  BITCOIN_VERSION: 0.19.1
-  GO_VERSION: 1.14.4
+  BITCOIN_VERSION: 0.20.1
+
+  # If you change this value, please change it in the following files as well:
+  # /.travis.yml
+  # /Dockerfile
+  # /dev.Dockerfile
+  # /make/builder.Dockerfile
+  # /.github/workflows/release.yml
+  GO_VERSION: 1.16.3
 
 jobs:
   ########################
-  # RPC compilation check
+  # RPC and mobile compilation check
   ########################
   rpc-check:
-    name: RPC compilation check
+    name: RPC and mobile compilation check
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
@@ -45,32 +51,28 @@ jobs:
       - name: setup go ${{ env.GO_VERSION }}
         uses: actions/setup-go@v2
         with:
-          go-version: '~${{ env.GO_VERSION }}'
-
-      - name: download cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/download_cache
-          key: lnd-${{ runner.os }}-download-${{ hashFiles('**/install_travis_proto.sh') }}
-          restore-keys: |
-            lnd-${{ runner.os }}-download-${{ hashFiles('**/install_travis_proto.sh') }}
-            lnd-${{ runner.os }}-download-
-
-      - name: install protoc and protobuf libraries
-        run: ./scripts/install_travis_proto.sh
+          go-version: '${{ env.GO_VERSION }}'
 
       - name: run check
         run: make rpc-check
+        
+      - name: build mobile RPC bindings
+        run: make mobile-rpc
+
+      - name: build mobile specific code
+        run: go build --tags="mobile" ./mobile
 
   ########################
-  # compile unit tests
+  # check commits
   ########################
-  unit-compile:
-    name: compile unit tests
+  check-commits:
+    name: check commits
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
         uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
 
       - name: go cache
         uses: actions/cache@v1
@@ -86,10 +88,18 @@ jobs:
       - name: setup go ${{ env.GO_VERSION }}
         uses: actions/setup-go@v2
         with:
-          go-version: '~${{ env.GO_VERSION }}'
+          go-version: '${{ env.GO_VERSION }}'
 
-      - name: compile
-        run: make unit pkg=... case=_NONE_
+      - name: fetch and rebase on master
+        run: |
+          git remote add upstream https://github.com/lightningnetwork/lnd
+          git fetch upstream
+          export GIT_COMMITTER_EMAIL="lnd-ci@example.com"
+          export GIT_COMMITTER_NAME="LND CI"
+          git rebase upstream/master
+
+      - name: check commits
+        run: scripts/check-each-commit.sh upstream/master
 
   ########################
   # lint code
@@ -118,7 +128,7 @@ jobs:
       - name: setup go ${{ env.GO_VERSION }}
         uses: actions/setup-go@v2
         with:
-          go-version: '~${{ env.GO_VERSION }}'
+          go-version: '${{ env.GO_VERSION }}'
 
       - name: lint
         run: make lint
@@ -129,12 +139,6 @@ jobs:
   cross-compile:
     name: cross compilation
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        build_sys:
-          - windows-amd64
-          - freebsd-amd64
-          - solaris-amd64
     steps:
       - name: git checkout
         uses: actions/checkout@v2
@@ -153,16 +157,16 @@ jobs:
       - name: setup go ${{ env.GO_VERSION }}
         uses: actions/setup-go@v2
         with:
-          go-version: '~${{ env.GO_VERSION }}'
+          go-version: '${{ env.GO_VERSION }}'
 
-      - name: build release for architecture
-        run: make release sys=${{ matrix.build_sys }}
+      - name: build release for all architectures
+        run: make release
 
   ########################
-  # mobile compilation
+  # sample configuration check
   ########################
-  mobile-compile:
-    name: mobile compilation
+  sample-conf-check:
+    name: sample configuration check
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
@@ -182,25 +186,10 @@ jobs:
       - name: setup go ${{ env.GO_VERSION }}
         uses: actions/setup-go@v2
         with:
-          go-version: '~${{ env.GO_VERSION }}'
+          go-version: '${{ env.GO_VERSION }}'
 
-      - name: download cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/download_cache
-          key: lnd-${{ runner.os }}-download-${{ hashFiles('**/install_travis_proto.sh') }}
-          restore-keys: |
-            lnd-${{ runner.os }}-download-${{ hashFiles('**/install_travis_proto.sh') }}
-            lnd-${{ runner.os }}-download-
-
-      - name: install protoc and protobuf libraries
-        run: ./scripts/install_travis_proto.sh
-
-      - name: build mobile RPC bindings
-        run: make mobile-rpc
-
-      - name: build mobile specific code
-        run: go build --tags="mobile" ./mobile
+      - name: check all command line flags exist in sample-lnd.conf file
+        run: make sample-conf-check
 
   ########################
   # run unit tests
@@ -234,15 +223,7 @@ jobs:
       - name: setup go ${{ env.GO_VERSION }}
         uses: actions/setup-go@v2
         with:
-          go-version: '~${{ env.GO_VERSION }}'
-
-      - name: bitcoin cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/bitcoin/bitcoin-${{ env.BITCOIN_VERSION }}/bin
-          key: lnd-${{ runner.os }}-bitcoin-${{ env.BITCOIN_VERSION }}
-          restore-keys: |
-            lnd-${{ runner.os }}-bitcoin-${{ env.BITCOIN_VERSION }}
+          go-version: '${{ env.GO_VERSION }}'
 
       - name: install bitcoind
         run: ./scripts/install_bitcoind.sh
@@ -256,3 +237,24 @@ jobs:
         with:
           path-to-profile: coverage.txt
           parallel: true
+
+  ########################
+  # check pinned dependencies
+  ########################
+  dep-pin:
+    name: check pinned dependencies
+    runs-on: ubuntu-latest
+    strategy:
+      # Allow other tests in the matrix to continue if one fails.
+      fail-fast: false
+      matrix:
+        pinned_dep:
+          - google.golang.org/grpc v1.24.0
+          - github.com/golang/protobuf v1.3.2
+
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v2
+
+      - name: ensure dependences at correct version
+        run:   if ! grep -q "${{ matrix.pinned_dep }}" go.mod; then echo dependency ${{ matrix.pinned_dep }} should not be altered ; exit 1 ; fi

@@ -1,10 +1,13 @@
 package routing
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcutil"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 // TestProbabilityExtrapolation tests that probabilities for tried channels are
@@ -86,6 +89,7 @@ type mppSendTestCase struct {
 	graph           func(g *mockGraph)
 	expectedFailure bool
 	maxParts        uint32
+	maxShardSize    btcutil.Amount
 }
 
 const (
@@ -205,6 +209,33 @@ var mppTestCases = []mppSendTestCase{
 		expectedFailure:  true,
 		maxParts:         10,
 	},
+
+	// Test that if maxShardSize is set, then all attempts are below the
+	// max shard size, yet still sum up to the total payment amount. A
+	// payment of 30k satoshis with a max shard size of 10k satoshis should
+	// produce 3 payments of 10k sats each.
+	{
+		name:             "max shard size clamping",
+		graph:            onePathGraph,
+		amt:              30_000,
+		expectedAttempts: 3,
+		expectedSuccesses: []expectedHtlcSuccess{
+			{
+				amt:   10_000,
+				chans: []uint64{chanSourceIm1, chanIm1Target},
+			},
+			{
+				amt:   10_000,
+				chans: []uint64{chanSourceIm1, chanIm1Target},
+			},
+			{
+				amt:   10_000,
+				chans: []uint64{chanSourceIm1, chanIm1Target},
+			},
+		},
+		maxParts:     1000,
+		maxShardSize: 10_000,
+	},
 }
 
 // TestMppSend tests that a payment can be completed using multiple shards.
@@ -225,6 +256,11 @@ func testMppSend(t *testing.T, testCase *mppSendTestCase) {
 	testCase.graph(g)
 
 	ctx.amt = lnwire.NewMSatFromSatoshis(testCase.amt)
+
+	if testCase.maxShardSize != 0 {
+		shardAmt := lnwire.NewMSatFromSatoshis(testCase.maxShardSize)
+		ctx.maxShardAmt = &shardAmt
+	}
 
 	attempts, err := ctx.testPayment(testCase.maxParts)
 	switch {
@@ -297,4 +333,47 @@ loop:
 		t.Fatalf("expected %v successful htlcs, but got %v",
 			expected, successCount)
 	}
+}
+
+// TestPaymentAddrOnlyNoSplit tests that if the dest of a payment only has the
+// payment addr feature bit set, then we won't attempt to split payments.
+func TestPaymentAddrOnlyNoSplit(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create the routing context, then create a simple two
+	// path graph where the sender has two paths to the destination.
+	ctx := newIntegratedRoutingContext(t)
+
+	// We'll have a basic graph with 2 mil sats of capacity, with 1 mil
+	// sats available on either end.
+	const chanSize = 2_000_000
+	twoPathGraph(ctx.graph, chanSize, chanSize)
+
+	payAddrOnlyFeatures := []lnwire.FeatureBit{
+		lnwire.TLVOnionPayloadOptional,
+		lnwire.PaymentAddrOptional,
+	}
+
+	// We'll make a payment of 1.5 mil satoshis our single chan sizes,
+	// which should cause a split attempt _if_ we had MPP bits activated.
+	// However, we only have the payment addr on, so we shouldn't split at
+	// all.
+	//
+	// We'll set a non-zero value for max parts as well, which should be
+	// ignored.
+	const maxParts = 5
+	ctx.amt = lnwire.NewMSatFromSatoshis(1_500_000)
+
+	attempts, err := ctx.testPayment(maxParts, payAddrOnlyFeatures...)
+	require.NotNil(
+		t,
+		err,
+		fmt.Sprintf("expected path finding to fail instead made "+
+			"attempts: %v", spew.Sdump(attempts)),
+	)
+
+	// The payment should have failed since we need to split in order to
+	// route a payment to the destination, but they don't actually support
+	// MPP.
+	require.Equal(t, err.Error(), errNoPathFound.Error())
 }

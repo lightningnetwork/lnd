@@ -7,6 +7,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
+	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/lightningnetwork/lnd/watchtower/wtserver"
 )
@@ -44,12 +45,12 @@ type DB interface {
 	ListTowers() ([]*wtdb.Tower, error)
 
 	// NextSessionKeyIndex reserves a new session key derivation index for a
-	// particular tower id. The index is reserved for that tower until
-	// CreateClientSession is invoked for that tower and index, at which
-	// point a new index for that tower can be reserved. Multiple calls to
-	// this method before CreateClientSession is invoked should return the
-	// same index.
-	NextSessionKeyIndex(wtdb.TowerID) (uint32, error)
+	// particular tower id and blob type. The index is reserved for that
+	// (tower, blob type) pair until CreateClientSession is invoked for that
+	// tower and index, at which point a new index for that tower can be
+	// reserved. Multiple calls to this method before CreateClientSession is
+	// invoked should return the same index.
+	NextSessionKeyIndex(wtdb.TowerID, blob.Type) (uint32, error)
 
 	// CreateClientSession saves a newly negotiated client session to the
 	// client's database. This enables the session to be used across

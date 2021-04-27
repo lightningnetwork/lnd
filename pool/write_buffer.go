@@ -13,7 +13,7 @@ const (
 	DefaultWriteBufferGCInterval = 15 * time.Second
 
 	// DefaultWriteBufferExpiryInterval is the default, minimum interval
-	// that must elapse before a Write will release a buffer.Write.  The
+	// that must elapse before a Write will release a buffer.Write. The
 	// maximum time before the buffer can be released is equal to the expiry
 	// interval plus the gc interval.
 	DefaultWriteBufferExpiryInterval = 30 * time.Second

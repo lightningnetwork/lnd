@@ -14,7 +14,7 @@ import (
 // are opened.
 const DefaultConfTarget = 3
 
-// Node node is an interface which represents n abstract vertex within the
+// Node is an interface which represents n abstract vertex within the
 // channel graph. All nodes should have at least a single edge to/from them
 // within the graph.
 //
@@ -36,22 +36,16 @@ type Node interface {
 	ForEachChannel(func(ChannelEdge) error) error
 }
 
-// Channel is a simple struct which contains relevant details of a particular
-// channel within the channel graph. The fields in this struct may be used a
-// signals for various AttachmentHeuristic implementations.
-type Channel struct {
+// LocalChannel is a simple struct which contains relevant details of a
+// particular channel the local node has. The fields in this struct may be used
+// as signals for various AttachmentHeuristic implementations.
+type LocalChannel struct {
 	// ChanID is the short channel ID for this channel as defined within
 	// BOLT-0007.
 	ChanID lnwire.ShortChannelID
 
-	// Capacity is the capacity of the channel expressed in satoshis.
-	Capacity btcutil.Amount
-
-	// FundedAmt is the amount the local node funded into the target
-	// channel.
-	//
-	// TODO(roasbeef): need this?
-	FundedAmt btcutil.Amount
+	// Balance is the local balance of the channel expressed in satoshis.
+	Balance btcutil.Amount
 
 	// Node is the peer that this channel has been established with.
 	Node NodeID
@@ -65,8 +59,12 @@ type Channel struct {
 // edge within the graph. The existence of this reference to the connected node
 // will allow callers to traverse the graph in an object-oriented manner.
 type ChannelEdge struct {
-	// Channel contains the attributes of this channel.
-	Channel
+	// ChanID is the short channel ID for this channel as defined within
+	// BOLT-0007.
+	ChanID lnwire.ShortChannelID
+
+	// Capacity is the capacity of the channel expressed in satoshis.
+	Capacity btcutil.Amount
 
 	// Peer is the peer that this channel creates an edge to in the channel
 	// graph.
@@ -120,7 +118,7 @@ type AttachmentDirective struct {
 // AttachmentHeuristic is one of the primary interfaces within this package.
 // Implementations of this interface will be used to implement a control system
 // which automatically regulates channels of a particular agent, attempting to
-// optimize channels opened/closed based on various heuristics.  The purpose of
+// optimize channels opened/closed based on various heuristics. The purpose of
 // the interface is to allow an auto-pilot agent to decide if it needs more
 // channels, and if so, which exact channels should be opened.
 type AttachmentHeuristic interface {
@@ -142,7 +140,7 @@ type AttachmentHeuristic interface {
 	//
 	// NOTE: A NodeID not found in the returned map is implicitly given a
 	// score of 0.
-	NodeScores(g ChannelGraph, chans []Channel,
+	NodeScores(g ChannelGraph, chans []LocalChannel,
 		chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
 		map[NodeID]*NodeScore, error)
 }
@@ -172,7 +170,7 @@ type NodeMetric interface {
 // scores.
 type ScoreSettable interface {
 	// SetNodeScores is used to set the internal map from NodeIDs to
-	// scores. The passed scores must be in the range [0, 1.0]. The fist
+	// scores. The passed scores must be in the range [0, 1.0]. The first
 	// parameter is the name of the targeted heuristic, to allow
 	// recursively target specific sub-heuristics. The returned boolean
 	// indicates whether the targeted heuristic was found.
@@ -217,14 +215,4 @@ type ChannelController interface {
 	//
 	// TODO(roasbeef): add force option?
 	CloseChannel(chanPoint *wire.OutPoint) error
-
-	// SpliceIn attempts to add additional funds to the target channel via
-	// a splice in mechanism. The new channel with an updated capacity
-	// should be returned.
-	SpliceIn(chanPoint *wire.OutPoint, amt btcutil.Amount) (*Channel, error)
-
-	// SpliceOut attempts to remove funds from an existing channels using a
-	// splice out mechanism. The removed funds from the channel should be
-	// returned to an output under the control of the backing wallet.
-	SpliceOut(chanPoint *wire.OutPoint, amt btcutil.Amount) (*Channel, error)
 }

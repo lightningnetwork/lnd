@@ -77,14 +77,16 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 			raw.Unset(lnwire.PaymentAddrRequired)
 			raw.Unset(lnwire.MPPOptional)
 			raw.Unset(lnwire.MPPRequired)
+			raw.Unset(lnwire.AMPOptional)
+			raw.Unset(lnwire.AMPRequired)
 		}
 		if cfg.NoStaticRemoteKey {
 			raw.Unset(lnwire.StaticRemoteKeyOptional)
 			raw.Unset(lnwire.StaticRemoteKeyRequired)
 		}
 		if cfg.NoAnchors {
-			raw.Unset(lnwire.AnchorsOptional)
-			raw.Unset(lnwire.AnchorsRequired)
+			raw.Unset(lnwire.AnchorsZeroFeeHtlcTxOptional)
+			raw.Unset(lnwire.AnchorsZeroFeeHtlcTxRequired)
 		}
 		if cfg.NoWumbo {
 			raw.Unset(lnwire.WumboChannelsOptional)

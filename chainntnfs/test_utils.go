@@ -24,6 +24,7 @@ import (
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightninglabs/neutrino"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 )
 
 var (
@@ -81,7 +82,7 @@ func WaitForMempoolTx(miner *rpctest.Harness, txid *chainhash.Hash) error {
 	trickle := time.After(2 * TrickleInterval)
 	for {
 		// Check for the harness' knowledge of the txid.
-		tx, err := miner.Node.GetRawTransaction(txid)
+		tx, err := miner.Client.GetRawTransaction(txid)
 		if err != nil {
 			jsonErr, ok := err.(*btcjson.RPCError)
 			if ok && jsonErr.Code == btcjson.ErrRPCNoTxInfo {
@@ -137,7 +138,7 @@ func CreateSpendableOutput(t *testing.T,
 	if err := WaitForMempoolTx(miner, txid); err != nil {
 		t.Fatalf("tx not relayed to miner: %v", err)
 	}
-	if _, err := miner.Node.Generate(1); err != nil {
+	if _, err := miner.Client.Generate(1); err != nil {
 		t.Fatalf("unable to generate single block: %v", err)
 	}
 
@@ -177,7 +178,7 @@ func NewMiner(t *testing.T, extraArgs []string, createChain bool,
 	trickle := fmt.Sprintf("--trickleinterval=%v", TrickleInterval)
 	extraArgs = append(extraArgs, trickle)
 
-	node, err := rpctest.New(NetParams, nil, extraArgs)
+	node, err := rpctest.New(NetParams, nil, extraArgs, "")
 	if err != nil {
 		t.Fatalf("unable to create backend node: %v", err)
 	}
@@ -232,10 +233,19 @@ func NewBitcoindBackend(t *testing.T, minerAddr string,
 	time.Sleep(time.Second)
 
 	host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
-	conn, err := chain.NewBitcoindConn(
-		NetParams, host, "weks", "weks", zmqBlockHost, zmqTxHost,
-		100*time.Millisecond,
-	)
+	conn, err := chain.NewBitcoindConn(&chain.BitcoindConfig{
+		ChainParams:     NetParams,
+		Host:            host,
+		User:            "weks",
+		Pass:            "weks",
+		ZMQBlockHost:    zmqBlockHost,
+		ZMQTxHost:       zmqTxHost,
+		ZMQReadDeadline: 5 * time.Second,
+		// Fields only required for pruned nodes, not needed for these
+		// tests.
+		Dialer:             nil,
+		PrunedModeMaxPeers: 0,
+	})
 	if err != nil {
 		bitcoind.Process.Kill()
 		bitcoind.Wait()
@@ -268,7 +278,9 @@ func NewNeutrinoBackend(t *testing.T, minerAddr string) (*neutrino.ChainService,
 	}
 
 	dbName := filepath.Join(spvDir, "neutrino.db")
-	spvDatabase, err := walletdb.Create("bdb", dbName, true)
+	spvDatabase, err := walletdb.Create(
+		"bdb", dbName, true, kvdb.DefaultDBTimeout,
+	)
 	if err != nil {
 		os.RemoveAll(spvDir)
 		t.Fatalf("unable to create walletdb: %v", err)

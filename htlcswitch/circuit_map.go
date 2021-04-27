@@ -63,6 +63,18 @@ type CircuitModifier interface {
 	DeleteCircuits(inKeys ...CircuitKey) error
 }
 
+// CircuitLookup is a common interface used to lookup information that is stored
+// in the circuit map.
+type CircuitLookup interface {
+	// LookupCircuit queries the circuit map for the circuit identified by
+	// inKey.
+	LookupCircuit(inKey CircuitKey) *PaymentCircuit
+
+	// LookupOpenCircuit queries the circuit map for a circuit identified
+	// by its outgoing circuit key.
+	LookupOpenCircuit(outKey CircuitKey) *PaymentCircuit
+}
+
 // CircuitFwdActions represents the forwarding decision made by the circuit
 // map, and is returned from CommitCircuits. The sequence of circuits provided
 // to CommitCircuits is split into three sub-sequences, allowing the caller to
@@ -87,6 +99,8 @@ type CircuitFwdActions struct {
 type CircuitMap interface {
 	CircuitModifier
 
+	CircuitLookup
+
 	// CommitCircuits attempts to add the given circuits to the circuit
 	// map. The list of circuits is split into three distinct
 	// sub-sequences, corresponding to adds, drops, and fails. Adds should
@@ -103,14 +117,6 @@ type CircuitMap interface {
 	// identified by `inKey` as closing in-memory, which prevents duplicate
 	// settles/fails from being accepted for the same circuit.
 	FailCircuit(inKey CircuitKey) (*PaymentCircuit, error)
-
-	// LookupCircuit queries the circuit map for the circuit identified by
-	// inKey.
-	LookupCircuit(inKey CircuitKey) *PaymentCircuit
-
-	// LookupOpenCircuit queries the circuit map for a circuit identified
-	// by its outgoing circuit key.
-	LookupOpenCircuit(outKey CircuitKey) *PaymentCircuit
 
 	// LookupByPaymentHash queries the circuit map and returns all open
 	// circuits that use the given payment hash.
@@ -221,7 +227,7 @@ func (cm *circuitMap) initBuckets() error {
 
 		_, err = tx.CreateTopLevelBucket(circuitAddKey)
 		return err
-	})
+	}, func() {})
 }
 
 // restoreMemState loads the contents of the half circuit and full circuit
@@ -234,8 +240,8 @@ func (cm *circuitMap) restoreMemState() error {
 	log.Infof("Restoring in-memory circuit state from disk")
 
 	var (
-		opened  = make(map[CircuitKey]*PaymentCircuit)
-		pending = make(map[CircuitKey]*PaymentCircuit)
+		opened  map[CircuitKey]*PaymentCircuit
+		pending map[CircuitKey]*PaymentCircuit
 	)
 
 	if err := kvdb.Update(cm.cfg.DB, func(tx kvdb.RwTx) error {
@@ -325,6 +331,9 @@ func (cm *circuitMap) restoreMemState() error {
 
 		return nil
 
+	}, func() {
+		opened = make(map[CircuitKey]*PaymentCircuit)
+		pending = make(map[CircuitKey]*PaymentCircuit)
 	}); err != nil {
 		return err
 	}
@@ -477,7 +486,7 @@ func (cm *circuitMap) TrimOpenCircuits(chanID lnwire.ShortChannelID,
 		}
 
 		return nil
-	})
+	}, func() {})
 }
 
 // LookupByHTLC looks up the payment circuit by the outgoing channel and HTLC
@@ -724,7 +733,7 @@ func (cm *circuitMap) OpenCircuits(keystones ...Keystone) error {
 		}
 
 		return nil
-	})
+	}, func() {})
 
 	if err != nil {
 		return err

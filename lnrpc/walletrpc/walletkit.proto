@@ -33,6 +33,11 @@ service WalletKit {
     rpc ReleaseOutput (ReleaseOutputRequest) returns (ReleaseOutputResponse);
 
     /*
+    ListLeases lists all currently locked utxos.
+    */
+    rpc ListLeases (ListLeasesRequest) returns (ListLeasesResponse);
+
+    /*
     DeriveNextKey attempts to derive the *next* key within the key family
     (account in BIP43) specified. This method should return the next external
     child within this branch.
@@ -49,6 +54,50 @@ service WalletKit {
     NextAddr returns the next unused address within the wallet.
     */
     rpc NextAddr (AddrRequest) returns (AddrResponse);
+
+    /*
+    ListAccounts retrieves all accounts belonging to the wallet by default. A
+    name and key scope filter can be provided to filter through all of the
+    wallet accounts and return only those matching.
+    */
+    rpc ListAccounts (ListAccountsRequest) returns (ListAccountsResponse);
+
+    /*
+    ImportAccount imports an account backed by an account extended public key.
+    The master key fingerprint denotes the fingerprint of the root key
+    corresponding to the account public key (also known as the key with
+    derivation path m/). This may be required by some hardware wallets for
+    proper identification and signing.
+
+    The address type can usually be inferred from the key's version, but may be
+    required for certain keys to map them into the proper scope.
+
+    For BIP-0044 keys, an address type must be specified as we intend to not
+    support importing BIP-0044 keys into the wallet using the legacy
+    pay-to-pubkey-hash (P2PKH) scheme. A nested witness address type will force
+    the standard BIP-0049 derivation scheme, while a witness address type will
+    force the standard BIP-0084 derivation scheme.
+
+    For BIP-0049 keys, an address type must also be specified to make a
+    distinction between the standard BIP-0049 address schema (nested witness
+    pubkeys everywhere) and our own BIP-0049Plus address schema (nested pubkeys
+    externally, witness pubkeys internally).
+
+    NOTE: Events (deposits/spends) for keys derived from an account will only be
+    detected by lnd if they happen after the import. Rescans to detect past
+    events will be supported later on.
+    */
+    rpc ImportAccount (ImportAccountRequest) returns (ImportAccountResponse);
+
+    /*
+    ImportPublicKey imports a public key as watch-only into the wallet.
+
+    NOTE: Events (deposits/spends) for a key will only be detected by lnd if
+    they happen after the import. Rescans to detect past events will be
+    supported later on.
+    */
+    rpc ImportPublicKey (ImportPublicKeyRequest)
+        returns (ImportPublicKeyResponse);
 
     /*
     PublishTransaction attempts to publish the passed transaction to the
@@ -128,6 +177,43 @@ service WalletKit {
     */
     rpc LabelTransaction (LabelTransactionRequest)
         returns (LabelTransactionResponse);
+
+    /*
+    FundPsbt creates a fully populated PSBT that contains enough inputs to fund
+    the outputs specified in the template. There are two ways of specifying a
+    template: Either by passing in a PSBT with at least one output declared or
+    by passing in a raw TxTemplate message.
+
+    If there are no inputs specified in the template, coin selection is
+    performed automatically. If the template does contain any inputs, it is
+    assumed that full coin selection happened externally and no additional
+    inputs are added. If the specified inputs aren't enough to fund the outputs
+    with the given fee rate, an error is returned.
+
+    After either selecting or verifying the inputs, all input UTXOs are locked
+    with an internal app ID.
+
+    NOTE: If this method returns without an error, it is the caller's
+    responsibility to either spend the locked UTXOs (by finalizing and then
+    publishing the transaction) or to unlock/release the locked UTXOs in case of
+    an error on the caller's side.
+    */
+    rpc FundPsbt (FundPsbtRequest) returns (FundPsbtResponse);
+
+    /*
+    FinalizePsbt expects a partial transaction with all inputs and outputs fully
+    declared and tries to sign all inputs that belong to the wallet. Lnd must be
+    the last signer of the transaction. That means, if there are any unsigned
+    non-witness inputs or inputs without UTXO information attached or inputs
+    without witness data that do not belong to lnd's wallet, this method will
+    fail. If no error is returned, the PSBT is ready to be extracted and the
+    final TX within to be broadcast.
+
+    NOTE: This method does NOT publish the transaction once finalized. It is the
+    caller's responsibility to either publish the transaction on success or
+    unlock/release any locked UTXOs in case of an error in this method.
+    */
+    rpc FinalizePsbt (FinalizePsbtRequest) returns (FinalizePsbtResponse);
 }
 
 message ListUnspentRequest {
@@ -136,6 +222,9 @@ message ListUnspentRequest {
 
     // The maximum number of confirmations to be included.
     int32 max_confs = 2;
+
+    // An optional filter to only include outputs belonging to an account.
+    string account = 3;
 }
 
 message ListUnspentResponse {
@@ -152,6 +241,10 @@ message LeaseOutputRequest {
 
     // The identifying outpoint of the output being leased.
     lnrpc.OutPoint outpoint = 2;
+
+    // The time in seconds before the lock expires. If set to zero, the default
+    // lock duration is used.
+    uint64 expiration_seconds = 3;
 }
 
 message LeaseOutputResponse {
@@ -188,13 +281,124 @@ message KeyReq {
 }
 
 message AddrRequest {
-    // No fields, as we always give out a p2wkh address.
+    /*
+    The name of the account to retrieve the next address of. If empty, the
+    default wallet account is used.
+    */
+    string account = 1;
 }
 message AddrResponse {
     /*
     The address encoded using a bech32 format.
     */
     string addr = 1;
+}
+
+enum AddressType {
+    UNKNOWN = 0;
+    WITNESS_PUBKEY_HASH = 1;
+    NESTED_WITNESS_PUBKEY_HASH = 2;
+    HYBRID_NESTED_WITNESS_PUBKEY_HASH = 3;
+}
+message Account {
+    // The name used to identify the account.
+    string name = 1;
+
+    /*
+    The type of addresses the account supports.
+    AddressType                       | External Branch | Internal Branch
+    ---------------------------------------------------------------------
+    WITNESS_PUBKEY_HASH               | P2WPKH          | P2WPKH
+    NESTED_WITNESS_PUBKEY_HASH        | NP2WPKH         | NP2WPKH
+    HYBRID_NESTED_WITNESS_PUBKEY_HASH | NP2WPKH         | P2WPKH
+    */
+    AddressType address_type = 2;
+
+    /*
+    The public key backing the account that all keys are derived from
+    represented as an extended key. This will always be empty for the default
+    imported account in which single public keys are imported into.
+    */
+    string extended_public_key = 3;
+
+    /*
+    The fingerprint of the root key from which the account public key was
+    derived from. This will always be zero for the default imported account in
+    which single public keys are imported into.
+    */
+    uint32 master_key_fingerprint = 4;
+
+    /*
+    The derivation path corresponding to the account public key. This will
+    always be empty for the default imported account in which single public keys
+    are imported into.
+    */
+    string derivation_path = 5;
+
+    /*
+    The number of keys derived from the external branch of the account public
+    key. This will always be zero for the default imported account in which
+    single public keys are imported into.
+    */
+    uint32 external_key_count = 6;
+
+    /*
+    The number of keys derived from the internal branch of the account public
+    key. This will always be zero for the default imported account in which
+    single public keys are imported into.
+    */
+    uint32 internal_key_count = 7;
+
+    // Whether the wallet stores private keys for the account.
+    bool watch_only = 8;
+}
+message ListAccountsRequest {
+    // An optional filter to only return accounts matching this name.
+    string name = 1;
+
+    // An optional filter to only return accounts matching this address type.
+    AddressType address_type = 2;
+}
+message ListAccountsResponse {
+    repeated Account accounts = 1;
+}
+
+message ImportAccountRequest {
+    // A name to identify the account with.
+    string name = 1;
+
+    /*
+    A public key that corresponds to a wallet account represented as an extended
+    key. It must conform to a derivation path of the form
+    m/purpose'/coin_type'/account'.
+    */
+    string extended_public_key = 2;
+
+    /*
+    The fingerprint of the root key (also known as the key with derivation path
+    m/) from which the account public key was derived from. This may be required
+    by some hardware wallets for proper identification and signing.
+    */
+    uint32 master_key_fingerprint = 3;
+
+    /*
+    An address type is only required when the extended account public key has a
+    legacy version (xpub, tpub, etc.), such that the wallet cannot detect what
+    address scheme it belongs to.
+    */
+    AddressType address_type = 4;
+}
+message ImportAccountResponse {
+}
+
+message ImportPublicKeyRequest {
+    // A compressed public key represented as raw bytes.
+    bytes public_key = 1;
+
+    // The type of address that will be generated from the public key.
+    AddressType address_type = 2;
+}
+message ImportPublicKeyResponse {
 }
 
 message Transaction {
@@ -233,6 +437,13 @@ message SendOutputsRequest {
 
     // An optional label for the transaction, limited to 500 characters.
     string label = 3;
+
+    // The minimum number of confirmations each one of your outputs used for
+    // the transaction must satisfy.
+    int32 min_confs = 4;
+
+    // Whether unconfirmed outputs should be used as inputs for the transaction.
+    bool spend_unconfirmed = 5;
 }
 message SendOutputsResponse {
     /*
@@ -356,11 +567,12 @@ message PendingSweep {
     uint32 amount_sat = 3;
 
     /*
-    The fee rate we'll use to sweep the output. The fee rate is only determined
-    once a sweeping transaction for the output is created, so it's possible for
-    this to be 0 before this.
+    Deprecated, use sat_per_vbyte.
+    The fee rate we'll use to sweep the output, expressed in sat/vbyte. The fee
+    rate is only determined once a sweeping transaction for the output is
+    created, so it's possible for this to be 0 before this.
     */
-    uint32 sat_per_byte = 4;
+    uint32 sat_per_byte = 4 [deprecated = true];
 
     // The number of broadcast attempts we've made to sweep the output.
     uint32 broadcast_attempts = 5;
@@ -374,8 +586,19 @@ message PendingSweep {
     // The requested confirmation target for this output.
     uint32 requested_conf_target = 8;
 
-    // The requested fee rate, expressed in sat/byte, for this output.
-    uint32 requested_sat_per_byte = 9;
+    // Deprecated, use requested_sat_per_vbyte.
+    // The requested fee rate, expressed in sat/vbyte, for this output.
+    uint32 requested_sat_per_byte = 9 [deprecated = true];
+
+    /*
+    The fee rate we'll use to sweep the output, expressed in sat/vbyte. The fee
+    rate is only determined once a sweeping transaction for the output is
+    created, so it's possible for this to be 0 before this.
+    */
+    uint64 sat_per_vbyte = 10;
+
+    // The requested fee rate, expressed in sat/vbyte, for this output.
+    uint64 requested_sat_per_vbyte = 11;
 
     /*
     Whether this input must be force-swept. This means that it is swept even
@@ -402,16 +625,23 @@ message BumpFeeRequest {
     uint32 target_conf = 2;
 
     /*
-    The fee rate, expressed in sat/byte, that should be used to spend the input
+    Deprecated, use sat_per_vbyte.
+    The fee rate, expressed in sat/vbyte, that should be used to spend the input
     with.
     */
-    uint32 sat_per_byte = 3;
+    uint32 sat_per_byte = 3 [deprecated = true];
 
     /*
     Whether this input must be force-swept. This means that it is swept even
     if it has a negative yield.
     */
     bool force = 4;
+
+    /*
+    The fee rate, expressed in sat/vbyte, that should be used to spend the input
+    with.
+    */
+    uint64 sat_per_vbyte = 5;
 }
 
 message BumpFeeResponse {
@@ -420,7 +650,8 @@ message BumpFeeResponse {
 message ListSweepsRequest {
     /*
     Retrieve the full sweep transaction details. If false, only the sweep txids
-    will be returned.
+    will be returned. Note that some sweeps that LND publishes will have been
+    replaced-by-fee, so will not be included in this output.
     */
     bool verbose = 1;
 }
@@ -453,4 +684,131 @@ message LabelTransactionRequest {
 }
 
 message LabelTransactionResponse {
+}
+
+message FundPsbtRequest {
+    oneof template {
+        /*
+        Use an existing PSBT packet as the template for the funded PSBT.
+
+        The packet must contain at least one non-dust output. If one or more
+        inputs are specified, no coin selection is performed. In that case every
+        input must be an UTXO known to the wallet that has not been locked
+        before. The sum of all inputs must be sufficiently greater than the sum
+        of all outputs to pay a miner fee with the specified fee rate. A change
+        output is added to the PSBT if necessary.
+        */
+        bytes psbt = 1;
+
+        /*
+        Use the outputs and optional inputs from this raw template.
+        */
+        TxTemplate raw = 2;
+    }
+
+    oneof fees {
+        /*
+        The target number of blocks that the transaction should be confirmed in.
+        */
+        uint32 target_conf = 3;
+
+        /*
+        The fee rate, expressed in sat/vbyte, that should be used to spend the
+        input with.
+        */
+        uint64 sat_per_vbyte = 4;
+    }
+
+    /*
+    The name of the account to fund the PSBT with. If empty, the default wallet
+    account is used.
+    */
+    string account = 5;
+
+    // The minimum number of confirmations each one of your outputs used for
+    // the transaction must satisfy.
+    int32 min_confs = 6;
+
+    // Whether unconfirmed outputs should be used as inputs for the transaction.
+    bool spend_unconfirmed = 7;
+}
+message FundPsbtResponse {
+    /*
+    The funded but not yet signed PSBT packet.
+    */
+    bytes funded_psbt = 1;
+
+    /*
+    The index of the added change output or -1 if no change was left over.
+    */
+    int32 change_output_index = 2;
+
+    /*
+    The list of lock leases that were acquired for the inputs in the funded PSBT
+    packet.
+    */
+    repeated UtxoLease locked_utxos = 3;
+}
+
+message TxTemplate {
+    /*
+    An optional list of inputs to use. Every input must be an UTXO known to the
+    wallet that has not been locked before. The sum of all inputs must be
+    sufficiently greater than the sum of all outputs to pay a miner fee with the
+    fee rate specified in the parent message.
+
+    If no inputs are specified, coin selection will be performed instead and
+    inputs of sufficient value will be added to the resulting PSBT.
+    */
+    repeated lnrpc.OutPoint inputs = 1;
+
+    /*
+    A map of all addresses and the amounts to send to in the funded PSBT.
+    */
+    map<string, uint64> outputs = 2;
+}
+
+message UtxoLease {
+    /*
+    A 32 byte random ID that identifies the lease.
+    */
+    bytes id = 1;
+
+    // The identifying outpoint of the output being leased.
+    lnrpc.OutPoint outpoint = 2;
+
+    /*
+    The absolute expiration of the output lease represented as a unix timestamp.
+    */
+    uint64 expiration = 3;
+}
+
+message FinalizePsbtRequest {
+    /*
+    A PSBT that should be signed and finalized. The PSBT must contain all
+    required inputs, outputs, UTXO data and partial signatures of all other
+    signers.
+    */
+    bytes funded_psbt = 1;
+
+    /*
+    The name of the account to finalize the PSBT with. If empty, the default
+    wallet account is used.
+    */
+    string account = 5;
+}
+message FinalizePsbtResponse {
+    // The fully signed and finalized transaction in PSBT format.
+    bytes signed_psbt = 1;
+
+    // The fully signed and finalized transaction in the raw wire format.
+    bytes raw_final_tx = 2;
+}
+
+message ListLeasesRequest {
+}
+
+message ListLeasesResponse {
+    // The list of currently leased utxos.
+    repeated UtxoLease locked_utxos = 1;
 }

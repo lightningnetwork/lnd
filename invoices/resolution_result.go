@@ -105,6 +105,13 @@ const (
 	// ResultMppInProgress is returned when we are busy receiving a mpp
 	// payment.
 	ResultMppInProgress
+
+	// ResultAmpError is returned when we receive invalid AMP parameters.
+	ResultAmpError
+
+	// ResultAmpReconstruction is returned when the derived child
+	// hash/preimage pairs were invalid for at least one HTLC in the set.
+	ResultAmpReconstruction
 )
 
 // String returns a string representation of the result.
@@ -162,8 +169,31 @@ func (f FailResolutionResult) FailureString() string {
 	case ResultMppInProgress:
 		return "mpp reception in progress"
 
+	case ResultAmpError:
+		return "invalid amp parameters"
+
+	case ResultAmpReconstruction:
+		return "amp reconstruction failed"
+
 	default:
 		return "unknown failure resolution result"
+	}
+}
+
+// IsSetFailure returns true if this failure should result in the entire HTLC
+// set being failed with the same result.
+func (f FailResolutionResult) IsSetFailure() bool {
+	switch f {
+	case
+		ResultAmpReconstruction,
+		ResultHtlcSetTotalTooLow,
+		ResultHtlcSetTotalMismatch,
+		ResultHtlcSetOverpayment:
+
+		return true
+
+	default:
+		return false
 	}
 }
 

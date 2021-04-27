@@ -30,7 +30,7 @@ func TestReplyChannelRangeUnsorted(t *testing.T) {
 			var req2 ReplyChannelRange
 			err = req2.Decode(bytes.NewReader(b.Bytes()), 0)
 			if _, ok := err.(ErrUnsortedSIDs); !ok {
-				t.Fatalf("expected ErrUnsortedSIDs, got: %T",
+				t.Fatalf("expected ErrUnsortedSIDs, got: %v",
 					err)
 			}
 		})
@@ -67,13 +67,12 @@ func TestReplyChannelRangeEmpty(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			req := ReplyChannelRange{
-				QueryChannelRange: QueryChannelRange{
-					FirstBlockHeight: 1,
-					NumBlocks:        2,
-				},
-				Complete:     1,
-				EncodingType: test.encType,
-				ShortChanIDs: nil,
+				FirstBlockHeight: 1,
+				NumBlocks:        2,
+				Complete:         1,
+				EncodingType:     test.encType,
+				ShortChanIDs:     nil,
+				ExtraData:        make([]byte, 0),
 			}
 
 			// First decode the hex string in the test case into a

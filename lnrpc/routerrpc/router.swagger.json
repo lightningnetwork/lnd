@@ -148,6 +148,29 @@
         ]
       }
     },
+    "/v2/router/mccfg": {
+      "get": {
+        "summary": "GetMissionControlConfig returns mission control's current config.",
+        "operationId": "GetMissionControlConfig",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/routerrpcGetMissionControlConfigResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "tags": [
+          "Router"
+        ]
+      }
+    },
     "/v2/router/route": {
       "post": {
         "summary": "BuildRoute builds a fully specified route based on a list of hop public\nkeys. It retrieves the relevant channel policies from the graph in order to\ncalculate the correct fees and time locks.",
@@ -338,6 +361,39 @@
           "Router"
         ]
       }
+    },
+    "/v2/router/x/importhistory": {
+      "post": {
+        "summary": "XImportMissionControl is an experimental API that imports the state provided\nto the internal mission control's state, using all results which are more\nrecent than our existing values. These values will only be imported\nin-memory, and will not be persisted across restarts.",
+        "operationId": "XImportMissionControl",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/routerrpcXImportMissionControlResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/routerrpcXImportMissionControlRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Router"
+        ]
+      }
     }
   },
   "definitions": {
@@ -368,6 +424,7 @@
         "PERMANENT_CHANNEL_FAILURE",
         "EXPIRY_TOO_FAR",
         "MPP_TIMEOUT",
+        "INVALID_ONION_PAYLOAD",
         "INTERNAL_FAILURE",
         "UNKNOWN_FAILURE",
         "UNREADABLE_FAILURE"
@@ -383,6 +440,42 @@
         "FAILED"
       ],
       "default": "IN_FLIGHT"
+    },
+    "lnrpcAMPRecord": {
+      "type": "object",
+      "properties": {
+        "root_share": {
+          "type": "string",
+          "format": "byte"
+        },
+        "set_id": {
+          "type": "string",
+          "format": "byte"
+        },
+        "child_index": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "lnrpcChannelPoint": {
+      "type": "object",
+      "properties": {
+        "funding_txid_bytes": {
+          "type": "string",
+          "format": "byte",
+          "description": "Txid of the funding transaction. When using REST, this field must be\nencoded as base64."
+        },
+        "funding_txid_str": {
+          "type": "string",
+          "description": "Hex-encoded string representing the byte-reversed hash of the funding\ntransaction."
+        },
+        "output_index": {
+          "type": "integer",
+          "format": "int64",
+          "title": "The index of the output of the funding transaction"
+        }
+      }
     },
     "lnrpcChannelUpdate": {
       "type": "object",
@@ -511,13 +604,24 @@
         "PAYMENT_ADDR_REQ",
         "PAYMENT_ADDR_OPT",
         "MPP_REQ",
-        "MPP_OPT"
+        "MPP_OPT",
+        "WUMBO_CHANNELS_REQ",
+        "WUMBO_CHANNELS_OPT",
+        "ANCHORS_REQ",
+        "ANCHORS_OPT",
+        "ANCHORS_ZERO_FEE_HTLC_REQ",
+        "ANCHORS_ZERO_FEE_HTLC_OPT"
       ],
       "default": "DATALOSS_PROTECT_REQ"
     },
     "lnrpcHTLCAttempt": {
       "type": "object",
       "properties": {
+        "attempt_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unique ID that is used for this attempt."
+        },
         "status": {
           "$ref": "#/definitions/HTLCAttemptHTLCStatus",
           "description": "The status of the HTLC."
@@ -590,7 +694,11 @@
         },
         "mpp_record": {
           "$ref": "#/definitions/lnrpcMPPRecord",
-          "description": "An optional TLV record that signals the use of an MPP payment. If present,\nthe receiver will enforce that that the same mpp_record is included in the\nfinal hop payload of all non-zero payments in the HTLC set. If empty, a\nregular single-shot payment is or was attempted."
+          "description": "An optional TLV record that signals the use of an MPP payment. If present,\nthe receiver will enforce that the same mpp_record is included in the final\nhop payload of all non-zero payments in the HTLC set. If empty, a regular\nsingle-shot payment is or was attempted."
+        },
+        "amp_record": {
+          "$ref": "#/definitions/lnrpcAMPRecord",
+          "description": "An optional TLV record that signals the use of an AMP payment. If present,\nthe receiver will treat all received payments including the same\n(payment_addr, set_id) pair  as being part of one logical payment. The\npayment will be settled by XORing the root_share's together and deriving the\nchild hashes and preimages according to BOLT XX. Must be used in conjunction\nwith mpp_record."
         },
         "custom_records": {
           "type": "object",
@@ -832,6 +940,11 @@
             "format": "byte"
           },
           "description": "A list of hops that defines the route. This does not include the source hop\npubkey."
+        },
+        "payment_addr": {
+          "type": "string",
+          "format": "byte",
+          "description": "An optional payment addr to be included within the last hop of the route."
         }
       }
     },
@@ -843,6 +956,15 @@
           "description": "Fully specified route that can be used to execute the payment."
         }
       }
+    },
+    "routerrpcChanStatusAction": {
+      "type": "string",
+      "enum": [
+        "ENABLE",
+        "DISABLE",
+        "AUTO"
+      ],
+      "default": "ENABLE"
     },
     "routerrpcCircuitKey": {
       "type": "object",
@@ -944,6 +1066,20 @@
             "format": "byte"
           },
           "description": "Any custom records that were present in the payload."
+        },
+        "onion_blob": {
+          "type": "string",
+          "format": "byte",
+          "title": "The onion blob for the next hop"
+        }
+      }
+    },
+    "routerrpcGetMissionControlConfigResponse": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "$ref": "#/definitions/routerrpcMissionControlConfig",
+          "description": "Mission control's currently active config."
         }
       }
     },
@@ -1047,6 +1183,36 @@
         "failure_string": {
           "type": "string",
           "description": "A string representation of the link failure."
+        }
+      }
+    },
+    "routerrpcMissionControlConfig": {
+      "type": "object",
+      "properties": {
+        "half_life_seconds": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount of time mission control will take to restore a penalized node\nor channel back to 50% success probability, expressed in seconds. Setting\nthis value to a higher value will penalize failures for longer, making\nmission control less likely to route through nodes and channels that we\nhave previously recorded failures for."
+        },
+        "hop_probability": {
+          "type": "number",
+          "format": "float",
+          "description": "The probability of success mission control should assign to hop in a route\nwhere it has no other information available. Higher values will make mission\ncontrol more willing to try hops that we have no information about, lower\nvalues will discourage trying these hops."
+        },
+        "weight": {
+          "type": "number",
+          "format": "float",
+          "description": "The importance that mission control should place on historical results,\nexpressed as a value in [0;1]. Setting this value to 1 will ignore all\nhistorical payments and just use the hop probability to assess the\nprobability of success for each hop. A zero value ignores hop probability\ncompletely and relies entirely on historical results, unless none are\navailable."
+        },
+        "maximum_payment_results": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The maximum number of payment results that mission control will store."
+        },
+        "minimum_failure_relax_interval": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The minimum time that must have passed since the previously recorded failure\nbefore we raise the failure amount."
         }
       }
     },
@@ -1239,6 +1405,11 @@
           "format": "int32",
           "description": "The CLTV delta from the current height that should be used to set the\ntimelock for the final hop."
         },
+        "payment_addr": {
+          "type": "string",
+          "format": "byte",
+          "description": "An optional payment addr to be included within the last hop of the route."
+        },
         "payment_request": {
           "type": "string",
           "description": "A bare-bones invoice for a payment within the Lightning Network.  With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient. The amount in the payment request may be zero. In\nthat case it is required to set the amt field as well. If no payment request\nis specified, the following fields are required: dest, amt and payment_hash."
@@ -1317,6 +1488,11 @@
           "type": "boolean",
           "format": "boolean",
           "description": "If set, only the final payment update is streamed back. Intermediate updates\nthat show which htlcs are still in flight are suppressed."
+        },
+        "max_shard_size_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The largest payment split that should be attempted when making a payment if\nsplitting is necessary. Setting this value will effectively cause lnd to\nsplit more aggressively, vs only when it thinks it needs to. Note that this\nvalue is in milli-satoshis."
         }
       }
     },
@@ -1348,7 +1524,28 @@
         }
       }
     },
+    "routerrpcSetMissionControlConfigResponse": {
+      "type": "object"
+    },
     "routerrpcSettleEvent": {
+      "type": "object"
+    },
+    "routerrpcUpdateChanStatusResponse": {
+      "type": "object"
+    },
+    "routerrpcXImportMissionControlRequest": {
+      "type": "object",
+      "properties": {
+        "pairs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/routerrpcPairHistory"
+          },
+          "description": "Node pair-level mission control state to be imported."
+        }
+      }
+    },
+    "routerrpcXImportMissionControlResponse": {
       "type": "object"
     },
     "runtimeError": {

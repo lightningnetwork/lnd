@@ -36,7 +36,7 @@ func harness(data []byte, emptyMsg wtwire.Message) int {
 	payloadLen := uint32(len(data)) - 2
 	if payloadLen > emptyMsg.MaxPayloadLength(0) {
 		// Ignore this input - max payload constraint violated.
-		return -1
+		return 1
 	}
 
 	msg, err := wtwire.ReadMessage(r, 0)
@@ -44,7 +44,7 @@ func harness(data []byte, emptyMsg wtwire.Message) int {
 		// go-fuzz generated []byte that cannot be represented as a
 		// wire message but we will return 0 so go-fuzz can modify the
 		// input.
-		return 0
+		return 1
 	}
 
 	// We will serialize the message into a new bytes buffer.

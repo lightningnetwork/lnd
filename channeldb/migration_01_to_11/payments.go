@@ -12,8 +12,8 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+	lnwire "github.com/lightningnetwork/lnd/channeldb/migration/lnwire21"
 	"github.com/lightningnetwork/lnd/lntypes"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -303,6 +303,8 @@ func (db *DB) FetchPayments() ([]*Payment, error) {
 				return nil
 			})
 		})
+	}, func() {
+		payments = nil
 	})
 	if err != nil {
 		return nil, err

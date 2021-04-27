@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
@@ -23,7 +24,11 @@ type ManagerCfg struct {
 
 	// ChannelState is a function closure that returns the current set of
 	// channels managed by this node.
-	ChannelState func() ([]Channel, error)
+	ChannelState func() ([]LocalChannel, error)
+
+	// ChannelInfo is a function closure that returns the channel managed
+	// by the node given by the passed channel point.
+	ChannelInfo func(wire.OutPoint) (*LocalChannel, error)
 
 	// SubscribeTransactions is used to get a subscription for transactions
 	// relevant to this node's wallet.
@@ -37,7 +42,7 @@ type ManagerCfg struct {
 // Manager is struct that manages an autopilot agent, making it possible to
 // enable and disable it at will, and hand it relevant external information.
 // It implements the autopilot grpc service, which is used to get data about
-// the running autopilot, and give it relevant information.
+// the running autopilot, and gives it relevant information.
 type Manager struct {
 	started sync.Once
 	stopped sync.Once
@@ -194,18 +199,16 @@ func (m *Manager) StartAgent() error {
 					// opened, then we'll convert it to the
 					// autopilot.Channel format, and notify
 					// the pilot of the new channel.
-					chanNode := NewNodeID(
-						edgeUpdate.ConnectingNode,
-					)
-					chanID := lnwire.NewShortChanIDFromInt(
-						edgeUpdate.ChanID,
-					)
-					edge := Channel{
-						ChanID:   chanID,
-						Capacity: edgeUpdate.Capacity,
-						Node:     chanNode,
+					cp := edgeUpdate.ChanPoint
+					edge, err := m.cfg.ChannelInfo(cp)
+					if err != nil {
+						log.Errorf("Unable to fetch "+
+							"channel info for %v: "+
+							"%v", cp, err)
+						continue
 					}
-					pilot.OnChannelOpen(edge)
+
+					pilot.OnChannelOpen(*edge)
 				}
 
 				// For each closed channel, we'll obtain
@@ -219,9 +222,9 @@ func (m *Manager) StartAgent() error {
 					pilot.OnChannelClose(chanID)
 				}
 
-				// If new nodes were added to the graph, or nod
-				// information has changed, we'll poke autopilot
-				// to see if it can make use of them.
+				// If new nodes were added to the graph, or
+				// node information has changed, we'll poke
+				// autopilot to see if it can make use of them.
 				if len(topChange.NodeUpdates) > 0 {
 					pilot.OnNodeUpdates()
 				}
@@ -292,7 +295,7 @@ func (m *Manager) queryHeuristics(nodes map[NodeID]struct{}, localState bool) (
 	// If we want to take the local state into action when querying the
 	// heuristics, we fetch it. If not we'll just pass an emply slice to
 	// the heuristic.
-	var totalChans []Channel
+	var totalChans []LocalChannel
 	var err error
 	if localState {
 		// Fetch the current set of channels.

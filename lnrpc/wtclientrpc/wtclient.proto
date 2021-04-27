@@ -87,10 +87,17 @@ message TowerSession {
     uint32 max_backups = 3;
 
     /*
+    Deprecated, use sweep_sat_per_vbyte.
     The fee rate, in satoshis per vbyte, that will be used by the watchtower for
     the justice transaction in the event of a channel breach.
     */
-    uint32 sweep_sat_per_byte = 4;
+    uint32 sweep_sat_per_byte = 4 [deprecated = true];
+
+    /*
+    The fee rate, in satoshis per vbyte, that will be used by the watchtower for
+    the justice transaction in the event of a channel breach.
+    */
+    uint32 sweep_sat_per_vbyte = 5;
 }
 
 message Tower {
@@ -149,7 +156,19 @@ message StatsResponse {
     uint32 num_sessions_exhausted = 5;
 }
 
+enum PolicyType {
+    // Selects the policy from the legacy tower client.
+    LEGACY = 0;
+
+    // Selects the policy from the anchor tower client.
+    ANCHOR = 1;
+}
+
 message PolicyRequest {
+    /*
+    The client type from which to retrieve the active offering policy.
+    */
+    PolicyType policy_type = 1;
 }
 
 message PolicyResponse {
@@ -160,8 +179,15 @@ message PolicyResponse {
     uint32 max_updates = 1;
 
     /*
+    Deprecated, use sweep_sat_per_vbyte.
     The fee rate, in satoshis per vbyte, that will be used by watchtowers for
     justice transactions in response to channel breaches.
     */
-    uint32 sweep_sat_per_byte = 2;
+    uint32 sweep_sat_per_byte = 2 [deprecated = true];
+
+    /*
+    The fee rate, in satoshis per vbyte, that will be used by watchtowers for
+    justice transactions in response to channel breaches.
+    */
+    uint32 sweep_sat_per_vbyte = 3;
 }

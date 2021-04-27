@@ -57,9 +57,11 @@ func makeFakeInfo() (*PaymentCreationInfo, *HTLCAttemptInfo) {
 	var preimg lntypes.Preimage
 	copy(preimg[:], rev[:])
 
+	hash := preimg.Hash()
+
 	c := &PaymentCreationInfo{
-		PaymentHash: preimg.Hash(),
-		Value:       1000,
+		PaymentIdentifier: hash,
+		Value:             1000,
 		// Use single second precision to avoid false positive test
 		// failures due to the monotonic time component.
 		CreationTime:   time.Unix(time.Now().Unix(), 0),
@@ -71,6 +73,7 @@ func makeFakeInfo() (*PaymentCreationInfo, *HTLCAttemptInfo) {
 		SessionKey:  priv,
 		Route:       testRoute,
 		AttemptTime: time.Unix(100, 0),
+		Hash:        &hash,
 	}
 	return c, a
 }
@@ -430,7 +433,7 @@ func TestQueryPayments(t *testing.T) {
 				}
 
 				// Create a new payment entry in the database.
-				err = pControl.InitPayment(info.PaymentHash, info)
+				err = pControl.InitPayment(info.PaymentIdentifier, info)
 				if err != nil {
 					t.Fatalf("unable to initialize "+
 						"payment in database: %v", err)
@@ -439,11 +442,11 @@ func TestQueryPayments(t *testing.T) {
 				// Immediately delete the payment with index 2.
 				if i == 1 {
 					pmt, err := pControl.FetchPayment(
-						info.PaymentHash,
+						info.PaymentIdentifier,
 					)
 					require.NoError(t, err)
 
-					deletePayment(t, db, info.PaymentHash,
+					deletePayment(t, db, info.PaymentIdentifier,
 						pmt.SequenceNum)
 				}
 
@@ -453,13 +456,13 @@ func TestQueryPayments(t *testing.T) {
 				// duplicate payments will always be succeeded.
 				if i == (nonDuplicatePayments - 1) {
 					pmt, err := pControl.FetchPayment(
-						info.PaymentHash,
+						info.PaymentIdentifier,
 					)
 					require.NoError(t, err)
 
 					appendDuplicatePayment(
 						t, pControl.db,
-						info.PaymentHash,
+						info.PaymentIdentifier,
 						pmt.SequenceNum+1,
 						preimg,
 					)
@@ -526,12 +529,12 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create a new payment entry in the database.
-	err = pControl.InitPayment(noDuplicates.PaymentHash, noDuplicates)
+	err = pControl.InitPayment(noDuplicates.PaymentIdentifier, noDuplicates)
 	require.NoError(t, err)
 
 	// Fetch the payment so we can get its sequence nr.
 	noDuplicatesPayment, err := pControl.FetchPayment(
-		noDuplicates.PaymentHash,
+		noDuplicates.PaymentIdentifier,
 	)
 	require.NoError(t, err)
 
@@ -540,12 +543,12 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create a new payment entry in the database.
-	err = pControl.InitPayment(hasDuplicates.PaymentHash, hasDuplicates)
+	err = pControl.InitPayment(hasDuplicates.PaymentIdentifier, hasDuplicates)
 	require.NoError(t, err)
 
 	// Fetch the payment so we can get its sequence nr.
 	hasDuplicatesPayment, err := pControl.FetchPayment(
-		hasDuplicates.PaymentHash,
+		hasDuplicates.PaymentIdentifier,
 	)
 	require.NoError(t, err)
 
@@ -558,10 +561,10 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 
 	// Add two duplicates to our second payment.
 	appendDuplicatePayment(
-		t, db, hasDuplicates.PaymentHash, duplicateOneSeqNr, preimg,
+		t, db, hasDuplicates.PaymentIdentifier, duplicateOneSeqNr, preimg,
 	)
 	appendDuplicatePayment(
-		t, db, hasDuplicates.PaymentHash, duplicateTwoSeqNr, preimg,
+		t, db, hasDuplicates.PaymentIdentifier, duplicateTwoSeqNr, preimg,
 	)
 
 	tests := []struct {
@@ -572,37 +575,37 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 	}{
 		{
 			name:           "lookup payment without duplicates",
-			paymentHash:    noDuplicates.PaymentHash,
+			paymentHash:    noDuplicates.PaymentIdentifier,
 			sequenceNumber: noDuplicatesPayment.SequenceNum,
 			expectedErr:    nil,
 		},
 		{
 			name:           "lookup payment with duplicates",
-			paymentHash:    hasDuplicates.PaymentHash,
+			paymentHash:    hasDuplicates.PaymentIdentifier,
 			sequenceNumber: hasDuplicatesPayment.SequenceNum,
 			expectedErr:    nil,
 		},
 		{
 			name:           "lookup first duplicate",
-			paymentHash:    hasDuplicates.PaymentHash,
+			paymentHash:    hasDuplicates.PaymentIdentifier,
 			sequenceNumber: duplicateOneSeqNr,
 			expectedErr:    nil,
 		},
 		{
 			name:           "lookup second duplicate",
-			paymentHash:    hasDuplicates.PaymentHash,
+			paymentHash:    hasDuplicates.PaymentIdentifier,
 			sequenceNumber: duplicateTwoSeqNr,
 			expectedErr:    nil,
 		},
 		{
 			name:           "lookup non-existent duplicate",
-			paymentHash:    hasDuplicates.PaymentHash,
+			paymentHash:    hasDuplicates.PaymentIdentifier,
 			sequenceNumber: 999999,
 			expectedErr:    ErrDuplicateNotFound,
 		},
 		{
 			name:           "lookup duplicate, no duplicates bucket",
-			paymentHash:    noDuplicates.PaymentHash,
+			paymentHash:    noDuplicates.PaymentIdentifier,
 			sequenceNumber: duplicateTwoSeqNr,
 			expectedErr:    ErrNoDuplicateBucket,
 		},

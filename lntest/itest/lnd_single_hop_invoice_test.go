@@ -63,8 +63,9 @@ func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// With the invoice for Bob added, send a payment towards Alice paying
 	// to the above generated invoice.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	resp := sendAndAssertSuccess(
-		t, net.Alice,
+		ctxt, t, net.Alice,
 		&routerrpc.SendPaymentRequest{
 			PaymentRequest: invoiceResp.PaymentRequest,
 			TimeoutSeconds: 60,
@@ -115,8 +116,9 @@ func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Next send another payment, but this time using a zpay32 encoded
 	// invoice rather than manually specifying the payment details.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	sendAndAssertSuccess(
-		t, net.Alice,
+		ctxt, t, net.Alice,
 		&routerrpc.SendPaymentRequest{
 			PaymentRequest: invoiceResp.PaymentRequest,
 			TimeoutSeconds: 60,
@@ -138,8 +140,9 @@ func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 	keySendPreimage := lntypes.Preimage{3, 4, 5, 11}
 	keySendHash := keySendPreimage.Hash()
 
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	sendAndAssertSuccess(
-		t, net.Alice,
+		ctxt, t, net.Alice,
 		&routerrpc.SendPaymentRequest{
 			Dest:           net.Bob.PubKey[:],
 			Amt:            paymentAmt,

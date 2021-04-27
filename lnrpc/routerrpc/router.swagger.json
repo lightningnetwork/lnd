@@ -610,7 +610,9 @@
         "ANCHORS_REQ",
         "ANCHORS_OPT",
         "ANCHORS_ZERO_FEE_HTLC_REQ",
-        "ANCHORS_ZERO_FEE_HTLC_OPT"
+        "ANCHORS_ZERO_FEE_HTLC_OPT",
+        "AMP_REQ",
+        "AMP_OPT"
       ],
       "default": "DATALOSS_PROTECT_REQ"
     },
@@ -1493,6 +1495,11 @@
           "type": "string",
           "format": "uint64",
           "description": "The largest payment split that should be attempted when making a payment if\nsplitting is necessary. Setting this value will effectively cause lnd to\nsplit more aggressively, vs only when it thinks it needs to. Note that this\nvalue is in milli-satoshis."
+        },
+        "amp": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "If set, an AMP-payment will be attempted."
         }
       }
     },

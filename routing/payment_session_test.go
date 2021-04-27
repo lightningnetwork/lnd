@@ -23,6 +23,11 @@ func TestRequestRoute(t *testing.T) {
 		FeeLimit:       1000,
 	}
 
+	var paymentHash [32]byte
+	if err := payment.SetPaymentHash(paymentHash); err != nil {
+		t.Fatal(err)
+	}
+
 	session, err := newPaymentSession(
 		payment,
 		func() (map[uint64]lnwire.MilliSatoshi,

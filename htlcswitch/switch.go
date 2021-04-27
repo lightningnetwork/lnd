@@ -363,12 +363,15 @@ func (s *Switch) ProcessContractResolution(msg contractcourt.ResolutionMsg) erro
 }
 
 // GetPaymentResult returns the the result of the payment attempt with the
-// given paymentID. The method returns a channel where the payment result will
-// be sent when available, or an error is encountered during forwarding. When a
-// result is received on the channel, the HTLC is guaranteed to no longer be in
-// flight. The switch shutting down is signaled by closing the channel. If the
-// paymentID is unknown, ErrPaymentIDNotFound will be returned.
-func (s *Switch) GetPaymentResult(paymentID uint64, paymentHash lntypes.Hash,
+// given attemptID. The paymentHash should be set to the payment's overall
+// hash, or in case of AMP payments the payment's unique identifier.
+//
+// The method returns a channel where the payment result will be sent when
+// available, or an error is encountered during forwarding. When a result is
+// received on the channel, the HTLC is guaranteed to no longer be in flight.
+// The switch shutting down is signaled by closing the channel. If the
+// attemptID is unknown, ErrPaymentIDNotFound will be returned.
+func (s *Switch) GetPaymentResult(attemptID uint64, paymentHash lntypes.Hash,
 	deobfuscator ErrorDecrypter) (<-chan *PaymentResult, error) {
 
 	var (
@@ -376,7 +379,7 @@ func (s *Switch) GetPaymentResult(paymentID uint64, paymentHash lntypes.Hash,
 		err    error
 		outKey = CircuitKey{
 			ChanID: hop.Source,
-			HtlcID: paymentID,
+			HtlcID: attemptID,
 		}
 	)
 
@@ -384,7 +387,7 @@ func (s *Switch) GetPaymentResult(paymentID uint64, paymentHash lntypes.Hash,
 	// result is already available.
 	// Assumption: no one will add this payment ID other than the caller.
 	if s.circuits.LookupCircuit(outKey) == nil {
-		res, err := s.networkResults.getResult(paymentID)
+		res, err := s.networkResults.getResult(attemptID)
 		if err != nil {
 			return nil, err
 		}
@@ -394,7 +397,7 @@ func (s *Switch) GetPaymentResult(paymentID uint64, paymentHash lntypes.Hash,
 	} else {
 		// The payment was committed to the circuits, subscribe for a
 		// result.
-		nChan, err = s.networkResults.subscribeResult(paymentID)
+		nChan, err = s.networkResults.subscribeResult(attemptID)
 		if err != nil {
 			return nil, err
 		}
@@ -420,12 +423,12 @@ func (s *Switch) GetPaymentResult(paymentID uint64, paymentHash lntypes.Hash,
 			return
 		}
 
-		log.Debugf("Received network result %T for paymentID=%v", n.msg,
-			paymentID)
+		log.Debugf("Received network result %T for attemptID=%v", n.msg,
+			attemptID)
 
 		// Extract the result and pass it to the result channel.
 		result, err := s.extractResult(
-			deobfuscator, n, paymentID, paymentHash,
+			deobfuscator, n, attemptID, paymentHash,
 		)
 		if err != nil {
 			e := fmt.Errorf("unable to extract result: %v", err)
@@ -450,10 +453,10 @@ func (s *Switch) CleanStore(keepPids map[uint64]struct{}) error {
 }
 
 // SendHTLC is used by other subsystems which aren't belong to htlc switch
-// package in order to send the htlc update. The paymentID used MUST be unique
+// package in order to send the htlc update. The attemptID used MUST be unique
 // for this HTLC, and MUST be used only once, otherwise the switch might reject
 // it.
-func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
+func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 	htlc *lnwire.UpdateAddHTLC) error {
 
 	// Generate and send new update packet, if error will be received on
@@ -461,7 +464,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 	// system and something wrong happened.
 	packet := &htlcPacket{
 		incomingChanID: hop.Source,
-		incomingHTLCID: paymentID,
+		incomingHTLCID: attemptID,
 		outgoingChanID: firstHop,
 		htlc:           htlc,
 	}
@@ -794,7 +797,7 @@ func (s *Switch) getLocalLink(pkt *htlcPacket, htlc *lnwire.UpdateAddHTLC) (
 func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 	defer s.wg.Done()
 
-	paymentID := pkt.incomingHTLCID
+	attemptID := pkt.incomingHTLCID
 
 	// The error reason will be unencypted in case this a local
 	// failure or a converted error.
@@ -807,9 +810,9 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 
 	// Store the result to the db. This will also notify subscribers about
 	// the result.
-	if err := s.networkResults.storeResult(paymentID, n); err != nil {
+	if err := s.networkResults.storeResult(attemptID, n); err != nil {
 		log.Errorf("Unable to complete payment for pid=%v: %v",
-			paymentID, err)
+			attemptID, err)
 		return
 	}
 
@@ -857,7 +860,7 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 // extractResult uses the given deobfuscator to extract the payment result from
 // the given network message.
 func (s *Switch) extractResult(deobfuscator ErrorDecrypter, n *networkResult,
-	paymentID uint64, paymentHash lntypes.Hash) (*PaymentResult, error) {
+	attemptID uint64, paymentHash lntypes.Hash) (*PaymentResult, error) {
 
 	switch htlc := n.msg.(type) {
 
@@ -872,7 +875,7 @@ func (s *Switch) extractResult(deobfuscator ErrorDecrypter, n *networkResult,
 	// user payment and return fail response.
 	case *lnwire.UpdateFailHTLC:
 		paymentErr := s.parseFailedPayment(
-			deobfuscator, paymentID, paymentHash, n.unencrypted,
+			deobfuscator, attemptID, paymentHash, n.unencrypted,
 			n.isResolution, htlc,
 		)
 
@@ -894,7 +897,7 @@ func (s *Switch) extractResult(deobfuscator ErrorDecrypter, n *networkResult,
 // 3) A failure from the remote party, which will need to be decrypted using
 //    the payment deobfuscator.
 func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
-	paymentID uint64, paymentHash lntypes.Hash, unencrypted,
+	attemptID uint64, paymentHash lntypes.Hash, unencrypted,
 	isResolution bool, htlc *lnwire.UpdateFailHTLC) error {
 
 	switch {
@@ -918,7 +921,7 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 
 			log.Errorf("%v: (hash=%v, pid=%d): %v",
 				linkError.FailureDetail.FailureString(),
-				paymentHash, paymentID, err)
+				paymentHash, attemptID, err)
 
 			return linkError
 		}
@@ -938,7 +941,7 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 
 		log.Infof("%v: hash=%v, pid=%d",
 			linkError.FailureDetail.FailureString(),
-			paymentHash, paymentID)
+			paymentHash, attemptID)
 
 		return linkError
 
@@ -951,7 +954,7 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 		if err != nil {
 			log.Errorf("unable to de-obfuscate onion failure "+
 				"(hash=%v, pid=%d): %v",
-				paymentHash, paymentID, err)
+				paymentHash, attemptID, err)
 
 			return ErrUnreadableFailureMessage
 		}

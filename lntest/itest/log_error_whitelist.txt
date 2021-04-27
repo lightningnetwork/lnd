@@ -36,16 +36,16 @@
 <time> [ERR] CRTR: Failed sending attempt <number> for payment <hex> to switch: insufficient bandwidth to route htlc
 <time> [ERR] CRTR: Failed sending attempt <number> for payment <hex> to switch: UnknownNextPeer
 <time> [ERR] CRTR: out of order block: expecting height=<height>, got height=<height>
-<time> [ERR] CRTR: Payment with hash <hex> failed: error
-<time> [ERR] CRTR: Payment with hash <hex> failed: incorrect_payment_details
-<time> [ERR] CRTR: Payment with hash <hex> failed: insufficient_balance
-<time> [ERR] CRTR: Payment with hash <hex> failed: no_route
-<time> [ERR] CRTR: Payment with hash <hex> failed: router shutting down
-<time> [ERR] CRTR: Payment with hash <hex> failed: timeout
-<time> [ERR] CRTR: Resuming payment with hash <hex> failed: error.
-<time> [ERR] CRTR: Resuming payment with hash <hex> failed: incorrect_payment_details.
-<time> [ERR] CRTR: Resuming payment with hash <hex> failed: no_route.
-<time> [ERR] CRTR: Resuming payment with hash <hex> failed: router shutting down.
+<time> [ERR] CRTR: Payment <hex> failed: error
+<time> [ERR] CRTR: Payment <hex> failed: incorrect_payment_details
+<time> [ERR] CRTR: Payment <hex> failed: insufficient_balance
+<time> [ERR] CRTR: Payment <hex> failed: no_route
+<time> [ERR] CRTR: Payment <hex> failed: router shutting down
+<time> [ERR] CRTR: Payment <hex> failed: timeout
+<time> [ERR] CRTR: Resuming payment <hex> failed: error.
+<time> [ERR] CRTR: Resuming payment <hex> failed: incorrect_payment_details.
+<time> [ERR] CRTR: Resuming payment <hex> failed: no_route.
+<time> [ERR] CRTR: Resuming payment <hex> failed: router shutting down.
 <time> [ERR] CRTR: unable to add channel: edge not found
 <time> [ERR] CRTR: Unable to retrieve channel by id: edge not found
 <time> [ERR] DISC: channel  announcement proof for short_chan_id=<cid> isn't valid: can't verify first bitcoin signature

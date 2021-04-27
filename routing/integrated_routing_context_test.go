@@ -152,6 +152,11 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32,
 		MaxParts:       maxParts,
 	}
 
+	var paymentHash [32]byte
+	if err := payment.SetPaymentHash(paymentHash); err != nil {
+		return nil, err
+	}
+
 	if c.maxShardAmt != nil {
 		payment.MaxShardAmt = c.maxShardAmt
 	}

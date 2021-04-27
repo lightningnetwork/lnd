@@ -216,8 +216,9 @@ func (ps PaymentStatus) String() string {
 // PaymentCreationInfo is the information necessary to have ready when
 // initiating a payment, moving it into state InFlight.
 type PaymentCreationInfo struct {
-	// PaymentHash is the hash this payment is paying to.
-	PaymentHash lntypes.Hash
+	// PaymentIdentifier is the hash this payment is paying to in case of
+	// non-AMP payments, and the SetID for AMP payments.
+	PaymentIdentifier lntypes.Hash
 
 	// Value is the amount we are paying.
 	Value lnwire.MilliSatoshi
@@ -856,7 +857,7 @@ func fetchSequenceNumbers(paymentBucket kvdb.RBucket) ([][]byte, error) {
 func serializePaymentCreationInfo(w io.Writer, c *PaymentCreationInfo) error {
 	var scratch [8]byte
 
-	if _, err := w.Write(c.PaymentHash[:]); err != nil {
+	if _, err := w.Write(c.PaymentIdentifier[:]); err != nil {
 		return err
 	}
 
@@ -886,7 +887,7 @@ func deserializePaymentCreationInfo(r io.Reader) (*PaymentCreationInfo, error) {
 
 	c := &PaymentCreationInfo{}
 
-	if _, err := io.ReadFull(r, c.PaymentHash[:]); err != nil {
+	if _, err := io.ReadFull(r, c.PaymentIdentifier[:]); err != nil {
 		return nil, err
 	}
 
@@ -926,7 +927,20 @@ func serializeHTLCAttemptInfo(w io.Writer, a *HTLCAttemptInfo) error {
 		return err
 	}
 
-	return serializeTime(w, a.AttemptTime)
+	if err := serializeTime(w, a.AttemptTime); err != nil {
+		return err
+	}
+
+	// If the hash is nil we can just return.
+	if a.Hash == nil {
+		return nil
+	}
+
+	if _, err := w.Write(a.Hash[:]); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func deserializeHTLCAttemptInfo(r io.Reader) (*HTLCAttemptInfo, error) {
@@ -935,6 +949,7 @@ func deserializeHTLCAttemptInfo(r io.Reader) (*HTLCAttemptInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	a.Route, err = DeserializeRoute(r)
 	if err != nil {
 		return nil, err
@@ -944,6 +959,24 @@ func deserializeHTLCAttemptInfo(r io.Reader) (*HTLCAttemptInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	hash := lntypes.Hash{}
+	_, err = io.ReadFull(r, hash[:])
+
+	switch {
+
+	// Older payment attempts wouldn't have the hash set, in which case we
+	// can just return.
+	case err == io.EOF, err == io.ErrUnexpectedEOF:
+		return a, nil
+
+	case err != nil:
+		return nil, err
+
+	default:
+	}
+
+	a.Hash = &hash
 
 	return a, nil
 }

@@ -68,8 +68,9 @@ func testSendMultiPathPayment(net *lntest.NetworkHarness, t *harnessTest) {
 	rHash := rHashes[0]
 	payReq := payReqs[0]
 
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	payment := sendAndAssertSuccess(
-		t, net.Alice,
+		ctxt, t, net.Alice,
 		&routerrpc.SendPaymentRequest{
 			PaymentRequest: payReq,
 			MaxParts:       10,
@@ -105,7 +106,7 @@ func testSendMultiPathPayment(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Make sure Bob show the invoice as settled for the full
 	// amount.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	inv, err := ctx.bob.LookupInvoice(
 		ctxt, &lnrpc.PaymentHash{
 			RHash: rHash,

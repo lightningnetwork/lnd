@@ -452,6 +452,12 @@ func (m *mockControlTower) FetchPayment(phash lntypes.Hash) (
 	m.Lock()
 	defer m.Unlock()
 
+	return m.fetchPayment(phash)
+}
+
+func (m *mockControlTower) fetchPayment(phash lntypes.Hash) (
+	*channeldb.MPPayment, error) {
+
 	p, ok := m.payments[phash]
 	if !ok {
 		return nil, channeldb.ErrPaymentNotInitiated
@@ -468,12 +474,11 @@ func (m *mockControlTower) FetchPayment(phash lntypes.Hash) (
 
 	// Return a copy of the current attempts.
 	mp.HTLCs = append(mp.HTLCs, p.attempts...)
-
 	return mp, nil
 }
 
 func (m *mockControlTower) FetchInFlightPayments() (
-	[]*channeldb.InFlightPayment, error) {
+	[]*channeldb.MPPayment, error) {
 
 	if m.fetchInFlight != nil {
 		m.fetchInFlight <- struct{}{}
@@ -483,8 +488,8 @@ func (m *mockControlTower) FetchInFlightPayments() (
 	defer m.Unlock()
 
 	// In flight are all payments not successful or failed.
-	var fl []*channeldb.InFlightPayment
-	for hash, p := range m.payments {
+	var fl []*channeldb.MPPayment
+	for hash := range m.payments {
 		if _, ok := m.successful[hash]; ok {
 			continue
 		}
@@ -492,11 +497,12 @@ func (m *mockControlTower) FetchInFlightPayments() (
 			continue
 		}
 
-		ifl := channeldb.InFlightPayment{
-			Info: &p.info,
+		mp, err := m.fetchPayment(hash)
+		if err != nil {
+			return nil, err
 		}
 
-		fl = append(fl, &ifl)
+		fl = append(fl, mp)
 	}
 
 	return fl, nil

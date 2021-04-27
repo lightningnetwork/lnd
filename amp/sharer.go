@@ -2,7 +2,11 @@ package amp
 
 import (
 	"crypto/rand"
+	"fmt"
 )
+
+// zeroShare is the all-zero 32-byte share.
+var zeroShare = Share{}
 
 // Sharer facilitates dynamic splitting of a root share value and derivation of
 // child preimage and hashes for individual HTLCs in an AMP payment. A sharer
@@ -34,6 +38,16 @@ type Sharer interface {
 	// that the shares of all nodes descending from the parent will XOR to
 	// the parent's share.
 	Split() (Sharer, Sharer, error)
+
+	// Merge takes the given Child and "merges" it into the Sharer by
+	// XOR-ing its share with the Sharer's current share.
+	Merge(*Child) Sharer
+
+	// Zero returns a a new "zero Sharer" that has its current share set to
+	// zero, while keeping the root share. Merging a Child from the
+	// original Sharer into this zero-Sharer gives back the original
+	// Sharer.
+	Zero() Sharer
 }
 
 // SeedSharer orchestrates the sharing of the root AMP seed along multiple
@@ -81,6 +95,11 @@ func (s *SeedSharer) Root() Share {
 // parent share should no longer be used, and the caller should use the Child
 // method on each to derive preimage/hash pairs for the HTLCs.
 func (s *SeedSharer) Split() (Sharer, Sharer, error) {
+	// We cannot split the zero-Sharer.
+	if s.curr == zeroShare {
+		return nil, nil, fmt.Errorf("cannot split zero-Sharer")
+	}
+
 	shareLeft, shareRight, err := split(&s.curr)
 	if err != nil {
 		return nil, nil, err
@@ -90,6 +109,23 @@ func (s *SeedSharer) Split() (Sharer, Sharer, error) {
 	right := initSeedSharer(&s.root, &shareRight)
 
 	return left, right, nil
+}
+
+// Merge takes the given Child and "merges" it into the Sharer by XOR-ing its
+// share with the Sharer's current share.
+func (s *SeedSharer) Merge(child *Child) Sharer {
+	var curr Share
+	curr.Xor(&s.curr, &child.Share)
+
+	sharer := initSeedSharer(&s.root, &curr)
+	return sharer
+}
+
+// Zero returns a a new "zero Sharer" that has its current share set to zero,
+// while keeping the root share. Merging a Child from the original Sharer into
+// this zero-Sharer gives back the original Sharer.
+func (s *SeedSharer) Zero() Sharer {
+	return initSeedSharer(&s.root, &zeroShare)
 }
 
 // Child derives a preimage/hash pair to be used for an AMP HTLC.

@@ -15,6 +15,7 @@ import (
 	"github.com/go-errors/errors"
 
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/amp"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
@@ -29,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/chainview"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/routing/shards"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/zpay32"
 )
@@ -165,17 +167,21 @@ type PaymentAttemptDispatcher interface {
 	// denoted by its public key. A non-nil error is to be returned if the
 	// payment was unsuccessful.
 	SendHTLC(firstHop lnwire.ShortChannelID,
-		paymentID uint64,
+		attemptID uint64,
 		htlcAdd *lnwire.UpdateAddHTLC) error
 
 	// GetPaymentResult returns the the result of the payment attempt with
-	// the given paymentID. The method returns a channel where the payment
-	// result will be sent when available, or an error is encountered
-	// during forwarding. When a result is received on the channel, the
-	// HTLC is guaranteed to no longer be in flight. The switch shutting
-	// down is signaled by closing the channel. If the paymentID is
-	// unknown, ErrPaymentIDNotFound will be returned.
-	GetPaymentResult(paymentID uint64, paymentHash lntypes.Hash,
+	// the given attemptID. The paymentHash should be set to the payment's
+	// overall hash, or in case of AMP payments the payment's unique
+	// identifier.
+	//
+	// The method returns a channel where the payment result will be sent
+	// when available, or an error is encountered during forwarding. When a
+	// result is received on the channel, the HTLC is guaranteed to no
+	// longer be in flight.  The switch shutting down is signaled by
+	// closing the channel. If the attemptID is unknown,
+	// ErrPaymentIDNotFound will be returned.
+	GetPaymentResult(attemptID uint64, paymentHash lntypes.Hash,
 		deobfuscator htlcswitch.ErrorDecrypter) (
 		<-chan *htlcswitch.PaymentResult, error)
 
@@ -211,13 +217,13 @@ type MissionController interface {
 	// input for future probability estimates. It returns a bool indicating
 	// whether this error is a final error and no further payment attempts
 	// need to be made.
-	ReportPaymentFail(paymentID uint64, rt *route.Route,
+	ReportPaymentFail(attemptID uint64, rt *route.Route,
 		failureSourceIdx *int, failure lnwire.FailureMessage) (
 		*channeldb.FailureReason, error)
 
 	// ReportPaymentSuccess reports a successful payment to mission control as input
 	// for future probability estimates.
-	ReportPaymentSuccess(paymentID uint64, rt *route.Route) error
+	ReportPaymentSuccess(attemptID uint64, rt *route.Route) error
 
 	// GetProbability is expected to return the success probability of a
 	// payment from fromNode along edge.
@@ -583,14 +589,7 @@ func (r *ChannelRouter) Start() error {
 	// until the cleaning has finished.
 	toKeep := make(map[uint64]struct{})
 	for _, p := range payments {
-		payment, err := r.cfg.Control.FetchPayment(
-			p.Info.PaymentHash,
-		)
-		if err != nil {
-			return err
-		}
-
-		for _, a := range payment.HTLCs {
+		for _, a := range p.HTLCs {
 			toKeep[a.AttemptID] = struct{}{}
 		}
 	}
@@ -601,10 +600,39 @@ func (r *ChannelRouter) Start() error {
 	}
 
 	for _, payment := range payments {
-		log.Infof("Resuming payment with hash %v", payment.Info.PaymentHash)
+		log.Infof("Resuming payment %v", payment.Info.PaymentIdentifier)
 		r.wg.Add(1)
-		go func(payment *channeldb.InFlightPayment) {
+		go func(payment *channeldb.MPPayment) {
 			defer r.wg.Done()
+
+			// Get the hashes used for the outstanding HTLCs.
+			htlcs := make(map[uint64]lntypes.Hash)
+			for _, a := range payment.HTLCs {
+				a := a
+
+				// We check whether the individual attempts
+				// have their HTLC hash set, if not we'll fall
+				// back to the overall payment hash.
+				hash := payment.Info.PaymentIdentifier
+				if a.Hash != nil {
+					hash = *a.Hash
+				}
+
+				htlcs[a.AttemptID] = hash
+			}
+
+			// Since we are not supporting creating more shards
+			// after a restart (only receiving the result of the
+			// shards already outstanding), we create a simple
+			// shard tracker that will map the attempt IDs to
+			// hashes used for the HTLCs. This will be enough also
+			// for AMP payments, since we only need the hashes for
+			// the individual HTLCs to regenerate the circuits, and
+			// we don't currently persist the root share necessary
+			// to re-derive them.
+			shardTracker := shards.NewSimpleShardTracker(
+				payment.Info.PaymentIdentifier, htlcs,
+			)
 
 			// We create a dummy, empty payment session such that
 			// we won't make another payment attempt when the
@@ -618,16 +646,17 @@ func (r *ChannelRouter) Start() error {
 			// be tried.
 			_, _, err := r.sendPayment(
 				payment.Info.Value, 0,
-				payment.Info.PaymentHash, 0, paySession,
+				payment.Info.PaymentIdentifier, 0, paySession,
+				shardTracker,
 			)
 			if err != nil {
-				log.Errorf("Resuming payment with hash %v "+
-					"failed: %v.", payment.Info.PaymentHash, err)
+				log.Errorf("Resuming payment %v failed: %v.",
+					payment.Info.PaymentIdentifier, err)
 				return
 			}
 
-			log.Infof("Resumed payment with hash %v completed.",
-				payment.Info.PaymentHash)
+			log.Infof("Resumed payment %v completed.",
+				payment.Info.PaymentIdentifier)
 		}(payment)
 	}
 
@@ -1692,9 +1721,13 @@ type LightningPayment struct {
 	// complete this payment.
 	CltvLimit uint32
 
-	// PaymentHash is the r-hash value to use within the HTLC extended to
-	// the first hop.
-	PaymentHash [32]byte
+	// paymentHash is the r-hash value to use within the HTLC extended to
+	// the first hop. This won't be set for AMP payments.
+	paymentHash *lntypes.Hash
+
+	// amp is an optional field that is set if and only if this is am AMP
+	// payment.
+	amp *AMPOptions
 
 	// FinalCLTVDelta is the CTLV expiry delta to use for the _final_ hop
 	// in the route. This means that the final hop will have a CLTV delta
@@ -1763,6 +1796,46 @@ type LightningPayment struct {
 	MaxShardAmt *lnwire.MilliSatoshi
 }
 
+// AMPOptions houses information that must be known in order to send an AMP
+// payment.
+type AMPOptions struct {
+	SetID     [32]byte
+	RootShare [32]byte
+}
+
+// SetPaymentHash sets the given hash as the payment's overall hash. This
+// should only be used for non-AMP payments.
+func (l *LightningPayment) SetPaymentHash(hash lntypes.Hash) error {
+	if l.amp != nil {
+		return fmt.Errorf("cannot set payment hash for AMP payment")
+	}
+
+	l.paymentHash = &hash
+	return nil
+}
+
+// SetAMP sets the given AMP options for the payment.
+func (l *LightningPayment) SetAMP(amp *AMPOptions) error {
+	if l.paymentHash != nil {
+		return fmt.Errorf("cannot set amp options for payment " +
+			"with payment hash")
+	}
+
+	l.amp = amp
+	return nil
+}
+
+// Identifier returns a 32-byte slice that uniquely identifies this single
+// payment. For non-AMP payments this will be the payment hash, for AMP
+// payments this will be the used SetID.
+func (l *LightningPayment) Identifier() [32]byte {
+	if l.amp != nil {
+		return l.amp.SetID
+	}
+
+	return *l.paymentHash
+}
+
 // SendPayment attempts to send a payment as described within the passed
 // LightningPayment. This function is blocking and will return either: when the
 // payment is successful, or all candidates routes have been attempted and
@@ -1773,7 +1846,7 @@ type LightningPayment struct {
 func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 	*route.Route, error) {
 
-	paySession, err := r.preparePayment(payment)
+	paySession, shardTracker, err := r.preparePayment(payment)
 	if err != nil {
 		return [32]byte{}, nil, err
 	}
@@ -1784,15 +1857,15 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 	// Since this is the first time this payment is being made, we pass nil
 	// for the existing attempt.
 	return r.sendPayment(
-		payment.Amount, payment.FeeLimit, payment.PaymentHash,
-		payment.PayAttemptTimeout, paySession,
+		payment.Amount, payment.FeeLimit, payment.Identifier(),
+		payment.PayAttemptTimeout, paySession, shardTracker,
 	)
 }
 
 // SendPaymentAsync is the non-blocking version of SendPayment. The payment
 // result needs to be retrieved via the control tower.
 func (r *ChannelRouter) SendPaymentAsync(payment *LightningPayment) error {
-	paySession, err := r.preparePayment(payment)
+	paySession, shardTracker, err := r.preparePayment(payment)
 	if err != nil {
 		return err
 	}
@@ -1807,12 +1880,12 @@ func (r *ChannelRouter) SendPaymentAsync(payment *LightningPayment) error {
 			spewPayment(payment))
 
 		_, _, err := r.sendPayment(
-			payment.Amount, payment.FeeLimit, payment.PaymentHash,
-			payment.PayAttemptTimeout, paySession,
+			payment.Amount, payment.FeeLimit, payment.Identifier(),
+			payment.PayAttemptTimeout, paySession, shardTracker,
 		)
 		if err != nil {
-			log.Errorf("Payment with hash %x failed: %v",
-				payment.PaymentHash, err)
+			log.Errorf("Payment %x failed: %v",
+				payment.Identifier(), err)
 		}
 	}()
 
@@ -1844,14 +1917,14 @@ func spewPayment(payment *LightningPayment) logClosure {
 // preparePayment creates the payment session and registers the payment with the
 // control tower.
 func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
-	PaymentSession, error) {
+	PaymentSession, shards.ShardTracker, error) {
 
 	// Before starting the HTLC routing attempt, we'll create a fresh
 	// payment session which will report our errors back to mission
 	// control.
 	paySession, err := r.cfg.SessionSource.NewPaymentSession(payment)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Record this payment hash with the ControlTower, ensuring it is not
@@ -1859,18 +1932,38 @@ func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
 	//
 	// TODO(roasbeef): store records as part of creation info?
 	info := &channeldb.PaymentCreationInfo{
-		PaymentHash:    payment.PaymentHash,
-		Value:          payment.Amount,
-		CreationTime:   r.cfg.Clock.Now(),
-		PaymentRequest: payment.PaymentRequest,
+		PaymentIdentifier: payment.Identifier(),
+		Value:             payment.Amount,
+		CreationTime:      r.cfg.Clock.Now(),
+		PaymentRequest:    payment.PaymentRequest,
 	}
 
-	err = r.cfg.Control.InitPayment(payment.PaymentHash, info)
+	// Create a new ShardTracker that we'll use during the life cycle of
+	// this payment.
+	var shardTracker shards.ShardTracker
+	switch {
+
+	// If this is an AMP payment, we'll use the AMP shard tracker.
+	case payment.amp != nil:
+		shardTracker = amp.NewShardTracker(
+			payment.amp.RootShare, payment.amp.SetID,
+			*payment.PaymentAddr, payment.Amount,
+		)
+
+	// Otherwise we'll use the simple tracker that will map each attempt to
+	// the same payment hash.
+	default:
+		shardTracker = shards.NewSimpleShardTracker(
+			payment.Identifier(), nil,
+		)
+	}
+
+	err = r.cfg.Control.InitPayment(payment.Identifier(), info)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return paySession, nil
+	return paySession, shardTracker, nil
 }
 
 // SendToRoute attempts to send a payment with the given hash through the
@@ -1878,7 +1971,7 @@ func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
 // information as it is stored in the database. For a successful htlc, this
 // information will contain the preimage. If an error occurs after the attempt
 // was initiated, both return values will be non-nil.
-func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, rt *route.Route) (
+func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash, rt *route.Route) (
 	*channeldb.HTLCAttempt, error) {
 
 	// Calculate amount paid to receiver.
@@ -1892,16 +1985,27 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, rt *route.Route) (
 		amt = mpp.TotalMsat()
 	}
 
+	// For non-AMP payments the overall payment identifier will be the same
+	// hash as used for this HTLC.
+	paymentIdentifier := htlcHash
+
+	// For AMP-payments, we'll use the setID as the unique ID for the
+	// overall payment.
+	amp := finalHop.AMP
+	if amp != nil {
+		paymentIdentifier = amp.SetID()
+	}
+
 	// Record this payment hash with the ControlTower, ensuring it is not
 	// already in-flight.
 	info := &channeldb.PaymentCreationInfo{
-		PaymentHash:    hash,
-		Value:          amt,
-		CreationTime:   r.cfg.Clock.Now(),
-		PaymentRequest: nil,
+		PaymentIdentifier: paymentIdentifier,
+		Value:             amt,
+		CreationTime:      r.cfg.Clock.Now(),
+		PaymentRequest:    nil,
 	}
 
-	err := r.cfg.Control.InitPayment(hash, info)
+	err := r.cfg.Control.InitPayment(paymentIdentifier, info)
 	switch {
 	// If this is an MPP attempt and the hash is already registered with
 	// the database, we can go on to launch the shard.
@@ -1912,20 +2016,28 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, rt *route.Route) (
 		return nil, err
 	}
 
-	log.Tracef("Dispatching SendToRoute for hash %v: %v",
-		hash, newLogClosure(func() string {
+	log.Tracef("Dispatching SendToRoute for HTLC hash %v: %v",
+		htlcHash, newLogClosure(func() string {
 			return spew.Sdump(rt)
 		}),
 	)
 
+	// Since the HTLC hashes and preimages are specified manually over the
+	// RPC for SendToRoute requests, we don't have to worry about creating
+	// a ShardTracker that can generate hashes for AMP payments. Instead we
+	// create a simple tracker that can just return the hash for the single
+	// shard we'll now launch.
+	shardTracker := shards.NewSimpleShardTracker(htlcHash, nil)
+
 	// Launch a shard along the given route.
 	sh := &shardHandler{
-		router:      r,
-		paymentHash: hash,
+		router:       r,
+		identifier:   paymentIdentifier,
+		shardTracker: shardTracker,
 	}
 
 	var shardError error
-	attempt, outcome, err := sh.launchShard(rt)
+	attempt, outcome, err := sh.launchShard(rt, false)
 
 	// With SendToRoute, it can happen that the route exceeds protocol
 	// constraints. Mark the payment as failed with an internal error.
@@ -1933,10 +2045,10 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, rt *route.Route) (
 		err == sphinx.ErrMaxRoutingInfoSizeExceeded {
 
 		log.Debugf("Invalid route provided for payment %x: %v",
-			hash, err)
+			paymentIdentifier, err)
 
 		controlErr := r.cfg.Control.Fail(
-			hash, channeldb.FailureReasonError,
+			paymentIdentifier, channeldb.FailureReasonError,
 		)
 		if controlErr != nil {
 			return nil, controlErr
@@ -1984,7 +2096,7 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, rt *route.Route) (
 		reason = &r
 	}
 
-	err = r.cfg.Control.Fail(hash, *reason)
+	err = r.cfg.Control.Fail(paymentIdentifier, *reason)
 	if err != nil {
 		return nil, err
 	}
@@ -2009,9 +2121,9 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, rt *route.Route) (
 // router will call this method for every payment still in-flight according to
 // the ControlTower.
 func (r *ChannelRouter) sendPayment(
-	totalAmt, feeLimit lnwire.MilliSatoshi, paymentHash lntypes.Hash,
-	timeout time.Duration,
-	paySession PaymentSession) ([32]byte, *route.Route, error) {
+	totalAmt, feeLimit lnwire.MilliSatoshi, identifier lntypes.Hash,
+	timeout time.Duration, paySession PaymentSession,
+	shardTracker shards.ShardTracker) ([32]byte, *route.Route, error) {
 
 	// We'll also fetch the current block height so we can properly
 	// calculate the required HTLC time locks within the route.
@@ -2026,8 +2138,9 @@ func (r *ChannelRouter) sendPayment(
 		router:        r,
 		totalAmount:   totalAmt,
 		feeLimit:      feeLimit,
-		paymentHash:   paymentHash,
+		identifier:    identifier,
 		paySession:    paySession,
+		shardTracker:  shardTracker,
 		currentHeight: currentHeight,
 	}
 
@@ -2088,7 +2201,7 @@ func (r *ChannelRouter) tryApplyChannelUpdate(rt *route.Route,
 // error type, this error is either the final outcome of the payment or we need
 // to continue with an alternative route. A final outcome is indicated by a
 // non-nil return value.
-func (r *ChannelRouter) processSendError(paymentID uint64, rt *route.Route,
+func (r *ChannelRouter) processSendError(attemptID uint64, rt *route.Route,
 	sendErr error) *channeldb.FailureReason {
 
 	internalErrorReason := channeldb.FailureReasonError
@@ -2098,7 +2211,7 @@ func (r *ChannelRouter) processSendError(paymentID uint64, rt *route.Route,
 
 		// Report outcome to mission control.
 		reason, err := r.cfg.MissionControl.ReportPaymentFail(
-			paymentID, rt, srcIdx, msg,
+			attemptID, rt, srcIdx, msg,
 		)
 		if err != nil {
 			log.Errorf("Error reporting payment result to mc: %v",

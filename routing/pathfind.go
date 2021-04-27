@@ -194,6 +194,8 @@ func newRoute(sourceVertex route.Vertex,
 			}
 
 			// Otherwise attach the mpp record if it exists.
+			// TODO(halseth): move this to payment life cycle,
+			// where AMP options are set.
 			if finalHop.paymentAddr != nil {
 				mpp = record.NewMPP(
 					finalHop.totalAmt,

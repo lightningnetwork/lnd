@@ -316,21 +316,21 @@ func (s *Server) SendPaymentV2(req *SendPaymentRequest,
 		if err == channeldb.ErrPaymentInFlight ||
 			err == channeldb.ErrAlreadyPaid {
 
-			log.Debugf("SendPayment async result for hash %x: %v",
-				payment.PaymentHash, err)
+			log.Debugf("SendPayment async result for payment %x: %v",
+				payment.Identifier(), err)
 
 			return status.Error(
 				codes.AlreadyExists, err.Error(),
 			)
 		}
 
-		log.Errorf("SendPayment async error for hash %x: %v",
-			payment.PaymentHash, err)
+		log.Errorf("SendPayment async error for payment %x: %v",
+			payment.Identifier(), err)
 
 		return err
 	}
 
-	return s.trackPayment(payment.PaymentHash, stream, req.NoInflightUpdates)
+	return s.trackPayment(payment.Identifier(), stream, req.NoInflightUpdates)
 }
 
 // EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
@@ -719,14 +719,14 @@ func (s *Server) TrackPaymentV2(request *TrackPaymentRequest,
 }
 
 // trackPayment writes payment status updates to the provided stream.
-func (s *Server) trackPayment(paymentHash lntypes.Hash,
+func (s *Server) trackPayment(identifier lntypes.Hash,
 	stream Router_TrackPaymentV2Server, noInflightUpdates bool) error {
 
 	router := s.cfg.RouterBackend
 
 	// Subscribe to the outcome of this payment.
 	subscription, err := router.Tower.SubscribePayment(
-		paymentHash,
+		identifier,
 	)
 	switch {
 	case err == channeldb.ErrPaymentNotInitiated:
@@ -769,7 +769,7 @@ func (s *Server) trackPayment(paymentHash lntypes.Hash,
 			return errServerShuttingDown
 
 		case <-stream.Context().Done():
-			log.Debugf("Payment status stream %v canceled", paymentHash)
+			log.Debugf("Payment status stream %v canceled", identifier)
 			return stream.Context().Err()
 		}
 	}

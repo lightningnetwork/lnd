@@ -275,13 +275,13 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to luo ji for 1000 satoshis, with a maximum of 1000 satoshis in fees.
-	var payHash [32]byte
+	var payHash lntypes.Hash
 	paymentAmt := lnwire.NewMSatFromSatoshis(1000)
 	payment := LightningPayment{
 		Target:      ctx.aliases["sophon"],
 		Amount:      paymentAmt,
 		FeeLimit:    noFeeLimit,
-		PaymentHash: payHash,
+		paymentHash: &payHash,
 	}
 
 	var preImage [32]byte
@@ -510,13 +510,13 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to luo ji for 100 satoshis.
-	var payHash [32]byte
+	var payHash lntypes.Hash
 	amt := lnwire.NewMSatFromSatoshis(1000)
 	payment := LightningPayment{
 		Target:      ctx.aliases["sophon"],
 		Amount:      amt,
 		FeeLimit:    noFeeLimit,
-		PaymentHash: payHash,
+		paymentHash: &payHash,
 	}
 
 	var preImage [32]byte
@@ -611,13 +611,13 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to sophon for 1k satoshis.
-	var payHash [32]byte
+	var payHash lntypes.Hash
 	amt := lnwire.NewMSatFromSatoshis(1000)
 	payment := LightningPayment{
 		Target:      ctx.aliases["sophon"],
 		Amount:      amt,
 		FeeLimit:    noFeeLimit,
-		PaymentHash: payHash,
+		paymentHash: &payHash,
 	}
 
 	var preImage [32]byte
@@ -720,7 +720,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	// Once again, Roasbeef should route around Goku since they disagree
 	// w.r.t to the block height, and instead go through Pham Nuwen. We
 	// flip a bit in the payment hash to allow resending this payment.
-	payment.PaymentHash[1] ^= 1
+	payment.paymentHash[1] ^= 1
 	paymentPreImage, rt, err = ctx.router.SendPayment(&payment)
 	if err != nil {
 		t.Fatalf("unable to send payment: %v", err)
@@ -744,13 +744,13 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to luo ji for 1000 satoshis, with a maximum of 1000 satoshis in fees.
-	var payHash [32]byte
+	var payHash lntypes.Hash
 	paymentAmt := lnwire.NewMSatFromSatoshis(1000)
 	payment := LightningPayment{
 		Target:      ctx.aliases["sophon"],
 		Amount:      paymentAmt,
 		FeeLimit:    noFeeLimit,
-		PaymentHash: payHash,
+		paymentHash: &payHash,
 	}
 
 	var preImage [32]byte
@@ -887,7 +887,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 		})
 
 	// We flip a bit in the payment hash to allow resending this payment.
-	payment.PaymentHash[1] ^= 1
+	payment.paymentHash[1] ^= 1
 	paymentPreImage, rt, err = ctx.router.SendPayment(&payment)
 	if err != nil {
 		t.Fatalf("unable to send payment: %v", err)
@@ -2565,11 +2565,12 @@ func TestUnknownErrorSource(t *testing.T) {
 	}
 
 	// Create a payment to node c.
+	var payHash lntypes.Hash
 	payment := LightningPayment{
 		Target:      ctx.aliases["c"],
 		Amount:      lnwire.NewMSatFromSatoshis(1000),
 		FeeLimit:    noFeeLimit,
-		PaymentHash: lntypes.Hash{},
+		paymentHash: &payHash,
 	}
 
 	// We'll modify the SendToSwitch method so that it simulates hop b as a
@@ -2616,7 +2617,8 @@ func TestUnknownErrorSource(t *testing.T) {
 
 	// Send off the payment request to the router. We expect the payment to
 	// fail because both routes have been pruned.
-	payment.PaymentHash = lntypes.Hash{1}
+	payHash = lntypes.Hash{1}
+	payment.paymentHash = &payHash
 	_, _, err = ctx.router.SendPayment(&payment)
 	if err == nil {
 		t.Fatalf("expected payment to fail")

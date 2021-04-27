@@ -10,6 +10,7 @@ import (
 type sharerTest struct {
 	name      string
 	numShares int
+	merge     bool
 }
 
 var sharerTests = []sharerTest{
@@ -24,6 +25,16 @@ var sharerTests = []sharerTest{
 	{
 		name:      "many shares",
 		numShares: 10,
+	},
+	{
+		name:      "merge 4 shares",
+		numShares: 4,
+		merge:     true,
+	},
+	{
+		name:      "merge many shares",
+		numShares: 20,
+		merge:     true,
 	},
 }
 
@@ -71,9 +82,26 @@ func testSharer(t *testing.T, test sharerTest) {
 
 	// Compute the final share and finalize the sharing.
 	child := sharer.Child(0)
+	sharer = sharer.Zero()
 
 	assertChildShare(t, child, 0)
 	children = append(children, child)
+
+	// If we are testing merging, merge half of the created children back
+	// into the sharer.
+	if test.merge {
+		for i := len(children) / 2; i < len(children); i++ {
+			sharer = sharer.Merge(children[i])
+		}
+		children = children[:len(children)/2]
+
+		// We must create a new last child from what we just merged
+		// back.
+		child := sharer.Child(0)
+
+		assertChildShare(t, child, 0)
+		children = append(children, child)
+	}
 
 	assertReconstruction(t, children...)
 }

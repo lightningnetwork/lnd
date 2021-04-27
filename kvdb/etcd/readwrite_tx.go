@@ -40,6 +40,23 @@ func (tx *readWriteTx) ReadBucket(key []byte) walletdb.ReadBucket {
 	return rootBucket(tx).NestedReadWriteBucket(key)
 }
 
+// ForEachBucket iterates through all top level buckets.
+func (tx *readWriteTx) ForEachBucket(fn func(key []byte) error) error {
+	root := rootBucket(tx)
+	// We can safely use ForEach here since on the top level there are
+	// no values, only buckets.
+	return root.ForEach(func(key []byte, val []byte) error {
+		if val != nil {
+			// A non-nil value would mean that we have a non
+			// walletdb/kvdb compatibel database containing
+			// arbitrary key/values.
+			return walletdb.ErrInvalid
+		}
+
+		return fn(key)
+	})
+}
+
 // Rollback closes the transaction, discarding changes (if any) if the
 // database was modified by a write transaction.
 func (tx *readWriteTx) Rollback() error {

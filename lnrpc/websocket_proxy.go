@@ -372,6 +372,9 @@ func IsClosedConnError(err error) bool {
 	if strings.Contains(str, "broken pipe") {
 		return true
 	}
+	if strings.Contains(str, "connection reset by peer") {
+		return true
+	}
 	return websocket.IsCloseError(
 		err, websocket.CloseNormalClosure, websocket.CloseGoingAway,
 	)

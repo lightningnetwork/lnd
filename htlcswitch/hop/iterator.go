@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/btcsuite/btcd/btcec"
 	sphinx "github.com/lightningnetwork/lightning-onion"
@@ -293,12 +294,21 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 		}
 	}
 
-	for i, req := range reqs {
-		onionPkt := &onionPkts[i]
-		resp := &resps[i]
+	// Execute cpu-heavy onion decoding in parallel.
+	var wg sync.WaitGroup
+	for i := range reqs {
+		wg.Add(1)
+		go func(seqNum uint16) {
+			defer wg.Done()
 
-		resp.FailCode = decode(uint16(i), onionPkt, req)
+			onionPkt := &onionPkts[seqNum]
+
+			resps[seqNum].FailCode = decode(
+				seqNum, onionPkt, reqs[seqNum],
+			)
+		}(uint16(i))
 	}
+	wg.Wait()
 
 	// With that batch created, we will now attempt to write the shared
 	// secrets to disk. This operation will returns the set of indices that

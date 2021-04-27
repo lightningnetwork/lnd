@@ -11,6 +11,7 @@
 <time> [ERR] BTCN: unable to get filter for hash=<hex>, retrying: unable to fetch cfilter
 <time> [ERR] BTCN: Unable to process block connected (height=<height>, hash=<hex>): out of order block <hex>: expected PrevBlock <hex>, got <hex>
 <time> [ERR] BTCN: Unknown connid=<id>
+<time> [ERR] CHAC: Received an error: rpc error: code = Canceled desc = context canceled, shutting down
 <time> [ERR] CHFT: Close channel <chan_point> unknown to store
 <time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to advance state: channel not found
 <time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to broadcast close tx: Transaction rejected: output already spent
@@ -182,6 +183,7 @@
 <time> [ERR] RPCS: [/lnrpc.Lightning/BakeMacaroon]: invalid permission action. supported actions are [read write generate], supported entities are [onchain offchain address message peers info invoices signer macaroon uri]
 <time> [ERR] RPCS: [/lnrpc.Lightning/BakeMacaroon]: invalid permission entity. supported actions are [read write generate], supported entities are [onchain offchain address message peers info invoices signer macaroon uri]
 <time> [ERR] RPCS: [/lnrpc.Lightning/BakeMacaroon]: permission list cannot be empty. specify at least one action/entity pair. supported actions are [read write generate], supported entities are [onchain offchain address message peers info invoices signer macaroon uri]
+<time> [ERR] RPCS: [/lnrpc.Lightning/ChannelAcceptor]: rpc error: code = Canceled desc = context canceled
 <time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: cannot close channel with state: ChanStatusRestored
 <time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: cannot co-op close frozen channel as initiator until height=3059, (current_height=3055)
 <time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: cannot co-op close frozen channel as initiator until height=<height>, (current_height=<height>)

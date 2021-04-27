@@ -198,6 +198,9 @@ func testRestAPI(net *lntest.NetworkHarness, ht *harnessTest) {
 	}, {
 		name: "websocket subscription with macaroon in protocol",
 		run:  wsTestCaseSubscriptionMacaroon,
+	}, {
+		name: "websocket bi-directional subscription",
+		run:  wsTestCaseBiDirectionalSubscription,
 	}}
 
 	// Make sure Alice allows all CORS origins. Bob will keep the default.
@@ -397,6 +400,129 @@ func wsTestCaseSubscriptionMacaroon(ht *harnessTest,
 	case <-timeout:
 		ht.t.Fatalf("Timeout before message was received")
 	}
+}
+
+func wsTestCaseBiDirectionalSubscription(ht *harnessTest,
+	net *lntest.NetworkHarness) {
+
+	initialRequest := &lnrpc.ChannelAcceptResponse{}
+	url := "/v1/channels/acceptor"
+
+	// This time we send the macaroon in the special header
+	// Sec-Websocket-Protocol which is the only header field available to
+	// browsers when opening a WebSocket.
+	mac, err := net.Alice.ReadMacaroon(
+		net.Alice.AdminMacPath(), defaultTimeout,
+	)
+	require.NoError(ht.t, err, "read admin mac")
+	macBytes, err := mac.MarshalBinary()
+	require.NoError(ht.t, err, "marshal admin mac")
+
+	customHeader := make(http.Header)
+	customHeader.Set(lnrpc.HeaderWebSocketProtocol, fmt.Sprintf(
+		"Grpc-Metadata-Macaroon+%s", hex.EncodeToString(macBytes),
+	))
+	conn, err := openWebSocket(
+		net.Alice, url, "POST", initialRequest, customHeader,
+	)
+	require.Nil(ht.t, err, "websocket")
+	defer func() {
+		err := conn.WriteMessage(websocket.CloseMessage, closeMsg)
+		require.NoError(ht.t, err)
+		_ = conn.Close()
+	}()
+
+	msgChan := make(chan *lnrpc.ChannelAcceptResponse)
+	errChan := make(chan error)
+	done := make(chan struct{})
+	timeout := time.After(defaultTimeout)
+
+	// We want to read messages over and over again. We just accept any
+	// channels that are opened.
+	go func() {
+		for {
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				errChan <- err
+				return
+			}
+
+			// The chunked/streamed responses come wrapped in either
+			// a {"result":{}} or {"error":{}} wrapper which we'll
+			// get rid of here.
+			msgStr := string(msg)
+			if !strings.Contains(msgStr, "\"result\":") {
+				errChan <- fmt.Errorf("invalid msg: %s", msgStr)
+				return
+			}
+			msgStr = resultPattern.ReplaceAllString(msgStr, "${1}")
+
+			// Make sure we can parse the unwrapped message into the
+			// expected proto message.
+			protoMsg := &lnrpc.ChannelAcceptRequest{}
+			err = jsonpb.UnmarshalString(msgStr, protoMsg)
+			if err != nil {
+				errChan <- err
+				return
+			}
+
+			// Send the response that we accept the channel.
+			res := &lnrpc.ChannelAcceptResponse{
+				Accept:        true,
+				PendingChanId: protoMsg.PendingChanId,
+			}
+			resMsg, err := jsonMarshaler.MarshalToString(res)
+			if err != nil {
+				errChan <- err
+				return
+			}
+			err = conn.WriteMessage(
+				websocket.TextMessage, []byte(resMsg),
+			)
+			if err != nil {
+				errChan <- err
+				return
+			}
+
+			// Also send the message on our message channel to make
+			// sure we count it as successful.
+			msgChan <- res
+
+			// Are we done or should there be more messages?
+			select {
+			case <-done:
+				return
+			default:
+			}
+		}
+	}()
+
+	// Before we start opening channels, make sure the two nodes are
+	// connected.
+	err = net.EnsureConnected(context.Background(), net.Alice, net.Bob)
+	require.NoError(ht.t, err)
+
+	// Open 3 channels to make sure multiple requests and responses can be
+	// sent over the web socket.
+	const numChannels = 3
+	for i := 0; i < numChannels; i++ {
+		openChannelAndAssert(
+			context.Background(), ht, net, net.Bob, net.Alice,
+			lntest.OpenChannelParams{
+				Amt: 500000,
+			},
+		)
+
+		select {
+		case <-msgChan:
+		case err := <-errChan:
+			ht.t.Fatalf("Received error from WS: %v", err)
+
+		case <-timeout:
+			ht.t.Fatalf("Timeout before message was received")
+		}
+	}
+	close(done)
 }
 
 // invokeGET calls the given URL with the GET method and appropriate macaroon

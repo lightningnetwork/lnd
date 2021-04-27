@@ -251,9 +251,8 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 
 	tx := p.router.BeginTxn(id, batchSize)
 
-	for i, req := range reqs {
-		onionPkt := &onionPkts[i]
-		resp := &resps[i]
+	decode := func(seqNum uint16, onionPkt *sphinx.OnionPacket,
+		req DecodeHopIteratorRequest) lnwire.FailCode {
 
 		err := onionPkt.Decode(req.OnionReader)
 		switch err {
@@ -261,43 +260,44 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 			// success
 
 		case sphinx.ErrInvalidOnionVersion:
-			resp.FailCode = lnwire.CodeInvalidOnionVersion
-			continue
+			return lnwire.CodeInvalidOnionVersion
 
 		case sphinx.ErrInvalidOnionKey:
-			resp.FailCode = lnwire.CodeInvalidOnionKey
-			continue
+			return lnwire.CodeInvalidOnionKey
 
 		default:
 			log.Errorf("unable to decode onion packet: %v", err)
-			resp.FailCode = lnwire.CodeInvalidOnionKey
-			continue
+			return lnwire.CodeInvalidOnionKey
 		}
 
 		err = tx.ProcessOnionPacket(
-			uint16(i), onionPkt, req.RHash, req.IncomingCltv,
+			seqNum, onionPkt, req.RHash, req.IncomingCltv,
 		)
 		switch err {
 		case nil:
 			// success
+			return lnwire.CodeNone
 
 		case sphinx.ErrInvalidOnionVersion:
-			resp.FailCode = lnwire.CodeInvalidOnionVersion
-			continue
+			return lnwire.CodeInvalidOnionVersion
 
 		case sphinx.ErrInvalidOnionHMAC:
-			resp.FailCode = lnwire.CodeInvalidOnionHmac
-			continue
+			return lnwire.CodeInvalidOnionHmac
 
 		case sphinx.ErrInvalidOnionKey:
-			resp.FailCode = lnwire.CodeInvalidOnionKey
-			continue
+			return lnwire.CodeInvalidOnionKey
 
 		default:
 			log.Errorf("unable to process onion packet: %v", err)
-			resp.FailCode = lnwire.CodeInvalidOnionKey
-			continue
+			return lnwire.CodeInvalidOnionKey
 		}
+	}
+
+	for i, req := range reqs {
+		onionPkt := &onionPkts[i]
+		resp := &resps[i]
+
+		resp.FailCode = decode(uint16(i), onionPkt, req)
 	}
 
 	// With that batch created, we will now attempt to write the shared

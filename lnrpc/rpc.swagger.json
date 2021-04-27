@@ -204,6 +204,49 @@
         ]
       }
     },
+    "/v1/channels/acceptor": {
+      "post": {
+        "summary": "ChannelAcceptor dispatches a bi-directional streaming RPC in which\nOpenChannel requests are sent to the client and the client responds with\na boolean that tells LND whether or not to accept the channel. This allows\nnode operators to specify their own criteria for accepting inbound channels\nthrough a single persistent connection.",
+        "operationId": "ChannelAcceptor",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/lnrpcChannelAcceptRequest"
+                },
+                "error": {
+                  "$ref": "#/definitions/runtimeStreamError"
+                }
+              },
+              "title": "Stream result of lnrpcChannelAcceptRequest"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "description": " (streaming inputs)",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcChannelAcceptResponse"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/channels/backup": {
       "get": {
         "summary": "ExportAllChannelBackups returns static channel backups for all existing\nchannels known to lnd. A set of regular singular static channel backups for\neach channel are returned. Additionally, a multi-channel backup is returned\nas well, which contains a single encrypted blob containing the backups of\neach channel.",
@@ -532,6 +575,49 @@
             }
           }
         },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/channels/transaction-stream": {
+      "post": {
+        "summary": "lncli: `sendpayment`\nDeprecated, use routerrpc.SendPaymentV2. SendPayment dispatches a\nbi-directional streaming RPC for sending payments through the Lightning\nNetwork. A single RPC invocation creates a persistent bi-directional\nstream allowing clients to rapidly send payments through the Lightning\nNetwork with a single persistent connection.",
+        "operationId": "SendPayment",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/lnrpcSendResponse"
+                },
+                "error": {
+                  "$ref": "#/definitions/runtimeStreamError"
+                }
+              },
+              "title": "Stream result of lnrpcSendResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "description": " (streaming inputs)",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcSendRequest"
+            }
+          }
+        ],
         "tags": [
           "Lightning"
         ]
@@ -2926,6 +3012,59 @@
           "type": "integer",
           "format": "int64",
           "description": "A bit-field which the initiator uses to specify proposed channel\nbehavior."
+        }
+      }
+    },
+    "lnrpcChannelAcceptResponse": {
+      "type": "object",
+      "properties": {
+        "accept": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Whether or not the client accepts the channel."
+        },
+        "pending_chan_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The pending channel id to which this response applies."
+        },
+        "error": {
+          "type": "string",
+          "description": "An optional error to send the initiating party to indicate why the channel\nwas rejected. This field *should not* contain sensitive information, it will\nbe sent to the initiating party. This field should only be set if accept is\nfalse, the channel will be rejected if an error is set with accept=true\nbecause the meaning of this response is ambiguous. Limited to 500\ncharacters."
+        },
+        "upfront_shutdown": {
+          "type": "string",
+          "description": "The upfront shutdown address to use if the initiating peer supports option\nupfront shutdown script (see ListPeers for the features supported). Note\nthat the channel open will fail if this value is set for a peer that does\nnot support this feature bit."
+        },
+        "csv_delay": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The csv delay (in blocks) that we require for the remote party."
+        },
+        "reserve_sat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The reserve amount in satoshis that we require the remote peer to adhere to.\nWe require that the remote peer always have some reserve amount allocated to\nthem so that there is always a disincentive to broadcast old state (if they\nhold 0 sats on their side of the channel, there is nothing to lose)."
+        },
+        "in_flight_max_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The maximum amount of funds in millisatoshis that we allow the remote peer\nto have in outstanding htlcs."
+        },
+        "max_htlc_count": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The maximum number of htlcs that the remote peer can offer us."
+        },
+        "min_htlc_in": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The minimum value in millisatoshis for incoming htlcs on the channel."
+        },
+        "min_accept_depth": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of confirmations we require before we consider the channel open."
         }
       }
     },

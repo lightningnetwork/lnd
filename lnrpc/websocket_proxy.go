@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/textproto"
+	"regexp"
 	"strings"
 
 	"github.com/btcsuite/btclog"
@@ -53,8 +54,13 @@ var (
 
 // NewWebSocketProxy attempts to expose the underlying handler as a response-
 // streaming WebSocket stream with newline-delimited JSON as the content
-// encoding.
-func NewWebSocketProxy(h http.Handler, logger btclog.Logger) http.Handler {
+// encoding. The clientStreamingURIs parameter can hold a list of all patterns
+// for URIs that are mapped to client-streaming RPC methods. We need to keep
+// track of those to make sure we initialize the request body correctly for the
+// underlying grpc-gateway library.
+func NewWebSocketProxy(h http.Handler, logger btclog.Logger,
+	clientStreamingURIs []*regexp.Regexp) http.Handler {
+
 	p := &WebsocketProxy{
 		backend: h,
 		logger:  logger,
@@ -65,6 +71,7 @@ func NewWebSocketProxy(h http.Handler, logger btclog.Logger) http.Handler {
 				return true
 			},
 		},
+		clientStreamingURIs: clientStreamingURIs,
 	}
 	return p
 }
@@ -74,6 +81,12 @@ type WebsocketProxy struct {
 	backend  http.Handler
 	logger   btclog.Logger
 	upgrader *websocket.Upgrader
+
+	// clientStreamingURIs holds a list of all patterns for URIs that are
+	// mapped to client-streaming RPC methods. We need to keep track of
+	// those to make sure we initialize the request body correctly for the
+	// underlying grpc-gateway library.
+	clientStreamingURIs []*regexp.Regexp
 }
 
 // ServeHTTP handles the incoming HTTP request. If the request is an
@@ -129,6 +142,14 @@ func (p *WebsocketProxy) upgradeToWebSocketProxy(w http.ResponseWriter,
 		request.Method = m
 	}
 
+	// Is this a call to a client-streaming RPC method?
+	clientStreaming := false
+	for _, pattern := range p.clientStreamingURIs {
+		if pattern.MatchString(r.URL.Path) {
+			clientStreaming = true
+		}
+	}
+
 	responseForwarder := newResponseForwardingWriter()
 	go func() {
 		<-ctx.Done()
@@ -169,10 +190,13 @@ func (p *WebsocketProxy) upgradeToWebSocketProxy(w http.ResponseWriter,
 			}
 			_, _ = requestForwarder.Write([]byte{'\n'})
 
-			// We currently only support server-streaming messages.
-			// Therefore we close the request body after the first
-			// incoming message to trigger a response.
-			requestForwarder.CloseWriter()
+			// The grpc-gateway library uses a different request
+			// reader depending on whether it is a client streaming
+			// RPC or not. For a non-streaming request we need to
+			// close with EOF to signal the request was completed.
+			if !clientStreaming {
+				requestForwarder.CloseWriter()
+			}
 		}
 	}()
 

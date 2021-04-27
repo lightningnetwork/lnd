@@ -101,9 +101,9 @@ var (
 	}
 
 	testMessageSigner = MessageSigner{
-		SignCompact: func(msg []byte) ([]byte, error) {
+		SignCompact: func(hash []byte) ([]byte, error) {
 			sig, err := btcec.SignCompact(btcec.S256(),
-				testPrivKey, chainhash.HashB(msg), true)
+				testPrivKey, hash, true)
 			if err != nil {
 				return nil, fmt.Errorf("can't sign the "+
 					"message: %v", err)
@@ -915,8 +915,7 @@ func TestInvoiceChecksumMalleability(t *testing.T) {
 
 	privKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), privKeyBytes)
 	msgSigner := MessageSigner{
-		SignCompact: func(msg []byte) ([]byte, error) {
-			hash := chainhash.HashB(msg)
+		SignCompact: func(hash []byte) ([]byte, error) {
 			return btcec.SignCompact(btcec.S256(), privKey, hash, true)
 		},
 	}

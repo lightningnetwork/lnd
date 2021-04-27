@@ -64,15 +64,13 @@ func randCompressedPubKey(t *testing.T) [33]byte {
 
 func randAnnounceSignatures() *lnwire.AnnounceSignatures {
 	return &lnwire.AnnounceSignatures{
-		ShortChannelID:  lnwire.NewShortChanIDFromInt(rand.Uint64()),
-		ExtraOpaqueData: make([]byte, 0),
+		ShortChannelID: lnwire.NewShortChanIDFromInt(rand.Uint64()),
 	}
 }
 
 func randChannelUpdate() *lnwire.ChannelUpdate {
 	return &lnwire.ChannelUpdate{
-		ShortChannelID:  lnwire.NewShortChanIDFromInt(rand.Uint64()),
-		ExtraOpaqueData: make([]byte, 0),
+		ShortChannelID: lnwire.NewShortChanIDFromInt(rand.Uint64()),
 	}
 }
 
@@ -241,7 +239,7 @@ func TestMessageStoreUnsupportedMessage(t *testing.T) {
 	err = kvdb.Update(msgStore.db, func(tx kvdb.RwTx) error {
 		messageStore := tx.ReadWriteBucket(messageStoreBucket)
 		return messageStore.Put(msgKey, rawMsg.Bytes())
-	}, func() {})
+	})
 	if err != nil {
 		t.Fatalf("unable to add unsupported message to store: %v", err)
 	}

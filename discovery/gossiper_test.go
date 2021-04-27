@@ -12,7 +12,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,7 +21,6 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
-	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -33,7 +31,6 @@ import (
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/ticker"
-	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -48,19 +45,17 @@ var (
 	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
 	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
 
-	selfKeyPriv, _ = btcec.NewPrivateKey(btcec.S256())
-	selfKeyPub     = selfKeyPriv.PubKey()
-
 	bitcoinKeyPriv1, _ = btcec.NewPrivateKey(btcec.S256())
 	bitcoinKeyPub1     = bitcoinKeyPriv1.PubKey()
 
-	remoteKeyPriv1, _ = btcec.NewPrivateKey(btcec.S256())
-	remoteKeyPub1     = remoteKeyPriv1.PubKey()
+	nodeKeyPriv1, _ = btcec.NewPrivateKey(btcec.S256())
+	nodeKeyPub1     = nodeKeyPriv1.PubKey()
 
 	bitcoinKeyPriv2, _ = btcec.NewPrivateKey(btcec.S256())
 	bitcoinKeyPub2     = bitcoinKeyPriv2.PubKey()
 
-	remoteKeyPriv2, _ = btcec.NewPrivateKey(btcec.S256())
+	nodeKeyPriv2, _ = btcec.NewPrivateKey(btcec.S256())
+	nodeKeyPub2     = nodeKeyPriv2.PubKey()
 
 	trickleDelay     = time.Millisecond * 100
 	retransmitDelay  = time.Hour * 1
@@ -100,29 +95,25 @@ func makeTestDB() (*channeldb.DB, func(), error) {
 type mockGraphSource struct {
 	bestHeight uint32
 
-	mu            sync.Mutex
-	nodes         []channeldb.LightningNode
-	infos         map[uint64]channeldb.ChannelEdgeInfo
-	edges         map[uint64][]channeldb.ChannelEdgePolicy
-	zombies       map[uint64][][33]byte
-	chansToReject map[uint64]struct{}
+	mu      sync.Mutex
+	nodes   []channeldb.LightningNode
+	infos   map[uint64]channeldb.ChannelEdgeInfo
+	edges   map[uint64][]channeldb.ChannelEdgePolicy
+	zombies map[uint64][][33]byte
 }
 
 func newMockRouter(height uint32) *mockGraphSource {
 	return &mockGraphSource{
-		bestHeight:    height,
-		infos:         make(map[uint64]channeldb.ChannelEdgeInfo),
-		edges:         make(map[uint64][]channeldb.ChannelEdgePolicy),
-		zombies:       make(map[uint64][][33]byte),
-		chansToReject: make(map[uint64]struct{}),
+		bestHeight: height,
+		infos:      make(map[uint64]channeldb.ChannelEdgeInfo),
+		edges:      make(map[uint64][]channeldb.ChannelEdgePolicy),
+		zombies:    make(map[uint64][][33]byte),
 	}
 }
 
 var _ routing.ChannelGraphSource = (*mockGraphSource)(nil)
 
-func (r *mockGraphSource) AddNode(node *channeldb.LightningNode,
-	_ ...batch.SchedulerOption) error {
-
+func (r *mockGraphSource) AddNode(node *channeldb.LightningNode) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -130,9 +121,7 @@ func (r *mockGraphSource) AddNode(node *channeldb.LightningNode,
 	return nil
 }
 
-func (r *mockGraphSource) AddEdge(info *channeldb.ChannelEdgeInfo,
-	_ ...batch.SchedulerOption) error {
-
+func (r *mockGraphSource) AddEdge(info *channeldb.ChannelEdgeInfo) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -140,24 +129,11 @@ func (r *mockGraphSource) AddEdge(info *channeldb.ChannelEdgeInfo,
 		return errors.New("info already exist")
 	}
 
-	if _, ok := r.chansToReject[info.ChannelID]; ok {
-		return errors.New("validation failed")
-	}
-
 	r.infos[info.ChannelID] = *info
 	return nil
 }
 
-func (r *mockGraphSource) queueValidationFail(chanID uint64) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.chansToReject[chanID] = struct{}{}
-}
-
-func (r *mockGraphSource) UpdateEdge(edge *channeldb.ChannelEdgePolicy,
-	_ ...batch.SchedulerOption) error {
-
+func (r *mockGraphSource) UpdateEdge(edge *channeldb.ChannelEdgePolicy) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -397,9 +373,7 @@ func (r *mockGraphSource) MarkEdgeZombie(chanID lnwire.ShortChannelID, pubKey1,
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
 	r.zombies[chanID.ToUint64()] = [][33]byte{pubKey1, pubKey2}
-
 	return nil
 }
 
@@ -471,7 +445,8 @@ type annBatch struct {
 	nodeAnn1 *lnwire.NodeAnnouncement
 	nodeAnn2 *lnwire.NodeAnnouncement
 
-	chanAnn *lnwire.ChannelAnnouncement
+	localChanAnn  *lnwire.ChannelAnnouncement
+	remoteChanAnn *lnwire.ChannelAnnouncement
 
 	chanUpdAnn1 *lnwire.ChannelUpdate
 	chanUpdAnn2 *lnwire.ChannelUpdate
@@ -480,30 +455,22 @@ type annBatch struct {
 	remoteProofAnn *lnwire.AnnounceSignatures
 }
 
-func createLocalAnnouncements(blockHeight uint32) (*annBatch, error) {
-	return createAnnouncements(blockHeight, selfKeyPriv, remoteKeyPriv1)
-}
-
-func createRemoteAnnouncements(blockHeight uint32) (*annBatch, error) {
-	return createAnnouncements(blockHeight, remoteKeyPriv1, remoteKeyPriv2)
-}
-
-func createAnnouncements(blockHeight uint32, key1, key2 *btcec.PrivateKey) (*annBatch, error) {
+func createAnnouncements(blockHeight uint32) (*annBatch, error) {
 	var err error
 	var batch annBatch
 	timestamp := testTimestamp
 
-	batch.nodeAnn1, err = createNodeAnnouncement(key1, timestamp)
+	batch.nodeAnn1, err = createNodeAnnouncement(nodeKeyPriv1, timestamp)
 	if err != nil {
 		return nil, err
 	}
 
-	batch.nodeAnn2, err = createNodeAnnouncement(key2, timestamp)
+	batch.nodeAnn2, err = createNodeAnnouncement(nodeKeyPriv2, timestamp)
 	if err != nil {
 		return nil, err
 	}
 
-	batch.chanAnn, err = createChannelAnnouncement(blockHeight, key1, key2)
+	batch.remoteChanAnn, err = createRemoteChannelAnnouncement(blockHeight)
 	if err != nil {
 		return nil, err
 	}
@@ -512,27 +479,32 @@ func createAnnouncements(blockHeight uint32, key1, key2 *btcec.PrivateKey) (*ann
 		ShortChannelID: lnwire.ShortChannelID{
 			BlockHeight: blockHeight,
 		},
-		NodeSignature:    batch.chanAnn.NodeSig2,
-		BitcoinSignature: batch.chanAnn.BitcoinSig2,
+		NodeSignature:    batch.remoteChanAnn.NodeSig2,
+		BitcoinSignature: batch.remoteChanAnn.BitcoinSig2,
+	}
+
+	batch.localChanAnn, err = createRemoteChannelAnnouncement(blockHeight)
+	if err != nil {
+		return nil, err
 	}
 
 	batch.localProofAnn = &lnwire.AnnounceSignatures{
 		ShortChannelID: lnwire.ShortChannelID{
 			BlockHeight: blockHeight,
 		},
-		NodeSignature:    batch.chanAnn.NodeSig1,
-		BitcoinSignature: batch.chanAnn.BitcoinSig1,
+		NodeSignature:    batch.localChanAnn.NodeSig1,
+		BitcoinSignature: batch.localChanAnn.BitcoinSig1,
 	}
 
 	batch.chanUpdAnn1, err = createUpdateAnnouncement(
-		blockHeight, 0, key1, timestamp,
+		blockHeight, 0, nodeKeyPriv1, timestamp,
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	batch.chanUpdAnn2, err = createUpdateAnnouncement(
-		blockHeight, 1, key2, timestamp,
+		blockHeight, 1, nodeKeyPriv2, timestamp,
 	)
 	if err != nil {
 		return nil, err
@@ -630,7 +602,6 @@ func signUpdate(nodeKey *btcec.PrivateKey, a *lnwire.ChannelUpdate) error {
 }
 
 func createAnnouncementWithoutProof(blockHeight uint32,
-	key1, key2 *btcec.PublicKey,
 	extraBytes ...[]byte) *lnwire.ChannelAnnouncement {
 
 	a := &lnwire.ChannelAnnouncement{
@@ -641,8 +612,8 @@ func createAnnouncementWithoutProof(blockHeight uint32,
 		},
 		Features: testFeatures,
 	}
-	copy(a.NodeID1[:], key1.SerializeCompressed())
-	copy(a.NodeID2[:], key2.SerializeCompressed())
+	copy(a.NodeID1[:], nodeKeyPub1.SerializeCompressed())
+	copy(a.NodeID2[:], nodeKeyPub2.SerializeCompressed())
 	copy(a.BitcoinKey1[:], bitcoinKeyPub1.SerializeCompressed())
 	copy(a.BitcoinKey2[:], bitcoinKeyPub2.SerializeCompressed())
 	if len(extraBytes) == 1 {
@@ -655,16 +626,10 @@ func createAnnouncementWithoutProof(blockHeight uint32,
 func createRemoteChannelAnnouncement(blockHeight uint32,
 	extraBytes ...[]byte) (*lnwire.ChannelAnnouncement, error) {
 
-	return createChannelAnnouncement(blockHeight, remoteKeyPriv1, remoteKeyPriv2, extraBytes...)
-}
+	a := createAnnouncementWithoutProof(blockHeight, extraBytes...)
 
-func createChannelAnnouncement(blockHeight uint32, key1, key2 *btcec.PrivateKey,
-	extraBytes ...[]byte) (*lnwire.ChannelAnnouncement, error) {
-
-	a := createAnnouncementWithoutProof(blockHeight, key1.PubKey(), key2.PubKey(), extraBytes...)
-
-	pub := key1.PubKey()
-	signer := mock.SingleSigner{Privkey: key1}
+	pub := nodeKeyPriv1.PubKey()
+	signer := mock.SingleSigner{Privkey: nodeKeyPriv1}
 	sig, err := netann.SignAnnouncement(&signer, pub, a)
 	if err != nil {
 		return nil, err
@@ -674,8 +639,8 @@ func createChannelAnnouncement(blockHeight uint32, key1, key2 *btcec.PrivateKey,
 		return nil, err
 	}
 
-	pub = key2.PubKey()
-	signer = mock.SingleSigner{Privkey: key2}
+	pub = nodeKeyPriv2.PubKey()
+	signer = mock.SingleSigner{Privkey: nodeKeyPriv2}
 	sig, err = netann.SignAnnouncement(&signer, pub, a)
 	if err != nil {
 		return nil, err
@@ -766,22 +731,20 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 				Timestamp: testTimestamp,
 			}, nil
 		},
-		Router:                router,
-		TrickleDelay:          trickleDelay,
-		RetransmitTicker:      ticker.NewForce(retransmitDelay),
-		RebroadcastInterval:   rebroadcastInterval,
-		ProofMatureDelta:      proofMatureDelta,
-		WaitingProofStore:     waitingProofStore,
-		MessageStore:          newMockMessageStore(),
-		RotateTicker:          ticker.NewForce(DefaultSyncerRotationInterval),
-		HistoricalSyncTicker:  ticker.NewForce(DefaultHistoricalSyncInterval),
-		NumActiveSyncers:      3,
-		AnnSigner:             &mock.SingleSigner{Privkey: selfKeyPriv},
-		SubBatchDelay:         time.Second * 5,
-		MinimumBatchSize:      10,
-		MaxChannelUpdateBurst: DefaultMaxChannelUpdateBurst,
-		ChannelUpdateInterval: DefaultChannelUpdateInterval,
-	}, selfKeyPub)
+		Router:               router,
+		TrickleDelay:         trickleDelay,
+		RetransmitTicker:     ticker.NewForce(retransmitDelay),
+		RebroadcastInterval:  rebroadcastInterval,
+		ProofMatureDelta:     proofMatureDelta,
+		WaitingProofStore:    waitingProofStore,
+		MessageStore:         newMockMessageStore(),
+		RotateTicker:         ticker.NewForce(DefaultSyncerRotationInterval),
+		HistoricalSyncTicker: ticker.NewForce(DefaultHistoricalSyncInterval),
+		NumActiveSyncers:     3,
+		AnnSigner:            &mock.SingleSigner{Privkey: nodeKeyPriv1},
+		SubBatchDelay:        time.Second * 5,
+		MinimumBatchSize:     10,
+	}, nodeKeyPub1)
 
 	if err := gossiper.Start(); err != nil {
 		cleanUpDb()
@@ -824,7 +787,7 @@ func TestProcessAnnouncement(t *testing.T) {
 		}
 	}
 
-	nodePeer := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil}
+	nodePeer := &mockPeer{nodeKeyPriv1.PubKey(), nil, nil}
 
 	// First, we'll craft a valid remote channel announcement and send it to
 	// the gossiper so that it can be processed.
@@ -857,7 +820,7 @@ func TestProcessAnnouncement(t *testing.T) {
 
 	// We'll then craft the channel policy of the remote party and also send
 	// it to the gossiper.
-	ua, err := createUpdateAnnouncement(0, 0, remoteKeyPriv1, timestamp)
+	ua, err := createUpdateAnnouncement(0, 0, nodeKeyPriv1, timestamp)
 	if err != nil {
 		t.Fatalf("can't create update announcement: %v", err)
 	}
@@ -884,7 +847,7 @@ func TestProcessAnnouncement(t *testing.T) {
 	}
 
 	// Finally, we'll craft the remote party's node announcement.
-	na, err := createNodeAnnouncement(remoteKeyPriv1, timestamp)
+	na, err := createNodeAnnouncement(nodeKeyPriv1, timestamp)
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
@@ -912,8 +875,9 @@ func TestProcessAnnouncement(t *testing.T) {
 	}
 }
 
-// TestPrematureAnnouncement checks that premature announcements are not
-// propagated to the router subsystem.
+// TestPrematureAnnouncement checks that premature announcements are
+// not propagated to the router subsystem until block with according
+// block height received.
 func TestPrematureAnnouncement(t *testing.T) {
 	t.Parallel()
 
@@ -925,17 +889,17 @@ func TestPrematureAnnouncement(t *testing.T) {
 	}
 	defer cleanup()
 
-	_, err = createNodeAnnouncement(remoteKeyPriv1, timestamp)
+	_, err = createNodeAnnouncement(nodeKeyPriv1, timestamp)
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
 
-	nodePeer := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil}
+	nodePeer := &mockPeer{nodeKeyPriv1.PubKey(), nil, nil}
 
 	// Pretending that we receive the valid channel announcement from
 	// remote side, but block height of this announcement is greater than
-	// highest know to us, for that reason it should be ignored and not
-	// added to the router.
+	// highest know to us, for that reason it should be added to the
+	// repeat/premature batch.
 	ca, err := createRemoteChannelAnnouncement(1)
 	if err != nil {
 		t.Fatalf("can't create channel announcement: %v", err)
@@ -943,12 +907,56 @@ func TestPrematureAnnouncement(t *testing.T) {
 
 	select {
 	case <-ctx.gossiper.ProcessRemoteAnnouncement(ca, nodePeer):
-	case <-time.After(time.Second):
-		t.Fatal("announcement was not processed")
+		t.Fatal("announcement was proceeded")
+	case <-time.After(100 * time.Millisecond):
 	}
 
 	if len(ctx.router.infos) != 0 {
 		t.Fatal("edge was added to router")
+	}
+
+	// Pretending that we receive the valid channel update announcement from
+	// remote side, but block height of this announcement is greater than
+	// highest know to us, for that reason it should be added to the
+	// repeat/premature batch.
+	ua, err := createUpdateAnnouncement(1, 0, nodeKeyPriv1, timestamp)
+	if err != nil {
+		t.Fatalf("can't create update announcement: %v", err)
+	}
+
+	select {
+	case <-ctx.gossiper.ProcessRemoteAnnouncement(ua, nodePeer):
+		t.Fatal("announcement was proceeded")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	if len(ctx.router.edges) != 0 {
+		t.Fatal("edge update was added to router")
+	}
+
+	// Generate new block and waiting the previously added announcements
+	// to be proceeded.
+	newBlock := &wire.MsgBlock{}
+	ctx.notifier.notifyBlock(newBlock.Header.BlockHash(), 1)
+
+	select {
+	case <-ctx.broadcastedMessage:
+	case <-time.After(2 * trickleDelay):
+		t.Fatal("announcement wasn't broadcasted")
+	}
+
+	if len(ctx.router.infos) != 1 {
+		t.Fatalf("edge wasn't added to router: %v", err)
+	}
+
+	select {
+	case <-ctx.broadcastedMessage:
+	case <-time.After(2 * trickleDelay):
+		t.Fatal("announcement wasn't broadcasted")
+	}
+
+	if len(ctx.router.edges) != 1 {
+		t.Fatalf("edge update wasn't added to router: %v", err)
 	}
 }
 
@@ -977,11 +985,15 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 		}
 	}
 
-	batch, err := createLocalAnnouncements(0)
+	batch, err := createAnnouncements(0)
 	if err != nil {
 		t.Fatalf("can't generate announcements: %v", err)
 	}
 
+	localKey, err := btcec.ParsePubKey(batch.nodeAnn1.NodeID[:], btcec.S256())
+	if err != nil {
+		t.Fatalf("unable to parse pubkey: %v", err)
+	}
 	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:], btcec.S256())
 	if err != nil {
 		t.Fatalf("unable to parse pubkey: %v", err)
@@ -991,7 +1003,9 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 	// Recreate lightning network topology. Initialize router with channel
 	// between two nodes.
 	select {
-	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanAnn):
+	case err = <-ctx.gossiper.ProcessLocalAnnouncement(
+		batch.localChanAnn, localKey,
+	):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process local announcement")
 	}
@@ -1005,7 +1019,9 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 	}
 
 	select {
-	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanUpdAnn1):
+	case err = <-ctx.gossiper.ProcessLocalAnnouncement(
+		batch.chanUpdAnn1, localKey,
+	):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process local announcement")
 	}
@@ -1019,7 +1035,9 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 	}
 
 	select {
-	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.nodeAnn1):
+	case err = <-ctx.gossiper.ProcessLocalAnnouncement(
+		batch.nodeAnn1, localKey,
+	):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process local announcement")
 	}
@@ -1077,7 +1095,9 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 	// Pretending that we receive local channel announcement from funding
 	// manager, thereby kick off the announcement exchange process.
 	select {
-	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.localProofAnn):
+	case err = <-ctx.gossiper.ProcessLocalAnnouncement(
+		batch.localProofAnn, localKey,
+	):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process remote announcement")
 	}
@@ -1096,9 +1116,6 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 		func(*channeldb.WaitingProof) error {
 			number++
 			return nil
-		},
-		func() {
-			number = 0
 		},
 	); err != nil {
 		t.Fatalf("unable to retrieve objects from store: %v", err)
@@ -1132,9 +1149,6 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 		func(*channeldb.WaitingProof) error {
 			number++
 			return nil
-		},
-		func() {
-			number = 0
 		},
 	); err != nil && err != channeldb.ErrWaitingProofNotFound {
 		t.Fatalf("unable to retrieve objects from store: %v", err)
@@ -1170,11 +1184,15 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 		}
 	}
 
-	batch, err := createLocalAnnouncements(0)
+	batch, err := createAnnouncements(0)
 	if err != nil {
 		t.Fatalf("can't generate announcements: %v", err)
 	}
 
+	localKey, err := btcec.ParsePubKey(batch.nodeAnn1.NodeID[:], btcec.S256())
+	if err != nil {
+		t.Fatalf("unable to parse pubkey: %v", err)
+	}
 	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:], btcec.S256())
 	if err != nil {
 		t.Fatalf("unable to parse pubkey: %v", err)
@@ -1201,9 +1219,6 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 			number++
 			return nil
 		},
-		func() {
-			number = 0
-		},
 	); err != nil {
 		t.Fatalf("unable to retrieve objects from store: %v", err)
 	}
@@ -1215,7 +1230,8 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 	// Recreate lightning network topology. Initialize router with channel
 	// between two nodes.
 	select {
-	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanAnn):
+	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.localChanAnn,
+		localKey):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process local announcement")
 	}
@@ -1231,7 +1247,8 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 	}
 
 	select {
-	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanUpdAnn1):
+	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanUpdAnn1,
+		localKey):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process local announcement")
 	}
@@ -1246,7 +1263,9 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 	}
 
 	select {
-	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.nodeAnn1):
+	case err = <-ctx.gossiper.ProcessLocalAnnouncement(
+		batch.nodeAnn1, localKey,
+	):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process local announcement")
 	}
@@ -1303,7 +1322,8 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 	// After that we process local announcement, and waiting to receive
 	// the channel announcement.
 	select {
-	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.localProofAnn):
+	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.localProofAnn,
+		localKey):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process remote announcement")
 	}
@@ -1335,9 +1355,6 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 			number++
 			return nil
 		},
-		func() {
-			number = 0
-		},
 	); err != nil {
 		t.Fatalf("unable to retrieve objects from store: %v", err)
 	}
@@ -1360,11 +1377,15 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 	}
 	defer cleanup()
 
-	batch, err := createLocalAnnouncements(0)
+	batch, err := createAnnouncements(0)
 	if err != nil {
 		t.Fatalf("can't generate announcements: %v", err)
 	}
 
+	localKey, err := btcec.ParsePubKey(batch.nodeAnn1.NodeID[:], btcec.S256())
+	if err != nil {
+		t.Fatalf("unable to parse pubkey: %v", err)
+	}
 	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:], btcec.S256())
 	if err != nil {
 		t.Fatalf("unable to parse pubkey: %v", err)
@@ -1387,7 +1408,9 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 	// Recreate lightning network topology. Initialize router with channel
 	// between two nodes.
 	select {
-	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanAnn):
+	case err = <-ctx.gossiper.ProcessLocalAnnouncement(
+		batch.localChanAnn, localKey,
+	):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process local announcement")
 	}
@@ -1404,7 +1427,7 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 	// manager, thereby kick off the announcement exchange process.
 	select {
 	case err = <-ctx.gossiper.ProcessLocalAnnouncement(
-		batch.localProofAnn,
+		batch.localProofAnn, localKey,
 	):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process remote announcement")
@@ -1442,9 +1465,6 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 		func(*channeldb.WaitingProof) error {
 			number++
 			return nil
-		},
-		func() {
-			number = 0
 		},
 	); err != nil {
 		t.Fatalf("unable to retrieve objects from store: %v", err)
@@ -1550,9 +1570,6 @@ out:
 			number++
 			return nil
 		},
-		func() {
-			number = 0
-		},
 	); err != nil && err != channeldb.ErrWaitingProofNotFound {
 		t.Fatalf("unable to retrieve objects from store: %v", err)
 	}
@@ -1574,11 +1591,15 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 	}
 	defer cleanup()
 
-	batch, err := createLocalAnnouncements(0)
+	batch, err := createAnnouncements(0)
 	if err != nil {
 		t.Fatalf("can't generate announcements: %v", err)
 	}
 
+	localKey, err := btcec.ParsePubKey(batch.nodeAnn1.NodeID[:], btcec.S256())
+	if err != nil {
+		t.Fatalf("unable to parse pubkey: %v", err)
+	}
 	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:], btcec.S256())
 	if err != nil {
 		t.Fatalf("unable to parse pubkey: %v", err)
@@ -1601,7 +1622,7 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 	// between two nodes.
 	select {
 	case err = <-ctx.gossiper.ProcessLocalAnnouncement(
-		batch.chanAnn,
+		batch.localChanAnn, localKey,
 	):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process local announcement")
@@ -1617,7 +1638,7 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 
 	select {
 	case err = <-ctx.gossiper.ProcessLocalAnnouncement(
-		batch.chanUpdAnn1,
+		batch.chanUpdAnn1, localKey,
 	):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process local announcement")
@@ -1640,7 +1661,7 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 
 	select {
 	case err = <-ctx.gossiper.ProcessLocalAnnouncement(
-		batch.nodeAnn1,
+		batch.nodeAnn1, localKey,
 	):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process local announcement")
@@ -1690,7 +1711,7 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 	// manager, thereby kick off the announcement exchange process.
 	select {
 	case err = <-ctx.gossiper.ProcessLocalAnnouncement(
-		batch.localProofAnn,
+		batch.localProofAnn, localKey,
 	):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process local announcement")
@@ -1732,9 +1753,6 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 		func(*channeldb.WaitingProof) error {
 			number++
 			return nil
-		},
-		func() {
-			number = 0
 		},
 	); err != nil && err != channeldb.ErrWaitingProofNotFound {
 		t.Fatalf("unable to retrieve objects from store: %v", err)
@@ -1826,7 +1844,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	// Next, we'll ensure that channel update announcements are properly
 	// stored and de-duplicated. We do this by creating two updates
 	// announcements with the same short ID and flag.
-	ua, err := createUpdateAnnouncement(0, 0, remoteKeyPriv1, timestamp)
+	ua, err := createUpdateAnnouncement(0, 0, nodeKeyPriv1, timestamp)
 	if err != nil {
 		t.Fatalf("can't create update announcement: %v", err)
 	}
@@ -1841,7 +1859,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 
 	// Adding the very same announcement shouldn't cause an increase in the
 	// number of ChannelUpdate announcements stored.
-	ua2, err := createUpdateAnnouncement(0, 0, remoteKeyPriv1, timestamp)
+	ua2, err := createUpdateAnnouncement(0, 0, nodeKeyPriv1, timestamp)
 	if err != nil {
 		t.Fatalf("can't create update announcement: %v", err)
 	}
@@ -1856,7 +1874,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 
 	// Adding an announcement with a later timestamp should replace the
 	// stored one.
-	ua3, err := createUpdateAnnouncement(0, 0, remoteKeyPriv1, timestamp+1)
+	ua3, err := createUpdateAnnouncement(0, 0, nodeKeyPriv1, timestamp+1)
 	if err != nil {
 		t.Fatalf("can't create update announcement: %v", err)
 	}
@@ -1890,7 +1908,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 
 	// Adding a channel update with an earlier timestamp should NOT
 	// replace the one stored.
-	ua4, err := createUpdateAnnouncement(0, 0, remoteKeyPriv1, timestamp)
+	ua4, err := createUpdateAnnouncement(0, 0, nodeKeyPriv1, timestamp)
 	if err != nil {
 		t.Fatalf("can't create update announcement: %v", err)
 	}
@@ -1906,7 +1924,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 
 	// Next well ensure that node announcements are properly de-duplicated.
 	// We'll first add a single instance with a node's private key.
-	na, err := createNodeAnnouncement(remoteKeyPriv1, timestamp)
+	na, err := createNodeAnnouncement(nodeKeyPriv1, timestamp)
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
@@ -1920,7 +1938,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	}
 
 	// We'll now add another node to the batch.
-	na2, err := createNodeAnnouncement(remoteKeyPriv2, timestamp)
+	na2, err := createNodeAnnouncement(nodeKeyPriv2, timestamp)
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
@@ -1935,7 +1953,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 
 	// Adding a new instance of the _same_ node shouldn't increase the size
 	// of the node ann batch.
-	na3, err := createNodeAnnouncement(remoteKeyPriv2, timestamp)
+	na3, err := createNodeAnnouncement(nodeKeyPriv2, timestamp)
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
@@ -1950,7 +1968,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 
 	// Ensure that node announcement with different pointer to same public
 	// key is still de-duplicated.
-	newNodeKeyPointer := remoteKeyPriv2
+	newNodeKeyPointer := nodeKeyPriv2
 	na4, err := createNodeAnnouncement(newNodeKeyPointer, timestamp)
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
@@ -1966,7 +1984,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 
 	// Ensure that node announcement with increased timestamp replaces
 	// what is currently stored.
-	na5, err := createNodeAnnouncement(remoteKeyPriv2, timestamp+1)
+	na5, err := createNodeAnnouncement(nodeKeyPriv2, timestamp+1)
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
@@ -1978,7 +1996,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	if len(announcements.nodeAnnouncements) != 2 {
 		t.Fatal("node announcement not replaced in batch")
 	}
-	nodeID := route.NewVertex(remoteKeyPriv2.PubKey())
+	nodeID := route.NewVertex(nodeKeyPriv2.PubKey())
 	stored, ok := announcements.nodeAnnouncements[nodeID]
 	if !ok {
 		t.Fatalf("node announcement not found in batch")
@@ -2052,11 +2070,11 @@ func TestForwardPrivateNodeAnnouncement(t *testing.T) {
 	// We'll start off by processing a channel announcement without a proof
 	// (i.e., an unadvertised channel), followed by a node announcement for
 	// this same channel announcement.
-	chanAnn := createAnnouncementWithoutProof(startingHeight-2, selfKeyPub, remoteKeyPub1)
-	pubKey := remoteKeyPriv1.PubKey()
+	chanAnn := createAnnouncementWithoutProof(startingHeight - 2)
+	pubKey := nodeKeyPriv1.PubKey()
 
 	select {
-	case err := <-ctx.gossiper.ProcessLocalAnnouncement(chanAnn):
+	case err := <-ctx.gossiper.ProcessLocalAnnouncement(chanAnn, pubKey):
 		if err != nil {
 			t.Fatalf("unable to process local announcement: %v", err)
 		}
@@ -2072,13 +2090,13 @@ func TestForwardPrivateNodeAnnouncement(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	nodeAnn, err := createNodeAnnouncement(remoteKeyPriv1, timestamp)
+	nodeAnn, err := createNodeAnnouncement(nodeKeyPriv1, timestamp)
 	if err != nil {
 		t.Fatalf("unable to create node announcement: %v", err)
 	}
 
 	select {
-	case err := <-ctx.gossiper.ProcessLocalAnnouncement(nodeAnn):
+	case err := <-ctx.gossiper.ProcessLocalAnnouncement(nodeAnn, pubKey):
 		if err != nil {
 			t.Fatalf("unable to process remote announcement: %v", err)
 		}
@@ -2121,7 +2139,7 @@ func TestForwardPrivateNodeAnnouncement(t *testing.T) {
 
 	// We'll recreate the NodeAnnouncement with an updated timestamp to
 	// prevent a stale update. The NodeAnnouncement should now be forwarded.
-	nodeAnn, err = createNodeAnnouncement(remoteKeyPriv1, timestamp+1)
+	nodeAnn, err = createNodeAnnouncement(nodeKeyPriv1, timestamp+1)
 	if err != nil {
 		t.Fatalf("unable to create node announcement: %v", err)
 	}
@@ -2155,11 +2173,11 @@ func TestRejectZombieEdge(t *testing.T) {
 	}
 	defer cleanup()
 
-	batch, err := createRemoteAnnouncements(0)
+	batch, err := createAnnouncements(0)
 	if err != nil {
 		t.Fatalf("unable to create announcements: %v", err)
 	}
-	remotePeer := &mockPeer{pk: remoteKeyPriv2.PubKey()}
+	remotePeer := &mockPeer{pk: nodeKeyPriv2.PubKey()}
 
 	// processAnnouncements is a helper closure we'll use to test that we
 	// properly process/reject announcements based on whether they're for a
@@ -2168,7 +2186,7 @@ func TestRejectZombieEdge(t *testing.T) {
 		t.Helper()
 
 		errChan := ctx.gossiper.ProcessRemoteAnnouncement(
-			batch.chanAnn, remotePeer,
+			batch.remoteChanAnn, remotePeer,
 		)
 		select {
 		case err := <-errChan:
@@ -2229,9 +2247,9 @@ func TestRejectZombieEdge(t *testing.T) {
 	// We'll mark the edge for which we'll process announcements for as a
 	// zombie within the router. This should reject any announcements for
 	// this edge while it remains as a zombie.
-	chanID := batch.chanAnn.ShortChannelID
+	chanID := batch.remoteChanAnn.ShortChannelID
 	err = ctx.router.MarkEdgeZombie(
-		chanID, batch.chanAnn.NodeID1, batch.chanAnn.NodeID2,
+		chanID, batch.remoteChanAnn.NodeID1, batch.remoteChanAnn.NodeID2,
 	)
 	if err != nil {
 		t.Fatalf("unable to mark channel %v as zombie: %v", chanID, err)
@@ -2261,12 +2279,15 @@ func TestProcessZombieEdgeNowLive(t *testing.T) {
 	}
 	defer cleanup()
 
-	batch, err := createRemoteAnnouncements(0)
+	batch, err := createAnnouncements(0)
 	if err != nil {
 		t.Fatalf("unable to create announcements: %v", err)
 	}
 
-	remotePeer := &mockPeer{pk: remoteKeyPriv1.PubKey()}
+	localPrivKey := nodeKeyPriv1
+	remotePrivKey := nodeKeyPriv2
+
+	remotePeer := &mockPeer{pk: remotePrivKey.PubKey()}
 
 	// processAnnouncement is a helper closure we'll use to ensure an
 	// announcement is properly processed/rejected based on whether the edge
@@ -2315,36 +2336,17 @@ func TestProcessZombieEdgeNowLive(t *testing.T) {
 	// past to consider it a zombie.
 	zombieTimestamp := time.Now().Add(-routing.DefaultChannelPruneExpiry)
 	batch.chanUpdAnn2.Timestamp = uint32(zombieTimestamp.Unix())
-	if err := signUpdate(remoteKeyPriv2, batch.chanUpdAnn2); err != nil {
+	if err := signUpdate(remotePrivKey, batch.chanUpdAnn2); err != nil {
 		t.Fatalf("unable to sign update with new timestamp: %v", err)
 	}
 
-	// We'll also add the edge to our zombie index, provide a blank pubkey
-	// for the first node as we're simulating the sitaution where the first
-	// ndoe is updating but the second node isn't. In this case we only
-	// want to allow a new update from the second node to allow the entire
-	// edge to be resurrected.
-	chanID := batch.chanAnn.ShortChannelID
+	// We'll also add the edge to our zombie index.
+	chanID := batch.remoteChanAnn.ShortChannelID
 	err = ctx.router.MarkEdgeZombie(
-		chanID, [33]byte{}, batch.chanAnn.NodeID2,
+		chanID, batch.remoteChanAnn.NodeID1, batch.remoteChanAnn.NodeID2,
 	)
 	if err != nil {
 		t.Fatalf("unable mark channel %v as zombie: %v", chanID, err)
-	}
-
-	// If we send a new update but for the other direction of the channel,
-	// then it should still be rejected as we want a fresh update from the
-	// one that was considered stale.
-	batch.chanUpdAnn1.Timestamp = uint32(time.Now().Unix())
-	if err := signUpdate(remoteKeyPriv1, batch.chanUpdAnn1); err != nil {
-		t.Fatalf("unable to sign update with new timestamp: %v", err)
-	}
-	processAnnouncement(batch.chanUpdAnn1, true, true)
-
-	// At this point, the channel should still be consiered a zombie.
-	_, _, _, err = ctx.router.GetChannelByID(chanID)
-	if err != channeldb.ErrZombieEdge {
-		t.Fatalf("channel should still be a zombie")
 	}
 
 	// Attempting to process the current channel update should fail due to
@@ -2357,9 +2359,9 @@ func TestProcessZombieEdgeNowLive(t *testing.T) {
 	// allow the channel update to be processed even though it is still
 	// marked as a zombie within the index, since it is a fresh new update.
 	// This won't work however since we'll sign it with the wrong private
-	// key (remote key 1 rather than remote key 2).
+	// key (local rather than remote).
 	batch.chanUpdAnn2.Timestamp = uint32(time.Now().Unix())
-	if err := signUpdate(remoteKeyPriv1, batch.chanUpdAnn2); err != nil {
+	if err := signUpdate(localPrivKey, batch.chanUpdAnn2); err != nil {
 		t.Fatalf("unable to sign update with new timestamp: %v", err)
 	}
 
@@ -2368,7 +2370,7 @@ func TestProcessZombieEdgeNowLive(t *testing.T) {
 
 	// Signing it with the correct private key should allow it to be
 	// processed.
-	if err := signUpdate(remoteKeyPriv2, batch.chanUpdAnn2); err != nil {
+	if err := signUpdate(remotePrivKey, batch.chanUpdAnn2); err != nil {
 		t.Fatalf("unable to sign update with new timestamp: %v", err)
 	}
 
@@ -2389,7 +2391,7 @@ func TestProcessZombieEdgeNowLive(t *testing.T) {
 
 	// We'll go ahead and process the channel announcement to ensure the
 	// channel update is processed thereafter.
-	processAnnouncement(batch.chanAnn, false, false)
+	processAnnouncement(batch.remoteChanAnn, false, false)
 
 	// After successfully processing the announcement, the channel update
 	// should have been processed and broadcast successfully as well.
@@ -2423,11 +2425,15 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 	}
 	defer cleanup()
 
-	batch, err := createLocalAnnouncements(0)
+	batch, err := createAnnouncements(0)
 	if err != nil {
 		t.Fatalf("can't generate announcements: %v", err)
 	}
 
+	localKey, err := btcec.ParsePubKey(batch.nodeAnn1.NodeID[:], btcec.S256())
+	if err != nil {
+		t.Fatalf("unable to parse pubkey: %v", err)
+	}
 	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:], btcec.S256())
 	if err != nil {
 		t.Fatalf("unable to parse pubkey: %v", err)
@@ -2488,7 +2494,7 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 
 	// Recreate lightning network topology. Initialize router with channel
 	// between two nodes.
-	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanAnn)
+	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.localChanAnn, localKey)
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -2498,7 +2504,7 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanUpdAnn1)
+	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanUpdAnn1, localKey)
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -2508,7 +2514,7 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.nodeAnn1)
+	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.nodeAnn1, localKey)
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -2558,7 +2564,9 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 
 	// Pretending that we receive local channel announcement from funding
 	// manager, thereby kick off the announcement exchange process.
-	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.localProofAnn)
+	err = <-ctx.gossiper.ProcessLocalAnnouncement(
+		batch.localProofAnn, localKey,
+	)
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -2574,9 +2582,6 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 		func(*channeldb.WaitingProof) error {
 			number++
 			return nil
-		},
-		func() {
-			number = 0
 		},
 	); err != nil {
 		t.Fatalf("unable to retrieve objects from store: %v", err)
@@ -2607,9 +2612,6 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 			number++
 			return nil
 		},
-		func() {
-			number = 0
-		},
 	); err != nil && err != channeldb.ErrWaitingProofNotFound {
 		t.Fatalf("unable to retrieve objects from store: %v", err)
 	}
@@ -2631,7 +2633,7 @@ func TestExtraDataChannelAnnouncementValidation(t *testing.T) {
 	}
 	defer cleanup()
 
-	remotePeer := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil}
+	remotePeer := &mockPeer{nodeKeyPriv1.PubKey(), nil, nil}
 
 	// We'll now create an announcement that contains an extra set of bytes
 	// that we don't know of ourselves, but should still include in the
@@ -2667,7 +2669,7 @@ func TestExtraDataChannelUpdateValidation(t *testing.T) {
 	}
 	defer cleanup()
 
-	remotePeer := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil}
+	remotePeer := &mockPeer{nodeKeyPriv1.PubKey(), nil, nil}
 
 	// In this scenario, we'll create two announcements, one regular
 	// channel announcement, and another channel update announcement, that
@@ -2677,14 +2679,14 @@ func TestExtraDataChannelUpdateValidation(t *testing.T) {
 		t.Fatalf("unable to create chan ann: %v", err)
 	}
 	chanUpdAnn1, err := createUpdateAnnouncement(
-		0, 0, remoteKeyPriv1, timestamp,
+		0, 0, nodeKeyPriv1, timestamp,
 		[]byte("must also validate"),
 	)
 	if err != nil {
 		t.Fatalf("unable to create chan up: %v", err)
 	}
 	chanUpdAnn2, err := createUpdateAnnouncement(
-		0, 1, remoteKeyPriv2, timestamp,
+		0, 1, nodeKeyPriv2, timestamp,
 		[]byte("must also validate"),
 	)
 	if err != nil {
@@ -2733,14 +2735,14 @@ func TestExtraDataNodeAnnouncementValidation(t *testing.T) {
 	}
 	defer cleanup()
 
-	remotePeer := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil}
+	remotePeer := &mockPeer{nodeKeyPriv1.PubKey(), nil, nil}
 	timestamp := testTimestamp
 
 	// We'll create a node announcement that includes a set of opaque data
 	// which we don't know of, but will store anyway in order to ensure
 	// upgrades can flow smoothly in the future.
 	nodeAnn, err := createNodeAnnouncement(
-		remoteKeyPriv1, timestamp, []byte("gotta validate"),
+		nodeKeyPriv1, timestamp, []byte("gotta validate"),
 	)
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
@@ -2808,11 +2810,15 @@ func TestRetransmit(t *testing.T) {
 	}
 	defer cleanup()
 
-	batch, err := createLocalAnnouncements(0)
+	batch, err := createAnnouncements(0)
 	if err != nil {
 		t.Fatalf("can't generate announcements: %v", err)
 	}
 
+	localKey, err := btcec.ParsePubKey(batch.nodeAnn1.NodeID[:], btcec.S256())
+	if err != nil {
+		t.Fatalf("unable to parse pubkey: %v", err)
+	}
 	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:], btcec.S256())
 	if err != nil {
 		t.Fatalf("unable to parse pubkey: %v", err)
@@ -2823,17 +2829,23 @@ func TestRetransmit(t *testing.T) {
 	// announcement. No messages should be broadcasted yet, since no proof
 	// has been exchanged.
 	assertProcessAnnouncement(
-		t, ctx.gossiper.ProcessLocalAnnouncement(batch.chanAnn),
+		t, ctx.gossiper.ProcessLocalAnnouncement(
+			batch.localChanAnn, localKey,
+		),
 	)
 	assertBroadcast(t, ctx, 0)
 
 	assertProcessAnnouncement(
-		t, ctx.gossiper.ProcessLocalAnnouncement(batch.chanUpdAnn1),
+		t, ctx.gossiper.ProcessLocalAnnouncement(
+			batch.chanUpdAnn1, localKey,
+		),
 	)
 	assertBroadcast(t, ctx, 0)
 
 	assertProcessAnnouncement(
-		t, ctx.gossiper.ProcessLocalAnnouncement(batch.nodeAnn1),
+		t, ctx.gossiper.ProcessLocalAnnouncement(
+			batch.nodeAnn1, localKey,
+		),
 	)
 	assertBroadcast(t, ctx, 0)
 
@@ -2849,7 +2861,9 @@ func TestRetransmit(t *testing.T) {
 	// Now add the local and remote proof to the gossiper, which should
 	// trigger a broadcast of the announcements.
 	assertProcessAnnouncement(
-		t, ctx.gossiper.ProcessLocalAnnouncement(batch.localProofAnn),
+		t, ctx.gossiper.ProcessLocalAnnouncement(
+			batch.localProofAnn, localKey,
+		),
 	)
 	assertBroadcast(t, ctx, 0)
 
@@ -2920,7 +2934,7 @@ func TestNodeAnnouncementNoChannels(t *testing.T) {
 	}
 	defer cleanup()
 
-	batch, err := createRemoteAnnouncements(0)
+	batch, err := createAnnouncements(0)
 	if err != nil {
 		t.Fatalf("can't generate announcements: %v", err)
 	}
@@ -2954,7 +2968,7 @@ func TestNodeAnnouncementNoChannels(t *testing.T) {
 	// Now add the node's channel to the graph by processing the channel
 	// announement and channel update.
 	select {
-	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.chanAnn,
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.remoteChanAnn,
 		remotePeer):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process remote announcement")
@@ -3025,7 +3039,7 @@ func TestOptionalFieldsChannelUpdateValidation(t *testing.T) {
 
 	chanUpdateHeight := uint32(0)
 	timestamp := uint32(123456)
-	nodePeer := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil}
+	nodePeer := &mockPeer{nodeKeyPriv1.PubKey(), nil, nil}
 
 	// In this scenario, we'll test whether the message flags field in a channel
 	// update is properly handled.
@@ -3045,14 +3059,14 @@ func TestOptionalFieldsChannelUpdateValidation(t *testing.T) {
 
 	// The first update should fail from an invalid max HTLC field, which is
 	// less than the min HTLC.
-	chanUpdAnn, err := createUpdateAnnouncement(0, 0, remoteKeyPriv1, timestamp)
+	chanUpdAnn, err := createUpdateAnnouncement(0, 0, nodeKeyPriv1, timestamp)
 	if err != nil {
 		t.Fatalf("unable to create channel update: %v", err)
 	}
 
 	chanUpdAnn.HtlcMinimumMsat = 5000
 	chanUpdAnn.HtlcMaximumMsat = 4000
-	if err := signUpdate(remoteKeyPriv1, chanUpdAnn); err != nil {
+	if err := signUpdate(nodeKeyPriv1, chanUpdAnn); err != nil {
 		t.Fatalf("unable to sign channel update: %v", err)
 	}
 
@@ -3069,7 +3083,7 @@ func TestOptionalFieldsChannelUpdateValidation(t *testing.T) {
 	// the max HTLC field is 0.
 	chanUpdAnn.HtlcMinimumMsat = 0
 	chanUpdAnn.HtlcMaximumMsat = 0
-	if err := signUpdate(remoteKeyPriv1, chanUpdAnn); err != nil {
+	if err := signUpdate(nodeKeyPriv1, chanUpdAnn); err != nil {
 		t.Fatalf("unable to sign channel update: %v", err)
 	}
 
@@ -3085,7 +3099,7 @@ func TestOptionalFieldsChannelUpdateValidation(t *testing.T) {
 	// The final update should succeed, since setting the flag 0 means the
 	// nonsense max_htlc field will just be ignored.
 	chanUpdAnn.MessageFlags = 0
-	if err := signUpdate(remoteKeyPriv1, chanUpdAnn); err != nil {
+	if err := signUpdate(nodeKeyPriv1, chanUpdAnn); err != nil {
 		t.Fatalf("unable to sign channel update: %v", err)
 	}
 
@@ -3112,14 +3126,17 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 	}
 	defer cleanup()
 
-	batch, err := createLocalAnnouncements(0)
+	batch, err := createAnnouncements(0)
 	if err != nil {
 		t.Fatalf("can't generate announcements: %v", err)
 	}
 
 	// We'll also create two keys, one for ourselves and another for the
 	// remote party.
-
+	localKey, err := btcec.ParsePubKey(batch.nodeAnn1.NodeID[:], btcec.S256())
+	if err != nil {
+		t.Fatalf("unable to parse pubkey: %v", err)
+	}
 	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:], btcec.S256())
 	if err != nil {
 		t.Fatalf("unable to parse pubkey: %v", err)
@@ -3166,7 +3183,9 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 	// Process the channel announcement for which we'll send a channel
 	// update for.
 	select {
-	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanAnn):
+	case err = <-ctx.gossiper.ProcessLocalAnnouncement(
+		batch.localChanAnn, localKey,
+	):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process local channel announcement")
 	}
@@ -3183,7 +3202,9 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 
 	// Now, we'll process the channel update.
 	select {
-	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanUpdAnn1):
+	case err = <-ctx.gossiper.ProcessLocalAnnouncement(
+		batch.chanUpdAnn1, localKey,
+	):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process local channel update")
 	}
@@ -3237,14 +3258,14 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 
 	// Now that the remote peer is offline, we'll send a new channel update.
 	batch.chanUpdAnn1.Timestamp++
-	if err := signUpdate(selfKeyPriv, batch.chanUpdAnn1); err != nil {
+	if err := signUpdate(nodeKeyPriv1, batch.chanUpdAnn1); err != nil {
 		t.Fatalf("unable to sign new channel update: %v", err)
 	}
 
 	// With the new update created, we'll go ahead and process it.
 	select {
 	case err = <-ctx.gossiper.ProcessLocalAnnouncement(
-		batch.chanUpdAnn1,
+		batch.chanUpdAnn1, localKey,
 	):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process local channel update")
@@ -3285,7 +3306,7 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 	// the channel.
 	select {
 	case err = <-ctx.gossiper.ProcessLocalAnnouncement(
-		batch.localProofAnn,
+		batch.localProofAnn, localKey,
 	):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process local channel proof")
@@ -3333,7 +3354,7 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 	newChannelUpdate := &lnwire.ChannelUpdate{}
 	*newChannelUpdate = *staleChannelUpdate
 	newChannelUpdate.Timestamp++
-	if err := signUpdate(selfKeyPriv, newChannelUpdate); err != nil {
+	if err := signUpdate(nodeKeyPriv1, newChannelUpdate); err != nil {
 		t.Fatalf("unable to sign new channel update: %v", err)
 	}
 
@@ -3342,7 +3363,7 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 	// not announced.
 	select {
 	case err = <-ctx.gossiper.ProcessLocalAnnouncement(
-		newChannelUpdate,
+		newChannelUpdate, localKey,
 	):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process local channel update")
@@ -3415,14 +3436,14 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 }
 
 func sendLocalMsg(t *testing.T, ctx *testCtx, msg lnwire.Message,
-	optionalMsgFields ...OptionalMsgField) {
+	localPub *btcec.PublicKey, optionalMsgFields ...OptionalMsgField) {
 
 	t.Helper()
 
 	var err error
 	select {
 	case err = <-ctx.gossiper.ProcessLocalAnnouncement(
-		msg, optionalMsgFields...,
+		msg, localPub, optionalMsgFields...,
 	):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process local announcement")
@@ -3488,7 +3509,7 @@ func TestPropagateChanPolicyUpdate(t *testing.T) {
 	const numChannels = 3
 	channelsToAnnounce := make([]*annBatch, 0, numChannels)
 	for i := 0; i < numChannels; i++ {
-		newChan, err := createLocalAnnouncements(uint32(i + 1))
+		newChan, err := createAnnouncements(uint32(i + 1))
 		if err != nil {
 			t.Fatalf("unable to make new channel ann: %v", err)
 		}
@@ -3496,7 +3517,8 @@ func TestPropagateChanPolicyUpdate(t *testing.T) {
 		channelsToAnnounce = append(channelsToAnnounce, newChan)
 	}
 
-	remoteKey := remoteKeyPriv1.PubKey()
+	localKey := nodeKeyPriv1.PubKey()
+	remoteKey := nodeKeyPriv2.PubKey()
 
 	sentMsgs := make(chan lnwire.Message, 10)
 	remotePeer := &mockPeer{remoteKey, sentMsgs, ctx.gossiper.quit}
@@ -3523,7 +3545,7 @@ func TestPropagateChanPolicyUpdate(t *testing.T) {
 	// the gossiper in order for it to process. However, we'll hold back
 	// the channel ann proof from the first channel in order to have it be
 	// marked as private channel.
-	firstChanID := channelsToAnnounce[0].chanAnn.ShortChannelID
+	firstChanID := channelsToAnnounce[0].localChanAnn.ShortChannelID
 	for i, batch := range channelsToAnnounce {
 		// channelPoint ensures that each channel policy in the map
 		// returned by PropagateChanPolicyUpdate has a unique key. Since
@@ -3531,20 +3553,20 @@ func TestPropagateChanPolicyUpdate(t *testing.T) {
 		// each channel has a unique channel point.
 		channelPoint := ChannelPoint(wire.OutPoint{Index: uint32(i)})
 
-		sendLocalMsg(t, ctx, batch.chanAnn, channelPoint)
-		sendLocalMsg(t, ctx, batch.chanUpdAnn1)
-		sendLocalMsg(t, ctx, batch.nodeAnn1)
+		sendLocalMsg(t, ctx, batch.localChanAnn, localKey, channelPoint)
+		sendLocalMsg(t, ctx, batch.chanUpdAnn1, localKey)
+		sendLocalMsg(t, ctx, batch.nodeAnn1, localKey)
 
 		sendRemoteMsg(t, ctx, batch.chanUpdAnn2, remotePeer)
 		sendRemoteMsg(t, ctx, batch.nodeAnn2, remotePeer)
 
 		// We'll skip sending the auth proofs from the first channel to
 		// ensure that it's seen as a private channel.
-		if batch.chanAnn.ShortChannelID == firstChanID {
+		if batch.localChanAnn.ShortChannelID == firstChanID {
 			continue
 		}
 
-		sendLocalMsg(t, ctx, batch.localProofAnn)
+		sendLocalMsg(t, ctx, batch.localProofAnn, localKey)
 		sendRemoteMsg(t, ctx, batch.remoteProofAnn, remotePeer)
 	}
 
@@ -3666,8 +3688,9 @@ func TestProcessChannelAnnouncementOptionalMsgFields(t *testing.T) {
 	}
 	defer cleanup()
 
-	chanAnn1 := createAnnouncementWithoutProof(100, selfKeyPub, remoteKeyPub1)
-	chanAnn2 := createAnnouncementWithoutProof(101, selfKeyPub, remoteKeyPub1)
+	chanAnn1 := createAnnouncementWithoutProof(100)
+	chanAnn2 := createAnnouncementWithoutProof(101)
+	localKey := nodeKeyPriv1.PubKey()
 
 	// assertOptionalMsgFields is a helper closure that ensures the optional
 	// message fields were set as intended.
@@ -3692,7 +3715,7 @@ func TestProcessChannelAnnouncementOptionalMsgFields(t *testing.T) {
 
 	// We'll process the first announcement without any optional fields. We
 	// should see the channel's capacity and outpoint have a zero value.
-	sendLocalMsg(t, ctx, chanAnn1)
+	sendLocalMsg(t, ctx, chanAnn1, localKey)
 	assertOptionalMsgFields(chanAnn1.ShortChannelID, 0, wire.OutPoint{})
 
 	// Providing the capacity and channel point as optional fields should
@@ -3700,7 +3723,7 @@ func TestProcessChannelAnnouncementOptionalMsgFields(t *testing.T) {
 	capacity := btcutil.Amount(1000)
 	channelPoint := wire.OutPoint{Index: 1}
 	sendLocalMsg(
-		t, ctx, chanAnn2, ChannelCapacity(capacity),
+		t, ctx, chanAnn2, localKey, ChannelCapacity(capacity),
 		ChannelPoint(channelPoint),
 	)
 	assertOptionalMsgFields(chanAnn2.ShortChannelID, capacity, channelPoint)
@@ -3810,12 +3833,6 @@ func TestCalculateCorrectSubBatchSizesDifferentDelay(t *testing.T) {
 	}
 }
 
-// markGraphSynced allows us to report that the initial historical sync has
-// completed.
-func (m *SyncManager) markGraphSyncing() {
-	atomic.StoreInt32(&m.initialHistoricalSyncCompleted, 0)
-}
-
 // TestBroadcastAnnsAfterGraphSynced ensures that we only broadcast
 // announcements after the graph has been considered as synced, i.e., after our
 // initial historical sync has completed.
@@ -3838,14 +3855,16 @@ func TestBroadcastAnnsAfterGraphSynced(t *testing.T) {
 
 		t.Helper()
 
-		nodePeer := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil}
+		nodePeer := &mockPeer{nodeKeyPriv1.PubKey(), nil, nil}
 		var errChan chan error
 		if isRemote {
 			errChan = ctx.gossiper.ProcessRemoteAnnouncement(
 				msg, nodePeer,
 			)
 		} else {
-			errChan = ctx.gossiper.ProcessLocalAnnouncement(msg)
+			errChan = ctx.gossiper.ProcessLocalAnnouncement(
+				msg, nodePeer.pk,
+			)
 		}
 
 		select {
@@ -3880,7 +3899,7 @@ func TestBroadcastAnnsAfterGraphSynced(t *testing.T) {
 
 	// A local channel announcement should be broadcast though, regardless
 	// of whether we've synced our graph or not.
-	chanUpd, err := createUpdateAnnouncement(0, 0, remoteKeyPriv1, 1)
+	chanUpd, err := createUpdateAnnouncement(0, 0, nodeKeyPriv1, 1)
 	if err != nil {
 		t.Fatalf("unable to create channel announcement: %v", err)
 	}
@@ -3895,372 +3914,4 @@ func TestBroadcastAnnsAfterGraphSynced(t *testing.T) {
 		t.Fatalf("unable to create channel announcement: %v", err)
 	}
 	assertBroadcast(chanAnn2, true, true)
-}
-
-// TestRateLimitChannelUpdates ensures that we properly rate limit incoming
-// channel updates.
-func TestRateLimitChannelUpdates(t *testing.T) {
-	t.Parallel()
-
-	// Create our test harness.
-	const blockHeight = 100
-	ctx, cleanup, err := createTestCtx(blockHeight)
-	if err != nil {
-		t.Fatalf("can't create context: %v", err)
-	}
-	defer cleanup()
-	ctx.gossiper.cfg.RebroadcastInterval = time.Hour
-	ctx.gossiper.cfg.MaxChannelUpdateBurst = 5
-	ctx.gossiper.cfg.ChannelUpdateInterval = 5 * time.Second
-
-	// The graph should start empty.
-	require.Empty(t, ctx.router.infos)
-	require.Empty(t, ctx.router.edges)
-
-	// We'll create a batch of signed announcements, including updates for
-	// both sides, for a channel and process them. They should all be
-	// forwarded as this is our first time learning about the channel.
-	batch, err := createRemoteAnnouncements(blockHeight)
-	require.NoError(t, err)
-
-	nodePeer1 := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil}
-	select {
-	case err := <-ctx.gossiper.ProcessRemoteAnnouncement(
-		batch.chanAnn, nodePeer1,
-	):
-		require.NoError(t, err)
-	case <-time.After(time.Second):
-		t.Fatal("remote announcement not processed")
-	}
-
-	select {
-	case err := <-ctx.gossiper.ProcessRemoteAnnouncement(
-		batch.chanUpdAnn1, nodePeer1,
-	):
-		require.NoError(t, err)
-	case <-time.After(time.Second):
-		t.Fatal("remote announcement not processed")
-	}
-
-	nodePeer2 := &mockPeer{remoteKeyPriv2.PubKey(), nil, nil}
-	select {
-	case err := <-ctx.gossiper.ProcessRemoteAnnouncement(
-		batch.chanUpdAnn2, nodePeer2,
-	):
-		require.NoError(t, err)
-	case <-time.After(time.Second):
-		t.Fatal("remote announcement not processed")
-	}
-
-	timeout := time.After(2 * trickleDelay)
-	for i := 0; i < 3; i++ {
-		select {
-		case <-ctx.broadcastedMessage:
-		case <-timeout:
-			t.Fatal("expected announcement to be broadcast")
-		}
-	}
-
-	shortChanID := batch.chanAnn.ShortChannelID.ToUint64()
-	require.Contains(t, ctx.router.infos, shortChanID)
-	require.Contains(t, ctx.router.edges, shortChanID)
-
-	// We'll define a helper to assert whether updates should be rate
-	// limited or not depending on their contents.
-	assertRateLimit := func(update *lnwire.ChannelUpdate, peer lnpeer.Peer,
-		shouldRateLimit bool) {
-
-		t.Helper()
-
-		select {
-		case err := <-ctx.gossiper.ProcessRemoteAnnouncement(update, peer):
-			require.NoError(t, err)
-		case <-time.After(time.Second):
-			t.Fatal("remote announcement not processed")
-		}
-
-		select {
-		case <-ctx.broadcastedMessage:
-			if shouldRateLimit {
-				t.Fatal("unexpected channel update broadcast")
-			}
-		case <-time.After(2 * trickleDelay):
-			if !shouldRateLimit {
-				t.Fatal("expected channel update broadcast")
-			}
-		}
-	}
-
-	// We'll start with the keep alive case.
-	//
-	// We rate limit any keep alive updates that have not at least spanned
-	// our rebroadcast interval.
-	rateLimitKeepAliveUpdate := *batch.chanUpdAnn1
-	rateLimitKeepAliveUpdate.Timestamp++
-	require.NoError(t, signUpdate(remoteKeyPriv1, &rateLimitKeepAliveUpdate))
-	assertRateLimit(&rateLimitKeepAliveUpdate, nodePeer1, true)
-
-	keepAliveUpdate := *batch.chanUpdAnn1
-	keepAliveUpdate.Timestamp = uint32(
-		time.Unix(int64(batch.chanUpdAnn1.Timestamp), 0).
-			Add(ctx.gossiper.cfg.RebroadcastInterval).Unix(),
-	)
-	require.NoError(t, signUpdate(remoteKeyPriv1, &keepAliveUpdate))
-	assertRateLimit(&keepAliveUpdate, nodePeer1, false)
-
-	// Then, we'll move on to the non keep alive cases.
-	//
-	// For this test, non keep alive updates are rate limited to one per 5
-	// seconds with a max burst of 5 per direction. We'll process the max
-	// burst of one direction first. None of these should be rate limited.
-	updateSameDirection := keepAliveUpdate
-	for i := uint32(0); i < uint32(ctx.gossiper.cfg.MaxChannelUpdateBurst); i++ {
-		updateSameDirection.Timestamp++
-		updateSameDirection.BaseFee++
-		require.NoError(t, signUpdate(remoteKeyPriv1, &updateSameDirection))
-		assertRateLimit(&updateSameDirection, nodePeer1, false)
-	}
-
-	// Following with another update should be rate limited as the max burst
-	// has been reached and we haven't ticked at the next interval yet.
-	updateSameDirection.Timestamp++
-	updateSameDirection.BaseFee++
-	require.NoError(t, signUpdate(remoteKeyPriv1, &updateSameDirection))
-	assertRateLimit(&updateSameDirection, nodePeer1, true)
-
-	// An update for the other direction should not be rate limited.
-	updateDiffDirection := *batch.chanUpdAnn2
-	updateDiffDirection.Timestamp++
-	updateDiffDirection.BaseFee++
-	require.NoError(t, signUpdate(remoteKeyPriv2, &updateDiffDirection))
-	assertRateLimit(&updateDiffDirection, nodePeer2, false)
-
-	// Wait for the next interval to tick. Since we've only waited for one,
-	// only one more update is allowed.
-	<-time.After(ctx.gossiper.cfg.ChannelUpdateInterval)
-	for i := 0; i < ctx.gossiper.cfg.MaxChannelUpdateBurst; i++ {
-		updateSameDirection.Timestamp++
-		updateSameDirection.BaseFee++
-		require.NoError(t, signUpdate(remoteKeyPriv1, &updateSameDirection))
-
-		shouldRateLimit := i != 0
-		assertRateLimit(&updateSameDirection, nodePeer1, shouldRateLimit)
-	}
-}
-
-// TestIgnoreOwnAnnouncement tests that the gossiper will ignore announcements
-// about our own channels when coming from a remote peer.
-func TestIgnoreOwnAnnouncement(t *testing.T) {
-	t.Parallel()
-
-	ctx, cleanup, err := createTestCtx(proofMatureDelta)
-	if err != nil {
-		t.Fatalf("can't create context: %v", err)
-	}
-	defer cleanup()
-
-	batch, err := createLocalAnnouncements(0)
-	if err != nil {
-		t.Fatalf("can't generate announcements: %v", err)
-	}
-
-	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:], btcec.S256())
-	if err != nil {
-		t.Fatalf("unable to parse pubkey: %v", err)
-	}
-	remotePeer := &mockPeer{remoteKey, nil, nil}
-
-	// Try to let the remote peer tell us about the channel we are part of.
-	select {
-	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(
-		batch.chanAnn, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
-	// It should be ignored, since the gossiper only cares about local
-	// announcements for its own channels.
-	if err == nil || !strings.Contains(err.Error(), "ignoring") {
-		t.Fatalf("expected gossiper to ignore announcement, got: %v", err)
-	}
-
-	// Now do the local channelannouncement, node announcement, and channel
-	// update. No messages should be brodcasted yet, since we don't have
-	// the announcement signatures.
-	select {
-	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanAnn):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
-	if err != nil {
-		t.Fatalf("unable to process channel ann: %v", err)
-	}
-	select {
-	case <-ctx.broadcastedMessage:
-		t.Fatal("channel announcement was broadcast")
-	case <-time.After(2 * trickleDelay):
-	}
-
-	select {
-	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanUpdAnn1):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
-	if err != nil {
-		t.Fatalf("unable to process channel update: %v", err)
-	}
-	select {
-	case <-ctx.broadcastedMessage:
-		t.Fatal("channel update announcement was broadcast")
-	case <-time.After(2 * trickleDelay):
-	}
-
-	select {
-	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.nodeAnn1):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
-	if err != nil {
-		t.Fatalf("unable to process node ann: %v", err)
-	}
-	select {
-	case <-ctx.broadcastedMessage:
-		t.Fatal("node announcement was broadcast")
-	case <-time.After(2 * trickleDelay):
-	}
-
-	// We should accept the remote's channel update and node announcement.
-	select {
-	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(
-		batch.chanUpdAnn2, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
-	if err != nil {
-		t.Fatalf("unable to process channel update: %v", err)
-	}
-	select {
-	case <-ctx.broadcastedMessage:
-		t.Fatal("channel update announcement was broadcast")
-	case <-time.After(2 * trickleDelay):
-	}
-
-	select {
-	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(
-		batch.nodeAnn2, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
-	if err != nil {
-		t.Fatalf("unable to process node ann: %v", err)
-	}
-	select {
-	case <-ctx.broadcastedMessage:
-		t.Fatal("node announcement was broadcast")
-	case <-time.After(2 * trickleDelay):
-	}
-
-	// Now we exchange the proofs, the messages will be broadcasted to the
-	// network.
-	select {
-	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.localProofAnn):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
-	if err != nil {
-		t.Fatalf("unable to process local proof: %v", err)
-	}
-
-	select {
-	case <-ctx.broadcastedMessage:
-		t.Fatal("announcements were broadcast")
-	case <-time.After(2 * trickleDelay):
-	}
-
-	select {
-	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(
-		batch.remoteProofAnn, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
-	if err != nil {
-		t.Fatalf("unable to process remote proof: %v", err)
-	}
-
-	for i := 0; i < 5; i++ {
-		select {
-		case <-ctx.broadcastedMessage:
-		case <-time.After(time.Second):
-			t.Fatal("announcement wasn't broadcast")
-		}
-	}
-
-	// Finally, we again check that we'll ignore the remote giving us
-	// announcements about our own channel.
-	select {
-	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(
-		batch.chanAnn, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
-	if err == nil || !strings.Contains(err.Error(), "ignoring") {
-		t.Fatalf("expected gossiper to ignore announcement, got: %v", err)
-	}
-}
-
-// TestRejectCacheChannelAnn checks that if we reject a channel announcement,
-// then if we attempt to validate it again, we'll reject it with the proper
-// error.
-func TestRejectCacheChannelAnn(t *testing.T) {
-	t.Parallel()
-
-	ctx, cleanup, err := createTestCtx(proofMatureDelta)
-	if err != nil {
-		t.Fatalf("can't create context: %v", err)
-	}
-	defer cleanup()
-
-	// First, we create a channel announcement to send over to our test
-	// peer.
-	batch, err := createRemoteAnnouncements(0)
-	if err != nil {
-		t.Fatalf("can't generate announcements: %v", err)
-	}
-
-	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:], btcec.S256())
-	if err != nil {
-		t.Fatalf("unable to parse pubkey: %v", err)
-	}
-	remotePeer := &mockPeer{remoteKey, nil, nil}
-
-	// Before sending over the announcement, we'll modify it such that we
-	// know it will always fail.
-	chanID := batch.chanAnn.ShortChannelID.ToUint64()
-	ctx.router.queueValidationFail(chanID)
-
-	// If we process the batch the first time we should get an error.
-	select {
-	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(
-		batch.chanAnn, remotePeer,
-	):
-		require.NotNil(t, err)
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
-
-	// If we process it a *second* time, then we should get an error saying
-	// we rejected it already.
-	select {
-	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(
-		batch.chanAnn, remotePeer,
-	):
-		errStr := err.Error()
-		require.Contains(t, errStr, "recently rejected")
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
 }

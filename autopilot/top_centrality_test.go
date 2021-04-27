@@ -16,9 +16,9 @@ func testTopCentrality(t *testing.T, graph testGraph,
 
 	topCentrality := NewTopCentrality()
 
-	var channels []LocalChannel
+	var channels []Channel
 	for _, ch := range channelsWith {
-		channels = append(channels, LocalChannel{
+		channels = append(channels, Channel{
 			Node: NewNodeID(graphNodes[ch]),
 		})
 	}

@@ -55,10 +55,7 @@ func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 
 	// Specify bbolt freelist options to reduce heap pressure in case the
 	// freelist grows to be very large.
-	bdb, err := kvdb.Open(
-		kvdb.BoltBackendName, path,
-		opts.NoFreelistSync, opts.DBTimeout,
-	)
+	bdb, err := kvdb.Open(kvdb.BoltBackendName, path, opts.NoFreelistSync)
 	if err != nil {
 		return nil, err
 	}
@@ -87,9 +84,7 @@ func createChannelDB(dbPath string) error {
 	}
 
 	path := filepath.Join(dbPath, dbName)
-	bdb, err := kvdb.Create(
-		kvdb.BoltBackendName, path, false, kvdb.DefaultDBTimeout,
-	)
+	bdb, err := kvdb.Create(kvdb.BoltBackendName, path, false)
 	if err != nil {
 		return err
 	}
@@ -157,7 +152,7 @@ func createChannelDB(dbPath string) error {
 			DbVersionNumber: 0,
 		}
 		return putMeta(meta, tx)
-	}, func() {})
+	})
 	if err != nil {
 		return fmt.Errorf("unable to create new channeldb")
 	}
@@ -208,8 +203,6 @@ func (d *DB) FetchClosedChannels(pendingOnly bool) ([]*ChannelCloseSummary, erro
 			chanSummaries = append(chanSummaries, chanSummary)
 			return nil
 		})
-	}, func() {
-		chanSummaries = nil
 	}); err != nil {
 		return nil, err
 	}

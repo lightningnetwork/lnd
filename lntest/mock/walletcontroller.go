@@ -10,9 +10,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/hdkeychain"
-	"github.com/btcsuite/btcutil/psbt"
-	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 
@@ -54,14 +51,13 @@ func (w *WalletController) FetchInputInfo(
 }
 
 // ConfirmedBalance currently returns dummy values.
-func (w *WalletController) ConfirmedBalance(confs int32,
-	_ string) (btcutil.Amount, error) {
+func (w *WalletController) ConfirmedBalance(confs int32) (btcutil.Amount, error) {
 	return 0, nil
 }
 
 // NewAddress is called to get new addresses for delivery, change etc.
 func (w *WalletController) NewAddress(addrType lnwallet.AddressType,
-	change bool, _ string) (btcutil.Address, error) {
+	change bool) (btcutil.Address, error) {
 
 	addr, _ := btcutil.NewAddressPubKey(
 		w.RootKey.PubKey().SerializeCompressed(), &chaincfg.MainNetParams,
@@ -70,8 +66,8 @@ func (w *WalletController) NewAddress(addrType lnwallet.AddressType,
 }
 
 // LastUnusedAddress currently returns dummy values.
-func (w *WalletController) LastUnusedAddress(addrType lnwallet.AddressType,
-	_ string) (btcutil.Address, error) {
+func (w *WalletController) LastUnusedAddress(addrType lnwallet.AddressType) (
+	btcutil.Address, error) {
 	return nil, nil
 }
 
@@ -80,42 +76,24 @@ func (w *WalletController) IsOurAddress(a btcutil.Address) bool {
 	return false
 }
 
-// ListAccounts currently returns a dummy value.
-func (w *WalletController) ListAccounts(_ string,
-	_ *waddrmgr.KeyScope) ([]*waddrmgr.AccountProperties, error) {
-	return nil, nil
-}
-
-// ImportAccount currently returns a dummy value.
-func (w *WalletController) ImportAccount(string, *hdkeychain.ExtendedKey,
-	uint32, *waddrmgr.AddressType) error {
-	return nil
-}
-
-// ImportPublicKey currently returns a dummy value.
-func (w *WalletController) ImportPublicKey(*btcec.PublicKey,
-	waddrmgr.AddressType) error {
-	return nil
-}
-
 // SendOutputs currently returns dummy values.
 func (w *WalletController) SendOutputs(outputs []*wire.TxOut,
-	_ chainfee.SatPerKWeight, _ int32, _ string) (*wire.MsgTx, error) {
+	_ chainfee.SatPerKWeight, _ string) (*wire.MsgTx, error) {
 
 	return nil, nil
 }
 
 // CreateSimpleTx currently returns dummy values.
 func (w *WalletController) CreateSimpleTx(outputs []*wire.TxOut,
-	_ chainfee.SatPerKWeight, _ int32, _ bool) (*txauthor.AuthoredTx, error) {
+	_ chainfee.SatPerKWeight, _ bool) (*txauthor.AuthoredTx, error) {
 
 	return nil, nil
 }
 
 // ListUnspentWitness is called by the wallet when doing coin selection. We just
 // need one unspent for the funding transaction.
-func (w *WalletController) ListUnspentWitness(minConfs,
-	maxConfs int32, _ string) ([]*lnwallet.Utxo, error) {
+func (w *WalletController) ListUnspentWitness(minconfirms,
+	maxconfirms int32) ([]*lnwallet.Utxo, error) {
 
 	// If the mock already has a list of utxos, return it.
 	if w.Utxos != nil {
@@ -140,7 +118,7 @@ func (w *WalletController) ListUnspentWitness(minConfs,
 
 // ListTransactionDetails currently returns dummy values.
 func (w *WalletController) ListTransactionDetails(_,
-	_ int32, _ string) ([]*lnwallet.TransactionDetail, error) {
+	_ int32) ([]*lnwallet.TransactionDetail, error) {
 
 	return nil, nil
 }
@@ -152,30 +130,14 @@ func (w *WalletController) LockOutpoint(o wire.OutPoint) {}
 func (w *WalletController) UnlockOutpoint(o wire.OutPoint) {}
 
 // LeaseOutput returns the current time and a nil error.
-func (w *WalletController) LeaseOutput(wtxmgr.LockID, wire.OutPoint,
-	time.Duration) (time.Time, error) {
+func (w *WalletController) LeaseOutput(wtxmgr.LockID, wire.OutPoint) (time.Time,
+	error) {
 
 	return time.Now(), nil
 }
 
 // ReleaseOutput currently does nothing.
 func (w *WalletController) ReleaseOutput(wtxmgr.LockID, wire.OutPoint) error {
-	return nil
-}
-
-func (w *WalletController) ListLeasedOutputs() ([]*wtxmgr.LockedOutput, error) {
-	return nil, nil
-}
-
-// FundPsbt currently does nothing.
-func (w *WalletController) FundPsbt(_ *psbt.Packet,
-	_ chainfee.SatPerKWeight, _ string) (int32, error) {
-
-	return 0, nil
-}
-
-// FinalizePsbt currently does nothing.
-func (w *WalletController) FinalizePsbt(_ *psbt.Packet, _ string) error {
 	return nil
 }
 

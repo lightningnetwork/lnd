@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/lightningnetwork/lnd/build"
@@ -20,7 +21,6 @@ var versionCommand = cli.Command{
 }
 
 func version(ctx *cli.Context) error {
-	ctxc := getContext()
 	conn := getClientConn(ctx, false)
 	defer conn.Close()
 
@@ -40,7 +40,8 @@ func version(ctx *cli.Context) error {
 
 	client := verrpc.NewVersionerClient(conn)
 
-	lndVersion, err := client.GetVersion(ctxc, &verrpc.VersionRequest{})
+	ctxb := context.Background()
+	lndVersion, err := client.GetVersion(ctxb, &verrpc.VersionRequest{})
 	if err != nil {
 		printRespJSON(versions)
 		return fmt.Errorf("unable fetch version from lnd: %v", err)

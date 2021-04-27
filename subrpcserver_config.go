@@ -7,7 +7,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/autopilot"
-	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -82,8 +81,7 @@ type subRPCServerConfigs struct {
 //
 // NOTE: This MUST be called before any callers are permitted to execute the
 // FetchConfig method.
-func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
-	cc *chainreg.ChainControl,
+func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config, cc *chainControl,
 	networkDir string, macService *macaroons.Service,
 	atpl *autopilot.Manager,
 	invoiceRegistry *invoices.InvoiceRegistry,
@@ -92,12 +90,10 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	chanRouter *routing.ChannelRouter,
 	routerBackend *routerrpc.RouterBackend,
 	nodeSigner *netann.NodeSigner,
-	localChanDB *channeldb.DB,
-	remoteChanDB *channeldb.DB,
+	chanDB *channeldb.DB,
 	sweeper *sweep.UtxoSweeper,
 	tower *watchtower.Standalone,
 	towerClient wtclient.Client,
-	anchorTowerClient wtclient.Client,
 	tcpResolver lncfg.TCPResolver,
 	genInvoiceFeatures func() *lnwire.FeatureVector,
 	rpcLogger btclog.Logger) error {
@@ -136,10 +132,10 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 				reflect.ValueOf(networkDir),
 			)
 			subCfgValue.FieldByName("Signer").Set(
-				reflect.ValueOf(cc.Signer),
+				reflect.ValueOf(cc.signer),
 			)
 			subCfgValue.FieldByName("KeyRing").Set(
-				reflect.ValueOf(cc.KeyRing),
+				reflect.ValueOf(cc.keyRing),
 			)
 
 		case *walletrpc.Config:
@@ -152,22 +148,22 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 				reflect.ValueOf(macService),
 			)
 			subCfgValue.FieldByName("FeeEstimator").Set(
-				reflect.ValueOf(cc.FeeEstimator),
+				reflect.ValueOf(cc.feeEstimator),
 			)
 			subCfgValue.FieldByName("Wallet").Set(
-				reflect.ValueOf(cc.Wallet),
+				reflect.ValueOf(cc.wallet),
 			)
 			subCfgValue.FieldByName("CoinSelectionLocker").Set(
-				reflect.ValueOf(cc.Wallet),
+				reflect.ValueOf(cc.wallet),
 			)
 			subCfgValue.FieldByName("KeyRing").Set(
-				reflect.ValueOf(cc.KeyRing),
+				reflect.ValueOf(cc.keyRing),
 			)
 			subCfgValue.FieldByName("Sweeper").Set(
 				reflect.ValueOf(sweeper),
 			)
 			subCfgValue.FieldByName("Chain").Set(
-				reflect.ValueOf(cc.ChainIO),
+				reflect.ValueOf(cc.chainIO),
 			)
 			subCfgValue.FieldByName("ChainParams").Set(
 				reflect.ValueOf(activeNetParams),
@@ -190,7 +186,7 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 				reflect.ValueOf(macService),
 			)
 			subCfgValue.FieldByName("ChainNotifier").Set(
-				reflect.ValueOf(cc.ChainNotifier),
+				reflect.ValueOf(cc.chainNotifier),
 			)
 
 		case *invoicesrpc.Config:
@@ -215,17 +211,14 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 				reflect.ValueOf(nodeSigner),
 			)
 			defaultDelta := cfg.Bitcoin.TimeLockDelta
-			if cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
+			if cfg.registeredChains.PrimaryChain() == litecoinChain {
 				defaultDelta = cfg.Litecoin.TimeLockDelta
 			}
 			subCfgValue.FieldByName("DefaultCLTVExpiry").Set(
 				reflect.ValueOf(defaultDelta),
 			)
-			subCfgValue.FieldByName("LocalChanDB").Set(
-				reflect.ValueOf(localChanDB),
-			)
-			subCfgValue.FieldByName("RemoteChanDB").Set(
-				reflect.ValueOf(remoteChanDB),
+			subCfgValue.FieldByName("ChanDB").Set(
+				reflect.ValueOf(chanDB),
 			)
 			subCfgValue.FieldByName("GenInvoiceFeatures").Set(
 				reflect.ValueOf(genInvoiceFeatures),
@@ -248,15 +241,12 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 		case *wtclientrpc.Config:
 			subCfgValue := extractReflectValue(subCfg)
 
-			if towerClient != nil && anchorTowerClient != nil {
+			if towerClient != nil {
 				subCfgValue.FieldByName("Active").Set(
 					reflect.ValueOf(towerClient != nil),
 				)
 				subCfgValue.FieldByName("Client").Set(
 					reflect.ValueOf(towerClient),
-				)
-				subCfgValue.FieldByName("AnchorClient").Set(
-					reflect.ValueOf(anchorTowerClient),
 				)
 			}
 			subCfgValue.FieldByName("Resolver").Set(

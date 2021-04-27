@@ -262,7 +262,7 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 	)
 	bobBalance := lnwire.NewMSatFromSatoshis(channelBal)
 
-	aliceLocalCommit := channeldb.ChannelCommitment{
+	aliceCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
 		LocalBalance:  aliceBalance,
 		RemoteBalance: bobBalance,
@@ -271,31 +271,13 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 		CommitTx:      aliceCommitTx,
 		CommitSig:     testSigBytes,
 	}
-	aliceRemoteCommit := channeldb.ChannelCommitment{
-		CommitHeight:  0,
-		LocalBalance:  aliceBalance,
-		RemoteBalance: bobBalance,
-		CommitFee:     commitFee,
-		FeePerKw:      btcutil.Amount(feePerKw),
-		CommitTx:      bobCommitTx,
-		CommitSig:     testSigBytes,
-	}
-	bobLocalCommit := channeldb.ChannelCommitment{
+	bobCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
 		LocalBalance:  bobBalance,
 		RemoteBalance: aliceBalance,
 		CommitFee:     commitFee,
 		FeePerKw:      btcutil.Amount(feePerKw),
 		CommitTx:      bobCommitTx,
-		CommitSig:     testSigBytes,
-	}
-	bobRemoteCommit := channeldb.ChannelCommitment{
-		CommitHeight:  0,
-		LocalBalance:  bobBalance,
-		RemoteBalance: aliceBalance,
-		CommitFee:     commitFee,
-		FeePerKw:      btcutil.Amount(feePerKw),
-		CommitTx:      aliceCommitTx,
 		CommitSig:     testSigBytes,
 	}
 
@@ -320,8 +302,8 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 		RemoteCurrentRevocation: bobCommitPoint,
 		RevocationProducer:      alicePreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
-		LocalCommitment:         aliceLocalCommit,
-		RemoteCommitment:        aliceRemoteCommit,
+		LocalCommitment:         aliceCommit,
+		RemoteCommitment:        aliceCommit,
 		Db:                      dbAlice,
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 		FundingTxn:              testTx,
@@ -338,8 +320,8 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 		RemoteCurrentRevocation: aliceCommitPoint,
 		RevocationProducer:      bobPreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
-		LocalCommitment:         bobLocalCommit,
-		RemoteCommitment:        bobRemoteCommit,
+		LocalCommitment:         bobCommit,
+		RemoteCommitment:        bobCommit,
 		Db:                      dbBob,
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}

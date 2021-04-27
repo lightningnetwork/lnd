@@ -24,7 +24,7 @@ var defaultSetDesc = setDesc{
 		SetInvoice:      {}, // 9
 		SetLegacyGlobal: {},
 	},
-	lnwire.StaticRemoteKeyRequired: {
+	lnwire.StaticRemoteKeyOptional: {
 		SetInit:         {}, // I
 		SetNodeAnn:      {}, // N
 		SetLegacyGlobal: {},
@@ -33,7 +33,7 @@ var defaultSetDesc = setDesc{
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
-	lnwire.PaymentAddrRequired: {
+	lnwire.PaymentAddrOptional: {
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 		SetInvoice: {}, // 9
@@ -43,17 +43,12 @@ var defaultSetDesc = setDesc{
 		SetNodeAnn: {}, // N
 		SetInvoice: {}, // 9
 	},
-	lnwire.AnchorsZeroFeeHtlcTxOptional: {
+	lnwire.AnchorsOptional: {
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
 	lnwire.WumboChannelsOptional: {
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
-	},
-	lnwire.AMPOptional: {
-		SetInit:    {}, // I
-		SetNodeAnn: {}, // N
-		SetInvoice: {}, // 9
 	},
 }

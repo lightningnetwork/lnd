@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"math"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -33,12 +32,6 @@ const (
 	// The size of the buffered queue of requests to the wallet from the
 	// outside word.
 	msgBufferSize = 100
-
-	// anchorChanReservedValue is the amount we'll keep around in the
-	// wallet in case we have to fee bump anchor channels on force close.
-	// TODO(halseth): update constant to target a specific commit size at
-	// set fee rate.
-	anchorChanReservedValue = btcutil.Amount(10_000)
 )
 
 var (
@@ -46,12 +39,6 @@ var (
 	// contribution handling process if the process should be paused for
 	// the construction of a PSBT outside of lnd's wallet.
 	ErrPsbtFundingRequired = errors.New("PSBT funding required")
-
-	// ErrReservedValueInvalidated is returned if we try to publish a
-	// transaction that would take the walletbalance below what we require
-	// to keep around to fee bump our open anchor channels.
-	ErrReservedValueInvalidated = errors.New("reserved wallet balance " +
-		"invalidated")
 )
 
 // PsbtFundingRequired is a type that implements the error interface and
@@ -316,12 +303,7 @@ type LightningWallet struct {
 	// monotonically integer. All requests concerning the channel MUST
 	// carry a valid, active funding ID.
 	fundingLimbo map[uint64]*ChannelReservation
-
-	// reservationIDs maps a pending channel ID to the reservation ID used
-	// as key in the fundingLimbo map. Used to easily look up a channel
-	// reservation given a pending channel ID.
-	reservationIDs map[[32]byte]uint64
-	limboMtx       sync.RWMutex
+	limboMtx     sync.RWMutex
 
 	// lockedOutPoints is a set of the currently locked outpoint. This
 	// information is kept in order to provide an easy way to unlock all
@@ -352,7 +334,6 @@ func NewLightningWallet(Cfg Config) (*LightningWallet, error) {
 		msgChan:          make(chan interface{}, msgBufferSize),
 		nextFundingID:    0,
 		fundingLimbo:     make(map[uint64]*ChannelReservation),
-		reservationIDs:   make(map[[32]byte]uint64),
 		lockedOutPoints:  make(map[wire.OutPoint]struct{}),
 		fundingIntents:   make(map[[32]byte]chanfunding.Intent),
 		quit:             make(chan struct{}),
@@ -396,33 +377,14 @@ func (l *LightningWallet) Shutdown() error {
 	return nil
 }
 
-// ConfirmedBalance returns the current confirmed balance of a wallet account.
-// This methods wraps the internal WalletController method so we're able to
-// properly hold the coin select mutex while we compute the balance.
-func (l *LightningWallet) ConfirmedBalance(confs int32,
-	account string) (btcutil.Amount, error) {
-
+// ConfirmedBalance returns the current confirmed balance of the wallet. This
+// methods wraps the interal WalletController method so we're able to properly
+// hold the coin select mutex while we compute the balance.
+func (l *LightningWallet) ConfirmedBalance(confs int32) (btcutil.Amount, error) {
 	l.coinSelectMtx.Lock()
 	defer l.coinSelectMtx.Unlock()
 
-	return l.WalletController.ConfirmedBalance(confs, account)
-}
-
-// ListUnspentWitnessFromDefaultAccount returns all unspent outputs from the
-// default wallet account which are version 0 witness programs. The 'minConfs'
-// and 'maxConfs' parameters indicate the minimum and maximum number of
-// confirmations an output needs in order to be returned by this method. Passing
-// -1 as 'minConfs' indicates that even unconfirmed outputs should be returned.
-// Using MaxInt32 as 'maxConfs' implies returning all outputs with at least
-// 'minConfs'.
-//
-// NOTE: This method requires the global coin selection lock to be held.
-func (l *LightningWallet) ListUnspentWitnessFromDefaultAccount(
-	minConfs, maxConfs int32) ([]*Utxo, error) {
-
-	return l.WalletController.ListUnspentWitness(
-		minConfs, maxConfs, DefaultAccountName,
-	)
+	return l.WalletController.ConfirmedBalance(confs)
 }
 
 // LockedOutpoints returns a list of all currently locked outpoint.
@@ -442,7 +404,6 @@ func (l *LightningWallet) LockedOutpoints() []*wire.OutPoint {
 func (l *LightningWallet) ResetReservations() {
 	l.nextFundingID = 0
 	l.fundingLimbo = make(map[uint64]*ChannelReservation)
-	l.reservationIDs = make(map[[32]byte]uint64)
 
 	for outpoint := range l.lockedOutPoints {
 		l.UnlockOutpoint(outpoint)
@@ -464,8 +425,6 @@ func (l *LightningWallet) ActiveReservations() []*ChannelReservation {
 // requestHandler is the primary goroutine(s) responsible for handling, and
 // dispatching replies to all messages.
 func (l *LightningWallet) requestHandler() {
-	defer l.wg.Done()
-
 out:
 	for {
 		select {
@@ -491,6 +450,8 @@ out:
 			break out
 		}
 	}
+
+	l.wg.Done()
 }
 
 // InitChannelReservation kicks off the 3-step workflow required to successfully
@@ -549,16 +510,16 @@ func (l *LightningWallet) RegisterFundingIntent(expectedID [32]byte,
 // PsbtFundingVerify looks up a previously registered funding intent by its
 // pending channel ID and tries to advance the state machine by verifying the
 // passed PSBT.
-func (l *LightningWallet) PsbtFundingVerify(pendingChanID [32]byte,
+func (l *LightningWallet) PsbtFundingVerify(pid [32]byte,
 	packet *psbt.Packet) error {
 
 	l.intentMtx.Lock()
 	defer l.intentMtx.Unlock()
 
-	intent, ok := l.fundingIntents[pendingChanID]
+	intent, ok := l.fundingIntents[pid]
 	if !ok {
 		return fmt.Errorf("no funding intent found for "+
-			"pendingChannelID(%x)", pendingChanID[:])
+			"pendingChannelID(%x)", pid[:])
 	}
 	psbtIntent, ok := intent.(*chanfunding.PsbtIntent)
 	if !ok {
@@ -569,49 +530,7 @@ func (l *LightningWallet) PsbtFundingVerify(pendingChanID [32]byte,
 		return fmt.Errorf("error verifying PSBT: %v", err)
 	}
 
-	// Get the channel reservation for that corresponds to this pending
-	// channel ID.
-	l.limboMtx.Lock()
-	pid, ok := l.reservationIDs[pendingChanID]
-	if !ok {
-		l.limboMtx.Unlock()
-		return fmt.Errorf("no channel reservation found for "+
-			"pendingChannelID(%x)", pendingChanID[:])
-	}
-
-	pendingReservation, ok := l.fundingLimbo[pid]
-	l.limboMtx.Unlock()
-
-	if !ok {
-		return fmt.Errorf("no channel reservation found for "+
-			"reservation ID %v", pid)
-	}
-
-	// Now the the PSBT has been verified, we can again check whether the
-	// value reserved for anchor fee bumping is respected.
-	numAnchors, err := l.currentNumAnchorChans()
-	if err != nil {
-		return err
-	}
-
-	// If this commit type is an anchor channel we add that to our counter,
-	// but only if we are contributing funds to the channel. This is done
-	// to still allow incoming channels even though we have no UTXOs
-	// available, as in bootstrapping phases.
-	if pendingReservation.partialState.ChanType.HasAnchors() &&
-		intent.LocalFundingAmt() > 0 {
-		numAnchors++
-	}
-
-	// We check the reserve value again, this should already have been
-	// checked for regular FullIntents, but now the PSBT intent is also
-	// populated.
-	return l.WithCoinSelectLock(func() error {
-		_, err := l.CheckReservedValue(
-			intent.Inputs(), intent.Outputs(), numAnchors,
-		)
-		return err
-	})
+	return nil
 }
 
 // PsbtFundingFinalize looks up a previously registered funding intent by its
@@ -741,9 +660,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 			SubtractFees: req.SubtractFees,
 			FeeRate:      req.FundingFeePerKw,
 			ChangeAddr: func() (btcutil.Address, error) {
-				return l.NewAddress(
-					WitnessPubKey, true, DefaultAccountName,
-				)
+				return l.NewAddress(WitnessPubKey, true)
 			},
 		}
 		fundingIntent, err = req.ChanFunder.ProvisionChannel(
@@ -797,46 +714,6 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		thawHeight = shimIntent.ThawHeight()
 	}
 
-	// Now that we have a funding intent, we'll check whether funding a
-	// channel using it would violate our reserved value for anchor channel
-	// fee bumping. We first get our current number of anchor channels.
-	numAnchors, err := l.currentNumAnchorChans()
-	if err != nil {
-		fundingIntent.Cancel()
-
-		req.err <- err
-		req.resp <- nil
-		return
-	}
-
-	// If this commit type is an anchor channel we add that to our counter,
-	// but only if we are contributing funds to the channel. This is done
-	// to still allow incoming channels even though we have no UTXOs
-	// available, as in bootstrapping phases.
-	if req.CommitType == CommitmentTypeAnchorsZeroFeeHtlcTx &&
-		fundingIntent.LocalFundingAmt() > 0 {
-		numAnchors++
-	}
-
-	// Check the reserved value using the inputs and outputs given by the
-	// intent. Not that for the PSBT intent type we don't yet have the
-	// funding tx ready, so this will always pass. We'll do another check
-	// when the PSBT has been verified.
-	err = l.WithCoinSelectLock(func() error {
-		_, err := l.CheckReservedValue(
-			fundingIntent.Inputs(), fundingIntent.Outputs(),
-			numAnchors,
-		)
-		return err
-	})
-	if err != nil {
-		fundingIntent.Cancel()
-
-		req.err <- err
-		req.resp <- nil
-		return
-	}
-
 	// The total channel capacity will be the size of the funding output we
 	// created plus the remote contribution.
 	capacity := localFundingAmt + remoteFundingAmt
@@ -871,7 +748,6 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// request.
 	l.limboMtx.Lock()
 	l.fundingLimbo[id] = reservation
-	l.reservationIDs[req.PendingChanID] = id
 	l.limboMtx.Unlock()
 
 	// Funding reservation request successfully handled. The funding inputs
@@ -879,157 +755,6 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// completed, or canceled.
 	req.resp <- reservation
 	req.err <- nil
-}
-
-// currentNumAnchorChans returns the current number of anchor channels the
-// wallet should be ready to fee bump if needed.
-func (l *LightningWallet) currentNumAnchorChans() (int, error) {
-	// Count all anchor channels that are open or pending
-	// open, or waiting close.
-	chans, err := l.Cfg.Database.FetchAllChannels()
-	if err != nil {
-		return 0, err
-	}
-
-	var numAnchors int
-	for _, c := range chans {
-		if c.ChanType.HasAnchors() {
-			numAnchors++
-		}
-	}
-
-	// We also count pending close channels.
-	pendingClosed, err := l.Cfg.Database.FetchClosedChannels(
-		true,
-	)
-	if err != nil {
-		return 0, err
-	}
-
-	for _, c := range pendingClosed {
-		c, err := l.Cfg.Database.FetchHistoricalChannel(
-			&c.ChanPoint,
-		)
-		if err != nil {
-			// We don't have a guarantee that all channels re found
-			// in the historical channels bucket, so we continue.
-			walletLog.Warnf("Unable to fetch historical "+
-				"channel: %v", err)
-			continue
-		}
-
-		if c.ChanType.HasAnchors() {
-			numAnchors++
-		}
-	}
-
-	return numAnchors, nil
-}
-
-// CheckReservedValue checks whether publishing a transaction with the given
-// inputs and outputs would violate the value we reserve in the wallet for
-// bumping the fee of anchor channels. The numAnchorChans argument should be
-// set the the number of open anchor channels controlled by the wallet after
-// the transaction has been published.
-//
-// If the reserved value is violated, the returned error will be
-// ErrReservedValueInvalidated. The method will also return the current
-// reserved value, both in case of success and in case of
-// ErrReservedValueInvalidated.
-//
-// NOTE: This method should only be run with the CoinSelectLock held.
-func (l *LightningWallet) CheckReservedValue(in []wire.OutPoint,
-	out []*wire.TxOut, numAnchorChans int) (btcutil.Amount, error) {
-
-	// Get all unspent coins in the wallet. We only care about those part of
-	// the wallet's default account as we know we can readily sign for those
-	// at any time.
-	witnessOutputs, err := l.ListUnspentWitnessFromDefaultAccount(
-		0, math.MaxInt32,
-	)
-	if err != nil {
-		return 0, err
-	}
-
-	ourInput := make(map[wire.OutPoint]struct{})
-	for _, op := range in {
-		ourInput[op] = struct{}{}
-	}
-
-	// When crafting a transaction with inputs from the wallet, these coins
-	// will usually be locked in the process, and not be returned when
-	// listing unspents. In this case they have already been deducted from
-	// the wallet balance. In case they haven't been properly locked, we
-	// check whether they are still listed among our unspents and deduct
-	// them.
-	var walletBalance btcutil.Amount
-	for _, in := range witnessOutputs {
-		// Spending an unlocked wallet UTXO, don't add it to the
-		// balance.
-		if _, ok := ourInput[in.OutPoint]; ok {
-			continue
-		}
-
-		walletBalance += in.Value
-	}
-
-	// Now we go through the outputs of the transaction, if any of the
-	// outputs are paying into the wallet (likely a change output), we add
-	// it to our final balance.
-	for _, txOut := range out {
-		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
-			txOut.PkScript, &l.Cfg.NetParams,
-		)
-		if err != nil {
-			// Non-standard outputs can safely be skipped because
-			// they're not supported by the wallet.
-			continue
-		}
-
-		for _, addr := range addrs {
-			if !l.IsOurAddress(addr) {
-				continue
-			}
-
-			walletBalance += btcutil.Amount(txOut.Value)
-
-			// We break since we don't want to double count the output.
-			break
-		}
-	}
-
-	// We reserve a given amount for each anchor channel.
-	reserved := btcutil.Amount(numAnchorChans) * anchorChanReservedValue
-
-	if walletBalance < reserved {
-		walletLog.Debugf("Reserved value=%v above final "+
-			"walletbalance=%v with %d anchor channels open",
-			reserved, walletBalance, numAnchorChans)
-		return reserved, ErrReservedValueInvalidated
-	}
-
-	return reserved, nil
-}
-
-// CheckReservedValueTx calls CheckReservedValue with the inputs and outputs
-// from the given tx, with the number of anchor channels currently open in the
-// database.
-//
-// NOTE: This method should only be run with the CoinSelectLock held.
-func (l *LightningWallet) CheckReservedValueTx(tx *wire.MsgTx) (btcutil.Amount,
-	error) {
-
-	numAnchors, err := l.currentNumAnchorChans()
-	if err != nil {
-		return 0, err
-	}
-
-	var inputs []wire.OutPoint
-	for _, txIn := range tx.TxIn {
-		inputs = append(inputs, txIn.PreviousOutPoint)
-	}
-
-	return l.CheckReservedValue(inputs, tx.TxOut, numAnchors)
 }
 
 // initOurContribution initializes the given ChannelReservation with our coins
@@ -1096,13 +821,26 @@ func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
 		return err
 	}
 
-	// With the above keys created, we'll also need to initialize our
-	// revocation tree state, and from that generate the per-commitment point.
-	producer, err := l.nextRevocationProducer(reservation, keyRing)
+	// With the above keys created, we'll also need to initialization our
+	// initial revocation tree state.
+	nextRevocationKeyDesc, err := keyRing.DeriveNextKey(
+		keychain.KeyFamilyRevocationRoot,
+	)
+	if err != nil {
+		return err
+	}
+	revocationRoot, err := l.DerivePrivKey(nextRevocationKeyDesc)
 	if err != nil {
 		return err
 	}
 
+	// Once we have the root, we can then generate our shachain producer
+	// and from that generate the per-commitment point.
+	revRoot, err := chainhash.NewHash(revocationRoot.Serialize())
+	if err != nil {
+		return err
+	}
+	producer := shachain.NewRevocationProducer(*revRoot)
 	firstPreimage, err := producer.AtIndex(0)
 	if err != nil {
 		return err
@@ -1152,7 +890,6 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 	delete(l.fundingLimbo, req.pendingFundingID)
 
 	pid := pendingReservation.pendingChanID
-	delete(l.reservationIDs, pid)
 
 	l.intentMtx.Lock()
 	if intent, ok := l.fundingIntents[pid]; ok {
@@ -1703,7 +1440,6 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	// Funding complete, this entry can be removed from limbo.
 	l.limboMtx.Lock()
 	delete(l.fundingLimbo, res.reservationID)
-	delete(l.reservationIDs, res.pendingChanID)
 	l.limboMtx.Unlock()
 
 	l.intentMtx.Lock()
@@ -1738,8 +1474,6 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 		res.ourContribution.UpfrontShutdown
 	res.partialState.RemoteShutdownScript =
 		res.theirContribution.UpfrontShutdown
-
-	res.partialState.RevocationKeyLocator = res.nextRevocationKeyLoc
 
 	// Add the complete funding transaction to the DB, in its open bucket
 	// which will be used for the lifetime of this channel.
@@ -1905,9 +1639,6 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	// which will be used for the lifetime of this channel.
 	chanState.LocalChanCfg = pendingReservation.ourContribution.toChanConfig()
 	chanState.RemoteChanCfg = pendingReservation.theirContribution.toChanConfig()
-
-	chanState.RevocationKeyLocator = pendingReservation.nextRevocationKeyLoc
-
 	err = chanState.SyncPending(pendingReservation.nodeAddr, uint32(bestHeight))
 	if err != nil {
 		req.err <- err
@@ -2045,9 +1776,7 @@ func NewCoinSource(w *LightningWallet) *CoinSource {
 func (c *CoinSource) ListCoins(minConfs int32,
 	maxConfs int32) ([]chanfunding.Coin, error) {
 
-	utxos, err := c.wallet.ListUnspentWitnessFromDefaultAccount(
-		minConfs, maxConfs,
-	)
+	utxos, err := c.wallet.ListUnspentWitness(minConfs, maxConfs)
 	if err != nil {
 		return nil, err
 	}

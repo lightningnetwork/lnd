@@ -29,7 +29,6 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/lntest/channels"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -432,13 +431,11 @@ func (frs *failingRetributionStore) Remove(key *wire.OutPoint) error {
 	return frs.rs.Remove(key)
 }
 
-func (frs *failingRetributionStore) ForAll(cb func(*retributionInfo) error,
-	reset func()) error {
-
+func (frs *failingRetributionStore) ForAll(cb func(*retributionInfo) error) error {
 	frs.mu.Lock()
 	defer frs.mu.Unlock()
 
-	return frs.rs.ForAll(cb, reset)
+	return frs.rs.ForAll(cb)
 }
 
 // Parse the pubkeys in the breached outputs.
@@ -595,13 +592,10 @@ func (rs *mockRetributionStore) Remove(key *wire.OutPoint) error {
 	return nil
 }
 
-func (rs *mockRetributionStore) ForAll(cb func(*retributionInfo) error,
-	reset func()) error {
-
+func (rs *mockRetributionStore) ForAll(cb func(*retributionInfo) error) error {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
-	reset()
 	for _, retInfo := range rs.state {
 		if err := cb(copyRetInfo(retInfo)); err != nil {
 			return err
@@ -723,8 +717,6 @@ func countRetributions(t *testing.T, rs RetributionStore) int {
 	err := rs.ForAll(func(_ *retributionInfo) error {
 		count++
 		return nil
-	}, func() {
-		count = 0
 	})
 	if err != nil {
 		t.Fatalf("unable to list retributions in db: %v", err)
@@ -927,7 +919,7 @@ restartCheck:
 	// Construct a set of all channel points presented by the store. Entries
 	// are only be added to the set if their corresponding retribution
 	// information matches the test vector.
-	var foundSet map[wire.OutPoint]struct{}
+	var foundSet = make(map[wire.OutPoint]struct{})
 
 	// Iterate through the stored retributions, checking to see if we have
 	// an equivalent retribution in the test vector. This will return an
@@ -956,8 +948,6 @@ restartCheck:
 		}
 
 		return nil
-	}, func() {
-		foundSet = make(map[wire.OutPoint]struct{})
 	}); err != nil {
 		t.Fatalf("failed to iterate over persistent retributions: %v",
 			err)
@@ -1680,7 +1670,7 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 	})
 
 	aliceKeyPriv, _ := btcec.PrivKeyFromBytes(btcec.S256(),
-		channels.AlicesPrivKey)
+		alicesPrivKey)
 	signer := &mock.SingleSigner{Privkey: aliceKeyPriv}
 
 	// Assemble our test arbiter.
@@ -1715,9 +1705,9 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwallet.LightningChannel, func(), error) {
 
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
-		channels.AlicesPrivKey)
+		alicesPrivKey)
 	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
-		channels.BobsPrivKey)
+		bobsPrivKey)
 
 	channelCapacity, err := btcutil.NewAmount(10)
 	if err != nil {
@@ -1731,7 +1721,7 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 	csvTimeoutBob := uint32(4)
 
 	prevOut := &wire.OutPoint{
-		Hash:  channels.TestHdSeed,
+		Hash:  chainhash.Hash(testHdSeed),
 		Index: 0,
 	}
 	fundingTxIn := wire.NewTxIn(prevOut, nil, nil)
@@ -1843,24 +1833,22 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		return nil, nil, nil, err
 	}
 
-	commitFee := feePerKw.FeeForWeight(input.CommitWeight)
-
 	// TODO(roasbeef): need to factor in commit fee?
 	aliceCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
-		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal - commitFee),
+		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal),
 		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal),
 		FeePerKw:      btcutil.Amount(feePerKw),
-		CommitFee:     commitFee,
+		CommitFee:     8688,
 		CommitTx:      aliceCommitTx,
 		CommitSig:     bytes.Repeat([]byte{1}, 71),
 	}
 	bobCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
 		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal),
-		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal - commitFee),
+		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal),
 		FeePerKw:      btcutil.Amount(feePerKw),
-		CommitFee:     commitFee,
+		CommitFee:     8688,
 		CommitTx:      bobCommitTx,
 		CommitSig:     bytes.Repeat([]byte{1}, 71),
 	}
@@ -1890,7 +1878,7 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		RemoteCommitment:        aliceCommit,
 		Db:                      dbAlice,
 		Packager:                channeldb.NewChannelPackager(shortChanID),
-		FundingTxn:              channels.TestFundingTx,
+		FundingTxn:              testTx,
 	}
 	bobChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            bobCfg,

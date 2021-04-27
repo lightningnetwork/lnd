@@ -174,8 +174,6 @@ func (w *WitnessCache) lookupWitness(wType WitnessType, witnessKey []byte) ([]by
 		copy(witness[:], dbWitness)
 
 		return nil
-	}, func() {
-		witness = nil
 	})
 	if err != nil {
 		return nil, err

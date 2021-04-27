@@ -5,8 +5,6 @@ import (
 	"reflect"
 	"sort"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
 var testFeatureNames = map[FeatureBit]string{
@@ -89,38 +87,12 @@ func TestFeatureVectorSetUnset(t *testing.T) {
 				t.Errorf("Expectation failed in case %d, bit %d", i, j)
 				break
 			}
-
 		}
 
 		for _, bit := range test.bits {
 			fv.Unset(bit)
 		}
 	}
-}
-
-// TestFeatureVectorRequiresFeature tests that if a feature vector only
-// includes a required feature bit (it's even), then the RequiresFeature method
-// will return true for both that bit as well as it's optional counter party.
-func TestFeatureVectorRequiresFeature(t *testing.T) {
-	t.Parallel()
-
-	// Create a new feature vector with the features above, and set only
-	// the set of required bits. These will be all the even features
-	// referenced above.
-	fv := NewFeatureVector(nil, testFeatureNames)
-	fv.Set(0)
-	fv.Set(4)
-
-	// Next we'll query for those exact bits, these should show up as being
-	// required.
-	require.True(t, fv.RequiresFeature(0))
-	require.True(t, fv.RequiresFeature(4))
-
-	// If we query for the odd (optional) counter party to each of the
-	// features, the method should still return that the backing feature
-	// vector requires the feature to be set.
-	require.True(t, fv.RequiresFeature(1))
-	require.True(t, fv.RequiresFeature(5))
 }
 
 func TestFeatureVectorEncodeDecode(t *testing.T) {
@@ -305,7 +277,7 @@ func TestIsRequired(t *testing.T) {
 }
 
 // TestFeatures asserts that the Features() method on a FeatureVector properly
-// returns the set of feature bits it stores internally.
+// returns the set of feature bits it stores internallly.
 func TestFeatures(t *testing.T) {
 	tests := []struct {
 		name string

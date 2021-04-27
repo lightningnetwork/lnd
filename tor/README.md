@@ -16,6 +16,6 @@ onion services, asynchronous messages, etc.
 
 ## Installation and Updating
 
-```shell
-⛰  go get -u github.com/lightningnetwork/lnd/tor
+```bash
+$ go get -u github.com/lightningnetwork/lnd/tor
 ```

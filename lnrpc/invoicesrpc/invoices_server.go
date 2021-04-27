@@ -66,13 +66,6 @@ var (
 	DefaultInvoicesMacFilename = "invoices.macaroon"
 )
 
-// ServerShell is a shell struct holding a reference to the actual sub-server.
-// It is used to register the gRPC sub-server with the root server before we
-// have the necessary dependencies to populate the actual sub-server.
-type ServerShell struct {
-	InvoicesServer
-}
-
 // Server is a sub-server of the main RPC server: the invoices RPC. This sub
 // RPC server allows external callers to access the status of the invoices
 // currently active within lnd, as well as configuring it at runtime.
@@ -99,11 +92,8 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 	)
 
 	// Now that we know the full path of the invoices macaroon, we can
-	// check to see if we need to create it or not. If stateless_init is set
-	// then we don't write the macaroons.
-	if cfg.MacService != nil && !cfg.MacService.StatelessInit &&
-		!lnrpc.FileExists(macFilePath) {
-
+	// check to see if we need to create it or not.
+	if !lnrpc.FileExists(macFilePath) && cfg.MacService != nil {
 		log.Infof("Baking macaroons for invoices RPC Server at: %v",
 			macFilePath)
 
@@ -123,7 +113,7 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 		}
 		err = ioutil.WriteFile(macFilePath, invoicesMacBytes, 0644)
 		if err != nil {
-			_ = os.Remove(macFilePath)
+			os.Remove(macFilePath)
 			return nil, nil, err
 		}
 	}
@@ -164,11 +154,11 @@ func (s *Server) Name() string {
 // RPC server to register itself with the main gRPC root server. Until this is
 // called, each sub-server won't be able to have requests routed towards it.
 //
-// NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// We make sure that we register it with the main gRPC server to ensure
 	// all our methods are routed properly.
-	RegisterInvoicesServer(grpcServer, r)
+	RegisterInvoicesServer(grpcServer, s)
 
 	log.Debugf("Invoices RPC server successfully registered with root " +
 		"gRPC server")
@@ -180,8 +170,8 @@ func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 // RPC server to register itself with the main REST mux server. Until this is
 // called, each sub-server won't be able to have requests routed towards it.
 //
-// NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (s *Server) RegisterWithRestServer(ctx context.Context,
 	mux *runtime.ServeMux, dest string, opts []grpc.DialOption) error {
 
 	// We make sure that we register it with the main REST server to ensure
@@ -196,25 +186,6 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 	log.Debugf("Invoices REST server successfully registered with " +
 		"root REST server")
 	return nil
-}
-
-// CreateSubServer populates the subserver's dependencies using the passed
-// SubServerConfigDispatcher. This method should fully initialize the
-// sub-server instance, making it ready for action. It returns the macaroon
-// permissions that the sub-server wishes to pass on to the root server for all
-// methods routed towards it.
-//
-// NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
-	lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
-
-	subServer, macPermissions, err := createNewSubServer(configRegistry)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	r.InvoicesServer = subServer
-	return subServer, macPermissions, nil
 }
 
 // SubscribeSingleInvoice returns a uni-directional stream (server -> client)
@@ -246,15 +217,6 @@ func (s *Server) SubscribeSingleInvoice(req *SubscribeSingleInvoiceRequest,
 			if err := updateStream.Send(rpcInvoice); err != nil {
 				return err
 			}
-
-			// If we have reached a terminal state, close the
-			// stream with no error.
-			if newInvoice.State.IsFinal() {
-				return nil
-			}
-
-		case <-updateStream.Context().Done():
-			return updateStream.Context().Err()
 
 		case <-s.quit:
 			return nil
@@ -313,8 +275,7 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 		ChainParams:        s.cfg.ChainParams,
 		NodeSigner:         s.cfg.NodeSigner,
 		DefaultCLTVExpiry:  s.cfg.DefaultCLTVExpiry,
-		ChanDB:             s.cfg.RemoteChanDB,
-		Graph:              s.cfg.LocalChanDB.ChannelGraph(),
+		ChanDB:             s.cfg.ChanDB,
 		GenInvoiceFeatures: s.cfg.GenInvoiceFeatures,
 	}
 
@@ -328,11 +289,6 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 		return nil, err
 	}
 
-	// Convert the passed routing hints to the required format.
-	routeHints, err := CreateZpay32HopHints(invoice.RouteHints)
-	if err != nil {
-		return nil, err
-	}
 	addInvoiceData := &AddInvoiceData{
 		Memo:            invoice.Memo,
 		Hash:            &hash,
@@ -344,7 +300,6 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 		Private:         invoice.Private,
 		HodlInvoice:     true,
 		Preimage:        nil,
-		RouteHints:      routeHints,
 	}
 
 	_, dbInvoice, err := AddInvoice(ctx, addInvoiceCfg, addInvoiceData)

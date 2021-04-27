@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/channeldb"
 )
 
@@ -55,7 +54,7 @@ func TestNurseryStoreInit(t *testing.T) {
 	}
 	defer cleanUp()
 
-	ns, err := newNurseryStore(&chainreg.BitcoinTestnetGenesis, cdb)
+	ns, err := newNurseryStore(&bitcoinTestnetGenesis, cdb)
 	if err != nil {
 		t.Fatalf("unable to open nursery store: %v", err)
 	}
@@ -75,7 +74,7 @@ func TestNurseryStoreIncubate(t *testing.T) {
 	}
 	defer cleanUp()
 
-	ns, err := newNurseryStore(&chainreg.BitcoinTestnetGenesis, cdb)
+	ns, err := newNurseryStore(&bitcoinTestnetGenesis, cdb)
 	if err != nil {
 		t.Fatalf("unable to open nursery store: %v", err)
 	}
@@ -316,7 +315,7 @@ func TestNurseryStoreGraduate(t *testing.T) {
 	}
 	defer cleanUp()
 
-	ns, err := newNurseryStore(&chainreg.BitcoinTestnetGenesis, cdb)
+	ns, err := newNurseryStore(&bitcoinTestnetGenesis, cdb)
 	if err != nil {
 		t.Fatalf("unable to open nursery store: %v", err)
 	}
@@ -370,8 +369,6 @@ func assertNumChanOutputs(t *testing.T, ns NurseryStore,
 	err := ns.ForChanOutputs(chanPoint, func([]byte, []byte) error {
 		count++
 		return nil
-	}, func() {
-		count = 0
 	})
 
 	if count == 0 && err == ErrContractNotFound {

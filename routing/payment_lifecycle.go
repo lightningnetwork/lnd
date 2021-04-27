@@ -14,9 +14,6 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
-// errShardHandlerExiting is returned from the shardHandler when it exits.
-var errShardHandlerExiting = fmt.Errorf("shard handler exiting")
-
 // paymentLifecycle holds all information about the current state of a payment
 // needed to resume if from any point.
 type paymentLifecycle struct {
@@ -107,7 +104,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 	for _, a := range payment.InFlightHTLCs() {
 		a := a
 
-		log.Infof("Resuming payment shard %v for hash %v",
+		log.Debugf("Resuming payment shard %v for hash %v",
 			a.AttemptID, p.paymentHash)
 
 		shardHandler.collectResultAsync(&a.HTLCAttemptInfo)
@@ -115,7 +112,6 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 
 	// We'll continue until either our payment succeeds, or we encounter a
 	// critical error during path finding.
-lifecycle:
 	for {
 		// Start by quickly checking if there are any outcomes already
 		// available to handle before we reevaluate our state.
@@ -172,7 +168,7 @@ lifecycle:
 			if err := shardHandler.waitForShard(); err != nil {
 				return [32]byte{}, nil, err
 			}
-			continue lifecycle
+			continue
 		}
 
 		// Before we attempt any new shard, we'll check to see if
@@ -196,7 +192,7 @@ lifecycle:
 				return [32]byte{}, nil, saveErr
 			}
 
-			continue lifecycle
+			continue
 
 		case <-p.router.quit:
 			return [32]byte{}, nil, ErrRouterShuttingDown
@@ -235,7 +231,7 @@ lifecycle:
 					return [32]byte{}, nil, saveErr
 				}
 
-				continue lifecycle
+				continue
 			}
 
 			// We still have active shards, we'll wait for an
@@ -243,23 +239,12 @@ lifecycle:
 			if err := shardHandler.waitForShard(); err != nil {
 				return [32]byte{}, nil, err
 			}
-			continue lifecycle
+			continue
 		}
 
 		// We found a route to try, launch a new shard.
 		attempt, outcome, err := shardHandler.launchShard(rt)
-		switch {
-		// We may get a terminal error if we've processed a shard with
-		// a terminal state (settled or permanent failure), while we
-		// were pathfinding. We know we're in a terminal state here,
-		// so we can continue and wait for our last shards to return.
-		case err == channeldb.ErrPaymentTerminal:
-			log.Infof("Payment: %v in terminal state, abandoning "+
-				"shard", p.paymentHash)
-
-			continue lifecycle
-
-		case err != nil:
+		if err != nil {
 			return [32]byte{}, nil, err
 		}
 
@@ -282,7 +267,7 @@ lifecycle:
 
 			// Error was handled successfully, continue to make a
 			// new attempt.
-			continue lifecycle
+			continue
 		}
 
 		// Now that the shard was successfully sent, launch a go
@@ -323,7 +308,7 @@ func (p *shardHandler) waitForShard() error {
 		return err
 
 	case <-p.quit:
-		return errShardHandlerExiting
+		return fmt.Errorf("shard handler quitting")
 
 	case <-p.router.quit:
 		return ErrRouterShuttingDown
@@ -341,7 +326,7 @@ func (p *shardHandler) checkShards() error {
 			}
 
 		case <-p.quit:
-			return errShardHandlerExiting
+			return fmt.Errorf("shard handler quitting")
 
 		case <-p.router.quit:
 			return ErrRouterShuttingDown
@@ -436,8 +421,7 @@ func (p *shardHandler) collectResultAsync(attempt *channeldb.HTLCAttemptInfo) {
 		result, err := p.collectResult(attempt)
 		if err != nil {
 			if err != ErrRouterShuttingDown &&
-				err != htlcswitch.ErrSwitchExiting &&
-				err != errShardHandlerExiting {
+				err != htlcswitch.ErrSwitchExiting {
 
 				log.Errorf("Error collecting result for "+
 					"shard %v for payment %v: %v",
@@ -547,7 +531,7 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 		return nil, ErrRouterShuttingDown
 
 	case <-p.quit:
-		return nil, errShardHandlerExiting
+		return nil, fmt.Errorf("shard handler exiting")
 	}
 
 	// In case of a payment failure, fail the attempt with the control
@@ -699,7 +683,7 @@ func (p *shardHandler) handleSendError(attempt *channeldb.HTLCAttemptInfo,
 		return nil
 	}
 
-	log.Infof("Payment %v failed: final_outcome=%v, raw_err=%v",
+	log.Debugf("Payment %v failed: final_outcome=%v, raw_err=%v",
 		p.paymentHash, *reason, sendErr)
 
 	err := p.router.cfg.Control.Fail(p.paymentHash, *reason)

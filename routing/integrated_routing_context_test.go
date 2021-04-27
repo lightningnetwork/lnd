@@ -28,7 +28,6 @@ type integratedRoutingContext struct {
 	target *mockNode
 
 	amt         lnwire.MilliSatoshi
-	maxShardAmt *lnwire.MilliSatoshi
 	finalExpiry int32
 
 	mcCfg          MissionControlConfig
@@ -59,11 +58,10 @@ func newIntegratedRoutingContext(t *testing.T) *integratedRoutingContext {
 		finalExpiry: 40,
 
 		mcCfg: MissionControlConfig{
-			ProbabilityEstimatorCfg: ProbabilityEstimatorCfg{
-				PenaltyHalfLife:       30 * time.Minute,
-				AprioriHopProbability: 0.6,
-				AprioriWeight:         0.5,
-			},
+			PenaltyHalfLife:       30 * time.Minute,
+			AprioriHopProbability: 0.6,
+			AprioriWeight:         0.5,
+			SelfNode:              source.pubkey,
 		},
 
 		pathFindingCfg: PathFindingConfig{
@@ -90,16 +88,8 @@ func (h htlcAttempt) String() string {
 
 // testPayment launches a test payment and asserts that it is completed after
 // the expected number of attempts.
-func (c *integratedRoutingContext) testPayment(maxParts uint32,
-	destFeatureBits ...lnwire.FeatureBit) ([]htlcAttempt, error) {
-
-	// We start out with the base set of MPP feature bits. If the caller
-	// overrides this set of bits, then we'll use their feature bits
-	// entirely.
-	baseFeatureBits := mppFeatures
-	if len(destFeatureBits) != 0 {
-		baseFeatureBits = lnwire.NewRawFeatureVector(destFeatureBits...)
-	}
+func (c *integratedRoutingContext) testPayment(maxParts uint32) ([]htlcAttempt,
+	error) {
 
 	var (
 		nextPid  uint64
@@ -115,9 +105,7 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32,
 	dbPath := file.Name()
 	defer os.Remove(dbPath)
 
-	db, err := kvdb.Open(
-		kvdb.BoltBackendName, dbPath, true, kvdb.DefaultDBTimeout,
-	)
+	db, err := kvdb.Open(kvdb.BoltBackendName, dbPath, true)
 	if err != nil {
 		c.t.Fatal(err)
 	}
@@ -125,7 +113,7 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32,
 
 	// Instantiate a new mission control with the current configuration
 	// values.
-	mc, err := NewMissionControl(db, c.source.pubkey, &c.mcCfg)
+	mc, err := NewMissionControl(db, &c.mcCfg)
 	if err != nil {
 		c.t.Fatal(err)
 	}
@@ -146,14 +134,10 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32,
 		FeeLimit:       lnwire.MaxMilliSatoshi,
 		Target:         c.target.pubkey,
 		PaymentAddr:    &paymentAddr,
-		DestFeatures:   lnwire.NewFeatureVector(baseFeatureBits, nil),
+		DestFeatures:   lnwire.NewFeatureVector(mppFeatures, nil),
 		Amount:         c.amt,
 		CltvLimit:      math.MaxUint32,
 		MaxParts:       maxParts,
-	}
-
-	if c.maxShardAmt != nil {
-		payment.MaxShardAmt = c.maxShardAmt
 	}
 
 	session, err := newPaymentSession(

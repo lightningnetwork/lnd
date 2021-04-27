@@ -10,9 +10,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btclog"
-	"github.com/lightningnetwork/lnd/build"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -43,14 +40,13 @@ const (
 	DefaultForceQuitDelay = 10 * time.Second
 )
 
-// genActiveSessionFilter generates a filter that selects active sessions that
-// also match the desired channel type, either legacy or anchor.
-func genActiveSessionFilter(anchor bool) func(*wtdb.ClientSession) bool {
-	return func(s *wtdb.ClientSession) bool {
-		return s.Status == wtdb.CSessionActive &&
-			anchor == s.Policy.IsAnchorChannel()
+var (
+	// activeSessionFilter is a filter that ignored any sessions which are
+	// not active.
+	activeSessionFilter = func(s *wtdb.ClientSession) bool {
+		return s.Status == wtdb.CSessionActive
 	}
-}
+)
 
 // RegisteredTower encompasses information about a registered watchtower with
 // the client.
@@ -107,8 +103,7 @@ type Client interface {
 	// negotiated policy. If the channel we're trying to back up doesn't
 	// have a tweak for the remote party's output, then isTweakless should
 	// be true.
-	BackupState(*lnwire.ChannelID, *lnwallet.BreachRetribution,
-		channeldb.ChannelType) error
+	BackupState(*lnwire.ChannelID, *lnwallet.BreachRetribution, bool) error
 
 	// Start initializes the watchtower client, allowing it process requests
 	// to backup revoked channel states.
@@ -233,8 +228,6 @@ type TowerClient struct {
 
 	cfg *Config
 
-	log btclog.Logger
-
 	pipeline *taskPipeline
 
 	negotiator        SessionNegotiator
@@ -281,18 +274,10 @@ func New(config *Config) (*TowerClient, error) {
 		cfg.WriteTimeout = DefaultWriteTimeout
 	}
 
-	prefix := "(legacy)"
-	if cfg.Policy.IsAnchorChannel() {
-		prefix = "(anchor)"
-	}
-	plog := build.NewPrefixLog(prefix, log)
-
 	// Next, load all candidate sessions and towers from the database into
 	// the client. We will use any of these session if their policies match
 	// the current policy of the client, otherwise they will be ignored and
 	// new sessions will be requested.
-	isAnchorClient := cfg.Policy.IsAnchorChannel()
-	activeSessionFilter := genActiveSessionFilter(isAnchorClient)
 	candidateSessions, err := getClientSessions(
 		cfg.DB, cfg.SecretKeyRing, nil, activeSessionFilter,
 	)
@@ -302,7 +287,7 @@ func New(config *Config) (*TowerClient, error) {
 
 	var candidateTowers []*wtdb.Tower
 	for _, s := range candidateSessions {
-		plog.Infof("Using private watchtower %s, offering policy %s",
+		log.Infof("Using private watchtower %s, offering policy %s",
 			s.Tower, cfg.Policy)
 		candidateTowers = append(candidateTowers, s.Tower)
 	}
@@ -316,8 +301,7 @@ func New(config *Config) (*TowerClient, error) {
 
 	c := &TowerClient{
 		cfg:               cfg,
-		log:               plog,
-		pipeline:          newTaskPipeline(plog),
+		pipeline:          newTaskPipeline(),
 		candidateTowers:   newTowerListIterator(candidateTowers...),
 		candidateSessions: candidateSessions,
 		activeSessions:    make(sessionQueueSet),
@@ -339,7 +323,6 @@ func New(config *Config) (*TowerClient, error) {
 		Candidates:    c.candidateTowers,
 		MinBackoff:    cfg.MinBackoff,
 		MaxBackoff:    cfg.MaxBackoff,
-		Log:           plog,
 	})
 
 	// Reconstruct the highest commit height processed for each channel
@@ -439,7 +422,7 @@ func (c *TowerClient) buildHighestCommitHeights() {
 func (c *TowerClient) Start() error {
 	var err error
 	c.started.Do(func() {
-		c.log.Infof("Starting watchtower client")
+		log.Infof("Starting watchtower client")
 
 		// First, restart a session queue for any sessions that have
 		// committed but unacked state updates. This ensures that these
@@ -447,7 +430,7 @@ func (c *TowerClient) Start() error {
 		// restart.
 		for _, session := range c.candidateSessions {
 			if len(session.CommittedUpdates) > 0 {
-				c.log.Infof("Starting session=%s to process "+
+				log.Infof("Starting session=%s to process "+
 					"%d committed backups", session.ID,
 					len(session.CommittedUpdates))
 				c.initActiveQueue(session)
@@ -469,7 +452,7 @@ func (c *TowerClient) Start() error {
 		c.wg.Add(1)
 		go c.backupDispatcher()
 
-		c.log.Infof("Watchtower client started successfully")
+		log.Infof("Watchtower client started successfully")
 	})
 	return err
 }
@@ -477,9 +460,15 @@ func (c *TowerClient) Start() error {
 // Stop idempotently initiates a graceful shutdown of the watchtower client.
 func (c *TowerClient) Stop() error {
 	c.stopped.Do(func() {
-		c.log.Debugf("Stopping watchtower client")
+		log.Debugf("Stopping watchtower client")
 
-		// 1. To ensure we don't hang forever on shutdown due to
+		// 1. Shutdown the backup queue, which will prevent any further
+		// updates from being accepted. In practice, the links should be
+		// shutdown before the client has been stopped, so all updates
+		// would have been added prior.
+		c.pipeline.Stop()
+
+		// 2. To ensure we don't hang forever on shutdown due to
 		// unintended failures, we'll delay a call to force quit the
 		// pipeline if a ForceQuitDelay is specified. This will have no
 		// effect if the pipeline shuts down cleanly before the delay
@@ -494,12 +483,6 @@ func (c *TowerClient) Stop() error {
 			time.AfterFunc(c.cfg.ForceQuitDelay, c.ForceQuit)
 		}
 
-		// 2. Shutdown the backup queue, which will prevent any further
-		// updates from being accepted. In practice, the links should be
-		// shutdown before the client has been stopped, so all updates
-		// would have been added prior.
-		c.pipeline.Stop()
-
 		// 3. Once the backup queue has shutdown, wait for the main
 		// dispatcher to exit. The backup queue will signal it's
 		// completion to the dispatcher, which releases the wait group
@@ -510,7 +493,7 @@ func (c *TowerClient) Stop() error {
 		// queues, we no longer need to negotiate sessions.
 		c.negotiator.Stop()
 
-		c.log.Debugf("Waiting for active session queues to finish "+
+		log.Debugf("Waiting for active session queues to finish "+
 			"draining, stats: %s", c.stats)
 
 		// 5. Shutdown all active session queues in parallel. These will
@@ -526,7 +509,7 @@ func (c *TowerClient) Stop() error {
 		default:
 		}
 
-		c.log.Debugf("Client successfully stopped, stats: %s", c.stats)
+		log.Debugf("Client successfully stopped, stats: %s", c.stats)
 	})
 	return nil
 }
@@ -535,7 +518,7 @@ func (c *TowerClient) Stop() error {
 // client. This should only be executed if Stop is unable to exit cleanly.
 func (c *TowerClient) ForceQuit() {
 	c.forced.Do(func() {
-		c.log.Infof("Force quitting watchtower client")
+		log.Infof("Force quitting watchtower client")
 
 		// 1. Shutdown the backup queue, which will prevent any further
 		// updates from being accepted. In practice, the links should be
@@ -560,7 +543,7 @@ func (c *TowerClient) ForceQuit() {
 			return s.ForceQuit
 		})
 
-		c.log.Infof("Watchtower client unclean shutdown complete, "+
+		log.Infof("Watchtower client unclean shutdown complete, "+
 			"stats: %s", c.stats)
 	})
 }
@@ -609,8 +592,7 @@ func (c *TowerClient) RegisterChannel(chanID lnwire.ChannelID) error {
 //  - breached outputs contain too little value to sweep at the target sweep fee
 //    rate.
 func (c *TowerClient) BackupState(chanID *lnwire.ChannelID,
-	breachInfo *lnwallet.BreachRetribution,
-	chanType channeldb.ChannelType) error {
+	breachInfo *lnwallet.BreachRetribution, isTweakless bool) error {
 
 	// Retrieve the cached sweep pkscript used for this channel.
 	c.backupMu.Lock()
@@ -624,7 +606,7 @@ func (c *TowerClient) BackupState(chanID *lnwire.ChannelID,
 	height, ok := c.chanCommitHeights[*chanID]
 	if ok && breachInfo.RevokedStateNum <= height {
 		c.backupMu.Unlock()
-		c.log.Debugf("Ignoring duplicate backup for chanid=%v at height=%d",
+		log.Debugf("Ignoring duplicate backup for chanid=%v at height=%d",
 			chanID, breachInfo.RevokedStateNum)
 		return nil
 	}
@@ -636,7 +618,7 @@ func (c *TowerClient) BackupState(chanID *lnwire.ChannelID,
 	c.backupMu.Unlock()
 
 	task := newBackupTask(
-		chanID, breachInfo, summary.SweepPkScript, chanType,
+		chanID, breachInfo, summary.SweepPkScript, isTweakless,
 	)
 
 	return c.pipeline.QueueBackupTask(task)
@@ -687,15 +669,15 @@ func (c *TowerClient) nextSessionQueue() *sessionQueue {
 func (c *TowerClient) backupDispatcher() {
 	defer c.wg.Done()
 
-	c.log.Tracef("Starting backup dispatcher")
-	defer c.log.Tracef("Stopping backup dispatcher")
+	log.Tracef("Starting backup dispatcher")
+	defer log.Tracef("Stopping backup dispatcher")
 
 	for {
 		switch {
 
 		// No active session queue and no additional sessions.
 		case c.sessionQueue == nil && len(c.candidateSessions) == 0:
-			c.log.Infof("Requesting new session.")
+			log.Infof("Requesting new session.")
 
 			// Immediately request a new session.
 			c.negotiator.RequestSession()
@@ -706,7 +688,7 @@ func (c *TowerClient) backupDispatcher() {
 		awaitSession:
 			select {
 			case session := <-c.negotiator.NewSessions():
-				c.log.Infof("Acquired new session with id=%s",
+				log.Infof("Acquired new session with id=%s",
 					session.ID)
 				c.candidateSessions[session.ID] = session
 				c.stats.sessionAcquired()
@@ -716,7 +698,7 @@ func (c *TowerClient) backupDispatcher() {
 				continue
 
 			case <-c.statTicker.C:
-				c.log.Infof("Client stats: %s", c.stats)
+				log.Infof("Client stats: %s", c.stats)
 
 			// A new tower has been requested to be added. We'll
 			// update our persisted and in-memory state and consider
@@ -750,7 +732,7 @@ func (c *TowerClient) backupDispatcher() {
 			// backup tasks.
 			c.sessionQueue = c.nextSessionQueue()
 			if c.sessionQueue != nil {
-				c.log.Debugf("Loaded next candidate session "+
+				log.Debugf("Loaded next candidate session "+
 					"queue id=%s", c.sessionQueue.ID())
 			}
 
@@ -777,13 +759,13 @@ func (c *TowerClient) backupDispatcher() {
 			// we can request new sessions before the session is
 			// fully empty, which this case would handle.
 			case session := <-c.negotiator.NewSessions():
-				c.log.Warnf("Acquired new session with id=%s "+
+				log.Warnf("Acquired new session with id=%s "+
 					"while processing tasks", session.ID)
 				c.candidateSessions[session.ID] = session
 				c.stats.sessionAcquired()
 
 			case <-c.statTicker.C:
-				c.log.Infof("Client stats: %s", c.stats)
+				log.Infof("Client stats: %s", c.stats)
 
 			// Process each backup task serially from the queue of
 			// revoked states.
@@ -794,7 +776,7 @@ func (c *TowerClient) backupDispatcher() {
 					return
 				}
 
-				c.log.Debugf("Processing %v", task.id)
+				log.Debugf("Processing %v", task.id)
 
 				c.stats.taskReceived()
 				c.processTask(task)
@@ -839,7 +821,7 @@ func (c *TowerClient) processTask(task *backupTask) {
 // sessionQueue will be removed if accepting the task left the sessionQueue in
 // an exhausted state.
 func (c *TowerClient) taskAccepted(task *backupTask, newStatus reserveStatus) {
-	c.log.Infof("Queued %v successfully for session %v",
+	log.Infof("Queued %v successfully for session %v",
 		task.id, c.sessionQueue.ID())
 
 	c.stats.taskAccepted()
@@ -858,7 +840,7 @@ func (c *TowerClient) taskAccepted(task *backupTask, newStatus reserveStatus) {
 	case reserveExhausted:
 		c.stats.sessionExhausted()
 
-		c.log.Debugf("Session %s exhausted", c.sessionQueue.ID())
+		log.Debugf("Session %s exhausted", c.sessionQueue.ID())
 
 		// This task left the session exhausted, set it to nil and
 		// proceed to the next loop so we can consume another
@@ -881,13 +863,13 @@ func (c *TowerClient) taskRejected(task *backupTask, curStatus reserveStatus) {
 	case reserveAvailable:
 		c.stats.taskIneligible()
 
-		c.log.Infof("Ignoring ineligible %v", task.id)
+		log.Infof("Ignoring ineligible %v", task.id)
 
 		err := c.cfg.DB.MarkBackupIneligible(
 			task.id.ChanID, task.id.CommitHeight,
 		)
 		if err != nil {
-			c.log.Errorf("Unable to mark %v ineligible: %v",
+			log.Errorf("Unable to mark %v ineligible: %v",
 				task.id, err)
 
 			// It is safe to not handle this error, even if we could
@@ -907,7 +889,7 @@ func (c *TowerClient) taskRejected(task *backupTask, curStatus reserveStatus) {
 	case reserveExhausted:
 		c.stats.sessionExhausted()
 
-		c.log.Debugf("Session %v exhausted, %v queued for next session",
+		log.Debugf("Session %v exhausted, %v queued for next session",
 			c.sessionQueue.ID(), task.id)
 
 		// Cache the task that we pulled off, so that we can process it
@@ -936,7 +918,7 @@ func (c *TowerClient) readMessage(peer wtserver.Peer) (wtwire.Message, error) {
 	err := peer.SetReadDeadline(time.Now().Add(c.cfg.ReadTimeout))
 	if err != nil {
 		err = fmt.Errorf("unable to set read deadline: %v", err)
-		c.log.Errorf("Unable to read msg: %v", err)
+		log.Errorf("Unable to read msg: %v", err)
 		return nil, err
 	}
 
@@ -944,7 +926,7 @@ func (c *TowerClient) readMessage(peer wtserver.Peer) (wtwire.Message, error) {
 	rawMsg, err := peer.ReadNextMessage()
 	if err != nil {
 		err = fmt.Errorf("unable to read message: %v", err)
-		c.log.Errorf("Unable to read msg: %v", err)
+		log.Errorf("Unable to read msg: %v", err)
 		return nil, err
 	}
 
@@ -954,11 +936,11 @@ func (c *TowerClient) readMessage(peer wtserver.Peer) (wtwire.Message, error) {
 	msg, err := wtwire.ReadMessage(msgReader, 0)
 	if err != nil {
 		err = fmt.Errorf("unable to parse message: %v", err)
-		c.log.Errorf("Unable to read msg: %v", err)
+		log.Errorf("Unable to read msg: %v", err)
 		return nil, err
 	}
 
-	c.logMessage(peer, msg, true)
+	logMessage(peer, msg, true)
 
 	return msg, nil
 }
@@ -971,7 +953,7 @@ func (c *TowerClient) sendMessage(peer wtserver.Peer, msg wtwire.Message) error 
 	_, err := wtwire.WriteMessage(&b, msg, 0)
 	if err != nil {
 		err = fmt.Errorf("Unable to encode msg: %v", err)
-		c.log.Errorf("Unable to send msg: %v", err)
+		log.Errorf("Unable to send msg: %v", err)
 		return err
 	}
 
@@ -980,16 +962,16 @@ func (c *TowerClient) sendMessage(peer wtserver.Peer, msg wtwire.Message) error 
 	err = peer.SetWriteDeadline(time.Now().Add(c.cfg.WriteTimeout))
 	if err != nil {
 		err = fmt.Errorf("unable to set write deadline: %v", err)
-		c.log.Errorf("Unable to send msg: %v", err)
+		log.Errorf("Unable to send msg: %v", err)
 		return err
 	}
 
-	c.logMessage(peer, msg, false)
+	logMessage(peer, msg, false)
 
 	// Write out the full message to the remote peer.
 	_, err = peer.Write(b.Bytes())
 	if err != nil {
-		c.log.Errorf("Unable to send msg: %v", err)
+		log.Errorf("Unable to send msg: %v", err)
 	}
 	return err
 }
@@ -1007,7 +989,6 @@ func (c *TowerClient) newSessionQueue(s *wtdb.ClientSession) *sessionQueue {
 		DB:            c.cfg.DB,
 		MinBackoff:    c.cfg.MinBackoff,
 		MaxBackoff:    c.cfg.MaxBackoff,
-		Log:           c.log,
 	})
 }
 
@@ -1084,8 +1065,6 @@ func (c *TowerClient) handleNewTower(msg *newTowerMsg) error {
 	c.candidateTowers.AddCandidate(tower)
 
 	// Include all of its corresponding sessions to our set of candidates.
-	isAnchorClient := c.cfg.Policy.IsAnchorChannel()
-	activeSessionFilter := genActiveSessionFilter(isAnchorClient)
 	sessions, err := getClientSessions(
 		c.cfg.DB, c.cfg.SecretKeyRing, &tower.ID, activeSessionFilter,
 	)
@@ -1146,10 +1125,7 @@ func (c *TowerClient) handleStaleTower(msg *staleTowerMsg) error {
 	if err := c.cfg.DB.RemoveTower(msg.pubKey, msg.addr); err != nil {
 		return err
 	}
-	err = c.candidateTowers.RemoveCandidate(tower.ID, msg.addr)
-	if err != nil {
-		return err
-	}
+	c.candidateTowers.RemoveCandidate(tower.ID, msg.addr)
 
 	// If an address was provided, then we're only meant to remove the
 	// address from the tower, so there's nothing left for us to do.
@@ -1253,9 +1229,7 @@ func (c *TowerClient) Policy() wtpolicy.Policy {
 // logMessage writes information about a message received from a remote peer,
 // using directional prepositions to signal whether the message was sent or
 // received.
-func (c *TowerClient) logMessage(
-	peer wtserver.Peer, msg wtwire.Message, read bool) {
-
+func logMessage(peer wtserver.Peer, msg wtwire.Message, read bool) {
 	var action = "Received"
 	var preposition = "from"
 	if !read {
@@ -1268,7 +1242,7 @@ func (c *TowerClient) logMessage(
 		summary = "(" + summary + ")"
 	}
 
-	c.log.Debugf("%s %s%v %s %x@%s", action, msg.MsgType(), summary,
+	log.Debugf("%s %s%v %s %x@%s", action, msg.MsgType(), summary,
 		preposition, peer.RemotePub().SerializeCompressed(),
 		peer.RemoteAddr())
 }

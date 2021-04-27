@@ -14,7 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
-	lnwire "github.com/lightningnetwork/lnd/channeldb/migration/lnwire21"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 var (
@@ -190,8 +190,6 @@ func (c *ChannelGraph) SourceNode() (*LightningNode, error) {
 		source = node
 
 		return nil
-	}, func() {
-		source = nil
 	})
 	if err != nil {
 		return nil, err
@@ -244,7 +242,7 @@ func (c *ChannelGraph) SetSourceNode(node *LightningNode) error {
 		// Finally, we commit the information of the lightning node
 		// itself.
 		return addLightningNode(tx, node)
-	}, func() {})
+	})
 }
 
 func addLightningNode(tx kvdb.RwTx, node *LightningNode) error {

@@ -58,7 +58,7 @@ service Lightning {
     /* lncli: `sendcoins`
     SendCoins executes a request to send coins to a particular address. Unlike
     SendMany, this RPC call only allows creating a single output at a time. If
-    neither target_conf, or sat_per_vbyte are set, then the internal wallet will
+    neither target_conf, or sat_per_byte are set, then the internal wallet will
     consult its fee model to determine a fee for the default confirmation
     target.
     */
@@ -82,7 +82,7 @@ service Lightning {
 
     /* lncli: `sendmany`
     SendMany handles a request for a transaction that creates multiple specified
-    outputs in parallel. If neither target_conf, or sat_per_vbyte are set, then
+    outputs in parallel. If neither target_conf, or sat_per_byte are set, then
     the internal wallet will consult its fee model to determine a fee for the
     default confirmation target.
     */
@@ -582,9 +582,6 @@ message GetTransactionsRequest {
     default to this option.
     */
     int32 end_height = 2;
-
-    // An optional filter to only include transactions relevant to an account.
-    string account = 3;
 }
 
 message TransactionDetails {
@@ -711,11 +708,6 @@ message SendRequest {
     fallback.
     */
     repeated FeatureBit dest_features = 15;
-
-    /*
-    The payment address of the generated invoice.
-    */
-    bytes payment_addr = 16;
 }
 
 message SendResponse {
@@ -799,58 +791,6 @@ message ChannelAcceptResponse {
 
     // The pending channel id to which this response applies.
     bytes pending_chan_id = 2;
-
-    /*
-    An optional error to send the initiating party to indicate why the channel
-    was rejected. This field *should not* contain sensitive information, it will
-    be sent to the initiating party. This field should only be set if accept is
-    false, the channel will be rejected if an error is set with accept=true
-    because the meaning of this response is ambiguous. Limited to 500
-    characters.
-    */
-    string error = 3;
-
-    /*
-    The upfront shutdown address to use if the initiating peer supports option
-    upfront shutdown script (see ListPeers for the features supported). Note
-    that the channel open will fail if this value is set for a peer that does
-    not support this feature bit.
-    */
-    string upfront_shutdown = 4;
-
-    /*
-    The csv delay (in blocks) that we require for the remote party.
-    */
-    uint32 csv_delay = 5;
-
-    /*
-    The reserve amount in satoshis that we require the remote peer to adhere to.
-    We require that the remote peer always have some reserve amount allocated to
-    them so that there is always a disincentive to broadcast old state (if they
-    hold 0 sats on their side of the channel, there is nothing to lose).
-    */
-    uint64 reserve_sat = 6;
-
-    /*
-    The maximum amount of funds in millisatoshis that we allow the remote peer
-    to have in outstanding htlcs.
-    */
-    uint64 in_flight_max_msat = 7;
-
-    /*
-    The maximum number of htlcs that the remote peer can offer us.
-    */
-    uint32 max_htlc_count = 8;
-
-    /*
-    The minimum value in millisatoshis for incoming htlcs on the channel.
-    */
-    uint64 min_htlc_in = 9;
-
-    /*
-    The number of confirmations we require before we consider the channel open.
-    */
-    uint32 min_accept_depth = 10;
 }
 
 message ChannelPoint {
@@ -899,25 +839,14 @@ message EstimateFeeRequest {
     // The target number of blocks that this transaction should be confirmed
     // by.
     int32 target_conf = 2;
-
-    // The minimum number of confirmations each one of your outputs used for
-    // the transaction must satisfy.
-    int32 min_confs = 3;
-
-    // Whether unconfirmed outputs should be used as inputs for the transaction.
-    bool spend_unconfirmed = 4;
 }
 
 message EstimateFeeResponse {
     // The total fee in satoshis.
     int64 fee_sat = 1;
 
-    // Deprecated, use sat_per_vbyte.
-    // The fee rate in satoshi/vbyte.
-    int64 feerate_sat_per_byte = 2 [deprecated = true];
-
-    // The fee rate in satoshi/vbyte.
-    uint64 sat_per_vbyte = 3;
+    // The fee rate in satoshi/byte.
+    int64 feerate_sat_per_byte = 2;
 }
 
 message SendManyRequest {
@@ -928,24 +857,12 @@ message SendManyRequest {
     // by.
     int32 target_conf = 3;
 
-    // A manual fee rate set in sat/vbyte that should be used when crafting the
+    // A manual fee rate set in sat/byte that should be used when crafting the
     // transaction.
-    uint64 sat_per_vbyte = 4;
-
-    // Deprecated, use sat_per_vbyte.
-    // A manual fee rate set in sat/vbyte that should be used when crafting the
-    // transaction.
-    int64 sat_per_byte = 5 [deprecated = true];
+    int64 sat_per_byte = 5;
 
     // An optional label for the transaction, limited to 500 characters.
     string label = 6;
-
-    // The minimum number of confirmations each one of your outputs used for
-    // the transaction must satisfy.
-    int32 min_confs = 7;
-
-    // Whether unconfirmed outputs should be used as inputs for the transaction.
-    bool spend_unconfirmed = 8;
 }
 message SendManyResponse {
     // The id of the transaction
@@ -963,14 +880,9 @@ message SendCoinsRequest {
     // by.
     int32 target_conf = 3;
 
-    // A manual fee rate set in sat/vbyte that should be used when crafting the
+    // A manual fee rate set in sat/byte that should be used when crafting the
     // transaction.
-    uint64 sat_per_vbyte = 4;
-
-    // Deprecated, use sat_per_vbyte.
-    // A manual fee rate set in sat/vbyte that should be used when crafting the
-    // transaction.
-    int64 sat_per_byte = 5 [deprecated = true];
+    int64 sat_per_byte = 5;
 
     /*
     If set, then the amount field will be ignored, and lnd will attempt to
@@ -981,13 +893,6 @@ message SendCoinsRequest {
 
     // An optional label for the transaction, limited to 500 characters.
     string label = 7;
-
-    // The minimum number of confirmations each one of your outputs used for
-    // the transaction must satisfy.
-    int32 min_confs = 8;
-
-    // Whether unconfirmed outputs should be used as inputs for the transaction.
-    bool spend_unconfirmed = 9;
 }
 message SendCoinsResponse {
     // The transaction ID of the transaction
@@ -1000,9 +905,6 @@ message ListUnspentRequest {
 
     // The maximum number of confirmations to be included.
     int32 max_confs = 2;
-
-    // An optional filter to only include outputs belonging to an account.
-    string account = 3;
 }
 message ListUnspentResponse {
     // A list of utxos
@@ -1023,14 +925,8 @@ enum AddressType {
 }
 
 message NewAddressRequest {
-    // The type of address to generate.
+    // The address type
     AddressType type = 1;
-
-    /*
-    The name of the account to generate a new address for. If empty, the
-    default wallet account is used.
-    */
-    string account = 2;
 }
 message NewAddressResponse {
     // The newly generated wallet address
@@ -1096,21 +992,6 @@ message HTLC {
     int64 amount = 2;
     bytes hash_lock = 3;
     uint32 expiration_height = 4;
-
-    // Index identifying the htlc on the channel.
-    uint64 htlc_index = 5;
-
-    // If this HTLC is involved in a forwarding operation, this field indicates
-    // the forwarding channel. For an outgoing htlc, it is the incoming channel.
-    // For an incoming htlc, it is the outgoing channel. When the htlc
-    // originates from this node or this node is the final destination,
-    // forwarding_channel will be zero. The forwarding channel will also be zero
-    // for htlcs that need to be forwarded but don't have a forwarding decision
-    // persisted yet.
-    uint64 forwarding_channel = 6;
-
-    // Index identifying the htlc on the forwarding channel.
-    uint64 forwarding_htlc_index = 7;
 }
 
 enum CommitmentType {
@@ -1525,11 +1406,6 @@ message Peer {
         Denotes that we are not receiving new graph updates from the peer.
         */
         PASSIVE_SYNC = 2;
-
-        /*
-        Denotes that this peer is pinned into an active sync.
-        */
-        PINNED_SYNC = 3;
     }
 
     // The type of sync we are currently performing with this peer.
@@ -1718,10 +1594,9 @@ message CloseChannelRequest {
     // confirmed by.
     int32 target_conf = 3;
 
-    // Deprecated, use sat_per_vbyte.
-    // A manual fee rate set in sat/vbyte that should be used when crafting the
+    // A manual fee rate set in sat/byte that should be used when crafting the
     // closure transaction.
-    int64 sat_per_byte = 4 [deprecated = true];
+    int64 sat_per_byte = 4;
 
     /*
     An optional address to send funds to in the case of a cooperative close.
@@ -1730,10 +1605,6 @@ message CloseChannelRequest {
     to the upfront shutdown addresss.
     */
     string delivery_address = 5;
-
-    // A manual fee rate set in sat/vbyte that should be used when crafting the
-    // closure transaction.
-    uint64 sat_per_vbyte = 6;
 }
 
 message CloseStatusUpdate {
@@ -1771,10 +1642,6 @@ message ReadyForPsbtFunding {
 }
 
 message OpenChannelRequest {
-    // A manual fee rate set in sat/vbyte that should be used when crafting the
-    // funding transaction.
-    uint64 sat_per_vbyte = 1;
-
     /*
     The pubkey of the node to open a channel with. When using REST, this field
     must be encoded as base64.
@@ -1798,10 +1665,9 @@ message OpenChannelRequest {
     // confirmed by.
     int32 target_conf = 6;
 
-    // Deprecated, use sat_per_vbyte.
-    // A manual fee rate set in sat/vbyte that should be used when crafting the
+    // A manual fee rate set in sat/byte that should be used when crafting the
     // funding transaction.
-    int64 sat_per_byte = 7 [deprecated = true];
+    int64 sat_per_byte = 7;
 
     // Whether this channel should be private, not announced to the greater
     // network.
@@ -1855,12 +1721,6 @@ message OpenChannelRequest {
     to the commitment transaction.
     */
     uint32 remote_max_htlcs = 16;
-
-    /*
-    Max local csv is the maximum csv delay we will allow for our own commitment
-    transaction.
-    */
-    uint32 max_local_csv = 17;
 }
 message OpenStatusUpdate {
     oneof update {
@@ -2261,17 +2121,8 @@ message ChannelEventUpdate {
     UpdateType type = 5;
 }
 
-message WalletAccountBalance {
-    // The confirmed balance of the account (with >= 1 confirmations).
-    int64 confirmed_balance = 1;
-
-    // The unconfirmed balance of the account (with 0 confirmations).
-    int64 unconfirmed_balance = 2;
-}
-
 message WalletBalanceRequest {
 }
-
 message WalletBalanceResponse {
     // The balance of the wallet
     int64 total_balance = 1;
@@ -2281,9 +2132,6 @@ message WalletBalanceResponse {
 
     // The unconfirmed balance of a wallet(with 0 confirmations)
     int64 unconfirmed_balance = 3;
-
-    // A mapping of each wallet account's name to its balance.
-    map<string, WalletAccountBalance> account_balance = 4;
 }
 
 message Amount {
@@ -2500,21 +2348,11 @@ message Hop {
 
     /*
     An optional TLV record that signals the use of an MPP payment. If present,
-    the receiver will enforce that the same mpp_record is included in the final
-    hop payload of all non-zero payments in the HTLC set. If empty, a regular
-    single-shot payment is or was attempted.
+    the receiver will enforce that that the same mpp_record is included in the
+    final hop payload of all non-zero payments in the HTLC set. If empty, a
+    regular single-shot payment is or was attempted.
     */
     MPPRecord mpp_record = 10;
-
-    /*
-    An optional TLV record that signals the use of an AMP payment. If present,
-    the receiver will treat all received payments including the same
-    (payment_addr, set_id) pair  as being part of one logical payment. The
-    payment will be settled by XORing the root_share's together and deriving the
-    child hashes and preimages according to BOLT XX. Must be used in conjunction
-    with mpp_record.
-    */
-    AMPRecord amp_record = 12;
 
     /*
     An optional set of key-value TLV records. This is useful within the context
@@ -2540,14 +2378,6 @@ message MPPRecord {
     total_amt_msat must be used on all subpayments.
     */
     int64 total_amt_msat = 10;
-}
-
-message AMPRecord {
-    bytes root_share = 1;
-
-    bytes set_id = 2;
-
-    uint32 child_index = 3;
 }
 
 /*
@@ -2775,27 +2605,11 @@ message GraphTopologyUpdate {
     repeated ClosedChannelUpdate closed_chans = 3;
 }
 message NodeUpdate {
-    /*
-    Deprecated, use node_addresses.
-    */
-    repeated string addresses = 1 [deprecated = true];
-
+    repeated string addresses = 1;
     string identity_key = 2;
-
-    /*
-    Deprecated, use features.
-    */
-    bytes global_features = 3 [deprecated = true];
-
+    bytes global_features = 3;
     string alias = 4;
     string color = 5;
-    repeated NodeAddress node_addresses = 7;
-
-    /*
-    Features that the node has advertised in the init message, node
-    announcements and invoices.
-    */
-    map<uint32, Feature> features = 6;
 }
 message ChannelEdgeUpdate {
     /*
@@ -2996,13 +2810,6 @@ message Invoice {
     [EXPERIMENTAL].
     */
     bool is_keysend = 25;
-
-    /*
-    The payment address of this invoice. This value will be used in MPP
-    payments, and also for newer invoies that always require the MPP paylaod
-    for added end-to-end security.
-    */
-    bytes payment_addr = 26;
 }
 
 enum InvoiceHTLCState {
@@ -3042,31 +2849,6 @@ message InvoiceHTLC {
 
     // The total amount of the mpp payment in msat.
     uint64 mpp_total_amt_msat = 10;
-
-    // Details relevant to AMP HTLCs, only populated if this is an AMP HTLC.
-    AMP amp = 11;
-}
-
-// Details specific to AMP HTLCs.
-message AMP {
-    // An n-of-n secret share of the root seed from which child payment hashes
-    // and preimages are derived.
-    bytes root_share = 1;
-
-    // An identifier for the HTLC set that this HTLC belongs to.
-    bytes set_id = 2;
-
-    // A nonce used to randomize the child preimage and child hash from a given
-    // root_share.
-    uint32 child_index = 3;
-
-    // The payment hash of the AMP HTLC.
-    bytes hash = 4;
-
-    // The preimage used to settle this AMP htlc. This field will only be
-    // populated if the invoice is in InvoiceState_ACCEPTED or
-    // InvoiceState_SETTLED.
-    bytes preimage = 5;
 }
 
 message AddInvoiceResponse {
@@ -3086,13 +2868,6 @@ message AddInvoiceResponse {
     invoices with an add_index greater than this one.
     */
     uint64 add_index = 16;
-
-    /*
-    The payment address of the generated invoice. This value should be used
-    in all payments for this invoice as we require it for end to end
-    security.
-    */
-    bytes payment_addr = 17;
 }
 message PaymentHash {
     /*
@@ -3264,9 +3039,6 @@ message Payment {
 }
 
 message HTLCAttempt {
-    // The unique ID that is used for this attempt.
-    uint64 attempt_id = 7;
-
     enum HTLCStatus {
         IN_FLIGHT = 0;
         SUCCEEDED = 1;
@@ -3342,13 +3114,6 @@ message ListPaymentsResponse {
 }
 
 message DeleteAllPaymentsRequest {
-    // Only delete failed payments.
-    bool failed_payments_only = 1;
-
-    /*
-    Only delete failed HTLCs from payments, not the payment itself.
-    */
-    bool failed_htlcs_only = 2;
 }
 
 message DeleteAllPaymentsResponse {
@@ -3409,12 +3174,6 @@ enum FeatureBit {
     PAYMENT_ADDR_OPT = 15;
     MPP_REQ = 16;
     MPP_OPT = 17;
-    WUMBO_CHANNELS_REQ = 18;
-    WUMBO_CHANNELS_OPT = 19;
-    ANCHORS_REQ = 20;
-    ANCHORS_OPT = 21;
-    ANCHORS_ZERO_FEE_HTLC_REQ = 22;
-    ANCHORS_ZERO_FEE_HTLC_OPT = 23;
 }
 
 message Feature {
@@ -3515,8 +3274,8 @@ message ForwardingHistoryRequest {
 }
 message ForwardingEvent {
     // Timestamp is the time (unix epoch offset) that this circuit was
-    // completed. Deprecated by timestamp_ns.
-    uint64 timestamp = 1 [deprecated = true];
+    // completed.
+    uint64 timestamp = 1;
 
     // The incoming channel ID that carried the HTLC that created the circuit.
     uint64 chan_id_in = 2 [jstype = JS_STRING];
@@ -3546,10 +3305,6 @@ message ForwardingEvent {
     // The total amount (in milli-satoshis) of the outgoing HTLC that created
     // the second half of the circuit.
     uint64 amt_out_msat = 10;
-
-    // The number of nanoseconds elapsed since January 1, 1970 UTC when this
-    // circuit was completed.
-    uint64 timestamp_ns = 11;
 
     // TODO(roasbeef): add settlement latency?
     //  * use FPE on the chan id?
@@ -3728,7 +3483,6 @@ message Failure {
         PERMANENT_CHANNEL_FAILURE = 21;
         EXPIRY_TOO_FAR = 22;
         MPP_TIMEOUT = 23;
-        INVALID_ONION_PAYLOAD = 24;
 
         /*
         An internal error occurred.

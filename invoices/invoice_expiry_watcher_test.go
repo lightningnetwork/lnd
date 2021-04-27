@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntypes"
 )
@@ -124,7 +125,7 @@ func TestInvoiceExpiryWithOnlyExpiredInvoices(t *testing.T) {
 	test := newInvoiceExpiryWatcherTest(t, testTime, 0, 5)
 
 	for paymentHash, invoice := range test.testData.pendingInvoices {
-		test.watcher.AddInvoices(makeInvoiceExpiry(paymentHash, invoice))
+		test.watcher.AddInvoice(paymentHash, invoice)
 	}
 
 	test.waitForFinish(testTimeout)
@@ -140,11 +141,11 @@ func TestInvoiceExpiryWithPendingAndExpiredInvoices(t *testing.T) {
 	test := newInvoiceExpiryWatcherTest(t, testTime, 5, 5)
 
 	for paymentHash, invoice := range test.testData.expiredInvoices {
-		test.watcher.AddInvoices(makeInvoiceExpiry(paymentHash, invoice))
+		test.watcher.AddInvoice(paymentHash, invoice)
 	}
 
 	for paymentHash, invoice := range test.testData.pendingInvoices {
-		test.watcher.AddInvoices(makeInvoiceExpiry(paymentHash, invoice))
+		test.watcher.AddInvoice(paymentHash, invoice)
 	}
 
 	test.waitForFinish(testTimeout)
@@ -157,17 +158,17 @@ func TestInvoiceExpiryWhenAddingMultipleInvoices(t *testing.T) {
 	t.Parallel()
 
 	test := newInvoiceExpiryWatcherTest(t, testTime, 5, 5)
-	var invoices []invoiceExpiry
+	invoices := make(map[lntypes.Hash]*channeldb.Invoice)
 
 	for hash, invoice := range test.testData.expiredInvoices {
-		invoices = append(invoices, makeInvoiceExpiry(hash, invoice))
+		invoices[hash] = invoice
 	}
 
 	for hash, invoice := range test.testData.pendingInvoices {
-		invoices = append(invoices, makeInvoiceExpiry(hash, invoice))
+		invoices[hash] = invoice
 	}
 
-	test.watcher.AddInvoices(invoices...)
+	test.watcher.AddInvoices(invoices)
 	test.waitForFinish(testTimeout)
 	test.watcher.Stop()
 	test.checkExpectations()

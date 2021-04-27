@@ -1,8 +1,6 @@
 package routing
 
 import (
-	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -59,17 +57,6 @@ const (
 	DefaultMinFailureRelaxInterval = time.Minute
 )
 
-var (
-	// ErrInvalidMcHistory is returned if we get a negative mission control
-	// history count.
-	ErrInvalidMcHistory = errors.New("mission control history must be " +
-		">= 0")
-
-	// ErrInvalidFailureInterval is returned if we get an invalid failure
-	// interval.
-	ErrInvalidFailureInterval = errors.New("failure interval must be >= 0")
-)
-
 // NodeResults contains previous results from a node to its peers.
 type NodeResults map[route.Vertex]TimedPairResult
 
@@ -91,8 +78,7 @@ type MissionControl struct {
 	// external function to enable deterministic unit tests.
 	now func() time.Time
 
-	// selfNode is our pubkey.
-	selfNode route.Vertex
+	cfg *MissionControlConfig
 
 	store *missionControlStore
 
@@ -111,43 +97,34 @@ type MissionControl struct {
 // MissionControlConfig defines parameters that control mission control
 // behaviour.
 type MissionControlConfig struct {
-	// ProbabilityEstimatorConfig is the config we will use for probability
-	// calculations.
-	ProbabilityEstimatorCfg
+	// PenaltyHalfLife defines after how much time a penalized node or
+	// channel is back at 50% probability.
+	PenaltyHalfLife time.Duration
+
+	// AprioriHopProbability is the assumed success probability of a hop in
+	// a route when no other information is available.
+	AprioriHopProbability float64
 
 	// MaxMcHistory defines the maximum number of payment results that are
 	// held on disk.
 	MaxMcHistory int
 
+	// AprioriWeight is a value in the range [0, 1] that defines to what
+	// extent historical results should be extrapolated to untried
+	// connections. Setting it to one will completely ignore historical
+	// results and always assume the configured a priori probability for
+	// untried connections. A value of zero will ignore the a priori
+	// probability completely and only base the probability on historical
+	// results, unless there are none available.
+	AprioriWeight float64
+
 	// MinFailureRelaxInterval is the minimum time that must have passed
 	// since the previously recorded failure before the failure amount may
 	// be raised.
 	MinFailureRelaxInterval time.Duration
-}
 
-func (c *MissionControlConfig) validate() error {
-	if err := c.ProbabilityEstimatorCfg.validate(); err != nil {
-		return err
-	}
-
-	if c.MaxMcHistory < 0 {
-		return ErrInvalidMcHistory
-	}
-
-	if c.MinFailureRelaxInterval < 0 {
-		return ErrInvalidFailureInterval
-	}
-
-	return nil
-}
-
-// String returns a string representation of a mission control config.
-func (c *MissionControlConfig) String() string {
-	return fmt.Sprintf("Penalty Half Life: %v, Apriori Hop "+
-		"Probablity: %v, Maximum History: %v, Apriori Weight: %v, "+
-		"Minimum Failure Relax Interval: %v", c.PenaltyHalfLife,
-		c.AprioriHopProbability, c.MaxMcHistory, c.AprioriWeight,
-		c.MinFailureRelaxInterval)
+	// SelfNode is our own pubkey.
+	SelfNode route.Vertex
 }
 
 // TimedPairResult describes a timestamped pair result.
@@ -200,14 +177,13 @@ type paymentResult struct {
 }
 
 // NewMissionControl returns a new instance of missionControl.
-func NewMissionControl(db kvdb.Backend, self route.Vertex,
-	cfg *MissionControlConfig) (*MissionControl, error) {
+func NewMissionControl(db kvdb.Backend, cfg *MissionControlConfig) (
+	*MissionControl, error) {
 
-	log.Debugf("Instantiating mission control with config: %v", cfg)
-
-	if err := cfg.validate(); err != nil {
-		return nil, err
-	}
+	log.Debugf("Instantiating mission control with config: "+
+		"PenaltyHalfLife=%v, AprioriHopProbability=%v, "+
+		"AprioriWeight=%v", cfg.PenaltyHalfLife,
+		cfg.AprioriHopProbability, cfg.AprioriWeight)
 
 	store, err := newMissionControlStore(db, cfg.MaxMcHistory)
 	if err != nil {
@@ -215,14 +191,16 @@ func NewMissionControl(db kvdb.Backend, self route.Vertex,
 	}
 
 	estimator := &probabilityEstimator{
-		ProbabilityEstimatorCfg: cfg.ProbabilityEstimatorCfg,
-		prevSuccessProbability:  prevSuccessProbability,
+		aprioriHopProbability:  cfg.AprioriHopProbability,
+		aprioriWeight:          cfg.AprioriWeight,
+		penaltyHalfLife:        cfg.PenaltyHalfLife,
+		prevSuccessProbability: prevSuccessProbability,
 	}
 
 	mc := &MissionControl{
 		state:     newMissionControlState(cfg.MinFailureRelaxInterval),
 		now:       time.Now,
-		selfNode:  self,
+		cfg:       cfg,
 		store:     store,
 		estimator: estimator,
 	}
@@ -251,43 +229,6 @@ func (m *MissionControl) init() error {
 
 	log.Debugf("Mission control state reconstruction finished: "+
 		"n=%v, time=%v", len(results), time.Since(start))
-
-	return nil
-}
-
-// GetConfig returns the config that mission control is currently configured
-// with. All fields are copied by value, so we do not need to worry about
-// mutation.
-func (m *MissionControl) GetConfig() *MissionControlConfig {
-	m.Lock()
-	defer m.Unlock()
-
-	return &MissionControlConfig{
-		ProbabilityEstimatorCfg: m.estimator.ProbabilityEstimatorCfg,
-		MaxMcHistory:            m.store.maxRecords,
-		MinFailureRelaxInterval: m.state.minFailureRelaxInterval,
-	}
-}
-
-// SetConfig validates the config provided and updates mission control's config
-// if it is valid.
-func (m *MissionControl) SetConfig(cfg *MissionControlConfig) error {
-	if cfg == nil {
-		return errors.New("nil mission control config")
-	}
-
-	if err := cfg.validate(); err != nil {
-		return err
-	}
-
-	m.Lock()
-	defer m.Unlock()
-
-	log.Infof("Updating mission control cfg: %v", cfg)
-
-	m.store.maxRecords = cfg.MaxMcHistory
-	m.state.minFailureRelaxInterval = cfg.MinFailureRelaxInterval
-	m.estimator.ProbabilityEstimatorCfg = cfg.ProbabilityEstimatorCfg
 
 	return nil
 }
@@ -321,7 +262,7 @@ func (m *MissionControl) GetProbability(fromNode, toNode route.Vertex,
 	results, _ := m.state.getLastPairResult(fromNode)
 
 	// Use a distinct probability estimation function for local channels.
-	if fromNode == m.selfNode {
+	if fromNode == m.cfg.SelfNode {
 		return m.estimator.getLocalPairProbability(now, results, toNode)
 	}
 
@@ -337,27 +278,6 @@ func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
 	log.Debugf("Requesting history snapshot from mission control")
 
 	return m.state.getSnapshot()
-}
-
-// ImportHistory imports the set of mission control results provided to our
-// in-memory state. These results are not persisted, so will not survive
-// restarts.
-func (m *MissionControl) ImportHistory(history *MissionControlSnapshot) error {
-	if history == nil {
-		return errors.New("cannot import nil history")
-	}
-
-	m.Lock()
-	defer m.Unlock()
-
-	log.Infof("Importing history snapshot with %v pairs to mission control",
-		len(history.Pairs))
-
-	imported := m.state.importSnapshot(history)
-
-	log.Infof("Imported %v results to mission control", imported)
-
-	return nil
 }
 
 // GetPairHistorySnapshot returns the stored history for a given node pair.
@@ -433,9 +353,6 @@ func (m *MissionControl) processPaymentResult(result *paymentResult) (
 		return nil, err
 	}
 
-	m.Lock()
-	defer m.Unlock()
-
 	// Apply result to update mission control state.
 	reason := m.applyPaymentResult(result)
 
@@ -453,6 +370,10 @@ func (m *MissionControl) applyPaymentResult(
 		result.route, result.success, result.failureSourceIdx,
 		result.failure,
 	)
+
+	// Update mission control state using the interpretation.
+	m.Lock()
+	defer m.Unlock()
 
 	if i.policyFailure != nil {
 		if m.state.requestSecondChance(

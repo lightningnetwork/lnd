@@ -12,7 +12,7 @@ import (
 // that is meant for us in the config dispatcher, then we'll exit with an
 // error.
 func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
-	*WatchtowerClient, lnrpc.MacaroonPerms, error) {
+	lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
 
 	// We'll attempt to look up the config that we expect, according to our
 	// subServerName name. If we can't find this, then we'll exit with an
@@ -46,8 +46,9 @@ func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 func init() {
 	subServer := &lnrpc.SubServerDriver{
 		SubServerName: subServerName,
-		NewGrpcHandler: func() lnrpc.GrpcHandler {
-			return &ServerShell{}
+		New: func(c lnrpc.SubServerConfigDispatcher) (lnrpc.SubServer,
+			lnrpc.MacaroonPerms, error) {
+			return createNewSubServer(c)
 		},
 	}
 

@@ -62,28 +62,6 @@ service Router {
         returns (QueryMissionControlResponse);
 
     /*
-    XImportMissionControl is an experimental API that imports the state provided
-    to the internal mission control's state, using all results which are more
-    recent than our existing values. These values will only be imported
-    in-memory, and will not be persisted across restarts.
-    */
-    rpc XImportMissionControl (XImportMissionControlRequest)
-        returns (XImportMissionControlResponse);
-
-    /*
-    GetMissionControlConfig returns mission control's current config.
-    */
-    rpc GetMissionControlConfig (GetMissionControlConfigRequest)
-        returns (GetMissionControlConfigResponse);
-
-    /*
-    SetMissionControlConfig will set mission control's config, if the config
-    provided is valid.
-    */
-    rpc SetMissionControlConfig (SetMissionControlConfigRequest)
-        returns (SetMissionControlConfigResponse);
-
-    /*
     QueryProbability returns the current success probability estimate for a
     given node pair and amount.
     */
@@ -130,15 +108,6 @@ service Router {
     */
     rpc HtlcInterceptor (stream ForwardHtlcInterceptResponse)
         returns (stream ForwardHtlcInterceptRequest);
-
-    /*
-    UpdateChanStatus attempts to manually set the state of a channel
-    (enabled, disabled, or auto). A manual "disable" request will cause the
-    channel to stay disabled until a subsequent manual request of either
-    "enable" or "auto".
-    */
-    rpc UpdateChanStatus (UpdateChanStatusRequest)
-        returns (UpdateChanStatusResponse);
 }
 
 message SendPaymentRequest {
@@ -167,9 +136,6 @@ message SendPaymentRequest {
     timelock for the final hop.
     */
     int32 final_cltv_delta = 4;
-
-    // An optional payment addr to be included within the last hop of the route.
-    bytes payment_addr = 20;
 
     /*
     A bare-bones invoice for a payment within the Lightning Network.  With the
@@ -271,14 +237,6 @@ message SendPaymentRequest {
     that show which htlcs are still in flight are suppressed.
     */
     bool no_inflight_updates = 18;
-
-    /*
-    The largest payment split that should be attempted when making a payment if
-    splitting is necessary. Setting this value will effectively cause lnd to
-    split more aggressively, vs only when it thinks it needs to. Note that this
-    value is in milli-satoshis.
-    */
-    uint64 max_shard_size_msat = 21;
 }
 
 message TrackPaymentRequest {
@@ -352,14 +310,6 @@ message QueryMissionControlResponse {
     repeated PairHistory pairs = 2;
 }
 
-message XImportMissionControlRequest {
-    // Node pair-level mission control state to be imported.
-    repeated PairHistory pairs = 1;
-}
-
-message XImportMissionControlResponse {
-}
-
 // PairHistory contains the mission control state for a particular node pair.
 message PairHistory {
     // The source node pubkey of the pair.
@@ -399,67 +349,6 @@ message PairData {
 
     // Highest amount that we could successfully forward in millisats.
     int64 success_amt_msat = 7;
-}
-
-message GetMissionControlConfigRequest {
-}
-
-message GetMissionControlConfigResponse {
-    /*
-    Mission control's currently active config.
-    */
-    MissionControlConfig config = 1;
-}
-
-message SetMissionControlConfigRequest {
-    /*
-    The config to set for mission control. Note that all values *must* be set,
-    because the full config will be applied.
-    */
-    MissionControlConfig config = 1;
-}
-
-message SetMissionControlConfigResponse {
-}
-
-message MissionControlConfig {
-    /*
-    The amount of time mission control will take to restore a penalized node
-    or channel back to 50% success probability, expressed in seconds. Setting
-    this value to a higher value will penalize failures for longer, making
-    mission control less likely to route through nodes and channels that we
-    have previously recorded failures for.
-    */
-    uint64 half_life_seconds = 1;
-
-    /*
-    The probability of success mission control should assign to hop in a route
-    where it has no other information available. Higher values will make mission
-    control more willing to try hops that we have no information about, lower
-    values will discourage trying these hops.
-    */
-    float hop_probability = 2;
-
-    /*
-    The importance that mission control should place on historical results,
-    expressed as a value in [0;1]. Setting this value to 1 will ignore all
-    historical payments and just use the hop probability to assess the
-    probability of success for each hop. A zero value ignores hop probability
-    completely and relies entirely on historical results, unless none are
-    available.
-    */
-    float weight = 3;
-
-    /*
-    The maximum number of payment results that mission control will store.
-    */
-    uint32 maximum_payment_results = 4;
-
-    /*
-    The minimum time that must have passed since the previously recorded failure
-    before we raise the failure amount.
-    */
-    uint64 minimum_failure_relax_interval = 5;
 }
 
 message QueryProbabilityRequest {
@@ -505,9 +394,6 @@ message BuildRouteRequest {
     pubkey.
     */
     repeated bytes hop_pubkeys = 4;
-
-    // An optional payment addr to be included within the last hop of the route.
-    bytes payment_addr = 5;
 }
 
 message BuildRouteResponse {
@@ -745,9 +631,6 @@ message ForwardHtlcInterceptRequest {
 
     // Any custom records that were present in the payload.
     map<uint64, bytes> custom_records = 8;
-
-    // The onion blob for the next hop
-    bytes onion_blob = 9;
 }
 
 /**
@@ -775,19 +658,4 @@ enum ResolveHoldForwardAction {
     SETTLE = 0;
     FAIL = 1;
     RESUME = 2;
-}
-
-message UpdateChanStatusRequest {
-    lnrpc.ChannelPoint chan_point = 1;
-
-    ChanStatusAction action = 2;
-}
-
-enum ChanStatusAction {
-    ENABLE = 0;
-    DISABLE = 1;
-    AUTO = 2;
-}
-
-message UpdateChanStatusResponse {
 }

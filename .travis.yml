@@ -1,6 +1,8 @@
 language: go
 cache:
   directories:
+    - ~/bitcoin/bitcoin-0.19.1/bin
+    - $DOWNLOAD_CACHE
     - $GOCACHE
     - $GOPATH/pkg/mod
     - $GOPATH/src/github.com/btcsuite
@@ -15,18 +17,12 @@ git:
   depth: false
 
 go:
-  # If you change this value, please change it in the following files as well:
-  # /Dockerfile
-  # /dev.Dockerfile
-  # /make/builder.Dockerfile
-  # /.github/workflows/main.yml
-  # /.github/workflows/release.yml
-  - 1.16.3
+  - "1.14.x"
 
 env:
   global:
     - GOCACHE=$HOME/.go-build
-    - BITCOIN_VERSION=0.20.1
+    - DOWNLOAD_CACHE=$HOME/download_cache
 
 sudo: required
 
@@ -34,6 +30,11 @@ jobs:
   include:
     - stage: Sanity Check
       name: Lint and compile
+      before_script:
+        # Install the RPC tools as a before step so Travis collapses the output
+        # after it's done.
+        - ./scripts/install_travis_proto.sh
+
       script:
         # Step 1: Make sure no diff is produced when compiling with the correct
         # version.
@@ -49,35 +50,27 @@ jobs:
     - stage: Integration Test
       name: Btcd Integration
       script:
-        - make itest-parallel
+        - make itest
 
-    - name: Bitcoind Integration (txindex enabled)
+    - name: Bitcoind Integration
       script:
         - bash ./scripts/install_bitcoind.sh
-        - make itest-parallel backend=bitcoind
-
-    - name: Bitcoind Integration with etcd (txindex enabled)
-      script:
-        - bash ./scripts/install_bitcoind.sh
-        - make itest-parallel backend=bitcoind etcd=1
-
-    - name: Bitcoind Integration (txindex disabled)
-      script:
-        - bash ./scripts/install_bitcoind.sh
-        - make itest-parallel backend="bitcoind notxindex"
+        - make itest backend=bitcoind
 
     - name: Neutrino Integration
       script:
-        - make itest-parallel backend=neutrino
+        - make itest backend=neutrino
 
     - name: Btcd Integration ARM
       script:
-        - GOARM=7 GOARCH=arm GOOS=linux make itest-parallel
+        - GOARM=7 GOARCH=arm GOOS=linux CGO_ENABLED=0 make btcd build-itest
+        - file lnd-itest
+        - GOARM=7 GOARCH=arm GOOS=linux CGO_ENABLED=0 make itest-only
       arch: arm64
 
     - name: Btcd Integration Windows
       script:
-        - make itest-parallel windows=1
+        - make itest-windows
       os: windows
       before_install:
         - choco upgrade --no-progress -y make netcat curl findutils
@@ -87,8 +80,7 @@ jobs:
           case $TRAVIS_OS_NAME in
             windows)
               echo "Uploading to termbin.com..."
-              LOG_FILES=$(find ./lntest/itest -name '*.log')
-              for f in $LOG_FILES; do echo -n $f; cat $f | nc termbin.com 9999 | xargs -r0 printf ' uploaded to %s'; done
+              for f in ./lntest/itest/*.log; do cat $f | nc termbin.com 9999 | xargs -r0 printf "$f"' uploaded to %s'; done
               ;;
           esac
 
@@ -100,8 +92,8 @@ after_failure:
         ;;
 
       *)
-        LOG_FILES=$(find ./lntest/itest -name '*.log')
-        echo "Uploading to termbin.com..." && for f in $LOG_FILES; do echo -n $f; cat $f | nc termbin.com 9999 | xargs -r0 printf ' uploaded to %s'; done
+        LOG_FILES=./lntest/itest/*.log
+        echo "Uploading to termbin.com..." && find $LOG_FILES | xargs -I{} sh -c "cat {} | nc termbin.com 9999 | xargs -r0 printf '{} uploaded to %s'"
         echo "Uploading to file.io..." && tar -zcvO $LOG_FILES | curl -s -F 'file=@-;filename=logs.tar.gz' https://file.io | xargs -r0 printf 'logs.tar.gz uploaded to %s\n'
         ;;
     esac

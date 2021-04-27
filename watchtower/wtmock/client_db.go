@@ -7,16 +7,10 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 )
 
 type towerPK [33]byte
-
-type keyIndexKey struct {
-	towerID  wtdb.TowerID
-	blobType blob.Type
-}
 
 // ClientDB is a mock, in-memory database or testing the watchtower client
 // behavior.
@@ -29,9 +23,8 @@ type ClientDB struct {
 	towerIndex     map[towerPK]wtdb.TowerID
 	towers         map[wtdb.TowerID]*wtdb.Tower
 
-	nextIndex     uint32
-	indexes       map[keyIndexKey]uint32
-	legacyIndexes map[wtdb.TowerID]uint32
+	nextIndex uint32
+	indexes   map[wtdb.TowerID]uint32
 }
 
 // NewClientDB initializes a new mock ClientDB.
@@ -41,8 +34,7 @@ func NewClientDB() *ClientDB {
 		activeSessions: make(map[wtdb.SessionID]wtdb.ClientSession),
 		towerIndex:     make(map[towerPK]wtdb.TowerID),
 		towers:         make(map[wtdb.TowerID]*wtdb.Tower),
-		indexes:        make(map[keyIndexKey]uint32),
-		legacyIndexes:  make(map[wtdb.TowerID]uint32),
+		indexes:        make(map[wtdb.TowerID]uint32),
 	}
 }
 
@@ -109,9 +101,6 @@ func (m *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
 
 	if addr != nil {
 		tower.RemoveAddress(addr)
-		if len(tower.Addresses) == 0 {
-			return wtdb.ErrLastTowerAddr
-		}
 		m.towers[tower.ID] = tower
 		return nil
 	}
@@ -237,15 +226,10 @@ func (m *ClientDB) CreateClientSession(session *wtdb.ClientSession) error {
 		return wtdb.ErrClientSessionAlreadyExists
 	}
 
-	key := keyIndexKey{
-		towerID:  session.TowerID,
-		blobType: session.Policy.BlobType,
-	}
-
 	// Ensure that a session key index has been reserved for this tower.
-	keyIndex, err := m.getSessionKeyIndex(key)
-	if err != nil {
-		return err
+	keyIndex, ok := m.indexes[session.TowerID]
+	if !ok {
+		return wtdb.ErrNoReservedKeyIndex
 	}
 
 	// Ensure that the session's index matches the reserved index.
@@ -255,10 +239,7 @@ func (m *ClientDB) CreateClientSession(session *wtdb.ClientSession) error {
 
 	// Remove the key index reservation for this tower. Once committed, this
 	// permits us to create another session with this tower.
-	delete(m.indexes, key)
-	if key.blobType == blob.TypeAltruistCommit {
-		delete(m.legacyIndexes, key.towerID)
-	}
+	delete(m.indexes, session.TowerID)
 
 	m.activeSessions[session.ID] = wtdb.ClientSession{
 		ID: session.ID,
@@ -282,40 +263,19 @@ func (m *ClientDB) CreateClientSession(session *wtdb.ClientSession) error {
 // CreateClientSession is invoked for that tower and index, at which point a new
 // index for that tower can be reserved. Multiple calls to this method before
 // CreateClientSession is invoked should return the same index.
-func (m *ClientDB) NextSessionKeyIndex(towerID wtdb.TowerID,
-	blobType blob.Type) (uint32, error) {
-
+func (m *ClientDB) NextSessionKeyIndex(towerID wtdb.TowerID) (uint32, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	key := keyIndexKey{
-		towerID:  towerID,
-		blobType: blobType,
-	}
-
-	if index, err := m.getSessionKeyIndex(key); err == nil {
+	if index, ok := m.indexes[towerID]; ok {
 		return index, nil
 	}
 
 	m.nextIndex++
 	index := m.nextIndex
-	m.indexes[key] = index
+	m.indexes[towerID] = index
 
 	return index, nil
-}
-
-func (m *ClientDB) getSessionKeyIndex(key keyIndexKey) (uint32, error) {
-	if index, ok := m.indexes[key]; ok {
-		return index, nil
-	}
-
-	if key.blobType == blob.TypeAltruistCommit {
-		if index, ok := m.legacyIndexes[key.towerID]; ok {
-			return index, nil
-		}
-	}
-
-	return 0, wtdb.ErrNoReservedKeyIndex
 }
 
 // CommitUpdate persists the CommittedUpdate provided in the slot for (session,

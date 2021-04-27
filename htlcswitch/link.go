@@ -256,7 +256,7 @@ type ChannelLinkConfig struct {
 
 	// TowerClient is an optional engine that manages the signing,
 	// encrypting, and uploading of justice transactions to the daemon's
-	// configured set of watchtowers for legacy channels.
+	// configured set of watchtowers.
 	TowerClient TowerClient
 
 	// MaxOutgoingCltvExpiry is the maximum outgoing timelock that the link
@@ -268,10 +268,6 @@ type ChannelLinkConfig struct {
 	// commitment fee to be of its balance. This only applies to the
 	// initiator of the channel.
 	MaxFeeAllocation float64
-
-	// MaxAnchorsCommitFeeRate is the max commitment fee rate we'll use as
-	// the initiator for channels of the anchor type.
-	MaxAnchorsCommitFeeRate chainfee.SatPerKWeight
 
 	// NotifyActiveLink allows the link to tell the ChannelNotifier when a
 	// link is first started.
@@ -439,7 +435,12 @@ func (l *channelLink) Start() error {
 
 	// If the config supplied watchtower client, ensure the channel is
 	// registered before trying to use it during operation.
-	if l.cfg.TowerClient != nil {
+	// TODO(halseth): support anchor types for watchtower.
+	state := l.channel.State()
+	if l.cfg.TowerClient != nil && state.ChanType.HasAnchors() {
+		l.log.Warnf("Skipping tower registration for anchor " +
+			"channel type")
+	} else if l.cfg.TowerClient != nil && !state.ChanType.HasAnchors() {
 		err := l.cfg.TowerClient.RegisterChannel(l.ChanID())
 		if err != nil {
 			return err
@@ -520,14 +521,7 @@ func (l *channelLink) Stop() {
 		l.cfg.ChainEvents.Cancel()
 	}
 
-	// Ensure the channel for the timer is drained.
-	if !l.updateFeeTimer.Stop() {
-		select {
-		case <-l.updateFeeTimer.C:
-		default:
-		}
-	}
-
+	l.updateFeeTimer.Stop()
 	l.hodlQueue.Stop()
 
 	close(l.quit)
@@ -1094,10 +1088,7 @@ func (l *channelLink) htlcManager() {
 			// based on our current set fee rate. We'll cap the new
 			// fee rate to our max fee allocation.
 			commitFee := l.channel.CommitFeeRate()
-			maxFee := l.channel.MaxFeeRate(
-				l.cfg.MaxFeeAllocation,
-				l.cfg.MaxAnchorsCommitFeeRate,
-			)
+			maxFee := l.channel.MaxFeeRate(l.cfg.MaxFeeAllocation)
 			newCommitFee := chainfee.SatPerKWeight(
 				math.Min(float64(netFee), float64(maxFee)),
 			)
@@ -1844,9 +1835,14 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			return
 		}
 
-		// If we have a tower client for this channel type, we'll
-		if l.cfg.TowerClient != nil {
-			state := l.channel.State()
+		// If we have a tower client, we'll proceed in backing up the
+		// state that was just revoked.
+		// TODO(halseth): support anchor types for watchtower.
+		state := l.channel.State()
+		if l.cfg.TowerClient != nil && state.ChanType.HasAnchors() {
+			l.log.Warnf("Skipping tower backup for anchor " +
+				"channel type")
+		} else if l.cfg.TowerClient != nil && !state.ChanType.HasAnchors() {
 			breachInfo, err := lnwallet.NewBreachRetribution(
 				state, state.RemoteCommitment.CommitHeight-1, 0,
 			)
@@ -1856,9 +1852,10 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 				return
 			}
 
+			chanType := l.channel.State().ChanType
 			chanID := l.ChanID()
 			err = l.cfg.TowerClient.BackupState(
-				&chanID, breachInfo, state.ChanType,
+				&chanID, breachInfo, chanType.IsTweakless(),
 			)
 			if err != nil {
 				l.fail(LinkFailureError{code: ErrInternalError},
@@ -1903,21 +1900,9 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// Error received from remote, MUST fail channel, but should
 		// only print the contents of the error message if all
 		// characters are printable ASCII.
-		l.fail(
-			LinkFailureError{
-				code: ErrRemoteError,
-
-				// TODO(halseth): we currently don't fail the
-				// channel permanently, as there are some sync
-				// issues with other implementations that will
-				// lead to them sending an error message, but
-				// we can recover from on next connection. See
-				// https://github.com/ElementsProject/lightning/issues/4212
-				PermanentFailure: false,
-			},
+		l.fail(LinkFailureError{code: ErrRemoteError},
 			"ChannelPoint(%v): received error from peer: %v",
-			l.channel.ChannelPoint(), msg.Error(),
-		)
+			l.channel.ChannelPoint(), msg.Error())
 	default:
 		l.log.Warnf("received unknown message of type %T", msg)
 	}

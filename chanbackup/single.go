@@ -36,10 +36,6 @@ const (
 	// implicitly denotes that this channel uses the new anchor commitment
 	// format.
 	AnchorsCommitVersion = 2
-
-	// AnchorsZeroFeeHtlcTxCommitVersion is a version that denotes this
-	// channel is using the zero-fee second-level anchor commitment format.
-	AnchorsZeroFeeHtlcTxCommitVersion = 3
 )
 
 // Single is a static description of an existing channel that can be used for
@@ -124,34 +120,19 @@ type Single struct {
 func NewSingle(channel *channeldb.OpenChannel,
 	nodeAddrs []net.Addr) Single {
 
-	var shaChainRootDesc keychain.KeyDescriptor
+	// TODO(roasbeef): update after we start to store the KeyLoc for
+	// shachain root
 
-	// If the channel has a populated RevocationKeyLocator, then we can
-	// just store that instead of the public key.
-	if channel.RevocationKeyLocator.Family == keychain.KeyFamilyRevocationRoot {
-		shaChainRootDesc = keychain.KeyDescriptor{
-			KeyLocator: channel.RevocationKeyLocator,
-		}
-	} else {
-		// If the RevocationKeyLocator is not populated, then we'll need
-		// to obtain a public point for the shachain root and store that.
-		// This is the legacy scheme.
-		var b bytes.Buffer
-		_ = channel.RevocationProducer.Encode(&b) // Can't return an error.
+	// We'll need to obtain the shachain root which is derived directly
+	// from a private key in our keychain.
+	var b bytes.Buffer
+	channel.RevocationProducer.Encode(&b) // Can't return an error.
 
-		// Once we have the root, we'll make a public key from it, such that
-		// the backups plaintext don't carry any private information. When
-		// we go to recover, we'll present this in order to derive the
-		// private key.
-		_, shaChainPoint := btcec.PrivKeyFromBytes(btcec.S256(), b.Bytes())
-
-		shaChainRootDesc = keychain.KeyDescriptor{
-			PubKey: shaChainPoint,
-			KeyLocator: keychain.KeyLocator{
-				Family: keychain.KeyFamilyRevocationRoot,
-			},
-		}
-	}
+	// Once we have the root, we'll make a public key from it, such that
+	// the backups plaintext don't carry any private information. When we
+	// go to recover, we'll present this in order to derive the private
+	// key.
+	_, shaChainPoint := btcec.PrivKeyFromBytes(btcec.S256(), b.Bytes())
 
 	// If a channel is unconfirmed, the block height of the ShortChannelID
 	// is zero. This will lead to problems when trying to restore that
@@ -164,22 +145,24 @@ func NewSingle(channel *channeldb.OpenChannel,
 	}
 
 	single := Single{
-		IsInitiator:      channel.IsInitiator,
-		ChainHash:        channel.ChainHash,
-		FundingOutpoint:  channel.FundingOutpoint,
-		ShortChannelID:   chanID,
-		RemoteNodePub:    channel.IdentityPub,
-		Addresses:        nodeAddrs,
-		Capacity:         channel.Capacity,
-		LocalChanCfg:     channel.LocalChanCfg,
-		RemoteChanCfg:    channel.RemoteChanCfg,
-		ShaChainRootDesc: shaChainRootDesc,
+		IsInitiator:     channel.IsInitiator,
+		ChainHash:       channel.ChainHash,
+		FundingOutpoint: channel.FundingOutpoint,
+		ShortChannelID:  chanID,
+		RemoteNodePub:   channel.IdentityPub,
+		Addresses:       nodeAddrs,
+		Capacity:        channel.Capacity,
+		LocalChanCfg:    channel.LocalChanCfg,
+		RemoteChanCfg:   channel.RemoteChanCfg,
+		ShaChainRootDesc: keychain.KeyDescriptor{
+			PubKey: shaChainPoint,
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamilyRevocationRoot,
+			},
+		},
 	}
 
 	switch {
-	case channel.ChanType.ZeroHtlcTxFee():
-		single.Version = AnchorsZeroFeeHtlcTxCommitVersion
-
 	case channel.ChanType.HasAnchors():
 		single.Version = AnchorsCommitVersion
 
@@ -202,7 +185,6 @@ func (s *Single) Serialize(w io.Writer) error {
 	case DefaultSingleVersion:
 	case TweaklessCommitVersion:
 	case AnchorsCommitVersion:
-	case AnchorsZeroFeeHtlcTxCommitVersion:
 	default:
 		return fmt.Errorf("unable to serialize w/ unknown "+
 			"version: %v", s.Version)
@@ -362,7 +344,6 @@ func (s *Single) Deserialize(r io.Reader) error {
 	case DefaultSingleVersion:
 	case TweaklessCommitVersion:
 	case AnchorsCommitVersion:
-	case AnchorsZeroFeeHtlcTxCommitVersion:
 	default:
 		return fmt.Errorf("unable to de-serialize w/ unknown "+
 			"version: %v", s.Version)

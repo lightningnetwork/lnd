@@ -40,11 +40,9 @@ func newEstimatorTestContext(t *testing.T) *estimatorTestContext {
 	return &estimatorTestContext{
 		t: t,
 		estimator: &probabilityEstimator{
-			ProbabilityEstimatorCfg: ProbabilityEstimatorCfg{
-				AprioriHopProbability: aprioriHopProb,
-				AprioriWeight:         aprioriWeight,
-				PenaltyHalfLife:       time.Hour,
-			},
+			aprioriHopProbability:  aprioriHopProb,
+			aprioriWeight:          aprioriWeight,
+			penaltyHalfLife:        time.Hour,
 			prevSuccessProbability: aprioriPrevSucProb,
 		},
 	}

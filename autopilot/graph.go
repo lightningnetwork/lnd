@@ -99,8 +99,12 @@ func (d dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
 		}
 
 		edge := ChannelEdge{
-			ChanID:   lnwire.NewShortChanIDFromInt(ep.ChannelID),
-			Capacity: ei.Capacity,
+			Channel: Channel{
+				ChanID:    lnwire.NewShortChanIDFromInt(ep.ChannelID),
+				Capacity:  ei.Capacity,
+				FundedAmt: ei.Capacity,
+				Node:      NodeID(ep.Node.PubKeyBytes),
+			},
 			Peer: dbNode{
 				tx:   tx,
 				node: ep.Node,
@@ -261,15 +265,19 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	}
 
 	return &ChannelEdge{
-			ChanID:   chanID,
-			Capacity: capacity,
+			Channel: Channel{
+				ChanID:   chanID,
+				Capacity: capacity,
+			},
 			Peer: dbNode{
 				node: vertex1,
 			},
 		},
 		&ChannelEdge{
-			ChanID:   chanID,
-			Capacity: capacity,
+			Channel: Channel{
+				ChanID:   chanID,
+				Capacity: capacity,
+			},
 			Peer: dbNode{
 				node: vertex2,
 			},
@@ -417,17 +425,20 @@ func (m *memChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		}
 	}
 
-	edge1 := ChannelEdge{
+	channel := Channel{
 		ChanID:   randChanID(),
 		Capacity: capacity,
-		Peer:     vertex2,
+	}
+
+	edge1 := ChannelEdge{
+		Channel: channel,
+		Peer:    vertex2,
 	}
 	vertex1.chans = append(vertex1.chans, edge1)
 
 	edge2 := ChannelEdge{
-		ChanID:   randChanID(),
-		Capacity: capacity,
-		Peer:     vertex1,
+		Channel: channel,
+		Peer:    vertex1,
 	}
 	vertex2.chans = append(vertex2.chans, edge2)
 

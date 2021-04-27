@@ -26,8 +26,6 @@ type HealthCheckConfig struct {
 	ChainCheck *CheckConfig `group:"chainbackend" namespace:"chainbackend"`
 
 	DiskCheck *DiskCheckConfig `group:"diskspace" namespace:"diskspace"`
-
-	TLSCheck *CheckConfig `group:"tls" namespace:"tls"`
 }
 
 // Validate checks the values configured for our health checks.
@@ -37,10 +35,6 @@ func (h *HealthCheckConfig) Validate() error {
 	}
 
 	if err := h.DiskCheck.validate("disk space"); err != nil {
-		return err
-	}
-
-	if err := h.TLSCheck.validate("tls"); err != nil {
 		return err
 	}
 

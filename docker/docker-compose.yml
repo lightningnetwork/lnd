@@ -24,7 +24,7 @@ services:
       container_name: lnd
       build:
         context: ../
-        dockerfile: dev.Dockerfile
+        dockerfile: docker/lnd/Dockerfile
       environment:
         - RPCUSER
         - RPCPASS

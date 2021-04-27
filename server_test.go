@@ -115,10 +115,9 @@ func TestTLSAutoRegeneration(t *testing.T) {
 	// Now let's run getTLSConfig. If it works properly, it should delete
 	// the cert and create a new one.
 	cfg := &Config{
-		TLSCertPath:     certPath,
-		TLSKeyPath:      keyPath,
-		TLSCertDuration: 42 * time.Hour,
-		RPCListeners:    rpcListeners,
+		TLSCertPath:  certPath,
+		TLSKeyPath:   keyPath,
+		RPCListeners: rpcListeners,
 	}
 	_, _, _, cleanUp, err := getTLSConfig(cfg)
 	if err != nil {

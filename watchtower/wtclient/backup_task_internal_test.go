@@ -13,7 +13,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -75,7 +74,7 @@ type backupTaskTest struct {
 	bindErr          error
 	expSweepScript   []byte
 	signer           input.Signer
-	chanType         channeldb.ChannelType
+	tweakless        bool
 }
 
 // genTaskTest creates a instance of a backupTaskTest using the passed
@@ -93,13 +92,7 @@ func genTaskTest(
 	expSweepAmt int64,
 	expRewardAmt int64,
 	bindErr error,
-	chanType channeldb.ChannelType) backupTaskTest {
-
-	// Set the anchor flag in the blob type if the session needs to support
-	// anchor channels.
-	if chanType.HasAnchors() {
-		blobType |= blob.Type(blob.FlagAnchorChannel)
-	}
+	tweakless bool) backupTaskTest {
 
 	// Parse the key pairs for all keys used in the test.
 	revSK, revPK := btcec.PrivKeyFromBytes(
@@ -199,31 +192,17 @@ func genTaskTest(
 			Index: index,
 		}
 
-		var witnessType input.WitnessType
-		switch {
-		case chanType.HasAnchors():
-			witnessType = input.CommitmentToRemoteConfirmed
-		case chanType.IsTweakless():
+		witnessType := input.CommitmentNoDelay
+		if tweakless {
 			witnessType = input.CommitSpendNoDelayTweakless
-		default:
-			witnessType = input.CommitmentNoDelay
 		}
 
-		if chanType.HasAnchors() {
-			toRemoteInput = input.NewCsvInput(
-				&breachInfo.LocalOutpoint,
-				witnessType,
-				breachInfo.LocalOutputSignDesc,
-				0, 1,
-			)
-		} else {
-			toRemoteInput = input.NewBaseInput(
-				&breachInfo.LocalOutpoint,
-				witnessType,
-				breachInfo.LocalOutputSignDesc,
-				0,
-			)
-		}
+		toRemoteInput = input.NewBaseInput(
+			&breachInfo.LocalOutpoint,
+			witnessType,
+			breachInfo.LocalOutputSignDesc,
+			0,
+		)
 	}
 
 	return backupTaskTest{
@@ -248,7 +227,7 @@ func genTaskTest(
 		bindErr:        bindErr,
 		expSweepScript: makeAddrSlice(22),
 		signer:         signer,
-		chanType:       chanType,
+		tweakless:      tweakless,
 	}
 }
 
@@ -274,97 +253,60 @@ var (
 func TestBackupTask(t *testing.T) {
 	t.Parallel()
 
-	chanTypes := []channeldb.ChannelType{
-		channeldb.SingleFunderBit,
-		channeldb.SingleFunderTweaklessBit,
-		channeldb.AnchorOutputsBit,
-	}
-
 	var backupTaskTests []backupTaskTest
-	for _, chanType := range chanTypes {
-		// Depending on whether the test is for anchor channels or
-		// legacy (tweaked and non-tweaked) channels, adjust the
-		// expected sweep amount to accommodate. These are different for
-		// several reasons:
-		//   - anchor to-remote outputs require a P2WSH sweep rather
-		//     than a P2WKH sweep.
-		//   - the to-local weight estimate fixes an off-by-one.
-		// In tests related to the dust threshold, the size difference
-		// between the channel types makes it so that the threshold fee
-		// rate is slightly lower (since the transactions are heavier).
-		var (
-			expSweepCommitNoRewardBoth     int64                  = 299241
-			expSweepCommitNoRewardLocal    int64                  = 199514
-			expSweepCommitNoRewardRemote   int64                  = 99561
-			expSweepCommitRewardBoth       int64                  = 296117
-			expSweepCommitRewardLocal      int64                  = 197390
-			expSweepCommitRewardRemote     int64                  = 98437
-			sweepFeeRateNoRewardRemoteDust chainfee.SatPerKWeight = 227500
-			sweepFeeRateRewardRemoteDust   chainfee.SatPerKWeight = 175000
-		)
-		if chanType.HasAnchors() {
-			expSweepCommitNoRewardBoth = 299236
-			expSweepCommitNoRewardLocal = 199513
-			expSweepCommitNoRewardRemote = 99557
-			expSweepCommitRewardBoth = 296112
-			expSweepCommitRewardLocal = 197389
-			expSweepCommitRewardRemote = 98433
-			sweepFeeRateNoRewardRemoteDust = 225000
-			sweepFeeRateRewardRemoteDust = 173750
-		}
-
+	for _, tweakless := range []bool{true, false} {
 		backupTaskTests = append(backupTaskTests, []backupTaskTest{
 			genTaskTest(
 				"commit no-reward, both outputs",
-				100,                        // stateNum
-				200000,                     // toLocalAmt
-				100000,                     // toRemoteAmt
-				blobTypeCommitNoReward,     // blobType
-				1000,                       // sweepFeeRate
-				nil,                        // rewardScript
-				expSweepCommitNoRewardBoth, // expSweepAmt
-				0,                          // expRewardAmt
-				nil,                        // bindErr
-				chanType,
+				100,                    // stateNum
+				200000,                 // toLocalAmt
+				100000,                 // toRemoteAmt
+				blobTypeCommitNoReward, // blobType
+				1000,                   // sweepFeeRate
+				nil,                    // rewardScript
+				299241,                 // expSweepAmt
+				0,                      // expRewardAmt
+				nil,                    // bindErr
+				tweakless,
 			),
 			genTaskTest(
 				"commit no-reward, to-local output only",
-				1000,                        // stateNum
-				200000,                      // toLocalAmt
-				0,                           // toRemoteAmt
-				blobTypeCommitNoReward,      // blobType
-				1000,                        // sweepFeeRate
-				nil,                         // rewardScript
-				expSweepCommitNoRewardLocal, // expSweepAmt
-				0,                           // expRewardAmt
-				nil,                         // bindErr
-				chanType,
+				1000,                   // stateNum
+				200000,                 // toLocalAmt
+				0,                      // toRemoteAmt
+				blobTypeCommitNoReward, // blobType
+				1000,                   // sweepFeeRate
+				nil,                    // rewardScript
+				199514,                 // expSweepAmt
+				0,                      // expRewardAmt
+				nil,                    // bindErr
+				tweakless,
 			),
 			genTaskTest(
 				"commit no-reward, to-remote output only",
-				1,                            // stateNum
-				0,                            // toLocalAmt
-				100000,                       // toRemoteAmt
-				blobTypeCommitNoReward,       // blobType
-				1000,                         // sweepFeeRate
-				nil,                          // rewardScript
-				expSweepCommitNoRewardRemote, // expSweepAmt
-				0,                            // expRewardAmt
-				nil,                          // bindErr
-				chanType,
+				1,                      // stateNum
+				0,                      // toLocalAmt
+				100000,                 // toRemoteAmt
+				blobTypeCommitNoReward, // blobType
+				1000,                   // sweepFeeRate
+				nil,                    // rewardScript
+				99561,                  // expSweepAmt
+				0,                      // expRewardAmt
+				nil,                    // bindErr
+				tweakless,
 			),
 			genTaskTest(
 				"commit no-reward, to-remote output only, creates dust",
-				1,                              // stateNum
-				0,                              // toLocalAmt
-				100000,                         // toRemoteAmt
-				blobTypeCommitNoReward,         // blobType
-				sweepFeeRateNoRewardRemoteDust, // sweepFeeRate
-				nil,                            // rewardScript
-				0,                              // expSweepAmt
-				0,                              // expRewardAmt
-				wtpolicy.ErrCreatesDust,        // bindErr
-				chanType,
+				1,                       // stateNum
+				0,                       // toLocalAmt
+				100000,                  // toRemoteAmt
+				blobTypeCommitNoReward,  // blobType
+				227500,                  // sweepFeeRate
+				nil,                     // rewardScript
+				0,                       // expSweepAmt
+				0,                       // expRewardAmt
+				wtpolicy.ErrCreatesDust, // bindErr
+				tweakless,
 			),
 			genTaskTest(
 				"commit no-reward, no outputs, fee rate exceeds inputs",
@@ -377,7 +319,7 @@ func TestBackupTask(t *testing.T) {
 				0,                            // expSweepAmt
 				0,                            // expRewardAmt
 				wtpolicy.ErrFeeExceedsInputs, // bindErr
-				chanType,
+				tweakless,
 			),
 			genTaskTest(
 				"commit no-reward, no outputs, fee rate of 0 creates dust",
@@ -390,59 +332,59 @@ func TestBackupTask(t *testing.T) {
 				0,                       // expSweepAmt
 				0,                       // expRewardAmt
 				wtpolicy.ErrCreatesDust, // bindErr
-				chanType,
+				tweakless,
 			),
 			genTaskTest(
 				"commit reward, both outputs",
-				100,                      // stateNum
-				200000,                   // toLocalAmt
-				100000,                   // toRemoteAmt
-				blobTypeCommitReward,     // blobType
-				1000,                     // sweepFeeRate
-				addrScript,               // rewardScript
-				expSweepCommitRewardBoth, // expSweepAmt
-				3000,                     // expRewardAmt
-				nil,                      // bindErr
-				chanType,
+				100,                  // stateNum
+				200000,               // toLocalAmt
+				100000,               // toRemoteAmt
+				blobTypeCommitReward, // blobType
+				1000,                 // sweepFeeRate
+				addrScript,           // rewardScript
+				296117,               // expSweepAmt
+				3000,                 // expRewardAmt
+				nil,                  // bindErr
+				tweakless,
 			),
 			genTaskTest(
 				"commit reward, to-local output only",
-				1000,                      // stateNum
-				200000,                    // toLocalAmt
-				0,                         // toRemoteAmt
-				blobTypeCommitReward,      // blobType
-				1000,                      // sweepFeeRate
-				addrScript,                // rewardScript
-				expSweepCommitRewardLocal, // expSweepAmt
-				2000,                      // expRewardAmt
-				nil,                       // bindErr
-				chanType,
+				1000,                 // stateNum
+				200000,               // toLocalAmt
+				0,                    // toRemoteAmt
+				blobTypeCommitReward, // blobType
+				1000,                 // sweepFeeRate
+				addrScript,           // rewardScript
+				197390,               // expSweepAmt
+				2000,                 // expRewardAmt
+				nil,                  // bindErr
+				tweakless,
 			),
 			genTaskTest(
 				"commit reward, to-remote output only",
-				1,                          // stateNum
-				0,                          // toLocalAmt
-				100000,                     // toRemoteAmt
-				blobTypeCommitReward,       // blobType
-				1000,                       // sweepFeeRate
-				addrScript,                 // rewardScript
-				expSweepCommitRewardRemote, // expSweepAmt
-				1000,                       // expRewardAmt
-				nil,                        // bindErr
-				chanType,
+				1,                    // stateNum
+				0,                    // toLocalAmt
+				100000,               // toRemoteAmt
+				blobTypeCommitReward, // blobType
+				1000,                 // sweepFeeRate
+				addrScript,           // rewardScript
+				98437,                // expSweepAmt
+				1000,                 // expRewardAmt
+				nil,                  // bindErr
+				tweakless,
 			),
 			genTaskTest(
 				"commit reward, to-remote output only, creates dust",
-				1,                            // stateNum
-				0,                            // toLocalAmt
-				100000,                       // toRemoteAmt
-				blobTypeCommitReward,         // blobType
-				sweepFeeRateRewardRemoteDust, // sweepFeeRate
-				addrScript,                   // rewardScript
-				0,                            // expSweepAmt
-				0,                            // expRewardAmt
-				wtpolicy.ErrCreatesDust,      // bindErr
-				chanType,
+				1,                       // stateNum
+				0,                       // toLocalAmt
+				100000,                  // toRemoteAmt
+				blobTypeCommitReward,    // blobType
+				175000,                  // sweepFeeRate
+				addrScript,              // rewardScript
+				0,                       // expSweepAmt
+				0,                       // expRewardAmt
+				wtpolicy.ErrCreatesDust, // bindErr
+				tweakless,
 			),
 			genTaskTest(
 				"commit reward, no outputs, fee rate exceeds inputs",
@@ -455,7 +397,7 @@ func TestBackupTask(t *testing.T) {
 				0,                            // expSweepAmt
 				0,                            // expRewardAmt
 				wtpolicy.ErrFeeExceedsInputs, // bindErr
-				chanType,
+				tweakless,
 			),
 			genTaskTest(
 				"commit reward, no outputs, fee rate of 0 creates dust",
@@ -468,7 +410,7 @@ func TestBackupTask(t *testing.T) {
 				0,                       // expSweepAmt
 				0,                       // expRewardAmt
 				wtpolicy.ErrCreatesDust, // bindErr
-				chanType,
+				tweakless,
 			),
 		}...)
 	}
@@ -488,7 +430,7 @@ func testBackupTask(t *testing.T, test backupTaskTest) {
 	// Create a new backupTask from the channel id and breach info.
 	task := newBackupTask(
 		&test.chanID, test.breachInfo, test.expSweepScript,
-		test.chanType,
+		test.tweakless,
 	)
 
 	// Assert that all parameters set during initialization are properly

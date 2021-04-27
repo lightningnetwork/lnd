@@ -8,9 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync/atomic"
-	"time"
 
-	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -81,18 +79,6 @@ var (
 			Entity: "offchain",
 			Action: "read",
 		}},
-		"/routerrpc.Router/XImportMissionControl": {{
-			Entity: "offchain",
-			Action: "write",
-		}},
-		"/routerrpc.Router/GetMissionControlConfig": {{
-			Entity: "offchain",
-			Action: "read",
-		}},
-		"/routerrpc.Router/SetMissionControlConfig": {{
-			Entity: "offchain",
-			Action: "write",
-		}},
 		"/routerrpc.Router/QueryProbability": {{
 			Entity: "offchain",
 			Action: "read",
@@ -121,10 +107,6 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
-		"/routerrpc.Router/UpdateChanStatus": {{
-			Entity: "offchain",
-			Action: "write",
-		}},
 	}
 
 	// DefaultRouterMacFilename is the default name of the router macaroon
@@ -132,13 +114,6 @@ var (
 	// configuration file in this package.
 	DefaultRouterMacFilename = "router.macaroon"
 )
-
-// ServerShell a is shell struct holding a reference to the actual sub-server.
-// It is used to register the gRPC sub-server with the root server before we
-// have the necessary dependencies to populate the actual sub-server.
-type ServerShell struct {
-	RouterServer
-}
 
 // Server is a stand alone sub RPC server which exposes functionality that
 // allows clients to route arbitrary payment through the Lightning Network.
@@ -156,6 +131,16 @@ type Server struct {
 // gRPC service.
 var _ RouterServer = (*Server)(nil)
 
+// fileExists reports whether the named file or directory exists.
+func fileExists(name string) bool {
+	if _, err := os.Stat(name); err != nil {
+		if os.IsNotExist(err) {
+			return false
+		}
+	}
+	return true
+}
+
 // New creates a new instance of the RouterServer given a configuration struct
 // that contains all external dependencies. If the target macaroon exists, and
 // we're unable to create it, then an error will be returned. We also return
@@ -171,12 +156,9 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 	}
 
 	// Now that we know the full path of the router macaroon, we can check
-	// to see if we need to create it or not. If stateless_init is set
-	// then we don't write the macaroons.
+	// to see if we need to create it or not.
 	macFilePath := cfg.RouterMacPath
-	if cfg.MacService != nil && !cfg.MacService.StatelessInit &&
-		!lnrpc.FileExists(macFilePath) {
-
+	if !fileExists(macFilePath) && cfg.MacService != nil {
 		log.Infof("Making macaroons for Router RPC Server at: %v",
 			macFilePath)
 
@@ -196,7 +178,7 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 		}
 		err = ioutil.WriteFile(macFilePath, routerMacBytes, 0644)
 		if err != nil {
-			_ = os.Remove(macFilePath)
+			os.Remove(macFilePath)
 			return nil, nil, err
 		}
 	}
@@ -244,11 +226,11 @@ func (s *Server) Name() string {
 // sub RPC server to register itself with the main gRPC root server. Until this
 // is called, each sub-server won't be able to have requests routed towards it.
 //
-// NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// We make sure that we register it with the main gRPC server to ensure
 	// all our methods are routed properly.
-	RegisterRouterServer(grpcServer, r)
+	RegisterRouterServer(grpcServer, s)
 
 	log.Debugf("Router RPC server successfully register with root gRPC " +
 		"server")
@@ -260,8 +242,8 @@ func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 // RPC server to register itself with the main REST mux server. Until this is
 // called, each sub-server won't be able to have requests routed towards it.
 //
-// NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (s *Server) RegisterWithRestServer(ctx context.Context,
 	mux *runtime.ServeMux, dest string, opts []grpc.DialOption) error {
 
 	// We make sure that we register it with the main REST server to ensure
@@ -276,25 +258,6 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 	log.Debugf("Router REST server successfully registered with " +
 		"root REST server")
 	return nil
-}
-
-// CreateSubServer populates the subserver's dependencies using the passed
-// SubServerConfigDispatcher. This method should fully initialize the
-// sub-server instance, making it ready for action. It returns the macaroon
-// permissions that the sub-server wishes to pass on to the root server for all
-// methods routed towards it.
-//
-// NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
-	lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
-
-	subServer, macPermissions, err := createNewSubServer(configRegistry)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	r.RouterServer = subServer
-	return subServer, macPermissions, nil
 }
 
 // SendPaymentV2 attempts to route a payment described by the passed
@@ -412,13 +375,6 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 		return rpcAttempt, nil
 	}
 
-	// Transform user errors to grpc code.
-	if err == channeldb.ErrPaymentInFlight ||
-		err == channeldb.ErrAlreadyPaid {
-
-		return nil, status.Error(codes.AlreadyExists, err.Error())
-	}
-
 	return nil, err
 }
 
@@ -433,46 +389,6 @@ func (s *Server) ResetMissionControl(ctx context.Context,
 	}
 
 	return &ResetMissionControlResponse{}, nil
-}
-
-// GetMissionControlConfig returns our current mission control config.
-func (s *Server) GetMissionControlConfig(ctx context.Context,
-	req *GetMissionControlConfigRequest) (*GetMissionControlConfigResponse,
-	error) {
-
-	cfg := s.cfg.RouterBackend.MissionControl.GetConfig()
-	return &GetMissionControlConfigResponse{
-		Config: &MissionControlConfig{
-			HalfLifeSeconds:             uint64(cfg.PenaltyHalfLife.Seconds()),
-			HopProbability:              float32(cfg.AprioriHopProbability),
-			Weight:                      float32(cfg.AprioriWeight),
-			MaximumPaymentResults:       uint32(cfg.MaxMcHistory),
-			MinimumFailureRelaxInterval: uint64(cfg.MinFailureRelaxInterval.Seconds()),
-		},
-	}, nil
-}
-
-// SetMissionControlConfig returns our current mission control config.
-func (s *Server) SetMissionControlConfig(ctx context.Context,
-	req *SetMissionControlConfigRequest) (*SetMissionControlConfigResponse,
-	error) {
-
-	cfg := &routing.MissionControlConfig{
-		ProbabilityEstimatorCfg: routing.ProbabilityEstimatorCfg{
-			PenaltyHalfLife: time.Duration(
-				req.Config.HalfLifeSeconds,
-			) * time.Second,
-			AprioriHopProbability: float64(req.Config.HopProbability),
-			AprioriWeight:         float64(req.Config.Weight),
-		},
-		MaxMcHistory: int(req.Config.MaximumPaymentResults),
-		MinFailureRelaxInterval: time.Duration(
-			req.Config.MinimumFailureRelaxInterval,
-		) * time.Second,
-	}
-
-	return &SetMissionControlConfigResponse{},
-		s.cfg.RouterBackend.MissionControl.SetConfig(cfg)
 }
 
 // QueryMissionControl exposes the internal mission control state to callers. It
@@ -521,159 +437,6 @@ func toRPCPairData(data *routing.TimedPairResult) *PairData {
 	}
 
 	return &rpcData
-}
-
-// XImportMissionControl imports the state provided to our internal mission
-// control. Only entries that are fresher than our existing state will be used.
-func (s *Server) XImportMissionControl(ctx context.Context,
-	req *XImportMissionControlRequest) (*XImportMissionControlResponse,
-	error) {
-
-	if len(req.Pairs) == 0 {
-		return nil, errors.New("at least one pair required for import")
-	}
-
-	snapshot := &routing.MissionControlSnapshot{
-		Pairs: make(
-			[]routing.MissionControlPairSnapshot, len(req.Pairs),
-		),
-	}
-
-	for i, pairResult := range req.Pairs {
-		pairSnapshot, err := toPairSnapshot(pairResult)
-		if err != nil {
-			return nil, err
-		}
-
-		snapshot.Pairs[i] = *pairSnapshot
-	}
-
-	err := s.cfg.RouterBackend.MissionControl.ImportHistory(snapshot)
-	if err != nil {
-		return nil, err
-	}
-
-	return &XImportMissionControlResponse{}, nil
-}
-
-func toPairSnapshot(pairResult *PairHistory) (*routing.MissionControlPairSnapshot,
-	error) {
-
-	from, err := route.NewVertexFromBytes(pairResult.NodeFrom)
-	if err != nil {
-		return nil, err
-	}
-
-	to, err := route.NewVertexFromBytes(pairResult.NodeTo)
-	if err != nil {
-		return nil, err
-	}
-
-	pairPrefix := fmt.Sprintf("pair: %v -> %v:", from, to)
-
-	if from == to {
-		return nil, fmt.Errorf("%v source and destination node must "+
-			"differ", pairPrefix)
-	}
-
-	failAmt, failTime, err := getPair(
-		lnwire.MilliSatoshi(pairResult.History.FailAmtMsat),
-		btcutil.Amount(pairResult.History.FailAmtSat),
-		pairResult.History.FailTime,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%v invalid failure: %v", pairPrefix,
-			err)
-	}
-
-	successAmt, successTime, err := getPair(
-		lnwire.MilliSatoshi(pairResult.History.SuccessAmtMsat),
-		btcutil.Amount(pairResult.History.SuccessAmtSat),
-		pairResult.History.SuccessTime,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%v invalid success: %v", pairPrefix,
-			err)
-	}
-
-	if successAmt == 0 && failAmt == 0 {
-		return nil, fmt.Errorf("%v: either success or failure result "+
-			"required", pairPrefix)
-	}
-
-	pair := routing.NewDirectedNodePair(from, to)
-
-	result := &routing.TimedPairResult{
-		FailAmt:     failAmt,
-		FailTime:    failTime,
-		SuccessAmt:  successAmt,
-		SuccessTime: successTime,
-	}
-
-	return &routing.MissionControlPairSnapshot{
-		Pair:            pair,
-		TimedPairResult: *result,
-	}, nil
-}
-
-// getPair validates the values provided for a mission control result and
-// returns the msat amount and timestamp for it.
-func getPair(amtMsat lnwire.MilliSatoshi, amtSat btcutil.Amount,
-	timestamp int64) (lnwire.MilliSatoshi, time.Time, error) {
-
-	amt, err := getMsatPairValue(amtMsat, amtSat)
-	if err != nil {
-		return 0, time.Time{}, err
-	}
-
-	var (
-		timeSet   = timestamp != 0
-		amountSet = amt != 0
-	)
-
-	switch {
-	case timeSet && amountSet:
-		return amt, time.Unix(timestamp, 0), nil
-
-	case timeSet && !amountSet:
-		return 0, time.Time{}, errors.New("non-zero timestamp " +
-			"requires non-zero amount")
-
-	case !timeSet && amountSet:
-		return 0, time.Time{}, errors.New("non-zero amount requires " +
-			"non-zero timestamp")
-
-	default:
-		return 0, time.Time{}, nil
-	}
-}
-
-// getMsatPairValue checks the msat and sat values set for a pair and ensures
-// that the values provided are either the same, or only a single value is set.
-func getMsatPairValue(msatValue lnwire.MilliSatoshi,
-	satValue btcutil.Amount) (lnwire.MilliSatoshi, error) {
-
-	// If our msat value converted to sats equals our sat value, we just
-	// return the msat value, since the values are the same.
-	if msatValue.ToSatoshis() == satValue {
-		return msatValue, nil
-	}
-
-	// If we have no msatValue, we can just return our sate value even if
-	// it is zero, because it's impossible that we have mismatched values.
-	if msatValue == 0 {
-		return lnwire.MilliSatoshi(satValue * 1000), nil
-	}
-
-	// Likewise, we can just use msat value if we have no sat value set.
-	if satValue == 0 {
-		return msatValue, nil
-	}
-
-	// If our values are non-zero but not equal, we have invalid amounts
-	// set, so we fail.
-	return 0, fmt.Errorf("msat: %v and sat: %v values not equal", msatValue,
-		satValue)
 }
 
 // QueryProbability returns the current success probability estimate for a
@@ -801,17 +564,9 @@ func (s *Server) BuildRoute(ctx context.Context,
 		outgoingChan = &req.OutgoingChanId
 	}
 
-	var payAddr *[32]byte
-	if len(req.PaymentAddr) != 0 {
-		var backingPayAddr [32]byte
-		copy(backingPayAddr[:], req.PaymentAddr)
-
-		payAddr = &backingPayAddr
-	}
-
 	// Build the route and return it to the caller.
 	route, err := s.cfg.Router.BuildRoute(
-		amt, hops, outgoingChan, req.FinalCltvDelta, payAddr,
+		amt, hops, outgoingChan, req.FinalCltvDelta,
 	)
 	if err != nil {
 		return nil, err
@@ -885,45 +640,4 @@ func (s *Server) HtlcInterceptor(stream Router_HtlcInterceptorServer) error {
 
 	// run the forward interceptor.
 	return newForwardInterceptor(s, stream).run()
-}
-
-func extractOutPoint(req *UpdateChanStatusRequest) (*wire.OutPoint, error) {
-	chanPoint := req.GetChanPoint()
-	txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
-	if err != nil {
-		return nil, err
-	}
-	index := chanPoint.OutputIndex
-	return wire.NewOutPoint(txid, index), nil
-}
-
-// UpdateChanStatus allows channel state to be set manually.
-func (s *Server) UpdateChanStatus(ctx context.Context,
-	req *UpdateChanStatusRequest) (*UpdateChanStatusResponse, error) {
-
-	outPoint, err := extractOutPoint(req)
-	if err != nil {
-		return nil, err
-	}
-
-	action := req.GetAction()
-
-	log.Debugf("UpdateChanStatus called for channel(%v) with "+
-		"action %v", outPoint, action)
-
-	switch action {
-	case ChanStatusAction_ENABLE:
-		err = s.cfg.RouterBackend.SetChannelEnabled(*outPoint)
-	case ChanStatusAction_DISABLE:
-		err = s.cfg.RouterBackend.SetChannelDisabled(*outPoint)
-	case ChanStatusAction_AUTO:
-		err = s.cfg.RouterBackend.SetChannelAuto(*outPoint)
-	default:
-		err = fmt.Errorf("unrecognized ChannelStatusAction %v", action)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-	return &UpdateChanStatusResponse{}, nil
 }

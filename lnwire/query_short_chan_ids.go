@@ -70,7 +70,7 @@ func ErrUnknownShortChanIDEncoding(encoding ShortChanIDEncoding) error {
 // message.
 type QueryShortChanIDs struct {
 	// ChainHash denotes the target chain that we're querying for the
-	// channel ID's of.
+	// channel channel ID's of.
 	ChainHash chainhash.Hash
 
 	// EncodingType is a signal to the receiver of the message that
@@ -80,11 +80,6 @@ type QueryShortChanIDs struct {
 
 	// ShortChanIDs is a slice of decoded short channel ID's.
 	ShortChanIDs []ShortChannelID
-
-	// ExtraData is the set of data that was appended to this message to
-	// fill out the full maximum transport message size. These fields can
-	// be used to specify optional data such as custom TLV fields.
-	ExtraData ExtraOpaqueData
 
 	// noSort indicates whether or not to sort the short channel ids before
 	// writing them out.
@@ -119,11 +114,8 @@ func (q *QueryShortChanIDs) Decode(r io.Reader, pver uint32) error {
 	}
 
 	q.EncodingType, q.ShortChanIDs, err = decodeShortChanIDs(r)
-	if err != nil {
-		return err
-	}
 
-	return q.ExtraData.Decode(r)
+	return err
 }
 
 // decodeShortChanIDs decodes a set of short channel ID's that have been
@@ -163,8 +155,8 @@ func decodeShortChanIDs(r io.Reader) (ShortChanIDEncoding, []ShortChannelID, err
 	// In this encoding, we'll simply read a sort array of encoded short
 	// channel ID's from the buffer.
 	case EncodingSortedPlain:
-		// If after extracting the encoding type, the number of
-		// remaining bytes is not a whole multiple of the size of an
+		// If after extracting the encoding type, then number of
+		// remaining bytes instead a whole multiple of the size of an
 		// encoded short channel ID (8 bytes), then we'll return a
 		// parsing error.
 		if len(queryBody)%8 != 0 {
@@ -262,7 +254,7 @@ func decodeShortChanIDs(r io.Reader) (ShortChanIDEncoding, []ShortChannelID, err
 					"ID: %v", err)
 			}
 
-			// We successfully read the next ID, so we'll collect
+			// We successfully read the next ID, so well collect
 			// that in the set of final ID's to return.
 			shortChanIDs = append(shortChanIDs, cid)
 
@@ -300,12 +292,7 @@ func (q *QueryShortChanIDs) Encode(w io.Writer, pver uint32) error {
 
 	// Base on our encoding type, we'll write out the set of short channel
 	// ID's.
-	err = encodeShortChanIDs(w, q.EncodingType, q.ShortChanIDs, q.noSort)
-	if err != nil {
-		return err
-	}
-
-	return q.ExtraData.Encode(w)
+	return encodeShortChanIDs(w, q.EncodingType, q.ShortChanIDs, q.noSort)
 }
 
 // encodeShortChanIDs encodes the passed short channel ID's into the passed
@@ -431,4 +418,12 @@ func encodeShortChanIDs(w io.Writer, encodingType ShortChanIDEncoding,
 // This is part of the lnwire.Message interface.
 func (q *QueryShortChanIDs) MsgType() MessageType {
 	return MsgQueryShortChanIDs
+}
+
+// MaxPayloadLength returns the maximum allowed payload size for a
+// QueryShortChanIDs complete message observing the specified protocol version.
+//
+// This is part of the lnwire.Message interface.
+func (q *QueryShortChanIDs) MaxPayloadLength(uint32) uint32 {
+	return MaxMessagePayload
 }

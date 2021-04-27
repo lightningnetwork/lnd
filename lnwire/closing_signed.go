@@ -27,11 +27,6 @@ type ClosingSigned struct {
 
 	// Signature is for the proposed channel close transaction.
 	Signature Sig
-
-	// ExtraData is the set of data that was appended to this message to
-	// fill out the full maximum transport message size. These fields can
-	// be used to specify optional data such as custom TLV fields.
-	ExtraData ExtraOpaqueData
 }
 
 // NewClosingSigned creates a new empty ClosingSigned message.
@@ -54,9 +49,7 @@ var _ Message = (*ClosingSigned)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *ClosingSigned) Decode(r io.Reader, pver uint32) error {
-	return ReadElements(
-		r, &c.ChannelID, &c.FeeSatoshis, &c.Signature, &c.ExtraData,
-	)
+	return ReadElements(r, &c.ChannelID, &c.FeeSatoshis, &c.Signature)
 }
 
 // Encode serializes the target ClosingSigned into the passed io.Writer
@@ -64,9 +57,7 @@ func (c *ClosingSigned) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *ClosingSigned) Encode(w io.Writer, pver uint32) error {
-	return WriteElements(
-		w, c.ChannelID, c.FeeSatoshis, c.Signature, c.ExtraData,
-	)
+	return WriteElements(w, c.ChannelID, c.FeeSatoshis, c.Signature)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the
@@ -75,4 +66,23 @@ func (c *ClosingSigned) Encode(w io.Writer, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *ClosingSigned) MsgType() MessageType {
 	return MsgClosingSigned
+}
+
+// MaxPayloadLength returns the maximum allowed payload size for a
+// ClosingSigned complete message observing the specified protocol version.
+//
+// This is part of the lnwire.Message interface.
+func (c *ClosingSigned) MaxPayloadLength(uint32) uint32 {
+	var length uint32
+
+	// ChannelID - 32 bytes
+	length += 32
+
+	// FeeSatoshis - 8 bytes
+	length += 8
+
+	// Signature - 64 bytes
+	length += 64
+
+	return length
 }

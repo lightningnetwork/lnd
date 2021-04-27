@@ -10,7 +10,6 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/watchtower"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
@@ -643,9 +642,7 @@ func TestTowerDB(t *testing.T) {
 						err)
 				}
 
-				db, err := wtdb.OpenTowerDB(
-					path, kvdb.DefaultDBTimeout,
-				)
+				db, err := wtdb.OpenTowerDB(path)
 				if err != nil {
 					os.RemoveAll(path)
 					t.Fatalf("unable to open db: %v", err)
@@ -668,9 +665,7 @@ func TestTowerDB(t *testing.T) {
 						err)
 				}
 
-				db, err := wtdb.OpenTowerDB(
-					path, kvdb.DefaultDBTimeout,
-				)
+				db, err := wtdb.OpenTowerDB(path)
 				if err != nil {
 					os.RemoveAll(path)
 					t.Fatalf("unable to open db: %v", err)
@@ -680,9 +675,7 @@ func TestTowerDB(t *testing.T) {
 				// Open the db again, ensuring we test a
 				// different path during open and that all
 				// buckets remain initialized.
-				db, err = wtdb.OpenTowerDB(
-					path, kvdb.DefaultDBTimeout,
-				)
+				db, err = wtdb.OpenTowerDB(path)
 				if err != nil {
 					os.RemoveAll(path)
 					t.Fatalf("unable to open db: %v", err)

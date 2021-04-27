@@ -20,9 +20,7 @@ func MakeDB() (kvdb.Backend, func(), error) {
 	}
 
 	dbPath := file.Name()
-	db, err := kvdb.Open(
-		kvdb.BoltBackendName, dbPath, true, kvdb.DefaultDBTimeout,
-	)
+	db, err := kvdb.Open(kvdb.BoltBackendName, dbPath, true)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -41,8 +39,6 @@ func ApplyMigration(t *testing.T,
 	beforeMigration, afterMigration, migrationFunc func(tx kvdb.RwTx) error,
 	shouldFail bool) {
 
-	t.Helper()
-
 	cdb, cleanUp, err := MakeDB()
 	defer cleanUp()
 	if err != nil {
@@ -51,14 +47,12 @@ func ApplyMigration(t *testing.T,
 
 	// beforeMigration usually used for populating the database
 	// with test data.
-	err = kvdb.Update(cdb, beforeMigration, func() {})
+	err = kvdb.Update(cdb, beforeMigration)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	defer func() {
-		t.Helper()
-
 		if r := recover(); r != nil {
 			err = newError(r)
 		}
@@ -71,14 +65,14 @@ func ApplyMigration(t *testing.T,
 
 		// afterMigration usually used for checking the database state and
 		// throwing the error if something went wrong.
-		err = kvdb.Update(cdb, afterMigration, func() {})
+		err = kvdb.Update(cdb, afterMigration)
 		if err != nil {
 			t.Fatal(err)
 		}
 	}()
 
 	// Apply migration.
-	err = kvdb.Update(cdb, migrationFunc, func() {})
+	err = kvdb.Update(cdb, migrationFunc)
 	if err != nil {
 		t.Logf("migration error: %v", err)
 	}

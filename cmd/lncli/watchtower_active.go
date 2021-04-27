@@ -3,6 +3,8 @@
 package main
 
 import (
+	"context"
+
 	"github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc"
 	"github.com/urfave/cli"
 )
@@ -35,7 +37,6 @@ var towerInfoCommand = cli.Command{
 }
 
 func towerInfo(ctx *cli.Context) error {
-	ctxc := getContext()
 	if ctx.NArg() != 0 || ctx.NumFlags() > 0 {
 		return cli.ShowCommandHelp(ctx, "info")
 	}
@@ -44,7 +45,7 @@ func towerInfo(ctx *cli.Context) error {
 	defer cleanup()
 
 	req := &watchtowerrpc.GetInfoRequest{}
-	resp, err := client.GetInfo(ctxc, req)
+	resp, err := client.GetInfo(context.Background(), req)
 	if err != nil {
 		return err
 	}

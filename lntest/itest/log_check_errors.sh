@@ -5,7 +5,7 @@ BASEDIR=$(dirname "$0")
 echo ""
 
 # Filter all log files for errors, substitute variable data and match against whitelist.
-find $BASEDIR -name "*.log" | xargs grep -h "\[ERR\]" | \
+cat $BASEDIR/*.log | grep "\[ERR\]" | \
 sed -r -f $BASEDIR/log_substitutions.txt | \
 sort | uniq | \
 grep -Fvi -f $BASEDIR/log_error_whitelist.txt

@@ -16,6 +16,9 @@ const (
 	// is returned. Requests for higher confirmation targets will fall back
 	// to this.
 	feeServiceTarget = 2
+
+	// feeServicePort is the tcp port on which the service runs.
+	feeServicePort = 16534
 )
 
 // feeService runs a web service that provides fee estimation information.
@@ -37,15 +40,16 @@ type feeEstimates struct {
 
 // startFeeService spins up a go-routine to serve fee estimates.
 func startFeeService() *feeService {
-	port := nextAvailablePort()
 	f := feeService{
-		url: fmt.Sprintf("http://localhost:%v/fee-estimates.json", port),
+		url: fmt.Sprintf(
+			"http://localhost:%v/fee-estimates.json", feeServicePort,
+		),
 	}
 
 	// Initialize default fee estimate.
 	f.Fees = map[uint32]uint32{feeServiceTarget: 50000}
 
-	listenAddr := fmt.Sprintf(":%v", port)
+	listenAddr := fmt.Sprintf(":%v", feeServicePort)
 	f.srv = &http.Server{
 		Addr: listenAddr,
 	}

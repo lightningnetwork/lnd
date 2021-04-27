@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
@@ -74,7 +75,6 @@ var bakeMacaroonCommand = cli.Command{
 }
 
 func bakeMacaroon(ctx *cli.Context) error {
-	ctxc := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -151,7 +151,7 @@ func bakeMacaroon(ctx *cli.Context) error {
 		Permissions: parsedPermissions,
 		RootKeyId:   rootKeyID,
 	}
-	resp, err := client.BakeMacaroon(ctxc, req)
+	resp, err := client.BakeMacaroon(context.Background(), req)
 	if err != nil {
 		return err
 	}
@@ -217,12 +217,11 @@ var listMacaroonIDsCommand = cli.Command{
 }
 
 func listMacaroonIDs(ctx *cli.Context) error {
-	ctxc := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
 	req := &lnrpc.ListMacaroonIDsRequest{}
-	resp, err := client.ListMacaroonIDs(ctxc, req)
+	resp, err := client.ListMacaroonIDs(context.Background(), req)
 	if err != nil {
 		return err
 	}
@@ -251,7 +250,6 @@ var deleteMacaroonIDCommand = cli.Command{
 }
 
 func deleteMacaroonID(ctx *cli.Context) error {
-	ctxc := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -279,7 +277,7 @@ func deleteMacaroonID(ctx *cli.Context) error {
 	req := &lnrpc.DeleteMacaroonIDRequest{
 		RootKeyId: rootKeyID,
 	}
-	resp, err := client.DeleteMacaroonID(ctxc, req)
+	resp, err := client.DeleteMacaroonID(context.Background(), req)
 	if err != nil {
 		return err
 	}
@@ -297,12 +295,11 @@ var listPermissionsCommand = cli.Command{
 }
 
 func listPermissions(ctx *cli.Context) error {
-	ctxc := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
 	request := &lnrpc.ListPermissionsRequest{}
-	response, err := client.ListPermissions(ctxc, request)
+	response, err := client.ListPermissions(context.Background(), request)
 	if err != nil {
 		return err
 	}

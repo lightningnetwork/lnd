@@ -19,7 +19,7 @@ type TowerCandidateIterator interface {
 	// iterator. An optional address can be provided to indicate a stale
 	// tower address to remove it. If it isn't provided, then the tower is
 	// completely removed from the iterator.
-	RemoveCandidate(wtdb.TowerID, net.Addr) error
+	RemoveCandidate(wtdb.TowerID, net.Addr)
 
 	// IsActive determines whether a given tower is exists within the
 	// iterator.
@@ -131,26 +131,19 @@ func (t *towerListIterator) AddCandidate(candidate *wtdb.Tower) {
 // optional address can be provided to indicate a stale tower address to remove
 // it. If it isn't provided, then the tower is completely removed from the
 // iterator.
-func (t *towerListIterator) RemoveCandidate(candidate wtdb.TowerID,
-	addr net.Addr) error {
-
+func (t *towerListIterator) RemoveCandidate(candidate wtdb.TowerID, addr net.Addr) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	tower, ok := t.candidates[candidate]
 	if !ok {
-		return nil
+		return
 	}
 	if addr != nil {
 		tower.RemoveAddress(addr)
-		if len(tower.Addresses) == 0 {
-			return wtdb.ErrLastTowerAddr
-		}
 	} else {
 		delete(t.candidates, candidate)
 	}
-
-	return nil
 }
 
 // IsActive determines whether a given tower is exists within the iterator.

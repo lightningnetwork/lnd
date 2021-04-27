@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
 	"gopkg.in/macaroon-bakery.v2/bakery"
@@ -57,15 +57,11 @@ type Service struct {
 
 	rks *RootKeyStorage
 
-	// ExternalValidators is a map between an absolute gRPC URIs and the
+	// externalValidators is a map between an absolute gRPC URIs and the
 	// corresponding external macaroon validator to be used for that URI.
 	// If no external validator for an URI is specified, the service will
 	// use the internal validator.
-	ExternalValidators map[string]MacaroonValidator
-
-	// StatelessInit denotes if the service was initialized in the stateless
-	// mode where no macaroon files should be created on disk.
-	StatelessInit bool
+	externalValidators map[string]MacaroonValidator
 }
 
 // NewService returns a service backed by the macaroon Bolt DB stored in the
@@ -75,9 +71,7 @@ type Service struct {
 // listing the same checker more than once is not harmful. Default checkers,
 // such as those for `allow`, `time-before`, `declared`, and `error` caveats
 // are registered automatically and don't need to be added.
-func NewService(dir, location string, statelessInit bool,
-	dbTimeout time.Duration, checks ...Checker) (*Service, error) {
-
+func NewService(dir, location string, checks ...Checker) (*Service, error) {
 	// Ensure that the path to the directory exists.
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		if err := os.MkdirAll(dir, 0700); err != nil {
@@ -89,7 +83,6 @@ func NewService(dir, location string, statelessInit bool,
 	// and all generated macaroons+caveats.
 	macaroonDB, err := kvdb.Create(
 		kvdb.BoltBackendName, path.Join(dir, DBFilename), true,
-		dbTimeout,
 	)
 	if err != nil {
 		return nil, err
@@ -124,8 +117,7 @@ func NewService(dir, location string, statelessInit bool,
 	return &Service{
 		Bakery:             *svc,
 		rks:                rootKeyStore,
-		ExternalValidators: make(map[string]MacaroonValidator),
-		StatelessInit:      statelessInit,
+		externalValidators: make(map[string]MacaroonValidator),
 	}, nil
 }
 
@@ -158,14 +150,81 @@ func (svc *Service) RegisterExternalValidator(fullMethod string,
 		return fmt.Errorf("validator cannot be nil")
 	}
 
-	_, ok := svc.ExternalValidators[fullMethod]
+	_, ok := svc.externalValidators[fullMethod]
 	if ok {
 		return fmt.Errorf("external validator for method %s already "+
 			"registered", fullMethod)
 	}
 
-	svc.ExternalValidators[fullMethod] = validator
+	svc.externalValidators[fullMethod] = validator
 	return nil
+}
+
+// UnaryServerInterceptor is a GRPC interceptor that checks whether the
+// request is authorized by the included macaroons.
+func (svc *Service) UnaryServerInterceptor(
+	permissionMap map[string][]bakery.Op) grpc.UnaryServerInterceptor {
+
+	return func(ctx context.Context, req interface{},
+		info *grpc.UnaryServerInfo,
+		handler grpc.UnaryHandler) (interface{}, error) {
+
+		uriPermissions, ok := permissionMap[info.FullMethod]
+		if !ok {
+			return nil, fmt.Errorf("%s: unknown permissions "+
+				"required for method", info.FullMethod)
+		}
+
+		// Find out if there is an external validator registered for
+		// this method. Fall back to the internal one if there isn't.
+		validator, ok := svc.externalValidators[info.FullMethod]
+		if !ok {
+			validator = svc
+		}
+
+		// Now that we know what validator to use, let it do its work.
+		err := validator.ValidateMacaroon(
+			ctx, uriPermissions, info.FullMethod,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return handler(ctx, req)
+	}
+}
+
+// StreamServerInterceptor is a GRPC interceptor that checks whether the
+// request is authorized by the included macaroons.
+func (svc *Service) StreamServerInterceptor(
+	permissionMap map[string][]bakery.Op) grpc.StreamServerInterceptor {
+
+	return func(srv interface{}, ss grpc.ServerStream,
+		info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+
+		uriPermissions, ok := permissionMap[info.FullMethod]
+		if !ok {
+			return fmt.Errorf("%s: unknown permissions required "+
+				"for method", info.FullMethod)
+		}
+
+		// Find out if there is an external validator registered for
+		// this method. Fall back to the internal one if there isn't.
+		validator, ok := svc.externalValidators[info.FullMethod]
+		if !ok {
+			validator = svc
+		}
+
+		// Now that we know what validator to use, let it do its work.
+		err := validator.ValidateMacaroon(
+			ss.Context(), uriPermissions, info.FullMethod,
+		)
+		if err != nil {
+			return err
+		}
+
+		return handler(srv, ss)
+	}
 }
 
 // ValidateMacaroon validates the capabilities of a given request given a
@@ -198,8 +257,8 @@ func (svc *Service) ValidateMacaroon(ctx context.Context,
 		return err
 	}
 
-	// Check the method being called against the permitted operation, the
-	// expiration time and IP address and return the result.
+	// Check the method being called against the permitted operation and
+	// the expiration time and IP address and return the result.
 	authChecker := svc.Checker.Auth(macaroon.Slice{mac})
 	_, err = authChecker.Allow(ctx, requiredPermissions...)
 
@@ -265,16 +324,4 @@ func (svc *Service) ListMacaroonIDs(ctxt context.Context) ([][]byte, error) {
 func (svc *Service) DeleteMacaroonID(ctxt context.Context,
 	rootKeyID []byte) ([]byte, error) {
 	return svc.rks.DeleteMacaroonID(ctxt, rootKeyID)
-}
-
-// GenerateNewRootKey calls the underlying root key store's GenerateNewRootKey
-// and returns the result.
-func (svc *Service) GenerateNewRootKey() error {
-	return svc.rks.GenerateNewRootKey()
-}
-
-// ChangePassword calls the underlying root key store's ChangePassword and
-// returns the result.
-func (svc *Service) ChangePassword(oldPw, newPw []byte) error {
-	return svc.rks.ChangePassword(oldPw, newPw)
 }

@@ -477,7 +477,7 @@ func (u *utxoNursery) NurseryReport(
 	utxnLog.Debugf("NurseryReport: building nursery report for channel %v",
 		chanPoint)
 
-	var report *contractMaturityReport
+	report := &contractMaturityReport{}
 
 	if err := u.cfg.Store.ForChanOutputs(chanPoint, func(k, v []byte) error {
 		switch {
@@ -576,8 +576,6 @@ func (u *utxoNursery) NurseryReport(
 		}
 
 		return nil
-	}, func() {
-		report = &contractMaturityReport{}
 	}); err != nil {
 		return nil, err
 	}

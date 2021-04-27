@@ -1,15 +1,12 @@
 package wtclient
 
 import (
-	"fmt"
-
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/txsort"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -39,7 +36,6 @@ import (
 type backupTask struct {
 	id         wtdb.BackupID
 	breachInfo *lnwallet.BreachRetribution
-	chanType   channeldb.ChannelType
 
 	// state-dependent variables
 
@@ -58,7 +54,7 @@ type backupTask struct {
 // variables.
 func newBackupTask(chanID *lnwire.ChannelID,
 	breachInfo *lnwallet.BreachRetribution,
-	sweepPkScript []byte, chanType channeldb.ChannelType) *backupTask {
+	sweepPkScript []byte, isTweakless bool) *backupTask {
 
 	// Parse the non-dust outputs from the breach transaction,
 	// simultaneously computing the total amount contained in the inputs
@@ -89,35 +85,17 @@ func newBackupTask(chanID *lnwire.ChannelID,
 		totalAmt += breachInfo.RemoteOutputSignDesc.Output.Value
 	}
 	if breachInfo.LocalOutputSignDesc != nil {
-		var witnessType input.WitnessType
-		switch {
-		case chanType.HasAnchors():
-			witnessType = input.CommitmentToRemoteConfirmed
-		case chanType.IsTweakless():
+		witnessType := input.CommitmentNoDelay
+		if isTweakless {
 			witnessType = input.CommitSpendNoDelayTweakless
-		default:
-			witnessType = input.CommitmentNoDelay
 		}
 
-		// Anchor channels have a CSV-encumbered to-remote output. We'll
-		// construct a CSV input in that case and assign the proper CSV
-		// delay of 1, otherwise we fallback to the a regular P2WKH
-		// to-remote output for tweaked or tweakless channels.
-		if chanType.HasAnchors() {
-			toRemoteInput = input.NewCsvInput(
-				&breachInfo.LocalOutpoint,
-				witnessType,
-				breachInfo.LocalOutputSignDesc,
-				0, 1,
-			)
-		} else {
-			toRemoteInput = input.NewBaseInput(
-				&breachInfo.LocalOutpoint,
-				witnessType,
-				breachInfo.LocalOutputSignDesc,
-				0,
-			)
-		}
+		toRemoteInput = input.NewBaseInput(
+			&breachInfo.LocalOutpoint,
+			witnessType,
+			breachInfo.LocalOutputSignDesc,
+			0,
+		)
 
 		totalAmt += breachInfo.LocalOutputSignDesc.Output.Value
 	}
@@ -128,7 +106,6 @@ func newBackupTask(chanID *lnwire.ChannelID,
 			CommitHeight: breachInfo.RevokedStateNum,
 		},
 		breachInfo:    breachInfo,
-		chanType:      chanType,
 		toLocalInput:  toLocalInput,
 		toRemoteInput: toRemoteInput,
 		totalAmt:      btcutil.Amount(totalAmt),
@@ -168,28 +145,13 @@ func (t *backupTask) bindSession(session *wtdb.ClientSessionBody) error {
 		// underestimate the size by one byte. The diferrence in weight
 		// can cause different output values on the sweep transaction,
 		// so we mimic the original bug and create signatures using the
-		// original weight estimate. For anchor channels we'll go ahead
-		// an use the correct penalty witness when signing our justice
-		// transactions.
-		if t.chanType.HasAnchors() {
-			weightEstimate.AddWitnessInput(
-				input.ToLocalPenaltyWitnessSize,
-			)
-		} else {
-			weightEstimate.AddWitnessInput(
-				input.ToLocalPenaltyWitnessSize - 1,
-			)
-		}
+		// original weight estimate.
+		weightEstimate.AddWitnessInput(
+			input.ToLocalPenaltyWitnessSize - 1,
+		)
 	}
 	if t.toRemoteInput != nil {
-		// Legacy channels (both tweaked and non-tweaked) spend from
-		// P2WKH output. Anchor channels spend a to-remote confirmed
-		// P2WSH  output.
-		if t.chanType.HasAnchors() {
-			weightEstimate.AddWitnessInput(input.ToRemoteConfirmedWitnessSize)
-		} else {
-			weightEstimate.AddWitnessInput(input.P2WKHWitnessSize)
-		}
+		weightEstimate.AddWitnessInput(input.P2WKHWitnessSize)
 	}
 
 	// All justice transactions have a p2wkh output paying to the victim.
@@ -199,12 +161,6 @@ func (t *backupTask) bindSession(session *wtdb.ClientSessionBody) error {
 	// contribution to the weight estimate.
 	if session.Policy.BlobType.Has(blob.FlagReward) {
 		weightEstimate.AddP2WKHOutput()
-	}
-
-	if t.chanType.HasAnchors() != session.Policy.IsAnchorChannel() {
-		log.Criticalf("Invalid task (has_anchors=%t) for session "+
-			"(has_anchors=%t)", t.chanType.HasAnchors(),
-			session.Policy.IsAnchorChannel())
 	}
 
 	// Now, compute the output values depending on whether FlagReward is set
@@ -263,10 +219,9 @@ func (t *backupTask) craftSessionPayload(
 	// information. This will either be contain both the to-local and
 	// to-remote outputs, or only be the to-local output.
 	inputs := t.inputs()
-	for prevOutPoint, input := range inputs {
+	for prevOutPoint := range inputs {
 		justiceTxn.AddTxIn(&wire.TxIn{
 			PreviousOutPoint: prevOutPoint,
-			Sequence:         input.BlocksToMaturity(),
 		})
 	}
 
@@ -333,12 +288,7 @@ func (t *backupTask) craftSessionPayload(
 		case input.CommitSpendNoDelayTweakless:
 			fallthrough
 		case input.CommitmentNoDelay:
-			fallthrough
-		case input.CommitmentToRemoteConfirmed:
 			copy(justiceKit.CommitToRemoteSig[:], signature[:])
-		default:
-			return hint, nil, fmt.Errorf("invalid witness type: %v",
-				inp.WitnessType())
 		}
 	}
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image/color"
 	"io"
+	"io/ioutil"
 	"net"
 	"unicode/utf8"
 )
@@ -33,9 +34,9 @@ func (e ErrInvalidNodeAlias) Error() string {
 	return "node alias has non-utf8 characters"
 }
 
-// NodeAlias is a hex encoded UTF-8 string that may be displayed as an
-// alternative to the node's ID. Notice that aliases are not unique and may be
-// freely chosen by the node operators.
+// NodeAlias a hex encoded UTF-8 string that may be displayed as an alternative
+// to the node's ID. Notice that aliases are not unique and may be freely
+// chosen by the node operators.
 type NodeAlias [32]byte
 
 // NewNodeAlias creates a new instance of a NodeAlias. Verification is
@@ -97,7 +98,7 @@ type NodeAnnouncement struct {
 	// properly validate the set of signatures that cover these new fields,
 	// and ensure we're able to make upgrades to the network in a forwards
 	// compatible manner.
-	ExtraOpaqueData ExtraOpaqueData
+	ExtraOpaqueData []byte
 }
 
 // A compile time check to ensure NodeAnnouncement implements the
@@ -109,7 +110,7 @@ var _ Message = (*NodeAnnouncement)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (a *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
-	return ReadElements(r,
+	err := ReadElements(r,
 		&a.Signature,
 		&a.Features,
 		&a.Timestamp,
@@ -117,8 +118,24 @@ func (a *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
 		&a.RGBColor,
 		&a.Alias,
 		&a.Addresses,
-		&a.ExtraOpaqueData,
 	)
+	if err != nil {
+		return err
+	}
+
+	// Now that we've read out all the fields that we explicitly know of,
+	// we'll collect the remainder into the ExtraOpaqueData field. If there
+	// aren't any bytes, then we'll snip off the slice to avoid carrying
+	// around excess capacity.
+	a.ExtraOpaqueData, err = ioutil.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	if len(a.ExtraOpaqueData) == 0 {
+		a.ExtraOpaqueData = nil
+	}
+
+	return nil
 }
 
 // Encode serializes the target NodeAnnouncement into the passed io.Writer
@@ -143,6 +160,14 @@ func (a *NodeAnnouncement) Encode(w io.Writer, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (a *NodeAnnouncement) MsgType() MessageType {
 	return MsgNodeAnnouncement
+}
+
+// MaxPayloadLength returns the maximum allowed payload size for this message
+// observing the specified protocol version.
+//
+// This is part of the lnwire.Message interface.
+func (a *NodeAnnouncement) MaxPayloadLength(pver uint32) uint32 {
+	return 65533
 }
 
 // DataToSign returns the part of the message that should be signed.

@@ -12,7 +12,6 @@ import (
 
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/coreos/etcd/clientv3"
-	"github.com/coreos/etcd/clientv3/namespace"
 	"github.com/coreos/etcd/pkg/transport"
 )
 
@@ -154,9 +153,6 @@ type BackendConfig struct {
 	// name spaces.
 	Prefix string
 
-	// Namespace is the etcd namespace that we'll use for all keys.
-	Namespace string
-
 	// CollectCommitStats indicates wheter to commit commit stats.
 	CollectCommitStats bool
 }
@@ -188,14 +184,10 @@ func newEtcdBackend(config BackendConfig) (*db, error) {
 		TLS:                tlsConfig,
 		MaxCallSendMsgSize: 16384*1024 - 1,
 	})
+
 	if err != nil {
 		return nil, err
 	}
-
-	// Apply the namespace.
-	cli.KV = namespace.NewKV(cli.KV, config.Namespace)
-	cli.Watcher = namespace.NewWatcher(cli.Watcher, config.Namespace)
-	cli.Lease = namespace.NewLease(cli.Lease, config.Namespace)
 
 	backend := &db{
 		cli:     cli,
@@ -226,15 +218,11 @@ func (db *db) getSTMOptions() []STMOptionFunc {
 }
 
 // View opens a database read transaction and executes the function f with the
-// transaction passed as a parameter. After f exits, the transaction is rolled
-// back. If f errors, its error is returned, not a rollback error (if any
-// occur). The passed reset function is called before the start of the
-// transaction and can be used to reset intermediate state. As callers may
-// expect retries of the f closure (depending on the database backend used), the
-// reset function will be called before each retry respectively.
-func (db *db) View(f func(tx walletdb.ReadTx) error, reset func()) error {
+// transaction passed as a parameter.  After f exits, the transaction is rolled
+// back.  If f errors, its error is returned, not a rollback error (if any
+// occur).
+func (db *db) View(f func(tx walletdb.ReadTx) error) error {
 	apply := func(stm STM) error {
-		reset()
 		return f(newReadWriteTx(stm, db.config.Prefix))
 	}
 
@@ -242,15 +230,13 @@ func (db *db) View(f func(tx walletdb.ReadTx) error, reset func()) error {
 }
 
 // Update opens a database read/write transaction and executes the function f
-// with the transaction passed as a parameter. After f exits, if f did not
-// error, the transaction is committed. Otherwise, if f did error, the
-// transaction is rolled back. If the rollback fails, the original error
-// returned by f is still returned. If the commit fails, the commit error is
-// returned. As callers may expect retries of the f closure, the reset function
-// will be called before each retry respectively.
-func (db *db) Update(f func(tx walletdb.ReadWriteTx) error, reset func()) error {
+// with the transaction passed as a parameter.  After f exits, if f did not
+// error, the transaction is committed.  Otherwise, if f did error, the
+// transaction is rolled back.  If the rollback fails, the original error
+// returned by f is still returned.  If the commit fails, the commit error is
+// returned.
+func (db *db) Update(f func(tx walletdb.ReadWriteTx) error) error {
 	apply := func(stm STM) error {
-		reset()
 		return f(newReadWriteTx(stm, db.config.Prefix))
 	}
 
@@ -303,4 +289,16 @@ func (db *db) Copy(w io.Writer) error {
 // This function is part of the walletdb.Db interface implementation.
 func (db *db) Close() error {
 	return db.cli.Close()
+}
+
+// Batch opens a database read/write transaction and executes the function f
+// with the transaction passed as a parameter.  After f exits, if f did not
+// error, the transaction is committed.  Otherwise, if f did error, the
+// transaction is rolled back.  If the rollback fails, the original error
+// returned by f is still returned.  If the commit fails, the commit error is
+// returned.
+//
+// Batch is only useful when there are multiple goroutines calling it.
+func (db *db) Batch(apply func(tx walletdb.ReadWriteTx) error) error {
+	return db.Update(apply)
 }

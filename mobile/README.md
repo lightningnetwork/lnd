@@ -16,18 +16,18 @@ point.
 
 #### falafel
 Install [`falafel`](https://github.com/lightninglabs/falafel):
-```shell
-⛰  go get -u -v github.com/lightninglabs/falafel
+```
+go get -u -v github.com/lightninglabs/falafel
 ```
 
 ### Building `lnd` for iOS
-```shell
-⛰  make ios
+```
+make ios
 ```
 
 ### Building `lnd` for Android
-```shell
-⛰  make android
+```
+make android
 ```
 
 `make mobile` will build both iOS and Android libs.
@@ -52,15 +52,15 @@ Swift, add `--swift_out=.` and run `make rpc`.
 Similar to lnd, subservers can be conditionally compiled with the build by
 setting the tags argument:
 
-```shell
-⛰  make ios
+```
+make ios
 ```
 
 To support subservers that have APIs with name conflicts, pass the "prefix"
 flag. This will add the subserver name as a prefix to each method name:
 
-```shell
-⛰  make ios prefix=1
+```
+make ios prefix=1
 ```
 
 ### API docs

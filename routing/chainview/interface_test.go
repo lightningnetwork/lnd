@@ -27,7 +27,6 @@ import (
 
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 )
 
 var (
@@ -63,7 +62,7 @@ func waitForMempoolTx(r *rpctest.Harness, txid *chainhash.Hash) error {
 		time.Sleep(100 * time.Millisecond)
 
 		// Check for the harness' knowledge of the txid
-		tx, err = r.Client.GetRawTransaction(txid)
+		tx, err = r.Node.GetRawTransaction(txid)
 		if err != nil {
 			switch e := err.(type) {
 			case *btcjson.RPCError:
@@ -188,12 +187,12 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 	blockChan := chainView.FilteredBlocks()
 
 	// Next we'll mine a block confirming the output generated above.
-	newBlockHashes, err := node.Client.Generate(1)
+	newBlockHashes, err := node.Node.Generate(1)
 	if err != nil {
 		t.Fatalf("unable to generate block: %v", err)
 	}
 
-	_, currentHeight, err := node.Client.GetBestBlock()
+	_, currentHeight, err := node.Node.GetBestBlock()
 	if err != nil {
 		t.Fatalf("unable to get current height: %v", err)
 	}
@@ -211,11 +210,11 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 	// Now that the block has been mined, we'll fetch the two transactions
 	// so we can add them to the filter, and also craft transaction
 	// spending the outputs we created.
-	tx1, err := node.Client.GetRawTransaction(txid1)
+	tx1, err := node.Node.GetRawTransaction(txid1)
 	if err != nil {
 		t.Fatalf("unable to fetch transaction: %v", err)
 	}
-	tx2, err := node.Client.GetRawTransaction(txid2)
+	tx2, err := node.Node.GetRawTransaction(txid2)
 	if err != nil {
 		t.Fatalf("unable to fetch transaction: %v", err)
 	}
@@ -236,7 +235,7 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 		t.Fatalf("unable to find output: %v", err)
 	}
 
-	_, currentHeight, err = node.Client.GetBestBlock()
+	_, currentHeight, err = node.Node.GetBestBlock()
 	if err != nil {
 		t.Fatalf("unable to get current height: %v", err)
 	}
@@ -264,7 +263,7 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 
 	// Now we'll broadcast the first spending transaction and also mine a
 	// block which should include it.
-	spendTxid1, err := node.Client.SendRawTransaction(spendingTx1, true)
+	spendTxid1, err := node.Node.SendRawTransaction(spendingTx1, true)
 	if err != nil {
 		t.Fatalf("unable to broadcast transaction: %v", err)
 	}
@@ -272,7 +271,7 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("unable to get spending txid in mempool: %v", err)
 	}
-	newBlockHashes, err = node.Client.Generate(1)
+	newBlockHashes, err = node.Node.Generate(1)
 	if err != nil {
 		t.Fatalf("unable to generate block: %v", err)
 	}
@@ -290,7 +289,7 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 
 	// Next, mine the second transaction which spends the second output.
 	// This should also generate a notification.
-	spendTxid2, err := node.Client.SendRawTransaction(spendingTx2, true)
+	spendTxid2, err := node.Node.SendRawTransaction(spendingTx2, true)
 	if err != nil {
 		t.Fatalf("unable to broadcast transaction: %v", err)
 	}
@@ -298,7 +297,7 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("unable to get spending txid in mempool: %v", err)
 	}
-	newBlockHashes, err = node.Client.Generate(1)
+	newBlockHashes, err = node.Node.Generate(1)
 	if err != nil {
 		t.Fatalf("unable to generate block: %v", err)
 	}
@@ -328,14 +327,14 @@ func testUpdateFilterBackTrack(node *rpctest.Harness,
 	}
 
 	// Next we'll mine a block confirming the output generated above.
-	initBlockHashes, err := node.Client.Generate(1)
+	initBlockHashes, err := node.Node.Generate(1)
 	if err != nil {
 		t.Fatalf("unable to generate block: %v", err)
 	}
 
 	blockChan := chainView.FilteredBlocks()
 
-	_, currentHeight, err := node.Client.GetBestBlock()
+	_, currentHeight, err := node.Node.GetBestBlock()
 	if err != nil {
 		t.Fatalf("unable to get current height: %v", err)
 	}
@@ -352,7 +351,7 @@ func testUpdateFilterBackTrack(node *rpctest.Harness,
 
 	// Next, create a transaction which spends the output created above,
 	// mining the spend into a block.
-	tx, err := node.Client.GetRawTransaction(txid)
+	tx, err := node.Node.GetRawTransaction(txid)
 	if err != nil {
 		t.Fatalf("unable to fetch transaction: %v", err)
 	}
@@ -364,7 +363,7 @@ func testUpdateFilterBackTrack(node *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("unable to create spending tx: %v", err)
 	}
-	spendTxid, err := node.Client.SendRawTransaction(spendingTx, true)
+	spendTxid, err := node.Node.SendRawTransaction(spendingTx, true)
 	if err != nil {
 		t.Fatalf("unable to broadcast transaction: %v", err)
 	}
@@ -372,7 +371,7 @@ func testUpdateFilterBackTrack(node *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("unable to get spending txid in mempool: %v", err)
 	}
-	newBlockHashes, err := node.Client.Generate(1)
+	newBlockHashes, err := node.Node.Generate(1)
 	if err != nil {
 		t.Fatalf("unable to generate block: %v", err)
 	}
@@ -435,12 +434,12 @@ func testFilterSingleBlock(node *rpctest.Harness, chainView FilteredChainView,
 	blockChan := chainView.FilteredBlocks()
 
 	// Next we'll mine a block confirming the output generated above.
-	newBlockHashes, err := node.Client.Generate(1)
+	newBlockHashes, err := node.Node.Generate(1)
 	if err != nil {
 		t.Fatalf("unable to generate block: %v", err)
 	}
 
-	_, currentHeight, err := node.Client.GetBestBlock()
+	_, currentHeight, err := node.Node.GetBestBlock()
 	if err != nil {
 		t.Fatalf("unable to get current height: %v", err)
 	}
@@ -455,11 +454,11 @@ func testFilterSingleBlock(node *rpctest.Harness, chainView FilteredChainView,
 		t.Fatalf("filtered block notification didn't arrive")
 	}
 
-	tx1, err := node.Client.GetRawTransaction(txid1)
+	tx1, err := node.Node.GetRawTransaction(txid1)
 	if err != nil {
 		t.Fatalf("unable to fetch transaction: %v", err)
 	}
-	tx2, err := node.Client.GetRawTransaction(txid2)
+	tx2, err := node.Node.GetRawTransaction(txid2)
 	if err != nil {
 		t.Fatalf("unable to fetch transaction: %v", err)
 	}
@@ -496,7 +495,7 @@ func testFilterSingleBlock(node *rpctest.Harness, chainView FilteredChainView,
 		t.Fatalf("filtered block notification didn't arrive")
 	}
 
-	_, currentHeight, err = node.Client.GetBestBlock()
+	_, currentHeight, err = node.Node.GetBestBlock()
 	if err != nil {
 		t.Fatalf("unable to get current height: %v", err)
 	}
@@ -541,7 +540,7 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 
 	// Create a node that has a shorter chain than the main chain, so we
 	// can trigger a reorg.
-	reorgNode, err := rpctest.New(netParams, nil, []string{"--txindex"}, "")
+	reorgNode, err := rpctest.New(netParams, nil, []string{"--txindex"})
 	if err != nil {
 		t.Fatalf("unable to create mining node: %v", err)
 	}
@@ -579,7 +578,7 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 		time.Sleep(time.Second * 3)
 	}
 
-	_, oldHeight, err := reorgNode.Client.GetBestBlock()
+	_, oldHeight, err := reorgNode.Node.GetBestBlock()
 	if err != nil {
 		t.Fatalf("unable to get current height: %v", err)
 	}
@@ -595,7 +594,7 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 		t.Fatalf("unable to join node on blocks: %v", err)
 	}
 
-	_, newHeight, err := reorgNode.Client.GetBestBlock()
+	_, newHeight, err := reorgNode.Node.GetBestBlock()
 	if err != nil {
 		t.Fatalf("unable to get current height: %v", err)
 	}
@@ -635,21 +634,21 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 
 	// Now we trigger a small reorg, by disconnecting the nodes, mining
 	// a few blocks on each, then connecting them again.
-	peers, err := reorgNode.Client.GetPeerInfo()
+	peers, err := reorgNode.Node.GetPeerInfo()
 	if err != nil {
 		t.Fatalf("unable to get peer info: %v", err)
 	}
 	numPeers := len(peers)
 
 	// Disconnect the nodes.
-	err = reorgNode.Client.AddNode(node.P2PAddress(), rpcclient.ANRemove)
+	err = reorgNode.Node.AddNode(node.P2PAddress(), rpcclient.ANRemove)
 	if err != nil {
 		t.Fatalf("unable to disconnect mining nodes: %v", err)
 	}
 
 	// Wait for disconnection
 	for {
-		peers, err = reorgNode.Client.GetPeerInfo()
+		peers, err = reorgNode.Node.GetPeerInfo()
 		if err != nil {
 			t.Fatalf("unable to get peer info: %v", err)
 		}
@@ -661,12 +660,8 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 
 	// Mine 10 blocks on the main chain, 5 on the chain that will be
 	// reorged out,
-	if _, err := node.Client.Generate(10); err != nil {
-		t.Fatalf("unable to generate blocks on main chain: %v", err)
-	}
-	if _, err := reorgNode.Client.Generate(5); err != nil {
-		t.Fatalf("unable to generate blocks on reorged chain: %v", err)
-	}
+	node.Node.Generate(10)
+	reorgNode.Node.Generate(5)
 
 	// 5 new blocks should get notified.
 	for i := uint32(0); i < 5; i++ {
@@ -686,7 +681,7 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 		}
 	}
 
-	_, oldHeight, err = reorgNode.Client.GetBestBlock()
+	_, oldHeight, err = reorgNode.Node.GetBestBlock()
 	if err != nil {
 		t.Fatalf("unable to get current height: %v", err)
 	}
@@ -699,7 +694,8 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 		t.Fatalf("unable to join node on blocks: %v", err)
 	}
 
-	if _, _, err := reorgNode.Client.GetBestBlock(); err != nil {
+	_, newHeight, err = reorgNode.Node.GetBestBlock()
+	if err != nil {
 		t.Fatalf("unable to get current height: %v", err)
 	}
 
@@ -816,19 +812,11 @@ var interfaceImpls = []struct {
 			time.Sleep(time.Second)
 
 			host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
-			chainConn, err := chain.NewBitcoindConn(&chain.BitcoindConfig{
-				ChainParams:     &chaincfg.RegressionNetParams,
-				Host:            host,
-				User:            "weks",
-				Pass:            "weks",
-				ZMQBlockHost:    zmqBlockHost,
-				ZMQTxHost:       zmqTxHost,
-				ZMQReadDeadline: 5 * time.Second,
-				// Fields only required for pruned nodes, not
-				// needed for these tests.
-				Dialer:             nil,
-				PrunedModeMaxPeers: 0,
-			})
+			chainConn, err := chain.NewBitcoindConn(
+				&chaincfg.RegressionNetParams, host, "weks",
+				"weks", zmqBlockHost, zmqTxHost,
+				100*time.Millisecond,
+			)
 			if err != nil {
 				return cleanUp2, nil, fmt.Errorf("unable to "+
 					"establish connection to bitcoind: %v",
@@ -858,9 +846,7 @@ var interfaceImpls = []struct {
 			}
 
 			dbName := filepath.Join(spvDir, "neutrino.db")
-			spvDatabase, err := walletdb.Create(
-				"bdb", dbName, true, kvdb.DefaultDBTimeout,
-			)
+			spvDatabase, err := walletdb.Create("bdb", dbName, true)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -916,7 +902,7 @@ func TestFilteredChainView(t *testing.T) {
 	// dedicated miner to generate blocks, cause re-orgs, etc. We'll set up
 	// this node with a chain length of 125, so we have plenty of BTC to
 	// play around with.
-	miner, err := rpctest.New(netParams, nil, []string{"--txindex"}, "")
+	miner, err := rpctest.New(netParams, nil, []string{"--txindex"})
 	if err != nil {
 		t.Fatalf("unable to create mining node: %v", err)
 	}

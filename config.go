@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"os/user"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -22,20 +23,16 @@ import (
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
-	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/discovery"
-	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/routing"
-	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/tor"
 )
 
@@ -78,11 +75,6 @@ const (
 	defaultTorV2PrivateKeyFilename = "v2_onion_private_key"
 	defaultTorV3PrivateKeyFilename = "v3_onion_private_key"
 
-	// DefaultAutogenValidity is the default validity of a self-signed
-	// certificate. The value corresponds to 14 months
-	// (14 months * 30 days * 24 hours).
-	defaultTLSCertDuration = 14 * 30 * 24 * time.Hour
-
 	// minTimeLockDelta is the minimum timelock we require for incoming
 	// HTLCs on our channels.
 	minTimeLockDelta = routing.MinCLTVDelta
@@ -94,21 +86,14 @@ const (
 	defaultAlias = ""
 	defaultColor = "#3399FF"
 
-	// defaultCoopCloseTargetConfs is the default confirmation target
-	// that will be used to estimate a fee rate to use during a
-	// cooperative channel closure initiated by a remote peer. By default
-	// we'll set this to a lax value since we weren't the ones that
-	// initiated the channel closure.
-	defaultCoopCloseTargetConfs = 6
-
 	// defaultHostSampleInterval is the default amount of time that the
 	// HostAnnouncer will wait between DNS resolutions to check if the
 	// backing IP of a host has changed.
 	defaultHostSampleInterval = time.Minute * 5
 
 	defaultChainInterval = time.Minute
-	defaultChainTimeout  = time.Second * 30
-	defaultChainBackoff  = time.Minute * 2
+	defaultChainTimeout  = time.Second * 10
+	defaultChainBackoff  = time.Second * 30
 	defaultChainAttempts = 3
 
 	// Set defaults for a health check which ensures that we have space
@@ -122,33 +107,10 @@ const (
 	defaultDiskBackoff  = time.Minute
 	defaultDiskAttempts = 0
 
-	// Set defaults for a health check which ensures that the TLS certificate
-	// is not expired. Although this check is off by default (not all setups
-	// require it), we still set the other default values so that the health
-	// check can be easily enabled with sane defaults.
-	defaultTLSInterval = time.Minute
-	defaultTLSTimeout  = time.Second * 5
-	defaultTLSBackoff  = time.Minute
-	defaultTLSAttempts = 0
-
 	// defaultRemoteMaxHtlcs specifies the default limit for maximum
 	// concurrent HTLCs the remote party may add to commitment transactions.
 	// This value can be overridden with --default-remote-max-htlcs.
 	defaultRemoteMaxHtlcs = 483
-
-	// defaultMaxLocalCSVDelay is the maximum delay we accept on our
-	// commitment output.
-	// TODO(halseth): find a more scientific choice of value.
-	defaultMaxLocalCSVDelay = 10000
-
-	// defaultChannelCommitInterval is the default maximum time between receiving a
-	// channel state update and signing a new commitment.
-	defaultChannelCommitInterval = 50 * time.Millisecond
-
-	// defaultChannelCommitBatchSize is the default maximum number of
-	// channel state updates that is accumulated before signing a new
-	// commitment.
-	defaultChannelCommitBatchSize = 10
 )
 
 var (
@@ -191,8 +153,6 @@ var (
 	defaultBitcoindEstimateMode = "CONSERVATIVE"
 	bitcoindEstimateModes       = [2]string{"ECONOMICAL", defaultBitcoindEstimateMode}
 
-	defaultPrunedNodeMaxPeers = 4
-
 	defaultSphinxDbName = "sphinxreplay.db"
 )
 
@@ -208,13 +168,12 @@ type Config struct {
 	DataDir      string `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
 	SyncFreelist bool   `long:"sync-freelist" description:"Whether the databases used within lnd should sync their freelist to disk. This is disabled by default resulting in improved memory performance during operation, but with an increase in startup time."`
 
-	TLSCertPath        string        `long:"tlscertpath" description:"Path to write the TLS certificate for lnd's RPC and REST services"`
-	TLSKeyPath         string        `long:"tlskeypath" description:"Path to write the TLS private key for lnd's RPC and REST services"`
-	TLSExtraIPs        []string      `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
-	TLSExtraDomains    []string      `long:"tlsextradomain" description:"Adds an extra domain to the generated certificate"`
-	TLSAutoRefresh     bool          `long:"tlsautorefresh" description:"Re-generate TLS certificate and key if the IPs or domains are changed"`
-	TLSDisableAutofill bool          `long:"tlsdisableautofill" description:"Do not include the interface IPs or the system hostname in TLS certificate, use first --tlsextradomain as Common Name instead, if set"`
-	TLSCertDuration    time.Duration `long:"tlscertduration" description:"The duration for which the auto-generated TLS certificate will be valid for"`
+	TLSCertPath        string   `long:"tlscertpath" description:"Path to write the TLS certificate for lnd's RPC and REST services"`
+	TLSKeyPath         string   `long:"tlskeypath" description:"Path to write the TLS private key for lnd's RPC and REST services"`
+	TLSExtraIPs        []string `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
+	TLSExtraDomains    []string `long:"tlsextradomain" description:"Adds an extra domain to the generated certificate"`
+	TLSAutoRefresh     bool     `long:"tlsautorefresh" description:"Re-generate TLS certificate and key if the IPs or domains are changed"`
+	TLSDisableAutofill bool     `long:"tlsdisableautofill" description:"Do not include the interface IPs or the system hostname in TLS certificate, use first --tlsextradomain as Common Name instead, if set"`
 
 	NoMacaroons     bool          `long:"no-macaroons" description:"Disable macaroon authentication, can only be used if server is not listening on a public interface."`
 	AdminMacPath    string        `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
@@ -245,24 +204,23 @@ type Config struct {
 	ExternalIPs       []net.Addr
 	DisableListen     bool          `long:"nolisten" description:"Disable listening for incoming peer connections"`
 	DisableRest       bool          `long:"norest" description:"Disable REST API"`
-	DisableRestTLS    bool          `long:"no-rest-tls" description:"Disable TLS for REST connections"`
 	NAT               bool          `long:"nat" description:"Toggle NAT traversal support (using either UPnP or NAT-PMP) to automatically advertise your external IP address to the network -- NOTE this does not support devices behind multiple NATs"`
 	MinBackoff        time.Duration `long:"minbackoff" description:"Shortest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
 	MaxBackoff        time.Duration `long:"maxbackoff" description:"Longest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
 	ConnectionTimeout time.Duration `long:"connectiontimeout" description:"The timeout value for network connections. Valid time units are {ms, s, m, h}."`
 
-	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <global-level>,<subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
+	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 
 	CPUProfile string `long:"cpuprofile" description:"Write CPU profile to the specified file"`
 
-	Profile string `long:"profile" description:"Enable HTTP profiling on either a port or host:port"`
+	Profile string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65535"`
 
 	UnsafeDisconnect   bool   `long:"unsafe-disconnect" description:"DEPRECATED: Allows the rpcserver to intentionally disconnect from peers with open channels. THIS FLAG WILL BE REMOVED IN 0.10.0"`
 	UnsafeReplay       bool   `long:"unsafe-replay" description:"Causes a link to replay the adds on its commitment txn after starting up, this enables testing of the sphinx replay logic."`
 	MaxPendingChannels int    `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
 	BackupFilePath     string `long:"backupfilepath" description:"The target location of the channel backup file"`
 
-	FeeURL string `long:"feeurl" description:"Optional URL for external fee estimation. If no URL is specified, the method for fee estimation will depend on the chosen backend and network. Must be set for neutrino on mainnet."`
+	FeeURL string `long:"feeurl" description:"Optional URL for external fee estimation. If no URL is specified, the method for fee estimation will depend on the chosen backend and network."`
 
 	Bitcoin      *lncfg.Chain    `group:"Bitcoin" namespace:"bitcoin"`
 	BtcdMode     *lncfg.Btcd     `group:"btcd" namespace:"btcd"`
@@ -285,8 +243,6 @@ type Config struct {
 
 	NoSeedBackup bool `long:"noseedbackup" description:"If true, NO SEED WILL BE EXPOSED -- EVER, AND THE WALLET WILL BE ENCRYPTED USING THE DEFAULT PASSPHRASE. THIS FLAG IS ONLY FOR TESTING AND SHOULD NEVER BE USED ON MAINNET."`
 
-	ResetWalletTransactions bool `long:"reset-wallet-transactions" description:"Removes all transaction history from the on-chain wallet on startup, forcing a full chain rescan starting at the wallet's birthday. Implements the same functionality as btcwallet's dropwtxmgr command. Should be set to false after successful execution to avoid rescanning on every restart of lnd."`
-
 	PaymentsExpirationGracePeriod time.Duration `long:"payments-expiration-grace-period" description:"A period to wait before force closing channels with outgoing htlcs that have timed-out and are a result of this node initiated payments."`
 	TrickleDelay                  int           `long:"trickledelay" description:"Time in milliseconds between each release of announcements to the network"`
 	ChanEnableTimeout             time.Duration `long:"chan-enable-timeout" description:"The duration that a peer connection must be stable before attempting to send a channel update to reenable or cancel a pending disables of the peer's channels on the network."`
@@ -297,10 +253,6 @@ type Config struct {
 	Color                         string        `long:"color" description:"The color of the node in hex format (i.e. '#3399FF'). Used to customize node appearance in intelligence services"`
 	MinChanSize                   int64         `long:"minchansize" description:"The smallest channel size (in satoshis) that we should accept. Incoming channels smaller than this will be rejected"`
 	MaxChanSize                   int64         `long:"maxchansize" description:"The largest channel size (in satoshis) that we should accept. Incoming channels larger than this will be rejected"`
-	CoopCloseTargetConfs          uint32        `long:"coop-close-target-confs" description:"The target number of blocks that a cooperative channel close transaction should confirm in. This is used to estimate the fee to use as the lower bound during fee negotiation for the channel closure."`
-
-	ChannelCommitInterval  time.Duration `long:"channel-commit-interval" description:"The maximum time that is allowed to pass between receiving a channel state update and signing the next commitment. Setting this to a longer duration allows for more efficient channel operations at the cost of latency."`
-	ChannelCommitBatchSize uint32        `long:"channel-commit-batch-size" description:"The maximum number of channel state updates that is accumulated before signing a new commitment."`
 
 	DefaultRemoteMaxHtlcs uint16 `long:"default-remote-max-htlcs" description:"The default max_htlc applied when opening or accepting channels. This value limits the number of concurrent HTLCs that the remote party can add to the commitment. The maximum possible value is 483."`
 
@@ -319,8 +271,6 @@ type Config struct {
 
 	MaxChannelFeeAllocation float64 `long:"max-channel-fee-allocation" description:"The maximum percentage of total funds that can be allocated to a channel's commitment fee. This only applies for the initiator of the channel. Valid values are within [0.1, 1]."`
 
-	MaxCommitFeeRateAnchors uint64 `long:"max-commit-fee-rate-anchors" description:"The maximum fee rate in sat/vbyte that will be used for commitments of channels of the anchors type. Must be large enough to ensure transaction propagation"`
-
 	DryRunMigration bool `long:"dry-run-migration" description:"If true, lnd will abort committing a migration if it would otherwise have been successful. This leaves the database unmodified, and still compatible with the previously active version of lnd."`
 
 	net tor.Net
@@ -335,9 +285,7 @@ type Config struct {
 
 	GcCanceledInvoicesOnTheFly bool `long:"gc-canceled-invoices-on-the-fly" description:"If true, we'll delete newly canceled invoices on the fly."`
 
-	Routing *lncfg.Routing `group:"routing" namespace:"routing"`
-
-	Gossip *lncfg.Gossip `group:"gossip" namespace:"gossip"`
+	Routing *routing.Conf `group:"routing" namespace:"routing"`
 
 	Workers *lncfg.Workers `group:"workers" namespace:"workers"`
 
@@ -363,7 +311,7 @@ type Config struct {
 
 	// registeredChains keeps track of all chains that have been registered
 	// with the daemon.
-	registeredChains *chainreg.ChainRegistry
+	registeredChains *chainRegistry
 
 	// networkDir is the path to the directory of the currently active
 	// network. This path will hold the files related to each different
@@ -371,7 +319,7 @@ type Config struct {
 	networkDir string
 
 	// ActiveNetParams contains parameters of the target chain.
-	ActiveNetParams chainreg.BitcoinNetParams
+	ActiveNetParams bitcoinNetParams
 }
 
 // DefaultConfig returns all default values for the Config struct.
@@ -383,7 +331,6 @@ func DefaultConfig() Config {
 		DebugLevel:        defaultLogLevel,
 		TLSCertPath:       defaultTLSCertPath,
 		TLSKeyPath:        defaultTLSKeyPath,
-		TLSCertDuration:   defaultTLSCertDuration,
 		LetsEncryptDir:    defaultLetsEncryptDir,
 		LetsEncryptListen: defaultLetsEncryptListen,
 		LogDir:            defaultLogDir,
@@ -391,12 +338,11 @@ func DefaultConfig() Config {
 		MaxLogFileSize:    defaultMaxLogFileSize,
 		AcceptorTimeout:   defaultAcceptorTimeout,
 		Bitcoin: &lncfg.Chain{
-			MinHTLCIn:     chainreg.DefaultBitcoinMinHTLCInMSat,
-			MinHTLCOut:    chainreg.DefaultBitcoinMinHTLCOutMSat,
-			BaseFee:       chainreg.DefaultBitcoinBaseFeeMSat,
-			FeeRate:       chainreg.DefaultBitcoinFeeRate,
-			TimeLockDelta: chainreg.DefaultBitcoinTimeLockDelta,
-			MaxLocalDelay: defaultMaxLocalCSVDelay,
+			MinHTLCIn:     defaultBitcoinMinHTLCInMSat,
+			MinHTLCOut:    defaultBitcoinMinHTLCOutMSat,
+			BaseFee:       DefaultBitcoinBaseFeeMSat,
+			FeeRate:       DefaultBitcoinFeeRate,
+			TimeLockDelta: DefaultBitcoinTimeLockDelta,
 			Node:          "btcd",
 		},
 		BtcdMode: &lncfg.Btcd{
@@ -405,18 +351,16 @@ func DefaultConfig() Config {
 			RPCCert: defaultBtcdRPCCertFile,
 		},
 		BitcoindMode: &lncfg.Bitcoind{
-			Dir:                defaultBitcoindDir,
-			RPCHost:            defaultRPCHost,
-			EstimateMode:       defaultBitcoindEstimateMode,
-			PrunedNodeMaxPeers: defaultPrunedNodeMaxPeers,
+			Dir:          defaultBitcoindDir,
+			RPCHost:      defaultRPCHost,
+			EstimateMode: defaultBitcoindEstimateMode,
 		},
 		Litecoin: &lncfg.Chain{
-			MinHTLCIn:     chainreg.DefaultLitecoinMinHTLCInMSat,
-			MinHTLCOut:    chainreg.DefaultLitecoinMinHTLCOutMSat,
-			BaseFee:       chainreg.DefaultLitecoinBaseFeeMSat,
-			FeeRate:       chainreg.DefaultLitecoinFeeRate,
-			TimeLockDelta: chainreg.DefaultLitecoinTimeLockDelta,
-			MaxLocalDelay: defaultMaxLocalCSVDelay,
+			MinHTLCIn:     defaultLitecoinMinHTLCInMSat,
+			MinHTLCOut:    defaultLitecoinMinHTLCOutMSat,
+			BaseFee:       defaultLitecoinBaseFeeMSat,
+			FeeRate:       defaultLitecoinFeeRate,
+			TimeLockDelta: defaultLitecoinTimeLockDelta,
 			Node:          "ltcd",
 		},
 		LtcdMode: &lncfg.Btcd{
@@ -425,10 +369,9 @@ func DefaultConfig() Config {
 			RPCCert: defaultLtcdRPCCertFile,
 		},
 		LitecoindMode: &lncfg.Bitcoind{
-			Dir:                defaultLitecoindDir,
-			RPCHost:            defaultRPCHost,
-			EstimateMode:       defaultBitcoindEstimateMode,
-			PrunedNodeMaxPeers: defaultPrunedNodeMaxPeers,
+			Dir:          defaultLitecoindDir,
+			RPCHost:      defaultRPCHost,
+			EstimateMode: defaultBitcoindEstimateMode,
 		},
 		NeutrinoMode: &lncfg.Neutrino{
 			UserAgentName:    neutrino.UserAgentName,
@@ -447,12 +390,12 @@ func DefaultConfig() Config {
 		Autopilot: &lncfg.AutoPilot{
 			MaxChannels:    5,
 			Allocation:     0.6,
-			MinChannelSize: int64(funding.MinChanFundingSize),
+			MinChannelSize: int64(minChanFundingSize),
 			MaxChannelSize: int64(MaxFundingAmount),
 			MinConfs:       1,
 			ConfTarget:     autopilot.DefaultConfTarget,
 			Heuristic: map[string]float64{
-				"top_centrality": 1.0,
+				"preferential": 1.0,
 			},
 		},
 		PaymentsExpirationGracePeriod: defaultPaymentsExpirationGracePeriod,
@@ -463,9 +406,8 @@ func DefaultConfig() Config {
 		HeightHintCacheQueryDisable:   defaultHeightHintCacheQueryDisable,
 		Alias:                         defaultAlias,
 		Color:                         defaultColor,
-		MinChanSize:                   int64(funding.MinChanFundingSize),
+		MinChanSize:                   int64(minChanFundingSize),
 		MaxChanSize:                   int64(0),
-		CoopCloseTargetConfs:          defaultCoopCloseTargetConfs,
 		DefaultRemoteMaxHtlcs:         defaultRemoteMaxHtlcs,
 		NumGraphSyncPeers:             defaultMinPeers,
 		HistoricalSyncInterval:        discovery.DefaultHistoricalSyncInterval,
@@ -504,26 +446,13 @@ func DefaultConfig() Config {
 					Backoff:  defaultDiskBackoff,
 				},
 			},
-			TLSCheck: &lncfg.CheckConfig{
-				Interval: defaultTLSInterval,
-				Timeout:  defaultTLSTimeout,
-				Attempts: defaultTLSAttempts,
-				Backoff:  defaultTLSBackoff,
-			},
-		},
-		Gossip: &lncfg.Gossip{
-			MaxChannelUpdateBurst: discovery.DefaultMaxChannelUpdateBurst,
-			ChannelUpdateInterval: discovery.DefaultChannelUpdateInterval,
 		},
 		MaxOutgoingCltvExpiry:   htlcswitch.DefaultMaxOutgoingCltvExpiry,
 		MaxChannelFeeAllocation: htlcswitch.DefaultMaxLinkFeeAllocation,
-		MaxCommitFeeRateAnchors: lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte,
 		LogWriter:               build.NewRotatingLogWriter(),
 		DB:                      lncfg.DefaultDB(),
-		registeredChains:        chainreg.NewChainRegistry(),
-		ActiveNetParams:         chainreg.BitcoinTestNetParams,
-		ChannelCommitInterval:   defaultChannelCommitInterval,
-		ChannelCommitBatchSize:  defaultChannelCommitBatchSize,
+		registeredChains:        newChainRegistry(),
+		ActiveNetParams:         bitcoinTestNetParams,
 	}
 }
 
@@ -535,7 +464,7 @@ func DefaultConfig() Config {
 // 	2) Pre-parse the command line to check for an alternative config file
 // 	3) Load configuration file overwriting defaults with any specified options
 // 	4) Parse CLI options and overwrite/add any specified options
-func LoadConfig(interceptor signal.Interceptor) (*Config, error) {
+func LoadConfig() (*Config, error) {
 	// Pre-parse the command line options to pick up an alternative config
 	// file.
 	preCfg := DefaultConfig()
@@ -588,7 +517,7 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, error) {
 	}
 
 	// Make sure everything we just loaded makes sense.
-	cleanCfg, err := ValidateConfig(cfg, usageMessage, interceptor)
+	cleanCfg, err := ValidateConfig(cfg, usageMessage)
 	if err != nil {
 		return nil, err
 	}
@@ -606,8 +535,7 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, error) {
 // ValidateConfig check the given configuration to be sane. This makes sure no
 // illegal values or combination of values are set. All file system paths are
 // normalized. The cleaned up config is returned on success.
-func ValidateConfig(cfg Config, usageMessage string,
-	interceptor signal.Interceptor) (*Config, error) {
+func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 	// If the provided lnd directory is not the default, we'll modify the
 	// path to all of the files and directories that will live within it.
 	lndDir := CleanAndExpandPath(cfg.LndDir)
@@ -671,7 +599,6 @@ func ValidateConfig(cfg Config, usageMessage string,
 	cfg.Tor.PrivateKeyPath = CleanAndExpandPath(cfg.Tor.PrivateKeyPath)
 	cfg.Tor.WatchtowerKeyPath = CleanAndExpandPath(cfg.Tor.WatchtowerKeyPath)
 	cfg.Watchtower.TowerDir = CleanAndExpandPath(cfg.Watchtower.TowerDir)
-	cfg.BackupFilePath = CleanAndExpandPath(cfg.BackupFilePath)
 
 	// Create the lnd directory and all other sub directories if they don't
 	// already exist. This makes sure that directory trees are also created
@@ -732,8 +659,8 @@ func ValidateConfig(cfg Config, usageMessage string,
 
 	// Ensure that the specified values for the min and max channel size
 	// are within the bounds of the normal chan size constraints.
-	if cfg.Autopilot.MinChannelSize < int64(funding.MinChanFundingSize) {
-		cfg.Autopilot.MinChannelSize = int64(funding.MinChanFundingSize)
+	if cfg.Autopilot.MinChannelSize < int64(minChanFundingSize) {
+		cfg.Autopilot.MinChannelSize = int64(minChanFundingSize)
 	}
 	if cfg.Autopilot.MaxChannelSize > int64(MaxFundingAmount) {
 		cfg.Autopilot.MaxChannelSize = int64(MaxFundingAmount)
@@ -750,9 +677,9 @@ func ValidateConfig(cfg Config, usageMessage string,
 	// If unset (marked by 0 value), then enforce proper default.
 	if cfg.MaxChanSize == 0 {
 		if cfg.ProtocolOptions.Wumbo() {
-			cfg.MaxChanSize = int64(funding.MaxBtcFundingAmountWumbo)
+			cfg.MaxChanSize = int64(MaxBtcFundingAmountWumbo)
 		} else {
-			cfg.MaxChanSize = int64(funding.MaxBtcFundingAmount)
+			cfg.MaxChanSize = int64(MaxBtcFundingAmount)
 		}
 	}
 
@@ -780,12 +707,6 @@ func ValidateConfig(cfg Config, usageMessage string,
 		return nil, fmt.Errorf("invalid max channel fee allocation: "+
 			"%v, must be within (0, 1]",
 			cfg.MaxChannelFeeAllocation)
-	}
-
-	if cfg.MaxCommitFeeRateAnchors < 1 {
-		return nil, fmt.Errorf("invalid max commit fee rate anchors: "+
-			"%v, must be at least 1 sat/vbyte",
-			cfg.MaxCommitFeeRateAnchors)
 	}
 
 	// Validate the Tor config parameters.
@@ -900,31 +821,30 @@ func ValidateConfig(cfg Config, usageMessage string,
 			"litecoin.active must be set to 1 (true)", funcName)
 
 	case cfg.Litecoin.Active:
-		err := cfg.Litecoin.Validate(minTimeLockDelta, funding.MinLtcRemoteDelay)
-		if err != nil {
-			return nil, err
+		if cfg.Litecoin.TimeLockDelta < minTimeLockDelta {
+			return nil, fmt.Errorf("timelockdelta must be at least %v",
+				minTimeLockDelta)
 		}
-
 		// Multiple networks can't be selected simultaneously.  Count
 		// number of network flags passed; assign active network params
 		// while we're at it.
 		numNets := 0
-		var ltcParams chainreg.LitecoinNetParams
+		var ltcParams litecoinNetParams
 		if cfg.Litecoin.MainNet {
 			numNets++
-			ltcParams = chainreg.LitecoinMainNetParams
+			ltcParams = litecoinMainNetParams
 		}
 		if cfg.Litecoin.TestNet3 {
 			numNets++
-			ltcParams = chainreg.LitecoinTestNetParams
+			ltcParams = litecoinTestNetParams
 		}
 		if cfg.Litecoin.RegTest {
 			numNets++
-			ltcParams = chainreg.LitecoinRegTestNetParams
+			ltcParams = litecoinRegTestNetParams
 		}
 		if cfg.Litecoin.SimNet {
 			numNets++
-			ltcParams = chainreg.LitecoinSimNetParams
+			ltcParams = litecoinSimNetParams
 		}
 
 		if numNets > 1 {
@@ -948,12 +868,12 @@ func ValidateConfig(cfg Config, usageMessage string,
 		// throughout the codebase we required chaincfg.Params. So as a
 		// temporary hack, we'll mutate the default net params for
 		// bitcoin with the litecoin specific information.
-		chainreg.ApplyLitecoinParams(&cfg.ActiveNetParams, &ltcParams)
+		applyLitecoinParams(&cfg.ActiveNetParams, &ltcParams)
 
 		switch cfg.Litecoin.Node {
 		case "ltcd":
 			err := parseRPCParams(cfg.Litecoin, cfg.LtcdMode,
-				chainreg.LitecoinChain, funcName, cfg.ActiveNetParams)
+				litecoinChain, funcName, cfg.ActiveNetParams)
 			if err != nil {
 				err := fmt.Errorf("unable to load RPC "+
 					"credentials for ltcd: %v", err)
@@ -965,7 +885,7 @@ func ValidateConfig(cfg Config, usageMessage string,
 					"support simnet", funcName)
 			}
 			err := parseRPCParams(cfg.Litecoin, cfg.LitecoindMode,
-				chainreg.LitecoinChain, funcName, cfg.ActiveNetParams)
+				litecoinChain, funcName, cfg.ActiveNetParams)
 			if err != nil {
 				err := fmt.Errorf("unable to load RPC "+
 					"credentials for litecoind: %v", err)
@@ -979,12 +899,12 @@ func ValidateConfig(cfg Config, usageMessage string,
 
 		cfg.Litecoin.ChainDir = filepath.Join(cfg.DataDir,
 			defaultChainSubDirname,
-			chainreg.LitecoinChain.String())
+			litecoinChain.String())
 
 		// Finally we'll register the litecoin chain as our current
 		// primary chain.
-		cfg.registeredChains.RegisterPrimaryChain(chainreg.LitecoinChain)
-		MaxFundingAmount = funding.MaxLtcFundingAmount
+		cfg.registeredChains.RegisterPrimaryChain(litecoinChain)
+		MaxFundingAmount = maxLtcFundingAmount
 
 	case cfg.Bitcoin.Active:
 		// Multiple networks can't be selected simultaneously.  Count
@@ -993,19 +913,19 @@ func ValidateConfig(cfg Config, usageMessage string,
 		numNets := 0
 		if cfg.Bitcoin.MainNet {
 			numNets++
-			cfg.ActiveNetParams = chainreg.BitcoinMainNetParams
+			cfg.ActiveNetParams = bitcoinMainNetParams
 		}
 		if cfg.Bitcoin.TestNet3 {
 			numNets++
-			cfg.ActiveNetParams = chainreg.BitcoinTestNetParams
+			cfg.ActiveNetParams = bitcoinTestNetParams
 		}
 		if cfg.Bitcoin.RegTest {
 			numNets++
-			cfg.ActiveNetParams = chainreg.BitcoinRegTestNetParams
+			cfg.ActiveNetParams = bitcoinRegTestNetParams
 		}
 		if cfg.Bitcoin.SimNet {
 			numNets++
-			cfg.ActiveNetParams = chainreg.BitcoinSimNetParams
+			cfg.ActiveNetParams = bitcoinSimNetParams
 		}
 		if numNets > 1 {
 			str := "%s: The mainnet, testnet, regtest, and " +
@@ -1025,15 +945,15 @@ func ValidateConfig(cfg Config, usageMessage string,
 			return nil, err
 		}
 
-		err := cfg.Bitcoin.Validate(minTimeLockDelta, funding.MinBtcRemoteDelay)
-		if err != nil {
-			return nil, err
+		if cfg.Bitcoin.TimeLockDelta < minTimeLockDelta {
+			return nil, fmt.Errorf("timelockdelta must be at least %v",
+				minTimeLockDelta)
 		}
 
 		switch cfg.Bitcoin.Node {
 		case "btcd":
 			err := parseRPCParams(
-				cfg.Bitcoin, cfg.BtcdMode, chainreg.BitcoinChain, funcName,
+				cfg.Bitcoin, cfg.BtcdMode, bitcoinChain, funcName,
 				cfg.ActiveNetParams,
 			)
 			if err != nil {
@@ -1048,7 +968,7 @@ func ValidateConfig(cfg Config, usageMessage string,
 			}
 
 			err := parseRPCParams(
-				cfg.Bitcoin, cfg.BitcoindMode, chainreg.BitcoinChain, funcName,
+				cfg.Bitcoin, cfg.BitcoindMode, bitcoinChain, funcName,
 				cfg.ActiveNetParams,
 			)
 			if err != nil {
@@ -1067,11 +987,11 @@ func ValidateConfig(cfg Config, usageMessage string,
 
 		cfg.Bitcoin.ChainDir = filepath.Join(cfg.DataDir,
 			defaultChainSubDirname,
-			chainreg.BitcoinChain.String())
+			bitcoinChain.String())
 
 		// Finally we'll register the bitcoin chain as our current
 		// primary chain.
-		cfg.registeredChains.RegisterPrimaryChain(chainreg.BitcoinChain)
+		cfg.registeredChains.RegisterPrimaryChain(bitcoinChain)
 	}
 
 	// Ensure that the user didn't attempt to specify negative values for
@@ -1103,41 +1023,22 @@ func ValidateConfig(cfg Config, usageMessage string,
 
 	// Ensure that the specified values for the min and max channel size
 	// don't are within the bounds of the normal chan size constraints.
-	if cfg.Autopilot.MinChannelSize < int64(funding.MinChanFundingSize) {
-		cfg.Autopilot.MinChannelSize = int64(funding.MinChanFundingSize)
+	if cfg.Autopilot.MinChannelSize < int64(minChanFundingSize) {
+		cfg.Autopilot.MinChannelSize = int64(minChanFundingSize)
 	}
 	if cfg.Autopilot.MaxChannelSize > int64(MaxFundingAmount) {
 		cfg.Autopilot.MaxChannelSize = int64(MaxFundingAmount)
 	}
 
-	// Validate profile port or host:port.
+	// Validate profile port number.
 	if cfg.Profile != "" {
-		str := "%s: The profile port must be between 1024 and 65535"
-
-		// Try to parse Profile as a host:port.
-		_, hostPort, err := net.SplitHostPort(cfg.Profile)
-		if err == nil {
-			// Determine if the port is valid.
-			profilePort, err := strconv.Atoi(hostPort)
-			if err != nil || profilePort < 1024 || profilePort > 65535 {
-				err = fmt.Errorf(str, funcName)
-				_, _ = fmt.Fprintln(os.Stderr, err)
-				_, _ = fmt.Fprintln(os.Stderr, usageMessage)
-				return nil, err
-			}
-		} else {
-			// Try to parse Profile as a port.
-			profilePort, err := strconv.Atoi(cfg.Profile)
-			if err != nil || profilePort < 1024 || profilePort > 65535 {
-				err = fmt.Errorf(str, funcName)
-				_, _ = fmt.Fprintln(os.Stderr, err)
-				_, _ = fmt.Fprintln(os.Stderr, usageMessage)
-				return nil, err
-			}
-
-			// Since the user just set a port, we will serve debugging
-			// information over localhost.
-			cfg.Profile = net.JoinHostPort("127.0.0.1", cfg.Profile)
+		profilePort, err := strconv.Atoi(cfg.Profile)
+		if err != nil || profilePort < 1024 || profilePort > 65535 {
+			str := "%s: The profile port must be between 1024 and 65535"
+			err := fmt.Errorf(str, funcName)
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			_, _ = fmt.Fprintln(os.Stderr, usageMessage)
+			return nil, err
 		}
 	}
 
@@ -1146,7 +1047,7 @@ func ValidateConfig(cfg Config, usageMessage string,
 	cfg.networkDir = filepath.Join(
 		cfg.DataDir, defaultChainSubDirname,
 		cfg.registeredChains.PrimaryChain().String(),
-		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
+		normalizeNetwork(cfg.ActiveNetParams.Name),
 	)
 
 	// If a custom macaroon directory wasn't specified and the data
@@ -1180,7 +1081,7 @@ func ValidateConfig(cfg Config, usageMessage string,
 	// per network in the same fashion as the data directory.
 	cfg.LogDir = filepath.Join(cfg.LogDir,
 		cfg.registeredChains.PrimaryChain().String(),
-		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name))
+		normalizeNetwork(cfg.ActiveNetParams.Name))
 
 	// A log writer must be passed in, otherwise we can't function and would
 	// run into a panic later on.
@@ -1196,7 +1097,7 @@ func ValidateConfig(cfg Config, usageMessage string,
 	}
 
 	// Initialize logging at the default logging level.
-	SetupLoggers(cfg.LogWriter, interceptor)
+	SetupLoggers(cfg.LogWriter)
 	err = cfg.LogWriter.InitLogRotator(
 		filepath.Join(cfg.LogDir, defaultLogFilename),
 		cfg.MaxLogFileSize, cfg.MaxLogFiles,
@@ -1265,10 +1166,9 @@ func ValidateConfig(cfg Config, usageMessage string,
 
 	// For each of the RPC listeners (REST+gRPC), we'll ensure that users
 	// have specified a safe combo for authentication. If not, we'll bail
-	// out with an error. Since we don't allow disabling TLS for gRPC
-	// connections we pass in tlsActive=true.
+	// out with an error.
 	err = lncfg.EnforceSafeAuthentication(
-		cfg.RPCListeners, !cfg.NoMacaroons, true,
+		cfg.RPCListeners, !cfg.NoMacaroons,
 	)
 	if err != nil {
 		return nil, err
@@ -1279,7 +1179,7 @@ func ValidateConfig(cfg Config, usageMessage string,
 		cfg.RESTListeners = nil
 	} else {
 		err = lncfg.EnforceSafeAuthentication(
-			cfg.RESTListeners, !cfg.NoMacaroons, !cfg.DisableRestTLS,
+			cfg.RESTListeners, !cfg.NoMacaroons,
 		)
 		if err != nil {
 			return nil, err
@@ -1350,10 +1250,6 @@ func ValidateConfig(cfg Config, usageMessage string,
 			maxRemoteHtlcs)
 	}
 
-	if err := cfg.Gossip.Parse(); err != nil {
-		return nil, err
-	}
-
 	// Validate the subconfigs for workers, caches, and the tower client.
 	err = lncfg.Validate(
 		cfg.Workers,
@@ -1383,11 +1279,11 @@ func ValidateConfig(cfg Config, usageMessage string,
 func (c *Config) localDatabaseDir() string {
 	return filepath.Join(c.DataDir,
 		defaultGraphSubDirname,
-		lncfg.NormalizeNetwork(c.ActiveNetParams.Name))
+		normalizeNetwork(c.ActiveNetParams.Name))
 }
 
 func (c *Config) networkName() string {
-	return lncfg.NormalizeNetwork(c.ActiveNetParams.Name)
+	return normalizeNetwork(c.ActiveNetParams.Name)
 }
 
 // CleanAndExpandPath expands environment variables and leading ~ in the
@@ -1416,9 +1312,8 @@ func CleanAndExpandPath(path string) string {
 	return filepath.Clean(os.ExpandEnv(path))
 }
 
-func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
-	net chainreg.ChainCode, funcName string,
-	netParams chainreg.BitcoinNetParams) error { // nolint:unparam
+func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{}, net chainCode,
+	funcName string, netParams bitcoinNetParams) error { // nolint:unparam
 
 	// First, we'll check our node config to make sure the RPC parameters
 	// were set correctly. We'll also determine the path to the conf file
@@ -1434,11 +1329,11 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 
 		// Get the daemon name for displaying proper errors.
 		switch net {
-		case chainreg.BitcoinChain:
+		case bitcoinChain:
 			daemonName = "btcd"
 			confDir = conf.Dir
 			confFile = "btcd"
-		case chainreg.LitecoinChain:
+		case litecoinChain:
 			daemonName = "ltcd"
 			confDir = conf.Dir
 			confFile = "ltcd"
@@ -1481,11 +1376,11 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 
 		// Get the daemon name for displaying proper errors.
 		switch net {
-		case chainreg.BitcoinChain:
+		case bitcoinChain:
 			daemonName = "bitcoind"
 			confDir = conf.Dir
 			confFile = "bitcoin"
-		case chainreg.LitecoinChain:
+		case litecoinChain:
 			daemonName = "litecoind"
 			confDir = conf.Dir
 			confFile = "litecoin"
@@ -1641,7 +1536,7 @@ func extractBitcoindRPCParams(networkName string,
 
 	// Next, we'll try to find an auth cookie. We need to detect the chain
 	// by seeing if one is specified in the configuration file.
-	dataDir := filepath.Dir(bitcoindConfigPath)
+	dataDir := path.Dir(bitcoindConfigPath)
 	dataDirRE, err := regexp.Compile(`(?m)^\s*datadir\s*=\s*([^\s]+)`)
 	if err != nil {
 		return "", "", "", "", err
@@ -1651,17 +1546,17 @@ func extractBitcoindRPCParams(networkName string,
 		dataDir = string(dataDirSubmatches[1])
 	}
 
-	chainDir := ""
+	chainDir := "/"
 	switch networkName {
-	case "mainnet":
-		chainDir = ""
-	case "regtest", "testnet3":
-		chainDir = networkName
-	default:
-		return "", "", "", "", fmt.Errorf("unexpected networkname %v", networkName)
+	case "testnet3":
+		chainDir = "/testnet3/"
+	case "testnet4":
+		chainDir = "/testnet4/"
+	case "regtest":
+		chainDir = "/regtest/"
 	}
 
-	cookie, err := ioutil.ReadFile(filepath.Join(dataDir, chainDir, ".cookie"))
+	cookie, err := ioutil.ReadFile(dataDir + chainDir + ".cookie")
 	if err == nil {
 		splitCookie := strings.Split(string(cookie), ":")
 		if len(splitCookie) == 2 {
@@ -1721,4 +1616,14 @@ func checkEstimateMode(estimateMode string) error {
 
 	return fmt.Errorf("estimatemode must be one of the following: %v",
 		bitcoindEstimateModes[:])
+}
+
+// normalizeNetwork returns the common name of a network type used to create
+// file paths. This allows differently versioned networks to use the same path.
+func normalizeNetwork(network string) string {
+	if strings.HasPrefix(network, "testnet") {
+		return "testnet"
+	}
+
+	return network
 }

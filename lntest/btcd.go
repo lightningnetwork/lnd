@@ -14,8 +14,8 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 )
 
-// logDirPattern is the pattern of the name of the temporary log directory.
-const logDirPattern = "%s/.backendlogs"
+// logDir is the name of the temporary log directory.
+const logDir = "./.backendlogs"
 
 // temp is used to signal we want to establish a temporary connection using the
 // btcd Node API.
@@ -56,12 +56,12 @@ func (b BtcdBackendConfig) GenArgs() []string {
 
 // ConnectMiner is called to establish a connection to the test miner.
 func (b BtcdBackendConfig) ConnectMiner() error {
-	return b.harness.Client.Node(btcjson.NConnect, b.minerAddr, &temp)
+	return b.harness.Node.Node(btcjson.NConnect, b.minerAddr, &temp)
 }
 
 // DisconnectMiner is called to disconnect the miner.
 func (b BtcdBackendConfig) DisconnectMiner() error {
-	return b.harness.Client.Node(btcjson.NDisconnect, b.minerAddr, &temp)
+	return b.harness.Node.Node(btcjson.NDisconnect, b.minerAddr, &temp)
 }
 
 // Name returns the name of the backend type.
@@ -75,31 +75,22 @@ func (b BtcdBackendConfig) Name() string {
 func NewBackend(miner string, netParams *chaincfg.Params) (
 	*BtcdBackendConfig, func() error, error) {
 
-	baseLogDir := fmt.Sprintf(logDirPattern, GetLogDir())
 	args := []string{
 		"--rejectnonstd",
 		"--txindex",
 		"--trickleinterval=100ms",
 		"--debuglevel=debug",
-		"--logdir=" + baseLogDir,
+		"--logdir=" + logDir,
 		"--nowinservice",
 		// The miner will get banned and disconnected from the node if
 		// its requested data are not found. We add a nobanning flag to
 		// make sure they stay connected if it happens.
 		"--nobanning",
 	}
-	chainBackend, err := rpctest.New(netParams, nil, args, GetBtcdBinary())
+	chainBackend, err := rpctest.New(netParams, nil, args)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create btcd node: %v", err)
 	}
-
-	// We want to overwrite some of the connection settings to make the
-	// tests more robust. We might need to restart the backend while there
-	// are already blocks present, which will take a bit longer than the
-	// 1 second the default settings amount to. Doubling both values will
-	// give us retries up to 4 seconds.
-	chainBackend.MaxConnRetries = rpctest.DefaultMaxConnectionRetries * 2
-	chainBackend.ConnectionRetryTimeout = rpctest.DefaultConnectionRetryTimeout * 2
 
 	if err := chainBackend.SetUp(false, 0); err != nil {
 		return nil, nil, fmt.Errorf("unable to set up btcd backend: %v", err)
@@ -119,17 +110,14 @@ func NewBackend(miner string, netParams *chaincfg.Params) (
 
 		// After shutting down the chain backend, we'll make a copy of
 		// the log file before deleting the temporary log dir.
-		logFile := baseLogDir + "/" + netParams.Name + "/btcd.log"
-		logDestination := fmt.Sprintf(
-			"%s/output_btcd_chainbackend.log", GetLogDir(),
-		)
-		err := CopyFile(logDestination, logFile)
+		logFile := logDir + "/" + netParams.Name + "/btcd.log"
+		err := CopyFile("./output_btcd_chainbackend.log", logFile)
 		if err != nil {
 			errStr += fmt.Sprintf("unable to copy file: %v\n", err)
 		}
-		if err = os.RemoveAll(baseLogDir); err != nil {
+		if err = os.RemoveAll(logDir); err != nil {
 			errStr += fmt.Sprintf(
-				"cannot remove dir %s: %v\n", baseLogDir, err,
+				"cannot remove dir %s: %v\n", logDir, err,
 			)
 		}
 		if errStr != "" {

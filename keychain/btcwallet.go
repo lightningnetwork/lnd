@@ -222,9 +222,9 @@ func (b *BtcWalletKeyRing) DeriveKey(keyLoc KeyLocator) (KeyDescriptor, error) {
 		}
 
 		path := waddrmgr.DerivationPath{
-			InternalAccount: uint32(keyLoc.Family),
-			Branch:          0,
-			Index:           keyLoc.Index,
+			Account: uint32(keyLoc.Family),
+			Branch:  0,
+			Index:   uint32(keyLoc.Index),
 		}
 		addr, err := scope.DeriveFromKeyPath(addrmgrNs, path)
 		if err != nil {
@@ -278,9 +278,9 @@ func (b *BtcWalletKeyRing) DerivePrivKey(keyDesc KeyDescriptor) (
 			// Now that we know the account exists, we can safely
 			// derive the full private key from the given path.
 			path := waddrmgr.DerivationPath{
-				InternalAccount: uint32(keyDesc.Family),
-				Branch:          0,
-				Index:           keyDesc.Index,
+				Account: uint32(keyDesc.Family),
+				Branch:  0,
+				Index:   uint32(keyDesc.Index),
 			}
 			addr, err := scope.DeriveFromKeyPath(addrmgrNs, path)
 			if err != nil {
@@ -299,9 +299,9 @@ func (b *BtcWalletKeyRing) DerivePrivKey(keyDesc KeyDescriptor) (
 		// need to scan for the private key, assuming that we know the
 		// valid key family.
 		nextPath := waddrmgr.DerivationPath{
-			InternalAccount: uint32(keyDesc.Family),
-			Branch:          0,
-			Index:           0,
+			Account: uint32(keyDesc.Family),
+			Branch:  0,
+			Index:   0,
 		}
 
 		// We'll now iterate through our key range in an attempt to

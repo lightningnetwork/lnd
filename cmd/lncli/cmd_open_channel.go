@@ -8,8 +8,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"io/ioutil"
-	"os"
 	"strconv"
 	"strings"
 
@@ -18,11 +16,13 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
+	"github.com/lightningnetwork/lnd/signal"
 	"github.com/urfave/cli"
 )
 
 const (
-	userMsgFund = `PSBT funding initiated with peer %x.
+	defaultUtxoMinConf = 1
+	userMsgFund        = `PSBT funding initiated with peer %x.
 Please create a PSBT that sends %v (%d satoshi) to the funding address %s.
 
 Note: The whole process should be completed within 10 minutes, otherwise there
@@ -40,23 +40,14 @@ DO NOT PUBLISH the finished transaction by yourself or with another tool.
 lnd MUST publish it in the proper funding flow order OR THE FUNDS CAN BE LOST!
 
 Paste the funded PSBT here to continue the funding flow.
-If your PSBT is very long (specifically, more than 4096 characters), please save
-it to a file and paste the full file path here instead as some terminals will
-truncate the pasted text if it's too long.
-Base64 encoded PSBT (or path to text file): `
+Base64 encoded PSBT: `
 
 	userMsgSign = `
-PSBT verified by lnd, please continue the funding flow by signing the PSBT by
+PSBT verified by lnd, please continue the funding flow by signing the PSBT by 
 all required parties/devices. Once the transaction is fully signed, paste it
 again here either in base64 PSBT or hex encoded raw wire TX format.
 
-Signed base64 encoded PSBT or hex encoded raw wire TX (or path to text file): `
-
-	// psbtMaxFileSize is the maximum file size we allow a PSBT file to be
-	// in case we want to read a PSBT from a file. This is mainly to protect
-	// the user from choosing a large file by accident and running into out
-	// of memory issues or other weird errors.
-	psbtMaxFileSize = 1024 * 1024
+Signed base64 encoded PSBT or hex encoded raw wire TX: `
 )
 
 // TODO(roasbeef): change default number of confirmations
@@ -77,14 +68,14 @@ var openChannelCommand = cli.Command{
 	amount to the remote node as part of the channel opening. Once the channel is open,
 	a channelPoint (txid:vout) of the funding output is returned.
 
-	If the remote peer supports the option upfront shutdown feature bit (query
+	If the remote peer supports the option upfront shutdown feature bit (query 
 	listpeers to see their supported feature bits), an address to enforce
 	payout of funds on cooperative close can optionally be provided. Note that
 	if you set this value, you will not be able to cooperatively close out to
 	another address.
 
 	One can manually set the fee to be used for the funding transaction via either
-	the --conf_target or --sat_per_vbyte arguments. This is optional.`,
+	the --conf_target or --sat_per_byte arguments. This is optional.`,
 	ArgsUsage: "node-key local-amt push-amt",
 	Flags: []cli.Flag{
 		cli.StringFlag{
@@ -119,14 +110,9 @@ var openChannelCommand = cli.Command{
 				"used for fee estimation",
 		},
 		cli.Int64Flag{
-			Name:   "sat_per_byte",
-			Usage:  "Deprecated, use sat_per_vbyte instead.",
-			Hidden: true,
-		},
-		cli.Int64Flag{
-			Name: "sat_per_vbyte",
+			Name: "sat_per_byte",
 			Usage: "(optional) a manual fee expressed in " +
-				"sat/vbyte that should be used when crafting " +
+				"sat/byte that should be used when crafting " +
 				"the transaction",
 		},
 		cli.BoolFlag{
@@ -149,13 +135,6 @@ var openChannelCommand = cli.Command{
 				"its funds in case of unilateral close. If this is " +
 				"not set, we will scale the value according to the " +
 				"channel size",
-		},
-		cli.Uint64Flag{
-			Name: "max_local_csv",
-			Usage: "(optional) the maximum number of blocks that " +
-				"we will allow the remote peer to require we " +
-				"wait before accessing our funds in the case " +
-				"of a unilateral close.",
 		},
 		cli.Uint64Flag{
 			Name: "min_confs",
@@ -206,7 +185,7 @@ var openChannelCommand = cli.Command{
 
 func openChannel(ctx *cli.Context) error {
 	// TODO(roasbeef): add deadline to context
-	ctxc := getContext()
+	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -219,26 +198,16 @@ func openChannel(ctx *cli.Context) error {
 		return nil
 	}
 
-	// Check that only the field sat_per_vbyte or the deprecated field
-	// sat_per_byte is used.
-	feeRateFlag, err := checkNotBothSet(
-		ctx, "sat_per_vbyte", "sat_per_byte",
-	)
-	if err != nil {
-		return err
-	}
-
 	minConfs := int32(ctx.Uint64("min_confs"))
 	req := &lnrpc.OpenChannelRequest{
 		TargetConf:                 int32(ctx.Int64("conf_target")),
-		SatPerVbyte:                ctx.Uint64(feeRateFlag),
+		SatPerByte:                 ctx.Int64("sat_per_byte"),
 		MinHtlcMsat:                ctx.Int64("min_htlc_msat"),
 		RemoteCsvDelay:             uint32(ctx.Uint64("remote_csv_delay")),
 		MinConfs:                   minConfs,
 		SpendUnconfirmed:           minConfs == 0,
 		CloseAddress:               ctx.String("close_address"),
 		RemoteMaxValueInFlightMsat: ctx.Uint64("remote_max_value_in_flight_msat"),
-		MaxLocalCsv:                uint32(ctx.Uint64("max_local_csv")),
 	}
 
 	switch {
@@ -276,7 +245,7 @@ func openChannel(ctx *cli.Context) error {
 
 		// Check if connecting to the node was successful.
 		// We discard the peer id returned as it is not needed.
-		_, err := client.ConnectPeer(ctxc, req)
+		_, err := client.ConnectPeer(ctxb, req)
 		if err != nil &&
 			!strings.Contains(err.Error(), "already connected") {
 			return err
@@ -310,14 +279,14 @@ func openChannel(ctx *cli.Context) error {
 	// PSBT funding is a more involved, interactive process that is too
 	// large to also fit into this already long function.
 	if ctx.Bool("psbt") {
-		return openChannelPsbt(ctxc, ctx, client, req)
+		return openChannelPsbt(ctx, client, req)
 	}
 	if !ctx.Bool("psbt") && ctx.Bool("no_publish") {
 		return fmt.Errorf("the --no_publish flag can only be used in " +
 			"combination with the --psbt flag")
 	}
 
-	stream, err := client.OpenChannel(ctxc, req)
+	stream, err := client.OpenChannel(ctxb, req)
 	if err != nil {
 		return err
 	}
@@ -361,8 +330,7 @@ func openChannel(ctx *cli.Context) error {
 //     |  |-------channel pending------->|  |
 //     |  |-------channel open------------->|
 //     |                                    |
-func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
-	client lnrpc.LightningClient,
+func openChannelPsbt(ctx *cli.Context, client lnrpc.LightningClient,
 	req *lnrpc.OpenChannelRequest) error {
 
 	var (
@@ -372,7 +340,7 @@ func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 		quit          = make(chan struct{})
 		srvMsg        = make(chan *lnrpc.OpenStatusUpdate, 1)
 		srvErr        = make(chan error, 1)
-		ctxc, cancel  = context.WithCancel(rpcCtx)
+		ctxc, cancel  = context.WithCancel(context.Background())
 	)
 	defer cancel()
 
@@ -449,6 +417,10 @@ func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 		return fmt.Errorf("opening stream to server failed: %v", err)
 	}
 
+	if err := signal.Intercept(); err != nil {
+		return err
+	}
+
 	// We also need to spawn a goroutine that reads from the server. This
 	// will copy the messages to the channel as long as they come in or add
 	// exactly one error to the error stream and then bail out.
@@ -480,7 +452,7 @@ func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 	// the server.
 	go func() {
 		select {
-		case <-rpcCtx.Done():
+		case <-signal.ShutdownChannel():
 			fmt.Printf("\nInterrupt signal received.\n")
 			close(quit)
 
@@ -527,13 +499,13 @@ func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 			// Read the user's response and send it to the server to
 			// verify everything's correct before anything is
 			// signed.
-			psbtBase64, err := readTerminalOrFile(quit)
+			psbtBase64, err := readLine(quit)
 			if err == io.EOF {
 				return nil
 			}
 			if err != nil {
-				return fmt.Errorf("reading from terminal or "+
-					"file failed: %v", err)
+				return fmt.Errorf("reading from console "+
+					"failed: %v", err)
 			}
 			fundedPsbt, err := base64.StdEncoding.DecodeString(
 				strings.TrimSpace(psbtBase64),
@@ -561,13 +533,13 @@ func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 			fmt.Print(userMsgSign)
 
 			// Read the signed PSBT and send it to lnd.
-			finalTxStr, err := readTerminalOrFile(quit)
+			finalTxStr, err := readLine(quit)
 			if err == io.EOF {
 				return nil
 			}
 			if err != nil {
-				return fmt.Errorf("reading from terminal or "+
-					"file failed: %v", err)
+				return fmt.Errorf("reading from console "+
+					"failed: %v", err)
 			}
 			finalizeMsg, err := finalizeMsgFromString(
 				finalTxStr, pendingChanID[:],
@@ -656,60 +628,6 @@ func printChanPending(update *lnrpc.OpenStatusUpdate_ChanPending) error {
 	return nil
 }
 
-// readTerminalOrFile reads a single line from the terminal. If the line read is
-// short enough to be a file and a file with that exact name exists, the content
-// of that file is read and returned as a string. If the content is longer or no
-// file exists, the string read from the terminal is returned directly. This
-// function can be used to circumvent the N_TTY_BUF_SIZE kernel parameter that
-// prevents pasting more than 4096 characters (on most systems) into a terminal.
-func readTerminalOrFile(quit chan struct{}) (string, error) {
-	maybeFile, err := readLine(quit)
-	if err != nil {
-		return "", err
-	}
-
-	// Absolute file paths normally can't be longer than 255 characters so
-	// we don't even check if it's a file in that case.
-	if len(maybeFile) > 255 {
-		return maybeFile, nil
-	}
-
-	// It might be a file since the length is small enough. Calling os.Stat
-	// should be safe with any arbitrary input as it will only query info
-	// about the file, not open or execute it directly.
-	stat, err := os.Stat(maybeFile)
-
-	// The file doesn't exist, we must assume this wasn't a file path after
-	// all.
-	if err != nil && os.IsNotExist(err) {
-		return maybeFile, nil
-	}
-
-	// Some other error, perhaps access denied or something similar, let's
-	// surface that to the user.
-	if err != nil {
-		return "", err
-	}
-
-	// Make sure we don't read a huge file by accident which might lead to
-	// undesired side effects. Even very large PSBTs should still only be a
-	// few hundred kilobytes so it makes sense to put a cap here.
-	if stat.Size() > psbtMaxFileSize {
-		return "", fmt.Errorf("error reading file %s: size of %d "+
-			"bytes exceeds max PSBT file size of %d", maybeFile,
-			stat.Size(), psbtMaxFileSize)
-	}
-
-	// If it's a path to an existing file and it's small enough, let's try
-	// to read its content now.
-	content, err := ioutil.ReadFile(maybeFile)
-	if err != nil {
-		return "", err
-	}
-
-	return string(content), nil
-}
-
 // readLine reads a line from standard in but does not block in case of a
 // system interrupt like syscall.SIGINT (Ctrl+C).
 func readLine(quit chan struct{}) (string, error) {
@@ -744,7 +662,7 @@ func checkPsbtFlags(req *lnrpc.OpenChannelRequest) error {
 		return fmt.Errorf("specifying minimum confirmations for PSBT " +
 			"funding is not supported")
 	}
-	if req.TargetConf != 0 || req.SatPerByte != 0 || req.SatPerVbyte != 0 {
+	if req.TargetConf != 0 || req.SatPerByte != 0 {
 		return fmt.Errorf("setting fee estimation parameters not " +
 			"supported for PSBT funding")
 	}

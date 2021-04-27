@@ -11,9 +11,9 @@ import (
 // to report their local state, and their current knowledge of the state of the
 // remote commitment chain. If a deviation is detected and can be recovered
 // from, then the necessary messages will be retransmitted. If the level of
-// desynchronization is irreconcilable, then the channel will be force closed.
+// desynchronization if irreconcilable, then the channel will be force closed.
 type ChannelReestablish struct {
-	// ChanID is the channel ID of the channel state we're attempting to
+	// ChanID is the channel ID of the channel state we're attempting
 	// synchronize with the remote party.
 	ChanID ChannelID
 
@@ -60,11 +60,6 @@ type ChannelReestablish struct {
 	// LocalUnrevokedCommitPoint is the commitment point used in the
 	// current un-revoked commitment transaction of the sending party.
 	LocalUnrevokedCommitPoint *btcec.PublicKey
-
-	// ExtraData is the set of data that was appended to this message to
-	// fill out the full maximum transport message size. These fields can
-	// be used to specify optional data such as custom TLV fields.
-	ExtraData ExtraOpaqueData
 }
 
 // A compile time check to ensure ChannelReestablish implements the
@@ -88,20 +83,12 @@ func (a *ChannelReestablish) Encode(w io.Writer, pver uint32) error {
 	// If the commit point wasn't sent, then we won't write out any of the
 	// remaining fields as they're optional.
 	if a.LocalUnrevokedCommitPoint == nil {
-		// However, we'll still write out the extra data if it's
-		// present.
-		//
-		// NOTE: This is here primarily for the quickcheck tests, in
-		// practice, we'll always populate this field.
-		return WriteElements(w, a.ExtraData)
+		return nil
 	}
 
 	// Otherwise, we'll write out the remaining elements.
-	return WriteElements(w,
-		a.LastRemoteCommitSecret[:],
-		a.LocalUnrevokedCommitPoint,
-		a.ExtraData,
-	)
+	return WriteElements(w, a.LastRemoteCommitSecret[:],
+		a.LocalUnrevokedCommitPoint)
 }
 
 // Decode deserializes a serialized ChannelReestablish stored in the passed
@@ -118,7 +105,7 @@ func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	// This message has currently defined optional fields. As a result,
+	// This message has to currently defined optional fields. As a result,
 	// we'll only proceed if there's still bytes remaining within the
 	// reader.
 	//
@@ -131,9 +118,6 @@ func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
 	var buf [32]byte
 	_, err = io.ReadFull(r, buf[:32])
 	if err == io.EOF {
-		// If there aren't any more bytes, then we'll emplace an empty
-		// extra data to make our quickcheck tests happy.
-		a.ExtraData = make([]byte, 0)
 		return nil
 	} else if err != nil {
 		return err
@@ -143,13 +127,9 @@ func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
 	copy(a.LastRemoteCommitSecret[:], buf[:])
 
 	// We'll conclude by parsing out the commitment point. We don't check
-	// the error in this case, as it has included the commit secret, then
+	// the error in this case, as it hey included the commit secret, then
 	// they MUST also include the commit point.
-	if err = ReadElement(r, &a.LocalUnrevokedCommitPoint); err != nil {
-		return err
-	}
-
-	return a.ExtraData.Decode(r)
+	return ReadElement(r, &a.LocalUnrevokedCommitPoint)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the
@@ -158,4 +138,29 @@ func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (a *ChannelReestablish) MsgType() MessageType {
 	return MsgChannelReestablish
+}
+
+// MaxPayloadLength returns the maximum allowed payload size for this message
+// observing the specified protocol version.
+//
+// This is part of the lnwire.Message interface.
+func (a *ChannelReestablish) MaxPayloadLength(pver uint32) uint32 {
+	var length uint32
+
+	// ChanID - 32 bytes
+	length += 32
+
+	// NextLocalCommitHeight - 8 bytes
+	length += 8
+
+	// RemoteCommitTailHeight - 8 bytes
+	length += 8
+
+	// LastRemoteCommitSecret - 32 bytes
+	length += 32
+
+	// LocalUnrevokedCommitPoint - 33 bytes
+	length += 33
+
+	return length
 }

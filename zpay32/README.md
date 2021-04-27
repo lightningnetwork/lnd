@@ -17,6 +17,6 @@ to send.
 
 ## Installation and Updating
 
-```shell
-⛰  go get -u github.com/lightningnetwork/lnd/zpay32
+```bash
+$ go get -u github.com/lightningnetwork/lnd/zpay32
 ```

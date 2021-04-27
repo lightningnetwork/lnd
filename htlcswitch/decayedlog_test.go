@@ -4,12 +4,12 @@ import (
 	"crypto/rand"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 )
 
@@ -19,17 +19,17 @@ const (
 
 // tempDecayedLogPath creates a new temporary database path to back a single
 // deccayed log instance.
-func tempDecayedLogPath(t *testing.T) (string, string) {
+func tempDecayedLogPath(t *testing.T) string {
 	dir, err := ioutil.TempDir("", "decayedlog")
 	if err != nil {
 		t.Fatalf("unable to create temporary decayed log dir: %v", err)
 	}
 
-	return dir, "sphinxreplay.db"
+	return filepath.Join(dir, "sphinxreplay.db")
 }
 
 // startup sets up the DecayedLog and possibly the garbage collector.
-func startup(dbPath, dbFileName string, notifier bool) (sphinx.ReplayLog,
+func startup(dbPath string, notifier bool) (sphinx.ReplayLog,
 	*mock.ChainNotifier, *sphinx.HashPrefix, error) {
 
 	var log sphinx.ReplayLog
@@ -44,12 +44,10 @@ func startup(dbPath, dbFileName string, notifier bool) (sphinx.ReplayLog,
 		}
 
 		// Initialize the DecayedLog object
-		log = NewDecayedLog(
-			dbPath, dbFileName, &kvdb.BoltConfig{}, chainNotifier,
-		)
+		log = NewDecayedLog(dbPath, chainNotifier)
 	} else {
 		// Initialize the DecayedLog object
-		log = NewDecayedLog(dbPath, dbFileName, &kvdb.BoltConfig{}, nil)
+		log = NewDecayedLog(dbPath, nil)
 	}
 
 	// Open the channeldb (start the garbage collector)
@@ -83,9 +81,9 @@ func shutdown(dir string, d sphinx.ReplayLog) {
 func TestDecayedLogGarbageCollector(t *testing.T) {
 	t.Parallel()
 
-	dbPath, dbFileName := tempDecayedLogPath(t)
+	dbPath := tempDecayedLogPath(t)
 
-	d, notifier, hashedSecret, err := startup(dbPath, dbFileName, true)
+	d, notifier, hashedSecret, err := startup(dbPath, true)
 	if err != nil {
 		t.Fatalf("Unable to start up DecayedLog: %v", err)
 	}
@@ -144,9 +142,9 @@ func TestDecayedLogGarbageCollector(t *testing.T) {
 func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
 	t.Parallel()
 
-	dbPath, dbFileName := tempDecayedLogPath(t)
+	dbPath := tempDecayedLogPath(t)
 
-	d, _, hashedSecret, err := startup(dbPath, dbFileName, true)
+	d, _, hashedSecret, err := startup(dbPath, true)
 	if err != nil {
 		t.Fatalf("Unable to start up DecayedLog: %v", err)
 	}
@@ -166,7 +164,7 @@ func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
 	// Shut down DecayedLog and the garbage collector along with it.
 	d.Stop()
 
-	d2, notifier2, _, err := startup(dbPath, dbFileName, true)
+	d2, notifier2, _, err := startup(dbPath, true)
 	if err != nil {
 		t.Fatalf("Unable to restart DecayedLog: %v", err)
 	}
@@ -200,9 +198,9 @@ func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
 func TestDecayedLogInsertionAndDeletion(t *testing.T) {
 	t.Parallel()
 
-	dbPath, dbFileName := tempDecayedLogPath(t)
+	dbPath := tempDecayedLogPath(t)
 
-	d, _, hashedSecret, err := startup(dbPath, dbFileName, false)
+	d, _, hashedSecret, err := startup(dbPath, false)
 	if err != nil {
 		t.Fatalf("Unable to start up DecayedLog: %v", err)
 	}
@@ -238,9 +236,9 @@ func TestDecayedLogInsertionAndDeletion(t *testing.T) {
 func TestDecayedLogStartAndStop(t *testing.T) {
 	t.Parallel()
 
-	dbPath, dbFileName := tempDecayedLogPath(t)
+	dbPath := tempDecayedLogPath(t)
 
-	d, _, hashedSecret, err := startup(dbPath, dbFileName, false)
+	d, _, hashedSecret, err := startup(dbPath, false)
 	if err != nil {
 		t.Fatalf("Unable to start up DecayedLog: %v", err)
 	}
@@ -255,7 +253,7 @@ func TestDecayedLogStartAndStop(t *testing.T) {
 	// Shutdown the DecayedLog's channeldb
 	d.Stop()
 
-	d2, _, hashedSecret2, err := startup(dbPath, dbFileName, false)
+	d2, _, hashedSecret2, err := startup(dbPath, false)
 	if err != nil {
 		t.Fatalf("Unable to restart DecayedLog: %v", err)
 	}
@@ -282,7 +280,7 @@ func TestDecayedLogStartAndStop(t *testing.T) {
 	// Shutdown the DecayedLog's channeldb
 	d2.Stop()
 
-	d3, _, hashedSecret3, err := startup(dbPath, dbFileName, false)
+	d3, _, hashedSecret3, err := startup(dbPath, false)
 	if err != nil {
 		t.Fatalf("Unable to restart DecayedLog: %v", err)
 	}
@@ -304,9 +302,9 @@ func TestDecayedLogStartAndStop(t *testing.T) {
 func TestDecayedLogStorageAndRetrieval(t *testing.T) {
 	t.Parallel()
 
-	dbPath, dbFileName := tempDecayedLogPath(t)
+	dbPath := tempDecayedLogPath(t)
 
-	d, _, hashedSecret, err := startup(dbPath, dbFileName, false)
+	d, _, hashedSecret, err := startup(dbPath, false)
 	if err != nil {
 		t.Fatalf("Unable to start up DecayedLog: %v", err)
 	}

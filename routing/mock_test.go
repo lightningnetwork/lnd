@@ -72,9 +72,6 @@ func (m *mockPaymentAttemptDispatcher) GetPaymentResult(paymentID uint64,
 	return c, nil
 
 }
-func (m *mockPaymentAttemptDispatcher) CleanStore(map[uint64]struct{}) error {
-	return nil
-}
 
 func (m *mockPaymentAttemptDispatcher) setPaymentResult(
 	f func(firstHop lnwire.ShortChannelID) ([32]byte, error)) {
@@ -83,8 +80,7 @@ func (m *mockPaymentAttemptDispatcher) setPaymentResult(
 }
 
 type mockPaymentSessionSource struct {
-	routes       []*route.Route
-	routeRelease chan struct{}
+	routes []*route.Route
 }
 
 var _ PaymentSessionSource = (*mockPaymentSessionSource)(nil)
@@ -92,10 +88,7 @@ var _ PaymentSessionSource = (*mockPaymentSessionSource)(nil)
 func (m *mockPaymentSessionSource) NewPaymentSession(
 	_ *LightningPayment) (PaymentSession, error) {
 
-	return &mockPaymentSession{
-		routes:  m.routes,
-		release: m.routeRelease,
-	}, nil
+	return &mockPaymentSession{m.routes}, nil
 }
 
 func (m *mockPaymentSessionSource) NewPaymentSessionForRoute(
@@ -108,7 +101,6 @@ func (m *mockPaymentSessionSource) NewPaymentSessionEmpty() PaymentSession {
 }
 
 type mockMissionControl struct {
-	MissionControl
 }
 
 var _ MissionController = (*mockMissionControl)(nil)
@@ -141,21 +133,12 @@ func (m *mockMissionControl) GetProbability(fromNode, toNode route.Vertex,
 
 type mockPaymentSession struct {
 	routes []*route.Route
-
-	// release is a channel that optionally blocks requesting a route
-	// from our mock payment channel. If this value is nil, we will just
-	// release the route automatically.
-	release chan struct{}
 }
 
 var _ PaymentSession = (*mockPaymentSession)(nil)
 
 func (m *mockPaymentSession) RequestRoute(_, _ lnwire.MilliSatoshi,
 	_, height uint32) (*route.Route, error) {
-
-	if m.release != nil {
-		m.release <- struct{}{}
-	}
 
 	if len(m.routes) == 0 {
 		return nil, errNoPathFound
@@ -168,9 +151,10 @@ func (m *mockPaymentSession) RequestRoute(_, _ lnwire.MilliSatoshi,
 }
 
 type mockPayer struct {
-	sendResult    chan error
-	paymentResult chan *htlcswitch.PaymentResult
-	quit          chan struct{}
+	sendResult       chan error
+	paymentResultErr chan error
+	paymentResult    chan *htlcswitch.PaymentResult
+	quit             chan struct{}
 }
 
 var _ PaymentAttemptDispatcher = (*mockPayer)(nil)
@@ -192,23 +176,15 @@ func (m *mockPayer) GetPaymentResult(paymentID uint64, _ lntypes.Hash,
 	_ htlcswitch.ErrorDecrypter) (<-chan *htlcswitch.PaymentResult, error) {
 
 	select {
-	case res, ok := <-m.paymentResult:
+	case res := <-m.paymentResult:
 		resChan := make(chan *htlcswitch.PaymentResult, 1)
-		if !ok {
-			close(resChan)
-		} else {
-			resChan <- res
-		}
-
+		resChan <- res
 		return resChan, nil
-
+	case err := <-m.paymentResultErr:
+		return nil, err
 	case <-m.quit:
 		return nil, fmt.Errorf("test quitting")
 	}
-}
-
-func (m *mockPayer) CleanStore(pids map[uint64]struct{}) error {
-	return nil
 }
 
 type initArgs struct {
@@ -264,12 +240,12 @@ func makeMockControlTower() *mockControlTower {
 func (m *mockControlTower) InitPayment(phash lntypes.Hash,
 	c *channeldb.PaymentCreationInfo) error {
 
+	m.Lock()
+	defer m.Unlock()
+
 	if m.init != nil {
 		m.init <- initArgs{c}
 	}
-
-	m.Lock()
-	defer m.Unlock()
 
 	// Don't allow re-init a successful payment.
 	if _, ok := m.successful[phash]; ok {
@@ -295,49 +271,27 @@ func (m *mockControlTower) InitPayment(phash lntypes.Hash,
 func (m *mockControlTower) RegisterAttempt(phash lntypes.Hash,
 	a *channeldb.HTLCAttemptInfo) error {
 
+	m.Lock()
+	defer m.Unlock()
+
 	if m.registerAttempt != nil {
 		m.registerAttempt <- registerAttemptArgs{a}
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	// Cannot register attempts for successful or failed payments.
+	if _, ok := m.successful[phash]; ok {
+		return channeldb.ErrPaymentAlreadySucceeded
+	}
 
-	// Lookup payment.
+	if _, ok := m.failed[phash]; ok {
+		return channeldb.ErrPaymentAlreadyFailed
+	}
+
 	p, ok := m.payments[phash]
 	if !ok {
 		return channeldb.ErrPaymentNotInitiated
 	}
 
-	var inFlight bool
-	for _, a := range p.attempts {
-		if a.Settle != nil {
-			continue
-		}
-
-		if a.Failure != nil {
-			continue
-		}
-
-		inFlight = true
-	}
-
-	// Cannot register attempts for successful or failed payments.
-	_, settled := m.successful[phash]
-	_, failed := m.failed[phash]
-
-	if settled || failed {
-		return channeldb.ErrPaymentTerminal
-	}
-
-	if settled && !inFlight {
-		return channeldb.ErrPaymentAlreadySucceeded
-	}
-
-	if failed && !inFlight {
-		return channeldb.ErrPaymentAlreadyFailed
-	}
-
-	// Add attempt to payment.
 	p.attempts = append(p.attempts, channeldb.HTLCAttempt{
 		HTLCAttemptInfo: *a,
 	})
@@ -350,12 +304,12 @@ func (m *mockControlTower) SettleAttempt(phash lntypes.Hash,
 	pid uint64, settleInfo *channeldb.HTLCSettleInfo) (
 	*channeldb.HTLCAttempt, error) {
 
+	m.Lock()
+	defer m.Unlock()
+
 	if m.settleAttempt != nil {
 		m.settleAttempt <- settleAttemptArgs{settleInfo.Preimage}
 	}
-
-	m.Lock()
-	defer m.Unlock()
 
 	// Only allow setting attempts if the payment is known.
 	p, ok := m.payments[phash]
@@ -391,12 +345,12 @@ func (m *mockControlTower) SettleAttempt(phash lntypes.Hash,
 func (m *mockControlTower) FailAttempt(phash lntypes.Hash, pid uint64,
 	failInfo *channeldb.HTLCFailInfo) (*channeldb.HTLCAttempt, error) {
 
+	m.Lock()
+	defer m.Unlock()
+
 	if m.failAttempt != nil {
 		m.failAttempt <- failAttemptArgs{failInfo}
 	}
-
-	m.Lock()
-	defer m.Unlock()
 
 	// Only allow failing attempts if the payment is known.
 	p, ok := m.payments[phash]
@@ -475,12 +429,12 @@ func (m *mockControlTower) FetchPayment(phash lntypes.Hash) (
 func (m *mockControlTower) FetchInFlightPayments() (
 	[]*channeldb.InFlightPayment, error) {
 
+	m.Lock()
+	defer m.Unlock()
+
 	if m.fetchInFlight != nil {
 		m.fetchInFlight <- struct{}{}
 	}
-
-	m.Lock()
-	defer m.Unlock()
 
 	// In flight are all payments not successful or failed.
 	var fl []*channeldb.InFlightPayment
@@ -492,8 +446,13 @@ func (m *mockControlTower) FetchInFlightPayments() (
 			continue
 		}
 
+		var attempts []channeldb.HTLCAttemptInfo
+		for _, a := range p.attempts {
+			attempts = append(attempts, a.HTLCAttemptInfo)
+		}
 		ifl := channeldb.InFlightPayment{
-			Info: &p.info,
+			Info:     &p.info,
+			Attempts: attempts,
 		}
 
 		fl = append(fl, &ifl)

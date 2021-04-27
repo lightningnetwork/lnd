@@ -57,10 +57,6 @@ type LinkFailureError struct {
 	// because of this error.
 	ForceClose bool
 
-	// PermanentFailure indicates whether this failure is permanent, and
-	// the channel should not be attempted loaded again.
-	PermanentFailure bool
-
 	// SendData is a byte slice that will be sent to the peer. If nil a
 	// generic error will be sent.
 	SendData []byte

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lightningnetwork/lnd/funding"
+	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -19,7 +19,7 @@ func testHtlcErrorPropagation(net *lntest.NetworkHarness, t *harnessTest) {
 	// In this test we wish to exercise the daemon's correct parsing,
 	// handling, and propagation of errors that occur while processing a
 	// multi-hop payment.
-	const chanAmt = funding.MaxBtcFundingAmount
+	const chanAmt = lnd.MaxBtcFundingAmount
 
 	// First establish a channel with a capacity of 0.5 BTC between Alice
 	// and Bob.
@@ -102,7 +102,7 @@ func testHtlcErrorPropagation(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to connect bob to carol: %v", err)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
-	const bobChanAmt = funding.MaxBtcFundingAmount
+	const bobChanAmt = lnd.MaxBtcFundingAmount
 	chanPointBob := openChannelAndAssert(
 		ctxt, t, net, net.Bob, carol,
 		lntest.OpenChannelParams{
@@ -204,7 +204,6 @@ out:
 		FinalCltvDelta: int32(carolPayReq.CltvExpiry),
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
-		MaxParts:       1,
 	}
 	sendAndAssertFailure(
 		t, net.Alice,
@@ -241,7 +240,6 @@ out:
 		FinalCltvDelta: int32(carolPayReq.CltvExpiry),
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
-		MaxParts:       1,
 	}
 	sendAndAssertFailure(
 		t, net.Alice,
@@ -302,7 +300,6 @@ out:
 				PaymentRequest: carolInvoice2.PaymentRequest,
 				TimeoutSeconds: 60,
 				FeeLimitMsat:   noFeeLimitMsat,
-				MaxParts:       1,
 			},
 		)
 
@@ -335,7 +332,6 @@ out:
 		PaymentRequest: carolInvoice3.PaymentRequest,
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
-		MaxParts:       1,
 	}
 	sendAndAssertFailure(
 		t, net.Alice,
@@ -385,7 +381,6 @@ out:
 			PaymentRequest: carolInvoice.PaymentRequest,
 			TimeoutSeconds: 60,
 			FeeLimitMsat:   noFeeLimitMsat,
-			MaxParts:       1,
 		},
 		lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE,
 	)

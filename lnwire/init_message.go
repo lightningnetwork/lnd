@@ -12,7 +12,7 @@ type Init struct {
 	// merged with those presented in Features.
 	GlobalFeatures *RawFeatureVector
 
-	// Features is a feature vector containing the features supported by
+	// Features is a feature vector containing a the features supported by
 	// the remote node.
 	//
 	// NOTE: Older nodes may place some features in GlobalFeatures, but all
@@ -20,11 +20,6 @@ type Init struct {
 	// message, any GlobalFeatures should be merged into the unified
 	// Features field.
 	Features *RawFeatureVector
-
-	// ExtraData is the set of data that was appended to this message to
-	// fill out the full maximum transport message size. These fields can
-	// be used to specify optional data such as custom TLV fields.
-	ExtraData ExtraOpaqueData
 }
 
 // NewInitMessage creates new instance of init message object.
@@ -32,7 +27,6 @@ func NewInitMessage(gf *RawFeatureVector, f *RawFeatureVector) *Init {
 	return &Init{
 		GlobalFeatures: gf,
 		Features:       f,
-		ExtraData:      make([]byte, 0),
 	}
 }
 
@@ -48,7 +42,6 @@ func (msg *Init) Decode(r io.Reader, pver uint32) error {
 	return ReadElements(r,
 		&msg.GlobalFeatures,
 		&msg.Features,
-		&msg.ExtraData,
 	)
 }
 
@@ -60,7 +53,6 @@ func (msg *Init) Encode(w io.Writer, pver uint32) error {
 	return WriteElements(w,
 		msg.GlobalFeatures,
 		msg.Features,
-		msg.ExtraData,
 	)
 }
 
@@ -70,4 +62,12 @@ func (msg *Init) Encode(w io.Writer, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (msg *Init) MsgType() MessageType {
 	return MsgInit
+}
+
+// MaxPayloadLength returns the maximum allowed payload size for an Init
+// complete message observing the specified protocol version.
+//
+// This is part of the lnwire.Message interface.
+func (msg *Init) MaxPayloadLength(uint32) uint32 {
+	return 2 + 2 + maxAllowedSize + 2 + maxAllowedSize
 }

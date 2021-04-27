@@ -33,7 +33,7 @@ func TestRequestRoute(t *testing.T) {
 		func() (routingGraph, func(), error) {
 			return &sessionGraph{}, func() {}, nil
 		},
-		&MissionControl{},
+		&MissionControl{cfg: &MissionControlConfig{}},
 		PathFindingConfig{},
 	)
 	if err != nil {

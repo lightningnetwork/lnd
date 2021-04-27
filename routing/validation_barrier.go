@@ -9,28 +9,10 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
-var (
-	// ErrVBarrierShuttingDown signals that the barrier has been requested
-	// to shutdown, and that the caller should not treat the wait condition
-	// as fulfilled.
-	ErrVBarrierShuttingDown = errors.New("validation barrier shutting down")
-
-	// ErrParentValidationFailed signals that the validation of a
-	// dependent's parent failed, so the dependent must not be processed.
-	ErrParentValidationFailed = errors.New("parent validation failed")
-)
-
-// validationSignals contains two signals which allows the ValidationBarrier to
-// communicate back to the caller whether a dependent should be processed or not
-// based on whether its parent was successfully validated. Only one of these
-// signals is to be used at a time.
-type validationSignals struct {
-	// allow is the signal used to allow a dependent to be processed.
-	allow chan struct{}
-
-	// deny is the signal used to prevent a dependent from being processed.
-	deny chan struct{}
-}
+// ErrVBarrierShuttingDown signals that the barrier has been requested to
+// shutdown, and that the caller should not treat the wait condition as
+// fulfilled.
+var ErrVBarrierShuttingDown = errors.New("validation barrier shutting down")
 
 // ValidationBarrier is a barrier used to ensure proper validation order while
 // concurrently validating new announcements for channel edges, and the
@@ -49,19 +31,19 @@ type ValidationBarrier struct {
 	// ChannelAnnouncement like validation job going on. Once the job has
 	// been completed, the channel will be closed unblocking any
 	// dependants.
-	chanAnnFinSignal map[lnwire.ShortChannelID]*validationSignals
+	chanAnnFinSignal map[lnwire.ShortChannelID]chan struct{}
 
 	// chanEdgeDependencies tracks any channel edge updates which should
 	// wait until the completion of the ChannelAnnouncement before
 	// proceeding. This is a dependency, as we can't validate the update
 	// before we validate the announcement which creates the channel
 	// itself.
-	chanEdgeDependencies map[lnwire.ShortChannelID]*validationSignals
+	chanEdgeDependencies map[lnwire.ShortChannelID]chan struct{}
 
 	// nodeAnnDependencies tracks any pending NodeAnnouncement validation
 	// jobs which should wait until the completion of the
 	// ChannelAnnouncement before proceeding.
-	nodeAnnDependencies map[route.Vertex]*validationSignals
+	nodeAnnDependencies map[route.Vertex]chan struct{}
 
 	quit chan struct{}
 	sync.Mutex
@@ -74,9 +56,9 @@ func NewValidationBarrier(numActiveReqs int,
 	quitChan chan struct{}) *ValidationBarrier {
 
 	v := &ValidationBarrier{
-		chanAnnFinSignal:     make(map[lnwire.ShortChannelID]*validationSignals),
-		chanEdgeDependencies: make(map[lnwire.ShortChannelID]*validationSignals),
-		nodeAnnDependencies:  make(map[route.Vertex]*validationSignals),
+		chanAnnFinSignal:     make(map[lnwire.ShortChannelID]chan struct{}),
+		chanEdgeDependencies: make(map[lnwire.ShortChannelID]chan struct{}),
+		nodeAnnDependencies:  make(map[route.Vertex]chan struct{}),
 		quit:                 quitChan,
 	}
 
@@ -125,31 +107,24 @@ func (v *ValidationBarrier) InitJobDependencies(job interface{}) {
 			// validate this announcement. All dependants will
 			// point to this same channel, so they'll be unblocked
 			// at the same time.
-			signals := &validationSignals{
-				allow: make(chan struct{}),
-				deny:  make(chan struct{}),
-			}
+			annFinCond := make(chan struct{})
+			v.chanAnnFinSignal[msg.ShortChannelID] = annFinCond
+			v.chanEdgeDependencies[msg.ShortChannelID] = annFinCond
 
-			v.chanAnnFinSignal[msg.ShortChannelID] = signals
-			v.chanEdgeDependencies[msg.ShortChannelID] = signals
-
-			v.nodeAnnDependencies[route.Vertex(msg.NodeID1)] = signals
-			v.nodeAnnDependencies[route.Vertex(msg.NodeID2)] = signals
+			v.nodeAnnDependencies[route.Vertex(msg.NodeID1)] = annFinCond
+			v.nodeAnnDependencies[route.Vertex(msg.NodeID2)] = annFinCond
 		}
 	case *channeldb.ChannelEdgeInfo:
 
 		shortID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		if _, ok := v.chanAnnFinSignal[shortID]; !ok {
-			signals := &validationSignals{
-				allow: make(chan struct{}),
-				deny:  make(chan struct{}),
-			}
+			annFinCond := make(chan struct{})
 
-			v.chanAnnFinSignal[shortID] = signals
-			v.chanEdgeDependencies[shortID] = signals
+			v.chanAnnFinSignal[shortID] = annFinCond
+			v.chanEdgeDependencies[shortID] = annFinCond
 
-			v.nodeAnnDependencies[route.Vertex(msg.NodeKey1Bytes)] = signals
-			v.nodeAnnDependencies[route.Vertex(msg.NodeKey2Bytes)] = signals
+			v.nodeAnnDependencies[route.Vertex(msg.NodeKey1Bytes)] = annFinCond
+			v.nodeAnnDependencies[route.Vertex(msg.NodeKey2Bytes)] = annFinCond
 		}
 
 	// These other types don't have any dependants, so no further
@@ -187,8 +162,8 @@ func (v *ValidationBarrier) CompleteJob() {
 func (v *ValidationBarrier) WaitForDependants(job interface{}) error {
 
 	var (
-		signals *validationSignals
-		ok      bool
+		signal chan struct{}
+		ok     bool
 	)
 
 	v.Lock()
@@ -198,15 +173,15 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) error {
 	// completion of any active ChannelAnnouncement jobs related to them.
 	case *channeldb.ChannelEdgePolicy:
 		shortID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
-		signals, ok = v.chanEdgeDependencies[shortID]
+		signal, ok = v.chanEdgeDependencies[shortID]
 	case *channeldb.LightningNode:
 		vertex := route.Vertex(msg.PubKeyBytes)
-		signals, ok = v.nodeAnnDependencies[vertex]
+		signal, ok = v.nodeAnnDependencies[vertex]
 	case *lnwire.ChannelUpdate:
-		signals, ok = v.chanEdgeDependencies[msg.ShortChannelID]
+		signal, ok = v.chanEdgeDependencies[msg.ShortChannelID]
 	case *lnwire.NodeAnnouncement:
 		vertex := route.Vertex(msg.NodeID)
-		signals, ok = v.nodeAnnDependencies[vertex]
+		signal, ok = v.nodeAnnDependencies[vertex]
 
 	// Other types of jobs can be executed immediately, so we'll just
 	// return directly.
@@ -229,9 +204,7 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) error {
 		select {
 		case <-v.quit:
 			return ErrVBarrierShuttingDown
-		case <-signals.deny:
-			return ErrParentValidationFailed
-		case <-signals.allow:
+		case <-signal:
 			return nil
 		}
 	}
@@ -239,10 +212,10 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) error {
 	return nil
 }
 
-// SignalDependants will allow/deny any jobs that are dependent on this job that
+// SignalDependants will signal any jobs that are dependent on this job that
 // they can continue execution. If the job doesn't have any dependants, then
 // this function sill exit immediately.
-func (v *ValidationBarrier) SignalDependants(job interface{}, allow bool) {
+func (v *ValidationBarrier) SignalDependants(job interface{}) {
 	v.Lock()
 	defer v.Unlock()
 
@@ -250,26 +223,18 @@ func (v *ValidationBarrier) SignalDependants(job interface{}, allow bool) {
 
 	// If we've just finished executing a ChannelAnnouncement, then we'll
 	// close out the signal, and remove the signal from the map of active
-	// ones. This will allow/deny any dependent jobs to continue execution.
+	// ones. This will allow any dependent jobs to continue execution.
 	case *channeldb.ChannelEdgeInfo:
 		shortID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
-		finSignals, ok := v.chanAnnFinSignal[shortID]
+		finSignal, ok := v.chanAnnFinSignal[shortID]
 		if ok {
-			if allow {
-				close(finSignals.allow)
-			} else {
-				close(finSignals.deny)
-			}
+			close(finSignal)
 			delete(v.chanAnnFinSignal, shortID)
 		}
 	case *lnwire.ChannelAnnouncement:
-		finSignals, ok := v.chanAnnFinSignal[msg.ShortChannelID]
+		finSignal, ok := v.chanAnnFinSignal[msg.ShortChannelID]
 		if ok {
-			if allow {
-				close(finSignals.allow)
-			} else {
-				close(finSignals.deny)
-			}
+			close(finSignal)
 			delete(v.chanAnnFinSignal, msg.ShortChannelID)
 		}
 

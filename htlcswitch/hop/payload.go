@@ -86,10 +86,6 @@ type Payload struct {
 	// a TLV onion payload.
 	MPP *record.MPP
 
-	// AMP holds the info provided in an option_amp record when parsed from
-	// a TLV onion payload.
-	AMP *record.AMP
-
 	// customRecords are user-defined records in the custom type range that
 	// were included in the payload.
 	customRecords record.CustomSet
@@ -119,7 +115,6 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 		amt  uint64
 		cltv uint32
 		mpp  = &record.MPP{}
-		amp  = &record.AMP{}
 	)
 
 	tlvStream, err := tlv.NewStream(
@@ -127,7 +122,6 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 		record.NewLockTimeRecord(&cltv),
 		record.NewNextHopIDRecord(&cid),
 		mpp.Record(),
-		amp.Record(),
 	)
 	if err != nil {
 		return nil, err
@@ -162,12 +156,6 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 		mpp = nil
 	}
 
-	// If no AMP field was parsed, set the MPP field on the resulting
-	// payload to nil.
-	if _, ok := parsedTypes[record.AMPOnionType]; !ok {
-		amp = nil
-	}
-
 	// Filter out the custom records.
 	customRecords := NewCustomRecords(parsedTypes)
 
@@ -179,7 +167,6 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 			OutgoingCTLV:    cltv,
 		},
 		MPP:           mpp,
-		AMP:           amp,
 		customRecords: customRecords,
 	}, nil
 }
@@ -216,7 +203,6 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 	_, hasLockTime := parsedTypes[record.LockTimeOnionType]
 	_, hasNextHop := parsedTypes[record.NextHopOnionType]
 	_, hasMPP := parsedTypes[record.MPPOnionType]
-	_, hasAMP := parsedTypes[record.AMPOnionType]
 
 	switch {
 
@@ -253,14 +239,6 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 			Violation: IncludedViolation,
 			FinalHop:  isFinalHop,
 		}
-
-	// Intermediate nodes should never receive AMP fields.
-	case !isFinalHop && hasAMP:
-		return ErrInvalidPayload{
-			Type:      record.AMPOnionType,
-			Violation: IncludedViolation,
-			FinalHop:  isFinalHop,
-		}
 	}
 
 	return nil
@@ -270,12 +248,6 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 // onion payload.
 func (h *Payload) MultiPath() *record.MPP {
 	return h.MPP
-}
-
-// AMPRecord returns the record corresponding with option_amp parsed from the
-// onion payload.
-func (h *Payload) AMPRecord() *record.AMP {
-	return h.AMP
 }
 
 // CustomRecords returns the custom tlv type records that were parsed from the

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 )
@@ -50,9 +49,7 @@ func fileExists(path string) bool {
 // one doesn't exist. The boolean returned indicates if the database did not
 // exist before, or if it has been created but no version metadata exists within
 // it.
-func createDBIfNotExist(dbPath, name string,
-	dbTimeout time.Duration) (kvdb.Backend, bool, error) {
-
+func createDBIfNotExist(dbPath, name string) (kvdb.Backend, bool, error) {
 	path := filepath.Join(dbPath, name)
 
 	// If the database file doesn't exist, this indicates we much initialize
@@ -68,9 +65,7 @@ func createDBIfNotExist(dbPath, name string,
 
 	// Specify bbolt freelist options to reduce heap pressure in case the
 	// freelist grows to be very large.
-	bdb, err := kvdb.Create(
-		kvdb.BoltBackendName, path, true, dbTimeout,
-	)
+	bdb, err := kvdb.Create(kvdb.BoltBackendName, path, true)
 	if err != nil {
 		return nil, false, err
 	}
@@ -85,8 +80,6 @@ func createDBIfNotExist(dbPath, name string,
 		err = kvdb.View(bdb, func(tx kvdb.RTx) error {
 			metadataExists = tx.ReadBucket(metadataBkt) != nil
 			return nil
-		}, func() {
-			metadataExists = false
 		})
 		if err != nil {
 			return nil, false, err

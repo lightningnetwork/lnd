@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -29,11 +28,10 @@ const (
 	// to_remote key is static.
 	CommitmentTypeTweakless
 
-	// CommitmentTypeAnchorsZeroFeeHtlcTx is a commitment type that is an
-	// extension of the outdated CommitmentTypeAnchors, which in addition
-	// requires second-level HTLC transactions to be signed using a
-	// zero-fee.
-	CommitmentTypeAnchorsZeroFeeHtlcTx
+	// CommitmentTypeAnchors is a commitment type that is tweakless, and
+	// has extra anchor ouputs in order to bump the fee of the commitment
+	// transaction.
+	CommitmentTypeAnchors
 )
 
 // String returns the name of the CommitmentType.
@@ -43,8 +41,8 @@ func (c CommitmentType) String() string {
 		return "legacy"
 	case CommitmentTypeTweakless:
 		return "tweakless"
-	case CommitmentTypeAnchorsZeroFeeHtlcTx:
-		return "anchors-zero-fee-second-level"
+	case CommitmentTypeAnchors:
+		return "anchors"
 	default:
 		return "invalid"
 	}
@@ -162,10 +160,6 @@ type ChannelReservation struct {
 	chanFunder chanfunding.Assembler
 
 	fundingIntent chanfunding.Intent
-
-	// nextRevocationKeyLoc stores the key locator information for this
-	// channel.
-	nextRevocationKeyLoc keychain.KeyLocator
 }
 
 // NewChannelReservation creates a new channel reservation. This function is
@@ -188,7 +182,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	// Based on the channel type, we determine the initial commit weight
 	// and fee.
 	commitWeight := int64(input.CommitWeight)
-	if commitType == CommitmentTypeAnchorsZeroFeeHtlcTx {
+	if commitType == CommitmentTypeAnchors {
 		commitWeight = input.AnchorCommitWeight
 	}
 	commitFee := commitFeePerKw.FeeForWeight(commitWeight)
@@ -201,7 +195,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	// The total fee paid by the initiator will be the commitment fee in
 	// addition to the two anchor outputs.
 	feeMSat := lnwire.NewMSatFromSatoshis(commitFee)
-	if commitType == CommitmentTypeAnchorsZeroFeeHtlcTx {
+	if commitType == CommitmentTypeAnchors {
 		feeMSat += 2 * lnwire.NewMSatFromSatoshis(anchorSize)
 	}
 
@@ -286,7 +280,8 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		// Both the tweakless type and the anchor type is tweakless,
 		// hence set the bit.
 		if commitType == CommitmentTypeTweakless ||
-			commitType == CommitmentTypeAnchorsZeroFeeHtlcTx {
+			commitType == CommitmentTypeAnchors {
+
 			chanType |= channeldb.SingleFunderTweaklessBit
 		} else {
 			chanType |= channeldb.SingleFunderBit
@@ -320,11 +315,9 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		chanType |= channeldb.DualFunderBit
 	}
 
-	// We are adding anchor outputs to our commitment. We only support this
-	// in combination with zero-fee second-levels HTLCs.
-	if commitType == CommitmentTypeAnchorsZeroFeeHtlcTx {
+	// We are adding anchor outputs to our commitment.
+	if commitType == CommitmentTypeAnchors {
 		chanType |= channeldb.AnchorOutputsBit
-		chanType |= channeldb.ZeroHtlcTxFeeBit
 	}
 
 	// If the channel is meant to be frozen, then we'll set the frozen bit
@@ -390,14 +383,15 @@ func (r *ChannelReservation) SetNumConfsRequired(numConfs uint16) {
 // of satoshis that can be transferred in a single commitment. This function
 // will also attempt to verify the constraints for sanity, returning an error
 // if the parameters are seemed unsound.
-func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints,
-	maxLocalCSVDelay uint16) error {
+func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints) error {
 	r.Lock()
 	defer r.Unlock()
 
-	// Fail if the csv delay for our funds exceeds our maximum.
-	if c.CsvDelay > maxLocalCSVDelay {
-		return ErrCsvDelayTooLarge(c.CsvDelay, maxLocalCSVDelay)
+	// Fail if we consider csvDelay excessively large.
+	// TODO(halseth): find a more scientific choice of value.
+	const maxDelay = 10000
+	if c.CsvDelay > maxDelay {
+		return ErrCsvDelayTooLarge(c.CsvDelay, maxDelay)
 	}
 
 	// The channel reserve should always be greater or equal to the dust

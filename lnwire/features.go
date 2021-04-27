@@ -66,7 +66,7 @@ const (
 	// able to decode the new TLV information included in the onion packet.
 	TLVOnionPayloadRequired FeatureBit = 8
 
-	// TLVOnionPayloadOptional is an optional feature bit that indicates a
+	// TLVOnionPayloadRequired is an optional feature bit that indicates a
 	// node is able to decode the new TLV information included in the onion
 	// packet.
 	TLVOnionPayloadOptional FeatureBit = 9
@@ -114,30 +114,10 @@ const (
 	// outputs.
 	AnchorsRequired FeatureBit = 20
 
-	// AnchorsOptional is an optional feature bit that signals that the
+	// AnchorsRequired is an optional feature bit that signals that the
 	// node supports channels to be made using commitments having anchor
 	// outputs.
 	AnchorsOptional FeatureBit = 21
-
-	// AnchorsZeroFeeHtlcTxRequired is a required feature bit that signals
-	// that the node requires channels having zero-fee second-level HTLC
-	// transactions, which also imply anchor commitments.
-	AnchorsZeroFeeHtlcTxRequired FeatureBit = 22
-
-	// AnchorsZeroFeeHtlcTxRequired is an optional feature bit that signals
-	// that the node supports channels having zero-fee second-level HTLC
-	// transactions, which also imply anchor commitments.
-	AnchorsZeroFeeHtlcTxOptional FeatureBit = 23
-
-	// AMPRequired is a required feature bit that signals that the receiver
-	// of a payment supports accepts spontaneous payments, i.e.
-	// sender-generated preimages according to BOLT XX.
-	AMPRequired FeatureBit = 30
-
-	// AMPOptional is an optional feature bit that signals that the receiver
-	// of a payment supports accepts spontaneous payments, i.e.
-	// sender-generated preimages according to BOLT XX.
-	AMPOptional FeatureBit = 31
 
 	// maxAllowedSize is a maximum allowed size of feature vector.
 	//
@@ -146,7 +126,7 @@ const (
 	// message to signal the type of message, that leaves us with 65533 bytes
 	// for the init message itself.  Next, we reserve 4 bytes to encode the
 	// lengths of both the local and global feature vectors, so 65529 bytes
-	// for the local and global features. Knocking off one byte for the sake
+	// for the local and global features.  Knocking off one byte for the sake
 	// of the calculation, that leads us to 32764 bytes for each feature
 	// vector, or 131056 different features.
 	maxAllowedSize = 32764
@@ -178,12 +158,8 @@ var Features = map[FeatureBit]string{
 	MPPRequired:                   "multi-path-payments",
 	AnchorsRequired:               "anchor-commitments",
 	AnchorsOptional:               "anchor-commitments",
-	AnchorsZeroFeeHtlcTxRequired:  "anchors-zero-fee-htlc-tx",
-	AnchorsZeroFeeHtlcTxOptional:  "anchors-zero-fee-htlc-tx",
 	WumboChannelsRequired:         "wumbo-channels",
 	WumboChannelsOptional:         "wumbo-channels",
-	AMPRequired:                   "amp",
-	AMPOptional:                   "amp",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A
@@ -422,20 +398,6 @@ func (fv *FeatureVector) HasFeature(feature FeatureBit) bool {
 		(fv.isFeatureBitPair(feature) && fv.IsSet(feature^1))
 }
 
-// RequiresFeature returns true if the referenced feature vector *requires*
-// that the given required bit be set. This method can be used with both
-// optional and required feature bits as a parameter.
-func (fv *FeatureVector) RequiresFeature(feature FeatureBit) bool {
-	// If we weren't passed a required feature bit, then we'll flip the
-	// lowest bit to query for the required version of the feature. This
-	// lets callers pass in both the optional and required bits.
-	if !feature.IsRequired() {
-		feature ^= 1
-	}
-
-	return fv.IsSet(feature)
-}
-
 // UnknownRequiredFeatures returns a list of feature bits set in the vector
 // that are unknown and in an even bit position. Feature bits with an even
 // index must be known to a node receiving the feature vector in a message.
@@ -451,7 +413,7 @@ func (fv *FeatureVector) UnknownRequiredFeatures() []FeatureBit {
 
 // Name returns a string identifier for the feature represented by this bit. If
 // the bit does not represent a known feature, this returns a string indicating
-// as such.
+// as much.
 func (fv *FeatureVector) Name(bit FeatureBit) string {
 	name, known := fv.featureNames[bit]
 	if !known {

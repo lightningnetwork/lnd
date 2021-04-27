@@ -2,11 +2,7 @@
 
 package itest
 
-var allTestCases = []*testCase{
-	{
-		name: "test multi-hop htlc",
-		test: testMultiHopHtlcClaims,
-	},
+var testsCases = []*testCase{
 	{
 		name: "sweep coins",
 		test: testSweepAllCoins,
@@ -70,10 +66,6 @@ var allTestCases = []*testCase{
 	{
 		name: "list channels",
 		test: testListChannels,
-	},
-	{
-		name: "update channel status",
-		test: testUpdateChanStatus,
 	},
 	{
 		name: "list outgoing payments",
@@ -151,6 +143,10 @@ var allTestCases = []*testCase{
 	{
 		name: "async bidirectional payments",
 		test: testBidirectionalAsyncPayments,
+	},
+	{
+		name: "test multi-hop htlc",
+		test: testMultiHopHtlcClaims,
 	},
 	{
 		name: "switch circuit persistence",
@@ -231,16 +227,8 @@ var allTestCases = []*testCase{
 		test: testHoldInvoicePersistence,
 	},
 	{
-		name: "hold invoice force close",
-		test: testHoldInvoiceForceClose,
-	},
-	{
 		name: "cpfp",
 		test: testCPFP,
-	},
-	{
-		name: "anchors reserved value",
-		test: testAnchorReservedValue,
 	},
 	{
 		name: "macaroon authentication",
@@ -271,10 +259,6 @@ var allTestCases = []*testCase{
 		test: testSendToRouteMultiPath,
 	},
 	{
-		name: "sendtoroute amp",
-		test: testSendToRouteAMP,
-	},
-	{
 		name: "send multi path payment",
 		test: testSendMultiPathPayment,
 	},
@@ -297,17 +281,5 @@ var allTestCases = []*testCase{
 	{
 		name: "connection timeout",
 		test: testNetworkConnectionTimeout,
-	},
-	{
-		name: "stateless init",
-		test: testStatelessInit,
-	},
-	{
-		name: "wallet import account",
-		test: testWalletImportAccount,
-	},
-	{
-		name: "wallet import pubkey",
-		test: testWalletImportPubKey,
 	},
 }

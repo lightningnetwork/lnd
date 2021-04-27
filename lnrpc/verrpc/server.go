@@ -5,7 +5,6 @@ import (
 
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightningnetwork/lnd/build"
-	"github.com/lightningnetwork/lnd/lnrpc"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -17,13 +16,6 @@ var macPermissions = map[string][]bakery.Op{
 		Entity: "info",
 		Action: "read",
 	}},
-}
-
-// ServerShell is a shell struct holding a reference to the actual sub-server.
-// It is used to register the gRPC sub-server with the root server before we
-// have the necessary dependencies to populate the actual sub-server.
-type ServerShell struct {
-	VersionerServer
 }
 
 // Server is an rpc server that supports querying for information about the
@@ -56,9 +48,9 @@ func (s *Server) Name() string {
 // sub RPC server to register itself with the main gRPC root server. Until this
 // is called, each sub-server won't be able to have requests routed towards it.
 //
-// NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
-	RegisterVersionerServer(grpcServer, r)
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
+	RegisterVersionerServer(grpcServer, s)
 
 	log.Debugf("Versioner RPC server successfully registered with root " +
 		"gRPC server")
@@ -70,8 +62,8 @@ func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 // RPC server to register itself with the main REST mux server. Until this is
 // called, each sub-server won't be able to have requests routed towards it.
 //
-// NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (s *Server) RegisterWithRestServer(ctx context.Context,
 	mux *runtime.ServeMux, dest string, opts []grpc.DialOption) error {
 
 	// We make sure that we register it with the main REST server to ensure
@@ -86,21 +78,6 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 	log.Debugf("Versioner REST server successfully registered with " +
 		"root REST server")
 	return nil
-}
-
-// CreateSubServer populates the subserver's dependencies using the passed
-// SubServerConfigDispatcher. This method should fully initialize the
-// sub-server instance, making it ready for action. It returns the macaroon
-// permissions that the sub-server wishes to pass on to the root server for all
-// methods routed towards it.
-//
-// NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) CreateSubServer(_ lnrpc.SubServerConfigDispatcher) (
-	lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
-
-	subServer := &Server{}
-	r.VersionerServer = subServer
-	return subServer, macPermissions, nil
 }
 
 // GetVersion returns information about the compiled binary.

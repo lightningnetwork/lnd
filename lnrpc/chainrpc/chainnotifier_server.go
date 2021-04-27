@@ -72,11 +72,14 @@ var (
 		"still in the process of starting")
 )
 
-// ServerShell is a shell struct holding a reference to the actual sub-server.
-// It is used to register the gRPC sub-server with the root server before we
-// have the necessary dependencies to populate the actual sub-server.
-type ServerShell struct {
-	ChainNotifierServer
+// fileExists reports whether the named file or directory exists.
+func fileExists(name string) bool {
+	if _, err := os.Stat(name); err != nil {
+		if os.IsNotExist(err) {
+			return false
+		}
+	}
+	return true
 }
 
 // Server is a sub-server of the main RPC server: the chain notifier RPC. This
@@ -108,12 +111,9 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 	}
 
 	// Now that we know the full path of the chain notifier macaroon, we can
-	// check to see if we need to create it or not. If stateless_init is set
-	// then we don't write the macaroons.
+	// check to see if we need to create it or not.
 	macFilePath := cfg.ChainNotifierMacPath
-	if cfg.MacService != nil && !cfg.MacService.StatelessInit &&
-		!lnrpc.FileExists(macFilePath) {
-
+	if cfg.MacService != nil && !fileExists(macFilePath) {
 		log.Infof("Baking macaroons for ChainNotifier RPC Server at: %v",
 			macFilePath)
 
@@ -121,7 +121,8 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 		// doesn't yet, exist, so we need to create it with the help of
 		// the main macaroon service.
 		chainNotifierMac, err := cfg.MacService.NewMacaroon(
-			context.Background(), macaroons.DefaultRootKeyID,
+			context.Background(),
+			macaroons.DefaultRootKeyID,
 			macaroonOps...,
 		)
 		if err != nil {
@@ -133,7 +134,7 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 		}
 		err = ioutil.WriteFile(macFilePath, chainNotifierMacBytes, 0644)
 		if err != nil {
-			_ = os.Remove(macFilePath)
+			os.Remove(macFilePath)
 			return nil, nil, err
 		}
 	}
@@ -179,11 +180,11 @@ func (s *Server) Name() string {
 // sub-server to register itself with the main gRPC root server. Until this is
 // called, each sub-server won't be able to have requests routed towards it.
 //
-// NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// We make sure that we register it with the main gRPC server to ensure
 	// all our methods are routed properly.
-	RegisterChainNotifierServer(grpcServer, r)
+	RegisterChainNotifierServer(grpcServer, s)
 
 	log.Debug("ChainNotifier RPC server successfully register with root " +
 		"gRPC server")
@@ -195,8 +196,8 @@ func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 // RPC server to register itself with the main REST mux server. Until this is
 // called, each sub-server won't be able to have requests routed towards it.
 //
-// NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (s *Server) RegisterWithRestServer(ctx context.Context,
 	mux *runtime.ServeMux, dest string, opts []grpc.DialOption) error {
 
 	// We make sure that we register it with the main REST server to ensure
@@ -211,25 +212,6 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 	log.Debugf("ChainNotifier REST server successfully registered with " +
 		"root REST server")
 	return nil
-}
-
-// CreateSubServer populates the subserver's dependencies using the passed
-// SubServerConfigDispatcher. This method should fully initialize the
-// sub-server instance, making it ready for action. It returns the macaroon
-// permissions that the sub-server wishes to pass on to the root server for all
-// methods routed towards it.
-//
-// NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
-	lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
-
-	subServer, macPermissions, err := createNewSubServer(configRegistry)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	r.ChainNotifierServer = subServer
-	return subServer, macPermissions, nil
 }
 
 // RegisterConfirmationsNtfn is a synchronous response-streaming RPC that

@@ -96,10 +96,7 @@ type Server struct {
 // sessions and send state updates.
 func New(cfg *Config) (*Server, error) {
 	localInit := wtwire.NewInitMessage(
-		lnwire.NewRawFeatureVector(
-			wtwire.AltruistSessionsOptional,
-			wtwire.AnchorCommitOptional,
-		),
+		lnwire.NewRawFeatureVector(wtwire.AltruistSessionsOptional),
 		cfg.ChainHash,
 	)
 

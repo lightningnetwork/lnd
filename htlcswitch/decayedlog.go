@@ -51,7 +51,7 @@ type DecayedLog struct {
 	started int32 // To be used atomically.
 	stopped int32 // To be used atomically.
 
-	cfg *kvdb.BoltBackendConfig
+	dbPath string
 
 	db kvdb.Backend
 
@@ -64,25 +64,16 @@ type DecayedLog struct {
 // NewDecayedLog creates a new DecayedLog, which caches recently seen hash
 // shared secrets. Entries are evicted as their cltv expires using block epochs
 // from the given notifier.
-func NewDecayedLog(dbPath, dbFileName string, boltCfg *kvdb.BoltConfig,
+func NewDecayedLog(dbPath string,
 	notifier chainntnfs.ChainNotifier) *DecayedLog {
-
-	cfg := &kvdb.BoltBackendConfig{
-		DBPath:            dbPath,
-		DBFileName:        dbFileName,
-		NoFreelistSync:    true,
-		AutoCompact:       boltCfg.AutoCompact,
-		AutoCompactMinAge: boltCfg.AutoCompactMinAge,
-		DBTimeout:         boltCfg.DBTimeout,
-	}
 
 	// Use default path for log database
 	if dbPath == "" {
-		cfg.DBPath = defaultDbDirectory
+		dbPath = defaultDbDirectory
 	}
 
 	return &DecayedLog{
-		cfg:      cfg,
+		dbPath:   dbPath,
 		notifier: notifier,
 		quit:     make(chan struct{}),
 	}
@@ -98,7 +89,9 @@ func (d *DecayedLog) Start() error {
 
 	// Open the boltdb for use.
 	var err error
-	d.db, err = kvdb.GetBoltBackend(d.cfg)
+	d.db, err = kvdb.Create(
+		kvdb.BoltBackendName, d.dbPath, true,
+	)
 	if err != nil {
 		return fmt.Errorf("could not open boltdb: %v", err)
 	}
@@ -138,7 +131,7 @@ func (d *DecayedLog) initBuckets() error {
 		}
 
 		return nil
-	}, func() {})
+	})
 }
 
 // Stop halts the garbage collector and closes boltdb.
@@ -287,8 +280,6 @@ func (d *DecayedLog) Get(hash *sphinx.HashPrefix) (uint32, error) {
 		value = uint32(binary.BigEndian.Uint32(valueBytes))
 
 		return nil
-	}, func() {
-		value = 0
 	})
 	if err != nil {
 		return value, err

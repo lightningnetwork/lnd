@@ -20,12 +20,11 @@ var (
 	testOffset        = uint16(24)
 	sig, _            = NewSigFromSignature(testSig)
 	testChannelUpdate = ChannelUpdate{
-		Signature:       sig,
-		ShortChannelID:  NewShortChanIDFromInt(1),
-		Timestamp:       1,
-		MessageFlags:    0,
-		ChannelFlags:    1,
-		ExtraOpaqueData: make([]byte, 0),
+		Signature:      sig,
+		ShortChannelID: NewShortChanIDFromInt(1),
+		Timestamp:      1,
+		MessageFlags:   0,
+		ChannelFlags:   1,
 	}
 )
 

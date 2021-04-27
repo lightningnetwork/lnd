@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 
 	"github.com/urfave/cli"
@@ -14,14 +16,14 @@ var queryMissionControlCommand = cli.Command{
 }
 
 func queryMissionControl(ctx *cli.Context) error {
-	ctxc := getContext()
 	conn := getClientConn(ctx, false)
 	defer conn.Close()
 
 	client := routerrpc.NewRouterClient(conn)
 
 	req := &routerrpc.QueryMissionControlRequest{}
-	snapshot, err := client.QueryMissionControl(ctxc, req)
+	rpcCtx := context.Background()
+	snapshot, err := client.QueryMissionControl(rpcCtx, req)
 	if err != nil {
 		return err
 	}

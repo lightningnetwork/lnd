@@ -49,13 +49,11 @@ func (p *PeerNotifier) Start() error {
 }
 
 // Stop signals the notifier for a graceful shutdown.
-func (p *PeerNotifier) Stop() error {
-	var err error
+func (p *PeerNotifier) Stop() {
 	p.stopped.Do(func() {
 		log.Info("Stopping PeerNotifier")
-		err = p.ntfnServer.Stop()
+		p.ntfnServer.Stop()
 	})
-	return err
 }
 
 // SubscribePeerEvents returns a subscribe.Client that will receive updates

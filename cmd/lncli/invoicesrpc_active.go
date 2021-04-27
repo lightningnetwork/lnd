@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 
@@ -55,7 +56,6 @@ func settleInvoice(ctx *cli.Context) error {
 		err      error
 	)
 
-	ctxc := getContext()
 	client, cleanUp := getInvoicesClient(ctx)
 	defer cleanUp()
 
@@ -76,7 +76,7 @@ func settleInvoice(ctx *cli.Context) error {
 		Preimage: preimage,
 	}
 
-	resp, err := client.SettleInvoice(ctxc, invoice)
+	resp, err := client.SettleInvoice(context.Background(), invoice)
 	if err != nil {
 		return err
 	}
@@ -109,7 +109,6 @@ func cancelInvoice(ctx *cli.Context) error {
 		err         error
 	)
 
-	ctxc := getContext()
 	client, cleanUp := getInvoicesClient(ctx)
 	defer cleanUp()
 
@@ -130,7 +129,7 @@ func cancelInvoice(ctx *cli.Context) error {
 		PaymentHash: paymentHash,
 	}
 
-	resp, err := client.CancelInvoice(ctxc, invoice)
+	resp, err := client.CancelInvoice(context.Background(), invoice)
 	if err != nil {
 		return err
 	}
@@ -200,7 +199,6 @@ func addHoldInvoice(ctx *cli.Context) error {
 		err      error
 	)
 
-	ctxc := getContext()
 	client, cleanUp := getInvoicesClient(ctx)
 	defer cleanUp()
 
@@ -247,7 +245,7 @@ func addHoldInvoice(ctx *cli.Context) error {
 		Private:         ctx.Bool("private"),
 	}
 
-	resp, err := client.AddHoldInvoice(ctxc, invoice)
+	resp, err := client.AddHoldInvoice(context.Background(), invoice)
 	if err != nil {
 		return err
 	}

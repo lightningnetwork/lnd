@@ -11,10 +11,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// ErrUnableToExtractChanUpdate is returned when a channel update cannot be
-// found for one of our active channels.
-var ErrUnableToExtractChanUpdate = fmt.Errorf("unable to extract ChannelUpdate")
-
 // ChannelUpdateModifier is a closure that makes in-place modifications to an
 // lnwire.ChannelUpdate.
 type ChannelUpdateModifier func(*lnwire.ChannelUpdate)
@@ -111,7 +107,8 @@ func ExtractChannelUpdate(ownerPubKey []byte,
 		}
 	}
 
-	return nil, ErrUnableToExtractChanUpdate
+	return nil, fmt.Errorf("unable to extract ChannelUpdate for channel %v",
+		info.ChannelPoint)
 }
 
 // UnsignedChannelUpdateFromEdge reconstructs an unsigned ChannelUpdate from the

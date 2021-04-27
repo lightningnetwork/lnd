@@ -87,14 +87,12 @@ func (h *HtlcNotifier) Start() error {
 }
 
 // Stop signals the notifier for a graceful shutdown.
-func (h *HtlcNotifier) Stop() error {
-	var err error
+func (h *HtlcNotifier) Stop() {
 	h.stopped.Do(func() {
-		if err = h.ntfnServer.Stop(); err != nil {
+		if err := h.ntfnServer.Stop(); err != nil {
 			log.Warnf("error stopping htlc notifier: %v", err)
 		}
 	})
-	return err
 }
 
 // SubscribeHtlcEvents returns a subscribe.Client that will receive updates

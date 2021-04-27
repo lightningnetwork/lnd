@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
@@ -56,10 +54,8 @@ type ArbitratorLog interface {
 	// TODO(roasbeef): document on interface the errors expected to be
 	// returned
 
-	// CurrentState returns the current state of the ChannelArbitrator. It
-	// takes an optional database transaction, which will be used if it is
-	// non-nil, otherwise the lookup will be done in its own transaction.
-	CurrentState(tx kvdb.RTx) (ArbitratorState, error)
+	// CurrentState returns the current state of the ChannelArbitrator.
+	CurrentState() (ArbitratorState, error)
 
 	// CommitState persists, the current state of the chain attendant.
 	CommitState(ArbitratorState) error
@@ -100,10 +96,8 @@ type ArbitratorLog interface {
 	InsertConfirmedCommitSet(c *CommitSet) error
 
 	// FetchConfirmedCommitSet fetches the known confirmed active HTLC set
-	// from the database. It takes an optional database transaction, which
-	// will be used if it is non-nil, otherwise the lookup will be done in
-	// its own transaction.
-	FetchConfirmedCommitSet(tx kvdb.RTx) (*CommitSet, error)
+	// from the database.
+	FetchConfirmedCommitSet() (*CommitSet, error)
 
 	// FetchChainActions attempts to fetch the set of previously stored
 	// chain actions. We'll use this upon restart to properly advance our
@@ -277,13 +271,6 @@ var (
 	// the full set of resolutions for a channel.
 	resolutionsKey = []byte("resolutions")
 
-	// resolutionsSignDetailsKey is the key under the logScope where we
-	// will store input.SignDetails for each HTLC resolution. If this is
-	// not found under the logScope, it means it was written before
-	// SignDetails was introduced, and should be set nil for each HTLC
-	// resolution.
-	resolutionsSignDetailsKey = []byte("resolutions-sign-details")
-
 	// anchorResolutionKey is the key under the logScope that we'll use to
 	// store the anchor resolution, if any.
 	anchorResolutionKey = []byte("anchor-resolution")
@@ -425,47 +412,30 @@ func (b *boltArbitratorLog) writeResolver(contractBucket kvdb.RwBucket,
 	return contractBucket.Put(resKey, buf.Bytes())
 }
 
-// CurrentState returns the current state of the ChannelArbitrator. It takes an
-// optional database transaction, which will be used if it is non-nil, otherwise
-// the lookup will be done in its own transaction.
+// CurrentState returns the current state of the ChannelArbitrator.
 //
 // NOTE: Part of the ContractResolver interface.
-func (b *boltArbitratorLog) CurrentState(tx kvdb.RTx) (ArbitratorState, error) {
-	var (
-		s   ArbitratorState
-		err error
-	)
+func (b *boltArbitratorLog) CurrentState() (ArbitratorState, error) {
+	var s ArbitratorState
+	err := kvdb.View(b.db, func(tx kvdb.RTx) error {
+		scopeBucket := tx.ReadBucket(b.scopeKey[:])
+		if scopeBucket == nil {
+			return errScopeBucketNoExist
+		}
 
-	if tx != nil {
-		s, err = b.currentState(tx)
-	} else {
-		err = kvdb.View(b.db, func(tx kvdb.RTx) error {
-			s, err = b.currentState(tx)
-			return err
-		}, func() {
-			s = 0
-		})
-	}
+		stateBytes := scopeBucket.Get(stateKey)
+		if stateBytes == nil {
+			return nil
+		}
 
+		s = ArbitratorState(stateBytes[0])
+		return nil
+	})
 	if err != nil && err != errScopeBucketNoExist {
 		return s, err
 	}
 
 	return s, nil
-}
-
-func (b *boltArbitratorLog) currentState(tx kvdb.RTx) (ArbitratorState, error) {
-	scopeBucket := tx.ReadBucket(b.scopeKey[:])
-	if scopeBucket == nil {
-		return 0, errScopeBucketNoExist
-	}
-
-	stateBytes := scopeBucket.Get(stateKey)
-	if stateBytes == nil {
-		return 0, nil
-	}
-
-	return ArbitratorState(stateBytes[0]), nil
 }
 
 // CommitState persists, the current state of the chain attendant.
@@ -551,8 +521,6 @@ func (b *boltArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver, erro
 			contracts = append(contracts, res)
 			return nil
 		})
-	}, func() {
-		contracts = nil
 	})
 	if err != nil && err != errScopeBucketNoExist && err != errNoContracts {
 		return nil, err
@@ -665,10 +633,6 @@ func (b *boltArbitratorLog) LogContractResolutions(c *ContractResolutions) error
 			}
 		}
 
-		// As we write the HTLC resolutions, we'll serialize the sign
-		// details for each, to store under a new key.
-		var signDetailsBuf bytes.Buffer
-
 		// With the output for the commitment transaction written, we
 		// can now write out the resolutions for the incoming and
 		// outgoing HTLC's.
@@ -678,11 +642,6 @@ func (b *boltArbitratorLog) LogContractResolutions(c *ContractResolutions) error
 		}
 		for _, htlc := range c.HtlcResolutions.IncomingHTLCs {
 			err := encodeIncomingResolution(&b, &htlc)
-			if err != nil {
-				return err
-			}
-
-			err = encodeSignDetails(&signDetailsBuf, htlc.SignDetails)
 			if err != nil {
 				return err
 			}
@@ -696,24 +655,9 @@ func (b *boltArbitratorLog) LogContractResolutions(c *ContractResolutions) error
 			if err != nil {
 				return err
 			}
-
-			err = encodeSignDetails(&signDetailsBuf, htlc.SignDetails)
-			if err != nil {
-				return err
-			}
 		}
 
-		// Put the resolutions under the resolutionsKey.
 		err = scopeBucket.Put(resolutionsKey, b.Bytes())
-		if err != nil {
-			return err
-		}
-
-		// We'll put the serialized sign details under its own key to
-		// stay backwards compatible.
-		err = scopeBucket.Put(
-			resolutionsSignDetailsKey, signDetailsBuf.Bytes(),
-		)
 		if err != nil {
 			return err
 		}
@@ -741,7 +685,7 @@ func (b *boltArbitratorLog) LogContractResolutions(c *ContractResolutions) error
 //
 // NOTE: Part of the ContractResolver interface.
 func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, error) {
-	var c *ContractResolutions
+	c := &ContractResolutions{}
 	err := kvdb.View(b.db, func(tx kvdb.RTx) error {
 		scopeBucket := tx.ReadBucket(b.scopeKey[:])
 		if scopeBucket == nil {
@@ -812,33 +756,6 @@ func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 			}
 		}
 
-		// Now we attempt to get the sign details for our HTLC
-		// resolutions. If not present the channel is of a type that
-		// doesn't need them. If present there will be SignDetails
-		// encoded for each HTLC resolution.
-		signDetailsBytes := scopeBucket.Get(resolutionsSignDetailsKey)
-		if signDetailsBytes != nil {
-			r := bytes.NewReader(signDetailsBytes)
-
-			// They will be encoded in the same order as the
-			// resolutions: firs incoming HTLCs, then outgoing.
-			for i := uint32(0); i < numIncoming; i++ {
-				htlc := &c.HtlcResolutions.IncomingHTLCs[i]
-				htlc.SignDetails, err = decodeSignDetails(r)
-				if err != nil {
-					return err
-				}
-			}
-
-			for i := uint32(0); i < numOutgoing; i++ {
-				htlc := &c.HtlcResolutions.OutgoingHTLCs[i]
-				htlc.SignDetails, err = decodeSignDetails(r)
-				if err != nil {
-					return err
-				}
-			}
-		}
-
 		anchorResBytes := scopeBucket.Get(anchorResolutionKey)
 		if anchorResBytes != nil {
 			c.AnchorResolution = &lnwallet.AnchorResolution{}
@@ -852,8 +769,6 @@ func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 		}
 
 		return nil
-	}, func() {
-		c = &ContractResolutions{}
 	})
 	if err != nil {
 		return nil, err
@@ -868,7 +783,7 @@ func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 //
 // NOTE: Part of the ContractResolver interface.
 func (b *boltArbitratorLog) FetchChainActions() (ChainActionMap, error) {
-	var actionsMap ChainActionMap
+	actionsMap := make(ChainActionMap)
 
 	err := kvdb.View(b.db, func(tx kvdb.RTx) error {
 		scopeBucket := tx.ReadBucket(b.scopeKey[:])
@@ -898,8 +813,6 @@ func (b *boltArbitratorLog) FetchChainActions() (ChainActionMap, error) {
 
 			return nil
 		})
-	}, func() {
-		actionsMap = make(ChainActionMap)
 	})
 	if err != nil {
 		return nil, err
@@ -930,44 +843,35 @@ func (b *boltArbitratorLog) InsertConfirmedCommitSet(c *CommitSet) error {
 }
 
 // FetchConfirmedCommitSet fetches the known confirmed active HTLC set from the
-// database. It takes an optional database transaction, which will be used if it
-// is non-nil, otherwise the lookup will be done in its own transaction.
+// database.
 //
 // NOTE: Part of the ContractResolver interface.
-func (b *boltArbitratorLog) FetchConfirmedCommitSet(tx kvdb.RTx) (*CommitSet, error) {
-	if tx != nil {
-		return b.fetchConfirmedCommitSet(tx)
-	}
-
+func (b *boltArbitratorLog) FetchConfirmedCommitSet() (*CommitSet, error) {
 	var c *CommitSet
 	err := kvdb.View(b.db, func(tx kvdb.RTx) error {
-		var err error
-		c, err = b.fetchConfirmedCommitSet(tx)
-		return err
-	}, func() {
-		c = nil
+		scopeBucket := tx.ReadBucket(b.scopeKey[:])
+		if scopeBucket == nil {
+			return errScopeBucketNoExist
+		}
+
+		commitSetBytes := scopeBucket.Get(commitSetKey)
+		if commitSetBytes == nil {
+			return errNoCommitSet
+		}
+
+		commitSet, err := decodeCommitSet(bytes.NewReader(commitSetBytes))
+		if err != nil {
+			return err
+		}
+
+		c = commitSet
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return c, nil
-}
-
-func (b *boltArbitratorLog) fetchConfirmedCommitSet(tx kvdb.RTx) (*CommitSet,
-	error) {
-
-	scopeBucket := tx.ReadBucket(b.scopeKey[:])
-	if scopeBucket == nil {
-		return nil, errScopeBucketNoExist
-	}
-
-	commitSetBytes := scopeBucket.Get(commitSetKey)
-	if commitSetBytes == nil {
-		return nil, errNoCommitSet
-	}
-
-	return decodeCommitSet(bytes.NewReader(commitSetBytes))
 }
 
 // WipeHistory is to be called ONLY once *all* contracts have been fully
@@ -1001,11 +905,6 @@ func (b *boltArbitratorLog) WipeHistory() error {
 			return err
 		}
 
-		err = scopeBucket.Delete(resolutionsSignDetailsKey)
-		if err != nil {
-			return err
-		}
-
 		// We'll delete any chain actions that are still stored by
 		// removing the enclosing bucket.
 		err = scopeBucket.DeleteNestedBucket(actionsBucketKey)
@@ -1015,7 +914,7 @@ func (b *boltArbitratorLog) WipeHistory() error {
 
 		// Finally, we'll delete the enclosing bucket itself.
 		return tx.DeleteTopLevelBucket(b.scopeKey[:])
-	}, func() {})
+	})
 }
 
 // checkpointContract is a private method that will be fed into
@@ -1042,80 +941,7 @@ func (b *boltArbitratorLog) checkpointContract(c ContractResolver,
 		}
 
 		return nil
-	}, func() {})
-}
-
-// encodeSignDetails encodes the gived SignDetails struct to the writer.
-// SignDetails is allowed to be nil, in which we will encode that it is not
-// present.
-func encodeSignDetails(w io.Writer, s *input.SignDetails) error {
-	// If we don't have sign details, write false and return.
-	if s == nil {
-		return binary.Write(w, endian, false)
-	}
-
-	// Otherwise write true, and the contents of the SignDetails.
-	if err := binary.Write(w, endian, true); err != nil {
-		return err
-	}
-
-	err := input.WriteSignDescriptor(w, &s.SignDesc)
-	if err != nil {
-		return err
-	}
-	err = binary.Write(w, endian, uint32(s.SigHashType))
-	if err != nil {
-		return err
-	}
-
-	// Write the DER-encoded signature.
-	b := s.PeerSig.Serialize()
-	if err := wire.WriteVarBytes(w, 0, b); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// decodeSignDetails extracts a single SignDetails from the reader. It is
-// allowed to return nil in case the SignDetails were empty.
-func decodeSignDetails(r io.Reader) (*input.SignDetails, error) {
-	var present bool
-	if err := binary.Read(r, endian, &present); err != nil {
-		return nil, err
-	}
-
-	// Simply return nil if the next SignDetails was not present.
-	if !present {
-		return nil, nil
-	}
-
-	// Otherwise decode the elements of the SignDetails.
-	s := input.SignDetails{}
-	err := input.ReadSignDescriptor(r, &s.SignDesc)
-	if err != nil {
-		return nil, err
-	}
-
-	var sigHash uint32
-	err = binary.Read(r, endian, &sigHash)
-	if err != nil {
-		return nil, err
-	}
-	s.SigHashType = txscript.SigHashType(sigHash)
-
-	// Read DER-encoded signature.
-	rawSig, err := wire.ReadVarBytes(r, 0, 200, "signature")
-	if err != nil {
-		return nil, err
-	}
-	sig, err := btcec.ParseDERSignature(rawSig, btcec.S256())
-	if err != nil {
-		return nil, err
-	}
-	s.PeerSig = sig
-
-	return &s, nil
+	})
 }
 
 func encodeIncomingResolution(w io.Writer, i *lnwallet.IncomingHtlcResolution) error {

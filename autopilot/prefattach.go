@@ -78,7 +78,7 @@ func (p *PrefAttachment) Name() string {
 // given to nodes already having high connectivity in the graph.
 //
 // NOTE: This is a part of the AttachmentHeuristic interface.
-func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []LocalChannel,
+func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 	chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
 	map[NodeID]*NodeScore, error) {
 

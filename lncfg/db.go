@@ -3,23 +3,19 @@ package lncfg
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 )
 
 const (
-	dbName                     = "channel.db"
-	BoltBackend                = "bolt"
-	EtcdBackend                = "etcd"
-	DefaultBatchCommitInterval = 500 * time.Millisecond
+	dbName      = "channel.db"
+	BoltBackend = "bolt"
+	EtcdBackend = "etcd"
 )
 
 // DB holds database configuration for LND.
 type DB struct {
 	Backend string `long:"backend" description:"The selected database backend."`
-
-	BatchCommitInterval time.Duration `long:"batch-commit-interval" description:"The maximum duration the channel graph batch schedulers will wait before attempting to commit a batch of pending updates. This can be tradeoff database contenion for commit latency."`
 
 	Etcd *kvdb.EtcdConfig `group:"etcd" namespace:"etcd" description:"Etcd settings."`
 
@@ -29,12 +25,8 @@ type DB struct {
 // NewDB creates and returns a new default DB config.
 func DefaultDB() *DB {
 	return &DB{
-		Backend:             BoltBackend,
-		BatchCommitInterval: DefaultBatchCommitInterval,
-		Bolt: &kvdb.BoltConfig{
-			AutoCompactMinAge: kvdb.DefaultBoltAutoCompactMinAge,
-			DBTimeout:         kvdb.DefaultDBTimeout,
-		},
+		Backend: BoltBackend,
+		Bolt:    &kvdb.BoltConfig{},
 	}
 }
 
@@ -44,7 +36,7 @@ func (db *DB) Validate() error {
 	case BoltBackend:
 
 	case EtcdBackend:
-		if !db.Etcd.Embedded && db.Etcd.Host == "" {
+		if db.Etcd.Host == "" {
 			return fmt.Errorf("etcd host must be set")
 		}
 
@@ -82,30 +74,16 @@ func (db *DB) GetBackends(ctx context.Context, dbPath string,
 	)
 
 	if db.Backend == EtcdBackend {
-		if db.Etcd.Embedded {
-			remoteDB, _, err = kvdb.GetEtcdTestBackend(
-				dbPath, db.Etcd.EmbeddedClientPort,
-				db.Etcd.EmbeddedPeerPort,
-			)
-		} else {
-			// Prefix will separate key/values in the db.
-			remoteDB, err = kvdb.GetEtcdBackend(
-				ctx, networkName, db.Etcd,
-			)
-		}
+		// Prefix will separate key/values in the db.
+		remoteDB, err = kvdb.GetEtcdBackend(ctx, networkName, db.Etcd)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	localDB, err = kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
-		DBPath:            dbPath,
-		DBFileName:        dbName,
-		DBTimeout:         db.Bolt.DBTimeout,
-		NoFreelistSync:    !db.Bolt.SyncFreelist,
-		AutoCompact:       db.Bolt.AutoCompact,
-		AutoCompactMinAge: db.Bolt.AutoCompactMinAge,
-	})
+	localDB, err = kvdb.GetBoltBackend(
+		dbPath, dbName, !db.Bolt.SyncFreelist,
+	)
 	if err != nil {
 		return nil, err
 	}

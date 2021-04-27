@@ -22,8 +22,6 @@ func GetEtcdBackend(ctx context.Context, prefix string,
 
 // GetTestEtcdBackend  is a stub returning nil, an empty closure and an
 // errEtcdNotAvailable error.
-func GetEtcdTestBackend(path string, clientPort, peerPort uint16) (
-	Backend, func(), error) {
-
+func GetEtcdTestBackend(path, name string) (Backend, func(), error) {
 	return nil, func() {}, errEtcdNotAvailable
 }

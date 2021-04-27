@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -16,10 +16,8 @@ import (
 	"github.com/btcsuite/btcutil"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/lntest/channels"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 )
@@ -35,6 +33,38 @@ var (
 		0x51, 0xb6, 0x37, 0xd8, 0xfc, 0xd2, 0xc6, 0xda,
 		0x48, 0x59, 0xe6, 0x96, 0x31, 0x13, 0xa1, 0x17,
 		0x2d, 0xe7, 0x93, 0xe4,
+	}
+	testTx = &wire.MsgTx{
+		Version: 1,
+		TxIn: []*wire.TxIn{
+			{
+				PreviousOutPoint: wire.OutPoint{
+					Hash:  chainhash.Hash{},
+					Index: 0xffffffff,
+				},
+				SignatureScript: []byte{0x04, 0x31, 0xdc, 0x00, 0x1b, 0x01, 0x62},
+				Sequence:        0xffffffff,
+			},
+		},
+		TxOut: []*wire.TxOut{
+			{
+				Value: 5000000000,
+				PkScript: []byte{
+					0x41, // OP_DATA_65
+					0x04, 0xd6, 0x4b, 0xdf, 0xd0, 0x9e, 0xb1, 0xc5,
+					0xfe, 0x29, 0x5a, 0xbd, 0xeb, 0x1d, 0xca, 0x42,
+					0x81, 0xbe, 0x98, 0x8e, 0x2d, 0xa0, 0xb6, 0xc1,
+					0xc6, 0xa5, 0x9d, 0xc2, 0x26, 0xc2, 0x86, 0x24,
+					0xe1, 0x81, 0x75, 0xe8, 0x51, 0xc9, 0x6b, 0x97,
+					0x3d, 0x81, 0xb0, 0x1c, 0xc3, 0x1f, 0x04, 0x78,
+					0x34, 0xbc, 0x06, 0xd6, 0xd6, 0xed, 0xf6, 0x20,
+					0xd1, 0x84, 0x24, 0x1a, 0x6a, 0xed, 0x8b, 0x63,
+					0xa6, // 65-byte signature
+					0xac, // OP_CHECKSIG
+				},
+			},
+		},
+		LockTime: 5,
 	}
 	privKey, pubKey = btcec.PrivKeyFromBytes(btcec.S256(), key[:])
 
@@ -52,9 +82,6 @@ var (
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18555,
 	}
-
-	// keyLocIndex is the KeyLocator Index we use for TestKeyLocatorEncoding.
-	keyLocIndex = uint32(2049)
 )
 
 // testChannelParams is a struct which details the specifics of how a channel
@@ -313,7 +340,7 @@ func createTestChannelState(t *testing.T, cdb *DB) *OpenChannel {
 			RemoteBalance: lnwire.MilliSatoshi(3000),
 			CommitFee:     btcutil.Amount(rand.Int63()),
 			FeePerKw:      btcutil.Amount(5000),
-			CommitTx:      channels.TestFundingTx,
+			CommitTx:      testTx,
 			CommitSig:     bytes.Repeat([]byte{1}, 71),
 		},
 		RemoteCommitment: ChannelCommitment{
@@ -322,7 +349,7 @@ func createTestChannelState(t *testing.T, cdb *DB) *OpenChannel {
 			RemoteBalance: lnwire.MilliSatoshi(9000),
 			CommitFee:     btcutil.Amount(rand.Int63()),
 			FeePerKw:      btcutil.Amount(5000),
-			CommitTx:      channels.TestFundingTx,
+			CommitTx:      testTx,
 			CommitSig:     bytes.Repeat([]byte{1}, 71),
 		},
 		NumConfsRequired:        4,
@@ -332,7 +359,7 @@ func createTestChannelState(t *testing.T, cdb *DB) *OpenChannel {
 		RevocationStore:         store,
 		Db:                      cdb,
 		Packager:                NewChannelPackager(chanID),
-		FundingTxn:              channels.TestFundingTx,
+		FundingTxn:              testTx,
 		ThawHeight:              uint32(defaultPendingHeight),
 	}
 }
@@ -612,8 +639,7 @@ func TestChannelStateTransition(t *testing.T) {
 		{
 			LogIndex: 2,
 			UpdateMsg: &lnwire.UpdateAddHTLC{
-				ChanID:    lnwire.ChannelID{1, 2, 3},
-				ExtraData: make([]byte, 0),
+				ChanID: lnwire.ChannelID{1, 2, 3},
 			},
 		},
 	}
@@ -634,9 +660,7 @@ func TestChannelStateTransition(t *testing.T) {
 	if !reflect.DeepEqual(
 		dbUnsignedAckedUpdates[0], unsignedAckedUpdates[0],
 	) {
-		t.Fatalf("unexpected update: expected %v, got %v",
-			spew.Sdump(unsignedAckedUpdates[0]),
-			spew.Sdump(dbUnsignedAckedUpdates))
+		t.Fatalf("unexpected update")
 	}
 
 	// The balances, new update, the HTLCs and the changes to the fake
@@ -678,25 +702,22 @@ func TestChannelStateTransition(t *testing.T) {
 				wireSig,
 				wireSig,
 			},
-			ExtraData: make([]byte, 0),
 		},
 		LogUpdates: []LogUpdate{
 			{
 				LogIndex: 1,
 				UpdateMsg: &lnwire.UpdateAddHTLC{
-					ID:        1,
-					Amount:    lnwire.NewMSatFromSatoshis(100),
-					Expiry:    25,
-					ExtraData: make([]byte, 0),
+					ID:     1,
+					Amount: lnwire.NewMSatFromSatoshis(100),
+					Expiry: 25,
 				},
 			},
 			{
 				LogIndex: 2,
 				UpdateMsg: &lnwire.UpdateAddHTLC{
-					ID:        2,
-					Amount:    lnwire.NewMSatFromSatoshis(200),
-					Expiry:    50,
-					ExtraData: make([]byte, 0),
+					ID:     2,
+					Amount: lnwire.NewMSatFromSatoshis(200),
+					Expiry: 50,
 				},
 			},
 		},
@@ -1426,7 +1447,7 @@ func TestBalanceAtHeight(t *testing.T) {
 			commit.RemoteBalance = remote
 
 			return appendChannelLogEntry(logBucket, &commit)
-		}, func() {})
+		})
 
 		return err
 	}
@@ -1464,7 +1485,7 @@ func TestBalanceAtHeight(t *testing.T) {
 			targetHeight:          unknownHeight,
 			expectedLocalBalance:  0,
 			expectedRemoteBalance: 0,
-			expectedError:         ErrLogEntryNotFound,
+			expectedError:         errLogEntryNotFound,
 		},
 		{
 			name:                  "height not reached",
@@ -1591,34 +1612,4 @@ func TestHasChanStatus(t *testing.T) {
 			}
 		})
 	}
-}
-
-// TestKeyLocatorEncoding tests that we are able to serialize a given
-// keychain.KeyLocator. After successfully encoding, we check that the decode
-// output arrives at the same initial KeyLocator.
-func TestKeyLocatorEncoding(t *testing.T) {
-	keyLoc := keychain.KeyLocator{
-		Family: keychain.KeyFamilyRevocationRoot,
-		Index:  keyLocIndex,
-	}
-
-	// First, we'll encode the KeyLocator into a buffer.
-	var (
-		b   bytes.Buffer
-		buf [8]byte
-	)
-
-	err := EKeyLocator(&b, &keyLoc, &buf)
-	require.NoError(t, err, "unable to encode key locator")
-
-	// Next, we'll attempt to decode the bytes into a new KeyLocator.
-	r := bytes.NewReader(b.Bytes())
-	var decodedKeyLoc keychain.KeyLocator
-
-	err = DKeyLocator(r, &decodedKeyLoc, &buf, 8)
-	require.NoError(t, err, "unable to decode key locator")
-
-	// Finally, we'll compare that the original KeyLocator and the decoded
-	// version are equal.
-	require.Equal(t, keyLoc, decodedKeyLoc)
 }

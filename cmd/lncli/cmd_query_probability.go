@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 
@@ -20,7 +21,6 @@ var queryProbCommand = cli.Command{
 }
 
 func queryProb(ctx *cli.Context) error {
-	ctxc := getContext()
 	args := ctx.Args()
 
 	if len(args) != 3 {
@@ -56,8 +56,8 @@ func queryProb(ctx *cli.Context) error {
 		ToNode:   toNode[:],
 		AmtMsat:  int64(amtMsat),
 	}
-
-	response, err := client.QueryProbability(ctxc, req)
+	rpcCtx := context.Background()
+	response, err := client.QueryProbability(rpcCtx, req)
 	if err != nil {
 		return err
 	}

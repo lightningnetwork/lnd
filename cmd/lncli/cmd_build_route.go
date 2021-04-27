@@ -1,11 +1,12 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/lightningnetwork/lnd/chainreg"
+	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/urfave/cli"
@@ -26,7 +27,7 @@ var buildRouteCommand = cli.Command{
 			Name: "final_cltv_delta",
 			Usage: "number of blocks the last hop has to reveal " +
 				"the preimage",
-			Value: chainreg.DefaultBitcoinTimeLockDelta,
+			Value: lnd.DefaultBitcoinTimeLockDelta,
 		},
 		cli.StringFlag{
 			Name:  "hops",
@@ -42,7 +43,6 @@ var buildRouteCommand = cli.Command{
 }
 
 func buildRoute(ctx *cli.Context) error {
-	ctxc := getContext()
 	conn := getClientConn(ctx, false)
 	defer conn.Close()
 
@@ -80,7 +80,8 @@ func buildRoute(ctx *cli.Context) error {
 		OutgoingChanId: ctx.Uint64("outgoing_chan_id"),
 	}
 
-	route, err := client.BuildRoute(ctxc, req)
+	rpcCtx := context.Background()
+	route, err := client.BuildRoute(rpcCtx, req)
 	if err != nil {
 		return err
 	}

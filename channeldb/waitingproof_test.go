@@ -5,7 +5,6 @@ import (
 
 	"reflect"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -24,7 +23,6 @@ func TestWaitingProofStore(t *testing.T) {
 	proof1 := NewWaitingProof(true, &lnwire.AnnounceSignatures{
 		NodeSignature:    wireSig,
 		BitcoinSignature: wireSig,
-		ExtraOpaqueData:  make([]byte, 0),
 	})
 
 	store, err := NewWaitingProofStore(db)
@@ -42,8 +40,7 @@ func TestWaitingProofStore(t *testing.T) {
 		t.Fatalf("unable retrieve proof from storage: %v", err)
 	}
 	if !reflect.DeepEqual(proof1, proof2) {
-		t.Fatalf("wrong proof retrieved: expected %v, got %v",
-			spew.Sdump(proof1), spew.Sdump(proof2))
+		t.Fatal("wrong proof retrieved")
 	}
 
 	if _, err := store.Get(proof1.OppositeKey()); err != ErrWaitingProofNotFound {
@@ -56,7 +53,7 @@ func TestWaitingProofStore(t *testing.T) {
 
 	if err := store.ForAll(func(proof *WaitingProof) error {
 		return errors.New("storage should be empty")
-	}, func() {}); err != nil && err != ErrWaitingProofNotFound {
+	}); err != nil && err != ErrWaitingProofNotFound {
 		t.Fatal(err)
 	}
 }

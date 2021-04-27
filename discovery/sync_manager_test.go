@@ -2,32 +2,24 @@ package discovery
 
 import (
 	"fmt"
+	"math"
 	"reflect"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/ticker"
-	"github.com/stretchr/testify/require"
 )
 
 // randPeer creates a random peer.
 func randPeer(t *testing.T, quit chan struct{}) *mockPeer {
 	t.Helper()
 
-	pk := randPubKey(t)
-	return peerWithPubkey(pk, quit)
-}
-
-func peerWithPubkey(pk *btcec.PublicKey, quit chan struct{}) *mockPeer {
 	return &mockPeer{
-		pk:       pk,
+		pk:       randPubKey(t),
 		sentMsgs: make(chan lnwire.Message),
 		quit:     quit,
 	}
@@ -36,24 +28,12 @@ func peerWithPubkey(pk *btcec.PublicKey, quit chan struct{}) *mockPeer {
 // newTestSyncManager creates a new test SyncManager using mock implementations
 // of its dependencies.
 func newTestSyncManager(numActiveSyncers int) *SyncManager {
-	return newPinnedTestSyncManager(numActiveSyncers, nil)
-}
-
-// newTestSyncManager creates a new test SyncManager with a set of pinned
-// syncers using mock implementations of its dependencies.
-func newPinnedTestSyncManager(numActiveSyncers int,
-	pinnedSyncers PinnedSyncers) *SyncManager {
-
 	hID := lnwire.ShortChannelID{BlockHeight: latestKnownHeight}
 	return newSyncManager(&SyncManagerCfg{
 		ChanSeries:           newMockChannelGraphTimeSeries(hID),
 		RotateTicker:         ticker.NewForce(DefaultSyncerRotationInterval),
 		HistoricalSyncTicker: ticker.NewForce(DefaultHistoricalSyncInterval),
 		NumActiveSyncers:     numActiveSyncers,
-		BestHeight: func() uint32 {
-			return latestKnownHeight
-		},
-		PinnedSyncers: pinnedSyncers,
 	})
 }
 
@@ -65,45 +45,17 @@ func TestSyncManagerNumActiveSyncers(t *testing.T) {
 	// We'll start by creating our test sync manager which will hold up to
 	// 3 active syncers.
 	const numActiveSyncers = 3
-	const numPinnedSyncers = 3
-	const numInactiveSyncers = 1
+	const numSyncers = numActiveSyncers + 1
 
-	pinnedSyncers := make(PinnedSyncers)
-	pinnedPubkeys := make(map[route.Vertex]*btcec.PublicKey)
-	for i := 0; i < numPinnedSyncers; i++ {
-		pubkey := randPubKey(t)
-		vertex := route.NewVertex(pubkey)
-
-		pinnedSyncers[vertex] = struct{}{}
-		pinnedPubkeys[vertex] = pubkey
-
-	}
-
-	syncMgr := newPinnedTestSyncManager(numActiveSyncers, pinnedSyncers)
+	syncMgr := newTestSyncManager(numActiveSyncers)
 	syncMgr.Start()
 	defer syncMgr.Stop()
 
-	// First we'll start by adding the pinned syncers. These should
-	// immediately be assigned PinnedSync.
-	for _, pubkey := range pinnedPubkeys {
-		peer := peerWithPubkey(pubkey, syncMgr.quit)
-		err := syncMgr.InitSyncState(peer)
-		require.NoError(t, err)
-
-		s := assertSyncerExistence(t, syncMgr, peer)
-		assertTransitionToChansSynced(t, s, peer)
-		assertActiveGossipTimestampRange(t, peer)
-		assertSyncerStatus(t, s, chansSynced, PinnedSync)
-	}
-
 	// We'll go ahead and create our syncers. We'll gather the ones which
-	// should be active and passive to check them later on. The pinned peers
-	// added above should not influence the active syncer count.
+	// should be active and passive to check them later on.
 	for i := 0; i < numActiveSyncers; i++ {
 		peer := randPeer(t, syncMgr.quit)
-		err := syncMgr.InitSyncState(peer)
-		require.NoError(t, err)
-
+		syncMgr.InitSyncState(peer)
 		s := assertSyncerExistence(t, syncMgr, peer)
 
 		// The first syncer registered always attempts a historical
@@ -115,11 +67,9 @@ func TestSyncManagerNumActiveSyncers(t *testing.T) {
 		assertSyncerStatus(t, s, chansSynced, ActiveSync)
 	}
 
-	for i := 0; i < numInactiveSyncers; i++ {
+	for i := 0; i < numSyncers-numActiveSyncers; i++ {
 		peer := randPeer(t, syncMgr.quit)
-		err := syncMgr.InitSyncState(peer)
-		require.NoError(t, err)
-
+		syncMgr.InitSyncState(peer)
 		s := assertSyncerExistence(t, syncMgr, peer)
 		assertSyncerStatus(t, s, chansSynced, PassiveSync)
 	}
@@ -227,31 +177,6 @@ func TestSyncManagerRotateActiveSyncerCandidate(t *testing.T) {
 	assertPassiveSyncerTransition(t, passiveSyncer, passiveSyncPeer)
 }
 
-// TestSyncManagerNoInitialHistoricalSync ensures no initial sync is attempted
-// when NumActiveSyncers is set to 0.
-func TestSyncManagerNoInitialHistoricalSync(t *testing.T) {
-	t.Parallel()
-
-	syncMgr := newTestSyncManager(0)
-	syncMgr.Start()
-	defer syncMgr.Stop()
-
-	// We should not expect any messages from the peer.
-	peer := randPeer(t, syncMgr.quit)
-	err := syncMgr.InitSyncState(peer)
-	require.NoError(t, err)
-	assertNoMsgSent(t, peer)
-
-	// Force the historical syncer to tick. This shouldn't happen normally
-	// since the ticker is never started. However, we will test that even if
-	// this were to occur that a historical sync does not progress.
-	syncMgr.cfg.HistoricalSyncTicker.(*ticker.Force).Force <- time.Time{}
-
-	assertNoMsgSent(t, peer)
-	s := assertSyncerExistence(t, syncMgr, peer)
-	assertSyncerStatus(t, s, chansSynced, PassiveSync)
-}
-
 // TestSyncManagerInitialHistoricalSync ensures that we only attempt a single
 // historical sync during the SyncManager's startup. If the peer corresponding
 // to the initial historical syncer disconnects, we should attempt to find a
@@ -259,7 +184,7 @@ func TestSyncManagerNoInitialHistoricalSync(t *testing.T) {
 func TestSyncManagerInitialHistoricalSync(t *testing.T) {
 	t.Parallel()
 
-	syncMgr := newTestSyncManager(1)
+	syncMgr := newTestSyncManager(0)
 
 	// The graph should not be considered as synced since the sync manager
 	// has yet to start.
@@ -277,7 +202,7 @@ func TestSyncManagerInitialHistoricalSync(t *testing.T) {
 	syncMgr.InitSyncState(peer)
 	assertMsgSent(t, peer, &lnwire.QueryChannelRange{
 		FirstBlockHeight: 0,
-		NumBlocks:        latestKnownHeight,
+		NumBlocks:        math.MaxUint32,
 	})
 
 	// The graph should not be considered as synced since the initial
@@ -304,27 +229,13 @@ func TestSyncManagerInitialHistoricalSync(t *testing.T) {
 	if !syncMgr.IsGraphSynced() {
 		t.Fatal("expected graph to be considered as synced")
 	}
-	// The historical syncer should be active after the sync completes.
-	assertActiveGossipTimestampRange(t, finalHistoricalPeer)
 
 	// Once the initial historical sync has succeeded, another one should
 	// not be attempted by disconnecting the peer who performed it.
 	extraPeer := randPeer(t, syncMgr.quit)
 	syncMgr.InitSyncState(extraPeer)
-
-	// Pruning the first peer will cause the passive peer to send an active
-	// gossip timestamp msg, which we must consume asynchronously for the
-	// call to return.
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		assertActiveGossipTimestampRange(t, extraPeer)
-	}()
+	assertNoMsgSent(t, extraPeer)
 	syncMgr.PruneSyncState(finalHistoricalPeer.PubKey())
-	wg.Wait()
-
-	// No further messages should be sent.
 	assertNoMsgSent(t, extraPeer)
 }
 
@@ -368,7 +279,7 @@ func TestSyncManagerHistoricalSyncOnReconnect(t *testing.T) {
 func TestSyncManagerForceHistoricalSync(t *testing.T) {
 	t.Parallel()
 
-	syncMgr := newTestSyncManager(1)
+	syncMgr := newTestSyncManager(0)
 	syncMgr.Start()
 	defer syncMgr.Stop()
 
@@ -379,7 +290,7 @@ func TestSyncManagerForceHistoricalSync(t *testing.T) {
 	syncMgr.InitSyncState(peer)
 	assertMsgSent(t, peer, &lnwire.QueryChannelRange{
 		FirstBlockHeight: 0,
-		NumBlocks:        latestKnownHeight,
+		NumBlocks:        math.MaxUint32,
 	})
 
 	// If an additional peer connects, then a historical sync should not be
@@ -394,7 +305,7 @@ func TestSyncManagerForceHistoricalSync(t *testing.T) {
 	syncMgr.cfg.HistoricalSyncTicker.(*ticker.Force).Force <- time.Time{}
 	assertMsgSent(t, extraPeer, &lnwire.QueryChannelRange{
 		FirstBlockHeight: 0,
-		NumBlocks:        latestKnownHeight,
+		NumBlocks:        math.MaxUint32,
 	})
 }
 
@@ -404,7 +315,7 @@ func TestSyncManagerForceHistoricalSync(t *testing.T) {
 func TestSyncManagerGraphSyncedAfterHistoricalSyncReplacement(t *testing.T) {
 	t.Parallel()
 
-	syncMgr := newTestSyncManager(1)
+	syncMgr := newTestSyncManager(0)
 	syncMgr.Start()
 	defer syncMgr.Stop()
 
@@ -415,7 +326,7 @@ func TestSyncManagerGraphSyncedAfterHistoricalSyncReplacement(t *testing.T) {
 	syncMgr.InitSyncState(peer)
 	assertMsgSent(t, peer, &lnwire.QueryChannelRange{
 		FirstBlockHeight: 0,
-		NumBlocks:        latestKnownHeight,
+		NumBlocks:        math.MaxUint32,
 	})
 
 	// The graph should not be considered as synced since the initial
@@ -620,20 +531,14 @@ func assertTransitionToChansSynced(t *testing.T, s *GossipSyncer, peer *mockPeer
 
 	query := &lnwire.QueryChannelRange{
 		FirstBlockHeight: 0,
-		NumBlocks:        latestKnownHeight,
+		NumBlocks:        math.MaxUint32,
 	}
 	assertMsgSent(t, peer, query)
 
-	require.Eventually(t, func() bool {
-		return s.syncState() == waitingQueryRangeReply
-	}, time.Second, 500*time.Millisecond)
-
-	require.NoError(t, s.ProcessQueryMsg(&lnwire.ReplyChannelRange{
-		ChainHash:        query.ChainHash,
-		FirstBlockHeight: query.FirstBlockHeight,
-		NumBlocks:        query.NumBlocks,
-		Complete:         1,
-	}, nil))
+	s.ProcessQueryMsg(&lnwire.ReplyChannelRange{
+		QueryChannelRange: *query,
+		Complete:          1,
+	}, nil)
 
 	chanSeries := s.cfg.channelSeries.(*mockChannelGraphTimeSeries)
 

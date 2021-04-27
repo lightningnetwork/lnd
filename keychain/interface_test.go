@@ -42,9 +42,6 @@ var (
 		0x4f, 0x2f, 0x6f, 0x25, 0x98, 0xa3, 0xef, 0xb9,
 		0x69, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
 	}
-
-	// testDBTimeout is the wallet db timeout value used in this test.
-	testDBTimeout = time.Second * 10
 )
 
 func createTestBtcWallet(coinType uint32) (func(), *wallet.Wallet, error) {
@@ -65,9 +62,7 @@ func createTestBtcWallet(coinType uint32) (func(), *wallet.Wallet, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	loader := wallet.NewLoader(
-		&chaincfg.SimNetParams, tempDir, true, testDBTimeout, 0,
-	)
+	loader := wallet.NewLoader(&chaincfg.SimNetParams, tempDir, true, 0)
 
 	pass := []byte("test")
 

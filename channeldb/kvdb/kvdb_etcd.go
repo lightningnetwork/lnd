@@ -28,7 +28,6 @@ func GetEtcdBackend(ctx context.Context, prefix string,
 		KeyFile:            etcdConfig.KeyFile,
 		InsecureSkipVerify: etcdConfig.InsecureSkipVerify,
 		Prefix:             prefix,
-		Namespace:          etcdConfig.Namespace,
 		CollectCommitStats: etcdConfig.CollectStats,
 	}
 
@@ -37,14 +36,10 @@ func GetEtcdBackend(ctx context.Context, prefix string,
 
 // GetEtcdTestBackend creates an embedded etcd backend for testing
 // storig the database at the passed path.
-func GetEtcdTestBackend(path string, clientPort, peerPort uint16) (
-	Backend, func(), error) {
-
+func GetEtcdTestBackend(path, name string) (Backend, func(), error) {
 	empty := func() {}
 
-	config, cleanup, err := etcd.NewEmbeddedEtcdInstance(
-		path, clientPort, peerPort,
-	)
+	config, cleanup, err := etcd.NewEmbeddedEtcdInstance(path)
 	if err != nil {
 		return nil, empty, err
 	}

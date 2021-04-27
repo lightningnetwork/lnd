@@ -931,9 +931,9 @@ func (i *nurseryStoreInterceptor) HeightsBelowOrEqual(height uint32) (
 }
 
 func (i *nurseryStoreInterceptor) ForChanOutputs(chanPoint *wire.OutPoint,
-	callback func([]byte, []byte) error, reset func()) error {
+	callback func([]byte, []byte) error) error {
 
-	return i.ns.ForChanOutputs(chanPoint, callback, reset)
+	return i.ns.ForChanOutputs(chanPoint, callback)
 }
 
 func (i *nurseryStoreInterceptor) ListChannels() ([]wire.OutPoint, error) {

@@ -1266,7 +1266,7 @@ func startRestProxy(cfg *Config, rpcServer *rpcServer, restDialOpts []grpc.DialO
 
 	// Wrap the default grpc-gateway handler with the WebSocket handler.
 	restHandler := lnrpc.NewWebSocketProxy(
-		mux, rpcsLog, lnrpc.DefaultPingInterval, lnrpc.DefaultPongWait,
+		mux, rpcsLog, cfg.WSPingInterval, cfg.WSPongWait,
 		lnrpc.LndClientStreamingURIs,
 	)
 

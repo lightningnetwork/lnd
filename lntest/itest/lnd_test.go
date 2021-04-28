@@ -48,6 +48,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -1219,12 +1220,11 @@ func channelCommitType(node *lntest.HarnessNode,
 // assertChannelBalanceResp makes a ChannelBalance request and checks the
 // returned response matches the expected.
 func assertChannelBalanceResp(t *harnessTest,
-	node *lntest.HarnessNode, expected *lnrpc.ChannelBalanceResponse) {
+	node *lntest.HarnessNode,
+	expected *lnrpc.ChannelBalanceResponse) { // nolint:interfacer
 
 	resp := getChannelBalance(t, node)
-	require.Equal(
-		t.t, expected, resp, "balance is incorrect",
-	)
+	require.True(t.t, proto.Equal(expected, resp), "balance is incorrect")
 }
 
 // getChannelBalance gets the channel balance.
@@ -12787,13 +12787,7 @@ func testMissionControlCfg(t *testing.T, node *lntest.HarnessNode) {
 		ctxb, &routerrpc.GetMissionControlConfigRequest{},
 	)
 	require.NoError(t, err)
-
-	// Set the hidden fields on the cfg we set so that we can use require
-	// equal rather than comparing field by field.
-	cfg.XXX_sizecache = resp.XXX_sizecache
-	cfg.XXX_NoUnkeyedLiteral = resp.XXX_NoUnkeyedLiteral
-	cfg.XXX_unrecognized = resp.XXX_unrecognized
-	require.Equal(t, cfg, resp.Config)
+	require.True(t, proto.Equal(cfg, resp.Config))
 
 	_, err = node.RouterClient.SetMissionControlConfig(
 		ctxb, &routerrpc.SetMissionControlConfigRequest{

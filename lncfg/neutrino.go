@@ -15,4 +15,6 @@ type Neutrino struct {
 	UserAgentName      string        `long:"useragentname" description:"Used to help identify ourselves to other bitcoin peers"`
 	UserAgentVersion   string        `long:"useragentversion" description:"Used to help identify ourselves to other bitcoin peers"`
 	ValidateChannels   bool          `long:"validatechannels" description:"Validate every channel in the graph during sync by downloading the containing block. This is the inverse of routing.assumechanvalid, meaning that for Neutrino the validation is turned off by default for massively increased graph sync performance. This speedup comes at the risk of using an unvalidated view of the network for routing. Overwrites the value of routing.assumechanvalid if Neutrino is used. (default: false)"`
+	BroadcastTimeout   time.Duration `long:"broadcasttimeout" description:"The amount of time to wait before giving up on a transaction broadcast attempt."`
+	PersistFilters     bool          `long:"persistfilters" description:"Whether compact filters fetched from the P2P network should be persisted to disk."`
 }

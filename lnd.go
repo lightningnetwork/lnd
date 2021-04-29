@@ -1272,7 +1272,10 @@ func startRestProxy(cfg *Config, rpcServer *rpcServer, restDialOpts []grpc.DialO
 	}
 
 	// Wrap the default grpc-gateway handler with the WebSocket handler.
-	restHandler := lnrpc.NewWebSocketProxy(mux, rpcsLog)
+	restHandler := lnrpc.NewWebSocketProxy(
+		mux, rpcsLog, cfg.WSPingInterval, cfg.WSPongWait,
+		lnrpc.LndClientStreamingURIs,
+	)
 
 	// Use a WaitGroup so we can be sure the instructions on how to input the
 	// password is the last thing to be printed to the console.

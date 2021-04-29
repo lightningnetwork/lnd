@@ -47,6 +47,9 @@ var (
 		TLSClientConfig:  insecureTransport.TLSClientConfig,
 	}
 	resultPattern = regexp.MustCompile("{\"result\":(.*)}")
+	closeMsg      = websocket.FormatCloseMessage(
+		websocket.CloseNormalClosure, "done",
+	)
 )
 
 // testRestAPI tests that the most important features of the REST API work
@@ -185,204 +188,19 @@ func testRestAPI(net *lntest.NetworkHarness, ht *harnessTest) {
 			)
 			assert.Equal(t, 0, len(body))
 		},
-	}, {
+	}}
+	wsTestCases := []struct {
+		name string
+		run  func(ht *harnessTest, net *lntest.NetworkHarness)
+	}{{
 		name: "websocket subscription",
-		run: func(t *testing.T, a, b *lntest.HarnessNode) {
-			// Find out the current best block so we can subscribe
-			// to the next one.
-			hash, height, err := net.Miner.Client.GetBestBlock()
-			require.Nil(t, err, "get best block")
-
-			// Create a new subscription to get block epoch events.
-			req := &chainrpc.BlockEpoch{
-				Hash:   hash.CloneBytes(),
-				Height: uint32(height),
-			}
-			url := "/v2/chainnotifier/register/blocks"
-			c, err := openWebSocket(a, url, "POST", req, nil)
-			require.Nil(t, err, "websocket")
-			defer func() {
-				_ = c.WriteMessage(
-					websocket.CloseMessage,
-					websocket.FormatCloseMessage(
-						websocket.CloseNormalClosure,
-						"done",
-					),
-				)
-				_ = c.Close()
-			}()
-
-			msgChan := make(chan *chainrpc.BlockEpoch)
-			errChan := make(chan error)
-			timeout := time.After(defaultTimeout)
-
-			// We want to read exactly one message.
-			go func() {
-				defer close(msgChan)
-
-				_, msg, err := c.ReadMessage()
-				if err != nil {
-					errChan <- err
-					return
-				}
-
-				// The chunked/streamed responses come wrapped
-				// in either a {"result":{}} or {"error":{}}
-				// wrapper which we'll get rid of here.
-				msgStr := string(msg)
-				if !strings.Contains(msgStr, "\"result\":") {
-					errChan <- fmt.Errorf("invalid msg: %s",
-						msgStr)
-					return
-				}
-				msgStr = resultPattern.ReplaceAllString(
-					msgStr, "${1}",
-				)
-
-				// Make sure we can parse the unwrapped message
-				// into the expected proto message.
-				protoMsg := &chainrpc.BlockEpoch{}
-				err = jsonpb.UnmarshalString(
-					msgStr, protoMsg,
-				)
-				if err != nil {
-					errChan <- err
-					return
-				}
-
-				select {
-				case msgChan <- protoMsg:
-				case <-timeout:
-				}
-			}()
-
-			// Mine a block and make sure we get a message for it.
-			blockHashes, err := net.Miner.Client.Generate(1)
-			require.Nil(t, err, "generate blocks")
-			assert.Equal(t, 1, len(blockHashes), "num blocks")
-			select {
-			case msg := <-msgChan:
-				assert.Equal(
-					t, blockHashes[0].CloneBytes(),
-					msg.Hash, "block hash",
-				)
-
-			case err := <-errChan:
-				t.Fatalf("Received error from WS: %v", err)
-
-			case <-timeout:
-				t.Fatalf("Timeout before message was received")
-			}
-		},
+		run:  wsTestCaseSubscription,
 	}, {
 		name: "websocket subscription with macaroon in protocol",
-		run: func(t *testing.T, a, b *lntest.HarnessNode) {
-			// Find out the current best block so we can subscribe
-			// to the next one.
-			hash, height, err := net.Miner.Client.GetBestBlock()
-			require.Nil(t, err, "get best block")
-
-			// Create a new subscription to get block epoch events.
-			req := &chainrpc.BlockEpoch{
-				Hash:   hash.CloneBytes(),
-				Height: uint32(height),
-			}
-			url := "/v2/chainnotifier/register/blocks"
-
-			// This time we send the macaroon in the special header
-			// Sec-Websocket-Protocol which is the only header field
-			// available to browsers when opening a WebSocket.
-			mac, err := a.ReadMacaroon(
-				a.AdminMacPath(), defaultTimeout,
-			)
-			require.NoError(t, err, "read admin mac")
-			macBytes, err := mac.MarshalBinary()
-			require.NoError(t, err, "marshal admin mac")
-
-			customHeader := make(http.Header)
-			customHeader.Set(
-				lnrpc.HeaderWebSocketProtocol, fmt.Sprintf(
-					"Grpc-Metadata-Macaroon+%s",
-					hex.EncodeToString(macBytes),
-				),
-			)
-			c, err := openWebSocket(
-				a, url, "POST", req, customHeader,
-			)
-			require.Nil(t, err, "websocket")
-			defer func() {
-				_ = c.WriteMessage(
-					websocket.CloseMessage,
-					websocket.FormatCloseMessage(
-						websocket.CloseNormalClosure,
-						"done",
-					),
-				)
-				_ = c.Close()
-			}()
-
-			msgChan := make(chan *chainrpc.BlockEpoch)
-			errChan := make(chan error)
-			timeout := time.After(defaultTimeout)
-
-			// We want to read exactly one message.
-			go func() {
-				defer close(msgChan)
-
-				_, msg, err := c.ReadMessage()
-				if err != nil {
-					errChan <- err
-					return
-				}
-
-				// The chunked/streamed responses come wrapped
-				// in either a {"result":{}} or {"error":{}}
-				// wrapper which we'll get rid of here.
-				msgStr := string(msg)
-				if !strings.Contains(msgStr, "\"result\":") {
-					errChan <- fmt.Errorf("invalid msg: %s",
-						msgStr)
-					return
-				}
-				msgStr = resultPattern.ReplaceAllString(
-					msgStr, "${1}",
-				)
-
-				// Make sure we can parse the unwrapped message
-				// into the expected proto message.
-				protoMsg := &chainrpc.BlockEpoch{}
-				err = jsonpb.UnmarshalString(
-					msgStr, protoMsg,
-				)
-				if err != nil {
-					errChan <- err
-					return
-				}
-
-				select {
-				case msgChan <- protoMsg:
-				case <-timeout:
-				}
-			}()
-
-			// Mine a block and make sure we get a message for it.
-			blockHashes, err := net.Miner.Client.Generate(1)
-			require.Nil(t, err, "generate blocks")
-			assert.Equal(t, 1, len(blockHashes), "num blocks")
-			select {
-			case msg := <-msgChan:
-				assert.Equal(
-					t, blockHashes[0].CloneBytes(),
-					msg.Hash, "block hash",
-				)
-
-			case err := <-errChan:
-				t.Fatalf("Received error from WS: %v", err)
-
-			case <-timeout:
-				t.Fatalf("Timeout before message was received")
-			}
-		},
+		run:  wsTestCaseSubscriptionMacaroon,
+	}, {
+		name: "websocket bi-directional subscription",
+		run:  wsTestCaseBiDirectionalSubscription,
 	}}
 
 	// Make sure Alice allows all CORS origins. Bob will keep the default.
@@ -401,6 +219,310 @@ func testRestAPI(net *lntest.NetworkHarness, ht *harnessTest) {
 			tc.run(t, net.Alice, net.Bob)
 		})
 	}
+
+	for _, tc := range wsTestCases {
+		tc := tc
+		ht.t.Run(tc.name, func(t *testing.T) {
+			ht := &harnessTest{
+				t: t, testCase: ht.testCase, lndHarness: net,
+			}
+			tc.run(ht, net)
+		})
+	}
+}
+
+func wsTestCaseSubscription(ht *harnessTest, net *lntest.NetworkHarness) {
+	// Find out the current best block so we can subscribe to the next one.
+	hash, height, err := net.Miner.Client.GetBestBlock()
+	require.Nil(ht.t, err, "get best block")
+
+	// Create a new subscription to get block epoch events.
+	req := &chainrpc.BlockEpoch{
+		Hash:   hash.CloneBytes(),
+		Height: uint32(height),
+	}
+	url := "/v2/chainnotifier/register/blocks"
+	c, err := openWebSocket(net.Alice, url, "POST", req, nil)
+	require.Nil(ht.t, err, "websocket")
+	defer func() {
+		err := c.WriteMessage(websocket.CloseMessage, closeMsg)
+		require.NoError(ht.t, err)
+		_ = c.Close()
+	}()
+
+	msgChan := make(chan *chainrpc.BlockEpoch)
+	errChan := make(chan error)
+	timeout := time.After(defaultTimeout)
+
+	// We want to read exactly one message.
+	go func() {
+		defer close(msgChan)
+
+		_, msg, err := c.ReadMessage()
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		// The chunked/streamed responses come wrapped in either a
+		// {"result":{}} or {"error":{}} wrapper which we'll get rid of
+		// here.
+		msgStr := string(msg)
+		if !strings.Contains(msgStr, "\"result\":") {
+			errChan <- fmt.Errorf("invalid msg: %s", msgStr)
+			return
+		}
+		msgStr = resultPattern.ReplaceAllString(msgStr, "${1}")
+
+		// Make sure we can parse the unwrapped message into the
+		// expected proto message.
+		protoMsg := &chainrpc.BlockEpoch{}
+		err = jsonpb.UnmarshalString(msgStr, protoMsg)
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		select {
+		case msgChan <- protoMsg:
+		case <-timeout:
+		}
+	}()
+
+	// Mine a block and make sure we get a message for it.
+	blockHashes, err := net.Miner.Client.Generate(1)
+	require.Nil(ht.t, err, "generate blocks")
+	assert.Equal(ht.t, 1, len(blockHashes), "num blocks")
+	select {
+	case msg := <-msgChan:
+		assert.Equal(
+			ht.t, blockHashes[0].CloneBytes(), msg.Hash,
+			"block hash",
+		)
+
+	case err := <-errChan:
+		ht.t.Fatalf("Received error from WS: %v", err)
+
+	case <-timeout:
+		ht.t.Fatalf("Timeout before message was received")
+	}
+}
+
+func wsTestCaseSubscriptionMacaroon(ht *harnessTest,
+	net *lntest.NetworkHarness) {
+
+	// Find out the current best block so we can subscribe to the next one.
+	hash, height, err := net.Miner.Client.GetBestBlock()
+	require.Nil(ht.t, err, "get best block")
+
+	// Create a new subscription to get block epoch events.
+	req := &chainrpc.BlockEpoch{
+		Hash:   hash.CloneBytes(),
+		Height: uint32(height),
+	}
+	url := "/v2/chainnotifier/register/blocks"
+
+	// This time we send the macaroon in the special header
+	// Sec-Websocket-Protocol which is the only header field available to
+	// browsers when opening a WebSocket.
+	mac, err := net.Alice.ReadMacaroon(
+		net.Alice.AdminMacPath(), defaultTimeout,
+	)
+	require.NoError(ht.t, err, "read admin mac")
+	macBytes, err := mac.MarshalBinary()
+	require.NoError(ht.t, err, "marshal admin mac")
+
+	customHeader := make(http.Header)
+	customHeader.Set(lnrpc.HeaderWebSocketProtocol, fmt.Sprintf(
+		"Grpc-Metadata-Macaroon+%s", hex.EncodeToString(macBytes),
+	))
+	c, err := openWebSocket(net.Alice, url, "POST", req, customHeader)
+	require.Nil(ht.t, err, "websocket")
+	defer func() {
+		err := c.WriteMessage(websocket.CloseMessage, closeMsg)
+		require.NoError(ht.t, err)
+		_ = c.Close()
+	}()
+
+	msgChan := make(chan *chainrpc.BlockEpoch)
+	errChan := make(chan error)
+	timeout := time.After(defaultTimeout)
+
+	// We want to read exactly one message.
+	go func() {
+		defer close(msgChan)
+
+		_, msg, err := c.ReadMessage()
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		// The chunked/streamed responses come wrapped in either a
+		// {"result":{}} or {"error":{}} wrapper which we'll get rid of
+		// here.
+		msgStr := string(msg)
+		if !strings.Contains(msgStr, "\"result\":") {
+			errChan <- fmt.Errorf("invalid msg: %s", msgStr)
+			return
+		}
+		msgStr = resultPattern.ReplaceAllString(msgStr, "${1}")
+
+		// Make sure we can parse the unwrapped message into the
+		// expected proto message.
+		protoMsg := &chainrpc.BlockEpoch{}
+		err = jsonpb.UnmarshalString(msgStr, protoMsg)
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		select {
+		case msgChan <- protoMsg:
+		case <-timeout:
+		}
+	}()
+
+	// Mine a block and make sure we get a message for it.
+	blockHashes, err := net.Miner.Client.Generate(1)
+	require.Nil(ht.t, err, "generate blocks")
+	assert.Equal(ht.t, 1, len(blockHashes), "num blocks")
+	select {
+	case msg := <-msgChan:
+		assert.Equal(
+			ht.t, blockHashes[0].CloneBytes(), msg.Hash,
+			"block hash",
+		)
+
+	case err := <-errChan:
+		ht.t.Fatalf("Received error from WS: %v", err)
+
+	case <-timeout:
+		ht.t.Fatalf("Timeout before message was received")
+	}
+}
+
+func wsTestCaseBiDirectionalSubscription(ht *harnessTest,
+	net *lntest.NetworkHarness) {
+
+	initialRequest := &lnrpc.ChannelAcceptResponse{}
+	url := "/v1/channels/acceptor"
+
+	// This time we send the macaroon in the special header
+	// Sec-Websocket-Protocol which is the only header field available to
+	// browsers when opening a WebSocket.
+	mac, err := net.Alice.ReadMacaroon(
+		net.Alice.AdminMacPath(), defaultTimeout,
+	)
+	require.NoError(ht.t, err, "read admin mac")
+	macBytes, err := mac.MarshalBinary()
+	require.NoError(ht.t, err, "marshal admin mac")
+
+	customHeader := make(http.Header)
+	customHeader.Set(lnrpc.HeaderWebSocketProtocol, fmt.Sprintf(
+		"Grpc-Metadata-Macaroon+%s", hex.EncodeToString(macBytes),
+	))
+	conn, err := openWebSocket(
+		net.Alice, url, "POST", initialRequest, customHeader,
+	)
+	require.Nil(ht.t, err, "websocket")
+	defer func() {
+		err := conn.WriteMessage(websocket.CloseMessage, closeMsg)
+		require.NoError(ht.t, err)
+		_ = conn.Close()
+	}()
+
+	msgChan := make(chan *lnrpc.ChannelAcceptResponse)
+	errChan := make(chan error)
+	done := make(chan struct{})
+	timeout := time.After(defaultTimeout)
+
+	// We want to read messages over and over again. We just accept any
+	// channels that are opened.
+	go func() {
+		for {
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				errChan <- err
+				return
+			}
+
+			// The chunked/streamed responses come wrapped in either
+			// a {"result":{}} or {"error":{}} wrapper which we'll
+			// get rid of here.
+			msgStr := string(msg)
+			if !strings.Contains(msgStr, "\"result\":") {
+				errChan <- fmt.Errorf("invalid msg: %s", msgStr)
+				return
+			}
+			msgStr = resultPattern.ReplaceAllString(msgStr, "${1}")
+
+			// Make sure we can parse the unwrapped message into the
+			// expected proto message.
+			protoMsg := &lnrpc.ChannelAcceptRequest{}
+			err = jsonpb.UnmarshalString(msgStr, protoMsg)
+			if err != nil {
+				errChan <- err
+				return
+			}
+
+			// Send the response that we accept the channel.
+			res := &lnrpc.ChannelAcceptResponse{
+				Accept:        true,
+				PendingChanId: protoMsg.PendingChanId,
+			}
+			resMsg, err := jsonMarshaler.MarshalToString(res)
+			if err != nil {
+				errChan <- err
+				return
+			}
+			err = conn.WriteMessage(
+				websocket.TextMessage, []byte(resMsg),
+			)
+			if err != nil {
+				errChan <- err
+				return
+			}
+
+			// Also send the message on our message channel to make
+			// sure we count it as successful.
+			msgChan <- res
+
+			// Are we done or should there be more messages?
+			select {
+			case <-done:
+				return
+			default:
+			}
+		}
+	}()
+
+	// Before we start opening channels, make sure the two nodes are
+	// connected.
+	err = net.EnsureConnected(context.Background(), net.Alice, net.Bob)
+	require.NoError(ht.t, err)
+
+	// Open 3 channels to make sure multiple requests and responses can be
+	// sent over the web socket.
+	const numChannels = 3
+	for i := 0; i < numChannels; i++ {
+		openChannelAndAssert(
+			context.Background(), ht, net, net.Bob, net.Alice,
+			lntest.OpenChannelParams{
+				Amt: 500000,
+			},
+		)
+
+		select {
+		case <-msgChan:
+		case err := <-errChan:
+			ht.t.Fatalf("Received error from WS: %v", err)
+
+		case <-timeout:
+			ht.t.Fatalf("Timeout before message was received")
+		}
+	}
+	close(done)
 }
 
 // invokeGET calls the given URL with the GET method and appropriate macaroon

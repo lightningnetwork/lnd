@@ -97,3 +97,55 @@ ws.on('message', function(body) {
 //      "height": <int64>, 
 //  }
 ```
+
+## Request-streaming RPCs
+
+Starting with `lnd v0.13.0-beta` all RPCs can be used through REST, even those
+that are fully bi-directional (e.g. the client can also send multiple request
+messages to the stream).
+
+**Example**:
+
+As an example we show how one can use the bi-directional channel acceptor RPC.
+Through that RPC each incoming channel open request (another peer opening a
+channel to our node) will be passed in for inspection. We can decide
+programmatically whether to accept or reject the channel.
+
+```javascript
+// --------------------------
+// Example with websockets:
+// --------------------------
+const WebSocket = require('ws');
+const fs = require('fs');
+const macaroon = fs.readFileSync('LND_DIR/data/chain/bitcoin/simnet/admin.macaroon').toString('hex');
+let ws = new WebSocket('wss://localhost:8080/v1/channels/acceptor?method=POST', {
+  // Work-around for self-signed certificates.
+  rejectUnauthorized: false,
+  headers: {
+    'Grpc-Metadata-Macaroon': macaroon,
+  },
+});
+ws.on('open', function() {
+    // We always _need_ to send an initial message to kickstart the request.
+    // This empty message will be ignored by the channel acceptor though, this
+    // is just for telling the grpc-gateway library that it can forward the
+    // request to the gRPC interface now. If this were an RPC where the client
+    // always sends the first message (for example the streaming payment RPC
+    // /v1/channels/transaction-stream), we'd simply send the first "real"
+    // message here when needed.
+    ws.send('{}');
+});
+ws.on('error', function(err) {
+    console.log('Error: ' + err);
+});
+ws.on('ping', function ping(event) {
+   console.log('Received ping from server: ' + JSON.stringify(event)); 
+});
+ws.on('message', function incoming(event) {
+    console.log('New channel accept message: ' + event);
+    const result = JSON.parse(event).result;
+    
+    // Accept the channel after inspecting it.
+    ws.send(JSON.stringify({accept: true, pending_chan_id: result.pending_chan_id}));
+});
+```

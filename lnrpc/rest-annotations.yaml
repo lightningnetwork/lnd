@@ -1,6 +1,10 @@
 type: google.api.Service
 config_version: 3
 
+# Mapping for the grpc-gateway REST proxy.
+# Please make sure to also update the `metadata.go` file when editing this file
+# and adding a new client-streaming RPC!
+
 http:
   rules:
     # rpc.proto
@@ -61,12 +65,15 @@ http:
       post: "/v1/funding/step"
       body: "*"
     - selector: lnrpc.Lightning.ChannelAcceptor
-      # request streaming RPC, REST not supported
+      post: "/v1/channels/acceptor"
+      body: "*"
     - selector: lnrpc.Lightning.CloseChannel
       delete: "/v1/channels/{channel_point.funding_txid_str}/{channel_point.output_index}"
     - selector: lnrpc.Lightning.AbandonChannel
       delete: "/v1/channels/abandon/{channel_point.funding_txid_str}/{channel_point.output_index}"
     - selector: lnrpc.Lightning.SendPayment
+      post: "/v1/channels/transaction-stream"
+      body: "*"
     - selector: lnrpc.Lightning.SendPaymentSync
       post: "/v1/channels/transactions"
       body: "*"
@@ -228,7 +235,8 @@ http:
     - selector: routerrpc.Router.TrackPayment
       # deprecated, no REST endpoint
     - selector: routerrpc.HtlcInterceptor
-      # request streaming RPC, REST not supported
+      post: "/v2/router/htlcinterceptor"
+      body: "*"
     - selector: routerrpc.UpdateChanStatus
       post: "/v2/router/updatechanstatus"
       body: "*"

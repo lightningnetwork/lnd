@@ -1031,7 +1031,8 @@ func (d *AuthenticatedGossiper) networkHandler() {
 					announcement.msg,
 				)
 				if err != nil {
-					if err != routing.ErrVBarrierShuttingDown {
+					if err != routing.ErrVBarrierShuttingDown &&
+						err != routing.ErrParentValidationFailed {
 						log.Warnf("unexpected error "+
 							"during validation "+
 							"barrier shutdown: %v",
@@ -1561,7 +1562,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 				routing.ErrIgnored) {
 
 				log.Debug(err)
-			} else {
+			} else if err != routing.ErrVBarrierShuttingDown {
 				log.Error(err)
 			}
 
@@ -2042,7 +2043,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			if routing.IsError(err, routing.ErrOutdated,
 				routing.ErrIgnored) {
 				log.Debug(err)
-			} else {
+			} else if err != routing.ErrVBarrierShuttingDown {
 				d.rejectMtx.Lock()
 				d.recentRejects[msg.ShortChannelID.ToUint64()] = struct{}{}
 				d.rejectMtx.Unlock()

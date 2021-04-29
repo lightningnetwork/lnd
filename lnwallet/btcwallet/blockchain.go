@@ -8,10 +8,10 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightninglabs/neutrino/headerfs"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
@@ -127,10 +127,25 @@ func (b *BtcWallet) GetUtxo(op *wire.OutPoint, pkScript []byte,
 	}
 }
 
-// GetBlock returns a raw block from the server given its hash.
+// GetBlock returns a raw block from the server given its hash. For the Neutrino
+// implementation of the lnwallet.BlockChainIO interface, the Neutrino GetBlock
+// method is called directly. For other implementations, the block cache is used
+// to wrap the call to GetBlock.
 //
 // This method is a part of the lnwallet.BlockChainIO interface.
 func (b *BtcWallet) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) {
+	_, ok := b.chain.(*chain.NeutrinoClient)
+	if !ok {
+		return b.blockCache.GetBlock(blockHash, b.chain.GetBlock)
+	}
+
+	// For the neutrino implementation of lnwallet.BlockChainIO the neutrino
+	// GetBlock function can be called directly since it uses the same block
+	// cache. However, it does not lock the block cache mutex for the given
+	// block hash and so that is done here.
+	b.blockCache.HashMutex.Lock(lntypes.Hash(*blockHash))
+	defer b.blockCache.HashMutex.Unlock(lntypes.Hash(*blockHash))
+
 	return b.chain.GetBlock(blockHash)
 }
 

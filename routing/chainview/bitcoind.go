@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/wtxmgr"
+	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/channeldb"
 )
 
@@ -37,6 +38,9 @@ type BitcoindFilteredChainView struct {
 	// chainView.
 	blockQueue *blockEventQueue
 
+	// blockCache is an LRU block cache.
+	blockCache *blockcache.BlockCache
+
 	// filterUpdates is a channel in which updates to the utxo filter
 	// attached to this instance are sent over.
 	filterUpdates chan filterUpdate
@@ -61,12 +65,14 @@ var _ FilteredChainView = (*BitcoindFilteredChainView)(nil)
 // NewBitcoindFilteredChainView creates a new instance of a FilteredChainView
 // from RPC credentials and a ZMQ socket address for a bitcoind instance.
 func NewBitcoindFilteredChainView(
-	chainConn *chain.BitcoindConn) *BitcoindFilteredChainView {
+	chainConn *chain.BitcoindConn,
+	blockCache *blockcache.BlockCache) *BitcoindFilteredChainView {
 
 	chainView := &BitcoindFilteredChainView{
 		chainFilter:     make(map[wire.OutPoint]struct{}),
 		filterUpdates:   make(chan filterUpdate),
 		filterBlockReqs: make(chan *filterBlockReq),
+		blockCache:      blockCache,
 		quit:            make(chan struct{}),
 	}
 
@@ -390,7 +396,7 @@ func (b *BitcoindFilteredChainView) chainFilterer() {
 		case req := <-b.filterBlockReqs:
 			// First we'll fetch the block itself as well as some
 			// additional information including its height.
-			block, err := b.chainClient.GetBlock(req.blockHash)
+			block, err := b.GetBlock(req.blockHash)
 			if err != nil {
 				req.err <- err
 				req.resp <- nil
@@ -478,4 +484,12 @@ func (b *BitcoindFilteredChainView) FilteredBlocks() <-chan *FilteredBlock {
 // NOTE: This is part of the FilteredChainView interface.
 func (b *BitcoindFilteredChainView) DisconnectedBlocks() <-chan *FilteredBlock {
 	return b.blockQueue.staleBlocks
+}
+
+// GetBlock is used to retrieve the block with the given hash. This function
+// wraps the blockCache's GetBlock function.
+func (b *BitcoindFilteredChainView) GetBlock(hash *chainhash.Hash) (
+	*wire.MsgBlock, error) {
+
+	return b.blockCache.GetBlock(hash, b.chainClient.GetBlock)
 }

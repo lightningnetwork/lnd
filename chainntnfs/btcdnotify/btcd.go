@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/queue"
 )
@@ -69,6 +70,9 @@ type BtcdNotifier struct {
 
 	bestBlock chainntnfs.BlockEpoch
 
+	// blockCache is a LRU block cache.
+	blockCache *blockcache.BlockCache
+
 	chainUpdates *queue.ConcurrentQueue
 	txUpdates    *queue.ConcurrentQueue
 
@@ -94,7 +98,8 @@ var _ chainntnfs.ChainNotifier = (*BtcdNotifier)(nil)
 // accept new websockets clients.
 func New(config *rpcclient.ConnConfig, chainParams *chaincfg.Params,
 	spendHintCache chainntnfs.SpendHintCache,
-	confirmHintCache chainntnfs.ConfirmHintCache) (*BtcdNotifier, error) {
+	confirmHintCache chainntnfs.ConfirmHintCache,
+	blockCache *blockcache.BlockCache) (*BtcdNotifier, error) {
 
 	notifier := &BtcdNotifier{
 		chainParams: chainParams,
@@ -109,6 +114,8 @@ func New(config *rpcclient.ConnConfig, chainParams *chaincfg.Params,
 
 		spendHintCache:   spendHintCache,
 		confirmHintCache: confirmHintCache,
+
+		blockCache: blockCache,
 
 		quit: make(chan struct{}),
 	}
@@ -578,7 +585,7 @@ func (b *BtcdNotifier) confDetailsManually(confRequest chainntnfs.ConfRequest,
 		}
 
 		// TODO: fetch the neutrino filters instead.
-		block, err := b.chainConn.GetBlock(blockHash)
+		block, err := b.GetBlock(blockHash)
 		if err != nil {
 			return nil, chainntnfs.TxNotFoundManually,
 				fmt.Errorf("unable to get block with hash "+
@@ -616,7 +623,7 @@ func (b *BtcdNotifier) handleBlockConnected(epoch chainntnfs.BlockEpoch) error {
 	// First, we'll fetch the raw block as we'll need to gather all the
 	// transactions to determine whether any are relevant to our registered
 	// clients.
-	rawBlock, err := b.chainConn.GetBlock(epoch.Hash)
+	rawBlock, err := b.GetBlock(epoch.Hash)
 	if err != nil {
 		return fmt.Errorf("unable to get block: %v", err)
 	}
@@ -1011,4 +1018,12 @@ func (b *BtcdNotifier) RegisterBlockEpochNtfn(
 			},
 		}, nil
 	}
+}
+
+// GetBlock is used to retrieve the block with the given hash. This function
+// wraps the blockCache's GetBlock function.
+func (b *BtcdNotifier) GetBlock(hash *chainhash.Hash) (*wire.MsgBlock,
+	error) {
+
+	return b.blockCache.GetBlock(hash, b.chainConn.GetBlock)
 }

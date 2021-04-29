@@ -32,6 +32,7 @@ import (
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/neutrino"
+	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -3204,8 +3205,9 @@ func TestLightningWallet(t *testing.T, targetBackEnd string) {
 	if err != nil {
 		t.Fatalf("unable to create height hint cache: %v", err)
 	}
+	blockCache := blockcache.NewBlockCache(10000)
 	chainNotifier, err := btcdnotify.New(
-		&rpcConfig, netParams, hintCache, hintCache,
+		&rpcConfig, netParams, hintCache, hintCache, blockCache,
 	)
 	if err != nil {
 		t.Fatalf("unable to create notifier: %v", err)
@@ -3261,6 +3263,8 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 		t.Fatalf("unable to create temp directory: %v", err)
 	}
 	defer os.RemoveAll(tempTestDirBob)
+
+	blockCache := blockcache.NewBlockCache(10000)
 
 	walletType := walletDriver.WalletType
 	switch walletType {
@@ -3430,7 +3434,9 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			// wallet starts in recovery mode
 			RecoveryWindow: 2,
 		}
-		aliceWalletController, err = walletDriver.New(aliceWalletConfig)
+		aliceWalletController, err = walletDriver.New(
+			aliceWalletConfig, blockCache,
+		)
 		if err != nil {
 			t.Fatalf("unable to create btcwallet: %v", err)
 		}
@@ -3455,7 +3461,9 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			// wallet starts without recovery mode
 			RecoveryWindow: 0,
 		}
-		bobWalletController, err = walletDriver.New(bobWalletConfig)
+		bobWalletController, err = walletDriver.New(
+			bobWalletConfig, blockCache,
+		)
 		if err != nil {
 			t.Fatalf("unable to create btcwallet: %v", err)
 		}

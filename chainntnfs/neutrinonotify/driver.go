@@ -5,15 +5,16 @@ import (
 	"fmt"
 
 	"github.com/lightninglabs/neutrino"
+	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 )
 
 // createNewNotifier creates a new instance of the ChainNotifier interface
 // implemented by NeutrinoNotifier.
 func createNewNotifier(args ...interface{}) (chainntnfs.ChainNotifier, error) {
-	if len(args) != 3 {
+	if len(args) != 4 {
 		return nil, fmt.Errorf("incorrect number of arguments to "+
-			".New(...), expected 3, instead passed %v", len(args))
+			".New(...), expected 4, instead passed %v", len(args))
 	}
 
 	config, ok := args[0].(*neutrino.ChainService)
@@ -34,7 +35,13 @@ func createNewNotifier(args ...interface{}) (chainntnfs.ChainNotifier, error) {
 			"is  incorrect, expected a chainntfs.ConfirmHintCache")
 	}
 
-	return New(config, spendHintCache, confirmHintCache), nil
+	blockCache, ok := args[3].(*blockcache.BlockCache)
+	if !ok {
+		return nil, errors.New("fourth argument to neutrinonotify.New " +
+			"is incorrect, expected a *blockcache.BlockCache")
+	}
+
+	return New(config, spendHintCache, confirmHintCache, blockCache), nil
 }
 
 // init registers a driver for the NeutrinoNotify concrete implementation of

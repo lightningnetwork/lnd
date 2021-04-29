@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcwallet/chain"
+	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
@@ -16,9 +17,9 @@ const (
 // properly create an instance of the lnwallet.WalletDriver struct for
 // BtcWallet.
 func createNewWallet(args ...interface{}) (lnwallet.WalletController, error) {
-	if len(args) != 1 {
+	if len(args) != 2 {
 		return nil, fmt.Errorf("incorrect number of arguments to .New(...), "+
-			"expected 1, instead passed %v", len(args))
+			"expected 2, instead passed %v", len(args))
 	}
 
 	config, ok := args[0].(*Config)
@@ -27,7 +28,13 @@ func createNewWallet(args ...interface{}) (lnwallet.WalletController, error) {
 			"incorrect, expected a *rpcclient.ConnConfig")
 	}
 
-	return New(*config)
+	blockCache, ok := args[1].(*blockcache.BlockCache)
+	if !ok {
+		return nil, fmt.Errorf("second argument to btcdnotifier.New is " +
+			"incorrect, expected a *blockcache.BlockCache")
+	}
+
+	return New(*config, blockCache)
 }
 
 // init registers a driver for the BtcWallet concrete implementation of the

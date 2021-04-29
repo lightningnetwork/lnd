@@ -26,6 +26,7 @@ import (
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Required to register the boltdb walletdb implementation.
 
 	"github.com/lightninglabs/neutrino"
+	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 )
@@ -844,7 +845,11 @@ var interfaceImpls = []struct {
 				cleanUp2()
 			}
 
-			chainView := NewBitcoindFilteredChainView(chainConn)
+			blockCache := blockcache.NewBlockCache(10000)
+
+			chainView := NewBitcoindFilteredChainView(
+				chainConn, blockCache,
+			)
 
 			return cleanUp3, chainView, nil
 		},
@@ -890,7 +895,11 @@ var interfaceImpls = []struct {
 				os.RemoveAll(spvDir)
 			}
 
-			chainView, err := NewCfFilteredChainView(spvNode)
+			blockCache := blockcache.NewBlockCache(10000)
+
+			chainView, err := NewCfFilteredChainView(
+				spvNode, blockCache,
+			)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -901,7 +910,10 @@ var interfaceImpls = []struct {
 	{
 		name: "btcd_websockets",
 		chainViewInit: func(config rpcclient.ConnConfig, _ string) (func(), FilteredChainView, error) {
-			chainView, err := NewBtcdFilteredChainView(config)
+			blockCache := blockcache.NewBlockCache(10000)
+			chainView, err := NewBtcdFilteredChainView(
+				config, blockCache,
+			)
 			if err != nil {
 				return nil, nil, err
 			}

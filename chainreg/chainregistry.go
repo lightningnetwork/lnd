@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightninglabs/neutrino"
+	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainntnfs/bitcoindnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
@@ -72,6 +73,9 @@ type Config struct {
 
 	// RemoteChanDB is a pointer to the remote backing channel database.
 	RemoteChanDB *channeldb.DB
+
+	// BlockCacheSize is the size (in bytes) of blocks kept in memory.
+	BlockCacheSize uint64
 
 	// PrivateWalletPw is the private wallet password to the underlying
 	// btcwallet instance.
@@ -231,7 +235,8 @@ type ChainControl struct {
 // full-node, another backed by a running bitcoind full-node, and the other
 // backed by a running neutrino light client instance. When running with a
 // neutrino light client instance, `neutrinoCS` must be non-nil.
-func NewChainControl(cfg *Config) (*ChainControl, func(), error) {
+func NewChainControl(cfg *Config, blockCache *blockcache.BlockCache) (
+	*ChainControl, func(), error) {
 
 	// Set the RPC config from the "home" chain. Multi-chain isn't yet
 	// active, so we'll restrict usage to a particular chain for now.
@@ -312,9 +317,11 @@ func NewChainControl(cfg *Config) (*ChainControl, func(), error) {
 		// along with the wallet's ChainSource, which are all backed by
 		// the neutrino light client.
 		cc.ChainNotifier = neutrinonotify.New(
-			cfg.NeutrinoCS, hintCache, hintCache,
+			cfg.NeutrinoCS, hintCache, hintCache, blockCache,
 		)
-		cc.ChainView, err = chainview.NewCfFilteredChainView(cfg.NeutrinoCS)
+		cc.ChainView, err = chainview.NewCfFilteredChainView(
+			cfg.NeutrinoCS, blockCache,
+		)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -409,9 +416,12 @@ func NewChainControl(cfg *Config) (*ChainControl, func(), error) {
 		}
 
 		cc.ChainNotifier = bitcoindnotify.New(
-			bitcoindConn, cfg.ActiveNetParams.Params, hintCache, hintCache,
+			bitcoindConn, cfg.ActiveNetParams.Params, hintCache,
+			hintCache, blockCache,
 		)
-		cc.ChainView = chainview.NewBitcoindFilteredChainView(bitcoindConn)
+		cc.ChainView = chainview.NewBitcoindFilteredChainView(
+			bitcoindConn, blockCache,
+		)
 		walletConfig.ChainSource = bitcoindConn.NewBitcoindClient()
 
 		// If we're not in regtest mode, then we'll attempt to use a
@@ -538,7 +548,8 @@ func NewChainControl(cfg *Config) (*ChainControl, func(), error) {
 			DisableAutoReconnect: false,
 		}
 		cc.ChainNotifier, err = btcdnotify.New(
-			rpcConfig, cfg.ActiveNetParams.Params, hintCache, hintCache,
+			rpcConfig, cfg.ActiveNetParams.Params, hintCache,
+			hintCache, blockCache,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -546,7 +557,9 @@ func NewChainControl(cfg *Config) (*ChainControl, func(), error) {
 
 		// Finally, we'll create an instance of the default chain view to be
 		// used within the routing layer.
-		cc.ChainView, err = chainview.NewBtcdFilteredChainView(*rpcConfig)
+		cc.ChainView, err = chainview.NewBtcdFilteredChainView(
+			*rpcConfig, blockCache,
+		)
 		if err != nil {
 			log.Errorf("unable to create chain view: %v", err)
 			return nil, nil, err
@@ -638,7 +651,7 @@ func NewChainControl(cfg *Config) (*ChainControl, func(), error) {
 		return nil, nil, err
 	}
 
-	wc, err := btcwallet.New(*walletConfig)
+	wc, err := btcwallet.New(*walletConfig, blockCache)
 	if err != nil {
 		fmt.Printf("unable to create wallet controller: %v\n", err)
 		return nil, ccCleanup, err

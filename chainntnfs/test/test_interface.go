@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcwallet/chain"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Required to auto-register the boltdb walletdb implementation.
 	"github.com/lightninglabs/neutrino"
+	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainntnfs/bitcoindnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
@@ -1930,6 +1931,8 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 			t.Fatalf("unable to create height hint cache: %v", err)
 		}
 
+		blockCache := blockcache.NewBlockCache(10000)
+
 		var (
 			cleanUp     func()
 			newNotifier func() (chainntnfs.TestChainNotifier, error)
@@ -1944,7 +1947,7 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
 				return bitcoindnotify.New(
 					bitcoindConn, chainntnfs.NetParams,
-					hintCache, hintCache,
+					hintCache, hintCache, blockCache,
 				), nil
 			}
 
@@ -1952,7 +1955,7 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
 				return btcdnotify.New(
 					&rpcConfig, chainntnfs.NetParams,
-					hintCache, hintCache,
+					hintCache, hintCache, blockCache,
 				)
 			}
 
@@ -1964,6 +1967,7 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
 				return neutrinonotify.New(
 					spvNode, hintCache, hintCache,
+					blockCache,
 				), nil
 			}
 		}

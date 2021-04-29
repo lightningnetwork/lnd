@@ -11,7 +11,9 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/gcs/builder"
 	"github.com/lightninglabs/neutrino"
+	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lntypes"
 )
 
 // CfFilteredChainView is an implementation of the FilteredChainView interface
@@ -40,6 +42,9 @@ type CfFilteredChainView struct {
 	// chainView.
 	blockQueue *blockEventQueue
 
+	// blockCache is an LRU block cache.
+	blockCache *blockcache.BlockCache
+
 	// chainFilter is the
 	filterMtx   sync.RWMutex
 	chainFilter map[wire.OutPoint][]byte
@@ -57,13 +62,15 @@ var _ FilteredChainView = (*CfFilteredChainView)(nil)
 //
 // NOTE: The node should already be running and syncing before being passed into
 // this function.
-func NewCfFilteredChainView(node *neutrino.ChainService) (*CfFilteredChainView, error) {
+func NewCfFilteredChainView(node *neutrino.ChainService,
+	blockCache *blockcache.BlockCache) (*CfFilteredChainView, error) {
 	return &CfFilteredChainView{
 		blockQueue:    newBlockEventQueue(),
 		quit:          make(chan struct{}),
 		rescanErrChan: make(chan error),
 		chainFilter:   make(map[wire.OutPoint][]byte),
 		p2pNode:       node,
+		blockCache:    blockCache,
 	}, nil
 }
 
@@ -269,7 +276,7 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 	// If we reach this point, then there was a match, so we'll need to
 	// fetch the block itself so we can scan it for any actual matches (as
 	// there's a fp rate).
-	block, err := c.p2pNode.GetBlock(*blockHash)
+	block, err := c.GetBlock(*blockHash)
 	if err != nil {
 		return nil, err
 	}
@@ -363,4 +370,19 @@ func (c *CfFilteredChainView) FilteredBlocks() <-chan *FilteredBlock {
 // NOTE: This is part of the FilteredChainView interface.
 func (c *CfFilteredChainView) DisconnectedBlocks() <-chan *FilteredBlock {
 	return c.blockQueue.staleBlocks
+}
+
+// GetBlock is used to retrieve the block with the given hash. Since the block
+// cache used by neutrino will be the same as that used by LND (since it is
+// passed to neutrino on initialisation), the neutrino GetBlock method can be
+// called directly since it already uses the block cache. However, neutrino
+// does not lock the block cache mutex for the given block hash and so that is
+// done here.
+func (c *CfFilteredChainView) GetBlock(hash chainhash.Hash) (
+	*btcutil.Block, error) {
+
+	c.blockCache.HashMutex.Lock(lntypes.Hash(hash))
+	defer c.blockCache.HashMutex.Unlock(lntypes.Hash(hash))
+
+	return c.p2pNode.GetBlock(hash)
 }

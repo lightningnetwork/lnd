@@ -2305,15 +2305,19 @@ func (d *DB) DeleteInvoice(invoicesToDelete []InvoiceDeleteRef) error {
 				// fetched invoice key matches the one in the
 				// payment address index.
 				key := payAddrIndex.Get(ref.PayAddr[:])
-				if !bytes.Equal(key, invoiceKey) {
-					return fmt.Errorf("unknown invoice " +
-						"in pay addr index")
-				}
-
-				// Delete from the payment address index.
-				err := payAddrIndex.Delete(ref.PayAddr[:])
-				if err != nil {
-					return err
+				if bytes.Equal(key, invoiceKey) {
+					// Delete from the payment address index.
+					// Note that since the payment address
+					// index has been introduced with an
+					// empty migration it may be possible
+					// that the index doesn't have an entry
+					// for this invoice.
+					// ref: https://github.com/lightningnetwork/lnd/pull/4285/commits/cbf71b5452fa1d3036a43309e490787c5f7f08dc#r426368127
+					if err := payAddrIndex.Delete(
+						ref.PayAddr[:],
+					); err != nil {
+						return err
+					}
 				}
 			}
 

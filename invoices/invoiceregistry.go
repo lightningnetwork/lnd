@@ -213,8 +213,15 @@ func (i *InvoiceRegistry) scanInvoicesOnStart() error {
 		len(pending))
 	i.expiryWatcher.AddInvoices(pending...)
 
-	if err := i.cdb.DeleteInvoice(removable); err != nil {
-		log.Warnf("Deleting old invoices failed: %v", err)
+	if len(removable) > 0 {
+		log.Infof("Attempting to delete %v canceled invoices",
+			len(removable))
+		if err := i.cdb.DeleteInvoice(removable); err != nil {
+			log.Warnf("Deleting canceled invoices failed: %v", err)
+		} else {
+			log.Infof("Deleted %v canceled invoices",
+				len(removable))
+		}
 	}
 
 	return nil

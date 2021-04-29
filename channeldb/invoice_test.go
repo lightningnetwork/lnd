@@ -2425,15 +2425,6 @@ func TestDeleteInvoices(t *testing.T) {
 	// Restore the hash.
 	invoicesToDelete[0].PayHash[2] ^= 3
 
-	// XOR one byte of one of the references' payment address and attempt
-	// to delete.
-	invoicesToDelete[1].PayAddr[5] ^= 7
-	require.Error(t, db.DeleteInvoice(invoicesToDelete))
-	assertInvoiceCount(3)
-
-	// Restore the payment address.
-	invoicesToDelete[1].PayAddr[5] ^= 7
-
 	// XOR the second invoice's payment settle index as it is settled, and
 	// attempt to delete.
 	invoicesToDelete[1].SettleIndex ^= 11

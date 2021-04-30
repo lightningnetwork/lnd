@@ -2,6 +2,7 @@ package routing
 
 import (
 	"crypto/rand"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -839,7 +840,20 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 	}()
 
 	var resendResult chan error
-	for _, step := range test.steps {
+	for i, step := range test.steps {
+		i, step := i, step
+
+		// fatal is a helper closure that wraps the step info.
+		fatal := func(err string, args ...interface{}) {
+			if args != nil {
+				err = fmt.Sprintf(err, args)
+			}
+			t.Fatalf(
+				"test case: %s failed on step [%v:%s], err: %s",
+				test.name, i, step, err,
+			)
+		}
+
 		switch step {
 
 		case routerInitPayment:
@@ -847,19 +861,18 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 			select {
 			case args = <-control.init:
 			case <-time.After(stepTimeout):
-				t.Fatalf("no init payment with control")
+				fatal("no init payment with control")
 			}
 
 			if args.c == nil {
-				t.Fatalf("expected non-nil CreationInfo")
+				fatal("expected non-nil CreationInfo")
 			}
 
 		case routeRelease:
 			select {
 			case <-routeChan:
-
 			case <-time.After(stepTimeout):
-				t.Fatalf("no route requested")
+				fatal("no route requested")
 			}
 
 		// In this step we expect the router to make a call to
@@ -869,12 +882,11 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 			select {
 			case args = <-control.registerAttempt:
 			case <-time.After(stepTimeout):
-				t.Fatalf("attempt not registered " +
-					"with control")
+				fatal("attempt not registered with control")
 			}
 
 			if args.a == nil {
-				t.Fatalf("expected non-nil AttemptInfo")
+				fatal("expected non-nil AttemptInfo")
 			}
 
 		// In this step we expect the router to call the
@@ -883,7 +895,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 			select {
 			case <-control.settleAttempt:
 			case <-time.After(stepTimeout):
-				t.Fatalf("attempt settle not " +
+				fatal("attempt settle not " +
 					"registered with control")
 			}
 
@@ -894,7 +906,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 			select {
 			case <-control.failAttempt:
 			case <-time.After(stepTimeout):
-				t.Fatalf("attempt fail not " +
+				fatal("attempt fail not " +
 					"registered with control")
 			}
 
@@ -905,7 +917,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 			select {
 			case <-control.failPayment:
 			case <-time.After(stepTimeout):
-				t.Fatalf("payment fail not " +
+				fatal("payment fail not " +
 					"registered with control")
 			}
 
@@ -915,7 +927,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 			select {
 			case sendResult <- nil:
 			case <-time.After(stepTimeout):
-				t.Fatalf("unable to send result")
+				fatal("unable to send result")
 			}
 
 		// In this step we expect the SendToSwitch method to be
@@ -927,7 +939,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 				1,
 			):
 			case <-time.After(stepTimeout):
-				t.Fatalf("unable to send result")
+				fatal("unable to send result")
 			}
 
 		// In this step we expect the GetPaymentResult method
@@ -939,7 +951,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 				Preimage: preImage,
 			}:
 			case <-time.After(stepTimeout):
-				t.Fatalf("unable to send result")
+				fatal("unable to send result")
 			}
 
 		// In this state we expect the GetPaymentResult method
@@ -956,7 +968,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 				Error: failure,
 			}:
 			case <-time.After(stepTimeout):
-				t.Fatalf("unable to get result")
+				fatal("unable to get result")
 			}
 
 		// In this state we expect the router to call the
@@ -974,7 +986,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 				Error: failure,
 			}:
 			case <-time.After(stepTimeout):
-				t.Fatalf("unable to get result")
+				fatal("unable to get result")
 			}
 
 		// In this step we manually try to resend the same
@@ -994,7 +1006,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 			close(getPaymentResult)
 
 			if err := router.Stop(); err != nil {
-				t.Fatalf("unable to restart: %v", err)
+				fatal("unable to restart: %v", err)
 			}
 
 		// In this step we manually start the router.
@@ -1012,7 +1024,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 				require.Equal(t, test.paymentErr, err)
 
 			case <-time.After(stepTimeout):
-				t.Fatalf("got no payment result")
+				fatal("got no payment result")
 			}
 
 		// In this state we expect the original payment to
@@ -1028,7 +1040,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 				}
 
 			case <-time.After(stepTimeout):
-				t.Fatalf("got no payment result")
+				fatal("got no payment result")
 			}
 
 		// In this state we expect to receive an error for the
@@ -1041,7 +1053,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 				}
 
 			case <-time.After(stepTimeout):
-				t.Fatalf("got no payment result")
+				fatal("got no payment result")
 			}
 
 		// In this state we expect the resent payment to
@@ -1054,11 +1066,11 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 				}
 
 			case <-time.After(stepTimeout):
-				t.Fatalf("got no payment result")
+				fatal("got no payment result")
 			}
 
 		default:
-			t.Fatalf("unknown step %v", step)
+			fatal("unknown step %v", step)
 		}
 	}
 

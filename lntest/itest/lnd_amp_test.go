@@ -108,7 +108,7 @@ func testSendPaymentAMP(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Assert that the invoice is settled for the total payment amount and
 	// has the correct payment address.
-	require.True(t.t, rpcInvoice.Settled)
+	require.True(t.t, rpcInvoice.Settled) // nolint:staticcheck
 	require.Equal(t.t, lnrpc.Invoice_SETTLED, rpcInvoice.State)
 	require.Equal(t.t, int64(paymentAmt), rpcInvoice.AmtPaidSat)
 	require.Equal(t.t, int64(paymentAmt*1000), rpcInvoice.AmtPaidMsat)
@@ -294,7 +294,7 @@ func testSendToRouteAMP(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Assert that the invoice is settled for the total payment amount and
 	// has the correct payment address.
-	require.True(t.t, rpcInvoice.Settled)
+	require.True(t.t, rpcInvoice.Settled) // nolint:staticcheck
 	require.Equal(t.t, lnrpc.Invoice_SETTLED, rpcInvoice.State)
 	require.Equal(t.t, int64(paymentAmt), rpcInvoice.AmtPaidSat)
 	require.Equal(t.t, int64(paymentAmt*1000), rpcInvoice.AmtPaidMsat)

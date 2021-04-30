@@ -86,7 +86,7 @@ func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to lookup invoice: %v", err)
 	}
-	if !dbInvoice.Settled {
+	if !dbInvoice.Settled { // nolint:staticcheck
 		t.Fatalf("bob's invoice should be marked as settled: %v",
 			spew.Sdump(dbInvoice))
 	}

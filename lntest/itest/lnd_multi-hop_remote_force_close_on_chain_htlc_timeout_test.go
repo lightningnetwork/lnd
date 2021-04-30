@@ -220,7 +220,7 @@ func assertOnChainInvoiceState(ctx context.Context, t *harnessTest,
 	})
 	require.NoError(t.t, err)
 
-	require.True(t.t, inv.Settled, "expected erroneously settled invoice")
+	require.True(t.t, inv.Settled, "expected erroneously settled invoice") // nolint:staticcheck
 	for _, htlc := range inv.Htlcs {
 		require.Equal(t.t, lnrpc.InvoiceHTLCState_SETTLED, htlc.State,
 			"expected htlcs to be erroneously settled")

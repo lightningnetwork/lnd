@@ -9705,16 +9705,24 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	assertNumPendingChannels(t, carol, 0, 0)
 
 	// Make sure Carol got her balance back.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	carolBalResp, err := carol.WalletBalance(ctxt, balReq)
+	err = wait.NoError(func() error {
+		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		carolBalResp, err := carol.WalletBalance(ctxt, balReq)
+		if err != nil {
+			return fmt.Errorf("unable to get carol's balance: %v", err)
+		}
+
+		carolBalance := carolBalResp.ConfirmedBalance
+		if carolBalance <= carolStartingBalance {
+			return fmt.Errorf("expected carol to have balance "+
+				"above %d, instead had %v", carolStartingBalance,
+				carolBalance)
+		}
+
+		return nil
+	}, defaultTimeout)
 	if err != nil {
-		t.Fatalf("unable to get carol's balance: %v", err)
-	}
-	carolBalance := carolBalResp.ConfirmedBalance
-	if carolBalance <= carolStartingBalance {
-		t.Fatalf("expected carol to have balance above %d, "+
-			"instead had %v", carolStartingBalance,
-			carolBalance)
+		t.Fatalf(err.Error())
 	}
 
 	assertNodeNumChannels(t, dave, 0)

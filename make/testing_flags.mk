@@ -68,11 +68,11 @@ LOG_TAGS := nolog
 endif
 
 # If a timeout was requested, construct initialize the proper flag for the go
-# test command. If not, we set 20m (up from the default 10m).
+# test command. If not, we set 60m (up from the default 10m).
 ifneq ($(timeout),)
 TEST_FLAGS += -test.timeout=$(timeout)
 else
-TEST_FLAGS += -test.timeout=40m
+TEST_FLAGS += -test.timeout=60m
 endif
 
 GOLIST := go list -tags="$(DEV_TAGS)" -deps $(PKG)/... | grep '$(PKG)'| grep -v '/vendor/'

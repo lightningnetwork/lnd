@@ -6,11 +6,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/coreos/etcd/clientv3"
-	"github.com/coreos/etcd/clientv3/concurrency"
-	"github.com/coreos/etcd/clientv3/namespace"
-	"github.com/coreos/etcd/pkg/transport"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb/etcd"
+	"go.etcd.io/etcd/clientv3"
+	"go.etcd.io/etcd/clientv3/concurrency"
+	"go.etcd.io/etcd/clientv3/namespace"
+	"go.etcd.io/etcd/pkg/transport"
 )
 
 const (

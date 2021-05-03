@@ -2267,6 +2267,13 @@ message OpenChannelRequest {
     capacity.
     */
     uint64 remote_chan_reserve_sat = 25;
+
+    /*
+    If set, then lnd will attempt to commit all the coins under control of the
+    internal wallet to open the channel, and the LocalFundingAmount field must
+    be zero and is ignored.
+    */
+    bool fund_max = 26;
 }
 message OpenStatusUpdate {
     oneof update {

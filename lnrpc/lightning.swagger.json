@@ -5378,6 +5378,10 @@
         "commitment_type": {
           "$ref": "#/definitions/lnrpcCommitmentType",
           "description": "The explicit commitment type to use. Note this field will only be used if\nthe remote peer supports explicit channel negotiation."
+        },
+        "fund_max": {
+          "type": "boolean",
+          "description": "If set, then lnd will attempt to commit all the coins under control of\nthe internal wallet to open the channel, and the LocalFundingAmount\nfield must be zero and is ignored."
         }
       }
     },

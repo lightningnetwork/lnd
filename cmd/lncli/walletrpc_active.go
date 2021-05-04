@@ -966,6 +966,10 @@ var importAccountCommand = cli.Command{
 				"(derivation path m/) corresponding to the " +
 				"account public key",
 		},
+		cli.BoolFlag{
+			Name:  "dry_run",
+			Usage: "(optional) perform a dry run",
+		},
 	},
 	Action: actionDecorator(importAccount),
 }
@@ -975,7 +979,7 @@ func importAccount(ctx *cli.Context) error {
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() != 2 || ctx.NumFlags() > 2 {
+	if ctx.NArg() != 2 || ctx.NumFlags() > 3 {
 		return cli.ShowCommandHelp(ctx, "import")
 	}
 
@@ -996,11 +1000,13 @@ func importAccount(ctx *cli.Context) error {
 	walletClient, cleanUp := getWalletClient(ctx)
 	defer cleanUp()
 
+	dryRun := ctx.Bool("dry_run")
 	req := &walletrpc.ImportAccountRequest{
 		Name:                 ctx.Args().Get(1),
 		ExtendedPublicKey:    ctx.Args().Get(0),
 		MasterKeyFingerprint: masterKeyFingerprint,
 		AddressType:          addrType,
+		DryRun:               dryRun,
 	}
 	resp, err := walletClient.ImportAccount(ctxc, req)
 	if err != nil {

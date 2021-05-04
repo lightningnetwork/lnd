@@ -64,15 +64,18 @@ Sample `lnd.conf` (with other setting omitted):
 
 ```text
 [db]
-backend=etcd
-etcd.host=127.0.0.1:2379
-etcd.cerfile=/home/user/etcd/bin/default.etcd/fixtures/client/cert.pem
-etcd.keyfile=/home/user/etcd/bin/default.etcd/fixtures/client/key.pem
-etcd.insecure_skip_verify=true
+db.backend=etcd
+db.etcd.host=127.0.0.1:2379
+db.etcd.cerfile=/home/user/etcd/bin/default.etcd/fixtures/client/cert.pem
+db.etcd.keyfile=/home/user/etcd/bin/default.etcd/fixtures/client/key.pem
+db.etcd.insecure_skip_verify=true
 ```
 
 Optionally users can specifiy `db.etcd.user` and `db.etcd.pass` for db user
-authentication.
+authentication. If the database is shared, it is possible to separate our data
+from other users by setting `db.etcd.namespace` to an (already existing) etcd
+namespace. In order to test without TLS, users are able to set `db.etcd.disabletls`
+flag to `true`.
 
 ## Migrating existing channel.db to etcd
 

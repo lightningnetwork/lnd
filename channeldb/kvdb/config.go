@@ -50,6 +50,8 @@ type EtcdConfig struct {
 
 	Namespace string `long:"namespace" description:"The etcd namespace to use."`
 
+	DisableTLS bool `long:"disabletls" description:"Disable TLS for etcd connection. Caution: use for development only."`
+
 	CertFile string `long:"cert_file" description:"Path to the TLS certificate for etcd RPC."`
 
 	KeyFile string `long:"key_file" description:"Path to the TLS private key for etcd RPC."`

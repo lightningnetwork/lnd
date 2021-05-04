@@ -139,6 +139,9 @@ type BackendConfig struct {
 	// Pass is the password for the etcd peer.
 	Pass string
 
+	// DisableTLS disables the use of TLS for etcd connections.
+	DisableTLS bool
+
 	// CertFile holds the path to the TLS certificate for etcd RPC.
 	CertFile string
 
@@ -168,26 +171,31 @@ func newEtcdBackend(config BackendConfig) (*db, error) {
 		config.Ctx = context.Background()
 	}
 
-	tlsInfo := transport.TLSInfo{
-		CertFile:           config.CertFile,
-		KeyFile:            config.KeyFile,
-		InsecureSkipVerify: config.InsecureSkipVerify,
-	}
-
-	tlsConfig, err := tlsInfo.ClientConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	cli, err := clientv3.New(clientv3.Config{
+	clientCfg := clientv3.Config{
 		Context:            config.Ctx,
 		Endpoints:          []string{config.Host},
 		DialTimeout:        etcdConnectionTimeout,
 		Username:           config.User,
 		Password:           config.Pass,
-		TLS:                tlsConfig,
 		MaxCallSendMsgSize: 16384*1024 - 1,
-	})
+	}
+
+	if !config.DisableTLS {
+		tlsInfo := transport.TLSInfo{
+			CertFile:           config.CertFile,
+			KeyFile:            config.KeyFile,
+			InsecureSkipVerify: config.InsecureSkipVerify,
+		}
+
+		tlsConfig, err := tlsInfo.ClientConfig()
+		if err != nil {
+			return nil, err
+		}
+
+		clientCfg.TLS = tlsConfig
+	}
+
+	cli, err := clientv3.New(clientCfg)
 	if err != nil {
 		return nil, err
 	}

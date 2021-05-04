@@ -1401,14 +1401,34 @@ func (w *WalletKit) ImportAccount(ctx context.Context,
 		return nil, err
 	}
 
-	err = w.cfg.Wallet.ImportAccount(
+	accountProps, extAddrs, intAddrs, err := w.cfg.Wallet.ImportAccount(
 		req.Name, accountPubKey, req.MasterKeyFingerprint, addrType,
+		req.DryRun,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return &ImportAccountResponse{}, nil
+	rpcAccount, err := marshalWalletAccount(accountProps)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &ImportAccountResponse{Account: rpcAccount}
+	if !req.DryRun {
+		return resp, nil
+	}
+
+	resp.DryRunExternalAddrs = make([]string, len(extAddrs))
+	for i := 0; i < len(extAddrs); i++ {
+		resp.DryRunExternalAddrs[i] = extAddrs[i].String()
+	}
+	resp.DryRunInternalAddrs = make([]string, len(intAddrs))
+	for i := 0; i < len(intAddrs); i++ {
+		resp.DryRunInternalAddrs[i] = intAddrs[i].String()
+	}
+
+	return resp, nil
 }
 
 // ImportPublicKey imports a single derived public key into the wallet. The

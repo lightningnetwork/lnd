@@ -1064,11 +1064,36 @@
         "address_type": {
           "$ref": "#/definitions/walletrpcAddressType",
           "description": "An address type is only required when the extended account public key has a\nlegacy version (xpub, tpub, etc.), such that the wallet cannot detect what\naddress scheme it belongs to."
+        },
+        "dry_run": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Whether a dry run should be attempted when importing the account. This\nserves as a way to confirm whether the account is being imported correctly\nby returning the first N addresses for the external and internal branches of\nthe account. If these addresses match as expected, then it should be safe to\nimport the account as is."
         }
       }
     },
     "walletrpcImportAccountResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "account": {
+          "$ref": "#/definitions/walletrpcAccount",
+          "description": "The details of the imported account."
+        },
+        "dry_run_external_addrs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The first N addresses that belong to the external branch of the account.\nThe external branch is typically used for external non-change addresses.\nThese are only returned if a dry run was specified within the request."
+        },
+        "dry_run_internal_addrs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The first N addresses that belong to the internal branch of the account.\nThe internal branch is typically used for change addresses. These are only\nreturned if a dry run was specified within the request."
+        }
+      }
     },
     "walletrpcImportPublicKeyRequest": {
       "type": "object",

@@ -861,9 +861,9 @@
           "description": "The public key backing the account that all keys are derived from\nrepresented as an extended key. This will always be empty for the default\nimported account in which single public keys are imported into."
         },
         "master_key_fingerprint": {
-          "type": "integer",
-          "format": "int64",
-          "description": "The fingerprint of the root key from which the account public key was\nderived from. This will always be zero for the default imported account in\nwhich single public keys are imported into."
+          "type": "string",
+          "format": "byte",
+          "description": "The fingerprint of the root key from which the account public key was\nderived from. This will always be zero for the default imported account in\nwhich single public keys are imported into. The bytes are in big-endian\norder."
         },
         "derivation_path": {
           "type": "string",
@@ -1057,9 +1057,9 @@
           "description": "A public key that corresponds to a wallet account represented as an extended\nkey. It must conform to a derivation path of the form\nm/purpose'/coin_type'/account'."
         },
         "master_key_fingerprint": {
-          "type": "integer",
-          "format": "int64",
-          "description": "The fingerprint of the root key (also known as the key with derivation path\nm/) from which the account public key was derived from. This may be required\nby some hardware wallets for proper identification and signing."
+          "type": "string",
+          "format": "byte",
+          "description": "The fingerprint of the root key (also known as the key with derivation path\nm/) from which the account public key was derived from. This may be required\nby some hardware wallets for proper identification and signing. The bytes\nmust be in big-endian order."
         },
         "address_type": {
           "$ref": "#/definitions/walletrpcAddressType",

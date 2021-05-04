@@ -5,6 +5,7 @@ package walletrpc
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -1253,8 +1254,8 @@ func marshalWalletAccount(account *waddrmgr.AccountProperties) (*Account, error)
 			break
 		}
 
-		switch account.AddrSchema {
-		case &waddrmgr.KeyScopeBIP0049AddrSchema:
+		switch *account.AddrSchema {
+		case waddrmgr.KeyScopeBIP0049AddrSchema:
 			addrType = AddressType_NESTED_WITNESS_PUBKEY_HASH
 		default:
 			return nil, fmt.Errorf("unsupported address schema %v",
@@ -1283,7 +1284,13 @@ func marshalWalletAccount(account *waddrmgr.AccountProperties) (*Account, error)
 		nonHardenedIndex := account.AccountPubKey.ChildIndex() -
 			hdkeychain.HardenedKeyStart
 		rpcAccount.ExtendedPublicKey = account.AccountPubKey.String()
-		rpcAccount.MasterKeyFingerprint = account.MasterKeyFingerprint
+		if account.MasterKeyFingerprint != 0 {
+			var mkfp [4]byte
+			binary.BigEndian.PutUint32(
+				mkfp[:], account.MasterKeyFingerprint,
+			)
+			rpcAccount.MasterKeyFingerprint = mkfp[:]
+		}
 		rpcAccount.DerivationPath = fmt.Sprintf("%v/%v'",
 			account.KeyScope, nonHardenedIndex)
 	}
@@ -1396,14 +1403,27 @@ func (w *WalletKit) ImportAccount(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+
+	var mkfp uint32
+	switch len(req.MasterKeyFingerprint) {
+	// No master key fingerprint provided, which is fine as it's not
+	// required.
+	case 0:
+	// Expected length.
+	case 4:
+		mkfp = binary.BigEndian.Uint32(req.MasterKeyFingerprint)
+	default:
+		return nil, errors.New("invalid length for master key " +
+			"fingerprint, expected 4 bytes in big-endian")
+	}
+
 	addrType, err := parseAddrType(req.AddressType, false)
 	if err != nil {
 		return nil, err
 	}
 
 	accountProps, extAddrs, intAddrs, err := w.cfg.Wallet.ImportAccount(
-		req.Name, accountPubKey, req.MasterKeyFingerprint, addrType,
-		req.DryRun,
+		req.Name, accountPubKey, mkfp, addrType, req.DryRun,
 	)
 	if err != nil {
 		return nil, err

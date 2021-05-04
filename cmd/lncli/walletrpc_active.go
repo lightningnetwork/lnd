@@ -4,7 +4,6 @@ package main
 
 import (
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -988,13 +987,14 @@ func importAccount(ctx *cli.Context) error {
 		return err
 	}
 
-	var masterKeyFingerprint uint32
+	var mkfpBytes []byte
 	if ctx.IsSet("master_key_fingerprint") {
-		mkfp, err := hex.DecodeString(ctx.String("master_key_fingerprint"))
+		mkfpBytes, err = hex.DecodeString(
+			ctx.String("master_key_fingerprint"),
+		)
 		if err != nil {
 			return fmt.Errorf("invalid master key fingerprint: %v", err)
 		}
-		masterKeyFingerprint = binary.LittleEndian.Uint32(mkfp)
 	}
 
 	walletClient, cleanUp := getWalletClient(ctx)
@@ -1004,7 +1004,7 @@ func importAccount(ctx *cli.Context) error {
 	req := &walletrpc.ImportAccountRequest{
 		Name:                 ctx.Args().Get(1),
 		ExtendedPublicKey:    ctx.Args().Get(0),
-		MasterKeyFingerprint: masterKeyFingerprint,
+		MasterKeyFingerprint: mkfpBytes,
 		AddressType:          addrType,
 		DryRun:               dryRun,
 	}

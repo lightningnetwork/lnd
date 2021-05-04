@@ -324,9 +324,10 @@ message Account {
     /*
     The fingerprint of the root key from which the account public key was
     derived from. This will always be zero for the default imported account in
-    which single public keys are imported into.
+    which single public keys are imported into. The bytes are in big-endian
+    order.
     */
-    uint32 master_key_fingerprint = 4;
+    bytes master_key_fingerprint = 4;
 
     /*
     The derivation path corresponding to the account public key. This will
@@ -377,9 +378,10 @@ message ImportAccountRequest {
     /*
     The fingerprint of the root key (also known as the key with derivation path
     m/) from which the account public key was derived from. This may be required
-    by some hardware wallets for proper identification and signing.
+    by some hardware wallets for proper identification and signing. The bytes
+    must be in big-endian order.
     */
-    uint32 master_key_fingerprint = 3;
+    bytes master_key_fingerprint = 3;
 
     /*
     An address type is only required when the extended account public key has a

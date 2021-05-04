@@ -1038,12 +1038,19 @@ func (r *ChannelRouter) networkHandler() {
 					update.msg,
 				)
 				if err != nil {
-					if err != ErrVBarrierShuttingDown &&
-						err != ErrParentValidationFailed {
+					switch err {
+					case ErrVBarrierShuttingDown:
+						update.err <- err
+					case ErrParentValidationFailed:
+						update.err <- newErrf(
+							ErrIgnored, err.Error(),
+						)
+					default:
 						log.Warnf("unexpected error "+
 							"during validation "+
 							"barrier shutdown: %v",
 							err)
+						update.err <- err
 					}
 					return
 				}

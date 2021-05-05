@@ -276,3 +276,5 @@
 <time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: context deadline exceeded
 <time> [ERR] RPCS: [/invoicesrpc.Invoices/SubscribeSingleInvoice]: context canceled
 <time> [ERR] RPCS: [/lnrpc.State/SubscribeState]: context canceled
+<time> [ERR] NTFN: Failed to update rescan progress: database not open
+<time> [ERR] HSWC: ChannelLink(<chan>): failing link: process hodl queue: unable to update commitment: link shutting down with error: internal error

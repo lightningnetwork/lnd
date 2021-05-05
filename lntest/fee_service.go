@@ -37,7 +37,7 @@ type feeEstimates struct {
 
 // startFeeService spins up a go-routine to serve fee estimates.
 func startFeeService() *feeService {
-	port := nextAvailablePort()
+	port := NextAvailablePort()
 	f := feeService{
 		url: fmt.Sprintf("http://localhost:%v/fee-estimates.json", port),
 	}

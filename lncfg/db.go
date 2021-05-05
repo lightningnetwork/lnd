@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb/etcd"
 )
 
 const (
@@ -21,7 +22,7 @@ type DB struct {
 
 	BatchCommitInterval time.Duration `long:"batch-commit-interval" description:"The maximum duration the channel graph batch schedulers will wait before attempting to commit a batch of pending updates. This can be tradeoff database contenion for commit latency."`
 
-	Etcd *kvdb.EtcdConfig `group:"etcd" namespace:"etcd" description:"Etcd settings."`
+	Etcd *etcd.Config `group:"etcd" namespace:"etcd" description:"Etcd settings."`
 
 	Bolt *kvdb.BoltConfig `group:"bolt" namespace:"bolt" description:"Bolt settings."`
 }
@@ -56,6 +57,27 @@ func (db *DB) Validate() error {
 	return nil
 }
 
+// Init should be called upon start to pre-initialize database access dependent
+// on configuration.
+func (db *DB) Init(ctx context.Context, dbPath string) error {
+	// Start embedded etcd server if requested.
+	if db.Backend == EtcdBackend && db.Etcd.Embedded {
+		cfg, _, err := kvdb.StartEtcdTestBackend(
+			dbPath, db.Etcd.EmbeddedClientPort,
+			db.Etcd.EmbeddedPeerPort,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Override the original config with the config for
+		// the embedded instance.
+		db.Etcd = cfg
+	}
+
+	return nil
+}
+
 // DatabaseBackends is a two-tuple that holds the set of active database
 // backends for the daemon. The two backends we expose are the local database
 // backend, and the remote backend. The LocalDB attribute will always be
@@ -73,8 +95,8 @@ type DatabaseBackends struct {
 // GetBackends returns a set of kvdb.Backends as set in the DB config.  The
 // local database will ALWAYS be non-nil, while the remote database will only
 // be populated if etcd is specified.
-func (db *DB) GetBackends(ctx context.Context, dbPath string,
-	networkName string) (*DatabaseBackends, error) {
+func (db *DB) GetBackends(ctx context.Context, dbPath string) (
+	*DatabaseBackends, error) {
 
 	var (
 		localDB, remoteDB kvdb.Backend
@@ -82,17 +104,9 @@ func (db *DB) GetBackends(ctx context.Context, dbPath string,
 	)
 
 	if db.Backend == EtcdBackend {
-		if db.Etcd.Embedded {
-			remoteDB, _, err = kvdb.GetEtcdTestBackend(
-				dbPath, db.Etcd.EmbeddedClientPort,
-				db.Etcd.EmbeddedPeerPort,
-			)
-		} else {
-			// Prefix will separate key/values in the db.
-			remoteDB, err = kvdb.GetEtcdBackend(
-				ctx, networkName, db.Etcd,
-			)
-		}
+		remoteDB, err = kvdb.Open(
+			kvdb.EtcdBackendName, ctx, db.Etcd,
+		)
 		if err != nil {
 			return nil, err
 		}

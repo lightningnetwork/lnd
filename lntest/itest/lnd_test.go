@@ -48,6 +48,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -1219,12 +1220,11 @@ func channelCommitType(node *lntest.HarnessNode,
 // assertChannelBalanceResp makes a ChannelBalance request and checks the
 // returned response matches the expected.
 func assertChannelBalanceResp(t *harnessTest,
-	node *lntest.HarnessNode, expected *lnrpc.ChannelBalanceResponse) {
+	node *lntest.HarnessNode,
+	expected *lnrpc.ChannelBalanceResponse) { // nolint:interfacer
 
 	resp := getChannelBalance(t, node)
-	require.Equal(
-		t.t, expected, resp, "balance is incorrect",
-	)
+	require.True(t.t, proto.Equal(expected, resp), "balance is incorrect")
 }
 
 // getChannelBalance gets the channel balance.
@@ -5642,7 +5642,7 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 	}
 	sendToRouteStream := func() {
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		alicePayStream, err := carol.SendToRoute(ctxt)
+		alicePayStream, err := carol.SendToRoute(ctxt) // nolint:staticcheck
 		if err != nil {
 			t.Fatalf("unable to create payment stream for "+
 				"carol: %v", err)
@@ -12672,20 +12672,20 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 			lnwire.MilliSatoshi(len(route.Hops)-1) * feePerHopMSat
 		expectedTotalAmtMSat := (paymentAmt * mSat) + expectedTotalFeesMSat
 
-		if route.TotalFees != route.TotalFeesMsat/mSat {
+		if route.TotalFees != route.TotalFeesMsat/mSat { // nolint:staticcheck
 			t.Fatalf("route %v: total fees %v (msat) does not "+
 				"round down to %v (sat)",
-				i, route.TotalFeesMsat, route.TotalFees)
+				i, route.TotalFeesMsat, route.TotalFees) // nolint:staticcheck
 		}
 		if route.TotalFeesMsat != int64(expectedTotalFeesMSat) {
 			t.Fatalf("route %v: total fees in msat expected %v got %v",
 				i, expectedTotalFeesMSat, route.TotalFeesMsat)
 		}
 
-		if route.TotalAmt != route.TotalAmtMsat/mSat {
+		if route.TotalAmt != route.TotalAmtMsat/mSat { // nolint:staticcheck
 			t.Fatalf("route %v: total amt %v (msat) does not "+
 				"round down to %v (sat)",
-				i, route.TotalAmtMsat, route.TotalAmt)
+				i, route.TotalAmtMsat, route.TotalAmt) // nolint:staticcheck
 		}
 		if route.TotalAmtMsat != int64(expectedTotalAmtMSat) {
 			t.Fatalf("route %v: total amt in msat expected %v got %v",
@@ -12698,20 +12698,20 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 		for j, hop := range route.Hops[:len(route.Hops)-1] {
 			expectedAmtToForwardMSat -= feePerHopMSat
 
-			if hop.Fee != hop.FeeMsat/mSat {
+			if hop.Fee != hop.FeeMsat/mSat { // nolint:staticcheck
 				t.Fatalf("route %v hop %v: fee %v (msat) does not "+
 					"round down to %v (sat)",
-					i, j, hop.FeeMsat, hop.Fee)
+					i, j, hop.FeeMsat, hop.Fee) // nolint:staticcheck
 			}
 			if hop.FeeMsat != int64(feePerHopMSat) {
 				t.Fatalf("route %v hop %v: fee in msat expected %v got %v",
 					i, j, feePerHopMSat, hop.FeeMsat)
 			}
 
-			if hop.AmtToForward != hop.AmtToForwardMsat/mSat {
+			if hop.AmtToForward != hop.AmtToForwardMsat/mSat { // nolint:staticcheck
 				t.Fatalf("route %v hop %v: amt to forward %v (msat) does not "+
 					"round down to %v (sat)",
-					i, j, hop.AmtToForwardMsat, hop.AmtToForward)
+					i, j, hop.AmtToForwardMsat, hop.AmtToForward) // nolint:staticcheck
 			}
 			if hop.AmtToForwardMsat != int64(expectedAmtToForwardMSat) {
 				t.Fatalf("route %v hop %v: amt to forward in msat "+
@@ -12723,15 +12723,15 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 		// payment amount.
 		hop := route.Hops[len(route.Hops)-1]
 
-		if hop.Fee != 0 || hop.FeeMsat != 0 {
+		if hop.Fee != 0 || hop.FeeMsat != 0 { // nolint:staticcheck
 			t.Fatalf("route %v hop %v: fee expected 0 got %v (sat) %v (msat)",
-				i, len(route.Hops)-1, hop.Fee, hop.FeeMsat)
+				i, len(route.Hops)-1, hop.Fee, hop.FeeMsat) // nolint:staticcheck
 		}
 
-		if hop.AmtToForward != hop.AmtToForwardMsat/mSat {
+		if hop.AmtToForward != hop.AmtToForwardMsat/mSat { // nolint:staticcheck
 			t.Fatalf("route %v hop %v: amt to forward %v (msat) does not "+
 				"round down to %v (sat)",
-				i, len(route.Hops)-1, hop.AmtToForwardMsat, hop.AmtToForward)
+				i, len(route.Hops)-1, hop.AmtToForwardMsat, hop.AmtToForward) // nolint:staticcheck
 		}
 		if hop.AmtToForwardMsat != paymentAmt*mSat {
 			t.Fatalf("route %v hop %v: amt to forward in msat "+
@@ -12787,13 +12787,7 @@ func testMissionControlCfg(t *testing.T, node *lntest.HarnessNode) {
 		ctxb, &routerrpc.GetMissionControlConfigRequest{},
 	)
 	require.NoError(t, err)
-
-	// Set the hidden fields on the cfg we set so that we can use require
-	// equal rather than comparing field by field.
-	cfg.XXX_sizecache = resp.XXX_sizecache
-	cfg.XXX_NoUnkeyedLiteral = resp.XXX_NoUnkeyedLiteral
-	cfg.XXX_unrecognized = resp.XXX_unrecognized
-	require.Equal(t, cfg, resp.Config)
+	require.True(t, proto.Equal(cfg, resp.Config))
 
 	_, err = node.RouterClient.SetMissionControlConfig(
 		ctxb, &routerrpc.SetMissionControlConfigRequest{

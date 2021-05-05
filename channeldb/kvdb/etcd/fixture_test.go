@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coreos/etcd/clientv3"
-	"github.com/coreos/etcd/clientv3/namespace"
+	"go.etcd.io/etcd/clientv3"
+	"go.etcd.io/etcd/clientv3/namespace"
 )
 
 const (
@@ -22,14 +22,14 @@ const (
 type EtcdTestFixture struct {
 	t       *testing.T
 	cli     *clientv3.Client
-	config  *BackendConfig
+	config  *Config
 	cleanup func()
 }
 
 // NewTestEtcdInstance creates an embedded etcd instance for testing, listening
 // on random open ports. Returns the connection config and a cleanup func that
 // will stop the etcd instance.
-func NewTestEtcdInstance(t *testing.T, path string) (*BackendConfig, func()) {
+func NewTestEtcdInstance(t *testing.T, path string) (*Config, func()) {
 	t.Helper()
 
 	config, cleanup, err := NewEmbeddedEtcdInstance(path, 0, 0)
@@ -124,7 +124,7 @@ func (f *EtcdTestFixture) Dump() map[string]string {
 
 // BackendConfig returns the backend config for connecting to theembedded
 // etcd instance.
-func (f *EtcdTestFixture) BackendConfig() BackendConfig {
+func (f *EtcdTestFixture) BackendConfig() Config {
 	return *f.config
 }
 

@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcwallet/walletdb"
-	"github.com/coreos/etcd/clientv3"
-	"github.com/coreos/etcd/clientv3/namespace"
-	"github.com/coreos/etcd/pkg/transport"
+	"go.etcd.io/etcd/clientv3"
+	"go.etcd.io/etcd/clientv3/namespace"
+	"go.etcd.io/etcd/pkg/transport"
 )
 
 const (
@@ -23,6 +23,10 @@ const (
 
 	// etcdLongTimeout is a timeout for longer taking etcd operatons.
 	etcdLongTimeout = 30 * time.Second
+
+	// etcdDefaultRootBucketId is used as the root bucket key. Note that
+	// the actual key is not visible, since all bucket keys are hashed.
+	etcdDefaultRootBucketId = "@"
 )
 
 // callerStats holds commit stats for a specific caller. Currently it only
@@ -116,7 +120,8 @@ func (c *commitStatsCollector) callback(succ bool, stats CommitStats) {
 
 // db holds a reference to the etcd client connection.
 type db struct {
-	config               BackendConfig
+	cfg                  Config
+	ctx                  context.Context
 	cli                  *clientv3.Client
 	commitStatsCollector *commitStatsCollector
 	txQueue              *commitQueue
@@ -125,66 +130,23 @@ type db struct {
 // Enforce db implements the walletdb.DB interface.
 var _ walletdb.DB = (*db)(nil)
 
-// BackendConfig holds and etcd backend config and connection parameters.
-type BackendConfig struct {
-	// Ctx is the context we use to cancel operations upon exit.
-	Ctx context.Context
-
-	// Host holds the peer url of the etcd instance.
-	Host string
-
-	// User is the username for the etcd peer.
-	User string
-
-	// Pass is the password for the etcd peer.
-	Pass string
-
-	// DisableTLS disables the use of TLS for etcd connections.
-	DisableTLS bool
-
-	// CertFile holds the path to the TLS certificate for etcd RPC.
-	CertFile string
-
-	// KeyFile holds the path to the TLS private key for etcd RPC.
-	KeyFile string
-
-	// InsecureSkipVerify should be set to true if we intend to
-	// skip TLS verification.
-	InsecureSkipVerify bool
-
-	// Prefix the hash of the prefix will be used as the root
-	// bucket id. This enables key space separation similar to
-	// name spaces.
-	Prefix string
-
-	// Namespace is the etcd namespace that we'll use for all keys.
-	Namespace string
-
-	// CollectCommitStats indicates wheter to commit commit stats.
-	CollectCommitStats bool
-}
-
 // newEtcdBackend returns a db object initialized with the passed backend
 // config. If etcd connection cannot be estabished, then returns error.
-func newEtcdBackend(config BackendConfig) (*db, error) {
-	if config.Ctx == nil {
-		config.Ctx = context.Background()
-	}
-
+func newEtcdBackend(ctx context.Context, cfg Config) (*db, error) {
 	clientCfg := clientv3.Config{
-		Context:            config.Ctx,
-		Endpoints:          []string{config.Host},
+		Context:            ctx,
+		Endpoints:          []string{cfg.Host},
 		DialTimeout:        etcdConnectionTimeout,
-		Username:           config.User,
-		Password:           config.Pass,
+		Username:           cfg.User,
+		Password:           cfg.Pass,
 		MaxCallSendMsgSize: 16384*1024 - 1,
 	}
 
-	if !config.DisableTLS {
+	if !cfg.DisableTLS {
 		tlsInfo := transport.TLSInfo{
-			CertFile:           config.CertFile,
-			KeyFile:            config.KeyFile,
-			InsecureSkipVerify: config.InsecureSkipVerify,
+			CertFile:           cfg.CertFile,
+			KeyFile:            cfg.KeyFile,
+			InsecureSkipVerify: cfg.InsecureSkipVerify,
 		}
 
 		tlsConfig, err := tlsInfo.ClientConfig()
@@ -201,17 +163,18 @@ func newEtcdBackend(config BackendConfig) (*db, error) {
 	}
 
 	// Apply the namespace.
-	cli.KV = namespace.NewKV(cli.KV, config.Namespace)
-	cli.Watcher = namespace.NewWatcher(cli.Watcher, config.Namespace)
-	cli.Lease = namespace.NewLease(cli.Lease, config.Namespace)
+	cli.KV = namespace.NewKV(cli.KV, cfg.Namespace)
+	cli.Watcher = namespace.NewWatcher(cli.Watcher, cfg.Namespace)
+	cli.Lease = namespace.NewLease(cli.Lease, cfg.Namespace)
 
 	backend := &db{
+		cfg:     cfg,
+		ctx:     ctx,
 		cli:     cli,
-		config:  config,
-		txQueue: NewCommitQueue(config.Ctx),
+		txQueue: NewCommitQueue(ctx),
 	}
 
-	if config.CollectCommitStats {
+	if cfg.CollectStats {
 		backend.commitStatsCollector = newCommitStatsColletor()
 	}
 
@@ -221,10 +184,10 @@ func newEtcdBackend(config BackendConfig) (*db, error) {
 // getSTMOptions creats all STM options based on the backend config.
 func (db *db) getSTMOptions() []STMOptionFunc {
 	opts := []STMOptionFunc{
-		WithAbortContext(db.config.Ctx),
+		WithAbortContext(db.ctx),
 	}
 
-	if db.config.CollectCommitStats {
+	if db.cfg.CollectStats {
 		opts = append(opts,
 			WithCommitStatsCallback(db.commitStatsCollector.callback),
 		)
@@ -243,7 +206,7 @@ func (db *db) getSTMOptions() []STMOptionFunc {
 func (db *db) View(f func(tx walletdb.ReadTx) error, reset func()) error {
 	apply := func(stm STM) error {
 		reset()
-		return f(newReadWriteTx(stm, db.config.Prefix))
+		return f(newReadWriteTx(stm, etcdDefaultRootBucketId))
 	}
 
 	return RunSTM(db.cli, apply, db.txQueue, db.getSTMOptions()...)
@@ -259,7 +222,7 @@ func (db *db) View(f func(tx walletdb.ReadTx) error, reset func()) error {
 func (db *db) Update(f func(tx walletdb.ReadWriteTx) error, reset func()) error {
 	apply := func(stm STM) error {
 		reset()
-		return f(newReadWriteTx(stm, db.config.Prefix))
+		return f(newReadWriteTx(stm, etcdDefaultRootBucketId))
 	}
 
 	return RunSTM(db.cli, apply, db.txQueue, db.getSTMOptions()...)
@@ -278,7 +241,7 @@ func (db *db) PrintStats() string {
 func (db *db) BeginReadWriteTx() (walletdb.ReadWriteTx, error) {
 	return newReadWriteTx(
 		NewSTM(db.cli, db.txQueue, db.getSTMOptions()...),
-		db.config.Prefix,
+		etcdDefaultRootBucketId,
 	), nil
 }
 
@@ -286,7 +249,7 @@ func (db *db) BeginReadWriteTx() (walletdb.ReadWriteTx, error) {
 func (db *db) BeginReadTx() (walletdb.ReadTx, error) {
 	return newReadWriteTx(
 		NewSTM(db.cli, db.txQueue, db.getSTMOptions()...),
-		db.config.Prefix,
+		etcdDefaultRootBucketId,
 	), nil
 }
 
@@ -294,7 +257,7 @@ func (db *db) BeginReadTx() (walletdb.ReadTx, error) {
 // start a read-only transaction to perform all operations.
 // This function is part of the walletdb.Db interface implementation.
 func (db *db) Copy(w io.Writer) error {
-	ctx, cancel := context.WithTimeout(db.config.Ctx, etcdLongTimeout)
+	ctx, cancel := context.WithTimeout(db.ctx, etcdLongTimeout)
 	defer cancel()
 
 	readCloser, err := db.cli.Snapshot(ctx)

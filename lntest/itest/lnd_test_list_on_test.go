@@ -315,4 +315,8 @@ var allTestCases = []*testCase{
 		name: "wallet import pubkey",
 		test: testWalletImportPubKey,
 	},
+	{
+		name: "etcd_failover",
+		test: testEtcdFailover,
+	},
 }

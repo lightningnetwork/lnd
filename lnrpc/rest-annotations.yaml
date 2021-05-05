@@ -261,6 +261,8 @@ http:
     # stateservice.proto
     - selector: lnrpc.State.SubscribeState
       get: "/v1/state/subscribe"
+    - selector: lnrpc.State.GetState
+      get: "/v1/state"
 
     # verrpc/verrpc.proto
     - selector: verrpc.Versioner.GetVersion

@@ -7,7 +7,7 @@ package etcd
 func bkey(buckets ...string) string {
 	var bucketKey []byte
 
-	rootID := makeBucketID([]byte(""))
+	rootID := makeBucketID([]byte(etcdDefaultRootBucketId))
 	parent := rootID[:]
 
 	for _, bucketName := range buckets {
@@ -29,7 +29,7 @@ func bval(buckets ...string) string {
 // vkey is a helper function used in tests to create a value key from the
 // passed key and bucket list.
 func vkey(key string, buckets ...string) string {
-	rootID := makeBucketID([]byte(""))
+	rootID := makeBucketID([]byte(etcdDefaultRootBucketId))
 	bucket := rootID[:]
 
 	for _, bucketName := range buckets {

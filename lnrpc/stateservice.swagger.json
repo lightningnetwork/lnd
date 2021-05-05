@@ -11,6 +11,29 @@
     "application/json"
   ],
   "paths": {
+    "/v1/state": {
+      "get": {
+        "summary": "GetState returns the current wallet state without streaming further\nchanges.",
+        "operationId": "GetState",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcGetStateResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "tags": [
+          "State"
+        ]
+      }
+    },
     "/v1/state/subscribe": {
       "get": {
         "summary": "SubscribeState subscribes to the state of the wallet. The current wallet\nstate will always be delivered immediately.",
@@ -45,6 +68,14 @@
     }
   },
   "definitions": {
+    "lnrpcGetStateResponse": {
+      "type": "object",
+      "properties": {
+        "State": {
+          "$ref": "#/definitions/lnrpcWalletState"
+        }
+      }
+    },
     "lnrpcSubscribeStateResponse": {
       "type": "object",
       "properties": {
@@ -59,7 +90,8 @@
         "NON_EXISTING",
         "LOCKED",
         "UNLOCKED",
-        "RPC_ACTIVE"
+        "RPC_ACTIVE",
+        "WAITING_TO_START"
       ],
       "default": "NON_EXISTING"
     },

@@ -188,7 +188,7 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 			lnwire.NewMSatFromSatoshis(remote),
 		)
 		// Deprecated fields.
-		newResp.Balance += int64(local)
+		newResp.Balance += int64(local) // nolint:staticcheck
 		assertChannelBalanceResp(t, node, newResp)
 	}
 

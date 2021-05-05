@@ -275,3 +275,4 @@
 <time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeInvoices]: context canceled
 <time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: context deadline exceeded
 <time> [ERR] RPCS: [/invoicesrpc.Invoices/SubscribeSingleInvoice]: context canceled
+<time> [ERR] RPCS: [/lnrpc.State/SubscribeState]: context canceled

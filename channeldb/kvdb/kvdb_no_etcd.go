@@ -3,8 +3,9 @@
 package kvdb
 
 import (
-	"context"
 	"fmt"
+
+	"github.com/lightningnetwork/lnd/channeldb/kvdb/etcd"
 )
 
 // TestBackend is conditionally set to bdb when the kvdb_etcd build tag is
@@ -13,17 +14,9 @@ const TestBackend = BoltBackendName
 
 var errEtcdNotAvailable = fmt.Errorf("etcd backend not available")
 
-// GetEtcdBackend is a stub returning nil and errEtcdNotAvailable error.
-func GetEtcdBackend(ctx context.Context, prefix string,
-	etcdConfig *EtcdConfig) (Backend, error) {
-
-	return nil, errEtcdNotAvailable
-}
-
-// GetTestEtcdBackend  is a stub returning nil, an empty closure and an
-// errEtcdNotAvailable error.
-func GetEtcdTestBackend(path string, clientPort, peerPort uint16) (
-	Backend, func(), error) {
+// StartEtcdTestBackend  is a stub returning nil, and errEtcdNotAvailable error.
+func StartEtcdTestBackend(path string, clientPort, peerPort uint16) (
+	*etcd.Config, func(), error) {
 
 	return nil, func() {}, errEtcdNotAvailable
 }

@@ -3427,12 +3427,16 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 		aliceWalletConfig := &btcwallet.Config{
 			PrivatePass: []byte("alice-pass"),
 			HdSeed:      aliceSeedBytes,
-			DataDir:     tempTestDirAlice,
 			NetParams:   netParams,
 			ChainSource: aliceClient,
 			CoinType:    keychain.CoinTypeTestnet,
 			// wallet starts in recovery mode
 			RecoveryWindow: 2,
+			LoaderOptions: []btcwallet.LoaderOption{
+				btcwallet.LoaderWithLocalWalletDB(
+					tempTestDirAlice, false, time.Minute,
+				),
+			},
 		}
 		aliceWalletController, err = walletDriver.New(
 			aliceWalletConfig, blockCache,
@@ -3454,12 +3458,16 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 		bobWalletConfig := &btcwallet.Config{
 			PrivatePass: []byte("bob-pass"),
 			HdSeed:      bobSeedBytes,
-			DataDir:     tempTestDirBob,
 			NetParams:   netParams,
 			ChainSource: bobClient,
 			CoinType:    keychain.CoinTypeTestnet,
 			// wallet starts without recovery mode
 			RecoveryWindow: 0,
+			LoaderOptions: []btcwallet.LoaderOption{
+				btcwallet.LoaderWithLocalWalletDB(
+					tempTestDirBob, false, time.Minute,
+				),
+			},
 		}
 		bobWalletController, err = walletDriver.New(
 			bobWalletConfig, blockCache,

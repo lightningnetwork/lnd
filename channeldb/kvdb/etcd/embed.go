@@ -3,14 +3,13 @@
 package etcd
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"net/url"
 	"sync/atomic"
 	"time"
 
-	"github.com/coreos/etcd/embed"
+	"go.etcd.io/etcd/embed"
 )
 
 const (
@@ -62,7 +61,7 @@ func getFreePort() int {
 // listening on random open ports. Returns the backend config and a cleanup
 // func that will stop the etcd instance.
 func NewEmbeddedEtcdInstance(path string, clientPort, peerPort uint16) (
-	*BackendConfig, func(), error) {
+	*Config, func(), error) {
 
 	cfg := embed.NewConfig()
 	cfg.Dir = path
@@ -98,19 +97,13 @@ func NewEmbeddedEtcdInstance(path string, clientPort, peerPort uint16) (
 			fmt.Errorf("etcd failed to start after: %v", readyTimeout)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-
-	connConfig := &BackendConfig{
-		Ctx:                ctx,
-		Host:               "http://" + peerURL,
-		User:               "user",
-		Pass:               "pass",
+	connConfig := &Config{
+		Host:               "http://" + clientURL,
 		InsecureSkipVerify: true,
 		Namespace:          defaultNamespace,
 	}
 
 	return connConfig, func() {
-		cancel()
 		etcd.Close()
 	}, nil
 }

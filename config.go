@@ -366,6 +366,8 @@ type Config struct {
 
 	DB *lncfg.DB `group:"db" namespace:"db"`
 
+	Cluster *lncfg.Cluster `group:"cluster" namespace:"cluster"`
+
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.
 	LogWriter *build.RotatingLogWriter
@@ -532,6 +534,7 @@ func DefaultConfig() Config {
 		MaxCommitFeeRateAnchors: lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte,
 		LogWriter:               build.NewRotatingLogWriter(),
 		DB:                      lncfg.DefaultDB(),
+		Cluster:                 lncfg.DefaultCluster(),
 		registeredChains:        chainreg.NewChainRegistry(),
 		ActiveNetParams:         chainreg.BitcoinTestNetParams,
 		ChannelCommitInterval:   defaultChannelCommitInterval,
@@ -1372,6 +1375,7 @@ func ValidateConfig(cfg Config, usageMessage string,
 		cfg.Caches,
 		cfg.WtClient,
 		cfg.DB,
+		cfg.Cluster,
 		cfg.HealthChecks,
 	)
 	if err != nil {
@@ -1396,10 +1400,6 @@ func (c *Config) localDatabaseDir() string {
 	return filepath.Join(c.DataDir,
 		defaultGraphSubDirname,
 		lncfg.NormalizeNetwork(c.ActiveNetParams.Name))
-}
-
-func (c *Config) networkName() string {
-	return lncfg.NormalizeNetwork(c.ActiveNetParams.Name)
 }
 
 // CleanAndExpandPath expands environment variables and leading ~ in the

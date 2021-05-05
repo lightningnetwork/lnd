@@ -249,8 +249,8 @@ jobs:
       fail-fast: false
       matrix:
         pinned_dep:
-          - google.golang.org/grpc v1.24.0
-          - github.com/golang/protobuf v1.3.2
+          - google.golang.org/grpc v1.29.1
+          - github.com/golang/protobuf v1.4.3
 
     steps:
       - name: git checkout

@@ -1,6 +1,7 @@
 package kvdb
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io/ioutil"
@@ -253,7 +254,14 @@ func GetTestBackend(path, name string) (Backend, func(), error) {
 		}
 		return db, empty, nil
 	} else if TestBackend == EtcdBackendName {
-		return GetEtcdTestBackend(path, 0, 0)
+		etcdConfig, cancel, err := StartEtcdTestBackend(path, 0, 0)
+		if err != nil {
+			return nil, empty, err
+		}
+		backend, err := Open(
+			EtcdBackendName, context.TODO(), etcdConfig,
+		)
+		return backend, cancel, err
 	}
 
 	return nil, nil, fmt.Errorf("unknown backend")

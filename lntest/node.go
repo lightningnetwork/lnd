@@ -91,10 +91,10 @@ var (
 	)
 )
 
-// nextAvailablePort returns the first port that is available for listening by
+// NextAvailablePort returns the first port that is available for listening by
 // a new node. It panics if no port is found and the maximum available TCP port
 // is reached.
-func nextAvailablePort() int {
+func NextAvailablePort() int {
 	port := atomic.AddUint32(&lastPort, 1)
 	for port < 65535 {
 		// If there are no errors while attempting to listen on this
@@ -148,18 +148,18 @@ func GetBtcdBinary() string {
 // addresses with unique ports and should be used to overwrite rpctest's default
 // generator which is prone to use colliding ports.
 func GenerateBtcdListenerAddresses() (string, string) {
-	return fmt.Sprintf(listenerFormat, nextAvailablePort()),
-		fmt.Sprintf(listenerFormat, nextAvailablePort())
+	return fmt.Sprintf(listenerFormat, NextAvailablePort()),
+		fmt.Sprintf(listenerFormat, NextAvailablePort())
 }
 
 // generateListeningPorts returns four ints representing ports to listen on
 // designated for the current lightning network test. This returns the next
 // available ports for the p2p, rpc, rest and profiling services.
 func generateListeningPorts() (int, int, int, int) {
-	p2p := nextAvailablePort()
-	rpc := nextAvailablePort()
-	rest := nextAvailablePort()
-	profile := nextAvailablePort()
+	p2p := NextAvailablePort()
+	rpc := NextAvailablePort()
+	rest := NextAvailablePort()
+	profile := NextAvailablePort()
 
 	return p2p, rpc, rest, profile
 }
@@ -303,16 +303,15 @@ func (cfg NodeConfig) genArgs() []string {
 		args = append(
 			args, fmt.Sprintf(
 				"--db.etcd.embedded_client_port=%v",
-				nextAvailablePort(),
+				NextAvailablePort(),
 			),
 		)
 		args = append(
 			args, fmt.Sprintf(
 				"--db.etcd.embedded_peer_port=%v",
-				nextAvailablePort(),
+				NextAvailablePort(),
 			),
 		)
-		args = append(args, "--db.etcd.embedded")
 	}
 
 	if cfg.FeeURL != "" {
@@ -535,7 +534,9 @@ func (hn *HarnessNode) InvoiceMacPath() string {
 //
 // This may not clean up properly if an error is returned, so the caller should
 // call shutdown() regardless of the return value.
-func (hn *HarnessNode) start(lndBinary string, lndError chan<- error) error {
+func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
+	wait bool) error {
+
 	hn.quit = make(chan struct{})
 
 	args := hn.Cfg.genArgs()
@@ -643,12 +644,100 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error) error {
 		return err
 	}
 
+	// We may want to skip waiting for the node to come up (eg. the node
+	// is waiting to become the leader).
+	if !wait {
+		return nil
+	}
+
 	// Since Stop uses the LightningClient to stop the node, if we fail to get a
 	// connected client, we have to kill the process.
 	useMacaroons := !hn.Cfg.HasSeed
 	conn, err := hn.ConnectRPC(useMacaroons)
 	if err != nil {
 		hn.cmd.Process.Kill()
+		return err
+	}
+
+	if err := hn.waitUntilStarted(conn, DefaultTimeout); err != nil {
+		return err
+	}
+
+	// If the node was created with a seed, we will need to perform an
+	// additional step to unlock the wallet. The connection returned will
+	// only use the TLS certs, and can only perform operations necessary to
+	// unlock the daemon.
+	if hn.Cfg.HasSeed {
+		hn.WalletUnlockerClient = lnrpc.NewWalletUnlockerClient(conn)
+		return nil
+	}
+
+	return hn.initLightningClient(conn)
+}
+
+// waitUntilStarted waits until the wallet state flips from "WAITING_TO_START".
+func (hn *HarnessNode) waitUntilStarted(conn grpc.ClientConnInterface,
+	timeout time.Duration) error {
+
+	stateClient := lnrpc.NewStateClient(conn)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stateStream, err := stateClient.SubscribeState(
+		ctx, &lnrpc.SubscribeStateRequest{},
+	)
+	if err != nil {
+		return err
+	}
+
+	errChan := make(chan error, 1)
+	started := make(chan struct{})
+	go func() {
+		for {
+			resp, err := stateStream.Recv()
+			if err != nil {
+				errChan <- err
+			}
+
+			if resp.State != lnrpc.WalletState_WAITING_TO_START {
+				close(started)
+				return
+			}
+		}
+	}()
+
+	select {
+
+	case <-started:
+	case err = <-errChan:
+
+	case <-time.After(timeout):
+		return fmt.Errorf("WaitUntilLeader timed out")
+	}
+
+	return err
+}
+
+// WaitUntilLeader attempts to finish the start procedure by initiating an RPC
+// connection and setting up the wallet unlocker client. This is needed when
+// a node that has recently been started was waiting to become the leader and
+// we're at the point when we expect that it is the leader now (awaiting unlock).
+func (hn *HarnessNode) WaitUntilLeader(timeout time.Duration) error {
+	var (
+		conn    *grpc.ClientConn
+		connErr error
+	)
+
+	startTs := time.Now()
+	if err := wait.NoError(func() error {
+		conn, connErr = hn.ConnectRPC(!hn.Cfg.HasSeed)
+		return connErr
+	}, timeout); err != nil {
+		return err
+	}
+	timeout -= time.Since(startTs)
+
+	if err := hn.waitUntilStarted(conn, timeout); err != nil {
 		return err
 	}
 
@@ -667,7 +756,7 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error) error {
 // initClientWhenReady waits until the main gRPC server is detected as active,
 // then complete the normal HarnessNode gRPC connection creation. This can be
 // used it a node has just been unlocked, or has its wallet state initialized.
-func (hn *HarnessNode) initClientWhenReady() error {
+func (hn *HarnessNode) initClientWhenReady(timeout time.Duration) error {
 	var (
 		conn    *grpc.ClientConn
 		connErr error
@@ -675,7 +764,7 @@ func (hn *HarnessNode) initClientWhenReady() error {
 	if err := wait.NoError(func() error {
 		conn, connErr = hn.ConnectRPC(true)
 		return connErr
-	}, DefaultTimeout); err != nil {
+	}, timeout); err != nil {
 		return err
 	}
 
@@ -784,7 +873,7 @@ func (hn *HarnessNode) Unlock(ctx context.Context,
 
 	// Now that the wallet has been unlocked, we'll wait for the RPC client
 	// to be ready, then establish the normal gRPC connection.
-	return hn.initClientWhenReady()
+	return hn.initClientWhenReady(DefaultTimeout)
 }
 
 // initLightningClient constructs the grpc LightningClient from the given client
@@ -1056,6 +1145,11 @@ func (hn *HarnessNode) shutdown() error {
 		return err
 	}
 	return nil
+}
+
+// kill kills the lnd process
+func (hn *HarnessNode) kill() error {
+	return hn.cmd.Process.Kill()
 }
 
 // closeChanWatchRequest is a request to the lightningNetworkWatcher to be

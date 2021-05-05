@@ -5575,7 +5575,7 @@ func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {
 
 		// The invoice update should exactly match the invoice created
 		// above, but should now be settled and have SettleDate
-		if !invoiceUpdate.Settled {
+		if !invoiceUpdate.Settled { // nolint:staticcheck
 			t.Fatalf("invoice not settled but should be")
 		}
 		if invoiceUpdate.SettleDate == 0 {
@@ -5673,7 +5673,7 @@ func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {
 
 		// We should now get the ith invoice we added, as they should
 		// be returned in order.
-		if invoiceUpdate.Settled {
+		if invoiceUpdate.Settled { // nolint:staticcheck
 			t.Fatalf("should have only received add events")
 		}
 		originalInvoice := newInvoices[i]
@@ -5728,7 +5728,7 @@ func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {
 
 		// We should now get the ith invoice we added, as they should
 		// be returned in order.
-		if !invoiceUpdate.Settled {
+		if !invoiceUpdate.Settled { // nolint:staticcheck
 			t.Fatalf("should have only received settle events")
 		}
 
@@ -9190,7 +9190,7 @@ func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 				for _, update := range graphUpdate.NodeUpdates {
 					if update.IdentityKey == nodePubKey {
 						assertAddrs(
-							update.Addresses,
+							update.Addresses, // nolint:staticcheck
 							targetAddrs...,
 						)
 						return

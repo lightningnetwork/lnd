@@ -706,7 +706,7 @@ func testSendToRouteErrorPropagation(net *lntest.NetworkHarness, t *harnessTest)
 
 	// Using Alice as the source, pay to the 5 invoices from Bob created above.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	alicePayStream, err := net.Alice.SendToRoute(ctxt)
+	alicePayStream, err := net.Alice.SendToRoute(ctxt) // nolint:staticcheck
 	if err != nil {
 		t.Fatalf("unable to create payment stream for alice: %v", err)
 	}

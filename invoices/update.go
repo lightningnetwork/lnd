@@ -168,7 +168,7 @@ func updateMpp(ctx *invoiceUpdateCtx,
 		return nil, ctx.failRes(ResultHtlcSetTotalTooLow), nil
 	}
 
-	htlcSet := inv.HTLCSet(setID)
+	htlcSet := inv.HTLCSet(setID, channeldb.HtlcStateAccepted)
 
 	// Check whether total amt matches other htlcs in the set.
 	var newSetTotal lnwire.MilliSatoshi
@@ -373,7 +373,7 @@ func updateLegacy(ctx *invoiceUpdateCtx,
 	// Don't allow settling the invoice with an old style
 	// htlc if we are already in the process of gathering an
 	// mpp set.
-	for _, htlc := range inv.HTLCSet(nil) {
+	for _, htlc := range inv.HTLCSet(nil, channeldb.HtlcStateAccepted) {
 		if htlc.MppTotalAmt > 0 {
 			return nil, ctx.failRes(ResultMppInProgress), nil
 		}

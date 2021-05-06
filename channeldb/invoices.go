@@ -471,17 +471,16 @@ type Invoice struct {
 	HodlInvoice bool
 }
 
-// HTLCSet returns the set of accepted HTLCs belonging to an invoice. Passing a
-// nil setID will return all accepted HTLCs in the case of legacy or MPP, and no
-// HTLCs in the case of AMP.  Otherwise, the returned set will be filtered by
-// the populated setID which is used to retrieve AMP HTLC sets.
-func (i *Invoice) HTLCSet(setID *[32]byte) map[CircuitKey]*InvoiceHTLC {
+// HTLCSet returns the set of HTLCs belonging to setID and in the provided
+// state. Passing a nil setID will return all HTLCs in the provided state in the
+// case of legacy or MPP, and no HTLCs in the case of AMP.  Otherwise, the
+// returned set will be filtered by the populated setID which is used to
+// retrieve AMP HTLC sets.
+func (i *Invoice) HTLCSet(setID *[32]byte, state HtlcState) map[CircuitKey]*InvoiceHTLC {
 	htlcSet := make(map[CircuitKey]*InvoiceHTLC)
 	for key, htlc := range i.Htlcs {
-		// Only consider accepted mpp htlcs. It is possible that there
-		// are htlcs registered in the invoice database that previously
-		// timed out and are in the canceled state now.
-		if htlc.State != HtlcStateAccepted {
+		// Only add HTLCs that are in the requested HtlcState.
+		if htlc.State != state {
 			continue
 		}
 
@@ -2039,7 +2038,7 @@ func updateInvoiceState(invoice *Invoice, hash *lntypes.Hash,
 
 		// Sanity check that the user isn't trying to settle or accept a
 		// non-existent HTLC set.
-		if len(invoice.HTLCSet(update.SetID)) == 0 {
+		if len(invoice.HTLCSet(update.SetID, HtlcStateAccepted)) == 0 {
 			return ErrEmptyHTLCSet
 		}
 
@@ -2329,8 +2328,8 @@ func (d *DB) DeleteInvoice(invoicesToDelete []InvoiceDeleteRef) error {
 			// invoice key.
 			key := invoiceAddIndex.Get(addIndexKey[:])
 			if !bytes.Equal(key, invoiceKey) {
-				return fmt.Errorf("unknown invoice in " +
-					"add index")
+				return fmt.Errorf("unknown invoice " +
+					"in add index")
 			}
 
 			// Remove from the add index.

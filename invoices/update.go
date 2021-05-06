@@ -125,6 +125,21 @@ func updateMpp(ctx *invoiceUpdateCtx,
 	inv *channeldb.Invoice) (*channeldb.InvoiceUpdateDesc,
 	HtlcResolution, error) {
 
+	// Reject HTLCs to AMP invoices if they are missing an AMP payload, and
+	// HTLCs to MPP invoices if they have an AMP payload.
+	switch {
+
+	case inv.Terms.Features.RequiresFeature(lnwire.AMPRequired) &&
+		ctx.amp == nil:
+
+		return nil, ctx.failRes(ResultHtlcInvoiceTypeMismatch), nil
+
+	case !inv.Terms.Features.RequiresFeature(lnwire.AMPRequired) &&
+		ctx.amp != nil:
+
+		return nil, ctx.failRes(ResultHtlcInvoiceTypeMismatch), nil
+	}
+
 	setID := ctx.setID()
 
 	// Start building the accept descriptor.

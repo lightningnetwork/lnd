@@ -110,6 +110,10 @@ const (
 	// payment.
 	ResultMppInProgress
 
+	// ResultHtlcInvoiceTypeMismatch is returned when an AMP HTLC targets a
+	// non-AMP invoice and vice versa.
+	ResultHtlcInvoiceTypeMismatch
+
 	// ResultAmpError is returned when we receive invalid AMP parameters.
 	ResultAmpError
 
@@ -175,6 +179,9 @@ func (f FailResolutionResult) FailureString() string {
 
 	case ResultMppInProgress:
 		return "mpp reception in progress"
+
+	case ResultHtlcInvoiceTypeMismatch:
+		return "htlc invoice type mismatch"
 
 	case ResultAmpError:
 		return "invalid amp parameters"

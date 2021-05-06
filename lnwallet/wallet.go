@@ -39,6 +39,13 @@ const (
 	// TODO(halseth): update constant to target a specific commit size at
 	// set fee rate.
 	anchorChanReservedValue = btcutil.Amount(10_000)
+
+	// maxAnchorChanReservedValue is the maximum value we'll reserve for
+	// anchor channel fee bumping. We cap it at 10 times the per-channel
+	// amount such that nodes with a high number of channels don't have to
+	// keep around a very large amount for the unlikely scenario that they
+	// all close at the same time.
+	maxAnchorChanReservedValue = 10 * anchorChanReservedValue
 )
 
 var (
@@ -1000,6 +1007,9 @@ func (l *LightningWallet) CheckReservedValue(in []wire.OutPoint,
 
 	// We reserve a given amount for each anchor channel.
 	reserved := btcutil.Amount(numAnchorChans) * anchorChanReservedValue
+	if reserved > maxAnchorChanReservedValue {
+		reserved = maxAnchorChanReservedValue
+	}
 
 	if walletBalance < reserved {
 		walletLog.Debugf("Reserved value=%v above final "+

@@ -696,7 +696,9 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 			payIntent.Amount = *payReq.MilliSat
 		}
 
-		if !payReq.Features.HasFeature(lnwire.MPPOptional) {
+		if !payReq.Features.HasFeature(lnwire.MPPOptional) &&
+			!payReq.Features.HasFeature(lnwire.AMPOptional) {
+
 			payIntent.MaxParts = 1
 		}
 
@@ -765,7 +767,6 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 				ampFeatures := []lnrpc.FeatureBit{
 					lnrpc.FeatureBit_TLV_ONION_OPT,
 					lnrpc.FeatureBit_PAYMENT_ADDR_OPT,
-					lnrpc.FeatureBit_MPP_OPT,
 					lnrpc.FeatureBit_AMP_OPT,
 				}
 

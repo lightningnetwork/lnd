@@ -87,6 +87,12 @@ var (
 			"payment splitting is required to attempt a payment, " +
 			"specified in milli-satoshis",
 	}
+
+	ampFlag = cli.BoolFlag{
+		Name: "amp",
+		Usage: "if set to true, then AMP will be used to complete the " +
+			"payment",
+	}
 )
 
 // paymentFlags returns common flags for sendpayment and payinvoice.
@@ -131,7 +137,7 @@ func paymentFlags() []cli.Flag {
 			Usage: "allow sending a circular payment to self",
 		},
 		dataFlag, inflightUpdatesFlag, maxPartsFlag, jsonFlag,
-		maxShardSizeSatFlag, maxShardSizeMsatFlag,
+		maxShardSizeSatFlag, maxShardSizeMsatFlag, ampFlag,
 	}
 }
 
@@ -287,11 +293,16 @@ func sendPayment(ctx *cli.Context) error {
 		Dest:              destNode,
 		Amt:               amount,
 		DestCustomRecords: make(map[uint64][]byte),
+		Amp:               ctx.Bool(ampFlag.Name),
 	}
 
 	var rHash []byte
 
-	if ctx.Bool("keysend") {
+	switch {
+	case ctx.Bool("keysend") && ctx.Bool(ampFlag.Name):
+		return errors.New("either keysend or amp may be set, but not both")
+
+	case ctx.Bool("keysend"):
 		if ctx.IsSet("payment_hash") {
 			return errors.New("cannot set payment hash when using " +
 				"keysend")
@@ -308,7 +319,7 @@ func sendPayment(ctx *cli.Context) error {
 
 		hash := preimage.Hash()
 		rHash = hash[:]
-	} else {
+	case !ctx.Bool(ampFlag.Name):
 		switch {
 		case ctx.IsSet("payment_hash"):
 			rHash, err = hex.DecodeString(ctx.String("payment_hash"))
@@ -323,7 +334,7 @@ func sendPayment(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	if len(rHash) != 32 {
+	if !req.Amp && len(rHash) != 32 {
 		return fmt.Errorf("payment hash must be exactly 32 "+
 			"bytes, is instead %v", len(rHash))
 	}

@@ -1021,15 +1021,8 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		// Also cancel any HTLCs in the HTLC set that are also in the
 		// canceled state with the same failure result.
 		setID := ctx.setID()
-		for key, htlc := range invoice.Htlcs {
-			if htlc.State != channeldb.HtlcStateCanceled {
-				continue
-			}
-
-			if !htlc.IsInHTLCSet(setID) {
-				continue
-			}
-
+		canceledHtlcSet := invoice.HTLCSet(setID, channeldb.HtlcStateCanceled)
+		for key, htlc := range canceledHtlcSet {
 			htlcFailResolution := NewFailResolution(
 				key, int32(htlc.AcceptHeight), res.Outcome,
 			)
@@ -1047,11 +1040,9 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		// Also settle any previously accepted htlcs. If a htlc is
 		// marked as settled, we should follow now and settle the htlc
 		// with our peer.
-		for key, htlc := range invoice.Htlcs {
-			if htlc.State != channeldb.HtlcStateSettled {
-				continue
-			}
-
+		setID := ctx.setID()
+		settledHtlcSet := invoice.HTLCSet(setID, channeldb.HtlcStateSettled)
+		for key, htlc := range settledHtlcSet {
 			preimage := res.Preimage
 			if htlc.AMP != nil && htlc.AMP.Preimage != nil {
 				preimage = *htlc.AMP.Preimage

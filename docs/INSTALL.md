@@ -226,16 +226,16 @@ On FreeBSD, use gmake instead of make.
 Alternatively, if one doesn't wish to use `make`, then the `go` commands can be
 used directly:
 ```shell
-cd $GOPATH/src/github.com/lightningnetwork/lnd
-git pull
-GO111MODULE=on go install -v ./...
+⛰  cd $GOPATH/src/github.com/lightningnetwork/lnd
+⛰  git pull
+⛰  GO111MODULE=on go install -v ./...
 ```
 
 **Tests**
 
 To check that `lnd` was installed properly run the following command:
-```
-make check
+```shell
+⛰   make check
 ```
 
 This command requires `bitcoind` (almost any version should do) to be available
@@ -259,7 +259,7 @@ wallet, and the age of the earliest channels (which were created around March
 The set of arguments for each of the backend modes is as follows:
 
 ## btcd Options
-```
+```text
 btcd:
       --btcd.dir=                                             The base directory that contains the node's data, logs, configuration file, etc. (default: /Users/roasbeef/Library/Application Support/Btcd)
       --btcd.rpchost=                                         The daemon's rpc listening address. If a port is omitted, then the default port for the selected chain parameters will be used. (default: localhost)
@@ -270,7 +270,7 @@ btcd:
 ```
 
 ## Neutrino Options
-```
+```text
 neutrino:
   -a, --neutrino.addpeer=                                     Add a peer to connect with at startup
       --neutrino.connect=                                     Connect only to the specified peers at startup
@@ -282,7 +282,7 @@ neutrino:
 ```
 
 ## Bitcoind Options
-```
+```text
 bitcoind:
       --bitcoind.dir=                                         The base directory that contains the node's data, logs, configuration file, etc. (default: /Users/roasbeef/Library/Application Support/Bitcoin)
       --bitcoind.rpchost=                                     The daemon's rpc listening address. If a port is omitted, then the default port for the selected chain parameters will be used. (default: localhost)
@@ -302,8 +302,8 @@ On FreeBSD, use gmake instead of make.
 To install btcd, run the following commands:
 
 Install **btcd**:
-```
-make btcd
+```shell
+⛰   make btcd
 ```
 
 Alternatively, you can install [`btcd` directly from its
@@ -313,8 +313,8 @@ repo](https://github.com/btcsuite/btcd).
 
 Running the following command will create `rpc.cert` and default `btcd.conf`.
 
-```
-btcd --testnet --rpcuser=REPLACEME --rpcpass=REPLACEME
+```shell
+⛰   btcd --testnet --rpcuser=REPLACEME --rpcpass=REPLACEME
 ```
 If you want to use `lnd` on testnet, `btcd` needs to first fully sync the
 testnet blockchain. Depending on your hardware, this may take up to a few
@@ -326,8 +326,8 @@ directly, rather than scanning blocks or BIP 158 filters for relevant items.
 
 While `btcd` is syncing you can check on its progress using btcd's `getinfo`
 RPC command:
-```
-btcctl --testnet --rpcuser=REPLACEME --rpcpass=REPLACEME getinfo
+```shell
+⛰   btcctl --testnet --rpcuser=REPLACEME --rpcpass=REPLACEME getinfo
 {
   "version": 120000,
   "protocolversion": 70002,
@@ -346,8 +346,8 @@ Additionally, you can monitor btcd's logs to track its syncing progress in real
 time.
 
 You can test your `btcd` node's connectivity using the `getpeerinfo` command:
-```
-btcctl --testnet --rpcuser=REPLACEME --rpcpass=REPLACEME getpeerinfo | more
+```shell
+⛰   btcctl --testnet --rpcuser=REPLACEME --rpcpass=REPLACEME getpeerinfo | more
 ```
 
 ### Running lnd using the btcd backend
@@ -356,8 +356,9 @@ If you are on testnet, run this command after `btcd` has finished syncing.
 Otherwise, replace `--bitcoin.testnet` with `--bitcoin.simnet`. If you are
 installing `lnd` in preparation for the
 [tutorial](https://dev.lightning.community/tutorial), you may skip this step.
-```
-lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --btcd.rpcuser=kek --btcd.rpcpass=kek --externalip=X.X.X.X
+```shell
+⛰   lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug \
+       --btcd.rpcuser=kek --btcd.rpcpass=kek --externalip=X.X.X.X
 ```
 
 ## Using Neutrino
@@ -371,8 +372,9 @@ mode.  A public instance of such a node can be found at
 
 To run lnd in neutrino mode, run `lnd` with the following arguments, (swapping
 in `--bitcoin.simnet` if needed), and also your own `btcd` node if available:
-```
-lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.node=neutrino --neutrino.connect=faucet.lightning.community
+```shell
+⛰   lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug \
+       --bitcoin.node=neutrino --neutrino.connect=faucet.lightning.community
 ```
 
 
@@ -407,7 +409,7 @@ the following:
   the testnet chain (alternatively, use `--bitcoind.regtest` instead).
 
 Here's a sample `bitcoin.conf` for use with lnd:
-```
+```text
 testnet=1
 server=1
 daemon=1
@@ -421,8 +423,13 @@ updated with the latest blocks on testnet, run the command below to launch
 `lnd.conf` to save these options, more info on that is described further
 below):
 
-```
-lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.node=bitcoind --bitcoind.rpcuser=REPLACEME --bitcoind.rpcpass=REPLACEME --bitcoind.zmqpubrawblock=tcp://127.0.0.1:28332 --bitcoind.zmqpubrawtx=tcp://127.0.0.1:28333 --externalip=X.X.X.X
+```shell
+⛰   lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug \
+       --bitcoin.node=bitcoind --bitcoind.rpcuser=REPLACEME \
+       --bitcoind.rpcpass=REPLACEME \
+       --bitcoind.zmqpubrawblock=tcp://127.0.0.1:28332 \
+       --bitcoind.zmqpubrawtx=tcp://127.0.0.1:28333 \
+       --externalip=X.X.X.X
 ```
 
 *NOTE:*
@@ -457,8 +464,8 @@ lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.node=bitcoin
 
 # Creating a wallet
 If `lnd` is being run for the first time, create a new wallet with:
-```
-lncli create
+```shell
+⛰   lncli create
 ```
 This will prompt for a wallet password, and optionally a cipher seed
 passphrase.
@@ -467,6 +474,8 @@ passphrase.
 recover the wallet in case of data loss. The user should write this down and
 keep in a safe place.
 
+More [information about managing wallets can be found in the wallet management
+document](wallet.md).
 
 # Macaroons
 
@@ -528,7 +537,7 @@ at the command line, you can create an `lnd.conf`.
 `~/.lnd/lnd.conf`
 
 Here's a sample `lnd.conf` for `btcd` to get you started:
-```
+```text
 [Application Options]
 debuglevel=trace
 maxpendingchannels=10

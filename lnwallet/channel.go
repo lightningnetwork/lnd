@@ -27,8 +27,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-var zeroHash chainhash.Hash
-
 var (
 	// ErrChanClosing is returned when a caller attempts to close a channel
 	// that has already been closed or is in the process of being closed.

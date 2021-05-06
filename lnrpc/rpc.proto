@@ -3003,6 +3003,11 @@ message Invoice {
     for added end-to-end security.
     */
     bytes payment_addr = 26;
+
+    /*
+    Signals whether or not this is an AMP invoice.
+    */
+    bool is_amp = 27;
 }
 
 enum InvoiceHTLCState {

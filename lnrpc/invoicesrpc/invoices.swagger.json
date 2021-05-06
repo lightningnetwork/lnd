@@ -463,6 +463,11 @@
           "type": "string",
           "format": "byte",
           "description": "The payment address of this invoice. This value will be used in MPP\npayments, and also for newer invoies that always require the MPP paylaod\nfor added end-to-end security."
+        },
+        "is_amp": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Signals whether or not this is an AMP invoice."
         }
       }
     },

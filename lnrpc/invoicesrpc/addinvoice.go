@@ -54,6 +54,10 @@ type AddInvoiceConfig struct {
 	// GenInvoiceFeatures returns a feature containing feature bits that
 	// should be advertised on freshly generated invoices.
 	GenInvoiceFeatures func() *lnwire.FeatureVector
+
+	// GenAmpInvoiceFeatures returns a feature containing feature bits that
+	// should be advertised on freshly generated AMP invoices.
+	GenAmpInvoiceFeatures func() *lnwire.FeatureVector
 }
 
 // AddInvoiceData contains the required data to create a new invoice.

@@ -1063,6 +1063,23 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 			i.notifyHodlSubscribers(htlcSettleResolution)
 		}
 
+		// If concurrent payments were attempted to this invoice before
+		// the current one was ultimately settled, cancel back any of
+		// the HTLCs immediately. As a result of the settle, the HTLCs
+		// in other HTLC sets are automatically converted to a canceled
+		// state when updating the invoice.
+		canceledHtlcSet := invoice.HTLCSetCompliment(
+			setID, channeldb.HtlcStateCanceled,
+		)
+		for key, htlc := range canceledHtlcSet {
+			htlcFailResolution := NewFailResolution(
+				key, int32(htlc.AcceptHeight),
+				ResultInvoiceAlreadySettled,
+			)
+
+			i.notifyHodlSubscribers(htlcFailResolution)
+		}
+
 	// If we accepted the htlc, subscribe to the hodl invoice and return
 	// an accept resolution with the htlc's accept time on it.
 	case *htlcAcceptResolution:

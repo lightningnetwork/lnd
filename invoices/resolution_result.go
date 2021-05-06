@@ -61,6 +61,10 @@ const (
 	// invoice that is already canceled.
 	ResultInvoiceAlreadyCanceled
 
+	// ResultInvoiceAlreadySettled is returned when trying to pay an invoice
+	// that is already settled.
+	ResultInvoiceAlreadySettled
+
 	// ResultAmountTooLow is returned when an invoice is underpaid.
 	ResultAmountTooLow
 
@@ -132,6 +136,9 @@ func (f FailResolutionResult) FailureString() string {
 
 	case ResultInvoiceAlreadyCanceled:
 		return "invoice already canceled"
+
+	case ResultInvoiceAlreadySettled:
+		return "invoice alread settled"
 
 	case ResultAmountTooLow:
 		return "amount too low"

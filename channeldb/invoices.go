@@ -494,6 +494,31 @@ func (i *Invoice) HTLCSet(setID *[32]byte, state HtlcState) map[CircuitKey]*Invo
 	return htlcSet
 }
 
+// HTLCSetCompliment returns the set of all HTLCs not belonging to setID that
+// are in the target state. Passing a nil setID will return no invoices, since
+// all MPP HTLCs are part of the same HTLC set.
+func (i *Invoice) HTLCSetCompliment(setID *[32]byte,
+	state HtlcState) map[CircuitKey]*InvoiceHTLC {
+
+	htlcSet := make(map[CircuitKey]*InvoiceHTLC)
+	for key, htlc := range i.Htlcs {
+		// Only add HTLCs that are in the requested HtlcState.
+		if htlc.State != state {
+			continue
+		}
+
+		// We are constructing the compliment, so filter anything that
+		// matches this set id.
+		if htlc.IsInHTLCSet(setID) {
+			continue
+		}
+
+		htlcSet[key] = htlc
+	}
+
+	return htlcSet
+}
+
 // HtlcState defines the states an htlc paying to an invoice can be in.
 type HtlcState uint8
 

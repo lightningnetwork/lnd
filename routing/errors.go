@@ -15,6 +15,19 @@ const (
 	// this update can't bring us something new, or because a node
 	// announcement was given for node not found in any channel.
 	ErrIgnored
+
+	// ErrChannelSpent is returned when we go to validate a channel, but
+	// the purported funding output has actually already been spent on
+	// chain.
+	ErrChannelSpent
+
+	// ErrNoFundingTransaction is returned when we are unable to find the
+	// funding transaction described by the short channel ID on chain.
+	ErrNoFundingTransaction
+
+	// ErrInvalidFundingOutput is returned if the channle funding output
+	// fails validation.
+	ErrInvalidFundingOutput
 )
 
 // routerError is a structure that represent the error inside the routing package,

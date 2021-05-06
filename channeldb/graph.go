@@ -3397,6 +3397,38 @@ func (c *ChannelGraph) NewChannelEdgePolicy() *ChannelEdgePolicy {
 	return &ChannelEdgePolicy{db: c.db}
 }
 
+// MarkEdgeZombie attempts to mark a channel identified by its channel ID as a
+// zombie. This method is used on an ad-hoc basis, when channels need to be
+// marked as zombies outside the normal pruning cycle.
+func (c *ChannelGraph) MarkEdgeZombie(chanID uint64,
+	pubKey1, pubKey2 [33]byte) error {
+
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+
+	err := kvdb.Batch(c.db, func(tx kvdb.RwTx) error {
+		edges := tx.ReadWriteBucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+		zombieIndex, err := edges.CreateBucketIfNotExists(zombieBucket)
+		if err != nil {
+			return fmt.Errorf("unable to create zombie "+
+				"bucket: %w", err)
+		}
+
+		return markEdgeZombie(zombieIndex, chanID, pubKey1, pubKey2)
+	})
+	if err != nil {
+		return err
+	}
+
+	c.rejectCache.remove(chanID)
+	c.chanCache.remove(chanID)
+
+	return nil
+}
+
 // markEdgeZombie marks an edge as a zombie within our zombie index. The public
 // keys should represent the node public keys of the two parties involved in the
 // edge.

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chanvalidate"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
@@ -1276,6 +1278,22 @@ func (r *ChannelRouter) assertNodeAnnFreshness(node route.Vertex,
 	return nil
 }
 
+// addZombieEdge adds a channel that failed complete validation into the zombie
+// index so we can avoid having to re-validate it in the future.
+func (r *ChannelRouter) addZombieEdge(chanID uint64) error {
+	// If the edge fails validation we'll mark the edge itself as a zombie
+	// so we don't continue to request it. We use the "zero key" for both
+	// node pubkeys so this edge can't be resurrected.
+	var zeroKey [33]byte
+	err := r.cfg.Graph.MarkEdgeZombie(chanID, zeroKey, zeroKey)
+	if err != nil {
+		return fmt.Errorf("unable to mark spent chan(id=%v) as a "+
+			"zombie: %w", chanID, err)
+	}
+
+	return nil
+}
+
 // processUpdate processes a new relate authenticated channel/edge, node or
 // channel/edge update network update. If the update didn't affect the internal
 // state of the draft due to either being out of date, invalid, or redundant,
@@ -1343,8 +1361,36 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		fundingTx, err := r.fetchFundingTx(&channelID)
 		if err != nil {
-			return errors.Errorf("unable to fetch funding tx for "+
-				"chan_id=%v: %v", msg.ChannelID, err)
+			// In order to ensure we don't erroneously mark a
+			// channel as a zombie due to an RPC failure, we'll
+			// attempt to string match for the relevant errors.
+			//
+			// * btcd:
+			//    * https://github.com/btcsuite/btcd/blob/master/rpcserver.go#L1316
+			//    * https://github.com/btcsuite/btcd/blob/master/rpcserver.go#L1086
+			// * bitcoind:
+			//    * https://github.com/bitcoin/bitcoin/blob/7fcf53f7b4524572d1d0c9a5fdc388e87eb02416/src/rpc/blockchain.cpp#L770
+			//     * https://github.com/bitcoin/bitcoin/blob/7fcf53f7b4524572d1d0c9a5fdc388e87eb02416/src/rpc/blockchain.cpp#L954
+			switch {
+			case strings.Contains(err.Error(), "not found"):
+				fallthrough
+
+			case strings.Contains(err.Error(), "out of range"):
+				// If the funding transaction isn't found at
+				// all, then we'll mark the edge itself as a
+				// zombie so we don't continue to request it.
+				// We use the "zero key" for both node pubkeys
+				// so this edge can't be resurrected.
+				zErr := r.addZombieEdge(msg.ChannelID)
+				if zErr != nil {
+					return zErr
+				}
+
+			default:
+			}
+
+			return newErrf(ErrNoFundingTransaction, "unable to "+
+				"locate funding tx: %v", err)
 		}
 
 		// Recreate witness output to be sure that declared in channel
@@ -1373,7 +1419,14 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 			FundingTx:        fundingTx,
 		})
 		if err != nil {
-			return err
+			// Mark the edge as a zombie so we won't try to
+			// re-validate it on start up.
+			if err := r.addZombieEdge(msg.ChannelID); err != nil {
+				return err
+			}
+
+			return newErrf(ErrInvalidFundingOutput, "output "+
+				"failed validation: %w", err)
 		}
 
 		// Now that we have the funding outpoint of the channel, ensure
@@ -1388,7 +1441,14 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 			r.quit,
 		)
 		if err != nil {
-			return fmt.Errorf("unable to fetch utxo "+
+			if errors.Is(err, btcwallet.ErrOutputSpent) {
+				zErr := r.addZombieEdge(msg.ChannelID)
+				if zErr != nil {
+					return zErr
+				}
+			}
+
+			return newErrf(ErrChannelSpent, "unable to fetch utxo "+
 				"for chan_id=%v, chan_point=%v: %v",
 				msg.ChannelID, fundingPoint, err)
 		}
@@ -1538,9 +1598,9 @@ func (r *ChannelRouter) fetchFundingTx(
 	// block.
 	numTxns := uint32(len(fundingBlock.Transactions))
 	if chanID.TxIndex > numTxns-1 {
-		return nil, fmt.Errorf("tx_index=#%v is out of range "+
-			"(max_index=%v), network_chan_id=%v", chanID.TxIndex,
-			numTxns-1, chanID)
+		return nil, fmt.Errorf("tx_index=#%v "+
+			"is out of range (max_index=%v), network_chan_id=%v",
+			chanID.TxIndex, numTxns-1, chanID)
 	}
 
 	return fundingBlock.Transactions[chanID.TxIndex], nil

@@ -57,6 +57,10 @@ type RegistryConfig struct {
 	// send payments.
 	AcceptKeySend bool
 
+	// AcceptAMP indicates whether we want to accept spontaneous AMP
+	// payments.
+	AcceptAMP bool
+
 	// GcCanceledInvoicesOnStartup if set, we'll attempt to garbage collect
 	// all canceled invoices upon start.
 	GcCanceledInvoicesOnStartup bool
@@ -884,28 +888,33 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		amp:                  payload.AMPRecord(),
 	}
 
-	// Process keysend if present. Do this outside of the lock, because
-	// AddInvoice obtains its own lock. This is no problem, because the
-	// operation is idempotent.
-	if i.cfg.AcceptKeySend {
-		if ctx.amp != nil {
-			err := i.processAMP(ctx)
-			if err != nil {
-				ctx.log(fmt.Sprintf("amp error: %v", err))
+	switch {
 
-				return NewFailResolution(
-					circuitKey, currentHeight, ResultAmpError,
-				), nil
-			}
-		} else {
-			err := i.processKeySend(ctx)
-			if err != nil {
-				ctx.log(fmt.Sprintf("keysend error: %v", err))
+	// If we are accepting spontaneous AMP payments and this payload
+	// contains an AMP record, create an AMP invoice that will be settled
+	// below.
+	case i.cfg.AcceptAMP && ctx.amp != nil:
+		err := i.processAMP(ctx)
+		if err != nil {
+			ctx.log(fmt.Sprintf("amp error: %v", err))
 
-				return NewFailResolution(
-					circuitKey, currentHeight, ResultKeySendError,
-				), nil
-			}
+			return NewFailResolution(
+				circuitKey, currentHeight, ResultAmpError,
+			), nil
+		}
+
+	// If we are accepting spontaneous keysend payments, create a regular
+	// invoice that will be settled below. We also enforce that this is only
+	// done when no AMP payload is present since it will only be settle-able
+	// by regular HTLCs.
+	case i.cfg.AcceptKeySend && ctx.amp == nil:
+		err := i.processKeySend(ctx)
+		if err != nil {
+			ctx.log(fmt.Sprintf("keysend error: %v", err))
+
+			return NewFailResolution(
+				circuitKey, currentHeight, ResultKeySendError,
+			), nil
 		}
 	}
 

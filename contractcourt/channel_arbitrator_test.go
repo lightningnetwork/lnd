@@ -2119,9 +2119,7 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 
 	// Setup two pre-confirmation anchor resolutions on the mock channel.
 	chanArb.cfg.Channel.(*mockChannel).anchorResolutions =
-		[]*lnwallet.AnchorResolution{
-			{}, {},
-		}
+		&lnwallet.AnchorResolutions{}
 
 	if err := chanArb.Start(nil); err != nil {
 		t.Fatalf("unable to start ChannelArbitrator: %v", err)
@@ -2286,13 +2284,16 @@ func assertResolverReport(t *testing.T, reports chan *channeldb.ResolverReport,
 }
 
 type mockChannel struct {
-	anchorResolutions []*lnwallet.AnchorResolution
+	anchorResolutions *lnwallet.AnchorResolutions
 }
 
-func (m *mockChannel) NewAnchorResolutions() ([]*lnwallet.AnchorResolution,
+func (m *mockChannel) NewAnchorResolutions() (*lnwallet.AnchorResolutions,
 	error) {
+	if m.anchorResolutions != nil {
+		return m.anchorResolutions, nil
+	}
 
-	return m.anchorResolutions, nil
+	return &lnwallet.AnchorResolutions{}, nil
 }
 
 func (m *mockChannel) ForceCloseChan() (*lnwallet.LocalForceCloseSummary, error) {

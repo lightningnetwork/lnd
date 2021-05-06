@@ -917,14 +917,19 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 		}
 
 		// Check the pre-confirmation resolutions.
-		resList, err := aliceChannel.NewAnchorResolutions()
+		res, err := aliceChannel.NewAnchorResolutions()
 		if err != nil {
 			t.Fatalf("pre-confirmation resolution error: %v", err)
 		}
 
-		if len(resList) != 2 {
-			t.Fatal("expected two resolutions")
-		}
+		// Check we have the expected anchor resolutions.
+		require.NotNil(t, res.Local, "expected local anchor resolution")
+		require.NotNil(t,
+			res.Remote, "expected remote anchor resolution",
+		)
+		require.Nil(t,
+			res.RemotePending, "expected no anchor resolution",
+		)
 	}
 
 	// The SelfOutputSignDesc should be non-nil since the output to-self is

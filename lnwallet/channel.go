@@ -6404,16 +6404,33 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	return closeTx, ourBalance, nil
 }
 
-// NewAnchorResolutions returns the anchor resolutions for all currently valid
-// commitment transactions. Because we have no view on the mempool, we can only
-// blindly anchor all of these txes down.
-func (lc *LightningChannel) NewAnchorResolutions() ([]*AnchorResolution,
+// AnchorResolutions is a set of anchor resolutions that's being used when
+// sweeping anchors during local channel force close.
+type AnchorResolutions struct {
+	// Local is the anchor resolution for the local commitment tx.
+	Local *AnchorResolution
+
+	// Remote is the anchor resolution for the remote commitment tx.
+	Remote *AnchorResolution
+
+	// RemotePending is the anchor resolution for the remote pending
+	// commitment tx. The value will be non-nil iff we've created a new
+	// commitment tx for the remote party which they haven't ACKed yet.
+	RemotePending *AnchorResolution
+}
+
+// NewAnchorResolutions returns a set of anchor resolutions wrapped in the
+// struct AnchorResolutions. Because we have no view on the mempool, we can
+// only blindly anchor all of these txes down. Caller needs to check the
+// returned values against nil to decide whether there exists an anchor
+// resolution for local/remote/pending remote commitment txes.
+func (lc *LightningChannel) NewAnchorResolutions() (*AnchorResolutions,
 	error) {
 
 	lc.Lock()
 	defer lc.Unlock()
 
-	var resolutions []*AnchorResolution
+	resolutions := &AnchorResolutions{}
 
 	// Add anchor for local commitment tx, if any.
 	localRes, err := NewAnchorResolution(
@@ -6422,9 +6439,7 @@ func (lc *LightningChannel) NewAnchorResolutions() ([]*AnchorResolution,
 	if err != nil {
 		return nil, err
 	}
-	if localRes != nil {
-		resolutions = append(resolutions, localRes)
-	}
+	resolutions.Local = localRes
 
 	// Add anchor for remote commitment tx, if any.
 	remoteRes, err := NewAnchorResolution(
@@ -6433,9 +6448,7 @@ func (lc *LightningChannel) NewAnchorResolutions() ([]*AnchorResolution,
 	if err != nil {
 		return nil, err
 	}
-	if remoteRes != nil {
-		resolutions = append(resolutions, remoteRes)
-	}
+	resolutions.Remote = remoteRes
 
 	// Add anchor for remote pending commitment tx, if any.
 	remotePendingCommit, err := lc.channelState.RemoteCommitChainTip()
@@ -6451,10 +6464,7 @@ func (lc *LightningChannel) NewAnchorResolutions() ([]*AnchorResolution,
 		if err != nil {
 			return nil, err
 		}
-
-		if remotePendingRes != nil {
-			resolutions = append(resolutions, remotePendingRes)
-		}
+		resolutions.RemotePending = remotePendingRes
 	}
 
 	return resolutions, nil

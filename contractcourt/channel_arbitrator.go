@@ -91,7 +91,7 @@ type ArbChannel interface {
 
 	// NewAnchorResolutions returns the anchor resolutions for currently
 	// valid commitment transactions.
-	NewAnchorResolutions() ([]*lnwallet.AnchorResolution, error)
+	NewAnchorResolutions() (*lnwallet.AnchorResolutions, error)
 }
 
 // ChannelArbitratorConfig contains all the functionality that the
@@ -1087,14 +1087,18 @@ func (c *ChannelArbitrator) stateStep(
 // sweepAnchors offers all given anchor resolutions to the sweeper. It requests
 // sweeping at the minimum fee rate. This fee rate can be upped manually by the
 // user via the BumpFee rpc.
-func (c *ChannelArbitrator) sweepAnchors(anchors []*lnwallet.AnchorResolution,
+func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 	heightHint uint32) error {
 
 	// Use the chan id as the exclusive group. This prevents any of the
 	// anchors from being batched together.
 	exclusiveGroup := c.cfg.ShortChanID.ToUint64()
 
-	for _, anchor := range anchors {
+	// TODO: refactor this function in next commit.
+	for _, anchor := range []*lnwallet.AnchorResolution{
+		anchors.Local, anchors.Remote, anchors.RemotePending,
+	} {
+
 		log.Debugf("ChannelArbitrator(%v): pre-confirmation sweep of "+
 			"anchor of tx %v", c.cfg.ChanPoint, anchor.CommitAnchor)
 

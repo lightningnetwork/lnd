@@ -1059,9 +1059,12 @@ func TestBreachHandoffSuccess(t *testing.T) {
 
 	// Signal a spend of the funding transaction and wait for the close
 	// observer to exit.
+	processACK := make(chan error)
 	breach := &ContractBreachEvent{
-		ChanPoint:  *chanPoint,
-		ProcessACK: make(chan error, 1),
+		ChanPoint: *chanPoint,
+		ProcessACK: func(brarErr error) {
+			processACK <- brarErr
+		},
 		BreachRetribution: &lnwallet.BreachRetribution{
 			BreachTransaction: bobClose.CloseTx,
 			LocalOutputSignDesc: &input.SignDescriptor{
@@ -1075,7 +1078,7 @@ func TestBreachHandoffSuccess(t *testing.T) {
 
 	// We'll also wait to consume the ACK back from the breach arbiter.
 	select {
-	case err := <-breach.ProcessACK:
+	case err := <-processACK:
 		if err != nil {
 			t.Fatalf("handoff failed: %v", err)
 		}
@@ -1092,8 +1095,10 @@ func TestBreachHandoffSuccess(t *testing.T) {
 	// already ACKed, the breach arbiter should immediately ACK and ignore
 	// this event.
 	breach = &ContractBreachEvent{
-		ChanPoint:  *chanPoint,
-		ProcessACK: make(chan error, 1),
+		ChanPoint: *chanPoint,
+		ProcessACK: func(brarErr error) {
+			processACK <- brarErr
+		},
 		BreachRetribution: &lnwallet.BreachRetribution{
 			BreachTransaction: bobClose.CloseTx,
 			LocalOutputSignDesc: &input.SignDescriptor{
@@ -1108,7 +1113,7 @@ func TestBreachHandoffSuccess(t *testing.T) {
 
 	// We'll also wait to consume the ACK back from the breach arbiter.
 	select {
-	case err := <-breach.ProcessACK:
+	case err := <-processACK:
 		if err != nil {
 			t.Fatalf("handoff failed: %v", err)
 		}
@@ -1140,9 +1145,12 @@ func TestBreachHandoffFail(t *testing.T) {
 	// Signal the notifier to dispatch spend notifications of the funding
 	// transaction using the transaction from bob's closing summary.
 	chanPoint := alice.ChanPoint
+	processACK := make(chan error)
 	breach := &ContractBreachEvent{
-		ChanPoint:  *chanPoint,
-		ProcessACK: make(chan error, 1),
+		ChanPoint: *chanPoint,
+		ProcessACK: func(brarErr error) {
+			processACK <- brarErr
+		},
 		BreachRetribution: &lnwallet.BreachRetribution{
 			BreachTransaction: bobClose.CloseTx,
 			LocalOutputSignDesc: &input.SignDescriptor{
@@ -1156,7 +1164,7 @@ func TestBreachHandoffFail(t *testing.T) {
 
 	// We'll also wait to consume the ACK back from the breach arbiter.
 	select {
-	case err := <-breach.ProcessACK:
+	case err := <-processACK:
 		if err == nil {
 			t.Fatalf("breach write should have failed")
 		}
@@ -1181,8 +1189,10 @@ func TestBreachHandoffFail(t *testing.T) {
 	// Signal a spend of the funding transaction and wait for the close
 	// observer to exit. This time we are allowing the handoff to succeed.
 	breach = &ContractBreachEvent{
-		ChanPoint:  *chanPoint,
-		ProcessACK: make(chan error, 1),
+		ChanPoint: *chanPoint,
+		ProcessACK: func(brarErr error) {
+			processACK <- brarErr
+		},
 		BreachRetribution: &lnwallet.BreachRetribution{
 			BreachTransaction: bobClose.CloseTx,
 			LocalOutputSignDesc: &input.SignDescriptor{
@@ -1196,7 +1206,7 @@ func TestBreachHandoffFail(t *testing.T) {
 	contractBreaches <- breach
 
 	select {
-	case err := <-breach.ProcessACK:
+	case err := <-processACK:
 		if err != nil {
 			t.Fatalf("handoff failed: %v", err)
 		}
@@ -1399,16 +1409,19 @@ func testBreachSpends(t *testing.T, test breachTest) {
 		t.Fatalf("unable to create breach retribution: %v", err)
 	}
 
+	processACK := make(chan error)
 	breach := &ContractBreachEvent{
-		ChanPoint:         *chanPoint,
-		ProcessACK:        make(chan error, 1),
+		ChanPoint: *chanPoint,
+		ProcessACK: func(brarErr error) {
+			processACK <- brarErr
+		},
 		BreachRetribution: retribution,
 	}
 	contractBreaches <- breach
 
 	// We'll also wait to consume the ACK back from the breach arbiter.
 	select {
-	case err := <-breach.ProcessACK:
+	case err := <-processACK:
 		if err != nil {
 			t.Fatalf("handoff failed: %v", err)
 		}

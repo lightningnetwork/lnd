@@ -100,11 +100,14 @@ type ChainArbitratorConfig struct {
 	MarkLinkInactive func(wire.OutPoint) error
 
 	// ContractBreach is a function closure that the ChainArbitrator will
-	// use to notify the breachArbiter about a contract breach. It should
-	// only return a non-nil error when the breachArbiter has preserved the
-	// necessary breach info for this channel point, and it is safe to mark
-	// the channel as pending close in the database.
-	ContractBreach func(wire.OutPoint, *lnwallet.BreachRetribution) error
+	// use to notify the breachArbiter about a contract breach. A callback
+	// should be passed that when called will mark the channel pending
+	// close in the databae. It should only return a non-nil error when the
+	// breachArbiter has preserved the necessary breach info for this
+	// channel point, and the callback has succeeded, meaning it is safe to
+	// stop watching the channel.
+	ContractBreach func(wire.OutPoint, *lnwallet.BreachRetribution,
+		func() error) error
 
 	// IsOurAddress is a function that returns true if the passed address
 	// is known to the underlying wallet. Otherwise, false should be
@@ -488,8 +491,12 @@ func (c *ChainArbitrator) Start() error {
 				notifier:  c.cfg.Notifier,
 				signer:    c.cfg.Signer,
 				isOurAddr: c.cfg.IsOurAddress,
-				contractBreach: func(retInfo *lnwallet.BreachRetribution) error {
-					return c.cfg.ContractBreach(chanPoint, retInfo)
+				contractBreach: func(retInfo *lnwallet.BreachRetribution,
+					markClosed func() error) error {
+
+					return c.cfg.ContractBreach(
+						chanPoint, retInfo, markClosed,
+					)
 				},
 				extractStateNumHint: lnwallet.GetStateNumHint,
 			},
@@ -1078,8 +1085,12 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 			notifier:  c.cfg.Notifier,
 			signer:    c.cfg.Signer,
 			isOurAddr: c.cfg.IsOurAddress,
-			contractBreach: func(retInfo *lnwallet.BreachRetribution) error {
-				return c.cfg.ContractBreach(chanPoint, retInfo)
+			contractBreach: func(retInfo *lnwallet.BreachRetribution,
+				markClosed func() error) error {
+
+				return c.cfg.ContractBreach(
+					chanPoint, retInfo, markClosed,
+				)
 			},
 			extractStateNumHint: lnwallet.GetStateNumHint,
 		},

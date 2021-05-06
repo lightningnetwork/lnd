@@ -375,7 +375,16 @@ func (b *BitcoindEstimator) Stop() error {
 // confirmation and returns the estimated fee expressed in sat/kw.
 //
 // NOTE: This method is part of the Estimator interface.
-func (b *BitcoindEstimator) EstimateFeePerKW(numBlocks uint32) (SatPerKWeight, error) {
+func (b *BitcoindEstimator) EstimateFeePerKW(
+	numBlocks uint32) (SatPerKWeight, error) {
+
+	if numBlocks > maxBlockTarget {
+		log.Debugf("conf target %d exceeds the max value, "+
+			"use %d instead.", numBlocks, maxBlockTarget,
+		)
+		numBlocks = maxBlockTarget
+	}
+
 	feeEstimate, err := b.fetchEstimate(numBlocks)
 	switch {
 	// If the estimator doesn't have enough data, or returns an error, then

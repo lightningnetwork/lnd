@@ -59,7 +59,7 @@ func testSendMultiPathPayment(net *lntest.NetworkHarness, t *harnessTest) {
 	// Our first test will be Alice paying Bob using a SendPayment call.
 	// Let Bob create an invoice for Alice to pay.
 	payReqs, rHashes, invoices, err := createPayReqs(
-		net.Bob, paymentAmt, 1,
+		ctx.bob, paymentAmt, 1,
 	)
 	if err != nil {
 		t.Fatalf("unable to create pay reqs: %v", err)
@@ -70,7 +70,7 @@ func testSendMultiPathPayment(net *lntest.NetworkHarness, t *harnessTest) {
 
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	payment := sendAndAssertSuccess(
-		ctxt, t, net.Alice,
+		ctxt, t, ctx.alice,
 		&routerrpc.SendPaymentRequest{
 			PaymentRequest: payReq,
 			MaxParts:       10,

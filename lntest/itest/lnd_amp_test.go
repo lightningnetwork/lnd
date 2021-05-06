@@ -66,9 +66,9 @@ func testSendPaymentAMP(net *lntest.NetworkHarness, t *harnessTest) {
 
 	ctxt, _ := context.WithTimeout(context.Background(), 4*defaultTimeout)
 	payment := sendAndAssertSuccess(
-		ctxt, t, net.Alice,
+		ctxt, t, ctx.alice,
 		&routerrpc.SendPaymentRequest{
-			Dest:           net.Bob.PubKey[:],
+			Dest:           ctx.bob.PubKey[:],
 			Amt:            int64(paymentAmt),
 			FinalCltvDelta: chainreg.DefaultBitcoinTimeLockDelta,
 			TimeoutSeconds: 60,
@@ -98,7 +98,7 @@ func testSendPaymentAMP(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Fetch Bob's invoices.
-	invoiceResp, err := net.Bob.ListInvoices(
+	invoiceResp, err := ctx.bob.ListInvoices(
 		ctxb, &lnrpc.ListInvoiceRequest{},
 	)
 	require.NoError(t.t, err)
@@ -205,7 +205,7 @@ func testSendToRouteAMP(net *lntest.NetworkHarness, t *harnessTest) {
 	// Define a closure for sending each of the three shards.
 	sendShard := func(i int, hops []*lntest.HarnessNode) {
 		// Build a route for the specified hops.
-		r, err := ctx.buildRoute(ctxb, shardAmt, net.Alice, hops)
+		r, err := ctx.buildRoute(ctxb, shardAmt, ctx.alice, hops)
 		if err != nil {
 			t.Fatalf("unable to build route: %v", err)
 		}
@@ -246,7 +246,7 @@ func testSendToRouteAMP(net *lntest.NetworkHarness, t *harnessTest) {
 		// block as long as the payment is in flight.
 		go func() {
 			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			resp, err := net.Alice.RouterClient.SendToRouteV2(ctxt, sendReq)
+			resp, err := ctx.alice.RouterClient.SendToRouteV2(ctxt, sendReq)
 			if err != nil {
 				t.Fatalf("unable to send payment: %v", err)
 			}
@@ -316,7 +316,7 @@ func testSendToRouteAMP(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Also fetch Bob's invoice from ListInvoices and assert it is equal to
 	// the one recevied via the subscription.
-	invoiceResp, err := net.Bob.ListInvoices(
+	invoiceResp, err := ctx.bob.ListInvoices(
 		ctxb, &lnrpc.ListInvoiceRequest{},
 	)
 	require.NoError(t.t, err)

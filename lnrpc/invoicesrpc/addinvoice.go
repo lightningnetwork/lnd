@@ -104,11 +104,18 @@ type AddInvoiceData struct {
 	RouteHints [][]zpay32.HopHint
 }
 
-// AddInvoice attempts to add a new invoice to the invoice database. Any
-// duplicated invoices are rejected, therefore all invoices *must* have a
-// unique payment preimage.
-func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
-	invoice *AddInvoiceData) (*lntypes.Hash, *channeldb.Invoice, error) {
+// paymentHashAndPreimage returns the payment hash and preimage for this invoice
+// depending on the configuration.
+//
+// For MPP invoices (when Amp flag is false), this method may return nil
+// preimage when create a hodl invoice, but otherwise will always return a
+// non-nil preimage and the corresponding payment hash. The valid combinations
+// are parsed as follows:
+//   - Preimage == nil && Hash == nil -> (random preimage, H(random preimage))
+//   - Preimage != nil && Hash == nil -> (Preimage, H(Preimage))
+//   - Preimage == nil && Hash != nil -> (nil, Hash)
+func (d *AddInvoiceData) paymentHashAndPreimage() (
+	*lntypes.Preimage, lntypes.Hash, error) {
 
 	var (
 		paymentPreimage *lntypes.Preimage
@@ -118,28 +125,42 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	switch {
 
 	// Only either preimage or hash can be set.
-	case invoice.Preimage != nil && invoice.Hash != nil:
-		return nil, nil,
+	case d.Preimage != nil && d.Hash != nil:
+		return nil, lntypes.Hash{},
 			errors.New("preimage and hash both set")
 
 	// If no hash or preimage is given, generate a random preimage.
-	case invoice.Preimage == nil && invoice.Hash == nil:
+	case d.Preimage == nil && d.Hash == nil:
 		paymentPreimage = &lntypes.Preimage{}
 		if _, err := rand.Read(paymentPreimage[:]); err != nil {
-			return nil, nil, err
+			return nil, lntypes.Hash{}, err
 		}
 		paymentHash = paymentPreimage.Hash()
 
 	// If just a hash is given, we create a hold invoice by setting the
 	// preimage to unknown.
-	case invoice.Preimage == nil && invoice.Hash != nil:
-		paymentHash = *invoice.Hash
+	case d.Preimage == nil && d.Hash != nil:
+		paymentHash = *d.Hash
 
 	// A specific preimage was supplied. Use that for the invoice.
-	case invoice.Preimage != nil && invoice.Hash == nil:
-		preimage := *invoice.Preimage
+	case d.Preimage != nil && d.Hash == nil:
+		preimage := *d.Preimage
 		paymentPreimage = &preimage
-		paymentHash = invoice.Preimage.Hash()
+		paymentHash = d.Preimage.Hash()
+	}
+
+	return paymentPreimage, paymentHash, nil
+}
+
+// AddInvoice attempts to add a new invoice to the invoice database. Any
+// duplicated invoices are rejected, therefore all invoices *must* have a
+// unique payment preimage.
+func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
+	invoice *AddInvoiceData) (*lntypes.Hash, *channeldb.Invoice, error) {
+
+	paymentPreimage, paymentHash, err := invoice.paymentHashAndPreimage()
+	if err != nil {
+		return nil, nil, err
 	}
 
 	// The size of the memo, receipt and description hash attached must not

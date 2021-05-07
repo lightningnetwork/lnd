@@ -2479,6 +2479,13 @@ func (r *ChannelRouter) CurrentBlockHeight() (uint32, error) {
 	return uint32(height), err
 }
 
+// SyncedHeight returns the block height to which the router subsystem currently
+// is synced to. This can differ from the above chain height if the goroutine
+// responsible for processing the blocks isn't yet up to speed.
+func (r *ChannelRouter) SyncedHeight() uint32 {
+	return atomic.LoadUint32(&r.bestHeight)
+}
+
 // GetChannelByID return the channel by the channel id.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.

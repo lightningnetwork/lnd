@@ -9,7 +9,7 @@ require (
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcutil v1.0.3-0.20201208143702-a53e38424cce
 	github.com/btcsuite/btcutil/psbt v1.0.3-0.20201208143702-a53e38424cce
-	github.com/btcsuite/btcwallet v0.11.1-0.20210429224804-a7a9234968e8
+	github.com/btcsuite/btcwallet v0.11.1-0.20210507012717-82fa030bdad6
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.0.1-0.20210329233242-e0607006dce6
 	github.com/btcsuite/btcwallet/wallet/txrules v1.0.0
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.0.1-0.20210329233242-e0607006dce6 // indirect

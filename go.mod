@@ -48,13 +48,14 @@ require (
 	github.com/lightningnetwork/lightning-onion v1.0.2-0.20200501022730-3c8c8d0b89ea
 	github.com/lightningnetwork/lnd/cert v1.0.3
 	github.com/lightningnetwork/lnd/clock v1.0.1
+	github.com/lightningnetwork/lnd/healthcheck v1.0.0
 	github.com/lightningnetwork/lnd/queue v1.0.4
 	github.com/lightningnetwork/lnd/ticker v1.0.0
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/mattn/go-runewidth v0.0.9 // indirect
 	github.com/miekg/dns v0.0.0-20171125082028-79bfde677fa8
 	github.com/prometheus/client_golang v1.0.0
-	github.com/stretchr/testify v1.5.1
+	github.com/stretchr/testify v1.7.0
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 // indirect
 	github.com/tv42/zbase32 v0.0.0-20160707012821-501572607d02
 	github.com/urfave/cli v1.20.0
@@ -63,7 +64,6 @@ require (
 	go.uber.org/zap v1.14.1 // indirect
 	golang.org/x/crypto v0.0.0-20200709230013-948cd5f35899
 	golang.org/x/net v0.0.0-20200520004742-59133d7f0dd7
-	golang.org/x/sys v0.0.0-20200323222414-85ca7c5b95cd
 	golang.org/x/time v0.0.0-20180412165947-fbb02b2291d2
 	google.golang.org/grpc v1.29.1
 	google.golang.org/protobuf v1.23.0
@@ -80,6 +80,8 @@ replace github.com/lightningnetwork/lnd/queue => ./queue
 replace github.com/lightningnetwork/lnd/cert => ./cert
 
 replace github.com/lightningnetwork/lnd/clock => ./clock
+
+replace github.com/lightningnetwork/lnd/healthcheck => ./healthcheck
 
 replace git.schwanenlied.me/yawning/bsaes.git => github.com/Yawning/bsaes v0.0.0-20180720073208-c0276d75487e
 

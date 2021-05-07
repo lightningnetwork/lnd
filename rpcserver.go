@@ -2507,6 +2507,17 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 			"with current best block in the main chain: %v", err)
 	}
 
+	// The router has a lot of work to do for each block. So it might be
+	// possible that it isn't yet up to date with the most recent block,
+	// even if the wallet is. This can happen in environments with high CPU
+	// load (such as parallel itests). Since the `synced_to_chain` flag in
+	// the response of this call is used by many wallets (and also our
+	// itests) to make sure everything's up to date, we add the router's
+	// state to it. So the flag will only toggle to true once the router was
+	// also able to catch up.
+	routerHeight := r.server.chanRouter.SyncedHeight()
+	isSynced = isSynced && uint32(bestHeight) == routerHeight
+
 	network := lncfg.NormalizeNetwork(r.cfg.ActiveNetParams.Name)
 	activeChains := make([]*lnrpc.Chain, r.cfg.registeredChains.NumActiveChains())
 	for i, chain := range r.cfg.registeredChains.ActiveChains() {

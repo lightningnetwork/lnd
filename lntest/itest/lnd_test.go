@@ -11787,7 +11787,15 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 			err)
 	}
 
-	time.Sleep(time.Millisecond * 50)
+	// Make sure all nodes are fully synced before we continue.
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	for _, node := range nodes {
+		err := node.WaitForBlockchainSync(ctxt)
+		if err != nil {
+			t.Fatalf("unable to wait for sync: %v", err)
+		}
+	}
 
 	// Using Carol as the source, pay to the 5 invoices from Bob created
 	// above.
@@ -11854,6 +11862,16 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	}, defaultTimeout)
 	if err != nil {
 		t.Fatalf("htlc mismatch: %v", predErr)
+	}
+
+	// Make sure all nodes are fully synced again.
+	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	for _, node := range nodes {
+		err := node.WaitForBlockchainSync(ctxt)
+		if err != nil {
+			t.Fatalf("unable to wait for sync: %v", err)
+		}
 	}
 
 	// Now that the settles have reached Dave, reconnect him with Alice,

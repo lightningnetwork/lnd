@@ -155,6 +155,7 @@
 <time> [ERR] NTFN: unable to get hash from block with height 790
 <time> [ERR] NTFN: unable to get missed blocks: starting height <height> is greater than ending height <height>
 <time> [ERR] NTFN: Unable to rewind chain from height <height> to height <height>: unable to find blockhash for disconnected height=<height>: -1: Block number out of range
+<time> [ERR] NTFN: Unable to rewind chain from height <height> to height <height>: unable to find blockhash for disconnected height=<height>: -8: Block height out of range
 <time> [ERR] NTNF: unable to get hash from block with height <height>
 <time> [ERR] PEER: Allowed test error from <ip> (inbound): ReadMessage: unhandled command [sendaddrv2]
 <time> [ERR] PEER: resend failed: unable to fetch channel sync messages for peer <hex>@<ip>: unable to find closed channel summary

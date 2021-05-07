@@ -177,9 +177,16 @@ func (n *NetworkHarness) SetUp(testCase string, lndArgs []string) error {
 	default:
 	}
 
+	// First, make a connection between the two nodes. This will wait until
+	// both nodes are fully started since the Connect RPC is guarded behind
+	// the server.Started() flag that waits for all subsystems to be ready.
+	ctxb := context.Background()
+	if err := n.ConnectNodes(ctxb, n.Alice, n.Bob); err != nil {
+		return err
+	}
+
 	// Load up the wallets of the seeder nodes with 10 outputs of 1 BTC
 	// each.
-	ctxb := context.Background()
 	addrReq := &lnrpc.NewAddressRequest{
 		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 	}
@@ -216,8 +223,13 @@ func (n *NetworkHarness) SetUp(testCase string, lndArgs []string) error {
 		return err
 	}
 
-	// Finally, make a connection between both of the nodes.
-	if err := n.ConnectNodes(ctxb, n.Alice, n.Bob); err != nil {
+	// Now we want to wait for the nodes to catch up.
+	ctxt, cancel := context.WithTimeout(ctxb, DefaultTimeout)
+	defer cancel()
+	if err := n.Alice.WaitForBlockchainSync(ctxt); err != nil {
+		return err
+	}
+	if err := n.Bob.WaitForBlockchainSync(ctxt); err != nil {
 		return err
 	}
 

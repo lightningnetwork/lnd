@@ -563,6 +563,14 @@ func (r *ChannelRouter) Start() error {
 			}
 		}
 
+		// The graph pruning might have taken a while and there could be
+		// new blocks available.
+		bestHash, bestHeight, err = r.cfg.Chain.GetBestBlock()
+		if err != nil {
+			return err
+		}
+		r.bestHeight = uint32(bestHeight)
+
 		// Before we begin normal operation of the router, we first need
 		// to synchronize the channel graph to the latest state of the
 		// UTXO set.

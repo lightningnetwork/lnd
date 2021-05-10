@@ -563,6 +563,14 @@ func (r *ChannelRouter) Start() error {
 			}
 		}
 
+		// The graph pruning might have taken a while and there could be
+		// new blocks available.
+		bestHash, bestHeight, err = r.cfg.Chain.GetBestBlock()
+		if err != nil {
+			return err
+		}
+		r.bestHeight = uint32(bestHeight)
+
 		// Before we begin normal operation of the router, we first need
 		// to synchronize the channel graph to the latest state of the
 		// UTXO set.
@@ -2477,6 +2485,13 @@ func (r *ChannelRouter) UpdateEdge(update *channeldb.ChannelEdgePolicy,
 func (r *ChannelRouter) CurrentBlockHeight() (uint32, error) {
 	_, height, err := r.cfg.Chain.GetBestBlock()
 	return uint32(height), err
+}
+
+// SyncedHeight returns the block height to which the router subsystem currently
+// is synced to. This can differ from the above chain height if the goroutine
+// responsible for processing the blocks isn't yet up to speed.
+func (r *ChannelRouter) SyncedHeight() uint32 {
+	return atomic.LoadUint32(&r.bestHeight)
 }
 
 // GetChannelByID return the channel by the channel id.

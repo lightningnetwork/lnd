@@ -10,7 +10,7 @@ s/HTLC ID = [[:digit:]]+/HTLC ID = <id>/g
 s/height=[[:digit:]]+/height=<height>/g
 s/collecting result for shard [[:digit:]]+/collecting result for shard <number>/g
 s/sending attempt [[:digit:]]+/sending attempt <number>/g
-s/Unable to rewind chain from height [[:digit:]]+ to height [[:digit:]]+/Unable to rewind chain from height <height> to height <height>/g
+s/Unable to rewind chain from height [[:digit:]]+ to height -?[[:digit:]]+/Unable to rewind chain from height <height> to height <height>/g
 s/NTFN: unable to get missed blocks: starting height [[:digit:]]+ is greater than ending height [[:digit:]]+/NTFN: unable to get missed blocks: starting height <height> is greater than ending height <height>/g
 s/BTCN: Broadcast attempt failed: rejected by <ip>: replacement transaction <hex> has an insufficient fee rate: needs more than [[:digit:]]+, has [[:digit:]]+/BTCN: Broadcast attempt failed: rejected by <ip>: replacement transaction <hex> has an insufficient fee rate: needs more than <amt>, has <amt>/g
 s/pid=[[:digit:]]+/pid=<pid>/g

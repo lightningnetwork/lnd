@@ -55,5 +55,5 @@ message GetStateRequest {
 }
 
 message GetStateResponse {
-    WalletState State = 1;
+    WalletState state = 1;
 }

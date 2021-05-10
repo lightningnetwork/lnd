@@ -71,7 +71,7 @@
     "lnrpcGetStateResponse": {
       "type": "object",
       "properties": {
-        "State": {
+        "state": {
           "$ref": "#/definitions/lnrpcWalletState"
         }
       }

@@ -278,3 +278,4 @@
 <time> [ERR] RPCS: [/lnrpc.State/SubscribeState]: context canceled
 <time> [ERR] NTFN: Failed to update rescan progress: database not open
 <time> [ERR] HSWC: ChannelLink(<chan>): failing link: process hodl queue: unable to update commitment: link shutting down with error: internal error
+<time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to mark commitment broadcasted: channel not found

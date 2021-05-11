@@ -109,7 +109,7 @@ type mockSweeper struct {
 	sweepErr          error
 	createSweepTxChan chan *wire.MsgTx
 
-	deadlines []uint32
+	deadlines []int
 }
 
 func newMockSweeper() *mockSweeper {
@@ -118,7 +118,7 @@ func newMockSweeper() *mockSweeper {
 		updatedInputs:     make(chan wire.OutPoint),
 		sweepTx:           &wire.MsgTx{},
 		createSweepTxChan: make(chan *wire.MsgTx),
-		deadlines:         []uint32{},
+		deadlines:         []int{},
 	}
 }
 
@@ -129,7 +129,7 @@ func (s *mockSweeper) SweepInput(input input.Input, params sweep.Params) (
 
 	// Update the deadlines used if it's set.
 	if params.Fee.ConfTarget != 0 {
-		s.deadlines = append(s.deadlines, params.Fee.ConfTarget)
+		s.deadlines = append(s.deadlines, int(params.Fee.ConfTarget))
 	}
 
 	result := make(chan sweep.Result, 1)

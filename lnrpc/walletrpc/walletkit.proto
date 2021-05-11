@@ -324,9 +324,10 @@ message Account {
     /*
     The fingerprint of the root key from which the account public key was
     derived from. This will always be zero for the default imported account in
-    which single public keys are imported into.
+    which single public keys are imported into. The bytes are in big-endian
+    order.
     */
-    uint32 master_key_fingerprint = 4;
+    bytes master_key_fingerprint = 4;
 
     /*
     The derivation path corresponding to the account public key. This will
@@ -377,9 +378,10 @@ message ImportAccountRequest {
     /*
     The fingerprint of the root key (also known as the key with derivation path
     m/) from which the account public key was derived from. This may be required
-    by some hardware wallets for proper identification and signing.
+    by some hardware wallets for proper identification and signing. The bytes
+    must be in big-endian order.
     */
-    uint32 master_key_fingerprint = 3;
+    bytes master_key_fingerprint = 3;
 
     /*
     An address type is only required when the extended account public key has a
@@ -387,8 +389,33 @@ message ImportAccountRequest {
     address scheme it belongs to.
     */
     AddressType address_type = 4;
+
+    /*
+    Whether a dry run should be attempted when importing the account. This
+    serves as a way to confirm whether the account is being imported correctly
+    by returning the first N addresses for the external and internal branches of
+    the account. If these addresses match as expected, then it should be safe to
+    import the account as is.
+    */
+    bool dry_run = 5;
 }
 message ImportAccountResponse {
+    // The details of the imported account.
+    Account account = 1;
+
+    /*
+    The first N addresses that belong to the external branch of the account.
+    The external branch is typically used for external non-change addresses.
+    These are only returned if a dry run was specified within the request.
+    */
+    repeated string dry_run_external_addrs = 2;
+
+    /*
+    The first N addresses that belong to the internal branch of the account.
+    The internal branch is typically used for change addresses. These are only
+    returned if a dry run was specified within the request.
+    */
+    repeated string dry_run_internal_addrs = 3;
 }
 
 message ImportPublicKeyRequest {

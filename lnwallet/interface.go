@@ -219,7 +219,9 @@ type WalletController interface {
 	// witness pubkeys everywhere) and our own BIP-0049Plus address schema
 	// (nested pubkeys externally, witness pubkeys internally).
 	ImportAccount(name string, accountPubKey *hdkeychain.ExtendedKey,
-		masterKeyFingerprint uint32, addrType *waddrmgr.AddressType) error
+		masterKeyFingerprint uint32, addrType *waddrmgr.AddressType,
+		dryRun bool) (*waddrmgr.AccountProperties, []btcutil.Address,
+		[]btcutil.Address, error)
 
 	// ImportPublicKey imports a single derived public key into the wallet.
 	// The address type can usually be inferred from the key's version, but

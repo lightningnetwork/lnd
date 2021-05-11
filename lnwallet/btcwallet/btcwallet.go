@@ -36,6 +36,11 @@ const (
 	defaultAccount  = uint32(waddrmgr.DefaultAccountNum)
 	importedAccount = uint32(waddrmgr.ImportedAddrAccount)
 
+	// dryRunImportAccountNumAddrs represents the number of addresses we'll
+	// derive for an imported account's external and internal branch when a
+	// dry run is attempted.
+	dryRunImportAccountNumAddrs = 5
+
 	// UnconfirmedHeight is the special case end height that is used to
 	// obtain unconfirmed transactions from ListTransactionDetails.
 	UnconfirmedHeight int32 = -1
@@ -566,12 +571,42 @@ func (b *BtcWallet) ListAccounts(name string,
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) ImportAccount(name string, accountPubKey *hdkeychain.ExtendedKey,
-	masterKeyFingerprint uint32, addrType *waddrmgr.AddressType) error {
+	masterKeyFingerprint uint32, addrType *waddrmgr.AddressType,
+	dryRun bool) (*waddrmgr.AccountProperties, []btcutil.Address,
+	[]btcutil.Address, error) {
 
-	_, err := b.wallet.ImportAccount(
+	if !dryRun {
+		accountProps, err := b.wallet.ImportAccount(
+			name, accountPubKey, masterKeyFingerprint, addrType,
+		)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return accountProps, nil, nil, nil
+	}
+
+	// Derive addresses from both the external and internal branches of the
+	// account. There's no risk of address inflation as this is only done
+	// for dry runs.
+	accountProps, extAddrs, intAddrs, err := b.wallet.ImportAccountDryRun(
 		name, accountPubKey, masterKeyFingerprint, addrType,
+		dryRunImportAccountNumAddrs,
 	)
-	return err
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	externalAddrs := make([]btcutil.Address, len(extAddrs))
+	for i := 0; i < len(extAddrs); i++ {
+		externalAddrs[i] = extAddrs[i].Address()
+	}
+
+	internalAddrs := make([]btcutil.Address, len(intAddrs))
+	for i := 0; i < len(intAddrs); i++ {
+		internalAddrs[i] = intAddrs[i].Address()
+	}
+
+	return accountProps, externalAddrs, internalAddrs, nil
 }
 
 // ImportPublicKey imports a single derived public key into the wallet. The

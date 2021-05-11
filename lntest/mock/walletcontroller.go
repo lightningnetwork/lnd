@@ -88,8 +88,9 @@ func (w *WalletController) ListAccounts(_ string,
 
 // ImportAccount currently returns a dummy value.
 func (w *WalletController) ImportAccount(string, *hdkeychain.ExtendedKey,
-	uint32, *waddrmgr.AddressType) error {
-	return nil
+	uint32, *waddrmgr.AddressType, bool) (*waddrmgr.AccountProperties,
+	[]btcutil.Address, []btcutil.Address, error) {
+	return nil, nil, nil, nil
 }
 
 // ImportPublicKey currently returns a dummy value.

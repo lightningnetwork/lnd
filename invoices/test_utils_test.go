@@ -181,6 +181,7 @@ func newTestChannelDB(clock clock.Clock) (*channeldb.DB, func(), error) {
 type testContext struct {
 	cdb      *channeldb.DB
 	registry *InvoiceRegistry
+	notifier *mockChainNotifier
 	clock    *clock.TestClock
 
 	cleanup func()
@@ -195,8 +196,10 @@ func newTestContext(t *testing.T) *testContext {
 		t.Fatal(err)
 	}
 
+	notifier := newMockNotifier()
+
 	expiryWatcher := NewInvoiceExpiryWatcher(
-		clock, 0, uint32(testCurrentHeight), nil, newMockNotifier(),
+		clock, 0, uint32(testCurrentHeight), nil, notifier,
 	)
 
 	// Instantiate and start the invoice ctx.registry.
@@ -216,6 +219,7 @@ func newTestContext(t *testing.T) *testContext {
 	ctx := testContext{
 		cdb:      cdb,
 		registry: registry,
+		notifier: notifier,
 		clock:    clock,
 		t:        t,
 		cleanup: func() {

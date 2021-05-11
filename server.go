@@ -442,11 +442,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		readPool:       readPool,
 		chansToRestore: chansToRestore,
 
-		invoices: invoices.NewRegistry(
-			remoteChanDB, invoices.NewInvoiceExpiryWatcher(clock.NewDefaultClock()),
-			&registryConfig,
-		),
-
 		channelNotifier: channelnotifier.New(remoteChanDB),
 
 		identityECDH: nodeKeyECDH,
@@ -483,10 +478,18 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		subscribers: make(map[uint64]*preimageSubscriber),
 	}
 
-	_, currentHeight, err := s.cc.ChainIO.GetBestBlock()
+	currentHash, currentHeight, err := s.cc.ChainIO.GetBestBlock()
 	if err != nil {
 		return nil, err
 	}
+
+	expiryWatcher := invoices.NewInvoiceExpiryWatcher(
+		clock.NewDefaultClock(), cfg.Invoices.HoldExpiryDelta,
+		uint32(currentHeight), currentHash, cc.ChainNotifier,
+	)
+	s.invoices = invoices.NewRegistry(
+		remoteChanDB, expiryWatcher, &registryConfig,
+	)
 
 	s.htlcNotifier = htlcswitch.NewHtlcNotifier(time.Now)
 

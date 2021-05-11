@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntypes"
 )
@@ -19,13 +20,40 @@ type invoiceExpiryWatcherTest struct {
 	canceledInvoices []lntypes.Hash
 }
 
+type mockChainNotifier struct {
+	chainntnfs.ChainNotifier
+
+	blockChan chan *chainntnfs.BlockEpoch
+}
+
+func newMockNotifier() *mockChainNotifier {
+	return &mockChainNotifier{
+		blockChan: make(chan *chainntnfs.BlockEpoch),
+	}
+}
+
+// RegisterBlockEpochNtfn mocks a block epoch notification, using the mock's
+// block channel to deliver blocks to the client.
+func (m *mockChainNotifier) RegisterBlockEpochNtfn(*chainntnfs.BlockEpoch) (
+	*chainntnfs.BlockEpochEvent, error) {
+
+	return &chainntnfs.BlockEpochEvent{
+		Epochs: m.blockChan,
+		Cancel: func() {},
+	}, nil
+}
+
 // newInvoiceExpiryWatcherTest creates a new InvoiceExpiryWatcher test fixture
 // and sets up the test environment.
 func newInvoiceExpiryWatcherTest(t *testing.T, now time.Time,
 	numExpiredInvoices, numPendingInvoices int) *invoiceExpiryWatcherTest {
 
+	mockNotifier := newMockNotifier()
 	test := &invoiceExpiryWatcherTest{
-		watcher: NewInvoiceExpiryWatcher(clock.NewTestClock(testTime)),
+		watcher: NewInvoiceExpiryWatcher(
+			clock.NewTestClock(testTime), 0,
+			uint32(testCurrentHeight), nil, mockNotifier,
+		),
 		testData: generateInvoiceExpiryTestData(
 			t, now, 0, numExpiredInvoices, numPendingInvoices,
 		),
@@ -84,7 +112,10 @@ func (t *invoiceExpiryWatcherTest) checkExpectations() {
 
 // Tests that InvoiceExpiryWatcher can be started and stopped.
 func TestInvoiceExpiryWatcherStartStop(t *testing.T) {
-	watcher := NewInvoiceExpiryWatcher(clock.NewTestClock(testTime))
+	watcher := NewInvoiceExpiryWatcher(
+		clock.NewTestClock(testTime), 0, uint32(testCurrentHeight), nil,
+		newMockNotifier(),
+	)
 	cancel := func(lntypes.Hash, bool) error {
 		t.Fatalf("unexpected call")
 		return nil

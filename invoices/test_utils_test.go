@@ -193,7 +193,9 @@ func newTestContext(t *testing.T) *testContext {
 		t.Fatal(err)
 	}
 
-	expiryWatcher := NewInvoiceExpiryWatcher(clock)
+	expiryWatcher := NewInvoiceExpiryWatcher(
+		clock, 0, uint32(testCurrentHeight), nil, newMockNotifier(),
+	)
 
 	// Instantiate and start the invoice ctx.registry.
 	cfg := RegistryConfig{

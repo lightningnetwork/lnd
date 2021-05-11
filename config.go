@@ -344,6 +344,8 @@ type Config struct {
 
 	GcCanceledInvoicesOnTheFly bool `long:"gc-canceled-invoices-on-the-fly" description:"If true, we'll delete newly canceled invoices on the fly."`
 
+	Invoices *lncfg.Invoices `group:"invoices" namespace:"invoices"`
+
 	Routing *lncfg.Routing `group:"routing" namespace:"routing"`
 
 	Gossip *lncfg.Gossip `group:"gossip" namespace:"gossip"`
@@ -528,6 +530,9 @@ func DefaultConfig() Config {
 		Gossip: &lncfg.Gossip{
 			MaxChannelUpdateBurst: discovery.DefaultMaxChannelUpdateBurst,
 			ChannelUpdateInterval: discovery.DefaultChannelUpdateInterval,
+		},
+		Invoices: &lncfg.Invoices{
+			HoldExpiryDelta: lncfg.DefaultHoldInvoiceExpiryDelta,
 		},
 		MaxOutgoingCltvExpiry:   htlcswitch.DefaultMaxOutgoingCltvExpiry,
 		MaxChannelFeeAllocation: htlcswitch.DefaultMaxLinkFeeAllocation,
@@ -1367,6 +1372,18 @@ func ValidateConfig(cfg Config, usageMessage string,
 
 	if err := cfg.Gossip.Parse(); err != nil {
 		return nil, err
+	}
+
+	// Log a warning if our expiry delta is not greater than our incoming
+	// broadcast delta. We do not fail here because this value may be set
+	// to zero to intentionally keep lnd's behavior unchanged from when we
+	// didn't auto-cancel these invoices.
+	if cfg.Invoices.HoldExpiryDelta <= lncfg.DefaultIncomingBroadcastDelta {
+		ltndLog.Warnf("Invoice hold expiry delta: %v <= incoming "+
+			"delta: %v, accepted hold invoices will force close "+
+			"channels if they are not canceled manually",
+			cfg.Invoices.HoldExpiryDelta,
+			lncfg.DefaultIncomingBroadcastDelta)
 	}
 
 	// Validate the subconfigs for workers, caches, and the tower client.

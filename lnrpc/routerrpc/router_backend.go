@@ -238,6 +238,14 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	if in.FinalCltvDelta != 0 {
 		finalCLTVDelta = uint16(in.FinalCltvDelta)
 	}
+
+	// Do bounds checking without block padding so we don't give routes
+	// that will leave the router in a zombie payment state.
+	err = routing.ValidateCLTVLimit(cltvLimit, finalCLTVDelta, false)
+	if err != nil {
+		return nil, err
+	}
+
 	cltvLimit -= uint32(finalCLTVDelta)
 
 	// Parse destination feature bits.
@@ -858,6 +866,15 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		}
 
 		payIntent.DestFeatures = features
+	}
+
+	// Do bounds checking with the block padding so the router isn't
+	// left with a zombie payment in case the user messes up.
+	err = routing.ValidateCLTVLimit(
+		payIntent.CltvLimit, payIntent.FinalCLTVDelta, true,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	// Check for disallowed payments to self.

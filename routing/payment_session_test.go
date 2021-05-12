@@ -6,7 +6,69 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 )
+
+func TestValidateCLTVLimit(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name           string
+		cltvLimit      uint32
+		finalCltvDelta uint16
+		includePadding bool
+		expectError    bool
+	}{
+		{
+			name:           "bad limit with padding",
+			cltvLimit:      uint32(103),
+			finalCltvDelta: uint16(100),
+			includePadding: true,
+			expectError:    true,
+		},
+		{
+			name:           "good limit with padding",
+			cltvLimit:      uint32(104),
+			finalCltvDelta: uint16(100),
+			includePadding: true,
+			expectError:    false,
+		},
+		{
+			name:           "bad limit no padding",
+			cltvLimit:      uint32(100),
+			finalCltvDelta: uint16(100),
+			includePadding: false,
+			expectError:    true,
+		},
+		{
+			name:           "good limit no padding",
+			cltvLimit:      uint32(101),
+			finalCltvDelta: uint16(100),
+			includePadding: false,
+			expectError:    false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+
+		success := t.Run(testCase.name, func(t *testing.T) {
+			err := ValidateCLTVLimit(
+				testCase.cltvLimit, testCase.finalCltvDelta,
+				testCase.includePadding,
+			)
+
+			if testCase.expectError {
+				require.NotEmpty(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+		if !success {
+			break
+		}
+	}
+}
 
 func TestRequestRoute(t *testing.T) {
 	const (

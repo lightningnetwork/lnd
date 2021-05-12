@@ -14,6 +14,22 @@ import (
 // to prevent an HTLC being failed if some blocks are mined while it's in-flight.
 const BlockPadding uint16 = 3
 
+// ValidateCLTVLimit is a helper function that validates that the cltv limit is
+// greater than the final cltv delta parameter, optionally including the
+// BlockPadding in this calculation.
+func ValidateCLTVLimit(limit uint32, delta uint16, includePad bool) error {
+	if includePad {
+		delta += BlockPadding
+	}
+
+	if limit <= uint32(delta) {
+		return fmt.Errorf("cltv limit %v should be greater than %v",
+			limit, delta)
+	}
+
+	return nil
+}
+
 // noRouteError encodes a non-critical error encountered during path finding.
 type noRouteError uint8
 

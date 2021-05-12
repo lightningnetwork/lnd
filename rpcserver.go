@@ -4374,6 +4374,15 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 		payIntent.cltvDelta = uint16(r.cfg.Bitcoin.TimeLockDelta)
 	}
 
+	// Do bounds checking with the block padding so the router isn't left
+	// with a zombie payment in case the user messes up.
+	err = routing.ValidateCLTVLimit(
+		payIntent.cltvLimit, payIntent.cltvDelta, true,
+	)
+	if err != nil {
+		return payIntent, err
+	}
+
 	// If the user is manually specifying payment details, then the payment
 	// hash may be encoded as a string.
 	switch {

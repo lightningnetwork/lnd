@@ -25,6 +25,21 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
+const (
+	// justiceTxConfTarget is the number of blocks we'll use as a
+	// confirmation target when creating the justice transaction. We'll
+	// choose an aggressive target, since we want to be sure it confirms
+	// quickly.
+	justiceTxConfTarget = 2
+
+	// blocksPassedSplitPublish is the number of blocks without
+	// confirmation of the justice tx we'll wait before starting to publish
+	// smaller variants of the justice tx. We do this to mitigate an attack
+	// the channel peer can do by pinning the HTLC outputs of the
+	// commitment with low-fee HTLC transactions.
+	blocksPassedSplitPublish = 4
+)
+
 var (
 	// retributionBucket stores retribution state on disk between detecting
 	// a contract breach, broadcasting a justice transaction that sweeps the
@@ -318,23 +333,21 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 		bo.outpoint)
 }
 
+// spend is used to wrap the index of the retributionInfo output that gets
+// spent together with the spend details.
+type spend struct {
+	index  int
+	detail *chainntnfs.SpendDetail
+}
+
 // waitForSpendEvent waits for any of the breached outputs to get spent, and
-// mutates the breachInfo to be able to sweep it. This method should be used
-// when we fail to publish the justice tx because of a double spend, indicating
-// that the counter party has taken one of the breached outputs to the second
-// level. The spendNtfns map is a cache used to store registered spend
-// subscriptions, in case we must call this method multiple times.
+// returns the spend details for those outputs. The spendNtfns map is a cache
+// used to store registered spend subscriptions, in case we must call this
+// method multiple times.
 func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
-	spendNtfns map[wire.OutPoint]*chainntnfs.SpendEvent) error {
+	spendNtfns map[wire.OutPoint]*chainntnfs.SpendEvent) ([]spend, error) {
 
 	inputs := breachInfo.breachedOutputs
-
-	// spend is used to wrap the index of the output that gets spent
-	// together with the spend details.
-	type spend struct {
-		index  int
-		detail *chainntnfs.SpendDetail
-	}
 
 	// We create a channel the first goroutine that gets a spend event can
 	// signal. We make it buffered in case multiple spend events come in at
@@ -378,7 +391,7 @@ func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 				// to avoid entering an infinite loop.
 				select {
 				case <-b.quit:
-					return errBrarShuttingDown
+					return nil, errBrarShuttingDown
 				default:
 					continue
 				}
@@ -438,62 +451,115 @@ func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 		// channel before ranging over its content.
 		close(allSpends)
 
-		doneOutputs := make(map[int]struct{})
+		// Gather all detected spends and return them.
+		var spends []spend
 		for s := range allSpends {
 			breachedOutput := &inputs[s.index]
 			delete(spendNtfns, breachedOutput.outpoint)
 
-			switch breachedOutput.witnessType {
-			case input.HtlcAcceptedRevoke:
-				fallthrough
-			case input.HtlcOfferedRevoke:
-				brarLog.Infof("Spend on second-level"+
-					"%s(%v) for ChannelPoint(%v) "+
-					"transitions to second-level output",
-					breachedOutput.witnessType,
-					breachedOutput.outpoint,
-					breachInfo.chanPoint)
+			spends = append(spends, s)
+		}
 
-				// In this case we'll morph our initial revoke
-				// spend to instead point to the second level
-				// output, and update the sign descriptor in the
-				// process.
-				convertToSecondLevelRevoke(
-					breachedOutput, breachInfo, s.detail,
-				)
+		return spends, nil
 
-				continue
+	case <-b.quit:
+		return nil, errBrarShuttingDown
+	}
+}
+
+// updateBreachInfo mutates the passed breachInfo by removing or converting any
+// outputs among the spends. It also counts the total and revoked funds swept
+// by our justice spends.
+func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
+	btcutil.Amount, btcutil.Amount) {
+
+	inputs := breachInfo.breachedOutputs
+	doneOutputs := make(map[int]struct{})
+
+	var totalFunds, revokedFunds btcutil.Amount
+	for _, s := range spends {
+		breachedOutput := &inputs[s.index]
+		txIn := s.detail.SpendingTx.TxIn[s.detail.SpenderInputIndex]
+
+		switch breachedOutput.witnessType {
+		case input.HtlcAcceptedRevoke:
+			fallthrough
+		case input.HtlcOfferedRevoke:
+			// If the HTLC output was spent using the revocation
+			// key, it is our own spend, and we can forget the
+			// output. Otherwise it has been taken to the second
+			// level.
+			signDesc := &breachedOutput.signDesc
+			ok, err := input.IsHtlcSpendRevoke(txIn, signDesc)
+			if err != nil {
+				brarLog.Errorf("Unable to determine if "+
+					"revoke spend: %v", err)
+				break
 			}
 
-			brarLog.Infof("Spend on %s(%v) for ChannelPoint(%v) "+
-				"transitions output to terminal state, "+
-				"removing input from justice transaction",
+			if ok {
+				brarLog.Debugf("HTLC spend was our own " +
+					"revocation spend")
+				break
+			}
+
+			brarLog.Infof("Spend on second-level "+
+				"%s(%v) for ChannelPoint(%v) "+
+				"transitions to second-level output",
 				breachedOutput.witnessType,
 				breachedOutput.outpoint, breachInfo.chanPoint)
 
-			doneOutputs[s.index] = struct{}{}
+			// In this case we'll morph our initial revoke
+			// spend to instead point to the second level
+			// output, and update the sign descriptor in the
+			// process.
+			convertToSecondLevelRevoke(
+				breachedOutput, breachInfo, s.detail,
+			)
+
+			continue
 		}
 
-		// Filter the inputs for which we can no longer proceed.
-		var nextIndex int
-		for i := range inputs {
-			if _, ok := doneOutputs[i]; ok {
-				continue
-			}
+		// Now that we have determined the spend is done by us, we
+		// count the total and revoked funds swept depending on the
+		// input type.
+		switch breachedOutput.witnessType {
 
-			inputs[nextIndex] = inputs[i]
-			nextIndex++
+		// If the output being revoked is the remote commitment
+		// output or an offered HTLC output, it's amount
+		// contributes to the value of funds being revoked from
+		// the counter party.
+		case input.CommitmentRevoke, input.HtlcSecondLevelRevoke,
+			input.HtlcOfferedRevoke:
+
+			revokedFunds += breachedOutput.Amount()
 		}
 
-		// Update our remaining set of outputs before continuing with
-		// another attempt at publication.
-		breachInfo.breachedOutputs = inputs[:nextIndex]
+		totalFunds += breachedOutput.Amount()
+		brarLog.Infof("Spend on %s(%v) for ChannelPoint(%v) "+
+			"transitions output to terminal state, "+
+			"removing input from justice transaction",
+			breachedOutput.witnessType,
+			breachedOutput.outpoint, breachInfo.chanPoint)
 
-	case <-b.quit:
-		return errBrarShuttingDown
+		doneOutputs[s.index] = struct{}{}
 	}
 
-	return nil
+	// Filter the inputs for which we can no longer proceed.
+	var nextIndex int
+	for i := range inputs {
+		if _, ok := doneOutputs[i]; ok {
+			continue
+		}
+
+		inputs[nextIndex] = inputs[i]
+		nextIndex++
+	}
+
+	// Update our remaining set of outputs before continuing with
+	// another attempt at publication.
+	breachInfo.breachedOutputs = inputs[:nextIndex]
+	return totalFunds, revokedFunds
 }
 
 // exactRetribution is a goroutine which is executed once a contract breach has
@@ -508,16 +574,13 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 	defer b.wg.Done()
 
 	// TODO(roasbeef): state needs to be checkpointed here
-	var breachConfHeight uint32
 	select {
-	case breachConf, ok := <-confChan.Confirmed:
+	case _, ok := <-confChan.Confirmed:
 		// If the second value is !ok, then the channel has been closed
 		// signifying a daemon shutdown, so we exit.
 		if !ok {
 			return
 		}
-
-		breachConfHeight = breachConf.BlockHeight
 
 		// Otherwise, if this is a real confirmation notification, then
 		// we fall through to complete our duty.
@@ -533,37 +596,20 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 	// SpendEvents between each attempt to not re-register uneccessarily.
 	spendNtfns := make(map[wire.OutPoint]*chainntnfs.SpendEvent)
 
-	finalTx, err := b.cfg.Store.GetFinalizedTxn(&breachInfo.chanPoint)
+	// Compute both the total value of funds being swept and the
+	// amount of funds that were revoked from the counter party.
+	var totalFunds, revokedFunds btcutil.Amount
+
+justiceTxBroadcast:
+	// With the breach transaction confirmed, we now create the
+	// justice tx which will claim ALL the funds within the
+	// channel.
+	justiceTxs, err := b.createJusticeTx(breachInfo.breachedOutputs)
 	if err != nil {
-		brarLog.Errorf("Unable to get finalized txn for"+
-			"chanid=%v: %v", &breachInfo.chanPoint, err)
+		brarLog.Errorf("Unable to create justice tx: %v", err)
 		return
 	}
-
-	// If this retribution has not been finalized before, we will first
-	// construct a sweep transaction and write it to disk. This will allow
-	// the breach arbiter to re-register for notifications for the justice
-	// txid.
-justiceTxBroadcast:
-	if finalTx == nil {
-		// With the breach transaction confirmed, we now create the
-		// justice tx which will claim ALL the funds within the
-		// channel.
-		finalTx, err = b.createJusticeTx(breachInfo)
-		if err != nil {
-			brarLog.Errorf("Unable to create justice tx: %v", err)
-			return
-		}
-
-		// Persist our finalized justice transaction before making an
-		// attempt to broadcast.
-		err := b.cfg.Store.Finalize(&breachInfo.chanPoint, finalTx)
-		if err != nil {
-			brarLog.Errorf("Unable to finalize justice tx for "+
-				"chanid=%v: %v", &breachInfo.chanPoint, err)
-			return
-		}
-	}
+	finalTx := justiceTxs.spendAll
 
 	brarLog.Debugf("Broadcasting justice tx: %v", newLogClosure(func() string {
 		return spew.Sdump(finalTx)
@@ -575,31 +621,63 @@ justiceTxBroadcast:
 	err = b.cfg.PublishTransaction(finalTx, label)
 	if err != nil {
 		brarLog.Errorf("Unable to broadcast justice tx: %v", err)
+	}
 
-		if err == lnwallet.ErrDoubleSpend {
-			// Broadcasting the transaction failed because of a
-			// conflict either in the mempool or in chain. We'll
-			// now create spend subscriptions for all HTLC outputs
-			// on the commitment transaction that could possibly
-			// have been spent, and wait for any of them to
-			// trigger.
-			brarLog.Infof("Waiting for a spend event before " +
-				"attempting to craft new justice tx.")
-			finalTx = nil
+	// Regardless of publication succeeded or not, we now wait for any of
+	// the inputs to be spent. If any input got spent by the remote, we
+	// must recreate our justice transaction.
+	var (
+		spendChan = make(chan []spend, 1)
+		errChan   = make(chan error, 1)
+		wg        sync.WaitGroup
+	)
 
-			err := b.waitForSpendEvent(breachInfo, spendNtfns)
-			if err != nil {
-				if err != errBrarShuttingDown {
-					brarLog.Errorf("error waiting for "+
-						"spend event: %v", err)
-				}
-				return
-			}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		spends, err := b.waitForSpendEvent(breachInfo, spendNtfns)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		spendChan <- spends
+	}()
+
+	// We'll also register for block notifications, such that in case our
+	// justice tx doesn't confirm within a reasonable timeframe, we can
+	// start to more aggressively sweep the time sensitive outputs.
+	newBlockChan, err := b.cfg.Notifier.RegisterBlockEpochNtfn(nil)
+	if err != nil {
+		brarLog.Errorf("Unable to register for block notifications: %v",
+			err)
+		return
+	}
+	defer newBlockChan.Cancel()
+
+Loop:
+	for {
+
+		select {
+		case spends := <-spendChan:
+			// Update the breach info with the new spends.
+			t, r := updateBreachInfo(breachInfo, spends)
+			totalFunds += t
+			revokedFunds += r
+
+			brarLog.Infof("%v spends from breach tx for "+
+				"ChannelPoint(%v) has been detected, %v "+
+				"revoked funds (%v total) have been claimed",
+				len(spends), breachInfo.chanPoint,
+				revokedFunds, totalFunds)
 
 			if len(breachInfo.breachedOutputs) == 0 {
-				brarLog.Debugf("No more outputs to sweep for "+
-					"breach, marking ChannelPoint(%v) "+
-					"fully resolved", breachInfo.chanPoint)
+				brarLog.Infof("Justice for ChannelPoint(%v) "+
+					"has been served, %v revoked funds "+
+					"(%v total) have been claimed. No "+
+					"more outputs to sweep, marking fully "+
+					"resolved", breachInfo.chanPoint,
+					revokedFunds, totalFunds)
 
 				err = b.cleanupBreach(&breachInfo.chanPoint)
 				if err != nil {
@@ -607,78 +685,101 @@ justiceTxBroadcast:
 						"breached ChannelPoint(%v): %v",
 						breachInfo.chanPoint, err)
 				}
-				return
+
+				// TODO(roasbeef): add peer to blacklist?
+
+				// TODO(roasbeef): close other active channels
+				// with offending peer
+				break Loop
 			}
 
 			brarLog.Infof("Attempting another justice tx "+
 				"with %d inputs",
 				len(breachInfo.breachedOutputs))
 
+			wg.Wait()
 			goto justiceTxBroadcast
-		}
-	}
 
-	// As a conclusionary step, we register for a notification to be
-	// dispatched once the justice tx is confirmed. After confirmation we
-	// notify the caller that initiated the retribution workflow that the
-	// deed has been done.
-	justiceTXID := finalTx.TxHash()
-	justiceScript := finalTx.TxOut[0].PkScript
-	confChan, err = b.cfg.Notifier.RegisterConfirmationsNtfn(
-		&justiceTXID, justiceScript, 1, breachConfHeight,
-	)
-	if err != nil {
-		brarLog.Errorf("Unable to register for conf for txid(%v): %v",
-			justiceTXID, err)
-		return
-	}
-
-	select {
-	case _, ok := <-confChan.Confirmed:
-		if !ok {
-			return
-		}
-
-		// Compute both the total value of funds being swept and the
-		// amount of funds that were revoked from the counter party.
-		var totalFunds, revokedFunds btcutil.Amount
-		for _, inp := range breachInfo.breachedOutputs {
-			totalFunds += inp.Amount()
-
-			// If the output being revoked is the remote commitment
-			// output or an offered HTLC output, it's amount
-			// contributes to the value of funds being revoked from
-			// the counter party.
-			switch inp.WitnessType() {
-			case input.CommitmentRevoke:
-				revokedFunds += inp.Amount()
-			case input.HtlcOfferedRevoke:
-				revokedFunds += inp.Amount()
-			default:
+		// On every new block, we check whether we should republish the
+		// transactions.
+		case epoch, ok := <-newBlockChan.Epochs:
+			if !ok {
+				return
 			}
+
+			// If less than four blocks have passed since the
+			// breach confirmed, we'll continue waiting. It was
+			// published with a 2-block fee estimate, so it's not
+			// unexpected that four blocks without confirmation can
+			// pass.
+			splitHeight := breachInfo.breachHeight +
+				blocksPassedSplitPublish
+			if uint32(epoch.Height) < splitHeight {
+				continue Loop
+			}
+
+			brarLog.Warnf("Block height %v arrived without "+
+				"justice tx confirming (breached at "+
+				"height %v), splitting justice tx.",
+				epoch.Height, breachInfo.breachHeight)
+
+			// Otherwise we'll attempt to publish the two separate
+			// justice transactions that sweeps the commitment
+			// outputs and the HTLC outputs separately. This is to
+			// mitigate the case where our "spend all" justice TX
+			// doesn't propagate because the HTLC outputs have been
+			// pinned by low fee HTLC txs.
+			label := labels.MakeLabel(
+				labels.LabelTypeJusticeTransaction, nil,
+			)
+			if justiceTxs.spendCommitOuts != nil {
+				tx := justiceTxs.spendCommitOuts
+
+				brarLog.Debugf("Broadcasting justice tx "+
+					"spending commitment outs: %v",
+					newLogClosure(func() string {
+						return spew.Sdump(tx)
+					}))
+
+				err = b.cfg.PublishTransaction(tx, label)
+				if err != nil {
+					brarLog.Warnf("Unable to broadcast "+
+						"commit out spending justice "+
+						"tx: %v", err)
+				}
+			}
+
+			if justiceTxs.spendHTLCs != nil {
+				tx := justiceTxs.spendHTLCs
+
+				brarLog.Debugf("Broadcasting justice tx "+
+					"spending HTLC outs: %v",
+					newLogClosure(func() string {
+						return spew.Sdump(tx)
+					}))
+
+				err = b.cfg.PublishTransaction(tx, label)
+				if err != nil {
+					brarLog.Warnf("Unable to broadcast "+
+						"HTLC out spending justice "+
+						"tx: %v", err)
+				}
+			}
+
+		case err := <-errChan:
+			if err != errBrarShuttingDown {
+				brarLog.Errorf("error waiting for "+
+					"spend event: %v", err)
+			}
+			break Loop
+
+		case <-b.quit:
+			break Loop
 		}
-
-		brarLog.Infof("Justice for ChannelPoint(%v) has "+
-			"been served, %v revoked funds (%v total) "+
-			"have been claimed", breachInfo.chanPoint,
-			revokedFunds, totalFunds)
-
-		err = b.cleanupBreach(&breachInfo.chanPoint)
-		if err != nil {
-			brarLog.Errorf("Failed to cleanup breached "+
-				"ChannelPoint(%v): %v", breachInfo.chanPoint,
-				err)
-		}
-
-		// TODO(roasbeef): add peer to blacklist?
-
-		// TODO(roasbeef): close other active channels with offending
-		// peer
-
-		return
-	case <-b.quit:
-		return
 	}
+
+	// Wait for our go routine to exit.
+	wg.Wait()
 }
 
 // cleanupBreach marks the given channel point as fully resolved and removes the
@@ -1045,12 +1146,87 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 	}
 }
 
-// createJusticeTx creates a transaction which exacts "justice" by sweeping ALL
+// justiceTxVariants is a struct that holds transactions which exacts "justice"
+// by sweeping ALL the funds within the channel which we are now entitled to
+// due to a breach of the channel's contract by the counterparty. There are
+// three variants of the justice transaction:
+//
+// 1. The "normal" justice tx that spends all breached outputs
+// 2. A tx that spends only the breached to_local output and to_remote output
+// (can be nil if none of these exist)
+// 3. A tx that spends all the breached HTLC outputs, and second-level HTLC
+// outputs (can be nil if no HTLC outputs exist).
+//
+// The reason we create these three variants, is that in certain cases (like
+// with the anchor output HTLC malleability), the channel counter party can pin
+// the HTLC outputs with low fee children, hindering our normal justice tx that
+// attempts to spend these outputs from propagating. In this case we want to
+// spend the to_local output separately, before the CSV lock expires.
+type justiceTxVariants struct {
+	spendAll        *wire.MsgTx
+	spendCommitOuts *wire.MsgTx
+	spendHTLCs      *wire.MsgTx
+}
+
+// createJusticeTx creates transactions which exacts "justice" by sweeping ALL
 // the funds within the channel which we are now entitled to due to a breach of
 // the channel's contract by the counterparty. This function returns a *fully*
 // signed transaction with the witness for each input fully in place.
 func (b *breachArbiter) createJusticeTx(
-	r *retributionInfo) (*wire.MsgTx, error) {
+	breachedOutputs []breachedOutput) (*justiceTxVariants, error) {
+
+	var (
+		allInputs    []input.Input
+		commitInputs []input.Input
+		htlcInputs   []input.Input
+	)
+
+	for i := range breachedOutputs {
+		// Grab locally scoped reference to breached output.
+		inp := &breachedOutputs[i]
+		allInputs = append(allInputs, inp)
+
+		// Check if the input is from an HTLC or a commitment output.
+		if inp.WitnessType() == input.HtlcAcceptedRevoke ||
+			inp.WitnessType() == input.HtlcOfferedRevoke ||
+			inp.WitnessType() == input.HtlcSecondLevelRevoke {
+
+			htlcInputs = append(htlcInputs, inp)
+		} else {
+			commitInputs = append(commitInputs, inp)
+		}
+	}
+
+	var (
+		txs = &justiceTxVariants{}
+		err error
+	)
+
+	// For each group of inputs, create a tx that spends them.
+	txs.spendAll, err = b.createSweepTx(allInputs)
+	if err != nil {
+		return nil, err
+	}
+
+	txs.spendCommitOuts, err = b.createSweepTx(commitInputs)
+	if err != nil {
+		return nil, err
+	}
+
+	txs.spendHTLCs, err = b.createSweepTx(htlcInputs)
+	if err != nil {
+		return nil, err
+	}
+
+	return txs, nil
+}
+
+// createSweepTx creates a tx that sweeps the passed inputs back to our wallet.
+func (b *breachArbiter) createSweepTx(inputs []input.Input) (*wire.MsgTx,
+	error) {
+	if len(inputs) == 0 {
+		return nil, nil
+	}
 
 	// We will assemble the breached outputs into a slice of spendable
 	// outputs, while simultaneously computing the estimated weight of the
@@ -1062,7 +1238,7 @@ func (b *breachArbiter) createJusticeTx(
 
 	// Allocate enough space to potentially hold each of the breached
 	// outputs in the retribution info.
-	spendableOutputs = make([]input.Input, 0, len(r.breachedOutputs))
+	spendableOutputs = make([]input.Input, 0, len(inputs))
 
 	// The justice transaction we construct will be a segwit transaction
 	// that pays to a p2wkh output. Components such as the version,
@@ -1071,15 +1247,15 @@ func (b *breachArbiter) createJusticeTx(
 
 	// Next, we iterate over the breached outputs contained in the
 	// retribution info.  For each, we switch over the witness type such
-	// that we contribute the appropriate weight for each input and witness,
-	// finally adding to our list of spendable outputs.
-	for i := range r.breachedOutputs {
+	// that we contribute the appropriate weight for each input and
+	// witness, finally adding to our list of spendable outputs.
+	for i := range inputs {
 		// Grab locally scoped reference to breached output.
-		inp := &r.breachedOutputs[i]
+		inp := inputs[i]
 
-		// First, determine the appropriate estimated witness weight for
-		// the give witness type of this breached output. If the witness
-		// weight cannot be estimated, we will omit it from the
+		// First, determine the appropriate estimated witness weight
+		// for the give witness type of this breached output. If the
+		// witness weight cannot be estimated, we will omit it from the
 		// transaction.
 		witnessWeight, _, err := inp.WitnessType().SizeUpperBound()
 		if err != nil {
@@ -1120,7 +1296,7 @@ func (b *breachArbiter) sweepSpendableOutputsTxn(txWeight int64,
 
 	// We'll actually attempt to target inclusion within the next two
 	// blocks as we'd like to sweep these funds back into our wallet ASAP.
-	feePerKw, err := b.cfg.Estimator.EstimateFeePerKW(2)
+	feePerKw, err := b.cfg.Estimator.EstimateFeePerKW(justiceTxConfTarget)
 	if err != nil {
 		return nil, err
 	}
@@ -1214,15 +1390,6 @@ type RetributionStore interface {
 	// is aware of any breaches for the provided channel point.
 	IsBreached(chanPoint *wire.OutPoint) (bool, error)
 
-	// Finalize persists the finalized justice transaction for a particular
-	// channel.
-	Finalize(chanPoint *wire.OutPoint, finalTx *wire.MsgTx) error
-
-	// GetFinalizedTxn loads the finalized justice transaction, if any, from
-	// the retribution store. The finalized transaction will be nil if
-	// Finalize has not yet been called for this channel point.
-	GetFinalizedTxn(chanPoint *wire.OutPoint) (*wire.MsgTx, error)
-
 	// Remove deletes the retributionInfo from disk, if any exists, under
 	// the given key. An error should be re raised if the removal fails.
 	Remove(key *wire.OutPoint) error
@@ -1271,68 +1438,6 @@ func (rs *retributionStore) Add(ret *retributionInfo) error {
 
 		return retBucket.Put(outBuf.Bytes(), retBuf.Bytes())
 	}, func() {})
-}
-
-// Finalize writes a signed justice transaction to the retribution store. This
-// is done before publishing the transaction, so that we can recover the txid on
-// startup and re-register for confirmation notifications.
-func (rs *retributionStore) Finalize(chanPoint *wire.OutPoint,
-	finalTx *wire.MsgTx) error {
-	return kvdb.Update(rs.db, func(tx kvdb.RwTx) error {
-		justiceBkt, err := tx.CreateTopLevelBucket(justiceTxnBucket)
-		if err != nil {
-			return err
-		}
-
-		var chanBuf bytes.Buffer
-		if err := writeOutpoint(&chanBuf, chanPoint); err != nil {
-			return err
-		}
-
-		var txBuf bytes.Buffer
-		if err := finalTx.Serialize(&txBuf); err != nil {
-			return err
-		}
-
-		return justiceBkt.Put(chanBuf.Bytes(), txBuf.Bytes())
-	}, func() {})
-}
-
-// GetFinalizedTxn loads the finalized justice transaction for the provided
-// channel point. The finalized transaction will be nil if Finalize has yet to
-// be called for this channel point.
-func (rs *retributionStore) GetFinalizedTxn(
-	chanPoint *wire.OutPoint) (*wire.MsgTx, error) {
-
-	var finalTxBytes []byte
-	if err := kvdb.View(rs.db, func(tx kvdb.RTx) error {
-		justiceBkt := tx.ReadBucket(justiceTxnBucket)
-		if justiceBkt == nil {
-			return nil
-		}
-
-		var chanBuf bytes.Buffer
-		if err := writeOutpoint(&chanBuf, chanPoint); err != nil {
-			return err
-		}
-
-		finalTxBytes = justiceBkt.Get(chanBuf.Bytes())
-
-		return nil
-	}, func() {
-		finalTxBytes = nil
-	}); err != nil {
-		return nil, err
-	}
-
-	if finalTxBytes == nil {
-		return nil, nil
-	}
-
-	finalTx := &wire.MsgTx{}
-	err := finalTx.Deserialize(bytes.NewReader(finalTxBytes))
-
-	return finalTx, err
 }
 
 // IsBreached queries the retribution store to discern if this channel was

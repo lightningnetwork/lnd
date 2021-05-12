@@ -36,6 +36,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -405,24 +406,6 @@ func (frs *failingRetributionStore) IsBreached(chanPoint *wire.OutPoint) (bool, 
 	defer frs.mu.Unlock()
 
 	return frs.rs.IsBreached(chanPoint)
-}
-
-func (frs *failingRetributionStore) Finalize(chanPoint *wire.OutPoint,
-	finalTx *wire.MsgTx) error {
-
-	frs.mu.Lock()
-	defer frs.mu.Unlock()
-
-	return frs.rs.Finalize(chanPoint, finalTx)
-}
-
-func (frs *failingRetributionStore) GetFinalizedTxn(
-	chanPoint *wire.OutPoint) (*wire.MsgTx, error) {
-
-	frs.mu.Lock()
-	defer frs.mu.Unlock()
-
-	return frs.rs.GetFinalizedTxn(chanPoint)
 }
 
 func (frs *failingRetributionStore) Remove(key *wire.OutPoint) error {
@@ -1220,8 +1203,74 @@ func TestBreachHandoffFail(t *testing.T) {
 	assertArbiterBreach(t, brar, chanPoint)
 }
 
-type publAssertion func(*testing.T, map[wire.OutPoint]*wire.MsgTx,
-	chan *wire.MsgTx)
+// TestBreachCreateJusticeTx tests that we create three different variants of
+// the justice tx.
+func TestBreachCreateJusticeTx(t *testing.T) {
+	brar, _, _, _, _, cleanUpChans, cleanUpArb := initBreachedState(t)
+	defer cleanUpChans()
+	defer cleanUpArb()
+
+	// In this test we just want to check that the correct inputs are added
+	// to the justice tx, not that we create a valid spend, so we just set
+	// some params making the script generation succeed.
+	aliceKeyPriv, _ := btcec.PrivKeyFromBytes(
+		btcec.S256(), channels.AlicesPrivKey,
+	)
+	alicePubKey := aliceKeyPriv.PubKey()
+
+	signDesc := &breachedOutputs[0].signDesc
+	signDesc.KeyDesc.PubKey = alicePubKey
+	signDesc.DoubleTweak = aliceKeyPriv
+
+	// We'll test all the different types of outputs we'll sweep with the
+	// justice tx.
+	outputTypes := []input.StandardWitnessType{
+		input.CommitmentNoDelay,
+		input.CommitSpendNoDelayTweakless,
+		input.CommitmentToRemoteConfirmed,
+		input.CommitmentRevoke,
+		input.HtlcAcceptedRevoke,
+		input.HtlcOfferedRevoke,
+		input.HtlcSecondLevelRevoke,
+	}
+
+	breachedOutputs := make([]breachedOutput, len(outputTypes))
+	for i, wt := range outputTypes {
+		// Create a fake breached output for each type, ensuring they
+		// have different outpoints for our logic to accept them.
+		op := breachedOutputs[0].outpoint
+		op.Index = uint32(i)
+		breachedOutputs[i] = makeBreachedOutput(
+			&op,
+			wt,
+			// Second level scripts doesn't matter in this test.
+			nil,
+			signDesc,
+			1,
+		)
+	}
+
+	// Create the justice transactions.
+	justiceTxs, err := brar.createJusticeTx(breachedOutputs)
+	require.NoError(t, err)
+	require.NotNil(t, justiceTxs)
+
+	// The spendAll tx should be spending all the outputs. This is the
+	// "regular" justice transaction type.
+	require.Len(t, justiceTxs.spendAll.TxIn, len(breachedOutputs))
+
+	// The spendCommitOuts tx should be spending the 4 typed of commit outs
+	// (note that in practice there will be at most two commit outputs per
+	// commmit, but we test all 4 types here).
+	require.Len(t, justiceTxs.spendCommitOuts.TxIn, 4)
+
+	// Finally check that the spendHTLCs tx are spending the two revoked
+	// HTLC types, and the second level type.
+	require.Len(t, justiceTxs.spendHTLCs.TxIn, 3)
+}
+
+type publAssertion func(*testing.T, map[wire.OutPoint]struct{},
+	chan *wire.MsgTx, chainhash.Hash) *wire.MsgTx
 
 type breachTest struct {
 	name string
@@ -1230,6 +1279,10 @@ type breachTest struct {
 	// if by a remote party or watchtower. The outpoint of the second level
 	// htlc is in effect "readded" to the set of inputs.
 	spend2ndLevel bool
+
+	// sweepHtlc tests that the HTLC output is swept using the revocation
+	// path in a separate tx.
+	sweepHtlc bool
 
 	// sendFinalConf informs the test to send a confirmation for the justice
 	// transaction before asserting the arbiter is cleaned up.
@@ -1244,35 +1297,119 @@ type breachTest struct {
 	whenZeroInputs publAssertion
 }
 
-var (
+type spendTxs struct {
+	commitSpendTx    *wire.MsgTx
+	htlc2ndLevlTx    *wire.MsgTx
+	htlc2ndLevlSpend *wire.MsgTx
+	htlcSweep        *wire.MsgTx
+}
+
+func getSpendTransactions(signer input.Signer, chanPoint *wire.OutPoint,
+	retribution *lnwallet.BreachRetribution) (*spendTxs, error) {
+
+	localOutpoint := retribution.LocalOutpoint
+	remoteOutpoint := retribution.RemoteOutpoint
+	htlcOutpoint := retribution.HtlcRetributions[0].OutPoint
+
 	// commitSpendTx is used to spend commitment outputs.
-	commitSpendTx = &wire.MsgTx{
+	commitSpendTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{
+				PreviousOutPoint: localOutpoint,
+			},
+			{
+				PreviousOutPoint: remoteOutpoint,
+			},
+		},
 		TxOut: []*wire.TxOut{
 			{Value: 500000000},
 		},
 	}
+
 	// htlc2ndLevlTx is used to transition an htlc output on the commitment
 	// transaction to a second level htlc.
-	htlc2ndLevlTx = &wire.MsgTx{
+	htlc2ndLevlTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{
+				PreviousOutPoint: htlcOutpoint,
+			},
+		},
 		TxOut: []*wire.TxOut{
 			{Value: 20000},
 		},
 	}
+
+	secondLvlOp := wire.OutPoint{
+		Hash:  htlc2ndLevlTx.TxHash(),
+		Index: 0,
+	}
+
 	// htlcSpendTx is used to spend from a second level htlc.
-	htlcSpendTx = &wire.MsgTx{
+	htlcSpendTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{
+				PreviousOutPoint: secondLvlOp,
+			},
+		},
+
 		TxOut: []*wire.TxOut{
 			{Value: 10000},
 		},
 	}
-)
+
+	// htlcSweep is used to spend the HTLC output directly using the
+	// revocation key.
+	htlcSweep := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{
+				PreviousOutPoint: htlcOutpoint,
+			},
+		},
+		TxOut: []*wire.TxOut{
+			{Value: 21000},
+		},
+	}
+
+	// In order for  the breacharbiter to detect that it is being spent
+	// using the revocation key, it will inspect the witness. Therefore
+	// sign and add the witness to the HTLC sweep.
+	retInfo := newRetributionInfo(chanPoint, retribution)
+
+	hashCache := txscript.NewTxSigHashes(htlcSweep)
+	for i := range retInfo.breachedOutputs {
+		inp := &retInfo.breachedOutputs[i]
+
+		// Find the HTLC output. so we can add the witness.
+		switch inp.witnessType {
+		case input.HtlcAcceptedRevoke:
+			fallthrough
+		case input.HtlcOfferedRevoke:
+			inputScript, err := inp.CraftInputScript(
+				signer, htlcSweep, hashCache, 0,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			htlcSweep.TxIn[0].Witness = inputScript.Witness
+		}
+	}
+
+	return &spendTxs{
+		commitSpendTx:    commitSpendTx,
+		htlc2ndLevlTx:    htlc2ndLevlTx,
+		htlc2ndLevlSpend: htlcSpendTx,
+		htlcSweep:        htlcSweep,
+	}, nil
+}
 
 var breachTests = []breachTest{
 	{
 		name:          "all spends",
 		spend2ndLevel: true,
 		whenNonZeroInputs: func(t *testing.T,
-			inputs map[wire.OutPoint]*wire.MsgTx,
-			publTx chan *wire.MsgTx) {
+			inputs map[wire.OutPoint]struct{},
+			publTx chan *wire.MsgTx, _ chainhash.Hash) *wire.MsgTx {
 
 			var tx *wire.MsgTx
 			select {
@@ -1281,7 +1418,7 @@ var breachTests = []breachTest{
 				t.Fatalf("tx was not published")
 			}
 
-			// The justice transaction should have thee same number
+			// The justice transaction should have the same number
 			// of inputs as we are tracking in the test.
 			if len(tx.TxIn) != len(inputs) {
 				t.Fatalf("expected justice txn to have %d "+
@@ -1295,10 +1432,11 @@ var breachTests = []breachTest{
 				findInputIndex(t, in, tx)
 			}
 
+			return tx
 		},
 		whenZeroInputs: func(t *testing.T,
-			inputs map[wire.OutPoint]*wire.MsgTx,
-			publTx chan *wire.MsgTx) {
+			inputs map[wire.OutPoint]struct{},
+			publTx chan *wire.MsgTx, _ chainhash.Hash) *wire.MsgTx {
 
 			// Sanity check to ensure the brar doesn't try to
 			// broadcast another sweep, since all outputs have been
@@ -1308,6 +1446,8 @@ var breachTests = []breachTest{
 				t.Fatalf("tx published unexpectedly")
 			case <-time.After(50 * time.Millisecond):
 			}
+
+			return nil
 		},
 	},
 	{
@@ -1315,18 +1455,36 @@ var breachTests = []breachTest{
 		spend2ndLevel: false,
 		sendFinalConf: true,
 		whenNonZeroInputs: func(t *testing.T,
-			inputs map[wire.OutPoint]*wire.MsgTx,
-			publTx chan *wire.MsgTx) {
+			inputs map[wire.OutPoint]struct{},
+			publTx chan *wire.MsgTx, _ chainhash.Hash) *wire.MsgTx {
 
+			var tx *wire.MsgTx
 			select {
-			case <-publTx:
+			case tx = <-publTx:
 			case <-time.After(5 * time.Second):
 				t.Fatalf("tx was not published")
 			}
+
+			// The justice transaction should have the same number
+			// of inputs as we are tracking in the test.
+			if len(tx.TxIn) != len(inputs) {
+				t.Fatalf("expected justice txn to have %d "+
+					"inputs, found %d", len(inputs),
+					len(tx.TxIn))
+			}
+
+			// Ensure that each input exists on the justice
+			// transaction.
+			for in := range inputs {
+				findInputIndex(t, in, tx)
+			}
+
+			return tx
 		},
 		whenZeroInputs: func(t *testing.T,
-			inputs map[wire.OutPoint]*wire.MsgTx,
-			publTx chan *wire.MsgTx) {
+			inputs map[wire.OutPoint]struct{},
+			publTx chan *wire.MsgTx,
+			htlc2ndLevlTxHash chainhash.Hash) *wire.MsgTx {
 
 			// Now a transaction attempting to spend from the second
 			// level tx should be published instead. Let this
@@ -1355,10 +1513,60 @@ var breachTests = []breachTest{
 			// ensuring we aren't mistaking this for a different
 			// output type.
 			onlyInput := tx.TxIn[0].PreviousOutPoint.Hash
-			if onlyInput != htlc2ndLevlTx.TxHash() {
+			if onlyInput != htlc2ndLevlTxHash {
 				t.Fatalf("tx not attempting to spend second "+
 					"level tx, %v", tx.TxIn[0])
 			}
+
+			return tx
+		},
+	},
+	{ // nolint: dupl
+		// Test that if the HTLC output is swept via the revoke path
+		// (by us) in a separate tx, it will be handled correctly.
+		name:      "sweep htlc",
+		sweepHtlc: true,
+		whenNonZeroInputs: func(t *testing.T,
+			inputs map[wire.OutPoint]struct{},
+			publTx chan *wire.MsgTx, _ chainhash.Hash) *wire.MsgTx {
+
+			var tx *wire.MsgTx
+			select {
+			case tx = <-publTx:
+			case <-time.After(5 * time.Second):
+				t.Fatalf("tx was not published")
+			}
+
+			// The justice transaction should have the same number
+			// of inputs as we are tracking in the test.
+			if len(tx.TxIn) != len(inputs) {
+				t.Fatalf("expected justice txn to have %d "+
+					"inputs, found %d", len(inputs),
+					len(tx.TxIn))
+			}
+
+			// Ensure that each input exists on the justice
+			// transaction.
+			for in := range inputs {
+				findInputIndex(t, in, tx)
+			}
+
+			return tx
+		},
+		whenZeroInputs: func(t *testing.T,
+			inputs map[wire.OutPoint]struct{},
+			publTx chan *wire.MsgTx, _ chainhash.Hash) *wire.MsgTx {
+
+			// Sanity check to ensure the brar doesn't try to
+			// broadcast another sweep, since all outputs have been
+			// spent externally.
+			select {
+			case <-publTx:
+				t.Fatalf("tx published unexpectedly")
+			case <-time.After(50 * time.Millisecond):
+			}
+
+			return nil
 		},
 	},
 }
@@ -1417,7 +1625,11 @@ func testBreachSpends(t *testing.T, test breachTest) {
 		},
 		BreachRetribution: retribution,
 	}
-	contractBreaches <- breach
+	select {
+	case contractBreaches <- breach:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("breach not delivered")
+	}
 
 	// We'll also wait to consume the ACK back from the breach arbiter.
 	select {
@@ -1458,7 +1670,12 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	// Notify that the breaching transaction is confirmed, to trigger the
 	// retribution logic.
 	notifier := brar.cfg.Notifier.(*mock.SpendNotifier)
-	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
+
+	select {
+	case notifier.ConfChan <- &chainntnfs.TxConfirmation{}:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("conf not delivered")
+	}
 
 	// The breach arbiter should attempt to sweep all outputs on the
 	// breached commitment. We'll pretend that the HTLC output has been
@@ -1482,59 +1699,283 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	remoteOutpoint := retribution.RemoteOutpoint
 	htlcOutpoint := retribution.HtlcRetributions[0].OutPoint
 
+	spendTxs, err := getSpendTransactions(
+		brar.cfg.Signer, chanPoint, retribution,
+	)
+	require.NoError(t, err)
+
 	// Construct a map from outpoint on the force close to the transaction
 	// we want it to be spent by. As the test progresses, this map will be
 	// updated to contain only the set of commitment or second level
 	// outpoints that remain to be spent.
-	inputs := map[wire.OutPoint]*wire.MsgTx{
-		htlcOutpoint:   htlc2ndLevlTx,
-		localOutpoint:  commitSpendTx,
-		remoteOutpoint: commitSpendTx,
+	spentBy := map[wire.OutPoint]*wire.MsgTx{
+		htlcOutpoint:   spendTxs.htlc2ndLevlTx,
+		localOutpoint:  spendTxs.commitSpendTx,
+		remoteOutpoint: spendTxs.commitSpendTx,
+	}
+
+	// We also keep a map of those remaining outputs we expect the
+	// breacharbiter to try and sweep.
+	inputsToSweep := map[wire.OutPoint]struct{}{
+		htlcOutpoint:   {},
+		localOutpoint:  {},
+		remoteOutpoint: {},
+	}
+
+	htlc2ndLevlTx := spendTxs.htlc2ndLevlTx
+	htlcSpendTx := spendTxs.htlc2ndLevlSpend
+
+	// If the test is checking sweep of the HTLC directly without the
+	// second level, insert the sweep tx instead.
+	if test.sweepHtlc {
+		spentBy[htlcOutpoint] = spendTxs.htlcSweep
 	}
 
 	// Until no more inputs to spend remain, deliver the spend events and
 	// process the assertions prescribed by the test case.
-	for len(inputs) > 0 {
+	var justiceTx *wire.MsgTx
+	for len(spentBy) > 0 {
 		var (
 			op      wire.OutPoint
 			spendTx *wire.MsgTx
 		)
 
 		// Pick an outpoint at random from the set of inputs.
-		for op, spendTx = range inputs {
-			delete(inputs, op)
+		for op, spendTx = range spentBy {
+			delete(spentBy, op)
 			break
 		}
 
 		// Deliver the spend notification for the chosen transaction.
 		notifier.Spend(&op, 2, spendTx)
 
-		// When the second layer transfer is detected, add back the
-		// outpoint of the second layer tx so that we can spend it
-		// again. Only do so if the test requests this behavior.
+		// Since the remote just swept this input, we expect our next
+		// justice transaction to not include them.
+		delete(inputsToSweep, op)
+
+		// If this is the second-level spend, we must add the new
+		// outpoint to our expected sweeps.
 		spendTxID := spendTx.TxHash()
-		if test.spend2ndLevel && spendTxID == htlc2ndLevlTx.TxHash() {
-			// Create the second level outpoint that will be spent,
-			// the index is always zero for these 1-in-1-out txns.
+		if spendTxID == htlc2ndLevlTx.TxHash() {
+			// Create the second level outpoint that will
+			// be spent, the index is always zero for these
+			// 1-in-1-out txns.
 			spendOp := wire.OutPoint{Hash: spendTxID}
-			inputs[spendOp] = htlcSpendTx
+			inputsToSweep[spendOp] = struct{}{}
+
+			// When the second layer transfer is detected, add back
+			// the outpoint of the second layer tx so that we can
+			// spend it again. Only do so if the test requests this
+			// behavior.
+			if test.spend2ndLevel {
+				spentBy[spendOp] = htlcSpendTx
+			}
 		}
 
-		if len(inputs) > 0 {
-			test.whenNonZeroInputs(t, inputs, publTx)
+		if len(spentBy) > 0 {
+			justiceTx = test.whenNonZeroInputs(t, inputsToSweep, publTx, htlc2ndLevlTx.TxHash())
 		} else {
 			// Reset the publishing error so that any publication,
 			// made by the breach arbiter, if any, will succeed.
 			publMtx.Lock()
 			publErr = nil
 			publMtx.Unlock()
-			test.whenZeroInputs(t, inputs, publTx)
+			justiceTx = test.whenZeroInputs(t, inputsToSweep, publTx, htlc2ndLevlTx.TxHash())
 		}
 	}
 
-	// Deliver confirmation of sweep if the test expects it.
+	// Deliver confirmation of sweep if the test expects it. Since we are
+	// looking for the final justice tx to confirme, we deliver a spend of
+	// all its inputs.
 	if test.sendFinalConf {
-		notifier.ConfChan <- &chainntnfs.TxConfirmation{}
+		for _, txin := range justiceTx.TxIn {
+			op := txin.PreviousOutPoint
+			notifier.Spend(&op, 3, justiceTx)
+		}
+	}
+
+	// Assert that the channel is fully resolved.
+	assertBrarCleanup(t, brar, alice.ChanPoint, alice.State().Db)
+}
+
+// TestBreachDelayedJusticeConfirmation tests that the breach arbiter will
+// "split" the justice tx in case the first justice tx doesn't confirm within
+// a reasonable time.
+func TestBreachDelayedJusticeConfirmation(t *testing.T) {
+	brar, alice, _, bobClose, contractBreaches,
+		cleanUpChans, cleanUpArb := initBreachedState(t)
+	defer cleanUpChans()
+	defer cleanUpArb()
+
+	var (
+		height       = bobClose.ChanSnapshot.CommitHeight
+		blockHeight  = int32(10)
+		forceCloseTx = bobClose.CloseTx
+		chanPoint    = alice.ChanPoint
+		publTx       = make(chan *wire.MsgTx)
+	)
+
+	// Make PublishTransaction always return succeed.
+	brar.cfg.PublishTransaction = func(tx *wire.MsgTx, _ string) error {
+		publTx <- tx
+		return nil
+	}
+
+	// Notify the breach arbiter about the breach.
+	retribution, err := lnwallet.NewBreachRetribution(
+		alice.State(), height, uint32(blockHeight),
+	)
+	if err != nil {
+		t.Fatalf("unable to create breach retribution: %v", err)
+	}
+
+	processACK := make(chan error, 1)
+	breach := &ContractBreachEvent{
+		ChanPoint: *chanPoint,
+		ProcessACK: func(brarErr error) {
+			processACK <- brarErr
+		},
+		BreachRetribution: retribution,
+	}
+
+	select {
+	case contractBreaches <- breach:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("breach not delivered")
+	}
+
+	// We'll also wait to consume the ACK back from the breach arbiter.
+	select {
+	case err := <-processACK:
+		if err != nil {
+			t.Fatalf("handoff failed: %v", err)
+		}
+	case <-time.After(time.Second * 15):
+		t.Fatalf("breach arbiter didn't send ack back")
+	}
+
+	state := alice.State()
+	err = state.CloseChannel(&channeldb.ChannelCloseSummary{
+		ChanPoint:               state.FundingOutpoint,
+		ChainHash:               state.ChainHash,
+		RemotePub:               state.IdentityPub,
+		CloseType:               channeldb.BreachClose,
+		Capacity:                state.Capacity,
+		IsPending:               true,
+		ShortChanID:             state.ShortChanID(),
+		RemoteCurrentRevocation: state.RemoteCurrentRevocation,
+		RemoteNextRevocation:    state.RemoteNextRevocation,
+		LocalChanConfig:         state.LocalChanCfg,
+	})
+	if err != nil {
+		t.Fatalf("unable to close channel: %v", err)
+	}
+
+	// After exiting, the breach arbiter should have persisted the
+	// retribution information and the channel should be shown as pending
+	// force closed.
+	assertArbiterBreach(t, brar, chanPoint)
+
+	// Assert that the database sees the channel as pending close, otherwise
+	// the breach arbiter won't be able to fully close it.
+	assertPendingClosed(t, alice)
+
+	// Notify that the breaching transaction is confirmed, to trigger the
+	// retribution logic.
+	notifier := brar.cfg.Notifier.(*mock.SpendNotifier)
+
+	select {
+	case notifier.ConfChan <- &chainntnfs.TxConfirmation{}:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("conf not delivered")
+	}
+
+	// The breach arbiter should attempt to sweep all outputs on the
+	// breached commitment.
+	var justiceTx *wire.MsgTx
+	select {
+	case justiceTx = <-publTx:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("tx was not published")
+	}
+
+	require.Len(t, justiceTx.TxIn, 3)
+
+	// All outputs should initially spend from the force closed txn.
+	forceTxID := forceCloseTx.TxHash()
+	for _, txIn := range justiceTx.TxIn {
+		if txIn.PreviousOutPoint.Hash != forceTxID {
+			t.Fatalf("og justice tx not spending commitment")
+		}
+	}
+
+	// Now we'll pretend some blocks pass without the justice tx
+	// confirming.
+	for i := int32(0); i <= 3; i++ {
+		notifier.EpochChan <- &chainntnfs.BlockEpoch{
+			Height: blockHeight + i,
+		}
+
+		// On every epoch, check that no new tx is published.
+		select {
+		case <-publTx:
+			t.Fatalf("tx was published")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+
+	// Now mine another block without the justice tx confirming. This
+	// should lead to the breacharbiter publishing the split justice tx
+	// variants.
+	notifier.EpochChan <- &chainntnfs.BlockEpoch{
+		Height: blockHeight + 4,
+	}
+
+	var (
+		splits   []*wire.MsgTx
+		spending = make(map[wire.OutPoint]struct{})
+		maxIndex = uint32(len(forceCloseTx.TxOut)) - 1
+	)
+	for i := 0; i < 2; i++ {
+
+		var tx *wire.MsgTx
+		select {
+		case tx = <-publTx:
+			splits = append(splits, tx)
+
+		case <-time.After(5 * time.Second):
+			t.Fatalf("tx not published")
+		}
+
+		// Check that every input is from the breached tx and that
+		// there are no duplicates.
+		for _, in := range tx.TxIn {
+			op := in.PreviousOutPoint
+			_, ok := spending[op]
+			if ok {
+				t.Fatal("already spent")
+			}
+
+			if op.Hash != forceTxID || op.Index > maxIndex {
+				t.Fatalf("not spending breach")
+			}
+
+			spending[op] = struct{}{}
+		}
+	}
+
+	// All the inputs from the original justice transaction should have
+	// been spent by the 2 splits.
+	require.Len(t, spending, len(justiceTx.TxIn))
+	require.Len(t, splits, 2)
+
+	// Finally notify that they confirm, making the breach arbiter clean
+	// up.
+	for _, tx := range splits {
+		for _, in := range tx.TxIn {
+			op := &in.PreviousOutPoint
+			notifier.Spend(op, blockHeight+5, tx)
+		}
 	}
 
 	// Assert that the channel is fully resolved.

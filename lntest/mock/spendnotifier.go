@@ -67,13 +67,20 @@ func (s *SpendNotifier) Spend(outpoint *wire.OutPoint, height int32,
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
 
+	var inputIndex uint32
+	for i, in := range txn.TxIn {
+		if in.PreviousOutPoint == *outpoint {
+			inputIndex = uint32(i)
+		}
+	}
+
 	txnHash := txn.TxHash()
 	details := &chainntnfs.SpendDetail{
 		SpentOutPoint:     outpoint,
 		SpendingHeight:    height,
 		SpendingTx:        txn,
 		SpenderTxHash:     &txnHash,
-		SpenderInputIndex: outpoint.Index,
+		SpenderInputIndex: inputIndex,
 	}
 
 	// Cache details in case of late registration.

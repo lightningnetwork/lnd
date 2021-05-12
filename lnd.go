@@ -5,6 +5,7 @@
 package lnd
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -278,7 +279,9 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 
 	var (
 		walletInitParams = WalletUnlockParams{
-			MacResponseChan: make(chan []byte),
+			// In case we do auto-unlock, we need to be able to send
+			// into the channel without blocking so we buffer it.
+			MacResponseChan: make(chan []byte, 1),
 		}
 		privateWalletPw = lnwallet.DefaultPrivatePassphrase
 		publicWalletPw  = lnwallet.DefaultPublicPassphrase
@@ -475,10 +478,63 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		interceptorChain.SetWalletLocked()
 	}
 
-	// We wait until the user provides a password over RPC. In case lnd is
-	// started with the --noseedbackup flag, we use the default password
-	// for wallet encryption.
-	if !cfg.NoSeedBackup {
+	// If we've started in auto unlock mode, then a wallet _must_ already
+	// exist because we never want to enable the RPC unlocker in that case.
+	if cfg.WalletUnlockPasswordFile != "" && !walletExists {
+		return fmt.Errorf("wallet unlock password file was specified " +
+			"but wallet does not exist; initialize the wallet " +
+			"before using auto unlocking")
+	}
+
+	// What wallet mode are we running in? We've already made sure the no
+	// seed backup and auto unlock aren't both set during config parsing.
+	switch {
+	// No seed backup means we're also using the default password.
+	case cfg.NoSeedBackup:
+		// We continue normally, the default password has already been
+		// set above.
+
+	// A password for unlocking is provided in a file.
+	case cfg.WalletUnlockPasswordFile != "":
+		ltndLog.Infof("Attempting automatic wallet unlock with " +
+			"password provided in file")
+		pwBytes, err := ioutil.ReadFile(cfg.WalletUnlockPasswordFile)
+		if err != nil {
+			return fmt.Errorf("error reading password from file "+
+				"%s: %v", cfg.WalletUnlockPasswordFile, err)
+		}
+
+		// Remove any newlines at the end of the file. The lndinit tool
+		// won't ever write a newline but maybe the file was provisioned
+		// by another process or user.
+		pwBytes = bytes.TrimRight(pwBytes, "\r\n")
+
+		// We have the password now, we can ask the unlocker service to
+		// do the unlock for us.
+		unlockedWallet, unloadWalletFn, err := pwService.LoadAndUnlock(
+			pwBytes, 0,
+		)
+		if err != nil {
+			return fmt.Errorf("error unlocking wallet with "+
+				"password from file: %v", err)
+		}
+
+		defer func() {
+			if err := unloadWalletFn(); err != nil {
+				ltndLog.Errorf("Could not unload wallet: %v",
+					err)
+			}
+		}()
+
+		privateWalletPw = pwBytes
+		publicWalletPw = pwBytes
+		walletInitParams.Wallet = unlockedWallet
+		walletInitParams.UnloadWallet = unloadWalletFn
+
+	// If none of the automatic startup options are selected, we fall back
+	// to the default behavior of waiting for the wallet creation/unlocking
+	// over RPC.
+	default:
 		params, err := waitForWalletPassword(
 			cfg, pwService, []btcwallet.LoaderOption{loaderOpt},
 			interceptor.ShutdownChannel(),

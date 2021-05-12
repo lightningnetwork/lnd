@@ -39,6 +39,13 @@ const (
 	// TODO(halseth): update constant to target a specific commit size at
 	// set fee rate.
 	anchorChanReservedValue = btcutil.Amount(10_000)
+
+	// maxAnchorChanReservedValue is the maximum value we'll reserve for
+	// anchor channel fee bumping. We cap it at 10 times the per-channel
+	// amount such that nodes with a high number of channels don't have to
+	// keep around a very large amount for the unlikely scenario that they
+	// all close at the same time.
+	maxAnchorChanReservedValue = 10 * anchorChanReservedValue
 )
 
 var (
@@ -597,9 +604,11 @@ func (l *LightningWallet) PsbtFundingVerify(pendingChanID [32]byte,
 	// If this commit type is an anchor channel we add that to our counter,
 	// but only if we are contributing funds to the channel. This is done
 	// to still allow incoming channels even though we have no UTXOs
-	// available, as in bootstrapping phases.
+	// available, as in bootstrapping phases. We only count public
+	// channels.
+	isPublic := pendingReservation.partialState.ChannelFlags&lnwire.FFAnnounceChannel != 0
 	if pendingReservation.partialState.ChanType.HasAnchors() &&
-		intent.LocalFundingAmt() > 0 {
+		intent.LocalFundingAmt() > 0 && isPublic {
 		numAnchors++
 	}
 
@@ -812,9 +821,11 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// If this commit type is an anchor channel we add that to our counter,
 	// but only if we are contributing funds to the channel. This is done
 	// to still allow incoming channels even though we have no UTXOs
-	// available, as in bootstrapping phases.
+	// available, as in bootstrapping phases. We only count public
+	// channels.
+	isPublic := req.Flags&lnwire.FFAnnounceChannel != 0
 	if req.CommitType == CommitmentTypeAnchorsZeroFeeHtlcTx &&
-		fundingIntent.LocalFundingAmt() > 0 {
+		fundingIntent.LocalFundingAmt() > 0 && isPublic {
 		numAnchors++
 	}
 
@@ -881,8 +892,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	req.err <- nil
 }
 
-// currentNumAnchorChans returns the current number of anchor channels the
-// wallet should be ready to fee bump if needed.
+// currentNumAnchorChans returns the current number of non-private anchor
+// channels the wallet should be ready to fee bump if needed.
 func (l *LightningWallet) currentNumAnchorChans() (int, error) {
 	// Count all anchor channels that are open or pending
 	// open, or waiting close.
@@ -892,10 +903,22 @@ func (l *LightningWallet) currentNumAnchorChans() (int, error) {
 	}
 
 	var numAnchors int
-	for _, c := range chans {
+	cntChannel := func(c *channeldb.OpenChannel) {
+		// We skip private channels, as we assume they won't be used
+		// for routing.
+		if c.ChannelFlags&lnwire.FFAnnounceChannel == 0 {
+			return
+		}
+
+		// Count anchor channels.
 		if c.ChanType.HasAnchors() {
 			numAnchors++
 		}
+
+	}
+
+	for _, c := range chans {
+		cntChannel(c)
 	}
 
 	// We also count pending close channels.
@@ -918,9 +941,7 @@ func (l *LightningWallet) currentNumAnchorChans() (int, error) {
 			continue
 		}
 
-		if c.ChanType.HasAnchors() {
-			numAnchors++
-		}
+		cntChannel(c)
 	}
 
 	return numAnchors, nil
@@ -1000,6 +1021,9 @@ func (l *LightningWallet) CheckReservedValue(in []wire.OutPoint,
 
 	// We reserve a given amount for each anchor channel.
 	reserved := btcutil.Amount(numAnchorChans) * anchorChanReservedValue
+	if reserved > maxAnchorChanReservedValue {
+		reserved = maxAnchorChanReservedValue
+	}
 
 	if walletBalance < reserved {
 		walletLog.Debugf("Reserved value=%v above final "+

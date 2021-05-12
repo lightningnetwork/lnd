@@ -66,6 +66,11 @@ var addInvoiceCommand = cli.Command{
 				"private channels in order to assist the " +
 				"payer in reaching you",
 		},
+		cli.BoolFlag{
+			Name: "amp",
+			Usage: "creates an AMP invoice. If true, preimage " +
+				"should not be set.",
+		},
 	},
 	Action: actionDecorator(addInvoice),
 }
@@ -119,6 +124,7 @@ func addInvoice(ctx *cli.Context) error {
 		FallbackAddr:    ctx.String("fallback_addr"),
 		Expiry:          ctx.Int64("expiry"),
 		Private:         ctx.Bool("private"),
+		IsAmp:           ctx.Bool("amp"),
 	}
 
 	resp, err := client.AddInvoice(ctxc, invoice)

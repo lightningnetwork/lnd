@@ -147,6 +147,8 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 		rpcHtlcs = append(rpcHtlcs, &rpcHtlc)
 	}
 
+	isAmp := invoice.Terms.Features.HasFeature(lnwire.AMPOptional)
+
 	rpcInvoice := &lnrpc.Invoice{
 		Memo:            string(invoice.Memo),
 		RHash:           rHash,
@@ -170,8 +172,9 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 		State:           state,
 		Htlcs:           rpcHtlcs,
 		Features:        CreateRPCFeatures(invoice.Terms.Features),
-		IsKeysend:       len(invoice.PaymentRequest) == 0,
+		IsKeysend:       len(invoice.PaymentRequest) == 0 && !isAmp,
 		PaymentAddr:     invoice.Terms.PaymentAddr[:],
+		IsAmp:           isAmp,
 	}
 
 	if preimage != nil {

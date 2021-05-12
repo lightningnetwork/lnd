@@ -54,6 +54,10 @@ type AddInvoiceConfig struct {
 	// GenInvoiceFeatures returns a feature containing feature bits that
 	// should be advertised on freshly generated invoices.
 	GenInvoiceFeatures func() *lnwire.FeatureVector
+
+	// GenAmpInvoiceFeatures returns a feature containing feature bits that
+	// should be advertised on freshly generated AMP invoices.
+	GenAmpInvoiceFeatures func() *lnwire.FeatureVector
 }
 
 // AddInvoiceData contains the required data to create a new invoice.
@@ -99,17 +103,71 @@ type AddInvoiceData struct {
 	// immediately upon receiving the payment.
 	HodlInvoice bool
 
+	// Amp signals whether or not to create an AMP invoice.
+	//
+	// NOTE: Preimage should always be set to nil when this value is true.
+	Amp bool
+
 	// RouteHints are optional route hints that can each be individually used
 	// to assist in reaching the invoice's destination.
 	RouteHints [][]zpay32.HopHint
 }
 
-// AddInvoice attempts to add a new invoice to the invoice database. Any
-// duplicated invoices are rejected, therefore all invoices *must* have a
-// unique payment preimage.
-func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
-	invoice *AddInvoiceData) (*lntypes.Hash, *channeldb.Invoice, error) {
+// paymentHashAndPreimage returns the payment hash and preimage for this invoice
+// depending on the configuration.
+//
+// For AMP invoices (when Amp flag is true), this method always returns a nil
+// preimage. The hash value can be set externally by the user using the Hash
+// field, or one will be generated randomly. The payment hash here only serves
+// as a unique identifier for insertion into the invoice index, as there is
+// no universal preimage for an AMP payment.
+//
+// For MPP invoices (when Amp flag is false), this method may return nil
+// preimage when create a hodl invoice, but otherwise will always return a
+// non-nil preimage and the corresponding payment hash. The valid combinations
+// are parsed as follows:
+//   - Preimage == nil && Hash == nil -> (random preimage, H(random preimage))
+//   - Preimage != nil && Hash == nil -> (Preimage, H(Preimage))
+//   - Preimage == nil && Hash != nil -> (nil, Hash)
+func (d *AddInvoiceData) paymentHashAndPreimage() (
+	*lntypes.Preimage, lntypes.Hash, error) {
 
+	if d.Amp {
+		return d.ampPaymentHashAndPreimage()
+	}
+
+	return d.mppPaymentHashAndPreimage()
+}
+
+// ampPaymentHashAndPreimage returns the payment hash to use for an AMP invoice.
+// The preimage will always be nil.
+func (d *AddInvoiceData) ampPaymentHashAndPreimage() (*lntypes.Preimage, lntypes.Hash, error) {
+	switch {
+
+	// Preimages cannot be set on AMP invoice.
+	case d.Preimage != nil:
+		return nil, lntypes.Hash{},
+			errors.New("preimage set on AMP invoice")
+
+	// If a specific hash was requested, use that.
+	case d.Hash != nil:
+		return nil, *d.Hash, nil
+
+	// Otherwise generate a random hash value, just needs to be unique to be
+	// added to the invoice index.
+	default:
+		var paymentHash lntypes.Hash
+		if _, err := rand.Read(paymentHash[:]); err != nil {
+			return nil, lntypes.Hash{}, err
+		}
+
+		return nil, paymentHash, nil
+	}
+}
+
+// mppPaymentHashAndPreimage returns the payment hash and preimage to use for an
+// MPP invoice.
+func (d *AddInvoiceData) mppPaymentHashAndPreimage() (*lntypes.Preimage, lntypes.Hash, error) {
 	var (
 		paymentPreimage *lntypes.Preimage
 		paymentHash     lntypes.Hash
@@ -118,28 +176,42 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	switch {
 
 	// Only either preimage or hash can be set.
-	case invoice.Preimage != nil && invoice.Hash != nil:
-		return nil, nil,
+	case d.Preimage != nil && d.Hash != nil:
+		return nil, lntypes.Hash{},
 			errors.New("preimage and hash both set")
 
 	// If no hash or preimage is given, generate a random preimage.
-	case invoice.Preimage == nil && invoice.Hash == nil:
+	case d.Preimage == nil && d.Hash == nil:
 		paymentPreimage = &lntypes.Preimage{}
 		if _, err := rand.Read(paymentPreimage[:]); err != nil {
-			return nil, nil, err
+			return nil, lntypes.Hash{}, err
 		}
 		paymentHash = paymentPreimage.Hash()
 
 	// If just a hash is given, we create a hold invoice by setting the
 	// preimage to unknown.
-	case invoice.Preimage == nil && invoice.Hash != nil:
-		paymentHash = *invoice.Hash
+	case d.Preimage == nil && d.Hash != nil:
+		paymentHash = *d.Hash
 
 	// A specific preimage was supplied. Use that for the invoice.
-	case invoice.Preimage != nil && invoice.Hash == nil:
-		preimage := *invoice.Preimage
+	case d.Preimage != nil && d.Hash == nil:
+		preimage := *d.Preimage
 		paymentPreimage = &preimage
-		paymentHash = invoice.Preimage.Hash()
+		paymentHash = d.Preimage.Hash()
+	}
+
+	return paymentPreimage, paymentHash, nil
+}
+
+// AddInvoice attempts to add a new invoice to the invoice database. Any
+// duplicated invoices are rejected, therefore all invoices *must* have a
+// unique payment preimage.
+func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
+	invoice *AddInvoiceData) (*lntypes.Hash, *channeldb.Invoice, error) {
+
+	paymentPreimage, paymentHash, err := invoice.paymentHashAndPreimage()
+	if err != nil {
+		return nil, nil, err
 	}
 
 	// The size of the memo, receipt and description hash attached must not
@@ -307,7 +379,12 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	}
 
 	// Set our desired invoice features and add them to our list of options.
-	invoiceFeatures := cfg.GenInvoiceFeatures()
+	var invoiceFeatures *lnwire.FeatureVector
+	if invoice.Amp {
+		invoiceFeatures = cfg.GenAmpInvoiceFeatures()
+	} else {
+		invoiceFeatures = cfg.GenInvoiceFeatures()
+	}
 	options = append(options, zpay32.Features(invoiceFeatures))
 
 	// Generate and set a random payment address for this invoice. If the

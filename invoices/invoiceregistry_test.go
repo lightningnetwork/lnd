@@ -1290,7 +1290,7 @@ func TestAMPWithoutMPPPayload(t *testing.T) {
 	ctx := newTestContext(t)
 	defer ctx.cleanup()
 
-	ctx.registry.cfg.AcceptKeySend = true
+	ctx.registry.cfg.AcceptAMP = true
 
 	const (
 		shardAmt = lnwire.MilliSatoshi(10)
@@ -1320,37 +1320,37 @@ func TestAMPWithoutMPPPayload(t *testing.T) {
 func TestSpontaneousAmpPayment(t *testing.T) {
 	tests := []struct {
 		name               string
-		keySendEnabled     bool
+		ampEnabled         bool
 		failReconstruction bool
 		numShards          int
 	}{
 		{
 			name:               "enabled valid one shard",
-			keySendEnabled:     true,
+			ampEnabled:         true,
 			failReconstruction: false,
 			numShards:          1,
 		},
 		{
 			name:               "enabled valid multiple shards",
-			keySendEnabled:     true,
+			ampEnabled:         true,
 			failReconstruction: false,
 			numShards:          3,
 		},
 		{
 			name:               "enabled invalid one shard",
-			keySendEnabled:     true,
+			ampEnabled:         true,
 			failReconstruction: true,
 			numShards:          1,
 		},
 		{
 			name:               "enabled invalid multiple shards",
-			keySendEnabled:     true,
+			ampEnabled:         true,
 			failReconstruction: true,
 			numShards:          3,
 		},
 		{
 			name:               "disabled valid multiple shards",
-			keySendEnabled:     false,
+			ampEnabled:         false,
 			failReconstruction: false,
 			numShards:          3,
 		},
@@ -1360,7 +1360,7 @@ func TestSpontaneousAmpPayment(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			testSpontaneousAmpPayment(
-				t, test.keySendEnabled, test.failReconstruction,
+				t, test.ampEnabled, test.failReconstruction,
 				test.numShards,
 			)
 		})
@@ -1369,14 +1369,14 @@ func TestSpontaneousAmpPayment(t *testing.T) {
 
 // testSpontaneousAmpPayment runs a specific spontaneous AMP test case.
 func testSpontaneousAmpPayment(
-	t *testing.T, keySendEnabled, failReconstruction bool, numShards int) {
+	t *testing.T, ampEnabled, failReconstruction bool, numShards int) {
 
 	defer timeout()()
 
 	ctx := newTestContext(t)
 	defer ctx.cleanup()
 
-	ctx.registry.cfg.AcceptKeySend = keySendEnabled
+	ctx.registry.cfg.AcceptAMP = ampEnabled
 
 	allSubscriptions, err := ctx.registry.SubscribeNotifications(0, 0)
 	require.Nil(t, err)
@@ -1471,7 +1471,7 @@ func testSpontaneousAmpPayment(
 		// When keysend is disabled all HTLC should fail with invoice
 		// not found, since one is not inserted before executing
 		// UpdateInvoice.
-		if !keySendEnabled {
+		if !ampEnabled {
 			require.NotNil(t, resolution)
 			checkFailResolution(t, resolution, ResultInvoiceNotFound)
 			continue
@@ -1515,7 +1515,7 @@ func testSpontaneousAmpPayment(
 	}
 
 	// No need to check the hodl chans when keysend is not enabled.
-	if !keySendEnabled {
+	if !ampEnabled {
 		return
 	}
 

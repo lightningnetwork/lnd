@@ -55,7 +55,7 @@ func testSendToRouteMultiPath(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Make Bob create an invoice for Alice to pay.
 	payReqs, rHashes, invoices, err := createPayReqs(
-		net.Bob, paymentAmt, 1,
+		ctx.bob, paymentAmt, 1,
 	)
 	if err != nil {
 		t.Fatalf("unable to create pay reqs: %v", err)
@@ -65,7 +65,7 @@ func testSendToRouteMultiPath(net *lntest.NetworkHarness, t *harnessTest) {
 	payReq := payReqs[0]
 
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	decodeResp, err := net.Bob.DecodePayReq(
+	decodeResp, err := ctx.bob.DecodePayReq(
 		ctxt, &lnrpc.PayReqString{PayReq: payReq},
 	)
 	if err != nil {
@@ -84,7 +84,7 @@ func testSendToRouteMultiPath(net *lntest.NetworkHarness, t *harnessTest) {
 	responses := make(chan *lnrpc.HTLCAttempt, len(sendRoutes))
 	for _, hops := range sendRoutes {
 		// Build a route for the specified hops.
-		r, err := ctx.buildRoute(ctxb, shardAmt, net.Alice, hops)
+		r, err := ctx.buildRoute(ctxb, shardAmt, ctx.alice, hops)
 		if err != nil {
 			t.Fatalf("unable to build route: %v", err)
 		}
@@ -107,7 +107,7 @@ func testSendToRouteMultiPath(net *lntest.NetworkHarness, t *harnessTest) {
 		// block as long as the payment is in flight.
 		go func() {
 			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			resp, err := net.Alice.RouterClient.SendToRouteV2(ctxt, sendReq)
+			resp, err := ctx.alice.RouterClient.SendToRouteV2(ctxt, sendReq)
 			if err != nil {
 				t.Fatalf("unable to send payment: %v", err)
 			}
@@ -234,10 +234,10 @@ func testSendToRouteMultiPath(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Finally check that the payment shows up with three settled HTLCs in
 	// Alice's list of payments...
-	assertNumHtlcs(net.Alice, 3)
+	assertNumHtlcs(ctx.alice, 3)
 
 	// ...and in Bob's list of paid invoices.
-	assertSettledInvoice(net.Bob, rHash, 3)
+	assertSettledInvoice(ctx.bob, rHash, 3)
 }
 
 type mppTestContext struct {
@@ -257,6 +257,16 @@ func newMppTestContext(t *harnessTest,
 
 	ctxb := context.Background()
 
+	alice, err := net.NewNode("alice", nil)
+	if err != nil {
+		t.Fatalf("unable to create alice: %v", err)
+	}
+
+	bob, err := net.NewNode("bob", []string{"--accept-amp"})
+	if err != nil {
+		t.Fatalf("unable to create bob: %v", err)
+	}
+
 	// Create a five-node context consisting of Alice, Bob and three new
 	// nodes.
 	carol, err := net.NewNode("carol", nil)
@@ -275,7 +285,7 @@ func newMppTestContext(t *harnessTest,
 	}
 
 	// Connect nodes to ensure propagation of channels.
-	nodes := []*lntest.HarnessNode{net.Alice, net.Bob, carol, dave, eve}
+	nodes := []*lntest.HarnessNode{alice, bob, carol, dave, eve}
 	for i := 0; i < len(nodes); i++ {
 		for j := i + 1; j < len(nodes); j++ {
 			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
@@ -288,8 +298,8 @@ func newMppTestContext(t *harnessTest,
 	ctx := mppTestContext{
 		t:     t,
 		net:   net,
-		alice: net.Alice,
-		bob:   net.Bob,
+		alice: alice,
+		bob:   bob,
 		carol: carol,
 		dave:  dave,
 		eve:   eve,

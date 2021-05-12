@@ -57,6 +57,10 @@ type RegistryConfig struct {
 	// send payments.
 	AcceptKeySend bool
 
+	// AcceptAMP indicates whether we want to accept spontaneous AMP
+	// payments.
+	AcceptAMP bool
+
 	// GcCanceledInvoicesOnStartup if set, we'll attempt to garbage collect
 	// all canceled invoices upon start.
 	GcCanceledInvoicesOnStartup bool
@@ -884,28 +888,33 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		amp:                  payload.AMPRecord(),
 	}
 
-	// Process keysend if present. Do this outside of the lock, because
-	// AddInvoice obtains its own lock. This is no problem, because the
-	// operation is idempotent.
-	if i.cfg.AcceptKeySend {
-		if ctx.amp != nil {
-			err := i.processAMP(ctx)
-			if err != nil {
-				ctx.log(fmt.Sprintf("amp error: %v", err))
+	switch {
 
-				return NewFailResolution(
-					circuitKey, currentHeight, ResultAmpError,
-				), nil
-			}
-		} else {
-			err := i.processKeySend(ctx)
-			if err != nil {
-				ctx.log(fmt.Sprintf("keysend error: %v", err))
+	// If we are accepting spontaneous AMP payments and this payload
+	// contains an AMP record, create an AMP invoice that will be settled
+	// below.
+	case i.cfg.AcceptAMP && ctx.amp != nil:
+		err := i.processAMP(ctx)
+		if err != nil {
+			ctx.log(fmt.Sprintf("amp error: %v", err))
 
-				return NewFailResolution(
-					circuitKey, currentHeight, ResultKeySendError,
-				), nil
-			}
+			return NewFailResolution(
+				circuitKey, currentHeight, ResultAmpError,
+			), nil
+		}
+
+	// If we are accepting spontaneous keysend payments, create a regular
+	// invoice that will be settled below. We also enforce that this is only
+	// done when no AMP payload is present since it will only be settle-able
+	// by regular HTLCs.
+	case i.cfg.AcceptKeySend && ctx.amp == nil:
+		err := i.processKeySend(ctx)
+		if err != nil {
+			ctx.log(fmt.Sprintf("keysend error: %v", err))
+
+			return NewFailResolution(
+				circuitKey, currentHeight, ResultKeySendError,
+			), nil
 		}
 	}
 
@@ -1021,15 +1030,8 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		// Also cancel any HTLCs in the HTLC set that are also in the
 		// canceled state with the same failure result.
 		setID := ctx.setID()
-		for key, htlc := range invoice.Htlcs {
-			if htlc.State != channeldb.HtlcStateCanceled {
-				continue
-			}
-
-			if !htlc.IsInHTLCSet(setID) {
-				continue
-			}
-
+		canceledHtlcSet := invoice.HTLCSet(setID, channeldb.HtlcStateCanceled)
+		for key, htlc := range canceledHtlcSet {
 			htlcFailResolution := NewFailResolution(
 				key, int32(htlc.AcceptHeight), res.Outcome,
 			)
@@ -1047,11 +1049,9 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		// Also settle any previously accepted htlcs. If a htlc is
 		// marked as settled, we should follow now and settle the htlc
 		// with our peer.
-		for key, htlc := range invoice.Htlcs {
-			if htlc.State != channeldb.HtlcStateSettled {
-				continue
-			}
-
+		setID := ctx.setID()
+		settledHtlcSet := invoice.HTLCSet(setID, channeldb.HtlcStateSettled)
+		for key, htlc := range settledHtlcSet {
 			preimage := res.Preimage
 			if htlc.AMP != nil && htlc.AMP.Preimage != nil {
 				preimage = *htlc.AMP.Preimage
@@ -1070,6 +1070,23 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 			// Notify subscribers that the htlc should be settled
 			// with our peer.
 			i.notifyHodlSubscribers(htlcSettleResolution)
+		}
+
+		// If concurrent payments were attempted to this invoice before
+		// the current one was ultimately settled, cancel back any of
+		// the HTLCs immediately. As a result of the settle, the HTLCs
+		// in other HTLC sets are automatically converted to a canceled
+		// state when updating the invoice.
+		canceledHtlcSet := invoice.HTLCSetCompliment(
+			setID, channeldb.HtlcStateCanceled,
+		)
+		for key, htlc := range canceledHtlcSet {
+			htlcFailResolution := NewFailResolution(
+				key, int32(htlc.AcceptHeight),
+				ResultInvoiceAlreadySettled,
+			)
+
+			i.notifyHodlSubscribers(htlcFailResolution)
 		}
 
 	// If we accepted the htlc, subscribe to the hodl invoice and return

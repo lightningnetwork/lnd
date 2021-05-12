@@ -296,9 +296,12 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 				return nil, errNoPathFound
 			}
 
-			if !p.payment.DestFeatures.HasFeature(lnwire.MPPOptional) {
+			destFeatures := p.payment.DestFeatures
+			if !destFeatures.HasFeature(lnwire.MPPOptional) &&
+				!destFeatures.HasFeature(lnwire.AMPOptional) {
+
 				p.log.Debug("not splitting because " +
-					"destination doesn't declare MPP")
+					"destination doesn't declare MPP or AMP")
 
 				return nil, errNoPathFound
 			}

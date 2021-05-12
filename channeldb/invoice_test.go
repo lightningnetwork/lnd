@@ -1294,9 +1294,9 @@ func TestHTLCSet(t *testing.T) {
 	expSet2 := make(map[CircuitKey]*InvoiceHTLC)
 
 	checkHTLCSets := func() {
-		require.Equal(t, expSetNil, inv.HTLCSet(nil))
-		require.Equal(t, expSet1, inv.HTLCSet(setID1))
-		require.Equal(t, expSet2, inv.HTLCSet(setID2))
+		require.Equal(t, expSetNil, inv.HTLCSet(nil, HtlcStateAccepted))
+		require.Equal(t, expSet1, inv.HTLCSet(setID1, HtlcStateAccepted))
+		require.Equal(t, expSet2, inv.HTLCSet(setID2, HtlcStateAccepted))
 	}
 
 	// All HTLC sets should be empty initially.

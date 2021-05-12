@@ -696,13 +696,37 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 			payIntent.Amount = *payReq.MilliSat
 		}
 
-		if !payReq.Features.HasFeature(lnwire.MPPOptional) {
+		if !payReq.Features.HasFeature(lnwire.MPPOptional) &&
+			!payReq.Features.HasFeature(lnwire.AMPOptional) {
+
 			payIntent.MaxParts = 1
 		}
 
-		err = payIntent.SetPaymentHash(*payReq.PaymentHash)
-		if err != nil {
-			return nil, err
+		if payReq.Features.HasFeature(lnwire.AMPOptional) {
+			// Generate random SetID and root share.
+			var setID [32]byte
+			_, err = rand.Read(setID[:])
+			if err != nil {
+				return nil, err
+			}
+
+			var rootShare [32]byte
+			_, err = rand.Read(rootShare[:])
+			if err != nil {
+				return nil, err
+			}
+			err := payIntent.SetAMP(&routing.AMPOptions{
+				SetID:     setID,
+				RootShare: rootShare,
+			})
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			err = payIntent.SetPaymentHash(*payReq.PaymentHash)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		destKey := payReq.Destination.SerializeCompressed()
@@ -765,7 +789,6 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 				ampFeatures := []lnrpc.FeatureBit{
 					lnrpc.FeatureBit_TLV_ONION_OPT,
 					lnrpc.FeatureBit_PAYMENT_ADDR_OPT,
-					lnrpc.FeatureBit_MPP_OPT,
 					lnrpc.FeatureBit_AMP_OPT,
 				}
 

@@ -125,6 +125,21 @@ func updateMpp(ctx *invoiceUpdateCtx,
 	inv *channeldb.Invoice) (*channeldb.InvoiceUpdateDesc,
 	HtlcResolution, error) {
 
+	// Reject HTLCs to AMP invoices if they are missing an AMP payload, and
+	// HTLCs to MPP invoices if they have an AMP payload.
+	switch {
+
+	case inv.Terms.Features.RequiresFeature(lnwire.AMPRequired) &&
+		ctx.amp == nil:
+
+		return nil, ctx.failRes(ResultHtlcInvoiceTypeMismatch), nil
+
+	case !inv.Terms.Features.RequiresFeature(lnwire.AMPRequired) &&
+		ctx.amp != nil:
+
+		return nil, ctx.failRes(ResultHtlcInvoiceTypeMismatch), nil
+	}
+
 	setID := ctx.setID()
 
 	// Start building the accept descriptor.
@@ -168,7 +183,7 @@ func updateMpp(ctx *invoiceUpdateCtx,
 		return nil, ctx.failRes(ResultHtlcSetTotalTooLow), nil
 	}
 
-	htlcSet := inv.HTLCSet(setID)
+	htlcSet := inv.HTLCSet(setID, channeldb.HtlcStateAccepted)
 
 	// Check whether total amt matches other htlcs in the set.
 	var newSetTotal lnwire.MilliSatoshi
@@ -373,7 +388,7 @@ func updateLegacy(ctx *invoiceUpdateCtx,
 	// Don't allow settling the invoice with an old style
 	// htlc if we are already in the process of gathering an
 	// mpp set.
-	for _, htlc := range inv.HTLCSet(nil) {
+	for _, htlc := range inv.HTLCSet(nil, channeldb.HtlcStateAccepted) {
 		if htlc.MppTotalAmt > 0 {
 			return nil, ctx.failRes(ResultMppInProgress), nil
 		}

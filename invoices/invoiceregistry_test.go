@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/amp"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -352,7 +353,11 @@ func TestSettleHoldInvoice(t *testing.T) {
 		FinalCltvRejectDelta: testFinalCltvRejectDelta,
 		Clock:                clock.NewTestClock(testTime),
 	}
-	registry := NewRegistry(cdb, NewInvoiceExpiryWatcher(cfg.Clock), &cfg)
+
+	expiryWatcher := NewInvoiceExpiryWatcher(
+		cfg.Clock, 0, uint32(testCurrentHeight), nil, newMockNotifier(),
+	)
+	registry := NewRegistry(cdb, expiryWatcher, &cfg)
 
 	err = registry.Start()
 	if err != nil {
@@ -521,7 +526,10 @@ func TestCancelHoldInvoice(t *testing.T) {
 		FinalCltvRejectDelta: testFinalCltvRejectDelta,
 		Clock:                clock.NewTestClock(testTime),
 	}
-	registry := NewRegistry(cdb, NewInvoiceExpiryWatcher(cfg.Clock), &cfg)
+	expiryWatcher := NewInvoiceExpiryWatcher(
+		cfg.Clock, 0, uint32(testCurrentHeight), nil, newMockNotifier(),
+	)
+	registry := NewRegistry(cdb, expiryWatcher, &cfg)
 
 	err = registry.Start()
 	if err != nil {
@@ -946,7 +954,9 @@ func TestInvoiceExpiryWithRegistry(t *testing.T) {
 		Clock:                testClock,
 	}
 
-	expiryWatcher := NewInvoiceExpiryWatcher(cfg.Clock)
+	expiryWatcher := NewInvoiceExpiryWatcher(
+		cfg.Clock, 0, uint32(testCurrentHeight), nil, newMockNotifier(),
+	)
 	registry := NewRegistry(cdb, expiryWatcher, &cfg)
 
 	// First prefill the Channel DB with some pre-existing invoices,
@@ -1049,7 +1059,9 @@ func TestOldInvoiceRemovalOnStart(t *testing.T) {
 		GcCanceledInvoicesOnStartup: true,
 	}
 
-	expiryWatcher := NewInvoiceExpiryWatcher(cfg.Clock)
+	expiryWatcher := NewInvoiceExpiryWatcher(
+		cfg.Clock, 0, uint32(testCurrentHeight), nil, newMockNotifier(),
+	)
 	registry := NewRegistry(cdb, expiryWatcher, &cfg)
 
 	// First prefill the Channel DB with some pre-existing expired invoices.
@@ -1105,6 +1117,222 @@ func TestOldInvoiceRemovalOnStart(t *testing.T) {
 	// Check that we really only kept the settled invoices after the
 	// registry start.
 	require.Equal(t, expected, response.Invoices)
+}
+
+// TestHeightExpiryWithRegistry tests our height-based invoice expiry for
+// invoices paid with single and multiple htlcs, testing the case where the
+// invoice is settled before expiry (and thus not canceled), and the case
+// where the invoice is expired.
+func TestHeightExpiryWithRegistry(t *testing.T) {
+	t.Run("single shot settled before expiry", func(t *testing.T) {
+		testHeightExpiryWithRegistry(t, 1, true)
+	})
+
+	t.Run("single shot expires", func(t *testing.T) {
+		testHeightExpiryWithRegistry(t, 1, false)
+	})
+
+	t.Run("mpp settled before expiry", func(t *testing.T) {
+		testHeightExpiryWithRegistry(t, 2, true)
+	})
+
+	t.Run("mpp expires", func(t *testing.T) {
+		testHeightExpiryWithRegistry(t, 2, false)
+	})
+}
+
+func testHeightExpiryWithRegistry(t *testing.T, numParts int, settle bool) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newTestContext(t)
+	defer ctx.cleanup()
+
+	require.Greater(t, numParts, 0, "test requires at least one part")
+
+	// Add a hold invoice, we set a non-nil payment request so that this
+	// invoice is not considered a keysend by the expiry watcher.
+	invoice := *testInvoice
+	invoice.HodlInvoice = true
+	invoice.PaymentRequest = []byte{1, 2, 3}
+
+	_, err := ctx.registry.AddInvoice(&invoice, testInvoicePaymentHash)
+	require.NoError(t, err)
+
+	payLoad := testPayload
+	if numParts > 1 {
+		payLoad = &mockPayload{
+			mpp: record.NewMPP(testInvoiceAmt, [32]byte{}),
+		}
+	}
+
+	htlcAmt := invoice.Terms.Value / lnwire.MilliSatoshi(numParts)
+	hodlChan := make(chan interface{}, numParts)
+	for i := 0; i < numParts; i++ {
+		// We bump our expiry height for each htlc so that we can test
+		// that the lowest expiry height is used.
+		expiry := testHtlcExpiry + uint32(i)
+
+		resolution, err := ctx.registry.NotifyExitHopHtlc(
+			testInvoicePaymentHash, htlcAmt, expiry,
+			testCurrentHeight, getCircuitKey(uint64(i)), hodlChan,
+			payLoad,
+		)
+		require.NoError(t, err)
+		require.Nil(t, resolution, "did not expect direct resolution")
+	}
+
+	require.Eventually(t, func() bool {
+		inv, err := ctx.registry.LookupInvoice(testInvoicePaymentHash)
+		require.NoError(t, err)
+
+		return inv.State == channeldb.ContractAccepted
+	}, time.Second, time.Millisecond*100)
+
+	// Now that we've added our htlc(s), we tick our test clock to our
+	// invoice expiry time. We don't expect the invoice to be canceled
+	// based on its expiry time now that we have active htlcs.
+	ctx.clock.SetTime(invoice.CreationDate.Add(invoice.Terms.Expiry + 1))
+
+	// The expiry watcher loop takes some time to process the new clock
+	// time. We mine the block before our expiry height, our mock will block
+	// until the expiry watcher consumes this height, so we can be sure
+	// that the expiry loop has run at least once after this block is
+	// consumed.
+	ctx.notifier.blockChan <- &chainntnfs.BlockEpoch{
+		Height: int32(testHtlcExpiry - 1),
+	}
+
+	// If we want to settle our invoice in this test, we do so now.
+	if settle {
+		err = ctx.registry.SettleHodlInvoice(testInvoicePreimage)
+		require.NoError(t, err)
+
+		for i := 0; i < numParts; i++ {
+			htlcResolution := (<-hodlChan).(HtlcResolution)
+			require.NotNil(t, htlcResolution)
+			settleResolution := checkSettleResolution(
+				t, htlcResolution, testInvoicePreimage,
+			)
+			require.Equal(t, ResultSettled, settleResolution.Outcome)
+		}
+	}
+
+	// Now we mine our htlc's expiry height.
+	ctx.notifier.blockChan <- &chainntnfs.BlockEpoch{
+		Height: int32(testHtlcExpiry),
+	}
+
+	// If we did not settle the invoice before its expiry, we now expect
+	// a cancelation.
+	expectedState := channeldb.ContractSettled
+	if !settle {
+		expectedState = channeldb.ContractCanceled
+
+		htlcResolution := (<-hodlChan).(HtlcResolution)
+		require.NotNil(t, htlcResolution)
+		checkFailResolution(
+			t, htlcResolution, ResultCanceled,
+		)
+	}
+
+	// Finally, lookup the invoice and assert that we have the state we
+	// expect.
+	inv, err := ctx.registry.LookupInvoice(testInvoicePaymentHash)
+	require.NoError(t, err)
+	require.Equal(t, expectedState, inv.State, "expected "+
+		"hold invoice: %v, got: %v", expectedState, inv.State)
+}
+
+// TestMultipleSetHeightExpiry pays a hold invoice with two mpp sets, testing
+// that the invoice expiry watcher only uses the expiry height of the second,
+// successful set to cancel the invoice, and does not cancel early using the
+// expiry height of the first set that was canceled back due to mpp timeout.
+func TestMultipleSetHeightExpiry(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newTestContext(t)
+	defer ctx.cleanup()
+
+	// Add a hold invoice.
+	invoice := *testInvoice
+	invoice.HodlInvoice = true
+
+	_, err := ctx.registry.AddInvoice(&invoice, testInvoicePaymentHash)
+	require.NoError(t, err)
+
+	mppPayload := &mockPayload{
+		mpp: record.NewMPP(testInvoiceAmt, [32]byte{}),
+	}
+
+	// Send htlc 1.
+	hodlChan1 := make(chan interface{}, 1)
+	resolution, err := ctx.registry.NotifyExitHopHtlc(
+		testInvoicePaymentHash, invoice.Terms.Value/2,
+		testHtlcExpiry,
+		testCurrentHeight, getCircuitKey(10), hodlChan1, mppPayload,
+	)
+	require.NoError(t, err)
+	require.Nil(t, resolution, "did not expect direct resolution")
+
+	// Simulate mpp timeout releasing htlc 1.
+	ctx.clock.SetTime(testTime.Add(30 * time.Second))
+
+	htlcResolution := (<-hodlChan1).(HtlcResolution)
+	failResolution, ok := htlcResolution.(*HtlcFailResolution)
+	require.True(t, ok, "expected fail resolution, got: %T", resolution)
+	require.Equal(t, ResultMppTimeout, failResolution.Outcome,
+		"expected MPP Timeout, got: %v", failResolution.Outcome)
+
+	// Notify the expiry height for our first htlc. We don't expect the
+	// invoice to be expired based on block height because the htlc set
+	// was never completed.
+	ctx.notifier.blockChan <- &chainntnfs.BlockEpoch{
+		Height: int32(testHtlcExpiry),
+	}
+
+	// Now we will send a full set of htlcs for the invoice with a higher
+	// expiry height. We expect the invoice to move into the accepted state.
+	expiry := testHtlcExpiry + 5
+
+	// Send htlc 2.
+	hodlChan2 := make(chan interface{}, 1)
+	resolution, err = ctx.registry.NotifyExitHopHtlc(
+		testInvoicePaymentHash, invoice.Terms.Value/2, expiry,
+		testCurrentHeight, getCircuitKey(11), hodlChan2, mppPayload,
+	)
+	require.NoError(t, err)
+	require.Nil(t, resolution, "did not expect direct resolution")
+
+	// Send htlc 3.
+	hodlChan3 := make(chan interface{}, 1)
+	resolution, err = ctx.registry.NotifyExitHopHtlc(
+		testInvoicePaymentHash, invoice.Terms.Value/2, expiry,
+		testCurrentHeight, getCircuitKey(12), hodlChan3, mppPayload,
+	)
+	require.NoError(t, err)
+	require.Nil(t, resolution, "did not expect direct resolution")
+
+	// Assert that we've reached an accepted state because the invoice has
+	// been paid with a complete set.
+	inv, err := ctx.registry.LookupInvoice(testInvoicePaymentHash)
+	require.NoError(t, err)
+	require.Equal(t, channeldb.ContractAccepted, inv.State, "expected "+
+		"hold invoice accepted")
+
+	// Now we will notify the expiry height for the new set of htlcs. We
+	// expect the invoice to be canceled by the expiry watcher.
+	ctx.notifier.blockChan <- &chainntnfs.BlockEpoch{
+		Height: int32(expiry),
+	}
+
+	require.Eventuallyf(t, func() bool {
+		inv, err := ctx.registry.LookupInvoice(testInvoicePaymentHash)
+		require.NoError(t, err)
+
+		return inv.State == channeldb.ContractCanceled
+	}, testTimeout, time.Millisecond*100, "invoice not canceled")
 }
 
 // TestSettleInvoicePaymentAddrRequired tests that if an incoming payment has

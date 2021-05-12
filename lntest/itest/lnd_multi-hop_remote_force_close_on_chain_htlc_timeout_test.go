@@ -178,8 +178,8 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	err = waitForNumChannelPendingForceClose(ctxt, bob, 0, nil)
 	require.NoError(t.t, err)
 
-	// While we're here, we demonstrate some bugs in our handling of
-	// invoices that timeout on chain.
+	// While we're here, we assert that our expired invoice's state is
+	// correctly updated, and can no longer be settled.
 	assertOnChainInvoiceState(ctxb, t, carol, preimage)
 
 	// We'll close out the test by closing the channel from Alice to Bob,
@@ -191,12 +191,8 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	)
 }
 
-// assertOnChainInvoiceState asserts that we have some bugs with how we handle
-// hold invoices that are expired on-chain.
-// - htlcs accepted: despite being timed out, our htlcs are still in accepted
-//   state
-// - can settle: our invoice that has expired on-chain can still be settled
-//   even though we don't claim any htlcs.
+// assertOnChainInvoiceState asserts that we have the correct state for a hold
+// invoice that has expired on chain, and that it can't be settled.
 func assertOnChainInvoiceState(ctx context.Context, t *harnessTest,
 	node *lntest.HarnessNode, preimage lntypes.Preimage) {
 
@@ -207,22 +203,12 @@ func assertOnChainInvoiceState(ctx context.Context, t *harnessTest,
 	require.NoError(t.t, err)
 
 	for _, htlc := range inv.Htlcs {
-		require.Equal(t.t, lnrpc.InvoiceHTLCState_ACCEPTED, htlc.State)
+		require.Equal(t.t, lnrpc.InvoiceHTLCState_CANCELED, htlc.State)
 	}
+	require.Equal(t.t, lnrpc.Invoice_CANCELED, inv.State)
 
 	_, err = node.SettleInvoice(ctx, &invoicesrpc.SettleInvoiceMsg{
 		Preimage: preimage[:],
 	})
-	require.NoError(t.t, err, "expected erroneous invoice settle")
-
-	inv, err = node.LookupInvoice(ctx, &lnrpc.PaymentHash{
-		RHash: hash[:],
-	})
-	require.NoError(t.t, err)
-
-	require.True(t.t, inv.Settled, "expected erroneously settled invoice") // nolint:staticcheck
-	for _, htlc := range inv.Htlcs {
-		require.Equal(t.t, lnrpc.InvoiceHTLCState_SETTLED, htlc.State,
-			"expected htlcs to be erroneously settled")
-	}
+	require.Error(t.t, err, "should not be able to settle invoice")
 }

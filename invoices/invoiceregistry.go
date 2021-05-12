@@ -1118,6 +1118,16 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 
 		}
 
+		// If we have fully accepted the set of htlcs for this invoice,
+		// we can now add it to our invoice expiry watcher. We do not
+		// add invoices before they are fully accepted, because it is
+		// possible that we MppTimeout the htlcs, and then our relevant
+		// expiry height could change.
+		if res.outcome == resultAccepted {
+			expiry := makeInvoiceExpiry(ctx.hash, invoice)
+			i.expiryWatcher.AddInvoices(expiry)
+		}
+
 		i.hodlSubscribe(hodlChan, ctx.circuitKey)
 
 	default:

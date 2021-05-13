@@ -3,7 +3,7 @@
 package kvdb
 
 import (
-	"github.com/lightningnetwork/lnd/channeldb/kvdb/etcd"
+	"github.com/lightningnetwork/lnd/kvdb/etcd"
 )
 
 // TestBackend is conditionally set to etcd when the kvdb_etcd build tag is

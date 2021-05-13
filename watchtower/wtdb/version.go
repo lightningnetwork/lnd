@@ -2,7 +2,7 @@ package wtdb
 
 import (
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+	"github.com/lightningnetwork/lnd/kvdb"
 )
 
 // migration is a function which takes a prior outdated version of the database

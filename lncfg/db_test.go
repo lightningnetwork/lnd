@@ -3,7 +3,7 @@ package lncfg_test
 import (
 	"testing"
 
-	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/stretchr/testify/require"
 )

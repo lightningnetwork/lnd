@@ -1,6 +1,6 @@
 package batch
 
-import "github.com/lightningnetwork/lnd/channeldb/kvdb"
+import "github.com/lightningnetwork/lnd/kvdb"
 
 // Request defines an operation that can be batched into a single bbolt
 // transaction.

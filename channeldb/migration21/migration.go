@@ -5,11 +5,11 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	lnwire "github.com/lightningnetwork/lnd/channeldb/migration/lnwire21"
 	"github.com/lightningnetwork/lnd/channeldb/migration21/common"
 	"github.com/lightningnetwork/lnd/channeldb/migration21/current"
 	"github.com/lightningnetwork/lnd/channeldb/migration21/legacy"
+	"github.com/lightningnetwork/lnd/kvdb"
 )
 
 var (

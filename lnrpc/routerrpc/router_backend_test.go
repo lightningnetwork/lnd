@@ -37,17 +37,22 @@ var (
 // and passed onto path finding.
 func TestQueryRoutes(t *testing.T) {
 	t.Run("no mission control", func(t *testing.T) {
-		testQueryRoutes(t, false, false)
+		testQueryRoutes(t, false, false, true)
 	})
 	t.Run("no mission control and msat", func(t *testing.T) {
-		testQueryRoutes(t, false, true)
+		testQueryRoutes(t, false, true, true)
 	})
 	t.Run("with mission control", func(t *testing.T) {
-		testQueryRoutes(t, true, false)
+		testQueryRoutes(t, true, false, true)
+	})
+	t.Run("no mission control bad cltv limit", func(t *testing.T) {
+		testQueryRoutes(t, false, false, false)
 	})
 }
 
-func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool) {
+func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
+	setTimelock bool) {
+
 	ignoreNodeBytes, err := hex.DecodeString(ignoreNodeKey)
 	if err != nil {
 		t.Fatal(err)
@@ -207,7 +212,21 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool) {
 		},
 	}
 
+	// If this is set, we'll populate MaxTotalTimelock. If this is not set,
+	// the test will fail as CltvLimit will be 0.
+	if setTimelock {
+		backend.MaxTotalTimelock = 1000
+	}
+
 	resp, err := backend.QueryRoutes(context.Background(), request)
+
+	// If no MaxTotalTimelock was set for the QueryRoutes request, make
+	// sure an error was returned.
+	if !setTimelock {
+		require.NotEmpty(t, err)
+		return
+	}
+
 	if err != nil {
 		t.Fatal(err)
 	}

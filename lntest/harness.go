@@ -32,6 +32,9 @@ import (
 // DefaultCSV is the CSV delay (remotedelay) we will start our test nodes with.
 const DefaultCSV = 4
 
+// NodeOption is a function for updating a node's configuration.
+type NodeOption func(*NodeConfig)
+
 // NetworkHarness is an integration testing harness for the lightning network.
 // The harness by default is created with two active nodes on the network:
 // Alice and Bob.
@@ -427,10 +430,11 @@ func (n *NetworkHarness) newNodeWithSeed(name string, extraArgs []string,
 // be used for regular rpc operations.
 func (n *NetworkHarness) RestoreNodeWithSeed(name string, extraArgs []string,
 	password []byte, mnemonic []string, recoveryWindow int32,
-	chanBackups *lnrpc.ChanBackupSnapshot) (*HarnessNode, error) {
+	chanBackups *lnrpc.ChanBackupSnapshot,
+	opts ...NodeOption) (*HarnessNode, error) {
 
 	node, err := n.newNode(
-		name, extraArgs, true, password, n.embeddedEtcd, true,
+		name, extraArgs, true, password, n.embeddedEtcd, true, opts...,
 	)
 	if err != nil {
 		return nil, err
@@ -461,10 +465,10 @@ func (n *NetworkHarness) RestoreNodeWithSeed(name string, extraArgs []string,
 // can be used immediately. Otherwise, the node will require an additional
 // initialization phase where the wallet is either created or restored.
 func (n *NetworkHarness) newNode(name string, extraArgs []string, hasSeed bool,
-	password []byte, embeddedEtcd, wait bool) (
+	password []byte, embeddedEtcd, wait bool, opts ...NodeOption) (
 	*HarnessNode, error) {
 
-	node, err := newNode(NodeConfig{
+	cfg := &NodeConfig{
 		Name:              name,
 		LogFilenamePrefix: n.currentTestCase,
 		HasSeed:           hasSeed,
@@ -474,7 +478,12 @@ func (n *NetworkHarness) newNode(name string, extraArgs []string, hasSeed bool,
 		ExtraArgs:         extraArgs,
 		FeeURL:            n.feeService.url,
 		Etcd:              embeddedEtcd,
-	})
+	}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	node, err := newNode(*cfg)
 	if err != nil {
 		return nil, err
 	}

@@ -9,12 +9,12 @@ require (
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcutil v1.0.3-0.20201208143702-a53e38424cce
 	github.com/btcsuite/btcutil/psbt v1.0.3-0.20201208143702-a53e38424cce
-	github.com/btcsuite/btcwallet v0.11.1-0.20210507012717-82fa030bdad6
+	github.com/btcsuite/btcwallet v0.12.0
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.0.1-0.20210329233242-e0607006dce6
 	github.com/btcsuite/btcwallet/wallet/txrules v1.0.0
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.0.1-0.20210329233242-e0607006dce6 // indirect
-	github.com/btcsuite/btcwallet/walletdb v1.3.5-0.20210513043850-3a2f12e3a954
-	github.com/btcsuite/btcwallet/wtxmgr v1.2.1-0.20210312232944-4ec908df9386
+	github.com/btcsuite/btcwallet/walletdb v1.3.5
+	github.com/btcsuite/btcwallet/wtxmgr v1.3.0
 	github.com/davecgh/go-spew v1.1.1
 	github.com/fsnotify/fsnotify v1.4.9 // indirect
 	github.com/go-errors/errors v1.0.1
@@ -37,7 +37,7 @@ require (
 	github.com/juju/utils v0.0.0-20180820210520-bf9cc5bdd62d // indirect
 	github.com/juju/version v0.0.0-20180108022336-b64dbd566305 // indirect
 	github.com/kkdai/bstream v0.0.0-20181106074824-b3251f7901ec
-	github.com/lightninglabs/neutrino v0.11.1-0.20210506195545-dec9dbeb3a25
+	github.com/lightninglabs/neutrino v0.12.1
 	github.com/lightninglabs/protobuf-hex-display v1.4.3-hex-display
 	github.com/lightningnetwork/lightning-onion v1.0.2-0.20200501022730-3c8c8d0b89ea
 	github.com/lightningnetwork/lnd/cert v1.0.3

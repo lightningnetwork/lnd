@@ -5164,6 +5164,12 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 	c1, c2 *channeldb.ChannelEdgePolicy) *lnrpc.ChannelEdge {
 
+	// Make sure the policies match the node they belong to. c1 should point
+	// to the policy for NodeKey1, and c2 for NodeKey2.
+	if c1.ChannelFlags&lnwire.ChanUpdateDirection == 1 {
+		c2, c1 = c1, c2
+	}
+
 	// Order the edges by increasing pubkey.
 	if bytes.Compare(edgeInfo.NodeKey2Bytes[:],
 		edgeInfo.NodeKey1Bytes[:]) < 0 {

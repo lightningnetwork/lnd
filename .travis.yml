@@ -77,7 +77,9 @@ jobs:
 
     - name: Btcd Integration Windows
       script:
-        - make itest-parallel windows=1
+        # The windows VM seems to be slower than the other Travis VMs. We only
+        # run 2 test suites in parallel instead of the default 4.
+        - make itest-parallel windows=1 ITEST_PARALLELISM=2
       os: windows
       before_install:
         - choco upgrade --no-progress -y make netcat curl findutils

@@ -155,13 +155,19 @@ func GenerateBtcdListenerAddresses() (string, string) {
 // generateListeningPorts returns four ints representing ports to listen on
 // designated for the current lightning network test. This returns the next
 // available ports for the p2p, rpc, rest and profiling services.
-func generateListeningPorts() (int, int, int, int) {
-	p2p := NextAvailablePort()
-	rpc := NextAvailablePort()
-	rest := NextAvailablePort()
-	profile := NextAvailablePort()
-
-	return p2p, rpc, rest, profile
+func generateListeningPorts(cfg *NodeConfig) {
+	if cfg.P2PPort == 0 {
+		cfg.P2PPort = NextAvailablePort()
+	}
+	if cfg.RPCPort == 0 {
+		cfg.RPCPort = NextAvailablePort()
+	}
+	if cfg.RESTPort == 0 {
+		cfg.RESTPort = NextAvailablePort()
+	}
+	if cfg.ProfilePort == 0 {
+		cfg.ProfilePort = NextAvailablePort()
+	}
 }
 
 // BackendConfig is an interface that abstracts away the specific chain backend
@@ -411,7 +417,7 @@ func newNode(cfg NodeConfig) (*HarnessNode, error) {
 	cfg.ReadMacPath = filepath.Join(networkDir, "readonly.macaroon")
 	cfg.InvoiceMacPath = filepath.Join(networkDir, "invoice.macaroon")
 
-	cfg.P2PPort, cfg.RPCPort, cfg.RESTPort, cfg.ProfilePort = generateListeningPorts()
+	generateListeningPorts(&cfg)
 
 	// Run all tests with accept keysend. The keysend code is very isolated
 	// and it is highly unlikely that it would affect regular itests when

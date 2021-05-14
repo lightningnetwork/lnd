@@ -1,5 +1,7 @@
 <time> [ERR] BRAR: Unable to broadcast justice tx: Transaction rejected: output already spent
+<time> [ERR] BRAR: Unable to check for spentness of outpoint=<chan_point>: TxNotifier is exiting
 <time> [ERR] BRAR: Unable to register for conf for txid(<hex>): TxNotifier is exiting
+<time> [ERR] BRAR: Unable to register for block notifications: chainntnfs: system interrupt while attempting to register for block epoch notification.
 <time> [ERR] BTCN: Broadcast attempt failed: rejected by <ip>: replacement transaction <hex> has an insufficient absolute fee: needs <amt>, has <amt>
 <time> [ERR] BTCN: Broadcast attempt failed: rejected by <ip>: replacement transaction <hex> has an insufficient fee rate: needs more than <amt>, has <amt>
 <time> [ERR] BTCN: Broadcast attempt failed: rejected by <ip>: transaction already exists
@@ -78,6 +80,7 @@
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: unable add proof to the channel chanID=<hex>: edge marked as zombie
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: channel announcement failed: unable add proof to the channel chanID=<hex>: edge not found
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: unable to register for confirmation of ChannelPoint(<chan_point>): chain notifier shutting down
+<time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: unable to register for confirmation of ChannelPoint(<chan_point>): TxNotifier is exiting
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): failed adding to router graph: error sending channel announcement: gossiper is shutting down
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): failed adding to router graph: error sending channel announcement: router shutting down
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): failed adding to router graph: funding manager shutting down
@@ -242,6 +245,7 @@
 <time> [ERR] RPCS: [/lnrpc.Lightning/GetInfo]: expected 1 macaroon, got 0
 <time> [ERR] RPCS: [/lnrpc.Lightning/GetInfo]: permission denied
 <time> [ERR] RPCS: [/lnrpc.Lightning/GetInfo]: the RPC server is in the process of starting up, but not yet ready to accept calls
+<time> [ERR] RPCS: [/lnrpc.Lightning/GetInfo]: wallet locked, unlock it to enable full RPC access
 <time> [ERR] RPCS: [/lnrpc.Lightning/ListMacaroonIDs]: cannot retrieve macaroon: cannot get macaroon: root key with id 1 doesn't exist
 <time> [ERR] RPCS: [/lnrpc.Lightning/NewAddress]: permission denied
 <time> [ERR] RPCS: unable to open channel to NodeKey(<hex>): received funding error from <hex>: chan_id=<hex>, err=channel too large

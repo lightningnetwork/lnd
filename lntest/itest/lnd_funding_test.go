@@ -351,7 +351,7 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	//
 	// Note that atm we haven't obtained the chanPoint yet, so we use the
 	// type directly.
-	cType := commitTypeTweakless
+	cType := commitTypeAnchors
 	carolLocalBalance := chanAmt - pushAmt - cType.calcStaticFee(0)
 	checkChannelBalance(carol, 0, 0, carolLocalBalance, pushAmt)
 
@@ -397,6 +397,12 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 	// her and ensure they have enough confirmations before we proceed.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
+	require.NoError(t.t, err)
+
+	// Dave need an UTXO to not reject the incoming channel because of
+	// anchor commitment fee bumping.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, dave)
 	require.NoError(t.t, err)
 
 	// Before we start the test, we'll ensure both sides are connected to

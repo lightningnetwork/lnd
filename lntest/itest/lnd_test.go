@@ -1143,11 +1143,14 @@ func (c commitType) String() string {
 func (c commitType) Args() []string {
 	switch c {
 	case commitTypeLegacy:
-		return []string{"--protocol.legacy.committweak"}
+		return []string{
+			"--protocol.legacy.committweak",
+			"--protocol.no-anchors",
+		}
 	case commitTypeTweakless:
-		return []string{}
+		return []string{"--protocol.no-anchors"}
 	case commitTypeAnchors:
-		return []string{"--protocol.anchors"}
+		return []string{}
 	}
 
 	return nil
@@ -6635,6 +6638,12 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
+	if err != nil {
+		t.Fatalf("unable to send coins to carol: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	if err := net.ConnectNodes(ctxt, net.Alice, carol); err != nil {
 		t.Fatalf("unable to connect alice to carol: %v", err)
 	}
@@ -9163,8 +9172,8 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(
 	// Since we'd like to test some multi-hop failure scenarios, we'll
 	// introduce another node into our test network: Carol.
 	carolArgs := []string{"--hodl.exit-settle"}
-	if anchors {
-		carolArgs = append(carolArgs, "--protocol.anchors")
+	if !anchors {
+		carolArgs = append(carolArgs, "--protocol.no-anchors")
 	}
 	carol, err := net.NewNode("Carol", carolArgs)
 	if err != nil {
@@ -9223,8 +9232,8 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(
 		"--nolisten",
 		"--wtclient.active",
 	}
-	if anchors {
-		daveArgs = append(daveArgs, "--protocol.anchors")
+	if !anchors {
+		daveArgs = append(daveArgs, "--protocol.no-anchors")
 	}
 	dave, err := net.NewNode("Dave", daveArgs)
 	if err != nil {
@@ -9768,6 +9777,11 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to send coins to carol: %v", err)
 	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, dave)
+	if err != nil {
+		t.Fatalf("unable to send coins to dave: %v", err)
+	}
 
 	// timeTravel is a method that will make Carol open a channel to the
 	// passed node, settle a series of payments, then reset the node back
@@ -9955,7 +9969,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 	// on chain, and both of them properly carry out the DLP protocol.
 	assertDLPExecuted(
 		net, t, carol, carolStartingBalance, dave, daveStartingBalance,
-		false,
+		true,
 	)
 
 	// As a second part of this test, we will test the scenario where a
@@ -10023,15 +10037,17 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to restart Eve: %v", err)
 	}
 
-	// Dave should sweep his funds.
-	_, err = waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
+	// Dave should sweep his funds and the anchor.
+	_, err = waitForNTxsInMempool(
+		net.Miner.Client, 2, minerMempoolTimeout,
+	)
 	if err != nil {
-		t.Fatalf("unable to find Dave's sweep tx in mempool: %v", err)
+		t.Fatalf("unable to find Dave's sweep txs in mempool: %v", err)
 	}
 
 	// Mine a block to confirm the sweep, and make sure Dave got his
 	// balance back.
-	mineBlocks(t, net, 1, 1)
+	mineBlocks(t, net, 1, 2)
 	assertNodeNumChannels(t, dave, 0)
 
 	err = wait.NoError(func() error {
@@ -12938,6 +12954,12 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, dave)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, dave)
+	if err != nil {
+		t.Fatalf("unable to send coins to dave: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	if err := net.ConnectNodes(ctxt, dave, net.Bob); err != nil {
 		t.Fatalf("unable to connect dave to bob: %v", err)
 	}
@@ -13188,6 +13210,13 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to create carol's node: %v", err)
 	}
 	defer shutdownAndAssert(net, t, carol)
+
+	// Give Carol some coins.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
+	if err != nil {
+		t.Fatalf("unable to send coins to carol: %v", err)
+	}
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	if err := net.ConnectNodes(ctxt, net.Alice, carol); err != nil {

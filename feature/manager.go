@@ -80,6 +80,11 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 			raw.Unset(lnwire.AMPOptional)
 			raw.Unset(lnwire.AMPRequired)
 		}
+
+		if !cfg.NoAnchors && cfg.NoStaticRemoteKey {
+			return nil, fmt.Errorf("cannot combine anchors with no static remote key")
+		}
+
 		if cfg.NoStaticRemoteKey {
 			raw.Unset(lnwire.StaticRemoteKeyOptional)
 			raw.Unset(lnwire.StaticRemoteKeyRequired)
@@ -88,6 +93,7 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 			raw.Unset(lnwire.AnchorsZeroFeeHtlcTxOptional)
 			raw.Unset(lnwire.AnchorsZeroFeeHtlcTxRequired)
 		}
+
 		if cfg.NoWumbo {
 			raw.Unset(lnwire.WumboChannelsOptional)
 			raw.Unset(lnwire.WumboChannelsRequired)

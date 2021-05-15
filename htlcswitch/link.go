@@ -640,7 +640,7 @@ func (l *channelLink) createFailureWithUpdate(
 // flow. We'll compare out commitment chains with the remote party, and re-send
 // either a danging commit signature, a revocation, or both.
 func (l *channelLink) syncChanStates() error {
-	l.log.Info("attempting to re-resynchronize")
+	l.log.Info("attempting to re-synchronize")
 
 	// First, we'll generate our ChanSync message to send to the other
 	// side. Based on this message, the remote party will decide if they

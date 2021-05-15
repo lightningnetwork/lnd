@@ -2276,7 +2276,7 @@ func (l *channelLink) CheckHtlcTransit(payHash [32]byte,
 	)
 }
 
-// htlcSatifiesPolicyOutgoing checks whether the given htlc parameters satisfy
+// canSendHtlc checks whether the given htlc parameters satisfy
 // the channel's amount and time lock constraints.
 func (l *channelLink) canSendHtlc(policy ForwardingPolicy,
 	payHash [32]byte, amt lnwire.MilliSatoshi, timeout uint32,

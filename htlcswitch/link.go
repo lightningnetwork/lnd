@@ -1558,7 +1558,7 @@ func (l *channelLink) cleanupSpuriousResponse(pkt *htlcPacket) {
 	// If the htlc packet doesn't have a source reference, it is unsafe to
 	// proceed, as skipping this ack may cause the htlc to be reforwarded.
 	if pkt.sourceRef == nil {
-		l.log.Errorf("uanble to cleanup response for incoming "+
+		l.log.Errorf("unable to cleanup response for incoming "+
 			"circuit-key=%v, does not contain source reference",
 			inKey)
 		return

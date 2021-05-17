@@ -384,6 +384,11 @@ type LightningClient interface {
 	//ListPermissions lists all RPC method URIs and their required macaroon
 	//permissions to access them.
 	ListPermissions(ctx context.Context, in *ListPermissionsRequest, opts ...grpc.CallOption) (*ListPermissionsResponse, error)
+	//
+	//CheckMacaroonPermissions checks whether a request follows the constraints
+	//imposed on the macaroon and that the macaroon is authorized to follow the
+	//provided permissions.
+	CheckMacaroonPermissions(ctx context.Context, in *CheckMacPermRequest, opts ...grpc.CallOption) (*CheckMacPermResponse, error)
 }
 
 type lightningClient struct {
@@ -1195,6 +1200,15 @@ func (c *lightningClient) ListPermissions(ctx context.Context, in *ListPermissio
 	return out, nil
 }
 
+func (c *lightningClient) CheckMacaroonPermissions(ctx context.Context, in *CheckMacPermRequest, opts ...grpc.CallOption) (*CheckMacPermResponse, error) {
+	out := new(CheckMacPermResponse)
+	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/CheckMacaroonPermissions", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LightningServer is the server API for Lightning service.
 // All implementations must embed UnimplementedLightningServer
 // for forward compatibility
@@ -1565,6 +1579,11 @@ type LightningServer interface {
 	//ListPermissions lists all RPC method URIs and their required macaroon
 	//permissions to access them.
 	ListPermissions(context.Context, *ListPermissionsRequest) (*ListPermissionsResponse, error)
+	//
+	//CheckMacaroonPermissions checks whether a request follows the constraints
+	//imposed on the macaroon and that the macaroon is authorized to follow the
+	//provided permissions.
+	CheckMacaroonPermissions(context.Context, *CheckMacPermRequest) (*CheckMacPermResponse, error)
 	mustEmbedUnimplementedLightningServer()
 }
 
@@ -1754,6 +1773,9 @@ func (UnimplementedLightningServer) DeleteMacaroonID(context.Context, *DeleteMac
 }
 func (UnimplementedLightningServer) ListPermissions(context.Context, *ListPermissionsRequest) (*ListPermissionsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListPermissions not implemented")
+}
+func (UnimplementedLightningServer) CheckMacaroonPermissions(context.Context, *CheckMacPermRequest) (*CheckMacPermResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CheckMacaroonPermissions not implemented")
 }
 func (UnimplementedLightningServer) mustEmbedUnimplementedLightningServer() {}
 
@@ -2914,6 +2936,24 @@ func _Lightning_ListPermissions_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Lightning_CheckMacaroonPermissions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CheckMacPermRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LightningServer).CheckMacaroonPermissions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/lnrpc.Lightning/CheckMacaroonPermissions",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LightningServer).CheckMacaroonPermissions(ctx, req.(*CheckMacPermRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Lightning_ServiceDesc is the grpc.ServiceDesc for Lightning service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -3120,6 +3160,10 @@ var Lightning_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListPermissions",
 			Handler:    _Lightning_ListPermissions_Handler,
+		},
+		{
+			MethodName: "CheckMacaroonPermissions",
+			Handler:    _Lightning_CheckMacaroonPermissions_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

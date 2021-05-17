@@ -150,3 +150,7 @@ http:
       delete: "/v1/macaroon/{root_key_id}"
     - selector: lnrpc.Lightning.ListPermissions
       get: "/v1/macaroon/permissions"
+    - selector: lnrpc.Lightning.CheckMacaroonPermissions
+      post: "/v1/macaroon/checkpermissions"
+      body: "*"
+

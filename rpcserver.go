@@ -5166,13 +5166,8 @@ func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 
 	// Make sure the policies match the node they belong to. c1 should point
 	// to the policy for NodeKey1, and c2 for NodeKey2.
-	if c1.ChannelFlags&lnwire.ChanUpdateDirection == 1 {
-		c2, c1 = c1, c2
-	}
-
-	// Order the edges by increasing pubkey.
-	if bytes.Compare(edgeInfo.NodeKey2Bytes[:],
-		edgeInfo.NodeKey1Bytes[:]) < 0 {
+	if c1 != nil && c1.ChannelFlags&lnwire.ChanUpdateDirection == 1 ||
+		c2 != nil && c2.ChannelFlags&lnwire.ChanUpdateDirection == 0 {
 
 		c2, c1 = c1, c2
 	}

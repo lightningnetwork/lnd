@@ -43,6 +43,49 @@
         ]
       }
     },
+    "/v2/router/htlcinterceptor": {
+      "post": {
+        "summary": "*\nHtlcInterceptor dispatches a bi-directional streaming RPC in which\nForwarded HTLC requests are sent to the client and the client responds with\na boolean that tells LND if this htlc should be intercepted.\nIn case of interception, the htlc can be either settled, cancelled or\nresumed later by using the ResolveHoldForward endpoint.",
+        "operationId": "HtlcInterceptor",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/routerrpcForwardHtlcInterceptRequest"
+                },
+                "error": {
+                  "$ref": "#/definitions/runtimeStreamError"
+                }
+              },
+              "title": "Stream result of routerrpcForwardHtlcInterceptRequest"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "description": " (streaming inputs)",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/routerrpcForwardHtlcInterceptResponse"
+            }
+          }
+        ],
+        "tags": [
+          "Router"
+        ]
+      }
+    },
     "/v2/router/mc": {
       "get": {
         "summary": "QueryMissionControl exposes the internal mission control state to callers.\nIt is a development feature.",
@@ -166,6 +209,37 @@
             }
           }
         },
+        "tags": [
+          "Router"
+        ]
+      },
+      "post": {
+        "summary": "SetMissionControlConfig will set mission control's config, if the config\nprovided is valid.",
+        "operationId": "SetMissionControlConfig",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/routerrpcSetMissionControlConfigResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/routerrpcSetMissionControlConfigRequest"
+            }
+          }
+        ],
         "tags": [
           "Router"
         ]
@@ -355,6 +429,39 @@
             "required": false,
             "type": "boolean",
             "format": "boolean"
+          }
+        ],
+        "tags": [
+          "Router"
+        ]
+      }
+    },
+    "/v2/router/updatechanstatus": {
+      "post": {
+        "summary": "UpdateChanStatus attempts to manually set the state of a channel\n(enabled, disabled, or auto). A manual \"disable\" request will cause the\nchannel to stay disabled until a subsequent manual request of either\n\"enable\" or \"auto\".",
+        "operationId": "UpdateChanStatus",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/routerrpcUpdateChanStatusResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/routerrpcUpdateChanStatusRequest"
+            }
           }
         ],
         "tags": [
@@ -1076,6 +1183,25 @@
         }
       }
     },
+    "routerrpcForwardHtlcInterceptResponse": {
+      "type": "object",
+      "properties": {
+        "incoming_circuit_key": {
+          "$ref": "#/definitions/routerrpcCircuitKey",
+          "description": "*\nThe key of this forwarded htlc. It defines the incoming channel id and\nthe index in this channel."
+        },
+        "action": {
+          "$ref": "#/definitions/routerrpcResolveHoldForwardAction",
+          "description": "The resolve action for this intercepted htlc."
+        },
+        "preimage": {
+          "type": "string",
+          "format": "byte",
+          "description": "The preimage in case the resolve action is Settle."
+        }
+      },
+      "description": "*\nForwardHtlcInterceptResponse enables the caller to resolve a previously hold\nforward. The caller can choose either to:\n- `Resume`: Execute the default behavior (usually forward).\n- `Reject`: Fail the htlc backwards.\n- `Settle`: Settle this htlc with a given preimage."
+    },
     "routerrpcGetMissionControlConfigResponse": {
       "type": "object",
       "properties": {
@@ -1531,11 +1657,31 @@
         }
       }
     },
+    "routerrpcSetMissionControlConfigRequest": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "$ref": "#/definitions/routerrpcMissionControlConfig",
+          "description": "The config to set for mission control. Note that all values *must* be set,\nbecause the full config will be applied."
+        }
+      }
+    },
     "routerrpcSetMissionControlConfigResponse": {
       "type": "object"
     },
     "routerrpcSettleEvent": {
       "type": "object"
+    },
+    "routerrpcUpdateChanStatusRequest": {
+      "type": "object",
+      "properties": {
+        "chan_point": {
+          "$ref": "#/definitions/lnrpcChannelPoint"
+        },
+        "action": {
+          "$ref": "#/definitions/routerrpcChanStatusAction"
+        }
+      }
     },
     "routerrpcUpdateChanStatusResponse": {
       "type": "object"

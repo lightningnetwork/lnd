@@ -120,6 +120,10 @@ func TestSentPaymentSerialization(t *testing.T) {
 	newWireInfo.Route = route.Route{}
 	s.Route = route.Route{}
 
+	// Call session key method to set our cached session key so we can use
+	// DeepEqual, and assert that our key equals the original key.
+	require.Equal(t, s.cachedSessionKey, newWireInfo.SessionKey())
+
 	if !reflect.DeepEqual(s, newWireInfo) {
 		t.Fatalf("Payments do not match after "+
 			"serialization/deserialization %v vs %v",

@@ -217,7 +217,7 @@ http:
       get: "/v2/router/mc"
     - selector: routerrpc.Router.GetMissionControlConfig
       get: "/v2/router/mccfg"
-    - selector: routerroc.Router.SetMissionControlConfig
+    - selector: routerrpc.Router.SetMissionControlConfig
       post: "/v2/router/mccfg"
       body: "*"
     - selector: routerrpc.Router.QueryProbability
@@ -234,10 +234,10 @@ http:
       # deprecated, no REST endpoint
     - selector: routerrpc.Router.TrackPayment
       # deprecated, no REST endpoint
-    - selector: routerrpc.HtlcInterceptor
+    - selector: routerrpc.Router.HtlcInterceptor
       post: "/v2/router/htlcinterceptor"
       body: "*"
-    - selector: routerrpc.UpdateChanStatus
+    - selector: routerrpc.Router.UpdateChanStatus
       post: "/v2/router/updatechanstatus"
       body: "*"
 

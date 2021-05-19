@@ -577,7 +577,7 @@ func (i *InvoiceRegistry) AddInvoice(invoice *channeldb.Invoice,
 
 	// Now that we've added the invoice, we'll send dispatch a message to
 	// notify the clients of this new invoice.
-	i.notifyClients(paymentHash, invoice, channeldb.ContractOpen)
+	i.notifyClients(paymentHash, invoice)
 	i.Unlock()
 
 	// InvoiceExpiryWatcher.AddInvoice must not be locked by InvoiceRegistry
@@ -1138,7 +1138,7 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	// HTLCs, we'll go ahead and notify any clients wiaiting on the invoice
 	// state changes.
 	if updateSubscribers {
-		i.notifyClients(ctx.hash, invoice, invoice.State)
+		i.notifyClients(ctx.hash, invoice)
 	}
 
 	return resolution, nil
@@ -1199,7 +1199,7 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 
 		i.notifyHodlSubscribers(resolution)
 	}
-	i.notifyClients(hash, invoice, invoice.State)
+	i.notifyClients(hash, invoice)
 
 	return nil
 }
@@ -1292,7 +1292,7 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
 			),
 		)
 	}
-	i.notifyClients(payHash, invoice, channeldb.ContractCanceled)
+	i.notifyClients(payHash, invoice)
 
 	// Attempt to also delete the invoice if requested through the registry
 	// config.
@@ -1326,8 +1326,7 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
 // notifyClients notifies all currently registered invoice notification clients
 // of a newly added/settled invoice.
 func (i *InvoiceRegistry) notifyClients(hash lntypes.Hash,
-	invoice *channeldb.Invoice,
-	state channeldb.ContractState) {
+	invoice *channeldb.Invoice) {
 
 	event := &invoiceEvent{
 		invoice: invoice,

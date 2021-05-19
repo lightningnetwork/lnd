@@ -45,7 +45,7 @@ func genInfo() (*PaymentCreationInfo, *HTLCAttemptInfo,
 		},
 		&HTLCAttemptInfo{
 			AttemptID:  0,
-			SessionKey: priv,
+			sessionKey: priv,
 			Route:      *testRoute.Copy(),
 		}, preimage, nil
 }

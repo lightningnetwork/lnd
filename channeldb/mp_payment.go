@@ -21,8 +21,8 @@ type HTLCAttemptInfo struct {
 	// AttemptID is the unique ID used for this attempt.
 	AttemptID uint64
 
-	// SessionKey is the ephemeral key used for this attempt.
-	SessionKey *btcec.PrivateKey
+	// sessionKey is the ephemeral key used for this attempt.
+	sessionKey *btcec.PrivateKey
 
 	// Route is the route attempted to send the HTLC.
 	Route route.Route
@@ -36,6 +36,25 @@ type HTLCAttemptInfo struct {
 	// in which the payment's PaymentHash in the PaymentCreationInfo should
 	// be used.
 	Hash *lntypes.Hash
+}
+
+// NewHtlcAttemptInfo creates a htlc attempt.
+func NewHtlcAttemptInfo(attemptID uint64, sessionKey *btcec.PrivateKey,
+	route route.Route, attemptTime time.Time,
+	hash *lntypes.Hash) *HTLCAttemptInfo {
+
+	return &HTLCAttemptInfo{
+		AttemptID:   attemptID,
+		sessionKey:  sessionKey,
+		Route:       route,
+		AttemptTime: attemptTime,
+		Hash:        hash,
+	}
+}
+
+// SessionKey returns the ephemeral key used for a htlc attempt.
+func (h *HTLCAttemptInfo) SessionKey() *btcec.PrivateKey {
+	return h.sessionKey
 }
 
 // HTLCAttempt contains information about a specific HTLC attempt for a given

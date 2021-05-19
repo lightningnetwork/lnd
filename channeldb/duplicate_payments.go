@@ -181,7 +181,7 @@ func fetchDuplicatePayment(bucket kvdb.RBucket) (*MPPayment, error) {
 			HTLCAttemptInfo: HTLCAttemptInfo{
 				AttemptID:  attempt.attemptID,
 				Route:      attempt.route,
-				SessionKey: attempt.sessionKey,
+				sessionKey: attempt.sessionKey,
 			},
 		}
 

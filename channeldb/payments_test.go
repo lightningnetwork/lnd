@@ -70,7 +70,7 @@ func makeFakeInfo() (*PaymentCreationInfo, *HTLCAttemptInfo) {
 
 	a := &HTLCAttemptInfo{
 		AttemptID:   44,
-		SessionKey:  priv,
+		sessionKey:  priv,
 		Route:       testRoute,
 		AttemptTime: time.Unix(100, 0),
 		Hash:        &hash,
@@ -124,8 +124,6 @@ func TestSentPaymentSerialization(t *testing.T) {
 	s.Route = route.Route{}
 
 	if !reflect.DeepEqual(s, newWireInfo) {
-		s.SessionKey.Curve = nil
-		newWireInfo.SessionKey.Curve = nil
 		t.Fatalf("Payments do not match after "+
 			"serialization/deserialization %v vs %v",
 			spew.Sdump(s), spew.Sdump(newWireInfo),

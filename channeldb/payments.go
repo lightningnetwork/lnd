@@ -919,7 +919,7 @@ func deserializePaymentCreationInfo(r io.Reader) (*PaymentCreationInfo, error) {
 }
 
 func serializeHTLCAttemptInfo(w io.Writer, a *HTLCAttemptInfo) error {
-	if err := WriteElements(w, a.SessionKey); err != nil {
+	if err := WriteElements(w, a.sessionKey); err != nil {
 		return err
 	}
 
@@ -945,7 +945,7 @@ func serializeHTLCAttemptInfo(w io.Writer, a *HTLCAttemptInfo) error {
 
 func deserializeHTLCAttemptInfo(r io.Reader) (*HTLCAttemptInfo, error) {
 	a := &HTLCAttemptInfo{}
-	err := ReadElements(r, &a.SessionKey)
+	err := ReadElements(r, &a.sessionKey)
 	if err != nil {
 		return nil, err
 	}

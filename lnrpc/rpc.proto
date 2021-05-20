@@ -2478,7 +2478,7 @@ message Hop {
     output index for the channel.
     */
     uint64 chan_id = 1 [jstype = JS_STRING];
-    int64 chan_capacity = 2;
+    int64 chan_capacity = 2 [deprecated = true];
     int64 amt_to_forward = 3 [deprecated = true];
     int64 fee = 4 [deprecated = true];
     uint32 expiry = 5;

@@ -1604,7 +1604,12 @@ func testBreachSpends(t *testing.T, test breachTest) {
 		publMtx.Lock()
 		err := publErr
 		publMtx.Unlock()
-		publTx <- tx
+
+		select {
+		case publTx <- tx:
+		case <-brar.quit:
+			return fmt.Errorf("brar quit")
+		}
 
 		return err
 	}
@@ -1817,7 +1822,11 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 
 	// Make PublishTransaction always return succeed.
 	brar.cfg.PublishTransaction = func(tx *wire.MsgTx, _ string) error {
-		publTx <- tx
+		select {
+		case publTx <- tx:
+		case <-brar.quit:
+			return fmt.Errorf("brar quit")
+		}
 		return nil
 	}
 

@@ -2089,7 +2089,7 @@ func assertBrarCleanup(t *testing.T, brar *breachArbiter,
 
 		return fmt.Errorf("channel %v not closed", chanPoint)
 
-	}, time.Second)
+	}, 5*time.Second)
 	if err != nil {
 		t.Fatalf(err.Error())
 	}

@@ -53,7 +53,7 @@ type duplicateHTLCAttemptInfo struct {
 	attemptID uint64
 
 	// sessionKey is the ephemeral key used for this attempt.
-	sessionKey *btcec.PrivateKey
+	sessionKey [btcec.PrivKeyBytesLen]byte
 
 	// route is the route attempted to send the HTLC.
 	route route.Route
@@ -181,7 +181,7 @@ func fetchDuplicatePayment(bucket kvdb.RBucket) (*MPPayment, error) {
 			HTLCAttemptInfo: HTLCAttemptInfo{
 				AttemptID:  attempt.attemptID,
 				Route:      attempt.route,
-				SessionKey: attempt.sessionKey,
+				sessionKey: attempt.sessionKey,
 			},
 		}
 

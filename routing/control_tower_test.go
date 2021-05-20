@@ -331,11 +331,9 @@ func genInfo() (*channeldb.PaymentCreationInfo, *channeldb.HTLCAttemptInfo,
 			CreationTime:      time.Unix(time.Now().Unix(), 0),
 			PaymentRequest:    []byte("hola"),
 		},
-		&channeldb.HTLCAttemptInfo{
-			AttemptID:  1,
-			SessionKey: priv,
-			Route:      testRoute,
-		}, preimage, nil
+		channeldb.NewHtlcAttemptInfo(
+			1, priv, testRoute, time.Time{}, nil,
+		), preimage, nil
 }
 
 func genPreimage() ([32]byte, error) {

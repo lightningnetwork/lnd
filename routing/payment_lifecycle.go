@@ -499,7 +499,7 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 
 	// Regenerate the circuit for this attempt.
 	_, circuit, err := generateSphinxPacket(
-		&attempt.Route, hash[:], attempt.SessionKey,
+		&attempt.Route, hash[:], attempt.SessionKey(),
 	)
 	if err != nil {
 		return nil, err
@@ -677,15 +677,11 @@ func (p *shardHandler) createNewPaymentAttempt(rt *route.Route, lastShard bool) 
 		rt.Hops[0].ChannelID,
 	)
 
-	// We now have all the information needed to populate
-	// the current attempt information.
-	attempt := &channeldb.HTLCAttemptInfo{
-		AttemptID:   attemptID,
-		AttemptTime: p.router.cfg.Clock.Now(),
-		SessionKey:  sessionKey,
-		Route:       *rt,
-		Hash:        &hash,
-	}
+	// We now have all the information needed to populate the current
+	// attempt information.
+	attempt := channeldb.NewHtlcAttemptInfo(
+		attemptID, sessionKey, *rt, p.router.cfg.Clock.Now(), &hash,
+	)
 
 	return firstHop, htlcAdd, attempt, nil
 }

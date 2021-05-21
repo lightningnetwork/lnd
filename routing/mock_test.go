@@ -533,6 +533,8 @@ func (m *mockControlTowerOld) SubscribePayment(paymentHash lntypes.Hash) (
 
 type mockPaymentAttemptDispatcher struct {
 	mock.Mock
+
+	resultChan chan *htlcswitch.PaymentResult
 }
 
 var _ PaymentAttemptDispatcher = (*mockPaymentAttemptDispatcher)(nil)
@@ -548,8 +550,11 @@ func (m *mockPaymentAttemptDispatcher) GetPaymentResult(attemptID uint64,
 	paymentHash lntypes.Hash, deobfuscator htlcswitch.ErrorDecrypter) (
 	<-chan *htlcswitch.PaymentResult, error) {
 
-	args := m.Called(attemptID, paymentHash, deobfuscator)
-	return args.Get(0).(<-chan *htlcswitch.PaymentResult), args.Error(1)
+	m.Called(attemptID, paymentHash, deobfuscator)
+
+	// Instead of returning the mocked returned values, we need to return
+	// the chan resultChan so it can be converted into a read-only chan.
+	return m.resultChan, nil
 }
 
 func (m *mockPaymentAttemptDispatcher) CleanStore(
@@ -568,7 +573,7 @@ var _ PaymentSessionSource = (*mockPaymentSessionSource)(nil)
 func (m *mockPaymentSessionSource) NewPaymentSession(
 	payment *LightningPayment) (PaymentSession, error) {
 
-	args := m.Called(m)
+	args := m.Called(payment)
 	return args.Get(0).(PaymentSession), args.Error(1)
 }
 
@@ -586,6 +591,8 @@ func (m *mockPaymentSessionSource) NewPaymentSessionEmpty() PaymentSession {
 
 type mockMissionControl struct {
 	mock.Mock
+
+	failReason *channeldb.FailureReason
 }
 
 var _ MissionController = (*mockMissionControl)(nil)
@@ -596,8 +603,7 @@ func (m *mockMissionControl) ReportPaymentFail(
 	*channeldb.FailureReason, error) {
 
 	args := m.Called(paymentID, rt, failureSourceIdx, failure)
-	return args.Get(0).(*channeldb.FailureReason), args.Error(1)
-
+	return m.failReason, args.Error(1)
 }
 
 func (m *mockMissionControl) ReportPaymentSuccess(paymentID uint64,
@@ -642,6 +648,7 @@ func (m *mockPaymentSession) GetAdditionalEdgePolicy(pubKey *btcec.PublicKey,
 
 type mockControlTower struct {
 	mock.Mock
+	sync.Mutex
 }
 
 var _ ControlTower = (*mockControlTower)(nil)
@@ -656,6 +663,9 @@ func (m *mockControlTower) InitPayment(phash lntypes.Hash,
 func (m *mockControlTower) RegisterAttempt(phash lntypes.Hash,
 	a *channeldb.HTLCAttemptInfo) error {
 
+	m.Lock()
+	defer m.Unlock()
+
 	args := m.Called(phash, a)
 	return args.Error(0)
 }
@@ -664,12 +674,18 @@ func (m *mockControlTower) SettleAttempt(phash lntypes.Hash,
 	pid uint64, settleInfo *channeldb.HTLCSettleInfo) (
 	*channeldb.HTLCAttempt, error) {
 
+	m.Lock()
+	defer m.Unlock()
+
 	args := m.Called(phash, pid, settleInfo)
 	return args.Get(0).(*channeldb.HTLCAttempt), args.Error(1)
 }
 
 func (m *mockControlTower) FailAttempt(phash lntypes.Hash, pid uint64,
 	failInfo *channeldb.HTLCFailInfo) (*channeldb.HTLCAttempt, error) {
+
+	m.Lock()
+	defer m.Unlock()
 
 	args := m.Called(phash, pid, failInfo)
 	return args.Get(0).(*channeldb.HTLCAttempt), args.Error(1)
@@ -678,6 +694,9 @@ func (m *mockControlTower) FailAttempt(phash lntypes.Hash, pid uint64,
 func (m *mockControlTower) Fail(phash lntypes.Hash,
 	reason channeldb.FailureReason) error {
 
+	m.Lock()
+	defer m.Unlock()
+
 	args := m.Called(phash, reason)
 	return args.Error(0)
 }
@@ -685,6 +704,8 @@ func (m *mockControlTower) Fail(phash lntypes.Hash,
 func (m *mockControlTower) FetchPayment(phash lntypes.Hash) (
 	*channeldb.MPPayment, error) {
 
+	m.Lock()
+	defer m.Unlock()
 	args := m.Called(phash)
 
 	// Type assertion on nil will fail, so we check and return here.
@@ -692,8 +713,15 @@ func (m *mockControlTower) FetchPayment(phash lntypes.Hash) (
 		return nil, args.Error(1)
 	}
 
-	return args.Get(0).(*channeldb.MPPayment), args.Error(1)
+	// Make a copy of the payment here to avoid data race.
+	p := args.Get(0).(*channeldb.MPPayment)
+	payment := &channeldb.MPPayment{
+		FailureReason: p.FailureReason,
+	}
+	payment.HTLCs = make([]channeldb.HTLCAttempt, len(p.HTLCs))
+	copy(payment.HTLCs, p.HTLCs)
 
+	return payment, args.Error(1)
 }
 
 func (m *mockControlTower) FetchInFlightPayments() (

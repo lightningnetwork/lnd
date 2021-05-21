@@ -1083,7 +1083,7 @@ func TestUpdatePaymentState(t *testing.T) {
 			}
 
 			// Call the method that updates the payment state.
-			_, state, err := pl.updatePaymentState()
+			_, state, err := pl.fetchPaymentState()
 
 			// Assert that the mock method is called as
 			// intended.

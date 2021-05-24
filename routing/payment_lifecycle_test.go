@@ -739,7 +739,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 		sendResult := make(chan error)
 		paymentResult := make(chan *htlcswitch.PaymentResult)
 
-		payer := &mockPayer{
+		payer := &mockPayerOld{
 			sendResult:    sendResult,
 			paymentResult: paymentResult,
 		}
@@ -749,8 +749,8 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 			Chain:              chain,
 			ChainView:          chainView,
 			Control:            control,
-			SessionSource:      &mockPaymentSessionSource{},
-			MissionControl:     &mockMissionControl{},
+			SessionSource:      &mockPaymentSessionSourceOld{},
+			MissionControl:     &mockMissionControlOld{},
 			Payer:              payer,
 			ChannelPruneExpiry: time.Hour * 24,
 			GraphPruneInterval: time.Hour * 2,
@@ -822,12 +822,12 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 	// Setup our payment session source to block on release of
 	// routes.
 	routeChan := make(chan struct{})
-	router.cfg.SessionSource = &mockPaymentSessionSource{
+	router.cfg.SessionSource = &mockPaymentSessionSourceOld{
 		routes:       test.routes,
 		routeRelease: routeChan,
 	}
 
-	router.cfg.MissionControl = &mockMissionControl{}
+	router.cfg.MissionControl = &mockMissionControlOld{}
 
 	// Send the payment. Since this is new payment hash, the
 	// information should be registered with the ControlTower.

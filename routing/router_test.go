@@ -72,7 +72,7 @@ func (c *testCtx) RestartRouter(t *testing.T) {
 		Graph:              c.graph,
 		Chain:              c.chain,
 		ChainView:          c.chainView,
-		Payer:              &mockPaymentAttemptDispatcher{},
+		Payer:              &mockPaymentAttemptDispatcherOld{},
 		Control:            makeMockControlTower(),
 		ChannelPruneExpiry: time.Hour * 24,
 		GraphPruneInterval: time.Hour * 2,
@@ -139,7 +139,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 		Graph:              graphInstance.graph,
 		Chain:              chain,
 		ChainView:          chainView,
-		Payer:              &mockPaymentAttemptDispatcher{},
+		Payer:              &mockPaymentAttemptDispatcherOld{},
 		Control:            makeMockControlTower(),
 		MissionControl:     mc,
 		SessionSource:      sessionSource,
@@ -324,7 +324,7 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	// router's configuration to ignore the path that has son goku as the
 	// first hop. This should force the router to instead take the
 	// the more costly path (through pham nuwen).
-	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcher).setPaymentResult(
+	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
 
 			if firstHop == roasbeefSongoku {
@@ -442,7 +442,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 	// We'll modify the SendToSwitch method so that it simulates a failed
 	// payment with an error originating from the first hop of the route.
 	// The unsigned channel update is attached to the failure message.
-	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcher).setPaymentResult(
+	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
 			return [32]byte{}, htlcswitch.NewForwardingError(
 				&lnwire.FailFeeInsufficient{
@@ -553,7 +553,7 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	// We'll now modify the SendToSwitch method to return an error for the
 	// outgoing channel to Son goku. This will be a fee related error, so
 	// it should only cause the edge to be pruned after the second attempt.
-	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcher).setPaymentResult(
+	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
 
 			roasbeefSongoku := lnwire.NewShortChanIDFromInt(
@@ -668,7 +668,7 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 	// outgoing channel to songoku.
 	errorReturned := false
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
-	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcher).setPaymentResult(
+	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
 
 			if firstHop != roasbeefSongoku || errorReturned {
@@ -800,7 +800,7 @@ func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
 	// outgoing channel to songoku.
 	errorReturned := false
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
-	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcher).setPaymentResult(
+	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
 
 			if firstHop != roasbeefSongoku || errorReturned {
@@ -909,7 +909,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	// outgoing channel to son goku. Since this is a time lock related
 	// error, we should fail the payment flow all together, as Goku is the
 	// only channel to Sophon.
-	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcher).setPaymentResult(
+	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
 
 			if firstHop == roasbeefSongoku {
@@ -957,7 +957,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	// We'll now modify the error return an IncorrectCltvExpiry error
 	// instead, this should result in the same behavior of roasbeef routing
 	// around the faulty Son Goku node.
-	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcher).setPaymentResult(
+	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
 
 			if firstHop == roasbeefSongoku {
@@ -1017,7 +1017,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	// First, we'll modify the SendToSwitch method to return an error
 	// indicating that the channel from roasbeef to son goku is not operable
 	// with an UnknownNextPeer.
-	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcher).setPaymentResult(
+	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
 
 			if firstHop == roasbeefSongoku {
@@ -1073,7 +1073,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 
 	// Next, we'll modify the SendToSwitch method to indicate that the
 	// connection between songoku and isn't up.
-	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcher).setPaymentResult(
+	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
 
 			if firstHop == roasbeefSongoku {
@@ -1107,7 +1107,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	// Finally, we'll modify the SendToSwitch function to indicate that the
 	// roasbeef -> luoji channel has insufficient capacity. This should
 	// again cause us to instead go via the satoshi route.
-	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcher).setPaymentResult(
+	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
 
 			if firstHop == roasbeefSongoku {
@@ -1752,7 +1752,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 		Graph:              ctx.graph,
 		Chain:              ctx.chain,
 		ChainView:          ctx.chainView,
-		Payer:              &mockPaymentAttemptDispatcher{},
+		Payer:              &mockPaymentAttemptDispatcherOld{},
 		Control:            makeMockControlTower(),
 		ChannelPruneExpiry: time.Hour * 24,
 		GraphPruneInterval: time.Hour * 2,
@@ -2764,7 +2764,7 @@ func TestUnknownErrorSource(t *testing.T) {
 	// We'll modify the SendToSwitch method so that it simulates hop b as a
 	// node that returns an unparsable failure if approached via the a->b
 	// channel.
-	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcher).setPaymentResult(
+	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
 
 			// If channel a->b is used, return an error without
@@ -2789,7 +2789,7 @@ func TestUnknownErrorSource(t *testing.T) {
 	}
 
 	// Next we modify payment result to return an unknown failure.
-	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcher).setPaymentResult(
+	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
 
 			// If channel a->b is used, simulate that the failure
@@ -2891,7 +2891,7 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	// Set up an init channel for the control tower, such that we can make
 	// sure the payment is initiated correctly.
 	init := make(chan initArgs, 1)
-	ctx.router.cfg.Control.(*mockControlTower).init = init
+	ctx.router.cfg.Control.(*mockControlTowerOld).init = init
 
 	// Setup a route from source a to destination c. The route will be used
 	// in a call to SendToRoute. SendToRoute also applies channel updates,
@@ -2922,7 +2922,7 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	// We'll modify the SendToSwitch method so that it simulates a failed
 	// payment with an error originating from the first hop of the route.
 	// The unsigned channel update is attached to the failure message.
-	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcher).setPaymentResult(
+	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
 			return [32]byte{}, htlcswitch.NewForwardingError(
 				&lnwire.FailFeeInsufficient{
@@ -2999,7 +2999,7 @@ func TestSendToRouteMultiShardSend(t *testing.T) {
 
 	// The first shard we send we'll fail immediately, to check that we are
 	// still allowed to retry with other shards after a failed one.
-	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcher).setPaymentResult(
+	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
 			return [32]byte{}, htlcswitch.NewForwardingError(
 				&lnwire.FailFeeInsufficient{
@@ -3026,7 +3026,7 @@ func TestSendToRouteMultiShardSend(t *testing.T) {
 	waitForResultSignal := make(chan struct{}, numShards)
 	results := make(chan lntypes.Preimage, numShards)
 
-	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcher).setPaymentResult(
+	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
 
 			// Signal that the shard has been initiated and is

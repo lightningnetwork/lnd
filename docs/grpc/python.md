@@ -210,3 +210,13 @@ details around how to drive `gRPC` from Python.
 There is an [online API documentation](https://api.lightning.community?python)
 available that shows all currently existing RPC methods, including code snippets
 on how to use them.
+
+## Special Scenarios
+
+Due to a conflict between lnd's `UpdateChannelPolicy` gRPC endpoint and the python reserved word list, the follow syntax is required in order to use `PolicyUpdateRequest` with the `global` variable.
+Here is an example of a working format that allows for use of a reserved word `global` in this scenario.
+
+```
+args = {'global': True, 'base_fee_msat': 1000, 'fee_rate': 0.000001, 'time_lock_delta': 40}
+stub.UpdateChannelPolicy(ln.PolicyUpdateRequest(**args))
+```

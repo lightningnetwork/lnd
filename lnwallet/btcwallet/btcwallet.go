@@ -71,7 +71,8 @@ var (
 	errNoImportedAddrGen = errors.New("addresses cannot be generated for " +
 		"the default imported account")
 
-	// errIncompatibleAccountAddr
+	// errIncompatibleAccountAddr is an error returned when the type of a
+	// new address being requested is incompatible with the account.
 	errIncompatibleAccountAddr = errors.New("incompatible address type " +
 		"for account")
 )
@@ -392,10 +393,15 @@ func (b *BtcWallet) keyScopeForAccountAddr(accountName string,
 		return addrKeyScope, defaultAccount, nil
 	}
 
-	// Otherwise, look up the account's key scope.
+	// Otherwise, look up the account's key scope and check that it supports
+	// the requested address type.
 	keyScope, account, err := b.wallet.LookupAccount(accountName)
 	if err != nil {
 		return waddrmgr.KeyScope{}, 0, err
+	}
+
+	if keyScope != addrKeyScope {
+		return waddrmgr.KeyScope{}, 0, errIncompatibleAccountAddr
 	}
 
 	return keyScope, account, nil

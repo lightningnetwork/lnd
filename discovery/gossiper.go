@@ -1889,7 +1889,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		case channeldb.ErrZombieEdge:
 			err = d.processZombieUpdate(chanInfo, msg)
 			if err != nil {
-				log.Warn(err)
+				log.Debug(err)
 				nMsg.err <- err
 				return nil, false
 			}

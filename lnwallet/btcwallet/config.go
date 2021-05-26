@@ -74,6 +74,10 @@ type Config struct {
 
 	// LoaderOptions holds functional wallet db loader options.
 	LoaderOptions []LoaderOption
+
+	// CoinSelectionStrategy is the strategy that is used for selecting
+	// coins when funding a transaction.
+	CoinSelectionStrategy wallet.CoinSelectionStrategy
 }
 
 // NetworkDir returns the directory name of a network directory to hold wallet

@@ -332,7 +332,8 @@ func (t *txInputSet) tryAddWalletInputsIfNeeded() error {
 	}
 
 	// Retrieve wallet utxos. Only consider confirmed utxos to prevent
-	// problems around RBF rules for unconfirmed inputs.
+	// problems around RBF rules for unconfirmed inputs. This currently
+	// ignores the configured coin selection strategy.
 	utxos, err := t.wallet.ListUnspentWitnessFromDefaultAccount(
 		1, math.MaxInt32,
 	)

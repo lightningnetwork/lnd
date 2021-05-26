@@ -9,10 +9,10 @@ require (
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcutil v1.0.3-0.20210514234026-faeebcb9abbe
 	github.com/btcsuite/btcutil/psbt v1.0.3-0.20210514234026-faeebcb9abbe
-	github.com/btcsuite/btcwallet v0.12.0
-	github.com/btcsuite/btcwallet/wallet/txauthor v1.0.1-0.20210329233242-e0607006dce6
+	github.com/btcsuite/btcwallet v0.12.1-0.20210519225359-6ab9b615576f
+	github.com/btcsuite/btcwallet/wallet/txauthor v1.0.1-0.20210519225359-6ab9b615576f
 	github.com/btcsuite/btcwallet/wallet/txrules v1.0.0
-	github.com/btcsuite/btcwallet/wallet/txsizes v1.0.1-0.20210329233242-e0607006dce6 // indirect
+	github.com/btcsuite/btcwallet/wallet/txsizes v1.0.1-0.20210519225359-6ab9b615576f // indirect
 	github.com/btcsuite/btcwallet/walletdb v1.3.5
 	github.com/btcsuite/btcwallet/wtxmgr v1.3.0
 	github.com/davecgh/go-spew v1.1.1

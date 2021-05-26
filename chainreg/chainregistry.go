@@ -113,6 +113,10 @@ type Config struct {
 
 	// LoaderOptions holds functional wallet db loader options.
 	LoaderOptions []btcwallet.LoaderOption
+
+	// CoinSelectionStrategy is the strategy that is used for selecting
+	// coins when funding a transaction.
+	CoinSelectionStrategy wallet.CoinSelectionStrategy
 }
 
 const (
@@ -278,14 +282,15 @@ func NewChainControl(cfg *Config, blockCache *blockcache.BlockCache) (
 	}
 
 	walletConfig := &btcwallet.Config{
-		PrivatePass:    cfg.PrivateWalletPw,
-		PublicPass:     cfg.PublicWalletPw,
-		Birthday:       cfg.Birthday,
-		RecoveryWindow: cfg.RecoveryWindow,
-		NetParams:      cfg.ActiveNetParams.Params,
-		CoinType:       cfg.ActiveNetParams.CoinType,
-		Wallet:         cfg.Wallet,
-		LoaderOptions:  cfg.LoaderOptions,
+		PrivatePass:           cfg.PrivateWalletPw,
+		PublicPass:            cfg.PublicWalletPw,
+		Birthday:              cfg.Birthday,
+		RecoveryWindow:        cfg.RecoveryWindow,
+		NetParams:             cfg.ActiveNetParams.Params,
+		CoinType:              cfg.ActiveNetParams.CoinType,
+		Wallet:                cfg.Wallet,
+		LoaderOptions:         cfg.LoaderOptions,
+		CoinSelectionStrategy: cfg.CoinSelectionStrategy,
 	}
 
 	var err error

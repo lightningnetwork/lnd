@@ -154,6 +154,10 @@ const (
 	// channel state updates that is accumulated before signing a new
 	// commitment.
 	defaultChannelCommitBatchSize = 10
+
+	// defaultCoinSelectionStrategy is the coin selection strategy that is
+	// used by default to fund transactions.
+	defaultCoinSelectionStrategy = "largest"
 )
 
 var (
@@ -296,6 +300,8 @@ type Config struct {
 	WalletUnlockPasswordFile string `long:"wallet-unlock-password-file" description:"The full path to a file (or pipe/device) that contains the password for unlocking the wallet; if set, no unlocking through RPC is possible and lnd will exit if no wallet exists or the password is incorrect"`
 
 	ResetWalletTransactions bool `long:"reset-wallet-transactions" description:"Removes all transaction history from the on-chain wallet on startup, forcing a full chain rescan starting at the wallet's birthday. Implements the same functionality as btcwallet's dropwtxmgr command. Should be set to false after successful execution to avoid rescanning on every restart of lnd."`
+
+	CoinSelectionStrategy string `long:"coin-selection-strategy" description:"The strategy to use for selecting coins for wallet transactions." choice:"largest" choice:"random"`
 
 	PaymentsExpirationGracePeriod time.Duration `long:"payments-expiration-grace-period" description:"A period to wait before force closing channels with outgoing htlcs that have timed-out and are a result of this node initiated payments."`
 	TrickleDelay                  int           `long:"trickledelay" description:"Time in milliseconds between each release of announcements to the network"`
@@ -547,6 +553,7 @@ func DefaultConfig() Config {
 		ActiveNetParams:         chainreg.BitcoinTestNetParams,
 		ChannelCommitInterval:   defaultChannelCommitInterval,
 		ChannelCommitBatchSize:  defaultChannelCommitBatchSize,
+		CoinSelectionStrategy:   defaultCoinSelectionStrategy,
 	}
 }
 

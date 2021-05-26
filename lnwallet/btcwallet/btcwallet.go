@@ -647,7 +647,8 @@ func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
 	}
 
 	return b.wallet.SendOutputs(
-		outputs, nil, defaultAccount, minConfs, feeSatPerKB, label,
+		outputs, nil, defaultAccount, minConfs, feeSatPerKB,
+		b.cfg.CoinSelectionStrategy, label,
 	)
 }
 
@@ -697,7 +698,8 @@ func (b *BtcWallet) CreateSimpleTx(outputs []*wire.TxOut,
 	}
 
 	return b.wallet.CreateSimpleTx(
-		nil, defaultAccount, outputs, minConfs, feeSatPerKB, dryRun,
+		nil, defaultAccount, outputs, minConfs, feeSatPerKB,
+		b.cfg.CoinSelectionStrategy, dryRun,
 	)
 }
 
@@ -1100,7 +1102,10 @@ func (b *BtcWallet) FundPsbt(packet *psbt.Packet,
 
 	// Let the wallet handle coin selection and/or fee estimation based on
 	// the partial TX information in the packet.
-	return b.wallet.FundPsbt(packet, keyScope, accountNum, feeSatPerKB)
+	return b.wallet.FundPsbt(
+		packet, keyScope, accountNum, feeSatPerKB,
+		b.cfg.CoinSelectionStrategy,
+	)
 }
 
 // FinalizePsbt expects a partial transaction with all inputs and outputs fully

@@ -250,7 +250,9 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 			"sat/kw as fee rate", int64(r.FeeRate))
 
 		// Find all unlocked unspent witness outputs that satisfy the
-		// minimum number of confirmations required.
+		// minimum number of confirmations required. Coin selection in
+		// this function currently ignores the configured coin selection
+		// strategy.
 		coins, err := w.cfg.CoinSource.ListCoins(
 			r.MinConfs, math.MaxInt32,
 		)

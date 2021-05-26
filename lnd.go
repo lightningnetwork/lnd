@@ -700,6 +700,19 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		},
 	}
 
+	// Parse coin selection strategy.
+	switch cfg.CoinSelectionStrategy {
+	case "largest":
+		chainControlCfg.CoinSelectionStrategy = wallet.CoinSelectionLargest
+
+	case "random":
+		chainControlCfg.CoinSelectionStrategy = wallet.CoinSelectionRandom
+
+	default:
+		return fmt.Errorf("unknown coin selection strategy %v",
+			cfg.CoinSelectionStrategy)
+	}
+
 	activeChainControl, cleanup, err := chainreg.NewChainControl(
 		chainControlCfg, blockCache,
 	)

@@ -2369,8 +2369,13 @@ func (r *rpcServer) AbandonChannel(_ context.Context,
 	// If this isn't the dev build, then we won't allow the RPC to be
 	// executed, as it's an advanced feature and won't be activated in
 	// regular production/release builds except for the explicit case of
-	// externally funded channels that are still pending.
-	if !in.PendingFundingShimOnly && !build.IsDevBuild() {
+	// externally funded channels that are still pending. Due to repeated
+	// requests, we also allow this requirement to be overwritten by a new
+	// flag that attests to the user knowing what they're doing and the risk
+	// associated with the command/RPC.
+	if !in.IKnowWhatIAmDoing && !in.PendingFundingShimOnly &&
+		!build.IsDevBuild() {
+
 		return nil, fmt.Errorf("AbandonChannel RPC call only " +
 			"available in dev builds")
 	}
@@ -2411,7 +2416,9 @@ func (r *rpcServer) AbandonChannel(_ context.Context,
 		// PSBT) on the channel so we don't need to use the thaw height.
 		isShimFunded := dbChan.ThawHeight > 0
 		isPendingShimFunded := isShimFunded && dbChan.IsPending
-		if in.PendingFundingShimOnly && !isPendingShimFunded {
+		if !in.IKnowWhatIAmDoing && in.PendingFundingShimOnly &&
+			!isPendingShimFunded {
+
 			return nil, fmt.Errorf("channel %v is not externally "+
 				"funded or not pending", chanPoint)
 		}

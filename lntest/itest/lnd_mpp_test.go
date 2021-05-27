@@ -344,6 +344,8 @@ func (c *mppTestContext) closeChannels() {
 }
 
 func (c *mppTestContext) shutdownNodes() {
+	shutdownAndAssert(c.net, c.t, c.alice)
+	shutdownAndAssert(c.net, c.t, c.bob)
 	shutdownAndAssert(c.net, c.t, c.carol)
 	shutdownAndAssert(c.net, c.t, c.dave)
 	shutdownAndAssert(c.net, c.t, c.eve)

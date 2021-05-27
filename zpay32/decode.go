@@ -45,8 +45,17 @@ func Decode(invoice string, net *chaincfg.Params) (*Invoice, error) {
 	}
 
 	// The next characters should be a valid prefix for a segwit BIP173
-	// address that match the active network.
-	if !strings.HasPrefix(hrp[2:], net.Bech32HRPSegwit) {
+	// address that match the active network except for signet where we add
+	// an additional "s" to differentiate it from the older testnet3 (Core
+	// devs decided to use the same hrp for signet as for testnet3 which is
+	// not optimal for LN). See
+	// https://github.com/lightningnetwork/lightning-rfc/pull/844 for more
+	// information.
+	expectedPrefix := net.Bech32HRPSegwit
+	if net.Name == chaincfg.SigNetParams.Name {
+		expectedPrefix = "tbs"
+	}
+	if !strings.HasPrefix(hrp[2:], expectedPrefix) {
 		return nil, fmt.Errorf(
 			"invoice not for current active network '%s'", net.Name)
 	}
@@ -54,7 +63,7 @@ func Decode(invoice string, net *chaincfg.Params) (*Invoice, error) {
 
 	// Optionally, if there's anything left of the HRP after ln + the segwit
 	// prefix, we try to decode this as the payment amount.
-	var netPrefixLength = len(net.Bech32HRPSegwit) + 2
+	var netPrefixLength = len(expectedPrefix) + 2
 	if len(hrp) > netPrefixLength {
 		amount, err := decodeAmount(hrp[netPrefixLength:])
 		if err != nil {
@@ -378,7 +387,7 @@ func parseMinFinalCLTVExpiry(data []byte) (*uint64, error) {
 
 // parseFallbackAddr converts the data (encoded in base32) into a fallback
 // on-chain address.
-func parseFallbackAddr(data []byte, net *chaincfg.Params) (btcutil.Address, error) {
+func parseFallbackAddr(data []byte, net *chaincfg.Params) (btcutil.Address, error) { // nolint:dupl
 	// Checks if the data is empty or contains a version without an address.
 	if len(data) < 2 {
 		return nil, fmt.Errorf("empty fallback address field")

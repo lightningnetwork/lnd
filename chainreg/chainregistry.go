@@ -382,10 +382,13 @@ func NewChainControl(cfg *Config, blockCache *blockcache.BlockCache) (
 				(cfg.Litecoin.Active && cfg.Litecoin.RegTest) {
 				conn, err := net.Dial("tcp", bitcoindHost)
 				if err != nil || conn == nil {
-					if cfg.Bitcoin.Active && cfg.Bitcoin.RegTest {
+					switch {
+					case cfg.Bitcoin.Active && cfg.Bitcoin.RegTest:
 						rpcPort = 18443
-					} else if cfg.Litecoin.Active && cfg.Litecoin.RegTest {
+					case cfg.Litecoin.Active && cfg.Litecoin.RegTest:
 						rpcPort = 19443
+					case cfg.Bitcoin.Active && cfg.Bitcoin.SigNet:
+						rpcPort = 38332
 					}
 					bitcoindHost = fmt.Sprintf("%v:%d",
 						bitcoindMode.RPCHost,
@@ -748,6 +751,14 @@ var (
 		0x01, 0xea, 0x33, 0x09, 0x00, 0x00, 0x00, 0x00,
 	})
 
+	// BitcoinSignetGenesis is the genesis hash of Bitcoin's signet chain.
+	BitcoinSignetGenesis = chainhash.Hash([chainhash.HashSize]byte{
+		0xf6, 0x1e, 0xee, 0x3b, 0x63, 0xa3, 0x80, 0xa4,
+		0x77, 0xa0, 0x63, 0xaf, 0x32, 0xb2, 0xbb, 0xc9,
+		0x7c, 0x9f, 0xf9, 0xf0, 0x1f, 0x2c, 0x42, 0x25,
+		0xe9, 0x73, 0x98, 0x81, 0x08, 0x00, 0x00, 0x00,
+	})
+
 	// BitcoinMainnetGenesis is the genesis hash of Bitcoin's main chain.
 	BitcoinMainnetGenesis = chainhash.Hash([chainhash.HashSize]byte{
 		0x6f, 0xe2, 0x8c, 0x0a, 0xb6, 0xf1, 0xb3, 0x72,
@@ -810,6 +821,12 @@ var (
 			{
 				"test.nodes.lightning.directory",
 				"soa.nodes.lightning.directory",
+			},
+		},
+
+		BitcoinSignetGenesis: {
+			{
+				"ln.signet.secp.tech",
 			},
 		},
 

@@ -199,6 +199,9 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 
 	case cfg.Bitcoin.RegTest || cfg.Litecoin.RegTest:
 		network = "regtest"
+
+	case cfg.Bitcoin.SigNet:
+		network = "signet"
 	}
 
 	ltndLog.Infof("Active chain: %v (network=%v)",

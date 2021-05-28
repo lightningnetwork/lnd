@@ -70,6 +70,11 @@ var (
 	// requested for the default imported account within the wallet.
 	errNoImportedAddrGen = errors.New("addresses cannot be generated for " +
 		"the default imported account")
+
+	// errIncompatibleAccountAddr is an error returned when the type of a
+	// new address being requested is incompatible with the account.
+	errIncompatibleAccountAddr = errors.New("incompatible address type " +
+		"for account")
 )
 
 // BtcWallet is an implementation of the lnwallet.WalletController interface
@@ -365,6 +370,43 @@ func (b *BtcWallet) ConfirmedBalance(confs int32,
 	return balance, nil
 }
 
+// keyScopeForAccountAddr determines the appropriate key scope of an account
+// based on its name/address type.
+func (b *BtcWallet) keyScopeForAccountAddr(accountName string,
+	addrType lnwallet.AddressType) (waddrmgr.KeyScope, uint32, error) {
+
+	// Map the requested address type to its key scope.
+	var addrKeyScope waddrmgr.KeyScope
+	switch addrType {
+	case lnwallet.WitnessPubKey:
+		addrKeyScope = waddrmgr.KeyScopeBIP0084
+	case lnwallet.NestedWitnessPubKey:
+		addrKeyScope = waddrmgr.KeyScopeBIP0049Plus
+	default:
+		return waddrmgr.KeyScope{}, 0,
+			fmt.Errorf("unknown address type")
+	}
+
+	// The default account spans across multiple key scopes, so the
+	// requested address type should already be valid for this account.
+	if accountName == lnwallet.DefaultAccountName {
+		return addrKeyScope, defaultAccount, nil
+	}
+
+	// Otherwise, look up the account's key scope and check that it supports
+	// the requested address type.
+	keyScope, account, err := b.wallet.LookupAccount(accountName)
+	if err != nil {
+		return waddrmgr.KeyScope{}, 0, err
+	}
+
+	if keyScope != addrKeyScope {
+		return waddrmgr.KeyScope{}, 0, errIncompatibleAccountAddr
+	}
+
+	return keyScope, account, nil
+}
+
 // NewAddress returns the next external or internal address for the wallet
 // dictated by the value of the `change` parameter. If change is true, then an
 // internal address will be returned, otherwise an external address should be
@@ -375,31 +417,14 @@ func (b *BtcWallet) ConfirmedBalance(confs int32,
 func (b *BtcWallet) NewAddress(t lnwallet.AddressType, change bool,
 	accountName string) (btcutil.Address, error) {
 
-	var (
-		keyScope waddrmgr.KeyScope
-		account  uint32
-	)
-	switch accountName {
-	case waddrmgr.ImportedAddrAccountName:
+	// Addresses cannot be derived from the catch-all imported accounts.
+	if accountName == waddrmgr.ImportedAddrAccountName {
 		return nil, errNoImportedAddrGen
+	}
 
-	case lnwallet.DefaultAccountName:
-		switch t {
-		case lnwallet.WitnessPubKey:
-			keyScope = waddrmgr.KeyScopeBIP0084
-		case lnwallet.NestedWitnessPubKey:
-			keyScope = waddrmgr.KeyScopeBIP0049Plus
-		default:
-			return nil, fmt.Errorf("unknown address type")
-		}
-		account = defaultAccount
-
-	default:
-		var err error
-		keyScope, account, err = b.wallet.LookupAccount(accountName)
-		if err != nil {
-			return nil, err
-		}
+	keyScope, account, err := b.keyScopeForAccountAddr(accountName, t)
+	if err != nil {
+		return nil, err
 	}
 
 	if change {
@@ -418,31 +443,14 @@ func (b *BtcWallet) NewAddress(t lnwallet.AddressType, change bool,
 func (b *BtcWallet) LastUnusedAddress(addrType lnwallet.AddressType,
 	accountName string) (btcutil.Address, error) {
 
-	var (
-		keyScope waddrmgr.KeyScope
-		account  uint32
-	)
-	switch accountName {
-	case waddrmgr.ImportedAddrAccountName:
+	// Addresses cannot be derived from the catch-all imported accounts.
+	if accountName == waddrmgr.ImportedAddrAccountName {
 		return nil, errNoImportedAddrGen
+	}
 
-	case lnwallet.DefaultAccountName:
-		switch addrType {
-		case lnwallet.WitnessPubKey:
-			keyScope = waddrmgr.KeyScopeBIP0084
-		case lnwallet.NestedWitnessPubKey:
-			keyScope = waddrmgr.KeyScopeBIP0049Plus
-		default:
-			return nil, fmt.Errorf("unknown address type")
-		}
-		account = defaultAccount
-
-	default:
-		var err error
-		keyScope, account, err = b.wallet.LookupAccount(accountName)
-		if err != nil {
-			return nil, err
-		}
+	keyScope, account, err := b.keyScopeForAccountAddr(accountName, addrType)
+	if err != nil {
+		return nil, err
 	}
 
 	return b.wallet.CurrentAddress(account, keyScope)

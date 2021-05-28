@@ -7,8 +7,8 @@ require (
 	github.com/Yawning/aez v0.0.0-20180114000226-4dad034d9db2
 	github.com/btcsuite/btcd v0.21.0-beta.0.20210513141527-ee5896bad5be
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
-	github.com/btcsuite/btcutil v1.0.3-0.20210514234026-faeebcb9abbe
-	github.com/btcsuite/btcutil/psbt v1.0.3-0.20210514234026-faeebcb9abbe
+	github.com/btcsuite/btcutil v1.0.3-0.20210527170813-e2ba6805a890
+	github.com/btcsuite/btcutil/psbt v1.0.3-0.20210527170813-e2ba6805a890
 	github.com/btcsuite/btcwallet v0.12.1-0.20210519225359-6ab9b615576f
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.0.1-0.20210519225359-6ab9b615576f
 	github.com/btcsuite/btcwallet/wallet/txrules v1.0.0

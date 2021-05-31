@@ -389,6 +389,9 @@ type LightningClient interface {
 	//imposed on the macaroon and that the macaroon is authorized to follow the
 	//provided permissions.
 	CheckMacaroonPermissions(ctx context.Context, in *CheckMacPermRequest, opts ...grpc.CallOption) (*CheckMacPermResponse, error)
+	// lncli: `sendcustom`
+	//SendCustomMessage sends a custom peer message.
+	SendCustomMessage(ctx context.Context, in *SendCustomMessageRequest, opts ...grpc.CallOption) (*SendCustomMessageResponse, error)
 }
 
 type lightningClient struct {
@@ -1209,6 +1212,15 @@ func (c *lightningClient) CheckMacaroonPermissions(ctx context.Context, in *Chec
 	return out, nil
 }
 
+func (c *lightningClient) SendCustomMessage(ctx context.Context, in *SendCustomMessageRequest, opts ...grpc.CallOption) (*SendCustomMessageResponse, error) {
+	out := new(SendCustomMessageResponse)
+	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/SendCustomMessage", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LightningServer is the server API for Lightning service.
 // All implementations must embed UnimplementedLightningServer
 // for forward compatibility
@@ -1584,6 +1596,9 @@ type LightningServer interface {
 	//imposed on the macaroon and that the macaroon is authorized to follow the
 	//provided permissions.
 	CheckMacaroonPermissions(context.Context, *CheckMacPermRequest) (*CheckMacPermResponse, error)
+	// lncli: `sendcustom`
+	//SendCustomMessage sends a custom peer message.
+	SendCustomMessage(context.Context, *SendCustomMessageRequest) (*SendCustomMessageResponse, error)
 	mustEmbedUnimplementedLightningServer()
 }
 
@@ -1776,6 +1791,9 @@ func (UnimplementedLightningServer) ListPermissions(context.Context, *ListPermis
 }
 func (UnimplementedLightningServer) CheckMacaroonPermissions(context.Context, *CheckMacPermRequest) (*CheckMacPermResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CheckMacaroonPermissions not implemented")
+}
+func (UnimplementedLightningServer) SendCustomMessage(context.Context, *SendCustomMessageRequest) (*SendCustomMessageResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SendCustomMessage not implemented")
 }
 func (UnimplementedLightningServer) mustEmbedUnimplementedLightningServer() {}
 
@@ -2954,6 +2972,24 @@ func _Lightning_CheckMacaroonPermissions_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Lightning_SendCustomMessage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SendCustomMessageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LightningServer).SendCustomMessage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/lnrpc.Lightning/SendCustomMessage",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LightningServer).SendCustomMessage(ctx, req.(*SendCustomMessageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Lightning_ServiceDesc is the grpc.ServiceDesc for Lightning service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -3164,6 +3200,10 @@ var Lightning_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CheckMacaroonPermissions",
 			Handler:    _Lightning_CheckMacaroonPermissions_Handler,
+		},
+		{
+			MethodName: "SendCustomMessage",
+			Handler:    _Lightning_SendCustomMessage_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

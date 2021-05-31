@@ -380,6 +380,7 @@ func main() {
 		versionCommand,
 		profileSubCommand,
 		getStateCommand,
+		sendCustomCommand,
 	}
 
 	// Add any extra commands determined by build flags.

@@ -851,6 +851,39 @@
         ]
       }
     },
+    "/v1/custommessage": {
+      "post": {
+        "summary": "lncli: `sendcustom`\nSendCustomMessage sends a custom peer message.",
+        "operationId": "Lightning_SendCustomMessage",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcSendCustomMessageResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcSendCustomMessageRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/debuglevel": {
       "post": {
         "summary": "lncli: `debuglevel`\nDebugLevel allows a caller to programmatically set the logging verbosity of\nlnd. The logging can be targeted according to a coarse daemon-wide logging\nlevel, or in a granular fashion to specify the logging for a target\nsub-system.",
@@ -5823,6 +5856,29 @@
           "title": "The transaction ID of the transaction"
         }
       }
+    },
+    "lnrpcSendCustomMessageRequest": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "format": "byte",
+          "title": "Peer to send the message to"
+        },
+        "type": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Message type. This value needs to be in the custom range (\u003e= 32768)."
+        },
+        "data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Raw message data."
+        }
+      }
+    },
+    "lnrpcSendCustomMessageResponse": {
+      "type": "object"
     },
     "lnrpcSendManyRequest": {
       "type": "object",

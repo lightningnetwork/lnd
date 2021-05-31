@@ -20,6 +20,19 @@ import (
 // testSendPaymentAMPInvoice tests that we can send an AMP payment to a
 // specified AMP invoice using SendPaymentV2.
 func testSendPaymentAMPInvoice(net *lntest.NetworkHarness, t *harnessTest) {
+	t.t.Run("native payaddr", func(t *testing.T) {
+		tt := newHarnessTest(t, net)
+		testSendPaymentAMPInvoiceCase(net, tt, false)
+	})
+	t.t.Run("external payaddr", func(t *testing.T) {
+		tt := newHarnessTest(t, net)
+		testSendPaymentAMPInvoiceCase(net, tt, true)
+	})
+}
+
+func testSendPaymentAMPInvoiceCase(net *lntest.NetworkHarness, t *harnessTest,
+	useExternalPayAddr bool) {
+
 	ctxb := context.Background()
 
 	ctx := newMppTestContext(t, net)
@@ -88,11 +101,28 @@ func testSendPaymentAMPInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("dave policy update: %v", err)
 	}
 
+	// Generate an external payment address when attempting to pseudo-reuse
+	// an AMP invoice. When using an external payment address, we'll also
+	// expect an extra invoice to appear in the ListInvoices response, since
+	// a new invoice will be JIT inserted under a different payment address
+	// than the one in the invoice.
+	var (
+		expNumInvoices  = 1
+		externalPayAddr []byte
+	)
+	if useExternalPayAddr {
+		expNumInvoices = 2
+		externalPayAddr = make([]byte, 32)
+		_, err = rand.Read(externalPayAddr)
+		require.NoError(t.t, err)
+	}
+
 	ctxt, _ := context.WithTimeout(context.Background(), 4*defaultTimeout)
 	payment := sendAndAssertSuccess(
 		ctxt, t, ctx.alice,
 		&routerrpc.SendPaymentRequest{
 			PaymentRequest: addInvoiceResp.PaymentRequest,
+			PaymentAddr:    externalPayAddr,
 			TimeoutSeconds: 60,
 			FeeLimitMsat:   noFeeLimitMsat,
 		},
@@ -118,6 +148,14 @@ func testSendPaymentAMPInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 			minExpectedShards, succeeded)
 	}
 
+	// When an external payment address is supplied, we'll get an extra
+	// notification for the JIT inserted invoice, since it differs from the
+	// original.
+	if useExternalPayAddr {
+		_, err = bobInvoiceSubscription.Recv()
+		require.NoError(t.t, err)
+	}
+
 	// There should now be a settle event for the invoice.
 	rpcInvoice, err = bobInvoiceSubscription.Recv()
 	require.NoError(t.t, err)
@@ -128,8 +166,8 @@ func testSendPaymentAMPInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 		ctxb, &lnrpc.ListInvoiceRequest{},
 	)
 	require.NoError(t.t, err)
-	require.Equal(t.t, 1, len(invoiceResp.Invoices))
-	assertInvoiceEqual(t.t, rpcInvoice, invoiceResp.Invoices[0])
+	require.Equal(t.t, expNumInvoices, len(invoiceResp.Invoices))
+	assertInvoiceEqual(t.t, rpcInvoice, invoiceResp.Invoices[expNumInvoices-1])
 
 	// Assert that the invoice is settled for the total payment amount and
 	// has the correct payment address.
@@ -161,6 +199,7 @@ func testSendPaymentAMPInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 		validPreimage := childPreimage.Matches(childHash)
 		require.True(t.t, validPreimage)
 	}
+
 }
 
 // testSendPaymentAMP tests that we can send an AMP payment to a specified

@@ -23,6 +23,16 @@ import (
 	"github.com/lightningnetwork/lnd/zpay32"
 )
 
+const (
+	// DefaultInvoiceExpiry is the default invoice expiry for new MPP
+	// invoices.
+	DefaultInvoiceExpiry = 24 * time.Hour
+
+	// DefaultAMPInvoiceExpiry is the default invoice expiry for new AMP
+	// invoices.
+	DefaultAMPInvoiceExpiry = 30 * 24 * time.Hour
+)
+
 // AddInvoiceConfig contains dependencies for invoice creation.
 type AddInvoiceConfig struct {
 	// AddInvoice is called to add the invoice to the registry.
@@ -270,10 +280,12 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		options = append(options, zpay32.FallbackAddr(addr))
 	}
 
+	switch {
+
 	// If expiry is set, specify it. If it is not provided, no expiry time
 	// will be explicitly added to this payment request, which will imply
 	// the default 3600 seconds.
-	if invoice.Expiry > 0 {
+	case invoice.Expiry > 0:
 
 		// We'll ensure that the specified expiry is restricted to sane
 		// number of seconds. As a result, we'll reject an invoice with
@@ -289,6 +301,15 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 		expiry := time.Duration(invoice.Expiry) * time.Second
 		options = append(options, zpay32.Expiry(expiry))
+
+	// If no custom expiry is provided, use the default MPP expiry.
+	case !invoice.Amp:
+		options = append(options, zpay32.Expiry(DefaultInvoiceExpiry))
+
+	// Otherwise, use the default AMP expiry.
+	default:
+		options = append(options, zpay32.Expiry(DefaultAMPInvoiceExpiry))
+
 	}
 
 	// If the description hash is set, then we add it do the list of options.

@@ -233,7 +233,12 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 	case MsgGossipTimestampRange:
 		msg = &GossipTimestampRange{}
 	default:
-		return nil, &UnknownMessage{msgType}
+		if msgType < CustomTypeStart {
+			return nil, &UnknownMessage{msgType}
+		}
+		msg = &Custom{
+			Type: msgType,
+		}
 	}
 
 	return msg, nil

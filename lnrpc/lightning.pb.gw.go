@@ -2285,6 +2285,23 @@ func local_request_Lightning_SendCustomMessage_0(ctx context.Context, marshaler 
 
 }
 
+func request_Lightning_SubscribeCustomMessages_0(ctx context.Context, marshaler runtime.Marshaler, client LightningClient, req *http.Request, pathParams map[string]string) (Lightning_SubscribeCustomMessagesClient, runtime.ServerMetadata, error) {
+	var protoReq SubscribeCustomMessagesRequest
+	var metadata runtime.ServerMetadata
+
+	stream, err := client.SubscribeCustomMessages(ctx, &protoReq)
+	if err != nil {
+		return nil, metadata, err
+	}
+	header, err := stream.Header()
+	if err != nil {
+		return nil, metadata, err
+	}
+	metadata.HeaderMD = header
+	return stream, metadata, nil
+
+}
+
 // RegisterLightningHandlerServer registers the http handlers for service Lightning to "mux".
 // UnaryRPC     :call LightningServer directly.
 // StreamingRPC :currently unsupported pending https://github.com/grpc/grpc-go/issues/906.
@@ -3555,6 +3572,13 @@ func RegisterLightningHandlerServer(ctx context.Context, mux *runtime.ServeMux, 
 
 		forward_Lightning_SendCustomMessage_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
+	})
+
+	mux.Handle("GET", pattern_Lightning_SubscribeCustomMessages_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
+		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+		return
 	})
 
 	return nil
@@ -4838,6 +4862,26 @@ func RegisterLightningHandlerClient(ctx context.Context, mux *runtime.ServeMux, 
 
 	})
 
+	mux.Handle("GET", pattern_Lightning_SubscribeCustomMessages_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/lnrpc.Lightning/SubscribeCustomMessages", runtime.WithHTTPPathPattern("/v1/custommessage/subscribe"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_Lightning_SubscribeCustomMessages_0(rctx, inboundMarshaler, client, req, pathParams)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_Lightning_SubscribeCustomMessages_0(ctx, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
+
+	})
+
 	return nil
 }
 
@@ -4965,6 +5009,8 @@ var (
 	pattern_Lightning_CheckMacaroonPermissions_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "macaroon", "checkpermissions"}, ""))
 
 	pattern_Lightning_SendCustomMessage_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "custommessage"}, ""))
+
+	pattern_Lightning_SubscribeCustomMessages_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "custommessage", "subscribe"}, ""))
 )
 
 var (
@@ -5091,4 +5137,6 @@ var (
 	forward_Lightning_CheckMacaroonPermissions_0 = runtime.ForwardResponseMessage
 
 	forward_Lightning_SendCustomMessage_0 = runtime.ForwardResponseMessage
+
+	forward_Lightning_SubscribeCustomMessages_0 = runtime.ForwardResponseStream
 )

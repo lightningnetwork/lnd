@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/hex"
+	"fmt"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/urfave/cli"
@@ -50,4 +51,33 @@ func sendCustom(ctx *cli.Context) error {
 	)
 
 	return err
+}
+
+var subscribeCustomCommand = cli.Command{
+	Name:   "subscribecustom",
+	Action: actionDecorator(subscribeCustom),
+}
+
+func subscribeCustom(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	stream, err := client.SubscribeCustomMessages(
+		ctxc,
+		&lnrpc.SubscribeCustomMessagesRequest{},
+	)
+	if err != nil {
+		return err
+	}
+
+	for {
+		msg, err := stream.Recv()
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("Received from peer %x: type=%d, data=%x\n",
+			msg.Peer, msg.Type, msg.Data)
+	}
 }

@@ -158,3 +158,5 @@ http:
     - selector: lnrpc.Lightning.SendCustomMessage
       post: "/v1/custommessage"
       body: "*"
+    - selector: lnrpc.Lightning.SubscribeCustomMessages
+      get: "/v1/custommessage/subscribe"      

@@ -1071,6 +1071,8 @@ func TestPeerCustomMessage(t *testing.T) {
 
 	mockConn := newMockConn(t, 1)
 
+	receivedCustomChan := make(chan *customMsg)
+
 	remoteKey := [33]byte{8}
 
 	notifier := &mock.ChainNotifier{
@@ -1092,6 +1094,15 @@ func TestPeerCustomMessage(t *testing.T) {
 		ReadPool:                      readPool,
 		Conn:                          mockConn,
 		ChainNotifier:                 notifier,
+		HandleCustomMessage: func(
+			peer [33]byte, msg *lnwire.Custom) error {
+
+			receivedCustomChan <- &customMsg{
+				peer: peer,
+				msg:  *msg,
+			}
+			return nil
+		},
 	})
 
 	// Set up the init sequence.
@@ -1117,7 +1128,9 @@ func TestPeerCustomMessage(t *testing.T) {
 	require.NoError(t, alicePeer.Start())
 
 	// Send a custom message.
-	customMsg, err := lnwire.NewCustom(lnwire.MessageType(40000), []byte{1, 2, 3})
+	customMsg, err := lnwire.NewCustom(
+		lnwire.MessageType(40000), []byte{1, 2, 3},
+	)
 	require.NoError(t, err)
 
 	require.NoError(t, alicePeer.SendMessageLazy(false, customMsg))
@@ -1125,4 +1138,18 @@ func TestPeerCustomMessage(t *testing.T) {
 	// Verify that it is passed down to the noise layer correctly.
 	writtenMsg := <-mockConn.writtenMessages
 	require.Equal(t, []byte{0x9c, 0x40, 0x1, 0x2, 0x3}, writtenMsg)
+
+	// Receive a custom message.
+	receivedCustomMsg, err := lnwire.NewCustom(
+		lnwire.MessageType(40001), []byte{4, 5, 6},
+	)
+	require.NoError(t, err)
+
+	receivedData := []byte{0x9c, 0x41, 0x4, 0x5, 0x6}
+	mockConn.readMessages <- receivedData
+
+	// Verify that it is propagated up to the custom message handler.
+	receivedCustom := <-receivedCustomChan
+	require.Equal(t, remoteKey, receivedCustom.peer)
+	require.Equal(t, receivedCustomMsg, &receivedCustom.msg)
 }

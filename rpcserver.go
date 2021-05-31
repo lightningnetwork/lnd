@@ -572,6 +572,10 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "offchain",
 			Action: "write",
 		}},
+		"/lnrpc.Lightning/SubscribeCustomMessages": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 	}
 }
 
@@ -7344,4 +7348,38 @@ func (r *rpcServer) SendCustomMessage(ctx context.Context, req *lnrpc.SendCustom
 	}
 
 	return &lnrpc.SendCustomMessageResponse{}, nil
+}
+
+// SubscribeCustomMessages subscribes to a stream of incoming custom peer
+// messages.
+func (r *rpcServer) SubscribeCustomMessages(req *lnrpc.SubscribeCustomMessagesRequest,
+	server lnrpc.Lightning_SubscribeCustomMessagesServer) error {
+
+	client, err := r.server.SubscribeCustomMessages()
+	if err != nil {
+		return err
+	}
+	defer client.Cancel()
+
+	for {
+		select {
+		case <-client.Quit():
+			return errors.New("shutdown")
+
+		case <-server.Context().Done():
+			return server.Context().Err()
+
+		case update := <-client.Updates():
+			customMsg := update.(*CustomMessage)
+
+			err := server.Send(&lnrpc.CustomMessage{
+				Peer: customMsg.Peer[:],
+				Data: customMsg.Msg.Data,
+				Type: uint32(customMsg.Msg.Type),
+			})
+			if err != nil {
+				return err
+			}
+		}
+	}
 }

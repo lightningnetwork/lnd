@@ -406,6 +406,10 @@ type LightningClient interface {
 	// lncli: `sendcustom`
 	//SendCustomMessage sends a custom peer message.
 	SendCustomMessage(ctx context.Context, in *SendCustomMessageRequest, opts ...grpc.CallOption) (*SendCustomMessageResponse, error)
+	// lncli: `subscribecustom`
+	//SubscribeCustomMessages subscribes to a stream of incoming custom peer
+	//messages.
+	SubscribeCustomMessages(ctx context.Context, in *SubscribeCustomMessagesRequest, opts ...grpc.CallOption) (Lightning_SubscribeCustomMessagesClient, error)
 }
 
 type lightningClient struct {
@@ -1266,6 +1270,38 @@ func (c *lightningClient) SendCustomMessage(ctx context.Context, in *SendCustomM
 	return out, nil
 }
 
+func (c *lightningClient) SubscribeCustomMessages(ctx context.Context, in *SubscribeCustomMessagesRequest, opts ...grpc.CallOption) (Lightning_SubscribeCustomMessagesClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Lightning_ServiceDesc.Streams[12], "/lnrpc.Lightning/SubscribeCustomMessages", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &lightningSubscribeCustomMessagesClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type Lightning_SubscribeCustomMessagesClient interface {
+	Recv() (*CustomMessage, error)
+	grpc.ClientStream
+}
+
+type lightningSubscribeCustomMessagesClient struct {
+	grpc.ClientStream
+}
+
+func (x *lightningSubscribeCustomMessagesClient) Recv() (*CustomMessage, error) {
+	m := new(CustomMessage)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // LightningServer is the server API for Lightning service.
 // All implementations must embed UnimplementedLightningServer
 // for forward compatibility
@@ -1658,6 +1694,10 @@ type LightningServer interface {
 	// lncli: `sendcustom`
 	//SendCustomMessage sends a custom peer message.
 	SendCustomMessage(context.Context, *SendCustomMessageRequest) (*SendCustomMessageResponse, error)
+	// lncli: `subscribecustom`
+	//SubscribeCustomMessages subscribes to a stream of incoming custom peer
+	//messages.
+	SubscribeCustomMessages(*SubscribeCustomMessagesRequest, Lightning_SubscribeCustomMessagesServer) error
 	mustEmbedUnimplementedLightningServer()
 }
 
@@ -1856,6 +1896,9 @@ func (UnimplementedLightningServer) RegisterRPCMiddleware(Lightning_RegisterRPCM
 }
 func (UnimplementedLightningServer) SendCustomMessage(context.Context, *SendCustomMessageRequest) (*SendCustomMessageResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendCustomMessage not implemented")
+}
+func (UnimplementedLightningServer) SubscribeCustomMessages(*SubscribeCustomMessagesRequest, Lightning_SubscribeCustomMessagesServer) error {
+	return status.Errorf(codes.Unimplemented, "method SubscribeCustomMessages not implemented")
 }
 func (UnimplementedLightningServer) mustEmbedUnimplementedLightningServer() {}
 
@@ -3078,6 +3121,27 @@ func _Lightning_SendCustomMessage_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Lightning_SubscribeCustomMessages_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SubscribeCustomMessagesRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(LightningServer).SubscribeCustomMessages(m, &lightningSubscribeCustomMessagesServer{stream})
+}
+
+type Lightning_SubscribeCustomMessagesServer interface {
+	Send(*CustomMessage) error
+	grpc.ServerStream
+}
+
+type lightningSubscribeCustomMessagesServer struct {
+	grpc.ServerStream
+}
+
+func (x *lightningSubscribeCustomMessagesServer) Send(m *CustomMessage) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 // Lightning_ServiceDesc is the grpc.ServiceDesc for Lightning service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -3358,6 +3422,11 @@ var Lightning_ServiceDesc = grpc.ServiceDesc{
 			Handler:       _Lightning_RegisterRPCMiddleware_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
+		},
+		{
+			StreamName:    "SubscribeCustomMessages",
+			Handler:       _Lightning_SubscribeCustomMessages_Handler,
+			ServerStreams: true,
 		},
 	},
 	Metadata: "lightning.proto",

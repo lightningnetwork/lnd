@@ -385,6 +385,7 @@ func main() {
 		getStateCommand,
 		deletePaymentsCommand,
 		sendCustomCommand,
+		subscribeCustomCommand,
 	}
 
 	// Add any extra commands determined by build flags.

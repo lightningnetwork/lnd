@@ -557,6 +557,26 @@ service Lightning {
     */
     rpc RegisterRPCMiddleware (stream RPCMiddlewareResponse)
         returns (stream RPCMiddlewareRequest);
+
+    /* lncli: `sendcustom`
+    SendCustomMessage sends a custom peer message.
+    */
+    rpc SendCustomMessage (SendCustomMessageRequest)
+        returns (SendCustomMessageResponse);
+}
+
+message SendCustomMessageRequest {
+    // Peer to send the message to
+    bytes peer = 1;
+
+    // Message type. This value needs to be in the custom range (>= 32768).
+    uint32 type = 2;
+
+    // Raw message data.
+    bytes data = 3;
+}
+
+message SendCustomMessageResponse {
 }
 
 message Utxo {

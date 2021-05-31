@@ -568,6 +568,10 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "macaroon",
 			Action: "write",
 		}},
+		"/lnrpc.Lightning/SendCustomMessage": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
 	}
 }
 
@@ -7318,4 +7322,26 @@ func (r *rpcServer) RegisterRPCMiddleware(
 	defer r.interceptorChain.RemoveMiddleware(registerMsg.MiddlewareName)
 
 	return middleware.Run()
+}
+
+// SendCustomMessage sends a custom peer message.
+func (r *rpcServer) SendCustomMessage(ctx context.Context, req *lnrpc.SendCustomMessageRequest) (
+	*lnrpc.SendCustomMessageResponse, error) {
+
+	peer, err := route.NewVertexFromBytes(req.Peer)
+	if err != nil {
+		return nil, err
+	}
+
+	err = r.server.SendCustomMessage(
+		peer, lnwire.MessageType(req.Type), req.Data,
+	)
+	switch {
+	case err == ErrPeerNotConnected:
+		return nil, status.Error(codes.NotFound, err.Error())
+	case err != nil:
+		return nil, err
+	}
+
+	return &lnrpc.SendCustomMessageResponse{}, nil
 }

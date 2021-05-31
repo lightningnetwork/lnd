@@ -4179,6 +4179,35 @@ func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate) error {
 	}
 }
 
+// SendCustomMessage sends a custom message to the peer with the specified
+// pubkey.
+func (s *server) SendCustomMessage(peerPub [33]byte, msgType lnwire.MessageType,
+	data []byte) error {
+
+	peer, err := s.FindPeerByPubStr(string(peerPub[:]))
+	if err != nil {
+		return err
+	}
+
+	// We'll wait until the peer is active.
+	select {
+	case <-peer.ActiveSignal():
+	case <-peer.QuitSignal():
+		return fmt.Errorf("peer %x disconnected", peerPub)
+	case <-s.quit:
+		return ErrServerShuttingDown
+	}
+
+	msg, err := lnwire.NewCustom(msgType, data)
+	if err != nil {
+		return err
+	}
+
+	// Send the message as low-priority. For now we assume that all
+	// application-defined message are low priority.
+	return peer.SendMessageLazy(true, msg)
+}
+
 // newSweepPkScriptGen creates closure that generates a new public key script
 // which should be used to sweep any funds into the on-chain wallet.
 // Specifically, the script generated is a version 0, pay-to-witness-pubkey-hash

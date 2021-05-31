@@ -1067,7 +1067,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 
 	default:
 		return nil, fmt.Errorf("fee definition missing, need to " +
-			"specify either target_conf or set_per_vbyte")
+			"specify either target_conf or sat_per_vbyte")
 	}
 
 	// Then, we'll extract the minimum number of confirmations that each

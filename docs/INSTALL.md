@@ -111,7 +111,7 @@ version if there are database migrations present.
     isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
     this version of Go. If it matches, then proceed to install Go:
     ```
-    tar -C /usr/local -xzf go1.16.linux-amd64.tar.gz
+    sudo tar -C /usr/local -xzf go1.16.linux-amd64.tar.gz
     export PATH=$PATH:/usr/local/go/bin
     ```
 

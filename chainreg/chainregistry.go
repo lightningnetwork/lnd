@@ -378,8 +378,10 @@ func NewChainControl(cfg *Config, blockCache *blockcache.BlockCache) (
 			rpcPort -= 2
 			bitcoindHost = fmt.Sprintf("%v:%d",
 				bitcoindMode.RPCHost, rpcPort)
-			if (cfg.Bitcoin.Active && cfg.Bitcoin.RegTest) ||
+			if (cfg.Bitcoin.Active &&
+				(cfg.Bitcoin.RegTest || cfg.Bitcoin.SigNet)) ||
 				(cfg.Litecoin.Active && cfg.Litecoin.RegTest) {
+
 				conn, err := net.Dial("tcp", bitcoindHost)
 				if err != nil || conn == nil {
 					switch {

@@ -28,17 +28,12 @@ linux-ppc64le \
 linux-mips \
 linux-mipsle \
 linux-mips64 \
-linux-mips64le \
 linux-s390x \
 netbsd-386 \
 netbsd-amd64 \
-netbsd-arm \
 netbsd-arm64 \
 openbsd-386 \
 openbsd-amd64 \
-openbsd-arm \
-openbsd-arm64 \
-solaris-amd64 \
 windows-386 \
 windows-amd64 \
 windows-arm

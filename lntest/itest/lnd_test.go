@@ -1641,15 +1641,12 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Create Carol with options to rate limit channel updates up to 2 per
 	// day, and create a new channel Bob->Carol.
-	carol, err := net.NewNode(
-		"Carol", []string{
+	carol := net.NewNode(
+		t.t, "Carol", []string{
 			"--gossip.max-channel-update-burst=2",
 			"--gossip.channel-update-interval=24h",
 		},
 	)
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
 
 	// Clean up carol's node when the test finishes.
 	defer shutdownAndAssert(net, t, carol)
@@ -2392,16 +2389,10 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 		"--maxbackoff=1m",
 	}
 
-	alice, err := net.NewNode("Alice", args)
-	if err != nil {
-		t.Fatalf("unable to create new node: %v", err)
-	}
+	alice := net.NewNode(t.t, "Alice", args)
 	defer shutdownAndAssert(net, t, alice)
 
-	bob, err := net.NewNode("Bob", args)
-	if err != nil {
-		t.Fatalf("unable to create new node: %v", err)
-	}
+	bob := net.NewNode(t.t, "Bob", args)
 	defer shutdownAndAssert(net, t, bob)
 
 	// Start by connecting Alice and Bob with no channels.
@@ -2415,7 +2406,7 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Give Alice some coins so she can fund a channel.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, alice)
+	err := net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, alice)
 	if err != nil {
 		t.Fatalf("unable to send coins to alice: %v", err)
 	}
@@ -2563,10 +2554,7 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// we'll need to create a new node instance.
 	const numConfs = 5
 	carolArgs := []string{fmt.Sprintf("--bitcoin.defaultchanconfs=%v", numConfs)}
-	carol, err := net.NewNode("Carol", carolArgs)
-	if err != nil {
-		t.Fatalf("unable to create new node: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", carolArgs)
 
 	// Clean up carol's node when the test finishes.
 	defer shutdownAndAssert(net, t, carol)
@@ -2865,10 +2853,7 @@ func testChannelUnsettledBalance(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Create carol in hodl mode.
-	carol, err := net.NewNode("Carol", []string{"--hodl.exit-settle"})
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", []string{"--hodl.exit-settle"})
 	defer shutdownAndAssert(net, t, carol)
 
 	// Connect Alice to Carol.
@@ -2889,7 +2874,7 @@ func testChannelUnsettledBalance(net *lntest.NetworkHarness, t *harnessTest) {
 	// Wait for Alice and Carol to receive the channel edge from the
 	// funding manager.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPointAlice)
+	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPointAlice)
 	if err != nil {
 		t.Fatalf("alice didn't see the alice->carol channel before "+
 			"timeout: %v", err)
@@ -3165,10 +3150,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 			ht := newHarnessTest(t, net)
 
 			args := channelType.Args()
-			alice, err := net.NewNode("Alice", args)
-			if err != nil {
-				t.Fatalf("unable to create new node: %v", err)
-			}
+			alice := net.NewNode(ht.t, "Alice", args)
 			defer shutdownAndAssert(net, ht, alice)
 
 			// Since we'd like to test failure scenarios with
@@ -3176,10 +3158,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 			// our test network: Carol.
 			carolArgs := []string{"--hodl.exit-settle"}
 			carolArgs = append(carolArgs, args...)
-			carol, err := net.NewNode("Carol", carolArgs)
-			if err != nil {
-				t.Fatalf("unable to create new nodes: %v", err)
-			}
+			carol := net.NewNode(ht.t, "Carol", carolArgs)
 			defer shutdownAndAssert(net, ht, carol)
 
 			// Each time, we'll send Alice  new set of coins in
@@ -3187,7 +3166,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 			ctxt, _ := context.WithTimeout(
 				context.Background(), defaultTimeout,
 			)
-			err = net.SendCoins(
+			err := net.SendCoins(
 				ctxt, btcutil.SatoshiPerBitcoin, alice,
 			)
 			if err != nil {
@@ -4480,10 +4459,7 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	chanAmt := btcutil.Amount(100000)
 
 	// First, we'll create Dave, the receiver, and start him in hodl mode.
-	dave, err := net.NewNode("Dave", []string{"--hodl.exit-settle"})
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	dave := net.NewNode(t.t, "Dave", []string{"--hodl.exit-settle"})
 
 	// We must remember to shutdown the nodes we created for the duration
 	// of the tests, only leaving the two seed nodes (Alice and Bob) within
@@ -4493,10 +4469,7 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// Next, we'll create Carol and establish a channel to from her to
 	// Dave. Carol is started in both unsafe-replay which will cause her to
 	// replay any pending Adds held in memory upon reconnection.
-	carol, err := net.NewNode("Carol", []string{"--unsafe-replay"})
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", []string{"--unsafe-replay"})
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
@@ -4504,7 +4477,7 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to connect carol to dave: %v", err)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
+	err := net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
 	if err != nil {
 		t.Fatalf("unable to send coins to carol: %v", err)
 	}
@@ -4521,10 +4494,7 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// by paying from Carol directly to Dave, because the '--unsafe-replay'
 	// setup doesn't apply to locally added htlcs. In that case, the
 	// mailbox, that is responsible for generating the replay, is bypassed.
-	fred, err := net.NewNode("Fred", nil)
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	fred := net.NewNode(t.t, "Fred", nil)
 	defer shutdownAndAssert(net, t, fred)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -4718,18 +4688,17 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	const bobRemoteMaxHtlcs = 100
 
 	// Create two fresh nodes and open a channel between them.
-	alice, err := net.NewNode("Alice", nil)
-	if err != nil {
-		t.Fatalf("unable to create new node: %v", err)
-	}
+	alice := net.NewNode(t.t, "Alice", nil)
 	defer shutdownAndAssert(net, t, alice)
 
-	bob, err := net.NewNode("Bob", []string{
-		fmt.Sprintf("--default-remote-max-htlcs=%v", bobRemoteMaxHtlcs),
-	})
-	if err != nil {
-		t.Fatalf("unable to create new node: %v", err)
-	}
+	bob := net.NewNode(
+		t.t, "Bob", []string{
+			fmt.Sprintf(
+				"--default-remote-max-htlcs=%v",
+				bobRemoteMaxHtlcs,
+			),
+		},
+	)
 	defer shutdownAndAssert(net, t, bob)
 
 	// Connect Alice to Bob.
@@ -4739,7 +4708,7 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Give Alice some coins so she can fund a channel.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, alice)
+	err := net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, alice)
 	if err != nil {
 		t.Fatalf("unable to send coins to alice: %v", err)
 	}
@@ -4860,26 +4829,24 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
 	// Create two fresh nodes and open a channel between them.
-	alice, err := net.NewNode("Alice", []string{
-		"--minbackoff=10s",
-		"--chan-enable-timeout=1.5s",
-		"--chan-disable-timeout=3s",
-		"--chan-status-sample-interval=.5s",
-	})
-	if err != nil {
-		t.Fatalf("unable to create new node: %v", err)
-	}
+	alice := net.NewNode(
+		t.t, "Alice", []string{
+			"--minbackoff=10s",
+			"--chan-enable-timeout=1.5s",
+			"--chan-disable-timeout=3s",
+			"--chan-status-sample-interval=.5s",
+		},
+	)
 	defer shutdownAndAssert(net, t, alice)
 
-	bob, err := net.NewNode("Bob", []string{
-		"--minbackoff=10s",
-		"--chan-enable-timeout=1.5s",
-		"--chan-disable-timeout=3s",
-		"--chan-status-sample-interval=.5s",
-	})
-	if err != nil {
-		t.Fatalf("unable to create new node: %v", err)
-	}
+	bob := net.NewNode(
+		t.t, "Bob", []string{
+			"--minbackoff=10s",
+			"--chan-enable-timeout=1.5s",
+			"--chan-disable-timeout=3s",
+			"--chan-status-sample-interval=.5s",
+		},
+	)
 	defer shutdownAndAssert(net, t, bob)
 
 	// Connect Alice to Bob.
@@ -4889,7 +4856,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Give Alice some coins so she can fund a channel.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, alice)
+	err := net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, alice)
 	if err != nil {
 		t.Fatalf("unable to send coins to alice: %v", err)
 	}
@@ -4924,10 +4891,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	// Launch a node for Carol which will connect to Alice and Bob in
 	// order to receive graph updates. This will ensure that the
 	// channel updates are propagated throughout the network.
-	carol, err := net.NewNode("Carol", nil)
-	if err != nil {
-		t.Fatalf("unable to create Carol's node: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", nil)
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -5486,16 +5450,10 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 	// is the sole funder of the channel with 100k satoshis. The network
 	// topology should look like:
 	// Carol -> 100k -> Dave
-	carol, err := net.NewNode("Carol", nil)
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", nil)
 	defer shutdownAndAssert(net, t, carol)
 
-	dave, err := net.NewNode("Dave", nil)
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	dave := net.NewNode(t.t, "Dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
@@ -5503,7 +5461,7 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 		t.Fatalf("unable to connect carol to dave: %v", err)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
+	err := net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
 	if err != nil {
 		t.Fatalf("unable to send coins to carol: %v", err)
 	}
@@ -5867,10 +5825,7 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 	// Create Carol and establish a channel from Bob. Bob is the sole funder
 	// of the channel with 100k satoshis. The network topology should look like:
 	// Alice -> Bob -> Carol
-	carol, err := net.NewNode("Carol", nil)
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", nil)
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -6049,10 +6004,7 @@ func testSendToRouteErrorPropagation(net *lntest.NetworkHarness, t *harnessTest)
 	// Bob graph.
 	//
 	// The network topology should now look like: Alice -> Bob; Carol -> Charlie.
-	carol, err := net.NewNode("Carol", nil)
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", nil)
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -6061,10 +6013,7 @@ func testSendToRouteErrorPropagation(net *lntest.NetworkHarness, t *harnessTest)
 		t.Fatalf("unable to send coins to carol: %v", err)
 	}
 
-	charlie, err := net.NewNode("Charlie", nil)
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	charlie := net.NewNode(t.t, "Charlie", nil)
 	defer shutdownAndAssert(net, t, charlie)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -6297,10 +6246,7 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Create Dave, and a channel to Alice of 100k.
-	dave, err := net.NewNode("Dave", nil)
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	dave := net.NewNode(t.t, "Dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -6331,10 +6277,7 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Next, we'll create Carol and establish a channel from her to
 	// Dave of 100k.
-	carol, err := net.NewNode("Carol", nil)
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", nil)
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -6628,10 +6571,7 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 	// Then, we'll create Carol's node and open a public channel between her
 	// and Alice. This channel will not be considered as a routing hint due
 	// to it being public.
-	carol, err := net.NewNode("Carol", nil)
-	if err != nil {
-		t.Fatalf("unable to create carol's node: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", nil)
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -6669,10 +6609,7 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 	// and Alice. We will not include a push amount in order to not consider
 	// this channel as a routing hint as it will not have enough remote
 	// balance for the invoice's amount.
-	dave, err := net.NewNode("Dave", nil)
-	if err != nil {
-		t.Fatalf("unable to create dave's node: %v", err)
-	}
+	dave := net.NewNode(t.t, "Dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -6692,10 +6629,7 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 	// her and Alice. This time though, we'll take Eve's node down after the
 	// channel has been created to avoid populating routing hints for
 	// inactive channels.
-	eve, err := net.NewNode("Eve", nil)
-	if err != nil {
-		t.Fatalf("unable to create eve's node: %v", err)
-	}
+	eve := net.NewNode(t.t, "Eve", nil)
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	if err := net.ConnectNodes(ctxt, net.Alice, eve); err != nil {
 		t.Fatalf("unable to connect alice to eve: %v", err)
@@ -6721,7 +6655,7 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	for i, chanPoint := range aliceChans {
 		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+		err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
 		if err != nil {
 			t.Fatalf("timed out waiting for channel open %s: %v",
 				chanNames[i], err)
@@ -6742,7 +6676,7 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 	// Alice and Bob should be the only channel used as a routing hint.
 	var predErr error
 	var decoded *lnrpc.PayReq
-	err = wait.Predicate(func() bool {
+	err := wait.Predicate(func() bool {
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 		resp, err := net.Alice.AddInvoice(ctxt, invoice)
 		if err != nil {
@@ -6872,10 +6806,7 @@ func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest)
 
 	// Next, we'll create Carol's node and open a public channel between
 	// her and Bob with Bob being the funder.
-	carol, err := net.NewNode("Carol", nil)
-	if err != nil {
-		t.Fatalf("unable to create carol's node: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", nil)
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -6921,10 +6852,7 @@ func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest)
 
 	// Next, we'll create Dave's node and open a private channel between him
 	// and Carol with Carol being the funder.
-	dave, err := net.NewNode("Dave", nil)
-	if err != nil {
-		t.Fatalf("unable to create dave's node: %v", err)
-	}
+	dave := net.NewNode(t.t, "Dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -7568,10 +7496,7 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	args := []string{
 		fmt.Sprintf("--maxpendingchannels=%v", maxPendingChannels),
 	}
-	carol, err := net.NewNode("Carol", args)
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", args)
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
@@ -7603,7 +7528,7 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// Carol exhausted available amount of pending channels, next open
 	// channel request should cause ErrorGeneric to be sent back to Alice.
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
-	_, err = net.OpenChannel(
+	_, err := net.OpenChannel(
 		ctxt, net.Alice, carol,
 		lntest.OpenChannelParams{
 			Amt: amount,
@@ -7730,10 +7655,7 @@ func testFailingChannel(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// We'll introduce Carol, which will settle any incoming invoice with a
 	// totally unrelated preimage.
-	carol, err := net.NewNode("Carol", []string{"--hodl.bogus-settle"})
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", []string{"--hodl.bogus-settle"})
 	defer shutdownAndAssert(net, t, carol)
 
 	// Let Alice connect and open a channel to Carol,
@@ -7934,10 +7856,7 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 
 	// Create Carol's node and connect Alice to her.
-	carol, err := net.NewNode("Carol", nil)
-	if err != nil {
-		t.Fatalf("unable to create carol's node: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", nil)
 	defer shutdownAndAssert(net, t, carol)
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	if err := net.ConnectNodes(ctxt, net.Alice, carol); err != nil {
@@ -7957,11 +7876,9 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 	// Now, create Dave's a node and also open a channel between Alice and
 	// him. This link will serve as the only persistent link throughout
 	// restarts in this test.
-	dave, err := net.NewNode("Dave", nil)
-	if err != nil {
-		t.Fatalf("unable to create dave's node: %v", err)
-	}
+	dave := net.NewNode(t.t, "Dave", nil)
 	defer shutdownAndAssert(net, t, dave)
+
 	if err := net.ConnectNodes(ctxt, net.Alice, dave); err != nil {
 		t.Fatalf("unable to connect alice to dave: %v", err)
 	}
@@ -8023,7 +7940,7 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 	require.Eventually(t.t, func() bool {
 		return isConnected(dave.PubKeyStr)
 	}, defaultTimeout, 20*time.Millisecond)
-	err = wait.Predicate(func() bool {
+	err := wait.Predicate(func() bool {
 		return isConnected(dave.PubKeyStr)
 	}, defaultTimeout)
 
@@ -8182,13 +8099,10 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	// protection logic automatically. We also can't have Carol
 	// automatically re-connect too early, otherwise DLP would be initiated
 	// instead of the breach we want to provoke.
-	carol, err := net.NewNode(
-		"Carol",
+	carol := net.NewNode(
+		t.t, "Carol",
 		[]string{"--hodl.exit-settle", "--nolisten", "--minbackoff=1h"},
 	)
-	if err != nil {
-		t.Fatalf("unable to create new carol node: %v", err)
-	}
 	defer shutdownAndAssert(net, t, carol)
 
 	// We must let Bob communicate with Carol before they are able to open
@@ -8201,7 +8115,7 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	// Before we make a channel, we'll load up Carol with some coins sent
 	// directly from the miner.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
+	err := net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
 	if err != nil {
 		t.Fatalf("unable to send coins to carol: %v", err)
 	}
@@ -8448,10 +8362,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 
 	// Since we'd like to test some multi-hop failure scenarios, we'll
 	// introduce another node into our test network: Carol.
-	carol, err := net.NewNode("Carol", []string{"--hodl.exit-settle"})
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", []string{"--hodl.exit-settle"})
 	defer shutdownAndAssert(net, t, carol)
 
 	// Dave will be the breached party. We set --nolisten to ensure Carol
@@ -8459,13 +8370,10 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	// protection logic automatically. We also can't have Dave automatically
 	// re-connect too early, otherwise DLP would be initiated instead of the
 	// breach we want to provoke.
-	dave, err := net.NewNode(
-		"Dave",
+	dave := net.NewNode(
+		t.t, "Dave",
 		[]string{"--hodl.exit-settle", "--nolisten", "--minbackoff=1h"},
 	)
-	if err != nil {
-		t.Fatalf("unable to create new node: %v", err)
-	}
 	defer shutdownAndAssert(net, t, dave)
 
 	// We must let Dave have an open channel before she can send a node
@@ -8478,7 +8386,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	// Before we make a channel, we'll load up Dave with some coins sent
 	// directly from the miner.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, dave)
+	err := net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, dave)
 	if err != nil {
 		t.Fatalf("unable to send coins to dave: %v", err)
 	}
@@ -8699,10 +8607,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// Since this test will result in the counterparty being left in a
 	// weird state, we will introduce another node into our test network:
 	// Carol.
-	carol, err := net.NewNode("Carol", []string{"--hodl.exit-settle"})
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", []string{"--hodl.exit-settle"})
 	defer shutdownAndAssert(net, t, carol)
 
 	// We'll also create a new node Dave, who will have a channel with
@@ -8710,13 +8615,10 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// with active HTLCs. Dave will be the breached party. We set
 	// --nolisten to ensure Carol won't be able to connect to him and
 	// trigger the channel data protection logic automatically.
-	dave, err := net.NewNode(
-		"Dave",
+	dave := net.NewNode(
+		t.t, "Dave",
 		[]string{"--hodl.exit-settle", "--nolisten"},
 	)
-	if err != nil {
-		t.Fatalf("unable to create new dave node: %v", err)
-	}
 	defer shutdownAndAssert(net, t, dave)
 
 	// We must let Dave communicate with Carol before they are able to open
@@ -8729,7 +8631,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// Before we make a channel, we'll load up Dave with some coins sent
 	// directly from the miner.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, dave)
+	err := net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, dave)
 	if err != nil {
 		t.Fatalf("unable to send coins to dave: %v", err)
 	}
@@ -9166,22 +9068,16 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(
 	if anchors {
 		carolArgs = append(carolArgs, "--protocol.anchors")
 	}
-	carol, err := net.NewNode("Carol", carolArgs)
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", carolArgs)
 	defer shutdownAndAssert(net, t, carol)
 
 	// Willy the watchtower will protect Dave from Carol's breach. He will
 	// remain online in order to punish Carol on Dave's behalf, since the
 	// breach will happen while Dave is offline.
-	willy, err := net.NewNode("Willy", []string{
+	willy := net.NewNode(t.t, "Willy", []string{
 		"--watchtower.active",
 		"--watchtower.externalip=" + externalIP,
 	})
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
 	defer shutdownAndAssert(net, t, willy)
 
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
@@ -9226,10 +9122,7 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(
 	if anchors {
 		daveArgs = append(daveArgs, "--protocol.anchors")
 	}
-	dave, err := net.NewNode("Dave", daveArgs)
-	if err != nil {
-		t.Fatalf("unable to create new node: %v", err)
-	}
+	dave := net.NewNode(t.t, "Dave", daveArgs)
 	defer shutdownAndAssert(net, t, dave)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -9746,25 +9639,19 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 	// protection logic automatically. We also can't have Carol
 	// automatically re-connect too early, otherwise DLP would be initiated
 	// at the wrong moment.
-	carol, err := net.NewNode(
-		"Carol", []string{"--nolisten", "--minbackoff=1h"},
+	carol := net.NewNode(
+		t.t, "Carol", []string{"--nolisten", "--minbackoff=1h"},
 	)
-	if err != nil {
-		t.Fatalf("unable to create new carol node: %v", err)
-	}
 	defer shutdownAndAssert(net, t, carol)
 
 	// Dave will be the party losing his state.
-	dave, err := net.NewNode("Dave", nil)
-	if err != nil {
-		t.Fatalf("unable to create new node: %v", err)
-	}
+	dave := net.NewNode(t.t, "Dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
 	// Before we make a channel, we'll load up Carol with some coins sent
 	// directly from the miner.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
+	err := net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
 	if err != nil {
 		t.Fatalf("unable to send coins to carol: %v", err)
 	}
@@ -10102,10 +9989,7 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
 	// Create Carol with reject htlc flag.
-	carol, err := net.NewNode("Carol", []string{"--rejecthtlc"})
-	if err != nil {
-		t.Fatalf("unable to create new node: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", []string{"--rejecthtlc"})
 	defer shutdownAndAssert(net, t, carol)
 
 	// Connect Alice to Carol.
@@ -10119,7 +10003,7 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Send coins to Carol.
-	err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, carol)
+	err := net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, carol)
 	if err != nil {
 		t.Fatalf("unable to send coins to carol: %v", err)
 	}
@@ -10377,8 +10261,7 @@ func testGraphTopologyNtfns(net *lntest.NetworkHarness, t *harnessTest, pinned b
 
 	// Spin up Bob first, since we will need to grab his pubkey when
 	// starting Alice to test pinned syncing.
-	bob, err := net.NewNode("bob", nil)
-	require.NoError(t.t, err)
+	bob := net.NewNode(t.t, "bob", nil)
 	defer shutdownAndAssert(net, t, bob)
 
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
@@ -10396,8 +10279,7 @@ func testGraphTopologyNtfns(net *lntest.NetworkHarness, t *harnessTest, pinned b
 		}
 	}
 
-	alice, err := net.NewNode("alice", aliceArgs)
-	require.NoError(t.t, err)
+	alice := net.NewNode(t.t, "alice", aliceArgs)
 	defer shutdownAndAssert(net, t, alice)
 
 	// Connect Alice and Bob.
@@ -10562,10 +10444,7 @@ out:
 	if err := net.DisconnectNodes(ctxt, alice, bob); err != nil {
 		t.Fatalf("unable to disconnect alice and bob: %v", err)
 	}
-	carol, err := net.NewNode("Carol", nil)
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", nil)
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -10667,10 +10546,7 @@ func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 		lndArgs = append(lndArgs, "--externalip="+addr)
 	}
 
-	dave, err := net.NewNode("Dave", lndArgs)
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	dave := net.NewNode(t.t, "Dave", lndArgs)
 	defer shutdownAndAssert(net, t, dave)
 
 	// We must let Dave have an open channel before he can send a node
@@ -10791,10 +10667,7 @@ func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// carol is a new node that is unconnected to alice or bob.
-	carol, err := net.NewNode("Carol", nil)
-	if err != nil {
-		t.Fatalf("unable to create new node: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", nil)
 	defer shutdownAndAssert(net, t, carol)
 
 	carolMsg := []byte("carol msg")
@@ -11348,10 +11221,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	//     Carol -> Dave -> Alice -> Bob
 	//
 	// First, we'll create Dave and establish a channel to Alice.
-	dave, err := net.NewNode("Dave", nil)
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	dave := net.NewNode(t.t, "Dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -11384,10 +11254,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// Next, we'll create Carol and establish a channel to from her to
 	// Dave. Carol is started in htlchodl mode so that we can disconnect the
 	// intermediary hops before starting the settle.
-	carol, err := net.NewNode("Carol", []string{"--hodl.exit-settle"})
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", []string{"--hodl.exit-settle"})
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -11668,10 +11535,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	//     Carol -> Dave -> Alice -> Bob
 	//
 	// First, we'll create Dave and establish a channel to Alice.
-	dave, err := net.NewNode("Dave", nil)
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	dave := net.NewNode(t.t, "Dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -11704,10 +11568,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	// Next, we'll create Carol and establish a channel to from her to
 	// Dave. Carol is started in htlchodl mode so that we can disconnect the
 	// intermediary hops before starting the settle.
-	carol, err := net.NewNode("Carol", []string{"--hodl.exit-settle"})
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", []string{"--hodl.exit-settle"})
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -12007,10 +11868,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	//     Carol -> Dave -> Alice -> Bob
 	//
 	// First, we'll create Dave and establish a channel to Alice.
-	dave, err := net.NewNode("Dave", nil)
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	dave := net.NewNode(t.t, "Dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -12044,10 +11902,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	// Next, we'll create Carol and establish a channel to from her to
 	// Dave. Carol is started in htlchodl mode so that we can disconnect the
 	// intermediary hops before starting the settle.
-	carol, err := net.NewNode("Carol", []string{"--hodl.exit-settle"})
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", []string{"--hodl.exit-settle"})
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -12340,10 +12195,7 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	//     Carol -> Dave -> Alice -> Bob
 	//
 	// First, we'll create Dave and establish a channel to Alice.
-	dave, err := net.NewNode("Dave", nil)
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	dave := net.NewNode(t.t, "Dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -12376,10 +12228,7 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	// Next, we'll create Carol and establish a channel to from her to
 	// Dave. Carol is started in htlchodl mode so that we can disconnect the
 	// intermediary hops before starting the settle.
-	carol, err := net.NewNode("Carol", []string{"--hodl.exit-settle"})
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", []string{"--hodl.exit-settle"})
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	if err := net.ConnectNodes(ctxt, carol, dave); err != nil {
 		t.Fatalf("unable to connect carol to dave: %v", err)
@@ -12597,10 +12446,7 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 	networkChans = append(networkChans, chanPointAlice)
 
 	// Create Carol and establish a channel from Bob.
-	carol, err := net.NewNode("Carol", nil)
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", nil)
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -12608,7 +12454,7 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to connect carol to bob: %v", err)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, net.Bob)
+	err := net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, net.Bob)
 	if err != nil {
 		t.Fatalf("unable to send coins to bob: %v", err)
 	}
@@ -12622,10 +12468,7 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 	networkChans = append(networkChans, chanPointBob)
 
 	// Create Dave and establish a channel from Carol.
-	dave, err := net.NewNode("Dave", nil)
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
+	dave := net.NewNode(t.t, "Dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -12906,10 +12749,7 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Create Carol's node and open a channel between her and Alice with
 	// Alice being the funder.
-	carol, err := net.NewNode("Carol", nil)
-	if err != nil {
-		t.Fatalf("unable to create carol's node: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", nil)
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -12917,7 +12757,7 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to connect carol to alice: %v", err)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
+	err := net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
 	if err != nil {
 		t.Fatalf("unable to send coins to carol: %v", err)
 	}
@@ -12931,10 +12771,7 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Create Dave's node and open a channel between him and Bob with Bob
 	// being the funder.
-	dave, err := net.NewNode("Dave", nil)
-	if err != nil {
-		t.Fatalf("unable to create dave's node: %v", err)
-	}
+	dave := net.NewNode(t.t, "Dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -13178,15 +13015,13 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	)
 
-	carol, err := net.NewNode("Carol", []string{
-		"--minbackoff=10s",
-		"--chan-enable-timeout=1.5s",
-		"--chan-disable-timeout=3s",
-		"--chan-status-sample-interval=.5s",
-	})
-	if err != nil {
-		t.Fatalf("unable to create carol's node: %v", err)
-	}
+	carol := net.NewNode(
+		t.t, "Carol", []string{
+			"--minbackoff=10s",
+			"--chan-enable-timeout=1.5s",
+			"--chan-disable-timeout=3s",
+			"--chan-status-sample-interval=.5s",
+		})
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -13204,20 +13039,18 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	// We create a new node Eve that has an inactive channel timeout of
 	// just 2 seconds (down from the default 20m). It will be used to test
 	// channel updates for channels going inactive.
-	eve, err := net.NewNode("Eve", []string{
-		"--minbackoff=10s",
-		"--chan-enable-timeout=1.5s",
-		"--chan-disable-timeout=3s",
-		"--chan-status-sample-interval=.5s",
-	})
-	if err != nil {
-		t.Fatalf("unable to create eve's node: %v", err)
-	}
+	eve := net.NewNode(
+		t.t, "Eve", []string{
+			"--minbackoff=10s",
+			"--chan-enable-timeout=1.5s",
+			"--chan-disable-timeout=3s",
+			"--chan-status-sample-interval=.5s",
+		})
 	defer shutdownAndAssert(net, t, eve)
 
 	// Give Eve some coins.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, eve)
+	err := net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, eve)
 	if err != nil {
 		t.Fatalf("unable to send coins to eve: %v", err)
 	}
@@ -13243,10 +13076,7 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	// Launch a node for Dave which will connect to Bob in order to receive
 	// graph updates from. This will ensure that the channel updates are
 	// propagated throughout the network.
-	dave, err := net.NewNode("Dave", nil)
-	if err != nil {
-		t.Fatalf("unable to create dave's node: %v", err)
-	}
+	dave := net.NewNode(t.t, "Dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -13568,16 +13398,13 @@ func testSweepAllCoins(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// First, we'll make a new node, ainz who'll we'll use to test wallet
 	// sweeping.
-	ainz, err := net.NewNode("Ainz", nil)
-	if err != nil {
-		t.Fatalf("unable to create new node: %v", err)
-	}
+	ainz := net.NewNode(t.t, "Ainz", nil)
 	defer shutdownAndAssert(net, t, ainz)
 
 	// Next, we'll give Ainz exactly 2 utxos of 1 BTC each, with one of
 	// them being p2wkh and the other being a n2wpkh address.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, ainz)
+	err := net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, ainz)
 	if err != nil {
 		t.Fatalf("unable to send coins to eve: %v", err)
 	}
@@ -14103,7 +13930,9 @@ func TestLightningNetworkDaemon(t *testing.T) {
 				testCase.name, " ", "_",
 			)
 
-			err = lndHarness.SetUp(cleanTestCaseName, aliceBobArgs)
+			err = lndHarness.SetUp(
+				t1, cleanTestCaseName, aliceBobArgs,
+			)
 			require.NoError(t1,
 				err, "unable to set up test lightning network",
 			)

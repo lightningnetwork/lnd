@@ -81,16 +81,10 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 			ht := newHarnessTest(t, net)
 
 			args := commitType.Args()
-			alice, err := net.NewNode("Alice", args)
-			if err != nil {
-				t.Fatalf("unable to create new node: %v", err)
-			}
+			alice := net.NewNode(t, "Alice", args)
 			defer shutdownAndAssert(net, ht, alice)
 
-			bob, err := net.NewNode("Bob", args)
-			if err != nil {
-				t.Fatalf("unable to create new node: %v", err)
-			}
+			bob := net.NewNode(t, "Bob", args)
 			defer shutdownAndAssert(net, ht, bob)
 
 			ctxb := context.Background()
@@ -267,10 +261,8 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 	if carolHodl {
 		carolFlags = append(carolFlags, "--hodl.exit-settle")
 	}
-	carol, err := net.NewNode("Carol", carolFlags)
-	if err != nil {
-		t.Fatalf("unable to create new node: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", carolFlags)
+
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	if err := net.ConnectNodes(ctxt, bob, carol); err != nil {
 		t.Fatalf("unable to connect bob to carol: %v", err)

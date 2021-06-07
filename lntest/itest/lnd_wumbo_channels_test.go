@@ -19,23 +19,17 @@ func testWumboChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	//
 	// We'll make two new nodes, with one of them signalling support for
 	// wumbo channels while the other doesn't.
-	wumboNode, err := net.NewNode(
-		"wumbo", []string{"--protocol.wumbo-channels"},
+	wumboNode := net.NewNode(
+		t.t, "wumbo", []string{"--protocol.wumbo-channels"},
 	)
-	if err != nil {
-		t.Fatalf("unable to create new node: %v", err)
-	}
 	defer shutdownAndAssert(net, t, wumboNode)
-	miniNode, err := net.NewNode("mini", nil)
-	if err != nil {
-		t.Fatalf("unable to create new node: %v", err)
-	}
+	miniNode := net.NewNode(t.t, "mini", nil)
 	defer shutdownAndAssert(net, t, miniNode)
 
 	// We'll send coins to the wumbo node, as it'll be the one imitating
 	// the channel funding.
 	ctxb := context.Background()
-	err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, wumboNode)
+	err := net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, wumboNode)
 	if err != nil {
 		t.Fatalf("unable to send coins to carol: %v", err)
 	}
@@ -67,12 +61,9 @@ func testWumboChannels(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// We'll now make another wumbo node to accept our wumbo channel
 	// funding.
-	wumboNode2, err := net.NewNode(
-		"wumbo2", []string{"--protocol.wumbo-channels"},
+	wumboNode2 := net.NewNode(
+		t.t, "wumbo2", []string{"--protocol.wumbo-channels"},
 	)
-	if err != nil {
-		t.Fatalf("unable to create new node: %v", err)
-	}
 	defer shutdownAndAssert(net, t, wumboNode2)
 
 	// Creating a wumbo channel between these two nodes should succeed.

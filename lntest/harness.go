@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
@@ -26,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/grpclog"
 )
 
@@ -144,7 +146,9 @@ func (f *fakeLogger) Println(args ...interface{})               {}
 // rpc clients capable of communicating with the initial seeder nodes are
 // created. Nodes are initialized with the given extra command line flags, which
 // should be formatted properly - "--arg=value".
-func (n *NetworkHarness) SetUp(testCase string, lndArgs []string) error {
+func (n *NetworkHarness) SetUp(t *testing.T,
+	testCase string, lndArgs []string) error {
+
 	// Swap out grpc's default logger with out fake logger which drops the
 	// statements on the floor.
 	grpclog.SetLogger(&fakeLogger{})
@@ -153,32 +157,16 @@ func (n *NetworkHarness) SetUp(testCase string, lndArgs []string) error {
 	// Start the initial seeder nodes within the test network, then connect
 	// their respective RPC clients.
 	var wg sync.WaitGroup
-	errChan := make(chan error, 2)
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		node, err := n.NewNode("Alice", lndArgs)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		n.Alice = node
+		n.Alice = n.NewNode(t, "Alice", lndArgs)
 	}()
 	go func() {
 		defer wg.Done()
-		node, err := n.NewNode("Bob", lndArgs)
-		if err != nil {
-			errChan <- err
-			return
-		}
-		n.Bob = node
+		n.Bob = n.NewNode(t, "Bob", lndArgs)
 	}()
 	wg.Wait()
-	select {
-	case err := <-errChan:
-		return err
-	default:
-	}
 
 	// First, make a connection between the two nodes. This will wait until
 	// both nodes are fully started since the Connect RPC is guarded behind
@@ -346,10 +334,15 @@ func (n *NetworkHarness) NewNodeEtcd(name string, etcdCfg *etcd.Config,
 // NewNode fully initializes a returns a new HarnessNode bound to the
 // current instance of the network harness. The created node is running, but
 // not yet connected to other nodes within the network.
-func (n *NetworkHarness) NewNode(name string, extraArgs []string) (*HarnessNode,
-	error) {
+func (n *NetworkHarness) NewNode(t *testing.T,
+	name string, extraArgs []string) *HarnessNode {
 
-	return n.newNode(name, extraArgs, false, nil, n.embeddedEtcd, true)
+	node, err := n.newNode(
+		name, extraArgs, false, nil, n.embeddedEtcd, true,
+	)
+	require.NoErrorf(t, err, "unable to create new node for %s", name)
+
+	return node
 }
 
 // NewNodeWithSeed fully initializes a new HarnessNode after creating a fresh

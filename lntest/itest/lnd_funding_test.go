@@ -37,19 +37,17 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		// preferentially signal the legacy commitment format.  We do
 		// the same for Dave shortly below.
 		carolArgs := carolCommitType.Args()
-		carol, err := net.NewNode("Carol", carolArgs)
-		require.NoError(t.t, err, "unable to create new node")
+		carol := net.NewNode(t.t, "Carol", carolArgs)
 		defer shutdownAndAssert(net, t, carol)
 
 		// Each time, we'll send Carol a new set of coins in order to
 		// fund the channel.
 		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
+		err := net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
 		require.NoError(t.t, err, "unable to send coins to carol")
 
 		daveArgs := daveCommitType.Args()
-		dave, err := net.NewNode("Dave", daveArgs)
-		require.NoError(t.t, err, "unable to create new node")
+		dave := net.NewNode(t.t, "Dave", daveArgs)
 		defer shutdownAndAssert(net, t, dave)
 
 		// Before we start the test, we'll ensure both sides are
@@ -260,13 +258,12 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 
 	// We'll start off by creating a node for Carol.
-	carol, err := net.NewNode("Carol", nil)
-	require.NoError(t.t, err, "unable to create carol's node")
+	carol := net.NewNode(t.t, "Carol", nil)
 	defer shutdownAndAssert(net, t, carol)
 
 	// We'll send her some confirmed funds.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err = net.SendCoins(ctxt, 2*chanAmt, carol)
+	err := net.SendCoins(ctxt, 2*chanAmt, carol)
 	require.NoError(t.t, err, "unable to send coins to carol")
 
 	// Now let Carol send some funds to herself, making a unconfirmed
@@ -385,18 +382,16 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// First, we'll create two new nodes that we'll use to open channel
 	// between for this test.
-	carol, err := net.NewNode("carol", nil)
-	require.NoError(t.t, err)
+	carol := net.NewNode(t.t, "carol", nil)
 	defer shutdownAndAssert(net, t, carol)
 
-	dave, err := net.NewNode("dave", nil)
-	require.NoError(t.t, err)
+	dave := net.NewNode(t.t, "dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
 	// Carol will be funding the channel, so we'll send some coins over to
 	// her and ensure they have enough confirmations before we proceed.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
+	err := net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
 	require.NoError(t.t, err)
 
 	// Before we start the test, we'll ensure both sides are connected to

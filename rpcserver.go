@@ -5531,8 +5531,24 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 
 // StopDaemon will send a shutdown request to the interrupt handler, triggering
 // a graceful shutdown of the daemon.
-func (r *rpcServer) StopDaemon(ctx context.Context,
+func (r *rpcServer) StopDaemon(_ context.Context,
 	_ *lnrpc.StopRequest) (*lnrpc.StopResponse, error) {
+
+	// Before we even consider a shutdown, are we currently in recovery
+	// mode? We don't want to allow shutting down during recovery because
+	// that would mean the user would have to manually continue the rescan
+	// process next time by using `lncli unlock --recovery_window X`
+	// otherwise some funds wouldn't be picked up.
+	isRecoveryMode, progress, err := r.server.cc.Wallet.GetRecoveryInfo()
+	if err != nil {
+		return nil, fmt.Errorf("unable to get wallet recovery info: %v",
+			err)
+	}
+	if isRecoveryMode && progress < 1 {
+		return nil, fmt.Errorf("wallet recovery in progress, cannot " +
+			"shut down, please wait until rescan finishes")
+	}
+
 	r.interceptor.RequestShutdown()
 	return &lnrpc.StopResponse{}, nil
 }

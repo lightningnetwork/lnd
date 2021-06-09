@@ -682,26 +682,27 @@ func fetchPaymentWithSequenceNumber(tx kvdb.RTx, paymentHash lntypes.Hash,
 // failedHtlsOnly is set, the payment itself won't be deleted, only failed HTLC
 // attempts.
 func (db *DB) DeletePayments(failedOnly, failedHtlcsOnly bool) error {
-	return kvdb.Update(db, func(tx kvdb.RwTx) error {
-		payments := tx.ReadWriteBucket(paymentsRootBucket)
+	var (
+		// deleteBuckets is the set of payment buckets we need
+		// to delete.
+		deleteBuckets [][]byte
+
+		// deleteIndexes is the set of indexes pointing to these
+		// payments that need to be deleted.
+		deleteIndexes [][]byte
+
+		// deleteHtlcs maps a payment hash to the HTLC IDs we
+		// want to delete for that payment.
+		deleteHtlcs = make(map[lntypes.Hash][][]byte)
+	)
+
+	err := kvdb.View(db, func(tx kvdb.RTx) error {
+		payments := tx.ReadBucket(paymentsRootBucket)
 		if payments == nil {
 			return nil
 		}
 
-		var (
-			// deleteBuckets is the set of payment buckets we need
-			// to delete.
-			deleteBuckets [][]byte
-
-			// deleteIndexes is the set of indexes pointing to these
-			// payments that need to be deleted.
-			deleteIndexes [][]byte
-
-			// deleteHtlcs maps a payment hash to the HTLC IDs we
-			// want to delete for that payment.
-			deleteHtlcs = make(map[lntypes.Hash][][]byte)
-		)
-		err := payments.ForEach(func(k, _ []byte) error {
+		return payments.ForEach(func(k, _ []byte) error {
 			bucket := payments.NestedReadBucket(k)
 			if bucket == nil {
 				// We only expect sub-buckets to be found in
@@ -785,8 +786,15 @@ func (db *DB) DeletePayments(failedOnly, failedHtlcsOnly bool) error {
 			deleteIndexes = append(deleteIndexes, seqNrs...)
 			return nil
 		})
-		if err != nil {
-			return err
+	}, func(){})
+	if err != nil {
+		return err
+	}
+
+	return kvdb.Update(db, func(tx kvdb.RwTx) error {
+		payments := tx.ReadWriteBucket(paymentsRootBucket)
+		if payments == nil {
+			return nil
 		}
 
 		// Delete the failed HTLC attempts we found.

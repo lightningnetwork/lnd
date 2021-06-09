@@ -982,6 +982,10 @@ type OpenChannelParams struct {
 	// SatPerVByte is the amount of satoshis to spend in chain fees per virtual
 	// byte of the transaction.
 	SatPerVByte btcutil.Amount
+
+	// CommitmentType is the commitment type that should be used for the
+	// channel to be opened.
+	CommitmentType lnrpc.CommitmentType
 }
 
 // OpenChannel attempts to open a channel between srcNode and destNode with the
@@ -1025,6 +1029,7 @@ func (n *NetworkHarness) OpenChannel(srcNode, destNode *HarnessNode,
 		RemoteMaxHtlcs:     uint32(p.RemoteMaxHtlcs),
 		FundingShim:        p.FundingShim,
 		SatPerByte:         int64(p.SatPerVByte),
+		CommitmentType:     p.CommitmentType,
 	}
 
 	respStream, err := srcNode.OpenChannel(ctx, openReq)

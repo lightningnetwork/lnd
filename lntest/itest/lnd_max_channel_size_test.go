@@ -30,15 +30,12 @@ func testMaxChannelSize(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// We'll send 11 BTC to the wumbo node so it can test the wumbo soft limit.
 	ctxb := context.Background()
-	err := net.SendCoins(ctxb, 11*btcutil.SatoshiPerBitcoin, wumboNode)
-	if err != nil {
-		t.Fatalf("unable to send coins to wumbo node: %v", err)
-	}
+	net.SendCoins(ctxb, t.t, 11*btcutil.SatoshiPerBitcoin, wumboNode)
 
 	// Next we'll connect both nodes, then attempt to make a wumbo channel
 	// funding request, which should fail as it exceeds the default wumbo
 	// soft limit of 10 BTC.
-	err = net.EnsureConnected(ctxb, wumboNode, wumboNode2)
+	err := net.EnsureConnected(ctxb, wumboNode, wumboNode2)
 	if err != nil {
 		t.Fatalf("unable to connect peers: %v", err)
 	}

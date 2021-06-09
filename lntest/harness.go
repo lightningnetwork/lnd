@@ -1351,35 +1351,44 @@ func (n *NetworkHarness) DumpLogs(node *HarnessNode) (string, error) {
 // SendCoins attempts to send amt satoshis from the internal mining node to the
 // targeted lightning node using a P2WKH address. 6 blocks are mined after in
 // order to confirm the transaction.
-func (n *NetworkHarness) SendCoins(ctx context.Context, amt btcutil.Amount,
-	target *HarnessNode) error {
+func (n *NetworkHarness) SendCoins(ctx context.Context, t *testing.T,
+	amt btcutil.Amount, target *HarnessNode) {
 
-	return n.sendCoins(
+	err := n.sendCoins(
 		ctx, amt, target, lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 		true,
 	)
+	require.NoErrorf(t, err, "unable to send coins for %s", target.Cfg.Name)
 }
 
 // SendCoinsUnconfirmed sends coins from the internal mining node to the target
 // lightning node using a P2WPKH address. No blocks are mined after, so the
 // transaction remains unconfirmed.
 func (n *NetworkHarness) SendCoinsUnconfirmed(ctx context.Context,
-	amt btcutil.Amount, target *HarnessNode) error {
+	t *testing.T, amt btcutil.Amount, target *HarnessNode) {
 
-	return n.sendCoins(
+	err := n.sendCoins(
 		ctx, amt, target, lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 		false,
+	)
+	require.NoErrorf(
+		t, err, "unable to send unconfirmed coins for %s",
+		target.Cfg.Name,
 	)
 }
 
 // SendCoinsNP2WKH attempts to send amt satoshis from the internal mining node
 // to the targeted lightning node using a NP2WKH address.
 func (n *NetworkHarness) SendCoinsNP2WKH(ctx context.Context,
-	amt btcutil.Amount, target *HarnessNode) error {
+	t *testing.T, amt btcutil.Amount, target *HarnessNode) {
 
-	return n.sendCoins(
+	err := n.sendCoins(
 		ctx, amt, target, lnrpc.AddressType_NESTED_PUBKEY_HASH,
 		true,
+	)
+	require.NoErrorf(
+		t, err, "unable to send NP2WKH coins for %s",
+		target.Cfg.Name,
 	)
 }
 

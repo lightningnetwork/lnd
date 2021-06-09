@@ -296,10 +296,7 @@ func (c *mppTestContext) openChannel(from, to *lntest.HarnessNode, chanSize btcu
 	ctxb := context.Background()
 
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err := c.net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, from)
-	if err != nil {
-		c.t.Fatalf("unable to send coins : %v", err)
-	}
+	c.net.SendCoins(ctxt, c.t.t, btcutil.SatoshiPerBitcoin, from)
 
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(

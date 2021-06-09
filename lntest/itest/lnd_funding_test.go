@@ -43,8 +43,7 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		// Each time, we'll send Carol a new set of coins in order to
 		// fund the channel.
 		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		err := net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
-		require.NoError(t.t, err, "unable to send coins to carol")
+		net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
 
 		daveArgs := daveCommitType.Args()
 		dave := net.NewNode(t.t, "Dave", daveArgs)
@@ -53,7 +52,7 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		// Before we start the test, we'll ensure both sides are
 		// connected to the funding flow can properly be executed.
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		err = net.EnsureConnected(ctxt, carol, dave)
+		err := net.EnsureConnected(ctxt, carol, dave)
 		require.NoError(t.t, err, "unable to connect peers")
 
 		carolChan, daveChan, closeChan, err := basicChannelFundingTest(
@@ -263,8 +262,7 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// We'll send her some confirmed funds.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err := net.SendCoins(ctxt, 2*chanAmt, carol)
-	require.NoError(t.t, err, "unable to send coins to carol")
+	net.SendCoins(ctxt, t.t, 2*chanAmt, carol)
 
 	// Now let Carol send some funds to herself, making a unconfirmed
 	// change output.
@@ -391,13 +389,12 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 	// Carol will be funding the channel, so we'll send some coins over to
 	// her and ensure they have enough confirmations before we proceed.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err := net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
-	require.NoError(t.t, err)
+	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
 
 	// Before we start the test, we'll ensure both sides are connected to
 	// the funding flow can properly be executed.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.EnsureConnected(ctxt, carol, dave)
+	err := net.EnsureConnected(ctxt, carol, dave)
 	require.NoError(t.t, err)
 
 	// At this point, we're ready to simulate our external channel funding

@@ -227,7 +227,8 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 	aliceChanPoint := openChannelAndAssert(
 		ctxt, t, net, alice, bob,
 		lntest.OpenChannelParams{
-			Amt: chanAmt,
+			Amt:            chanAmt,
+			CommitmentType: c,
 		},
 	)
 
@@ -270,7 +271,8 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 	bobChanPoint := openChannelAndAssert(
 		ctxt, t, net, bob, carol,
 		lntest.OpenChannelParams{
-			Amt: chanAmt,
+			Amt:            chanAmt,
+			CommitmentType: c,
 		},
 	)
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)

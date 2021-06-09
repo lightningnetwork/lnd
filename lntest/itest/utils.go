@@ -208,45 +208,15 @@ func getChanInfo(node *lntest.HarnessNode) (*lnrpc.Channel, error) {
 	return channelInfo.Channels[0], nil
 }
 
-// commitType is a simple enum used to run though the basic funding flow with
-// different commitment formats.
-type commitType byte
-
-const (
-	// commitTypeLegacy is the old school commitment type.
-	commitTypeLegacy commitType = iota
-
-	// commiTypeTweakless is the commitment type where the remote key is
-	// static (non-tweaked).
-	commitTypeTweakless
-
-	// commitTypeAnchors is the kind of commitment that has extra outputs
-	// used for anchoring down to commitment using CPFP.
-	commitTypeAnchors
-)
-
-// String returns that name of the commitment type.
-func (c commitType) String() string {
-	switch c {
-	case commitTypeLegacy:
-		return "legacy"
-	case commitTypeTweakless:
-		return "tweakless"
-	case commitTypeAnchors:
-		return "anchors"
-	default:
-		return "invalid"
-	}
-}
-
-// Args returns the command line flag to supply to enable this commitment type.
-func (c commitType) Args() []string {
-	switch c {
-	case commitTypeLegacy:
+// nodeArgsForCommitType returns the command line flag to supply to enable this
+// commitment type.
+func nodeArgsForCommitType(commitType lnrpc.CommitmentType) []string {
+	switch commitType {
+	case lnrpc.CommitmentType_LEGACY:
 		return []string{"--protocol.legacy.committweak"}
-	case commitTypeTweakless:
+	case lnrpc.CommitmentType_STATIC_REMOTE_KEY:
 		return []string{}
-	case commitTypeAnchors:
+	case lnrpc.CommitmentType_ANCHORS:
 		return []string{"--protocol.anchors"}
 	}
 
@@ -256,7 +226,7 @@ func (c commitType) Args() []string {
 // calcStaticFee calculates appropriate fees for commitment transactions.  This
 // function provides a simple way to allow test balance assertions to take fee
 // calculations into account.
-func (c commitType) calcStaticFee(numHTLCs int) btcutil.Amount {
+func calcStaticFee(c lnrpc.CommitmentType, numHTLCs int) btcutil.Amount {
 	const htlcWeight = input.HTLCWeight
 	var (
 		feePerKw     = chainfee.SatPerKVByte(50000).FeePerKWeight()
@@ -268,7 +238,7 @@ func (c commitType) calcStaticFee(numHTLCs int) btcutil.Amount {
 	// the value of the two anchors to the resulting fee the initiator
 	// pays. In addition the fee rate is capped at 10 sat/vbyte for anchor
 	// channels.
-	if c == commitTypeAnchors {
+	if c == lnrpc.CommitmentType_ANCHORS {
 		feePerKw = chainfee.SatPerKVByte(
 			lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte * 1000,
 		).FeePerKWeight()
@@ -283,7 +253,7 @@ func (c commitType) calcStaticFee(numHTLCs int) btcutil.Amount {
 // channelCommitType retrieves the active channel commitment type for the given
 // chan point.
 func channelCommitType(node *lntest.HarnessNode,
-	chanPoint *lnrpc.ChannelPoint) (commitType, error) {
+	chanPoint *lnrpc.ChannelPoint) (lnrpc.CommitmentType, error) {
 
 	ctxb := context.Background()
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
@@ -296,21 +266,7 @@ func channelCommitType(node *lntest.HarnessNode,
 
 	for _, c := range channels.Channels {
 		if c.ChannelPoint == txStr(chanPoint) {
-			switch c.CommitmentType {
-
-			// If the anchor output size is non-zero, we are
-			// dealing with the anchor type.
-			case lnrpc.CommitmentType_ANCHORS:
-				return commitTypeAnchors, nil
-
-			// StaticRemoteKey means it is tweakless,
-			case lnrpc.CommitmentType_STATIC_REMOTE_KEY:
-				return commitTypeTweakless, nil
-
-			// Otherwise legacy.
-			default:
-				return commitTypeLegacy, nil
-			}
+			return c.CommitmentType, nil
 		}
 	}
 

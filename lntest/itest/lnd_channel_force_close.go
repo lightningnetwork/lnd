@@ -76,7 +76,7 @@ func testCommitmentTransactionDeadline(net *lntest.NetworkHarness,
 	setupNode := func(name string) *lntest.HarnessNode {
 		// Create the node.
 		args := []string{"--hodl.exit-settle"}
-		args = append(args, commitTypeAnchors.Args()...)
+		args = append(args, nodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)...)
 		node := net.NewNode(t.t, name, args)
 
 		// Send some coins to the node.
@@ -244,9 +244,9 @@ func calculateTxnsFeeRate(t *testing.T,
 func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// We'll test the scenario for some of the commitment types, to ensure
 	// outputs can be swept.
-	commitTypes := []commitType{
-		commitTypeLegacy,
-		commitTypeAnchors,
+	commitTypes := []lnrpc.CommitmentType{
+		lnrpc.CommitmentType_LEGACY,
+		lnrpc.CommitmentType_ANCHORS,
 	}
 
 	for _, channelType := range commitTypes {
@@ -261,7 +261,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 		success := t.t.Run(testName, func(t *testing.T) {
 			ht := newHarnessTest(t, net)
 
-			args := channelType.Args()
+			args := nodeArgsForCommitType(channelType)
 			alice := net.NewNode(ht.t, "Alice", args)
 			defer shutdownAndAssert(net, ht, alice)
 
@@ -292,7 +292,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 }
 
 func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
-	alice, carol *lntest.HarnessNode, channelType commitType) {
+	alice, carol *lntest.HarnessNode, channelType lnrpc.CommitmentType) {
 
 	ctxb := context.Background()
 
@@ -407,7 +407,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	// sweep the HTLC second level output one block earlier (than the
 	// nursery that waits an additional block, and handles non-anchor
 	// channels). So we set a maturity height that is one less.
-	if channelType == commitTypeAnchors {
+	if channelType == lnrpc.CommitmentType_ANCHORS {
 		htlcCsvMaturityHeight = padCLTV(
 			startHeight + defaultCLTV + defaultCSV,
 		)
@@ -495,7 +495,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	// also expect the anchor sweep tx to be in the mempool.
 	expectedTxes := 1
 	expectedFeeRate := commitFeeRate
-	if channelType == commitTypeAnchors {
+	if channelType == lnrpc.CommitmentType_ANCHORS {
 		expectedTxes = 2
 		expectedFeeRate = actualFeeRate
 	}
@@ -528,7 +528,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 
 	// If we expect anchors, add alice's anchor to our expected set of
 	// reports.
-	if channelType == commitTypeAnchors {
+	if channelType == lnrpc.CommitmentType_ANCHORS {
 		aliceReports[aliceAnchor.OutPoint.String()] = &lnrpc.Resolution{
 			ResolutionType: lnrpc.ResolutionType_ANCHOR,
 			Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
@@ -585,7 +585,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 				"limbo")
 		}
 		expectedRecoveredBalance := int64(0)
-		if channelType == commitTypeAnchors {
+		if channelType == lnrpc.CommitmentType_ANCHORS {
 			expectedRecoveredBalance = anchorSize
 		}
 		if forceClose.RecoveredBalance != expectedRecoveredBalance {
@@ -634,7 +634,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	)
 
 	// If we have anchors, add an anchor resolution for carol.
-	if channelType == commitTypeAnchors {
+	if channelType == lnrpc.CommitmentType_ANCHORS {
 		carolReports[carolAnchor.OutPoint.String()] = &lnrpc.Resolution{
 			ResolutionType: lnrpc.ResolutionType_ANCHOR,
 			Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
@@ -709,7 +709,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 				"limbo")
 		}
 		expectedRecoveredBalance := int64(0)
-		if channelType == commitTypeAnchors {
+		if channelType == lnrpc.CommitmentType_ANCHORS {
 			expectedRecoveredBalance = anchorSize
 		}
 		if forceClose.RecoveredBalance != expectedRecoveredBalance {
@@ -943,7 +943,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	expectedTxes = numInvoices
 
 	// In case of anchors, the timeout txs will be aggregated into one.
-	if channelType == commitTypeAnchors {
+	if channelType == lnrpc.CommitmentType_ANCHORS {
 		expectedTxes = 1
 	}
 
@@ -961,7 +961,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	// this is an anchor channel, the transactions are aggregated by the
 	// sweeper into one.
 	numInputs := 1
-	if channelType == commitTypeAnchors {
+	if channelType == lnrpc.CommitmentType_ANCHORS {
 		numInputs = numInvoices + 1
 	}
 
@@ -1089,7 +1089,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	// Advance the chain until just before the 2nd-layer CSV delays expire.
 	// For anchor channels thhis is one block earlier.
 	numBlocks := uint32(defaultCSV - 1)
-	if channelType == commitTypeAnchors {
+	if channelType == lnrpc.CommitmentType_ANCHORS {
 		numBlocks = defaultCSV - 2
 
 	}
@@ -1320,7 +1320,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 
 	// In addition, if this is an anchor-enabled channel, further add the
 	// anchor size.
-	if channelType == commitTypeAnchors {
+	if channelType == lnrpc.CommitmentType_ANCHORS {
 		carolExpectedBalance += btcutil.Amount(anchorSize)
 	}
 

@@ -20,7 +20,7 @@ import (
 // HTLC directly on-chain using the preimage in order to ensure that we don't
 // lose any funds.
 func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest,
-	alice, bob *lntest.HarnessNode, c commitType) {
+	alice, bob *lntest.HarnessNode, c lnrpc.CommitmentType) {
 
 	ctxb := context.Background()
 
@@ -86,7 +86,8 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// immediately force close the channel by broadcast her commitment
 	// transaction.
 	aliceForceClose := closeChannelAndAssertType(
-		t, net, alice, aliceChanPoint, c == commitTypeAnchors, true,
+		t, net, alice, aliceChanPoint,
+		c == lnrpc.CommitmentType_ANCHORS, true,
 	)
 
 	// Wait for the channel to be marked pending force close.
@@ -96,7 +97,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// After closeChannelAndAssertType returns, it has mined a block so now
 	// bob will attempt to redeem his anchor commitment (if the channel
 	// type is of that type).
-	if c == commitTypeAnchors {
+	if c == lnrpc.CommitmentType_ANCHORS {
 		_, err = waitForNTxsInMempool(
 			net.Miner.Client, 1, minerMempoolTimeout,
 		)
@@ -146,7 +147,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	require.NoError(t.t, err)
 
 	expectedTxes := 1
-	if c == commitTypeAnchors {
+	if c == lnrpc.CommitmentType_ANCHORS {
 		expectedTxes = 2
 	}
 
@@ -186,7 +187,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// the output is not timelocked since Carol was the one force closing.
 	// If there are anchors, Bob should also sweep his.
 	expectedTxes = 2
-	if c == commitTypeAnchors {
+	if c == lnrpc.CommitmentType_ANCHORS {
 		expectedTxes = 3
 	}
 	txes, err := getNTxsFromMempool(

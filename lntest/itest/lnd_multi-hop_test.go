@@ -19,7 +19,7 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 	type testCase struct {
 		name string
 		test func(net *lntest.NetworkHarness, t *harnessTest, alice,
-			bob *lntest.HarnessNode, c commitType)
+			bob *lntest.HarnessNode, c lnrpc.CommitmentType)
 	}
 
 	subTests := []testCase{
@@ -68,19 +68,19 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	}
 
-	commitTypes := []commitType{
-		commitTypeLegacy,
-		commitTypeAnchors,
+	commitTypes := []lnrpc.CommitmentType{
+		lnrpc.CommitmentType_LEGACY,
+		lnrpc.CommitmentType_ANCHORS,
 	}
 
 	for _, commitType := range commitTypes {
+		commitType := commitType
 		testName := fmt.Sprintf("committype=%v", commitType.String())
 
-		commitType := commitType
 		success := t.t.Run(testName, func(t *testing.T) {
 			ht := newHarnessTest(t, net)
 
-			args := commitType.Args()
+			args := nodeArgsForCommitType(commitType)
 			alice := net.NewNode(t, "Alice", args)
 			defer shutdownAndAssert(net, ht, alice)
 
@@ -203,7 +203,7 @@ func checkPaymentStatus(ctxt context.Context, node *lntest.HarnessNode,
 }
 
 func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
-	alice, bob *lntest.HarnessNode, carolHodl bool, c commitType) (
+	alice, bob *lntest.HarnessNode, carolHodl bool, c lnrpc.CommitmentType) (
 	*lnrpc.ChannelPoint, *lnrpc.ChannelPoint, *lntest.HarnessNode) {
 
 	ctxb := context.Background()
@@ -246,7 +246,7 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 	// Next, we'll create a new node "carol" and have Bob connect to her. If
 	// the carolHodl flag is set, we'll make carol always hold onto the
 	// HTLC, this way it'll force Bob to go to chain to resolve the HTLC.
-	carolFlags := c.Args()
+	carolFlags := nodeArgsForCommitType(c)
 	if carolHodl {
 		carolFlags = append(carolFlags, "--hodl.exit-settle")
 	}

@@ -5,10 +5,12 @@ PROJECT=lnd
 
 RELEASE_URL=https://github.com/$REPO/$PROJECT/releases
 API_URL=https://api.github.com/repos/$REPO/$PROJECT/releases
-MANIFEST_SELECTOR=". | select(.name | test(\"manifest-v.*(\\\\.txt)$\")) | .name"
-SIGNATURE_SELECTOR=". | select(.name | test(\"manifest-.*(\\\\.sig)$\")) | .name"
 HEADER_JSON="Accept: application/json"
 HEADER_GH_JSON="Accept: application/vnd.github.v3+json"
+
+# By default, we select manifest and signatures without the monitoring tag.
+MANIFEST_SELECTOR=". | select(.name | test(\"manifest-v.*(\\\\.txt)$\")) | .name"
+SIGNATURE_SELECTOR=". | select(.name | test(\"manifest-.*(\\\\.sig)$\")) | .name"
 
 # All keys that can sign lnd releases. The key must be downloadable/importable
 # from the URL given after the space.
@@ -29,15 +31,27 @@ function check_command() {
   fi
 }
 
-# By default we're picking up lnd and lncli from the system $PATH.
+function checkbool() {
+  echo -n "Checking if $1 is a valid bool"
+  if $1 != "true" || $1 !="false"; then
+	  echo "ERROR: $1 is not a boolean"
+	  exit 1
+  fi
+}
+
+# By default we assume monitoring is disabled and we're picking up lnd and 
+# lncli from the system $PATH.
 LND_BIN=$(which lnd)
 LNCLI_BIN=$(which lncli)
 
-# If exactly two parameters are specified, we expect the first one to be lnd and
-# the second one to be lncli.
-if [[ $# -eq 2 ]]; then
-  LND_BIN=$(realpath $1)
-  LNCLI_BIN=$(realpath $2)
+# If exactly three parameters are specified, we expect:
+# - A boolean indicating whether monitoring is enabled
+# - A path to lnd
+# - A path to lncli 
+if [[ $# -eq 3 ]]; then
+  checkbool $1
+  LND_BIN=$(realpath $2)
+  LNCLI_BIN=$(realpath $3)
   
   # Make sure both files actually exist.
   if [[ ! -f $LND_BIN ]]; then
@@ -48,14 +62,26 @@ if [[ $# -eq 2 ]]; then
     echo "ERROR: $LNCLI_BIN not found!"
     exit 1
   fi
+# If only one parameter is set, we expect this to be a boolean indicating 
+# whether monitoring is enabled.
+elif [[ $# -eq 1 ]]; then
+  checkbool $1
+
+# If no paremeters are set, then we assume that monitoring was not enabled, 
+# and lnd + lncli are installed in the default paths.
 elif [[ $# -eq 0 ]]; then
   # Make sure both binaries can be found and are executable.
   check_command lnd
   check_command lncli
 else
   echo "ERROR: invalid number of parameters!"
-  echo "Usage: verify-install.sh [lnd-binary lncli-binary]"
+  echo "Usage: verify-install.sh [{monitoring_enabled} lnd-binary lncli-binary]"
   exit 1
+fi
+
+if [$1 == "true"]; then
+  MANIFEST_SELECTOR=". | select(.name | test(\"monitoring-manifest-v.*(\\\\.txt)$\")) | .name"
+  SIGNATURE_SELECTOR=". | select(.name | test(\"monitoring-manifest-.*(\\\\.sig)$\")) | .name"
 fi
 
 check_command curl

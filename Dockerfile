@@ -15,6 +15,10 @@ ENV GODEBUG netdns=cgo
 # will use the Git tip of master by default.
 ARG checkout="master"
 
+# If the monitoring argument is set, we will make lnd with the monitoring tag.
+# This is off by default.
+ARG monitoring
+
 # Add an org tag so that this Dockerfile can be used to build forks.
 ARG org="lightningnetwork"
 
@@ -26,7 +30,7 @@ RUN apk add --no-cache --update alpine-sdk \
 &&  git clone https://github.com/$org/lnd /go/src/github.com/lightningnetwork/lnd \
 &&  cd /go/src/github.com/lightningnetwork/lnd \
 &&  git checkout $checkout \
-&&  make release-install
+&&  if [[ -z $monitoring ]] ; then make release-install ; else make release-install monitoring=true ; fi
 
 # Start a new, final image.
 FROM alpine as final

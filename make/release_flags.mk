@@ -40,6 +40,11 @@ windows-arm
 
 RELEASE_TAGS = autopilotrpc signrpc walletrpc chainrpc invoicesrpc watchtowerrpc
 
+# If monitoring is set, add it to our set of tags.
+ifneq ($(monitoring),)
+RELEASE_TAGS += monitoring
+endif
+
 # One can either specify a git tag as the version suffix or one is generated
 # from the current date.
 ifneq ($(tag),)

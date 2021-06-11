@@ -15,12 +15,15 @@ ENV GODEBUG netdns=cgo
 # will use the Git tip of master by default.
 ARG checkout="master"
 
+# Add an org tag so that this Dockerfile can be used to build forks.
+ARG org="lightningnetwork"
+
 # Install dependencies and build the binaries.
 RUN apk add --no-cache --update alpine-sdk \
     git \
     make \
     gcc \
-&&  git clone https://github.com/lightningnetwork/lnd /go/src/github.com/lightningnetwork/lnd \
+&&  git clone https://github.com/$org/lnd /go/src/github.com/lightningnetwork/lnd \
 &&  cd /go/src/github.com/lightningnetwork/lnd \
 &&  git checkout $checkout \
 &&  make release-install

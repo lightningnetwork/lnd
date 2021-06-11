@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -81,6 +82,10 @@ type ChanStatusConfig struct {
 	// manager to check if the channels being monitored have become
 	// inactive.
 	ChanStatusSampleInterval time.Duration
+
+	// ChanRequiredBandwidth is the minimum required bandwidth above the channel
+	// reserve below which the channel is set to disabled automatically.
+	ChanRequiredBandwidth btcutil.Amount
 }
 
 // ChanStatusManager facilitates requests to enable or disable a channel via a
@@ -351,6 +356,12 @@ func (m *ChanStatusManager) statusManager() {
 			// if the inactive chan timeout has elapsed.
 			m.disableInactiveChannels()
 
+			// Check if the bandwidth for any public channel is below the
+			// required minimum bandwidth and disable it. Unset the disabled
+			// flag if it was set due to low bandwidth prior but is now above
+			// the required minimum bandwidth.
+			m.handleDepletedChannels()
+
 		case <-m.quit:
 			return
 		}
@@ -396,6 +407,15 @@ func (m *ChanStatusManager) processEnableRequest(outpoint wire.OutPoint,
 		log.Debugf("Channel(%v) already enabled, canceling scheduled "+
 			"disable", outpoint)
 
+	// The channel is automatically disabled due to lower than required
+	// bandwidth. We therefore ignore this enable request as it will otherwise
+	// be overridden with next sample ticker and spam the network with update
+	// notifications.
+	case ChanStatusBandwidthDisabled:
+		log.Debugf("Channel(%v) is disabled due to low bandwidth, canceling "+
+			"enable request", outpoint)
+		return nil
+
 	// We'll sign a new update if the channel is still disabled.
 	case ChanStatusManuallyDisabled:
 		if !manual {
@@ -419,11 +439,11 @@ func (m *ChanStatusManager) processEnableRequest(outpoint wire.OutPoint,
 
 // processDisableRequest attempts to disable the given outpoint. If the method
 // returns nil, the status of the channel in chanStates will be either
-// ChanStatusDisabled or ChanStatusManuallyDisabled, depending on the
-// passed-in value of manual.
+// ChanStatusDisabled or ChanStatusBandwidthDisabled, or
+// ChanStatusManuallyDisabled, depending on the passed-in value of manual.
 //
-// An update will only be sent if the channel has a status other than
-// ChanStatusEnabled, otherwise no update will be sent on the network.
+// An update will only be sent if the channel has a status ChanStatusEnabled or
+// ChanStatusPendingDisabled, otherwise no update will be sent on the network.
 func (m *ChanStatusManager) processDisableRequest(outpoint wire.OutPoint,
 	manual bool) error {
 
@@ -479,6 +499,92 @@ func (m *ChanStatusManager) processAutoRequest(outpoint wire.OutPoint) error {
 		m.chanStates.markDisabled(outpoint)
 	}
 	return nil
+}
+
+// handleDepletedChannels will set or unset the disable on public channels
+// if their bandwidth are below the minimum required bandwidth. It will only
+// set a channel to disabled if it is currently enabled, and only unset the
+// disable flag if it was disabled due to low bandwidth prior.
+//
+// Only public channels are handled as private channels aren't used for routing
+// within the network by other nodes.
+func (m *ChanStatusManager) handleDepletedChannels() {
+	channels, err := m.fetchChannels()
+	if err != nil {
+		log.Errorf("Unable to load active channels: %v", err)
+		return
+	}
+
+	for _, c := range channels {
+		// Determine the initial status of the active channel, and
+		// populate the entry in the chanStates map.
+		curState, err := m.getOrInitChanStatus(c.FundingOutpoint)
+		if err != nil {
+			log.Errorf("Unable to retrieve chan status for "+
+				"Channel(%v): %v", c.FundingOutpoint, err)
+			continue
+		}
+
+		// Read the channel reserve and local balance values while ensuring
+		// they are concurrent safely in sync.
+		c.RLock()
+		reserved := c.LocalChanCfg.ChanReserve
+		balance := c.LocalCommitment.LocalBalance.ToSatoshis()
+		c.RUnlock()
+
+		switch {
+		// Disable the channel if the bandwidth is below the required bandwidth
+		// (respecting the reserved amount that counts towards the required
+		// bandwidth).
+		case balance <= reserved || balance < reserved+m.cfg.ChanRequiredBandwidth:
+			// Ignore channels that are not currently enabled.
+			if curState.Status != ChanStatusEnabled {
+				continue
+			}
+
+			m.disableDepletedChannel(c.FundingOutpoint)
+
+		// Enable the channel if its bandwidth is above the required bandwidth.
+		default:
+			// Ignore channels that were not explicitly disabled due to low
+			// bandwidth as the last status change.
+			if curState.Status != ChanStatusBandwidthDisabled {
+				continue
+			}
+
+			m.enableDepletedChannel(c.FundingOutpoint)
+		}
+	}
+}
+
+func (m *ChanStatusManager) disableDepletedChannel(outpoint wire.OutPoint) {
+	log.Infof("Announcing channel(%v) disabled [detected]", outpoint)
+
+	// Sign an update disabling the channel.
+	err := m.signAndSendNextUpdate(outpoint, true)
+	if err != nil {
+		log.Errorf("Unable to sign update disabling channel(%v): %v",
+			outpoint, err)
+		return
+	}
+
+	// Record that the channel has now been disabled due to low bandwidth.
+	m.chanStates.markBandwidthDisabled(outpoint)
+}
+
+func (m *ChanStatusManager) enableDepletedChannel(outpoint wire.OutPoint) {
+	log.Infof("Announcing channel(%v) enabled [detected]", outpoint)
+
+	// Sign an update disabling the channel.
+	err := m.signAndSendNextUpdate(outpoint, false)
+	if err != nil {
+		log.Errorf("Unable to sign update enabling channel(%v): %v",
+			outpoint, err)
+		return
+	}
+
+	// Record that the channel has now been enabled.
+	m.chanStates.markEnabled(outpoint)
 }
 
 // markPendingInactiveChannels performs a sweep of the database's active

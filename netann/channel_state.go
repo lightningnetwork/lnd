@@ -38,6 +38,16 @@ const (
 	// Otherwise, the network might be cluttered with channels that are
 	// advertised as enabled, but don't actually work or even exist.
 	ChanStatusManuallyDisabled
+
+	// ChanStatusBandwidthDisabled indicates that the channel's last
+	// announcement had the disabled bit set, and that it was automatically
+	// set due to a lower than required bandwidth on the channel.
+	//
+	// Note that returning to an enabled state due to sufficient bandwidth
+	// will only happen if the the last announcement was a ChanStatusBandwidth,
+	// as we otherwise expect manual or automatic channel managemtn to have
+	// taken precedence instead (such as due to a peer not available).
+	ChanStatusBandwidthDisabled
 )
 
 // ChannelState describes the ChanStatusManager's view of a channel, and
@@ -91,5 +101,12 @@ func (s *channelStates) markPendingDisabled(outpoint wire.OutPoint,
 	(*s)[outpoint] = ChannelState{
 		Status:          ChanStatusPendingDisabled,
 		SendDisableTime: sendDisableTime,
+	}
+}
+
+// markEnabled creates a channelState using ChanStatusEnabled.
+func (s *channelStates) markBandwidthDisabled(outpoint wire.OutPoint) {
+	(*s)[outpoint] = ChannelState{
+		Status: ChanStatusBandwidthDisabled,
 	}
 }

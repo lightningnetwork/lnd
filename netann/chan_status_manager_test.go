@@ -13,10 +13,15 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
+)
+
+var (
+	chanLocalBalance = btcutil.Amount(1)
 )
 
 // randOutpoint creates a random wire.Outpoint.
@@ -45,7 +50,14 @@ func createChannel(t *testing.T) *channeldb.OpenChannel {
 
 	sid := atomic.AddUint64(&shortChanIDs, 1)
 
+	// Set the local balance of the new channel to 1 millisat. This ensures
+	// that the channel is not automatically disabled due to low bandwidth.
+	localCommitment := channeldb.ChannelCommitment{
+		LocalBalance: lnwire.NewMSatFromSatoshis(chanLocalBalance),
+	}
+
 	return &channeldb.OpenChannel{
+		LocalCommitment: localCommitment,
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(sid),
 		ChannelFlags:    lnwire.FFAnnounceChannel,
 		FundingOutpoint: randOutpoint(t),

@@ -95,9 +95,7 @@ func testHtlcErrorPropagation(net *lntest.NetworkHarness, t *harnessTest) {
 	// The channel created will be of lower capacity that the one created
 	// above.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, net.Bob, carol); err != nil {
-		t.Fatalf("unable to connect bob to carol: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, net.Bob, carol)
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	const bobChanAmt = funding.MaxBtcFundingAmount
 	chanPointBob := openChannelAndAssert(

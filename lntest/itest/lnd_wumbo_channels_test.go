@@ -34,13 +34,10 @@ func testWumboChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// Next we'll connect both nodes, then attempt to make a wumbo channel
 	// funding request to the mini node we created above. The wumbo request
 	// should fail as the node isn't advertising wumbo channels.
-	err := net.EnsureConnected(ctxb, wumboNode, miniNode)
-	if err != nil {
-		t.Fatalf("unable to connect peers: %v", err)
-	}
+	net.EnsureConnected(ctxb, t.t, wumboNode, miniNode)
 
 	chanAmt := funding.MaxBtcFundingAmount + 1
-	_, err = net.OpenChannel(
+	_, err := net.OpenChannel(
 		ctxb, wumboNode, miniNode, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
@@ -64,10 +61,7 @@ func testWumboChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, wumboNode2)
 
 	// Creating a wumbo channel between these two nodes should succeed.
-	err = net.EnsureConnected(ctxb, wumboNode, wumboNode2)
-	if err != nil {
-		t.Fatalf("unable to connect peers: %v", err)
-	}
+	net.EnsureConnected(ctxb, t.t, wumboNode, wumboNode2)
 	chanPoint := openChannelAndAssert(
 		ctxb, t, net, wumboNode, wumboNode2,
 		lntest.OpenChannelParams{

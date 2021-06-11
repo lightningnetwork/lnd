@@ -499,8 +499,7 @@ func wsTestCaseBiDirectionalSubscription(ht *harnessTest,
 
 	// Before we start opening channels, make sure the two nodes are
 	// connected.
-	err = net.EnsureConnected(context.Background(), net.Alice, net.Bob)
-	require.NoError(ht.t, err)
+	net.EnsureConnected(context.Background(), ht.t, net.Alice, net.Bob)
 
 	// Open 3 channels to make sure multiple requests and responses can be
 	// sent over the web socket.

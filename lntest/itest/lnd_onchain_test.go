@@ -177,8 +177,7 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 
 	ctxb := context.Background()
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err := net.ConnectNodes(ctxt, alice, bob)
-	require.NoError(t.t, err)
+	net.ConnectNodes(ctxt, t.t, alice, bob)
 
 	// Send just enough coins for Alice to open a channel without a change output.
 	const (
@@ -193,7 +192,7 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 	resErr := lnwallet.ErrReservedValueInvalidated.Error()
 
 	ctxt, _ = context.WithTimeout(context.Background(), defaultTimeout)
-	_, err = net.OpenChannel(
+	_, err := net.OpenChannel(
 		ctxt, alice, bob,
 		lntest.OpenChannelParams{
 			Amt: chanAmt,

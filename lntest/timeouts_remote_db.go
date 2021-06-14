@@ -1,4 +1,4 @@
-// +build kvdb_etcd
+// +build kvdb_etcd kvdb_postgres
 
 package lntest
 
@@ -23,7 +23,7 @@ const (
 
 	// AsyncBenchmarkTimeout is the timeout used when running the async
 	// payments benchmark.
-	AsyncBenchmarkTimeout = 2 * time.Minute
+	AsyncBenchmarkTimeout = 3 * time.Minute
 
 	// NodeStartTimeout is the timeout value when waiting for a node to
 	// become fully started.

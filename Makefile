@@ -187,7 +187,20 @@ scratch: build
 
 check: unit itest
 
-itest-only:
+db-instance:
+ifeq ($(dbbackend),postgres)
+	# Remove a previous postgres instance if it exists.
+	docker rm lnd-postgres --force || echo "Starting new postgres container"
+
+	# Start a fresh postgres instance. Allow a maximum of 500 connections.
+	# This is required for the async benchmark to pass.
+	docker run --name lnd-postgres -e POSTGRES_PASSWORD=postgres -p 6432:5432 -d postgres -N 500
+
+	# Wait for the instance to be started.
+	sleep 3
+endif
+
+itest-only: db-instance
 	@$(call print, "Running integration tests with ${backend} backend.")
 	rm -rf lntest/itest/*.log lntest/itest/.logs-*; date
 	EXEC_SUFFIX=$(EXEC_SUFFIX) scripts/itest_part.sh 0 1 $(TEST_FLAGS) $(ITEST_FLAGS)
@@ -196,7 +209,7 @@ itest: build-itest itest-only
 
 itest-race: build-itest-race itest-only
 
-itest-parallel: build-itest
+itest-parallel: build-itest db-instance
 	@$(call print, "Running tests")
 	rm -rf lntest/itest/*.log lntest/itest/.logs-*; date
 	EXEC_SUFFIX=$(EXEC_SUFFIX) echo "$$(seq 0 $$(expr $(ITEST_PARALLELISM) - 1))" | xargs -P $(ITEST_PARALLELISM) -n 1 -I {} scripts/itest_part.sh {} $(NUM_ITEST_TRANCHES) $(TEST_FLAGS) $(ITEST_FLAGS)

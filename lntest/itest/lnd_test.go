@@ -80,8 +80,8 @@ var (
 			"split test cases with the given (0-based) index",
 	)
 
-	// useEtcd test LND nodes use (embedded) etcd as remote db.
-	useEtcd = flag.Bool("etcd", false, "Use etcd backend for lnd.")
+	// dbBackendFlag specifies the backend to use
+	dbBackendFlag = flag.String("dbbackend", "bbolt", "Database backend (bbolt, etcd)")
 )
 
 // getTestCaseSplitTranche returns the sub slice of the test cases that should
@@ -11573,12 +11573,25 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	require.NoError(t, miner.Client.NotifyNewTransactions(false))
 	require.NoError(t, chainBackend.ConnectMiner(), "connect miner")
 
+	// Parse database backend
+	var dbBackend lntest.DatabaseBackend
+	switch *dbBackendFlag {
+	case "bbolt":
+		dbBackend = lntest.BackendBbolt
+
+	case "etcd":
+		dbBackend = lntest.BackendEtcd
+
+	default:
+		require.Fail(t, "unknown db backend")
+	}
+
 	// Now we can set up our test harness (LND instance), with the chain
 	// backend we just created.
 	ht := newHarnessTest(t, nil)
 	binary := ht.getLndBinary()
 	lndHarness, err = lntest.NewNetworkHarness(
-		miner, chainBackend, binary, *useEtcd,
+		miner, chainBackend, binary, dbBackend,
 	)
 	if err != nil {
 		ht.Fatalf("unable to create lightning network harness: %v", err)

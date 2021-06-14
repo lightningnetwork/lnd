@@ -220,7 +220,7 @@ type NodeConfig struct {
 
 	FeeURL string
 
-	Etcd bool
+	DbBackend DatabaseBackend
 }
 
 func (cfg NodeConfig) P2PAddr() string {
@@ -308,7 +308,7 @@ func (cfg NodeConfig) genArgs() []string {
 		args = append(args, "--accept-amp")
 	}
 
-	if cfg.Etcd {
+	if cfg.DbBackend == BackendEtcd {
 		args = append(args, "--db.backend=etcd")
 		args = append(args, "--db.etcd.embedded")
 		args = append(

@@ -950,5 +950,6 @@ func (h *mockHTLCNotifier) NotifyForwardingFailEvent(key HtlcKey,
 	eventType HtlcEventType) {
 }
 
-func (h *mockHTLCNotifier) NotifySettleEvent(key HtlcKey, eventType HtlcEventType) {
+func (h *mockHTLCNotifier) NotifySettleEvent(key HtlcKey,
+	preimage lntypes.Preimage, eventType HtlcEventType) {
 }

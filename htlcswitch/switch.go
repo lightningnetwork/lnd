@@ -848,9 +848,10 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 	key := newHtlcKey(pkt)
 	eventType := getEventType(pkt)
 
-	switch pkt.htlc.(type) {
+	switch htlc := pkt.htlc.(type) {
 	case *lnwire.UpdateFulfillHTLC:
-		s.cfg.HtlcNotifier.NotifySettleEvent(key, eventType)
+		s.cfg.HtlcNotifier.NotifySettleEvent(key, htlc.PaymentPreimage,
+			eventType)
 
 	case *lnwire.UpdateFailHTLC:
 		s.cfg.HtlcNotifier.NotifyForwardingFailEvent(key, eventType)

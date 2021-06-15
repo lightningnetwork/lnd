@@ -607,6 +607,8 @@ message ForwardFailEvent {
 }
 
 message SettleEvent {
+    // The revealed preimage.
+    bytes preimage = 1;
 }
 
 message LinkFailEvent {

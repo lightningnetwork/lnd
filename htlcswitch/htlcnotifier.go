@@ -8,6 +8,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/subscribe"
 )
@@ -281,6 +282,9 @@ type SettleEvent struct {
 	// forwards with their corresponding forwarding event.
 	HtlcKey
 
+	// Preimage that was released for settling the htlc.
+	Preimage lntypes.Preimage
+
 	// HtlcEventType classifies the event as part of a local send or
 	// receive, or as part of a forward.
 	HtlcEventType
@@ -360,9 +364,12 @@ func (h *HtlcNotifier) NotifyForwardingFailEvent(key HtlcKey,
 // to as part of a forward or a receive to our node has been settled.
 //
 // Note this is part of the htlcNotifier interface.
-func (h *HtlcNotifier) NotifySettleEvent(key HtlcKey, eventType HtlcEventType) {
+func (h *HtlcNotifier) NotifySettleEvent(key HtlcKey,
+	preimage lntypes.Preimage, eventType HtlcEventType) {
+
 	event := &SettleEvent{
 		HtlcKey:       key,
+		Preimage:      preimage,
 		HtlcEventType: eventType,
 		Timestamp:     h.now(),
 	}

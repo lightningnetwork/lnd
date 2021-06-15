@@ -1535,7 +1535,14 @@
       "type": "object"
     },
     "routerrpcSettleEvent": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "preimage": {
+          "type": "string",
+          "format": "byte",
+          "description": "The revealed preimage."
+        }
+      }
     },
     "routerrpcUpdateChanStatusResponse": {
       "type": "object"

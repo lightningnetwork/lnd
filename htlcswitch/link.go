@@ -1449,6 +1449,7 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 		// Send a settle event notification to htlcNotifier.
 		l.cfg.HtlcNotifier.NotifySettleEvent(
 			newHtlcKey(pkt),
+			htlc.PaymentPreimage,
 			getEventType(pkt),
 		)
 
@@ -2982,6 +2983,7 @@ func (l *channelLink) settleHTLC(preimage lntypes.Preimage,
 				HtlcID: pd.HtlcIndex,
 			},
 		},
+		preimage,
 		HtlcEventTypeReceive,
 	)
 

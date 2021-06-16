@@ -39,8 +39,9 @@ func TestPutToEmpty(t *testing.T) {
 		return nil
 	}
 
-	err = RunSTM(db.cli, apply, txQueue)
+	callCount, err := RunSTM(db.cli, apply, txQueue)
 	require.NoError(t, err)
+	require.Equal(t, 1, callCount)
 
 	require.Equal(t, "abc", f.Get("123"))
 }
@@ -66,6 +67,9 @@ func TestGetPutDel(t *testing.T) {
 		{"e", "5"},
 	}
 
+	// Extra 2 => Get(x), Commit()
+	expectedCallCount := len(testKeyValues) + 2
+
 	for _, kv := range testKeyValues {
 		f.Put(kv.key, kv.val)
 	}
@@ -79,11 +83,12 @@ func TestGetPutDel(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, v)
 
+		// Fetches: 1.
 		v, err = stm.Get("x")
 		require.NoError(t, err)
 		require.Nil(t, v)
 
-		// Get all existing keys.
+		// Get all existing keys. Fetches: len(testKeyValues)
 		for _, kv := range testKeyValues {
 			v, err = stm.Get(kv.key)
 			require.NoError(t, err)
@@ -120,8 +125,9 @@ func TestGetPutDel(t *testing.T) {
 		return nil
 	}
 
-	err = RunSTM(db.cli, apply, txQueue)
+	callCount, err := RunSTM(db.cli, apply, txQueue)
 	require.NoError(t, err)
+	require.Equal(t, expectedCallCount, callCount)
 
 	require.Equal(t, "1", f.Get("a"))
 	require.Equal(t, "2", f.Get("b"))
@@ -133,6 +139,17 @@ func TestGetPutDel(t *testing.T) {
 
 func TestFirstLastNextPrev(t *testing.T) {
 	t.Parallel()
+
+	testFirstLastNextPrev(t, nil, nil, 41)
+	testFirstLastNextPrev(t, nil, []string{"k"}, 4)
+	testFirstLastNextPrev(t, nil, []string{"k", "w"}, 2)
+	testFirstLastNextPrev(t, []string{"kb"}, nil, 42)
+	testFirstLastNextPrev(t, []string{"kb", "ke"}, nil, 42)
+	testFirstLastNextPrev(t, []string{"kb", "ke", "w"}, []string{"k", "w"}, 2)
+}
+
+func testFirstLastNextPrev(t *testing.T, prefetchKeys []string,
+	prefetchRange []string, expectedCallCount int) {
 
 	f := NewEtcdTestFixture(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -159,6 +176,8 @@ func TestFirstLastNextPrev(t *testing.T) {
 	require.NoError(t, err)
 
 	apply := func(stm STM) error {
+		stm.Prefetch(prefetchKeys, prefetchRange)
+
 		// First/Last on valid multi item interval.
 		kv, err := stm.First("k")
 		require.NoError(t, err)
@@ -177,10 +196,24 @@ func TestFirstLastNextPrev(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, &KV{"w", "w"}, kv)
 
+		// Non existing.
+		val, err := stm.Get("ke1")
+		require.Nil(t, val)
+		require.Nil(t, err)
+
+		val, err = stm.Get("ke2")
+		require.Nil(t, val)
+		require.Nil(t, err)
+
 		// Next/Prev on start/end.
 		kv, err = stm.Next("k", "ke")
 		require.NoError(t, err)
 		require.Nil(t, kv)
+
+		// Non existing.
+		val, err = stm.Get("ka")
+		require.Nil(t, val)
+		require.Nil(t, err)
 
 		kv, err = stm.Prev("k", "kb")
 		require.NoError(t, err)
@@ -277,8 +310,9 @@ func TestFirstLastNextPrev(t *testing.T) {
 		return nil
 	}
 
-	err = RunSTM(db.cli, apply, txQueue)
+	callCount, err := RunSTM(db.cli, apply, txQueue)
 	require.NoError(t, err)
+	require.Equal(t, expectedCallCount, callCount)
 
 	require.Equal(t, "0", f.Get("ka"))
 	require.Equal(t, "2", f.Get("kc"))
@@ -330,9 +364,11 @@ func TestCommitError(t *testing.T) {
 		return nil
 	}
 
-	err = RunSTM(db.cli, apply, txQueue)
+	callCount, err := RunSTM(db.cli, apply, txQueue)
 	require.NoError(t, err)
 	require.Equal(t, 2, cnt)
+	// Get() + 2 * Commit().
+	require.Equal(t, 3, callCount)
 
 	require.Equal(t, "abc", f.Get("123"))
 }

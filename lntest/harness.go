@@ -1548,9 +1548,9 @@ func FileExists(path string) bool {
 	return true
 }
 
-// CopyAll copies all files and directories from srcDir to dstDir recursively.
+// copyAll copies all files and directories from srcDir to dstDir recursively.
 // Note that this function does not support links.
-func CopyAll(dstDir, srcDir string) error {
+func copyAll(dstDir, srcDir string) error {
 	entries, err := ioutil.ReadDir(srcDir)
 	if err != nil {
 		return err
@@ -1571,7 +1571,7 @@ func CopyAll(dstDir, srcDir string) error {
 				return err
 			}
 
-			err = CopyAll(dstPath, srcPath)
+			err = copyAll(dstPath, srcPath)
 			if err != nil {
 				return err
 			}
@@ -1579,6 +1579,46 @@ func CopyAll(dstDir, srcDir string) error {
 			return err
 		}
 	}
+
+	return nil
+}
+
+// BackupDb creates a backup of the current database.
+func (n *NetworkHarness) BackupDb(hn *HarnessNode) error {
+	if hn.backupDbDir != "" {
+		return errors.New("backup already created")
+	}
+
+	// Backup files.
+	tempDir, err := ioutil.TempDir("", "past-state")
+	if err != nil {
+		return fmt.Errorf("unable to create temp db folder: %v", err)
+	}
+
+	if err := copyAll(tempDir, hn.DBDir()); err != nil {
+		return fmt.Errorf("unable to copy database files: %v", err)
+	}
+
+	hn.backupDbDir = tempDir
+
+	return nil
+}
+
+// RestoreDb restores a database backup.
+func (n *NetworkHarness) RestoreDb(hn *HarnessNode) error {
+	if hn.backupDbDir == "" {
+		return errors.New("no database backup created")
+	}
+
+	// Restore files.
+	if err := copyAll(hn.DBDir(), hn.backupDbDir); err != nil {
+		return fmt.Errorf("unable to copy database files: %v", err)
+	}
+
+	if err := os.RemoveAll(hn.backupDbDir); err != nil {
+		return fmt.Errorf("unable to remove backup dir: %v", err)
+	}
+	hn.backupDbDir = ""
 
 	return nil
 }

@@ -389,6 +389,9 @@ type HarnessNode struct {
 	WalletKitClient  walletrpc.WalletKitClient
 	Watchtower       watchtowerrpc.WatchtowerClient
 	WatchtowerClient wtclientrpc.WatchtowerClientClient
+
+	// backupDbDir is the path where a database backup is stored, if any.
+	backupDbDir string
 }
 
 // Assert *HarnessNode implements the lnrpc.LightningClient interface.
@@ -1098,6 +1101,13 @@ func (hn *HarnessNode) SetExtraArgs(extraArgs []string) {
 
 // cleanup cleans up all the temporary files created by the node's process.
 func (hn *HarnessNode) cleanup() error {
+	if hn.backupDbDir != "" {
+		err := os.RemoveAll(hn.backupDbDir)
+		if err != nil {
+			return fmt.Errorf("unable to remove backup dir: %v", err)
+		}
+	}
+
 	return os.RemoveAll(hn.Cfg.BaseDir)
 }
 

@@ -93,6 +93,42 @@ type RwCursor = walletdb.ReadWriteCursor
 // writes. When only reads are necessary, consider using a RTx instead.
 type RwTx = walletdb.ReadWriteTx
 
+// ExtendedRTx is an extension to walletdb.ReadTx to allow prefetching of keys.
+type ExtendedRTx interface {
+	RTx
+
+	// RootBucket returns the "root bucket" which is pseudo bucket used
+	// when prefetching (keys from) top level buckets.
+	RootBucket() RBucket
+}
+
+// ExtendedRBucket is an extension to walletdb.ReadBucket to allow prefetching
+// of all values inside buckets.
+type ExtendedRBucket interface {
+	RBucket
+
+	// Prefetch will attempt to prefetch all values under a path.
+	Prefetch(paths ...[]string)
+}
+
+// Prefetch will attempt to prefetch all values under a path from the passed
+// bucket.
+func Prefetch(b RBucket, paths ...[]string) {
+	if bucket, ok := b.(ExtendedRBucket); ok {
+		bucket.Prefetch(paths...)
+	}
+}
+
+// RootBucket is a wrapper to ExtendedRTx.RootBucket which does nothing if
+// the implementation doesn't have ExtendedRTx.
+func RootBucket(t RTx) RBucket {
+	if tx, ok := t.(ExtendedRTx); ok {
+		return tx.RootBucket()
+	}
+
+	return nil
+}
+
 var (
 	// ErrBucketNotFound is returned when trying to access a bucket that
 	// has not been created yet.

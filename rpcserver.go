@@ -1207,6 +1207,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			uint32(bestHeight), nil, targetAddr, wallet,
 			wallet, wallet.WalletController,
 			r.server.cc.FeeEstimator, r.server.cc.Signer,
+			minConfs,
 		)
 		if err != nil {
 			return nil, err
@@ -1259,6 +1260,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 				uint32(bestHeight), outputs, targetAddr, wallet,
 				wallet, wallet.WalletController,
 				r.server.cc.FeeEstimator, r.server.cc.Signer,
+				minConfs,
 			)
 			if err != nil {
 				return nil, err

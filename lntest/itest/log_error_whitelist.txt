@@ -109,8 +109,6 @@
 <time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: unable to send chan sync message for ChannelPoint(<chan_point>): write tcp <ip>-><ip>: write: connection reset by peer with error: unable to resume channel, recovery required
 <time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to update commitment: link shutting down with error: internal error
 <time> [ERR] HSWC: ChannelLink(<chan>): link failed, exiting htlcManager
-<time> [ERR] HSWC: ChannelLink(<chan>): outgoing htlc(<hex>) has insufficient fee: expected 575000, got 1075
-<time> [ERR] HSWC: ChannelLink(<chan>): outgoing htlc(<hex>) is too small: min_htlc=<amt>, htlc_value=<amt>
 <time> [ERR] HSWC: ChannelLink(<chan>): unable to cancel incoming HTLC for circuit-key=(Chan ID=<chan>, HTLC ID=0): HTLC with ID 0 has already been failed
 <time> [ERR] HSWC: ChannelLink(<chan>): unable to decode onion hop iterator: TemporaryChannelFailure
 <time> [ERR] HSWC: ChannelLink(<chan>): unable to update signals

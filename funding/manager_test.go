@@ -3520,3 +3520,157 @@ func TestWumboChannelConfig(t *testing.T) {
 	bob.fundingMgr.ProcessFundingMsg(openChanMsg, alice)
 	assertFundingMsgSent(t, bob.msgChan, "AcceptChannel")
 }
+
+// TestFundingManagerUpfrontShutdown asserts that we'll properly fail out if
+// an invalid upfront shutdown script is sent in the open_channel message.
+// Since both the open_channel and accept_message logic validate the script
+// using the same validation function, it suffices to just check the
+// open_channel case.
+func TestFundingManagerUpfrontShutdown(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		pkscript  []byte
+		expectErr bool
+	}{
+		{
+			name: "p2pk script",
+			pkscript: []byte("\x21\x02\xd3\x00\x50\x2f\x61\x15" +
+				"\x0d\x58\x0a\x42\xa0\x99\x63\xe3\x47\xa2" +
+				"\xad\x3c\xe5\x1f\x11\x96\x0d\x35\x8d\xf8" +
+				"\xf3\x94\xf9\x67\x2a\x67\xac"),
+			expectErr: true,
+		},
+		{
+			name: "op return script",
+			pkscript: []byte("\x6a\x24\xaa\x21\xa9\xed\x18\xa9" +
+				"\x93\x58\x94\xbd\x48\x9b\xeb\x87\x66\x13" +
+				"\x60\xbc\x80\x92\xab\xf6\xdd\xe9\x1e\x82" +
+				"\x0c\x7d\x91\x89\x9d\x0a\x02\x34\x14\x3f"),
+			expectErr: true,
+		},
+		{
+			name: "standard (non-p2sh) 2-of-3 multisig",
+			pkscript: []byte("\x51\x41\x04\xcc\x71\xeb\x30\xd6" +
+				"\x53\xc0\xc3\x16\x39\x90\xc4\x7b\x97\x6f" +
+				"\x3f\xb3\xf3\x7c\xcc\xdc\xbe\xdb\x16\x9a" +
+				"\x1d\xfe\xf5\x8b\xbf\xbf\xaf\xf7\xd8\xa4" +
+				"\x73\xe7\xe2\xe6\xd3\x17\xb8\x7b\xaf\xe8" +
+				"\xbd\xe9\x7e\x3c\xf8\xf0\x65\xde\xc0\x22" +
+				"\xb5\x1d\x11\xfc\xdd\x0d\x34\x8a\xc4\x41" +
+				"\x04\x61\xcb\xdc\xc5\x40\x9f\xb4\xb4\xd4" +
+				"\x2b\x51\xd3\x33\x81\x35\x4d\x80\xe5\x50" +
+				"\x07\x8c\xb5\x32\xa3\x4b\xfa\x2f\xcf\xde" +
+				"\xb7\xd7\x65\x19\xae\xcc\x62\x77\x0f\x5b" +
+				"\x0e\x4e\xf8\x55\x19\x46\xd8\xa5\x40\x91" +
+				"\x1a\xbe\x3e\x78\x54\xa2\x6f\x39\xf5\x8b" +
+				"\x25\xc1\x53\x42\xaf\x52\xae"),
+			expectErr: true,
+		},
+		{
+			name:      "nonstandard script",
+			pkscript:  []byte("\x99"),
+			expectErr: true,
+		},
+		{
+			name: "p2sh script",
+			pkscript: []byte("\xa9\x14\xfe\x44\x10\x65\xb6\x53" +
+				"\x22\x31\xde\x2f\xac\x56\x31\x52\x20\x5e" +
+				"\xc4\xf5\x9c\x74\x87"),
+			expectErr: false,
+		},
+		{
+			name: "p2pkh script",
+			pkscript: []byte("\x76\xa9\x14\x64\x1a\xd5\x05\x1e" +
+				"\xdd\x97\x02\x9a\x00\x3f\xe9\xef\xb2\x93" +
+				"\x59\xfc\xee\x40\x9d\x88\xac"),
+			expectErr: false,
+		},
+		{
+			name: "p2wpkh script",
+			pkscript: []byte("\x00\x14\x4b\xfe\x98\x3f\x16\xaa" +
+				"\xde\x1b\x1c\xb1\x54\x5a\xa5\xa4\x88\xd5" +
+				"\xe3\x68\xb5\xdc"),
+			expectErr: false,
+		},
+		{
+			name: "p2wsh script",
+			pkscript: []byte("\x00\x20\x1d\xd6\x3c\x20\x13\x89" +
+				"\x3a\x8b\x41\x5e\xb2\xe7\x41\x8f\x07\x5d" +
+				"\x4f\x3b\xf1\x81\x34\x99\xef\x31\xfb\xd7" +
+				"\x8c\xa8\xc4\x5d\x8f\xf0"),
+			expectErr: false,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			testUpfrontFailure(t, test.pkscript, test.expectErr)
+		})
+	}
+}
+
+func testUpfrontFailure(t *testing.T, pkscript []byte, expectErr bool) {
+	alice, bob := setupFundingManagers(t)
+	defer tearDownFundingManagers(t, alice, bob)
+
+	errChan := make(chan error, 1)
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+
+	fundingAmt := btcutil.Amount(500000)
+	pushAmt := lnwire.NewMSatFromSatoshis(btcutil.Amount(0))
+
+	initReq := &InitFundingMsg{
+		Peer:            alice,
+		TargetPubkey:    alice.privKey.PubKey(),
+		ChainHash:       *fundingNetParams.GenesisHash,
+		SubtractFees:    false,
+		LocalFundingAmt: fundingAmt,
+		PushAmt:         pushAmt,
+		FundingFeePerKw: 1000,
+		Private:         false,
+		Updates:         updateChan,
+		Err:             errChan,
+	}
+	bob.fundingMgr.InitFundingWorkflow(initReq)
+
+	// Bob should send an open_channel message to Alice.
+	var bobMsg lnwire.Message
+	select {
+	case bobMsg = <-bob.msgChan:
+	case err := <-initReq.Err:
+		t.Fatalf("received unexpected error: %v", err)
+	case <-time.After(time.Second * 5):
+		t.Fatalf("timed out waiting for bob's message")
+	}
+
+	bobOpenChan, ok := bobMsg.(*lnwire.OpenChannel)
+	require.True(t, ok, "did not receive OpenChannel")
+
+	// Set the UpfrontShutdownScript in OpenChannel.
+	bobOpenChan.UpfrontShutdownScript = lnwire.DeliveryAddress(pkscript)
+
+	// Send the OpenChannel message to Alice now. If we expected an error,
+	// check that we received it.
+	alice.fundingMgr.ProcessFundingMsg(bobOpenChan, bob)
+
+	var aliceMsg lnwire.Message
+	select {
+	case aliceMsg = <-alice.msgChan:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("timed out waiting for alice's message")
+	}
+
+	if expectErr {
+		// Assert that Error was received.
+		_, ok = aliceMsg.(*lnwire.Error)
+		require.True(t, ok, "did not receive Error")
+	} else {
+		// Assert that AcceptChannel was received.
+		_, ok = aliceMsg.(*lnwire.AcceptChannel)
+		require.True(t, ok, "did not receive AcceptChannel")
+	}
+}

@@ -30,10 +30,7 @@ func testNetworkConnectionTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// First, test the global timeout settings.
 	// Create Carol with a connection timeout of 1 millisecond.
-	carol, err := net.NewNode("Carol", []string{"--connectiontimeout=1ms"})
-	if err != nil {
-		t.Fatalf("unable to create new node carol: %v", err)
-	}
+	carol := net.NewNode(t.t, "Carol", []string{"--connectiontimeout=1ms"})
 	defer shutdownAndAssert(net, t, carol)
 
 	// Try to connect Carol to a non-routable IP address, which should give
@@ -48,10 +45,7 @@ func testNetworkConnectionTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Second, test timeout on the connect peer request.
 	// Create Dave with the default timeout setting.
-	dave, err := net.NewNode("Dave", nil)
-	if err != nil {
-		t.Fatalf("unable to create new node dave: %v", err)
-	}
+	dave := net.NewNode(t.t, "Dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
 	// Try to connect Dave to a non-routable IP address, using a timeout

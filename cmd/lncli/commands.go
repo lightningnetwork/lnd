@@ -2311,7 +2311,22 @@ func updateChannelPolicy(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(resp)
+	// Parse the response into the final json object that will be printed
+	// to stdout. At the moment, this filters out the raw txid bytes from
+	// each failed update's outpoint and only prints the txid string.
+	var listFailedUpdateResp = struct {
+		FailedUpdates []*FailedUpdate `json:"failed_updates"`
+	}{
+		FailedUpdates: make([]*FailedUpdate, 0, len(resp.FailedUpdates)),
+	}
+	for _, protoUpdate := range resp.FailedUpdates {
+		failedUpdate := NewFailedUpdateFromProto(protoUpdate)
+		listFailedUpdateResp.FailedUpdates = append(
+			listFailedUpdateResp.FailedUpdates, failedUpdate)
+	}
+
+	printJSON(listFailedUpdateResp)
+
 	return nil
 }
 

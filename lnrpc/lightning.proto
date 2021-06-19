@@ -3635,7 +3635,28 @@ message PolicyUpdateRequest {
     // If true, min_htlc_msat is applied.
     bool min_htlc_msat_specified = 8;
 }
+enum UpdateFailure {
+    UPDATE_FAILURE_UNKNOWN = 0;
+    UPDATE_FAILURE_PENDING = 1;
+    UPDATE_FAILURE_NOT_FOUND = 2;
+    UPDATE_FAILURE_INTERNAL_ERR = 3;
+    UPDATE_FAILURE_INVALID_PARAMETER = 4;
+}
+
+message FailedUpdate {
+    // The outpoint in format txid:n
+    OutPoint outpoint = 1;
+
+    // Reason for the policy update failure.
+    UpdateFailure reason = 2;
+
+    // A string representation of the policy update error.
+    string update_error = 3;
+}
+
 message PolicyUpdateResponse {
+    // List of failed policy updates.
+    repeated FailedUpdate failed_updates = 1;
 }
 
 message ForwardingHistoryRequest {

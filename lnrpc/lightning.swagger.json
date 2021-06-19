@@ -3831,6 +3831,23 @@
         }
       }
     },
+    "lnrpcFailedUpdate": {
+      "type": "object",
+      "properties": {
+        "outpoint": {
+          "$ref": "#/definitions/lnrpcOutPoint",
+          "title": "The outpoint in format txid:n"
+        },
+        "reason": {
+          "$ref": "#/definitions/lnrpcUpdateFailure",
+          "description": "Reason for the policy update failure."
+        },
+        "update_error": {
+          "type": "string",
+          "description": "A string representation of the policy update error."
+        }
+      }
+    },
     "lnrpcFailure": {
       "type": "object",
       "properties": {
@@ -5562,7 +5579,16 @@
       }
     },
     "lnrpcPolicyUpdateResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "failed_updates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcFailedUpdate"
+          },
+          "description": "List of failed policy updates."
+        }
+      }
     },
     "lnrpcPsbtShim": {
       "type": "object",
@@ -6099,6 +6125,17 @@
           "description": "The list of transactions relevant to the wallet."
         }
       }
+    },
+    "lnrpcUpdateFailure": {
+      "type": "string",
+      "enum": [
+        "UPDATE_FAILURE_UNKNOWN",
+        "UPDATE_FAILURE_PENDING",
+        "UPDATE_FAILURE_NOT_FOUND",
+        "UPDATE_FAILURE_INTERNAL_ERR",
+        "UPDATE_FAILURE_INVALID_PARAMETER"
+      ],
+      "default": "UPDATE_FAILURE_UNKNOWN"
     },
     "lnrpcUtxo": {
       "type": "object",

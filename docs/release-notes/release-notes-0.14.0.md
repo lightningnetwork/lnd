@@ -62,6 +62,9 @@ proposed channel type is used.
 * [Stub code for interacting with `lnrpc` from a WASM context through JSON 
   messages was added](https://github.com/lightningnetwork/lnd/pull/5601).
 
+* The updatechanpolicy call now [detects invalid and pending channels, and 
+  returns a policy update failure report](https://github.com/lightningnetwork/lnd/pull/5405).
+
 * LND now [reports to systemd](https://github.com/lightningnetwork/lnd/pull/5536)
   that RPC is ready (port bound, certificate generated, macaroons created,
   in case of `wallet-unlock-password-file` wallet unlocked). This can be used to

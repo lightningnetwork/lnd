@@ -1,6 +1,7 @@
 package localchans
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 )
@@ -45,23 +47,24 @@ type Manager struct {
 	policyUpdateLock sync.Mutex
 }
 
-// UpdatePolicy updates the policy for the specified channels on disk and in the
-// active links.
+// UpdatePolicy updates the policy for the specified channels on disk and in
+// the active links.
 func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
-	chanPoints ...wire.OutPoint) error {
+	chanPoints ...wire.OutPoint) ([]*lnrpc.FailedUpdate, error) {
 
 	r.policyUpdateLock.Lock()
 	defer r.policyUpdateLock.Unlock()
 
-	// First, we'll construct a set of all the channels that need to be
-	// updated.
-	chansToUpdate := make(map[wire.OutPoint]struct{})
+	// First, we'll construct a set of all the channels that we are
+	// trying to update.
+	unprocessedChans := make(map[wire.OutPoint]struct{})
 	for _, chanPoint := range chanPoints {
-		chansToUpdate[chanPoint] = struct{}{}
+		unprocessedChans[chanPoint] = struct{}{}
 	}
 
-	haveChanFilter := len(chansToUpdate) != 0
+	haveChanFilter := len(unprocessedChans) != 0
 
+	var failedUpdates []*lnrpc.FailedUpdate
 	var edgesToUpdate []discovery.EdgeWithInfo
 	policiesToUpdate := make(map[wire.OutPoint]htlcswitch.ForwardingPolicy)
 
@@ -75,17 +78,24 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 
 		// If we have a channel filter, and this channel isn't a part
 		// of it, then we'll skip it.
-		_, ok := chansToUpdate[info.ChannelPoint]
+		_, ok := unprocessedChans[info.ChannelPoint]
 		if !ok && haveChanFilter {
 			return nil
 		}
 
+		// Mark this channel as found by removing it. unprocessedChans
+		// will be used to report invalid channels later on.
+		delete(unprocessedChans, info.ChannelPoint)
+
 		// Apply the new policy to the edge.
 		err := r.updateEdge(tx, info.ChannelPoint, edge, newSchema)
 		if err != nil {
-			log.Warnf("Cannot update policy for %v: %v\n",
-				info.ChannelPoint, err,
-			)
+			failedUpdates = append(failedUpdates,
+				makeFailureItem(info.ChannelPoint,
+					lnrpc.UpdateFailure_UPDATE_FAILURE_INVALID_PARAMETER,
+					err.Error(),
+				))
+
 			return nil
 		}
 
@@ -107,7 +117,41 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 		return nil
 	})
 	if err != nil {
-		return err
+		return nil, err
+	}
+
+	// Construct a list of failed policy updates.
+	for chanPoint := range unprocessedChans {
+		channel, err := r.FetchChannel(nil, chanPoint)
+		switch {
+		case errors.Is(err, channeldb.ErrChannelNotFound):
+			failedUpdates = append(failedUpdates,
+				makeFailureItem(chanPoint,
+					lnrpc.UpdateFailure_UPDATE_FAILURE_NOT_FOUND,
+					"not found",
+				))
+
+		case err != nil:
+			failedUpdates = append(failedUpdates,
+				makeFailureItem(chanPoint,
+					lnrpc.UpdateFailure_UPDATE_FAILURE_INTERNAL_ERR,
+					err.Error(),
+				))
+
+		case channel.IsPending:
+			failedUpdates = append(failedUpdates,
+				makeFailureItem(chanPoint,
+					lnrpc.UpdateFailure_UPDATE_FAILURE_PENDING,
+					"not yet confirmed",
+				))
+
+		default:
+			failedUpdates = append(failedUpdates,
+				makeFailureItem(chanPoint,
+					lnrpc.UpdateFailure_UPDATE_FAILURE_UNKNOWN,
+					"could not update policies",
+				))
+		}
 	}
 
 	// Commit the policy updates to disk and broadcast to the network. We
@@ -117,13 +161,13 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 	// multiple edge updates.
 	err = r.PropagateChanPolicyUpdate(edgesToUpdate)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Update active links.
 	r.UpdateForwardingPolicies(policiesToUpdate)
 
-	return nil
+	return failedUpdates, nil
 }
 
 // updateEdge updates the given edge with the new schema.
@@ -175,19 +219,22 @@ func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
 	// Validate htlc amount constraints.
 	switch {
 	case edge.MinHTLC < amtMin:
-		return fmt.Errorf("min htlc amount of %v msat is below "+
-			"min htlc parameter of %v msat for channel %v",
+		return fmt.Errorf(
+			"min htlc amount of %v is below min htlc parameter of %v",
 			edge.MinHTLC, amtMin,
-			chanPoint)
+		)
 
 	case edge.MaxHTLC > amtMax:
-		return fmt.Errorf("max htlc size of %v msat is above "+
-			"max pending amount of %v msat for channel %v",
-			edge.MaxHTLC, amtMax, chanPoint)
+		return fmt.Errorf(
+			"max htlc size of %v is above max pending amount of %v",
+			edge.MaxHTLC, amtMax,
+		)
 
 	case edge.MinHTLC > edge.MaxHTLC:
-		return fmt.Errorf("min_htlc %v greater than max_htlc %v",
-			edge.MinHTLC, edge.MaxHTLC)
+		return fmt.Errorf(
+			"min_htlc %v greater than max_htlc %v",
+			edge.MinHTLC, edge.MaxHTLC,
+		)
 	}
 
 	// Clear signature to help prevent usage of the previous signature.
@@ -213,4 +260,21 @@ func (r *Manager) getHtlcAmtLimits(tx kvdb.RTx, chanPoint wire.OutPoint) (
 	maxAmt := ch.LocalChanCfg.ChannelConstraints.MaxPendingAmount
 
 	return ch.LocalChanCfg.MinHTLC, maxAmt, nil
+}
+
+// makeFailureItem creates a lnrpc.FailedUpdate object.
+func makeFailureItem(outPoint wire.OutPoint, updateFailure lnrpc.UpdateFailure,
+	errStr string) *lnrpc.FailedUpdate {
+
+	outpoint := &lnrpc.OutPoint{
+		TxidBytes:   outPoint.Hash[:],
+		TxidStr:     outPoint.Hash.String(),
+		OutputIndex: outPoint.Index,
+	}
+
+	return &lnrpc.FailedUpdate{
+		Outpoint:    outpoint,
+		Reason:      updateFailure,
+		UpdateError: errStr,
+	}
 }

@@ -4924,7 +4924,22 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC,
 	lc.Lock()
 	defer lc.Unlock()
 
-	pd := &PaymentDescriptor{
+	pd := lc.htlcAddDescriptor(htlc, openKey)
+	if err := lc.validateAddHtlc(pd); err != nil {
+		return 0, err
+	}
+
+	lc.localUpdateLog.appendHtlc(pd)
+
+	return pd.HtlcIndex, nil
+}
+
+// htlcAddDescriptor returns a payment descriptor for the htlc and open key
+// provided to add to our local update log.
+func (lc *LightningChannel) htlcAddDescriptor(htlc *lnwire.UpdateAddHTLC,
+	openKey *channeldb.CircuitKey) *PaymentDescriptor {
+
+	return &PaymentDescriptor{
 		EntryType:      Add,
 		RHash:          PaymentHash(htlc.PaymentHash),
 		Timeout:        htlc.Expiry,
@@ -4934,7 +4949,11 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC,
 		OnionBlob:      htlc.OnionBlob[:],
 		OpenCircuitKey: openKey,
 	}
+}
 
+// validateAddHtlc validates the addition of an outgoing htlc to our local and
+// remote commitments.
+func (lc *LightningChannel) validateAddHtlc(pd *PaymentDescriptor) error {
 	// Make sure adding this HTLC won't violate any of the constraints we
 	// must keep on the commitment transactions.
 	remoteACKedIndex := lc.localCommitChain.tail().theirMessageIndex
@@ -4945,7 +4964,7 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC,
 		remoteACKedIndex, lc.localUpdateLog.logIndex, true, pd, nil,
 	)
 	if err != nil {
-		return 0, err
+		return err
 	}
 
 	// We must also check whether it can be added to our own commitment
@@ -4958,12 +4977,10 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC,
 		false, pd, nil,
 	)
 	if err != nil {
-		return 0, err
+		return err
 	}
 
-	lc.localUpdateLog.appendHtlc(pd)
-
-	return pd.HtlcIndex, nil
+	return nil
 }
 
 // ReceiveHTLC adds an HTLC to the state machine's remote update log. This

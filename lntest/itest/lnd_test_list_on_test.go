@@ -322,4 +322,8 @@ var allTestCases = []*testCase{
 		name: "etcd_failover",
 		test: testEtcdFailover,
 	},
+	{
+		name: "max htlc pathfind",
+		test: testMaxHtlcPathfind,
+	},
 }

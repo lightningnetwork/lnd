@@ -4347,10 +4347,14 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 		return payIntent, errors.New("invalid payment address length")
 	}
 
-	if payIntent.paymentAddr == nil {
+	// Set the payment address if it was explicitly defined with the
+	// rpcPaymentRequest.
+	// Note that the payment address for the payIntent should be nil if none
+	// was provided with the rpcPaymentRequest.
+	if len(rpcPayReq.PaymentAddr) != 0 {
 		payIntent.paymentAddr = &[32]byte{}
+		copy(payIntent.paymentAddr[:], rpcPayReq.PaymentAddr)
 	}
-	copy(payIntent.paymentAddr[:], rpcPayReq.PaymentAddr)
 
 	// Otherwise, If the payment request field was not specified
 	// (and a custom route wasn't specified), construct the payment

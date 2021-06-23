@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
-	"math"
 	prand "math/rand"
 	"sync"
 	"sync/atomic"
@@ -619,9 +618,18 @@ func (l *channelLink) sampleNetworkFee() (chainfee.SatPerKWeight, error) {
 
 // shouldAdjustCommitFee returns true if we should update our commitment fee to
 // match that of the network fee. We'll only update our commitment fee if the
-// network fee is +/- 10% to our network fee.
-func shouldAdjustCommitFee(netFee, chanFee chainfee.SatPerKWeight) bool {
+// network fee is +/- 10% to our commitment fee or if our current commitment
+// fee is below the minimum relay fee.
+func shouldAdjustCommitFee(netFee, chanFee,
+	minRelayFee chainfee.SatPerKWeight) bool {
+
 	switch {
+	// If the network fee is greater than our current commitment fee and
+	// our current commitment fee is below the minimum relay fee then
+	// we should switch to it no matter if it is less than a 10% increase.
+	case netFee > chanFee && chanFee < minRelayFee:
+		return true
+
 	// If the network fee is greater than the commitment fee, then we'll
 	// switch to it if it's at least 10% greater than the commit fee.
 	case netFee > chanFee && netFee >= (chanFee+(chanFee*10)/100):
@@ -1106,18 +1114,22 @@ func (l *channelLink) htlcManager() {
 				continue
 			}
 
-			// We'll check to see if we should update the fee rate
-			// based on our current set fee rate. We'll cap the new
-			// fee rate to our max fee allocation.
-			commitFee := l.channel.CommitFeeRate()
-			maxFee := l.channel.MaxFeeRate(
-				l.cfg.MaxFeeAllocation,
+			minRelayFee := l.cfg.FeeEstimator.RelayFeePerKW()
+
+			newCommitFee := l.channel.IdealCommitFeeRate(
+				netFee, minRelayFee,
 				l.cfg.MaxAnchorsCommitFeeRate,
+				l.cfg.MaxFeeAllocation,
 			)
-			newCommitFee := chainfee.SatPerKWeight(
-				math.Min(float64(netFee), float64(maxFee)),
-			)
-			if !shouldAdjustCommitFee(newCommitFee, commitFee) {
+
+			// We determine if we should adjust the commitment fee
+			// based on the current commitment fee, the suggested
+			// new commitment fee and the current minimum relay fee
+			// rate.
+			commitFee := l.channel.CommitFeeRate()
+			if !shouldAdjustCommitFee(
+				newCommitFee, commitFee, minRelayFee,
+			) {
 				continue
 			}
 

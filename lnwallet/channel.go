@@ -6992,14 +6992,11 @@ func (lc *LightningChannel) CalcFee(feeRate chainfee.SatPerKWeight) btcutil.Amou
 // MaxFeeRate returns the maximum fee rate given an allocation of the channel
 // initiator's spendable balance along with the local reserve amount. This can
 // be useful to determine when we should stop proposing fee updates that exceed
-// our maximum allocation. We also take a fee rate cap that should be used for
-// anchor type channels.
+// our maximum allocation.
 //
 // NOTE: This should only be used for channels in which the local commitment is
 // the initiator.
-func (lc *LightningChannel) MaxFeeRate(maxAllocation float64,
-	maxAnchorFeeRate chainfee.SatPerKWeight) chainfee.SatPerKWeight {
-
+func (lc *LightningChannel) MaxFeeRate(maxAllocation float64) chainfee.SatPerKWeight {
 	lc.RLock()
 	defer lc.RUnlock()
 
@@ -7017,16 +7014,78 @@ func (lc *LightningChannel) MaxFeeRate(maxAllocation float64,
 
 	// Ensure the fee rate doesn't dip below the fee floor.
 	maxFeeRate := maxFee / (float64(weight) / 1000)
-	feeRate := chainfee.SatPerKWeight(
+	return chainfee.SatPerKWeight(
 		math.Max(maxFeeRate, float64(chainfee.FeePerKwFloor)),
 	)
+}
 
-	// Cap anchor fee rates.
-	if lc.channelState.ChanType.HasAnchors() && feeRate > maxAnchorFeeRate {
-		return maxAnchorFeeRate
+// IdealCommitFeeRate uses the current network fee, the minimum relay fee,
+// maximum fee allocation and anchor channel commitment fee rate to determine
+// the ideal fee to be used for the commitments of the channel.
+func (lc *LightningChannel) IdealCommitFeeRate(netFeeRate, minRelayFeeRate,
+	maxAnchorCommitFeeRate chainfee.SatPerKWeight,
+	maxFeeAlloc float64) chainfee.SatPerKWeight {
+
+	// Get the maximum fee rate that we can use given our max fee allocation
+	// and given the local reserve balance that we must preserve.
+	maxFeeRate := lc.MaxFeeRate(maxFeeAlloc)
+
+	var commitFeeRate chainfee.SatPerKWeight
+
+	// If the channel has anchor outputs then cap the fee rate at the
+	// max anchor fee rate if that maximum is less than our max fee rate.
+	// Otherwise, cap the fee rate at the max fee rate.
+	switch lc.channelState.ChanType.HasAnchors() &&
+		maxFeeRate > maxAnchorCommitFeeRate {
+
+	case true:
+		commitFeeRate = chainfee.SatPerKWeight(
+			math.Min(
+				float64(netFeeRate),
+				float64(maxAnchorCommitFeeRate),
+			),
+		)
+
+	case false:
+		commitFeeRate = chainfee.SatPerKWeight(
+			math.Min(float64(netFeeRate), float64(maxFeeRate)),
+		)
 	}
 
-	return feeRate
+	if commitFeeRate >= minRelayFeeRate {
+		return commitFeeRate
+	}
+
+	// The commitment fee rate is below the minimum relay fee rate.
+	// If the min relay fee rate is still below the maximum fee, then use
+	// the minimum relay fee rate.
+	if minRelayFeeRate <= maxFeeRate {
+		return minRelayFeeRate
+	}
+
+	// The minimum relay fee rate is more than the ideal maximum fee rate.
+	// Check if it is smaller than the absolute maximum fee rate we can
+	// use. If it is, then we use the minimum relay fee rate and we log a
+	// warning to indicate that the max channel fee allocation option was
+	// ignored.
+	absoluteMaxFee := lc.MaxFeeRate(1)
+	if minRelayFeeRate <= absoluteMaxFee {
+		lc.log.Warn("Ignoring max channel fee allocation to " +
+			"ensure that the commitment fee is above the " +
+			"minimum relay fee.")
+
+		return minRelayFeeRate
+	}
+
+	// The absolute maximum fee rate we can pay is below the minimum
+	// relay fee rate. The commitment tx will not be able to propagate.
+	// To give the transaction the best chance, we use the absolute
+	// maximum fee we have available and we log an error.
+	lc.log.Errorf("The commitment fee rate of %s is below the current "+
+		"minimum relay fee rate of %s. The max fee rate of %s will be"+
+		"used.", commitFeeRate, minRelayFeeRate, absoluteMaxFee)
+
+	return absoluteMaxFee
 }
 
 // RemoteNextRevocation returns the channelState's RemoteNextRevocation.

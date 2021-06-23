@@ -37,5 +37,12 @@ The [`monitoring` build tag is now on by
 default](https://github.com/lightningnetwork/lnd/pull/5399) for all routine
 builds.
 
+## Bug Fixes
+
+An optimization intended to speed up the payment critical path by
+eliminating an extra RPC call [has been
+reverted](https://github.com/lightningnetwork/lnd/pull/5404) as it
+introduced a regression that would cause payment failure due to mismatching
+heights.
 
 # Contributors (Alphabetical Order)

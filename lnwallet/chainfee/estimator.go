@@ -24,7 +24,7 @@ const (
 	// minBlockTarget is the lowest number of blocks confirmations that
 	// a WebAPIEstimator will cache fees for. Requesting an estimate for
 	// less than this will result in an error.
-	minBlockTarget uint32 = 2
+	minBlockTarget uint32 = 1
 
 	// minFeeUpdateTimeout represents the minimum interval in which a
 	// WebAPIEstimator will request fresh fees from its API.

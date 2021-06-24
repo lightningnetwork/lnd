@@ -172,7 +172,7 @@ func TestWebAPIFeeEstimator(t *testing.T) {
 		est    uint32
 		err    string
 	}{
-		{"target_below_min", 1, 12345, 12345, "too low, minimum"},
+		{"target_below_min", 0, 12345, 12345, "too low, minimum"},
 		{"target_w_too-low_fee", 10, 42, feeFloor, ""},
 		{"API-omitted_target", 2, 0, 0, "web API does not include"},
 		{"valid_target", 20, 54321, 54321, ""},

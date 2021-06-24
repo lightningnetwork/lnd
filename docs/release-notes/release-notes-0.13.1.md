@@ -37,6 +37,17 @@ The [`monitoring` build tag is now on by
 default](https://github.com/lightningnetwork/lnd/pull/5399) for all routine
 builds.
 
+## Deadline Aware in Anchor Sweeping
+Anchor sweeping is now [deadline
+aware](https://github.com/lightningnetwork/lnd/pull/5148). Previously, all
+anchor sweepings use a default conf target of 6, which is likely to cause
+overpaying miner fees since the CLTV values of the HTLCs are far in the future.
+Brought by this update, the anchor sweeping (particularly local force close)
+will construct a deadline from its set of HTLCs, and use it as the conf target
+when estimating miner fees. The previous default conf target 6 is now changed
+to 144, and it's only used when there are no eligible HTLCs for deadline
+construction.
+
 ## Bug Fixes
 
 An optimization intended to speed up the payment critical path by

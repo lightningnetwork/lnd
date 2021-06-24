@@ -1115,7 +1115,10 @@ func (hn *HarnessNode) stop() error {
 		// closed before a response is returned.
 		req := lnrpc.StopRequest{}
 		ctx := context.Background()
-		hn.LightningClient.StopDaemon(ctx, &req)
+		_, err := hn.LightningClient.StopDaemon(ctx, &req)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Wait for lnd process and other goroutines to exit.

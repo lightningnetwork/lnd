@@ -594,7 +594,13 @@ func assertNumConnections(t *harnessTest, alice, bob *lntest.HarnessNode,
 // occur.
 func shutdownAndAssert(net *lntest.NetworkHarness, t *harnessTest,
 	node *lntest.HarnessNode) {
-	if err := net.ShutdownNode(node); err != nil {
+
+	// The process may not be in a state to always shutdown immediately, so
+	// we'll retry up to a hard limit to ensure we eventually shutdown.
+	err := wait.NoError(func() error {
+		return net.ShutdownNode(node)
+	}, defaultTimeout)
+	if err != nil {
 		t.Fatalf("unable to shutdown %v: %v", node.Name(), err)
 	}
 }

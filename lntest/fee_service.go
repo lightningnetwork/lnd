@@ -15,7 +15,7 @@ const (
 	// feeServiceTarget is the confirmation target for which a fee estimate
 	// is returned. Requests for higher confirmation targets will fall back
 	// to this.
-	feeServiceTarget = 2
+	feeServiceTarget = 1
 )
 
 // feeService runs a web service that provides fee estimation information.

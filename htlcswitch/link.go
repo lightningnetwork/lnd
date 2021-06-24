@@ -2156,6 +2156,12 @@ func (l *channelLink) Bandwidth() lnwire.MilliSatoshi {
 	return l.channel.AvailableBalance()
 }
 
+// MayAddOutgoingHtlc indicates whether we may add any more outgoing htlcs to
+// this channel.
+func (l *channelLink) MayAddOutgoingHtlc() error {
+	return l.channel.MayAddOutgoingHtlc()
+}
+
 // AttachMailBox updates the current mailbox used by this link, and hooks up
 // the mailbox's message and packet outboxes to the link's upstream and
 // downstream chans, respectively.

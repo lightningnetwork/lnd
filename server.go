@@ -718,6 +718,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			return 0
 		}
 
+		// If our link isn't currently in a state where it can
+		// add another outgoing htlc, treat the link as unusable.
+		if err := link.MayAddOutgoingHtlc(); err != nil {
+			return 0
+		}
+
 		// Otherwise, we'll return the current best estimate
 		// for the available bandwidth for the link.
 		return link.Bandwidth()

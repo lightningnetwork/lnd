@@ -2,8 +2,10 @@ package routing
 
 import (
 	"bytes"
+	"container/list"
 	"encoding/binary"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
@@ -35,13 +37,38 @@ const (
 // Also changes to mission control parameters can be applied to historical data.
 // Finally, it enables importing raw data from an external source.
 type missionControlStore struct {
-	db         kvdb.Backend
+	done    chan struct{}
+	wg      sync.WaitGroup
+	db      kvdb.Backend
+	queueMx sync.Mutex
+
+	// queue stores all pending payment results not yet added to the store.
+	queue *list.List
+
+	// keys holds the stored MC store item keys in the order of storage.
+	// We use this list when adding/deleting items from the database to
+	// avoid cursor use which may be slow in the remote DB case.
+	keys *list.List
+
+	// keysMap holds the stored MC store item keys. We use this map to check
+	// if a new payment result has already been stored.
+	keysMap map[string]struct{}
+
+	// maxRecords is the maximum amount of records we will store in the db.
 	maxRecords int
-	numRecords int
+
+	// flushInterval is the configured interval we use to store new results
+	// and delete outdated ones from the db.
+	flushInterval time.Duration
 }
 
-func newMissionControlStore(db kvdb.Backend, maxRecords int) (*missionControlStore, error) {
-	var store *missionControlStore
+func newMissionControlStore(db kvdb.Backend, maxRecords int,
+	flushInterval time.Duration) (*missionControlStore, error) {
+
+	var (
+		keys    *list.List
+		keysMap map[string]struct{}
+	)
 
 	// Create buckets if not yet existing.
 	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
@@ -51,32 +78,40 @@ func newMissionControlStore(db kvdb.Backend, maxRecords int) (*missionControlSto
 				err)
 		}
 
-		// Count initial number of results and track this number in
-		// memory to avoid calling Stats().KeyN. The reliability of
-		// Stats() is doubtful and seemed to have caused crashes in the
-		// past (see #1874).
+		// Collect all keys to be able to quickly calculate the
+		// difference when updating the DB state.
 		c := resultsBucket.ReadCursor()
 		for k, _ := c.First(); k != nil; k, _ = c.Next() {
-			store.numRecords++
+			keys.PushBack(k)
+			keysMap[string(k)] = struct{}{}
 		}
 
 		return nil
 	}, func() {
-		store = &missionControlStore{
-			db:         db,
-			maxRecords: maxRecords,
-		}
+		keys = list.New()
+		keysMap = make(map[string]struct{})
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return store, nil
+	return &missionControlStore{
+		done:          make(chan struct{}),
+		db:            db,
+		queue:         list.New(),
+		keys:          keys,
+		keysMap:       keysMap,
+		maxRecords:    maxRecords,
+		flushInterval: flushInterval,
+	}, nil
 }
 
 // clear removes all results from the db.
 func (b *missionControlStore) clear() error {
-	return kvdb.Update(b.db, func(tx kvdb.RwTx) error {
+	b.queueMx.Lock()
+	defer b.queueMx.Unlock()
+
+	err := kvdb.Update(b.db, func(tx kvdb.RwTx) error {
 		if err := tx.DeleteTopLevelBucket(resultsKey); err != nil {
 			return err
 		}
@@ -84,6 +119,13 @@ func (b *missionControlStore) clear() error {
 		_, err := tx.CreateTopLevelBucket(resultsKey)
 		return err
 	}, func() {})
+
+	if err != nil {
+		return err
+	}
+
+	b.queue = list.New()
+	return nil
 }
 
 // fetchAll returns all results currently stored in the database.
@@ -221,39 +263,117 @@ func deserializeResult(k, v []byte) (*paymentResult, error) {
 }
 
 // AddResult adds a new result to the db.
-func (b *missionControlStore) AddResult(rp *paymentResult) error {
-	return kvdb.Update(b.db, func(tx kvdb.RwTx) error {
-		bucket := tx.ReadWriteBucket(resultsKey)
+func (b *missionControlStore) AddResult(rp *paymentResult) {
+	b.queueMx.Lock()
+	defer b.queueMx.Unlock()
+	b.queue.PushBack(rp)
+}
 
-		// Prune oldest entries.
-		if b.maxRecords > 0 {
-			for b.numRecords >= b.maxRecords {
-				cursor := bucket.ReadWriteCursor()
-				cursor.First()
-				if err := cursor.Delete(); err != nil {
-					return err
+// stop stops the store ticker goroutine.
+func (b *missionControlStore) stop() {
+	close(b.done)
+	b.wg.Wait()
+}
+
+// run runs the MC store ticker goroutine.
+func (b *missionControlStore) run() {
+	b.wg.Add(1)
+
+	go func() {
+		ticker := time.NewTicker(b.flushInterval)
+		defer ticker.Stop()
+		defer b.wg.Done()
+
+		for {
+			select {
+			case <-ticker.C:
+				if err := b.storeResults(); err != nil {
+					log.Errorf("Failed to update mission "+
+						"control store: %v", err)
 				}
 
-				b.numRecords--
+			case <-b.done:
+				return
 			}
 		}
+	}()
+}
 
-		// Serialize result into key and value byte slices.
-		k, v, err := serializeResult(rp)
-		if err != nil {
-			return err
+// storeResults stores all accumulated results.
+func (b *missionControlStore) storeResults() error {
+	b.queueMx.Lock()
+	l := b.queue
+	b.queue = list.New()
+	b.queueMx.Unlock()
+
+	var (
+		keys    *list.List
+		keysMap map[string]struct{}
+	)
+
+	err := kvdb.Update(b.db, func(tx kvdb.RwTx) error {
+		bucket := tx.ReadWriteBucket(resultsKey)
+
+		for e := l.Front(); e != nil; e = e.Next() {
+			pr := e.Value.(*paymentResult)
+			// Serialize result into key and value byte slices.
+			k, v, err := serializeResult(pr)
+			if err != nil {
+				return err
+			}
+
+			// The store is assumed to be idempotent. It could be
+			// that the same result is added twice and in that case
+			// we don't need to put the value again.
+			if _, ok := keysMap[string(k)]; ok {
+				continue
+			}
+
+			// Put into results bucket.
+			if err := bucket.Put(k, v); err != nil {
+				return err
+			}
+
+			keys.PushBack(k)
+			keysMap[string(k)] = struct{}{}
 		}
 
-		// The store is assumed to be idempotent. It could be that the
-		// same result is added twice and in that case the counter
-		// shouldn't be increased.
-		if bucket.Get(k) == nil {
-			b.numRecords++
+		// Prune oldest entries.
+		for {
+			if b.maxRecords == 0 || keys.Len() <= b.maxRecords {
+				break
+			}
+
+			front := keys.Front()
+			key := front.Value.([]byte)
+
+			if err := bucket.Delete(key); err != nil {
+				return err
+			}
+
+			keys.Remove(front)
+			delete(keysMap, string(key))
 		}
 
-		// Put into results bucket.
-		return bucket.Put(k, v)
-	}, func() {})
+		return nil
+	}, func() {
+		keys = list.New()
+		keys.PushBackList(b.keys)
+
+		keysMap = make(map[string]struct{})
+		for k := range b.keysMap {
+			keysMap[k] = struct{}{}
+		}
+	})
+
+	if err != nil {
+		return err
+	}
+
+	b.keys = keys
+	b.keysMap = keysMap
+
+	return nil
 }
 
 // getResultKey returns a byte slice representing a unique key for this payment

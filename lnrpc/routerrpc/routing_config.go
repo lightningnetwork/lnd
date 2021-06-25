@@ -43,4 +43,8 @@ type RoutingConfig struct {
 	// MaxMcHistory defines the maximum number of payment results that
 	// are held on disk by mission control.
 	MaxMcHistory int `long:"maxmchistory" description:"the maximum number of payment results that are held on disk by mission control"`
+
+	// McFlushInterval defines the timer interval to use to flush mission
+	// control state to the DB.
+	McFlushInterval time.Duration `long:"mcflushinterval" description:"the timer interval to use to flush mission control state to the DB"`
 }

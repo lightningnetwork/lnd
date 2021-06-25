@@ -34,6 +34,8 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/sweep"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
@@ -1119,7 +1121,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 			packet, feeSatPerKW, account,
 		)
 		if err != nil {
-			return fmt.Errorf("wallet couldn't fund PSBT: %v", err)
+			return status.Error(codes.FailedPrecondition, ErrUnableToFund(err).Error())
 		}
 
 		// Make sure we can properly serialize the packet. If this goes

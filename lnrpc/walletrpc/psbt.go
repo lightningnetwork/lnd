@@ -11,6 +11,8 @@ import (
 	"github.com/btcsuite/btcutil/psbt"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -36,8 +38,7 @@ func verifyInputsUnspent(inputs []*wire.TxIn, utxos []*lnwallet.Utxo) error {
 		}
 
 		if !found {
-			return fmt.Errorf("input %d not found in list of non-"+
-				"locked UTXO", idx)
+			return status.Error(codes.NotFound, ErrUnspentInputNotFound(idx).Error())
 		}
 	}
 

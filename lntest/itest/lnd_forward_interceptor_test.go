@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -224,6 +225,50 @@ func testForwardInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 	// that tests the payment final status for the held payment.
 	cancelInterceptor()
 	wg.Wait()
+
+	// Verify that we don't get notified about already completed HTLCs
+	// We do that by restarting alice, the sender the HTLCs. Under
+	// https://github.com/lightningnetwork/lnd/issues/5115
+	// this should cause all HTLCs settled or failed by the interceptor to renotify.
+	restartAlice, err := net.SuspendNode(alice)
+	require.NoError(t.t, err, "failed to suspend alice")
+
+	ctx = context.Background()
+	ctxt, cancelInterceptor = context.WithTimeout(ctx, defaultTimeout)
+	defer cancelInterceptor()
+	interceptor, err = testContext.bob.RouterClient.HtlcInterceptor(ctxt)
+	require.NoError(t.t, err, "failed to create HtlcInterceptor")
+
+	err = restartAlice()
+	require.NoError(t.t, err, "failed to restart alice")
+
+	go func() {
+		request, err := interceptor.Recv()
+		if err != nil {
+			// If it is  just the error result of the context cancellation
+			// the we exit silently.
+			status, ok := status.FromError(err)
+			if ok && status.Code() == codes.Canceled {
+				return
+			}
+			// Otherwise it an unexpected error, we fail the test.
+			require.NoError(
+				t.t, err, "unexpected error in interceptor.Recv()",
+			)
+			return
+		}
+
+		require.Nil(t.t, request, "no more intercepts should arrive")
+	}()
+
+	err = wait.Predicate(func() bool {
+		channels, err := bob.ListChannels(ctx, &lnrpc.ListChannelsRequest{
+			ActiveOnly: true, Peer: alice.PubKey[:],
+		})
+		return err == nil && len(channels.Channels) > 0
+	}, defaultTimeout)
+	require.NoError(t.t, err, "alice <> bob channel didnt re-activate")
+
 }
 
 // interceptorTestContext is a helper struct to hold the test context and

@@ -5722,6 +5722,23 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		)
 	}
 
+	// Create a new query for total payments count, include incomplete in
+	// count if provided
+	queryPaymentsCount := channeldb.PaymentsQuery{
+		IncludeIncomplete: req.IncludeIncomplete,
+		MaxPayments:       math.MaxUint64,
+	}
+
+	paymentsTotalsQuerySlice, err :=
+		r.server.remoteChanDB.QueryPayments(queryPaymentsCount)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add the total payments count to the response
+	paymentsResp.TotalPayments =
+		uint64(len(paymentsTotalsQuerySlice.Payments))
+
 	return paymentsResp, nil
 }
 

@@ -114,6 +114,10 @@ var (
 	ErrConfirmationTimeout = errors.New("timeout waiting for funding " +
 		"confirmation")
 
+	// ErrDoubleSpend is an error when we detect a funding transcation
+	// input has been double spent
+	ErrDoubleSpend = errors.New("detected double spend with a funding transcation input")
+
 	// errUpfrontShutdownScriptNotSupported is returned if an upfront shutdown
 	// script is set for a peer that does not support the feature bit.
 	errUpfrontShutdownScriptNotSupported = errors.New("peer does not support" +
@@ -755,6 +759,17 @@ func (f *Manager) CancelPeerReservations(nodePub [33]byte) {
 	delete(f.activeReservations, nodePub)
 }
 
+// errFundingCanceled is an error that will be returned and sent to the peer in
+// case the funding flow is being canceled.
+type errFundingCanceled struct {
+	error
+}
+
+// Error returns the string representation for errFundingCanceled.
+func (e errFundingCanceled) Error() string {
+	return "funding flow canceled"
+}
+
 // failFundingFlow will fail the active funding flow with the target peer,
 // identified by its unique temporary channel ID. This method will send an
 // error to the remote peer, and also remove the reservation from our set of
@@ -791,6 +806,8 @@ func (f *Manager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 	case lnwire.FundingError:
 		msg = lnwire.ErrorData(e.Error())
 	case chanacceptor.ChanAcceptError:
+		msg = lnwire.ErrorData(e.Error())
+	case errFundingCanceled:
 		msg = lnwire.ErrorData(e.Error())
 
 	// For all other error types we just send a generic error.
@@ -1051,13 +1068,86 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 	return fmt.Errorf("undefined channelState: %v", channelState)
 }
 
+// waitForFundingSpend waits for any of the inputs to the provided funding
+// transaction to be spent, and returns the txid of the spending transaction.
+// This is used to detect the case where the funding tx is double spent and
+// rendered invalid.
+func (f *Manager) waitForFundingSpend(fundingTx *wire.MsgTx,
+	fndBroadcastHeight uint32) (*chainhash.Hash, error) {
+	errs := make(chan error)
+	done := make(chan interface{})
+	spends := make(chan *chainntnfs.SpendDetail)
+
+	for _, txIn := range fundingTx.TxIn {
+
+		f.wg.Add(1)
+		go func(txIn *wire.TxIn) {
+			defer f.wg.Done()
+			pkScript, err := txscript.ComputePkScript(
+				txIn.SignatureScript, txIn.Witness,
+			)
+			if err != nil {
+				select {
+				case errs <- err:
+				case <-f.quit:
+				}
+				return
+			}
+
+			spendNtfn, err := f.cfg.Notifier.RegisterSpendNtfn(
+				&txIn.PreviousOutPoint, pkScript.Script(),
+				fndBroadcastHeight,
+			)
+			if err != nil {
+				select {
+				case errs <- err:
+				case <-f.quit:
+				}
+				return
+			}
+			defer spendNtfn.Cancel()
+
+			select {
+			case spend, ok := <-spendNtfn.Spend:
+				if !ok {
+					err := fmt.Errorf("spend client closed")
+					select {
+					case errs <- err:
+					case <-f.quit:
+					}
+					return
+				}
+
+				select {
+				case spends <- spend:
+					close(done)
+				case <-f.quit:
+				}
+
+			case <-f.quit:
+			case <-done:
+			}
+		}(txIn)
+	}
+
+	select {
+	case spend := <-spends:
+		return spend.SpenderTxHash, nil
+	case err := <-errs:
+		return nil, err
+	case <-f.quit:
+		return nil, ErrFundingManagerShuttingDown
+	}
+
+}
+
 // advancePendingChannelState waits for a pending channel's funding tx to
 // confirm, and marks it open in the database when that happens.
 func (f *Manager) advancePendingChannelState(
 	channel *channeldb.OpenChannel, pendingChanID [32]byte) error {
 
 	confChannel, err := f.waitForFundingWithTimeout(channel)
-	if err == ErrConfirmationTimeout {
+	if err == ErrConfirmationTimeout || err == ErrDoubleSpend {
 		// We'll get a timeout if the number of blocks mined
 		// since the channel was initiated reaches
 		// maxWaitNumBlocksFundingConf and we are not the
@@ -1085,9 +1175,6 @@ func (f *Manager) advancePendingChannelState(
 				"%v: %v", ch.FundingOutpoint, err)
 		}
 
-		timeoutErr := fmt.Errorf("timeout waiting for funding tx "+
-			"(%v) to confirm", channel.FundingOutpoint)
-
 		// When the peer comes online, we'll notify it that we
 		// are now considering the channel flow canceled.
 		f.wg.Add(1)
@@ -1108,10 +1195,10 @@ func (f *Manager) advancePendingChannelState(
 			}
 			// TODO(halseth): should this send be made
 			// reliable?
-			f.failFundingFlow(peer, pendingChanID, timeoutErr)
+			f.failFundingFlow(peer, pendingChanID, err)
 		}()
 
-		return timeoutErr
+		return err
 
 	} else if err != nil {
 		return fmt.Errorf("error waiting for funding "+
@@ -1931,7 +2018,6 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 	fundingOut := msg.FundingPoint
 	log.Infof("completing pending_id(%x) with ChannelPoint(%v)",
 		pendingChanID[:], fundingOut)
-
 	commitSig, err := msg.CommitSig.ToSignature()
 	if err != nil {
 		log.Errorf("unable to parse signature: %v", err)
@@ -2230,28 +2316,24 @@ func (f *Manager) waitForFundingWithTimeout(
 	ch *channeldb.OpenChannel) (*confirmedChannel, error) {
 
 	confChan := make(chan *confirmedChannel)
-	timeoutChan := make(chan error, 1)
+	errorChan := make(chan error)
 	cancelChan := make(chan struct{})
 
 	f.wg.Add(1)
-	go f.waitForFundingConfirmation(ch, cancelChan, confChan)
+	go f.waitForFundingConfirmation(ch, cancelChan, confChan, errorChan)
 
 	// If we are not the initiator, we have no money at stake and will
 	// timeout waiting for the funding transaction to confirm after a
 	// while.
 	if !ch.IsInitiator {
 		f.wg.Add(1)
-		go f.waitForTimeout(ch, cancelChan, timeoutChan)
+		go f.waitForTimeout(ch, cancelChan, errorChan)
 	}
 	defer close(cancelChan)
 
 	select {
-	case err := <-timeoutChan:
-		if err != nil {
-			return nil, err
-		}
-		return nil, ErrConfirmationTimeout
-
+	case err := <-errorChan:
+		return nil, err
 	case <-f.quit:
 		// The fundingManager is shutting down, and will resume wait on
 		// startup.
@@ -2291,10 +2373,42 @@ func makeFundingScript(channel *channeldb.OpenChannel) ([]byte, error) {
 // NOTE: This MUST be run as a goroutine.
 func (f *Manager) waitForFundingConfirmation(
 	completeChan *channeldb.OpenChannel, cancelChan <-chan struct{},
-	confChan chan<- *confirmedChannel) {
+	confChan chan<- *confirmedChannel, errChan chan error) {
 
 	defer f.wg.Done()
 	defer close(confChan)
+	// First we wait for any spend of the inputs to the funding
+	// transaction. We do this to handle the case where any of the
+	// inputs gets spent by another transaction, invalidating this
+	// funding tx.
+	// TODO(halseth): Move this logic to within RegisterConfNtfn
+	// and return error in case of double spend?
+	if completeChan.IsInitiator && completeChan.ChanType.HasFundingTx() {
+
+		fundingTxid := completeChan.FundingTxn.TxHash()
+		log.Infof("Waiting for funding tx (%v) spend event",
+			fundingTxid)
+
+		spendTxid, err := f.waitForFundingSpend(completeChan.FundingTxn,
+			completeChan.FundingBroadcastHeight)
+		if err != nil {
+			log.Errorf("Failed waiting for funding spend: %v",
+				err)
+			close(errChan)
+			return
+		}
+
+		// If the funding transaction is being invalidated by a tx
+		// spending one of its inputs, we can cancel this funding flow.
+		if *spendTxid != fundingTxid {
+			log.Warnf("Input to funding tx spent by another "+
+				"tx(%v)", spendTxid)
+
+			errChan <- ErrDoubleSpend
+			return
+		}
+
+	}
 
 	// Register with the ChainNotifier for a notification once the funding
 	// transaction reaches `numConfs` confirmations.
@@ -2381,12 +2495,12 @@ func (f *Manager) waitForFundingConfirmation(
 // NOTE: timeoutChan MUST be buffered.
 // NOTE: This MUST be run as a goroutine.
 func (f *Manager) waitForTimeout(completeChan *channeldb.OpenChannel,
-	cancelChan <-chan struct{}, timeoutChan chan<- error) {
+	cancelChan <-chan struct{}, errorChan chan<- error) {
 	defer f.wg.Done()
 
 	epochClient, err := f.cfg.Notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
-		timeoutChan <- fmt.Errorf("unable to register for epoch "+
+		errorChan <- fmt.Errorf("unable to register for epoch "+
 			"notification: %v", err)
 		return
 	}
@@ -2399,7 +2513,7 @@ func (f *Manager) waitForTimeout(completeChan *channeldb.OpenChannel,
 		select {
 		case epoch, ok := <-epochClient.Epochs:
 			if !ok {
-				timeoutChan <- fmt.Errorf("epoch client " +
+				errorChan <- fmt.Errorf("epoch client " +
 					"shutting down")
 				return
 			}
@@ -2413,7 +2527,7 @@ func (f *Manager) waitForTimeout(completeChan *channeldb.OpenChannel,
 					maxWaitNumBlocksFundingConf)
 
 				// Notify the caller of the timeout.
-				close(timeoutChan)
+				errorChan <- ErrConfirmationTimeout
 				return
 			}
 

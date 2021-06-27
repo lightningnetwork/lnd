@@ -606,12 +606,10 @@ func testWalletImportAccountScenario(net *lntest.NetworkHarness, t *harnessTest,
 
 	// We'll start our test by having two nodes, Carol and Dave. Carol's
 	// default wallet account will be imported into Dave's node.
-	carol, err := net.NewNode("carol", nil)
-	require.NoError(t.t, err)
+	carol := net.NewNode(t.t, "carol", nil)
 	defer shutdownAndAssert(net, t, carol)
 
-	dave, err := net.NewNode("dave", nil)
-	require.NoError(t.t, err)
+	dave := net.NewNode(t.t, "dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
 	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
@@ -754,12 +752,10 @@ func testWalletImportPubKeyScenario(net *lntest.NetworkHarness, t *harnessTest,
 	const utxoAmt int64 = btcutil.SatoshiPerBitcoin
 
 	// We'll start our test by having two nodes, Carol and Dave.
-	carol, err := net.NewNode("carol", nil)
-	require.NoError(t.t, err)
+	carol := net.NewNode(t.t, "carol", nil)
 	defer shutdownAndAssert(net, t, carol)
 
-	dave, err := net.NewNode("dave", nil)
-	require.NoError(t.t, err)
+	dave := net.NewNode(t.t, "dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
 	// We'll define a helper closure that we'll use throughout the test to

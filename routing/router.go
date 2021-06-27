@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
@@ -489,7 +488,6 @@ func (r *ChannelRouter) Start() error {
 	if err != nil {
 		return err
 	}
-	r.bestHeight = uint32(bestHeight)
 
 	// If the graph has never been pruned, or hasn't fully been created yet,
 	// then we don't treat this as an explicit error.
@@ -565,7 +563,7 @@ func (r *ChannelRouter) Start() error {
 
 		// The graph pruning might have taken a while and there could be
 		// new blocks available.
-		bestHash, bestHeight, err = r.cfg.Chain.GetBestBlock()
+		_, bestHeight, err = r.cfg.Chain.GetBestBlock()
 		if err != nil {
 			return err
 		}
@@ -574,7 +572,7 @@ func (r *ChannelRouter) Start() error {
 		// Before we begin normal operation of the router, we first need
 		// to synchronize the channel graph to the latest state of the
 		// UTXO set.
-		if err := r.syncGraphWithChain(bestHash, bestHeight); err != nil {
+		if err := r.syncGraphWithChain(); err != nil {
 			return err
 		}
 
@@ -706,11 +704,15 @@ func (r *ChannelRouter) Stop() error {
 // the latest UTXO set state. This process involves pruning from the channel
 // graph any channels which have been closed by spending their funding output
 // since we've been down.
-func (r *ChannelRouter) syncGraphWithChain(bestHash *chainhash.Hash,
-	bestHeight int32) error {
-
+func (r *ChannelRouter) syncGraphWithChain() error {
 	// First, we'll need to check to see if we're already in sync with the
 	// latest state of the UTXO set.
+	bestHash, bestHeight, err := r.cfg.Chain.GetBestBlock()
+	if err != nil {
+		return err
+	}
+	r.bestHeight = uint32(bestHeight)
+
 	pruneHash, pruneHeight, err := r.cfg.Graph.PruneTip()
 	if err != nil {
 		switch {
@@ -2161,15 +2163,13 @@ func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash, rt *route.Route) (
 	// mark the payment failed with the control tower immediately. Process
 	// the error to check if it maps into a terminal error code, if not use
 	// a generic NO_ROUTE error.
-	reason := r.processSendError(
-		attempt.AttemptID, &attempt.Route, shardError,
-	)
-	if reason == nil {
-		r := channeldb.FailureReasonNoRoute
-		reason = &r
+	if err := sh.handleSendError(attempt, shardError); err != nil {
+		return nil, err
 	}
 
-	err = r.cfg.Control.Fail(paymentIdentifier, *reason)
+	err = r.cfg.Control.Fail(
+		paymentIdentifier, channeldb.FailureReasonNoRoute,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2200,7 +2200,10 @@ func (r *ChannelRouter) sendPayment(
 
 	// We'll also fetch the current block height so we can properly
 	// calculate the required HTLC time locks within the route.
-	currentHeight := int32(atomic.LoadUint32(&r.bestHeight))
+	_, currentHeight, err := r.cfg.Chain.GetBestBlock()
+	if err != nil {
+		return [32]byte{}, nil, err
+	}
 
 	// Now set up a paymentLifecycle struct with these params, such that we
 	// can resume the payment from the current state.
@@ -2223,121 +2226,6 @@ func (r *ChannelRouter) sendPayment(
 
 	return p.resumePayment()
 
-}
-
-// tryApplyChannelUpdate tries to apply a channel update present in the failure
-// message if any.
-func (r *ChannelRouter) tryApplyChannelUpdate(rt *route.Route,
-	errorSourceIdx int, failure lnwire.FailureMessage) error {
-
-	// It makes no sense to apply our own channel updates.
-	if errorSourceIdx == 0 {
-		log.Errorf("Channel update of ourselves received")
-
-		return nil
-	}
-
-	// Extract channel update if the error contains one.
-	update := r.extractChannelUpdate(failure)
-	if update == nil {
-		return nil
-	}
-
-	// Parse pubkey to allow validation of the channel update. This should
-	// always succeed, otherwise there is something wrong in our
-	// implementation. Therefore return an error.
-	errVertex := rt.Hops[errorSourceIdx-1].PubKeyBytes
-	errSource, err := btcec.ParsePubKey(
-		errVertex[:], btcec.S256(),
-	)
-	if err != nil {
-		log.Errorf("Cannot parse pubkey: idx=%v, pubkey=%v",
-			errorSourceIdx, errVertex)
-
-		return err
-	}
-
-	// Apply channel update.
-	if !r.applyChannelUpdate(update, errSource) {
-		log.Debugf("Invalid channel update received: node=%v",
-			errVertex)
-	}
-
-	return nil
-}
-
-// processSendError analyzes the error for the payment attempt received from the
-// switch and updates mission control and/or channel policies. Depending on the
-// error type, this error is either the final outcome of the payment or we need
-// to continue with an alternative route. A final outcome is indicated by a
-// non-nil return value.
-func (r *ChannelRouter) processSendError(attemptID uint64, rt *route.Route,
-	sendErr error) *channeldb.FailureReason {
-
-	internalErrorReason := channeldb.FailureReasonError
-
-	reportFail := func(srcIdx *int,
-		msg lnwire.FailureMessage) *channeldb.FailureReason {
-
-		// Report outcome to mission control.
-		reason, err := r.cfg.MissionControl.ReportPaymentFail(
-			attemptID, rt, srcIdx, msg,
-		)
-		if err != nil {
-			log.Errorf("Error reporting payment result to mc: %v",
-				err)
-
-			return &internalErrorReason
-		}
-
-		return reason
-	}
-
-	if sendErr == htlcswitch.ErrUnreadableFailureMessage {
-		log.Tracef("Unreadable failure when sending htlc")
-
-		return reportFail(nil, nil)
-	}
-
-	// If the error is a ClearTextError, we have received a valid wire
-	// failure message, either from our own outgoing link or from a node
-	// down the route. If the error is not related to the propagation of
-	// our payment, we can stop trying because an internal error has
-	// occurred.
-	rtErr, ok := sendErr.(htlcswitch.ClearTextError)
-	if !ok {
-		return &internalErrorReason
-	}
-
-	// failureSourceIdx is the index of the node that the failure occurred
-	// at. If the ClearTextError received is not a ForwardingError the
-	// payment error occurred at our node, so we leave this value as 0
-	// to indicate that the failure occurred locally. If the error is a
-	// ForwardingError, it did not originate at our node, so we set
-	// failureSourceIdx to the index of the node where the failure occurred.
-	failureSourceIdx := 0
-	source, ok := rtErr.(*htlcswitch.ForwardingError)
-	if ok {
-		failureSourceIdx = source.FailureSourceIdx
-	}
-
-	// Extract the wire failure and apply channel update if it contains one.
-	// If we received an unknown failure message from a node along the
-	// route, the failure message will be nil.
-	failureMessage := rtErr.WireMessage()
-	if failureMessage != nil {
-		err := r.tryApplyChannelUpdate(
-			rt, failureSourceIdx, failureMessage,
-		)
-		if err != nil {
-			return &internalErrorReason
-		}
-	}
-
-	log.Tracef("Node=%v reported failure when sending htlc",
-		failureSourceIdx)
-
-	return reportFail(&failureSourceIdx, failureMessage)
 }
 
 // extractChannelUpdate examines the error and extracts the channel update.

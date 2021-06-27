@@ -1207,6 +1207,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			uint32(bestHeight), nil, targetAddr, wallet,
 			wallet, wallet.WalletController,
 			r.server.cc.FeeEstimator, r.server.cc.Signer,
+			minConfs,
 		)
 		if err != nil {
 			return nil, err
@@ -1259,6 +1260,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 				uint32(bestHeight), outputs, targetAddr, wallet,
 				wallet, wallet.WalletController,
 				r.server.cc.FeeEstimator, r.server.cc.Signer,
+				minConfs,
 			)
 			if err != nil {
 				return nil, err
@@ -2369,8 +2371,13 @@ func (r *rpcServer) AbandonChannel(_ context.Context,
 	// If this isn't the dev build, then we won't allow the RPC to be
 	// executed, as it's an advanced feature and won't be activated in
 	// regular production/release builds except for the explicit case of
-	// externally funded channels that are still pending.
-	if !in.PendingFundingShimOnly && !build.IsDevBuild() {
+	// externally funded channels that are still pending. Due to repeated
+	// requests, we also allow this requirement to be overwritten by a new
+	// flag that attests to the user knowing what they're doing and the risk
+	// associated with the command/RPC.
+	if !in.IKnowWhatIAmDoing && !in.PendingFundingShimOnly &&
+		!build.IsDevBuild() {
+
 		return nil, fmt.Errorf("AbandonChannel RPC call only " +
 			"available in dev builds")
 	}
@@ -2411,7 +2418,9 @@ func (r *rpcServer) AbandonChannel(_ context.Context,
 		// PSBT) on the channel so we don't need to use the thaw height.
 		isShimFunded := dbChan.ThawHeight > 0
 		isPendingShimFunded := isShimFunded && dbChan.IsPending
-		if in.PendingFundingShimOnly && !isPendingShimFunded {
+		if !in.IKnowWhatIAmDoing && in.PendingFundingShimOnly &&
+			!isPendingShimFunded {
+
 			return nil, fmt.Errorf("channel %v is not externally "+
 				"funded or not pending", chanPoint)
 		}
@@ -4345,10 +4354,14 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 		return payIntent, errors.New("invalid payment address length")
 	}
 
-	if payIntent.paymentAddr == nil {
+	// Set the payment address if it was explicitly defined with the
+	// rpcPaymentRequest.
+	// Note that the payment address for the payIntent should be nil if none
+	// was provided with the rpcPaymentRequest.
+	if len(rpcPayReq.PaymentAddr) != 0 {
 		payIntent.paymentAddr = &[32]byte{}
+		copy(payIntent.paymentAddr[:], rpcPayReq.PaymentAddr)
 	}
-	copy(payIntent.paymentAddr[:], rpcPayReq.PaymentAddr)
 
 	// Otherwise, If the payment request field was not specified
 	// (and a custom route wasn't specified), construct the payment
@@ -5015,6 +5028,7 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 		return err
 	}
 	defer txClient.Cancel()
+	rpcsLog.Infof("New transaction subscription")
 
 	for {
 		select {
@@ -5056,6 +5070,7 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 			}
 
 		case <-updateStream.Context().Done():
+			rpcsLog.Infof("Cancelling transaction subscription")
 			return updateStream.Context().Err()
 
 		case <-r.quit:
@@ -5531,8 +5546,24 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 
 // StopDaemon will send a shutdown request to the interrupt handler, triggering
 // a graceful shutdown of the daemon.
-func (r *rpcServer) StopDaemon(ctx context.Context,
+func (r *rpcServer) StopDaemon(_ context.Context,
 	_ *lnrpc.StopRequest) (*lnrpc.StopResponse, error) {
+
+	// Before we even consider a shutdown, are we currently in recovery
+	// mode? We don't want to allow shutting down during recovery because
+	// that would mean the user would have to manually continue the rescan
+	// process next time by using `lncli unlock --recovery_window X`
+	// otherwise some funds wouldn't be picked up.
+	isRecoveryMode, progress, err := r.server.cc.Wallet.GetRecoveryInfo()
+	if err != nil {
+		return nil, fmt.Errorf("unable to get wallet recovery info: %v",
+			err)
+	}
+	if isRecoveryMode && progress < 1 {
+		return nil, fmt.Errorf("wallet recovery in progress, cannot " +
+			"shut down, please wait until rescan finishes")
+	}
+
 	r.interceptor.RequestShutdown()
 	return &lnrpc.StopResponse{}, nil
 }

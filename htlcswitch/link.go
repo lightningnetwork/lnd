@@ -640,7 +640,7 @@ func (l *channelLink) createFailureWithUpdate(
 // flow. We'll compare out commitment chains with the remote party, and re-send
 // either a danging commit signature, a revocation, or both.
 func (l *channelLink) syncChanStates() error {
-	l.log.Info("attempting to re-resynchronize")
+	l.log.Info("attempting to re-synchronize")
 
 	// First, we'll generate our ChanSync message to send to the other
 	// side. Based on this message, the remote party will decide if they
@@ -1558,7 +1558,7 @@ func (l *channelLink) cleanupSpuriousResponse(pkt *htlcPacket) {
 	// If the htlc packet doesn't have a source reference, it is unsafe to
 	// proceed, as skipping this ack may cause the htlc to be reforwarded.
 	if pkt.sourceRef == nil {
-		l.log.Errorf("uanble to cleanup response for incoming "+
+		l.log.Errorf("unable to cleanup response for incoming "+
 			"circuit-key=%v, does not contain source reference",
 			inKey)
 		return
@@ -2156,6 +2156,12 @@ func (l *channelLink) Bandwidth() lnwire.MilliSatoshi {
 	return l.channel.AvailableBalance()
 }
 
+// MayAddOutgoingHtlc indicates whether we may add any more outgoing htlcs to
+// this channel.
+func (l *channelLink) MayAddOutgoingHtlc() error {
+	return l.channel.MayAddOutgoingHtlc()
+}
+
 // AttachMailBox updates the current mailbox used by this link, and hooks up
 // the mailbox's message and packet outboxes to the link's upstream and
 // downstream chans, respectively.
@@ -2217,7 +2223,7 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 	// any case, we'll cancel this HTLC.
 	actualFee := incomingHtlcAmt - amtToForward
 	if incomingHtlcAmt < amtToForward || actualFee < expectedFee {
-		l.log.Errorf("outgoing htlc(%x) has insufficient fee: "+
+		l.log.Warnf("outgoing htlc(%x) has insufficient fee: "+
 			"expected %v, got %v",
 			payHash[:], int64(expectedFee), int64(actualFee))
 
@@ -2239,7 +2245,7 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 	// sender messed up, or an intermediate node tampered with the HTLC.
 	timeDelta := policy.TimeLockDelta
 	if incomingTimeout < outgoingTimeout+timeDelta {
-		l.log.Errorf("incoming htlc(%x) has incorrect time-lock value: "+
+		l.log.Warnf("incoming htlc(%x) has incorrect time-lock value: "+
 			"expected at least %v block delta, got %v block delta",
 			payHash[:], timeDelta, incomingTimeout-outgoingTimeout)
 
@@ -2276,7 +2282,7 @@ func (l *channelLink) CheckHtlcTransit(payHash [32]byte,
 	)
 }
 
-// htlcSatifiesPolicyOutgoing checks whether the given htlc parameters satisfy
+// canSendHtlc checks whether the given htlc parameters satisfy
 // the channel's amount and time lock constraints.
 func (l *channelLink) canSendHtlc(policy ForwardingPolicy,
 	payHash [32]byte, amt lnwire.MilliSatoshi, timeout uint32,
@@ -2286,7 +2292,7 @@ func (l *channelLink) canSendHtlc(policy ForwardingPolicy,
 	// too small for the next hop. If so, then we'll cancel the HTLC
 	// directly.
 	if amt < policy.MinHTLCOut {
-		l.log.Errorf("outgoing htlc(%x) is too small: min_htlc=%v, "+
+		l.log.Warnf("outgoing htlc(%x) is too small: min_htlc=%v, "+
 			"htlc_value=%v", payHash[:], policy.MinHTLCOut,
 			amt)
 
@@ -2305,7 +2311,7 @@ func (l *channelLink) canSendHtlc(policy ForwardingPolicy,
 	// Next, ensure that the passed HTLC isn't too large. If so, we'll
 	// cancel the HTLC directly.
 	if policy.MaxHTLC != 0 && amt > policy.MaxHTLC {
-		l.log.Errorf("outgoing htlc(%x) is too large: max_htlc=%v, "+
+		l.log.Warnf("outgoing htlc(%x) is too large: max_htlc=%v, "+
 			"htlc_value=%v", payHash[:], policy.MaxHTLC, amt)
 
 		// As part of the returned error, we'll send our latest routing
@@ -2322,7 +2328,7 @@ func (l *channelLink) canSendHtlc(policy ForwardingPolicy,
 	// future, so we'll reject an HTLC if the outgoing expiration time is
 	// too close to the current height.
 	if timeout <= heightNow+l.cfg.OutgoingCltvRejectDelta {
-		l.log.Errorf("htlc(%x) has an expiry that's too soon: "+
+		l.log.Warnf("htlc(%x) has an expiry that's too soon: "+
 			"outgoing_expiry=%v, best_height=%v", payHash[:],
 			timeout, heightNow)
 		failure := l.createFailureWithUpdate(
@@ -2335,7 +2341,7 @@ func (l *channelLink) canSendHtlc(policy ForwardingPolicy,
 
 	// Check absolute max delta.
 	if timeout > l.cfg.MaxOutgoingCltvExpiry+heightNow {
-		l.log.Errorf("outgoing htlc(%x) has a time lock too far in "+
+		l.log.Warnf("outgoing htlc(%x) has a time lock too far in "+
 			"the future: got %v, but maximum is %v", payHash[:],
 			timeout-heightNow, l.cfg.MaxOutgoingCltvExpiry)
 
@@ -2344,6 +2350,8 @@ func (l *channelLink) canSendHtlc(policy ForwardingPolicy,
 
 	// Check to see if there is enough balance in this channel.
 	if amt > l.Bandwidth() {
+		l.log.Warnf("insufficient bandwidth to route htlc: %v is "+
+			"larger than %v", amt, l.Bandwidth())
 		failure := l.createFailureWithUpdate(
 			func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
 				return lnwire.NewTemporaryChannelFailure(upd)

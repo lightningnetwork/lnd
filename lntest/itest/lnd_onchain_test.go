@@ -32,10 +32,7 @@ func testCPFP(net *lntest.NetworkHarness, t *harnessTest) {
 	// send to Bob.
 	ctxb := context.Background()
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err := net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, net.Alice)
-	if err != nil {
-		t.Fatalf("unable to send coins to alice: %v", err)
-	}
+	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, net.Alice)
 
 	// Create an address for Bob to send the coins to.
 	addrReq := &lnrpc.NewAddressRequest{
@@ -172,19 +169,15 @@ func testCPFP(net *lntest.NetworkHarness, t *harnessTest) {
 func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 	// Start two nodes supporting anchor channels.
 	args := commitTypeAnchors.Args()
-	alice, err := net.NewNode("Alice", args)
-	require.NoError(t.t, err)
-
+	alice := net.NewNode(t.t, "Alice", args)
 	defer shutdownAndAssert(net, t, alice)
 
-	bob, err := net.NewNode("Bob", args)
-	require.NoError(t.t, err)
-
+	bob := net.NewNode(t.t, "Bob", args)
 	defer shutdownAndAssert(net, t, bob)
 
 	ctxb := context.Background()
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err = net.ConnectNodes(ctxt, alice, bob)
+	err := net.ConnectNodes(ctxt, alice, bob)
 	require.NoError(t.t, err)
 
 	// Send just enough coins for Alice to open a channel without a change output.
@@ -194,10 +187,8 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 
 	ctxt, _ = context.WithTimeout(context.Background(), defaultTimeout)
-	err = net.SendCoins(ctxt, chanAmt+feeEst, alice)
-	require.NoError(t.t, err)
+	net.SendCoins(ctxt, t.t, chanAmt+feeEst, alice)
 
-	// Alice opens a channel that would consume all the funds in her
 	// wallet, without a change output. This should not be allowed.
 	resErr := lnwallet.ErrReservedValueInvalidated.Error()
 

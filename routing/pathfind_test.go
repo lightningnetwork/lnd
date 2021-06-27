@@ -118,11 +118,14 @@ type testGraph struct {
 
 // testNode represents a node within the test graph above. We skip certain
 // information such as the node's IP address as that information isn't needed
-// for our tests.
+// for our tests. Private keys are optional. If set, they should be consistent
+// with the public key. The private key is used to sign error messages
+// sent from the node.
 type testNode struct {
-	Source bool   `json:"source"`
-	PubKey string `json:"pubkey"`
-	Alias  string `json:"alias"`
+	Source  bool   `json:"source"`
+	PubKey  string `json:"pubkey"`
+	PrivKey string `json:"privkey"`
+	Alias   string `json:"alias"`
 }
 
 // testChan represents the JSON version of a payment channel. This struct
@@ -200,6 +203,8 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 	}
 
 	aliasMap := make(map[string]route.Vertex)
+	privKeyMap := make(map[string]*btcec.PrivateKey)
+	channelIDs := make(map[route.Vertex]map[route.Vertex]uint64)
 	var source *channeldb.LightningNode
 
 	// First we insert all the nodes within the graph as vertexes.
@@ -230,6 +235,33 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 		// alias map for easy lookup.
 		aliasMap[node.Alias] = dbNode.PubKeyBytes
 
+		// private keys are needed for signing error messages. If set
+		// check the consistency with the public key.
+		privBytes, err := hex.DecodeString(node.PrivKey)
+		if err != nil {
+			return nil, err
+		}
+		if len(privBytes) > 0 {
+			key, derivedPub := btcec.PrivKeyFromBytes(
+				btcec.S256(), privBytes,
+			)
+
+			if !bytes.Equal(
+				pubBytes, derivedPub.SerializeCompressed(),
+			) {
+
+				return nil, fmt.Errorf("%s public key and "+
+					"private key are inconsistent\n"+
+					"got  %x\nwant %x\n",
+					node.Alias,
+					derivedPub.SerializeCompressed(),
+					pubBytes,
+				)
+			}
+
+			privKeyMap[node.Alias] = key
+		}
+
 		// If the node is tagged as the source, then we create a
 		// pointer to is so we can mark the source in the graph
 		// properly.
@@ -240,7 +272,8 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 			// node can be the source in the graph.
 			if source != nil {
 				return nil, errors.New("JSON is invalid " +
-					"multiple nodes are tagged as the source")
+					"multiple nodes are tagged as the " +
+					"source")
 			}
 
 			source = dbNode
@@ -324,12 +357,35 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 		if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
 			return nil, err
 		}
+
+		// We also store the channel IDs info for each of the node.
+		node1Vertex, err := route.NewVertexFromBytes(node1Bytes)
+		if err != nil {
+			return nil, err
+		}
+
+		node2Vertex, err := route.NewVertexFromBytes(node2Bytes)
+		if err != nil {
+			return nil, err
+		}
+
+		if _, ok := channelIDs[node1Vertex]; !ok {
+			channelIDs[node1Vertex] = map[route.Vertex]uint64{}
+		}
+		channelIDs[node1Vertex][node2Vertex] = edge.ChannelID
+
+		if _, ok := channelIDs[node2Vertex]; !ok {
+			channelIDs[node2Vertex] = map[route.Vertex]uint64{}
+		}
+		channelIDs[node2Vertex][node1Vertex] = edge.ChannelID
 	}
 
 	return &testGraphInstance{
-		graph:    graph,
-		cleanUp:  cleanUp,
-		aliasMap: aliasMap,
+		graph:      graph,
+		cleanUp:    cleanUp,
+		aliasMap:   aliasMap,
+		privKeyMap: privKeyMap,
+		channelIDs: channelIDs,
 	}, nil
 }
 
@@ -402,6 +458,9 @@ type testGraphInstance struct {
 	// privKeyMap maps a node alias to its private key. This is used to be
 	// able to mock a remote node's signing behaviour.
 	privKeyMap map[string]*btcec.PrivateKey
+
+	// channelIDs stores the channel ID for each node.
+	channelIDs map[route.Vertex]map[route.Vertex]uint64
 }
 
 // createTestGraphFromChannels returns a fully populated ChannelGraph based on a set of
@@ -2052,10 +2111,9 @@ func TestPathFindSpecExample(t *testing.T) {
 	// we'll pass that in to ensure that the router uses 100 as the current
 	// height.
 	const startingHeight = 100
-	ctx, cleanUp, err := createTestCtxFromFile(startingHeight, specExampleFilePath)
-	if err != nil {
-		t.Fatalf("unable to create router: %v", err)
-	}
+	ctx, cleanUp := createTestCtxFromFile(
+		t, startingHeight, specExampleFilePath,
+	)
 	defer cleanUp()
 
 	// We'll first exercise the scenario of a direct payment from Bob to

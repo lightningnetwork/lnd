@@ -2,6 +2,7 @@ package routing
 
 import (
 	"crypto/rand"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -190,14 +191,6 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 	// We create a simple route that we will supply every time the router
 	// requests one.
 	rt, err := createTestRoute(paymentAmt, testGraph.aliasMap)
-	if err != nil {
-		t.Fatalf("unable to create route: %v", err)
-	}
-
-	halfShard, err := createTestRoute(paymentAmt/2, testGraph.aliasMap)
-	require.NoError(t, err, "unable to create half route")
-
-	shard, err := createTestRoute(paymentAmt/4, testGraph.aliasMap)
 	if err != nil {
 		t.Fatalf("unable to create route: %v", err)
 	}
@@ -424,280 +417,6 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			routes:     []*route.Route{rt},
 			paymentErr: channeldb.FailureReasonNoRoute,
 		},
-
-		// =====================================
-		// ||          MPP scenarios          ||
-		// =====================================
-		{
-			// Tests a simple successful MP payment of 4 shards.
-			name: "MP success",
-
-			steps: []string{
-				routerInitPayment,
-
-				// shard 0
-				routeRelease,
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// shard 1
-				routeRelease,
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// shard 2
-				routeRelease,
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// shard 3
-				routeRelease,
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// All shards succeed.
-				getPaymentResultSuccess,
-				getPaymentResultSuccess,
-				getPaymentResultSuccess,
-				getPaymentResultSuccess,
-
-				// Router should settle them all.
-				routerSettleAttempt,
-				routerSettleAttempt,
-				routerSettleAttempt,
-				routerSettleAttempt,
-
-				// And the final result is obviously
-				// successful.
-				paymentSuccess,
-			},
-			routes: []*route.Route{shard, shard, shard, shard},
-		},
-		{
-			// An MP payment scenario where we need several extra
-			// attempts before the payment finally settle.
-			name: "MP failed shards",
-
-			steps: []string{
-				routerInitPayment,
-
-				// shard 0
-				routeRelease,
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// shard 1
-				routeRelease,
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// shard 2
-				routeRelease,
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// shard 3
-				routeRelease,
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// First two shards fail, two new ones are sent.
-				getPaymentResultTempFailure,
-				getPaymentResultTempFailure,
-				routerFailAttempt,
-				routerFailAttempt,
-
-				routeRelease,
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-				routeRelease,
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// The four shards settle.
-				getPaymentResultSuccess,
-				getPaymentResultSuccess,
-				getPaymentResultSuccess,
-				getPaymentResultSuccess,
-				routerSettleAttempt,
-				routerSettleAttempt,
-				routerSettleAttempt,
-				routerSettleAttempt,
-
-				// Overall payment succeeds.
-				paymentSuccess,
-			},
-			routes: []*route.Route{
-				shard, shard, shard, shard, shard, shard,
-			},
-		},
-		{
-			// An MP payment scenario where one of the shards fails,
-			// but we still receive a single success shard.
-			name: "MP one shard success",
-
-			steps: []string{
-				routerInitPayment,
-
-				// shard 0
-				routeRelease,
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// shard 1
-				routeRelease,
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// shard 0 fails, and should be failed by the
-				// router.
-				getPaymentResultTempFailure,
-				routerFailAttempt,
-
-				// We will try one more shard because we haven't
-				// sent the full payment amount.
-				routeRelease,
-
-				// The second shard succeed against all odds,
-				// making the overall payment succeed.
-				getPaymentResultSuccess,
-				routerSettleAttempt,
-				paymentSuccess,
-			},
-			routes: []*route.Route{halfShard, halfShard},
-		},
-		{
-			// An MP payment scenario a shard fail with a terminal
-			// error, causing the router to stop attempting.
-			name: "MP terminal",
-
-			steps: []string{
-				routerInitPayment,
-
-				// shard 0
-				routeRelease,
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// shard 1
-				routeRelease,
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// shard 2
-				routeRelease,
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// shard 3
-				routeRelease,
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// The first shard fail with a terminal error.
-				getPaymentResultTerminalFailure,
-				routerFailAttempt,
-				routerFailPayment,
-
-				// Remaining 3 shards fail.
-				getPaymentResultTempFailure,
-				getPaymentResultTempFailure,
-				getPaymentResultTempFailure,
-				routerFailAttempt,
-				routerFailAttempt,
-				routerFailAttempt,
-
-				// Payment fails.
-				paymentError,
-			},
-			routes: []*route.Route{
-				shard, shard, shard, shard, shard, shard,
-			},
-			paymentErr: channeldb.FailureReasonPaymentDetails,
-		},
-		{
-			// A MP payment scenario when our path finding returns
-			// after we've just received a terminal failure, and
-			// attempts to dispatch a new shard. Testing that we
-			// correctly abandon the shard and conclude the payment.
-			name: "MP path found after failure",
-
-			steps: []string{
-				routerInitPayment,
-
-				// shard 0
-				routeRelease,
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// The first shard fail with a terminal error.
-				getPaymentResultTerminalFailure,
-				routerFailAttempt,
-				routerFailPayment,
-
-				// shard 1 fails because we've had a terminal
-				// failure.
-				routeRelease,
-				routerRegisterAttempt,
-
-				// Payment fails.
-				paymentError,
-			},
-			routes: []*route.Route{
-				shard, shard,
-			},
-			paymentErr: channeldb.FailureReasonPaymentDetails,
-		},
-		{
-			// A MP payment scenario when our path finding returns
-			// after we've just received a terminal failure, and
-			// we have another shard still in flight.
-			name: "MP shard in flight after terminal",
-
-			steps: []string{
-				routerInitPayment,
-
-				// shard 0
-				routeRelease,
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// shard 1
-				routeRelease,
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// shard 2
-				routeRelease,
-				routerRegisterAttempt,
-				sendToSwitchSuccess,
-
-				// We find a path for another shard.
-				routeRelease,
-
-				// shard 0 fails with a terminal error.
-				getPaymentResultTerminalFailure,
-				routerFailAttempt,
-				routerFailPayment,
-
-				// We try to register our final shard after
-				// processing a terminal failure.
-				routerRegisterAttempt,
-
-				// Our in-flight shards fail.
-				getPaymentResultTempFailure,
-				getPaymentResultTempFailure,
-				routerFailAttempt,
-				routerFailAttempt,
-
-				// Payment fails.
-				paymentError,
-			},
-			routes: []*route.Route{
-				shard, shard, shard, shard,
-			},
-			paymentErr: channeldb.FailureReasonPaymentDetails,
-		},
 	}
 
 	for _, test := range tests {
@@ -738,7 +457,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 		sendResult := make(chan error)
 		paymentResult := make(chan *htlcswitch.PaymentResult)
 
-		payer := &mockPayer{
+		payer := &mockPayerOld{
 			sendResult:    sendResult,
 			paymentResult: paymentResult,
 		}
@@ -748,8 +467,8 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 			Chain:              chain,
 			ChainView:          chainView,
 			Control:            control,
-			SessionSource:      &mockPaymentSessionSource{},
-			MissionControl:     &mockMissionControl{},
+			SessionSource:      &mockPaymentSessionSourceOld{},
+			MissionControl:     &mockMissionControlOld{},
 			Payer:              payer,
 			ChannelPruneExpiry: time.Hour * 24,
 			GraphPruneInterval: time.Hour * 2,
@@ -821,12 +540,12 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 	// Setup our payment session source to block on release of
 	// routes.
 	routeChan := make(chan struct{})
-	router.cfg.SessionSource = &mockPaymentSessionSource{
+	router.cfg.SessionSource = &mockPaymentSessionSourceOld{
 		routes:       test.routes,
 		routeRelease: routeChan,
 	}
 
-	router.cfg.MissionControl = &mockMissionControl{}
+	router.cfg.MissionControl = &mockMissionControlOld{}
 
 	// Send the payment. Since this is new payment hash, the
 	// information should be registered with the ControlTower.
@@ -839,7 +558,20 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 	}()
 
 	var resendResult chan error
-	for _, step := range test.steps {
+	for i, step := range test.steps {
+		i, step := i, step
+
+		// fatal is a helper closure that wraps the step info.
+		fatal := func(err string, args ...interface{}) {
+			if args != nil {
+				err = fmt.Sprintf(err, args)
+			}
+			t.Fatalf(
+				"test case: %s failed on step [%v:%s], err: %s",
+				test.name, i, step, err,
+			)
+		}
+
 		switch step {
 
 		case routerInitPayment:
@@ -847,19 +579,18 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 			select {
 			case args = <-control.init:
 			case <-time.After(stepTimeout):
-				t.Fatalf("no init payment with control")
+				fatal("no init payment with control")
 			}
 
 			if args.c == nil {
-				t.Fatalf("expected non-nil CreationInfo")
+				fatal("expected non-nil CreationInfo")
 			}
 
 		case routeRelease:
 			select {
 			case <-routeChan:
-
 			case <-time.After(stepTimeout):
-				t.Fatalf("no route requested")
+				fatal("no route requested")
 			}
 
 		// In this step we expect the router to make a call to
@@ -869,12 +600,11 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 			select {
 			case args = <-control.registerAttempt:
 			case <-time.After(stepTimeout):
-				t.Fatalf("attempt not registered " +
-					"with control")
+				fatal("attempt not registered with control")
 			}
 
 			if args.a == nil {
-				t.Fatalf("expected non-nil AttemptInfo")
+				fatal("expected non-nil AttemptInfo")
 			}
 
 		// In this step we expect the router to call the
@@ -883,7 +613,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 			select {
 			case <-control.settleAttempt:
 			case <-time.After(stepTimeout):
-				t.Fatalf("attempt settle not " +
+				fatal("attempt settle not " +
 					"registered with control")
 			}
 
@@ -894,7 +624,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 			select {
 			case <-control.failAttempt:
 			case <-time.After(stepTimeout):
-				t.Fatalf("attempt fail not " +
+				fatal("attempt fail not " +
 					"registered with control")
 			}
 
@@ -905,7 +635,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 			select {
 			case <-control.failPayment:
 			case <-time.After(stepTimeout):
-				t.Fatalf("payment fail not " +
+				fatal("payment fail not " +
 					"registered with control")
 			}
 
@@ -915,7 +645,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 			select {
 			case sendResult <- nil:
 			case <-time.After(stepTimeout):
-				t.Fatalf("unable to send result")
+				fatal("unable to send result")
 			}
 
 		// In this step we expect the SendToSwitch method to be
@@ -927,7 +657,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 				1,
 			):
 			case <-time.After(stepTimeout):
-				t.Fatalf("unable to send result")
+				fatal("unable to send result")
 			}
 
 		// In this step we expect the GetPaymentResult method
@@ -939,7 +669,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 				Preimage: preImage,
 			}:
 			case <-time.After(stepTimeout):
-				t.Fatalf("unable to send result")
+				fatal("unable to send result")
 			}
 
 		// In this state we expect the GetPaymentResult method
@@ -956,7 +686,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 				Error: failure,
 			}:
 			case <-time.After(stepTimeout):
-				t.Fatalf("unable to get result")
+				fatal("unable to get result")
 			}
 
 		// In this state we expect the router to call the
@@ -974,7 +704,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 				Error: failure,
 			}:
 			case <-time.After(stepTimeout):
-				t.Fatalf("unable to get result")
+				fatal("unable to get result")
 			}
 
 		// In this step we manually try to resend the same
@@ -994,7 +724,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 			close(getPaymentResult)
 
 			if err := router.Stop(); err != nil {
-				t.Fatalf("unable to restart: %v", err)
+				fatal("unable to restart: %v", err)
 			}
 
 		// In this step we manually start the router.
@@ -1012,7 +742,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 				require.Equal(t, test.paymentErr, err)
 
 			case <-time.After(stepTimeout):
-				t.Fatalf("got no payment result")
+				fatal("got no payment result")
 			}
 
 		// In this state we expect the original payment to
@@ -1028,7 +758,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 				}
 
 			case <-time.After(stepTimeout):
-				t.Fatalf("got no payment result")
+				fatal("got no payment result")
 			}
 
 		// In this state we expect to receive an error for the
@@ -1041,7 +771,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 				}
 
 			case <-time.After(stepTimeout):
-				t.Fatalf("got no payment result")
+				fatal("got no payment result")
 			}
 
 		// In this state we expect the resent payment to
@@ -1054,11 +784,11 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 				}
 
 			case <-time.After(stepTimeout):
-				t.Fatalf("got no payment result")
+				fatal("got no payment result")
 			}
 
 		default:
-			t.Fatalf("unknown step %v", step)
+			fatal("unknown step %v", step)
 		}
 	}
 
@@ -1066,5 +796,345 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 	case <-done:
 	case <-time.After(testTimeout):
 		t.Fatalf("SendPayment didn't exit")
+	}
+}
+
+// TestPaymentState tests that the logics implemented on paymentState struct
+// are as expected. In particular, that the method terminated and
+// needWaitForShards return the right values.
+func TestPaymentState(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+
+		// Use the following three params, each is equivalent to a bool
+		// statement, to construct 8 test cases so that we can
+		// exhaustively catch all possible states.
+		numShardsInFlight int
+		remainingAmt      lnwire.MilliSatoshi
+		terminate         bool
+
+		expectedTerminated        bool
+		expectedNeedWaitForShards bool
+	}{
+		{
+			// If we have active shards and terminate is marked
+			// false, the state is not terminated. Since the
+			// remaining amount is zero, we need to wait for shards
+			// to be finished and launch no more shards.
+			name:                      "state 100",
+			numShardsInFlight:         1,
+			remainingAmt:              lnwire.MilliSatoshi(0),
+			terminate:                 false,
+			expectedTerminated:        false,
+			expectedNeedWaitForShards: true,
+		},
+		{
+			// If we have active shards while terminate is marked
+			// true, the state is not terminated, and we need to
+			// wait for shards to be finished and launch no more
+			// shards.
+			name:                      "state 101",
+			numShardsInFlight:         1,
+			remainingAmt:              lnwire.MilliSatoshi(0),
+			terminate:                 true,
+			expectedTerminated:        false,
+			expectedNeedWaitForShards: true,
+		},
+
+		{
+			// If we have active shards and terminate is marked
+			// false, the state is not terminated. Since the
+			// remaining amount is not zero, we don't need to wait
+			// for shards outcomes and should launch more shards.
+			name:                      "state 110",
+			numShardsInFlight:         1,
+			remainingAmt:              lnwire.MilliSatoshi(1),
+			terminate:                 false,
+			expectedTerminated:        false,
+			expectedNeedWaitForShards: false,
+		},
+		{
+			// If we have active shards and terminate is marked
+			// true, the state is not terminated. Even the
+			// remaining amount is not zero, we need to wait for
+			// shards outcomes because state is terminated.
+			name:                      "state 111",
+			numShardsInFlight:         1,
+			remainingAmt:              lnwire.MilliSatoshi(1),
+			terminate:                 true,
+			expectedTerminated:        false,
+			expectedNeedWaitForShards: true,
+		},
+		{
+			// If we have no active shards while terminate is marked
+			// false, the state is not terminated, and we don't
+			// need to wait for more shard outcomes because there
+			// are no active shards.
+			name:                      "state 000",
+			numShardsInFlight:         0,
+			remainingAmt:              lnwire.MilliSatoshi(0),
+			terminate:                 false,
+			expectedTerminated:        false,
+			expectedNeedWaitForShards: false,
+		},
+		{
+			// If we have no active shards while terminate is marked
+			// true, the state is terminated, and we don't need to
+			// wait for shards to be finished.
+			name:                      "state 001",
+			numShardsInFlight:         0,
+			remainingAmt:              lnwire.MilliSatoshi(0),
+			terminate:                 true,
+			expectedTerminated:        true,
+			expectedNeedWaitForShards: false,
+		},
+		{
+			// If we have no active shards while terminate is marked
+			// false, the state is not terminated. Since the
+			// remaining amount is not zero, we don't need to wait
+			// for shards outcomes and should launch more shards.
+			name:                      "state 010",
+			numShardsInFlight:         0,
+			remainingAmt:              lnwire.MilliSatoshi(1),
+			terminate:                 false,
+			expectedTerminated:        false,
+			expectedNeedWaitForShards: false,
+		},
+		{
+			// If we have no active shards while terminate is marked
+			// true, the state is terminated, and we don't need to
+			// wait for shards outcomes.
+			name:                      "state 011",
+			numShardsInFlight:         0,
+			remainingAmt:              lnwire.MilliSatoshi(1),
+			terminate:                 true,
+			expectedTerminated:        true,
+			expectedNeedWaitForShards: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ps := &paymentState{
+				numShardsInFlight: tc.numShardsInFlight,
+				remainingAmt:      tc.remainingAmt,
+				terminate:         tc.terminate,
+			}
+
+			require.Equal(
+				t, tc.expectedTerminated, ps.terminated(),
+				"terminated returned wrong value",
+			)
+			require.Equal(
+				t, tc.expectedNeedWaitForShards,
+				ps.needWaitForShards(),
+				"needWaitForShards returned wrong value",
+			)
+		})
+	}
+
+}
+
+// TestUpdatePaymentState checks that the method updatePaymentState updates the
+// paymentState as expected.
+func TestUpdatePaymentState(t *testing.T) {
+	t.Parallel()
+
+	// paymentHash is the identifier on paymentLifecycle.
+	paymentHash := lntypes.Hash{}
+
+	// TODO(yy): make MPPayment into an interface so we can mock it. The
+	// current design implicitly tests the methods SendAmt, TerminalInfo,
+	// and InFlightHTLCs on channeldb.MPPayment, which is not good. Once
+	// MPPayment becomes an interface, we can then mock these methods here.
+
+	// SentAmt returns 90, 10
+	// TerminalInfo returns non-nil, nil
+	// InFlightHTLCs returns 0
+	var preimage lntypes.Preimage
+	paymentSettled := &channeldb.MPPayment{
+		HTLCs: []channeldb.HTLCAttempt{
+			makeSettledAttempt(100, 10, preimage),
+		},
+	}
+
+	// SentAmt returns 0, 0
+	// TerminalInfo returns nil, non-nil
+	// InFlightHTLCs returns 0
+	reason := channeldb.FailureReasonError
+	paymentFailed := &channeldb.MPPayment{
+		FailureReason: &reason,
+	}
+
+	// SentAmt returns 90, 10
+	// TerminalInfo returns nil, nil
+	// InFlightHTLCs returns 1
+	paymentActive := &channeldb.MPPayment{
+		HTLCs: []channeldb.HTLCAttempt{
+			makeActiveAttempt(100, 10),
+			makeFailedAttempt(100, 10),
+		},
+	}
+
+	testCases := []struct {
+		name     string
+		payment  *channeldb.MPPayment
+		totalAmt int
+		feeLimit int
+
+		expectedState     *paymentState
+		shouldReturnError bool
+	}{
+		{
+			// Test that the error returned from FetchPayment is
+			// handled properly. We use a nil payment to indicate
+			// we want to return an error.
+			name:              "fetch payment error",
+			payment:           nil,
+			shouldReturnError: true,
+		},
+		{
+			// Test that when the sentAmt exceeds totalAmount, the
+			// error is returned.
+			name:              "amount exceeded error",
+			payment:           paymentSettled,
+			totalAmt:          1,
+			shouldReturnError: true,
+		},
+		{
+			// Test that when the fee budget is reached, the
+			// remaining fee should be zero.
+			name:     "fee budget reached",
+			payment:  paymentActive,
+			totalAmt: 1000,
+			feeLimit: 1,
+			expectedState: &paymentState{
+				numShardsInFlight: 1,
+				remainingAmt:      1000 - 90,
+				remainingFees:     0,
+				terminate:         false,
+			},
+		},
+		{
+			// Test when the payment is settled, the state should
+			// be marked as terminated.
+			name:     "payment settled",
+			payment:  paymentSettled,
+			totalAmt: 1000,
+			feeLimit: 100,
+			expectedState: &paymentState{
+				numShardsInFlight: 0,
+				remainingAmt:      1000 - 90,
+				remainingFees:     100 - 10,
+				terminate:         true,
+			},
+		},
+		{
+			// Test when the payment is failed, the state should be
+			// marked as terminated.
+			name:     "payment failed",
+			payment:  paymentFailed,
+			totalAmt: 1000,
+			feeLimit: 100,
+			expectedState: &paymentState{
+				numShardsInFlight: 0,
+				remainingAmt:      1000,
+				remainingFees:     100,
+				terminate:         true,
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Create mock control tower and assign it to router.
+			// We will then use the router and the paymentHash
+			// above to create our paymentLifecycle for this test.
+			ct := &mockControlTower{}
+			rt := &ChannelRouter{cfg: &Config{Control: ct}}
+			pl := &paymentLifecycle{
+				router:      rt,
+				identifier:  paymentHash,
+				totalAmount: lnwire.MilliSatoshi(tc.totalAmt),
+				feeLimit:    lnwire.MilliSatoshi(tc.feeLimit),
+			}
+
+			if tc.payment == nil {
+				// A nil payment indicates we want to test an
+				// error returned from FetchPayment.
+				dummyErr := errors.New("dummy")
+				ct.On("FetchPayment", paymentHash).Return(
+					nil, dummyErr,
+				)
+
+			} else {
+				// Otherwise we will return the payment.
+				ct.On("FetchPayment", paymentHash).Return(
+					tc.payment, nil,
+				)
+			}
+
+			// Call the method that updates the payment state.
+			_, state, err := pl.updatePaymentState()
+
+			// Assert that the mock method is called as
+			// intended.
+			ct.AssertExpectations(t)
+
+			if tc.shouldReturnError {
+				require.Error(t, err, "expect an error")
+				return
+			}
+
+			require.NoError(t, err, "unexpected error")
+			require.Equal(
+				t, tc.expectedState, state,
+				"state not updated as expected",
+			)
+
+		})
+	}
+
+}
+
+func makeActiveAttempt(total, fee int) channeldb.HTLCAttempt {
+	return channeldb.HTLCAttempt{
+		HTLCAttemptInfo: makeAttemptInfo(total, total-fee),
+	}
+}
+
+func makeSettledAttempt(total, fee int,
+	preimage lntypes.Preimage) channeldb.HTLCAttempt {
+
+	return channeldb.HTLCAttempt{
+		HTLCAttemptInfo: makeAttemptInfo(total, total-fee),
+		Settle:          &channeldb.HTLCSettleInfo{Preimage: preimage},
+	}
+}
+
+func makeFailedAttempt(total, fee int) channeldb.HTLCAttempt {
+	return channeldb.HTLCAttempt{
+		HTLCAttemptInfo: makeAttemptInfo(total, total-fee),
+		Failure: &channeldb.HTLCFailInfo{
+			Reason: channeldb.HTLCFailInternal,
+		},
+	}
+}
+
+func makeAttemptInfo(total, amtForwarded int) channeldb.HTLCAttemptInfo {
+	hop := &route.Hop{AmtToForward: lnwire.MilliSatoshi(amtForwarded)}
+	return channeldb.HTLCAttemptInfo{
+		Route: route.Route{
+			TotalAmount: lnwire.MilliSatoshi(total),
+			Hops:        []*route.Hop{hop},
+		},
 	}
 }

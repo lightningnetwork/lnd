@@ -44,16 +44,13 @@ type interceptorTestCase struct {
 //    valid payment (invoice is settled).
 func testForwardInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 	// Initialize the test context with 3 connected nodes.
-	alice, err := net.NewNode("alice", nil)
-	require.NoError(t.t, err, "unable to create alice")
+	alice := net.NewNode(t.t, "alice", nil)
 	defer shutdownAndAssert(net, t, alice)
 
-	bob, err := net.NewNode("bob", nil)
-	require.NoError(t.t, err, "unable to create bob")
+	bob := net.NewNode(t.t, "bob", nil)
 	defer shutdownAndAssert(net, t, alice)
 
-	carol, err := net.NewNode("carol", nil)
-	require.NoError(t.t, err, "unable to create carol")
+	carol := net.NewNode(t.t, "carol", nil)
 	defer shutdownAndAssert(net, t, alice)
 
 	testContext := newInterceptorTestContext(t, net, alice, bob, carol)
@@ -316,8 +313,7 @@ func (c *interceptorTestContext) openChannel(from, to *lntest.HarnessNode,
 	ctxb := context.Background()
 
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err := c.net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, from)
-	require.NoError(c.t.t, err, "unable to send coins")
+	c.net.SendCoins(ctxt, c.t.t, btcutil.SatoshiPerBitcoin, from)
 
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(

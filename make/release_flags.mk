@@ -38,7 +38,7 @@ windows-386 \
 windows-amd64 \
 windows-arm
 
-RELEASE_TAGS = autopilotrpc signrpc walletrpc chainrpc invoicesrpc watchtowerrpc
+RELEASE_TAGS = autopilotrpc signrpc walletrpc chainrpc invoicesrpc watchtowerrpc monitoring
 
 # One can either specify a git tag as the version suffix or one is generated
 # from the current date.

@@ -1251,3 +1251,15 @@ func copyPorts(oldNode *lntest.HarnessNode) lntest.NodeOption {
 		cfg.ProfilePort = oldNode.Cfg.ProfilePort
 	}
 }
+
+func rpcPointToWirePoint(t *harnessTest, chanPoint *lnrpc.ChannelPoint) wire.OutPoint {
+	txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+
+	return wire.OutPoint{
+		Hash:  *txid,
+		Index: chanPoint.OutputIndex,
+	}
+}

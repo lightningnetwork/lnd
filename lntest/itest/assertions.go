@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -52,9 +51,7 @@ func openChannelStream(ctx context.Context, t *harnessTest,
 		chanOpenUpdate, err = net.OpenChannel(ctx, alice, bob, p)
 		return err
 	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf("unable to open channel: %v", err)
-	}
+	require.NoError(t.t, err, "unable to open channel")
 
 	return chanOpenUpdate
 }
@@ -79,13 +76,11 @@ func openChannelAndAssert(ctx context.Context, t *harnessTest,
 	block := mineBlocks(t, net, 6, 1)[0]
 
 	fundingChanPoint, err := net.WaitForChannelOpen(ctx, chanOpenUpdate)
-	if err != nil {
-		t.Fatalf("error while waiting for channel open: %v", err)
-	}
+	require.NoError(t.t, err, "error while waiting for channel open")
+
 	fundingTxID, err := lnrpc.GetChanPointFundingTxid(fundingChanPoint)
-	if err != nil {
-		t.Fatalf("unable to get txid: %v", err)
-	}
+	require.NoError(t.t, err, "unable to get txid")
+
 	assertTxInBlock(t, block, fundingTxID)
 
 	// The channel should be listed in the peer information returned by
@@ -94,12 +89,14 @@ func openChannelAndAssert(ctx context.Context, t *harnessTest,
 		Hash:  *fundingTxID,
 		Index: fundingChanPoint.OutputIndex,
 	}
-	if err := net.AssertChannelExists(ctx, alice, &chanPoint); err != nil {
-		t.Fatalf("unable to assert channel existence: %v", err)
-	}
-	if err := net.AssertChannelExists(ctx, bob, &chanPoint); err != nil {
-		t.Fatalf("unable to assert channel existence: %v", err)
-	}
+	require.NoError(
+		t.t, net.AssertChannelExists(ctx, alice, &chanPoint),
+		"unable to assert channel existence",
+	)
+	require.NoError(
+		t.t, net.AssertChannelExists(ctx, bob, &chanPoint),
+		"unable to assert channel existence",
+	)
 
 	return fundingChanPoint
 }
@@ -122,9 +119,7 @@ func subscribeGraphNotifications(ctxb context.Context, t *harnessTest,
 	req := &lnrpc.GraphTopologySubscription{}
 	ctx, cancelFunc := context.WithCancel(ctxb)
 	topologyClient, err := node.SubscribeChannelGraph(ctx, req)
-	if err != nil {
-		t.Fatalf("unable to create topology client: %v", err)
-	}
+	require.NoError(t.t, err, "unable to create topology client")
 
 	// We'll launch a goroutine that will be responsible for proxying all
 	// notifications recv'd from the client into the channel below.
@@ -192,7 +187,8 @@ func waitForGraphSync(t *harnessTest, node *lntest.HarnessNode) {
 // via timeout from a base parent. Additionally, once the channel has been
 // detected as closed, an assertion checks that the transaction is found within
 // a block. Finally, this assertion verifies that the node always sends out a
-// disable update when closing the channel if the channel was previously enabled.
+// disable update when closing the channel if the channel was previously
+// enabled.
 //
 // NOTE: This method assumes that the provided funding point is confirmed
 // on-chain AND that the edge exists in the node's channel graph. If the funding
@@ -201,18 +197,23 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 	net *lntest.NetworkHarness, node *lntest.HarnessNode,
 	fundingChanPoint *lnrpc.ChannelPoint, force bool) *chainhash.Hash {
 
-	return closeChannelAndAssertType(ctx, t, net, node, fundingChanPoint, false, force)
+	return closeChannelAndAssertType(
+		ctx, t, net, node, fundingChanPoint, false, force,
+	)
 }
 
 func closeChannelAndAssertType(ctx context.Context, t *harnessTest,
 	net *lntest.NetworkHarness, node *lntest.HarnessNode,
-	fundingChanPoint *lnrpc.ChannelPoint, anchors, force bool) *chainhash.Hash {
+	fundingChanPoint *lnrpc.ChannelPoint,
+	anchors, force bool) *chainhash.Hash {
 
 	// Fetch the current channel policy. If the channel is currently
 	// enabled, we will register for graph notifications before closing to
 	// assert that the node sends out a disabling update as a result of the
 	// channel being closed.
-	curPolicy := getChannelPolicies(t, node, node.PubKeyStr, fundingChanPoint)[0]
+	curPolicy := getChannelPolicies(
+		t, node, node.PubKeyStr, fundingChanPoint,
+	)[0]
 	expectDisable := !curPolicy.Disabled
 
 	// If the current channel policy is enabled, begin subscribing the graph
@@ -224,10 +225,10 @@ func closeChannelAndAssertType(ctx context.Context, t *harnessTest,
 		defer close(graphSub.quit)
 	}
 
-	closeUpdates, _, err := net.CloseChannel(ctx, node, fundingChanPoint, force)
-	if err != nil {
-		t.Fatalf("unable to close channel: %v", err)
-	}
+	closeUpdates, _, err := net.CloseChannel(
+		ctx, node, fundingChanPoint, force,
+	)
+	require.NoError(t.t, err, "unable to close channel")
 
 	// If the channel policy was enabled prior to the closure, wait until we
 	// received the disabled update.
@@ -260,9 +261,7 @@ func closeReorgedChannelAndAssert(ctx context.Context, t *harnessTest,
 	fundingChanPoint *lnrpc.ChannelPoint, force bool) *chainhash.Hash {
 
 	closeUpdates, _, err := net.CloseChannel(ctx, node, fundingChanPoint, force)
-	if err != nil {
-		t.Fatalf("unable to close channel: %v", err)
-	}
+	require.NoError(t.t, err, "unable to close channel")
 
 	return assertChannelClosed(
 		ctx, t, net, node, fundingChanPoint, false, closeUpdates,
@@ -277,9 +276,7 @@ func assertChannelClosed(ctx context.Context, t *harnessTest,
 	closeUpdates lnrpc.Lightning_CloseChannelClient) *chainhash.Hash {
 
 	txid, err := lnrpc.GetChanPointFundingTxid(fundingChanPoint)
-	if err != nil {
-		t.Fatalf("unable to get txid: %v", err)
-	}
+	require.NoError(t.t, err, "unable to get txid")
 	chanPointStr := fmt.Sprintf("%v:%v", txid, fundingChanPoint.OutputIndex)
 
 	// If the channel appears in list channels, ensure that its state
@@ -287,9 +284,8 @@ func assertChannelClosed(ctx context.Context, t *harnessTest,
 	ctxt, _ := context.WithTimeout(ctx, defaultTimeout)
 	listChansRequest := &lnrpc.ListChannelsRequest{}
 	listChansResp, err := node.ListChannels(ctxt, listChansRequest)
-	if err != nil {
-		t.Fatalf("unable to query for list channels: %v", err)
-	}
+	require.NoError(t.t, err, "unable to query for list channels")
+
 	for _, channel := range listChansResp.Channels {
 		// Skip other channels.
 		if channel.ChannelPoint != chanPointStr {
@@ -297,11 +293,11 @@ func assertChannelClosed(ctx context.Context, t *harnessTest,
 		}
 
 		// Assert that the channel is in coop broadcasted.
-		if !strings.Contains(channel.ChanStatusFlags,
-			channeldb.ChanStatusCoopBroadcasted.String()) {
-			t.Fatalf("channel not coop broadcasted, "+
-				"got: %v", channel.ChanStatusFlags)
-		}
+		require.Contains(
+			t.t, channel.ChanStatusFlags,
+			channeldb.ChanStatusCoopBroadcasted.String(),
+			"channel not coop broadcasted",
+		)
 	}
 
 	// At this point, the channel should now be marked as being in the
@@ -309,9 +305,8 @@ func assertChannelClosed(ctx context.Context, t *harnessTest,
 	ctxt, _ = context.WithTimeout(ctx, defaultTimeout)
 	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
 	pendingChanResp, err := node.PendingChannels(ctxt, pendingChansRequest)
-	if err != nil {
-		t.Fatalf("unable to query for pending channels: %v", err)
-	}
+	require.NoError(t.t, err, "unable to query for pending channels")
+
 	var found bool
 	for _, pendingClose := range pendingChanResp.WaitingCloseChannels {
 		if pendingClose.Channel.ChannelPoint == chanPointStr {
@@ -319,9 +314,7 @@ func assertChannelClosed(ctx context.Context, t *harnessTest,
 			break
 		}
 	}
-	if !found {
-		t.Fatalf("channel not marked as waiting close")
-	}
+	require.True(t.t, found, "channel not marked as waiting close")
 
 	// We'll now, generate a single block, wait for the final close status
 	// update, then ensure that the closing transaction was included in the
@@ -334,9 +327,7 @@ func assertChannelClosed(ctx context.Context, t *harnessTest,
 	block := mineBlocks(t, net, 1, expectedTxes)[0]
 
 	closingTxid, err := net.WaitForChannelClose(ctx, closeUpdates)
-	if err != nil {
-		t.Fatalf("error while waiting for channel close: %v", err)
-	}
+	require.NoError(t.t, err, "error while waiting for channel close")
 
 	assertTxInBlock(t, block, closingTxid)
 
@@ -360,9 +351,9 @@ func assertChannelClosed(ctx context.Context, t *harnessTest,
 
 		return true
 	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf("closing transaction not marked as fully closed")
-	}
+	require.NoError(
+		t.t, err, "closing transaction not marked as fully closed",
+	)
 
 	return closingTxid
 }
@@ -370,7 +361,8 @@ func assertChannelClosed(ctx context.Context, t *harnessTest,
 // findForceClosedChannel searches a pending channel response for a particular
 // channel, returning the force closed channel upon success.
 func findForceClosedChannel(pendingChanResp *lnrpc.PendingChannelsResponse,
-	op *wire.OutPoint) (*lnrpc.PendingChannelsResponse_ForceClosedChannel, error) {
+	op *wire.OutPoint) (*lnrpc.PendingChannelsResponse_ForceClosedChannel,
+	error) {
 
 	for _, forceClose := range pendingChanResp.PendingForceClosingChannels {
 		if forceClose.Channel.ChannelPoint == op.String() {
@@ -384,7 +376,8 @@ func findForceClosedChannel(pendingChanResp *lnrpc.PendingChannelsResponse,
 // findWaitingCloseChannel searches a pending channel response for a particular
 // channel, returning the waiting close channel upon success.
 func findWaitingCloseChannel(pendingChanResp *lnrpc.PendingChannelsResponse,
-	op *wire.OutPoint) (*lnrpc.PendingChannelsResponse_WaitingCloseChannel, error) {
+	op *wire.OutPoint) (*lnrpc.PendingChannelsResponse_WaitingCloseChannel,
+	error) {
 
 	for _, waitingClose := range pendingChanResp.WaitingCloseChannels {
 		if waitingClose.Channel.ChannelPoint == op.String() {
@@ -484,9 +477,7 @@ func cleanupForceClose(t *harnessTest, net *lntest.NetworkHarness,
 	// Wait for the channel to be marked pending force close.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err := waitForChannelPendingForceClose(ctxt, node, chanPoint)
-	if err != nil {
-		t.Fatalf("channel not pending force close: %v", err)
-	}
+	require.NoError(t.t, err, "channel not pending force close")
 
 	// Mine enough blocks for the node to sweep its funds from the force
 	// closed channel.
@@ -494,9 +485,7 @@ func cleanupForceClose(t *harnessTest, net *lntest.NetworkHarness,
 	// The commit sweep resolver is able to broadcast the sweep tx up to
 	// one block before the CSV elapses, so wait until defaulCSV-1.
 	_, err = net.Miner.Client.Generate(defaultCSV - 1)
-	if err != nil {
-		t.Fatalf("unable to generate blocks: %v", err)
-	}
+	require.NoError(t.t, err, "unable to generate blocks")
 
 	// The node should now sweep the funds, clean up by mining the sweeping
 	// tx.
@@ -506,7 +495,9 @@ func cleanupForceClose(t *harnessTest, net *lntest.NetworkHarness,
 // numOpenChannelsPending sends an RPC request to a node to get a count of the
 // node's channels that are currently in a pending state (with a broadcast, but
 // not confirmed funding transaction).
-func numOpenChannelsPending(ctxt context.Context, node *lntest.HarnessNode) (int, error) {
+func numOpenChannelsPending(ctxt context.Context,
+	node *lntest.HarnessNode) (int, error) {
+
 	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
 	resp, err := node.PendingChannels(ctxt, pendingChansRequest)
 	if err != nil {
@@ -548,12 +539,11 @@ func assertNumOpenChannelsPending(ctxt context.Context, t *harnessTest,
 
 		return nil
 	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf(err.Error())
-	}
+	require.NoError(t.t, err)
 }
 
 // assertNumConnections asserts number current connections between two peers.
+// TODO(yy): refactor to use wait.
 func assertNumConnections(t *harnessTest, alice, bob *lntest.HarnessNode,
 	expected int) {
 	ctxb := context.Background()
@@ -615,9 +605,7 @@ func shutdownAndAssert(net *lntest.NetworkHarness, t *harnessTest,
 	err := wait.NoError(func() error {
 		return net.ShutdownNode(node)
 	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf("unable to shutdown %v: %v", node.Name(), err)
-	}
+	require.NoErrorf(t.t, err, "unable to shutdown %v", node.Name())
 }
 
 // assertChannelBalanceResp makes a ChannelBalance request and checks the
@@ -677,12 +665,13 @@ out:
 		select {
 		case graphUpdate := <-subscription.updateChan:
 			for _, update := range graphUpdate.ChannelUpdates {
-				if len(expUpdates) == 0 {
-					t.Fatalf("received unexpected channel "+
+				require.NotZerof(
+					t.t, len(expUpdates),
+					"received unexpected channel "+
 						"update from %v for channel %v",
-						update.AdvertisingNode,
-						update.ChanId)
-				}
+					update.AdvertisingNode,
+					update.ChanId,
+				)
 
 				// For each expected update, check if it matches
 				// the update we just received.
@@ -751,11 +740,10 @@ func assertNoChannelUpdates(t *harnessTest, subscription graphSubscription,
 	for {
 		select {
 		case graphUpdate := <-subscription.updateChan:
-			if len(graphUpdate.ChannelUpdates) > 0 {
-				t.Fatalf("received %d channel updates when "+
-					"none were expected",
-					len(graphUpdate.ChannelUpdates))
-			}
+			require.Zero(
+				t.t, len(graphUpdate.ChannelUpdates),
+				"no channel updates were expected",
+			)
 
 		case err := <-subscription.errChan:
 			t.Fatalf("graph subscription failure: %v", err)
@@ -1128,29 +1116,19 @@ func assertLastHTLCError(t *harnessTest, node *lntest.HarnessNode,
 	}
 	ctxt, _ := context.WithTimeout(context.Background(), defaultTimeout)
 	paymentsResp, err := node.ListPayments(ctxt, req)
-	if err != nil {
-		t.Fatalf("error when obtaining payments: %v", err)
-	}
+	require.NoError(t.t, err, "error when obtaining payments")
 
 	payments := paymentsResp.Payments
-	if len(payments) == 0 {
-		t.Fatalf("no payments found")
-	}
+	require.NotZero(t.t, len(payments), "no payments found")
 
 	payment := payments[len(payments)-1]
 	htlcs := payment.Htlcs
-	if len(htlcs) == 0 {
-		t.Fatalf("no htlcs")
-	}
+	require.NotZero(t.t, len(htlcs), "no htlcs")
 
 	htlc := htlcs[len(htlcs)-1]
-	if htlc.Failure == nil {
-		t.Fatalf("expected failure")
-	}
+	require.NotNil(t.t, htlc.Failure, "expected failure")
 
-	if htlc.Failure.Code != code {
-		t.Fatalf("expected failure %v, got %v", code, htlc.Failure.Code)
-	}
+	require.Equal(t.t, code, htlc.Failure.Code, "unexpected failure code")
 }
 
 func assertChannelConstraintsEqual(
@@ -1158,41 +1136,27 @@ func assertChannelConstraintsEqual(
 
 	t.t.Helper()
 
-	if want.CsvDelay != got.CsvDelay {
-		t.Fatalf("CsvDelay mismatched, want: %v, got: %v",
-			want.CsvDelay, got.CsvDelay,
-		)
-	}
-
-	if want.ChanReserveSat != got.ChanReserveSat {
-		t.Fatalf("ChanReserveSat mismatched, want: %v, got: %v",
-			want.ChanReserveSat, got.ChanReserveSat,
-		)
-	}
-
-	if want.DustLimitSat != got.DustLimitSat {
-		t.Fatalf("DustLimitSat mismatched, want: %v, got: %v",
-			want.DustLimitSat, got.DustLimitSat,
-		)
-	}
-
-	if want.MaxPendingAmtMsat != got.MaxPendingAmtMsat {
-		t.Fatalf("MaxPendingAmtMsat mismatched, want: %v, got: %v",
-			want.MaxPendingAmtMsat, got.MaxPendingAmtMsat,
-		)
-	}
-
-	if want.MinHtlcMsat != got.MinHtlcMsat {
-		t.Fatalf("MinHtlcMsat mismatched, want: %v, got: %v",
-			want.MinHtlcMsat, got.MinHtlcMsat,
-		)
-	}
-
-	if want.MaxAcceptedHtlcs != got.MaxAcceptedHtlcs {
-		t.Fatalf("MaxAcceptedHtlcs mismatched, want: %v, got: %v",
-			want.MaxAcceptedHtlcs, got.MaxAcceptedHtlcs,
-		)
-	}
+	require.Equal(t.t, want.CsvDelay, got.CsvDelay, "CsvDelay mismatched")
+	require.Equal(
+		t.t, want.ChanReserveSat, got.ChanReserveSat,
+		"ChanReserveSat mismatched",
+	)
+	require.Equal(
+		t.t, want.DustLimitSat, got.DustLimitSat,
+		"DustLimitSat mismatched",
+	)
+	require.Equal(
+		t.t, want.MaxPendingAmtMsat, got.MaxPendingAmtMsat,
+		"MaxPendingAmtMsat mismatched",
+	)
+	require.Equal(
+		t.t, want.MinHtlcMsat, got.MinHtlcMsat,
+		"MinHtlcMsat mismatched",
+	)
+	require.Equal(
+		t.t, want.MaxAcceptedHtlcs, got.MaxAcceptedHtlcs,
+		"MaxAcceptedHtlcs mismatched",
+	)
 }
 
 // assertAmountPaid checks that the ListChannels command of the provided
@@ -1251,9 +1215,10 @@ func assertAmountPaid(t *harnessTest, channelName string,
 	for {
 		isTimeover := atomic.LoadUint32(&timeover) == 1
 		if err := checkAmountPaid(); err != nil {
-			if isTimeover {
-				t.Fatalf("Check amount Paid failed: %v", err)
-			}
+			require.Falsef(
+				t.t, isTimeover,
+				"Check amount Paid failed: %v", err,
+			)
 		} else {
 			break
 		}
@@ -1291,9 +1256,7 @@ func assertNumPendingChannels(t *harnessTest, node *lntest.HarnessNode,
 		}
 		return true
 	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf("%v", predErr)
-	}
+	require.NoErrorf(t.t, err, "got err: %v", predErr)
 }
 
 // assertDLPExecuted asserts that Dave is a node that has recovered their state
@@ -1325,10 +1288,10 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	_, err := waitForNTxsInMempool(
 		net.Miner.Client, expectedTxes, minerMempoolTimeout,
 	)
-	if err != nil {
-		t.Fatalf("unable to find Carol's force close tx in mempool: %v",
-			err)
-	}
+	require.NoError(
+		t.t, err,
+		"unable to find Carol's force close tx in mempool",
+	)
 
 	// Channel should be in the state "waiting close" for Carol since she
 	// broadcasted the force close tx.
@@ -1341,9 +1304,7 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 
 	// Restart Dave to make sure he is able to sweep the funds after
 	// shutdown.
-	if err := net.RestartNode(dave, nil); err != nil {
-		t.Fatalf("Node restart failed: %v", err)
-	}
+	require.NoError(t.t, net.RestartNode(dave, nil), "Node restart failed")
 
 	// Generate a single block, which should confirm the closing tx.
 	_ = mineBlocks(t, net, 1, expectedTxes)[0]
@@ -1354,9 +1315,7 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	_, err = waitForNTxsInMempool(
 		net.Miner.Client, expectedTxes, minerMempoolTimeout,
 	)
-	if err != nil {
-		t.Fatalf("unable to find Dave's sweep tx in mempool: %v", err)
-	}
+	require.NoError(t.t, err, "unable to find Dave's sweep tx in mempool")
 
 	// Dave should consider the channel pending force close (since he is
 	// waiting for his sweep to confirm).
@@ -1378,15 +1337,12 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	balReq := &lnrpc.WalletBalanceRequest{}
 	daveBalResp, err := dave.WalletBalance(ctxt, balReq)
-	if err != nil {
-		t.Fatalf("unable to get dave's balance: %v", err)
-	}
+	require.NoError(t.t, err, "unable to get dave's balance")
 
 	daveBalance := daveBalResp.ConfirmedBalance
-	if daveBalance <= daveStartingBalance {
-		t.Fatalf("expected dave to have balance above %d, "+
-			"instead had %v", daveStartingBalance, daveBalance)
-	}
+	require.Greater(
+		t.t, daveBalance, daveStartingBalance, "balance not increased",
+	)
 
 	// After the Carol's output matures, she should also reclaim her funds.
 	//
@@ -1397,9 +1353,7 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	carolSweep, err := waitForTxInMempool(
 		net.Miner.Client, minerMempoolTimeout,
 	)
-	if err != nil {
-		t.Fatalf("unable to find Carol's sweep tx in mempool: %v", err)
-	}
+	require.NoError(t.t, err, "unable to find Carol's sweep tx in mempool")
 	block := mineBlocks(t, net, 1, 1)[0]
 	assertTxInBlock(t, block, carolSweep)
 
@@ -1423,9 +1377,7 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 
 		return nil
 	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf(err.Error())
-	}
+	require.NoError(t.t, err)
 
 	assertNodeNumChannels(t, dave, 0)
 	assertNodeNumChannels(t, carol, 0)
@@ -1506,9 +1458,10 @@ func assertNodeNumChannels(t *harnessTest, node *lntest.HarnessNode,
 		return true
 	}
 
-	if err := wait.Predicate(pred, defaultTimeout); err != nil {
-		t.Fatalf("node has incorrect number of channels: %v", predErr)
-	}
+	require.NoErrorf(
+		t.t, wait.Predicate(pred, defaultTimeout),
+		"node has incorrect number of channels: %v", predErr,
+	)
 }
 
 func assertSyncType(t *harnessTest, node *lntest.HarnessNode,
@@ -1651,9 +1604,7 @@ func getSpendingTxInMempool(t *harnessTest, miner *rpcclient.Client,
 			t.Fatalf("didn't find tx in mempool")
 		case <-ticker.C:
 			mempool, err := miner.GetRawMempool()
-			if err != nil {
-				t.Fatalf("unable to get mempool: %v", err)
-			}
+			require.NoError(t.t, err, "unable to get mempool")
 
 			if len(mempool) == 0 {
 				continue
@@ -1661,9 +1612,7 @@ func getSpendingTxInMempool(t *harnessTest, miner *rpcclient.Client,
 
 			for _, txid := range mempool {
 				tx, err := miner.GetRawTransaction(txid)
-				if err != nil {
-					t.Fatalf("unable to fetch tx: %v", err)
-				}
+				require.NoError(t.t, err, "unable to fetch tx")
 
 				msgTx := tx.MsgTx()
 				for _, txIn := range msgTx.TxIn {
@@ -1689,18 +1638,13 @@ func assertTxLabel(ctx context.Context, t *harnessTest,
 	txResp, err := node.GetTransactions(
 		ctxt, &lnrpc.GetTransactionsRequest{},
 	)
-	if err != nil {
-		t.Fatalf("could not get transactions: %v", err)
-	}
+	require.NoError(t.t, err, "could not get transactions")
 
 	// Find our transaction in the set of transactions returned and check
 	// its label.
 	for _, txn := range txResp.Transactions {
 		if txn.TxHash == targetTx {
-			if txn.Label != label {
-				t.Fatalf("expected label: %v, got: %v",
-					label, txn.Label)
-			}
+			require.Equal(t.t, label, txn.Label, "labels not match")
 		}
 	}
 }
@@ -1744,23 +1688,20 @@ func sendAndAssertFailure(t *harnessTest, node *lntest.HarnessNode,
 	defer cancel()
 
 	stream, err := node.RouterClient.SendPaymentV2(ctx, req)
-	if err != nil {
-		t.Fatalf("unable to send payment: %v", err)
-	}
+	require.NoError(t.t, err, "unable to send payment")
 
 	result, err := getPaymentResult(stream)
-	if err != nil {
-		t.Fatalf("unable to get payment result: %v", err)
-	}
+	require.NoError(t.t, err, "unable to get payment result")
 
-	if result.Status != lnrpc.Payment_FAILED {
-		t.Fatalf("payment was expected to fail, but succeeded")
-	}
+	require.Equal(
+		t.t, lnrpc.Payment_FAILED, result.Status,
+		"payment was expected to fail, but succeeded",
+	)
 
-	if result.FailureReason != failureReason {
-		t.Fatalf("payment should have been rejected due to "+
-			"%v, but got %v", failureReason, result.Status)
-	}
+	require.Equal(
+		t.t, failureReason, result.FailureReason,
+		"payment failureReason not matched",
+	)
 
 	return result
 }

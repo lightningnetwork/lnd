@@ -651,14 +651,15 @@ func fundPsbt(ctx *cli.Context) error {
 		return fmt.Errorf("cannot set conf_target and sat_per_vbyte " +
 			"at the same time")
 
-	case ctx.Uint64("conf_target") > 0:
-		req.Fees = &walletrpc.FundPsbtRequest_TargetConf{
-			TargetConf: uint32(ctx.Uint64("conf_target")),
-		}
-
 	case ctx.Uint64("sat_per_vbyte") > 0:
 		req.Fees = &walletrpc.FundPsbtRequest_SatPerVbyte{
 			SatPerVbyte: ctx.Uint64("sat_per_vbyte"),
+		}
+
+	// Check conf_target last because it has a default value.
+	case ctx.Uint64("conf_target") > 0:
+		req.Fees = &walletrpc.FundPsbtRequest_TargetConf{
+			TargetConf: uint32(ctx.Uint64("conf_target")),
 		}
 	}
 

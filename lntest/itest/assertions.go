@@ -361,7 +361,7 @@ func assertChannelClosed(ctx context.Context, t *harnessTest,
 // findForceClosedChannel searches a pending channel response for a particular
 // channel, returning the force closed channel upon success.
 func findForceClosedChannel(pendingChanResp *lnrpc.PendingChannelsResponse,
-	op *wire.OutPoint) (*lnrpc.PendingChannelsResponse_ForceClosedChannel,
+	op fmt.Stringer) (*lnrpc.PendingChannelsResponse_ForceClosedChannel,
 	error) {
 
 	for _, forceClose := range pendingChanResp.PendingForceClosingChannels {
@@ -376,7 +376,7 @@ func findForceClosedChannel(pendingChanResp *lnrpc.PendingChannelsResponse,
 // findWaitingCloseChannel searches a pending channel response for a particular
 // channel, returning the waiting close channel upon success.
 func findWaitingCloseChannel(pendingChanResp *lnrpc.PendingChannelsResponse,
-	op *wire.OutPoint) (*lnrpc.PendingChannelsResponse_WaitingCloseChannel,
+	op fmt.Stringer) (*lnrpc.PendingChannelsResponse_WaitingCloseChannel,
 	error) {
 
 	for _, waitingClose := range pendingChanResp.WaitingCloseChannels {
@@ -1237,7 +1237,7 @@ func assertNumPendingChannels(t *harnessTest, node *lntest.HarnessNode,
 		}
 		n := len(pendingChanResp.WaitingCloseChannels)
 		if n != expWaitingClose {
-			predErr = fmt.Errorf("Expected to find %d channels "+
+			predErr = fmt.Errorf("expected to find %d channels "+
 				"waiting close, found %d", expWaitingClose, n)
 			return false
 		}

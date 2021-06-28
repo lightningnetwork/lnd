@@ -379,10 +379,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	var predErr error
 	err = wait.Predicate(func() bool {
 		predErr = assertNumActiveHtlcs(nodes, numInvoices)
-		if predErr != nil {
-			return false
-		}
-		return true
+		return predErr == nil
 	}, defaultTimeout)
 	if err != nil {
 		t.Fatalf("htlc mismatch: %v", predErr)
@@ -1136,11 +1133,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		}
 
 		predErr = checkPendingChannelNumHtlcs(forceClose, numInvoices)
-		if predErr != nil {
-			return false
-		}
-
-		return true
+		return predErr == nil
 	}, defaultTimeout)
 	if err != nil {
 		t.Fatalf(predErr.Error())
@@ -1473,7 +1466,7 @@ func testFailingChannel(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 		n := len(pendingChanResp.WaitingCloseChannels)
 		if n != 1 {
-			predErr = fmt.Errorf("Expected to find %d channels "+
+			predErr = fmt.Errorf("expected to find %d channels "+
 				"waiting close, found %d", 1, n)
 			return false
 		}
@@ -1503,7 +1496,7 @@ func testFailingChannel(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 		n := len(pendingChanResp.WaitingCloseChannels)
 		if n != 0 {
-			predErr = fmt.Errorf("Expected to find %d channels "+
+			predErr = fmt.Errorf("expected to find %d channels "+
 				"waiting close, found %d", 0, n)
 			return false
 		}

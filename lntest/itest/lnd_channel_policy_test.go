@@ -235,14 +235,14 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	payAmt = btcutil.Amount(4)
 	amtSat := int64(payAmt)
 	amtMSat := int64(lnwire.NewMSatFromSatoshis(payAmt))
-	routes.Routes[0].Hops[0].AmtToForward = amtSat
+	routes.Routes[0].Hops[0].AmtToForward = amtSat // nolint:staticcheck
 	routes.Routes[0].Hops[0].AmtToForwardMsat = amtMSat
-	routes.Routes[0].Hops[1].AmtToForward = amtSat
+	routes.Routes[0].Hops[1].AmtToForward = amtSat // nolint:staticcheck
 	routes.Routes[0].Hops[1].AmtToForwardMsat = amtMSat
 
 	// Send the payment with the modified value.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	alicePayStream, err := net.Alice.SendToRoute(ctxt)
+	alicePayStream, err := net.Alice.SendToRoute(ctxt) // nolint:staticcheck
 	if err != nil {
 		t.Fatalf("unable to create payment stream for alice: %v", err)
 	}
@@ -279,9 +279,9 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	payAmt = btcutil.Amount(5)
 	amtSat = int64(payAmt)
 	amtMSat = int64(lnwire.NewMSatFromSatoshis(payAmt))
-	routes.Routes[0].Hops[0].AmtToForward = amtSat
+	routes.Routes[0].Hops[0].AmtToForward = amtSat // nolint:staticcheck
 	routes.Routes[0].Hops[0].AmtToForwardMsat = amtMSat
-	routes.Routes[0].Hops[1].AmtToForward = amtSat
+	routes.Routes[0].Hops[1].AmtToForward = amtSat // nolint:staticcheck
 	routes.Routes[0].Hops[1].AmtToForwardMsat = amtMSat
 
 	// Manually set the MPP payload a new for each payment since

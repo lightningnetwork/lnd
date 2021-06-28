@@ -102,7 +102,7 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("incorrect number of payments, got %v, want %v",
 			len(paymentsResp.Payments), 1)
 	}
-	p := paymentsResp.Payments[0]
+	p := paymentsResp.Payments[0] // nolint:staticcheck
 	path := p.Htlcs[len(p.Htlcs)-1].Route.Hops
 
 	// Ensure that the stored path shows a direct payment to Bob with no
@@ -112,9 +112,9 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// The payment amount should also match our previous payment directly.
-	if p.Value != paymentAmt {
+	if p.Value != paymentAmt { // nolint:staticcheck
 		t.Fatalf("incorrect amount, got %v, want %v",
-			p.Value, paymentAmt)
+			p.Value, paymentAmt) // nolint:staticcheck
 	}
 
 	// The payment hash (or r-hash) should have been stored correctly.
@@ -126,8 +126,8 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// As we made a single-hop direct payment, there should have been no fee
 	// applied.
-	if p.Fee != 0 {
-		t.Fatalf("incorrect Fee, got %v, want %v", p.Fee, 0)
+	if p.Fee != 0 { // nolint:staticcheck
+		t.Fatalf("incorrect Fee, got %v, want %v", p.Fee, 0) // nolint:staticcheck
 	}
 
 	// Finally, verify that the payment request returned by the rpc matches

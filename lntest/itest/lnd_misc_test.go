@@ -304,7 +304,7 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to lookup invoice: %v", err)
 	}
-	if dbInvoice.Settled {
+	if dbInvoice.Settled { // nolint:staticcheck
 		t.Fatalf("dave's invoice should not be marked as settled: %v",
 			spew.Sdump(dbInvoice))
 	}

@@ -35,13 +35,10 @@ func testMaxChannelSize(net *lntest.NetworkHarness, t *harnessTest) {
 	// Next we'll connect both nodes, then attempt to make a wumbo channel
 	// funding request, which should fail as it exceeds the default wumbo
 	// soft limit of 10 BTC.
-	err := net.EnsureConnected(ctxb, wumboNode, wumboNode2)
-	if err != nil {
-		t.Fatalf("unable to connect peers: %v", err)
-	}
+	net.EnsureConnected(ctxb, t.t, wumboNode, wumboNode2)
 
 	chanAmt := funding.MaxBtcFundingAmountWumbo + 1
-	_, err = net.OpenChannel(
+	_, err := net.OpenChannel(
 		ctxb, wumboNode, wumboNode2, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
@@ -61,10 +58,7 @@ func testMaxChannelSize(net *lntest.NetworkHarness, t *harnessTest) {
 	miniNode := net.NewNode(t.t, "mini", nil)
 	defer shutdownAndAssert(net, t, miniNode)
 
-	err = net.EnsureConnected(ctxb, wumboNode, miniNode)
-	if err != nil {
-		t.Fatalf("unable to connect peers: %v", err)
-	}
+	net.EnsureConnected(ctxb, t.t, wumboNode, miniNode)
 
 	_, err = net.OpenChannel(
 		ctxb, wumboNode, miniNode, lntest.OpenChannelParams{
@@ -95,10 +89,7 @@ func testMaxChannelSize(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, wumboNode3)
 
 	// Creating a wumbo channel between these two nodes should succeed.
-	err = net.EnsureConnected(ctxb, wumboNode, wumboNode3)
-	if err != nil {
-		t.Fatalf("unable to connect peers: %v", err)
-	}
+	net.EnsureConnected(ctxb, t.t, wumboNode, wumboNode3)
 	chanPoint := openChannelAndAssert(
 		ctxb, t, net, wumboNode, wumboNode3,
 		lntest.OpenChannelParams{

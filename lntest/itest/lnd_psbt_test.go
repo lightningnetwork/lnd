@@ -37,16 +37,14 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	// the funding flow can be properly executed.
 	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
-	err := net.EnsureConnected(ctxt, carol, dave)
-	require.NoError(t.t, err)
-	err = net.EnsureConnected(ctxt, carol, net.Alice)
-	require.NoError(t.t, err)
+	net.EnsureConnected(ctxt, t.t, carol, dave)
+	net.EnsureConnected(ctxt, t.t, carol, net.Alice)
 
 	// At this point, we can begin our PSBT channel funding workflow. We'll
 	// start by generating a pending channel ID externally that will be used
 	// to track this new funding type.
 	var pendingChanID [32]byte
-	_, err = rand.Read(pendingChanID[:])
+	_, err := rand.Read(pendingChanID[:])
 	require.NoError(t.t, err)
 
 	// We'll also test batch funding of two channels so we need another ID.

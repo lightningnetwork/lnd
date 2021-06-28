@@ -172,9 +172,7 @@ func (n *NetworkHarness) SetUp(t *testing.T,
 	// both nodes are fully started since the Connect RPC is guarded behind
 	// the server.Started() flag that waits for all subsystems to be ready.
 	ctxb := context.Background()
-	if err := n.ConnectNodes(ctxb, n.Alice, n.Bob); err != nil {
-		return err
-	}
+	n.ConnectNodes(ctxb, t, n.Alice, n.Bob)
 
 	// Load up the wallets of the seeder nodes with 10 outputs of 1 BTC
 	// each.
@@ -544,7 +542,9 @@ tryconnect:
 // behave the same as ConnectNodes. If a pending connection request has already
 // been made, the method will block until the two nodes appear in each other's
 // peers list, or until the 15s timeout expires.
-func (n *NetworkHarness) EnsureConnected(ctx context.Context, a, b *HarnessNode) error {
+func (n *NetworkHarness) EnsureConnected(ctx context.Context,
+	t *testing.T, a, b *HarnessNode) {
+
 	// errConnectionRequested is used to signal that a connection was
 	// requested successfully, which is distinct from already being
 	// connected to the peer.
@@ -606,15 +606,21 @@ func (n *NetworkHarness) EnsureConnected(ctx context.Context, a, b *HarnessNode)
 	// If both reported already being connected to each other, we can exit
 	// early.
 	case aErr == nil && bErr == nil:
-		return nil
 
 	// Return any critical errors returned by either alice.
 	case aErr != nil && aErr != errConnectionRequested:
-		return aErr
+		t.Fatalf(
+			"ensure connection between %s and %s failed "+
+				"with error from %s: %v",
+			a.Cfg.Name, b.Cfg.Name, a.Cfg.Name, aErr,
+		)
 
 	// Return any critical errors returned by either bob.
 	case bErr != nil && bErr != errConnectionRequested:
-		return bErr
+		t.Fatalf("ensure connection between %s and %s failed "+
+			"with error from %s: %v",
+			a.Cfg.Name, b.Cfg.Name, b.Cfg.Name, bErr,
+		)
 
 	// Otherwise one or both requested a connection, so we wait for the
 	// peers lists to reflect the connection.
@@ -644,11 +650,12 @@ func (n *NetworkHarness) EnsureConnected(ctx context.Context, a, b *HarnessNode)
 	err := wait.Predicate(func() bool {
 		return findSelfInPeerList(a, b) && findSelfInPeerList(b, a)
 	}, DefaultTimeout)
-	if err != nil {
-		return fmt.Errorf("peers not connected within 15 seconds")
-	}
 
-	return nil
+	require.NoErrorf(
+		t, err, "unable to connect %s to %s, "+
+			"got error: peers not connected within %v seconds",
+		a.Cfg.Name, b.Cfg.Name, DefaultTimeout,
+	)
 }
 
 // ConnectNodes establishes an encrypted+authenticated p2p connection from node
@@ -657,11 +664,14 @@ func (n *NetworkHarness) EnsureConnected(ctx context.Context, a, b *HarnessNode)
 //
 // NOTE: This function may block for up to 15-seconds as it will not return
 // until the new connection is detected as being known to both nodes.
-func (n *NetworkHarness) ConnectNodes(ctx context.Context, a, b *HarnessNode) error {
+func (n *NetworkHarness) ConnectNodes(ctx context.Context, t *testing.T,
+	a, b *HarnessNode) {
+
 	bobInfo, err := b.GetInfo(ctx, &lnrpc.GetInfoRequest{})
-	if err != nil {
-		return err
-	}
+	require.NoErrorf(
+		t, err, "unable to connect %s to %s, got error: %v",
+		a.Cfg.Name, b.Cfg.Name, err,
+	)
 
 	req := &lnrpc.ConnectPeerRequest{
 		Addr: &lnrpc.LightningAddress{
@@ -670,9 +680,11 @@ func (n *NetworkHarness) ConnectNodes(ctx context.Context, a, b *HarnessNode) er
 		},
 	}
 
-	if err := n.connect(ctx, req, a); err != nil {
-		return err
-	}
+	err = n.connect(ctx, req, a)
+	require.NoErrorf(
+		t, err, "unable to connect %s to %s, got error: %v",
+		a.Cfg.Name, b.Cfg.Name, err,
+	)
 
 	err = wait.Predicate(func() bool {
 		// If node B is seen in the ListPeers response from node A,
@@ -691,11 +703,12 @@ func (n *NetworkHarness) ConnectNodes(ctx context.Context, a, b *HarnessNode) er
 
 		return false
 	}, DefaultTimeout)
-	if err != nil {
-		return fmt.Errorf("peers not connected within 15 seconds")
-	}
 
-	return nil
+	require.NoErrorf(
+		t, err, "unable to connect %s to %s, "+
+			"got error: peers not connected within %v seconds",
+		a.Cfg.Name, b.Cfg.Name, DefaultTimeout,
+	)
 }
 
 // DisconnectNodes disconnects node a from node b by sending RPC message

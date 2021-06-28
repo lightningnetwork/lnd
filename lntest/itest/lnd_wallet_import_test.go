@@ -334,8 +334,7 @@ func fundChanAndCloseFromImportedAccount(t *harnessTest, srcNode, destNode,
 	// nodes first.
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
-	err = t.lndHarness.EnsureConnected(ctxt, srcNode, destNode)
-	require.NoError(t.t, err)
+	t.lndHarness.EnsureConnected(ctxt, t.t, srcNode, destNode)
 
 	// The source node will then fund the channel through a PSBT shim.
 	var pendingChanID [32]byte

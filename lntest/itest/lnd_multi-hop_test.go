@@ -89,9 +89,7 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 
 			ctxb := context.Background()
 			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			if err := net.ConnectNodes(ctxt, alice, bob); err != nil {
-				t.Fatalf("unable to connect alice to bob: %v", err)
-			}
+			net.ConnectNodes(ctxt, t, alice, bob)
 
 			for _, subTest := range subTests {
 				subTest := subTest
@@ -211,10 +209,7 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 	ctxb := context.Background()
 
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err := net.EnsureConnected(ctxt, alice, bob)
-	if err != nil {
-		t.Fatalf("unable to connect peers: %v", err)
-	}
+	net.EnsureConnected(ctxt, t.t, alice, bob)
 
 	// Make sure there are enough utxos for anchoring.
 	for i := 0; i < 2; i++ {
@@ -237,7 +232,7 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 	)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = alice.WaitForNetworkChannelOpen(ctxt, aliceChanPoint)
+	err := alice.WaitForNetworkChannelOpen(ctxt, aliceChanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't report channel: %v", err)
 	}
@@ -258,9 +253,7 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 	carol := net.NewNode(t.t, "Carol", carolFlags)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, bob, carol); err != nil {
-		t.Fatalf("unable to connect bob to carol: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, bob, carol)
 
 	// Make sure Carol has enough utxos for anchoring. Because the anchor by
 	// itself often doesn't meet the dust limit, a utxo from the wallet

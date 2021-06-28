@@ -1275,9 +1275,7 @@ func testPaymentFollowingChannelOpen(net *lntest.NetworkHarness, t *harnessTest)
 
 	// We ensure that Bob reconnects to Alice.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.EnsureConnected(ctxt, net.Bob, net.Alice); err != nil {
-		t.Fatalf("peers unable to reconnect after restart: %v", err)
-	}
+	net.EnsureConnected(ctxt, t.t, net.Bob, net.Alice)
 
 	// We mine one block for the channel to be confirmed.
 	_ = mineBlocks(t, net, 6, 1)[0]
@@ -1659,9 +1657,7 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
 
-	if err := net.ConnectNodes(ctxb, carol, net.Bob); err != nil {
-		t.Fatalf("unable to connect dave to alice: %v", err)
-	}
+	net.ConnectNodes(ctxb, t.t, carol, net.Bob)
 
 	// Open the channel Carol->Bob with a custom min_htlc value set. Since
 	// Carol is opening the channel, she will require Bob to not forward
@@ -1938,9 +1934,7 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// We'll now open a channel from Alice directly to Carol.
-	if err := net.ConnectNodes(ctxb, net.Alice, carol); err != nil {
-		t.Fatalf("unable to connect dave to alice: %v", err)
-	}
+	net.ConnectNodes(ctxb, t.t, net.Alice, carol)
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint3 := openChannelAndAssert(
 		ctxt, t, net, net.Alice, carol,
@@ -2392,9 +2386,7 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Start by connecting Alice and Bob with no channels.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, alice, bob); err != nil {
-		t.Fatalf("unable to connect Alice's peer to Bob's: err %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, alice, bob)
 
 	// Check existing connection.
 	assertNumConnections(t, alice, bob, 1)
@@ -2456,9 +2448,7 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Reconnect the nodes so that the channel can become active.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, alice, bob); err != nil {
-		t.Fatalf("unable to connect Alice's peer to Bob's: err %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, alice, bob)
 
 	// The channel should be listed in the peer information returned by both
 	// peers.
@@ -2489,9 +2479,7 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Reconnect both nodes before force closing the channel.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, alice, bob); err != nil {
-		t.Fatalf("unable to connect Alice's peer to Bob's: err %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, alice, bob)
 
 	// Finally, immediately close the channel. This function will also block
 	// until the channel is closed and will additionally assert the relevant
@@ -2518,9 +2506,7 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Finally, re-connect both nodes.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, alice, bob); err != nil {
-		t.Fatalf("unable to connect Alice's peer to Bob's: err %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, alice, bob)
 
 	// Check existing connection.
 	assertNumConnections(t, alice, net.Bob, 1)
@@ -2552,9 +2538,7 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, net.Alice, carol); err != nil {
-		t.Fatalf("unable to connect alice to carol: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, net.Alice, carol)
 
 	// Create a new channel that requires 5 confs before it's considered
 	// open, then broadcast the funding transaction
@@ -2609,9 +2593,7 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// The following block ensures that after both nodes have restarted,
 	// they have reconnected before the execution of the next test.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.EnsureConnected(ctxt, net.Alice, carol); err != nil {
-		t.Fatalf("peers unable to reconnect after restart: %v", err)
-	}
+	net.EnsureConnected(ctxt, t.t, net.Alice, carol)
 
 	// Next, mine enough blocks s.t the channel will open with a single
 	// additional block mined.
@@ -2753,9 +2735,7 @@ func testChannelBalance(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Before beginning, make sure alice and bob are connected.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.EnsureConnected(ctxt, net.Alice, net.Bob); err != nil {
-		t.Fatalf("unable to connect alice and bob: %v", err)
-	}
+	net.EnsureConnected(ctxt, t.t, net.Alice, net.Bob)
 
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
@@ -2850,9 +2830,7 @@ func testChannelUnsettledBalance(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Connect Alice to Carol.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxb, net.Alice, carol); err != nil {
-		t.Fatalf("unable to connect alice to carol: %v", err)
-	}
+	net.ConnectNodes(ctxb, t.t, net.Alice, carol)
 
 	// Open a channel between Alice and Carol.
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
@@ -3196,9 +3174,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	// We must let Alice have an open channel before she can send a node
 	// announcement, so we open a channel with Carol,
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, alice, carol); err != nil {
-		t.Fatalf("unable to connect alice to carol: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, alice, carol)
 
 	// Before we start, obtain Carol's current wallet balance, we'll check
 	// to ensure that at the end of the force closure by Alice, Carol
@@ -4473,9 +4449,7 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, carol, dave); err != nil {
-		t.Fatalf("unable to connect carol to dave: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, carol, dave)
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
 
@@ -4496,9 +4470,7 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, fred)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, fred, carol); err != nil {
-		t.Fatalf("unable to connect fred to carol: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, fred, carol)
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, fred)
 
@@ -4698,9 +4670,7 @@ func testListChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, bob)
 
 	// Connect Alice to Bob.
-	if err := net.ConnectNodes(ctxb, alice, bob); err != nil {
-		t.Fatalf("unable to connect alice to bob: %v", err)
-	}
+	net.ConnectNodes(ctxb, t.t, alice, bob)
 
 	// Give Alice some coins so she can fund a channel.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
@@ -4843,9 +4813,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, bob)
 
 	// Connect Alice to Bob.
-	if err := net.ConnectNodes(ctxb, alice, bob); err != nil {
-		t.Fatalf("unable to connect alice to bob: %v", err)
-	}
+	net.ConnectNodes(ctxb, t.t, alice, bob)
 
 	// Give Alice some coins so she can fund a channel.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
@@ -4885,14 +4853,10 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, alice, carol); err != nil {
-		t.Fatalf("unable to connect alice to carol: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, alice, carol)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, bob, carol); err != nil {
-		t.Fatalf("unable to connect bob to carol: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, bob, carol)
 
 	carolSub := subscribeGraphNotifications(ctxb, t, carol)
 	defer close(carolSub.quit)
@@ -5014,9 +4978,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Reconnecting the nodes should propagate a "Disabled = false" update.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.EnsureConnected(ctxt, alice, bob); err != nil {
-		t.Fatalf("unable to reconnect Alice to Bob: %v", err)
-	}
+	net.EnsureConnected(ctxt, t.t, alice, bob)
 	expectedPolicy.Disabled = false
 	waitForChannelUpdate(
 		t, carolSub,
@@ -5060,9 +5022,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	// Bob sends a "Disabled = false" update upon detecting the
 	// reconnect.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.EnsureConnected(ctxt, alice, bob); err != nil {
-		t.Fatalf("unable to reconnect Alice to Bob: %v", err)
-	}
+	net.EnsureConnected(ctxt, t.t, alice, bob)
 	expectedPolicy.Disabled = false
 	waitForChannelUpdate(
 		t, carolSub,
@@ -5095,9 +5055,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	// BOTH Alice and Bob should set the channel state back to "enabled"
 	// on reconnect.
 	sendReq(alice, chanPoint, routerrpc.ChanStatusAction_AUTO)
-	if err := net.EnsureConnected(ctxt, alice, bob); err != nil {
-		t.Fatalf("unable to reconnect Alice to Bob: %v", err)
-	}
+	net.EnsureConnected(ctxt, t.t, alice, bob)
 	expectedPolicy.Disabled = false
 	waitForChannelUpdate(
 		t, carolSub,
@@ -6000,9 +5958,7 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, net.Alice, carol); err != nil {
-		t.Fatalf("unable to connect carol to alice: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, net.Alice, carol)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	carolBalance := btcutil.Amount(maxPendingChannels) * amount
@@ -6158,9 +6114,7 @@ func testFailingChannel(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Let Alice connect and open a channel to Carol,
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, net.Alice, carol); err != nil {
-		t.Fatalf("unable to connect alice to carol: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, net.Alice, carol)
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
 		ctxt, t, net, net.Alice, carol,
@@ -6357,9 +6311,7 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 	carol := net.NewNode(t.t, "Carol", nil)
 	defer shutdownAndAssert(net, t, carol)
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, net.Alice, carol); err != nil {
-		t.Fatalf("unable to connect alice and carol: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, net.Alice, carol)
 
 	// Open a channel between Alice and Carol which will later be force
 	// closed.
@@ -6377,9 +6329,7 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 	dave := net.NewNode(t.t, "Dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
-	if err := net.ConnectNodes(ctxt, net.Alice, dave); err != nil {
-		t.Fatalf("unable to connect alice to dave: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, net.Alice, dave)
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	persistentChanPoint := openChannelAndAssert(
 		ctxt, t, net, net.Alice, dave,
@@ -6604,9 +6554,7 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	// We must let Bob communicate with Carol before they are able to open
 	// channel, so we connect Bob and Carol,
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, carol, net.Bob); err != nil {
-		t.Fatalf("unable to connect dave to carol: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, carol, net.Bob)
 
 	// Before we make a channel, we'll load up Carol with some coins sent
 	// directly from the miner.
@@ -6872,9 +6820,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	// We must let Dave have an open channel before she can send a node
 	// announcement, so we open a channel with Carol,
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, dave, carol); err != nil {
-		t.Fatalf("unable to connect dave to carol: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, dave, carol)
 
 	// Before we make a channel, we'll load up Dave with some coins sent
 	// directly from the miner.
@@ -7115,9 +7061,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// We must let Dave communicate with Carol before they are able to open
 	// channel, so we connect Dave and Carol,
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, dave, carol); err != nil {
-		t.Fatalf("unable to connect dave to carol: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, dave, carol)
 
 	// Before we make a channel, we'll load up Dave with some coins sent
 	// directly from the miner.
@@ -7621,9 +7565,7 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(
 
 	// We must let Dave have an open channel before she can send a node
 	// announcement, so we open a channel with Carol,
-	if err := net.ConnectNodes(ctxb, dave, carol); err != nil {
-		t.Fatalf("unable to connect dave to carol: %v", err)
-	}
+	net.ConnectNodes(ctxb, t.t, dave, carol)
 
 	// Before we make a channel, we'll load up Dave with some coins sent
 	// directly from the miner.
@@ -7983,11 +7925,7 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	// To make sure the nodes are initiating DLP now, we have to manually
 	// re-connect them.
 	ctxb := context.Background()
-	err := net.ConnectNodes(ctxb, carol, dave)
-	if err != nil && !strings.Contains(err.Error(), "already connected") {
-		t.Fatalf("unable to connect Carol to Dave to initiate DLP: %v",
-			err)
-	}
+	net.EnsureConnected(ctxb, t.t, carol, dave)
 
 	// Upon reconnection, the nodes should detect that Dave is out of sync.
 	// Carol should force close the channel using her latest commitment.
@@ -7995,7 +7933,7 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	if anchors {
 		expectedTxes = 2
 	}
-	_, err = waitForNTxsInMempool(
+	_, err := waitForNTxsInMempool(
 		net.Miner.Client, expectedTxes, minerMempoolTimeout,
 	)
 	if err != nil {
@@ -8146,10 +8084,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 		// We must let the node communicate with Carol before they are
 		// able to open channel, so we connect them.
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		if err := net.EnsureConnected(ctxt, carol, node); err != nil {
-			t.Fatalf("unable to connect %v to carol: %v",
-				node.Name(), err)
-		}
+		net.EnsureConnected(ctxt, t.t, carol, node)
 
 		// We'll first open up a channel between them with a 0.5 BTC
 		// value.
@@ -8472,14 +8407,10 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, carol)
 
 	// Connect Alice to Carol.
-	if err := net.ConnectNodes(ctxb, net.Alice, carol); err != nil {
-		t.Fatalf("unable to connect alice to carol: %v", err)
-	}
+	net.ConnectNodes(ctxb, t.t, net.Alice, carol)
 
 	// Connect Carol to Bob.
-	if err := net.ConnectNodes(ctxb, carol, net.Bob); err != nil {
-		t.Fatalf("unable to conenct carol to net.Bob: %v", err)
-	}
+	net.ConnectNodes(ctxb, t.t, carol, net.Bob)
 
 	// Send coins to Carol.
 	net.SendCoins(ctxb, t.t, btcutil.SatoshiPerBitcoin, carol)
@@ -8757,8 +8688,7 @@ func testGraphTopologyNtfns(net *lntest.NetworkHarness, t *harnessTest, pinned b
 
 	// Connect Alice and Bob.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.EnsureConnected(ctxt, alice, bob)
-	require.NoError(t.t, err)
+	net.EnsureConnected(ctxt, t.t, alice, bob)
 
 	// Alice stimmy.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -8917,9 +8847,7 @@ out:
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, bob, carol); err != nil {
-		t.Fatalf("unable to connect bob to carol: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, bob, carol)
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint = openChannelAndAssert(
 		ctxt, t, net, bob, carol,
@@ -8935,9 +8863,7 @@ out:
 	// Bob, since a node will update its node announcement after a new
 	// channel is opened.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.EnsureConnected(ctxt, alice, bob); err != nil {
-		t.Fatalf("unable to connect alice to bob: %v", err)
-	}
+	net.EnsureConnected(ctxt, t.t, alice, bob)
 
 	// We should receive an update advertising the newly connected node,
 	// Bob's new node announcement, and the channel between Bob and Carol.
@@ -9021,9 +8947,7 @@ func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 	// We must let Dave have an open channel before he can send a node
 	// announcement, so we open a channel with Bob,
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, net.Bob, dave); err != nil {
-		t.Fatalf("unable to connect bob to carol: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, net.Bob, dave)
 
 	// Alice shouldn't receive any new updates yet since the channel has yet
 	// to be opened.
@@ -9694,9 +9618,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, dave)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, dave, net.Alice); err != nil {
-		t.Fatalf("unable to connect dave to alice: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, dave, net.Alice)
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, dave)
 
@@ -9725,9 +9647,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, carol, dave); err != nil {
-		t.Fatalf("unable to connect carol to dave: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, carol, dave)
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
 
@@ -9839,16 +9759,10 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Ensure all of the intermediate links are reconnected.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.EnsureConnected(ctxt, net.Alice, dave)
-	if err != nil {
-		t.Fatalf("unable to reconnect alice and dave: %v", err)
-	}
+	net.EnsureConnected(ctxt, t.t, net.Alice, dave)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.EnsureConnected(ctxt, net.Bob, net.Alice)
-	if err != nil {
-		t.Fatalf("unable to reconnect bob and alice: %v", err)
-	}
+	net.EnsureConnected(ctxt, t.t, net.Bob, net.Alice)
 
 	// Ensure all nodes in the network still have 5 outstanding htlcs.
 	err = wait.Predicate(func() bool {
@@ -9867,10 +9781,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.EnsureConnected(ctxt, dave, carol)
-	if err != nil {
-		t.Fatalf("unable to reconnect dave and carol: %v", err)
-	}
+	net.EnsureConnected(ctxt, t.t, dave, carol)
 
 	// After the payments settle, there should be no active htlcs on any of
 	// the nodes in the network.
@@ -10004,9 +9915,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, dave)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, dave, net.Alice); err != nil {
-		t.Fatalf("unable to connect dave to alice: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, dave, net.Alice)
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, dave)
 
@@ -10035,9 +9944,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, carol, dave); err != nil {
-		t.Fatalf("unable to connect carol to dave: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, carol, dave)
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
 
@@ -10147,9 +10054,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Then, reconnect them to ensure Dave doesn't just fail back the htlc.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, dave, net.Alice); err != nil {
-		t.Fatalf("unable to reconnect alice to dave: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, dave, net.Alice)
 
 	// Wait to ensure that the payment remain are not failed back after
 	// reconnecting. All node should report the number payments initiated
@@ -10199,9 +10104,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	// Now that the settles have reached Dave, reconnect him with Alice,
 	// allowing the settles to return to the sender.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.EnsureConnected(ctxt, dave, net.Alice); err != nil {
-		t.Fatalf("unable to reconnect alice to dave: %v", err)
-	}
+	net.EnsureConnected(ctxt, t.t, dave, net.Alice)
 
 	// Wait until all outstanding htlcs in the network have been settled.
 	err = wait.Predicate(func() bool {
@@ -10333,9 +10236,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	defer shutdownAndAssert(net, t, dave)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, dave, net.Alice); err != nil {
-		t.Fatalf("unable to connect dave to alice: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, dave, net.Alice)
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, dave)
 
@@ -10365,9 +10266,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, carol, dave); err != nil {
-		t.Fatalf("unable to connect carol to dave: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, carol, dave)
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
 
@@ -10475,10 +10374,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	// Make Carol and Dave are reconnected before waiting for the htlcs to
 	// clear.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.EnsureConnected(ctxt, dave, carol)
-	if err != nil {
-		t.Fatalf("unable to reconnect dave and carol: %v", err)
-	}
+	net.EnsureConnected(ctxt, t.t, dave, carol)
 
 	// Wait for Carol to report no outstanding htlcs, and also for Dav to
 	// receive all the settles from Carol.
@@ -10508,10 +10404,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	// Force Dave and Alice to reconnect before waiting for the htlcs to
 	// clear.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.EnsureConnected(ctxt, dave, net.Alice)
-	if err != nil {
-		t.Fatalf("unable to reconnect dave and carol: %v", err)
-	}
+	net.EnsureConnected(ctxt, t.t, dave, net.Alice)
 
 	// After reconnection succeeds, the settles should be propagated all
 	// the way back to the sender. All nodes should report no active htlcs.
@@ -10564,10 +10457,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	// Before completing the final payment request, ensure that the
 	// connection between Dave and Carol has been healed.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.EnsureConnected(ctxt, dave, carol)
-	if err != nil {
-		t.Fatalf("unable to reconnect dave and carol: %v", err)
-	}
+	net.EnsureConnected(ctxt, t.t, dave, carol)
 
 	// Using Carol as the source, pay to the 5 invoices from Bob created
 	// above.
@@ -10653,9 +10543,7 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	defer shutdownAndAssert(net, t, dave)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, dave, net.Alice); err != nil {
-		t.Fatalf("unable to connect dave to alice: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, dave, net.Alice)
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, dave)
 
@@ -10682,9 +10570,7 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	// intermediary hops before starting the settle.
 	carol := net.NewNode(t.t, "Carol", []string{"--hodl.exit-settle"})
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, carol, dave); err != nil {
-		t.Fatalf("unable to connect carol to dave: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, carol, dave)
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
 
@@ -10829,10 +10715,7 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	// Ensure that Dave is reconnected to Alice before waiting for the
 	// htlcs to clear.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.EnsureConnected(ctxt, dave, net.Alice)
-	if err != nil {
-		t.Fatalf("unable to reconnect alice and dave: %v", err)
-	}
+	net.EnsureConnected(ctxt, t.t, dave, net.Alice)
 
 	// Since Carol has been shutdown permanently, we will wait until all
 	// other nodes in the network report no active htlcs.
@@ -10901,9 +10784,7 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, net.Alice, carol); err != nil {
-		t.Fatalf("unable to connect alice to carol: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, net.Alice, carol)
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPointAliceCarol := openChannelAndAssert(
 		ctxt, t, net, net.Alice, carol,
@@ -10930,13 +10811,9 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Connect Eve to Carol and Bob, and open a channel to carol.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, eve, carol); err != nil {
-		t.Fatalf("unable to connect alice to carol: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, eve, carol)
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, eve, net.Bob); err != nil {
-		t.Fatalf("unable to connect eve to bob: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, eve, net.Bob)
 
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPointEveCarol := openChannelAndAssert(
@@ -10953,9 +10830,7 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, dave)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, net.Bob, dave); err != nil {
-		t.Fatalf("unable to connect bob to dave: %v", err)
-	}
+	net.ConnectNodes(ctxt, t.t, net.Bob, dave)
 
 	daveSub := subscribeGraphNotifications(ctxb, t, dave)
 	defer close(daveSub.quit)
@@ -11019,9 +10894,7 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	// Reconnect Carol and Eve, this should cause them to reenable the
 	// channel from both ends after a short delay.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.EnsureConnected(ctxt, carol, eve); err != nil {
-		t.Fatalf("unable to reconnect Carol to Eve: %v", err)
-	}
+	net.EnsureConnected(ctxt, t.t, carol, eve)
 
 	expectedPolicy.Disabled = false
 	waitForChannelUpdate(
@@ -11044,9 +10917,7 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	time.Sleep(time.Second)
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.EnsureConnected(ctxt, eve, carol); err != nil {
-		t.Fatalf("unable to reconnect Carol to Eve: %v", err)
-	}
+	net.EnsureConnected(ctxt, t.t, eve, carol)
 
 	// Since the disable should have been canceled by both Carol and Eve, we
 	// expect no channel updates to appear on the network.
@@ -11808,12 +11679,9 @@ func TestLightningNetworkDaemon(t *testing.T) {
 				require.NoError(t1, lndHarness.TearDown())
 			}()
 
-			err = lndHarness.EnsureConnected(
-				context.Background(), lndHarness.Alice,
-				lndHarness.Bob,
-			)
-			require.NoError(t1,
-				err, "unable to connect alice to bob",
+			lndHarness.EnsureConnected(
+				context.Background(), t1,
+				lndHarness.Alice, lndHarness.Bob,
 			)
 
 			logLine := fmt.Sprintf(

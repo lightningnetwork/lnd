@@ -271,9 +271,7 @@ func newMppTestContext(t *harnessTest,
 	for i := 0; i < len(nodes); i++ {
 		for j := i + 1; j < len(nodes); j++ {
 			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			if err := net.EnsureConnected(ctxt, nodes[i], nodes[j]); err != nil {
-				t.Fatalf("unable to connect nodes: %v", err)
-			}
+			net.EnsureConnected(ctxt, t.t, nodes[i], nodes[j])
 		}
 	}
 

@@ -659,26 +659,24 @@ func fundPsbt(ctx *cli.Context) error {
 			Psbt: psbtBytes,
 		}
 
-	// The user manually specified outputs and optional inputs in JSON
+	// The user manually specified outputs and/or inputs in JSON
 	// format.
-	case len(ctx.String("outputs")) > 0:
+	case len(ctx.String("outputs")) > 0 || len(ctx.String("inputs")) > 0:
 		var (
 			tpl          = &walletrpc.TxTemplate{}
 			amountToAddr map[string]uint64
 		)
 
-		// Parse the address to amount map as JSON now. At least one
-		// entry must be present.
-		jsonMap := []byte(ctx.String("outputs"))
-		if err := json.Unmarshal(jsonMap, &amountToAddr); err != nil {
-			return fmt.Errorf("error parsing outputs JSON: %v",
-				err)
+		if len(ctx.String("outputs")) > 0 {
+			// Parse the address to amount map as JSON now. At least one
+			// entry must be present.
+			jsonMap := []byte(ctx.String("outputs"))
+			if err := json.Unmarshal(jsonMap, &amountToAddr); err != nil {
+				return fmt.Errorf("error parsing outputs JSON: %v",
+					err)
+			}
+			tpl.Outputs = amountToAddr
 		}
-		if len(amountToAddr) == 0 {
-			return fmt.Errorf("at least one output must be " +
-				"specified")
-		}
-		tpl.Outputs = amountToAddr
 
 		// Inputs are optional.
 		if len(ctx.String("inputs")) > 0 {
@@ -707,7 +705,7 @@ func fundPsbt(ctx *cli.Context) error {
 
 	default:
 		return fmt.Errorf("must specify either template_psbt or " +
-			"outputs flag")
+			"inputs/outputs flag")
 	}
 
 	// Parse fee flags.

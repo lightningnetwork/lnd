@@ -25,6 +25,12 @@ for more information.
 * [Stub code for interacting with `lnrpc` from a WASM context through JSON 
   messages was added](https://github.com/lightningnetwork/lnd/pull/5601).
 
+## Wallet
+
+* It is now possible to fund a psbt [without specifying any
+  outputs](https://github.com/lightningnetwork/lnd/pull/5442). This option is
+  useful for CPFP bumping of unconfirmed outputs or general utxo consolidation.
+
 ## Security 
 
 ### Admin macaroon permissions

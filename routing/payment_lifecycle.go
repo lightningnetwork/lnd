@@ -66,10 +66,10 @@ func (ps paymentState) needWaitForShards() bool {
 	return ps.terminate || ps.remainingAmt == 0
 }
 
-// updatePaymentState will fetch db for the payment to find the latest
+// fetchPaymentState will query the db for the latest payment state
 // information we need to act on every iteration of the payment loop and update
 // the paymentState.
-func (p *paymentLifecycle) updatePaymentState() (*channeldb.MPPayment,
+func (p *paymentLifecycle) fetchPaymentState() (*channeldb.MPPayment,
 	*paymentState, error) {
 
 	// Fetch the latest payment from db.
@@ -136,7 +136,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 	// If we had any existing attempts outstanding, we'll start by spinning
 	// up goroutines that'll collect their results and deliver them to the
 	// lifecycle loop below.
-	payment, _, err := p.updatePaymentState()
+	payment, _, err := p.fetchPaymentState()
 	if err != nil {
 		return [32]byte{}, nil, err
 	}
@@ -165,7 +165,7 @@ lifecycle:
 		// collectResultAsync), it is NOT guaranteed that we always
 		// have the latest state here. This is fine as long as the
 		// state is consistent as a whole.
-		payment, currentState, err := p.updatePaymentState()
+		payment, currentState, err := p.fetchPaymentState()
 		if err != nil {
 			return [32]byte{}, nil, err
 		}
@@ -286,7 +286,18 @@ lifecycle:
 
 		// We found a route to try, launch a new shard.
 		attempt, outcome, err := shardHandler.launchShard(rt, lastShard)
-		if err != nil {
+		switch {
+		// We may get a terminal error if we've processed a shard with
+		// a terminal state (settled or permanent failure), while we
+		// were pathfinding. We know we're in a terminal state here,
+		// so we can continue and wait for our last shards to return.
+		case err == channeldb.ErrPaymentTerminal:
+			log.Infof("Payment %v in terminal state, abandoning "+
+				"shard", p.identifier)
+
+			continue lifecycle
+
+		case err != nil:
 			return [32]byte{}, nil, err
 		}
 
@@ -493,7 +504,8 @@ func (p *shardHandler) collectResultAsync(attempt *channeldb.HTLCAttemptInfo) {
 					attempt.AttemptID, p.identifier, err)
 			}
 
-			// Overwrite errToSend and return.
+			// Overwrite the param errToSend and return so that the
+			// defer function will use the param to proceed.
 			errToSend = err
 			return
 		}
@@ -501,8 +513,9 @@ func (p *shardHandler) collectResultAsync(attempt *channeldb.HTLCAttemptInfo) {
 		// If a non-critical error was encountered handle it and mark
 		// the payment failed if the failure was terminal.
 		if result.err != nil {
-			// Overwrite errToSend and return. Notice that the
-			// errToSend could be nil here.
+			// Overwrite the param errToSend and return so that the
+			// defer function will use the param to proceed. Notice
+			// that the errToSend could be nil here.
 			errToSend = p.handleSendError(attempt, result.err)
 			return
 		}

@@ -543,56 +543,49 @@ func assertNumOpenChannelsPending(ctxt context.Context, t *harnessTest,
 }
 
 // assertNumConnections asserts number current connections between two peers.
-// TODO(yy): refactor to use wait.
 func assertNumConnections(t *harnessTest, alice, bob *lntest.HarnessNode,
 	expected int) {
 	ctxb := context.Background()
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 
-	const nPolls = 10
-
-	tick := time.NewTicker(300 * time.Millisecond)
-	defer tick.Stop()
-
-	for i := nPolls - 1; i >= 0; i-- {
-		select {
-		case <-tick.C:
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			aNumPeers, err := alice.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
-			if err != nil {
-				t.Fatalf("unable to fetch alice's node (%v) list peers %v",
-					alice.NodeID, err)
-			}
-
-			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-			bNumPeers, err := bob.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
-			if err != nil {
-				t.Fatalf("unable to fetch bob's node (%v) list peers %v",
-					bob.NodeID, err)
-			}
-			if len(aNumPeers.Peers) != expected {
-				// Continue polling if this is not the final
-				// loop.
-				if i > 0 {
-					continue
-				}
-				t.Fatalf("number of peers connected to alice is incorrect: "+
-					"expected %v, got %v", expected, len(aNumPeers.Peers))
-			}
-			if len(bNumPeers.Peers) != expected {
-				// Continue polling if this is not the final
-				// loop.
-				if i > 0 {
-					continue
-				}
-				t.Fatalf("number of peers connected to bob is incorrect: "+
-					"expected %v, got %v", expected, len(bNumPeers.Peers))
-			}
-
-			// Alice and Bob both have the required number of
-			// peers, stop polling and return to caller.
-			return
+	err := wait.NoError(func() error {
+		aNumPeers, err := alice.ListPeers(
+			ctxt, &lnrpc.ListPeersRequest{},
+		)
+		if err != nil {
+			return fmt.Errorf(
+				"unable to fetch %s's node (%v) list peers %v",
+				alice.Name(), alice.NodeID, err,
+			)
 		}
-	}
+
+		bNumPeers, err := bob.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
+		if err != nil {
+			return fmt.Errorf(
+				"unable to fetch %s's node (%v) list peers %v",
+				bob.Name(), bob.NodeID, err,
+			)
+		}
+
+		if len(aNumPeers.Peers) != expected {
+			return fmt.Errorf(
+				"number of peers connected to %s is "+
+					"incorrect: expected %v, got %v",
+				alice.Name(), expected, len(aNumPeers.Peers),
+			)
+		}
+		if len(bNumPeers.Peers) != expected {
+			return fmt.Errorf(
+				"number of peers connected to %s is "+
+					"incorrect: expected %v, got %v",
+				bob.Name(), expected, len(bNumPeers.Peers),
+			)
+		}
+
+		return nil
+
+	}, defaultTimeout)
+	require.NoError(t.t, err)
 }
 
 // shutdownAndAssert shuts down the given node and asserts that no errors

@@ -111,7 +111,6 @@ var allTestCases = []*testCase{
 		name: "private channel update policy",
 		test: testUpdateChannelPolicyForPrivateChannel,
 	},
-
 	{
 		name: "invoice routing hints",
 		test: testInvoiceRoutingHints,
@@ -238,6 +237,10 @@ var allTestCases = []*testCase{
 	{
 		name: "hold invoice force close",
 		test: testHoldInvoiceForceClose,
+	},
+	{
+		name: "commitment deadline",
+		test: testCommitmentTransactionDeadline,
 	},
 	{
 		name: "cpfp",

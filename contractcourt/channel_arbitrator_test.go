@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -20,8 +21,10 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntest/mock"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -2093,6 +2096,254 @@ func TestRemoteCloseInitiator(t *testing.T) {
 	}
 }
 
+// TestFindCommitmentDeadline tests the logic used to determine confirmation
+// deadline is implemented as expected.
+func TestFindCommitmentDeadline(t *testing.T) {
+	// Create a testing channel arbitrator.
+	log := &mockArbitratorLog{
+		state:     StateDefault,
+		newStates: make(chan ArbitratorState, 5),
+	}
+	chanArbCtx, err := createTestChannelArbitrator(t, log)
+	require.NoError(t, err, "unable to create ChannelArbitrator")
+
+	// Add a dummy payment hash to the preimage lookup.
+	rHash := [lntypes.PreimageSize]byte{1, 2, 3}
+	mockPreimageDB := newMockWitnessBeacon()
+	mockPreimageDB.lookupPreimage[rHash] = rHash
+
+	// Attack a mock PreimageDB and Registry to channel arbitrator.
+	chanArb := chanArbCtx.chanArb
+	chanArb.cfg.PreimageDB = mockPreimageDB
+	chanArb.cfg.Registry = &mockRegistry{}
+
+	htlcIndexBase := uint64(99)
+	heightHint := uint32(1000)
+	htlcExpiryBase := heightHint + uint32(10)
+
+	// Create four testing HTLCs.
+	htlcDust := channeldb.HTLC{
+		HtlcIndex:     htlcIndexBase + 1,
+		RefundTimeout: htlcExpiryBase + 1,
+		OutputIndex:   -1,
+	}
+	htlcSmallExipry := channeldb.HTLC{
+		HtlcIndex:     htlcIndexBase + 2,
+		RefundTimeout: htlcExpiryBase + 2,
+	}
+
+	htlcPreimage := channeldb.HTLC{
+		HtlcIndex:     htlcIndexBase + 3,
+		RefundTimeout: htlcExpiryBase + 3,
+		RHash:         rHash,
+	}
+	htlcLargeExpiry := channeldb.HTLC{
+		HtlcIndex:     htlcIndexBase + 4,
+		RefundTimeout: htlcExpiryBase + 100,
+	}
+	htlcExpired := channeldb.HTLC{
+		HtlcIndex:     htlcIndexBase + 5,
+		RefundTimeout: heightHint,
+	}
+
+	makeHTLCSet := func(incoming, outgoing channeldb.HTLC) htlcSet {
+		return htlcSet{
+			incomingHTLCs: map[uint64]channeldb.HTLC{
+				incoming.HtlcIndex: incoming,
+			},
+			outgoingHTLCs: map[uint64]channeldb.HTLC{
+				outgoing.HtlcIndex: outgoing,
+			},
+		}
+	}
+
+	testCases := []struct {
+		name     string
+		htlcs    htlcSet
+		err      error
+		deadline uint32
+	}{
+		{
+			// When we have no HTLCs, the default value should be
+			// used.
+			name:     "use default conf target",
+			htlcs:    htlcSet{},
+			err:      nil,
+			deadline: anchorSweepConfTarget,
+		},
+		{
+			// When we have a preimage available in the local HTLC
+			// set, its CLTV should be used.
+			name:     "use htlc with preimage available",
+			htlcs:    makeHTLCSet(htlcPreimage, htlcLargeExpiry),
+			err:      nil,
+			deadline: htlcPreimage.RefundTimeout - heightHint,
+		},
+		{
+			// When the HTLC in the local set is not preimage
+			// available, we should not use its CLTV even its value
+			// is smaller.
+			name:     "use htlc with no preimage available",
+			htlcs:    makeHTLCSet(htlcSmallExipry, htlcLargeExpiry),
+			err:      nil,
+			deadline: htlcLargeExpiry.RefundTimeout - heightHint,
+		},
+		{
+			// When we have dust HTLCs, their CLTVs should NOT be
+			// used even the values are smaller.
+			name:     "ignore dust HTLCs",
+			htlcs:    makeHTLCSet(htlcPreimage, htlcDust),
+			err:      nil,
+			deadline: htlcPreimage.RefundTimeout - heightHint,
+		},
+		{
+			// When we've reached our deadline, use conf target of
+			// 1 as our deadline.
+			name:     "use conf target 1",
+			htlcs:    makeHTLCSet(htlcPreimage, htlcExpired),
+			err:      nil,
+			deadline: 1,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			deadline, err := chanArb.findCommitmentDeadline(
+				heightHint, tc.htlcs,
+			)
+
+			require.Equal(t, tc.err, err)
+			require.Equal(t, tc.deadline, deadline)
+		})
+	}
+
+}
+
+// TestSweepAnchors checks the sweep transactions are created using the
+// expected deadlines for different anchor resolutions.
+func TestSweepAnchors(t *testing.T) {
+	// Create a testing channel arbitrator.
+	log := &mockArbitratorLog{
+		state:     StateDefault,
+		newStates: make(chan ArbitratorState, 5),
+	}
+	chanArbCtx, err := createTestChannelArbitrator(t, log)
+	require.NoError(t, err, "unable to create ChannelArbitrator")
+
+	// Add a dummy payment hash to the preimage lookup.
+	rHash := [lntypes.PreimageSize]byte{1, 2, 3}
+	mockPreimageDB := newMockWitnessBeacon()
+	mockPreimageDB.lookupPreimage[rHash] = rHash
+
+	// Attack a mock PreimageDB and Registry to channel arbitrator.
+	chanArb := chanArbCtx.chanArb
+	chanArb.cfg.PreimageDB = mockPreimageDB
+	chanArb.cfg.Registry = &mockRegistry{}
+
+	// Set current block height.
+	heightHint := uint32(1000)
+	chanArbCtx.chanArb.blocks <- int32(heightHint)
+
+	htlcIndexBase := uint64(99)
+	htlcExpiryBase := heightHint + uint32(10)
+
+	// Create three testing HTLCs.
+	htlcDust := channeldb.HTLC{
+		HtlcIndex:     htlcIndexBase + 1,
+		RefundTimeout: htlcExpiryBase + 1,
+		OutputIndex:   -1,
+	}
+	htlcWithPreimage := channeldb.HTLC{
+		HtlcIndex:     htlcIndexBase + 2,
+		RefundTimeout: htlcExpiryBase + 2,
+		RHash:         rHash,
+	}
+	htlcSmallExipry := channeldb.HTLC{
+		HtlcIndex:     htlcIndexBase + 3,
+		RefundTimeout: htlcExpiryBase + 3,
+	}
+
+	// Setup our local HTLC set such that we will use the HTLC's CLTV from
+	// the incoming HTLC set.
+	expectedLocalDeadline := htlcWithPreimage.RefundTimeout - heightHint
+	chanArb.activeHTLCs[LocalHtlcSet] = htlcSet{
+		incomingHTLCs: map[uint64]channeldb.HTLC{
+			htlcWithPreimage.HtlcIndex: htlcWithPreimage,
+		},
+		outgoingHTLCs: map[uint64]channeldb.HTLC{
+			htlcDust.HtlcIndex: htlcDust,
+		},
+	}
+
+	// Setup our remote HTLC set such that no valid HTLCs can be used, thus
+	// we default to anchorSweepConfTarget.
+	expectedRemoteDeadline := anchorSweepConfTarget
+	chanArb.activeHTLCs[RemoteHtlcSet] = htlcSet{
+		incomingHTLCs: map[uint64]channeldb.HTLC{
+			htlcSmallExipry.HtlcIndex: htlcSmallExipry,
+		},
+		outgoingHTLCs: map[uint64]channeldb.HTLC{
+			htlcDust.HtlcIndex: htlcDust,
+		},
+	}
+
+	// Setup out pending remote HTLC set such that we will use the HTLC's
+	// CLTV from the outgoing HTLC set.
+	expectedPendingDeadline := htlcSmallExipry.RefundTimeout - heightHint
+	chanArb.activeHTLCs[RemotePendingHtlcSet] = htlcSet{
+		incomingHTLCs: map[uint64]channeldb.HTLC{
+			htlcDust.HtlcIndex: htlcDust,
+		},
+		outgoingHTLCs: map[uint64]channeldb.HTLC{
+			htlcSmallExipry.HtlcIndex: htlcSmallExipry,
+		},
+	}
+
+	// Create AnchorResolutions.
+	anchors := &lnwallet.AnchorResolutions{
+		Local: &lnwallet.AnchorResolution{
+			AnchorSignDescriptor: input.SignDescriptor{
+				Output: &wire.TxOut{Value: 1},
+			},
+		},
+		Remote: &lnwallet.AnchorResolution{
+			AnchorSignDescriptor: input.SignDescriptor{
+				Output: &wire.TxOut{Value: 1},
+			},
+		},
+		RemotePending: &lnwallet.AnchorResolution{
+			AnchorSignDescriptor: input.SignDescriptor{
+				Output: &wire.TxOut{Value: 1},
+			},
+		},
+	}
+
+	// Sweep anchors and check there's no error.
+	err = chanArb.sweepAnchors(anchors, heightHint)
+	require.NoError(t, err)
+
+	// Verify deadlines are used as expected.
+	deadlines := chanArbCtx.sweeper.deadlines
+	// Since there's no guarantee of the deadline orders, we sort it here
+	// so they can be compared.
+	sort.Ints(deadlines) // [12, 13, 144]
+	require.EqualValues(
+		t, expectedLocalDeadline, deadlines[0],
+		"local deadline not matched",
+	)
+	require.EqualValues(
+		t, expectedPendingDeadline, deadlines[1],
+		"pending remote deadline not matched",
+	)
+	require.EqualValues(
+		t, expectedRemoteDeadline, deadlines[2],
+		"remote deadline not matched",
+	)
+
+}
+
 // TestChannelArbitratorAnchors asserts that the commitment tx anchor is swept.
 func TestChannelArbitratorAnchors(t *testing.T) {
 	log := &mockArbitratorLog{
@@ -2113,14 +2364,29 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 		reports,
 	)
 
+	// Add a dummy payment hash to the preimage lookup.
+	rHash := [lntypes.PreimageSize]byte{1, 2, 3}
+	mockPreimageDB := newMockWitnessBeacon()
+	mockPreimageDB.lookupPreimage[rHash] = rHash
+
+	// Attack a mock PreimageDB and Registry to channel arbitrator.
 	chanArb := chanArbCtx.chanArb
-	chanArb.cfg.PreimageDB = newMockWitnessBeacon()
+	chanArb.cfg.PreimageDB = mockPreimageDB
 	chanArb.cfg.Registry = &mockRegistry{}
 
 	// Setup two pre-confirmation anchor resolutions on the mock channel.
 	chanArb.cfg.Channel.(*mockChannel).anchorResolutions =
-		[]*lnwallet.AnchorResolution{
-			{}, {},
+		&lnwallet.AnchorResolutions{
+			Local: &lnwallet.AnchorResolution{
+				AnchorSignDescriptor: input.SignDescriptor{
+					Output: &wire.TxOut{Value: 1},
+				},
+			},
+			Remote: &lnwallet.AnchorResolution{
+				AnchorSignDescriptor: input.SignDescriptor{
+					Output: &wire.TxOut{Value: 1},
+				},
+			},
 		}
 
 	if err := chanArb.Start(nil); err != nil {
@@ -2140,6 +2406,41 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 		ShortChanID: lnwire.ShortChannelID{},
 	}
 	chanArb.UpdateContractSignals(signals)
+
+	// Set current block height.
+	heightHint := uint32(1000)
+	chanArbCtx.chanArb.blocks <- int32(heightHint)
+
+	// Create testing HTLCs.
+	htlcExpiryBase := heightHint + uint32(10)
+	htlcWithPreimage := channeldb.HTLC{
+		HtlcIndex:     99,
+		RefundTimeout: htlcExpiryBase + 2,
+		RHash:         rHash,
+		Incoming:      true,
+	}
+	htlc := channeldb.HTLC{
+		HtlcIndex:     100,
+		RefundTimeout: htlcExpiryBase + 3,
+	}
+
+	// We now send two HTLC updates, one for local HTLC set and the other
+	// for remote HTLC set.
+	htlcUpdates <- &ContractUpdate{
+		HtlcKey: LocalHtlcSet,
+		// This will make the deadline of the local anchor resolution
+		// to be htlcWithPreimage's CLTV minus heightHint since the
+		// incoming HTLC (toLocalHTLCs) has a lower CLTV value and is
+		// preimage available.
+		Htlcs: []channeldb.HTLC{htlc, htlcWithPreimage},
+	}
+	htlcUpdates <- &ContractUpdate{
+		HtlcKey: RemoteHtlcSet,
+		// This will make the deadline of the remote anchor resolution
+		// to be htlcWithPreimage's CLTV minus heightHint because the
+		// incoming HTLC (toRemoteHTLCs) has a lower CLTV.
+		Htlcs: []channeldb.HTLC{htlc, htlcWithPreimage},
+	}
 
 	errChan := make(chan error, 1)
 	respChan := make(chan *wire.MsgTx, 1)
@@ -2256,6 +2557,20 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 	}
 
 	assertResolverReport(t, reports, expectedReport)
+
+	// We expect two anchor inputs, the local and the remote to be swept.
+	// Thus we should expect there are two deadlines used, both are equal
+	// to htlcWithPreimage's CLTV minus current block height.
+	require.Equal(t, 2, len(chanArbCtx.sweeper.deadlines))
+	require.EqualValues(t,
+		htlcWithPreimage.RefundTimeout-heightHint,
+		chanArbCtx.sweeper.deadlines[0],
+	)
+	require.EqualValues(t,
+		htlcWithPreimage.RefundTimeout-heightHint,
+		chanArbCtx.sweeper.deadlines[1],
+	)
+
 }
 
 // putResolverReportInChannel returns a put report function which will pipe
@@ -2286,13 +2601,16 @@ func assertResolverReport(t *testing.T, reports chan *channeldb.ResolverReport,
 }
 
 type mockChannel struct {
-	anchorResolutions []*lnwallet.AnchorResolution
+	anchorResolutions *lnwallet.AnchorResolutions
 }
 
-func (m *mockChannel) NewAnchorResolutions() ([]*lnwallet.AnchorResolution,
+func (m *mockChannel) NewAnchorResolutions() (*lnwallet.AnchorResolutions,
 	error) {
+	if m.anchorResolutions != nil {
+		return m.anchorResolutions, nil
+	}
 
-	return m.anchorResolutions, nil
+	return &lnwallet.AnchorResolutions{}, nil
 }
 
 func (m *mockChannel) ForceCloseChan() (*lnwallet.LocalForceCloseSummary, error) {

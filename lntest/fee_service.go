@@ -15,7 +15,7 @@ const (
 	// feeServiceTarget is the confirmation target for which a fee estimate
 	// is returned. Requests for higher confirmation targets will fall back
 	// to this.
-	feeServiceTarget = 2
+	feeServiceTarget = 1
 )
 
 // feeService runs a web service that provides fee estimation information.
@@ -99,4 +99,12 @@ func (f *feeService) setFee(fee chainfee.SatPerKWeight) {
 	defer f.lock.Unlock()
 
 	f.Fees[feeServiceTarget] = uint32(fee.FeePerKVByte())
+}
+
+// setFeeWithConf sets a fee for the given confirmation target.
+func (f *feeService) setFeeWithConf(fee chainfee.SatPerKWeight, conf uint32) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
+	f.Fees[conf] = uint32(fee.FeePerKVByte())
 }

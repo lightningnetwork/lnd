@@ -1512,6 +1512,12 @@ func (n *NetworkHarness) SetFeeEstimate(fee chainfee.SatPerKWeight) {
 	n.feeService.setFee(fee)
 }
 
+func (n *NetworkHarness) SetFeeEstimateWithConf(
+	fee chainfee.SatPerKWeight, conf uint32) {
+
+	n.feeService.setFeeWithConf(fee, conf)
+}
+
 // CopyFile copies the file src to dest.
 func CopyFile(dest, src string) error {
 	s, err := os.Open(src)

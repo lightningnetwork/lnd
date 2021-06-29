@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,8 +32,10 @@ var (
 
 const (
 	// anchorSweepConfTarget is the conf target used when sweeping
-	// commitment anchors.
-	anchorSweepConfTarget = 6
+	// commitment anchors. This value is only used when the commitment
+	// transaction has no valid HTLCs for determining a confirmation
+	// deadline.
+	anchorSweepConfTarget = 144
 
 	// arbitratorBlockBufferSize is the size of the buffer we give to each
 	// channel arbitrator.
@@ -91,7 +94,7 @@ type ArbChannel interface {
 
 	// NewAnchorResolutions returns the anchor resolutions for currently
 	// valid commitment transactions.
-	NewAnchorResolutions() ([]*lnwallet.AnchorResolution, error)
+	NewAnchorResolutions() (*lnwallet.AnchorResolutions, error)
 }
 
 // ChannelArbitratorConfig contains all the functionality that the
@@ -1087,14 +1090,24 @@ func (c *ChannelArbitrator) stateStep(
 // sweepAnchors offers all given anchor resolutions to the sweeper. It requests
 // sweeping at the minimum fee rate. This fee rate can be upped manually by the
 // user via the BumpFee rpc.
-func (c *ChannelArbitrator) sweepAnchors(anchors []*lnwallet.AnchorResolution,
+func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 	heightHint uint32) error {
 
 	// Use the chan id as the exclusive group. This prevents any of the
 	// anchors from being batched together.
 	exclusiveGroup := c.cfg.ShortChanID.ToUint64()
 
-	for _, anchor := range anchors {
+	// sweepWithDeadline is a helper closure that takes an anchor
+	// resolution and sweeps it with its corresponding deadline.
+	sweepWithDeadline := func(anchor *lnwallet.AnchorResolution,
+		htlcs htlcSet) error {
+
+		// Find the deadline for this specific anchor.
+		deadline, err := c.findCommitmentDeadline(heightHint, htlcs)
+		if err != nil {
+			return err
+		}
+
 		log.Debugf("ChannelArbitrator(%v): pre-confirmation sweep of "+
 			"anchor of tx %v", c.cfg.ChanPoint, anchor.CommitAnchor)
 
@@ -1118,11 +1131,11 @@ func (c *ChannelArbitrator) sweepAnchors(anchors []*lnwallet.AnchorResolution,
 		// Also signal that this is a force sweep, so that the anchor
 		// will be swept even if it isn't economical purely based on the
 		// anchor value.
-		_, err := c.cfg.Sweeper.SweepInput(
+		_, err = c.cfg.Sweeper.SweepInput(
 			&anchorInput,
 			sweep.Params{
 				Fee: sweep.FeePreference{
-					ConfTarget: anchorSweepConfTarget,
+					ConfTarget: deadline,
 				},
 				Force:          true,
 				ExclusiveGroup: &exclusiveGroup,
@@ -1131,9 +1144,127 @@ func (c *ChannelArbitrator) sweepAnchors(anchors []*lnwallet.AnchorResolution,
 		if err != nil {
 			return err
 		}
+
+		return nil
+	}
+
+	// Sweep anchors based on different HTLC sets. Notice the HTLC sets may
+	// differ across commitments, thus their deadline values could vary.
+	for htlcSet, htlcs := range c.activeHTLCs {
+		switch {
+		case htlcSet == LocalHtlcSet && anchors.Local != nil:
+			err := sweepWithDeadline(anchors.Local, htlcs)
+			if err != nil {
+				return err
+			}
+
+		case htlcSet == RemoteHtlcSet && anchors.Remote != nil:
+			err := sweepWithDeadline(anchors.Remote, htlcs)
+			if err != nil {
+				return err
+			}
+
+		case htlcSet == RemotePendingHtlcSet &&
+			anchors.RemotePending != nil:
+
+			err := sweepWithDeadline(anchors.RemotePending, htlcs)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil
+}
+
+// findCommitmentDeadline finds the deadline (relative block height) for a
+// commitment transaction by extracting the minimum CLTV from its HTLCs. From
+// our PoV, the deadline is defined to be the smaller of,
+//   - the least CLTV from outgoing HTLCs,  or,
+//   - the least CLTV from incoming HTLCs if the preimage is available.
+//
+// Note: when the deadline turns out to be 0 blocks, we will replace it with 1
+// block because our fee estimator doesn't allow a 0 conf target. This also
+// means we've left behind and should increase our fee to make the transaction
+// confirmed asap.
+func (c *ChannelArbitrator) findCommitmentDeadline(heightHint uint32,
+	htlcs htlcSet) (uint32, error) {
+
+	deadlineMinHeight := uint32(math.MaxUint32)
+
+	// First, iterate through the outgoingHTLCs to find the lowest CLTV
+	// value.
+	for _, htlc := range htlcs.outgoingHTLCs {
+		// Skip if the HTLC is dust.
+		if htlc.OutputIndex < 0 {
+			log.Debugf("ChannelArbitrator(%v): skipped deadline "+
+				"for dust htlc=%x",
+				c.cfg.ChanPoint, htlc.RHash[:])
+
+			continue
+		}
+
+		if htlc.RefundTimeout < deadlineMinHeight {
+			deadlineMinHeight = htlc.RefundTimeout
+		}
+	}
+
+	// Then going through the incomingHTLCs, and update the minHeight when
+	// conditions met.
+	for _, htlc := range htlcs.incomingHTLCs {
+		// Skip if the HTLC is dust.
+		if htlc.OutputIndex < 0 {
+			log.Debugf("ChannelArbitrator(%v): skipped deadline "+
+				"for dust htlc=%x",
+				c.cfg.ChanPoint, htlc.RHash[:])
+
+			continue
+		}
+
+		// Since it's an HTLC sent to us, check if we have preimage for
+		// this HTLC.
+		preimageAvailable, err := c.isPreimageAvailable(htlc.RHash)
+		if err != nil {
+			return 0, err
+		}
+
+		if !preimageAvailable {
+			continue
+		}
+
+		if htlc.RefundTimeout < deadlineMinHeight {
+			deadlineMinHeight = htlc.RefundTimeout
+		}
+	}
+
+	// Calculate the deadline. There are two cases to be handled here,
+	//   - when the deadlineMinHeight never gets updated, which could
+	//     happen when we have no outgoing HTLCs, and, for incoming HTLCs,
+	//       * either we have none, or,
+	//       * none of the HTLCs are preimageAvailable.
+	//   - when our deadlineMinHeight is no greater than the heightHint,
+	//     which means we are behind our schedule.
+	deadline := deadlineMinHeight - heightHint
+	switch {
+	// When we couldn't find a deadline height from our HTLCs, we will fall
+	// back to the default value.
+	case deadlineMinHeight == math.MaxUint32:
+		deadline = anchorSweepConfTarget
+
+	// When the deadline is passed, we will fall back to the smallest conf
+	// target (1 block).
+	case deadlineMinHeight <= heightHint:
+		log.Warnf("ChannelArbitrator(%v): deadline is passed with "+
+			"deadlineMinHeight=%d, heightHint=%d",
+			c.cfg.ChanPoint, deadlineMinHeight, heightHint)
+		deadline = 1
+	}
+
+	log.Debugf("ChannelArbitrator(%v): calculated deadline: %d, "+
+		"using deadlineMinHeight=%d, heightHint=%d",
+		c.cfg.ChanPoint, deadline, deadlineMinHeight, heightHint)
+
+	return deadline, nil
 }
 
 // launchResolvers updates the activeResolvers list and starts the resolvers.

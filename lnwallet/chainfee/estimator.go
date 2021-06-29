@@ -19,12 +19,12 @@ const (
 	// a WebAPIEstimator will cache fees for. This number is chosen
 	// because it's the highest number of confs bitcoind will return a fee
 	// estimate for.
-	maxBlockTarget uint32 = 1009
+	maxBlockTarget uint32 = 1008
 
 	// minBlockTarget is the lowest number of blocks confirmations that
 	// a WebAPIEstimator will cache fees for. Requesting an estimate for
 	// less than this will result in an error.
-	minBlockTarget uint32 = 2
+	minBlockTarget uint32 = 1
 
 	// minFeeUpdateTimeout represents the minimum interval in which a
 	// WebAPIEstimator will request fresh fees from its API.
@@ -375,7 +375,16 @@ func (b *BitcoindEstimator) Stop() error {
 // confirmation and returns the estimated fee expressed in sat/kw.
 //
 // NOTE: This method is part of the Estimator interface.
-func (b *BitcoindEstimator) EstimateFeePerKW(numBlocks uint32) (SatPerKWeight, error) {
+func (b *BitcoindEstimator) EstimateFeePerKW(
+	numBlocks uint32) (SatPerKWeight, error) {
+
+	if numBlocks > maxBlockTarget {
+		log.Debugf("conf target %d exceeds the max value, "+
+			"use %d instead.", numBlocks, maxBlockTarget,
+		)
+		numBlocks = maxBlockTarget
+	}
+
 	feeEstimate, err := b.fetchEstimate(numBlocks)
 	switch {
 	// If the estimator doesn't have enough data, or returns an error, then

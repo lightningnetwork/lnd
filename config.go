@@ -299,7 +299,8 @@ type Config struct {
 	NoNetBootstrap bool `long:"nobootstrap" description:"If true, then automatic network bootstrapping will not be attempted."`
 
 	NoSeedBackup             bool   `long:"noseedbackup" description:"If true, NO SEED WILL BE EXPOSED -- EVER, AND THE WALLET WILL BE ENCRYPTED USING THE DEFAULT PASSPHRASE. THIS FLAG IS ONLY FOR TESTING AND SHOULD NEVER BE USED ON MAINNET."`
-	WalletUnlockPasswordFile string `long:"wallet-unlock-password-file" description:"The full path to a file (or pipe/device) that contains the password for unlocking the wallet; if set, no unlocking through RPC is possible and lnd will exit if no wallet exists or the password is incorrect"`
+	WalletUnlockPasswordFile string `long:"wallet-unlock-password-file" description:"The full path to a file (or pipe/device) that contains the password for unlocking the wallet; if set, no unlocking through RPC is possible and lnd will exit if no wallet exists or the password is incorrect; if wallet-unlock-allow-create is also set then lnd will ignore this flag if no wallet exists and allow a wallet to be created through RPC."`
+	WalletUnlockAllowCreate  bool   `long:"wallet-unlock-allow-create" description:"Don't fail with an error if wallet-unlock-password-file is set but no wallet exists yet."`
 
 	ResetWalletTransactions bool `long:"reset-wallet-transactions" description:"Removes all transaction history from the on-chain wallet on startup, forcing a full chain rescan starting at the wallet's birthday. Implements the same functionality as btcwallet's dropwtxmgr command. Should be set to false after successful execution to avoid rescanning on every restart of lnd."`
 
@@ -1346,6 +1347,11 @@ func ValidateConfig(cfg Config, usageMessage string,
 	case cfg.NoSeedBackup && cfg.WalletUnlockPasswordFile != "":
 		return nil, fmt.Errorf("cannot set noseedbackup and " +
 			"wallet-unlock-password-file at the same time")
+
+	// The "allow-create" flag cannot be set without the auto unlock file.
+	case cfg.WalletUnlockAllowCreate && cfg.WalletUnlockPasswordFile == "":
+		return nil, fmt.Errorf("cannot set wallet-unlock-allow-create " +
+			"without wallet-unlock-password-file")
 
 	// If a password file was specified, we need it to exist.
 	case cfg.WalletUnlockPasswordFile != "" &&

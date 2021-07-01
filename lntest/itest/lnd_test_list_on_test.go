@@ -334,4 +334,8 @@ var allTestCases = []*testCase{
 		name: "max htlc pathfind",
 		test: testMaxHtlcPathfind,
 	},
+	{
+		name: "double spend funding tx fail funding flow",
+		test: testChannelDoubleSpendFailFundingFlow,
+	},
 }

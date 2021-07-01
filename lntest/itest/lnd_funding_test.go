@@ -1,6 +1,7 @@
 package itest
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"fmt"
@@ -8,14 +9,17 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -853,4 +857,118 @@ func testBatchChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(t, net, net.Alice, chanPoint1, false)
 	closeChannelAndAssert(t, net, net.Alice, chanPoint2, false)
 	closeChannelAndAssert(t, net, net.Alice, chanPoint3, false)
+}
+
+// Partially open transaction, don't publish Transaction
+// Unlock inputs
+// Spend input
+// Mine Tx
+// Assert channel is dropped
+func testChannelDoubleSpendFailFundingFlow(net *lntest.NetworkHarness, t *harnessTest) {
+	ctxb := context.Background()
+
+	alice := net.NewNode(t.t, "alice", []string{})
+	defer shutdownAndAssert(net, t, alice)
+
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, alice)
+
+	bob := net.NewNode(t.t, "bob", []string{})
+	defer shutdownAndAssert(net, t, bob)
+
+	chanAmt := btcutil.Amount(150000)
+	pushAmt := btcutil.Amount(0)
+
+	net.ConnectNodes(t.t, alice, bob)
+
+	// Check existing connection.
+	assertConnected(t, alice, bob)
+
+	pendingUpdate, err := net.OpenPendingChannel(alice, bob, chanAmt, pushAmt)
+
+	assertNumOpenChannelsPending(t, alice, bob, 1)
+	require.NoError(t.t, err, "error opening pending channel")
+
+	fundingTxHash, _ := chainhash.NewHash(pendingUpdate.Txid)
+	fundingTx, err := net.Miner.Client.GetRawTransaction(fundingTxHash)
+	require.NoError(t.t, err, "error fetching raw tx")
+
+	// Fetch the tx which funds the fundingTx so we can collect it's outpoint
+	previousOutPoint := &fundingTx.MsgTx().TxIn[0].PreviousOutPoint.Hash
+	previousOutPointTx, err := net.Miner.Client.GetRawTransaction(previousOutPoint)
+	require.NoError(t.t, err, "error fetching previousOutPoint tx")
+
+	// Create a double spend tx which will spend from the outpoints that funded the
+	// funding tx
+	txDoubleSpend := wire.NewMsgTx(2)
+
+	// Add the fundingTx input's to the double spend transaction
+	txDoubleSpend.AddTxIn(fundingTx.MsgTx().TxIn[0])
+
+	addrReq := &lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	}
+
+	newAddressResp, err := alice.NewAddress(ctxb, addrReq)
+	require.NoError(t.t, err, "error new address")
+
+	addr, err := btcutil.DecodeAddress(newAddressResp.Address, net.Miner.ActiveNet)
+	require.NoError(t.t, err, "error decode address")
+
+	addrScript, err := txscript.PayToAddrScript(addr)
+	require.NoError(t.t, err, "error pay address")
+
+	output := &wire.TxOut{
+		PkScript: addrScript,
+		Value:    int64(2000),
+	}
+
+	txDoubleSpend.AddTxOut(output)
+	txDoubleSpendBytesBuffer := bytes.Buffer{}
+	err = txDoubleSpend.Serialize(&txDoubleSpendBytesBuffer)
+	require.NoError(t.t, err, "error serializing tx")
+
+	// Add the outpoints to the SignDescriptor to sign the double spend tx
+	signDescription := signrpc.SignDescriptor{
+		Output: &signrpc.TxOut{
+			Value:    previousOutPointTx.MsgTx().TxOut[0].Value,
+			PkScript: previousOutPointTx.MsgTx().TxOut[0].PkScript,
+		},
+		WitnessScript: nil,
+		InputIndex:    0,
+	}
+
+	signResponse, err := alice.SignerClient.ComputeInputScript(ctxb, &signrpc.SignReq{
+		SignDescs:  []*signrpc.SignDescriptor{&signDescription},
+		RawTxBytes: txDoubleSpendBytesBuffer.Bytes(),
+	})
+	require.NoError(t.t, err, "error signing tx")
+
+	// Add the witness and spend the transaction
+	txDoubleSpend.TxIn[0].Witness = signResponse.InputScripts[0].Witness
+	txs := []*btcutil.Tx{btcutil.NewTx(txDoubleSpend)}
+	_, err = net.Miner.GenerateAndSubmitBlock(txs, -1, time.Time{})
+	require.NoError(t.t, err, "error submitting tx")
+	// Generate some more blocks so Alice can detect the double spend
+	_, err = net.Miner.Client.Generate(10)
+	require.NoError(t.t, err, "error mining blocks")
+
+	// We now expect Alice to have no pending transactions as she detected
+	// the double spend
+	expectedAlice := 0
+	err = wait.NoError(func() error {
+		aliceNumChans, err := numOpenChannelsPending(ctxt, alice)
+		if err != nil {
+			return fmt.Errorf("error fetching alice's node (%v) "+
+				"pending channels %v", alice.NodeID, err)
+		}
+
+		aliceStateCorrect := aliceNumChans == expectedAlice
+		if !aliceStateCorrect {
+			return fmt.Errorf("number of pending channels for "+
+				"alice incorrect. expected %v, got %v", expectedAlice, aliceNumChans)
+		}
+		return nil
+	}, defaultTimeout)
+	require.NoError(t.t, err)
 }

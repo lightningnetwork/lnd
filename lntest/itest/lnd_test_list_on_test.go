@@ -379,4 +379,8 @@ var allTestCases = []*testCase{
 		name: "remote signer",
 		test: testRemoteSigner,
 	},
+	{
+		name: "double spend funding tx fail funding flow",
+		test: testChannelDoubleSpendFailFundingFlow,
+	},
 }

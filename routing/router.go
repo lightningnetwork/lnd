@@ -2217,14 +2217,7 @@ func (r *ChannelRouter) sendPayment(
 		currentHeight: currentHeight,
 	}
 
-	// If a timeout is specified, create a timeout channel. If no timeout is
-	// specified, the channel is left nil and will never abort the payment
-	// loop.
-	if timeout != 0 {
-		p.timeoutChan = time.After(timeout)
-	}
-
-	return p.resumePayment()
+	return p.resumePayment(timeout)
 
 }
 

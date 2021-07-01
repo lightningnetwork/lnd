@@ -4231,3 +4231,172 @@ func TestSendMPPaymentFailedWithShardsInFlight(t *testing.T) {
 	session.AssertExpectations(t)
 	missionControl.AssertExpectations(t)
 }
+
+// TestSendPaymentTimeout tests that the payment fails when the timeout value
+// is reached.
+func TestSendPaymentTimeout(t *testing.T) {
+	const startingBlockHeight = 101
+
+	// Create mockers to initialize the router.
+	controlTower := &mockControlTower{}
+	sessionSource := &mockPaymentSessionSource{}
+	missionControl := &mockMissionControl{}
+	payer := &mockPaymentAttemptDispatcher{}
+	chain := newMockChain(startingBlockHeight)
+	chainView := newMockChainView(chain)
+	testGraph := createDummyTestGraph(t)
+
+	// Define the behavior of the mockers to the point where we can
+	// successfully start the router.
+	controlTower.On("FetchInFlightPayments").Return(
+		[]*channeldb.MPPayment{}, nil,
+	)
+	payer.On("CleanStore", mock.Anything).Return(nil)
+
+	// Create and start the router.
+	router, err := New(Config{
+		Control:        controlTower,
+		SessionSource:  sessionSource,
+		MissionControl: missionControl,
+		Payer:          payer,
+
+		// TODO(yy): create new mocks for the chain and chainview.
+		Chain:     chain,
+		ChainView: chainView,
+
+		// TODO(yy): mock the graph once it's changed into interface.
+		Graph: testGraph.graph,
+
+		Clock:              clock.NewTestClock(time.Unix(1, 0)),
+		GraphPruneInterval: time.Hour * 2,
+		NextPaymentID: func() (uint64, error) {
+			next := atomic.AddUint64(&uniquePaymentID, 1)
+			return next, nil
+		},
+	})
+	require.NoError(t, err, "failed to create router")
+
+	// Make sure the router can start and stop without error.
+	require.NoError(t, router.Start(), "router failed to start")
+	defer func() {
+		require.NoError(t, router.Stop(), "router failed to stop")
+	}()
+
+	// Once the router is started, check that the mocked methods are called
+	// as expected.
+	controlTower.AssertExpectations(t)
+	payer.AssertExpectations(t)
+
+	// Mock the methods to the point where we are inside the function
+	// resumePayment.
+	paymentAmt := lnwire.MilliSatoshi(10000)
+	req := createDummyLightningPayment(
+		t, testGraph.aliasMap["c"], paymentAmt,
+	)
+	identifier := lntypes.Hash(req.Identifier())
+
+	// Overwrite the timeout value to be 2 seconds.
+	req.PayAttemptTimeout = 2 * time.Second
+	session := &mockPaymentSession{}
+	sessionSource.On("NewPaymentSession", req).Return(session, nil)
+	controlTower.On("InitPayment", identifier, mock.Anything).Return(nil)
+
+	// The following mocked methods are called inside resumePayment. Note
+	// that the payment object below will determine the state of the
+	// paymentLifecycle.
+	payment := &channeldb.MPPayment{}
+	controlTower.On("FetchPayment", identifier).Return(payment, nil)
+
+	// Create a route that can send 1/4 of the total amount. This value
+	// will be returned by calling RequestRoute.
+	shard, err := createTestRoute(paymentAmt/4, testGraph.aliasMap)
+	require.NoError(t, err, "failed to create route")
+	session.On("RequestRoute",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	).Return(shard, nil)
+
+	// Make a new htlc attempt with zero fee and append it to the payment's
+	// HTLCs when calling RegisterAttempt.
+	activeAttempt := makeActiveAttempt(int(paymentAmt/4), 0)
+	controlTower.On("RegisterAttempt",
+		identifier, mock.Anything,
+	).Return(nil).Run(func(args mock.Arguments) {
+		payment.HTLCs = append(payment.HTLCs, activeAttempt)
+	})
+
+	// Create a buffered chan and it will be returned by GetPaymentResult.
+	payer.resultChan = make(chan *htlcswitch.PaymentResult, 10)
+	payer.On("GetPaymentResult",
+		mock.Anything, identifier, mock.Anything,
+	).Run(func(args mock.Arguments) {
+		// Before the mock method is returned, we send the result to
+		// the read-only chan.
+		// payer.resultChan <- &htlcswitch.PaymentResult{}
+	})
+
+	// Simple mocking the rest.
+	payer.On("SendHTLC",
+		mock.Anything, mock.Anything, mock.Anything,
+	).Return(nil)
+
+	// Mock the FailAttempt method to fail EXACTLY once.
+	var failedAttempt channeldb.HTLCAttempt
+	controlTower.On("FailAttempt",
+		identifier, mock.Anything, mock.Anything,
+	).Return(&failedAttempt, nil).Run(func(args mock.Arguments) {
+		// Whenever this method is invoked, we will mark the first
+		// active attempt as failed and exit.
+		for i, htlc := range payment.HTLCs {
+			if htlc.Failure != nil {
+				continue
+			}
+
+			failedAttempt.Failure = &channeldb.HTLCFailInfo{}
+			payment.HTLCs[i] = failedAttempt
+			return
+		}
+	})
+
+	// Simple mocking the rest.
+	failureReason := channeldb.FailureReasonTimeout
+	controlTower.On(
+		"Fail", identifier, failureReason,
+	).Return(nil).Run(func(args mock.Arguments) {
+		payment.FailureReason = &failureReason
+	}).Once()
+
+	payer.On("SendHTLC",
+		mock.Anything, mock.Anything, mock.Anything,
+	).Return(nil)
+
+	// Call the actual method SendPayment on router. This is place inside a
+	// goroutine so we can set a timeout for the whole test, in case
+	// anything goes wrong and the test never finishes.
+	done := make(chan struct{})
+	var p lntypes.Hash
+	go func() {
+		p, _, err = router.SendPayment(req)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(testTimeout):
+		t.Fatalf("SendPayment didn't exit")
+	}
+
+	// Finally, validate the returned values and check that the mock
+	// methods are called as expected.
+	require.Equal(t, failureReason, err, "send payment error not match")
+	require.EqualValues(t, [32]byte{}, p, "preimage not match")
+
+	// Note that we also implicitly check the methods such as FailAttempt,
+	// ReportPaymentFail, etc, are not called because we never mocked them
+	// in this test. If any of the unexpected methods was called, the test
+	// would fail.
+	controlTower.AssertExpectations(t)
+	payer.AssertExpectations(t)
+	sessionSource.AssertExpectations(t)
+	session.AssertExpectations(t)
+	missionControl.AssertExpectations(t)
+}

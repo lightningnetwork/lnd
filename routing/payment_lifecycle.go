@@ -16,8 +16,15 @@ import (
 	"github.com/lightningnetwork/lnd/routing/shards"
 )
 
-// errShardHandlerExiting is returned from the shardHandler when it exits.
-var errShardHandlerExiting = fmt.Errorf("shard handler exiting")
+var (
+	// errShardHandlerExiting is returned from the shardHandler when it
+	// exits.
+	errShardHandlerExiting = fmt.Errorf("shard handler exiting")
+
+	// errPaymentTimeout is returned from the shardHandler when the payment
+	// has timed out.
+	errPaymentTimeout = fmt.Errorf("payment timeout")
+)
 
 // paymentLifecycle holds all information about the current state of a payment
 // needed to resume if from any point.
@@ -118,7 +125,9 @@ func (p *paymentLifecycle) fetchPaymentState() (*channeldb.MPPayment,
 }
 
 // resumePayment resumes the paymentLifecycle from the current state.
-func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
+func (p *paymentLifecycle) resumePayment(
+	timeout time.Duration) ([32]byte, *route.Route, error) {
+
 	shardHandler := &shardHandler{
 		router:       p.router,
 		identifier:   p.identifier,
@@ -126,12 +135,20 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 		shardErrors:  make(chan error),
 		quit:         make(chan struct{}),
 		paySession:   p.paySession,
+		timeout:      timeout,
 	}
 
 	// When the payment lifecycle loop exits, we make sure to signal any
 	// sub goroutine of the shardHandler to exit, then wait for them to
 	// return.
 	defer shardHandler.stop()
+
+	// If a timeout is specified, create a timeout channel. If no timeout is
+	// specified, the channel is left nil and will never abort the payment
+	// loop.
+	if timeout != 0 {
+		p.timeoutChan = time.After(timeout)
+	}
 
 	// If we had any existing attempts outstanding, we'll start by spinning
 	// up goroutines that'll collect their results and deliver them to the
@@ -215,8 +232,8 @@ lifecycle:
 		// will be nil.
 		select {
 		case <-p.timeoutChan:
-			log.Warnf("payment attempt not completed before " +
-				"timeout")
+			log.Warnf("Payment %v not completed before timeout",
+				p.identifier)
 
 			// By marking the payment failed with the control
 			// tower, no further shards will be launched and we'll
@@ -349,6 +366,9 @@ type shardHandler struct {
 	// to stop.
 	quit chan struct{}
 	wg   sync.WaitGroup
+
+	// timeout is the payment timeout.
+	timeout time.Duration
 }
 
 // stop signals any active shard goroutine to exit and waits for them to exit.
@@ -494,6 +514,18 @@ func (p *shardHandler) collectResultAsync(attempt *channeldb.HTLCAttemptInfo) {
 
 		// Block until the result is available.
 		result, err := p.collectResult(attempt)
+
+		// If the shardHandler has timed out, we would send a nil error
+		// so that the payment lifecycle loop won't exit on neither
+		// checkShards or waitForShard. We don't want to exit here
+		// because there might exits other in flight shards that need
+		// to be finished. Also note that, once this error occurred, it
+		// is guaranteed that no more new shards will be launched
+		// because the payment will fail with timeout error.
+		if err == errPaymentTimeout {
+			return
+		}
+
 		if err != nil {
 			if err != ErrRouterShuttingDown &&
 				err != htlcswitch.ErrSwitchExiting &&
@@ -527,6 +559,13 @@ func (p *shardHandler) collectResultAsync(attempt *channeldb.HTLCAttemptInfo) {
 // shardResult is returned, indicating the final outcome of this HTLC attempt.
 func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 	*shardResult, error) {
+
+	// If a timeout is specified, create a timeout channel. If no timeout is
+	// specified, the channel is left nil and will never time out.
+	timeoutChan := make(<-chan time.Time)
+	if p.timeout != 0 {
+		timeoutChan = time.After(p.timeout)
+	}
 
 	// We'll retrieve the hash specific to this shard from the
 	// shardTracker, since it will be needed to regenerate the circuit
@@ -597,6 +636,15 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 		if !ok {
 			return nil, htlcswitch.ErrSwitchExiting
 		}
+
+	case <-timeoutChan:
+		// Fail the attempt.
+		_, err := p.failAttempt(attempt, errPaymentTimeout)
+		if err != nil {
+			return nil, err
+		}
+
+		return nil, errPaymentTimeout
 
 	case <-p.router.quit:
 		return nil, ErrRouterShuttingDown

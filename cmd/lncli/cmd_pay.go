@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/urfave/cli"
 )
@@ -30,7 +31,7 @@ import (
 const (
 	// paymentTimeout is the default timeout for the payment loop in lnd.
 	// No new attempts will be started after the timeout.
-	paymentTimeout = time.Second * 60
+	paymentTimeout = routing.DefaultPayAttemptTimeout
 )
 
 var (

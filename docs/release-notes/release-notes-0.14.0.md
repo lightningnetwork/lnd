@@ -23,6 +23,9 @@ If you use a strange system or changed group membership of the group running LND
 you may want to check your system to see if it introduces additional risk for
 you.
 
+* [Makes publishtransaction, in the wallet sub-server, reachable through 
+  lncli](https://github.com/lightningnetwork/lnd/pull/5460).
+
 # Build System
 
 * [A new pre-submit check has been

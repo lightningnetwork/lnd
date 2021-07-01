@@ -649,14 +649,14 @@ func (r *ChannelRouter) Start() error {
 			// result for the in-flight attempt is received.
 			paySession := r.cfg.SessionSource.NewPaymentSessionEmpty()
 
-			// We pass in a zero timeout value, to indicate we
-			// don't need it to timeout. It will stop immediately
-			// after the existing attempt has finished anyway. We
-			// also set a zero fee limit, as no more routes should
-			// be tried.
+			// We pass in a default timeout value, and it should
+			// stop immediately after the existing attempt has
+			// finished. We also set a zero fee limit, as no more
+			// routes should be tried.
 			_, _, err := r.sendPayment(
 				payment.Info.Value, 0,
-				payment.Info.PaymentIdentifier, 0, paySession,
+				payment.Info.PaymentIdentifier,
+				DefaultPayAttemptTimeout, paySession,
 				shardTracker,
 			)
 			if err != nil {

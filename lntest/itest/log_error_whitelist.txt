@@ -284,3 +284,4 @@
 <time> [ERR] INVC: SettleHodlInvoice with preimage <hex>: invoice already canceled
 <time> [ERR] RPCS: [/invoicesrpc.Invoices/SettleInvoice]: invoice already canceled
 <time> [ERR] HSWC: ChannelLink(<chan>): outgoing htlc(<hex>) has insufficient fee: expected 33000, got 1020
+<time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: rpc error: code = Canceled desc = context canceled

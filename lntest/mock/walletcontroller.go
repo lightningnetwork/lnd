@@ -153,8 +153,8 @@ func (w *WalletController) ListUnspentWitness(int32, int32,
 }
 
 // ListTransactionDetails currently returns dummy values.
-func (w *WalletController) ListTransactionDetails(int32, int32,
-	string) ([]*lnwallet.TransactionDetail, error) {
+func (w *WalletController) ListTransactionDetails(<-chan struct{}, int32,
+	int32, string) ([]*lnwallet.TransactionDetail, error) {
 
 	return nil, nil
 }

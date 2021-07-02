@@ -5463,7 +5463,7 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 	}
 
 	transactions, err := r.server.cc.Wallet.ListTransactionDetails(
-		req.StartHeight, endHeight, req.Account,
+		nil, req.StartHeight, endHeight, req.Account,
 	)
 	if err != nil {
 		return nil, err

@@ -44,11 +44,11 @@ const (
 	AppMinor uint = 13
 
 	// AppPatch defines the application patch for this binary.
-	AppPatch uint = 99
+	AppPatch uint = 1
 
 	// AppPreRelease MUST only contain characters from semanticAlphabet
 	// per the semantic versioning spec.
-	AppPreRelease = "beta"
+	AppPreRelease = "beta.rc1"
 )
 
 func init() {

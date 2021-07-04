@@ -35,9 +35,7 @@ func testHoldInvoicePersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Connect Alice to Carol.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxb, net.Alice, carol); err != nil {
-		t.Fatalf("unable to connect alice to carol: %v", err)
-	}
+	net.ConnectNodes(ctxb, t.t, net.Alice, carol)
 
 	// Open a channel between Alice and Carol which is private so that we
 	// cover the addition of hop hints for hold invoices.

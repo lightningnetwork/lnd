@@ -481,9 +481,14 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		interceptorChain.SetWalletLocked()
 	}
 
-	// If we've started in auto unlock mode, then a wallet _must_ already
-	// exist because we never want to enable the RPC unlocker in that case.
-	if cfg.WalletUnlockPasswordFile != "" && !walletExists {
+	// If we've started in auto unlock mode, then a wallet should already
+	// exist because we don't want to enable the RPC unlocker in that case
+	// for security reasons (an attacker could inject their seed since the
+	// RPC is unauthenticated). Only if the user explicitly wants to allow
+	// wallet creation we don't error out here.
+	if cfg.WalletUnlockPasswordFile != "" && !walletExists &&
+		!cfg.WalletUnlockAllowCreate {
+
 		return fmt.Errorf("wallet unlock password file was specified " +
 			"but wallet does not exist; initialize the wallet " +
 			"before using auto unlocking")
@@ -498,7 +503,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		// set above.
 
 	// A password for unlocking is provided in a file.
-	case cfg.WalletUnlockPasswordFile != "":
+	case cfg.WalletUnlockPasswordFile != "" && walletExists:
 		ltndLog.Infof("Attempting automatic wallet unlock with " +
 			"password provided in file")
 		pwBytes, err := ioutil.ReadFile(cfg.WalletUnlockPasswordFile)

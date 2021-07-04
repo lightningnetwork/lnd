@@ -179,6 +179,7 @@ func (f *interceptedForward) resolve(message lnwire.Message) error {
 		circuit:        f.packet.circuit,
 		htlc:           message,
 		obfuscator:     f.packet.obfuscator,
+		sourceRef:      f.packet.sourceRef,
 	}
 	return f.htlcSwitch.mailOrchestrator.Deliver(pkt.incomingChanID, pkt)
 }

@@ -124,12 +124,11 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 	// Load the certificate file now, if specified. We store it as plain PEM
 	// directly.
 	var tlsCert []byte
-	if lnrpc.FileExists(tlsCertPath) {
+	if tlsCertPath != "" {
 		var err error
 		tlsCert, err = ioutil.ReadFile(tlsCertPath)
 		if err != nil {
-			return nil, fmt.Errorf("could not load TLS cert file "+
-				"%s: %v", tlsCertPath, err)
+			return nil, fmt.Errorf("could not load TLS cert file: %v", err)
 		}
 	}
 

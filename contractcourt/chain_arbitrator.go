@@ -241,7 +241,7 @@ type arbChannel struct {
 // commitment transactions.
 //
 // NOTE: Part of the ArbChannel interface.
-func (a *arbChannel) NewAnchorResolutions() ([]*lnwallet.AnchorResolution,
+func (a *arbChannel) NewAnchorResolutions() (*lnwallet.AnchorResolutions,
 	error) {
 
 	// Get a fresh copy of the database state to base the anchor resolutions

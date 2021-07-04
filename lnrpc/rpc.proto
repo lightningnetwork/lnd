@@ -3347,9 +3347,7 @@ message ListPaymentsResponse {
     uint64 last_index_offset = 3;
 
     /*
-    The count of total payments. If include_incomplete is true in the request,
-    the count will include all completed, pending, and failed payments. If
-    include_incomplete is false, the count will include only completed payments.
+    The total sum count of all payments, including incomplete payments.
     */
     uint64 total_payments = 4;
 }

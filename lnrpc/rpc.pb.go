@@ -11575,9 +11575,7 @@ type ListPaymentsResponse struct {
 	//as the index_offset to continue seeking forwards in the next request.
 	LastIndexOffset uint64 `protobuf:"varint,3,opt,name=last_index_offset,json=lastIndexOffset,proto3" json:"last_index_offset,omitempty"`
 	//
-	//The count of total payments. If include_incomplete is true in the request,
-	//the count will include all completed, pending, and failed payments. If
-	//include_incomplete is false, the count will include only completed payments.
+	//The total sum count of all payments, including incomplete payments.
 	TotalPayments uint64 `protobuf:"varint,4,opt,name=total_payments,json=totalPayments,proto3" json:"total_payments,omitempty"`
 }
 

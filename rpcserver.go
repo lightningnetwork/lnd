@@ -5738,6 +5738,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 	paymentsResp := &lnrpc.ListPaymentsResponse{
 		LastIndexOffset:  paymentsQuerySlice.LastIndexOffset,
 		FirstIndexOffset: paymentsQuerySlice.FirstIndexOffset,
+		TotalPayments:    paymentsQuerySlice.TotalPayments,
 	}
 
 	for _, payment := range paymentsQuerySlice.Payments {
@@ -5752,23 +5753,6 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 			paymentsResp.Payments, rpcPayment,
 		)
 	}
-
-	// Create a new query for total payments count, include incomplete in
-	// count if provided
-	queryPaymentsCount := channeldb.PaymentsQuery{
-		IncludeIncomplete: req.IncludeIncomplete,
-		MaxPayments:       math.MaxUint64,
-	}
-
-	paymentsTotalsQuerySlice, err :=
-		r.server.remoteChanDB.QueryPayments(queryPaymentsCount)
-	if err != nil {
-		return nil, err
-	}
-
-	// Add the total payments count to the response
-	paymentsResp.TotalPayments =
-		uint64(len(paymentsTotalsQuerySlice.Payments))
 
 	return paymentsResp, nil
 }

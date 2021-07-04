@@ -4617,7 +4617,7 @@
         "total_payments": {
           "type": "string",
           "format": "uint64",
-          "description": "The count of total payments. If include_incomplete is true in the request,\nthe count will include all completed, pending, and failed payments. If\ninclude_incomplete is false, the count will include only completed payments."
+          "description": "The total sum count of all payments, including incomplete payments."
         }
       }
     },

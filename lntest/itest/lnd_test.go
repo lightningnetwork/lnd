@@ -5223,7 +5223,8 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		lnrpc.PaymentFailureReason_FAILURE_REASON_INSUFFICIENT_BALANCE,
 	)
 
-	// Count Alices total payments, excluding failed payments.
+	// Count Alices total payments, set incomplete flag to false but
+	// total count should still include incomplete payments
 	req = &lnrpc.ListPaymentsRequest{
 		IncludeIncomplete: false,
 	}
@@ -5232,9 +5233,9 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("error when obtaining Alice payments: %v", err)
 	}
-	if paymentsResp.TotalPayments != 1 {
+	if paymentsResp.TotalPayments != 2 {
 		t.Fatalf("incorrect number of payments, got %v, want %v",
-			paymentsResp.TotalPayments, 1)
+			paymentsResp.TotalPayments, 2)
 	}
 
 	// Count Alice total payments, including failed payments.

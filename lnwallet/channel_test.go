@@ -9648,3 +9648,24 @@ func TestChannelSignedAckRegression(t *testing.T) {
 	err = aliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
 	require.NoError(t, err)
 }
+
+// TestMayAddOutgoingHtlcZeroValue tests that if the minHTLC value of the
+// channel is zero, then the MayAddOutgoingHtlc doesn't exit early due to
+// running into a zero valued HTLC.
+func TestMayAddOutgoingHtlcZeroValue(t *testing.T) {
+	t.Parallel()
+
+	// The default channel created as a part of the test fixture already
+	// has a MinHTLC value of zero, so we don't need to do anything here
+	// other than create it.
+	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels(
+		channeldb.SingleFunderTweaklessBit,
+	)
+	require.NoError(t, err)
+	defer cleanUp()
+
+	// The channels start out with a 50/50 balance, so both sides should be
+	// able to add an outgoing HTLC.
+	require.NoError(t, aliceChannel.MayAddOutgoingHtlc())
+	require.NoError(t, bobChannel.MayAddOutgoingHtlc())
+}

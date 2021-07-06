@@ -1,9 +1,6 @@
-// +build kvdb_etcd
-
-package etcd
+package kvdb
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"testing"
@@ -12,16 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBucketCreation(t *testing.T) {
-	t.Parallel()
-
-	f := NewEtcdTestFixture(t)
-	defer f.Cleanup()
-
-	db, err := newEtcdBackend(context.TODO(), f.BackendConfig())
-	require.NoError(t, err)
-
-	err = db.Update(func(tx walletdb.ReadWriteTx) error {
+func testBucketCreation(t *testing.T, db walletdb.DB) {
+	err := Update(db, func(tx walletdb.ReadWriteTx) error {
 		// empty bucket name
 		b, err := tx.CreateTopLevelBucket(nil)
 		require.Error(t, walletdb.ErrBucketNameRequired, err)
@@ -83,26 +72,10 @@ func TestBucketCreation(t *testing.T) {
 	}, func() {})
 
 	require.Nil(t, err)
-
-	expected := map[string]string{
-		bkey("apple"):                   bval("apple"),
-		bkey("apple", "banana"):         bval("apple", "banana"),
-		bkey("apple", "mango"):          bval("apple", "mango"),
-		bkey("apple", "banana", "pear"): bval("apple", "banana", "pear"),
-	}
-	require.Equal(t, expected, f.Dump())
 }
 
-func TestBucketDeletion(t *testing.T) {
-	t.Parallel()
-
-	f := NewEtcdTestFixture(t)
-	defer f.Cleanup()
-
-	db, err := newEtcdBackend(context.TODO(), f.BackendConfig())
-	require.NoError(t, err)
-
-	err = db.Update(func(tx walletdb.ReadWriteTx) error {
+func testBucketDeletion(t *testing.T, db walletdb.DB) {
+	err := Update(db, func(tx walletdb.ReadWriteTx) error {
 		// "apple"
 		apple, err := tx.CreateTopLevelBucket([]byte("apple"))
 		require.Nil(t, err)
@@ -193,26 +166,10 @@ func TestBucketDeletion(t *testing.T) {
 	}, func() {})
 
 	require.Nil(t, err)
-
-	expected := map[string]string{
-		bkey("apple"):                   bval("apple"),
-		bkey("apple", "banana"):         bval("apple", "banana"),
-		vkey("key1", "apple", "banana"): "val1",
-		vkey("key3", "apple", "banana"): "val3",
-	}
-	require.Equal(t, expected, f.Dump())
 }
 
-func TestBucketForEach(t *testing.T) {
-	t.Parallel()
-
-	f := NewEtcdTestFixture(t)
-	defer f.Cleanup()
-
-	db, err := newEtcdBackend(context.TODO(), f.BackendConfig())
-	require.NoError(t, err)
-
-	err = db.Update(func(tx walletdb.ReadWriteTx) error {
+func testBucketForEach(t *testing.T, db walletdb.DB) {
+	err := Update(db, func(tx walletdb.ReadWriteTx) error {
 		// "apple"
 		apple, err := tx.CreateTopLevelBucket([]byte("apple"))
 		require.Nil(t, err)
@@ -265,30 +222,10 @@ func TestBucketForEach(t *testing.T) {
 	}, func() {})
 
 	require.Nil(t, err)
-
-	expected := map[string]string{
-		bkey("apple"):                   bval("apple"),
-		bkey("apple", "banana"):         bval("apple", "banana"),
-		vkey("key1", "apple"):           "val1",
-		vkey("key2", "apple"):           "val2",
-		vkey("key3", "apple"):           "val3",
-		vkey("key1", "apple", "banana"): "val1",
-		vkey("key2", "apple", "banana"): "val2",
-		vkey("key3", "apple", "banana"): "val3",
-	}
-	require.Equal(t, expected, f.Dump())
 }
 
-func TestBucketForEachWithError(t *testing.T) {
-	t.Parallel()
-
-	f := NewEtcdTestFixture(t)
-	defer f.Cleanup()
-
-	db, err := newEtcdBackend(context.TODO(), f.BackendConfig())
-	require.NoError(t, err)
-
-	err = db.Update(func(tx walletdb.ReadWriteTx) error {
+func testBucketForEachWithError(t *testing.T, db walletdb.DB) {
+	err := Update(db, func(tx walletdb.ReadWriteTx) error {
 		// "apple"
 		apple, err := tx.CreateTopLevelBucket([]byte("apple"))
 		require.Nil(t, err)
@@ -358,27 +295,10 @@ func TestBucketForEachWithError(t *testing.T) {
 	}, func() {})
 
 	require.Nil(t, err)
-
-	expected := map[string]string{
-		bkey("apple"):           bval("apple"),
-		bkey("apple", "banana"): bval("apple", "banana"),
-		bkey("apple", "pear"):   bval("apple", "pear"),
-		vkey("key1", "apple"):   "val1",
-		vkey("key2", "apple"):   "val2",
-	}
-	require.Equal(t, expected, f.Dump())
 }
 
-func TestBucketSequence(t *testing.T) {
-	t.Parallel()
-
-	f := NewEtcdTestFixture(t)
-	defer f.Cleanup()
-
-	db, err := newEtcdBackend(context.TODO(), f.BackendConfig())
-	require.NoError(t, err)
-
-	err = db.Update(func(tx walletdb.ReadWriteTx) error {
+func testBucketSequence(t *testing.T, db walletdb.DB) {
+	err := Update(db, func(tx walletdb.ReadWriteTx) error {
 		apple, err := tx.CreateTopLevelBucket([]byte("apple"))
 		require.Nil(t, err)
 		require.NotNil(t, apple)
@@ -408,19 +328,11 @@ func TestBucketSequence(t *testing.T) {
 // TestKeyClash tests that one cannot create a bucket if a value with the same
 // key exists and the same is true in reverse: that a value cannot be put if
 // a bucket with the same key exists.
-func TestKeyClash(t *testing.T) {
-	t.Parallel()
-
-	f := NewEtcdTestFixture(t)
-	defer f.Cleanup()
-
-	db, err := newEtcdBackend(context.TODO(), f.BackendConfig())
-	require.NoError(t, err)
-
+func testKeyClash(t *testing.T, db walletdb.DB) {
 	// First:
 	// put: /apple/key -> val
 	// create bucket: /apple/banana
-	err = db.Update(func(tx walletdb.ReadWriteTx) error {
+	err := Update(db, func(tx walletdb.ReadWriteTx) error {
 		apple, err := tx.CreateTopLevelBucket([]byte("apple"))
 		require.Nil(t, err)
 		require.NotNil(t, apple)
@@ -439,7 +351,7 @@ func TestKeyClash(t *testing.T) {
 	// Next try to:
 	// put: /apple/banana -> val => will fail (as /apple/banana is a bucket)
 	// create bucket: /apple/key => will fail (as /apple/key is a value)
-	err = db.Update(func(tx walletdb.ReadWriteTx) error {
+	err = Update(db, func(tx walletdb.ReadWriteTx) error {
 		apple, err := tx.CreateTopLevelBucket([]byte("apple"))
 		require.Nil(t, err)
 		require.NotNil(t, apple)
@@ -461,31 +373,12 @@ func TestKeyClash(t *testing.T) {
 	}, func() {})
 
 	require.Nil(t, err)
-
-	// Except that the only existing items in the db are:
-	// bucket: /apple
-	// bucket: /apple/banana
-	// value: /apple/key -> val
-	expected := map[string]string{
-		bkey("apple"):           bval("apple"),
-		bkey("apple", "banana"): bval("apple", "banana"),
-		vkey("key", "apple"):    "val",
-	}
-	require.Equal(t, expected, f.Dump())
-
 }
 
 // TestBucketCreateDelete tests that creating then deleting then creating a
 // bucket suceeds.
-func TestBucketCreateDelete(t *testing.T) {
-	t.Parallel()
-	f := NewEtcdTestFixture(t)
-	defer f.Cleanup()
-
-	db, err := newEtcdBackend(context.TODO(), f.BackendConfig())
-	require.NoError(t, err)
-
-	err = db.Update(func(tx walletdb.ReadWriteTx) error {
+func testBucketCreateDelete(t *testing.T, db walletdb.DB) {
+	err := Update(db, func(tx walletdb.ReadWriteTx) error {
 		apple, err := tx.CreateTopLevelBucket([]byte("apple"))
 		require.NoError(t, err)
 		require.NotNil(t, apple)
@@ -498,7 +391,7 @@ func TestBucketCreateDelete(t *testing.T) {
 	}, func() {})
 	require.NoError(t, err)
 
-	err = db.Update(func(tx walletdb.ReadWriteTx) error {
+	err = Update(db, func(tx walletdb.ReadWriteTx) error {
 		apple := tx.ReadWriteBucket([]byte("apple"))
 		require.NotNil(t, apple)
 		require.NoError(t, apple.DeleteNestedBucket([]byte("banana")))
@@ -507,7 +400,7 @@ func TestBucketCreateDelete(t *testing.T) {
 	}, func() {})
 	require.NoError(t, err)
 
-	err = db.Update(func(tx walletdb.ReadWriteTx) error {
+	err = Update(db, func(tx walletdb.ReadWriteTx) error {
 		apple := tx.ReadWriteBucket([]byte("apple"))
 		require.NotNil(t, apple)
 		require.NoError(t, apple.Put([]byte("banana"), []byte("value")))
@@ -515,10 +408,4 @@ func TestBucketCreateDelete(t *testing.T) {
 		return nil
 	}, func() {})
 	require.NoError(t, err)
-
-	expected := map[string]string{
-		vkey("banana", "apple"): "value",
-		bkey("apple"):           bval("apple"),
-	}
-	require.Equal(t, expected, f.Dump())
 }

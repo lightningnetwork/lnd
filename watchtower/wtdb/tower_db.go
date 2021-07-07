@@ -56,7 +56,7 @@ var (
 // TowerDB is single database providing a persistent storage engine for the
 // wtserver and lookout subsystems.
 type TowerDB struct {
-	db     kvdb.Backend
+	kvdb.Backend
 	dbPath string
 }
 
@@ -76,8 +76,8 @@ func OpenTowerDB(dbPath string, dbTimeout time.Duration) (*TowerDB, error) {
 	}
 
 	towerDB := &TowerDB{
-		db:     bdb,
-		dbPath: dbPath,
+		Backend: bdb,
+		dbPath:  dbPath,
 	}
 
 	err = initOrSyncVersions(towerDB, firstInit, towerDBVersions)
@@ -91,7 +91,7 @@ func OpenTowerDB(dbPath string, dbTimeout time.Duration) (*TowerDB, error) {
 	// initialized. This allows us to assume their presence throughout all
 	// operations. If an known top-level bucket is expected to exist but is
 	// missing, this will trigger a ErrUninitializedDB error.
-	err = kvdb.Update(towerDB.db, initTowerDBBuckets, func() {})
+	err = kvdb.Update(towerDB, initTowerDBBuckets, func() {})
 	if err != nil {
 		bdb.Close()
 		return nil, err
@@ -120,19 +120,12 @@ func initTowerDBBuckets(tx kvdb.RwTx) error {
 	return nil
 }
 
-// bdb returns the backing bbolt.DB instance.
-//
-// NOTE: Part of the versionedDB interface.
-func (t *TowerDB) bdb() kvdb.Backend {
-	return t.db
-}
-
 // Version returns the database's current version number.
 //
 // NOTE: Part of the versionedDB interface.
 func (t *TowerDB) Version() (uint32, error) {
 	var version uint32
-	err := kvdb.View(t.db, func(tx kvdb.RTx) error {
+	err := kvdb.View(t, func(tx kvdb.RTx) error {
 		var err error
 		version, err = getDBVersion(tx)
 		return err
@@ -146,16 +139,11 @@ func (t *TowerDB) Version() (uint32, error) {
 	return version, nil
 }
 
-// Close closes the underlying database.
-func (t *TowerDB) Close() error {
-	return t.db.Close()
-}
-
 // GetSessionInfo retrieves the session for the passed session id. An error is
 // returned if the session could not be found.
 func (t *TowerDB) GetSessionInfo(id *SessionID) (*SessionInfo, error) {
 	var session *SessionInfo
-	err := kvdb.View(t.db, func(tx kvdb.RTx) error {
+	err := kvdb.View(t, func(tx kvdb.RTx) error {
 		sessions := tx.ReadBucket(sessionsBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
@@ -177,7 +165,7 @@ func (t *TowerDB) GetSessionInfo(id *SessionID) (*SessionInfo, error) {
 // InsertSessionInfo records a negotiated session in the tower database. An
 // error is returned if the session already exists.
 func (t *TowerDB) InsertSessionInfo(session *SessionInfo) error {
-	return kvdb.Update(t.db, func(tx kvdb.RwTx) error {
+	return kvdb.Update(t, func(tx kvdb.RwTx) error {
 		sessions := tx.ReadWriteBucket(sessionsBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
@@ -226,7 +214,7 @@ func (t *TowerDB) InsertSessionInfo(session *SessionInfo) error {
 // properly and the last applied values echoed by the client are sane.
 func (t *TowerDB) InsertStateUpdate(update *SessionStateUpdate) (uint16, error) {
 	var lastApplied uint16
-	err := kvdb.Update(t.db, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(t, func(tx kvdb.RwTx) error {
 		sessions := tx.ReadWriteBucket(sessionsBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
@@ -312,7 +300,7 @@ func (t *TowerDB) InsertStateUpdate(update *SessionStateUpdate) (uint16, error) 
 // DeleteSession removes all data associated with a particular session id from
 // the tower's database.
 func (t *TowerDB) DeleteSession(target SessionID) error {
-	return kvdb.Update(t.db, func(tx kvdb.RwTx) error {
+	return kvdb.Update(t, func(tx kvdb.RwTx) error {
 		sessions := tx.ReadWriteBucket(sessionsBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
@@ -398,7 +386,7 @@ func (t *TowerDB) DeleteSession(target SessionID) error {
 // they exist in the database.
 func (t *TowerDB) QueryMatches(breachHints []blob.BreachHint) ([]Match, error) {
 	var matches []Match
-	err := kvdb.View(t.db, func(tx kvdb.RTx) error {
+	err := kvdb.View(t, func(tx kvdb.RTx) error {
 		sessions := tx.ReadBucket(sessionsBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
@@ -482,7 +470,7 @@ func (t *TowerDB) QueryMatches(breachHints []blob.BreachHint) ([]Match, error) {
 // SetLookoutTip stores the provided epoch as the latest lookout tip epoch in
 // the tower database.
 func (t *TowerDB) SetLookoutTip(epoch *chainntnfs.BlockEpoch) error {
-	return kvdb.Update(t.db, func(tx kvdb.RwTx) error {
+	return kvdb.Update(t, func(tx kvdb.RwTx) error {
 		lookoutTip := tx.ReadWriteBucket(lookoutTipBkt)
 		if lookoutTip == nil {
 			return ErrUninitializedDB
@@ -496,7 +484,7 @@ func (t *TowerDB) SetLookoutTip(epoch *chainntnfs.BlockEpoch) error {
 // database.
 func (t *TowerDB) GetLookoutTip() (*chainntnfs.BlockEpoch, error) {
 	var epoch *chainntnfs.BlockEpoch
-	err := kvdb.View(t.db, func(tx kvdb.RTx) error {
+	err := kvdb.View(t, func(tx kvdb.RTx) error {
 		lookoutTip := tx.ReadBucket(lookoutTipBkt)
 		if lookoutTip == nil {
 			return ErrUninitializedDB

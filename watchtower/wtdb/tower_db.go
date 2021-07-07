@@ -3,6 +3,7 @@ package wtdb
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -67,54 +68,79 @@ type TowerDB struct {
 // migrations will be applied before returning. Any attempt to open a database
 // with a version number higher that the latest version will fail to prevent
 // accidental reversion.
+// NOTE: We can match the channelDB by deprecating this function in favor
+// of CreateWithBackend().
 func OpenTowerDB(dbPath string, dbTimeout time.Duration) (*TowerDB, error) {
-	bdb, firstInit, err := createDBIfNotExist(
-		dbPath, towerDBName, dbTimeout,
-	)
+
+	boltBackend, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
+		DBPath:     dbPath,
+		DBFileName: towerDBName,
+		DBTimeout:  dbTimeout,
+	})
 	if err != nil {
+		return nil, err
+	}
+
+	towerDB, err := CreateWithBackend(boltBackend)
+	if err == nil {
+		towerDB.dbPath = dbPath
+	}
+	return towerDB, err
+}
+
+// CreateWithBackend creates towerdb instance using the passed kvdb.Backend.
+// Any necessary schemas migrations due to updates will take place as necessary.
+func CreateWithBackend(backend kvdb.Backend) (*TowerDB, error) {
+	if err := initTowerDBBuckets(backend); err != nil {
 		return nil, err
 	}
 
 	towerDB := &TowerDB{
-		Backend: bdb,
-		dbPath:  dbPath,
+		Backend: backend,
 	}
 
-	err = initOrSyncVersions(towerDB, firstInit, towerDBVersions)
-	if err != nil {
-		bdb.Close()
-		return nil, err
-	}
+	// TODO(czachman): apply options? (see ChannelDB).
 
-	// Now that the database version fully consistent with our latest known
-	// version, ensure that all top-level buckets known to this version are
-	// initialized. This allows us to assume their presence throughout all
-	// operations. If an known top-level bucket is expected to exist but is
-	// missing, this will trigger a ErrUninitializedDB error.
-	err = kvdb.Update(towerDB, initTowerDBBuckets, func() {})
+	// Synchronize the version of database and apply migrations if needed.
+	err := syncVersions(towerDB, towerDBVersions)
 	if err != nil {
-		bdb.Close()
+		backend.Close()
 		return nil, err
 	}
 
 	return towerDB, nil
 }
 
+var topLevelBuckets = [][]byte{
+	sessionsBkt,
+	updateIndexBkt,
+	updatesBkt,
+	lookoutTipBkt,
+}
+
 // initTowerDBBuckets creates all top-level buckets required to handle database
 // operations required by the latest version.
-func initTowerDBBuckets(tx kvdb.RwTx) error {
-	buckets := [][]byte{
-		sessionsBkt,
-		updateIndexBkt,
-		updatesBkt,
-		lookoutTipBkt,
-	}
+func initTowerDBBuckets(db kvdb.Backend) error {
+	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 
-	for _, bucket := range buckets {
-		_, err := tx.CreateTopLevelBucket(bucket)
-		if err != nil {
-			return err
+		// Check if DB is already initialized.
+		_, err := getDBVersion(tx)
+		if err == nil {
+			return nil
 		}
+
+		for _, tlb := range topLevelBuckets {
+			_, err := tx.CreateTopLevelBucket(tlb)
+			if err != nil {
+				return err
+			}
+		}
+
+		// Set the DB version
+		return initDBVersion(tx, getLatestDBVersion(towerDBVersions))
+	}, func() {})
+	if err != nil {
+		return fmt.Errorf("unable to initialize new towerdb: %v", err)
 	}
 
 	return nil

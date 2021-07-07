@@ -42,6 +42,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -799,19 +800,11 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 
 	var tower *watchtower.Standalone
 	if cfg.Watchtower.Active {
-		// Segment the watchtower directory by chain and network.
-		towerDBDir := filepath.Join(
-			cfg.Watchtower.TowerDir,
-			cfg.registeredChains.PrimaryChain().String(),
-			lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
-		)
-
-		towerDB, err := wtdb.OpenTowerDB(
-			towerDBDir, cfg.DB.Bolt.DBTimeout,
-		)
+		// Grab pointer to either local or remote tower database.
+		towerDB, err := initializeTowerDatabase(ctx, cfg)
 		if err != nil {
-			err := fmt.Errorf("unable to open watchtower "+
-				"database: %v", err)
+			err := fmt.Errorf("unable to open watchtower (%s) database: %v",
+				cfg.DB.Backend, err)
 			ltndLog.Error(err)
 			return err
 		}
@@ -1722,6 +1715,79 @@ func initializeDatabases(ctx context.Context,
 	}
 
 	return localChanDB, remoteChanDB, cleanUp, nil
+}
+
+// initializeTowerDatabase configures either a local (boltdb) or remote (etcd)
+// database for the watchtower server.
+func initializeTowerDatabase(ctx context.Context,
+	cfg *Config) (*wtdb.TowerDB, error) {
+
+	ltndLog.Infof("Opening the watchtower database, this might take a few " +
+		"minutes...")
+
+	if cfg.DB.Backend == lncfg.BoltBackend {
+		ltndLog.Infof("Opening bbolt database for watchtower, sync_freelist=%v, "+
+			"auto_compact=%v", cfg.DB.Bolt.SyncFreelist,
+			cfg.DB.Bolt.AutoCompact)
+	}
+
+	startOpenTime := time.Now()
+
+	var (
+		towerDB *wtdb.TowerDB
+		err     error
+	)
+
+	if cfg.DB.Backend == lncfg.BoltBackend {
+		// Segment the watchtower directory by chain and network.
+		towerDBDir := filepath.Join(
+			cfg.Watchtower.TowerDir,
+			cfg.registeredChains.PrimaryChain().String(),
+			lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
+		)
+
+		// Open the towerdb, which is dedicated to storing watchtower
+		// server data.
+		towerDB, err = wtdb.OpenTowerDB(
+			towerDBDir, cfg.DB.Bolt.DBTimeout,
+		)
+		if err != nil {
+			err := fmt.Errorf("unable to open local watchtower "+
+				"database: %v", err)
+			ltndLog.Error(err)
+			return nil, err
+		}
+
+	} else if cfg.DB.Backend == lncfg.EtcdBackend {
+		ltndLog.Infof("Database replication is available! Creating " +
+			"remote towerdb instance")
+
+		// Open connection to remote etcd backend.
+		remoteDB, err := kvdb.Open(
+			kvdb.EtcdBackendName, ctx, cfg.DB.Etcd,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Initialize the remote watchtower db.
+		towerDB, err = wtdb.CreateWithBackend(
+			remoteDB,
+		)
+		if err != nil {
+			towerDB.Close()
+
+			err := fmt.Errorf("unable to open remote watchtower "+
+				"database: %v", err)
+			ltndLog.Error(err)
+			return nil, err
+		}
+	}
+
+	openTime := time.Since(startOpenTime)
+	ltndLog.Infof("Tower database now open (time_to_open=%v)!", openTime)
+
+	return towerDB, nil
 }
 
 // initNeutrinoBackend inits a new instance of the neutrino light client

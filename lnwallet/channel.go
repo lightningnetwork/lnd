@@ -4940,13 +4940,22 @@ func (lc *LightningChannel) MayAddOutgoingHtlc() error {
 	lc.Lock()
 	defer lc.Unlock()
 
+	// As this is a mock HTLC, we'll attempt to add the smallest possible
+	// HTLC permitted in the channel. However certain implementations may
+	// set this value to zero, so we'll catch that and increment things so
+	// we always use a non-zero value.
+	mockHtlcAmt := lc.channelState.LocalChanCfg.MinHTLC
+	if mockHtlcAmt == 0 {
+		mockHtlcAmt++
+	}
+
 	// Create a "mock" outgoing htlc, using the smallest amount we can add
 	// to the commitment so that we validate commitment slots rather than
 	// available balance, since our actual htlc amount is unknown at this
 	// stage.
 	pd := lc.htlcAddDescriptor(
 		&lnwire.UpdateAddHTLC{
-			Amount: lc.channelState.LocalChanCfg.MinHTLC,
+			Amount: mockHtlcAmt,
 		},
 		&channeldb.CircuitKey{},
 	)

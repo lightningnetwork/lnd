@@ -433,7 +433,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		ltndLog.Infof("Elected as leader (%v)", cfg.Cluster.ID)
 	}
 
-	localChanDB, remoteChanDB, cleanUp, err := initializeDatabases(ctx, cfg)
+	localChanDB, remoteChanDB, cleanUp, err := initializeChannelDatabases(ctx, cfg)
 	switch {
 	case err == channeldb.ErrDryRunMigrationOK:
 		ltndLog.Infof("%v, exiting", err)
@@ -1593,13 +1593,13 @@ func waitForWalletPassword(cfg *Config,
 	}
 }
 
-// initializeDatabases extracts the current databases that we'll use for normal
-// operation in the daemon. Two databases are returned: one remote and one
-// local. However, only if the replicated database is active will the remote
-// database point to a unique database. Otherwise, the local and remote DB will
-// both point to the same local database. A function closure that closes all
-// opened databases is also returned.
-func initializeDatabases(ctx context.Context,
+// initializeChannelDatabases extracts the current databases that we'll use for
+// normal operation in the daemon. Two databases are returned: one remote and
+// one local. However, only if the replicated database is active will the
+// remote database point to a unique database. Otherwise, the local and remote
+// DB will both point to the same local database. A function closure that
+// closes all opened databases is also returned.
+func initializeChannelDatabases(ctx context.Context,
 	cfg *Config) (*channeldb.DB, *channeldb.DB, func(), error) {
 
 	ltndLog.Infof("Opening the main database, this might take a few " +

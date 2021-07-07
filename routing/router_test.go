@@ -2921,44 +2921,64 @@ func TestSendToRouteStructuredError(t *testing.T) {
 		t.Fatalf("unable to create route: %v", err)
 	}
 
-	// We'll modify the SendToSwitch method so that it simulates a failed
-	// payment with an error originating from the first hop of the route.
-	// The unsigned channel update is attached to the failure message.
-	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
-		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
-			return [32]byte{}, htlcswitch.NewForwardingError(
-				&lnwire.FailFeeInsufficient{
-					Update: lnwire.ChannelUpdate{},
-				}, 1,
+	finalHopIndex := len(hops)
+	testCases := map[int]lnwire.FailureMessage{
+		finalHopIndex: lnwire.NewFailIncorrectDetails(payAmt, 100),
+		1: &lnwire.FailFeeInsufficient{
+			Update: lnwire.ChannelUpdate{},
+		},
+	}
+
+	for failIndex, errorType := range testCases {
+		failIndex := failIndex
+		errorType := errorType
+
+		t.Run(fmt.Sprintf("%T", errorType), func(t *testing.T) {
+			// We'll modify the SendToSwitch method so that it
+			// simulates a failed payment with an error originating
+			// from the final hop in the route.
+			ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
+				func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
+					return [32]byte{}, htlcswitch.NewForwardingError(
+						errorType, failIndex,
+					)
+				},
 			)
+
+			// The payment parameter is mostly redundant in
+			// SendToRoute.  Can be left empty for this test.
+			var payment lntypes.Hash
+
+			// Send off the payment request to the router. The
+			// specified route should be attempted and the channel
+			// update should be received by router and ignored
+			// because it is missing a valid
+			// signature.
+			_, err = ctx.router.SendToRoute(payment, rt)
+
+			fErr, ok := err.(*htlcswitch.ForwardingError)
+			require.True(
+				t, ok, "expected forwarding error, got: %T", err,
+			)
+
+			require.IsType(
+				t, errorType, fErr.WireMessage(),
+				"expected type %T got %T", errorType,
+				fErr.WireMessage(),
+			)
+
+			// Check that the correct values were used when
+			// initiating the payment.
+			select {
+			case initVal := <-init:
+				if initVal.c.Value != payAmt {
+					t.Fatalf("expected %v, got %v", payAmt,
+						initVal.c.Value)
+				}
+			case <-time.After(100 * time.Millisecond):
+				t.Fatalf("initPayment not called")
+			}
 		})
-
-	// The payment parameter is mostly redundant in SendToRoute. Can be left
-	// empty for this test.
-	var payment lntypes.Hash
-
-	// Send off the payment request to the router. The specified route
-	// should be attempted and the channel update should be received by
-	// router and ignored because it is missing a valid signature.
-	_, err = ctx.router.SendToRoute(payment, rt)
-
-	fErr, ok := err.(*htlcswitch.ForwardingError)
-	if !ok {
-		t.Fatalf("expected forwarding error")
-	}
-
-	if _, ok := fErr.WireMessage().(*lnwire.FailFeeInsufficient); !ok {
-		t.Fatalf("expected fee insufficient error")
-	}
-
-	// Check that the correct values were used when initiating the payment.
-	select {
-	case initVal := <-init:
-		if initVal.c.Value != payAmt {
-			t.Fatalf("expected %v, got %v", payAmt, initVal.c.Value)
-		}
-	case <-time.After(100 * time.Millisecond):
-		t.Fatalf("initPayment not called")
 	}
 }
 

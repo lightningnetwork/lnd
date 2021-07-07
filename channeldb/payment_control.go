@@ -503,7 +503,7 @@ func (p *PaymentControl) Fail(paymentHash lntypes.Hash,
 			return err
 		}
 
-		// We mark the payent as failed as long as it is known. This
+		// We mark the payment as failed as long as it is known. This
 		// lets the last attempt to fail with a terminal write its
 		// failure to the PaymentControl without synchronizing with
 		// other attempts.

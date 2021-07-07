@@ -2,6 +2,7 @@ package routing
 
 import (
 	"bytes"
+	goErrors "errors"
 	"fmt"
 	"runtime"
 	"strings"
@@ -2163,13 +2164,23 @@ func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash, rt *route.Route) (
 	// mark the payment failed with the control tower immediately. Process
 	// the error to check if it maps into a terminal error code, if not use
 	// a generic NO_ROUTE error.
-	if err := sh.handleSendError(attempt, shardError); err != nil {
-		return nil, err
-	}
+	var failureReason *channeldb.FailureReason
+	err = sh.handleSendError(attempt, shardError)
 
-	err = r.cfg.Control.Fail(
-		paymentIdentifier, channeldb.FailureReasonNoRoute,
-	)
+	switch {
+	// If we weren't able to extract a proper failure reason (which can
+	// happen if the second chance logic is triggered), then we'll use the
+	// normal no route error.
+	case err == nil:
+		err = r.cfg.Control.Fail(
+			paymentIdentifier, channeldb.FailureReasonNoRoute,
+		)
+
+	// If this is a failure reason, then we'll apply the failure directly
+	// to the control tower, and return the normal response to the caller.
+	case goErrors.As(err, &failureReason):
+		err = r.cfg.Control.Fail(paymentIdentifier, *failureReason)
+	}
 	if err != nil {
 		return nil, err
 	}

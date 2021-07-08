@@ -151,15 +151,6 @@ func testBucketDeletion(t *testing.T, db walletdb.DB) {
 		// "apple/pear" deleted
 		require.Nil(t, apple.NestedReadWriteBucket([]byte("pear")))
 
-		// "apple/pear/cherry" deleted
-		require.Nil(t, pear.NestedReadWriteBucket([]byte("cherry")))
-
-		// Values deleted too.
-		for _, kv := range kvs {
-			require.Nil(t, pear.Get([]byte(kv.key)))
-			require.Nil(t, cherry.Get([]byte(kv.key)))
-		}
-
 		// "aple/banana" exists
 		require.NotNil(t, apple.NestedReadWriteBucket([]byte("banana")))
 		return nil

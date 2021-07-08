@@ -99,8 +99,8 @@ func testReadCursorNonEmptyInterval(t *testing.T, db walletdb.DB) {
 
 		// Seek to nonexisting key.
 		k, v = cursor.Seek(nil)
-		require.Nil(t, k)
-		require.Nil(t, v)
+		require.Equal(t, "b", string(k))
+		require.Equal(t, "1", string(v))
 
 		k, v = cursor.Seek([]byte("x"))
 		require.Nil(t, k)
@@ -113,7 +113,6 @@ func testReadCursorNonEmptyInterval(t *testing.T, db walletdb.DB) {
 }
 
 func testReadWriteCursor(t *testing.T, db walletdb.DB) {
-
 	testKeyValues := []KV{
 		{"b", "1"},
 		{"c", "2"},

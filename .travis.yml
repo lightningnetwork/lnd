@@ -59,7 +59,7 @@ jobs:
     - name: Bitcoind Integration with etcd (txindex enabled)
       script:
         - bash ./scripts/install_bitcoind.sh
-        - make itest-parallel backend=bitcoind etcd=1
+        - make itest-parallel backend=bitcoind dbbackend=etcd
 
     - name: Bitcoind Integration (txindex disabled)
       script:

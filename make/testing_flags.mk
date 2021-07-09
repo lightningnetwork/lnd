@@ -49,9 +49,12 @@ ifneq ($(icase),)
 TEST_FLAGS += -test.run="TestLightningNetworkDaemon/.*-of-.*/.*/$(icase)"
 endif
 
-# Run itests with etcd backend.
-ifeq ($(etcd),1)
-ITEST_FLAGS += -etcd
+# Run itests with specified db backend.
+ifneq ($(dbbackend),)
+ITEST_FLAGS += -dbbackend=$(dbbackend)
+endif
+
+ifeq ($(dbbackend),etcd)
 DEV_TAGS += kvdb_etcd
 endif
 

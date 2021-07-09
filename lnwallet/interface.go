@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
@@ -83,6 +84,16 @@ type Utxo struct {
 	PrevTx     *wire.MsgTx
 }
 
+// OutputDetail contains additional information on a destination address.
+type OutputDetail struct {
+	OutputType   txscript.ScriptClass
+	Addresses    []btcutil.Address
+	PkScript     []byte
+	OutputIndex  int
+	Value        btcutil.Amount
+	IsOurAddress bool
+}
+
 // TransactionDetail describes a transaction with either inputs which belong to
 // the wallet, or has outputs that pay to the wallet.
 type TransactionDetail struct {
@@ -119,6 +130,10 @@ type TransactionDetail struct {
 
 	// DestAddresses are the destinations for a transaction
 	DestAddresses []btcutil.Address
+
+	// OutputDetails contains output data for each destination address, such
+	// as the output script and amount.
+	OutputDetails []OutputDetail
 
 	// RawTx returns the raw serialized transaction.
 	RawTx []byte

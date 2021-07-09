@@ -2540,6 +2540,8 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 				},
 			}
 
+			l.log.Debugf("Failed to send %s", pd.Amount)
+
 			// If the failure message lacks an HMAC (but includes
 			// the 4 bytes for encoding the message and padding
 			// lengths, then this means that we received it as an

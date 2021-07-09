@@ -286,5 +286,6 @@ type htlcNotifier interface {
 	// NotifySettleEvent notifies the HtlcNotifier that a htlc that we
 	// committed to as part of a forward or a receive to our node has been
 	// settled.
-	NotifySettleEvent(key HtlcKey, eventType HtlcEventType)
+	NotifySettleEvent(key HtlcKey, preimage lntypes.Preimage,
+		eventType HtlcEventType)
 }

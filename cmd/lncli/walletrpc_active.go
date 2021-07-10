@@ -423,7 +423,7 @@ func listSweeps(ctx *cli.Context) error {
 
 var labelTxCommand = cli.Command{
 	Name:      "labeltx",
-	Usage:     "adds a label to a transaction",
+	Usage:     "Adds a label to a transaction.",
 	ArgsUsage: "txid label",
 	Description: `
 	Add a label to a transaction. If the transaction already has a label, 

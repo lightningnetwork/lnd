@@ -463,6 +463,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 	}
 
 	pwService.SetLoaderOpts([]btcwallet.LoaderOption{loaderOpt})
+	pwService.SetMacaroonDB(dbs.macaroonDB)
 	walletExists, err := pwService.WalletExists()
 	if err != nil {
 		return err
@@ -567,8 +568,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 	if !cfg.NoMacaroons {
 		// Create the macaroon authentication/authorization service.
 		macaroonService, err = macaroons.NewService(
-			cfg.networkDir, "lnd", walletInitParams.StatelessInit,
-			cfg.DB.Bolt.DBTimeout, macaroons.IPLockChecker,
+			dbs.macaroonDB, "lnd", walletInitParams.StatelessInit,
+			macaroons.IPLockChecker,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to set up macaroon "+
@@ -1307,11 +1308,6 @@ type WalletUnlockParams struct {
 // createWalletUnlockerService creates a WalletUnlockerService from the passed
 // config.
 func createWalletUnlockerService(cfg *Config) *walletunlocker.UnlockerService {
-	chainConfig := cfg.Bitcoin
-	if cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
-		chainConfig = cfg.Litecoin
-	}
-
 	// The macaroonFiles are passed to the wallet unlocker so they can be
 	// deleted and recreated in case the root macaroon key is also changed
 	// during the change password operation.
@@ -1320,8 +1316,7 @@ func createWalletUnlockerService(cfg *Config) *walletunlocker.UnlockerService {
 	}
 
 	return walletunlocker.New(
-		chainConfig.ChainDir, cfg.ActiveNetParams.Params,
-		!cfg.SyncFreelist, macaroonFiles, cfg.DB.Bolt.DBTimeout,
+		cfg.ActiveNetParams.Params, macaroonFiles,
 		cfg.ResetWalletTransactions, nil,
 	)
 }
@@ -1599,6 +1594,7 @@ type databaseInstances struct {
 	graphDB      *channeldb.DB
 	chanStateDB  *channeldb.DB
 	heightHintDB kvdb.Backend
+	macaroonDB   kvdb.Backend
 	replicated   bool
 }
 
@@ -1619,7 +1615,9 @@ func initializeDatabases(ctx context.Context,
 
 	startOpenTime := time.Now()
 
-	databaseBackends, err := cfg.DB.GetBackends(ctx, cfg.graphDatabaseDir())
+	databaseBackends, err := cfg.DB.GetBackends(
+		ctx, cfg.graphDatabaseDir(), cfg.networkDir,
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to obtain database "+
 			"backends: %v", err)
@@ -1631,6 +1629,7 @@ func initializeDatabases(ctx context.Context,
 	var (
 		dbs = &databaseInstances{
 			heightHintDB: databaseBackends.HeightHintDB,
+			macaroonDB:   databaseBackends.MacaroonDB,
 			replicated:   databaseBackends.Replicated,
 		}
 		closeFuncs = map[string]func() error{
@@ -1642,6 +1641,7 @@ func initializeDatabases(ctx context.Context,
 			"graph":         databaseBackends.GraphDB.Close,
 			"channel state": databaseBackends.ChanStateDB.Close,
 			"height hint":   databaseBackends.HeightHintDB.Close,
+			"macaroon":      databaseBackends.MacaroonDB.Close,
 		}
 		cleanUp = func() {
 			for name, closeFunc := range closeFuncs {

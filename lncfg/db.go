@@ -10,7 +10,8 @@ import (
 )
 
 const (
-	dbName                     = "channel.db"
+	channelDBName              = "channel.db"
+	macaroonDBName             = "macaroons.db"
 	BoltBackend                = "bolt"
 	EtcdBackend                = "etcd"
 	DefaultBatchCommitInterval = 500 * time.Millisecond
@@ -95,14 +96,18 @@ type DatabaseBackends struct {
 	// contains the chain height hint related data.
 	HeightHintDB kvdb.Backend
 
+	// MacaroonDB points to a database backend that stores the macaroon root
+	// keys.
+	MacaroonDB kvdb.Backend
+
 	// Replicated indicates whether the database backends are remote, data
 	// replicated instances or local bbolt backed databases.
 	Replicated bool
 }
 
 // GetBackends returns a set of kvdb.Backends as set in the DB config.
-func (db *DB) GetBackends(ctx context.Context, dbPath string) (
-	*DatabaseBackends, error) {
+func (db *DB) GetBackends(ctx context.Context, chanDBPath,
+	walletDBPath string) (*DatabaseBackends, error) {
 
 	if db.Backend == EtcdBackend {
 		etcdBackend, err := kvdb.Open(
@@ -116,14 +121,15 @@ func (db *DB) GetBackends(ctx context.Context, dbPath string) (
 			GraphDB:      etcdBackend,
 			ChanStateDB:  etcdBackend,
 			HeightHintDB: etcdBackend,
+			MacaroonDB:   etcdBackend,
 			Replicated:   true,
 		}, nil
 	}
 
 	// We're using all bbolt based databases by default.
 	boltBackend, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
-		DBPath:            dbPath,
-		DBFileName:        dbName,
+		DBPath:            chanDBPath,
+		DBFileName:        channelDBName,
 		DBTimeout:         db.Bolt.DBTimeout,
 		NoFreelistSync:    !db.Bolt.SyncFreelist,
 		AutoCompact:       db.Bolt.AutoCompact,
@@ -133,10 +139,23 @@ func (db *DB) GetBackends(ctx context.Context, dbPath string) (
 		return nil, fmt.Errorf("error opening bolt DB: %v", err)
 	}
 
+	macaroonBackend, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
+		DBPath:            walletDBPath,
+		DBFileName:        macaroonDBName,
+		DBTimeout:         db.Bolt.DBTimeout,
+		NoFreelistSync:    !db.Bolt.SyncFreelist,
+		AutoCompact:       db.Bolt.AutoCompact,
+		AutoCompactMinAge: db.Bolt.AutoCompactMinAge,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error opening macaroon DB: %v", err)
+	}
+
 	return &DatabaseBackends{
 		GraphDB:      boltBackend,
 		ChanStateDB:  boltBackend,
 		HeightHintDB: boltBackend,
+		MacaroonDB:   macaroonBackend,
 	}, nil
 }
 

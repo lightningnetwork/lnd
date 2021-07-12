@@ -203,8 +203,6 @@ var (
 	bitcoindEstimateModes       = [2]string{"ECONOMICAL", defaultBitcoindEstimateMode}
 
 	defaultPrunedNodeMaxPeers = 4
-
-	defaultSphinxDbName = "sphinxreplay.db"
 )
 
 // Config defines the configuration options for lnd.

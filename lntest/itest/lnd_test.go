@@ -4821,12 +4821,15 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
+	// Note that half of the amount is pushed to make sure automatic channel
+	// disable due to low bandwidth is not performed on Bob's side.
 	chanAmt := btcutil.Amount(100000)
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
 		ctxt, t, net, alice, bob,
 		lntest.OpenChannelParams{
-			Amt: chanAmt,
+			Amt:     chanAmt,
+			PushAmt: chanAmt / 2,
 		},
 	)
 
@@ -10776,10 +10779,13 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	net.ConnectNodes(ctxt, t.t, eve, net.Bob)
 
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
+	// Note that half of the amount is pushed to make sure automatic channel
+	// disable due to low bandwidth is not performed on Bob's side.
 	chanPointEveCarol := openChannelAndAssert(
 		ctxt, t, net, eve, carol,
 		lntest.OpenChannelParams{
-			Amt: chanAmt,
+			Amt:     chanAmt,
+			PushAmt: chanAmt / 2,
 		},
 	)
 

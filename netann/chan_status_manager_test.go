@@ -13,10 +13,15 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
+)
+
+var (
+	chanLocalBalance = btcutil.Amount(1)
 )
 
 // randOutpoint creates a random wire.Outpoint.
@@ -45,7 +50,14 @@ func createChannel(t *testing.T) *channeldb.OpenChannel {
 
 	sid := atomic.AddUint64(&shortChanIDs, 1)
 
+	// Set the local balance of the new channel to 1 millisat. This ensures
+	// that the channel is not automatically disabled due to low bandwidth.
+	localCommitment := channeldb.ChannelCommitment{
+		LocalBalance: lnwire.NewMSatFromSatoshis(chanLocalBalance),
+	}
+
 	return &channeldb.OpenChannel{
+		LocalCommitment: localCommitment,
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(sid),
 		ChannelFlags:    lnwire.FFAnnounceChannel,
 		FundingOutpoint: randOutpoint(t),
@@ -219,6 +231,28 @@ func (g *mockGraph) ApplyChannelUpdate(update *lnwire.ChannelUpdate) error {
 	g.updates <- update
 
 	return nil
+}
+
+func (g *mockGraph) setBalance(amt btcutil.Amount) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	for _, c := range g.channels {
+		c.Lock()
+		c.LocalCommitment.LocalBalance = lnwire.NewMSatFromSatoshis(amt)
+		c.Unlock()
+	}
+}
+
+func (g *mockGraph) setChanReserve(amt btcutil.Amount) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	for _, c := range g.channels {
+		c.Lock()
+		c.LocalChanCfg.ChanReserve = amt
+		c.Unlock()
+	}
 }
 
 func (g *mockGraph) chans() []*channeldb.OpenChannel {
@@ -900,6 +934,46 @@ var stateMachineTests = []stateMachineTest{
 			h.assertUpdates(
 				h.graph.chans(), true, h.safeDisableTimeout,
 			)
+		},
+	},
+	{
+		name:         "disable and enable based on bandwidth",
+		startActive:  true,
+		startEnabled: true,
+		fn: func(h testHarness) {
+			// Cause a channel bandwidth of zero by setting the
+			// channel reserve to match the local amount.
+			h.graph.setChanReserve(chanLocalBalance)
+
+			// Expect to see all channels disabled on the network
+			// due to low bandwidth.
+			h.assertUpdates(
+				h.graph.chans(), false, h.safeDisableTimeout,
+			)
+
+			// Cause a channel bandwidth above zero by setting the
+			// channel balance greater than the channel reserve
+			// defined above.
+			h.graph.setBalance(chanLocalBalance + 1)
+
+			// Expect to see all channels enabled on the network due
+			// to sufficient bandwidth.
+			h.assertUpdates(
+				h.graph.chans(), true, h.safeDisableTimeout,
+			)
+
+			// Manually disable the channels.
+			h.assertDisables(h.graph.chans(), nil, true)
+
+			// Assert they were all disabled.
+			h.assertUpdates(
+				h.graph.chans(), false, h.safeDisableTimeout,
+			)
+
+			// Assert manually disabling channels is respected so
+			// that the channels stay disabled and were not
+			// enabled again due to high enough bandwidth.
+			h.assertNoUpdates(h.safeDisableTimeout)
 		},
 	},
 }

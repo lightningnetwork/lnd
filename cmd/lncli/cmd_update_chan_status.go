@@ -28,7 +28,10 @@ var updateChanStatusCommand = cli.Command{
 
 	The "auto" action restores automatic channel state management. Per
 	the behavior described above, it's only needed to undo the effect of
-	a prior "disable" action, and will be a no-op otherwise.`,
+	a prior "disable" action, and will be a no-op otherwise.
+	
+	Manually disabling a channel with "disable" will not be preserved after a
+	node restart.`,
 	ArgsUsage: "funding_txid [output_index] action",
 	Flags: []cli.Flag{
 		cli.StringFlag{

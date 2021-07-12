@@ -241,7 +241,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 	// Run configuration dependent DB pre-initialization. Note that this
 	// needs to be done early and once during the startup process, before
 	// any DB access.
-	if err := cfg.DB.Init(ctx, cfg.localDatabaseDir()); err != nil {
+	if err := cfg.DB.Init(ctx, cfg.graphDatabaseDir()); err != nil {
 		return err
 	}
 
@@ -450,7 +450,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		// environment. This will ensure that all members of the cluster
 		// have access to the same wallet state.
 		loaderOpt = btcwallet.LoaderWithExternalWalletDB(
-			dbs.remoteChanDB.Backend,
+			dbs.chanStateDB.Backend,
 		)
 	} else {
 		// When "running locally", LND will use the bbolt wallet.db to
@@ -689,8 +689,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		LitecoindMode:               cfg.LitecoindMode,
 		BtcdMode:                    cfg.BtcdMode,
 		LtcdMode:                    cfg.LtcdMode,
-		LocalChanDB:                 dbs.localChanDB,
-		RemoteChanDB:                dbs.remoteChanDB,
+		HeightHintDB:                dbs.graphDB,
+		ChanStateDB:                 dbs.chanStateDB,
 		PrivateWalletPw:             privateWalletPw,
 		PublicWalletPw:              publicWalletPw,
 		Birthday:                    walletInitParams.Birthday,
@@ -764,7 +764,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 	if cfg.WtClient.Active {
 		var err error
 		towerClientDB, err = wtdb.OpenClientDB(
-			cfg.localDatabaseDir(), cfg.DB.Bolt.DBTimeout,
+			cfg.graphDatabaseDir(), cfg.DB.Bolt.DBTimeout,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to open watchtower client "+
@@ -1603,16 +1603,14 @@ func waitForWalletPassword(cfg *Config,
 // databaseInstances is a struct that holds all instances to the actual
 // databases that are used in lnd.
 type databaseInstances struct {
-	localChanDB  *channeldb.DB
-	remoteChanDB *channeldb.DB
+	graphDB     *channeldb.DB
+	chanStateDB *channeldb.DB
 }
 
 // initializeDatabases extracts the current databases that we'll use for normal
-// operation in the daemon. Two databases are returned: one remote and one
-// local. However, only if the replicated database is active will the remote
-// database point to a unique database. Otherwise, the local and remote DB will
-// both point to the same local database. A function closure that closes all
-// opened databases is also returned.
+// operation in the daemon. A function closure that closes all opened databases
+// is also returned.
+// TODO(guggero): Actually make fully remote.
 func initializeDatabases(ctx context.Context,
 	cfg *Config) (*databaseInstances, func(), error) {
 
@@ -1627,7 +1625,7 @@ func initializeDatabases(ctx context.Context,
 
 	startOpenTime := time.Now()
 
-	databaseBackends, err := cfg.DB.GetBackends(ctx, cfg.localDatabaseDir())
+	databaseBackends, err := cfg.DB.GetBackends(ctx, cfg.graphDatabaseDir())
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to obtain database "+
 			"backends: %v", err)
@@ -1639,11 +1637,11 @@ func initializeDatabases(ctx context.Context,
 		dbs        = &databaseInstances{}
 		closeFuncs []func()
 	)
-	if databaseBackends.RemoteDB == nil {
+	if databaseBackends.ChanStateDB == nil {
 		// Open the channeldb, which is dedicated to storing channel,
 		// and network related metadata.
-		dbs.localChanDB, err = channeldb.CreateWithBackend(
-			databaseBackends.LocalDB,
+		dbs.graphDB, err = channeldb.CreateWithBackend(
+			databaseBackends.GraphDB,
 			channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),
 			channeldb.OptionSetChannelCacheSize(cfg.Caches.ChannelCacheSize),
 			channeldb.OptionSetBatchCommitInterval(cfg.DB.BatchCommitInterval),
@@ -1660,10 +1658,10 @@ func initializeDatabases(ctx context.Context,
 		}
 
 		closeFuncs = append(closeFuncs, func() {
-			dbs.localChanDB.Close()
+			dbs.graphDB.Close()
 		})
 
-		dbs.remoteChanDB = dbs.localChanDB
+		dbs.chanStateDB = dbs.graphDB
 	} else {
 		ltndLog.Infof("Database replication is available! Creating " +
 			"local and remote channeldb instances")
@@ -1671,8 +1669,8 @@ func initializeDatabases(ctx context.Context,
 		// Otherwise, we'll open two instances, one for the state we
 		// only need locally, and the other for things we want to
 		// ensure are replicated.
-		dbs.localChanDB, err = channeldb.CreateWithBackend(
-			databaseBackends.LocalDB,
+		dbs.graphDB, err = channeldb.CreateWithBackend(
+			databaseBackends.GraphDB,
 			channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),
 			channeldb.OptionSetChannelCacheSize(cfg.Caches.ChannelCacheSize),
 			channeldb.OptionSetBatchCommitInterval(cfg.DB.BatchCommitInterval),
@@ -1692,13 +1690,13 @@ func initializeDatabases(ctx context.Context,
 		}
 
 		closeFuncs = append(closeFuncs, func() {
-			dbs.localChanDB.Close()
+			dbs.graphDB.Close()
 		})
 
 		ltndLog.Infof("Opening replicated database instance...")
 
-		dbs.remoteChanDB, err = channeldb.CreateWithBackend(
-			databaseBackends.RemoteDB,
+		dbs.chanStateDB, err = channeldb.CreateWithBackend(
+			databaseBackends.ChanStateDB,
 			channeldb.OptionDryRunMigration(cfg.DryRunMigration),
 			channeldb.OptionSetBatchCommitInterval(cfg.DB.BatchCommitInterval),
 		)
@@ -1707,7 +1705,7 @@ func initializeDatabases(ctx context.Context,
 			return nil, nil, err
 
 		case err != nil:
-			dbs.localChanDB.Close()
+			dbs.graphDB.Close()
 
 			err := fmt.Errorf("unable to open remote channeldb: %v", err)
 			ltndLog.Error(err)
@@ -1715,7 +1713,7 @@ func initializeDatabases(ctx context.Context,
 		}
 
 		closeFuncs = append(closeFuncs, func() {
-			dbs.remoteChanDB.Close()
+			dbs.chanStateDB.Close()
 		})
 	}
 

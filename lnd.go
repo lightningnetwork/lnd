@@ -1595,6 +1595,7 @@ type databaseInstances struct {
 	chanStateDB  *channeldb.DB
 	heightHintDB kvdb.Backend
 	macaroonDB   kvdb.Backend
+	decayedLogDB kvdb.Backend
 	replicated   bool
 }
 
@@ -1630,6 +1631,7 @@ func initializeDatabases(ctx context.Context,
 		dbs = &databaseInstances{
 			heightHintDB: databaseBackends.HeightHintDB,
 			macaroonDB:   databaseBackends.MacaroonDB,
+			decayedLogDB: databaseBackends.DecayedLogDB,
 			replicated:   databaseBackends.Replicated,
 		}
 		closeFuncs = map[string]func() error{
@@ -1642,6 +1644,7 @@ func initializeDatabases(ctx context.Context,
 			"channel state": databaseBackends.ChanStateDB.Close,
 			"height hint":   databaseBackends.HeightHintDB.Close,
 			"macaroon":      databaseBackends.MacaroonDB.Close,
+			"sphinxreplay":  databaseBackends.DecayedLogDB.Close,
 		}
 		cleanUp = func() {
 			for name, closeFunc := range closeFuncs {

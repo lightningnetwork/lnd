@@ -383,12 +383,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	var serializedPubKey [33]byte
 	copy(serializedPubKey[:], nodeKeyECDH.PubKey().SerializeCompressed())
 
-	// Initialize the sphinx router, placing it's persistent replay log in
-	// the same directory as the channel graph database. We don't need to
-	// replicate this data, so we'll store it locally.
+	// Initialize the sphinx router.
 	replayLog := htlcswitch.NewDecayedLog(
-		cfg.graphDatabaseDir(), defaultSphinxDbName, cfg.DB.Bolt,
-		cc.ChainNotifier,
+		dbs.decayedLogDB, cc.ChainNotifier,
 	)
 	sphinxRouter := sphinx.NewRouter(
 		nodeKeyECDH, cfg.ActiveNetParams.Params, replayLog,

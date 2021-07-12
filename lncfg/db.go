@@ -12,6 +12,7 @@ import (
 const (
 	channelDBName              = "channel.db"
 	macaroonDBName             = "macaroons.db"
+	decayedLogDbName           = "sphinxreplay.db"
 	BoltBackend                = "bolt"
 	EtcdBackend                = "etcd"
 	DefaultBatchCommitInterval = 500 * time.Millisecond
@@ -100,6 +101,10 @@ type DatabaseBackends struct {
 	// keys.
 	MacaroonDB kvdb.Backend
 
+	// DecayedLogDB points to a database backend that stores the decayed log
+	// data.
+	DecayedLogDB kvdb.Backend
+
 	// Replicated indicates whether the database backends are remote, data
 	// replicated instances or local bbolt backed databases.
 	Replicated bool
@@ -122,6 +127,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 			ChanStateDB:  etcdBackend,
 			HeightHintDB: etcdBackend,
 			MacaroonDB:   etcdBackend,
+			DecayedLogDB: etcdBackend,
 			Replicated:   true,
 		}, nil
 	}
@@ -151,11 +157,24 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		return nil, fmt.Errorf("error opening macaroon DB: %v", err)
 	}
 
+	decayedLogBackend, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
+		DBPath:            chanDBPath,
+		DBFileName:        decayedLogDbName,
+		DBTimeout:         db.Bolt.DBTimeout,
+		NoFreelistSync:    !db.Bolt.SyncFreelist,
+		AutoCompact:       db.Bolt.AutoCompact,
+		AutoCompactMinAge: db.Bolt.AutoCompactMinAge,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error opening decayed log DB: %v", err)
+	}
+
 	return &DatabaseBackends{
 		GraphDB:      boltBackend,
 		ChanStateDB:  boltBackend,
 		HeightHintDB: boltBackend,
 		MacaroonDB:   macaroonBackend,
+		DecayedLogDB: decayedLogBackend,
 	}, nil
 }
 

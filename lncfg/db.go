@@ -91,6 +91,10 @@ type DatabaseBackends struct {
 	// ChanStateDB points to a possibly networked replicated backend that
 	// contains the critical channel state related data.
 	ChanStateDB kvdb.Backend
+
+	// HeightHintDB points to a possibly networked replicated backend that
+	// contains the chain height hint related data.
+	HeightHintDB kvdb.Backend
 }
 
 // GetBackends returns a set of kvdb.Backends as set in the DB config.
@@ -124,8 +128,9 @@ func (db *DB) GetBackends(ctx context.Context, dbPath string) (
 	}
 
 	return &DatabaseBackends{
-		GraphDB:     localDB,
-		ChanStateDB: remoteDB,
+		GraphDB:      localDB,
+		ChanStateDB:  remoteDB,
+		HeightHintDB: localDB,
 	}, nil
 }
 

@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
@@ -70,7 +71,7 @@ type Config struct {
 
 	// HeightHintDB is a pointer to the database that stores the height
 	// hints.
-	HeightHintDB *channeldb.DB
+	HeightHintDB kvdb.Backend
 
 	// ChanStateDB is a pointer to the database that stores the channel
 	// state.

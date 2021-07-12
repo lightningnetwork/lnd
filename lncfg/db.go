@@ -79,22 +79,21 @@ func (db *DB) Init(ctx context.Context, dbPath string) error {
 }
 
 // DatabaseBackends is a two-tuple that holds the set of active database
-// backends for the daemon. The two backends we expose are the local database
-// backend, and the remote backend. The LocalDB attribute will always be
-// populated. However, the remote DB will only be set if a replicated database
-// is active.
+// backends for the daemon. The two backends we expose are the graph database
+// backend, and the channel state backend.
+// TODO(guggero): Actually make fully remote.
 type DatabaseBackends struct {
-	// LocalDB points to the local non-replicated backend.
-	LocalDB kvdb.Backend
+	// GraphDB points to the database backend that contains the less
+	// critical data that is accessed often, such as the channel graph and
+	// chain height hints.
+	GraphDB kvdb.Backend
 
-	// RemoteDB points to a possibly networked replicated backend. If no
-	// replicated backend is active, then this pointer will be nil.
-	RemoteDB kvdb.Backend
+	// ChanStateDB points to a possibly networked replicated backend that
+	// contains the critical channel state related data.
+	ChanStateDB kvdb.Backend
 }
 
-// GetBackends returns a set of kvdb.Backends as set in the DB config.  The
-// local database will ALWAYS be non-nil, while the remote database will only
-// be populated if etcd is specified.
+// GetBackends returns a set of kvdb.Backends as set in the DB config.
 func (db *DB) GetBackends(ctx context.Context, dbPath string) (
 	*DatabaseBackends, error) {
 
@@ -125,8 +124,8 @@ func (db *DB) GetBackends(ctx context.Context, dbPath string) (
 	}
 
 	return &DatabaseBackends{
-		LocalDB:  localDB,
-		RemoteDB: remoteDB,
+		GraphDB:     localDB,
+		ChanStateDB: remoteDB,
 	}, nil
 }
 

@@ -54,6 +54,7 @@ import (
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/lightningnetwork/lnd/watchtower"
+	"github.com/lightningnetwork/lnd/watchtower/wtclient"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 )
 
@@ -752,23 +753,6 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 			"is proxying over Tor as well", cfg.Tor.StreamIsolation)
 	}
 
-	// If the watchtower client should be active, open the client database.
-	// This is done here so that Close always executes when lndMain returns.
-	var towerClientDB *wtdb.ClientDB
-	if cfg.WtClient.Active {
-		var err error
-		towerClientDB, err = wtdb.OpenClientDB(
-			cfg.graphDatabaseDir(), cfg.DB.Bolt.DBTimeout,
-		)
-		if err != nil {
-			err := fmt.Errorf("unable to open watchtower client "+
-				"database: %v", err)
-			ltndLog.Error(err)
-			return err
-		}
-		defer towerClientDB.Close()
-	}
-
 	// If tor is active and either v2 or v3 onion services have been specified,
 	// make a tor controller and pass it into both the watchtower server and
 	// the regular lnd server.
@@ -793,24 +777,6 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 
 	var tower *watchtower.Standalone
 	if cfg.Watchtower.Active {
-		// Segment the watchtower directory by chain and network.
-		towerDBDir := filepath.Join(
-			cfg.Watchtower.TowerDir,
-			cfg.registeredChains.PrimaryChain().String(),
-			lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
-		)
-
-		towerDB, err := wtdb.OpenTowerDB(
-			towerDBDir, cfg.DB.Bolt.DBTimeout,
-		)
-		if err != nil {
-			err := fmt.Errorf("unable to open watchtower "+
-				"database: %v", err)
-			ltndLog.Error(err)
-			return err
-		}
-		defer towerDB.Close()
-
 		towerKeyDesc, err := activeChainControl.KeyRing.DeriveKey(
 			keychain.KeyLocator{
 				Family: keychain.KeyFamilyTowerID,
@@ -825,7 +791,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 
 		wtCfg := &watchtower.Config{
 			BlockFetcher:   activeChainControl.ChainIO,
-			DB:             towerDB,
+			DB:             dbs.towerServerDB,
 			EpochRegistrar: activeChainControl.ChainNotifier,
 			Net:            cfg.net,
 			NewAddress: func() (btcutil.Address, error) {
@@ -877,9 +843,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 	// Set up the core server which will listen for incoming peer
 	// connections.
 	server, err := newServer(
-		cfg, cfg.Listeners, dbs, towerClientDB,
-		activeChainControl, &idKeyDesc, walletInitParams.ChansToRestore,
-		chainedAcceptor, torController,
+		cfg, cfg.Listeners, dbs, activeChainControl, &idKeyDesc,
+		walletInitParams.ChansToRestore, chainedAcceptor, torController,
 	)
 	if err != nil {
 		err := fmt.Errorf("unable to create server: %v", err)
@@ -1591,12 +1556,14 @@ func waitForWalletPassword(cfg *Config,
 // databaseInstances is a struct that holds all instances to the actual
 // databases that are used in lnd.
 type databaseInstances struct {
-	graphDB      *channeldb.DB
-	chanStateDB  *channeldb.DB
-	heightHintDB kvdb.Backend
-	macaroonDB   kvdb.Backend
-	decayedLogDB kvdb.Backend
-	replicated   bool
+	graphDB       *channeldb.DB
+	chanStateDB   *channeldb.DB
+	heightHintDB  kvdb.Backend
+	macaroonDB    kvdb.Backend
+	decayedLogDB  kvdb.Backend
+	towerClientDB wtclient.DB
+	towerServerDB watchtower.DB
+	replicated    bool
 }
 
 // initializeDatabases extracts the current databases that we'll use for normal
@@ -1617,7 +1584,11 @@ func initializeDatabases(ctx context.Context,
 	startOpenTime := time.Now()
 
 	databaseBackends, err := cfg.DB.GetBackends(
-		ctx, cfg.graphDatabaseDir(), cfg.networkDir,
+		ctx, cfg.graphDatabaseDir(), cfg.networkDir, filepath.Join(
+			cfg.Watchtower.TowerDir,
+			cfg.registeredChains.PrimaryChain().String(),
+			lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
+		), cfg.WtClient.Active, cfg.Watchtower.Active,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to obtain database "+
@@ -1714,6 +1685,40 @@ func initializeDatabases(ctx context.Context,
 
 	openTime := time.Since(startOpenTime)
 	ltndLog.Infof("Database(s) now open (time_to_open=%v)!", openTime)
+
+	// Wrap the watchtower client DB and make sure we clean up.
+	if cfg.WtClient.Active {
+		closeFuncs["wt client"] = databaseBackends.TowerClientDB.Close
+
+		dbs.towerClientDB, err = wtdb.OpenClientDB(
+			databaseBackends.TowerClientDB,
+		)
+		if err != nil {
+			cleanUp()
+
+			err := fmt.Errorf("unable to open watchtower client "+
+				"database: %v", err)
+			ltndLog.Error(err)
+			return nil, nil, err
+		}
+	}
+
+	// Wrap the watchtower server DB and make sure we clean up.
+	if cfg.Watchtower.Active {
+		closeFuncs["wt server"] = databaseBackends.TowerServerDB.Close
+
+		dbs.towerServerDB, err = wtdb.OpenTowerDB(
+			databaseBackends.TowerServerDB,
+		)
+		if err != nil {
+			cleanUp()
+
+			err := fmt.Errorf("unable to open watchtower "+
+				"database: %v", err)
+			ltndLog.Error(err)
+			return nil, nil, err
+		}
+	}
 
 	return dbs, cleanUp, nil
 }

@@ -262,7 +262,7 @@ func (u *UnlockerService) GenSeed(_ context.Context,
 	}
 
 	return &lnrpc.GenSeedResponse{
-		CipherSeedMnemonic: []string(mnemonic[:]),
+		CipherSeedMnemonic: mnemonic[:],
 		EncipheredSeed:     encipheredSeed[:],
 	}, nil
 }
@@ -283,9 +283,7 @@ func extractChanBackups(chanBackups *lnrpc.ChanBackupSnapshot) *ChannelsToRecove
 	var backups ChannelsToRecover
 	if chanBackups.MultiChanBackup != nil {
 		multiBackup := chanBackups.MultiChanBackup
-		backups.PackedMultiChanBackup = chanbackup.PackedMulti(
-			multiBackup.MultiChanBackup,
-		)
+		backups.PackedMultiChanBackup = multiBackup.MultiChanBackup
 	}
 
 	if chanBackups.SingleChanBackups == nil {

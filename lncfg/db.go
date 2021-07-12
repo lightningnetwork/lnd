@@ -81,7 +81,6 @@ func (db *DB) Init(ctx context.Context, dbPath string) error {
 // DatabaseBackends is a two-tuple that holds the set of active database
 // backends for the daemon. The two backends we expose are the graph database
 // backend, and the channel state backend.
-// TODO(guggero): Actually make fully remote.
 type DatabaseBackends struct {
 	// GraphDB points to the database backend that contains the less
 	// critical data that is accessed often, such as the channel graph and
@@ -95,27 +94,34 @@ type DatabaseBackends struct {
 	// HeightHintDB points to a possibly networked replicated backend that
 	// contains the chain height hint related data.
 	HeightHintDB kvdb.Backend
+
+	// Replicated indicates whether the database backends are remote, data
+	// replicated instances or local bbolt backed databases.
+	Replicated bool
 }
 
 // GetBackends returns a set of kvdb.Backends as set in the DB config.
 func (db *DB) GetBackends(ctx context.Context, dbPath string) (
 	*DatabaseBackends, error) {
 
-	var (
-		localDB, remoteDB kvdb.Backend
-		err               error
-	)
-
 	if db.Backend == EtcdBackend {
-		remoteDB, err = kvdb.Open(
+		etcdBackend, err := kvdb.Open(
 			kvdb.EtcdBackendName, ctx, db.Etcd,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("error opening etcd DB: %v", err)
 		}
+
+		return &DatabaseBackends{
+			GraphDB:      etcdBackend,
+			ChanStateDB:  etcdBackend,
+			HeightHintDB: etcdBackend,
+			Replicated:   true,
+		}, nil
 	}
 
-	localDB, err = kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
+	// We're using all bbolt based databases by default.
+	boltBackend, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
 		DBPath:            dbPath,
 		DBFileName:        dbName,
 		DBTimeout:         db.Bolt.DBTimeout,
@@ -124,13 +130,13 @@ func (db *DB) GetBackends(ctx context.Context, dbPath string) (
 		AutoCompactMinAge: db.Bolt.AutoCompactMinAge,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error opening bolt DB: %v", err)
 	}
 
 	return &DatabaseBackends{
-		GraphDB:      localDB,
-		ChanStateDB:  remoteDB,
-		HeightHintDB: localDB,
+		GraphDB:      boltBackend,
+		ChanStateDB:  boltBackend,
+		HeightHintDB: boltBackend,
 	}, nil
 }
 

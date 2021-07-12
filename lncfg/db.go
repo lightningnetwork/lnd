@@ -131,28 +131,83 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 	towerServerEnabled bool) (*DatabaseBackends, error) {
 
 	if db.Backend == EtcdBackend {
+		// As long as the graph data, channel state and height hint
+		// cache are all still in the channel.db file in bolt, we
+		// replicate the same behavior here and use the same etcd
+		// backend for those three sub DBs. But we namespace it properly
+		// to make such a split even easier in the future. This will
+		// break lnd for users that ran on etcd with 0.13.x since that
+		// code used the root namespace. We assume that nobody used etcd
+		// for mainnet just yet since that feature was clearly marked as
+		// experimental in 0.13.x.
 		etcdBackend, err := kvdb.Open(
-			kvdb.EtcdBackendName, ctx, db.Etcd,
+			kvdb.EtcdBackendName, ctx,
+			db.Etcd.CloneWithSubNamespace("channeldb"),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error opening etcd DB: %v", err)
+		}
+
+		etcdMacaroonBackend, err := kvdb.Open(
+			kvdb.EtcdBackendName, ctx,
+			db.Etcd.CloneWithSubNamespace("macaroondb"),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening etcd macaroon "+
+				"DB: %v", err)
+		}
+
+		etcdDecayedLogBackend, err := kvdb.Open(
+			kvdb.EtcdBackendName, ctx,
+			db.Etcd.CloneWithSubNamespace("decayedlogdb"),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening etcd decayed "+
+				"log DB: %v", err)
+		}
+
+		etcdTowerClientBackend, err := kvdb.Open(
+			kvdb.EtcdBackendName, ctx,
+			db.Etcd.CloneWithSubNamespace("towerclientdb"),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening etcd tower "+
+				"client DB: %v", err)
+		}
+
+		etcdTowerServerBackend, err := kvdb.Open(
+			kvdb.EtcdBackendName, ctx,
+			db.Etcd.CloneWithSubNamespace("towerserverdb"),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening etcd tower "+
+				"server DB: %v", err)
+		}
+
+		etcdWalletBackend, err := kvdb.Open(
+			kvdb.EtcdBackendName, ctx,
+			db.Etcd.CloneWithSubNamespace("walletdb"),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening etcd macaroon "+
+				"DB: %v", err)
 		}
 
 		return &DatabaseBackends{
 			GraphDB:       etcdBackend,
 			ChanStateDB:   etcdBackend,
 			HeightHintDB:  etcdBackend,
-			MacaroonDB:    etcdBackend,
-			DecayedLogDB:  etcdBackend,
-			TowerClientDB: etcdBackend,
-			TowerServerDB: etcdBackend,
+			MacaroonDB:    etcdMacaroonBackend,
+			DecayedLogDB:  etcdDecayedLogBackend,
+			TowerClientDB: etcdTowerClientBackend,
+			TowerServerDB: etcdTowerServerBackend,
 			// The wallet loader will attempt to use/create the
 			// wallet in the replicated remote DB if we're running
 			// in a clustered environment. This will ensure that all
 			// members of the cluster have access to the same wallet
 			// state.
 			WalletDB: btcwallet.LoaderWithExternalWalletDB(
-				etcdBackend,
+				etcdWalletBackend,
 			),
 			Replicated: true,
 		}, nil

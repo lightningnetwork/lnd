@@ -13,6 +13,8 @@ const (
 	channelDBName              = "channel.db"
 	macaroonDBName             = "macaroons.db"
 	decayedLogDbName           = "sphinxreplay.db"
+	towerClientDBName          = "wtclient.db"
+	towerServerDBName          = "watchtower.db"
 	BoltBackend                = "bolt"
 	EtcdBackend                = "etcd"
 	DefaultBatchCommitInterval = 500 * time.Millisecond
@@ -105,6 +107,14 @@ type DatabaseBackends struct {
 	// data.
 	DecayedLogDB kvdb.Backend
 
+	// TowerClientDB points to a database backend that stores the watchtower
+	// client data. This might be nil if the watchtower client is disabled.
+	TowerClientDB kvdb.Backend
+
+	// TowerServerDB points to a database backend that stores the watchtower
+	// server data. This might be nil if the watchtower server is disabled.
+	TowerServerDB kvdb.Backend
+
 	// Replicated indicates whether the database backends are remote, data
 	// replicated instances or local bbolt backed databases.
 	Replicated bool
@@ -112,7 +122,8 @@ type DatabaseBackends struct {
 
 // GetBackends returns a set of kvdb.Backends as set in the DB config.
 func (db *DB) GetBackends(ctx context.Context, chanDBPath,
-	walletDBPath string) (*DatabaseBackends, error) {
+	walletDBPath, towerServerDBPath string, towerClientEnabled,
+	towerServerEnabled bool) (*DatabaseBackends, error) {
 
 	if db.Backend == EtcdBackend {
 		etcdBackend, err := kvdb.Open(
@@ -123,12 +134,14 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		}
 
 		return &DatabaseBackends{
-			GraphDB:      etcdBackend,
-			ChanStateDB:  etcdBackend,
-			HeightHintDB: etcdBackend,
-			MacaroonDB:   etcdBackend,
-			DecayedLogDB: etcdBackend,
-			Replicated:   true,
+			GraphDB:       etcdBackend,
+			ChanStateDB:   etcdBackend,
+			HeightHintDB:  etcdBackend,
+			MacaroonDB:    etcdBackend,
+			DecayedLogDB:  etcdBackend,
+			TowerClientDB: etcdBackend,
+			TowerServerDB: etcdBackend,
+			Replicated:    true,
 		}, nil
 	}
 
@@ -169,12 +182,54 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		return nil, fmt.Errorf("error opening decayed log DB: %v", err)
 	}
 
+	// The tower client is optional and might not be enabled by the user. We
+	// handle it being nil properly in the main server.
+	var towerClientBackend kvdb.Backend
+	if towerClientEnabled {
+		towerClientBackend, err = kvdb.GetBoltBackend(
+			&kvdb.BoltBackendConfig{
+				DBPath:            chanDBPath,
+				DBFileName:        towerClientDBName,
+				DBTimeout:         db.Bolt.DBTimeout,
+				NoFreelistSync:    !db.Bolt.SyncFreelist,
+				AutoCompact:       db.Bolt.AutoCompact,
+				AutoCompactMinAge: db.Bolt.AutoCompactMinAge,
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening tower client "+
+				"DB: %v", err)
+		}
+	}
+
+	// The tower server is optional and might not be enabled by the user. We
+	// handle it being nil properly in the main server.
+	var towerServerBackend kvdb.Backend
+	if towerServerEnabled {
+		towerServerBackend, err = kvdb.GetBoltBackend(
+			&kvdb.BoltBackendConfig{
+				DBPath:            towerServerDBPath,
+				DBFileName:        towerServerDBName,
+				DBTimeout:         db.Bolt.DBTimeout,
+				NoFreelistSync:    !db.Bolt.SyncFreelist,
+				AutoCompact:       db.Bolt.AutoCompact,
+				AutoCompactMinAge: db.Bolt.AutoCompactMinAge,
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening tower server "+
+				"DB: %v", err)
+		}
+	}
+
 	return &DatabaseBackends{
-		GraphDB:      boltBackend,
-		ChanStateDB:  boltBackend,
-		HeightHintDB: boltBackend,
-		MacaroonDB:   macaroonBackend,
-		DecayedLogDB: decayedLogBackend,
+		GraphDB:       boltBackend,
+		ChanStateDB:   boltBackend,
+		HeightHintDB:  boltBackend,
+		MacaroonDB:    macaroonBackend,
+		DecayedLogDB:  decayedLogBackend,
+		TowerClientDB: towerClientBackend,
+		TowerServerDB: towerServerBackend,
 	}, nil
 }
 

@@ -1529,17 +1529,18 @@ func assertNumActiveHtlcs(nodes []*lntest.HarnessNode, numHtlcs int) error {
 }
 
 func assertSpendingTxInMempool(t *harnessTest, miner *rpcclient.Client,
-	timeout time.Duration, chanPoint wire.OutPoint) chainhash.Hash {
+	timeout time.Duration, inputs ...wire.OutPoint) chainhash.Hash {
 
-	tx := getSpendingTxInMempool(t, miner, timeout, chanPoint)
+	tx := getSpendingTxInMempool(t, miner, timeout, inputs...)
 	return tx.TxHash()
 }
 
 // getSpendingTxInMempool waits for a transaction spending the given outpoint to
 // appear in the mempool and returns that tx in full.
 func getSpendingTxInMempool(t *harnessTest, miner *rpcclient.Client,
-	timeout time.Duration, chanPoint wire.OutPoint) *wire.MsgTx {
+	timeout time.Duration, inputs ...wire.OutPoint) *wire.MsgTx {
 
+	inputSet := make(map[wire.OutPoint]struct{}, len(inputs))
 	breakTimeout := time.After(timeout)
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
@@ -1559,13 +1560,30 @@ func getSpendingTxInMempool(t *harnessTest, miner *rpcclient.Client,
 			for _, txid := range mempool {
 				tx, err := miner.GetRawTransaction(txid)
 				require.NoError(t.t, err, "unable to fetch tx")
-
 				msgTx := tx.MsgTx()
+
+				// Include the inputs again in case they were
+				// removed in a previous iteration.
+				for _, input := range inputs {
+					inputSet[input] = struct{}{}
+				}
+
 				for _, txIn := range msgTx.TxIn {
-					if txIn.PreviousOutPoint == chanPoint {
-						return msgTx
+					input := txIn.PreviousOutPoint
+					if _, ok := inputSet[input]; ok {
+						delete(inputSet, input)
 					}
 				}
+
+				if len(inputSet) > 0 {
+					// Missing input, check next transaction
+					// or try again.
+					continue
+				}
+
+				// Transaction spends all expected inputs,
+				// return.
+				return msgTx
 			}
 		}
 	}

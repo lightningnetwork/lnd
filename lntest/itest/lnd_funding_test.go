@@ -2,12 +2,19 @@ package itest
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"testing"
+	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/funding"
+	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -494,4 +501,275 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// It should now not appear in the pending channels anymore.
 	assertNumOpenChannelsPending(ctxt, t, carol, dave, 0)
+}
+
+// testFundingPersistence is intended to ensure that the Funding Manager
+// persists the state of new channels prior to broadcasting the channel's
+// funding transaction. This ensures that the daemon maintains an up-to-date
+// representation of channels if the system is restarted or disconnected.
+// testFundingPersistence mirrors testBasicChannelFunding, but adds restarts
+// and checks for the state of channels with unconfirmed funding transactions.
+func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
+	ctxb := context.Background()
+
+	chanAmt := funding.MaxBtcFundingAmount
+	pushAmt := btcutil.Amount(0)
+
+	// As we need to create a channel that requires more than 1
+	// confirmation before it's open, with the current set of defaults,
+	// we'll need to create a new node instance.
+	const numConfs = 5
+	carolArgs := []string{fmt.Sprintf("--bitcoin.defaultchanconfs=%v", numConfs)}
+	carol := net.NewNode(t.t, "Carol", carolArgs)
+
+	// Clean up carol's node when the test finishes.
+	defer shutdownAndAssert(net, t, carol)
+
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	net.ConnectNodes(ctxt, t.t, net.Alice, carol)
+
+	// Create a new channel that requires 5 confs before it's considered
+	// open, then broadcast the funding transaction
+	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
+	pendingUpdate, err := net.OpenPendingChannel(ctxt, net.Alice, carol,
+		chanAmt, pushAmt)
+	if err != nil {
+		t.Fatalf("unable to open channel: %v", err)
+	}
+
+	// At this point, the channel's funding transaction will have been
+	// broadcast, but not confirmed. Alice and Bob's nodes should reflect
+	// this when queried via RPC.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	assertNumOpenChannelsPending(ctxt, t, net.Alice, carol, 1)
+
+	// Restart both nodes to test that the appropriate state has been
+	// persisted and that both nodes recover gracefully.
+	if err := net.RestartNode(net.Alice, nil); err != nil {
+		t.Fatalf("Node restart failed: %v", err)
+	}
+	if err := net.RestartNode(carol, nil); err != nil {
+		t.Fatalf("Node restart failed: %v", err)
+	}
+
+	fundingTxID, err := chainhash.NewHash(pendingUpdate.Txid)
+	if err != nil {
+		t.Fatalf("unable to convert funding txid into chainhash.Hash:"+
+			" %v", err)
+	}
+	fundingTxStr := fundingTxID.String()
+
+	// Mine a block, then wait for Alice's node to notify us that the
+	// channel has been opened. The funding transaction should be found
+	// within the newly mined block.
+	block := mineBlocks(t, net, 1, 1)[0]
+	assertTxInBlock(t, block, fundingTxID)
+
+	// Get the height that our transaction confirmed at.
+	_, height, err := net.Miner.Client.GetBestBlock()
+	require.NoError(t.t, err, "could not get best block")
+
+	// Restart both nodes to test that the appropriate state has been
+	// persisted and that both nodes recover gracefully.
+	if err := net.RestartNode(net.Alice, nil); err != nil {
+		t.Fatalf("Node restart failed: %v", err)
+	}
+	if err := net.RestartNode(carol, nil); err != nil {
+		t.Fatalf("Node restart failed: %v", err)
+	}
+
+	// The following block ensures that after both nodes have restarted,
+	// they have reconnected before the execution of the next test.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	net.EnsureConnected(ctxt, t.t, net.Alice, carol)
+
+	// Next, mine enough blocks s.t the channel will open with a single
+	// additional block mined.
+	if _, err := net.Miner.Client.Generate(3); err != nil {
+		t.Fatalf("unable to mine blocks: %v", err)
+	}
+
+	// Assert that our wallet has our opening transaction with a label
+	// that does not have a channel ID set yet, because we have not
+	// reached our required confirmations.
+	tx := findTxAtHeight(ctxt, t, height, fundingTxStr, net.Alice)
+
+	// At this stage, we expect the transaction to be labelled, but not with
+	// our channel ID because our transaction has not yet confirmed.
+	label := labels.MakeLabel(labels.LabelTypeChannelOpen, nil)
+	require.Equal(t.t, label, tx.Label, "open channel label wrong")
+
+	// Both nodes should still show a single channel as pending.
+	time.Sleep(time.Second * 1)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	assertNumOpenChannelsPending(ctxt, t, net.Alice, carol, 1)
+
+	// Finally, mine the last block which should mark the channel as open.
+	if _, err := net.Miner.Client.Generate(1); err != nil {
+		t.Fatalf("unable to mine blocks: %v", err)
+	}
+
+	// At this point, the channel should be fully opened and there should
+	// be no pending channels remaining for either node.
+	time.Sleep(time.Second * 1)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	assertNumOpenChannelsPending(ctxt, t, net.Alice, carol, 0)
+
+	// The channel should be listed in the peer information returned by
+	// both peers.
+	outPoint := wire.OutPoint{
+		Hash:  *fundingTxID,
+		Index: pendingUpdate.OutputIndex,
+	}
+
+	// Re-lookup our transaction in the block that it confirmed in.
+	tx = findTxAtHeight(ctxt, t, height, fundingTxStr, net.Alice)
+
+	// Create an additional check for our channel assertion that will
+	// check that our label is as expected.
+	check := func(channel *lnrpc.Channel) {
+		shortChanID := lnwire.NewShortChanIDFromInt(
+			channel.ChanId,
+		)
+
+		label := labels.MakeLabel(
+			labels.LabelTypeChannelOpen, &shortChanID,
+		)
+		require.Equal(t.t, label, tx.Label,
+			"open channel label not updated")
+	}
+
+	// Check both nodes to ensure that the channel is ready for operation.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = net.AssertChannelExists(ctxt, net.Alice, &outPoint, check)
+	if err != nil {
+		t.Fatalf("unable to assert channel existence: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	if err := net.AssertChannelExists(ctxt, carol, &outPoint); err != nil {
+		t.Fatalf("unable to assert channel existence: %v", err)
+	}
+
+	// Finally, immediately close the channel. This function will also
+	// block until the channel is closed and will additionally assert the
+	// relevant channel closing post conditions.
+	chanPoint := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: pendingUpdate.Txid,
+		},
+		OutputIndex: pendingUpdate.OutputIndex,
+	}
+	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+}
+
+// deriveFundingShim creates a channel funding shim by deriving the necessary
+// keys on both sides.
+func deriveFundingShim(net *lntest.NetworkHarness, t *harnessTest,
+	carol, dave *lntest.HarnessNode, chanSize btcutil.Amount,
+	thawHeight uint32, keyIndex int32, publish bool) (*lnrpc.FundingShim,
+	*lnrpc.ChannelPoint, *chainhash.Hash) {
+
+	ctxb := context.Background()
+	keyLoc := &signrpc.KeyLocator{
+		KeyFamily: 9999,
+		KeyIndex:  keyIndex,
+	}
+	carolFundingKey, err := carol.WalletKitClient.DeriveKey(ctxb, keyLoc)
+	require.NoError(t.t, err)
+	daveFundingKey, err := dave.WalletKitClient.DeriveKey(ctxb, keyLoc)
+	require.NoError(t.t, err)
+
+	// Now that we have the multi-sig keys for each party, we can manually
+	// construct the funding transaction. We'll instruct the backend to
+	// immediately create and broadcast a transaction paying out an exact
+	// amount. Normally this would reside in the mempool, but we just
+	// confirm it now for simplicity.
+	_, fundingOutput, err := input.GenFundingPkScript(
+		carolFundingKey.RawKeyBytes, daveFundingKey.RawKeyBytes,
+		int64(chanSize),
+	)
+	require.NoError(t.t, err)
+
+	var txid *chainhash.Hash
+	targetOutputs := []*wire.TxOut{fundingOutput}
+	if publish {
+		txid, err = net.Miner.SendOutputsWithoutChange(
+			targetOutputs, 5,
+		)
+		require.NoError(t.t, err)
+	} else {
+		tx, err := net.Miner.CreateTransaction(targetOutputs, 5, false)
+		require.NoError(t.t, err)
+
+		txHash := tx.TxHash()
+		txid = &txHash
+	}
+
+	// At this point, we can being our external channel funding workflow.
+	// We'll start by generating a pending channel ID externally that will
+	// be used to track this new funding type.
+	var pendingChanID [32]byte
+	_, err = rand.Read(pendingChanID[:])
+	require.NoError(t.t, err)
+
+	// Now that we have the pending channel ID, Dave (our responder) will
+	// register the intent to receive a new channel funding workflow using
+	// the pending channel ID.
+	chanPoint := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: txid[:],
+		},
+	}
+	chanPointShim := &lnrpc.ChanPointShim{
+		Amt:       int64(chanSize),
+		ChanPoint: chanPoint,
+		LocalKey: &lnrpc.KeyDescriptor{
+			RawKeyBytes: daveFundingKey.RawKeyBytes,
+			KeyLoc: &lnrpc.KeyLocator{
+				KeyFamily: daveFundingKey.KeyLoc.KeyFamily,
+				KeyIndex:  daveFundingKey.KeyLoc.KeyIndex,
+			},
+		},
+		RemoteKey:     carolFundingKey.RawKeyBytes,
+		PendingChanId: pendingChanID[:],
+		ThawHeight:    thawHeight,
+	}
+	fundingShim := &lnrpc.FundingShim{
+		Shim: &lnrpc.FundingShim_ChanPointShim{
+			ChanPointShim: chanPointShim,
+		},
+	}
+	_, err = dave.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_ShimRegister{
+			ShimRegister: fundingShim,
+		},
+	})
+	require.NoError(t.t, err)
+
+	// If we attempt to register the same shim (has the same pending chan
+	// ID), then we should get an error.
+	_, err = dave.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_ShimRegister{
+			ShimRegister: fundingShim,
+		},
+	})
+	if err == nil {
+		t.Fatalf("duplicate pending channel ID funding shim " +
+			"registration should trigger an error")
+	}
+
+	// We'll take the chan point shim we just registered for Dave (the
+	// responder), and swap the local/remote keys before we feed it in as
+	// Carol's funding shim as the initiator.
+	fundingShim.GetChanPointShim().LocalKey = &lnrpc.KeyDescriptor{
+		RawKeyBytes: carolFundingKey.RawKeyBytes,
+		KeyLoc: &lnrpc.KeyLocator{
+			KeyFamily: carolFundingKey.KeyLoc.KeyFamily,
+			KeyIndex:  carolFundingKey.KeyLoc.KeyIndex,
+		},
+	}
+	fundingShim.GetChanPointShim().RemoteKey = daveFundingKey.RawKeyBytes
+
+	return fundingShim, chanPoint, txid
 }

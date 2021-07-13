@@ -23,6 +23,10 @@ type Config struct {
 
 	// NoWumbo unsets any bits signalling support for wumbo channels.
 	NoWumbo bool
+
+	// NoScriptEnforcementLease unsets any bits signaling support for script
+	// enforced leases.
+	NoScriptEnforcementLease bool
 }
 
 // Manager is responsible for generating feature vectors for different requested
@@ -91,6 +95,10 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 		if cfg.NoWumbo {
 			raw.Unset(lnwire.WumboChannelsOptional)
 			raw.Unset(lnwire.WumboChannelsRequired)
+		}
+		if cfg.NoScriptEnforcementLease {
+			raw.Unset(lnwire.ScriptEnforcedLeaseOptional)
+			raw.Unset(lnwire.ScriptEnforcedLeaseRequired)
 		}
 
 		// Ensure that all of our feature sets properly set any

@@ -77,7 +77,7 @@ discuss various aspects of `lnd` and also Lightning in general.
 ## Safety
 
 When operating a mainnet `lnd` node, please refer to our [operational safety
-guildelines](docs/safety.md). It is important to note that `lnd` is still
+guidelines](docs/safety.md). It is important to note that `lnd` is still
 **beta** software and that ignoring these operational guidelines can lead to
 loss of funds.
 

@@ -38,6 +38,27 @@ instantaneous. Read the [guide on leader
 election](https://github.com/lightningnetwork/lnd/blob/master/docs/leader_election.md)
 for more information.
 
+### Postgres database support
+
+This release adds [support for Postgres as a database
+backend](https://github.com/lightningnetwork/lnd/pull/5366) to lnd. Postgres
+has several advantages over the default bbolt backend:
+* Better handling of large data sets.
+* On-the-fly database compaction (auto vacuum).
+* Database replication.
+* Inspect data while lnd is running (bbolt opens the database exclusively).
+* Usage of industry-standard tools to manage the stored data, get performance
+  metrics, etc.
+
+Furthermore, the SQL platform opens up possibilities to improve lnd's
+performance in the future. Bbolt's single-writer model is a severe performance
+bottleneck, whereas Postgres offers a variety of locking models. Additionally,
+structured tables reduce the need for custom serialization/deserialization code
+in `lnd`, saving developer time and limiting the potential for bugs.
+
+Instructions for enabling Postgres can be found in
+[docs/postgres.md](../postgres.md).
+
 ## Protocol Extensions
 
 ### Explicit Channel Negotiation

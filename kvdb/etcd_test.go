@@ -132,6 +132,18 @@ func TestEtcd(t *testing.T) {
 			test:       testTxRollback,
 			expectedDb: map[string]string{},
 		},
+		{
+			name: "top level bucket creation",
+			test: testTopLevelBucketCreation,
+		},
+		{
+			name: "bucket operation",
+			test: testBucketOperations,
+		},
+		{
+			name: "sub bucket sequence",
+			test: testSubBucketSequence,
+		},
 	}
 
 	for _, test := range tests {

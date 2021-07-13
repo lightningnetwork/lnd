@@ -100,29 +100,29 @@
 <time> [ERR] FNDG: Unable to send node announcement: gossiper is shutting down
 <time> [ERR] FNDG: Unable to send node announcement: router shutting down
 <time> [ERR] HSWC: AmountBelowMinimum(amt=<amt>, update=(lnwire.ChannelUpdate) {
-<time> [ERR] HSWC: ChannelLink(<chan>): failing link: ChannelPoint(<chan_point>): received error from peer: chan_id=<hex>, err=internal error with error: remote error
-<time> [ERR] HSWC: ChannelLink(<chan>): failing link: ChannelPoint(<chan_point>): received error from peer: chan_id=<hex>, err=invalid update with error: remote error
-<time> [ERR] HSWC: ChannelLink(<chan>): failing link: ChannelPoint(<chan_point>): received error from peer: chan_id=<hex>, err=sync error with error: remote error
-<time> [ERR] HSWC: ChannelLink(<chan>): failing link: ChannelPoint(<chan_point>): received error from peer: chan_id=<hex>, err=unable to resume channel, recovery required with error: remote error
-<time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to handle upstream settle HTLC: Invalid payment preimage <hex> for hash <hex> with error: invalid update
-<time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: ChannelPoint(<chan_point>) with CommitPoint(<hex>) had possible local commitment state data loss with error: unable to resume channel, recovery required
-<time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: possible remote commitment state data loss with error: sync error
-<time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: Unable to send chan sync message for ChannelPoint(<chan_point>): peer exiting with error: unable to resume channel, recovery required
-<time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: unable to send chan sync message for ChannelPoint(<chan_point>): set tcp <ip>: use of closed network connection with error: unable to resume channel, recovery required
-<time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: unable to send chan sync message for ChannelPoint(<chan_point>): set tcp <ip>: use of closed network connection with error: unable to resume channel, recovery required
-<time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: Unable to send chan sync message for ChannelPoint(<chan_point>): write tcp <ip>-><ip>: use of closed network connection with error: unable to resume channel, recovery required
-<time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: Unable to send chan sync message for ChannelPoint(<chan_point>): write tcp <ip>-><ip>: write: broken pipe with error: unable to resume channel, recovery required
-<time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to synchronize channel states: unable to send chan sync message for ChannelPoint(<chan_point>): write tcp <ip>-><ip>: write: connection reset by peer with error: unable to resume channel, recovery required
-<time> [ERR] HSWC: ChannelLink(<chan>): failing link: unable to update commitment: link shutting down with error: internal error
-<time> [ERR] HSWC: ChannelLink(<chan>): link failed, exiting htlcManager
-<time> [ERR] HSWC: ChannelLink(<chan>): unable to cancel incoming HTLC for circuit-key=(Chan ID=<chan>, HTLC ID=0): HTLC with ID 0 has already been failed
-<time> [ERR] HSWC: ChannelLink(<chan>): unable to decode onion hop iterator: TemporaryChannelFailure
-<time> [ERR] HSWC: ChannelLink(<chan>): unable to update signals
-<time> [ERR] HSWC: ChannelLink(<chan>): unhandled error while forwarding htlc packet over htlcswitch: AmountBelowMinimum(amt=4000 mSAT, update=(lnwire.ChannelUpdate) {
-<time> [ERR] HSWC: ChannelLink(<chan>): unhandled error while forwarding htlc packet over htlcswitch: circuit has already been closed
-<time> [ERR] HSWC: ChannelLink(<chan>): unhandled error while forwarding htlc packet over htlcswitch: insufficient bandwidth to route htlc
-<time> [ERR] HSWC: ChannelLink(<chan>): unhandled error while forwarding htlc packet over htlcswitch: node configured to disallow forwards
-<time> [ERR] HSWC: ChannelLink(<chan>): unhandled error while forwarding htlc packet over htlcswitch: UnknownNextPeer
+<time> [ERR] HSWC: ChannelLink(<chan_point>): failing link: ChannelPoint(<chan_point>): received error from peer: chan_id=<hex>, err=internal error with error: remote error
+<time> [ERR] HSWC: ChannelLink(<chan_point>): failing link: ChannelPoint(<chan_point>): received error from peer: chan_id=<hex>, err=invalid update with error: remote error
+<time> [ERR] HSWC: ChannelLink(<chan_point>): failing link: ChannelPoint(<chan_point>): received error from peer: chan_id=<hex>, err=sync error with error: remote error
+<time> [ERR] HSWC: ChannelLink(<chan_point>): failing link: ChannelPoint(<chan_point>): received error from peer: chan_id=<hex>, err=unable to resume channel, recovery required with error: remote error
+<time> [ERR] HSWC: ChannelLink(<chan_point>): failing link: unable to handle upstream settle HTLC: Invalid payment preimage <hex> for hash <hex> with error: invalid update
+<time> [ERR] HSWC: ChannelLink(<chan_point>): failing link: unable to synchronize channel states: ChannelPoint(<chan_point>) with CommitPoint(<hex>) had possible local commitment state data loss with error: unable to resume channel, recovery required
+<time> [ERR] HSWC: ChannelLink(<chan_point>): failing link: unable to synchronize channel states: possible remote commitment state data loss with error: sync error
+<time> [ERR] HSWC: ChannelLink(<chan_point>): failing link: unable to synchronize channel states: Unable to send chan sync message for ChannelPoint(<chan_point>): peer exiting with error: unable to resume channel, recovery required
+<time> [ERR] HSWC: ChannelLink(<chan_point>): failing link: unable to synchronize channel states: unable to send chan sync message for ChannelPoint(<chan_point>): set tcp <ip>: use of closed network connection with error: unable to resume channel, recovery required
+<time> [ERR] HSWC: ChannelLink(<chan_point>): failing link: unable to synchronize channel states: unable to send chan sync message for ChannelPoint(<chan_point>): set tcp <ip>: use of closed network connection with error: unable to resume channel, recovery required
+<time> [ERR] HSWC: ChannelLink(<chan_point>): failing link: unable to synchronize channel states: Unable to send chan sync message for ChannelPoint(<chan_point>): write tcp <ip>-><ip>: use of closed network connection with error: unable to resume channel, recovery required
+<time> [ERR] HSWC: ChannelLink(<chan_point>): failing link: unable to synchronize channel states: Unable to send chan sync message for ChannelPoint(<chan_point>): write tcp <ip>-><ip>: write: broken pipe with error: unable to resume channel, recovery required
+<time> [ERR] HSWC: ChannelLink(<chan_point>): failing link: unable to synchronize channel states: unable to send chan sync message for ChannelPoint(<chan_point>): write tcp <ip>-><ip>: write: connection reset by peer with error: unable to resume channel, recovery required
+<time> [ERR] HSWC: ChannelLink(<chan_point>): failing link: unable to update commitment: link shutting down with error: internal error
+<time> [ERR] HSWC: ChannelLink(<chan_point>): link failed, exiting htlcManager
+<time> [ERR] HSWC: ChannelLink(<chan_point>): unable to cancel incoming HTLC for circuit-key=(Chan ID=<chan>, HTLC ID=0): HTLC with ID 0 has already been failed
+<time> [ERR] HSWC: ChannelLink(<chan_point>): unable to decode onion hop iterator: TemporaryChannelFailure
+<time> [ERR] HSWC: ChannelLink(<chan_point>): unable to update signals
+<time> [ERR] HSWC: ChannelLink(<chan_point>): unhandled error while forwarding htlc packet over htlcswitch: AmountBelowMinimum(amt=4000 mSAT, update=(lnwire.ChannelUpdate) {
+<time> [ERR] HSWC: ChannelLink(<chan_point>): unhandled error while forwarding htlc packet over htlcswitch: circuit has already been closed
+<time> [ERR] HSWC: ChannelLink(<chan_point>): unhandled error while forwarding htlc packet over htlcswitch: insufficient bandwidth to route htlc
+<time> [ERR] HSWC: ChannelLink(<chan_point>): unhandled error while forwarding htlc packet over htlcswitch: node configured to disallow forwards
+<time> [ERR] HSWC: ChannelLink(<chan_point>): unhandled error while forwarding htlc packet over htlcswitch: UnknownNextPeer
 <time> [ERR] HSWC: FeeInsufficient(htlc_amt==<amt>, update=(lnwire.ChannelUpdate) {
 <time> [ERR] HSWC: insufficient bandwidth to route htlc
 <time> [ERR] HSWC: Link <chan> not found
@@ -290,8 +290,8 @@
 <time> [ERR] RPCS: [/invoicesrpc.Invoices/SubscribeSingleInvoice]: context canceled
 <time> [ERR] RPCS: [/lnrpc.State/SubscribeState]: context canceled
 <time> [ERR] NTFN: Failed to update rescan progress: database not open
-<time> [ERR] HSWC: ChannelLink(<chan>): failing link: process hodl queue: unable to update commitment: link shutting down with error: internal error
+<time> [ERR] HSWC: ChannelLink(<chan_point>): failing link: process hodl queue: unable to update commitment: link shutting down with error: internal error
 <time> [ERR] INVC: SettleHodlInvoice with preimage <hex>: invoice already canceled
 <time> [ERR] RPCS: [/invoicesrpc.Invoices/SettleInvoice]: invoice already canceled
-<time> [ERR] HSWC: ChannelLink(<chan>): outgoing htlc(<hex>) has insufficient fee: expected 33000, got 1020
+<time> [ERR] HSWC: ChannelLink(<chan_point>): outgoing htlc(<hex>) has insufficient fee: expected 33000, got 1020
 <time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: rpc error: code = Canceled desc = context canceled

@@ -90,6 +90,7 @@ type inputKit struct {
 	signDesc        SignDescriptor
 	heightHint      uint32
 	blockToMaturity uint32
+	cltvExpiry      uint32
 
 	// unconfParent contains information about a potential unconfirmed
 	// parent transaction.
@@ -111,7 +112,7 @@ func (i *inputKit) RequiredTxOut() *wire.TxOut {
 // must be used in the transaction including it. This will be false for the
 // base input type since we can re-sign for any lock time.
 func (i *inputKit) RequiredLockTime() (uint32, bool) {
-	return 0, false
+	return i.cltvExpiry, i.cltvExpiry > 0
 }
 
 // WitnessType returns the type of witness that must be generated to spend the
@@ -192,6 +193,25 @@ func NewCsvInput(outpoint *wire.OutPoint, witnessType WitnessType,
 			signDesc:        *signDescriptor,
 			heightHint:      heightHint,
 			blockToMaturity: blockToMaturity,
+		},
+	}
+}
+
+// NewCsvInputWithCltv assembles a new csv and cltv locked input that can be
+// used to construct a sweep transaction.
+func NewCsvInputWithCltv(outpoint *wire.OutPoint, witnessType WitnessType,
+	signDescriptor *SignDescriptor, heightHint uint32,
+	csvDelay uint32, cltvExpiry uint32) *BaseInput {
+
+	return &BaseInput{
+		inputKit{
+			outpoint:        *outpoint,
+			witnessType:     witnessType,
+			signDesc:        *signDescriptor,
+			heightHint:      heightHint,
+			blockToMaturity: csvDelay,
+			cltvExpiry:      cltvExpiry,
+			unconfParent:    nil,
 		},
 	}
 }

@@ -516,10 +516,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	)
 
 	featureMgr, err := feature.NewManager(feature.Config{
-		NoTLVOnion:        cfg.ProtocolOptions.LegacyOnion(),
-		NoStaticRemoteKey: cfg.ProtocolOptions.NoStaticRemoteKey(),
-		NoAnchors:         cfg.ProtocolOptions.NoAnchorCommitments(),
-		NoWumbo:           !cfg.ProtocolOptions.Wumbo(),
+		NoTLVOnion:               cfg.ProtocolOptions.LegacyOnion(),
+		NoStaticRemoteKey:        cfg.ProtocolOptions.NoStaticRemoteKey(),
+		NoAnchors:                cfg.ProtocolOptions.NoAnchorCommitments(),
+		NoWumbo:                  !cfg.ProtocolOptions.Wumbo(),
+		NoScriptEnforcementLease: cfg.ProtocolOptions.NoScriptEnforcementLease(),
 	})
 	if err != nil {
 		return nil, err

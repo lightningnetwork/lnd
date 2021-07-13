@@ -208,6 +208,17 @@ func getChanInfo(node *lntest.HarnessNode) (*lnrpc.Channel, error) {
 	return channelInfo.Channels[0], nil
 }
 
+// commitTypeHasAnchors returns whether commitType uses anchor outputs.
+func commitTypeHasAnchors(commitType lnrpc.CommitmentType) bool {
+	switch commitType {
+	case lnrpc.CommitmentType_ANCHORS,
+		lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
+		return true
+	default:
+		return false
+	}
+}
+
 // nodeArgsForCommitType returns the command line flag to supply to enable this
 // commitment type.
 func nodeArgsForCommitType(commitType lnrpc.CommitmentType) []string {
@@ -218,6 +229,11 @@ func nodeArgsForCommitType(commitType lnrpc.CommitmentType) []string {
 		return []string{}
 	case lnrpc.CommitmentType_ANCHORS:
 		return []string{"--protocol.anchors"}
+	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
+		return []string{
+			"--protocol.anchors",
+			"--protocol.script-enforced-lease",
+		}
 	}
 
 	return nil
@@ -238,7 +254,7 @@ func calcStaticFee(c lnrpc.CommitmentType, numHTLCs int) btcutil.Amount {
 	// the value of the two anchors to the resulting fee the initiator
 	// pays. In addition the fee rate is capped at 10 sat/vbyte for anchor
 	// channels.
-	if c == lnrpc.CommitmentType_ANCHORS {
+	if commitTypeHasAnchors(c) {
 		feePerKw = chainfee.SatPerKVByte(
 			lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte * 1000,
 		).FeePerKWeight()

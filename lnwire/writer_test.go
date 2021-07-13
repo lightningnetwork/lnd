@@ -193,9 +193,11 @@ func TestWriteRawFeatureVector(t *testing.T) {
 	require.Equal(t, ErrNilFeatureVector, err)
 
 	// Create a raw feature vector.
-	feature := &RawFeatureVector{features: map[FeatureBit]bool{
-		InitialRoutingSync: true, // FeatureBit 3.
-	}}
+	feature := &RawFeatureVector{
+		features: map[FeatureBit]struct{}{
+			InitialRoutingSync: {}, // FeatureBit 3.
+		},
+	}
 	expectedBytes := []byte{
 		0, 1, // First two bytes encode the length.
 		8, // Last byte encodes the feature bit (1 << 3).

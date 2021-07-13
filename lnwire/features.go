@@ -214,17 +214,49 @@ var Features = map[FeatureBit]string{
 // can be serialized and deserialized to/from a byte representation that is
 // transmitted in Lightning network messages.
 type RawFeatureVector struct {
-	features map[FeatureBit]bool
+	features map[FeatureBit]struct{}
 }
 
 // NewRawFeatureVector creates a feature vector with all of the feature bits
 // given as arguments enabled.
 func NewRawFeatureVector(bits ...FeatureBit) *RawFeatureVector {
-	fv := &RawFeatureVector{features: make(map[FeatureBit]bool)}
+	fv := &RawFeatureVector{features: make(map[FeatureBit]struct{})}
 	for _, bit := range bits {
 		fv.Set(bit)
 	}
 	return fv
+}
+
+// IsEmpty returns whether the feature vector contains any feature bits.
+func (fv RawFeatureVector) IsEmpty() bool {
+	return len(fv.features) == 0
+}
+
+// OnlyContains determines whether only the specified feature bits are found.
+func (fv RawFeatureVector) OnlyContains(bits ...FeatureBit) bool {
+	if len(bits) != len(fv.features) {
+		return false
+	}
+	for _, bit := range bits {
+		if !fv.IsSet(bit) {
+			return false
+		}
+	}
+	return true
+}
+
+// Equals determines whether two features vectors contain exactly the same
+// features.
+func (fv RawFeatureVector) Equals(other *RawFeatureVector) bool {
+	if len(fv.features) != len(other.features) {
+		return false
+	}
+	for bit := range fv.features {
+		if _, ok := other.features[bit]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // Merges sets all feature bits in other on the receiver's feature vector.
@@ -249,12 +281,13 @@ func (fv *RawFeatureVector) Clone() *RawFeatureVector {
 
 // IsSet returns whether a particular feature bit is enabled in the vector.
 func (fv *RawFeatureVector) IsSet(feature FeatureBit) bool {
-	return fv.features[feature]
+	_, ok := fv.features[feature]
+	return ok
 }
 
 // Set marks a feature as enabled in the vector.
 func (fv *RawFeatureVector) Set(feature FeatureBit) {
-	fv.features[feature] = true
+	fv.features[feature] = struct{}{}
 }
 
 // SafeSet sets the chosen feature bit in the feature vector, but returns an

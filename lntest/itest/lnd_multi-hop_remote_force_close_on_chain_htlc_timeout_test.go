@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
@@ -84,9 +85,9 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// expired HTLC on Carol's version of the commitment transaction. If
 	// Carol has an anchor, it will be swept too.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssertType(
-		ctxt, t, net, carol, bobChanPoint,
-		c == lnrpc.CommitmentType_ANCHORS, true,
+	hasAnchors := commitTypeHasAnchors(c)
+	closeTx := closeChannelAndAssertType(
+		ctxt, t, net, carol, bobChanPoint, hasAnchors, true,
 	)
 
 	// At this point, Bob should have a pending force close channel as
@@ -95,13 +96,25 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	err = waitForNumChannelPendingForceClose(ctxt, bob, 1, nil)
 	require.NoError(t.t, err)
 
-	// Bob can sweep his output immediately. If there is an anchor, Bob will
-	// sweep that as well.
-	expectedTxes := 1
-	if c == lnrpc.CommitmentType_ANCHORS {
-		expectedTxes = 2
-	}
+	var expectedTxes int
+	switch c {
+	// Bob can sweep his commit output immediately.
+	case lnrpc.CommitmentType_LEGACY:
+		expectedTxes = 1
 
+	// Bob can sweep his commit and anchor outputs immediately.
+	case lnrpc.CommitmentType_ANCHORS:
+		expectedTxes = 2
+
+	// Bob can't sweep his commit output yet as he was the initiator of a
+	// script-enforced leased channel, so he'll always incur the additional
+	// CLTV. He can still sweep his anchor output however.
+	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
+		expectedTxes = 1
+
+	default:
+		t.Fatalf("unhandled commitment type %v", c)
+	}
 	_, err = waitForNTxsInMempool(
 		net.Miner.Client, expectedTxes, minerMempoolTimeout,
 	)
@@ -172,8 +185,32 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	require.NoError(t.t, err)
 
 	// Now we'll check Bob's pending channel report. Since this was Carol's
-	// commitment, he doesn't have to wait for any CSV delays. As a result,
-	// he should show no additional pending transactions.
+	// commitment, he doesn't have to wait for any CSV delays, but he may
+	// still need to wait for a CLTV on his commit output to expire
+	// depending on the commitment type.
+	if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
+		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		resp, err := bob.PendingChannels(
+			ctxt, &lnrpc.PendingChannelsRequest{},
+		)
+		require.NoError(t.t, err)
+
+		require.Len(t.t, resp.PendingForceClosingChannels, 1)
+		forceCloseChan := resp.PendingForceClosingChannels[0]
+		require.Positive(t.t, forceCloseChan.BlocksTilMaturity)
+
+		numBlocks := uint32(forceCloseChan.BlocksTilMaturity)
+		_, err = net.Miner.Client.Generate(numBlocks)
+		require.NoError(t.t, err)
+
+		bobCommitOutpoint := wire.OutPoint{Hash: *closeTx, Index: 3}
+		bobCommitSweep := assertSpendingTxInMempool(
+			t, net.Miner.Client, minerMempoolTimeout,
+			bobCommitOutpoint,
+		)
+		block := mineBlocks(t, net, 1, 1)[0]
+		assertTxInBlock(t, block, &bobCommitSweep)
+	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = waitForNumChannelPendingForceClose(ctxt, bob, 0, nil)
 	require.NoError(t.t, err)

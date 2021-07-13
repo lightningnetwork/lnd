@@ -187,8 +187,9 @@ func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
 
 	// Bob's force close transaction should now be found in the mempool. If
 	// there are anchors, we also expect Bob's anchor sweep.
+	hasAnchors := commitTypeHasAnchors(c)
 	expectedTxes := 1
-	if c == lnrpc.CommitmentType_ANCHORS {
+	if hasAnchors {
 		expectedTxes = 2
 	}
 
@@ -251,19 +252,25 @@ func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
 		require.NoError(t.t, err)
 	}
 
+	switch c {
 	// With the closing transaction confirmed, we should expect Bob's HTLC
 	// timeout transactions to be broadcast due to the expiry being reached.
 	// We will also expect the success transactions, since he learnt the
 	// preimages from Alice. We also expect Carol to sweep her commitment
 	// output.
-	expectedTxes = 2*numInvoices + 1
+	case lnrpc.CommitmentType_LEGACY:
+		expectedTxes = 2*numInvoices + 1
 
 	// In case of anchors, all success transactions will be aggregated into
 	// one, the same is the case for the timeout transactions. In this case
-	// Carol will also sweep her anchor output in a separate tx (since it
-	// will be low fee).
-	if c == lnrpc.CommitmentType_ANCHORS {
+	// Carol will also sweep her commitment and anchor output as separate
+	// txs (since it will be low fee).
+	case lnrpc.CommitmentType_ANCHORS,
+		lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
 		expectedTxes = 4
+
+	default:
+		t.Fatalf("unhandled commitment type %v", c)
 	}
 
 	txes, err := getNTxsFromMempool(
@@ -298,7 +305,7 @@ func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
 	// In case of anchor we expect all the timeout and success second
 	// levels to be aggregated into one tx. For earlier channel types, they
 	// will be separate transactions.
-	if c == lnrpc.CommitmentType_ANCHORS {
+	if hasAnchors {
 		require.Len(t.t, timeoutTxs, 1)
 		require.Len(t.t, successTxs, 1)
 	} else {
@@ -341,47 +348,75 @@ func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
 	)
 	require.NoError(t.t, err)
 
-	// If we then mine additional blocks, Bob can sweep his commitment
-	// output.
-	_, err = net.Miner.Client.Generate(defaultCSV - 2)
-	require.NoError(t.t, err)
+	if c != lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
+		// If we then mine additional blocks, Bob can sweep his commitment
+		// output.
+		_, err = net.Miner.Client.Generate(defaultCSV - 2)
+		require.NoError(t.t, err)
 
-	// Find the commitment sweep.
-	bobCommitSweepHash, err := waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
-	require.NoError(t.t, err)
-	bobCommitSweep, err := net.Miner.Client.GetRawTransaction(bobCommitSweepHash)
-	require.NoError(t.t, err)
+		// Find the commitment sweep.
+		bobCommitSweepHash, err := waitForTxInMempool(
+			net.Miner.Client, minerMempoolTimeout,
+		)
+		require.NoError(t.t, err)
+		bobCommitSweep, err := net.Miner.Client.GetRawTransaction(
+			bobCommitSweepHash,
+		)
+		require.NoError(t.t, err)
 
-	require.Equal(
-		t.t, closeTxid, bobCommitSweep.MsgTx().TxIn[0].PreviousOutPoint.Hash,
-	)
+		require.Equal(
+			t.t, closeTxid,
+			bobCommitSweep.MsgTx().TxIn[0].PreviousOutPoint.Hash,
+		)
 
-	// Also ensure it is not spending from any of the HTLC output.
-	for _, txin := range bobCommitSweep.MsgTx().TxIn {
-		for _, timeoutTx := range timeoutTxs {
-			if *timeoutTx == txin.PreviousOutPoint.Hash {
-				t.Fatalf("found unexpected spend of timeout tx")
+		// Also ensure it is not spending from any of the HTLC output.
+		for _, txin := range bobCommitSweep.MsgTx().TxIn {
+			for _, timeoutTx := range timeoutTxs {
+				if *timeoutTx == txin.PreviousOutPoint.Hash {
+					t.Fatalf("found unexpected spend of " +
+						"timeout tx")
+				}
 			}
-		}
 
-		for _, successTx := range successTxs {
-			if *successTx == txin.PreviousOutPoint.Hash {
-				t.Fatalf("found unexpected spend of success tx")
+			for _, successTx := range successTxs {
+				if *successTx == txin.PreviousOutPoint.Hash {
+					t.Fatalf("found unexpected spend of " +
+						"success tx")
+				}
 			}
 		}
 	}
 
-	switch {
+	switch c {
+	// In case this is a non-anchor channel type, we must mine 2 blocks, as
+	// the nursery waits an extra block before sweeping. Before the blocks
+	// are mined, we should expect to see Bob's commit sweep in the mempool.
+	case lnrpc.CommitmentType_LEGACY:
+		_ = mineBlocks(t, net, 2, 1)
 
 	// Mining one additional block, Bob's second level tx is mature, and he
-	// can sweep the output.
-	case c == lnrpc.CommitmentType_ANCHORS:
+	// can sweep the output. Before the blocks are mined, we should expect
+	// to see Bob's commit sweep in the mempool.
+	case lnrpc.CommitmentType_ANCHORS:
 		_ = mineBlocks(t, net, 1, 1)
 
-	// In case this is a non-anchor channel type, we must mine 2 blocks, as
-	// the nursery waits an extra block before sweeping.
+	// Since Bob is the initiator of the Bob-Carol script-enforced leased
+	// channel, he incurs an additional CLTV when sweeping outputs back to
+	// his wallet. We'll need to mine enough blocks for the timelock to
+	// expire to prompt his broadcast.
+	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
+		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+		resp, err := bob.PendingChannels(
+			ctxt, &lnrpc.PendingChannelsRequest{},
+		)
+		require.NoError(t.t, err)
+		require.Len(t.t, resp.PendingForceClosingChannels, 1)
+		forceCloseChan := resp.PendingForceClosingChannels[0]
+		require.Positive(t.t, forceCloseChan.BlocksTilMaturity)
+		_ = mineBlocks(t, net, uint32(forceCloseChan.BlocksTilMaturity), 0)
+
 	default:
-		_ = mineBlocks(t, net, 2, 1)
+		t.Fatalf("unhandled commitment type %v", c)
 	}
 
 	bobSweep, err := waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)

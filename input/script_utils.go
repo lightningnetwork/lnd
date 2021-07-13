@@ -726,6 +726,78 @@ func SecondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
 	return builder.Script()
 }
 
+// LeaseSecondLevelHtlcScript is the uniform script that's used as the output for
+// the second-level HTLC transactions. The second level transaction acts as a
+// sort of covenant, ensuring that a 2-of-2 multi-sig output can only be
+// spent in a particular way, and to a particular output.
+//
+// Possible Input Scripts:
+//  * To revoke an HTLC output that has been transitioned to the claim+delay
+//    state:
+//    * <revoke sig> 1
+//
+//  * To claim an HTLC output, either with a pre-image or due to a timeout:
+//    * <delay sig> 0
+//
+// OP_IF
+//     <revoke key>
+// OP_ELSE
+//     <lease maturity in blocks>
+//     OP_CHECKLOCKTIMEVERIFY
+//     OP_DROP
+//     <delay in blocks>
+//     OP_CHECKSEQUENCEVERIFY
+//     OP_DROP
+//     <delay key>
+// OP_ENDIF
+// OP_CHECKSIG
+func LeaseSecondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
+	csvDelay, cltvExpiry uint32) ([]byte, error) {
+
+	builder := txscript.NewScriptBuilder()
+
+	// If this is the revocation clause for this script is to be executed,
+	// the spender will push a 1, forcing us to hit the true clause of this
+	// if statement.
+	builder.AddOp(txscript.OP_IF)
+
+	// If this this is the revocation case, then we'll push the revocation
+	// public key on the stack.
+	builder.AddData(revocationKey.SerializeCompressed())
+
+	// Otherwise, this is either the sender or receiver of the HTLC
+	// attempting to claim the HTLC output.
+	builder.AddOp(txscript.OP_ELSE)
+
+	// The channel initiator always has the additional channel lease
+	// expiration constraint for outputs that pay to them which must be
+	// satisfied.
+	builder.AddInt64(int64(cltvExpiry))
+	builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
+	builder.AddOp(txscript.OP_DROP)
+
+	// In order to give the other party time to execute the revocation
+	// clause above, we require a relative timeout to pass before the
+	// output can be spent.
+	builder.AddInt64(int64(csvDelay))
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_DROP)
+
+	// If the relative timelock passes, then we'll add the delay key to the
+	// stack to ensure that we properly authenticate the spending party.
+	builder.AddData(delayKey.SerializeCompressed())
+
+	// Close out the if statement.
+	builder.AddOp(txscript.OP_ENDIF)
+
+	// In either case, we'll ensure that only either the party possessing
+	// the revocation private key, or the delay private key is able to
+	// spend this output.
+	builder.AddOp(txscript.OP_CHECKSIG)
+
+	return builder.Script()
+}
+
 // HtlcSpendSuccess spends a second-level HTLC output. This function is to be
 // used by the sender of an HTLC to claim the output after a relative timeout
 // or the receiver of the HTLC to claim on-chain with the pre-image.
@@ -889,6 +961,66 @@ func CommitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) 
 	return builder.Script()
 }
 
+// LeaseCommitScriptToSelf constructs the public key script for the output on the
+// commitment transaction paying to the "owner" of said commitment transaction.
+// If the other party learns of the preimage to the revocation hash, then they
+// can claim all the settled funds in the channel, plus the unsettled funds.
+//
+// Possible Input Scripts:
+//     REVOKE:     <sig> 1
+//     SENDRSWEEP: <sig> <emptyvector>
+//
+// Output Script:
+//     OP_IF
+//         <revokeKey>
+//     OP_ELSE
+//         <absoluteLeaseExpiry> OP_CHECKLOCKTIMEVERIFY OP_DROP
+//         <numRelativeBlocks> OP_CHECKSEQUENCEVERIFY OP_DROP
+//         <timeKey>
+//     OP_ENDIF
+//     OP_CHECKSIG
+func LeaseCommitScriptToSelf(selfKey, revokeKey *btcec.PublicKey,
+	csvTimeout, leaseExpiry uint32) ([]byte, error) {
+
+	// This script is spendable under two conditions: either the
+	// 'csvTimeout' has passed and we can redeem our funds, or they can
+	// produce a valid signature with the revocation public key. The
+	// revocation public key will *only* be known to the other party if we
+	// have divulged the revocation hash, allowing them to homomorphically
+	// derive the proper private key which corresponds to the revoke public
+	// key.
+	builder := txscript.NewScriptBuilder()
+
+	builder.AddOp(txscript.OP_IF)
+
+	// If a valid signature using the revocation key is presented, then
+	// allow an immediate spend provided the proper signature.
+	builder.AddData(revokeKey.SerializeCompressed())
+
+	builder.AddOp(txscript.OP_ELSE)
+
+	// Otherwise, we can re-claim our funds after once the CLTV lease
+	// maturity has been met, along with the CSV delay of 'csvTimeout'
+	// timeout blocks, and a valid signature.
+	builder.AddInt64(int64(leaseExpiry))
+	builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
+	builder.AddOp(txscript.OP_DROP)
+
+	builder.AddInt64(int64(csvTimeout))
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_DROP)
+
+	builder.AddData(selfKey.SerializeCompressed())
+
+	builder.AddOp(txscript.OP_ENDIF)
+
+	// Finally, we'll validate the signature against the public key that's
+	// left on the top of the stack.
+	builder.AddOp(txscript.OP_CHECKSIG)
+
+	return builder.Script()
+}
+
 // CommitSpendTimeout constructs a valid witness allowing the owner of a
 // particular commitment transaction to spend the output returning settled
 // funds back to themselves after a relative block timeout.  In order to
@@ -1027,6 +1159,40 @@ func CommitScriptToRemoteConfirmed(key *btcec.PublicKey) ([]byte, error) {
 	builder.AddOp(txscript.OP_CHECKSIGVERIFY)
 
 	// Check that the it has one confirmation.
+	builder.AddOp(txscript.OP_1)
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+
+	return builder.Script()
+}
+
+// LeaseCommitScriptToRemoteConfirmed constructs the script for the output on
+// the commitment transaction paying to the remote party of said commitment
+// transaction. The money can only be spend after one confirmation.
+//
+// Possible Input Scripts:
+//     SWEEP: <sig>
+//
+// Output Script:
+//	<key> OP_CHECKSIGVERIFY
+//      <lease maturity in blocks> OP_CHECKLOCKTIMEVERIFY OP_DROP
+//	1 OP_CHECKSEQUENCEVERIFY
+func LeaseCommitScriptToRemoteConfirmed(key *btcec.PublicKey,
+	leaseExpiry uint32) ([]byte, error) {
+
+	builder := txscript.NewScriptBuilder()
+
+	// Only the given key can spend the output.
+	builder.AddData(key.SerializeCompressed())
+	builder.AddOp(txscript.OP_CHECKSIGVERIFY)
+
+	// The channel initiator always has the additional channel lease
+	// expiration constraint for outputs that pay to them which must be
+	// satisfied.
+	builder.AddInt64(int64(leaseExpiry))
+	builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
+	builder.AddOp(txscript.OP_DROP)
+
+	// Check that it has one confirmation.
 	builder.AddOp(txscript.OP_1)
 	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
 

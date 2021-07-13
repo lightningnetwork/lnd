@@ -258,6 +258,17 @@ const (
 	//      - OP_CHECKSIG: 1 byte
 	ToLocalScriptSize = 1 + 1 + 33 + 1 + 1 + 4 + 1 + 1 + 1 + 33 + 1 + 1
 
+	// LeaseWitnessScriptSizeOverhead represents the size overhead in bytes
+	// of the witness scripts used within script enforced lease commitments.
+	// This overhead results from the additional CLTV clause required to
+	// spend.
+	//
+	//	- OP_DATA: 1 byte
+	// 	- lease_expiry: 4 bytes
+	// 	- OP_CHECKLOCKTIMEVERIFY: 1 byte
+	// 	- OP_DROP: 1 byte
+	LeaseWitnessScriptSizeOverhead = 1 + 4 + 1 + 1
+
 	// ToLocalTimeoutWitnessSize 156 bytes
 	//      - number_of_witness_elements: 1 byte
 	//      - local_delay_sig_length: 1 byte

@@ -2,24 +2,19 @@
 
 The `fuzz` package is organized into subpackages which are named after the `lnd` package they test. Each subpackage has its own set of fuzz targets.
 
-### Setup and Installation ###
-This section will cover setup and installation of `go-fuzz` and fuzzing binaries.
+## Setup and Installation ##
+This section will cover setup and installation of the fuzzing binaries.
 
-* First, we must get `go-fuzz`.
+* The following is a command to build all fuzzing harnesses:
 ```shell
-⛰  go get -u github.com/dvyukov/go-fuzz/...
-```
-* The following is a command to build all fuzzing harnesses for a specific package.
-```shell
-⛰  cd fuzz/<package>
-⛰  find * -maxdepth 1 -regex '[A-Za-z0-9\-_.]'* -not -name fuzz_utils.go | sed 's/\.go$//1' | xargs -I % sh -c 'go-fuzz-build -func Fuzz_% -o <package>-%-fuzz.zip github.com/lightningnetwork/lnd/fuzz/<package>'
+⛰  make fuzz-build
 ```
 
 * This may take a while since this will create zip files associated with each fuzzing target.
 
-* Now, run `go-fuzz` with `workdir` set as below!
+* The following is a command to run all fuzzing harnesses for 30 seconds:
 ```shell
-⛰  go-fuzz -bin=<.zip archive here> -workdir=<harness> -procs=<num workers>
+⛰  make fuzz-run
 ```
 
 `go-fuzz` will print out log lines every couple of seconds. Example output:
@@ -28,27 +23,21 @@ This section will cover setup and installation of `go-fuzz` and fuzzing binaries
 ```
 Corpus is the number of items in the corpus. `go-fuzz` may add valid inputs to
 the corpus in an attempt to gain more coverage. Crashers is the number of inputs
-resulting in a crash. The inputs, and their outputs are logged in:
+resulting in a crash. The inputs, and their outputs are logged by default in:
 `fuzz/<package>/<harness>/crashers`. `go-fuzz` also creates a `suppressions` directory
 of stacktraces to ignore so that it doesn't create duplicate stacktraces.
 Cover is a number representing edge coverage of the program being fuzzed.
 
-### Brontide ###
-The brontide fuzzers need to be run with a `-timeout` flag of 20 seconds or greater since there is a lot of machine state that must be printed on panic. 
+## Options ##
+Several parameters can be appended to the end of the make commands to tune the build process or the way the fuzzer runs.
+- `run_time` specifies how long each fuzz harness runs for. The default is 30 seconds.
+- `timeout` specifies how long an individual testcase can run before raising an error. The default is 20 seconds.
+- `processes` specifies the number of parallel processes to use while running the harnesses.
+- `pkg` specifies the `lnd` packages to build or fuzz. The default is to build and run all available packages (`brontide lnwire wtwire zpay32`). This can be changed to build/run against individual packages.
+- `base_workdir` specifies the workspace of the fuzzer. This folder will contain the corpus, crashers, and suppressions.
 
-### Corpus ###
-Fuzzing generally works best with a corpus that is of minimal size while achieving the maximum coverage. However, `go-fuzz` automatically minimizes the corpus in-memory before fuzzing so a large corpus shouldn't make a difference - edge coverage is all that really matters.
+## Corpus ##
+Fuzzing generally works best with a corpus that is of minimal size while achieving the maximum coverage. `go-fuzz` automatically minimizes the corpus in-memory before fuzzing so a large corpus shouldn't make a difference.
 
-### Test Harness ###
-If you take a look at the test harnesses that are used, you will see that they all consist of one function: 
-```go
-func Fuzz(data []byte) int
-```
-If:
-
-- `-1` is returned, the fuzzing input is ignored
-- `0` is returned, `go-fuzz` will add the input to the corpus and deprioritize it in future mutations.
-- `1` is returned, `go-fuzz` will add the input to the corpus and prioritize it in future mutations.
-
-### Conclusion ###
-Citizens, do your part and `go-fuzz` `lnd` today!
+## Disclosure ##
+If you find any crashers that affect LND security, please disclose with the information found [here](https://github.com/lightningnetwork/lnd/#security).

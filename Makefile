@@ -9,6 +9,7 @@ GOACC_PKG := github.com/ory/go-acc
 GOIMPORTS_PKG := golang.org/x/tools/cmd/goimports
 GOFUZZ_BUILD_PKG := github.com/dvyukov/go-fuzz/go-fuzz-build
 GOFUZZ_PKG := github.com/dvyukov/go-fuzz/go-fuzz
+GOFUZZ_DEP_PKG := github.com/dvyukov/go-fuzz/go-fuzz-dep
 
 GO_BIN := ${GOPATH}/bin
 BTCD_BIN := $(GO_BIN)/btcd
@@ -36,7 +37,7 @@ BTCD_COMMIT := $(shell cat go.mod | \
 
 LINT_COMMIT := v1.18.0
 GOACC_COMMIT :=80342ae2e0fcf265e99e76bcc4efd022c7c3811b 
-GOFUZZ_COMMIT := 21309f307f61
+GOFUZZ_COMMIT := b1f3d6f
 
 DEPGET := cd /tmp && GO111MODULE=on go get -v
 GOBUILD := GO111MODULE=on go build -v
@@ -80,6 +81,8 @@ LINT_WORKERS = --concurrency=$(workers)
 endif
 
 LINT = $(LINT_BIN) run -v $(LINT_WORKERS)
+
+GOFUZZ_DEP_PKG_FETCH = go get -v $(GOFUZZ_DEP_PKG)@$(GOFUZZ_COMMIT)
 
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
@@ -236,6 +239,8 @@ flakehunter-parallel:
 # FUZZING
 # =============
 fuzz-build: $(GOFUZZ_BUILD_BIN)
+	@$(call print, "Fetching go-fuzz-dep package")
+	$(GOFUZZ_DEP_PKG_FETCH)
 	@$(call print, "Creating fuzz harnesses for packages '$(FUZZPKG)'.")
 	scripts/fuzz.sh build "$(FUZZPKG)"
 

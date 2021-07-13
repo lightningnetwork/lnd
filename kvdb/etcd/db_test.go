@@ -38,7 +38,7 @@ func TestCopy(t *testing.T) {
 	require.Nil(t, err)
 
 	expected := map[string]string{
-		BucketKey("apple"):        BucketVal("apple"),
+		BucketKey("apple"):       BucketVal("apple"),
 		ValueKey("key", "apple"): "val",
 	}
 	require.Equal(t, expected, f.Dump())
@@ -62,12 +62,12 @@ func TestAbortContext(t *testing.T) {
 	// Expect that the update will fail.
 	err = db.Update(func(tx walletdb.ReadWriteTx) error {
 		_, err := tx.CreateTopLevelBucket([]byte("bucket"))
-		require.Error(t, err, "context canceled")
+		require.Equal(t, err, "context canceled")
 
 		return nil
 	}, func() {})
 
-	require.Error(t, err, "context canceled")
+	require.Equal(t, err, "context canceled")
 
 	// No changes in the DB.
 	require.Equal(t, map[string]string{}, f.Dump())

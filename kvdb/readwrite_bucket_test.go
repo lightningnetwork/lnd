@@ -13,12 +13,12 @@ func testBucketCreation(t *testing.T, db walletdb.DB) {
 	err := Update(db, func(tx walletdb.ReadWriteTx) error {
 		// empty bucket name
 		b, err := tx.CreateTopLevelBucket(nil)
-		require.Error(t, walletdb.ErrBucketNameRequired, err)
+		require.Equal(t, walletdb.ErrBucketNameRequired, err)
 		require.Nil(t, b)
 
 		// empty bucket name
 		b, err = tx.CreateTopLevelBucket([]byte(""))
-		require.Error(t, walletdb.ErrBucketNameRequired, err)
+		require.Equal(t, walletdb.ErrBucketNameRequired, err)
 		require.Nil(t, b)
 
 		// "apple"
@@ -45,7 +45,7 @@ func testBucketCreation(t *testing.T, db walletdb.DB) {
 
 		// Try creating "apple/banana" again
 		b, err = apple.CreateBucket([]byte("banana"))
-		require.Error(t, walletdb.ErrBucketExists, err)
+		require.Equal(t, walletdb.ErrBucketExists, err)
 		require.Nil(t, b)
 
 		// "apple/mango"
@@ -97,8 +97,8 @@ func testBucketDeletion(t *testing.T, db walletdb.DB) {
 		require.NoError(t, banana.Delete([]byte("key2")))
 		// Try getting/putting/deleting invalid k/v's.
 		require.Nil(t, banana.Get(nil))
-		require.Error(t, walletdb.ErrKeyRequired, banana.Put(nil, []byte("val")))
-		require.Error(t, walletdb.ErrKeyRequired, banana.Delete(nil))
+		require.Equal(t, walletdb.ErrKeyRequired, banana.Put(nil, []byte("val")))
+		require.NoError(t, banana.Delete(nil))
 
 		// Try deleting a k/v that doesn't exist.
 		require.NoError(t, banana.Delete([]byte("nokey")))
@@ -134,12 +134,12 @@ func testBucketDeletion(t *testing.T, db walletdb.DB) {
 		}
 
 		// Try deleting some invalid buckets.
-		require.Error(t,
-			walletdb.ErrBucketNameRequired, apple.DeleteNestedBucket(nil),
+		require.Equal(t,
+			walletdb.ErrBucketNotFound, apple.DeleteNestedBucket(nil),
 		)
 
 		// Try deleting a non existing bucket.
-		require.Error(
+		require.Equal(
 			t,
 			walletdb.ErrBucketNotFound,
 			apple.DeleteNestedBucket([]byte("missing")),
@@ -347,18 +347,18 @@ func testKeyClash(t *testing.T, db walletdb.DB) {
 		require.Nil(t, err)
 		require.NotNil(t, apple)
 
-		require.Error(t,
+		require.Equal(t,
 			walletdb.ErrIncompatibleValue,
 			apple.Put([]byte("banana"), []byte("val")),
 		)
 
 		b, err := apple.CreateBucket([]byte("key"))
 		require.Nil(t, b)
-		require.Error(t, walletdb.ErrIncompatibleValue, b)
+		require.Equal(t, walletdb.ErrIncompatibleValue, err)
 
 		b, err = apple.CreateBucketIfNotExists([]byte("key"))
 		require.Nil(t, b)
-		require.Error(t, walletdb.ErrIncompatibleValue, b)
+		require.Equal(t, walletdb.ErrIncompatibleValue, err)
 
 		return nil
 	}, func() {})

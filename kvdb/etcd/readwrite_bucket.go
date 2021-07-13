@@ -207,9 +207,8 @@ func (b *readWriteBucket) CreateBucketIfNotExists(key []byte) (
 // pointed to by the passed key. All values in the bucket and sub-buckets
 // will be deleted as well.
 func (b *readWriteBucket) DeleteNestedBucket(key []byte) error {
-	// TODO shouldn't empty key return ErrBucketNameRequired ?
 	if len(key) == 0 {
-		return walletdb.ErrIncompatibleValue
+		return walletdb.ErrBucketNotFound
 	}
 
 	// Get the bucket first.

@@ -48,6 +48,10 @@ type ContractResolver interface {
 	// NOTE: This function MUST be run as a goroutine.
 	Resolve() (ContractResolver, error)
 
+	// SupplementState allows the user of a ContractResolver to supplement
+	// it with state required for the proper resolution of a contract.
+	SupplementState(*channeldb.OpenChannel)
+
 	// IsResolved returns true if the stored state in the resolve is fully
 	// resolved. In this case the target output can be forgotten.
 	IsResolved() bool

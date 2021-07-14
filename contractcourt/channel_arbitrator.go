@@ -158,6 +158,11 @@ type ChannelArbitratorConfig struct {
 	PutResolverReport func(tx kvdb.RwTx,
 		report *channeldb.ResolverReport) error
 
+	// FetchHistoricalChannel retrieves the historical state of a channel.
+	// This is mostly used to supplement the ContractResolvers with
+	// additional information required for proper contract resolution.
+	FetchHistoricalChannel func() (*channeldb.OpenChannel, error)
+
 	ChainArbitratorConfig
 }
 
@@ -604,10 +609,20 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 		htlcMap[outpoint] = &htlc
 	}
 
+	// We'll also fetch the historical state of this channel, as it should
+	// have been marked as closed by now, and supplement it to each resolver
+	// such that we can properly resolve our pending contracts.
+	chanState, err := c.cfg.FetchHistoricalChannel()
+	if err != nil {
+		return err
+	}
+
 	log.Infof("ChannelArbitrator(%v): relaunching %v contract "+
 		"resolvers", c.cfg.ChanPoint, len(unresolvedContracts))
 
 	for _, resolver := range unresolvedContracts {
+		resolver.SupplementState(chanState)
+
 		htlcResolver, ok := resolver.(htlcContractResolver)
 		if !ok {
 			continue
@@ -1912,6 +1927,14 @@ func (c *ChannelArbitrator) prepContractResolutions(
 		return nil, nil, err
 	}
 
+	// We'll also fetch the historical state of this channel, as it should
+	// have been marked as closed by now, and supplement it to each resolver
+	// such that we can properly resolve our pending contracts.
+	chanState, err := c.cfg.FetchHistoricalChannel()
+	if err != nil {
+		return nil, nil, err
+	}
+
 	// There may be a class of HTLC's which we can fail back immediately,
 	// for those we'll prepare a slice of packets to add to our outbox. Any
 	// packets we need to send, will be cancels.
@@ -2017,6 +2040,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				resolver := newTimeoutResolver(
 					resolution, height, htlc, resolverCfg,
 				)
+				resolver.SupplementState(chanState)
 				htlcResolvers = append(htlcResolvers, resolver)
 			}
 
@@ -2073,6 +2097,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				resolver := newOutgoingContestResolver(
 					resolution, height, htlc, resolverCfg,
 				)
+				resolver.SupplementState(chanState)
 				htlcResolvers = append(htlcResolvers, resolver)
 			}
 		}
@@ -2083,9 +2108,10 @@ func (c *ChannelArbitrator) prepContractResolutions(
 	// trimmed).
 	if contractResolutions.CommitResolution != nil {
 		resolver := newCommitSweepResolver(
-			*contractResolutions.CommitResolution,
-			height, c.cfg.ChanPoint, resolverCfg,
+			*contractResolutions.CommitResolution, height,
+			c.cfg.ChanPoint, resolverCfg,
 		)
+		resolver.SupplementState(chanState)
 		htlcResolvers = append(htlcResolvers, resolver)
 	}
 

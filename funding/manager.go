@@ -1364,6 +1364,28 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	}
 	reservation.SetOurUpfrontShutdown(shutdown)
 
+	// If a script enforced channel lease is being proposed, we'll need to
+	// validate its custom TLV records.
+	if commitType == lnwallet.CommitmentTypeScriptEnforcedLease {
+		if msg.LeaseExpiry == nil {
+			err := errors.New("missing lease expiry")
+			f.failFundingFlow(peer, msg.PendingChannelID, err)
+			return
+		}
+
+		// If we had a shim registered for this channel prior to
+		// receiving its corresponding OpenChannel message, then we'll
+		// validate the proposed LeaseExpiry against what was registered
+		// in our shim.
+		if reservation.LeaseExpiry() != 0 {
+			if uint32(*msg.LeaseExpiry) != reservation.LeaseExpiry() {
+				err := errors.New("lease expiry mismatch")
+				f.failFundingFlow(peer, msg.PendingChannelID, err)
+				return
+			}
+		}
+	}
+
 	log.Infof("Requiring %v confirmations for pendingChan(%x): "+
 		"amt=%v, push_amt=%v, committype=%v, upfrontShutdown=%x", numConfsReq,
 		msg.PendingChannelID, amt, msg.PushAmount,
@@ -1499,6 +1521,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		FirstCommitmentPoint:  ourContribution.FirstCommitmentPoint,
 		UpfrontShutdownScript: ourContribution.UpfrontShutdown,
 		ChannelType:           msg.ChannelType,
+		LeaseExpiry:           msg.LeaseExpiry,
 	}
 
 	if err := peer.SendMessage(true, &fundingAccept); err != nil {
@@ -1530,11 +1553,12 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 	log.Infof("Recv'd fundingResponse for pending_id(%x)",
 		pendingChanID[:])
 
-	// We'll want to quickly check that ChannelType echoed by the channel
-	// request recipient matches what we proposed.
+	// Perform some basic validation of any custom TLV records included.
 	//
 	// TODO: Return errors as funding.Error to give context to remote peer?
 	if resCtx.channelType != nil {
+		// We'll want to quickly check that the ChannelType echoed by
+		// the channel request recipient matches what we proposed.
 		if msg.ChannelType == nil {
 			err := errors.New("explicit channel type not echoed back")
 			f.failFundingFlow(peer, msg.PendingChannelID, err)
@@ -1546,6 +1570,21 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 			err := errors.New("channel type mismatch")
 			f.failFundingFlow(peer, msg.PendingChannelID, err)
 			return
+		}
+
+		// We'll want to do the same with the LeaseExpiry if one should
+		// be set.
+		if resCtx.reservation.LeaseExpiry() != 0 {
+			if msg.LeaseExpiry == nil {
+				err := errors.New("lease expiry not echoed back")
+				f.failFundingFlow(peer, msg.PendingChannelID, err)
+				return
+			}
+			if uint32(*msg.LeaseExpiry) != resCtx.reservation.LeaseExpiry() {
+				err := errors.New("lease expiry mismatch")
+				f.failFundingFlow(peer, msg.PendingChannelID, err)
+				return
+			}
 		}
 	} else if msg.ChannelType != nil {
 		err := errors.New("received unexpected channel type")
@@ -3206,9 +3245,8 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 
 	// For anchor channels cap the initial commit fee rate at our defined
 	// maximum.
-	if commitType == lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx &&
+	if commitType.HasAnchors() &&
 		commitFeePerKw > f.cfg.MaxAnchorsCommitFeeRate {
-
 		commitFeePerKw = f.cfg.MaxAnchorsCommitFeeRate
 	}
 
@@ -3311,6 +3349,14 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	// remote party.
 	chanReserve := f.cfg.RequiredRemoteChanReserve(capacity, ourDustLimit)
 
+	// When opening a script enforced channel lease, include the required
+	// expiry TLV record in our proposal.
+	var leaseExpiry *lnwire.LeaseExpiry
+	if commitType == lnwallet.CommitmentTypeScriptEnforcedLease {
+		leaseExpiry = new(lnwire.LeaseExpiry)
+		*leaseExpiry = lnwire.LeaseExpiry(reservation.LeaseExpiry())
+	}
+
 	log.Infof("Starting funding workflow with %v for pending_id(%x), "+
 		"committype=%v", msg.Peer.Address(), chanID, commitType)
 
@@ -3335,6 +3381,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		ChannelFlags:          channelFlags,
 		UpfrontShutdownScript: shutdown,
 		ChannelType:           msg.ChannelType,
+		LeaseExpiry:           leaseExpiry,
 	}
 	if err := msg.Peer.SendMessage(true, &fundingOpen); err != nil {
 		e := fmt.Errorf("unable to send funding request message: %v",

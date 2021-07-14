@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"sync"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -43,6 +44,19 @@ type commitSweepResolver struct {
 	// chanPoint is the channel point of the original contract.
 	chanPoint wire.OutPoint
 
+	// channelInitiator denotes whether the party responsible for resolving
+	// the contract initiated the channel.
+	channelInitiator bool
+
+	// leaseExpiry denotes the additional waiting period the contract must
+	// hold until it can be resolved. This waiting period is known as the
+	// expiration of a script-enforced leased channel and only applies to
+	// the channel initiator.
+	//
+	// NOTE: This value should only be set when the contract belongs to a
+	// leased channel.
+	leaseExpiry uint32
+
 	// currentReport stores the current state of the resolver for reporting
 	// over the rpc interface.
 	currentReport ContractReport
@@ -55,8 +69,8 @@ type commitSweepResolver struct {
 
 // newCommitSweepResolver instantiates a new direct commit output resolver.
 func newCommitSweepResolver(res lnwallet.CommitOutputResolution,
-	broadcastHeight uint32,
-	chanPoint wire.OutPoint, resCfg ResolverConfig) *commitSweepResolver {
+	broadcastHeight uint32, chanPoint wire.OutPoint,
+	resCfg ResolverConfig) *commitSweepResolver {
 
 	r := &commitSweepResolver{
 		contractResolverKit: *newContractResolverKit(resCfg),
@@ -181,7 +195,14 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		return nil, err
 	}
 
+	// Wait up until the CSV expires, unless we also have a CLTV that
+	// expires after.
 	unlockHeight := confHeight + c.commitResolution.MaturityDelay
+	if c.hasCLTV() {
+		unlockHeight = uint32(math.Max(
+			float64(unlockHeight), float64(c.leaseExpiry),
+		))
+	}
 
 	c.log.Debugf("commit conf_height=%v, unlock_height=%v",
 		confHeight, unlockHeight)
@@ -191,14 +212,34 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	c.currentReport.MaturityHeight = unlockHeight
 	c.reportLock.Unlock()
 
-	// If there is a csv delay, we'll wait for that.
-	if c.commitResolution.MaturityDelay > 0 {
-		c.log.Debugf("waiting for csv lock to expire at height %v",
-			unlockHeight)
+	// If there is a csv/cltv lock, we'll wait for that.
+	if c.commitResolution.MaturityDelay > 0 || c.hasCLTV() {
+		// Determine what height we should wait until for the locks to
+		// expire.
+		var waitHeight uint32
+		switch {
+		// If we have both a csv and cltv lock, we'll need to look at
+		// both and see which expires later.
+		case c.commitResolution.MaturityDelay > 0 && c.hasCLTV():
+			c.log.Debugf("waiting for CSV and CLTV lock to expire "+
+				"at height %v", unlockHeight)
+			// If the CSV expires after the CLTV, or there is no
+			// CLTV, then we can broadcast a sweep a block before.
+			// Otherwise, we need to broadcast at our expected
+			// unlock height.
+			waitHeight = uint32(math.Max(
+				float64(unlockHeight-1), float64(c.leaseExpiry),
+			))
 
-		// We only need to wait for the block before the block that
-		// unlocks the spend path.
-		err := waitForHeight(unlockHeight-1, c.Notifier, c.quit)
+		// If we only have a csv lock, wait for the height before the
+		// lock expires as the spend path should be unlocked by then.
+		case c.commitResolution.MaturityDelay > 0:
+			c.log.Debugf("waiting for CSV lock to expire at "+
+				"height %v", unlockHeight)
+			waitHeight = unlockHeight - 1
+		}
+
+		err := waitForHeight(waitHeight, c.Notifier, c.quit)
 		if err != nil {
 			return nil, err
 		}
@@ -222,9 +263,19 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	var witnessType input.WitnessType
 	switch {
 
+	// Delayed output to us on our local commitment for a channel lease in
+	// which we are the initiator.
+	case isLocalCommitTx && c.hasCLTV():
+		witnessType = input.LeaseCommitmentTimeLock
+
 	// Delayed output to us on our local commitment.
 	case isLocalCommitTx:
 		witnessType = input.CommitmentTimeLock
+
+	// A confirmed output to us on the remote commitment for a channel lease
+	// in which we are the initiator.
+	case isDelayedOutput && c.hasCLTV():
+		witnessType = input.LeaseCommitmentToRemoteConfirmed
 
 	// A confirmed output to us on the remote commitment.
 	case isDelayedOutput:
@@ -246,13 +297,21 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	// We'll craft an input with all the information required for
 	// the sweeper to create a fully valid sweeping transaction to
 	// recover these coins.
-	inp := input.NewCsvInput(
-		&c.commitResolution.SelfOutPoint,
-		witnessType,
-		&c.commitResolution.SelfOutputSignDesc,
-		c.broadcastHeight,
-		c.commitResolution.MaturityDelay,
-	)
+	var inp *input.BaseInput
+	if c.hasCLTV() {
+		inp = input.NewCsvInputWithCltv(
+			&c.commitResolution.SelfOutPoint, witnessType,
+			&c.commitResolution.SelfOutputSignDesc,
+			c.broadcastHeight, c.commitResolution.MaturityDelay,
+			c.leaseExpiry,
+		)
+	} else {
+		inp = input.NewCsvInput(
+			&c.commitResolution.SelfOutPoint, witnessType,
+			&c.commitResolution.SelfOutputSignDesc,
+			c.broadcastHeight, c.commitResolution.MaturityDelay,
+		)
+	}
 
 	// With our input constructed, we'll now offer it to the
 	// sweeper.
@@ -335,6 +394,23 @@ func (c *commitSweepResolver) Stop() {
 // NOTE: Part of the ContractResolver interface.
 func (c *commitSweepResolver) IsResolved() bool {
 	return c.resolved
+}
+
+// SupplementState allows the user of a ContractResolver to supplement it with
+// state required for the proper resolution of a contract.
+//
+// NOTE: Part of the ContractResolver interface.
+func (c *commitSweepResolver) SupplementState(state *channeldb.OpenChannel) {
+	if state.ChanType.HasLeaseExpiration() {
+		c.leaseExpiry = state.ThawHeight
+	}
+	c.channelInitiator = state.IsInitiator
+}
+
+// hasCLTV denotes whether the resolver must wait for an additional CLTV to
+// expire before resolving the contract.
+func (c *commitSweepResolver) hasCLTV() bool {
+	return c.channelInitiator && c.leaseExpiry > 0
 }
 
 // Encode writes an encoded version of the ContractResolver into the passed

@@ -379,6 +379,9 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 
 			return nil
 		},
+		FetchHistoricalChannel: func() (*channeldb.OpenChannel, error) {
+			return &channeldb.OpenChannel{}, nil
+		},
 	}
 
 	// Apply all custom options to the config struct.

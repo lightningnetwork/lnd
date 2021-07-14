@@ -192,6 +192,13 @@ func (c *anchorResolver) IsResolved() bool {
 	return c.resolved
 }
 
+// SupplementState allows the user of a ContractResolver to supplement it with
+// state required for the proper resolution of a contract.
+//
+// NOTE: Part of the ContractResolver interface.
+func (c *anchorResolver) SupplementState(_ *channeldb.OpenChannel) {
+}
+
 // report returns a report on the resolution state of the contract.
 func (c *anchorResolver) report() *ContractReport {
 	c.reportLock.Lock()

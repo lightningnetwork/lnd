@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"sync"
 
 	"github.com/btcsuite/btcd/wire"
@@ -46,6 +47,19 @@ type htlcTimeoutResolver struct {
 
 	// htlc contains information on the htlc that we are resolving on-chain.
 	htlc channeldb.HTLC
+
+	// channelInitiator denotes whether the party responsible for resolving
+	// the contract initiated the channel.
+	channelInitiator bool
+
+	// leaseExpiry denotes the additional waiting period the contract must
+	// hold until it can be resolved. This waiting period is known as the
+	// expiration of a script-enforced leased channel and only applies to
+	// the channel initiator.
+	//
+	// NOTE: This value should only be set when the contract belongs to a
+	// leased channel.
+	leaseExpiry uint32
 
 	// currentReport stores the current state of the resolver for reporting
 	// over the rpc interface. This should only be reported in case we have
@@ -429,19 +443,30 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 	switch {
 
 	// If the sweeper is handling the second level transaction, wait for
-	// the CSV lock to expire, before sweeping the output on the
-	// second-level.
+	// the CSV and possible CLTV lock to expire, before sweeping the output
+	// on the second-level.
 	case h.htlcResolution.SignDetails != nil:
 		waitHeight := uint32(commitSpend.SpendingHeight) +
 			h.htlcResolution.CsvDelay - 1
+		if h.hasCLTV() {
+			waitHeight = uint32(math.Max(
+				float64(waitHeight), float64(h.leaseExpiry),
+			))
+		}
 
 		h.reportLock.Lock()
 		h.currentReport.Stage = 2
 		h.currentReport.MaturityHeight = waitHeight
 		h.reportLock.Unlock()
 
-		log.Infof("%T(%x): waiting for CSV lock to expire at height %v",
-			h, h.htlc.RHash[:], waitHeight)
+		if h.hasCLTV() {
+			log.Infof("%T(%x): waiting for CSV and CLTV lock to "+
+				"expire at height %v", h, h.htlc.RHash[:],
+				waitHeight)
+		} else {
+			log.Infof("%T(%x): waiting for CSV lock to expire at "+
+				"height %v", h, h.htlc.RHash[:], waitHeight)
+		}
 
 		err := waitForHeight(waitHeight, h.Notifier, h.quit)
 		if err != nil {
@@ -459,16 +484,28 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 		}
 
 		// Let the sweeper sweep the second-level output now that the
-		// CSV delay has passed.
-		log.Infof("%T(%x): CSV lock expired, offering second-layer "+
-			"output to sweeper: %v", h, h.htlc.RHash[:], op)
-
-		inp := input.NewCsvInput(
-			op, input.HtlcOfferedTimeoutSecondLevel,
-			&h.htlcResolution.SweepSignDesc,
-			h.broadcastHeight,
-			h.htlcResolution.CsvDelay,
-		)
+		// CSV/CLTV locks have expired.
+		var inp *input.BaseInput
+		if h.hasCLTV() {
+			log.Infof("%T(%x): CSV and CLTV locks expired, offering "+
+				"second-layer output to sweeper: %v", h,
+				h.htlc.RHash[:], op)
+			inp = input.NewCsvInputWithCltv(
+				op, input.LeaseHtlcOfferedTimeoutSecondLevel,
+				&h.htlcResolution.SweepSignDesc,
+				h.broadcastHeight, h.htlcResolution.CsvDelay,
+				h.leaseExpiry,
+			)
+		} else {
+			log.Infof("%T(%x): CSV lock expired, offering "+
+				"second-layer output to sweeper: %v", h,
+				h.htlc.RHash[:], op)
+			inp = input.NewCsvInput(
+				op, input.HtlcOfferedTimeoutSecondLevel,
+				&h.htlcResolution.SweepSignDesc,
+				h.broadcastHeight, h.htlcResolution.CsvDelay,
+			)
+		}
 		_, err = h.Sweeper.SweepInput(
 			inp,
 			sweep.Params{
@@ -679,6 +716,23 @@ func newTimeoutResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 // NOTE: Part of the htlcContractResolver interface.
 func (h *htlcTimeoutResolver) Supplement(htlc channeldb.HTLC) {
 	h.htlc = htlc
+}
+
+// SupplementState allows the user of a ContractResolver to supplement it with
+// state required for the proper resolution of a contract.
+//
+// NOTE: Part of the ContractResolver interface.
+func (h *htlcTimeoutResolver) SupplementState(state *channeldb.OpenChannel) {
+	if state.ChanType.HasLeaseExpiration() {
+		h.leaseExpiry = state.ThawHeight
+	}
+	h.channelInitiator = state.IsInitiator
+}
+
+// hasCLTV denotes whether the resolver must wait for an additional CLTV to
+// expire before resolving the contract.
+func (h *htlcTimeoutResolver) hasCLTV() bool {
+	return h.channelInitiator && h.leaseExpiry > 0
 }
 
 // HtlcPoint returns the htlc's outpoint on the commitment tx.

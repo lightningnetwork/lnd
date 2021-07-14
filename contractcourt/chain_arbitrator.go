@@ -350,6 +350,9 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 				report,
 			)
 		},
+		FetchHistoricalChannel: func() (*channeldb.OpenChannel, error) {
+			return c.chanSource.FetchHistoricalChannel(&chanPoint)
+		},
 	}
 
 	// The final component needed is an arbitrator log that the arbitrator
@@ -557,6 +560,9 @@ func (c *ChainArbitrator) Start() error {
 				return c.chanSource.PutResolverReport(
 					tx, c.cfg.ChainHash, &chanPoint, report,
 				)
+			},
+			FetchHistoricalChannel: func() (*channeldb.OpenChannel, error) {
+				return c.chanSource.FetchHistoricalChannel(&chanPoint)
 			},
 		}
 		chanLog, err := newBoltArbitratorLog(

@@ -257,6 +257,11 @@ const (
 	// ZeroHtlcTxFeeBit indicates that the channel should use zero-fee
 	// second-level HTLC transactions.
 	ZeroHtlcTxFeeBit ChannelType = 1 << 5
+
+	// LeaseExpirationBit indicates that the channel has been leased for a
+	// period of time, constraining every output that pays to the channel
+	// initiator with an additional CLTV of the lease maturity.
+	LeaseExpirationBit ChannelType = 1 << 6
 )
 
 // IsSingleFunder returns true if the channel type if one of the known single
@@ -299,6 +304,11 @@ func (c ChannelType) ZeroHtlcTxFee() bool {
 // closure.
 func (c ChannelType) IsFrozen() bool {
 	return c&FrozenBit == FrozenBit
+}
+
+// HasLeaseExpiration returns true if the channel originated from a lease.
+func (c ChannelType) HasLeaseExpiration() bool {
+	return c&LeaseExpirationBit == LeaseExpirationBit
 }
 
 // ChannelConstraints represents a set of constraints meant to allow a node to
@@ -1363,7 +1373,7 @@ func putOpenChannel(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 
 	// Next, if this is a frozen channel, we'll add in the axillary
 	// information we need to store.
-	if channel.ChanType.IsFrozen() {
+	if channel.ChanType.IsFrozen() || channel.ChanType.HasLeaseExpiration() {
 		err := storeThawHeight(
 			chanBucket, channel.ThawHeight,
 		)
@@ -1404,7 +1414,7 @@ func fetchOpenChannel(chanBucket kvdb.RBucket,
 
 	// Next, if this is a frozen channel, we'll add in the axillary
 	// information we need to store.
-	if channel.ChanType.IsFrozen() {
+	if channel.ChanType.IsFrozen() || channel.ChanType.HasLeaseExpiration() {
 		thawHeight, err := fetchThawHeight(chanBucket)
 		if err != nil {
 			return nil, fmt.Errorf("unable to store thaw "+
@@ -2871,7 +2881,7 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary,
 
 		// We'll also remove the channel from the frozen channel bucket
 		// if we need to.
-		if c.ChanType.IsFrozen() {
+		if c.ChanType.IsFrozen() || c.ChanType.HasLeaseExpiration() {
 			err := deleteThawHeight(chanBucket)
 			if err != nil {
 				return err
@@ -3071,13 +3081,14 @@ func (c *OpenChannel) RemoteRevocationStore() (shachain.Store, error) {
 // channel is not frozen, then 0 is returned.
 func (c *OpenChannel) AbsoluteThawHeight() (uint32, error) {
 	// Only frozen channels have a thaw height.
-	if !c.ChanType.IsFrozen() {
+	if !c.ChanType.IsFrozen() && !c.ChanType.HasLeaseExpiration() {
 		return 0, nil
 	}
 
-	// If the channel's thaw height is below the absolute threshold, then
-	// it's interpreted as a relative height to the chain's current height.
-	if c.ThawHeight < AbsoluteThawHeightThreshold {
+	// If the channel has the frozen bit set and it's thaw height is below
+	// the absolute threshold, then it's interpreted as a relative height to
+	// the chain's current height.
+	if c.ChanType.IsFrozen() && c.ThawHeight < AbsoluteThawHeightThreshold {
 		// We'll only known of the channel's short ID once it's
 		// confirmed.
 		if c.IsPending {
@@ -3086,6 +3097,7 @@ func (c *OpenChannel) AbsoluteThawHeight() (uint32, error) {
 		}
 		return c.ShortChannelID.BlockHeight + c.ThawHeight, nil
 	}
+
 	return c.ThawHeight, nil
 }
 

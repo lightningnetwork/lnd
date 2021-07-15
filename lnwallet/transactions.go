@@ -44,9 +44,10 @@ var (
 // In order to spend the HTLC output, the witness for the passed transaction
 // should be:
 //   * <0> <sender sig> <recvr sig> <preimage>
-func CreateHtlcSuccessTx(chanType channeldb.ChannelType,
-	htlcOutput wire.OutPoint, htlcAmt btcutil.Amount, csvDelay uint32,
-	revocationKey, delayKey *btcec.PublicKey) (*wire.MsgTx, error) {
+func CreateHtlcSuccessTx(chanType channeldb.ChannelType, initiator bool,
+	htlcOutput wire.OutPoint, htlcAmt btcutil.Amount, csvDelay,
+	leaseExpiry uint32, revocationKey, delayKey *btcec.PublicKey) (
+	*wire.MsgTx, error) {
 
 	// Create a version two transaction (as the success version of this
 	// spends an output with a CSV timeout).
@@ -65,7 +66,8 @@ func CreateHtlcSuccessTx(chanType channeldb.ChannelType,
 	// level HTLC which forces a covenant w.r.t what can be done with all
 	// HTLC outputs.
 	script, err := SecondLevelHtlcScript(
-		revocationKey, delayKey, csvDelay,
+		chanType, initiator, revocationKey, delayKey, csvDelay,
+		leaseExpiry,
 	)
 	if err != nil {
 		return nil, err
@@ -97,9 +99,9 @@ func CreateHtlcSuccessTx(chanType channeldb.ChannelType,
 // NOTE: The passed amount for the HTLC should take into account the required
 // fee rate at the time the HTLC was created. The fee should be able to
 // entirely pay for this (tiny: 1-in 1-out) transaction.
-func CreateHtlcTimeoutTx(chanType channeldb.ChannelType,
+func CreateHtlcTimeoutTx(chanType channeldb.ChannelType, initiator bool,
 	htlcOutput wire.OutPoint, htlcAmt btcutil.Amount,
-	cltvExpiry, csvDelay uint32,
+	cltvExpiry, csvDelay, leaseExpiry uint32,
 	revocationKey, delayKey *btcec.PublicKey) (*wire.MsgTx, error) {
 
 	// Create a version two transaction (as the success version of this
@@ -123,7 +125,8 @@ func CreateHtlcTimeoutTx(chanType channeldb.ChannelType,
 	// level HTLC which forces a covenant w.r.t what can be done with all
 	// HTLC outputs.
 	script, err := SecondLevelHtlcScript(
-		revocationKey, delayKey, csvDelay,
+		chanType, initiator, revocationKey, delayKey, csvDelay,
+		leaseExpiry,
 	)
 	if err != nil {
 		return nil, err

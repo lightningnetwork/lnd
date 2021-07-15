@@ -116,6 +116,7 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 	bobDustLimit := btcutil.Amount(1300)
 	csvTimeoutAlice := uint32(5)
 	csvTimeoutBob := uint32(4)
+	isAliceInitiator := true
 
 	prevOut := &wire.OutPoint{
 		Hash:  chainhash.Hash(testHdSeed),
@@ -220,7 +221,7 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 
 	aliceCommitTx, bobCommitTx, err := CreateCommitmentTxns(
 		channelBal, channelBal, &aliceCfg, &bobCfg, aliceCommitPoint,
-		bobCommitPoint, *fundingTxIn, chanType,
+		bobCommitPoint, *fundingTxIn, chanType, isAliceInitiator, 0,
 	)
 	if err != nil {
 		return nil, nil, nil, err
@@ -315,7 +316,7 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 		FundingOutpoint:         *prevOut,
 		ShortChannelID:          shortChanID,
 		ChanType:                chanType,
-		IsInitiator:             true,
+		IsInitiator:             isAliceInitiator,
 		Capacity:                channelCapacity,
 		RemoteCurrentRevocation: bobCommitPoint,
 		RevocationProducer:      alicePreimageProducer,
@@ -333,7 +334,7 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 		FundingOutpoint:         *prevOut,
 		ShortChannelID:          shortChanID,
 		ChanType:                chanType,
-		IsInitiator:             false,
+		IsInitiator:             !isAliceInitiator,
 		Capacity:                channelCapacity,
 		RemoteCurrentRevocation: aliceCommitPoint,
 		RevocationProducer:      bobPreimageProducer,

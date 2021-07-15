@@ -256,6 +256,42 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 			req := newRequest.request
 			pendingChanID := req.OpenChanMsg.PendingChannelID
 
+			// Map the channel commitment type to its RPC
+			// counterpart.
+			var commitmentType lnrpc.CommitmentType
+			if req.OpenChanMsg.ChannelType != nil {
+				channelFeatures := lnwire.RawFeatureVector(
+					*req.OpenChanMsg.ChannelType,
+				)
+				switch {
+				case channelFeatures.OnlyContains(
+					lnwire.ScriptEnforcedLeaseRequired,
+					lnwire.AnchorsZeroFeeHtlcTxRequired,
+					lnwire.StaticRemoteKeyRequired,
+				):
+					commitmentType = lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE
+
+				case channelFeatures.OnlyContains(
+					lnwire.AnchorsZeroFeeHtlcTxRequired,
+					lnwire.StaticRemoteKeyRequired,
+				):
+					commitmentType = lnrpc.CommitmentType_ANCHORS
+
+				case channelFeatures.OnlyContains(
+					lnwire.StaticRemoteKeyRequired,
+				):
+					commitmentType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
+
+				case channelFeatures.OnlyContains():
+					commitmentType = lnrpc.CommitmentType_LEGACY
+
+				default:
+					log.Warnf("Unhandled commitment type "+
+						"in channel acceptor request: %v",
+						req.OpenChanMsg.ChannelType)
+				}
+			}
+
 			acceptRequests[pendingChanID] = newRequest
 
 			// A ChannelAcceptRequest has been received, send it to the client.
@@ -273,6 +309,7 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 				CsvDelay:         uint32(req.OpenChanMsg.CsvDelay),
 				MaxAcceptedHtlcs: uint32(req.OpenChanMsg.MaxAcceptedHTLCs),
 				ChannelFlags:     uint32(req.OpenChanMsg.ChannelFlags),
+				CommitmentType:   commitmentType,
 			}
 
 			if err := r.send(chanAcceptReq); err != nil {

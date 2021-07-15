@@ -2035,6 +2035,8 @@ type ChannelAcceptRequest struct {
 	// A bit-field which the initiator uses to specify proposed channel
 	// behavior.
 	ChannelFlags uint32 `protobuf:"varint,13,opt,name=channel_flags,json=channelFlags,proto3" json:"channel_flags,omitempty"`
+	// The commitment type the initiator wishes to use for the proposed channel.
+	CommitmentType CommitmentType `protobuf:"varint,14,opt,name=commitment_type,json=commitmentType,proto3,enum=lnrpc.CommitmentType" json:"commitment_type,omitempty"`
 }
 
 func (x *ChannelAcceptRequest) Reset() {
@@ -2158,6 +2160,13 @@ func (x *ChannelAcceptRequest) GetChannelFlags() uint32 {
 		return x.ChannelFlags
 	}
 	return 0
+}
+
+func (x *ChannelAcceptRequest) GetCommitmentType() CommitmentType {
+	if x != nil {
+		return x.CommitmentType
+	}
+	return CommitmentType_UNKNOWN_COMMITMENT_TYPE
 }
 
 type ChannelAcceptResponse struct {
@@ -14938,7 +14947,7 @@ var file_lightning_proto_rawDesc = []byte{
 	0x48, 0x61, 0x73, 0x68, 0x53, 0x74, 0x72, 0x69, 0x6e, 0x67, 0x12, 0x22, 0x0a, 0x05, 0x72, 0x6f,
 	0x75, 0x74, 0x65, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x0c, 0x2e, 0x6c, 0x6e, 0x72, 0x70,
 	0x63, 0x2e, 0x52, 0x6f, 0x75, 0x74, 0x65, 0x52, 0x05, 0x72, 0x6f, 0x75, 0x74, 0x65, 0x4a, 0x04,
-	0x08, 0x03, 0x10, 0x04, 0x22, 0xda, 0x03, 0x0a, 0x14, 0x43, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c,
+	0x08, 0x03, 0x10, 0x04, 0x22, 0x9a, 0x04, 0x0a, 0x14, 0x43, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c,
 	0x41, 0x63, 0x63, 0x65, 0x70, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x1f, 0x0a,
 	0x0b, 0x6e, 0x6f, 0x64, 0x65, 0x5f, 0x70, 0x75, 0x62, 0x6b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01,
 	0x28, 0x0c, 0x52, 0x0a, 0x6e, 0x6f, 0x64, 0x65, 0x50, 0x75, 0x62, 0x6b, 0x65, 0x79, 0x12, 0x1d,
@@ -14968,7 +14977,11 @@ var file_lightning_proto_rawDesc = []byte{
 	0x63, 0x63, 0x65, 0x70, 0x74, 0x65, 0x64, 0x48, 0x74, 0x6c, 0x63, 0x73, 0x12, 0x23, 0x0a, 0x0d,
 	0x63, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x5f, 0x66, 0x6c, 0x61, 0x67, 0x73, 0x18, 0x0d, 0x20,
 	0x01, 0x28, 0x0d, 0x52, 0x0c, 0x63, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x46, 0x6c, 0x61, 0x67,
-	0x73, 0x22, 0xf3, 0x02, 0x0a, 0x15, 0x43, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x41, 0x63, 0x63,
+	0x73, 0x12, 0x3e, 0x0a, 0x0f, 0x63, 0x6f, 0x6d, 0x6d, 0x69, 0x74, 0x6d, 0x65, 0x6e, 0x74, 0x5f,
+	0x74, 0x79, 0x70, 0x65, 0x18, 0x0e, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x15, 0x2e, 0x6c, 0x6e, 0x72,
+	0x70, 0x63, 0x2e, 0x43, 0x6f, 0x6d, 0x6d, 0x69, 0x74, 0x6d, 0x65, 0x6e, 0x74, 0x54, 0x79, 0x70,
+	0x65, 0x52, 0x0e, 0x63, 0x6f, 0x6d, 0x6d, 0x69, 0x74, 0x6d, 0x65, 0x6e, 0x74, 0x54, 0x79, 0x70,
+	0x65, 0x22, 0xf3, 0x02, 0x0a, 0x15, 0x43, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x41, 0x63, 0x63,
 	0x65, 0x70, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x16, 0x0a, 0x06, 0x61,
 	0x63, 0x63, 0x65, 0x70, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x08, 0x52, 0x06, 0x61, 0x63, 0x63,
 	0x65, 0x70, 0x74, 0x12, 0x26, 0x0a, 0x0f, 0x70, 0x65, 0x6e, 0x64, 0x69, 0x6e, 0x67, 0x5f, 0x63,
@@ -17461,271 +17474,272 @@ var file_lightning_proto_depIdxs = []int32{
 	8,   // 5: lnrpc.SendRequest.dest_features:type_name -> lnrpc.FeatureBit
 	106, // 6: lnrpc.SendResponse.payment_route:type_name -> lnrpc.Route
 	106, // 7: lnrpc.SendToRouteRequest.route:type_name -> lnrpc.Route
-	184, // 8: lnrpc.EstimateFeeRequest.AddrToAmount:type_name -> lnrpc.EstimateFeeRequest.AddrToAmountEntry
-	185, // 9: lnrpc.SendManyRequest.AddrToAmount:type_name -> lnrpc.SendManyRequest.AddrToAmountEntry
-	18,  // 10: lnrpc.ListUnspentResponse.utxos:type_name -> lnrpc.Utxo
-	0,   // 11: lnrpc.NewAddressRequest.type:type_name -> lnrpc.AddressType
-	30,  // 12: lnrpc.ConnectPeerRequest.addr:type_name -> lnrpc.LightningAddress
-	49,  // 13: lnrpc.Channel.pending_htlcs:type_name -> lnrpc.HTLC
-	1,   // 14: lnrpc.Channel.commitment_type:type_name -> lnrpc.CommitmentType
-	50,  // 15: lnrpc.Channel.local_constraints:type_name -> lnrpc.ChannelConstraints
-	50,  // 16: lnrpc.Channel.remote_constraints:type_name -> lnrpc.ChannelConstraints
-	51,  // 17: lnrpc.ListChannelsResponse.channels:type_name -> lnrpc.Channel
-	9,   // 18: lnrpc.ChannelCloseSummary.close_type:type_name -> lnrpc.ChannelCloseSummary.ClosureType
-	2,   // 19: lnrpc.ChannelCloseSummary.open_initiator:type_name -> lnrpc.Initiator
-	2,   // 20: lnrpc.ChannelCloseSummary.close_initiator:type_name -> lnrpc.Initiator
-	55,  // 21: lnrpc.ChannelCloseSummary.resolutions:type_name -> lnrpc.Resolution
-	3,   // 22: lnrpc.Resolution.resolution_type:type_name -> lnrpc.ResolutionType
-	4,   // 23: lnrpc.Resolution.outcome:type_name -> lnrpc.ResolutionOutcome
-	29,  // 24: lnrpc.Resolution.outpoint:type_name -> lnrpc.OutPoint
-	54,  // 25: lnrpc.ClosedChannelsResponse.channels:type_name -> lnrpc.ChannelCloseSummary
-	10,  // 26: lnrpc.Peer.sync_type:type_name -> lnrpc.Peer.SyncType
-	186, // 27: lnrpc.Peer.features:type_name -> lnrpc.Peer.FeaturesEntry
-	59,  // 28: lnrpc.Peer.errors:type_name -> lnrpc.TimestampedError
-	58,  // 29: lnrpc.ListPeersResponse.peers:type_name -> lnrpc.Peer
-	11,  // 30: lnrpc.PeerEvent.type:type_name -> lnrpc.PeerEvent.EventType
-	68,  // 31: lnrpc.GetInfoResponse.chains:type_name -> lnrpc.Chain
-	187, // 32: lnrpc.GetInfoResponse.features:type_name -> lnrpc.GetInfoResponse.FeaturesEntry
-	28,  // 33: lnrpc.ChannelOpenUpdate.channel_point:type_name -> lnrpc.ChannelPoint
-	28,  // 34: lnrpc.CloseChannelRequest.channel_point:type_name -> lnrpc.ChannelPoint
-	74,  // 35: lnrpc.CloseStatusUpdate.close_pending:type_name -> lnrpc.PendingUpdate
-	71,  // 36: lnrpc.CloseStatusUpdate.chan_close:type_name -> lnrpc.ChannelCloseUpdate
-	82,  // 37: lnrpc.OpenChannelRequest.funding_shim:type_name -> lnrpc.FundingShim
-	1,   // 38: lnrpc.OpenChannelRequest.commitment_type:type_name -> lnrpc.CommitmentType
-	74,  // 39: lnrpc.OpenStatusUpdate.chan_pending:type_name -> lnrpc.PendingUpdate
-	70,  // 40: lnrpc.OpenStatusUpdate.chan_open:type_name -> lnrpc.ChannelOpenUpdate
-	75,  // 41: lnrpc.OpenStatusUpdate.psbt_fund:type_name -> lnrpc.ReadyForPsbtFunding
-	78,  // 42: lnrpc.KeyDescriptor.key_loc:type_name -> lnrpc.KeyLocator
-	28,  // 43: lnrpc.ChanPointShim.chan_point:type_name -> lnrpc.ChannelPoint
-	79,  // 44: lnrpc.ChanPointShim.local_key:type_name -> lnrpc.KeyDescriptor
-	80,  // 45: lnrpc.FundingShim.chan_point_shim:type_name -> lnrpc.ChanPointShim
-	81,  // 46: lnrpc.FundingShim.psbt_shim:type_name -> lnrpc.PsbtShim
-	82,  // 47: lnrpc.FundingTransitionMsg.shim_register:type_name -> lnrpc.FundingShim
-	83,  // 48: lnrpc.FundingTransitionMsg.shim_cancel:type_name -> lnrpc.FundingShimCancel
-	84,  // 49: lnrpc.FundingTransitionMsg.psbt_verify:type_name -> lnrpc.FundingPsbtVerify
-	85,  // 50: lnrpc.FundingTransitionMsg.psbt_finalize:type_name -> lnrpc.FundingPsbtFinalize
-	189, // 51: lnrpc.PendingChannelsResponse.pending_open_channels:type_name -> lnrpc.PendingChannelsResponse.PendingOpenChannel
-	192, // 52: lnrpc.PendingChannelsResponse.pending_closing_channels:type_name -> lnrpc.PendingChannelsResponse.ClosedChannel
-	193, // 53: lnrpc.PendingChannelsResponse.pending_force_closing_channels:type_name -> lnrpc.PendingChannelsResponse.ForceClosedChannel
-	190, // 54: lnrpc.PendingChannelsResponse.waiting_close_channels:type_name -> lnrpc.PendingChannelsResponse.WaitingCloseChannel
-	51,  // 55: lnrpc.ChannelEventUpdate.open_channel:type_name -> lnrpc.Channel
-	54,  // 56: lnrpc.ChannelEventUpdate.closed_channel:type_name -> lnrpc.ChannelCloseSummary
-	28,  // 57: lnrpc.ChannelEventUpdate.active_channel:type_name -> lnrpc.ChannelPoint
-	28,  // 58: lnrpc.ChannelEventUpdate.inactive_channel:type_name -> lnrpc.ChannelPoint
-	74,  // 59: lnrpc.ChannelEventUpdate.pending_open_channel:type_name -> lnrpc.PendingUpdate
-	13,  // 60: lnrpc.ChannelEventUpdate.type:type_name -> lnrpc.ChannelEventUpdate.UpdateType
-	194, // 61: lnrpc.WalletBalanceResponse.account_balance:type_name -> lnrpc.WalletBalanceResponse.AccountBalanceEntry
-	96,  // 62: lnrpc.ChannelBalanceResponse.local_balance:type_name -> lnrpc.Amount
-	96,  // 63: lnrpc.ChannelBalanceResponse.remote_balance:type_name -> lnrpc.Amount
-	96,  // 64: lnrpc.ChannelBalanceResponse.unsettled_local_balance:type_name -> lnrpc.Amount
-	96,  // 65: lnrpc.ChannelBalanceResponse.unsettled_remote_balance:type_name -> lnrpc.Amount
-	96,  // 66: lnrpc.ChannelBalanceResponse.pending_open_local_balance:type_name -> lnrpc.Amount
-	96,  // 67: lnrpc.ChannelBalanceResponse.pending_open_remote_balance:type_name -> lnrpc.Amount
-	22,  // 68: lnrpc.QueryRoutesRequest.fee_limit:type_name -> lnrpc.FeeLimit
-	101, // 69: lnrpc.QueryRoutesRequest.ignored_edges:type_name -> lnrpc.EdgeLocator
-	100, // 70: lnrpc.QueryRoutesRequest.ignored_pairs:type_name -> lnrpc.NodePair
-	195, // 71: lnrpc.QueryRoutesRequest.dest_custom_records:type_name -> lnrpc.QueryRoutesRequest.DestCustomRecordsEntry
-	129, // 72: lnrpc.QueryRoutesRequest.route_hints:type_name -> lnrpc.RouteHint
-	8,   // 73: lnrpc.QueryRoutesRequest.dest_features:type_name -> lnrpc.FeatureBit
-	106, // 74: lnrpc.QueryRoutesResponse.routes:type_name -> lnrpc.Route
-	104, // 75: lnrpc.Hop.mpp_record:type_name -> lnrpc.MPPRecord
-	105, // 76: lnrpc.Hop.amp_record:type_name -> lnrpc.AMPRecord
-	196, // 77: lnrpc.Hop.custom_records:type_name -> lnrpc.Hop.CustomRecordsEntry
-	103, // 78: lnrpc.Route.hops:type_name -> lnrpc.Hop
-	109, // 79: lnrpc.NodeInfo.node:type_name -> lnrpc.LightningNode
-	112, // 80: lnrpc.NodeInfo.channels:type_name -> lnrpc.ChannelEdge
-	110, // 81: lnrpc.LightningNode.addresses:type_name -> lnrpc.NodeAddress
-	197, // 82: lnrpc.LightningNode.features:type_name -> lnrpc.LightningNode.FeaturesEntry
-	111, // 83: lnrpc.ChannelEdge.node1_policy:type_name -> lnrpc.RoutingPolicy
-	111, // 84: lnrpc.ChannelEdge.node2_policy:type_name -> lnrpc.RoutingPolicy
-	109, // 85: lnrpc.ChannelGraph.nodes:type_name -> lnrpc.LightningNode
-	112, // 86: lnrpc.ChannelGraph.edges:type_name -> lnrpc.ChannelEdge
-	5,   // 87: lnrpc.NodeMetricsRequest.types:type_name -> lnrpc.NodeMetricType
-	198, // 88: lnrpc.NodeMetricsResponse.betweenness_centrality:type_name -> lnrpc.NodeMetricsResponse.BetweennessCentralityEntry
-	125, // 89: lnrpc.GraphTopologyUpdate.node_updates:type_name -> lnrpc.NodeUpdate
-	126, // 90: lnrpc.GraphTopologyUpdate.channel_updates:type_name -> lnrpc.ChannelEdgeUpdate
-	127, // 91: lnrpc.GraphTopologyUpdate.closed_chans:type_name -> lnrpc.ClosedChannelUpdate
-	110, // 92: lnrpc.NodeUpdate.node_addresses:type_name -> lnrpc.NodeAddress
-	199, // 93: lnrpc.NodeUpdate.features:type_name -> lnrpc.NodeUpdate.FeaturesEntry
-	28,  // 94: lnrpc.ChannelEdgeUpdate.chan_point:type_name -> lnrpc.ChannelPoint
-	111, // 95: lnrpc.ChannelEdgeUpdate.routing_policy:type_name -> lnrpc.RoutingPolicy
-	28,  // 96: lnrpc.ClosedChannelUpdate.chan_point:type_name -> lnrpc.ChannelPoint
-	128, // 97: lnrpc.RouteHint.hop_hints:type_name -> lnrpc.HopHint
-	129, // 98: lnrpc.Invoice.route_hints:type_name -> lnrpc.RouteHint
-	14,  // 99: lnrpc.Invoice.state:type_name -> lnrpc.Invoice.InvoiceState
-	131, // 100: lnrpc.Invoice.htlcs:type_name -> lnrpc.InvoiceHTLC
-	200, // 101: lnrpc.Invoice.features:type_name -> lnrpc.Invoice.FeaturesEntry
-	6,   // 102: lnrpc.InvoiceHTLC.state:type_name -> lnrpc.InvoiceHTLCState
-	201, // 103: lnrpc.InvoiceHTLC.custom_records:type_name -> lnrpc.InvoiceHTLC.CustomRecordsEntry
-	132, // 104: lnrpc.InvoiceHTLC.amp:type_name -> lnrpc.AMP
-	130, // 105: lnrpc.ListInvoiceResponse.invoices:type_name -> lnrpc.Invoice
-	15,  // 106: lnrpc.Payment.status:type_name -> lnrpc.Payment.PaymentStatus
-	139, // 107: lnrpc.Payment.htlcs:type_name -> lnrpc.HTLCAttempt
-	7,   // 108: lnrpc.Payment.failure_reason:type_name -> lnrpc.PaymentFailureReason
-	16,  // 109: lnrpc.HTLCAttempt.status:type_name -> lnrpc.HTLCAttempt.HTLCStatus
-	106, // 110: lnrpc.HTLCAttempt.route:type_name -> lnrpc.Route
-	179, // 111: lnrpc.HTLCAttempt.failure:type_name -> lnrpc.Failure
-	138, // 112: lnrpc.ListPaymentsResponse.payments:type_name -> lnrpc.Payment
-	28,  // 113: lnrpc.AbandonChannelRequest.channel_point:type_name -> lnrpc.ChannelPoint
-	129, // 114: lnrpc.PayReq.route_hints:type_name -> lnrpc.RouteHint
-	202, // 115: lnrpc.PayReq.features:type_name -> lnrpc.PayReq.FeaturesEntry
-	152, // 116: lnrpc.FeeReportResponse.channel_fees:type_name -> lnrpc.ChannelFeeReport
-	28,  // 117: lnrpc.PolicyUpdateRequest.chan_point:type_name -> lnrpc.ChannelPoint
-	157, // 118: lnrpc.ForwardingHistoryResponse.forwarding_events:type_name -> lnrpc.ForwardingEvent
-	28,  // 119: lnrpc.ExportChannelBackupRequest.chan_point:type_name -> lnrpc.ChannelPoint
-	28,  // 120: lnrpc.ChannelBackup.chan_point:type_name -> lnrpc.ChannelPoint
-	28,  // 121: lnrpc.MultiChanBackup.chan_points:type_name -> lnrpc.ChannelPoint
-	164, // 122: lnrpc.ChanBackupSnapshot.single_chan_backups:type_name -> lnrpc.ChannelBackups
-	161, // 123: lnrpc.ChanBackupSnapshot.multi_chan_backup:type_name -> lnrpc.MultiChanBackup
-	160, // 124: lnrpc.ChannelBackups.chan_backups:type_name -> lnrpc.ChannelBackup
-	164, // 125: lnrpc.RestoreChanBackupRequest.chan_backups:type_name -> lnrpc.ChannelBackups
-	169, // 126: lnrpc.BakeMacaroonRequest.permissions:type_name -> lnrpc.MacaroonPermission
-	169, // 127: lnrpc.MacaroonPermissionList.permissions:type_name -> lnrpc.MacaroonPermission
-	203, // 128: lnrpc.ListPermissionsResponse.method_permissions:type_name -> lnrpc.ListPermissionsResponse.MethodPermissionsEntry
-	17,  // 129: lnrpc.Failure.code:type_name -> lnrpc.Failure.FailureCode
-	180, // 130: lnrpc.Failure.channel_update:type_name -> lnrpc.ChannelUpdate
-	182, // 131: lnrpc.MacaroonId.ops:type_name -> lnrpc.Op
-	150, // 132: lnrpc.Peer.FeaturesEntry.value:type_name -> lnrpc.Feature
-	150, // 133: lnrpc.GetInfoResponse.FeaturesEntry.value:type_name -> lnrpc.Feature
-	2,   // 134: lnrpc.PendingChannelsResponse.PendingChannel.initiator:type_name -> lnrpc.Initiator
-	1,   // 135: lnrpc.PendingChannelsResponse.PendingChannel.commitment_type:type_name -> lnrpc.CommitmentType
-	188, // 136: lnrpc.PendingChannelsResponse.PendingOpenChannel.channel:type_name -> lnrpc.PendingChannelsResponse.PendingChannel
-	188, // 137: lnrpc.PendingChannelsResponse.WaitingCloseChannel.channel:type_name -> lnrpc.PendingChannelsResponse.PendingChannel
-	191, // 138: lnrpc.PendingChannelsResponse.WaitingCloseChannel.commitments:type_name -> lnrpc.PendingChannelsResponse.Commitments
-	188, // 139: lnrpc.PendingChannelsResponse.ClosedChannel.channel:type_name -> lnrpc.PendingChannelsResponse.PendingChannel
-	188, // 140: lnrpc.PendingChannelsResponse.ForceClosedChannel.channel:type_name -> lnrpc.PendingChannelsResponse.PendingChannel
-	88,  // 141: lnrpc.PendingChannelsResponse.ForceClosedChannel.pending_htlcs:type_name -> lnrpc.PendingHTLC
-	12,  // 142: lnrpc.PendingChannelsResponse.ForceClosedChannel.anchor:type_name -> lnrpc.PendingChannelsResponse.ForceClosedChannel.AnchorState
-	93,  // 143: lnrpc.WalletBalanceResponse.AccountBalanceEntry.value:type_name -> lnrpc.WalletAccountBalance
-	150, // 144: lnrpc.LightningNode.FeaturesEntry.value:type_name -> lnrpc.Feature
-	117, // 145: lnrpc.NodeMetricsResponse.BetweennessCentralityEntry.value:type_name -> lnrpc.FloatMetric
-	150, // 146: lnrpc.NodeUpdate.FeaturesEntry.value:type_name -> lnrpc.Feature
-	150, // 147: lnrpc.Invoice.FeaturesEntry.value:type_name -> lnrpc.Feature
-	150, // 148: lnrpc.PayReq.FeaturesEntry.value:type_name -> lnrpc.Feature
-	176, // 149: lnrpc.ListPermissionsResponse.MethodPermissionsEntry.value:type_name -> lnrpc.MacaroonPermissionList
-	94,  // 150: lnrpc.Lightning.WalletBalance:input_type -> lnrpc.WalletBalanceRequest
-	97,  // 151: lnrpc.Lightning.ChannelBalance:input_type -> lnrpc.ChannelBalanceRequest
-	20,  // 152: lnrpc.Lightning.GetTransactions:input_type -> lnrpc.GetTransactionsRequest
-	31,  // 153: lnrpc.Lightning.EstimateFee:input_type -> lnrpc.EstimateFeeRequest
-	35,  // 154: lnrpc.Lightning.SendCoins:input_type -> lnrpc.SendCoinsRequest
-	37,  // 155: lnrpc.Lightning.ListUnspent:input_type -> lnrpc.ListUnspentRequest
-	20,  // 156: lnrpc.Lightning.SubscribeTransactions:input_type -> lnrpc.GetTransactionsRequest
-	33,  // 157: lnrpc.Lightning.SendMany:input_type -> lnrpc.SendManyRequest
-	39,  // 158: lnrpc.Lightning.NewAddress:input_type -> lnrpc.NewAddressRequest
-	41,  // 159: lnrpc.Lightning.SignMessage:input_type -> lnrpc.SignMessageRequest
-	43,  // 160: lnrpc.Lightning.VerifyMessage:input_type -> lnrpc.VerifyMessageRequest
-	45,  // 161: lnrpc.Lightning.ConnectPeer:input_type -> lnrpc.ConnectPeerRequest
-	47,  // 162: lnrpc.Lightning.DisconnectPeer:input_type -> lnrpc.DisconnectPeerRequest
-	60,  // 163: lnrpc.Lightning.ListPeers:input_type -> lnrpc.ListPeersRequest
-	62,  // 164: lnrpc.Lightning.SubscribePeerEvents:input_type -> lnrpc.PeerEventSubscription
-	64,  // 165: lnrpc.Lightning.GetInfo:input_type -> lnrpc.GetInfoRequest
-	66,  // 166: lnrpc.Lightning.GetRecoveryInfo:input_type -> lnrpc.GetRecoveryInfoRequest
-	89,  // 167: lnrpc.Lightning.PendingChannels:input_type -> lnrpc.PendingChannelsRequest
-	52,  // 168: lnrpc.Lightning.ListChannels:input_type -> lnrpc.ListChannelsRequest
-	91,  // 169: lnrpc.Lightning.SubscribeChannelEvents:input_type -> lnrpc.ChannelEventSubscription
-	56,  // 170: lnrpc.Lightning.ClosedChannels:input_type -> lnrpc.ClosedChannelsRequest
-	76,  // 171: lnrpc.Lightning.OpenChannelSync:input_type -> lnrpc.OpenChannelRequest
-	76,  // 172: lnrpc.Lightning.OpenChannel:input_type -> lnrpc.OpenChannelRequest
-	86,  // 173: lnrpc.Lightning.FundingStateStep:input_type -> lnrpc.FundingTransitionMsg
-	27,  // 174: lnrpc.Lightning.ChannelAcceptor:input_type -> lnrpc.ChannelAcceptResponse
-	72,  // 175: lnrpc.Lightning.CloseChannel:input_type -> lnrpc.CloseChannelRequest
-	144, // 176: lnrpc.Lightning.AbandonChannel:input_type -> lnrpc.AbandonChannelRequest
-	23,  // 177: lnrpc.Lightning.SendPayment:input_type -> lnrpc.SendRequest
-	23,  // 178: lnrpc.Lightning.SendPaymentSync:input_type -> lnrpc.SendRequest
-	25,  // 179: lnrpc.Lightning.SendToRoute:input_type -> lnrpc.SendToRouteRequest
-	25,  // 180: lnrpc.Lightning.SendToRouteSync:input_type -> lnrpc.SendToRouteRequest
-	130, // 181: lnrpc.Lightning.AddInvoice:input_type -> lnrpc.Invoice
-	135, // 182: lnrpc.Lightning.ListInvoices:input_type -> lnrpc.ListInvoiceRequest
-	134, // 183: lnrpc.Lightning.LookupInvoice:input_type -> lnrpc.PaymentHash
-	137, // 184: lnrpc.Lightning.SubscribeInvoices:input_type -> lnrpc.InvoiceSubscription
-	148, // 185: lnrpc.Lightning.DecodePayReq:input_type -> lnrpc.PayReqString
-	140, // 186: lnrpc.Lightning.ListPayments:input_type -> lnrpc.ListPaymentsRequest
-	142, // 187: lnrpc.Lightning.DeleteAllPayments:input_type -> lnrpc.DeleteAllPaymentsRequest
-	113, // 188: lnrpc.Lightning.DescribeGraph:input_type -> lnrpc.ChannelGraphRequest
-	115, // 189: lnrpc.Lightning.GetNodeMetrics:input_type -> lnrpc.NodeMetricsRequest
-	118, // 190: lnrpc.Lightning.GetChanInfo:input_type -> lnrpc.ChanInfoRequest
-	107, // 191: lnrpc.Lightning.GetNodeInfo:input_type -> lnrpc.NodeInfoRequest
-	99,  // 192: lnrpc.Lightning.QueryRoutes:input_type -> lnrpc.QueryRoutesRequest
-	119, // 193: lnrpc.Lightning.GetNetworkInfo:input_type -> lnrpc.NetworkInfoRequest
-	121, // 194: lnrpc.Lightning.StopDaemon:input_type -> lnrpc.StopRequest
-	123, // 195: lnrpc.Lightning.SubscribeChannelGraph:input_type -> lnrpc.GraphTopologySubscription
-	146, // 196: lnrpc.Lightning.DebugLevel:input_type -> lnrpc.DebugLevelRequest
-	151, // 197: lnrpc.Lightning.FeeReport:input_type -> lnrpc.FeeReportRequest
-	154, // 198: lnrpc.Lightning.UpdateChannelPolicy:input_type -> lnrpc.PolicyUpdateRequest
-	156, // 199: lnrpc.Lightning.ForwardingHistory:input_type -> lnrpc.ForwardingHistoryRequest
-	159, // 200: lnrpc.Lightning.ExportChannelBackup:input_type -> lnrpc.ExportChannelBackupRequest
-	162, // 201: lnrpc.Lightning.ExportAllChannelBackups:input_type -> lnrpc.ChanBackupExportRequest
-	163, // 202: lnrpc.Lightning.VerifyChanBackup:input_type -> lnrpc.ChanBackupSnapshot
-	165, // 203: lnrpc.Lightning.RestoreChannelBackups:input_type -> lnrpc.RestoreChanBackupRequest
-	167, // 204: lnrpc.Lightning.SubscribeChannelBackups:input_type -> lnrpc.ChannelBackupSubscription
-	170, // 205: lnrpc.Lightning.BakeMacaroon:input_type -> lnrpc.BakeMacaroonRequest
-	172, // 206: lnrpc.Lightning.ListMacaroonIDs:input_type -> lnrpc.ListMacaroonIDsRequest
-	174, // 207: lnrpc.Lightning.DeleteMacaroonID:input_type -> lnrpc.DeleteMacaroonIDRequest
-	177, // 208: lnrpc.Lightning.ListPermissions:input_type -> lnrpc.ListPermissionsRequest
-	95,  // 209: lnrpc.Lightning.WalletBalance:output_type -> lnrpc.WalletBalanceResponse
-	98,  // 210: lnrpc.Lightning.ChannelBalance:output_type -> lnrpc.ChannelBalanceResponse
-	21,  // 211: lnrpc.Lightning.GetTransactions:output_type -> lnrpc.TransactionDetails
-	32,  // 212: lnrpc.Lightning.EstimateFee:output_type -> lnrpc.EstimateFeeResponse
-	36,  // 213: lnrpc.Lightning.SendCoins:output_type -> lnrpc.SendCoinsResponse
-	38,  // 214: lnrpc.Lightning.ListUnspent:output_type -> lnrpc.ListUnspentResponse
-	19,  // 215: lnrpc.Lightning.SubscribeTransactions:output_type -> lnrpc.Transaction
-	34,  // 216: lnrpc.Lightning.SendMany:output_type -> lnrpc.SendManyResponse
-	40,  // 217: lnrpc.Lightning.NewAddress:output_type -> lnrpc.NewAddressResponse
-	42,  // 218: lnrpc.Lightning.SignMessage:output_type -> lnrpc.SignMessageResponse
-	44,  // 219: lnrpc.Lightning.VerifyMessage:output_type -> lnrpc.VerifyMessageResponse
-	46,  // 220: lnrpc.Lightning.ConnectPeer:output_type -> lnrpc.ConnectPeerResponse
-	48,  // 221: lnrpc.Lightning.DisconnectPeer:output_type -> lnrpc.DisconnectPeerResponse
-	61,  // 222: lnrpc.Lightning.ListPeers:output_type -> lnrpc.ListPeersResponse
-	63,  // 223: lnrpc.Lightning.SubscribePeerEvents:output_type -> lnrpc.PeerEvent
-	65,  // 224: lnrpc.Lightning.GetInfo:output_type -> lnrpc.GetInfoResponse
-	67,  // 225: lnrpc.Lightning.GetRecoveryInfo:output_type -> lnrpc.GetRecoveryInfoResponse
-	90,  // 226: lnrpc.Lightning.PendingChannels:output_type -> lnrpc.PendingChannelsResponse
-	53,  // 227: lnrpc.Lightning.ListChannels:output_type -> lnrpc.ListChannelsResponse
-	92,  // 228: lnrpc.Lightning.SubscribeChannelEvents:output_type -> lnrpc.ChannelEventUpdate
-	57,  // 229: lnrpc.Lightning.ClosedChannels:output_type -> lnrpc.ClosedChannelsResponse
-	28,  // 230: lnrpc.Lightning.OpenChannelSync:output_type -> lnrpc.ChannelPoint
-	77,  // 231: lnrpc.Lightning.OpenChannel:output_type -> lnrpc.OpenStatusUpdate
-	87,  // 232: lnrpc.Lightning.FundingStateStep:output_type -> lnrpc.FundingStateStepResp
-	26,  // 233: lnrpc.Lightning.ChannelAcceptor:output_type -> lnrpc.ChannelAcceptRequest
-	73,  // 234: lnrpc.Lightning.CloseChannel:output_type -> lnrpc.CloseStatusUpdate
-	145, // 235: lnrpc.Lightning.AbandonChannel:output_type -> lnrpc.AbandonChannelResponse
-	24,  // 236: lnrpc.Lightning.SendPayment:output_type -> lnrpc.SendResponse
-	24,  // 237: lnrpc.Lightning.SendPaymentSync:output_type -> lnrpc.SendResponse
-	24,  // 238: lnrpc.Lightning.SendToRoute:output_type -> lnrpc.SendResponse
-	24,  // 239: lnrpc.Lightning.SendToRouteSync:output_type -> lnrpc.SendResponse
-	133, // 240: lnrpc.Lightning.AddInvoice:output_type -> lnrpc.AddInvoiceResponse
-	136, // 241: lnrpc.Lightning.ListInvoices:output_type -> lnrpc.ListInvoiceResponse
-	130, // 242: lnrpc.Lightning.LookupInvoice:output_type -> lnrpc.Invoice
-	130, // 243: lnrpc.Lightning.SubscribeInvoices:output_type -> lnrpc.Invoice
-	149, // 244: lnrpc.Lightning.DecodePayReq:output_type -> lnrpc.PayReq
-	141, // 245: lnrpc.Lightning.ListPayments:output_type -> lnrpc.ListPaymentsResponse
-	143, // 246: lnrpc.Lightning.DeleteAllPayments:output_type -> lnrpc.DeleteAllPaymentsResponse
-	114, // 247: lnrpc.Lightning.DescribeGraph:output_type -> lnrpc.ChannelGraph
-	116, // 248: lnrpc.Lightning.GetNodeMetrics:output_type -> lnrpc.NodeMetricsResponse
-	112, // 249: lnrpc.Lightning.GetChanInfo:output_type -> lnrpc.ChannelEdge
-	108, // 250: lnrpc.Lightning.GetNodeInfo:output_type -> lnrpc.NodeInfo
-	102, // 251: lnrpc.Lightning.QueryRoutes:output_type -> lnrpc.QueryRoutesResponse
-	120, // 252: lnrpc.Lightning.GetNetworkInfo:output_type -> lnrpc.NetworkInfo
-	122, // 253: lnrpc.Lightning.StopDaemon:output_type -> lnrpc.StopResponse
-	124, // 254: lnrpc.Lightning.SubscribeChannelGraph:output_type -> lnrpc.GraphTopologyUpdate
-	147, // 255: lnrpc.Lightning.DebugLevel:output_type -> lnrpc.DebugLevelResponse
-	153, // 256: lnrpc.Lightning.FeeReport:output_type -> lnrpc.FeeReportResponse
-	155, // 257: lnrpc.Lightning.UpdateChannelPolicy:output_type -> lnrpc.PolicyUpdateResponse
-	158, // 258: lnrpc.Lightning.ForwardingHistory:output_type -> lnrpc.ForwardingHistoryResponse
-	160, // 259: lnrpc.Lightning.ExportChannelBackup:output_type -> lnrpc.ChannelBackup
-	163, // 260: lnrpc.Lightning.ExportAllChannelBackups:output_type -> lnrpc.ChanBackupSnapshot
-	168, // 261: lnrpc.Lightning.VerifyChanBackup:output_type -> lnrpc.VerifyChanBackupResponse
-	166, // 262: lnrpc.Lightning.RestoreChannelBackups:output_type -> lnrpc.RestoreBackupResponse
-	163, // 263: lnrpc.Lightning.SubscribeChannelBackups:output_type -> lnrpc.ChanBackupSnapshot
-	171, // 264: lnrpc.Lightning.BakeMacaroon:output_type -> lnrpc.BakeMacaroonResponse
-	173, // 265: lnrpc.Lightning.ListMacaroonIDs:output_type -> lnrpc.ListMacaroonIDsResponse
-	175, // 266: lnrpc.Lightning.DeleteMacaroonID:output_type -> lnrpc.DeleteMacaroonIDResponse
-	178, // 267: lnrpc.Lightning.ListPermissions:output_type -> lnrpc.ListPermissionsResponse
-	209, // [209:268] is the sub-list for method output_type
-	150, // [150:209] is the sub-list for method input_type
-	150, // [150:150] is the sub-list for extension type_name
-	150, // [150:150] is the sub-list for extension extendee
-	0,   // [0:150] is the sub-list for field type_name
+	1,   // 8: lnrpc.ChannelAcceptRequest.commitment_type:type_name -> lnrpc.CommitmentType
+	184, // 9: lnrpc.EstimateFeeRequest.AddrToAmount:type_name -> lnrpc.EstimateFeeRequest.AddrToAmountEntry
+	185, // 10: lnrpc.SendManyRequest.AddrToAmount:type_name -> lnrpc.SendManyRequest.AddrToAmountEntry
+	18,  // 11: lnrpc.ListUnspentResponse.utxos:type_name -> lnrpc.Utxo
+	0,   // 12: lnrpc.NewAddressRequest.type:type_name -> lnrpc.AddressType
+	30,  // 13: lnrpc.ConnectPeerRequest.addr:type_name -> lnrpc.LightningAddress
+	49,  // 14: lnrpc.Channel.pending_htlcs:type_name -> lnrpc.HTLC
+	1,   // 15: lnrpc.Channel.commitment_type:type_name -> lnrpc.CommitmentType
+	50,  // 16: lnrpc.Channel.local_constraints:type_name -> lnrpc.ChannelConstraints
+	50,  // 17: lnrpc.Channel.remote_constraints:type_name -> lnrpc.ChannelConstraints
+	51,  // 18: lnrpc.ListChannelsResponse.channels:type_name -> lnrpc.Channel
+	9,   // 19: lnrpc.ChannelCloseSummary.close_type:type_name -> lnrpc.ChannelCloseSummary.ClosureType
+	2,   // 20: lnrpc.ChannelCloseSummary.open_initiator:type_name -> lnrpc.Initiator
+	2,   // 21: lnrpc.ChannelCloseSummary.close_initiator:type_name -> lnrpc.Initiator
+	55,  // 22: lnrpc.ChannelCloseSummary.resolutions:type_name -> lnrpc.Resolution
+	3,   // 23: lnrpc.Resolution.resolution_type:type_name -> lnrpc.ResolutionType
+	4,   // 24: lnrpc.Resolution.outcome:type_name -> lnrpc.ResolutionOutcome
+	29,  // 25: lnrpc.Resolution.outpoint:type_name -> lnrpc.OutPoint
+	54,  // 26: lnrpc.ClosedChannelsResponse.channels:type_name -> lnrpc.ChannelCloseSummary
+	10,  // 27: lnrpc.Peer.sync_type:type_name -> lnrpc.Peer.SyncType
+	186, // 28: lnrpc.Peer.features:type_name -> lnrpc.Peer.FeaturesEntry
+	59,  // 29: lnrpc.Peer.errors:type_name -> lnrpc.TimestampedError
+	58,  // 30: lnrpc.ListPeersResponse.peers:type_name -> lnrpc.Peer
+	11,  // 31: lnrpc.PeerEvent.type:type_name -> lnrpc.PeerEvent.EventType
+	68,  // 32: lnrpc.GetInfoResponse.chains:type_name -> lnrpc.Chain
+	187, // 33: lnrpc.GetInfoResponse.features:type_name -> lnrpc.GetInfoResponse.FeaturesEntry
+	28,  // 34: lnrpc.ChannelOpenUpdate.channel_point:type_name -> lnrpc.ChannelPoint
+	28,  // 35: lnrpc.CloseChannelRequest.channel_point:type_name -> lnrpc.ChannelPoint
+	74,  // 36: lnrpc.CloseStatusUpdate.close_pending:type_name -> lnrpc.PendingUpdate
+	71,  // 37: lnrpc.CloseStatusUpdate.chan_close:type_name -> lnrpc.ChannelCloseUpdate
+	82,  // 38: lnrpc.OpenChannelRequest.funding_shim:type_name -> lnrpc.FundingShim
+	1,   // 39: lnrpc.OpenChannelRequest.commitment_type:type_name -> lnrpc.CommitmentType
+	74,  // 40: lnrpc.OpenStatusUpdate.chan_pending:type_name -> lnrpc.PendingUpdate
+	70,  // 41: lnrpc.OpenStatusUpdate.chan_open:type_name -> lnrpc.ChannelOpenUpdate
+	75,  // 42: lnrpc.OpenStatusUpdate.psbt_fund:type_name -> lnrpc.ReadyForPsbtFunding
+	78,  // 43: lnrpc.KeyDescriptor.key_loc:type_name -> lnrpc.KeyLocator
+	28,  // 44: lnrpc.ChanPointShim.chan_point:type_name -> lnrpc.ChannelPoint
+	79,  // 45: lnrpc.ChanPointShim.local_key:type_name -> lnrpc.KeyDescriptor
+	80,  // 46: lnrpc.FundingShim.chan_point_shim:type_name -> lnrpc.ChanPointShim
+	81,  // 47: lnrpc.FundingShim.psbt_shim:type_name -> lnrpc.PsbtShim
+	82,  // 48: lnrpc.FundingTransitionMsg.shim_register:type_name -> lnrpc.FundingShim
+	83,  // 49: lnrpc.FundingTransitionMsg.shim_cancel:type_name -> lnrpc.FundingShimCancel
+	84,  // 50: lnrpc.FundingTransitionMsg.psbt_verify:type_name -> lnrpc.FundingPsbtVerify
+	85,  // 51: lnrpc.FundingTransitionMsg.psbt_finalize:type_name -> lnrpc.FundingPsbtFinalize
+	189, // 52: lnrpc.PendingChannelsResponse.pending_open_channels:type_name -> lnrpc.PendingChannelsResponse.PendingOpenChannel
+	192, // 53: lnrpc.PendingChannelsResponse.pending_closing_channels:type_name -> lnrpc.PendingChannelsResponse.ClosedChannel
+	193, // 54: lnrpc.PendingChannelsResponse.pending_force_closing_channels:type_name -> lnrpc.PendingChannelsResponse.ForceClosedChannel
+	190, // 55: lnrpc.PendingChannelsResponse.waiting_close_channels:type_name -> lnrpc.PendingChannelsResponse.WaitingCloseChannel
+	51,  // 56: lnrpc.ChannelEventUpdate.open_channel:type_name -> lnrpc.Channel
+	54,  // 57: lnrpc.ChannelEventUpdate.closed_channel:type_name -> lnrpc.ChannelCloseSummary
+	28,  // 58: lnrpc.ChannelEventUpdate.active_channel:type_name -> lnrpc.ChannelPoint
+	28,  // 59: lnrpc.ChannelEventUpdate.inactive_channel:type_name -> lnrpc.ChannelPoint
+	74,  // 60: lnrpc.ChannelEventUpdate.pending_open_channel:type_name -> lnrpc.PendingUpdate
+	13,  // 61: lnrpc.ChannelEventUpdate.type:type_name -> lnrpc.ChannelEventUpdate.UpdateType
+	194, // 62: lnrpc.WalletBalanceResponse.account_balance:type_name -> lnrpc.WalletBalanceResponse.AccountBalanceEntry
+	96,  // 63: lnrpc.ChannelBalanceResponse.local_balance:type_name -> lnrpc.Amount
+	96,  // 64: lnrpc.ChannelBalanceResponse.remote_balance:type_name -> lnrpc.Amount
+	96,  // 65: lnrpc.ChannelBalanceResponse.unsettled_local_balance:type_name -> lnrpc.Amount
+	96,  // 66: lnrpc.ChannelBalanceResponse.unsettled_remote_balance:type_name -> lnrpc.Amount
+	96,  // 67: lnrpc.ChannelBalanceResponse.pending_open_local_balance:type_name -> lnrpc.Amount
+	96,  // 68: lnrpc.ChannelBalanceResponse.pending_open_remote_balance:type_name -> lnrpc.Amount
+	22,  // 69: lnrpc.QueryRoutesRequest.fee_limit:type_name -> lnrpc.FeeLimit
+	101, // 70: lnrpc.QueryRoutesRequest.ignored_edges:type_name -> lnrpc.EdgeLocator
+	100, // 71: lnrpc.QueryRoutesRequest.ignored_pairs:type_name -> lnrpc.NodePair
+	195, // 72: lnrpc.QueryRoutesRequest.dest_custom_records:type_name -> lnrpc.QueryRoutesRequest.DestCustomRecordsEntry
+	129, // 73: lnrpc.QueryRoutesRequest.route_hints:type_name -> lnrpc.RouteHint
+	8,   // 74: lnrpc.QueryRoutesRequest.dest_features:type_name -> lnrpc.FeatureBit
+	106, // 75: lnrpc.QueryRoutesResponse.routes:type_name -> lnrpc.Route
+	104, // 76: lnrpc.Hop.mpp_record:type_name -> lnrpc.MPPRecord
+	105, // 77: lnrpc.Hop.amp_record:type_name -> lnrpc.AMPRecord
+	196, // 78: lnrpc.Hop.custom_records:type_name -> lnrpc.Hop.CustomRecordsEntry
+	103, // 79: lnrpc.Route.hops:type_name -> lnrpc.Hop
+	109, // 80: lnrpc.NodeInfo.node:type_name -> lnrpc.LightningNode
+	112, // 81: lnrpc.NodeInfo.channels:type_name -> lnrpc.ChannelEdge
+	110, // 82: lnrpc.LightningNode.addresses:type_name -> lnrpc.NodeAddress
+	197, // 83: lnrpc.LightningNode.features:type_name -> lnrpc.LightningNode.FeaturesEntry
+	111, // 84: lnrpc.ChannelEdge.node1_policy:type_name -> lnrpc.RoutingPolicy
+	111, // 85: lnrpc.ChannelEdge.node2_policy:type_name -> lnrpc.RoutingPolicy
+	109, // 86: lnrpc.ChannelGraph.nodes:type_name -> lnrpc.LightningNode
+	112, // 87: lnrpc.ChannelGraph.edges:type_name -> lnrpc.ChannelEdge
+	5,   // 88: lnrpc.NodeMetricsRequest.types:type_name -> lnrpc.NodeMetricType
+	198, // 89: lnrpc.NodeMetricsResponse.betweenness_centrality:type_name -> lnrpc.NodeMetricsResponse.BetweennessCentralityEntry
+	125, // 90: lnrpc.GraphTopologyUpdate.node_updates:type_name -> lnrpc.NodeUpdate
+	126, // 91: lnrpc.GraphTopologyUpdate.channel_updates:type_name -> lnrpc.ChannelEdgeUpdate
+	127, // 92: lnrpc.GraphTopologyUpdate.closed_chans:type_name -> lnrpc.ClosedChannelUpdate
+	110, // 93: lnrpc.NodeUpdate.node_addresses:type_name -> lnrpc.NodeAddress
+	199, // 94: lnrpc.NodeUpdate.features:type_name -> lnrpc.NodeUpdate.FeaturesEntry
+	28,  // 95: lnrpc.ChannelEdgeUpdate.chan_point:type_name -> lnrpc.ChannelPoint
+	111, // 96: lnrpc.ChannelEdgeUpdate.routing_policy:type_name -> lnrpc.RoutingPolicy
+	28,  // 97: lnrpc.ClosedChannelUpdate.chan_point:type_name -> lnrpc.ChannelPoint
+	128, // 98: lnrpc.RouteHint.hop_hints:type_name -> lnrpc.HopHint
+	129, // 99: lnrpc.Invoice.route_hints:type_name -> lnrpc.RouteHint
+	14,  // 100: lnrpc.Invoice.state:type_name -> lnrpc.Invoice.InvoiceState
+	131, // 101: lnrpc.Invoice.htlcs:type_name -> lnrpc.InvoiceHTLC
+	200, // 102: lnrpc.Invoice.features:type_name -> lnrpc.Invoice.FeaturesEntry
+	6,   // 103: lnrpc.InvoiceHTLC.state:type_name -> lnrpc.InvoiceHTLCState
+	201, // 104: lnrpc.InvoiceHTLC.custom_records:type_name -> lnrpc.InvoiceHTLC.CustomRecordsEntry
+	132, // 105: lnrpc.InvoiceHTLC.amp:type_name -> lnrpc.AMP
+	130, // 106: lnrpc.ListInvoiceResponse.invoices:type_name -> lnrpc.Invoice
+	15,  // 107: lnrpc.Payment.status:type_name -> lnrpc.Payment.PaymentStatus
+	139, // 108: lnrpc.Payment.htlcs:type_name -> lnrpc.HTLCAttempt
+	7,   // 109: lnrpc.Payment.failure_reason:type_name -> lnrpc.PaymentFailureReason
+	16,  // 110: lnrpc.HTLCAttempt.status:type_name -> lnrpc.HTLCAttempt.HTLCStatus
+	106, // 111: lnrpc.HTLCAttempt.route:type_name -> lnrpc.Route
+	179, // 112: lnrpc.HTLCAttempt.failure:type_name -> lnrpc.Failure
+	138, // 113: lnrpc.ListPaymentsResponse.payments:type_name -> lnrpc.Payment
+	28,  // 114: lnrpc.AbandonChannelRequest.channel_point:type_name -> lnrpc.ChannelPoint
+	129, // 115: lnrpc.PayReq.route_hints:type_name -> lnrpc.RouteHint
+	202, // 116: lnrpc.PayReq.features:type_name -> lnrpc.PayReq.FeaturesEntry
+	152, // 117: lnrpc.FeeReportResponse.channel_fees:type_name -> lnrpc.ChannelFeeReport
+	28,  // 118: lnrpc.PolicyUpdateRequest.chan_point:type_name -> lnrpc.ChannelPoint
+	157, // 119: lnrpc.ForwardingHistoryResponse.forwarding_events:type_name -> lnrpc.ForwardingEvent
+	28,  // 120: lnrpc.ExportChannelBackupRequest.chan_point:type_name -> lnrpc.ChannelPoint
+	28,  // 121: lnrpc.ChannelBackup.chan_point:type_name -> lnrpc.ChannelPoint
+	28,  // 122: lnrpc.MultiChanBackup.chan_points:type_name -> lnrpc.ChannelPoint
+	164, // 123: lnrpc.ChanBackupSnapshot.single_chan_backups:type_name -> lnrpc.ChannelBackups
+	161, // 124: lnrpc.ChanBackupSnapshot.multi_chan_backup:type_name -> lnrpc.MultiChanBackup
+	160, // 125: lnrpc.ChannelBackups.chan_backups:type_name -> lnrpc.ChannelBackup
+	164, // 126: lnrpc.RestoreChanBackupRequest.chan_backups:type_name -> lnrpc.ChannelBackups
+	169, // 127: lnrpc.BakeMacaroonRequest.permissions:type_name -> lnrpc.MacaroonPermission
+	169, // 128: lnrpc.MacaroonPermissionList.permissions:type_name -> lnrpc.MacaroonPermission
+	203, // 129: lnrpc.ListPermissionsResponse.method_permissions:type_name -> lnrpc.ListPermissionsResponse.MethodPermissionsEntry
+	17,  // 130: lnrpc.Failure.code:type_name -> lnrpc.Failure.FailureCode
+	180, // 131: lnrpc.Failure.channel_update:type_name -> lnrpc.ChannelUpdate
+	182, // 132: lnrpc.MacaroonId.ops:type_name -> lnrpc.Op
+	150, // 133: lnrpc.Peer.FeaturesEntry.value:type_name -> lnrpc.Feature
+	150, // 134: lnrpc.GetInfoResponse.FeaturesEntry.value:type_name -> lnrpc.Feature
+	2,   // 135: lnrpc.PendingChannelsResponse.PendingChannel.initiator:type_name -> lnrpc.Initiator
+	1,   // 136: lnrpc.PendingChannelsResponse.PendingChannel.commitment_type:type_name -> lnrpc.CommitmentType
+	188, // 137: lnrpc.PendingChannelsResponse.PendingOpenChannel.channel:type_name -> lnrpc.PendingChannelsResponse.PendingChannel
+	188, // 138: lnrpc.PendingChannelsResponse.WaitingCloseChannel.channel:type_name -> lnrpc.PendingChannelsResponse.PendingChannel
+	191, // 139: lnrpc.PendingChannelsResponse.WaitingCloseChannel.commitments:type_name -> lnrpc.PendingChannelsResponse.Commitments
+	188, // 140: lnrpc.PendingChannelsResponse.ClosedChannel.channel:type_name -> lnrpc.PendingChannelsResponse.PendingChannel
+	188, // 141: lnrpc.PendingChannelsResponse.ForceClosedChannel.channel:type_name -> lnrpc.PendingChannelsResponse.PendingChannel
+	88,  // 142: lnrpc.PendingChannelsResponse.ForceClosedChannel.pending_htlcs:type_name -> lnrpc.PendingHTLC
+	12,  // 143: lnrpc.PendingChannelsResponse.ForceClosedChannel.anchor:type_name -> lnrpc.PendingChannelsResponse.ForceClosedChannel.AnchorState
+	93,  // 144: lnrpc.WalletBalanceResponse.AccountBalanceEntry.value:type_name -> lnrpc.WalletAccountBalance
+	150, // 145: lnrpc.LightningNode.FeaturesEntry.value:type_name -> lnrpc.Feature
+	117, // 146: lnrpc.NodeMetricsResponse.BetweennessCentralityEntry.value:type_name -> lnrpc.FloatMetric
+	150, // 147: lnrpc.NodeUpdate.FeaturesEntry.value:type_name -> lnrpc.Feature
+	150, // 148: lnrpc.Invoice.FeaturesEntry.value:type_name -> lnrpc.Feature
+	150, // 149: lnrpc.PayReq.FeaturesEntry.value:type_name -> lnrpc.Feature
+	176, // 150: lnrpc.ListPermissionsResponse.MethodPermissionsEntry.value:type_name -> lnrpc.MacaroonPermissionList
+	94,  // 151: lnrpc.Lightning.WalletBalance:input_type -> lnrpc.WalletBalanceRequest
+	97,  // 152: lnrpc.Lightning.ChannelBalance:input_type -> lnrpc.ChannelBalanceRequest
+	20,  // 153: lnrpc.Lightning.GetTransactions:input_type -> lnrpc.GetTransactionsRequest
+	31,  // 154: lnrpc.Lightning.EstimateFee:input_type -> lnrpc.EstimateFeeRequest
+	35,  // 155: lnrpc.Lightning.SendCoins:input_type -> lnrpc.SendCoinsRequest
+	37,  // 156: lnrpc.Lightning.ListUnspent:input_type -> lnrpc.ListUnspentRequest
+	20,  // 157: lnrpc.Lightning.SubscribeTransactions:input_type -> lnrpc.GetTransactionsRequest
+	33,  // 158: lnrpc.Lightning.SendMany:input_type -> lnrpc.SendManyRequest
+	39,  // 159: lnrpc.Lightning.NewAddress:input_type -> lnrpc.NewAddressRequest
+	41,  // 160: lnrpc.Lightning.SignMessage:input_type -> lnrpc.SignMessageRequest
+	43,  // 161: lnrpc.Lightning.VerifyMessage:input_type -> lnrpc.VerifyMessageRequest
+	45,  // 162: lnrpc.Lightning.ConnectPeer:input_type -> lnrpc.ConnectPeerRequest
+	47,  // 163: lnrpc.Lightning.DisconnectPeer:input_type -> lnrpc.DisconnectPeerRequest
+	60,  // 164: lnrpc.Lightning.ListPeers:input_type -> lnrpc.ListPeersRequest
+	62,  // 165: lnrpc.Lightning.SubscribePeerEvents:input_type -> lnrpc.PeerEventSubscription
+	64,  // 166: lnrpc.Lightning.GetInfo:input_type -> lnrpc.GetInfoRequest
+	66,  // 167: lnrpc.Lightning.GetRecoveryInfo:input_type -> lnrpc.GetRecoveryInfoRequest
+	89,  // 168: lnrpc.Lightning.PendingChannels:input_type -> lnrpc.PendingChannelsRequest
+	52,  // 169: lnrpc.Lightning.ListChannels:input_type -> lnrpc.ListChannelsRequest
+	91,  // 170: lnrpc.Lightning.SubscribeChannelEvents:input_type -> lnrpc.ChannelEventSubscription
+	56,  // 171: lnrpc.Lightning.ClosedChannels:input_type -> lnrpc.ClosedChannelsRequest
+	76,  // 172: lnrpc.Lightning.OpenChannelSync:input_type -> lnrpc.OpenChannelRequest
+	76,  // 173: lnrpc.Lightning.OpenChannel:input_type -> lnrpc.OpenChannelRequest
+	86,  // 174: lnrpc.Lightning.FundingStateStep:input_type -> lnrpc.FundingTransitionMsg
+	27,  // 175: lnrpc.Lightning.ChannelAcceptor:input_type -> lnrpc.ChannelAcceptResponse
+	72,  // 176: lnrpc.Lightning.CloseChannel:input_type -> lnrpc.CloseChannelRequest
+	144, // 177: lnrpc.Lightning.AbandonChannel:input_type -> lnrpc.AbandonChannelRequest
+	23,  // 178: lnrpc.Lightning.SendPayment:input_type -> lnrpc.SendRequest
+	23,  // 179: lnrpc.Lightning.SendPaymentSync:input_type -> lnrpc.SendRequest
+	25,  // 180: lnrpc.Lightning.SendToRoute:input_type -> lnrpc.SendToRouteRequest
+	25,  // 181: lnrpc.Lightning.SendToRouteSync:input_type -> lnrpc.SendToRouteRequest
+	130, // 182: lnrpc.Lightning.AddInvoice:input_type -> lnrpc.Invoice
+	135, // 183: lnrpc.Lightning.ListInvoices:input_type -> lnrpc.ListInvoiceRequest
+	134, // 184: lnrpc.Lightning.LookupInvoice:input_type -> lnrpc.PaymentHash
+	137, // 185: lnrpc.Lightning.SubscribeInvoices:input_type -> lnrpc.InvoiceSubscription
+	148, // 186: lnrpc.Lightning.DecodePayReq:input_type -> lnrpc.PayReqString
+	140, // 187: lnrpc.Lightning.ListPayments:input_type -> lnrpc.ListPaymentsRequest
+	142, // 188: lnrpc.Lightning.DeleteAllPayments:input_type -> lnrpc.DeleteAllPaymentsRequest
+	113, // 189: lnrpc.Lightning.DescribeGraph:input_type -> lnrpc.ChannelGraphRequest
+	115, // 190: lnrpc.Lightning.GetNodeMetrics:input_type -> lnrpc.NodeMetricsRequest
+	118, // 191: lnrpc.Lightning.GetChanInfo:input_type -> lnrpc.ChanInfoRequest
+	107, // 192: lnrpc.Lightning.GetNodeInfo:input_type -> lnrpc.NodeInfoRequest
+	99,  // 193: lnrpc.Lightning.QueryRoutes:input_type -> lnrpc.QueryRoutesRequest
+	119, // 194: lnrpc.Lightning.GetNetworkInfo:input_type -> lnrpc.NetworkInfoRequest
+	121, // 195: lnrpc.Lightning.StopDaemon:input_type -> lnrpc.StopRequest
+	123, // 196: lnrpc.Lightning.SubscribeChannelGraph:input_type -> lnrpc.GraphTopologySubscription
+	146, // 197: lnrpc.Lightning.DebugLevel:input_type -> lnrpc.DebugLevelRequest
+	151, // 198: lnrpc.Lightning.FeeReport:input_type -> lnrpc.FeeReportRequest
+	154, // 199: lnrpc.Lightning.UpdateChannelPolicy:input_type -> lnrpc.PolicyUpdateRequest
+	156, // 200: lnrpc.Lightning.ForwardingHistory:input_type -> lnrpc.ForwardingHistoryRequest
+	159, // 201: lnrpc.Lightning.ExportChannelBackup:input_type -> lnrpc.ExportChannelBackupRequest
+	162, // 202: lnrpc.Lightning.ExportAllChannelBackups:input_type -> lnrpc.ChanBackupExportRequest
+	163, // 203: lnrpc.Lightning.VerifyChanBackup:input_type -> lnrpc.ChanBackupSnapshot
+	165, // 204: lnrpc.Lightning.RestoreChannelBackups:input_type -> lnrpc.RestoreChanBackupRequest
+	167, // 205: lnrpc.Lightning.SubscribeChannelBackups:input_type -> lnrpc.ChannelBackupSubscription
+	170, // 206: lnrpc.Lightning.BakeMacaroon:input_type -> lnrpc.BakeMacaroonRequest
+	172, // 207: lnrpc.Lightning.ListMacaroonIDs:input_type -> lnrpc.ListMacaroonIDsRequest
+	174, // 208: lnrpc.Lightning.DeleteMacaroonID:input_type -> lnrpc.DeleteMacaroonIDRequest
+	177, // 209: lnrpc.Lightning.ListPermissions:input_type -> lnrpc.ListPermissionsRequest
+	95,  // 210: lnrpc.Lightning.WalletBalance:output_type -> lnrpc.WalletBalanceResponse
+	98,  // 211: lnrpc.Lightning.ChannelBalance:output_type -> lnrpc.ChannelBalanceResponse
+	21,  // 212: lnrpc.Lightning.GetTransactions:output_type -> lnrpc.TransactionDetails
+	32,  // 213: lnrpc.Lightning.EstimateFee:output_type -> lnrpc.EstimateFeeResponse
+	36,  // 214: lnrpc.Lightning.SendCoins:output_type -> lnrpc.SendCoinsResponse
+	38,  // 215: lnrpc.Lightning.ListUnspent:output_type -> lnrpc.ListUnspentResponse
+	19,  // 216: lnrpc.Lightning.SubscribeTransactions:output_type -> lnrpc.Transaction
+	34,  // 217: lnrpc.Lightning.SendMany:output_type -> lnrpc.SendManyResponse
+	40,  // 218: lnrpc.Lightning.NewAddress:output_type -> lnrpc.NewAddressResponse
+	42,  // 219: lnrpc.Lightning.SignMessage:output_type -> lnrpc.SignMessageResponse
+	44,  // 220: lnrpc.Lightning.VerifyMessage:output_type -> lnrpc.VerifyMessageResponse
+	46,  // 221: lnrpc.Lightning.ConnectPeer:output_type -> lnrpc.ConnectPeerResponse
+	48,  // 222: lnrpc.Lightning.DisconnectPeer:output_type -> lnrpc.DisconnectPeerResponse
+	61,  // 223: lnrpc.Lightning.ListPeers:output_type -> lnrpc.ListPeersResponse
+	63,  // 224: lnrpc.Lightning.SubscribePeerEvents:output_type -> lnrpc.PeerEvent
+	65,  // 225: lnrpc.Lightning.GetInfo:output_type -> lnrpc.GetInfoResponse
+	67,  // 226: lnrpc.Lightning.GetRecoveryInfo:output_type -> lnrpc.GetRecoveryInfoResponse
+	90,  // 227: lnrpc.Lightning.PendingChannels:output_type -> lnrpc.PendingChannelsResponse
+	53,  // 228: lnrpc.Lightning.ListChannels:output_type -> lnrpc.ListChannelsResponse
+	92,  // 229: lnrpc.Lightning.SubscribeChannelEvents:output_type -> lnrpc.ChannelEventUpdate
+	57,  // 230: lnrpc.Lightning.ClosedChannels:output_type -> lnrpc.ClosedChannelsResponse
+	28,  // 231: lnrpc.Lightning.OpenChannelSync:output_type -> lnrpc.ChannelPoint
+	77,  // 232: lnrpc.Lightning.OpenChannel:output_type -> lnrpc.OpenStatusUpdate
+	87,  // 233: lnrpc.Lightning.FundingStateStep:output_type -> lnrpc.FundingStateStepResp
+	26,  // 234: lnrpc.Lightning.ChannelAcceptor:output_type -> lnrpc.ChannelAcceptRequest
+	73,  // 235: lnrpc.Lightning.CloseChannel:output_type -> lnrpc.CloseStatusUpdate
+	145, // 236: lnrpc.Lightning.AbandonChannel:output_type -> lnrpc.AbandonChannelResponse
+	24,  // 237: lnrpc.Lightning.SendPayment:output_type -> lnrpc.SendResponse
+	24,  // 238: lnrpc.Lightning.SendPaymentSync:output_type -> lnrpc.SendResponse
+	24,  // 239: lnrpc.Lightning.SendToRoute:output_type -> lnrpc.SendResponse
+	24,  // 240: lnrpc.Lightning.SendToRouteSync:output_type -> lnrpc.SendResponse
+	133, // 241: lnrpc.Lightning.AddInvoice:output_type -> lnrpc.AddInvoiceResponse
+	136, // 242: lnrpc.Lightning.ListInvoices:output_type -> lnrpc.ListInvoiceResponse
+	130, // 243: lnrpc.Lightning.LookupInvoice:output_type -> lnrpc.Invoice
+	130, // 244: lnrpc.Lightning.SubscribeInvoices:output_type -> lnrpc.Invoice
+	149, // 245: lnrpc.Lightning.DecodePayReq:output_type -> lnrpc.PayReq
+	141, // 246: lnrpc.Lightning.ListPayments:output_type -> lnrpc.ListPaymentsResponse
+	143, // 247: lnrpc.Lightning.DeleteAllPayments:output_type -> lnrpc.DeleteAllPaymentsResponse
+	114, // 248: lnrpc.Lightning.DescribeGraph:output_type -> lnrpc.ChannelGraph
+	116, // 249: lnrpc.Lightning.GetNodeMetrics:output_type -> lnrpc.NodeMetricsResponse
+	112, // 250: lnrpc.Lightning.GetChanInfo:output_type -> lnrpc.ChannelEdge
+	108, // 251: lnrpc.Lightning.GetNodeInfo:output_type -> lnrpc.NodeInfo
+	102, // 252: lnrpc.Lightning.QueryRoutes:output_type -> lnrpc.QueryRoutesResponse
+	120, // 253: lnrpc.Lightning.GetNetworkInfo:output_type -> lnrpc.NetworkInfo
+	122, // 254: lnrpc.Lightning.StopDaemon:output_type -> lnrpc.StopResponse
+	124, // 255: lnrpc.Lightning.SubscribeChannelGraph:output_type -> lnrpc.GraphTopologyUpdate
+	147, // 256: lnrpc.Lightning.DebugLevel:output_type -> lnrpc.DebugLevelResponse
+	153, // 257: lnrpc.Lightning.FeeReport:output_type -> lnrpc.FeeReportResponse
+	155, // 258: lnrpc.Lightning.UpdateChannelPolicy:output_type -> lnrpc.PolicyUpdateResponse
+	158, // 259: lnrpc.Lightning.ForwardingHistory:output_type -> lnrpc.ForwardingHistoryResponse
+	160, // 260: lnrpc.Lightning.ExportChannelBackup:output_type -> lnrpc.ChannelBackup
+	163, // 261: lnrpc.Lightning.ExportAllChannelBackups:output_type -> lnrpc.ChanBackupSnapshot
+	168, // 262: lnrpc.Lightning.VerifyChanBackup:output_type -> lnrpc.VerifyChanBackupResponse
+	166, // 263: lnrpc.Lightning.RestoreChannelBackups:output_type -> lnrpc.RestoreBackupResponse
+	163, // 264: lnrpc.Lightning.SubscribeChannelBackups:output_type -> lnrpc.ChanBackupSnapshot
+	171, // 265: lnrpc.Lightning.BakeMacaroon:output_type -> lnrpc.BakeMacaroonResponse
+	173, // 266: lnrpc.Lightning.ListMacaroonIDs:output_type -> lnrpc.ListMacaroonIDsResponse
+	175, // 267: lnrpc.Lightning.DeleteMacaroonID:output_type -> lnrpc.DeleteMacaroonIDResponse
+	178, // 268: lnrpc.Lightning.ListPermissions:output_type -> lnrpc.ListPermissionsResponse
+	210, // [210:269] is the sub-list for method output_type
+	151, // [151:210] is the sub-list for method input_type
+	151, // [151:151] is the sub-list for extension type_name
+	151, // [151:151] is the sub-list for extension extendee
+	0,   // [0:151] is the sub-list for field type_name
 }
 
 func init() { file_lightning_proto_init() }

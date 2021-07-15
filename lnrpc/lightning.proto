@@ -792,6 +792,9 @@ message ChannelAcceptRequest {
     // A bit-field which the initiator uses to specify proposed channel
     // behavior.
     uint32 channel_flags = 13;
+
+    // The commitment type the initiator wishes to use for the proposed channel.
+    CommitmentType commitment_type = 14;
 }
 
 message ChannelAcceptResponse {

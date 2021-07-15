@@ -372,15 +372,10 @@ func (c *chainWatcher) handleUnknownLocalState(
 	// Next, we'll derive our script that includes the revocation base for
 	// the remote party allowing them to claim this output before the CSV
 	// delay if we breach.
-	localScript, err := input.CommitScriptToSelf(
-		uint32(c.cfg.chanState.LocalChanCfg.CsvDelay),
+	localScript, err := lnwallet.CommitScriptToSelf(
 		commitKeyRing.ToLocalKey, commitKeyRing.RevocationKey,
+		uint32(c.cfg.chanState.LocalChanCfg.CsvDelay),
 	)
-	if err != nil {
-		return false, err
-	}
-
-	localPkScript, err := input.WitnessScriptHash(localScript)
 	if err != nil {
 		return false, err
 	}
@@ -393,7 +388,7 @@ func (c *chainWatcher) handleUnknownLocalState(
 		pkScript := output.PkScript
 
 		switch {
-		case bytes.Equal(localPkScript, pkScript):
+		case bytes.Equal(localScript.PkScript, pkScript):
 			ourCommit = true
 
 		case bytes.Equal(remoteScript.PkScript, pkScript):

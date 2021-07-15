@@ -2315,13 +2315,9 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	// number so we can have the proper witness script to sign and include
 	// within the final witness.
 	theirDelay := uint32(chanState.RemoteChanCfg.CsvDelay)
-	theirPkScript, err := input.CommitScriptToSelf(
-		theirDelay, keyRing.ToLocalKey, keyRing.RevocationKey,
+	theirScript, err := CommitScriptToSelf(
+		keyRing.ToLocalKey, keyRing.RevocationKey, theirDelay,
 	)
-	if err != nil {
-		return nil, err
-	}
-	theirWitnessHash, err := input.WitnessScriptHash(theirPkScript)
 	if err != nil {
 		return nil, err
 	}
@@ -2347,7 +2343,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		switch {
 		case bytes.Equal(txOut.PkScript, ourScript.PkScript):
 			ourOutpoint.Index = uint32(i)
-		case bytes.Equal(txOut.PkScript, theirWitnessHash):
+		case bytes.Equal(txOut.PkScript, theirScript.PkScript):
 			theirOutpoint.Index = uint32(i)
 		}
 	}
@@ -2385,9 +2381,9 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		theirSignDesc = &input.SignDescriptor{
 			KeyDesc:       chanState.LocalChanCfg.RevocationBasePoint,
 			DoubleTweak:   commitmentSecret,
-			WitnessScript: theirPkScript,
+			WitnessScript: theirScript.WitnessScript,
 			Output: &wire.TxOut{
-				PkScript: theirWitnessHash,
+				PkScript: theirScript.PkScript,
 				Value:    int64(theirAmt),
 			},
 			HashType: txscript.SigHashAll,
@@ -2413,7 +2409,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		// as we'll need it if we're revoking an HTLC output on the
 		// remote commitment transaction, and *they* go to the second
 		// level.
-		secondLevelWitnessScript, err := input.SecondLevelHtlcScript(
+		secondLevelScript, err := SecondLevelHtlcScript(
 			keyRing.RevocationKey, keyRing.ToLocalKey, theirDelay,
 		)
 		if err != nil {
@@ -2448,7 +2444,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 				Hash:  commitHash,
 				Index: uint32(htlc.OutputIndex),
 			},
-			SecondLevelWitnessScript: secondLevelWitnessScript,
+			SecondLevelWitnessScript: secondLevelScript.WitnessScript,
 			IsIncoming:               htlc.Incoming,
 		})
 	}
@@ -5904,13 +5900,9 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	// Finally, we'll generate the script output that the timeout
 	// transaction creates so we can generate the signDesc required to
 	// complete the claim process after a delay period.
-	htlcSweepScript, err := input.SecondLevelHtlcScript(
+	htlcSweepScript, err := SecondLevelHtlcScript(
 		keyRing.RevocationKey, keyRing.ToLocalKey, csvDelay,
 	)
-	if err != nil {
-		return nil, err
-	}
-	htlcSweepScriptHash, err := input.WitnessScriptHash(htlcSweepScript)
 	if err != nil {
 		return nil, err
 	}
@@ -5930,9 +5922,9 @@ func newOutgoingHtlcResolution(signer input.Signer,
 		SweepSignDesc: input.SignDescriptor{
 			KeyDesc:       localChanCfg.DelayBasePoint,
 			SingleTweak:   localDelayTweak,
-			WitnessScript: htlcSweepScript,
+			WitnessScript: htlcSweepScript.WitnessScript,
 			Output: &wire.TxOut{
-				PkScript: htlcSweepScriptHash,
+				PkScript: htlcSweepScript.PkScript,
 				Value:    int64(secondLevelOutputAmt),
 			},
 			HashType: txscript.SigHashAll,
@@ -6043,13 +6035,9 @@ func newIncomingHtlcResolution(signer input.Signer,
 	// Finally, we'll generate the script that the second-level transaction
 	// creates so we can generate the proper signDesc to sweep it after the
 	// CSV delay has passed.
-	htlcSweepScript, err := input.SecondLevelHtlcScript(
+	htlcSweepScript, err := SecondLevelHtlcScript(
 		keyRing.RevocationKey, keyRing.ToLocalKey, csvDelay,
 	)
-	if err != nil {
-		return nil, err
-	}
-	htlcSweepScriptHash, err := input.WitnessScriptHash(htlcSweepScript)
 	if err != nil {
 		return nil, err
 	}
@@ -6068,9 +6056,9 @@ func newIncomingHtlcResolution(signer input.Signer,
 		SweepSignDesc: input.SignDescriptor{
 			KeyDesc:       localChanCfg.DelayBasePoint,
 			SingleTweak:   localDelayTweak,
-			WitnessScript: htlcSweepScript,
+			WitnessScript: htlcSweepScript.WitnessScript,
 			Output: &wire.TxOut{
-				PkScript: htlcSweepScriptHash,
+				PkScript: htlcSweepScript.PkScript,
 				Value:    int64(secondLevelOutputAmt),
 			},
 			HashType: txscript.SigHashAll,
@@ -6293,13 +6281,9 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
 	)
 
-	selfScript, err := input.CommitScriptToSelf(
-		csvTimeout, keyRing.ToLocalKey, keyRing.RevocationKey,
+	toLocalScript, err := CommitScriptToSelf(
+		keyRing.ToLocalKey, keyRing.RevocationKey, csvTimeout,
 	)
-	if err != nil {
-		return nil, err
-	}
-	payToUsScriptHash, err := input.WitnessScriptHash(selfScript)
 	if err != nil {
 		return nil, err
 	}
@@ -6312,7 +6296,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 		delayOut   *wire.TxOut
 	)
 	for i, txOut := range commitTx.TxOut {
-		if !bytes.Equal(payToUsScriptHash, txOut.PkScript) {
+		if !bytes.Equal(toLocalScript.PkScript, txOut.PkScript) {
 			continue
 		}
 
@@ -6338,7 +6322,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 			SelfOutputSignDesc: input.SignDescriptor{
 				KeyDesc:       chanState.LocalChanCfg.DelayBasePoint,
 				SingleTweak:   keyRing.LocalCommitKeyTweak,
-				WitnessScript: selfScript,
+				WitnessScript: toLocalScript.WitnessScript,
 				Output: &wire.TxOut{
 					PkScript: delayOut.PkScript,
 					Value:    localBalance,

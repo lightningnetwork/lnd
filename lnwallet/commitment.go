@@ -190,10 +190,34 @@ type ScriptInfo struct {
 	WitnessScript []byte
 }
 
-// CommitScriptToRemote creates the script that will pay to the non-owner of
-// the commitment transaction, adding a delay to the script based on the
-// channel type. The second return value is the CSV deleay of the output
-// script, what must be satisfied in order to spend the output.
+// CommitScriptToSelf constructs the public key script for the output on the
+// commitment transaction paying to the "owner" of said commitment transaction.
+// If the other party learns of the preimage to the revocation hash, then they
+// can claim all the settled funds in the channel, plus the unsettled funds.
+func CommitScriptToSelf(selfKey, revokeKey *btcec.PublicKey, csvDelay uint32) (
+	*ScriptInfo, error) {
+
+	toLocalRedeemScript, err := input.CommitScriptToSelf(
+		csvDelay, selfKey, revokeKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	toLocalScriptHash, err := input.WitnessScriptHash(toLocalRedeemScript)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ScriptInfo{
+		PkScript:      toLocalScriptHash,
+		WitnessScript: toLocalRedeemScript,
+	}, nil
+}
+
+// CommitScriptToRemote derives the appropriate to_remote script based on the
+// channel's commitment type. The second return value is the CSV delay of the
+// output script, what must be satisfied in order to spend the output.
 func CommitScriptToRemote(chanType channeldb.ChannelType,
 	key *btcec.PublicKey) (*ScriptInfo, uint32, error) {
 
@@ -266,6 +290,32 @@ func HtlcSecondLevelInputSequence(chanType channeldb.ChannelType) uint32 {
 	}
 
 	return 0
+}
+
+// SecondLevelHtlcScript derives the appropriate second level HTLC script based
+// on the channel's commitment type. It is the uniform script that's used as the
+// output for the second-level HTLC transactions. The second level transaction
+// act as a sort of covenant, ensuring that a 2-of-2 multi-sig output can only
+// be spent in a particular way, and to a particular output.
+func SecondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
+	csvDelay uint32) (*ScriptInfo, error) {
+
+	witnessScript, err := input.SecondLevelHtlcScript(
+		revocationKey, delayKey, csvDelay,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	pkScript, err := input.WitnessScriptHash(witnessScript)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ScriptInfo{
+		PkScript:      pkScript,
+		WitnessScript: witnessScript,
+	}, nil
 }
 
 // CommitWeight returns the base commitment weight before adding HTLCs.
@@ -622,15 +672,9 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 	// output after a relative block delay, or the remote node can claim
 	// the funds with the revocation key if we broadcast a revoked
 	// commitment transaction.
-	toLocalRedeemScript, err := input.CommitScriptToSelf(
-		uint32(localChanCfg.CsvDelay), keyRing.ToLocalKey,
-		keyRing.RevocationKey,
-	)
-	if err != nil {
-		return nil, err
-	}
-	toLocalScriptHash, err := input.WitnessScriptHash(
-		toLocalRedeemScript,
+	toLocalScript, err := CommitScriptToSelf(
+		keyRing.ToLocalKey, keyRing.RevocationKey,
+		uint32(localChanCfg.CsvDelay),
 	)
 	if err != nil {
 		return nil, err
@@ -654,7 +698,7 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 	localOutput := amountToLocal >= localChanCfg.DustLimit
 	if localOutput {
 		commitTx.AddTxOut(&wire.TxOut{
-			PkScript: toLocalScriptHash,
+			PkScript: toLocalScript.PkScript,
 			Value:    int64(amountToLocal),
 		})
 	}

@@ -20,5 +20,5 @@ func TestDBDefaultConfig(t *testing.T) {
 	require.Equal(t, kvdb.DefaultDBTimeout, defaultConfig.Bolt.DBTimeout)
 	// Implicitly, the following fields are default to false.
 	require.False(t, defaultConfig.Bolt.AutoCompact)
-	require.False(t, defaultConfig.Bolt.SyncFreelist)
+	require.True(t, defaultConfig.Bolt.NoFreelistSync)
 }

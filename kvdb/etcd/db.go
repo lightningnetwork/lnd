@@ -21,12 +21,14 @@ const (
 	// the etcd instance.
 	etcdConnectionTimeout = 10 * time.Second
 
-	// etcdLongTimeout is a timeout for longer taking etcd operatons.
+	// etcdLongTimeout is a timeout for longer taking etcd operations.
 	etcdLongTimeout = 30 * time.Second
 
 	// etcdDefaultRootBucketId is used as the root bucket key. Note that
 	// the actual key is not visible, since all bucket keys are hashed.
 	etcdDefaultRootBucketId = "@"
+	
+	DefaultMaxCallSize int = 16384*1024 - 1
 )
 
 // callerStats holds commit stats for a specific caller. Currently it only
@@ -135,12 +137,16 @@ var _ walletdb.DB = (*db)(nil)
 // newEtcdBackend returns a db object initialized with the passed backend
 // config. If etcd connection cannot be established, then returns error.
 func newEtcdBackend(ctx context.Context, cfg Config) (*db, error) {
+	maxCallSize := DefaultMaxCallSize
+	if cfg.MaxCallSizeBytes != 0 {
+		maxCallSize = cfg.MaxCallSizeBytes
+	}
 	clientCfg := clientv3.Config{
 		Endpoints:          []string{cfg.Host},
 		DialTimeout:        etcdConnectionTimeout,
 		Username:           cfg.User,
 		Password:           cfg.Pass,
-		MaxCallSendMsgSize: 16384*1024 - 1,
+		MaxCallSendMsgSize: maxCallSize,
 	}
 
 	if !cfg.DisableTLS {

@@ -30,6 +30,8 @@ type Config struct {
 
 	CollectStats bool `long:"collect_stats" description:"Whether to collect etcd commit stats."`
 
+	MaxCallSizeBytes int `long:"max_call_size_bytes" description:"The maximum size of a transaction in bytes."`
+
 	// SingleWriter should be set to true if we intend to only allow a
 	// single writer to the database at a time.
 	SingleWriter bool
@@ -60,6 +62,7 @@ func (c *Config) CloneWithSubNamespace(subNamespace string) *Config {
 		InsecureSkipVerify: c.InsecureSkipVerify,
 		CollectStats:       c.CollectStats,
 		SingleWriter:       c.SingleWriter,
+		MaxCallSizeBytes:   c.MaxCallSizeBytes,
 	}
 }
 
@@ -80,5 +83,6 @@ func (c *Config) CloneWithSingleWriter() *Config {
 		InsecureSkipVerify: c.InsecureSkipVerify,
 		CollectStats:       c.CollectStats,
 		SingleWriter:       true,
+		MaxCallSizeBytes:   c.MaxCallSizeBytes,
 	}
 }

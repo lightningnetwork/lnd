@@ -3303,6 +3303,10 @@
           "type": "integer",
           "format": "int64",
           "description": "A bit-field which the initiator uses to specify proposed channel\nbehavior."
+        },
+        "commitment_type": {
+          "$ref": "#/definitions/lnrpcCommitmentType",
+          "description": "The commitment type the initiator wishes to use for the proposed channel."
         }
       }
     },

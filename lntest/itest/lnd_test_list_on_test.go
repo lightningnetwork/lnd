@@ -267,6 +267,10 @@ var allTestCases = []*testCase{
 		test: testPsbtChanFunding,
 	},
 	{
+		name: "psbt incorrect inputs",
+		test: testPsbtFundingInputsFailure,
+	},
+	{
 		name: "sendtoroute multi path payment",
 		test: testSendToRouteMultiPath,
 	},

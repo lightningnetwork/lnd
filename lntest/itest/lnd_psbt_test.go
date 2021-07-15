@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"math"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
@@ -251,6 +252,80 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxt, cancel = context.WithTimeout(ctxb, channelCloseTimeout)
 	defer cancel()
 	closeChannelAndAssert(ctxt, t, net, carol, chanPoint, false)
+}
+
+// testPsbtFundingInputsFailure ensures FundPsbt properly checks the user supplied
+// inputs and input indices against a known Unspent Transaction Output database
+func testPsbtFundingInputsFailure(net *lntest.NetworkHarness, t *harnessTest) {
+	ctxb := context.Background()
+	const chanSize = funding.MaxBtcFundingAmount
+
+	// First, we'll create a node which we'll use to generate addresses
+	// and validate our Partially Signed Bitcoin Transaction (PSBT)
+	dave := net.NewNode(t.t, "dave", nil)
+	defer shutdownAndAssert(net, t, dave)
+
+	// Fund our node some amount of coin.
+	net.SendCoins(ctxb, t.t, btcutil.SatoshiPerBitcoin, dave)
+
+	// Request a new address which we'll add as an output in our PSBT
+	destinationAddressReq := &walletrpc.AddrRequest{}
+	destinationAddressResp, err := dave.WalletKitClient.NextAddr(
+		context.Background(), destinationAddressReq,
+	)
+	destinationAddress := destinationAddressResp.Addr
+	require.NoError(t.t, err)
+
+	// We want a list of UTXOs which can properly fund our output amount
+	// so we'll use the ListUnspent grpc method
+	listUtxosReq := &walletrpc.ListUnspentRequest{
+		MinConfs: 1,
+		MaxConfs: math.MaxInt32,
+	}
+
+	confirmedUtxosResp, err := dave.WalletKitClient.ListUnspent(
+		context.Background(), listUtxosReq,
+	)
+	require.NoError(t.t, err)
+
+	// Iterate through the retrieved UTXO list and perform necessary
+	// modifications to trigger the index not found error
+	var totalConfirmedVal = btcutil.Amount(0)
+	var inputs = []*lnrpc.OutPoint{}
+	for _, utxo := range confirmedUtxosResp.Utxos {
+		if totalConfirmedVal >= chanSize {
+			break
+		}
+		totalConfirmedVal += btcutil.Amount(utxo.AmountSat)
+
+		// Modify the UTXO index. This new transaction hash, index combo
+		// should be erronious; simulating an incorrect, user supplied
+		// index
+		utxo.Outpoint.OutputIndex++
+		utxo.Outpoint.TxidBytes = nil
+		inputs = append(inputs, utxo.Outpoint)
+	}
+
+	fundReq := &walletrpc.FundPsbtRequest{
+		Template: &walletrpc.FundPsbtRequest_Raw{
+			Raw: &walletrpc.TxTemplate{
+				Inputs:  inputs,
+				Outputs: map[string]uint64{destinationAddress: 0},
+			},
+		},
+		Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
+			SatPerVbyte: 2,
+		},
+	}
+
+	// Without a timeout, the operation will block
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+
+	// Finally, fund the PSBT and ensure an error is thrown
+	_, err = dave.WalletKitClient.FundPsbt(ctxt, fundReq)
+	require.Equal(t.t, err.Error(), "rpc error: code = NotFound desc = input 0 not found in list of non-locked UTXO")
+
 }
 
 // openChannelPsbt attempts to open a channel between srcNode and destNode with

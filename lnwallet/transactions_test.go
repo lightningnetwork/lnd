@@ -573,7 +573,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	}
 	commitmentTx, err := CreateCommitTx(
 		channelType, *fakeFundingTxIn, keyRing, aliceChanCfg,
-		bobChanCfg, channelBalance, channelBalance, 0,
+		bobChanCfg, channelBalance, channelBalance, 0, true, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to create commitment transaction: %v", nil)
@@ -889,7 +889,7 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 	remoteCommitTx, localCommitTx, err := CreateCommitmentTxns(
 		remoteBalance, localBalance-commitFee,
 		&remoteCfg, &localCfg, remoteCommitPoint,
-		localCommitPoint, *fundingTxIn, chanType,
+		localCommitPoint, *fundingTxIn, chanType, true, 0,
 	)
 	require.NoError(t, err)
 

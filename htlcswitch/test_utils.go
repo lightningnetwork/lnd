@@ -134,6 +134,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	channelCapacity := aliceAmount + bobAmount
 	csvTimeoutAlice := uint32(5)
 	csvTimeoutBob := uint32(4)
+	isAliceInitiator := true
 
 	aliceConstraints := &channeldb.ChannelConstraints{
 		DustLimit: btcutil.Amount(200),
@@ -230,6 +231,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(
 		aliceAmount, bobAmount, &aliceCfg, &bobCfg, aliceCommitPoint,
 		bobCommitPoint, *fundingTxIn, channeldb.SingleFunderTweaklessBit,
+		isAliceInitiator, 0,
 	)
 	if err != nil {
 		return nil, nil, nil, err
@@ -298,7 +300,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		IdentityPub:             aliceKeyPub,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunderTweaklessBit,
-		IsInitiator:             true,
+		IsInitiator:             isAliceInitiator,
 		Capacity:                channelCapacity,
 		RemoteCurrentRevocation: bobCommitPoint,
 		RevocationProducer:      alicePreimageProducer,
@@ -317,7 +319,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		IdentityPub:             bobKeyPub,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunderTweaklessBit,
-		IsInitiator:             false,
+		IsInitiator:             !isAliceInitiator,
 		Capacity:                channelCapacity,
 		RemoteCurrentRevocation: aliceCommitPoint,
 		RevocationProducer:      bobPreimageProducer,

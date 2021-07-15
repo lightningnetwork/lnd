@@ -1633,7 +1633,7 @@ func initializeDatabases(ctx context.Context,
 
 	if cfg.DB.Backend == lncfg.BoltBackend {
 		ltndLog.Infof("Opening bbolt database, sync_freelist=%v, "+
-			"auto_compact=%v", cfg.DB.Bolt.SyncFreelist,
+			"auto_compact=%v", !cfg.DB.Bolt.NoFreelistSync,
 			cfg.DB.Bolt.AutoCompact)
 	}
 

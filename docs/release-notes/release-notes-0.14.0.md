@@ -357,6 +357,9 @@ you.
 * [Fix crash with empty AMP or MPP record in
   invoice](https://github.com/lightningnetwork/lnd/pull/5743).
 
+* [Config setting sync-freelist was ignored in certain
+  cases](https://github.com/lightningnetwork/lnd/pull/5527).
+
 * The underlying gRPC connection of a WebSocket is now [properly closed when the
   WebSocket end of a connection is
   closed](https://github.com/lightningnetwork/lnd/pull/5683). A bug with the

@@ -777,6 +777,14 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		return ntfn.Event, nil
 	}
 
+	// Grab the current best height as the height may have been updated
+	// while we were draining the chainUpdates queue.
+	n.bestBlockMtx.RLock()
+	currentHeight := uint32(n.bestBlock.Height)
+	n.bestBlockMtx.RUnlock()
+
+	ntfn.HistoricalDispatch.EndHeight = currentHeight
+
 	// With the filter updated, we'll dispatch our historical rescan to
 	// ensure we detect the spend if it happened in the past.
 	n.wg.Add(1)
@@ -928,6 +936,14 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	if ntfn.HistoricalDispatch == nil {
 		return ntfn.Event, nil
 	}
+
+	// Grab the current best height as the height may have been updated
+	// while we were draining the chainUpdates queue.
+	n.bestBlockMtx.RLock()
+	currentHeight := uint32(n.bestBlock.Height)
+	n.bestBlockMtx.RUnlock()
+
+	ntfn.HistoricalDispatch.EndHeight = currentHeight
 
 	// Finally, with the filter updated, we can dispatch the historical
 	// rescan to ensure we can detect if the event happened in the past.

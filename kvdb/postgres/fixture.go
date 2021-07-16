@@ -95,6 +95,10 @@ type fixture struct {
 	Db  walletdb.DB
 }
 
+func (b *fixture) DB() walletdb.DB {
+	return b.Db
+}
+
 // Dump returns the raw contents of the database.
 func (b *fixture) Dump() (map[string]interface{}, error) {
 	dbConn, err := sql.Open("pgx", b.Dsn)

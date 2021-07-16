@@ -25,6 +25,11 @@ import (
 func TestOpenWithCreate(t *testing.T) {
 	t.Parallel()
 
+	// Checking for db file existence is not possible with postgres.
+	if kvdb.PostgresBackend {
+		t.Skip()
+	}
+
 	// First, create a temporary directory to be used for the duration of
 	// this test.
 	tempDirName, err := ioutil.TempDir("", "channeldb")

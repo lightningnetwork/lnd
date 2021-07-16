@@ -5,7 +5,9 @@ package kvdb
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -245,7 +247,20 @@ func updateLastCompactionDate(dbFile string) error {
 func GetTestBackend(path, name string) (Backend, func(), error) {
 	empty := func() {}
 
-	if TestBackend == BoltBackendName {
+	switch {
+	case PostgresBackend:
+		key := filepath.Join(path, name)
+		keyHash := sha256.Sum256([]byte(key))
+
+		f, err := NewPostgresFixture("test_" + hex.EncodeToString(keyHash[:]))
+		if err != nil {
+			return nil, func() {}, err
+		}
+		return f.DB(), func() {
+			_ = f.DB().Close()
+		}, nil
+
+	case TestBackend == BoltBackendName:
 		db, err := GetBoltBackend(&BoltBackendConfig{
 			DBPath:         path,
 			DBFileName:     name,
@@ -256,7 +271,8 @@ func GetTestBackend(path, name string) (Backend, func(), error) {
 			return nil, nil, err
 		}
 		return db, empty, nil
-	} else if TestBackend == EtcdBackendName {
+
+	case TestBackend == EtcdBackendName:
 		etcdConfig, cancel, err := StartEtcdTestBackend(path, 0, 0, "")
 		if err != nil {
 			return nil, empty, err
@@ -265,6 +281,7 @@ func GetTestBackend(path, name string) (Backend, func(), error) {
 			EtcdBackendName, context.TODO(), etcdConfig,
 		)
 		return backend, cancel, err
+
 	}
 
 	return nil, nil, fmt.Errorf("unknown backend")

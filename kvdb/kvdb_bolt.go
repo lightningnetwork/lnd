@@ -1,4 +1,4 @@
-// +build !kvdb_etcd
+// +build !kvdb_etcd,!kvdb_postgres
 
 package kvdb
 
@@ -16,4 +16,12 @@ func GetTestBackend(path, name string) (Backend, func(), error) {
 		return nil, nil, err
 	}
 	return db, func() {}, nil
+}
+
+func SetupTestBackend() error {
+	return nil
+}
+
+func TearDownTestBackend() {
+
 }

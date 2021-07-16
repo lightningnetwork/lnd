@@ -23,3 +23,11 @@ func GetTestBackend(path, name string) (Backend, func(), error) {
 	)
 	return backend, cancel, err
 }
+
+func SetupTestBackend() error {
+	return nil
+}
+
+func TearDownTestBackend() {
+
+}

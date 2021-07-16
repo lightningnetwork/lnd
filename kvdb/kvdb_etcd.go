@@ -19,3 +19,11 @@ func StartEtcdTestBackend(path string, clientPort, peerPort uint16,
 		path, clientPort, peerPort, logFile,
 	)
 }
+
+func SetupTestBackend() error {
+	return nil
+}
+
+func TearDownTestBackend() {
+
+}

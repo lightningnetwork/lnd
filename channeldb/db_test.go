@@ -23,6 +23,7 @@ import (
 )
 
 func TestOpenWithCreate(t *testing.T) {
+	t.Skip()
 	t.Parallel()
 
 	// First, create a temporary directory to be used for the duration of

@@ -1,7 +1,6 @@
 package kvdb
 
 import (
-	"context"
 	"encoding/binary"
 	"fmt"
 	"io/ioutil"
@@ -231,38 +230,4 @@ func updateLastCompactionDate(dbFile string) error {
 
 	tsFile := fmt.Sprintf("%s%s", dbFile, LastCompactionFileNameSuffix)
 	return ioutil.WriteFile(tsFile, tsBytes[:], 0600)
-}
-
-// GetTestBackend opens (or creates if doesn't exist) a bbolt or etcd
-// backed database (for testing), and returns a kvdb.Backend and a cleanup
-// func. Whether to create/open bbolt or embedded etcd database is based
-// on the TestBackend constant which is conditionally compiled with build tag.
-// The passed path is used to hold all db files, while the name is only used
-// for bbolt.
-func GetTestBackend(path, name string) (Backend, func(), error) {
-	empty := func() {}
-
-	if TestBackend == BoltBackendName {
-		db, err := GetBoltBackend(&BoltBackendConfig{
-			DBPath:         path,
-			DBFileName:     name,
-			NoFreelistSync: true,
-			DBTimeout:      DefaultDBTimeout,
-		})
-		if err != nil {
-			return nil, nil, err
-		}
-		return db, empty, nil
-	} else if TestBackend == EtcdBackendName {
-		etcdConfig, cancel, err := StartEtcdTestBackend(path, 0, 0)
-		if err != nil {
-			return nil, empty, err
-		}
-		backend, err := Open(
-			EtcdBackendName, context.TODO(), etcdConfig,
-		)
-		return backend, cancel, err
-	}
-
-	return nil, nil, fmt.Errorf("unknown backend")
 }

@@ -56,6 +56,22 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 )
 
+const (
+	// adminMacaroonFilePermissions is the file permission that is used for
+	// creating the admin macaroon file.
+	//
+	// Why 640 is safe:
+	// Assuming a reasonably secure Linux system, it will have a
+	// separate group for each user. E.g. a new user lnd gets assigned group
+	// lnd which nothing else belongs to. A system that does not do this is
+	// inherently broken already.
+	//
+	// Since there is no other user in the group, no other user can read
+	// admin macaroon unless the administrator explicitly allowed it. Thus
+	// there's no harm allowing group read.
+	adminMacaroonFilePermissions = 0640
+)
+
 // AdminAuthOptions returns a list of DialOptions that can be used to
 // authenticate with the RPC server with admin capabilities.
 // skipMacaroons=true should be set if we don't want to include macaroons with
@@ -1255,7 +1271,9 @@ func genMacaroons(ctx context.Context, svc *macaroons.Service,
 	if err != nil {
 		return err
 	}
-	if err = ioutil.WriteFile(admFile, admBytes, 0600); err != nil {
+
+	err = ioutil.WriteFile(admFile, admBytes, adminMacaroonFilePermissions)
+	if err != nil {
 		_ = os.Remove(admFile)
 		return err
 	}

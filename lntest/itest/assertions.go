@@ -471,43 +471,102 @@ func assertNumOpenChannelsPending(t *harnessTest,
 	require.NoError(t.t, err)
 }
 
-// assertNumConnections asserts number current connections between two peers.
-func assertNumConnections(t *harnessTest, alice, bob *lntest.HarnessNode,
-	expected int) {
+// checkPeerInPeersList returns true if Bob appears in Alice's peer list.
+func checkPeerInPeersList(ctx context.Context, alice,
+	bob *lntest.HarnessNode) (bool, error) {
+
+	peers, err := alice.ListPeers(ctx, &lnrpc.ListPeersRequest{})
+	if err != nil {
+		return false, fmt.Errorf(
+			"error listing %s's node (%v) peers: %v",
+			alice.Name(), alice.NodeID, err,
+		)
+	}
+
+	for _, peer := range peers.Peers {
+		if peer.PubKey == bob.PubKeyStr {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// assertConnected asserts that two peers are connected.
+func assertConnected(t *harnessTest, alice, bob *lntest.HarnessNode) {
 	ctxb := context.Background()
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
 
 	err := wait.NoError(func() error {
-		aNumPeers, err := alice.ListPeers(
-			ctxt, &lnrpc.ListPeersRequest{},
-		)
+		bobIsAlicePeer, err := checkPeerInPeersList(ctxt, alice, bob)
 		if err != nil {
+			return err
+		}
+
+		if !bobIsAlicePeer {
 			return fmt.Errorf(
-				"unable to fetch %s's node (%v) list peers %v",
-				alice.Name(), alice.NodeID, err,
+				"expected %s and %s to be connected "+
+					"but %s is not in %s's peer list",
+				alice.Name(), bob.Name(),
+				bob.Name(), alice.Name(),
 			)
 		}
 
-		bNumPeers, err := bob.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
+		aliceIsBobPeer, err := checkPeerInPeersList(ctxt, bob, alice)
 		if err != nil {
+			return err
+		}
+
+		if !aliceIsBobPeer {
 			return fmt.Errorf(
-				"unable to fetch %s's node (%v) list peers %v",
-				bob.Name(), bob.NodeID, err,
+				"expected %s and %s to be connected "+
+					"but %s is not in %s's peer list",
+				alice.Name(), bob.Name(),
+				alice.Name(), bob.Name(),
 			)
 		}
 
-		if len(aNumPeers.Peers) != expected {
+		return nil
+
+	}, defaultTimeout)
+	require.NoError(t.t, err)
+}
+
+// assertNotConnected asserts that two peers are not connected.
+func assertNotConnected(t *harnessTest, alice, bob *lntest.HarnessNode) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+
+	err := wait.NoError(func() error {
+		bobIsAlicePeer, err := checkPeerInPeersList(ctxt, alice, bob)
+		if err != nil {
+			return err
+		}
+
+		if bobIsAlicePeer {
 			return fmt.Errorf(
-				"number of peers connected to %s is "+
-					"incorrect: expected %v, got %v",
-				alice.Name(), expected, len(aNumPeers.Peers),
+				"expected %s and %s not to be "+
+					"connected but %s is in %s's "+
+					"peer list",
+				alice.Name(), bob.Name(),
+				bob.Name(), alice.Name(),
 			)
 		}
-		if len(bNumPeers.Peers) != expected {
+
+		aliceIsBobPeer, err := checkPeerInPeersList(ctxt, bob, alice)
+		if err != nil {
+			return err
+		}
+
+		if aliceIsBobPeer {
 			return fmt.Errorf(
-				"number of peers connected to %s is "+
-					"incorrect: expected %v, got %v",
-				bob.Name(), expected, len(bNumPeers.Peers),
+				"expected %s and %s not to be "+
+					"connected but %s is in %s's "+
+					"peer list",
+				alice.Name(), bob.Name(),
+				alice.Name(), bob.Name(),
 			)
 		}
 

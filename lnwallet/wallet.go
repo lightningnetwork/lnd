@@ -706,6 +706,12 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		return
 	}
 
+	// We need to avoid enforcing reserved value in the middle of PSBT
+	// funding because some of the following steps may add UTXOs funding
+	// the on-chain wallet.
+	// The enforcement still happens at the last step - in PsbtFundingVerify
+	enforceNewReservedValue := true
+
 	// If no chanFunder was provided, then we'll assume the default
 	// assembler, which is backed by the wallet's internal coin selection.
 	if req.ChanFunder == nil {
@@ -720,6 +726,9 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 			DustLimit:        DustLimitForSize(input.P2WSHSize),
 		}
 		req.ChanFunder = chanfunding.NewWalletAssembler(cfg)
+	} else {
+		_, isPsbtFunder := req.ChanFunder.(*chanfunding.PsbtAssembler)
+		enforceNewReservedValue = !isPsbtFunder
 	}
 
 	localFundingAmt := req.LocalFundingAmt
@@ -819,13 +828,15 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// when the PSBT has been verified.
 	isPublic := req.Flags&lnwire.FFAnnounceChannel != 0
 	hasAnchors := req.CommitType.HasAnchors()
-	err = l.enforceNewReservedValue(fundingIntent, isPublic, hasAnchors)
-	if err != nil {
-		fundingIntent.Cancel()
+	if enforceNewReservedValue {
+		err = l.enforceNewReservedValue(fundingIntent, isPublic, hasAnchors)
+		if err != nil {
+			fundingIntent.Cancel()
 
-		req.err <- err
-		req.resp <- nil
-		return
+			req.err <- err
+			req.resp <- nil
+			return
+		}
 	}
 
 	// The total channel capacity will be the size of the funding output we

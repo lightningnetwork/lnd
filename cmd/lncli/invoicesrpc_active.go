@@ -227,10 +227,6 @@ func addHoldInvoice(ctx *cli.Context) error {
 		}
 	}
 
-	if err != nil {
-		return fmt.Errorf("unable to parse preimage: %v", err)
-	}
-
 	descHash, err = hex.DecodeString(ctx.String("description_hash"))
 	if err != nil {
 		return fmt.Errorf("unable to parse description_hash: %v", err)

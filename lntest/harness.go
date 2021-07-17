@@ -670,13 +670,31 @@ func (n *NetworkHarness) EnsureConnected(t *testing.T, a, b *HarnessNode) {
 	)
 }
 
-// ConnectNodes establishes an encrypted+authenticated p2p connection from node
+// ConnectNodes attempts to create a connection between nodes a and b.
+func (n *NetworkHarness) ConnectNodes(t *testing.T, a, b *HarnessNode) {
+	n.connectNodes(t, a, b, false)
+}
+
+// ConnectNodesPerm attempts to connect nodes a and b and sets node b as
+// a peer that node a should persistently attempt to reconnect to if they
+// become disconnected.
+func (n *NetworkHarness) ConnectNodesPerm(t *testing.T,
+	a, b *HarnessNode) {
+
+	n.connectNodes(t, a, b, true)
+}
+
+// connectNodes establishes an encrypted+authenticated p2p connection from node
 // a towards node b. The function will return a non-nil error if the connection
-// was unable to be established.
+// was unable to be established. If the perm parameter is set to true then
+// node a will persistently attempt to reconnect to node b if they get
+// disconnected.
 //
 // NOTE: This function may block for up to 15-seconds as it will not return
 // until the new connection is detected as being known to both nodes.
-func (n *NetworkHarness) ConnectNodes(t *testing.T, a, b *HarnessNode) {
+func (n *NetworkHarness) connectNodes(t *testing.T, a, b *HarnessNode,
+	perm bool) {
+
 	ctxb := context.Background()
 	ctx, cancel := context.WithTimeout(ctxb, DefaultTimeout)
 	defer cancel()
@@ -692,6 +710,7 @@ func (n *NetworkHarness) ConnectNodes(t *testing.T, a, b *HarnessNode) {
 			Pubkey: bobInfo.IdentityPubkey,
 			Host:   b.Cfg.P2PAddr(),
 		},
+		Perm: perm,
 	}
 
 	err = n.connect(ctx, req, a)

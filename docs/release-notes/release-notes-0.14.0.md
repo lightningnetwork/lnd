@@ -217,11 +217,15 @@ you.
 
 ## Bug Fixes
 
-A bug has been fixed that would cause `lnd` to [try to bootstrap using the
+* A bug has been fixed that would cause `lnd` to [try to bootstrap using the
 currnet DNS seeds when in SigNet
 mode](https://github.com/lightningnetwork/lnd/pull/5564).
 
-[A validation check for sane `CltvLimit` and `FinalCltvDelta` has been added for `REST`-initiated payments.](https://github.com/lightningnetwork/lnd/pull/5591)
+* [A validation check for sane `CltvLimit` and `FinalCltvDelta` has been added for `REST`-initiated payments.](https://github.com/lightningnetwork/lnd/pull/5591)
+
+* A bug has been fixed that would result in nodes not [reconnecting to their 
+persistent outbound peers if the peer's IP 
+address changed](https://github.com/lightningnetwork/lnd/pull/5538).
 
 [A bug has been fixed with Neutrino's `RegisterConfirmationsNtfn` and `RegisterSpendNtfn` calls that would cause notifications to be missed.](https://github.com/lightningnetwork/lnd/pull/5453)
 
@@ -234,6 +238,7 @@ change](https://github.com/lightningnetwork/lnd/pull/5613).
 # Contributors (Alphabetical Order)
 * Andras Banki-Horvath
 * de6df1re
+* Elle Mouton
 * ErikEk
 * Eugene Siegel
 * Martin Habovstiak

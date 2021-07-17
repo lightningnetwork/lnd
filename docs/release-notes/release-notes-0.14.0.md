@@ -25,6 +25,12 @@ for more information.
 * [Stub code for interacting with `lnrpc` from a WASM context through JSON 
   messages was added](https://github.com/lightningnetwork/lnd/pull/5601).
 
+* LND now [reports to systemd](https://github.com/lightningnetwork/lnd/pull/5536)
+  that RPC is ready (port bound, certificate generated, macaroons created,
+  in case of `wallet-unlock-password-file` wallet unlocked). This can be used to
+  avoid misleading error messages from dependent services if they use `After`
+  systemd option.
+
 ## Wallet
 
 * It is now possible to fund a psbt [without specifying any

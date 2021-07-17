@@ -14,6 +14,7 @@ require (
 	github.com/btcsuite/btcwallet/wallet/txrules v1.0.0
 	github.com/btcsuite/btcwallet/walletdb v1.3.6-0.20210803004036-eebed51155ec
 	github.com/btcsuite/btcwallet/wtxmgr v1.3.1-0.20210803004036-eebed51155ec
+	github.com/coreos/go-systemd v0.0.0-20190321100706-95778dfbb74e
 	github.com/davecgh/go-spew v1.1.1
 	github.com/fsnotify/fsnotify v1.4.9 // indirect
 	github.com/go-errors/errors v1.0.1

@@ -354,6 +354,8 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 	}
 
 	return &AddHoldInvoiceResp{
+		AddIndex:       dbInvoice.AddIndex,
 		PaymentRequest: string(dbInvoice.PaymentRequest),
+		PaymentAddr:    dbInvoice.Terms.PaymentAddr[:],
 	}, nil
 }

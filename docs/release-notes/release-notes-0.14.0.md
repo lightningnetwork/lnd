@@ -1,5 +1,10 @@
 # Release Notes
 
+## RPC Server
+
+[Return payment address and add index from
+addholdinvoice call](https://github.com/lightningnetwork/lnd/pull/5533).
+
 # Build System
 
 [A new pre-submit check has been

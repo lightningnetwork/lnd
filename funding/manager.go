@@ -371,7 +371,7 @@ type Config struct {
 	// channel extended to it. The function is able to take into account
 	// the amount of the channel, and any funds we'll be pushed in the
 	// process to determine how many confirmations we'll require.
-	NumRequiredConfs func(btcutil.Amount, lnwire.MilliSatoshi) uint16
+	NumRequiredConfs func(btcutil.Amount, lnwire.MilliSatoshi, bool) uint16
 
 	// RequiredRemoteDelay is a function that maps the total amount in a
 	// proposed channel to the CSV delay that we'll require for the remote
@@ -1390,11 +1390,16 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	// the amount of the channel, and also if any funds are being pushed to
 	// us. If a depth value was set by our channel acceptor, we will use
 	// that value instead.
-	numConfsReq := f.cfg.NumRequiredConfs(msg.FundingAmount, msg.PushAmount)
+	remoteFeatures := peer.RemoteFeatures()
+	skipConfirmationOptional := remoteFeatures.HasFeature(
+		lnwire.SkipFundingConfirmationOptional)
+
+	numConfsReq := f.cfg.NumRequiredConfs(msg.FundingAmount,
+		msg.PushAmount, skipConfirmationOptional)
+	reservation.SetNumConfsRequired(numConfsReq)
 	if acceptorResp.MinAcceptDepth != 0 {
 		numConfsReq = acceptorResp.MinAcceptDepth
 	}
-	reservation.SetNumConfsRequired(numConfsReq)
 
 	// We'll also validate and apply all the constraints the initiating
 	// party is attempting to dictate for our commitment transaction.

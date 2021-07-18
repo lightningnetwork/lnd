@@ -7926,7 +7926,7 @@ type QueryRoutesRequest struct {
 	//An optional field that can be used to pass an arbitrary set of TLV records
 	//to a peer which understands the new records. This can be used to pass
 	//application specific data during the payment attempt. If the destination
-	//does not support the specified recrods, and error will be returned.
+	//does not support the specified records, an error will be returned.
 	//Record types are required to be in the custom range >= 65536. When using
 	//REST, the values must be encoded as base64.
 	DestCustomRecords map[uint64][]byte `protobuf:"bytes,13,rep,name=dest_custom_records,json=destCustomRecords,proto3" json:"dest_custom_records,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`

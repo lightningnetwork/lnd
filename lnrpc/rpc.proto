@@ -2399,7 +2399,7 @@ message QueryRoutesRequest {
     An optional field that can be used to pass an arbitrary set of TLV records
     to a peer which understands the new records. This can be used to pass
     application specific data during the payment attempt. If the destination
-    does not support the specified recrods, and error will be returned.
+    does not support the specified records, an error will be returned.
     Record types are required to be in the custom range >= 65536. When using
     REST, the values must be encoded as base64.
     */

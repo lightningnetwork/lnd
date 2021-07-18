@@ -143,6 +143,10 @@ type InitFundingReserveMsg struct {
 	// output selected to fund the channel should satisfy.
 	MinConfs int32
 
+	// AllowSkipFundingConfirmation indicates that the initiator won't reject
+	// the responder request to skip channel confirmation (min_depth=0).
+	AllowSkipFundingConfirmation bool
+
 	// CommitType indicates what type of commitment type the channel should
 	// be using, like tweakless or anchors.
 	CommitType CommitmentType

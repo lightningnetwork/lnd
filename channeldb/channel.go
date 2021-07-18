@@ -257,6 +257,10 @@ const (
 	// ZeroHtlcTxFeeBit indicates that the channel should use zero-fee
 	// second-level HTLC transactions.
 	ZeroHtlcTxFeeBit ChannelType = 1 << 5
+
+	// ZeroConfBit indicates that the channel will be operational before
+	// the funding transactions is confirmed.
+	ZeroConfBit ChannelType = 1 << 6
 )
 
 // IsSingleFunder returns true if the channel type if one of the known single
@@ -292,6 +296,12 @@ func (c ChannelType) HasAnchors() bool {
 // transactions signed with zero-fee.
 func (c ChannelType) ZeroHtlcTxFee() bool {
 	return c&ZeroHtlcTxFeeBit == ZeroHtlcTxFeeBit
+}
+
+// IsZeroConf returns true if the channel shouldn't wait for confirmation to
+// be operational.
+func (c ChannelType) IsZeroConf() bool {
+	return c&ZeroConfBit == ZeroConfBit
 }
 
 // IsFrozen returns true if the channel is considered to be "frozen". A frozen
@@ -960,7 +970,7 @@ func (c *OpenChannel) fullSync(tx kvdb.RwTx) error {
 
 // MarkAsOpen marks a channel as fully open given a locator that uniquely
 // describes its location within the chain.
-func (c *OpenChannel) MarkAsOpen(openLoc lnwire.ShortChannelID) error {
+func (c *OpenChannel) MarkAsOpen(openLoc lnwire.ShortChannelID, confirmed bool) error {
 	c.Lock()
 	defer c.Unlock()
 
@@ -977,6 +987,10 @@ func (c *OpenChannel) MarkAsOpen(openLoc lnwire.ShortChannelID) error {
 			return err
 		}
 
+		// in case channel is confirmed we wipe the ZeroConfBit.
+		if confirmed {
+			channel.ChanType &= ^ZeroConfBit
+		}
 		channel.IsPending = false
 		channel.ShortChannelID = openLoc
 

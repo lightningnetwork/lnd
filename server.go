@@ -1100,6 +1100,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			// In case the user has explicitly specified
 			// a default value for the number of
 			// confirmations, we use it.
+			if chainCfg.SkipChannelConfirmation {
+				return 0
+			}
 			defaultConf := uint16(chainCfg.DefaultNumChanConfs)
 			if defaultConf != 0 {
 				return defaultConf

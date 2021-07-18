@@ -194,7 +194,7 @@ func createTestChannel(t *testing.T, cdb *DB,
 	}
 
 	// Mark the channel as open with the short channel id provided.
-	err = params.channel.MarkAsOpen(params.channel.ShortChannelID)
+	err = params.channel.MarkAsOpen(params.channel.ShortChannelID, true)
 	if err != nil {
 		t.Fatalf("unable to mark channel open: %v", err)
 	}
@@ -890,7 +890,7 @@ func TestFetchPendingChannels(t *testing.T) {
 		TxIndex:     10,
 		TxPosition:  15,
 	}
-	err = pendingChannels[0].MarkAsOpen(chanOpenLoc)
+	err = pendingChannels[0].MarkAsOpen(chanOpenLoc, true)
 	if err != nil {
 		t.Fatalf("unable to mark channel as open: %v", err)
 	}
@@ -1048,7 +1048,7 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 		TxIndex:     10,
 		TxPosition:  15,
 	}
-	if err := channels[0].MarkAsOpen(channelConf); err != nil {
+	if err := channels[0].MarkAsOpen(channelConf, true); err != nil {
 		t.Fatalf("unable to mark channel as open: %v", err)
 	}
 
@@ -1177,7 +1177,7 @@ func TestRefreshShortChanID(t *testing.T) {
 		TxPosition:  15,
 	}
 
-	err = state.MarkAsOpen(chanOpenLoc)
+	err = state.MarkAsOpen(chanOpenLoc, true)
 	if err != nil {
 		t.Fatalf("unable to mark channel open: %v", err)
 	}

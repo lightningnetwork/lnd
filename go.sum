@@ -55,6 +55,8 @@ github.com/btcsuite/btcwallet/walletdb v1.3.5 h1:SoxUPLgJUkyO1XqON6X7x+rjHJoIpRQ
 github.com/btcsuite/btcwallet/walletdb v1.3.5/go.mod h1:oJDxAEUHVtnmIIBaa22wSBPTVcs6hUp5NKWmI8xDwwU=
 github.com/btcsuite/btcwallet/wtxmgr v1.3.0 h1:lrZaZXGJjDedYTV7s5UgU9xBe8+N+cIDW7BYwI/B8Fs=
 github.com/btcsuite/btcwallet/wtxmgr v1.3.0/go.mod h1:awQsh1n/0ZrEQ+JZgWvHeo153ubzEisf/FyNtwI0dDk=
+github.com/btcsuite/btcwallet/wtxmgr v1.3.1-0.20210706234807-aaf03fee735a h1:25oMK8eFUTVMyKGHc2xX7pNkU4u208Dpf6IPVh5E+cA=
+github.com/btcsuite/btcwallet/wtxmgr v1.3.1-0.20210706234807-aaf03fee735a/go.mod h1:UM38ixX8VwJ9qey4umf//0H3ndn5kSImFZ46V54Nd5Q=
 github.com/btcsuite/go-socks v0.0.0-20170105172521-4720035b7bfd h1:R/opQEbFEy9JGkIguV40SvRY1uliPX8ifOvi6ICsFCw=
 github.com/btcsuite/go-socks v0.0.0-20170105172521-4720035b7bfd/go.mod h1:HHNXQzUsZCxOoE+CPiyCTO6x34Zs86zZUiwtpXoGdtg=
 github.com/btcsuite/golangcrypto v0.0.0-20150304025918-53f62d9b43e8/go.mod h1:tYvUd8KLhm/oXvUeSEs2VlLghFjQt9+ZaF9ghH0JNjc=

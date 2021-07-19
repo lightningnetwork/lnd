@@ -98,6 +98,10 @@ finding](https://github.com/lightningnetwork/lnd/pull/5332).
 server to fail due to newly added AMP
 logic](https://github.com/lightningnetwork/lnd/pull/5419).
 
+The `ListLeases` call that was introduced in 0.13.0 also listed leases that were
+already expired. Only when `lnd` is restarted, these leases were cleaned up. We
+now [filter out](https://github.com/lightningnetwork/lnd/pull/5472) the expired
+leases.
 
 # Contributors (Alphabetical Order)
 

@@ -143,6 +143,14 @@ build-itest:
 	@$(call print, "Building itest binary for ${backend} backend.")
 	CGO_ENABLED=0 $(GOTEST) -v ./lntest/itest -tags="$(DEV_TAGS) $(RPC_TAGS) rpctest $(backend)" -c -o lntest/itest/itest.test$(EXEC_SUFFIX)
 
+build-itest-race:
+	@$(call print, "Building itest btcd and lnd with race detector.")
+	CGO_ENABLED=0 $(GOBUILD) -tags="rpctest" -o lntest/itest/btcd-itest$(EXEC_SUFFIX) $(ITEST_LDFLAGS) $(BTCD_PKG)
+	CGO_ENABLED=1 $(GOBUILD) -race -tags="$(ITEST_TAGS)" -o lntest/itest/lnd-itest$(EXEC_SUFFIX) $(ITEST_LDFLAGS) $(PKG)/cmd/lnd
+
+	@$(call print, "Building itest binary for ${backend} backend.")
+	CGO_ENABLED=0 $(GOTEST) -v ./lntest/itest -tags="$(DEV_TAGS) $(RPC_TAGS) rpctest $(backend)" -c -o lntest/itest/itest.test$(EXEC_SUFFIX)
+
 install:
 	@$(call print, "Installing lnd and lncli.")
 	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)/cmd/lnd
@@ -186,6 +194,8 @@ itest-only:
 	lntest/itest/log_check_errors.sh
 
 itest: build-itest itest-only
+
+itest-race: build-itest-race itest-only
 
 itest-parallel: build-itest
 	@$(call print, "Running tests")

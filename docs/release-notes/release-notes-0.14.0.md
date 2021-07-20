@@ -10,8 +10,11 @@ added.
 # Code Health
 
 ## Code cleanup, refactor, typo fixes
+
 * [Unused error check 
-removed](https://github.com/lightningnetwork/lnd/pull/5537).
+  removed](https://github.com/lightningnetwork/lnd/pull/5537).
+* [Shorten Pull Request check list by referring to the CI checks that are 
+  in place](https://github.com/lightningnetwork/lnd/pull/5545)
 
 # Contributors (Alphabetical Order)
 ErikEk

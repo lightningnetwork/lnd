@@ -118,7 +118,29 @@ func (b *readWriteBucket) NestedReadWriteBucket(key []byte) walletdb.ReadWriteBu
 
 // assertNoValue checks if the value for the passed key exists.
 func (b *readWriteBucket) assertNoValue(key []byte) error {
+	if !etcdDebug {
+		return nil
+	}
+
 	val, err := b.tx.stm.Get(string(makeValueKey(b.id, key)))
+	if err != nil {
+		return err
+	}
+
+	if val != nil {
+		return walletdb.ErrIncompatibleValue
+	}
+
+	return nil
+}
+
+// assertNoBucket checks if the bucket for the passed key exists.
+func (b *readWriteBucket) assertNoBucket(key []byte) error {
+	if !etcdDebug {
+		return nil
+	}
+
+	val, err := b.tx.stm.Get(string(makeBucketKey(b.id, key)))
 	if err != nil {
 		return err
 	}
@@ -272,13 +294,8 @@ func (b *readWriteBucket) Put(key, value []byte) error {
 		return walletdb.ErrKeyRequired
 	}
 
-	val, err := b.tx.stm.Get(string(makeBucketKey(b.id, key)))
-	if err != nil {
+	if err := b.assertNoBucket(key); err != nil {
 		return err
-	}
-
-	if val != nil {
-		return walletdb.ErrIncompatibleValue
 	}
 
 	// Update the transaction with the new value.

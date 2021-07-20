@@ -17,6 +17,12 @@ added.
   in place](https://github.com/lightningnetwork/lnd/pull/5545).
 * [Added minor fixes to contribution guidelines](https://github.com/lightningnetwork/lnd/pull/5503).
 
+## Database
+
+* [Ensure single writer for legacy
+  code](https://github.com/lightningnetwork/lnd/pull/5547) when using etcd
+  backend.
+
 # Contributors (Alphabetical Order)
 * ErikEk
 * Zero-1729

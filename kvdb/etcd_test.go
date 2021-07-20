@@ -3,6 +3,7 @@
 package kvdb
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcwallet/walletdb"
@@ -143,18 +144,23 @@ func TestEtcd(t *testing.T) {
 			continue
 		}
 
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
+		rwLock := []bool{false, true}
+		for _, doRwLock := range rwLock {
+			name := fmt.Sprintf("%v/RWLock=%v", test.name, doRwLock)
 
-			f := etcd.NewEtcdTestFixture(t)
-			defer f.Cleanup()
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
 
-			test.test(t, f.NewBackend())
+				f := etcd.NewEtcdTestFixture(t)
+				defer f.Cleanup()
 
-			if test.expectedDb != nil {
-				dump := f.Dump()
-				require.Equal(t, test.expectedDb, dump)
-			}
-		})
+				test.test(t, f.NewBackend(doRwLock))
+
+				if test.expectedDb != nil {
+					dump := f.Dump()
+					require.Equal(t, test.expectedDb, dump)
+				}
+			})
+		}
 	}
 }

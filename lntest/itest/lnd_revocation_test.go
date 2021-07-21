@@ -127,6 +127,11 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to copy database files: %v", err)
 	}
 
+	// Reconnect the peers after the restart that was needed for the db
+	// backup.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	net.ConnectNodes(ctxt, t.t, carol, net.Bob)
+
 	// Finally, send payments from Carol to Bob, consuming Bob's remaining
 	// payment hashes.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -361,6 +366,11 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	if err := net.BackupDb(carol); err != nil {
 		t.Fatalf("unable to copy database files: %v", err)
 	}
+
+	// Reconnect the peers after the restart that was needed for the db
+	// backup.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	net.ConnectNodes(ctxt, t.t, dave, carol)
 
 	// Finally, send payments from Dave to Carol, consuming Carol's remaining
 	// payment hashes.

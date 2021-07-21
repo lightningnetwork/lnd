@@ -25,4 +25,8 @@ type Config struct {
 	InsecureSkipVerify bool `long:"insecure_skip_verify" description:"Whether we intend to skip TLS verification"`
 
 	CollectStats bool `long:"collect_stats" description:"Whether to collect etcd commit stats."`
+
+	// SingleWriter should be set to true if we intend to only allow a
+	// single writer to the database at a time.
+	SingleWriter bool
 }

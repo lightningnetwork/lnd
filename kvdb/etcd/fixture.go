@@ -78,8 +78,13 @@ func NewEtcdTestFixture(t *testing.T) *EtcdTestFixture {
 	}
 }
 
-func (f *EtcdTestFixture) NewBackend() walletdb.DB {
-	db, err := newEtcdBackend(context.TODO(), f.BackendConfig())
+func (f *EtcdTestFixture) NewBackend(singleWriter bool) walletdb.DB {
+	cfg := f.BackendConfig()
+	if singleWriter {
+		cfg.SingleWriter = true
+	}
+
+	db, err := newEtcdBackend(context.TODO(), cfg)
 	require.NoError(f.t, err)
 
 	return db

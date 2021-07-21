@@ -98,11 +98,26 @@ message AddHoldInvoiceRequest {
 
 message AddHoldInvoiceResp {
     /*
-    A bare-bones invoice for a payment within the Lightning Network.  With the
+    A bare-bones invoice for a payment within the Lightning Network. With the
     details of the invoice, the sender has all the data necessary to send a
     payment to the recipient.
     */
     string payment_request = 1;
+
+    /*
+    The "add" index of this invoice. Each newly created invoice will increment
+    this index making it monotonically increasing. Callers to the
+    SubscribeInvoices call can use this to instantly get notified of all added
+    invoices with an add_index greater than this one.
+    */
+    uint64 add_index = 2;
+
+    /*
+    The payment address of the generated invoice. This value should be used
+    in all payments for this invoice as we require it for end to end
+    security.
+    */
+    bytes payment_addr = 3;
 }
 
 message SettleInvoiceMsg {

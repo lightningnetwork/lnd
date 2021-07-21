@@ -248,11 +248,7 @@ func addHoldInvoice(ctx *cli.Context) error {
 		return err
 	}
 
-	printJSON(struct {
-		PayReq string `json:"pay_req"`
-	}{
-		PayReq: resp.PaymentRequest,
-	})
+	printRespJSON(resp)
 
 	return nil
 }

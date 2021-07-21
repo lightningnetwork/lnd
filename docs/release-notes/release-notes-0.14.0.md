@@ -43,6 +43,12 @@ for more information.
 * It is now possible to fund a psbt [without specifying any
   outputs](https://github.com/lightningnetwork/lnd/pull/5442). This option is
   useful for CPFP bumping of unconfirmed outputs or general utxo consolidation.
+* The internal wallet can now also be created or restored by using an [extended
+  master root key (`xprv`) instead of an
+  `aezeed`](https://github.com/lightningnetwork/lnd/pull/4717) only. This allows
+  wallet integrators to use existing seed mechanism that might already be in
+  place. **It is still not supported to use the same seed/root key on multiple
+  `lnd` instances simultaneously** though.
 
 ## Security 
 

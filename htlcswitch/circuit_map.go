@@ -137,11 +137,31 @@ var (
 	// a packet to the source link, potentially including an error
 	// encrypter for applying this hop's encryption to the payload in the
 	// reverse direction.
+	//
+	// Bucket hierarchy:
+	//
+	// circuitAddKey(root-bucket)
+	//     	|
+	//     	|-- <incoming-circuit-key>: <encoded bytes of PaymentCircuit>
+	//     	|-- <incoming-circuit-key>: <encoded bytes of PaymentCircuit>
+	//     	|
+	//     	...
+	//
 	circuitAddKey = []byte("circuit-adds")
 
 	// circuitKeystoneKey is used to retrieve the bucket containing circuit
 	// keystones, which are set in place once a forwarded packet is
 	// assigned an index on an outgoing commitment txn.
+	//
+	// Bucket hierarchy:
+	//
+	// circuitKeystoneKey(root-bucket)
+	//     	|
+	//     	|-- <outgoing-circuit-key>: <incoming-circuit-key>
+	//     	|-- <outgoing-circuit-key>: <incoming-circuit-key>
+	//     	|
+	//     	...
+	//
 	circuitKeystoneKey = []byte("circuit-keystones")
 )
 

@@ -2862,6 +2862,12 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary,
 			return err
 		}
 
+		// Delete all the forwarding packages stored for this particular
+		// channel.
+		if err = chanState.Packager.Wipe(tx); err != nil {
+			return err
+		}
+
 		// Now that the index to this channel has been deleted, purge
 		// the remaining channel metadata from the database.
 		err = deleteOpenChannel(chanBucket)

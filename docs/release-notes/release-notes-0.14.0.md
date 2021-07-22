@@ -7,11 +7,14 @@ addholdinvoice call](https://github.com/lightningnetwork/lnd/pull/5533).
 
 # Build System
 
-[A new pre-submit check has been
-added](https://github.com/lightningnetwork/lnd/pull/5520) to ensure that all
-PRs ([aside from merge
-commits](https://github.com/lightningnetwork/lnd/pull/5543)) add an entry in
-the release notes folder that at leasts links to PR being added.
+* [A new pre-submit check has been
+  added](https://github.com/lightningnetwork/lnd/pull/5520) to ensure that all
+  PRs ([aside from merge
+  commits](https://github.com/lightningnetwork/lnd/pull/5543)) add an entry in
+  the release notes folder that at leasts links to PR being added.
+
+* [A new build target itest-race](https://github.com/lightningnetwork/lnd/pull/5542) 
+  to help uncover undetected data races with our itests.
 
 # Misc
 

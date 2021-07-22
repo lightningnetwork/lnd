@@ -154,19 +154,31 @@ func TestEtcd(t *testing.T) {
 		for _, doRwLock := range rwLock {
 			name := fmt.Sprintf("%v/RWLock=%v", test.name, doRwLock)
 
-			t.Run(name, func(t *testing.T) {
-				t.Parallel()
+			cache := []bool{false, true}
+			for _, useCache := range cache {
+				name := fmt.Sprintf("%v/Cache=%v", name, useCache)
+				t.Run(name, func(t *testing.T) {
+					t.Parallel()
 
-				f := etcd.NewEtcdTestFixture(t)
-				defer f.Cleanup()
+					f := etcd.NewEtcdTestFixture(t)
+					defer f.Cleanup()
 
-				test.test(t, f.NewBackend(doRwLock))
+					backend := f.NewBackend(doRwLock)
+					if useCache {
+						cache := NewCache(
+							backend, nil, nil,
+						)
+						require.NoError(t, cache.Init())
+						backend = cache
+					}
+					test.test(t, backend)
 
-				if test.expectedDb != nil {
-					dump := f.Dump()
-					require.Equal(t, test.expectedDb, dump)
-				}
-			})
+					if test.expectedDb != nil {
+						dump := f.Dump()
+						require.Equal(t, test.expectedDb, dump)
+					}
+				})
+			}
 		}
 	}
 }

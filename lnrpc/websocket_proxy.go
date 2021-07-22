@@ -147,12 +147,12 @@ func (p *WebsocketProxy) upgradeToWebSocketProxy(w http.ResponseWriter,
 		}
 	}()
 
-	ctx, cancelFn := context.WithCancel(context.Background())
+	ctx, cancelFn := context.WithCancel(r.Context())
 	defer cancelFn()
 
 	requestForwarder := newRequestForwardingReader()
 	request, err := http.NewRequestWithContext(
-		r.Context(), r.Method, r.URL.String(), requestForwarder,
+		ctx, r.Method, r.URL.String(), requestForwarder,
 	)
 	if err != nil {
 		p.logger.Errorf("WS: error preparing request:", err)
@@ -181,6 +181,7 @@ func (p *WebsocketProxy) upgradeToWebSocketProxy(w http.ResponseWriter,
 	go func() {
 		<-ctx.Done()
 		responseForwarder.Close()
+		requestForwarder.CloseWriter()
 	}()
 
 	go func() {

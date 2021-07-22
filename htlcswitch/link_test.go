@@ -5373,6 +5373,10 @@ func (*mockPackager) RemovePkg(tx kvdb.RwTx, height uint64) error {
 	return nil
 }
 
+func (*mockPackager) Wipe(tx kvdb.RwTx) error {
+	return nil
+}
+
 func (*mockPackager) AckSettleFails(tx kvdb.RwTx,
 	settleFailRefs ...channeldb.SettleFailRef) error {
 	return nil

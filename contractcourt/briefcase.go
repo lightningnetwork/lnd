@@ -125,6 +125,59 @@ type ArbitratorLog interface {
 type ArbitratorState uint8
 
 const (
+	// While some state transition is allowed, certain transitions are not
+	// possible. Listed below is the full state transition map which
+	// contains all possible paths. We start at StateDefault and end at
+	// StateFullyResolved, or StateError(not listed as its a possible state
+	// in every path). The format is,
+	// 	-> state: conditions we switch to this state.
+	//
+	// StateDefault
+	// |
+	// |-> StateDefault: no actions and chain trigger
+	// |
+	// |-> StateBroadcastCommit: chain/user trigger
+	// |   |
+	// |   |-> StateCommitmentBroadcasted: chain/user trigger
+	// |   |   |
+	// |   |   |-> StateCommitmentBroadcasted: chain/user trigger
+	// |   |   |
+	// |   |   |-> StateContractClosed: local/remote close trigger
+	// |   |   |   |
+	// |   |   |   |-> StateWaitingFullResolution: contract resolutions not empty
+	// |   |   |   |   |
+	// |   |   |   |   |-> StateWaitingFullResolution: contract resolutions not empty
+	// |   |   |   |   |
+	// |   |   |   |   |-> StateFullyResolved: contract resolutions empty
+	// |   |   |   |
+	// |   |   |   |-> StateFullyResolved: contract resolutions empty
+	// |   |   |
+	// |   |   |-> StateFullyResolved: coop/breach close trigger
+	// |   |
+	// |   |-> StateContractClosed: local/remote close trigger
+	// |   |   |
+	// |   |   |-> StateWaitingFullResolution: contract resolutions not empty
+	// |   |   |   |
+	// |   |   |   |-> StateWaitingFullResolution: contract resolutions not empty
+	// |   |   |   |
+	// |   |   |   |-> StateFullyResolved: contract resolutions empty
+	// |   |   |
+	// |   |   |-> StateFullyResolved: contract resolutions empty
+	// |   |
+	// |   |-> StateFullyResolved: coop/breach close trigger
+	// |
+	// |-> StateContractClosed: local/remote close trigger
+	// |   |
+	// |   |-> StateWaitingFullResolution: contract resolutions empty
+	// |   |   |
+	// |   |   |-> StateWaitingFullResolution: contract resolutions not empty
+	// |   |   |
+	// |   |   |-> StateFullyResolved: contract resolutions empty
+	// |   |
+	// |   |-> StateFullyResolved: contract resolutions empty
+	// |
+	// |-> StateFullyResolved: coop/breach close trigger
+
 	// StateDefault is the default state. In this state, no major actions
 	// need to be executed.
 	StateDefault ArbitratorState = 0

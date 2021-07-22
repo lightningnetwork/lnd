@@ -1,9 +1,11 @@
 package kvdb
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBolt(t *testing.T) {
@@ -71,14 +73,25 @@ func TestBolt(t *testing.T) {
 
 	for _, test := range tests {
 		test := test
+		cache := []bool{false, true}
+		for _, useCache := range cache {
+			name := fmt.Sprintf("%v/Cache=%v", test.name, useCache)
 
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
 
-			f := NewBoltFixture(t)
-			defer f.Cleanup()
+				f := NewBoltFixture(t)
+				defer f.Cleanup()
 
-			test.test(t, f.NewBackend())
-		})
+				backend := f.NewBackend()
+				if useCache {
+					cache := NewCache(backend, nil, nil)
+					require.NoError(t, cache.Init())
+					backend = cache
+				}
+
+				test.test(t, backend)
+			})
+		}
 	}
 }

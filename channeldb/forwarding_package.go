@@ -39,6 +39,38 @@ var (
 	// fwdPackagesKey is the root-level bucket that all forwarding packages
 	// are written. This bucket is further subdivided based on the short
 	// channel ID of each channel.
+	//
+	// Bucket hierarchy:
+	//
+	// fwdPackagesKey(root-bucket)
+	//     	|
+	//     	|-- <shortChannelID>
+	//     	|       |
+	//     	|       |-- <height>
+	//     	|       |       |-- ackFilterKey: <encoded bytes of PkgFilter>
+	//     	|       |       |-- settleFailFilterKey: <encoded bytes of PkgFilter>
+	//     	|       |       |-- fwdFilterKey: <encoded bytes of PkgFilter>
+	//     	|       |       |
+	//     	|       |       |-- addBucketKey
+	//     	|       |       |        |-- <index of LogUpdate>: <encoded bytes of LogUpdate>
+	//     	|       |       |        |-- <index of LogUpdate>: <encoded bytes of LogUpdate>
+	//     	|       |       |        ...
+	//     	|       |       |
+	//     	|       |       |-- failSettleBucketKey
+	//     	|       |                |-- <index of LogUpdate>: <encoded bytes of LogUpdate>
+	//     	|       |                |-- <index of LogUpdate>: <encoded bytes of LogUpdate>
+	//     	|       |                ...
+	//     	|       |
+	//     	|       |-- <height>
+	//     	|       |       |
+	//     	|       ...     ...
+	//     	|
+	//     	|
+	//     	|-- <shortChannelID>
+	//     	|       |
+	//	|       ...
+	// 	...
+	//
 	fwdPackagesKey = []byte("fwd-packages")
 
 	// addBucketKey is the bucket to which all Add log updates are written.

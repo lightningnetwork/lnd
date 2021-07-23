@@ -281,6 +281,10 @@ you.
 * [Ensure single writer for legacy
   code](https://github.com/lightningnetwork/lnd/pull/5547) when using etcd
   backend.
+* When starting/restarting, `lnd` will [clean forwarding packages, payment
+  circuits and keystones](https://github.com/lightningnetwork/lnd/pull/4364)
+  for closed channels, which will potentially free up disk space for long
+  running nodes that have lots of closed channels.
 
 * [Optimized payment sequence generation](https://github.com/lightningnetwork/lnd/pull/5514/)
   to make LNDs payment throughput (and latency) with better when using etcd.

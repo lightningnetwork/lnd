@@ -16,6 +16,11 @@ addholdinvoice call](https://github.com/lightningnetwork/lnd/pull/5533).
 * [A new build target itest-race](https://github.com/lightningnetwork/lnd/pull/5542) 
   to help uncover undetected data races with our itests.
 
+# Documentation
+
+* [Outdated warning about unsupported pruning was replaced with clarification that LND **does**
+  support pruning](https://github.com/lightningnetwork/lnd/pull/5553)
+
 # Misc
 
 * The direct use of certain syscalls in packages such as `bbolt` or `lnd`'s own

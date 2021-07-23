@@ -248,13 +248,8 @@ time of writing of this document, there are three available chain backends:
 `btcd`, `neutrino`, `bitcoind`. All including neutrino can run on mainnet with
 an out of the box `lnd` instance. We don't require `--txindex` when running
 with `bitcoind` or `btcd` but activating the `txindex` will generally make
-`lnd` run faster.
-
-**NOTE: WE DO NOT FULLY SUPPORT PRUNED OPERATING MODES FOR FULL NODES.** It's
-possible to run a node in a pruned mode and have it serve lnd, however one must
-take care to ensure that `lnd` has all blocks on disk since the birth of the
-wallet, and the age of the earliest channels (which were created around March
-2018).
+`lnd` run faster. Note that since version 0.13 pruned nodes are supported
+although they cause performance penalty and higher network usage.
 
 The set of arguments for each of the backend modes is as follows:
 

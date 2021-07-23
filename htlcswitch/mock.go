@@ -671,7 +671,8 @@ func (f *mockChannelLink) completeCircuit(pkt *htlcPacket) error {
 		htlc.ID = f.htlcID
 
 		keystone := Keystone{pkt.inKey(), pkt.outKey()}
-		if err := f.htlcSwitch.openCircuits(keystone); err != nil {
+		err := f.htlcSwitch.circuits.OpenCircuits(keystone)
+		if err != nil {
 			return err
 		}
 
@@ -690,7 +691,7 @@ func (f *mockChannelLink) completeCircuit(pkt *htlcPacket) error {
 }
 
 func (f *mockChannelLink) deleteCircuit(pkt *htlcPacket) error {
-	return f.htlcSwitch.deleteCircuits(pkt.inKey())
+	return f.htlcSwitch.circuits.DeleteCircuits(pkt.inKey())
 }
 
 func newMockChannelLink(htlcSwitch *Switch, chanID lnwire.ChannelID,

@@ -2234,18 +2234,6 @@ func (s *Switch) commitCircuits(circuits ...*PaymentCircuit) (
 	return s.circuits.CommitCircuits(circuits...)
 }
 
-// openCircuits preemptively writes the keystones for Adds that are about to be
-// added to a commitment txn.
-func (s *Switch) openCircuits(keystones ...Keystone) error {
-	return s.circuits.OpenCircuits(keystones...)
-}
-
-// deleteCircuits persistently removes the circuit, and keystone if present,
-// from the circuit map.
-func (s *Switch) deleteCircuits(inKeys ...CircuitKey) error {
-	return s.circuits.DeleteCircuits(inKeys...)
-}
-
 // FlushForwardingEvents flushes out the set of pending forwarding events to
 // the persistent log. This will be used by the switch to periodically flush
 // out the set of forwarding events to disk. External callers can also use this

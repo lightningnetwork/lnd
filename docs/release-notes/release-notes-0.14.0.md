@@ -29,6 +29,11 @@ the release notes folder that at leasts links to PR being added.
   code](https://github.com/lightningnetwork/lnd/pull/5547) when using etcd
   backend.
 
+# Bug fixes
+
+* The underlying gRPC connection is now [properly closed when the WebSocket
+  end of a connection is closed](https://github.com/lightningnetwork/lnd/pull/5555).
+
 # Contributors (Alphabetical Order)
 * ErikEk
 * Zero-1729

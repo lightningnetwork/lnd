@@ -944,6 +944,65 @@ func assertAmountSent(amt btcutil.Amount, sndr, rcvr *lntest.HarnessNode) func()
 	}
 }
 
+// assertEdgeDisabled checks that a given edge for a channel in a node has the
+// Disable state. Passing a boolean for incoming allows distinction between the
+// outgoing and incoming edge for the channel specified by channel point.
+func assertEdgeDisabled(t *harnessTest, node *lntest.HarnessNode,
+	chanPoint *lnrpc.ChannelPoint, incoming bool, expectedNumEdges int) {
+
+	ctxb := context.Background()
+
+	err := wait.NoError(func() error {
+		req := &lnrpc.ChannelGraphRequest{
+			IncludeUnannounced: true,
+		}
+		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+		defer cancel()
+		chanGraph, err := node.DescribeGraph(ctxt, req)
+		if err != nil {
+			return fmt.Errorf("unable to query node %v's graph:"+
+				"%v", node, err)
+		}
+		numEdges := len(chanGraph.Edges)
+		if numEdges != expectedNumEdges {
+			return fmt.Errorf("expected to find %d edge in the graph, found %d",
+				expectedNumEdges, numEdges)
+		}
+		edge := chanGraph.Edges[0]
+		if incoming && expectedNumEdges > 1 {
+			edge = chanGraph.Edges[1]
+		}
+
+		// Convert the lnrpc chanPoint into a comparable format
+		hash, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+		if err != nil {
+			return fmt.Errorf("chainhash conversion failed: %v", err)
+		}
+
+		// Ensure the edge is the one we expect
+		outpoint := fmt.Sprintf("%s:%d", hash, chanPoint.OutputIndex)
+		if edge.ChanPoint != outpoint {
+			return fmt.Errorf("expected chan_point %v, got %v",
+				fmt.Sprintf("%x:%s", hash, outpoint),
+				edge.ChanPoint)
+		}
+
+		// Ensure the policy reflects the disabled state.
+		policy := edge.Node1Policy
+		if node.PubKeyStr == edge.Node2Pub {
+			policy = edge.Node2Policy
+		}
+		if !policy.Disabled {
+			return fmt.Errorf("expected policy.Disabled to be false, "+
+				"but policy was %v", policy)
+		}
+
+		return nil
+	}, defaultTimeout)
+
+	require.NoError(t.t, err)
+}
+
 // assertLastHTLCError checks that the last sent HTLC of the last payment sent
 // by the given node failed with the expected failure code.
 func assertLastHTLCError(t *harnessTest, node *lntest.HarnessNode,

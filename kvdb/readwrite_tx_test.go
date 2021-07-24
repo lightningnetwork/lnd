@@ -45,5 +45,5 @@ func testTxRollback(t *testing.T, db walletdb.DB) {
 	require.NoError(t, apple.Put([]byte("testKey"), []byte("testVal")))
 
 	require.NoError(t, tx.Rollback())
-	require.Error(t, walletdb.ErrTxClosed, tx.Commit())
+	require.Equal(t, walletdb.ErrTxClosed, tx.Commit())
 }

@@ -63,6 +63,18 @@ func TestBolt(t *testing.T) {
 			name: "tx rollback",
 			test: testTxRollback,
 		},
+		{
+			name: "top level bucket creation",
+			test: testTopLevelBucketCreation,
+		},
+		{
+			name: "bucket operation",
+			test: testBucketOperations,
+		},
+		{
+			name: "sub bucket sequence",
+			test: testSubBucketSequence,
+		},
 	}
 
 	for _, test := range tests {

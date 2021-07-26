@@ -10,6 +10,9 @@
   `lightning.proto`](https://github.com/lightningnetwork/lnd/pull/5473) to fix
   a warning related to protobuf file name collisions.
 
+* [Stub code for interacting with `lnrpc` from a WASM context through JSON 
+  messages was added](https://github.com/lightningnetwork/lnd/pull/5601).
+
 ## Security 
 
 ### Admin macaroon permissions

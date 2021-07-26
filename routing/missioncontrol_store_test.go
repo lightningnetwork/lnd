@@ -10,8 +10,8 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
-
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 )
 
 const testMaxRecords = 2
@@ -40,7 +40,7 @@ func TestMissionControlStore(t *testing.T) {
 	defer db.Close()
 	defer os.Remove(dbPath)
 
-	store, err := newMissionControlStore(db, testMaxRecords)
+	store, err := newMissionControlStore(db, testMaxRecords, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,27 +80,21 @@ func TestMissionControlStore(t *testing.T) {
 	result2.id = 2
 
 	// Store result.
-	err = store.AddResult(&result2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	store.AddResult(&result2)
 
 	// Store again to test idempotency.
-	err = store.AddResult(&result2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	store.AddResult(&result2)
 
 	// Store second result which has an earlier timestamp.
-	err = store.AddResult(&result1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	store.AddResult(&result1)
+	require.NoError(t, store.storeResults())
 
 	results, err = store.fetchAll()
 	if err != nil {
 		t.Fatal(err)
 	}
+	require.Equal(t, 2, len(results))
+
 	if len(results) != 2 {
 		t.Fatal("expected two results")
 	}
@@ -116,7 +110,7 @@ func TestMissionControlStore(t *testing.T) {
 	}
 
 	// Recreate store to test pruning.
-	store, err = newMissionControlStore(db, testMaxRecords)
+	store, err = newMissionControlStore(db, testMaxRecords, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,16 +122,15 @@ func TestMissionControlStore(t *testing.T) {
 	result3.id = 3
 	result3.failure = &lnwire.FailMPPTimeout{}
 
-	err = store.AddResult(&result3)
-	if err != nil {
-		t.Fatal(err)
-	}
+	store.AddResult(&result3)
+	require.NoError(t, store.storeResults())
 
 	// Check that results are pruned.
 	results, err = store.fetchAll()
 	if err != nil {
 		t.Fatal(err)
 	}
+	require.Equal(t, 2, len(results))
 	if len(results) != 2 {
 		t.Fatal("expected two results")
 	}

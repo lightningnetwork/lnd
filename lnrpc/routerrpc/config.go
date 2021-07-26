@@ -49,6 +49,7 @@ func DefaultConfig() *Config {
 		AttemptCost:           routing.DefaultAttemptCost.ToSatoshis(),
 		AttemptCostPPM:        routing.DefaultAttemptCostPPM,
 		MaxMcHistory:          routing.DefaultMaxMcHistory,
+		McFlushInterval:       routing.DefaultMcFlushInterval,
 	}
 
 	return &Config{
@@ -66,5 +67,6 @@ func GetRoutingConfig(cfg *Config) *RoutingConfig {
 		AttemptCostPPM:        cfg.AttemptCostPPM,
 		PenaltyHalfLife:       cfg.PenaltyHalfLife,
 		MaxMcHistory:          cfg.MaxMcHistory,
+		McFlushInterval:       cfg.McFlushInterval,
 	}
 }

@@ -48,6 +48,11 @@ addholdinvoice call](https://github.com/lightningnetwork/lnd/pull/5533).
 [Optimized payment sequence generation](https://github.com/lightningnetwork/lnd/pull/5514/)
 to make LNDs payment throughput (and latency) with better when using etcd.
 
+## Performance improvements
+
+* [Update MC store in blocks](https://github.com/lightningnetwork/lnd/pull/5515)
+  to make payment throughput better when using etcd.
+
 # Contributors (Alphabetical Order)
 * ErikEk
 * Zero-1729

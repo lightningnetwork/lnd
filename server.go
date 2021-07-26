@@ -746,6 +746,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		&routing.MissionControlConfig{
 			ProbabilityEstimatorCfg: estimatorCfg,
 			MaxMcHistory:            routingConfig.MaxMcHistory,
+			McFlushInterval:         routingConfig.McFlushInterval,
 			MinFailureRelaxInterval: routing.DefaultMinFailureRelaxInterval,
 		},
 	)
@@ -1663,6 +1664,12 @@ func (s *server) Start() error {
 			return nil
 		})
 
+		s.missionControl.RunStoreTicker()
+		cleanup.add(func() error {
+			s.missionControl.StopStoreTicker()
+			return nil
+		})
+
 		// Before we start the connMgr, we'll check to see if we have
 		// any backups to recover. We do this now as we want to ensure
 		// that have all the information we need to handle channel
@@ -1869,6 +1876,7 @@ func (s *server) Stop() error {
 			srvrLog.Warnf("failed to stop chanSubSwapper: %v", err)
 		}
 		s.chanEventStore.Stop()
+		s.missionControl.StopStoreTicker()
 
 		// Disconnect from each active peers to ensure that
 		// peerTerminationWatchers signal completion to each peer.

@@ -1109,7 +1109,7 @@ func assertNumPendingChannels(t *harnessTest, node *lntest.HarnessNode,
 func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	carol *lntest.HarnessNode, carolStartingBalance int64,
 	dave *lntest.HarnessNode, daveStartingBalance int64,
-	anchors bool) {
+	commitType lnrpc.CommitmentType) {
 
 	// Increase the fee estimate so that the following force close tx will
 	// be cpfp'ed.
@@ -1124,7 +1124,7 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	// Upon reconnection, the nodes should detect that Dave is out of sync.
 	// Carol should force close the channel using her latest commitment.
 	expectedTxes := 1
-	if anchors {
+	if commitTypeHasAnchors(commitType) {
 		expectedTxes = 2
 	}
 	_, err := waitForNTxsInMempool(
@@ -1151,13 +1151,6 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	// Generate a single block, which should confirm the closing tx.
 	_ = mineBlocks(t, net, 1, expectedTxes)[0]
 
-	// Dave should sweep his funds immediately, as they are not timelocked.
-	// We also expect Dave to sweep his anchor, if present.
-	_, err = waitForNTxsInMempool(
-		net.Miner.Client, expectedTxes, minerMempoolTimeout,
-	)
-	require.NoError(t.t, err, "unable to find Dave's sweep tx in mempool")
-
 	// Dave should consider the channel pending force close (since he is
 	// waiting for his sweep to confirm).
 	assertNumPendingChannels(t, dave, 0, 1)
@@ -1166,11 +1159,93 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	// before she can sweep her outputs.
 	assertNumPendingChannels(t, carol, 0, 1)
 
-	// Mine the sweep tx.
-	_ = mineBlocks(t, net, 1, expectedTxes)[0]
+	if commitType == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
+		// Dave should sweep his anchor only, since he still has the
+		// lease CLTV constraint on his commitment output.
+		_, err = waitForNTxsInMempool(
+			net.Miner.Client, 1, minerMempoolTimeout,
+		)
+		require.NoError(t.t, err, "unable to find Dave's anchor sweep "+
+			"tx in mempool")
 
-	// Now Dave should consider the channel fully closed.
-	assertNumPendingChannels(t, dave, 0, 0)
+		// Mine Dave's anchor sweep tx.
+		_ = mineBlocks(t, net, 1, 1)[0]
+
+		// After Carol's output matures, she should also reclaim her
+		// funds.
+		//
+		// The commit sweep resolver publishes the sweep tx at
+		// defaultCSV-1 and we already mined one block after the
+		// commitmment was published, so take that into account.
+		mineBlocks(t, net, defaultCSV-1-1, 0)
+		carolSweep, err := waitForTxInMempool(
+			net.Miner.Client, minerMempoolTimeout,
+		)
+		require.NoError(t.t, err, "unable to find Carol's sweep tx in "+
+			"mempool")
+		block := mineBlocks(t, net, 1, 1)[0]
+		assertTxInBlock(t, block, carolSweep)
+
+		// Now the channel should be fully closed also from Carol's POV.
+		assertNumPendingChannels(t, carol, 0, 0)
+
+		// We'll now mine the remaining blocks to prompt Dave to sweep
+		// his CLTV-constrained output.
+		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+		defer cancel()
+		resp, err := dave.PendingChannels(
+			ctxt, &lnrpc.PendingChannelsRequest{},
+		)
+		require.NoError(t.t, err)
+		blocksTilMaturity :=
+			resp.PendingForceClosingChannels[0].BlocksTilMaturity
+		require.Positive(t.t, blocksTilMaturity)
+
+		mineBlocks(t, net, uint32(blocksTilMaturity), 0)
+		daveSweep, err := waitForTxInMempool(
+			net.Miner.Client, minerMempoolTimeout,
+		)
+		require.NoError(t.t, err, "unable to find Dave's sweep tx in "+
+			"mempool")
+		block = mineBlocks(t, net, 1, 1)[0]
+		assertTxInBlock(t, block, daveSweep)
+
+		// Now Dave should consider the channel fully closed.
+		assertNumPendingChannels(t, dave, 0, 0)
+	} else {
+		// Dave should sweep his funds immediately, as they are not
+		// timelocked. We also expect Dave to sweep his anchor, if
+		// present.
+		_, err = waitForNTxsInMempool(
+			net.Miner.Client, expectedTxes, minerMempoolTimeout,
+		)
+		require.NoError(t.t, err, "unable to find Dave's sweep tx in "+
+			"mempool")
+
+		// Mine the sweep tx.
+		_ = mineBlocks(t, net, 1, expectedTxes)[0]
+
+		// Now Dave should consider the channel fully closed.
+		assertNumPendingChannels(t, dave, 0, 0)
+
+		// After Carol's output matures, she should also reclaim her
+		// funds.
+		//
+		// The commit sweep resolver publishes the sweep tx at
+		// defaultCSV-1 and we already mined one block after the
+		// commitmment was published, so take that into account.
+		mineBlocks(t, net, defaultCSV-1-1, 0)
+		carolSweep, err := waitForTxInMempool(
+			net.Miner.Client, minerMempoolTimeout,
+		)
+		require.NoError(t.t, err, "unable to find Carol's sweep tx in "+
+			"mempool")
+		block := mineBlocks(t, net, 1, 1)[0]
+		assertTxInBlock(t, block, carolSweep)
+
+		// Now the channel should be fully closed also from Carol's POV.
+		assertNumPendingChannels(t, carol, 0, 0)
+	}
 
 	// We query Dave's balance to make sure it increased after the channel
 	// closed. This checks that he was able to sweep the funds he had in
@@ -1184,22 +1259,6 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	require.Greater(
 		t.t, daveBalance, daveStartingBalance, "balance not increased",
 	)
-
-	// After the Carol's output matures, she should also reclaim her funds.
-	//
-	// The commit sweep resolver publishes the sweep tx at defaultCSV-1 and
-	// we already mined one block after the commitment was published, so
-	// take that into account.
-	mineBlocks(t, net, defaultCSV-1-1, 0)
-	carolSweep, err := waitForTxInMempool(
-		net.Miner.Client, minerMempoolTimeout,
-	)
-	require.NoError(t.t, err, "unable to find Carol's sweep tx in mempool")
-	block := mineBlocks(t, net, 1, 1)[0]
-	assertTxInBlock(t, block, carolSweep)
-
-	// Now the channel should be fully closed also from Carol's POV.
-	assertNumPendingChannels(t, carol, 0, 0)
 
 	// Make sure Carol got her balance back.
 	err = wait.NoError(func() error {

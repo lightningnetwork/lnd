@@ -337,10 +337,37 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 		// Restore the backup from the on-disk file, using the RPC
 		// interface, for anchor commitment channels.
 		{
-			name:         "restore from backup file anchors",
-			initiator:    true,
-			private:      false,
-			anchorCommit: true,
+			name:           "restore from backup file anchors",
+			initiator:      true,
+			private:        false,
+			commitmentType: lnrpc.CommitmentType_ANCHORS,
+			restoreMethod: func(oldNode *lntest.HarnessNode,
+				backupFilePath string,
+				mnemonic []string) (nodeRestorer, error) {
+
+				// Read the entire Multi backup stored within
+				// this node's channels.backup file.
+				multi, err := ioutil.ReadFile(backupFilePath)
+				if err != nil {
+					return nil, err
+				}
+
+				// Now that we have Dave's backup file, we'll
+				// create a new nodeRestorer that will restore
+				// using the on-disk channels.backup.
+				return chanRestoreViaRPC(
+					net, password, mnemonic, multi, oldNode,
+				)
+			},
+		},
+
+		// Restore the backup from the on-disk file, using the RPC
+		// interface, for script-enforced leased channels.
+		{
+			name:           "restore from backup file script enforced lease",
+			initiator:      true,
+			private:        false,
+			commitmentType: lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE,
 			restoreMethod: func(oldNode *lntest.HarnessNode,
 				backupFilePath string,
 				mnemonic []string) (nodeRestorer, error) {
@@ -399,7 +426,7 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 				"anchors",
 			initiator:       true,
 			private:         false,
-			anchorCommit:    true,
+			commitmentType:  lnrpc.CommitmentType_ANCHORS,
 			localForceClose: true,
 			restoreMethod: func(oldNode *lntest.HarnessNode,
 				backupFilePath string,
@@ -814,9 +841,9 @@ type chanRestoreTestCase struct {
 	// confirmed or not.
 	unconfirmed bool
 
-	// anchorCommit is true, then the new anchor commitment type will be
-	// used for the channels created in the test.
-	anchorCommit bool
+	// commitmentType specifies the commitment type that should be used for
+	// the channel from Dave to Carol.
+	commitmentType lnrpc.CommitmentType
 
 	// legacyRevocation signals if a channel with the legacy revocation
 	// producer format should also be created before restoring.
@@ -854,11 +881,9 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 		"--minbackoff=50ms",
 		"--maxbackoff=1s",
 	}
-	if testCase.anchorCommit {
-		anchorNodeArgs := nodeArgsForCommitType(
-			lnrpc.CommitmentType_ANCHORS,
-		)
-		nodeArgs = append(nodeArgs, anchorNodeArgs...)
+	if testCase.commitmentType != lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE {
+		args := nodeArgsForCommitType(testCase.commitmentType)
+		nodeArgs = append(nodeArgs, args...)
 	}
 
 	// First, we'll create a brand new node we'll use within the test. If
@@ -884,7 +909,7 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 
 	// For the anchor output case we need two UTXOs for Carol so she can
 	// sweep both the local and remote anchor.
-	if testCase.anchorCommit {
+	if commitTypeHasAnchors(testCase.commitmentType) {
 		net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
 	}
 
@@ -936,12 +961,23 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 		)
 
 	default:
+		var fundingShim *lnrpc.FundingShim
+		if testCase.commitmentType == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
+			_, minerHeight, err := net.Miner.Client.GetBestBlock()
+			require.NoError(t.t, err)
+			thawHeight := uint32(minerHeight + 144)
+
+			fundingShim, _, _ = deriveFundingShim(
+				net, t, from, to, chanAmt, thawHeight, true,
+			)
+		}
 		chanPoint = openChannelAndAssert(
-			t, net, from, to,
-			lntest.OpenChannelParams{
-				Amt:     chanAmt,
-				PushAmt: pushAmt,
-				Private: testCase.private,
+			t, net, from, to, lntest.OpenChannelParams{
+				Amt:            chanAmt,
+				PushAmt:        pushAmt,
+				Private:        testCase.private,
+				FundingShim:    fundingShim,
+				CommitmentType: testCase.commitmentType,
 			},
 		)
 
@@ -1086,7 +1122,8 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 
 		assertTimeLockSwept(
 			net, t, carol, carolStartingBalance, dave,
-			daveStartingBalance, testCase.anchorCommit,
+			daveStartingBalance,
+			commitTypeHasAnchors(testCase.commitmentType),
 		)
 
 		return
@@ -1167,7 +1204,7 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	require.NoError(t.t, err)
 
 	numUTXOs := 1
-	if testCase.anchorCommit {
+	if commitTypeHasAnchors(testCase.commitmentType) {
 		numUTXOs = 2
 	}
 	assertNumUTXOs(t.t, carol, numUTXOs)
@@ -1183,7 +1220,7 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	// end of the protocol.
 	assertDLPExecuted(
 		net, t, carol, carolStartingBalance, dave, daveStartingBalance,
-		testCase.anchorCommit,
+		testCase.commitmentType,
 	)
 }
 

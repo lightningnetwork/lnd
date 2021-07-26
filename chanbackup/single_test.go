@@ -124,10 +124,7 @@ func genRandomOpenChannelShell() (*channeldb.OpenChannel, error) {
 		isInitiator = true
 	}
 
-	chanType := channeldb.SingleFunderBit
-	if rand.Int63()%2 == 0 {
-		chanType = channeldb.SingleFunderTweaklessBit
-	}
+	chanType := channeldb.ChannelType(rand.Intn(8))
 
 	return &channeldb.OpenChannel{
 		ChainHash:       chainHash,
@@ -137,6 +134,7 @@ func genRandomOpenChannelShell() (*channeldb.OpenChannel, error) {
 		ShortChannelID: lnwire.NewShortChanIDFromInt(
 			uint64(rand.Int63()),
 		),
+		ThawHeight:  rand.Uint32(),
 		IdentityPub: pub,
 		LocalChanCfg: channeldb.ChannelConfig{
 			ChannelConstraints: channeldb.ChannelConstraints{
@@ -243,6 +241,13 @@ func TestSinglePackUnpack(t *testing.T) {
 			valid:   true,
 		},
 
+		// The new script enforced channel lease version should
+		// pack/unpack with no problem.
+		{
+			version: ScriptEnforcedLeaseVersion,
+			valid:   true,
+		},
+
 		// A non-default version, atm this should result in a failure.
 		{
 			version: 99,
@@ -293,8 +298,9 @@ func TestSinglePackUnpack(t *testing.T) {
 				t.Fatalf("unable to serialize single: %v", err)
 			}
 
+			// Mutate the version byte to an unknown version.
 			rawBytes := rawSingle.Bytes()
-			rawBytes[0] ^= 5
+			rawBytes[0] = ^uint8(0)
 
 			newReader := bytes.NewReader(rawBytes)
 			err = unpackedSingle.Deserialize(newReader)

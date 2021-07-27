@@ -4023,17 +4023,16 @@ func TestSendMPPaymentFailed(t *testing.T) {
 	failureReason := channeldb.FailureReasonPaymentDetails
 	missionControl.On("ReportPaymentFail",
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-	).Return(nil, nil).Run(func(args mock.Arguments) {
+	).Return(&failureReason, nil).Run(func(args mock.Arguments) {
 		// We only return the terminal error once, thus when the method
 		// is called, we will return it with a nil error.
 		if called {
-			missionControl.failReason = nil
+			args[0] = nil
 			return
 		}
 
 		// If it's the first time calling this method, we will return a
 		// terminal error.
-		missionControl.failReason = &failureReason
 		payment.FailureReason = &failureReason
 		called = true
 	})
@@ -4213,8 +4212,7 @@ func TestSendMPPaymentFailedWithShardsInFlight(t *testing.T) {
 	failureReason := channeldb.FailureReasonPaymentDetails
 	missionControl.On("ReportPaymentFail",
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-	).Return(failureReason, nil).Run(func(args mock.Arguments) {
-		missionControl.failReason = &failureReason
+	).Return(&failureReason, nil).Run(func(args mock.Arguments) {
 		payment.FailureReason = &failureReason
 	}).Once()
 

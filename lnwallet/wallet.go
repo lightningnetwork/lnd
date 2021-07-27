@@ -59,7 +59,8 @@ var (
 	// transaction that would take the walletbalance below what we require
 	// to keep around to fee bump our open anchor channels.
 	ErrReservedValueInvalidated = errors.New("reserved wallet balance " +
-		"invalidated")
+		"invalidated: transaction would leave insufficient funds for " +
+		"fee bumping anchor channel closings (see debug log for details)")
 )
 
 // PsbtFundingRequired is a type that implements the error interface and

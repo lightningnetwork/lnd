@@ -48,7 +48,7 @@ require (
 	github.com/lightningnetwork/lnd/ticker v1.0.0
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/mattn/go-runewidth v0.0.9 // indirect
-	github.com/miekg/dns v0.0.0-20171125082028-79bfde677fa8
+	github.com/miekg/dns v1.1.25
 	github.com/prometheus/client_golang v1.0.0
 	github.com/stretchr/testify v1.7.0
 	github.com/tv42/zbase32 v0.0.0-20160707012821-501572607d02

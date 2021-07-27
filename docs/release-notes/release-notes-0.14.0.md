@@ -38,6 +38,8 @@ addholdinvoice call](https://github.com/lightningnetwork/lnd/pull/5533).
   in place](https://github.com/lightningnetwork/lnd/pull/5545).
 * [Added minor fixes to contribution guidelines](https://github.com/lightningnetwork/lnd/pull/5503).
 * [Fixed typo in `dest_custom_records` description comment](https://github.com/lightningnetwork/lnd/pull/5541).
+* [Bumped version of `github.com/miekg/dns` library to fix a Dependabot
+  alert](https://github.com/lightningnetwork/lnd/pull/5576).
 
 ## Database
 

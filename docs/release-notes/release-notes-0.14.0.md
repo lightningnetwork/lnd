@@ -60,6 +60,7 @@ you.
   alert](https://github.com/lightningnetwork/lnd/pull/5576).
 * [Fixed timeout flakes in async payment benchmark tests](https://github.com/lightningnetwork/lnd/pull/5579).
 * [Fixed a missing import and git tag in the healthcheck package](https://github.com/lightningnetwork/lnd/pull/5582).
+* [Fixed a data race in payment unit test](https://github.com/lightningnetwork/lnd/pull/5573).
 
 ## Database
 
@@ -80,3 +81,4 @@ to make LNDs payment throughput (and latency) with better when using etcd.
 * Martin Habovstiak
 * Zero-1729
 * Oliver Gugger
+* Yong Yu

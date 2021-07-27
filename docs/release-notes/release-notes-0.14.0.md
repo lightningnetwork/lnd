@@ -10,6 +10,19 @@
   `lightning.proto`](https://github.com/lightningnetwork/lnd/pull/5473) to fix
   a warning related to protobuf file name collisions.
 
+## Security 
+
+### Admin macaroon permissions
+
+The default file permissions of admin.macaroon were [changed from 0600 to
+0640](https://github.com/lightningnetwork/lnd/pull/5534). This makes it easier
+to allow other users to manage LND. This is safe on common Unix systems
+because they always create a new group for each user.
+
+If you use a strange system or changed group membership of the group running LND
+you may want to check your system to see if it introduces additional risk for
+you.
+
 # Build System
 
 * [A new pre-submit check has been
@@ -63,5 +76,6 @@ to make LNDs payment throughput (and latency) with better when using etcd.
 
 # Contributors (Alphabetical Order)
 * ErikEk
+* Martin Habovstiak
 * Zero-1729
 * Oliver Gugger

@@ -533,6 +533,16 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/walletrpcListUnspentRequest"
+            }
+          }
+        ],
         "tags": [
           "WalletKit"
         ]
@@ -1209,6 +1219,25 @@
         },
         "transaction_ids": {
           "$ref": "#/definitions/ListSweepsResponseTransactionIDs"
+        }
+      }
+    },
+    "walletrpcListUnspentRequest": {
+      "type": "object",
+      "properties": {
+        "min_confs": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The minimum number of confirmations to be included."
+        },
+        "max_confs": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The maximum number of confirmations to be included."
+        },
+        "account": {
+          "type": "string",
+          "description": "An optional filter to only include outputs belonging to an account."
         }
       }
     },

@@ -5,6 +5,7 @@ http:
   rules:
     - selector: walletrpc.WalletKit.ListUnspent
       post: "/v2/wallet/utxos"
+      body: "*"
     - selector: walletrpc.WalletKit.LeaseOutput
       post: "/v2/wallet/utxos/lease"
       body: "*"

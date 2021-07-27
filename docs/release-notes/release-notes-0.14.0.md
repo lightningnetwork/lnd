@@ -40,6 +40,7 @@ addholdinvoice call](https://github.com/lightningnetwork/lnd/pull/5533).
 * [Fixed typo in `dest_custom_records` description comment](https://github.com/lightningnetwork/lnd/pull/5541).
 * [Bumped version of `github.com/miekg/dns` library to fix a Dependabot
   alert](https://github.com/lightningnetwork/lnd/pull/5576).
+* [Fixed timeout flakes in async payment benchmark tests](https://github.com/lightningnetwork/lnd/pull/5579).
 
 ## Database
 

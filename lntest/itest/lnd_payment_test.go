@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"reflect"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/stretchr/testify/require"
 )
 
 func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
@@ -374,31 +376,40 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 
 		return true
-	}, time.Second*5)
+	}, defaultTimeout)
 	if err != nil {
 		t.Fatalf("failed to assert alice's pending htlcs and/or remote/local balance")
 	}
 
 	// Wait for Bob to receive revocation from Alice.
-	time.Sleep(2 * time.Second)
+	err = wait.NoError(func() error {
+		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		bobChan, err := getChanInfo(ctxt, net.Bob)
+		if err != nil {
+			t.Fatalf("unable to get bob's channel info: %v", err)
+		}
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	bobChan, err := getChanInfo(ctxt, net.Bob)
-	if err != nil {
-		t.Fatalf("unable to get bob's channel info: %v", err)
-	}
-	if len(bobChan.PendingHtlcs) != 0 {
-		t.Fatalf("bob's pending htlcs is incorrect, got %v, "+
-			"expected %v", len(bobChan.PendingHtlcs), 0)
-	}
-	if bobChan.LocalBalance != bobAmt {
-		t.Fatalf("bob's local balance is incorrect, got %v, expected"+
-			" %v", bobChan.LocalBalance, bobAmt)
-	}
-	if bobChan.RemoteBalance != aliceAmt {
-		t.Fatalf("bob's remote balance is incorrect, got %v, "+
-			"expected %v", bobChan.RemoteBalance, aliceAmt)
-	}
+		if len(bobChan.PendingHtlcs) != 0 {
+			return fmt.Errorf("bob's pending htlcs is incorrect, "+
+				"got %v, expected %v",
+				len(bobChan.PendingHtlcs), 0)
+		}
+
+		if bobChan.LocalBalance != bobAmt {
+			return fmt.Errorf("bob's local balance is incorrect, "+
+				"got %v, expected %v", bobChan.LocalBalance,
+				bobAmt)
+		}
+
+		if bobChan.RemoteBalance != aliceAmt {
+			return fmt.Errorf("bob's remote balance is incorrect, "+
+				"got %v, expected %v", bobChan.RemoteBalance,
+				aliceAmt)
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(t.t, err)
 
 	t.Log("\tBenchmark info: Elapsed time: ", timeTaken)
 	t.Log("\tBenchmark info: TPS: ", float64(numInvoices)/timeTaken.Seconds())
@@ -539,25 +550,34 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 
 	// Wait for Alice and Bob to receive revocations messages, and update
 	// states, i.e. balance info.
-	time.Sleep(1 * time.Second)
+	err = wait.NoError(func() error {
+		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		aliceInfo, err := getChanInfo(ctxt, net.Alice)
+		if err != nil {
+			t.Fatalf("unable to get alice's channel info: %v", err)
+		}
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	aliceInfo, err := getChanInfo(ctxt, net.Alice)
-	if err != nil {
-		t.Fatalf("unable to get bob's channel info: %v", err)
-	}
-	if aliceInfo.RemoteBalance != bobAmt {
-		t.Fatalf("alice's remote balance is incorrect, got %v, "+
-			"expected %v", aliceInfo.RemoteBalance, bobAmt)
-	}
-	if aliceInfo.LocalBalance != aliceAmt {
-		t.Fatalf("alice's local balance is incorrect, got %v, "+
-			"expected %v", aliceInfo.LocalBalance, aliceAmt)
-	}
-	if len(aliceInfo.PendingHtlcs) != 0 {
-		t.Fatalf("alice's pending htlcs is incorrect, got %v, "+
-			"expected %v", len(aliceInfo.PendingHtlcs), 0)
-	}
+		if aliceInfo.RemoteBalance != bobAmt {
+			return fmt.Errorf("alice's remote balance is incorrect, "+
+				"got %v, expected %v", aliceInfo.RemoteBalance,
+				bobAmt)
+		}
+
+		if aliceInfo.LocalBalance != aliceAmt {
+			return fmt.Errorf("alice's local balance is incorrect, "+
+				"got %v, expected %v", aliceInfo.LocalBalance,
+				aliceAmt)
+		}
+
+		if len(aliceInfo.PendingHtlcs) != 0 {
+			return fmt.Errorf("alice's pending htlcs is incorrect, "+
+				"got %v expected %v",
+				len(aliceInfo.PendingHtlcs), 0)
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(t.t, err)
 
 	// Next query for Bob's and Alice's channel states, in order to confirm
 	// that all payment have been successful transmitted.

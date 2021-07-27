@@ -131,7 +131,7 @@ jobs:
           go-version: '${{ env.GO_VERSION }}'
 
       - name: lint
-        run: make lint
+        run: GOGC=50 make lint
 
   ########################
   # cross compilation
@@ -249,8 +249,8 @@ jobs:
       fail-fast: false
       matrix:
         pinned_dep:
-          - google.golang.org/grpc v1.29.1
-          - github.com/golang/protobuf v1.4.3
+          - google.golang.org/grpc v1.38.0
+          - github.com/golang/protobuf v1.5.2
 
     steps:
       - name: git checkout

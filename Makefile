@@ -289,7 +289,7 @@ rpc-format:
 
 rpc-check: rpc
 	@$(call print, "Verifying protos.")
-	for rpc in $$(find lnrpc/ -name "*.proto" | $(XARGS) awk '/    rpc /{print $$2}'); do if ! grep -q $$rpc lnrpc/rest-annotations.yaml; then echo "RPC $$rpc not added to lnrpc/rest-annotations.yaml"; exit 1; fi; done
+	cd ./lnrpc; ../scripts/check-rest-annotations.sh
 	if test -n "$$(git describe --dirty | grep dirty)"; then echo "Protos not properly formatted or not compiled with v3.4.0"; git status; git diff; exit 1; fi
 
 sample-conf-check:

@@ -2,8 +2,13 @@
 
 ## RPC Server
 
-[Return payment address and add index from
-addholdinvoice call](https://github.com/lightningnetwork/lnd/pull/5533).
+* [Return payment address and add index from
+  addholdinvoice call](https://github.com/lightningnetwork/lnd/pull/5533).
+
+* [The versions of several gRPC related libraries were bumped and the main
+  `rpc.proto` was renamed to
+  `lightning.proto`](https://github.com/lightningnetwork/lnd/pull/5473) to fix
+  a warning related to protobuf file name collisions.
 
 # Build System
 

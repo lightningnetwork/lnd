@@ -13,7 +13,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -85,6 +85,9 @@ type ServerShell struct {
 // to lnd, even backed by multiple distinct lnd across independent failure
 // domains.
 type Server struct {
+	// Required by the grpc-gateway/v2 library for forward compatibility.
+	UnimplementedChainNotifierServer
+
 	started sync.Once
 	stopped sync.Once
 

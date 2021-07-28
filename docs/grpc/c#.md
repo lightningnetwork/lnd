@@ -6,7 +6,6 @@ This section enumerates what you need to do to write a client that communicates 
 ### Prerequisites
 
 * .Net Core [SDK](https://dotnet.microsoft.com/download)
-* If using Windows, a unix terminal such as [Cygwin](https://www.cygwin.com/)
 
 
 ### Setup and Installation
@@ -17,7 +16,11 @@ This section enumerates what you need to do to write a client that communicates 
 
 This assumes you are using a Windows machine, but it applies equally to Mac and Linux.
 
-Create a new `.net core` console application called `lndclient` at your root directory (On Windows : `C:/`).
+Create a new `.net core` console application called `lndclient`:
+
+```shell
+⛰  dotnet new console --name lndclient
+```
 
 Create a folder `Grpc` in the root of your project and fetch the lnd proto files
 

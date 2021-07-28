@@ -59,6 +59,7 @@ you.
 * [Bumped version of `github.com/miekg/dns` library to fix a Dependabot
   alert](https://github.com/lightningnetwork/lnd/pull/5576).
 * [Fixed timeout flakes in async payment benchmark tests](https://github.com/lightningnetwork/lnd/pull/5579).
+* [Fixed a missing import and git tag in the healthcheck package](https://github.com/lightningnetwork/lnd/pull/5582).
 
 ## Database
 

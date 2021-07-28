@@ -360,7 +360,7 @@ func TestLightningWireProtocol(t *testing.T) {
 				return
 			}
 
-			// 1/2 chance empty upfront shutdown script.
+			// 1/2 chance empty TLV records.
 			if r.Intn(2) == 0 {
 				req.UpfrontShutdownScript, err = randDeliveryAddress(r)
 				if err != nil {
@@ -370,6 +370,9 @@ func TestLightningWireProtocol(t *testing.T) {
 
 				req.ChannelType = new(ChannelType)
 				*req.ChannelType = ChannelType(*randRawFeatureVector(r))
+
+				req.LeaseExpiry = new(LeaseExpiry)
+				*req.LeaseExpiry = LeaseExpiry(1337)
 			} else {
 				req.UpfrontShutdownScript = []byte{}
 			}
@@ -429,7 +432,7 @@ func TestLightningWireProtocol(t *testing.T) {
 				return
 			}
 
-			// 1/2 chance empty upfront shutdown script.
+			// 1/2 chance empty TLV records.
 			if r.Intn(2) == 0 {
 				req.UpfrontShutdownScript, err = randDeliveryAddress(r)
 				if err != nil {
@@ -439,6 +442,9 @@ func TestLightningWireProtocol(t *testing.T) {
 
 				req.ChannelType = new(ChannelType)
 				*req.ChannelType = ChannelType(*randRawFeatureVector(r))
+
+				req.LeaseExpiry = new(LeaseExpiry)
+				*req.LeaseExpiry = LeaseExpiry(1337)
 			} else {
 				req.UpfrontShutdownScript = []byte{}
 			}

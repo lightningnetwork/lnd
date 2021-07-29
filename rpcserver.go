@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"runtime"
 	"sort"
@@ -60,6 +61,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/record"
@@ -509,6 +511,10 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "onchain",
 			Action: "write",
 		}, {
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/UpdateNodeAnnouncement": {{
 			Entity: "offchain",
 			Action: "write",
 		}},
@@ -6743,6 +6749,76 @@ func (r *rpcServer) ListPermissions(_ context.Context,
 	return &lnrpc.ListPermissionsResponse{
 		MethodPermissions: permissionMap,
 	}, nil
+}
+
+// ListPermissions lists all RPC method URIs and their required macaroon
+// permissions to access them.
+func (r *rpcServer) UpdateNodeAnnouncement(_ context.Context,
+	req *lnrpc.NodeAnnouncementUpdateRequest) (
+	*lnrpc.NodeAnnouncementUpdateResponse, error) {
+
+	nodeModifiers := make([]netann.NodeAnnModifier, 0)
+
+	// TODO(positiveblue): add Features modifier
+
+	if req.Color != "" {
+		color, err := parseHexColor(req.Color)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse color: %v", err)
+		}
+
+		nodeModifiers = append(nodeModifiers, netann.NodeAnnSetColor(color))
+	}
+
+	if req.Alias != "" {
+		alias, err := lnwire.NewNodeAlias(req.Alias)
+		if err != nil {
+			return nil, fmt.Errorf("invalid alias value: %v", err)
+		}
+		nodeModifiers = append(nodeModifiers, netann.NodeAnnSetAlias(alias))
+	}
+
+	if len(req.Addresses) > 0 {
+		// TODO(positiveblue): add address validation
+		var newAddrs []net.Addr
+
+		for _, addr := range req.Addresses {
+			newAddr, err := net.ResolveTCPAddr(addr.Network, addr.Addr)
+			if err != nil {
+				return nil, fmt.Errorf("unable to resolve "+
+					"address %v: %v", addr, err)
+			}
+			newAddrs = append(newAddrs, newAddr)
+		}
+
+		nodeModifiers = append(nodeModifiers, netann.NodeAnnSetAddrs(newAddrs))
+	}
+
+	if len(nodeModifiers) == 0 {
+		return nil, fmt.Errorf("unable detect any new values to update " +
+			"the node announcement")
+	}
+
+	// Then, we'll generate a new timestamped node
+	// announcement with the updated addresses and broadcast
+	// it to our peers.
+	newNodeAnn, err := r.server.genNodeAnnouncement(
+		true, nodeModifiers...,
+	)
+	if err != nil {
+		rpcsLog.Debugf("Unable to generate new node "+
+			"node announcement: %v", err)
+		return nil, err
+	}
+
+	err = r.server.BroadcastMessage(nil, &newNodeAnn)
+	if err != nil {
+		srvrLog.Debugf("Unable to broadcast new node "+
+			"announcement to peers: %v", err)
+		return nil, err
+	}
+
+	return &lnrpc.NodeAnnouncementUpdateResponse{}, nil
 }
 
 // FundingStateStep is an advanced funding related call that allows the caller

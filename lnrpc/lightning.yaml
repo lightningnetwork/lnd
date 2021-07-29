@@ -121,6 +121,9 @@ http:
     - selector: lnrpc.Lightning.UpdateChannelPolicy
       post: "/v1/chanpolicy"
       body: "*"
+    - selector: lnrpc.Lightning.UpdateNodeAnnouncement
+      post: "/v1/nodeannouncement"
+      body: "*"
     - selector: lnrpc.Lightning.ForwardingHistory
       post: "/v1/switch"
       body: "*"

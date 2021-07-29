@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -769,6 +770,197 @@ func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 	// should already be connected.
 	waitForAddrsInUpdate(
 		aliceSub, dave.PubKeyStr, advertisedAddrs...,
+	)
+
+	// Close the channel between Bob and Dave.
+	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
+	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPoint, false)
+}
+
+// testUpdateNodeAnnouncement ensures that the RPC endpoint validates
+// the requests correctly and that the new node announcement is brodcasted
+// with the right information after updating our node
+func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
+	ctxb := context.Background()
+
+	// Launch notification clients for alice, such that we can
+	// get notified when there are updates in the graph.
+	aliceSub := subscribeGraphNotifications(ctxb, t, net.Alice)
+	defer close(aliceSub.quit)
+
+	// Use the default address *explicitly* to make asserts more
+	// readable
+	advertisedAddrs := []string{
+		"127.0.0.1:5569",
+	}
+
+	var lndArgs []string
+	for _, addr := range advertisedAddrs {
+		lndArgs = append(lndArgs, "--externalip="+addr)
+	}
+
+	dave := net.NewNode(t.t, "Dave", lndArgs)
+	defer shutdownAndAssert(net, t, dave)
+
+	// Get dave default information so we can compare
+	// it lately with the new brodcasted updates
+	nodeInfoReq := &lnrpc.GetInfoRequest{}
+	resp, err := dave.GetInfo(ctxb, nodeInfoReq)
+	if err != nil {
+		t.Fatalf("unable to get dave's information: %v", err)
+	}
+
+	defaultDaveNodeAnn := &lnrpc.NodeUpdate{
+		Alias: resp.Alias,
+		Color: resp.Color,
+		NodeAddresses: []*lnrpc.NodeAddress{
+			{Addr: advertisedAddrs[0], Network: "tcp"},
+		},
+	}
+
+	// Test RPC param validation for each one of the fields
+	invalidNodeAnnReq := &lnrpc.NodeAnnouncementUpdateRequest{
+		Color: "invalidValue",
+	}
+
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	_, err = dave.UpdateNodeAnnouncement(ctxt, invalidNodeAnnReq)
+	if err == nil {
+		t.Fatalf("faild to validate an invalid color for an update node announcement request: %v", err)
+	}
+
+	// We cannont differentiate between requests with Alias = "" and requests
+	// that do not provide that field. If a user sets Alias = "" in the resquest
+	// the field will simply be ignored. The request must fail because no
+	// modifiers are applied
+	invalidNodeAnnReq = &lnrpc.NodeAnnouncementUpdateRequest{
+		Alias: "",
+	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	_, err = dave.UpdateNodeAnnouncement(ctxt, invalidNodeAnnReq)
+	if err == nil {
+		t.Fatalf("requests with empty alias should ignore that field: %v", err)
+	}
+
+	// Alias too long
+	invalidNodeAnnReq = &lnrpc.NodeAnnouncementUpdateRequest{
+		Alias: strings.Repeat("a", 50),
+	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	_, err = dave.UpdateNodeAnnouncement(ctxt, invalidNodeAnnReq)
+	if err == nil {
+		t.Fatalf("faild to validate an invalid alias for an update node announcement request: %v", err)
+	}
+
+	// TODO(positiveblue): Add checks for features and addresses
+
+	// Test NodeAnnouncement broadcasting
+
+	// We must let Dave have an open channel before he can send a node
+	// announcement, so we open a channel with Bob,
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	net.ConnectNodes(ctxt, t.t, net.Bob, dave)
+
+	// We'll then go ahead and open a channel between Bob and Dave. This
+	// ensures that Alice receives the node announcement from Bob as part of
+	// the announcement broadcast.
+	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
+	chanPoint := openChannelAndAssert(
+		ctxt, t, net, net.Bob, dave,
+		lntest.OpenChannelParams{
+			Amt: 1000000,
+		},
+	)
+
+	assertNodeAnnouncement := func(n1, n2 *lnrpc.NodeUpdate) error {
+
+		// TODO(positiveblue): Add check for Features
+
+		if n1.Color != n2.Color {
+			return fmt.Errorf("differet color: %v != %v",
+				n1.Color, n2.Color)
+		}
+
+		if n1.Alias != n2.Alias {
+			return fmt.Errorf("different alias: %s != %s",
+				n1.Alias, n2.Alias)
+		}
+
+		// Check for addresses
+		if len(n1.NodeAddresses) != len(n2.NodeAddresses) {
+			fmt.Println(n1.NodeAddresses)
+			fmt.Println(n2.NodeAddresses)
+			return fmt.Errorf("different addresses")
+		}
+
+		addrs := make(map[string]struct{}, len(n1.NodeAddresses))
+		for _, nodeAddr := range n1.NodeAddresses {
+			addrs[nodeAddr.Addr] = struct{}{}
+		}
+
+		for _, nodeAddr := range n2.NodeAddresses {
+			if _, ok := addrs[nodeAddr.Addr]; !ok {
+				return fmt.Errorf("address %v not found in node "+
+					"announcement", nodeAddr.Addr)
+			}
+		}
+
+		return nil
+	}
+
+	waitForNodeAnnUpdates := func(graphSub graphSubscription,
+		nodePubKey string, expectedUpdate *lnrpc.NodeUpdate) {
+
+		for {
+			select {
+			case graphUpdate := <-graphSub.updateChan:
+				for _, update := range graphUpdate.NodeUpdates {
+					if update.IdentityKey == nodePubKey {
+						if err := assertNodeAnnouncement(update, expectedUpdate); err != nil {
+							t.Fatalf("Node updates do not match: %v", err)
+						}
+						return
+					}
+				}
+			case err := <-graphSub.errChan:
+				t.Fatalf("unable to recv graph update: %v", err)
+			case <-time.After(defaultTimeout):
+				t.Fatalf("did not receive node ann update")
+			}
+		}
+	}
+
+	// We'll then wait for Alice to receive dave's node announcement
+	// with the default values.
+	waitForNodeAnnUpdates(
+		aliceSub, dave.PubKeyStr, defaultDaveNodeAnn,
+	)
+
+	newAddresses := []*lnrpc.NodeAddress{
+		{Addr: "192.168.1.10:8333", Network: "tcp"},
+	}
+
+	newDaveNodeAnn := &lnrpc.NodeUpdate{
+		Color:         "#2288ee",
+		Alias:         "new-alias",
+		NodeAddresses: newAddresses,
+	}
+
+	nodeAnnReq := &lnrpc.NodeAnnouncementUpdateRequest{
+		Color:     newDaveNodeAnn.Color,
+		Alias:     newDaveNodeAnn.Alias,
+		Addresses: newDaveNodeAnn.NodeAddresses,
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	if _, err := dave.UpdateNodeAnnouncement(ctxt, nodeAnnReq); err != nil {
+		t.Fatalf("unable to update dave's node announcement: %v", err)
+	}
+
+	// We'll then wait for Alice to receive dave's node announcement
+	// with the new values.
+	waitForNodeAnnUpdates(
+		aliceSub, dave.PubKeyStr, newDaveNodeAnn,
 	)
 
 	// Close the channel between Bob and Dave.

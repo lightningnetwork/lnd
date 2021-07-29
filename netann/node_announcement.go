@@ -1,6 +1,7 @@
 package netann
 
 import (
+	"image/color"
 	"net"
 	"time"
 
@@ -33,6 +34,22 @@ func NodeAnnSetTimestamp(nodeAnn *lnwire.NodeAnnouncement) {
 		newTimestamp = nodeAnn.Timestamp + 1
 	}
 	nodeAnn.Timestamp = newTimestamp
+}
+
+// NodeAnnSetColor is a functional option that sets the color of the
+// given node announcment
+func NodeAnnSetColor(newColor color.RGBA) func(*lnwire.NodeAnnouncement) {
+	return func(nodeAnn *lnwire.NodeAnnouncement) {
+		nodeAnn.RGBColor = newColor
+	}
+}
+
+// NodeAnnSetColor is a functional option that sets the alias of the
+// given node announcment
+func NodeAnnSetAlias(alias lnwire.NodeAlias) func(*lnwire.NodeAnnouncement) {
+	return func(nodeAnn *lnwire.NodeAnnouncement) {
+		nodeAnn.Alias = alias
+	}
 }
 
 // SignNodeAnnouncement applies the given modifies to the passed

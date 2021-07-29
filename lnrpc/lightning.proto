@@ -515,6 +515,13 @@ service Lightning {
     */
     rpc ListPermissions (ListPermissionsRequest)
         returns (ListPermissionsResponse);
+
+    /* lncli: `updatenodeannouncement`
+    UpdateNodeAnnouncement allows the caller to update the node parameters
+    and broadcasts a new version of the node announcement to its peers.
+    */
+    rpc UpdateNodeAnnouncement (NodeAnnouncementUpdateRequest)
+        returns (NodeAnnouncementUpdateResponse);
 }
 
 message Utxo {
@@ -3709,6 +3716,22 @@ message ListPermissionsResponse {
     access them.
     */
     map<string, MacaroonPermissionList> method_permissions = 1;
+}
+
+message NodeAnnouncementUpdateRequest {
+    // Features holds the set of features the node supports.
+    map<uint32, Feature> features = 1;
+
+    // Color is the node's color in hex code format.
+    string color = 2;
+
+    // Alias is the alias or nick name of the node.
+    string alias = 3;
+
+    // Addresses is a slice of all the node's known addresses.
+    repeated NodeAddress addresses = 4;
+}
+message NodeAnnouncementUpdateResponse {
 }
 
 message Failure {

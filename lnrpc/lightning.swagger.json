@@ -1655,6 +1655,39 @@
         ]
       }
     },
+    "/v1/nodeannouncement": {
+      "post": {
+        "summary": "lncli: `updatenodeannouncement`\nUpdateNodeAnnouncement allows the caller to update the node parameters\nand broadcasts a new version of the node announcement to its peers.",
+        "operationId": "Lightning_UpdateNodeAnnouncement",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcNodeAnnouncementUpdateResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcNodeAnnouncementUpdateRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/payments": {
       "get": {
         "summary": "lncli: `listpayments`\nListPayments returns a list of all outgoing payments.",
@@ -4736,6 +4769,36 @@
           "type": "string"
         }
       }
+    },
+    "lnrpcNodeAnnouncementUpdateRequest": {
+      "type": "object",
+      "properties": {
+        "features": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/lnrpcFeature"
+          },
+          "description": "Features holds the set of features the node supports."
+        },
+        "color": {
+          "type": "string",
+          "description": "Color is the node's color in hex code format."
+        },
+        "alias": {
+          "type": "string",
+          "description": "Alias is the alias or nick name of the node."
+        },
+        "addresses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcNodeAddress"
+          },
+          "description": "Addresses is a slice of all the node's known addresses."
+        }
+      }
+    },
+    "lnrpcNodeAnnouncementUpdateResponse": {
+      "type": "object"
     },
     "lnrpcNodeInfo": {
       "type": "object",

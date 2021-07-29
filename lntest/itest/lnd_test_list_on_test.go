@@ -32,6 +32,10 @@ var allTestCases = []*testCase{
 		test: testUpdateChannelPolicy,
 	},
 	{
+		name: "update node announcement",
+		test: testUpdateNodeAnnouncement,
+	},
+	{
 		name: "open channel reorg test",
 		test: testOpenChannelAfterReorg,
 	},

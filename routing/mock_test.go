@@ -591,8 +591,6 @@ func (m *mockPaymentSessionSource) NewPaymentSessionEmpty() PaymentSession {
 
 type mockMissionControl struct {
 	mock.Mock
-
-	failReason *channeldb.FailureReason
 }
 
 var _ MissionController = (*mockMissionControl)(nil)
@@ -603,7 +601,13 @@ func (m *mockMissionControl) ReportPaymentFail(
 	*channeldb.FailureReason, error) {
 
 	args := m.Called(paymentID, rt, failureSourceIdx, failure)
-	return m.failReason, args.Error(1)
+
+	// Type assertion on nil will fail, so we check and return here.
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+
+	return args.Get(0).(*channeldb.FailureReason), args.Error(1)
 }
 
 func (m *mockMissionControl) ReportPaymentSuccess(paymentID uint64,

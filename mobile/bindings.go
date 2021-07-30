@@ -13,6 +13,12 @@ import (
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/signal"
 	"google.golang.org/grpc"
+
+	// These imports are required for the tools to be present when using
+	// go mod vendor.
+	_ "golang.org/x/mobile/bind"
+	_ "golang.org/x/mobile/cmd/gobind"
+	_ "golang.org/x/mobile/cmd/gomobile"
 )
 
 // lndStarted will be used atomically to ensure only a singel lnd instance is

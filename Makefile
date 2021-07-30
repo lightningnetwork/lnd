@@ -191,7 +191,6 @@ itest-only:
 	@$(call print, "Running integration tests with ${backend} backend.")
 	rm -rf lntest/itest/*.log lntest/itest/.logs-*; date
 	EXEC_SUFFIX=$(EXEC_SUFFIX) scripts/itest_part.sh 0 1 $(TEST_FLAGS) $(ITEST_FLAGS)
-	lntest/itest/log_check_errors.sh
 
 itest: build-itest itest-only
 
@@ -201,7 +200,6 @@ itest-parallel: build-itest
 	@$(call print, "Running tests")
 	rm -rf lntest/itest/*.log lntest/itest/.logs-*; date
 	EXEC_SUFFIX=$(EXEC_SUFFIX) echo "$$(seq 0 $$(expr $(ITEST_PARALLELISM) - 1))" | xargs -P $(ITEST_PARALLELISM) -n 1 -I {} scripts/itest_part.sh {} $(NUM_ITEST_TRANCHES) $(TEST_FLAGS) $(ITEST_FLAGS)
-	lntest/itest/log_check_errors.sh
 
 unit: btcd
 	@$(call print, "Running unit tests.")

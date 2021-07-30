@@ -1,5 +1,16 @@
 # Release Notes
 
+## Protocol Extensions
+
+### Explicit Channel Negotiation
+
+[A new protocol extension has been added known as explicit channel negotiation]
+(https://github.com/lightningnetwork/lnd/pull/5373). This allows a channel
+initiator to signal their desired channel type to use with the remote peer. If
+the remote peer supports said channel type and agrees, the previous implicit
+negotiation based on the shared set of feature bits is bypassed, and the
+proposed channel type is used.
+
 ## RPC Server
 
 * [Return payment address and add index from
@@ -83,4 +94,5 @@ to make LNDs payment throughput (and latency) with better when using etcd.
 * Martin Habovstiak
 * Zero-1729
 * Oliver Gugger
+* Wilmer Paulino
 * Yong Yu

@@ -57,6 +57,9 @@ Signed base64 encoded PSBT or hex encoded raw wire TX (or path to text file): `
 	// the user from choosing a large file by accident and running into out
 	// of memory issues or other weird errors.
 	psbtMaxFileSize = 1024 * 1024
+
+	channelTypeTweakless = "tweakless"
+	channelTypeAnchors   = "anchors"
 )
 
 // TODO(roasbeef): change default number of confirmations
@@ -200,6 +203,12 @@ var openChannelCommand = cli.Command{
 			Usage: "(optional) the maximum value in msat that " +
 				"can be pending within the channel at any given time",
 		},
+		cli.StringFlag{
+			Name: "channel_type",
+			Usage: fmt.Sprintf("(optional) the type of channel to "+
+				"propose to the remote peer (%q, %q)",
+				channelTypeTweakless, channelTypeAnchors),
+		},
 	},
 	Action: actionDecorator(openChannel),
 }
@@ -306,6 +315,19 @@ func openChannel(ctx *cli.Context) error {
 	}
 
 	req.Private = ctx.Bool("private")
+
+	// Parse the channel type and map it to its RPC representation.
+	channelType := ctx.String("channel_type")
+	switch channelType {
+	case "":
+		break
+	case channelTypeTweakless:
+		req.CommitmentType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
+	case channelTypeAnchors:
+		req.CommitmentType = lnrpc.CommitmentType_ANCHORS
+	default:
+		return fmt.Errorf("unsupported channel type %v", channelType)
+	}
 
 	// PSBT funding is a more involved, interactive process that is too
 	// large to also fit into this already long function.

@@ -3115,6 +3115,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			forceClose := &lnrpc.PendingChannelsResponse_ForceClosedChannel{
 				Channel:     channel,
 				ClosingTxid: closeTXID,
+				ChanId:      pendingClose.ShortChanID.ToUint64(),
 			}
 
 			// Fetch reports from both nursery and resolvers. At the
@@ -3221,6 +3222,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			Channel:      channel,
 			LimboBalance: channel.LocalBalance,
 			Commitments:  &commitments,
+			ChanId:       waitingClose.ShortChannelID.ToUint64(),
 		}
 
 		// A close tx has been broadcasted, all our balance will be in

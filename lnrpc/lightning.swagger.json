@@ -2508,6 +2508,11 @@
         },
         "anchor": {
           "$ref": "#/definitions/ForceClosedChannelAnchorState"
+        },
+        "chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unique channel ID for the channel."
         }
       }
     },
@@ -2515,22 +2520,27 @@
       "type": "object",
       "properties": {
         "remote_node_pub": {
-          "type": "string"
+          "type": "string",
+          "description": "The identity pubkey of the remote node."
         },
         "channel_point": {
-          "type": "string"
+          "type": "string",
+          "description": "The outpoint (txid:index) of the funding transaction."
         },
         "capacity": {
           "type": "string",
-          "format": "int64"
+          "format": "int64",
+          "description": "The total amount of funds held in this channel."
         },
         "local_balance": {
           "type": "string",
-          "format": "int64"
+          "format": "int64",
+          "description": "This node's current balance in this channel."
         },
         "remote_balance": {
           "type": "string",
-          "format": "int64"
+          "format": "int64",
+          "description": "The counterparty's current balance in this channel."
         },
         "local_chan_reserve_sat": {
           "type": "string",
@@ -2596,6 +2606,11 @@
         "commitments": {
           "$ref": "#/definitions/PendingChannelsResponseCommitments",
           "description": "A list of valid commitment transactions. Any of these can confirm at\nthis point."
+        },
+        "chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unique channel ID for the channel."
         }
       }
     },

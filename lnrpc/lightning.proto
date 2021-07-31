@@ -2080,14 +2080,22 @@ message PendingHTLC {
 
 message PendingChannelsRequest {
 }
+
 message PendingChannelsResponse {
     message PendingChannel {
+        // The identity pubkey of the remote node.
         string remote_node_pub = 1;
+
+        // The outpoint (txid:index) of the funding transaction.
         string channel_point = 2;
 
+        // The total amount of funds held in this channel.
         int64 capacity = 3;
 
+        // This node's current balance in this channel.
         int64 local_balance = 4;
+
+        // The counterparty's current balance in this channel.
         int64 remote_balance = 5;
 
         // The minimum satoshis this node is required to reserve in its
@@ -2146,6 +2154,9 @@ message PendingChannelsResponse {
         this point.
         */
         Commitments commitments = 3;
+
+        // The unique channel ID for the channel.
+        uint64 chan_id = 4 [jstype = JS_STRING];
     }
 
     message Commitments {
@@ -2217,6 +2228,9 @@ message PendingChannelsResponse {
         }
 
         AnchorState anchor = 9;
+
+        // The unique channel ID for the channel.
+        uint64 chan_id = 10 [jstype = JS_STRING];
     }
 
     // The balance in satoshis encumbered in pending channels

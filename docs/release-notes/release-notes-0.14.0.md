@@ -25,6 +25,9 @@ for more information.
 * [Stub code for interacting with `lnrpc` from a WASM context through JSON 
   messages was added](https://github.com/lightningnetwork/lnd/pull/5601).
 
+* [The channel id is now included in the pendingchannels 
+  response](https://github.com/lightningnetwork/lnd/pull/5592).
+
 ## Security 
 
 ### Admin macaroon permissions

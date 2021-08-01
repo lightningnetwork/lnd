@@ -66,10 +66,11 @@ func (c *proxyConn) RemoteAddr() net.Addr {
 // around net.Conn in order to expose the actual remote address we're dialing,
 // rather than the proxy's address.
 func Dial(address, socksAddr string, streamIsolation bool,
-	directConnections bool, timeout time.Duration) (net.Conn, error) {
+	skipProxyForClearNetTargets bool, timeout time.Duration) (net.Conn, error) {
 
 	conn, err := dial(
-		address, socksAddr, streamIsolation, directConnections, timeout,
+		address, socksAddr, streamIsolation,
+		skipProxyForClearNetTargets, timeout,
 	)
 	if err != nil {
 		return nil, err
@@ -96,11 +97,11 @@ func Dial(address, socksAddr string, streamIsolation bool,
 // connection. If enabled, new connections will use a fresh circuit, rather than
 // possibly re-using an existing circuit.
 //
-// directConnections argument allows the dialer to directly connect to the
-// provided address if it does not represent an union service, skipping the
-// SOCKS proxy.
+// skipProxyForClearNetTargets argument allows the dialer to directly connect
+// to the provided address if it does not represent an union service, skipping
+// the SOCKS proxy.
 func dial(address, socksAddr string, streamIsolation bool,
-	directConnections bool, timeout time.Duration) (net.Conn, error) {
+	skipProxyForClearNetTargets bool, timeout time.Duration) (net.Conn, error) {
 
 	// If we were requested to force stream isolation for this connection,
 	// we'll populate the authentication credentials with random data as
@@ -119,7 +120,7 @@ func dial(address, socksAddr string, streamIsolation bool,
 	}
 
 	clearDialer := &net.Dialer{Timeout: timeout}
-	if directConnections {
+	if skipProxyForClearNetTargets {
 		host, _, err := net.SplitHostPort(address)
 		if err != nil {
 			return nil, err
@@ -158,12 +159,13 @@ func LookupHost(host, socksAddr string) ([]string, error) {
 // proxy by connecting directly to a DNS server and querying it. The DNS server
 // must have TCP resolution enabled for the given port.
 func LookupSRV(service, proto, name, socksAddr,
-	dnsServer string, streamIsolation bool,
-	directConnections bool, timeout time.Duration) (string, []*net.SRV, error) {
+	dnsServer string, streamIsolation bool, skipProxyForClearNetTargets bool,
+	timeout time.Duration) (string, []*net.SRV, error) {
 
 	// Connect to the DNS server we'll be using to query SRV records.
 	conn, err := dial(
-		dnsServer, socksAddr, streamIsolation, directConnections, timeout,
+		dnsServer, socksAddr, streamIsolation,
+		skipProxyForClearNetTargets, timeout,
 	)
 	if err != nil {
 		return "", nil, err

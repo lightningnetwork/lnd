@@ -169,8 +169,8 @@ type ListenerCfg struct {
 	ExternalRestRegistrar RestRegistrar
 }
 
-var errStreamIsolationWithDirectConnections = errors.New(
-	"direct connections cannot be used while stream isolation is enabled",
+var errStreamIsolationWithProxySkip = errors.New(
+	"while stream isolation is enabled, the TOR proxy may not be skipped",
 )
 
 // Main is the true entry point for lnd. It accepts a fully populated and
@@ -757,12 +757,12 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		return err
 	}
 
-	if cfg.Tor.StreamIsolation && cfg.Tor.DirectConnections {
-		return errStreamIsolationWithDirectConnections
+	if cfg.Tor.StreamIsolation && cfg.Tor.SkipProxyForClearNetTargets {
+		return errStreamIsolationWithProxySkip
 	}
 
 	if cfg.Tor.Active {
-		if cfg.Tor.DirectConnections {
+		if cfg.Tor.SkipProxyForClearNetTargets {
 			srvrLog.Info("Onion services are accessible via Tor! NOTE: " +
 				"Traffic to clearnet services is not routed via Tor.")
 		} else {

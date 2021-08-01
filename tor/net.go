@@ -89,10 +89,10 @@ type ProxyNet struct {
 	// will now use a distinct circuit.
 	StreamIsolation bool
 
-	// DirectConnections allows the proxy network to use direct connections
-	// to non-onion service targets. If enabled, the node IP address will be
-	// revealed while communicating with such targets.
-	DirectConnections bool
+	// SkipProxyForClearNetTargets allows the proxy network to use direct
+	// connections to non-onion service targets. If enabled, the node IP
+	// address will be revealed while communicating with such targets.
+	SkipProxyForClearNetTargets bool
 }
 
 // Dial uses the Tor Dial function in order to establish connections through
@@ -106,7 +106,8 @@ func (p *ProxyNet) Dial(network, address string,
 		return nil, errors.New("cannot dial non-tcp network via Tor")
 	}
 	return Dial(
-		address, p.SOCKS, p.StreamIsolation, p.DirectConnections, timeout,
+		address, p.SOCKS, p.StreamIsolation,
+		p.SkipProxyForClearNetTargets, timeout,
 	)
 }
 
@@ -122,8 +123,8 @@ func (p *ProxyNet) LookupSRV(service, proto,
 	name string, timeout time.Duration) (string, []*net.SRV, error) {
 
 	return LookupSRV(
-		service, proto, name, p.SOCKS, p.DNS,
-		p.StreamIsolation, p.DirectConnections, timeout,
+		service, proto, name, p.SOCKS, p.DNS, p.StreamIsolation,
+		p.SkipProxyForClearNetTargets, timeout,
 	)
 }
 

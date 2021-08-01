@@ -906,10 +906,10 @@ func ValidateConfig(cfg Config, usageMessage string,
 	// our real information.
 	if cfg.Tor.Active {
 		cfg.net = &tor.ProxyNet{
-			SOCKS:             cfg.Tor.SOCKS,
-			DNS:               cfg.Tor.DNS,
-			StreamIsolation:   cfg.Tor.StreamIsolation,
-			DirectConnections: cfg.Tor.DirectConnections,
+			SOCKS:                       cfg.Tor.SOCKS,
+			DNS:                         cfg.Tor.DNS,
+			StreamIsolation:             cfg.Tor.StreamIsolation,
+			SkipProxyForClearNetTargets: cfg.Tor.SkipProxyForClearNetTargets,
 		}
 	}
 
@@ -1317,7 +1317,7 @@ func ValidateConfig(cfg Config, usageMessage string,
 	// connections.
 	if len(cfg.RawListeners) == 0 {
 		addr := fmt.Sprintf(":%d", defaultPeerPort)
-		if cfg.Tor.Active && !cfg.Tor.DirectConnections {
+		if cfg.Tor.Active && !cfg.Tor.SkipProxyForClearNetTargets {
 			addr = fmt.Sprintf("localhost:%d", defaultPeerPort)
 		}
 		cfg.RawListeners = append(cfg.RawListeners, addr)

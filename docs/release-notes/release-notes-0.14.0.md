@@ -388,6 +388,9 @@ you.
   buffer each time we decrypt an incoming message, as we
   recycle these buffers in the peer.
 
+* [Cache the channel state](https://github.com/lightningnetwork/lnd/pull/5595)
+  to achieve better performance when running LND using a remote DB backend.
+
 ## Log system
 
 * [Save compressed log files from logrorate during 

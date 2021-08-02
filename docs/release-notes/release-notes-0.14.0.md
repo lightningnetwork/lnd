@@ -33,6 +33,7 @@ you.
 
 * [A new build target itest-race](https://github.com/lightningnetwork/lnd/pull/5542) 
   to help uncover undetected data races with our itests.
+
 * [The itest error whitelist check was removed to reduce the number of failed
   Travis builds](https://github.com/lightningnetwork/lnd/pull/5588).
 
@@ -40,6 +41,12 @@ you.
 
 * [Outdated warning about unsupported pruning was replaced with clarification that LND **does**
   support pruning](https://github.com/lightningnetwork/lnd/pull/5553)
+
+* [Clarified 'ErrReservedValueInvalidated' error string](https://github.com/lightningnetwork/lnd/pull/5577)
+   to explain that the error is triggered by a transaction that would deplete
+   funds already reserved for potential future anchor channel closings (via
+   CPFP) and that more information (e.g., specific sat amounts) can be found
+   in the debug logs.
 
 # Misc
 
@@ -54,15 +61,23 @@ you.
 
 * [Unused error check 
   removed](https://github.com/lightningnetwork/lnd/pull/5537).
+
 * [Shorten Pull Request check list by referring to the CI checks that are 
   in place](https://github.com/lightningnetwork/lnd/pull/5545).
+
 * [Added minor fixes to contribution guidelines](https://github.com/lightningnetwork/lnd/pull/5503).
+
 * [Fixed typo in `dest_custom_records` description comment](https://github.com/lightningnetwork/lnd/pull/5541).
+
 * [Bumped version of `github.com/miekg/dns` library to fix a Dependabot
   alert](https://github.com/lightningnetwork/lnd/pull/5576).
+
 * [Fixed timeout flakes in async payment benchmark tests](https://github.com/lightningnetwork/lnd/pull/5579).
+
 * [Fixed a missing import and git tag in the healthcheck package](https://github.com/lightningnetwork/lnd/pull/5582).
+
 * [Fixed a data race in payment unit test](https://github.com/lightningnetwork/lnd/pull/5573).
+
 * [Missing dots in cmd interface](https://github.com/lightningnetwork/lnd/pull/5535).
 
 ## Database
@@ -71,8 +86,8 @@ you.
   code](https://github.com/lightningnetwork/lnd/pull/5547) when using etcd
   backend.
 
-[Optimized payment sequence generation](https://github.com/lightningnetwork/lnd/pull/5514/)
-to make LNDs payment throughput (and latency) with better when using etcd.
+* [Optimized payment sequence generation](https://github.com/lightningnetwork/lnd/pull/5514/)
+  to make LNDs payment throughput (and latency) with better when using etcd.
 
 ## Performance improvements
 
@@ -84,4 +99,5 @@ to make LNDs payment throughput (and latency) with better when using etcd.
 * Martin Habovstiak
 * Zero-1729
 * Oliver Gugger
+* xanoni
 * Yong Yu

@@ -2444,7 +2444,7 @@ var exportChanBackupCommand = cli.Command{
 	Name:     "exportchanbackup",
 	Category: "Channels",
 	Usage: "Obtain a static channel back up for a selected channels, " +
-		"or all known channels",
+		"or all known channels.",
 	ArgsUsage: "[chan_point] [--all] [--output_file]",
 	Description: `
 	This command allows a user to export a Static Channel Backup (SCB) for
@@ -2600,7 +2600,7 @@ func exportChanBackup(ctx *cli.Context) error {
 var verifyChanBackupCommand = cli.Command{
 	Name:      "verifychanbackup",
 	Category:  "Channels",
-	Usage:     "Verify an existing channel backup",
+	Usage:     "Verify an existing channel backup.",
 	ArgsUsage: "[--single_backup] [--multi_backup] [--multi_file]",
 	Description: `
     This command allows a user to verify an existing Single or Multi channel
@@ -2678,7 +2678,7 @@ var restoreChanBackupCommand = cli.Command{
 	Name:     "restorechanbackup",
 	Category: "Channels",
 	Usage: "Restore an existing single or multi-channel static channel " +
-		"backup",
+		"backup.",
 	ArgsUsage: "[--single_backup] [--multi_backup] [--multi_file=",
 	Description: `
 	Allows a user to restore a Static Channel Backup (SCB) that was

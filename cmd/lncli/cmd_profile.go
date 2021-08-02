@@ -28,7 +28,7 @@ var (
 var profileSubCommand = cli.Command{
 	Name:     "profile",
 	Category: "Profiles",
-	Usage:    "Create and manage lncli profiles",
+	Usage:    "Create and manage lncli profiles.",
 	Description: `
 	Profiles for lncli are an easy and comfortable way to manage multiple
 	nodes from the command line by storing node specific parameters like RPC
@@ -79,7 +79,7 @@ func profileList(_ *cli.Context) error {
 
 var profileAddCommand = cli.Command{
 	Name:      "add",
-	Usage:     "Add a new profile",
+	Usage:     "Add a new profile.",
 	ArgsUsage: "name",
 	Description: `
 	Add a new named profile to the main profiles.json. All global options
@@ -230,7 +230,7 @@ func profileRemove(ctx *cli.Context) error {
 
 var profileSetDefaultCommand = cli.Command{
 	Name:      "setdefault",
-	Usage:     "Set the default profile",
+	Usage:     "Set the default profile.",
 	ArgsUsage: "name",
 	Description: `
 	Set a specified profile to be used as the default profile.
@@ -297,7 +297,7 @@ func profileSetDefault(ctx *cli.Context) error {
 
 var profileUnsetDefaultCommand = cli.Command{
 	Name:  "unsetdefault",
-	Usage: "Unsets the default profile",
+	Usage: "Unsets the default profile.",
 	Description: `
 	Disables the use of a default profile and restores lncli to its original
 	behavior.
@@ -319,7 +319,7 @@ func profileUnsetDefault(_ *cli.Context) error {
 
 var profileAddMacaroonCommand = cli.Command{
 	Name:      "addmacaroon",
-	Usage:     "Add a macaroon to a profile's macaroon jar",
+	Usage:     "Add a macaroon to a profile's macaroon jar.",
 	ArgsUsage: "macaroon-name",
 	Description: `
 	Add an additional macaroon specified by the global option --macaroonpath

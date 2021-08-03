@@ -56,7 +56,7 @@ func (l *linkTestContext) sendHtlcAliceToBob(htlcID int,
 		l.t.Fatalf("expected 1 adds, found %d", len(fwdActions.Adds))
 	}
 
-	err = l.aliceLink.HandleSwitchPacket(&htlcPacket{
+	err = l.aliceLink.handleSwitchPacket(&htlcPacket{
 		incomingHTLCID: uint64(htlcID),
 		htlc:           htlc,
 	})

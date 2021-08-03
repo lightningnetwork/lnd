@@ -2387,23 +2387,23 @@ func (l *channelLink) String() string {
 	return l.channel.ChannelPoint().String()
 }
 
-// HandleSwitchPacket handles the switch packets. This packets which might be
+// handleSwitchPacket handles the switch packets. This packets which might be
 // forwarded to us from another channel link in case the htlc update came from
 // another peer or if the update was created by user
 //
-// NOTE: Part of the ChannelLink interface.
-func (l *channelLink) HandleSwitchPacket(pkt *htlcPacket) error {
+// NOTE: Part of the packetHandler interface.
+func (l *channelLink) handleSwitchPacket(pkt *htlcPacket) error {
 	l.log.Tracef("received switch packet inkey=%v, outkey=%v",
 		pkt.inKey(), pkt.outKey())
 
 	return l.mailBox.AddPacket(pkt)
 }
 
-// HandleLocalAddPacket handles a locally-initiated UpdateAddHTLC packet. It
+// handleLocalAddPacket handles a locally-initiated UpdateAddHTLC packet. It
 // will be processed synchronously.
 //
-// NOTE: Part of the ChannelLink interface.
-func (l *channelLink) HandleLocalAddPacket(pkt *htlcPacket) error {
+// NOTE: Part of the packetHandler interface.
+func (l *channelLink) handleLocalAddPacket(pkt *htlcPacket) error {
 	l.log.Tracef("received switch packet outkey=%v", pkt.outKey())
 
 	// Create a buffered result channel to prevent the link from blocking.

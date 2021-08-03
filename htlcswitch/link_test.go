@@ -2247,7 +2247,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	}
 
 	addPkt.circuit = &circuit
-	if err := aliceLink.HandleSwitchPacket(&addPkt); err != nil {
+	if err := aliceLink.handleSwitchPacket(&addPkt); err != nil {
 		t.Fatalf("unable to handle switch packet: %v", err)
 	}
 	time.Sleep(time.Millisecond * 500)
@@ -2327,7 +2327,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	}
 
 	addPkt.circuit = &circuit
-	if err := aliceLink.HandleSwitchPacket(&addPkt); err != nil {
+	if err := aliceLink.handleSwitchPacket(&addPkt); err != nil {
 		t.Fatalf("unable to handle switch packet: %v", err)
 	}
 	time.Sleep(time.Millisecond * 500)
@@ -2467,7 +2467,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		obfuscator: NewMockObfuscator(),
 	}
 
-	if err := aliceLink.HandleSwitchPacket(&settlePkt); err != nil {
+	if err := aliceLink.handleSwitchPacket(&settlePkt); err != nil {
 		t.Fatalf("unable to handle switch packet: %v", err)
 	}
 	time.Sleep(time.Millisecond * 500)
@@ -2571,7 +2571,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		obfuscator: NewMockObfuscator(),
 	}
 
-	if err := aliceLink.HandleSwitchPacket(&failPkt); err != nil {
+	if err := aliceLink.handleSwitchPacket(&failPkt); err != nil {
 		t.Fatalf("unable to handle switch packet: %v", err)
 	}
 	time.Sleep(time.Millisecond * 500)
@@ -2709,7 +2709,7 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 	// Since both were committed successfully, we will now deliver them to
 	// Alice's link.
 	for _, addPkt := range addPkts[:halfHtlcs] {
-		if err := alice.link.HandleSwitchPacket(addPkt); err != nil {
+		if err := alice.link.handleSwitchPacket(addPkt); err != nil {
 			t.Fatalf("unable to handle switch packet: %v", err)
 		}
 	}
@@ -2794,7 +2794,7 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 	// Deliver the latter two HTLCs to Alice's links so that they can be
 	// processed and added to the in-memory commitment state.
 	for _, addPkt := range addPkts[halfHtlcs:] {
-		if err := alice.link.HandleSwitchPacket(addPkt); err != nil {
+		if err := alice.link.handleSwitchPacket(addPkt); err != nil {
 			t.Fatalf("unable to handle switch packet: %v", err)
 		}
 	}
@@ -2989,7 +2989,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	// Since both were committed successfully, we will now deliver them to
 	// Alice's link.
 	for _, addPkt := range addPkts[:halfHtlcs] {
-		if err := alice.link.HandleSwitchPacket(addPkt); err != nil {
+		if err := alice.link.handleSwitchPacket(addPkt); err != nil {
 			t.Fatalf("unable to handle switch packet: %v", err)
 		}
 	}
@@ -3082,7 +3082,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 
 	// Deliver the last two HTLCs to the link via Alice's mailbox.
 	for _, addPkt := range addPkts[halfHtlcs:] {
-		if err := alice.link.HandleSwitchPacket(addPkt); err != nil {
+		if err := alice.link.handleSwitchPacket(addPkt); err != nil {
 			t.Fatalf("unable to handle switch packet: %v", err)
 		}
 	}
@@ -3249,7 +3249,7 @@ func TestChannelLinkTrimCircuitsRemoteCommit(t *testing.T) {
 	// Since both were committed successfully, we will now deliver them to
 	// Alice's link.
 	for _, addPkt := range addPkts {
-		if err := alice.link.HandleSwitchPacket(addPkt); err != nil {
+		if err := alice.link.handleSwitchPacket(addPkt); err != nil {
 			t.Fatalf("unable to handle switch packet: %v", err)
 		}
 	}
@@ -3390,7 +3390,7 @@ func TestChannelLinkBandwidthChanReserve(t *testing.T) {
 		t.Fatalf("unable to commit circuit: %v", err)
 	}
 
-	aliceLink.HandleSwitchPacket(addPkt)
+	_ = aliceLink.handleSwitchPacket(addPkt)
 	time.Sleep(time.Millisecond * 100)
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
 
@@ -5139,7 +5139,7 @@ func TestChannelLinkCleanupSpuriousResponses(t *testing.T) {
 		obfuscator:     NewMockObfuscator(),
 		htlc:           &lnwire.UpdateFailHTLC{},
 	}
-	aliceLink.HandleSwitchPacket(fail0)
+	_ = aliceLink.handleSwitchPacket(fail0)
 
 	//  Bob               Alice
 	//   |<----- fal-1 ------|
@@ -5199,7 +5199,7 @@ func TestChannelLinkCleanupSpuriousResponses(t *testing.T) {
 		obfuscator:     NewMockObfuscator(),
 		htlc:           &lnwire.UpdateFailHTLC{},
 	}
-	aliceLink.HandleSwitchPacket(fail1)
+	_ = aliceLink.handleSwitchPacket(fail1)
 
 	//  Bob               Alice
 	//   |<----- fal-1 ------|
@@ -5256,7 +5256,7 @@ func TestChannelLinkCleanupSpuriousResponses(t *testing.T) {
 	// this should trigger an attempt to cleanup the spurious response.
 	// However, we expect it to result in a NOP since it is still missing
 	// its sourceRef.
-	aliceLink.HandleSwitchPacket(fail0)
+	_ = aliceLink.handleSwitchPacket(fail0)
 
 	// Allow the link enough time to process and reject the duplicate
 	// packet, we'll also check that this doesn't trigger Alice to send the
@@ -5311,7 +5311,7 @@ func TestChannelLinkCleanupSpuriousResponses(t *testing.T) {
 		obfuscator:     NewMockObfuscator(),
 		htlc:           &lnwire.UpdateFailHTLC{},
 	}
-	aliceLink.HandleSwitchPacket(fail0)
+	_ = aliceLink.handleSwitchPacket(fail0)
 
 	// Allow the link enough time to process and reject the duplicate
 	// packet, we'll also check that this doesn't trigger Alice to send the

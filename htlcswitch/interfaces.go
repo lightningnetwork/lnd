@@ -41,6 +41,22 @@ type InvoiceDatabase interface {
 	HodlUnsubscribeAll(subscriber chan<- interface{})
 }
 
+// packetHandler is an interface used exclusively by the Switch to handle
+// htlcPacket and pass them to the link implementation.
+type packetHandler interface {
+	// handleSwitchPacket handles the switch packets. These packets might
+	// be forwarded to us from another channel link in case the htlc
+	// update came from another peer or if the update was created by user
+	// initially.
+	//
+	// NOTE: This function should block as little as possible.
+	handleSwitchPacket(*htlcPacket) error
+
+	// handleLocalAddPacket handles a locally-initiated UpdateAddHTLC
+	// packet. It will be processed synchronously.
+	handleLocalAddPacket(*htlcPacket) error
+}
+
 // ChannelLink is an interface which represents the subsystem for managing the
 // incoming htlc requests, applying the changes to the channel, and also
 // propagating/forwarding it to htlc switch.
@@ -62,18 +78,8 @@ type InvoiceDatabase interface {
 type ChannelLink interface {
 	// TODO(roasbeef): modify interface to embed mail boxes?
 
-	// HandleSwitchPacket handles the switch packets. This packets might be
-	// forwarded to us from another channel link in case the htlc update
-	// came from another peer or if the update was created by user
-	// initially.
-	//
-	// NOTE: This function MUST be non-blocking (or block as little as
-	// possible).
-	HandleSwitchPacket(*htlcPacket) error
-
-	// HandleLocalAddPacket handles a locally-initiated UpdateAddHTLC
-	// packet. It will be processed synchronously.
-	HandleLocalAddPacket(*htlcPacket) error
+	// Embed the packetHandler interface.
+	packetHandler
 
 	// HandleChannelUpdate handles the htlc requests as settle/add/fail
 	// which sent to us from remote peer we have a channel with.

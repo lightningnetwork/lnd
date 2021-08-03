@@ -2022,7 +2022,9 @@ func (s *Switch) addLiveLink(link ChannelLink) {
 
 // GetLink is used to initiate the handling of the get link command. The
 // request will be propagated/handled to/in the main goroutine.
-func (s *Switch) GetLink(chanID lnwire.ChannelID) (ChannelLink, error) {
+func (s *Switch) GetLink(chanID lnwire.ChannelID) (ChannelUpdateHandler,
+	error) {
+
 	s.indexMtx.RLock()
 	defer s.indexMtx.RUnlock()
 
@@ -2164,11 +2166,26 @@ func (s *Switch) UpdateShortChanID(chanID lnwire.ChannelID) error {
 
 // GetLinksByInterface fetches all the links connected to a particular node
 // identified by the serialized compressed form of its public key.
-func (s *Switch) GetLinksByInterface(hop [33]byte) ([]ChannelLink, error) {
+func (s *Switch) GetLinksByInterface(hop [33]byte) ([]ChannelUpdateHandler,
+	error) {
+
 	s.indexMtx.RLock()
 	defer s.indexMtx.RUnlock()
 
-	return s.getLinks(hop)
+	var handlers []ChannelUpdateHandler
+
+	links, err := s.getLinks(hop)
+	if err != nil {
+		return nil, err
+	}
+
+	// Range over the returned []ChannelLink to convert them into
+	// []ChannelUpdateHandler.
+	for _, link := range links {
+		handlers = append(handlers, link)
+	}
+
+	return handlers, nil
 }
 
 // getLinks is function which returns the channel links of the peer by hop

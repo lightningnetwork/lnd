@@ -1,5 +1,7 @@
 package etcd
 
+import "fmt"
+
 // Config holds etcd configuration alongside with configuration related to our higher level interface.
 type Config struct {
 	Embedded bool `long:"embedded" description:"Use embedded etcd instance instead of the external one. Note: use for testing only."`
@@ -29,4 +31,52 @@ type Config struct {
 	// SingleWriter should be set to true if we intend to only allow a
 	// single writer to the database at a time.
 	SingleWriter bool
+}
+
+// CloneWithSubNamespace clones the current configuration and returns a new
+// instance with the given sub namespace applied by appending it to the main
+// namespace.
+func (c *Config) CloneWithSubNamespace(subNamespace string) *Config {
+	ns := c.Namespace
+	if len(ns) == 0 {
+		ns = subNamespace
+	} else {
+		ns = fmt.Sprintf("%s/%s", ns, subNamespace)
+	}
+
+	return &Config{
+		Embedded:           c.Embedded,
+		EmbeddedClientPort: c.EmbeddedClientPort,
+		EmbeddedPeerPort:   c.EmbeddedPeerPort,
+		Host:               c.Host,
+		User:               c.User,
+		Pass:               c.Pass,
+		Namespace:          ns,
+		DisableTLS:         c.DisableTLS,
+		CertFile:           c.CertFile,
+		KeyFile:            c.KeyFile,
+		InsecureSkipVerify: c.InsecureSkipVerify,
+		CollectStats:       c.CollectStats,
+		SingleWriter:       c.SingleWriter,
+	}
+}
+
+// CloneWithSingleWriter clones the current configuration and returns a new
+// instance with the single writer property set to true.
+func (c *Config) CloneWithSingleWriter() *Config {
+	return &Config{
+		Embedded:           c.Embedded,
+		EmbeddedClientPort: c.EmbeddedClientPort,
+		EmbeddedPeerPort:   c.EmbeddedPeerPort,
+		Host:               c.Host,
+		User:               c.User,
+		Pass:               c.Pass,
+		Namespace:          c.Namespace,
+		DisableTLS:         c.DisableTLS,
+		CertFile:           c.CertFile,
+		KeyFile:            c.KeyFile,
+		InsecureSkipVerify: c.InsecureSkipVerify,
+		CollectStats:       c.CollectStats,
+		SingleWriter:       true,
+	}
 }

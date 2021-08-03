@@ -39,6 +39,9 @@ const (
 	// NSTowerServerDB is the namespace name that we use for the watchtower
 	// server DB.
 	NSTowerServerDB = "towerserverdb"
+
+	// NSWalletDB is the namespace name that we use for the wallet DB.
+	NSWalletDB = "walletdb"
 )
 
 // DB holds database configuration for LND.
@@ -173,30 +176,92 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 	}()
 
 	if db.Backend == EtcdBackend {
+		// As long as the graph data, channel state and height hint
+		// cache are all still in the channel.db file in bolt, we
+		// replicate the same behavior here and use the same etcd
+		// backend for those three sub DBs. But we namespace it properly
+		// to make such a split even easier in the future. This will
+		// break lnd for users that ran on etcd with 0.13.x since that
+		// code used the root namespace. We assume that nobody used etcd
+		// for mainnet just yet since that feature was clearly marked as
+		// experimental in 0.13.x.
 		etcdBackend, err := kvdb.Open(
-			kvdb.EtcdBackendName, ctx, db.Etcd,
+			kvdb.EtcdBackendName, ctx,
+			db.Etcd.CloneWithSubNamespace(NSChannelDB),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error opening etcd DB: %v", err)
 		}
 		closeFuncs[NSChannelDB] = etcdBackend.Close
 
+		etcdMacaroonBackend, err := kvdb.Open(
+			kvdb.EtcdBackendName, ctx,
+			db.Etcd.CloneWithSubNamespace(NSMacaroonDB),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening etcd macaroon "+
+				"DB: %v", err)
+		}
+		closeFuncs[NSMacaroonDB] = etcdMacaroonBackend.Close
+
+		etcdDecayedLogBackend, err := kvdb.Open(
+			kvdb.EtcdBackendName, ctx,
+			db.Etcd.CloneWithSubNamespace(NSDecayedLogDB),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening etcd decayed "+
+				"log DB: %v", err)
+		}
+		closeFuncs[NSDecayedLogDB] = etcdDecayedLogBackend.Close
+
+		etcdTowerClientBackend, err := kvdb.Open(
+			kvdb.EtcdBackendName, ctx,
+			db.Etcd.CloneWithSubNamespace(NSTowerClientDB),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening etcd tower "+
+				"client DB: %v", err)
+		}
+		closeFuncs[NSTowerClientDB] = etcdTowerClientBackend.Close
+
+		etcdTowerServerBackend, err := kvdb.Open(
+			kvdb.EtcdBackendName, ctx,
+			db.Etcd.CloneWithSubNamespace(NSTowerServerDB),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening etcd tower "+
+				"server DB: %v", err)
+		}
+		closeFuncs[NSTowerServerDB] = etcdTowerServerBackend.Close
+
+		etcdWalletBackend, err := kvdb.Open(
+			kvdb.EtcdBackendName, ctx,
+			db.Etcd.
+				CloneWithSubNamespace(NSWalletDB).
+				CloneWithSingleWriter(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening etcd macaroon "+
+				"DB: %v", err)
+		}
+		closeFuncs[NSWalletDB] = etcdWalletBackend.Close
+
 		returnEarly = false
 		return &DatabaseBackends{
 			GraphDB:       etcdBackend,
 			ChanStateDB:   etcdBackend,
 			HeightHintDB:  etcdBackend,
-			MacaroonDB:    etcdBackend,
-			DecayedLogDB:  etcdBackend,
-			TowerClientDB: etcdBackend,
-			TowerServerDB: etcdBackend,
+			MacaroonDB:    etcdMacaroonBackend,
+			DecayedLogDB:  etcdDecayedLogBackend,
+			TowerClientDB: etcdTowerClientBackend,
+			TowerServerDB: etcdTowerServerBackend,
 			// The wallet loader will attempt to use/create the
 			// wallet in the replicated remote DB if we're running
 			// in a clustered environment. This will ensure that all
 			// members of the cluster have access to the same wallet
 			// state.
 			WalletDB: btcwallet.LoaderWithExternalWalletDB(
-				etcdBackend,
+				etcdWalletBackend,
 			),
 			Remote:     true,
 			CloseFuncs: closeFuncs,
@@ -296,7 +361,9 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		TowerServerDB: towerServerBackend,
 		// When "running locally", LND will use the bbolt wallet.db to
 		// store the wallet located in the chain data dir, parametrized
-		// by the active network.
+		// by the active network. The wallet loader has its own cleanup
+		// method so we don't need to add anything to our map (in fact
+		// nothing is opened just yet).
 		WalletDB: btcwallet.LoaderWithLocalWalletDB(
 			walletDBPath, !db.Bolt.SyncFreelist, db.Bolt.DBTimeout,
 		),

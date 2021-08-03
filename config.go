@@ -1489,12 +1489,13 @@ func ValidateConfig(cfg Config, usageMessage string,
 	return &cfg, err
 }
 
-// localDatabaseDir returns the default directory where the
-// local bolt db files are stored.
-func (c *Config) localDatabaseDir() string {
-	return filepath.Join(c.DataDir,
-		defaultGraphSubDirname,
-		lncfg.NormalizeNetwork(c.ActiveNetParams.Name))
+// graphDatabaseDir returns the default directory where the local bolt graph db
+// files are stored.
+func (c *Config) graphDatabaseDir() string {
+	return filepath.Join(
+		c.DataDir, defaultGraphSubDirname,
+		lncfg.NormalizeNetwork(c.ActiveNetParams.Name),
+	)
 }
 
 // CleanAndExpandPath expands environment variables and leading ~ in the

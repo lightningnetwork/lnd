@@ -66,7 +66,6 @@ type RootKeyStorage struct {
 }
 
 // NewRootKeyStorage creates a RootKeyStorage instance.
-// TODO(aakselrod): Add support for encryption of data with passphrase.
 func NewRootKeyStorage(db kvdb.Backend) (*RootKeyStorage, error) {
 	// If the store's bucket doesn't exist, create it.
 	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
@@ -78,7 +77,10 @@ func NewRootKeyStorage(db kvdb.Backend) (*RootKeyStorage, error) {
 	}
 
 	// Return the DB wrapped in a RootKeyStorage object.
-	return &RootKeyStorage{Backend: db, encKey: nil}, nil
+	return &RootKeyStorage{
+		Backend: db,
+		encKey:  nil,
+	}, nil
 }
 
 // CreateUnlock sets an encryption key if one is not already set, otherwise it
@@ -97,7 +99,7 @@ func (r *RootKeyStorage) CreateUnlock(password *[]byte) error {
 		return ErrPasswordRequired
 	}
 
-	return kvdb.Update(r, func(tx kvdb.RwTx) error {
+	return kvdb.Update(r.Backend, func(tx kvdb.RwTx) error {
 		bucket := tx.ReadWriteBucket(rootKeyBucketName)
 		if bucket == nil {
 			return ErrRootKeyBucketNotFound
@@ -153,7 +155,7 @@ func (r *RootKeyStorage) ChangePassword(oldPw, newPw []byte) error {
 		return ErrPasswordRequired
 	}
 
-	return kvdb.Update(r, func(tx kvdb.RwTx) error {
+	return kvdb.Update(r.Backend, func(tx kvdb.RwTx) error {
 		bucket := tx.ReadWriteBucket(rootKeyBucketName)
 		if bucket == nil {
 			return ErrRootKeyBucketNotFound
@@ -225,7 +227,7 @@ func (r *RootKeyStorage) Get(_ context.Context, id []byte) ([]byte, error) {
 		return nil, ErrStoreLocked
 	}
 	var rootKey []byte
-	err := kvdb.View(r, func(tx kvdb.RTx) error {
+	err := kvdb.View(r.Backend, func(tx kvdb.RTx) error {
 		bucket := tx.ReadBucket(rootKeyBucketName)
 		if bucket == nil {
 			return ErrRootKeyBucketNotFound
@@ -276,7 +278,7 @@ func (r *RootKeyStorage) RootKey(ctx context.Context) ([]byte, []byte, error) {
 		return nil, nil, ErrKeyValueForbidden
 	}
 
-	err = kvdb.Update(r, func(tx kvdb.RwTx) error {
+	err = kvdb.Update(r.Backend, func(tx kvdb.RwTx) error {
 		bucket := tx.ReadWriteBucket(rootKeyBucketName)
 		if bucket == nil {
 			return ErrRootKeyBucketNotFound
@@ -319,7 +321,7 @@ func (r *RootKeyStorage) GenerateNewRootKey() error {
 	if r.encKey == nil {
 		return ErrStoreLocked
 	}
-	return kvdb.Update(r, func(tx kvdb.RwTx) error {
+	return kvdb.Update(r.Backend, func(tx kvdb.RwTx) error {
 		bucket := tx.ReadWriteBucket(rootKeyBucketName)
 		if bucket == nil {
 			return ErrRootKeyBucketNotFound
@@ -341,7 +343,13 @@ func (r *RootKeyStorage) Close() error {
 		r.encKey.Zero()
 		r.encKey = nil
 	}
-	return r.Backend.Close()
+
+	// Since we're not responsible for _creating_ the connection to our DB
+	// backend, we also shouldn't close it. This should be handled
+	// externally as to not interfere with remote DB connections in case we
+	// need to open/close the store twice as happens in the password change
+	// case.
+	return nil
 }
 
 // generateAndStoreNewRootKey creates a new random RootKeyLen-byte root key,
@@ -377,7 +385,7 @@ func (r *RootKeyStorage) ListMacaroonIDs(_ context.Context) ([][]byte, error) {
 
 	// Read all the items in the bucket and append the keys, which are the
 	// root key IDs we want.
-	err := kvdb.View(r, func(tx kvdb.RTx) error {
+	err := kvdb.View(r.Backend, func(tx kvdb.RTx) error {
 
 		// appendRootKey is a function closure that appends root key ID
 		// to rootKeySlice.
@@ -426,7 +434,7 @@ func (r *RootKeyStorage) DeleteMacaroonID(
 	}
 
 	var rootKeyIDDeleted []byte
-	err := kvdb.Update(r, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(r.Backend, func(tx kvdb.RwTx) error {
 		bucket := tx.ReadWriteBucket(rootKeyBucketName)
 
 		// Check the key can be found. If not, return nil.

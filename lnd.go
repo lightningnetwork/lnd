@@ -474,16 +474,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		// When "running locally", LND will use the bbolt wallet.db to
 		// store the wallet located in the chain data dir, parametrized
 		// by the active network.
-		chainConfig := cfg.Bitcoin
-		if cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
-			chainConfig = cfg.Litecoin
-		}
-
-		dbDirPath := btcwallet.NetworkDir(
-			chainConfig.ChainDir, cfg.ActiveNetParams.Params,
-		)
 		loaderOpt = btcwallet.LoaderWithLocalWalletDB(
-			dbDirPath, !cfg.SyncFreelist, cfg.DB.Bolt.DBTimeout,
+			cfg.networkDir, !cfg.SyncFreelist, cfg.DB.Bolt.DBTimeout,
 		)
 	}
 
@@ -1633,7 +1625,6 @@ type databaseInstances struct {
 // initializeDatabases extracts the current databases that we'll use for normal
 // operation in the daemon. A function closure that closes all opened databases
 // is also returned.
-// TODO(guggero): Actually make fully remote.
 func initializeDatabases(ctx context.Context,
 	cfg *Config) (*databaseInstances, func(), error) {
 
@@ -1654,102 +1645,71 @@ func initializeDatabases(ctx context.Context,
 			"backends: %v", err)
 	}
 
-	// If the remoteDB is nil, then we'll just open a local DB as normal,
-	// having the remote and local pointer be the exact same instance.
-	var (
-		dbs = &databaseInstances{
-			heightHintDB: databaseBackends.HeightHintDB,
-		}
-		closeFuncs []func()
-	)
-	if databaseBackends.ChanStateDB == nil {
-		// Open the channeldb, which is dedicated to storing channel,
-		// and network related metadata.
-		dbs.graphDB, err = channeldb.CreateWithBackend(
-			databaseBackends.GraphDB,
-			channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),
-			channeldb.OptionSetChannelCacheSize(cfg.Caches.ChannelCacheSize),
-			channeldb.OptionSetBatchCommitInterval(cfg.DB.BatchCommitInterval),
-			channeldb.OptionDryRunMigration(cfg.DryRunMigration),
-		)
-		switch {
-		case err == channeldb.ErrDryRunMigrationOK:
-			return nil, nil, err
-
-		case err != nil:
-			err := fmt.Errorf("unable to open local channeldb: %v", err)
-			ltndLog.Error(err)
-			return nil, nil, err
-		}
-
-		closeFuncs = append(closeFuncs, func() {
-			dbs.graphDB.Close()
-		})
-
-		dbs.chanStateDB = dbs.graphDB
-	} else {
-		ltndLog.Infof("Database replication is available! Creating " +
-			"local and remote channeldb instances")
-
-		// Otherwise, we'll open two instances, one for the state we
-		// only need locally, and the other for things we want to
-		// ensure are replicated.
-		dbs.graphDB, err = channeldb.CreateWithBackend(
-			databaseBackends.GraphDB,
-			channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),
-			channeldb.OptionSetChannelCacheSize(cfg.Caches.ChannelCacheSize),
-			channeldb.OptionSetBatchCommitInterval(cfg.DB.BatchCommitInterval),
-			channeldb.OptionDryRunMigration(cfg.DryRunMigration),
-		)
-		switch {
-		// As we want to allow both versions to get thru the dry run
-		// migration, we'll only exit the second time here once the
-		// remote instance has had a time to migrate as well.
-		case err == channeldb.ErrDryRunMigrationOK:
-			ltndLog.Infof("Local DB dry run migration successful")
-
-		case err != nil:
-			err := fmt.Errorf("unable to open local channeldb: %v", err)
-			ltndLog.Error(err)
-			return nil, nil, err
-		}
-
-		closeFuncs = append(closeFuncs, func() {
-			dbs.graphDB.Close()
-		})
-
-		ltndLog.Infof("Opening replicated database instance...")
-
-		dbs.chanStateDB, err = channeldb.CreateWithBackend(
-			databaseBackends.ChanStateDB,
-			channeldb.OptionDryRunMigration(cfg.DryRunMigration),
-			channeldb.OptionSetBatchCommitInterval(cfg.DB.BatchCommitInterval),
-		)
-		switch {
-		case err == channeldb.ErrDryRunMigrationOK:
-			return nil, nil, err
-
-		case err != nil:
-			dbs.graphDB.Close()
-
-			err := fmt.Errorf("unable to open remote channeldb: %v", err)
-			ltndLog.Error(err)
-			return nil, nil, err
-		}
-
-		closeFuncs = append(closeFuncs, func() {
-			dbs.chanStateDB.Close()
-		})
+	// With the full remote mode we made sure both the graph and channel
+	// state DB point to the same local or remote DB and the same namespace
+	// within that DB.
+	dbs := &databaseInstances{
+		heightHintDB: databaseBackends.HeightHintDB,
 	}
+	cleanUp := func() {
+		// We can just close the returned close functions directly. Even
+		// if we decorate the channel DB with an additional struct, its
+		// close function still just points to the kvdb backend.
+		for name, closeFunc := range databaseBackends.CloseFuncs {
+			if err := closeFunc(); err != nil {
+				ltndLog.Errorf("Error closing %s "+
+					"database: %v", name, err)
+			}
+		}
+	}
+	if databaseBackends.Remote {
+		ltndLog.Infof("Using remote %v database! Creating "+
+			"graph and channel state DB instances", cfg.DB.Backend)
+	} else {
+		ltndLog.Infof("Creating local graph and channel state DB " +
+			"instances")
+	}
+
+	// Otherwise, we'll open two instances, one for the state we only need
+	// locally, and the other for things we want to ensure are replicated.
+	dbs.graphDB, err = channeldb.CreateWithBackend(
+		databaseBackends.GraphDB,
+		channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),
+		channeldb.OptionSetChannelCacheSize(cfg.Caches.ChannelCacheSize),
+		channeldb.OptionSetBatchCommitInterval(cfg.DB.BatchCommitInterval),
+		channeldb.OptionDryRunMigration(cfg.DryRunMigration),
+	)
+	switch {
+	// Give the DB a chance to dry run the migration. Since we know that
+	// both the channel state and graph DBs are still always behind the same
+	// backend, we know this would be applied to both of those DBs.
+	case err == channeldb.ErrDryRunMigrationOK:
+		ltndLog.Infof("Graph DB dry run migration successful")
+		return nil, nil, err
+
+	case err != nil:
+		cleanUp()
+
+		err := fmt.Errorf("unable to open graph DB: %v", err)
+		ltndLog.Error(err)
+		return nil, nil, err
+	}
+
+	// For now, we don't _actually_ split the graph and channel state DBs on
+	// the code level. Since they both are based upon the *channeldb.DB
+	// struct it will require more refactoring to fully separate them. With
+	// the full remote mode we at least know for now that they both point to
+	// the same DB backend (and also namespace within that) so we only need
+	// to apply any migration once.
+	//
+	// TODO(guggero): Once the full separation of anything graph related
+	// from the channeldb.DB is complete, the decorated instance of the
+	// channel state DB should be created here individually instead of just
+	// using the same struct (and DB backend) instance.
+	dbs.chanStateDB = dbs.graphDB
 
 	openTime := time.Since(startOpenTime)
-	ltndLog.Infof("Database now open (time_to_open=%v)!", openTime)
-
-	cleanUp := func() {
-		for _, closeFunc := range closeFuncs {
-			closeFunc()
-		}
-	}
+	ltndLog.Infof("Database(s) now open (time_to_open=%v)!", openTime)
 
 	return dbs, cleanUp, nil
 }

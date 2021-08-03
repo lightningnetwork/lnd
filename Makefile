@@ -290,6 +290,10 @@ rpc-check: rpc
 	cd ./lnrpc; ../scripts/check-rest-annotations.sh
 	if test -n "$$(git describe --dirty | grep dirty)"; then echo "Protos not properly formatted or not compiled with v3.4.0"; git status; git diff; exit 1; fi
 
+rpc-js-compile:
+	@$(call print, "Compiling JSON/WASM stubs.")
+	GOOS=js GOARCH=wasm $(GOBUILD) -tags="$(RELEASE_TAGS)" $(PKG)/lnrpc/...
+
 sample-conf-check:
 	@$(call print, "Making sure every flag has an example in the sample-lnd.conf file")
 	for flag in $$(GO_FLAGS_COMPLETION=1 go run -tags="$(RELEASE_TAGS)" $(PKG)/cmd/lnd -- | grep -v help | cut -c3-); do if ! grep -q $$flag sample-lnd.conf; then echo "Command line flag --$$flag not added to sample-lnd.conf"; exit 1; fi; done
@@ -350,6 +354,7 @@ clean-mobile:
 	rpc \
 	rpc-format \
 	rpc-check \
+	rpc-js-compile \
 	mobile-rpc \
 	vendor \
 	ios \

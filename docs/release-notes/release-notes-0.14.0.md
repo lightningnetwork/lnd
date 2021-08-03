@@ -1,5 +1,17 @@
 # Release Notes
 
+# Backend Enhancements & Optimizations
+
+## Full remote database support
+
+`lnd` now stores [all its data in the same remote/external
+database](https://github.com/lightningnetwork/lnd/pull/5484) such as `etcd`
+instead of only the channel state and wallet data. This makes `lnd` fully
+stateless and therefore makes switching over to a new leader instance almost
+instantaneous. Read the [guide on leader
+election](https://github.com/lightningnetwork/lnd/blob/master/docs/leader_election.md)
+for more information.
+
 ## RPC Server
 
 * [Return payment address and add index from
@@ -29,7 +41,7 @@ you.
   added](https://github.com/lightningnetwork/lnd/pull/5520) to ensure that all
   PRs ([aside from merge
   commits](https://github.com/lightningnetwork/lnd/pull/5543)) add an entry in
-  the release notes folder that at leasts links to PR being added.
+  the release notes folder that at least links to PR being added.
 
 * [A new build target itest-race](https://github.com/lightningnetwork/lnd/pull/5542) 
   to help uncover undetected data races with our itests.

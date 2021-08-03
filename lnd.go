@@ -43,6 +43,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -706,7 +707,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		LitecoindMode:               cfg.LitecoindMode,
 		BtcdMode:                    cfg.BtcdMode,
 		LtcdMode:                    cfg.LtcdMode,
-		HeightHintDB:                dbs.graphDB,
+		HeightHintDB:                dbs.heightHintDB,
 		ChanStateDB:                 dbs.chanStateDB,
 		PrivateWalletPw:             privateWalletPw,
 		PublicWalletPw:              publicWalletPw,
@@ -1624,8 +1625,9 @@ func waitForWalletPassword(cfg *Config,
 // databaseInstances is a struct that holds all instances to the actual
 // databases that are used in lnd.
 type databaseInstances struct {
-	graphDB     *channeldb.DB
-	chanStateDB *channeldb.DB
+	graphDB      *channeldb.DB
+	chanStateDB  *channeldb.DB
+	heightHintDB kvdb.Backend
 }
 
 // initializeDatabases extracts the current databases that we'll use for normal
@@ -1655,7 +1657,9 @@ func initializeDatabases(ctx context.Context,
 	// If the remoteDB is nil, then we'll just open a local DB as normal,
 	// having the remote and local pointer be the exact same instance.
 	var (
-		dbs        = &databaseInstances{}
+		dbs = &databaseInstances{
+			heightHintDB: databaseBackends.HeightHintDB,
+		}
 		closeFuncs []func()
 	)
 	if databaseBackends.ChanStateDB == nil {

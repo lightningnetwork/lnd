@@ -10,7 +10,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/go-errors/errors"
 	mig "github.com/lightningnetwork/lnd/channeldb/migration"
 	"github.com/lightningnetwork/lnd/channeldb/migration12"
@@ -212,46 +211,6 @@ type DB struct {
 	graph  *ChannelGraph
 	clock  clock.Clock
 	dryRun bool
-}
-
-// Update is a wrapper around walletdb.Update which calls into the extended
-// backend when available. This call is needed to be able to cast DB to
-// ExtendedBackend. The passed reset function is called before the start of the
-// transaction and can be used to reset intermediate state. As callers may
-// expect retries of the f closure (depending on the database backend used), the
-// reset function will be called before each retry respectively.
-func (db *DB) Update(f func(tx walletdb.ReadWriteTx) error, reset func()) error {
-	if v, ok := db.Backend.(kvdb.ExtendedBackend); ok {
-		return v.Update(f, reset)
-	}
-
-	reset()
-	return walletdb.Update(db, f)
-}
-
-// View is a wrapper around walletdb.View which calls into the extended
-// backend when available. This call is needed to be able to cast DB to
-// ExtendedBackend. The passed reset function is called before the start of the
-// transaction and can be used to reset intermediate state. As callers may
-// expect retries of the f closure (depending on the database backend used), the
-// reset function will be called before each retry respectively.
-func (db *DB) View(f func(tx walletdb.ReadTx) error, reset func()) error {
-	if v, ok := db.Backend.(kvdb.ExtendedBackend); ok {
-		return v.View(f, reset)
-	}
-
-	reset()
-	return walletdb.View(db, f)
-}
-
-// PrintStats calls into the extended backend if available. This call is needed
-// to be able to cast DB to ExtendedBackend.
-func (db *DB) PrintStats() string {
-	if v, ok := db.Backend.(kvdb.ExtendedBackend); ok {
-		return v.PrintStats()
-	}
-
-	return "unimplemented"
 }
 
 // Open opens or creates channeldb. Any necessary schemas migrations due

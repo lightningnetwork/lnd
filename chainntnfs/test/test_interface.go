@@ -1926,7 +1926,9 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 		testCfg := chainntnfs.CacheConfig{
 			QueryDisable: false,
 		}
-		hintCache, err := chainntnfs.NewHeightHintCache(testCfg, db)
+		hintCache, err := chainntnfs.NewHeightHintCache(
+			testCfg, db.Backend,
+		)
 		if err != nil {
 			t.Fatalf("unable to create height hint cache: %v", err)
 		}

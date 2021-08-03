@@ -85,7 +85,7 @@ func TestChangeDuringUpdate(t *testing.T) {
 	require.Equal(t, count, 2)
 
 	expected := map[string]string{
-		BucketKey("apple"):         BucketVal("apple"),
+		BucketKey("apple"):        BucketVal("apple"),
 		ValueKey("key", "apple"):  "value",
 		ValueKey("key2", "apple"): "value2",
 	}

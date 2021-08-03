@@ -233,10 +233,10 @@ type PaymentCreationInfo struct {
 // FetchPayments returns all sent payments found in the DB.
 //
 // nolint: dupl
-func (db *DB) FetchPayments() ([]*MPPayment, error) {
+func (d *DB) FetchPayments() ([]*MPPayment, error) {
 	var payments []*MPPayment
 
-	err := kvdb.View(db, func(tx kvdb.RTx) error {
+	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		paymentsBucket := tx.ReadBucket(paymentsRootBucket)
 		if paymentsBucket == nil {
 			return nil
@@ -510,10 +510,10 @@ type PaymentsResponse struct {
 // QueryPayments is a query to the payments database which is restricted
 // to a subset of payments by the payments query, containing an offset
 // index and a maximum number of returned payments.
-func (db *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
+func (d *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 	var resp PaymentsResponse
 
-	if err := kvdb.View(db, func(tx kvdb.RTx) error {
+	if err := kvdb.View(d, func(tx kvdb.RTx) error {
 		// Get the root payments bucket.
 		paymentsBucket := tx.ReadBucket(paymentsRootBucket)
 		if paymentsBucket == nil {
@@ -681,8 +681,8 @@ func fetchPaymentWithSequenceNumber(tx kvdb.RTx, paymentHash lntypes.Hash,
 // failedOnly is set, only failed payments will be considered for deletion. If
 // failedHtlsOnly is set, the payment itself won't be deleted, only failed HTLC
 // attempts.
-func (db *DB) DeletePayments(failedOnly, failedHtlcsOnly bool) error {
-	return kvdb.Update(db, func(tx kvdb.RwTx) error {
+func (d *DB) DeletePayments(failedOnly, failedHtlcsOnly bool) error {
+	return kvdb.Update(d, func(tx kvdb.RwTx) error {
 		payments := tx.ReadWriteBucket(paymentsRootBucket)
 		if payments == nil {
 			return nil

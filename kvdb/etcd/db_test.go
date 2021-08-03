@@ -38,7 +38,7 @@ func TestCopy(t *testing.T) {
 	require.Nil(t, err)
 
 	expected := map[string]string{
-		BucketKey("apple"):        BucketVal("apple"),
+		BucketKey("apple"):       BucketVal("apple"),
 		ValueKey("key", "apple"): "val",
 	}
 	require.Equal(t, expected, f.Dump())

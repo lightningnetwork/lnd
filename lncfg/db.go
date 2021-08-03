@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	channelDBName  = "channel.db"
-	macaroonDBName = "macaroons.db"
+	channelDBName    = "channel.db"
+	macaroonDBName   = "macaroons.db"
+	decayedLogDbName = "sphinxreplay.db"
 
 	BoltBackend                = "bolt"
 	EtcdBackend                = "etcd"
@@ -23,6 +24,10 @@ const (
 
 	// NSMacaroonDB is the namespace name that we use for the macaroon DB.
 	NSMacaroonDB = "macaroondb"
+
+	// NSDecayedLogDB is the namespace name that we use for the sphinx
+	// replay a.k.a. decayed log DB.
+	NSDecayedLogDB = "decayedlogdb"
 )
 
 // DB holds database configuration for LND.
@@ -108,6 +113,10 @@ type DatabaseBackends struct {
 	// keys.
 	MacaroonDB kvdb.Backend
 
+	// DecayedLogDB points to a database backend that stores the decayed log
+	// data.
+	DecayedLogDB kvdb.Backend
+
 	// Remote indicates whether the database backends are remote, possibly
 	// replicated instances or local bbolt backed databases.
 	Remote bool
@@ -154,6 +163,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 			ChanStateDB:  etcdBackend,
 			HeightHintDB: etcdBackend,
 			MacaroonDB:   etcdBackend,
+			DecayedLogDB: etcdBackend,
 			Remote:       true,
 			CloseFuncs:   closeFuncs,
 		}, nil
@@ -186,12 +196,26 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 	}
 	closeFuncs[NSMacaroonDB] = macaroonBackend.Close
 
+	decayedLogBackend, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
+		DBPath:            chanDBPath,
+		DBFileName:        decayedLogDbName,
+		DBTimeout:         db.Bolt.DBTimeout,
+		NoFreelistSync:    !db.Bolt.SyncFreelist,
+		AutoCompact:       db.Bolt.AutoCompact,
+		AutoCompactMinAge: db.Bolt.AutoCompactMinAge,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error opening decayed log DB: %v", err)
+	}
+	closeFuncs[NSDecayedLogDB] = decayedLogBackend.Close
+
 	returnEarly = false
 	return &DatabaseBackends{
 		GraphDB:      boltBackend,
 		ChanStateDB:  boltBackend,
 		HeightHintDB: boltBackend,
 		MacaroonDB:   macaroonBackend,
+		DecayedLogDB: decayedLogBackend,
 		CloseFuncs:   closeFuncs,
 	}, nil
 }

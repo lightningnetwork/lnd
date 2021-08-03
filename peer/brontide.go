@@ -177,7 +177,7 @@ type Config struct {
 
 	// Switch is a pointer to the htlcswitch. It is used to setup, get, and
 	// tear-down ChannelLinks.
-	Switch *htlcswitch.Switch
+	Switch messageSwitch
 
 	// InterceptSwitch is a pointer to the InterceptableSwitch, a wrapper around
 	// the regular Switch. We only export it here to pass ForwardPackets to the
@@ -841,18 +841,17 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		HtlcNotifier:            p.cfg.HtlcNotifier,
 	}
 
-	link := htlcswitch.NewChannelLink(linkCfg, lnChan)
-
 	// Before adding our new link, purge the switch of any pending or live
 	// links going by the same channel id. If one is found, we'll shut it
 	// down to ensure that the mailboxes are only ever under the control of
 	// one link.
-	p.cfg.Switch.RemoveLink(link.ChanID())
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	p.cfg.Switch.RemoveLink(chanID)
 
 	// With the channel link created, we'll now notify the htlc switch so
 	// this channel can be used to dispatch local payments and also
 	// passively forward payments.
-	return p.cfg.Switch.AddLink(link)
+	return p.cfg.Switch.CreateAndAddLink(linkCfg, lnChan)
 }
 
 // maybeSendNodeAnn sends our node announcement to the remote peer if at least

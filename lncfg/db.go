@@ -27,7 +27,7 @@ type DB struct {
 	Bolt *kvdb.BoltConfig `group:"bolt" namespace:"bolt" description:"Bolt settings."`
 }
 
-// NewDB creates and returns a new default DB config.
+// DefaultDB creates and returns a new default DB config.
 func DefaultDB() *DB {
 	return &DB{
 		Backend:             BoltBackend,

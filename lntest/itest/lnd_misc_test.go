@@ -1906,6 +1906,7 @@ func testSweepAllCoins(net *lntest.NetworkHarness, t *harnessTest) {
 	// Next, we try to relabel our transaction without setting the overwrite
 	// boolean. We expect this to fail, because the wallet requires setting
 	// of this param to prevent accidental overwrite of labels.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	_, err = ainz.WalletKitClient.LabelTransaction(
 		ctxt, &walletrpc.LabelTransactionRequest{
 			Txid:      sweepHash[:],

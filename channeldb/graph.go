@@ -3406,7 +3406,7 @@ func (c *ChannelGraph) MarkEdgeZombie(chanID uint64,
 	c.cacheMu.Lock()
 	defer c.cacheMu.Unlock()
 
-	err := kvdb.Batch(c.db, func(tx kvdb.RwTx) error {
+	err := kvdb.Batch(c.db.Backend, func(tx kvdb.RwTx) error {
 		edges := tx.ReadWriteBucket(edgeBucket)
 		if edges == nil {
 			return ErrGraphNoEdgesFound

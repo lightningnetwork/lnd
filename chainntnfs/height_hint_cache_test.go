@@ -32,7 +32,7 @@ func initHintCacheWithConfig(t *testing.T, cfg CacheConfig) *HeightHintCache {
 	if err != nil {
 		t.Fatalf("unable to create db: %v", err)
 	}
-	hintCache, err := NewHeightHintCache(cfg, db)
+	hintCache, err := NewHeightHintCache(cfg, db.Backend)
 	if err != nil {
 		t.Fatalf("unable to create hint cache: %v", err)
 	}

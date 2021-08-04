@@ -65,10 +65,7 @@ func testCommitmentTransactionDeadline(net *lntest.NetworkHarness,
 	// transaction to CPFP our commitment transaction.
 	feeRateLarge := maxPerKw * 2
 
-	ctxt, cancel := context.WithTimeout(
-		context.Background(), defaultTimeout,
-	)
-	defer cancel()
+	ctxb := context.Background()
 
 	// Before we start, set up the default fee rate and we will test the
 	// actual fee rate against it to decide whether we are using the
@@ -76,25 +73,28 @@ func testCommitmentTransactionDeadline(net *lntest.NetworkHarness,
 	net.SetFeeEstimate(feeRateDefault)
 
 	// setupNode creates a new node and sends 1 btc to the node.
-	setupNode := func(name string) *lntest.HarnessNode {
+	setupNode := func(ctx context.Context, name string) *lntest.HarnessNode {
 		// Create the node.
 		args := []string{"--hodl.exit-settle"}
 		args = append(args, commitTypeAnchors.Args()...)
 		node := net.NewNode(t.t, name, args)
 
 		// Send some coins to the node.
-		net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, node)
+		net.SendCoins(ctx, t.t, btcutil.SatoshiPerBitcoin, node)
 		return node
 	}
 
 	// calculateSweepFeeRate runs multiple steps to calculate the fee rate
 	// used in sweeping the transactions.
 	calculateSweepFeeRate := func(expectedSweepTxNum int) int64 {
+		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+		defer cancel()
+
 		// Create two nodes, Alice and Bob.
-		alice := setupNode("Alice")
+		alice := setupNode(ctxt, "Alice")
 		defer shutdownAndAssert(net, t, alice)
 
-		bob := setupNode("Bob")
+		bob := setupNode(ctxt, "Bob")
 		defer shutdownAndAssert(net, t, bob)
 
 		// Connect Alice to Bob.
@@ -102,8 +102,7 @@ func testCommitmentTransactionDeadline(net *lntest.NetworkHarness,
 
 		// Open a channel between Alice and Bob.
 		chanPoint := openChannelAndAssert(
-			ctxt, t, net, alice, bob,
-			lntest.OpenChannelParams{
+			ctxt, t, net, alice, bob, lntest.OpenChannelParams{
 				Amt:     10e6,
 				PushAmt: 5e6,
 			},
@@ -113,8 +112,7 @@ func testCommitmentTransactionDeadline(net *lntest.NetworkHarness,
 		// be used as our deadline later on when Alice force closes the
 		// channel.
 		_, err := alice.RouterClient.SendPaymentV2(
-			ctxt,
-			&routerrpc.SendPaymentRequest{
+			ctxt, &routerrpc.SendPaymentRequest{
 				Dest:           bob.PubKey[:],
 				Amt:            10e4,
 				PaymentHash:    makeFakePayHash(t),
@@ -134,6 +132,8 @@ func testCommitmentTransactionDeadline(net *lntest.NetworkHarness,
 		require.NoError(t.t, err, "htlc mismatch")
 
 		// Alice force closes the channel.
+		ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+		defer cancel()
 		_, _, err = net.CloseChannel(ctxt, alice, chanPoint, true)
 		require.NoError(t.t, err, "unable to force close channel")
 

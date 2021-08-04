@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -29,6 +30,8 @@ var (
 	lndExecutable = flag.String(
 		"lndexec", itestLndBinary, "full path to lnd binary",
 	)
+
+	slowMineDelay = 50 * time.Millisecond
 )
 
 const (
@@ -225,6 +228,54 @@ func mineBlocks(t *harnessTest, net *lntest.NetworkHarness,
 		if err != nil {
 			t.Fatalf("unable to get block: %v", err)
 		}
+
+		blocks[i] = block
+	}
+
+	// Finally, assert that all the transactions were included in the first
+	// block.
+	for _, txid := range txids {
+		assertTxInBlock(t, blocks[0], txid)
+	}
+
+	return blocks
+}
+
+// mineBlocksSlow mines 'num' of blocks and checks that blocks are present in
+// the mining node's blockchain. numTxs should be set to the number of
+// transactions (excluding the coinbase) we expect to be included in the first
+// mined block. Between each mined block an artificial delay is introduced to
+// give all network participants time to catch up.
+func mineBlocksSlow(t *harnessTest, net *lntest.NetworkHarness,
+	num uint32, numTxs int) []*wire.MsgBlock {
+
+	t.t.Helper()
+
+	// If we expect transactions to be included in the blocks we'll mine,
+	// we wait here until they are seen in the miner's mempool.
+	var txids []*chainhash.Hash
+	var err error
+	if numTxs > 0 {
+		txids, err = waitForNTxsInMempool(
+			net.Miner.Client, numTxs, minerMempoolTimeout,
+		)
+		require.NoError(t.t, err, "unable to find txns in mempool")
+	}
+
+	blocks := make([]*wire.MsgBlock, num)
+	blockHashes := make([]*chainhash.Hash, 0, num)
+
+	for i := uint32(0); i < num; i++ {
+		generatedHashes, err := net.Miner.Client.Generate(1)
+		require.NoError(t.t, err, "generate blocks")
+		blockHashes = append(blockHashes, generatedHashes...)
+
+		time.Sleep(slowMineDelay)
+	}
+
+	for i, blockHash := range blockHashes {
+		block, err := net.Miner.Client.GetBlock(blockHash)
+		require.NoError(t.t, err, "get blocks")
 
 		blocks[i] = block
 	}

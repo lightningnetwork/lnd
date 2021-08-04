@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1125,7 +1126,21 @@ func (hn *HarnessNode) stop() error {
 		// closed before a response is returned.
 		req := lnrpc.StopRequest{}
 		ctx := context.Background()
-		_, err := hn.LightningClient.StopDaemon(ctx, &req)
+
+		err := wait.NoError(func() error {
+			_, err := hn.LightningClient.StopDaemon(ctx, &req)
+			switch {
+			case err == nil:
+				return nil
+
+			// Try again if a recovery/rescan is in progress.
+			case strings.Contains(err.Error(), "recovery in progress"):
+				return err
+
+			default:
+				return nil
+			}
+		}, DefaultTimeout)
 		if err != nil {
 			return err
 		}

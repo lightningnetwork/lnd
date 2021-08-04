@@ -214,7 +214,7 @@ func (d DB) FetchChannelReports(chainHash chainhash.Hash,
 
 	var reports []*ResolverReport
 
-	if err := kvdb.View(d, func(tx kvdb.RTx) error {
+	if err := kvdb.View(d.Backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchReportReadBucket(
 			tx, chainHash, outPoint,
 		)

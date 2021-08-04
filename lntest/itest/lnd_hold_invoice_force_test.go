@@ -25,8 +25,11 @@ func testHoldInvoiceForceClose(net *lntest.NetworkHarness, t *harnessTest) {
 		Amt: 300000,
 	}
 
-	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
-	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, net.Bob, chanReq)
+	ctxt, cancel := context.WithTimeout(ctxb, channelOpenTimeout)
+	defer cancel()
+	chanPoint := openChannelAndAssert(
+		ctxt, t, net, net.Alice, net.Bob, chanReq,
+	)
 
 	// Create a non-dust hold invoice for bob.
 	var (
@@ -39,7 +42,8 @@ func testHoldInvoiceForceClose(net *lntest.NetworkHarness, t *harnessTest) {
 		Hash:       payHash[:],
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
 	bobInvoice, err := net.Bob.AddHoldInvoice(ctxt, invoiceReq)
 	require.NoError(t.t, err)
 
@@ -72,23 +76,30 @@ func testHoldInvoiceForceClose(net *lntest.NetworkHarness, t *harnessTest) {
 	require.Len(t.t, chans.Channels[0].PendingHtlcs, 1)
 	activeHtlc := chans.Channels[0].PendingHtlcs[0]
 
+	require.NoError(t.t, net.Alice.WaitForBlockchainSync(ctxb))
+	require.NoError(t.t, net.Bob.WaitForBlockchainSync(ctxb))
+
 	info, err := net.Alice.GetInfo(ctxb, &lnrpc.GetInfoRequest{})
 	require.NoError(t.t, err)
 
 	// Now we will mine blocks until the htlc expires, and wait for each
 	// node to sync to our latest height. Sanity check that we won't
 	// underflow.
-	require.Greater(t.t, activeHtlc.ExpirationHeight, info.BlockHeight,
-		"expected expiry after current height")
+	require.Greater(
+		t.t, activeHtlc.ExpirationHeight, info.BlockHeight,
+		"expected expiry after current height",
+	)
 	blocksTillExpiry := activeHtlc.ExpirationHeight - info.BlockHeight
 
 	// Alice will go to chain with some delta, sanity check that we won't
 	// underflow and subtract this from our mined blocks.
-	require.Greater(t.t, blocksTillExpiry,
-		uint32(lncfg.DefaultOutgoingBroadcastDelta))
+	require.Greater(
+		t.t, blocksTillExpiry,
+		uint32(lncfg.DefaultOutgoingBroadcastDelta),
+	)
 	blocksTillForce := blocksTillExpiry - lncfg.DefaultOutgoingBroadcastDelta
 
-	mineBlocks(t, net, blocksTillForce, 0)
+	mineBlocksSlow(t, net, blocksTillForce, 0)
 
 	require.NoError(t.t, net.Alice.WaitForBlockchainSync(ctxb))
 	require.NoError(t.t, net.Bob.WaitForBlockchainSync(ctxb))

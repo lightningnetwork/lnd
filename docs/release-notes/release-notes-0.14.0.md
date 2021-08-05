@@ -106,6 +106,12 @@ you.
 * [Update MC store in blocks](https://github.com/lightningnetwork/lnd/pull/5515)
   to make payment throughput better when using etcd.
 
+## Bug Fixes
+
+A bug has been fixed that would cause `lnd` to [try to bootstrap using the
+currnet DNS seeds when in SigNet
+mode](https://github.com/lightningnetwork/lnd/pull/5564).
+
 # Contributors (Alphabetical Order)
 * ErikEk
 * Martin Habovstiak

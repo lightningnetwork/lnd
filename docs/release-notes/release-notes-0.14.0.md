@@ -332,6 +332,8 @@ you.
 * [Order of the start/stop on subsystems are changed to promote better safety](https://github.com/lightningnetwork/lnd/pull/1783).
 
 * [Fixed flake that occurred when testing the new optimistic link shutdown.](https://github.com/lightningnetwork/lnd/pull/5808)
+ 
+* [Respect minimum relay fee during commitment fee updates](https://github.com/lightningnetwork/lnd/pull/5483).
 
 * [Replace reference to protobuf library with OSV](https://github.com/lightningnetwork/lnd/pull/5759)
 

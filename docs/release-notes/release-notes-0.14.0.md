@@ -52,6 +52,9 @@ you.
 * [The itest error whitelist check was removed to reduce the number of failed
   Travis builds](https://github.com/lightningnetwork/lnd/pull/5588).
 
+* [A flake in the Neutrino integration tests with anchor sweeps was 
+  addressed](https://github.com/lightningnetwork/lnd/pull/5509).
+
 # Documentation
 
 * [Outdated warning about unsupported pruning was replaced with clarification that LND **does**

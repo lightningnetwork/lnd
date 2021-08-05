@@ -29,13 +29,41 @@ function generate() {
       --grpc-gateway_opt grpc_api_configuration=${annotationsFile} \
       "${file}"
 
-    # Finally, generate the swagger file which describes the REST API in detail.
+    # Generate the swagger file which describes the REST API in detail.
     protoc -I/usr/local/include -I. \
       --openapiv2_out . \
       --openapiv2_opt logtostderr=true \
       --openapiv2_opt grpc_api_configuration=${annotationsFile} \
       --openapiv2_opt json_names_for_fields=false \
       "${file}"
+  done
+  
+  # Generate the JSON/WASM client stubs.
+  falafel=$(which falafel)
+  pkg="lnrpc"
+  opts="package_name=$pkg,js_stubs=1,build_tags=// +build js"
+  protoc -I/usr/local/include -I. -I.. \
+    --plugin=protoc-gen-custom=$falafel\
+    --custom_out=. \
+    --custom_opt="$opts" \
+    lightning.proto stateservice.proto walletunlocker.proto
+  
+  PACKAGES="autopilotrpc chainrpc invoicesrpc routerrpc signrpc verrpc walletrpc watchtowerrpc wtclientrpc"
+  for package in $PACKAGES; do
+    # Special import for the wallet kit.
+    manual_import=""
+    if [[ "$package" == "walletrpc" ]]; then
+      manual_import="github.com/lightningnetwork/lnd/lnrpc/signrpc"
+    fi
+
+    opts="package_name=$package,manual_import=$manual_import,js_stubs=1,build_tags=// +build js"
+    pushd $package
+    protoc -I/usr/local/include -I. -I.. \
+      --plugin=protoc-gen-custom=$falafel\
+      --custom_out=. \
+      --custom_opt="$opts" \
+      "$(find . -name '*.proto')"
+    popd
   done
 }
 

@@ -55,7 +55,10 @@ jobs:
 
       - name: run check
         run: make rpc-check
-        
+
+      - name: run JSON/WASM stub compilation check
+        run: make rpc-js-compile
+
       - name: build mobile RPC bindings
         run: make mobile-rpc
 

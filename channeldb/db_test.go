@@ -210,8 +210,8 @@ func TestAddrsForNode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to recv node pub: %v", err)
 	}
-	linkNode := cdb.NewLinkNode(
-		wire.MainNet, nodePub, anotherAddr,
+	linkNode := NewLinkNode(
+		cdb.LinkNodeDB, wire.MainNet, nodePub, anotherAddr,
 	)
 	if err := linkNode.Sync(); err != nil {
 		t.Fatalf("unable to sync link node: %v", err)

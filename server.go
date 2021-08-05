@@ -1788,10 +1788,7 @@ func (s *server) Start() error {
 		// configure the set of active bootstrappers, and launch a
 		// dedicated goroutine to maintain a set of persistent
 		// connections.
-		if !s.cfg.NoNetBootstrap &&
-			!(s.cfg.Bitcoin.SimNet || s.cfg.Litecoin.SimNet) &&
-			!(s.cfg.Bitcoin.RegTest || s.cfg.Litecoin.RegTest) {
-
+		if shouldPeerBootstrap(s.cfg) {
 			bootstrappers, err := initNetworkBootstrappers(s)
 			if err != nil {
 				startErr = err
@@ -3962,4 +3959,16 @@ func newSweepPkScriptGen(
 
 		return txscript.PayToAddrScript(sweepAddr)
 	}
+}
+
+// shouldPeerBootstrap returns true if we should attempt to perform peer
+// boostrapping to actively seek our peers using the set of active network
+// bootsrappers.
+func shouldPeerBootstrap(cfg *Config) bool {
+	isSimnet := (cfg.Bitcoin.SimNet || cfg.Litecoin.SimNet)
+	isSignet := (cfg.Bitcoin.SigNet || cfg.Litecoin.SigNet)
+	isRegtest := (cfg.Bitcoin.RegTest || cfg.Litecoin.RegTest)
+	isDevNetwork := isSimnet || isSignet || isRegtest
+
+	return !cfg.NoNetBootstrap && !isDevNetwork
 }

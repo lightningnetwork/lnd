@@ -42,14 +42,14 @@ You can continue by creating and running the container:
 
 ## Production (official images)
 
-Starting with `lnd v0.12.0-beta`, there are official, automatically built docker
+Starting with `lnd v0.13.1-beta`, there are official, automatically built docker
 images of `lnd` available in the
 [`lightninglabs/lnd` repository on Docker Hub](https://hub.docker.com/r/lightninglabs/lnd).
 
 You can just pull those images by specifying a release tag:
 
 ```shell
-⛰  docker pull lightninglabs/lnd:v0.12.0-beta
+⛰  docker pull lightninglabs/lnd:v0.13.1-beta
 ⛰  docker run lightninglabs/lnd [command-line options]
 ```
 
@@ -61,8 +61,8 @@ script in the image that can be called (before starting the container for
 example):
 
 ```shell
-⛰  docker pull lightninglabs/lnd:v0.12.0-beta
-⛰  docker run --rm --entrypoint="" lightninglabs/lnd:v0.12.0-beta /verify-install.sh
+⛰  docker pull lightninglabs/lnd:v0.13.1-beta
+⛰  docker run --rm --entrypoint="" lightninglabs/lnd:v0.13.1-beta /verify-install.sh
 ⛰  OK=$?
 ⛰  if [ "$OK" -ne "0" ]; then echo "Verification failed!"; exit 1; done
 ⛰  docker run lightninglabs/lnd [command-line options]

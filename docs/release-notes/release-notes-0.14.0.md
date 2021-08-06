@@ -107,6 +107,10 @@ you.
 * [Optimized payment sequence generation](https://github.com/lightningnetwork/lnd/pull/5514/)
   to make LNDs payment throughput (and latency) with better when using etcd.
 
+* [More robust commit queue design](https://github.com/lightningnetwork/lnd/pull/5513)
+  to make it less likely that we retry etcd transactions and make the commit
+  queue more scalable.
+
 ## Performance improvements
 
 * [Update MC store in blocks](https://github.com/lightningnetwork/lnd/pull/5515)
@@ -119,6 +123,7 @@ currnet DNS seeds when in SigNet
 mode](https://github.com/lightningnetwork/lnd/pull/5564).
 
 # Contributors (Alphabetical Order)
+* Andras Banki-Horvath
 * ErikEk
 * Martin Habovstiak
 * Zero-1729

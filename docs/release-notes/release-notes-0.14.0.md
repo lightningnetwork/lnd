@@ -92,6 +92,8 @@ you.
 
 * [Fixed timeout flakes in async payment benchmark tests](https://github.com/lightningnetwork/lnd/pull/5579).
 
+* [Flake fix in async bidirectional payment test](https://github.com/lightningnetwork/lnd/pull/5607).
+
 * [Fixed a missing import and git tag in the healthcheck package](https://github.com/lightningnetwork/lnd/pull/5582).
 
 * [Fixed a data race in payment unit test](https://github.com/lightningnetwork/lnd/pull/5573).

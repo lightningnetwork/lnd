@@ -63,9 +63,7 @@ example):
 ```shell
 ⛰  docker pull lightninglabs/lnd:v0.13.1-beta
 ⛰  docker run --rm --entrypoint="" lightninglabs/lnd:v0.13.1-beta /verify-install.sh
-⛰  OK=$?
-⛰  if [ "$OK" -ne "0" ]; then echo "Verification failed!"; exit 1; done
-⛰  docker run lightninglabs/lnd [command-line options]
+⛰  docker run lightninglabs/lnd:v0.13.1-beta [command-line options]
 ```
 
 ## Volumes

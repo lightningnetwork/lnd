@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"testing"
 	"time"
 
@@ -748,4 +749,70 @@ func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Close the channel between Bob and Dave.
 	closeChannelAndAssert(t, net, net.Bob, chanPoint, false)
+}
+
+// graphSubscription houses the proxied update and error chans for a node's
+// graph subscriptions.
+type graphSubscription struct {
+	updateChan chan *lnrpc.GraphTopologyUpdate
+	errChan    chan error
+	quit       chan struct{}
+}
+
+// subscribeGraphNotifications subscribes to channel graph updates and launches
+// a goroutine that forwards these to the returned channel.
+func subscribeGraphNotifications(ctxb context.Context, t *harnessTest,
+	node *lntest.HarnessNode) graphSubscription {
+
+	// We'll first start by establishing a notification client which will
+	// send us notifications upon detected changes in the channel graph.
+	req := &lnrpc.GraphTopologySubscription{}
+	ctx, cancelFunc := context.WithCancel(ctxb)
+	topologyClient, err := node.SubscribeChannelGraph(ctx, req)
+	require.NoError(t.t, err, "unable to create topology client")
+
+	// We'll launch a goroutine that will be responsible for proxying all
+	// notifications recv'd from the client into the channel below.
+	errChan := make(chan error, 1)
+	quit := make(chan struct{})
+	graphUpdates := make(chan *lnrpc.GraphTopologyUpdate, 20)
+	go func() {
+		for {
+			defer cancelFunc()
+
+			select {
+			case <-quit:
+				return
+			default:
+				graphUpdate, err := topologyClient.Recv()
+				select {
+				case <-quit:
+					return
+				default:
+				}
+
+				if err == io.EOF {
+					return
+				} else if err != nil {
+					select {
+					case errChan <- err:
+					case <-quit:
+					}
+					return
+				}
+
+				select {
+				case graphUpdates <- graphUpdate:
+				case <-quit:
+					return
+				}
+			}
+		}
+	}()
+
+	return graphSubscription{
+		updateChan: graphUpdates,
+		errChan:    errChan,
+		quit:       quit,
+	}
 }

@@ -10,7 +10,7 @@ npm init (or npm init -f if you want to use the default values without prompt)
 Then you need to install the Javascript grpc and proto loader library
 dependencies:
 ```
-npm install grpc @grpc/proto-loader --save
+npm install @grpc/grpc-js @grpc/proto-loader --save
 ```
 
 You also need to copy the `lnd` `lightning.proto` file in your project directory
@@ -21,11 +21,11 @@ sources](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/lightning.pro
 
 ### Imports and Client
 
-Every time you work with Javascript gRPC, you will have to import `grpc`, load
+Every time you work with Javascript gRPC, you will have to import `@grpc/grpc-js`, load
 `lightning.proto`, and create a connection to your client like so:
 
 ```js
-const grpc = require('grpc');
+const grpc = require('@grpc/grpc-js');
 const protoLoader = require('@grpc/proto-loader');
 const fs = require("fs");
 
@@ -183,7 +183,7 @@ The following snippet will add the macaroon to every request automatically:
 
 ```js
 const fs = require('fs');
-const grpc = require('grpc');
+const grpc = require('@grpc/grpc-js');
 const protoLoader = require('@grpc/proto-loader');
 const loaderOptions = {
   keepCase: true,

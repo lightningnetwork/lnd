@@ -262,7 +262,7 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 }
 
 // testRevokedCloseRetributionZeroValueRemoteOutput tests that Dave is able
-// carry out retribution in the event that she fails in state where the remote
+// carry out retribution in the event that he fails in state where the remote
 // commitment output has zero-value.
 func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness,
 	t *harnessTest) {
@@ -290,7 +290,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	)
 	defer shutdownAndAssert(net, t, dave)
 
-	// We must let Dave have an open channel before she can send a node
+	// We must let Dave have an open channel before he can send a node
 	// announcement, so we open a channel with Carol,
 	net.ConnectNodes(t.t, dave, carol)
 
@@ -337,7 +337,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	}
 
 	// Grab Carol's current commitment height (update number), we'll later
-	// revert her to this state after additional updates to force him to
+	// revert her to this state after additional updates to force her to
 	// broadcast this soon to be revoked state.
 	carolStateNumPreCopy := carolChan.NumUpdates
 
@@ -348,8 +348,8 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 		t.Fatalf("unable to copy database files: %v", err)
 	}
 
-	// Finally, send payments from Dave to Carol, consuming Carol's remaining
-	// payment hashes.
+	// Finally, send payments from Dave to Carol, consuming Carol's
+	// remaining payment hashes.
 	err = completePaymentRequests(
 		dave, dave.RouterClient, carolPayReqs, false,
 	)
@@ -362,8 +362,8 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 		t.Fatalf("unable to get carol chan info: %v", err)
 	}
 
-	// Now we shutdown Carol, copying over the his temporary database state
-	// which has the *prior* channel state over his current most up to date
+	// Now we shutdown Carol, copying over the her temporary database state
+	// which has the *prior* channel state over her current most up to date
 	// state. With this, we essentially force Carol to travel back in time
 	// within the channel's history.
 	if err = net.RestartNode(carol, func() error {
@@ -372,7 +372,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 		t.Fatalf("unable to restart node: %v", err)
 	}
 
-	// Now query for Carol's channel state, it should show that he's at a
+	// Now query for Carol's channel state, it should show that she's at a
 	// state number in the past, not the *latest* state.
 	carolChan, err = getChanInfo(carol)
 	if err != nil {
@@ -383,8 +383,8 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	}
 
 	// Now force Carol to execute a *force* channel closure by unilaterally
-	// broadcasting his current channel state. This is actually the
-	// commitment transaction of a prior *revoked* state, so he'll soon
+	// broadcasting her current channel state. This is actually the
+	// commitment transaction of a prior *revoked* state, so she'll soon
 	// feel the wrath of Dave's retribution.
 	var (
 		closeUpdates lnrpc.Lightning_CloseChannelClient
@@ -421,8 +421,8 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	block := mineBlocks(t, net, 1, 1)[0]
 
 	// Here, Dave receives a confirmation of Carol's breach transaction.
-	// We restart Dave to ensure that she is persisting her retribution
-	// state and continues exacting justice after her node restarts.
+	// We restart Dave to ensure that he is persisting his retribution
+	// state and continues exacting justice after his node restarts.
 	if err := net.RestartNode(dave, nil); err != nil {
 		t.Fatalf("unable to stop Dave's node: %v", err)
 	}
@@ -457,10 +457,10 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 		}
 	}
 
-	// We restart Dave here to ensure that he persists her retribution state
+	// We restart Dave here to ensure that he persists his retribution state
 	// and successfully continues exacting retribution after restarting. At
 	// this point, Dave has broadcast the justice transaction, but it hasn't
-	// been confirmed yet; when Dave restarts, she should start waiting for
+	// been confirmed yet; when Dave restarts, he should start waiting for
 	// the justice transaction to confirm again.
 	if err := net.RestartNode(dave, nil); err != nil {
 		t.Fatalf("unable to restart Dave's node: %v", err)

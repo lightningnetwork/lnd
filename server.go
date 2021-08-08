@@ -1497,18 +1497,6 @@ func (s *server) Start() error {
 	cleanup := cleaner{}
 
 	s.start.Do(func() {
-		if s.torController != nil {
-			if err := s.createNewHiddenService(); err != nil {
-				startErr = err
-				return
-			}
-			cleanup = cleanup.add(s.torController.Stop)
-		}
-
-		if s.natTraversal != nil {
-			s.wg.Add(1)
-			go s.watchExternalIP()
-		}
 
 		if s.hostAnn != nil {
 			if err := s.hostAnn.Start(); err != nil {
@@ -1574,12 +1562,6 @@ func (s *server) Start() error {
 		}
 		cleanup = cleanup.add(s.htlcNotifier.Stop)
 
-		if err := s.sphinx.Start(); err != nil {
-			startErr = err
-			return
-		}
-		cleanup = cleanup.add(s.sphinx.Stop)
-
 		if s.towerClient != nil {
 			if err := s.towerClient.Start(); err != nil {
 				startErr = err
@@ -1595,12 +1577,6 @@ func (s *server) Start() error {
 			cleanup = cleanup.add(s.anchorTowerClient.Stop)
 		}
 
-		if err := s.htlcSwitch.Start(); err != nil {
-			startErr = err
-			return
-		}
-		cleanup = cleanup.add(s.htlcSwitch.Stop)
-
 		if err := s.sweeper.Start(); err != nil {
 			startErr = err
 			return
@@ -1613,17 +1589,23 @@ func (s *server) Start() error {
 		}
 		cleanup = cleanup.add(s.utxoNursery.Stop)
 
-		if err := s.chainArb.Start(); err != nil {
-			startErr = err
-			return
-		}
-		cleanup = cleanup.add(s.chainArb.Stop)
-
 		if err := s.breachArbiter.Start(); err != nil {
 			startErr = err
 			return
 		}
 		cleanup = cleanup.add(s.breachArbiter.Stop)
+
+		if err := s.fundingMgr.Start(); err != nil {
+			startErr = err
+			return
+		}
+		cleanup = cleanup.add(s.fundingMgr.Stop)
+
+		if err := s.chainArb.Start(); err != nil {
+			startErr = err
+			return
+		}
+		cleanup = cleanup.add(s.chainArb.Stop)
 
 		if err := s.authGossiper.Start(); err != nil {
 			startErr = err
@@ -1637,17 +1619,23 @@ func (s *server) Start() error {
 		}
 		cleanup = cleanup.add(s.chanRouter.Stop)
 
-		if err := s.fundingMgr.Start(); err != nil {
-			startErr = err
-			return
-		}
-		cleanup = cleanup.add(s.fundingMgr.Stop)
-
 		if err := s.invoices.Start(); err != nil {
 			startErr = err
 			return
 		}
 		cleanup = cleanup.add(s.invoices.Stop)
+
+		if err := s.sphinx.Start(); err != nil {
+			startErr = err
+			return
+		}
+		cleanup = cleanup.add(s.sphinx.Stop)
+
+		if err := s.htlcSwitch.Start(); err != nil {
+			startErr = err
+			return
+		}
+		cleanup = cleanup.add(s.htlcSwitch.Stop)
 
 		if err := s.chanStatusMgr.Start(); err != nil {
 			startErr = err
@@ -1708,6 +1696,20 @@ func (s *server) Start() error {
 		}
 		cleanup = cleanup.add(s.chanSubSwapper.Stop)
 
+		if s.torController != nil {
+			if err := s.createNewHiddenService(); err != nil {
+				startErr = err
+				return
+			}
+			cleanup = cleanup.add(s.torController.Stop)
+		}
+
+		if s.natTraversal != nil {
+			s.wg.Add(1)
+			go s.watchExternalIP()
+		}
+
+		// Start connmgr last to prevent connections before init.
 		s.connMgr.Start()
 		cleanup = cleanup.add(func() error {
 			s.connMgr.Stop()
@@ -1824,31 +1826,37 @@ func (s *server) Stop() error {
 
 		close(s.quit)
 
+		// Shutdown connMgr first to prevent conns during shutdown.
+		s.connMgr.Stop()
+
 		// Shutdown the wallet, funding manager, and the rpc server.
 		s.chanStatusMgr.Stop()
-		if err := s.cc.ChainNotifier.Stop(); err != nil {
-			srvrLog.Warnf("Unable to stop ChainNotifier: %v", err)
-		}
-		if err := s.chanRouter.Stop(); err != nil {
-			srvrLog.Warnf("failed to stop chanRouter: %v", err)
-		}
 		if err := s.htlcSwitch.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop htlcSwitch: %v", err)
 		}
 		if err := s.sphinx.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop sphinx: %v", err)
 		}
-		if err := s.utxoNursery.Stop(); err != nil {
-			srvrLog.Warnf("failed to stop utxoNursery: %v", err)
+		if err := s.invoices.Stop(); err != nil {
+			srvrLog.Warnf("failed to stop invoices: %v", err)
+		}
+		if err := s.chanRouter.Stop(); err != nil {
+			srvrLog.Warnf("failed to stop chanRouter: %v", err)
+		}
+		if err := s.chainArb.Stop(); err != nil {
+			srvrLog.Warnf("failed to stop chainArb: %v", err)
+		}
+		if err := s.fundingMgr.Stop(); err != nil {
+			srvrLog.Warnf("failed to stop fundingMgr: %v", err)
 		}
 		if err := s.breachArbiter.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop breachArbiter: %v", err)
 		}
+		if err := s.utxoNursery.Stop(); err != nil {
+			srvrLog.Warnf("failed to stop utxoNursery: %v", err)
+		}
 		if err := s.authGossiper.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop authGossiper: %v", err)
-		}
-		if err := s.chainArb.Stop(); err != nil {
-			srvrLog.Warnf("failed to stop chainArb: %v", err)
 		}
 		if err := s.sweeper.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop sweeper: %v", err)
@@ -1862,15 +1870,11 @@ func (s *server) Stop() error {
 		if err := s.htlcNotifier.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop htlcNotifier: %v", err)
 		}
-		s.connMgr.Stop()
-		if err := s.invoices.Stop(); err != nil {
-			srvrLog.Warnf("failed to stop invoices: %v", err)
-		}
-		if err := s.fundingMgr.Stop(); err != nil {
-			srvrLog.Warnf("failed to stop fundingMgr: %v", err)
-		}
 		if err := s.chanSubSwapper.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop chanSubSwapper: %v", err)
+		}
+		if err := s.cc.ChainNotifier.Stop(); err != nil {
+			srvrLog.Warnf("Unable to stop ChainNotifier: %v", err)
 		}
 		s.chanEventStore.Stop()
 		s.missionControl.StopStoreTicker()

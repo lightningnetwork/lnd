@@ -435,10 +435,10 @@ func (c *ChannelArbitrator) Start(state *chanArbStartState) error {
 		}
 	}
 
-	log.Debugf("Starting ChannelArbitrator(%v), htlc_set=%v",
+	log.Debugf("Starting ChannelArbitrator(%v), htlc_set=%v, state=%v",
 		c.cfg.ChanPoint, newLogClosure(func() string {
 			return spew.Sdump(c.activeHTLCs)
-		}),
+		}), state.currentState,
 	)
 
 	// Set our state from our starting state.
@@ -795,7 +795,7 @@ func (c *ChannelArbitrator) stateStep(
 		// default state. If this isn't a self initiated event (we're
 		// checking due to a chain update), then we'll exit now.
 		if len(chainActions) == 0 && trigger == chainTrigger {
-			log.Tracef("ChannelArbitrator(%v): no actions for "+
+			log.Debugf("ChannelArbitrator(%v): no actions for "+
 				"chain trigger, terminating", c.cfg.ChanPoint)
 
 			return StateDefault, closeTx, nil
@@ -1303,7 +1303,7 @@ func (c *ChannelArbitrator) advanceState(
 	// transition to is that same state that we started at.
 	for {
 		priorState = c.state
-		log.Tracef("ChannelArbitrator(%v): attempting state step with "+
+		log.Debugf("ChannelArbitrator(%v): attempting state step with "+
 			"trigger=%v from state=%v", c.cfg.ChanPoint, trigger,
 			priorState)
 
@@ -1324,7 +1324,7 @@ func (c *ChannelArbitrator) advanceState(
 		// our prior state back as the next state, then we'll
 		// terminate.
 		if nextState == priorState {
-			log.Tracef("ChannelArbitrator(%v): terminating at "+
+			log.Debugf("ChannelArbitrator(%v): terminating at "+
 				"state=%v", c.cfg.ChanPoint, nextState)
 			return nextState, forceCloseTx, nil
 		}

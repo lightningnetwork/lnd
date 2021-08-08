@@ -146,15 +146,6 @@ func closeChannelAndAssertType(t *harnessTest,
 	)[0]
 	expectDisable := !curPolicy.Disabled
 
-	// If the current channel policy is enabled, begin subscribing the graph
-	// updates before initiating the channel closure.
-	var graphSub *graphSubscription
-	if expectDisable {
-		sub := subscribeGraphNotifications(ctxt, t, node)
-		graphSub = &sub
-		defer close(graphSub.quit)
-	}
-
 	closeUpdates, _, err := net.CloseChannel(node, fundingChanPoint, force)
 	require.NoError(t.t, err, "unable to close channel")
 
@@ -162,11 +153,9 @@ func closeChannelAndAssertType(t *harnessTest,
 	// received the disabled update.
 	if expectDisable {
 		curPolicy.Disabled = true
-		waitForChannelUpdate(
-			t, *graphSub,
-			[]expectedChanUpdate{
-				{node.PubKeyStr, curPolicy, fundingChanPoint},
-			},
+		assertChannelPolicyUpdate(
+			t.t, node, node.PubKeyStr,
+			curPolicy, fundingChanPoint, false,
 		)
 	}
 
@@ -565,13 +554,6 @@ func getChannelBalance(t *harnessTest,
 	return resp
 }
 
-// expectedChanUpdate houses params we expect a ChannelUpdate to advertise.
-type expectedChanUpdate struct {
-	advertisingNode string
-	expectedPolicy  *lnrpc.RoutingPolicy
-	chanPoint       *lnrpc.ChannelPoint
-}
-
 // txStr returns the string representation of the channel's funding transaction.
 func txStr(chanPoint *lnrpc.ChannelPoint) string {
 	fundingTxID, err := lnrpc.GetChanPointFundingTxid(chanPoint)
@@ -583,109 +565,6 @@ func txStr(chanPoint *lnrpc.ChannelPoint) string {
 		Index: chanPoint.OutputIndex,
 	}
 	return cp.String()
-}
-
-// waitForChannelUpdate waits for a node to receive the expected channel
-// updates.
-func waitForChannelUpdate(t *harnessTest, subscription graphSubscription,
-	expUpdates []expectedChanUpdate) {
-
-	// Create an array indicating which expected channel updates we have
-	// received.
-	found := make([]bool, len(expUpdates))
-out:
-	for {
-		select {
-		case graphUpdate := <-subscription.updateChan:
-			for _, update := range graphUpdate.ChannelUpdates {
-				require.NotZerof(
-					t.t, len(expUpdates),
-					"received unexpected channel "+
-						"update from %v for channel %v",
-					update.AdvertisingNode,
-					update.ChanId,
-				)
-
-				// For each expected update, check if it matches
-				// the update we just received.
-				for i, exp := range expUpdates {
-					fundingTxStr := txStr(update.ChanPoint)
-					if fundingTxStr != txStr(exp.chanPoint) {
-						continue
-					}
-
-					if update.AdvertisingNode !=
-						exp.advertisingNode {
-						continue
-					}
-
-					err := lntest.CheckChannelPolicy(
-						update.RoutingPolicy,
-						exp.expectedPolicy,
-					)
-					if err != nil {
-						continue
-					}
-
-					// We got a policy update that matched
-					// the values and channel point of what
-					// we expected, mark it as found.
-					found[i] = true
-
-					// If we have no more channel updates
-					// we are waiting for, break out of the
-					// loop.
-					rem := 0
-					for _, f := range found {
-						if !f {
-							rem++
-						}
-					}
-
-					if rem == 0 {
-						break out
-					}
-
-					// Since we found a match among the
-					// expected updates, break out of the
-					// inner loop.
-					break
-				}
-			}
-		case err := <-subscription.errChan:
-			t.Fatalf("unable to recv graph update: %v", err)
-		case <-time.After(defaultTimeout):
-			if len(expUpdates) == 0 {
-				return
-			}
-			t.Fatalf("did not receive channel update")
-		}
-	}
-}
-
-// assertNoChannelUpdates ensures that no ChannelUpdates are sent via the
-// graphSubscription. This method will block for the provided duration before
-// returning to the caller if successful.
-func assertNoChannelUpdates(t *harnessTest, subscription graphSubscription,
-	duration time.Duration) {
-
-	timeout := time.After(duration)
-	for {
-		select {
-		case graphUpdate := <-subscription.updateChan:
-			require.Zero(
-				t.t, len(graphUpdate.ChannelUpdates),
-				"no channel updates were expected",
-			)
-
-		case err := <-subscription.errChan:
-			t.Fatalf("graph subscription failure: %v", err)
-
-		case <-timeout:
-			// No updates received, success.
-			return
-		}
-	}
 }
 
 // getChannelPolicies queries the channel graph and retrieves the current edge
@@ -745,7 +624,7 @@ func assertChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
 	for _, policy := range policies {
 		err := lntest.CheckChannelPolicy(policy, expectedPolicy)
 		if err != nil {
-			t.Fatalf(err.Error())
+			t.Fatalf(fmt.Sprintf("%v: %s", err.Error(), node))
 		}
 	}
 }
@@ -1760,4 +1639,22 @@ func assertNumUTXOs(t *testing.T, node *lntest.HarnessNode, expectedUtxos int) {
 		return nil
 	}, defaultTimeout)
 	require.NoError(t, err, "wait for listunspent")
+}
+
+// assertChannelPolicyUpdate checks that the required policy update has
+// happened on the given node.
+func assertChannelPolicyUpdate(t *testing.T, node *lntest.HarnessNode,
+	advertisingNode string, policy *lnrpc.RoutingPolicy,
+	chanPoint *lnrpc.ChannelPoint, includeUnannounced bool) {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, lntest.DefaultTimeout)
+	defer cancel()
+
+	require.NoError(
+		t, node.WaitForChannelPolicyUpdate(
+			ctxt, advertisingNode, policy,
+			chanPoint, includeUnannounced,
+		), "error while waiting for channel update",
+	)
 }

@@ -418,14 +418,8 @@ func updateChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
 	}
 
 	// Wait for listener node to receive the channel update from node.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	graphSub := subscribeGraphNotifications(ctxt, t, listenerNode)
-	defer close(graphSub.quit)
-
-	waitForChannelUpdate(
-		t, graphSub,
-		[]expectedChanUpdate{
-			{node.PubKeyStr, expectedPolicy, chanPoint},
-		},
+	assertChannelPolicyUpdate(
+		t.t, listenerNode, node.PubKeyStr,
+		expectedPolicy, chanPoint, false,
 	)
 }

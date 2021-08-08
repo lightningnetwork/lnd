@@ -1814,15 +1814,9 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Wait for Alice to receive the channel update from Carol.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	aliceSub := subscribeGraphNotifications(ctxt, t, net.Alice)
-	defer close(aliceSub.quit)
-
-	waitForChannelUpdate(
-		t, aliceSub,
-		[]expectedChanUpdate{
-			{carol.PubKeyStr, expectedPolicy, chanPointCarolDave},
-		},
+	assertChannelPolicyUpdate(
+		t.t, net.Alice, carol.PubKeyStr,
+		expectedPolicy, chanPointCarolDave, false,
 	)
 
 	// We'll also need the channel IDs for Bob's channels in order to

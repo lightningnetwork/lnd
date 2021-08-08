@@ -86,8 +86,20 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	net.ConnectNodes(t.t, alice, carol)
 	net.ConnectNodes(t.t, bob, carol)
 
-	carolSub := subscribeGraphNotifications(ctxb, t, carol)
-	defer close(carolSub.quit)
+	// assertChannelUpdate checks that the required policy update has
+	// happened on the given node.
+	assertChannelUpdate := func(node *lntest.HarnessNode,
+		policy *lnrpc.RoutingPolicy) {
+
+		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+		defer cancel()
+
+		require.NoError(
+			t.t, carol.WaitForChannelPolicyUpdate(
+				ctxt, node.PubKeyStr, policy, chanPoint, false,
+			), "error while waiting for channel update",
+		)
+	}
 
 	// sendReq sends an UpdateChanStatus request to the given node.
 	sendReq := func(node *lntest.HarnessNode, chanPoint *lnrpc.ChannelPoint,
@@ -169,23 +181,13 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	// update is propagated.
 	sendReq(alice, chanPoint, routerrpc.ChanStatusAction_DISABLE)
 	expectedPolicy.Disabled = true
-	waitForChannelUpdate(
-		t, carolSub,
-		[]expectedChanUpdate{
-			{alice.PubKeyStr, expectedPolicy, chanPoint},
-		},
-	)
+	assertChannelUpdate(alice, expectedPolicy)
 
 	// Re-enable the channel and ensure that a "Disabled = false" update
 	// is propagated.
 	sendReq(alice, chanPoint, routerrpc.ChanStatusAction_ENABLE)
 	expectedPolicy.Disabled = false
-	waitForChannelUpdate(
-		t, carolSub,
-		[]expectedChanUpdate{
-			{alice.PubKeyStr, expectedPolicy, chanPoint},
-		},
-	)
+	assertChannelUpdate(alice, expectedPolicy)
 
 	// Manually enabling a channel should NOT prevent subsequent
 	// disconnections from automatically disabling the channel again
@@ -195,24 +197,14 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to disconnect Alice from Bob: %v", err)
 	}
 	expectedPolicy.Disabled = true
-	waitForChannelUpdate(
-		t, carolSub,
-		[]expectedChanUpdate{
-			{alice.PubKeyStr, expectedPolicy, chanPoint},
-			{bob.PubKeyStr, expectedPolicy, chanPoint},
-		},
-	)
+	assertChannelUpdate(alice, expectedPolicy)
+	assertChannelUpdate(bob, expectedPolicy)
 
 	// Reconnecting the nodes should propagate a "Disabled = false" update.
 	net.EnsureConnected(t.t, alice, bob)
 	expectedPolicy.Disabled = false
-	waitForChannelUpdate(
-		t, carolSub,
-		[]expectedChanUpdate{
-			{alice.PubKeyStr, expectedPolicy, chanPoint},
-			{bob.PubKeyStr, expectedPolicy, chanPoint},
-		},
-	)
+	assertChannelUpdate(alice, expectedPolicy)
+	assertChannelUpdate(bob, expectedPolicy)
 
 	// Manually disabling the channel should prevent a subsequent
 	// disconnect / reconnect from re-enabling the channel on
@@ -223,12 +215,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	// Alice sends out the "Disabled = true" update in response to
 	// the ChanStatusAction_DISABLE request.
 	expectedPolicy.Disabled = true
-	waitForChannelUpdate(
-		t, carolSub,
-		[]expectedChanUpdate{
-			{alice.PubKeyStr, expectedPolicy, chanPoint},
-		},
-	)
+	assertChannelUpdate(alice, expectedPolicy)
 
 	if err := net.DisconnectNodes(alice, bob); err != nil {
 		t.Fatalf("unable to disconnect Alice from Bob: %v", err)
@@ -237,23 +224,13 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	// Bob sends a "Disabled = true" update upon detecting the
 	// disconnect.
 	expectedPolicy.Disabled = true
-	waitForChannelUpdate(
-		t, carolSub,
-		[]expectedChanUpdate{
-			{bob.PubKeyStr, expectedPolicy, chanPoint},
-		},
-	)
+	assertChannelUpdate(bob, expectedPolicy)
 
 	// Bob sends a "Disabled = false" update upon detecting the
 	// reconnect.
 	net.EnsureConnected(t.t, alice, bob)
 	expectedPolicy.Disabled = false
-	waitForChannelUpdate(
-		t, carolSub,
-		[]expectedChanUpdate{
-			{bob.PubKeyStr, expectedPolicy, chanPoint},
-		},
-	)
+	assertChannelUpdate(bob, expectedPolicy)
 
 	// However, since we manually disabled the channel on Alice's end,
 	// the policy on Alice's end should still be "Disabled = true". Again,
@@ -267,26 +244,17 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	// Bob sends a "Disabled = true" update upon detecting the
 	// disconnect.
 	expectedPolicy.Disabled = true
-	waitForChannelUpdate(
-		t, carolSub,
-		[]expectedChanUpdate{
-			{bob.PubKeyStr, expectedPolicy, chanPoint},
-		},
-	)
+	assertChannelUpdate(bob, expectedPolicy)
 
 	// After restoring automatic channel state management on Alice's end,
 	// BOTH Alice and Bob should set the channel state back to "enabled"
 	// on reconnect.
 	sendReq(alice, chanPoint, routerrpc.ChanStatusAction_AUTO)
 	net.EnsureConnected(t.t, alice, bob)
+
 	expectedPolicy.Disabled = false
-	waitForChannelUpdate(
-		t, carolSub,
-		[]expectedChanUpdate{
-			{alice.PubKeyStr, expectedPolicy, chanPoint},
-			{bob.PubKeyStr, expectedPolicy, chanPoint},
-		},
-	)
+	assertChannelUpdate(alice, expectedPolicy)
+	assertChannelUpdate(bob, expectedPolicy)
 	assertEdgeDisabled(alice, chanPoint, false)
 }
 

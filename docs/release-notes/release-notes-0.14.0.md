@@ -239,6 +239,10 @@ you.
 
 * [Upgraded miekg/dns to improve the security posture](https://github.com/lightningnetwork/lnd/pull/5738)
 
+* [Fixed flakes caused by graph topology subcription](https://github.com/lightningnetwork/lnd/pull/5611).
+
+* [Order of the start/stop on subsystems are changed to promote better safety](https://github.com/lightningnetwork/lnd/pull/1783).
+
 ## Database
 
 * [Ensure single writer for legacy

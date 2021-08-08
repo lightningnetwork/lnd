@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -517,6 +518,62 @@ func NewMiner(baseLogDir, logFilename string, netParams *chaincfg.Params,
 	}
 
 	return miner, cleanUp, nil
+}
+
+// String gives the internal state of the node which is useful for debugging.
+func (hn *HarnessNode) String() string {
+	type nodeCfg struct {
+		LogFilenamePrefix string
+		ExtraArgs         []string
+		HasSeed           bool
+		P2PPort           int
+		RPCPort           int
+		RESTPort          int
+		ProfilePort       int
+		AcceptKeySend     bool
+		AcceptAMP         bool
+		FeeURL            string
+	}
+
+	nodeState := struct {
+		NodeID      int
+		Name        string
+		PubKey      string
+		OpenChans   map[string]int
+		ClosedChans map[string]struct{}
+		NodeCfg     nodeCfg
+	}{
+		NodeID:      hn.NodeID,
+		Name:        hn.Cfg.Name,
+		PubKey:      hn.PubKeyStr,
+		OpenChans:   make(map[string]int),
+		ClosedChans: make(map[string]struct{}),
+		NodeCfg: nodeCfg{
+			LogFilenamePrefix: hn.Cfg.LogFilenamePrefix,
+			ExtraArgs:         hn.Cfg.ExtraArgs,
+			HasSeed:           hn.Cfg.HasSeed,
+			P2PPort:           hn.Cfg.P2PPort,
+			RPCPort:           hn.Cfg.RPCPort,
+			RESTPort:          hn.Cfg.RESTPort,
+			AcceptKeySend:     hn.Cfg.AcceptKeySend,
+			AcceptAMP:         hn.Cfg.AcceptAMP,
+			FeeURL:            hn.Cfg.FeeURL,
+		},
+	}
+
+	for outpoint, count := range hn.openChans {
+		nodeState.OpenChans[outpoint.String()] = count
+	}
+	for outpoint, count := range hn.closedChans {
+		nodeState.ClosedChans[outpoint.String()] = count
+	}
+
+	bytes, err := json.MarshalIndent(nodeState, "", "\t")
+	if err != nil {
+		return fmt.Sprintf("\n encode node state with err: %v", err)
+	}
+
+	return fmt.Sprintf("\nnode state: %s", bytes)
 }
 
 // DBPath returns the filepath to the channeldb database file for this node.
@@ -1066,15 +1123,16 @@ func (hn *HarnessNode) FetchNodeInfo() error {
 
 // AddToLog adds a line of choice to the node's logfile. This is useful
 // to interleave test output with output from the node.
-func (hn *HarnessNode) AddToLog(line string) error {
+func (hn *HarnessNode) AddToLog(format string, a ...interface{}) {
 	// If this node was not set up with a log file, just return early.
 	if hn.logFile == nil {
-		return nil
+		return
 	}
-	if _, err := hn.logFile.WriteString(line); err != nil {
-		return err
+
+	desc := fmt.Sprintf("itest: %s\n", fmt.Sprintf(format, a...))
+	if _, err := hn.logFile.WriteString(desc); err != nil {
+		hn.PrintErr("write to log err: %v", err)
 	}
-	return nil
 }
 
 // writePidFile writes the process ID of the running lnd process to a .pid file.
@@ -1615,4 +1673,10 @@ func (hn *HarnessNode) WaitForBalance(expectedBalance btcutil.Amount, confirmed 
 	}
 
 	return nil
+}
+
+// PrintErr prints an error to the console.
+func (hn *HarnessNode) PrintErr(format string, a ...interface{}) {
+	fmt.Printf("itest error from [node:%s]: %s\n",
+		hn.Cfg.Name, fmt.Sprintf(format, a...))
 }

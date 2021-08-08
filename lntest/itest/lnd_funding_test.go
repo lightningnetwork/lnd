@@ -139,7 +139,7 @@ test:
 				"---- basic channel funding subtest %s ----\n",
 				testName,
 			)
-			AddToNodeLog(t.t, net.Alice, logLine)
+			net.Alice.AddToLog(logLine)
 
 			success := t.t.Run(testName, func(t *testing.T) {
 				testFunding(cc, dc)

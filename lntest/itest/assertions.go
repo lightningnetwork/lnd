@@ -26,14 +26,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// AddToNodeLog adds a line to the log file and asserts there's no error.
-func AddToNodeLog(t *testing.T,
-	node *lntest.HarnessNode, logLine string) {
-
-	err := node.AddToLog(logLine)
-	require.NoError(t, err, "unable to add to log")
-}
-
 // openChannelStream blocks until an OpenChannel request for a channel funding
 // by alice succeeds. If it does, a stream client is returned to receive events
 // about the opening channel.

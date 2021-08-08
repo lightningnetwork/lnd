@@ -1296,13 +1296,25 @@ func (hn *HarnessNode) kill() error {
 	return hn.cmd.Process.Kill()
 }
 
+type chanWatchType uint8
+
+const (
+	// watchOpenChannel specifies that this is a request to watch an open
+	// channel event.
+	watchOpenChannel chanWatchType = iota
+
+	// watchCloseChannel specifies that this is a request to watch a close
+	// channel event.
+	watchCloseChannel
+)
+
 // closeChanWatchRequest is a request to the lightningNetworkWatcher to be
 // notified once it's detected within the test Lightning Network, that a
 // channel has either been added or closed.
 type chanWatchRequest struct {
 	chanPoint wire.OutPoint
 
-	chanOpen bool
+	chanWatchType chanWatchType
 
 	eventChan chan struct{}
 }
@@ -1387,14 +1399,15 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 		// to dispatch immediately, or need to add the client for
 		// processing later.
 		case watchRequest := <-hn.chanWatchRequests:
-			// TODO(roasbeef): add update type also, checks for
-			// multiple of 2
-			if watchRequest.chanOpen {
+			switch watchRequest.chanWatchType {
+			case watchOpenChannel:
+				// TODO(roasbeef): add update type also, checks
+				// for multiple of 2
 				hn.handleOpenChannelWatchRequest(watchRequest)
-				continue
-			}
 
-			hn.handleCloseChannelWatchRequest(watchRequest)
+			case watchCloseChannel:
+				hn.handleCloseChannelWatchRequest(watchRequest)
+			}
 
 		case <-hn.quit:
 			return
@@ -1418,9 +1431,9 @@ func (hn *HarnessNode) WaitForNetworkChannelOpen(ctx context.Context,
 	}
 
 	hn.chanWatchRequests <- &chanWatchRequest{
-		chanPoint: op,
-		eventChan: eventChan,
-		chanOpen:  true,
+		chanPoint:     op,
+		eventChan:     eventChan,
+		chanWatchType: watchOpenChannel,
 	}
 
 	select {
@@ -1448,9 +1461,9 @@ func (hn *HarnessNode) WaitForNetworkChannelClose(ctx context.Context,
 	}
 
 	hn.chanWatchRequests <- &chanWatchRequest{
-		chanPoint: op,
-		eventChan: eventChan,
-		chanOpen:  false,
+		chanPoint:     op,
+		eventChan:     eventChan,
+		chanWatchType: watchCloseChannel,
 	}
 
 	select {

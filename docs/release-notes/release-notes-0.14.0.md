@@ -41,6 +41,11 @@ you.
 * [Makes publishtransaction, in the wallet sub-server, reachable through 
   lncli](https://github.com/lightningnetwork/lnd/pull/5460).
 
+# Safety
+
+* Locally force closed channels are now [kept in the channel.backup file until
+  their time lock has fully matured](https://github.com/lightningnetwork/lnd/pull/5528).
+
 # Build System
 
 * [A new pre-submit check has been

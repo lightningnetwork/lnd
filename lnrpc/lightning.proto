@@ -2249,6 +2249,7 @@ message ChannelEventUpdate {
         ChannelPoint active_channel = 3;
         ChannelPoint inactive_channel = 4;
         PendingUpdate pending_open_channel = 6;
+        ChannelPoint fully_resolved_channel = 7;
     }
 
     enum UpdateType {
@@ -2257,6 +2258,7 @@ message ChannelEventUpdate {
         ACTIVE_CHANNEL = 2;
         INACTIVE_CHANNEL = 3;
         PENDING_OPEN_CHANNEL = 4;
+        FULLY_RESOLVED_CHANNEL = 5;
     }
 
     UpdateType type = 5;

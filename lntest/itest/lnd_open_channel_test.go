@@ -276,8 +276,8 @@ func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness, t *harnessTe
 	aliceChanSub := subscribeChannelNotifications(ctxb, t, net.Alice)
 	defer close(aliceChanSub.quit)
 
-	// Open the channel between Alice and Bob, asserting that the
-	// channel has been properly open on-chain.
+	// Open the channels between Alice and Bob, asserting that the channels
+	// have been properly opened on-chain.
 	chanPoints := make([]*lnrpc.ChannelPoint, numChannels)
 	for i := 0; i < numChannels; i++ {
 		ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
@@ -291,11 +291,10 @@ func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness, t *harnessTe
 
 	// Since each of the channels just became open, Bob and Alice should
 	// each receive an open and an active notification for each channel.
-	var numChannelUpds int
-	const totalNtfns = 3 * numChannels
+	const numExpectedOpenUpdates = 3 * numChannels
 	verifyOpenUpdatesReceived := func(sub channelSubscription) error {
-		numChannelUpds = 0
-		for numChannelUpds < totalNtfns {
+		numChannelUpds := 0
+		for numChannelUpds < numExpectedOpenUpdates {
 			select {
 			case update := <-sub.updateChan:
 				switch update.Type {
@@ -327,30 +326,32 @@ func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness, t *harnessTe
 						update.Type)
 				}
 				numChannelUpds++
+
 			case <-time.After(time.Second * 10):
 				return fmt.Errorf("timeout waiting for channel "+
 					"notifications, only received %d/%d "+
 					"chanupds", numChannelUpds,
-					totalNtfns)
+					numExpectedOpenUpdates)
 			}
 		}
 
 		return nil
 	}
 
-	if err := verifyOpenUpdatesReceived(bobChanSub); err != nil {
-		t.Fatalf("error verifying open updates: %v", err)
-	}
-	if err := verifyOpenUpdatesReceived(aliceChanSub); err != nil {
-		t.Fatalf("error verifying open updates: %v", err)
-	}
+	require.NoError(
+		t.t, verifyOpenUpdatesReceived(bobChanSub), "bob open channels",
+	)
+	require.NoError(
+		t.t, verifyOpenUpdatesReceived(aliceChanSub), "alice open "+
+			"channels",
+	)
 
-	// Close the channel between Alice and Bob, asserting that the channel
-	// has been properly closed on-chain.
+	// Close the channels between Alice and Bob, asserting that the channels
+	// have been properly closed on-chain.
 	for i, chanPoint := range chanPoints {
 		ctx, _ := context.WithTimeout(context.Background(), defaultTimeout)
 
-		// Force close half of the channels.
+		// Force close the first of the two channels.
 		force := i%2 == 0
 		closeChannelAndAssert(ctx, t, net, net.Alice, chanPoint, force)
 		if force {
@@ -360,20 +361,21 @@ func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness, t *harnessTe
 
 	// verifyCloseUpdatesReceived is used to verify that Alice and Bob
 	// receive the correct channel updates in order.
+	const numExpectedCloseUpdates = 3 * numChannels
 	verifyCloseUpdatesReceived := func(sub channelSubscription,
 		forceType lnrpc.ChannelCloseSummary_ClosureType,
 		closeInitiator lnrpc.Initiator) error {
 
-		// Ensure one inactive and one closed notification is received for each
-		// closed channel.
+		// Ensure one inactive and one closed notification is received
+		// for each closed channel.
 		numChannelUpds := 0
-		for numChannelUpds < 2*numChannels {
+		for numChannelUpds < numExpectedCloseUpdates {
 			expectedCloseType := lnrpc.ChannelCloseSummary_COOPERATIVE_CLOSE
 
 			// Every other channel should be force closed. If this
 			// channel was force closed, set the expected close type
-			// the the type passed in.
-			force := (numChannelUpds/2)%2 == 0
+			// to the type passed in.
+			force := (numChannelUpds/3)%2 == 0
 			if force {
 				expectedCloseType = forceType
 			}
@@ -389,13 +391,15 @@ func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness, t *harnessTe
 				}
 
 				numChannelUpds++
+
 			case err := <-sub.errChan:
 				return err
+
 			case <-time.After(time.Second * 10):
 				return fmt.Errorf("timeout waiting "+
 					"for channel notifications, only "+
 					"received %d/%d chanupds",
-					numChannelUpds, 2*numChannels)
+					numChannelUpds, numChannelUpds)
 			}
 		}
 
@@ -406,19 +410,23 @@ func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness, t *harnessTe
 	// receive a remote force close notification for force closed channels.
 	// All channels (cooperatively and force closed) should have a remote
 	// close initiator because Alice closed the channels.
-	if err := verifyCloseUpdatesReceived(bobChanSub,
-		lnrpc.ChannelCloseSummary_REMOTE_FORCE_CLOSE,
-		lnrpc.Initiator_INITIATOR_REMOTE); err != nil {
-		t.Fatalf("errored verifying close updates: %v", err)
-	}
+	require.NoError(
+		t.t, verifyCloseUpdatesReceived(
+			bobChanSub,
+			lnrpc.ChannelCloseSummary_REMOTE_FORCE_CLOSE,
+			lnrpc.Initiator_INITIATOR_REMOTE,
+		), "verifying bob close updates",
+	)
 
 	// Verify Alice receives all closed channel notifications. She should
 	// receive a remote force close notification for force closed channels.
 	// All channels (cooperatively and force closed) should have a local
 	// close initiator because Alice closed the channels.
-	if err := verifyCloseUpdatesReceived(aliceChanSub,
-		lnrpc.ChannelCloseSummary_LOCAL_FORCE_CLOSE,
-		lnrpc.Initiator_INITIATOR_LOCAL); err != nil {
-		t.Fatalf("errored verifying close updates: %v", err)
-	}
+	require.NoError(
+		t.t, verifyCloseUpdatesReceived(
+			aliceChanSub,
+			lnrpc.ChannelCloseSummary_LOCAL_FORCE_CLOSE,
+			lnrpc.Initiator_INITIATOR_LOCAL,
+		), "verifying alice close updates",
+	)
 }

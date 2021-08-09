@@ -122,9 +122,49 @@ func (c *channelNotifier) SubscribeChans(startingChans map[wire.OutPoint]struct{
 				// channel to the sub-swapper.
 				case channelnotifier.ClosedChannelEvent:
 					chanPoint := event.CloseSummary.ChanPoint
+					closeType := event.CloseSummary.CloseType
+
+					// Because we see the contract as closed
+					// once our local force close TX
+					// confirms, the channel arbitrator
+					// already fires on this event. But
+					// because our funds can be in limbo for
+					// up to 2 weeks worst case we don't
+					// want to remove the crucial info we
+					// need for sweeping that time locked
+					// output before we've actually done so.
+					if closeType == channeldb.LocalForceClose {
+						ltndLog.Debugf("Channel %v "+
+							"was force closed by "+
+							"us, not removing "+
+							"from channel backup "+
+							"until fully resolved",
+							chanPoint)
+
+						continue
+					}
+
 					chanEvent := chanbackup.ChannelEvent{
 						ClosedChans: []wire.OutPoint{
 							chanPoint,
+						},
+					}
+
+					select {
+					case chanUpdates <- chanEvent:
+					case <-quit:
+						return
+					}
+
+				// A channel was fully resolved on chain. This
+				// should only really interest us if it was a
+				// locally force closed channel where we didn't
+				// remove the channel already when the close
+				// event was fired.
+				case channelnotifier.FullyResolvedChannelEvent:
+					chanEvent := chanbackup.ChannelEvent{
+						ClosedChans: []wire.OutPoint{
+							*event.ChannelPoint,
 						},
 					}
 

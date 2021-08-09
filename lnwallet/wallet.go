@@ -689,12 +689,11 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// funding because some of the following steps may add UTXOs funding
 	// the on-chain wallet.
 	// The enforcement still happens at the last step - in PsbtFundingVerify
-	enforceNewReservedValue := false
+	enforceNewReservedValue := true
 
 	// If no chanFunder was provided, then we'll assume the default
 	// assembler, which is backed by the wallet's internal coin selection.
 	if req.ChanFunder == nil {
-		enforceNewReservedValue = true
 		cfg := chanfunding.WalletConfig{
 			CoinSource:       &CoinSource{l},
 			CoinSelectLocker: l,
@@ -703,6 +702,9 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 			DustLimit:        DefaultDustLimit(),
 		}
 		req.ChanFunder = chanfunding.NewWalletAssembler(cfg)
+	} else {
+		_, isPsbtFunder := req.ChanFunder.(*chanfunding.PsbtAssembler)
+		enforceNewReservedValue = !isPsbtFunder
 	}
 
 	localFundingAmt := req.LocalFundingAmt

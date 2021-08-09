@@ -578,15 +578,28 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 			ctxt, t, net, net.Alice, chanPoint, forceClose,
 		)
 
-		// We should get a single notification after closing, and the
-		// on-disk state should match this latest notifications.
-		assertBackupNtfns(1)
-		assertBackupFileState()
-
 		// If we force closed the channel, then we'll mine enough
 		// blocks to ensure all outputs have been swept.
 		if forceClose {
+			// A local force closed channel will trigger a
+			// notification once the commitment TX confirms on
+			// chain. But that won't remove the channel from the
+			// backup just yet, that will only happen once the time
+			// locked contract was fully resolved on chain.
+			assertBackupNtfns(1)
+
 			cleanupForceClose(t, net, net.Alice, chanPoint)
+
+			// Now that the channel's been fully resolved, we expect
+			// another notification.
+			assertBackupNtfns(1)
+			assertBackupFileState()
+		} else {
+			// We should get a single notification after closing,
+			// and the on-disk state should match this latest
+			// notifications.
+			assertBackupNtfns(1)
+			assertBackupFileState()
 		}
 	}
 }

@@ -127,6 +127,12 @@ A bug has been fixed that would cause `lnd` to [try to bootstrap using the
 currnet DNS seeds when in SigNet
 mode](https://github.com/lightningnetwork/lnd/pull/5564).
 
+## Documentation 
+
+The [code contribution guidelines have been updated to mention the new
+requirements surrounding updating the release notes for each new
+change](https://github.com/lightningnetwork/lnd/pull/5613). 
+
 # Contributors (Alphabetical Order)
 * Andras Banki-Horvath
 * ErikEk

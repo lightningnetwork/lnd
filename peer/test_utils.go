@@ -228,7 +228,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         aliceCommit,
 		RemoteCommitment:        aliceCommit,
-		Db:                      dbAlice,
+		Db:                      &dbAlice.ChannelStateDB,
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 		FundingTxn:              channels.TestFundingTx,
 	}
@@ -245,7 +245,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         bobCommit,
 		RemoteCommitment:        bobCommit,
-		Db:                      dbBob,
+		Db:                      &dbBob.ChannelStateDB,
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 

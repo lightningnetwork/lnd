@@ -306,7 +306,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		LocalCommitment:         aliceCommit,
 		RemoteCommitment:        aliceCommit,
 		ShortChannelID:          chanID,
-		Db:                      dbAlice,
+		Db:                      &dbAlice.ChannelStateDB,
 		Packager:                channeldb.NewChannelPackager(chanID),
 		FundingTxn:              channels.TestFundingTx,
 	}
@@ -325,7 +325,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		LocalCommitment:         bobCommit,
 		RemoteCommitment:        bobCommit,
 		ShortChannelID:          chanID,
-		Db:                      dbBob,
+		Db:                      &dbBob.ChannelStateDB,
 		Packager:                channeldb.NewChannelPackager(chanID),
 	}
 
@@ -950,9 +950,9 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	secondBobChannel, carolChannel *lnwallet.LightningChannel,
 	startingHeight uint32, opts ...serverOption) *threeHopNetwork {
 
-	aliceDb := aliceChannel.State().Db
-	bobDb := firstBobChannel.State().Db
-	carolDb := carolChannel.State().Db
+	aliceDb := aliceChannel.State().Db.GetParentDB()
+	bobDb := firstBobChannel.State().Db.GetParentDB()
+	carolDb := carolChannel.State().Db.GetParentDB()
 
 	hopNetwork := newHopNetwork()
 
@@ -1201,8 +1201,8 @@ func newTwoHopNetwork(t testing.TB,
 	aliceChannel, bobChannel *lnwallet.LightningChannel,
 	startingHeight uint32) *twoHopNetwork {
 
-	aliceDb := aliceChannel.State().Db
-	bobDb := bobChannel.State().Db
+	aliceDb := aliceChannel.State().Db.GetParentDB()
+	bobDb := bobChannel.State().Db.GetParentDB()
 
 	hopNetwork := newHopNetwork()
 

@@ -330,7 +330,7 @@ func createTestChannelState(t *testing.T, cdb *DB) *OpenChannel {
 		RemoteNextRevocation:    privKey.PubKey(),
 		RevocationProducer:      producer,
 		RevocationStore:         store,
-		Db:                      cdb,
+		Db:                      &cdb.ChannelStateDB,
 		Packager:                NewChannelPackager(chanID),
 		FundingTxn:              channels.TestFundingTx,
 		ThawHeight:              uint32(defaultPendingHeight),
@@ -1309,7 +1309,7 @@ func TestCloseInitiator(t *testing.T) {
 
 			// Lookup open channels in the database.
 			dbChans, err := fetchChannels(
-				cdb, pendingChannelFilter(false),
+				&cdb.ChannelStateDB, pendingChannelFilter(false),
 			)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -1400,7 +1400,7 @@ func TestBalanceAtHeight(t *testing.T) {
 	putRevokedState := func(c *OpenChannel, height uint64, local,
 		remote lnwire.MilliSatoshi) error {
 
-		err := kvdb.Update(c.Db, func(tx kvdb.RwTx) error {
+		err := kvdb.Update(c.Db.db, func(tx kvdb.RwTx) error {
 			chanBucket, err := fetchChanBucketRw(
 				tx, c.IdentityPub, &c.FundingOutpoint,
 				c.ChainHash,

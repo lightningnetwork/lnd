@@ -806,9 +806,7 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 	// it lately with the new brodcasted updates
 	nodeInfoReq := &lnrpc.GetInfoRequest{}
 	resp, err := dave.GetInfo(ctxb, nodeInfoReq)
-	if err != nil {
-		t.Fatalf("unable to get dave's information: %v", err)
-	}
+	require.NoError(t.t, err, "unable to get dave's information")
 
 	defaultDaveNodeAnn := &lnrpc.NodeUpdate{
 		Alias: resp.Alias,
@@ -825,12 +823,11 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	_, err = dave.UpdateNodeAnnouncement(ctxt, invalidNodeAnnReq)
-	if err == nil {
-		t.Fatalf("faild to validate an invalid color for an update node announcement request: %v", err)
-	}
+	require.Error(t.t, err,
+		"failed to validate an invalid color for an update node announcement request")
 
-	// We cannont differentiate between requests with Alias = "" and requests
-	// that do not provide that field. If a user sets Alias = "" in the resquest
+	// We cannot differentiate between requests with Alias = "" and requests
+	// that do not provide that field. If a user sets Alias = "" in the request
 	// the field will simply be ignored. The request must fail because no
 	// modifiers are applied
 	invalidNodeAnnReq = &lnrpc.NodeAnnouncementUpdateRequest{
@@ -838,9 +835,7 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	_, err = dave.UpdateNodeAnnouncement(ctxt, invalidNodeAnnReq)
-	if err == nil {
-		t.Fatalf("requests with empty alias should ignore that field: %v", err)
-	}
+	require.Error(t.t, err, "requests with empty alias should ignore that field")
 
 	// Alias too long
 	invalidNodeAnnReq = &lnrpc.NodeAnnouncementUpdateRequest{
@@ -848,11 +843,7 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	_, err = dave.UpdateNodeAnnouncement(ctxt, invalidNodeAnnReq)
-	if err == nil {
-		t.Fatalf("faild to validate an invalid alias for an update node announcement request: %v", err)
-	}
-
-	// TODO(positiveblue): Add checks for features and addresses
+	require.Error(t.t, err, "faild to validate an invalid alias for an update node announcement request")
 
 	// Test NodeAnnouncement broadcasting
 
@@ -888,9 +879,8 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 
 		// Check for addresses
 		if len(n1.NodeAddresses) != len(n2.NodeAddresses) {
-			fmt.Println(n1.NodeAddresses)
-			fmt.Println(n2.NodeAddresses)
-			return fmt.Errorf("different addresses")
+			return fmt.Errorf("different addresses %v != %v",
+				n1.NodeAddresses, n2.NodeAddresses)
 		}
 
 		addrs := make(map[string]struct{}, len(n1.NodeAddresses))
@@ -916,9 +906,9 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 			case graphUpdate := <-graphSub.updateChan:
 				for _, update := range graphUpdate.NodeUpdates {
 					if update.IdentityKey == nodePubKey {
-						if err := assertNodeAnnouncement(update, expectedUpdate); err != nil {
-							t.Fatalf("Node updates do not match: %v", err)
-						}
+						require.NoError(t.t,
+							assertNodeAnnouncement(update, expectedUpdate),
+							"Node updates do not match")
 						return
 					}
 				}
@@ -936,25 +926,132 @@ func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 		aliceSub, dave.PubKeyStr, defaultDaveNodeAnn,
 	)
 
+	// Helper function to assert NodeAnnouncementUpdateResponse expected values
+	checkResponse := func(response *lnrpc.NodeAnnouncementUpdateResponse,
+		expectedOps map[string]int) {
+
+		if len(response.Ops) != len(expectedOps) {
+			t.Fatalf("unexpected number of Ops updating dave's node announcement: %v", response)
+		}
+
+		ops := make(map[string]int, len(response.Ops))
+		for _, op := range response.Ops {
+			ops[op.Entity] = len(op.Actions)
+		}
+
+		for k, v := range expectedOps {
+			if v != ops[k] {
+				t.Fatalf("unexpected number of actions for operation %s: "+
+					"got %d wanted %d", k, ops[k], v)
+			}
+		}
+	}
+
+	updateFeatureActions := []*lnrpc.UpdateFeatureAction{
+		{
+			// This one is alraedy activated by default, so
+			// it will not trigger any change
+			Action:     lnrpc.UpdateAction_ADD,
+			FeatureBit: lnrpc.FeatureBit_DATALOSS_PROTECT_REQ,
+		},
+		{
+			Action:     lnrpc.UpdateAction_ADD,
+			FeatureBit: lnrpc.FeatureBit_AMP_REQ,
+		},
+	}
 	newAddresses := []*lnrpc.NodeAddress{
 		{Addr: "192.168.1.10:8333", Network: "tcp"},
+		{Addr: "192.168.1.11:8333", Network: "tcp"},
 	}
 
-	newDaveNodeAnn := &lnrpc.NodeUpdate{
-		Color:         "#2288ee",
-		Alias:         "new-alias",
-		NodeAddresses: newAddresses,
+	updateAddressActions := []*lnrpc.UpdateAddressAction{
+		{
+			Action:  lnrpc.UpdateAction_ADD,
+			Address: newAddresses[0],
+		},
+		{
+			Action:  lnrpc.UpdateAction_ADD,
+			Address: newAddresses[1],
+		},
 	}
+
+	newColor := "#2288ee"
+	newAlias := "new-alias"
 
 	nodeAnnReq := &lnrpc.NodeAnnouncementUpdateRequest{
-		Color:     newDaveNodeAnn.Color,
-		Alias:     newDaveNodeAnn.Alias,
-		Addresses: newDaveNodeAnn.NodeAddresses,
+		FeatureUpdates: updateFeatureActions,
+		Color:          newColor,
+		Alias:          newAlias,
+		AddressUpdates: updateAddressActions,
 	}
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if _, err := dave.UpdateNodeAnnouncement(ctxt, nodeAnnReq); err != nil {
-		t.Fatalf("unable to update dave's node announcement: %v", err)
+	response, err := dave.UpdateNodeAnnouncement(ctxt, nodeAnnReq)
+	require.NoError(t.t, err, "unable to update dave's node announcement")
+
+	expectedOps := map[string]int{
+		"features":  1,
+		"color":     1,
+		"alias":     1,
+		"addresses": 2,
+	}
+	checkResponse(response, expectedOps)
+
+	// After updating the node we expect the update to contain
+	// the requested color, requested alias and the new added addresses
+	newDaveNodeAnn := &lnrpc.NodeUpdate{
+		Color: newColor,
+		Alias: newAlias,
+		NodeAddresses: []*lnrpc.NodeAddress{
+			{Addr: "127.0.0.1:5569", Network: "tcp"},
+			newAddresses[0],
+			newAddresses[1],
+		},
+	}
+
+	// We'll then wait for Alice to receive dave's node announcement
+	// with the new values.
+	waitForNodeAnnUpdates(
+		aliceSub, dave.PubKeyStr, newDaveNodeAnn,
+	)
+
+	// This time let's just request a change removing one address
+	nodeAnnReq = &lnrpc.NodeAnnouncementUpdateRequest{
+		FeatureUpdates: []*lnrpc.UpdateFeatureAction{
+			{
+				Action:     lnrpc.UpdateAction_REMOVE,
+				FeatureBit: lnrpc.FeatureBit_DATALOSS_PROTECT_REQ,
+			},
+			{
+				Action:     lnrpc.UpdateAction_REMOVE,
+				FeatureBit: lnrpc.FeatureBit_AMP_REQ,
+			},
+		},
+		AddressUpdates: []*lnrpc.UpdateAddressAction{
+			{
+				Action:  lnrpc.UpdateAction_REMOVE,
+				Address: newAddresses[0],
+			},
+		},
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	response, err = dave.UpdateNodeAnnouncement(ctxt, nodeAnnReq)
+	require.NoError(t.t, err, "unable to update dave's node announcement")
+
+	expectedOps = map[string]int{
+		"features":  2,
+		"addresses": 1,
+	}
+	checkResponse(response, expectedOps)
+
+	newDaveNodeAnn = &lnrpc.NodeUpdate{
+		Color: newColor,
+		Alias: newAlias,
+		NodeAddresses: []*lnrpc.NodeAddress{
+			{Addr: "127.0.0.1:5569", Network: "tcp"},
+			newAddresses[1],
+		},
 	}
 
 	// We'll then wait for Alice to receive dave's node announcement

@@ -135,3 +135,7 @@ func (m *Manager) ListSets() []Set {
 
 	return sets
 }
+
+func (m *Manager) SetFeatureVectors(fsets map[Set]*lnwire.RawFeatureVector) {
+	m.fsets = fsets
+}

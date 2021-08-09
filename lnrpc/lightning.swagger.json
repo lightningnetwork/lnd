@@ -4773,12 +4773,12 @@
     "lnrpcNodeAnnouncementUpdateRequest": {
       "type": "object",
       "properties": {
-        "features": {
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/definitions/lnrpcFeature"
+        "featureUpdates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcUpdateFeatureAction"
           },
-          "description": "Features holds the set of features the node supports."
+          "description": "FeatureUpdates holds the set of features the node supports."
         },
         "color": {
           "type": "string",
@@ -4788,17 +4788,25 @@
           "type": "string",
           "description": "Alias is the alias or nick name of the node."
         },
-        "addresses": {
+        "addressUpdates": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/lnrpcNodeAddress"
+            "$ref": "#/definitions/lnrpcUpdateAddressAction"
           },
-          "description": "Addresses is a slice of all the node's known addresses."
+          "description": "AddressUpdates is a slice of all the node's known addresses."
         }
       }
     },
     "lnrpcNodeAnnouncementUpdateResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "ops": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcOp"
+          }
+        }
+      }
     },
     "lnrpcNodeInfo": {
       "type": "object",
@@ -4897,6 +4905,20 @@
             "$ref": "#/definitions/lnrpcFeature"
           },
           "description": "Features that the node has advertised in the init message, node\nannouncements and invoices."
+        }
+      }
+    },
+    "lnrpcOp": {
+      "type": "object",
+      "properties": {
+        "entity": {
+          "type": "string"
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -5915,6 +5937,36 @@
             "$ref": "#/definitions/lnrpcTransaction"
           },
           "description": "The list of transactions relevant to the wallet."
+        }
+      }
+    },
+    "lnrpcUpdateAction": {
+      "type": "string",
+      "enum": [
+        "ADD",
+        "REMOVE"
+      ],
+      "default": "ADD"
+    },
+    "lnrpcUpdateAddressAction": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/lnrpcUpdateAction"
+        },
+        "address": {
+          "$ref": "#/definitions/lnrpcNodeAddress"
+        }
+      }
+    },
+    "lnrpcUpdateFeatureAction": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/lnrpcUpdateAction"
+        },
+        "featureBit": {
+          "$ref": "#/definitions/lnrpcFeatureBit"
         }
       }
     },

@@ -6751,15 +6751,138 @@ func (r *rpcServer) ListPermissions(_ context.Context,
 	}, nil
 }
 
-// ListPermissions lists all RPC method URIs and their required macaroon
-// permissions to access them.
+func (r *rpcServer) updateFeatures(updates []*lnrpc.UpdateFeatureAction) (*lnrpc.Op, error) {
+
+	ops := &lnrpc.Op{Entity: "features"}
+
+	fsets := make(map[feature.Set]*lnwire.RawFeatureVector)
+	sets := []feature.Set{feature.SetNodeAnn}
+
+	for _, set := range sets {
+		raw := r.server.featureMgr.GetRaw(set)
+
+		for _, update := range updates {
+			bit := lnwire.FeatureBit(update.FeatureBit)
+			switch update.Action {
+			case lnrpc.UpdateAction_ADD:
+				if !raw.IsSet(bit) && raw.SafeSet(bit) != nil {
+					raw.Set(bit)
+					ops.Actions = append(ops.Actions,
+						fmt.Sprintf("%s set in %s",
+							lnwire.Features[bit],
+							set.String()))
+				}
+			case lnrpc.UpdateAction_REMOVE:
+				if raw.IsSet(bit) {
+					raw.Unset(bit)
+					ops.Actions = append(ops.Actions,
+						fmt.Sprintf("%s unset in %s",
+							lnwire.Features[bit],
+							set.String()))
+				}
+			default:
+				return nil, fmt.Errorf("invalid feature update action: %v", update.Action)
+			}
+		}
+
+		// Ensure that all of our feature sets properly set any
+		// dependent features.
+		fv := lnwire.NewFeatureVector(raw, lnwire.Features)
+		err := feature.ValidateDeps(fv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid feature set %s: %v",
+				set.String(), err)
+		}
+
+		fsets[set] = raw
+	}
+
+	r.server.featureMgr.SetFeatureVectors(fsets)
+
+	return ops, nil
+}
+
+func (r *rpcServer) updateAddresses(currentAddresses []net.Addr, updates []*lnrpc.UpdateAddressAction) ([]net.Addr, *lnrpc.Op, error) {
+	// net.Addr is not comparable so we cannot use the default map (map[net.Addr]struct{})
+	// so we have to use arrays and a helping function
+	findAddr := func(addr net.Addr, slice []net.Addr) bool {
+		for _, sAddr := range slice {
+			if sAddr.Network() == addr.Network() && sAddr.String() == addr.String() {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Preallocate enough memory for both arrays
+	removeAddr := make([]net.Addr, 0, len(updates))
+	addAddr := make([]net.Addr, 0, len(updates))
+	for _, update := range updates {
+		addr, err := net.ResolveTCPAddr(update.Address.GetNetwork(), update.Address.GetAddr())
+		if err != nil {
+			return nil, nil, fmt.Errorf("unable to resolve "+
+				"address %v: %v", update.Address, err)
+		}
+		switch update.Action {
+		case lnrpc.UpdateAction_ADD:
+			addAddr = append(addAddr, addr)
+		case lnrpc.UpdateAction_REMOVE:
+			removeAddr = append(removeAddr, addr)
+		default:
+			return nil, nil, fmt.Errorf("invalid address update action: %v", update.Action)
+		}
+	}
+
+	// Look for any inconsistency trying to add AND remove the same address
+	for _, addr := range removeAddr {
+		if findAddr(addr, addAddr) {
+			return nil, nil, fmt.Errorf("invalid updates for removing AND adding %v", addr)
+		}
+	}
+
+	ops := &lnrpc.Op{Entity: "addresses"}
+	newAddrs := make([]net.Addr, 0, len(updates)+len(currentAddresses))
+
+	// Copy current addresses excluding the ones that need to be removed
+	for _, addr := range currentAddresses {
+		if findAddr(addr, removeAddr) {
+			ops.Actions = append(ops.Actions, fmt.Sprintf("%s removed", addr.String()))
+			continue
+		}
+		newAddrs = append(newAddrs, addr)
+	}
+
+	// Add new adresses if needed
+	for _, addr := range addAddr {
+		if !findAddr(addr, newAddrs) {
+			ops.Actions = append(ops.Actions, fmt.Sprintf("%s added", addr.String()))
+			newAddrs = append(newAddrs, addr)
+		}
+	}
+
+	return newAddrs, ops, nil
+}
+
+// 	UpdateNodeAnnouncement allows the caller to update the node parameters
+//  and broadcasts a new version of the node announcement to its peers.
 func (r *rpcServer) UpdateNodeAnnouncement(_ context.Context,
 	req *lnrpc.NodeAnnouncementUpdateRequest) (
 	*lnrpc.NodeAnnouncementUpdateResponse, error) {
 
+	resp := &lnrpc.NodeAnnouncementUpdateResponse{}
 	nodeModifiers := make([]netann.NodeAnnModifier, 0)
+	currentNodeAnn, err := r.server.genNodeAnnouncement(false)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get current node announcement: %v", err)
+	}
 
-	// TODO(positiveblue): add Features modifier
+	if len(req.FeatureUpdates) > 0 {
+		ops, err := r.updateFeatures(req.FeatureUpdates)
+		if err != nil {
+			return nil, fmt.Errorf("error trying to update node features: %w", err)
+		}
+		resp.Ops = append(resp.Ops, ops)
+	}
 
 	if req.Color != "" {
 		color, err := parseHexColor(req.Color)
@@ -6767,7 +6890,12 @@ func (r *rpcServer) UpdateNodeAnnouncement(_ context.Context,
 			return nil, fmt.Errorf("unable to parse color: %v", err)
 		}
 
-		nodeModifiers = append(nodeModifiers, netann.NodeAnnSetColor(color))
+		if color != currentNodeAnn.RGBColor {
+			resp.Ops = append(resp.Ops, &lnrpc.Op{
+				Entity:  "color",
+				Actions: []string{fmt.Sprintf("changed to %v", color)}})
+			nodeModifiers = append(nodeModifiers, netann.NodeAnnSetColor(color))
+		}
 	}
 
 	if req.Alias != "" {
@@ -6775,22 +6903,20 @@ func (r *rpcServer) UpdateNodeAnnouncement(_ context.Context,
 		if err != nil {
 			return nil, fmt.Errorf("invalid alias value: %v", err)
 		}
-		nodeModifiers = append(nodeModifiers, netann.NodeAnnSetAlias(alias))
+		if alias != currentNodeAnn.Alias {
+			resp.Ops = append(resp.Ops, &lnrpc.Op{
+				Entity:  "alias",
+				Actions: []string{fmt.Sprintf("changed to %v", alias)}})
+			nodeModifiers = append(nodeModifiers, netann.NodeAnnSetAlias(alias))
+		}
 	}
 
-	if len(req.Addresses) > 0 {
-		// TODO(positiveblue): add address validation
-		var newAddrs []net.Addr
-
-		for _, addr := range req.Addresses {
-			newAddr, err := net.ResolveTCPAddr(addr.Network, addr.Addr)
-			if err != nil {
-				return nil, fmt.Errorf("unable to resolve "+
-					"address %v: %v", addr, err)
-			}
-			newAddrs = append(newAddrs, newAddr)
+	if len(req.AddressUpdates) > 0 {
+		newAddrs, ops, err := r.updateAddresses(currentNodeAnn.Addresses, req.AddressUpdates)
+		if err != nil {
+			return nil, fmt.Errorf("error trying to update node addresses: %w", err)
 		}
-
+		resp.Ops = append(resp.Ops, ops)
 		nodeModifiers = append(nodeModifiers, netann.NodeAnnSetAddrs(newAddrs))
 	}
 
@@ -6811,14 +6937,34 @@ func (r *rpcServer) UpdateNodeAnnouncement(_ context.Context,
 		return nil, err
 	}
 
+	// Update the on-disk version of our announcement so
+	// other sub-systems will become out of sync
+	selfNode := &channeldb.LightningNode{
+		HaveNodeAnnouncement: true,
+		LastUpdate:           time.Unix(int64(newNodeAnn.Timestamp), 0),
+		Addresses:            newNodeAnn.Addresses,
+		Alias:                newNodeAnn.Alias.String(),
+		Features: lnwire.NewFeatureVector(
+			newNodeAnn.Features, lnwire.Features,
+		),
+		Color:        newNodeAnn.RGBColor,
+		AuthSigBytes: newNodeAnn.Signature.ToSignatureBytes(),
+	}
+	copy(selfNode.PubKeyBytes[:], r.server.identityECDH.PubKey().SerializeCompressed())
+
+	if err := r.server.graphDB.SetSourceNode(selfNode); err != nil {
+		return nil, fmt.Errorf("can't set self node: %v", err)
+	}
+
+	// Finally, propagate it to the nodes in the network.
 	err = r.server.BroadcastMessage(nil, &newNodeAnn)
 	if err != nil {
-		srvrLog.Debugf("Unable to broadcast new node "+
+		rpcsLog.Debugf("Unable to broadcast new node "+
 			"announcement to peers: %v", err)
 		return nil, err
 	}
 
-	return &lnrpc.NodeAnnouncementUpdateResponse{}, nil
+	return resp, nil
 }
 
 // FundingStateStep is an advanced funding related call that allows the caller

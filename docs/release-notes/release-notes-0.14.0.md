@@ -25,6 +25,8 @@ for more information.
 * [Stub code for interacting with `lnrpc` from a WASM context through JSON 
   messages was added](https://github.com/lightningnetwork/lnd/pull/5601).
 
+* [Add `peersrpc` service with `UpdateNodeAnnouncement` endpoint](https://github.com/lightningnetwork/lnd/issues/5466).
+
 ## Security 
 
 ### Admin macaroon permissions
@@ -125,6 +127,7 @@ mode](https://github.com/lightningnetwork/lnd/pull/5564).
 # Contributors (Alphabetical Order)
 * Andras Banki-Horvath
 * ErikEk
+* Jordi Montes
 * Martin Habovstiak
 * Zero-1729
 * Oliver Gugger

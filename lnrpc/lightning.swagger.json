@@ -1655,6 +1655,39 @@
         ]
       }
     },
+    "/v1/nodeannouncement": {
+      "post": {
+        "summary": "lncli: `updatenodeannouncement`\nUpdateNodeAnnouncement allows the caller to update the node parameters\nand broadcasts a new version of the node announcement to its peers.",
+        "operationId": "Lightning_UpdateNodeAnnouncement",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcNodeAnnouncementUpdateResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcNodeAnnouncementUpdateRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/payments": {
       "get": {
         "summary": "lncli: `listpayments`\nListPayments returns a list of all outgoing payments.",
@@ -4737,6 +4770,44 @@
         }
       }
     },
+    "lnrpcNodeAnnouncementUpdateRequest": {
+      "type": "object",
+      "properties": {
+        "featureUpdates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcUpdateFeatureAction"
+          },
+          "description": "FeatureUpdates holds the set of features the node supports."
+        },
+        "color": {
+          "type": "string",
+          "description": "Color is the node's color in hex code format."
+        },
+        "alias": {
+          "type": "string",
+          "description": "Alias is the alias or nick name of the node."
+        },
+        "addressUpdates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcUpdateAddressAction"
+          },
+          "description": "AddressUpdates is a slice of all the node's known addresses."
+        }
+      }
+    },
+    "lnrpcNodeAnnouncementUpdateResponse": {
+      "type": "object",
+      "properties": {
+        "ops": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcOp"
+          }
+        }
+      }
+    },
     "lnrpcNodeInfo": {
       "type": "object",
       "properties": {
@@ -4834,6 +4905,20 @@
             "$ref": "#/definitions/lnrpcFeature"
           },
           "description": "Features that the node has advertised in the init message, node\nannouncements and invoices."
+        }
+      }
+    },
+    "lnrpcOp": {
+      "type": "object",
+      "properties": {
+        "entity": {
+          "type": "string"
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -5852,6 +5937,36 @@
             "$ref": "#/definitions/lnrpcTransaction"
           },
           "description": "The list of transactions relevant to the wallet."
+        }
+      }
+    },
+    "lnrpcUpdateAction": {
+      "type": "string",
+      "enum": [
+        "ADD",
+        "REMOVE"
+      ],
+      "default": "ADD"
+    },
+    "lnrpcUpdateAddressAction": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/lnrpcUpdateAction"
+        },
+        "address": {
+          "$ref": "#/definitions/lnrpcNodeAddress"
+        }
+      }
+    },
+    "lnrpcUpdateFeatureAction": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/lnrpcUpdateAction"
+        },
+        "featureBit": {
+          "$ref": "#/definitions/lnrpcFeatureBit"
         }
       }
     },

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -769,6 +770,294 @@ func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 	// should already be connected.
 	waitForAddrsInUpdate(
 		aliceSub, dave.PubKeyStr, advertisedAddrs...,
+	)
+
+	// Close the channel between Bob and Dave.
+	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
+	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPoint, false)
+}
+
+// testUpdateNodeAnnouncement ensures that the RPC endpoint validates
+// the requests correctly and that the new node announcement is brodcasted
+// with the right information after updating our node
+func testUpdateNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
+	ctxb := context.Background()
+
+	// Launch notification clients for alice, such that we can
+	// get notified when there are updates in the graph.
+	aliceSub := subscribeGraphNotifications(ctxb, t, net.Alice)
+	defer close(aliceSub.quit)
+
+	// Use the default address *explicitly* to make asserts more
+	// readable
+	advertisedAddrs := []string{
+		"127.0.0.1:5569",
+	}
+
+	var lndArgs []string
+	for _, addr := range advertisedAddrs {
+		lndArgs = append(lndArgs, "--externalip="+addr)
+	}
+
+	dave := net.NewNode(t.t, "Dave", lndArgs)
+	defer shutdownAndAssert(net, t, dave)
+
+	// Get dave default information so we can compare
+	// it lately with the new brodcasted updates
+	nodeInfoReq := &lnrpc.GetInfoRequest{}
+	resp, err := dave.GetInfo(ctxb, nodeInfoReq)
+	require.NoError(t.t, err, "unable to get dave's information")
+
+	defaultDaveNodeAnn := &lnrpc.NodeUpdate{
+		Alias: resp.Alias,
+		Color: resp.Color,
+		NodeAddresses: []*lnrpc.NodeAddress{
+			{Addr: advertisedAddrs[0], Network: "tcp"},
+		},
+	}
+
+	// Test RPC param validation for each one of the fields
+	invalidNodeAnnReq := &lnrpc.NodeAnnouncementUpdateRequest{
+		Color: "invalidValue",
+	}
+
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	_, err = dave.UpdateNodeAnnouncement(ctxt, invalidNodeAnnReq)
+	require.Error(t.t, err,
+		"failed to validate an invalid color for an update node announcement request")
+
+	// We cannot differentiate between requests with Alias = "" and requests
+	// that do not provide that field. If a user sets Alias = "" in the request
+	// the field will simply be ignored. The request must fail because no
+	// modifiers are applied
+	invalidNodeAnnReq = &lnrpc.NodeAnnouncementUpdateRequest{
+		Alias: "",
+	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	_, err = dave.UpdateNodeAnnouncement(ctxt, invalidNodeAnnReq)
+	require.Error(t.t, err, "requests with empty alias should ignore that field")
+
+	// Alias too long
+	invalidNodeAnnReq = &lnrpc.NodeAnnouncementUpdateRequest{
+		Alias: strings.Repeat("a", 50),
+	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	_, err = dave.UpdateNodeAnnouncement(ctxt, invalidNodeAnnReq)
+	require.Error(t.t, err, "faild to validate an invalid alias for an update node announcement request")
+
+	// Test NodeAnnouncement broadcasting
+
+	// We must let Dave have an open channel before he can send a node
+	// announcement, so we open a channel with Bob,
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	net.ConnectNodes(ctxt, t.t, net.Bob, dave)
+
+	// We'll then go ahead and open a channel between Bob and Dave. This
+	// ensures that Alice receives the node announcement from Bob as part of
+	// the announcement broadcast.
+	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
+	chanPoint := openChannelAndAssert(
+		ctxt, t, net, net.Bob, dave,
+		lntest.OpenChannelParams{
+			Amt: 1000000,
+		},
+	)
+
+	assertNodeAnnouncement := func(n1, n2 *lnrpc.NodeUpdate) error {
+
+		// TODO(positiveblue): Add check for Features
+
+		if n1.Color != n2.Color {
+			return fmt.Errorf("differet color: %v != %v",
+				n1.Color, n2.Color)
+		}
+
+		if n1.Alias != n2.Alias {
+			return fmt.Errorf("different alias: %s != %s",
+				n1.Alias, n2.Alias)
+		}
+
+		// Check for addresses
+		if len(n1.NodeAddresses) != len(n2.NodeAddresses) {
+			return fmt.Errorf("different addresses %v != %v",
+				n1.NodeAddresses, n2.NodeAddresses)
+		}
+
+		addrs := make(map[string]struct{}, len(n1.NodeAddresses))
+		for _, nodeAddr := range n1.NodeAddresses {
+			addrs[nodeAddr.Addr] = struct{}{}
+		}
+
+		for _, nodeAddr := range n2.NodeAddresses {
+			if _, ok := addrs[nodeAddr.Addr]; !ok {
+				return fmt.Errorf("address %v not found in node "+
+					"announcement", nodeAddr.Addr)
+			}
+		}
+
+		return nil
+	}
+
+	waitForNodeAnnUpdates := func(graphSub graphSubscription,
+		nodePubKey string, expectedUpdate *lnrpc.NodeUpdate) {
+
+		for {
+			select {
+			case graphUpdate := <-graphSub.updateChan:
+				for _, update := range graphUpdate.NodeUpdates {
+					if update.IdentityKey == nodePubKey {
+						require.NoError(t.t,
+							assertNodeAnnouncement(update, expectedUpdate),
+							"Node updates do not match")
+						return
+					}
+				}
+			case err := <-graphSub.errChan:
+				t.Fatalf("unable to recv graph update: %v", err)
+			case <-time.After(defaultTimeout):
+				t.Fatalf("did not receive node ann update")
+			}
+		}
+	}
+
+	// We'll then wait for Alice to receive dave's node announcement
+	// with the default values.
+	waitForNodeAnnUpdates(
+		aliceSub, dave.PubKeyStr, defaultDaveNodeAnn,
+	)
+
+	// Helper function to assert NodeAnnouncementUpdateResponse expected values
+	checkResponse := func(response *lnrpc.NodeAnnouncementUpdateResponse,
+		expectedOps map[string]int) {
+
+		if len(response.Ops) != len(expectedOps) {
+			t.Fatalf("unexpected number of Ops updating dave's node announcement: %v", response)
+		}
+
+		ops := make(map[string]int, len(response.Ops))
+		for _, op := range response.Ops {
+			ops[op.Entity] = len(op.Actions)
+		}
+
+		for k, v := range expectedOps {
+			if v != ops[k] {
+				t.Fatalf("unexpected number of actions for operation %s: "+
+					"got %d wanted %d", k, ops[k], v)
+			}
+		}
+	}
+
+	updateFeatureActions := []*lnrpc.UpdateFeatureAction{
+		{
+			// This one is alraedy activated by default, so
+			// it will not trigger any change
+			Action:     lnrpc.UpdateAction_ADD,
+			FeatureBit: lnrpc.FeatureBit_DATALOSS_PROTECT_REQ,
+		},
+		{
+			Action:     lnrpc.UpdateAction_ADD,
+			FeatureBit: lnrpc.FeatureBit_AMP_REQ,
+		},
+	}
+	newAddresses := []*lnrpc.NodeAddress{
+		{Addr: "192.168.1.10:8333", Network: "tcp"},
+		{Addr: "192.168.1.11:8333", Network: "tcp"},
+	}
+
+	updateAddressActions := []*lnrpc.UpdateAddressAction{
+		{
+			Action:  lnrpc.UpdateAction_ADD,
+			Address: newAddresses[0],
+		},
+		{
+			Action:  lnrpc.UpdateAction_ADD,
+			Address: newAddresses[1],
+		},
+	}
+
+	newColor := "#2288ee"
+	newAlias := "new-alias"
+
+	nodeAnnReq := &lnrpc.NodeAnnouncementUpdateRequest{
+		FeatureUpdates: updateFeatureActions,
+		Color:          newColor,
+		Alias:          newAlias,
+		AddressUpdates: updateAddressActions,
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	response, err := dave.UpdateNodeAnnouncement(ctxt, nodeAnnReq)
+	require.NoError(t.t, err, "unable to update dave's node announcement")
+
+	expectedOps := map[string]int{
+		"features":  1,
+		"color":     1,
+		"alias":     1,
+		"addresses": 2,
+	}
+	checkResponse(response, expectedOps)
+
+	// After updating the node we expect the update to contain
+	// the requested color, requested alias and the new added addresses
+	newDaveNodeAnn := &lnrpc.NodeUpdate{
+		Color: newColor,
+		Alias: newAlias,
+		NodeAddresses: []*lnrpc.NodeAddress{
+			{Addr: "127.0.0.1:5569", Network: "tcp"},
+			newAddresses[0],
+			newAddresses[1],
+		},
+	}
+
+	// We'll then wait for Alice to receive dave's node announcement
+	// with the new values.
+	waitForNodeAnnUpdates(
+		aliceSub, dave.PubKeyStr, newDaveNodeAnn,
+	)
+
+	// This time let's just request a change removing one address
+	nodeAnnReq = &lnrpc.NodeAnnouncementUpdateRequest{
+		FeatureUpdates: []*lnrpc.UpdateFeatureAction{
+			{
+				Action:     lnrpc.UpdateAction_REMOVE,
+				FeatureBit: lnrpc.FeatureBit_DATALOSS_PROTECT_REQ,
+			},
+			{
+				Action:     lnrpc.UpdateAction_REMOVE,
+				FeatureBit: lnrpc.FeatureBit_AMP_REQ,
+			},
+		},
+		AddressUpdates: []*lnrpc.UpdateAddressAction{
+			{
+				Action:  lnrpc.UpdateAction_REMOVE,
+				Address: newAddresses[0],
+			},
+		},
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	response, err = dave.UpdateNodeAnnouncement(ctxt, nodeAnnReq)
+	require.NoError(t.t, err, "unable to update dave's node announcement")
+
+	expectedOps = map[string]int{
+		"features":  2,
+		"addresses": 1,
+	}
+	checkResponse(response, expectedOps)
+
+	newDaveNodeAnn = &lnrpc.NodeUpdate{
+		Color: newColor,
+		Alias: newAlias,
+		NodeAddresses: []*lnrpc.NodeAddress{
+			{Addr: "127.0.0.1:5569", Network: "tcp"},
+			newAddresses[1],
+		},
+	}
+
+	// We'll then wait for Alice to receive dave's node announcement
+	// with the new values.
+	waitForNodeAnnUpdates(
+		aliceSub, dave.PubKeyStr, newDaveNodeAnn,
 	)
 
 	// Close the channel between Bob and Dave.

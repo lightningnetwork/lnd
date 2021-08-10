@@ -102,6 +102,8 @@ you.
 
 * [Flake fix in async bidirectional payment test](https://github.com/lightningnetwork/lnd/pull/5607).
 
+* [Fixed context timeout when closing channels in tests](https://github.com/lightningnetwork/lnd/pull/5616).
+
 * [Fixed a missing import and git tag in the healthcheck package](https://github.com/lightningnetwork/lnd/pull/5582).
 
 * [Fixed a data race in payment unit test](https://github.com/lightningnetwork/lnd/pull/5573).

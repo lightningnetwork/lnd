@@ -9,3 +9,4 @@
 - [ ] For bug fixes: If possible, code is accompanied by new tests which trigger the bug being fixed to prevent regressions
 - [ ] Any new logging statements use an appropriate subsystem and logging level
 - [ ] For code and documentation: lines are wrapped at 80 characters (the tab character should be counted as 8 characters, not 4, as some IDEs do per default)
+- [ ] A description of your changes [should be added to running the release notes](https://github.com/lightningnetwork/lnd/tree/master/docs/release-notes) for the milestone your change will land in.

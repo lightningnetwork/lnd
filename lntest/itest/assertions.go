@@ -1613,8 +1613,9 @@ func assertActiveHtlcs(nodes []*lntest.HarnessNode, payHashes ...[]byte) error {
 
 			// Channel should have exactly the payHashes active.
 			if len(payHashes) != len(htlcHashes) {
-				return fmt.Errorf("node %x had %v htlcs active, "+
-					"expected %v", node.PubKey[:],
+				return fmt.Errorf("node [%s:%x] had %v "+
+					"htlcs active, expected %v",
+					node.Cfg.Name, node.PubKey[:],
 					len(htlcHashes), len(payHashes))
 			}
 
@@ -1624,9 +1625,9 @@ func assertActiveHtlcs(nodes []*lntest.HarnessNode, payHashes ...[]byte) error {
 				if _, ok := htlcHashes[h]; ok {
 					continue
 				}
-				return fmt.Errorf("node %x didn't have the "+
-					"payHash %v active", node.PubKey[:],
-					h)
+				return fmt.Errorf("node [%s:%x] didn't have: "+
+					"the payHash %v active", node.Cfg.Name,
+					node.PubKey[:], h)
 			}
 		}
 	}

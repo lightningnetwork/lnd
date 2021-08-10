@@ -203,10 +203,13 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 	)
 }
 
-func closeChannelAndAssertType(ctx context.Context, t *harnessTest,
+func closeChannelAndAssertType(ctxb context.Context, t *harnessTest,
 	net *lntest.NetworkHarness, node *lntest.HarnessNode,
 	fundingChanPoint *lnrpc.ChannelPoint,
 	anchors, force bool) *chainhash.Hash {
+
+	ctxt, cancel := context.WithTimeout(ctxb, channelCloseTimeout)
+	defer cancel()
 
 	// Fetch the current channel policy. If the channel is currently
 	// enabled, we will register for graph notifications before closing to
@@ -221,13 +224,13 @@ func closeChannelAndAssertType(ctx context.Context, t *harnessTest,
 	// updates before initiating the channel closure.
 	var graphSub *graphSubscription
 	if expectDisable {
-		sub := subscribeGraphNotifications(ctx, t, node)
+		sub := subscribeGraphNotifications(ctxt, t, node)
 		graphSub = &sub
 		defer close(graphSub.quit)
 	}
 
 	closeUpdates, _, err := net.CloseChannel(
-		ctx, node, fundingChanPoint, force,
+		ctxt, node, fundingChanPoint, force,
 	)
 	require.NoError(t.t, err, "unable to close channel")
 
@@ -244,7 +247,7 @@ func closeChannelAndAssertType(ctx context.Context, t *harnessTest,
 	}
 
 	return assertChannelClosed(
-		ctx, t, net, node, fundingChanPoint, anchors, closeUpdates,
+		ctxt, t, net, node, fundingChanPoint, anchors, closeUpdates,
 	)
 }
 

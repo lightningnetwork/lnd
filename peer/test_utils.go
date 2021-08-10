@@ -380,7 +380,9 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 
 // mockMessageSwitch is a mock implementation of the messageSwitch interface
 // used for testing without relying on a *htlcswitch.Switch in unit tests.
-type mockMessageSwitch struct{}
+type mockMessageSwitch struct {
+	links []htlcswitch.ChannelUpdateHandler
+}
 
 // BestHeight currently returns a dummy value.
 func (m *mockMessageSwitch) BestHeight() uint32 {
@@ -402,11 +404,11 @@ func (m *mockMessageSwitch) CreateAndAddLink(cfg htlcswitch.ChannelLinkConfig,
 	return nil
 }
 
-// GetLinksByInterface currently returns dummy values.
+// GetLinksByInterface returns the active links.
 func (m *mockMessageSwitch) GetLinksByInterface(pub [33]byte) (
 	[]htlcswitch.ChannelUpdateHandler, error) {
 
-	return nil, nil
+	return m.links, nil
 }
 
 // mockUpdateHandler is a mock implementation of the ChannelUpdateHandler

@@ -5,6 +5,9 @@ import "github.com/go-errors/errors"
 var (
 	// ErrLinkShuttingDown signals that the link is shutting down.
 	ErrLinkShuttingDown = errors.New("link shutting down")
+
+	// ErrLinkFailedShutdown signals that a requested shutdown failed.
+	ErrLinkFailedShutdown = errors.New("link failed to shutdown")
 )
 
 // errorCode encodes the possible types of errors that will make us fail the

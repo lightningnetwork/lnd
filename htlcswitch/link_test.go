@@ -6532,6 +6532,91 @@ func TestPendingCommitTicker(t *testing.T) {
 	}
 }
 
+// TestShutdownIfChannelClean tests that a link will exit the htlcManager loop
+// if and only if the underlying channel state is clean.
+func TestShutdownIfChannelClean(t *testing.T) {
+	t.Parallel()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	const chanReserve = btcutil.SatoshiPerBitcoin * 1
+	aliceLink, bobChannel, batchTicker, start, cleanUp, _, err :=
+		newSingleLinkTestHarness(chanAmt, chanReserve)
+	require.NoError(t, err)
+
+	var (
+		coreLink  = aliceLink.(*channelLink)
+		aliceMsgs = coreLink.cfg.Peer.(*mockPeer).sentMsgs
+	)
+
+	shutdownAssert := func(expectedErr error) {
+		err = aliceLink.ShutdownIfChannelClean()
+		if expectedErr != nil {
+			require.Error(t, err, expectedErr)
+		} else {
+			require.NoError(t, err)
+		}
+	}
+
+	err = start()
+	require.NoError(t, err)
+	defer cleanUp()
+
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		bobChannel: bobChannel,
+		aliceMsgs:  aliceMsgs,
+	}
+
+	// First send an HTLC from Bob to Alice and assert that the link can't
+	// be shutdown while the update is outstanding.
+	htlc := generateHtlc(t, coreLink, 0)
+
+	// <---add-----
+	ctx.sendHtlcBobToAlice(htlc)
+	// <---sig-----
+	ctx.sendCommitSigBobToAlice(1)
+	// ----rev---->
+	ctx.receiveRevAndAckAliceToBob()
+	shutdownAssert(ErrLinkFailedShutdown)
+
+	// ----sig---->
+	ctx.receiveCommitSigAliceToBob(1)
+	shutdownAssert(ErrLinkFailedShutdown)
+
+	// <---rev-----
+	ctx.sendRevAndAckBobToAlice()
+	shutdownAssert(ErrLinkFailedShutdown)
+
+	// ---settle-->
+	ctx.receiveSettleAliceToBob()
+	shutdownAssert(ErrLinkFailedShutdown)
+
+	// ----sig---->
+	ctx.receiveCommitSigAliceToBob(0)
+	shutdownAssert(ErrLinkFailedShutdown)
+
+	// <---rev-----
+	ctx.sendRevAndAckBobToAlice()
+	shutdownAssert(ErrLinkFailedShutdown)
+
+	// <---sig-----
+	ctx.sendCommitSigBobToAlice(0)
+	shutdownAssert(ErrLinkFailedShutdown)
+
+	// ----rev---->
+	ctx.receiveRevAndAckAliceToBob()
+	shutdownAssert(nil)
+
+	// Now that the link has exited the htlcManager loop, attempt to
+	// trigger the batch ticker. It should not be possible.
+	select {
+	case batchTicker <- time.Now():
+		t.Fatalf("expected batch ticker to be inactive")
+	case <-time.After(5 * time.Second):
+	}
+}
+
 // assertFailureCode asserts that an error is of type ClearTextError and that
 // the failure code is as expected.
 func assertFailureCode(t *testing.T, err error, code lnwire.FailCode) {

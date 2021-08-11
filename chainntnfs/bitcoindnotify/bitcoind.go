@@ -157,6 +157,10 @@ func (b *BitcoindNotifier) startNotifier() error {
 	if err != nil {
 		return err
 	}
+	blockHeader, err := b.chainConn.GetBlockHeader(currentHash)
+	if err != nil {
+		return err
+	}
 
 	b.txNotifier = chainntnfs.NewTxNotifier(
 		uint32(currentHeight), chainntnfs.ReorgSafetyLimit,
@@ -164,8 +168,9 @@ func (b *BitcoindNotifier) startNotifier() error {
 	)
 
 	b.bestBlock = chainntnfs.BlockEpoch{
-		Height: currentHeight,
-		Hash:   currentHash,
+		Height:      currentHeight,
+		Hash:        currentHash,
+		BlockHeader: blockHeader,
 	}
 
 	b.wg.Add(1)
@@ -322,6 +327,7 @@ out:
 					b.notifyBlockEpochClient(
 						msg, b.bestBlock.Height,
 						b.bestBlock.Hash,
+						b.bestBlock.BlockHeader,
 					)
 
 					msg.errorChan <- nil
@@ -343,6 +349,7 @@ out:
 				for _, block := range missedBlocks {
 					b.notifyBlockEpochClient(
 						msg, block.Height, block.Hash,
+						block.BlockHeader,
 					)
 				}
 
@@ -392,8 +399,9 @@ out:
 				}
 
 				newBlock := chainntnfs.BlockEpoch{
-					Height: item.Height,
-					Hash:   &item.Hash,
+					Height:      item.Height,
+					Hash:        &item.Hash,
+					BlockHeader: blockHeader,
 				}
 				if err := b.handleBlockConnected(newBlock); err != nil {
 					chainntnfs.Log.Error(err)
@@ -589,26 +597,29 @@ func (b *BitcoindNotifier) handleBlockConnected(block chainntnfs.BlockEpoch) err
 	// satisfy any client requests based upon the new block.
 	b.bestBlock = block
 
-	b.notifyBlockEpochs(block.Height, block.Hash)
+	b.notifyBlockEpochs(block.Height, block.Hash, block.BlockHeader)
 	return b.txNotifier.NotifyHeight(uint32(block.Height))
 }
 
 // notifyBlockEpochs notifies all registered block epoch clients of the newly
 // connected block to the main chain.
-func (b *BitcoindNotifier) notifyBlockEpochs(newHeight int32, newSha *chainhash.Hash) {
+func (b *BitcoindNotifier) notifyBlockEpochs(newHeight int32, newSha *chainhash.Hash,
+	blockHeader *wire.BlockHeader) {
+
 	for _, client := range b.blockEpochClients {
-		b.notifyBlockEpochClient(client, newHeight, newSha)
+		b.notifyBlockEpochClient(client, newHeight, newSha, blockHeader)
 	}
 }
 
 // notifyBlockEpochClient sends a registered block epoch client a notification
 // about a specific block.
 func (b *BitcoindNotifier) notifyBlockEpochClient(epochClient *blockEpochRegistration,
-	height int32, sha *chainhash.Hash) {
+	height int32, sha *chainhash.Hash, header *wire.BlockHeader) {
 
 	epoch := &chainntnfs.BlockEpoch{
-		Height: height,
-		Hash:   sha,
+		Height:      height,
+		Hash:        sha,
+		BlockHeader: header,
 	}
 
 	select {

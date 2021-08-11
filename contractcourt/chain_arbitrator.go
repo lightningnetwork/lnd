@@ -158,6 +158,15 @@ type ChainArbitratorConfig struct {
 	// will use to notify the ChannelNotifier about a newly closed channel.
 	NotifyClosedChannel func(wire.OutPoint)
 
+	// NotifyFullyResolvedChannel is a function closure that the
+	// ChainArbitrator will use to notify the ChannelNotifier about a newly
+	// resolved channel. The main difference to NotifyClosedChannel is that
+	// in case of a local force close the NotifyClosedChannel is called when
+	// the published commitment transaction confirms while
+	// NotifyFullyResolvedChannel is only called when the channel is fully
+	// resolved (which includes sweeping any time locked funds).
+	NotifyFullyResolvedChannel func(point wire.OutPoint)
+
 	// OnionProcessor is used to decode onion payloads for on-chain
 	// resolution.
 	OnionProcessor OnionProcessor
@@ -366,6 +375,10 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 	}
 
 	arbCfg.MarkChannelResolved = func() error {
+		if c.cfg.NotifyFullyResolvedChannel != nil {
+			c.cfg.NotifyFullyResolvedChannel(chanPoint)
+		}
+
 		return c.ResolveContract(chanPoint)
 	}
 
@@ -566,6 +579,10 @@ func (c *ChainArbitrator) Start() error {
 			return err
 		}
 		arbCfg.MarkChannelResolved = func() error {
+			if c.cfg.NotifyFullyResolvedChannel != nil {
+				c.cfg.NotifyFullyResolvedChannel(chanPoint)
+			}
+
 			return c.ResolveContract(chanPoint)
 		}
 

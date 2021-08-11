@@ -29,6 +29,8 @@
 <time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.htlcSuccessResolver: Transaction rejected: output already spent
 <time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.htlcTimeoutResolver: htlcswitch shutting down
 <time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.htlcTimeoutResolver: TxNotifier is exiting
+<time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unexpected local commitment confirmed while in StateDefault
+<time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unexpected local on-chain channel close
 <time> [ERR] CNCT: *contractcourt.commitSweepResolver(<chan_point>): unable to sweep input: remote party swept utxo
 <time> [ERR] CNCT: Unable to advance state: channel not found
 <time> [ERR] CNCT: unable to hand breached contract off to breachArbiter: server is shutting down

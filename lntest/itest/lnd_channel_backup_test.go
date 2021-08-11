@@ -390,6 +390,35 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 				)
 			},
 		},
+
+		// Restore a channel that was force closed by dave just before
+		// going offline.
+		{
+			name: "restore force closed from backup file " +
+				"anchors",
+			initiator:       true,
+			private:         false,
+			anchorCommit:    true,
+			localForceClose: true,
+			restoreMethod: func(oldNode *lntest.HarnessNode,
+				backupFilePath string,
+				mnemonic []string) (nodeRestorer, error) {
+
+				// Read the entire Multi backup stored within
+				// this node's channels.backup file.
+				multi, err := ioutil.ReadFile(backupFilePath)
+				if err != nil {
+					return nil, err
+				}
+
+				// Now that we have Dave's backup file, we'll
+				// create a new nodeRestorer that will restore
+				// using the on-disk channels.backup.
+				return chanRestoreViaRPC(
+					net, password, mnemonic, multi, oldNode,
+				)
+			},
+		},
 	}
 
 	// TODO(roasbeef): online vs offline close?
@@ -578,15 +607,28 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 			ctxt, t, net, net.Alice, chanPoint, forceClose,
 		)
 
-		// We should get a single notification after closing, and the
-		// on-disk state should match this latest notifications.
-		assertBackupNtfns(1)
-		assertBackupFileState()
-
 		// If we force closed the channel, then we'll mine enough
 		// blocks to ensure all outputs have been swept.
 		if forceClose {
+			// A local force closed channel will trigger a
+			// notification once the commitment TX confirms on
+			// chain. But that won't remove the channel from the
+			// backup just yet, that will only happen once the time
+			// locked contract was fully resolved on chain.
+			assertBackupNtfns(1)
+
 			cleanupForceClose(t, net, net.Alice, chanPoint)
+
+			// Now that the channel's been fully resolved, we expect
+			// another notification.
+			assertBackupNtfns(1)
+			assertBackupFileState()
+		} else {
+			// We should get a single notification after closing,
+			// and the on-disk state should match this latest
+			// notifications.
+			assertBackupNtfns(1)
+			assertBackupFileState()
 		}
 	}
 }
@@ -793,6 +835,10 @@ type chanRestoreTestCase struct {
 	// producer format should also be created before restoring.
 	legacyRevocation bool
 
+	// localForceClose signals if the channel should be force closed by the
+	// node that is going to recover.
+	localForceClose bool
+
 	// restoreMethod takes an old node, then returns a function
 	// closure that'll return the same node, but with its state
 	// restored via a custom method. We use this to abstract away
@@ -869,6 +915,7 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 
 	// We will either open a confirmed or unconfirmed channel, depending on
 	// the requirements of the test case.
+	var chanPoint *lnrpc.ChannelPoint
 	switch {
 	case testCase.unconfirmed:
 		ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
@@ -903,7 +950,7 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 
 	default:
 		ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
-		chanPoint := openChannelAndAssert(
+		chanPoint = openChannelAndAssert(
 			ctxt, t, net, from, to,
 			lntest.OpenChannelParams{
 				Amt:     chanAmt,
@@ -944,6 +991,32 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 		if err != nil {
 			t.Fatalf("unable to complete payments: %v", err)
 		}
+	}
+
+	// If we're testing that locally force closed channels can be restored
+	// then we issue the force close now.
+	if testCase.localForceClose && chanPoint != nil {
+		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+		defer cancel()
+
+		_, err = dave.CloseChannel(ctxt, &lnrpc.CloseChannelRequest{
+			ChannelPoint: chanPoint,
+			Force:        true,
+		})
+		require.NoError(t.t, err)
+
+		// After closing the channel we mine one transaction to make
+		// sure the commitment TX was confirmed.
+		_ = mineBlocks(t, net, 1, 1)
+
+		// Now we need to make sure that the channel is still in the
+		// backup. Otherwise restoring won't work later.
+		_, err = dave.ExportChannelBackup(
+			ctxt, &lnrpc.ExportChannelBackupRequest{
+				ChanPoint: chanPoint,
+			},
+		)
+		require.NoError(t.t, err)
 	}
 
 	// Before we start the recovery, we'll record the balances of both
@@ -1007,6 +1080,30 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	}, defaultTimeout)
 	if err != nil {
 		t.Fatalf("On-chain balance not restored: %v", err)
+	}
+
+	// For our force close scenario we don't need the channel to be closed
+	// by Carol since it was already force closed before we started the
+	// recovery. All we need is for Carol to send us over the commit height
+	// so we can sweep the time locked output with the correct commit point.
+	if testCase.localForceClose {
+		assertNumPendingChannels(t, dave, 0, 1)
+
+		err = restartCarol()
+		require.NoError(t.t, err)
+
+		// Now that we have our new node up, we expect that it'll
+		// re-connect to Carol automatically based on the restored
+		// backup.
+		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		net.EnsureConnected(ctxt, t.t, dave, carol)
+
+		assertTimeLockSwept(
+			net, t, carol, carolStartingBalance, dave,
+			daveStartingBalance, testCase.anchorCommit,
+		)
+
+		return
 	}
 
 	// We now check that the restored channel is in the proper state. It

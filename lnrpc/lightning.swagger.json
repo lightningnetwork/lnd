@@ -2327,7 +2327,8 @@
         "CLOSED_CHANNEL",
         "ACTIVE_CHANNEL",
         "INACTIVE_CHANNEL",
-        "PENDING_OPEN_CHANNEL"
+        "PENDING_OPEN_CHANNEL",
+        "FULLY_RESOLVED_CHANNEL"
       ],
       "default": "OPEN_CHANNEL"
     },
@@ -3305,6 +3306,9 @@
         },
         "pending_open_channel": {
           "$ref": "#/definitions/lnrpcPendingUpdate"
+        },
+        "fully_resolved_channel": {
+          "$ref": "#/definitions/lnrpcChannelPoint"
         },
         "type": {
           "$ref": "#/definitions/ChannelEventUpdateUpdateType"

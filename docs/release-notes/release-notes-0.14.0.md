@@ -121,6 +121,10 @@ you.
 * [Update MC store in blocks](https://github.com/lightningnetwork/lnd/pull/5515)
   to make payment throughput better when using etcd.
 
+* [The `lnwire` package now uses a write buffer pool](https://github.com/lightningnetwork/lnd/pull/4884)
+  when encoding/decoding messages. Such that most of the heap escapes are fixed,
+  resulting in less memory being used when running `lnd`.
+
 ## Bug Fixes
 
 A bug has been fixed that would cause `lnd` to [try to bootstrap using the

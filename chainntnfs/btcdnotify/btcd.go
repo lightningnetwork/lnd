@@ -206,14 +206,22 @@ func (b *BtcdNotifier) startNotifier() error {
 		return err
 	}
 
+	bestBlock, err := b.chainConn.GetBlock(currentHash)
+	if err != nil {
+		b.txUpdates.Stop()
+		b.chainUpdates.Stop()
+		return err
+	}
+
 	b.txNotifier = chainntnfs.NewTxNotifier(
 		uint32(currentHeight), chainntnfs.ReorgSafetyLimit,
 		b.confirmHintCache, b.spendHintCache,
 	)
 
 	b.bestBlock = chainntnfs.BlockEpoch{
-		Height: currentHeight,
-		Hash:   currentHash,
+		Height:      currentHeight,
+		Hash:        currentHash,
+		BlockHeader: &bestBlock.Header,
 	}
 
 	if err := b.chainConn.NotifyBlocks(); err != nil {
@@ -375,6 +383,7 @@ out:
 					b.notifyBlockEpochClient(
 						msg, b.bestBlock.Height,
 						b.bestBlock.Hash,
+						b.bestBlock.BlockHeader,
 					)
 
 					msg.errorChan <- nil
@@ -396,6 +405,7 @@ out:
 				for _, block := range missedBlocks {
 					b.notifyBlockEpochClient(
 						msg, block.Height, block.Hash,
+						block.BlockHeader,
 					)
 				}
 
@@ -405,8 +415,9 @@ out:
 		case item := <-b.chainUpdates.ChanOut():
 			update := item.(*chainUpdate)
 			if update.connect {
-				blockHeader, err :=
-					b.chainConn.GetBlockHeader(update.blockHash)
+				blockHeader, err := b.chainConn.GetBlockHeader(
+					update.blockHash,
+				)
 				if err != nil {
 					chainntnfs.Log.Errorf("Unable to fetch "+
 						"block header: %v", err)
@@ -445,8 +456,9 @@ out:
 				}
 
 				newBlock := chainntnfs.BlockEpoch{
-					Height: update.blockHeight,
-					Hash:   update.blockHash,
+					Height:      update.blockHeight,
+					Hash:        update.blockHash,
+					BlockHeader: blockHeader,
 				}
 				if err := b.handleBlockConnected(newBlock); err != nil {
 					chainntnfs.Log.Error(err)
@@ -654,26 +666,34 @@ func (b *BtcdNotifier) handleBlockConnected(epoch chainntnfs.BlockEpoch) error {
 	// satisfy any client requests based upon the new block.
 	b.bestBlock = epoch
 
-	b.notifyBlockEpochs(epoch.Height, epoch.Hash)
+	b.notifyBlockEpochs(
+		epoch.Height, epoch.Hash, epoch.BlockHeader,
+	)
+
 	return b.txNotifier.NotifyHeight(uint32(epoch.Height))
 }
 
 // notifyBlockEpochs notifies all registered block epoch clients of the newly
 // connected block to the main chain.
-func (b *BtcdNotifier) notifyBlockEpochs(newHeight int32, newSha *chainhash.Hash) {
+func (b *BtcdNotifier) notifyBlockEpochs(newHeight int32,
+	newSha *chainhash.Hash, blockHeader *wire.BlockHeader) {
+
 	for _, client := range b.blockEpochClients {
-		b.notifyBlockEpochClient(client, newHeight, newSha)
+		b.notifyBlockEpochClient(
+			client, newHeight, newSha, blockHeader,
+		)
 	}
 }
 
 // notifyBlockEpochClient sends a registered block epoch client a notification
 // about a specific block.
 func (b *BtcdNotifier) notifyBlockEpochClient(epochClient *blockEpochRegistration,
-	height int32, sha *chainhash.Hash) {
+	height int32, sha *chainhash.Hash, blockHeader *wire.BlockHeader) {
 
 	epoch := &chainntnfs.BlockEpoch{
-		Height: height,
-		Hash:   sha,
+		Height:      height,
+		Hash:        sha,
+		BlockHeader: blockHeader,
 	}
 
 	select {

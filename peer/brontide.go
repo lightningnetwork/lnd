@@ -1368,6 +1368,8 @@ out:
 			atomic.StoreInt64(&p.pingTime, delay)
 
 		case *lnwire.Ping:
+			// TODO(roasbeef): get from buffer pool somewhere? ends
+			// up w/ lots of small allocations
 			pongBytes := make([]byte, msg.NumPongBytes)
 			p.queueMsg(lnwire.NewPong(pongBytes), nil)
 
@@ -1983,13 +1985,44 @@ func (p *Brontide) pingHandler() {
 	defer pingTicker.Stop()
 
 	// TODO(roasbeef): make dynamic in order to create fake cover traffic
-	const numPingBytes = 16
+	const numPongBytes = 16
 
+	blockEpochs, err := p.cfg.ChainNotifier.RegisterBlockEpochNtfn(nil)
+	if err != nil {
+		peerLog.Errorf("unable to establish block epoch "+
+			"subscription: %v", err)
+	}
+
+	var (
+		pingPayload [wire.MaxBlockHeaderPayload]byte
+		blockHeader *wire.BlockHeader
+	)
 out:
 	for {
 		select {
+		// Each time a new block comes in, we'll copy the raw header
+		// contents over to our ping payload declared above. Over time,
+		// we'll use this to disseminate the latest block header
+		// between all our peers, which can later be used to
+		// cross-check our own view of the network to mitigate various
+		// types of eclipse attacks.
+		case epoch := <-blockEpochs.Epochs:
+			blockHeader = epoch.BlockHeader
+			headerBuf := bytes.NewBuffer(pingPayload[0:0])
+			err := blockHeader.Serialize(headerBuf)
+			if err != nil {
+				peerLog.Errorf("unable to encode header: %v",
+					err)
+			}
+
 		case <-pingTicker.C:
-			p.queueMsg(lnwire.NewPing(numPingBytes), nil)
+
+			pingMsg := &lnwire.Ping{
+				NumPongBytes: numPongBytes,
+				PaddingBytes: pingPayload[:],
+			}
+
+			p.queueMsg(pingMsg, nil)
 		case <-p.quit:
 			break out
 		}

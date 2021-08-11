@@ -521,7 +521,7 @@ func (hn *HarnessNode) TLSKeyStr() string {
 	return hn.Cfg.TLSKeyPath
 }
 
-// ChanBackupPath returns the fielpath to the on-disk channels.backup file for
+// ChanBackupPath returns the fielpath to the on-disk channel.backup file for
 // this node.
 func (hn *HarnessNode) ChanBackupPath() string {
 	return hn.Cfg.ChanBackupPath()

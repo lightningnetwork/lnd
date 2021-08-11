@@ -79,7 +79,7 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 				mnemonic []string) (nodeRestorer, error) {
 
 				// Read the entire Multi backup stored within
-				// this node's channels.backup file.
+				// this node's channel.backup file.
 				multi, err := ioutil.ReadFile(backupFilePath)
 				if err != nil {
 					return nil, err
@@ -87,7 +87,7 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 
 				// Now that we have Dave's backup file, we'll
 				// create a new nodeRestorer that will restore
-				// using the on-disk channels.backup.
+				// using the on-disk channel.backup.
 				return chanRestoreViaRPC(
 					net, password, mnemonic, multi, oldNode,
 				)
@@ -190,7 +190,7 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 				mnemonic []string) (nodeRestorer, error) {
 
 				// Read the entire Multi backup stored within
-				// this node's channels.backup file.
+				// this node's channel.backup file.
 				multi, err := ioutil.ReadFile(backupFilePath)
 				if err != nil {
 					return nil, err
@@ -198,7 +198,7 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 
 				// Now that we have Dave's backup file, we'll
 				// create a new nodeRestorer that will restore
-				// using the on-disk channels.backup.
+				// using the on-disk channel.backup.
 				backup := &lnrpc.RestoreChanBackupRequest_MultiChanBackup{
 					MultiChanBackup: multi,
 				}
@@ -258,7 +258,7 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 				mnemonic []string) (nodeRestorer, error) {
 
 				// Read the entire Multi backup stored within
-				// this node's channels.backup file.
+				// this node's channel.backup file.
 				multi, err := ioutil.ReadFile(backupFilePath)
 				if err != nil {
 					return nil, err
@@ -345,7 +345,7 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 				mnemonic []string) (nodeRestorer, error) {
 
 				// Read the entire Multi backup stored within
-				// this node's channels.backup file.
+				// this node's channel.backup file.
 				multi, err := ioutil.ReadFile(backupFilePath)
 				if err != nil {
 					return nil, err
@@ -353,7 +353,7 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 
 				// Now that we have Dave's backup file, we'll
 				// create a new nodeRestorer that will restore
-				// using the on-disk channels.backup.
+				// using the on-disk channel.backup.
 				return chanRestoreViaRPC(
 					net, password, mnemonic, multi, oldNode,
 				)
@@ -405,7 +405,7 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 				mnemonic []string) (nodeRestorer, error) {
 
 				// Read the entire Multi backup stored within
-				// this node's channels.backup file.
+				// this node's channel.backup file.
 				multi, err := ioutil.ReadFile(backupFilePath)
 				if err != nil {
 					return nil, err
@@ -413,7 +413,7 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 
 				// Now that we have Dave's backup file, we'll
 				// create a new nodeRestorer that will restore
-				// using the on-disk channels.backup.
+				// using the on-disk channel.backup.
 				return chanRestoreViaRPC(
 					net, password, mnemonic, multi, oldNode,
 				)
@@ -443,7 +443,7 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 }
 
 // testChannelBackupUpdates tests that both the streaming channel update RPC,
-// and the on-disk channels.backup are updated each time a channel is
+// and the on-disk channel.backup are updated each time a channel is
 // opened/closed.
 func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()

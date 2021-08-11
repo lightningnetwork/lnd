@@ -302,6 +302,9 @@ type BlockEpoch struct {
 	// Height is the height of the latest block to be added to the tip of
 	// the main chain.
 	Height int32
+
+	// BlockHeader is the block header of this new height.
+	BlockHeader *wire.BlockHeader
 }
 
 // BlockEpochEvent encapsulates an on-going stream of block epoch

@@ -112,6 +112,8 @@ you.
 * Locally force closed channels are now [kept in the channel.backup file until
   their time lock has fully matured](https://github.com/lightningnetwork/lnd/pull/5528).
 
+* [Cooperative closes optimistically shutdown the associated `link` before closing the channel.](https://github.com/lightningnetwork/lnd/pull/5618)
+
 ## Build System
 
 * [A new pre-submit check has been

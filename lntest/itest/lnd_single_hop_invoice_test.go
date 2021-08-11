@@ -243,6 +243,5 @@ func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 			hopHint.CltvExpiryDelta)
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
 }

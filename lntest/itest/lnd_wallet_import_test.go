@@ -524,9 +524,7 @@ func fundChanAndCloseFromImportedAccount(t *harnessTest, srcNode, destNode,
 	require.NoError(t.t, err)
 
 	// Now that we've confirmed the opened channel works, we'll close it.
-	ctxt, cancel = context.WithTimeout(ctxb, channelCloseTimeout)
-	defer cancel()
-	closeChannelAndAssert(ctxt, t, t.lndHarness, srcNode, chanPoint, false)
+	closeChannelAndAssert(t, t.lndHarness, srcNode, chanPoint, false)
 
 	// Since the channel still had funds left on the source node's side,
 	// they must've been redeemed after the close. Without a pre-negotiated

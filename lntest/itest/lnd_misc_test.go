@@ -153,8 +153,7 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 		OutputIndex: pendingUpdate.OutputIndex,
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, alice, chanPoint, true)
+	closeChannelAndAssert(t, net, alice, chanPoint, true)
 
 	// Disconnect Alice-peer from Bob-peer without getting error about
 	// existing channels.
@@ -351,8 +350,7 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf(err.Error())
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, carol, chanPoint, true)
+	closeChannelAndAssert(t, net, carol, chanPoint, true)
 
 	// Cleanup by mining the force close and sweep transaction.
 	cleanupForceClose(t, net, carol, chanPoint)
@@ -605,8 +603,7 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// Next, close the channel between Alice and Carol, asserting that the
 	// channel has been properly closed on-chain.
 	for _, chanPoint := range chanPoints {
-		ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-		closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+		closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
 	}
 }
 
@@ -760,15 +757,13 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 	// Now, we'll close the channel between Alice and Bob and ensure there
 	// is no reconnection logic between the both once the channel is fully
 	// closed.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, coopChanPoint, false)
+	closeChannelAndAssert(t, net, net.Alice, coopChanPoint, false)
 
 	testReconnection(net.Bob)
 
 	// We'll do the same with Alice and Carol, but this time we'll force
 	// close the channel instead.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, forceCloseChanPoint, true)
+	closeChannelAndAssert(t, net, net.Alice, forceCloseChanPoint, true)
 
 	// Cleanup by mining the force close and sweep transaction.
 	cleanupForceClose(t, net, net.Alice, forceCloseChanPoint)
@@ -843,8 +838,7 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Now that the test is done, we can also close the persistent link.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, persistentChanPoint, false)
+	closeChannelAndAssert(t, net, net.Alice, persistentChanPoint, false)
 }
 
 // testDataLossProtection tests that if one of the nodes in a channel
@@ -1076,8 +1070,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 	carolStartingBalance = carolBalResp.ConfirmedBalance
 
 	// Now let Carol force close the channel while Dave is offline.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, carol, chanPoint2, true)
+	closeChannelAndAssert(t, net, carol, chanPoint2, true)
 
 	// Wait for the channel to be marked pending force close.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -1299,10 +1292,8 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 	assertLastHTLCError(t, net.Alice, lnrpc.Failure_CHANNEL_DISABLED)
 
 	// Close all channels.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, false)
+	closeChannelAndAssert(t, net, carol, chanPointCarol, false)
 }
 
 func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {
@@ -1377,8 +1368,7 @@ func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Close the channel between alice and bob.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, aliceBobCh, false)
+	closeChannelAndAssert(t, net, net.Alice, aliceBobCh, false)
 }
 
 // testSendUpdateDisableChannel ensures that a channel update with the disable
@@ -1734,8 +1724,7 @@ func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	// Now that we're done with the test, the channel can be closed. This
 	// is necessary to avoid unexpected outcomes of other tests that use
 	// Bob's lnd instance.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPoint, true)
+	closeChannelAndAssert(t, net, net.Bob, chanPoint, true)
 
 	// Cleanup by mining the force close and sweep transaction.
 	cleanupForceClose(t, net, net.Bob, chanPoint)

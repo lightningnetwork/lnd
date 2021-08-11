@@ -349,11 +349,9 @@ func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness, t *harnessTe
 	// Close the channels between Alice and Bob, asserting that the channels
 	// have been properly closed on-chain.
 	for i, chanPoint := range chanPoints {
-		ctx, _ := context.WithTimeout(context.Background(), defaultTimeout)
-
 		// Force close the first of the two channels.
 		force := i%2 == 0
-		closeChannelAndAssert(ctx, t, net, net.Alice, chanPoint, force)
+		closeChannelAndAssert(t, net, net.Alice, chanPoint, force)
 		if force {
 			cleanupForceClose(t, net, net.Alice, chanPoint)
 		}

@@ -159,8 +159,7 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 			len(paymentsRespInit.Payments), 0)
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
 }
 
 // testPaymentFollowingChannelOpen tests that the channel transition from
@@ -250,9 +249,7 @@ func testPaymentFollowingChannelOpen(net *lntest.NetworkHarness, t *harnessTest)
 		},
 		OutputIndex: pendingUpdate.OutputIndex,
 	}
-	ctxt, cancel = context.WithTimeout(ctxb, channelCloseTimeout)
-	defer cancel()
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
 }
 
 // testAsyncPayments tests the performance of the async payments.
@@ -417,8 +414,7 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// Finally, immediately close the channel. This function will also
 	// block until the channel is closed and will additionally assert the
 	// relevant channel closing post conditions.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
 }
 
 // testBidirectionalAsyncPayments tests that nodes are able to send the
@@ -613,8 +609,7 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 	// Finally, immediately close the channel. This function will also
 	// block until the channel is closed and will additionally assert the
 	// relevant channel closing post conditions.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
 }
 
 func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {
@@ -846,6 +841,5 @@ func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("not all invoices settled")
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
 }

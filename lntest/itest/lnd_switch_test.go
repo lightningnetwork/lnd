@@ -295,12 +295,9 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	assertAmountPaid(t, "Bob(local) => Alice(remote)", net.Bob,
 		aliceFundPoint, amountPaid+(baseFee*(numPayments+1))*2, int64(0))
 
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, dave, chanPointDave, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, false)
+	closeChannelAndAssert(t, net, dave, chanPointDave, false)
+	closeChannelAndAssert(t, net, carol, chanPointCarol, false)
 }
 
 // testSwitchOfflineDelivery constructs a set of multihop payments, and tests
@@ -615,12 +612,9 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	assertAmountPaid(t, "Bob(local) => Alice(remote)", net.Bob,
 		aliceFundPoint, amountPaid+(baseFee*(numPayments+1))*2, int64(0))
 
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, dave, chanPointDave, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, false)
+	closeChannelAndAssert(t, net, dave, chanPointDave, false)
+	closeChannelAndAssert(t, net, carol, chanPointCarol, false)
 }
 
 // testSwitchOfflineDeliveryPersistence constructs a set of multihop payments,
@@ -921,12 +915,9 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	assertAmountPaid(t, "Bob(local) => Alice(remote)", net.Bob,
 		aliceFundPoint, amountPaid+(baseFee*(numPayments+1))*2, int64(0))
 
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, dave, chanPointDave, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, false)
+	closeChannelAndAssert(t, net, dave, chanPointDave, false)
+	closeChannelAndAssert(t, net, carol, chanPointCarol, false)
 }
 
 // testSwitchOfflineDeliveryOutgoingOffline constructs a set of multihop payments,
@@ -1185,8 +1176,6 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	assertAmountPaid(t, "Bob(local) => Alice(remote)", net.Bob,
 		aliceFundPoint, amountPaid+(baseFee*numPayments)*2, int64(0))
 
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, dave, chanPointDave, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, false)
+	closeChannelAndAssert(t, net, dave, chanPointDave, false)
 }

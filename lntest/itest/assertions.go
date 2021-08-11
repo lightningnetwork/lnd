@@ -194,20 +194,21 @@ func waitForGraphSync(t *harnessTest, node *lntest.HarnessNode) {
 // NOTE: This method assumes that the provided funding point is confirmed
 // on-chain AND that the edge exists in the node's channel graph. If the funding
 // transactions was reorged out at some point, use closeReorgedChannelAndAssert.
-func closeChannelAndAssert(ctx context.Context, t *harnessTest,
-	net *lntest.NetworkHarness, node *lntest.HarnessNode,
-	fundingChanPoint *lnrpc.ChannelPoint, force bool) *chainhash.Hash {
+func closeChannelAndAssert(t *harnessTest, net *lntest.NetworkHarness,
+	node *lntest.HarnessNode, fundingChanPoint *lnrpc.ChannelPoint,
+	force bool) *chainhash.Hash {
 
 	return closeChannelAndAssertType(
-		ctx, t, net, node, fundingChanPoint, false, force,
+		t, net, node, fundingChanPoint, false, force,
 	)
 }
 
-func closeChannelAndAssertType(ctxb context.Context, t *harnessTest,
+func closeChannelAndAssertType(t *harnessTest,
 	net *lntest.NetworkHarness, node *lntest.HarnessNode,
 	fundingChanPoint *lnrpc.ChannelPoint,
 	anchors, force bool) *chainhash.Hash {
 
+	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, channelCloseTimeout)
 	defer cancel()
 

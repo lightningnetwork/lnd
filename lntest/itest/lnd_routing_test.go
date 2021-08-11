@@ -429,8 +429,7 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 	assertAmountPaid(t, "Carol(local) => Dave(remote)", carol,
 		carolFundPoint, amountPaid, int64(0))
 
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
+	closeChannelAndAssert(t, net, carol, chanPointCarol, false)
 }
 
 // testMultiHopSendToRoute tests that payments are properly processed
@@ -606,10 +605,8 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 	assertAmountPaid(t, "Alice(local) => Bob(remote)", net.Alice,
 		aliceFundPoint, amountPaid+(baseFee*numPayments), int64(0))
 
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, carol, chanPointBob, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, false)
+	closeChannelAndAssert(t, net, carol, chanPointBob, false)
 }
 
 // testSendToRouteErrorPropagation tests propagation of errors that occur
@@ -723,10 +720,8 @@ func testSendToRouteErrorPropagation(net *lntest.NetworkHarness, t *harnessTest)
 		t.Fatalf("payment stream has been closed but fake route has consumed: %v", err)
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, false)
+	closeChannelAndAssert(t, net, carol, chanPointCarol, false)
 }
 
 // testPrivateChannels tests that a private channel can be used for
@@ -1046,14 +1041,10 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Close all channels.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, dave, chanPointDave, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, carol, chanPointPrivate, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, false)
+	closeChannelAndAssert(t, net, dave, chanPointDave, false)
+	closeChannelAndAssert(t, net, carol, chanPointCarol, false)
+	closeChannelAndAssert(t, net, carol, chanPointPrivate, false)
 }
 
 // testUpdateChannelPolicyForPrivateChannel tests when a private channel
@@ -1082,9 +1073,7 @@ func testUpdateChannelPolicyForPrivateChannel(net *lntest.NetworkHarness,
 			Amt: chanAmt,
 		},
 	)
-	defer closeChannelAndAssert(
-		ctxt, t, net, net.Alice, chanPointAliceBob, false,
-	)
+	defer closeChannelAndAssert(t, net, net.Alice, chanPointAliceBob, false)
 
 	// Get Alice's funding point.
 	aliceChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointAliceBob)
@@ -1111,9 +1100,7 @@ func testUpdateChannelPolicyForPrivateChannel(net *lntest.NetworkHarness,
 			Private: true,
 		},
 	)
-	defer closeChannelAndAssert(
-		ctxt, t, net, net.Bob, chanPointBobCarol, false,
-	)
+	defer closeChannelAndAssert(t, net, net.Bob, chanPointBobCarol, false)
 
 	// Get Bob's funding point.
 	bobChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointBobCarol)
@@ -1393,19 +1380,14 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Now that we've confirmed the routing hints were added correctly, we
 	// can close all the channels and shut down all the nodes created.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointBob, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointCarol, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPointBobCarol, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointDave, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPointBob, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPointCarol, false)
+	closeChannelAndAssert(t, net, net.Bob, chanPointBobCarol, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPointDave, false)
 
 	// The channel between Alice and Eve should be force closed since Eve
 	// is offline.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointEve, true)
+	closeChannelAndAssert(t, net, net.Alice, chanPointEve, true)
 
 	// Cleanup by mining the force close and sweep transaction.
 	cleanupForceClose(t, net, net.Alice, chanPointEve)
@@ -1609,12 +1591,9 @@ func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest)
 
 	// At this point, the payment was successful. We can now close all the
 	// channels and shutdown the nodes created throughout this test.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPointBob, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, false)
+	closeChannelAndAssert(t, net, net.Bob, chanPointBob, false)
+	closeChannelAndAssert(t, net, carol, chanPointCarol, false)
 }
 
 // computeFee calculates the payment fee as specified in BOLT07
@@ -1800,12 +1779,9 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// We clean up the test case by closing channels that were created for
 	// the duration of the tests.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPointBob, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, false)
+	closeChannelAndAssert(t, net, net.Bob, chanPointBob, false)
+	closeChannelAndAssert(t, net, carol, chanPointCarol, false)
 }
 
 // testMissionControlCfg tests getting and setting of a node's mission control
@@ -2165,12 +2141,8 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Once we're done, close the channels and shut down the nodes created
 	// throughout this test.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAliceBob, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAliceCarol, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPointBobDave, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarolDave, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPointAliceBob, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPointAliceCarol, false)
+	closeChannelAndAssert(t, net, net.Bob, chanPointBobDave, false)
+	closeChannelAndAssert(t, net, carol, chanPointCarolDave, false)
 }

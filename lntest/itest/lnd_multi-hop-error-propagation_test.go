@@ -401,12 +401,10 @@ out:
 	// Finally, immediately close the channel. This function will also
 	// block until the channel is closed and will additionally assert the
 	// relevant channel closing post conditions.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, false)
 
 	// Force close Bob's final channel.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPointBob, true)
+	closeChannelAndAssert(t, net, net.Bob, chanPointBob, true)
 
 	// Cleanup by mining the force close and sweep transaction.
 	cleanupForceClose(t, net, net.Bob, chanPointBob)

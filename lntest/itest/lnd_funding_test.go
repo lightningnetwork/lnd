@@ -245,8 +245,7 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 		// Finally, immediately close the channel. This function will
 		// also block until the channel is closed and will additionally
 		// assert the relevant channel closing post conditions.
-		ctxt, _ := context.WithTimeout(ctxb, channelCloseTimeout)
-		closeChannelAndAssert(ctxt, t, net, alice, chanPoint, false)
+		closeChannelAndAssert(t, net, alice, chanPoint, false)
 	}
 
 	return aliceChannel.Channels[0], bobChannel.Channels[0], closeChan, nil
@@ -373,8 +372,7 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	checkChannelBalance(net.Alice, pushAmt, carolLocalBalance, 0, 0)
 
 	// Now that we're done with the test, the channel can be closed.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, carol, chanPoint, false)
+	closeChannelAndAssert(t, net, carol, chanPoint, false)
 }
 
 // testexternalfundingchanpoint tests that we're able to carry out a normal
@@ -477,8 +475,7 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Next we'll try but this time with Dave (the responder) as the
 	// initiator. This time the channel should be closed as normal.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, dave, chanPoint2, false)
+	closeChannelAndAssert(t, net, dave, chanPoint2, false)
 
 	// As a last step, we check if we still have the pending channel hanging
 	// around because we never published the funding TX.
@@ -659,8 +656,7 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 		OutputIndex: pendingUpdate.OutputIndex,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
 }
 
 // deriveFundingShim creates a channel funding shim by deriving the necessary

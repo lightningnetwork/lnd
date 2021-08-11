@@ -126,8 +126,7 @@ func testMaxHtlcPathfind(net *lntest.NetworkHarness, t *harnessTest) {
 	}, 0)
 	require.NoError(t.t, err, "expected all htlcs canceled")
 
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
 }
 
 type holdSubscription struct {

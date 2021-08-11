@@ -177,7 +177,7 @@ type Config struct {
 
 	// Switch is a pointer to the htlcswitch. It is used to setup, get, and
 	// tear-down ChannelLinks.
-	Switch *htlcswitch.Switch
+	Switch messageSwitch
 
 	// InterceptSwitch is a pointer to the InterceptableSwitch, a wrapper around
 	// the regular Switch. We only export it here to pass ForwardPackets to the
@@ -813,7 +813,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		FetchLastChannelUpdate:  p.cfg.FetchLastChanUpdate,
 		HodlMask:                p.cfg.Hodl.Mask(),
 		Registry:                p.cfg.Invoices,
-		Switch:                  p.cfg.Switch,
+		BestHeight:              p.cfg.Switch.BestHeight,
 		Circuits:                p.cfg.Switch.CircuitModifier(),
 		ForwardPackets:          p.cfg.InterceptSwitch.ForwardPackets,
 		FwrdingPolicy:           *forwardingPolicy,
@@ -841,18 +841,17 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		HtlcNotifier:            p.cfg.HtlcNotifier,
 	}
 
-	link := htlcswitch.NewChannelLink(linkCfg, lnChan)
-
 	// Before adding our new link, purge the switch of any pending or live
 	// links going by the same channel id. If one is found, we'll shut it
 	// down to ensure that the mailboxes are only ever under the control of
 	// one link.
-	p.cfg.Switch.RemoveLink(link.ChanID())
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	p.cfg.Switch.RemoveLink(chanID)
 
 	// With the channel link created, we'll now notify the htlc switch so
 	// this channel can be used to dispatch local payments and also
 	// passively forward payments.
-	return p.cfg.Switch.AddLink(link)
+	return p.cfg.Switch.CreateAndAddLink(linkCfg, lnChan)
 }
 
 // maybeSendNodeAnn sends our node announcement to the remote peer if at least
@@ -1142,7 +1141,7 @@ func (ms *msgStream) AddMsg(msg lnwire.Message) {
 // ChannelLink to pass messages to. It accomplishes this by subscribing to
 // an ActiveLinkEvent which is emitted by the link when it first starts up.
 func waitUntilLinkActive(p *Brontide,
-	cid lnwire.ChannelID) htlcswitch.ChannelLink {
+	cid lnwire.ChannelID) htlcswitch.ChannelUpdateHandler {
 
 	// Subscribe to receive channel events.
 	//
@@ -1164,9 +1163,11 @@ func waitUntilLinkActive(p *Brontide,
 
 	// The link may already be active by this point, and we may have missed the
 	// ActiveLinkEvent. Check if the link exists.
-	link, _ := p.cfg.Switch.GetLink(cid)
-	if link != nil {
-		return link
+	links, _ := p.cfg.Switch.GetLinksByInterface(p.cfg.PubKeyBytes)
+	for _, link := range links {
+		if link.ChanID() == cid {
+			return link
+		}
 	}
 
 	// If the link is nil, we must wait for it to be active.
@@ -1194,8 +1195,16 @@ func waitUntilLinkActive(p *Brontide,
 			// The link shouldn't be nil as we received an
 			// ActiveLinkEvent. If it is nil, we return nil and the
 			// calling function should catch it.
-			link, _ = p.cfg.Switch.GetLink(cid)
-			return link
+			links, _ = p.cfg.Switch.GetLinksByInterface(
+				p.cfg.PubKeyBytes,
+			)
+			for _, link := range links {
+				if link.ChanID() == cid {
+					return link
+				}
+			}
+
+			return nil
 
 		case <-p.quit:
 			return nil
@@ -1211,7 +1220,7 @@ func waitUntilLinkActive(p *Brontide,
 // lookups.
 func newChanMsgStream(p *Brontide, cid lnwire.ChannelID) *msgStream {
 
-	var chanLink htlcswitch.ChannelLink
+	var chanLink htlcswitch.ChannelUpdateHandler
 
 	apply := func(msg lnwire.Message) {
 		// This check is fine because if the link no longer exists, it will

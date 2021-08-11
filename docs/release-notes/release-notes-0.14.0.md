@@ -85,6 +85,8 @@ you.
 
 ## Code cleanup, refactor, typo fixes
 
+* [Refactor the interaction between the `htlcswitch` and `peer` packages for cleaner separation.](https://github.com/lightningnetwork/lnd/pull/5603)
+
 * [Unused error check 
   removed](https://github.com/lightningnetwork/lnd/pull/5537).
 
@@ -147,6 +149,7 @@ change](https://github.com/lightningnetwork/lnd/pull/5613).
 # Contributors (Alphabetical Order)
 * Andras Banki-Horvath
 * ErikEk
+* Eugene Siegel
 * Martin Habovstiak
 * Zero-1729
 * Oliver Gugger

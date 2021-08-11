@@ -706,12 +706,12 @@ func newMockChannelLink(htlcSwitch *Switch, chanID lnwire.ChannelID,
 	}
 }
 
-func (f *mockChannelLink) HandleSwitchPacket(pkt *htlcPacket) error {
+func (f *mockChannelLink) handleSwitchPacket(pkt *htlcPacket) error {
 	f.mailBox.AddPacket(pkt)
 	return nil
 }
 
-func (f *mockChannelLink) HandleLocalAddPacket(pkt *htlcPacket) error {
+func (f *mockChannelLink) handleLocalAddPacket(pkt *htlcPacket) error {
 	_ = f.mailBox.AddPacket(pkt)
 	return nil
 }

@@ -509,7 +509,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 		return linkErr
 	}
 
-	return link.HandleLocalAddPacket(packet)
+	return link.handleLocalAddPacket(packet)
 }
 
 // UpdateForwardingPolicies sends a message to the switch to update the
@@ -1101,7 +1101,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		// Send the packet to the destination channel link which
 		// manages the channel.
 		packet.outgoingChanID = destination.ShortChanID()
-		return destination.HandleSwitchPacket(packet)
+		return destination.handleSwitchPacket(packet)
 
 	case *lnwire.UpdateFailHTLC, *lnwire.UpdateFulfillHTLC:
 		// If the source of this packet has not been set, use the
@@ -1956,6 +1956,15 @@ func (s *Switch) Stop() error {
 	return nil
 }
 
+// CreateAndAddLink will create a link and then add it to the internal maps
+// when given a ChannelLinkConfig and LightningChannel.
+func (s *Switch) CreateAndAddLink(linkCfg ChannelLinkConfig,
+	lnChan *lnwallet.LightningChannel) error {
+
+	link := NewChannelLink(linkCfg, lnChan)
+	return s.AddLink(link)
+}
+
 // AddLink is used to initiate the handling of the add link command. The
 // request will be propagated and handled in the main goroutine.
 func (s *Switch) AddLink(link ChannelLink) error {
@@ -2022,7 +2031,9 @@ func (s *Switch) addLiveLink(link ChannelLink) {
 
 // GetLink is used to initiate the handling of the get link command. The
 // request will be propagated/handled to/in the main goroutine.
-func (s *Switch) GetLink(chanID lnwire.ChannelID) (ChannelLink, error) {
+func (s *Switch) GetLink(chanID lnwire.ChannelID) (ChannelUpdateHandler,
+	error) {
+
 	s.indexMtx.RLock()
 	defer s.indexMtx.RUnlock()
 
@@ -2164,11 +2175,26 @@ func (s *Switch) UpdateShortChanID(chanID lnwire.ChannelID) error {
 
 // GetLinksByInterface fetches all the links connected to a particular node
 // identified by the serialized compressed form of its public key.
-func (s *Switch) GetLinksByInterface(hop [33]byte) ([]ChannelLink, error) {
+func (s *Switch) GetLinksByInterface(hop [33]byte) ([]ChannelUpdateHandler,
+	error) {
+
 	s.indexMtx.RLock()
 	defer s.indexMtx.RUnlock()
 
-	return s.getLinks(hop)
+	var handlers []ChannelUpdateHandler
+
+	links, err := s.getLinks(hop)
+	if err != nil {
+		return nil, err
+	}
+
+	// Range over the returned []ChannelLink to convert them into
+	// []ChannelUpdateHandler.
+	for _, link := range links {
+		handlers = append(handlers, link)
+	}
+
+	return handlers, nil
 }
 
 // getLinks is function which returns the channel links of the peer by hop

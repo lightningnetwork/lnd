@@ -29,7 +29,6 @@ import (
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/shachain"
-	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/stretchr/testify/require"
 )
 
@@ -307,28 +306,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		},
 	}
 
-	_, currentHeight, err := chainIO.GetBestBlock()
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	htlcSwitch, err := htlcswitch.New(htlcswitch.Config{
-		DB:             dbAlice,
-		SwitchPackager: channeldb.NewSwitchPackager(),
-		Notifier:       notifier,
-		FwdEventTicker: ticker.New(
-			htlcswitch.DefaultFwdEventInterval),
-		LogEventTicker: ticker.New(
-			htlcswitch.DefaultLogInterval),
-		AckEventTicker: ticker.New(
-			htlcswitch.DefaultAckInterval),
-	}, uint32(currentHeight))
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	if err = htlcSwitch.Start(); err != nil {
-		return nil, nil, nil, err
-	}
+	htlcSwitch := &mockMessageSwitch{}
 
 	nodeSignerAlice := netann.NewNodeSigner(aliceKeySigner)
 
@@ -342,7 +320,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		Graph:                    dbAlice.ChannelGraph(),
 		MessageSigner:            nodeSignerAlice,
 		OurPubKey:                aliceKeyPub,
-		IsChannelActive:          htlcSwitch.HasActiveLink,
+		IsChannelActive:          func(lnwire.ChannelID) bool { return true },
 		ApplyChannelUpdate:       func(*lnwire.ChannelUpdate) error { return nil },
 	})
 	if err != nil {
@@ -374,7 +352,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		Switch:      htlcSwitch,
 
 		ChanActiveTimeout: chanActiveTimeout,
-		InterceptSwitch:   htlcswitch.NewInterceptableSwitch(htlcSwitch),
+		InterceptSwitch:   htlcswitch.NewInterceptableSwitch(nil),
 
 		ChannelDB:      dbAlice,
 		FeeEstimator:   estimator,
@@ -393,6 +371,37 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	go alicePeer.channelManager()
 
 	return alicePeer, channelBob, cleanUpFunc, nil
+}
+
+// mockMessageSwitch is a mock implementation of the messageSwitch interface
+// used for testing without relying on a *htlcswitch.Switch in unit tests.
+type mockMessageSwitch struct{}
+
+// BestHeight currently returns a dummy value.
+func (m *mockMessageSwitch) BestHeight() uint32 {
+	return 0
+}
+
+// CircuitModifier currently returns a dummy value.
+func (m *mockMessageSwitch) CircuitModifier() htlcswitch.CircuitModifier {
+	return nil
+}
+
+// RemoveLink currently does nothing.
+func (m *mockMessageSwitch) RemoveLink(cid lnwire.ChannelID) {}
+
+// CreateAndAddLink currently returns a dummy value.
+func (m *mockMessageSwitch) CreateAndAddLink(cfg htlcswitch.ChannelLinkConfig,
+	lnChan *lnwallet.LightningChannel) error {
+
+	return nil
+}
+
+// GetLinksByInterface currently returns dummy values.
+func (m *mockMessageSwitch) GetLinksByInterface(pub [33]byte) (
+	[]htlcswitch.ChannelUpdateHandler, error) {
+
+	return nil, nil
 }
 
 type mockMessageConn struct {

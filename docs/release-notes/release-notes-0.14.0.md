@@ -190,6 +190,8 @@ mode](https://github.com/lightningnetwork/lnd/pull/5564).
 
 [A validation check for sane `CltvLimit` and `FinalCltvDelta` has been added for `REST`-initiated payments.](https://github.com/lightningnetwork/lnd/pull/5591)
 
+[A bug has been fixed with Neutrino's `RegisterConfirmationsNtfn` and `RegisterSpendNtfn` calls that would cause notifications to be missed.](https://github.com/lightningnetwork/lnd/pull/5453)
+
 ## Documentation 
 
 The [code contribution guidelines have been updated to mention the new

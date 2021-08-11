@@ -343,7 +343,7 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 	// Alice closes channel, should now be allowed to send everything to an
 	// external address.
 	for _, chanPoint := range chanPoints {
-		closeChannelAndAssert(ctxt, t, net, alice, chanPoint, false)
+		closeChannelAndAssert(t, net, alice, chanPoint, false)
 	}
 
 	newBalance := waitForConfirmedBalance()

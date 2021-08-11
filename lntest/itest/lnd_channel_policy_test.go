@@ -510,12 +510,9 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Close the channels.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPoint2, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint3, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
+	closeChannelAndAssert(t, net, net.Bob, chanPoint2, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPoint3, false)
 }
 
 // updateChannelPolicy updates the channel policy of node to the

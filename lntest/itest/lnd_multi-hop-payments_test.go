@@ -329,12 +329,9 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		t, 0, 0, numPayments, routerrpc.HtlcEvent_RECEIVE, bobEvents,
 	)
 
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, dave, chanPointDave, false)
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, false)
+	closeChannelAndAssert(t, net, dave, chanPointDave, false)
+	closeChannelAndAssert(t, net, carol, chanPointCarol, false)
 }
 
 // assertHtlcEvents consumes events from a client and ensures that they are of

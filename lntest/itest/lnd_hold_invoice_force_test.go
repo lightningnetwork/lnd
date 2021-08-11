@@ -141,6 +141,5 @@ func testHoldInvoiceForceClose(net *lntest.NetworkHarness, t *harnessTest) {
 	require.NoError(t.t, err, "expected canceled invoice")
 
 	// Clean up the channel.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
 }

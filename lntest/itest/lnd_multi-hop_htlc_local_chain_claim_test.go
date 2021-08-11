@@ -85,9 +85,8 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 
 	// At this point, Bob decides that he wants to exit the channel
 	// immediately, so he force closes his commitment transaction.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	bobForceClose := closeChannelAndAssertType(
-		ctxt, t, net, bob, aliceChanPoint, c == commitTypeAnchors, true,
+		t, net, bob, aliceChanPoint, c == commitTypeAnchors, true,
 	)
 
 	// Alice will sweep her commitment output immediately. If there are

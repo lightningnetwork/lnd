@@ -85,10 +85,8 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// Next, Alice decides that she wants to exit the channel, so she'll
 	// immediately force close the channel by broadcast her commitment
 	// transaction.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	aliceForceClose := closeChannelAndAssertType(
-		ctxt, t, net, alice, aliceChanPoint, c == commitTypeAnchors,
-		true,
+		t, net, alice, aliceChanPoint, c == commitTypeAnchors, true,
 	)
 
 	// Wait for the channel to be marked pending force close.

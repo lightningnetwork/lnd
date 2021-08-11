@@ -246,9 +246,7 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	// Dave. This function will also block until the channel is closed and
 	// will additionally assert the relevant channel closing post
 	// conditions.
-	ctxt, cancel = context.WithTimeout(ctxb, channelCloseTimeout)
-	defer cancel()
-	closeChannelAndAssert(ctxt, t, net, carol, chanPoint, false)
+	closeChannelAndAssert(t, net, carol, chanPoint, false)
 }
 
 // openChannelPsbt attempts to open a channel between srcNode and destNode with

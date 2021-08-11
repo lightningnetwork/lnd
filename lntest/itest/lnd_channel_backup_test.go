@@ -602,10 +602,7 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 
 		chanPoint := chanPoints[i]
 
-		ctxt, _ := context.WithTimeout(ctxb, channelCloseTimeout)
-		closeChannelAndAssert(
-			ctxt, t, net, net.Alice, chanPoint, forceClose,
-		)
+		closeChannelAndAssert(t, net, net.Alice, chanPoint, forceClose)
 
 		// If we force closed the channel, then we'll mine enough
 		// blocks to ensure all outputs have been swept.
@@ -779,10 +776,7 @@ func testExportChannelBackup(net *lntest.NetworkHarness, t *harnessTest) {
 	// shouldn't be able to find that channel as a backup still. We should
 	// also have one less single written to disk.
 	for i, chanPoint := range chanPoints {
-		ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-		closeChannelAndAssert(
-			ctxt, t, net, net.Alice, chanPoint, false,
-		)
+		closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
 
 		assertNumSingleBackups(len(chanPoints) - i - 1)
 

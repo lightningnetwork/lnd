@@ -428,8 +428,5 @@ func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
 	assertNodeNumChannels(t, carol, 0)
 
 	// Coop close channel, expect no anchors.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssertType(
-		ctxt, t, net, alice, aliceChanPoint, false, false,
-	)
+	closeChannelAndAssertType(t, net, alice, aliceChanPoint, false, false)
 }

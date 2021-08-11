@@ -90,8 +90,7 @@ func testChannelBalance(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Finally close the channel between Alice and Bob, asserting that the
 	// channel has been properly closed on-chain.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+	closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
 }
 
 // testChannelUnsettledBalance will test that the UnsettledBalance field
@@ -273,8 +272,7 @@ func testChannelUnsettledBalance(net *lntest.NetworkHarness, t *harnessTest) {
 	checkChannelBalance(carol, 0, aliceLocal, numInvoices*payAmt, 0)
 
 	// Force and assert the channel closure.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, true)
+	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, true)
 
 	// Cleanup by mining the force close and sweep transaction.
 	cleanupForceClose(t, net, net.Alice, chanPointAlice)

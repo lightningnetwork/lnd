@@ -305,10 +305,7 @@ func (c *mppTestContext) openChannel(from, to *lntest.HarnessNode, chanSize btcu
 	)
 
 	c.closeChannelFuncs = append(c.closeChannelFuncs, func() {
-		ctxt, _ := context.WithTimeout(ctxb, channelCloseTimeout)
-		closeChannelAndAssert(
-			ctxt, c.t, c.net, from, chanPoint, false,
-		)
+		closeChannelAndAssert(c.t, c.net, from, chanPoint, false)
 	})
 
 	c.networkChans = append(c.networkChans, chanPoint)

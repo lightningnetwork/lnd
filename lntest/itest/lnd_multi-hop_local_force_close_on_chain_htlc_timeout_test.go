@@ -71,14 +71,13 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// Now that all parties have the HTLC locked in, we'll immediately
 	// force close the Bob -> Carol channel. This should trigger contract
 	// resolution mode for both of them.
-	ctxt, _ := context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssertType(
-		ctxt, t, net, bob, bobChanPoint, c == commitTypeAnchors, true,
+		t, net, bob, bobChanPoint, c == commitTypeAnchors, true,
 	)
 
 	// At this point, Bob should have a pending force close channel as he
 	// just went to chain.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err = waitForNumChannelPendingForceClose(
 		ctxt, bob, 1, func(c *lnrpcForceCloseChannel) error {
 			if c.LimboBalance == 0 {
@@ -195,8 +194,5 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	require.NoError(t.t, err)
 
 	// Coop close, no anchors.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssertType(
-		ctxt, t, net, alice, aliceChanPoint, false, false,
-	)
+	closeChannelAndAssertType(t, net, alice, aliceChanPoint, false, false)
 }

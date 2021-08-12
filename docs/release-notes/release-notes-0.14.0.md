@@ -63,6 +63,8 @@ you.
 * [A flake in the Neutrino integration tests with anchor sweeps was 
   addressed](https://github.com/lightningnetwork/lnd/pull/5509).
 
+* [The `lnwire` fuzz tests have been fixed and now run without crashing.](https://github.com/lightningnetwork/lnd/pull/5395)
+
 # Documentation
 
 * [Outdated warning about unsupported pruning was replaced with clarification that LND **does**

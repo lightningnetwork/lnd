@@ -776,6 +776,9 @@ func (f *Manager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 
 	// Let the actual error message be sent to the remote for the
 	// whitelisted types.
+	// TODO(carla): update channel acceptor API to add problematic message/
+	// field/value fields so that we can return structured errors. For now,
+	// a string error is _fine_.
 	case chanacceptor.ChanAcceptError:
 		errMsg.Data = lnwire.ErrorData(e.Error())
 

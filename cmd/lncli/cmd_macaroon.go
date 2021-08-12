@@ -8,6 +8,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -65,6 +66,16 @@ var bakeMacaroonCommand = cli.Command{
 			Name:  "ip_address",
 			Usage: "the IP address the macaroon will be bound to",
 		},
+		cli.StringFlag{
+			Name:  "custom_caveat_name",
+			Usage: "the name of the custom caveat to add",
+		},
+		cli.StringFlag{
+			Name: "custom_caveat_condition",
+			Usage: "the condition of the custom caveat to add, " +
+				"can be empty if custom caveat doesn't need " +
+				"a value",
+		},
 		cli.Uint64Flag{
 			Name:  "root_key_id",
 			Usage: "the numerical root key ID used to create the macaroon",
@@ -92,6 +103,8 @@ func bakeMacaroon(ctx *cli.Context) error {
 		savePath          string
 		timeout           int64
 		ipAddress         net.IP
+		customCaveatName  string
+		customCaveatCond  string
 		rootKeyID         uint64
 		parsedPermissions []*lnrpc.MacaroonPermission
 		err               error
@@ -113,6 +126,32 @@ func bakeMacaroon(ctx *cli.Context) error {
 		if ipAddress == nil {
 			return fmt.Errorf("unable to parse ip_address: %s",
 				ctx.String("ip_address"))
+		}
+	}
+
+	if ctx.IsSet("custom_caveat_name") {
+		customCaveatName = ctx.String("custom_caveat_name")
+		if containsWhiteSpace(customCaveatName) {
+			return fmt.Errorf("unexpected white space found in " +
+				"custom caveat name")
+		}
+		if customCaveatName == "" {
+			return fmt.Errorf("invalid custom caveat name")
+		}
+	}
+
+	if ctx.IsSet("custom_caveat_condition") {
+		customCaveatCond = ctx.String("custom_caveat_condition")
+		if containsWhiteSpace(customCaveatCond) {
+			return fmt.Errorf("unexpected white space found in " +
+				"custom caveat condition")
+		}
+		if customCaveatCond == "" {
+			return fmt.Errorf("invalid custom caveat condition")
+		}
+		if customCaveatCond != "" && customCaveatName == "" {
+			return fmt.Errorf("cannot set custom caveat " +
+				"condition without custom caveat name")
 		}
 	}
 
@@ -184,6 +223,17 @@ func bakeMacaroon(ctx *cli.Context) error {
 		macConstraints = append(
 			macConstraints,
 			macaroons.IPLockConstraint(ipAddress.String()),
+		)
+	}
+
+	// The custom caveat condition is optional, it could just be a marker
+	// tag in the macaroon with just a name. The interceptor itself doesn't
+	// care about the value anyway.
+	if customCaveatName != "" {
+		macConstraints = append(
+			macConstraints, macaroons.CustomConstraint(
+				customCaveatName, customCaveatCond,
+			),
 		)
 	}
 	constrainedMac, err := macaroons.AddConstraints(
@@ -418,4 +468,11 @@ func printMacaroon(ctx *cli.Context) error {
 	printJSON(content)
 
 	return nil
+}
+
+// containsWhiteSpace returns true if the given string contains any character
+// that is considered to be a white space or non-printable character such as
+// space, tabulator, newline, carriage return and some more exotic ones.
+func containsWhiteSpace(str string) bool {
+	return strings.IndexFunc(str, unicode.IsSpace) >= 0
 }

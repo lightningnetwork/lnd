@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/lightningnetwork/lnd/macaroons"
 	macaroon "gopkg.in/macaroon.v2"
 )
@@ -111,4 +113,35 @@ func TestIPLockBadIP(t *testing.T) {
 	if err == nil {
 		t.Fatalf("IPLockConstraint with bad IP should fail.")
 	}
+}
+
+// TestCustomConstraint tests that a custom constraint with a name and value can
+// be added to a macaroon.
+func TestCustomConstraint(t *testing.T) {
+	// Test a custom caveat with a value first.
+	constraintFunc := macaroons.CustomConstraint("unit-test", "test-value")
+	testMacaroon := createDummyMacaroon(t)
+	require.NoError(t, constraintFunc(testMacaroon))
+
+	require.Equal(
+		t, []byte("lnd-custom unit-test test-value"),
+		testMacaroon.Caveats()[0].Id,
+	)
+	require.True(t, macaroons.HasCustomCaveat(testMacaroon, "unit-test"))
+	require.False(t, macaroons.HasCustomCaveat(testMacaroon, "test-value"))
+	require.False(t, macaroons.HasCustomCaveat(testMacaroon, "something"))
+	require.False(t, macaroons.HasCustomCaveat(nil, "foo"))
+
+	// Custom caveats don't necessarily need a value, just the name is fine
+	// too to create a tagged macaroon.
+	constraintFunc = macaroons.CustomConstraint("unit-test", "")
+	testMacaroon = createDummyMacaroon(t)
+	require.NoError(t, constraintFunc(testMacaroon))
+
+	require.Equal(
+		t, []byte("lnd-custom unit-test"), testMacaroon.Caveats()[0].Id,
+	)
+	require.True(t, macaroons.HasCustomCaveat(testMacaroon, "unit-test"))
+	require.False(t, macaroons.HasCustomCaveat(testMacaroon, "test-value"))
+	require.False(t, macaroons.HasCustomCaveat(testMacaroon, "something"))
 }

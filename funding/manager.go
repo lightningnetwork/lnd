@@ -776,9 +776,6 @@ func (f *Manager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 
 	// Let the actual error message be sent to the remote for the
 	// whitelisted types.
-	case lnwire.FundingError:
-		errMsg.Data = lnwire.ErrorData(e.Error())
-
 	case chanacceptor.ChanAcceptError:
 		errMsg.Data = lnwire.ErrorData(e.Error())
 
@@ -1235,7 +1232,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	if numPending >= f.cfg.MaxPendingChannels {
 		f.failFundingFlow(
 			peer, msg.PendingChannelID,
-			lnwire.ErrMaxPendingChannels,
+			lnwire.MaxPendingChannels,
 		)
 		return
 	}
@@ -1250,7 +1247,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		}
 		f.failFundingFlow(
 			peer, msg.PendingChannelID,
-			lnwire.ErrSynchronizingChain,
+			lnwire.SynchronizingChain,
 		)
 		return
 	}

@@ -417,12 +417,31 @@ func (s *StructuredError) ToWireError(chanID ChannelID) (*Error, error) {
 // additional information about an error.
 type CodedError uint8
 
+const (
+	// MaxPendingChannels indicates that the number of active pending
+	// channels exceeds their maximum policy limit.
+	MaxPendingChannels CodedError = 1
+
+	// SynchronizingChain indicates that the peer is still busy syncing
+	// the latest state of the blockchain.
+	SynchronizingChain CodedError = 3
+)
+
 // Compile time check that CodedError implements error.
 var _ error = (*CodedError)(nil)
 
 // Error returns an error string for a coded error.
 func (c CodedError) Error() string {
-	return fmt.Sprintf("Coded error: %d", c)
+	switch c {
+	case MaxPendingChannels:
+		return "Number of pending channels exceed maximum"
+
+	case SynchronizingChain:
+		return "Synchronizing blockchain"
+
+	default:
+		return fmt.Sprintf("Coded error: %d", c)
+	}
 }
 
 // ToWireError returns a wire error with our error code packed into the

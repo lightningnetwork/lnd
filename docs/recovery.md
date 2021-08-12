@@ -242,7 +242,7 @@ process.
 #### On-Disk `channel.backup`
 
 There are multiple ways of obtaining SCBs from `lnd`. The most commonly used
-method will likely be via the `channels.backup` file that's stored on-disk
+method will likely be via the `channel.backup` file that's stored on-disk
 alongside the rest of the chain data. This is a special file that contains SCB
 entries for _all_ currently open channels. Each time a channel is opened or
 closed, this file is updated on disk in a safe manner (atomic file rename). As
@@ -273,7 +273,7 @@ Another way to obtain SCBS for all or a target channel is via the new
     "multi_chan_backup": "fd73e992e5133aa085c8e45548e0189c411c8cfe42e902b0ee2dec528a18fb472c3375447868ffced0d4812125e4361d667b7e6a18b2357643e09bbe7e9110c6b28d74f4f55e7c29e92419b52509e5c367cf2d977b670a2ff7560f5fe24021d246abe30542e6c6e3aa52f903453c3a2389af918249dbdb5f1199aaecf4931c0366592165b10bdd58eaf706d6df02a39d9323a0c65260ffcc84776f2705e4942d89e4dbefa11c693027002c35582d56e295dcf74d27e90873699657337696b32c05c8014911a7ec8eb03bdbe526fe658be8abdf50ab12c4fec9ddeefc489cf817721c8e541d28fbe71e32137b5ea066a9f4e19814deedeb360def90eff2965570aab5fedd0ebfcd783ce3289360953680ac084b2e988c9cbd0912da400861467d7bb5ad4b42a95c2d541653e805cbfc84da401baf096fba43300358421ae1b43fd25f3289c8c73489977592f75bc9f73781f41718a752ab325b70c8eb2011c5d979f6efc7a76e16492566e43d94dbd42698eb06ff8ad4fd3f2baabafded"
 }
 
-⛰  lncli --network=simnet exportchanbackup --all --output_file=channels.backup
+⛰  lncli --network=simnet exportchanbackup --all --output_file=channel.backup
 ```
 
 As shown above, a user can either: specify a specific channel to backup, backup
@@ -293,7 +293,7 @@ schemes, compared to the file system notification based approach.
 If a node is being created from scratch, then it's possible to pass in an
 existing SCB using the `lncli create` or `lncli unlock` commands:
 ```shell
-⛰  lncli create -multi_file=channels.backup
+⛰  lncli create -multi_file=channel.backup
 ```
 
 Alternatively, the `restorechanbackup` command can be used if `lnd` has already
@@ -313,7 +313,7 @@ DESCRIPTION:
 
   Allows a user to restore a Static Channel Backup (SCB) that was
   obtained either via the exportchanbackup command, or from lnd's
-  automatically managed channels.backup file. This command should be used
+  automatically managed channel.backup file. This command should be used
   if a user is attempting to restore a channel due to data loss on a
   running node restored with the same seed as the node that created the
   channel. If successful, this command will allows the user to recover
@@ -328,7 +328,7 @@ DESCRIPTION:
        static channel backups in single blob.
 
      * A file path which points to a packed multi-channel backup within a
-       file, using the same format that lnd does in its channels.backup
+       file, using the same format that lnd does in its channel.backup
        file.
 
 

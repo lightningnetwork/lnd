@@ -2487,7 +2487,7 @@ var exportChanBackupCommand = cli.Command{
 			of the static channel backup, a serialized version of
 			the backup (either Single or Multi) will be written to
 			the target file, this is the same format used by lnd in
-			its channels.backup file `,
+			its channel.backup file `,
 		},
 	},
 	Action: actionDecorator(exportChanBackup),
@@ -2616,7 +2616,7 @@ var verifyChanBackupCommand = cli.Command{
 	 static channel backups in single blob.
 
        * A file path which points to a packed multi-channel backup within a
-	 file, using the same format that lnd does in its channels.backup
+	 file, using the same format that lnd does in its channel.backup
 	 file.
     `,
 	Flags: []cli.Flag{
@@ -2683,7 +2683,7 @@ var restoreChanBackupCommand = cli.Command{
 	Description: `
 	Allows a user to restore a Static Channel Backup (SCB) that was
 	obtained either via the exportchanbackup command, or from lnd's
-	automatically managed channels.backup file. This command should be used
+	automatically managed channel.backup file. This command should be used
 	if a user is attempting to restore a channel due to data loss on a
 	running node restored with the same seed as the node that created the
 	channel. If successful, this command will allows the user to recover
@@ -2698,7 +2698,7 @@ var restoreChanBackupCommand = cli.Command{
 	     static channel backups in single blob.
 
 	   * A file path which points to a packed multi-channel backup within a
-	     file, using the same format that lnd does in its channels.backup
+	     file, using the same format that lnd does in its channel.backup
 	     file.
 	`,
 	Flags: []cli.Flag{

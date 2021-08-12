@@ -111,7 +111,10 @@ func AdminAuthOptions(cfg *Config, skipMacaroons bool) ([]grpc.DialOption, error
 		}
 
 		// Now we append the macaroon credentials to the dial options.
-		cred := macaroons.NewMacaroonCredential(mac)
+		cred, err := macaroons.NewMacaroonCredential(mac)
+		if err != nil {
+			return nil, fmt.Errorf("error cloning mac: %v", err)
+		}
 		opts = append(opts, grpc.WithPerRPCCredentials(cred))
 	}
 

@@ -50,7 +50,14 @@ type Checker func() (string, checkers.Func)
 func AddConstraints(mac *macaroon.Macaroon,
 	cs ...Constraint) (*macaroon.Macaroon, error) {
 
-	newMac := mac.Clone()
+	// The macaroon library's Clone() method has a subtle bug that doesn't
+	// correctly clone all caveats. We need to use our own, safe clone
+	// function instead.
+	newMac, err := SafeCopyMacaroon(mac)
+	if err != nil {
+		return nil, err
+	}
+
 	for _, constraint := range cs {
 		if err := constraint(newMac); err != nil {
 			return nil, err

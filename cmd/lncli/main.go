@@ -167,7 +167,10 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 		}
 
 		// Now we append the macaroon credentials to the dial options.
-		cred := macaroons.NewMacaroonCredential(constrainedMac)
+		cred, err := macaroons.NewMacaroonCredential(constrainedMac)
+		if err != nil {
+			fatal(fmt.Errorf("error cloning mac: %v", err))
+		}
 		opts = append(opts, grpc.WithPerRPCCredentials(cred))
 	}
 

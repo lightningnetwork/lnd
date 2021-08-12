@@ -275,3 +275,21 @@ func RawMacaroonFromContext(ctx context.Context) (string, error) {
 
 	return md["macaroon"][0], nil
 }
+
+// SafeCopyMacaroon creates a copy of a macaroon that is safe to be used and
+// modified. This is necessary because the macaroon library's own Clone() method
+// is unsafe for certain edge cases, resulting in both the cloned and the
+// original macaroons to be modified.
+func SafeCopyMacaroon(mac *macaroon.Macaroon) (*macaroon.Macaroon, error) {
+	macBytes, err := mac.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	newMac := &macaroon.Macaroon{}
+	if err := newMac.UnmarshalBinary(macBytes); err != nil {
+		return nil, err
+	}
+
+	return newMac, nil
+}

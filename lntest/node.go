@@ -1195,7 +1195,10 @@ func (hn *HarnessNode) ConnectRPCWithMacaroon(mac *macaroon.Macaroon) (
 	if mac == nil {
 		return grpc.DialContext(ctx, hn.Cfg.RPCAddr(), opts...)
 	}
-	macCred := macaroons.NewMacaroonCredential(mac)
+	macCred, err := macaroons.NewMacaroonCredential(mac)
+	if err != nil {
+		return nil, fmt.Errorf("error cloning mac: %v", err)
+	}
 	opts = append(opts, grpc.WithPerRPCCredentials(macCred))
 
 	return grpc.DialContext(ctx, hn.Cfg.RPCAddr(), opts...)

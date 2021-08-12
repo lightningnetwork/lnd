@@ -37,8 +37,17 @@ func (m MacaroonCredential) GetRequestMetadata(ctx context.Context,
 
 // NewMacaroonCredential returns a copy of the passed macaroon wrapped in a
 // MacaroonCredential struct which implements PerRPCCredentials.
-func NewMacaroonCredential(m *macaroon.Macaroon) MacaroonCredential {
+func NewMacaroonCredential(m *macaroon.Macaroon) (MacaroonCredential, error) {
 	ms := MacaroonCredential{}
-	ms.Macaroon = m.Clone()
-	return ms
+
+	// The macaroon library's Clone() method has a subtle bug that doesn't
+	// correctly clone all caveats. We need to use our own, safe clone
+	// function instead.
+	var err error
+	ms.Macaroon, err = SafeCopyMacaroon(m)
+	if err != nil {
+		return ms, err
+	}
+
+	return ms, nil
 }

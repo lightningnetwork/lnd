@@ -79,6 +79,12 @@ proposed channel type is used.
 
 * [Adds an option to the BakeMacaroon rpc "allow-external-permissions,"](https://github.com/lightningnetwork/lnd/pull/5304) which makes it possible to bake a macaroon with external permissions. That way, the baked macaroons can be used for services beyond LND. Also adds a new CheckMacaroonPermissions rpc that checks that the macaroon permissions and other restrictions are being followed. It can also check permissions not native to LND.
 
+* [A new RPC middleware
+  interceptor](https://github.com/lightningnetwork/lnd/pull/5101) was added that
+  allows external tools to hook into `lnd`'s RPC server and intercept any
+  requests made with custom macaroons (and also the responses to those
+  requests).
+
 ### Batched channel funding
 
 [Multiple channels can now be opened in a single

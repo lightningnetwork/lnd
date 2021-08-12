@@ -5179,6 +5179,11 @@
           "type": "string",
           "format": "int64",
           "description": "The timestamp of the last flap we observed for this peer. If this value is\nzero, we have not observed any flaps for this peer."
+        },
+        "last_ping_payload": {
+          "type": "string",
+          "format": "byte",
+          "description": "The last ping payload the peer has sent to us."
         }
       }
     },

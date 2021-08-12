@@ -1561,6 +1561,11 @@ message Peer {
     zero, we have not observed any flaps for this peer.
     */
     int64 last_flap_ns = 14;
+
+    /*
+    The last ping payload the peer has sent to us.
+    */
+    bytes last_ping_payload = 15;
 }
 
 message TimestampedError {

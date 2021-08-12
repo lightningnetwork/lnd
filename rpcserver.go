@@ -528,6 +528,10 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "offchain",
 			Action: "write",
 		}},
+		lnrpc.RegisterRPCMiddlewareURI: {{
+			Entity: "macaroon",
+			Action: "write",
+		}},
 	}
 }
 
@@ -7162,4 +7166,106 @@ func (r *rpcServer) FundingStateStep(ctx context.Context,
 	// TODO(roasbeef): return resulting state? also add a method to query
 	// current state?
 	return &lnrpc.FundingStateStepResp{}, nil
+}
+
+// RegisterRPCMiddleware adds a new gRPC middleware to the interceptor chain. A
+// gRPC middleware is software component external to lnd that aims to add
+// additional business logic to lnd by observing/intercepting/validating
+// incoming gRPC client requests and (if needed) replacing/overwriting outgoing
+// messages before they're sent to the client. When registering the middleware
+// must identify itself and indicate what custom macaroon caveats it wants to
+// be responsible for. Only requests that contain a macaroon with that specific
+// custom caveat are then sent to the middleware for inspection. As a security
+// measure, _no_ middleware can intercept requests made with _unencumbered_
+// macaroons!
+func (r *rpcServer) RegisterRPCMiddleware(
+	stream lnrpc.Lightning_RegisterRPCMiddlewareServer) error {
+
+	// This is a security critical functionality and needs to be enabled
+	// specifically by the user.
+	if !r.cfg.RPCMiddleware.Enable {
+		return fmt.Errorf("RPC middleware not enabled in config")
+	}
+
+	// When registering a middleware the first message being sent from the
+	// middleware must be a registration message containing its name and the
+	// custom caveat it wants to register for.
+	var (
+		registerChan = make(chan *lnrpc.MiddlewareRegistration, 1)
+		errChan      = make(chan error, 1)
+	)
+	ctxc, cancel := context.WithTimeout(
+		stream.Context(), r.cfg.RPCMiddleware.InterceptTimeout,
+	)
+	defer cancel()
+
+	// Read the first message in a goroutine because the Recv method blocks
+	// until the message arrives.
+	go func() {
+		msg, err := stream.Recv()
+		if err != nil {
+			errChan <- err
+
+			return
+		}
+
+		registerChan <- msg.GetRegister()
+	}()
+
+	// Wait for the initial message to arrive or time out if it takes too
+	// long.
+	var registerMsg *lnrpc.MiddlewareRegistration
+	select {
+	case registerMsg = <-registerChan:
+		if registerMsg == nil {
+			return fmt.Errorf("invalid initial middleware " +
+				"registration message")
+		}
+
+	case err := <-errChan:
+		return fmt.Errorf("error receiving initial middleware "+
+			"registration message: %v", err)
+
+	case <-ctxc.Done():
+		return ctxc.Err()
+
+	case <-r.quit:
+		return ErrServerShuttingDown
+	}
+
+	// Make sure the registration is valid.
+	const nameMinLength = 5
+	if len(registerMsg.MiddlewareName) < nameMinLength {
+		return fmt.Errorf("invalid middleware name, use descriptive "+
+			"name of at least %d characters", nameMinLength)
+	}
+
+	readOnly := registerMsg.ReadOnlyMode
+	caveatName := registerMsg.CustomMacaroonCaveatName
+	switch {
+	case readOnly && len(caveatName) > 0:
+		return fmt.Errorf("cannot set read-only and custom caveat " +
+			"name at the same time")
+
+	case !readOnly && len(caveatName) < nameMinLength:
+		return fmt.Errorf("need to set either custom caveat name "+
+			"of at least %d characters or read-only mode",
+			nameMinLength)
+	}
+
+	middleware := rpcperms.NewMiddlewareHandler(
+		registerMsg.MiddlewareName,
+		caveatName, readOnly, stream.Recv, stream.Send,
+		r.cfg.RPCMiddleware.InterceptTimeout,
+		r.cfg.ActiveNetParams.Params, r.quit,
+	)
+
+	// Add the RPC middleware to the interceptor chain and defer its
+	// removal.
+	if err := r.interceptorChain.RegisterMiddleware(middleware); err != nil {
+		return fmt.Errorf("error registering middleware: %v", err)
+	}
+	defer r.interceptorChain.RemoveMiddleware(registerMsg.MiddlewareName)
+
+	return middleware.Run()
 }

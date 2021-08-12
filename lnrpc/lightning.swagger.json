@@ -1675,6 +1675,49 @@
         ]
       }
     },
+    "/v1/middleware": {
+      "post": {
+        "summary": "RegisterRPCMiddleware adds a new gRPC middleware to the interceptor chain. A\ngRPC middleware is software component external to lnd that aims to add\nadditional business logic to lnd by observing/intercepting/validating\nincoming gRPC client requests and (if needed) replacing/overwriting outgoing\nmessages before they're sent to the client. When registering the middleware\nmust identify itself and indicate what custom macaroon caveats it wants to\nbe responsible for. Only requests that contain a macaroon with that specific\ncustom caveat are then sent to the middleware for inspection. The other\noption is to register for the read-only mode in which all requests/responses\nare forwarded for interception to the middleware but the middleware is not\nallowed to modify any responses. As a security measure, _no_ middleware can\nmodify responses for requests made with _unencumbered_ macaroons!",
+        "operationId": "Lightning_RegisterRPCMiddleware",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/lnrpcRPCMiddlewareRequest"
+                },
+                "error": {
+                  "$ref": "#/definitions/rpcStatus"
+                }
+              },
+              "title": "Stream result of lnrpcRPCMiddlewareRequest"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "description": " (streaming inputs)",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcRPCMiddlewareResponse"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/newaddress": {
       "get": {
         "summary": "lncli: `newaddress`\nNewAddress creates a new address under control of the local wallet.",
@@ -4479,6 +4522,24 @@
       ],
       "default": "INITIATOR_UNKNOWN"
     },
+    "lnrpcInterceptFeedback": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string",
+          "description": "The error to return to the user. If this is non-empty, the incoming gRPC\nstream/request is aborted and the error is returned to the gRPC client. If\nthis value is empty, it means the middleware accepts the stream/request/\nresponse and the processing of it can continue."
+        },
+        "replace_response": {
+          "type": "boolean",
+          "description": "A boolean indicating that the gRPC response should be replaced/overwritten.\nAs its name suggests, this can only be used as a feedback to an intercepted\nresponse RPC message and is ignored for feedback on any other message. This\nboolean is needed because in protobuf an empty message is serialized as a\n0-length or nil byte slice and we wouldn't be able to distinguish between\nan empty replacement message and the \"don't replace anything\" case."
+        },
+        "replacement_serialized": {
+          "type": "string",
+          "format": "byte",
+          "description": "If the replace_response field is set to true, this field must contain the\nbinary serialized gRPC response message in the protobuf format."
+        }
+      }
+    },
     "lnrpcInvoice": {
       "type": "object",
       "properties": {
@@ -4900,6 +4961,23 @@
             "$ref": "#/definitions/lnrpcMacaroonPermission"
           },
           "description": "A list of macaroon permissions."
+        }
+      }
+    },
+    "lnrpcMiddlewareRegistration": {
+      "type": "object",
+      "properties": {
+        "middleware_name": {
+          "type": "string",
+          "description": "The name of the middleware to register. The name should be as informative\nas possible and is logged on registration."
+        },
+        "custom_macaroon_caveat_name": {
+          "type": "string",
+          "description": "The name of the custom macaroon caveat that this middleware is responsible\nfor. Only requests/responses that contain a macaroon with the registered\ncustom caveat are forwarded for interception to the middleware. The\nexception being the read-only mode: All requests/responses are forwarded to\na middleware that requests read-only access but such a middleware won't be\nallowed to _alter_ responses. As a security measure, _no_ middleware can\nchange responses to requests made with _unencumbered_ macaroons!\nNOTE: Cannot be used at the same time as read_only_mode."
+        },
+        "read_only_mode": {
+          "type": "boolean",
+          "description": "Instead of defining a custom macaroon caveat name a middleware can register\nitself for read-only access only. In that mode all requests/responses are\nforwarded to the middleware but the middleware isn't allowed to alter any of\nthe responses.\nNOTE: Cannot be used at the same time as custom_macaroon_caveat_name."
         }
       }
     },
@@ -5626,6 +5704,77 @@
         }
       }
     },
+    "lnrpcRPCMessage": {
+      "type": "object",
+      "properties": {
+        "method_full_uri": {
+          "type": "string",
+          "description": "The full URI (in the format /\u003crpcpackage\u003e.\u003cServiceName\u003e/MethodName, for\nexample /lnrpc.Lightning/GetInfo) of the RPC method the message was sent\nto/from."
+        },
+        "stream_rpc": {
+          "type": "boolean",
+          "description": "Indicates whether the message was sent over a streaming RPC method or not."
+        },
+        "type_name": {
+          "type": "string",
+          "description": "The full canonical gRPC name of the message type (in the format\n\u003crpcpackage\u003e.TypeName, for example lnrpc.GetInfoRequest)."
+        },
+        "serialized": {
+          "type": "string",
+          "format": "byte",
+          "description": "The full content of the gRPC message, serialized in the binary protobuf\nformat."
+        }
+      }
+    },
+    "lnrpcRPCMiddlewareRequest": {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unique ID of the intercepted request. Useful for mapping request to\nresponse when implementing full duplex message interception."
+        },
+        "raw_macaroon": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw bytes of the complete macaroon as sent by the gRPC client in the\noriginal request. This might be empty for a request that doesn't require\nmacaroons such as the wallet unlocker RPCs."
+        },
+        "custom_caveat_condition": {
+          "type": "string",
+          "title": "The parsed condition of the macaroon's custom caveat for convenient access.\nThis field only contains the value of the custom caveat that the handling\nmiddleware has registered itself for. The condition _must_ be validated for\nmessages of intercept_type stream_auth and request!"
+        },
+        "stream_auth": {
+          "$ref": "#/definitions/lnrpcStreamAuth",
+          "description": "Intercept stream authentication: each new streaming RPC call that is\ninitiated against lnd and contains the middleware's custom macaroon\ncaveat can be approved or denied based upon the macaroon in the stream\nheader. This message will only be sent for streaming RPCs, unary RPCs\nmust handle the macaroon authentication in the request interception to\navoid an additional message round trip between lnd and the middleware."
+        },
+        "request": {
+          "$ref": "#/definitions/lnrpcRPCMessage",
+          "description": "Intercept incoming gRPC client request message: all incoming messages,\nboth on streaming and unary RPCs, are forwarded to the middleware for\ninspection. For unary RPC messages the middleware is also expected to\nvalidate the custom macaroon caveat of the request."
+        },
+        "response": {
+          "$ref": "#/definitions/lnrpcRPCMessage",
+          "description": "Intercept outgoing gRPC response message: all outgoing messages, both on\nstreaming and unary RPCs, are forwarded to the middleware for inspection\nand amendment. The response in this message is the original response as\nit was generated by the main RPC server. It can either be accepted\n(=forwarded to the client), replaced/overwritten with a new message of\nthe same type, or replaced by an error message."
+        }
+      }
+    },
+    "lnrpcRPCMiddlewareResponse": {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unique ID of the intercepted request that this response refers to. Must\nalways be set when giving feedback to an intercept but is ignored for the\ninitial registration message."
+        },
+        "register": {
+          "$ref": "#/definitions/lnrpcMiddlewareRegistration",
+          "title": "The registration message identifies the middleware that's being\nregistered in lnd. The registration message must be sent immediately\nafter initiating the RegisterRpcMiddleware stream, otherwise lnd will\ntime out the attempt and terminate the request. NOTE: The middleware\nwill only receive interception messages for requests that contain a\nmacaroon with the custom caveat that the middleware declares it is\nresponsible for handling in the registration message! As a security\nmeasure, _no_ middleware can intercept requests made with _unencumbered_\nmacaroons!"
+        },
+        "feedback": {
+          "$ref": "#/definitions/lnrpcInterceptFeedback",
+          "description": "The middleware received an interception request and gives feedback to\nit. The request_id indicates what message the feedback refers to."
+        }
+      }
+    },
     "lnrpcReadyForPsbtFunding": {
       "type": "object",
       "properties": {
@@ -6046,6 +6195,15 @@
     },
     "lnrpcStopResponse": {
       "type": "object"
+    },
+    "lnrpcStreamAuth": {
+      "type": "object",
+      "properties": {
+        "method_full_uri": {
+          "type": "string",
+          "description": "The full URI (in the format /\u003crpcpackage\u003e.\u003cServiceName\u003e/MethodName, for\nexample /lnrpc.Lightning/GetInfo) of the streaming RPC method that was just\nestablished."
+        }
+      }
     },
     "lnrpcTimestampedError": {
       "type": "object",

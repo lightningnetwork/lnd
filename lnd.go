@@ -352,7 +352,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 	// Create a new RPC interceptor that we'll add to the GRPC server. This
 	// will be used to log the API calls invoked on the GRPC server.
 	interceptorChain := rpcperms.NewInterceptorChain(
-		rpcsLog, cfg.NoMacaroons,
+		rpcsLog, cfg.NoMacaroons, cfg.RPCMiddleware.Mandatory,
 	)
 	if err := interceptorChain.Start(); err != nil {
 		return err
@@ -582,6 +582,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		macaroonService, err = macaroons.NewService(
 			dbs.macaroonDB, "lnd", walletInitParams.StatelessInit,
 			macaroons.IPLockChecker,
+			macaroons.CustomChecker(interceptorChain),
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to set up macaroon "+

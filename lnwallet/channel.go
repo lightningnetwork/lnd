@@ -36,17 +36,6 @@ var (
 	ErrNoWindow = fmt.Errorf("unable to sign new commitment, the current" +
 		" revocation window is exhausted")
 
-	// ErrMaxHTLCNumber is returned when a proposed HTLC would exceed the
-	// maximum number of allowed HTLC's if committed in a state transition
-	ErrMaxHTLCNumber = fmt.Errorf("commitment transaction exceed max " +
-		"htlc number")
-
-	// ErrMaxPendingAmount is returned when a proposed HTLC would exceed
-	// the overall maximum pending value of all HTLCs if committed in a
-	// state transition.
-	ErrMaxPendingAmount = fmt.Errorf("commitment transaction exceed max" +
-		"overall pending htlc value")
-
 	// ErrBelowChanReserve is returned when a proposed HTLC would cause
 	// one of the peer's funds to dip below the channel reserve limit.
 	ErrBelowChanReserve = fmt.Errorf("commitment transaction dips peer " +
@@ -3446,14 +3435,14 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 		// Now that we know the total value of added HTLCs, we check
 		// that this satisfy the MaxPendingAmont contraint.
 		if amtInFlight > constraints.MaxPendingAmount {
-			return ErrMaxPendingAmount
+			return lnwire.MaxPendingAmountExceeded
 		}
 
 		// In this step, we verify that the total number of active
 		// HTLCs does not exceed the constraint of the maximum number
 		// of HTLCs in flight.
 		if numInFlight > constraints.MaxAcceptedHtlcs {
-			return ErrMaxHTLCNumber
+			return lnwire.MaxPendingHtlcsExceeded
 		}
 
 		return nil

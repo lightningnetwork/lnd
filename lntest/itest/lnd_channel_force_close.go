@@ -81,6 +81,13 @@ func testCommitmentTransactionDeadline(net *lntest.NetworkHarness,
 
 		// Send some coins to the node.
 		net.SendCoins(ctx, t.t, btcutil.SatoshiPerBitcoin, node)
+
+		// For neutrino backend, we need one additional UTXO to create
+		// the sweeping tx for the remote anchor.
+		if net.BackendCfg.Name() == lntest.NeutrinoBackendName {
+			net.SendCoins(ctx, t.t, btcutil.SatoshiPerBitcoin, node)
+		}
+
 		return node
 	}
 

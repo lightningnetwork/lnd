@@ -42,11 +42,14 @@ func TestStructuredErrorSerialization(t *testing.T) {
 	require.Equal(t, allFieldsKnown, decoded)
 
 	// Access the fields and assert that we get our uint32 values again.
-	decodedErrVal, err := decoded.ErroneousValue()
+	structured, ok := decoded.(*StructuredError)
+	require.True(t, ok)
+
+	decodedErrVal, err := structured.ErroneousValue()
 	require.NoError(t, err)
 	require.Equal(t, errValue, decodedErrVal)
 
-	decodedSuggestedVal, err := decoded.SuggestedValue()
+	decodedSuggestedVal, err := structured.SuggestedValue()
 	require.NoError(t, err)
 	require.Equal(t, suggestedValue, decodedSuggestedVal)
 
@@ -70,13 +73,28 @@ func TestStructuredErrorSerialization(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, unknownMessage, decoded)
 
+	structured, ok = decoded.(*StructuredError)
+	require.True(t, ok)
+
 	// Access the value fields and assert that we get nil value because we
 	// don't know this message type.
-	decodedErrVal, err = decoded.ErroneousValue()
+	decodedErrVal, err = structured.ErroneousValue()
 	require.NoError(t, err)
 	require.Nil(t, decodedErrVal)
 
-	decodedSuggestedVal, err = decoded.SuggestedValue()
+	decodedSuggestedVal, err = structured.SuggestedValue()
 	require.NoError(t, err)
 	require.Nil(t, decodedSuggestedVal)
+
+	// Test that we can encode/decode error codes.
+	codedErr := CodedError(0)
+	encoded, err = codedErr.ToWireError(chanID)
+	require.NoError(t, err)
+
+	decoded, err = StructuredErrorFromWire(encoded)
+	require.NoError(t, err)
+
+	coded, ok := decoded.(CodedError)
+	require.True(t, ok)
+	require.Equal(t, codedErr, coded)
 }

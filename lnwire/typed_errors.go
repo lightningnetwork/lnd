@@ -17,6 +17,10 @@ const (
 	// typeSuggestedValue contains a suggested value for a field that
 	// caused an error.
 	typeSuggestedValue tlv.Type = 3
+
+	// typeErrorCode contains an error code that is not related to a
+	// specific message/field combination.
+	typeErrorCode tlv.Type = 5
 )
 
 // errFieldHelper has the functionality we need to serialize and deserialize
@@ -409,9 +413,42 @@ func (s *StructuredError) ToWireError(chanID ChannelID) (*Error, error) {
 	return resp, nil
 }
 
+// CodedError is a structured error that relies on an error code to provide
+// additional information about an error.
+type CodedError uint8
+
+// Compile time check that CodedError implements error.
+var _ error = (*CodedError)(nil)
+
+// Error returns an error string for a coded error.
+func (c CodedError) Error() string {
+	return fmt.Sprintf("Coded error: %d", c)
+}
+
+// ToWireError returns a wire error with our error code packed into the
+// ExtraData field.
+func (c CodedError) ToWireError(chanID ChannelID) (*Error, error) {
+	resp := &Error{
+		ChanID: chanID,
+		Data:   ErrorData(c.Error()),
+	}
+
+	errCode := uint8(c)
+	records := []tlv.Record{
+		tlv.MakePrimitiveRecord(typeErrorCode, &errCode),
+	}
+
+	if err := resp.ExtraData.PackRecords(records...); err != nil {
+		return nil, err
+	}
+
+	return resp, nil
+
+}
+
 // StructuredErrorFromWire extracts a structured error from our error's extra
 // data, if present.
-func StructuredErrorFromWire(err *Error) (*StructuredError, error) {
+func StructuredErrorFromWire(err *Error) (error, error) {
 	if err == nil {
 		return nil, nil
 	}
@@ -421,17 +458,30 @@ func StructuredErrorFromWire(err *Error) (*StructuredError, error) {
 	}
 
 	// First we try to extract our message and field number records.
-	structuredErr := &StructuredError{}
+	var (
+		structuredErr = &StructuredError{}
+		codedErr      uint8
+	)
+
 	records := []tlv.Record{
 		createErrFieldRecord(&structuredErr.erroneousField),
 		tlv.MakePrimitiveRecord(
 			typeSuggestedValue, &structuredErr.suggestedValue,
+		),
+		tlv.MakePrimitiveRecord(
+			typeErrorCode, &codedErr,
 		),
 	}
 
 	tlvs, extractErr := err.ExtraData.ExtractRecords(records...)
 	if extractErr != nil {
 		return nil, extractErr
+	}
+
+	// If we have the error code TLV, we don't expect any other fields so
+	// we just return a coded error using the value.
+	if _, ok := tlvs[typeErrorCode]; ok {
+		return CodedError(codedErr), nil
 	}
 
 	// If we don't know the problematic message type and field, we can't

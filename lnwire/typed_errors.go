@@ -315,6 +315,16 @@ func (s *StructuredError) SuggestedValue() (interface{}, error) {
 	return fieldHelper.decode(s.suggestedValue)
 }
 
+// MessageType returns the bolt message type that an error is for.
+func (s *StructuredError) MessageType() MessageType {
+	return s.messageType
+}
+
+// FieldNumber returns the 0-based field number that an error is for.
+func (s *StructuredError) FieldNumber() uint16 {
+	return s.fieldNumber
+}
+
 // Error returns an error string for our structured errors, including the
 // suggested value if it is present.
 func (s *StructuredError) Error() string {

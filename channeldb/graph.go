@@ -284,9 +284,48 @@ func (c *ChannelGraph) ForEachNodeChannel(tx kvdb.RTx, nodePub []byte,
 	cb func(kvdb.RTx, *ChannelEdgeInfo, *ChannelEdgePolicy,
 		*ChannelEdgePolicy) error) error {
 
-	db := c.db
+	var channels []ChannelEdge
 
-	return nodeTraversal(tx, nodePub, db, cb)
+	node, err := route.NewVertexFromBytes(nodePub)
+	if err != nil {
+		return err
+	}
+
+	// Retrieve channels from cache if possible.
+	var ok bool
+	channels, ok = c.chanCache.getNodeChannels(node)
+	ok = false
+	if !ok {
+		// Cache miss, retrieve from database.
+		db := c.db
+
+		add := func(_ kvdb.RTx, info *ChannelEdgeInfo,
+			policy1 *ChannelEdgePolicy, policy2 *ChannelEdgePolicy) error {
+
+			channels = append(channels, ChannelEdge{
+				Info:    info,
+				Policy1: policy1,
+				Policy2: policy2,
+			})
+
+			return nil
+		}
+		if err := nodeTraversal(tx, nodePub, db, add); err != nil {
+			return err
+		}
+
+		// Store in cache.
+		c.chanCache.insertNodeChannels(node, channels)
+	}
+
+	// Execute callback.
+	for _, channel := range channels {
+		err := cb(tx, channel.Info, channel.Policy1, channel.Policy2)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // DisabledChannelIDs returns the channel ids of disabled channels.
@@ -2132,6 +2171,10 @@ func (c *ChannelGraph) updateEdgeCache(e *ChannelEdgePolicy, isUpdate1 bool) {
 		}
 		c.chanCache.insert(e.ChannelID, channel)
 	}
+
+	// Short-cut: invalidate all cached node channels. This needs to be
+	// replaced by more selective invalidation or an update.
+	c.chanCache.nodeChannels = make(map[route.Vertex][]ChannelEdge)
 }
 
 // updateEdgePolicy attempts to update an edge's policy within the relevant

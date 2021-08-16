@@ -114,6 +114,8 @@ you.
 
 * [Missing dots in cmd interface](https://github.com/lightningnetwork/lnd/pull/5535).
 
+* [Link channel point logging](https://github.com/lightningnetwork/lnd/pull/5508)
+
 ## Database
 
 * [Ensure single writer for legacy

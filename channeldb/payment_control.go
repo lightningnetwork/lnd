@@ -368,14 +368,10 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 			return err
 		}
 
-		// Create bucket for this attempt. Fail if the bucket already
-		// exists.
-		htlcBucket, err := htlcsBucket.CreateBucket(htlcIDBytes)
-		if err != nil {
-			return err
-		}
-
-		err = htlcBucket.Put(htlcAttemptInfoKey, htlcInfoBytes)
+		err = htlcsBucket.Put(
+			htlcBucketKey(htlcAttemptInfoKey, htlcIDBytes),
+			htlcInfoBytes,
+		)
 		if err != nil {
 			return err
 		}
@@ -427,8 +423,8 @@ func (p *PaymentControl) FailAttempt(hash lntypes.Hash,
 func (p *PaymentControl) updateHtlcKey(paymentHash lntypes.Hash,
 	attemptID uint64, key, value []byte) (*MPPayment, error) {
 
-	htlcIDBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(htlcIDBytes, attemptID)
+	aid := make([]byte, 8)
+	binary.BigEndian.PutUint64(aid, attemptID)
 
 	var payment *MPPayment
 	err := kvdb.Batch(p.db.Backend, func(tx kvdb.RwTx) error {
@@ -456,23 +452,22 @@ func (p *PaymentControl) updateHtlcKey(paymentHash lntypes.Hash,
 			return fmt.Errorf("htlcs bucket not found")
 		}
 
-		htlcBucket := htlcsBucket.NestedReadWriteBucket(htlcIDBytes)
-		if htlcBucket == nil {
+		if htlcsBucket.Get(htlcBucketKey(htlcAttemptInfoKey, aid)) == nil {
 			return fmt.Errorf("HTLC with ID %v not registered",
 				attemptID)
 		}
 
 		// Make sure the shard is not already failed or settled.
-		if htlcBucket.Get(htlcFailInfoKey) != nil {
+		if htlcsBucket.Get(htlcBucketKey(htlcFailInfoKey, aid)) != nil {
 			return ErrAttemptAlreadyFailed
 		}
 
-		if htlcBucket.Get(htlcSettleInfoKey) != nil {
+		if htlcsBucket.Get(htlcBucketKey(htlcSettleInfoKey, aid)) != nil {
 			return ErrAttemptAlreadySettled
 		}
 
 		// Add or update the key for this htlc.
-		err = htlcBucket.Put(key, value)
+		err = htlcsBucket.Put(htlcBucketKey(key, aid), value)
 		if err != nil {
 			return err
 		}

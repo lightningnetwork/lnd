@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 
+	"google.golang.org/grpc/status"
+
 	"github.com/btcsuite/btclog"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -45,29 +47,61 @@ const (
 	rpcActive
 )
 
+// The following gRPC status codes are assigned in a specific pattern
+// The first digit denotes an server related error (1/0)
+// The second digit denotes an wallet related error (1/0)
+// The last two digits state the error code which ranges from 0-99
+const (
+	// ErrWaitingToStartStatusCode defines the gRPC status code as follows:
+	// Server Error: 1
+	// Wallet Error: 0
+	// Error Code: 01
+	ErrWaitingToStartStatusCode = 1001
+	// ErrNoWalletStatusCode defines the gRPC status code as follows:
+	// Server Error: 0
+	// Wallet Error: 1
+	// Error Code: 01
+	ErrNoWalletStatusCode = 0101
+	// ErrWalletLockStatusCode defines the gRPC status code as follows:
+	// Server Error: 0
+	// Wallet Error: 1
+	// Error Code: 02
+	ErrWalletLockStatusCode = 0102
+	// ErrWalletUnlockedStatusCode defines the gRPC status code as follows:
+	// Server Error: 0
+	// Wallet Error: 1
+	// Error Code: 03
+	ErrWalletUnlockedStatusCode = 0103
+	// ErrRPCStartingStatusCode defines the gRPC status code as follows:
+	// Server Error: 1
+	// Wallet Error: 0
+	// Error Code: 02
+	ErrRPCStartingStatusCode = 1002
+)
+
 var (
 	// ErrWaitingToStart is returned if LND is still wating to start,
 	// possibly blocked until elected as the leader.
-	ErrWaitingToStart = fmt.Errorf("waiting to start, RPC services not " +
+	ErrWaitingToStart = status.Error(ErrWaitingToStartStatusCode, "waiting to start, RPC services not "+
 		"available")
 
 	// ErrNoWallet is returned if the wallet does not exist.
-	ErrNoWallet = fmt.Errorf("wallet not created, create one to enable " +
+	ErrNoWallet = status.Error(ErrNoWalletStatusCode, "wallet not created, create one to enable "+
 		"full RPC access")
 
 	// ErrWalletLocked is returned if the wallet is locked and any service
 	// other than the WalletUnlocker is called.
-	ErrWalletLocked = fmt.Errorf("wallet locked, unlock it to enable " +
+	ErrWalletLocked = status.Error(ErrWalletLockStatusCode, "wallet locked, unlock it to enable "+
 		"full RPC access")
 
 	// ErrWalletUnlocked is returned if the WalletUnlocker service is
 	// called when the wallet already has been unlocked.
-	ErrWalletUnlocked = fmt.Errorf("wallet already unlocked, " +
+	ErrWalletUnlocked = status.Error(ErrWalletUnlockedStatusCode, "wallet already unlocked, "+
 		"WalletUnlocker service is no longer available")
 
 	// ErrRPCStarting is returned if the wallet has been unlocked but the
 	// RPC server is not yet ready to accept calls.
-	ErrRPCStarting = fmt.Errorf("the RPC server is in the process of " +
+	ErrRPCStarting = status.Error(ErrRPCStartingStatusCode, "the RPC server is in the process of "+
 		"starting up, but not yet ready to accept calls")
 
 	// macaroonWhitelist defines methods that we don't require macaroons to

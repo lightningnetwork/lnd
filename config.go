@@ -160,6 +160,10 @@ const (
 	// defaultCoinSelectionStrategy is the coin selection strategy that is
 	// used by default to fund transactions.
 	defaultCoinSelectionStrategy = "largest"
+
+	// defaultWatchTowerClientStartup sets the watchTower client to start
+	// automatically along with lnd
+	defaultWatchTowerClientStartup = true
 )
 
 var (
@@ -555,6 +559,9 @@ func DefaultConfig() Config {
 		ChannelCommitInterval:   defaultChannelCommitInterval,
 		ChannelCommitBatchSize:  defaultChannelCommitBatchSize,
 		CoinSelectionStrategy:   defaultCoinSelectionStrategy,
+		WtClient: &lncfg.WtClient{
+			Active: defaultWatchTowerClientStartup,
+		},
 	}
 }
 

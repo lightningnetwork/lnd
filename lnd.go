@@ -1589,7 +1589,7 @@ func initializeDatabases(ctx context.Context,
 			cfg.Watchtower.TowerDir,
 			cfg.registeredChains.PrimaryChain().String(),
 			lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
-		), cfg.WtClient.Active, cfg.Watchtower.Active,
+		), !cfg.WtClient.Deactivate, cfg.Watchtower.Active,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to obtain database "+
@@ -1662,23 +1662,26 @@ func initializeDatabases(ctx context.Context,
 	// using the same struct (and DB backend) instance.
 	dbs.chanStateDB = dbs.graphDB
 
-	// Wrap the watchtower client DB and make sure we clean up.
-	if cfg.WtClient.Active {
-		dbs.towerClientDB, err = wtdb.OpenClientDB(
-			databaseBackends.TowerClientDB,
-		)
-		if err != nil {
-			cleanUp()
-
-			err := fmt.Errorf("unable to open %s database: %v",
-				lncfg.NSTowerClientDB, err)
-			ltndLog.Error(err)
-			return nil, nil, err
-		}
-	}
-
 	// Wrap the watchtower server DB and make sure we clean up.
 	if cfg.Watchtower.Active {
+
+		// Checking if we need watchtower client to be active or has deactivate been passed
+		if !cfg.WtClient.Deactivate {
+			// Initialise watchtower client to be active, open the client database.
+			// Wrap the watchtower client DB and make sure we clean up.
+			dbs.towerClientDB, err = wtdb.OpenClientDB(
+				databaseBackends.TowerClientDB,
+			)
+			if err != nil {
+				cleanUp()
+
+				err := fmt.Errorf("unable to open %s database: %v",
+					lncfg.NSTowerClientDB, err)
+				ltndLog.Error(err)
+				return nil, nil, err
+			}
+		}
+
 		dbs.towerServerDB, err = wtdb.OpenTowerDB(
 			databaseBackends.TowerServerDB,
 		)

@@ -150,6 +150,8 @@ A bug has been fixed that would cause `lnd` to [try to bootstrap using the
 currnet DNS seeds when in SigNet
 mode](https://github.com/lightningnetwork/lnd/pull/5564).
 
+[A validation check for sane `CltvLimit` and `FinalCltvDelta` has been added for `REST`-initiated payments.](https://github.com/lightningnetwork/lnd/pull/5591)
+
 ## Documentation 
 
 The [code contribution guidelines have been updated to mention the new

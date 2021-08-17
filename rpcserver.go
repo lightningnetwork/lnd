@@ -4339,6 +4339,14 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 			return payIntent, err
 		}
 
+		// Do bounds checking with the block padding.
+		err = routing.ValidateCLTVLimit(
+			payIntent.cltvLimit, payIntent.cltvDelta, true,
+		)
+		if err != nil {
+			return payIntent, err
+		}
+
 		return payIntent, nil
 	}
 

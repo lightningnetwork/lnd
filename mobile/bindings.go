@@ -75,7 +75,7 @@ func Start(extraArgs string, rpcReady Callback) {
 
 	// Load the configuration, and parse the extra arguments as command
 	// line options. This function will also set up logging properly.
-	loadedConfig, err := lnd.LoadConfig(shutdownInterceptor)
+	loadedConfig, err := lnd.LoadConfig(*shutdownInterceptor)
 	if err != nil {
 		atomic.StoreInt32(&lndStarted, 0)
 		_, _ = fmt.Fprintln(os.Stderr, err)
@@ -106,7 +106,7 @@ func Start(extraArgs string, rpcReady Callback) {
 		defer close(quit)
 
 		if err := lnd.Main(
-			loadedConfig, cfg, shutdownInterceptor,
+			loadedConfig, cfg, *shutdownInterceptor,
 		); err != nil {
 			if e, ok := err.(*flags.Error); ok &&
 				e.Type == flags.ErrHelp {

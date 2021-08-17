@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration16"
 	"github.com/lightningnetwork/lnd/channeldb/migration20"
 	"github.com/lightningnetwork/lnd/channeldb/migration21"
+	"github.com/lightningnetwork/lnd/channeldb/migration23"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -192,6 +193,10 @@ var (
 			// queried by individual htlc sets.
 			number:    22,
 			migration: mig.CreateTLB(setIDIndexBucket),
+		},
+		{
+			number:    23,
+			migration: migration23.MigrateHtlcAttempts,
 		},
 	}
 

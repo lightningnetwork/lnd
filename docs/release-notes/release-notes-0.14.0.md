@@ -70,6 +70,10 @@ proposed channel type is used.
 
 * [Delete a specific payment, or its failed HTLCs](https://github.com/lightningnetwork/lnd/pull/5660).
 
+* A new state, [`WalletState_SERVER_ACTIVE`](https://github.com/lightningnetwork/lnd/pull/5637),
+  is added to the state server. This state indicates whether the `lnd` server
+  and all its subservers have been fully started or not.
+
 ### Batched channel funding
 
 [Multiple channels can now be opened in a single
@@ -93,6 +97,16 @@ documentation](../psbt.md#use-the-batchopenchannel-rpc-for-safe-batch-channel-fu
 
 * [Publish transaction is now reachable through 
   lncli](https://github.com/lightningnetwork/lnd/pull/5460).
+
+* Prior to this release, when running on `simnet` or `regtest`, `lnd` would
+  skip the check on wallet synchronization during its startup. In doing so, the
+  integration test can bypass the rule set by `bitcoind`, which considers the
+  node is out of sync when the last block is older than 2 hours([more
+  discussion](https://github.com/lightningnetwork/lnd/pull/4685#discussion_r503080709)).
+  This synchronization check is put back now as we want to make the integration
+  test more robust in catching real world situations. This also means it might
+  take longer to start a `lnd` node when running in `simnet` or `regtest`,
+  something developers need to watch out from this release.
 
 ## Security 
 
@@ -208,6 +222,8 @@ you.
 * [Fixed wallet recovery itests on Travis ARM](https://github.com/lightningnetwork/lnd/pull/5688)
 
 * [Integration tests save embedded etcd logs to help debugging flakes](https://github.com/lightningnetwork/lnd/pull/5702)
+
+* [Fixed restore backup file test flake with bitcoind](https://github.com/lightningnetwork/lnd/pull/5637).
 
 ## Database
 

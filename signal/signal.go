@@ -34,13 +34,16 @@ type Interceptor struct {
 
 	// quit is closed when instructing the main interrupt handler to exit.
 	quit chan struct{}
+
+	// exitCode is the exit code status when the main interrupt handler exits
+	exitCode chan int
 }
 
 // Intercept starts the interception of interrupt signals and returns an `Interceptor` instance.
 // Note that any previous active interceptor must be stopped before a new one can be created
-func Intercept() (Interceptor, error) {
+func Intercept() (*Interceptor, error) {
 	if !atomic.CompareAndSwapInt32(&started, 0, 1) {
-		return Interceptor{}, errors.New("intercept already started")
+		return &Interceptor{}, errors.New("intercept already started")
 	}
 
 	channels := Interceptor{
@@ -48,6 +51,7 @@ func Intercept() (Interceptor, error) {
 		shutdownChannel:        make(chan struct{}),
 		shutdownRequestChannel: make(chan struct{}),
 		quit:                   make(chan struct{}),
+		exitCode:               make(chan int, 1),
 	}
 
 	signalsToCatch := []os.Signal{
@@ -59,7 +63,7 @@ func Intercept() (Interceptor, error) {
 	signal.Notify(channels.interruptChannel, signalsToCatch...)
 	go channels.mainInterruptHandler()
 
-	return channels, nil
+	return &channels, nil
 }
 
 // mainInterruptHandler listens for SIGINT (Ctrl+C) signals on the
@@ -95,16 +99,22 @@ func (c *Interceptor) mainInterruptHandler() {
 		select {
 		case signal := <-c.interruptChannel:
 			log.Infof("Received %v", signal)
+			// Adding exit status code 0 as this will quit after graceful shutdown
+			c.setExitCode(0)
 			shutdown()
 
 		case <-c.shutdownRequestChannel:
 			log.Infof("Received shutdown request.")
+			// Adding exit status code 0 as this will quit after graceful shutdown
+			c.setExitCode(1)
 			shutdown()
 
 		case <-c.quit:
 			log.Infof("Gracefully shutting down.")
 			close(c.shutdownChannel)
 			signal.Stop(c.interruptChannel)
+			// Adding exit status code 0 as this will quit after graceful shutdown
+			c.setExitCode(0)
 			return
 		}
 	}
@@ -146,4 +156,13 @@ func (c *Interceptor) RequestShutdown() {
 // interrupt handler has exited.
 func (c *Interceptor) ShutdownChannel() <-chan struct{} {
 	return c.shutdownChannel
+}
+
+// GetExitCode fetches the exit code that has been set of the Interceptor
+func (c *Interceptor) GetExitCode() int {
+	return <-c.exitCode
+}
+
+func (c *Interceptor) setExitCode(exitCode int) {
+	c.exitCode <- exitCode
 }

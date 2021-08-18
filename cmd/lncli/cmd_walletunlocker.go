@@ -495,11 +495,10 @@ func unlock(ctx *cli.Context) error {
 	// echoed in the console.
 	case ctx.IsSet("stdin"):
 		reader := bufio.NewReader(os.Stdin)
-		pw, err = reader.ReadBytes('\n')
+		pw, err = ioutil.ReadAll(reader)
 
-		// Remove carriage return and newline characters.
-		pw = bytes.Trim(pw, "\r\n")
-
+		// Remove carriage return.
+		pw = bytes.Trim(pw, "\r")
 	// Read the password from a terminal by default. This requires the
 	// terminal to be a real tty and will fail if a string is piped into
 	// lncli.

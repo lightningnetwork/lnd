@@ -229,6 +229,9 @@ you.
   payments. Deleting all failed payments beforehand makes migration safer and
   faster too.
 
+* [Prefetch payments on hot paths](https://github.com/lightningnetwork/lnd/pull/5640)
+  to reduce roundtrips to the remote DB backend.
+
 ## Performance improvements
 
 * [Update MC store in blocks](https://github.com/lightningnetwork/lnd/pull/5515)

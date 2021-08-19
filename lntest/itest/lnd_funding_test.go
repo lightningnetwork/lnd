@@ -512,9 +512,9 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Create a new channel that requires 5 confs before it's considered
 	// open, then broadcast the funding transaction
-	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
-	pendingUpdate, err := net.OpenPendingChannel(ctxt, net.Alice, carol,
-		chanAmt, pushAmt)
+	pendingUpdate, err := net.OpenPendingChannel(
+		net.Alice, carol, chanAmt, pushAmt,
+	)
 	if err != nil {
 		t.Fatalf("unable to open channel: %v", err)
 	}
@@ -572,6 +572,7 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// Assert that our wallet has our opening transaction with a label
 	// that does not have a channel ID set yet, because we have not
 	// reached our required confirmations.
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	tx := findTxAtHeight(ctxt, t, height, fundingTxStr, net.Alice)
 
 	// At this stage, we expect the transaction to be labelled, but not with

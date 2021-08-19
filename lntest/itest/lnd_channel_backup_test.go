@@ -902,9 +902,8 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	var chanPoint *lnrpc.ChannelPoint
 	switch {
 	case testCase.unconfirmed:
-		ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 		_, err := net.OpenPendingChannel(
-			ctxt, from, to, chanAmt, pushAmt,
+			from, to, chanAmt, pushAmt,
 		)
 		if err != nil {
 			t.Fatalf("couldn't open pending channel: %v", err)

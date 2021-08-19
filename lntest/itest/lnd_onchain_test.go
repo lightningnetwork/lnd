@@ -189,10 +189,8 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 	// wallet, without a change output. This should not be allowed.
 	resErr := lnwallet.ErrReservedValueInvalidated.Error()
 
-	ctxt, _ := context.WithTimeout(context.Background(), defaultTimeout)
 	_, err := net.OpenChannel(
-		ctxt, alice, bob,
-		lntest.OpenChannelParams{
+		alice, bob, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -232,7 +230,7 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 		aliceChanPoint1, aliceChanPoint2, aliceChanPoint3,
 	}
 	for _, chanPoint := range chanPoints {
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 		err = alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
 		require.NoError(t.t, err)
 
@@ -247,7 +245,7 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 	addrReq := &lnrpc.NewAddressRequest{
 		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	resp, err := alice.NewAddress(ctxt, addrReq)
 	require.NoError(t.t, err)
 

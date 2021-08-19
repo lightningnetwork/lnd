@@ -190,8 +190,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	// disconnections from automatically disabling the channel again
 	// (we don't want to clutter the network with channels that are
 	// falsely advertised as enabled when they don't work).
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.DisconnectNodes(ctxt, alice, bob); err != nil {
+	if err := net.DisconnectNodes(alice, bob); err != nil {
 		t.Fatalf("unable to disconnect Alice from Bob: %v", err)
 	}
 	expectedPolicy.Disabled = true
@@ -230,8 +229,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.DisconnectNodes(ctxt, alice, bob); err != nil {
+	if err := net.DisconnectNodes(alice, bob); err != nil {
 		t.Fatalf("unable to disconnect Alice from Bob: %v", err)
 	}
 
@@ -261,8 +259,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	// note the asymmetry between manual enable and manual disable!
 	assertEdgeDisabled(alice, chanPoint, true)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.DisconnectNodes(ctxt, alice, bob); err != nil {
+	if err := net.DisconnectNodes(alice, bob); err != nil {
 		t.Fatalf("unable to disconnect Alice from Bob: %v", err)
 	}
 
@@ -583,8 +580,7 @@ out:
 	// that a node that does not have any channels open is ignored, so first
 	// we disconnect Alice and Bob, open a channel between Bob and Carol,
 	// and finally connect Alice to Bob again.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.DisconnectNodes(ctxt, alice, bob); err != nil {
+	if err := net.DisconnectNodes(alice, bob); err != nil {
 		t.Fatalf("unable to disconnect alice and bob: %v", err)
 	}
 	carol := net.NewNode(t.t, "Carol", nil)

@@ -171,10 +171,8 @@ func testPaymentFollowingChannelOpen(net *lntest.NetworkHarness, t *harnessTest)
 	channelCapacity := paymentAmt * 1000
 
 	// We first establish a channel between Alice and Bob.
-	ctxt, cancel := context.WithTimeout(ctxb, channelOpenTimeout)
-	defer cancel()
 	pendingUpdate, err := net.OpenPendingChannel(
-		ctxt, net.Alice, net.Bob, channelCapacity, 0,
+		net.Alice, net.Bob, channelCapacity, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to open channel: %v", err)
@@ -221,7 +219,7 @@ func testPaymentFollowingChannelOpen(net *lntest.NetworkHarness, t *harnessTest)
 
 	// At this point we want to make sure the channel is opened and not
 	// pending.
-	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 	res, err := net.Bob.ListChannels(ctxt, &lnrpc.ListChannelsRequest{})
 	if err != nil {

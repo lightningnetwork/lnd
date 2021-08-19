@@ -43,17 +43,13 @@ func openChannelStream(t *harnessTest, net *lntest.NetworkHarness,
 
 	t.t.Helper()
 
-	ctxb := context.Background()
-	ctx, cancel := context.WithTimeout(ctxb, channelOpenTimeout)
-	defer cancel()
-
 	// Wait until we are able to fund a channel successfully. This wait
 	// prevents us from erroring out when trying to create a channel while
 	// the node is starting up.
 	var chanOpenUpdate lnrpc.Lightning_OpenChannelClient
 	err := wait.NoError(func() error {
 		var err error
-		chanOpenUpdate, err = net.OpenChannel(ctx, alice, bob, p)
+		chanOpenUpdate, err = net.OpenChannel(alice, bob, p)
 		return err
 	}, defaultTimeout)
 	require.NoError(t.t, err, "unable to open channel")

@@ -40,7 +40,6 @@ const (
 	defaultTimeout      = lntest.DefaultTimeout
 	minerMempoolTimeout = lntest.MinerMempoolTimeout
 	channelCloseTimeout = lntest.ChannelCloseTimeout
-	channelOpenTimeout  = lntest.ChannelOpenTimeout
 	itestLndBinary      = "../../lnd-itest"
 	anchorSize          = 330
 	noFeeLimitMsat      = math.MaxInt64

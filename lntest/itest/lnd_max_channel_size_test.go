@@ -3,7 +3,6 @@
 package itest
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -29,7 +28,6 @@ func testMaxChannelSize(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, wumboNode2)
 
 	// We'll send 11 BTC to the wumbo node so it can test the wumbo soft limit.
-	ctxb := context.Background()
 	net.SendCoins(t.t, 11*btcutil.SatoshiPerBitcoin, wumboNode)
 
 	// Next we'll connect both nodes, then attempt to make a wumbo channel
@@ -39,7 +37,7 @@ func testMaxChannelSize(net *lntest.NetworkHarness, t *harnessTest) {
 
 	chanAmt := funding.MaxBtcFundingAmountWumbo + 1
 	_, err := net.OpenChannel(
-		ctxb, wumboNode, wumboNode2, lntest.OpenChannelParams{
+		wumboNode, wumboNode2, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -61,7 +59,7 @@ func testMaxChannelSize(net *lntest.NetworkHarness, t *harnessTest) {
 	net.EnsureConnected(t.t, wumboNode, miniNode)
 
 	_, err = net.OpenChannel(
-		ctxb, wumboNode, miniNode, lntest.OpenChannelParams{
+		wumboNode, miniNode, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)

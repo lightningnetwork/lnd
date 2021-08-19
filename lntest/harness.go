@@ -723,7 +723,11 @@ func (n *NetworkHarness) ConnectNodes(t *testing.T, a, b *HarnessNode) {
 
 // DisconnectNodes disconnects node a from node b by sending RPC message
 // from a node to b node
-func (n *NetworkHarness) DisconnectNodes(ctx context.Context, a, b *HarnessNode) error {
+func (n *NetworkHarness) DisconnectNodes(a, b *HarnessNode) error {
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, DefaultTimeout)
+	defer cancel()
+
 	bobInfo, err := b.GetInfo(ctx, &lnrpc.GetInfoRequest{})
 	if err != nil {
 		return err
@@ -988,9 +992,12 @@ type OpenChannelParams struct {
 // if the timeout is reached before the channel pending notification is
 // received, an error is returned. The confirmed boolean determines whether we
 // should fund the channel with confirmed outputs or not.
-func (n *NetworkHarness) OpenChannel(ctx context.Context,
-	srcNode, destNode *HarnessNode, p OpenChannelParams) (
-	lnrpc.Lightning_OpenChannelClient, error) {
+func (n *NetworkHarness) OpenChannel(srcNode, destNode *HarnessNode,
+	p OpenChannelParams) (lnrpc.Lightning_OpenChannelClient, error) {
+
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, ChannelOpenTimeout)
+	defer cancel()
 
 	// Wait until srcNode and destNode have the latest chain synced.
 	// Otherwise, we may run into a check within the funding manager that
@@ -1062,9 +1069,13 @@ func (n *NetworkHarness) OpenChannel(ctx context.Context,
 // passed channel funding parameters. If the passed context has a timeout, then
 // if the timeout is reached before the channel pending notification is
 // received, an error is returned.
-func (n *NetworkHarness) OpenPendingChannel(ctx context.Context,
-	srcNode, destNode *HarnessNode, amt btcutil.Amount,
+func (n *NetworkHarness) OpenPendingChannel(srcNode, destNode *HarnessNode,
+	amt btcutil.Amount,
 	pushAmt btcutil.Amount) (*lnrpc.PendingUpdate, error) {
+
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, ChannelOpenTimeout)
+	defer cancel()
 
 	// Wait until srcNode and destNode have blockchain synced
 	if err := srcNode.WaitForBlockchainSync(ctx); err != nil {

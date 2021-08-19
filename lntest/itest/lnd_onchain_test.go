@@ -176,8 +176,7 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, bob)
 
 	ctxb := context.Background()
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, alice, bob)
+	net.ConnectNodes(t.t, alice, bob)
 
 	// Send just enough coins for Alice to open a channel without a change
 	// output.
@@ -186,7 +185,7 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 		feeEst  = 8000
 	)
 
-	ctxt, _ = context.WithTimeout(context.Background(), defaultTimeout)
+	ctxt, _ := context.WithTimeout(context.Background(), defaultTimeout)
 	net.SendCoins(ctxt, t.t, chanAmt+feeEst, alice)
 
 	// wallet, without a change output. This should not be allowed.

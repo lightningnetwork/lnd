@@ -105,7 +105,7 @@ func testCommitmentTransactionDeadline(net *lntest.NetworkHarness,
 		defer shutdownAndAssert(net, t, bob)
 
 		// Connect Alice to Bob.
-		net.ConnectNodes(ctxt, t.t, alice, bob)
+		net.ConnectNodes(t.t, alice, bob)
 
 		// Open a channel between Alice and Bob.
 		chanPoint := openChannelAndAssert(
@@ -317,10 +317,10 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 
 	// We must let Alice have an open channel before she can send a node
 	// announcement, so we open a channel with Carol,
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, alice, carol)
+	net.ConnectNodes(t.t, alice, carol)
 
 	// We need one additional UTXO for sweeping the remote anchor.
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, alice)
 
 	// Before we start, obtain Carol's current wallet balance, we'll check
@@ -1418,8 +1418,7 @@ func testFailingChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, carol)
 
 	// Let Alice connect and open a channel to Carol,
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, net.Alice, carol)
+	net.ConnectNodes(t.t, net.Alice, carol)
 	chanPoint := openChannelAndAssert(
 		t, net, net.Alice, carol,
 		lntest.OpenChannelParams{
@@ -1435,7 +1434,7 @@ func testFailingChannel(net *lntest.NetworkHarness, t *harnessTest) {
 		RPreimage: preimage,
 		Value:     paymentAmt,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	resp, err := carol.AddInvoice(ctxt, invoice)
 	if err != nil {
 		t.Fatalf("unable to add invoice: %v", err)

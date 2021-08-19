@@ -114,6 +114,8 @@ you.
 
 * [Fixed context timeout when closing channels in tests](https://github.com/lightningnetwork/lnd/pull/5616).
 
+* [Fixed transaction not found in mempool flake in commitment deadline itest](https://github.com/lightningnetwork/lnd/pull/5615).
+
 * [Fixed a missing import and git tag in the healthcheck package](https://github.com/lightningnetwork/lnd/pull/5582).
 
 * [Fixed a data race in payment unit test](https://github.com/lightningnetwork/lnd/pull/5573).

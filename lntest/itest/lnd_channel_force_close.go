@@ -81,6 +81,13 @@ func testCommitmentTransactionDeadline(net *lntest.NetworkHarness,
 
 		// Send some coins to the node.
 		net.SendCoins(ctx, t.t, btcutil.SatoshiPerBitcoin, node)
+
+		// For neutrino backend, we need one additional UTXO to create
+		// the sweeping tx for the remote anchor.
+		if net.BackendCfg.Name() == lntest.NeutrinoBackendName {
+			net.SendCoins(ctx, t.t, btcutil.SatoshiPerBitcoin, node)
+		}
+
 		return node
 	}
 
@@ -151,8 +158,7 @@ func testCommitmentTransactionDeadline(net *lntest.NetworkHarness,
 			t.t, checkNumWaitingCloseChannels(pendingChanResp, 1),
 		)
 
-		// We should see only one sweep transaction because the anchor
-		// sweep is skipped.
+		// Check our sweep transactions can be found in mempool.
 		sweepTxns, err := getNTxsFromMempool(
 			net.Miner.Client,
 			expectedSweepTxNum, minerMempoolTimeout,

@@ -1100,7 +1100,7 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 	// sweepWithDeadline is a helper closure that takes an anchor
 	// resolution and sweeps it with its corresponding deadline.
 	sweepWithDeadline := func(anchor *lnwallet.AnchorResolution,
-		htlcs htlcSet) error {
+		htlcs htlcSet, anchorPath string) error {
 
 		// Find the deadline for this specific anchor.
 		deadline, err := c.findCommitmentDeadline(heightHint, htlcs)
@@ -1109,7 +1109,8 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 		}
 
 		log.Debugf("ChannelArbitrator(%v): pre-confirmation sweep of "+
-			"anchor of tx %v", c.cfg.ChanPoint, anchor.CommitAnchor)
+			"anchor of %s commit tx %v", c.cfg.ChanPoint,
+			anchorPath, anchor.CommitAnchor)
 
 		// Prepare anchor output for sweeping.
 		anchorInput := input.MakeBaseInput(
@@ -1153,13 +1154,15 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 	for htlcSet, htlcs := range c.activeHTLCs {
 		switch {
 		case htlcSet == LocalHtlcSet && anchors.Local != nil:
-			err := sweepWithDeadline(anchors.Local, htlcs)
+			err := sweepWithDeadline(anchors.Local, htlcs, "local")
 			if err != nil {
 				return err
 			}
 
 		case htlcSet == RemoteHtlcSet && anchors.Remote != nil:
-			err := sweepWithDeadline(anchors.Remote, htlcs)
+			err := sweepWithDeadline(
+				anchors.Remote, htlcs, "remote",
+			)
 			if err != nil {
 				return err
 			}
@@ -1167,7 +1170,9 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 		case htlcSet == RemotePendingHtlcSet &&
 			anchors.RemotePending != nil:
 
-			err := sweepWithDeadline(anchors.RemotePending, htlcs)
+			err := sweepWithDeadline(
+				anchors.RemotePending, htlcs, "remote pending",
+			)
 			if err != nil {
 				return err
 			}

@@ -72,10 +72,6 @@ func openChannelAndAssert(t *harnessTest, net *lntest.NetworkHarness,
 
 	t.t.Helper()
 
-	ctxb := context.Background()
-	ctx, cancel := context.WithTimeout(ctxb, channelOpenTimeout)
-	defer cancel()
-
 	chanOpenUpdate := openChannelStream(t, net, alice, bob, p)
 
 	// Mine 6 blocks, then wait for Alice's node to notify us that the
@@ -99,11 +95,11 @@ func openChannelAndAssert(t *harnessTest, net *lntest.NetworkHarness,
 		Index: fundingChanPoint.OutputIndex,
 	}
 	require.NoError(
-		t.t, net.AssertChannelExists(ctx, alice, &chanPoint),
+		t.t, net.AssertChannelExists(alice, &chanPoint),
 		"unable to assert channel existence",
 	)
 	require.NoError(
-		t.t, net.AssertChannelExists(ctx, bob, &chanPoint),
+		t.t, net.AssertChannelExists(bob, &chanPoint),
 		"unable to assert channel existence",
 	)
 
@@ -238,9 +234,7 @@ func closeChannelAndAssertType(t *harnessTest,
 		defer close(graphSub.quit)
 	}
 
-	closeUpdates, _, err := net.CloseChannel(
-		ctxt, node, fundingChanPoint, force,
-	)
+	closeUpdates, _, err := net.CloseChannel(node, fundingChanPoint, force)
 	require.NoError(t.t, err, "unable to close channel")
 
 	// If the channel policy was enabled prior to the closure, wait until we
@@ -277,7 +271,7 @@ func closeReorgedChannelAndAssert(t *harnessTest,
 	ctx, cancel := context.WithTimeout(ctxb, channelCloseTimeout)
 	defer cancel()
 
-	closeUpdates, _, err := net.CloseChannel(ctx, node, fundingChanPoint, force)
+	closeUpdates, _, err := net.CloseChannel(node, fundingChanPoint, force)
 	require.NoError(t.t, err, "unable to close channel")
 
 	return assertChannelClosed(

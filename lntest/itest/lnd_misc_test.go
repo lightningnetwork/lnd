@@ -115,12 +115,10 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Check both nodes to ensure that the channel is ready for operation.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.AssertChannelExists(ctxt, alice, &outPoint); err != nil {
+	if err := net.AssertChannelExists(alice, &outPoint); err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.AssertChannelExists(ctxt, bob, &outPoint); err != nil {
+	if err := net.AssertChannelExists(bob, &outPoint); err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}
 
@@ -573,10 +571,8 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 			Hash:  *fundingTxID,
 			Index: fundingChanPoint.OutputIndex,
 		}
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		if err := net.AssertChannelExists(ctxt, net.Alice, &chanPoint); err != nil {
-			t.Fatalf("unable to assert channel existence: %v", err)
-		}
+		err = net.AssertChannelExists(net.Alice, &chanPoint)
+		require.NoError(t.t, err, "unable to assert channel existence")
 
 		chanPoints[i] = fundingChanPoint
 	}
@@ -1503,14 +1499,12 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Close Alice's channels with Bob and Carol cooperatively and
 	// unilaterally respectively.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	_, _, err = net.CloseChannel(ctxt, net.Alice, chanPointAliceBob, false)
+	_, _, err = net.CloseChannel(net.Alice, chanPointAliceBob, false)
 	if err != nil {
 		t.Fatalf("unable to close channel: %v", err)
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	_, _, err = net.CloseChannel(ctxt, net.Alice, chanPointAliceCarol, true)
+	_, _, err = net.CloseChannel(net.Alice, chanPointAliceCarol, true)
 	if err != nil {
 		t.Fatalf("unable to close channel: %v", err)
 	}
@@ -1530,8 +1524,7 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	mineBlocks(t, net, 1, 2)
 
 	// Also do this check for Eve's channel with Carol.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	_, _, err = net.CloseChannel(ctxt, eve, chanPointEveCarol, false)
+	_, _, err = net.CloseChannel(eve, chanPointEveCarol, false)
 	if err != nil {
 		t.Fatalf("unable to close channel: %v", err)
 	}

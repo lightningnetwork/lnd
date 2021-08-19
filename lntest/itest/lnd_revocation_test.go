@@ -169,8 +169,9 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	var closeUpdates lnrpc.Lightning_CloseChannelClient
 	force := true
 	err = wait.Predicate(func() bool {
-		ctxt, _ := context.WithTimeout(ctxb, channelCloseTimeout)
-		closeUpdates, _, err = net.CloseChannel(ctxt, net.Bob, chanPoint, force)
+		closeUpdates, _, err = net.CloseChannel(
+			net.Bob, chanPoint, force,
+		)
 		if err != nil {
 			predErr = err
 			return false
@@ -404,9 +405,8 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 
 	force := true
 	err = wait.Predicate(func() bool {
-		ctxt, _ := context.WithTimeout(ctxb, channelCloseTimeout)
 		closeUpdates, closeTxID, closeErr = net.CloseChannel(
-			ctxt, carol, chanPoint, force,
+			carol, chanPoint, force,
 		)
 		return closeErr == nil
 	}, defaultTimeout)
@@ -714,9 +714,9 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// commitment transaction of a prior *revoked* state, so she'll soon
 	// feel the wrath of Dave's retribution.
 	force := true
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeUpdates, closeTxID, err := net.CloseChannel(ctxt, carol,
-		chanPoint, force)
+	closeUpdates, closeTxID, err := net.CloseChannel(
+		carol, chanPoint, force,
+	)
 	if err != nil {
 		t.Fatalf("unable to close channel: %v", err)
 	}
@@ -1154,9 +1154,7 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(
 	// broadcasting his current channel state. This is actually the
 	// commitment transaction of a prior *revoked* state, so he'll soon
 	// feel the wrath of Dave's retribution.
-	closeUpdates, closeTxID, err := net.CloseChannel(
-		ctxb, carol, chanPoint, true,
-	)
+	closeUpdates, closeTxID, err := net.CloseChannel(carol, chanPoint, true)
 	if err != nil {
 		t.Fatalf("unable to close channel: %v", err)
 	}

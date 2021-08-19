@@ -139,9 +139,7 @@ func testCommitmentTransactionDeadline(net *lntest.NetworkHarness,
 		require.NoError(t.t, err, "htlc mismatch")
 
 		// Alice force closes the channel.
-		ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
-		defer cancel()
-		_, _, err = net.CloseChannel(ctxt, alice, chanPoint, true)
+		_, _, err = net.CloseChannel(alice, chanPoint, true)
 		require.NoError(t.t, err, "unable to force close channel")
 
 		// Now that the channel has been force closed, it should show
@@ -431,8 +429,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	const actualFeeRate = 30000
 	net.SetFeeEstimate(actualFeeRate)
 
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	_, closingTxID, err := net.CloseChannel(ctxt, alice, chanPoint, true)
+	_, closingTxID, err := net.CloseChannel(alice, chanPoint, true)
 	if err != nil {
 		t.Fatalf("unable to execute force channel closure: %v", err)
 	}

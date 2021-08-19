@@ -856,13 +856,11 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 		Hash:  *fundingTxID,
 		Index: chanPointPrivate.OutputIndex,
 	}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err = net.AssertChannelExists(ctxt, carol, &privateFundPoint)
+	err = net.AssertChannelExists(carol, &privateFundPoint)
 	if err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.AssertChannelExists(ctxt, net.Alice, &privateFundPoint)
+	err = net.AssertChannelExists(net.Alice, &privateFundPoint)
 	if err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}
@@ -886,7 +884,7 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	time.Sleep(time.Millisecond * 50)
 
 	// Let Carol pay the invoices.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
 		ctxt, carol, carol.RouterClient, payReqs, true,
 	)

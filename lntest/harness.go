@@ -1163,9 +1163,13 @@ func (n *NetworkHarness) WaitForChannelOpen(
 // passed channel point, initiated by the passed lnNode. If the passed context
 // has a timeout, an error is returned if that timeout is reached before the
 // channel close is pending.
-func (n *NetworkHarness) CloseChannel(ctx context.Context,
-	lnNode *HarnessNode, cp *lnrpc.ChannelPoint,
+func (n *NetworkHarness) CloseChannel(lnNode *HarnessNode,
+	cp *lnrpc.ChannelPoint,
 	force bool) (lnrpc.Lightning_CloseChannelClient, *chainhash.Hash, error) {
+
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, ChannelCloseTimeout)
+	defer cancel()
 
 	// Create a channel outpoint that we can use to compare to channels
 	// from the ListChannelsResponse.
@@ -1342,9 +1346,12 @@ func (n *NetworkHarness) WaitForChannelClose(
 // assertions using channel's values. These functions are responsible for
 // failing the test themselves if they do not pass.
 // nolint: interfacer
-func (n *NetworkHarness) AssertChannelExists(ctx context.Context,
-	node *HarnessNode, chanPoint *wire.OutPoint,
-	checks ...func(*lnrpc.Channel)) error {
+func (n *NetworkHarness) AssertChannelExists(node *HarnessNode,
+	chanPoint *wire.OutPoint, checks ...func(*lnrpc.Channel)) error {
+
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, ChannelCloseTimeout)
+	defer cancel()
 
 	req := &lnrpc.ListChannelsRequest{}
 

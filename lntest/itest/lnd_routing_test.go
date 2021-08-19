@@ -179,10 +179,8 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 	if err != nil {
 		t.Fatalf("unable to get best height: %v", err)
 	}
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-	require.NoError(t.t, waitForNodeBlockHeight(ctxt, carol, minerHeight))
-	require.NoError(t.t, waitForNodeBlockHeight(ctxt, dave, minerHeight))
+	require.NoError(t.t, waitForNodeBlockHeight(carol, minerHeight))
+	require.NoError(t.t, waitForNodeBlockHeight(dave, minerHeight))
 
 	// Query for routes to pay from Carol to Dave using the default CLTV
 	// config.
@@ -190,7 +188,7 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 		PubKey: dave.PubKeyStr,
 		Amt:    paymentAmtSat,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	routes, err := carol.QueryRoutes(ctxt, routesReq)
 	if err != nil {
 		t.Fatalf("unable to get route from %s: %v",

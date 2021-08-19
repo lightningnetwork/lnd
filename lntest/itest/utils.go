@@ -190,8 +190,11 @@ func createPayReqs(node *lntest.HarnessNode, paymentAmt btcutil.Amount,
 
 // getChanInfo is a helper method for getting channel info for a node's sole
 // channel.
-func getChanInfo(ctx context.Context, node *lntest.HarnessNode) (
-	*lnrpc.Channel, error) {
+func getChanInfo(node *lntest.HarnessNode) (*lnrpc.Channel, error) {
+
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
 
 	req := &lnrpc.ListChannelsRequest{}
 	channelInfo, err := node.ListChannels(ctx, req)
@@ -326,8 +329,12 @@ func calculateMaxHtlc(chanCap btcutil.Amount) uint64 {
 
 // waitForNodeBlockHeight queries the node for its current block height until
 // it reaches the passed height.
-func waitForNodeBlockHeight(ctx context.Context, node *lntest.HarnessNode,
-	height int32) error {
+func waitForNodeBlockHeight(node *lntest.HarnessNode, height int32) error {
+
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+
 	var predErr error
 	err := wait.Predicate(func() bool {
 		ctxt, _ := context.WithTimeout(ctx, defaultTimeout)
@@ -465,8 +472,12 @@ func subscribeChannelNotifications(ctxb context.Context, t *harnessTest,
 // findTxAtHeight gets all of the transactions that a node's wallet has a record
 // of at the target height, and finds and returns the tx with the target txid,
 // failing if it is not found.
-func findTxAtHeight(ctx context.Context, t *harnessTest, height int32,
+func findTxAtHeight(t *harnessTest, height int32,
 	target string, node *lntest.HarnessNode) *lnrpc.Transaction {
+
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
 
 	txns, err := node.LightningClient.GetTransactions(
 		ctx, &lnrpc.GetTransactionsRequest{

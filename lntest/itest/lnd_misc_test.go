@@ -897,8 +897,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 		var nodeChan *lnrpc.Channel
 		var predErr error
 		err = wait.Predicate(func() bool {
-			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-			bChan, err := getChanInfo(ctxt, node)
+			bChan, err := getChanInfo(node)
 			if err != nil {
 				t.Fatalf("unable to get channel info: %v", err)
 			}
@@ -937,8 +936,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 			t.Fatalf("unable to send payments: %v", err)
 		}
 
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		nodeChan, err = getChanInfo(ctxt, node)
+		nodeChan, err = getChanInfo(node)
 		if err != nil {
 			t.Fatalf("unable to get dave chan info: %v", err)
 		}
@@ -960,8 +958,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 
 		// Now query for the channel state, it should show that it's at
 		// a state number in the past, not the *latest* state.
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		nodeChan, err = getChanInfo(ctxt, node)
+		nodeChan, err = getChanInfo(node)
 		if err != nil {
 			t.Fatalf("unable to get dave chan info: %v", err)
 		}

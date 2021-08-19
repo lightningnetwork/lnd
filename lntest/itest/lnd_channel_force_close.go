@@ -413,8 +413,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		)
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	aliceChan, err := getChanInfo(ctxt, alice)
+	aliceChan, err := getChanInfo(alice)
 	if err != nil {
 		t.Fatalf("unable to get alice's channel info: %v", err)
 	}

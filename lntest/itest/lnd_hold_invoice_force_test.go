@@ -105,8 +105,7 @@ func testHoldInvoiceForceClose(net *lntest.NetworkHarness, t *harnessTest) {
 	// Our channel should not have been force closed, instead we expect our
 	// channel to still be open and our invoice to have been canceled before
 	// expiry.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	chanInfo, err := getChanInfo(ctxt, net.Alice)
+	chanInfo, err := getChanInfo(net.Alice)
 	require.NoError(t.t, err)
 
 	fundingTxID, err := lnrpc.GetChanPointFundingTxid(chanPoint)

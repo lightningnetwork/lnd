@@ -45,8 +45,7 @@ func testGetRecoveryInfo(net *lntest.NetworkHarness, t *harnessTest) {
 		if err != nil {
 			t.Fatalf("unable to get current blockheight %v", err)
 		}
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		err = waitForNodeBlockHeight(ctxt, node, minerHeight)
+		err = waitForNodeBlockHeight(node, minerHeight)
 		if err != nil {
 			t.Fatalf("unable to sync to chain: %v", err)
 		}

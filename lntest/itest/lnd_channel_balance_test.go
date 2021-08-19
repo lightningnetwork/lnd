@@ -227,8 +227,7 @@ func testChannelUnsettledBalance(net *lntest.NetworkHarness, t *harnessTest) {
 		// Check each nodes UnsettledBalance field.
 		for _, node := range nodes {
 			// Get channel info for the node.
-			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-			chanInfo, err := getChanInfo(ctxt, node)
+			chanInfo, err := getChanInfo(node)
 			if err != nil {
 				unsettledErr = err
 				return false

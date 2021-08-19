@@ -260,8 +260,7 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	)
 
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	info, err := getChanInfo(ctxt, net.Alice)
+	info, err := getChanInfo(net.Alice)
 	if err != nil {
 		t.Fatalf("unable to get alice channel info: %v", err)
 	}
@@ -286,7 +285,7 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Wait for Alice to receive the channel edge from the funding manager.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't see the alice->bob channel before "+
@@ -345,8 +344,7 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// htlcs listed and has correct balances. This is needed due to the fact
 	// that we now pipeline the settles.
 	err = wait.Predicate(func() bool {
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		aliceChan, err := getChanInfo(ctxt, net.Alice)
+		aliceChan, err := getChanInfo(net.Alice)
 		if err != nil {
 			return false
 		}
@@ -368,8 +366,7 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Wait for Bob to receive revocation from Alice.
 	err = wait.NoError(func() error {
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		bobChan, err := getChanInfo(ctxt, net.Bob)
+		bobChan, err := getChanInfo(net.Bob)
 		if err != nil {
 			t.Fatalf("unable to get bob's channel info: %v", err)
 		}
@@ -425,8 +422,7 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 		},
 	)
 
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	info, err := getChanInfo(ctxt, net.Alice)
+	info, err := getChanInfo(net.Alice)
 	if err != nil {
 		t.Fatalf("unable to get alice channel info: %v", err)
 	}
@@ -462,7 +458,7 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 	}
 
 	// Wait for Alice to receive the channel edge from the funding manager.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	if err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint); err != nil {
 		t.Fatalf("alice didn't see the alice->bob channel before "+
 			"timeout: %v", err)
@@ -534,8 +530,7 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 	// Wait for Alice and Bob to receive revocations messages, and update
 	// states, i.e. balance info.
 	err = wait.NoError(func() error {
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		aliceInfo, err := getChanInfo(ctxt, net.Alice)
+		aliceInfo, err := getChanInfo(net.Alice)
 		if err != nil {
 			t.Fatalf("unable to get alice's channel info: %v", err)
 		}
@@ -565,8 +560,7 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 	// Next query for Bob's and Alice's channel states, in order to confirm
 	// that all payment have been successful transmitted.
 	err = wait.NoError(func() error {
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		bobInfo, err := getChanInfo(ctxt, net.Bob)
+		bobInfo, err := getChanInfo(net.Bob)
 		if err != nil {
 			t.Fatalf("unable to get bob's channel info: %v", err)
 		}

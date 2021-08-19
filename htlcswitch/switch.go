@@ -2054,6 +2054,17 @@ func (s *Switch) getLink(chanID lnwire.ChannelID) (ChannelLink, error) {
 	return link, nil
 }
 
+// GetLinkByShortID attempts to return the link which possesses the target short
+// channel ID.
+func (s *Switch) GetLinkByShortID(chanID lnwire.ShortChannelID) (ChannelLink,
+	error) {
+
+	s.indexMtx.RLock()
+	defer s.indexMtx.RUnlock()
+
+	return s.getLinkByShortID(chanID)
+}
+
 // getLinkByShortID attempts to return the link which possesses the target
 // short channel ID.
 //

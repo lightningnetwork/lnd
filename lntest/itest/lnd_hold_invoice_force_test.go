@@ -25,10 +25,8 @@ func testHoldInvoiceForceClose(net *lntest.NetworkHarness, t *harnessTest) {
 		Amt: 300000,
 	}
 
-	ctxt, cancel := context.WithTimeout(ctxb, channelOpenTimeout)
-	defer cancel()
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, chanReq,
+		t, net, net.Alice, net.Bob, chanReq,
 	)
 
 	// Create a non-dust hold invoice for bob.
@@ -42,7 +40,7 @@ func testHoldInvoiceForceClose(net *lntest.NetworkHarness, t *harnessTest) {
 		Hash:       payHash[:],
 	}
 
-	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 	bobInvoice, err := net.Bob.AddHoldInvoice(ctxt, invoiceReq)
 	require.NoError(t.t, err)

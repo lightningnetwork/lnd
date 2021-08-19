@@ -23,14 +23,13 @@ func testHtlcErrorPropagation(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// First establish a channel with a capacity of 0.5 BTC between Alice
 	// and Bob.
-	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPointAlice := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob,
+		t, net, net.Alice, net.Bob,
 		lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	if err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPointAlice); err != nil {
 		t.Fatalf("channel not seen by alice before timeout: %v", err)
 	}
@@ -96,10 +95,9 @@ func testHtlcErrorPropagation(net *lntest.NetworkHarness, t *harnessTest) {
 	// above.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	net.ConnectNodes(ctxt, t.t, net.Bob, carol)
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	const bobChanAmt = funding.MaxBtcFundingAmount
 	chanPointBob := openChannelAndAssert(
-		ctxt, t, net, net.Bob, carol,
+		t, net, net.Bob, carol,
 		lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},

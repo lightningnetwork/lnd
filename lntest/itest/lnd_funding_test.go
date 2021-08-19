@@ -202,9 +202,8 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 	// assertions will be executed to ensure the funding process completed
 	// successfully.
 	ctxb := context.Background()
-	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, alice, bob,
+		t, net, alice, bob,
 		lntest.OpenChannelParams{
 			Amt:         chanAmt,
 			PushAmt:     pushAmt,
@@ -213,7 +212,7 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 		},
 	)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 
 	err := alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	require.NoError(t.t, err, "alice didn't report channel")

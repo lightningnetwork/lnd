@@ -223,9 +223,8 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 	// We'll start the test by creating a channel between Alice and Bob,
 	// which will act as the first leg for out multi-hop HTLC.
 	const chanAmt = 1000000
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	aliceChanPoint := openChannelAndAssert(
-		ctxt, t, net, alice, bob,
+		t, net, alice, bob,
 		lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
@@ -266,9 +265,8 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 
 	// We'll then create a channel from Bob to Carol. After this channel is
 	// open, our topology looks like:  A -> B -> C.
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	bobChanPoint := openChannelAndAssert(
-		ctxt, t, net, bob, carol,
+		t, net, bob, carol,
 		lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},

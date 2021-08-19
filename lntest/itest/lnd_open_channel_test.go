@@ -280,9 +280,8 @@ func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness, t *harnessTe
 	// have been properly opened on-chain.
 	chanPoints := make([]*lnrpc.ChannelPoint, numChannels)
 	for i := 0; i < numChannels; i++ {
-		ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 		chanPoints[i] = openChannelAndAssert(
-			ctxt, t, net, net.Alice, net.Bob,
+			t, net, net.Alice, net.Bob,
 			lntest.OpenChannelParams{
 				Amt: amount,
 			},

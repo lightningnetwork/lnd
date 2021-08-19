@@ -54,9 +54,8 @@ func testChannelBalance(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	net.EnsureConnected(ctxt, t.t, net.Alice, net.Bob)
 
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob,
+		t, net, net.Alice, net.Bob,
 		lntest.OpenChannelParams{
 			Amt: amount,
 		},
@@ -149,9 +148,8 @@ func testChannelUnsettledBalance(net *lntest.NetworkHarness, t *harnessTest) {
 	net.ConnectNodes(ctxb, t.t, net.Alice, carol)
 
 	// Open a channel between Alice and Carol.
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPointAlice := openChannelAndAssert(
-		ctxt, t, net, net.Alice, carol,
+		t, net, net.Alice, carol,
 		lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},

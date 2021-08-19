@@ -109,7 +109,7 @@ func testCommitmentTransactionDeadline(net *lntest.NetworkHarness,
 
 		// Open a channel between Alice and Bob.
 		chanPoint := openChannelAndAssert(
-			ctxt, t, net, alice, bob, lntest.OpenChannelParams{
+			t, net, alice, bob, lntest.OpenChannelParams{
 				Amt:     10e6,
 				PushAmt: 5e6,
 			},
@@ -335,9 +335,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 
 	carolStartingBalance := carolBalResp.ConfirmedBalance
 
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, alice, carol,
+		t, net, alice, carol,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
@@ -1421,9 +1420,8 @@ func testFailingChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	// Let Alice connect and open a channel to Carol,
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	net.ConnectNodes(ctxt, t.t, net.Alice, carol)
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, carol,
+		t, net, net.Alice, carol,
 		lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},

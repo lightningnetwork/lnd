@@ -62,11 +62,15 @@ func openChannelStream(ctx context.Context, t *harnessTest,
 // after the channel is considered open: the funding transaction should be
 // found within a block, and that Alice can report the status of the new
 // channel.
-func openChannelAndAssert(ctx context.Context, t *harnessTest,
-	net *lntest.NetworkHarness, alice, bob *lntest.HarnessNode,
+func openChannelAndAssert(t *harnessTest, net *lntest.NetworkHarness,
+	alice, bob *lntest.HarnessNode,
 	p lntest.OpenChannelParams) *lnrpc.ChannelPoint {
 
 	t.t.Helper()
+
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, channelOpenTimeout)
+	defer cancel()
 
 	chanOpenUpdate := openChannelStream(ctx, t, net, alice, bob, p)
 

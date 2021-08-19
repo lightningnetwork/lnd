@@ -359,9 +359,8 @@ func (c *interceptorTestContext) openChannel(from, to *lntest.HarnessNode,
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	c.net.SendCoins(ctxt, c.t.t, btcutil.SatoshiPerBitcoin, from)
 
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, c.t, c.net, from, to,
+		c.t, c.net, from, to,
 		lntest.OpenChannelParams{
 			Amt: chanSize,
 		},

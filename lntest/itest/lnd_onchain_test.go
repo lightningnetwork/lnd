@@ -205,9 +205,8 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Alice opens a smaller channel. This works since it will have a
 	// change output.
-	ctxt, _ = context.WithTimeout(context.Background(), defaultTimeout)
 	aliceChanPoint1 := openChannelAndAssert(
-		ctxt, t, net, alice, bob,
+		t, net, alice, bob,
 		lntest.OpenChannelParams{
 			Amt: chanAmt / 4,
 		},
@@ -216,7 +215,7 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 	// If Alice tries to open another anchor channel to Bob, Bob should not
 	// reject it as he is not contributing any funds.
 	aliceChanPoint2 := openChannelAndAssert(
-		ctxt, t, net, alice, bob, lntest.OpenChannelParams{
+		t, net, alice, bob, lntest.OpenChannelParams{
 			Amt: chanAmt / 4,
 		},
 	)
@@ -226,9 +225,8 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 	// to remove his support for anchors.
 	err = net.RestartNode(bob, nil)
 	require.NoError(t.t, err)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	aliceChanPoint3 := openChannelAndAssert(
-		ctxt, t, net, alice, bob, lntest.OpenChannelParams{
+		t, net, alice, bob, lntest.OpenChannelParams{
 			Amt: chanAmt / 4,
 		},
 	)

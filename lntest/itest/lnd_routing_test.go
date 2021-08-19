@@ -825,9 +825,8 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// Now create a _private_ channel directly between Carol and
 	// Alice of 100k.
 	net.ConnectNodes(t.t, carol, net.Alice)
-	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 	chanOpenUpdate := openChannelStream(
-		ctxt, t, net, carol, net.Alice,
+		t, net, carol, net.Alice,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			Private: true,
@@ -841,7 +840,7 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// nodes have defaultNumConfs=1 set.
 	block := mineBlocks(t, net, 1, 1)[0]
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	chanPointPrivate, err := net.WaitForChannelOpen(ctxt, chanOpenUpdate)
 	if err != nil {
 		t.Fatalf("error while waiting for channel open: %v", err)

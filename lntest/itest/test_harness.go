@@ -39,8 +39,8 @@ const (
 	defaultCSV          = lntest.DefaultCSV
 	defaultTimeout      = lntest.DefaultTimeout
 	minerMempoolTimeout = lntest.MinerMempoolTimeout
-	channelOpenTimeout  = lntest.ChannelOpenTimeout
 	channelCloseTimeout = lntest.ChannelCloseTimeout
+	channelOpenTimeout  = lntest.ChannelOpenTimeout
 	itestLndBinary      = "../../lnd-itest"
 	anchorSize          = 330
 	noFeeLimitMsat      = math.MaxInt64

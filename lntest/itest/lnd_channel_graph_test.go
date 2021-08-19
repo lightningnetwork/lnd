@@ -301,9 +301,8 @@ func testUnannouncedChannels(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Open a channel between Alice and Bob, ensuring the
 	// channel has been opened properly.
-	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 	chanOpenUpdate := openChannelStream(
-		ctxt, t, net, net.Alice, net.Bob,
+		t, net, net.Alice, net.Bob,
 		lntest.OpenChannelParams{
 			Amt: amount,
 		},
@@ -315,7 +314,7 @@ func testUnannouncedChannels(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// One block is enough to make the channel ready for use, since the
 	// nodes have defaultNumConfs=1 set.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	fundingChanPoint, err := net.WaitForChannelOpen(ctxt, chanOpenUpdate)
 	if err != nil {
 		t.Fatalf("error while waiting for channel open: %v", err)

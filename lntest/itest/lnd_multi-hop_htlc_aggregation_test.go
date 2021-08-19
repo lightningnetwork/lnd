@@ -318,9 +318,8 @@ func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
 	// At this point, Bob should have broadcast his second layer success
 	// transaction, and should have sent it to the nursery for incubation,
 	// or to the sweeper for sweeping.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = waitForNumChannelPendingForceClose(
-		ctxt, bob, 1, func(c *lnrpcForceCloseChannel) error {
+		bob, 1, func(c *lnrpcForceCloseChannel) error {
 			if c.Channel.LocalBalance != 0 {
 				return nil
 			}
@@ -415,15 +414,14 @@ func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
 	block = mineBlocks(t, net, 1, 1)[0]
 	assertTxInBlock(t, block, bobSweep)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = waitForNumChannelPendingForceClose(ctxt, bob, 0, nil)
+	err = waitForNumChannelPendingForceClose(bob, 0, nil)
 	require.NoError(t.t, err)
 
 	// THe channel with Alice is still open.
 	assertNodeNumChannels(t, bob, 1)
 
 	// Carol should have no channels left (open nor pending).
-	err = waitForNumChannelPendingForceClose(ctxt, carol, 0, nil)
+	err = waitForNumChannelPendingForceClose(carol, 0, nil)
 	require.NoError(t.t, err)
 	assertNodeNumChannels(t, carol, 0)
 

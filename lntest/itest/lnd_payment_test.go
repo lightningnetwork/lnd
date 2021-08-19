@@ -183,9 +183,7 @@ func testPaymentFollowingChannelOpen(net *lntest.NetworkHarness, t *harnessTest)
 	// At this point, the channel's funding transaction will have been
 	// broadcast, but not confirmed. Alice and Bob's nodes
 	// should reflect this when queried via RPC.
-	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-	assertNumOpenChannelsPending(ctxt, t, net.Alice, net.Bob, 1)
+	assertNumOpenChannelsPending(t, net.Alice, net.Bob, 1)
 
 	// We are restarting Bob's node to let the link be created for the
 	// pending channel.
@@ -200,9 +198,7 @@ func testPaymentFollowingChannelOpen(net *lntest.NetworkHarness, t *harnessTest)
 	_ = mineBlocks(t, net, 6, 1)[0]
 
 	// We verify that the channel is open from both nodes point of view.
-	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-	assertNumOpenChannelsPending(ctxt, t, net.Alice, net.Bob, 0)
+	assertNumOpenChannelsPending(t, net.Alice, net.Bob, 0)
 
 	// With the channel open, we'll create invoices for Bob that Alice will
 	// pay to in order to advance the state of the channel.

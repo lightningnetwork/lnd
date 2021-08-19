@@ -72,8 +72,7 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 	// At this point, the channel's funding transaction will have been
 	// broadcast, but not confirmed. Alice and Bob's nodes should reflect
 	// this when queried via RPC.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	assertNumOpenChannelsPending(ctxt, t, alice, bob, 1)
+	assertNumOpenChannelsPending(t, alice, bob, 1)
 
 	// Disconnect Alice-peer from Bob-peer and get error causes by one
 	// pending channel with detach node is existing.
@@ -102,9 +101,8 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 	// At this point, the channel should be fully opened and there should be
 	// no pending channels remaining for either node.
 	time.Sleep(time.Millisecond * 300)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 
-	assertNumOpenChannelsPending(ctxt, t, alice, bob, 0)
+	assertNumOpenChannelsPending(t, alice, bob, 0)
 
 	// Reconnect the nodes so that the channel can become active.
 	net.ConnectNodes(t.t, alice, bob)
@@ -510,9 +508,8 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// the channel if the number of pending channels exceed max value.
 	openStreams := make([]lnrpc.Lightning_OpenChannelClient, maxPendingChannels)
 	for i := 0; i < maxPendingChannels; i++ {
-		ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 		stream := openChannelStream(
-			ctxt, t, net, net.Alice, carol,
+			t, net, net.Alice, carol,
 			lntest.OpenChannelParams{
 				Amt: amount,
 			},
@@ -1051,8 +1048,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(t, net, carol, chanPoint2, true)
 
 	// Wait for the channel to be marked pending force close.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = waitForChannelPendingForceClose(ctxt, carol, chanPoint2)
+	err = waitForChannelPendingForceClose(carol, chanPoint2)
 	if err != nil {
 		t.Fatalf("channel not pending force close: %v", err)
 	}

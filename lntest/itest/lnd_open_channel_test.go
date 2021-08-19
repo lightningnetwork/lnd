@@ -98,8 +98,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// At this point, the channel's funding transaction will have been
 	// broadcast, but not confirmed, and the channel should be pending.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	assertNumOpenChannelsPending(ctxt, t, net.Alice, net.Bob, 1)
+	assertNumOpenChannelsPending(t, net.Alice, net.Bob, 1)
 
 	fundingTxID, err := chainhash.NewHash(pendingUpdate.Txid)
 	if err != nil {
@@ -140,7 +139,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Ensure channel is no longer pending.
-	assertNumOpenChannelsPending(ctxt, t, net.Alice, net.Bob, 0)
+	assertNumOpenChannelsPending(t, net.Alice, net.Bob, 0)
 
 	// Wait for Alice and Bob to recognize and advertise the new channel
 	// generated above.
@@ -255,8 +254,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	block = mineBlocks(t, net, 1, 1)[0]
 	assertTxInBlock(t, block, fundingTxID)
 
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeReorgedChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+	closeReorgedChannelAndAssert(t, net, net.Alice, chanPoint, false)
 }
 
 // testBasicChannelCreationAndUpdates tests multiple channel opening and closing,

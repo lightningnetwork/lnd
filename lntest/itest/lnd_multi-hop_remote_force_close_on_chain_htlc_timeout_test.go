@@ -89,8 +89,7 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// At this point, Bob should have a pending force close channel as
 	// Carol has gone directly to chain.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = waitForNumChannelPendingForceClose(ctxt, bob, 1, nil)
+	err = waitForNumChannelPendingForceClose(bob, 1, nil)
 	require.NoError(t.t, err)
 
 	// Bob can sweep his output immediately. If there is an anchor, Bob will
@@ -115,9 +114,8 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// If we check Bob's pending channel report, it should show that he has
 	// a single HTLC that's now in the second stage, as skip the initial
 	// first stage since this is a direct HTLC.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = waitForNumChannelPendingForceClose(
-		ctxt, bob, 1, func(c *lnrpcForceCloseChannel) error {
+		bob, 1, func(c *lnrpcForceCloseChannel) error {
 			if len(c.PendingHtlcs) != 1 {
 				return fmt.Errorf("bob should have pending " +
 					"htlc but doesn't")
@@ -172,8 +170,7 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// Now we'll check Bob's pending channel report. Since this was Carol's
 	// commitment, he doesn't have to wait for any CSV delays. As a result,
 	// he should show no additional pending transactions.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = waitForNumChannelPendingForceClose(ctxt, bob, 0, nil)
+	err = waitForNumChannelPendingForceClose(bob, 0, nil)
 	require.NoError(t.t, err)
 
 	// While we're here, we assert that our expired invoice's state is

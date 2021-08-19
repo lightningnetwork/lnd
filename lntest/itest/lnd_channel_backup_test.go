@@ -968,7 +968,7 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 		}
 
 		err = completePaymentRequests(
-			ctxt, from, from.RouterClient,
+			from, from.RouterClient,
 			[]string{invoiceResp.PaymentRequest}, true,
 		)
 		if err != nil {

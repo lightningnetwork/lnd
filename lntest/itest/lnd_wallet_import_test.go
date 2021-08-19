@@ -513,10 +513,8 @@ func fundChanAndCloseFromImportedAccount(t *harnessTest, srcNode, destNode,
 	})
 	require.NoError(t.t, err)
 
-	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
 	err = completePaymentRequests(
-		ctxt, srcNode, srcNode.RouterClient,
+		srcNode, srcNode.RouterClient,
 		[]string{resp.PaymentRequest}, true,
 	)
 	require.NoError(t.t, err)

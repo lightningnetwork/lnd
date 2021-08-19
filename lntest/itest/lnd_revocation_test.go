@@ -79,10 +79,8 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Send payments from Carol to Bob using 3 of Bob's payment hashes
 	// generated above.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, carol, carol.RouterClient, bobPayReqs[:numInvoices/2],
-		true,
+		carol, carol.RouterClient, bobPayReqs[:numInvoices/2], true,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
@@ -126,10 +124,8 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Finally, send payments from Carol to Bob, consuming Bob's remaining
 	// payment hashes.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, carol, carol.RouterClient, bobPayReqs[numInvoices/2:],
-		true,
+		carol, carol.RouterClient, bobPayReqs[numInvoices/2:], true,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
@@ -358,9 +354,8 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 
 	// Finally, send payments from Dave to Carol, consuming Carol's remaining
 	// payment hashes.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, dave, dave.RouterClient, carolPayReqs, false,
+		dave, dave.RouterClient, carolPayReqs, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
@@ -597,10 +592,8 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 
 	// Send payments from Dave to Carol using 3 of Carol's payment hashes
 	// generated above.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, dave, dave.RouterClient, carolPayReqs[:numInvoices/2],
-		false,
+		dave, dave.RouterClient, carolPayReqs[:numInvoices/2], false,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
@@ -618,10 +611,8 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 
 	// Send payments from Carol to Dave using 3 of Dave's payment hashes
 	// generated above.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, carol, carol.RouterClient, davePayReqs[:numInvoices/2],
-		false,
+		carol, carol.RouterClient, davePayReqs[:numInvoices/2], false,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
@@ -658,10 +649,8 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 
 	// Finally, send payments from Dave to Carol, consuming Carol's
 	// remaining payment hashes.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, dave, dave.RouterClient, carolPayReqs[numInvoices/2:],
-		false,
+		dave, dave.RouterClient, carolPayReqs[numInvoices/2:], false,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
@@ -1082,7 +1071,7 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(
 	// Finally, send payments from Dave to Carol, consuming Carol's remaining
 	// payment hashes.
 	err = completePaymentRequests(
-		ctxb, dave, dave.RouterClient, carolPayReqs, false,
+		dave, dave.RouterClient, carolPayReqs, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)

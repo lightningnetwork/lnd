@@ -770,9 +770,8 @@ func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// We'll now have Bob settle out the remainder of these invoices so we
 	// can test that all settled invoices are properly notified.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, net.Alice, net.Alice.RouterClient, payReqs, true,
+		net.Alice, net.Alice.RouterClient, payReqs, true,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payment: %v", err)

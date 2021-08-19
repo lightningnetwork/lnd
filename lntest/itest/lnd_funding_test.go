@@ -440,10 +440,8 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	resp, err := dave.AddInvoice(ctxt, invoice)
 	require.NoError(t.t, err)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, carol, carol.RouterClient, []string{resp.PaymentRequest},
-		true,
+		carol, carol.RouterClient, []string{resp.PaymentRequest}, true,
 	)
 	require.NoError(t.t, err)
 

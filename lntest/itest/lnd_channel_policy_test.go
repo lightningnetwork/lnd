@@ -194,9 +194,8 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to add invoice: %v", err)
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, net.Alice, net.Alice.RouterClient,
+		net.Alice, net.Alice.RouterClient,
 		[]string{resp.PaymentRequest}, true,
 	)
 
@@ -377,9 +376,8 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to add invoice: %v", err)
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, net.Alice, net.Alice.RouterClient,
+		net.Alice, net.Alice.RouterClient,
 		[]string{resp.PaymentRequest}, true,
 	)
 	if err != nil {

@@ -1444,9 +1444,8 @@ func testFailingChannel(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Send the payment from Alice to Carol. We expect Carol to attempt to
 	// settle this payment with the wrong preimage.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, net.Alice, net.Alice.RouterClient, carolPayReqs, false,
+		net.Alice, net.Alice.RouterClient, carolPayReqs, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)

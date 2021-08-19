@@ -314,8 +314,7 @@ func testUnannouncedChannels(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// One block is enough to make the channel ready for use, since the
 	// nodes have defaultNumConfs=1 set.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	fundingChanPoint, err := net.WaitForChannelOpen(ctxt, chanOpenUpdate)
+	fundingChanPoint, err := net.WaitForChannelOpen(chanOpenUpdate)
 	if err != nil {
 		t.Fatalf("error while waiting for channel open: %v", err)
 	}
@@ -324,7 +323,7 @@ func testUnannouncedChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	req := &lnrpc.ChannelGraphRequest{
 		IncludeUnannounced: true,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	chanGraph, err := net.Alice.DescribeGraph(ctxt, req)
 	if err != nil {
 		t.Fatalf("unable to query alice's graph: %v", err)

@@ -1123,8 +1123,12 @@ func (n *NetworkHarness) OpenPendingChannel(ctx context.Context,
 // consuming a message from the past open channel stream. If the passed context
 // has a timeout, then if the timeout is reached before the channel has been
 // opened, then an error is returned.
-func (n *NetworkHarness) WaitForChannelOpen(ctx context.Context,
+func (n *NetworkHarness) WaitForChannelOpen(
 	openChanStream lnrpc.Lightning_OpenChannelClient) (*lnrpc.ChannelPoint, error) {
+
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, ChannelOpenTimeout)
+	defer cancel()
 
 	errChan := make(chan error)
 	respChan := make(chan *lnrpc.ChannelPoint)
@@ -1294,8 +1298,12 @@ func (n *NetworkHarness) CloseChannel(ctx context.Context,
 // stream that the node has deemed the channel has been fully closed. If the
 // passed context has a timeout, then if the timeout is reached before the
 // notification is received then an error is returned.
-func (n *NetworkHarness) WaitForChannelClose(ctx context.Context,
+func (n *NetworkHarness) WaitForChannelClose(
 	closeChanStream lnrpc.Lightning_CloseChannelClient) (*chainhash.Hash, error) {
+
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, ChannelCloseTimeout)
+	defer cancel()
 
 	errChan := make(chan error)
 	updateChan := make(chan *lnrpc.CloseStatusUpdate_ChanClose)

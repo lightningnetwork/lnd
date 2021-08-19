@@ -84,7 +84,7 @@ func openChannelAndAssert(t *harnessTest, net *lntest.NetworkHarness,
 	// case that the channel is public, it is announced to the network.
 	block := mineBlocks(t, net, 6, 1)[0]
 
-	fundingChanPoint, err := net.WaitForChannelOpen(ctx, chanOpenUpdate)
+	fundingChanPoint, err := net.WaitForChannelOpen(chanOpenUpdate)
 	require.NoError(t.t, err, "error while waiting for channel open")
 
 	fundingTxID, err := lnrpc.GetChanPointFundingTxid(fundingChanPoint)
@@ -343,7 +343,7 @@ func assertChannelClosed(ctx context.Context, t *harnessTest,
 
 	block := mineBlocks(t, net, 1, expectedTxes)[0]
 
-	closingTxid, err := net.WaitForChannelClose(ctx, closeUpdates)
+	closingTxid, err := net.WaitForChannelClose(closeUpdates)
 	require.NoError(t.t, err, "error while waiting for channel close")
 
 	assertTxInBlock(t, block, closingTxid)

@@ -840,8 +840,7 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// nodes have defaultNumConfs=1 set.
 	block := mineBlocks(t, net, 1, 1)[0]
 
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	chanPointPrivate, err := net.WaitForChannelOpen(ctxt, chanOpenUpdate)
+	chanPointPrivate, err := net.WaitForChannelOpen(chanOpenUpdate)
 	if err != nil {
 		t.Fatalf("error while waiting for channel open: %v", err)
 	}
@@ -857,7 +856,7 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 		Hash:  *fundingTxID,
 		Index: chanPointPrivate.OutputIndex,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err = net.AssertChannelExists(ctxt, carol, &privateFundPoint)
 	if err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)

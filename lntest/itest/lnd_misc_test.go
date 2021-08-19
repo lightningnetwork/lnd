@@ -547,8 +547,7 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 
 	chanPoints := make([]*lnrpc.ChannelPoint, maxPendingChannels)
 	for i, stream := range openStreams {
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		fundingChanPoint, err := net.WaitForChannelOpen(ctxt, stream)
+		fundingChanPoint, err := net.WaitForChannelOpen(stream)
 		if err != nil {
 			t.Fatalf("error while waiting for channel open: %v", err)
 		}

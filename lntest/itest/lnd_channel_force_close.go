@@ -785,7 +785,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 
 	// Check that we can find the commitment sweep in our set of known
 	// sweeps, using the simple transaction id ListSweeps output.
-	assertSweepFound(ctxb, t.t, alice, sweepingTXID.String(), false)
+	assertSweepFound(t.t, alice, sweepingTXID.String(), false)
 
 	// Restart Alice to ensure that she resumes watching the finalized
 	// commitment sweep txid.
@@ -1218,7 +1218,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 
 	// Check that we can find the htlc sweep in our set of sweeps using
 	// the verbose output of the listsweeps output.
-	assertSweepFound(ctxb, t.t, alice, htlcSweepTx.Hash().String(), true)
+	assertSweepFound(t.t, alice, htlcSweepTx.Hash().String(), true)
 
 	// The following restart checks to ensure that the nursery store is
 	// storing the txid of the previously broadcast htlc sweep txn, and that
@@ -1336,8 +1336,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 
 	// Finally, we check that alice and carol have the set of resolutions
 	// we expect.
-	assertReports(ctxb, t, alice, op, aliceReports)
-	assertReports(ctxb, t, carol, op, carolReports)
+	assertReports(t, alice, op, aliceReports)
+	assertReports(t, carol, op, carolReports)
 }
 
 // padCLTV is a small helper function that pads a cltv value with a block

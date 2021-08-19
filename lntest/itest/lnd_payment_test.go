@@ -81,10 +81,8 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// With the invoice for Bob added, send a payment towards Alice paying
 	// to the above generated invoice.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	sendAndAssertSuccess(
-		ctxt, t, net.Alice,
-		&routerrpc.SendPaymentRequest{
+		t, net.Alice, &routerrpc.SendPaymentRequest{
 			PaymentRequest: invoiceResp.PaymentRequest,
 			TimeoutSeconds: 60,
 			FeeLimitSat:    1000000,
@@ -217,9 +215,8 @@ func testPaymentFollowingChannelOpen(net *lntest.NetworkHarness, t *harnessTest)
 
 	// Send payment to Bob so that a channel update to disk will be
 	// executed.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	sendAndAssertSuccess(
-		ctxt, t, net.Alice, &routerrpc.SendPaymentRequest{
+		t, net.Alice, &routerrpc.SendPaymentRequest{
 			PaymentRequest: bobPayReqs[0],
 			TimeoutSeconds: 60,
 			FeeLimitSat:    1000000,

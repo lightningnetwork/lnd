@@ -117,10 +117,8 @@ func testSendPaymentAMPInvoiceCase(net *lntest.NetworkHarness, t *harnessTest,
 		require.NoError(t.t, err)
 	}
 
-	ctxt, _ := context.WithTimeout(context.Background(), 4*defaultTimeout)
 	payment := sendAndAssertSuccess(
-		ctxt, t, ctx.alice,
-		&routerrpc.SendPaymentRequest{
+		t, ctx.alice, &routerrpc.SendPaymentRequest{
 			PaymentRequest: addInvoiceResp.PaymentRequest,
 			PaymentAddr:    externalPayAddr,
 			TimeoutSeconds: 60,
@@ -249,10 +247,8 @@ func testSendPaymentAMP(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("dave policy update: %v", err)
 	}
 
-	ctxt, _ := context.WithTimeout(context.Background(), 4*defaultTimeout)
 	payment := sendAndAssertSuccess(
-		ctxt, t, ctx.alice,
-		&routerrpc.SendPaymentRequest{
+		t, ctx.alice, &routerrpc.SendPaymentRequest{
 			Dest:           ctx.bob.PubKey[:],
 			Amt:            int64(paymentAmt),
 			FinalCltvDelta: chainreg.DefaultBitcoinTimeLockDelta,

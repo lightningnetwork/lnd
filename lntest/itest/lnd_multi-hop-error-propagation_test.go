@@ -289,10 +289,8 @@ out:
 			t.Fatalf("unable to generate carol invoice: %v", err)
 		}
 
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 		sendAndAssertSuccess(
-			ctxt, t, net.Bob,
-			&routerrpc.SendPaymentRequest{
+			t, net.Bob, &routerrpc.SendPaymentRequest{
 				PaymentRequest: carolInvoice2.PaymentRequest,
 				TimeoutSeconds: 60,
 				FeeLimitMsat:   noFeeLimitMsat,

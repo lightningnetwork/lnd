@@ -2060,8 +2060,7 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 			sendReq.FeeLimitMsat = 1000 * paymentAmt * limit.Percent / 100
 		}
 
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		result := sendAndAssertSuccess(ctxt, t, net.Alice, sendReq)
+		result := sendAndAssertSuccess(t, net.Alice, sendReq)
 
 		checkRoute(result.Htlcs[0].Route)
 	}

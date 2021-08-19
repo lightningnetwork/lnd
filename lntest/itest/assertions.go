@@ -976,11 +976,11 @@ func checkPendingHtlcStageAndMaturity(
 
 // assertReports checks that the count of resolutions we have present per
 // type matches a set of expected resolutions.
-func assertReports(ctxb context.Context, t *harnessTest,
-	node *lntest.HarnessNode, channelPoint wire.OutPoint,
-	expected map[string]*lnrpc.Resolution) {
+func assertReports(t *harnessTest, node *lntest.HarnessNode,
+	channelPoint wire.OutPoint, expected map[string]*lnrpc.Resolution) {
 
 	// Get our node's closed channels.
+	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 
@@ -1011,11 +1011,13 @@ func assertReports(ctxb context.Context, t *harnessTest,
 }
 
 // assertSweepFound looks up a sweep in a nodes list of broadcast sweeps.
-func assertSweepFound(ctx context.Context, t *testing.T, node *lntest.HarnessNode,
+func assertSweepFound(t *testing.T, node *lntest.HarnessNode,
 	sweep string, verbose bool) {
 
 	// List all sweeps that alice's node had broadcast.
-	ctx, _ = context.WithTimeout(ctx, defaultTimeout)
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
 	sweepResp, err := node.WalletKitClient.ListSweeps(
 		ctx, &walletrpc.ListSweepsRequest{
 			Verbose: verbose,
@@ -1641,6 +1643,7 @@ func assertActiveHtlcs(nodes []*lntest.HarnessNode, payHashes ...[]byte) error {
 
 func assertNumActiveHtlcsChanPoint(node *lntest.HarnessNode,
 	chanPoint wire.OutPoint, numHtlcs int) error {
+
 	ctxb := context.Background()
 
 	req := &lnrpc.ListChannelsRequest{}
@@ -1732,12 +1735,13 @@ func getSpendingTxInMempool(t *harnessTest, miner *rpcclient.Client,
 
 // assertTxLabel is a helper function which finds a target tx in our set
 // of transactions and checks that it has the desired label.
-func assertTxLabel(ctx context.Context, t *harnessTest,
-	node *lntest.HarnessNode, targetTx, label string) {
+func assertTxLabel(t *harnessTest, node *lntest.HarnessNode,
+	targetTx, label string) {
 
 	// List all transactions relevant to our wallet, and find the tx so that
 	// we can check the correct label has been set.
-	ctxt, cancel := context.WithTimeout(ctx, defaultTimeout)
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 
 	txResp, err := node.GetTransactions(
@@ -1756,8 +1760,12 @@ func assertTxLabel(ctx context.Context, t *harnessTest,
 
 // sendAndAssertSuccess sends the given payment requests and asserts that the
 // payment completes successfully.
-func sendAndAssertSuccess(ctx context.Context, t *harnessTest, node *lntest.HarnessNode,
+func sendAndAssertSuccess(t *harnessTest, node *lntest.HarnessNode,
 	req *routerrpc.SendPaymentRequest) *lnrpc.Payment {
+
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
 
 	var result *lnrpc.Payment
 	err := wait.NoError(func() error {

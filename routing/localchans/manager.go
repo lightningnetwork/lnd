@@ -81,7 +81,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 		}
 
 		// Apply the new policy to the edge.
-		err := r.updateEdge(info.ChannelPoint, edge, newSchema)
+		err := r.updateEdge(tx, info.ChannelPoint, edge, newSchema)
 		if err != nil {
 			log.Warnf("Cannot update policy for %v: %v\n",
 				info.ChannelPoint, err,
@@ -127,7 +127,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 }
 
 // updateEdge updates the given edge with the new schema.
-func (r *Manager) updateEdge(chanPoint wire.OutPoint,
+func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
 	edge *channeldb.ChannelEdgePolicy,
 	newSchema routing.ChannelPolicy) error {
 
@@ -139,7 +139,7 @@ func (r *Manager) updateEdge(chanPoint wire.OutPoint,
 	edge.TimeLockDelta = uint16(newSchema.TimeLockDelta)
 
 	// Retrieve negotiated channel htlc amt limits.
-	amtMin, amtMax, err := r.getHtlcAmtLimits(chanPoint)
+	amtMin, amtMax, err := r.getHtlcAmtLimits(tx, chanPoint)
 	if err != nil {
 		return nil
 	}
@@ -198,10 +198,10 @@ func (r *Manager) updateEdge(chanPoint wire.OutPoint,
 
 // getHtlcAmtLimits retrieves the negotiated channel min and max htlc amount
 // constraints.
-func (r *Manager) getHtlcAmtLimits(chanPoint wire.OutPoint) (
+func (r *Manager) getHtlcAmtLimits(tx kvdb.RTx, chanPoint wire.OutPoint) (
 	lnwire.MilliSatoshi, lnwire.MilliSatoshi, error) {
 
-	ch, err := r.FetchChannel(nil, chanPoint)
+	ch, err := r.FetchChannel(tx, chanPoint)
 	if err != nil {
 		return 0, 0, err
 	}

@@ -148,6 +148,8 @@ you.
 * [Fixed context leak in integration tests, and properly handled context
   timeout](https://github.com/lightningnetwork/lnd/pull/5646).
 
+* [Removed nested db tx](https://github.com/lightningnetwork/lnd/pull/5643)
+
 ## Database
 
 * [Ensure single writer for legacy

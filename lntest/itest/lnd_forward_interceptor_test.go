@@ -286,14 +286,11 @@ func newInterceptorTestContext(t *harnessTest,
 	net *lntest.NetworkHarness,
 	alice, bob, carol *lntest.HarnessNode) *interceptorTestContext {
 
-	ctxb := context.Background()
-
 	// Connect nodes
 	nodes := []*lntest.HarnessNode{alice, bob, carol}
 	for i := 0; i < len(nodes); i++ {
 		for j := i + 1; j < len(nodes); j++ {
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			net.EnsureConnected(ctxt, t.t, nodes[i], nodes[j])
+			net.EnsureConnected(t.t, nodes[i], nodes[j])
 		}
 	}
 

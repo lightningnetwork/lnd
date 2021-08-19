@@ -35,10 +35,8 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Before we start the test, we'll ensure both sides are connected so
 	// the funding flow can be properly executed.
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-	net.EnsureConnected(ctxt, t.t, carol, dave)
-	net.EnsureConnected(ctxt, t.t, carol, net.Alice)
+	net.EnsureConnected(t.t, carol, dave)
+	net.EnsureConnected(t.t, carol, net.Alice)
 
 	// At this point, we can begin our PSBT channel funding workflow. We'll
 	// start by generating a pending channel ID externally that will be used
@@ -55,7 +53,7 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	// Now that we have the pending channel ID, Carol will open the channel
 	// by specifying a PSBT shim. We use the NoPublish flag here to avoid
 	// publishing the whole batch TX too early.
-	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 	chanUpdates, tempPsbt, err := openChannelPsbt(
 		ctxt, carol, dave, lntest.OpenChannelParams{

@@ -862,8 +862,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 
 		// We must let the node communicate with Carol before they are
 		// able to open channel, so we connect them.
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		net.EnsureConnected(ctxt, t.t, carol, node)
+		net.EnsureConnected(t.t, carol, node)
 
 		// We'll first open up a channel between them with a 0.5 BTC
 		// value.
@@ -888,7 +887,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 
 		// Wait for Carol to receive the channel edge from the funding
 		// manager.
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 		err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint)
 		if err != nil {
 			t.Fatalf("carol didn't see the carol->%s channel "+
@@ -1479,8 +1478,7 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Reconnect Carol and Eve, this should cause them to reenable the
 	// channel from both ends after a short delay.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, carol, eve)
+	net.EnsureConnected(t.t, carol, eve)
 
 	expectedPolicy.Disabled = false
 	waitForChannelUpdate(
@@ -1502,8 +1500,7 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to disconnect Carol from Eve: %v", err)
 	}
 	time.Sleep(time.Second)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, eve, carol)
+	net.EnsureConnected(t.t, eve, carol)
 
 	// Since the disable should have been canceled by both Carol and Eve, we
 	// expect no channel updates to appear on the network.

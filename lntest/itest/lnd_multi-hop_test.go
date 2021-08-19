@@ -206,8 +206,7 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 
 	ctxb := context.Background()
 
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, alice, bob)
+	net.EnsureConnected(t.t, alice, bob)
 
 	// Make sure there are enough utxos for anchoring.
 	for i := 0; i < 2; i++ {
@@ -225,7 +224,7 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 		},
 	)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err := alice.WaitForNetworkChannelOpen(ctxt, aliceChanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't report channel: %v", err)

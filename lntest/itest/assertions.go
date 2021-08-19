@@ -1279,7 +1279,7 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	// To make sure the nodes are initiating DLP now, we have to manually
 	// re-connect them.
 	ctxb := context.Background()
-	net.EnsureConnected(ctxb, t.t, carol, dave)
+	net.EnsureConnected(t.t, carol, dave)
 
 	// Upon reconnection, the nodes should detect that Dave is out of sync.
 	// Carol should force close the channel using her latest commitment.

@@ -548,8 +548,10 @@ tryconnect:
 // behave the same as ConnectNodes. If a pending connection request has already
 // been made, the method will block until the two nodes appear in each other's
 // peers list, or until the 15s timeout expires.
-func (n *NetworkHarness) EnsureConnected(ctx context.Context,
-	t *testing.T, a, b *HarnessNode) {
+func (n *NetworkHarness) EnsureConnected(t *testing.T, a, b *HarnessNode) {
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, DefaultTimeout)
+	defer cancel()
 
 	// errConnectionRequested is used to signal that a connection was
 	// requested successfully, which is distinct from already being

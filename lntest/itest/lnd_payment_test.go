@@ -196,8 +196,7 @@ func testPaymentFollowingChannelOpen(net *lntest.NetworkHarness, t *harnessTest)
 	}
 
 	// We ensure that Bob reconnects to Alice.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, net.Bob, net.Alice)
+	net.EnsureConnected(t.t, net.Bob, net.Alice)
 
 	// We mine one block for the channel to be confirmed.
 	_ = mineBlocks(t, net, 6, 1)[0]

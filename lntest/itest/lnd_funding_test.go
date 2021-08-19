@@ -27,8 +27,6 @@ import (
 // transaction was mined.
 func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 
-	ctxb := context.Background()
-
 	// Run through the test with combinations of all the different
 	// commitment types.
 	allTypes := []commitType{
@@ -57,8 +55,7 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 
 		// Before we start the test, we'll ensure both sides are
 		// connected to the funding flow can properly be executed.
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		net.EnsureConnected(ctxt, t.t, carol, dave)
+		net.EnsureConnected(t.t, carol, dave)
 
 		carolChan, daveChan, closeChan, err := basicChannelFundingTest(
 			t, net, carol, dave, nil,
@@ -390,8 +387,7 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Before we start the test, we'll ensure both sides are connected to
 	// the funding flow can properly be executed.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, carol, dave)
+	net.EnsureConnected(t.t, carol, dave)
 
 	// At this point, we're ready to simulate our external channel funding
 	// flow. To start with, we'll create a pending channel with a shim for
@@ -407,7 +403,7 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 			FundingShim: fundingShim1,
 		},
 	)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	assertNumOpenChannelsPending(ctxt, t, carol, dave, 1)
 
 	// That channel is now pending forever and normally would saturate the
@@ -570,8 +566,7 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// The following block ensures that after both nodes have restarted,
 	// they have reconnected before the execution of the next test.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, net.Alice, carol)
+	net.EnsureConnected(t.t, net.Alice, carol)
 
 	// Next, mine enough blocks s.t the channel will open with a single
 	// additional block mined.

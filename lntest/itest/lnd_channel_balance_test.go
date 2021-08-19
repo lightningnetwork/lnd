@@ -51,8 +51,7 @@ func testChannelBalance(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Before beginning, make sure alice and bob are connected.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, net.Alice, net.Bob)
+	net.EnsureConnected(t.t, net.Alice, net.Bob)
 
 	chanPoint := openChannelAndAssert(
 		t, net, net.Alice, net.Bob,
@@ -62,7 +61,7 @@ func testChannelBalance(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 
 	// Wait for both Alice and Bob to recognize this new channel.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't advertise channel before "+

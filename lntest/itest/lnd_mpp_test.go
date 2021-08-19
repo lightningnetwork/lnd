@@ -255,8 +255,6 @@ type mppTestContext struct {
 func newMppTestContext(t *harnessTest,
 	net *lntest.NetworkHarness) *mppTestContext {
 
-	ctxb := context.Background()
-
 	alice := net.NewNode(t.t, "alice", nil)
 	bob := net.NewNode(t.t, "bob", []string{"--accept-amp"})
 
@@ -270,8 +268,7 @@ func newMppTestContext(t *harnessTest,
 	nodes := []*lntest.HarnessNode{alice, bob, carol, dave, eve}
 	for i := 0; i < len(nodes); i++ {
 		for j := i + 1; j < len(nodes); j++ {
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			net.EnsureConnected(ctxt, t.t, nodes[i], nodes[j])
+			net.EnsureConnected(t.t, nodes[i], nodes[j])
 		}
 	}
 

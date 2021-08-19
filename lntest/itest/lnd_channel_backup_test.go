@@ -1079,8 +1079,7 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 		// Now that we have our new node up, we expect that it'll
 		// re-connect to Carol automatically based on the restored
 		// backup.
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		net.EnsureConnected(ctxt, t.t, dave, carol)
+		net.EnsureConnected(t.t, dave, carol)
 
 		assertTimeLockSwept(
 			net, t, carol, carolStartingBalance, dave,
@@ -1172,8 +1171,7 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 
 	// Now that we have our new node up, we expect that it'll re-connect to
 	// Carol automatically based on the restored backup.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, dave, carol)
+	net.EnsureConnected(t.t, dave, carol)
 
 	// TODO(roasbeef): move dave restarts?
 

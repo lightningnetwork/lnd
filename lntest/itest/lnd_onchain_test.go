@@ -31,14 +31,13 @@ func testCPFP(net *lntest.NetworkHarness, t *harnessTest) {
 	// We'll start the test by sending Alice some coins, which she'll use to
 	// send to Bob.
 	ctxb := context.Background()
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, net.Alice)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, net.Alice)
 
 	// Create an address for Bob to send the coins to.
 	addrReq := &lnrpc.NewAddressRequest{
 		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	resp, err := net.Bob.NewAddress(ctxt, addrReq)
 	if err != nil {
 		t.Fatalf("unable to get new address for bob: %v", err)
@@ -185,13 +184,12 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 		feeEst  = 8000
 	)
 
-	ctxt, _ := context.WithTimeout(context.Background(), defaultTimeout)
-	net.SendCoins(ctxt, t.t, chanAmt+feeEst, alice)
+	net.SendCoins(t.t, chanAmt+feeEst, alice)
 
 	// wallet, without a change output. This should not be allowed.
 	resErr := lnwallet.ErrReservedValueInvalidated.Error()
 
-	ctxt, _ = context.WithTimeout(context.Background(), defaultTimeout)
+	ctxt, _ := context.WithTimeout(context.Background(), defaultTimeout)
 	_, err := net.OpenChannel(
 		ctxt, alice, bob,
 		lntest.OpenChannelParams{

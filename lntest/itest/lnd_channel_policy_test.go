@@ -109,8 +109,7 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	nodes = append(nodes, carol)
 
 	// Send some coins to Carol that can be used for channel funding.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
 
 	net.ConnectNodes(t.t, carol, net.Bob)
 

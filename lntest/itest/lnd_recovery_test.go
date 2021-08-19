@@ -233,15 +233,11 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 			}
 
 			// Send one BTC to the next P2WKH address.
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			net.SendCoins(
-				ctxt, t.t, btcutil.SatoshiPerBitcoin, node,
-			)
+			net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, node)
 
 			// And another to the next NP2WKH address.
-			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 			net.SendCoinsNP2WKH(
-				ctxt, t.t, btcutil.SatoshiPerBitcoin, node,
+				t.t, btcutil.SatoshiPerBitcoin, node,
 			)
 		}
 	}

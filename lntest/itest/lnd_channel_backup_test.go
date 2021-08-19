@@ -876,17 +876,15 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 
 	// Now that our new nodes are created, we'll give them some coins for
 	// channel opening and anchor sweeping.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
 
 	// For the anchor output case we need two UTXOs for Carol so she can
 	// sweep both the local and remote anchor.
 	if testCase.anchorCommit {
-		net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
+		net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, dave)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, dave)
 
 	var from, to *lntest.HarnessNode
 	if testCase.initiator {
@@ -904,7 +902,7 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	var chanPoint *lnrpc.ChannelPoint
 	switch {
 	case testCase.unconfirmed:
-		ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
+		ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 		_, err := net.OpenPendingChannel(
 			ctxt, from, to, chanAmt, pushAmt,
 		)
@@ -945,7 +943,7 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 		)
 
 		// Wait for both sides to see the opened channel.
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 		err = dave.WaitForNetworkChannelOpen(ctxt, chanPoint)
 		if err != nil {
 			t.Fatalf("dave didn't report channel: %v", err)
@@ -959,6 +957,8 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	// If both parties should start with existing channel updates, then
 	// we'll send+settle an HTLC between 'from' and 'to' now.
 	if testCase.channelsUpdated {
+		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+
 		invoice := &lnrpc.Invoice{
 			Memo:  "testing",
 			Value: 100000,
@@ -968,7 +968,6 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 			t.Fatalf("unable to add invoice: %v", err)
 		}
 
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 		err = completePaymentRequests(
 			ctxt, from, from.RouterClient,
 			[]string{invoiceResp.PaymentRequest}, true,
@@ -1007,7 +1006,7 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	// Before we start the recovery, we'll record the balances of both
 	// Carol and Dave to ensure they both sweep their coins at the end.
 	balReq := &lnrpc.WalletBalanceRequest{}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	carolBalResp, err := carol.WalletBalance(ctxt, balReq)
 	if err != nil {
 		t.Fatalf("unable to get carol's balance: %v", err)

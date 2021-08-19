@@ -31,7 +31,7 @@ func testPsbtChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	dave := net.NewNode(t.t, "dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
-	net.SendCoins(ctxb, t.t, btcutil.SatoshiPerBitcoin, dave)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, dave)
 
 	// Before we start the test, we'll ensure both sides are connected so
 	// the funding flow can be properly executed.

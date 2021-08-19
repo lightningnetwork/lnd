@@ -73,19 +73,19 @@ func testCommitmentTransactionDeadline(net *lntest.NetworkHarness,
 	net.SetFeeEstimate(feeRateDefault)
 
 	// setupNode creates a new node and sends 1 btc to the node.
-	setupNode := func(ctx context.Context, name string) *lntest.HarnessNode {
+	setupNode := func(name string) *lntest.HarnessNode {
 		// Create the node.
 		args := []string{"--hodl.exit-settle"}
 		args = append(args, commitTypeAnchors.Args()...)
 		node := net.NewNode(t.t, name, args)
 
 		// Send some coins to the node.
-		net.SendCoins(ctx, t.t, btcutil.SatoshiPerBitcoin, node)
+		net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, node)
 
 		// For neutrino backend, we need one additional UTXO to create
 		// the sweeping tx for the remote anchor.
 		if net.BackendCfg.Name() == lntest.NeutrinoBackendName {
-			net.SendCoins(ctx, t.t, btcutil.SatoshiPerBitcoin, node)
+			net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, node)
 		}
 
 		return node
@@ -98,10 +98,10 @@ func testCommitmentTransactionDeadline(net *lntest.NetworkHarness,
 		defer cancel()
 
 		// Create two nodes, Alice and Bob.
-		alice := setupNode(ctxt, "Alice")
+		alice := setupNode("Alice")
 		defer shutdownAndAssert(net, t, alice)
 
-		bob := setupNode(ctxt, "Bob")
+		bob := setupNode("Bob")
 		defer shutdownAndAssert(net, t, bob)
 
 		// Connect Alice to Bob.
@@ -277,14 +277,11 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 
 			// Each time, we'll send Alice  new set of coins in
 			// order to fund the channel.
-			ctxt, _ := context.WithTimeout(
-				context.Background(), defaultTimeout,
-			)
-			net.SendCoins(ctxt, t, btcutil.SatoshiPerBitcoin, alice)
+			net.SendCoins(t, btcutil.SatoshiPerBitcoin, alice)
 
 			// Also give Carol some coins to allow her to sweep her
 			// anchor.
-			net.SendCoins(ctxt, t, btcutil.SatoshiPerBitcoin, carol)
+			net.SendCoins(t, btcutil.SatoshiPerBitcoin, carol)
 
 			channelForceClosureTest(
 				net, ht, alice, carol, channelType,
@@ -320,14 +317,13 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	net.ConnectNodes(t.t, alice, carol)
 
 	// We need one additional UTXO for sweeping the remote anchor.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, alice)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, alice)
 
 	// Before we start, obtain Carol's current wallet balance, we'll check
 	// to ensure that at the end of the force closure by Alice, Carol
 	// recognizes his new on-chain output.
 	carolBalReq := &lnrpc.WalletBalanceRequest{}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	carolBalResp, err := carol.WalletBalance(ctxt, carolBalReq)
 	if err != nil {
 		t.Fatalf("unable to get carol's balance: %v", err)

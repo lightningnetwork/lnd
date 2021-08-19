@@ -93,6 +93,12 @@ var (
 		Usage: "if set to true, then AMP will be used to complete the " +
 			"payment",
 	}
+
+	ampReuseFlag = cli.BoolFlag{
+		Name: "amp-reuse",
+		Usage: "if set to true, then a random payment address will " +
+			"be generated to enable re-use of an AMP invoice",
+	}
 )
 
 // paymentFlags returns common flags for sendpayment and payinvoice.
@@ -138,6 +144,7 @@ func paymentFlags() []cli.Flag {
 		},
 		dataFlag, inflightUpdatesFlag, maxPartsFlag, jsonFlag,
 		maxShardSizeSatFlag, maxShardSizeMsatFlag, ampFlag,
+		ampReuseFlag,
 	}
 }
 
@@ -235,12 +242,49 @@ func confirmPayReq(resp *lnrpc.PayReq, amt, feeLimit int64) error {
 	return nil
 }
 
+func parsePayAddr(ctx *cli.Context) ([]byte, error) {
+	var (
+		payAddr []byte
+		err     error
+	)
+	switch {
+	case ctx.IsSet("pay_addr"):
+		payAddr, err = hex.DecodeString(ctx.String("pay_addr"))
+
+	case ctx.IsSet(ampReuseFlag.Name):
+		var addrBytes [32]byte
+		if _, err := rand.Read(addrBytes[:]); err != nil {
+			return nil, fmt.Errorf("unable to generate pay "+
+				"addr: %v", err)
+		}
+
+		payAddr = addrBytes[:]
+
+	case ctx.Args().Present():
+		payAddr, err = hex.DecodeString(ctx.Args().First())
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// payAddr may be not required if it's a legacy invoice.
+	if len(payAddr) != 0 && len(payAddr) != 32 {
+		return nil, fmt.Errorf("payment addr must be exactly 32 "+
+			"bytes, is instead %v", len(payAddr))
+	}
+
+	return payAddr, nil
+}
+
 func sendPayment(ctx *cli.Context) error {
 	// Show command help if no arguments provided
 	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
 		_ = cli.ShowCommandHelp(ctx, "sendpayment")
 		return nil
 	}
+
+	args := ctx.Args()
 
 	// If a payment request was provided, we can exit early since all of the
 	// details of the payment are encoded within the request.
@@ -250,6 +294,16 @@ func sendPayment(ctx *cli.Context) error {
 			Amt:            ctx.Int64("amt"),
 		}
 
+		// We'll attempt to parse a payment address as well, given that
+		// if the user is using an AMP invoice, then they may be trying
+		// to specify that value manually.
+		payAddr, err := parsePayAddr(ctx)
+		if err != nil {
+			return err
+		}
+
+		req.PaymentAddr = payAddr
+
 		return sendPaymentRequest(ctx, req)
 	}
 
@@ -258,8 +312,6 @@ func sendPayment(ctx *cli.Context) error {
 		amount   int64
 		err      error
 	)
-
-	args := ctx.Args()
 
 	switch {
 	case ctx.IsSet("dest"):
@@ -352,22 +404,11 @@ func sendPayment(ctx *cli.Context) error {
 		req.FinalCltvDelta = int32(delta)
 	}
 
-	var payAddr []byte
-	switch {
-	case ctx.IsSet("pay_addr"):
-		payAddr, err = hex.DecodeString(ctx.String("pay_addr"))
-	case args.Present():
-		payAddr, err = hex.DecodeString(args.First())
-	}
-
+	payAddr, err := parsePayAddr(ctx)
 	if err != nil {
 		return err
 	}
-	// payAddr may be not required if it's a legacy invoice.
-	if len(payAddr) != 0 && len(payAddr) != 32 {
-		return fmt.Errorf("payment addr must be exactly 32 "+
-			"bytes, is instead %v", len(payAddr))
-	}
+
 	req.PaymentAddr = payAddr
 
 	return sendPaymentRequest(ctx, req)

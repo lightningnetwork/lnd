@@ -139,6 +139,9 @@ you.
 
 * [Link channel point logging](https://github.com/lightningnetwork/lnd/pull/5508)
 
+* [Fixed context leak in integration tests, and properly handled context
+  timeout](https://github.com/lightningnetwork/lnd/pull/5646).
+
 ## Database
 
 * [Ensure single writer for legacy

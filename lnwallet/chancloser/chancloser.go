@@ -127,6 +127,11 @@ type ChanCloser struct {
 	// offer when starting negotiation. This will be used as a baseline.
 	idealFeeSat btcutil.Amount
 
+	// idealFeeSat stores min+max fee we're willing to accept when closing
+	// this channel. This can be used to compress the negotiation process
+	// down to 2 or 3 steps.
+	idealFeeRange lnwire.FeeRange
+
 	// lastFeeProposal is the last fee that we proposed to the remote party.
 	// We'll use this as a pivot point to ratchet our next offer up, down, or
 	// simply accept the remote party's prior offer.
@@ -186,18 +191,33 @@ func NewChanCloser(cfg ChanCloseCfg, deliveryScript []byte,
 		idealFeeSat = channelCommitFee
 	}
 
+	// Given this ideal fee, we'll then compute an acceptable range. For
+	// now, we'll treat this ideal fee rate as a floor, and accept a fee
+	// that's 20% larger
+	//
+	// TODO(roasbeef): how do we actually want to map this??
+	//  * CalcFee actually over estimates as it assumes the base commit
+	//  fee, co-op close smalle
+	//  * only actually need to store this also?
+	//  * instead use this as the max, and something equiv to 1 sat/byte
+	//   as min?
+	idealFeeRange := lnwire.FeeRange{
+		MinFeeSats: cfg.Channel.CalcFee(chainfee.FeePerKwFloor),
+		MaxFeeSats: idealFeeSat,
+	}
+
 	chancloserLog.Infof("Ideal fee for closure of ChannelPoint(%v) is: %v sat",
 		cfg.Channel.ChannelPoint(), int64(idealFeeSat))
 
 	cid := lnwire.NewChanIDFromOutPoint(cfg.Channel.ChannelPoint())
 	return &ChanCloser{
-		closeReq:            closeReq,
-		state:               closeIdle,
-		chanPoint:           *cfg.Channel.ChannelPoint(),
-		cid:                 cid,
-		cfg:                 cfg,
-		negotiationHeight:   negotiationHeight,
-		idealFeeSat:         idealFeeSat,
+		closeReq:          closeReq,
+		state:             closeIdle,
+		chanPoint:         *cfg.Channel.ChannelPoint(),
+		cid:               cid,
+		cfg:               cfg,
+		negotiationHeight: negotiationHeight, idealFeeSat: idealFeeSat,
+		idealFeeRange:       idealFeeRange,
 		localDeliveryScript: deliveryScript,
 		priorFeeOffers:      make(map[btcutil.Amount]*lnwire.ClosingSigned),
 		locallyInitiated:    locallyInitiated,
@@ -492,8 +512,9 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 			// We'll now attempt to ratchet towards a fee deemed acceptable by
 			// both parties, factoring in our ideal fee rate, and the last
 			// proposed fee by both sides.
-			feeProposal := calcCompromiseFee(c.chanPoint, c.idealFeeSat,
-				c.lastFeeProposal, remoteProposedFee,
+			feeProposal := calcCompromiseFee(
+				c.chanPoint, c.idealFeeSat, c.lastFeeProposal,
+				closeSignedMsg, &c.idealFeeRange,
 			)
 
 			// With our new fee proposal calculated, we'll craft a new close
@@ -614,10 +635,18 @@ func (c *ChanCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingSign
 	chancloserLog.Infof("ChannelPoint(%v): proposing fee of %v sat to close "+
 		"chan", c.chanPoint, int64(fee))
 
-	// We'll assemble a ClosingSigned message using this information and return
-	// it to the caller so we can kick off the final stage of the channel
-	// closure process.
-	closeSignedMsg := lnwire.NewClosingSigned(c.cid, fee, parsedSig, nil)
+	// We'll assemble a ClosingSigned message using this information and
+	// return it to the caller so we can kick off the final stage of the
+	// channel closure process.
+	closeSignedMsg := lnwire.NewClosingSigned(
+		c.cid, fee, parsedSig, nil,
+	)
+
+	// If we're the initiator, then we'll add our fee range as well, so we
+	// can attempt to cut the process short.
+	if c.cfg.Channel.IsInitiator() {
+		closeSignedMsg.FeeRange = &c.idealFeeRange
+	}
 
 	// We'll also save this close signed, in the case that the remote party
 	// accepts our offer. This way, we don't have to re-sign.
@@ -661,18 +690,38 @@ func ratchetFee(fee btcutil.Amount, up bool) btcutil.Amount {
 // calcCompromiseFee performs the current fee negotiation algorithm, taking
 // into consideration our ideal fee based on current fee environment, the fee
 // we last proposed (if any), and the fee proposed by the peer.
-func calcCompromiseFee(chanPoint wire.OutPoint, ourIdealFee, lastSentFee,
-	remoteFee btcutil.Amount) btcutil.Amount {
+func calcCompromiseFee(chanPoint wire.OutPoint,
+	ourIdealFee, lastSentFee btcutil.Amount,
+	remoteClose *lnwire.ClosingSigned,
+	ourFeeRange *lnwire.FeeRange) btcutil.Amount {
 
-	// TODO(roasbeef): take in number of rounds as well?
+	remoteFee := remoteClose.FeeSatoshis
+	remoteFeeRange := remoteClose.FeeRange != nil
 
 	chancloserLog.Infof("ChannelPoint(%v): computing fee compromise, ideal="+
 		"%v, last_sent=%v, remote_offer=%v", chanPoint, int64(ourIdealFee),
 		int64(lastSentFee), int64(remoteFee))
 
+	feeInRange := func(feeRange *lnwire.FeeRange, targetFee btcutil.Amount) bool {
+		return targetFee >= feeRange.MinFeeSats && targetFee <= ourFeeRange.MaxFeeSats
+	}
+
 	// Otherwise, we'll need to attempt to make a fee compromise if this is the
 	// second round, and neither side has agreed on fees.
 	switch {
+
+	// The remote party has sent us a fee range, so we'll check if our
+	// ideal fee rate is within their range, if so, then we'll just send
+	// over our ideal fee as they should accept it.
+	case remoteFeeRange && feeInRange(remoteClose.FeeRange, ourIdealFee):
+		return ourIdealFee
+
+	// If they didn't set the fee range (only the initiator should), then
+	// we'll just check to see if their fee is within our acceptable range,
+	// if so, we'll go along with it.
+	case feeInRange(ourFeeRange, remoteFee):
+		// TODO(roasbeef): or accept the max of the min fees?
+		return remoteFee
 
 	// If their proposed fee is identical to our ideal fee, then we'll go with
 	// that as we can short circuit the fee negotiation. Similarly, if we

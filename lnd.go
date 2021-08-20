@@ -199,7 +199,6 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 			ltndLog.Errorf("Could not close log rotator: %v", err)
 		}
 	}()
-
 	// Show version at startup.
 	ltndLog.Infof("Version: %s commit=%s, build=%s, logging=%s, debuglevel=%s",
 		build.Version(), build.Commit, build.Deployment,

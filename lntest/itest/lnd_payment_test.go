@@ -156,7 +156,7 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	if len(paymentsResp.Payments) != 0 {
 		t.Fatalf("incorrect number of payments, got %v, want %v",
-			len(paymentsRespInit.Payments), 0)
+			len(paymentsResp.Payments), 0)
 	}
 
 	closeChannelAndAssert(t, net, net.Alice, chanPoint, false)

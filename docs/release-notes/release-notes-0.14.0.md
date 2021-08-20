@@ -105,6 +105,8 @@ you.
 
 * [Fixed typo in `dest_custom_records` description comment](https://github.com/lightningnetwork/lnd/pull/5541).
 
+* [Fixed payment test error message.](https://github.com/lightningnetwork/lnd/pull/5559)
+
 * [Bumped version of `github.com/miekg/dns` library to fix a Dependabot
   alert](https://github.com/lightningnetwork/lnd/pull/5576).
 
@@ -162,10 +164,11 @@ change](https://github.com/lightningnetwork/lnd/pull/5613).
 
 # Contributors (Alphabetical Order)
 * Andras Banki-Horvath
+* de6df1re
 * ErikEk
 * Eugene Siegel
 * Martin Habovstiak
-* Zero-1729
 * Oliver Gugger
 * xanoni
 * Yong Yu
+* Zero-1729

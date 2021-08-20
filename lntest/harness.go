@@ -550,7 +550,7 @@ tryconnect:
 // peers list, or until the 15s timeout expires.
 func (n *NetworkHarness) EnsureConnected(t *testing.T, a, b *HarnessNode) {
 	ctxb := context.Background()
-	ctx, cancel := context.WithTimeout(ctxb, DefaultTimeout)
+	ctx, cancel := context.WithTimeout(ctxb, DefaultTimeout*2)
 	defer cancel()
 
 	// errConnectionRequested is used to signal that a connection was
@@ -559,9 +559,7 @@ func (n *NetworkHarness) EnsureConnected(t *testing.T, a, b *HarnessNode) {
 	errConnectionRequested := errors.New("connection request in progress")
 
 	tryConnect := func(a, b *HarnessNode) error {
-		ctxt, cancel := context.WithTimeout(ctx, DefaultTimeout)
-		defer cancel()
-		bInfo, err := b.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
+		bInfo, err := b.GetInfo(ctx, &lnrpc.GetInfoRequest{})
 		if err != nil {
 			return err
 		}
@@ -639,9 +637,7 @@ func (n *NetworkHarness) EnsureConnected(t *testing.T, a, b *HarnessNode) {
 		// If node B is seen in the ListPeers response from node A,
 		// then we can exit early as the connection has been fully
 		// established.
-		ctxt, cancel := context.WithTimeout(ctx, DefaultTimeout)
-		defer cancel()
-		resp, err := b.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
+		resp, err := b.ListPeers(ctx, &lnrpc.ListPeersRequest{})
 		if err != nil {
 			return false
 		}
@@ -996,8 +992,10 @@ func (n *NetworkHarness) OpenChannel(srcNode, destNode *HarnessNode,
 	p OpenChannelParams) (lnrpc.Lightning_OpenChannelClient, error) {
 
 	ctxb := context.Background()
-	ctx, cancel := context.WithTimeout(ctxb, ChannelOpenTimeout)
-	defer cancel()
+	// The cancel is intentionally left out here because the returned
+	// item(open channel client) relies on the context being active. This
+	// will be fixed once we finish refactoring the NetworkHarness.
+	ctx, _ := context.WithTimeout(ctxb, ChannelOpenTimeout) // nolint: govet
 
 	// Wait until srcNode and destNode have the latest chain synced.
 	// Otherwise, we may run into a check within the funding manager that
@@ -1179,8 +1177,10 @@ func (n *NetworkHarness) CloseChannel(lnNode *HarnessNode,
 	force bool) (lnrpc.Lightning_CloseChannelClient, *chainhash.Hash, error) {
 
 	ctxb := context.Background()
-	ctx, cancel := context.WithTimeout(ctxb, ChannelCloseTimeout)
-	defer cancel()
+	// The cancel is intentionally left out here because the returned
+	// item(close channel client) relies on the context being active. This
+	// will be fixed once we finish refactoring the NetworkHarness.
+	ctx, _ := context.WithTimeout(ctxb, ChannelCloseTimeout) // nolint: govet
 
 	// Create a channel outpoint that we can use to compare to channels
 	// from the ListChannelsResponse.

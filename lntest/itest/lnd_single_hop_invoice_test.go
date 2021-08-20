@@ -78,7 +78,7 @@ func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 	payHash := &lnrpc.PaymentHash{
 		RHash: invoiceResp.RHash,
 	}
-	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	dbInvoice, err := net.Bob.LookupInvoice(ctxt, payHash)
 	if err != nil {
 		t.Fatalf("unable to lookup invoice: %v", err)
@@ -105,7 +105,7 @@ func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 		Memo:  "test3",
 		Value: paymentAmt,
 	}
-	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	invoiceResp, err = net.Bob.AddInvoice(ctxt, invoice)
 	if err != nil {
 		t.Fatalf("unable to add invoice: %v", err)
@@ -198,7 +198,7 @@ func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 		RouteHints: hints,
 	}
 
-	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	invoiceResp, err = net.Bob.AddInvoice(ctxt, invoice)
 	if err != nil {
 		t.Fatalf("unable to add invoice: %v", err)

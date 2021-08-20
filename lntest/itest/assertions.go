@@ -288,9 +288,8 @@ func assertChannelClosed(ctx context.Context, t *harnessTest,
 
 	// If the channel appears in list channels, ensure that its state
 	// contains ChanStatusCoopBroadcasted.
-	ctxt, _ := context.WithTimeout(ctx, defaultTimeout)
 	listChansRequest := &lnrpc.ListChannelsRequest{}
-	listChansResp, err := node.ListChannels(ctxt, listChansRequest)
+	listChansResp, err := node.ListChannels(ctx, listChansRequest)
 	require.NoError(t.t, err, "unable to query for list channels")
 
 	for _, channel := range listChansResp.Channels {
@@ -309,9 +308,8 @@ func assertChannelClosed(ctx context.Context, t *harnessTest,
 
 	// At this point, the channel should now be marked as being in the
 	// state of "waiting close".
-	ctxt, _ = context.WithTimeout(ctx, defaultTimeout)
 	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
-	pendingChanResp, err := node.PendingChannels(ctxt, pendingChansRequest)
+	pendingChanResp, err := node.PendingChannels(ctx, pendingChansRequest)
 	require.NoError(t.t, err, "unable to query for pending channels")
 
 	var found bool

@@ -67,8 +67,8 @@ func testForwardInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 	testContext.waitForChannels()
 
 	// Connect the interceptor.
-	ctx := context.Background()
-	ctxt, cancelInterceptor := context.WithTimeout(ctx, defaultTimeout)
+	ctxb := context.Background()
+	ctxt, cancelInterceptor := context.WithTimeout(ctxb, defaultTimeout)
 	interceptor, err := testContext.bob.RouterClient.HtlcInterceptor(ctxt)
 	require.NoError(t.t, err, "failed to create HtlcInterceptor")
 
@@ -230,8 +230,7 @@ func testForwardInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 	restartAlice, err := net.SuspendNode(alice)
 	require.NoError(t.t, err, "failed to suspend alice")
 
-	ctx = context.Background()
-	ctxt, cancelInterceptor = context.WithTimeout(ctx, defaultTimeout)
+	ctxt, cancelInterceptor = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancelInterceptor()
 	interceptor, err = testContext.bob.RouterClient.HtlcInterceptor(ctxt)
 	require.NoError(t.t, err, "failed to create HtlcInterceptor")
@@ -259,7 +258,7 @@ func testForwardInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 	}()
 
 	err = wait.Predicate(func() bool {
-		channels, err := bob.ListChannels(ctx, &lnrpc.ListChannelsRequest{
+		channels, err := bob.ListChannels(ctxt, &lnrpc.ListChannelsRequest{
 			ActiveOnly: true, Peer: alice.PubKey[:],
 		})
 		return err == nil && len(channels.Channels) > 0

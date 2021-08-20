@@ -98,8 +98,7 @@ func completePaymentRequests(client lnrpc.LightningClient,
 	// the send before cancelling the request. We wait for the number of
 	// updates to one of our channels has increased before we return.
 	err = wait.Predicate(func() bool {
-		ctxt, _ := context.WithTimeout(ctx, defaultTimeout)
-		newListResp, err := client.ListChannels(ctxt, req)
+		newListResp, err := client.ListChannels(ctx, req)
 		if err != nil {
 			return false
 		}
@@ -337,8 +336,7 @@ func waitForNodeBlockHeight(node *lntest.HarnessNode, height int32) error {
 
 	var predErr error
 	err := wait.Predicate(func() bool {
-		ctxt, _ := context.WithTimeout(ctx, defaultTimeout)
-		info, err := node.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
+		info, err := node.GetInfo(ctx, &lnrpc.GetInfoRequest{})
 		if err != nil {
 			predErr = err
 			return false

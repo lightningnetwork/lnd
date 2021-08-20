@@ -31,7 +31,7 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Check that there are no payments before test.
 	reqInit := &lnrpc.ListPaymentsRequest{}
-	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	paymentsRespInit, err := net.Alice.ListPayments(ctxt, reqInit)
 	if err != nil {
 		t.Fatalf("error when obtaining Alice payments: %v", err)
@@ -92,7 +92,7 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// Grab Alice's list of payments, she should show the existence of
 	// exactly one payment.
 	req := &lnrpc.ListPaymentsRequest{}
-	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	paymentsResp, err := net.Alice.ListPayments(ctxt, req)
 	if err != nil {
 		t.Fatalf("error when obtaining Alice payments: %v", err)
@@ -138,7 +138,7 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Delete all payments from Alice. DB should have no payments.
 	delReq := &lnrpc.DeleteAllPaymentsRequest{}
-	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	_, err = net.Alice.DeleteAllPayments(ctxt, delReq)
 	if err != nil {
 		t.Fatalf("Can't delete payments at the end: %v", err)
@@ -146,7 +146,7 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Check that there are no payments after test.
 	listReq := &lnrpc.ListPaymentsRequest{}
-	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	paymentsResp, err = net.Alice.ListPayments(ctxt, listReq)
 	if err != nil {
 		t.Fatalf("error when obtaining Alice payments: %v", err)

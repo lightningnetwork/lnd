@@ -165,7 +165,7 @@ func testHoldInvoicePersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		req := &lnrpc.ListPaymentsRequest{
 			IncludeIncomplete: true,
 		}
-		ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
+		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 		paymentsResp, err := net.Alice.ListPayments(ctxt, req)
 		if err != nil {
 			return fmt.Errorf("error when obtaining payments: %v",
@@ -368,7 +368,7 @@ func testHoldInvoicePersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	req := &lnrpc.ListPaymentsRequest{
 		IncludeIncomplete: true,
 	}
-	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	paymentsResp, err := net.Alice.ListPayments(ctxt, req)
 	if err != nil {
 		t.Fatalf("error when obtaining Alice payments: %v", err)

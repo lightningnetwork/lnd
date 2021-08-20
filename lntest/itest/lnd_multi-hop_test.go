@@ -148,8 +148,12 @@ func waitForInvoiceAccepted(t *harnessTest, node *lntest.HarnessNode,
 
 // checkPaymentStatus asserts that the given node list a payment with the given
 // preimage has the expected status.
-func checkPaymentStatus(ctxt context.Context, node *lntest.HarnessNode,
-	preimage lntypes.Preimage, status lnrpc.Payment_PaymentStatus) error {
+func checkPaymentStatus(node *lntest.HarnessNode, preimage lntypes.Preimage,
+	status lnrpc.Payment_PaymentStatus) error {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
 
 	req := &lnrpc.ListPaymentsRequest{
 		IncludeIncomplete: true,

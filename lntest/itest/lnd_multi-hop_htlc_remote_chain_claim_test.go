@@ -262,9 +262,6 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 
 	// Finally, check that the Alice's payment is correctly marked
 	// succeeded.
-	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
-	err = checkPaymentStatus(
-		ctxt, alice, preimage, lnrpc.Payment_SUCCEEDED,
-	)
+	err = checkPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
 	require.NoError(t.t, err)
 }

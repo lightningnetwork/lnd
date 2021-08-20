@@ -2311,7 +2311,6 @@ func updateEdgePolicy(tx kvdb.RwTx, edge *ChannelEdgePolicy,
 	)
 	copy(fromNodePubKey[:], fromNode)
 	copy(toNodePubKey[:], toNode)
-	// TODO(guggero): Fetch lightning nodes before updating the cache!
 	graphCache.UpdatePolicy(edge, fromNodePubKey, toNodePubKey, isUpdate1)
 
 	return isUpdate1, nil

@@ -42,7 +42,7 @@ const (
 type pathFinder = func(g *graphParams, r *RestrictParams,
 	cfg *PathFindingConfig, source, target route.Vertex,
 	amt lnwire.MilliSatoshi, finalHtlcExpiry int32) (
-	[]*channeldb.ChannelEdgePolicy, error)
+	[]*channeldb.CachedEdgePolicy, error)
 
 var (
 	// DefaultAttemptCost is the default fixed virtual cost in path finding
@@ -76,7 +76,7 @@ var (
 // of the edge.
 type edgePolicyWithSource struct {
 	sourceNode route.Vertex
-	edge       *channeldb.ChannelEdgePolicy
+	edge       *channeldb.CachedEdgePolicy
 }
 
 // finalHopParams encapsulates various parameters for route construction that
@@ -102,7 +102,7 @@ type finalHopParams struct {
 // any feature vectors on all hops have been validated for transitive
 // dependencies.
 func newRoute(sourceVertex route.Vertex,
-	pathEdges []*channeldb.ChannelEdgePolicy, currentHeight uint32,
+	pathEdges []*channeldb.CachedEdgePolicy, currentHeight uint32,
 	finalHop finalHopParams) (*route.Route, error) {
 
 	var (
@@ -147,10 +147,10 @@ func newRoute(sourceVertex route.Vertex,
 		supports := func(feature lnwire.FeatureBit) bool {
 			// If this edge comes from router hints, the features
 			// could be nil.
-			if edge.Node.Features == nil {
+			if edge.ToNodeFeatures == nil {
 				return false
 			}
-			return edge.Node.Features.HasFeature(feature)
+			return edge.ToNodeFeatures.HasFeature(feature)
 		}
 
 		// We start by assuming the node doesn't support TLV. We'll now
@@ -225,7 +225,7 @@ func newRoute(sourceVertex route.Vertex,
 		// each new hop such that, the final slice of hops will be in
 		// the forwards order.
 		currentHop := &route.Hop{
-			PubKeyBytes:      edge.Node.PubKeyBytes,
+			PubKeyBytes:      edge.ToNodePubKey(),
 			ChannelID:        edge.ChannelID,
 			AmtToForward:     amtToForward,
 			OutgoingTimeLock: outgoingTimeLock,
@@ -280,7 +280,7 @@ type graphParams struct {
 	// additionalEdges is an optional set of edges that should be
 	// considered during path finding, that is not already found in the
 	// channel graph.
-	additionalEdges map[route.Vertex][]*channeldb.ChannelEdgePolicy
+	additionalEdges map[route.Vertex][]*channeldb.CachedEdgePolicy
 
 	// bandwidthHints is an optional map from channels to bandwidths that
 	// can be populated if the caller has a better estimate of the current
@@ -360,7 +360,7 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 
 	var max, total lnwire.MilliSatoshi
 	cb := func(channel *channeldb.DirectedChannel) error {
-		if channel.OutPolicy == nil {
+		if !channel.OutPolicySet {
 			return nil
 		}
 
@@ -412,7 +412,7 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 // available bandwidth.
 func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	source, target route.Vertex, amt lnwire.MilliSatoshi,
-	finalHtlcExpiry int32) ([]*channeldb.ChannelEdgePolicy, error) {
+	finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, error) {
 
 	// Pathfinding can be a significant portion of the total payment
 	// latency, especially on low-powered devices. Log several metrics to
@@ -519,7 +519,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// Build reverse lookup to find incoming edges. Needed because
 		// search is taken place from target to source.
 		for _, outgoingEdgePolicy := range outgoingEdgePolicies {
-			toVertex := outgoingEdgePolicy.Node.PubKeyBytes
+			toVertex := outgoingEdgePolicy.ToNodePubKey()
 			incomingEdgePolicy := &edgePolicyWithSource{
 				sourceNode: vertex,
 				edge:       outgoingEdgePolicy,
@@ -583,7 +583,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// satisfy our specific requirements.
 	processEdge := func(fromVertex route.Vertex,
 		fromFeatures *lnwire.FeatureVector,
-		edge *channeldb.ChannelEdgePolicy, toNodeDist *nodeWithDist) {
+		edge *channeldb.CachedEdgePolicy, toNodeDist *nodeWithDist) {
 
 		edgesExpanded++
 
@@ -879,7 +879,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 	// Use the distance map to unravel the forward path from source to
 	// target.
-	var pathEdges []*channeldb.ChannelEdgePolicy
+	var pathEdges []*channeldb.CachedEdgePolicy
 	currentNode := source
 	for {
 		// Determine the next hop forward using the next map.
@@ -894,7 +894,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		pathEdges = append(pathEdges, currentNodeWithDist.nextHop)
 
 		// Advance current node.
-		currentNode = currentNodeWithDist.nextHop.Node.PubKeyBytes
+		currentNode = currentNodeWithDist.nextHop.ToNodePubKey()
 
 		// Check stop condition at the end of this loop. This prevents
 		// breaking out too soon for self-payments that have target set
@@ -915,7 +915,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// route construction does not care where the features are actually
 	// taken from. In the future we may wish to do route construction within
 	// findPath, and avoid using ChannelEdgePolicy altogether.
-	pathEdges[len(pathEdges)-1].Node.Features = features
+	pathEdges[len(pathEdges)-1].ToNodeFeatures = features
 
 	log.Debugf("Found route: probability=%v, hops=%v, fee=%v",
 		distance[source].probability, len(pathEdges),

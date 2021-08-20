@@ -537,6 +537,10 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 	// to the default behavior of waiting for the wallet creation/unlocking
 	// over RPC.
 	default:
+		if err := interceptor.Notifier.NotifyReady(false); err != nil {
+			return err
+		}
+
 		params, err := waitForWalletPassword(
 			cfg, pwService, []btcwallet.LoaderOption{dbs.walletDB},
 			interceptor.ShutdownChannel(),
@@ -892,6 +896,10 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 
 	// We transition the RPC state to Active, as the RPC server is up.
 	interceptorChain.SetRPCActive()
+
+	if err := interceptor.Notifier.NotifyReady(true); err != nil {
+		return err
+	}
 
 	// If we're not in regtest or simnet mode, We'll wait until we're fully
 	// synced to continue the start up of the remainder of the daemon. This

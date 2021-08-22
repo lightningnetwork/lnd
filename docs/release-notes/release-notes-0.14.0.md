@@ -1,8 +1,15 @@
 # Release Notes
 
-# Backend Enhancements & Optimizations
+## Networking & Tor
 
-## Full remote database support
+A new flag has been added to enable a hybrid tor connectivity mode, where tor
+is only used for onion address connections, and clearnet for everything else.
+This new behavior can be added using the `tor.skip-proxy-for-clearnet-targets`
+flag.
+
+## Backend Enhancements & Optimizations
+
+### Full remote database support
 
 `lnd` now stores [all its data in the same remote/external
 database](https://github.com/lightningnetwork/lnd/pull/5484) such as `etcd`
@@ -53,12 +60,12 @@ you.
 * [Makes publishtransaction, in the wallet sub-server, reachable through 
   lncli](https://github.com/lightningnetwork/lnd/pull/5460).
 
-# Safety
+## Safety
 
 * Locally force closed channels are now [kept in the channel.backup file until
   their time lock has fully matured](https://github.com/lightningnetwork/lnd/pull/5528).
 
-# Build System
+## Build System
 
 * [A new pre-submit check has been
   added](https://github.com/lightningnetwork/lnd/pull/5520) to ensure that all
@@ -77,7 +84,7 @@ you.
 
 * [The `lnwire` fuzz tests have been fixed and now run without crashing.](https://github.com/lightningnetwork/lnd/pull/5395)
 
-# Documentation
+## Documentation
 
 * [Outdated warning about unsupported pruning was replaced with clarification that LND **does**
   support pruning](https://github.com/lightningnetwork/lnd/pull/5553)
@@ -88,16 +95,16 @@ you.
    CPFP) and that more information (e.g., specific sat amounts) can be found
    in the debug logs.
 
-# Misc
+## Misc
 
 * The direct use of certain syscalls in packages such as `bbolt` or `lnd`'s own
   `healthcheck` package made it impossible to import `lnd` code as a library
   into projects that are compiled to WASM binaries. [That problem was fixed by
   guarding those syscalls with build tags](https://github.com/lightningnetwork/lnd/pull/5526).
 
-# Code Health
+## Code Health
 
-## Code cleanup, refactor, typo fixes
+### Code cleanup, refactor, typo fixes
 
 * [Refactor the interaction between the `htlcswitch` and `peer` packages for cleaner separation.](https://github.com/lightningnetwork/lnd/pull/5603)
 

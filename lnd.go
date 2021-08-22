@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -187,10 +186,6 @@ type ListenerCfg struct {
 	// callback to register external REST subservers.
 	ExternalRestRegistrar RestRegistrar
 }
-
-var errStreamIsolationWithProxySkip = errors.New(
-	"while stream isolation is enabled, the TOR proxy may not be skipped",
-)
 
 // Main is the true entry point for lnd. It accepts a fully populated and
 // validated main configuration struct and an optional listener config struct.
@@ -754,7 +749,9 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 	}
 
 	if cfg.Tor.StreamIsolation && cfg.Tor.SkipProxyForClearNetTargets {
-		return errStreamIsolationWithProxySkip
+		srvrLog.Warn("!!! Skipping Tor while Stream Isolation is on." +
+			"This has high risk of leaking your IP. Make sure this is " +
+			"what you want.")
 	}
 
 	if cfg.Tor.Active {

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net"
 	"time"
+
+	"golang.org/x/net/proxy"
 )
 
 // TODO: this interface and its implementations should ideally be moved
@@ -20,10 +22,15 @@ const (
 // interface.
 type DialFunc func(net, addr string, timeout time.Duration) (net.Conn, error)
 
+type Dialer interface {
+	Dial(network, address string) (net.Conn, error)
+}
+
 // Net is an interface housing a Dial function and several DNS functions that
 // allows us to abstract the implementations of these functions over different
 // networks, e.g. clearnet, Tor net, etc.
 type Net interface {
+	createDialer(auth *proxy.Auth, timeout time.Duration) (Dialer, error)
 	// Dial connects to the address on the named network.
 	Dial(network, address string, timeout time.Duration) (net.Conn, error)
 
@@ -42,13 +49,41 @@ type Net interface {
 
 // ClearNet is an implementation of the Net interface that defines behaviour
 // for regular network connections.
-type ClearNet struct{}
+type ClearNet struct {
+	// SOCKS is the host:port for SOCKS5 proxy to use for clearnet connections.
+	SOCKS string
+
+	// NoProxyTargets is a string of comma-separated values
+	// specifying hosts that should bypass the proxy. Each value is either an
+	// IP address, a CIDR range, a zone (*.example.com) or a host name
+	// (localhost). A best effort is made to parse the string and errors are
+	// ignored.
+	NoProxyTargets string
+}
+
+func (r *ClearNet) createDialer(auth *proxy.Auth, timeout time.Duration) (Dialer, error) {
+	clearDialer := &net.Dialer{Timeout: timeout}
+	if r.SOCKS == "" {
+		return clearDialer, nil
+	}
+	dialer, err := proxy.SOCKS5("tcp", r.SOCKS, auth, clearDialer)
+	if err != nil {
+		return nil, err
+	}
+	perHostDialer := proxy.NewPerHost(dialer, clearDialer)
+	perHostDialer.AddFromString(r.NoProxyTargets)
+	return perHostDialer, nil
+}
 
 // Dial on the regular network uses net.Dial
 func (r *ClearNet) Dial(
 	network, address string, timeout time.Duration) (net.Conn, error) {
 
-	return net.DialTimeout(network, address, timeout)
+	dialer, err := r.createDialer(nil, timeout)
+	if err != nil {
+		return nil, err
+	}
+	return dialer.Dial(network, address)
 }
 
 // LookupHost for regular network uses the net.LookupHost function
@@ -75,8 +110,7 @@ func (r *ClearNet) ResolveTCPAddr(network, address string) (*net.TCPAddr, error)
 // ProxyNet is an implementation of the Net interface that defines behavior
 // for Tor network connections.
 type ProxyNet struct {
-	// SOCKS is the host:port which Tor's exposed SOCKS5 proxy is listening
-	// on.
+	// SOCKS is the host:port for SOCKS5 proxy to use for clearnet connections.
 	SOCKS string
 
 	// DNS is the host:port of the DNS server for Tor to use for SRV
@@ -92,10 +126,6 @@ type ProxyNet struct {
 	// SkipProxyForClearNetTargets forces the proxy network to use direct
 	// connections for all non-onion service targets. If enabled, the node IP
 	// address will be revealed while communicating with such targets.
-	SkipProxyForClearNetTargets bool
-
-	// NoProxyTargets specifies a list of hosts to bypass the proxy for.
-	// It allows the same formats as the golang NO_PROXY environment variable.
 
 	// NoProxyTargets is a string of comma-separated values
 	// specifying hosts that should bypass the proxy. Each value is either an
@@ -103,6 +133,8 @@ type ProxyNet struct {
 	// (localhost). A best effort is made to parse the string and errors are
 	// ignored.
 	NoProxyTargets string
+	// Configuration to use for clearnet connections
+	ClearNet Net
 }
 
 // Dial uses the Tor Dial function in order to establish connections through

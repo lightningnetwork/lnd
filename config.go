@@ -74,6 +74,9 @@ const (
 	defaultLetsEncryptDirname            = "letsencrypt"
 	defaultLetsEncryptListen             = ":80"
 
+	defaultNetSOCKS          = ""
+	defaultNetNoProxyTargets = "localhost,::1/128,127.0.0.0/8"
+
 	defaultTorSOCKSPort            = 9050
 	defaultTorDNSHost              = "soa.nodes.lightning.directory"
 	defaultTorDNSPort              = 53
@@ -262,6 +265,8 @@ type Config struct {
 	MinBackoff        time.Duration `long:"minbackoff" description:"Shortest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
 	MaxBackoff        time.Duration `long:"maxbackoff" description:"Longest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
 	ConnectionTimeout time.Duration `long:"connectiontimeout" description:"The timeout value for network connections. Valid time units are {ms, s, m, h}."`
+	SOCKS             string        `long:"socks" description:"The host:port that SOCKS5 proxy to use for any outbound connections not going over Tor"`
+	NoProxyTargets    string        `long:"no-proxy-targets" description:"Comma-separated values specifying hosts that should bypass the clearnet proxy. Each value is either an IP address, a CIDR range, a zone (*.example.com) or a host name (localhost). A best effort is made to parse the string and errors are ignored. (default: localhost,127.0.0.0/8,::1/128)"`
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <global-level>,<subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 
@@ -502,7 +507,10 @@ func DefaultConfig() Config {
 			Control:        defaultTorControl,
 			NoProxyTargets: defaultTorNoProxyTargets,
 		},
-		net: &tor.ClearNet{},
+		net: &tor.ClearNet{
+			SOCKS:          defaultNetSOCKS,
+			NoProxyTargets: defaultNetNoProxyTargets,
+		},
 		Workers: &lncfg.Workers{
 			Read:  lncfg.DefaultReadWorkers,
 			Write: lncfg.DefaultWriteWorkers,
@@ -824,15 +832,26 @@ func ValidateConfig(cfg Config, usageMessage string,
 			cfg.MaxCommitFeeRateAnchors)
 	}
 
+	if cfg.SOCKS != "" {
+		socks, err := lncfg.ParseAddressString(
+			cfg.SOCKS, "",
+			cfg.net.ResolveTCPAddr,
+		)
+		if err != nil {
+			return nil, err
+		}
+		cfg.SOCKS = socks.String()
+	}
+
 	// Validate the Tor config parameters.
-	socks, err := lncfg.ParseAddressString(
+	torSocks, err := lncfg.ParseAddressString(
 		cfg.Tor.SOCKS, strconv.Itoa(defaultTorSOCKSPort),
 		cfg.net.ResolveTCPAddr,
 	)
 	if err != nil {
 		return nil, err
 	}
-	cfg.Tor.SOCKS = socks.String()
+	cfg.Tor.SOCKS = torSocks.String()
 
 	// We'll only attempt to normalize and resolve the DNS host if it hasn't
 	// changed, as it doesn't need to be done for the default.
@@ -904,14 +923,31 @@ func ValidateConfig(cfg Config, usageMessage string,
 	// default. If we should be proxying all traffic through Tor, then
 	// we'll use the Tor proxy specific functions in order to avoid leaking
 	// our real information.
+
+	clearNet := &tor.ClearNet{
+		SOCKS:          cfg.SOCKS,
+		NoProxyTargets: cfg.NoProxyTargets,
+	}
 	if cfg.Tor.Active {
-		cfg.net = &tor.ProxyNet{
-			SOCKS:                       cfg.Tor.SOCKS,
-			DNS:                         cfg.Tor.DNS,
-			StreamIsolation:             cfg.Tor.StreamIsolation,
-			SkipProxyForClearNetTargets: cfg.Tor.SkipProxyForClearNetTargets,
-			NoProxyTargets:              cfg.Tor.NoProxyTargets,
+		torNet := &tor.ProxyNet{
+			SOCKS:           cfg.Tor.SOCKS,
+			DNS:             cfg.Tor.DNS,
+			StreamIsolation: cfg.Tor.StreamIsolation,
+			NoProxyTargets:  cfg.Tor.NoProxyTargets,
+			ClearNet:        clearNet,
 		}
+		if !cfg.Tor.SkipProxyForClearNetTargets {
+			torNet.ClearNet = &tor.ProxyNet{
+				SOCKS:           cfg.Tor.SOCKS,
+				DNS:             cfg.Tor.DNS,
+				StreamIsolation: cfg.Tor.StreamIsolation,
+				NoProxyTargets:  cfg.Tor.NoProxyTargets,
+				ClearNet:        clearNet,
+			}
+		}
+		cfg.net = torNet
+	} else {
+		cfg.net = clearNet
 	}
 
 	if cfg.DisableListen && cfg.NAT {

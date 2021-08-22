@@ -7,7 +7,7 @@ type Tor struct {
 	DNS                         string `long:"dns" description:"The DNS server as host:port that Tor will use for SRV queries - NOTE must have TCP resolution enabled"`
 	StreamIsolation             bool   `long:"streamisolation" description:"Enable Tor stream isolation by randomizing user credentials for each connection."`
 	SkipProxyForClearNetTargets bool   `long:"skip-proxy-for-clearnet-targets" description:"Allow the node to establish direct connections to services not running behind Tor."`
-	NoProxyTargets              string `long:"no-proxy-targets" description:"Comma-separated values specifying hosts that should bypass the proxy. Each value is either an IP address, a CIDR range, a zone (*.example.com) or a host name (localhost). A best effort is made to parse the string and errors are ignored. (default: localhost,127.0.0.0/8,::1/128)`
+	NoProxyTargets              string `long:"no-proxy-targets" description:"Comma-separated values specifying hosts that should bypass the proxy. Each value is either an IP address, a CIDR range, a zone (*.example.com) or a host name (localhost). A best effort is made to parse the string and errors are ignored. (default: localhost,127.0.0.0/8,::1/128)"`
 	Control                     string `long:"control" description:"The host:port that Tor is listening on for Tor control connections"`
 	TargetIPAddress             string `long:"targetipaddress" description:"IP address that Tor should use as the target of the hidden service"`
 	Password                    string `long:"password" description:"The password used to arrive at the HashedControlPassword for the control port. If provided, the HASHEDPASSWORD authentication method will be used instead of the SAFECOOKIE one."`

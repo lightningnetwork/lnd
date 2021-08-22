@@ -110,9 +110,14 @@ func dial(address string, proxyNet *ProxyNet, timeout time.Duration) (net.Conn, 
 		return nil, err
 	}
 
-	// Skip for localhost
+	if len(proxyNet.NoProxyTargets) == 0 {
+		return dialer.Dial("tcp", address)
+	}
 
-	return dialer.Dial("tcp", address)
+	perHostDialer := proxy.NewPerHost(dialer, clearDialer)
+	perHostDialer.AddFromString(proxyNet.NoProxyTargets)
+
+	return perHostDialer.Dial("tcp", address)
 }
 
 // LookupHost performs DNS resolution on a given host via Tor's native resolver.

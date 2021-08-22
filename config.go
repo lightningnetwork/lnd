@@ -80,6 +80,7 @@ const (
 	defaultTorControlPort          = 9051
 	defaultTorV2PrivateKeyFilename = "v2_onion_private_key"
 	defaultTorV3PrivateKeyFilename = "v3_onion_private_key"
+	defaultTorNoProxyTargets       = "localhost,::1/128,127.0.0.0/8"
 
 	// DefaultAutogenValidity is the default validity of a self-signed
 	// certificate. The value corresponds to 14 months
@@ -496,9 +497,10 @@ func DefaultConfig() Config {
 		NumGraphSyncPeers:             defaultMinPeers,
 		HistoricalSyncInterval:        discovery.DefaultHistoricalSyncInterval,
 		Tor: &lncfg.Tor{
-			SOCKS:   defaultTorSOCKS,
-			DNS:     defaultTorDNS,
-			Control: defaultTorControl,
+			SOCKS:          defaultTorSOCKS,
+			DNS:            defaultTorDNS,
+			Control:        defaultTorControl,
+			NoProxyTargets: defaultTorNoProxyTargets,
 		},
 		net: &tor.ClearNet{},
 		Workers: &lncfg.Workers{
@@ -908,6 +910,7 @@ func ValidateConfig(cfg Config, usageMessage string,
 			DNS:                         cfg.Tor.DNS,
 			StreamIsolation:             cfg.Tor.StreamIsolation,
 			SkipProxyForClearNetTargets: cfg.Tor.SkipProxyForClearNetTargets,
+			NoProxyTargets:              cfg.Tor.NoProxyTargets,
 		}
 	}
 

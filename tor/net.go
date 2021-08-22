@@ -90,10 +90,20 @@ type ProxyNet struct {
 	// will now use a distinct circuit.
 	StreamIsolation bool
 
-	// SkipProxyForClearNetTargets allows the proxy network to use direct
-	// connections to non-onion service targets. If enabled, the node IP
+	// SkipProxyForClearNetTargets forces the proxy network to use direct
+	// connections for all non-onion service targets. If enabled, the node IP
 	// address will be revealed while communicating with such targets.
 	SkipProxyForClearNetTargets bool
+
+	// NoProxyTargets specifies a list of hosts to bypass the proxy for.
+	// It allows the same formats as the golang NO_PROXY environment variable.
+
+	// NoProxyTargets is a string of comma-separated values
+	// specifying hosts that should bypass the proxy. Each value is either an
+	// IP address, a CIDR range, a zone (*.example.com) or a host name
+	// (localhost). A best effort is made to parse the string and errors are
+	// ignored.
+	NoProxyTargets string
 }
 
 // Dial uses the Tor Dial function in order to establish connections through

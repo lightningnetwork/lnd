@@ -111,9 +111,14 @@ func dialProxy(address string, proxyNet *ProxyNet,
 		return nil, fmt.Errorf("establish sock proxy: %w", err)
 	}
 
-	// Skip for localhost
+	if len(proxyNet.NoProxyTargets) == 0 {
+		return dialer.Dial("tcp", address)
+	}
 
-	return dialer.Dial("tcp", address)
+	perHostDialer := proxy.NewPerHost(dialer, clearDialer)
+	perHostDialer.AddFromString(proxyNet.NoProxyTargets)
+
+	return perHostDialer.Dial("tcp", address)
 }
 
 // LookupHost performs DNS resolution on a given host via Tor's native resolver.

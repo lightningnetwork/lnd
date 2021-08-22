@@ -72,7 +72,7 @@ func (r *ClearNet) ResolveTCPAddr(network, address string) (*net.TCPAddr, error)
 	return net.ResolveTCPAddr(network, address)
 }
 
-// ProxyNet is an implementation of the Net interface that defines behaviour
+// ProxyNet is an implementation of the Net interface that defines behavior
 // for Tor network connections.
 type ProxyNet struct {
 	// SOCKS is the host:port which Tor's exposed SOCKS5 proxy is listening
@@ -88,6 +88,11 @@ type ProxyNet struct {
 	// means that our traffic may be harder to correlate as each connection
 	// will now use a distinct circuit.
 	StreamIsolation bool
+
+	// SkipProxyForClearNetTargets allows the proxy network to use direct
+	// connections to non-onion service targets. If enabled, the node IP
+	// address will be revealed while communicating with such targets.
+	SkipProxyForClearNetTargets bool
 }
 
 // Dial uses the Tor Dial function in order to establish connections through
@@ -100,7 +105,10 @@ func (p *ProxyNet) Dial(network, address string,
 	default:
 		return nil, errors.New("cannot dial non-tcp network via Tor")
 	}
-	return Dial(address, p.SOCKS, p.StreamIsolation, timeout)
+	return Dial(
+		address, p.SOCKS, p.StreamIsolation,
+		p.SkipProxyForClearNetTargets, timeout,
+	)
 }
 
 // LookupHost uses the Tor LookupHost function in order to resolve hosts over
@@ -115,8 +123,8 @@ func (p *ProxyNet) LookupSRV(service, proto,
 	name string, timeout time.Duration) (string, []*net.SRV, error) {
 
 	return LookupSRV(
-		service, proto, name, p.SOCKS, p.DNS,
-		p.StreamIsolation, timeout,
+		service, proto, name, p.SOCKS, p.DNS, p.StreamIsolation,
+		p.SkipProxyForClearNetTargets, timeout,
 	)
 }
 

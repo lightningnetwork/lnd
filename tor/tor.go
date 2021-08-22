@@ -62,6 +62,33 @@ func (c *proxyConn) RemoteAddr() net.Addr {
 	return c.remoteAddr
 }
 
+func (pn *ProxyNet) createDialer(auth *proxy.Auth, timeout time.Duration) (Dialer, error) {
+	cn := &ClearNet{}
+	clearDialer, err := cn.createDialer(nil, timeout)
+	if err != nil {
+		return nil, err
+	}
+	dialer, err := proxy.SOCKS5("tcp", pn.SOCKS, auth, clearDialer)
+	if err != nil {
+		return nil, err
+	}
+	perHostDialer := proxy.NewPerHost(dialer, clearDialer)
+	perHostDialer.AddFromString(pn.NoProxyTargets)
+	return perHostDialer, nil
+}
+
+func randomAuth() (*proxy.Auth, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return nil, err
+	}
+
+	return &proxy.Auth{
+		User:     hex.EncodeToString(b[:8]),
+		Password: hex.EncodeToString(b[8:]),
+	}, nil
+}
+
 // dialProxy establishes a connection to the address via the provided TOR SOCKS
 // proxy. Only TCP traffic may be routed via Tor.
 //
@@ -79,46 +106,30 @@ func dialProxy(address string, proxyNet *ProxyNet,
 	// we'll populate the authentication credentials with random data as
 	// Tor will create a new circuit for each set of credentials.
 	var auth *proxy.Auth
+	var err error
 	if proxyNet.StreamIsolation {
-		var b [16]byte
-		if _, err := rand.Read(b[:]); err != nil {
-			return nil, err
-		}
-
-		auth = &proxy.Auth{
-			User:     hex.EncodeToString(b[:8]),
-			Password: hex.EncodeToString(b[8:]),
-		}
-	}
-
-	clearDialer := &net.Dialer{Timeout: timeout}
-	if proxyNet.SkipProxyForClearNetTargets {
-		host, _, err := net.SplitHostPort(address)
+		auth, err = randomAuth()
 		if err != nil {
 			return nil, err
 		}
-
-		// The SOCKS proxy is skipped if the target
-		// is not an union address.
-		if !IsOnionHost(host) {
-			return clearDialer.Dial("tcp", address)
-		}
 	}
 
-	// Establish the connection through Tor's SOCKS proxy.
-	dialer, err := proxy.SOCKS5("tcp", proxyNet.SOCKS, auth, clearDialer)
+	host, _, err := net.SplitHostPort(address)
 	if err != nil {
 		return nil, fmt.Errorf("establish sock proxy: %w", err)
 	}
 
-	if len(proxyNet.NoProxyTargets) == 0 {
-		return dialer.Dial("tcp", address)
+	var dialer Dialer
+	if IsOnionHost(host) {
+		dialer, err = proxyNet.createDialer(auth, timeout)
+	} else {
+		dialer, err = proxyNet.ClearNet.createDialer(auth, timeout)
+	}
+	if err != nil {
+		return nil, err
 	}
 
-	perHostDialer := proxy.NewPerHost(dialer, clearDialer)
-	perHostDialer.AddFromString(proxyNet.NoProxyTargets)
-
-	return perHostDialer.Dial("tcp", address)
+	return dialer.Dial("tcp", address)
 }
 
 // LookupHost performs DNS resolution on a given host via Tor's native resolver.

@@ -105,10 +105,25 @@ func (p *ProxyNet) Dial(network, address string,
 	default:
 		return nil, errors.New("cannot dial non-tcp network via Tor")
 	}
-	return Dial(
-		address, p.SOCKS, p.StreamIsolation,
-		p.SkipProxyForClearNetTargets, timeout,
-	)
+
+	conn, err := dial(address, p, timeout)
+	if err != nil {
+		return nil, err
+	}
+
+	// Now that the connection is established, we'll create our internal
+	// proxyConn that will serve in populating the correct remote address
+	// of the connection, rather than using the proxy's address.
+	remoteAddr, err := ParseAddr(address, p.SOCKS)
+	if err != nil {
+		return nil, err
+	}
+
+	return &proxyConn{
+		Conn:       conn,
+		remoteAddr: remoteAddr,
+	}, nil
+
 }
 
 // LookupHost uses the Tor LookupHost function in order to resolve hosts over
@@ -122,10 +137,7 @@ func (p *ProxyNet) LookupHost(host string) ([]string, error) {
 func (p *ProxyNet) LookupSRV(service, proto,
 	name string, timeout time.Duration) (string, []*net.SRV, error) {
 
-	return LookupSRV(
-		service, proto, name, p.SOCKS, p.DNS, p.StreamIsolation,
-		p.SkipProxyForClearNetTargets, timeout,
-	)
+	return LookupSRV(service, proto, name, p, timeout)
 }
 
 // ResolveTCPAddr uses the Tor ResolveTCPAddr function in order to resolve TCP

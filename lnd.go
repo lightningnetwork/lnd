@@ -137,10 +137,6 @@ type ListenerCfg struct {
 	RPCListeners []*ListenerWithSignal
 }
 
-var errStreamIsolationWithProxySkip = errors.New(
-	"while stream isolation is enabled, the TOR proxy may not be skipped",
-)
-
 // Main is the true entry point for lnd. It accepts a fully populated and
 // validated main configuration struct and an optional listener config struct.
 // This function starts all main system components then blocks until a signal
@@ -514,7 +510,9 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	}
 
 	if cfg.Tor.StreamIsolation && cfg.Tor.SkipProxyForClearNetTargets {
-		return errStreamIsolationWithProxySkip
+		srvrLog.Warn("!!! Skipping Tor while Stream Isolation is on." +
+			"This has high risk of leaking your IP. Make sure this is " +
+			"what you want.")
 	}
 
 	if cfg.Tor.Active {

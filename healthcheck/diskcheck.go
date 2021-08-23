@@ -1,3 +1,4 @@
+//go:build !windows && !solaris && !netbsd && !openbsd && !js
 // +build !windows,!solaris,!netbsd,!openbsd,!js
 
 package healthcheck

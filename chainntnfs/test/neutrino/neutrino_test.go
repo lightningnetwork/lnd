@@ -1,3 +1,4 @@
+//go:build dev
 // +build dev
 
 package neutrino_test

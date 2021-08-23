@@ -1,3 +1,4 @@
+//go:build !walletrpc
 // +build !walletrpc
 
 package main

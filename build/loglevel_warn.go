@@ -1,3 +1,4 @@
+//go:build dev && warn
 // +build dev,warn
 
 package build

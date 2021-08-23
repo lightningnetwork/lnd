@@ -1,3 +1,4 @@
+//go:build !bitcoind && !neutrino
 // +build !bitcoind,!neutrino
 
 package lntest

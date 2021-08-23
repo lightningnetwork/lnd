@@ -1,0 +1,21 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: neutrinorpc.NeutrinoKit.Status
+      get: "/v2/neutrino/status"
+    - selector: neutrinorpc.NeutrinoKit.AddPeer
+      post: "/v2/neutrino/addpeer"
+      body: "*"
+    - selector: neutrinorpc.NeutrinoKit.DisconnectPeer
+      post: "/v2/neutrino/disconnect"
+      body: "*"
+    - selector: neutrinorpc.NeutrinoKit.IsBanned
+      get: "/v2/neutrino/isbanned"
+    - selector: neutrinorpc.NeutrinoKit.GetBlock
+      get: "/v2/neutrino/block/{hash}"
+    - selector: neutrinorpc.NeutrinoKit.GetBlockHeader
+      get: "/v2/neutrino/blockheader/{hash}"
+    - selector: neutrinorpc.NeutrinoKit.GetCFilter
+      get: "/v2/neutrino/cfilter/{hash}"

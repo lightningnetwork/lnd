@@ -1,0 +1,210 @@
+syntax = "proto3";
+
+package neutrinorpc;
+
+option go_package = "github.com/lightningnetwork/lnd/lnrpc/neutrinorpc";
+
+// NeutrinoKit is a service that can be used to get information about the
+// current state of the neutrino instance, fetch blocks and add/remove peers.
+service NeutrinoKit {
+    /*
+    Status returns the status of the light client neutrino instance,
+    along with height and hash of the best block, and a list of connected
+    peers.
+    */
+    rpc Status (StatusRequest) returns (StatusResponse);
+
+    /*
+    AddPeer adds a new peer that has already been connected to the server.
+    */
+    rpc AddPeer (AddPeerRequest) returns (AddPeerResponse);
+
+    /*
+    DisconnectPeer disconnects a peer by target address. Both outbound and
+    inbound nodes will be searched for the target node. An error message will
+    be returned if the peer was not found.
+    */
+    rpc DisconnectPeer (DisconnectPeerRequest) returns (DisconnectPeerResponse);
+
+    /*
+    IsBanned returns true if the peer is banned, otherwise false.
+    */
+    rpc IsBanned (IsBannedRequest) returns (IsBannedResponse);
+
+    /*
+    GetBlockHeader returns a block header with a particular block hash.
+    */
+    rpc GetBlockHeader (GetBlockHeaderRequest) returns (GetBlockHeaderResponse);
+
+    /*
+    GetBlock returns a block with a particular block hash.
+    */
+    rpc GetBlock (GetBlockRequest) returns (GetBlockResponse);
+
+    /*
+    GetCFilter returns a compact filter from a block.
+    */
+    rpc GetCFilter (GetCFilterRequest) returns (GetCFilterResponse);
+}
+
+message StatusRequest {
+}
+
+message StatusResponse {
+    // Indicates whether the neutrino backend is active or not.
+    bool active = 1;
+
+    // Is fully synced.
+    bool synced = 2;
+
+    // Best block height.
+    int32 block_height = 3;
+
+    // Best block hash.
+    string block_hash = 4;
+
+    // Connected peers.
+    repeated string peers = 5;
+}
+
+message AddPeerRequest {
+    // Peer to add.
+    string peer_addrs = 1;
+}
+
+message AddPeerResponse {
+}
+
+message DisconnectPeerRequest {
+    // Peer to disconnect.
+    string peer_addrs = 1;
+}
+
+message DisconnectPeerResponse {
+}
+
+message IsBannedRequest {
+    // Peer to lookup.
+    string peer_addrs = 1;
+}
+
+message IsBannedResponse {
+    bool banned = 1;
+}
+
+message GetBlockHeaderRequest {
+    // Block hash in hex notation.
+    string hash = 1;
+}
+
+message GetBlockHeaderResponse {
+    // The block hash (same as provided).
+    string hash = 1;
+
+    // The number of confirmations.
+    int64 confirmations = 2;
+
+    // The block size excluding witness data.
+    int64 stripped_size = 3;
+
+    // The block size (bytes).
+    int64 size = 4;
+
+    // The block weight as defined in BIP 141.
+    int64 weight = 5;
+
+    // The block height or index.
+    int32 height = 6;
+
+    // The block version.
+    int32 version = 7;
+
+    // The block version.
+    string version_hex = 8;
+
+    // The merkle root.
+    string merkleroot = 9;
+
+    // The block time in seconds since epoch (Jan 1 1970 GMT).
+    int64 time = 10;
+
+    // The nonce.
+    uint32 nonce = 11;
+
+    // The bits in hex notation.
+    string bits = 12;
+
+    // The number of transactions in the block.
+    int32 ntx = 13;
+
+    // The hash of the previous block.
+    string previous_block_hash = 14;
+
+    // The raw hex of the block.
+    bytes raw_hex = 15;
+}
+
+message GetBlockRequest {
+    // Block hash in hex notation.
+    string hash = 1;
+}
+
+message GetBlockResponse {
+    // The block hash (same as provided).
+    string hash = 1;
+
+    // The number of confirmations.
+    int64 confirmations = 2;
+
+    // The block size excluding witness data.
+    int64 stripped_size = 3;
+
+    // The block size (bytes).
+    int64 size = 4;
+
+    // The block weight as defined in BIP 141.
+    int64 weight = 5;
+
+    // The block height or index.
+    int32 height = 6;
+
+    // The block version.
+    int32 version = 7;
+
+    // The block version.
+    string version_hex = 8;
+
+    // The merkle root.
+    string merkleroot = 9;
+
+    // List of transaction ids.
+    repeated string tx = 10;
+
+    // The block time in seconds since epoch (Jan 1 1970 GMT).
+    int64 time = 11;
+
+    // The nonce.
+    uint32 nonce = 12;
+
+    // The bits in hex notation.
+    string bits = 13;
+
+    // The number of transactions in the block.
+    int32 ntx = 14;
+
+    // The hash of the previous block.
+    string previous_block_hash = 15;
+
+    // The raw hex of the block.
+    bytes raw_hex = 16;
+}
+
+message GetCFilterRequest {
+    // Block hash in hex notation.
+    string hash = 1;
+}
+
+message GetCFilterResponse {
+    // GCS filter.
+    bytes filter = 1;
+}

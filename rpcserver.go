@@ -29,6 +29,7 @@ import (
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainreg"
@@ -611,7 +612,8 @@ func newRPCServer(cfg *Config, interceptorChain *rpcperms.InterceptorChain,
 func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 	subServerCgs *subRPCServerConfigs, atpl *autopilot.Manager,
 	invoiceRegistry *invoices.InvoiceRegistry, tower *watchtower.Standalone,
-	chanPredicate *chanacceptor.ChainedAcceptor) error {
+	chanPredicate *chanacceptor.ChainedAcceptor,
+	neutrinoCS *neutrino.ChainService) error {
 
 	// Set up router rpc backend.
 	selfNode, err := s.graphDB.SourceNode()
@@ -683,7 +685,7 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		r.cfg, s.cc, r.cfg.networkDir, macService, atpl, invoiceRegistry,
 		s.htlcSwitch, r.cfg.ActiveNetParams.Params, s.chanRouter,
 		routerBackend, s.nodeSigner, s.graphDB, s.chanStateDB,
-		s.sweeper, tower, s.towerClient, s.anchorTowerClient,
+		s.sweeper, neutrinoCS, tower, s.towerClient, s.anchorTowerClient,
 		r.cfg.net.ResolveTCPAddr, genInvoiceFeatures,
 		genAmpInvoiceFeatures, rpcsLog,
 	)

@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btclog"
+	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -15,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/autopilotrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/neutrinorpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -59,6 +61,10 @@ type subRPCServerConfigs struct {
 	// as a gRPC service.
 	InvoicesRPC *invoicesrpc.Config `group:"invoicesrpc" namespace:"invoicesrpc"`
 
+	// NeutrinoKitRPC is a sub-RPC server that exposes functionality allowing
+	// a client to interact with a running neutrino node.
+	NeutrinoKitRPC *neutrinorpc.Config `group:"neutrinorpc" namespace:"neutrinorpc"`
+
 	// RouterRPC is a sub-RPC server the exposes functionality that allows
 	// clients to send payments on the network, and perform Lightning
 	// payment related queries such as requests for estimates of off-chain
@@ -95,6 +101,7 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	graphDB *channeldb.ChannelGraph,
 	chanStateDB *channeldb.DB,
 	sweeper *sweep.UtxoSweeper,
+	neutrinoCS *neutrino.ChainService,
 	tower *watchtower.Standalone,
 	towerClient wtclient.Client,
 	anchorTowerClient wtclient.Client,
@@ -233,6 +240,13 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 			)
 			subCfgValue.FieldByName("GenAmpInvoiceFeatures").Set(
 				reflect.ValueOf(genAmpInvoiceFeatures),
+			)
+
+		case *neutrinorpc.Config:
+			subCfgValue := extractReflectValue(subCfg)
+
+			subCfgValue.FieldByName("NeutrinoCS").Set(
+				reflect.ValueOf(neutrinoCS),
 			)
 
 		// RouterRPC isn't conditionally compiled and doesn't need to be

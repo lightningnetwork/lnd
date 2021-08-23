@@ -395,6 +395,7 @@ func main() {
 	// Add any extra commands determined by build flags.
 	app.Commands = append(app.Commands, autopilotCommands()...)
 	app.Commands = append(app.Commands, invoicesCommands()...)
+	app.Commands = append(app.Commands, neutrinoCommands()...)
 	app.Commands = append(app.Commands, routerCommands()...)
 	app.Commands = append(app.Commands, walletCommands()...)
 	app.Commands = append(app.Commands, watchtowerCommands()...)

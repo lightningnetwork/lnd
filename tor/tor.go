@@ -62,16 +62,29 @@ func (c *proxyConn) RemoteAddr() net.Addr {
 	return c.remoteAddr
 }
 
-func (pn *ProxyNet) createDialer(auth *proxy.Auth, timeout time.Duration) (Dialer, error) {
+func (pn *ProxyNet) createDialer(timeout time.Duration) (Dialer, error) {
 	cn := &ClearNet{}
-	clearDialer, err := cn.createDialer(nil, timeout)
+	clearDialer, err := cn.createDialer(timeout)
 	if err != nil {
 		return nil, err
 	}
+
+	// If we were requested to force stream isolation for this connection,
+	// we'll populate the authentication credentials with random data as
+	// Tor will create a new circuit for each set of credentials.
+	var auth *proxy.Auth
+	if pn.StreamIsolation {
+		auth, err = randomAuth()
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	dialer, err := proxy.SOCKS5("tcp", pn.SOCKS, auth, clearDialer)
 	if err != nil {
 		return nil, err
 	}
+
 	perHostDialer := proxy.NewPerHost(dialer, clearDialer)
 	perHostDialer.AddFromString(pn.NoProxyTargets)
 	return perHostDialer, nil
@@ -100,19 +113,6 @@ func randomAuth() (*proxy.Auth, error) {
 // to the provided address if it does not represent an union service, skipping
 // the SOCKS proxy.
 func dial(address string, proxyNet *ProxyNet, timeout time.Duration) (net.Conn, error) {
-
-	// If we were requested to force stream isolation for this connection,
-	// we'll populate the authentication credentials with random data as
-	// Tor will create a new circuit for each set of credentials.
-	var auth *proxy.Auth
-	var err error
-	if proxyNet.StreamIsolation {
-		auth, err = randomAuth()
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
 		return nil, err
@@ -120,9 +120,9 @@ func dial(address string, proxyNet *ProxyNet, timeout time.Duration) (net.Conn, 
 
 	var dialer Dialer
 	if IsOnionHost(host) {
-		dialer, err = proxyNet.createDialer(auth, timeout)
+		dialer, err = proxyNet.createDialer(timeout)
 	} else {
-		dialer, err = proxyNet.ClearNet.createDialer(auth, timeout)
+		dialer, err = proxyNet.ClearNet.createDialer(timeout)
 	}
 	if err != nil {
 		return nil, err

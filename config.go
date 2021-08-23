@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/net/proxy"
+
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
 	flags "github.com/jessevdk/go-flags"
@@ -832,9 +834,18 @@ func ValidateConfig(cfg Config, usageMessage string,
 			cfg.MaxCommitFeeRateAnchors)
 	}
 
+	socksAuth := &proxy.Auth{}
 	if cfg.SOCKS != "" {
+		socksAddress := cfg.SOCKS
+		if strings.Contains(socksAddress, "@") {
+			parts := strings.Split(socksAddress, "@")
+			socksAddress = parts[1]
+			creds := strings.Split(parts[0], ":")
+			socksAuth.User = creds[0]
+			socksAuth.Password = creds[1]
+		}
 		socks, err := lncfg.ParseAddressString(
-			cfg.SOCKS, "",
+			socksAddress, "",
 			cfg.net.ResolveTCPAddr,
 		)
 		if err != nil {
@@ -926,6 +937,7 @@ func ValidateConfig(cfg Config, usageMessage string,
 
 	clearNet := &tor.ClearNet{
 		SOCKS:          cfg.SOCKS,
+		SOCKSAuth:      socksAuth,
 		NoProxyTargets: cfg.NoProxyTargets,
 	}
 	if cfg.Tor.Active {

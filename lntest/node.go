@@ -445,10 +445,11 @@ func newNode(cfg NodeConfig) (*HarnessNode, error) {
 	}, nil
 }
 
-// NewMiner creates a new miner using btcd backend. The logDir specifies the
-// miner node's log dir. When tests finished, during clean up, its logs are
-// copied to a file specified as logFilename.
-func NewMiner(logDir, logFilename string, netParams *chaincfg.Params,
+// NewMiner creates a new miner using btcd backend. The baseLogDir specifies
+// the miner node's log dir. When tests are finished, during clean up, its log
+// files, including any compressed log files from logrotate, are copied to
+// logDir as logFilename.
+func NewMiner(baseLogDir, logFilename string, netParams *chaincfg.Params,
 	handler *rpcclient.NotificationHandlers,
 	btcdBinary string) (*rpctest.Harness, func() error, error) {
 
@@ -458,7 +459,7 @@ func NewMiner(logDir, logFilename string, netParams *chaincfg.Params,
 		"--nowinservice",
 		"--nobanning",
 		"--debuglevel=debug",
-		"--logdir=" + logDir,
+		"--logdir=" + baseLogDir,
 		"--trickleinterval=100ms",
 	}
 
@@ -476,18 +477,32 @@ func NewMiner(logDir, logFilename string, netParams *chaincfg.Params,
 			)
 		}
 
-		// After shutting down the miner, we'll make a copy of the log
-		// file before deleting the temporary log dir.
-		logFile := fmt.Sprintf("%s/%s/btcd.log", logDir, netParams.Name)
-		copyPath := fmt.Sprintf("%s/../%s", logDir, logFilename)
-		err := CopyFile(filepath.Clean(copyPath), logFile)
+		// After shutting down the miner, we'll make a copy of
+		// the log files before deleting the temporary log dir.
+		logDir := fmt.Sprintf("%s/%s", baseLogDir, netParams.Name)
+		files, err := ioutil.ReadDir(logDir)
 		if err != nil {
-			return fmt.Errorf("unable to copy file: %v", err)
+			return fmt.Errorf("unable to read log directory: %v", err)
 		}
 
-		if err = os.RemoveAll(logDir); err != nil {
+		for _, file := range files {
+			logFile := fmt.Sprintf(
+				"%s/%s", logDir, file.Name(),
+			)
+			newFilename := strings.Replace(file.Name(), "btcd.log", logFilename, 1)
+			copyPath := fmt.Sprintf(
+				"%s/../%s", baseLogDir, newFilename,
+			)
+
+			err := CopyFile(filepath.Clean(copyPath), logFile)
+			if err != nil {
+				return fmt.Errorf("unable to copy file: %v", err)
+			}
+		}
+
+		if err = os.RemoveAll(baseLogDir); err != nil {
 			return fmt.Errorf(
-				"cannot remove dir %s: %v", logDir, err,
+				"cannot remove dir %s: %v", baseLogDir, err,
 			)
 		}
 		return nil

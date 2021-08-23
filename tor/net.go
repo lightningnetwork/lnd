@@ -31,7 +31,7 @@ type Dialer interface {
 // allows us to abstract the implementations of these functions over different
 // networks, e.g. clearnet, Tor net, etc.
 type Net interface {
-	createDialer(auth *proxy.Auth, timeout time.Duration) (Dialer, error)
+	createDialer(timeout time.Duration) (Dialer, error)
 	// Dial connects to the address on the named network.
 	Dial(network, address string, timeout time.Duration) (net.Conn, error)
 
@@ -54,6 +54,9 @@ type ClearNet struct {
 	// SOCKS is the host:port for SOCKS5 proxy to use for clearnet connections.
 	SOCKS string
 
+	// SOCKSAuth contains credentials to use for authentication to SOCKS proxy.
+	SOCKSAuth *proxy.Auth
+
 	// NoProxyTargets is a string of comma-separated values
 	// specifying hosts that should bypass the proxy. Each value is either an
 	// IP address, a CIDR range, a zone (*.example.com) or a host name
@@ -62,12 +65,13 @@ type ClearNet struct {
 	NoProxyTargets string
 }
 
-func (r *ClearNet) createDialer(auth *proxy.Auth, timeout time.Duration) (Dialer, error) {
+func (r *ClearNet) createDialer(timeout time.Duration) (Dialer, error) {
 	clearDialer := &net.Dialer{Timeout: timeout}
 	if r.SOCKS == "" {
 		return clearDialer, nil
 	}
-	dialer, err := proxy.SOCKS5("tcp", r.SOCKS, auth, clearDialer)
+
+	dialer, err := proxy.SOCKS5("tcp", r.SOCKS, r.SOCKSAuth, clearDialer)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +84,7 @@ func (r *ClearNet) createDialer(auth *proxy.Auth, timeout time.Duration) (Dialer
 func (r *ClearNet) Dial(
 	network, address string, timeout time.Duration) (net.Conn, error) {
 
-	dialer, err := r.createDialer(nil, timeout)
+	dialer, err := r.createDialer(timeout)
 	if err != nil {
 		return nil, err
 	}

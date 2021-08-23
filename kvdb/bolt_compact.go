@@ -2,6 +2,7 @@
 // implemented in this file:
 // https://github.com/etcd-io/bbolt/blob/master/cmd/bbolt/main.go
 
+//go:build !js
 // +build !js
 
 package kvdb

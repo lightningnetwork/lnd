@@ -1,3 +1,4 @@
+//go:build rpctest || lowscrypt
 // +build rpctest lowscrypt
 
 package btcwallet

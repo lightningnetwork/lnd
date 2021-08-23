@@ -1,3 +1,4 @@
+//go:build dev && info
 // +build dev,info
 
 package build

@@ -161,6 +161,11 @@ you.
   when encoding/decoding messages. Such that most of the heap escapes are fixed,
   resulting in less memory being used when running `lnd`.
 
+## Log system
+
+* [Save compressed log files from logrorate during 
+  itest](https://github.com/lightningnetwork/lnd/pull/5354).
+
 ## Bug Fixes
 
 A bug has been fixed that would cause `lnd` to [try to bootstrap using the

@@ -84,6 +84,11 @@ you.
 
 * [The `lnwire` fuzz tests have been fixed and now run without crashing.](https://github.com/lightningnetwork/lnd/pull/5395)
 
+* [A flake in the race unit
+  tests](https://github.com/lightningnetwork/lnd/pull/5659) was addressed that
+  lead to failed tests sometimes when the CPU of the GitHub CI runner was
+  strained too much.
+
 ## Documentation
 
 * [Outdated warning about unsupported pruning was replaced with clarification that LND **does**

@@ -41,7 +41,7 @@ var (
 
 	testRecoveryWindow uint32 = 150
 
-	defaultTestTimeout = 3 * time.Second
+	defaultTestTimeout = 30 * time.Second
 
 	defaultRootKeyIDContext = macaroons.ContextWithRootKeyID(
 		context.Background(), macaroons.DefaultRootKeyID,

@@ -255,7 +255,7 @@ func TestFetchChannel(t *testing.T) {
 	channelState := createTestChannel(t, cdb, openChannelOption())
 
 	// Next, attempt to fetch the channel by its chan point.
-	dbChannel, err := cdb.FetchChannel(channelState.FundingOutpoint)
+	dbChannel, err := cdb.FetchChannel(nil, channelState.FundingOutpoint)
 	if err != nil {
 		t.Fatalf("unable to fetch channel: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestFetchChannel(t *testing.T) {
 	}
 	channelState2.FundingOutpoint.Index ^= 1
 
-	_, err = cdb.FetchChannel(channelState2.FundingOutpoint)
+	_, err = cdb.FetchChannel(nil, channelState2.FundingOutpoint)
 	if err == nil {
 		t.Fatalf("expected query to fail")
 	}
@@ -416,7 +416,7 @@ func TestRestoreChannelShells(t *testing.T) {
 
 	// We should also be able to find the channel if we query for it
 	// directly.
-	_, err = cdb.FetchChannel(channelShell.Chan.FundingOutpoint)
+	_, err = cdb.FetchChannel(nil, channelShell.Chan.FundingOutpoint)
 	if err != nil {
 		t.Fatalf("unable to fetch channel: %v", err)
 	}
@@ -470,7 +470,7 @@ func TestAbandonChannel(t *testing.T) {
 
 	// At this point, the channel should no longer be found in the set of
 	// open channels.
-	_, err = cdb.FetchChannel(chanState.FundingOutpoint)
+	_, err = cdb.FetchChannel(nil, chanState.FundingOutpoint)
 	if err != ErrChannelNotFound {
 		t.Fatalf("channel should not have been found: %v", err)
 	}

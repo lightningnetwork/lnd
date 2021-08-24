@@ -2124,7 +2124,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 	// First, we'll fetch the channel as is, as we'll need to examine it
 	// regardless of if this is a force close or not.
-	channel, err := r.server.chanStateDB.FetchChannel(*chanPoint)
+	channel, err := r.server.chanStateDB.FetchChannel(nil, *chanPoint)
 	if err != nil {
 		return err
 	}
@@ -2402,7 +2402,7 @@ func (r *rpcServer) AbandonChannel(_ context.Context,
 		return nil, err
 	}
 
-	dbChan, err := r.server.chanStateDB.FetchChannel(*chanPoint)
+	dbChan, err := r.server.chanStateDB.FetchChannel(nil, *chanPoint)
 	switch {
 	// If the channel isn't found in the set of open channels, then we can
 	// continue on as it can't be loaded into the link/peer.

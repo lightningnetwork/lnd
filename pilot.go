@@ -282,7 +282,7 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 		ChannelInfo: func(chanPoint wire.OutPoint) (
 			*autopilot.LocalChannel, error) {
 
-			channel, err := svr.chanStateDB.FetchChannel(chanPoint)
+			channel, err := svr.chanStateDB.FetchChannel(nil, chanPoint)
 			if err != nil {
 				return nil, err
 			}

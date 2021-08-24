@@ -8,6 +8,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 )
@@ -27,12 +28,14 @@ type Manager struct {
 
 	// ForAllOutgoingChannels is required to iterate over all our local
 	// channels.
-	ForAllOutgoingChannels func(cb func(*channeldb.ChannelEdgeInfo,
+	ForAllOutgoingChannels func(cb func(kvdb.RTx,
+		*channeldb.ChannelEdgeInfo,
 		*channeldb.ChannelEdgePolicy) error) error
 
-	// FetchChannel is used to query local channel parameters.
-	FetchChannel func(chanPoint wire.OutPoint) (*channeldb.OpenChannel,
-		error)
+	// FetchChannel is used to query local channel parameters. Optionally an
+	// existing db tx can be supplied.
+	FetchChannel func(tx kvdb.RTx, chanPoint wire.OutPoint) (
+		*channeldb.OpenChannel, error)
 
 	// policyUpdateLock ensures that the database and the link do not fall
 	// out of sync if there are concurrent fee update calls. Without it,
@@ -66,6 +69,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 	// If we have a filter then we'll only collected those channels,
 	// otherwise we'll collect them all.
 	err := r.ForAllOutgoingChannels(func(
+		tx kvdb.RTx,
 		info *channeldb.ChannelEdgeInfo,
 		edge *channeldb.ChannelEdgePolicy) error {
 
@@ -77,7 +81,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 		}
 
 		// Apply the new policy to the edge.
-		err := r.updateEdge(info.ChannelPoint, edge, newSchema)
+		err := r.updateEdge(tx, info.ChannelPoint, edge, newSchema)
 		if err != nil {
 			log.Warnf("Cannot update policy for %v: %v\n",
 				info.ChannelPoint, err,
@@ -123,7 +127,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 }
 
 // updateEdge updates the given edge with the new schema.
-func (r *Manager) updateEdge(chanPoint wire.OutPoint,
+func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
 	edge *channeldb.ChannelEdgePolicy,
 	newSchema routing.ChannelPolicy) error {
 
@@ -135,7 +139,7 @@ func (r *Manager) updateEdge(chanPoint wire.OutPoint,
 	edge.TimeLockDelta = uint16(newSchema.TimeLockDelta)
 
 	// Retrieve negotiated channel htlc amt limits.
-	amtMin, amtMax, err := r.getHtlcAmtLimits(chanPoint)
+	amtMin, amtMax, err := r.getHtlcAmtLimits(tx, chanPoint)
 	if err != nil {
 		return nil
 	}
@@ -194,10 +198,10 @@ func (r *Manager) updateEdge(chanPoint wire.OutPoint,
 
 // getHtlcAmtLimits retrieves the negotiated channel min and max htlc amount
 // constraints.
-func (r *Manager) getHtlcAmtLimits(chanPoint wire.OutPoint) (
+func (r *Manager) getHtlcAmtLimits(tx kvdb.RTx, chanPoint wire.OutPoint) (
 	lnwire.MilliSatoshi, lnwire.MilliSatoshi, error) {
 
-	ch, err := r.FetchChannel(chanPoint)
+	ch, err := r.FetchChannel(tx, chanPoint)
 	if err != nil {
 		return 0, 0, err
 	}

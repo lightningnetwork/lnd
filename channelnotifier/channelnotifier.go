@@ -134,7 +134,7 @@ func (c *ChannelNotifier) NotifyPendingOpenChannelEvent(chanPoint wire.OutPoint,
 // channel has gone from pending open to open.
 func (c *ChannelNotifier) NotifyOpenChannelEvent(chanPoint wire.OutPoint) {
 	// Fetch the relevant channel from the database.
-	channel, err := c.chanDB.FetchChannel(chanPoint)
+	channel, err := c.chanDB.FetchChannel(nil, chanPoint)
 	if err != nil {
 		log.Warnf("Unable to fetch open channel from the db: %v", err)
 	}

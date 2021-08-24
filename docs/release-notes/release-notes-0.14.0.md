@@ -95,6 +95,8 @@ you.
    CPFP) and that more information (e.g., specific sat amounts) can be found
    in the debug logs.
 
+* Fixed broken link to `lnd_test.go` in Code Contribution Guidelines.
+
 ## Misc
 
 * The direct use of certain syscalls in packages such as `bbolt` or `lnd`'s own

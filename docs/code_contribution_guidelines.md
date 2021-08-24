@@ -465,9 +465,9 @@ to `gofmt` we've opted to enforce the following style guidelines.
      )
      ```
 
-Note that the above guidelines don't apply to log messages. For log messages,
-committers should attempt to minimize the of number lines utilized, while still
-adhering to the 80-character column limit.
+**Note that the above guidelines don't apply to log or error messages.** For
+log and error messages, committers should attempt to minimize the number of
+lines utilized, while still adhering to the 80-character column limit.
 
 ## Pointing to Remote Dependant Branches in Go Modules
 

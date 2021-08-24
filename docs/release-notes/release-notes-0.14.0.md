@@ -50,6 +50,9 @@ for more information.
   place. **It is still not supported to use the same seed/root key on multiple
   `lnd` instances simultaneously** though.
 
+* [Publish transaction is now reachable through 
+  lncli](https://github.com/lightningnetwork/lnd/pull/5460).
+
 ## Security 
 
 ### Admin macaroon permissions
@@ -62,9 +65,6 @@ because they always create a new group for each user.
 If you use a strange system or changed group membership of the group running LND
 you may want to check your system to see if it introduces additional risk for
 you.
-
-* [Makes publishtransaction, in the wallet sub-server, reachable through 
-  lncli](https://github.com/lightningnetwork/lnd/pull/5460).
 
 ## Safety
 

@@ -40,6 +40,8 @@ import (
 )
 
 var (
+	defaultTimeout = 30 * time.Second
+
 	breachOutPoints = []wire.OutPoint{
 		{
 			Hash: [chainhash.HashSize]byte{
@@ -1849,7 +1851,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 
 	select {
 	case contractBreaches <- breach:
-	case <-time.After(15 * time.Second):
+	case <-time.After(defaultTimeout):
 		t.Fatalf("breach not delivered")
 	}
 
@@ -1859,7 +1861,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("handoff failed: %v", err)
 		}
-	case <-time.After(time.Second * 15):
+	case <-time.After(defaultTimeout):
 		t.Fatalf("breach arbiter didn't send ack back")
 	}
 
@@ -1895,7 +1897,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 
 	select {
 	case notifier.ConfChan <- &chainntnfs.TxConfirmation{}:
-	case <-time.After(15 * time.Second):
+	case <-time.After(defaultTimeout):
 		t.Fatalf("conf not delivered")
 	}
 
@@ -1904,7 +1906,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 	var justiceTx *wire.MsgTx
 	select {
 	case justiceTx = <-publTx:
-	case <-time.After(5 * time.Second):
+	case <-time.After(defaultTimeout):
 		t.Fatalf("tx was not published")
 	}
 
@@ -1920,6 +1922,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 
 	// Now we'll pretend some blocks pass without the justice tx
 	// confirming.
+	const pollInterval = 500 * time.Millisecond
 	for i := int32(0); i <= 3; i++ {
 		notifier.EpochChan <- &chainntnfs.BlockEpoch{
 			Height: blockHeight + i,
@@ -1929,7 +1932,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 		select {
 		case <-publTx:
 			t.Fatalf("tx was published")
-		case <-time.After(20 * time.Millisecond):
+		case <-time.After(pollInterval):
 		}
 	}
 
@@ -1952,7 +1955,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 		case tx = <-publTx:
 			splits = append(splits, tx)
 
-		case <-time.After(5 * time.Second):
+		case <-time.After(defaultTimeout):
 			t.Fatalf("tx not published")
 		}
 
@@ -1997,7 +2000,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 			)
 		}
 
-	case <-time.After(5 * time.Second):
+	case <-time.After(defaultTimeout):
 		t.Fatalf("tx not published")
 	}
 

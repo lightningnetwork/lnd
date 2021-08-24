@@ -5,9 +5,12 @@ import (
 	"math"
 
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/hdkeychain"
+	"github.com/lightningnetwork/lnd/aezeed"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/stretchr/testify/require"
 )
 
 // testGetRecoveryInfo checks whether lnd gives the right information about
@@ -34,7 +37,8 @@ func testGetRecoveryInfo(net *lntest.NetworkHarness, t *harnessTest) {
 		// Restore Carol, passing in the password, mnemonic, and
 		// desired recovery window.
 		node, err := net.RestoreNodeWithSeed(
-			"Carol", nil, password, mnemonic, recoveryWindow, nil,
+			"Carol", nil, password, mnemonic, "", recoveryWindow,
+			nil,
 		)
 		if err != nil {
 			t.Fatalf("unable to restore node: %v", err)
@@ -124,10 +128,13 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 	carol, mnemonic, _, err := net.NewNodeWithSeed(
 		"Carol", nil, password, false,
 	)
-	if err != nil {
-		t.Fatalf("unable to create node with seed; %v", err)
-	}
+	require.NoError(t.t, err)
 	shutdownAndAssert(net, t, carol)
+
+	// As long as the mnemonic is non-nil and the extended key is empty, the
+	// closure below will always restore the node from the seed. The tests
+	// need to manually overwrite this value to change that behavior.
+	rootKey := ""
 
 	// Create a closure for testing the recovery of Carol's wallet. This
 	// method takes the expected value of Carol's balance when using the
@@ -136,14 +143,15 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 	restoreCheckBalance := func(expAmount int64, expectedNumUTXOs uint32,
 		recoveryWindow int32, fn func(*lntest.HarnessNode)) {
 
+		t.t.Helper()
+
 		// Restore Carol, passing in the password, mnemonic, and
 		// desired recovery window.
 		node, err := net.RestoreNodeWithSeed(
-			"Carol", nil, password, mnemonic, recoveryWindow, nil,
+			"Carol", nil, password, mnemonic, rootKey,
+			recoveryWindow, nil,
 		)
-		if err != nil {
-			t.Fatalf("unable to restore node: %v", err)
-		}
+		require.NoError(t.t, err)
 
 		// Query carol for her current wallet balance, and also that we
 		// gain the expected number of UTXOs.
@@ -155,10 +163,7 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 			req := &lnrpc.WalletBalanceRequest{}
 			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 			resp, err := node.WalletBalance(ctxt, req)
-			if err != nil {
-				t.Fatalf("unable to query wallet balance: %v",
-					err)
-			}
+			require.NoError(t.t, err)
 			currBalance = resp.ConfirmedBalance
 
 			utxoReq := &lnrpc.ListUnspentRequest{
@@ -166,9 +171,7 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 			}
 			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 			utxoResp, err := node.ListUnspent(ctxt, utxoReq)
-			if err != nil {
-				t.Fatalf("unable to query utxos: %v", err)
-			}
+			require.NoError(t.t, err)
 			currNumUTXOs = uint32(len(utxoResp.Utxos))
 
 			// Verify that Carol's balance and number of UTXOs
@@ -206,6 +209,8 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 	// behavior to both default P2WKH and NP2WKH scopes.
 	skipAndSend := func(nskip int) func(*lntest.HarnessNode) {
 		return func(node *lntest.HarnessNode) {
+			t.t.Helper()
+
 			newP2WKHAddrReq := &lnrpc.NewAddressRequest{
 				Type: AddrTypeWitnessPubkeyHash,
 			}
@@ -218,17 +223,11 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 			for i := 0; i < nskip; i++ {
 				ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 				_, err = node.NewAddress(ctxt, newP2WKHAddrReq)
-				if err != nil {
-					t.Fatalf("unable to generate new "+
-						"p2wkh address: %v", err)
-				}
+				require.NoError(t.t, err)
 
 				ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 				_, err = node.NewAddress(ctxt, newNP2WKHAddrReq)
-				if err != nil {
-					t.Fatalf("unable to generate new "+
-						"np2wkh address: %v", err)
-				}
+				require.NoError(t.t, err)
 			}
 
 			// Send one BTC to the next P2WKH address.
@@ -291,28 +290,22 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 	const minerAmt = 5 * btcutil.SatoshiPerBitcoin
 	const finalBalance = 6 * btcutil.SatoshiPerBitcoin
 	promptChangeAddr := func(node *lntest.HarnessNode) {
+		t.t.Helper()
+
 		minerAddr, err := net.Miner.NewAddress()
-		if err != nil {
-			t.Fatalf("unable to create new miner address: %v", err)
-		}
+		require.NoError(t.t, err)
 		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 		resp, err := node.SendCoins(ctxt, &lnrpc.SendCoinsRequest{
 			Addr:   minerAddr.String(),
 			Amount: minerAmt,
 		})
-		if err != nil {
-			t.Fatalf("unable to send coins to miner: %v", err)
-		}
+		require.NoError(t.t, err)
 		txid, err := waitForTxInMempool(
 			net.Miner.Client, minerMempoolTimeout,
 		)
-		if err != nil {
-			t.Fatalf("transaction not found in mempool: %v", err)
-		}
-		if resp.Txid != txid.String() {
-			t.Fatalf("txid mismatch: %v vs %v", resp.Txid,
-				txid.String())
-		}
+		require.NoError(t.t, err)
+		require.Equal(t.t, txid.String(), resp.Txid)
+
 		block := mineBlocks(t, net, 1, 1)[0]
 		assertTxInBlock(t, block, txid)
 	}
@@ -322,5 +315,20 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 	// (3 P2WPKH, 3 NP2WPKH) to two P2WPKH outputs. Carol should therefore
 	// only have one UTXO present (the change output) of 6 - 5 - fee BTC.
 	const fee = 27750
+	restoreCheckBalance(finalBalance-minerAmt-fee, 1, 21, nil)
+
+	// Last of all, make sure we can also restore a node from the extended
+	// master root key directly instead of the seed.
+	var seedMnemonic aezeed.Mnemonic
+	copy(seedMnemonic[:], mnemonic)
+	cipherSeed, err := seedMnemonic.ToCipherSeed(password)
+	require.NoError(t.t, err)
+	extendedRootKey, err := hdkeychain.NewMaster(
+		cipherSeed.Entropy[:], harnessNetParams,
+	)
+	require.NoError(t.t, err)
+	rootKey = extendedRootKey.String()
+	mnemonic = nil
+
 	restoreCheckBalance(finalBalance-minerAmt-fee, 1, 21, nil)
 }

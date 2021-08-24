@@ -122,8 +122,8 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 				// obtained above.
 				return func() (*lntest.HarnessNode, error) {
 					return net.RestoreNodeWithSeed(
-						"dave", nil, password,
-						mnemonic, 1000, backupSnapshot,
+						"dave", nil, password, mnemonic,
+						"", 1000, backupSnapshot,
 						copyPorts(oldNode),
 					)
 				}, nil
@@ -159,8 +159,8 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 				// restart it again using Unlock.
 				return func() (*lntest.HarnessNode, error) {
 					newNode, err := net.RestoreNodeWithSeed(
-						"dave", nil, password,
-						mnemonic, 1000, nil,
+						"dave", nil, password, mnemonic,
+						"", 1000, nil,
 						copyPorts(oldNode),
 					)
 					if err != nil {
@@ -208,7 +208,8 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 				return func() (*lntest.HarnessNode, error) {
 					newNode, err := net.RestoreNodeWithSeed(
 						"dave", nil, password, mnemonic,
-						1000, nil, copyPorts(oldNode),
+						"", 1000, nil,
+						copyPorts(oldNode),
 					)
 					if err != nil {
 						return nil, fmt.Errorf("unable to "+
@@ -1309,7 +1310,7 @@ func chanRestoreViaRPC(net *lntest.NetworkHarness, password []byte,
 
 	return func() (*lntest.HarnessNode, error) {
 		newNode, err := net.RestoreNodeWithSeed(
-			"dave", nil, password, mnemonic, 1000, nil,
+			"dave", nil, password, mnemonic, "", 1000, nil,
 			copyPorts(oldNode),
 		)
 		if err != nil {

@@ -1492,13 +1492,17 @@ func waitForWalletPassword(cfg *Config,
 	case initMsg := <-pwService.InitMsgs:
 		password := initMsg.Passphrase
 		cipherSeed := initMsg.WalletSeed
+		extendedKey := initMsg.WalletExtendedKey
 		recoveryWindow := initMsg.RecoveryWindow
 
 		// Before we proceed, we'll check the internal version of the
 		// seed. If it's greater than the current key derivation
 		// version, then we'll return an error as we don't understand
 		// this.
-		if cipherSeed.InternalVersion != keychain.KeyDerivationVersion {
+		const latestVersion = keychain.KeyDerivationVersion
+		if cipherSeed != nil &&
+			cipherSeed.InternalVersion != latestVersion {
+
 			return nil, fmt.Errorf("invalid internal "+
 				"seed version %v, current version is %v",
 				cipherSeed.InternalVersion,
@@ -1515,10 +1519,36 @@ func waitForWalletPassword(cfg *Config,
 
 		// With the seed, we can now use the wallet loader to create
 		// the wallet, then pass it back to avoid unlocking it again.
-		birthday := cipherSeed.BirthdayTime()
-		newWallet, err := loader.CreateNewWallet(
-			password, password, cipherSeed.Entropy[:], birthday,
+		var (
+			birthday  time.Time
+			newWallet *wallet.Wallet
 		)
+		switch {
+		// A normal cipher seed was given, use the birthday encoded in
+		// it and create the wallet from that.
+		case cipherSeed != nil:
+			birthday = cipherSeed.BirthdayTime()
+			newWallet, err = loader.CreateNewWallet(
+				password, password, cipherSeed.Entropy[:],
+				birthday,
+			)
+
+		// No seed was given, we're importing a wallet from its extended
+		// private key.
+		case extendedKey != nil:
+			birthday = initMsg.ExtendedKeyBirthday
+			newWallet, err = loader.CreateNewWalletExtendedKey(
+				password, password, extendedKey, birthday,
+			)
+
+		default:
+			// The unlocker service made sure either the cipher seed
+			// or the extended key is set so, we shouldn't get here.
+			// The default case is just here for readability and
+			// completeness.
+			err = fmt.Errorf("cannot create wallet, neither seed " +
+				"nor extended key was given")
+		}
 		if err != nil {
 			// Don't leave the file open in case the new wallet
 			// could not be created for whatever reason.

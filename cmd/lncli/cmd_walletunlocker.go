@@ -214,16 +214,21 @@ func create(ctx *cli.Context) error {
 	}
 
 	// Next, we'll see if the user has 24-word mnemonic they want to use to
-	// derive a seed within the wallet.
+	// derive a seed within the wallet or if they want to specify an
+	// extended master root key (xprv) directly.
 	var (
 		hasMnemonic bool
+		hasXprv     bool
 	)
 
 mnemonicCheck:
 	for {
 		fmt.Println()
 		fmt.Printf("Do you have an existing cipher seed " +
-			"mnemonic you want to use? (Enter y/n): ")
+			"mnemonic or extended master root key you want to " +
+			"use?\nEnter 'y' to use an existing cipher seed " +
+			"mnemonic, 'x' to use an extended master root key " +
+			"\nor 'n' to create a new seed (Enter y/x/n): ")
 
 		reader := bufio.NewReader(os.Stdin)
 		answer, err := reader.ReadString('\n')
@@ -240,20 +245,28 @@ mnemonicCheck:
 		case "y":
 			hasMnemonic = true
 			break mnemonicCheck
+
+		case "x":
+			hasXprv = true
+			break mnemonicCheck
+
 		case "n":
-			hasMnemonic = false
 			break mnemonicCheck
 		}
 	}
 
-	// If the user *does* have an existing seed they want to use, then
-	// we'll read that in directly from the terminal.
+	// If the user *does* have an existing seed or root key they want to
+	// use, then we'll read that in directly from the terminal.
 	var (
-		cipherSeedMnemonic []string
-		aezeedPass         []byte
-		recoveryWindow     int32
+		cipherSeedMnemonic      []string
+		aezeedPass              []byte
+		extendedRootKey         string
+		extendedRootKeyBirthday uint64
+		recoveryWindow          int32
 	)
-	if hasMnemonic {
+	switch {
+	// Use an existing cipher seed mnemonic in the aezeed format.
+	case hasMnemonic:
 		// We'll now prompt the user to enter in their 24-word
 		// mnemonic.
 		fmt.Printf("Input your 24-word mnemonic separated by spaces: ")
@@ -288,38 +301,37 @@ mnemonicCheck:
 			return err
 		}
 
-		for {
-			fmt.Println()
-			fmt.Printf("Input an optional address look-ahead "+
-				"used to scan for used keys (default %d): ",
-				defaultRecoveryWindow)
-
-			reader := bufio.NewReader(os.Stdin)
-			answer, err := reader.ReadString('\n')
-			if err != nil {
-				return err
-			}
-
-			fmt.Println()
-
-			answer = strings.TrimSpace(answer)
-
-			if len(answer) == 0 {
-				recoveryWindow = defaultRecoveryWindow
-				break
-			}
-
-			lookAhead, err := strconv.Atoi(answer)
-			if err != nil {
-				fmt.Printf("Unable to parse recovery "+
-					"window: %v\n", err)
-				continue
-			}
-
-			recoveryWindow = int32(lookAhead)
-			break
+		recoveryWindow, err = askRecoveryWindow()
+		if err != nil {
+			return err
 		}
-	} else {
+
+	// Use an existing extended master root key to create the wallet.
+	case hasXprv:
+		// We'll now prompt the user to enter in their extended master
+		// root key.
+		fmt.Printf("Input your extended master root key (usually " +
+			"starting with xprv... on mainnet): ")
+		reader := bufio.NewReader(os.Stdin)
+		extendedRootKey, err = reader.ReadString('\n')
+		if err != nil {
+			return err
+		}
+		extendedRootKey = strings.TrimSpace(extendedRootKey)
+
+		extendedRootKeyBirthday, err = askBirthdayTimestamp()
+		if err != nil {
+			return err
+		}
+
+		recoveryWindow, err = askRecoveryWindow()
+		if err != nil {
+			return err
+		}
+
+	// Neither a seed nor a master root key was specified, the user wants
+	// to create a new seed.
+	default:
 		// Otherwise, if the user doesn't have a mnemonic that they
 		// want to use, we'll generate a fresh one with the GenSeed
 		// command.
@@ -352,36 +364,21 @@ mnemonicCheck:
 
 	// Before we initialize the wallet, we'll display the cipher seed to
 	// the user so they can write it down.
-	mnemonicWords := cipherSeedMnemonic
-
-	fmt.Println("!!!YOU MUST WRITE DOWN THIS SEED TO BE ABLE TO " +
-		"RESTORE THE WALLET!!!")
-	fmt.Println()
-
-	fmt.Println("---------------BEGIN LND CIPHER SEED---------------")
-
-	numCols := 4
-	colWords := monowidthColumns(mnemonicWords, numCols)
-	for i := 0; i < len(colWords); i += numCols {
-		fmt.Printf("%2d. %3s  %2d. %3s  %2d. %3s  %2d. %3s\n",
-			i+1, colWords[i], i+2, colWords[i+1], i+3,
-			colWords[i+2], i+4, colWords[i+3])
+	if len(cipherSeedMnemonic) > 0 {
+		printCipherSeedWords(cipherSeedMnemonic)
 	}
-
-	fmt.Println("---------------END LND CIPHER SEED-----------------")
-
-	fmt.Println("\n!!!YOU MUST WRITE DOWN THIS SEED TO BE ABLE TO " +
-		"RESTORE THE WALLET!!!")
 
 	// With either the user's prior cipher seed, or a newly generated one,
 	// we'll go ahead and initialize the wallet.
 	req := &lnrpc.InitWalletRequest{
-		WalletPassword:     walletPassword,
-		CipherSeedMnemonic: cipherSeedMnemonic,
-		AezeedPassphrase:   aezeedPass,
-		RecoveryWindow:     recoveryWindow,
-		ChannelBackups:     chanBackups,
-		StatelessInit:      statelessInit,
+		WalletPassword:                     walletPassword,
+		CipherSeedMnemonic:                 cipherSeedMnemonic,
+		AezeedPassphrase:                   aezeedPass,
+		ExtendedMasterKey:                  extendedRootKey,
+		ExtendedMasterKeyBirthdayTimestamp: extendedRootKeyBirthday,
+		RecoveryWindow:                     recoveryWindow,
+		ChannelBackups:                     chanBackups,
+		StatelessInit:                      statelessInit,
 	}
 	response, err := client.InitWallet(ctxc, req)
 	if err != nil {
@@ -662,4 +659,87 @@ func storeOrPrintAdminMac(ctx *cli.Context, adminMac []byte) error {
 	// it to standard output.
 	fmt.Printf("Admin macaroon: %s\n", hex.EncodeToString(adminMac))
 	return nil
+}
+
+func askRecoveryWindow() (int32, error) {
+	for {
+		fmt.Println()
+		fmt.Printf("Input an optional address look-ahead used to scan "+
+			"for used keys (default %d): ", defaultRecoveryWindow)
+
+		reader := bufio.NewReader(os.Stdin)
+		answer, err := reader.ReadString('\n')
+		if err != nil {
+			return 0, err
+		}
+
+		fmt.Println()
+
+		answer = strings.TrimSpace(answer)
+
+		if len(answer) == 0 {
+			return defaultRecoveryWindow, nil
+		}
+
+		lookAhead, err := strconv.Atoi(answer)
+		if err != nil {
+			fmt.Printf("Unable to parse recovery window: %v\n", err)
+			continue
+		}
+
+		return int32(lookAhead), nil
+	}
+}
+
+func askBirthdayTimestamp() (uint64, error) {
+	for {
+		fmt.Println()
+		fmt.Printf("Input an optional wallet birthday unix timestamp " +
+			"of first block to start scanning from (default 0): ")
+
+		reader := bufio.NewReader(os.Stdin)
+		answer, err := reader.ReadString('\n')
+		if err != nil {
+			return 0, err
+		}
+
+		fmt.Println()
+
+		answer = strings.TrimSpace(answer)
+
+		if len(answer) == 0 {
+			return 0, nil
+		}
+
+		birthdayTimestamp, err := strconv.ParseUint(answer, 10, 64)
+		if err != nil {
+			fmt.Printf("Unable to parse birthday timestamp: %v\n",
+				err)
+
+			continue
+		}
+
+		return birthdayTimestamp, nil
+	}
+}
+
+func printCipherSeedWords(mnemonicWords []string) {
+	fmt.Println("!!!YOU MUST WRITE DOWN THIS SEED TO BE ABLE TO " +
+		"RESTORE THE WALLET!!!")
+	fmt.Println()
+
+	fmt.Println("---------------BEGIN LND CIPHER SEED---------------")
+
+	numCols := 4
+	colWords := monowidthColumns(mnemonicWords, numCols)
+	for i := 0; i < len(colWords); i += numCols {
+		fmt.Printf("%2d. %3s  %2d. %3s  %2d. %3s  %2d. %3s\n",
+			i+1, colWords[i], i+2, colWords[i+1], i+3,
+			colWords[i+2], i+4, colWords[i+3])
+	}
+
+	fmt.Println("---------------END LND CIPHER SEED-----------------")
+
+	fmt.Println("\n!!!YOU MUST WRITE DOWN THIS SEED TO BE ABLE TO " +
+		"RESTORE THE WALLET!!!")
 }

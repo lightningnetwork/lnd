@@ -200,6 +200,16 @@ service Lightning {
     */
     rpc OpenChannel (OpenChannelRequest) returns (stream OpenStatusUpdate);
 
+    /* lncli: `batchopenchannel`
+    BatchOpenChannel attempts to open multiple single-funded channels in a
+    single transaction in an atomic way. This means either all channel open
+    requests succeed at once or all attempts are aborted if any of them fail.
+    This is the safer variant of using PSBTs to manually fund a batch of
+    channels through the OpenChannel RPC.
+    */
+    rpc BatchOpenChannel (BatchOpenChannelRequest)
+        returns (BatchOpenChannelResponse);
+
     /*
     FundingStateStep is an advanced funding related call that allows the caller
     to either execute some preparatory steps for a funding workflow, or

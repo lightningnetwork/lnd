@@ -143,6 +143,13 @@ type LightningClient interface {
 	//arguments specified in the OpenChannelRequest, this pending channel ID can
 	//then be used to manually progress the channel funding flow.
 	OpenChannel(ctx context.Context, in *OpenChannelRequest, opts ...grpc.CallOption) (Lightning_OpenChannelClient, error)
+	// lncli: `batchopenchannel`
+	//BatchOpenChannel attempts to open multiple single-funded channels in a
+	//single transaction in an atomic way. This means either all channel open
+	//requests succeed at once or all attempts are aborted if any of them fail.
+	//This is the safer variant of using PSBTs to manually fund a batch of
+	//channels through the OpenChannel RPC.
+	BatchOpenChannel(ctx context.Context, in *BatchOpenChannelRequest, opts ...grpc.CallOption) (*BatchOpenChannelResponse, error)
 	//
 	//FundingStateStep is an advanced funding related call that allows the caller
 	//to either execute some preparatory steps for a funding workflow, or
@@ -679,6 +686,15 @@ func (x *lightningOpenChannelClient) Recv() (*OpenStatusUpdate, error) {
 		return nil, err
 	}
 	return m, nil
+}
+
+func (c *lightningClient) BatchOpenChannel(ctx context.Context, in *BatchOpenChannelRequest, opts ...grpc.CallOption) (*BatchOpenChannelResponse, error) {
+	out := new(BatchOpenChannelResponse)
+	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/BatchOpenChannel", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *lightningClient) FundingStateStep(ctx context.Context, in *FundingTransitionMsg, opts ...grpc.CallOption) (*FundingStateStepResp, error) {
@@ -1294,6 +1310,13 @@ type LightningServer interface {
 	//arguments specified in the OpenChannelRequest, this pending channel ID can
 	//then be used to manually progress the channel funding flow.
 	OpenChannel(*OpenChannelRequest, Lightning_OpenChannelServer) error
+	// lncli: `batchopenchannel`
+	//BatchOpenChannel attempts to open multiple single-funded channels in a
+	//single transaction in an atomic way. This means either all channel open
+	//requests succeed at once or all attempts are aborted if any of them fail.
+	//This is the safer variant of using PSBTs to manually fund a batch of
+	//channels through the OpenChannel RPC.
+	BatchOpenChannel(context.Context, *BatchOpenChannelRequest) (*BatchOpenChannelResponse, error)
 	//
 	//FundingStateStep is an advanced funding related call that allows the caller
 	//to either execute some preparatory steps for a funding workflow, or
@@ -1598,6 +1621,9 @@ func (UnimplementedLightningServer) OpenChannelSync(context.Context, *OpenChanne
 }
 func (UnimplementedLightningServer) OpenChannel(*OpenChannelRequest, Lightning_OpenChannelServer) error {
 	return status.Errorf(codes.Unimplemented, "method OpenChannel not implemented")
+}
+func (UnimplementedLightningServer) BatchOpenChannel(context.Context, *BatchOpenChannelRequest) (*BatchOpenChannelResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BatchOpenChannel not implemented")
 }
 func (UnimplementedLightningServer) FundingStateStep(context.Context, *FundingTransitionMsg) (*FundingStateStepResp, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FundingStateStep not implemented")
@@ -2144,6 +2170,24 @@ type lightningOpenChannelServer struct {
 
 func (x *lightningOpenChannelServer) Send(m *OpenStatusUpdate) error {
 	return x.ServerStream.SendMsg(m)
+}
+
+func _Lightning_BatchOpenChannel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatchOpenChannelRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LightningServer).BatchOpenChannel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/lnrpc.Lightning/BatchOpenChannel",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LightningServer).BatchOpenChannel(ctx, req.(*BatchOpenChannelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Lightning_FundingStateStep_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -2912,6 +2956,10 @@ var Lightning_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "OpenChannelSync",
 			Handler:    _Lightning_OpenChannelSync_Handler,
+		},
+		{
+			MethodName: "BatchOpenChannel",
+			Handler:    _Lightning_BatchOpenChannel_Handler,
 		},
 		{
 			MethodName: "FundingStateStep",

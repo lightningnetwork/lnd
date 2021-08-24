@@ -45,18 +45,16 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, bob)
 
 	// Connect Alice to Bob.
-	net.ConnectNodes(ctxb, t.t, alice, bob)
+	net.ConnectNodes(t.t, alice, bob)
 
 	// Give Alice some coins so she can fund a channel.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, alice)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, alice)
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
 	chanAmt := btcutil.Amount(100000)
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, alice, bob,
+		t, net, alice, bob,
 		lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
@@ -64,7 +62,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Wait for Alice and Bob to receive the channel edge from the
 	// funding manager.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err := alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't see the alice->bob channel before "+
@@ -84,11 +82,8 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	carol := net.NewNode(t.t, "Carol", nil)
 	defer shutdownAndAssert(net, t, carol)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, alice, carol)
-
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, bob, carol)
+	net.ConnectNodes(t.t, alice, carol)
+	net.ConnectNodes(t.t, bob, carol)
 
 	carolSub := subscribeGraphNotifications(ctxb, t, carol)
 	defer close(carolSub.quit)
@@ -195,8 +190,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	// disconnections from automatically disabling the channel again
 	// (we don't want to clutter the network with channels that are
 	// falsely advertised as enabled when they don't work).
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.DisconnectNodes(ctxt, alice, bob); err != nil {
+	if err := net.DisconnectNodes(alice, bob); err != nil {
 		t.Fatalf("unable to disconnect Alice from Bob: %v", err)
 	}
 	expectedPolicy.Disabled = true
@@ -209,8 +203,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 
 	// Reconnecting the nodes should propagate a "Disabled = false" update.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, alice, bob)
+	net.EnsureConnected(t.t, alice, bob)
 	expectedPolicy.Disabled = false
 	waitForChannelUpdate(
 		t, carolSub,
@@ -236,8 +229,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.DisconnectNodes(ctxt, alice, bob); err != nil {
+	if err := net.DisconnectNodes(alice, bob); err != nil {
 		t.Fatalf("unable to disconnect Alice from Bob: %v", err)
 	}
 
@@ -253,8 +245,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Bob sends a "Disabled = false" update upon detecting the
 	// reconnect.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, alice, bob)
+	net.EnsureConnected(t.t, alice, bob)
 	expectedPolicy.Disabled = false
 	waitForChannelUpdate(
 		t, carolSub,
@@ -268,8 +259,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	// note the asymmetry between manual enable and manual disable!
 	assertEdgeDisabled(alice, chanPoint, true)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.DisconnectNodes(ctxt, alice, bob); err != nil {
+	if err := net.DisconnectNodes(alice, bob); err != nil {
 		t.Fatalf("unable to disconnect Alice from Bob: %v", err)
 	}
 
@@ -287,7 +277,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	// BOTH Alice and Bob should set the channel state back to "enabled"
 	// on reconnect.
 	sendReq(alice, chanPoint, routerrpc.ChanStatusAction_AUTO)
-	net.EnsureConnected(ctxt, t.t, alice, bob)
+	net.EnsureConnected(t.t, alice, bob)
 	expectedPolicy.Disabled = false
 	waitForChannelUpdate(
 		t, carolSub,
@@ -308,9 +298,8 @@ func testUnannouncedChannels(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Open a channel between Alice and Bob, ensuring the
 	// channel has been opened properly.
-	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 	chanOpenUpdate := openChannelStream(
-		ctxt, t, net, net.Alice, net.Bob,
+		t, net, net.Alice, net.Bob,
 		lntest.OpenChannelParams{
 			Amt: amount,
 		},
@@ -322,8 +311,7 @@ func testUnannouncedChannels(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// One block is enough to make the channel ready for use, since the
 	// nodes have defaultNumConfs=1 set.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	fundingChanPoint, err := net.WaitForChannelOpen(ctxt, chanOpenUpdate)
+	fundingChanPoint, err := net.WaitForChannelOpen(chanOpenUpdate)
 	if err != nil {
 		t.Fatalf("error while waiting for channel open: %v", err)
 	}
@@ -332,7 +320,7 @@ func testUnannouncedChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	req := &lnrpc.ChannelGraphRequest{
 		IncludeUnannounced: true,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	chanGraph, err := net.Alice.DescribeGraph(ctxt, req)
 	if err != nil {
 		t.Fatalf("unable to query alice's graph: %v", err)
@@ -445,16 +433,13 @@ func testGraphTopologyNtfns(net *lntest.NetworkHarness, t *harnessTest, pinned b
 	defer shutdownAndAssert(net, t, alice)
 
 	// Connect Alice and Bob.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, alice, bob)
+	net.EnsureConnected(t.t, alice, bob)
 
 	// Alice stimmy.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, alice)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, alice)
 
 	// Bob stimmy.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, bob)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, bob)
 
 	// Assert that Bob has the correct sync type before proceeeding.
 	if pinned {
@@ -472,9 +457,8 @@ func testGraphTopologyNtfns(net *lntest.NetworkHarness, t *harnessTest, pinned b
 	defer close(graphSub.quit)
 
 	// Open a new channel between Alice and Bob.
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, alice, bob,
+		t, net, alice, bob,
 		lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
@@ -596,18 +580,15 @@ out:
 	// that a node that does not have any channels open is ignored, so first
 	// we disconnect Alice and Bob, open a channel between Bob and Carol,
 	// and finally connect Alice to Bob again.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.DisconnectNodes(ctxt, alice, bob); err != nil {
+	if err := net.DisconnectNodes(alice, bob); err != nil {
 		t.Fatalf("unable to disconnect alice and bob: %v", err)
 	}
 	carol := net.NewNode(t.t, "Carol", nil)
 	defer shutdownAndAssert(net, t, carol)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, bob, carol)
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
+	net.ConnectNodes(t.t, bob, carol)
 	chanPoint = openChannelAndAssert(
-		ctxt, t, net, bob, carol,
+		t, net, bob, carol,
 		lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
@@ -619,8 +600,7 @@ out:
 	// and Carol. Note that we will also receive a node announcement from
 	// Bob, since a node will update its node announcement after a new
 	// channel is opened.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, alice, bob)
+	net.EnsureConnected(t.t, alice, bob)
 
 	// We should receive an update advertising the newly connected node,
 	// Bob's new node announcement, and the channel between Bob and Carol.
@@ -702,8 +682,7 @@ func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// We must let Dave have an open channel before he can send a node
 	// announcement, so we open a channel with Bob,
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, net.Bob, dave)
+	net.ConnectNodes(t.t, net.Bob, dave)
 
 	// Alice shouldn't receive any new updates yet since the channel has yet
 	// to be opened.
@@ -716,9 +695,8 @@ func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 	// We'll then go ahead and open a channel between Bob and Dave. This
 	// ensures that Alice receives the node announcement from Bob as part of
 	// the announcement broadcast.
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Bob, dave,
+		t, net, net.Bob, dave,
 		lntest.OpenChannelParams{
 			Amt: 1000000,
 		},

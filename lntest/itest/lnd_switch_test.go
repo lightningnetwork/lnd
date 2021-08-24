@@ -29,9 +29,8 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
-	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPointAlice := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob,
+		t, net, net.Alice, net.Bob,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
@@ -58,14 +57,11 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	dave := net.NewNode(t.t, "Dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, dave, net.Alice)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, dave)
+	net.ConnectNodes(t.t, dave, net.Alice)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, dave)
 
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPointDave := openChannelAndAssert(
-		ctxt, t, net, dave, net.Alice,
+		t, net, dave, net.Alice,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
@@ -87,14 +83,11 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	carol := net.NewNode(t.t, "Carol", []string{"--hodl.exit-settle"})
 	defer shutdownAndAssert(net, t, carol)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, carol, dave)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
+	net.ConnectNodes(t.t, carol, dave)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
 
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPointCarol := openChannelAndAssert(
-		ctxt, t, net, carol, dave,
+		t, net, carol, dave,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
@@ -125,7 +118,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 				Index: chanPoint.OutputIndex,
 			}
 
-			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 			err = node.WaitForNetworkChannelOpen(ctxt, chanPoint)
 			if err != nil {
 				t.Fatalf("%s(%d): timeout waiting for "+
@@ -148,7 +141,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// We'll wait for all parties to recognize the new channels within the
 	// network.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err = dave.WaitForNetworkChannelOpen(ctxt, chanPointDave)
 	if err != nil {
 		t.Fatalf("dave didn't advertise his channel: %v", err)
@@ -164,9 +157,8 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Using Carol as the source, pay to the 5 invoices from Bob created
 	// above.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, net.Bob, net.Bob.RouterClient, payReqs, false,
+		net.Bob, net.Bob.RouterClient, payReqs, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
@@ -196,11 +188,8 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Ensure all of the intermediate links are reconnected.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, net.Alice, dave)
-
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, net.Bob, net.Alice)
+	net.EnsureConnected(t.t, net.Alice, dave)
+	net.EnsureConnected(t.t, net.Bob, net.Alice)
 
 	// Ensure all nodes in the network still have 5 outstanding htlcs.
 	err = wait.Predicate(func() bool {
@@ -218,8 +207,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("Node restart failed: %v", err)
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, dave, carol)
+	net.EnsureConnected(t.t, dave, carol)
 
 	// After the payments settle, there should be no active htlcs on any of
 	// the nodes in the network.
@@ -273,9 +261,8 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Using Carol as the source, pay to the 5 invoices from Bob created
 	// above.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, net.Bob, net.Bob.RouterClient, payReqs, true,
+		net.Bob, net.Bob.RouterClient, payReqs, true,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
@@ -320,9 +307,8 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
-	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPointAlice := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob,
+		t, net, net.Alice, net.Bob,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
@@ -349,14 +335,11 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	dave := net.NewNode(t.t, "Dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, dave, net.Alice)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, dave)
+	net.ConnectNodes(t.t, dave, net.Alice)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, dave)
 
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPointDave := openChannelAndAssert(
-		ctxt, t, net, dave, net.Alice,
+		t, net, dave, net.Alice,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
@@ -378,14 +361,11 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	carol := net.NewNode(t.t, "Carol", []string{"--hodl.exit-settle"})
 	defer shutdownAndAssert(net, t, carol)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, carol, dave)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
+	net.ConnectNodes(t.t, carol, dave)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
 
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPointCarol := openChannelAndAssert(
-		ctxt, t, net, carol, dave,
+		t, net, carol, dave,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
@@ -416,7 +396,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 				Index: chanPoint.OutputIndex,
 			}
 
-			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 			err = node.WaitForNetworkChannelOpen(ctxt, chanPoint)
 			if err != nil {
 				t.Fatalf("%s(%d): timeout waiting for "+
@@ -439,7 +419,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// We'll wait for all parties to recognize the new channels within the
 	// network.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err = dave.WaitForNetworkChannelOpen(ctxt, chanPointDave)
 	if err != nil {
 		t.Fatalf("dave didn't advertise his channel: %v", err)
@@ -463,9 +443,8 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Using Carol as the source, pay to the 5 invoices from Bob created
 	// above.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, net.Bob, net.Bob.RouterClient, payReqs, false,
+		net.Bob, net.Bob.RouterClient, payReqs, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
@@ -482,14 +461,12 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// First, disconnect Dave and Alice so that their link is broken.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.DisconnectNodes(ctxt, dave, net.Alice); err != nil {
+	if err := net.DisconnectNodes(dave, net.Alice); err != nil {
 		t.Fatalf("unable to disconnect alice from dave: %v", err)
 	}
 
 	// Then, reconnect them to ensure Dave doesn't just fail back the htlc.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, dave, net.Alice)
+	net.ConnectNodes(t.t, dave, net.Alice)
 
 	// Wait to ensure that the payment remain are not failed back after
 	// reconnecting. All node should report the number payments initiated
@@ -504,8 +481,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Now, disconnect Dave from Alice again before settling back the
 	// payment.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.DisconnectNodes(ctxt, dave, net.Alice); err != nil {
+	if err := net.DisconnectNodes(dave, net.Alice); err != nil {
 		t.Fatalf("unable to disconnect alice from dave: %v", err)
 	}
 
@@ -538,8 +514,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Now that the settles have reached Dave, reconnect him with Alice,
 	// allowing the settles to return to the sender.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, dave, net.Alice)
+	net.EnsureConnected(t.t, dave, net.Alice)
 
 	// Wait until all outstanding htlcs in the network have been settled.
 	err = wait.Predicate(func() bool {
@@ -590,9 +565,8 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Using Carol as the source, pay to the 5 invoices from Bob created
 	// above.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, net.Bob, net.Bob.RouterClient, payReqs, true,
+		net.Bob, net.Bob.RouterClient, payReqs, true,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
@@ -638,9 +612,8 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
-	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPointAlice := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob,
+		t, net, net.Alice, net.Bob,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
@@ -667,14 +640,11 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	dave := net.NewNode(t.t, "Dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, dave, net.Alice)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, dave)
+	net.ConnectNodes(t.t, dave, net.Alice)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, dave)
 
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPointDave := openChannelAndAssert(
-		ctxt, t, net, dave, net.Alice,
+		t, net, dave, net.Alice,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
@@ -697,14 +667,11 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	carol := net.NewNode(t.t, "Carol", []string{"--hodl.exit-settle"})
 	defer shutdownAndAssert(net, t, carol)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, carol, dave)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
+	net.ConnectNodes(t.t, carol, dave)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
 
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPointCarol := openChannelAndAssert(
-		ctxt, t, net, carol, dave,
+		t, net, carol, dave,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
@@ -735,7 +702,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 				Index: chanPoint.OutputIndex,
 			}
 
-			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 			err = node.WaitForNetworkChannelOpen(ctxt, chanPoint)
 			if err != nil {
 				t.Fatalf("%s(%d): timeout waiting for "+
@@ -758,7 +725,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 
 	// We'll wait for all parties to recognize the new channels within the
 	// network.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err = dave.WaitForNetworkChannelOpen(ctxt, chanPointDave)
 	if err != nil {
 		t.Fatalf("dave didn't advertise his channel: %v", err)
@@ -772,9 +739,8 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 
 	// Using Carol as the source, pay to the 5 invoices from Bob created
 	// above.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, net.Bob, net.Bob.RouterClient, payReqs, false,
+		net.Bob, net.Bob.RouterClient, payReqs, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
@@ -805,8 +771,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 
 	// Make Carol and Dave are reconnected before waiting for the htlcs to
 	// clear.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, dave, carol)
+	net.EnsureConnected(t.t, dave, carol)
 
 	// Wait for Carol to report no outstanding htlcs, and also for Dav to
 	// receive all the settles from Carol.
@@ -835,8 +800,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 
 	// Force Dave and Alice to reconnect before waiting for the htlcs to
 	// clear.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, dave, net.Alice)
+	net.EnsureConnected(t.t, dave, net.Alice)
 
 	// After reconnection succeeds, the settles should be propagated all
 	// the way back to the sender. All nodes should report no active htlcs.
@@ -888,14 +852,12 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 
 	// Before completing the final payment request, ensure that the
 	// connection between Dave and Carol has been healed.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, dave, carol)
+	net.EnsureConnected(t.t, dave, carol)
 
 	// Using Carol as the source, pay to the 5 invoices from Bob created
 	// above.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, net.Bob, net.Bob.RouterClient, payReqs, true,
+		net.Bob, net.Bob.RouterClient, payReqs, true,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
@@ -942,9 +904,8 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
-	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPointAlice := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob,
+		t, net, net.Alice, net.Bob,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
@@ -971,14 +932,11 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	dave := net.NewNode(t.t, "Dave", nil)
 	defer shutdownAndAssert(net, t, dave)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, dave, net.Alice)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, dave)
+	net.ConnectNodes(t.t, dave, net.Alice)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, dave)
 
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPointDave := openChannelAndAssert(
-		ctxt, t, net, dave, net.Alice,
+		t, net, dave, net.Alice,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
@@ -998,14 +956,11 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	// Dave. Carol is started in htlchodl mode so that we can disconnect the
 	// intermediary hops before starting the settle.
 	carol := net.NewNode(t.t, "Carol", []string{"--hodl.exit-settle"})
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, carol, dave)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
+	net.ConnectNodes(t.t, carol, dave)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
 
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPointCarol := openChannelAndAssert(
-		ctxt, t, net, carol, dave,
+		t, net, carol, dave,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
@@ -1036,7 +991,7 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 				Index: chanPoint.OutputIndex,
 			}
 
-			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 			err = node.WaitForNetworkChannelOpen(ctxt, chanPoint)
 			if err != nil {
 				t.Fatalf("%s(%d): timeout waiting for "+
@@ -1059,7 +1014,7 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 
 	// We'll wait for all parties to recognize the new channels within the
 	// network.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err = dave.WaitForNetworkChannelOpen(ctxt, chanPointDave)
 	if err != nil {
 		t.Fatalf("dave didn't advertise his channel: %v", err)
@@ -1073,9 +1028,8 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 
 	// Using Carol as the source, pay to the 5 invoices from Bob created
 	// above.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, net.Bob, net.Bob.RouterClient, payReqs, false,
+		net.Bob, net.Bob.RouterClient, payReqs, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
@@ -1143,8 +1097,7 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 
 	// Ensure that Dave is reconnected to Alice before waiting for the
 	// htlcs to clear.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, dave, net.Alice)
+	net.EnsureConnected(t.t, dave, net.Alice)
 
 	// Since Carol has been shutdown permanently, we will wait until all
 	// other nodes in the network report no active htlcs.

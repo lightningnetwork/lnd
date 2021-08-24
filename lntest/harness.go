@@ -178,7 +178,7 @@ func (n *NetworkHarness) SetUp(t *testing.T,
 	// both nodes are fully started since the Connect RPC is guarded behind
 	// the server.Started() flag that waits for all subsystems to be ready.
 	ctxb := context.Background()
-	n.ConnectNodes(ctxb, t, n.Alice, n.Bob)
+	n.ConnectNodes(t, n.Alice, n.Bob)
 
 	// Load up the wallets of the seeder nodes with 10 outputs of 1 BTC
 	// each.
@@ -548,8 +548,10 @@ tryconnect:
 // behave the same as ConnectNodes. If a pending connection request has already
 // been made, the method will block until the two nodes appear in each other's
 // peers list, or until the 15s timeout expires.
-func (n *NetworkHarness) EnsureConnected(ctx context.Context,
-	t *testing.T, a, b *HarnessNode) {
+func (n *NetworkHarness) EnsureConnected(t *testing.T, a, b *HarnessNode) {
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, DefaultTimeout*2)
+	defer cancel()
 
 	// errConnectionRequested is used to signal that a connection was
 	// requested successfully, which is distinct from already being
@@ -557,9 +559,7 @@ func (n *NetworkHarness) EnsureConnected(ctx context.Context,
 	errConnectionRequested := errors.New("connection request in progress")
 
 	tryConnect := func(a, b *HarnessNode) error {
-		ctxt, cancel := context.WithTimeout(ctx, DefaultTimeout)
-		defer cancel()
-		bInfo, err := b.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
+		bInfo, err := b.GetInfo(ctx, &lnrpc.GetInfoRequest{})
 		if err != nil {
 			return err
 		}
@@ -637,9 +637,7 @@ func (n *NetworkHarness) EnsureConnected(ctx context.Context,
 		// If node B is seen in the ListPeers response from node A,
 		// then we can exit early as the connection has been fully
 		// established.
-		ctxt, cancel := context.WithTimeout(ctx, DefaultTimeout)
-		defer cancel()
-		resp, err := b.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
+		resp, err := b.ListPeers(ctx, &lnrpc.ListPeersRequest{})
 		if err != nil {
 			return false
 		}
@@ -670,8 +668,10 @@ func (n *NetworkHarness) EnsureConnected(ctx context.Context,
 //
 // NOTE: This function may block for up to 15-seconds as it will not return
 // until the new connection is detected as being known to both nodes.
-func (n *NetworkHarness) ConnectNodes(ctx context.Context, t *testing.T,
-	a, b *HarnessNode) {
+func (n *NetworkHarness) ConnectNodes(t *testing.T, a, b *HarnessNode) {
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, DefaultTimeout)
+	defer cancel()
 
 	bobInfo, err := b.GetInfo(ctx, &lnrpc.GetInfoRequest{})
 	require.NoErrorf(
@@ -719,7 +719,11 @@ func (n *NetworkHarness) ConnectNodes(ctx context.Context, t *testing.T,
 
 // DisconnectNodes disconnects node a from node b by sending RPC message
 // from a node to b node
-func (n *NetworkHarness) DisconnectNodes(ctx context.Context, a, b *HarnessNode) error {
+func (n *NetworkHarness) DisconnectNodes(a, b *HarnessNode) error {
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, DefaultTimeout)
+	defer cancel()
+
 	bobInfo, err := b.GetInfo(ctx, &lnrpc.GetInfoRequest{})
 	if err != nil {
 		return err
@@ -906,10 +910,10 @@ func saveProfilesPage(node *HarnessNode) error {
 	return nil
 }
 
-// WaitForTxInMempool blocks until the target txid is seen in the mempool. If
+// waitForTxInMempool blocks until the target txid is seen in the mempool. If
 // the transaction isn't seen within the network before the passed timeout,
 // then an error is returned.
-func (n *NetworkHarness) WaitForTxInMempool(ctx context.Context,
+func (n *NetworkHarness) waitForTxInMempool(ctx context.Context,
 	txid chainhash.Hash) error {
 
 	// Return immediately if harness has been torn down.
@@ -984,9 +988,14 @@ type OpenChannelParams struct {
 // if the timeout is reached before the channel pending notification is
 // received, an error is returned. The confirmed boolean determines whether we
 // should fund the channel with confirmed outputs or not.
-func (n *NetworkHarness) OpenChannel(ctx context.Context,
-	srcNode, destNode *HarnessNode, p OpenChannelParams) (
-	lnrpc.Lightning_OpenChannelClient, error) {
+func (n *NetworkHarness) OpenChannel(srcNode, destNode *HarnessNode,
+	p OpenChannelParams) (lnrpc.Lightning_OpenChannelClient, error) {
+
+	ctxb := context.Background()
+	// The cancel is intentionally left out here because the returned
+	// item(open channel client) relies on the context being active. This
+	// will be fixed once we finish refactoring the NetworkHarness.
+	ctx, _ := context.WithTimeout(ctxb, ChannelOpenTimeout) // nolint: govet
 
 	// Wait until srcNode and destNode have the latest chain synced.
 	// Otherwise, we may run into a check within the funding manager that
@@ -1058,9 +1067,13 @@ func (n *NetworkHarness) OpenChannel(ctx context.Context,
 // passed channel funding parameters. If the passed context has a timeout, then
 // if the timeout is reached before the channel pending notification is
 // received, an error is returned.
-func (n *NetworkHarness) OpenPendingChannel(ctx context.Context,
-	srcNode, destNode *HarnessNode, amt btcutil.Amount,
+func (n *NetworkHarness) OpenPendingChannel(srcNode, destNode *HarnessNode,
+	amt btcutil.Amount,
 	pushAmt btcutil.Amount) (*lnrpc.PendingUpdate, error) {
+
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, ChannelOpenTimeout)
+	defer cancel()
 
 	// Wait until srcNode and destNode have blockchain synced
 	if err := srcNode.WaitForBlockchainSync(ctx); err != nil {
@@ -1119,8 +1132,12 @@ func (n *NetworkHarness) OpenPendingChannel(ctx context.Context,
 // consuming a message from the past open channel stream. If the passed context
 // has a timeout, then if the timeout is reached before the channel has been
 // opened, then an error is returned.
-func (n *NetworkHarness) WaitForChannelOpen(ctx context.Context,
+func (n *NetworkHarness) WaitForChannelOpen(
 	openChanStream lnrpc.Lightning_OpenChannelClient) (*lnrpc.ChannelPoint, error) {
+
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, ChannelOpenTimeout)
+	defer cancel()
 
 	errChan := make(chan error)
 	respChan := make(chan *lnrpc.ChannelPoint)
@@ -1155,9 +1172,15 @@ func (n *NetworkHarness) WaitForChannelOpen(ctx context.Context,
 // passed channel point, initiated by the passed lnNode. If the passed context
 // has a timeout, an error is returned if that timeout is reached before the
 // channel close is pending.
-func (n *NetworkHarness) CloseChannel(ctx context.Context,
-	lnNode *HarnessNode, cp *lnrpc.ChannelPoint,
+func (n *NetworkHarness) CloseChannel(lnNode *HarnessNode,
+	cp *lnrpc.ChannelPoint,
 	force bool) (lnrpc.Lightning_CloseChannelClient, *chainhash.Hash, error) {
+
+	ctxb := context.Background()
+	// The cancel is intentionally left out here because the returned
+	// item(close channel client) relies on the context being active. This
+	// will be fixed once we finish refactoring the NetworkHarness.
+	ctx, _ := context.WithTimeout(ctxb, ChannelCloseTimeout) // nolint: govet
 
 	// Create a channel outpoint that we can use to compare to channels
 	// from the ListChannelsResponse.
@@ -1268,7 +1291,7 @@ func (n *NetworkHarness) CloseChannel(ctx context.Context,
 				"%v", err)
 			return
 		}
-		if err := n.WaitForTxInMempool(ctx, *closeTxid); err != nil {
+		if err := n.waitForTxInMempool(ctx, *closeTxid); err != nil {
 			errChan <- fmt.Errorf("error while waiting for "+
 				"broadcast tx: %v", err)
 			return
@@ -1290,8 +1313,12 @@ func (n *NetworkHarness) CloseChannel(ctx context.Context,
 // stream that the node has deemed the channel has been fully closed. If the
 // passed context has a timeout, then if the timeout is reached before the
 // notification is received then an error is returned.
-func (n *NetworkHarness) WaitForChannelClose(ctx context.Context,
+func (n *NetworkHarness) WaitForChannelClose(
 	closeChanStream lnrpc.Lightning_CloseChannelClient) (*chainhash.Hash, error) {
+
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, ChannelCloseTimeout)
+	defer cancel()
 
 	errChan := make(chan error)
 	updateChan := make(chan *lnrpc.CloseStatusUpdate_ChanClose)
@@ -1330,9 +1357,12 @@ func (n *NetworkHarness) WaitForChannelClose(ctx context.Context,
 // assertions using channel's values. These functions are responsible for
 // failing the test themselves if they do not pass.
 // nolint: interfacer
-func (n *NetworkHarness) AssertChannelExists(ctx context.Context,
-	node *HarnessNode, chanPoint *wire.OutPoint,
-	checks ...func(*lnrpc.Channel)) error {
+func (n *NetworkHarness) AssertChannelExists(node *HarnessNode,
+	chanPoint *wire.OutPoint, checks ...func(*lnrpc.Channel)) error {
+
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, ChannelCloseTimeout)
+	defer cancel()
 
 	req := &lnrpc.ListChannelsRequest{}
 
@@ -1384,12 +1414,11 @@ func (n *NetworkHarness) DumpLogs(node *HarnessNode) (string, error) {
 // SendCoins attempts to send amt satoshis from the internal mining node to the
 // targeted lightning node using a P2WKH address. 6 blocks are mined after in
 // order to confirm the transaction.
-func (n *NetworkHarness) SendCoins(ctx context.Context, t *testing.T,
-	amt btcutil.Amount, target *HarnessNode) {
+func (n *NetworkHarness) SendCoins(t *testing.T, amt btcutil.Amount,
+	target *HarnessNode) {
 
 	err := n.sendCoins(
-		ctx, amt, target, lnrpc.AddressType_WITNESS_PUBKEY_HASH,
-		true,
+		amt, target, lnrpc.AddressType_WITNESS_PUBKEY_HASH, true,
 	)
 	require.NoErrorf(t, err, "unable to send coins for %s", target.Cfg.Name)
 }
@@ -1397,12 +1426,11 @@ func (n *NetworkHarness) SendCoins(ctx context.Context, t *testing.T,
 // SendCoinsUnconfirmed sends coins from the internal mining node to the target
 // lightning node using a P2WPKH address. No blocks are mined after, so the
 // transaction remains unconfirmed.
-func (n *NetworkHarness) SendCoinsUnconfirmed(ctx context.Context,
-	t *testing.T, amt btcutil.Amount, target *HarnessNode) {
+func (n *NetworkHarness) SendCoinsUnconfirmed(t *testing.T, amt btcutil.Amount,
+	target *HarnessNode) {
 
 	err := n.sendCoins(
-		ctx, amt, target, lnrpc.AddressType_WITNESS_PUBKEY_HASH,
-		false,
+		amt, target, lnrpc.AddressType_WITNESS_PUBKEY_HASH, false,
 	)
 	require.NoErrorf(
 		t, err, "unable to send unconfirmed coins for %s",
@@ -1412,12 +1440,11 @@ func (n *NetworkHarness) SendCoinsUnconfirmed(ctx context.Context,
 
 // SendCoinsNP2WKH attempts to send amt satoshis from the internal mining node
 // to the targeted lightning node using a NP2WKH address.
-func (n *NetworkHarness) SendCoinsNP2WKH(ctx context.Context,
-	t *testing.T, amt btcutil.Amount, target *HarnessNode) {
+func (n *NetworkHarness) SendCoinsNP2WKH(t *testing.T, amt btcutil.Amount,
+	target *HarnessNode) {
 
 	err := n.sendCoins(
-		ctx, amt, target, lnrpc.AddressType_NESTED_PUBKEY_HASH,
-		true,
+		amt, target, lnrpc.AddressType_NESTED_PUBKEY_HASH, true,
 	)
 	require.NoErrorf(
 		t, err, "unable to send NP2WKH coins for %s",
@@ -1428,9 +1455,12 @@ func (n *NetworkHarness) SendCoinsNP2WKH(ctx context.Context,
 // sendCoins attempts to send amt satoshis from the internal mining node to the
 // targeted lightning node. The confirmed boolean indicates whether the
 // transaction that pays to the target should confirm.
-func (n *NetworkHarness) sendCoins(ctx context.Context, amt btcutil.Amount,
-	target *HarnessNode, addrType lnrpc.AddressType,
-	confirmed bool) error {
+func (n *NetworkHarness) sendCoins(amt btcutil.Amount, target *HarnessNode,
+	addrType lnrpc.AddressType, confirmed bool) error {
+
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, DefaultTimeout)
+	defer cancel()
 
 	balReq := &lnrpc.WalletBalanceRequest{}
 	initialBalance, err := target.WalletBalance(ctx, balReq)

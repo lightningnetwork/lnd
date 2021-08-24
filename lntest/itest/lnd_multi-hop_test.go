@@ -87,9 +87,7 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 			bob := net.NewNode(t, "Bob", args)
 			defer shutdownAndAssert(net, ht, bob)
 
-			ctxb := context.Background()
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			net.ConnectNodes(ctxt, t, alice, bob)
+			net.ConnectNodes(t, alice, bob)
 
 			for _, subTest := range subTests {
 				subTest := subTest
@@ -150,8 +148,12 @@ func waitForInvoiceAccepted(t *harnessTest, node *lntest.HarnessNode,
 
 // checkPaymentStatus asserts that the given node list a payment with the given
 // preimage has the expected status.
-func checkPaymentStatus(ctxt context.Context, node *lntest.HarnessNode,
-	preimage lntypes.Preimage, status lnrpc.Payment_PaymentStatus) error {
+func checkPaymentStatus(node *lntest.HarnessNode, preimage lntypes.Preimage,
+	status lnrpc.Payment_PaymentStatus) error {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
 
 	req := &lnrpc.ListPaymentsRequest{
 		IncludeIncomplete: true,
@@ -208,30 +210,25 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 
 	ctxb := context.Background()
 
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, alice, bob)
+	net.EnsureConnected(t.t, alice, bob)
 
 	// Make sure there are enough utxos for anchoring.
 	for i := 0; i < 2; i++ {
-		ctxt, _ = context.WithTimeout(context.Background(), defaultTimeout)
-		net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, alice)
-
-		ctxt, _ = context.WithTimeout(context.Background(), defaultTimeout)
-		net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, bob)
+		net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, alice)
+		net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, bob)
 	}
 
 	// We'll start the test by creating a channel between Alice and Bob,
 	// which will act as the first leg for out multi-hop HTLC.
 	const chanAmt = 1000000
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	aliceChanPoint := openChannelAndAssert(
-		ctxt, t, net, alice, bob,
+		t, net, alice, bob,
 		lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err := alice.WaitForNetworkChannelOpen(ctxt, aliceChanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't report channel: %v", err)
@@ -252,23 +249,20 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 	}
 	carol := net.NewNode(t.t, "Carol", carolFlags)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, bob, carol)
+	net.ConnectNodes(t.t, bob, carol)
 
 	// Make sure Carol has enough utxos for anchoring. Because the anchor by
 	// itself often doesn't meet the dust limit, a utxo from the wallet
 	// needs to be attached as an additional input. This can still lead to a
 	// positively-yielding transaction.
 	for i := 0; i < 2; i++ {
-		ctxt, _ = context.WithTimeout(context.Background(), defaultTimeout)
-		net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
+		net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
 	}
 
 	// We'll then create a channel from Bob to Carol. After this channel is
 	// open, our topology looks like:  A -> B -> C.
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	bobChanPoint := openChannelAndAssert(
-		ctxt, t, net, bob, carol,
+		t, net, bob, carol,
 		lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},

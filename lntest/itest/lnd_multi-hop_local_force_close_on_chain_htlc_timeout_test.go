@@ -77,9 +77,8 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// At this point, Bob should have a pending force close channel as he
 	// just went to chain.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err = waitForNumChannelPendingForceClose(
-		ctxt, bob, 1, func(c *lnrpcForceCloseChannel) error {
+		bob, 1, func(c *lnrpcForceCloseChannel) error {
 			if c.LimboBalance == 0 {
 				return fmt.Errorf("bob should have nonzero "+
 					"limbo balance instead has: %v",
@@ -117,9 +116,8 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// Bob's pending channel report should show that he has a single HTLC
 	// that's now in stage one.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = waitForNumChannelPendingForceClose(
-		ctxt, bob, 1, func(c *lnrpcForceCloseChannel) error {
+		bob, 1, func(c *lnrpcForceCloseChannel) error {
 			if len(c.PendingHtlcs) != 1 {
 				return fmt.Errorf("bob should have pending " +
 					"htlc but doesn't")
@@ -155,9 +153,8 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// Additionally, Bob should now show that HTLC as being advanced to the
 	// second stage.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = waitForNumChannelPendingForceClose(
-		ctxt, bob, 1, func(c *lnrpcForceCloseChannel) error {
+		bob, 1, func(c *lnrpcForceCloseChannel) error {
 			if len(c.PendingHtlcs) != 1 {
 				return fmt.Errorf("bob should have pending " +
 					"htlc but doesn't")
@@ -189,8 +186,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// At this point, Bob should no longer show any channels as pending
 	// close.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = waitForNumChannelPendingForceClose(ctxt, bob, 0, nil)
+	err = waitForNumChannelPendingForceClose(bob, 0, nil)
 	require.NoError(t.t, err)
 
 	// Coop close, no anchors.

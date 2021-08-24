@@ -82,9 +82,9 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	// open, then broadcast the funding transaction
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := btcutil.Amount(0)
-	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
-	pendingUpdate, err := net.OpenPendingChannel(ctxt, net.Alice, net.Bob,
-		chanAmt, pushAmt)
+	pendingUpdate, err := net.OpenPendingChannel(
+		net.Alice, net.Bob, chanAmt, pushAmt,
+	)
 	if err != nil {
 		t.Fatalf("unable to open channel: %v", err)
 	}
@@ -98,8 +98,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// At this point, the channel's funding transaction will have been
 	// broadcast, but not confirmed, and the channel should be pending.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	assertNumOpenChannelsPending(ctxt, t, net.Alice, net.Bob, 1)
+	assertNumOpenChannelsPending(t, net.Alice, net.Bob, 1)
 
 	fundingTxID, err := chainhash.NewHash(pendingUpdate.Txid)
 	if err != nil {
@@ -126,8 +125,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to get current blockheight %v", err)
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = waitForNodeBlockHeight(ctxt, net.Alice, minerHeight)
+	err = waitForNodeBlockHeight(net.Alice, minerHeight)
 	if err != nil {
 		t.Fatalf("unable to sync to chain: %v", err)
 	}
@@ -140,11 +138,11 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Ensure channel is no longer pending.
-	assertNumOpenChannelsPending(ctxt, t, net.Alice, net.Bob, 0)
+	assertNumOpenChannelsPending(t, net.Alice, net.Bob, 0)
 
 	// Wait for Alice and Bob to recognize and advertise the new channel
 	// generated above.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't advertise channel before "+
@@ -218,8 +216,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to get current blockheight %v", err)
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = waitForNodeBlockHeight(ctxt, net.Alice, tempMinerHeight)
+	err = waitForNodeBlockHeight(net.Alice, tempMinerHeight)
 	if err != nil {
 		t.Fatalf("unable to sync to chain: %v", err)
 	}
@@ -255,8 +252,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	block = mineBlocks(t, net, 1, 1)[0]
 	assertTxInBlock(t, block, fundingTxID)
 
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeReorgedChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+	closeReorgedChannelAndAssert(t, net, net.Alice, chanPoint, false)
 }
 
 // testBasicChannelCreationAndUpdates tests multiple channel opening and closing,
@@ -280,9 +276,8 @@ func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness, t *harnessTe
 	// have been properly opened on-chain.
 	chanPoints := make([]*lnrpc.ChannelPoint, numChannels)
 	for i := 0; i < numChannels; i++ {
-		ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 		chanPoints[i] = openChannelAndAssert(
-			ctxt, t, net, net.Alice, net.Bob,
+			t, net, net.Alice, net.Bob,
 			lntest.OpenChannelParams{
 				Amt: amount,
 			},

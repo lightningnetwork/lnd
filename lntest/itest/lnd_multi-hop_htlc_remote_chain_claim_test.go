@@ -90,8 +90,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	)
 
 	// Wait for the channel to be marked pending force close.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = waitForChannelPendingForceClose(ctxt, alice, aliceChanPoint)
+	err = waitForChannelPendingForceClose(alice, aliceChanPoint)
 	require.NoError(t.t, err)
 
 	// After closeChannelAndAssertType returns, it has mined a block so now
@@ -230,8 +229,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// Now that the sweeping transaction has been confirmed, Bob should now
 	// recognize that all contracts have been fully resolved, and show no
 	// pending close channels.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = waitForNumChannelPendingForceClose(ctxt, bob, 0, nil)
+	err = waitForNumChannelPendingForceClose(bob, 0, nil)
 	require.NoError(t.t, err)
 
 	// If we then mine 3 additional blocks, Carol's second level tx will
@@ -249,8 +247,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	block = mineBlocks(t, net, 1, 1)[0]
 	assertTxInBlock(t, block, carolSweep)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = waitForNumChannelPendingForceClose(ctxt, carol, 0, nil)
+	err = waitForNumChannelPendingForceClose(carol, 0, nil)
 	require.NoError(t.t, err)
 
 	// The invoice should show as settled for Carol, indicating that it was
@@ -265,9 +262,6 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 
 	// Finally, check that the Alice's payment is correctly marked
 	// succeeded.
-	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
-	err = checkPaymentStatus(
-		ctxt, alice, preimage, lnrpc.Payment_SUCCEEDED,
-	)
+	err = checkPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
 	require.NoError(t.t, err)
 }

@@ -69,10 +69,6 @@ func assertTimeoutError(ctxt context.Context, t *harnessTest,
 
 	t.t.Helper()
 
-	// Create a context with a timeout value.
-	ctxt, cancel := context.WithTimeout(ctxt, defaultTimeout)
-	defer cancel()
-
 	err := connect(ctxt, node, req)
 
 	// a DeadlineExceeded error will appear in the context if the above

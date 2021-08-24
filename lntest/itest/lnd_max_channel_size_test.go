@@ -3,7 +3,6 @@
 package itest
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -29,17 +28,16 @@ func testMaxChannelSize(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, wumboNode2)
 
 	// We'll send 11 BTC to the wumbo node so it can test the wumbo soft limit.
-	ctxb := context.Background()
-	net.SendCoins(ctxb, t.t, 11*btcutil.SatoshiPerBitcoin, wumboNode)
+	net.SendCoins(t.t, 11*btcutil.SatoshiPerBitcoin, wumboNode)
 
 	// Next we'll connect both nodes, then attempt to make a wumbo channel
 	// funding request, which should fail as it exceeds the default wumbo
 	// soft limit of 10 BTC.
-	net.EnsureConnected(ctxb, t.t, wumboNode, wumboNode2)
+	net.EnsureConnected(t.t, wumboNode, wumboNode2)
 
 	chanAmt := funding.MaxBtcFundingAmountWumbo + 1
 	_, err := net.OpenChannel(
-		ctxb, wumboNode, wumboNode2, lntest.OpenChannelParams{
+		wumboNode, wumboNode2, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -58,10 +56,10 @@ func testMaxChannelSize(net *lntest.NetworkHarness, t *harnessTest) {
 	miniNode := net.NewNode(t.t, "mini", nil)
 	defer shutdownAndAssert(net, t, miniNode)
 
-	net.EnsureConnected(ctxb, t.t, wumboNode, miniNode)
+	net.EnsureConnected(t.t, wumboNode, miniNode)
 
 	_, err = net.OpenChannel(
-		ctxb, wumboNode, miniNode, lntest.OpenChannelParams{
+		wumboNode, miniNode, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -89,9 +87,9 @@ func testMaxChannelSize(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, wumboNode3)
 
 	// Creating a wumbo channel between these two nodes should succeed.
-	net.EnsureConnected(ctxb, t.t, wumboNode, wumboNode3)
+	net.EnsureConnected(t.t, wumboNode, wumboNode3)
 	chanPoint := openChannelAndAssert(
-		ctxb, t, net, wumboNode, wumboNode3,
+		t, net, wumboNode, wumboNode3,
 		lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},

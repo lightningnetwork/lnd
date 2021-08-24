@@ -51,19 +51,17 @@ func testChannelBalance(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Before beginning, make sure alice and bob are connected.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, net.Alice, net.Bob)
+	net.EnsureConnected(t.t, net.Alice, net.Bob)
 
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob,
+		t, net, net.Alice, net.Bob,
 		lntest.OpenChannelParams{
 			Amt: amount,
 		},
 	)
 
 	// Wait for both Alice and Bob to recognize this new channel.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't advertise channel before "+
@@ -145,13 +143,11 @@ func testChannelUnsettledBalance(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, carol)
 
 	// Connect Alice to Carol.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxb, t.t, net.Alice, carol)
+	net.ConnectNodes(t.t, net.Alice, carol)
 
 	// Open a channel between Alice and Carol.
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPointAlice := openChannelAndAssert(
-		ctxt, t, net, net.Alice, carol,
+		t, net, net.Alice, carol,
 		lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
@@ -159,7 +155,7 @@ func testChannelUnsettledBalance(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Wait for Alice and Carol to receive the channel edge from the
 	// funding manager.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPointAlice)
 	if err != nil {
 		t.Fatalf("alice didn't see the alice->carol channel before "+
@@ -231,8 +227,7 @@ func testChannelUnsettledBalance(net *lntest.NetworkHarness, t *harnessTest) {
 		// Check each nodes UnsettledBalance field.
 		for _, node := range nodes {
 			// Get channel info for the node.
-			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-			chanInfo, err := getChanInfo(ctxt, node)
+			chanInfo, err := getChanInfo(node)
 			if err != nil {
 				unsettledErr = err
 				return false

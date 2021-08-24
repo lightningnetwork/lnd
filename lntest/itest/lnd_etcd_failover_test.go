@@ -100,15 +100,13 @@ func testEtcdFailoverCase(net *lntest.NetworkHarness, ht *harnessTest,
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	info1, err := carol1.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, ht.t, carol1, net.Alice)
+	net.ConnectNodes(ht.t, carol1, net.Alice)
 
 	// Open a channel with 100k satoshis between Carol and Alice with Alice
 	// being the sole funder of the channel.
 	chanAmt := btcutil.Amount(100000)
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	_ = openChannelAndAssert(
-		ctxt, ht, net, net.Alice, carol1,
+		ht, net, net.Alice, carol1,
 		lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
@@ -131,11 +129,13 @@ func testEtcdFailoverCase(net *lntest.NetworkHarness, ht *harnessTest,
 		ht.Fatalf("Carol-2 is unable to create payment requests: %v",
 			err)
 	}
-	sendAndAssertSuccess(ctxb, ht, net.Alice, &routerrpc.SendPaymentRequest{
-		PaymentRequest: payReqs[0],
-		TimeoutSeconds: 60,
-		FeeLimitSat:    noFeeLimitMsat,
-	})
+	sendAndAssertSuccess(
+		ht, net.Alice, &routerrpc.SendPaymentRequest{
+			PaymentRequest: payReqs[0],
+			TimeoutSeconds: 60,
+			FeeLimitSat:    noFeeLimitMsat,
+		},
+	)
 
 	// Shut down or kill Carol-1 and wait for Carol-2 to become the leader.
 	var failoverTimeout time.Duration
@@ -179,11 +179,13 @@ func testEtcdFailoverCase(net *lntest.NetworkHarness, ht *harnessTest,
 
 	// Now let Alice pay the second invoice but this time we expect Carol-2
 	// to receive the payment.
-	sendAndAssertSuccess(ctxb, ht, net.Alice, &routerrpc.SendPaymentRequest{
-		PaymentRequest: payReqs[1],
-		TimeoutSeconds: 60,
-		FeeLimitSat:    noFeeLimitMsat,
-	})
+	sendAndAssertSuccess(
+		ht, net.Alice, &routerrpc.SendPaymentRequest{
+			PaymentRequest: payReqs[1],
+			TimeoutSeconds: 60,
+			FeeLimitSat:    noFeeLimitMsat,
+		},
+	)
 
 	shutdownAndAssert(net, ht, carol2)
 }

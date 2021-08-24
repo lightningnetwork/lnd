@@ -45,8 +45,7 @@ func testGetRecoveryInfo(net *lntest.NetworkHarness, t *harnessTest) {
 		if err != nil {
 			t.Fatalf("unable to get current blockheight %v", err)
 		}
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		err = waitForNodeBlockHeight(ctxt, node, minerHeight)
+		err = waitForNodeBlockHeight(node, minerHeight)
 		if err != nil {
 			t.Fatalf("unable to sync to chain: %v", err)
 		}
@@ -233,15 +232,11 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 			}
 
 			// Send one BTC to the next P2WKH address.
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			net.SendCoins(
-				ctxt, t.t, btcutil.SatoshiPerBitcoin, node,
-			)
+			net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, node)
 
 			// And another to the next NP2WKH address.
-			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 			net.SendCoinsNP2WKH(
-				ctxt, t.t, btcutil.SatoshiPerBitcoin, node,
+				t.t, btcutil.SatoshiPerBitcoin, node,
 			)
 		}
 	}

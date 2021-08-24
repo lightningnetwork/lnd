@@ -223,8 +223,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest,
 
 	// Once this transaction has been confirmed, Bob should detect that he
 	// no longer has any pending channels.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = waitForNumChannelPendingForceClose(ctxt, bob, 0, nil)
+	err = waitForNumChannelPendingForceClose(bob, 0, nil)
 	require.NoError(t.t, err)
 
 	// Coop close channel, expect no anchors.

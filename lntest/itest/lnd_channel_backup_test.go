@@ -505,20 +505,16 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// With Carol up, we'll now connect her to Alice, and open a channel
 	// between them.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, carol, net.Alice)
+	net.ConnectNodes(t.t, carol, net.Alice)
 
 	// Next, we'll open two channels between Alice and Carol back to back.
 	var chanPoints []*lnrpc.ChannelPoint
 	numChans := 2
 	chanAmt := btcutil.Amount(1000000)
 	for i := 0; i < numChans; i++ {
-		ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 		chanPoint := openChannelAndAssert(
-			ctxt, t, net, net.Alice, carol,
-			lntest.OpenChannelParams{
-				Amt: chanAmt,
-			},
+			t, net, net.Alice, carol,
+			lntest.OpenChannelParams{Amt: chanAmt},
 		)
 
 		chanPoints = append(chanPoints, chanPoint)
@@ -644,20 +640,16 @@ func testExportChannelBackup(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// With Carol up, we'll now connect her to Alice, and open a channel
 	// between them.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, carol, net.Alice)
+	net.ConnectNodes(t.t, carol, net.Alice)
 
 	// Next, we'll open two channels between Alice and Carol back to back.
 	var chanPoints []*lnrpc.ChannelPoint
 	numChans := 2
 	chanAmt := btcutil.Amount(1000000)
 	for i := 0; i < numChans; i++ {
-		ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 		chanPoint := openChannelAndAssert(
-			ctxt, t, net, net.Alice, carol,
-			lntest.OpenChannelParams{
-				Amt: chanAmt,
-			},
+			t, net, net.Alice, carol,
+			lntest.OpenChannelParams{Amt: chanAmt},
 		)
 
 		chanPoints = append(chanPoints, chanPoint)
@@ -884,17 +876,15 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 
 	// Now that our new nodes are created, we'll give them some coins for
 	// channel opening and anchor sweeping.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
 
 	// For the anchor output case we need two UTXOs for Carol so she can
 	// sweep both the local and remote anchor.
 	if testCase.anchorCommit {
-		net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
+		net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, dave)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, dave)
 
 	var from, to *lntest.HarnessNode
 	if testCase.initiator {
@@ -905,16 +895,15 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 
 	// Next, we'll connect Dave to Carol, and open a new channel to her
 	// with a portion pushed.
-	net.ConnectNodes(ctxt, t.t, dave, carol)
+	net.ConnectNodes(t.t, dave, carol)
 
 	// We will either open a confirmed or unconfirmed channel, depending on
 	// the requirements of the test case.
 	var chanPoint *lnrpc.ChannelPoint
 	switch {
 	case testCase.unconfirmed:
-		ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 		_, err := net.OpenPendingChannel(
-			ctxt, from, to, chanAmt, pushAmt,
+			from, to, chanAmt, pushAmt,
 		)
 		if err != nil {
 			t.Fatalf("couldn't open pending channel: %v", err)
@@ -943,9 +932,8 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 		)
 
 	default:
-		ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 		chanPoint = openChannelAndAssert(
-			ctxt, t, net, from, to,
+			t, net, from, to,
 			lntest.OpenChannelParams{
 				Amt:     chanAmt,
 				PushAmt: pushAmt,
@@ -954,7 +942,7 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 		)
 
 		// Wait for both sides to see the opened channel.
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 		err = dave.WaitForNetworkChannelOpen(ctxt, chanPoint)
 		if err != nil {
 			t.Fatalf("dave didn't report channel: %v", err)
@@ -968,6 +956,8 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	// If both parties should start with existing channel updates, then
 	// we'll send+settle an HTLC between 'from' and 'to' now.
 	if testCase.channelsUpdated {
+		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+
 		invoice := &lnrpc.Invoice{
 			Memo:  "testing",
 			Value: 100000,
@@ -977,9 +967,8 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 			t.Fatalf("unable to add invoice: %v", err)
 		}
 
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 		err = completePaymentRequests(
-			ctxt, from, from.RouterClient,
+			from, from.RouterClient,
 			[]string{invoiceResp.PaymentRequest}, true,
 		)
 		if err != nil {
@@ -1016,7 +1005,7 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	// Before we start the recovery, we'll record the balances of both
 	// Carol and Dave to ensure they both sweep their coins at the end.
 	balReq := &lnrpc.WalletBalanceRequest{}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	carolBalResp, err := carol.WalletBalance(ctxt, balReq)
 	if err != nil {
 		t.Fatalf("unable to get carol's balance: %v", err)
@@ -1089,8 +1078,7 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 		// Now that we have our new node up, we expect that it'll
 		// re-connect to Carol automatically based on the restored
 		// backup.
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		net.EnsureConnected(ctxt, t.t, dave, carol)
+		net.EnsureConnected(t.t, dave, carol)
 
 		assertTimeLockSwept(
 			net, t, carol, carolStartingBalance, dave,
@@ -1182,8 +1170,7 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 
 	// Now that we have our new node up, we expect that it'll re-connect to
 	// Carol automatically based on the restored backup.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, dave, carol)
+	net.EnsureConnected(t.t, dave, carol)
 
 	// TODO(roasbeef): move dave restarts?
 

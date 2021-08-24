@@ -219,9 +219,8 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 
 	// At this point, Bob should have broadcast his second layer success
 	// transaction, and should have sent it to the nursery for incubation.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = waitForNumChannelPendingForceClose(
-		ctxt, bob, 1, func(c *lnrpcForceCloseChannel) error {
+		bob, 1, func(c *lnrpcForceCloseChannel) error {
 			if c.Channel.LocalBalance != 0 {
 				return nil
 			}
@@ -288,21 +287,17 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 	block = mineBlocks(t, net, 1, 1)[0]
 	assertTxInBlock(t, block, bobSweep)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = waitForNumChannelPendingForceClose(ctxt, bob, 0, nil)
+	err = waitForNumChannelPendingForceClose(bob, 0, nil)
 	require.NoError(t.t, err)
 	assertNodeNumChannels(t, bob, 0)
 
 	// Also Carol should have no channels left (open nor pending).
-	err = waitForNumChannelPendingForceClose(ctxt, carol, 0, nil)
+	err = waitForNumChannelPendingForceClose(carol, 0, nil)
 	require.NoError(t.t, err)
 	assertNodeNumChannels(t, carol, 0)
 
 	// Finally, check that the Alice's payment is correctly marked
 	// succeeded.
-	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
-	err = checkPaymentStatus(
-		ctxt, alice, preimage, lnrpc.Payment_SUCCEEDED,
-	)
+	err = checkPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
 	require.NoError(t.t, err)
 }

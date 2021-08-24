@@ -332,9 +332,7 @@ func fundChanAndCloseFromImportedAccount(t *harnessTest, srcNode, destNode,
 
 	// Now, start the channel funding process. We'll need to connect both
 	// nodes first.
-	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-	t.lndHarness.EnsureConnected(ctxt, t.t, srcNode, destNode)
+	t.lndHarness.EnsureConnected(t.t, srcNode, destNode)
 
 	// The source node will then fund the channel through a PSBT shim.
 	var pendingChanID [32]byte
@@ -515,10 +513,8 @@ func fundChanAndCloseFromImportedAccount(t *harnessTest, srcNode, destNode,
 	})
 	require.NoError(t.t, err)
 
-	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
 	err = completePaymentRequests(
-		ctxt, srcNode, srcNode.RouterClient,
+		srcNode, srcNode.RouterClient,
 		[]string{resp.PaymentRequest}, true,
 	)
 	require.NoError(t.t, err)

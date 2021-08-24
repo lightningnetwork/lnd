@@ -499,17 +499,15 @@ func wsTestCaseBiDirectionalSubscription(ht *harnessTest,
 
 	// Before we start opening channels, make sure the two nodes are
 	// connected.
-	net.EnsureConnected(context.Background(), ht.t, net.Alice, net.Bob)
+	net.EnsureConnected(ht.t, net.Alice, net.Bob)
 
 	// Open 3 channels to make sure multiple requests and responses can be
 	// sent over the web socket.
 	const numChannels = 3
 	for i := 0; i < numChannels; i++ {
 		openChannelAndAssert(
-			context.Background(), ht, net, net.Bob, net.Alice,
-			lntest.OpenChannelParams{
-				Amt: 500000,
-			},
+			ht, net, net.Bob, net.Alice,
+			lntest.OpenChannelParams{Amt: 500000},
 		)
 
 		select {

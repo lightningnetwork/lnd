@@ -31,14 +31,13 @@ func testCPFP(net *lntest.NetworkHarness, t *harnessTest) {
 	// We'll start the test by sending Alice some coins, which she'll use to
 	// send to Bob.
 	ctxb := context.Background()
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, net.Alice)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, net.Alice)
 
 	// Create an address for Bob to send the coins to.
 	addrReq := &lnrpc.NewAddressRequest{
 		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	resp, err := net.Bob.NewAddress(ctxt, addrReq)
 	if err != nil {
 		t.Fatalf("unable to get new address for bob: %v", err)
@@ -176,8 +175,7 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, bob)
 
 	ctxb := context.Background()
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, alice, bob)
+	net.ConnectNodes(t.t, alice, bob)
 
 	// Send just enough coins for Alice to open a channel without a change
 	// output.
@@ -186,16 +184,13 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 		feeEst  = 8000
 	)
 
-	ctxt, _ = context.WithTimeout(context.Background(), defaultTimeout)
-	net.SendCoins(ctxt, t.t, chanAmt+feeEst, alice)
+	net.SendCoins(t.t, chanAmt+feeEst, alice)
 
 	// wallet, without a change output. This should not be allowed.
 	resErr := lnwallet.ErrReservedValueInvalidated.Error()
 
-	ctxt, _ = context.WithTimeout(context.Background(), defaultTimeout)
 	_, err := net.OpenChannel(
-		ctxt, alice, bob,
-		lntest.OpenChannelParams{
+		alice, bob, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -205,9 +200,8 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Alice opens a smaller channel. This works since it will have a
 	// change output.
-	ctxt, _ = context.WithTimeout(context.Background(), defaultTimeout)
 	aliceChanPoint1 := openChannelAndAssert(
-		ctxt, t, net, alice, bob,
+		t, net, alice, bob,
 		lntest.OpenChannelParams{
 			Amt: chanAmt / 4,
 		},
@@ -216,7 +210,7 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 	// If Alice tries to open another anchor channel to Bob, Bob should not
 	// reject it as he is not contributing any funds.
 	aliceChanPoint2 := openChannelAndAssert(
-		ctxt, t, net, alice, bob, lntest.OpenChannelParams{
+		t, net, alice, bob, lntest.OpenChannelParams{
 			Amt: chanAmt / 4,
 		},
 	)
@@ -226,9 +220,8 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 	// to remove his support for anchors.
 	err = net.RestartNode(bob, nil)
 	require.NoError(t.t, err)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	aliceChanPoint3 := openChannelAndAssert(
-		ctxt, t, net, alice, bob, lntest.OpenChannelParams{
+		t, net, alice, bob, lntest.OpenChannelParams{
 			Amt: chanAmt / 4,
 		},
 	)
@@ -237,7 +230,7 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 		aliceChanPoint1, aliceChanPoint2, aliceChanPoint3,
 	}
 	for _, chanPoint := range chanPoints {
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 		err = alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
 		require.NoError(t.t, err)
 
@@ -252,7 +245,7 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 	addrReq := &lnrpc.NewAddressRequest{
 		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	resp, err := alice.NewAddress(ctxt, addrReq)
 	require.NoError(t.t, err)
 

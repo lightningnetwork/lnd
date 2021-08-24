@@ -37,9 +37,8 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	pushAmt := chanAmt / 2
 
 	// Create a channel Alice->Bob.
-	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob,
+		t, net, net.Alice, net.Bob,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
@@ -81,7 +80,7 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 		)
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't report channel: %v", err)
@@ -110,19 +109,17 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	nodes = append(nodes, carol)
 
 	// Send some coins to Carol that can be used for channel funding.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
 
-	net.ConnectNodes(ctxb, t.t, carol, net.Bob)
+	net.ConnectNodes(t.t, carol, net.Bob)
 
 	// Open the channel Carol->Bob with a custom min_htlc value set. Since
 	// Carol is opening the channel, she will require Bob to not forward
 	// HTLCs smaller than this value, and hence he should advertise it as
 	// part of his ChannelUpdate.
 	const customMinHtlc = 5000
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint2 := openChannelAndAssert(
-		ctxt, t, net, carol, net.Bob,
+		t, net, carol, net.Bob,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
@@ -197,9 +194,8 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to add invoice: %v", err)
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, net.Alice, net.Alice.RouterClient,
+		net.Alice, net.Alice.RouterClient,
 		[]string{resp.PaymentRequest}, true,
 	)
 
@@ -380,9 +376,8 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to add invoice: %v", err)
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, net.Alice, net.Alice.RouterClient,
+		net.Alice, net.Alice.RouterClient,
 		[]string{resp.PaymentRequest}, true,
 	)
 	if err != nil {
@@ -390,10 +385,9 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// We'll now open a channel from Alice directly to Carol.
-	net.ConnectNodes(ctxb, t.t, net.Alice, carol)
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
+	net.ConnectNodes(t.t, net.Alice, carol)
 	chanPoint3 := openChannelAndAssert(
-		ctxt, t, net, net.Alice, carol,
+		t, net, net.Alice, carol,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,

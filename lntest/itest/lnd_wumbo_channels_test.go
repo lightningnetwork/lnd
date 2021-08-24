@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"context"
 	"strings"
 
 	"github.com/btcsuite/btcutil"
@@ -28,17 +27,16 @@ func testWumboChannels(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// We'll send coins to the wumbo node, as it'll be the one imitating
 	// the channel funding.
-	ctxb := context.Background()
-	net.SendCoins(ctxb, t.t, btcutil.SatoshiPerBitcoin, wumboNode)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, wumboNode)
 
 	// Next we'll connect both nodes, then attempt to make a wumbo channel
 	// funding request to the mini node we created above. The wumbo request
 	// should fail as the node isn't advertising wumbo channels.
-	net.EnsureConnected(ctxb, t.t, wumboNode, miniNode)
+	net.EnsureConnected(t.t, wumboNode, miniNode)
 
 	chanAmt := funding.MaxBtcFundingAmount + 1
 	_, err := net.OpenChannel(
-		ctxb, wumboNode, miniNode, lntest.OpenChannelParams{
+		wumboNode, miniNode, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -61,9 +59,9 @@ func testWumboChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, wumboNode2)
 
 	// Creating a wumbo channel between these two nodes should succeed.
-	net.EnsureConnected(ctxb, t.t, wumboNode, wumboNode2)
+	net.EnsureConnected(t.t, wumboNode, wumboNode2)
 	chanPoint := openChannelAndAssert(
-		ctxb, t, net, wumboNode, wumboNode2,
+		t, net, wumboNode, wumboNode2,
 		lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},

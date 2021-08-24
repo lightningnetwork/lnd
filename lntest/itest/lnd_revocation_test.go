@@ -44,20 +44,17 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// We must let Bob communicate with Carol before they are able to open
 	// channel, so we connect Bob and Carol,
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, carol, net.Bob)
+	net.ConnectNodes(t.t, carol, net.Bob)
 
 	// Before we make a channel, we'll load up Carol with some coins sent
 	// directly from the miner.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
 
 	// In order to test Carol's response to an uncooperative channel
 	// closure by Bob, we'll first open up a channel between them with a
 	// 0.5 BTC value.
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, carol, net.Bob,
+		t, net, carol, net.Bob,
 		lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
@@ -73,7 +70,7 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Wait for Carol to receive the channel edge from the funding manager.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	if err != nil {
 		t.Fatalf("carol didn't see the carol->bob channel before "+
@@ -82,10 +79,8 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Send payments from Carol to Bob using 3 of Bob's payment hashes
 	// generated above.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, carol, carol.RouterClient, bobPayReqs[:numInvoices/2],
-		true,
+		carol, carol.RouterClient, bobPayReqs[:numInvoices/2], true,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
@@ -96,8 +91,7 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	var bobChan *lnrpc.Channel
 	var predErr error
 	err = wait.Predicate(func() bool {
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		bChan, err := getChanInfo(ctxt, net.Bob)
+		bChan, err := getChanInfo(net.Bob)
 		if err != nil {
 			t.Fatalf("unable to get bob's channel info: %v", err)
 		}
@@ -129,17 +123,14 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Finally, send payments from Carol to Bob, consuming Bob's remaining
 	// payment hashes.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, carol, carol.RouterClient, bobPayReqs[numInvoices/2:],
-		true,
+		carol, carol.RouterClient, bobPayReqs[numInvoices/2:], true,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	bobChan, err = getChanInfo(ctxt, net.Bob)
+	bobChan, err = getChanInfo(net.Bob)
 	if err != nil {
 		t.Fatalf("unable to get bob chan info: %v", err)
 	}
@@ -156,8 +147,7 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Now query for Bob's channel state, it should show that he's at a
 	// state number in the past, not the *latest* state.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	bobChan, err = getChanInfo(ctxt, net.Bob)
+	bobChan, err = getChanInfo(net.Bob)
 	if err != nil {
 		t.Fatalf("unable to get bob chan info: %v", err)
 	}
@@ -172,8 +162,9 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	var closeUpdates lnrpc.Lightning_CloseChannelClient
 	force := true
 	err = wait.Predicate(func() bool {
-		ctxt, _ := context.WithTimeout(ctxb, channelCloseTimeout)
-		closeUpdates, _, err = net.CloseChannel(ctxt, net.Bob, chanPoint, force)
+		closeUpdates, _, err = net.CloseChannel(
+			net.Bob, chanPoint, force,
+		)
 		if err != nil {
 			predErr = err
 			return false
@@ -206,8 +197,7 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	// block.
 	block := mineBlocks(t, net, 1, 1)[0]
 
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	breachTXID, err := net.WaitForChannelClose(ctxt, closeUpdates)
+	breachTXID, err := net.WaitForChannelClose(closeUpdates)
 	if err != nil {
 		t.Fatalf("error while waiting for channel close: %v", err)
 	}
@@ -302,20 +292,17 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 
 	// We must let Dave have an open channel before she can send a node
 	// announcement, so we open a channel with Carol,
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, dave, carol)
+	net.ConnectNodes(t.t, dave, carol)
 
 	// Before we make a channel, we'll load up Dave with some coins sent
 	// directly from the miner.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, dave)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, dave)
 
 	// In order to test Dave's response to an uncooperative channel
 	// closure by Carol, we'll first open up a channel between them with a
 	// 0.5 BTC value.
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, dave, carol,
+		t, net, dave, carol,
 		lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
@@ -331,7 +318,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	}
 
 	// Wait for Dave to receive the channel edge from the funding manager.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err = dave.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	if err != nil {
 		t.Fatalf("dave didn't see the dave->carol channel before "+
@@ -340,8 +327,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 
 	// Next query for Carol's channel state, as we sent 0 payments, Carol
 	// should now see her balance as being 0 satoshis.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	carolChan, err := getChanInfo(ctxt, carol)
+	carolChan, err := getChanInfo(carol)
 	if err != nil {
 		t.Fatalf("unable to get carol's channel info: %v", err)
 	}
@@ -364,16 +350,14 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 
 	// Finally, send payments from Dave to Carol, consuming Carol's remaining
 	// payment hashes.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, dave, dave.RouterClient, carolPayReqs, false,
+		dave, dave.RouterClient, carolPayReqs, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = getChanInfo(ctxt, carol)
+	_, err = getChanInfo(carol)
 	if err != nil {
 		t.Fatalf("unable to get carol chan info: %v", err)
 	}
@@ -390,8 +374,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 
 	// Now query for Carol's channel state, it should show that he's at a
 	// state number in the past, not the *latest* state.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	carolChan, err = getChanInfo(ctxt, carol)
+	carolChan, err = getChanInfo(carol)
 	if err != nil {
 		t.Fatalf("unable to get carol chan info: %v", err)
 	}
@@ -411,9 +394,8 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 
 	force := true
 	err = wait.Predicate(func() bool {
-		ctxt, _ := context.WithTimeout(ctxb, channelCloseTimeout)
 		closeUpdates, closeTxID, closeErr = net.CloseChannel(
-			ctxt, carol, chanPoint, force,
+			carol, chanPoint, force,
 		)
 		return closeErr == nil
 	}, defaultTimeout)
@@ -445,8 +427,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 		t.Fatalf("unable to stop Dave's node: %v", err)
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	breachTXID, err := net.WaitForChannelClose(ctxt, closeUpdates)
+	breachTXID, err := net.WaitForChannelClose(closeUpdates)
 	if err != nil {
 		t.Fatalf("error while waiting for channel close: %v", err)
 	}
@@ -535,20 +516,17 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 
 	// We must let Dave communicate with Carol before they are able to open
 	// channel, so we connect Dave and Carol,
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, dave, carol)
+	net.ConnectNodes(t.t, dave, carol)
 
 	// Before we make a channel, we'll load up Dave with some coins sent
 	// directly from the miner.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, dave)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, dave)
 
 	// In order to test Dave's response to an uncooperative channel closure
 	// by Carol, we'll first open up a channel between them with a
 	// funding.MaxBtcFundingAmount (2^24) satoshis value.
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, dave, carol,
+		t, net, dave, carol,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
@@ -567,8 +545,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// We'll introduce a closure to validate that Carol's current balance
 	// matches the given expected amount.
 	checkCarolBalance := func(expectedAmt int64) {
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		carolChan, err := getChanInfo(ctxt, carol)
+		carolChan, err := getChanInfo(carol)
 		if err != nil {
 			t.Fatalf("unable to get carol's channel info: %v", err)
 		}
@@ -583,8 +560,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// number of updates is at least as large as the provided minimum
 	// number.
 	checkCarolNumUpdatesAtLeast := func(minimum uint64) {
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		carolChan, err := getChanInfo(ctxt, carol)
+		carolChan, err := getChanInfo(carol)
 		if err != nil {
 			t.Fatalf("unable to get carol's channel info: %v", err)
 		}
@@ -596,7 +572,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	}
 
 	// Wait for Dave to receive the channel edge from the funding manager.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	err = dave.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	if err != nil {
 		t.Fatalf("dave didn't see the dave->carol channel before "+
@@ -608,10 +584,8 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 
 	// Send payments from Dave to Carol using 3 of Carol's payment hashes
 	// generated above.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, dave, dave.RouterClient, carolPayReqs[:numInvoices/2],
-		false,
+		dave, dave.RouterClient, carolPayReqs[:numInvoices/2], false,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
@@ -629,10 +603,8 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 
 	// Send payments from Carol to Dave using 3 of Dave's payment hashes
 	// generated above.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, carol, carol.RouterClient, davePayReqs[:numInvoices/2],
-		false,
+		carol, carol.RouterClient, davePayReqs[:numInvoices/2], false,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
@@ -641,8 +613,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// Next query for Carol's channel state, as we sent 3 payments of 10k
 	// satoshis each, however Carol should now see her balance as being
 	// equal to the push amount in satoshis since she has not settled.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	carolChan, err := getChanInfo(ctxt, carol)
+	carolChan, err := getChanInfo(carol)
 	if err != nil {
 		t.Fatalf("unable to get carol's channel info: %v", err)
 	}
@@ -669,10 +640,8 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 
 	// Finally, send payments from Dave to Carol, consuming Carol's
 	// remaining payment hashes.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, dave, dave.RouterClient, carolPayReqs[numInvoices/2:],
-		false,
+		dave, dave.RouterClient, carolPayReqs[numInvoices/2:], false,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
@@ -711,8 +680,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 
 	// Now query for Carol's channel state, it should show that she's at a
 	// state number in the past, *not* the latest state.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	carolChan, err = getChanInfo(ctxt, carol)
+	carolChan, err = getChanInfo(carol)
 	if err != nil {
 		t.Fatalf("unable to get carol chan info: %v", err)
 	}
@@ -725,9 +693,9 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// commitment transaction of a prior *revoked* state, so she'll soon
 	// feel the wrath of Dave's retribution.
 	force := true
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeUpdates, closeTxID, err := net.CloseChannel(ctxt, carol,
-		chanPoint, force)
+	closeUpdates, closeTxID, err := net.CloseChannel(
+		carol, chanPoint, force,
+	)
 	if err != nil {
 		t.Fatalf("unable to close channel: %v", err)
 	}
@@ -755,8 +723,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 
 	// Finally, wait for the final close status update, then ensure that
 	// the closing transaction was included in the block.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	breachTXID, err := net.WaitForChannelClose(ctxt, closeUpdates)
+	breachTXID, err := net.WaitForChannelClose(closeUpdates)
 	if err != nil {
 		t.Fatalf("error while waiting for channel close: %v", err)
 	}
@@ -1032,18 +999,17 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(
 
 	// We must let Dave have an open channel before she can send a node
 	// announcement, so we open a channel with Carol,
-	net.ConnectNodes(ctxb, t.t, dave, carol)
+	net.ConnectNodes(t.t, dave, carol)
 
 	// Before we make a channel, we'll load up Dave with some coins sent
 	// directly from the miner.
-	net.SendCoins(ctxb, t.t, btcutil.SatoshiPerBitcoin, dave)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, dave)
 
 	// In order to test Dave's response to an uncooperative channel
 	// closure by Carol, we'll first open up a channel between them with a
 	// 0.5 BTC value.
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, dave, carol,
+		t, net, dave, carol,
 		lntest.OpenChannelParams{
 			Amt:     3 * (chanAmt / 4),
 			PushAmt: chanAmt / 4,
@@ -1070,8 +1036,7 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(
 	// Next query for Carol's channel state, as we sent 0 payments, Carol
 	// should still see her balance as the push amount, which is 1/4 of the
 	// capacity.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	carolChan, err := getChanInfo(ctxt, carol)
+	carolChan, err := getChanInfo(carol)
 	if err != nil {
 		t.Fatalf("unable to get carol's channel info: %v", err)
 	}
@@ -1095,7 +1060,7 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(
 	// Finally, send payments from Dave to Carol, consuming Carol's remaining
 	// payment hashes.
 	err = completePaymentRequests(
-		ctxb, dave, dave.RouterClient, carolPayReqs, false,
+		dave, dave.RouterClient, carolPayReqs, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
@@ -1154,8 +1119,7 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(
 
 	// Now query for Carol's channel state, it should show that he's at a
 	// state number in the past, not the *latest* state.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	carolChan, err = getChanInfo(ctxt, carol)
+	carolChan, err = getChanInfo(carol)
 	if err != nil {
 		t.Fatalf("unable to get carol chan info: %v", err)
 	}
@@ -1167,9 +1131,7 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(
 	// broadcasting his current channel state. This is actually the
 	// commitment transaction of a prior *revoked* state, so he'll soon
 	// feel the wrath of Dave's retribution.
-	closeUpdates, closeTxID, err := net.CloseChannel(
-		ctxb, carol, chanPoint, true,
-	)
+	closeUpdates, closeTxID, err := net.CloseChannel(carol, chanPoint, true)
 	if err != nil {
 		t.Fatalf("unable to close channel: %v", err)
 	}
@@ -1191,8 +1153,7 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(
 	// block.
 	block := mineBlocks(t, net, 1, 1)[0]
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	breachTXID, err := net.WaitForChannelClose(ctxt, closeUpdates)
+	breachTXID, err := net.WaitForChannelClose(closeUpdates)
 	if err != nil {
 		t.Fatalf("error while waiting for channel close: %v", err)
 	}

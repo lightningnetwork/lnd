@@ -37,8 +37,8 @@ func AddToNodeLog(t *testing.T,
 // openChannelStream blocks until an OpenChannel request for a channel funding
 // by alice succeeds. If it does, a stream client is returned to receive events
 // about the opening channel.
-func openChannelStream(ctx context.Context, t *harnessTest,
-	net *lntest.NetworkHarness, alice, bob *lntest.HarnessNode,
+func openChannelStream(t *harnessTest, net *lntest.NetworkHarness,
+	alice, bob *lntest.HarnessNode,
 	p lntest.OpenChannelParams) lnrpc.Lightning_OpenChannelClient {
 
 	t.t.Helper()
@@ -49,7 +49,7 @@ func openChannelStream(ctx context.Context, t *harnessTest,
 	var chanOpenUpdate lnrpc.Lightning_OpenChannelClient
 	err := wait.NoError(func() error {
 		var err error
-		chanOpenUpdate, err = net.OpenChannel(ctx, alice, bob, p)
+		chanOpenUpdate, err = net.OpenChannel(alice, bob, p)
 		return err
 	}, defaultTimeout)
 	require.NoError(t.t, err, "unable to open channel")
@@ -62,13 +62,13 @@ func openChannelStream(ctx context.Context, t *harnessTest,
 // after the channel is considered open: the funding transaction should be
 // found within a block, and that Alice can report the status of the new
 // channel.
-func openChannelAndAssert(ctx context.Context, t *harnessTest,
-	net *lntest.NetworkHarness, alice, bob *lntest.HarnessNode,
+func openChannelAndAssert(t *harnessTest, net *lntest.NetworkHarness,
+	alice, bob *lntest.HarnessNode,
 	p lntest.OpenChannelParams) *lnrpc.ChannelPoint {
 
 	t.t.Helper()
 
-	chanOpenUpdate := openChannelStream(ctx, t, net, alice, bob, p)
+	chanOpenUpdate := openChannelStream(t, net, alice, bob, p)
 
 	// Mine 6 blocks, then wait for Alice's node to notify us that the
 	// channel has been opened. The funding transaction should be found
@@ -76,7 +76,7 @@ func openChannelAndAssert(ctx context.Context, t *harnessTest,
 	// case that the channel is public, it is announced to the network.
 	block := mineBlocks(t, net, 6, 1)[0]
 
-	fundingChanPoint, err := net.WaitForChannelOpen(ctx, chanOpenUpdate)
+	fundingChanPoint, err := net.WaitForChannelOpen(chanOpenUpdate)
 	require.NoError(t.t, err, "error while waiting for channel open")
 
 	fundingTxID, err := lnrpc.GetChanPointFundingTxid(fundingChanPoint)
@@ -91,11 +91,11 @@ func openChannelAndAssert(ctx context.Context, t *harnessTest,
 		Index: fundingChanPoint.OutputIndex,
 	}
 	require.NoError(
-		t.t, net.AssertChannelExists(ctx, alice, &chanPoint),
+		t.t, net.AssertChannelExists(alice, &chanPoint),
 		"unable to assert channel existence",
 	)
 	require.NoError(
-		t.t, net.AssertChannelExists(ctx, bob, &chanPoint),
+		t.t, net.AssertChannelExists(bob, &chanPoint),
 		"unable to assert channel existence",
 	)
 
@@ -230,9 +230,7 @@ func closeChannelAndAssertType(t *harnessTest,
 		defer close(graphSub.quit)
 	}
 
-	closeUpdates, _, err := net.CloseChannel(
-		ctxt, node, fundingChanPoint, force,
-	)
+	closeUpdates, _, err := net.CloseChannel(node, fundingChanPoint, force)
 	require.NoError(t.t, err, "unable to close channel")
 
 	// If the channel policy was enabled prior to the closure, wait until we
@@ -261,11 +259,15 @@ func closeChannelAndAssertType(t *harnessTest,
 //
 // NOTE: This method does not verify that the node sends a disable update for
 // the closed channel.
-func closeReorgedChannelAndAssert(ctx context.Context, t *harnessTest,
+func closeReorgedChannelAndAssert(t *harnessTest,
 	net *lntest.NetworkHarness, node *lntest.HarnessNode,
 	fundingChanPoint *lnrpc.ChannelPoint, force bool) *chainhash.Hash {
 
-	closeUpdates, _, err := net.CloseChannel(ctx, node, fundingChanPoint, force)
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, channelCloseTimeout)
+	defer cancel()
+
+	closeUpdates, _, err := net.CloseChannel(node, fundingChanPoint, force)
 	require.NoError(t.t, err, "unable to close channel")
 
 	return assertChannelClosed(
@@ -286,9 +288,8 @@ func assertChannelClosed(ctx context.Context, t *harnessTest,
 
 	// If the channel appears in list channels, ensure that its state
 	// contains ChanStatusCoopBroadcasted.
-	ctxt, _ := context.WithTimeout(ctx, defaultTimeout)
 	listChansRequest := &lnrpc.ListChannelsRequest{}
-	listChansResp, err := node.ListChannels(ctxt, listChansRequest)
+	listChansResp, err := node.ListChannels(ctx, listChansRequest)
 	require.NoError(t.t, err, "unable to query for list channels")
 
 	for _, channel := range listChansResp.Channels {
@@ -307,9 +308,8 @@ func assertChannelClosed(ctx context.Context, t *harnessTest,
 
 	// At this point, the channel should now be marked as being in the
 	// state of "waiting close".
-	ctxt, _ = context.WithTimeout(ctx, defaultTimeout)
 	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
-	pendingChanResp, err := node.PendingChannels(ctxt, pendingChansRequest)
+	pendingChanResp, err := node.PendingChannels(ctx, pendingChansRequest)
 	require.NoError(t.t, err, "unable to query for pending channels")
 
 	var found bool
@@ -331,7 +331,7 @@ func assertChannelClosed(ctx context.Context, t *harnessTest,
 
 	block := mineBlocks(t, net, 1, expectedTxes)[0]
 
-	closingTxid, err := net.WaitForChannelClose(ctx, closeUpdates)
+	closingTxid, err := net.WaitForChannelClose(closeUpdates)
 	require.NoError(t.t, err, "error while waiting for channel close")
 
 	assertTxInBlock(t, block, closingTxid)
@@ -395,8 +395,12 @@ func findWaitingCloseChannel(pendingChanResp *lnrpc.PendingChannelsResponse,
 
 // waitForChannelPendingForceClose waits for the node to report that the
 // channel is pending force close, and that the UTXO nursery is aware of it.
-func waitForChannelPendingForceClose(ctx context.Context,
-	node *lntest.HarnessNode, fundingChanPoint *lnrpc.ChannelPoint) error {
+func waitForChannelPendingForceClose(node *lntest.HarnessNode,
+	fundingChanPoint *lnrpc.ChannelPoint) error {
+
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
 
 	txid, err := lnrpc.GetChanPointFundingTxid(fundingChanPoint)
 	if err != nil {
@@ -439,9 +443,13 @@ type lnrpcForceCloseChannel = lnrpc.PendingChannelsResponse_ForceClosedChannel
 
 // waitForNumChannelPendingForceClose waits for the node to report a certain
 // number of channels in state pending force close.
-func waitForNumChannelPendingForceClose(ctx context.Context,
-	node *lntest.HarnessNode, expectedNum int,
+func waitForNumChannelPendingForceClose(node *lntest.HarnessNode,
+	expectedNum int,
 	perChanCheck func(channel *lnrpcForceCloseChannel) error) error {
+
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
 
 	return wait.NoError(func() error {
 		resp, err := node.PendingChannels(
@@ -477,11 +485,9 @@ func waitForNumChannelPendingForceClose(ctx context.Context,
 // the following sweep transaction from the force closing node.
 func cleanupForceClose(t *harnessTest, net *lntest.NetworkHarness,
 	node *lntest.HarnessNode, chanPoint *lnrpc.ChannelPoint) {
-	ctxb := context.Background()
 
 	// Wait for the channel to be marked pending force close.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err := waitForChannelPendingForceClose(ctxt, node, chanPoint)
+	err := waitForChannelPendingForceClose(node, chanPoint)
 	require.NoError(t.t, err, "channel not pending force close")
 
 	// Mine enough blocks for the node to sweep its funds from the force
@@ -513,8 +519,12 @@ func numOpenChannelsPending(ctxt context.Context,
 
 // assertNumOpenChannelsPending asserts that a pair of nodes have the expected
 // number of pending channels between them.
-func assertNumOpenChannelsPending(ctxt context.Context, t *harnessTest,
+func assertNumOpenChannelsPending(t *harnessTest,
 	alice, bob *lntest.HarnessNode, expected int) {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
 
 	err := wait.NoError(func() error {
 		aliceNumChans, err := numOpenChannelsPending(ctxt, alice)
@@ -972,11 +982,11 @@ func checkPendingHtlcStageAndMaturity(
 
 // assertReports checks that the count of resolutions we have present per
 // type matches a set of expected resolutions.
-func assertReports(ctxb context.Context, t *harnessTest,
-	node *lntest.HarnessNode, channelPoint wire.OutPoint,
-	expected map[string]*lnrpc.Resolution) {
+func assertReports(t *harnessTest, node *lntest.HarnessNode,
+	channelPoint wire.OutPoint, expected map[string]*lnrpc.Resolution) {
 
 	// Get our node's closed channels.
+	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 
@@ -1007,11 +1017,13 @@ func assertReports(ctxb context.Context, t *harnessTest,
 }
 
 // assertSweepFound looks up a sweep in a nodes list of broadcast sweeps.
-func assertSweepFound(ctx context.Context, t *testing.T, node *lntest.HarnessNode,
+func assertSweepFound(t *testing.T, node *lntest.HarnessNode,
 	sweep string, verbose bool) {
 
 	// List all sweeps that alice's node had broadcast.
-	ctx, _ = context.WithTimeout(ctx, defaultTimeout)
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
 	sweepResp, err := node.WalletKitClient.ListSweeps(
 		ctx, &walletrpc.ListSweepsRequest{
 			Verbose: verbose,
@@ -1275,7 +1287,7 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	// To make sure the nodes are initiating DLP now, we have to manually
 	// re-connect them.
 	ctxb := context.Background()
-	net.EnsureConnected(ctxb, t.t, carol, dave)
+	net.EnsureConnected(t.t, carol, dave)
 
 	// Upon reconnection, the nodes should detect that Dave is out of sync.
 	// Carol should force close the channel using her latest commitment.
@@ -1637,6 +1649,7 @@ func assertActiveHtlcs(nodes []*lntest.HarnessNode, payHashes ...[]byte) error {
 
 func assertNumActiveHtlcsChanPoint(node *lntest.HarnessNode,
 	chanPoint wire.OutPoint, numHtlcs int) error {
+
 	ctxb := context.Background()
 
 	req := &lnrpc.ListChannelsRequest{}
@@ -1728,12 +1741,13 @@ func getSpendingTxInMempool(t *harnessTest, miner *rpcclient.Client,
 
 // assertTxLabel is a helper function which finds a target tx in our set
 // of transactions and checks that it has the desired label.
-func assertTxLabel(ctx context.Context, t *harnessTest,
-	node *lntest.HarnessNode, targetTx, label string) {
+func assertTxLabel(t *harnessTest, node *lntest.HarnessNode,
+	targetTx, label string) {
 
 	// List all transactions relevant to our wallet, and find the tx so that
 	// we can check the correct label has been set.
-	ctxt, cancel := context.WithTimeout(ctx, defaultTimeout)
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 
 	txResp, err := node.GetTransactions(
@@ -1752,8 +1766,12 @@ func assertTxLabel(ctx context.Context, t *harnessTest,
 
 // sendAndAssertSuccess sends the given payment requests and asserts that the
 // payment completes successfully.
-func sendAndAssertSuccess(ctx context.Context, t *harnessTest, node *lntest.HarnessNode,
+func sendAndAssertSuccess(t *harnessTest, node *lntest.HarnessNode,
 	req *routerrpc.SendPaymentRequest) *lnrpc.Payment {
+
+	ctxb := context.Background()
+	ctx, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
 
 	var result *lnrpc.Payment
 	err := wait.NoError(func() error {

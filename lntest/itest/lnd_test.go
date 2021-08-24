@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -225,8 +224,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 			}()
 
 			lndHarness.EnsureConnected(
-				context.Background(), t1,
-				lndHarness.Alice, lndHarness.Bob,
+				t1, lndHarness.Alice, lndHarness.Bob,
 			)
 
 			logLine := fmt.Sprintf(

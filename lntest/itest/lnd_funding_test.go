@@ -27,8 +27,6 @@ import (
 // transaction was mined.
 func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 
-	ctxb := context.Background()
-
 	// Run through the test with combinations of all the different
 	// commitment types.
 	allTypes := []commitType{
@@ -49,8 +47,7 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 
 		// Each time, we'll send Carol a new set of coins in order to
 		// fund the channel.
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
+		net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
 
 		daveArgs := daveCommitType.Args()
 		dave := net.NewNode(t.t, "Dave", daveArgs)
@@ -58,8 +55,7 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 
 		// Before we start the test, we'll ensure both sides are
 		// connected to the funding flow can properly be executed.
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		net.EnsureConnected(ctxt, t.t, carol, dave)
+		net.EnsureConnected(t.t, carol, dave)
 
 		carolChan, daveChan, closeChan, err := basicChannelFundingTest(
 			t, net, carol, dave, nil,
@@ -202,9 +198,8 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 	// assertions will be executed to ensure the funding process completed
 	// successfully.
 	ctxb := context.Background()
-	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, alice, bob,
+		t, net, alice, bob,
 		lntest.OpenChannelParams{
 			Amt:         chanAmt,
 			PushAmt:     pushAmt,
@@ -213,7 +208,7 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 		},
 	)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 
 	err := alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	require.NoError(t.t, err, "alice didn't report channel")
@@ -266,15 +261,14 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	defer shutdownAndAssert(net, t, carol)
 
 	// We'll send her some confirmed funds.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, 2*chanAmt, carol)
+	net.SendCoins(t.t, 2*chanAmt, carol)
 
 	// Now let Carol send some funds to herself, making a unconfirmed
 	// change output.
 	addrReq := &lnrpc.NewAddressRequest{
 		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	resp, err := carol.NewAddress(ctxt, addrReq)
 	require.NoError(t.t, err, "unable to get new address")
 
@@ -293,12 +287,10 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	// Now, we'll connect her to Alice so that they can open a channel
 	// together. The funding flow should select Carol's unconfirmed output
 	// as she doesn't have any other funds since it's a new node.
-
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, carol, net.Alice)
+	net.ConnectNodes(t.t, carol, net.Alice)
 
 	chanOpenUpdate := openChannelStream(
-		ctxt, t, net, carol, net.Alice,
+		t, net, carol, net.Alice,
 		lntest.OpenChannelParams{
 			Amt:              chanAmt,
 			PushAmt:          pushAmt,
@@ -362,8 +354,7 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	// parties. Two transactions should be mined, the unconfirmed spend and
 	// the funding tx.
 	mineBlocks(t, net, 6, 2)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	chanPoint, err := net.WaitForChannelOpen(ctxt, chanOpenUpdate)
+	chanPoint, err := net.WaitForChannelOpen(chanOpenUpdate)
 	require.NoError(t.t, err, "error while waitinng for channel open")
 
 	// With the channel open, we'll check the balances on each side of the
@@ -391,13 +382,11 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Carol will be funding the channel, so we'll send some coins over to
 	// her and ensure they have enough confirmations before we proceed.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
+	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
 
 	// Before we start the test, we'll ensure both sides are connected to
 	// the funding flow can properly be executed.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, carol, dave)
+	net.EnsureConnected(t.t, carol, dave)
 
 	// At this point, we're ready to simulate our external channel funding
 	// flow. To start with, we'll create a pending channel with a shim for
@@ -408,13 +397,12 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 		net, t, carol, dave, chanSize, thawHeight, 1, false,
 	)
 	_ = openChannelStream(
-		ctxb, t, net, carol, dave, lntest.OpenChannelParams{
+		t, net, carol, dave, lntest.OpenChannelParams{
 			Amt:         chanSize,
 			FundingShim: fundingShim1,
 		},
 	)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	assertNumOpenChannelsPending(ctxt, t, carol, dave, 1)
+	assertNumOpenChannelsPending(t, carol, dave, 1)
 
 	// That channel is now pending forever and normally would saturate the
 	// max pending channel limit for both nodes. But because the channel is
@@ -449,13 +437,11 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 		Memo:  "new chans",
 		Value: int64(payAmt),
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	resp, err := dave.AddInvoice(ctxt, invoice)
 	require.NoError(t.t, err)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
-		ctxt, carol, carol.RouterClient, []string{resp.PaymentRequest},
-		true,
+		carol, carol.RouterClient, []string{resp.PaymentRequest}, true,
 	)
 	require.NoError(t.t, err)
 
@@ -466,8 +452,7 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 	// First, we'll try to close the channel as Carol, the initiator. This
 	// should fail as a frozen channel only allows the responder to
 	// initiate a channel close.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	_, _, err = net.CloseChannel(ctxt, carol, chanPoint2, false)
+	_, _, err = net.CloseChannel(carol, chanPoint2, false)
 	require.Error(t.t, err,
 		"carol wasn't denied a co-op close attempt "+
 			"for a frozen channel",
@@ -479,8 +464,7 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// As a last step, we check if we still have the pending channel hanging
 	// around because we never published the funding TX.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	assertNumOpenChannelsPending(ctxt, t, carol, dave, 1)
+	assertNumOpenChannelsPending(t, carol, dave, 1)
 
 	// Let's make sure we can abandon it.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -497,7 +481,7 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 	require.NoError(t.t, err)
 
 	// It should now not appear in the pending channels anymore.
-	assertNumOpenChannelsPending(ctxt, t, carol, dave, 0)
+	assertNumOpenChannelsPending(t, carol, dave, 0)
 }
 
 // testFundingPersistence is intended to ensure that the Funding Manager
@@ -507,8 +491,6 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 // testFundingPersistence mirrors testBasicChannelFunding, but adds restarts
 // and checks for the state of channels with unconfirmed funding transactions.
 func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := btcutil.Amount(0)
 
@@ -522,14 +504,13 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// Clean up carol's node when the test finishes.
 	defer shutdownAndAssert(net, t, carol)
 
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	net.ConnectNodes(ctxt, t.t, net.Alice, carol)
+	net.ConnectNodes(t.t, net.Alice, carol)
 
 	// Create a new channel that requires 5 confs before it's considered
 	// open, then broadcast the funding transaction
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
-	pendingUpdate, err := net.OpenPendingChannel(ctxt, net.Alice, carol,
-		chanAmt, pushAmt)
+	pendingUpdate, err := net.OpenPendingChannel(
+		net.Alice, carol, chanAmt, pushAmt,
+	)
 	if err != nil {
 		t.Fatalf("unable to open channel: %v", err)
 	}
@@ -537,8 +518,7 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// At this point, the channel's funding transaction will have been
 	// broadcast, but not confirmed. Alice and Bob's nodes should reflect
 	// this when queried via RPC.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	assertNumOpenChannelsPending(ctxt, t, net.Alice, carol, 1)
+	assertNumOpenChannelsPending(t, net.Alice, carol, 1)
 
 	// Restart both nodes to test that the appropriate state has been
 	// persisted and that both nodes recover gracefully.
@@ -577,8 +557,7 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// The following block ensures that after both nodes have restarted,
 	// they have reconnected before the execution of the next test.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	net.EnsureConnected(ctxt, t.t, net.Alice, carol)
+	net.EnsureConnected(t.t, net.Alice, carol)
 
 	// Next, mine enough blocks s.t the channel will open with a single
 	// additional block mined.
@@ -589,7 +568,7 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// Assert that our wallet has our opening transaction with a label
 	// that does not have a channel ID set yet, because we have not
 	// reached our required confirmations.
-	tx := findTxAtHeight(ctxt, t, height, fundingTxStr, net.Alice)
+	tx := findTxAtHeight(t, height, fundingTxStr, net.Alice)
 
 	// At this stage, we expect the transaction to be labelled, but not with
 	// our channel ID because our transaction has not yet confirmed.
@@ -598,8 +577,7 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Both nodes should still show a single channel as pending.
 	time.Sleep(time.Second * 1)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	assertNumOpenChannelsPending(ctxt, t, net.Alice, carol, 1)
+	assertNumOpenChannelsPending(t, net.Alice, carol, 1)
 
 	// Finally, mine the last block which should mark the channel as open.
 	if _, err := net.Miner.Client.Generate(1); err != nil {
@@ -609,8 +587,7 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// At this point, the channel should be fully opened and there should
 	// be no pending channels remaining for either node.
 	time.Sleep(time.Second * 1)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	assertNumOpenChannelsPending(ctxt, t, net.Alice, carol, 0)
+	assertNumOpenChannelsPending(t, net.Alice, carol, 0)
 
 	// The channel should be listed in the peer information returned by
 	// both peers.
@@ -620,7 +597,7 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Re-lookup our transaction in the block that it confirmed in.
-	tx = findTxAtHeight(ctxt, t, height, fundingTxStr, net.Alice)
+	tx = findTxAtHeight(t, height, fundingTxStr, net.Alice)
 
 	// Create an additional check for our channel assertion that will
 	// check that our label is as expected.
@@ -637,13 +614,11 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Check both nodes to ensure that the channel is ready for operation.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.AssertChannelExists(ctxt, net.Alice, &outPoint, check)
+	err = net.AssertChannelExists(net.Alice, &outPoint, check)
 	if err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.AssertChannelExists(ctxt, carol, &outPoint); err != nil {
+	if err := net.AssertChannelExists(carol, &outPoint); err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}
 

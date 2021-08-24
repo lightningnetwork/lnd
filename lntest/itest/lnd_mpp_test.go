@@ -255,8 +255,6 @@ type mppTestContext struct {
 func newMppTestContext(t *harnessTest,
 	net *lntest.NetworkHarness) *mppTestContext {
 
-	ctxb := context.Background()
-
 	alice := net.NewNode(t.t, "alice", nil)
 	bob := net.NewNode(t.t, "bob", []string{"--accept-amp"})
 
@@ -270,8 +268,7 @@ func newMppTestContext(t *harnessTest,
 	nodes := []*lntest.HarnessNode{alice, bob, carol, dave, eve}
 	for i := 0; i < len(nodes); i++ {
 		for j := i + 1; j < len(nodes); j++ {
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			net.EnsureConnected(ctxt, t.t, nodes[i], nodes[j])
+			net.EnsureConnected(t.t, nodes[i], nodes[j])
 		}
 	}
 
@@ -290,18 +287,14 @@ func newMppTestContext(t *harnessTest,
 }
 
 // openChannel is a helper to open a channel from->to.
-func (c *mppTestContext) openChannel(from, to *lntest.HarnessNode, chanSize btcutil.Amount) {
-	ctxb := context.Background()
+func (c *mppTestContext) openChannel(from, to *lntest.HarnessNode,
+	chanSize btcutil.Amount) {
 
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	c.net.SendCoins(ctxt, c.t.t, btcutil.SatoshiPerBitcoin, from)
+	c.net.SendCoins(c.t.t, btcutil.SatoshiPerBitcoin, from)
 
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, c.t, c.net, from, to,
-		lntest.OpenChannelParams{
-			Amt: chanSize,
-		},
+		c.t, c.net, from, to,
+		lntest.OpenChannelParams{Amt: chanSize},
 	)
 
 	c.closeChannelFuncs = append(c.closeChannelFuncs, func() {

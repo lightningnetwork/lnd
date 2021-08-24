@@ -67,8 +67,8 @@ func testForwardInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 	testContext.waitForChannels()
 
 	// Connect the interceptor.
-	ctx := context.Background()
-	ctxt, cancelInterceptor := context.WithTimeout(ctx, defaultTimeout)
+	ctxb := context.Background()
+	ctxt, cancelInterceptor := context.WithTimeout(ctxb, defaultTimeout)
 	interceptor, err := testContext.bob.RouterClient.HtlcInterceptor(ctxt)
 	require.NoError(t.t, err, "failed to create HtlcInterceptor")
 
@@ -230,8 +230,7 @@ func testForwardInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 	restartAlice, err := net.SuspendNode(alice)
 	require.NoError(t.t, err, "failed to suspend alice")
 
-	ctx = context.Background()
-	ctxt, cancelInterceptor = context.WithTimeout(ctx, defaultTimeout)
+	ctxt, cancelInterceptor = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancelInterceptor()
 	interceptor, err = testContext.bob.RouterClient.HtlcInterceptor(ctxt)
 	require.NoError(t.t, err, "failed to create HtlcInterceptor")
@@ -259,7 +258,7 @@ func testForwardInterceptor(net *lntest.NetworkHarness, t *harnessTest) {
 	}()
 
 	err = wait.Predicate(func() bool {
-		channels, err := bob.ListChannels(ctx, &lnrpc.ListChannelsRequest{
+		channels, err := bob.ListChannels(ctxt, &lnrpc.ListChannelsRequest{
 			ActiveOnly: true, Peer: alice.PubKey[:],
 		})
 		return err == nil && len(channels.Channels) > 0
@@ -286,14 +285,11 @@ func newInterceptorTestContext(t *harnessTest,
 	net *lntest.NetworkHarness,
 	alice, bob, carol *lntest.HarnessNode) *interceptorTestContext {
 
-	ctxb := context.Background()
-
 	// Connect nodes
 	nodes := []*lntest.HarnessNode{alice, bob, carol}
 	for i := 0; i < len(nodes); i++ {
 		for j := i + 1; j < len(nodes); j++ {
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			net.EnsureConnected(ctxt, t.t, nodes[i], nodes[j])
+			net.EnsureConnected(t.t, nodes[i], nodes[j])
 		}
 	}
 
@@ -354,14 +350,10 @@ func (c *interceptorTestContext) prepareTestCases() []*interceptorTestCase {
 func (c *interceptorTestContext) openChannel(from, to *lntest.HarnessNode,
 	chanSize btcutil.Amount) {
 
-	ctxb := context.Background()
+	c.net.SendCoins(c.t.t, btcutil.SatoshiPerBitcoin, from)
 
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	c.net.SendCoins(ctxt, c.t.t, btcutil.SatoshiPerBitcoin, from)
-
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, c.t, c.net, from, to,
+		c.t, c.net, from, to,
 		lntest.OpenChannelParams{
 			Amt: chanSize,
 		},

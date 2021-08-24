@@ -209,8 +209,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 	// afterwards.
 	_, err = net.Miner.Client.Generate(1)
 	require.NoError(t.t, err)
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = waitForNumChannelPendingForceClose(ctxt, carol, 0, nil)
+	err = waitForNumChannelPendingForceClose(carol, 0, nil)
 	require.NoError(t.t, err)
 
 	// The invoice should show as settled for Carol, indicating that it was
@@ -225,10 +224,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 
 	// Finally, check that the Alice's payment is correctly marked
 	// succeeded.
-	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
-	err = checkPaymentStatus(
-		ctxt, alice, preimage, lnrpc.Payment_SUCCEEDED,
-	)
+	err = checkPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
 	require.NoError(t.t, err)
 
 	// We'll close out the channel between Alice and Bob, then shutdown

@@ -83,3 +83,5 @@ replace git.schwanenlied.me/yawning/bsaes.git => github.com/Yawning/bsaes v0.0.0
 // If you change this please also update .github/pull_request_template.md and
 // docs/INSTALL.md.
 go 1.16
+
+retract v0.0.2

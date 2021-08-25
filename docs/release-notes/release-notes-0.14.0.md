@@ -200,7 +200,13 @@ you.
   transaction each time a private key needs to be derived for signing or ECDH
   operations]https://github.com/lightningnetwork/lnd/pull/5629). This results
   in a massive performance improvement across several routine operations at the
-  cost of a small amount of memory allocated for a new cache.
+
+* [When decrypting incoming encrypted brontide messages on the wire, we'll now
+  properly re-use the buffer that was allocated for the ciphertext to store the
+  plaintext]https://github.com/lightningnetwork/lnd/pull/5622). When combined
+  with the buffer pool, this ensures that we no longer need to allocate a new
+  buffer each time we decrypt an incoming message, as we
+  recycle these buffers in the peer.
 
 ## Log system
 

@@ -198,6 +198,10 @@ you.
 
 * [Fix Travis itest parallelism](https://github.com/lightningnetwork/lnd/pull/5734)
 
+* [All CI, containers, and automated release artifact building now all use Go
+  1.17.1](https://github.com/lightningnetwork/lnd/pull/5650). All build tags have
+  been updated accordingly to comply with the new Go 1.17.1 requirements.
+
 ## Documentation
 
 * [Outdated warning about unsupported pruning was replaced with clarification that LND **does**

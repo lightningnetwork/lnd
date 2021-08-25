@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/stretchr/testify/require"
 )
 
 // testRevokedCloseRetribution tests that Carol is able carry out
@@ -159,22 +160,11 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	// broadcasting his current channel state. This is actually the
 	// commitment transaction of a prior *revoked* state, so he'll soon
 	// feel the wrath of Carol's retribution.
-	var closeUpdates lnrpc.Lightning_CloseChannelClient
 	force := true
-	err = wait.Predicate(func() bool {
-		closeUpdates, _, err = net.CloseChannel(
-			net.Bob, chanPoint, force,
-		)
-		if err != nil {
-			predErr = err
-			return false
-		}
-
-		return true
-	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf("unable to close channel: %v", predErr)
-	}
+	closeUpdates, _, err := net.CloseChannel(
+		net.Bob, chanPoint, force,
+	)
+	require.NoError(t.t, err, "unable to close channel")
 
 	// Wait for Bob's breach transaction to show up in the mempool to ensure
 	// that Carol's node has started waiting for confirmations.
@@ -386,22 +376,11 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	// broadcasting her current channel state. This is actually the
 	// commitment transaction of a prior *revoked* state, so she'll soon
 	// feel the wrath of Dave's retribution.
-	var (
-		closeUpdates lnrpc.Lightning_CloseChannelClient
-		closeTxID    *chainhash.Hash
-		closeErr     error
-	)
-
 	force := true
-	err = wait.Predicate(func() bool {
-		closeUpdates, closeTxID, closeErr = net.CloseChannel(
-			carol, chanPoint, force,
-		)
-		return closeErr == nil
-	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf("unable to close channel: %v", closeErr)
-	}
+	closeUpdates, closeTxID, closeErr := net.CloseChannel(
+		carol, chanPoint, force,
+	)
+	require.NoError(t.t, closeErr, "unable to close channel")
 
 	// Query the mempool for the breaching closing transaction, this should
 	// be broadcast by Carol when she force closes the channel above.

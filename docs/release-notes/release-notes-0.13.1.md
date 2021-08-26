@@ -42,6 +42,10 @@ tag](https://github.com/lightningnetwork/lnd/pull/5335). A new flag
 test](https://github.com/lightningnetwork/lnd/pull/5348) that would cause the
 test to assert the wrong balance (the miner fee wasn't accounted for).
 
+A bug has been [fixed](https://github.com/lightningnetwork/lnd/pull/5674) in 
+the `lntest` package that prevented multiple test harnesses to be created from 
+the same process.
+
 ## Forwarding Optimizations
 
 [Decoding onion blobs is now done in

@@ -46,11 +46,13 @@ func startFeeService() *feeService {
 	f.Fees = map[uint32]uint32{feeServiceTarget: 50000}
 
 	listenAddr := fmt.Sprintf(":%v", port)
-	f.srv = &http.Server{
-		Addr: listenAddr,
-	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/fee-estimates.json", f.handleRequest)
 
-	http.HandleFunc("/fee-estimates.json", f.handleRequest)
+	f.srv = &http.Server{
+		Addr:    listenAddr,
+		Handler: mux,
+	}
 
 	f.wg.Add(1)
 	go func() {

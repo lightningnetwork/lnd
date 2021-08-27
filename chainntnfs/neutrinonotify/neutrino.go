@@ -175,8 +175,18 @@ func (n *NeutrinoNotifier) startNotifier() error {
 		n.chainUpdates.Stop()
 		return err
 	}
+	startingHeader, err := n.p2pNode.GetBlockHeader(
+		&startingPoint.Hash,
+	)
+	if err != nil {
+		n.txUpdates.Stop()
+		n.chainUpdates.Stop()
+		return err
+	}
+
 	n.bestBlock.Hash = &startingPoint.Hash
 	n.bestBlock.Height = startingPoint.Height
+	n.bestBlock.BlockHeader = startingHeader
 
 	n.txNotifier = chainntnfs.NewTxNotifier(
 		uint32(n.bestBlock.Height), chainntnfs.ReorgSafetyLimit,
@@ -226,6 +236,7 @@ func (n *NeutrinoNotifier) startNotifier() error {
 // includes a transaction that confirmed one of our watched txids, or spends
 // one of the outputs currently being watched.
 type filteredBlock struct {
+	header *wire.BlockHeader
 	hash   chainhash.Hash
 	height uint32
 	txns   []*btcutil.Tx
@@ -255,6 +266,7 @@ func (n *NeutrinoNotifier) onFilteredBlockConnected(height int32,
 		hash:    header.BlockHash(),
 		height:  uint32(height),
 		txns:    txns,
+		header:  header,
 		connect: true,
 	}:
 	case <-n.quit:
@@ -374,6 +386,7 @@ out:
 					n.notifyBlockEpochClient(
 						msg, n.bestBlock.Height,
 						n.bestBlock.Hash,
+						n.bestBlock.BlockHeader,
 					)
 
 					msg.errorChan <- nil
@@ -399,6 +412,7 @@ out:
 				for _, block := range missedBlocks {
 					n.notifyBlockEpochClient(
 						msg, block.Height, block.Hash,
+						block.BlockHeader,
 					)
 				}
 
@@ -629,8 +643,11 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 	// satisfy any client requests based upon the new block.
 	n.bestBlock.Hash = &newBlock.hash
 	n.bestBlock.Height = int32(newBlock.height)
+	n.bestBlock.BlockHeader = newBlock.header
 
-	n.notifyBlockEpochs(int32(newBlock.height), &newBlock.hash)
+	n.notifyBlockEpochs(
+		int32(newBlock.height), &newBlock.hash, newBlock.header,
+	)
 	return n.txNotifier.NotifyHeight(newBlock.height)
 }
 
@@ -646,6 +663,7 @@ func (n *NeutrinoNotifier) getFilteredBlock(epoch chainntnfs.BlockEpoch) (*filte
 	block := &filteredBlock{
 		hash:    *epoch.Hash,
 		height:  uint32(epoch.Height),
+		header:  &rawBlock.MsgBlock().Header,
 		txns:    txns,
 		connect: true,
 	}
@@ -654,20 +672,23 @@ func (n *NeutrinoNotifier) getFilteredBlock(epoch chainntnfs.BlockEpoch) (*filte
 
 // notifyBlockEpochs notifies all registered block epoch clients of the newly
 // connected block to the main chain.
-func (n *NeutrinoNotifier) notifyBlockEpochs(newHeight int32, newSha *chainhash.Hash) {
+func (n *NeutrinoNotifier) notifyBlockEpochs(newHeight int32, newSha *chainhash.Hash,
+	blockHeader *wire.BlockHeader) {
+
 	for _, client := range n.blockEpochClients {
-		n.notifyBlockEpochClient(client, newHeight, newSha)
+		n.notifyBlockEpochClient(client, newHeight, newSha, blockHeader)
 	}
 }
 
 // notifyBlockEpochClient sends a registered block epoch client a notification
 // about a specific block.
 func (n *NeutrinoNotifier) notifyBlockEpochClient(epochClient *blockEpochRegistration,
-	height int32, sha *chainhash.Hash) {
+	height int32, sha *chainhash.Hash, blockHeader *wire.BlockHeader) {
 
 	epoch := &chainntnfs.BlockEpoch{
-		Height: height,
-		Hash:   sha,
+		Height:      height,
+		Hash:        sha,
+		BlockHeader: blockHeader,
 	}
 
 	select {

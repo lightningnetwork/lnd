@@ -302,6 +302,9 @@ type BlockEpoch struct {
 	// Height is the height of the latest block to be added to the tip of
 	// the main chain.
 	Height int32
+
+	// BlockHeader is the block header of this new height.
+	BlockHeader *wire.BlockHeader
 }
 
 // BlockEpochEvent encapsulates an on-going stream of block epoch
@@ -489,8 +492,9 @@ func RewindChain(chainConn ChainConn, txNotifier *TxNotifier,
 	currBestBlock BlockEpoch, targetHeight int32) (BlockEpoch, error) {
 
 	newBestBlock := BlockEpoch{
-		Height: currBestBlock.Height,
-		Hash:   currBestBlock.Hash,
+		Height:      currBestBlock.Height,
+		Hash:        currBestBlock.Hash,
+		BlockHeader: currBestBlock.BlockHeader,
 	}
 
 	for height := currBestBlock.Height; height > targetHeight; height-- {
@@ -499,6 +503,11 @@ func RewindChain(chainConn ChainConn, txNotifier *TxNotifier,
 			return newBestBlock, fmt.Errorf("unable to "+
 				"find blockhash for disconnected height=%d: %v",
 				height, err)
+		}
+		header, err := chainConn.GetBlockHeader(hash)
+		if err != nil {
+			return newBestBlock, fmt.Errorf("unable to get block "+
+				"header for height=%v", height-1)
 		}
 
 		Log.Infof("Block disconnected from main chain: "+
@@ -512,7 +521,9 @@ func RewindChain(chainConn ChainConn, txNotifier *TxNotifier,
 		}
 		newBestBlock.Height = height - 1
 		newBestBlock.Hash = hash
+		newBestBlock.BlockHeader = header
 	}
+
 	return newBestBlock, nil
 }
 
@@ -536,8 +547,9 @@ func HandleMissedBlocks(chainConn ChainConn, txNotifier *TxNotifier,
 		// If a reorg causes our best hash to be incorrect, rewind the
 		// chain so our best block is set to the closest common
 		// ancestor, then dispatch notifications from there.
-		hashAtBestHeight, err :=
-			chainConn.GetBlockHash(int64(currBestBlock.Height))
+		hashAtBestHeight, err := chainConn.GetBlockHash(
+			int64(currBestBlock.Height),
+		)
 		if err != nil {
 			return currBestBlock, nil, fmt.Errorf("unable to find "+
 				"blockhash for height=%d: %v",
@@ -552,8 +564,9 @@ func HandleMissedBlocks(chainConn ChainConn, txNotifier *TxNotifier,
 				"common ancestor: %v", err)
 		}
 
-		currBestBlock, err = RewindChain(chainConn, txNotifier,
-			currBestBlock, startingHeight)
+		currBestBlock, err = RewindChain(
+			chainConn, txNotifier, currBestBlock, startingHeight,
+		)
 		if err != nil {
 			return currBestBlock, nil, fmt.Errorf("unable to "+
 				"rewind chain: %v", err)
@@ -589,8 +602,20 @@ func getMissedBlocks(chainConn ChainConn, startingHeight,
 			return nil, fmt.Errorf("unable to find blockhash for "+
 				"height=%d: %v", height, err)
 		}
-		missedBlocks = append(missedBlocks,
-			BlockEpoch{Hash: hash, Height: height})
+		header, err := chainConn.GetBlockHeader(hash)
+		if err != nil {
+			return nil, fmt.Errorf("unable to find block header "+
+				"for height=%d: %v", height, err)
+		}
+
+		missedBlocks = append(
+			missedBlocks,
+			BlockEpoch{
+				Hash:        hash,
+				Height:      height,
+				BlockHeader: header,
+			},
+		)
 	}
 
 	return missedBlocks, nil

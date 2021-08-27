@@ -338,4 +338,8 @@ var allTestCases = []*testCase{
 		name: "max htlc pathfind",
 		test: testMaxHtlcPathfind,
 	},
+	{
+		name: "wipe forwarding packages",
+		test: testWipeForwardingPackages,
+	},
 }

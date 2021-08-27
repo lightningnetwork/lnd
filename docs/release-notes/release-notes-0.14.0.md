@@ -177,6 +177,12 @@ you.
   when encoding/decoding messages. Such that most of the heap escapes are fixed,
   resulting in less memory being used when running `lnd`.
 
+* [`lnd` will now no longer (in a steady state) need to open a new database
+  transaction each time a private key needs to be derived for signing or ECDH
+  operations]https://github.com/lightningnetwork/lnd/pull/5629). This results
+  in a massive performance improvement across several routine operations at the
+  cost of a small amount of memory allocated for a new cache.
+
 ## Log system
 
 * [Save compressed log files from logrorate during 

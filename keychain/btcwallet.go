@@ -252,14 +252,30 @@ func (b *BtcWalletKeyRing) DerivePrivKey(keyDesc KeyDescriptor) (
 
 	var key *btcec.PrivateKey
 
-	db := b.wallet.Database()
-	err := walletdb.Update(db, func(tx walletdb.ReadWriteTx) error {
-		addrmgrNs := tx.ReadWriteBucket(waddrmgrNamespaceKey)
+	scope, err := b.keyScope()
+	if err != nil {
+		return nil, err
+	}
 
-		scope, err := b.keyScope()
-		if err != nil {
-			return err
+	// First, attempt to see if we can read the key directly from
+	// btcwallet's internal cache, if we can then we can skip all the
+	// operations below (fast path).
+	if keyDesc.PubKey == nil {
+		keyPath := waddrmgr.DerivationPath{
+			InternalAccount: uint32(keyDesc.Family),
+			Account:         uint32(keyDesc.Family),
+			Branch:          0,
+			Index:           keyDesc.Index,
 		}
+		privKey, err := scope.DeriveFromKeyPathCache(keyPath)
+		if err == nil {
+			return privKey, nil
+		}
+	}
+
+	db := b.wallet.Database()
+	err = walletdb.Update(db, func(tx walletdb.ReadWriteTx) error {
+		addrmgrNs := tx.ReadWriteBucket(waddrmgrNamespaceKey)
 
 		// If the account doesn't exist, then we may need to create it
 		// for the first time in order to derive the keys that we

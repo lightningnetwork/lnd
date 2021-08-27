@@ -75,6 +75,20 @@ func (b *BtcWallet) deriveKeyByLocator(keyLoc keychain.KeyLocator) (*btcec.Priva
 		return nil, err
 	}
 
+	// First try to read the key from the cached store, if this fails, then
+	// we'll fall through to the method below that requires a database
+	// transaction.
+	path := waddrmgr.DerivationPath{
+		InternalAccount: uint32(keyLoc.Family),
+		Account:         uint32(keyLoc.Family),
+		Branch:          0,
+		Index:           keyLoc.Index,
+	}
+	privKey, err := scopedMgr.DeriveFromKeyPathCache(path)
+	if err == nil {
+		return privKey, nil
+	}
+
 	var key *btcec.PrivateKey
 	err = walletdb.Update(b.db, func(tx walletdb.ReadWriteTx) error {
 		addrmgrNs := tx.ReadWriteBucket(waddrmgrNamespaceKey)

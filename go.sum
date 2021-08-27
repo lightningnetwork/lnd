@@ -84,8 +84,8 @@ github.com/btcsuite/btcutil v1.0.3-0.20210527170813-e2ba6805a890/go.mod h1:0DVlH
 github.com/btcsuite/btcutil/psbt v1.0.3-0.20201208143702-a53e38424cce/go.mod h1:LVveMu4VaNSkIRTZu2+ut0HDBRuYjqGocxDMNS1KuGQ=
 github.com/btcsuite/btcutil/psbt v1.0.3-0.20210527170813-e2ba6805a890 h1:0xUNvvwJ7RjzBs4nCF+YrK28S5P/b4uHkpPxY1ovGY4=
 github.com/btcsuite/btcutil/psbt v1.0.3-0.20210527170813-e2ba6805a890/go.mod h1:LVveMu4VaNSkIRTZu2+ut0HDBRuYjqGocxDMNS1KuGQ=
-github.com/btcsuite/btcwallet v0.12.1-0.20210822222949-9b5a201c344c h1:lOUYaSw0aqCHgLk+hA2QSYXhquRXdAvT6rB3sJMXI8w=
-github.com/btcsuite/btcwallet v0.12.1-0.20210822222949-9b5a201c344c/go.mod h1:SdqXKJoEEi5LJq6zU67PcKiyqF97AcUOfBfyQHC7rqQ=
+github.com/btcsuite/btcwallet v0.12.1-0.20210826004415-4ef582f76b02 h1:Q8Scm1SXNRyiXzD3a7O1C6bLFIUxUQSnWAd9aat8Xd0=
+github.com/btcsuite/btcwallet v0.12.1-0.20210826004415-4ef582f76b02/go.mod h1:SdqXKJoEEi5LJq6zU67PcKiyqF97AcUOfBfyQHC7rqQ=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.0.0/go.mod h1:VufDts7bd/zs3GV13f/lXc/0lXrPnvxD/NvmpG/FEKU=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.0.1-0.20210329233242-e0607006dce6/go.mod h1:VufDts7bd/zs3GV13f/lXc/0lXrPnvxD/NvmpG/FEKU=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.0.2-0.20210803004036-eebed51155ec h1:nuO8goa4gbgDM4iegCztF7mTq8io9NT1DAMoPrEI6S4=
@@ -709,7 +709,6 @@ golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1/go.mod h1:bj7SfCRtBDWHUb9sn
 golang.org/x/text v0.0.0-20170915032832-14c0d48ead0c/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=
 golang.org/x/text v0.3.0/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=
 golang.org/x/text v0.3.1-0.20180807135948-17ff2d5776d2/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=
-golang.org/x/text v0.3.2/go.mod h1:bEr9sfX3Q8Zfm5fL9x+3itogRgK3+ptLWKqgva+5dAk=
 golang.org/x/text v0.3.2/go.mod h1:bEr9sfX3Q8Zfm5fL9x+3itogRgK3+ptLWKqgva+5dAk=
 golang.org/x/text v0.3.3/go.mod h1:5Zoc/QRtKVWzQhOtBMvqHzDpF6irO9z98xDceosuGiQ=
 golang.org/x/text v0.3.5 h1:i6eZZ+zk0SOf0xgBpEpPD18qWcJda6q1sxt3S0kzyUQ=

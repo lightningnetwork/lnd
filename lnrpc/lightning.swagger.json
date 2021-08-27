@@ -2698,6 +2698,11 @@
         "commitment_type": {
           "$ref": "#/definitions/lnrpcCommitmentType",
           "description": "The commitment type used by this channel."
+        },
+        "num_forwarding_packages": {
+          "type": "string",
+          "format": "int64",
+          "description": "Total number of forwarding packages created in this channel."
         }
       }
     },

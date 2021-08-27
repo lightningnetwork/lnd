@@ -3239,6 +3239,17 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			return nil, err
 		}
 
+		// Get the number of forwarding packages from the historical
+		// channel.
+		fwdPkgs, err := historical.LoadFwdPkgs()
+		if err != nil {
+			rpcsLog.Errorf("unable to load forwarding packages "+
+				"for channel:%s, %v",
+				historical.ShortChannelID, err)
+			return nil, err
+		}
+		channel.NumForwardingPackages = int64(len(fwdPkgs))
+
 		closeTXID := pendingClose.ClosingTXID.String()
 
 		switch pendingClose.CloseType {
@@ -3350,16 +3361,25 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			)
 		}
 
+		fwdPkgs, err := waitingClose.LoadFwdPkgs()
+		if err != nil {
+			rpcsLog.Errorf("unable to load forwarding packages "+
+				"for channel:%s, %v",
+				waitingClose.ShortChannelID, err)
+			return nil, err
+		}
+
 		channel := &lnrpc.PendingChannelsResponse_PendingChannel{
-			RemoteNodePub:        hex.EncodeToString(pub),
-			ChannelPoint:         chanPoint.String(),
-			Capacity:             int64(waitingClose.Capacity),
-			LocalBalance:         int64(waitingClose.LocalCommitment.LocalBalance.ToSatoshis()),
-			RemoteBalance:        int64(waitingClose.LocalCommitment.RemoteBalance.ToSatoshis()),
-			LocalChanReserveSat:  int64(waitingClose.LocalChanCfg.ChanReserve),
-			RemoteChanReserveSat: int64(waitingClose.RemoteChanCfg.ChanReserve),
-			Initiator:            rpcInitiator(waitingClose.IsInitiator),
-			CommitmentType:       rpcCommitmentType(waitingClose.ChanType),
+			RemoteNodePub:         hex.EncodeToString(pub),
+			ChannelPoint:          chanPoint.String(),
+			Capacity:              int64(waitingClose.Capacity),
+			LocalBalance:          int64(waitingClose.LocalCommitment.LocalBalance.ToSatoshis()),
+			RemoteBalance:         int64(waitingClose.LocalCommitment.RemoteBalance.ToSatoshis()),
+			LocalChanReserveSat:   int64(waitingClose.LocalChanCfg.ChanReserve),
+			RemoteChanReserveSat:  int64(waitingClose.RemoteChanCfg.ChanReserve),
+			Initiator:             rpcInitiator(waitingClose.IsInitiator),
+			CommitmentType:        rpcCommitmentType(waitingClose.ChanType),
+			NumForwardingPackages: int64(len(fwdPkgs)),
 		}
 
 		waitingCloseResp := &lnrpc.PendingChannelsResponse_WaitingCloseChannel{

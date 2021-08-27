@@ -2236,6 +2236,9 @@ message PendingChannelsResponse {
 
         // The commitment type used by this channel.
         CommitmentType commitment_type = 9;
+
+        // Total number of forwarding packages created in this channel.
+        int64 num_forwarding_packages = 10;
     }
 
     message PendingOpenChannel {

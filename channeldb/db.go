@@ -230,6 +230,8 @@ type DB struct {
 	graph  *ChannelGraph
 	clock  clock.Clock
 	dryRun bool
+
+	chanCache *kvdb.Cache
 }
 
 // Open opens or creates channeldb. Any necessary schemas migrations due
@@ -260,6 +262,11 @@ func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 	return db, err
 }
 
+func resetChanStateCache(cache *kvdb.Cache) error {
+	cache.Wipe()
+	return cache.Init()
+}
+
 // CreateWithBackend creates channeldb instance using the passed kvdb.Backend.
 // Any necessary schemas migrations due to updates will take place as necessary.
 func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB, error) {
@@ -272,16 +279,54 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB, 
 		modifier(&opts)
 	}
 
+	skipped := [][]byte{
+		// Skip the graph buckets.
+		nodeBucket,
+		edgeBucket,
+		edgeIndexBucket,
+		graphMetaBucket,
+
+		// Skip some non performance critical large buckets.
+		closedChannelBucket,
+		closeSummaryBucket,
+		fwdPackagesKey,
+		revocationLogBucket,
+	}
+
+	topLevel := [][]byte{
+		// Read through the graph buckets.
+		nodeBucket,
+		edgeBucket,
+		edgeIndexBucket,
+		graphMetaBucket,
+
+		// Cache important channel state.
+		openChannelBucket,
+		outpointBucket,
+		nodeInfoBucket,
+
+		// Channel state buckets to read through.
+		closedChannelBucket,
+		closeSummaryBucket,
+		fwdPackagesKey,
+	}
+
+	cache := kvdb.NewCache(backend, topLevel, skipped)
+	if err := cache.Init(); err != nil {
+		return nil, err
+	}
+
 	chanDB := &DB{
 		Backend: backend,
 		channelStateDB: &ChannelStateDB{
 			linkNodeDB: &LinkNodeDB{
-				backend: backend,
+				backend: cache,
 			},
-			backend: backend,
+			backend: cache,
 		},
-		clock:  opts.clock,
-		dryRun: opts.dryRun,
+		clock:     opts.clock,
+		dryRun:    opts.dryRun,
+		chanCache: cache,
 	}
 
 	// Set the parent pointer (only used in tests).
@@ -343,7 +388,11 @@ func (d *DB) Wipe() error {
 		return err
 	}
 
-	return initChannelDB(d.Backend)
+	if err := initChannelDB(d.Backend); err != nil {
+		return err
+	}
+
+	return resetChanStateCache(d.chanCache)
 }
 
 // initChannelDB creates and initializes a fresh version of channeldb. In the
@@ -518,7 +567,6 @@ func (c *ChannelStateDB) fetchNodeChannels(chainBucket kvdb.RBucket) (
 				"chan_point=%v: %v", outPoint, err)
 		}
 		oChannel.Db = c
-
 		channels = append(channels, oChannel)
 
 		return nil

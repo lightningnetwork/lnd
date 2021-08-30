@@ -108,6 +108,16 @@ proposed channel type is used.
   
 * [Adds NOT_FOUND status code for LookupInvoice](https://github.com/lightningnetwork/lnd/pull/5768)
 
+* The `FundingPsbtFinalize` step is a safety measure that assures the final
+  signed funding transaction has the same TXID as was registered during
+  the funding flow and was used for the commitment transactions.
+  This step is cumbersome to use if the whole funding process is completed
+  external to lnd. [We allow the finalize step to be
+  skipped](https://github.com/lightningnetwork/lnd/pull/5363) for such cases.
+  The API user/script will need to make sure things are verified (and possibly
+  cleaned up) properly. An example script was added to the [PSBT
+  documentation](../psbt.md) to show the simplified process.
+
 ### Batched channel funding
 
 [Multiple channels can now be opened in a single

@@ -1299,6 +1299,8 @@ func (d *DB) FetchHistoricalChannel(outPoint *wire.OutPoint) (*OpenChannel, erro
 		}
 
 		channel, err = fetchOpenChannel(chanBucket, outPoint)
+
+		channel.Db = d
 		return err
 	}, func() {
 		channel = nil

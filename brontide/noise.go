@@ -854,8 +854,11 @@ func (b *Machine) ReadHeader(r io.Reader) (uint32, error) {
 	}
 
 	// Attempt to decrypt+auth the packet length present in the stream.
+	//
+	// By passing in `nextCipherHeader` as the destination, we avoid making
+	// the library allocate a new buffer to decode the plaintext.
 	pktLenBytes, err := b.recvCipher.Decrypt(
-		nil, nil, b.nextCipherHeader[:],
+		nil, b.nextCipherHeader[:0], b.nextCipherHeader[:],
 	)
 	if err != nil {
 		return 0, err
@@ -880,10 +883,13 @@ func (b *Machine) ReadBody(r io.Reader, buf []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	// Finally, decrypt the message held in the buffer, and return a
-	// new byte slice containing the plaintext.
-	// TODO(roasbeef): modify to let pass in slice
-	return b.recvCipher.Decrypt(nil, nil, buf)
+	// Finally, decrypt the message held in the buffer, and return a new
+	// byte slice containing the plaintext.
+	//
+	// By passing in the buf (the ciphertext) as the first argument, we end
+	// up re-using it as we don't force the library to allocate a new
+	// buffer to decode the plaintext.
+	return b.recvCipher.Decrypt(nil, buf[:0], buf)
 }
 
 // SetCurveToNil sets the 'Curve' parameter to nil on the handshakeState keys.

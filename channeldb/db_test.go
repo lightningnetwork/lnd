@@ -717,9 +717,10 @@ func TestFetchHistoricalChannel(t *testing.T) {
 		t.Fatalf("unexepected error getting channel: %v", err)
 	}
 
-	// Set the db on our channel to nil so that we can check that all other
-	// fields on the channel equal those on the historical channel.
-	channel.Db = nil
+	// FetchHistoricalChannel will attach the cdb to channel.Db, we set it
+	// here so that we can check that all other fields on the channel equal
+	// those on the historical channel.
+	channel.Db = cdb
 
 	if !reflect.DeepEqual(histChannel, channel) {
 		t.Fatalf("expected: %v, got: %v", channel, histChannel)

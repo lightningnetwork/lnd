@@ -97,6 +97,12 @@ type ForwardingPolicy struct {
 	//    per-hop payload of the incoming HTLC's onion packet.
 	TimeLockDelta uint32
 
+	// Disabled represents whether or not the channel link has been
+	// manually disabled by the UpdateChannelStatus command. Disabled
+	// channels will not be able to send or forward payments, but may
+	// be able to receive them.
+	Disabled bool
+
 	// TODO(roasbeef): add fee module inside of switch
 }
 
@@ -2403,6 +2409,20 @@ func (l *channelLink) CheckHtlcTransit(payHash [32]byte,
 func (l *channelLink) canSendHtlc(policy ForwardingPolicy,
 	payHash [32]byte, amt lnwire.MilliSatoshi, timeout uint32,
 	heightNow uint32) *LinkError {
+
+	// Check if the outgoing link has been disabled, this can occur due to
+	// manual user action. If disabled, an error is returned to the peer.
+	if policy.Disabled {
+		// As part of the returned error, we'll send our latest routing
+		// policy so the sending node obtains the most up-to-date data.
+		failure := l.createFailureWithUpdate(
+			func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
+				return lnwire.NewChannelDisabled(uint16(
+					lnwire.CodeTemporaryChannelFailure), *upd)
+			},
+		)
+		return NewDetailedLinkError(failure, OutgoingFailureForwardsDisabled)
+	}
 
 	// As our first sanity check, we'll ensure that the passed HTLC isn't
 	// too small for the next hop. If so, then we'll cancel the HTLC

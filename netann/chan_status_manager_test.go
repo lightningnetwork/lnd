@@ -174,7 +174,9 @@ func (g *mockGraph) FetchChannelEdgesByOutpoint(
 	return info, pol1, pol2, nil
 }
 
-func (g *mockGraph) ApplyChannelUpdate(update *lnwire.ChannelUpdate) error {
+func (g *mockGraph) ApplyChannelUpdate(update *lnwire.ChannelUpdate,
+	outpoint wire.OutPoint, disabled bool) error {
+
 	g.mu.Lock()
 	defer g.mu.Unlock()
 

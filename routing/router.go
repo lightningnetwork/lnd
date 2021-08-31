@@ -264,6 +264,12 @@ type ChannelPolicy struct {
 	// MinHTLC is the minimum HTLC size including fees we are allowed to
 	// forward over this channel.
 	MinHTLC *lnwire.MilliSatoshi
+
+	// Disabled represents whether or not the channel link has been
+	// manually disabled by the UpdateChannelStatus command. Disabled
+	// channels will not be able to send or forward payments, but may
+	// be able to receive them.
+	Disabled bool
 }
 
 // Config defines the configuration for the ChannelRouter. ALL elements within

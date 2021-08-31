@@ -4268,8 +4268,41 @@ func (s *server) fetchLastChanUpdate() func(lnwire.ShortChannelID) (
 
 // applyChannelUpdate applies the channel update to the different sub-systems of
 // the server.
-func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate) error {
+func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate, outpoint wire.OutPoint,
+	disabled bool) error {
+
+	// Apply the channel update to the outgoing links in the switch. This
+	// helps keep the switch in sync with certain policy actions like
+	// manual disabling of channel.
+	//
+	// NOTE: disabling a channel only disables outgoing payments, not
+	// incoming.
+	var edgePolicy *channeldb.ChannelEdgePolicy
+	_, edgePolicy, edgePolicy2, err := s.graphDB.FetchChannelEdgesByOutpoint(&outpoint)
+	if err != nil {
+		return err
+	}
+
+	// We want to apply this update to the edge leading to us
+	if (edgePolicy == nil && edgePolicy2 != nil) ||
+		(edgePolicy.Node.PubKeyBytes != s.currentNodeAnn.NodeID) {
+
+		edgePolicy = edgePolicy2
+	}
+
+	s.htlcSwitch.UpdateForwardingPolicies(map[wire.OutPoint]htlcswitch.ForwardingPolicy{
+		outpoint: {
+			BaseFee:       edgePolicy.FeeBaseMSat,
+			FeeRate:       edgePolicy.FeeProportionalMillionths,
+			TimeLockDelta: uint32(edgePolicy.TimeLockDelta),
+			MinHTLCOut:    edgePolicy.MinHTLC,
+			MaxHTLC:       edgePolicy.MaxHTLC,
+			Disabled:      disabled,
+		},
+	})
+
 	errChan := s.authGossiper.ProcessLocalAnnouncement(update)
+
 	select {
 	case err := <-errChan:
 		return err

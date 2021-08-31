@@ -169,6 +169,8 @@ you.
 
 * [Link channel point logging](https://github.com/lightningnetwork/lnd/pull/5508)
 
+* [Canceling the chain notifier no longer logs certain errors](https://github.com/lightningnetwork/lnd/pull/5676)
+
 * [Fixed context leak in integration tests, and properly handled context
   timeout](https://github.com/lightningnetwork/lnd/pull/5646).
 

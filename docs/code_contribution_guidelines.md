@@ -316,8 +316,8 @@ Examples of common patterns w.r.t commit structures within the project:
     be a single commit which adds the new functionality, with follow up
     induvidual commits that begin to intergrate the functionality within the
     codebase.
-  * If a PR only fixes a trivial issue, such as updating documentations on a
-    small scale, fix typo, or any changes that do not modify the code, the
+  * If a PR only fixes a trivial issue, such as updating documentation on a
+    small scale, fix typos, or any changes that do not modify the code, the
     commit message should end with `[skip ci]` to skip the CI checks.
 
 ## Code Spacing 

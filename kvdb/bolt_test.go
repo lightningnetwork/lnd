@@ -95,3 +95,32 @@ func TestBolt(t *testing.T) {
 		}
 	}
 }
+
+func TestCacheBolt(t *testing.T) {
+	tests := []struct {
+		name string
+		test func(*testing.T, walletdb.DB)
+	}{
+		{
+			name: "cache fill",
+			test: testCacheFill,
+		},
+		{
+			name: "cache rollback",
+			test: testCacheRollback,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := NewBoltFixture(t)
+			defer f.Cleanup()
+
+			backend := f.NewBackend()
+			test.test(t, backend)
+		})
+	}
+}

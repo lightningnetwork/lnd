@@ -179,7 +179,6 @@ func (n *NeutrinoNotifier) startNotifier() error {
 	)
 	if err != nil {
 		n.txUpdates.Stop()
-		n.chainUpdates.Stop()
 		return err
 	}
 

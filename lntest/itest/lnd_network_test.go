@@ -186,9 +186,8 @@ func testReconnectAfterIPChange(net *lntest.NetworkHarness, t *harnessTest) {
 	err = net.RestartNode(dave, nil)
 	require.NoError(t.t, err)
 
-	// Check that Dave and Charlie did not reconnect once Bob restarted.
-	// This is the bug that will be fixed in a following commit.
-	assertNotConnected(t, dave, charlie)
+	// Check that Dave and Charlie reconnect once Bob restarts.
+	assertConnected(t, dave, charlie)
 }
 
 // withP2PPort is an optional function used to set the P2P port that a node

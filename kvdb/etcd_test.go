@@ -182,3 +182,37 @@ func TestEtcd(t *testing.T) {
 		}
 	}
 }
+
+func TestCacheEtcd(t *testing.T) {
+	tests := []struct {
+		name string
+		test func(*testing.T, walletdb.DB)
+	}{
+		{
+			name: "cache fill",
+			test: testCacheFill,
+		},
+		{
+			name: "cache rollback",
+			test: testCacheRollback,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		rwLock := []bool{false, true}
+		for _, doRwLock := range rwLock {
+			name := fmt.Sprintf("%v/RWLock=%v", test.name, doRwLock)
+
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+
+				f := etcd.NewEtcdTestFixture(t)
+				defer f.Cleanup()
+
+				backend := f.NewBackend(doRwLock)
+				test.test(t, backend)
+			})
+		}
+	}
+}

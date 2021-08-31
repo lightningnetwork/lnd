@@ -324,6 +324,12 @@ you.
 * [Fix crash with empty AMP or MPP record in
   invoice](https://github.com/lightningnetwork/lnd/pull/5743).
 
+* The underlying gRPC connection of a WebSocket is now [properly closed when the
+  WebSocket end of a connection is
+  closed](https://github.com/lightningnetwork/lnd/pull/5683). A bug with the
+  write deadline that caused connections to suddenly break was also fixed in the
+  same PR.
+
 ## Documentation 
 
 The [code contribution guidelines have been updated to mention the new

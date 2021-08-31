@@ -33,6 +33,11 @@ const (
 	// additional header field and its value. We use the plus symbol because
 	// the default delimiters aren't allowed in the protocol names.
 	WebSocketProtocolDelimiter = "+"
+
+	// PingContent is the content of the ping message we send out. This is
+	// an arbitrary non-empty message that has no deeper meaning but should
+	// be sent back by the client in the pong message.
+	PingContent = "are you there?"
 )
 
 var (
@@ -189,9 +194,19 @@ func (p *WebsocketProxy) upgradeToWebSocketProxy(w http.ResponseWriter,
 		p.backend.ServeHTTP(responseForwarder, request)
 	}()
 
-	// Read loop: Take messages from websocket and write to http request.
+	// Read loop: Take messages from websocket and write them to the payload
+	// channel. This needs to be its own goroutine because for non-client
+	// streaming RPCs, the requestForwarder.Write() in the second goroutine
+	// will block until the request has fully completed. But for the ping/
+	// pong handler to work, we need to have an active call to
+	// conn.ReadMessage() going on. So we make sure we have such an active
+	// call by starting a second read as soon as the first one has
+	// completed.
+	payloadChannel := make(chan []byte, 1)
 	go func() {
 		defer cancelFn()
+		defer close(payloadChannel)
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -210,6 +225,34 @@ func (p *WebsocketProxy) upgradeToWebSocketProxy(w http.ResponseWriter,
 					err)
 				return
 			}
+
+			select {
+			case payloadChannel <- payload:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	// Forward loop: Take messages from the incoming payload channel and
+	// write them to the http request.
+	go func() {
+		defer cancelFn()
+		for {
+			var payload []byte
+			select {
+			case <-ctx.Done():
+				return
+			case newPayload, more := <-payloadChannel:
+				if !more {
+					p.logger.Infof("WS: incoming payload " +
+						"chan closed")
+					return
+				}
+
+				payload = newPayload
+			}
+
 			_, err = requestForwarder.Write(payload)
 			if err != nil {
 				p.logger.Errorf("WS: error writing message "+
@@ -239,12 +282,17 @@ func (p *WebsocketProxy) upgradeToWebSocketProxy(w http.ResponseWriter,
 
 		// Whenever a pong message comes in, we extend the deadline
 		// until the next read is expected by the interval plus pong
-		// wait time.
+		// wait time. Since we can never _reach_ any of the deadlines,
+		// we also have to advance the deadline for the next expected
+		// write to happen, in case the next thing we actually write is
+		// the next ping.
 		conn.SetPongHandler(func(appData string) error {
 			nextDeadline := time.Now().Add(
 				p.pingInterval + p.pongWait,
 			)
 			_ = conn.SetReadDeadline(nextDeadline)
+			_ = conn.SetWriteDeadline(nextDeadline)
+
 			return nil
 		})
 		go func() {
@@ -264,10 +312,10 @@ func (p *WebsocketProxy) upgradeToWebSocketProxy(w http.ResponseWriter,
 					writeDeadline := time.Now().Add(
 						p.pongWait,
 					)
-					_ = conn.SetWriteDeadline(writeDeadline)
-
-					err := conn.WriteMessage(
-						websocket.PingMessage, nil,
+					err := conn.WriteControl(
+						websocket.PingMessage,
+						[]byte(PingContent),
+						writeDeadline,
 					)
 					if err != nil {
 						p.logger.Warnf("WS: could not "+

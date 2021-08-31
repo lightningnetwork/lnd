@@ -60,9 +60,8 @@ func testNetworkConnectionTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	assertTimeoutError(ctxt, t, dave, req)
 }
 
-// testReconnectAfterIPChange verifies that if an inbound node changes its
-// IP address to an IP address not listed first in its advertised address list
-// then its peer will reconnect to it.
+// testReconnectAfterIPChange verifies that reconnection work if an inbound
+// persistent peer node changes its IP addresses.
 func testReconnectAfterIPChange(net *lntest.NetworkHarness, t *harnessTest) {
 	// In this test, the following network will be set up. A single
 	// dash line represents a peer connection and a double dash line
@@ -156,7 +155,7 @@ func testReconnectAfterIPChange(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 	}
 
-	// Wait for Charlie to receive Dave's initial NodeAnnouncement
+	// Wait for Charlie to receive Dave's initial NodeAnnouncement.
 	waitForNodeAnnouncement(charlieSub, dave.PubKeyStr)
 
 	// Now create a persistent connection between Charlie and Bob
@@ -176,6 +175,20 @@ func testReconnectAfterIPChange(net *lntest.NetworkHarness, t *harnessTest) {
 	// assert that Dave and Charlie reconnect successfully after Dave
 	// changes to his second advertised address.
 	assertConnected(t, dave, charlie)
+
+	// Now we show that if Dave changes his P2P address to an address that
+	// he did not initially advertise and restarts then Charlie will not
+	// reconnect to him. This is a bug that will be fixed in a follow-up
+	// commit.
+
+	// Change Dave's listening port and restart.
+	dave.Cfg.P2PPort = lntest.NextAvailablePort()
+	err = net.RestartNode(dave, nil)
+	require.NoError(t.t, err)
+
+	// Check that Dave and Charlie did not reconnect once Bob restarted.
+	// This is the bug that will be fixed in a following commit.
+	assertNotConnected(t, dave, charlie)
 }
 
 // withP2PPort is an optional function used to set the P2P port that a node

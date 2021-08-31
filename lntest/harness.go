@@ -346,10 +346,10 @@ func (n *NetworkHarness) NewNodeEtcd(name string, etcdCfg *etcd.Config,
 // current instance of the network harness. The created node is running, but
 // not yet connected to other nodes within the network.
 func (n *NetworkHarness) NewNode(t *testing.T,
-	name string, extraArgs []string) *HarnessNode {
+	name string, extraArgs []string, opts ...NodeOption) *HarnessNode {
 
 	node, err := n.newNode(
-		name, extraArgs, false, nil, n.dbBackend, true,
+		name, extraArgs, false, nil, n.dbBackend, true, opts...,
 	)
 	require.NoErrorf(t, err, "unable to create new node for %s", name)
 

@@ -263,6 +263,11 @@ func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 }
 
 func resetChanStateCache(cache *kvdb.Cache) error {
+	// We don't use cache for Bolt backend.
+	if cache == nil {
+		return nil
+	}
+
 	cache.Wipe()
 	return cache.Init()
 }
@@ -279,58 +284,66 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB, 
 		modifier(&opts)
 	}
 
-	skipped := [][]byte{
-		// Skip the graph buckets.
-		nodeBucket,
-		edgeBucket,
-		edgeIndexBucket,
-		graphMetaBucket,
-
-		// Skip some non performance critical large buckets.
-		closedChannelBucket,
-		closeSummaryBucket,
-		fwdPackagesKey,
-		revocationLogBucket,
-	}
-
-	topLevel := [][]byte{
-		// Read through the graph buckets.
-		nodeBucket,
-		edgeBucket,
-		edgeIndexBucket,
-		graphMetaBucket,
-
-		// Cache important channel state.
-		openChannelBucket,
-		outpointBucket,
-		nodeInfoBucket,
-
-		// Channel state buckets to read through.
-		closedChannelBucket,
-		closeSummaryBucket,
-		fwdPackagesKey,
-	}
-
-	cache := kvdb.NewCache(backend, topLevel, skipped)
-	if err := cache.Init(); err != nil {
-		return nil, err
-	}
-
 	chanDB := &DB{
 		Backend: backend,
-		channelStateDB: &ChannelStateDB{
-			linkNodeDB: &LinkNodeDB{
-				backend: cache,
-			},
-			backend: cache,
-		},
-		clock:     opts.clock,
-		dryRun:    opts.dryRun,
-		chanCache: cache,
+		clock:   opts.clock,
+		dryRun:  opts.dryRun,
 	}
 
-	// Set the parent pointer (only used in tests).
-	chanDB.channelStateDB.parent = chanDB
+	chanStateBackend := backend
+
+	// Override the chan state backend if we require to cache chan state.
+	if opts.ChanStateCache {
+		skipped := [][]byte{
+			// Skip the graph buckets.
+			nodeBucket,
+			edgeBucket,
+			edgeIndexBucket,
+			graphMetaBucket,
+
+			// Skip some non performance critical large buckets.
+			closedChannelBucket,
+			closeSummaryBucket,
+			fwdPackagesKey,
+			revocationLogBucket,
+		}
+
+		topLevel := [][]byte{
+			// Read through the graph buckets.
+			nodeBucket,
+			edgeBucket,
+			edgeIndexBucket,
+			graphMetaBucket,
+
+			// Cache important channel state.
+			openChannelBucket,
+			outpointBucket,
+			nodeInfoBucket,
+
+			// Channel state buckets to read through.
+			closedChannelBucket,
+			closeSummaryBucket,
+			fwdPackagesKey,
+		}
+
+		cache := kvdb.NewCache(backend, topLevel, skipped)
+		if err := cache.Init(); err != nil {
+			return nil, err
+		}
+
+		chanStateBackend = cache
+		chanDB.chanCache = cache
+	}
+
+	chanDB.channelStateDB = &ChannelStateDB{
+		linkNodeDB: &LinkNodeDB{
+			backend: chanStateBackend,
+		},
+		backend: chanStateBackend,
+
+		// Set the parent pointer (only used in tests).
+		parent: chanDB,
+	}
 
 	var err error
 	chanDB.graph, err = NewChannelGraph(
@@ -1486,6 +1499,11 @@ func MakeTestDB(modifiers ...OptionModifier) (*DB, func(), error) {
 	if err != nil {
 		backendCleanup()
 		return nil, nil, err
+	}
+
+	// Use a channel state cache when testing with remote backends.
+	if kvdb.TestBackend != kvdb.BoltBackendName {
+		modifiers = append(modifiers, OptionWithChannelStateCache(true))
 	}
 
 	cdb, err := CreateWithBackend(backend, modifiers...)

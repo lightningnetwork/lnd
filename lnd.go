@@ -1685,6 +1685,10 @@ func initializeDatabases(ctx context.Context,
 		channeldb.OptionSetChannelCacheSize(cfg.Caches.ChannelCacheSize),
 		channeldb.OptionSetBatchCommitInterval(cfg.DB.BatchCommitInterval),
 		channeldb.OptionDryRunMigration(cfg.DryRunMigration),
+		channeldb.OptionWithChannelStateCache(
+			// Cache channel state when not running on Bolt.
+			cfg.DB.Backend != lncfg.BoltBackend,
+		),
 	}
 
 	// We want to pre-allocate the channel graph cache according to what we

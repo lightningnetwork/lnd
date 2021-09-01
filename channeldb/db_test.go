@@ -41,7 +41,14 @@ func TestOpenWithCreate(t *testing.T) {
 	}
 	defer cleanup()
 
-	cdb, err := CreateWithBackend(backend)
+	var modifiers []OptionModifier
+	// Use a channel state cache when testing with remote backends.
+	if kvdb.TestBackend != kvdb.BoltBackendName {
+		modifiers = append(modifiers, OptionWithChannelStateCache(true))
+	}
+
+	cdb, err := CreateWithBackend(backend, modifiers...)
+
 	if err != nil {
 		t.Fatalf("unable to create channeldb: %v", err)
 	}
@@ -87,7 +94,13 @@ func TestWipe(t *testing.T) {
 	}
 	defer cleanup()
 
-	fullDB, err := CreateWithBackend(backend)
+	var modifiers []OptionModifier
+	// Use a channel state cache when testing with remote backends.
+	if kvdb.TestBackend != kvdb.BoltBackendName {
+		modifiers = append(modifiers, OptionWithChannelStateCache(true))
+	}
+
+	fullDB, err := CreateWithBackend(backend, modifiers...)
 	if err != nil {
 		t.Fatalf("unable to create channeldb: %v", err)
 	}

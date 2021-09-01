@@ -38,6 +38,17 @@ instantaneous. Read the [guide on leader
 election](https://github.com/lightningnetwork/lnd/blob/master/docs/leader_election.md)
 for more information.
 
+## Protocol Extensions
+
+### Explicit Channel Negotiation
+
+[A new protocol extension has been added known as explicit channel negotiation]
+(https://github.com/lightningnetwork/lnd/pull/5669). This allows a channel
+initiator to signal their desired channel type to use with the remote peer. If
+the remote peer supports said channel type and agrees, the previous implicit
+negotiation based on the shared set of feature bits is bypassed, and the
+proposed channel type is used.
+
 ## RPC Server
 
 * [Return payment address and add index from
@@ -238,6 +249,7 @@ change](https://github.com/lightningnetwork/lnd/pull/5613).
 * Eugene Siegel
 * Martin Habovstiak
 * Oliver Gugger
+* Wilmer Paulino
 * xanoni
 * Yong Yu
 * Zero-1729

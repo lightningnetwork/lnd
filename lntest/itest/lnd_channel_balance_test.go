@@ -81,10 +81,10 @@ func testChannelBalance(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// As this is a single funder channel, Alice's balance should be
 	// exactly 0.5 BTC since now state transitions have taken place yet.
-	checkChannelBalance(net.Alice, amount-cType.calcStaticFee(0), 0)
+	checkChannelBalance(net.Alice, amount-calcStaticFee(cType, 0), 0)
 
 	// Ensure Bob currently has no available balance within the channel.
-	checkChannelBalance(net.Bob, 0, amount-cType.calcStaticFee(0))
+	checkChannelBalance(net.Bob, 0, amount-calcStaticFee(cType, 0))
 
 	// Finally close the channel between Alice and Bob, asserting that the
 	// channel has been properly closed on-chain.
@@ -174,11 +174,11 @@ func testChannelUnsettledBalance(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Check alice's channel balance, which should have zero remote and zero
 	// pending balance.
-	checkChannelBalance(net.Alice, chanAmt-cType.calcStaticFee(0), 0, 0, 0)
+	checkChannelBalance(net.Alice, chanAmt-calcStaticFee(cType, 0), 0, 0, 0)
 
 	// Check carol's channel balance, which should have zero local and zero
 	// pending balance.
-	checkChannelBalance(carol, 0, chanAmt-cType.calcStaticFee(0), 0, 0)
+	checkChannelBalance(carol, 0, chanAmt-calcStaticFee(cType, 0), 0, 0)
 
 	// Channel should be ready for payments.
 	const (
@@ -258,7 +258,7 @@ func testChannelUnsettledBalance(net *lntest.NetworkHarness, t *harnessTest) {
 	// Check alice's channel balance, which should have a remote unsettled
 	// balance that equals to the amount of invoices * payAmt. The remote
 	// balance remains zero.
-	aliceLocal := chanAmt - cType.calcStaticFee(0) - numInvoices*payAmt
+	aliceLocal := chanAmt - calcStaticFee(cType, 0) - numInvoices*payAmt
 	checkChannelBalance(net.Alice, aliceLocal, 0, 0, numInvoices*payAmt)
 
 	// Check carol's channel balance, which should have a local unsettled

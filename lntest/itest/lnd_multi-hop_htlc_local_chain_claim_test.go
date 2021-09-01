@@ -20,7 +20,7 @@ import (
 // preimage via the witness beacon, we properly settle the HTLC on-chain using
 // the HTLC success transaction in order to ensure we don't lose any funds.
 func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest,
-	alice, bob *lntest.HarnessNode, c commitType) {
+	alice, bob *lntest.HarnessNode, c lnrpc.CommitmentType) {
 
 	ctxb := context.Background()
 
@@ -86,13 +86,14 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 	// At this point, Bob decides that he wants to exit the channel
 	// immediately, so he force closes his commitment transaction.
 	bobForceClose := closeChannelAndAssertType(
-		t, net, bob, aliceChanPoint, c == commitTypeAnchors, true,
+		t, net, bob, aliceChanPoint,
+		c == lnrpc.CommitmentType_ANCHORS, true,
 	)
 
 	// Alice will sweep her commitment output immediately. If there are
 	// anchors, Alice will also sweep hers.
 	expectedTxes := 1
-	if c == commitTypeAnchors {
+	if c == lnrpc.CommitmentType_ANCHORS {
 		expectedTxes = 2
 	}
 	_, err = waitForNTxsInMempool(
@@ -161,7 +162,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 	// If there are anchors on the commitment, Bob will also sweep his
 	// anchor.
 	expectedTxes = 2
-	if c == commitTypeAnchors {
+	if c == lnrpc.CommitmentType_ANCHORS {
 		expectedTxes = 3
 	}
 	txes, err := getNTxsFromMempool(
@@ -188,7 +189,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 	// If this is a channel of the anchor type, we will subtract one block
 	// from the default CSV, as the Sweeper will handle the input, and the Sweeper
 	// sweeps the input as soon as the lock expires.
-	case commitTypeAnchors:
+	case lnrpc.CommitmentType_ANCHORS:
 		secondLevelMaturity = defaultCSV - 1
 
 	// For non-anchor channel types, the nursery will handle sweeping the

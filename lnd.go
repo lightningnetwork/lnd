@@ -1684,6 +1684,10 @@ func initializeDatabases(ctx context.Context,
 		channeldb.OptionSetChannelCacheSize(cfg.Caches.ChannelCacheSize),
 		channeldb.OptionSetBatchCommitInterval(cfg.DB.BatchCommitInterval),
 		channeldb.OptionDryRunMigration(cfg.DryRunMigration),
+		channeldb.OptionWithChannelStateCache(
+			// Cache channel state when not running on Bolt.
+			cfg.DB.Backend != lncfg.BoltBackend,
+		),
 	)
 	switch {
 	// Give the DB a chance to dry run the migration. Since we know that

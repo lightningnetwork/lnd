@@ -29,6 +29,10 @@ const (
 type Options struct {
 	kvdb.BoltBackendConfig
 
+	// ChanStateCache when true turns of in-memory caching of important
+	// channel state buckets.
+	ChanStateCache bool
+
 	// RejectCacheSize is the maximum number of rejectCacheEntries to hold
 	// in the rejection cache.
 	RejectCacheSize int
@@ -71,6 +75,14 @@ func DefaultOptions() Options {
 
 // OptionModifier is a function signature for modifying the default Options.
 type OptionModifier func(*Options)
+
+// OptionWithChannelStateCache turns on in-memory caching of important channel
+// state buckets.
+func OptionWithChannelStateCache(cache bool) OptionModifier {
+	return func(o *Options) {
+		o.ChanStateCache = cache
+	}
+}
 
 // OptionSetRejectCacheSize sets the RejectCacheSize to n.
 func OptionSetRejectCacheSize(n int) OptionModifier {

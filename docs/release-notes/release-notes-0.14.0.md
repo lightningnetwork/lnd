@@ -68,6 +68,12 @@ proposed channel type is used.
   avoid misleading error messages from dependent services if they use `After`
   systemd option.
 
+## Neutrino
+
+* [New neutrino sub-server](https://github.com/lightningnetwork/lnd/pull/5652)
+  capable of status checks, tx rescans, adding, disconnecting and listing
+  peers. As well as fetching filters, blocks and block headers.
+
 ## Wallet
 
 * It is now possible to fund a psbt [without specifying any

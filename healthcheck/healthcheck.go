@@ -86,6 +86,8 @@ func (m *Monitor) Stop() error {
 		return fmt.Errorf("monitor already stopped")
 	}
 
+	log.Info("Health monitor shutting down")
+
 	close(m.quit)
 	m.wg.Wait()
 
@@ -166,10 +168,18 @@ func (o *Observation) monitor(shutdown shutdownFunc, quit chan struct{}) {
 	for {
 		select {
 		case <-o.Interval.Ticks():
-			o.retryCheck(quit, shutdown)
+			// retryCheck will return errMaxAttemptsReached when
+			// the max attempts are reached. In that case we will
+			// stop the ticker and quit.
+			if o.retryCheck(quit, shutdown) {
+				log.Debugf("Health check: max attempts " +
+					"failed, monitor exiting")
+				return
+			}
 
 		// Exit if we receive the instruction to shutdown.
 		case <-quit:
+			log.Debug("Health check: monitor quit")
 			return
 		}
 	}
@@ -178,8 +188,11 @@ func (o *Observation) monitor(shutdown shutdownFunc, quit chan struct{}) {
 // retryCheck calls a check function until it succeeds, or we reach our
 // configured number of attempts, waiting for our back off period between failed
 // calls. If we fail to obtain a passing health check after the allowed number
-// of calls, we will request shutdown.
-func (o *Observation) retryCheck(quit chan struct{}, shutdown shutdownFunc) {
+// of calls, we will request shutdown. It returns a bool to indicate whether
+// the max number of attempts is reached.
+func (o *Observation) retryCheck(quit chan struct{},
+	shutdown shutdownFunc) bool {
+
 	var count int
 
 	for count < o.Attempts {
@@ -197,13 +210,14 @@ func (o *Observation) retryCheck(quit chan struct{}, shutdown shutdownFunc) {
 				"%v", o, o.Timeout)
 
 		case <-quit:
-			return
+			log.Debug("Health check: monitor quit")
+			return false
 		}
 
 		// If our error is nil, we have passed our health check, so we
 		// can exit.
 		if err == nil {
-			return
+			return false
 		}
 
 		// If we have reached our allowed number of attempts, this
@@ -211,8 +225,7 @@ func (o *Observation) retryCheck(quit chan struct{}, shutdown shutdownFunc) {
 		if count == o.Attempts {
 			shutdown("Health check: %v failed after %v "+
 				"calls", o, o.Attempts)
-
-			return
+			return true
 		}
 
 		log.Infof("Health check: %v, call: %v failed with: %v, "+
@@ -225,7 +238,10 @@ func (o *Observation) retryCheck(quit chan struct{}, shutdown shutdownFunc) {
 		case <-time.After(o.Backoff):
 
 		case <-quit:
-			return
+			log.Debug("Health check: monitor quit")
+			return false
 		}
 	}
+
+	return false
 }

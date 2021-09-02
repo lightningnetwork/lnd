@@ -132,48 +132,58 @@ func TestRetryCheck(t *testing.T) {
 		// expectedShutdown is true if we expect a shutdown to be
 		// triggered because all of our calls failed.
 		expectedShutdown bool
+
+		// maxAttemptsReached specifies whether the max allowed
+		// attempts are reached from calling retryCheck.
+		maxAttemptsReached bool
 	}{
 		{
-			name:             "first call succeeds",
-			errors:           []error{nil},
-			attempts:         2,
-			timeout:          time.Hour,
-			expectedShutdown: false,
+			name:               "first call succeeds",
+			errors:             []error{nil},
+			attempts:           2,
+			timeout:            time.Hour,
+			expectedShutdown:   false,
+			maxAttemptsReached: false,
 		},
 		{
-			name:             "first call fails",
-			errors:           []error{errNonNil},
-			attempts:         1,
-			timeout:          time.Hour,
-			expectedShutdown: true,
+			name:               "first call fails",
+			errors:             []error{errNonNil},
+			attempts:           1,
+			timeout:            time.Hour,
+			expectedShutdown:   true,
+			maxAttemptsReached: true,
 		},
 		{
-			name:             "fail then recover",
-			errors:           []error{errNonNil, nil},
-			attempts:         2,
-			timeout:          time.Hour,
-			expectedShutdown: false,
+			name:               "fail then recover",
+			errors:             []error{errNonNil, nil},
+			attempts:           2,
+			timeout:            time.Hour,
+			expectedShutdown:   false,
+			maxAttemptsReached: false,
 		},
 		{
-			name:             "always fail",
-			errors:           []error{errNonNil, errNonNil},
-			attempts:         2,
-			timeout:          time.Hour,
-			expectedShutdown: true,
+			name:               "always fail",
+			errors:             []error{errNonNil, errNonNil},
+			attempts:           2,
+			timeout:            time.Hour,
+			expectedShutdown:   true,
+			maxAttemptsReached: true,
 		},
 		{
-			name:             "no calls",
-			errors:           nil,
-			attempts:         0,
-			timeout:          time.Hour,
-			expectedShutdown: false,
+			name:               "no calls",
+			errors:             nil,
+			attempts:           0,
+			timeout:            time.Hour,
+			expectedShutdown:   false,
+			maxAttemptsReached: false,
 		},
 		{
-			name:             "call times out",
-			errors:           nil,
-			attempts:         1,
-			timeout:          1,
-			expectedShutdown: true,
+			name:               "call times out",
+			errors:             nil,
+			attempts:           1,
+			timeout:            1,
+			expectedShutdown:   true,
+			maxAttemptsReached: true,
 		},
 	}
 
@@ -203,8 +213,11 @@ func TestRetryCheck(t *testing.T) {
 			// on us sending errors into the mocked caller's error
 			// channel.
 			done := make(chan struct{})
+			retryResult := false
 			go func() {
-				observation.retryCheck(quit, shutdownFunc)
+				retryResult = observation.retryCheck(
+					quit, shutdownFunc,
+				)
 				close(done)
 			}()
 
@@ -218,6 +231,8 @@ func TestRetryCheck(t *testing.T) {
 			// check function before we start checking results.
 			<-done
 
+			require.Equal(t, test.maxAttemptsReached, retryResult,
+				"retryCheck returned unexpected error")
 			require.Equal(t, test.expectedShutdown, shutdown,
 				"unexpected shutdown state")
 		})

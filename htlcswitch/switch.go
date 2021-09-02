@@ -1942,7 +1942,7 @@ func (s *Switch) Stop() error {
 		return errors.New("htlc switch already shutdown")
 	}
 
-	log.Infof("HTLC Switch shutting down")
+	log.Info("HTLC Switch shutting down")
 
 	close(s.quit)
 

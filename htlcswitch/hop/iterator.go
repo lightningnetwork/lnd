@@ -137,6 +137,9 @@ func (p *OnionProcessor) Start() error {
 
 // Stop shutsdown the onion processor's sphinx router.
 func (p *OnionProcessor) Stop() error {
+
+	log.Info("Onion processor shutting down")
+
 	p.router.Stop()
 	return nil
 }

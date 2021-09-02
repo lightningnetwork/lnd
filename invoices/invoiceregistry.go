@@ -257,6 +257,8 @@ func (i *InvoiceRegistry) Start() error {
 
 // Stop signals the registry for a graceful shutdown.
 func (i *InvoiceRegistry) Stop() error {
+	log.Info("InvoiceRegistry shutting down")
+
 	i.expiryWatcher.Stop()
 
 	close(i.quit)

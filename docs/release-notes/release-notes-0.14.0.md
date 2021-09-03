@@ -187,6 +187,8 @@ you.
 
 * [Removed nested db tx](https://github.com/lightningnetwork/lnd/pull/5643)
 
+* [Fixed wallet recovery itests on Travis ARM](https://github.com/lightningnetwork/lnd/pull/5688)
+
 ## Database
 
 * [Ensure single writer for legacy

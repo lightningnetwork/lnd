@@ -68,6 +68,15 @@ proposed channel type is used.
   avoid misleading error messages from dependent services if they use `After`
   systemd option.
 
+### Batched channel funding
+
+[Multiple channels can now be opened in a single
+transaction](https://github.com/lightningnetwork/lnd/pull/5356) in a safer and
+more straightforward way by using the `BatchOpenChannel` RPC or the command line
+version of that RPC called `lncli batchopenchannel`. More information can be
+found in the [PSBT
+documentation](../psbt.md#use-the-batchopenchannel-rpc-for-safe-batch-channel-funding).
+
 ## Wallet
 
 * It is now possible to fund a psbt [without specifying any

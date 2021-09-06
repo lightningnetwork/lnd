@@ -284,16 +284,22 @@ fallback way to do it.
 
 **Option 1: Move the whole data directory to the new device**   
 This option works very well if the new device runs the same operating system on
-the same architecture. If that is the case, the whole `/home/<user>/.lnd`
-directory in Linux (or `$HOME/Library/Application Support/lnd` in MacOS,
-`%LOCALAPPDATA%\lnd` in Windows) can be moved to the new device and `lnd`
-started there. It is important to shut down `lnd` on the old device before
-moving the directory!   
+the same (or at least very similar) architecture. If that is the case, the whole
+`/home/<user>/.lnd` directory in Linux (or
+`$HOME/Library/Application Support/lnd` in MacOS, `%LOCALAPPDATA%\lnd` in
+Windows) can be moved to the new device and `lnd` started there. It is important
+to shut down `lnd` on the old device before moving the directory!   
 **Not supported/untested** is moving the data directory between different
-operating systems (for example `MacOS` -> `Linux`) or different system
-architectures (for example `32bit` -> `64bit` or `ARM` -> `amd64`). Data
+operating systems (for example `MacOS` <-> `Linux` or `Windows` <-> `Linux`) or
+different system architectures (for example `ARM` -> `amd64`). Data
 corruption or unexpected behavior can be the result. Users switching between
 operating systems or architectures should always use Option 2!
+
+Migrating between 32bit and 64bit of the same architecture (e.g. `ARM32` -> 
+`ARM64`) is known to be safe. To avoid issues with the main channel database
+(`channel.db`) becoming too large for 32bit systems, it is in fact recommended
+for Raspberry Pi users (for example RaspiBlitz or myNode) to migrate to the
+latest version that supports running 64bit `lnd`.
 
 **Option 2: Start from scratch**   
 If option 1 does not work or is too risky, the safest course of action is to

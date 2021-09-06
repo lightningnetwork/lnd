@@ -391,7 +391,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 			// We'll restrict the number of individual route hints
 			// to 20 to avoid creating overly large invoices.
 			numMaxHophints := 20 - len(forcedHints)
-			hopHints := selectHopHints(
+			hopHints := SelectHopHints(
 				amtMSat, cfg, filteredChannels, numMaxHophints,
 			)
 
@@ -553,12 +553,12 @@ func addHopHint(hopHints *[]func(*zpay32.Invoice),
 	)
 }
 
-// selectHopHints will select up to numMaxHophints from the set of passed open
+// SelectHopHints will select up to numMaxHophints from the set of passed open
 // channels. The set of hop hints will be returned as a slice of functional
 // options that'll append the route hint to the set of all route hints.
 //
 // TODO(roasbeef): do proper sub-set sum max hints usually << numChans
-func selectHopHints(amtMSat lnwire.MilliSatoshi, cfg *AddInvoiceConfig,
+func SelectHopHints(amtMSat lnwire.MilliSatoshi, cfg *AddInvoiceConfig,
 	openChannels []*channeldb.OpenChannel,
 	numMaxHophints int) []func(*zpay32.Invoice) {
 

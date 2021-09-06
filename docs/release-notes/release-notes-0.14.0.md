@@ -175,6 +175,9 @@ you.
 
 * [Fixed timeout flakes in async payment benchmark tests](https://github.com/lightningnetwork/lnd/pull/5579).
 
+* [State, subscribechannelevents, subscribepeerevents, subscribeinvoices, subscribetransactions, 
+  subscribechannelgraph and subscribechannelbackups no longer logs certain errors](https://github.com/lightningnetwork/lnd/pull/5695).
+
 * [Flake fix in async bidirectional payment test](https://github.com/lightningnetwork/lnd/pull/5607).
 
 * [Fixed context timeout when closing channels in tests](https://github.com/lightningnetwork/lnd/pull/5616).

@@ -1632,7 +1632,7 @@ type routingMsg struct {
 func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 	amt lnwire.MilliSatoshi, restrictions *RestrictParams,
 	destCustomRecords record.CustomSet,
-	routeHints map[route.Vertex][]*channeldb.ChannelEdgePolicy,
+	routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
 	finalExpiry uint16) (*route.Route, error) {
 
 	log.Debugf("Searching for path to %v, sending %v", target, amt)
@@ -2727,7 +2727,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	// total amount, we make a forward pass. Because the amount may have
 	// been increased in the backward pass, fees need to be recalculated and
 	// amount ranges re-checked.
-	var pathEdges []*channeldb.ChannelEdgePolicy
+	var pathEdges []*channeldb.CachedEdgePolicy
 	receiverAmt := runningAmt
 	for i, edge := range edges {
 		policy := edge.getPolicy(receiverAmt, bandwidthHints)

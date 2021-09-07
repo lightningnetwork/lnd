@@ -2459,8 +2459,8 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	if len(path) != 1 {
 		t.Fatalf("expected path length of 1, instead was: %v", len(path))
 	}
-	if path[0].Node.Alias != "luoji" {
-		t.Fatalf("wrong node: %v", path[0].Node.Alias)
+	if path[0].ToNodePubKey() != ctx.aliases["luoji"] {
+		t.Fatalf("wrong node: %v", path[0].ToNodePubKey())
 	}
 }
 

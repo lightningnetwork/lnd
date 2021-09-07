@@ -39,7 +39,7 @@ type nodeWithDist struct {
 	weight int64
 
 	// nextHop is the edge this route comes from.
-	nextHop *channeldb.ChannelEdgePolicy
+	nextHop *channeldb.CachedEdgePolicy
 
 	// routingInfoSize is the total size requirement for the payloads field
 	// in the onion packet from this hop towards the final destination.

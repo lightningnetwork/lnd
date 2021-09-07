@@ -23,6 +23,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -216,6 +217,7 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 	aliasMap := make(map[string]route.Vertex)
 	privKeyMap := make(map[string]*btcec.PrivateKey)
 	channelIDs := make(map[route.Vertex]map[route.Vertex]uint64)
+	links := make(map[lnwire.ShortChannelID]htlcswitch.ChannelLink)
 	var source *channeldb.LightningNode
 
 	// First we insert all the nodes within the graph as vertexes.
@@ -358,6 +360,13 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 		copy(edgeInfo.BitcoinKey1Bytes[:], node1Bytes)
 		copy(edgeInfo.BitcoinKey2Bytes[:], node2Bytes)
 
+		shortID := lnwire.NewShortChanIDFromInt(edge.ChannelID)
+		links[shortID] = &mockLink{
+			bandwidth: lnwire.MilliSatoshi(
+				edgeInfo.Capacity * 1000,
+			),
+		}
+
 		err = graph.AddChannelEdge(&edgeInfo)
 		if err != nil && err != channeldb.ErrEdgeAlreadyExist {
 			return nil, err
@@ -419,6 +428,7 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 		aliasMap:     aliasMap,
 		privKeyMap:   privKeyMap,
 		channelIDs:   channelIDs,
+		links:        links,
 	}, nil
 }
 
@@ -495,6 +505,22 @@ type testGraphInstance struct {
 
 	// channelIDs stores the channel ID for each node.
 	channelIDs map[route.Vertex]map[route.Vertex]uint64
+
+	// links maps channel ids to a mock channel update handler.
+	links map[lnwire.ShortChannelID]htlcswitch.ChannelLink
+}
+
+// getLink is a mocked link lookup function which looks up links in our test
+// graph.
+func (g *testGraphInstance) getLink(chanID lnwire.ShortChannelID) (
+	htlcswitch.ChannelLink, error) {
+
+	link, ok := g.links[chanID]
+	if !ok {
+		return nil, fmt.Errorf("link not found in mock: %v", chanID)
+	}
+
+	return link, nil
 }
 
 // createTestGraphFromChannels returns a fully populated ChannelGraph based on a set of
@@ -581,6 +607,8 @@ func createTestGraphFromChannels(testChannels []*testChannel, source string) (
 	// if none is specified.
 	nextUnassignedChannelID := uint64(100000)
 
+	links := make(map[lnwire.ShortChannelID]htlcswitch.ChannelLink)
+
 	for _, testChannel := range testChannels {
 		for _, node := range []*testChannelEnd{
 			testChannel.Node1, testChannel.Node2} {
@@ -615,6 +643,12 @@ func createTestGraphFromChannels(testChannels []*testChannel, source string) (
 		fundingPoint := &wire.OutPoint{
 			Hash:  chainhash.Hash(hash),
 			Index: 0,
+		}
+
+		capacity := lnwire.MilliSatoshi(testChannel.Capacity * 1000)
+		shortID := lnwire.NewShortChanIDFromInt(channelID)
+		links[shortID] = &mockLink{
+			bandwidth: capacity,
 		}
 
 		// Sort nodes
@@ -730,6 +764,7 @@ func createTestGraphFromChannels(testChannels []*testChannel, source string) (
 		cleanUp:      cleanUp,
 		aliasMap:     aliasMap,
 		privKeyMap:   privKeyMap,
+		links:        links,
 	}, nil
 }
 
@@ -923,7 +958,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 	paymentAmt := lnwire.NewMSatFromSatoshis(test.paymentAmt)
 	target := graphInstance.aliasMap[test.target]
 	path, err := dbFindPath(
-		graphInstance.graph, nil, nil,
+		graphInstance.graph, nil, &mockBandwidthHints{},
 		&RestrictParams{
 			FeeLimit:          test.feeLimit,
 			ProbabilitySource: noProbabilitySource,
@@ -1118,7 +1153,7 @@ func TestPathFindingWithAdditionalEdges(t *testing.T) {
 		[]*channeldb.CachedEdgePolicy, error) {
 
 		return dbFindPath(
-			graph.graph, additionalEdges, nil,
+			graph.graph, additionalEdges, &mockBandwidthHints{},
 			r, testPathFindingConfig,
 			sourceNode.PubKeyBytes, doge.PubKeyBytes, paymentAmt,
 			0,
@@ -1543,7 +1578,7 @@ func TestPathNotAvailable(t *testing.T) {
 	copy(unknownNode[:], unknownNodeBytes)
 
 	_, err = dbFindPath(
-		graph.graph, nil, nil,
+		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, unknownNode, 100, 0,
 	)
@@ -1599,7 +1634,7 @@ func TestDestTLVGraphFallback(t *testing.T) {
 		target route.Vertex) ([]*channeldb.CachedEdgePolicy, error) {
 
 		return dbFindPath(
-			ctx.graph, nil, nil,
+			ctx.graph, nil, &mockBandwidthHints{},
 			r, testPathFindingConfig,
 			sourceNode.PubKeyBytes, target, 100, 0,
 		)
@@ -1868,7 +1903,7 @@ func TestPathInsufficientCapacity(t *testing.T) {
 
 	payAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	_, err = dbFindPath(
-		graph.graph, nil, nil,
+		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
@@ -1899,7 +1934,7 @@ func TestRouteFailMinHTLC(t *testing.T) {
 	target := graph.aliasMap["songoku"]
 	payAmt := lnwire.MilliSatoshi(10)
 	_, err = dbFindPath(
-		graph.graph, nil, nil,
+		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
@@ -1996,7 +2031,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	target := graph.aliasMap["sophon"]
 	payAmt := lnwire.NewMSatFromSatoshis(105000)
 	_, err = dbFindPath(
-		graph.graph, nil, nil,
+		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
@@ -2022,7 +2057,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	}
 
 	_, err = dbFindPath(
-		graph.graph, nil, nil,
+		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
@@ -2045,7 +2080,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	// If we attempt to route through that edge, we should get a failure as
 	// it is no longer eligible.
 	_, err = dbFindPath(
-		graph.graph, nil, nil,
+		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
@@ -2077,7 +2112,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 	target := graph.aliasMap["sophon"]
 	payAmt := lnwire.NewMSatFromSatoshis(50000)
 	path, err := dbFindPath(
-		graph.graph, nil, nil,
+		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
@@ -2090,9 +2125,11 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 	// roasbeef->phamnuwen to 0.
 	roasToSongoku := uint64(12345)
 	roasToPham := uint64(999991)
-	bandwidths := map[uint64]lnwire.MilliSatoshi{
-		roasToSongoku: 0,
-		roasToPham:    0,
+	bandwidths := &mockBandwidthHints{
+		hints: map[uint64]lnwire.MilliSatoshi{
+			roasToSongoku: 0,
+			roasToPham:    0,
+		},
 	}
 
 	// Since both these edges has a bandwidth of zero, no path should be
@@ -2108,7 +2145,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 
 	// Set the bandwidth of roasbeef->phamnuwen high enough to carry the
 	// payment.
-	bandwidths[roasToPham] = 2 * payAmt
+	bandwidths.hints[roasToPham] = 2 * payAmt
 
 	// Now, if we attempt to route again, we should find the path via
 	// phamnuven, as the other source edge won't be considered.
@@ -2124,7 +2161,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 
 	// Finally, set the roasbeef->songoku bandwidth, but also set its
 	// disable flag.
-	bandwidths[roasToSongoku] = 2 * payAmt
+	bandwidths.hints[roasToSongoku] = 2 * payAmt
 	_, e1, e2, err := graph.graph.FetchChannelEdgesByID(roasToSongoku)
 	if err != nil {
 		t.Fatalf("unable to fetch edge: %v", err)
@@ -2936,7 +2973,7 @@ type pathFindingTestContext struct {
 	t                 *testing.T
 	graph             *channeldb.ChannelGraph
 	restrictParams    RestrictParams
-	bandwidthHints    map[uint64]lnwire.MilliSatoshi
+	bandwidthHints    bandwidthHints
 	pathFindingConfig PathFindingConfig
 	testGraphInstance *testGraphInstance
 	source            route.Vertex
@@ -2964,6 +3001,7 @@ func newPathFindingTestContext(t *testing.T, testChannels []*testChannel,
 		pathFindingConfig: *testPathFindingConfig,
 		graph:             testGraphInstance.graph,
 		restrictParams:    *noRestrictions,
+		bandwidthHints:    &mockBandwidthHints{},
 	}
 
 	return ctx
@@ -3016,7 +3054,7 @@ func (c *pathFindingTestContext) assertPath(path []*channeldb.CachedEdgePolicy,
 // graph.
 func dbFindPath(graph *channeldb.ChannelGraph,
 	additionalEdges map[route.Vertex][]*channeldb.CachedEdgePolicy,
-	bandwidthHints map[uint64]lnwire.MilliSatoshi,
+	bandwidthHints bandwidthHints,
 	r *RestrictParams, cfg *PathFindingConfig,
 	source, target route.Vertex, amt lnwire.MilliSatoshi,
 	finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, error) {

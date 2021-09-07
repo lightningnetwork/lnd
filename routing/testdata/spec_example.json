@@ -126,7 +126,7 @@
             "max_htlc": 100000000,
             "fee_base_msat": 300, 
             "fee_rate": 3000,
-            "capacity": 100000
+            "capacity": 6000000
         },
         {
             "comment": "B -> C channel",
@@ -141,7 +141,7 @@
             "max_htlc": 100000000,
             "fee_base_msat": 200, 
             "fee_rate": 2000,
-            "capacity": 100000
+            "capacity": 6000000
         }
     ]
 }

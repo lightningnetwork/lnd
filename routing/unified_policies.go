@@ -133,7 +133,7 @@ type unifiedPolicy struct {
 // specific amount to send. It differentiates between local and network
 // channels.
 func (u *unifiedPolicy) getPolicy(amt lnwire.MilliSatoshi,
-	bandwidthHints map[uint64]lnwire.MilliSatoshi) *channeldb.CachedEdgePolicy {
+	bandwidthHints bandwidthHints) *channeldb.CachedEdgePolicy {
 
 	if u.localChan {
 		return u.getPolicyLocal(amt, bandwidthHints)
@@ -145,7 +145,7 @@ func (u *unifiedPolicy) getPolicy(amt lnwire.MilliSatoshi,
 // getPolicyLocal returns the optimal policy to use for this local connection
 // given a specific amount to send.
 func (u *unifiedPolicy) getPolicyLocal(amt lnwire.MilliSatoshi,
-	bandwidthHints map[uint64]lnwire.MilliSatoshi) *channeldb.CachedEdgePolicy {
+	bandwidthHints bandwidthHints) *channeldb.CachedEdgePolicy {
 
 	var (
 		bestPolicy   *channeldb.CachedEdgePolicy
@@ -169,7 +169,9 @@ func (u *unifiedPolicy) getPolicyLocal(amt lnwire.MilliSatoshi,
 		// TODO(joostjager): Possibly change to skipping this
 		// channel. The bandwidth hint is expected to be
 		// available.
-		bandwidth, ok := bandwidthHints[edge.policy.ChannelID]
+		bandwidth, ok := bandwidthHints.availableChanBandwidth(
+			edge.policy.ChannelID,
+		)
 		if !ok {
 			bandwidth = lnwire.MaxMilliSatoshi
 		}

@@ -8,7 +8,7 @@ import (
 
 var resetMissionControlCommand = cli.Command{
 	Name:     "resetmc",
-	Category: "Payments",
+	Category: "Mission Control",
 	Usage:    "Reset internal mission control state.",
 	Action:   actionDecorator(resetMissionControl),
 }

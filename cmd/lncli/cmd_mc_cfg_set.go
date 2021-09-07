@@ -6,8 +6,9 @@ import (
 )
 
 var setCfgCommand = cli.Command{
-	Name:  "setmccfg",
-	Usage: "Set mission control's config.",
+	Name:     "setmccfg",
+	Category: "Mission Control",
+	Usage:    "Set mission control's config.",
 	Description: `
 	Update the config values being used by mission control to calculate 
 	the probability that payment routes will succeed.

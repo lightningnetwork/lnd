@@ -6,8 +6,9 @@ import (
 )
 
 var getCfgCommand = cli.Command{
-	Name:  "getmccfg",
-	Usage: "Display mission control's config.",
+	Name:     "getmccfg",
+	Category: "Mission Control",
+	Usage:    "Display mission control's config.",
 	Description: `
 	Returns the config currently being used by mission control.
 	`,

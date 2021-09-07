@@ -13,7 +13,7 @@ import (
 
 var queryProbCommand = cli.Command{
 	Name:      "queryprob",
-	Category:  "Payments",
+	Category:  "Mission Control",
 	Usage:     "Estimate a success probability.",
 	ArgsUsage: "from-node to-node amt",
 	Action:    actionDecorator(queryProb),

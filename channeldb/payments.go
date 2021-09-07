@@ -477,6 +477,37 @@ func readHtlcFailInfo(b []byte) (*HTLCFailInfo, error) {
 	return deserializeHTLCFailInfo(r)
 }
 
+// fetchFailedHtlcKeys retrieves the bucket keys of all failed HTLCs of a
+// payment bucket.
+func fetchFailedHtlcKeys(bucket kvdb.RBucket) ([][]byte, error) {
+	htlcsBucket := bucket.NestedReadBucket(paymentHtlcsBucket)
+
+	var htlcs []HTLCAttempt
+	var err error
+	if htlcsBucket != nil {
+		htlcs, err = fetchHtlcAttempts(htlcsBucket)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Now iterate though them and save the bucket keys for the failed
+	// HTLCs.
+	var htlcKeys [][]byte
+	for _, h := range htlcs {
+		if h.Failure == nil {
+			continue
+		}
+
+		htlcKeyBytes := make([]byte, 8)
+		binary.BigEndian.PutUint64(htlcKeyBytes, h.AttemptID)
+
+		htlcKeys = append(htlcKeys, htlcKeyBytes)
+	}
+
+	return htlcKeys, nil
+}
+
 // PaymentsQuery represents a query to the payments database starting or ending
 // at a certain offset index. The number of retrieved records can be limited.
 type PaymentsQuery struct {
@@ -752,34 +783,9 @@ func (d *DB) DeletePayments(failedOnly, failedHtlcsOnly bool) error {
 
 			// If we are only deleting failed HTLCs, fetch them.
 			if failedHtlcsOnly {
-				htlcsBucket := bucket.NestedReadBucket(
-					paymentHtlcsBucket,
-				)
-
-				var htlcs []HTLCAttempt
-				if htlcsBucket != nil {
-					htlcs, err = fetchHtlcAttempts(
-						htlcsBucket,
-					)
-					if err != nil {
-						return err
-					}
-				}
-
-				// Now iterate though them and save the bucket
-				// keys for the failed HTLCs.
-				var toDelete [][]byte
-				for _, h := range htlcs {
-					if h.Failure == nil {
-						continue
-					}
-
-					htlcIDBytes := make([]byte, 8)
-					binary.BigEndian.PutUint64(
-						htlcIDBytes, h.AttemptID,
-					)
-
-					toDelete = append(toDelete, htlcIDBytes)
+				toDelete, err := fetchFailedHtlcKeys(bucket)
+				if err != nil {
+					return err
 				}
 
 				hash, err := lntypes.MakeHash(k)

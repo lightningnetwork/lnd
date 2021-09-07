@@ -764,8 +764,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		MinProbability: routingConfig.MinRouteProbability,
 	}
 
+	cachedGraph, err := routing.NewCachedGraph(chanGraph)
+	if err != nil {
+		return nil, err
+	}
 	paymentSessionSource := &routing.SessionSource{
-		Graph:             chanGraph,
+		Graph:             cachedGraph,
 		MissionControl:    s.missionControl,
 		QueryBandwidth:    queryBandwidth,
 		PathFindingConfig: pathFindingConfig,

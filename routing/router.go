@@ -401,6 +401,10 @@ type ChannelRouter struct {
 	// when doing any path finding.
 	selfNode *channeldb.LightningNode
 
+	// cachedGraph is an instance of Graph that caches the source node as
+	// well as the channel graph itself in memory.
+	cachedGraph Graph
+
 	// newBlocks is a channel in which new blocks connected to the end of
 	// the main chain are sent over, and blocks updated after a call to
 	// UpdateFilter.
@@ -455,14 +459,17 @@ var _ ChannelGraphSource = (*ChannelRouter)(nil)
 // channel graph is a subset of the UTXO set) set, then the router will proceed
 // to fully sync to the latest state of the UTXO set.
 func New(cfg Config) (*ChannelRouter, error) {
-
 	selfNode, err := cfg.Graph.SourceNode()
 	if err != nil {
 		return nil, err
 	}
 
 	r := &ChannelRouter{
-		cfg:               &cfg,
+		cfg: &cfg,
+		cachedGraph: &CachedGraph{
+			graph:  cfg.Graph,
+			source: selfNode.PubKeyBytes,
+		},
 		networkUpdates:    make(chan *routingMsg),
 		topologyClients:   make(map[uint64]*topologyClient),
 		ntfnClientUpdates: make(chan *topologyClientUpdate),
@@ -1640,7 +1647,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 	// We'll attempt to obtain a set of bandwidth hints that can help us
 	// eliminate certain routes early on in the path finding process.
 	bandwidthHints, err := generateBandwidthHints(
-		r.selfNode.PubKeyBytes, r.cfg.Graph, r.cfg.QueryBandwidth,
+		r.selfNode.PubKeyBytes, r.cachedGraph, r.cfg.QueryBandwidth,
 	)
 	if err != nil {
 		return nil, err
@@ -1657,16 +1664,11 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 	// execute our path finding algorithm.
 	finalHtlcExpiry := currentHeight + int32(finalExpiry)
 
-	routingTx, err := newDbRoutingTx(r.cfg.Graph)
-	if err != nil {
-		return nil, err
-	}
-
 	path, err := findPath(
 		&graphParams{
 			additionalEdges: routeHints,
 			bandwidthHints:  bandwidthHints,
-			graph:           routingTx,
+			graph:           r.cachedGraph,
 		},
 		restrictions,
 		&r.cfg.PathFindingConfig,
@@ -2562,14 +2564,14 @@ func (r *ChannelRouter) MarkEdgeLive(chanID lnwire.ShortChannelID) error {
 // these hints allows us to reduce the number of extraneous attempts as we can
 // skip channels that are inactive, or just don't have enough bandwidth to
 // carry the payment.
-func generateBandwidthHints(sourceNode route.Vertex, graph *channeldb.ChannelGraph,
+func generateBandwidthHints(sourceNode route.Vertex, graph Graph,
 	queryBandwidth func(*channeldb.DirectedChannel) lnwire.MilliSatoshi) (
 	map[uint64]lnwire.MilliSatoshi, error) {
 
 	// First, we'll collect the set of outbound edges from the target
 	// source node.
 	var localChans []*channeldb.DirectedChannel
-	err := graph.ForEachNodeChannel(
+	err := graph.forEachNodeChannel(
 		sourceNode, func(channel *channeldb.DirectedChannel) error {
 			localChans = append(localChans, channel)
 			return nil
@@ -2627,7 +2629,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	// We'll attempt to obtain a set of bandwidth hints that helps us select
 	// the best outgoing channel to use in case no outgoing channel is set.
 	bandwidthHints, err := generateBandwidthHints(
-		r.selfNode.PubKeyBytes, r.cfg.Graph, r.cfg.QueryBandwidth,
+		r.selfNode.PubKeyBytes, r.cachedGraph, r.cfg.QueryBandwidth,
 	)
 	if err != nil {
 		return nil, err
@@ -2657,12 +2659,6 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		runningAmt = *amt
 	}
 
-	// Open a transaction to execute the graph queries in.
-	routingTx, err := newDbRoutingTx(r.cfg.Graph)
-	if err != nil {
-		return nil, err
-	}
-
 	// Traverse hops backwards to accumulate fees in the running amounts.
 	source := r.selfNode.PubKeyBytes
 	for i := len(hops) - 1; i >= 0; i-- {
@@ -2681,7 +2677,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		// known in the graph.
 		u := newUnifiedPolicies(source, toNode, outgoingChans)
 
-		err := u.addGraphPolicies(routingTx)
+		err := u.addGraphPolicies(r.cachedGraph)
 		if err != nil {
 			return nil, err
 		}

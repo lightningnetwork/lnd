@@ -172,7 +172,7 @@ type paymentSession struct {
 
 	pathFinder pathFinder
 
-	getRoutingGraph func() (routingGraph, func(), error)
+	routingGraph Graph
 
 	// pathFindingConfig defines global parameters that control the
 	// trade-off in path finding between fees and probabiity.
@@ -193,7 +193,7 @@ type paymentSession struct {
 // newPaymentSession instantiates a new payment session.
 func newPaymentSession(p *LightningPayment,
 	getBandwidthHints func() (map[uint64]lnwire.MilliSatoshi, error),
-	getRoutingGraph func() (routingGraph, func(), error),
+	routingGraph Graph,
 	missionControl MissionController, pathFindingConfig PathFindingConfig) (
 	*paymentSession, error) {
 
@@ -209,7 +209,7 @@ func newPaymentSession(p *LightningPayment,
 		getBandwidthHints: getBandwidthHints,
 		payment:           p,
 		pathFinder:        findPath,
-		getRoutingGraph:   getRoutingGraph,
+		routingGraph:      routingGraph,
 		pathFindingConfig: pathFindingConfig,
 		missionControl:    missionControl,
 		minShardAmt:       DefaultShardMinAmt,
@@ -287,28 +287,19 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 
 		p.log.Debugf("pathfinding for amt=%v", maxAmt)
 
-		// Get a routing graph.
-		routingGraph, cleanup, err := p.getRoutingGraph()
-		if err != nil {
-			return nil, err
-		}
-
-		sourceVertex := routingGraph.sourceNode()
+		sourceVertex := p.routingGraph.sourceNode()
 
 		// Find a route for the current amount.
 		path, err := p.pathFinder(
 			&graphParams{
 				additionalEdges: p.additionalEdges,
 				bandwidthHints:  bandwidthHints,
-				graph:           routingGraph,
+				graph:           p.routingGraph,
 			},
 			restrictions, &p.pathFindingConfig,
 			sourceVertex, p.payment.Target,
 			maxAmt, finalHtlcExpiry,
 		)
-
-		// Close routing graph.
-		cleanup()
 
 		switch {
 		case err == errNoPathFound:

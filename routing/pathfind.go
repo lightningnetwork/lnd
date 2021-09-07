@@ -275,7 +275,7 @@ func edgeWeight(lockedAmt lnwire.MilliSatoshi, fee lnwire.MilliSatoshi,
 // graphParams wraps the set of graph parameters passed to findPath.
 type graphParams struct {
 	// graph is the ChannelGraph to be used during path finding.
-	graph routingGraph
+	graph Graph
 
 	// additionalEdges is an optional set of edges that should be
 	// considered during path finding, that is not already found in the
@@ -356,7 +356,7 @@ type PathFindingConfig struct {
 // available balance.
 func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 	bandwidthHints map[uint64]lnwire.MilliSatoshi,
-	g routingGraph) (lnwire.MilliSatoshi, lnwire.MilliSatoshi, error) {
+	g Graph) (lnwire.MilliSatoshi, lnwire.MilliSatoshi, error) {
 
 	var max, total lnwire.MilliSatoshi
 	cb := func(channel *channeldb.DirectedChannel) error {

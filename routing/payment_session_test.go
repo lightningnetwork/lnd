@@ -121,9 +121,7 @@ func TestUpdateAdditionalEdge(t *testing.T) {
 
 			return nil, nil
 		},
-		func() (routingGraph, func(), error) {
-			return &sessionGraph{}, func() {}, nil
-		},
+		&sessionGraph{},
 		&MissionControl{},
 		PathFindingConfig{},
 	)
@@ -203,9 +201,7 @@ func TestRequestRoute(t *testing.T) {
 
 			return nil, nil
 		},
-		func() (routingGraph, func(), error) {
-			return &sessionGraph{}, func() {}, nil
-		},
+		&sessionGraph{},
 		&MissionControl{},
 		PathFindingConfig{},
 	)
@@ -255,7 +251,7 @@ func TestRequestRoute(t *testing.T) {
 }
 
 type sessionGraph struct {
-	routingGraph
+	Graph
 }
 
 func (g *sessionGraph) sourceNode() route.Vertex {

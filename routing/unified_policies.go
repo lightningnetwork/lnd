@@ -68,7 +68,7 @@ func (u *unifiedPolicies) addPolicy(fromNode route.Vertex,
 
 // addGraphPolicies adds all policies that are known for the toNode in the
 // graph.
-func (u *unifiedPolicies) addGraphPolicies(g routingGraph) error {
+func (u *unifiedPolicies) addGraphPolicies(g Graph) error {
 	cb := func(channel *channeldb.DirectedChannel) error {
 		// If there is no edge policy for this candidate node, skip.
 		// Note that we are searching backwards so this node would have

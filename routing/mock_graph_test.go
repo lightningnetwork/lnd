@@ -157,7 +157,7 @@ func (m *mockGraph) addChannel(id uint64, node1id, node2id byte,
 
 // forEachNodeChannel calls the callback for every channel of the given node.
 //
-// NOTE: Part of the routingGraph interface.
+// NOTE: Part of the Graph interface.
 func (m *mockGraph) forEachNodeChannel(nodePub route.Vertex,
 	cb func(channel *channeldb.DirectedChannel) error) error {
 
@@ -182,10 +182,10 @@ func (m *mockGraph) forEachNodeChannel(nodePub route.Vertex,
 		// Call the per channel callback.
 		err := cb(
 			&channeldb.DirectedChannel{
-				ChannelID: channel.id,
-				IsNode1:   nodePub == node1,
-				OtherNode: peer,
-				Capacity:  channel.capacity,
+				ChannelID:    channel.id,
+				IsNode1:      nodePub == node1,
+				OtherNode:    peer,
+				Capacity:     channel.capacity,
 				OutPolicySet: true,
 				InPolicy: &channeldb.CachedEdgePolicy{
 					ChannelID: channel.id,
@@ -193,7 +193,7 @@ func (m *mockGraph) forEachNodeChannel(nodePub route.Vertex,
 						return nodePub
 					},
 					ToNodeFeatures: lnwire.EmptyFeatureVector(),
-					FeeBaseMSat: peerNode.baseFee,
+					FeeBaseMSat:    peerNode.baseFee,
 				},
 			},
 		)
@@ -206,14 +206,14 @@ func (m *mockGraph) forEachNodeChannel(nodePub route.Vertex,
 
 // sourceNode returns the source node of the graph.
 //
-// NOTE: Part of the routingGraph interface.
+// NOTE: Part of the Graph interface.
 func (m *mockGraph) sourceNode() route.Vertex {
 	return m.source.pubkey
 }
 
 // fetchNodeFeatures returns the features of the given node.
 //
-// NOTE: Part of the routingGraph interface.
+// NOTE: Part of the Graph interface.
 func (m *mockGraph) fetchNodeFeatures(nodePub route.Vertex) (
 	*lnwire.FeatureVector, error) {
 
@@ -263,5 +263,5 @@ func (m *mockGraph) sendHtlc(route *route.Route) (htlcResult, error) {
 	return source.fwd(nil, next)
 }
 
-// Compile-time check for the routingGraph interface.
-var _ routingGraph = &mockGraph{}
+// Compile-time check for the Graph interface.
+var _ Graph = &mockGraph{}

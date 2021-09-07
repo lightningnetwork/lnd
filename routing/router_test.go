@@ -124,8 +124,11 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	)
 	require.NoError(t, err, "failed to create missioncontrol")
 
+	cachedGraph, err := NewCachedGraph(graphInstance.graph)
+	require.NoError(t, err)
+
 	sessionSource := &SessionSource{
-		Graph: graphInstance.graph,
+		Graph: cachedGraph,
 		QueryBandwidth: func(
 			c *channeldb.DirectedChannel) lnwire.MilliSatoshi {
 

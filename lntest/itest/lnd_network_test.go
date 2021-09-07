@@ -62,9 +62,7 @@ func testNetworkConnectionTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 
 // testReconnectAfterIPChange verifies that if an inbound node changes its
 // IP address to an IP address not listed first in its advertised address list
-// then its peer will not reconnect to it. This test asserts that this bug
-// exists and will be changed to assert that peers are able to reconnect in the
-// commit that fixes the bug.
+// then its peer will switch to the new IP address and reconnect to it.
 func testReconnectAfterIPChange(net *lntest.NetworkHarness, t *harnessTest) {
 	// In this test, the following network will be set up. A single
 	// dash line represents a peer connection and a double dash line
@@ -197,10 +195,9 @@ func testReconnectAfterIPChange(net *lntest.NetworkHarness, t *harnessTest) {
 	err := net.RestartNode(dave, nil)
 	require.NoError(t.t, err)
 
-	// assert that Dave and Charlie do not reconnect after Dave's
-	// changes to his second advertised address. This will be fixed in
-	// a following commit.
-	assertNotConnected(t, dave, charlie)
+	// assert that Dave and Charlie reconnect after Dave changes to his
+	// second advertised address.
+	assertConnected(t, dave, charlie)
 }
 
 // assertTimeoutError asserts that a connection timeout error is raised. A

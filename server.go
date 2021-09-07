@@ -3476,52 +3476,53 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 	// Get the last address that we used to connect to the peer.
 	s.persistentPeerMgr.UpdateAddresses(pubStr, p.NetAddress())
 
-	// We'll ensure that we locate an advertised address to use
+	// We'll ensure that we locate the advertised addresses to use
 	// within the peer's address for reconnection purposes.
-	//
-	// TODO(roasbeef): use them all?
-	if p.Inbound() {
-		advertisedAddr, err := s.fetchNodeAdvertisedAddr(pubKey)
-		switch {
-		// We found an advertised address, so use it.
-		case err == nil:
-			// Inform the PersistentPeerManager of the peer's
-			// latest advertised addresses.
-			s.persistentPeerMgr.UpdateAddresses(
-				pubStr,
-				&lnwire.NetAddress{
-					IdentityKey: p.IdentityKey(),
-					Address:     advertisedAddr,
-					ChainNet:    p.NetAddress().ChainNet,
-				},
-			)
-
-		// The peer doesn't have an advertised address.
-		case err == errNoAdvertisedAddr:
-			// Fall back to the existing peer address if
-			// we're not accepting connections over Tor.
-			if s.torController == nil {
-				break
-			}
-
-			// If we are, the peer's address won't be known
-			// to us (we'll see a private address, which is
-			// the address used by our onion service to dial
-			// to lnd), so we don't have enough information
-			// to attempt a reconnect.
-			srvrLog.Debugf("Ignoring reconnection attempt "+
-				"to inbound peer %v without "+
-				"advertised address", p)
-			return
-
-		// We came across an error retrieving an advertised
-		// address, log it, and fall back to the existing peer
-		// address.
-		default:
-			srvrLog.Errorf("Unable to retrieve advertised "+
-				"address for node %x: %v", p.PubKey(),
-				err)
+	advertisedAddrs, err := s.fetchNodeAdvertisedAddrs(pubKey)
+	switch {
+	// We found an advertised address, so use it.
+	case err == nil:
+		addrs := make([]*lnwire.NetAddress, 0, len(advertisedAddrs))
+		for _, addr := range advertisedAddrs {
+			addrs = append(addrs, &lnwire.NetAddress{
+				IdentityKey: p.IdentityKey(),
+				Address:     addr,
+				ChainNet:    p.NetAddress().ChainNet,
+			})
 		}
+		s.persistentPeerMgr.UpdateAddresses(pubStr, addrs...)
+
+	// The peer doesn't have an advertised address.
+	case err == errNoAdvertisedAddr:
+		// If it is an outbound peer then we fall back to the existing
+		// peer address.
+		if !p.Inbound() {
+			break
+		}
+
+		// Fall back to the existing peer address if
+		// we're not accepting connections over Tor.
+		if s.torController == nil {
+			break
+		}
+
+		// If we are, the peer's address won't be known
+		// to us (we'll see a private address, which is
+		// the address used by our onion service to dial
+		// to lnd), so we don't have enough information
+		// to attempt a reconnect.
+		srvrLog.Debugf("Ignoring reconnection attempt "+
+			"to inbound peer %v without "+
+			"advertised address", p)
+		return
+
+	// We came across an error retrieving an advertised
+	// address, log it, and fall back to the existing peer
+	// address.
+	default:
+		srvrLog.Errorf("Unable to retrieve advertised "+
+			"address for node %x: %v", p.PubKey(),
+			err)
 	}
 
 	// Otherwise, we'll launch a new connection request in order to
@@ -3870,8 +3871,8 @@ func computeNextBackoff(currBackoff, maxBackoff time.Duration) time.Duration {
 // advertised address of a node, but they don't have one.
 var errNoAdvertisedAddr = errors.New("no advertised address found")
 
-// fetchNodeAdvertisedAddr attempts to fetch an advertised address of a node.
-func (s *server) fetchNodeAdvertisedAddr(pub *btcec.PublicKey) (net.Addr, error) {
+// fetchNodeAdvertisedAddrs attempts to fetch the advertised addresses of a node.
+func (s *server) fetchNodeAdvertisedAddrs(pub *btcec.PublicKey) ([]net.Addr, error) {
 	vertex, err := route.NewVertexFromBytes(pub.SerializeCompressed())
 	if err != nil {
 		return nil, err
@@ -3886,7 +3887,7 @@ func (s *server) fetchNodeAdvertisedAddr(pub *btcec.PublicKey) (net.Addr, error)
 		return nil, errNoAdvertisedAddr
 	}
 
-	return node.Addresses[0], nil
+	return node.Addresses, nil
 }
 
 // fetchLastChanUpdate returns a function which is able to retrieve our latest

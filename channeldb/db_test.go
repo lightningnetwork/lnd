@@ -661,7 +661,9 @@ func TestFetchChannels(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			channels, err := fetchChannels(cdb, test.filters...)
+			channels, err := fetchChannels(
+				&cdb.ChannelStateDB, test.filters...,
+			)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

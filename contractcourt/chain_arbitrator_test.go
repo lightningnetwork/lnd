@@ -49,7 +49,7 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 
 		// We manually set the db here to make sure all channels are
 		// synced to the same db.
-		channel.Db = db
+		channel.Db = &db.ChannelStateDB
 
 		addr := &net.TCPAddr{
 			IP:   net.ParseIP("127.0.0.1"),
@@ -165,7 +165,7 @@ func TestResolveContract(t *testing.T) {
 	}
 	defer cleanup()
 	channel := newChannel.State()
-	channel.Db = db
+	channel.Db = &db.ChannelStateDB
 	addr := &net.TCPAddr{
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18556,

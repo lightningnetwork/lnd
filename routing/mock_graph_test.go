@@ -159,8 +159,7 @@ func (m *mockGraph) addChannel(id uint64, node1id, node2id byte,
 //
 // NOTE: Part of the routingGraph interface.
 func (m *mockGraph) forEachNodeChannel(nodePub route.Vertex,
-	cb func(*channeldb.ChannelEdgeInfo, *channeldb.ChannelEdgePolicy,
-		*channeldb.ChannelEdgePolicy) error) error {
+	cb func(channel *channeldb.DirectedChannel) error) error {
 
 	// Look up the mock node.
 	node, ok := m.nodes[nodePub]
@@ -171,36 +170,38 @@ func (m *mockGraph) forEachNodeChannel(nodePub route.Vertex,
 	// Iterate over all of its channels.
 	for peer, channel := range node.channels {
 		// Lexicographically sort the pubkeys.
-		var node1, node2 route.Vertex
+		var node1 route.Vertex
 		if bytes.Compare(nodePub[:], peer[:]) == -1 {
-			node1, node2 = peer, nodePub
+			node1 = peer
 		} else {
-			node1, node2 = nodePub, peer
+			node1 = nodePub
 		}
 
 		peerNode := m.nodes[peer]
 
 		// Call the per channel callback.
 		err := cb(
-			&channeldb.ChannelEdgeInfo{
-				NodeKey1Bytes: node1,
-				NodeKey2Bytes: node2,
-			},
-			&channeldb.ChannelEdgePolicy{
+			&channeldb.DirectedChannel{
 				ChannelID: channel.id,
-				Node: &channeldb.LightningNode{
-					PubKeyBytes: peer,
-					Features:    lnwire.EmptyFeatureVector(),
+				IsNode1:   nodePub == node1,
+				OtherNode: peer,
+				Capacity:  channel.capacity,
+				OutPolicy: &channeldb.ChannelEdgePolicy{
+					ChannelID: channel.id,
+					Node: &channeldb.LightningNode{
+						PubKeyBytes: peer,
+						Features:    lnwire.EmptyFeatureVector(),
+					},
+					FeeBaseMSat: node.baseFee,
 				},
-				FeeBaseMSat: node.baseFee,
-			},
-			&channeldb.ChannelEdgePolicy{
-				ChannelID: channel.id,
-				Node: &channeldb.LightningNode{
-					PubKeyBytes: nodePub,
-					Features:    lnwire.EmptyFeatureVector(),
+				InPolicy: &channeldb.ChannelEdgePolicy{
+					ChannelID: channel.id,
+					Node: &channeldb.LightningNode{
+						PubKeyBytes: nodePub,
+						Features:    lnwire.EmptyFeatureVector(),
+					},
+					FeeBaseMSat: peerNode.baseFee,
 				},
-				FeeBaseMSat: peerNode.baseFee,
 			},
 		)
 		if err != nil {

@@ -64,6 +64,10 @@ type persistentPeer struct {
 	// backoff is the time that we should wait before trying to reconnect
 	// to a peer.
 	backoff time.Duration
+
+	// retryCanceller is used to cancel any retry attempts with backoffs
+	// that are still maturing.
+	retryCanceller chan struct{}
 }
 
 // connMgr is what the PersistentPeerManager will use to create and remove
@@ -237,24 +241,6 @@ func (m *PersistentPeerManager) updatePeerConn(pubKeyStr string,
 	}
 }
 
-// NextPeerBackoff calculates, sets and returns the next backoff duration for
-// a peer.
-func (m *PersistentPeerManager) NextPeerBackoff(pubKeyStr string,
-	startTime time.Time) time.Duration {
-
-	m.connsMu.Lock()
-	defer m.connsMu.Unlock()
-
-	peer, ok := m.conns[pubKeyStr]
-	if !ok {
-		return m.minBackoff
-	}
-
-	backoff := m.nextBackoff(peer.backoff, startTime)
-	peer.backoff = backoff
-	return backoff
-}
-
 // AddPeer adds a new persistent peer for which address updates will be kept
 // track of. The peer can be initialised with an initial set of addresses.
 func (m *PersistentPeerManager) AddPeer(pubKeyStr string,
@@ -363,6 +349,57 @@ func (m *PersistentPeerManager) ConnectPeer(pubKeyStr string) {
 	}
 }
 
+// ConnectPeerWithBackoff starts a connection attempt to the given peer after
+// the peer's backoff time has passed.
+func (m *PersistentPeerManager) ConnectPeerWithBackoff(pubKeyStr string,
+	startTime time.Time) {
+
+	m.connsMu.Lock()
+	defer m.connsMu.Unlock()
+
+	peer, ok := m.conns[pubKeyStr]
+	if !ok {
+		peerLog.Debugf(
+			"Peer %x is not a persistent peer."+
+				"Ignoring connection attempt", pubKeyStr,
+		)
+		return
+	}
+
+	// Initialize a retry canceller for this peer if one does not exist.
+	var cancelChan chan struct{}
+	if peer.retryCanceller == nil {
+		cancelChan = make(chan struct{})
+		peer.retryCanceller = cancelChan
+	} else {
+		cancelChan = peer.retryCanceller
+	}
+
+	peer.backoff = m.nextBackoff(peer.backoff, startTime)
+
+	// We choose not to wait group this go routine since the Connect call
+	// can stall for arbitrarily long if we shutdown while an outbound
+	// connection attempt is being made.
+	go func() {
+		peerLog.Debugf("Scheduling connection "+
+			"re-establishment to persistent peer %x in %s",
+			pubKeyStr, peer.backoff)
+
+		select {
+		case <-time.After(peer.backoff):
+		case <-cancelChan:
+			return
+		case <-m.quit:
+			return
+		}
+
+		peerLog.Debugf("Attempting to re-establish persistent "+
+			"connection to peer %x", pubKeyStr)
+
+		m.ConnectPeer(pubKeyStr)
+	}()
+}
+
 // UnassignedConnID is the default connection ID that a request can have before
 // it actually is submitted to the connmgr.
 // TODO(conner): move into connmgr package, or better, add connmgr method for
@@ -383,7 +420,18 @@ func (m *PersistentPeerManager) RemovePeerConns(pubKeyStr string,
 		return
 	}
 
-	// Check to see if we have any outstanding persistent connection
+	// First, cancel any lingering persistent retry attempts, which will
+	// prevent retries for any with backoffs that are still maturing.
+	select {
+	case _, ok := <-peer.retryCanceller:
+		if !ok {
+			break
+		}
+		close(peer.retryCanceller)
+	default:
+	}
+
+	// Next, check to see if we have any outstanding persistent connection
 	// requests to this peer. If so, then we'll remove all of these
 	// connection requests.
 	for _, cr := range peer.connReqs {

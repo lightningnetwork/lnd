@@ -698,9 +698,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	queryBandwidth := func(edge *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
-		cid := lnwire.NewChanIDFromOutPoint(&edge.ChannelPoint)
-		link, err := s.htlcSwitch.GetLink(cid)
+	queryBandwidth := func(c *channeldb.DirectedChannel) lnwire.MilliSatoshi {
+		cid := lnwire.NewShortChanIDFromInt(c.ChannelID)
+		link, err := s.htlcSwitch.GetLinkByShortID(cid)
 		if err != nil {
 			// If the link isn't online, then we'll report
 			// that it has zero bandwidth to the router.

@@ -334,7 +334,7 @@ type Config struct {
 	// a value of zero should be returned. Otherwise, the current up to
 	// date knowledge of the available bandwidth of the link should be
 	// returned.
-	QueryBandwidth func(edge *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi
+	QueryBandwidth func(*channeldb.DirectedChannel) lnwire.MilliSatoshi
 
 	// NextPaymentID is a method that guarantees to return a new, unique ID
 	// each time it is called. This is used by the router to generate a
@@ -1640,7 +1640,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 	// We'll attempt to obtain a set of bandwidth hints that can help us
 	// eliminate certain routes early on in the path finding process.
 	bandwidthHints, err := generateBandwidthHints(
-		r.selfNode, r.cfg.QueryBandwidth,
+		r.selfNode.PubKeyBytes, r.cfg.Graph, r.cfg.QueryBandwidth,
 	)
 	if err != nil {
 		return nil, err
@@ -2562,19 +2562,19 @@ func (r *ChannelRouter) MarkEdgeLive(chanID lnwire.ShortChannelID) error {
 // these hints allows us to reduce the number of extraneous attempts as we can
 // skip channels that are inactive, or just don't have enough bandwidth to
 // carry the payment.
-func generateBandwidthHints(sourceNode *channeldb.LightningNode,
-	queryBandwidth func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi) (map[uint64]lnwire.MilliSatoshi, error) {
+func generateBandwidthHints(sourceNode route.Vertex, graph *channeldb.ChannelGraph,
+	queryBandwidth func(*channeldb.DirectedChannel) lnwire.MilliSatoshi) (
+	map[uint64]lnwire.MilliSatoshi, error) {
 
 	// First, we'll collect the set of outbound edges from the target
 	// source node.
-	var localChans []*channeldb.ChannelEdgeInfo
-	err := sourceNode.ForEachChannel(nil, func(tx kvdb.RTx,
-		edgeInfo *channeldb.ChannelEdgeInfo,
-		_, _ *channeldb.ChannelEdgePolicy) error {
-
-		localChans = append(localChans, edgeInfo)
-		return nil
-	})
+	var localChans []*channeldb.DirectedChannel
+	err := graph.ForEachNodeChannel(
+		sourceNode, func(channel *channeldb.DirectedChannel) error {
+			localChans = append(localChans, channel)
+			return nil
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2627,7 +2627,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	// We'll attempt to obtain a set of bandwidth hints that helps us select
 	// the best outgoing channel to use in case no outgoing channel is set.
 	bandwidthHints, err := generateBandwidthHints(
-		r.selfNode, r.cfg.QueryBandwidth,
+		r.selfNode.PubKeyBytes, r.cfg.Graph, r.cfg.QueryBandwidth,
 	)
 	if err != nil {
 		return nil, err

@@ -127,9 +127,9 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	sessionSource := &SessionSource{
 		Graph: graphInstance.graph,
 		QueryBandwidth: func(
-			e *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
+			c *channeldb.DirectedChannel) lnwire.MilliSatoshi {
 
-			return lnwire.NewMSatFromSatoshis(e.Capacity)
+			return lnwire.NewMSatFromSatoshis(c.Capacity)
 		},
 		PathFindingConfig: pathFindingConfig,
 		MissionControl:    mc,
@@ -146,7 +146,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 		ChannelPruneExpiry: time.Hour * 24,
 		GraphPruneInterval: time.Hour * 2,
 		QueryBandwidth: func(
-			e *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
+			e *channeldb.DirectedChannel) lnwire.MilliSatoshi {
 
 			return lnwire.NewMSatFromSatoshis(e.Capacity)
 		},

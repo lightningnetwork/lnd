@@ -1394,6 +1394,144 @@ func buildRoute(ctx *cli.Context) error {
 	return nil
 }
 
+var deletePaymentsCommand = cli.Command{
+	Name:     "deletepayments",
+	Category: "Payments",
+	Usage:    "Delete a single or multiple payments from the database.",
+	ArgsUsage: "--all [--failed_htlcs_only --include_non_failed] | " +
+		"--payment_hash hash [--failed_htlcs_only]",
+	Description: `
+	This command either deletes all failed payments or a single payment from
+	the database to reclaim disk space.
+
+	If the --all flag is used, then all failed payments are removed. If so
+	desired, _ALL_ payments (even the successful ones) can be deleted
+	by additionally specifying --include_non_failed.
+
+	If a --payment_hash is specified, that single payment is deleted,
+	independent of its state.
+
+	If --failed_htlcs_only is specified then the payments themselves (or the
+	single payment itself if used with --payment_hash) is not deleted, only
+	the information about any failed HTLC attempts during the payment.
+
+	NOTE: Removing payments from the database does free up disk space within
+	the internal bbolt database. But that disk space is only reclaimed after
+	compacting the database. Users might want to turn on auto compaction
+	(db.bolt.auto-compact=true in the config file or --db.bolt.auto-compact
+	as a command line flag) and restart lnd after deleting a large number of
+	payments to see a reduction in the file size of the channel.db file.
+	`,
+	Action: actionDecorator(deletePayments),
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:  "all",
+			Usage: "delete all failed payments",
+		},
+		cli.StringFlag{
+			Name: "payment_hash",
+			Usage: "delete a specific payment identified by its " +
+				"payment hash",
+		},
+		cli.BoolFlag{
+			Name: "failed_htlcs_only",
+			Usage: "only delete failed HTLCs from payments, not " +
+				"the payment itself",
+		},
+		cli.BoolFlag{
+			Name:  "include_non_failed",
+			Usage: "delete ALL payments, not just the failed ones",
+		},
+	},
+}
+
+func deletePayments(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	// Show command help if arguments or no flags are provided.
+	if ctx.NArg() > 0 || ctx.NumFlags() == 0 {
+		_ = cli.ShowCommandHelp(ctx, "deletepayments")
+		return nil
+	}
+
+	var (
+		paymentHash      []byte
+		all              = ctx.Bool("all")
+		singlePayment    = ctx.IsSet("payment_hash")
+		failedHTLCsOnly  = ctx.Bool("failed_htlcs_only")
+		includeNonFailed = ctx.Bool("include_non_failed")
+		err              error
+		okMsg            = struct {
+			OK bool `json:"ok"`
+		}{
+			OK: true,
+		}
+	)
+
+	// We pack two RPCs into the same CLI so there are a few non-valid
+	// combinations of the flags we need to filter out.
+	switch {
+	case all && singlePayment:
+		return fmt.Errorf("cannot use --all and --payment_hash at " +
+			"the same time")
+
+	case singlePayment && includeNonFailed:
+		return fmt.Errorf("cannot use --payment_hash and " +
+			"--include_non_failed at the same time, when using " +
+			"a payment hash the payment is deleted independent " +
+			"of its state")
+	}
+
+	// Deleting a single payment is implemented in a different RPC than
+	// removing all/multiple payments.
+	switch {
+	case singlePayment:
+		paymentHash, err = hex.DecodeString(ctx.String("payment_hash"))
+		if err != nil {
+			return fmt.Errorf("error decoding payment_hash: %v",
+				err)
+		}
+
+		_, err = client.DeletePayment(ctxc, &lnrpc.DeletePaymentRequest{
+			PaymentHash:     paymentHash,
+			FailedHtlcsOnly: failedHTLCsOnly,
+		})
+		if err != nil {
+			return fmt.Errorf("error deleting single payment: %v",
+				err)
+		}
+
+	case all:
+		what := "failed"
+		if includeNonFailed {
+			what = "all"
+		}
+		if failedHTLCsOnly {
+			what = fmt.Sprintf("failed HTLCs from %s", what)
+		}
+
+		fmt.Printf("Removing %s payments, this might take a while...\n",
+			what)
+		_, err = client.DeleteAllPayments(
+			ctxc, &lnrpc.DeleteAllPaymentsRequest{
+				FailedPaymentsOnly: !includeNonFailed,
+				FailedHtlcsOnly:    failedHTLCsOnly,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("error deleting payments: %v", err)
+		}
+	}
+
+	// Users are confused by empty JSON outputs so let's return a simple OK
+	// instead of just printing the empty response RPC message.
+	printJSON(okMsg)
+
+	return nil
+}
+
 // ESC is the ASCII code for escape character
 const ESC = 27
 

@@ -338,6 +338,11 @@ you.
   write deadline that caused connections to suddenly break was also fixed in the
   same PR.
 
+* A bug has been fixed that would result in nodes not [reconnecting to their
+  persistent outbound peers if the peer's IP
+  address changed](https://github.com/lightningnetwork/lnd/pull/5700).
+  This has been accompanied by a refactor of persistent peer management.
+
 ## Documentation 
 
 The [code contribution guidelines have been updated to mention the new
@@ -348,6 +353,7 @@ change](https://github.com/lightningnetwork/lnd/pull/5613).
 * Alyssa Hertig
 * Andras Banki-Horvath
 * de6df1re
+* Elle Mouton
 * ErikEk
 * Eugene Siegel
 * Harsha Goli

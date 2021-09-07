@@ -272,6 +272,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18556,
 	}
+	packagerSource := lnwire.NewChanIDFromOutPoint(prevOut)
 
 	aliceCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
@@ -307,7 +308,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		RemoteCommitment:        aliceCommit,
 		ShortChannelID:          chanID,
 		Db:                      dbAlice,
-		Packager:                channeldb.NewChannelPackager(chanID),
+		Packager:                channeldb.NewChannelPackager(packagerSource),
 		FundingTxn:              channels.TestFundingTx,
 	}
 
@@ -326,7 +327,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		RemoteCommitment:        bobCommit,
 		ShortChannelID:          chanID,
 		Db:                      dbBob,
-		Packager:                channeldb.NewChannelPackager(chanID),
+		Packager:                channeldb.NewChannelPackager(packagerSource),
 	}
 
 	if err := aliceChannelState.SyncPending(bobAddr, broadcastHeight); err != nil {

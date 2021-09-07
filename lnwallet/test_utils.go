@@ -93,6 +93,8 @@ var (
 		0xc5, 0x6c, 0xbb, 0xac, 0x46, 0x22, 0x08, 0x22,
 		0x21, 0xa8, 0x76, 0x8d, 0x1d, 0x09,
 	}
+
+	testChannelCapacity float64 = 10
 )
 
 // CreateTestChannels creates to fully populated channels to be used within
@@ -106,7 +108,7 @@ var (
 func CreateTestChannels(chanType channeldb.ChannelType) (
 	*LightningChannel, *LightningChannel, func(), error) {
 
-	channelCapacity, err := btcutil.NewAmount(10)
+	channelCapacity, err := btcutil.NewAmount(testChannelCapacity)
 	if err != nil {
 		return nil, nil, nil, err
 	}

@@ -86,8 +86,10 @@ type ChannelUpdateHandler interface {
 	EligibleToForward() bool
 
 	// MayAddOutgoingHtlc returns an error if we may not add an outgoing
-	// htlc to the channel.
-	MayAddOutgoingHtlc() error
+	// htlc to the channel. This check does not reserve a space, since
+	// forwards or other payments may use the available slot, so it should
+	// be considered best effort.
+	MayAddOutgoingHtlc(amt lnwire.MilliSatoshi) error
 }
 
 // ChannelLink is an interface which represents the subsystem for managing the

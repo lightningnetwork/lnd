@@ -258,7 +258,7 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB, 
 		dryRun:  opts.dryRun,
 	}
 	chanDB.graph = newChannelGraph(
-		chanDB, opts.RejectCacheSize, opts.ChannelCacheSize,
+		backend, opts.RejectCacheSize, opts.ChannelCacheSize,
 		opts.BatchCommitInterval,
 	)
 

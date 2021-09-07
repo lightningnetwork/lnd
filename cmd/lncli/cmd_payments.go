@@ -18,6 +18,7 @@ import (
 	"github.com/jedib0t/go-pretty/table"
 	"github.com/jedib0t/go-pretty/text"
 	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -983,6 +984,412 @@ func sendToRouteRequest(ctx *cli.Context, req *routerrpc.SendToRouteRequest) err
 	}
 
 	printRespJSON(resp)
+
+	return nil
+}
+
+var queryRoutesCommand = cli.Command{
+	Name:        "queryroutes",
+	Category:    "Payments",
+	Usage:       "Query a route to a destination.",
+	Description: "Queries the channel router for a potential path to the destination that has sufficient flow for the amount including fees",
+	ArgsUsage:   "dest amt",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "dest",
+			Usage: "the 33-byte hex-encoded public key for the payment " +
+				"destination",
+		},
+		cli.Int64Flag{
+			Name:  "amt",
+			Usage: "the amount to send expressed in satoshis",
+		},
+		cli.Int64Flag{
+			Name: "fee_limit",
+			Usage: "maximum fee allowed in satoshis when sending " +
+				"the payment",
+		},
+		cli.Int64Flag{
+			Name: "fee_limit_percent",
+			Usage: "percentage of the payment's amount used as the " +
+				"maximum fee allowed when sending the payment",
+		},
+		cli.Int64Flag{
+			Name: "final_cltv_delta",
+			Usage: "(optional) number of blocks the last hop has to reveal " +
+				"the preimage",
+		},
+		cli.BoolFlag{
+			Name:  "use_mc",
+			Usage: "use mission control probabilities",
+		},
+		cli.Uint64Flag{
+			Name: "outgoing_chanid",
+			Usage: "(optional) the channel id of the channel " +
+				"that must be taken to the first hop",
+		},
+		cltvLimitFlag,
+	},
+	Action: actionDecorator(queryRoutes),
+}
+
+func queryRoutes(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	var (
+		dest string
+		amt  int64
+		err  error
+	)
+
+	args := ctx.Args()
+
+	switch {
+	case ctx.IsSet("dest"):
+		dest = ctx.String("dest")
+	case args.Present():
+		dest = args.First()
+		args = args.Tail()
+	default:
+		return fmt.Errorf("dest argument missing")
+	}
+
+	switch {
+	case ctx.IsSet("amt"):
+		amt = ctx.Int64("amt")
+	case args.Present():
+		amt, err = strconv.ParseInt(args.First(), 10, 64)
+		if err != nil {
+			return fmt.Errorf("unable to decode amt argument: %v", err)
+		}
+	default:
+		return fmt.Errorf("amt argument missing")
+	}
+
+	feeLimit, err := retrieveFeeLimitLegacy(ctx)
+	if err != nil {
+		return err
+	}
+
+	req := &lnrpc.QueryRoutesRequest{
+		PubKey:            dest,
+		Amt:               amt,
+		FeeLimit:          feeLimit,
+		FinalCltvDelta:    int32(ctx.Int("final_cltv_delta")),
+		UseMissionControl: ctx.Bool("use_mc"),
+		CltvLimit:         uint32(ctx.Uint64(cltvLimitFlag.Name)),
+		OutgoingChanId:    ctx.Uint64("outgoing_chanid"),
+	}
+
+	route, err := client.QueryRoutes(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(route)
+	return nil
+}
+
+// retrieveFeeLimitLegacy retrieves the fee limit based on the different fee
+// limit flags passed. This function will eventually disappear in favor of
+// retrieveFeeLimit and the new payment rpc.
+func retrieveFeeLimitLegacy(ctx *cli.Context) (*lnrpc.FeeLimit, error) {
+	switch {
+	case ctx.IsSet("fee_limit") && ctx.IsSet("fee_limit_percent"):
+		return nil, fmt.Errorf("either fee_limit or fee_limit_percent " +
+			"can be set, but not both")
+	case ctx.IsSet("fee_limit"):
+		return &lnrpc.FeeLimit{
+			Limit: &lnrpc.FeeLimit_Fixed{
+				Fixed: ctx.Int64("fee_limit"),
+			},
+		}, nil
+	case ctx.IsSet("fee_limit_percent"):
+		feeLimitPercent := ctx.Int64("fee_limit_percent")
+		if feeLimitPercent < 0 {
+			return nil, errors.New("negative fee limit percentage " +
+				"provided")
+		}
+		return &lnrpc.FeeLimit{
+			Limit: &lnrpc.FeeLimit_Percent{
+				Percent: feeLimitPercent,
+			},
+		}, nil
+	}
+
+	// Since the fee limit flags aren't required, we don't return an error
+	// if they're not set.
+	return nil, nil
+}
+
+var listPaymentsCommand = cli.Command{
+	Name:     "listpayments",
+	Category: "Payments",
+	Usage:    "List all outgoing payments.",
+	Description: "This command enables the retrieval of payments stored " +
+		"in the database. Pagination is supported by the usage of " +
+		"index_offset in combination with the paginate_forwards flag. " +
+		"Reversed pagination is enabled by default to receive " +
+		"current payments first. Pagination can be resumed by using " +
+		"the returned last_index_offset (for forwards order), or " +
+		"first_index_offset (for reversed order) as the offset_index. ",
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name: "include_incomplete",
+			Usage: "if set to true, payments still in flight (or " +
+				"failed) will be returned as well, keeping" +
+				"indices for payments the same as without " +
+				"the flag",
+		},
+		cli.UintFlag{
+			Name: "index_offset",
+			Usage: "The index of a payment that will be used as " +
+				"either the start (in forwards mode) or end " +
+				"(in reverse mode) of a query to determine " +
+				"which payments should be returned in the " +
+				"response, where the index_offset is " +
+				"excluded. If index_offset is set to zero in " +
+				"reversed mode, the query will end with the " +
+				"last payment made.",
+		},
+		cli.UintFlag{
+			Name: "max_payments",
+			Usage: "the max number of payments to return, by " +
+				"default, all completed payments are returned",
+		},
+		cli.BoolFlag{
+			Name: "paginate_forwards",
+			Usage: "if set, payments succeeding the " +
+				"index_offset will be returned, allowing " +
+				"forwards pagination",
+		},
+	},
+	Action: actionDecorator(listPayments),
+}
+
+func listPayments(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	req := &lnrpc.ListPaymentsRequest{
+		IncludeIncomplete: ctx.Bool("include_incomplete"),
+		IndexOffset:       uint64(ctx.Uint("index_offset")),
+		MaxPayments:       uint64(ctx.Uint("max_payments")),
+		Reversed:          !ctx.Bool("paginate_forwards"),
+	}
+
+	payments, err := client.ListPayments(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(payments)
+	return nil
+}
+
+var forwardingHistoryCommand = cli.Command{
+	Name:      "fwdinghistory",
+	Category:  "Payments",
+	Usage:     "Query the history of all forwarded HTLCs.",
+	ArgsUsage: "start_time [end_time] [index_offset] [max_events]",
+	Description: `
+	Query the HTLC switch's internal forwarding log for all completed
+	payment circuits (HTLCs) over a particular time range (--start_time and
+	--end_time). The start and end times are meant to be expressed in
+	seconds since the Unix epoch.
+	Alternatively negative time ranges can be used, e.g. "-3d". Supports
+	s(seconds), m(minutes), h(ours), d(ays), w(eeks), M(onths), y(ears).
+	Month equals 30.44 days, year equals 365.25 days.
+	If --start_time isn't provided, then 24 hours ago is used. If
+	--end_time isn't provided, then the current time is used.
+
+	The max number of events returned is 50k. The default number is 100,
+	callers can use the --max_events param to modify this value.
+
+	Finally, callers can skip a series of events using the --index_offset
+	parameter. Each response will contain the offset index of the last
+	entry. Using this callers can manually paginate within a time slice.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "start_time",
+			Usage: "the starting time for the query " +
+				`as unix timestamp or relative e.g. "-1w"`,
+		},
+		cli.StringFlag{
+			Name: "end_time",
+			Usage: "the end time for the query " +
+				`as unix timestamp or relative e.g. "-1w"`,
+		},
+		cli.Int64Flag{
+			Name:  "index_offset",
+			Usage: "the number of events to skip",
+		},
+		cli.Int64Flag{
+			Name:  "max_events",
+			Usage: "the max number of events to return",
+		},
+	},
+	Action: actionDecorator(forwardingHistory),
+}
+
+func forwardingHistory(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	var (
+		startTime, endTime     uint64
+		indexOffset, maxEvents uint32
+		err                    error
+	)
+	args := ctx.Args()
+	now := time.Now()
+
+	switch {
+	case ctx.IsSet("start_time"):
+		startTime, err = parseTime(ctx.String("start_time"), now)
+	case args.Present():
+		startTime, err = parseTime(args.First(), now)
+		args = args.Tail()
+	default:
+		now := time.Now()
+		startTime = uint64(now.Add(-time.Hour * 24).Unix())
+	}
+	if err != nil {
+		return fmt.Errorf("unable to decode start_time: %v", err)
+	}
+
+	switch {
+	case ctx.IsSet("end_time"):
+		endTime, err = parseTime(ctx.String("end_time"), now)
+	case args.Present():
+		endTime, err = parseTime(args.First(), now)
+		args = args.Tail()
+	default:
+		endTime = uint64(now.Unix())
+	}
+	if err != nil {
+		return fmt.Errorf("unable to decode end_time: %v", err)
+	}
+
+	switch {
+	case ctx.IsSet("index_offset"):
+		indexOffset = uint32(ctx.Int64("index_offset"))
+	case args.Present():
+		i, err := strconv.ParseInt(args.First(), 10, 64)
+		if err != nil {
+			return fmt.Errorf("unable to decode index_offset: %v", err)
+		}
+		indexOffset = uint32(i)
+		args = args.Tail()
+	}
+
+	switch {
+	case ctx.IsSet("max_events"):
+		maxEvents = uint32(ctx.Int64("max_events"))
+	case args.Present():
+		m, err := strconv.ParseInt(args.First(), 10, 64)
+		if err != nil {
+			return fmt.Errorf("unable to decode max_events: %v", err)
+		}
+		maxEvents = uint32(m)
+		args = args.Tail()
+	}
+
+	req := &lnrpc.ForwardingHistoryRequest{
+		StartTime:    startTime,
+		EndTime:      endTime,
+		IndexOffset:  indexOffset,
+		NumMaxEvents: maxEvents,
+	}
+	resp, err := client.ForwardingHistory(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var buildRouteCommand = cli.Command{
+	Name:     "buildroute",
+	Category: "Payments",
+	Usage:    "Build a route from a list of hop pubkeys.",
+	Action:   actionDecorator(buildRoute),
+	Flags: []cli.Flag{
+		cli.Int64Flag{
+			Name: "amt",
+			Usage: "the amount to send expressed in satoshis. If" +
+				"not set, the minimum routable amount is used",
+		},
+		cli.Int64Flag{
+			Name: "final_cltv_delta",
+			Usage: "number of blocks the last hop has to reveal " +
+				"the preimage",
+			Value: chainreg.DefaultBitcoinTimeLockDelta,
+		},
+		cli.StringFlag{
+			Name:  "hops",
+			Usage: "comma separated hex pubkeys",
+		},
+		cli.Uint64Flag{
+			Name: "outgoing_chan_id",
+			Usage: "short channel id of the outgoing channel to " +
+				"use for the first hop of the payment",
+			Value: 0,
+		},
+	},
+}
+
+func buildRoute(ctx *cli.Context) error {
+	ctxc := getContext()
+	conn := getClientConn(ctx, false)
+	defer conn.Close()
+
+	client := routerrpc.NewRouterClient(conn)
+
+	if !ctx.IsSet("hops") {
+		return errors.New("hops required")
+	}
+
+	// Build list of hop addresses for the rpc.
+	hops := strings.Split(ctx.String("hops"), ",")
+	rpcHops := make([][]byte, 0, len(hops))
+	for _, k := range hops {
+		pubkey, err := route.NewVertexFromStr(k)
+		if err != nil {
+			return fmt.Errorf("error parsing %v: %v", k, err)
+		}
+		rpcHops = append(rpcHops, pubkey[:])
+	}
+
+	var amtMsat int64
+	hasAmt := ctx.IsSet("amt")
+	if hasAmt {
+		amtMsat = ctx.Int64("amt") * 1000
+		if amtMsat == 0 {
+			return fmt.Errorf("non-zero amount required")
+		}
+	}
+
+	// Call BuildRoute rpc.
+	req := &routerrpc.BuildRouteRequest{
+		AmtMsat:        amtMsat,
+		FinalCltvDelta: int32(ctx.Int64("final_cltv_delta")),
+		HopPubkeys:     rpcHops,
+		OutgoingChanId: ctx.Uint64("outgoing_chan_id"),
+	}
+
+	route, err := client.BuildRoute(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(route)
 
 	return nil
 }

@@ -1501,7 +1501,10 @@ func syncNewChannel(tx kvdb.RwTx, c *OpenChannel, addrs []net.Addr) error {
 	// Next, we need to establish a (possibly) new LinkNode relationship
 	// for this channel. The LinkNode metadata contains reachability,
 	// up-time, and service bits related information.
-	linkNode := c.Db.NewLinkNode(wire.MainNet, c.IdentityPub, addrs...)
+	linkNode := NewLinkNode(
+		LinkNodeDB{c.Db.Backend},
+		wire.MainNet, c.IdentityPub, addrs...,
+	)
 
 	// TODO(roasbeef): do away with link node all together?
 

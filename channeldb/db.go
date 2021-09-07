@@ -206,6 +206,9 @@ var (
 type DB struct {
 	kvdb.Backend
 
+	// LinkNodeDB separates all DB operations on LinkNodes.
+	LinkNodeDB
+
 	dbPath string
 	graph  *ChannelGraph
 	clock  clock.Clock
@@ -254,9 +257,13 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB, 
 
 	chanDB := &DB{
 		Backend: backend,
-		clock:   opts.clock,
-		dryRun:  opts.dryRun,
+		LinkNodeDB: LinkNodeDB{
+			backend,
+		},
+		clock:  opts.clock,
+		dryRun: opts.dryRun,
 	}
+
 	chanDB.graph = newChannelGraph(
 		backend, opts.RejectCacheSize, opts.ChannelCacheSize,
 		opts.BatchCommitInterval,
@@ -971,14 +978,14 @@ func (d *DB) pruneLinkNode(tx kvdb.RwTx, remotePub *btcec.PublicKey) error {
 	log.Infof("Pruning link node %x with zero open channels from database",
 		remotePub.SerializeCompressed())
 
-	return d.deleteLinkNode(tx, remotePub)
+	return deleteLinkNode(tx, remotePub)
 }
 
 // PruneLinkNodes attempts to prune all link nodes found within the databse with
 // whom we no longer have any open channels with.
 func (d *DB) PruneLinkNodes() error {
 	return kvdb.Update(d, func(tx kvdb.RwTx) error {
-		linkNodes, err := d.fetchAllLinkNodes(tx)
+		linkNodes, err := fetchAllLinkNodes(tx)
 		if err != nil {
 			return err
 		}

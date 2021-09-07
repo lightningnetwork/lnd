@@ -70,10 +70,13 @@ jobs:
       script:
         - make itest-parallel backend=neutrino
 
-    - name: Btcd Integration ARM
+    - name: Bitcoind Integration ARM
       script:
-        - GOARM=7 GOARCH=arm GOOS=linux make itest-parallel
+        - bash ./scripts/install_bitcoind.sh
+        - GOARM=7 GOARCH=arm GOOS=linux make itest-parallel backend=bitcoind
       arch: arm64
+      services:
+        - docker
 
     - name: Btcd Integration Windows
       script:

@@ -8014,6 +8014,10 @@ func TestChannelMaxFeeRate(t *testing.T) {
 				"allocation of %v, got %v", expFeeRate,
 				maxAlloc, maxFeeRate)
 		}
+
+		if err := c.validateFeeRate(maxFeeRate); err != nil {
+			t.Fatalf("fee rate validation failed: %v", err)
+		}
 	}
 
 	aliceChannel, _, cleanUp, err := CreateTestChannels(

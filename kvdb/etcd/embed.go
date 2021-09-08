@@ -60,8 +60,8 @@ func getFreePort() int {
 // NewEmbeddedEtcdInstance creates an embedded etcd instance for testing,
 // listening on random open ports. Returns the backend config and a cleanup
 // func that will stop the etcd instance.
-func NewEmbeddedEtcdInstance(path string, clientPort, peerPort uint16) (
-	*Config, func(), error) {
+func NewEmbeddedEtcdInstance(path string, clientPort, peerPort uint16,
+	logFile string) (*Config, func(), error) {
 
 	cfg := embed.NewConfig()
 	cfg.Dir = path
@@ -70,7 +70,12 @@ func NewEmbeddedEtcdInstance(path string, clientPort, peerPort uint16) (
 	cfg.MaxTxnOps = 8192
 	cfg.MaxRequestBytes = 16384 * 1024
 	cfg.Logger = "zap"
-	cfg.LogLevel = "error"
+	if logFile != "" {
+		cfg.LogLevel = "info"
+		cfg.LogOutputs = []string{logFile}
+	} else {
+		cfg.LogLevel = "error"
+	}
 
 	// Listen on random free ports if no ports were specified.
 	if clientPort == 0 {

@@ -70,7 +70,7 @@ func testEtcdFailoverCase(net *lntest.NetworkHarness, ht *harnessTest,
 	tmpDir, err := ioutil.TempDir("", "etcd")
 	etcdCfg, cleanup, err := kvdb.StartEtcdTestBackend(
 		tmpDir, uint16(lntest.NextAvailablePort()),
-		uint16(lntest.NextAvailablePort()),
+		uint16(lntest.NextAvailablePort()), "",
 	)
 	if err != nil {
 		ht.Fatalf("Failed to start etcd instance: %v", err)

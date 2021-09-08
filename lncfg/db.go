@@ -92,7 +92,7 @@ func (db *DB) Init(ctx context.Context, dbPath string) error {
 	if db.Backend == EtcdBackend && db.Etcd.Embedded {
 		cfg, _, err := kvdb.StartEtcdTestBackend(
 			dbPath, db.Etcd.EmbeddedClientPort,
-			db.Etcd.EmbeddedPeerPort,
+			db.Etcd.EmbeddedPeerPort, db.Etcd.EmbeddedLogFile,
 		)
 		if err != nil {
 			return err

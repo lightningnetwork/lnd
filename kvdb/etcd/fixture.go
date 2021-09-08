@@ -34,7 +34,7 @@ type EtcdTestFixture struct {
 func NewTestEtcdInstance(t *testing.T, path string) (*Config, func()) {
 	t.Helper()
 
-	config, cleanup, err := NewEmbeddedEtcdInstance(path, 0, 0)
+	config, cleanup, err := NewEmbeddedEtcdInstance(path, 0, 0, "")
 	if err != nil {
 		t.Fatalf("error while staring embedded etcd instance: %v", err)
 	}

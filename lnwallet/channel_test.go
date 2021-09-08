@@ -8024,9 +8024,9 @@ func TestChannelMaxFeeRate(t *testing.T) {
 	}
 	defer cleanUp()
 
-	assertMaxFeeRate(aliceChannel, 1.0, 0, 690607734)
-	assertMaxFeeRate(aliceChannel, 0.001, 0, 690607)
-	assertMaxFeeRate(aliceChannel, 0.000001, 0, 690)
+	assertMaxFeeRate(aliceChannel, 1.0, 0, 676794154)
+	assertMaxFeeRate(aliceChannel, 0.001, 0, 676794)
+	assertMaxFeeRate(aliceChannel, 0.000001, 0, 676)
 	assertMaxFeeRate(aliceChannel, 0.0000001, 0, chainfee.FeePerKwFloor)
 
 	// Check that anchor channels are capped at their max fee rate.
@@ -8044,9 +8044,9 @@ func TestChannelMaxFeeRate(t *testing.T) {
 		anchorChannel, 1.0, chainfee.FeePerKwFloor,
 		chainfee.FeePerKwFloor,
 	)
-	assertMaxFeeRate(anchorChannel, 0.001, 1000000, 444839)
+	assertMaxFeeRate(anchorChannel, 0.001, 1000000, 435941)
 	assertMaxFeeRate(anchorChannel, 0.001, 300000, 300000)
-	assertMaxFeeRate(anchorChannel, 0.000001, 700, 444)
+	assertMaxFeeRate(anchorChannel, 0.000001, 700, 435)
 	assertMaxFeeRate(
 		anchorChannel, 0.0000001, 1000000, chainfee.FeePerKwFloor,
 	)

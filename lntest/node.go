@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -324,6 +325,12 @@ func (cfg NodeConfig) genArgs() []string {
 				NextAvailablePort(),
 			),
 		)
+		args = append(
+			args, fmt.Sprintf(
+				"--db.etcd.embedded_log_file=%v",
+				path.Join(cfg.LogDir, "etcd.log"),
+			),
+		)
 	}
 
 	if cfg.FeeURL != "" {
@@ -558,6 +565,15 @@ func (hn *HarnessNode) InvoiceMacPath() string {
 	return hn.Cfg.InvoiceMacPath
 }
 
+// renameFile is a helper to rename (log) files created during integration tests.
+func renameFile(fromFileName, toFileName string) {
+	err := os.Rename(fromFileName, toFileName)
+	if err != nil {
+		fmt.Printf("could not rename %s to %s: %v\n",
+			fromFileName, toFileName, err)
+	}
+}
+
 // Start launches a new process running lnd. Additionally, the PID of the
 // launched process is saved in order to possibly kill the process forcibly
 // later.
@@ -584,6 +600,30 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
 		}
 	}
 
+	getFinalizedLogFilePrefix := func() string {
+		pubKeyHex := hex.EncodeToString(
+			hn.PubKey[:logPubKeyBytes],
+		)
+
+		return fmt.Sprintf("%s/%d-%s-%s-%s",
+			GetLogDir(), hn.NodeID,
+			hn.Cfg.LogFilenamePrefix,
+			hn.Cfg.Name, pubKeyHex)
+	}
+
+	finalizeEtcdLog := func() {
+		if hn.Cfg.DbBackend != BackendEtcd {
+			return
+		}
+
+		etcdLogFileName := fmt.Sprintf("%s/etcd.log", hn.Cfg.LogDir)
+		newEtcdLogFileName := fmt.Sprintf("%v-etcd.log",
+			getFinalizedLogFilePrefix(),
+		)
+
+		renameFile(etcdLogFileName, newEtcdLogFileName)
+	}
+
 	// If the logoutput flag is passed, redirect output from the nodes to
 	// log files.
 	if *logOutput {
@@ -600,29 +640,19 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
 			fileName = fmt.Sprintf("%s/%d-%s-%s-tmp__.log", dir,
 				hn.NodeID, hn.Cfg.LogFilenamePrefix,
 				hn.Cfg.Name)
+		}
 
-			// Once the node has done its work, the log file can be
-			// renamed.
-			finalizeLogfile = func() {
-				if hn.logFile != nil {
-					hn.logFile.Close()
+		// Once the node has done its work, the log file can be
+		// renamed.
+		finalizeLogfile = func() {
+			if hn.logFile != nil {
+				hn.logFile.Close()
 
-					pubKeyHex := hex.EncodeToString(
-						hn.PubKey[:logPubKeyBytes],
-					)
-					newFileName := fmt.Sprintf("%s/"+
-						"%d-%s-%s-%s.log",
-						dir, hn.NodeID,
-						hn.Cfg.LogFilenamePrefix,
-						hn.Cfg.Name, pubKeyHex)
-					err := os.Rename(fileName, newFileName)
-					if err != nil {
-						fmt.Printf("could not rename "+
-							"%s to %s: %v\n",
-							fileName, newFileName,
-							err)
-					}
-				}
+				newFileName := fmt.Sprintf("%v.log",
+					getFinalizedLogFilePrefix(),
+				)
+
+				renameFile(fileName, newFileName)
 			}
 		}
 
@@ -666,6 +696,10 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
 
 		// Make sure log file is closed and renamed if necessary.
 		finalizeLogfile()
+
+		// Rename the etcd.log file if the node was running on embedded
+		// etcd.
+		finalizeEtcdLog()
 	}()
 
 	// Write process ID to a file.

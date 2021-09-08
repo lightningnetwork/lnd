@@ -6821,7 +6821,10 @@ func (lc *LightningChannel) validateFeeRate(feePerKw chainfee.SatPerKWeight) err
 	// be above our reserve balance. Otherwise, we'll reject the fee
 	// update.
 	availableBalance, txWeight := lc.availableBalance()
-	oldFee := lnwire.NewMSatFromSatoshis(lc.localCommitChain.tip().fee)
+
+	oldFee := lnwire.NewMSatFromSatoshis(
+		lc.localCommitChain.tip().feePerKw.FeeForWeight(txWeight),
+	)
 
 	// Our base balance is the total amount of satoshis we can commit
 	// towards fees before factoring in the channel reserve.
@@ -6841,17 +6844,6 @@ func (lc *LightningChannel) validateFeeRate(feePerKw chainfee.SatPerKWeight) err
 		return fmt.Errorf("cannot apply fee_update=%v sat/kw, new fee "+
 			"of %v is greater than balance of %v", int64(feePerKw),
 			newFee, baseBalance)
-	}
-
-	// If this new balance is below our reserve, then we can't accommodate
-	// the fee change, so we'll reject it.
-	balanceAfterFee := baseBalance - newFee
-	if balanceAfterFee.ToSatoshis() < lc.channelState.LocalChanCfg.ChanReserve {
-		return fmt.Errorf("cannot apply fee_update=%v sat/kw, "+
-			"new balance=%v would dip below channel reserve=%v",
-			int64(feePerKw),
-			balanceAfterFee.ToSatoshis(),
-			lc.channelState.LocalChanCfg.ChanReserve)
 	}
 
 	// TODO(halseth): should fail if fee update is unreasonable,

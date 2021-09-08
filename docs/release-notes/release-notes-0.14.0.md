@@ -211,6 +211,13 @@ you.
   to make it less likely that we retry etcd transactions and make the commit
   queue more scalable.
 
+* [Flatten the payment-htlcs-bucket](https://github.com/lightningnetwork/lnd/pull/5635)
+  in order to make it possible to prefetch all htlc attempts of a payment in one
+  DB operation. Migration may fail for extremely large DBs with many payments
+  (10+ million). Be careful and backup your `channel.db` if you have that many
+  payments. Deleting all failed payments beforehand makes migration safer and
+  faster too.
+
 ## Performance improvements
 
 * [Update MC store in blocks](https://github.com/lightningnetwork/lnd/pull/5515)

@@ -152,6 +152,10 @@ you.
   into projects that are compiled to WASM binaries. [That problem was fixed by
   guarding those syscalls with build tags](https://github.com/lightningnetwork/lnd/pull/5526).
 
+* The only way to retrieve hophints for a given node was to create an invoice
+  with the `addInvoice` rpc interface. However, now the function has been
+  [exposed in the go package `invoicesrpc`](https://github.com/lightningnetwork/lnd/pull/5697).
+
 ## Code Health
 
 ### Code cleanup, refactor, typo fixes
@@ -265,6 +269,7 @@ change](https://github.com/lightningnetwork/lnd/pull/5613).
 * de6df1re
 * ErikEk
 * Eugene Siegel
+* Harsha Goli
 * Martin Habovstiak
 * Oliver Gugger
 * Wilmer Paulino

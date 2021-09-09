@@ -55,8 +55,8 @@ drastically in the near future.
 
 An automatically generated set of documentation for the RPC APIs can be found
 at [api.lightning.community](https://api.lightning.community). A set of developer
-resources including talks, articles, and example applications can be found at:
-[dev.lightning.community](https://dev.lightning.community).
+resources including guides, articles, example applications and community resources can be found at:
+[docs.lightning.engineering](https://docs.lightning.engineering).
 
 Finally, we also have an active
 [Slack](https://lightning.engineering/slack.html) where protocol developers, application developers, testers and users gather to

@@ -611,7 +611,7 @@ func (d *RPCSignerWalletImpl) BuildChainControl(ctx context.Context,
 	}
 
 	rpcWallet, err := rpcwallet.NewRPCKeyRing(
-		baseCC.KeyRing, d.DefaultWalletImpl.cfg.RemoteSigner,
+		baseCC.KeyRing, baseCC.Wc, d.DefaultWalletImpl.cfg.RemoteSigner,
 		rpcwallet.DefaultRPCTimeout,
 	)
 	if err != nil {
@@ -621,6 +621,7 @@ func (d *RPCSignerWalletImpl) BuildChainControl(ctx context.Context,
 
 	baseCC.Signer = rpcWallet
 	baseCC.KeyRing = rpcWallet
+	baseCC.Wc = rpcWallet
 	baseCC.MsgSigner = rpcWallet
 
 	return baseCC, cleanUp, nil

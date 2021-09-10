@@ -11,12 +11,16 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/hdkeychain"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/tv42/zbase32"
@@ -43,7 +47,12 @@ var (
 // local watch-only wallet for keeping track of addresses and transactions but
 // delegates any signing or ECDH operations to a remote node through RPC.
 type RPCKeyRing struct {
-	watchOnlyWallet keychain.SecretKeyRing
+	// WalletController is the embedded wallet controller of the watch-only
+	// base wallet. We need to overwrite/shadow certain of the implemented
+	// methods to make sure we can mirror them to the remote wallet.
+	lnwallet.WalletController
+
+	watchOnlyKeyRing keychain.SecretKeyRing
 
 	rpcTimeout time.Duration
 
@@ -59,7 +68,8 @@ var _ keychain.MessageSignerRing = (*RPCKeyRing)(nil)
 // NewRPCKeyRing creates a new remote signing secret key ring that uses the
 // given watch-only base wallet to keep track of addresses and transactions but
 // delegates any signing or ECDH operations to the remove signer through RPC.
-func NewRPCKeyRing(watchOnlyWallet keychain.SecretKeyRing,
+func NewRPCKeyRing(watchOnlyKeyRing keychain.SecretKeyRing,
+	watchOnlyWalletController lnwallet.WalletController,
 	remoteSigner *lncfg.RemoteSigner,
 	rpcTimeout time.Duration) (*RPCKeyRing, error) {
 
@@ -73,12 +83,102 @@ func NewRPCKeyRing(watchOnlyWallet keychain.SecretKeyRing,
 	}
 
 	return &RPCKeyRing{
-		watchOnlyWallet: watchOnlyWallet,
-		rpcTimeout:      rpcTimeout,
-		lnClient:        lnrpc.NewLightningClient(rpcConn),
-		signerClient:    signrpc.NewSignerClient(rpcConn),
-		walletClient:    walletrpc.NewWalletKitClient(rpcConn),
+		WalletController: watchOnlyWalletController,
+		watchOnlyKeyRing: watchOnlyKeyRing,
+		rpcTimeout:       rpcTimeout,
+		lnClient:         lnrpc.NewLightningClient(rpcConn),
+		signerClient:     signrpc.NewSignerClient(rpcConn),
+		walletClient:     walletrpc.NewWalletKitClient(rpcConn),
 	}, nil
+}
+
+// NewAddress returns the next external or internal address for the
+// wallet dictated by the value of the `change` parameter. If change is
+// true, then an internal address should be used, otherwise an external
+// address should be returned. The type of address returned is dictated
+// by the wallet's capabilities, and may be of type: p2sh, p2wkh,
+// p2wsh, etc. The account parameter must be non-empty as it determines
+// which account the address should be generated from.
+func (r *RPCKeyRing) NewAddress(addrType lnwallet.AddressType, change bool,
+	account string) (btcutil.Address, error) {
+
+	ctxt, cancel := context.WithTimeout(context.Background(), r.rpcTimeout)
+	defer cancel()
+
+	rpcAddrType := walletrpc.AddressType_WITNESS_PUBKEY_HASH
+	if addrType == lnwallet.NestedWitnessPubKey {
+		rpcAddrType = walletrpc.AddressType_NESTED_WITNESS_PUBKEY_HASH
+	}
+
+	remoteAddr, err := r.walletClient.NextAddr(ctxt, &walletrpc.AddrRequest{
+		Account: account,
+		Type:    rpcAddrType,
+		Change:  change,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error deriving address on remote "+
+			"signer instance: %v", err)
+	}
+
+	localAddr, err := r.WalletController.NewAddress(
+		addrType, change, account,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error deriving address on local "+
+			"wallet instance: %v", err)
+	}
+
+	// We need to make sure we've derived the same address on the remote
+	// signing machine, otherwise we don't know whether we're at the same
+	// address index (and therefore the same wallet state in general).
+	if localAddr.String() != remoteAddr.Addr {
+		return nil, fmt.Errorf("error deriving address on remote "+
+			"signing instance, got different address (%s) than "+
+			"on local wallet instance (%s)", remoteAddr.Addr,
+			localAddr.String())
+	}
+
+	return localAddr, nil
+}
+
+// ImportAccount imports an account backed by an account extended public
+// key. The master key fingerprint denotes the fingerprint of the root
+// key corresponding to the account public key (also known as the key
+// with derivation path m/). This may be required by some hardware
+// wallets for proper identification and signing.
+//
+// The address type can usually be inferred from the key's version, but
+// may be required for certain keys to map them into the proper scope.
+//
+// For BIP-0044 keys, an address type must be specified as we intend to
+// not support importing BIP-0044 keys into the wallet using the legacy
+// pay-to-pubkey-hash (P2PKH) scheme. A nested witness address type will
+// force the standard BIP-0049 derivation scheme, while a witness
+// address type will force the standard BIP-0084 derivation scheme.
+//
+// For BIP-0049 keys, an address type must also be specified to make a
+// distinction between the standard BIP-0049 address schema (nested
+// witness pubkeys everywhere) and our own BIP-0049Plus address schema
+// (nested pubkeys externally, witness pubkeys internally).
+func (r *RPCKeyRing) ImportAccount(name string, accountPubKey *hdkeychain.ExtendedKey,
+	masterKeyFingerprint uint32, addrType *waddrmgr.AddressType,
+	dryRun bool) (*waddrmgr.AccountProperties, []btcutil.Address,
+	[]btcutil.Address, error) {
+
+	// TODO(guggero): Implement.
+	return nil, nil, nil, nil
+}
+
+// ImportPublicKey imports a single derived public key into the wallet.
+// The address type can usually be inferred from the key's version, but
+// in the case of legacy versions (xpub, tpub), an address type must be
+// specified as we intend to not support importing BIP-44 keys into the
+// wallet using the legacy pay-to-pubkey-hash (P2PKH) scheme.
+func (r *RPCKeyRing) ImportPublicKey(pubKey *btcec.PublicKey,
+	addrType waddrmgr.AddressType) error {
+
+	// TODO(guggero): Implement.
+	return nil
 }
 
 // DeriveNextKey attempts to derive the *next* key within the key family
@@ -102,7 +202,7 @@ func (r *RPCKeyRing) DeriveNextKey(
 			"key on remote signer instance: %v", err)
 	}
 
-	localDesc, err := r.watchOnlyWallet.DeriveNextKey(keyFam)
+	localDesc, err := r.watchOnlyKeyRing.DeriveNextKey(keyFam)
 	if err != nil {
 		return keychain.KeyDescriptor{}, fmt.Errorf("error deriving "+
 			"key on local wallet instance: %v", err)
@@ -147,7 +247,7 @@ func (r *RPCKeyRing) DeriveKey(
 			"key on remote signer instance: %v", err)
 	}
 
-	localDesc, err := r.watchOnlyWallet.DeriveKey(keyLoc)
+	localDesc, err := r.watchOnlyKeyRing.DeriveKey(keyLoc)
 	if err != nil {
 		return keychain.KeyDescriptor{}, fmt.Errorf("error deriving "+
 			"key on local wallet instance: %v", err)

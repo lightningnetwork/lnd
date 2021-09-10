@@ -15,7 +15,7 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wtxmgr"
-	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -440,10 +440,11 @@ type BlockChainIO interface {
 // to attest to some message.
 type MessageSigner interface {
 	// SignMessage attempts to sign a target message with the private key
-	// that corresponds to the passed public key. If the target private key
-	// is unable to be found, then an error will be returned. The actual
-	// digest signed is the double SHA-256 of the passed message.
-	SignMessage(pubKey *btcec.PublicKey, msg []byte) (input.Signature, error)
+	// described in the key locator. If the target private key is unable to
+	// be found, then an error will be returned. The actual digest signed is
+	// the double SHA-256 of the passed message.
+	SignMessage(keyLoc keychain.KeyLocator, msg []byte) (*btcec.Signature,
+		error)
 }
 
 // WalletDriver represents a "driver" for a particular concrete

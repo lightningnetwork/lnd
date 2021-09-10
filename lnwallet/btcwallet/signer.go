@@ -126,11 +126,13 @@ func (b *BtcWallet) deriveKeyByLocator(keyLoc keychain.KeyLocator) (*btcec.Priva
 
 // fetchPrivKey attempts to retrieve the raw private key corresponding to the
 // passed public key if populated, or the key descriptor path (if non-empty).
-func (b *BtcWallet) fetchPrivKey(keyDesc *keychain.KeyDescriptor) (*btcec.PrivateKey, error) {
+func (b *BtcWallet) fetchPrivKey(
+	keyDesc *keychain.KeyDescriptor) (*btcec.PrivateKey, error) {
+
 	// If the key locator within the descriptor *isn't* empty, then we can
 	// directly derive the keys raw.
 	emptyLocator := keyDesc.KeyLocator.IsEmpty()
-	if !emptyLocator {
+	if !emptyLocator || keyDesc.PubKey == nil {
 		return b.deriveKeyByLocator(keyDesc.KeyLocator)
 	}
 
@@ -259,18 +261,18 @@ func (b *BtcWallet) ComputeInputScript(tx *wire.MsgTx,
 var _ input.Signer = (*BtcWallet)(nil)
 
 // SignMessage attempts to sign a target message with the private key that
-// corresponds to the passed public key. If the target private key is unable to
+// corresponds to the passed key locator. If the target private key is unable to
 // be found, then an error will be returned. The actual digest signed is the
 // double SHA-256 of the passed message.
 //
 // NOTE: This is a part of the MessageSigner interface.
-func (b *BtcWallet) SignMessage(pubKey *btcec.PublicKey,
-	msg []byte) (input.Signature, error) {
+func (b *BtcWallet) SignMessage(keyLoc keychain.KeyLocator,
+	msg []byte) (*btcec.Signature, error) {
 
 	// First attempt to fetch the private key which corresponds to the
 	// specified public key.
 	privKey, err := b.fetchPrivKey(&keychain.KeyDescriptor{
-		PubKey: pubKey,
+		KeyLocator: keyLoc,
 	})
 	if err != nil {
 		return nil, err

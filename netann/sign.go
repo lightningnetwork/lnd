@@ -3,15 +3,15 @@ package netann
 import (
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // SignAnnouncement signs any type of gossip message that is announced on the
 // network.
-func SignAnnouncement(signer lnwallet.MessageSigner, pubKey *btcec.PublicKey,
+func SignAnnouncement(signer lnwallet.MessageSigner, keyLoc keychain.KeyLocator,
 	msg lnwire.Message) (input.Signature, error) {
 
 	var (
@@ -33,5 +33,5 @@ func SignAnnouncement(signer lnwallet.MessageSigner, pubKey *btcec.PublicKey,
 		return nil, fmt.Errorf("unable to get data to sign: %v", err)
 	}
 
-	return signer.SignMessage(pubKey, data)
+	return signer.SignMessage(keyLoc, data)
 }

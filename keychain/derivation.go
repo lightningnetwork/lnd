@@ -208,6 +208,10 @@ type SingleKeyMessageSigner interface {
 	// PubKey returns the public key of the wrapped private key.
 	PubKey() *btcec.PublicKey
 
+	// KeyLocator returns the locator that describes the wrapped private
+	// key.
+	KeyLocator() KeyLocator
+
 	// SignMessage signs the given message, double-SHA256 hashing it first,
 	// with the wrapped private key.
 	SignMessage(message []byte) (*btcec.Signature, error)

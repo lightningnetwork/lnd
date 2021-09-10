@@ -5,30 +5,32 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
-func NewPubKeyMessageSigner(keyDesc KeyDescriptor,
+func NewPubKeyMessageSigner(pubKey *btcec.PublicKey, keyLoc KeyLocator,
 	signer MessageSignerRing) *PubKeyMessageSigner {
 
 	return &PubKeyMessageSigner{
-		keyDesc:      keyDesc,
+		pubKey:       pubKey,
+		keyLoc:       keyLoc,
 		digestSigner: signer,
 	}
 }
 
 type PubKeyMessageSigner struct {
-	keyDesc      KeyDescriptor
+	pubKey       *btcec.PublicKey
+	keyLoc       KeyLocator
 	digestSigner MessageSignerRing
 }
 
 func (p *PubKeyMessageSigner) PubKey() *btcec.PublicKey {
-	return p.keyDesc.PubKey
+	return p.pubKey
 }
 
 func (p *PubKeyMessageSigner) SignMessage(msg []byte) (*btcec.Signature, error) {
-	return p.digestSigner.SignMessage(p.keyDesc, msg)
+	return p.digestSigner.SignMessage(p.keyLoc, msg)
 }
 
 func (p *PubKeyMessageSigner) SignMessageCompact(msg []byte) ([]byte, error) {
-	return p.digestSigner.SignMessageCompact(p.keyDesc, msg)
+	return p.digestSigner.SignMessageCompact(p.keyLoc, msg)
 }
 
 type PrivKeyMessageSigner struct {

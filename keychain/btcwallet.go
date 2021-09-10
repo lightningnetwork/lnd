@@ -392,13 +392,15 @@ func (b *BtcWalletKeyRing) ECDH(keyDesc KeyDescriptor,
 }
 
 // SignMessage signs the given message, double-SHA256 hashing it first, with the
-// private key described in the key descriptor.
+// private key described in the key locator.
 //
 // NOTE: This is part of the keychain.MessageSignerRing interface.
-func (b *BtcWalletKeyRing) SignMessage(keyDesc KeyDescriptor,
+func (b *BtcWalletKeyRing) SignMessage(keyLoc KeyLocator,
 	msg []byte) (*btcec.Signature, error) {
 
-	privKey, err := b.DerivePrivKey(keyDesc)
+	privKey, err := b.DerivePrivKey(KeyDescriptor{
+		KeyLocator: keyLoc,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -408,14 +410,16 @@ func (b *BtcWalletKeyRing) SignMessage(keyDesc KeyDescriptor,
 }
 
 // SignMessageCompact signs the given message, double-SHA256 hashing it first,
-// with the private key described in the key descriptor and returns the
-// signature in the compact, public key recoverable format.
+// with the private key described in the key locator and returns the signature
+// in the compact, public key recoverable format.
 //
 // NOTE: This is part of the keychain.MessageSignerRing interface.
-func (b *BtcWalletKeyRing) SignMessageCompact(keyDesc KeyDescriptor,
+func (b *BtcWalletKeyRing) SignMessageCompact(keyLoc KeyLocator,
 	msg []byte) ([]byte, error) {
 
-	privKey, err := b.DerivePrivKey(keyDesc)
+	privKey, err := b.DerivePrivKey(KeyDescriptor{
+		KeyLocator: keyLoc,
+	})
 	if err != nil {
 		return nil, err
 	}

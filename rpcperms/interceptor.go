@@ -2,6 +2,7 @@ package rpcperms
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -272,7 +273,13 @@ func (r *InterceptorChain) SubscribeState(req *lnrpc.SubscribeStateRequest,
 				return err
 			}
 
+		// The response stream's context for whatever reason has been
+		// closed. If context is closed by an exceeded deadline we will
+		// return an error.
 		case <-stream.Context().Done():
+			if errors.Is(stream.Context().Err(), context.Canceled) {
+				return nil
+			}
 			return stream.Context().Err()
 
 		case <-r.quit:

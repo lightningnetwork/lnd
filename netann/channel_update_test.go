@@ -32,7 +32,7 @@ var _ lnwallet.MessageSigner = (*mockSigner)(nil)
 
 var (
 	privKey, _    = btcec.NewPrivateKey(btcec.S256())
-	privKeySigner = &keychain.PrivKeyDigestSigner{PrivKey: privKey}
+	privKeySigner = &keychain.PrivKeyMessageSigner{PrivKey: privKey}
 
 	pubKey = privKey.PubKey()
 

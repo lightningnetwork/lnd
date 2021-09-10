@@ -137,7 +137,7 @@ var _ autopilot.ChannelController = (*chanController)(nil)
 // interfaces needed to drive it won't be launched before the Manager's
 // StartAgent method is called.
 func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
-	chainCfg *lncfg.Chain, netParams chainreg.BitcoinNetParams) (
+	minHTLCIn lnwire.MilliSatoshi, netParams chainreg.BitcoinNetParams) (
 	*autopilot.ManagerCfg, error) {
 
 	atplLog.Infof("Instantiating autopilot with active=%v, "+
@@ -177,7 +177,7 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 			private:       cfg.Private,
 			minConfs:      cfg.MinConfs,
 			confTarget:    cfg.ConfTarget,
-			chanMinHtlcIn: chainCfg.MinHTLCIn,
+			chanMinHtlcIn: minHTLCIn,
 			netParams:     netParams,
 		},
 		WalletBalance: func() (btcutil.Amount, error) {

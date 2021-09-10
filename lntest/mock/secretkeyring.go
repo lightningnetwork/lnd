@@ -2,7 +2,7 @@ package mock
 
 import (
 	"github.com/btcsuite/btcd/btcec"
-
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -41,11 +41,12 @@ func (s *SecretKeyRing) ECDH(_ keychain.KeyDescriptor, pubKey *btcec.PublicKey) 
 	return [32]byte{}, nil
 }
 
-// SignDigest signs the passed digest and ignores the KeyDescriptor.
-func (s *SecretKeyRing) SignDigest(_ keychain.KeyDescriptor,
-	digest [32]byte) (*btcec.Signature, error) {
+// SignMessage signs the passed message and ignores the KeyDescriptor.
+func (s *SecretKeyRing) SignMessage(_ keychain.KeyDescriptor,
+	msg []byte) (*btcec.Signature, error) {
 
-	return s.RootKey.Sign(digest[:])
+	digest := chainhash.DoubleHashB(msg)
+	return s.RootKey.Sign(digest)
 }
 
 // SignDigestCompact signs the passed digest.

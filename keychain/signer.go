@@ -1,6 +1,9 @@
 package keychain
 
-import "github.com/btcsuite/btcd/btcec"
+import (
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+)
 
 func NewPubKeyDigestSigner(keyDesc KeyDescriptor,
 	signer DigestSignerRing) *PubKeyDigestSigner {
@@ -20,10 +23,10 @@ func (p *PubKeyDigestSigner) PubKey() *btcec.PublicKey {
 	return p.keyDesc.PubKey
 }
 
-func (p *PubKeyDigestSigner) SignDigest(digest [32]byte) (*btcec.Signature,
+func (p *PubKeyDigestSigner) SignMessage(message []byte) (*btcec.Signature,
 	error) {
 
-	return p.digestSigner.SignDigest(p.keyDesc, digest)
+	return p.digestSigner.SignMessage(p.keyDesc, message)
 }
 
 func (p *PubKeyDigestSigner) SignDigestCompact(digest [32]byte) ([]byte,
@@ -40,9 +43,11 @@ func (p *PrivKeyDigestSigner) PubKey() *btcec.PublicKey {
 	return p.PrivKey.PubKey()
 }
 
-func (p *PrivKeyDigestSigner) SignDigest(digest [32]byte) (*btcec.Signature,
+func (p *PrivKeyDigestSigner) SignMessage(msg []byte) (*btcec.Signature,
 	error) {
 
+	var digest [32]byte
+	copy(digest[:], chainhash.DoubleHashB(msg))
 	return p.PrivKey.Sign(digest[:])
 }
 

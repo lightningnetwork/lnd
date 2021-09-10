@@ -1505,13 +1505,16 @@ func (c *Config) graphDatabaseDir() string {
 
 // ImplementationConfig returns the configuration of what actual implementations
 // should be used when creating the chain control.
-func (c *Config) ImplementationConfig() *ImplementationCfg {
-	defaultImpl := &DefaultWalletImpl{}
+func (c *Config) ImplementationConfig(
+	interceptor signal.Interceptor) *ImplementationCfg {
+
+	defaultImpl := NewDefaultWalletImpl(c, ltndLog, interceptor)
 	return &ImplementationCfg{
-		GrpcRegistrar:     defaultImpl,
-		RestRegistrar:     defaultImpl,
-		ExternalValidator: defaultImpl,
-		DatabaseBuilder:   NewDefaultDatabaseBuilder(c, ltndLog),
+		GrpcRegistrar:       defaultImpl,
+		RestRegistrar:       defaultImpl,
+		ExternalValidator:   defaultImpl,
+		DatabaseBuilder:     NewDefaultDatabaseBuilder(c, ltndLog),
+		ChainControlBuilder: defaultImpl,
 	}
 }
 

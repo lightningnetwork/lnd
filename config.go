@@ -1511,6 +1511,7 @@ func (c *Config) ImplementationConfig() *ImplementationCfg {
 		GrpcRegistrar:     defaultImpl,
 		RestRegistrar:     defaultImpl,
 		ExternalValidator: defaultImpl,
+		DatabaseBuilder:   NewDefaultDatabaseBuilder(c, ltndLog),
 	}
 }
 

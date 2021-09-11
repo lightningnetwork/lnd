@@ -397,6 +397,7 @@ type HarnessNode struct {
 	WalletKitClient  walletrpc.WalletKitClient
 	Watchtower       watchtowerrpc.WatchtowerClient
 	WatchtowerClient wtclientrpc.WatchtowerClientClient
+	StateClient      lnrpc.StateClient
 
 	// backupDbDir is the path where a database backup is stored, if any.
 	backupDbDir string
@@ -940,6 +941,34 @@ func (hn *HarnessNode) Unlock(ctx context.Context,
 	return hn.initClientWhenReady(DefaultTimeout)
 }
 
+// waitTillServerStarted makes a subscription to the server's state change and
+// blocks until the server is in state ServerActive.
+func (hn *HarnessNode) waitTillServerStarted() error {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, NodeStartTimeout)
+	defer cancel()
+
+	client, err := hn.StateClient.SubscribeState(
+		ctxt, &lnrpc.SubscribeStateRequest{},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to subscribe to state: %w", err)
+	}
+
+	for {
+		resp, err := client.Recv()
+		if err != nil {
+			return fmt.Errorf("failed to receive state "+
+				"client stream: %w", err)
+		}
+
+		if resp.State == lnrpc.WalletState_SERVER_ACTIVE {
+			return nil
+		}
+	}
+
+}
+
 // initLightningClient constructs the grpc LightningClient from the given client
 // connection and subscribes the harness node to graph topology updates.
 // This method also spawns a lightning network watcher for this node,
@@ -955,6 +984,12 @@ func (hn *HarnessNode) initLightningClient(conn *grpc.ClientConn) error {
 	hn.Watchtower = watchtowerrpc.NewWatchtowerClient(conn)
 	hn.WatchtowerClient = wtclientrpc.NewWatchtowerClientClient(conn)
 	hn.SignerClient = signrpc.NewSignerClient(conn)
+	hn.StateClient = lnrpc.NewStateClient(conn)
+
+	// Wait until the server is fully started.
+	if err := hn.waitTillServerStarted(); err != nil {
+		return err
+	}
 
 	// Set the harness node's pubkey to what the node claims in GetInfo.
 	// Since the RPC might not be immediately active, we wrap the call in a

@@ -145,6 +145,10 @@ Postgres](https://github.com/lightningnetwork/lnd/pull/6111)
 
 * [Refactored itest to better manage contexts inside integration tests](https://github.com/lightningnetwork/lnd/pull/5756).
 
+* [The `fee_rate_ppm` parameter/argument was added to  
+  update channel policy](https://github.com/lightningnetwork/lnd/pull/5711)
+  to prevent truncation error with tiny fee rates.
+
 * [Closing txid is now
   exposed](https://github.com/lightningnetwork/lnd/pull/6146) inside
   WaitingCloseResp from calling `PendingChannels`.
@@ -167,6 +171,7 @@ Postgres](https://github.com/lightningnetwork/lnd/pull/6111)
 * Bjarne Magnussen
 * Daniel McNally
 * Elle Mouton
+* Erik Ek
 * Harsha Goli
 * Joost Jager
 * Martin Habovštiak

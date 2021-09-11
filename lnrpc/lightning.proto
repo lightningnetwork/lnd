@@ -3751,6 +3751,9 @@ message PolicyUpdateRequest {
     // goes up to 6 decimal places, so 1e-6.
     double fee_rate = 4;
 
+    // The effective fee rate in micro-satoshis (parts per million).
+    uint32 fee_rate_ppm = 9;
+
     // The required timelock delta for HTLCs forwarded over the channel.
     uint32 time_lock_delta = 5;
 

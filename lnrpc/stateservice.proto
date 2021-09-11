@@ -41,6 +41,9 @@ enum WalletState {
     UNLOCKED = 2;
     RPC_ACTIVE = 3;
 
+    // SERVER_ACTIVE means that the lnd server is ready to accept calls.
+    SERVER_ACTIVE = 4;
+
     WAITING_TO_START = 255;
 }
 

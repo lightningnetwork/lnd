@@ -970,6 +970,9 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 	}
 	defer server.Stop()
 
+	// We transition the server state to Active, as the server is up.
+	interceptorChain.SetServerActive()
+
 	// Now that the server has started, if the autopilot mode is currently
 	// active, then we'll start the autopilot agent immediately. It will be
 	// stopped together with the autopilot service.

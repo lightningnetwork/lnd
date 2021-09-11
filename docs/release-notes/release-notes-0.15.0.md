@@ -1,5 +1,10 @@
 # Release Notes
 
+## Security
+
+* [Misconfigured ZMQ
+  setup now gets reported](https://github.com/lightningnetwork/lnd/pull/5710).
+
 ## Misc
 
 * [An example systemd service file](https://github.com/lightningnetwork/lnd/pull/6033)
@@ -15,3 +20,4 @@
 # Contributors (Alphabetical Order)
 
 * Daniel McNally
+* ErikEk

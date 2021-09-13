@@ -1169,7 +1169,7 @@ func (x Failure_FailureCode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Failure_FailureCode.Descriptor instead.
 func (Failure_FailureCode) EnumDescriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{164, 0}
+	return file_lightning_proto_rawDescGZIP(), []int{166, 0}
 }
 
 type Utxo struct {
@@ -11940,6 +11940,64 @@ func (x *ListPaymentsResponse) GetLastIndexOffset() uint64 {
 	return 0
 }
 
+type DeletePaymentRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// Payment hash to delete.
+	PaymentHash []byte `protobuf:"bytes,1,opt,name=payment_hash,json=paymentHash,proto3" json:"payment_hash,omitempty"`
+	//
+	//Only delete failed HTLCs from the payment, not the payment itself.
+	FailedHtlcsOnly bool `protobuf:"varint,2,opt,name=failed_htlcs_only,json=failedHtlcsOnly,proto3" json:"failed_htlcs_only,omitempty"`
+}
+
+func (x *DeletePaymentRequest) Reset() {
+	*x = DeletePaymentRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_lightning_proto_msgTypes[127]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *DeletePaymentRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeletePaymentRequest) ProtoMessage() {}
+
+func (x *DeletePaymentRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_lightning_proto_msgTypes[127]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeletePaymentRequest.ProtoReflect.Descriptor instead.
+func (*DeletePaymentRequest) Descriptor() ([]byte, []int) {
+	return file_lightning_proto_rawDescGZIP(), []int{127}
+}
+
+func (x *DeletePaymentRequest) GetPaymentHash() []byte {
+	if x != nil {
+		return x.PaymentHash
+	}
+	return nil
+}
+
+func (x *DeletePaymentRequest) GetFailedHtlcsOnly() bool {
+	if x != nil {
+		return x.FailedHtlcsOnly
+	}
+	return false
+}
+
 type DeleteAllPaymentsRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -11955,7 +12013,7 @@ type DeleteAllPaymentsRequest struct {
 func (x *DeleteAllPaymentsRequest) Reset() {
 	*x = DeleteAllPaymentsRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[127]
+		mi := &file_lightning_proto_msgTypes[128]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -11968,7 +12026,7 @@ func (x *DeleteAllPaymentsRequest) String() string {
 func (*DeleteAllPaymentsRequest) ProtoMessage() {}
 
 func (x *DeleteAllPaymentsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[127]
+	mi := &file_lightning_proto_msgTypes[128]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11981,7 +12039,7 @@ func (x *DeleteAllPaymentsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteAllPaymentsRequest.ProtoReflect.Descriptor instead.
 func (*DeleteAllPaymentsRequest) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{127}
+	return file_lightning_proto_rawDescGZIP(), []int{128}
 }
 
 func (x *DeleteAllPaymentsRequest) GetFailedPaymentsOnly() bool {
@@ -11998,6 +12056,44 @@ func (x *DeleteAllPaymentsRequest) GetFailedHtlcsOnly() bool {
 	return false
 }
 
+type DeletePaymentResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+}
+
+func (x *DeletePaymentResponse) Reset() {
+	*x = DeletePaymentResponse{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_lightning_proto_msgTypes[129]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *DeletePaymentResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeletePaymentResponse) ProtoMessage() {}
+
+func (x *DeletePaymentResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_lightning_proto_msgTypes[129]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeletePaymentResponse.ProtoReflect.Descriptor instead.
+func (*DeletePaymentResponse) Descriptor() ([]byte, []int) {
+	return file_lightning_proto_rawDescGZIP(), []int{129}
+}
+
 type DeleteAllPaymentsResponse struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -12007,7 +12103,7 @@ type DeleteAllPaymentsResponse struct {
 func (x *DeleteAllPaymentsResponse) Reset() {
 	*x = DeleteAllPaymentsResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[128]
+		mi := &file_lightning_proto_msgTypes[130]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -12020,7 +12116,7 @@ func (x *DeleteAllPaymentsResponse) String() string {
 func (*DeleteAllPaymentsResponse) ProtoMessage() {}
 
 func (x *DeleteAllPaymentsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[128]
+	mi := &file_lightning_proto_msgTypes[130]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12033,7 +12129,7 @@ func (x *DeleteAllPaymentsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteAllPaymentsResponse.ProtoReflect.Descriptor instead.
 func (*DeleteAllPaymentsResponse) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{128}
+	return file_lightning_proto_rawDescGZIP(), []int{130}
 }
 
 type AbandonChannelRequest struct {
@@ -12053,7 +12149,7 @@ type AbandonChannelRequest struct {
 func (x *AbandonChannelRequest) Reset() {
 	*x = AbandonChannelRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[129]
+		mi := &file_lightning_proto_msgTypes[131]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -12066,7 +12162,7 @@ func (x *AbandonChannelRequest) String() string {
 func (*AbandonChannelRequest) ProtoMessage() {}
 
 func (x *AbandonChannelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[129]
+	mi := &file_lightning_proto_msgTypes[131]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12079,7 +12175,7 @@ func (x *AbandonChannelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AbandonChannelRequest.ProtoReflect.Descriptor instead.
 func (*AbandonChannelRequest) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{129}
+	return file_lightning_proto_rawDescGZIP(), []int{131}
 }
 
 func (x *AbandonChannelRequest) GetChannelPoint() *ChannelPoint {
@@ -12112,7 +12208,7 @@ type AbandonChannelResponse struct {
 func (x *AbandonChannelResponse) Reset() {
 	*x = AbandonChannelResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[130]
+		mi := &file_lightning_proto_msgTypes[132]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -12125,7 +12221,7 @@ func (x *AbandonChannelResponse) String() string {
 func (*AbandonChannelResponse) ProtoMessage() {}
 
 func (x *AbandonChannelResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[130]
+	mi := &file_lightning_proto_msgTypes[132]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12138,7 +12234,7 @@ func (x *AbandonChannelResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AbandonChannelResponse.ProtoReflect.Descriptor instead.
 func (*AbandonChannelResponse) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{130}
+	return file_lightning_proto_rawDescGZIP(), []int{132}
 }
 
 type DebugLevelRequest struct {
@@ -12153,7 +12249,7 @@ type DebugLevelRequest struct {
 func (x *DebugLevelRequest) Reset() {
 	*x = DebugLevelRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[131]
+		mi := &file_lightning_proto_msgTypes[133]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -12166,7 +12262,7 @@ func (x *DebugLevelRequest) String() string {
 func (*DebugLevelRequest) ProtoMessage() {}
 
 func (x *DebugLevelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[131]
+	mi := &file_lightning_proto_msgTypes[133]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12179,7 +12275,7 @@ func (x *DebugLevelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DebugLevelRequest.ProtoReflect.Descriptor instead.
 func (*DebugLevelRequest) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{131}
+	return file_lightning_proto_rawDescGZIP(), []int{133}
 }
 
 func (x *DebugLevelRequest) GetShow() bool {
@@ -12207,7 +12303,7 @@ type DebugLevelResponse struct {
 func (x *DebugLevelResponse) Reset() {
 	*x = DebugLevelResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[132]
+		mi := &file_lightning_proto_msgTypes[134]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -12220,7 +12316,7 @@ func (x *DebugLevelResponse) String() string {
 func (*DebugLevelResponse) ProtoMessage() {}
 
 func (x *DebugLevelResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[132]
+	mi := &file_lightning_proto_msgTypes[134]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12233,7 +12329,7 @@ func (x *DebugLevelResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DebugLevelResponse.ProtoReflect.Descriptor instead.
 func (*DebugLevelResponse) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{132}
+	return file_lightning_proto_rawDescGZIP(), []int{134}
 }
 
 func (x *DebugLevelResponse) GetSubSystems() string {
@@ -12255,7 +12351,7 @@ type PayReqString struct {
 func (x *PayReqString) Reset() {
 	*x = PayReqString{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[133]
+		mi := &file_lightning_proto_msgTypes[135]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -12268,7 +12364,7 @@ func (x *PayReqString) String() string {
 func (*PayReqString) ProtoMessage() {}
 
 func (x *PayReqString) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[133]
+	mi := &file_lightning_proto_msgTypes[135]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12281,7 +12377,7 @@ func (x *PayReqString) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PayReqString.ProtoReflect.Descriptor instead.
 func (*PayReqString) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{133}
+	return file_lightning_proto_rawDescGZIP(), []int{135}
 }
 
 func (x *PayReqString) GetPayReq() string {
@@ -12314,7 +12410,7 @@ type PayReq struct {
 func (x *PayReq) Reset() {
 	*x = PayReq{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[134]
+		mi := &file_lightning_proto_msgTypes[136]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -12327,7 +12423,7 @@ func (x *PayReq) String() string {
 func (*PayReq) ProtoMessage() {}
 
 func (x *PayReq) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[134]
+	mi := &file_lightning_proto_msgTypes[136]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12340,7 +12436,7 @@ func (x *PayReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PayReq.ProtoReflect.Descriptor instead.
 func (*PayReq) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{134}
+	return file_lightning_proto_rawDescGZIP(), []int{136}
 }
 
 func (x *PayReq) GetDestination() string {
@@ -12447,7 +12543,7 @@ type Feature struct {
 func (x *Feature) Reset() {
 	*x = Feature{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[135]
+		mi := &file_lightning_proto_msgTypes[137]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -12460,7 +12556,7 @@ func (x *Feature) String() string {
 func (*Feature) ProtoMessage() {}
 
 func (x *Feature) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[135]
+	mi := &file_lightning_proto_msgTypes[137]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12473,7 +12569,7 @@ func (x *Feature) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Feature.ProtoReflect.Descriptor instead.
 func (*Feature) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{135}
+	return file_lightning_proto_rawDescGZIP(), []int{137}
 }
 
 func (x *Feature) GetName() string {
@@ -12506,7 +12602,7 @@ type FeeReportRequest struct {
 func (x *FeeReportRequest) Reset() {
 	*x = FeeReportRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[136]
+		mi := &file_lightning_proto_msgTypes[138]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -12519,7 +12615,7 @@ func (x *FeeReportRequest) String() string {
 func (*FeeReportRequest) ProtoMessage() {}
 
 func (x *FeeReportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[136]
+	mi := &file_lightning_proto_msgTypes[138]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12532,7 +12628,7 @@ func (x *FeeReportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FeeReportRequest.ProtoReflect.Descriptor instead.
 func (*FeeReportRequest) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{136}
+	return file_lightning_proto_rawDescGZIP(), []int{138}
 }
 
 type ChannelFeeReport struct {
@@ -12557,7 +12653,7 @@ type ChannelFeeReport struct {
 func (x *ChannelFeeReport) Reset() {
 	*x = ChannelFeeReport{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[137]
+		mi := &file_lightning_proto_msgTypes[139]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -12570,7 +12666,7 @@ func (x *ChannelFeeReport) String() string {
 func (*ChannelFeeReport) ProtoMessage() {}
 
 func (x *ChannelFeeReport) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[137]
+	mi := &file_lightning_proto_msgTypes[139]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12583,7 +12679,7 @@ func (x *ChannelFeeReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChannelFeeReport.ProtoReflect.Descriptor instead.
 func (*ChannelFeeReport) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{137}
+	return file_lightning_proto_rawDescGZIP(), []int{139}
 }
 
 func (x *ChannelFeeReport) GetChanId() uint64 {
@@ -12643,7 +12739,7 @@ type FeeReportResponse struct {
 func (x *FeeReportResponse) Reset() {
 	*x = FeeReportResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[138]
+		mi := &file_lightning_proto_msgTypes[140]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -12656,7 +12752,7 @@ func (x *FeeReportResponse) String() string {
 func (*FeeReportResponse) ProtoMessage() {}
 
 func (x *FeeReportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[138]
+	mi := &file_lightning_proto_msgTypes[140]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12669,7 +12765,7 @@ func (x *FeeReportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FeeReportResponse.ProtoReflect.Descriptor instead.
 func (*FeeReportResponse) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{138}
+	return file_lightning_proto_rawDescGZIP(), []int{140}
 }
 
 func (x *FeeReportResponse) GetChannelFees() []*ChannelFeeReport {
@@ -12729,7 +12825,7 @@ type PolicyUpdateRequest struct {
 func (x *PolicyUpdateRequest) Reset() {
 	*x = PolicyUpdateRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[139]
+		mi := &file_lightning_proto_msgTypes[141]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -12742,7 +12838,7 @@ func (x *PolicyUpdateRequest) String() string {
 func (*PolicyUpdateRequest) ProtoMessage() {}
 
 func (x *PolicyUpdateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[139]
+	mi := &file_lightning_proto_msgTypes[141]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12755,7 +12851,7 @@ func (x *PolicyUpdateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PolicyUpdateRequest.ProtoReflect.Descriptor instead.
 func (*PolicyUpdateRequest) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{139}
+	return file_lightning_proto_rawDescGZIP(), []int{141}
 }
 
 func (m *PolicyUpdateRequest) GetScope() isPolicyUpdateRequest_Scope {
@@ -12848,7 +12944,7 @@ type PolicyUpdateResponse struct {
 func (x *PolicyUpdateResponse) Reset() {
 	*x = PolicyUpdateResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[140]
+		mi := &file_lightning_proto_msgTypes[142]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -12861,7 +12957,7 @@ func (x *PolicyUpdateResponse) String() string {
 func (*PolicyUpdateResponse) ProtoMessage() {}
 
 func (x *PolicyUpdateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[140]
+	mi := &file_lightning_proto_msgTypes[142]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12874,7 +12970,7 @@ func (x *PolicyUpdateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PolicyUpdateResponse.ProtoReflect.Descriptor instead.
 func (*PolicyUpdateResponse) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{140}
+	return file_lightning_proto_rawDescGZIP(), []int{142}
 }
 
 type ForwardingHistoryRequest struct {
@@ -12901,7 +12997,7 @@ type ForwardingHistoryRequest struct {
 func (x *ForwardingHistoryRequest) Reset() {
 	*x = ForwardingHistoryRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[141]
+		mi := &file_lightning_proto_msgTypes[143]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -12914,7 +13010,7 @@ func (x *ForwardingHistoryRequest) String() string {
 func (*ForwardingHistoryRequest) ProtoMessage() {}
 
 func (x *ForwardingHistoryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[141]
+	mi := &file_lightning_proto_msgTypes[143]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12927,7 +13023,7 @@ func (x *ForwardingHistoryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForwardingHistoryRequest.ProtoReflect.Descriptor instead.
 func (*ForwardingHistoryRequest) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{141}
+	return file_lightning_proto_rawDescGZIP(), []int{143}
 }
 
 func (x *ForwardingHistoryRequest) GetStartTime() uint64 {
@@ -12997,7 +13093,7 @@ type ForwardingEvent struct {
 func (x *ForwardingEvent) Reset() {
 	*x = ForwardingEvent{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[142]
+		mi := &file_lightning_proto_msgTypes[144]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -13010,7 +13106,7 @@ func (x *ForwardingEvent) String() string {
 func (*ForwardingEvent) ProtoMessage() {}
 
 func (x *ForwardingEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[142]
+	mi := &file_lightning_proto_msgTypes[144]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13023,7 +13119,7 @@ func (x *ForwardingEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForwardingEvent.ProtoReflect.Descriptor instead.
 func (*ForwardingEvent) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{142}
+	return file_lightning_proto_rawDescGZIP(), []int{144}
 }
 
 // Deprecated: Do not use.
@@ -13113,7 +13209,7 @@ type ForwardingHistoryResponse struct {
 func (x *ForwardingHistoryResponse) Reset() {
 	*x = ForwardingHistoryResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[143]
+		mi := &file_lightning_proto_msgTypes[145]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -13126,7 +13222,7 @@ func (x *ForwardingHistoryResponse) String() string {
 func (*ForwardingHistoryResponse) ProtoMessage() {}
 
 func (x *ForwardingHistoryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[143]
+	mi := &file_lightning_proto_msgTypes[145]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13139,7 +13235,7 @@ func (x *ForwardingHistoryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForwardingHistoryResponse.ProtoReflect.Descriptor instead.
 func (*ForwardingHistoryResponse) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{143}
+	return file_lightning_proto_rawDescGZIP(), []int{145}
 }
 
 func (x *ForwardingHistoryResponse) GetForwardingEvents() []*ForwardingEvent {
@@ -13168,7 +13264,7 @@ type ExportChannelBackupRequest struct {
 func (x *ExportChannelBackupRequest) Reset() {
 	*x = ExportChannelBackupRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[144]
+		mi := &file_lightning_proto_msgTypes[146]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -13181,7 +13277,7 @@ func (x *ExportChannelBackupRequest) String() string {
 func (*ExportChannelBackupRequest) ProtoMessage() {}
 
 func (x *ExportChannelBackupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[144]
+	mi := &file_lightning_proto_msgTypes[146]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13194,7 +13290,7 @@ func (x *ExportChannelBackupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportChannelBackupRequest.ProtoReflect.Descriptor instead.
 func (*ExportChannelBackupRequest) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{144}
+	return file_lightning_proto_rawDescGZIP(), []int{146}
 }
 
 func (x *ExportChannelBackupRequest) GetChanPoint() *ChannelPoint {
@@ -13223,7 +13319,7 @@ type ChannelBackup struct {
 func (x *ChannelBackup) Reset() {
 	*x = ChannelBackup{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[145]
+		mi := &file_lightning_proto_msgTypes[147]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -13236,7 +13332,7 @@ func (x *ChannelBackup) String() string {
 func (*ChannelBackup) ProtoMessage() {}
 
 func (x *ChannelBackup) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[145]
+	mi := &file_lightning_proto_msgTypes[147]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13249,7 +13345,7 @@ func (x *ChannelBackup) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChannelBackup.ProtoReflect.Descriptor instead.
 func (*ChannelBackup) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{145}
+	return file_lightning_proto_rawDescGZIP(), []int{147}
 }
 
 func (x *ChannelBackup) GetChanPoint() *ChannelPoint {
@@ -13285,7 +13381,7 @@ type MultiChanBackup struct {
 func (x *MultiChanBackup) Reset() {
 	*x = MultiChanBackup{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[146]
+		mi := &file_lightning_proto_msgTypes[148]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -13298,7 +13394,7 @@ func (x *MultiChanBackup) String() string {
 func (*MultiChanBackup) ProtoMessage() {}
 
 func (x *MultiChanBackup) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[146]
+	mi := &file_lightning_proto_msgTypes[148]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13311,7 +13407,7 @@ func (x *MultiChanBackup) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MultiChanBackup.ProtoReflect.Descriptor instead.
 func (*MultiChanBackup) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{146}
+	return file_lightning_proto_rawDescGZIP(), []int{148}
 }
 
 func (x *MultiChanBackup) GetChanPoints() []*ChannelPoint {
@@ -13337,7 +13433,7 @@ type ChanBackupExportRequest struct {
 func (x *ChanBackupExportRequest) Reset() {
 	*x = ChanBackupExportRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[147]
+		mi := &file_lightning_proto_msgTypes[149]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -13350,7 +13446,7 @@ func (x *ChanBackupExportRequest) String() string {
 func (*ChanBackupExportRequest) ProtoMessage() {}
 
 func (x *ChanBackupExportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[147]
+	mi := &file_lightning_proto_msgTypes[149]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13363,7 +13459,7 @@ func (x *ChanBackupExportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChanBackupExportRequest.ProtoReflect.Descriptor instead.
 func (*ChanBackupExportRequest) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{147}
+	return file_lightning_proto_rawDescGZIP(), []int{149}
 }
 
 type ChanBackupSnapshot struct {
@@ -13384,7 +13480,7 @@ type ChanBackupSnapshot struct {
 func (x *ChanBackupSnapshot) Reset() {
 	*x = ChanBackupSnapshot{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[148]
+		mi := &file_lightning_proto_msgTypes[150]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -13397,7 +13493,7 @@ func (x *ChanBackupSnapshot) String() string {
 func (*ChanBackupSnapshot) ProtoMessage() {}
 
 func (x *ChanBackupSnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[148]
+	mi := &file_lightning_proto_msgTypes[150]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13410,7 +13506,7 @@ func (x *ChanBackupSnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChanBackupSnapshot.ProtoReflect.Descriptor instead.
 func (*ChanBackupSnapshot) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{148}
+	return file_lightning_proto_rawDescGZIP(), []int{150}
 }
 
 func (x *ChanBackupSnapshot) GetSingleChanBackups() *ChannelBackups {
@@ -13440,7 +13536,7 @@ type ChannelBackups struct {
 func (x *ChannelBackups) Reset() {
 	*x = ChannelBackups{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[149]
+		mi := &file_lightning_proto_msgTypes[151]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -13453,7 +13549,7 @@ func (x *ChannelBackups) String() string {
 func (*ChannelBackups) ProtoMessage() {}
 
 func (x *ChannelBackups) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[149]
+	mi := &file_lightning_proto_msgTypes[151]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13466,7 +13562,7 @@ func (x *ChannelBackups) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChannelBackups.ProtoReflect.Descriptor instead.
 func (*ChannelBackups) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{149}
+	return file_lightning_proto_rawDescGZIP(), []int{151}
 }
 
 func (x *ChannelBackups) GetChanBackups() []*ChannelBackup {
@@ -13490,7 +13586,7 @@ type RestoreChanBackupRequest struct {
 func (x *RestoreChanBackupRequest) Reset() {
 	*x = RestoreChanBackupRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[150]
+		mi := &file_lightning_proto_msgTypes[152]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -13503,7 +13599,7 @@ func (x *RestoreChanBackupRequest) String() string {
 func (*RestoreChanBackupRequest) ProtoMessage() {}
 
 func (x *RestoreChanBackupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[150]
+	mi := &file_lightning_proto_msgTypes[152]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13516,7 +13612,7 @@ func (x *RestoreChanBackupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreChanBackupRequest.ProtoReflect.Descriptor instead.
 func (*RestoreChanBackupRequest) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{150}
+	return file_lightning_proto_rawDescGZIP(), []int{152}
 }
 
 func (m *RestoreChanBackupRequest) GetBackup() isRestoreChanBackupRequest_Backup {
@@ -13570,7 +13666,7 @@ type RestoreBackupResponse struct {
 func (x *RestoreBackupResponse) Reset() {
 	*x = RestoreBackupResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[151]
+		mi := &file_lightning_proto_msgTypes[153]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -13583,7 +13679,7 @@ func (x *RestoreBackupResponse) String() string {
 func (*RestoreBackupResponse) ProtoMessage() {}
 
 func (x *RestoreBackupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[151]
+	mi := &file_lightning_proto_msgTypes[153]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13596,7 +13692,7 @@ func (x *RestoreBackupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreBackupResponse.ProtoReflect.Descriptor instead.
 func (*RestoreBackupResponse) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{151}
+	return file_lightning_proto_rawDescGZIP(), []int{153}
 }
 
 type ChannelBackupSubscription struct {
@@ -13608,7 +13704,7 @@ type ChannelBackupSubscription struct {
 func (x *ChannelBackupSubscription) Reset() {
 	*x = ChannelBackupSubscription{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[152]
+		mi := &file_lightning_proto_msgTypes[154]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -13621,7 +13717,7 @@ func (x *ChannelBackupSubscription) String() string {
 func (*ChannelBackupSubscription) ProtoMessage() {}
 
 func (x *ChannelBackupSubscription) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[152]
+	mi := &file_lightning_proto_msgTypes[154]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13634,7 +13730,7 @@ func (x *ChannelBackupSubscription) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChannelBackupSubscription.ProtoReflect.Descriptor instead.
 func (*ChannelBackupSubscription) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{152}
+	return file_lightning_proto_rawDescGZIP(), []int{154}
 }
 
 type VerifyChanBackupResponse struct {
@@ -13646,7 +13742,7 @@ type VerifyChanBackupResponse struct {
 func (x *VerifyChanBackupResponse) Reset() {
 	*x = VerifyChanBackupResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[153]
+		mi := &file_lightning_proto_msgTypes[155]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -13659,7 +13755,7 @@ func (x *VerifyChanBackupResponse) String() string {
 func (*VerifyChanBackupResponse) ProtoMessage() {}
 
 func (x *VerifyChanBackupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[153]
+	mi := &file_lightning_proto_msgTypes[155]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13672,7 +13768,7 @@ func (x *VerifyChanBackupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyChanBackupResponse.ProtoReflect.Descriptor instead.
 func (*VerifyChanBackupResponse) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{153}
+	return file_lightning_proto_rawDescGZIP(), []int{155}
 }
 
 type MacaroonPermission struct {
@@ -13689,7 +13785,7 @@ type MacaroonPermission struct {
 func (x *MacaroonPermission) Reset() {
 	*x = MacaroonPermission{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[154]
+		mi := &file_lightning_proto_msgTypes[156]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -13702,7 +13798,7 @@ func (x *MacaroonPermission) String() string {
 func (*MacaroonPermission) ProtoMessage() {}
 
 func (x *MacaroonPermission) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[154]
+	mi := &file_lightning_proto_msgTypes[156]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13715,7 +13811,7 @@ func (x *MacaroonPermission) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MacaroonPermission.ProtoReflect.Descriptor instead.
 func (*MacaroonPermission) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{154}
+	return file_lightning_proto_rawDescGZIP(), []int{156}
 }
 
 func (x *MacaroonPermission) GetEntity() string {
@@ -13746,7 +13842,7 @@ type BakeMacaroonRequest struct {
 func (x *BakeMacaroonRequest) Reset() {
 	*x = BakeMacaroonRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[155]
+		mi := &file_lightning_proto_msgTypes[157]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -13759,7 +13855,7 @@ func (x *BakeMacaroonRequest) String() string {
 func (*BakeMacaroonRequest) ProtoMessage() {}
 
 func (x *BakeMacaroonRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[155]
+	mi := &file_lightning_proto_msgTypes[157]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13772,7 +13868,7 @@ func (x *BakeMacaroonRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BakeMacaroonRequest.ProtoReflect.Descriptor instead.
 func (*BakeMacaroonRequest) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{155}
+	return file_lightning_proto_rawDescGZIP(), []int{157}
 }
 
 func (x *BakeMacaroonRequest) GetPermissions() []*MacaroonPermission {
@@ -13801,7 +13897,7 @@ type BakeMacaroonResponse struct {
 func (x *BakeMacaroonResponse) Reset() {
 	*x = BakeMacaroonResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[156]
+		mi := &file_lightning_proto_msgTypes[158]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -13814,7 +13910,7 @@ func (x *BakeMacaroonResponse) String() string {
 func (*BakeMacaroonResponse) ProtoMessage() {}
 
 func (x *BakeMacaroonResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[156]
+	mi := &file_lightning_proto_msgTypes[158]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13827,7 +13923,7 @@ func (x *BakeMacaroonResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BakeMacaroonResponse.ProtoReflect.Descriptor instead.
 func (*BakeMacaroonResponse) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{156}
+	return file_lightning_proto_rawDescGZIP(), []int{158}
 }
 
 func (x *BakeMacaroonResponse) GetMacaroon() string {
@@ -13846,7 +13942,7 @@ type ListMacaroonIDsRequest struct {
 func (x *ListMacaroonIDsRequest) Reset() {
 	*x = ListMacaroonIDsRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[157]
+		mi := &file_lightning_proto_msgTypes[159]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -13859,7 +13955,7 @@ func (x *ListMacaroonIDsRequest) String() string {
 func (*ListMacaroonIDsRequest) ProtoMessage() {}
 
 func (x *ListMacaroonIDsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[157]
+	mi := &file_lightning_proto_msgTypes[159]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13872,7 +13968,7 @@ func (x *ListMacaroonIDsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMacaroonIDsRequest.ProtoReflect.Descriptor instead.
 func (*ListMacaroonIDsRequest) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{157}
+	return file_lightning_proto_rawDescGZIP(), []int{159}
 }
 
 type ListMacaroonIDsResponse struct {
@@ -13887,7 +13983,7 @@ type ListMacaroonIDsResponse struct {
 func (x *ListMacaroonIDsResponse) Reset() {
 	*x = ListMacaroonIDsResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[158]
+		mi := &file_lightning_proto_msgTypes[160]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -13900,7 +13996,7 @@ func (x *ListMacaroonIDsResponse) String() string {
 func (*ListMacaroonIDsResponse) ProtoMessage() {}
 
 func (x *ListMacaroonIDsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[158]
+	mi := &file_lightning_proto_msgTypes[160]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13913,7 +14009,7 @@ func (x *ListMacaroonIDsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMacaroonIDsResponse.ProtoReflect.Descriptor instead.
 func (*ListMacaroonIDsResponse) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{158}
+	return file_lightning_proto_rawDescGZIP(), []int{160}
 }
 
 func (x *ListMacaroonIDsResponse) GetRootKeyIds() []uint64 {
@@ -13935,7 +14031,7 @@ type DeleteMacaroonIDRequest struct {
 func (x *DeleteMacaroonIDRequest) Reset() {
 	*x = DeleteMacaroonIDRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[159]
+		mi := &file_lightning_proto_msgTypes[161]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -13948,7 +14044,7 @@ func (x *DeleteMacaroonIDRequest) String() string {
 func (*DeleteMacaroonIDRequest) ProtoMessage() {}
 
 func (x *DeleteMacaroonIDRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[159]
+	mi := &file_lightning_proto_msgTypes[161]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13961,7 +14057,7 @@ func (x *DeleteMacaroonIDRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteMacaroonIDRequest.ProtoReflect.Descriptor instead.
 func (*DeleteMacaroonIDRequest) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{159}
+	return file_lightning_proto_rawDescGZIP(), []int{161}
 }
 
 func (x *DeleteMacaroonIDRequest) GetRootKeyId() uint64 {
@@ -13983,7 +14079,7 @@ type DeleteMacaroonIDResponse struct {
 func (x *DeleteMacaroonIDResponse) Reset() {
 	*x = DeleteMacaroonIDResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[160]
+		mi := &file_lightning_proto_msgTypes[162]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -13996,7 +14092,7 @@ func (x *DeleteMacaroonIDResponse) String() string {
 func (*DeleteMacaroonIDResponse) ProtoMessage() {}
 
 func (x *DeleteMacaroonIDResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[160]
+	mi := &file_lightning_proto_msgTypes[162]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14009,7 +14105,7 @@ func (x *DeleteMacaroonIDResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteMacaroonIDResponse.ProtoReflect.Descriptor instead.
 func (*DeleteMacaroonIDResponse) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{160}
+	return file_lightning_proto_rawDescGZIP(), []int{162}
 }
 
 func (x *DeleteMacaroonIDResponse) GetDeleted() bool {
@@ -14031,7 +14127,7 @@ type MacaroonPermissionList struct {
 func (x *MacaroonPermissionList) Reset() {
 	*x = MacaroonPermissionList{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[161]
+		mi := &file_lightning_proto_msgTypes[163]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -14044,7 +14140,7 @@ func (x *MacaroonPermissionList) String() string {
 func (*MacaroonPermissionList) ProtoMessage() {}
 
 func (x *MacaroonPermissionList) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[161]
+	mi := &file_lightning_proto_msgTypes[163]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14057,7 +14153,7 @@ func (x *MacaroonPermissionList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MacaroonPermissionList.ProtoReflect.Descriptor instead.
 func (*MacaroonPermissionList) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{161}
+	return file_lightning_proto_rawDescGZIP(), []int{163}
 }
 
 func (x *MacaroonPermissionList) GetPermissions() []*MacaroonPermission {
@@ -14076,7 +14172,7 @@ type ListPermissionsRequest struct {
 func (x *ListPermissionsRequest) Reset() {
 	*x = ListPermissionsRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[162]
+		mi := &file_lightning_proto_msgTypes[164]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -14089,7 +14185,7 @@ func (x *ListPermissionsRequest) String() string {
 func (*ListPermissionsRequest) ProtoMessage() {}
 
 func (x *ListPermissionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[162]
+	mi := &file_lightning_proto_msgTypes[164]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14102,7 +14198,7 @@ func (x *ListPermissionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPermissionsRequest.ProtoReflect.Descriptor instead.
 func (*ListPermissionsRequest) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{162}
+	return file_lightning_proto_rawDescGZIP(), []int{164}
 }
 
 type ListPermissionsResponse struct {
@@ -14119,7 +14215,7 @@ type ListPermissionsResponse struct {
 func (x *ListPermissionsResponse) Reset() {
 	*x = ListPermissionsResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[163]
+		mi := &file_lightning_proto_msgTypes[165]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -14132,7 +14228,7 @@ func (x *ListPermissionsResponse) String() string {
 func (*ListPermissionsResponse) ProtoMessage() {}
 
 func (x *ListPermissionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[163]
+	mi := &file_lightning_proto_msgTypes[165]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14145,7 +14241,7 @@ func (x *ListPermissionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPermissionsResponse.ProtoReflect.Descriptor instead.
 func (*ListPermissionsResponse) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{163}
+	return file_lightning_proto_rawDescGZIP(), []int{165}
 }
 
 func (x *ListPermissionsResponse) GetMethodPermissions() map[string]*MacaroonPermissionList {
@@ -14183,7 +14279,7 @@ type Failure struct {
 func (x *Failure) Reset() {
 	*x = Failure{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[164]
+		mi := &file_lightning_proto_msgTypes[166]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -14196,7 +14292,7 @@ func (x *Failure) String() string {
 func (*Failure) ProtoMessage() {}
 
 func (x *Failure) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[164]
+	mi := &file_lightning_proto_msgTypes[166]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14209,7 +14305,7 @@ func (x *Failure) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Failure.ProtoReflect.Descriptor instead.
 func (*Failure) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{164}
+	return file_lightning_proto_rawDescGZIP(), []int{166}
 }
 
 func (x *Failure) GetCode() Failure_FailureCode {
@@ -14335,7 +14431,7 @@ type ChannelUpdate struct {
 func (x *ChannelUpdate) Reset() {
 	*x = ChannelUpdate{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[165]
+		mi := &file_lightning_proto_msgTypes[167]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -14348,7 +14444,7 @@ func (x *ChannelUpdate) String() string {
 func (*ChannelUpdate) ProtoMessage() {}
 
 func (x *ChannelUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[165]
+	mi := &file_lightning_proto_msgTypes[167]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14361,7 +14457,7 @@ func (x *ChannelUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChannelUpdate.ProtoReflect.Descriptor instead.
 func (*ChannelUpdate) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{165}
+	return file_lightning_proto_rawDescGZIP(), []int{167}
 }
 
 func (x *ChannelUpdate) GetSignature() []byte {
@@ -14461,7 +14557,7 @@ type MacaroonId struct {
 func (x *MacaroonId) Reset() {
 	*x = MacaroonId{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[166]
+		mi := &file_lightning_proto_msgTypes[168]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -14474,7 +14570,7 @@ func (x *MacaroonId) String() string {
 func (*MacaroonId) ProtoMessage() {}
 
 func (x *MacaroonId) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[166]
+	mi := &file_lightning_proto_msgTypes[168]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14487,7 +14583,7 @@ func (x *MacaroonId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MacaroonId.ProtoReflect.Descriptor instead.
 func (*MacaroonId) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{166}
+	return file_lightning_proto_rawDescGZIP(), []int{168}
 }
 
 func (x *MacaroonId) GetNonce() []byte {
@@ -14523,7 +14619,7 @@ type Op struct {
 func (x *Op) Reset() {
 	*x = Op{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[167]
+		mi := &file_lightning_proto_msgTypes[169]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -14536,7 +14632,7 @@ func (x *Op) String() string {
 func (*Op) ProtoMessage() {}
 
 func (x *Op) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[167]
+	mi := &file_lightning_proto_msgTypes[169]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14549,7 +14645,7 @@ func (x *Op) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Op.ProtoReflect.Descriptor instead.
 func (*Op) Descriptor() ([]byte, []int) {
-	return file_lightning_proto_rawDescGZIP(), []int{167}
+	return file_lightning_proto_rawDescGZIP(), []int{169}
 }
 
 func (x *Op) GetEntity() string {
@@ -14592,7 +14688,7 @@ type PendingChannelsResponse_PendingChannel struct {
 func (x *PendingChannelsResponse_PendingChannel) Reset() {
 	*x = PendingChannelsResponse_PendingChannel{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[173]
+		mi := &file_lightning_proto_msgTypes[175]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -14605,7 +14701,7 @@ func (x *PendingChannelsResponse_PendingChannel) String() string {
 func (*PendingChannelsResponse_PendingChannel) ProtoMessage() {}
 
 func (x *PendingChannelsResponse_PendingChannel) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[173]
+	mi := &file_lightning_proto_msgTypes[175]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14712,7 +14808,7 @@ type PendingChannelsResponse_PendingOpenChannel struct {
 func (x *PendingChannelsResponse_PendingOpenChannel) Reset() {
 	*x = PendingChannelsResponse_PendingOpenChannel{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[174]
+		mi := &file_lightning_proto_msgTypes[176]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -14725,7 +14821,7 @@ func (x *PendingChannelsResponse_PendingOpenChannel) String() string {
 func (*PendingChannelsResponse_PendingOpenChannel) ProtoMessage() {}
 
 func (x *PendingChannelsResponse_PendingOpenChannel) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[174]
+	mi := &file_lightning_proto_msgTypes[176]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14794,7 +14890,7 @@ type PendingChannelsResponse_WaitingCloseChannel struct {
 func (x *PendingChannelsResponse_WaitingCloseChannel) Reset() {
 	*x = PendingChannelsResponse_WaitingCloseChannel{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[175]
+		mi := &file_lightning_proto_msgTypes[177]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -14807,7 +14903,7 @@ func (x *PendingChannelsResponse_WaitingCloseChannel) String() string {
 func (*PendingChannelsResponse_WaitingCloseChannel) ProtoMessage() {}
 
 func (x *PendingChannelsResponse_WaitingCloseChannel) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[175]
+	mi := &file_lightning_proto_msgTypes[177]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14872,7 +14968,7 @@ type PendingChannelsResponse_Commitments struct {
 func (x *PendingChannelsResponse_Commitments) Reset() {
 	*x = PendingChannelsResponse_Commitments{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[176]
+		mi := &file_lightning_proto_msgTypes[178]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -14885,7 +14981,7 @@ func (x *PendingChannelsResponse_Commitments) String() string {
 func (*PendingChannelsResponse_Commitments) ProtoMessage() {}
 
 func (x *PendingChannelsResponse_Commitments) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[176]
+	mi := &file_lightning_proto_msgTypes[178]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14957,7 +15053,7 @@ type PendingChannelsResponse_ClosedChannel struct {
 func (x *PendingChannelsResponse_ClosedChannel) Reset() {
 	*x = PendingChannelsResponse_ClosedChannel{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[177]
+		mi := &file_lightning_proto_msgTypes[179]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -14970,7 +15066,7 @@ func (x *PendingChannelsResponse_ClosedChannel) String() string {
 func (*PendingChannelsResponse_ClosedChannel) ProtoMessage() {}
 
 func (x *PendingChannelsResponse_ClosedChannel) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[177]
+	mi := &file_lightning_proto_msgTypes[179]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15027,7 +15123,7 @@ type PendingChannelsResponse_ForceClosedChannel struct {
 func (x *PendingChannelsResponse_ForceClosedChannel) Reset() {
 	*x = PendingChannelsResponse_ForceClosedChannel{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_lightning_proto_msgTypes[178]
+		mi := &file_lightning_proto_msgTypes[180]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -15040,7 +15136,7 @@ func (x *PendingChannelsResponse_ForceClosedChannel) String() string {
 func (*PendingChannelsResponse_ForceClosedChannel) ProtoMessage() {}
 
 func (x *PendingChannelsResponse_ForceClosedChannel) ProtoReflect() protoreflect.Message {
-	mi := &file_lightning_proto_msgTypes[178]
+	mi := &file_lightning_proto_msgTypes[180]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16855,14 +16951,22 @@ var file_lightning_proto_rawDesc = []byte{
 	0x6e, 0x64, 0x65, 0x78, 0x4f, 0x66, 0x66, 0x73, 0x65, 0x74, 0x12, 0x2a, 0x0a, 0x11, 0x6c, 0x61,
 	0x73, 0x74, 0x5f, 0x69, 0x6e, 0x64, 0x65, 0x78, 0x5f, 0x6f, 0x66, 0x66, 0x73, 0x65, 0x74, 0x18,
 	0x03, 0x20, 0x01, 0x28, 0x04, 0x52, 0x0f, 0x6c, 0x61, 0x73, 0x74, 0x49, 0x6e, 0x64, 0x65, 0x78,
-	0x4f, 0x66, 0x66, 0x73, 0x65, 0x74, 0x22, 0x78, 0x0a, 0x18, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65,
-	0x41, 0x6c, 0x6c, 0x50, 0x61, 0x79, 0x6d, 0x65, 0x6e, 0x74, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65,
-	0x73, 0x74, 0x12, 0x30, 0x0a, 0x14, 0x66, 0x61, 0x69, 0x6c, 0x65, 0x64, 0x5f, 0x70, 0x61, 0x79,
-	0x6d, 0x65, 0x6e, 0x74, 0x73, 0x5f, 0x6f, 0x6e, 0x6c, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x08,
-	0x52, 0x12, 0x66, 0x61, 0x69, 0x6c, 0x65, 0x64, 0x50, 0x61, 0x79, 0x6d, 0x65, 0x6e, 0x74, 0x73,
-	0x4f, 0x6e, 0x6c, 0x79, 0x12, 0x2a, 0x0a, 0x11, 0x66, 0x61, 0x69, 0x6c, 0x65, 0x64, 0x5f, 0x68,
-	0x74, 0x6c, 0x63, 0x73, 0x5f, 0x6f, 0x6e, 0x6c, 0x79, 0x18, 0x02, 0x20, 0x01, 0x28, 0x08, 0x52,
-	0x0f, 0x66, 0x61, 0x69, 0x6c, 0x65, 0x64, 0x48, 0x74, 0x6c, 0x63, 0x73, 0x4f, 0x6e, 0x6c, 0x79,
+	0x4f, 0x66, 0x66, 0x73, 0x65, 0x74, 0x22, 0x65, 0x0a, 0x14, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65,
+	0x50, 0x61, 0x79, 0x6d, 0x65, 0x6e, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x21,
+	0x0a, 0x0c, 0x70, 0x61, 0x79, 0x6d, 0x65, 0x6e, 0x74, 0x5f, 0x68, 0x61, 0x73, 0x68, 0x18, 0x01,
+	0x20, 0x01, 0x28, 0x0c, 0x52, 0x0b, 0x70, 0x61, 0x79, 0x6d, 0x65, 0x6e, 0x74, 0x48, 0x61, 0x73,
+	0x68, 0x12, 0x2a, 0x0a, 0x11, 0x66, 0x61, 0x69, 0x6c, 0x65, 0x64, 0x5f, 0x68, 0x74, 0x6c, 0x63,
+	0x73, 0x5f, 0x6f, 0x6e, 0x6c, 0x79, 0x18, 0x02, 0x20, 0x01, 0x28, 0x08, 0x52, 0x0f, 0x66, 0x61,
+	0x69, 0x6c, 0x65, 0x64, 0x48, 0x74, 0x6c, 0x63, 0x73, 0x4f, 0x6e, 0x6c, 0x79, 0x22, 0x78, 0x0a,
+	0x18, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65, 0x41, 0x6c, 0x6c, 0x50, 0x61, 0x79, 0x6d, 0x65, 0x6e,
+	0x74, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x30, 0x0a, 0x14, 0x66, 0x61, 0x69,
+	0x6c, 0x65, 0x64, 0x5f, 0x70, 0x61, 0x79, 0x6d, 0x65, 0x6e, 0x74, 0x73, 0x5f, 0x6f, 0x6e, 0x6c,
+	0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x08, 0x52, 0x12, 0x66, 0x61, 0x69, 0x6c, 0x65, 0x64, 0x50,
+	0x61, 0x79, 0x6d, 0x65, 0x6e, 0x74, 0x73, 0x4f, 0x6e, 0x6c, 0x79, 0x12, 0x2a, 0x0a, 0x11, 0x66,
+	0x61, 0x69, 0x6c, 0x65, 0x64, 0x5f, 0x68, 0x74, 0x6c, 0x63, 0x73, 0x5f, 0x6f, 0x6e, 0x6c, 0x79,
+	0x18, 0x02, 0x20, 0x01, 0x28, 0x08, 0x52, 0x0f, 0x66, 0x61, 0x69, 0x6c, 0x65, 0x64, 0x48, 0x74,
+	0x6c, 0x63, 0x73, 0x4f, 0x6e, 0x6c, 0x79, 0x22, 0x17, 0x0a, 0x15, 0x44, 0x65, 0x6c, 0x65, 0x74,
+	0x65, 0x50, 0x61, 0x79, 0x6d, 0x65, 0x6e, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65,
 	0x22, 0x1b, 0x0a, 0x19, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65, 0x41, 0x6c, 0x6c, 0x50, 0x61, 0x79,
 	0x6d, 0x65, 0x6e, 0x74, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0xbf, 0x01,
 	0x0a, 0x15, 0x41, 0x62, 0x61, 0x6e, 0x64, 0x6f, 0x6e, 0x43, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c,
@@ -17310,7 +17414,7 @@ var file_lightning_proto_rawDesc = []byte{
 	0x53, 0x5f, 0x5a, 0x45, 0x52, 0x4f, 0x5f, 0x46, 0x45, 0x45, 0x5f, 0x48, 0x54, 0x4c, 0x43, 0x5f,
 	0x4f, 0x50, 0x54, 0x10, 0x17, 0x12, 0x0b, 0x0a, 0x07, 0x41, 0x4d, 0x50, 0x5f, 0x52, 0x45, 0x51,
 	0x10, 0x1e, 0x12, 0x0b, 0x0a, 0x07, 0x41, 0x4d, 0x50, 0x5f, 0x4f, 0x50, 0x54, 0x10, 0x1f, 0x32,
-	0x9e, 0x22, 0x0a, 0x09, 0x4c, 0x69, 0x67, 0x68, 0x74, 0x6e, 0x69, 0x6e, 0x67, 0x12, 0x4a, 0x0a,
+	0xea, 0x22, 0x0a, 0x09, 0x4c, 0x69, 0x67, 0x68, 0x74, 0x6e, 0x69, 0x6e, 0x67, 0x12, 0x4a, 0x0a,
 	0x0d, 0x57, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x42, 0x61, 0x6c, 0x61, 0x6e, 0x63, 0x65, 0x12, 0x1b,
 	0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x57, 0x61, 0x6c, 0x6c, 0x65, 0x74, 0x42, 0x61, 0x6c,
 	0x61, 0x6e, 0x63, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1c, 0x2e, 0x6c, 0x6e,
@@ -17479,115 +17583,119 @@ var file_lightning_proto_rawDesc = []byte{
 	0x6d, 0x65, 0x6e, 0x74, 0x73, 0x12, 0x1a, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x4c, 0x69,
 	0x73, 0x74, 0x50, 0x61, 0x79, 0x6d, 0x65, 0x6e, 0x74, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73,
 	0x74, 0x1a, 0x1b, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x50, 0x61,
-	0x79, 0x6d, 0x65, 0x6e, 0x74, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x56,
-	0x0a, 0x11, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65, 0x41, 0x6c, 0x6c, 0x50, 0x61, 0x79, 0x6d, 0x65,
-	0x6e, 0x74, 0x73, 0x12, 0x1f, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x44, 0x65, 0x6c, 0x65,
-	0x74, 0x65, 0x41, 0x6c, 0x6c, 0x50, 0x61, 0x79, 0x6d, 0x65, 0x6e, 0x74, 0x73, 0x52, 0x65, 0x71,
-	0x75, 0x65, 0x73, 0x74, 0x1a, 0x20, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x44, 0x65, 0x6c,
-	0x65, 0x74, 0x65, 0x41, 0x6c, 0x6c, 0x50, 0x61, 0x79, 0x6d, 0x65, 0x6e, 0x74, 0x73, 0x52, 0x65,
-	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x40, 0x0a, 0x0d, 0x44, 0x65, 0x73, 0x63, 0x72, 0x69,
-	0x62, 0x65, 0x47, 0x72, 0x61, 0x70, 0x68, 0x12, 0x1a, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e,
-	0x43, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x47, 0x72, 0x61, 0x70, 0x68, 0x52, 0x65, 0x71, 0x75,
-	0x65, 0x73, 0x74, 0x1a, 0x13, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x43, 0x68, 0x61, 0x6e,
-	0x6e, 0x65, 0x6c, 0x47, 0x72, 0x61, 0x70, 0x68, 0x12, 0x47, 0x0a, 0x0e, 0x47, 0x65, 0x74, 0x4e,
-	0x6f, 0x64, 0x65, 0x4d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x12, 0x19, 0x2e, 0x6c, 0x6e, 0x72,
-	0x70, 0x63, 0x2e, 0x4e, 0x6f, 0x64, 0x65, 0x4d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x52, 0x65,
-	0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1a, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x4e, 0x6f,
-	0x64, 0x65, 0x4d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73,
-	0x65, 0x12, 0x39, 0x0a, 0x0b, 0x47, 0x65, 0x74, 0x43, 0x68, 0x61, 0x6e, 0x49, 0x6e, 0x66, 0x6f,
-	0x12, 0x16, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x43, 0x68, 0x61, 0x6e, 0x49, 0x6e, 0x66,
-	0x6f, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x12, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63,
-	0x2e, 0x43, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x45, 0x64, 0x67, 0x65, 0x12, 0x36, 0x0a, 0x0b,
-	0x47, 0x65, 0x74, 0x4e, 0x6f, 0x64, 0x65, 0x49, 0x6e, 0x66, 0x6f, 0x12, 0x16, 0x2e, 0x6c, 0x6e,
-	0x72, 0x70, 0x63, 0x2e, 0x4e, 0x6f, 0x64, 0x65, 0x49, 0x6e, 0x66, 0x6f, 0x52, 0x65, 0x71, 0x75,
-	0x65, 0x73, 0x74, 0x1a, 0x0f, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x4e, 0x6f, 0x64, 0x65,
-	0x49, 0x6e, 0x66, 0x6f, 0x12, 0x44, 0x0a, 0x0b, 0x51, 0x75, 0x65, 0x72, 0x79, 0x52, 0x6f, 0x75,
-	0x74, 0x65, 0x73, 0x12, 0x19, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x51, 0x75, 0x65, 0x72,
-	0x79, 0x52, 0x6f, 0x75, 0x74, 0x65, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1a,
-	0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x51, 0x75, 0x65, 0x72, 0x79, 0x52, 0x6f, 0x75, 0x74,
-	0x65, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x3f, 0x0a, 0x0e, 0x47, 0x65,
-	0x74, 0x4e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x49, 0x6e, 0x66, 0x6f, 0x12, 0x19, 0x2e, 0x6c,
-	0x6e, 0x72, 0x70, 0x63, 0x2e, 0x4e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x49, 0x6e, 0x66, 0x6f,
-	0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x12, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e,
-	0x4e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x49, 0x6e, 0x66, 0x6f, 0x12, 0x35, 0x0a, 0x0a, 0x53,
-	0x74, 0x6f, 0x70, 0x44, 0x61, 0x65, 0x6d, 0x6f, 0x6e, 0x12, 0x12, 0x2e, 0x6c, 0x6e, 0x72, 0x70,
-	0x63, 0x2e, 0x53, 0x74, 0x6f, 0x70, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x13, 0x2e,
-	0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x53, 0x74, 0x6f, 0x70, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e,
-	0x73, 0x65, 0x12, 0x57, 0x0a, 0x15, 0x53, 0x75, 0x62, 0x73, 0x63, 0x72, 0x69, 0x62, 0x65, 0x43,
-	0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x47, 0x72, 0x61, 0x70, 0x68, 0x12, 0x20, 0x2e, 0x6c, 0x6e,
-	0x72, 0x70, 0x63, 0x2e, 0x47, 0x72, 0x61, 0x70, 0x68, 0x54, 0x6f, 0x70, 0x6f, 0x6c, 0x6f, 0x67,
-	0x79, 0x53, 0x75, 0x62, 0x73, 0x63, 0x72, 0x69, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x1a, 0x1a, 0x2e,
-	0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x47, 0x72, 0x61, 0x70, 0x68, 0x54, 0x6f, 0x70, 0x6f, 0x6c,
-	0x6f, 0x67, 0x79, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x30, 0x01, 0x12, 0x41, 0x0a, 0x0a, 0x44,
-	0x65, 0x62, 0x75, 0x67, 0x4c, 0x65, 0x76, 0x65, 0x6c, 0x12, 0x18, 0x2e, 0x6c, 0x6e, 0x72, 0x70,
-	0x63, 0x2e, 0x44, 0x65, 0x62, 0x75, 0x67, 0x4c, 0x65, 0x76, 0x65, 0x6c, 0x52, 0x65, 0x71, 0x75,
-	0x65, 0x73, 0x74, 0x1a, 0x19, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x44, 0x65, 0x62, 0x75,
-	0x67, 0x4c, 0x65, 0x76, 0x65, 0x6c, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x3e,
-	0x0a, 0x09, 0x46, 0x65, 0x65, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x12, 0x17, 0x2e, 0x6c, 0x6e,
-	0x72, 0x70, 0x63, 0x2e, 0x46, 0x65, 0x65, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x52, 0x65, 0x71,
-	0x75, 0x65, 0x73, 0x74, 0x1a, 0x18, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x46, 0x65, 0x65,
-	0x52, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x4e,
-	0x0a, 0x13, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x43, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x50,
-	0x6f, 0x6c, 0x69, 0x63, 0x79, 0x12, 0x1a, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x50, 0x6f,
-	0x6c, 0x69, 0x63, 0x79, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73,
-	0x74, 0x1a, 0x1b, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x50, 0x6f, 0x6c, 0x69, 0x63, 0x79,
-	0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x56,
-	0x0a, 0x11, 0x46, 0x6f, 0x72, 0x77, 0x61, 0x72, 0x64, 0x69, 0x6e, 0x67, 0x48, 0x69, 0x73, 0x74,
-	0x6f, 0x72, 0x79, 0x12, 0x1f, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x46, 0x6f, 0x72, 0x77,
-	0x61, 0x72, 0x64, 0x69, 0x6e, 0x67, 0x48, 0x69, 0x73, 0x74, 0x6f, 0x72, 0x79, 0x52, 0x65, 0x71,
-	0x75, 0x65, 0x73, 0x74, 0x1a, 0x20, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x46, 0x6f, 0x72,
-	0x77, 0x61, 0x72, 0x64, 0x69, 0x6e, 0x67, 0x48, 0x69, 0x73, 0x74, 0x6f, 0x72, 0x79, 0x52, 0x65,
-	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x4e, 0x0a, 0x13, 0x45, 0x78, 0x70, 0x6f, 0x72, 0x74,
-	0x43, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x42, 0x61, 0x63, 0x6b, 0x75, 0x70, 0x12, 0x21, 0x2e,
-	0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x45, 0x78, 0x70, 0x6f, 0x72, 0x74, 0x43, 0x68, 0x61, 0x6e,
-	0x6e, 0x65, 0x6c, 0x42, 0x61, 0x63, 0x6b, 0x75, 0x70, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
-	0x1a, 0x14, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x43, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c,
-	0x42, 0x61, 0x63, 0x6b, 0x75, 0x70, 0x12, 0x54, 0x0a, 0x17, 0x45, 0x78, 0x70, 0x6f, 0x72, 0x74,
-	0x41, 0x6c, 0x6c, 0x43, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x42, 0x61, 0x63, 0x6b, 0x75, 0x70,
-	0x73, 0x12, 0x1e, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x43, 0x68, 0x61, 0x6e, 0x42, 0x61,
-	0x63, 0x6b, 0x75, 0x70, 0x45, 0x78, 0x70, 0x6f, 0x72, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73,
-	0x74, 0x1a, 0x19, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x43, 0x68, 0x61, 0x6e, 0x42, 0x61,
-	0x63, 0x6b, 0x75, 0x70, 0x53, 0x6e, 0x61, 0x70, 0x73, 0x68, 0x6f, 0x74, 0x12, 0x4e, 0x0a, 0x10,
+	0x79, 0x6d, 0x65, 0x6e, 0x74, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x4a,
+	0x0a, 0x0d, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65, 0x50, 0x61, 0x79, 0x6d, 0x65, 0x6e, 0x74, 0x12,
+	0x1b, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65, 0x50, 0x61,
+	0x79, 0x6d, 0x65, 0x6e, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1c, 0x2e, 0x6c,
+	0x6e, 0x72, 0x70, 0x63, 0x2e, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65, 0x50, 0x61, 0x79, 0x6d, 0x65,
+	0x6e, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x56, 0x0a, 0x11, 0x44, 0x65,
+	0x6c, 0x65, 0x74, 0x65, 0x41, 0x6c, 0x6c, 0x50, 0x61, 0x79, 0x6d, 0x65, 0x6e, 0x74, 0x73, 0x12,
+	0x1f, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65, 0x41, 0x6c,
+	0x6c, 0x50, 0x61, 0x79, 0x6d, 0x65, 0x6e, 0x74, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
+	0x1a, 0x20, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65, 0x41,
+	0x6c, 0x6c, 0x50, 0x61, 0x79, 0x6d, 0x65, 0x6e, 0x74, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e,
+	0x73, 0x65, 0x12, 0x40, 0x0a, 0x0d, 0x44, 0x65, 0x73, 0x63, 0x72, 0x69, 0x62, 0x65, 0x47, 0x72,
+	0x61, 0x70, 0x68, 0x12, 0x1a, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x43, 0x68, 0x61, 0x6e,
+	0x6e, 0x65, 0x6c, 0x47, 0x72, 0x61, 0x70, 0x68, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a,
+	0x13, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x43, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x47,
+	0x72, 0x61, 0x70, 0x68, 0x12, 0x47, 0x0a, 0x0e, 0x47, 0x65, 0x74, 0x4e, 0x6f, 0x64, 0x65, 0x4d,
+	0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x12, 0x19, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x4e,
+	0x6f, 0x64, 0x65, 0x4d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73,
+	0x74, 0x1a, 0x1a, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x4e, 0x6f, 0x64, 0x65, 0x4d, 0x65,
+	0x74, 0x72, 0x69, 0x63, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x39, 0x0a,
+	0x0b, 0x47, 0x65, 0x74, 0x43, 0x68, 0x61, 0x6e, 0x49, 0x6e, 0x66, 0x6f, 0x12, 0x16, 0x2e, 0x6c,
+	0x6e, 0x72, 0x70, 0x63, 0x2e, 0x43, 0x68, 0x61, 0x6e, 0x49, 0x6e, 0x66, 0x6f, 0x52, 0x65, 0x71,
+	0x75, 0x65, 0x73, 0x74, 0x1a, 0x12, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x43, 0x68, 0x61,
+	0x6e, 0x6e, 0x65, 0x6c, 0x45, 0x64, 0x67, 0x65, 0x12, 0x36, 0x0a, 0x0b, 0x47, 0x65, 0x74, 0x4e,
+	0x6f, 0x64, 0x65, 0x49, 0x6e, 0x66, 0x6f, 0x12, 0x16, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e,
+	0x4e, 0x6f, 0x64, 0x65, 0x49, 0x6e, 0x66, 0x6f, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a,
+	0x0f, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x4e, 0x6f, 0x64, 0x65, 0x49, 0x6e, 0x66, 0x6f,
+	0x12, 0x44, 0x0a, 0x0b, 0x51, 0x75, 0x65, 0x72, 0x79, 0x52, 0x6f, 0x75, 0x74, 0x65, 0x73, 0x12,
+	0x19, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x51, 0x75, 0x65, 0x72, 0x79, 0x52, 0x6f, 0x75,
+	0x74, 0x65, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1a, 0x2e, 0x6c, 0x6e, 0x72,
+	0x70, 0x63, 0x2e, 0x51, 0x75, 0x65, 0x72, 0x79, 0x52, 0x6f, 0x75, 0x74, 0x65, 0x73, 0x52, 0x65,
+	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x3f, 0x0a, 0x0e, 0x47, 0x65, 0x74, 0x4e, 0x65, 0x74,
+	0x77, 0x6f, 0x72, 0x6b, 0x49, 0x6e, 0x66, 0x6f, 0x12, 0x19, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63,
+	0x2e, 0x4e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x49, 0x6e, 0x66, 0x6f, 0x52, 0x65, 0x71, 0x75,
+	0x65, 0x73, 0x74, 0x1a, 0x12, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x4e, 0x65, 0x74, 0x77,
+	0x6f, 0x72, 0x6b, 0x49, 0x6e, 0x66, 0x6f, 0x12, 0x35, 0x0a, 0x0a, 0x53, 0x74, 0x6f, 0x70, 0x44,
+	0x61, 0x65, 0x6d, 0x6f, 0x6e, 0x12, 0x12, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x53, 0x74,
+	0x6f, 0x70, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x13, 0x2e, 0x6c, 0x6e, 0x72, 0x70,
+	0x63, 0x2e, 0x53, 0x74, 0x6f, 0x70, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x57,
+	0x0a, 0x15, 0x53, 0x75, 0x62, 0x73, 0x63, 0x72, 0x69, 0x62, 0x65, 0x43, 0x68, 0x61, 0x6e, 0x6e,
+	0x65, 0x6c, 0x47, 0x72, 0x61, 0x70, 0x68, 0x12, 0x20, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e,
+	0x47, 0x72, 0x61, 0x70, 0x68, 0x54, 0x6f, 0x70, 0x6f, 0x6c, 0x6f, 0x67, 0x79, 0x53, 0x75, 0x62,
+	0x73, 0x63, 0x72, 0x69, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x1a, 0x1a, 0x2e, 0x6c, 0x6e, 0x72, 0x70,
+	0x63, 0x2e, 0x47, 0x72, 0x61, 0x70, 0x68, 0x54, 0x6f, 0x70, 0x6f, 0x6c, 0x6f, 0x67, 0x79, 0x55,
+	0x70, 0x64, 0x61, 0x74, 0x65, 0x30, 0x01, 0x12, 0x41, 0x0a, 0x0a, 0x44, 0x65, 0x62, 0x75, 0x67,
+	0x4c, 0x65, 0x76, 0x65, 0x6c, 0x12, 0x18, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x44, 0x65,
+	0x62, 0x75, 0x67, 0x4c, 0x65, 0x76, 0x65, 0x6c, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a,
+	0x19, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x44, 0x65, 0x62, 0x75, 0x67, 0x4c, 0x65, 0x76,
+	0x65, 0x6c, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x3e, 0x0a, 0x09, 0x46, 0x65,
+	0x65, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x12, 0x17, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e,
+	0x46, 0x65, 0x65, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
+	0x1a, 0x18, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x46, 0x65, 0x65, 0x52, 0x65, 0x70, 0x6f,
+	0x72, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x4e, 0x0a, 0x13, 0x55, 0x70,
+	0x64, 0x61, 0x74, 0x65, 0x43, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x50, 0x6f, 0x6c, 0x69, 0x63,
+	0x79, 0x12, 0x1a, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x50, 0x6f, 0x6c, 0x69, 0x63, 0x79,
+	0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1b, 0x2e,
+	0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x50, 0x6f, 0x6c, 0x69, 0x63, 0x79, 0x55, 0x70, 0x64, 0x61,
+	0x74, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x56, 0x0a, 0x11, 0x46, 0x6f,
+	0x72, 0x77, 0x61, 0x72, 0x64, 0x69, 0x6e, 0x67, 0x48, 0x69, 0x73, 0x74, 0x6f, 0x72, 0x79, 0x12,
+	0x1f, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x46, 0x6f, 0x72, 0x77, 0x61, 0x72, 0x64, 0x69,
+	0x6e, 0x67, 0x48, 0x69, 0x73, 0x74, 0x6f, 0x72, 0x79, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
+	0x1a, 0x20, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x46, 0x6f, 0x72, 0x77, 0x61, 0x72, 0x64,
+	0x69, 0x6e, 0x67, 0x48, 0x69, 0x73, 0x74, 0x6f, 0x72, 0x79, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e,
+	0x73, 0x65, 0x12, 0x4e, 0x0a, 0x13, 0x45, 0x78, 0x70, 0x6f, 0x72, 0x74, 0x43, 0x68, 0x61, 0x6e,
+	0x6e, 0x65, 0x6c, 0x42, 0x61, 0x63, 0x6b, 0x75, 0x70, 0x12, 0x21, 0x2e, 0x6c, 0x6e, 0x72, 0x70,
+	0x63, 0x2e, 0x45, 0x78, 0x70, 0x6f, 0x72, 0x74, 0x43, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x42,
+	0x61, 0x63, 0x6b, 0x75, 0x70, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x14, 0x2e, 0x6c,
+	0x6e, 0x72, 0x70, 0x63, 0x2e, 0x43, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x42, 0x61, 0x63, 0x6b,
+	0x75, 0x70, 0x12, 0x54, 0x0a, 0x17, 0x45, 0x78, 0x70, 0x6f, 0x72, 0x74, 0x41, 0x6c, 0x6c, 0x43,
+	0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x42, 0x61, 0x63, 0x6b, 0x75, 0x70, 0x73, 0x12, 0x1e, 0x2e,
+	0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x43, 0x68, 0x61, 0x6e, 0x42, 0x61, 0x63, 0x6b, 0x75, 0x70,
+	0x45, 0x78, 0x70, 0x6f, 0x72, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x19, 0x2e,
+	0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x43, 0x68, 0x61, 0x6e, 0x42, 0x61, 0x63, 0x6b, 0x75, 0x70,
+	0x53, 0x6e, 0x61, 0x70, 0x73, 0x68, 0x6f, 0x74, 0x12, 0x4e, 0x0a, 0x10, 0x56, 0x65, 0x72, 0x69,
+	0x66, 0x79, 0x43, 0x68, 0x61, 0x6e, 0x42, 0x61, 0x63, 0x6b, 0x75, 0x70, 0x12, 0x19, 0x2e, 0x6c,
+	0x6e, 0x72, 0x70, 0x63, 0x2e, 0x43, 0x68, 0x61, 0x6e, 0x42, 0x61, 0x63, 0x6b, 0x75, 0x70, 0x53,
+	0x6e, 0x61, 0x70, 0x73, 0x68, 0x6f, 0x74, 0x1a, 0x1f, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e,
 	0x56, 0x65, 0x72, 0x69, 0x66, 0x79, 0x43, 0x68, 0x61, 0x6e, 0x42, 0x61, 0x63, 0x6b, 0x75, 0x70,
-	0x12, 0x19, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x43, 0x68, 0x61, 0x6e, 0x42, 0x61, 0x63,
-	0x6b, 0x75, 0x70, 0x53, 0x6e, 0x61, 0x70, 0x73, 0x68, 0x6f, 0x74, 0x1a, 0x1f, 0x2e, 0x6c, 0x6e,
-	0x72, 0x70, 0x63, 0x2e, 0x56, 0x65, 0x72, 0x69, 0x66, 0x79, 0x43, 0x68, 0x61, 0x6e, 0x42, 0x61,
-	0x63, 0x6b, 0x75, 0x70, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x56, 0x0a, 0x15,
-	0x52, 0x65, 0x73, 0x74, 0x6f, 0x72, 0x65, 0x43, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x42, 0x61,
-	0x63, 0x6b, 0x75, 0x70, 0x73, 0x12, 0x1f, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x52, 0x65,
-	0x73, 0x74, 0x6f, 0x72, 0x65, 0x43, 0x68, 0x61, 0x6e, 0x42, 0x61, 0x63, 0x6b, 0x75, 0x70, 0x52,
-	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1c, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x52,
-	0x65, 0x73, 0x74, 0x6f, 0x72, 0x65, 0x42, 0x61, 0x63, 0x6b, 0x75, 0x70, 0x52, 0x65, 0x73, 0x70,
-	0x6f, 0x6e, 0x73, 0x65, 0x12, 0x58, 0x0a, 0x17, 0x53, 0x75, 0x62, 0x73, 0x63, 0x72, 0x69, 0x62,
-	0x65, 0x43, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x42, 0x61, 0x63, 0x6b, 0x75, 0x70, 0x73, 0x12,
-	0x20, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x43, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x42,
-	0x61, 0x63, 0x6b, 0x75, 0x70, 0x53, 0x75, 0x62, 0x73, 0x63, 0x72, 0x69, 0x70, 0x74, 0x69, 0x6f,
-	0x6e, 0x1a, 0x19, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x43, 0x68, 0x61, 0x6e, 0x42, 0x61,
-	0x63, 0x6b, 0x75, 0x70, 0x53, 0x6e, 0x61, 0x70, 0x73, 0x68, 0x6f, 0x74, 0x30, 0x01, 0x12, 0x47,
-	0x0a, 0x0c, 0x42, 0x61, 0x6b, 0x65, 0x4d, 0x61, 0x63, 0x61, 0x72, 0x6f, 0x6f, 0x6e, 0x12, 0x1a,
-	0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x42, 0x61, 0x6b, 0x65, 0x4d, 0x61, 0x63, 0x61, 0x72,
-	0x6f, 0x6f, 0x6e, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1b, 0x2e, 0x6c, 0x6e, 0x72,
+	0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x56, 0x0a, 0x15, 0x52, 0x65, 0x73, 0x74,
+	0x6f, 0x72, 0x65, 0x43, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x42, 0x61, 0x63, 0x6b, 0x75, 0x70,
+	0x73, 0x12, 0x1f, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x52, 0x65, 0x73, 0x74, 0x6f, 0x72,
+	0x65, 0x43, 0x68, 0x61, 0x6e, 0x42, 0x61, 0x63, 0x6b, 0x75, 0x70, 0x52, 0x65, 0x71, 0x75, 0x65,
+	0x73, 0x74, 0x1a, 0x1c, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x52, 0x65, 0x73, 0x74, 0x6f,
+	0x72, 0x65, 0x42, 0x61, 0x63, 0x6b, 0x75, 0x70, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65,
+	0x12, 0x58, 0x0a, 0x17, 0x53, 0x75, 0x62, 0x73, 0x63, 0x72, 0x69, 0x62, 0x65, 0x43, 0x68, 0x61,
+	0x6e, 0x6e, 0x65, 0x6c, 0x42, 0x61, 0x63, 0x6b, 0x75, 0x70, 0x73, 0x12, 0x20, 0x2e, 0x6c, 0x6e,
+	0x72, 0x70, 0x63, 0x2e, 0x43, 0x68, 0x61, 0x6e, 0x6e, 0x65, 0x6c, 0x42, 0x61, 0x63, 0x6b, 0x75,
+	0x70, 0x53, 0x75, 0x62, 0x73, 0x63, 0x72, 0x69, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x1a, 0x19, 0x2e,
+	0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x43, 0x68, 0x61, 0x6e, 0x42, 0x61, 0x63, 0x6b, 0x75, 0x70,
+	0x53, 0x6e, 0x61, 0x70, 0x73, 0x68, 0x6f, 0x74, 0x30, 0x01, 0x12, 0x47, 0x0a, 0x0c, 0x42, 0x61,
+	0x6b, 0x65, 0x4d, 0x61, 0x63, 0x61, 0x72, 0x6f, 0x6f, 0x6e, 0x12, 0x1a, 0x2e, 0x6c, 0x6e, 0x72,
 	0x70, 0x63, 0x2e, 0x42, 0x61, 0x6b, 0x65, 0x4d, 0x61, 0x63, 0x61, 0x72, 0x6f, 0x6f, 0x6e, 0x52,
-	0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x50, 0x0a, 0x0f, 0x4c, 0x69, 0x73, 0x74, 0x4d,
-	0x61, 0x63, 0x61, 0x72, 0x6f, 0x6f, 0x6e, 0x49, 0x44, 0x73, 0x12, 0x1d, 0x2e, 0x6c, 0x6e, 0x72,
-	0x70, 0x63, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x4d, 0x61, 0x63, 0x61, 0x72, 0x6f, 0x6f, 0x6e, 0x49,
-	0x44, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1e, 0x2e, 0x6c, 0x6e, 0x72, 0x70,
-	0x63, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x4d, 0x61, 0x63, 0x61, 0x72, 0x6f, 0x6f, 0x6e, 0x49, 0x44,
-	0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x53, 0x0a, 0x10, 0x44, 0x65, 0x6c,
-	0x65, 0x74, 0x65, 0x4d, 0x61, 0x63, 0x61, 0x72, 0x6f, 0x6f, 0x6e, 0x49, 0x44, 0x12, 0x1e, 0x2e,
-	0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65, 0x4d, 0x61, 0x63, 0x61,
-	0x72, 0x6f, 0x6f, 0x6e, 0x49, 0x44, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1f, 0x2e,
-	0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65, 0x4d, 0x61, 0x63, 0x61,
-	0x72, 0x6f, 0x6f, 0x6e, 0x49, 0x44, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x50,
-	0x0a, 0x0f, 0x4c, 0x69, 0x73, 0x74, 0x50, 0x65, 0x72, 0x6d, 0x69, 0x73, 0x73, 0x69, 0x6f, 0x6e,
-	0x73, 0x12, 0x1d, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x50, 0x65,
-	0x72, 0x6d, 0x69, 0x73, 0x73, 0x69, 0x6f, 0x6e, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
-	0x1a, 0x1e, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x50, 0x65, 0x72,
-	0x6d, 0x69, 0x73, 0x73, 0x69, 0x6f, 0x6e, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65,
-	0x42, 0x27, 0x5a, 0x25, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x6c,
-	0x69, 0x67, 0x68, 0x74, 0x6e, 0x69, 0x6e, 0x67, 0x6e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x2f,
-	0x6c, 0x6e, 0x64, 0x2f, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f,
-	0x33,
+	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1b, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x42,
+	0x61, 0x6b, 0x65, 0x4d, 0x61, 0x63, 0x61, 0x72, 0x6f, 0x6f, 0x6e, 0x52, 0x65, 0x73, 0x70, 0x6f,
+	0x6e, 0x73, 0x65, 0x12, 0x50, 0x0a, 0x0f, 0x4c, 0x69, 0x73, 0x74, 0x4d, 0x61, 0x63, 0x61, 0x72,
+	0x6f, 0x6f, 0x6e, 0x49, 0x44, 0x73, 0x12, 0x1d, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x4c,
+	0x69, 0x73, 0x74, 0x4d, 0x61, 0x63, 0x61, 0x72, 0x6f, 0x6f, 0x6e, 0x49, 0x44, 0x73, 0x52, 0x65,
+	0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1e, 0x2e, 0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x4c, 0x69,
+	0x73, 0x74, 0x4d, 0x61, 0x63, 0x61, 0x72, 0x6f, 0x6f, 0x6e, 0x49, 0x44, 0x73, 0x52, 0x65, 0x73,
+	0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x53, 0x0a, 0x10, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65, 0x4d,
+	0x61, 0x63, 0x61, 0x72, 0x6f, 0x6f, 0x6e, 0x49, 0x44, 0x12, 0x1e, 0x2e, 0x6c, 0x6e, 0x72, 0x70,
+	0x63, 0x2e, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65, 0x4d, 0x61, 0x63, 0x61, 0x72, 0x6f, 0x6f, 0x6e,
+	0x49, 0x44, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1f, 0x2e, 0x6c, 0x6e, 0x72, 0x70,
+	0x63, 0x2e, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65, 0x4d, 0x61, 0x63, 0x61, 0x72, 0x6f, 0x6f, 0x6e,
+	0x49, 0x44, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x50, 0x0a, 0x0f, 0x4c, 0x69,
+	0x73, 0x74, 0x50, 0x65, 0x72, 0x6d, 0x69, 0x73, 0x73, 0x69, 0x6f, 0x6e, 0x73, 0x12, 0x1d, 0x2e,
+	0x6c, 0x6e, 0x72, 0x70, 0x63, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x50, 0x65, 0x72, 0x6d, 0x69, 0x73,
+	0x73, 0x69, 0x6f, 0x6e, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1e, 0x2e, 0x6c,
+	0x6e, 0x72, 0x70, 0x63, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x50, 0x65, 0x72, 0x6d, 0x69, 0x73, 0x73,
+	0x69, 0x6f, 0x6e, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x42, 0x27, 0x5a, 0x25,
+	0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x6c, 0x69, 0x67, 0x68, 0x74,
+	0x6e, 0x69, 0x6e, 0x67, 0x6e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x2f, 0x6c, 0x6e, 0x64, 0x2f,
+	0x6c, 0x6e, 0x72, 0x70, 0x63, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -17603,7 +17711,7 @@ func file_lightning_proto_rawDescGZIP() []byte {
 }
 
 var file_lightning_proto_enumTypes = make([]protoimpl.EnumInfo, 18)
-var file_lightning_proto_msgTypes = make([]protoimpl.MessageInfo, 189)
+var file_lightning_proto_msgTypes = make([]protoimpl.MessageInfo, 191)
 var file_lightning_proto_goTypes = []interface{}{
 	(AddressType)(0),                     // 0: lnrpc.AddressType
 	(CommitmentType)(0),                  // 1: lnrpc.CommitmentType
@@ -17750,80 +17858,82 @@ var file_lightning_proto_goTypes = []interface{}{
 	(*HTLCAttempt)(nil),                                         // 142: lnrpc.HTLCAttempt
 	(*ListPaymentsRequest)(nil),                                 // 143: lnrpc.ListPaymentsRequest
 	(*ListPaymentsResponse)(nil),                                // 144: lnrpc.ListPaymentsResponse
-	(*DeleteAllPaymentsRequest)(nil),                            // 145: lnrpc.DeleteAllPaymentsRequest
-	(*DeleteAllPaymentsResponse)(nil),                           // 146: lnrpc.DeleteAllPaymentsResponse
-	(*AbandonChannelRequest)(nil),                               // 147: lnrpc.AbandonChannelRequest
-	(*AbandonChannelResponse)(nil),                              // 148: lnrpc.AbandonChannelResponse
-	(*DebugLevelRequest)(nil),                                   // 149: lnrpc.DebugLevelRequest
-	(*DebugLevelResponse)(nil),                                  // 150: lnrpc.DebugLevelResponse
-	(*PayReqString)(nil),                                        // 151: lnrpc.PayReqString
-	(*PayReq)(nil),                                              // 152: lnrpc.PayReq
-	(*Feature)(nil),                                             // 153: lnrpc.Feature
-	(*FeeReportRequest)(nil),                                    // 154: lnrpc.FeeReportRequest
-	(*ChannelFeeReport)(nil),                                    // 155: lnrpc.ChannelFeeReport
-	(*FeeReportResponse)(nil),                                   // 156: lnrpc.FeeReportResponse
-	(*PolicyUpdateRequest)(nil),                                 // 157: lnrpc.PolicyUpdateRequest
-	(*PolicyUpdateResponse)(nil),                                // 158: lnrpc.PolicyUpdateResponse
-	(*ForwardingHistoryRequest)(nil),                            // 159: lnrpc.ForwardingHistoryRequest
-	(*ForwardingEvent)(nil),                                     // 160: lnrpc.ForwardingEvent
-	(*ForwardingHistoryResponse)(nil),                           // 161: lnrpc.ForwardingHistoryResponse
-	(*ExportChannelBackupRequest)(nil),                          // 162: lnrpc.ExportChannelBackupRequest
-	(*ChannelBackup)(nil),                                       // 163: lnrpc.ChannelBackup
-	(*MultiChanBackup)(nil),                                     // 164: lnrpc.MultiChanBackup
-	(*ChanBackupExportRequest)(nil),                             // 165: lnrpc.ChanBackupExportRequest
-	(*ChanBackupSnapshot)(nil),                                  // 166: lnrpc.ChanBackupSnapshot
-	(*ChannelBackups)(nil),                                      // 167: lnrpc.ChannelBackups
-	(*RestoreChanBackupRequest)(nil),                            // 168: lnrpc.RestoreChanBackupRequest
-	(*RestoreBackupResponse)(nil),                               // 169: lnrpc.RestoreBackupResponse
-	(*ChannelBackupSubscription)(nil),                           // 170: lnrpc.ChannelBackupSubscription
-	(*VerifyChanBackupResponse)(nil),                            // 171: lnrpc.VerifyChanBackupResponse
-	(*MacaroonPermission)(nil),                                  // 172: lnrpc.MacaroonPermission
-	(*BakeMacaroonRequest)(nil),                                 // 173: lnrpc.BakeMacaroonRequest
-	(*BakeMacaroonResponse)(nil),                                // 174: lnrpc.BakeMacaroonResponse
-	(*ListMacaroonIDsRequest)(nil),                              // 175: lnrpc.ListMacaroonIDsRequest
-	(*ListMacaroonIDsResponse)(nil),                             // 176: lnrpc.ListMacaroonIDsResponse
-	(*DeleteMacaroonIDRequest)(nil),                             // 177: lnrpc.DeleteMacaroonIDRequest
-	(*DeleteMacaroonIDResponse)(nil),                            // 178: lnrpc.DeleteMacaroonIDResponse
-	(*MacaroonPermissionList)(nil),                              // 179: lnrpc.MacaroonPermissionList
-	(*ListPermissionsRequest)(nil),                              // 180: lnrpc.ListPermissionsRequest
-	(*ListPermissionsResponse)(nil),                             // 181: lnrpc.ListPermissionsResponse
-	(*Failure)(nil),                                             // 182: lnrpc.Failure
-	(*ChannelUpdate)(nil),                                       // 183: lnrpc.ChannelUpdate
-	(*MacaroonId)(nil),                                          // 184: lnrpc.MacaroonId
-	(*Op)(nil),                                                  // 185: lnrpc.Op
-	nil,                                                         // 186: lnrpc.SendRequest.DestCustomRecordsEntry
-	nil,                                                         // 187: lnrpc.EstimateFeeRequest.AddrToAmountEntry
-	nil,                                                         // 188: lnrpc.SendManyRequest.AddrToAmountEntry
-	nil,                                                         // 189: lnrpc.Peer.FeaturesEntry
-	nil,                                                         // 190: lnrpc.GetInfoResponse.FeaturesEntry
-	(*PendingChannelsResponse_PendingChannel)(nil),              // 191: lnrpc.PendingChannelsResponse.PendingChannel
-	(*PendingChannelsResponse_PendingOpenChannel)(nil),          // 192: lnrpc.PendingChannelsResponse.PendingOpenChannel
-	(*PendingChannelsResponse_WaitingCloseChannel)(nil),         // 193: lnrpc.PendingChannelsResponse.WaitingCloseChannel
-	(*PendingChannelsResponse_Commitments)(nil),                 // 194: lnrpc.PendingChannelsResponse.Commitments
-	(*PendingChannelsResponse_ClosedChannel)(nil),               // 195: lnrpc.PendingChannelsResponse.ClosedChannel
-	(*PendingChannelsResponse_ForceClosedChannel)(nil),          // 196: lnrpc.PendingChannelsResponse.ForceClosedChannel
-	nil, // 197: lnrpc.WalletBalanceResponse.AccountBalanceEntry
-	nil, // 198: lnrpc.QueryRoutesRequest.DestCustomRecordsEntry
-	nil, // 199: lnrpc.Hop.CustomRecordsEntry
-	nil, // 200: lnrpc.LightningNode.FeaturesEntry
-	nil, // 201: lnrpc.NodeMetricsResponse.BetweennessCentralityEntry
-	nil, // 202: lnrpc.NodeUpdate.FeaturesEntry
-	nil, // 203: lnrpc.Invoice.FeaturesEntry
-	nil, // 204: lnrpc.InvoiceHTLC.CustomRecordsEntry
-	nil, // 205: lnrpc.PayReq.FeaturesEntry
-	nil, // 206: lnrpc.ListPermissionsResponse.MethodPermissionsEntry
+	(*DeletePaymentRequest)(nil),                                // 145: lnrpc.DeletePaymentRequest
+	(*DeleteAllPaymentsRequest)(nil),                            // 146: lnrpc.DeleteAllPaymentsRequest
+	(*DeletePaymentResponse)(nil),                               // 147: lnrpc.DeletePaymentResponse
+	(*DeleteAllPaymentsResponse)(nil),                           // 148: lnrpc.DeleteAllPaymentsResponse
+	(*AbandonChannelRequest)(nil),                               // 149: lnrpc.AbandonChannelRequest
+	(*AbandonChannelResponse)(nil),                              // 150: lnrpc.AbandonChannelResponse
+	(*DebugLevelRequest)(nil),                                   // 151: lnrpc.DebugLevelRequest
+	(*DebugLevelResponse)(nil),                                  // 152: lnrpc.DebugLevelResponse
+	(*PayReqString)(nil),                                        // 153: lnrpc.PayReqString
+	(*PayReq)(nil),                                              // 154: lnrpc.PayReq
+	(*Feature)(nil),                                             // 155: lnrpc.Feature
+	(*FeeReportRequest)(nil),                                    // 156: lnrpc.FeeReportRequest
+	(*ChannelFeeReport)(nil),                                    // 157: lnrpc.ChannelFeeReport
+	(*FeeReportResponse)(nil),                                   // 158: lnrpc.FeeReportResponse
+	(*PolicyUpdateRequest)(nil),                                 // 159: lnrpc.PolicyUpdateRequest
+	(*PolicyUpdateResponse)(nil),                                // 160: lnrpc.PolicyUpdateResponse
+	(*ForwardingHistoryRequest)(nil),                            // 161: lnrpc.ForwardingHistoryRequest
+	(*ForwardingEvent)(nil),                                     // 162: lnrpc.ForwardingEvent
+	(*ForwardingHistoryResponse)(nil),                           // 163: lnrpc.ForwardingHistoryResponse
+	(*ExportChannelBackupRequest)(nil),                          // 164: lnrpc.ExportChannelBackupRequest
+	(*ChannelBackup)(nil),                                       // 165: lnrpc.ChannelBackup
+	(*MultiChanBackup)(nil),                                     // 166: lnrpc.MultiChanBackup
+	(*ChanBackupExportRequest)(nil),                             // 167: lnrpc.ChanBackupExportRequest
+	(*ChanBackupSnapshot)(nil),                                  // 168: lnrpc.ChanBackupSnapshot
+	(*ChannelBackups)(nil),                                      // 169: lnrpc.ChannelBackups
+	(*RestoreChanBackupRequest)(nil),                            // 170: lnrpc.RestoreChanBackupRequest
+	(*RestoreBackupResponse)(nil),                               // 171: lnrpc.RestoreBackupResponse
+	(*ChannelBackupSubscription)(nil),                           // 172: lnrpc.ChannelBackupSubscription
+	(*VerifyChanBackupResponse)(nil),                            // 173: lnrpc.VerifyChanBackupResponse
+	(*MacaroonPermission)(nil),                                  // 174: lnrpc.MacaroonPermission
+	(*BakeMacaroonRequest)(nil),                                 // 175: lnrpc.BakeMacaroonRequest
+	(*BakeMacaroonResponse)(nil),                                // 176: lnrpc.BakeMacaroonResponse
+	(*ListMacaroonIDsRequest)(nil),                              // 177: lnrpc.ListMacaroonIDsRequest
+	(*ListMacaroonIDsResponse)(nil),                             // 178: lnrpc.ListMacaroonIDsResponse
+	(*DeleteMacaroonIDRequest)(nil),                             // 179: lnrpc.DeleteMacaroonIDRequest
+	(*DeleteMacaroonIDResponse)(nil),                            // 180: lnrpc.DeleteMacaroonIDResponse
+	(*MacaroonPermissionList)(nil),                              // 181: lnrpc.MacaroonPermissionList
+	(*ListPermissionsRequest)(nil),                              // 182: lnrpc.ListPermissionsRequest
+	(*ListPermissionsResponse)(nil),                             // 183: lnrpc.ListPermissionsResponse
+	(*Failure)(nil),                                             // 184: lnrpc.Failure
+	(*ChannelUpdate)(nil),                                       // 185: lnrpc.ChannelUpdate
+	(*MacaroonId)(nil),                                          // 186: lnrpc.MacaroonId
+	(*Op)(nil),                                                  // 187: lnrpc.Op
+	nil,                                                         // 188: lnrpc.SendRequest.DestCustomRecordsEntry
+	nil,                                                         // 189: lnrpc.EstimateFeeRequest.AddrToAmountEntry
+	nil,                                                         // 190: lnrpc.SendManyRequest.AddrToAmountEntry
+	nil,                                                         // 191: lnrpc.Peer.FeaturesEntry
+	nil,                                                         // 192: lnrpc.GetInfoResponse.FeaturesEntry
+	(*PendingChannelsResponse_PendingChannel)(nil),              // 193: lnrpc.PendingChannelsResponse.PendingChannel
+	(*PendingChannelsResponse_PendingOpenChannel)(nil),          // 194: lnrpc.PendingChannelsResponse.PendingOpenChannel
+	(*PendingChannelsResponse_WaitingCloseChannel)(nil),         // 195: lnrpc.PendingChannelsResponse.WaitingCloseChannel
+	(*PendingChannelsResponse_Commitments)(nil),                 // 196: lnrpc.PendingChannelsResponse.Commitments
+	(*PendingChannelsResponse_ClosedChannel)(nil),               // 197: lnrpc.PendingChannelsResponse.ClosedChannel
+	(*PendingChannelsResponse_ForceClosedChannel)(nil),          // 198: lnrpc.PendingChannelsResponse.ForceClosedChannel
+	nil, // 199: lnrpc.WalletBalanceResponse.AccountBalanceEntry
+	nil, // 200: lnrpc.QueryRoutesRequest.DestCustomRecordsEntry
+	nil, // 201: lnrpc.Hop.CustomRecordsEntry
+	nil, // 202: lnrpc.LightningNode.FeaturesEntry
+	nil, // 203: lnrpc.NodeMetricsResponse.BetweennessCentralityEntry
+	nil, // 204: lnrpc.NodeUpdate.FeaturesEntry
+	nil, // 205: lnrpc.Invoice.FeaturesEntry
+	nil, // 206: lnrpc.InvoiceHTLC.CustomRecordsEntry
+	nil, // 207: lnrpc.PayReq.FeaturesEntry
+	nil, // 208: lnrpc.ListPermissionsResponse.MethodPermissionsEntry
 }
 var file_lightning_proto_depIdxs = []int32{
 	0,   // 0: lnrpc.Utxo.address_type:type_name -> lnrpc.AddressType
 	29,  // 1: lnrpc.Utxo.outpoint:type_name -> lnrpc.OutPoint
 	19,  // 2: lnrpc.TransactionDetails.transactions:type_name -> lnrpc.Transaction
 	22,  // 3: lnrpc.SendRequest.fee_limit:type_name -> lnrpc.FeeLimit
-	186, // 4: lnrpc.SendRequest.dest_custom_records:type_name -> lnrpc.SendRequest.DestCustomRecordsEntry
+	188, // 4: lnrpc.SendRequest.dest_custom_records:type_name -> lnrpc.SendRequest.DestCustomRecordsEntry
 	8,   // 5: lnrpc.SendRequest.dest_features:type_name -> lnrpc.FeatureBit
 	109, // 6: lnrpc.SendResponse.payment_route:type_name -> lnrpc.Route
 	109, // 7: lnrpc.SendToRouteRequest.route:type_name -> lnrpc.Route
-	187, // 8: lnrpc.EstimateFeeRequest.AddrToAmount:type_name -> lnrpc.EstimateFeeRequest.AddrToAmountEntry
-	188, // 9: lnrpc.SendManyRequest.AddrToAmount:type_name -> lnrpc.SendManyRequest.AddrToAmountEntry
+	189, // 8: lnrpc.EstimateFeeRequest.AddrToAmount:type_name -> lnrpc.EstimateFeeRequest.AddrToAmountEntry
+	190, // 9: lnrpc.SendManyRequest.AddrToAmount:type_name -> lnrpc.SendManyRequest.AddrToAmountEntry
 	18,  // 10: lnrpc.ListUnspentResponse.utxos:type_name -> lnrpc.Utxo
 	0,   // 11: lnrpc.NewAddressRequest.type:type_name -> lnrpc.AddressType
 	30,  // 12: lnrpc.ConnectPeerRequest.addr:type_name -> lnrpc.LightningAddress
@@ -17841,12 +17951,12 @@ var file_lightning_proto_depIdxs = []int32{
 	29,  // 24: lnrpc.Resolution.outpoint:type_name -> lnrpc.OutPoint
 	54,  // 25: lnrpc.ClosedChannelsResponse.channels:type_name -> lnrpc.ChannelCloseSummary
 	10,  // 26: lnrpc.Peer.sync_type:type_name -> lnrpc.Peer.SyncType
-	189, // 27: lnrpc.Peer.features:type_name -> lnrpc.Peer.FeaturesEntry
+	191, // 27: lnrpc.Peer.features:type_name -> lnrpc.Peer.FeaturesEntry
 	59,  // 28: lnrpc.Peer.errors:type_name -> lnrpc.TimestampedError
 	58,  // 29: lnrpc.ListPeersResponse.peers:type_name -> lnrpc.Peer
 	11,  // 30: lnrpc.PeerEvent.type:type_name -> lnrpc.PeerEvent.EventType
 	68,  // 31: lnrpc.GetInfoResponse.chains:type_name -> lnrpc.Chain
-	190, // 32: lnrpc.GetInfoResponse.features:type_name -> lnrpc.GetInfoResponse.FeaturesEntry
+	192, // 32: lnrpc.GetInfoResponse.features:type_name -> lnrpc.GetInfoResponse.FeaturesEntry
 	28,  // 33: lnrpc.ChannelOpenUpdate.channel_point:type_name -> lnrpc.ChannelPoint
 	28,  // 34: lnrpc.CloseChannelRequest.channel_point:type_name -> lnrpc.ChannelPoint
 	74,  // 35: lnrpc.CloseStatusUpdate.close_pending:type_name -> lnrpc.PendingUpdate
@@ -17868,10 +17978,10 @@ var file_lightning_proto_depIdxs = []int32{
 	86,  // 51: lnrpc.FundingTransitionMsg.shim_cancel:type_name -> lnrpc.FundingShimCancel
 	87,  // 52: lnrpc.FundingTransitionMsg.psbt_verify:type_name -> lnrpc.FundingPsbtVerify
 	88,  // 53: lnrpc.FundingTransitionMsg.psbt_finalize:type_name -> lnrpc.FundingPsbtFinalize
-	192, // 54: lnrpc.PendingChannelsResponse.pending_open_channels:type_name -> lnrpc.PendingChannelsResponse.PendingOpenChannel
-	195, // 55: lnrpc.PendingChannelsResponse.pending_closing_channels:type_name -> lnrpc.PendingChannelsResponse.ClosedChannel
-	196, // 56: lnrpc.PendingChannelsResponse.pending_force_closing_channels:type_name -> lnrpc.PendingChannelsResponse.ForceClosedChannel
-	193, // 57: lnrpc.PendingChannelsResponse.waiting_close_channels:type_name -> lnrpc.PendingChannelsResponse.WaitingCloseChannel
+	194, // 54: lnrpc.PendingChannelsResponse.pending_open_channels:type_name -> lnrpc.PendingChannelsResponse.PendingOpenChannel
+	197, // 55: lnrpc.PendingChannelsResponse.pending_closing_channels:type_name -> lnrpc.PendingChannelsResponse.ClosedChannel
+	198, // 56: lnrpc.PendingChannelsResponse.pending_force_closing_channels:type_name -> lnrpc.PendingChannelsResponse.ForceClosedChannel
+	195, // 57: lnrpc.PendingChannelsResponse.waiting_close_channels:type_name -> lnrpc.PendingChannelsResponse.WaitingCloseChannel
 	51,  // 58: lnrpc.ChannelEventUpdate.open_channel:type_name -> lnrpc.Channel
 	54,  // 59: lnrpc.ChannelEventUpdate.closed_channel:type_name -> lnrpc.ChannelCloseSummary
 	28,  // 60: lnrpc.ChannelEventUpdate.active_channel:type_name -> lnrpc.ChannelPoint
@@ -17879,7 +17989,7 @@ var file_lightning_proto_depIdxs = []int32{
 	74,  // 62: lnrpc.ChannelEventUpdate.pending_open_channel:type_name -> lnrpc.PendingUpdate
 	28,  // 63: lnrpc.ChannelEventUpdate.fully_resolved_channel:type_name -> lnrpc.ChannelPoint
 	13,  // 64: lnrpc.ChannelEventUpdate.type:type_name -> lnrpc.ChannelEventUpdate.UpdateType
-	197, // 65: lnrpc.WalletBalanceResponse.account_balance:type_name -> lnrpc.WalletBalanceResponse.AccountBalanceEntry
+	199, // 65: lnrpc.WalletBalanceResponse.account_balance:type_name -> lnrpc.WalletBalanceResponse.AccountBalanceEntry
 	99,  // 66: lnrpc.ChannelBalanceResponse.local_balance:type_name -> lnrpc.Amount
 	99,  // 67: lnrpc.ChannelBalanceResponse.remote_balance:type_name -> lnrpc.Amount
 	99,  // 68: lnrpc.ChannelBalanceResponse.unsettled_local_balance:type_name -> lnrpc.Amount
@@ -17889,29 +17999,29 @@ var file_lightning_proto_depIdxs = []int32{
 	22,  // 72: lnrpc.QueryRoutesRequest.fee_limit:type_name -> lnrpc.FeeLimit
 	104, // 73: lnrpc.QueryRoutesRequest.ignored_edges:type_name -> lnrpc.EdgeLocator
 	103, // 74: lnrpc.QueryRoutesRequest.ignored_pairs:type_name -> lnrpc.NodePair
-	198, // 75: lnrpc.QueryRoutesRequest.dest_custom_records:type_name -> lnrpc.QueryRoutesRequest.DestCustomRecordsEntry
+	200, // 75: lnrpc.QueryRoutesRequest.dest_custom_records:type_name -> lnrpc.QueryRoutesRequest.DestCustomRecordsEntry
 	132, // 76: lnrpc.QueryRoutesRequest.route_hints:type_name -> lnrpc.RouteHint
 	8,   // 77: lnrpc.QueryRoutesRequest.dest_features:type_name -> lnrpc.FeatureBit
 	109, // 78: lnrpc.QueryRoutesResponse.routes:type_name -> lnrpc.Route
 	107, // 79: lnrpc.Hop.mpp_record:type_name -> lnrpc.MPPRecord
 	108, // 80: lnrpc.Hop.amp_record:type_name -> lnrpc.AMPRecord
-	199, // 81: lnrpc.Hop.custom_records:type_name -> lnrpc.Hop.CustomRecordsEntry
+	201, // 81: lnrpc.Hop.custom_records:type_name -> lnrpc.Hop.CustomRecordsEntry
 	106, // 82: lnrpc.Route.hops:type_name -> lnrpc.Hop
 	112, // 83: lnrpc.NodeInfo.node:type_name -> lnrpc.LightningNode
 	115, // 84: lnrpc.NodeInfo.channels:type_name -> lnrpc.ChannelEdge
 	113, // 85: lnrpc.LightningNode.addresses:type_name -> lnrpc.NodeAddress
-	200, // 86: lnrpc.LightningNode.features:type_name -> lnrpc.LightningNode.FeaturesEntry
+	202, // 86: lnrpc.LightningNode.features:type_name -> lnrpc.LightningNode.FeaturesEntry
 	114, // 87: lnrpc.ChannelEdge.node1_policy:type_name -> lnrpc.RoutingPolicy
 	114, // 88: lnrpc.ChannelEdge.node2_policy:type_name -> lnrpc.RoutingPolicy
 	112, // 89: lnrpc.ChannelGraph.nodes:type_name -> lnrpc.LightningNode
 	115, // 90: lnrpc.ChannelGraph.edges:type_name -> lnrpc.ChannelEdge
 	5,   // 91: lnrpc.NodeMetricsRequest.types:type_name -> lnrpc.NodeMetricType
-	201, // 92: lnrpc.NodeMetricsResponse.betweenness_centrality:type_name -> lnrpc.NodeMetricsResponse.BetweennessCentralityEntry
+	203, // 92: lnrpc.NodeMetricsResponse.betweenness_centrality:type_name -> lnrpc.NodeMetricsResponse.BetweennessCentralityEntry
 	128, // 93: lnrpc.GraphTopologyUpdate.node_updates:type_name -> lnrpc.NodeUpdate
 	129, // 94: lnrpc.GraphTopologyUpdate.channel_updates:type_name -> lnrpc.ChannelEdgeUpdate
 	130, // 95: lnrpc.GraphTopologyUpdate.closed_chans:type_name -> lnrpc.ClosedChannelUpdate
 	113, // 96: lnrpc.NodeUpdate.node_addresses:type_name -> lnrpc.NodeAddress
-	202, // 97: lnrpc.NodeUpdate.features:type_name -> lnrpc.NodeUpdate.FeaturesEntry
+	204, // 97: lnrpc.NodeUpdate.features:type_name -> lnrpc.NodeUpdate.FeaturesEntry
 	28,  // 98: lnrpc.ChannelEdgeUpdate.chan_point:type_name -> lnrpc.ChannelPoint
 	114, // 99: lnrpc.ChannelEdgeUpdate.routing_policy:type_name -> lnrpc.RoutingPolicy
 	28,  // 100: lnrpc.ClosedChannelUpdate.chan_point:type_name -> lnrpc.ChannelPoint
@@ -17919,9 +18029,9 @@ var file_lightning_proto_depIdxs = []int32{
 	132, // 102: lnrpc.Invoice.route_hints:type_name -> lnrpc.RouteHint
 	14,  // 103: lnrpc.Invoice.state:type_name -> lnrpc.Invoice.InvoiceState
 	134, // 104: lnrpc.Invoice.htlcs:type_name -> lnrpc.InvoiceHTLC
-	203, // 105: lnrpc.Invoice.features:type_name -> lnrpc.Invoice.FeaturesEntry
+	205, // 105: lnrpc.Invoice.features:type_name -> lnrpc.Invoice.FeaturesEntry
 	6,   // 106: lnrpc.InvoiceHTLC.state:type_name -> lnrpc.InvoiceHTLCState
-	204, // 107: lnrpc.InvoiceHTLC.custom_records:type_name -> lnrpc.InvoiceHTLC.CustomRecordsEntry
+	206, // 107: lnrpc.InvoiceHTLC.custom_records:type_name -> lnrpc.InvoiceHTLC.CustomRecordsEntry
 	135, // 108: lnrpc.InvoiceHTLC.amp:type_name -> lnrpc.AMP
 	133, // 109: lnrpc.ListInvoiceResponse.invoices:type_name -> lnrpc.Invoice
 	15,  // 110: lnrpc.Payment.status:type_name -> lnrpc.Payment.PaymentStatus
@@ -17929,45 +18039,45 @@ var file_lightning_proto_depIdxs = []int32{
 	7,   // 112: lnrpc.Payment.failure_reason:type_name -> lnrpc.PaymentFailureReason
 	16,  // 113: lnrpc.HTLCAttempt.status:type_name -> lnrpc.HTLCAttempt.HTLCStatus
 	109, // 114: lnrpc.HTLCAttempt.route:type_name -> lnrpc.Route
-	182, // 115: lnrpc.HTLCAttempt.failure:type_name -> lnrpc.Failure
+	184, // 115: lnrpc.HTLCAttempt.failure:type_name -> lnrpc.Failure
 	141, // 116: lnrpc.ListPaymentsResponse.payments:type_name -> lnrpc.Payment
 	28,  // 117: lnrpc.AbandonChannelRequest.channel_point:type_name -> lnrpc.ChannelPoint
 	132, // 118: lnrpc.PayReq.route_hints:type_name -> lnrpc.RouteHint
-	205, // 119: lnrpc.PayReq.features:type_name -> lnrpc.PayReq.FeaturesEntry
-	155, // 120: lnrpc.FeeReportResponse.channel_fees:type_name -> lnrpc.ChannelFeeReport
+	207, // 119: lnrpc.PayReq.features:type_name -> lnrpc.PayReq.FeaturesEntry
+	157, // 120: lnrpc.FeeReportResponse.channel_fees:type_name -> lnrpc.ChannelFeeReport
 	28,  // 121: lnrpc.PolicyUpdateRequest.chan_point:type_name -> lnrpc.ChannelPoint
-	160, // 122: lnrpc.ForwardingHistoryResponse.forwarding_events:type_name -> lnrpc.ForwardingEvent
+	162, // 122: lnrpc.ForwardingHistoryResponse.forwarding_events:type_name -> lnrpc.ForwardingEvent
 	28,  // 123: lnrpc.ExportChannelBackupRequest.chan_point:type_name -> lnrpc.ChannelPoint
 	28,  // 124: lnrpc.ChannelBackup.chan_point:type_name -> lnrpc.ChannelPoint
 	28,  // 125: lnrpc.MultiChanBackup.chan_points:type_name -> lnrpc.ChannelPoint
-	167, // 126: lnrpc.ChanBackupSnapshot.single_chan_backups:type_name -> lnrpc.ChannelBackups
-	164, // 127: lnrpc.ChanBackupSnapshot.multi_chan_backup:type_name -> lnrpc.MultiChanBackup
-	163, // 128: lnrpc.ChannelBackups.chan_backups:type_name -> lnrpc.ChannelBackup
-	167, // 129: lnrpc.RestoreChanBackupRequest.chan_backups:type_name -> lnrpc.ChannelBackups
-	172, // 130: lnrpc.BakeMacaroonRequest.permissions:type_name -> lnrpc.MacaroonPermission
-	172, // 131: lnrpc.MacaroonPermissionList.permissions:type_name -> lnrpc.MacaroonPermission
-	206, // 132: lnrpc.ListPermissionsResponse.method_permissions:type_name -> lnrpc.ListPermissionsResponse.MethodPermissionsEntry
+	169, // 126: lnrpc.ChanBackupSnapshot.single_chan_backups:type_name -> lnrpc.ChannelBackups
+	166, // 127: lnrpc.ChanBackupSnapshot.multi_chan_backup:type_name -> lnrpc.MultiChanBackup
+	165, // 128: lnrpc.ChannelBackups.chan_backups:type_name -> lnrpc.ChannelBackup
+	169, // 129: lnrpc.RestoreChanBackupRequest.chan_backups:type_name -> lnrpc.ChannelBackups
+	174, // 130: lnrpc.BakeMacaroonRequest.permissions:type_name -> lnrpc.MacaroonPermission
+	174, // 131: lnrpc.MacaroonPermissionList.permissions:type_name -> lnrpc.MacaroonPermission
+	208, // 132: lnrpc.ListPermissionsResponse.method_permissions:type_name -> lnrpc.ListPermissionsResponse.MethodPermissionsEntry
 	17,  // 133: lnrpc.Failure.code:type_name -> lnrpc.Failure.FailureCode
-	183, // 134: lnrpc.Failure.channel_update:type_name -> lnrpc.ChannelUpdate
-	185, // 135: lnrpc.MacaroonId.ops:type_name -> lnrpc.Op
-	153, // 136: lnrpc.Peer.FeaturesEntry.value:type_name -> lnrpc.Feature
-	153, // 137: lnrpc.GetInfoResponse.FeaturesEntry.value:type_name -> lnrpc.Feature
+	185, // 134: lnrpc.Failure.channel_update:type_name -> lnrpc.ChannelUpdate
+	187, // 135: lnrpc.MacaroonId.ops:type_name -> lnrpc.Op
+	155, // 136: lnrpc.Peer.FeaturesEntry.value:type_name -> lnrpc.Feature
+	155, // 137: lnrpc.GetInfoResponse.FeaturesEntry.value:type_name -> lnrpc.Feature
 	2,   // 138: lnrpc.PendingChannelsResponse.PendingChannel.initiator:type_name -> lnrpc.Initiator
 	1,   // 139: lnrpc.PendingChannelsResponse.PendingChannel.commitment_type:type_name -> lnrpc.CommitmentType
-	191, // 140: lnrpc.PendingChannelsResponse.PendingOpenChannel.channel:type_name -> lnrpc.PendingChannelsResponse.PendingChannel
-	191, // 141: lnrpc.PendingChannelsResponse.WaitingCloseChannel.channel:type_name -> lnrpc.PendingChannelsResponse.PendingChannel
-	194, // 142: lnrpc.PendingChannelsResponse.WaitingCloseChannel.commitments:type_name -> lnrpc.PendingChannelsResponse.Commitments
-	191, // 143: lnrpc.PendingChannelsResponse.ClosedChannel.channel:type_name -> lnrpc.PendingChannelsResponse.PendingChannel
-	191, // 144: lnrpc.PendingChannelsResponse.ForceClosedChannel.channel:type_name -> lnrpc.PendingChannelsResponse.PendingChannel
+	193, // 140: lnrpc.PendingChannelsResponse.PendingOpenChannel.channel:type_name -> lnrpc.PendingChannelsResponse.PendingChannel
+	193, // 141: lnrpc.PendingChannelsResponse.WaitingCloseChannel.channel:type_name -> lnrpc.PendingChannelsResponse.PendingChannel
+	196, // 142: lnrpc.PendingChannelsResponse.WaitingCloseChannel.commitments:type_name -> lnrpc.PendingChannelsResponse.Commitments
+	193, // 143: lnrpc.PendingChannelsResponse.ClosedChannel.channel:type_name -> lnrpc.PendingChannelsResponse.PendingChannel
+	193, // 144: lnrpc.PendingChannelsResponse.ForceClosedChannel.channel:type_name -> lnrpc.PendingChannelsResponse.PendingChannel
 	91,  // 145: lnrpc.PendingChannelsResponse.ForceClosedChannel.pending_htlcs:type_name -> lnrpc.PendingHTLC
 	12,  // 146: lnrpc.PendingChannelsResponse.ForceClosedChannel.anchor:type_name -> lnrpc.PendingChannelsResponse.ForceClosedChannel.AnchorState
 	96,  // 147: lnrpc.WalletBalanceResponse.AccountBalanceEntry.value:type_name -> lnrpc.WalletAccountBalance
-	153, // 148: lnrpc.LightningNode.FeaturesEntry.value:type_name -> lnrpc.Feature
+	155, // 148: lnrpc.LightningNode.FeaturesEntry.value:type_name -> lnrpc.Feature
 	120, // 149: lnrpc.NodeMetricsResponse.BetweennessCentralityEntry.value:type_name -> lnrpc.FloatMetric
-	153, // 150: lnrpc.NodeUpdate.FeaturesEntry.value:type_name -> lnrpc.Feature
-	153, // 151: lnrpc.Invoice.FeaturesEntry.value:type_name -> lnrpc.Feature
-	153, // 152: lnrpc.PayReq.FeaturesEntry.value:type_name -> lnrpc.Feature
-	179, // 153: lnrpc.ListPermissionsResponse.MethodPermissionsEntry.value:type_name -> lnrpc.MacaroonPermissionList
+	155, // 150: lnrpc.NodeUpdate.FeaturesEntry.value:type_name -> lnrpc.Feature
+	155, // 151: lnrpc.Invoice.FeaturesEntry.value:type_name -> lnrpc.Feature
+	155, // 152: lnrpc.PayReq.FeaturesEntry.value:type_name -> lnrpc.Feature
+	181, // 153: lnrpc.ListPermissionsResponse.MethodPermissionsEntry.value:type_name -> lnrpc.MacaroonPermissionList
 	97,  // 154: lnrpc.Lightning.WalletBalance:input_type -> lnrpc.WalletBalanceRequest
 	100, // 155: lnrpc.Lightning.ChannelBalance:input_type -> lnrpc.ChannelBalanceRequest
 	20,  // 156: lnrpc.Lightning.GetTransactions:input_type -> lnrpc.GetTransactionsRequest
@@ -17995,7 +18105,7 @@ var file_lightning_proto_depIdxs = []int32{
 	89,  // 178: lnrpc.Lightning.FundingStateStep:input_type -> lnrpc.FundingTransitionMsg
 	27,  // 179: lnrpc.Lightning.ChannelAcceptor:input_type -> lnrpc.ChannelAcceptResponse
 	72,  // 180: lnrpc.Lightning.CloseChannel:input_type -> lnrpc.CloseChannelRequest
-	147, // 181: lnrpc.Lightning.AbandonChannel:input_type -> lnrpc.AbandonChannelRequest
+	149, // 181: lnrpc.Lightning.AbandonChannel:input_type -> lnrpc.AbandonChannelRequest
 	23,  // 182: lnrpc.Lightning.SendPayment:input_type -> lnrpc.SendRequest
 	23,  // 183: lnrpc.Lightning.SendPaymentSync:input_type -> lnrpc.SendRequest
 	25,  // 184: lnrpc.Lightning.SendToRoute:input_type -> lnrpc.SendToRouteRequest
@@ -18004,92 +18114,94 @@ var file_lightning_proto_depIdxs = []int32{
 	138, // 187: lnrpc.Lightning.ListInvoices:input_type -> lnrpc.ListInvoiceRequest
 	137, // 188: lnrpc.Lightning.LookupInvoice:input_type -> lnrpc.PaymentHash
 	140, // 189: lnrpc.Lightning.SubscribeInvoices:input_type -> lnrpc.InvoiceSubscription
-	151, // 190: lnrpc.Lightning.DecodePayReq:input_type -> lnrpc.PayReqString
+	153, // 190: lnrpc.Lightning.DecodePayReq:input_type -> lnrpc.PayReqString
 	143, // 191: lnrpc.Lightning.ListPayments:input_type -> lnrpc.ListPaymentsRequest
-	145, // 192: lnrpc.Lightning.DeleteAllPayments:input_type -> lnrpc.DeleteAllPaymentsRequest
-	116, // 193: lnrpc.Lightning.DescribeGraph:input_type -> lnrpc.ChannelGraphRequest
-	118, // 194: lnrpc.Lightning.GetNodeMetrics:input_type -> lnrpc.NodeMetricsRequest
-	121, // 195: lnrpc.Lightning.GetChanInfo:input_type -> lnrpc.ChanInfoRequest
-	110, // 196: lnrpc.Lightning.GetNodeInfo:input_type -> lnrpc.NodeInfoRequest
-	102, // 197: lnrpc.Lightning.QueryRoutes:input_type -> lnrpc.QueryRoutesRequest
-	122, // 198: lnrpc.Lightning.GetNetworkInfo:input_type -> lnrpc.NetworkInfoRequest
-	124, // 199: lnrpc.Lightning.StopDaemon:input_type -> lnrpc.StopRequest
-	126, // 200: lnrpc.Lightning.SubscribeChannelGraph:input_type -> lnrpc.GraphTopologySubscription
-	149, // 201: lnrpc.Lightning.DebugLevel:input_type -> lnrpc.DebugLevelRequest
-	154, // 202: lnrpc.Lightning.FeeReport:input_type -> lnrpc.FeeReportRequest
-	157, // 203: lnrpc.Lightning.UpdateChannelPolicy:input_type -> lnrpc.PolicyUpdateRequest
-	159, // 204: lnrpc.Lightning.ForwardingHistory:input_type -> lnrpc.ForwardingHistoryRequest
-	162, // 205: lnrpc.Lightning.ExportChannelBackup:input_type -> lnrpc.ExportChannelBackupRequest
-	165, // 206: lnrpc.Lightning.ExportAllChannelBackups:input_type -> lnrpc.ChanBackupExportRequest
-	166, // 207: lnrpc.Lightning.VerifyChanBackup:input_type -> lnrpc.ChanBackupSnapshot
-	168, // 208: lnrpc.Lightning.RestoreChannelBackups:input_type -> lnrpc.RestoreChanBackupRequest
-	170, // 209: lnrpc.Lightning.SubscribeChannelBackups:input_type -> lnrpc.ChannelBackupSubscription
-	173, // 210: lnrpc.Lightning.BakeMacaroon:input_type -> lnrpc.BakeMacaroonRequest
-	175, // 211: lnrpc.Lightning.ListMacaroonIDs:input_type -> lnrpc.ListMacaroonIDsRequest
-	177, // 212: lnrpc.Lightning.DeleteMacaroonID:input_type -> lnrpc.DeleteMacaroonIDRequest
-	180, // 213: lnrpc.Lightning.ListPermissions:input_type -> lnrpc.ListPermissionsRequest
-	98,  // 214: lnrpc.Lightning.WalletBalance:output_type -> lnrpc.WalletBalanceResponse
-	101, // 215: lnrpc.Lightning.ChannelBalance:output_type -> lnrpc.ChannelBalanceResponse
-	21,  // 216: lnrpc.Lightning.GetTransactions:output_type -> lnrpc.TransactionDetails
-	32,  // 217: lnrpc.Lightning.EstimateFee:output_type -> lnrpc.EstimateFeeResponse
-	36,  // 218: lnrpc.Lightning.SendCoins:output_type -> lnrpc.SendCoinsResponse
-	38,  // 219: lnrpc.Lightning.ListUnspent:output_type -> lnrpc.ListUnspentResponse
-	19,  // 220: lnrpc.Lightning.SubscribeTransactions:output_type -> lnrpc.Transaction
-	34,  // 221: lnrpc.Lightning.SendMany:output_type -> lnrpc.SendManyResponse
-	40,  // 222: lnrpc.Lightning.NewAddress:output_type -> lnrpc.NewAddressResponse
-	42,  // 223: lnrpc.Lightning.SignMessage:output_type -> lnrpc.SignMessageResponse
-	44,  // 224: lnrpc.Lightning.VerifyMessage:output_type -> lnrpc.VerifyMessageResponse
-	46,  // 225: lnrpc.Lightning.ConnectPeer:output_type -> lnrpc.ConnectPeerResponse
-	48,  // 226: lnrpc.Lightning.DisconnectPeer:output_type -> lnrpc.DisconnectPeerResponse
-	61,  // 227: lnrpc.Lightning.ListPeers:output_type -> lnrpc.ListPeersResponse
-	63,  // 228: lnrpc.Lightning.SubscribePeerEvents:output_type -> lnrpc.PeerEvent
-	65,  // 229: lnrpc.Lightning.GetInfo:output_type -> lnrpc.GetInfoResponse
-	67,  // 230: lnrpc.Lightning.GetRecoveryInfo:output_type -> lnrpc.GetRecoveryInfoResponse
-	93,  // 231: lnrpc.Lightning.PendingChannels:output_type -> lnrpc.PendingChannelsResponse
-	53,  // 232: lnrpc.Lightning.ListChannels:output_type -> lnrpc.ListChannelsResponse
-	95,  // 233: lnrpc.Lightning.SubscribeChannelEvents:output_type -> lnrpc.ChannelEventUpdate
-	57,  // 234: lnrpc.Lightning.ClosedChannels:output_type -> lnrpc.ClosedChannelsResponse
-	28,  // 235: lnrpc.Lightning.OpenChannelSync:output_type -> lnrpc.ChannelPoint
-	80,  // 236: lnrpc.Lightning.OpenChannel:output_type -> lnrpc.OpenStatusUpdate
-	78,  // 237: lnrpc.Lightning.BatchOpenChannel:output_type -> lnrpc.BatchOpenChannelResponse
-	90,  // 238: lnrpc.Lightning.FundingStateStep:output_type -> lnrpc.FundingStateStepResp
-	26,  // 239: lnrpc.Lightning.ChannelAcceptor:output_type -> lnrpc.ChannelAcceptRequest
-	73,  // 240: lnrpc.Lightning.CloseChannel:output_type -> lnrpc.CloseStatusUpdate
-	148, // 241: lnrpc.Lightning.AbandonChannel:output_type -> lnrpc.AbandonChannelResponse
-	24,  // 242: lnrpc.Lightning.SendPayment:output_type -> lnrpc.SendResponse
-	24,  // 243: lnrpc.Lightning.SendPaymentSync:output_type -> lnrpc.SendResponse
-	24,  // 244: lnrpc.Lightning.SendToRoute:output_type -> lnrpc.SendResponse
-	24,  // 245: lnrpc.Lightning.SendToRouteSync:output_type -> lnrpc.SendResponse
-	136, // 246: lnrpc.Lightning.AddInvoice:output_type -> lnrpc.AddInvoiceResponse
-	139, // 247: lnrpc.Lightning.ListInvoices:output_type -> lnrpc.ListInvoiceResponse
-	133, // 248: lnrpc.Lightning.LookupInvoice:output_type -> lnrpc.Invoice
-	133, // 249: lnrpc.Lightning.SubscribeInvoices:output_type -> lnrpc.Invoice
-	152, // 250: lnrpc.Lightning.DecodePayReq:output_type -> lnrpc.PayReq
-	144, // 251: lnrpc.Lightning.ListPayments:output_type -> lnrpc.ListPaymentsResponse
-	146, // 252: lnrpc.Lightning.DeleteAllPayments:output_type -> lnrpc.DeleteAllPaymentsResponse
-	117, // 253: lnrpc.Lightning.DescribeGraph:output_type -> lnrpc.ChannelGraph
-	119, // 254: lnrpc.Lightning.GetNodeMetrics:output_type -> lnrpc.NodeMetricsResponse
-	115, // 255: lnrpc.Lightning.GetChanInfo:output_type -> lnrpc.ChannelEdge
-	111, // 256: lnrpc.Lightning.GetNodeInfo:output_type -> lnrpc.NodeInfo
-	105, // 257: lnrpc.Lightning.QueryRoutes:output_type -> lnrpc.QueryRoutesResponse
-	123, // 258: lnrpc.Lightning.GetNetworkInfo:output_type -> lnrpc.NetworkInfo
-	125, // 259: lnrpc.Lightning.StopDaemon:output_type -> lnrpc.StopResponse
-	127, // 260: lnrpc.Lightning.SubscribeChannelGraph:output_type -> lnrpc.GraphTopologyUpdate
-	150, // 261: lnrpc.Lightning.DebugLevel:output_type -> lnrpc.DebugLevelResponse
-	156, // 262: lnrpc.Lightning.FeeReport:output_type -> lnrpc.FeeReportResponse
-	158, // 263: lnrpc.Lightning.UpdateChannelPolicy:output_type -> lnrpc.PolicyUpdateResponse
-	161, // 264: lnrpc.Lightning.ForwardingHistory:output_type -> lnrpc.ForwardingHistoryResponse
-	163, // 265: lnrpc.Lightning.ExportChannelBackup:output_type -> lnrpc.ChannelBackup
-	166, // 266: lnrpc.Lightning.ExportAllChannelBackups:output_type -> lnrpc.ChanBackupSnapshot
-	171, // 267: lnrpc.Lightning.VerifyChanBackup:output_type -> lnrpc.VerifyChanBackupResponse
-	169, // 268: lnrpc.Lightning.RestoreChannelBackups:output_type -> lnrpc.RestoreBackupResponse
-	166, // 269: lnrpc.Lightning.SubscribeChannelBackups:output_type -> lnrpc.ChanBackupSnapshot
-	174, // 270: lnrpc.Lightning.BakeMacaroon:output_type -> lnrpc.BakeMacaroonResponse
-	176, // 271: lnrpc.Lightning.ListMacaroonIDs:output_type -> lnrpc.ListMacaroonIDsResponse
-	178, // 272: lnrpc.Lightning.DeleteMacaroonID:output_type -> lnrpc.DeleteMacaroonIDResponse
-	181, // 273: lnrpc.Lightning.ListPermissions:output_type -> lnrpc.ListPermissionsResponse
-	214, // [214:274] is the sub-list for method output_type
-	154, // [154:214] is the sub-list for method input_type
+	145, // 192: lnrpc.Lightning.DeletePayment:input_type -> lnrpc.DeletePaymentRequest
+	146, // 193: lnrpc.Lightning.DeleteAllPayments:input_type -> lnrpc.DeleteAllPaymentsRequest
+	116, // 194: lnrpc.Lightning.DescribeGraph:input_type -> lnrpc.ChannelGraphRequest
+	118, // 195: lnrpc.Lightning.GetNodeMetrics:input_type -> lnrpc.NodeMetricsRequest
+	121, // 196: lnrpc.Lightning.GetChanInfo:input_type -> lnrpc.ChanInfoRequest
+	110, // 197: lnrpc.Lightning.GetNodeInfo:input_type -> lnrpc.NodeInfoRequest
+	102, // 198: lnrpc.Lightning.QueryRoutes:input_type -> lnrpc.QueryRoutesRequest
+	122, // 199: lnrpc.Lightning.GetNetworkInfo:input_type -> lnrpc.NetworkInfoRequest
+	124, // 200: lnrpc.Lightning.StopDaemon:input_type -> lnrpc.StopRequest
+	126, // 201: lnrpc.Lightning.SubscribeChannelGraph:input_type -> lnrpc.GraphTopologySubscription
+	151, // 202: lnrpc.Lightning.DebugLevel:input_type -> lnrpc.DebugLevelRequest
+	156, // 203: lnrpc.Lightning.FeeReport:input_type -> lnrpc.FeeReportRequest
+	159, // 204: lnrpc.Lightning.UpdateChannelPolicy:input_type -> lnrpc.PolicyUpdateRequest
+	161, // 205: lnrpc.Lightning.ForwardingHistory:input_type -> lnrpc.ForwardingHistoryRequest
+	164, // 206: lnrpc.Lightning.ExportChannelBackup:input_type -> lnrpc.ExportChannelBackupRequest
+	167, // 207: lnrpc.Lightning.ExportAllChannelBackups:input_type -> lnrpc.ChanBackupExportRequest
+	168, // 208: lnrpc.Lightning.VerifyChanBackup:input_type -> lnrpc.ChanBackupSnapshot
+	170, // 209: lnrpc.Lightning.RestoreChannelBackups:input_type -> lnrpc.RestoreChanBackupRequest
+	172, // 210: lnrpc.Lightning.SubscribeChannelBackups:input_type -> lnrpc.ChannelBackupSubscription
+	175, // 211: lnrpc.Lightning.BakeMacaroon:input_type -> lnrpc.BakeMacaroonRequest
+	177, // 212: lnrpc.Lightning.ListMacaroonIDs:input_type -> lnrpc.ListMacaroonIDsRequest
+	179, // 213: lnrpc.Lightning.DeleteMacaroonID:input_type -> lnrpc.DeleteMacaroonIDRequest
+	182, // 214: lnrpc.Lightning.ListPermissions:input_type -> lnrpc.ListPermissionsRequest
+	98,  // 215: lnrpc.Lightning.WalletBalance:output_type -> lnrpc.WalletBalanceResponse
+	101, // 216: lnrpc.Lightning.ChannelBalance:output_type -> lnrpc.ChannelBalanceResponse
+	21,  // 217: lnrpc.Lightning.GetTransactions:output_type -> lnrpc.TransactionDetails
+	32,  // 218: lnrpc.Lightning.EstimateFee:output_type -> lnrpc.EstimateFeeResponse
+	36,  // 219: lnrpc.Lightning.SendCoins:output_type -> lnrpc.SendCoinsResponse
+	38,  // 220: lnrpc.Lightning.ListUnspent:output_type -> lnrpc.ListUnspentResponse
+	19,  // 221: lnrpc.Lightning.SubscribeTransactions:output_type -> lnrpc.Transaction
+	34,  // 222: lnrpc.Lightning.SendMany:output_type -> lnrpc.SendManyResponse
+	40,  // 223: lnrpc.Lightning.NewAddress:output_type -> lnrpc.NewAddressResponse
+	42,  // 224: lnrpc.Lightning.SignMessage:output_type -> lnrpc.SignMessageResponse
+	44,  // 225: lnrpc.Lightning.VerifyMessage:output_type -> lnrpc.VerifyMessageResponse
+	46,  // 226: lnrpc.Lightning.ConnectPeer:output_type -> lnrpc.ConnectPeerResponse
+	48,  // 227: lnrpc.Lightning.DisconnectPeer:output_type -> lnrpc.DisconnectPeerResponse
+	61,  // 228: lnrpc.Lightning.ListPeers:output_type -> lnrpc.ListPeersResponse
+	63,  // 229: lnrpc.Lightning.SubscribePeerEvents:output_type -> lnrpc.PeerEvent
+	65,  // 230: lnrpc.Lightning.GetInfo:output_type -> lnrpc.GetInfoResponse
+	67,  // 231: lnrpc.Lightning.GetRecoveryInfo:output_type -> lnrpc.GetRecoveryInfoResponse
+	93,  // 232: lnrpc.Lightning.PendingChannels:output_type -> lnrpc.PendingChannelsResponse
+	53,  // 233: lnrpc.Lightning.ListChannels:output_type -> lnrpc.ListChannelsResponse
+	95,  // 234: lnrpc.Lightning.SubscribeChannelEvents:output_type -> lnrpc.ChannelEventUpdate
+	57,  // 235: lnrpc.Lightning.ClosedChannels:output_type -> lnrpc.ClosedChannelsResponse
+	28,  // 236: lnrpc.Lightning.OpenChannelSync:output_type -> lnrpc.ChannelPoint
+	80,  // 237: lnrpc.Lightning.OpenChannel:output_type -> lnrpc.OpenStatusUpdate
+	78,  // 238: lnrpc.Lightning.BatchOpenChannel:output_type -> lnrpc.BatchOpenChannelResponse
+	90,  // 239: lnrpc.Lightning.FundingStateStep:output_type -> lnrpc.FundingStateStepResp
+	26,  // 240: lnrpc.Lightning.ChannelAcceptor:output_type -> lnrpc.ChannelAcceptRequest
+	73,  // 241: lnrpc.Lightning.CloseChannel:output_type -> lnrpc.CloseStatusUpdate
+	150, // 242: lnrpc.Lightning.AbandonChannel:output_type -> lnrpc.AbandonChannelResponse
+	24,  // 243: lnrpc.Lightning.SendPayment:output_type -> lnrpc.SendResponse
+	24,  // 244: lnrpc.Lightning.SendPaymentSync:output_type -> lnrpc.SendResponse
+	24,  // 245: lnrpc.Lightning.SendToRoute:output_type -> lnrpc.SendResponse
+	24,  // 246: lnrpc.Lightning.SendToRouteSync:output_type -> lnrpc.SendResponse
+	136, // 247: lnrpc.Lightning.AddInvoice:output_type -> lnrpc.AddInvoiceResponse
+	139, // 248: lnrpc.Lightning.ListInvoices:output_type -> lnrpc.ListInvoiceResponse
+	133, // 249: lnrpc.Lightning.LookupInvoice:output_type -> lnrpc.Invoice
+	133, // 250: lnrpc.Lightning.SubscribeInvoices:output_type -> lnrpc.Invoice
+	154, // 251: lnrpc.Lightning.DecodePayReq:output_type -> lnrpc.PayReq
+	144, // 252: lnrpc.Lightning.ListPayments:output_type -> lnrpc.ListPaymentsResponse
+	147, // 253: lnrpc.Lightning.DeletePayment:output_type -> lnrpc.DeletePaymentResponse
+	148, // 254: lnrpc.Lightning.DeleteAllPayments:output_type -> lnrpc.DeleteAllPaymentsResponse
+	117, // 255: lnrpc.Lightning.DescribeGraph:output_type -> lnrpc.ChannelGraph
+	119, // 256: lnrpc.Lightning.GetNodeMetrics:output_type -> lnrpc.NodeMetricsResponse
+	115, // 257: lnrpc.Lightning.GetChanInfo:output_type -> lnrpc.ChannelEdge
+	111, // 258: lnrpc.Lightning.GetNodeInfo:output_type -> lnrpc.NodeInfo
+	105, // 259: lnrpc.Lightning.QueryRoutes:output_type -> lnrpc.QueryRoutesResponse
+	123, // 260: lnrpc.Lightning.GetNetworkInfo:output_type -> lnrpc.NetworkInfo
+	125, // 261: lnrpc.Lightning.StopDaemon:output_type -> lnrpc.StopResponse
+	127, // 262: lnrpc.Lightning.SubscribeChannelGraph:output_type -> lnrpc.GraphTopologyUpdate
+	152, // 263: lnrpc.Lightning.DebugLevel:output_type -> lnrpc.DebugLevelResponse
+	158, // 264: lnrpc.Lightning.FeeReport:output_type -> lnrpc.FeeReportResponse
+	160, // 265: lnrpc.Lightning.UpdateChannelPolicy:output_type -> lnrpc.PolicyUpdateResponse
+	163, // 266: lnrpc.Lightning.ForwardingHistory:output_type -> lnrpc.ForwardingHistoryResponse
+	165, // 267: lnrpc.Lightning.ExportChannelBackup:output_type -> lnrpc.ChannelBackup
+	168, // 268: lnrpc.Lightning.ExportAllChannelBackups:output_type -> lnrpc.ChanBackupSnapshot
+	173, // 269: lnrpc.Lightning.VerifyChanBackup:output_type -> lnrpc.VerifyChanBackupResponse
+	171, // 270: lnrpc.Lightning.RestoreChannelBackups:output_type -> lnrpc.RestoreBackupResponse
+	168, // 271: lnrpc.Lightning.SubscribeChannelBackups:output_type -> lnrpc.ChanBackupSnapshot
+	176, // 272: lnrpc.Lightning.BakeMacaroon:output_type -> lnrpc.BakeMacaroonResponse
+	178, // 273: lnrpc.Lightning.ListMacaroonIDs:output_type -> lnrpc.ListMacaroonIDsResponse
+	180, // 274: lnrpc.Lightning.DeleteMacaroonID:output_type -> lnrpc.DeleteMacaroonIDResponse
+	183, // 275: lnrpc.Lightning.ListPermissions:output_type -> lnrpc.ListPermissionsResponse
+	215, // [215:276] is the sub-list for method output_type
+	154, // [154:215] is the sub-list for method input_type
 	154, // [154:154] is the sub-list for extension type_name
 	154, // [154:154] is the sub-list for extension extendee
 	0,   // [0:154] is the sub-list for field type_name
@@ -19626,7 +19738,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[127].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*DeleteAllPaymentsRequest); i {
+			switch v := v.(*DeletePaymentRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19638,7 +19750,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[128].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*DeleteAllPaymentsResponse); i {
+			switch v := v.(*DeleteAllPaymentsRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19650,7 +19762,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[129].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AbandonChannelRequest); i {
+			switch v := v.(*DeletePaymentResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19662,7 +19774,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[130].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AbandonChannelResponse); i {
+			switch v := v.(*DeleteAllPaymentsResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19674,7 +19786,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[131].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*DebugLevelRequest); i {
+			switch v := v.(*AbandonChannelRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19686,7 +19798,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[132].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*DebugLevelResponse); i {
+			switch v := v.(*AbandonChannelResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19698,7 +19810,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[133].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*PayReqString); i {
+			switch v := v.(*DebugLevelRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19710,7 +19822,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[134].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*PayReq); i {
+			switch v := v.(*DebugLevelResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19722,7 +19834,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[135].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Feature); i {
+			switch v := v.(*PayReqString); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19734,7 +19846,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[136].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*FeeReportRequest); i {
+			switch v := v.(*PayReq); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19746,7 +19858,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[137].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ChannelFeeReport); i {
+			switch v := v.(*Feature); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19758,7 +19870,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[138].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*FeeReportResponse); i {
+			switch v := v.(*FeeReportRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19770,7 +19882,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[139].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*PolicyUpdateRequest); i {
+			switch v := v.(*ChannelFeeReport); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19782,7 +19894,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[140].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*PolicyUpdateResponse); i {
+			switch v := v.(*FeeReportResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19794,7 +19906,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[141].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ForwardingHistoryRequest); i {
+			switch v := v.(*PolicyUpdateRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19806,7 +19918,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[142].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ForwardingEvent); i {
+			switch v := v.(*PolicyUpdateResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19818,7 +19930,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[143].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ForwardingHistoryResponse); i {
+			switch v := v.(*ForwardingHistoryRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19830,7 +19942,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[144].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ExportChannelBackupRequest); i {
+			switch v := v.(*ForwardingEvent); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19842,7 +19954,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[145].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ChannelBackup); i {
+			switch v := v.(*ForwardingHistoryResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19854,7 +19966,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[146].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*MultiChanBackup); i {
+			switch v := v.(*ExportChannelBackupRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19866,7 +19978,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[147].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ChanBackupExportRequest); i {
+			switch v := v.(*ChannelBackup); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19878,7 +19990,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[148].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ChanBackupSnapshot); i {
+			switch v := v.(*MultiChanBackup); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19890,7 +20002,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[149].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ChannelBackups); i {
+			switch v := v.(*ChanBackupExportRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19902,7 +20014,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[150].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*RestoreChanBackupRequest); i {
+			switch v := v.(*ChanBackupSnapshot); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19914,7 +20026,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[151].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*RestoreBackupResponse); i {
+			switch v := v.(*ChannelBackups); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19926,7 +20038,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[152].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ChannelBackupSubscription); i {
+			switch v := v.(*RestoreChanBackupRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19938,7 +20050,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[153].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*VerifyChanBackupResponse); i {
+			switch v := v.(*RestoreBackupResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19950,7 +20062,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[154].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*MacaroonPermission); i {
+			switch v := v.(*ChannelBackupSubscription); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19962,7 +20074,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[155].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*BakeMacaroonRequest); i {
+			switch v := v.(*VerifyChanBackupResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19974,7 +20086,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[156].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*BakeMacaroonResponse); i {
+			switch v := v.(*MacaroonPermission); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19986,7 +20098,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[157].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListMacaroonIDsRequest); i {
+			switch v := v.(*BakeMacaroonRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -19998,7 +20110,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[158].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListMacaroonIDsResponse); i {
+			switch v := v.(*BakeMacaroonResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -20010,7 +20122,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[159].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*DeleteMacaroonIDRequest); i {
+			switch v := v.(*ListMacaroonIDsRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -20022,7 +20134,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[160].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*DeleteMacaroonIDResponse); i {
+			switch v := v.(*ListMacaroonIDsResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -20034,7 +20146,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[161].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*MacaroonPermissionList); i {
+			switch v := v.(*DeleteMacaroonIDRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -20046,7 +20158,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[162].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListPermissionsRequest); i {
+			switch v := v.(*DeleteMacaroonIDResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -20058,7 +20170,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[163].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListPermissionsResponse); i {
+			switch v := v.(*MacaroonPermissionList); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -20070,7 +20182,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[164].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Failure); i {
+			switch v := v.(*ListPermissionsRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -20082,7 +20194,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[165].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ChannelUpdate); i {
+			switch v := v.(*ListPermissionsResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -20094,7 +20206,7 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[166].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*MacaroonId); i {
+			switch v := v.(*Failure); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -20106,6 +20218,30 @@ func file_lightning_proto_init() {
 			}
 		}
 		file_lightning_proto_msgTypes[167].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ChannelUpdate); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_lightning_proto_msgTypes[168].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*MacaroonId); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_lightning_proto_msgTypes[169].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Op); i {
 			case 0:
 				return &v.state
@@ -20117,7 +20253,7 @@ func file_lightning_proto_init() {
 				return nil
 			}
 		}
-		file_lightning_proto_msgTypes[173].Exporter = func(v interface{}, i int) interface{} {
+		file_lightning_proto_msgTypes[175].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*PendingChannelsResponse_PendingChannel); i {
 			case 0:
 				return &v.state
@@ -20129,7 +20265,7 @@ func file_lightning_proto_init() {
 				return nil
 			}
 		}
-		file_lightning_proto_msgTypes[174].Exporter = func(v interface{}, i int) interface{} {
+		file_lightning_proto_msgTypes[176].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*PendingChannelsResponse_PendingOpenChannel); i {
 			case 0:
 				return &v.state
@@ -20141,7 +20277,7 @@ func file_lightning_proto_init() {
 				return nil
 			}
 		}
-		file_lightning_proto_msgTypes[175].Exporter = func(v interface{}, i int) interface{} {
+		file_lightning_proto_msgTypes[177].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*PendingChannelsResponse_WaitingCloseChannel); i {
 			case 0:
 				return &v.state
@@ -20153,7 +20289,7 @@ func file_lightning_proto_init() {
 				return nil
 			}
 		}
-		file_lightning_proto_msgTypes[176].Exporter = func(v interface{}, i int) interface{} {
+		file_lightning_proto_msgTypes[178].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*PendingChannelsResponse_Commitments); i {
 			case 0:
 				return &v.state
@@ -20165,7 +20301,7 @@ func file_lightning_proto_init() {
 				return nil
 			}
 		}
-		file_lightning_proto_msgTypes[177].Exporter = func(v interface{}, i int) interface{} {
+		file_lightning_proto_msgTypes[179].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*PendingChannelsResponse_ClosedChannel); i {
 			case 0:
 				return &v.state
@@ -20177,7 +20313,7 @@ func file_lightning_proto_init() {
 				return nil
 			}
 		}
-		file_lightning_proto_msgTypes[178].Exporter = func(v interface{}, i int) interface{} {
+		file_lightning_proto_msgTypes[180].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*PendingChannelsResponse_ForceClosedChannel); i {
 			case 0:
 				return &v.state
@@ -20226,11 +20362,11 @@ func file_lightning_proto_init() {
 		(*ChannelEventUpdate_PendingOpenChannel)(nil),
 		(*ChannelEventUpdate_FullyResolvedChannel)(nil),
 	}
-	file_lightning_proto_msgTypes[139].OneofWrappers = []interface{}{
+	file_lightning_proto_msgTypes[141].OneofWrappers = []interface{}{
 		(*PolicyUpdateRequest_Global)(nil),
 		(*PolicyUpdateRequest_ChanPoint)(nil),
 	}
-	file_lightning_proto_msgTypes[150].OneofWrappers = []interface{}{
+	file_lightning_proto_msgTypes[152].OneofWrappers = []interface{}{
 		(*RestoreChanBackupRequest_ChanBackups)(nil),
 		(*RestoreChanBackupRequest_MultiChanBackup)(nil),
 	}
@@ -20240,7 +20376,7 @@ func file_lightning_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_lightning_proto_rawDesc,
 			NumEnums:      18,
-			NumMessages:   189,
+			NumMessages:   191,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

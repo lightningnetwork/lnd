@@ -340,7 +340,14 @@ service Lightning {
     rpc ListPayments (ListPaymentsRequest) returns (ListPaymentsResponse);
 
     /*
-    DeleteAllPayments deletes all outgoing payments from DB.
+    DeletePayment deletes an outgoing payment from DB. Note that it will not
+    attempt to delete an In-Flight payment, since that would be unsafe.
+    */
+    rpc DeletePayment (DeletePaymentRequest) returns (DeletePaymentResponse);
+
+    /*
+    DeleteAllPayments deletes all outgoing payments from DB. Note that it will
+    not attempt to delete In-Flight payments, since that would be unsafe.
     */
     rpc DeleteAllPayments (DeleteAllPaymentsRequest)
         returns (DeleteAllPaymentsResponse);
@@ -3448,6 +3455,16 @@ message ListPaymentsResponse {
     uint64 last_index_offset = 3;
 }
 
+message DeletePaymentRequest {
+    // Payment hash to delete.
+    bytes payment_hash = 1;
+
+    /*
+    Only delete failed HTLCs from the payment, not the payment itself.
+    */
+    bool failed_htlcs_only = 2;
+}
+
 message DeleteAllPaymentsRequest {
     // Only delete failed payments.
     bool failed_payments_only = 1;
@@ -3456,6 +3473,9 @@ message DeleteAllPaymentsRequest {
     Only delete failed HTLCs from payments, not the payment itself.
     */
     bool failed_htlcs_only = 2;
+}
+
+message DeletePaymentResponse {
 }
 
 message DeleteAllPaymentsResponse {

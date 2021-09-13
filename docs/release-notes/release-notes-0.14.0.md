@@ -205,6 +205,8 @@ you.
 
 * [Fixed wallet recovery itests on Travis ARM](https://github.com/lightningnetwork/lnd/pull/5688)
 
+* [Integration tests save embedded etcd logs to help debugging flakes](https://github.com/lightningnetwork/lnd/pull/5702)
+
 ## Database
 
 * [Ensure single writer for legacy

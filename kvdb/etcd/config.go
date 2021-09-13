@@ -10,6 +10,8 @@ type Config struct {
 
 	EmbeddedPeerPort uint16 `long:"embedded_peer_port" description:"Peer port to use for the embedded instance. Note: use for testing only."`
 
+	EmbeddedLogFile string `long:"embedded_log_file" description:"Optional log file to use for embedded instance logs. note: use for testing only."`
+
 	Host string `long:"host" description:"Etcd database host."`
 
 	User string `long:"user" description:"Etcd database user."`

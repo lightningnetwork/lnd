@@ -94,7 +94,10 @@ documentation](../psbt.md#use-the-batchopenchannel-rpc-for-safe-batch-channel-fu
 * [Publish transaction is now reachable through 
   lncli](https://github.com/lightningnetwork/lnd/pull/5460).
 
-## Security 
+## Security
+
+* [Health check now picks up a misconfigured ZMQ 
+  setup](https://github.com/lightningnetwork/lnd/pull/5710).
 
 ### Admin macaroon permissions
 

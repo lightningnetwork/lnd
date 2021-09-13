@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -495,9 +496,86 @@ func NewChainControl(cfg *Config, blockCache *blockcache.BlockCache) (
 			return nil, nil, err
 		}
 
+		zmq := []struct {
+			Type    string `json:"type"`
+			Address string `json:"address"`
+		}{}
+
+		zmqPubRawBlockURL, err := url.Parse(bitcoindMode.ZMQPubRawBlock)
+		if err != nil {
+			return nil, nil, err
+		}
+		zmqPubRawTxURL, err := url.Parse(bitcoindMode.ZMQPubRawTx)
+		if err != nil {
+			return nil, nil, err
+		}
+
 		cc.HealthCheck = func() error {
-			_, err := chainConn.RawRequest(cmd, nil)
-			return err
+
+			resp, err := chainConn.RawRequest(cmd, nil)
+			if err != nil {
+				return err
+			}
+			if cmd == "getblockchaininfo" {
+				return nil
+			}
+
+			if err = json.Unmarshal([]byte(resp), &zmq); err != nil {
+				return err
+			}
+
+			pubRawBlockActive := false
+			pubRawTxActive := false
+
+			// Make sure we connect to the correct ZeroMQ ports.
+			for i := range zmq {
+				if zmq[i].Type == "pubrawblock" {
+					url, err := url.Parse(zmq[i].Address)
+					if err != nil {
+						return err
+					}
+					if url.Port() != zmqPubRawBlockURL.Port() {
+						return fmt.Errorf(
+							"listening to block notifications on "+
+								"%s but bitcoind is running on %s",
+							zmqPubRawBlockURL.Host,
+							url.Host,
+						)
+					}
+					pubRawBlockActive = true
+				}
+				if zmq[i].Type == "pubrawtx" {
+					url, err := url.Parse(zmq[i].Address)
+					if err != nil {
+						return err
+					}
+					if url.Port() != zmqPubRawTxURL.Port() {
+						return fmt.Errorf(
+							"listening to transaction notifications on "+
+								"%s but bitcoind is running on %s",
+							zmqPubRawTxURL.Host,
+							url.Host,
+						)
+					}
+					pubRawTxActive = true
+				}
+			}
+
+			// Return error if ZeroMQ notifications are not available.
+			if !pubRawBlockActive {
+				return errors.New(
+					"raw block notifications over zmq is not active on " +
+						"bitcoind",
+				)
+			}
+			if !pubRawTxActive {
+				return errors.New(
+					"raw transaction notifications over zmq is not active " +
+						"on bitcoind",
+				)
+			}
+
+			return nil
 		}
 
 	case "btcd", "ltcd":
@@ -714,10 +792,10 @@ func NewChainControl(cfg *Config, blockCache *blockcache.BlockCache) (
 }
 
 // getBitcoindHealthCheckCmd queries bitcoind for its version to decide which
-// api we should use for our health check. We prefer to use the uptime
-// command, because it has no locking and is an inexpensive call, which was
-// added in version 0.15. If we are on an earlier version, we fallback to using
-// getblockchaininfo.
+// api we should use for our health check. We use the getzmqnotifications
+// command, because with it we get information about the active ZeroMQ
+// notifications. getzmqnotifications was added in version 0.17, so if we are
+// on an earlier version, we fallback to using getblockchaininfo.
 func getBitcoindHealthCheckCmd(client *rpcclient.Client) (string, error) {
 	// Query bitcoind to get our current version.
 	resp, err := client.RawRequest("getnetworkinfo", nil)
@@ -737,10 +815,10 @@ func getBitcoindHealthCheckCmd(client *rpcclient.Client) (string, error) {
 	// 1000000 * CLIENT_VERSION_MAJOR + 10000 * CLIENT_VERSION_MINOR
 	// + 100 * CLIENT_VERSION_REVISION + 1 * CLIENT_VERSION_BUILD
 	//
-	// The uptime call was added in version 0.15.0, so we return it for
-	// any version value >= 150000, as per the above calculation.
-	if info.Version >= 150000 {
-		return "uptime", nil
+	// The uptime call was added in version 0.17.0, so we return it for
+	// any version value >= 170000, as per the above calculation.
+	if info.Version >= 170000 {
+		return "getzmqnotifications", nil
 	}
 
 	return "getblockchaininfo", nil

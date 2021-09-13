@@ -134,6 +134,9 @@ you.
   lead to failed tests sometimes when the CPU of the GitHub CI runner was
   strained too much.
 
+* [Changed the go compiler from 1.15 to 1.16](https://github.com/lightningnetwork/lnd/pull/5718)
+  as go 1.15 isn't supported anymore
+
 ## Documentation
 
 * [Outdated warning about unsupported pruning was replaced with clarification that LND **does**

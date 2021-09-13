@@ -265,6 +265,8 @@ mode](https://github.com/lightningnetwork/lnd/pull/5564).
 
 [A bug has been fixed with Neutrino's `RegisterConfirmationsNtfn` and `RegisterSpendNtfn` calls that would cause notifications to be missed.](https://github.com/lightningnetwork/lnd/pull/5453)
 
+[A bug has been fixed when registering for spend notifications in the `txnotifier`. A re-org notification would previously not be dispatched in certain scenarios.](https://github.com/lightningnetwork/lnd/pull/5465)
+
 ## Documentation 
 
 The [code contribution guidelines have been updated to mention the new

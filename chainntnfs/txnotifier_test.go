@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -1840,6 +1841,97 @@ func TestTxNotifierSpendReorg(t *testing.T) {
 	case <-ntfn1.Event.Spend:
 		t.Fatal("received unexpected spend notification")
 	default:
+	}
+}
+
+// TestTxNotifierUpdateSpendReorg tests that a call to RegisterSpend after the
+// spend has been confirmed, and then UpdateSpendDetails (called by historical
+// dispatch), followed by a chain re-org will notify on the Reorg channel. This
+// was not always the case and has since been fixed.
+func TestTxNotifierSpendReorgMissed(t *testing.T) {
+	t.Parallel()
+
+	const startingHeight = 10
+	hintCache := newMockHintCache()
+	n := chainntnfs.NewTxNotifier(
+		startingHeight, chainntnfs.ReorgSafetyLimit, hintCache,
+		hintCache,
+	)
+
+	// We'll create a spending transaction that spends the outpoint we'll
+	// watch.
+	op := wire.OutPoint{Index: 1}
+	spendTx := wire.NewMsgTx(2)
+	spendTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: op,
+		SignatureScript:  testSigScript,
+	})
+	spendTxHash := spendTx.TxHash()
+
+	// Create the spend details that we'll call UpdateSpendDetails with.
+	spendDetails := &chainntnfs.SpendDetail{
+		SpentOutPoint:     &op,
+		SpenderTxHash:     &spendTxHash,
+		SpendingTx:        spendTx,
+		SpenderInputIndex: 0,
+		SpendingHeight:    startingHeight + 1,
+	}
+
+	// Now confirm the spending transaction.
+	block := btcutil.NewBlock(&wire.MsgBlock{
+		Transactions: []*wire.MsgTx{spendTx},
+	})
+	err := n.ConnectTip(block.Hash(), startingHeight+1, block.Transactions())
+	if err != nil {
+		t.Fatalf("unable to connect block: %v", err)
+	}
+	if err := n.NotifyHeight(startingHeight + 1); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
+	}
+
+	// We register for the spend now and will not get a spend notification
+	// until we call UpdateSpendDetails.
+	ntfn, err := n.RegisterSpend(&op, testRawScript, 1)
+	if err != nil {
+		t.Fatalf("unable to register spend: %v", err)
+	}
+
+	// Assert that the HistoricalDispatch variable is non-nil. We'll use
+	// the SpendRequest member to update the spend details.
+	require.NotEmpty(t, ntfn.HistoricalDispatch)
+
+	select {
+	case <-ntfn.Event.Spend:
+		t.Fatalf("did not expect to receive spend ntfn")
+	default:
+	}
+
+	// We now call UpdateSpendDetails with our generated spend details to
+	// simulate a historical spend dispatch being performed. This should
+	// result in a notification being received on the Spend channel.
+	err = n.UpdateSpendDetails(
+		ntfn.HistoricalDispatch.SpendRequest, spendDetails,
+	)
+	require.Empty(t, err)
+
+	// Assert that we receive a Spend notification.
+	select {
+	case <-ntfn.Event.Spend:
+	default:
+		t.Fatalf("expected to receive spend ntfn")
+	}
+
+	// We will now re-org the spending transaction out of the chain, and we
+	// should receive a notification on the Reorg channel.
+	err = n.DisconnectTip(startingHeight + 1)
+	require.Empty(t, err)
+
+	select {
+	case <-ntfn.Event.Spend:
+		t.Fatalf("received unexpected spend ntfn")
+	case <-ntfn.Event.Reorg:
+	default:
+		t.Fatalf("expected spend reorg ntfn")
 	}
 }
 

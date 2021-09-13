@@ -121,6 +121,8 @@ you.
 * [A new build target itest-race](https://github.com/lightningnetwork/lnd/pull/5542) 
   to help uncover undetected data races with our itests.
 
+* [Updated go builds to 1.16.8](https://github.com/lightningnetwork/lnd/pull/5719)
+
 * [The itest error whitelist check was removed to reduce the number of failed
   Travis builds](https://github.com/lightningnetwork/lnd/pull/5588).
 

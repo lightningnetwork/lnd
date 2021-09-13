@@ -729,6 +729,94 @@ func fetchPaymentWithSequenceNumber(tx kvdb.RTx, paymentHash lntypes.Hash,
 	return duplicatePayment, nil
 }
 
+// DeletePayment deletes a payment from the DB given its payment hash. If
+// failedHtlcsOnly is set, only failed HTLC attempts of the payment will be
+// deleted.
+func (d *DB) DeletePayment(paymentHash lntypes.Hash, failedHtlcsOnly bool) error { // nolint:interfacer
+	return kvdb.Update(d, func(tx kvdb.RwTx) error {
+		payments := tx.ReadWriteBucket(paymentsRootBucket)
+		if payments == nil {
+			return nil
+		}
+
+		bucket := payments.NestedReadWriteBucket(paymentHash[:])
+		if bucket == nil {
+			return fmt.Errorf("non bucket element in payments " +
+				"bucket")
+		}
+
+		// If the status is InFlight, we cannot safely delete
+		// the payment information, so we return early.
+		paymentStatus, err := fetchPaymentStatus(bucket)
+		if err != nil {
+			return err
+		}
+
+		// If the status is InFlight, we cannot safely delete
+		// the payment information, so we return an error.
+		if paymentStatus == StatusInFlight {
+			return fmt.Errorf("payment '%v' has status InFlight "+
+				"and therefore cannot be deleted",
+				paymentHash.String())
+		}
+
+		// Delete the failed HTLC attempts we found.
+		if failedHtlcsOnly {
+			toDelete, err := fetchFailedHtlcKeys(bucket)
+			if err != nil {
+				return err
+			}
+
+			htlcsBucket := bucket.NestedReadWriteBucket(
+				paymentHtlcsBucket,
+			)
+
+			for _, htlcID := range toDelete {
+				err = htlcsBucket.Delete(
+					htlcBucketKey(htlcAttemptInfoKey, htlcID),
+				)
+				if err != nil {
+					return err
+				}
+
+				err = htlcsBucket.Delete(
+					htlcBucketKey(htlcFailInfoKey, htlcID),
+				)
+				if err != nil {
+					return err
+				}
+
+				err = htlcsBucket.Delete(
+					htlcBucketKey(htlcSettleInfoKey, htlcID),
+				)
+				if err != nil {
+					return err
+				}
+			}
+
+			return nil
+		}
+
+		seqNrs, err := fetchSequenceNumbers(bucket)
+		if err != nil {
+			return err
+		}
+
+		if err := payments.DeleteNestedBucket(paymentHash[:]); err != nil {
+			return err
+		}
+
+		indexBucket := tx.ReadWriteBucket(paymentsIndexBucket)
+		for _, k := range seqNrs {
+			if err := indexBucket.Delete(k); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}, func() {})
+}
+
 // DeletePayments deletes all completed and failed payments from the DB. If
 // failedOnly is set, only failed payments will be considered for deletion. If
 // failedHtlsOnly is set, the payment itself won't be deleted, only failed HTLC

@@ -249,7 +249,12 @@ type LightningClient interface {
 	//ListPayments returns a list of all outgoing payments.
 	ListPayments(ctx context.Context, in *ListPaymentsRequest, opts ...grpc.CallOption) (*ListPaymentsResponse, error)
 	//
-	//DeleteAllPayments deletes all outgoing payments from DB.
+	//DeletePayment deletes an outgoing payment from DB. Note that it will not
+	//attempt to delete an In-Flight payment, since that would be unsafe.
+	DeletePayment(ctx context.Context, in *DeletePaymentRequest, opts ...grpc.CallOption) (*DeletePaymentResponse, error)
+	//
+	//DeleteAllPayments deletes all outgoing payments from DB. Note that it will
+	//not attempt to delete In-Flight payments, since that would be unsafe.
 	DeleteAllPayments(ctx context.Context, in *DeleteAllPaymentsRequest, opts ...grpc.CallOption) (*DeleteAllPaymentsResponse, error)
 	// lncli: `describegraph`
 	//DescribeGraph returns a description of the latest graph state from the
@@ -937,6 +942,15 @@ func (c *lightningClient) ListPayments(ctx context.Context, in *ListPaymentsRequ
 	return out, nil
 }
 
+func (c *lightningClient) DeletePayment(ctx context.Context, in *DeletePaymentRequest, opts ...grpc.CallOption) (*DeletePaymentResponse, error) {
+	out := new(DeletePaymentResponse)
+	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/DeletePayment", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *lightningClient) DeleteAllPayments(ctx context.Context, in *DeleteAllPaymentsRequest, opts ...grpc.CallOption) (*DeleteAllPaymentsResponse, error) {
 	out := new(DeleteAllPaymentsResponse)
 	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/DeleteAllPayments", in, out, opts...)
@@ -1416,7 +1430,12 @@ type LightningServer interface {
 	//ListPayments returns a list of all outgoing payments.
 	ListPayments(context.Context, *ListPaymentsRequest) (*ListPaymentsResponse, error)
 	//
-	//DeleteAllPayments deletes all outgoing payments from DB.
+	//DeletePayment deletes an outgoing payment from DB. Note that it will not
+	//attempt to delete an In-Flight payment, since that would be unsafe.
+	DeletePayment(context.Context, *DeletePaymentRequest) (*DeletePaymentResponse, error)
+	//
+	//DeleteAllPayments deletes all outgoing payments from DB. Note that it will
+	//not attempt to delete In-Flight payments, since that would be unsafe.
 	DeleteAllPayments(context.Context, *DeleteAllPaymentsRequest) (*DeleteAllPaymentsResponse, error)
 	// lncli: `describegraph`
 	//DescribeGraph returns a description of the latest graph state from the
@@ -1666,6 +1685,9 @@ func (UnimplementedLightningServer) DecodePayReq(context.Context, *PayReqString)
 }
 func (UnimplementedLightningServer) ListPayments(context.Context, *ListPaymentsRequest) (*ListPaymentsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListPayments not implemented")
+}
+func (UnimplementedLightningServer) DeletePayment(context.Context, *DeletePaymentRequest) (*DeletePaymentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeletePayment not implemented")
 }
 func (UnimplementedLightningServer) DeleteAllPayments(context.Context, *DeleteAllPaymentsRequest) (*DeleteAllPaymentsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteAllPayments not implemented")
@@ -2472,6 +2494,24 @@ func _Lightning_ListPayments_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Lightning_DeletePayment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeletePaymentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LightningServer).DeletePayment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/lnrpc.Lightning/DeletePayment",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LightningServer).DeletePayment(ctx, req.(*DeletePaymentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Lightning_DeleteAllPayments_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DeleteAllPaymentsRequest)
 	if err := dec(in); err != nil {
@@ -2996,6 +3036,10 @@ var Lightning_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListPayments",
 			Handler:    _Lightning_ListPayments_Handler,
+		},
+		{
+			MethodName: "DeletePayment",
+			Handler:    _Lightning_DeletePayment_Handler,
 		},
 		{
 			MethodName: "DeleteAllPayments",

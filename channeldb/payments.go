@@ -477,6 +477,37 @@ func readHtlcFailInfo(b []byte) (*HTLCFailInfo, error) {
 	return deserializeHTLCFailInfo(r)
 }
 
+// fetchFailedHtlcKeys retrieves the bucket keys of all failed HTLCs of a
+// payment bucket.
+func fetchFailedHtlcKeys(bucket kvdb.RBucket) ([][]byte, error) {
+	htlcsBucket := bucket.NestedReadBucket(paymentHtlcsBucket)
+
+	var htlcs []HTLCAttempt
+	var err error
+	if htlcsBucket != nil {
+		htlcs, err = fetchHtlcAttempts(htlcsBucket)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Now iterate though them and save the bucket keys for the failed
+	// HTLCs.
+	var htlcKeys [][]byte
+	for _, h := range htlcs {
+		if h.Failure == nil {
+			continue
+		}
+
+		htlcKeyBytes := make([]byte, 8)
+		binary.BigEndian.PutUint64(htlcKeyBytes, h.AttemptID)
+
+		htlcKeys = append(htlcKeys, htlcKeyBytes)
+	}
+
+	return htlcKeys, nil
+}
+
 // PaymentsQuery represents a query to the payments database starting or ending
 // at a certain offset index. The number of retrieved records can be limited.
 type PaymentsQuery struct {
@@ -698,6 +729,94 @@ func fetchPaymentWithSequenceNumber(tx kvdb.RTx, paymentHash lntypes.Hash,
 	return duplicatePayment, nil
 }
 
+// DeletePayment deletes a payment from the DB given its payment hash. If
+// failedHtlcsOnly is set, only failed HTLC attempts of the payment will be
+// deleted.
+func (d *DB) DeletePayment(paymentHash lntypes.Hash, failedHtlcsOnly bool) error { // nolint:interfacer
+	return kvdb.Update(d, func(tx kvdb.RwTx) error {
+		payments := tx.ReadWriteBucket(paymentsRootBucket)
+		if payments == nil {
+			return nil
+		}
+
+		bucket := payments.NestedReadWriteBucket(paymentHash[:])
+		if bucket == nil {
+			return fmt.Errorf("non bucket element in payments " +
+				"bucket")
+		}
+
+		// If the status is InFlight, we cannot safely delete
+		// the payment information, so we return early.
+		paymentStatus, err := fetchPaymentStatus(bucket)
+		if err != nil {
+			return err
+		}
+
+		// If the status is InFlight, we cannot safely delete
+		// the payment information, so we return an error.
+		if paymentStatus == StatusInFlight {
+			return fmt.Errorf("payment '%v' has status InFlight "+
+				"and therefore cannot be deleted",
+				paymentHash.String())
+		}
+
+		// Delete the failed HTLC attempts we found.
+		if failedHtlcsOnly {
+			toDelete, err := fetchFailedHtlcKeys(bucket)
+			if err != nil {
+				return err
+			}
+
+			htlcsBucket := bucket.NestedReadWriteBucket(
+				paymentHtlcsBucket,
+			)
+
+			for _, htlcID := range toDelete {
+				err = htlcsBucket.Delete(
+					htlcBucketKey(htlcAttemptInfoKey, htlcID),
+				)
+				if err != nil {
+					return err
+				}
+
+				err = htlcsBucket.Delete(
+					htlcBucketKey(htlcFailInfoKey, htlcID),
+				)
+				if err != nil {
+					return err
+				}
+
+				err = htlcsBucket.Delete(
+					htlcBucketKey(htlcSettleInfoKey, htlcID),
+				)
+				if err != nil {
+					return err
+				}
+			}
+
+			return nil
+		}
+
+		seqNrs, err := fetchSequenceNumbers(bucket)
+		if err != nil {
+			return err
+		}
+
+		if err := payments.DeleteNestedBucket(paymentHash[:]); err != nil {
+			return err
+		}
+
+		indexBucket := tx.ReadWriteBucket(paymentsIndexBucket)
+		for _, k := range seqNrs {
+			if err := indexBucket.Delete(k); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}, func() {})
+}
+
 // DeletePayments deletes all completed and failed payments from the DB. If
 // failedOnly is set, only failed payments will be considered for deletion. If
 // failedHtlsOnly is set, the payment itself won't be deleted, only failed HTLC
@@ -752,34 +871,9 @@ func (d *DB) DeletePayments(failedOnly, failedHtlcsOnly bool) error {
 
 			// If we are only deleting failed HTLCs, fetch them.
 			if failedHtlcsOnly {
-				htlcsBucket := bucket.NestedReadBucket(
-					paymentHtlcsBucket,
-				)
-
-				var htlcs []HTLCAttempt
-				if htlcsBucket != nil {
-					htlcs, err = fetchHtlcAttempts(
-						htlcsBucket,
-					)
-					if err != nil {
-						return err
-					}
-				}
-
-				// Now iterate though them and save the bucket
-				// keys for the failed HTLCs.
-				var toDelete [][]byte
-				for _, h := range htlcs {
-					if h.Failure == nil {
-						continue
-					}
-
-					htlcIDBytes := make([]byte, 8)
-					binary.BigEndian.PutUint64(
-						htlcIDBytes, h.AttemptID,
-					)
-
-					toDelete = append(toDelete, htlcIDBytes)
+				toDelete, err := fetchFailedHtlcKeys(bucket)
+				if err != nil {
+					return err
 				}
 
 				hash, err := lntypes.MakeHash(k)

@@ -442,6 +442,10 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/lnrpc.Lightning/DeletePayment": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
 		"/lnrpc.Lightning/DeleteAllPayments": {{
 			Entity: "offchain",
 			Action: "write",
@@ -5932,6 +5936,31 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 	}
 
 	return paymentsResp, nil
+}
+
+// DeletePayment deletes a payment from the DB given its payment hash. If
+// failedHtlcsOnly is set, only failed HTLC attempts of the payment will be
+// deleted.
+func (r *rpcServer) DeletePayment(ctx context.Context,
+	req *lnrpc.DeletePaymentRequest) (
+	*lnrpc.DeletePaymentResponse, error) {
+
+	hash, err := lntypes.MakeHash(req.PaymentHash)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcsLog.Infof("[DeletePayment] payment_identifier=%v, "+
+		"failed_htlcs_only=%v", hash, req.FailedHtlcsOnly)
+
+	err = r.server.chanStateDB.DeletePayment(
+		hash, req.FailedHtlcsOnly,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &lnrpc.DeletePaymentResponse{}, nil
 }
 
 // DeleteAllPayments deletes all outgoing payments from DB.

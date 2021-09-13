@@ -68,6 +68,8 @@ proposed channel type is used.
   avoid misleading error messages from dependent services if they use `After`
   systemd option.
 
+* [Delete a specific payment, or its failed HTLCs](https://github.com/lightningnetwork/lnd/pull/5660).
+
 ### Batched channel funding
 
 [Multiple channels can now be opened in a single

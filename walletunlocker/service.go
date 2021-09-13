@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil/hdkeychain"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/aezeed"
 	"github.com/lightningnetwork/lnd/chanbackup"
@@ -26,6 +27,45 @@ var (
 	// message before the timeout occurred.
 	ErrUnlockTimeout = errors.New("got no unlock message before timeout")
 )
+
+// WalletUnlockParams holds the variables used to parameterize the unlocking of
+// lnd's wallet after it has already been created.
+type WalletUnlockParams struct {
+	// Password is the public and private wallet passphrase.
+	Password []byte
+
+	// Birthday specifies the approximate time that this wallet was created.
+	// This is used to bound any rescans on startup.
+	Birthday time.Time
+
+	// RecoveryWindow specifies the address lookahead when entering recovery
+	// mode. A recovery will be attempted if this value is non-zero.
+	RecoveryWindow uint32
+
+	// Wallet is the loaded and unlocked Wallet. This is returned
+	// from the unlocker service to avoid it being unlocked twice (once in
+	// the unlocker service to check if the password is correct and again
+	// later when lnd actually uses it). Because unlocking involves scrypt
+	// which is resource intensive, we want to avoid doing it twice.
+	Wallet *wallet.Wallet
+
+	// ChansToRestore a set of static channel backups that should be
+	// restored before the main server instance starts up.
+	ChansToRestore ChannelsToRecover
+
+	// UnloadWallet is a function for unloading the wallet, which should
+	// be called on shutdown.
+	UnloadWallet func() error
+
+	// StatelessInit signals that the user requested the daemon to be
+	// initialized stateless, which means no unencrypted macaroons should be
+	// written to disk.
+	StatelessInit bool
+
+	// MacResponseChan is the channel for sending back the admin macaroon to
+	// the WalletUnlocker service.
+	MacResponseChan chan []byte
+}
 
 // ChannelsToRecover wraps any set of packed (serialized+encrypted) channel
 // back ups together. These can be passed in when unlocking the wallet, or
@@ -63,6 +103,18 @@ type WalletInitMsg struct {
 	// ExtendedKeyBirthday is the birthday of a wallet that's being restored
 	// through an extended key instead of an aezeed.
 	ExtendedKeyBirthday time.Time
+
+	// WatchOnlyAccounts is a map of scoped account extended public keys
+	// that should be imported to create a watch-only wallet.
+	WatchOnlyAccounts map[waddrmgr.ScopedIndex]*hdkeychain.ExtendedKey
+
+	// WatchOnlyBirthday is the birthday of the master root key the above
+	// watch-only account xpubs were derived from.
+	WatchOnlyBirthday time.Time
+
+	// WatchOnlyMasterFingerprint is the fingerprint of the master root key
+	// the above watch-only account xpubs were derived from.
+	WatchOnlyMasterFingerprint uint32
 
 	// RecoveryWindow is the address look-ahead used when restoring a seed
 	// with existing funds. A recovery window zero indicates that no
@@ -455,6 +507,66 @@ func (u *UnlockerService) InitWallet(ctx context.Context,
 		}
 
 		initMsg.WalletExtendedKey = extendedKey
+
+	// The third option for creating a wallet is the watch-only mode:
+	// Instead of providing the master root key directly, each individual
+	// account is passed as an extended public key only. Because of the
+	// hardened derivation path up to the account (depth 3), it is not
+	// possible to create a master root extended _public_ key. Therefore, an
+	// xpub must be derived and passed into the unlocker for _every_ account
+	// lnd expects.
+	case in.WatchOnly != nil && len(in.WatchOnly.Accounts) > 0:
+		initMsg.WatchOnlyAccounts = make(
+			map[waddrmgr.ScopedIndex]*hdkeychain.ExtendedKey,
+			len(in.WatchOnly.Accounts),
+		)
+
+		for _, acct := range in.WatchOnly.Accounts {
+			scopedIndex := waddrmgr.ScopedIndex{
+				Scope: waddrmgr.KeyScope{
+					Purpose: acct.Purpose,
+					Coin:    acct.CoinType,
+				},
+				Index: acct.Account,
+			}
+			acctKey, err := hdkeychain.NewKeyFromString(acct.Xpub)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing xpub "+
+					"%v: %v", acct.Xpub, err)
+			}
+
+			// Just to make sure the user is doing the right thing,
+			// we expect the public key to be at derivation depth
+			// three (which is the account level) and the key not to
+			// contain any private key material.
+			if acctKey.Depth() != 3 {
+				return nil, fmt.Errorf("xpub must be at " +
+					"depth 3")
+			}
+			if acctKey.IsPrivate() {
+				return nil, fmt.Errorf("xpub is not really " +
+					"an xpub, contains private key")
+			}
+
+			initMsg.WatchOnlyAccounts[scopedIndex] = acctKey
+		}
+
+		// When importing a wallet from its extended public keys we
+		// don't know the birthday as that information is not encoded in
+		// that format. We therefore must set an arbitrary date to start
+		// rescanning at if the user doesn't provide an explicit value
+		// for it. Since lnd only uses SegWit addresses, we pick the
+		// date of the first block that contained SegWit transactions
+		// (481824).
+		initMsg.WatchOnlyBirthday = time.Date(
+			2017, time.August, 24, 1, 57, 37, 0, time.UTC,
+		)
+		if in.WatchOnly.MasterKeyBirthdayTimestamp != 0 {
+			initMsg.WatchOnlyBirthday = time.Unix(
+				int64(in.WatchOnly.MasterKeyBirthdayTimestamp),
+				0,
+			)
+		}
 
 	// No key material was set, no wallet can be created.
 	default:

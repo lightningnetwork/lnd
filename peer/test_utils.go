@@ -43,6 +43,8 @@ const (
 var (
 	// Just use some arbitrary bytes as delivery script.
 	dummyDeliveryScript = channels.AlicesPrivKey
+
+	testKeyLoc = keychain.KeyLocator{Family: keychain.KeyFamilyNodeKey}
 )
 
 // noUpdate is a function which can be used as a parameter in createTestPeer to
@@ -57,10 +59,15 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	publTx chan *wire.MsgTx, updateChan func(a, b *channeldb.OpenChannel)) (
 	*Brontide, *lnwallet.LightningChannel, func(), error) {
 
+	nodeKeyLocator := keychain.KeyLocator{
+		Family: keychain.KeyFamilyNodeKey,
+	}
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(
 		btcec.S256(), channels.AlicesPrivKey,
 	)
-	aliceKeySigner := &keychain.PrivKeyDigestSigner{PrivKey: aliceKeyPriv}
+	aliceKeySigner := keychain.NewPrivKeyMessageSigner(
+		aliceKeyPriv, nodeKeyLocator,
+	)
 	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(
 		btcec.S256(), channels.BobsPrivKey,
 	)
@@ -320,6 +327,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		Graph:                    dbAlice.ChannelGraph(),
 		MessageSigner:            nodeSignerAlice,
 		OurPubKey:                aliceKeyPub,
+		OurKeyLoc:                testKeyLoc,
 		IsChannelActive:          func(lnwire.ChannelID) bool { return true },
 		ApplyChannelUpdate:       func(*lnwire.ChannelUpdate) error { return nil },
 	})

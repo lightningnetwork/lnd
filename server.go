@@ -157,6 +157,9 @@ type server struct {
 	// to authenticate any incoming connections.
 	identityECDH keychain.SingleKeyECDH
 
+	// identityKeyLoc is the key locator for the above wrapped identity key.
+	identityKeyLoc keychain.KeyLocator
+
 	// nodeSigner is an implementation of the MessageSigner implementation
 	// that's backed by the identity private key of the running lnd node.
 	nodeSigner *netann.NodeSigner
@@ -352,17 +355,20 @@ func noiseDial(idKey keychain.SingleKeyECDH,
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
 func newServer(cfg *Config, listenAddrs []net.Addr,
-	dbs *databaseInstances, cc *chainreg.ChainControl,
+	dbs *DatabaseInstances, cc *chainreg.ChainControl,
 	nodeKeyDesc *keychain.KeyDescriptor,
 	chansToRestore walletunlocker.ChannelsToRecover,
 	chanPredicate chanacceptor.ChannelAcceptor,
 	torController *tor.Controller) (*server, error) {
 
 	var (
-		err           error
-		nodeKeyECDH   = keychain.NewPubKeyECDH(*nodeKeyDesc, cc.KeyRing)
-		nodeKeySigner = keychain.NewPubKeyDigestSigner(
-			*nodeKeyDesc, cc.KeyRing,
+		err         error
+		nodeKeyECDH = keychain.NewPubKeyECDH(*nodeKeyDesc, cc.KeyRing)
+
+		// We just derived the full descriptor, so we know the public
+		// key is set on it.
+		nodeKeySigner = keychain.NewPubKeyMessageSigner(
+			nodeKeyDesc.PubKey, nodeKeyDesc.KeyLocator, cc.KeyRing,
 		)
 	)
 
@@ -380,11 +386,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	var serializedPubKey [33]byte
-	copy(serializedPubKey[:], nodeKeyECDH.PubKey().SerializeCompressed())
+	copy(serializedPubKey[:], nodeKeyDesc.PubKey.SerializeCompressed())
 
 	// Initialize the sphinx router.
 	replayLog := htlcswitch.NewDecayedLog(
-		dbs.decayedLogDB, cc.ChainNotifier,
+		dbs.DecayedLogDB, cc.ChainNotifier,
 	)
 	sphinxRouter := sphinx.NewRouter(
 		nodeKeyECDH, cfg.ActiveNetParams.Params, replayLog,
@@ -431,18 +437,19 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	s := &server{
 		cfg:            cfg,
-		graphDB:        dbs.graphDB.ChannelGraph(),
-		chanStateDB:    dbs.chanStateDB,
+		graphDB:        dbs.GraphDB.ChannelGraph(),
+		chanStateDB:    dbs.ChanStateDB,
 		cc:             cc,
 		sigPool:        lnwallet.NewSigPool(cfg.Workers.Sig, cc.Signer),
 		writePool:      writePool,
 		readPool:       readPool,
 		chansToRestore: chansToRestore,
 
-		channelNotifier: channelnotifier.New(dbs.chanStateDB),
+		channelNotifier: channelnotifier.New(dbs.ChanStateDB),
 
-		identityECDH: nodeKeyECDH,
-		nodeSigner:   netann.NewNodeSigner(nodeKeySigner),
+		identityECDH:   nodeKeyECDH,
+		identityKeyLoc: nodeKeyDesc.KeyLocator,
+		nodeSigner:     netann.NewNodeSigner(nodeKeySigner),
 
 		listenAddrs: listenAddrs,
 
@@ -471,7 +478,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	s.witnessBeacon = &preimageBeacon{
-		wCache:      dbs.chanStateDB.NewWitnessCache(),
+		wCache:      dbs.ChanStateDB.NewWitnessCache(),
 		subscribers: make(map[uint64]*preimageSubscriber),
 	}
 
@@ -485,13 +492,13 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		uint32(currentHeight), currentHash, cc.ChainNotifier,
 	)
 	s.invoices = invoices.NewRegistry(
-		dbs.chanStateDB, expiryWatcher, &registryConfig,
+		dbs.ChanStateDB, expiryWatcher, &registryConfig,
 	)
 
 	s.htlcNotifier = htlcswitch.NewHtlcNotifier(time.Now)
 
 	s.htlcSwitch, err = htlcswitch.New(htlcswitch.Config{
-		DB: dbs.chanStateDB,
+		DB: dbs.ChanStateDB,
 		LocalChannelClose: func(pubKey []byte,
 			request *htlcswitch.ChanClose) {
 
@@ -506,7 +513,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 			peer.HandleLocalCloseChanReqs(request)
 		},
-		FwdingLog:              dbs.chanStateDB.ForwardingLog(),
+		FwdingLog:              dbs.ChanStateDB.ForwardingLog(),
 		SwitchPackager:         channeldb.NewSwitchPackager(),
 		ExtractErrorEncrypter:  s.sphinx.ExtractErrorEncrypter,
 		FetchLastChannelUpdate: s.fetchLastChanUpdate(),
@@ -529,12 +536,13 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		ChanStatusSampleInterval: cfg.ChanStatusSampleInterval,
 		ChanEnableTimeout:        cfg.ChanEnableTimeout,
 		ChanDisableTimeout:       cfg.ChanDisableTimeout,
-		OurPubKey:                nodeKeyECDH.PubKey(),
+		OurPubKey:                nodeKeyDesc.PubKey,
+		OurKeyLoc:                nodeKeyDesc.KeyLocator,
 		MessageSigner:            s.nodeSigner,
 		IsChannelActive:          s.htlcSwitch.HasActiveLink,
 		ApplyChannelUpdate:       s.applyChannelUpdate,
-		DB:                       dbs.chanStateDB,
-		Graph:                    dbs.graphDB.ChannelGraph(),
+		DB:                       dbs.ChanStateDB,
+		Graph:                    dbs.GraphDB.ChannelGraph(),
 	}
 
 	chanStatusMgr, err := netann.NewChanStatusManager(chanStatusMgrCfg)
@@ -626,7 +634,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	// As the graph can be obtained at anytime from the network, we won't
 	// replicate it, and instead it'll only be stored locally.
-	chanGraph := dbs.graphDB.ChannelGraph()
+	chanGraph := dbs.GraphDB.ChannelGraph()
 
 	// We'll now reconstruct a node announcement based on our current
 	// configuration so we can send it out as a sort of heart beat within
@@ -657,7 +665,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		Features:             s.featureMgr.Get(feature.SetNodeAnn),
 		Color:                color,
 	}
-	copy(selfNode.PubKeyBytes[:], nodeKeyECDH.PubKey().SerializeCompressed())
+	copy(selfNode.PubKeyBytes[:], nodeKeyDesc.PubKey.SerializeCompressed())
 
 	// Based on the disk representation of the node announcement generated
 	// above, we'll generate a node announcement that can go out on the
@@ -670,7 +678,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// With the announcement generated, we'll sign it to properly
 	// authenticate the message on the network.
 	authSig, err := netann.SignAnnouncement(
-		s.nodeSigner, nodeKeyECDH.PubKey(), nodeAnn,
+		s.nodeSigner, nodeKeyDesc.KeyLocator, nodeAnn,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate signature for "+
@@ -693,7 +701,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	// The router will get access to the payment ID sequencer, such that it
 	// can generate unique payment IDs.
-	sequencer, err := htlcswitch.NewPersistentSequencer(dbs.chanStateDB)
+	sequencer, err := htlcswitch.NewPersistentSequencer(dbs.ChanStateDB)
 	if err != nil {
 		return nil, err
 	}
@@ -738,7 +746,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	s.missionControl, err = routing.NewMissionControl(
-		dbs.chanStateDB, selfNode.PubKeyBytes,
+		dbs.ChanStateDB, selfNode.PubKeyBytes,
 		&routing.MissionControlConfig{
 			ProbabilityEstimatorCfg: estimatorCfg,
 			MaxMcHistory:            routingConfig.MaxMcHistory,
@@ -771,7 +779,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PathFindingConfig: pathFindingConfig,
 	}
 
-	paymentControl := channeldb.NewPaymentControl(dbs.chanStateDB)
+	paymentControl := channeldb.NewPaymentControl(dbs.ChanStateDB)
 
 	s.controlTower = routing.NewControlTower(paymentControl)
 
@@ -836,9 +844,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PinnedSyncers:           cfg.Gossip.PinnedSyncers,
 		MaxChannelUpdateBurst:   cfg.Gossip.MaxChannelUpdateBurst,
 		ChannelUpdateInterval:   cfg.Gossip.ChannelUpdateInterval,
-	},
-		nodeKeyECDH.PubKey(),
-	)
+	}, nodeKeyDesc)
 
 	s.localChanMgr = &localchans.Manager{
 		ForAllOutgoingChannels:    s.chanRouter.ForAllOutgoingChannels,
@@ -848,7 +854,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	utxnStore, err := newNurseryStore(
-		s.cfg.ActiveNetParams.GenesisHash, dbs.chanStateDB,
+		s.cfg.ActiveNetParams.GenesisHash, dbs.ChanStateDB,
 	)
 	if err != nil {
 		srvrLog.Errorf("unable to create nursery store: %v", err)
@@ -859,7 +865,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		sweep.DefaultBatchWindowDuration)
 
 	sweeperStore, err := sweep.NewSweeperStore(
-		dbs.chanStateDB, s.cfg.ActiveNetParams.GenesisHash,
+		dbs.ChanStateDB, s.cfg.ActiveNetParams.GenesisHash,
 	)
 	if err != nil {
 		srvrLog.Errorf("unable to create sweeper store: %v", err)
@@ -886,8 +892,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	s.utxoNursery = newUtxoNursery(&NurseryConfig{
 		ChainIO:             cc.ChainIO,
 		ConfDepth:           1,
-		FetchClosedChannels: dbs.chanStateDB.FetchClosedChannels,
-		FetchClosedChannel:  dbs.chanStateDB.FetchClosedChannel,
+		FetchClosedChannels: dbs.ChanStateDB.FetchClosedChannels,
+		FetchClosedChannel:  dbs.ChanStateDB.FetchClosedChannel,
 		Notifier:            cc.ChainNotifier,
 		PublishTransaction:  cc.Wallet.PublishTransaction,
 		Store:               utxnStore,
@@ -1009,18 +1015,18 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PaymentsExpirationGracePeriod: cfg.PaymentsExpirationGracePeriod,
 		IsForwardedHTLC:               s.htlcSwitch.IsForwardedHTLC,
 		Clock:                         clock.NewDefaultClock(),
-	}, dbs.chanStateDB)
+	}, dbs.ChanStateDB)
 
 	s.breachArbiter = newBreachArbiter(&BreachConfig{
 		CloseLink:          closeLink,
-		DB:                 dbs.chanStateDB,
+		DB:                 dbs.ChanStateDB,
 		Estimator:          s.cc.FeeEstimator,
 		GenSweepScript:     newSweepPkScriptGen(cc.Wallet),
 		Notifier:           cc.ChainNotifier,
 		PublishTransaction: cc.Wallet.PublishTransaction,
 		ContractBreaches:   contractBreaches,
 		Signer:             cc.Wallet.Cfg.Signer,
-		Store:              newRetributionStore(dbs.chanStateDB),
+		Store:              newRetributionStore(dbs.ChanStateDB),
 	})
 
 	// Select the configuration and furnding parameters for Bitcoin or
@@ -1042,7 +1048,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	s.fundingMgr, err = funding.NewFundingManager(funding.Config{
 		NoWumboChans:       !cfg.ProtocolOptions.Wumbo(),
-		IDKey:              nodeKeyECDH.PubKey(),
+		IDKey:              nodeKeyDesc.PubKey,
+		IDKeyLoc:           nodeKeyDesc.KeyLocator,
 		Wallet:             cc.Wallet,
 		PublishTransaction: cc.Wallet.PublishTransaction,
 		UpdateLabel: func(hash chainhash.Hash, label string) error {
@@ -1050,15 +1057,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		},
 		Notifier:     cc.ChainNotifier,
 		FeeEstimator: cc.FeeEstimator,
-		SignMessage: func(pubKey *btcec.PublicKey,
-			msg []byte) (input.Signature, error) {
-
-			if pubKey.IsEqual(nodeKeyECDH.PubKey()) {
-				return s.nodeSigner.SignMessage(pubKey, msg)
-			}
-
-			return cc.MsgSigner.SignMessage(pubKey, msg)
-		},
+		SignMessage:  cc.MsgSigner.SignMessage,
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement, error) {
 			return s.genNodeAnnouncement(true)
 		},
@@ -1068,7 +1067,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		FindChannel: func(chanID lnwire.ChannelID) (
 			*channeldb.OpenChannel, error) {
 
-			dbChannels, err := dbs.chanStateDB.FetchAllChannels()
+			dbChannels, err := dbs.ChanStateDB.FetchAllChannels()
 			if err != nil {
 				return nil, err
 			}
@@ -1306,7 +1305,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			SecretKeyRing:  s.cc.KeyRing,
 			Dial:           cfg.net.Dial,
 			AuthDial:       authDial,
-			DB:             dbs.towerClientDB,
+			DB:             dbs.TowerClientDB,
 			Policy:         policy,
 			ChainHash:      *s.cfg.ActiveNetParams.GenesisHash,
 			MinBackoff:     10 * time.Second,
@@ -1329,7 +1328,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			SecretKeyRing:  s.cc.KeyRing,
 			Dial:           cfg.net.Dial,
 			AuthDial:       authDial,
-			DB:             dbs.towerClientDB,
+			DB:             dbs.TowerClientDB,
 			Policy:         anchorPolicy,
 			ChainHash:      *s.cfg.ActiveNetParams.GenesisHash,
 			MinBackoff:     10 * time.Second,
@@ -2492,7 +2491,7 @@ func (s *server) genNodeAnnouncement(refresh bool,
 	// Otherwise, we'll sign a new update after applying all of the passed
 	// modifiers.
 	err := netann.SignNodeAnnouncement(
-		s.nodeSigner, s.identityECDH.PubKey(), s.currentNodeAnn,
+		s.nodeSigner, s.identityKeyLoc, s.currentNodeAnn,
 		modifiers...,
 	)
 	if err != nil {

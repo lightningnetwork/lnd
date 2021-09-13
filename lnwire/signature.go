@@ -70,6 +70,12 @@ func NewSigFromSignature(e input.Signature) (Sig, error) {
 		return Sig{}, fmt.Errorf("cannot decode empty signature")
 	}
 
+	// Nil is still a valid interface, apparently. So we need a more
+	// explicit check here.
+	if ecsig, ok := e.(*btcec.Signature); ok && ecsig == nil {
+		return Sig{}, fmt.Errorf("cannot decode empty signature")
+	}
+
 	// Serialize the signature with all the checks that entails.
 	return NewSigFromRawSignature(e.Serialize())
 }

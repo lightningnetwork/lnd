@@ -72,6 +72,10 @@ type Config struct {
 	// CoinSelectionStrategy is the strategy that is used for selecting
 	// coins when funding a transaction.
 	CoinSelectionStrategy wallet.CoinSelectionStrategy
+
+	// WatchOnly indicates that the wallet was initialized with public key
+	// material only and does not contain any private keys.
+	WatchOnly bool
 }
 
 // NetworkDir returns the directory name of a network directory to hold wallet

@@ -94,6 +94,13 @@ documentation](../psbt.md#use-the-batchopenchannel-rpc-for-safe-batch-channel-fu
 * [Publish transaction is now reachable through 
   lncli](https://github.com/lightningnetwork/lnd/pull/5460).
 
+### Remote signing
+
+It is now possible to delegate any operation that needs access to private keys
+to a [remote signer that serves signing requests over
+RPC](https://github.com/lightningnetwork/lnd/pull/5689). More information can be
+found [in the new remote signing document](../remote-signing.md).
+
 ## Security 
 
 ### Admin macaroon permissions

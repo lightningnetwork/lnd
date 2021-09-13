@@ -45,7 +45,7 @@ func TestEtcdElector(t *testing.T) {
 		t.Fatalf("unable to create temp dir: %v", err)
 	}
 
-	etcdCfg, cleanup, err := etcd.NewEmbeddedEtcdInstance(tmpDir, 0, 0)
+	etcdCfg, cleanup, err := etcd.NewEmbeddedEtcdInstance(tmpDir, 0, 0, "")
 	require.NoError(t, err)
 	defer cleanup()
 

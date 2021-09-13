@@ -63,6 +63,10 @@ func TestBolt(t *testing.T) {
 			name: "tx rollback",
 			test: testTxRollback,
 		},
+		{
+			name: "prefetch",
+			test: testPrefetch,
+		},
 	}
 
 	for _, test := range tests {

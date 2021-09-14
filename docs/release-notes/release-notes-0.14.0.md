@@ -225,6 +225,8 @@ you.
 
 * [Fixed restore backup file test flake with bitcoind](https://github.com/lightningnetwork/lnd/pull/5637).
 
+* [Timing fix in AMP itest](https://github.com/lightningnetwork/lnd/pull/5725)
+
 ## Database
 
 * [Ensure single writer for legacy

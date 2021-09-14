@@ -29,8 +29,7 @@ func testHtlcErrorPropagation(net *lntest.NetworkHarness, t *harnessTest) {
 			Amt: chanAmt,
 		},
 	)
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPointAlice); err != nil {
+	if err := net.Alice.WaitForNetworkChannelOpen(chanPointAlice); err != nil {
 		t.Fatalf("channel not seen by alice before timeout: %v", err)
 	}
 
@@ -115,7 +114,7 @@ out:
 	for {
 		select {
 		case <-checkTableTicker.C:
-			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 			_, err := net.Alice.GetNodeInfo(ctxt, nodeInfoReq)
 			if err != nil && strings.Contains(err.Error(),
 				"unable to find") {
@@ -138,7 +137,7 @@ out:
 		Memo:  "kek99",
 		Value: payAmt,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	carolInvoice, err := carol.AddInvoice(ctxt, invoiceReq)
 	if err != nil {
 		t.Fatalf("unable to generate carol invoice: %v", err)
@@ -154,8 +153,7 @@ out:
 
 	// Before we send the payment, ensure that the announcement of the new
 	// channel has been processed by Alice.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPointBob); err != nil {
+	if err := net.Alice.WaitForNetworkChannelOpen(chanPointBob); err != nil {
 		t.Fatalf("channel not seen by alice before timeout: %v", err)
 	}
 

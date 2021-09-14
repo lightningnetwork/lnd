@@ -85,12 +85,11 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 		)
 	}
 
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err := net.Alice.WaitForNetworkChannelOpen(chanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't report channel: %v", err)
 	}
-	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = net.Bob.WaitForNetworkChannelOpen(chanPoint)
 	if err != nil {
 		t.Fatalf("bob didn't report channel: %v", err)
 	}
@@ -163,18 +162,15 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 		)
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint2)
+	err = net.Alice.WaitForNetworkChannelOpen(chanPoint2)
 	if err != nil {
 		t.Fatalf("alice didn't report channel: %v", err)
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint2)
+	err = net.Bob.WaitForNetworkChannelOpen(chanPoint2)
 	if err != nil {
 		t.Fatalf("bob didn't report channel: %v", err)
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint2)
+	err = carol.WaitForNetworkChannelOpen(chanPoint2)
 	if err != nil {
 		t.Fatalf("carol didn't report channel: %v", err)
 	}
@@ -187,7 +183,7 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 		Memo:  "testing",
 		Value: int64(payAmt),
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	resp, err := carol.AddInvoice(ctxt, invoice)
 	if err != nil {
 		t.Fatalf("unable to add invoice: %v", err)
@@ -387,13 +383,11 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 	defer closeChannelAndAssert(t, net, net.Alice, chanPoint3, false)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint3)
+	err = net.Alice.WaitForNetworkChannelOpen(chanPoint3)
 	if err != nil {
 		t.Fatalf("alice didn't report channel: %v", err)
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint3)
+	err = carol.WaitForNetworkChannelOpen(chanPoint3)
 	if err != nil {
 		t.Fatalf("bob didn't report channel: %v", err)
 	}
@@ -505,8 +499,6 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 // flag set is sent once a channel has been either unilaterally or cooperatively
 // closed.
 func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
 	const (
 		chanAmt = 100000
 	)
@@ -588,12 +580,9 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	assertPolicyUpdate := func(node *lntest.HarnessNode,
 		policy *lnrpc.RoutingPolicy, chanPoint *lnrpc.ChannelPoint) {
 
-		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-		defer cancel()
-
 		require.NoError(
 			t.t, dave.WaitForChannelPolicyUpdate(
-				ctxt, node.PubKeyStr, policy, chanPoint, false,
+				node.PubKeyStr, policy, chanPoint, false,
 			), "error while waiting for channel update",
 		)
 	}

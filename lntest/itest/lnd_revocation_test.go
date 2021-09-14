@@ -24,8 +24,6 @@ import (
 // retribution in the event that she fails immediately after detecting Bob's
 // breach txn in the mempool.
 func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
 	const (
 		chanAmt     = funding.MaxBtcFundingAmount
 		paymentAmt  = 10000
@@ -71,8 +69,7 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Wait for Carol to receive the channel edge from the funding manager.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = carol.WaitForNetworkChannelOpen(chanPoint)
 	if err != nil {
 		t.Fatalf("carol didn't see the carol->bob channel before "+
 			"timeout: %v", err)
@@ -256,7 +253,6 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 // commitment output has zero-value.
 func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness,
 	t *harnessTest) {
-	ctxb := context.Background()
 
 	const (
 		chanAmt     = funding.MaxBtcFundingAmount
@@ -308,8 +304,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	}
 
 	// Wait for Dave to receive the channel edge from the funding manager.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err = dave.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = dave.WaitForNetworkChannelOpen(chanPoint)
 	if err != nil {
 		t.Fatalf("dave didn't see the dave->carol channel before "+
 			"timeout: %v", err)
@@ -467,7 +462,6 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 // remote party breaches before settling extended HTLCs.
 func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	t *harnessTest) {
-	ctxb := context.Background()
 
 	const (
 		chanAmt     = funding.MaxBtcFundingAmount
@@ -551,8 +545,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	}
 
 	// Wait for Dave to receive the channel edge from the funding manager.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err = dave.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = dave.WaitForNetworkChannelOpen(chanPoint)
 	if err != nil {
 		t.Fatalf("dave didn't see the dave->carol channel before "+
 			"timeout: %v", err)
@@ -1005,8 +998,7 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(
 	}
 
 	// Wait for Dave to receive the channel edge from the funding manager.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = dave.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = dave.WaitForNetworkChannelOpen(chanPoint)
 	if err != nil {
 		t.Fatalf("dave didn't see the dave->carol channel before "+
 			"timeout: %v", err)

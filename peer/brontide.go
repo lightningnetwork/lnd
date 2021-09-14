@@ -2016,6 +2016,7 @@ func (p *Brontide) pingHandler() {
 	if err != nil {
 		peerLog.Errorf("unable to establish block epoch "+
 			"subscription: %v", err)
+		return
 	}
 
 	var (

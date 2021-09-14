@@ -69,12 +69,11 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Wait for Alice to recognize and advertise the new channel generated
 	// above.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint); err != nil {
+	if err = net.Alice.WaitForNetworkChannelOpen(chanPoint); err != nil {
 		t.Fatalf("alice didn't advertise channel before "+
 			"timeout: %v", err)
 	}
-	if err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint); err != nil {
+	if err = net.Bob.WaitForNetworkChannelOpen(chanPoint); err != nil {
 		t.Fatalf("bob didn't advertise channel before "+
 			"timeout: %v", err)
 	}
@@ -292,8 +291,7 @@ func runAsyncPayments(net *lntest.NetworkHarness, t *harnessTest, alice,
 	}
 
 	// Wait for Alice to receive the channel edge from the funding manager.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err = alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = alice.WaitForNetworkChannelOpen(chanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't see the alice->bob channel before "+
 			"timeout: %v", err)
@@ -307,7 +305,7 @@ func runAsyncPayments(net *lntest.NetworkHarness, t *harnessTest, alice,
 	for i := 0; i < numInvoices; i++ {
 		payReq := bobPayReqs[i]
 		go func() {
-			ctxt, _ = context.WithTimeout(ctxb, lntest.AsyncBenchmarkTimeout)
+			ctxt, _ := context.WithTimeout(ctxb, lntest.AsyncBenchmarkTimeout)
 			stream, err := alice.RouterClient.SendPaymentV2(
 				ctxt,
 				&routerrpc.SendPaymentRequest{
@@ -465,12 +463,11 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 	}
 
 	// Wait for Alice to receive the channel edge from the funding manager.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	if err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint); err != nil {
+	if err = net.Alice.WaitForNetworkChannelOpen(chanPoint); err != nil {
 		t.Fatalf("alice didn't see the alice->bob channel before "+
 			"timeout: %v", err)
 	}
-	if err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint); err != nil {
+	if err = net.Bob.WaitForNetworkChannelOpen(chanPoint); err != nil {
 		t.Fatalf("bob didn't see the bob->alice channel before "+
 			"timeout: %v", err)
 	}
@@ -478,7 +475,7 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 	// Reset mission control to prevent previous payment results from
 	// interfering with this test. A new channel has been opened, but
 	// mission control operates on node pairs.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	_, err = net.Alice.RouterClient.ResetMissionControl(
 		ctxt, &routerrpc.ResetMissionControlRequest{},
 	)
@@ -680,8 +677,7 @@ func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Wait for the channel to be recognized by both Alice and Bob before
 	// continuing the rest of the test.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = net.Alice.WaitForNetworkChannelOpen(chanPoint)
 	if err != nil {
 		// TODO(roasbeef): will need to make num blocks to advertise a
 		// node param

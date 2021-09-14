@@ -237,12 +237,10 @@ func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 		aliceChanPoint1, aliceChanPoint2, aliceChanPoint3,
 	}
 	for _, chanPoint := range chanPoints {
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		err = alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+		err = alice.WaitForNetworkChannelOpen(chanPoint)
 		require.NoError(t.t, err)
 
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		err = bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
+		err = bob.WaitForNetworkChannelOpen(chanPoint)
 		require.NoError(t.t, err)
 	}
 

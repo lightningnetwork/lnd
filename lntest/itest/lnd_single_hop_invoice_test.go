@@ -48,13 +48,12 @@ func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Wait for Alice to recognize and advertise the new channel generated
 	// above.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = net.Alice.WaitForNetworkChannelOpen(chanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't advertise channel before "+
 			"timeout: %v", err)
 	}
-	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = net.Bob.WaitForNetworkChannelOpen(chanPoint)
 	if err != nil {
 		t.Fatalf("bob didn't advertise channel before "+
 			"timeout: %v", err)
@@ -78,7 +77,7 @@ func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 	payHash := &lnrpc.PaymentHash{
 		RHash: invoiceResp.RHash,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	dbInvoice, err := net.Bob.LookupInvoice(ctxt, payHash)
 	if err != nil {
 		t.Fatalf("unable to lookup invoice: %v", err)

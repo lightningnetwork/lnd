@@ -915,55 +915,51 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		return err
 	}
 
-	// If we're not in regtest or simnet mode, We'll wait until we're fully
-	// synced to continue the start up of the remainder of the daemon. This
-	// ensures that we don't accept any possibly invalid state transitions, or
-	// accept channels with spent funds.
-	if !(cfg.Bitcoin.RegTest || cfg.Bitcoin.SimNet ||
-		cfg.Litecoin.RegTest || cfg.Litecoin.SimNet) {
-
-		_, bestHeight, err := activeChainControl.ChainIO.GetBestBlock()
-		if err != nil {
-			err := fmt.Errorf("unable to determine chain tip: %v",
-				err)
-			ltndLog.Error(err)
-			return err
-		}
-
-		ltndLog.Infof("Waiting for chain backend to finish sync, "+
-			"start_height=%v", bestHeight)
-
-		for {
-			if !interceptor.Alive() {
-				return nil
-			}
-
-			synced, _, err := activeChainControl.Wallet.IsSynced()
-			if err != nil {
-				err := fmt.Errorf("unable to determine if "+
-					"wallet is synced: %v", err)
-				ltndLog.Error(err)
-				return err
-			}
-
-			if synced {
-				break
-			}
-
-			time.Sleep(time.Second * 1)
-		}
-
-		_, bestHeight, err = activeChainControl.ChainIO.GetBestBlock()
-		if err != nil {
-			err := fmt.Errorf("unable to determine chain tip: %v",
-				err)
-			ltndLog.Error(err)
-			return err
-		}
-
-		ltndLog.Infof("Chain backend is fully synced (end_height=%v)!",
-			bestHeight)
+	// We'll wait until we're fully synced to continue the start up of the
+	// remainder of the daemon. This ensures that we don't accept any
+	// possibly invalid state transitions, or accept channels with spent
+	// funds.
+	_, bestHeight, err := activeChainControl.ChainIO.GetBestBlock()
+	if err != nil {
+		err := fmt.Errorf("unable to determine chain tip: %v",
+			err)
+		ltndLog.Error(err)
+		return err
 	}
+
+	ltndLog.Infof("Waiting for chain backend to finish sync, "+
+		"start_height=%v", bestHeight)
+
+	for {
+		if !interceptor.Alive() {
+			return nil
+		}
+
+		synced, _, err := activeChainControl.Wallet.IsSynced()
+		if err != nil {
+			err := fmt.Errorf("unable to determine if "+
+				"wallet is synced: %v", err)
+			ltndLog.Error(err)
+			return err
+		}
+
+		if synced {
+			break
+		}
+
+		time.Sleep(time.Second * 1)
+	}
+
+	_, bestHeight, err = activeChainControl.ChainIO.GetBestBlock()
+	if err != nil {
+		err := fmt.Errorf("unable to determine chain tip: %v",
+			err)
+		ltndLog.Error(err)
+		return err
+	}
+
+	ltndLog.Infof("Chain backend is fully synced (end_height=%v)!",
+		bestHeight)
 
 	// With all the relevant chains initialized, we can finally start the
 	// server itself.
@@ -973,6 +969,9 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		return err
 	}
 	defer server.Stop()
+
+	// We transition the server state to Active, as the server is up.
+	interceptorChain.SetServerActive()
 
 	// Now that the server has started, if the autopilot mode is currently
 	// active, then we'll start the autopilot agent immediately. It will be

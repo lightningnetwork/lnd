@@ -6622,6 +6622,12 @@ func (r *rpcServer) ExportAllChannelBackups(ctx context.Context,
 func (r *rpcServer) RestoreChannelBackups(ctx context.Context,
 	in *lnrpc.RestoreChanBackupRequest) (*lnrpc.RestoreBackupResponse, error) {
 
+	// The server hasn't yet started, so it won't be able to service any of
+	// our requests, so we'll bail early here.
+	if !r.server.Started() {
+		return nil, ErrServerNotActive
+	}
+
 	// First, we'll make our implementation of the
 	// chanbackup.ChannelRestorer interface which we'll use to properly
 	// restore either a set of chanbackup.Single or chanbackup.Multi

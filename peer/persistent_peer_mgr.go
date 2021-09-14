@@ -282,25 +282,6 @@ func (m *PersistentPeerManager) NumConnReq(pubKeyStr string) int {
 	return len(peer.connReqs)
 }
 
-// UpdateAddresses can be used to manually set the addresses for the
-// persistent peer that will then be used during connection request creation.
-func (m *PersistentPeerManager) UpdateAddresses(pubKeyStr string,
-	addrs ...*lnwire.NetAddress) {
-
-	m.connsMu.Lock()
-	defer m.connsMu.Unlock()
-
-	peer, ok := m.conns[pubKeyStr]
-	if !ok {
-		return
-	}
-
-	peer.addrs = make(map[string]*lnwire.NetAddress)
-	for _, addr := range addrs {
-		peer.addrs[addr.String()] = addr
-	}
-}
-
 // ConnectPeer adds the peer if it hasn't been added yet and initialises
 // connection requests to this peer using all the stored addresses for the peer.
 func (m *PersistentPeerManager) ConnectPeer(pubKeyStr string) {

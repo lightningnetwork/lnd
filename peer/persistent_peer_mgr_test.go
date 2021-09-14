@@ -134,20 +134,14 @@ func TestPersistentPeerManager(t *testing.T) {
 	require.False(t, manager.IsPersistentPeer(alicePubKeyStr))
 	require.False(t, manager.IsPersistentPeer(bobPubKeyStr))
 
-	// Register Alice as a persistent peer.
-	manager.AddPeer(alicePubKeyStr, nil, false)
+	// Register Alice as a persistent peer with an address.
+	manager.AddPeer(alicePubKeyStr, []*lnwire.NetAddress{
+		{
+			IdentityKey: alicePubKey,
+			Address:     testAddr1,
+		},
+	}, false)
 	require.True(t, manager.IsPersistentPeer(alicePubKeyStr))
-
-	// Calling ConnectPeer for Alice should result in no connection
-	// requests since Alice has no addresses yet.
-	manager.ConnectPeer(bobPubKeyStr)
-	require.Equal(t, 0, manager.NumConnReq(bobPubKeyStr))
-
-	// Manually add an address for Alice.
-	manager.UpdateAddresses(alicePubKeyStr, &lnwire.NetAddress{
-		IdentityKey: alicePubKey,
-		Address:     testAddr1,
-	})
 
 	// Calling ConnectPeer for Alice should result in a connection request
 	// since we have added an address for Alice.

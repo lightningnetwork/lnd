@@ -136,6 +136,9 @@ you.
   lead to failed tests sometimes when the CPU of the GitHub CI runner was
   strained too much.
 
+* [The bitcoind installation is now referenced by SHA256 instead of tags]
+    (https://github.com/lightningnetwork/lnd/pull/5730)
+
 ## Documentation
 
 * [Outdated warning about unsupported pruning was replaced with clarification that LND **does**

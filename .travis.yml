@@ -73,7 +73,7 @@ jobs:
     - name: Bitcoind Integration ARM
       script:
         - bash ./scripts/install_bitcoind.sh
-        - GOARM=7 GOARCH=arm GOOS=linux make itest-parallel backend=bitcoind
+        - GOARM=7 GOARCH=arm GOOS=linux make itest-parallel backend=bitcoind ITEST_PARALLELISM=2
       arch: arm64
       services:
         - docker

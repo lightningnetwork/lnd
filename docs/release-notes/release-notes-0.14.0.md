@@ -150,6 +150,9 @@ you.
   lead to failed tests sometimes when the CPU of the GitHub CI runner was
   strained too much.
 
+* [Reduce the number of parallel itest runs to 2 on
+  ARM](https://github.com/lightningnetwork/lnd/pull/5731).
+
 ## Documentation
 
 * [Outdated warning about unsupported pruning was replaced with clarification that LND **does**

@@ -194,7 +194,6 @@ type server struct {
 
 	persistentPeerMgr      *peer.PersistentPeerManager
 	persistentPeersBackoff map[string]time.Duration
-	persistentConnReqs     map[string][]*connmgr.ConnReq
 	persistentRetryCancels map[string]chan struct{}
 
 	// peerErrors keeps a set of peer error buffers for peers that have
@@ -453,7 +452,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		torController: torController,
 
 		persistentPeersBackoff:  make(map[string]time.Duration),
-		persistentConnReqs:      make(map[string][]*connmgr.ConnReq),
 		persistentRetryCancels:  make(map[string]chan struct{}),
 		peerErrors:              make(map[string]*queue.CircularBuffer),
 		ignorePeerTermination:   make(map[*peer.Brontide]struct{}),
@@ -2645,16 +2643,7 @@ func (s *server) establishPersistentConnections() error {
 	// node announcements and attempt to reconnect to each node.
 	var numOutboundConns int
 	for pubStr, nodeAddr := range nodeAddrsMap {
-		// Add this peer to the set of peers we should maintain a
-		// persistent connection with. We set perm to false in order to
-		// indicate that we should not continue to reconnect if the
-		// number of channels returns to zero, since this peer has not
-		// been requested as perm by the user.
-		s.persistentPeerMgr.AddPeer(pubStr, nil, false)
-		if _, ok := s.persistentPeersBackoff[pubStr]; !ok {
-			s.persistentPeersBackoff[pubStr] = s.cfg.MinBackoff
-		}
-
+		addrs := make([]*lnwire.NetAddress, 0, len(nodeAddr.addresses))
 		for _, address := range nodeAddr.addresses {
 			// Create a wrapper address which couples the IP and
 			// the pubkey so the brontide authenticated connection
@@ -2663,34 +2652,33 @@ func (s *server) establishPersistentConnections() error {
 				IdentityKey: nodeAddr.pubKey,
 				Address:     address,
 			}
-			srvrLog.Debugf("Attempting persistent connection to "+
-				"channel peer %v", lnAddr)
 
-			// Send the persistent connection request to the
-			// connection manager, saving the request itself so we
-			// can cancel/restart the process as needed.
-			connReq := &connmgr.ConnReq{
-				Addr:      lnAddr,
-				Permanent: true,
-			}
+			addrs = append(addrs, lnAddr)
+		}
 
-			s.persistentConnReqs[pubStr] = append(
-				s.persistentConnReqs[pubStr], connReq)
+		// Add this peer to the set of peers we should maintain a
+		// persistent connection with. We set perm to false in order to
+		// indicate that we should not continue to reconnect if the
+		// number of channels returns to zero, since this peer has not
+		// been requested as perm by the user.
+		s.persistentPeerMgr.AddPeer(pubStr, addrs, false)
+		if _, ok := s.persistentPeersBackoff[pubStr]; !ok {
+			s.persistentPeersBackoff[pubStr] = s.cfg.MinBackoff
+		}
 
-			// We'll connect to the first 10 peers immediately, then
-			// randomly stagger any remaining connections if the
-			// stagger initial reconnect flag is set. This ensures
-			// that mobile nodes or nodes with a small number of
-			// channels obtain connectivity quickly, but larger
-			// nodes are able to disperse the costs of connecting to
-			// all peers at once.
-			if numOutboundConns < numInstantInitReconnect ||
-				!s.cfg.StaggerInitialReconnect {
+		// We'll connect to the first 10 peers immediately, then
+		// randomly stagger any remaining connections if the
+		// stagger initial reconnect flag is set. This ensures
+		// that mobile nodes or nodes with a small number of
+		// channels obtain connectivity quickly, but larger
+		// nodes are able to disperse the costs of connecting to
+		// all peers at once.
+		if numOutboundConns < numInstantInitReconnect ||
+			!s.cfg.StaggerInitialReconnect {
 
-				go s.connMgr.Connect(connReq)
-			} else {
-				go s.delayInitialReconnect(connReq)
-			}
+			go s.persistentPeerMgr.ConnectPeer(pubStr)
+		} else {
+			go s.delayInitialReconnect(pubStr)
 		}
 
 		numOutboundConns++
@@ -2699,16 +2687,16 @@ func (s *server) establishPersistentConnections() error {
 	return nil
 }
 
-// delayInitialReconnect will attempt a reconnection using the passed connreq
-// after sampling a value for the delay between 0s and the
-// maxInitReconnectDelay.
+// delayInitialReconnect will make a call to the persistent peer manager to
+// create connection requests for the passed peer pub key string after
+// sampling a value for the delay between 0s and the maxInitReconnectDelay.
 //
 // NOTE: This method MUST be run as a goroutine.
-func (s *server) delayInitialReconnect(connReq *connmgr.ConnReq) {
+func (s *server) delayInitialReconnect(pubStr string) {
 	delay := time.Duration(prand.Intn(maxInitReconnectDelay)) * time.Second
 	select {
 	case <-time.After(delay):
-		s.connMgr.Connect(connReq)
+		s.persistentPeerMgr.ConnectPeer(pubStr)
 	case <-s.quit:
 	}
 }
@@ -3063,7 +3051,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		conn.Close()
 		return
 	}
-	if _, ok := s.persistentConnReqs[pubStr]; !ok && connReq != nil {
+	if s.persistentPeerMgr.NumConnReq(pubStr) == 0 && connReq != nil {
 		srvrLog.Debugf("Ignoring canceled outbound connection")
 		s.connMgr.Remove(connReq.ID())
 		conn.Close()
@@ -3167,33 +3155,8 @@ func (s *server) cancelConnReqs(pubStr string, skip *uint64) {
 		delete(s.persistentRetryCancels, pubStr)
 	}
 
-	// Next, check to see if we have any outstanding persistent connection
-	// requests to this peer. If so, then we'll remove all of these
-	// connection requests, and also delete the entry from the map.
-	connReqs, ok := s.persistentConnReqs[pubStr]
-	if !ok {
-		return
-	}
-
-	for _, connReq := range connReqs {
-		// Atomically capture the current request identifier.
-		connID := connReq.ID()
-
-		// Skip any zero IDs, this indicates the request has not
-		// yet been schedule.
-		if connID == UnassignedConnID {
-			continue
-		}
-
-		// Skip a particular connection ID if instructed.
-		if skip != nil && connID == *skip {
-			continue
-		}
-
-		s.connMgr.Remove(connID)
-	}
-
-	delete(s.persistentConnReqs, pubStr)
+	// Remove any outstanding persistent connection requests to the peer.
+	s.persistentPeerMgr.RemovePeerConns(pubStr, skip)
 }
 
 // peerConnected is a function that handles initialization a newly connected
@@ -3506,9 +3469,12 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 
 	// We'll only need to re-launch a connection request if one
 	// isn't already currently pending.
-	if _, ok := s.persistentConnReqs[pubStr]; ok {
+	if s.persistentPeerMgr.NumConnReq(pubStr) > 0 {
 		return
 	}
+
+	// Get the last address that we used to connect to the peer.
+	s.persistentPeerMgr.UpdateAddresses(pubStr, p.NetAddress())
 
 	// We'll ensure that we locate an advertised address to use
 	// within the peer's address for reconnection purposes.
@@ -3519,7 +3485,16 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 		switch {
 		// We found an advertised address, so use it.
 		case err == nil:
-			p.SetAddress(advertisedAddr)
+			// Inform the PersistentPeerManager of the peer's
+			// latest advertised addresses.
+			s.persistentPeerMgr.UpdateAddresses(
+				pubStr,
+				&lnwire.NetAddress{
+					IdentityKey: p.IdentityKey(),
+					Address:     advertisedAddr,
+					ChainNet:    p.NetAddress().ChainNet,
+				},
+			)
 
 		// The peer doesn't have an advertised address.
 		case err == errNoAdvertisedAddr:
@@ -3551,12 +3526,6 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 
 	// Otherwise, we'll launch a new connection request in order to
 	// attempt to maintain a persistent connection with this peer.
-	connReq := &connmgr.ConnReq{
-		Addr:      p.NetAddress(),
-		Permanent: true,
-	}
-	s.persistentConnReqs[pubStr] = append(
-		s.persistentConnReqs[pubStr], connReq)
 
 	// Record the computed backoff in the backoff map.
 	backoff := s.nextPeerBackoff(pubStr, p.StartTime())
@@ -3588,7 +3557,7 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 		srvrLog.Debugf("Attempting to re-establish persistent "+
 			"connection to peer %v", p)
 
-		s.connMgr.Connect(connReq)
+		s.persistentPeerMgr.ConnectPeer(pubStr)
 	}()
 }
 
@@ -3669,9 +3638,9 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
 	// If there's already a pending connection request for this pubkey,
 	// then we ignore this request to ensure we don't create a redundant
 	// connection.
-	if reqs, ok := s.persistentConnReqs[targetPub]; ok {
+	if numReqs := s.persistentPeerMgr.NumConnReq(targetPub); numReqs > 0 {
 		srvrLog.Warnf("Already have %d persistent connection "+
-			"requests for %v, connecting anyway.", len(reqs), addr)
+			"requests for %v, connecting anyway.", numReqs, addr)
 	}
 
 	// If there's not already a pending or active connection to this node,
@@ -3679,25 +3648,20 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
 	// persistent connection to the peer.
 	srvrLog.Debugf("Connecting to %v", addr)
 	if perm {
-		connReq := &connmgr.ConnReq{
-			Addr:      addr,
-			Permanent: true,
-		}
-
 		// Since the user requested a permanent connection, we'll set
 		// the entry to true which will tell the server to continue
 		// reconnecting even if the number of channels with this peer is
 		// zero.
-		s.persistentPeerMgr.AddPeer(targetPub, nil, true)
+		s.persistentPeerMgr.AddPeer(
+			targetPub, []*lnwire.NetAddress{addr}, true,
+		)
+
 		if _, ok := s.persistentPeersBackoff[targetPub]; !ok {
 			s.persistentPeersBackoff[targetPub] = s.cfg.MinBackoff
 		}
-		s.persistentConnReqs[targetPub] = append(
-			s.persistentConnReqs[targetPub], connReq,
-		)
 		s.mu.Unlock()
 
-		go s.connMgr.Connect(connReq)
+		go s.persistentPeerMgr.ConnectPeer(targetPub)
 
 		return nil
 	}

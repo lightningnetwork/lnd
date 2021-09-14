@@ -99,6 +99,12 @@ type AcceptChannel struct {
 	// open.
 	ChannelType *ChannelType
 
+	// LeaseExpiry represents the absolute expiration height of a channel
+	// lease. This is a custom TLV record that will only apply when a leased
+	// channel is being opened using the script enforced lease commitment
+	// type.
+	LeaseExpiry *LeaseExpiry
+
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -124,6 +130,9 @@ func (a *AcceptChannel) Encode(w *bytes.Buffer, pver uint32) error {
 	recordProducers := []tlv.RecordProducer{&a.UpfrontShutdownScript}
 	if a.ChannelType != nil {
 		recordProducers = append(recordProducers, a.ChannelType)
+	}
+	if a.LeaseExpiry != nil {
+		recordProducers = append(recordProducers, a.LeaseExpiry)
 	}
 	err := EncodeMessageExtraData(&a.ExtraData, recordProducers...)
 	if err != nil {
@@ -226,9 +235,12 @@ func (a *AcceptChannel) Decode(r io.Reader, pver uint32) error {
 
 	// Next we'll parse out the set of known records, keeping the raw tlv
 	// bytes untouched to ensure we don't drop any bytes erroneously.
-	var chanType ChannelType
+	var (
+		chanType    ChannelType
+		leaseExpiry LeaseExpiry
+	)
 	typeMap, err := tlvRecords.ExtractRecords(
-		&a.UpfrontShutdownScript, &chanType,
+		&a.UpfrontShutdownScript, &chanType, &leaseExpiry,
 	)
 	if err != nil {
 		return err
@@ -237,6 +249,9 @@ func (a *AcceptChannel) Decode(r io.Reader, pver uint32) error {
 	// Set the corresponding TLV types if they were included in the stream.
 	if val, ok := typeMap[ChannelTypeRecordType]; ok && val == nil {
 		a.ChannelType = &chanType
+	}
+	if val, ok := typeMap[LeaseExpiryRecordType]; ok && val == nil {
+		a.LeaseExpiry = &leaseExpiry
 	}
 
 	a.ExtraData = tlvRecords

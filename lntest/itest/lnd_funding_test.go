@@ -14,7 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -393,7 +393,7 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 	const thawHeight uint32 = 10
 	const chanSize = funding.MaxBtcFundingAmount
 	fundingShim1, chanPoint1, _ := deriveFundingShim(
-		net, t, carol, dave, chanSize, thawHeight, 1, false,
+		net, t, carol, dave, chanSize, thawHeight, false,
 	)
 	_ = openChannelStream(
 		t, net, carol, dave, lntest.OpenChannelParams{
@@ -409,7 +409,7 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 	// do exactly that now. For this one we publish the transaction so we
 	// can mine it later.
 	fundingShim2, chanPoint2, _ := deriveFundingShim(
-		net, t, carol, dave, chanSize, thawHeight, 2, true,
+		net, t, carol, dave, chanSize, thawHeight, true,
 	)
 
 	// At this point, we'll now carry out the normal basic channel funding
@@ -637,17 +637,14 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 // keys on both sides.
 func deriveFundingShim(net *lntest.NetworkHarness, t *harnessTest,
 	carol, dave *lntest.HarnessNode, chanSize btcutil.Amount,
-	thawHeight uint32, keyIndex int32, publish bool) (*lnrpc.FundingShim,
+	thawHeight uint32, publish bool) (*lnrpc.FundingShim,
 	*lnrpc.ChannelPoint, *chainhash.Hash) {
 
 	ctxb := context.Background()
-	keyLoc := &signrpc.KeyLocator{
-		KeyFamily: 9999,
-		KeyIndex:  keyIndex,
-	}
-	carolFundingKey, err := carol.WalletKitClient.DeriveKey(ctxb, keyLoc)
+	keyLoc := &walletrpc.KeyReq{KeyFamily: 9999}
+	carolFundingKey, err := carol.WalletKitClient.DeriveNextKey(ctxb, keyLoc)
 	require.NoError(t.t, err)
-	daveFundingKey, err := dave.WalletKitClient.DeriveKey(ctxb, keyLoc)
+	daveFundingKey, err := dave.WalletKitClient.DeriveNextKey(ctxb, keyLoc)
 	require.NoError(t.t, err)
 
 	// Now that we have the multi-sig keys for each party, we can manually

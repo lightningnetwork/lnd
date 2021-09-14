@@ -159,6 +159,24 @@ const (
 	// TODO: Decide on actual feature bit value.
 	ExplicitChannelTypeOptional = 2021
 
+	// ScriptEnforcedLeaseOptional is an optional feature bit that signals
+	// that the node requires channels having zero-fee second-level HTLC
+	// transactions, which also imply anchor commitments, along with an
+	// additional CLTV constraint of a channel lease's expiration height
+	// applied to all outputs that pay directly to the channel initiator.
+	//
+	// TODO: Decide on actual feature bit value.
+	ScriptEnforcedLeaseRequired FeatureBit = 2022
+
+	// ScriptEnforcedLeaseOptional is a required feature bit that signals
+	// that the node requires channels having zero-fee second-level HTLC
+	// transactions, which also imply anchor commitments, along with an
+	// additional CLTV constraint of a channel lease's expiration height
+	// applied to all outputs that pay directly to the channel initiator.
+	//
+	// TODO: Decide on actual feature bit value.
+	ScriptEnforcedLeaseOptional FeatureBit = 2023
+
 	// maxAllowedSize is a maximum allowed size of feature vector.
 	//
 	// NOTE: Within the protocol, the maximum allowed message size is 65535
@@ -206,6 +224,8 @@ var Features = map[FeatureBit]string{
 	AMPOptional:                   "amp",
 	ExplicitChannelTypeOptional:   "explicit-commitment-type",
 	ExplicitChannelTypeRequired:   "explicit-commitment-type",
+	ScriptEnforcedLeaseRequired:   "script-enforced-lease",
+	ScriptEnforcedLeaseOptional:   "script-enforced-lease",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A

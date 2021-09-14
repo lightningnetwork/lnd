@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -72,9 +73,9 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// Now that all parties have the HTLC locked in, we'll immediately
 	// force close the Bob -> Carol channel. This should trigger contract
 	// resolution mode for both of them.
-	closeChannelAndAssertType(
-		t, net, bob, bobChanPoint,
-		c == lnrpc.CommitmentType_ANCHORS, true,
+	hasAnchors := commitTypeHasAnchors(c)
+	closeTx := closeChannelAndAssertType(
+		t, net, bob, bobChanPoint, hasAnchors, true,
 	)
 
 	// At this point, Bob should have a pending force close channel as he
@@ -92,27 +93,45 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	)
 	require.NoError(t.t, err)
 
-	// We'll mine defaultCSV blocks in order to generate the sweep
-	// transaction of Bob's funding output. If there are anchors, mine
-	// Carol's anchor sweep too.
-	if c == lnrpc.CommitmentType_ANCHORS {
+	// If the channel closed has anchors, we should expect to see a sweep
+	// transaction for Carol's anchor.
+	htlcOutpoint := wire.OutPoint{Hash: *closeTx, Index: 0}
+	bobCommitOutpoint := wire.OutPoint{Hash: *closeTx, Index: 1}
+	if hasAnchors {
+		htlcOutpoint.Index = 2
+		bobCommitOutpoint.Index = 3
 		_, err = waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
 		require.NoError(t.t, err)
 	}
 
-	// The sweep is broadcast on the block immediately before the CSV
-	// expires and the commitment was already mined inside
-	// closeChannelAndAssertType(), so mine one block less than defaultCSV
-	// in order to perform mempool assertions.
-	_, err = net.Miner.Client.Generate(defaultCSV - 1)
-	require.NoError(t.t, err)
+	// Before the HTLC times out, we'll need to assert that Bob broadcasts a
+	// sweep transaction for his commit output. Note that if the channel has
+	// a script-enforced lease, then Bob will have to wait for an additional
+	// CLTV before sweeping it.
+	if c != lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
+		// The sweep is broadcast on the block immediately before the
+		// CSV expires and the commitment was already mined inside
+		// closeChannelAndAssertType(), so mine one block less than
+		// defaultCSV in order to perform mempool assertions.
+		_, err = net.Miner.Client.Generate(defaultCSV - 1)
+		require.NoError(t.t, err)
 
-	_, err = waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
-	require.NoError(t.t, err)
+		commitSweepTx := assertSpendingTxInMempool(
+			t, net.Miner.Client, minerMempoolTimeout,
+			bobCommitOutpoint,
+		)
+		blocks := mineBlocks(t, net, 1, 1)
+		assertTxInBlock(t, blocks[0], &commitSweepTx)
+	}
 
 	// We'll now mine enough blocks for the HTLC to expire. After this, Bob
 	// should hand off the now expired HTLC output to the utxo nursery.
-	numBlocks := padCLTV(uint32(finalCltvDelta - defaultCSV))
+	numBlocks := padCLTV(finalCltvDelta)
+	if c != lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
+		// Subtract the number of blocks already mined to confirm Bob's
+		// commit sweep.
+		numBlocks -= defaultCSV
+	}
 	_, err = net.Miner.Client.Generate(numBlocks)
 	require.NoError(t.t, err)
 
@@ -137,13 +156,14 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// We should also now find a transaction in the mempool, as Bob should
 	// have broadcast his second layer timeout transaction.
-	timeoutTx, err := waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
-	require.NoError(t.t, err)
+	timeoutTx := assertSpendingTxInMempool(
+		t, net.Miner.Client, minerMempoolTimeout, htlcOutpoint,
+	)
 
 	// Next, we'll mine an additional block. This should serve to confirm
 	// the second layer timeout transaction.
 	block := mineBlocks(t, net, 1, 1)[0]
-	assertTxInBlock(t, block, timeoutTx)
+	assertTxInBlock(t, block, &timeoutTx)
 
 	// With the second layer timeout transaction confirmed, Bob should have
 	// canceled backwards the HTLC that carol sent.
@@ -172,19 +192,37 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	)
 	require.NoError(t.t, err)
 
-	// We'll now mine 4 additional blocks. This should be enough for Bob's
-	// CSV timelock to expire and the sweeping transaction of the HTLC to be
-	// broadcast.
-	_, err = net.Miner.Client.Generate(defaultCSV)
+	// Bob should now broadcast a transaction that sweeps certain inputs
+	// depending on the commitment type. We'll need to mine some blocks
+	// before the broadcast is possible.
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	resp, err := bob.PendingChannels(ctxt, &lnrpc.PendingChannelsRequest{})
 	require.NoError(t.t, err)
 
-	sweepTx, err := waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
+	require.Len(t.t, resp.PendingForceClosingChannels, 1)
+	forceCloseChan := resp.PendingForceClosingChannels[0]
+	require.Len(t.t, forceCloseChan.PendingHtlcs, 1)
+	pendingHtlc := forceCloseChan.PendingHtlcs[0]
+	require.Positive(t.t, pendingHtlc.BlocksTilMaturity)
+	numBlocks = uint32(pendingHtlc.BlocksTilMaturity)
+
+	_, err = net.Miner.Client.Generate(numBlocks)
 	require.NoError(t.t, err)
 
-	// We'll then mine a final block which should confirm this second layer
-	// sweep transaction.
+	// Now that the CSV/CLTV timelock has expired, the transaction should
+	// either only sweep the HTLC timeout transaction, or sweep both the
+	// HTLC timeout transaction and Bob's commit output depending on the
+	// commitment type.
+	htlcTimeoutOutpoint := wire.OutPoint{Hash: timeoutTx, Index: 0}
+	expectedInputsSwept := []wire.OutPoint{htlcTimeoutOutpoint}
+	if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
+		expectedInputsSwept = append(expectedInputsSwept, bobCommitOutpoint)
+	}
+	sweepTx := assertSpendingTxInMempool(
+		t, net.Miner.Client, minerMempoolTimeout, expectedInputsSwept...,
+	)
 	block = mineBlocks(t, net, 1, 1)[0]
-	assertTxInBlock(t, block, sweepTx)
+	assertTxInBlock(t, block, &sweepTx)
 
 	// At this point, Bob should no longer show any channels as pending
 	// close.

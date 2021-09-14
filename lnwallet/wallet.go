@@ -795,7 +795,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// funding tx ready, so this will always pass.  We'll do another check
 	// when the PSBT has been verified.
 	isPublic := req.Flags&lnwire.FFAnnounceChannel != 0
-	hasAnchors := req.CommitType == CommitmentTypeAnchorsZeroFeeHtlcTx
+	hasAnchors := req.CommitType.HasAnchors()
 	err = l.enforceNewReservedValue(fundingIntent, isPublic, hasAnchors)
 	if err != nil {
 		fundingIntent.Cancel()
@@ -1190,8 +1190,8 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	ourChanCfg, theirChanCfg *channeldb.ChannelConfig,
 	localCommitPoint, remoteCommitPoint *btcec.PublicKey,
-	fundingTxIn wire.TxIn, chanType channeldb.ChannelType) (
-	*wire.MsgTx, *wire.MsgTx, error) {
+	fundingTxIn wire.TxIn, chanType channeldb.ChannelType, initiator bool,
+	leaseExpiry uint32) (*wire.MsgTx, *wire.MsgTx, error) {
 
 	localCommitmentKeys := DeriveCommitmentKeys(
 		localCommitPoint, true, chanType, ourChanCfg, theirChanCfg,
@@ -1202,7 +1202,8 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 
 	ourCommitTx, err := CreateCommitTx(
 		chanType, fundingTxIn, localCommitmentKeys, ourChanCfg,
-		theirChanCfg, localBalance, remoteBalance, 0,
+		theirChanCfg, localBalance, remoteBalance, 0, initiator,
+		leaseExpiry,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -1215,7 +1216,8 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 
 	theirCommitTx, err := CreateCommitTx(
 		chanType, fundingTxIn, remoteCommitmentKeys, theirChanCfg,
-		ourChanCfg, remoteBalance, localBalance, 0,
+		ourChanCfg, remoteBalance, localBalance, 0, !initiator,
+		leaseExpiry,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -1454,12 +1456,17 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 	// With the funding tx complete, create both commitment transactions.
 	localBalance := pendingReservation.partialState.LocalCommitment.LocalBalance.ToSatoshis()
 	remoteBalance := pendingReservation.partialState.LocalCommitment.RemoteBalance.ToSatoshis()
+	var leaseExpiry uint32
+	if pendingReservation.partialState.ChanType.HasLeaseExpiration() {
+		leaseExpiry = pendingReservation.partialState.ThawHeight
+	}
 	ourCommitTx, theirCommitTx, err := CreateCommitmentTxns(
 		localBalance, remoteBalance, ourContribution.ChannelConfig,
 		theirContribution.ChannelConfig,
 		ourContribution.FirstCommitmentPoint,
 		theirContribution.FirstCommitmentPoint, fundingTxIn,
 		pendingReservation.partialState.ChanType,
+		pendingReservation.partialState.IsInitiator, leaseExpiry,
 	)
 	if err != nil {
 		req.err <- err
@@ -1821,6 +1828,10 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	// remote node's commitment transactions.
 	localBalance := pendingReservation.partialState.LocalCommitment.LocalBalance.ToSatoshis()
 	remoteBalance := pendingReservation.partialState.LocalCommitment.RemoteBalance.ToSatoshis()
+	var leaseExpiry uint32
+	if pendingReservation.partialState.ChanType.HasLeaseExpiration() {
+		leaseExpiry = pendingReservation.partialState.ThawHeight
+	}
 	ourCommitTx, theirCommitTx, err := CreateCommitmentTxns(
 		localBalance, remoteBalance,
 		pendingReservation.ourContribution.ChannelConfig,
@@ -1828,6 +1839,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		pendingReservation.ourContribution.FirstCommitmentPoint,
 		pendingReservation.theirContribution.FirstCommitmentPoint,
 		*fundingTxIn, pendingReservation.partialState.ChanType,
+		pendingReservation.partialState.IsInitiator, leaseExpiry,
 	)
 	if err != nil {
 		req.err <- err

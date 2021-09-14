@@ -861,8 +861,8 @@ func TestWitnessSizes(t *testing.T) {
 func genTimeoutTx(chanType channeldb.ChannelType) (*wire.MsgTx, error) {
 	// Create the unsigned timeout tx.
 	timeoutTx, err := lnwallet.CreateHtlcTimeoutTx(
-		chanType, testOutPoint, testAmt, testCLTVExpiry,
-		testCSVDelay, testPubkey, testPubkey,
+		chanType, false, testOutPoint, testAmt, testCLTVExpiry,
+		testCSVDelay, 0, testPubkey, testPubkey,
 	)
 	if err != nil {
 		return nil, err
@@ -903,7 +903,7 @@ func genTimeoutTx(chanType channeldb.ChannelType) (*wire.MsgTx, error) {
 func genSuccessTx(chanType channeldb.ChannelType) (*wire.MsgTx, error) {
 	// Create the unisgned success tx.
 	successTx, err := lnwallet.CreateHtlcSuccessTx(
-		chanType, testOutPoint, testAmt, testCSVDelay,
+		chanType, false, testOutPoint, testAmt, testCSVDelay, 0,
 		testPubkey, testPubkey,
 	)
 	if err != nil {

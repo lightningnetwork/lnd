@@ -38,6 +38,15 @@ func testSendPaymentAMPInvoiceCase(net *lntest.NetworkHarness, t *harnessTest,
 	ctx := newMppTestContext(t, net)
 	defer ctx.shutdownNodes()
 
+	// Subscribe to bob's invoices. Do this early in the test to make sure
+	// that the subscription has actually been completed when we add an
+	// invoice. Otherwise the notification will be missed.
+	req := &lnrpc.InvoiceSubscription{}
+	ctxc, cancelSubscription := context.WithCancel(ctxb)
+	bobInvoiceSubscription, err := ctx.bob.SubscribeInvoices(ctxc, req)
+	require.NoError(t.t, err)
+	defer cancelSubscription()
+
 	const paymentAmt = btcutil.Amount(300000)
 
 	// Set up a network with three different paths Alice <-> Bob. Channel
@@ -60,13 +69,6 @@ func testSendPaymentAMPInvoiceCase(net *lntest.NetworkHarness, t *harnessTest,
 	defer ctx.closeChannels()
 
 	ctx.waitForChannels()
-
-	// Subscribe to bob's invoices.
-	req := &lnrpc.InvoiceSubscription{}
-	ctxc, cancelSubscription := context.WithCancel(ctxb)
-	bobInvoiceSubscription, err := ctx.bob.SubscribeInvoices(ctxc, req)
-	require.NoError(t.t, err)
-	defer cancelSubscription()
 
 	addInvoiceResp, err := ctx.bob.AddInvoice(context.Background(), &lnrpc.Invoice{
 		Value: int64(paymentAmt),

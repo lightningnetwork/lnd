@@ -232,6 +232,8 @@ you.
 
 * [Timing fix in AMP itest](https://github.com/lightningnetwork/lnd/pull/5725)
 
+* [Included Codeql scanning to increase the security posture](https://github.com/lightningnetwork/lnd/pull/5735)
+
 ## Database
 
 * [Ensure single writer for legacy

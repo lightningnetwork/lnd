@@ -335,13 +335,12 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 
 	// Wait for Alice and Carol to receive the channel edge from the
 	// funding manager.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = alice.WaitForNetworkChannelOpen(chanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't see the alice->carol channel before "+
 			"timeout: %v", err)
 	}
-	err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = carol.WaitForNetworkChannelOpen(chanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't see the alice->carol channel before "+
 			"timeout: %v", err)
@@ -1430,8 +1429,7 @@ func testFailingChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	carolPayReqs := []string{resp.PaymentRequest}
 
 	// Wait for Alice to receive the channel edge from the funding manager.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = net.Alice.WaitForNetworkChannelOpen(chanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't see the alice->carol channel before "+
 			"timeout: %v", err)

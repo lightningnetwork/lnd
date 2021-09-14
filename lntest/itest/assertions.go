@@ -1783,13 +1783,9 @@ func assertChannelPolicyUpdate(t *testing.T, node *lntest.HarnessNode,
 	advertisingNode string, policy *lnrpc.RoutingPolicy,
 	chanPoint *lnrpc.ChannelPoint, includeUnannounced bool) {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, lntest.DefaultTimeout)
-	defer cancel()
-
 	require.NoError(
 		t, node.WaitForChannelPolicyUpdate(
-			ctxt, advertisingNode, policy,
+			advertisingNode, policy,
 			chanPoint, includeUnannounced,
 		), "error while waiting for channel update",
 	)

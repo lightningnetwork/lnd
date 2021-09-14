@@ -74,8 +74,8 @@ func testHoldInvoiceForceClose(net *lntest.NetworkHarness, t *harnessTest) {
 	require.Len(t.t, chans.Channels[0].PendingHtlcs, 1)
 	activeHtlc := chans.Channels[0].PendingHtlcs[0]
 
-	require.NoError(t.t, net.Alice.WaitForBlockchainSync(ctxb))
-	require.NoError(t.t, net.Bob.WaitForBlockchainSync(ctxb))
+	require.NoError(t.t, net.Alice.WaitForBlockchainSync())
+	require.NoError(t.t, net.Bob.WaitForBlockchainSync())
 
 	info, err := net.Alice.GetInfo(ctxb, &lnrpc.GetInfoRequest{})
 	require.NoError(t.t, err)
@@ -99,8 +99,8 @@ func testHoldInvoiceForceClose(net *lntest.NetworkHarness, t *harnessTest) {
 
 	mineBlocksSlow(t, net, blocksTillForce, 0)
 
-	require.NoError(t.t, net.Alice.WaitForBlockchainSync(ctxb))
-	require.NoError(t.t, net.Bob.WaitForBlockchainSync(ctxb))
+	require.NoError(t.t, net.Alice.WaitForBlockchainSync())
+	require.NoError(t.t, net.Bob.WaitForBlockchainSync())
 
 	// Our channel should not have been force closed, instead we expect our
 	// channel to still be open and our invoice to have been canceled before

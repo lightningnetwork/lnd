@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
@@ -154,7 +155,7 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	updateChan := make(chan interface{}, 1)
 	errChan := make(chan error, 1)
 	closeCommand := &htlcswitch.ChanClose{
-		CloseType:      htlcswitch.CloseRegular,
+		CloseType:      contractcourt.CloseRegular,
 		ChanPoint:      bobChan.ChannelPoint(),
 		Updates:        updateChan,
 		TargetFeePerKw: 12500,
@@ -470,7 +471,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	updateChan := make(chan interface{}, 1)
 	errChan := make(chan error, 1)
 	closeCommand := &htlcswitch.ChanClose{
-		CloseType:      htlcswitch.CloseRegular,
+		CloseType:      contractcourt.CloseRegular,
 		ChanPoint:      bobChan.ChannelPoint(),
 		Updates:        updateChan,
 		TargetFeePerKw: 12500,
@@ -808,7 +809,7 @@ func TestCustomShutdownScript(t *testing.T) {
 			errChan := make(chan error, 1)
 			chanPoint := bobChan.ChannelPoint()
 			closeCommand := htlcswitch.ChanClose{
-				CloseType:      htlcswitch.CloseRegular,
+				CloseType:      contractcourt.CloseRegular,
 				ChanPoint:      chanPoint,
 				Updates:        updateChan,
 				TargetFeePerKw: 12500,

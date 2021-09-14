@@ -80,26 +80,12 @@ type plexPacket struct {
 	err chan error
 }
 
-// ChannelCloseType is an enum which signals the type of channel closure the
-// peer should execute.
-type ChannelCloseType uint8
-
-const (
-	// CloseRegular indicates a regular cooperative channel closure
-	// should be attempted.
-	CloseRegular ChannelCloseType = iota
-
-	// CloseBreach indicates that a channel breach has been detected, and
-	// the link should immediately be marked as unavailable.
-	CloseBreach
-)
-
 // ChanClose represents a request which close a particular channel specified by
 // its id.
 type ChanClose struct {
 	// CloseType is a variable which signals the type of channel closure the
 	// peer should execute.
-	CloseType ChannelCloseType
+	CloseType contractcourt.ChannelCloseType
 
 	// ChanPoint represent the id of the channel which should be closed.
 	ChanPoint *wire.OutPoint
@@ -1454,7 +1440,8 @@ func (s *Switch) teardownCircuit(pkt *htlcPacket) error {
 // a starting point for close negotiation. The deliveryScript parameter is an
 // optional parameter which sets a user specified script to close out to.
 func (s *Switch) CloseLink(chanPoint *wire.OutPoint,
-	closeType ChannelCloseType, targetFeePerKw chainfee.SatPerKWeight,
+	closeType contractcourt.ChannelCloseType,
+	targetFeePerKw chainfee.SatPerKWeight,
 	deliveryScript lnwire.DeliveryAddress) (chan interface{}, chan error) {
 
 	// TODO(roasbeef) abstract out the close updates.

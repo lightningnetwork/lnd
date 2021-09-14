@@ -84,14 +84,6 @@ type NetworkHarness struct {
 	mtx sync.Mutex
 }
 
-type DatabaseBackend int
-
-const (
-	BackendBbolt DatabaseBackend = iota
-	BackendEtcd
-	BackendPostgres
-)
-
 // NewNetworkHarness creates a new network test harness.
 // TODO(roasbeef): add option to use golang's build library to a binary of the
 // current repo. This will save developers from having to manually `go install`

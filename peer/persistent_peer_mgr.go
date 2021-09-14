@@ -1,13 +1,24 @@
 package peer
 
 import (
+	"crypto/rand"
+	"math/big"
 	"sync"
+	"time"
 
 	"github.com/lightningnetwork/lnd/routing"
 
 	"github.com/lightningnetwork/lnd/lnwire"
 
 	"github.com/btcsuite/btcd/connmgr"
+)
+
+const (
+	// defaultStableConnDuration is a floor under which all reconnection
+	// attempts will apply exponential randomized backoff. Connections
+	// durations exceeding this value will be eligible to have their
+	// backoffs reduced.
+	defaultStableConnDuration = 10 * time.Minute
 )
 
 // PersistentPeerManager manages persistent peers and the active connection
@@ -26,6 +37,9 @@ type PersistentPeerManager struct {
 	// subscribeTopology will be used to listen for updates to a persistent
 	// peer's advertised addresses.
 	subscribeTopology func() (*routing.TopologyClient, error)
+
+	minBackoff time.Duration
+	maxBackoff time.Duration
 
 	wg   sync.WaitGroup
 	quit chan struct{}
@@ -46,6 +60,10 @@ type persistentPeer struct {
 	// perm indicates if we should maintain a connection with a peer even
 	// if we have no channels with the peer.
 	perm bool
+
+	// backoff is the time that we should wait before trying to reconnect
+	// to a peer.
+	backoff time.Duration
 }
 
 // connMgr is what the PersistentPeerManager will use to create and remove
@@ -57,12 +75,14 @@ type connMgr interface {
 
 // NewPersistentPeerManager creates a new PersistentPeerManager instance.
 func NewPersistentPeerManager(manager connMgr,
-	subscribeUpdates func() (*routing.TopologyClient,
-		error)) *PersistentPeerManager {
+	subscribeUpdates func() (*routing.TopologyClient, error), minBackoff,
+	maxBackoff time.Duration) *PersistentPeerManager {
 
 	return &PersistentPeerManager{
 		connMgr:           manager,
 		subscribeTopology: subscribeUpdates,
+		minBackoff:        minBackoff,
+		maxBackoff:        maxBackoff,
 		conns:             make(map[string]*persistentPeer),
 		quit:              make(chan struct{}),
 	}
@@ -217,6 +237,24 @@ func (m *PersistentPeerManager) updatePeerConn(pubKeyStr string,
 	}
 }
 
+// NextPeerBackoff calculates, sets and returns the next backoff duration for
+// a peer.
+func (m *PersistentPeerManager) NextPeerBackoff(pubKeyStr string,
+	startTime time.Time) time.Duration {
+
+	m.connsMu.Lock()
+	defer m.connsMu.Unlock()
+
+	peer, ok := m.conns[pubKeyStr]
+	if !ok {
+		return m.minBackoff
+	}
+
+	backoff := m.nextBackoff(peer.backoff, startTime)
+	peer.backoff = backoff
+	return backoff
+}
+
 // AddPeer adds a new persistent peer for which address updates will be kept
 // track of. The peer can be initialised with an initial set of addresses.
 func (m *PersistentPeerManager) AddPeer(pubKeyStr string,
@@ -230,9 +268,16 @@ func (m *PersistentPeerManager) AddPeer(pubKeyStr string,
 		addrMap[addr.String()] = addr
 	}
 
+	backoff := m.minBackoff
+	peer, ok := m.conns[pubKeyStr]
+	if ok {
+		backoff = peer.backoff
+	}
+
 	m.conns[pubKeyStr] = &persistentPeer{
-		addrs: addrMap,
-		perm:  perm,
+		addrs:   addrMap,
+		perm:    perm,
+		backoff: backoff,
 	}
 }
 
@@ -360,4 +405,76 @@ func (m *PersistentPeerManager) RemovePeerConns(pubKeyStr string,
 	}
 
 	peer.connReqs = nil
+}
+
+// nextBackoff computes the next backoff duration for a peer's pubkey using
+// exponential backoff. If no previous backoff was known, the default is
+// returned.
+func (m *PersistentPeerManager) nextBackoff(backoff time.Duration,
+	startTime time.Time) time.Duration {
+
+	// Now, determine the appropriate backoff to use for the retry.
+	if backoff < m.minBackoff {
+		// If an existing backoff was unknown, use the default.
+		return m.minBackoff
+	}
+
+	// If the peer failed to start properly, we'll just use the previous
+	// backoff to compute the subsequent randomized exponential backoff
+	// duration. This will roughly double on average.
+	if startTime.IsZero() {
+		return computeNextBackoff(backoff, m.maxBackoff)
+	}
+
+	// The peer succeeded in starting. If the connection didn't last long
+	// enough to be considered stable, we'll continue to back off retries
+	// with this peer.
+	connDuration := time.Since(startTime)
+	if connDuration < defaultStableConnDuration {
+		return computeNextBackoff(backoff, m.maxBackoff)
+	}
+
+	// The peer succeed in starting and this was stable peer, so we'll
+	// reduce the timeout duration by the length of the connection after
+	// applying randomized exponential backoff. We'll only apply this in the
+	// case that:
+	//   reb(curBackoff) - connDuration > m.minBackoff
+	relaxedBackoff := computeNextBackoff(backoff, m.maxBackoff) - connDuration
+	if relaxedBackoff > m.minBackoff {
+		return relaxedBackoff
+	}
+
+	// Lastly, if reb(currBackoff) - connDuration <= m.minBackoff, meaning
+	// the stable connection lasted much longer than our previous backoff.
+	// To reward such good behavior, we'll reconnect after the default
+	// timeout.
+	return m.minBackoff
+}
+
+// computeNextBackoff uses a truncated exponential backoff to compute the next
+// backoff using the value of the exiting backoff. The returned duration is
+// randomized in either direction by 1/20 to prevent tight loops from
+// stabilizing.
+func computeNextBackoff(currBackoff, maxBackoff time.Duration) time.Duration {
+	// Double the current backoff, truncating if it exceeds our maximum.
+	nextBackoff := 2 * currBackoff
+	if nextBackoff > maxBackoff {
+		nextBackoff = maxBackoff
+	}
+
+	// Using 1/10 of our duration as a margin, compute a random offset to
+	// avoid the nodes entering connection cycles.
+	margin := nextBackoff / 10
+
+	var wiggle big.Int
+	wiggle.SetUint64(uint64(margin))
+	if _, err := rand.Int(rand.Reader, &wiggle); err != nil { // nolint: gosec
+		// Randomizing is not mission critical, so we'll just return the
+		// current backoff.
+		return nextBackoff
+	}
+
+	// Otherwise add in our wiggle, but subtract out half of the margin so
+	// that the backoff can tweaked by 1/20 in either direction.
+	return nextBackoff + (time.Duration(wiggle.Uint64()) - margin/2)
 }

@@ -125,7 +125,7 @@ func TestPersistentPeerManager(t *testing.T) {
 	}
 
 	// Create and start a new PersistentPeeManager.
-	manager := NewPersistentPeerManager(cm, updates)
+	manager := NewPersistentPeerManager(cm, updates, 0, 0)
 	err = manager.Start()
 	require.NoError(t, err)
 	defer manager.Stop()

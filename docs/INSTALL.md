@@ -93,7 +93,7 @@ version if there are database migrations present.
   * **Go:** `lnd` is written in Go. To install, run one of the following commands:
 
 
-    **Note**: The minimum version of Go supported is Go 1.15. We recommend that
+    **Note**: The minimum version of Go supported is Go 1.16. We recommend that
     users use the latest version of Go, which at the time of writing is
     [`1.16`](https://blog.golang.org/go1.16).
 

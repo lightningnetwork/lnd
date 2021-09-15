@@ -1,6 +1,6 @@
 #### Pull Request Checklist
 
-- [ ] All changes are Go version 1.15 compliant
+- [ ] All changes are Go version 1.16 compliant
 - [ ] Your PR passes all CI checks. If a check cannot be passed for a justifiable reason, that reason must be stated in the commit message and PR description.
 - [ ] If this is your first time contributing, we recommend you read the [Code Contribution Guidelines](https://github.com/lightningnetwork/lnd/blob/master/docs/code_contribution_guidelines.md)
    - [ ] The code being submitted is commented according to [Code Documentation and Commenting](https://github.com/lightningnetwork/lnd/blob/master/docs/code_contribution_guidelines.md#CodeDocumentation)

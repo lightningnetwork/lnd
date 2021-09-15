@@ -285,6 +285,8 @@ mode](https://github.com/lightningnetwork/lnd/pull/5564).
 
 [A bug has been fixed when registering for spend notifications in the `txnotifier`. A re-org notification would previously not be dispatched in certain scenarios.](https://github.com/lightningnetwork/lnd/pull/5465)
 
+[Catches up on blocks in the router](https://github.com/lightningnetwork/lnd/pull/5315) in order to fix an "out of order" error that crops up.
+
 ## Documentation 
 
 The [code contribution guidelines have been updated to mention the new
@@ -292,6 +294,7 @@ requirements surrounding updating the release notes for each new
 change](https://github.com/lightningnetwork/lnd/pull/5613). 
 
 # Contributors (Alphabetical Order)
+* Alyssa Hertig
 * Andras Banki-Horvath
 * de6df1re
 * ErikEk

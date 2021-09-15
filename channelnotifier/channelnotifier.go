@@ -97,6 +97,7 @@ func (c *ChannelNotifier) Start() error {
 func (c *ChannelNotifier) Stop() error {
 	var err error
 	c.stopped.Do(func() {
+		log.Info("ChannelNotifier shutting down")
 		err = c.ntfnServer.Stop()
 	})
 	return err

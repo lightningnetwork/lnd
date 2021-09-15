@@ -292,6 +292,8 @@ mode](https://github.com/lightningnetwork/lnd/pull/5564).
 
 [Catches up on blocks in the router](https://github.com/lightningnetwork/lnd/pull/5315) in order to fix an "out of order" error that crops up.
 
+[Fix healthcheck might be running after the max number of attempts are reached.](https://github.com/lightningnetwork/lnd/pull/5686)
+
 ## Documentation 
 
 The [code contribution guidelines have been updated to mention the new

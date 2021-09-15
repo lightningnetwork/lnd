@@ -467,7 +467,10 @@ func (d *AuthenticatedGossiper) start() error {
 
 // Stop signals any active goroutines for a graceful closure.
 func (d *AuthenticatedGossiper) Stop() error {
-	d.stopped.Do(d.stop)
+	d.stopped.Do(func() {
+		log.Info("Authenticated gossiper shutting down")
+		d.stop()
+	})
 	return nil
 }
 

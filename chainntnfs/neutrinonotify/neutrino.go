@@ -136,6 +136,8 @@ func (n *NeutrinoNotifier) Stop() error {
 		return nil
 	}
 
+	chainntnfs.Log.Info("neutrino notifier shutting down")
+
 	close(n.quit)
 	n.wg.Wait()
 

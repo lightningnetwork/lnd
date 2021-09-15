@@ -513,6 +513,10 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "info",
 			Action: "read",
 		}},
+		"/lnrpc.Lightning/CheckMacaroonPermissions": {{
+			Entity: "macaroon",
+			Action: "read",
+		}},
 		"/lnrpc.Lightning/SubscribePeerEvents": {{
 			Entity: "peers",
 			Action: "read",
@@ -6795,6 +6799,8 @@ func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer
 
 // BakeMacaroon allows the creation of a new macaroon with custom read and write
 // permissions. No first-party caveats are added since this can be done offline.
+// If the --allow-external-permissions flag is set, the RPC will allow
+// external permissions that LND is not aware of.
 func (r *rpcServer) BakeMacaroon(ctx context.Context,
 	req *lnrpc.BakeMacaroonRequest) (*lnrpc.BakeMacaroonResponse, error) {
 
@@ -6817,9 +6823,18 @@ func (r *rpcServer) BakeMacaroon(ctx context.Context,
 	}
 
 	// Validate and map permission struct used by gRPC to the one used by
-	// the bakery.
+	// the bakery. If the --allow-external-permissions flag is set, we
+	// will not validate, but map.
 	requestedPermissions := make([]bakery.Op, len(req.Permissions))
 	for idx, op := range req.Permissions {
+		if req.AllowExternalPermissions {
+			requestedPermissions[idx] = bakery.Op{
+				Entity: op.Entity,
+				Action: op.Action,
+			}
+			continue
+		}
+
 		if !stringInSlice(op.Entity, validEntities) {
 			return nil, fmt.Errorf("invalid permission entity. %s",
 				helpMsg)
@@ -6959,6 +6974,33 @@ func (r *rpcServer) ListPermissions(_ context.Context,
 
 	return &lnrpc.ListPermissionsResponse{
 		MethodPermissions: permissionMap,
+	}, nil
+}
+
+// CheckMacaroonPermissions checks the caveats and permissions of a macaroon.
+func (r *rpcServer) CheckMacaroonPermissions(ctx context.Context,
+	req *lnrpc.CheckMacPermRequest) (*lnrpc.CheckMacPermResponse, error) {
+
+	// Turn grpc macaroon permission into bakery.Op for the server to
+	// process.
+	permissions := make([]bakery.Op, len(req.Permissions))
+	for idx, perm := range req.Permissions {
+		permissions[idx] = bakery.Op{
+			Entity: perm.Entity,
+			Action: perm.Action,
+		}
+	}
+
+	err := r.macService.CheckMacAuth(
+		ctx, hex.EncodeToString(req.Macaroon), permissions,
+		req.FullMethod,
+	)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	return &lnrpc.CheckMacPermResponse{
+		Valid: true,
 	}, nil
 }
 

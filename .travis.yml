@@ -73,7 +73,7 @@ jobs:
     - name: Bitcoind Integration ARM
       script:
         - bash ./scripts/install_bitcoind.sh
-        - GOARM=7 GOARCH=arm GOOS=linux make itest-parallel backend=bitcoind ITEST_PARALLELISM=2
+        - GOARM=7 GOARCH=arm GOOS=linux make itest-parallel backend=bitcoind tranches=2 parallel=2
       arch: arm64
       services:
         - docker
@@ -82,7 +82,7 @@ jobs:
       script:
         # The windows VM seems to be slower than the other Travis VMs. We only
         # run 2 test suites in parallel instead of the default 4.
-        - make itest-parallel windows=1 ITEST_PARALLELISM=2
+        - make itest-parallel windows=1 tranches=2 parallel=2
       os: windows
       before_install:
         - choco upgrade --no-progress -y make netcat curl findutils

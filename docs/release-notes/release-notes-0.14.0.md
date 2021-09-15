@@ -234,6 +234,8 @@ you.
 
 * [Timing fix in AMP itest](https://github.com/lightningnetwork/lnd/pull/5725)
 
+* [Upgraded miekg/dns to improve the security posture](https://github.com/lightningnetwork/lnd/pull/5738)
+
 ## Database
 
 * [Ensure single writer for legacy
@@ -310,6 +312,7 @@ change](https://github.com/lightningnetwork/lnd/pull/5613).
 * Eugene Siegel
 * Harsha Goli
 * Martin Habovstiak
+* Naveen Srinivasan
 * Oliver Gugger
 * Wilmer Paulino
 * xanoni

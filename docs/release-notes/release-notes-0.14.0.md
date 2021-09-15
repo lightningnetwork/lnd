@@ -284,6 +284,8 @@ A bug has been fixed that would cause `lnd` to [try to bootstrap using the
 currnet DNS seeds when in SigNet
 mode](https://github.com/lightningnetwork/lnd/pull/5564).
 
+[Config setting sync-freelist was ignored in certain cases](https://github.com/lightningnetwork/lnd/pull/5527).
+
 [A validation check for sane `CltvLimit` and `FinalCltvDelta` has been added for `REST`-initiated payments.](https://github.com/lightningnetwork/lnd/pull/5591)
 
 [A bug has been fixed with Neutrino's `RegisterConfirmationsNtfn` and `RegisterSpendNtfn` calls that would cause notifications to be missed.](https://github.com/lightningnetwork/lnd/pull/5453)

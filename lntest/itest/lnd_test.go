@@ -50,7 +50,7 @@ var (
 // getTestCaseSplitTranche returns the sub slice of the test cases that should
 // be run as the current split tranche as well as the index and slice offset of
 // the tranche.
-func getTestCaseSplitTranche() ([]*testCase, uint, uint) {
+func getTestCaseSplitTranche() ([]*lntest.TestCase, uint, uint) {
 	numTranches := defaultSplitTranches
 	if testCasesSplitTranches != nil {
 		numTranches = *testCasesSplitTranches
@@ -206,11 +206,11 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		testCase := testCase
 		name := fmt.Sprintf("tranche%02d/%02d-of-%d/%s/%s",
 			trancheIndex, trancheOffset+uint(idx)+1,
-			len(allTestCases), chainBackend.Name(), testCase.name)
+			len(allTestCases), chainBackend.Name(), testCase.Name)
 
 		success := t.Run(name, func(t1 *testing.T) {
 			cleanTestCaseName := strings.ReplaceAll(
-				testCase.name, " ", "_",
+				testCase.Name, " ", "_",
 			)
 
 			err = lndHarness.SetUp(
@@ -220,6 +220,9 @@ func TestLightningNetworkDaemon(t *testing.T) {
 				err, "unable to set up test lightning network",
 			)
 			defer func() {
+				// TODO(yy): since we are tearing down all
+				// active nodes here, there's no need to
+				// shutdown the node inside the tests?
 				require.NoError(t1, lndHarness.TearDown())
 			}()
 
@@ -229,7 +232,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 
 			logLine := fmt.Sprintf(
 				"STARTING ============ %v ============\n",
-				testCase.name,
+				testCase.Name,
 			)
 
 			lndHarness.Alice.AddToLogf(logLine)
@@ -241,7 +244,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 			// Create a separate harness test for the testcase to
 			// avoid overwriting the external harness test that is
 			// tied to the parent test.
-			ht := newHarnessTest(t1, lndHarness)
+			ht := lntest.NewHarnessTest(t1, lndHarness)
 			ht.RunTestCase(testCase)
 		})
 

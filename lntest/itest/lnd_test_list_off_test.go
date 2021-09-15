@@ -3,4 +3,6 @@
 
 package itest
 
-var allTestCases = []*testCase{}
+import "github.com/lightningnetwork/lnd/lntest"
+
+var allTestCases = []*lntest.TestCase{}

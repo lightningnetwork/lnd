@@ -153,6 +153,8 @@ you.
 * [Reduce the number of parallel itest runs to 2 on
   ARM](https://github.com/lightningnetwork/lnd/pull/5731).
 
+* [Fix Travis itest parallelism](https://github.com/lightningnetwork/lnd/pull/5734)
+
 ## Documentation
 
 * [Outdated warning about unsupported pruning was replaced with clarification that LND **does**

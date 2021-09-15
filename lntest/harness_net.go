@@ -139,17 +139,6 @@ func (n *NetworkHarness) ProcessErrors() <-chan error {
 	return n.lndErrorChan
 }
 
-// fakeLogger is a fake grpclog.Logger implementation. This is used to stop
-// grpc's logger from printing directly to stdout.
-type fakeLogger struct{}
-
-func (f *fakeLogger) Fatal(args ...interface{})                 {}
-func (f *fakeLogger) Fatalf(format string, args ...interface{}) {}
-func (f *fakeLogger) Fatalln(args ...interface{})               {}
-func (f *fakeLogger) Print(args ...interface{})                 {}
-func (f *fakeLogger) Printf(format string, args ...interface{}) {}
-func (f *fakeLogger) Println(args ...interface{})               {}
-
 // SetUp starts the initial seeder nodes within the test harness. The initial
 // node's wallets will be funded wallets with ten 1 BTC outputs each. Finally
 // rpc clients capable of communicating with the initial seeder nodes are
@@ -160,7 +149,8 @@ func (n *NetworkHarness) SetUp(t *testing.T,
 
 	// Swap out grpc's default logger with out fake logger which drops the
 	// statements on the floor.
-	grpclog.SetLogger(&fakeLogger{})
+	fakeLogger := grpclog.NewLoggerV2(io.Discard, io.Discard, io.Discard)
+	grpclog.SetLoggerV2(fakeLogger)
 	n.currentTestCase = testCase
 
 	// Start the initial seeder nodes within the test network, then connect

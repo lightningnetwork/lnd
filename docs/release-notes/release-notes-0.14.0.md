@@ -155,6 +155,8 @@ you.
 * [Reduce the number of parallel itest runs to 2 on
   ARM](https://github.com/lightningnetwork/lnd/pull/5731).
 
+* [Upgraded miekg/dns to improve the security posture](https://github.com/lightningnetwork/lnd/pull/5714)
+
 ## Documentation
 
 * [Outdated warning about unsupported pruning was replaced with clarification that LND **does**
@@ -306,6 +308,7 @@ change](https://github.com/lightningnetwork/lnd/pull/5613).
 * Eugene Siegel
 * Harsha Goli
 * Martin Habovstiak
+* Naveen Srinivasan
 * Oliver Gugger
 * Wilmer Paulino
 * xanoni

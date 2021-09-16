@@ -153,4 +153,8 @@ http:
     - selector: lnrpc.Lightning.CheckMacaroonPermissions
       post: "/v1/macaroon/checkpermissions"
       body: "*"
-
+    - selector: lnrpc.Lightning.SendCustomMessage
+      post: "/v1/custommessage"
+      body: "*"
+    - selector: lnrpc.Lightning.SubscribeCustomMessages
+      get: "/v1/custommessage/subscribe"      

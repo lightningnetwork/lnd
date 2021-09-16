@@ -543,6 +543,27 @@ func (h *HarnessTest) SendPayment(hn *HarnessNode,
 	require.NoErrorf(h, err, "%s failed to send payment", hn.Name())
 }
 
+// assertNodeNumChannels polls the provided node's list channels rpc until it
+// reaches the desired number of total channels.
+func (h *HarnessTest) AssertNodeNumChannels(hn *HarnessNode, numChannels int) {
+	err := wait.NoError(func() error {
+		// We require the RPC call to be succeeded and won't wait for
+		// it as it's an unexpected behavior.
+		chanInfo := h.ListChannels(hn)
+
+		// Return true if the query returned the expected number of
+		// channels.
+		num := len(chanInfo.Channels)
+		if num != numChannels {
+			return fmt.Errorf("expected %v channels, got %v",
+				numChannels, num)
+		}
+		return nil
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout checking node's num of channels")
+}
+
 // AssertNumActiveHtlcs asserts that a given number of HTLCs are seen in the
 // node's channels.
 func (h *HarnessTest) AssertNumActiveHtlcs(hn *HarnessNode, num int) {
@@ -651,6 +672,17 @@ func (h *HarnessTest) AssertAllTxesSpendFrom(txes []*wire.MsgTx,
 			require.Failf(h, "", "tx %v did not spend from %v",
 				tx.TxHash(), prevTxid)
 		}
+	}
+}
+
+// AssertTxSpendFrom asserts that a given tx is spent from a previous tx.
+// tx.
+func (h *HarnessTest) AssertTxSpendFrom(tx *wire.MsgTx,
+	prevTxid chainhash.Hash) {
+
+	if tx.TxIn[0].PreviousOutPoint.Hash != prevTxid {
+		require.Failf(h, "", "tx %v did not spend from %v",
+			tx.TxHash(), prevTxid)
 	}
 }
 

@@ -66,3 +66,22 @@ func NewUtxoFromProto(utxo *lnrpc.Utxo) *Utxo {
 		Confirmations: utxo.Confirmations,
 	}
 }
+
+// FailedUpdate displays information about a failed update, including its
+// address, reason and update error.
+type FailedUpdate struct {
+	OutPoint    OutPoint `json:"outpoint"`
+	Reason      string   `json:"reason"`
+	UpdateError string   `json:"update_error"`
+}
+
+// NewFailedUpdateFromProto creates a display from the FailedUpdate
+// proto. This filters out the raw txid bytes from the provided outpoint,
+// which will otherwise be printed in base64.
+func NewFailedUpdateFromProto(update *lnrpc.FailedUpdate) *FailedUpdate {
+	return &FailedUpdate{
+		OutPoint:    NewOutPointFromProto(update.Outpoint),
+		Reason:      update.Reason.String(),
+		UpdateError: update.UpdateError,
+	}
+}

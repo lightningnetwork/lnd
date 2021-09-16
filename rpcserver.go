@@ -6312,12 +6312,15 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 
 	// With the scope resolved, we'll now send this to the local channel
 	// manager so it can propagate the new policy for our target channel(s).
-	err := r.server.localChanMgr.UpdatePolicy(chanPolicy, targetChans...)
+	failedUpdates, err := r.server.localChanMgr.UpdatePolicy(chanPolicy,
+		targetChans...)
 	if err != nil {
 		return nil, err
 	}
 
-	return &lnrpc.PolicyUpdateResponse{}, nil
+	return &lnrpc.PolicyUpdateResponse{
+		FailedUpdates: failedUpdates,
+	}, nil
 }
 
 // ForwardingHistory allows the caller to query the htlcswitch for a record of

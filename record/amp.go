@@ -102,6 +102,10 @@ func (a *AMP) PayloadSize() uint64 {
 
 // String returns a human-readble description of the amp payload fields.
 func (a *AMP) String() string {
+	if a == nil {
+		return "<nil>"
+	}
+
 	return fmt.Sprintf("root_share=%x set_id=%x child_index=%d",
 		a.rootShare, a.setID, a.childIndex)
 }

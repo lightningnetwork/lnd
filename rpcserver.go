@@ -6088,7 +6088,7 @@ func (r *rpcServer) DecodePayReq(ctx context.Context,
 // Nodes on the network advertise their fee rate using this point as a base.
 // This means that the minimal possible fee rate if 1e-6, or 0.000001, or
 // 0.0001%.
-const feeBase = 1000000
+const feeBase float64 = 1000000
 
 // FeeReport allows the caller to obtain a report detailing the current fee
 // schedule enforced by the node globally for each channel.
@@ -6121,7 +6121,7 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 		// 1mil mSAT sent, so will divide by this to get the proper fee
 		// rate.
 		feeRateFixedPoint := edgePolicy.FeeProportionalMillionths
-		feeRate := float64(feeRateFixedPoint) / float64(feeBase)
+		feeRate := float64(feeRateFixedPoint) / feeBase
 
 		// TODO(roasbeef): also add stats for revenue for each channel
 		feeReports = append(feeReports, &lnrpc.ChannelFeeReport{
@@ -6282,7 +6282,9 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	// do this by multiplying the passed fee rate by the fee base. This
 	// gives us the fixed point, scaled by 1 million that's used within the
 	// protocol.
-	feeRateFixed := uint32(req.FeeRate * feeBase)
+	// Because of the inaccurate precision of the IEEE 754 standard, we
+	// need to round the product of feerate and feebase.
+	feeRateFixed := uint32(math.Round(req.FeeRate * feeBase))
 	baseFeeMsat := lnwire.MilliSatoshi(req.BaseFeeMsat)
 	feeSchema := routing.FeeSchema{
 		BaseFee: baseFeeMsat,

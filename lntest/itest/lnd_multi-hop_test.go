@@ -15,57 +15,58 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
+func testMultiHopHtlcClaims(ht *lntest.HarnessTest) {
 	type testCase struct {
 		name string
-		test func(net *lntest.NetworkHarness, t *harnessTest, alice,
-			bob *lntest.HarnessNode, c lnrpc.CommitmentType)
+		test func(ht *lntest.HarnessTest,
+			alice, bob *lntest.HarnessNode, c lnrpc.CommitmentType,
+		)
 	}
 
 	subTests := []testCase{
-		{
-			// bob: outgoing our commit timeout
-			// carol: incoming their commit watch and see timeout
-			name: "local force close immediate expiry",
-			test: testMultiHopHtlcLocalTimeout,
-		},
-		{
-			// bob: outgoing watch and see, they sweep on chain
-			// carol: incoming our commit, know preimage
-			name: "receiver chain claim",
-			test: testMultiHopReceiverChainClaim,
-		},
-		{
-			// bob: outgoing our commit watch and see timeout
-			// carol: incoming their commit watch and see timeout
-			name: "local force close on-chain htlc timeout",
-			test: testMultiHopLocalForceCloseOnChainHtlcTimeout,
-		},
-		{
-			// bob: outgoing their commit watch and see timeout
-			// carol: incoming our commit watch and see timeout
-			name: "remote force close on-chain htlc timeout",
-			test: testMultiHopRemoteForceCloseOnChainHtlcTimeout,
-		},
-		{
-			// bob: outgoing our commit watch and see, they sweep on chain
-			// bob: incoming our commit watch and learn preimage
-			// carol: incoming their commit know preimage
-			name: "local chain claim",
-			test: testMultiHopHtlcLocalChainClaim,
-		},
-		{
-			// bob: outgoing their commit watch and see, they sweep on chain
-			// bob: incoming their commit watch and learn preimage
-			// carol: incoming our commit know preimage
-			name: "remote chain claim",
-			test: testMultiHopHtlcRemoteChainClaim,
-		},
-		{
-			// bob: outgoing and incoming, sweep all on chain
-			name: "local htlc aggregation",
-			test: testMultiHopHtlcAggregation,
-		},
+		// {
+		// 	// bob: outgoing our commit timeout
+		// 	// carol: incoming their commit watch and see timeout
+		// 	name: "local force close immediate expiry",
+		// 	test: testMultiHopHtlcLocalTimeout,
+		// },
+		// {
+		// 	// bob: outgoing watch and see, they sweep on chain
+		// 	// carol: incoming our commit, know preimage
+		// 	name: "receiver chain claim",
+		// 	test: testMultiHopReceiverChainClaim,
+		// },
+		// {
+		// 	// bob: outgoing our commit watch and see timeout
+		// 	// carol: incoming their commit watch and see timeout
+		// 	name: "local force close on-chain htlc timeout",
+		// 	test: testMultiHopLocalForceCloseOnChainHtlcTimeout,
+		// },
+		// {
+		// 	// bob: outgoing their commit watch and see timeout
+		// 	// carol: incoming our commit watch and see timeout
+		// 	name: "remote force close on-chain htlc timeout",
+		// 	test: testMultiHopRemoteForceCloseOnChainHtlcTimeout,
+		// },
+		// {
+		// 	// bob: outgoing our commit watch and see, they sweep on chain
+		// 	// bob: incoming our commit watch and learn preimage
+		// 	// carol: incoming their commit know preimage
+		// 	name: "local chain claim",
+		// 	test: testMultiHopHtlcLocalChainClaim,
+		// },
+		// {
+		// 	// bob: outgoing their commit watch and see, they sweep on chain
+		// 	// bob: incoming their commit watch and learn preimage
+		// 	// carol: incoming our commit know preimage
+		// 	name: "remote chain claim",
+		// 	test: testMultiHopHtlcRemoteChainClaim,
+		// },
+		// {
+		// 	// bob: outgoing and incoming, sweep all on chain
+		// 	name: "local htlc aggregation",
+		// 	test: testMultiHopHtlcAggregation,
+		// },
 	}
 
 	commitTypes := []lnrpc.CommitmentType{
@@ -78,38 +79,31 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 		commitType := commitType
 		testName := fmt.Sprintf("committype=%v", commitType.String())
 
-		success := t.t.Run(testName, func(t *testing.T) {
-			ht := newHarnessTest(t, net)
+		success := ht.Run(testName, func(t *testing.T) {
+			ht := ht.Subtest(t)
 
 			args := nodeArgsForCommitType(commitType)
-			alice := net.NewNode(t, "Alice", args)
-			defer shutdownAndAssert(net, ht, alice)
+			alice := ht.NewNode("Alice", args)
+			defer ht.Shutdown(alice)
 
-			bob := net.NewNode(t, "Bob", args)
-			defer shutdownAndAssert(net, ht, bob)
+			bob := ht.NewNode("Bob", args)
+			defer ht.Shutdown(bob)
 
-			net.ConnectNodes(t, alice, bob)
+			ht.ConnectNodes(alice, bob)
 
 			for _, subTest := range subTests {
 				subTest := subTest
 
-				logLine := fmt.Sprintf(
-					"---- multi-hop htlc subtest "+
-						"%s/%s ----\n",
-					testName, subTest.name,
-				)
-				net.Alice.AddToLogf(logLine)
-
-				success := ht.t.Run(subTest.name, func(t *testing.T) {
-					ht := newHarnessTest(t, net)
+				s := ht.Run(subTest.name, func(t *testing.T) {
+					ht := ht.Subtest(t)
 
 					// Start each test with the default
 					// static fee estimate.
-					net.SetFeeEstimate(12500)
+					ht.SetFeeEstimate(12500)
 
-					subTest.test(net, ht, alice, bob, commitType)
+					subTest.test(ht, alice, bob, commitType)
 				})
-				if !success {
+				if !s {
 					return
 				}
 			}
@@ -203,7 +197,8 @@ func checkPaymentStatus(node *lntest.HarnessNode, preimage lntypes.Preimage,
 	return nil
 }
 
-func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
+// TODO(yy): remove
+func createThreeHopNetworkTemp(t *harnessTest, net *lntest.NetworkHarness,
 	alice, bob *lntest.HarnessNode, carolHodl bool, c lnrpc.CommitmentType) (
 	*lnrpc.ChannelPoint, *lnrpc.ChannelPoint, *lntest.HarnessNode) {
 
@@ -309,4 +304,57 @@ func assertAllTxesSpendFrom(t *harnessTest, txes []*wire.MsgTx,
 				tx.TxHash(), prevTxid)
 		}
 	}
+}
+
+func createThreeHopNetwork(ht *lntest.HarnessTest,
+	alice, bob *lntest.HarnessNode, carolHodl bool,
+	c lnrpc.CommitmentType) (*lnrpc.ChannelPoint,
+	*lnrpc.ChannelPoint, *lntest.HarnessNode) {
+
+	ht.EnsureConnected(alice, bob)
+
+	// Make sure there are enough utxos for anchoring.
+	for i := 0; i < 2; i++ {
+		ht.SendCoins(btcutil.SatoshiPerBitcoin, alice)
+		ht.SendCoins(btcutil.SatoshiPerBitcoin, bob)
+	}
+
+	// We'll start the test by creating a channel between Alice and Bob,
+	// which will act as the first leg for out multi-hop HTLC.
+	const chanAmt = 1000000
+	aliceChanPoint := ht.OpenChannel(
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
+	)
+
+	// Next, we'll create a new node "carol" and have Bob connect to her. If
+	// the carolHodl flag is set, we'll make carol always hold onto the
+	// HTLC, this way it'll force Bob to go to chain to resolve the HTLC.
+	carolFlags := nodeArgsForCommitType(c)
+	if carolHodl {
+		carolFlags = append(carolFlags, "--hodl.exit-settle")
+	}
+	carol := ht.NewNode("Carol", carolFlags)
+
+	ht.ConnectNodes(bob, carol)
+
+	// Make sure Carol has enough utxos for anchoring. Because the anchor by
+	// itself often doesn't meet the dust limit, a utxo from the wallet
+	// needs to be attached as an additional input. This can still lead to a
+	// positively-yielding transaction.
+	for i := 0; i < 2; i++ {
+		ht.SendCoins(btcutil.SatoshiPerBitcoin, carol)
+	}
+
+	// We'll then create a channel from Bob to Carol. After this channel is
+	// open, our topology looks like:  A -> B -> C.
+	bobChanPoint := ht.OpenChannel(
+		bob, carol, lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
+	)
+
+	// Alice should notice this open channel too.
+	ht.AssertChannelOpen(alice, bobChanPoint)
+
+	return aliceChanPoint, bobChanPoint, carol
 }

@@ -6,10 +6,10 @@ package itest
 import "github.com/lightningnetwork/lnd/lntest"
 
 var allTestCases = []*lntest.TestCase{
-	// {
-	// 	Name:     "test multi-hop htlc",
-	// 	TestFunc: testMultiHopHtlcClaims,
-	// },
+	{
+		Name:     "test multi-hop htlc",
+		TestFunc: testMultiHopHtlcClaims,
+	},
 	// {
 	// 	name: "sweep coins",
 	// 	test: testSweepAllCoins,

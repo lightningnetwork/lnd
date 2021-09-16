@@ -29,7 +29,7 @@ func testMultiHopHtlcAggregation(net *lntest.NetworkHarness, t *harnessTest,
 	ctxb := context.Background()
 
 	// First, we'll create a three hop network: Alice -> Bob -> Carol.
-	aliceChanPoint, bobChanPoint, carol := createThreeHopNetwork(
+	aliceChanPoint, bobChanPoint, carol := createThreeHopNetworkTemp(
 		t, net, alice, bob, false, c,
 	)
 	defer shutdownAndAssert(net, t, carol)

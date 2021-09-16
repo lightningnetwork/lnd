@@ -48,7 +48,7 @@ require (
 	github.com/lightningnetwork/lnd/ticker v1.0.0
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/mattn/go-runewidth v0.0.9 // indirect
-	github.com/miekg/dns v1.1.25
+	github.com/miekg/dns v1.1.43
 	github.com/prometheus/client_golang v1.11.0
 	github.com/stretchr/testify v1.7.0
 	github.com/tv42/zbase32 v0.0.0-20160707012821-501572607d02
@@ -56,8 +56,9 @@ require (
 	go.etcd.io/etcd/client/pkg/v3 v3.5.0
 	go.etcd.io/etcd/client/v3 v3.5.0
 	golang.org/x/crypto v0.0.0-20201002170205-7f63de1d35b0
-	golang.org/x/net v0.0.0-20210405180319-a5a99cb37ef4
+	golang.org/x/net v0.0.0-20210913180222-943fd674d43e
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
+	golang.org/x/sys v0.0.0-20210915083310-ed5796bab164 // indirect
 	golang.org/x/time v0.0.0-20210220033141-f8bda1e9f3ba
 	google.golang.org/grpc v1.38.0
 	google.golang.org/protobuf v1.26.0

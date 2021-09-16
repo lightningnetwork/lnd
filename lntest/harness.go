@@ -15,6 +15,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -911,6 +912,126 @@ func (h *HarnessTest) assertPeerConnected(a, b *HarnessNode) {
 	require.NoError(h, err, "unable to connect %s to %s, got error: "+
 		"peers not connected within %v seconds",
 		a.Name(), b.Name(), DefaultTimeout)
+}
+
+// AddHoldInvoice adds a hold invoice for the given node and asserts.
+func (h *HarnessTest) AddHoldInvoice(
+	req *invoicesrpc.AddHoldInvoiceRequest,
+	hn *HarnessNode) *invoicesrpc.AddHoldInvoiceResp {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	invoice, err := hn.rpc.Invoice.AddHoldInvoice(ctxt, req)
+	require.NoError(h, err)
+
+	return invoice
+}
+
+// SuspendNode suspends a running node and assert.
+func (h *HarnessTest) SuspendNode(hn *HarnessNode) func() error {
+	restartFunc, err := h.net.SuspendNode(hn)
+	require.NoError(h, err)
+	return restartFunc
+}
+
+// SettleInvoice settles a given invoice and asserts.
+func (h *HarnessTest) SettleInvoice(hn *HarnessNode,
+	req *invoicesrpc.SettleInvoiceMsg) *invoicesrpc.SettleInvoiceResp {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.Invoice.SettleInvoice(ctxt, req)
+	require.NoError(h, err)
+
+	return resp
+}
+
+// ListInvoices list the node's invoice using the request and asserts.
+func (h *HarnessTest) ListInvoices(hn *HarnessNode,
+	req *lnrpc.ListInvoiceRequest) *lnrpc.ListInvoiceResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := hn.rpc.LN.ListInvoices(ctxt, req)
+	require.NoErrorf(h, err, "list invoice failed")
+
+	return resp
+}
+
+// AssertPaymentStatus asserts that the given node list a payment with the
+// given preimage has the expected status.
+func (h *HarnessTest) AssertPaymentStatus(hn *HarnessNode,
+	preimage lntypes.Preimage, status lnrpc.Payment_PaymentStatus) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.ListPaymentsRequest{
+		IncludeIncomplete: true,
+	}
+	paymentsResp, err := hn.rpc.LN.ListPayments(ctxt, req)
+	require.NoError(h, err, "failed to list payments")
+
+	payHash := preimage.Hash()
+	var found bool
+	for _, p := range paymentsResp.Payments {
+		if p.PaymentHash != payHash.String() {
+			continue
+		}
+
+		require.Equal(h, status, p.Status, "payment status not match")
+
+		found = true
+
+		switch status {
+
+		// If this expected status is SUCCEEDED, we expect the final
+		// preimage.
+		case lnrpc.Payment_SUCCEEDED:
+			require.Equal(h, preimage.String(), p.PaymentPreimage,
+				"preimage not match")
+
+			// Otherwise we expect an all-zero preimage.
+		default:
+			require.Equal(h, (lntypes.Preimage{}).String(),
+				p.PaymentPreimage, "expected zero preimage")
+		}
+
+	}
+
+	require.Truef(h, found, "payment with payment hash %v not found "+
+		"in response", payHash)
+}
+
+// AssertHTLCStage asserts the HTLC is in the expected stage or timeout.
+func (h *HarnessTest) AssertHTLCStage(hn *HarnessNode, stage uint32) {
+	checkStage := func() error {
+		pendingChanResp := h.GetPendingChannels(hn)
+		if len(pendingChanResp.PendingForceClosingChannels) == 0 {
+			return fmt.Errorf("zero pending force closing channels")
+		}
+
+		ch := pendingChanResp.PendingForceClosingChannels[0]
+		if ch.LimboBalance == 0 {
+			return fmt.Errorf("zero balance")
+		}
+
+		if len(ch.PendingHtlcs) != 1 {
+			return fmt.Errorf("got %d pending htlcs, want 1",
+				len(ch.PendingHtlcs))
+		}
+		if stage != ch.PendingHtlcs[0].Stage {
+			return fmt.Errorf("got stage: %v, want stage: %v",
+				ch.PendingHtlcs[0].Stage, stage)
+		}
+
+		return nil
+	}
+
+	require.NoError(h, wait.NoError(checkStage, DefaultTimeout))
 }
 
 // txStr returns the string representation of the channel's funding transaction.

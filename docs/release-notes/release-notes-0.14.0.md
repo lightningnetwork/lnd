@@ -239,6 +239,8 @@ you.
 
 * [Upgraded miekg/dns to improve the security posture](https://github.com/lightningnetwork/lnd/pull/5738)
 
+* [Restricted permissions to GitHub main action](https://github.com/lightningnetwork/lnd/pull/5744)
+
 ## Database
 
 * [Ensure single writer for legacy

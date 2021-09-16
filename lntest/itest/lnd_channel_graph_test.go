@@ -103,53 +103,6 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 		require.NoErrorf(t.t, err, "UpdateChanStatus")
 	}
 
-	// assertEdgeDisabled ensures that a given node has the correct
-	// Disabled state for a channel.
-	assertEdgeDisabled := func(node *lntest.HarnessNode,
-		chanPoint *lnrpc.ChannelPoint, disabled bool) {
-
-		outPoint, err := lntest.MakeOutpoint(chanPoint)
-		require.NoError(t.t, err)
-
-		err = wait.NoError(func() error {
-			req := &lnrpc.ChannelGraphRequest{
-				IncludeUnannounced: true,
-			}
-			ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-			defer cancel()
-
-			chanGraph, err := node.DescribeGraph(ctxt, req)
-			if err != nil {
-				return fmt.Errorf("unable to query node %v's "+
-					"graph: %v", node, err)
-			}
-			numEdges := len(chanGraph.Edges)
-			if numEdges != 1 {
-				return fmt.Errorf("expected to find 1 edge in "+
-					"the graph, found %d", numEdges)
-			}
-			edge := chanGraph.Edges[0]
-			if edge.ChanPoint != outPoint.String() {
-				return fmt.Errorf("expected chan_point %v, "+
-					"got %v", outPoint, edge.ChanPoint)
-			}
-			var policy *lnrpc.RoutingPolicy
-			if node.PubKeyStr == edge.Node1Pub {
-				policy = edge.Node1Policy
-			} else {
-				policy = edge.Node2Policy
-			}
-			if disabled != policy.Disabled {
-				return fmt.Errorf("expected policy.Disabled "+
-					"to be %v, but policy was %v", disabled,
-					policy)
-			}
-
-			return nil
-		}, defaultTimeout)
-		require.NoError(t.t, err)
-	}
-
 	// When updating the state of the channel between Alice and Bob, we
 	// should expect to see channel updates with the default routing
 	// policy. The value of "Disabled" will depend on the specific
@@ -161,10 +114,6 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 		MinHtlc:          1000, // default value
 		MaxHtlcMsat:      calculateMaxHtlc(chanAmt),
 	}
-
-	// Initially, the channel between Alice and Bob should not be
-	// disabled.
-	assertEdgeDisabled(alice, chanPoint, false)
 
 	// Manually disable the channel and ensure that a "Disabled = true"
 	// update is propagated.
@@ -220,7 +169,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	// However, since we manually disabled the channel on Alice's end,
 	// the policy on Alice's end should still be "Disabled = true". Again,
 	// note the asymmetry between manual enable and manual disable!
-	assertEdgeDisabled(alice, chanPoint, true)
+	assertEdgeDisabled(t, alice, chanPoint, false, 1)
 
 	require.NoError(t.t, net.DisconnectNodes(alice, bob))
 
@@ -238,7 +187,7 @@ func testUpdateChanStatus(net *lntest.NetworkHarness, t *harnessTest) {
 	expectedPolicy.Disabled = false
 	assertChannelUpdate(alice, expectedPolicy)
 	assertChannelUpdate(bob, expectedPolicy)
-	assertEdgeDisabled(alice, chanPoint, false)
+	assertEdgeDisabled(t, alice, chanPoint, false, 1)
 }
 
 // testUnannouncedChannels checks unannounced channels are not returned by

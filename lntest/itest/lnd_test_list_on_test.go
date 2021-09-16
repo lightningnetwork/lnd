@@ -144,6 +144,10 @@ var allTestCases = []*testCase{
 		name: "reject onward htlc",
 		test: testRejectHTLC,
 	},
+	{
+		name: "disable channel forwarding",
+		test: testDisableChannelForwarding,
+	},
 	// TODO(roasbeef): multi-path integration test
 	{
 		name: "node announcement",

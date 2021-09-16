@@ -3,6 +3,7 @@ package itest
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"strings"
@@ -1039,6 +1040,166 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(t, net, dave, chanPointDave, false)
 	closeChannelAndAssert(t, net, carol, chanPointCarol, false)
 	closeChannelAndAssert(t, net, carol, chanPointPrivate, false)
+}
+
+// testDisableChannelForwarding tests whether disabling a channel with the
+// UpdateChanStatus RPC renders the channel inoperable for forwarding payments.
+// A disabled channel should not be able to forward funds.
+func testDisableChannelForwarding(net *lntest.NetworkHarness, t *harnessTest) {
+	//  testDisableChannelForwarding
+	//
+	//       ------>     ------>
+	// Alice         Bob         Carol
+	//       <------     <------
+	//
+	// First we will ensure payments route from Alice to Bob to Carol as the
+	// diagram above portrays. Then we will disable the link from Bob to Carol.
+	// After the disabling command, the graph should appear as so:
+	//
+	//       ------>     ---X-->
+	// Alice         Bob         Carol
+	//       <------     <------
+	//
+	// And finally we will attempt a payment from Alice to Bob to Carol, which
+	// should fail between Bob and Carol.
+	const chanAmt = btcutil.Amount(1000000)
+	ctxb := context.Background()
+
+	carol := net.NewNode(t.t, "Carol", nil)
+	defer shutdownAndAssert(net, t, carol)
+
+	// Connect Carol to Bob.
+	net.ConnectNodes(t.t, net.Bob, carol)
+
+	// Open a channel between Alice and Bob.
+	chanPointAlice := openChannelAndAssert(
+		t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
+	)
+
+	// Open a channel between Bob and Carol.
+	chanPointCarol := openChannelAndAssert(
+		t, net, net.Bob, carol,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
+	)
+
+	aliceSub := subscribeGraphNotifications(ctxb, t, net.Alice)
+	defer close(aliceSub.quit)
+
+	// Channel should be ready for payments.
+	const payAmt = 2500
+
+	// Helper closure to generate a random pre image.
+	genPreImage := func() []byte {
+		preimage := make([]byte, 32)
+
+		_, err := rand.Read(preimage)
+		require.NoError(t.t, err, "unable to generate preimage")
+
+		return preimage
+	}
+
+	// Once we disable the channel, we won't be able to simply ask the node
+	// to pay Carol's invoice since disabling a channel updates other nodes
+	// in the network. To get around this, we'll construct our path before
+	// the channel is disabled.
+	routesReq := &lnrpc.QueryRoutesRequest{
+		PubKey:         carol.PubKeyStr,
+		Amt:            payAmt,
+		FinalCltvDelta: 144,
+	}
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	routes, err := net.Alice.QueryRoutes(ctxt, routesReq)
+
+	require.NoError(t.t, err)
+	require.Len(t.t, routes.Routes, 1, "expected to find 1 route")
+
+	sendMPP := func(sender, receiver *lntest.HarnessNode, payAmt int64) {
+		preimage := genPreImage()
+
+		// Create an invoice from Carol and add it to her database
+		receiverInvoice := &lnrpc.Invoice{
+			Memo:      "testing - bob should pay carol",
+			RPreimage: preimage,
+			Value:     payAmt,
+		}
+		resp, err := receiver.AddInvoice(ctxb, receiverInvoice)
+		require.NoError(t.t, err, "unable to add invoice")
+
+		// Multi Path Payments are default now, so we're marking the last hop
+		// with an MPP Record containing carol's address
+		hop := routes.Routes[0].Hops[len(routes.Routes[0].Hops)-1]
+		hop.TlvPayload = true
+		hop.MppRecord = &lnrpc.MPPRecord{
+			PaymentAddr:  resp.PaymentAddr,
+			TotalAmtMsat: payAmt * 1000,
+		}
+
+		// There should be only one valid route, so we'll use the first element
+		// We'll also reuse the same route as before
+		sendReq := &routerrpc.SendToRouteRequest{
+			PaymentHash: resp.RHash,
+			Route:       routes.Routes[0],
+		}
+		_, err = sender.RouterClient.SendToRouteV2(ctxb, sendReq)
+		require.NoError(t.t, err, "failed to send to route")
+	}
+	sendMPP(net.Alice, carol, payAmt)
+	assertAmountSent(payAmt, net.Alice, carol)
+
+	// Disable Bob's link with Carol. The state of this network should be
+	//
+	//       ------>     ---X-->
+	// Alice         Bob         Carol
+	//       <------     <------
+	//
+
+	// When updating the state of the channel between Bob and Carol, we
+	// should expect to see channel updates with the default routing
+	// policy.
+	expectedPolicy := &lnrpc.RoutingPolicy{
+		FeeBaseMsat:      int64(chainreg.DefaultBitcoinBaseFeeMSat),
+		FeeRateMilliMsat: int64(chainreg.DefaultBitcoinFeeRate),
+		TimeLockDelta:    chainreg.DefaultBitcoinTimeLockDelta,
+		MinHtlc:          1000, // default value
+		MaxHtlcMsat:      calculateMaxHtlc(chanAmt),
+		Disabled:         true,
+	}
+
+	// Manually disable the channel
+	req := &routerrpc.UpdateChanStatusRequest{
+		ChanPoint: chanPointCarol,
+		Action:    routerrpc.ChanStatusAction_DISABLE,
+	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+
+	_, err = net.Bob.RouterClient.UpdateChanStatus(ctxt, req)
+	require.NoErrorf(t.t, err,
+		"unable to call UpdateChanStatus for %s's node", net.Bob.Name(),
+	)
+
+	// Ensure that the new policy update is propagated.
+	waitForChannelUpdate(
+		t, aliceSub,
+		[]expectedChanUpdate{
+			{net.Bob.PubKeyStr, expectedPolicy, chanPointCarol},
+		},
+	)
+
+	assertEdgeDisabled(t, net.Bob, chanPointCarol, true, 2)
+
+	sendMPP(net.Alice, carol, payAmt)
+
+	// Ensure the payment failed with the appropriate message
+	assertLastHTLCError(t, net.Alice, lnrpc.Failure_CHANNEL_DISABLED)
+
+	// Close all channels.
+	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, false)
+	closeChannelAndAssert(t, net, carol, chanPointCarol, false)
 }
 
 // testInvoiceRoutingHints tests that the routing hints for an invoice are

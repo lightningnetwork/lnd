@@ -622,6 +622,125 @@ func txStr(chanPoint *lnrpc.ChannelPoint) string {
 	return cp.String()
 }
 
+// waitForChannelUpdate waits for a node to receive the expected channel
+// updates.
+func waitForChannelUpdate(t *harnessTest, subscription graphSubscription,
+	expUpdates []expectedChanUpdate) {
+
+	// Create an array indicating which expected channel updates we have
+	// received.
+	found := make([]bool, len(expUpdates))
+out:
+	for {
+		select {
+		case graphUpdate := <-subscription.updateChan:
+			for _, update := range graphUpdate.ChannelUpdates {
+				// For each expected update, check if it matches
+				// the update we just received.
+				for i, exp := range expUpdates {
+					fundingTxStr := txStr(update.ChanPoint)
+					if fundingTxStr != txStr(exp.chanPoint) {
+						continue
+					}
+
+					if update.AdvertisingNode !=
+						exp.advertisingNode {
+
+						continue
+					}
+
+					err := checkChannelPolicy(
+						update.RoutingPolicy,
+						exp.expectedPolicy,
+					)
+					if err != nil {
+						continue
+					}
+
+					// We got a policy update that matched
+					// the values and channel point of what
+					// we expected, mark it as found.
+					found[i] = true
+
+					// If we have no more channel updates
+					// we are waiting for, break out of the
+					// loop.
+					rem := 0
+					for _, f := range found {
+						if !f {
+							rem++
+						}
+					}
+
+					if rem == 0 {
+						break out
+					}
+
+					// Since we found a match among the
+					// expected updates, break out of the
+					// inner loop.
+					break
+				}
+			}
+		case err := <-subscription.errChan:
+			t.Fatalf("unable to recv graph update: %v", err)
+		case <-time.After(defaultTimeout):
+			if len(expUpdates) == 0 {
+				return
+			}
+			t.Fatalf("did not receive channel update")
+		}
+	}
+
+	checkCount := 0
+	for _, check := range found {
+		if check {
+			checkCount++
+		}
+	}
+
+	if checkCount != len(expUpdates) {
+		t.Fatalf("did not see all channel updates")
+	}
+}
+
+// checkChannelPolicy checks that the policy matches the expected one.
+func checkChannelPolicy(policy, expectedPolicy *lnrpc.RoutingPolicy) error {
+	if policy.FeeBaseMsat != expectedPolicy.FeeBaseMsat {
+		return fmt.Errorf("expected base fee %v, got %v",
+			expectedPolicy.FeeBaseMsat, policy.FeeBaseMsat)
+	}
+	if policy.FeeRateMilliMsat != expectedPolicy.FeeRateMilliMsat {
+		return fmt.Errorf("expected fee rate %v, got %v",
+			expectedPolicy.FeeRateMilliMsat,
+			policy.FeeRateMilliMsat)
+	}
+	if policy.TimeLockDelta != expectedPolicy.TimeLockDelta {
+		return fmt.Errorf("expected time lock delta %v, got %v",
+			expectedPolicy.TimeLockDelta,
+			policy.TimeLockDelta)
+	}
+	if policy.MinHtlc != expectedPolicy.MinHtlc {
+		return fmt.Errorf("expected min htlc %v, got %v",
+			expectedPolicy.MinHtlc, policy.MinHtlc)
+	}
+	if policy.MaxHtlcMsat != expectedPolicy.MaxHtlcMsat {
+		return fmt.Errorf("expected max htlc %v, got %v",
+			expectedPolicy.MaxHtlcMsat, policy.MaxHtlcMsat)
+	}
+	if policy.Disabled != expectedPolicy.Disabled {
+		return errors.New("edge should be disabled but isn't")
+	}
+
+	return nil
+}
+
+type expectedChanUpdate struct {
+	advertisingNode string
+	expectedPolicy  *lnrpc.RoutingPolicy
+	chanPoint       *lnrpc.ChannelPoint
+}
+
 // getChannelPolicies queries the channel graph and retrieves the current edge
 // policies for the provided channel points.
 func getChannelPolicies(t *harnessTest, node *lntest.HarnessNode,

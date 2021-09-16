@@ -32,6 +32,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -1903,4 +1904,37 @@ func addLogFile(hn *HarnessNode) (string, error) {
 	hn.logFile = file
 
 	return fileName, nil
+}
+
+// waitForInvoiceAccepted waits until the specified invoice moved to the
+// specified state by the node or timeout.
+func (hn *HarnessNode) waitForInvoiceState(payHash lntypes.Hash,
+	state lnrpc.Invoice_InvoiceState) error {
+
+	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
+	defer cancel()
+
+	invoiceUpdates, err := hn.rpc.Invoice.SubscribeSingleInvoice(
+		ctxt, &invoicesrpc.SubscribeSingleInvoiceRequest{
+			RHash: payHash[:],
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("subscribe to invoice:%v failed: %w",
+			payHash, err)
+	}
+
+	for {
+		// The update stream will give an error when the context is
+		// timed out.
+		update, err := invoiceUpdates.Recv()
+		if err != nil {
+			return fmt.Errorf("receiving invoice update got "+
+				"error: %w", err)
+		}
+
+		if update.State == state {
+			return nil
+		}
+	}
 }

@@ -25,7 +25,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/grpclog"
@@ -92,7 +91,7 @@ type NetworkHarness struct {
 // NewNetworkHarness creates a new network test harness.
 // TODO(roasbeef): add option to use golang's build library to a binary of the
 // current repo. This will save developers from having to manually `go install`
-// within the repo each time before changes
+// within the repo each time before changes.
 func NewNetworkHarness(m *HarnessMiner, b BackendConfig, lndBinary string,
 	dbBackend DatabaseBackend) (*NetworkHarness, error) {
 
@@ -338,6 +337,7 @@ func (n *NetworkHarness) NewNodeEtcd(name string, etcdCfg *etcd.Config,
 // NewNode fully initializes a returns a new HarnessNode bound to the
 // current instance of the network harness. The created node is running, but
 // not yet connected to other nodes within the network.
+// TODO(yy): remove.
 func (n *NetworkHarness) NewNode(t *testing.T,
 	name string, extraArgs []string, opts ...NodeOption) *HarnessNode {
 
@@ -764,7 +764,7 @@ func (n *NetworkHarness) connectNodes(t *testing.T, a, b *HarnessNode,
 }
 
 // DisconnectNodes disconnects node a from node b by sending RPC message
-// from a node to b node
+// from a node to b node.
 func (n *NetworkHarness) DisconnectNodes(a, b *HarnessNode) error {
 	ctx, cancel := context.WithTimeout(n.runCtx, DefaultTimeout)
 	defer cancel()
@@ -951,44 +951,6 @@ func saveProfilesPage(node *HarnessNode) error {
 			node.NodeID, node.Cfg.Name, err)
 	}
 	return nil
-}
-
-// OpenChannelParams houses the params to specify when opening a new channel.
-type OpenChannelParams struct {
-	// Amt is the local amount being put into the channel.
-	Amt btcutil.Amount
-
-	// PushAmt is the amount that should be pushed to the remote when the
-	// channel is opened.
-	PushAmt btcutil.Amount
-
-	// Private is a boolan indicating whether the opened channel should be
-	// private.
-	Private bool
-
-	// SpendUnconfirmed is a boolean indicating whether we can utilize
-	// unconfirmed outputs to fund the channel.
-	SpendUnconfirmed bool
-
-	// MinHtlc is the htlc_minimum_msat value set when opening the channel.
-	MinHtlc lnwire.MilliSatoshi
-
-	// RemoteMaxHtlcs is the remote_max_htlcs value set when opening the
-	// channel, restricting the number of concurrent HTLCs the remote party
-	// can add to a commitment.
-	RemoteMaxHtlcs uint16
-
-	// FundingShim is an optional funding shim that the caller can specify
-	// in order to modify the channel funding workflow.
-	FundingShim *lnrpc.FundingShim
-
-	// SatPerVByte is the amount of satoshis to spend in chain fees per virtual
-	// byte of the transaction.
-	SatPerVByte btcutil.Amount
-
-	// CommitmentType is the commitment type that should be used for the
-	// channel to be opened.
-	CommitmentType lnrpc.CommitmentType
 }
 
 // OpenChannel attempts to open a channel between srcNode and destNode with the

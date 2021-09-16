@@ -3,6 +3,8 @@ package lntest
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"testing"
@@ -11,7 +13,9 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -516,6 +520,369 @@ func (h *HarnessTest) AssertNumTxsInMempool(n int) []*chainhash.Hash {
 	return mempool
 }
 
+// makeFakePayHash creates random pre image hash
+func (h *HarnessTest) MakeFakePayHash() []byte {
+	randBuf := make([]byte, 32)
+
+	_, err := rand.Read(randBuf)
+	require.NoErrorf(h, err, "internal error, cannot generate random bytes")
+
+	return randBuf
+}
+
+// SendPayment sends a payment using the given node and payment request. It
+// also asserts the payment being sent successfully.
+func (h *HarnessTest) SendPayment(hn *HarnessNode,
+	req *routerrpc.SendPaymentRequest) {
+
+	// SendPayment needs to have the context alive for the entire test case
+	// as the router relies on the context to propagate HTLCs. Thus we use
+	// runCtx here instead of a timeout context.
+	_, err := hn.rpc.Router.SendPaymentV2(h.runCtx, req)
+	require.NoErrorf(h, err, "%s failed to send payment", hn.Name())
+}
+
+// AssertNumActiveHtlcs asserts that a given number of HTLCs are seen in the
+// node's channels.
+func (h *HarnessTest) AssertNumActiveHtlcs(hn *HarnessNode, num int) {
+	err := wait.NoError(func() error {
+		// We require the RPC call to be succeeded and won't wait for
+		// it as it's an unexpected behavior.
+		nodeChans := h.ListChannels(hn)
+
+		total := 0
+		for _, channel := range nodeChans.Channels {
+			total += len(channel.PendingHtlcs)
+		}
+		if total != num {
+			return fmt.Errorf("expected %v HTLCs, got %v",
+				num, total)
+		}
+
+		return nil
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "assert active htlcs timed out")
+}
+
+// AssertActiveHtlcs makes sure all the passed nodes have the _exact_ HTLCs
+// matching payHashes on _all_ their channels.
+func (h *HarnessTest) AssertActiveHtlcs(hn *HarnessNode, payHashes ...[]byte) {
+	checkPayHashesMatch := func() error {
+		// We require the RPC call to be succeeded and won't wait for
+		// it as it's an unexpected behavior.
+		nodeChans := h.ListChannels(hn)
+
+		for _, ch := range nodeChans.Channels {
+			// Record all payment hashes active for this channel.
+			htlcHashes := make(map[string]struct{})
+
+			for _, htlc := range ch.PendingHtlcs {
+				h := hex.EncodeToString(htlc.HashLock)
+				_, ok := htlcHashes[h]
+				if ok {
+					return fmt.Errorf("duplicate HashLock")
+				}
+				htlcHashes[h] = struct{}{}
+			}
+
+			// Channel should have exactly the payHashes active.
+			if len(payHashes) != len(htlcHashes) {
+				return fmt.Errorf("node [%s:%x] had %v "+
+					"htlcs active, expected %v",
+					hn.Name(), hn.PubKey[:],
+					len(htlcHashes), len(payHashes))
+			}
+
+			// Make sure all the payHashes are active.
+			for _, payHash := range payHashes {
+				h := hex.EncodeToString(payHash)
+				if _, ok := htlcHashes[h]; ok {
+					continue
+				}
+				return fmt.Errorf("node [%s:%x] didn't have: "+
+					"the payHash %v active", hn.Name(),
+					hn.PubKey[:], h)
+			}
+		}
+
+		return nil
+	}
+
+	err := wait.NoError(checkPayHashesMatch, DefaultTimeout)
+	require.NoError(h, err)
+}
+
+// OutPointFromChannelPoint creates an outpoint from a given channel point.
+func (h *HarnessTest) OutPointFromChannelPoint(
+	cp *lnrpc.ChannelPoint) wire.OutPoint {
+
+	txid, err := lnrpc.GetChanPointFundingTxid(cp)
+	require.NoError(h, err, "failed to get funding txid")
+
+	return wire.OutPoint{
+		Hash:  *txid,
+		Index: cp.OutputIndex,
+	}
+}
+
+// GetNumTxsFromMempool polls until finding the desired number of transactions
+// in the miner's mempool and returns the full transactions to the caller.
+func (h *HarnessTest) GetNumTxsFromMempool(n int) []*wire.MsgTx {
+	txids := h.AssertNumTxsInMempool(n)
+
+	var txes []*wire.MsgTx
+	for _, txid := range txids {
+		tx, err := h.net.Miner.Client.GetRawTransaction(txid)
+		require.NoErrorf(h, err, "failed to get raw tx: %v", txid)
+		txes = append(txes, tx.MsgTx())
+	}
+	return txes
+}
+
+// assertAllTxesSpendFrom asserts that all txes in the list spend from the
+// given tx.
+func (h *HarnessTest) AssertAllTxesSpendFrom(txes []*wire.MsgTx,
+	prevTxid chainhash.Hash) {
+
+	for _, tx := range txes {
+		if tx.TxIn[0].PreviousOutPoint.Hash != prevTxid {
+			require.Failf(h, "", "tx %v did not spend from %v",
+				tx.TxHash(), prevTxid)
+		}
+	}
+}
+
+// GetPendingChannels makes a RPC request tc PendingChannels and asserts
+// there's no error.
+func (h *HarnessTest) GetPendingChannels(
+	hn *HarnessNode) *lnrpc.PendingChannelsResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
+	pendingChanResp, err := hn.rpc.LN.PendingChannels(
+		ctxt, pendingChansRequest,
+	)
+	require.NoError(h, err, "failed to get pending channels for %s",
+		hn.Name())
+
+	return pendingChanResp
+}
+
+// AssertNumChannelPendingForceClose waits for the node to report a certain
+// number of channels in state pending force close.
+func (h *HarnessTest) AssertNumChannelPendingForceClose(hn *HarnessNode,
+	expectedNum int) {
+
+	err := wait.NoError(func() error {
+		resp := h.GetPendingChannels(hn)
+
+		forceCloseChans := resp.PendingForceClosingChannels
+		if len(forceCloseChans) != expectedNum {
+			return fmt.Errorf("%v should have %d pending "+
+				"force close channels but has %d",
+				hn.Name(), expectedNum,
+				len(forceCloseChans))
+		}
+
+		return nil
+	}, DefaultTimeout)
+	require.NoError(h, err, "assert num pending force close timed out")
+}
+
+// closeChannel attempts to close a channel identified by the passed channel
+// point owned by the passed Lightning node. A fully blocking channel closure
+// is attempted, therefore the passed context should be a child derived via
+// timeout from a base parent. Additionally, once the channel has been detected
+// as closed, an assertion checks that the transaction is found within a block.
+// Finally, this assertion verifies that the node always sends out a disable
+// update when closing the channel if the channel was previously enabled.
+//
+// NOTE: This method assumes that the provided funding point is confirmed
+// on-chain AND that the edge exists in the node's channel graph. If the funding
+// transactions was reorged out at some point, use closeReorgedChannelAndAssert.
+func (h *HarnessTest) CloseChannel(node *HarnessNode,
+	fundingChanPoint *lnrpc.ChannelPoint, force bool) *chainhash.Hash {
+
+	return h.CloseChannelAndAssertType(node, fundingChanPoint, false, force)
+}
+
+func (h *HarnessTest) CloseChannelAndAssertType(node *HarnessNode,
+	fundingChanPoint *lnrpc.ChannelPoint,
+	anchors, force bool) *chainhash.Hash {
+
+	// Fetch the current channel policy. If the channel is currently
+	// enabled, we will register for graph notifications before closing to
+	// assert that the node sends out a disabling update as a result of the
+	// channel being closed.
+	curPolicy := h.getChannelPolicies(
+		node, node.PubKeyStr, fundingChanPoint,
+	)[0]
+	expectDisable := !curPolicy.Disabled
+
+	closeUpdates, _, err := h.net.CloseChannel(
+		node, fundingChanPoint, force,
+	)
+	require.NoError(h, err, "unable to close channel")
+
+	// If the channel policy was enabled prior to the closure, wait until we
+	// received the disabled update.
+	if expectDisable {
+		curPolicy.Disabled = true
+		h.assertChannelPolicyUpdate(
+			node, node.PubKeyStr,
+			curPolicy, fundingChanPoint, false,
+		)
+	}
+
+	return h.assertChannelClosed(
+		node, fundingChanPoint, anchors, closeUpdates,
+	)
+}
+
+// assertChannelPolicyUpdate checks that the required policy update has
+// happened on the given node.
+func (h *HarnessTest) assertChannelPolicyUpdate(node *HarnessNode,
+	advertisingNode string, policy *lnrpc.RoutingPolicy,
+	chanPoint *lnrpc.ChannelPoint, includeUnannounced bool) {
+
+	require.NoError(
+		h, node.WaitForChannelPolicyUpdate(
+			advertisingNode, policy,
+			chanPoint, includeUnannounced,
+		), "error while waiting for channel update",
+	)
+}
+
+// assertChannelClosed asserts that the channel is properly cleaned up after
+// initiating a cooperative or local close.
+func (h *HarnessTest) assertChannelClosed(hn *HarnessNode,
+	fundingChanPoint *lnrpc.ChannelPoint, anchors bool,
+	closeUpdates lnrpc.Lightning_CloseChannelClient) *chainhash.Hash {
+
+	txid, err := lnrpc.GetChanPointFundingTxid(fundingChanPoint)
+	require.NoError(h, err, "unable to get txid")
+	chanPointStr := fmt.Sprintf("%v:%v", txid, fundingChanPoint.OutputIndex)
+
+	// If the channel appears in list channels, ensure that its state
+	// contains ChanStatusCoopBroadcasted.
+	listChansResp := h.ListChannels(hn)
+
+	for _, channel := range listChansResp.Channels {
+		// Skip other channels.
+		if channel.ChannelPoint != chanPointStr {
+			continue
+		}
+
+		// Assert that the channel is in coop broadcasted.
+		require.Contains(
+			h, channel.ChanStatusFlags,
+			channeldb.ChanStatusCoopBroadcasted.String(),
+			"channel not coop broadcasted",
+		)
+	}
+
+	// At this point, the channel should now be marked as being in the
+	// state of "waiting close".
+	pendingChanResp := h.GetPendingChannels(hn)
+
+	var found bool
+	for _, pendingClose := range pendingChanResp.WaitingCloseChannels {
+		if pendingClose.Channel.ChannelPoint == chanPointStr {
+			found = true
+			break
+		}
+	}
+	require.True(h, found, "channel not marked as waiting close")
+
+	// We'll now, generate a single block, wait for the final close status
+	// update, then ensure that the closing transaction was included in the
+	// block. If there are anchors, we also expect an anchor sweep.
+	expectedTxes := 1
+	if anchors {
+		expectedTxes = 2
+	}
+
+	block := h.MineBlocksAndAssertTx(1, expectedTxes)[0]
+
+	closingTxid, err := h.net.WaitForChannelClose(closeUpdates)
+	require.NoError(h, err, "error while waiting for channel close")
+
+	h.AssertTxInBlock(block, closingTxid)
+
+	// Finally, the transaction should no longer be in the waiting close
+	// state as we've just mined a block that should include the closing
+	// transaction.
+	err = wait.NoError(func() error {
+		pendingChanResp := h.GetPendingChannels(hn)
+
+		for _, pending := range pendingChanResp.WaitingCloseChannels {
+			if pending.Channel.ChannelPoint == chanPointStr {
+				return fmt.Errorf("found channel %s still in "+
+					"waiting closing", chanPointStr)
+			}
+		}
+
+		return nil
+	}, DefaultTimeout)
+	require.NoError(
+		h, err, "closing transaction not marked as fully closed",
+	)
+
+	return closingTxid
+}
+
+// getChannelPolicies queries the channel graph and retrieves the current edge
+// policies for the provided channel points.
+func (h *HarnessTest) getChannelPolicies(hn *HarnessNode,
+	advertisingNode string,
+	chanPoints ...*lnrpc.ChannelPoint) []*lnrpc.RoutingPolicy {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	descReq := &lnrpc.ChannelGraphRequest{
+		IncludeUnannounced: true,
+	}
+	chanGraph, err := hn.rpc.LN.DescribeGraph(ctxt, descReq)
+	require.NoError(h, err, "unable to query for alice's graph")
+
+	var policies []*lnrpc.RoutingPolicy
+	err = wait.NoError(func() error {
+	out:
+		for _, chanPoint := range chanPoints {
+			for _, e := range chanGraph.Edges {
+				if e.ChanPoint != txStr(chanPoint) {
+					continue
+				}
+
+				if e.Node1Pub == advertisingNode {
+					policies = append(policies,
+						e.Node1Policy)
+				} else {
+					policies = append(policies,
+						e.Node2Policy)
+				}
+
+				continue out
+			}
+
+			// If we've iterated over all the known edges and we
+			// weren't able to find this specific one, then we'll
+			// fail.
+			return fmt.Errorf("did not find edge %v",
+				txStr(chanPoint))
+		}
+
+		return nil
+	}, DefaultTimeout)
+	require.NoError(h, err)
+
+	return policies
+}
+
 // assertPeerConnected asserts that the given node b is connected to a.
 func (h *HarnessTest) assertPeerConnected(a, b *HarnessNode) {
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
@@ -544,4 +911,17 @@ func (h *HarnessTest) assertPeerConnected(a, b *HarnessNode) {
 	require.NoError(h, err, "unable to connect %s to %s, got error: "+
 		"peers not connected within %v seconds",
 		a.Name(), b.Name(), DefaultTimeout)
+}
+
+// txStr returns the string representation of the channel's funding transaction.
+func txStr(chanPoint *lnrpc.ChannelPoint) string {
+	fundingTxID, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+	if err != nil {
+		return ""
+	}
+	cp := wire.OutPoint{
+		Hash:  *fundingTxID,
+		Index: chanPoint.OutputIndex,
+	}
+	return cp.String()
 }

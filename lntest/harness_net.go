@@ -98,9 +98,11 @@ func NewNetworkHarness(m *HarnessMiner, b BackendConfig, lndBinary string,
 	ctxt, cancel := context.WithCancel(context.Background())
 
 	n := NetworkHarness{
-		activeNodes:  make(map[int]*HarnessNode),
-		nodesByPub:   make(map[string]*HarnessNode),
-		lndErrorChan: make(chan error),
+		activeNodes: make(map[int]*HarnessNode),
+		nodesByPub:  make(map[string]*HarnessNode),
+		// We need to use buffered channel here as we don't want to
+		// block sending errors.
+		lndErrorChan: make(chan error, 10),
 		netParams:    m.ActiveNet,
 		Miner:        m,
 		BackendCfg:   b,

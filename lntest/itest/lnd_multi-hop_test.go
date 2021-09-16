@@ -24,12 +24,12 @@ func testMultiHopHtlcClaims(ht *lntest.HarnessTest) {
 	}
 
 	subTests := []testCase{
-		// {
-		// 	// bob: outgoing our commit timeout
-		// 	// carol: incoming their commit watch and see timeout
-		// 	name: "local force close immediate expiry",
-		// 	test: testMultiHopHtlcLocalTimeout,
-		// },
+		{
+			// bob: outgoing our commit timeout
+			// carol: incoming their commit watch and see timeout
+			name: "local force close immediate expiry",
+			test: testMultiHopHtlcLocalTimeout,
+		},
 		// {
 		// 	// bob: outgoing watch and see, they sweep on chain
 		// 	// carol: incoming our commit, know preimage

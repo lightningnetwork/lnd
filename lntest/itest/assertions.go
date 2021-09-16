@@ -598,7 +598,6 @@ func assertNumConnections(t *harnessTest, alice, bob *lntest.HarnessNode,
 		}
 
 		return nil
-
 	}, defaultTimeout)
 	require.NoError(t.t, err)
 }
@@ -620,7 +619,7 @@ func shutdownAndAssert(net *lntest.NetworkHarness, t *harnessTest,
 // returned response matches the expected.
 func assertChannelBalanceResp(t *harnessTest,
 	node *lntest.HarnessNode,
-	expected *lnrpc.ChannelBalanceResponse) { // nolint:interfacer
+	expected *lnrpc.ChannelBalanceResponse) {
 
 	resp := getChannelBalance(t, node)
 	require.True(t.t, proto.Equal(expected, resp), "balance is incorrect")

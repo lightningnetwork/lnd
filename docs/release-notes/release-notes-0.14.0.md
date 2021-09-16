@@ -160,6 +160,8 @@ you.
 
 * [Fix Travis itest parallelism](https://github.com/lightningnetwork/lnd/pull/5734)
 
+* [Removed the deprecated interfacer linter](https://github.com/lightningnetwork/lnd/pull/5747)
+
 ## Documentation
 
 * [Outdated warning about unsupported pruning was replaced with clarification that LND **does**

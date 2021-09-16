@@ -105,5 +105,9 @@ func (r *MPP) PayloadSize() uint64 {
 
 // String returns a human-readable representation of the mpp payload field.
 func (r *MPP) String() string {
+	if r == nil {
+		return "<nil>"
+	}
+
 	return fmt.Sprintf("total=%v, addr=%x", r.totalMsat, r.paymentAddr)
 }

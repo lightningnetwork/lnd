@@ -287,19 +287,31 @@ you.
 
 ## Bug Fixes
 
-A bug has been fixed that would cause `lnd` to [try to bootstrap using the
-currnet DNS seeds when in SigNet
-mode](https://github.com/lightningnetwork/lnd/pull/5564).
+* A bug has been fixed that would cause `lnd` to [try to bootstrap using the
+  currnet DNS seeds when in SigNet
+  mode](https://github.com/lightningnetwork/lnd/pull/5564).
 
-[A validation check for sane `CltvLimit` and `FinalCltvDelta` has been added for `REST`-initiated payments.](https://github.com/lightningnetwork/lnd/pull/5591)
+* [A validation check for sane `CltvLimit` and `FinalCltvDelta` has been added
+  for `REST`-initiated
+  payments](https://github.com/lightningnetwork/lnd/pull/5591).
 
-[A bug has been fixed with Neutrino's `RegisterConfirmationsNtfn` and `RegisterSpendNtfn` calls that would cause notifications to be missed.](https://github.com/lightningnetwork/lnd/pull/5453)
+* [A bug has been fixed with Neutrino's `RegisterConfirmationsNtfn` and
+  `RegisterSpendNtfn` calls that would cause notifications to be
+  missed](https://github.com/lightningnetwork/lnd/pull/5453).
 
-[A bug has been fixed when registering for spend notifications in the `txnotifier`. A re-org notification would previously not be dispatched in certain scenarios.](https://github.com/lightningnetwork/lnd/pull/5465)
+* [A bug has been fixed when registering for spend notifications in the 
+  `txnotifier`. A re-org notification would previously not be dispatched in
+  certain scenarios](https://github.com/lightningnetwork/lnd/pull/5465).
 
-[Catches up on blocks in the router](https://github.com/lightningnetwork/lnd/pull/5315) in order to fix an "out of order" error that crops up.
+* [Catches up on blocks in the
+  router](https://github.com/lightningnetwork/lnd/pull/5315) in order to fix an
+  "out of order" error that crops up.
 
-[Fix healthcheck might be running after the max number of attempts are reached.](https://github.com/lightningnetwork/lnd/pull/5686)
+* [Fix healthcheck might be running after the max number of attempts are
+  reached](https://github.com/lightningnetwork/lnd/pull/5686).
+
+* [Fix crash with empty AMP or MPP record in
+  invoice](https://github.com/lightningnetwork/lnd/pull/5743).
 
 ## Documentation 
 

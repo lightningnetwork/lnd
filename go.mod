@@ -43,7 +43,7 @@ require (
 	github.com/lightningnetwork/lnd/cert v1.0.3
 	github.com/lightningnetwork/lnd/clock v1.0.1
 	github.com/lightningnetwork/lnd/healthcheck v1.0.2
-	github.com/lightningnetwork/lnd/kvdb v1.0.1
+	github.com/lightningnetwork/lnd/kvdb v1.0.2
 	github.com/lightningnetwork/lnd/queue v1.0.4
 	github.com/lightningnetwork/lnd/ticker v1.0.0
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796

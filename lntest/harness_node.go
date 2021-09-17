@@ -1909,7 +1909,7 @@ func addLogFile(hn *HarnessNode) (string, error) {
 // waitForInvoiceAccepted waits until the specified invoice moved to the
 // specified state by the node or timeout.
 func (hn *HarnessNode) waitForInvoiceState(payHash lntypes.Hash,
-	state lnrpc.Invoice_InvoiceState) error {
+	state lnrpc.Invoice_InvoiceState) (*lnrpc.Invoice, error) {
 
 	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
 	defer cancel()
@@ -1920,7 +1920,7 @@ func (hn *HarnessNode) waitForInvoiceState(payHash lntypes.Hash,
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("subscribe to invoice:%v failed: %w",
+		return nil, fmt.Errorf("subscribe to invoice:%v failed: %w",
 			payHash, err)
 	}
 
@@ -1929,12 +1929,12 @@ func (hn *HarnessNode) waitForInvoiceState(payHash lntypes.Hash,
 		// timed out.
 		update, err := invoiceUpdates.Recv()
 		if err != nil {
-			return fmt.Errorf("receiving invoice update got "+
+			return nil, fmt.Errorf("receiving invoice update got "+
 				"error: %w", err)
 		}
 
 		if update.State == state {
-			return nil
+			return update, nil
 		}
 	}
 }

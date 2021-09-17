@@ -372,13 +372,15 @@ func (h *HarnessTest) AssertChannelExists(hn *HarnessNode,
 }
 
 // AssertInvoiceState asserts that a given invoice has became the desired
-// state before timeout.
+// state before timeout and returns the invoice found.
 func (h *HarnessTest) AssertInvoiceState(hn *HarnessNode, payHash lntypes.Hash,
-	state lnrpc.Invoice_InvoiceState) {
+	state lnrpc.Invoice_InvoiceState) *lnrpc.Invoice {
 
-	require.NoError(h, hn.waitForInvoiceState(payHash, state), "%s "+
-		"failed to wait invoice:%v to be state: %v", hn.Name(),
-		payHash, state)
+	invoice, err := hn.waitForInvoiceState(payHash, state)
+	require.NoError(h, err, "%s failed to wait invoice:%v to be state: %v",
+		hn.Name(), payHash, state)
+
+	return invoice
 }
 
 // ListChannels list the channels for the given node and asserts it's
@@ -531,16 +533,48 @@ func (h *HarnessTest) MakeFakePayHash() []byte {
 	return randBuf
 }
 
+type PaymentClient routerrpc.Router_SendPaymentV2Client
+
 // SendPayment sends a payment using the given node and payment request. It
 // also asserts the payment being sent successfully.
 func (h *HarnessTest) SendPayment(hn *HarnessNode,
-	req *routerrpc.SendPaymentRequest) {
+	req *routerrpc.SendPaymentRequest) PaymentClient {
 
 	// SendPayment needs to have the context alive for the entire test case
 	// as the router relies on the context to propagate HTLCs. Thus we use
 	// runCtx here instead of a timeout context.
-	_, err := hn.rpc.Router.SendPaymentV2(h.runCtx, req)
+	stream, err := hn.rpc.Router.SendPaymentV2(h.runCtx, req)
 	require.NoErrorf(h, err, "%s failed to send payment", hn.Name())
+	return stream
+}
+
+// AssertPaymentStatusFromStream takes a client stream and asserts the payment
+// is in desired status before timeout. The payment found is returned once
+// succeeded.
+func (h *HarnessTest) AssertPaymentStatusFromStream(stream PaymentClient,
+	status lnrpc.Payment_PaymentStatus) *lnrpc.Payment {
+
+	var (
+		payment *lnrpc.Payment
+		err     error
+	)
+
+	checkStatus := func() error {
+		payment, err = stream.Recv()
+		if err != nil {
+			return fmt.Errorf("payment stream got: %w", err)
+		}
+
+		if payment.Status == status {
+			return nil
+		}
+
+		return fmt.Errorf("payment status, got %v, want %v",
+			payment.Status, status)
+	}
+	require.NoError(h, wait.NoError(checkStatus, DefaultTimeout))
+
+	return payment
 }
 
 // assertNodeNumChannels polls the provided node's list channels rpc until it
@@ -694,14 +728,32 @@ func (h *HarnessTest) GetPendingChannels(
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
 
-	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
-	pendingChanResp, err := hn.rpc.LN.PendingChannels(
-		ctxt, pendingChansRequest,
+	var (
+		resp *lnrpc.PendingChannelsResponse
+		err  error
 	)
-	require.NoError(h, err, "failed to get pending channels for %s",
+
+	waitErr := wait.NoError(func() error {
+		pendingChansRequest := &lnrpc.PendingChannelsRequest{}
+		resp, err = hn.rpc.LN.PendingChannels(
+			ctxt, pendingChansRequest,
+		)
+
+		// TODO(yy): the RPC call should not return an error. If an
+		// error is returned, it indicates there's something wrong
+		// regarding how we prepare the channel info. This could happen
+		// when the channel happens to be transitioning states. We log
+		// it here, but this needs to be fixed in the RPC server.
+		if err != nil {
+			h.Logf("%s PendingChannels got err: %v", hn.Name(), err)
+		}
+		return err
+	}, DefaultTimeout)
+
+	require.NoError(h, waitErr, "failed to get pending channels for %s",
 		hn.Name())
 
-	return pendingChanResp
+	return resp
 }
 
 // AssertNumChannelPendingForceClose waits for the node to report a certain
@@ -960,6 +1012,19 @@ func (h *HarnessTest) AddHoldInvoice(
 	return invoice
 }
 
+// AddInvoice adds a invoice for the given node and asserts.
+func (h *HarnessTest) AddInvoice(req *lnrpc.Invoice,
+	hn *HarnessNode) *lnrpc.AddInvoiceResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	invoice, err := hn.rpc.LN.AddInvoice(ctxt, req)
+	require.NoError(h, err)
+
+	return invoice
+}
+
 // SuspendNode suspends a running node and assert.
 func (h *HarnessTest) SuspendNode(hn *HarnessNode) func() error {
 	restartFunc, err := h.net.SuspendNode(hn)
@@ -1063,7 +1128,8 @@ func (h *HarnessTest) AssertHTLCStage(hn *HarnessNode, stage uint32) {
 		return nil
 	}
 
-	require.NoError(h, wait.NoError(checkStage, DefaultTimeout))
+	require.NoErrorf(h, wait.NoError(checkStage, DefaultTimeout),
+		"timeout waiting for htlc stage")
 }
 
 // txStr returns the string representation of the channel's funding transaction.

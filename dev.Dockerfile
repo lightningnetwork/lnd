@@ -4,7 +4,13 @@
 # /make/builder.Dockerfile
 # /.github/workflows/main.yml
 # /.github/workflows/release.yml
-FROM golang:1.16.3-alpine as builder
+# using the SHA256 instead of tags
+# https://github.com/opencontainers/image-spec/blob/main/descriptor.md#digests
+# https://cloud.google.com/architecture/using-container-images
+# https://github.com/google/go-containerregistry/blob/main/cmd/crane/README.md
+#crane digest golang:1.16.3-alpine
+# sha256:49c07aa83790aca732250c2258b5912659df31b6bfa2ab428661bc66833769e1
+FROM golang@sha256:49c07aa83790aca732250c2258b5912659df31b6bfa2ab428661bc66833769e1 as builder
 
 LABEL maintainer="Olaoluwa Osuntokun <laolu@lightning.engineering>"
 

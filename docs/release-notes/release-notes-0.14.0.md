@@ -163,7 +163,7 @@ you.
 ## Documentation
 
 * [Outdated warning about unsupported pruning was replaced with clarification that LND **does**
-  support pruning](https://github.com/lightningnetwork/lnd/pull/5553)
+  support pruning](https://github.com/lightningnetwork/lnd/pull/5553).
 
 * [Clarified 'ErrReservedValueInvalidated' error string](https://github.com/lightningnetwork/lnd/pull/5577)
    to explain that the error is triggered by a transaction that would deplete
@@ -220,24 +220,26 @@ you.
 
 * [Missing dots in cmd interface](https://github.com/lightningnetwork/lnd/pull/5535).
 
-* [Link channel point logging](https://github.com/lightningnetwork/lnd/pull/5508)
+* [Link channel point logging](https://github.com/lightningnetwork/lnd/pull/5508).
 
-* [Canceling the chain notifier no longer logs certain errors](https://github.com/lightningnetwork/lnd/pull/5676)
+* [Canceling the chain notifier no longer logs certain errors](https://github.com/lightningnetwork/lnd/pull/5676).
 
 * [Fixed context leak in integration tests, and properly handled context
   timeout](https://github.com/lightningnetwork/lnd/pull/5646).
 
-* [Removed nested db tx](https://github.com/lightningnetwork/lnd/pull/5643)
+* [Removed nested db tx](https://github.com/lightningnetwork/lnd/pull/5643).
 
-* [Fixed wallet recovery itests on Travis ARM](https://github.com/lightningnetwork/lnd/pull/5688)
+* [Fixed wallet recovery itests on Travis ARM](https://github.com/lightningnetwork/lnd/pull/5688).
 
-* [Integration tests save embedded etcd logs to help debugging flakes](https://github.com/lightningnetwork/lnd/pull/5702)
+* [Integration tests save embedded etcd logs to help debugging flakes](https://github.com/lightningnetwork/lnd/pull/5702).
 
 * [Fixed restore backup file test flake with bitcoind](https://github.com/lightningnetwork/lnd/pull/5637).
 
-* [Timing fix in AMP itest](https://github.com/lightningnetwork/lnd/pull/5725)
+* [Timing fix in AMP itest](https://github.com/lightningnetwork/lnd/pull/5725).
 
-* [Upgraded miekg/dns to improve the security posture](https://github.com/lightningnetwork/lnd/pull/5738)
+* [Upgraded miekg/dns to improve the security posture](https://github.com/lightningnetwork/lnd/pull/5738).
+
+* [server.go: dedupe pubkey output in debug/log msgs](https://github.com/lightningnetwork/lnd/pull/5722).
 
 * [Fixed flakes caused by graph topology subcription](https://github.com/lightningnetwork/lnd/pull/5611).
 

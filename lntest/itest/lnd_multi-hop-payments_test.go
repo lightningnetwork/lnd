@@ -384,3 +384,42 @@ func assertEventAndType(t *harnessTest, eventType routerrpc.HtlcEvent_EventType,
 
 	return event
 }
+
+// updateChannelPolicy updates the channel policy of node to the
+// given fees and timelock delta. This function blocks until
+// listenerNode has received the policy update.
+func updateChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
+	chanPoint *lnrpc.ChannelPoint, baseFee int64, feeRate int64,
+	timeLockDelta uint32, maxHtlc uint64, listenerNode *lntest.HarnessNode) {
+
+	ctxb := context.Background()
+
+	expectedPolicy := &lnrpc.RoutingPolicy{
+		FeeBaseMsat:      baseFee,
+		FeeRateMilliMsat: feeRate,
+		TimeLockDelta:    timeLockDelta,
+		MinHtlc:          1000, // default value
+		MaxHtlcMsat:      maxHtlc,
+	}
+
+	updateFeeReq := &lnrpc.PolicyUpdateRequest{
+		BaseFeeMsat:   baseFee,
+		FeeRate:       float64(feeRate) / testFeeBase,
+		TimeLockDelta: timeLockDelta,
+		Scope: &lnrpc.PolicyUpdateRequest_ChanPoint{
+			ChanPoint: chanPoint,
+		},
+		MaxHtlcMsat: maxHtlc,
+	}
+
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	if _, err := node.UpdateChannelPolicy(ctxt, updateFeeReq); err != nil {
+		t.Fatalf("unable to update chan policy: %v", err)
+	}
+
+	// Wait for listener node to receive the channel update from node.
+	assertChannelPolicyUpdate(
+		t.t, listenerNode, node.PubKeyStr,
+		expectedPolicy, chanPoint, false,
+	)
+}

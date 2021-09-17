@@ -1263,56 +1263,52 @@ func (n *NetworkHarness) CloseChannel(lnNode *HarnessNode,
 		}
 	}
 
-	closeReq := &lnrpc.CloseChannelRequest{
-		ChannelPoint: cp,
-		Force:        force,
-	}
-	closeRespStream, err := lnNode.CloseChannel(ctx, closeReq)
-	if err != nil {
-		return nil, nil, fmt.Errorf("unable to close channel: %v", err)
-	}
+	var (
+		closeRespStream lnrpc.Lightning_CloseChannelClient
+		closeTxid       *chainhash.Hash
+	)
 
-	errChan := make(chan error)
-	fin := make(chan *chainhash.Hash)
-	go func() {
-		// Consume the "channel close" update in order to wait for the closing
-		// transaction to be broadcast, then wait for the closing tx to be seen
-		// within the network.
+	err = wait.NoError(func() error {
+		closeReq := &lnrpc.CloseChannelRequest{
+			ChannelPoint: cp, Force: force,
+		}
+		closeRespStream, err = lnNode.CloseChannel(ctx, closeReq)
+		if err != nil {
+			return fmt.Errorf("unable to close channel: %v", err)
+		}
+
+		// Consume the "channel close" update in order to wait for the
+		// closing transaction to be broadcast, then wait for the
+		// closing tx to be seen within the network.
 		closeResp, err := closeRespStream.Recv()
 		if err != nil {
-			errChan <- fmt.Errorf("unable to recv() from close "+
+			return fmt.Errorf("unable to recv() from close "+
 				"stream: %v", err)
-			return
 		}
 		pendingClose, ok := closeResp.Update.(*lnrpc.CloseStatusUpdate_ClosePending)
 		if !ok {
-			errChan <- fmt.Errorf("expected channel close update, "+
+			return fmt.Errorf("expected channel close update, "+
 				"instead got %v", pendingClose)
-			return
 		}
 
-		closeTxid, err := chainhash.NewHash(pendingClose.ClosePending.Txid)
+		closeTxid, err = chainhash.NewHash(
+			pendingClose.ClosePending.Txid,
+		)
 		if err != nil {
-			errChan <- fmt.Errorf("unable to decode closeTxid: "+
+			return fmt.Errorf("unable to decode closeTxid: "+
 				"%v", err)
-			return
 		}
 		if err := n.waitForTxInMempool(ctx, *closeTxid); err != nil {
-			errChan <- fmt.Errorf("error while waiting for "+
+			return fmt.Errorf("error while waiting for "+
 				"broadcast tx: %v", err)
-			return
 		}
-		fin <- closeTxid
-	}()
-
-	// Wait until either the deadline for the context expires, an error
-	// occurs, or the channel close update is received.
-	select {
-	case err := <-errChan:
+		return nil
+	}, ChannelCloseTimeout)
+	if err != nil {
 		return nil, nil, err
-	case closeTxid := <-fin:
-		return closeRespStream, closeTxid, nil
 	}
+
+	return closeRespStream, closeTxid, nil
 }
 
 // WaitForChannelClose waits for a notification from the passed channel close

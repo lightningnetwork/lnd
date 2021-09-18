@@ -403,9 +403,7 @@ func middlewareMandatoryTest(t *testing.T, node *lntest.HarnessNode,
 	// test case. So we need to do the wait and client setup manually here.
 	conn, err := node.ConnectRPC(true)
 	require.NoError(t, err)
-	err = node.WaitUntilStateReached(
-		conn, defaultTimeout, lnrpc.WalletState_RPC_ACTIVE,
-	)
+	err = node.WaitUntilStateReached(lnrpc.WalletState_RPC_ACTIVE)
 	require.NoError(t, err)
 	node.LightningClient = lnrpc.NewLightningClient(conn)
 

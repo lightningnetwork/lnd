@@ -789,6 +789,10 @@ func (hn *HarnessNode) WaitUntilLeader(timeout time.Duration) error {
 	// Init all the RPC clients.
 	hn.initRPCClients(conn)
 
+	if err := hn.WaitUntilStarted(); err != nil {
+		return err
+	}
+
 	// If the node was created with a seed, we will need to perform an
 	// additional step to unlock the wallet. The connection returned will
 	// only use the TLS certs, and can only perform operations necessary to
@@ -804,18 +808,37 @@ func (hn *HarnessNode) WaitUntilLeader(timeout time.Duration) error {
 }
 
 // initClientWhenReady waits until the main gRPC server is detected as active,
-// then complete the normal HarnessNode gRPC connection creation. This can be
-// used it a node has just been unlocked, or has its wallet state initialized.
-func (hn *HarnessNode) initClientWhenReady(timeout time.Duration) error {
+// then complete the normal HarnessNode gRPC connection creation. If the node
+// is initialized stateless, the macaroon is returned so that the client can
+// use it.
+func (hn *HarnessNode) initClientWhenReady(stateless bool,
+	macBytes []byte) error {
+
+	// Wait for the wallet to finish unlocking, such that we can connect to
+	// it via a macaroon-authenticated rpc connection.
 	var (
-		conn    *grpc.ClientConn
-		connErr error
+		conn *grpc.ClientConn
+		err  error
 	)
-	if err := wait.NoError(func() error {
-		conn, connErr = hn.ConnectRPC(true)
-		return connErr
-	}, timeout); err != nil {
+	if err = wait.NoError(func() error {
+		// If the node has been initialized stateless, we need to pass
+		// the macaroon to the client.
+		if stateless {
+			adminMac := &macaroon.Macaroon{}
+			err := adminMac.UnmarshalBinary(macBytes)
+			if err != nil {
+				return fmt.Errorf("unmarshal failed: %w", err)
+			}
+			conn, err = hn.ConnectRPCWithMacaroon(adminMac)
+			return err
+		}
+
+		// Normal initialization, we expect a macaroon to be in the
+		// file system.
+		conn, err = hn.ConnectRPC(true)
 		return err
+	}, DefaultTimeout); err != nil {
+		return fmt.Errorf("timeout while init client: %w", err)
 	}
 
 	// Init all the RPC clients.
@@ -834,39 +857,20 @@ func (hn *HarnessNode) Init(
 
 	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
 	defer cancel()
-	response, err := hn.InitWallet(ctxt, initReq)
+
+	response, err := hn.rpc.WalletUnlocker.InitWallet(ctxt, initReq)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to init wallet: %w", err)
 	}
 
-	// Wait for the wallet to finish unlocking, such that we can connect to
-	// it via a macaroon-authenticated rpc connection.
-	var conn *grpc.ClientConn
-	if err = wait.Predicate(func() bool {
-		// If the node has been initialized stateless, we need to pass
-		// the macaroon to the client.
-		if initReq.StatelessInit {
-			adminMac := &macaroon.Macaroon{}
-			err := adminMac.UnmarshalBinary(response.AdminMacaroon)
-			if err != nil {
-				return false
-			}
-			conn, err = hn.ConnectRPCWithMacaroon(adminMac)
-			return err == nil
-		}
-
-		// Normal initialization, we expect a macaroon to be in the
-		// file system.
-		conn, err = hn.ConnectRPC(true)
-		return err == nil
-	}, DefaultTimeout); err != nil {
-		return nil, err
+	err = hn.initClientWhenReady(
+		initReq.StatelessInit, response.AdminMacaroon,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("faied to init: %w", err)
 	}
 
-	// Init all the RPC clients.
-	hn.initRPCClients(conn)
-
-	return response, hn.initLightningClient()
+	return response, nil
 }
 
 // InitChangePassword initializes a harness node by passing the change password
@@ -880,39 +884,19 @@ func (hn *HarnessNode) InitChangePassword(
 
 	ctxt, cancel := context.WithTimeout(hn.runCtx, DefaultTimeout)
 	defer cancel()
-	response, err := hn.ChangePassword(ctxt, chngPwReq)
+
+	response, err := hn.rpc.WalletUnlocker.ChangePassword(ctxt, chngPwReq)
+	if err != nil {
+		return nil, err
+	}
+	err = hn.initClientWhenReady(
+		chngPwReq.StatelessInit, response.AdminMacaroon,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	// Wait for the wallet to finish unlocking, such that we can connect to
-	// it via a macaroon-authenticated rpc connection.
-	var conn *grpc.ClientConn
-	if err = wait.Predicate(func() bool {
-		// If the node has been initialized stateless, we need to pass
-		// the macaroon to the client.
-		if chngPwReq.StatelessInit {
-			adminMac := &macaroon.Macaroon{}
-			err := adminMac.UnmarshalBinary(response.AdminMacaroon)
-			if err != nil {
-				return false
-			}
-			conn, err = hn.ConnectRPCWithMacaroon(adminMac)
-			return err == nil
-		}
-
-		// Normal initialization, we expect a macaroon to be in the
-		// file system.
-		conn, err = hn.ConnectRPC(true)
-		return err == nil
-	}, DefaultTimeout); err != nil {
-		return nil, err
-	}
-
-	// Init all the RPC clients.
-	hn.initRPCClients(conn)
-
-	return response, hn.initLightningClient()
+	return response, nil
 }
 
 // Unlock attempts to unlock the wallet of the target HarnessNode. This method
@@ -932,7 +916,7 @@ func (hn *HarnessNode) Unlock(unlockReq *lnrpc.UnlockWalletRequest) error {
 
 	// Now that the wallet has been unlocked, we'll wait for the RPC client
 	// to be ready, then establish the normal gRPC connection.
-	return hn.initClientWhenReady(DefaultTimeout)
+	return hn.initClientWhenReady(false, nil)
 }
 
 // waitTillServerState makes a subscription to the server's state change and
@@ -1081,7 +1065,8 @@ func (hn *HarnessNode) ReadMacaroon(macPath string, timeout time.Duration) (
 	err := wait.NoError(func() error {
 		macBytes, err := ioutil.ReadFile(macPath)
 		if err != nil {
-			return fmt.Errorf("error reading macaroon file: %v", err)
+			return fmt.Errorf("error reading macaroon file: %v",
+				err)
 		}
 
 		newMac := &macaroon.Macaroon{}
@@ -1345,6 +1330,7 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 	go func() {
 		defer hn.wg.Done()
 		err := hn.receiveTopologyClientStream(graphUpdates)
+
 		if err != nil {
 			hn.PrintErr("receive topology client stream "+
 				"got err:%v", err)
@@ -1504,8 +1490,8 @@ func (hn *HarnessNode) WaitForChannelPolicyUpdate(
 	}
 }
 
-// WaitForBlockchainSync waits for the target node to be fully synchronized with
-// the blockchain. If the passed context object has a set timeout, it will
+// WaitForBlockchainSync waits for the target node to be fully synchronized
+// with the blockchain. If the passed context object has a set timeout, it will
 // continually poll until the timeout has elapsed. In the case that the chain
 // isn't synced before the timeout is up, this function will return an error.
 func (hn *HarnessNode) WaitForBlockchainSync() error {
@@ -1551,17 +1537,20 @@ func (hn *HarnessNode) WaitForBalance(expectedBalance btcutil.Amount,
 
 		if confirmed {
 			lastBalance = btcutil.Amount(balance.ConfirmedBalance)
-			return btcutil.Amount(balance.ConfirmedBalance) == expectedBalance
+			return btcutil.Amount(balance.ConfirmedBalance) ==
+				expectedBalance
 		}
 
 		lastBalance = btcutil.Amount(balance.UnconfirmedBalance)
-		return btcutil.Amount(balance.UnconfirmedBalance) == expectedBalance
+		return btcutil.Amount(balance.UnconfirmedBalance) ==
+			expectedBalance
 	}
 
 	err := wait.Predicate(doesBalanceMatch, DefaultTimeout)
 	if err != nil {
 		return fmt.Errorf("balances not synced after deadline: "+
-			"expected %v, only have %v", expectedBalance, lastBalance)
+			"expected %v, only have %v", expectedBalance,
+			lastBalance)
 	}
 
 	return nil
@@ -1737,7 +1726,7 @@ func (hn *HarnessNode) receiveTopologyClientStream(
 	// Create a topology client to receive graph updates.
 	client, err := hn.newTopologyClient(hn.runCtx)
 	if err != nil {
-		return fmt.Errorf("create topologyClient failed: %v", err)
+		return fmt.Errorf("create topologyClient failed: %w", err)
 	}
 
 	// We use the context to time out when retrying graph subscription.

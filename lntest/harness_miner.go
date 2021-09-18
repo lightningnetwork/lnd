@@ -42,7 +42,7 @@ type HarnessMiner struct {
 
 // NewMiner creates a new miner using btcd backend with the default log file
 // dir and name.
-func NewMinerTemp() (*HarnessMiner, error) { // TODO(yy): rename
+func NewMiner() (*HarnessMiner, error) {
 	return newMiner(minerLogDir, minerLogFilename)
 }
 

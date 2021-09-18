@@ -4,7 +4,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
+	"os"
 	"sync/atomic"
 
 	"github.com/btcsuite/btcd/wire"
@@ -161,4 +163,25 @@ func CheckChannelPolicy(policy, expectedPolicy *lnrpc.RoutingPolicy) error {
 	}
 
 	return nil
+}
+
+// CopyFile copies the file src to dest.
+func CopyFile(dest, src string) error {
+	s, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+
+	d, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(d, s); err != nil {
+		d.Close()
+		return err
+	}
+
+	return d.Close()
 }

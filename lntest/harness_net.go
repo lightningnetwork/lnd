@@ -17,7 +17,6 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
@@ -55,7 +54,7 @@ type NetworkHarness struct {
 
 	// Miner is a reference to a running full node that can be used to
 	// create new blocks on the network.
-	Miner *rpctest.Harness
+	Miner *HarnessMiner
 
 	// BackendCfg houses the information necessary to use a node as LND
 	// chain backend, such as rpc configuration, P2P information etc.
@@ -94,7 +93,7 @@ type NetworkHarness struct {
 // TODO(roasbeef): add option to use golang's build library to a binary of the
 // current repo. This will save developers from having to manually `go install`
 // within the repo each time before changes
-func NewNetworkHarness(r *rpctest.Harness, b BackendConfig, lndBinary string,
+func NewNetworkHarness(m *HarnessMiner, b BackendConfig, lndBinary string,
 	dbBackend DatabaseBackend) (*NetworkHarness, error) {
 
 	feeService := startFeeService()
@@ -105,8 +104,8 @@ func NewNetworkHarness(r *rpctest.Harness, b BackendConfig, lndBinary string,
 		activeNodes:  make(map[int]*HarnessNode),
 		nodesByPub:   make(map[string]*HarnessNode),
 		lndErrorChan: make(chan error),
-		netParams:    r.ActiveNet,
-		Miner:        r,
+		netParams:    m.ActiveNet,
+		Miner:        m,
 		BackendCfg:   b,
 		feeService:   feeService,
 		runCtx:       ctxt,
@@ -949,41 +948,6 @@ func saveProfilesPage(node *HarnessNode) error {
 	return nil
 }
 
-// waitForTxInMempool blocks until the target txid is seen in the mempool. If
-// the transaction isn't seen within the network before the passed timeout,
-// then an error is returned.
-func (n *NetworkHarness) waitForTxInMempool(txid chainhash.Hash) error {
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-
-	ctxt, cancel := context.WithTimeout(n.runCtx, DefaultTimeout)
-	defer cancel()
-
-	var mempool []*chainhash.Hash
-	for {
-		select {
-		case <-n.runCtx.Done():
-			return fmt.Errorf("NetworkHarness has been torn down")
-		case <-ctxt.Done():
-			return fmt.Errorf("wanted %v, found %v txs "+
-				"in mempool: %v", txid, len(mempool), mempool)
-
-		case <-ticker.C:
-			var err error
-			mempool, err = n.Miner.Client.GetRawMempool()
-			if err != nil {
-				return err
-			}
-
-			for _, mempoolTx := range mempool {
-				if *mempoolTx == txid {
-					return nil
-				}
-			}
-		}
-	}
-}
-
 // OpenChannelParams houses the params to specify when opening a new channel.
 type OpenChannelParams struct {
 	// Amt is the local amount being put into the channel.
@@ -1332,7 +1296,7 @@ func (n *NetworkHarness) CloseChannel(lnNode *HarnessNode,
 			return fmt.Errorf("unable to decode closeTxid: "+
 				"%v", err)
 		}
-		if err := n.waitForTxInMempool(*closeTxid); err != nil {
+		if err := n.Miner.waitForTxInMempool(*closeTxid); err != nil {
 			return fmt.Errorf("error while waiting for "+
 				"broadcast tx: %v", err)
 		}
@@ -1599,36 +1563,6 @@ func (n *NetworkHarness) SetFeeEstimateWithConf(
 	fee chainfee.SatPerKWeight, conf uint32) {
 
 	n.feeService.setFeeWithConf(fee, conf)
-}
-
-// CopyFile copies the file src to dest.
-func CopyFile(dest, src string) error {
-	s, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer s.Close()
-
-	d, err := os.Create(dest)
-	if err != nil {
-		return err
-	}
-
-	if _, err := io.Copy(d, s); err != nil {
-		d.Close()
-		return err
-	}
-
-	return d.Close()
-}
-
-// FileExists returns true if the file at path exists.
-func FileExists(path string) bool {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return false
-	}
-
-	return true
 }
 
 // copyAll copies all files and directories from srcDir to dstDir recursively.

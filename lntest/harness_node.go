@@ -18,8 +18,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/integration/rpctest"
-	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/jackc/pgx/v4/pgxpool"
@@ -463,74 +461,6 @@ func executePgQuery(query string) error {
 
 	_, err = pool.Exec(context.Background(), query)
 	return err
-}
-
-// NewMiner creates a new miner using btcd backend. The baseLogDir specifies
-// the miner node's log dir. When tests are finished, during clean up, its log
-// files, including any compressed log files from logrotate, are copied to
-// logDir as logFilename.
-func NewMiner(baseLogDir, logFilename string, netParams *chaincfg.Params,
-	handler *rpcclient.NotificationHandlers,
-	btcdBinary string) (*rpctest.Harness, func() error, error) {
-
-	args := []string{
-		"--rejectnonstd",
-		"--txindex",
-		"--nowinservice",
-		"--nobanning",
-		"--debuglevel=debug",
-		"--logdir=" + baseLogDir,
-		"--trickleinterval=100ms",
-		// Don't disconnect if a reply takes too long.
-		"--nostalldetect",
-	}
-
-	miner, err := rpctest.New(netParams, handler, args, btcdBinary)
-	if err != nil {
-		return nil, nil, fmt.Errorf(
-			"unable to create mining node: %v", err,
-		)
-	}
-
-	cleanUp := func() error {
-		if err := miner.TearDown(); err != nil {
-			return fmt.Errorf(
-				"failed to tear down miner, got error: %s", err,
-			)
-		}
-
-		// After shutting down the miner, we'll make a copy of
-		// the log files before deleting the temporary log dir.
-		logDir := fmt.Sprintf("%s/%s", baseLogDir, netParams.Name)
-		files, err := ioutil.ReadDir(logDir)
-		if err != nil {
-			return fmt.Errorf("unable to read log directory: %v", err)
-		}
-
-		for _, file := range files {
-			logFile := fmt.Sprintf(
-				"%s/%s", logDir, file.Name(),
-			)
-			newFilename := strings.Replace(file.Name(), "btcd.log", logFilename, 1)
-			copyPath := fmt.Sprintf(
-				"%s/../%s", baseLogDir, newFilename,
-			)
-
-			err := CopyFile(filepath.Clean(copyPath), logFile)
-			if err != nil {
-				return fmt.Errorf("unable to copy file: %v", err)
-			}
-		}
-
-		if err = os.RemoveAll(baseLogDir); err != nil {
-			return fmt.Errorf(
-				"cannot remove dir %s: %v", baseLogDir, err,
-			)
-		}
-		return nil
-	}
-
-	return miner, cleanUp, nil
 }
 
 // String gives the internal state of the node which is useful for debugging.

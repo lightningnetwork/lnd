@@ -298,10 +298,8 @@ type HarnessNode struct {
 	pidFile string
 	logFile *os.File
 
-	// processExit is a channel that's closed once it's detected that the
-	// process this instance of HarnessNode is bound to has exited.
-	processExit chan struct{}
-
+	// chanWatchRequests receives a request for watching a particular event
+	// for a given channel.
 	chanWatchRequests chan *chanWatchRequest
 
 	// For each outpoint, we'll track an integer which denotes the number of
@@ -742,7 +740,6 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
 
 	// Launch a new goroutine which that bubbles up any potential fatal
 	// process errors to the goroutine running the tests.
-	hn.processExit = make(chan struct{})
 	hn.wg.Add(1)
 	go func() {
 		defer hn.wg.Done()
@@ -751,9 +748,6 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
 		if err != nil {
 			lndError <- fmt.Errorf("%v\n%v", err, errb.String())
 		}
-
-		// Signal any onlookers that this process has exited.
-		close(hn.processExit)
 
 		// Make sure log file is closed and renamed if necessary.
 		finalizeLogfile()
@@ -765,7 +759,12 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
 
 	// Write process ID to a file.
 	if err := hn.writePidFile(); err != nil {
-		hn.cmd.Process.Kill()
+		err = fmt.Errorf("writePidFile err: %w", err)
+		cmdErr := hn.cmd.Process.Kill()
+		if cmdErr != nil {
+			err = fmt.Errorf("kill process got err: %w: %v",
+				cmdErr, err)
+		}
 		return err
 	}
 
@@ -775,12 +774,17 @@ func (hn *HarnessNode) start(lndBinary string, lndError chan<- error,
 		return nil
 	}
 
-	// Since Stop uses the LightningClient to stop the node, if we fail to get a
-	// connected client, we have to kill the process.
+	// Since Stop uses the LightningClient to stop the node, if we fail to
+	// get a connected client, we have to kill the process.
 	useMacaroons := !hn.Cfg.HasSeed
 	conn, err := hn.ConnectRPC(useMacaroons)
 	if err != nil {
-		hn.cmd.Process.Kill()
+		err = fmt.Errorf("ConnectRPC err: %w", err)
+		cmdErr := hn.cmd.Process.Kill()
+		if cmdErr != nil {
+			err = fmt.Errorf("kill process got err: %w: %v",
+				cmdErr, err)
+		}
 		return err
 	}
 
@@ -1246,7 +1250,7 @@ func (hn *HarnessNode) cleanup() error {
 // Stop attempts to stop the active lnd process.
 func (hn *HarnessNode) stop() error {
 	// Do nothing if the process is not running.
-	if hn.processExit == nil {
+	if hn.runCtx == nil {
 		return nil
 	}
 
@@ -1276,18 +1280,28 @@ func (hn *HarnessNode) stop() error {
 		}
 	}
 
-	// Wait for lnd process and other goroutines to exit.
-	select {
-	case <-hn.processExit:
-	case <-time.After(DefaultTimeout * 2):
-		return fmt.Errorf("process did not exit")
-	}
-
 	// Stop the runCtx and wait for goroutines to finish.
 	hn.cancel()
-	hn.wg.Wait()
 
-	hn.processExit = nil
+	// Wait for lnd process to exit.
+	err := wait.NoError(func() error {
+		if hn.cmd.ProcessState == nil {
+			return fmt.Errorf("process did not exit")
+		}
+
+		if !hn.cmd.ProcessState.Exited() {
+			return fmt.Errorf("process did not exit")
+		}
+
+		// Wait for goroutines to be finished.
+		hn.wg.Wait()
+
+		return nil
+	}, DefaultTimeout*2)
+	if err != nil {
+		return err
+	}
+
 	hn.LightningClient = nil
 	hn.WalletUnlockerClient = nil
 	hn.Watchtower = nil

@@ -110,6 +110,12 @@
   exposed](https://github.com/lightningnetwork/lnd/pull/5971) inside
   WaitingCloseResp from calling `PendingChannels`.
 
+## Code Health
+
+### Code cleanup, refactor, typo fixes
+
+* [Refactored itest to better manage contexts inside integration tests](https://github.com/lightningnetwork/lnd/pull/5756).
+
 # Contributors (Alphabetical Order)
 
 * Andras Banki-Horvath

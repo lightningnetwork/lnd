@@ -295,6 +295,8 @@ you.
 
 * [Replace reference to XZ library with CVE](https://github.com/lightningnetwork/lnd/pull/5789)
 
+* [Replace reference to mongo library with CVE](https://github.com/lightningnetwork/lnd/pull/5761)
+
 * [Fixed restore backup file test flake with bitcoind](https://github.com/lightningnetwork/lnd/pull/5637).
 
 * [Timing fix in AMP itest](https://github.com/lightningnetwork/lnd/pull/5725).

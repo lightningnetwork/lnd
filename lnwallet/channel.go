@@ -4933,19 +4933,29 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC,
 }
 
 // MayAddOutgoingHtlc validates whether we can add an outgoing htlc to this
-// channel. We don't have a value or circuit for this htlc, because we just
-// want to test that we have slots for a potential htlc so we use a "mock"
-// htlc to validate a potential commitment state with one more outgoing htlc.
-func (lc *LightningChannel) MayAddOutgoingHtlc() error {
+// channel. We don't have a circuit for this htlc, because we just want to test
+// that we have slots for a potential htlc so we use a "mock" htlc to validate
+// a potential commitment state with one more outgoing htlc. If a zero htlc
+// amount is provided, we'll attempt to add the smallest possible htlc to the
+// channel (either the minimum htlc, or 1 sat).
+func (lc *LightningChannel) MayAddOutgoingHtlc(amt lnwire.MilliSatoshi) error {
 	lc.Lock()
 	defer lc.Unlock()
 
-	// As this is a mock HTLC, we'll attempt to add the smallest possible
-	// HTLC permitted in the channel. However certain implementations may
-	// set this value to zero, so we'll catch that and increment things so
-	// we always use a non-zero value.
-	mockHtlcAmt := lc.channelState.LocalChanCfg.MinHTLC
-	if mockHtlcAmt == 0 {
+	var mockHtlcAmt lnwire.MilliSatoshi
+	switch {
+	// If the caller specifically set an amount, we use it.
+	case amt != 0:
+		mockHtlcAmt = amt
+
+	// In absence of a specific amount, we want to use minimum htlc value
+	// for the channel. However certain implementations may set this value
+	// to zero, so we only use this value if it is non-zero.
+	case lc.channelState.LocalChanCfg.MinHTLC != 0:
+		mockHtlcAmt = lc.channelState.LocalChanCfg.MinHTLC
+
+	// As a last resort, we just add a non-zero amount.
+	default:
 		mockHtlcAmt++
 	}
 

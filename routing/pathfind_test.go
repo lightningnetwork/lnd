@@ -23,6 +23,8 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -148,26 +150,36 @@ type testChan struct {
 // makeTestGraph creates a new instance of a channeldb.ChannelGraph for testing
 // purposes. A callback which cleans up the created temporary directories is
 // also returned and intended to be executed after the test completes.
-func makeTestGraph() (*channeldb.ChannelGraph, func(), error) {
+func makeTestGraph() (*channeldb.ChannelGraph, kvdb.Backend, func(), error) {
 	// First, create a temporary directory to be used for the duration of
 	// this test.
 	tempDirName, err := ioutil.TempDir("", "channeldb")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	// Next, create channeldb for the first time.
-	cdb, err := channeldb.Open(tempDirName)
+	// Next, create channelgraph for the first time.
+	backend, backendCleanup, err := kvdb.GetTestBackend(tempDirName, "cgr")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	cleanUp := func() {
-		cdb.Close()
-		os.RemoveAll(tempDirName)
+		backendCleanup()
+		_ = os.RemoveAll(tempDirName)
 	}
 
-	return cdb.ChannelGraph(), cleanUp, nil
+	opts := channeldb.DefaultOptions()
+	graph, err := channeldb.NewChannelGraph(
+		backend, opts.RejectCacheSize, opts.ChannelCacheSize,
+		opts.BatchCommitInterval,
+	)
+	if err != nil {
+		cleanUp()
+		return nil, nil, nil, err
+	}
+
+	return graph, backend, cleanUp, nil
 }
 
 // parseTestGraph returns a fully populated ChannelGraph given a path to a JSON
@@ -197,7 +209,7 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 	testAddrs = append(testAddrs, testAddr)
 
 	// Next, create a temporary graph database for usage within the test.
-	graph, cleanUp, err := makeTestGraph()
+	graph, graphBackend, cleanUp, err := makeTestGraph()
 	if err != nil {
 		return nil, err
 	}
@@ -205,6 +217,7 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 	aliasMap := make(map[string]route.Vertex)
 	privKeyMap := make(map[string]*btcec.PrivateKey)
 	channelIDs := make(map[route.Vertex]map[route.Vertex]uint64)
+	links := make(map[lnwire.ShortChannelID]htlcswitch.ChannelLink)
 	var source *channeldb.LightningNode
 
 	// First we insert all the nodes within the graph as vertexes.
@@ -293,6 +306,16 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 		}
 	}
 
+	aliasForNode := func(node route.Vertex) string {
+		for alias, pubKey := range aliasMap {
+			if pubKey == node {
+				return alias
+			}
+		}
+
+		return ""
+	}
+
 	// With all the vertexes inserted, we can now insert the edges into the
 	// test graph.
 	for _, edge := range g.Edges {
@@ -337,15 +360,29 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 		copy(edgeInfo.BitcoinKey1Bytes[:], node1Bytes)
 		copy(edgeInfo.BitcoinKey2Bytes[:], node2Bytes)
 
+		shortID := lnwire.NewShortChanIDFromInt(edge.ChannelID)
+		links[shortID] = &mockLink{
+			bandwidth: lnwire.MilliSatoshi(
+				edgeInfo.Capacity * 1000,
+			),
+		}
+
 		err = graph.AddChannelEdge(&edgeInfo)
 		if err != nil && err != channeldb.ErrEdgeAlreadyExist {
 			return nil, err
 		}
 
+		channelFlags := lnwire.ChanUpdateChanFlags(edge.ChannelFlags)
+		isUpdate1 := channelFlags&lnwire.ChanUpdateDirection == 0
+		targetNode := edgeInfo.NodeKey1Bytes
+		if isUpdate1 {
+			targetNode = edgeInfo.NodeKey2Bytes
+		}
+
 		edgePolicy := &channeldb.ChannelEdgePolicy{
 			SigBytes:                  testSig.Serialize(),
 			MessageFlags:              lnwire.ChanUpdateMsgFlags(edge.MessageFlags),
-			ChannelFlags:              lnwire.ChanUpdateChanFlags(edge.ChannelFlags),
+			ChannelFlags:              channelFlags,
 			ChannelID:                 edge.ChannelID,
 			LastUpdate:                testTime,
 			TimeLockDelta:             edge.Expiry,
@@ -353,6 +390,10 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 			MaxHTLC:                   lnwire.MilliSatoshi(edge.MaxHTLC),
 			FeeBaseMSat:               lnwire.MilliSatoshi(edge.FeeBaseMsat),
 			FeeProportionalMillionths: lnwire.MilliSatoshi(edge.FeeRate),
+			Node: &channeldb.LightningNode{
+				Alias:       aliasForNode(targetNode),
+				PubKeyBytes: targetNode,
+			},
 		}
 		if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
 			return nil, err
@@ -381,11 +422,13 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 	}
 
 	return &testGraphInstance{
-		graph:      graph,
-		cleanUp:    cleanUp,
-		aliasMap:   aliasMap,
-		privKeyMap: privKeyMap,
-		channelIDs: channelIDs,
+		graph:        graph,
+		graphBackend: graphBackend,
+		cleanUp:      cleanUp,
+		aliasMap:     aliasMap,
+		privKeyMap:   privKeyMap,
+		channelIDs:   channelIDs,
+		links:        links,
 	}, nil
 }
 
@@ -447,8 +490,9 @@ type testChannel struct {
 }
 
 type testGraphInstance struct {
-	graph   *channeldb.ChannelGraph
-	cleanUp func()
+	graph        *channeldb.ChannelGraph
+	graphBackend kvdb.Backend
+	cleanUp      func()
 
 	// aliasMap is a map from a node's alias to its public key. This type is
 	// provided in order to allow easily look up from the human memorable alias
@@ -461,6 +505,22 @@ type testGraphInstance struct {
 
 	// channelIDs stores the channel ID for each node.
 	channelIDs map[route.Vertex]map[route.Vertex]uint64
+
+	// links maps channel ids to a mock channel update handler.
+	links map[lnwire.ShortChannelID]htlcswitch.ChannelLink
+}
+
+// getLink is a mocked link lookup function which looks up links in our test
+// graph.
+func (g *testGraphInstance) getLink(chanID lnwire.ShortChannelID) (
+	htlcswitch.ChannelLink, error) {
+
+	link, ok := g.links[chanID]
+	if !ok {
+		return nil, fmt.Errorf("link not found in mock: %v", chanID)
+	}
+
+	return link, nil
 }
 
 // createTestGraphFromChannels returns a fully populated ChannelGraph based on a set of
@@ -482,7 +542,7 @@ func createTestGraphFromChannels(testChannels []*testChannel, source string) (
 	testAddrs = append(testAddrs, testAddr)
 
 	// Next, create a temporary graph database for usage within the test.
-	graph, cleanUp, err := makeTestGraph()
+	graph, graphBackend, cleanUp, err := makeTestGraph()
 	if err != nil {
 		return nil, err
 	}
@@ -547,6 +607,8 @@ func createTestGraphFromChannels(testChannels []*testChannel, source string) (
 	// if none is specified.
 	nextUnassignedChannelID := uint64(100000)
 
+	links := make(map[lnwire.ShortChannelID]htlcswitch.ChannelLink)
+
 	for _, testChannel := range testChannels {
 		for _, node := range []*testChannelEnd{
 			testChannel.Node1, testChannel.Node2} {
@@ -581,6 +643,12 @@ func createTestGraphFromChannels(testChannels []*testChannel, source string) (
 		fundingPoint := &wire.OutPoint{
 			Hash:  chainhash.Hash(hash),
 			Index: 0,
+		}
+
+		capacity := lnwire.MilliSatoshi(testChannel.Capacity * 1000)
+		shortID := lnwire.NewShortChanIDFromInt(channelID)
+		links[shortID] = &mockLink{
+			bandwidth: capacity,
 		}
 
 		// Sort nodes
@@ -622,6 +690,11 @@ func createTestGraphFromChannels(testChannels []*testChannel, source string) (
 				channelFlags |= lnwire.ChanUpdateDisabled
 			}
 
+			node2Features := lnwire.EmptyFeatureVector()
+			if node2.testChannelPolicy != nil {
+				node2Features = node2.Features
+			}
+
 			edgePolicy := &channeldb.ChannelEdgePolicy{
 				SigBytes:                  testSig.Serialize(),
 				MessageFlags:              msgFlags,
@@ -633,6 +706,11 @@ func createTestGraphFromChannels(testChannels []*testChannel, source string) (
 				MaxHTLC:                   node1.MaxHTLC,
 				FeeBaseMSat:               node1.FeeBaseMsat,
 				FeeProportionalMillionths: node1.FeeRate,
+				Node: &channeldb.LightningNode{
+					Alias:       node2.Alias,
+					PubKeyBytes: node2Vertex,
+					Features:    node2Features,
+				},
 			}
 			if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
 				return nil, err
@@ -650,6 +728,11 @@ func createTestGraphFromChannels(testChannels []*testChannel, source string) (
 			}
 			channelFlags |= lnwire.ChanUpdateDirection
 
+			node1Features := lnwire.EmptyFeatureVector()
+			if node1.testChannelPolicy != nil {
+				node1Features = node1.Features
+			}
+
 			edgePolicy := &channeldb.ChannelEdgePolicy{
 				SigBytes:                  testSig.Serialize(),
 				MessageFlags:              msgFlags,
@@ -661,6 +744,11 @@ func createTestGraphFromChannels(testChannels []*testChannel, source string) (
 				MaxHTLC:                   node2.MaxHTLC,
 				FeeBaseMSat:               node2.FeeBaseMsat,
 				FeeProportionalMillionths: node2.FeeRate,
+				Node: &channeldb.LightningNode{
+					Alias:       node1.Alias,
+					PubKeyBytes: node1Vertex,
+					Features:    node1Features,
+				},
 			}
 			if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
 				return nil, err
@@ -671,10 +759,12 @@ func createTestGraphFromChannels(testChannels []*testChannel, source string) (
 	}
 
 	return &testGraphInstance{
-		graph:      graph,
-		cleanUp:    cleanUp,
-		aliasMap:   aliasMap,
-		privKeyMap: privKeyMap,
+		graph:        graph,
+		graphBackend: graphBackend,
+		cleanUp:      cleanUp,
+		aliasMap:     aliasMap,
+		privKeyMap:   privKeyMap,
+		links:        links,
 	}, nil
 }
 
@@ -868,7 +958,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 	paymentAmt := lnwire.NewMSatFromSatoshis(test.paymentAmt)
 	target := graphInstance.aliasMap[test.target]
 	path, err := dbFindPath(
-		graphInstance.graph, nil, nil,
+		graphInstance.graph, nil, &mockBandwidthHints{},
 		&RestrictParams{
 			FeeLimit:          test.feeLimit,
 			ProbabilitySource: noProbabilitySource,
@@ -1044,23 +1134,26 @@ func TestPathFindingWithAdditionalEdges(t *testing.T) {
 
 	// Create the channel edge going from songoku to doge and include it in
 	// our map of additional edges.
-	songokuToDoge := &channeldb.ChannelEdgePolicy{
-		Node:                      doge,
+	songokuToDoge := &channeldb.CachedEdgePolicy{
+		ToNodePubKey: func() route.Vertex {
+			return doge.PubKeyBytes
+		},
+		ToNodeFeatures:            lnwire.EmptyFeatureVector(),
 		ChannelID:                 1337,
 		FeeBaseMSat:               1,
 		FeeProportionalMillionths: 1000,
 		TimeLockDelta:             9,
 	}
 
-	additionalEdges := map[route.Vertex][]*channeldb.ChannelEdgePolicy{
+	additionalEdges := map[route.Vertex][]*channeldb.CachedEdgePolicy{
 		graph.aliasMap["songoku"]: {songokuToDoge},
 	}
 
 	find := func(r *RestrictParams) (
-		[]*channeldb.ChannelEdgePolicy, error) {
+		[]*channeldb.CachedEdgePolicy, error) {
 
 		return dbFindPath(
-			graph.graph, additionalEdges, nil,
+			graph.graph, additionalEdges, &mockBandwidthHints{},
 			r, testPathFindingConfig,
 			sourceNode.PubKeyBytes, doge.PubKeyBytes, paymentAmt,
 			0,
@@ -1124,14 +1217,13 @@ func TestNewRoute(t *testing.T) {
 	createHop := func(baseFee lnwire.MilliSatoshi,
 		feeRate lnwire.MilliSatoshi,
 		bandwidth lnwire.MilliSatoshi,
-		timeLockDelta uint16) *channeldb.ChannelEdgePolicy {
+		timeLockDelta uint16) *channeldb.CachedEdgePolicy {
 
-		return &channeldb.ChannelEdgePolicy{
-			Node: &channeldb.LightningNode{
-				Features: lnwire.NewFeatureVector(
-					nil, nil,
-				),
+		return &channeldb.CachedEdgePolicy{
+			ToNodePubKey: func() route.Vertex {
+				return route.Vertex{}
 			},
+			ToNodeFeatures:            lnwire.NewFeatureVector(nil, nil),
 			FeeProportionalMillionths: feeRate,
 			FeeBaseMSat:               baseFee,
 			TimeLockDelta:             timeLockDelta,
@@ -1144,7 +1236,7 @@ func TestNewRoute(t *testing.T) {
 
 		// hops is the list of hops (the route) that gets passed into
 		// the call to newRoute.
-		hops []*channeldb.ChannelEdgePolicy
+		hops []*channeldb.CachedEdgePolicy
 
 		// paymentAmount is the amount that is send into the route
 		// indicated by hops.
@@ -1193,7 +1285,7 @@ func TestNewRoute(t *testing.T) {
 			// For a single hop payment, no fees are expected to be paid.
 			name:          "single hop",
 			paymentAmount: 100000,
-			hops: []*channeldb.ChannelEdgePolicy{
+			hops: []*channeldb.CachedEdgePolicy{
 				createHop(100, 1000, 1000000, 10),
 			},
 			expectedFees:          []lnwire.MilliSatoshi{0},
@@ -1206,7 +1298,7 @@ func TestNewRoute(t *testing.T) {
 			// a fee to receive the payment.
 			name:          "two hop",
 			paymentAmount: 100000,
-			hops: []*channeldb.ChannelEdgePolicy{
+			hops: []*channeldb.CachedEdgePolicy{
 				createHop(0, 1000, 1000000, 10),
 				createHop(30, 1000, 1000000, 5),
 			},
@@ -1221,7 +1313,7 @@ func TestNewRoute(t *testing.T) {
 			name:          "two hop tlv onion feature",
 			destFeatures:  tlvFeatures,
 			paymentAmount: 100000,
-			hops: []*channeldb.ChannelEdgePolicy{
+			hops: []*channeldb.CachedEdgePolicy{
 				createHop(0, 1000, 1000000, 10),
 				createHop(30, 1000, 1000000, 5),
 			},
@@ -1238,7 +1330,7 @@ func TestNewRoute(t *testing.T) {
 			destFeatures:  tlvPayAddrFeatures,
 			paymentAddr:   &testPaymentAddr,
 			paymentAmount: 100000,
-			hops: []*channeldb.ChannelEdgePolicy{
+			hops: []*channeldb.CachedEdgePolicy{
 				createHop(0, 1000, 1000000, 10),
 				createHop(30, 1000, 1000000, 5),
 			},
@@ -1258,7 +1350,7 @@ func TestNewRoute(t *testing.T) {
 			// gets rounded down to 1.
 			name:          "three hop",
 			paymentAmount: 100000,
-			hops: []*channeldb.ChannelEdgePolicy{
+			hops: []*channeldb.CachedEdgePolicy{
 				createHop(0, 10, 1000000, 10),
 				createHop(0, 10, 1000000, 5),
 				createHop(0, 10, 1000000, 3),
@@ -1273,7 +1365,7 @@ func TestNewRoute(t *testing.T) {
 			// because of the increase amount to forward.
 			name:          "three hop with fee carry over",
 			paymentAmount: 100000,
-			hops: []*channeldb.ChannelEdgePolicy{
+			hops: []*channeldb.CachedEdgePolicy{
 				createHop(0, 10000, 1000000, 10),
 				createHop(0, 10000, 1000000, 5),
 				createHop(0, 10000, 1000000, 3),
@@ -1288,7 +1380,7 @@ func TestNewRoute(t *testing.T) {
 			// effect.
 			name:          "three hop with minimal fees for carry over",
 			paymentAmount: 100000,
-			hops: []*channeldb.ChannelEdgePolicy{
+			hops: []*channeldb.CachedEdgePolicy{
 				createHop(0, 10000, 1000000, 10),
 
 				// First hop charges 0.1% so the second hop fee
@@ -1312,7 +1404,7 @@ func TestNewRoute(t *testing.T) {
 		// custom feature vector.
 		if testCase.destFeatures != nil {
 			finalHop := testCase.hops[len(testCase.hops)-1]
-			finalHop.Node.Features = testCase.destFeatures
+			finalHop.ToNodeFeatures = testCase.destFeatures
 		}
 
 		assertRoute := func(t *testing.T, route *route.Route) {
@@ -1486,7 +1578,7 @@ func TestPathNotAvailable(t *testing.T) {
 	copy(unknownNode[:], unknownNodeBytes)
 
 	_, err = dbFindPath(
-		graph.graph, nil, nil,
+		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, unknownNode, 100, 0,
 	)
@@ -1539,10 +1631,10 @@ func TestDestTLVGraphFallback(t *testing.T) {
 	}
 
 	find := func(r *RestrictParams,
-		target route.Vertex) ([]*channeldb.ChannelEdgePolicy, error) {
+		target route.Vertex) ([]*channeldb.CachedEdgePolicy, error) {
 
 		return dbFindPath(
-			ctx.graph, nil, nil,
+			ctx.graph, nil, &mockBandwidthHints{},
 			r, testPathFindingConfig,
 			sourceNode.PubKeyBytes, target, 100, 0,
 		)
@@ -1811,7 +1903,7 @@ func TestPathInsufficientCapacity(t *testing.T) {
 
 	payAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	_, err = dbFindPath(
-		graph.graph, nil, nil,
+		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
@@ -1842,7 +1934,7 @@ func TestRouteFailMinHTLC(t *testing.T) {
 	target := graph.aliasMap["songoku"]
 	payAmt := lnwire.MilliSatoshi(10)
 	_, err = dbFindPath(
-		graph.graph, nil, nil,
+		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
@@ -1939,7 +2031,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	target := graph.aliasMap["sophon"]
 	payAmt := lnwire.NewMSatFromSatoshis(105000)
 	_, err = dbFindPath(
-		graph.graph, nil, nil,
+		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
@@ -1965,7 +2057,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	}
 
 	_, err = dbFindPath(
-		graph.graph, nil, nil,
+		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
@@ -1988,7 +2080,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	// If we attempt to route through that edge, we should get a failure as
 	// it is no longer eligible.
 	_, err = dbFindPath(
-		graph.graph, nil, nil,
+		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
@@ -2020,7 +2112,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 	target := graph.aliasMap["sophon"]
 	payAmt := lnwire.NewMSatFromSatoshis(50000)
 	path, err := dbFindPath(
-		graph.graph, nil, nil,
+		graph.graph, nil, &mockBandwidthHints{},
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
@@ -2033,9 +2125,11 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 	// roasbeef->phamnuwen to 0.
 	roasToSongoku := uint64(12345)
 	roasToPham := uint64(999991)
-	bandwidths := map[uint64]lnwire.MilliSatoshi{
-		roasToSongoku: 0,
-		roasToPham:    0,
+	bandwidths := &mockBandwidthHints{
+		hints: map[uint64]lnwire.MilliSatoshi{
+			roasToSongoku: 0,
+			roasToPham:    0,
+		},
 	}
 
 	// Since both these edges has a bandwidth of zero, no path should be
@@ -2051,7 +2145,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 
 	// Set the bandwidth of roasbeef->phamnuwen high enough to carry the
 	// payment.
-	bandwidths[roasToPham] = 2 * payAmt
+	bandwidths.hints[roasToPham] = 2 * payAmt
 
 	// Now, if we attempt to route again, we should find the path via
 	// phamnuven, as the other source edge won't be considered.
@@ -2067,7 +2161,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 
 	// Finally, set the roasbeef->songoku bandwidth, but also set its
 	// disable flag.
-	bandwidths[roasToSongoku] = 2 * payAmt
+	bandwidths.hints[roasToSongoku] = 2 * payAmt
 	_, e1, e2, err := graph.graph.FetchChannelEdgesByID(roasToSongoku)
 	if err != nil {
 		t.Fatalf("unable to fetch edge: %v", err)
@@ -2120,7 +2214,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Carol, so we set "B" as the source node so path finding starts from
 	// Bob.
 	bob := ctx.aliases["B"]
-	bobNode, err := ctx.graph.FetchLightningNode(nil, bob)
+	bobNode, err := ctx.graph.FetchLightningNode(bob)
 	if err != nil {
 		t.Fatalf("unable to find bob: %v", err)
 	}
@@ -2170,7 +2264,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Next, we'll set A as the source node so we can assert that we create
 	// the proper route for any queries starting with Alice.
 	alice := ctx.aliases["A"]
-	aliceNode, err := ctx.graph.FetchLightningNode(nil, alice)
+	aliceNode, err := ctx.graph.FetchLightningNode(alice)
 	if err != nil {
 		t.Fatalf("unable to find alice: %v", err)
 	}
@@ -2270,16 +2364,16 @@ func TestPathFindSpecExample(t *testing.T) {
 }
 
 func assertExpectedPath(t *testing.T, aliasMap map[string]route.Vertex,
-	path []*channeldb.ChannelEdgePolicy, nodeAliases ...string) {
+	path []*channeldb.CachedEdgePolicy, nodeAliases ...string) {
 
 	if len(path) != len(nodeAliases) {
 		t.Fatal("number of hops and number of aliases do not match")
 	}
 
 	for i, hop := range path {
-		if hop.Node.PubKeyBytes != aliasMap[nodeAliases[i]] {
+		if hop.ToNodePubKey() != aliasMap[nodeAliases[i]] {
 			t.Fatalf("expected %v to be pos #%v in hop, instead "+
-				"%v was", nodeAliases[i], i, hop.Node.Alias)
+				"%v was", nodeAliases[i], i, hop.ToNodePubKey())
 		}
 	}
 }
@@ -2879,7 +2973,7 @@ type pathFindingTestContext struct {
 	t                 *testing.T
 	graph             *channeldb.ChannelGraph
 	restrictParams    RestrictParams
-	bandwidthHints    map[uint64]lnwire.MilliSatoshi
+	bandwidthHints    bandwidthHints
 	pathFindingConfig PathFindingConfig
 	testGraphInstance *testGraphInstance
 	source            route.Vertex
@@ -2907,6 +3001,7 @@ func newPathFindingTestContext(t *testing.T, testChannels []*testChannel,
 		pathFindingConfig: *testPathFindingConfig,
 		graph:             testGraphInstance.graph,
 		restrictParams:    *noRestrictions,
+		bandwidthHints:    &mockBandwidthHints{},
 	}
 
 	return ctx
@@ -2930,7 +3025,7 @@ func (c *pathFindingTestContext) cleanup() {
 }
 
 func (c *pathFindingTestContext) findPath(target route.Vertex,
-	amt lnwire.MilliSatoshi) ([]*channeldb.ChannelEdgePolicy,
+	amt lnwire.MilliSatoshi) ([]*channeldb.CachedEdgePolicy,
 	error) {
 
 	return dbFindPath(
@@ -2939,7 +3034,9 @@ func (c *pathFindingTestContext) findPath(target route.Vertex,
 	)
 }
 
-func (c *pathFindingTestContext) assertPath(path []*channeldb.ChannelEdgePolicy, expected []uint64) {
+func (c *pathFindingTestContext) assertPath(path []*channeldb.CachedEdgePolicy,
+	expected []uint64) {
+
 	if len(path) != len(expected) {
 		c.t.Fatalf("expected path of length %v, but got %v",
 			len(expected), len(path))
@@ -2956,22 +3053,16 @@ func (c *pathFindingTestContext) assertPath(path []*channeldb.ChannelEdgePolicy,
 // dbFindPath calls findPath after getting a db transaction from the database
 // graph.
 func dbFindPath(graph *channeldb.ChannelGraph,
-	additionalEdges map[route.Vertex][]*channeldb.ChannelEdgePolicy,
-	bandwidthHints map[uint64]lnwire.MilliSatoshi,
+	additionalEdges map[route.Vertex][]*channeldb.CachedEdgePolicy,
+	bandwidthHints bandwidthHints,
 	r *RestrictParams, cfg *PathFindingConfig,
 	source, target route.Vertex, amt lnwire.MilliSatoshi,
-	finalHtlcExpiry int32) ([]*channeldb.ChannelEdgePolicy, error) {
+	finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, error) {
 
-	routingTx, err := newDbRoutingTx(graph)
+	routingTx, err := NewCachedGraph(graph)
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		err := routingTx.close()
-		if err != nil {
-			log.Errorf("Error closing db tx: %v", err)
-		}
-	}()
 
 	return findPath(
 		&graphParams{

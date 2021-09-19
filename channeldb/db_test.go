@@ -210,8 +210,8 @@ func TestAddrsForNode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to recv node pub: %v", err)
 	}
-	linkNode := cdb.NewLinkNode(
-		wire.MainNet, nodePub, anotherAddr,
+	linkNode := NewLinkNode(
+		cdb.LinkNodeDB, wire.MainNet, nodePub, anotherAddr,
 	)
 	if err := linkNode.Sync(); err != nil {
 		t.Fatalf("unable to sync link node: %v", err)
@@ -661,7 +661,9 @@ func TestFetchChannels(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			channels, err := fetchChannels(cdb, test.filters...)
+			channels, err := fetchChannels(
+				&cdb.ChannelStateDB, test.filters...,
+			)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

@@ -2,18 +2,16 @@ package routing
 
 import (
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
-// routingGraph is an abstract interface that provides information about nodes
+// Graph is an abstract interface that provides information about nodes
 // and edges to pathfinding.
-type routingGraph interface {
+type Graph interface {
 	// forEachNodeChannel calls the callback for every channel of the given node.
 	forEachNodeChannel(nodePub route.Vertex,
-		cb func(*channeldb.ChannelEdgeInfo, *channeldb.ChannelEdgePolicy,
-			*channeldb.ChannelEdgePolicy) error) error
+		cb func(channel *channeldb.DirectedChannel) error) error
 
 	// sourceNode returns the source node of the graph.
 	sourceNode() route.Vertex
@@ -22,83 +20,49 @@ type routingGraph interface {
 	fetchNodeFeatures(nodePub route.Vertex) (*lnwire.FeatureVector, error)
 }
 
-// dbRoutingTx is a routingGraph implementation that retrieves from the
+// CachedGraph is a Graph implementation that retrieves from the
 // database.
-type dbRoutingTx struct {
+type CachedGraph struct {
 	graph  *channeldb.ChannelGraph
-	tx     kvdb.RTx
 	source route.Vertex
 }
 
-// newDbRoutingTx instantiates a new db-connected routing graph. It implictly
+// NewCachedGraph instantiates a new db-connected routing graph. It implictly
 // instantiates a new read transaction.
-func newDbRoutingTx(graph *channeldb.ChannelGraph) (*dbRoutingTx, error) {
+func NewCachedGraph(graph *channeldb.ChannelGraph) (*CachedGraph, error) {
 	sourceNode, err := graph.SourceNode()
 	if err != nil {
 		return nil, err
 	}
 
-	tx, err := graph.Database().BeginReadTx()
-	if err != nil {
-		return nil, err
-	}
-
-	return &dbRoutingTx{
+	return &CachedGraph{
 		graph:  graph,
-		tx:     tx,
 		source: sourceNode.PubKeyBytes,
 	}, nil
 }
 
-// close closes the underlying db transaction.
-func (g *dbRoutingTx) close() error {
-	return g.tx.Rollback()
-}
-
 // forEachNodeChannel calls the callback for every channel of the given node.
 //
-// NOTE: Part of the routingGraph interface.
-func (g *dbRoutingTx) forEachNodeChannel(nodePub route.Vertex,
-	cb func(*channeldb.ChannelEdgeInfo, *channeldb.ChannelEdgePolicy,
-		*channeldb.ChannelEdgePolicy) error) error {
+// NOTE: Part of the Graph interface.
+func (g *CachedGraph) forEachNodeChannel(nodePub route.Vertex,
+	cb func(channel *channeldb.DirectedChannel) error) error {
 
-	txCb := func(_ kvdb.RTx, info *channeldb.ChannelEdgeInfo,
-		p1, p2 *channeldb.ChannelEdgePolicy) error {
-
-		return cb(info, p1, p2)
-	}
-
-	return g.graph.ForEachNodeChannel(g.tx, nodePub[:], txCb)
+	return g.graph.ForEachNodeChannel(nodePub, cb)
 }
 
 // sourceNode returns the source node of the graph.
 //
-// NOTE: Part of the routingGraph interface.
-func (g *dbRoutingTx) sourceNode() route.Vertex {
+// NOTE: Part of the Graph interface.
+func (g *CachedGraph) sourceNode() route.Vertex {
 	return g.source
 }
 
 // fetchNodeFeatures returns the features of the given node. If the node is
 // unknown, assume no additional features are supported.
 //
-// NOTE: Part of the routingGraph interface.
-func (g *dbRoutingTx) fetchNodeFeatures(nodePub route.Vertex) (
+// NOTE: Part of the Graph interface.
+func (g *CachedGraph) fetchNodeFeatures(nodePub route.Vertex) (
 	*lnwire.FeatureVector, error) {
 
-	targetNode, err := g.graph.FetchLightningNode(g.tx, nodePub)
-	switch err {
-
-	// If the node exists and has features, return them directly.
-	case nil:
-		return targetNode.Features, nil
-
-	// If we couldn't find a node announcement, populate a blank feature
-	// vector.
-	case channeldb.ErrGraphNodeNotFound:
-		return lnwire.EmptyFeatureVector(), nil
-
-	// Otherwise bubble the error up.
-	default:
-		return nil, err
-	}
+	return g.graph.FetchNodeFeatures(nodePub)
 }

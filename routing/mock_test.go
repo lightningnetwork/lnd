@@ -173,13 +173,13 @@ func (m *mockPaymentSessionOld) RequestRoute(_, _ lnwire.MilliSatoshi,
 }
 
 func (m *mockPaymentSessionOld) UpdateAdditionalEdge(_ *lnwire.ChannelUpdate,
-	_ *btcec.PublicKey, _ *channeldb.ChannelEdgePolicy) bool {
+	_ *btcec.PublicKey, _ *channeldb.CachedEdgePolicy) bool {
 
 	return false
 }
 
 func (m *mockPaymentSessionOld) GetAdditionalEdgePolicy(_ *btcec.PublicKey,
-	_ uint64) *channeldb.ChannelEdgePolicy {
+	_ uint64) *channeldb.CachedEdgePolicy {
 
 	return nil
 }
@@ -637,17 +637,17 @@ func (m *mockPaymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 }
 
 func (m *mockPaymentSession) UpdateAdditionalEdge(msg *lnwire.ChannelUpdate,
-	pubKey *btcec.PublicKey, policy *channeldb.ChannelEdgePolicy) bool {
+	pubKey *btcec.PublicKey, policy *channeldb.CachedEdgePolicy) bool {
 
 	args := m.Called(msg, pubKey, policy)
 	return args.Bool(0)
 }
 
 func (m *mockPaymentSession) GetAdditionalEdgePolicy(pubKey *btcec.PublicKey,
-	channelID uint64) *channeldb.ChannelEdgePolicy {
+	channelID uint64) *channeldb.CachedEdgePolicy {
 
 	args := m.Called(pubKey, channelID)
-	return args.Get(0).(*channeldb.ChannelEdgePolicy)
+	return args.Get(0).(*channeldb.CachedEdgePolicy)
 }
 
 type mockControlTower struct {
@@ -740,4 +740,26 @@ func (m *mockControlTower) SubscribePayment(paymentHash lntypes.Hash) (
 
 	args := m.Called(paymentHash)
 	return args.Get(0).(*ControlTowerSubscriber), args.Error(1)
+}
+
+type mockLink struct {
+	htlcswitch.ChannelLink
+	bandwidth         lnwire.MilliSatoshi
+	mayAddOutgoingErr error
+	ineligible        bool
+}
+
+// Bandwidth returns the bandwidth the mock was configured with.
+func (m *mockLink) Bandwidth() lnwire.MilliSatoshi {
+	return m.bandwidth
+}
+
+// EligibleToForward returns the mock's configured eligibility.
+func (m *mockLink) EligibleToForward() bool {
+	return !m.ineligible
+}
+
+// MayAddOutgoingHtlc returns the error configured in our mock.
+func (m *mockLink) MayAddOutgoingHtlc(_ lnwire.MilliSatoshi) error {
+	return m.mayAddOutgoingErr
 }

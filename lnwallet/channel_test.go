@@ -9649,10 +9649,9 @@ func TestChannelSignedAckRegression(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestMayAddOutgoingHtlcZeroValue tests that if the minHTLC value of the
-// channel is zero, then the MayAddOutgoingHtlc doesn't exit early due to
-// running into a zero valued HTLC.
-func TestMayAddOutgoingHtlcZeroValue(t *testing.T) {
+// TestMayAddOutgoingHtlc tests MayAddOutgoingHtlc against zero and non-zero
+// htlc amounts.
+func TestMayAddOutgoingHtlc(t *testing.T) {
 	t.Parallel()
 
 	// The default channel created as a part of the test fixture already
@@ -9665,7 +9664,27 @@ func TestMayAddOutgoingHtlcZeroValue(t *testing.T) {
 	defer cleanUp()
 
 	// The channels start out with a 50/50 balance, so both sides should be
-	// able to add an outgoing HTLC.
-	require.NoError(t, aliceChannel.MayAddOutgoingHtlc())
-	require.NoError(t, bobChannel.MayAddOutgoingHtlc())
+	// able to add an outgoing HTLC with no specific amount added.
+	require.NoError(t, aliceChannel.MayAddOutgoingHtlc(0))
+	require.NoError(t, bobChannel.MayAddOutgoingHtlc(0))
+
+	chanBal, err := btcutil.NewAmount(testChannelCapacity)
+	require.NoError(t, err)
+
+	// Each side should be able to add 1/4 of total channel balance since
+	// we're 50/50 split.
+	mayAdd := lnwire.MilliSatoshi(chanBal / 4 * 1000)
+	require.NoError(t, aliceChannel.MayAddOutgoingHtlc(mayAdd))
+	require.NoError(t, bobChannel.MayAddOutgoingHtlc(mayAdd))
+
+	// Both channels should fail if we try to add an amount more than
+	// their current balance.
+	mayNotAdd := lnwire.MilliSatoshi(chanBal * 1000)
+	require.Error(t, aliceChannel.MayAddOutgoingHtlc(mayNotAdd))
+	require.Error(t, bobChannel.MayAddOutgoingHtlc(mayNotAdd))
+
+	// Hard set alice's min htlc to zero and test the case where we just
+	// fall back to a non-zero value.
+	aliceChannel.channelState.LocalChanCfg.MinHTLC = 0
+	require.NoError(t, aliceChannel.MayAddOutgoingHtlc(0))
 }

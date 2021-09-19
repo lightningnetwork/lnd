@@ -116,14 +116,10 @@ func TestUpdateAdditionalEdge(t *testing.T) {
 	// Create the paymentsession.
 	session, err := newPaymentSession(
 		payment,
-		func() (map[uint64]lnwire.MilliSatoshi,
-			error) {
-
-			return nil, nil
+		func() (bandwidthHints, error) {
+			return &mockBandwidthHints{}, nil
 		},
-		func() (routingGraph, func(), error) {
-			return &sessionGraph{}, func() {}, nil
-		},
+		&sessionGraph{},
 		&MissionControl{},
 		PathFindingConfig{},
 	)
@@ -198,14 +194,10 @@ func TestRequestRoute(t *testing.T) {
 
 	session, err := newPaymentSession(
 		payment,
-		func() (map[uint64]lnwire.MilliSatoshi,
-			error) {
-
-			return nil, nil
+		func() (bandwidthHints, error) {
+			return &mockBandwidthHints{}, nil
 		},
-		func() (routingGraph, func(), error) {
-			return &sessionGraph{}, func() {}, nil
-		},
+		&sessionGraph{},
 		&MissionControl{},
 		PathFindingConfig{},
 	)
@@ -217,7 +209,7 @@ func TestRequestRoute(t *testing.T) {
 	session.pathFinder = func(
 		g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		source, target route.Vertex, amt lnwire.MilliSatoshi,
-		finalHtlcExpiry int32) ([]*channeldb.ChannelEdgePolicy, error) {
+		finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, error) {
 
 		// We expect find path to receive a cltv limit excluding the
 		// final cltv delta (including the block padding).
@@ -225,13 +217,14 @@ func TestRequestRoute(t *testing.T) {
 			t.Fatal("wrong cltv limit")
 		}
 
-		path := []*channeldb.ChannelEdgePolicy{
+		path := []*channeldb.CachedEdgePolicy{
 			{
-				Node: &channeldb.LightningNode{
-					Features: lnwire.NewFeatureVector(
-						nil, nil,
-					),
+				ToNodePubKey: func() route.Vertex {
+					return route.Vertex{}
 				},
+				ToNodeFeatures: lnwire.NewFeatureVector(
+					nil, nil,
+				),
 			},
 		}
 
@@ -254,7 +247,7 @@ func TestRequestRoute(t *testing.T) {
 }
 
 type sessionGraph struct {
-	routingGraph
+	Graph
 }
 
 func (g *sessionGraph) sourceNode() route.Vertex {

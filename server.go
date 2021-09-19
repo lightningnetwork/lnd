@@ -698,33 +698,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	queryBandwidth := func(edge *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
-		cid := lnwire.NewChanIDFromOutPoint(&edge.ChannelPoint)
-		link, err := s.htlcSwitch.GetLink(cid)
-		if err != nil {
-			// If the link isn't online, then we'll report
-			// that it has zero bandwidth to the router.
-			return 0
-		}
-
-		// If the link is found within the switch, but it isn't
-		// yet eligible to forward any HTLCs, then we'll treat
-		// it as if it isn't online in the first place.
-		if !link.EligibleToForward() {
-			return 0
-		}
-
-		// If our link isn't currently in a state where it can
-		// add another outgoing htlc, treat the link as unusable.
-		if err := link.MayAddOutgoingHtlc(); err != nil {
-			return 0
-		}
-
-		// Otherwise, we'll return the current best estimate
-		// for the available bandwidth for the link.
-		return link.Bandwidth()
-	}
-
 	// Instantiate mission control with config from the sub server.
 	//
 	// TODO(joostjager): When we are further in the process of moving to sub
@@ -764,10 +737,14 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		MinProbability: routingConfig.MinRouteProbability,
 	}
 
+	cachedGraph, err := routing.NewCachedGraph(chanGraph)
+	if err != nil {
+		return nil, err
+	}
 	paymentSessionSource := &routing.SessionSource{
-		Graph:             chanGraph,
+		Graph:             cachedGraph,
 		MissionControl:    s.missionControl,
-		QueryBandwidth:    queryBandwidth,
+		GetLink:           s.htlcSwitch.GetLinkByShortID,
 		PathFindingConfig: pathFindingConfig,
 	}
 
@@ -789,7 +766,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		ChannelPruneExpiry:  routing.DefaultChannelPruneExpiry,
 		GraphPruneInterval:  time.Hour,
 		FirstTimePruneDelay: routing.DefaultFirstTimePruneDelay,
-		QueryBandwidth:      queryBandwidth,
+		GetLink:             s.htlcSwitch.GetLinkByShortID,
 		AssumeChannelValid:  cfg.Routing.AssumeChannelValid,
 		NextPaymentID:       sequencer.NextID,
 		PathFindingConfig:   pathFindingConfig,
@@ -3905,7 +3882,7 @@ func (s *server) fetchNodeAdvertisedAddr(pub *btcec.PublicKey) (net.Addr, error)
 		return nil, err
 	}
 
-	node, err := s.graphDB.FetchLightningNode(nil, vertex)
+	node, err := s.graphDB.FetchLightningNode(vertex)
 	if err != nil {
 		return nil, err
 	}

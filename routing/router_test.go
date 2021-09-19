@@ -124,18 +124,16 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	}
 
 	mc, err := NewMissionControl(
-		graphInstance.graph.Database(), route.Vertex{},
-		mcConfig,
+		graphInstance.graphBackend, route.Vertex{}, mcConfig,
 	)
 	require.NoError(t, err, "failed to create missioncontrol")
 
-	sessionSource := &SessionSource{
-		Graph: graphInstance.graph,
-		QueryBandwidth: func(
-			e *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
+	cachedGraph, err := NewCachedGraph(graphInstance.graph)
+	require.NoError(t, err)
 
-			return lnwire.NewMSatFromSatoshis(e.Capacity)
-		},
+	sessionSource := &SessionSource{
+		Graph:             cachedGraph,
+		GetLink:           graphInstance.getLink,
 		PathFindingConfig: pathFindingConfig,
 		MissionControl:    mc,
 	}
@@ -157,11 +155,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 		SessionSource:      sessionSource,
 		ChannelPruneExpiry: time.Hour * 24,
 		GraphPruneInterval: time.Hour * 2,
-		QueryBandwidth: func(
-			e *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
-
-			return lnwire.NewMSatFromSatoshis(e.Capacity)
-		},
+		GetLink:            graphInstance.getLink,
 		NextPaymentID: func() (uint64, error) {
 			next := atomic.AddUint64(&uniquePaymentID, 1)
 			return next, nil
@@ -187,7 +181,6 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 
 	cleanUp := func() {
 		ctx.router.Stop()
-		graphInstance.cleanUp()
 	}
 
 	return ctx, cleanUp
@@ -196,17 +189,10 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 func createTestCtxSingleNode(t *testing.T,
 	startingHeight uint32) (*testCtx, func()) {
 
-	var (
-		graph      *channeldb.ChannelGraph
-		sourceNode *channeldb.LightningNode
-		cleanup    func()
-		err        error
-	)
-
-	graph, cleanup, err = makeTestGraph()
+	graph, graphBackend, cleanup, err := makeTestGraph()
 	require.NoError(t, err, "failed to make test graph")
 
-	sourceNode, err = createTestNode()
+	sourceNode, err := createTestNode()
 	require.NoError(t, err, "failed to create test node")
 
 	require.NoError(t,
@@ -214,8 +200,9 @@ func createTestCtxSingleNode(t *testing.T,
 	)
 
 	graphInstance := &testGraphInstance{
-		graph:   graph,
-		cleanUp: cleanup,
+		graph:        graph,
+		graphBackend: graphBackend,
+		cleanUp:      cleanup,
 	}
 
 	return createTestCtxFromGraphInstance(
@@ -1400,6 +1387,9 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		MinHTLC:                   1,
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
+		Node: &channeldb.LightningNode{
+			PubKeyBytes: edge.NodeKey2Bytes,
+		},
 	}
 	edgePolicy.ChannelFlags = 0
 
@@ -1416,6 +1406,9 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		MinHTLC:                   1,
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
+		Node: &channeldb.LightningNode{
+			PubKeyBytes: edge.NodeKey1Bytes,
+		},
 	}
 	edgePolicy.ChannelFlags = 1
 
@@ -1497,6 +1490,9 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		MinHTLC:                   1,
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
+		Node: &channeldb.LightningNode{
+			PubKeyBytes: edge.NodeKey2Bytes,
+		},
 	}
 	edgePolicy.ChannelFlags = 0
 
@@ -1512,6 +1508,9 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		MinHTLC:                   1,
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
+		Node: &channeldb.LightningNode{
+			PubKeyBytes: edge.NodeKey1Bytes,
+		},
 	}
 	edgePolicy.ChannelFlags = 1
 
@@ -1576,7 +1575,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		t.Fatalf("unable to find any routes: %v", err)
 	}
 
-	copy1, err := ctx.graph.FetchLightningNode(nil, pub1)
+	copy1, err := ctx.graph.FetchLightningNode(pub1)
 	if err != nil {
 		t.Fatalf("unable to fetch node: %v", err)
 	}
@@ -1585,7 +1584,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		t.Fatalf("fetched node not equal to original")
 	}
 
-	copy2, err := ctx.graph.FetchLightningNode(nil, pub2)
+	copy2, err := ctx.graph.FetchLightningNode(pub2)
 	if err != nil {
 		t.Fatalf("unable to fetch node: %v", err)
 	}
@@ -2459,7 +2458,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	// the edge weighting, we should select the direct path over the 2 hop
 	// path even though the direct path has a higher potential time lock.
 	path, err := dbFindPath(
-		ctx.graph, nil, nil,
+		ctx.graph, nil, &mockBandwidthHints{},
 		noRestrictions,
 		testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, amt, 0,
@@ -2473,8 +2472,8 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	if len(path) != 1 {
 		t.Fatalf("expected path length of 1, instead was: %v", len(path))
 	}
-	if path[0].Node.Alias != "luoji" {
-		t.Fatalf("wrong node: %v", path[0].Node.Alias)
+	if path[0].ToNodePubKey() != ctx.aliases["luoji"] {
+		t.Fatalf("wrong node: %v", path[0].ToNodePubKey())
 	}
 }
 

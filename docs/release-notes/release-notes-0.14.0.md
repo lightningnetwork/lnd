@@ -38,6 +38,18 @@ instantaneous. Read the [guide on leader
 election](https://github.com/lightningnetwork/lnd/blob/master/docs/leader_election.md)
 for more information.
 
+### In-memory path finding
+
+Finding a path through the channel graph for sending a payment doesn't involve
+any database queries anymore. The [channel graph is now kept fully
+in-memory](https://github.com/lightningnetwork/lnd/pull/5642) for up a massive
+performance boost when calling `QueryRoutes` or any of the `SendPayment`
+variants. Keeping the full graph in memory naturally comes with increased RAM
+usage. Users running `lnd` on low-memory systems are advised to run with the
+`routing.strictgraphpruning=true` configuration option that more aggressively
+removes zombie channels from the graph, reducing the number of channels that
+need to be kept in memory.
+
 ## Protocol Extensions
 
 ### Explicit Channel Negotiation
@@ -247,6 +259,8 @@ you.
 
 * [Order of the start/stop on subsystems are changed to promote better safety](https://github.com/lightningnetwork/lnd/pull/1783).
 
+* [Include htlc amount in bandwidth hints](https://github.com/lightningnetwork/lnd/pull/5512).
+
 ## Database
 
 * [Ensure single writer for legacy
@@ -330,7 +344,7 @@ change](https://github.com/lightningnetwork/lnd/pull/5613).
 # Contributors (Alphabetical Order)
 * Alyssa Hertig
 * Andras Banki-Horvath
-* de6df1re
+* Carla Kirk-Cohen
 * ErikEk
 * Eugene Siegel
 * Harsha Goli

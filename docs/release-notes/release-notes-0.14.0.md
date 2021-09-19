@@ -309,6 +309,8 @@ you.
 
 * [Fixed flake that occurred when testing the new optimistic link shutdown.](https://github.com/lightningnetwork/lnd/pull/5808)
 
+* [Replace reference to protobuf library with OSV](https://github.com/lightningnetwork/lnd/pull/5759)
+
 ## Database
 
 * [Ensure single writer for legacy

@@ -698,9 +698,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	queryBandwidth := func(edge *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
-		cid := lnwire.NewChanIDFromOutPoint(&edge.ChannelPoint)
-		link, err := s.htlcSwitch.GetLink(cid)
+	queryBandwidth := func(c *channeldb.DirectedChannel) lnwire.MilliSatoshi {
+		cid := lnwire.NewShortChanIDFromInt(c.ChannelID)
+		link, err := s.htlcSwitch.GetLinkByShortID(cid)
 		if err != nil {
 			// If the link isn't online, then we'll report
 			// that it has zero bandwidth to the router.
@@ -764,8 +764,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		MinProbability: routingConfig.MinRouteProbability,
 	}
 
+	cachedGraph, err := routing.NewCachedGraph(chanGraph)
+	if err != nil {
+		return nil, err
+	}
 	paymentSessionSource := &routing.SessionSource{
-		Graph:             chanGraph,
+		Graph:             cachedGraph,
 		MissionControl:    s.missionControl,
 		QueryBandwidth:    queryBandwidth,
 		PathFindingConfig: pathFindingConfig,
@@ -3905,7 +3909,7 @@ func (s *server) fetchNodeAdvertisedAddr(pub *btcec.PublicKey) (net.Addr, error)
 		return nil, err
 	}
 
-	node, err := s.graphDB.FetchLightningNode(nil, vertex)
+	node, err := s.graphDB.FetchLightningNode(vertex)
 	if err != nil {
 		return nil, err
 	}

@@ -41,7 +41,14 @@ func TestOpenWithCreate(t *testing.T) {
 	}
 	defer cleanup()
 
-	cdb, err := CreateWithBackend(backend)
+	var modifiers []OptionModifier
+	// Use a channel state cache when testing with remote backends.
+	if kvdb.TestBackend != kvdb.BoltBackendName {
+		modifiers = append(modifiers, OptionWithChannelStateCache(true))
+	}
+
+	cdb, err := CreateWithBackend(backend, modifiers...)
+
 	if err != nil {
 		t.Fatalf("unable to create channeldb: %v", err)
 	}
@@ -87,7 +94,13 @@ func TestWipe(t *testing.T) {
 	}
 	defer cleanup()
 
-	cdb, err := CreateWithBackend(backend)
+	var modifiers []OptionModifier
+	// Use a channel state cache when testing with remote backends.
+	if kvdb.TestBackend != kvdb.BoltBackendName {
+		modifiers = append(modifiers, OptionWithChannelStateCache(true))
+	}
+
+	cdb, err := CreateWithBackend(backend, modifiers...)
 	if err != nil {
 		t.Fatalf("unable to create channeldb: %v", err)
 	}
@@ -210,8 +223,8 @@ func TestAddrsForNode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to recv node pub: %v", err)
 	}
-	linkNode := cdb.NewLinkNode(
-		wire.MainNet, nodePub, anotherAddr,
+	linkNode := NewLinkNode(
+		cdb.LinkNodeDB, wire.MainNet, nodePub, anotherAddr,
 	)
 	if err := linkNode.Sync(); err != nil {
 		t.Fatalf("unable to sync link node: %v", err)
@@ -661,7 +674,9 @@ func TestFetchChannels(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			channels, err := fetchChannels(cdb, test.filters...)
+			channels, err := fetchChannels(
+				&cdb.ChannelStateDB, test.filters...,
+			)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

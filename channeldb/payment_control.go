@@ -293,6 +293,8 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 
 	var payment *MPPayment
 	err = kvdb.Batch(p.db.Backend, func(tx kvdb.RwTx) error {
+		payment = nil
+
 		prefetchPayment(tx, paymentHash)
 		bucket, err := fetchPaymentBucketUpdate(tx, paymentHash)
 		if err != nil {
@@ -378,8 +380,12 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 			return err
 		}
 
-		// Retrieve attempt info for the notification.
-		payment, err = fetchPayment(bucket)
+		p.HTLCs = append(p.HTLCs, HTLCAttempt{
+			HTLCAttemptInfo: *attempt,
+		})
+
+		p.UpdatePaymentStatus()
+		payment = p
 		return err
 	})
 	if err != nil {
@@ -405,7 +411,9 @@ func (p *PaymentControl) SettleAttempt(hash lntypes.Hash,
 	}
 	settleBytes := b.Bytes()
 
-	return p.updateHtlcKey(hash, attemptID, htlcSettleInfoKey, settleBytes)
+	return p.updateHtlcKey(
+		hash, attemptID, htlcSettleInfoKey, settleBytes, settleInfo, nil,
+	)
 }
 
 // FailAttempt marks the given payment attempt failed.
@@ -418,12 +426,15 @@ func (p *PaymentControl) FailAttempt(hash lntypes.Hash,
 	}
 	failBytes := b.Bytes()
 
-	return p.updateHtlcKey(hash, attemptID, htlcFailInfoKey, failBytes)
+	return p.updateHtlcKey(
+		hash, attemptID, htlcFailInfoKey, failBytes, nil, failInfo,
+	)
 }
 
 // updateHtlcKey updates a database key for the specified htlc.
 func (p *PaymentControl) updateHtlcKey(paymentHash lntypes.Hash,
-	attemptID uint64, key, value []byte) (*MPPayment, error) {
+	attemptID uint64, key, value []byte, settleInfo *HTLCSettleInfo,
+	failInfo *HTLCFailInfo) (*MPPayment, error) {
 
 	aid := make([]byte, 8)
 	binary.BigEndian.PutUint64(aid, attemptID)
@@ -450,34 +461,44 @@ func (p *PaymentControl) updateHtlcKey(paymentHash lntypes.Hash,
 			return err
 		}
 
-		htlcsBucket := bucket.NestedReadWriteBucket(paymentHtlcsBucket)
-		if htlcsBucket == nil {
-			return fmt.Errorf("htlcs bucket not found")
+		for i := range p.HTLCs {
+			if p.HTLCs[i].AttemptID != attemptID {
+				continue
+			}
+
+			if p.HTLCs[i].Failure != nil {
+				return ErrAttemptAlreadyFailed
+			}
+
+			if p.HTLCs[i].Settle != nil {
+				return ErrAttemptAlreadySettled
+			}
+
+			// Udate the DB.
+			htlcsBucket := bucket.NestedReadWriteBucket(
+				paymentHtlcsBucket,
+			)
+			if htlcsBucket == nil {
+				return fmt.Errorf("htlcs bucket not found")
+			}
+
+			// Add or update the key for this htlc.
+			err = htlcsBucket.Put(htlcBucketKey(key, aid), value)
+			if err != nil {
+				return err
+			}
+
+			// Update the fetched payment.
+			if settleInfo != nil {
+				p.HTLCs[i].Settle = settleInfo
+			} else if failInfo != nil {
+				p.HTLCs[i].Failure = failInfo
+			}
 		}
 
-		if htlcsBucket.Get(htlcBucketKey(htlcAttemptInfoKey, aid)) == nil {
-			return fmt.Errorf("HTLC with ID %v not registered",
-				attemptID)
-		}
-
-		// Make sure the shard is not already failed or settled.
-		if htlcsBucket.Get(htlcBucketKey(htlcFailInfoKey, aid)) != nil {
-			return ErrAttemptAlreadyFailed
-		}
-
-		if htlcsBucket.Get(htlcBucketKey(htlcSettleInfoKey, aid)) != nil {
-			return ErrAttemptAlreadySettled
-		}
-
-		// Add or update the key for this htlc.
-		err = htlcsBucket.Put(htlcBucketKey(key, aid), value)
-		if err != nil {
-			return err
-		}
-
-		// Retrieve attempt info for the notification.
-		payment, err = fetchPayment(bucket)
-		return err
+		p.UpdatePaymentStatus()
+		payment = p
+		return nil
 	})
 	if err != nil {
 		return nil, err

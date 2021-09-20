@@ -373,6 +373,9 @@ you.
   buffer each time we decrypt an incoming message, as we
   recycle these buffers in the peer.
 
+* [Do not re-fetch payments if we already have them in memory](https://github.com/lightningnetwork/lnd/pull/5769)
+  in certain cases.
+
 ## Log system
 
 * [Save compressed log files from logrorate during 

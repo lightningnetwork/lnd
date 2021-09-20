@@ -57,6 +57,17 @@ type packetHandler interface {
 	handleLocalAddPacket(*htlcPacket) error
 }
 
+// dustHandler is an interface used exclusively by the Switch to evaluate
+// whether a link has too much dust exposure.
+type dustHandler interface {
+	// getDustSum returns the dust sum on either the local or remote
+	// commitment.
+	getDustSum(remote bool) lnwire.MilliSatoshi
+
+	// getDustLimits returns the underlying channel's dust limits.
+	getDustLimits() (lnwire.MilliSatoshi, lnwire.MilliSatoshi)
+}
+
 // ChannelUpdateHandler is an interface that provides methods that allow
 // sending lnwire.Message to the underlying link as well as querying state.
 type ChannelUpdateHandler interface {
@@ -121,6 +132,9 @@ type ChannelLink interface {
 
 	// Embed the ChannelUpdateHandler interface.
 	ChannelUpdateHandler
+
+	// Embed the dustHandler interface.
+	dustHandler
 
 	// ChannelPoint returns the channel outpoint for the channel link.
 	ChannelPoint() *wire.OutPoint

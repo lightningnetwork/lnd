@@ -2192,6 +2192,29 @@ func (l *channelLink) MayAddOutgoingHtlc() error {
 	return l.channel.MayAddOutgoingHtlc()
 }
 
+// getDustSum is a wrapper method that calls the underlying channel's dust sum
+// method.
+//
+// NOTE: Part of the dustHandler interface.
+func (l *channelLink) getDustSum(remote bool) lnwire.MilliSatoshi {
+	return l.channel.GetDustSum(remote)
+}
+
+// getDustLimits returns the local and remote dust limits.
+//
+// NOTE: Part of the dustHandler interface.
+func (l *channelLink) getDustLimits() (lnwire.MilliSatoshi,
+	lnwire.MilliSatoshi) {
+
+	localDustLimit := l.channel.State().LocalChanCfg.DustLimit
+	remoteDustLimit := l.channel.State().RemoteChanCfg.DustLimit
+
+	localMsat := lnwire.NewMSatFromSatoshis(localDustLimit)
+	remoteMsat := lnwire.NewMSatFromSatoshis(remoteDustLimit)
+
+	return localMsat, remoteMsat
+}
+
 // AttachMailBox updates the current mailbox used by this link, and hooks up
 // the mailbox's message and packet outboxes to the link's upstream and
 // downstream chans, respectively.
@@ -2200,6 +2223,11 @@ func (l *channelLink) AttachMailBox(mailbox MailBox) {
 	l.mailBox = mailbox
 	l.upstream = mailbox.MessageOutBox()
 	l.downstream = mailbox.PacketOutBox()
+
+	// Set the mailbox's DustLimit variables if they are not already set.
+	local, remote := l.getDustLimits()
+	l.mailBox.SetDustLimits(local, remote)
+
 	l.Unlock()
 }
 

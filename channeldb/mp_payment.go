@@ -234,6 +234,50 @@ func (m *MPPayment) GetAttempt(id uint64) (*HTLCAttempt, error) {
 	return nil, errors.New("htlc attempt not found on payment")
 }
 
+// UpdatePaymentStatus updates the payment status of this payment by checking
+// all HTLCs whether they're inflight, settled or failed.
+func (m *MPPayment) UpdatePaymentStatus() {
+	// Go through all HTLCs for this payment, noting whether we have any
+	// settled HTLC, and any still in-flight.
+	var inflight, settled bool
+	for _, h := range m.HTLCs {
+		if h.Failure != nil {
+			continue
+		}
+
+		if h.Settle != nil {
+			settled = true
+			continue
+		}
+
+		// If any of the HTLCs are not failed nor settled, we
+		// still have inflight HTLCs.
+		inflight = true
+	}
+
+	// Use the DB state to determine the status of the payment.
+	var paymentStatus PaymentStatus
+
+	switch {
+
+	// If any of the the HTLCs did succeed and there are no HTLCs in
+	// flight, the payment succeeded.
+	case !inflight && settled:
+		paymentStatus = StatusSucceeded
+
+	// If we have no in-flight HTLCs, and the payment failure is set, the
+	// payment is considered failed.
+	case !inflight && m.FailureReason != nil:
+		paymentStatus = StatusFailed
+
+	// Otherwise it is still in flight.
+	default:
+		paymentStatus = StatusInFlight
+	}
+
+	m.Status = paymentStatus
+}
+
 // serializeHTLCSettleInfo serializes the details of a settled htlc.
 func serializeHTLCSettleInfo(w io.Writer, s *HTLCSettleInfo) error {
 	if _, err := w.Write(s.Preimage[:]); err != nil {

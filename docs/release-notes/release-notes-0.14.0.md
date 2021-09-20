@@ -38,6 +38,16 @@ instantaneous. Read the [guide on leader
 election](https://github.com/lightningnetwork/lnd/blob/master/docs/leader_election.md)
 for more information.
 
+### Channel disable now enforced
+
+The `switch`, which is responsible for routing payments from an incoming
+channel to the outgoing channel, [now enforces the channel disable state](https://github.com/lightningnetwork/lnd/pull/5565). Previously, if a channel was disabled
+by autonomous or [manual intervention](https://github.com/lightningnetwork/lnd/pull/5033)
+the gossip layer would communicate to peers not to route through the
+aforementioned channel, however it was possible for a modified node or a
+a crafted route to bypass the disable state. With this addition the
+disabled state is now enforced and the bypass is no longer possible. 
+
 ## Protocol Extensions
 
 ### Explicit Channel Negotiation
